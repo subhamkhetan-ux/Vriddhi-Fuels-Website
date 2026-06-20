@@ -217,31 +217,59 @@ function openSheet(sheet,display){
   return renderLedger(sheet);
 }
 
+function hasVal(x){return !(x==null||x==="");}
+
 function renderLedger(sheet){
   const v=val(sheet), d=disp(sheet);
+
+  /* ---- Table 1: running account (cols A:G), data starts at row 5 / index 4 ---- */
   let body="",lastBal=null,totalVol=0,totalAmt=0,totalPaid=0;
-  const hasVal=x=>!(x==null||x==="");
   for(let i=4;i<v.length;i++){
-    const row=v[i]; if(!row) continue;
+    const row=v[i]||[];
     const date=row[0],vol=row[1],price=row[2],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
-    // Keep any real entry: a row with a date, OR any non-zero figure, OR a product.
-    // (Opening row has a date + balance but no figures — still kept.)
-    const realFigure = (isNum(vol)&&vol!==0)||(isNum(price)&&price!==0)||
-                       (isNum(amt)&&amt!==0)||(isNum(paid)&&paid!==0);
-    const keep = hasVal(date) || realFigure || hasVal(prod);
-    if(!keep) continue;
+    const realFigure=(isNum(vol)&&vol!==0)||(isNum(amt)&&amt!==0)||(isNum(paid)&&paid!==0);
+    if(!(hasVal(date)||realFigure||hasVal(prod))) continue;
     if(isNum(vol))totalVol+=vol; if(isNum(amt))totalAmt+=amt; if(isNum(paid))totalPaid+=paid;
     if(isNum(bal))lastBal=bal;
-    const dd=d&&d[i]?d[i]:[];
+    const dd=d[i]||[];
+    const paidCell=(isNum(paid)&&paid!==0)?money(paid):"";
     body+=`<tr>
       <td>${escHtml(dd[0]||"")}</td>
       <td class="num">${hasVal(vol)?money(vol):""}</td>
       <td class="num">${hasVal(price)?money(price):""}</td>
       <td class="num">${hasVal(amt)?money(amt):""}</td>
-      <td class="num">${(isNum(paid)&&paid!==0)?money(paid):""}</td>
+      <td class="num pos">${paidCell}</td>
       <td>${escHtml(prod||"")}</td>
       <td class="num">${hasVal(bal)?money(bal):""}</td></tr>`;
   }
+
+  /* ---- Table 2: invoice / bill detail (cols Q:Y). Header row has R="Date", S="Bill No". ---- */
+  let billHdr=-1;
+  for(let i=0;i<v.length;i++){
+    const row=v[i]||[];
+    if(String(row[17]||"").toLowerCase()==="date" &&
+       String(row[18]||"").toLowerCase().indexOf("bill")>=0){ billHdr=i; break; }
+  }
+  let billBody="", billNote="", billCount=0;
+  if(billHdr>=0){
+    for(let i=billHdr+1;i<v.length;i++){
+      const row=v[i]||[], dd=d[i]||[];
+      const cells=[17,18,19,20,21,22,23].map(x=>row[x]);
+      if(cells.every(x=>!hasVal(x))) continue;
+      if(typeof cells[0]==="string" && !hasVal(cells[1])){ billNote=cells[0]; continue; }
+      billCount++;
+      billBody+=`<tr>
+        <td>${escHtml(dd[17]||cells[0]||"")}</td>
+        <td>${escHtml(cells[1]||"")}</td>
+        <td>${escHtml(cells[2]||"")}</td>
+        <td class="num">${hasVal(cells[3])?money(cells[3]):""}</td>
+        <td class="num">${hasVal(cells[4])?money(cells[4]):""}</td>
+        <td class="num">${hasVal(cells[5])?money(cells[5]):""}</td>
+        <td>${escHtml(cells[6]||"")}</td></tr>`;
+    }
+  }
+
+  /* ---- Header / summary ---- */
   const balCls=lastBal>1?"pos":(lastBal<-1?"neg":"zero");
   const t1=v[1]&&v[1][0]?String(v[1][0]):"";
   const t2=v[2]&&v[2][0]?String(v[2][0]):"";
@@ -250,12 +278,30 @@ function renderLedger(sheet){
       <div class="stat"><div class="lbl">Outstanding</div><div class="val ${balCls}">₹ ${lastBal!=null?money(lastBal):"—"}</div></div>
       <div class="stat"><div class="lbl">Total Billed</div><div class="val">₹ ${money(totalAmt)}</div></div>
       <div class="stat"><div class="lbl">Total Paid</div><div class="val">₹ ${money(totalPaid)}</div></div>
-      <div class="stat"><div class="lbl">Volume</div><div class="val">${money(totalVol)}</div></div>
+      <div class="stat"><div class="lbl">Volume (Ltr)</div><div class="val">${money(totalVol)}</div></div>
     </div>`;
-  if(!body){html+='<div class="empty">No entries yet.</div>';document.getElementById("main").innerHTML=html;return;}
-  html+=`<div class="tablewrap"><table><thead><tr>
-    <th>Date</th><th class="num">Volume</th><th class="num">Price</th><th class="num">Amount</th>
-    <th class="num">Paid</th><th>Product</th><th class="num">Balance</th></tr></thead><tbody>${body}</tbody></table></div>`;
+
+  /* account table */
+  if(body){
+    html+=`<div class="section-label">Account Statement</div>
+    <div class="tablewrap"><table><thead><tr>
+      <th>Date</th><th class="num">Volume</th><th class="num">Price</th><th class="num">Amount</th>
+      <th class="num">Paid</th><th>Product</th><th class="num">Balance</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  } else {
+    html+='<div class="empty">No account entries yet.</div>';
+  }
+
+  /* invoice detail table */
+  if(billCount>0){
+    html+=`<div class="section-label">Bill Details (${billCount})</div>
+    <div class="tablewrap"><table><thead><tr>
+      <th>Date</th><th>Bill No</th><th>Vehicle</th><th class="num">Quantity</th>
+      <th class="num">Price/Ltr</th><th class="num">Amount</th><th>Product</th></tr></thead><tbody>${billBody}</tbody></table></div>`;
+  } else if(billHdr>=0){
+    html+=`<div class="section-label">Bill Details</div>
+    <div class="empty" style="padding:22px">${escHtml(billNote||"No bills in range")}</div>`;
+  }
+
   document.getElementById("main").innerHTML=html;
 }
 
