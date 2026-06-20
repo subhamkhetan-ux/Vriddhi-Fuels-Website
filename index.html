@@ -220,23 +220,27 @@ function openSheet(sheet,display){
 function renderLedger(sheet){
   const v=val(sheet), d=disp(sheet);
   let body="",lastBal=null,totalVol=0,totalAmt=0,totalPaid=0;
+  const hasVal=x=>!(x==null||x==="");
   for(let i=4;i<v.length;i++){
     const row=v[i]; if(!row) continue;
     const date=row[0],vol=row[1],price=row[2],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
-    const blank=[date,vol,price,amt,paid,prod].every(x=>x==null||x===""||x===0);
-    if(blank&&(bal==null||bal==="")) continue;
-    if(blank&&(!paid)&&(vol==null||vol==="")&&(amt==null||amt==="")) continue;
+    // Keep any real entry: a row with a date, OR any non-zero figure, OR a product.
+    // (Opening row has a date + balance but no figures — still kept.)
+    const realFigure = (isNum(vol)&&vol!==0)||(isNum(price)&&price!==0)||
+                       (isNum(amt)&&amt!==0)||(isNum(paid)&&paid!==0);
+    const keep = hasVal(date) || realFigure || hasVal(prod);
+    if(!keep) continue;
     if(isNum(vol))totalVol+=vol; if(isNum(amt))totalAmt+=amt; if(isNum(paid))totalPaid+=paid;
     if(isNum(bal))lastBal=bal;
     const dd=d&&d[i]?d[i]:[];
     body+=`<tr>
       <td>${escHtml(dd[0]||"")}</td>
-      <td class="num">${vol!=null&&vol!==""?money(vol):""}</td>
-      <td class="num">${price!=null&&price!==""?money(price):""}</td>
-      <td class="num">${amt!=null&&amt!==""?money(amt):""}</td>
-      <td class="num">${paid?money(paid):""}</td>
+      <td class="num">${hasVal(vol)?money(vol):""}</td>
+      <td class="num">${hasVal(price)?money(price):""}</td>
+      <td class="num">${hasVal(amt)?money(amt):""}</td>
+      <td class="num">${(isNum(paid)&&paid!==0)?money(paid):""}</td>
       <td>${escHtml(prod||"")}</td>
-      <td class="num">${bal!=null&&bal!==""?money(bal):""}</td></tr>`;
+      <td class="num">${hasVal(bal)?money(bal):""}</td></tr>`;
   }
   const balCls=lastBal>1?"pos":(lastBal<-1?"neg":"zero");
   const t1=v[1]&&v[1][0]?String(v[1][0]):"";
