@@ -125,6 +125,22 @@ function money(v){
   const s=Math.abs(n).toLocaleString("en-IN",{minimumFractionDigits:0,maximumFractionDigits:2});
   return n<0?`(${s})`:s;
 }
+// Convert an Excel date serial (e.g. 46174) to dd/mm/yy.
+// Passes through strings that already look like dates, and blanks.
+function xlDate(v){
+  if(v==null||v==="") return "";
+  if(typeof v==="number" && v>20000 && v<80000){           // plausible date serial
+    const ms=Math.round((v-25569)*86400000);               // Excel epoch -> Unix
+    const d=new Date(ms);
+    if(!isNaN(d)){
+      const dd=String(d.getUTCDate()).padStart(2,"0");
+      const mm=String(d.getUTCMonth()+1).padStart(2,"0");
+      const yy=String(d.getUTCFullYear()).slice(-2);
+      return `${dd}/${mm}/${yy}`;
+    }
+  }
+  return String(v);
+}
 
 async function loadData(force){
   setStatus("load","Loading…");
@@ -233,8 +249,9 @@ function renderLedger(sheet){
     if(isNum(bal))lastBal=bal;
     const dd=d[i]||[];
     const paidCell=(isNum(paid)&&paid!==0)?money(paid):"";
+    const dateCell=xlDate(date)||escHtml(dd[0]||"");
     body+=`<tr>
-      <td>${escHtml(dd[0]||"")}</td>
+      <td>${dateCell}</td>
       <td class="num">${hasVal(vol)?money(vol):""}</td>
       <td class="num">${hasVal(price)?money(price):""}</td>
       <td class="num">${hasVal(amt)?money(amt):""}</td>
@@ -243,12 +260,11 @@ function renderLedger(sheet){
       <td class="num">${hasVal(bal)?money(bal):""}</td></tr>`;
   }
 
-  /* ---- Table 2: invoice / bill detail (cols Q:Y). Header row has R="Date", S="Bill No". ---- */
+  /* ---- Table 2: invoice / bill detail (cols Q:Y). Header row has S="Bill No". ---- */
   let billHdr=-1;
   for(let i=0;i<v.length;i++){
     const row=v[i]||[];
-    if(String(row[17]||"").toLowerCase()==="date" &&
-       String(row[18]||"").toLowerCase().indexOf("bill")>=0){ billHdr=i; break; }
+    if(String(row[18]||"").toLowerCase().indexOf("bill")>=0){ billHdr=i; break; }
   }
   let billBody="", billNote="", billCount=0;
   if(billHdr>=0){
@@ -259,7 +275,7 @@ function renderLedger(sheet){
       if(typeof cells[0]==="string" && !hasVal(cells[1])){ billNote=cells[0]; continue; }
       billCount++;
       billBody+=`<tr>
-        <td>${escHtml(dd[17]||cells[0]||"")}</td>
+        <td>${xlDate(cells[0])||escHtml(dd[17]||"")}</td>
         <td>${escHtml(cells[1]||"")}</td>
         <td>${escHtml(cells[2]||"")}</td>
         <td class="num">${hasVal(cells[3])?money(cells[3]):""}</td>
@@ -314,7 +330,7 @@ function renderMasterPaid(){
     if((date==null||date==="")&&(cust==null||cust==="")&&(amt==null||amt==="")) continue;
     if(isNum(amt)){total+=amt;count++;}
     const dd=d&&d[i]?d[i]:[];
-    body+=`<tr><td>${escHtml(dd[0]||"")}</td><td>${escHtml(cust||"")}</td>
+    body+=`<tr><td>${xlDate(date)||escHtml(dd[0]||"")}</td><td>${escHtml(cust||"")}</td>
       <td class="num">${amt!=null&&amt!==""?money(amt):""}</td><td>${escHtml(note||"")}</td></tr>`;
   }
   let html=`<div class="ledger-summary">
@@ -363,8 +379,11 @@ function renderGeneric(sheet){
     let tds="";
     for(let c=0;c<ncol;c++){
       const raw=row[c]; const num=isNum(raw);
-      let cell = (dd[c]!=null&&dd[c]!=="")?dd[c]:(raw==null?"":raw);
-      tds+=`<td class="${num?'num':''}">${escHtml(cell)}</td>`;
+      const isDateCol=/date/i.test(String(head[c]||""));
+      let cell;
+      if(isDateCol && isNum(raw)) cell=xlDate(raw);
+      else cell=(dd[c]!=null&&dd[c]!=="")?dd[c]:(raw==null?"":raw);
+      tds+=`<td class="${num&&!isDateCol?'num':''}">${escHtml(cell)}</td>`;
     }
     body+=`<tr>${tds}</tr>`;
   }
