@@ -582,21 +582,40 @@ function dashboardStats(){
   return {accounts:leds.length,totalOut,totalBilled,totalPaid,totalVol,top};
 }
 
-// Latest day + running totals from a daily sheet (column layout is detected, not assumed).
+// Classify a daily-sheet column purely from its header — never from magnitude,
+// so stock columns (Opening/Closing) are never mistaken for sales.
+function dailyColKind(label){
+  const h=String(label||"").toLowerCase();
+  if(!h.trim()) return "other";
+  if(/rate|price|mrp|\/\s*ltr|per\s*l(tr|itre)?\b/.test(h)) return "rate";
+  if(/amount|amt|value|₹|\brs\b|rupee|turnover|revenue|sales?\s*(amt|amount|value|total)/.test(h)) return "amount";
+  if(/sale|sold|qty|quantit|ltr|litre|liter|volume|dispatch|nozzle|dip/.test(h)) return "volume";
+  return "other";
+}
+// Latest day + running totals from a daily sheet. Column layout is *detected*,
+// and when sales columns can't be identified by header we fall back to showing the
+// latest day's own numeric columns (with their real labels) rather than guessing.
 function dailySummary(sheet){
   const v=val(sheet); if(!v||!v.length) return null;
+  // widest row defines column count; header = first row with >=2 filled cells.
+  let ncol=0; for(let i=0;i<v.length;i++){ if(v[i]&&v[i].length>ncol) ncol=v[i].length; }
   let hi=0;
   for(let i=0;i<Math.min(v.length,8);i++){
     const c=(v[i]||[]).filter(x=>x!=null&&x!=="").length;
     if(c>=2){hi=i;break;}
   }
-  const head=v[hi]||[]; const ncol=head.length;
+  const head=v[hi]||[];
+  const H=c=>String(head[c]??"");
+  // date column (header- or value-detected)
   let dc=-1;
   for(let c=0;c<ncol;c++){ if(colIsDate(v,hi,c,head)){dc=c;break;} }
-  const findCol=(re,skip)=>{ for(let c=0;c<ncol;c++){ if(c===dc||c===skip) continue; if(re.test(String(head[c]||""))) return c; } return -1; };
-  const amtC=findCol(/amount|amt|value|₹|\brs\b|rupee|sale\s*amt|sales?\s*value/i,-1);
-  const volC=findCol(/sale|sold|qty|quantit|ltr|litre|liter|volume|dispatch|nozzle/i,amtC);
-  // pick the last *dated* row, so a trailing "Total" row can't pose as the latest day
+  // per-column numeric presence
+  const numCount=[]; for(let c=0;c<ncol;c++){ let n=0; for(let i=hi+1;i<v.length;i++){ if(isNum(v[i]&&v[i][c])) n++; } numCount[c]=n; }
+  const kind=[]; for(let c=0;c<ncol;c++){ kind[c]=(c===dc)?"date":dailyColKind(H(c)); }
+  const firstOf=k=>{ for(let c=0;c<ncol;c++){ if(c!==dc&&numCount[c]>0&&kind[c]===k) return c; } return -1; };
+  const amtC=firstOf("amount");
+  const volC=firstOf("volume");
+  // latest *dated* row (a trailing "Total"/label row can't pose as the latest day)
   const looksDate=(x)=>isNum(x)?(x>=20000&&x<60000):(typeof x==="string"&&/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|^\s*\d{4,6}\s*$/.test(x));
   let last=-1;
   for(let i=hi+1;i<v.length;i++){
@@ -605,15 +624,31 @@ function dailySummary(sheet){
   }
   if(last<0) return null;
   const lr=v[last]||[];
-  const sum=(c)=>{ if(c<0) return null; let s=0,any=false; for(let i=hi+1;i<v.length;i++){const x=v[i]&&v[i][c]; if(isNum(x)){s+=x;any=true;}} return any?s:null; };
+  const sum=c=>{ if(c<0) return null; let s=0,any=false; for(let i=hi+1;i<v.length;i++){const x=v[i]&&v[i][c]; if(isNum(x)){s+=x;any=true;}} return any?s:null; };
+
+  // Build the latest-day metrics. Prefer identified volume + amount columns;
+  // otherwise fall back to the day's other numeric columns (shown plainly, by label).
+  const metrics=[];
+  if(volC>=0 && isNum(lr[volC])) metrics.push({label:H(volC)||"Sold", value:lr[volC], kind:"vol"});
+  if(amtC>=0 && isNum(lr[amtC])) metrics.push({label:H(amtC)||"Amount", value:lr[amtC], kind:"amt"});
+  if(metrics.length<2){
+    for(let c=0;c<ncol && metrics.length<2;c++){
+      if(c===dc||c===volC||c===amtC) continue;
+      if(kind[c]==="rate") continue;
+      if(!isNum(lr[c])) continue;
+      metrics.push({label:H(c)||("Col "+(c+1)), value:lr[c], kind:"num"});
+    }
+  }
+  if(!metrics.length) return null;
+
+  const totals=[];
+  const tv=sum(volC); if(volC>=0 && tv!=null) totals.push({label:"Total "+(H(volC)||"Volume"), value:tv, kind:"vol"});
+  const ta=sum(amtC); if(amtC>=0 && ta!=null) totals.push({label:"Total "+(H(amtC)||"Sales"), value:ta, kind:"amt"});
+
   return {
     date: dc>=0 ? (xlDate(lr[dc])||String(lr[dc]??"")) : "",
-    volLabel: volC>=0?String(head[volC]||"Volume"):"",
-    amtLabel: amtC>=0?String(head[amtC]||"Amount"):"",
-    dayVol: volC>=0&&isNum(lr[volC])?lr[volC]:null,
-    dayAmt: amtC>=0&&isNum(lr[amtC])?lr[amtC]:null,
-    totalVol: sum(volC),
-    totalAmt: sum(amtC)
+    identified: (volC>=0||amtC>=0),
+    metrics, totals
   };
 }
 
@@ -639,17 +674,20 @@ function dashboardSnapshotHTML(){
   }
 
   // Latest daily sales for HSD / MS
+  const fmtMetric=(m)=> m.kind==="amt" ? `₹ ${money(m.value)}`
+                      : m.kind==="vol" ? `${money(m.value)}<span class="unit"> Ltr</span>`
+                      : `${money(m.value)}`;
+  const fmtTotal=(t)=> t.kind==="amt" ? `₹ ${shortNum(t.value)}` : `${shortVol(t.value)} Ltr`;
   const dailies=[{s:"HSD Daily",c:"hsd",k:"HSD"},{s:"MS Daily",c:"ms",k:"MS"}].filter(x=>hasSheet(x.s));
   const cards=[];
   for(const d of dailies){
     const ds=dailySummary(d.s); if(!ds) continue;
-    let metrics="";
-    if(ds.dayVol!=null) metrics+=`<div class="dc-metric"><div class="k">${escHtml(ds.volLabel||"Sold")}</div><div class="val">${money(ds.dayVol)}<span class="unit"> Ltr</span></div></div>`;
-    if(ds.dayAmt!=null) metrics+=`<div class="dc-metric"><div class="k">${escHtml(ds.amtLabel||"Amount")}</div><div class="val">₹ ${money(ds.dayAmt)}</div></div>`;
+    const metrics=ds.metrics.map(m=>
+      `<div class="dc-metric"><div class="k" title="${escHtml(m.label)}">${escHtml(m.label)}</div>
+        <div class="val" title="${escHtml(String(m.value))}">${fmtMetric(m)}</div></div>`).join("");
     if(!metrics) continue;
-    let foot="";
-    if(ds.totalVol!=null) foot+=`<span>Total Volume · <b>${shortVol(ds.totalVol)} Ltr</b></span>`;
-    if(ds.totalAmt!=null) foot+=`<span>Total Sales · <b>₹ ${shortNum(ds.totalAmt)}</b></span>`;
+    const foot=ds.totals.map(t=>
+      `<span>${escHtml(t.label)} · <b title="${escHtml(String(t.value))}">${fmtTotal(t)}</b></span>`).join("");
     cards.push(`<div class="daycard ${d.c}" onclick="openSheet('${esc(d.s)}','${esc(d.s)}')">
       <div class="dc-top"><div class="dc-name"><span class="dc-ico">${d.k}</span>${escHtml(d.s)}</div>
         ${ds.date?`<span class="dc-date">${escHtml(ds.date)}</span>`:""}</div>
