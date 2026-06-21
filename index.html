@@ -293,9 +293,6 @@ tbody tr:hover .pill{transform:translateX(3px)}
 .dc-metric .val{font-size:18.5px;font-weight:800;letter-spacing:-.4px;margin-top:3px;
   font-variant-numeric:tabular-nums}
 .dc-metric .val .unit{font-size:12px;font-weight:600;color:var(--txt-3)}
-.dc-foot{font-size:11.5px;color:var(--txt-2);border-top:1px dashed var(--line);padding-top:10px;
-  display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 14px}
-.dc-foot b{color:var(--txt);font-weight:750;font-variant-numeric:tabular-nums}
 
 .toplist{display:flex;flex-direction:column;gap:10px}
 .topcust.card{flex-direction:row;align-items:center;gap:13px;padding:13px 15px}
@@ -371,24 +368,14 @@ tbody tr:hover .pill{transform:translateX(3px)}
   animation:wRise .7s ease both;animation-delay:.28s}
 .wtag::before,.wtag::after{content:"";display:inline-block;width:16px;height:1px;vertical-align:middle;
   margin:0 8px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent)}
-.wbtn{margin-top:14px;min-width:210px;display:inline-flex;align-items:center;justify-content:center;gap:10px;
-  padding:15px 26px;border:none;border-radius:16px;cursor:pointer;
-  font-size:15.5px;font-weight:750;letter-spacing:.2px;color:#fff;
-  background:linear-gradient(180deg,var(--orange-soft),var(--orange));
-  box-shadow:0 10px 30px rgba(228,103,19,.42), inset 0 1px 0 rgba(255,255,255,.25);
-  transition:transform .16s cubic-bezier(.34,1.56,.64,1), box-shadow .16s ease, opacity .3s ease;
-  animation:wRise .7s ease both;animation-delay:.4s}
-.wbtn:disabled{opacity:.82;cursor:default;
-  background:linear-gradient(180deg,#33436f,#243358);box-shadow:0 8px 22px rgba(0,0,0,.3)}
-.wbtn:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 14px 38px rgba(228,103,19,.5)}
-.wbtn:not(:disabled):active{transform:translateY(0) scale(.97)}
-.wbtn.ready{animation:wRise .7s ease both, wPulse 2.4s ease-in-out infinite 1s}
-.wbtn-spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;
-  border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
-.wbtn:not(:disabled) .wbtn-spin{display:none}
-.wfoot{font-size:12px;color:rgba(255,255,255,.4);margin-top:6px;letter-spacing:.3px;
+.wloader{margin-top:22px;width:190px;height:4px;border-radius:4px;overflow:hidden;
+  background:rgba(255,255,255,.14);animation:wRise .7s ease both;animation-delay:.4s}
+.wbar{display:block;height:100%;width:42%;border-radius:4px;
+  background:linear-gradient(90deg,var(--orange-soft),var(--orange));
+  box-shadow:0 0 12px rgba(228,103,19,.6);animation:wLoad 1.15s ease-in-out infinite}
+@keyframes wLoad{0%{transform:translateX(-130%)}100%{transform:translateX(340%)}}
+.wfoot{font-size:12px;color:rgba(255,255,255,.45);margin-top:12px;letter-spacing:.3px;
   animation:wRise .7s ease both;animation-delay:.5s}
-.wbtn:disabled ~ .wfoot{opacity:0}
 @keyframes wPop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 @keyframes wRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes wSpin{to{transform:rotate(360deg)}}
@@ -421,11 +408,8 @@ tbody tr:hover .pill{transform:translateX(3px)}
     </div>
     <div class="wbrand">VRIDDHI&nbsp;FUELS</div>
     <div class="wtag">Where Trust Fuels Progress</div>
-    <button id="enterBtn" class="wbtn" onclick="enterApp()" disabled>
-      <span class="wbtn-txt">Preparing…</span>
-      <span class="wbtn-spin"></span>
-    </button>
-    <div class="wfoot">Tap to enter your dashboard</div>
+    <div class="wloader"><span class="wbar"></span></div>
+    <div class="wfoot">Preparing your dashboard…</div>
   </div>
 </div>
 <header>
@@ -505,15 +489,17 @@ async function loadData(force){
 }
 
 /* ---- Welcome screen ---- */
+const WELCOME_MIN_MS=2400;     // keep the splash on screen long enough to be seen
+let welcomeStart=Date.now(), welcomeEntered=false;
+// Data is ready (or the safety timer fired): auto-enter once the splash has shown its minimum.
 function welcomeReady(){
-  const b=document.getElementById("enterBtn"); if(!b)return;
-  b.disabled=false; b.classList.add("ready");
-  b.querySelector(".wbtn-txt").textContent="Enter Dashboard";
+  if(welcomeEntered) return;
+  setTimeout(enterApp, Math.max(0, WELCOME_MIN_MS-(Date.now()-welcomeStart)));
 }
 function enterApp(){
+  if(welcomeEntered) return; welcomeEntered=true;
   const w=document.getElementById("welcome"); if(!w)return;
-  if(w.classList.contains("flash"))return;   // ignore double taps
-  w.classList.add("flash");                  // bright shine wipes across…
+  w.classList.add("flash");                    // bright shine wipes across…
   setTimeout(()=>w.classList.add("gone"),380); // …then fade through to the dashboard
   setTimeout(()=>w.remove(),1050);
 }
@@ -657,11 +643,30 @@ function dailySummary(sheet){
   };
 }
 
-// Build the rich dashboard sections (only shown on the un-filtered index).
-function dashboardSnapshotHTML(){
-  let html="";
-  const s=dashboardStats();
+// Top Customers — shown near the top of the index, directly under the hero.
+function dashboardTopHTML(s){
+  if(!s.top.length) return "";
+  const max=s.top[0].billed||1;
+  let html='<div class="section-label">Top Customers</div><div class="toplist">';
+  s.top.forEach((c,i)=>{
+    const pct=Math.max(6,Math.round((c.billed/max)*100));
+    const due=isNum(c.bal)&&c.bal>1?`₹ ${shortNum(c.bal)} due`:(isNum(c.bal)&&c.bal<-1?`₹ ${shortNum(-c.bal)} adv`:"Settled");
+    html+=`<div class="topcust card" onclick="openSheet('${esc(c.sheet)}','${esc(c.name)}')">
+      <div class="rank">${i+1}</div>
+      <div class="tc-main"><div class="tc-name">${escHtml(c.name)}</div>
+        <div class="tc-bar"><span style="width:${pct}%"></span></div></div>
+      <div class="tc-side"><div class="tc-val" title="₹ ${money(c.billed)}">₹ ${shortNum(c.billed)}</div>
+        <div class="tc-meta">${due}</div></div></div>`;
+  });
+  html+='</div>';
+  return html;
+}
 
+// Business Snapshot + Latest Daily Sales — shown at the bottom of the index.
+function dashboardBottomHTML(s){
+  let html="";
+
+  // Business Snapshot
   if(s.accounts>0){
     html+='<div class="section-label">Business Snapshot</div>';
     html+='<div class="ledger-summary">';
@@ -678,11 +683,10 @@ function dashboardSnapshotHTML(){
     html+='</div>';
   }
 
-  // Latest daily sales for HSD / MS
+  // Latest Daily Sales — only the latest sale date's figures (no running totals)
   const fmtMetric=(m)=> m.kind==="amt" ? `₹ ${money(m.value)}`
                       : m.kind==="vol" ? `${money(m.value)}<span class="unit"> Ltr</span>`
                       : `${money(m.value)}`;
-  const fmtTotal=(t)=> t.kind==="amt" ? `₹ ${shortNum(t.value)}` : `${shortVol(t.value)} Ltr`;
   const dailies=[{s:"HSD Daily",c:"hsd",k:"HSD"},{s:"MS Daily",c:"ms",k:"MS"}].filter(x=>hasSheet(x.s));
   const cards=[];
   for(const d of dailies){
@@ -691,35 +695,16 @@ function dashboardSnapshotHTML(){
       `<div class="dc-metric"><div class="k" title="${escHtml(m.label)}">${escHtml(m.label)}</div>
         <div class="val" title="${escHtml(String(m.value))}">${fmtMetric(m)}</div></div>`).join("");
     if(!metrics) continue;
-    const foot=ds.totals.map(t=>
-      `<span>${escHtml(t.label)} · <b title="${escHtml(String(t.value))}">${fmtTotal(t)}</b></span>`).join("");
     cards.push(`<div class="daycard ${d.c}" onclick="openSheet('${esc(d.s)}','${esc(d.s)}')">
       <div class="dc-top"><div class="dc-name"><span class="dc-ico">${d.k}</span>${escHtml(d.s)}</div>
-        ${ds.date?`<span class="dc-date">${escHtml(ds.date)}</span>`:""}</div>
-      <div class="dc-metrics">${metrics}</div>
-      ${foot?`<div class="dc-foot">${foot}</div>`:""}</div>`);
+        ${ds.date?`<span class="dc-date">${escHtml(ds.date)} · latest</span>`:""}</div>
+      <div class="dc-metrics">${metrics}</div></div>`);
   }
   if(cards.length){
     html+='<div class="section-label">Latest Daily Sales</div>';
     html+=`<div class="grid daily-grid">${cards.join("")}</div>`;
   }
 
-  // Top performing customers (by total billed)
-  if(s.top.length){
-    const max=s.top[0].billed||1;
-    html+='<div class="section-label">Top Customers</div><div class="toplist">';
-    s.top.forEach((c,i)=>{
-      const pct=Math.max(6,Math.round((c.billed/max)*100));
-      const due=isNum(c.bal)&&c.bal>1?`₹ ${shortNum(c.bal)} due`:(isNum(c.bal)&&c.bal<-1?`₹ ${shortNum(-c.bal)} adv`:"Settled");
-      html+=`<div class="topcust card" onclick="openSheet('${esc(c.sheet)}','${esc(c.name)}')">
-        <div class="rank">${i+1}</div>
-        <div class="tc-main"><div class="tc-name">${escHtml(c.name)}</div>
-          <div class="tc-bar"><span style="width:${pct}%"></span></div></div>
-        <div class="tc-side"><div class="tc-val" title="₹ ${money(c.billed)}">₹ ${shortNum(c.billed)}</div>
-          <div class="tc-meta">${due}</div></div></div>`;
-    });
-    html+='</div>';
-  }
   return html;
 }
 
@@ -734,6 +719,7 @@ function renderIndex(){
   if(!DATA){m.innerHTML='<div class="center"><div class="spinner"></div><div>Loading…</div></div>';return;}
   const match=(s)=>!q||String(s).toLowerCase().includes(q);
   let html="";
+  let stats=null;
 
   // hero banner (only when not searching)
   if(!q){
@@ -744,7 +730,7 @@ function renderIndex(){
       <div><div class="ht">Master Ledger</div>
       <div class="hs">${leds0.length} customer accounts · ₹ ${money(totalOut)} outstanding</div></div>
     </div>`;
-    html+=dashboardSnapshotHTML();
+    stats=dashboardStats();
   }
 
   const keys=[
@@ -772,6 +758,9 @@ function renderIndex(){
     html+='</div>';
   }
 
+  // Top Customers — between Customer Ledgers and Sales & Summaries
+  if(!q && stats) html+=dashboardTopHTML(stats);
+
   const sales=SALES_SHEETS.filter(s=>hasSheet(s)&&match(s));
   if(sales.length){
     html+='<div class="section-label">Sales & Summaries</div><div class="grid">';
@@ -779,6 +768,9 @@ function renderIndex(){
       <div class="cname">${escHtml(s)}</div><div class="cmeta">Sheet</div></div>`;
     html+='</div>';
   }
+
+  // Business Snapshot + Latest Daily Sales sit at the bottom of the dashboard
+  if(!q && stats) html+=dashboardBottomHTML(stats);
 
   if(!html) html='<div class="empty">No matches for "'+escHtml(q)+'"</div>';
   m.innerHTML=html;
@@ -809,32 +801,48 @@ function renderLedger(sheet){
   let body="",lastBal=null,totalVol=0,totalAmt=0,totalPaid=0;
   for(let i=4;i<v.length;i++){
     const row=v[i]||[];
-    const date=row[0],vol=row[1],price=row[2],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
+    let vol=row[1],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
+    const date=row[0],price=row[2];
     const realFigure=(isNum(vol)&&vol!==0)||(isNum(amt)&&amt!==0)||(isNum(paid)&&paid!==0);
-    const hasContent=hasVal(date)||realFigure||hasVal(prod);
-    // An opening / carried-forward balance row holds a balance but no transaction.
-    const balOnly=!hasContent && isNum(bal);
-    if(!hasContent && !balOnly) continue;
-    // Skip blank rows where only a filled-down balance repeats the running total
-    // (a genuine opening balance is either the first one, labelled, dated, or changes).
-    if(balOnly && bal===lastBal) continue;
+    const labelOpen=/\bopening\b|op\.?\s*bal|\bb[\/.]?[fd]\b|brought|carried/.test((String(prod||"")+" "+String(date||"")).toLowerCase());
+
+    // Repair a misplaced opening / carried-forward balance: a row with no transaction
+    // whose only figure landed in the Product (or Amount/Paid/Volume) column while the
+    // Balance column was left blank. Move that figure into the Balance column.
+    let recovered=false;
+    if(!realFigure && !isNum(bal)){
+      for(const c of [5,3,4,1]){
+        if(isNum(row[c])){
+          bal=row[c];
+          if(c===5)prod=null; else if(c===3)amt=null; else if(c===4)paid=null; else if(c===1)vol=null;
+          recovered=true; break;
+        }
+      }
+    }
+
+    const balOnly=!hasVal(date)&&!realFigure&&!hasVal(prod)&&isNum(bal);
+    const hasContent=hasVal(date)||realFigure||hasVal(prod)||isNum(bal);
+    if(!hasContent) continue;
+    // Skip blank rows that merely repeat a filled-down balance (no label, date or change).
+    if(balOnly && !labelOpen && bal===lastBal) continue;
+
+    const isOpening=labelOpen||recovered||(balOnly&&bal!==lastBal);
 
     if(isNum(vol))totalVol+=vol; if(isNum(amt))totalAmt+=amt; if(isNum(paid))totalPaid+=paid;
     if(isNum(bal))lastBal=bal;
     const dd=d[i]||[];
     const paidCell=(isNum(paid)&&paid!==0)?money(paid):"";
     const dateCell=xlDate(date)||escHtml(dd[0]||"");
-    // Recognise opening-balance rows so they read clearly even when unlabelled.
-    const txt=(String(prod||"")+" "+String(date||"")).toLowerCase();
-    const isOpening=balOnly||/\bopening\b|op\.?\s*bal|\bb[\/.]?[fd]\b|brought|carried/.test(txt);
-    const openLbl=(balOnly&&!hasVal(date)&&!hasVal(prod))?'<span class="ob">Opening Balance</span>':"";
+    // Particulars: keep a genuine text label; for opening rows show an "Opening Balance" tag.
+    let prodOut=escHtml(prod||"");
+    if(isOpening && (!hasVal(prod)||isNum(prod))) prodOut='<span class="ob">Opening Balance</span>';
     body+=`<tr${isOpening?' class="ledger-open"':''}>
-      <td>${dateCell||openLbl}</td>
+      <td>${dateCell}</td>
       <td class="num">${hasVal(vol)?money(vol):""}</td>
       <td class="num">${hasVal(price)?money(price):""}</td>
       <td class="num">${hasVal(amt)?money(amt):""}</td>
       <td class="num pos">${paidCell}</td>
-      <td>${escHtml(prod||"")}</td>
+      <td>${prodOut}</td>
       <td class="num">${hasVal(bal)?money(bal):""}</td></tr>`;
   }
 
