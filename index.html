@@ -138,6 +138,11 @@ tbody tr{transition:background .12s}
 tbody tr:hover{background:var(--orange-tint)}
 tr:last-child td{border-bottom:none}
 tbody tr:active{background:var(--orange-tint)}
+/* opening / carried-forward balance rows */
+tbody tr.ledger-open{background:color-mix(in srgb,var(--orange) 7%,transparent)}
+tbody tr.ledger-open:hover{background:var(--orange-tint)}
+tbody tr.ledger-open td{font-weight:650}
+tbody tr.ledger-open .ob{font-style:italic;font-weight:600;color:var(--txt-2)}
 
 .subtitle{color:var(--txt-2);font-size:13.5px;margin:0 4px 16px;font-weight:500}
 .pill{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--orange-tint);
@@ -806,14 +811,25 @@ function renderLedger(sheet){
     const row=v[i]||[];
     const date=row[0],vol=row[1],price=row[2],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
     const realFigure=(isNum(vol)&&vol!==0)||(isNum(amt)&&amt!==0)||(isNum(paid)&&paid!==0);
-    if(!(hasVal(date)||realFigure||hasVal(prod))) continue;
+    const hasContent=hasVal(date)||realFigure||hasVal(prod);
+    // An opening / carried-forward balance row holds a balance but no transaction.
+    const balOnly=!hasContent && isNum(bal);
+    if(!hasContent && !balOnly) continue;
+    // Skip blank rows where only a filled-down balance repeats the running total
+    // (a genuine opening balance is either the first one, labelled, dated, or changes).
+    if(balOnly && bal===lastBal) continue;
+
     if(isNum(vol))totalVol+=vol; if(isNum(amt))totalAmt+=amt; if(isNum(paid))totalPaid+=paid;
     if(isNum(bal))lastBal=bal;
     const dd=d[i]||[];
     const paidCell=(isNum(paid)&&paid!==0)?money(paid):"";
     const dateCell=xlDate(date)||escHtml(dd[0]||"");
-    body+=`<tr>
-      <td>${dateCell}</td>
+    // Recognise opening-balance rows so they read clearly even when unlabelled.
+    const txt=(String(prod||"")+" "+String(date||"")).toLowerCase();
+    const isOpening=balOnly||/\bopening\b|op\.?\s*bal|\bb[\/.]?[fd]\b|brought|carried/.test(txt);
+    const openLbl=(balOnly&&!hasVal(date)&&!hasVal(prod))?'<span class="ob">Opening Balance</span>':"";
+    body+=`<tr${isOpening?' class="ledger-open"':''}>
+      <td>${dateCell||openLbl}</td>
       <td class="num">${hasVal(vol)?money(vol):""}</td>
       <td class="num">${hasVal(price)?money(price):""}</td>
       <td class="num">${hasVal(amt)?money(amt):""}</td>
