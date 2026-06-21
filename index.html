@@ -368,24 +368,14 @@ tbody tr:hover .pill{transform:translateX(3px)}
   animation:wRise .7s ease both;animation-delay:.28s}
 .wtag::before,.wtag::after{content:"";display:inline-block;width:16px;height:1px;vertical-align:middle;
   margin:0 8px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent)}
-.wbtn{margin-top:14px;min-width:210px;display:inline-flex;align-items:center;justify-content:center;gap:10px;
-  padding:15px 26px;border:none;border-radius:16px;cursor:pointer;
-  font-size:15.5px;font-weight:750;letter-spacing:.2px;color:#fff;
-  background:linear-gradient(180deg,var(--orange-soft),var(--orange));
-  box-shadow:0 10px 30px rgba(228,103,19,.42), inset 0 1px 0 rgba(255,255,255,.25);
-  transition:transform .16s cubic-bezier(.34,1.56,.64,1), box-shadow .16s ease, opacity .3s ease;
-  animation:wRise .7s ease both;animation-delay:.4s}
-.wbtn:disabled{opacity:.82;cursor:default;
-  background:linear-gradient(180deg,#33436f,#243358);box-shadow:0 8px 22px rgba(0,0,0,.3)}
-.wbtn:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 14px 38px rgba(228,103,19,.5)}
-.wbtn:not(:disabled):active{transform:translateY(0) scale(.97)}
-.wbtn.ready{animation:wRise .7s ease both, wPulse 2.4s ease-in-out infinite 1s}
-.wbtn-spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;
-  border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
-.wbtn:not(:disabled) .wbtn-spin{display:none}
-.wfoot{font-size:12px;color:rgba(255,255,255,.4);margin-top:6px;letter-spacing:.3px;
+.wloader{margin-top:22px;width:190px;height:4px;border-radius:4px;overflow:hidden;
+  background:rgba(255,255,255,.14);animation:wRise .7s ease both;animation-delay:.4s}
+.wbar{display:block;height:100%;width:42%;border-radius:4px;
+  background:linear-gradient(90deg,var(--orange-soft),var(--orange));
+  box-shadow:0 0 12px rgba(228,103,19,.6);animation:wLoad 1.15s ease-in-out infinite}
+@keyframes wLoad{0%{transform:translateX(-130%)}100%{transform:translateX(340%)}}
+.wfoot{font-size:12px;color:rgba(255,255,255,.45);margin-top:12px;letter-spacing:.3px;
   animation:wRise .7s ease both;animation-delay:.5s}
-.wbtn:disabled ~ .wfoot{opacity:0}
 @keyframes wPop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 @keyframes wRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes wSpin{to{transform:rotate(360deg)}}
@@ -418,11 +408,8 @@ tbody tr:hover .pill{transform:translateX(3px)}
     </div>
     <div class="wbrand">VRIDDHI&nbsp;FUELS</div>
     <div class="wtag">Where Trust Fuels Progress</div>
-    <button id="enterBtn" class="wbtn" onclick="enterApp()" disabled>
-      <span class="wbtn-txt">Preparing…</span>
-      <span class="wbtn-spin"></span>
-    </button>
-    <div class="wfoot">Tap to enter your dashboard</div>
+    <div class="wloader"><span class="wbar"></span></div>
+    <div class="wfoot">Preparing your dashboard…</div>
   </div>
 </div>
 <header>
@@ -502,15 +489,17 @@ async function loadData(force){
 }
 
 /* ---- Welcome screen ---- */
+const WELCOME_MIN_MS=2400;     // keep the splash on screen long enough to be seen
+let welcomeStart=Date.now(), welcomeEntered=false;
+// Data is ready (or the safety timer fired): auto-enter once the splash has shown its minimum.
 function welcomeReady(){
-  const b=document.getElementById("enterBtn"); if(!b)return;
-  b.disabled=false; b.classList.add("ready");
-  b.querySelector(".wbtn-txt").textContent="Enter Dashboard";
+  if(welcomeEntered) return;
+  setTimeout(enterApp, Math.max(0, WELCOME_MIN_MS-(Date.now()-welcomeStart)));
 }
 function enterApp(){
+  if(welcomeEntered) return; welcomeEntered=true;
   const w=document.getElementById("welcome"); if(!w)return;
-  if(w.classList.contains("flash"))return;   // ignore double taps
-  w.classList.add("flash");                  // bright shine wipes across…
+  w.classList.add("flash");                    // bright shine wipes across…
   setTimeout(()=>w.classList.add("gone"),380); // …then fade through to the dashboard
   setTimeout(()=>w.remove(),1050);
 }
@@ -742,7 +731,6 @@ function renderIndex(){
       <div class="hs">${leds0.length} customer accounts · ₹ ${money(totalOut)} outstanding</div></div>
     </div>`;
     stats=dashboardStats();
-    html+=dashboardTopHTML(stats);   // Top Customers stays near the top
   }
 
   const keys=[
@@ -769,6 +757,9 @@ function renderIndex(){
     }
     html+='</div>';
   }
+
+  // Top Customers — between Customer Ledgers and Sales & Summaries
+  if(!q && stats) html+=dashboardTopHTML(stats);
 
   const sales=SALES_SHEETS.filter(s=>hasSheet(s)&&match(s));
   if(sales.length){
