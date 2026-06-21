@@ -279,8 +279,11 @@ tbody tr:hover .pill{transform:translateX(3px)}
   filter:blur(9px);opacity:.7;animation:wSpin 7s linear infinite}
 .wbrand{font-size:30px;font-weight:900;letter-spacing:1px;color:#fff;line-height:1.05;
   text-shadow:0 2px 18px rgba(0,0,0,.35);animation:wRise .7s ease both;animation-delay:.18s}
-.wtag{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:3px;
-  color:rgba(255,255,255,.62);margin-top:-4px;animation:wRise .7s ease both;animation-delay:.28s}
+.wtag{font-size:14.5px;font-weight:500;font-style:italic;letter-spacing:.3px;line-height:1.4;
+  color:rgba(255,255,255,.7);margin-top:-2px;max-width:300px;
+  animation:wRise .7s ease both;animation-delay:.28s}
+.wtag::before,.wtag::after{content:"";display:inline-block;width:16px;height:1px;vertical-align:middle;
+  margin:0 8px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent)}
 .wbtn{margin-top:14px;min-width:210px;display:inline-flex;align-items:center;justify-content:center;gap:10px;
   padding:15px 26px;border:none;border-radius:16px;cursor:pointer;
   font-size:15.5px;font-weight:750;letter-spacing:.2px;color:#fff;
@@ -327,7 +330,7 @@ tbody tr:hover .pill{transform:translateX(3px)}
       <img id="welcomeLogo" src="" alt="Vriddhi Fuels">
     </div>
     <div class="wbrand">VRIDDHI&nbsp;FUELS</div>
-    <div class="wtag">Master Ledger</div>
+    <div class="wtag">Trusted by Customers, Mile After Mile</div>
     <button id="enterBtn" class="wbtn" onclick="enterApp()" disabled>
       <span class="wbtn-txt">Preparing…</span>
       <span class="wbtn-spin"></span>
