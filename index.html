@@ -801,32 +801,48 @@ function renderLedger(sheet){
   let body="",lastBal=null,totalVol=0,totalAmt=0,totalPaid=0;
   for(let i=4;i<v.length;i++){
     const row=v[i]||[];
-    const date=row[0],vol=row[1],price=row[2],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
+    let vol=row[1],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
+    const date=row[0],price=row[2];
     const realFigure=(isNum(vol)&&vol!==0)||(isNum(amt)&&amt!==0)||(isNum(paid)&&paid!==0);
-    const hasContent=hasVal(date)||realFigure||hasVal(prod);
-    // An opening / carried-forward balance row holds a balance but no transaction.
-    const balOnly=!hasContent && isNum(bal);
-    if(!hasContent && !balOnly) continue;
-    // Skip blank rows where only a filled-down balance repeats the running total
-    // (a genuine opening balance is either the first one, labelled, dated, or changes).
-    if(balOnly && bal===lastBal) continue;
+    const labelOpen=/\bopening\b|op\.?\s*bal|\bb[\/.]?[fd]\b|brought|carried/.test((String(prod||"")+" "+String(date||"")).toLowerCase());
+
+    // Repair a misplaced opening / carried-forward balance: a row with no transaction
+    // whose only figure landed in the Product (or Amount/Paid/Volume) column while the
+    // Balance column was left blank. Move that figure into the Balance column.
+    let recovered=false;
+    if(!realFigure && !isNum(bal)){
+      for(const c of [5,3,4,1]){
+        if(isNum(row[c])){
+          bal=row[c];
+          if(c===5)prod=null; else if(c===3)amt=null; else if(c===4)paid=null; else if(c===1)vol=null;
+          recovered=true; break;
+        }
+      }
+    }
+
+    const balOnly=!hasVal(date)&&!realFigure&&!hasVal(prod)&&isNum(bal);
+    const hasContent=hasVal(date)||realFigure||hasVal(prod)||isNum(bal);
+    if(!hasContent) continue;
+    // Skip blank rows that merely repeat a filled-down balance (no label, date or change).
+    if(balOnly && !labelOpen && bal===lastBal) continue;
+
+    const isOpening=labelOpen||recovered||(balOnly&&bal!==lastBal);
 
     if(isNum(vol))totalVol+=vol; if(isNum(amt))totalAmt+=amt; if(isNum(paid))totalPaid+=paid;
     if(isNum(bal))lastBal=bal;
     const dd=d[i]||[];
     const paidCell=(isNum(paid)&&paid!==0)?money(paid):"";
     const dateCell=xlDate(date)||escHtml(dd[0]||"");
-    // Recognise opening-balance rows so they read clearly even when unlabelled.
-    const txt=(String(prod||"")+" "+String(date||"")).toLowerCase();
-    const isOpening=balOnly||/\bopening\b|op\.?\s*bal|\bb[\/.]?[fd]\b|brought|carried/.test(txt);
-    const openLbl=(balOnly&&!hasVal(date)&&!hasVal(prod))?'<span class="ob">Opening Balance</span>':"";
+    // Particulars: keep a genuine text label; for opening rows show an "Opening Balance" tag.
+    let prodOut=escHtml(prod||"");
+    if(isOpening && (!hasVal(prod)||isNum(prod))) prodOut='<span class="ob">Opening Balance</span>';
     body+=`<tr${isOpening?' class="ledger-open"':''}>
-      <td>${dateCell||openLbl}</td>
+      <td>${dateCell}</td>
       <td class="num">${hasVal(vol)?money(vol):""}</td>
       <td class="num">${hasVal(price)?money(price):""}</td>
       <td class="num">${hasVal(amt)?money(amt):""}</td>
       <td class="num pos">${paidCell}</td>
-      <td>${escHtml(prod||"")}</td>
+      <td>${prodOut}</td>
       <td class="num">${hasVal(bal)?money(bal):""}</td></tr>`;
   }
 
