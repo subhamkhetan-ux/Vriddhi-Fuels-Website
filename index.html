@@ -138,6 +138,11 @@ tbody tr{transition:background .12s}
 tbody tr:hover{background:var(--orange-tint)}
 tr:last-child td{border-bottom:none}
 tbody tr:active{background:var(--orange-tint)}
+/* opening / carried-forward balance rows */
+tbody tr.ledger-open{background:color-mix(in srgb,var(--orange) 7%,transparent)}
+tbody tr.ledger-open:hover{background:var(--orange-tint)}
+tbody tr.ledger-open td{font-weight:650}
+tbody tr.ledger-open .ob{font-style:italic;font-weight:600;color:var(--txt-2)}
 
 .subtitle{color:var(--txt-2);font-size:13.5px;margin:0 4px 16px;font-weight:500}
 .pill{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--orange-tint);
@@ -252,6 +257,65 @@ tbody tr:hover .pill{transform:translateX(3px)}
 /* Loading spinner gets a soft glow */
 .spinner{box-shadow:0 0 22px rgba(228,103,19,.18)}
 .center{animation:riseIn .5s ease both}
+
+/* ============================================================
+   Dashboard: snapshot tiles, daily-sales cards, top customers
+   ============================================================ */
+.stat{position:relative;overflow:hidden}
+.stat .val .unit{font-size:13px;font-weight:600;color:var(--txt-3);letter-spacing:0}
+.stat.accent{background:linear-gradient(135deg,var(--card),var(--orange-tint));
+  border-color:color-mix(in srgb,var(--orange) 20%,transparent)}
+.stat.hero .val,.stat .val{transition:transform .2s ease}
+.stat:hover .val{transform:scale(1.02)}
+
+.daily-grid{grid-template-columns:repeat(auto-fit,minmax(248px,1fr))}
+.daycard{position:relative;overflow:hidden;cursor:pointer;border-radius:var(--radius);
+  border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow);padding:16px;
+  display:flex;flex-direction:column;gap:13px;
+  transition:transform .16s cubic-bezier(.22,.61,.36,1), box-shadow .16s ease, border-color .16s ease}
+.daycard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px}
+.daycard.hsd::before{background:linear-gradient(180deg,var(--orange-soft),var(--orange))}
+.daycard.ms::before{background:linear-gradient(180deg,#3AA6F0,#0E6FC4)}
+.daycard:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg);border-color:transparent}
+.dc-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.dc-name{font-weight:750;font-size:14.5px;letter-spacing:-.2px;display:flex;align-items:center;gap:9px}
+.dc-ico{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:#fff;
+  font-size:11px;font-weight:800;letter-spacing:.3px;flex:none}
+.daycard.hsd .dc-ico{background:linear-gradient(135deg,var(--orange-soft),var(--orange));
+  box-shadow:0 3px 10px rgba(228,103,19,.35)}
+.daycard.ms .dc-ico{background:linear-gradient(135deg,#3AA6F0,#0E6FC4);
+  box-shadow:0 3px 10px rgba(14,111,196,.35)}
+.dc-date{font-size:11.5px;font-weight:700;color:var(--txt-2);background:var(--line-2);
+  padding:4px 11px;border-radius:20px;white-space:nowrap}
+.dc-metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.dc-metric .k{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt-3);font-weight:700;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dc-metric .val{font-size:18.5px;font-weight:800;letter-spacing:-.4px;margin-top:3px;
+  font-variant-numeric:tabular-nums}
+.dc-metric .val .unit{font-size:12px;font-weight:600;color:var(--txt-3)}
+.dc-foot{font-size:11.5px;color:var(--txt-2);border-top:1px dashed var(--line);padding-top:10px;
+  display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 14px}
+.dc-foot b{color:var(--txt);font-weight:750;font-variant-numeric:tabular-nums}
+
+.toplist{display:flex;flex-direction:column;gap:10px}
+.topcust.card{flex-direction:row;align-items:center;gap:13px;padding:13px 15px}
+.topcust .rank{width:28px;height:28px;border-radius:9px;flex:none;display:grid;place-items:center;
+  font-weight:800;font-size:12.5px;color:#fff;background:linear-gradient(135deg,var(--navy-2),var(--navy))}
+.topcust:nth-child(1) .rank{background:linear-gradient(135deg,#f6b84a,#e07b13);
+  box-shadow:0 3px 12px rgba(228,103,19,.4)}
+.topcust:nth-child(2) .rank{background:linear-gradient(135deg,#9fb0c9,#6c7c96)}
+.topcust:nth-child(3) .rank{background:linear-gradient(135deg,#cf9b6b,#a06a39)}
+.topcust .tc-main{flex:1;min-width:0}
+.topcust .tc-name{font-weight:700;font-size:14px;letter-spacing:-.2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topcust .tc-bar{height:6px;border-radius:5px;background:var(--line-2);overflow:hidden;margin-top:7px}
+.topcust .tc-bar>span{display:block;height:100%;border-radius:5px;
+  background:linear-gradient(90deg,var(--orange-soft),var(--orange));
+  animation:barGrow .8s cubic-bezier(.22,.61,.36,1) both}
+@keyframes barGrow{from{width:0!important}}
+.topcust .tc-side{text-align:right;flex:none}
+.topcust .tc-val{font-weight:800;font-size:14.5px;letter-spacing:-.2px;font-variant-numeric:tabular-nums}
+.topcust .tc-meta{font-size:11px;color:var(--txt-3);margin-top:1px}
 
 /* ============================================================
    Welcome / splash screen
@@ -469,6 +533,196 @@ function ledgerSheets(){
   return out;
 }
 
+/* ============================================================
+   Dashboard analytics — summaries derived from the sheets.
+   ============================================================ */
+// Compact Indian-style number: 12.5 K / 3.4 L / 1.2 Cr (trims trailing zeros).
+function shortNum(n){
+  if(!isNum(n)) return "—";
+  const a=Math.abs(n);
+  const fmt=(x,suf)=>x.toFixed(2).replace(/\.?0+$/,"")+suf;
+  if(a>=1e7) return fmt(n/1e7," Cr");
+  if(a>=1e5) return fmt(n/1e5," L");
+  if(a>=1e3) return fmt(n/1e3," K");
+  return String(Math.round(n));
+}
+function shortVol(n){
+  if(!isNum(n)) return "—";
+  const a=Math.abs(n);
+  const fmt=(x,suf)=>x.toFixed(2).replace(/\.?0+$/,"")+suf;
+  if(a>=1e7) return fmt(n/1e7," Cr");
+  if(a>=1e5) return fmt(n/1e5," Lakh");
+  if(a>=1e3) return fmt(n/1e3," K");
+  return String(Math.round(n));
+}
+
+// Per-customer totals from a ledger sheet (cols A:G, data from row 5 / index 4).
+function ledgerTotals(sheet){
+  const v=val(sheet); if(!v) return {billed:0,paid:0,vol:0,bal:null,lastDate:null};
+  let billed=0,paid=0,vol=0,bal=null,lastDate=null;
+  for(let i=4;i<v.length;i++){
+    const row=v[i]||[];
+    const date=row[0],vl=row[1],amt=row[3],pd=row[4],b=row[6];
+    const real=(isNum(vl)&&vl!==0)||(isNum(amt)&&amt!==0)||(isNum(pd)&&pd!==0);
+    if(!(hasVal(date)||real)) continue;
+    if(isNum(vl))vol+=vl; if(isNum(amt))billed+=amt; if(isNum(pd))paid+=pd;
+    if(isNum(b))bal=b;
+    if(hasVal(date))lastDate=date;
+  }
+  return {billed,paid,vol,bal,lastDate};
+}
+
+// Aggregate across every customer ledger + a ranked top list.
+function dashboardStats(){
+  const leds=ledgerSheets();
+  let totalOut=0,totalBilled=0,totalPaid=0,totalVol=0;
+  const rows=[];
+  for(const l of leds){
+    const t=ledgerTotals(l.sheet);
+    totalBilled+=t.billed; totalPaid+=t.paid; totalVol+=t.vol;
+    if(isNum(l.bal)) totalOut+=l.bal;
+    rows.push({name:l.name,sheet:l.sheet,bal:l.bal,billed:t.billed,paid:t.paid,vol:t.vol});
+  }
+  const top=rows.filter(r=>r.billed>0).sort((a,b)=>b.billed-a.billed).slice(0,6);
+  return {accounts:leds.length,totalOut,totalBilled,totalPaid,totalVol,top};
+}
+
+// Classify a daily-sheet column purely from its header — never from magnitude,
+// so stock columns (Opening/Closing) are never mistaken for sales.
+function dailyColKind(label){
+  const h=String(label||"").toLowerCase();
+  if(!h.trim()) return "other";
+  if(/rate|price|mrp|\/\s*ltr|per\s*l(tr|itre)?\b/.test(h)) return "rate";
+  if(/amount|amt|value|₹|\brs\b|rupee|turnover|revenue|sales?\s*(amt|amount|value|total)/.test(h)) return "amount";
+  if(/sale|sold|qty|quantit|ltr|litre|liter|volume|dispatch|nozzle|dip/.test(h)) return "volume";
+  return "other";
+}
+// Latest day + running totals from a daily sheet. Column layout is *detected*,
+// and when sales columns can't be identified by header we fall back to showing the
+// latest day's own numeric columns (with their real labels) rather than guessing.
+function dailySummary(sheet){
+  const v=val(sheet); if(!v||!v.length) return null;
+  // widest row defines column count; header = first row with >=2 filled cells.
+  let ncol=0; for(let i=0;i<v.length;i++){ if(v[i]&&v[i].length>ncol) ncol=v[i].length; }
+  let hi=0;
+  for(let i=0;i<Math.min(v.length,8);i++){
+    const c=(v[i]||[]).filter(x=>x!=null&&x!=="").length;
+    if(c>=2){hi=i;break;}
+  }
+  const head=v[hi]||[];
+  const H=c=>String(head[c]??"");
+  // date column (header- or value-detected)
+  let dc=-1;
+  for(let c=0;c<ncol;c++){ if(colIsDate(v,hi,c,head)){dc=c;break;} }
+  // per-column numeric presence
+  const numCount=[]; for(let c=0;c<ncol;c++){ let n=0; for(let i=hi+1;i<v.length;i++){ if(isNum(v[i]&&v[i][c])) n++; } numCount[c]=n; }
+  const kind=[]; for(let c=0;c<ncol;c++){ kind[c]=(c===dc)?"date":dailyColKind(H(c)); }
+  const firstOf=k=>{ for(let c=0;c<ncol;c++){ if(c!==dc&&numCount[c]>0&&kind[c]===k) return c; } return -1; };
+  const amtC=firstOf("amount");
+  const volC=firstOf("volume");
+  // latest *dated* row (a trailing "Total"/label row can't pose as the latest day)
+  const looksDate=(x)=>isNum(x)?(x>=20000&&x<60000):(typeof x==="string"&&/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|^\s*\d{4,6}\s*$/.test(x));
+  let last=-1;
+  for(let i=hi+1;i<v.length;i++){
+    const row=v[i]; if(!row) continue;
+    if(dc>=0 ? looksDate(row[dc]) : row.some(hasVal)) last=i;
+  }
+  if(last<0) return null;
+  const lr=v[last]||[];
+  const sum=c=>{ if(c<0) return null; let s=0,any=false; for(let i=hi+1;i<v.length;i++){const x=v[i]&&v[i][c]; if(isNum(x)){s+=x;any=true;}} return any?s:null; };
+
+  // Build the latest-day metrics. Prefer identified volume + amount columns;
+  // otherwise fall back to the day's other numeric columns (shown plainly, by label).
+  const metrics=[];
+  if(volC>=0 && isNum(lr[volC])) metrics.push({label:H(volC)||"Sold", value:lr[volC], kind:"vol"});
+  if(amtC>=0 && isNum(lr[amtC])) metrics.push({label:H(amtC)||"Amount", value:lr[amtC], kind:"amt"});
+  if(metrics.length<2){
+    for(let c=0;c<ncol && metrics.length<2;c++){
+      if(c===dc||c===volC||c===amtC) continue;
+      if(kind[c]==="rate") continue;
+      if(!isNum(lr[c])) continue;
+      metrics.push({label:H(c)||("Col "+(c+1)), value:lr[c], kind:"num"});
+    }
+  }
+  if(!metrics.length) return null;
+
+  const totals=[];
+  const tv=sum(volC); if(volC>=0 && tv!=null) totals.push({label:"Total "+(H(volC)||"Volume"), value:tv, kind:"vol"});
+  const ta=sum(amtC); if(amtC>=0 && ta!=null) totals.push({label:"Total "+(H(amtC)||"Sales"), value:ta, kind:"amt"});
+
+  return {
+    date: dc>=0 ? (xlDate(lr[dc])||String(lr[dc]??"")) : "",
+    identified: (volC>=0||amtC>=0),
+    metrics, totals
+  };
+}
+
+// Build the rich dashboard sections (only shown on the un-filtered index).
+function dashboardSnapshotHTML(){
+  let html="";
+  const s=dashboardStats();
+
+  if(s.accounts>0){
+    html+='<div class="section-label">Business Snapshot</div>';
+    html+='<div class="ledger-summary">';
+    html+=`<div class="stat hero"><div class="lbl">Total Outstanding</div>
+      <div class="val" style="color:#fff" title="₹ ${money(s.totalOut)}">₹ ${shortNum(s.totalOut)}</div></div>`;
+    html+=`<div class="stat accent"><div class="lbl">Total Sales (Billed)</div>
+      <div class="val" title="₹ ${money(s.totalBilled)}">₹ ${shortNum(s.totalBilled)}</div></div>`;
+    html+=`<div class="stat"><div class="lbl">Total Collected</div>
+      <div class="val" title="₹ ${money(s.totalPaid)}">₹ ${shortNum(s.totalPaid)}</div></div>`;
+    html+=`<div class="stat"><div class="lbl">Volume Sold</div>
+      <div class="val" title="${money(s.totalVol)} Ltr">${shortVol(s.totalVol)}<span class="unit"> Ltr</span></div></div>`;
+    html+=`<div class="stat"><div class="lbl">Customer Accounts</div>
+      <div class="val">${s.accounts}</div></div>`;
+    html+='</div>';
+  }
+
+  // Latest daily sales for HSD / MS
+  const fmtMetric=(m)=> m.kind==="amt" ? `₹ ${money(m.value)}`
+                      : m.kind==="vol" ? `${money(m.value)}<span class="unit"> Ltr</span>`
+                      : `${money(m.value)}`;
+  const fmtTotal=(t)=> t.kind==="amt" ? `₹ ${shortNum(t.value)}` : `${shortVol(t.value)} Ltr`;
+  const dailies=[{s:"HSD Daily",c:"hsd",k:"HSD"},{s:"MS Daily",c:"ms",k:"MS"}].filter(x=>hasSheet(x.s));
+  const cards=[];
+  for(const d of dailies){
+    const ds=dailySummary(d.s); if(!ds) continue;
+    const metrics=ds.metrics.map(m=>
+      `<div class="dc-metric"><div class="k" title="${escHtml(m.label)}">${escHtml(m.label)}</div>
+        <div class="val" title="${escHtml(String(m.value))}">${fmtMetric(m)}</div></div>`).join("");
+    if(!metrics) continue;
+    const foot=ds.totals.map(t=>
+      `<span>${escHtml(t.label)} · <b title="${escHtml(String(t.value))}">${fmtTotal(t)}</b></span>`).join("");
+    cards.push(`<div class="daycard ${d.c}" onclick="openSheet('${esc(d.s)}','${esc(d.s)}')">
+      <div class="dc-top"><div class="dc-name"><span class="dc-ico">${d.k}</span>${escHtml(d.s)}</div>
+        ${ds.date?`<span class="dc-date">${escHtml(ds.date)}</span>`:""}</div>
+      <div class="dc-metrics">${metrics}</div>
+      ${foot?`<div class="dc-foot">${foot}</div>`:""}</div>`);
+  }
+  if(cards.length){
+    html+='<div class="section-label">Latest Daily Sales</div>';
+    html+=`<div class="grid daily-grid">${cards.join("")}</div>`;
+  }
+
+  // Top performing customers (by total billed)
+  if(s.top.length){
+    const max=s.top[0].billed||1;
+    html+='<div class="section-label">Top Customers</div><div class="toplist">';
+    s.top.forEach((c,i)=>{
+      const pct=Math.max(6,Math.round((c.billed/max)*100));
+      const due=isNum(c.bal)&&c.bal>1?`₹ ${shortNum(c.bal)} due`:(isNum(c.bal)&&c.bal<-1?`₹ ${shortNum(-c.bal)} adv`:"Settled");
+      html+=`<div class="topcust card" onclick="openSheet('${esc(c.sheet)}','${esc(c.name)}')">
+        <div class="rank">${i+1}</div>
+        <div class="tc-main"><div class="tc-name">${escHtml(c.name)}</div>
+          <div class="tc-bar"><span style="width:${pct}%"></span></div></div>
+        <div class="tc-side"><div class="tc-val" title="₹ ${money(c.billed)}">₹ ${shortNum(c.billed)}</div>
+          <div class="tc-meta">${due}</div></div></div>`;
+    });
+    html+='</div>';
+  }
+  return html;
+}
+
 function renderIndex(){
   NAV={view:"index"};
   document.getElementById("backBtn").style.display="none";
@@ -490,6 +744,7 @@ function renderIndex(){
       <div><div class="ht">Master Ledger</div>
       <div class="hs">${leds0.length} customer accounts · ₹ ${money(totalOut)} outstanding</div></div>
     </div>`;
+    html+=dashboardSnapshotHTML();
   }
 
   const keys=[
@@ -556,14 +811,25 @@ function renderLedger(sheet){
     const row=v[i]||[];
     const date=row[0],vol=row[1],price=row[2],amt=row[3],paid=row[4],prod=row[5],bal=row[6];
     const realFigure=(isNum(vol)&&vol!==0)||(isNum(amt)&&amt!==0)||(isNum(paid)&&paid!==0);
-    if(!(hasVal(date)||realFigure||hasVal(prod))) continue;
+    const hasContent=hasVal(date)||realFigure||hasVal(prod);
+    // An opening / carried-forward balance row holds a balance but no transaction.
+    const balOnly=!hasContent && isNum(bal);
+    if(!hasContent && !balOnly) continue;
+    // Skip blank rows where only a filled-down balance repeats the running total
+    // (a genuine opening balance is either the first one, labelled, dated, or changes).
+    if(balOnly && bal===lastBal) continue;
+
     if(isNum(vol))totalVol+=vol; if(isNum(amt))totalAmt+=amt; if(isNum(paid))totalPaid+=paid;
     if(isNum(bal))lastBal=bal;
     const dd=d[i]||[];
     const paidCell=(isNum(paid)&&paid!==0)?money(paid):"";
     const dateCell=xlDate(date)||escHtml(dd[0]||"");
-    body+=`<tr>
-      <td>${dateCell}</td>
+    // Recognise opening-balance rows so they read clearly even when unlabelled.
+    const txt=(String(prod||"")+" "+String(date||"")).toLowerCase();
+    const isOpening=balOnly||/\bopening\b|op\.?\s*bal|\bb[\/.]?[fd]\b|brought|carried/.test(txt);
+    const openLbl=(balOnly&&!hasVal(date)&&!hasVal(prod))?'<span class="ob">Opening Balance</span>':"";
+    body+=`<tr${isOpening?' class="ledger-open"':''}>
+      <td>${dateCell||openLbl}</td>
       <td class="num">${hasVal(vol)?money(vol):""}</td>
       <td class="num">${hasVal(price)?money(price):""}</td>
       <td class="num">${hasVal(amt)?money(amt):""}</td>
