@@ -600,6 +600,28 @@ function cellDate(x){
 }
 const monthKey=(d)=>d.getUTCFullYear()*12+d.getUTCMonth();
 
+// Coerce a cell to a number, tolerating "50,000", "₹50000", "(1,234)" (negative), etc.
+function num(x){
+  if(typeof x==="number") return isNaN(x)?null:x;
+  if(typeof x==="string"){
+    let s=x.trim(); if(!s) return null;
+    const neg=/^\(.*\)$/.test(s);
+    s=s.replace(/[()₹,\s]/g,"");
+    if(s===""||isNaN(Number(s))) return null;
+    return neg?-Number(s):Number(s);
+  }
+  return null;
+}
+// Robust per-row figures: handles numeric strings and a balance misplaced in the
+// Product/Amount column (an opening row whose Balance cell was left blank).
+function rowFigures(r){
+  const vol=num(r[1]), amt=num(r[3]), paid=num(r[4]);
+  const hasTxn=!!((vol&&vol!==0)||(amt&&amt!==0)||(paid&&paid!==0));
+  let bal=num(r[6]);
+  if(bal==null && !hasTxn){ for(const c of [5,3,4,1]){ const x=num(r[c]); if(x!=null){ bal=x; break; } } }
+  return {paid:paid||0, bal, hasTxn};
+}
+
 // Customer compliance: each customer should clear the previous month's balance by
 // the 15th of the next month. A customer is cleared when payments made in the current
 // month cover the balance carried in (opening). Otherwise the previous month is due.
@@ -611,9 +633,10 @@ function customerStatus(){
     const rows=[];
     for(let i=4;i<v.length;i++){
       const r=v[i]||[];
+      const f=rowFigures(r);
       const dt=cellDate(r[0]);
       if(dt) latest=Math.max(latest,monthKey(dt));
-      rows.push({dt, paid:isNum(r[4])?r[4]:0, bal:isNum(r[6])?r[6]:null});
+      rows.push({dt, paid:f.paid, bal:f.bal, hasTxn:f.hasTxn});
     }
     accts.push({l,rows});
   }
@@ -627,7 +650,10 @@ function customerStatus(){
     let opening=0, hasOpen=false, paid=0;
     if(firstCur>=0){
       for(let k=firstCur;k<rows.length;k++){ if(rows[k].dt && monthKey(rows[k].dt)===cur) paid+=rows[k].paid; }
+      // opening = balance carried in: the last balance BEFORE this month…
       for(let k=firstCur-1;k>=0;k--){ if(rows[k].bal!=null){ opening=rows[k].bal; hasOpen=true; break; } }
+      // …or, if the ledger's month starts with an opening-balance row, use its balance.
+      if(!hasOpen && !rows[firstCur].hasTxn && rows[firstCur].bal!=null){ opening=rows[firstCur].bal; hasOpen=true; }
     } else {
       // no activity this month — previous dues = last known balance, nothing paid
       for(let k=rows.length-1;k>=0;k--){ if(rows[k].bal!=null){ opening=rows[k].bal; hasOpen=true; break; } }
