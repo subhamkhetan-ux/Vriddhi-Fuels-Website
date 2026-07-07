@@ -794,6 +794,35 @@ function openSheet(sheet,display){
 
 function hasVal(x){return !(x==null||x==="");}
 
+// Locate the invoice / bill-detail block and map its columns by header label.
+// The block lives to the right of the main A:G account table; its exact columns
+// vary between ledgers (esp. bulk customers), so nothing is hard-coded.
+function billLayout(v){
+  let hdr=-1,b=-1;
+  for(let i=0;i<v.length && hdr<0;i++){
+    const row=v[i]||[];
+    for(let c=7;c<row.length;c++){
+      const t=String(row[c]||"");
+      // match the bill-NUMBER header; skip "…Detail" titles and "Bill/Invoice Date" columns
+      if(/bill|invoice|inv\.?\s*no/i.test(t) && !/detail|date/i.test(t)){ hdr=i; b=c; break; }
+    }
+  }
+  if(hdr<0) return null;
+  const head=v[hdr]||[];
+  const lo=Math.max(7,b-3), hi=Math.max(head.length,b+9);
+  const find=(re)=>{ for(let c=lo;c<hi;c++){ if(re.test(String(head[c]||""))) return c; } return -1; };
+  const pick=(re,fb)=>{ const c=find(re); return c>=0?c:fb; };
+  return {hdr, col:{
+    date:    pick(/date/i, b-1),
+    bill:    b,
+    vehicle: pick(/vehicle|veh\b|truck|tanker|lorry|vahan|vehical/i, b+1),
+    qty:     pick(/qty|quant|ltr|litre|liter|volume/i, b+2),
+    rate:    pick(/rate|price|\/\s*ltr|per\s*l/i, b+3),
+    amount:  pick(/amount|amt|value|total/i, b+4),
+    product: pick(/product|prod|item|fuel|particular/i, b+5)
+  }};
+}
+
 function renderLedger(sheet){
   const v=val(sheet), d=disp(sheet);
 
@@ -846,28 +875,31 @@ function renderLedger(sheet){
       <td class="num">${hasVal(bal)?money(bal):""}</td></tr>`;
   }
 
-  /* ---- Table 2: invoice / bill detail (cols Q:Y). Header row has S="Bill No". ---- */
-  let billHdr=-1;
-  for(let i=0;i<v.length;i++){
-    const row=v[i]||[];
-    if(String(row[18]||"").toLowerCase().indexOf("bill")>=0){ billHdr=i; break; }
-  }
+  /* ---- Table 2: invoice / bill detail — columns detected, not hard-coded ---- */
+  const bt=billLayout(v);
+  const billHdr=bt?bt.hdr:-1;
   let billBody="", billNote="", billCount=0;
-  if(billHdr>=0){
-    for(let i=billHdr+1;i<v.length;i++){
+  if(bt){
+    const col=bt.col;
+    const g=(row,k)=> (col[k]>=0 && col[k]<row.length) ? row[col[k]] : undefined;
+    for(let i=bt.hdr+1;i<v.length;i++){
       const row=v[i]||[], dd=d[i]||[];
-      const cells=[17,18,19,20,21,22,23].map(x=>row[x]);
-      if(cells.every(x=>!hasVal(x))) continue;
-      if(typeof cells[0]==="string" && !hasVal(cells[1])){ billNote=cells[0]; continue; }
+      const date=g(row,'date'),bill=g(row,'bill'),veh=g(row,'vehicle'),
+            qty=g(row,'qty'),rate=g(row,'rate'),amt=g(row,'amount'),prod=g(row,'product');
+      if(![date,bill,veh,qty,rate,amt,prod].some(hasVal)) continue;
+      // a lone text line with no bill/qty/amount is a note or section label
+      if(!hasVal(bill)&&!hasVal(qty)&&!hasVal(amt)&&(typeof date==="string"||typeof prod==="string")){
+        billNote=String(hasVal(date)?date:prod); continue;
+      }
       billCount++;
       billBody+=`<tr>
-        <td>${xlDate(cells[0])||escHtml(dd[17]||"")}</td>
-        <td>${escHtml(cells[1]||"")}</td>
-        <td>${escHtml(cells[2]||"")}</td>
-        <td class="num">${hasVal(cells[3])?money(cells[3]):""}</td>
-        <td class="num">${hasVal(cells[4])?money(cells[4]):""}</td>
-        <td class="num">${hasVal(cells[5])?money(cells[5]):""}</td>
-        <td>${escHtml(cells[6]||"")}</td></tr>`;
+        <td>${xlDate(date)||(col.date>=0?escHtml(dd[col.date]||""):"")}</td>
+        <td>${hasVal(bill)?escHtml(bill):""}</td>
+        <td>${escHtml(veh||"")}</td>
+        <td class="num">${hasVal(qty)?money(qty):""}</td>
+        <td class="num">${hasVal(rate)?money(rate):""}</td>
+        <td class="num">${hasVal(amt)?money(amt):""}</td>
+        <td>${escHtml(prod||"")}</td></tr>`;
     }
   }
 
