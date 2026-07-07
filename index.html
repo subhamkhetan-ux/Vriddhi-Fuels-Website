@@ -794,17 +794,18 @@ function openSheet(sheet,display){
 
 function hasVal(x){return !(x==null||x==="");}
 
-// Locate the invoice / bill-detail block and map its columns by header label.
+// Locate the retail Bill-detail block and map its columns by header label.
 // The block lives to the right of the main A:G account table; its exact columns
-// vary between ledgers (esp. bulk customers), so nothing is hard-coded.
+// vary between ledgers, so nothing is hard-coded. We key off a "Bill" header only
+// (not "Invoice"/"PO"), so a bulk ledger's PO Tracker block is NOT picked up here.
 function billLayout(v){
   let hdr=-1,b=-1;
   for(let i=0;i<v.length && hdr<0;i++){
     const row=v[i]||[];
     for(let c=7;c<row.length;c++){
       const t=String(row[c]||"");
-      // match the bill-NUMBER header; skip "…Detail" titles and "Bill/Invoice Date" columns
-      if(/bill|invoice|inv\.?\s*no/i.test(t) && !/detail|date/i.test(t)){ hdr=i; b=c; break; }
+      // the bill-number header; skip "…Detail" titles and "Bill Date" columns
+      if(/bill/i.test(t) && !/detail|date|address/i.test(t)){ hdr=i; b=c; break; }
     }
   }
   if(hdr<0) return null;
