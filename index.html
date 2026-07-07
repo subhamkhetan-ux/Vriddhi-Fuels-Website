@@ -314,22 +314,6 @@ tbody tr:hover .pill{transform:translateX(3px)}
 .topcust .tc-val{font-weight:800;font-size:14.5px;letter-spacing:-.2px;font-variant-numeric:tabular-nums}
 .topcust .tc-meta{font-size:11px;color:var(--txt-3);margin-top:1px}
 
-/* Customer status — previous-month dues */
-.stat.stat-warn{background:linear-gradient(135deg,var(--card),#fdecec);
-  border-color:color-mix(in srgb,#e0524e 30%,transparent)}
-.stat.stat-warn .val{color:#d23b36}
-@media (prefers-color-scheme: dark){
-  .stat.stat-warn{background:linear-gradient(135deg,var(--card),#3a1d1d)}
-  .stat.stat-warn .val{color:#ff7a76}
-}
-.topcust.statusdue{border-color:color-mix(in srgb,#e0524e 32%,transparent);
-  background:linear-gradient(135deg,var(--card),color-mix(in srgb,#e0524e 8%,transparent))}
-.topcust.statusdue:hover{box-shadow:0 8px 26px rgba(224,82,78,.22)}
-.topcust .rank.warn{background:linear-gradient(135deg,#f06a5f,#d23b36);
-  box-shadow:0 3px 12px rgba(224,82,78,.4)}
-.topcust .tc-val.neg{color:#d23b36}
-@media (prefers-color-scheme: dark){ .topcust .tc-val.neg{color:#ff7a76} }
-
 /* ============================================================
    Welcome / splash screen
    ============================================================ */
@@ -589,90 +573,6 @@ function dashboardStats(){
   return {accounts:leds.length,totalOut,totalBilled,totalPaid,totalVol,top};
 }
 
-// Parse a ledger cell into a Date (Excel serial or dd/mm/yy[yy] string), else null.
-function cellDate(x){
-  if(isNum(x)){ return (x>20000&&x<80000)?new Date(Math.round((x-25569)*86400000)):null; }
-  if(typeof x==="string"){
-    const m=x.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
-    if(m){ let y=+m[3]; if(y<100)y+=2000; return new Date(Date.UTC(y,(+m[2])-1,+m[1])); }
-  }
-  return null;
-}
-const monthKey=(d)=>d.getUTCFullYear()*12+d.getUTCMonth();
-
-// Customer compliance: each customer should clear the previous month's balance by
-// the 15th of the next month. A customer is cleared when payments made in the current
-// month cover the balance carried in (opening). Otherwise the previous month is due.
-function customerStatus(){
-  const leds=ledgerSheets();
-  const accts=[]; let latest=-Infinity;
-  for(const l of leds){
-    const v=val(l.sheet); if(!v) continue;
-    const rows=[];
-    for(let i=4;i<v.length;i++){
-      const r=v[i]||[];
-      const dt=cellDate(r[0]);
-      if(dt) latest=Math.max(latest,monthKey(dt));
-      rows.push({dt, paid:isNum(r[4])?r[4]:0, bal:isNum(r[6])?r[6]:null});
-    }
-    accts.push({l,rows});
-  }
-  if(latest===-Infinity) return null;
-  const cur=latest;
-  const due=[], cleared=[];
-  for(const a of accts){
-    const rows=a.rows;
-    let firstCur=-1;
-    for(let k=0;k<rows.length;k++){ if(rows[k].dt && monthKey(rows[k].dt)===cur){ firstCur=k; break; } }
-    let opening=0, hasOpen=false, paid=0;
-    if(firstCur>=0){
-      for(let k=firstCur;k<rows.length;k++){ if(rows[k].dt && monthKey(rows[k].dt)===cur) paid+=rows[k].paid; }
-      for(let k=firstCur-1;k>=0;k--){ if(rows[k].bal!=null){ opening=rows[k].bal; hasOpen=true; break; } }
-    } else {
-      // no activity this month — previous dues = last known balance, nothing paid
-      for(let k=rows.length-1;k>=0;k--){ if(rows[k].bal!=null){ opening=rows[k].bal; hasOpen=true; break; } }
-    }
-    const o={name:a.l.name, sheet:a.l.sheet, opening, paid, bal:a.l.bal};
-    const owed=opening-paid;
-    if(!hasOpen || opening<=1){ cleared.push(o); }
-    else if(owed<=1){ cleared.push(o); }
-    else { o.due=owed; due.push(o); }
-  }
-  due.sort((x,y)=>y.due-x.due);
-  return {cur, due, cleared, total:accts.length};
-}
-
-function customerStatusHTML(){
-  const st=customerStatus(); if(!st||!st.total) return "";
-  const curY=Math.floor(st.cur/12), curM=st.cur%12;
-  const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const prev=MON[(curM+11)%12];
-  const deadline=new Date(Date.UTC(curY,curM,15,23,59,59));
-  const passed=new Date()>deadline;
-  const dueTotal=st.due.reduce((s,c)=>s+c.due,0);
-  let html='<div class="section-label">Customer Status · '+prev+' dues</div>';
-  html+=`<div class="ledger-summary">
-    <div class="stat${st.due.length?' stat-warn':''}"><div class="lbl">Pending Clearance</div><div class="val">${st.due.length}</div></div>
-    <div class="stat"><div class="lbl">Cleared</div><div class="val">${st.cleared.length}</div></div>
-    <div class="stat"><div class="lbl">Amount Due</div><div class="val" title="₹ ${money(dueTotal)}">₹ ${shortNum(dueTotal)}</div></div></div>`;
-  if(st.due.length){
-    html+='<div class="subtitle">Not cleared for '+prev+(passed?' — past the 15th deadline':' — due by the 15th')+'.</div>';
-    html+='<div class="toplist">';
-    for(const c of st.due){
-      html+=`<div class="topcust card statusdue" onclick="openSheet('${esc(c.sheet)}','${esc(c.name)}')">
-        <div class="rank warn">!</div>
-        <div class="tc-main"><div class="tc-name">${escHtml(c.name)}</div>
-          <div class="tc-meta">Opening ₹ ${shortNum(c.opening)} · Paid ₹ ${shortNum(c.paid)}</div></div>
-        <div class="tc-side"><div class="tc-val neg" title="₹ ${money(c.due)}">₹ ${shortNum(c.due)}</div>
-          <div class="tc-meta">${passed?"Overdue":"Due"}</div></div></div>`;
-    }
-    html+='</div>';
-  } else {
-    html+='<div class="subtitle">All customers have cleared their '+prev+' balance. 🎉</div>';
-  }
-  return html;
-}
-
 // Classify a daily-sheet column purely from its header — never from magnitude,
 // so stock columns (Opening/Closing) are never mistaken for sales.
 function dailyColKind(label){
@@ -831,7 +731,6 @@ function renderIndex(){
       <div class="hs">${leds0.length} customer accounts · ₹ ${money(totalOut)} outstanding</div></div>
     </div>`;
     stats=dashboardStats();
-    html+=customerStatusHTML();   // surface previous-month dues prominently
   }
 
   const keys=[
