@@ -10,9 +10,9 @@
 // Secrets: SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are
 //          injected automatically by Supabase for deployed functions.
 //
-// Body (JSON): { phone, name, role, pin, action?, target_id? }
-//   action defaults to "create". action "reset_pin" updates an existing
-//   user's PIN (pass target_id + pin).
+// Body (JSON): { username, name, role, password, phone?, action?, target_id? }
+//   action defaults to "create". action "reset_password" updates an existing
+//   user's password (pass target_id + password).
 // =====================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -29,9 +29,10 @@ const json = (body: unknown, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json" },
   });
 
-// phone -> synthetic email used as the Supabase Auth identity.
-const phoneToEmail = (phone: string) =>
-  `${phone.replace(/[^\d]/g, "")}@vriddhi.local`;
+// username -> synthetic email used as the Supabase Auth identity.
+const normUsername = (u: string) =>
+  u.toLowerCase().trim().replace(/[^a-z0-9._-]/g, "");
+const usernameToEmail = (u: string) => `${normUsername(u)}@vriddhi.local`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -62,41 +63,43 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid JSON" }, 400);
   }
   const action = (body.action as string) ?? "create";
-  const pin = String(body.pin ?? "");
-  if (pin && !/^\d{6,}$/.test(pin)) {
-    return json({ error: "PIN must be at least 6 digits" }, 400);
+  const password = String(body.password ?? "");
+  if (password && password.length < 6) {
+    return json({ error: "Password must be at least 6 characters" }, 400);
   }
 
   const admin = createClient(url, service, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // ---- reset PIN -----------------------------------------------------
-  if (action === "reset_pin") {
+  // ---- reset password ------------------------------------------------
+  if (action === "reset_password") {
     const targetId = String(body.target_id ?? "");
-    if (!targetId || !pin) return json({ error: "target_id and pin required" }, 400);
-    const { error } = await admin.auth.admin.updateUserById(targetId, {
-      password: pin,
-    });
+    if (!targetId || !password) return json({ error: "target_id and password required" }, 400);
+    const { error } = await admin.auth.admin.updateUserById(targetId, { password });
     if (error) return json({ error: error.message }, 400);
     return json({ ok: true, id: targetId });
   }
 
   // ---- create --------------------------------------------------------
-  const phone = String(body.phone ?? "").trim();
+  const username = normUsername(String(body.username ?? ""));
   const name = String(body.name ?? "").trim();
+  const phone = String(body.phone ?? "").trim() || null;   // optional contact
   const role = String(body.role ?? "customer");
-  if (!phone || !name || !pin) return json({ error: "phone, name, pin required" }, 400);
+  if (!username || !name || !password) {
+    return json({ error: "username, name, password required" }, 400);
+  }
+  if (username.length < 3) return json({ error: "Username must be at least 3 characters" }, 400);
   if (!["customer", "employee", "admin"].includes(role)) {
     return json({ error: "Invalid role" }, 400);
   }
 
-  const email = phoneToEmail(phone);
+  const email = usernameToEmail(username);
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
-    password: pin,
+    password,
     email_confirm: true,
-    user_metadata: { phone, name, role },
+    user_metadata: { username, name, role },
   });
   if (createErr || !created?.user) {
     return json({ error: createErr?.message ?? "Could not create user" }, 400);
@@ -105,8 +108,9 @@ Deno.serve(async (req) => {
   // Insert the profile row (service role bypasses RLS).
   const { error: profErr } = await admin.from("app_users").insert({
     id: created.user.id,
-    phone,
+    username,
     name,
+    phone,
     role,
   });
   if (profErr) {
@@ -115,5 +119,5 @@ Deno.serve(async (req) => {
     return json({ error: profErr.message }, 400);
   }
 
-  return json({ ok: true, id: created.user.id, phone, name, role });
+  return json({ ok: true, id: created.user.id, username, name, role });
 });

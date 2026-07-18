@@ -22,7 +22,7 @@ app/
 supabase/
   schema.sql            Tables, enums, sequential IND-#### ids, append-only
                         audit log, RLS policies, and all mutation RPCs
-  functions/admin-create-user/index.ts   Edge function to create phone+PIN users
+  functions/admin-create-user/index.ts   Edge function to create username+password users
 ```
 
 ## Roles
@@ -31,7 +31,7 @@ supabase/
 |---|---|
 | **Customer** | Place indents (3-step wizard), repeat last order, approve/reject staff-logged indents, modify/cancel own open indents, view history + monthly statements, acknowledge/dispute statements. |
 | **Employee** | Live realtime board (today's totals + filters), mark delivered, log indents on behalf of a customer, modify/cancel any open indent. |
-| **Admin** | Everything employees do, plus user management (create / reset PIN / activate / deactivate), block/unblock customers, daily summary + monthly statement sender, CSV export, one-tap **proof pack** (indent + full audit trail, print to PDF). |
+| **Admin** | Everything employees do, plus user management (create / reset password / activate / deactivate), block/unblock customers, daily summary + monthly statement sender, CSV export, one-tap **proof pack** (indent + full audit trail, print to PDF). |
 
 ## Setup (one time)
 
@@ -54,38 +54,36 @@ window.VRIDDHI_CONFIG = {
 };
 ```
 
-### 4. Lower the minimum password length (PINs)
-Supabase Auth requires passwords ≥ 6 chars. **Use 6-digit PINs.** If you want
-4-digit PINs, lower **Authentication → Providers → Email → Minimum password
-length** in the dashboard. (Email confirmations are bypassed — accounts use a
-synthetic `<digits>@vriddhi.local` email internally; only phone + PIN are shown
-to users.)
+### 4. Password length
+Supabase Auth requires passwords of **at least 6 characters**, so give every
+account a password of 6+ characters. (To allow shorter, lower **Authentication →
+Providers → Email → Minimum password length** in the dashboard.)
 
-> **Phone number rule (important):** at login the app turns whatever number is
-> typed into the login email by keeping only the digits, e.g. `9876543210` →
-> `9876543210@vriddhi.local`. So the **digits you use to create an account must
-> match the digits the user will type to log in.** Pick one format and use it
-> everywhere. Recommended: the plain **10-digit mobile number** (no `+91`,
-> no spaces), because that's what people naturally type.
+> **How login works:** users log in with a **username + password**. Internally
+> the app maps the username to a hidden email `<username>@vriddhi.local` — you
+> never see or manage that email; you only deal with the username. Usernames are
+> lowercased and limited to letters, numbers, dot, dash and underscore
+> (e.g. `rajfleet01`). Email confirmations are bypassed.
 
 ### 5. Bootstrap the first admin
 The app has no public sign-up (closed user base). Create the first admin by hand:
 
 1. **Authentication → Users → Add user**
-   - Email: `9876543210@vriddhi.local` (the 10-digit mobile number + `@vriddhi.local`)
-   - Password: your 6-digit PIN
+   - Email: `owner@vriddhi.local` (your chosen username + `@vriddhi.local`)
+   - Password: a password of 6+ characters
    - Tick "Auto Confirm User" if asked, then copy the new user's **UUID**.
-2. In **SQL Editor**, run (substitute the UUID and the same number):
+2. In **SQL Editor**, run (substitute the UUID and the same username):
    ```sql
-   insert into public.app_users (id, phone, name, role)
-   values ('PASTE-UUID-HERE', '9876543210', 'Owner', 'admin');
+   insert into public.app_users (id, username, name, role)
+   values ('PASTE-UUID-HERE', 'owner', 'Owner', 'admin');
    ```
 
-Now log into the app with that phone + PIN. From **Users** you can create every
-other account (customers, employees, admins) — no more manual steps.
+Now log into the app with that username + password. From **Users** you can create
+every other account (customers, employees, admins) — each with a username and
+password you hand to them — no more manual steps.
 
 ### 6. Deploy the admin-create-user edge function
-This lets the admin create phone+PIN accounts from inside the app.
+This lets the admin create username+password accounts from inside the app.
 
 ```bash
 # https://supabase.com/docs/guides/cli

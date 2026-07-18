@@ -44,10 +44,13 @@ exception when duplicate_object then null; end $$;
 -- ---------------------------------------------------------------------
 
 -- Profile table mirrors auth.users (1:1). id == auth.users.id.
+-- Login identity is `username` (a handle the admin gives the customer);
+-- `phone` is now just optional contact info.
 create table if not exists public.app_users (
   id          uuid primary key references auth.users(id) on delete cascade,
-  phone       text not null unique,          -- with country code, e.g. +919876543210
+  username    text not null unique,          -- login handle, e.g. rajfleet01
   name        text not null,
+  phone       text unique,                   -- optional contact number
   role        user_role not null default 'customer',
   is_blocked  boolean not null default false,
   is_active   boolean not null default true,
@@ -549,14 +552,14 @@ revoke execute on function public._audit(uuid, audit_event, jsonb, jsonb, text, 
 -- BOOTSTRAP THE FIRST ADMIN (run once, after creating an auth user)
 -- ---------------------------------------------------------------------
 -- 1. In Supabase Dashboard > Authentication > Users, "Add user" with:
---       email:    <phone>@vriddhi.local   (e.g. 919876543210@vriddhi.local)
---       password: <the PIN, min 6 chars>  (Supabase requires >= 6)
+--       email:    <username>@vriddhi.local  (e.g. owner@vriddhi.local)
+--       password: <the password, min 6 chars> (Supabase requires >= 6)
 --    Copy the new user's UUID.
--- 2. Run (replace the UUID and phone):
+-- 2. Run (replace the UUID and username):
 --
---    insert into public.app_users (id, phone, name, role)
+--    insert into public.app_users (id, username, name, role)
 --    values ('00000000-0000-0000-0000-000000000000',
---            '+919876543210', 'Owner', 'admin');
+--            'owner', 'Owner', 'admin');
 --
 -- After that, the admin can create every other user from inside the app
 -- (which calls the admin-create-user edge function). See README.

@@ -228,7 +228,8 @@ function normVehicle(v){
 }
 const validVehicle = (v)=> /^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{1,4}$/.test((v||"").toUpperCase().replace(/[^A-Z0-9]/g,""));
 const phoneDigits = (p)=> (p||"").replace(/\D/g,"");
-const phoneToEmail = (p)=> phoneDigits(p)+"@vriddhi.local";
+const normUsername = (u)=> (u||"").toLowerCase().trim().replace(/[^a-z0-9._-]/g,"");
+const usernameToEmail = (u)=> normUsername(u)+"@vriddhi.local";
 
 async function rpc(fn, args){
   const { data, error } = await sb.rpc(fn, args||{});
@@ -277,10 +278,10 @@ function routeHome(){
   else { state.view="board"; renderStaff(); }
 }
 
-async function doLogin(phone, pin){
-  const email = phoneToEmail(phone);
-  const { error } = await sb.auth.signInWithPassword({ email, password: pin });
-  if(error) throw new Error("Wrong phone number or PIN.");
+async function doLogin(username, password){
+  const email = usernameToEmail(username);
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error) throw new Error("Wrong username or password.");
   await boot();
 }
 async function logout(){ await sb.auth.signOut(); state.me=null; renderLogin(); }
@@ -340,25 +341,25 @@ function renderLogin(msg){
       </div>
       <div class="card" style="width:100%;max-width:360px;text-align:left">
         ${msg?`<div class="blocknote">${esc(msg)}</div>`:""}
-        <label class="fld">Phone number</label>
-        <input class="inp" id="li-phone" inputmode="tel" placeholder="e.g. 9876543210" autocomplete="username">
-        <label class="fld">PIN</label>
-        <input class="inp" id="li-pin" inputmode="numeric" type="password" placeholder="Your PIN" autocomplete="current-password">
+        <label class="fld">Username</label>
+        <input class="inp" id="li-user" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="e.g. rajfleet01" autocomplete="username">
+        <label class="fld">Password</label>
+        <input class="inp" id="li-pass" type="password" placeholder="Your password" autocomplete="current-password">
         <div style="height:14px"></div>
         <button class="btn" id="li-go">Log in</button>
         <p class="tiny" style="margin-top:12px">Accounts are created by the admin. Contact us if you can't log in.</p>
       </div>
     </div></main>`;
   const go = async ()=>{
-    const phone=$("#li-phone").value.trim(), pin=$("#li-pin").value.trim();
-    if(phoneDigits(phone).length<10) return toast("Enter a valid phone number","bad");
-    if(pin.length<4) return toast("Enter your PIN","bad");
+    const user=$("#li-user").value.trim(), pass=$("#li-pass").value;
+    if(normUsername(user).length<3) return toast("Enter your username","bad");
+    if(pass.length<1) return toast("Enter your password","bad");
     const btn=$("#li-go"); btn.textContent="Logging in…"; btn.disabled=true;
-    try{ await doLogin(phone,pin); }
+    try{ await doLogin(user,pass); }
     catch(e){ toast(e.message,"bad"); btn.textContent="Log in"; btn.disabled=false; }
   };
   $("#li-go").onclick=go;
-  $("#li-pin").addEventListener("keydown",e=>{ if(e.key==="Enter") go(); });
+  $("#li-pass").addEventListener("keydown",e=>{ if(e.key==="Enter") go(); });
   bindChrome();
 }
 
@@ -567,7 +568,7 @@ function newIndentWizard(onBehalf){
   const stepCustomer = ()=>`
     <h3>Log for customer</h3>
     <label class="fld">Search customer</label>
-    <input class="inp" id="wz-cust-q" placeholder="Name or phone" autocomplete="off">
+    <input class="inp" id="wz-cust-q" placeholder="Name or username" autocomplete="off">
     <div id="wz-cust-list" style="margin-top:10px"></div>`;
   const stepVehicle = ()=>`
     <h3>Vehicle number</h3>
@@ -623,10 +624,11 @@ function newIndentWizard(onBehalf){
     if(name==="customer"){
       const q=$("#wz-cust-q"); const list=$("#wz-cust-list");
       const paint=(arr)=> list.innerHTML = arr.slice(0,20).map(u=>`<div class="icard" data-cid="${u.id}" data-cname="${esc(u.name)}" role="button" style="margin-bottom:8px">
-        <div style="font-weight:700">${esc(u.name)}</div><div class="tiny">${esc(u.phone)}</div></div>`).join("")||`<div class="empty">No match.</div>`;
+        <div style="font-weight:700">${esc(u.name)}</div><div class="tiny">@${esc(u.username)}${u.phone?" · "+esc(u.phone):""}</div></div>`).join("")||`<div class="empty">No match.</div>`;
       const run=async ()=>{ if(!customers.length){ try{customers=(await usersList()).filter(u=>u.role==="customer"&&u.is_active);}catch(e){} }
         const t=q.value.toLowerCase().trim();
-        paint(customers.filter(u=>!t||u.name.toLowerCase().includes(t)||phoneDigits(u.phone).includes(t)));
+        const td=phoneDigits(t);
+        paint(customers.filter(u=>!t||u.name.toLowerCase().includes(t)||(u.username||"").includes(t)||(td&&phoneDigits(u.phone).includes(td))));
         list.querySelectorAll("[data-cid]").forEach(elm=>elm.onclick=()=>{ draft.customer=elm.dataset.cid; draft.customerName=elm.dataset.cname; si++; draw(); });
       };
       q.oninput=run; run();
@@ -721,10 +723,10 @@ function userCard(u){
   return `<div class="icard" data-p="${u.is_blocked?"Petrol":"Diesel"}">
     <div class="spread">
       <div><div style="font-weight:700">${esc(u.name)} ${u.is_active?"":'<span class="tiny">(inactive)</span>'}</div>
-        <div class="tiny">${esc(u.phone)} · ${esc(u.role)}${u.is_blocked?" · 🚫 blocked":""}</div></div>
+        <div class="tiny">@${esc(u.username)}${u.phone?" · "+esc(u.phone):""} · ${esc(u.role)}${u.is_blocked?" · 🚫 blocked":""}</div></div>
     </div>
     <div class="btnrow" style="margin-top:10px">
-      <button class="btn sec sm" data-act="resetpin" data-id="${u.id}" data-name="${esc(u.name)}">Reset PIN</button>
+      <button class="btn sec sm" data-act="resetpw" data-id="${u.id}" data-name="${esc(u.name)}">Reset password</button>
       ${u.role==="customer"?`<button class="btn ${u.is_blocked?"ok":"bad"} sm" data-act="toggleblock" data-id="${u.id}" data-blocked="${u.is_blocked}">${u.is_blocked?"Unblock":"Block"}</button>`:""}
       <button class="btn ${u.is_active?"bad":"ok"} sm" data-act="toggleactive" data-id="${u.id}" data-active="${u.is_active}">${u.is_active?"Deactivate":"Activate"}</button>
     </div></div>`;
@@ -732,35 +734,41 @@ function userCard(u){
 function addUserSheet(){
   sheet(`<h3>Add user</h3>
     <label class="fld">Name</label><input class="inp" id="au-name" placeholder="Full name">
-    <label class="fld">Phone (with country code recommended)</label><input class="inp" id="au-phone" inputmode="tel" placeholder="9876543210">
+    <label class="fld">Username (they log in with this)</label>
+    <input class="inp" id="au-user" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="e.g. rajfleet01">
+    <div class="tiny" id="au-userhint" style="margin-top:6px">Letters, numbers, dot, dash, underscore. Min 3.</div>
+    <label class="fld">Password (min 6 characters)</label><input class="inp" id="au-pass" placeholder="Set a password">
+    <label class="fld">Phone (optional contact)</label><input class="inp" id="au-phone" inputmode="tel" placeholder="9876543210">
     <label class="fld">Role</label>
     <select class="inp" id="au-role"><option value="customer">Customer</option><option value="employee">Employee</option><option value="admin">Admin</option></select>
-    <label class="fld">PIN (min 6 digits)</label><input class="inp" id="au-pin" inputmode="numeric" placeholder="6-digit PIN">
     <div style="height:16px"></div>
     <div class="btnrow"><button class="btn sec" id="au-cancel">Cancel</button><button class="btn" id="au-save">Create</button></div>`);
+  const uEl=$("#au-user"), hint=$("#au-userhint");
+  uEl.oninput=()=>{ const n=normUsername(uEl.value); hint.textContent = n?("Will log in as: "+n):"Letters, numbers, dot, dash, underscore. Min 3."; };
   $("#au-cancel").onclick=closeSheet;
   $("#au-save").onclick=async ()=>{
-    const name=$("#au-name").value.trim(), phone=$("#au-phone").value.trim(),
-          role=$("#au-role").value, pin=$("#au-pin").value.trim();
-    if(!name||phoneDigits(phone).length<10) return toast("Enter name and valid phone","bad");
-    if(!/^\d{6,}$/.test(pin)) return toast("PIN must be at least 6 digits","bad");
+    const name=$("#au-name").value.trim(), username=normUsername($("#au-user").value),
+          pass=$("#au-pass").value, phone=$("#au-phone").value.trim(), role=$("#au-role").value;
+    if(!name) return toast("Enter a name","bad");
+    if(username.length<3) return toast("Username must be at least 3 characters","bad");
+    if(pass.length<6) return toast("Password must be at least 6 characters","bad");
     const b=$("#au-save"); b.disabled=true; b.textContent="Creating…";
-    try{ await edgeFn("admin-create-user",{ name, phone, role, pin });
+    try{ await edgeFn("admin-create-user",{ name, username, password:pass, phone, role });
       closeSheet(); toast("User created","ok"); renderUsers();
     }catch(e){ toast(e.message,"bad"); b.disabled=false; b.textContent="Create"; }
   };
 }
-function resetPinSheet(id,name){
-  sheet(`<h3>Reset PIN</h3><p class="muted">New PIN for <b>${esc(name)}</b></p>
-    <input class="inp" id="rp-pin" inputmode="numeric" placeholder="New 6-digit PIN">
+function resetPwSheet(id,name){
+  sheet(`<h3>Reset password</h3><p class="muted">New password for <b>${esc(name)}</b></p>
+    <input class="inp" id="rp-pass" placeholder="New password (min 6 characters)">
     <div style="height:16px"></div>
     <div class="btnrow"><button class="btn sec" id="rp-cancel">Cancel</button><button class="btn" id="rp-save">Save</button></div>`);
   $("#rp-cancel").onclick=closeSheet;
   $("#rp-save").onclick=async ()=>{
-    const pin=$("#rp-pin").value.trim();
-    if(!/^\d{6,}$/.test(pin)) return toast("PIN must be at least 6 digits","bad");
-    try{ await edgeFn("admin-create-user",{ action:"reset_pin", target_id:id, pin });
-      closeSheet(); toast("PIN reset","ok");
+    const pass=$("#rp-pass").value;
+    if(pass.length<6) return toast("Password must be at least 6 characters","bad");
+    try{ await edgeFn("admin-create-user",{ action:"reset_password", target_id:id, password:pass });
+      closeSheet(); toast("Password reset","ok");
     }catch(e){ toast(e.message,"bad"); }
   };
 }
@@ -806,7 +814,7 @@ async function renderReports(){
     <h2 class="sec">Monthly statement</h2>
     <div class="card">
       <label class="fld">Customer</label>
-      <select class="inp" id="st-cust">${custs.map(u=>`<option value="${u.id}">${esc(u.name)} · ${esc(u.phone)}</option>`).join("")}</select>
+      <select class="inp" id="st-cust">${custs.map(u=>`<option value="${u.id}">${esc(u.name)} · @${esc(u.username)}</option>`).join("")}</select>
       <div class="row" style="gap:8px;margin-top:10px">
         <select class="inp" id="st-month" style="flex:1">${Array.from({length:12},(_,m)=>`<option value="${m+1}">${new Date(2000,m,1).toLocaleString("en",{month:"long"})}</option>`).join("")}</select>
         <input class="inp" id="st-year" type="number" style="flex:1" value="${new Date().getFullYear()}">
@@ -826,10 +834,10 @@ function exportCSV(){
   const rows=(state.cache.indents||[]).filter(i=>{ const d=new Date(i.created_at);
     return (!t0||d>=t0)&&(!t1||d<=t1); });
   const usersById={}; (state.cache.users||[]).forEach(u=>usersById[u.id]=u);
-  const head=["Code","Customer","Phone","Vehicle","Product","OrderType","Value","Status","PlacedIST","HandledIST"];
+  const head=["Code","Customer","Username","Phone","Vehicle","Product","OrderType","Value","Status","PlacedIST","HandledIST"];
   const csv=[head.join(",")].concat(rows.map(i=>{
     const u=usersById[i.customer_id]||{};
-    return [i.code,q(u.name),q(u.phone),i.vehicle_no,i.product,i.order_type,i.value,i.status,
+    return [i.code,q(u.name),q(u.username),q(u.phone),i.vehicle_no,i.product,i.order_type,i.value,i.status,
       q(fmtIST(i.created_at)),q(fmtIST(i.handled_at))].join(",");
   })).join("\n");
   function q(s){ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
@@ -892,7 +900,7 @@ async function handleAct(act, ds){
       case "print": return window.print();
       case "exportcsv": return exportCSV();
       case "sendstmt": return sendStatement();
-      case "resetpin": return resetPinSheet(id, ds.name);
+      case "resetpw": return resetPwSheet(id, ds.name);
       case "repeat": {
         const i=(state.cache.indents||[]).find(x=>x.id===id); if(!i) return;
         if(!confirmAct(`Repeat: ${i.vehicle_no} · ${i.product} · ${qtyText(i)}?`)) return;
