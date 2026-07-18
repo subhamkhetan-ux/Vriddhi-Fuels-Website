@@ -190,6 +190,13 @@ input.inp:focus,select.inp:focus{outline:2px solid var(--orange-soft);border-col
 <div id="toast" class="toast"></div>
 
 <script src="config.js"></script>
+<script>
+// Register the service worker so the app is installable + caches its shell.
+// Kept in a plain (non-module) script so it runs even if the module below is slow.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(()=>{}));
+}
+</script>
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
