@@ -61,17 +61,24 @@ length** in the dashboard. (Email confirmations are bypassed — accounts use a
 synthetic `<digits>@vriddhi.local` email internally; only phone + PIN are shown
 to users.)
 
+> **Phone number rule (important):** at login the app turns whatever number is
+> typed into the login email by keeping only the digits, e.g. `9876543210` →
+> `9876543210@vriddhi.local`. So the **digits you use to create an account must
+> match the digits the user will type to log in.** Pick one format and use it
+> everywhere. Recommended: the plain **10-digit mobile number** (no `+91`,
+> no spaces), because that's what people naturally type.
+
 ### 5. Bootstrap the first admin
 The app has no public sign-up (closed user base). Create the first admin by hand:
 
 1. **Authentication → Users → Add user**
-   - Email: `919876543210@vriddhi.local` (your phone digits + `@vriddhi.local`)
+   - Email: `9876543210@vriddhi.local` (the 10-digit mobile number + `@vriddhi.local`)
    - Password: your 6-digit PIN
-   - Copy the new user's **UUID**.
-2. In **SQL Editor**, run (substitute UUID + phone):
+   - Tick "Auto Confirm User" if asked, then copy the new user's **UUID**.
+2. In **SQL Editor**, run (substitute the UUID and the same number):
    ```sql
    insert into public.app_users (id, phone, name, role)
-   values ('PASTE-UUID-HERE', '+919876543210', 'Owner', 'admin');
+   values ('PASTE-UUID-HERE', '9876543210', 'Owner', 'admin');
    ```
 
 Now log into the app with that phone + PIN. From **Users** you can create every
