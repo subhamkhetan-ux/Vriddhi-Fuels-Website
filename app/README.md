@@ -1,0 +1,128 @@
+# Vriddhi Fuels — Indent Management PWA
+
+A mobile-first, installable Progressive Web App for placing and managing fuel
+indents (Petrol / Diesel / XtraGreen), with a strong **non-repudiation / proof**
+audit trail. Built as a static single-page app talking directly to
+[Supabase](https://supabase.com) (Postgres + Auth + Row-Level Security +
+realtime). No build step, runs on free tiers.
+
+> This is a **separate app** from the existing Master Ledger at the repo root
+> (`/index.html`). The ledger is untouched. This app lives entirely under
+> `/app/` and is served at `/app/`.
+
+## What's here
+
+```
+app/
+  index.html            The whole PWA (login + customer + employee + admin)
+  config.js             Paste your Supabase URL + anon key here
+  manifest.webmanifest  PWA manifest (installable)
+  sw.js                 Service worker (app-shell cache, offline history)
+  icon.png              App icon
+supabase/
+  schema.sql            Tables, enums, sequential IND-#### ids, append-only
+                        audit log, RLS policies, and all mutation RPCs
+  functions/admin-create-user/index.ts   Edge function to create phone+PIN users
+```
+
+## Roles
+
+| Role | Can do |
+|---|---|
+| **Customer** | Place indents (3-step wizard), repeat last order, approve/reject staff-logged indents, modify/cancel own open indents, view history + monthly statements, acknowledge/dispute statements. |
+| **Employee** | Live realtime board (today's totals + filters), mark delivered, log indents on behalf of a customer, modify/cancel any open indent. |
+| **Admin** | Everything employees do, plus user management (create / reset PIN / activate / deactivate), block/unblock customers, daily summary + monthly statement sender, CSV export, one-tap **proof pack** (indent + full audit trail, print to PDF). |
+
+## Setup (one time)
+
+### 1. Create a Supabase project
+Free tier is enough. From the dashboard note **Project URL** and the **anon key**
+(Project Settings → API).
+
+### 2. Run the database schema
+Open **SQL Editor** in Supabase, paste the contents of
+[`supabase/schema.sql`](../supabase/schema.sql), and run it. This creates all
+tables, the append-only audit log, RLS policies, and the mutation RPCs.
+
+### 3. Configure the client
+Edit [`app/config.js`](./config.js) and paste your values:
+
+```js
+window.VRIDDHI_CONFIG = {
+  SUPABASE_URL: "https://YOURPROJECT.supabase.co",
+  SUPABASE_ANON_KEY: "eyJ...your anon key...",
+};
+```
+
+### 4. Lower the minimum password length (PINs)
+Supabase Auth requires passwords ≥ 6 chars. **Use 6-digit PINs.** If you want
+4-digit PINs, lower **Authentication → Providers → Email → Minimum password
+length** in the dashboard. (Email confirmations are bypassed — accounts use a
+synthetic `<digits>@vriddhi.local` email internally; only phone + PIN are shown
+to users.)
+
+### 5. Bootstrap the first admin
+The app has no public sign-up (closed user base). Create the first admin by hand:
+
+1. **Authentication → Users → Add user**
+   - Email: `919876543210@vriddhi.local` (your phone digits + `@vriddhi.local`)
+   - Password: your 6-digit PIN
+   - Copy the new user's **UUID**.
+2. In **SQL Editor**, run (substitute UUID + phone):
+   ```sql
+   insert into public.app_users (id, phone, name, role)
+   values ('PASTE-UUID-HERE', '+919876543210', 'Owner', 'admin');
+   ```
+
+Now log into the app with that phone + PIN. From **Users** you can create every
+other account (customers, employees, admins) — no more manual steps.
+
+### 6. Deploy the admin-create-user edge function
+This lets the admin create phone+PIN accounts from inside the app.
+
+```bash
+# https://supabase.com/docs/guides/cli
+supabase login
+supabase link --project-ref YOURPROJECT
+supabase functions deploy admin-create-user
+```
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are injected
+automatically for deployed functions — no secrets to set.
+
+### 7. Serve the app
+It's static — host `/app/` anywhere (GitHub Pages, Netlify, Vercel static, or
+alongside the existing site). On a phone, open it in Chrome and **Add to Home
+screen** to install the PWA.
+
+## Proof / non-repudiation (how it's enforced)
+
+- **Server timestamps only** — every row uses `now()`; the client clock is never
+  trusted.
+- **Append-only audit log** — `audit_log` has no UPDATE/DELETE policy *and* a
+  trigger that hard-blocks updates/deletes for everyone. The only writer is the
+  internal `_audit()` function, which is *revoked from clients*.
+- **All mutations go through `SECURITY DEFINER` RPCs** (`place_indent`,
+  `approve_indent`, `deliver_indent`, …) so permission checks and the audit write
+  happen atomically. Clients get **SELECT-only** table access; RLS ensures a
+  customer sees only their own indents.
+- **Informed-consent confirm screen** shows full details before the placing tap.
+- **"Delivered without customer approval"** is recorded as a distinct, weaker-proof
+  audit note (shown in red on the proof pack).
+- **Monthly statement** acknowledge / dispute is stored as an audit event.
+- **Proof pack** — open any indent → *Proof pack (PDF)* → the browser's print
+  dialog produces a PDF of the indent details + chronological audit trail.
+
+## Not yet wired (next steps)
+
+These are scaffolded/documented but need extra setup to go live:
+
+- **Web Push notifications** (approval requests, delivery, statements). Needs FCM
+  keys + a push subscription table + a sender. The event points already exist in
+  the RPCs.
+- **Automated 9 PM IST daily summary** push. The summary is available on demand in
+  **Admin → Reports**; automating the push needs a scheduled edge function
+  (`pg_cron` / Supabase scheduled functions).
+- **IP capture** in the audit log (`ip` column exists; the browser can't read its
+  own IP, so populate it from an edge function if needed).
+- Hindi toggle, credit ledger, delivery photo/signature — see requirements §10.

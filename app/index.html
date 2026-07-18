@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Vriddhi Indents">
+<meta name="theme-color" content="#111E3E">
+<title>Vriddhi Fuels — Indents</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+:root{
+  --orange:#E46713; --orange-soft:#f0853a; --orange-tint:#fff1e6;
+  --navy:#111E3E; --navy-2:#1a2c52;
+  --bg:#f5f6f8; --bg-grad-top:#eef1f6;
+  --card:#ffffff; --card-2:#fbfcfe;
+  --line:#e7e9ee; --line-2:#eef0f4;
+  --txt:#1c2430; --txt-2:#5b6573; --txt-3:#8b94a3;
+  --ok:#0f9d6e; --warn:#E46713; --bad:#dc2626; --info:#2563eb;
+  /* product colours (see requirements §11) */
+  --petrol:#E46713; --petrol-bg:#fff1e6;
+  --diesel:#2563eb; --diesel-bg:#e8f0ff;
+  --xg:#16a34a;     --xg-bg:#e6f7ec;
+  --radius:18px; --radius-sm:13px;
+  --shadow:0 1px 2px rgba(17,30,62,.05), 0 6px 20px rgba(17,30,62,.07);
+  --safe-top:env(safe-area-inset-top); --safe-bot:env(safe-area-inset-bottom);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0e1320; --bg-grad-top:#121a2c; --card:#172033; --card-2:#1b2538;
+    --line:#27324a; --line-2:#222c42; --txt:#eef2f8; --txt-2:#a7b1c4; --txt-3:#7b8499;
+    --orange-tint:#2a1d12; --petrol-bg:#2a1d12; --diesel-bg:#12203c; --xg-bg:#0f2a1c;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.28);
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;color:var(--txt);
+  background:linear-gradient(180deg,var(--bg-grad-top),var(--bg) 260px) fixed;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:16px;line-height:1.5;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select{font:inherit}
+a{color:var(--orange);text-decoration:none}
+
+header{position:sticky;top:0;z-index:30;
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  backdrop-filter:saturate(180%) blur(18px);-webkit-backdrop-filter:saturate(180%) blur(18px);
+  border-bottom:1px solid var(--line-2);padding:calc(var(--safe-top) + 10px) 16px 10px}
+.hrow{display:flex;align-items:center;gap:11px;max-width:720px;margin:0 auto}
+.brandmark{width:30px;height:30px;border-radius:8px;object-fit:cover;flex:none;
+  box-shadow:0 1px 4px rgba(17,30,62,.2)}
+.htitle{font-weight:700;font-size:18px;letter-spacing:-.3px;flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hsub{font-size:12px;color:var(--txt-3);font-weight:600}
+.iconbtn{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+  background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);font-size:17px}
+
+main{max-width:720px;margin:0 auto;padding:16px 16px calc(96px + var(--safe-bot))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+h2.sec{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt-3);
+  margin:22px 4px 10px;font-weight:700}
+.muted{color:var(--txt-2)} .tiny{font-size:12px;color:var(--txt-3)}
+.row{display:flex;align-items:center;gap:10px}
+.spread{display:flex;align-items:center;justify-content:space-between;gap:10px}
+
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+  min-height:54px;border-radius:14px;font-weight:700;font-size:17px;
+  background:var(--orange);color:#fff;box-shadow:0 4px 14px rgba(228,103,19,.28)}
+.btn:active{transform:translateY(1px)}
+.btn.sec{background:var(--card);color:var(--txt);border:1px solid var(--line);box-shadow:var(--shadow)}
+.btn.ghost{background:transparent;color:var(--orange);box-shadow:none;min-height:46px}
+.btn.ok{background:var(--ok);box-shadow:0 4px 14px rgba(15,157,110,.28)}
+.btn.bad{background:var(--bad);box-shadow:0 4px 14px rgba(220,38,38,.25)}
+.btn.info{background:var(--info);box-shadow:0 4px 14px rgba(37,99,235,.25)}
+.btn.sm{min-height:42px;font-size:15px;border-radius:11px;padding:0 14px;width:auto}
+.btnrow{display:flex;gap:10px}.btnrow>*{flex:1}
+
+label.fld{display:block;margin:12px 0 6px;font-weight:600;font-size:14px;color:var(--txt-2)}
+input.inp,select.inp{width:100%;min-height:52px;border-radius:13px;border:1px solid var(--line);
+  background:var(--card-2);color:var(--txt);padding:0 14px;font-size:17px}
+input.inp:focus,select.inp:focus{outline:2px solid var(--orange-soft);border-color:var(--orange-soft)}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:9px 14px;border-radius:999px;background:var(--card-2);border:1px solid var(--line);
+  font-weight:600;font-size:14px}
+.chip.on{background:var(--orange-tint);border-color:var(--orange);color:var(--orange)}
+
+.prodgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.prodbtn{min-height:96px;border-radius:16px;border:2px solid var(--line);background:var(--card-2);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-weight:700}
+.prodbtn .dot{width:16px;height:16px;border-radius:50%}
+.prodbtn.on{border-width:2.5px}
+.prodbtn[data-p="Petrol"].on{border-color:var(--petrol);background:var(--petrol-bg);color:var(--petrol)}
+.prodbtn[data-p="Diesel"].on{border-color:var(--diesel);background:var(--diesel-bg);color:var(--diesel)}
+.prodbtn[data-p="XtraGreen"].on{border-color:var(--xg);background:var(--xg-bg);color:var(--xg)}
+
+.seg{display:flex;background:var(--card-2);border:1px solid var(--line);border-radius:13px;padding:4px;gap:4px}
+.seg button{flex:1;min-height:44px;border-radius:10px;font-weight:700;color:var(--txt-2)}
+.seg button.on{background:var(--orange);color:#fff}
+
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:12px}
+.tabs button{white-space:nowrap;padding:9px 15px;border-radius:999px;background:var(--card);
+  border:1px solid var(--line);font-weight:600;font-size:14px;color:var(--txt-2)}
+.tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+
+.totrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.tot{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;box-shadow:var(--shadow)}
+.tot b{display:block;font-size:22px;letter-spacing:-.5px}
+.tot span{font-size:11px;color:var(--txt-3);font-weight:600;text-transform:uppercase}
+
+.icard{border-left:5px solid var(--line);border-radius:14px;background:var(--card);
+  border:1px solid var(--line);box-shadow:var(--shadow);padding:13px 14px;margin-bottom:11px}
+.icard[data-p="Petrol"]{border-left-color:var(--petrol)}
+.icard[data-p="Diesel"]{border-left-color:var(--diesel)}
+.icard[data-p="XtraGreen"]{border-left-color:var(--xg)}
+.icard .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.icode{font-weight:800;letter-spacing:-.3px}
+.iqty{font-weight:800;font-size:20px;letter-spacing:-.5px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;
+  padding:3px 9px;border-radius:999px;border:1px solid var(--line)}
+.b-Awaiting{background:#fff7ec;color:#b45309;border-color:#f7d9a8}
+.b-Pending{background:#eef2ff;color:#3949ab;border-color:#c7d0f7}
+.b-Delivered{background:#e6f7ec;color:#0f9d6e;border-color:#b6e6cd}
+.b-Cancelled{background:#fdeaea;color:#c0392b;border-color:#f3c4c0}
+@media (prefers-color-scheme: dark){
+  .b-Awaiting{background:#2a1d12;color:#f0a44a;border-color:#5a3d1c}
+  .b-Pending{background:#182338;color:#8fa6ff;border-color:#2c3a5c}
+  .b-Delivered{background:#0f2a1c;color:#3fd29a;border-color:#1f4a34}
+  .b-Cancelled{background:#2a1414;color:#f08a80;border-color:#5a2a26}
+}
+.banner{background:var(--orange-tint);border:1px solid var(--orange);border-radius:16px;
+  padding:14px;margin-bottom:14px}
+.blocknote{background:#fdeaea;border:1px solid #f3c4c0;color:#c0392b;border-radius:14px;padding:12px;margin-bottom:12px;font-weight:600}
+
+.fab{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + var(--safe-bot));
+  z-index:40;width:min(688px,calc(100% - 32px))}
+.tabbar{position:fixed;bottom:0;left:0;right:0;z-index:39;display:flex;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);border-top:1px solid var(--line-2);
+  padding:8px 8px calc(8px + var(--safe-bot))}
+.tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  font-size:11px;font-weight:600;color:var(--txt-3);padding:6px 0}
+.tabbar button .ic{font-size:20px}
+.tabbar button.on{color:var(--orange)}
+
+.overlay{position:fixed;inset:0;z-index:60;background:rgba(10,15,25,.45);
+  display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:720px;border-radius:22px 22px 0 0;
+  padding:18px 16px calc(20px + var(--safe-bot));max-height:92vh;overflow:auto;
+  box-shadow:0 -10px 40px rgba(0,0,0,.2)}
+.sheet h3{margin:2px 0 4px;font-size:20px;letter-spacing:-.4px}
+.kv{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line-2)}
+.kv:last-child{border-bottom:0}.kv .k{color:var(--txt-2)}.kv .v{font-weight:700;text-align:right}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + var(--safe-bot));
+  z-index:80;background:var(--navy);color:#fff;padding:12px 18px;border-radius:13px;font-weight:600;
+  box-shadow:0 8px 30px rgba(0,0,0,.3);max-width:90%;text-align:center;opacity:0;pointer-events:none;
+  transition:opacity .2s, transform .2s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+.toast.bad{background:var(--bad)} .toast.ok{background:var(--ok)}
+
+.audit{list-style:none;padding:0;margin:8px 0 0}
+.audit li{position:relative;padding:0 0 14px 20px;border-left:2px solid var(--line);margin-left:6px}
+.audit li:last-child{border-left-color:transparent}
+.audit li::before{content:"";position:absolute;left:-6px;top:3px;width:10px;height:10px;border-radius:50%;background:var(--orange)}
+.audit .ev{font-weight:700;text-transform:capitalize}
+.audit .weak{color:var(--bad);font-weight:700}
+
+.center{min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center}
+.spin{width:34px;height:34px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--orange);animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.hidden{display:none!important}
+.empty{text-align:center;color:var(--txt-3);padding:34px 10px}
+@media print{
+  header,.tabbar,.fab,.toast,.no-print{display:none!important}
+  main{padding:0} .card{box-shadow:none;border:1px solid #ccc}
+}
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="center"><div class="spin"></div><div class="muted">Loading…</div></div>
+</div>
+<div id="modal"></div>
+<div id="toast" class="toast"></div>
+
+<script src="config.js"></script>
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const CFG = window.VRIDDHI_CONFIG || {};
+const configured = CFG.SUPABASE_URL && !CFG.SUPABASE_URL.includes("PASTE_YOUR");
+const sb = configured ? createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
+
+// ---------- tiny helpers ----------
+const $ = (s, r=document) => r.querySelector(s);
+const root = $("#root"), modal = $("#modal");
+const esc = (s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const UA = navigator.userAgent;
+const PRODUCTS = ["Petrol","Diesel","XtraGreen"];
+const STATUS_ICON = {Awaiting:"🕐",Pending:"⏳",Delivered:"✅",Cancelled:"🚫"};
+
+let TO;
+function toast(msg, kind=""){
+  const t=$("#toast"); t.textContent=msg; t.className="toast show "+kind;
+  clearTimeout(TO); TO=setTimeout(()=>t.className="toast",2600);
+}
+const fmtIST = (ts)=> ts ? new Date(ts).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",
+  day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}) : "";
+const fmtDay = (ts)=> ts ? new Date(ts).toLocaleDateString("en-IN",{timeZone:"Asia/Kolkata",
+  day:"2-digit",month:"short"}) : "";
+const inr = (n)=> "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
+const qtyText = (i)=> i.order_type==="Litres" ? (Number(i.value)+" L") : inr(i.value);
+
+function normVehicle(v){
+  v=(v||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  const m=v.match(/^([A-Z]{2})(\d{1,2})([A-Z]{1,3})(\d{1,4})$/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}-${m[4]}` : v;
+}
+const validVehicle = (v)=> /^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{1,4}$/.test((v||"").toUpperCase().replace(/[^A-Z0-9]/g,""));
+const phoneDigits = (p)=> (p||"").replace(/\D/g,"");
+const phoneToEmail = (p)=> phoneDigits(p)+"@vriddhi.local";
+
+async function rpc(fn, args){
+  const { data, error } = await sb.rpc(fn, args||{});
+  if(error) throw error;
+  return data;
+}
+function withMeta(a={}){ return { ...a, p_ua: UA, p_ip: null }; }
+async function edgeFn(name, body){
+  const { data:{ session } } = await sb.auth.getSession();
+  const res = await fetch(`${CFG.SUPABASE_URL}/functions/v1/${name}`,{
+    method:"POST",
+    headers:{ "Content-Type":"application/json", Authorization:`Bearer ${session?.access_token||""}` },
+    body: JSON.stringify(body||{})
+  });
+  const out = await res.json().catch(()=>({error:"Bad response"}));
+  if(!res.ok) throw new Error(out.error||("HTTP "+res.status));
+  return out;
+}
+
+// ---------- app state ----------
+const state = { me:null, view:"home", tab:"Pending", channel:null, cache:{} };
+
+// ============================================================
+// AUTH / BOOT
+// ============================================================
+async function boot(){
+  if(!configured){ return renderSetupNeeded(); }
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session){ return renderLogin(); }
+  try{
+    const rows = await rpc("me");
+    const me = Array.isArray(rows) ? rows[0] : rows;
+    if(!me){ await sb.auth.signOut(); return renderLogin("Account not set up. Contact admin."); }
+    if(me.is_active===false){ await sb.auth.signOut(); return renderLogin("Account is inactive."); }
+    state.me = me;
+    subscribeRealtime();
+    routeHome();
+  }catch(e){ renderLogin(e.message||"Could not load your profile."); }
+}
+
+sb && sb.auth.onAuthStateChange((ev)=>{ if(ev==="SIGNED_OUT"){ teardownRealtime(); } });
+
+function routeHome(){
+  const r=state.me.role;
+  if(r==="customer"){ state.view="home"; renderCustomer(); }
+  else { state.view="board"; renderStaff(); }
+}
+
+async function doLogin(phone, pin){
+  const email = phoneToEmail(phone);
+  const { error } = await sb.auth.signInWithPassword({ email, password: pin });
+  if(error) throw new Error("Wrong phone number or PIN.");
+  await boot();
+}
+async function logout(){ await sb.auth.signOut(); state.me=null; renderLogin(); }
+
+// ============================================================
+// REALTIME
+// ============================================================
+function subscribeRealtime(){
+  teardownRealtime();
+  state.channel = sb.channel("indents-rt")
+    .on("postgres_changes",{event:"*",schema:"public",table:"indents"}, ()=>onDataChange())
+    .subscribe();
+}
+function teardownRealtime(){ if(state.channel){ sb.removeChannel(state.channel); state.channel=null; } }
+let RT_T;
+function onDataChange(){
+  clearTimeout(RT_T);
+  RT_T=setTimeout(()=>{ // debounce bursts
+    if(state.me?.role==="customer" && (state.view==="home"||state.view==="mine")) renderCustomer(true);
+    else if(state.me && (state.view==="board")) renderStaff(true);
+  },350);
+}
+
+// ============================================================
+// SHARED CHROME
+// ============================================================
+function header(sub){
+  const s = state.me ? (sub||({customer:"Customer",employee:"Employee",admin:"Admin"}[state.me.role])) : "";
+  return `<header><div class="hrow">
+    <img class="brandmark" src="icon.png" alt="">
+    <div style="flex:1;min-width:0">
+      <div class="htitle">Vriddhi Fuels</div>
+      <div class="hsub">${esc(s)}${state.me?" · "+esc(state.me.name):""}</div>
+    </div>
+    ${state.me?`<button class="iconbtn" data-act="logout" title="Log out">⏻</button>`:""}
+  </div></header>`;
+}
+
+// ============================================================
+// SETUP / LOGIN SCREENS
+// ============================================================
+function renderSetupNeeded(){
+  root.innerHTML = header("Setup")+`<main><div class="card">
+    <h3>Configuration needed</h3>
+    <p class="muted">Open <code>app/config.js</code> and paste your Supabase project URL and anon key,
+    then run <code>supabase/schema.sql</code>. See the README for full setup steps.</p>
+  </div></main>`;
+}
+function renderLogin(msg){
+  teardownRealtime();
+  root.innerHTML = header("")+`<main>
+    <div class="center" style="min-height:78vh">
+      <img src="icon.png" style="width:76px;height:76px;border-radius:20px;box-shadow:var(--shadow)">
+      <div>
+        <div style="font-size:24px;font-weight:800;letter-spacing:-.5px">Vriddhi Fuels</div>
+        <div class="muted">Fuel indent management</div>
+      </div>
+      <div class="card" style="width:100%;max-width:360px;text-align:left">
+        ${msg?`<div class="blocknote">${esc(msg)}</div>`:""}
+        <label class="fld">Phone number</label>
+        <input class="inp" id="li-phone" inputmode="tel" placeholder="e.g. 9876543210" autocomplete="username">
+        <label class="fld">PIN</label>
+        <input class="inp" id="li-pin" inputmode="numeric" type="password" placeholder="Your PIN" autocomplete="current-password">
+        <div style="height:14px"></div>
+        <button class="btn" id="li-go">Log in</button>
+        <p class="tiny" style="margin-top:12px">Accounts are created by the admin. Contact us if you can't log in.</p>
+      </div>
+    </div></main>`;
+  const go = async ()=>{
+    const phone=$("#li-phone").value.trim(), pin=$("#li-pin").value.trim();
+    if(phoneDigits(phone).length<10) return toast("Enter a valid phone number","bad");
+    if(pin.length<4) return toast("Enter your PIN","bad");
+    const btn=$("#li-go"); btn.textContent="Logging in…"; btn.disabled=true;
+    try{ await doLogin(phone,pin); }
+    catch(e){ toast(e.message,"bad"); btn.textContent="Log in"; btn.disabled=false; }
+  };
+  $("#li-go").onclick=go;
+  $("#li-pin").addEventListener("keydown",e=>{ if(e.key==="Enter") go(); });
+  bindChrome();
+}
+
+// ============================================================
+// DATA LOADERS
+// ============================================================
+async function myIndents(){
+  const { data, error } = await sb.from("indents").select("*")
+    .order("created_at",{ascending:false}).limit(200);
+  if(error) throw error; return data||[];
+}
+async function allIndents(){
+  const { data, error } = await sb.from("indents").select("*")
+    .order("created_at",{ascending:false}).limit(500);
+  if(error) throw error; return data||[];
+}
+async function usersList(){
+  const { data, error } = await sb.from("app_users").select("*").order("created_at",{ascending:false});
+  if(error) throw error; return data||[];
+}
+async function myStatements(){
+  const { data, error } = await sb.from("statements").select("*").order("sent_at",{ascending:false});
+  if(error) throw error; return data||[];
+}
+async function auditFor(indentId){
+  const { data, error } = await sb.from("audit_log").select("*")
+    .eq("indent_id",indentId).order("created_at",{ascending:true});
+  if(error) throw error; return data||[];
+}
+const isToday = (ts)=> fmtDay(ts)===fmtDay(new Date().toISOString());
+
+// ============================================================
+// CUSTOMER
+// ============================================================
+async function renderCustomer(quiet){
+  state.view="home";
+  if(!quiet) root.innerHTML = header()+`<main><div class="center"><div class="spin"></div></div></main>`;
+  let indents=[], stmts=[];
+  try{ [indents,stmts]=await Promise.all([myIndents(),myStatements()]); }
+  catch(e){ return toast(e.message,"bad"); }
+  state.cache.indents=indents;
+  const awaiting = indents.filter(i=>i.status==="Awaiting");
+  const pendingStmt = stmts.filter(s=>s.ack_status==="pending");
+  const last = indents.find(i=>i.status!=="Cancelled");
+  const blocked = state.me.is_blocked;
+
+  root.innerHTML = header()+`<main>
+    ${blocked?`<div class="blocknote">Your account is blocked. You can view history but cannot place indents. Please contact us.</div>`:""}
+    ${awaiting.map(i=>approvalBanner(i)).join("")}
+    ${pendingStmt.map(s=>stmtBanner(s)).join("")}
+    <div class="card">
+      <div class="spread" style="margin-bottom:12px">
+        <div><div style="font-weight:800;font-size:19px">Place a fuel indent</div>
+        <div class="tiny">3 quick steps — vehicle, product, quantity</div></div>
+      </div>
+      <button class="btn ${blocked?"":""}" data-act="new" ${blocked?"disabled":""}>➕ New indent</button>
+      ${last && !blocked ? `<button class="btn sec" style="margin-top:10px" data-act="repeat" data-id="${last.id}">
+        🔁 Repeat last — ${esc(last.vehicle_no)} · ${esc(last.product)} · ${esc(qtyText(last))}</button>`:""}
+    </div>
+    <h2 class="sec">My indents</h2>
+    <div id="mylist">${indents.length?indents.map(customerCard).join(""):`<div class="empty">No indents yet.</div>`}</div>
+  </main>${customerTabbar()}`;
+  bindChrome();
+}
+function customerTabbar(){
+  return `<nav class="tabbar">
+    <button class="on" data-act="home"><span class="ic">🏠</span>Home</button>
+    <button data-act="new"><span class="ic">➕</span>New</button>
+    <button data-act="statements"><span class="ic">🧾</span>Statements</button>
+  </nav>`;
+}
+function approvalBanner(i){
+  return `<div class="banner">
+    <div style="font-weight:800;margin-bottom:4px">🕐 Approval needed — ${esc(i.code)}</div>
+    <div class="muted" style="margin-bottom:10px">Staff logged this on your behalf:
+      <b>${esc(i.vehicle_no)}</b> · ${esc(i.product)} · <b>${esc(qtyText(i))}</b></div>
+    <div class="btnrow">
+      <button class="btn ok sm" data-act="approve" data-id="${i.id}">Approve</button>
+      <button class="btn bad sm" data-act="reject" data-id="${i.id}">Reject</button>
+      <button class="btn sec sm" data-act="detail" data-id="${i.id}">Details</button>
+    </div></div>`;
+}
+function stmtBanner(s){
+  return `<div class="banner">
+    <div style="font-weight:800;margin-bottom:4px">🧾 Monthly statement — ${s.period_month}/${s.period_year}</div>
+    <div class="muted" style="margin-bottom:8px">${s.indent_ids.length} delivered indents ·
+      ${Number(s.total_litres)?Number(s.total_litres)+" L":""} ${Number(s.total_amount)?inr(s.total_amount):""}</div>
+    <div class="tiny" style="margin-bottom:10px">If anything looks incorrect, raise a dispute within 24 hours; otherwise this record stands confirmed.</div>
+    <div class="btnrow">
+      <button class="btn ok sm" data-act="ack" data-id="${s.id}">Looks correct ✔</button>
+      <button class="btn sec sm" data-act="dispute" data-id="${s.id}">Raise a dispute</button>
+    </div></div>`;
+}
+function customerCard(i){
+  return `<div class="icard" data-p="${i.product}" data-act="detail" data-id="${i.id}" role="button">
+    <div class="top"><span class="icode">${esc(i.code)}</span>
+      <span class="badge b-${i.status}">${STATUS_ICON[i.status]} ${i.status}</span></div>
+    <div class="spread" style="margin-top:6px">
+      <div><div style="font-weight:600">${esc(i.vehicle_no)}</div>
+        <div class="tiny">${esc(i.product)} · ${fmtIST(i.created_at)}</div></div>
+      <div class="iqty">${esc(qtyText(i))}</div></div>
+  </div>`;
+}
+
+// ============================================================
+// STAFF (employee + admin) BOARD
+// ============================================================
+async function renderStaff(quiet){
+  state.view="board";
+  if(!quiet) root.innerHTML = header()+`<main><div class="center"><div class="spin"></div></div></main>`;
+  let indents=[];
+  try{ indents=await allIndents(); }catch(e){ return toast(e.message,"bad"); }
+  state.cache.indents=indents;
+  const today = indents.filter(i=>isToday(i.created_at));
+  const c=(s)=>today.filter(i=>i.status===s).length;
+  const tab=state.tab;
+  const filtered = indents.filter(i=> tab==="All" ? true : i.status===tab);
+
+  root.innerHTML = header()+`<main>
+    <div class="totrow">
+      <div class="tot"><b>${today.length}</b><span>Today</span></div>
+      <div class="tot"><b>${c("Pending")+c("Awaiting")}</b><span>Open</span></div>
+      <div class="tot"><b>${c("Delivered")}</b><span>Delivered</span></div>
+      <div class="tot"><b>${c("Cancelled")}</b><span>Cancelled</span></div>
+    </div>
+    <div class="tabs">
+      ${["Pending","Awaiting","Delivered","All"].map(t=>`<button class="${t===tab?"on":""}" data-act="tab" data-tab="${t}">${t}</button>`).join("")}
+    </div>
+    <div id="board">${filtered.length?filtered.map(staffCard).join(""):`<div class="empty">Nothing here.</div>`}</div>
+  </main>
+  <button class="btn fab" data-act="onbehalf">➕ Log indent for a customer</button>
+  ${staffTabbar()}`;
+  bindChrome();
+}
+function staffTabbar(){
+  const admin = state.me.role==="admin";
+  return `<nav class="tabbar">
+    <button class="${state.view==="board"?"on":""}" data-act="board"><span class="ic">📋</span>Board</button>
+    <button data-act="onbehalf"><span class="ic">➕</span>Log</button>
+    ${admin?`<button data-act="users"><span class="ic">👥</span>Users</button>
+    <button data-act="reports"><span class="ic">📊</span>Reports</button>`:""}
+  </nav>`;
+}
+function staffCard(i){
+  const open = i.status==="Pending"||i.status==="Awaiting";
+  return `<div class="icard" data-p="${i.product}">
+    <div class="top">
+      <span class="icode">${esc(i.code)} <span class="badge b-${i.status}">${STATUS_ICON[i.status]} ${i.status}</span></span>
+      <span class="iqty">${esc(qtyText(i))}</span></div>
+    <div class="spread" style="margin:6px 0 10px">
+      <div><div style="font-weight:700">${esc(i.vehicle_no)}</div>
+        <div class="tiny">${esc(i.product)} · ${fmtIST(i.created_at)}</div></div>
+    </div>
+    <div class="btnrow">
+      ${open?`<button class="btn ok sm" data-act="deliver" data-id="${i.id}">✅ Delivered</button>`:""}
+      <button class="btn sec sm" data-act="detail" data-id="${i.id}">Details</button>
+      ${open?`<button class="btn sec sm" data-act="modify" data-id="${i.id}">Modify</button>
+      <button class="btn bad sm" data-act="cancel" data-id="${i.id}">Cancel</button>`:""}
+    </div></div>`;
+}
+
+// ============================================================
+// INDENT DETAIL + AUDIT (proof pack)
+// ============================================================
+async function openDetail(id){
+  const i = (state.cache.indents||[]).find(x=>x.id===id);
+  if(!i) return;
+  let audit=[]; try{ audit=await auditFor(id); }catch(e){}
+  const mine = state.me.role==="customer";
+  const open = i.status==="Pending"||i.status==="Awaiting";
+  const canModify = open && (!mine || (i.customer_id===state.me.id && !state.me.is_blocked));
+  const awaitingMine = i.status==="Awaiting" && mine && i.customer_id===state.me.id;
+  sheet(`
+    <div class="spread"><h3>${esc(i.code)}</h3><span class="badge b-${i.status}">${STATUS_ICON[i.status]} ${i.status}</span></div>
+    <div class="kv"><span class="k">Vehicle</span><span class="v">${esc(i.vehicle_no)}</span></div>
+    <div class="kv"><span class="k">Product</span><span class="v">${esc(i.product)}</span></div>
+    <div class="kv"><span class="k">Quantity</span><span class="v">${esc(qtyText(i))}</span></div>
+    <div class="kv"><span class="k">Placed</span><span class="v">${fmtIST(i.created_at)}</span></div>
+    ${i.handled_at?`<div class="kv"><span class="k">${i.status}</span><span class="v">${fmtIST(i.handled_at)}</span></div>`:""}
+    <h2 class="sec" style="margin:16px 4px 4px">Audit trail (proof)</h2>
+    <ul class="audit">${audit.map(a=>`<li>
+      <div class="ev">${STATUS_ICON[cap(a.event)]||"•"} ${esc(a.event)}</div>
+      <div class="tiny">${fmtIST(a.created_at)}${a.actor_role?" · "+esc(a.actor_role):""}</div>
+      ${a.note?`<div class="${/WITHOUT CUSTOMER APPROVAL/.test(a.note)?"weak":"muted"}" style="font-size:13px">${esc(a.note)}</div>`:""}
+    </li>`).join("")||`<li class="muted">No audit rows.</li>`}</ul>
+    <div style="height:14px"></div>
+    ${awaitingMine?`<div class="btnrow no-print"><button class="btn ok" data-act="approve" data-id="${i.id}">Approve</button>
+      <button class="btn bad" data-act="reject" data-id="${i.id}">Reject</button></div><div style="height:10px"></div>`:""}
+    ${canModify && !awaitingMine?`<div class="btnrow no-print">
+      <button class="btn sec" data-act="modify" data-id="${i.id}">Modify</button>
+      <button class="btn bad" data-act="cancel" data-id="${i.id}">Cancel</button></div><div style="height:10px"></div>`:""}
+    ${!mine && open?`<button class="btn ok no-print" data-act="deliver" data-id="${i.id}">✅ Mark delivered</button><div style="height:10px"></div>`:""}
+    <button class="btn sec no-print" data-act="print">🖨️ Proof pack (PDF)</button>
+  `);
+}
+const cap=(s)=> s? s[0].toUpperCase()+s.slice(1):s;
+
+// ============================================================
+// PLACE / LOG-ON-BEHALF WIZARD
+// ============================================================
+function newIndentWizard(onBehalf){
+  const draft={ customer:null, vehicle:"", product:null, order_type:"Litres", value:"" };
+  const saved = [...new Set((state.cache.indents||[])
+    .filter(i=>onBehalf?false:true).map(i=>i.vehicle_no))].slice(0,6);
+  let customers=[];
+  const stepCustomer = ()=>`
+    <h3>Log for customer</h3>
+    <label class="fld">Search customer</label>
+    <input class="inp" id="wz-cust-q" placeholder="Name or phone" autocomplete="off">
+    <div id="wz-cust-list" style="margin-top:10px"></div>`;
+  const stepVehicle = ()=>`
+    <h3>Vehicle number</h3>
+    ${saved.length?`<label class="fld">Recent</label><div class="chips" id="wz-saved">
+      ${saved.map(v=>`<button class="chip" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div>`:""}
+    <label class="fld">Enter vehicle</label>
+    <input class="inp" id="wz-veh" placeholder="WB-12-AB-1234" value="${esc(draft.vehicle)}" autocapitalize="characters">
+    <div class="tiny" style="margin-top:6px">Indian format, e.g. WB-12-AB-1234</div>`;
+  const stepProduct = ()=>`
+    <h3>Product</h3>
+    <div class="prodgrid" style="margin-top:12px">
+      ${PRODUCTS.map(p=>`<button class="prodbtn ${draft.product===p?"on":""}" data-p="${p}">
+        <span class="dot" style="background:var(--${p==="Petrol"?"petrol":p==="Diesel"?"diesel":"xg"})"></span>${p}</button>`).join("")}
+    </div>`;
+  const stepQty = ()=>`
+    <h3>Quantity</h3>
+    <label class="fld">Order by</label>
+    <div class="seg" id="wz-ot">
+      <button class="${draft.order_type==="Litres"?"on":""}" data-ot="Litres">Litres</button>
+      <button class="${draft.order_type==="Amount"?"on":""}" data-ot="Amount">Amount ₹</button>
+    </div>
+    <label class="fld">${draft.order_type==="Litres"?"Litres":"Amount (₹)"}</label>
+    <input class="inp" id="wz-val" inputmode="decimal" placeholder="0" value="${esc(draft.value)}">`;
+  const stepConfirm = ()=>`
+    <h3>Confirm indent</h3>
+    <p class="tiny">Please check the details below. Placing this indent is recorded with a timestamp as your confirmation.</p>
+    <div class="card" style="margin-top:8px">
+      ${onBehalf?`<div class="kv"><span class="k">Customer</span><span class="v">${esc(draft.customerName||"")}</span></div>`:""}
+      <div class="kv"><span class="k">Vehicle</span><span class="v">${esc(normVehicle(draft.vehicle))}</span></div>
+      <div class="kv"><span class="k">Product</span><span class="v">${esc(draft.product)}</span></div>
+      <div class="kv"><span class="k">Quantity</span><span class="v">${draft.order_type==="Litres"?draft.value+" L":inr(draft.value)}</span></div>
+    </div>
+    ${onBehalf?`<p class="tiny">The customer will get an approval request and must approve before it's confirmed.</p>`:""}`;
+
+  const steps = onBehalf ? ["customer","vehicle","product","qty","confirm"] : ["vehicle","product","qty","confirm"];
+  let si=0;
+  const draw = ()=>{
+    const name=steps[si];
+    const body = {customer:stepCustomer,vehicle:stepVehicle,product:stepProduct,qty:stepQty,confirm:stepConfirm}[name]();
+    const last = si===steps.length-1;
+    sheet(`${body}
+      <div style="height:16px"></div>
+      <div class="btnrow">
+        <button class="btn sec" id="wz-back">${si===0?"Cancel":"Back"}</button>
+        <button class="btn" id="wz-next">${last?"Place indent ✅":"Next"}</button>
+      </div>
+      <div class="tiny" style="text-align:center;margin-top:8px">Step ${si+1} of ${steps.length}</div>`);
+    wire(name,last);
+  };
+  const wire = (name,last)=>{
+    $("#wz-back").onclick=()=>{ if(si===0) closeSheet(); else { si--; draw(); } };
+    $("#wz-next").onclick=()=>advance(last);
+    if(name==="customer"){
+      const q=$("#wz-cust-q"); const list=$("#wz-cust-list");
+      const paint=(arr)=> list.innerHTML = arr.slice(0,20).map(u=>`<div class="icard" data-cid="${u.id}" data-cname="${esc(u.name)}" role="button" style="margin-bottom:8px">
+        <div style="font-weight:700">${esc(u.name)}</div><div class="tiny">${esc(u.phone)}</div></div>`).join("")||`<div class="empty">No match.</div>`;
+      const run=async ()=>{ if(!customers.length){ try{customers=(await usersList()).filter(u=>u.role==="customer"&&u.is_active);}catch(e){} }
+        const t=q.value.toLowerCase().trim();
+        paint(customers.filter(u=>!t||u.name.toLowerCase().includes(t)||phoneDigits(u.phone).includes(t)));
+        list.querySelectorAll("[data-cid]").forEach(elm=>elm.onclick=()=>{ draft.customer=elm.dataset.cid; draft.customerName=elm.dataset.cname; si++; draw(); });
+      };
+      q.oninput=run; run();
+    }
+    if(name==="vehicle"){
+      const inp=$("#wz-veh"); inp.oninput=()=>draft.vehicle=inp.value;
+      $("#wz-saved")?.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{ draft.vehicle=c.dataset.v; inp.value=c.dataset.v; });
+    }
+    if(name==="product") document.querySelectorAll(".prodbtn").forEach(b=>b.onclick=()=>{ draft.product=b.dataset.p; draw(); });
+    if(name==="qty"){
+      $("#wz-ot").querySelectorAll("button").forEach(b=>b.onclick=()=>{ draft.order_type=b.dataset.ot; draft.value=$("#wz-val").value; draw(); });
+      const v=$("#wz-val"); v.oninput=()=>draft.value=v.value;
+    }
+  };
+  const advance = async (last)=>{
+    const name=steps[si];
+    if(name==="vehicle"){ if(!validVehicle(draft.vehicle)) return toast("Enter a valid vehicle number","bad"); }
+    if(name==="product"){ if(!draft.product) return toast("Pick a product","bad"); }
+    if(name==="qty"){ draft.value=$("#wz-val").value; if(!(Number(draft.value)>0)) return toast("Enter a quantity","bad"); }
+    if(!last){ si++; return draw(); }
+    const btn=$("#wz-next"); btn.disabled=true; btn.textContent="Placing…";
+    try{
+      await rpc("place_indent", withMeta({ p_vehicle:draft.vehicle, p_product:draft.product,
+        p_order_type:draft.order_type, p_value:Number(draft.value),
+        p_customer: onBehalf?draft.customer:null }));
+      closeSheet();
+      toast(onBehalf?"Logged — awaiting customer approval":"Indent placed ✅","ok");
+      state.me.role==="customer"?renderCustomer():renderStaff();
+    }catch(e){ toast(e.message,"bad"); btn.disabled=false; btn.textContent="Place indent ✅"; }
+  };
+  draw();
+}
+
+// modify uses the same fields, prefilled, single sheet
+function modifyWizard(id){
+  const i=(state.cache.indents||[]).find(x=>x.id===id); if(!i) return;
+  const d={ vehicle:i.vehicle_no, product:i.product, order_type:i.order_type, value:String(i.value) };
+  const draw=()=>{ sheet(`
+    <h3>Modify ${esc(i.code)}</h3>
+    <label class="fld">Vehicle</label>
+    <input class="inp" id="m-veh" value="${esc(d.vehicle)}" autocapitalize="characters">
+    <label class="fld">Product</label>
+    <div class="prodgrid" style="margin-top:6px">
+      ${PRODUCTS.map(p=>`<button class="prodbtn ${d.product===p?"on":""}" data-p="${p}">
+        <span class="dot" style="background:var(--${p==="Petrol"?"petrol":p==="Diesel"?"diesel":"xg"})"></span>${p}</button>`).join("")}
+    </div>
+    <label class="fld">Order by</label>
+    <div class="seg" id="m-ot">
+      <button class="${d.order_type==="Litres"?"on":""}" data-ot="Litres">Litres</button>
+      <button class="${d.order_type==="Amount"?"on":""}" data-ot="Amount">Amount ₹</button></div>
+    <label class="fld">${d.order_type==="Litres"?"Litres":"Amount (₹)"}</label>
+    <input class="inp" id="m-val" inputmode="decimal" value="${esc(d.value)}">
+    <div style="height:16px"></div>
+    <div class="btnrow"><button class="btn sec" id="m-cancel">Cancel</button>
+      <button class="btn" id="m-save">Save changes</button></div>`);
+    document.querySelectorAll(".prodbtn").forEach(b=>b.onclick=()=>{ d.product=b.dataset.p; d.vehicle=$("#m-veh").value; d.value=$("#m-val").value; draw(); });
+    $("#m-ot").querySelectorAll("button").forEach(b=>b.onclick=()=>{ d.order_type=b.dataset.ot; d.vehicle=$("#m-veh").value; d.value=$("#m-val").value; draw(); });
+    $("#m-cancel").onclick=closeSheet;
+    $("#m-save").onclick=async ()=>{
+      d.vehicle=$("#m-veh").value; d.value=$("#m-val").value;
+      if(!validVehicle(d.vehicle)) return toast("Invalid vehicle number","bad");
+      if(!(Number(d.value)>0)) return toast("Enter a quantity","bad");
+      try{ await rpc("modify_indent", withMeta({ p_id:id, p_vehicle:d.vehicle, p_product:d.product,
+        p_order_type:d.order_type, p_value:Number(d.value) }));
+        closeSheet(); toast("Indent updated","ok");
+        state.me.role==="customer"?renderCustomer():renderStaff();
+      }catch(e){ toast(e.message,"bad"); }
+    };
+  };
+  draw();
+}
+
+// ============================================================
+// ADMIN — USERS
+// ============================================================
+async function renderUsers(){
+  state.view="users";
+  root.innerHTML = header("Admin · Users")+`<main><div class="center"><div class="spin"></div></div></main>`;
+  let users=[]; try{ users=await usersList(); }catch(e){ return toast(e.message,"bad"); }
+  const groups={admin:[],employee:[],customer:[]};
+  users.forEach(u=>groups[u.role]?.push(u));
+  const grp=(title,arr)=> arr.length?`<h2 class="sec">${title} (${arr.length})</h2>`+arr.map(userCard).join(""):"";
+  root.innerHTML = header("Admin · Users")+`<main>
+    <button class="btn" data-act="adduser">➕ Add user</button>
+    ${grp("Admins",groups.admin)}
+    ${grp("Employees",groups.employee)}
+    ${grp("Customers",groups.customer)}
+  </main>${staffTabbar()}`;
+  bindChrome();
+}
+function userCard(u){
+  return `<div class="icard" data-p="${u.is_blocked?"Petrol":"Diesel"}">
+    <div class="spread">
+      <div><div style="font-weight:700">${esc(u.name)} ${u.is_active?"":'<span class="tiny">(inactive)</span>'}</div>
+        <div class="tiny">${esc(u.phone)} · ${esc(u.role)}${u.is_blocked?" · 🚫 blocked":""}</div></div>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn sec sm" data-act="resetpin" data-id="${u.id}" data-name="${esc(u.name)}">Reset PIN</button>
+      ${u.role==="customer"?`<button class="btn ${u.is_blocked?"ok":"bad"} sm" data-act="toggleblock" data-id="${u.id}" data-blocked="${u.is_blocked}">${u.is_blocked?"Unblock":"Block"}</button>`:""}
+      <button class="btn ${u.is_active?"bad":"ok"} sm" data-act="toggleactive" data-id="${u.id}" data-active="${u.is_active}">${u.is_active?"Deactivate":"Activate"}</button>
+    </div></div>`;
+}
+function addUserSheet(){
+  sheet(`<h3>Add user</h3>
+    <label class="fld">Name</label><input class="inp" id="au-name" placeholder="Full name">
+    <label class="fld">Phone (with country code recommended)</label><input class="inp" id="au-phone" inputmode="tel" placeholder="9876543210">
+    <label class="fld">Role</label>
+    <select class="inp" id="au-role"><option value="customer">Customer</option><option value="employee">Employee</option><option value="admin">Admin</option></select>
+    <label class="fld">PIN (min 6 digits)</label><input class="inp" id="au-pin" inputmode="numeric" placeholder="6-digit PIN">
+    <div style="height:16px"></div>
+    <div class="btnrow"><button class="btn sec" id="au-cancel">Cancel</button><button class="btn" id="au-save">Create</button></div>`);
+  $("#au-cancel").onclick=closeSheet;
+  $("#au-save").onclick=async ()=>{
+    const name=$("#au-name").value.trim(), phone=$("#au-phone").value.trim(),
+          role=$("#au-role").value, pin=$("#au-pin").value.trim();
+    if(!name||phoneDigits(phone).length<10) return toast("Enter name and valid phone","bad");
+    if(!/^\d{6,}$/.test(pin)) return toast("PIN must be at least 6 digits","bad");
+    const b=$("#au-save"); b.disabled=true; b.textContent="Creating…";
+    try{ await edgeFn("admin-create-user",{ name, phone, role, pin });
+      closeSheet(); toast("User created","ok"); renderUsers();
+    }catch(e){ toast(e.message,"bad"); b.disabled=false; b.textContent="Create"; }
+  };
+}
+function resetPinSheet(id,name){
+  sheet(`<h3>Reset PIN</h3><p class="muted">New PIN for <b>${esc(name)}</b></p>
+    <input class="inp" id="rp-pin" inputmode="numeric" placeholder="New 6-digit PIN">
+    <div style="height:16px"></div>
+    <div class="btnrow"><button class="btn sec" id="rp-cancel">Cancel</button><button class="btn" id="rp-save">Save</button></div>`);
+  $("#rp-cancel").onclick=closeSheet;
+  $("#rp-save").onclick=async ()=>{
+    const pin=$("#rp-pin").value.trim();
+    if(!/^\d{6,}$/.test(pin)) return toast("PIN must be at least 6 digits","bad");
+    try{ await edgeFn("admin-create-user",{ action:"reset_pin", target_id:id, pin });
+      closeSheet(); toast("PIN reset","ok");
+    }catch(e){ toast(e.message,"bad"); }
+  };
+}
+
+// ============================================================
+// ADMIN — REPORTS / EXPORT / STATEMENTS
+// ============================================================
+async function renderReports(){
+  state.view="reports";
+  root.innerHTML = header("Admin · Reports")+`<main><div class="center"><div class="spin"></div></div></main>`;
+  let indents=[],users=[]; try{ [indents,users]=await Promise.all([allIndents(),usersList()]); }catch(e){ return toast(e.message,"bad"); }
+  state.cache.indents=indents; state.cache.users=users;
+  const today=indents.filter(i=>isToday(i.created_at));
+  const perProduct = PRODUCTS.map(p=>{
+    const rows=today.filter(i=>i.product===p);
+    const L=rows.filter(i=>i.order_type==="Litres").reduce((a,b)=>a+Number(b.value),0);
+    const A=rows.filter(i=>i.order_type==="Amount").reduce((a,b)=>a+Number(b.value),0);
+    return {p,L,A,n:rows.length};
+  });
+  const c=(s)=>today.filter(i=>i.status===s).length;
+  const custs=users.filter(u=>u.role==="customer");
+  root.innerHTML = header("Admin · Reports")+`<main>
+    <h2 class="sec">Daily summary — ${fmtDay(new Date().toISOString())}</h2>
+    <div class="card">
+      <div class="totrow" style="margin-bottom:6px">
+        <div class="tot"><b>${today.length}</b><span>Total</span></div>
+        <div class="tot"><b>${c("Pending")+c("Awaiting")}</b><span>Open</span></div>
+        <div class="tot"><b>${c("Delivered")}</b><span>Delivered</span></div>
+        <div class="tot"><b>${c("Cancelled")}</b><span>Cancelled</span></div>
+      </div>
+      ${perProduct.map(x=>`<div class="kv"><span class="k">${x.p}</span>
+        <span class="v">${x.n} indents · ${x.L?x.L+" L":""} ${x.A?inr(x.A):""}</span></div>`).join("")}
+    </div>
+    <h2 class="sec">Export</h2>
+    <div class="card">
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <input class="inp" id="ex-from" type="date" style="flex:1;min-width:130px">
+        <input class="inp" id="ex-to" type="date" style="flex:1;min-width:130px">
+      </div>
+      <div style="height:10px"></div>
+      <button class="btn sec" data-act="exportcsv">⬇️ Download CSV</button>
+    </div>
+    <h2 class="sec">Monthly statement</h2>
+    <div class="card">
+      <label class="fld">Customer</label>
+      <select class="inp" id="st-cust">${custs.map(u=>`<option value="${u.id}">${esc(u.name)} · ${esc(u.phone)}</option>`).join("")}</select>
+      <div class="row" style="gap:8px;margin-top:10px">
+        <select class="inp" id="st-month" style="flex:1">${Array.from({length:12},(_,m)=>`<option value="${m+1}">${new Date(2000,m,1).toLocaleString("en",{month:"long"})}</option>`).join("")}</select>
+        <input class="inp" id="st-year" type="number" style="flex:1" value="${new Date().getFullYear()}">
+      </div>
+      <div style="height:10px"></div>
+      <button class="btn info" data-act="sendstmt">🧾 Generate & send statement</button>
+    </div>
+  </main>${staffTabbar()}`;
+  const now=new Date(); const iso=(d)=>d.toISOString().slice(0,10);
+  $("#ex-from").value=iso(new Date(now.getFullYear(),now.getMonth(),1)); $("#ex-to").value=iso(now);
+  $("#st-month").value=now.getMonth()+1;
+  bindChrome();
+}
+function exportCSV(){
+  const from=$("#ex-from").value, to=$("#ex-to").value;
+  const t0=from?new Date(from+"T00:00:00"):null, t1=to?new Date(to+"T23:59:59"):null;
+  const rows=(state.cache.indents||[]).filter(i=>{ const d=new Date(i.created_at);
+    return (!t0||d>=t0)&&(!t1||d<=t1); });
+  const usersById={}; (state.cache.users||[]).forEach(u=>usersById[u.id]=u);
+  const head=["Code","Customer","Phone","Vehicle","Product","OrderType","Value","Status","PlacedIST","HandledIST"];
+  const csv=[head.join(",")].concat(rows.map(i=>{
+    const u=usersById[i.customer_id]||{};
+    return [i.code,q(u.name),q(u.phone),i.vehicle_no,i.product,i.order_type,i.value,i.status,
+      q(fmtIST(i.created_at)),q(fmtIST(i.handled_at))].join(",");
+  })).join("\n");
+  function q(s){ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+  const blob=new Blob([csv],{type:"text/csv"}); const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=`indents_${from||"all"}_${to||"all"}.csv`; a.click();
+  toast(rows.length+" rows exported","ok");
+}
+async function sendStatement(){
+  const cust=$("#st-cust").value, month=+$("#st-month").value, year=+$("#st-year").value;
+  try{ await rpc("send_statement", withMeta({ p_customer:cust, p_month:month, p_year:year }));
+    toast("Statement sent to customer","ok");
+  }catch(e){ toast(e.message,"bad"); }
+}
+
+// ============================================================
+// STATEMENTS (customer view)
+// ============================================================
+async function renderStatements(){
+  state.view="statements";
+  root.innerHTML = header("Statements")+`<main><div class="center"><div class="spin"></div></div></main>`;
+  let stmts=[]; try{ stmts=await myStatements(); }catch(e){ return toast(e.message,"bad"); }
+  root.innerHTML = header("Statements")+`<main>
+    ${stmts.length?stmts.map(s=>`<div class="card">
+      <div class="spread"><b>${s.period_month}/${s.period_year}</b>
+        <span class="badge ${s.ack_status==="confirmed"?"b-Delivered":s.ack_status==="disputed"?"b-Cancelled":"b-Pending"}">${s.ack_status}</span></div>
+      <div class="muted" style="margin:6px 0">${s.indent_ids.length} delivered indents ·
+        ${Number(s.total_litres)?Number(s.total_litres)+" L":""} ${Number(s.total_amount)?inr(s.total_amount):""}</div>
+      <div class="tiny">Sent ${fmtIST(s.sent_at)}${s.ack_at?" · resolved "+fmtIST(s.ack_at):""}</div>
+      ${s.ack_status==="pending"?`<div class="btnrow" style="margin-top:10px">
+        <button class="btn ok sm" data-act="ack" data-id="${s.id}">Looks correct ✔</button>
+        <button class="btn sec sm" data-act="dispute" data-id="${s.id}">Dispute</button></div>`:""}
+    </div>`).join(""):`<div class="empty">No statements yet.</div>`}
+  </main>${customerTabbar()}`;
+  document.querySelectorAll(".tabbar button")[2]?.classList.add("on");
+  document.querySelectorAll(".tabbar button")[0]?.classList.remove("on");
+  bindChrome();
+}
+
+// ============================================================
+// ACTIONS (event delegation)
+// ============================================================
+function confirmAct(msg){ return window.confirm(msg); }
+
+async function handleAct(act, ds){
+  const id=ds.id;
+  try{
+    switch(act){
+      case "logout": return logout();
+      case "home": return renderCustomer();
+      case "board": return renderStaff();
+      case "users": return renderUsers();
+      case "reports": return renderReports();
+      case "statements": return renderStatements();
+      case "new": return newIndentWizard(false);
+      case "onbehalf": return newIndentWizard(true);
+      case "adduser": return addUserSheet();
+      case "detail": return openDetail(id);
+      case "modify": return modifyWizard(id);
+      case "tab": state.tab=ds.tab; return renderStaff(true);
+      case "print": return window.print();
+      case "exportcsv": return exportCSV();
+      case "sendstmt": return sendStatement();
+      case "resetpin": return resetPinSheet(id, ds.name);
+      case "repeat": {
+        const i=(state.cache.indents||[]).find(x=>x.id===id); if(!i) return;
+        if(!confirmAct(`Repeat: ${i.vehicle_no} · ${i.product} · ${qtyText(i)}?`)) return;
+        await rpc("place_indent", withMeta({ p_vehicle:i.vehicle_no, p_product:i.product,
+          p_order_type:i.order_type, p_value:Number(i.value), p_customer:null }));
+        toast("Indent placed ✅","ok"); return renderCustomer();
+      }
+      case "approve": await rpc("approve_indent", withMeta({p_id:id})); closeSheet(); toast("Approved ✅","ok"); return refresh();
+      case "reject": if(!confirmAct("Reject this indent?"))return; await rpc("reject_indent", withMeta({p_id:id})); closeSheet(); toast("Rejected","ok"); return refresh();
+      case "cancel": if(!confirmAct("Cancel this indent?"))return; await rpc("cancel_indent", withMeta({p_id:id})); closeSheet(); toast("Cancelled","ok"); return refresh();
+      case "deliver": if(!confirmAct("Mark as delivered?"))return; await rpc("deliver_indent", withMeta({p_id:id})); closeSheet(); toast("Marked delivered ✅","ok"); return refresh();
+      case "ack": await rpc("ack_statement", withMeta({p_id:id, p_confirm:true})); toast("Confirmed — thank you","ok"); return refresh();
+      case "dispute": if(!confirmAct("Raise a dispute on this statement?"))return; await rpc("ack_statement", withMeta({p_id:id, p_confirm:false})); toast("Dispute raised","ok"); return refresh();
+      case "toggleblock": await rpc("set_blocked",{p_customer:id, p_blocked: ds.blocked!=="true"}); toast("Updated","ok"); return renderUsers();
+      case "toggleactive": await rpc("set_active",{p_user:id, p_active: ds.active!=="true"}); toast("Updated","ok"); return renderUsers();
+    }
+  }catch(e){ toast(e.message||"Something went wrong","bad"); }
+}
+function refresh(){
+  if(state.me?.role==="customer") return state.view==="statements"?renderStatements():renderCustomer();
+  if(state.view==="users") return renderUsers();
+  if(state.view==="reports") return renderReports();
+  return renderStaff();
+}
+
+// ---------- sheets / modal ----------
+function sheet(html){ modal.innerHTML=`<div class="overlay" id="ov"><div class="sheet">${html}</div></div>`;
+  $("#ov").addEventListener("click",e=>{ if(e.target.id==="ov") closeSheet(); });
+  bindActs(modal);
+}
+function closeSheet(){ modal.innerHTML=""; }
+
+// bind data-act clicks within a container
+function bindActs(container){
+  container.querySelectorAll("[data-act]").forEach(elm=>{
+    if(elm._bound) return; elm._bound=true;
+    elm.addEventListener("click",(e)=>{ e.stopPropagation();
+      handleAct(elm.dataset.act, {...elm.dataset}); });
+  });
+}
+function bindChrome(){ bindActs(document); }
+
+boot();
+</script>
+</body>
+</html>
