@@ -113,6 +113,15 @@ screen** to install the PWA.
 - **Proof pack** — open any indent → *Proof pack (PDF)* → the browser's print
   dialog produces a PDF of the indent details + chronological audit trail.
 
+## Business day (shift)
+
+The business day is a **6am-to-6am IST shift**: an indent is attributed to the
+date the shift *started*. So the shift for 18/07 covers 18/07 06:00 → 19/07 06:00,
+and an indent placed at 3am on the 19th still counts under the 18th. This applies
+to the employee board's "today" totals, the admin daily summary, and the month a
+monthly statement groups by. IST is a fixed UTC+5:30 (no DST), so the boundary is
+exact.
+
 ## Not yet wired (next steps)
 
 These are scaffolded/documented but need extra setup to go live:

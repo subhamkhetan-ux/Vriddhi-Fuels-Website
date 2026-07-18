@@ -448,8 +448,9 @@ begin
   from public.indents
   where customer_id = p_customer
     and status = 'Delivered'
-    and extract(month from (created_at at time zone 'Asia/Kolkata')) = p_month
-    and extract(year  from (created_at at time zone 'Asia/Kolkata')) = p_year;
+    -- Attribute to the 6am-to-6am shift day: shift date = IST time minus 6h.
+    and extract(month from ((created_at at time zone 'Asia/Kolkata') - interval '6 hours')) = p_month
+    and extract(year  from ((created_at at time zone 'Asia/Kolkata') - interval '6 hours')) = p_year;
 
   insert into public.statements(customer_id, period_month, period_year,
                                 indent_ids, total_litres, total_amount)

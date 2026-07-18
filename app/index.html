@@ -212,8 +212,12 @@ function toast(msg, kind=""){
 }
 const fmtIST = (ts)=> ts ? new Date(ts).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",
   day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}) : "";
-const fmtDay = (ts)=> ts ? new Date(ts).toLocaleDateString("en-IN",{timeZone:"Asia/Kolkata",
-  day:"2-digit",month:"short"}) : "";
+// Business "shift" day runs 6am IST -> 6am next day; an indent is attributed to
+// the date the shift STARTED (so 3am on the 19th still counts under the 18th).
+// IST is a fixed UTC+5:30 (no DST), so plain offset arithmetic is exact.
+const IST_MS = 5.5*3600*1000, SHIFT_START_HOUR = 6;
+const shiftKey = (ts)=> ts ? new Date(new Date(ts).getTime()+IST_MS-SHIFT_START_HOUR*3600*1000).toISOString().slice(0,10) : "";
+const fmtDay = (ts)=> ts ? new Date(shiftKey(ts)+"T12:00:00Z").toLocaleDateString("en-IN",{timeZone:"UTC",day:"2-digit",month:"short"}) : "";
 const inr = (n)=> "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
 const qtyText = (i)=> i.order_type==="Litres" ? (Number(i.value)+" L") : inr(i.value);
 
@@ -384,7 +388,7 @@ async function auditFor(indentId){
     .eq("indent_id",indentId).order("created_at",{ascending:true});
   if(error) throw error; return data||[];
 }
-const isToday = (ts)=> fmtDay(ts)===fmtDay(new Date().toISOString());
+const isToday = (ts)=> shiftKey(ts)===shiftKey(new Date().toISOString());
 
 // ============================================================
 // CUSTOMER
