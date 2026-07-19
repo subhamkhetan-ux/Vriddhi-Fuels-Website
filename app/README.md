@@ -51,10 +51,15 @@ a **search box** to find an indent by **vehicle number** (or IND- code).
   (`ack_status='disputed'`, recorded in the audit log) and unblocks the customer
   **without** counting as an acknowledgement.
 - **Employee & owner:** the live board shows **✓ Acknowledged / ⏳ Not
-  acknowledged / ⚠️ Problem reported** badges on delivered cards and an
-  **Unacknowledged** filter tab. The owner's **Reports** has a **⚠️ Reported
+  acknowledged / ⚠️ Problem reported / ✓ Resolved** badges on delivered cards and
+  an **Unacknowledged** filter tab. The owner's **Reports** has a **⚠️ Reported
   problems** list (with the customer's note) and an **Awaiting acknowledgement**
   list, both grouped by customer.
+- **Resolve a problem (owner):** each reported problem has a **Resolve** button
+  (Corrected & re-issued / Waived / custom) that clears it from the list and
+  records the resolution in the audit trail.
+- **Push notifications (optional):** staff get a push on every new indent and
+  customers get one when their fuel is delivered — see setup step 8.
 
 **Invoice stamp:** to print your round stamp/signature above "Sign.of Salesman",
 drop the image at **`app/stamp.png`** (transparent PNG recommended). If absent,
@@ -131,6 +136,28 @@ automatically for deployed functions — no secrets to set.
 It's static — host `/app/` anywhere (GitHub Pages, Netlify, Vercel static, or
 alongside the existing site). On a phone, open it in Chrome and **Add to Home
 screen** to install the PWA.
+
+### 8. Push notifications (optional)
+Sends a push to **staff** on every new indent, and to the **customer** when their
+fuel is delivered.
+
+1. Generate VAPID keys (once):
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+2. Put the **public** key in `app/config.js` → `VAPID_PUBLIC_KEY`.
+3. Set the keys as function secrets and deploy the sender:
+   ```bash
+   supabase secrets set VAPID_PUBLIC_KEY=<public> VAPID_PRIVATE_KEY=<private> VAPID_SUBJECT=mailto:you@example.com
+   supabase functions deploy notify
+   ```
+4. Run `supabase/schema.sql` again (adds the `push_subscriptions` table).
+
+Users then tap **"🔔 Turn on notifications → Enable"** on their home/board (iOS
+requires the app be **installed to the Home screen** first). Notifications are
+delivered by the browser's push service via the service worker — free, no
+per-message fee. If `VAPID_PUBLIC_KEY` is left as the placeholder, push stays off
+and the prompt is hidden.
 
 ## Proof / non-repudiation (how it's enforced)
 
