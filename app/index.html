@@ -633,63 +633,82 @@ async function openInvoice(indentId){
   if(staff && !cust){ const {data}=await sb.from("app_users").select("*").eq("id",inv.customer_id).maybeSingle(); cust=data||{}; }
   showInvoice(inv, i||{}, cust||{}, st, staff);
 }
+// Formal product names as printed on the memo.
+const PARTICULARS = { Petrol:"Motor Spirit", Diesel:"High Speed Diesel", XtraGreen:"XtraGreen" };
+const amt2 = (n)=> n==null?"—":Number(n).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
+const qtyLtr = (l)=> l==null?"—":Number(l).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})+" LTR";
+// Date as D-M-YYYY in IST.
+const memoDate = (ts)=>{ const d=new Date(new Date(ts).getTime()+IST_MS);
+  return d.getUTCDate()+"-"+(d.getUTCMonth()+1)+"-"+d.getUTCFullYear(); };
+
 function slipHTML(inv, i, cust, st){
-  const rate = inv.rate!=null;
-  const litres = inv.litres!=null ? Number(inv.litres).toLocaleString("en-IN",{maximumFractionDigits:3}) : "—";
-  const rows = `<tr>
-      <td>${esc(inv.product)}${i.vehicle_no?`<div class="sub">Vehicle: ${esc(i.vehicle_no)}</div>`:""}</td>
-      <td class="num">${litres}</td>
-      <td class="num">${rate?priceStr(inv.rate):"—"}</td>
-      <td class="num">${inv.amount!=null?inr(inv.amount):"—"}</td></tr>`;
-  return `<div class="slip">
-    <div class="sl-head">
-      <div class="sl-biz">${esc(st.business_name||"Vriddhi Fuels")}</div>
-      ${st.address?`<div class="sl-line">${esc(st.address)}</div>`:""}
-      <div class="sl-line">${[st.contact?("Ph: "+st.contact):"", st.gst_no?("GSTIN: "+st.gst_no):""].filter(Boolean).map(esc).join("  •  ")}</div>
+  const iconURL = new URL("icon.png", location.href).href;
+  const no = String(inv.code||"").replace(/^INV-0*/,"") || esc(inv.code);
+  const addrLines = String(st.address||"").split(/\r?\n/).filter(Boolean);
+  const part = PARTICULARS[inv.product] || inv.product;
+  const total = amt2(inv.amount);
+  return `<div class="memo">
+    <div class="m-top">
+      <div class="m-tag">CREDIT MEMO</div>
+      <div class="m-mob">Mob : ${esc(st.mobile||st.contact||"")}</div>
     </div>
-    <div class="sl-title">TAX INVOICE</div>
-    <div class="sl-meta">
-      <div><span>Invoice No</span><b>${esc(inv.code)}</b></div>
-      <div><span>Date</span><b>${fmtIST(inv.issued_at)}</b></div>
+    <div class="m-head">
+      <img class="m-logo" src="${iconURL}" alt="">
+      <div class="m-biz">
+        <div class="m-name">${esc(st.business_name||"VRIDDHI FUELS")}</div>
+        ${addrLines.map(l=>`<div>${esc(l)}</div>`).join("")}
+        ${st.gst_no?`<div>GSTIN/UIN: ${esc(st.gst_no)}</div>`:""}
+        ${st.state_name?`<div>State Name : ${esc(st.state_name)}${st.state_code?", Code : "+esc(st.state_code):""}</div>`:""}
+        ${st.email?`<div>E-Mail : ${esc(st.email)}</div>`:""}
+      </div>
     </div>
-    <div class="sl-billto">
-      <span>Bill To</span>
-      <b>${esc(cust.name||"")}</b>
-      <div class="sl-line">${[cust.username?("@"+cust.username):"", cust.phone||""].filter(Boolean).map(esc).join("  •  ")}</div>
+    <div class="m-meta">
+      <div class="m-row"><span class="lbl">No. :</span><b class="big">${esc(no)}</b>
+        <span class="lbl date">Date :</span><b class="big">${memoDate(i.handled_at||inv.issued_at)}</b></div>
+      <div class="m-row"><span class="lbl">M/s :</span><b>${esc(cust.name||"")}</b></div>
+      <div class="m-row"><span class="lbl">Vehicle No. :</span><b>${i.vehicle_no?esc(i.vehicle_no):"—"}</b></div>
     </div>
-    <table class="sl-table">
-      <thead><tr><th>Description</th><th class="num">Qty (L)</th><th class="num">Rate (₹/L)</th><th class="num">Amount (₹)</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="3" class="num">Total</td><td class="num"><b>${inv.amount!=null?inr(inv.amount):"—"}</b></td></tr></tfoot>
+    <table class="m-table">
+      <thead><tr><th class="l">Particulars</th><th>Quantity</th><th>Rate</th><th>Amount</th></tr></thead>
+      <tbody>
+        <tr class="m-item"><td class="l">${esc(part)}</td><td>${qtyLtr(inv.litres)}</td><td>${amt2(inv.rate)}</td><td class="r">${total}</td></tr>
+        <tr class="m-fill"><td class="l"></td><td></td><td></td><td></td></tr>
+        <tr class="m-total"><td class="c" colspan="2">Thank You</td><td class="c">Total</td><td class="r">₹ ${total}</td></tr>
+        <tr class="m-gap"><td colspan="4"></td></tr>
+        <tr class="m-sign"><td class="l" colspan="2">Customer's Sign.</td><td class="l" colspan="2">Sign.of Salesman</td></tr>
+      </tbody>
     </table>
-    ${inv.amount!=null?`<div class="sl-words">Amount in words: <b>${esc(amountWords(inv.amount))}</b></div>`:
-      `<div class="sl-warn">Rate not set for ${dLabel(shiftKey(i.handled_at||inv.issued_at))}. Set the day's price, then regenerate this invoice.</div>`}
-    <div class="sl-note">Rate is inclusive of all applicable taxes.</div>
-    <div class="sl-ref">Ref: Indent ${esc(i.code||"")}${i.handled_at?" · Delivered "+fmtIST(i.handled_at):""}${isPartial(i)?" · Partial delivery (ordered "+esc(qtyText(i))+")":""}</div>
-    <div class="sl-sign"><div>Customer Signature</div><div>For ${esc(st.business_name||"Vriddhi Fuels")}</div></div>
+    ${inv.amount==null?`<div class="m-warn">Rate not set for ${dLabel(shiftKey(i.handled_at||inv.issued_at))} — set the day's price and regenerate.</div>`:""}
+    ${isPartial(i)?`<div class="m-part">Partial delivery — ordered ${esc(qtyText(i))}, delivered ${esc(deliveredText(i))}.</div>`:""}
   </div>`;
 }
 const SLIP_CSS = `
-  .slip{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;max-width:640px;margin:0 auto}
-  .slip .sub{font-size:11px;color:#555;font-weight:400}
-  .sl-head{text-align:center;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}
-  .sl-biz{font-size:22px;font-weight:800;letter-spacing:.3px}
-  .sl-line{font-size:12px;color:#444}
-  .sl-title{text-align:center;font-weight:800;letter-spacing:2px;margin:6px 0 12px}
-  .sl-meta{display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px}
-  .sl-meta span{display:block;color:#666;font-size:11px}
-  .sl-billto{border:1px solid #ddd;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:14px}
-  .sl-billto span{color:#666;font-size:11px;display:block}
-  .sl-table{width:100%;border-collapse:collapse;font-size:14px}
-  .sl-table th,.sl-table td{border:1px solid #ccc;padding:8px 10px;text-align:left}
-  .sl-table .num{text-align:right}
-  .sl-table tfoot td{font-weight:700;background:#f6f6f6}
-  .sl-words{margin:10px 0;font-size:13px}
-  .sl-note{font-size:12px;color:#555;margin-top:4px}
-  .sl-warn{margin:10px 0;font-size:13px;color:#b00;font-weight:600}
-  .sl-ref{font-size:12px;color:#666;margin-top:6px}
-  .sl-sign{display:flex;justify-content:space-between;margin-top:44px;font-size:12px;color:#444}
-  .sl-sign div{border-top:1px solid #999;padding-top:6px;width:44%;text-align:center}
+  .memo{font-family:Arial,"Helvetica Neue",sans-serif;color:#000;background:#fff;max-width:720px;margin:0 auto;padding:14px}
+  .m-top{display:flex;justify-content:space-between;align-items:flex-start}
+  .m-tag{background:#000;color:#fff;font-weight:800;font-size:20px;padding:5px 12px;letter-spacing:.5px}
+  .m-mob{font-weight:800;font-size:18px}
+  .m-head{display:flex;gap:10px;align-items:flex-start;margin-top:8px}
+  .m-logo{width:110px;height:110px;object-fit:contain;flex:none}
+  .m-biz{flex:1;text-align:center;line-height:1.4;font-size:16px;margin-left:-110px}
+  .m-name{font-weight:800;font-size:24px;margin-bottom:2px}
+  .m-meta{margin:16px 2px 12px}
+  .m-row{display:flex;align-items:baseline;gap:12px;margin:8px 0;font-size:18px}
+  .m-row .lbl{min-width:56px;font-weight:400}
+  .m-row .lbl.date{margin-left:120px}
+  .m-row .big{font-size:20px}
+  .m-table{width:100%;border-collapse:collapse}
+  .m-table th,.m-table td{border:2px solid #000;padding:9px 10px;text-align:center;font-size:17px}
+  .m-table th.l,.m-table td.l{text-align:left}
+  .m-table td.c{text-align:center}
+  .m-table td.r{text-align:right}
+  .m-table thead th{font-weight:700}
+  .m-item td{font-weight:800;border-bottom:none}
+  .m-fill td{border-top:none;height:220px}
+  .m-total td{font-weight:800;font-size:18px}
+  .m-sign td{height:120px;vertical-align:bottom;font-weight:800;font-size:18px}
+  .m-gap td{height:12px}
+  .m-warn{margin-top:10px;color:#b00;font-weight:700;font-size:14px}
+  .m-part{margin-top:8px;color:#333;font-size:13px}
 `;
 function showInvoice(inv, i, cust, st, staff){
   sheet(`${slipHTML(inv,i,cust,st)}
@@ -1036,13 +1055,21 @@ async function renderReports(){
     <h2 class="sec">Business details (invoice header)</h2>
     <div class="card">
       <label class="fld">Business name</label>
-      <input class="inp" id="se-name" value="${esc(st.business_name||"Vriddhi Fuels")}">
-      <label class="fld">Address</label>
-      <input class="inp" id="se-addr" value="${esc(st.address||"")}" placeholder="Address line for the invoice">
-      <label class="fld">GSTIN</label>
-      <input class="inp" id="se-gst" value="${esc(st.gst_no||"")}" placeholder="e.g. 19ABCDE1234F1Z5">
-      <label class="fld">Contact</label>
-      <input class="inp" id="se-contact" value="${esc(st.contact||"")}" placeholder="Phone / email on the invoice">
+      <input class="inp" id="se-name" value="${esc(st.business_name||"VRIDDHI FUELS (2026-27)")}">
+      <label class="fld">Address (one line each)</label>
+      <textarea class="inp" id="se-addr" style="min-height:84px;padding:12px 14px" placeholder="AT-KHERWAL PO- BADMAL&#10;DIST- JHARSUGUDA, 768202&#10;ODISHA">${esc(st.address||"")}</textarea>
+      <label class="fld">GSTIN / UIN</label>
+      <input class="inp" id="se-gst" value="${esc(st.gst_no||"")}" placeholder="21AATFV8250A1Z8">
+      <div class="row" style="gap:8px">
+        <div style="flex:2"><label class="fld">State name</label>
+          <input class="inp" id="se-state" value="${esc(st.state_name||"")}" placeholder="Odisha"></div>
+        <div style="flex:1"><label class="fld">Code</label>
+          <input class="inp" id="se-statecode" value="${esc(st.state_code||"")}" placeholder="21"></div>
+      </div>
+      <label class="fld">Mobile</label>
+      <input class="inp" id="se-mobile" inputmode="tel" value="${esc(st.mobile||st.contact||"")}" placeholder="9937344411">
+      <label class="fld">E-Mail</label>
+      <input class="inp" id="se-email" value="${esc(st.email||"")}" placeholder="name@gmail.com">
       <div style="height:12px"></div>
       <button class="btn sec" data-act="savesettings">Save business details</button>
     </div>
@@ -1053,9 +1080,10 @@ async function renderReports(){
   bindChrome();
 }
 async function saveSettings(){
-  const patch={ business_name:$("#se-name").value.trim()||"Vriddhi Fuels",
+  const patch={ business_name:$("#se-name").value.trim()||"VRIDDHI FUELS",
     address:$("#se-addr").value.trim()||null, gst_no:$("#se-gst").value.trim()||null,
-    contact:$("#se-contact").value.trim()||null };
+    state_name:$("#se-state").value.trim()||null, state_code:$("#se-statecode").value.trim()||null,
+    mobile:$("#se-mobile").value.trim()||null, email:$("#se-email").value.trim()||null };
   const { error } = await sb.from("settings").update(patch).eq("id",1);
   if(error) return toast(error.message,"bad");
   state.cache.settings=null; toast("Business details saved","ok");

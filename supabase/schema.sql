@@ -614,10 +614,26 @@ returns date language sql immutable as $$
   select ((p_ts at time zone 'Asia/Kolkata') - interval '6 hours')::date;
 $$;
 
--- Business details for the invoice header (extend the single settings row).
-alter table public.settings add column if not exists address text;
-alter table public.settings add column if not exists gst_no  text;
-alter table public.settings add column if not exists contact text;
+-- Business details for the invoice (CREDIT MEMO) header.
+alter table public.settings add column if not exists address    text;
+alter table public.settings add column if not exists gst_no     text;
+alter table public.settings add column if not exists contact    text;
+alter table public.settings add column if not exists mobile     text;
+alter table public.settings add column if not exists email      text;
+alter table public.settings add column if not exists state_name text;
+alter table public.settings add column if not exists state_code text;
+
+-- Seed the real Vriddhi Fuels letterhead (only fills blanks; never clobbers
+-- values the admin has already edited).
+update public.settings set business_name='VRIDDHI FUELS (2026-27)'
+  where id=1 and (business_name is null or business_name='Vriddhi Fuels');
+update public.settings set address=E'AT-KHERWAL PO- BADMAL\nDIST- JHARSUGUDA, 768202\nODISHA'
+  where id=1 and address is null;
+update public.settings set gst_no='21AATFV8250A1Z8' where id=1 and gst_no is null;
+update public.settings set mobile='9937344411'        where id=1 and mobile is null;
+update public.settings set email='subhamkhetan@gmail.com' where id=1 and email is null;
+update public.settings set state_name='Odisha'        where id=1 and state_name is null;
+update public.settings set state_code='21'            where id=1 and state_code is null;
 
 -- Append-only price history. A price "takes effect" on its effective_date
 -- (a shift date) and carries forward until a newer one is entered — so a
