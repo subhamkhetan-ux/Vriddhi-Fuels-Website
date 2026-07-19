@@ -500,11 +500,10 @@ async function renderCustomer(quiet){
   </main>${customerTabbar()}`;
   bindChrome();
 
-  // Mandatory reminder: pop up once per shift-day when previous days are unacknowledged.
+  // Mandatory: an un-dismissable popup whenever previous days are unacknowledged.
   const today=shiftKey(new Date().toISOString());
-  if(state.ackPopupDay!==today){ state.ackPopupDismissed=false; state.ackPopupDay=today; }
   const overdue=pendingAcks.filter(v=>shiftKey(v.issued_at)<today);
-  if(overdue.length && !state.ackPopupDismissed && !quiet) ackPopup(overdue, indById);
+  if(overdue.length && !quiet) ackPopup(overdue, indById);
 }
 function customerTabbar(){
   return `<nav class="tabbar">
@@ -561,10 +560,8 @@ function ackPopup(invs, indById){
             <span class="v">${v.litres!=null?Number(v.litres)+" L":""} ${v.amount!=null?inr(v.amount):""}</span></div>`;}).join("")}
       </div>
       <button class="btn ok" data-act="ackday" data-ids="${ids}">✍️ Acknowledge all (${invs.length})</button>
-      <div style="height:10px"></div>
-      <button class="btn sec" id="ackp-later">Remind me later</button>
+      <div class="tiny" style="text-align:center;margin-top:10px">You must acknowledge these to continue using the app.</div>
     </div></div>`;
-  $("#ackp-later").onclick=()=>{ state.ackPopupDismissed=true; closeSheet(); };
   bindActs(modal);
 }
 function rateBanner(prices){
