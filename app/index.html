@@ -114,6 +114,10 @@ input.inp:focus,select.inp:focus{outline:2px solid var(--orange-soft);border-col
   background:linear-gradient(180deg,var(--bg) 70%,transparent)}
 .grp-n{font-size:12px;font-weight:700;color:var(--txt-3);background:var(--card);
   border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+.ackb{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap;flex:none}
+.ackb.y{background:#e6f7ec;color:#0f9d6e;border-color:#b6e6cd}
+.ackb.n{background:#fff7ec;color:#b45309;border-color:#f7d9a8}
+@media (prefers-color-scheme:dark){.ackb.y{background:#0f2a1c;color:#3fd29a;border-color:#1f4a34}.ackb.n{background:#2a1d12;color:#f0a44a;border-color:#5a3d1c}}
 
 .totrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
 .tot{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;box-shadow:var(--shadow)}
@@ -330,6 +334,7 @@ function subscribeRealtime(){
   teardownRealtime();
   state.channel = sb.channel("indents-rt")
     .on("postgres_changes",{event:"*",schema:"public",table:"indents"}, ()=>onDataChange())
+    .on("postgres_changes",{event:"*",schema:"public",table:"invoices"}, ()=>onDataChange())
     .subscribe();
 }
 function teardownRealtime(){ if(state.channel){ sb.removeChannel(state.channel); state.channel=null; } }
@@ -425,6 +430,21 @@ async function myInvoices(){
   const { data, error } = await sb.from("invoices").select("*").order("issued_at",{ascending:false});
   if(error) throw error; return data||[];
 }
+async function allInvoices(){
+  const { data, error } = await sb.from("invoices").select("*").order("issued_at",{ascending:false});
+  if(error) throw error; return data||[];
+}
+function cacheInvoices(invs){
+  state.cache.invoices=invs||[];
+  const m={}; (invs||[]).forEach(v=>{ m[v.indent_id]=v; });
+  state.cache.invByIndent=m;
+}
+const ackOf=(indentId)=> (state.cache.invByIndent||{})[indentId];
+// Unacknowledged invoices whose delivery day is BEFORE today's shift-day (overdue).
+function overdueAcks(){
+  const t=shiftKey(new Date().toISOString());
+  return (state.cache.invoices||[]).filter(v=>v.ack_status!=="acknowledged" && shiftKey(v.issued_at)<t);
+}
 async function auditFor(indentId){
   const { data, error } = await sb.from("audit_log").select("*")
     .eq("indent_id",indentId).order("created_at",{ascending:true});
@@ -473,12 +493,18 @@ async function renderCustomer(quiet){
       </div>
       <button class="btn ${blocked?"":""}" data-act="new" ${blocked?"disabled":""}>➕ New indent</button>
       ${last && !blocked ? `<button class="btn sec" style="margin-top:10px" data-act="repeat" data-id="${last.id}">
-        🔁 Repeat last — ${esc(last.vehicle_no)} · ${esc(last.product)} · ${esc(qtyText(last))}</button>`:""}
+        🔁 Repeat last — ${last.vehicle_no?esc(last.vehicle_no)+" · ":""}${esc(last.product)} · ${esc(qtyText(last))}</button>`:""}
     </div>
     <h2 class="sec">My indents</h2>
     <div id="mylist">${indents.length?indents.map(customerCard).join(""):`<div class="empty">No indents yet.</div>`}</div>
   </main>${customerTabbar()}`;
   bindChrome();
+
+  // Mandatory reminder: pop up once per shift-day when previous days are unacknowledged.
+  const today=shiftKey(new Date().toISOString());
+  if(state.ackPopupDay!==today){ state.ackPopupDismissed=false; state.ackPopupDay=today; }
+  const overdue=pendingAcks.filter(v=>shiftKey(v.issued_at)<today);
+  if(overdue.length && !state.ackPopupDismissed && !quiet) ackPopup(overdue, indById);
 }
 function customerTabbar(){
   return `<nav class="tabbar">
@@ -491,9 +517,11 @@ function customerTabbar(){
 // one-click "acknowledge the whole day" button.
 function ackSection(invs, indById){
   if(!invs || !invs.length) return "";
+  const today=shiftKey(new Date().toISOString());
   const groups={};
   invs.forEach(v=>{ const k=shiftKey(v.issued_at); (groups[k]=groups[k]||[]).push(v); });
   const days=Object.keys(groups).sort().reverse();
+  const overdueN=invs.filter(v=>shiftKey(v.issued_at)<today).length;
   const line=(v)=>{ const ind=indById[v.indent_id]||{};
     const q=[v.litres!=null?Number(v.litres)+" L":"", v.amount!=null?inr(v.amount):""].filter(Boolean).join(" · ");
     return `<div class="icard" data-p="${v.product}" style="margin:0 0 8px">
@@ -506,18 +534,38 @@ function ackSection(invs, indById){
         <button class="btn sec sm" data-act="invoice" data-id="${v.indent_id}">View invoice</button>
       </div></div>`;
   };
-  return `<div class="banner">
-    <div style="font-weight:800;margin-bottom:4px">✍️ Confirm fuel received (${invs.length})</div>
-    <div class="tiny" style="margin-bottom:12px">Please acknowledge these deliveries — this is your record that the fuel was taken.</div>
-    ${days.map(k=>{ const list=groups[k]; const ids=list.map(v=>v.id).join(",");
+  return `<div class="banner" style="${overdueN?"border-color:var(--bad)":""}">
+    <div style="font-weight:800;margin-bottom:4px">✍️ Unacknowledged deliveries (${invs.length})</div>
+    <div class="tiny" style="margin-bottom:12px">Acknowledging is mandatory — it's your record that the fuel was taken.${overdueN?` <b style="color:var(--bad)">${overdueN} from previous day(s) are overdue.</b>`:""}</div>
+    ${days.map(k=>{ const list=groups[k]; const ids=list.map(v=>v.id).join(","); const overdue=k<today;
       return `<div style="margin-bottom:14px">
         <div class="spread" style="margin-bottom:8px">
-          <b>${dLabel(k)}</b>
+          <b>${overdue?"⚠️ ":""}${dLabel(k)}${overdue?" · overdue":""}</b>
           <button class="btn ok sm" data-act="ackday" data-ids="${ids}">Acknowledge all (${list.length})</button>
         </div>
         ${list.map(line).join("")}
       </div>`;}).join("")}
   </div>`;
+}
+// Mandatory next-day reminder popup for overdue (previous-day) acknowledgements.
+function ackPopup(invs, indById){
+  if(!invs.length) return;
+  const ids=invs.map(v=>v.id).join(",");
+  modal.innerHTML = `<div class="overlay" style="align-items:center">
+    <div class="sheet" style="border-radius:22px;max-width:520px;margin:16px">
+      <h3 style="color:var(--bad)">⚠️ Please acknowledge previous deliveries</h3>
+      <p class="muted">You have <b>${invs.length}</b> fuel ${invs.length>1?"deliveries":"delivery"} from previous days awaiting your confirmation. Acknowledging is mandatory so the record shows you received the fuel.</p>
+      <div style="max-height:40vh;overflow:auto;margin:10px 0">
+        ${invs.map(v=>{ const ind=indById[v.indent_id]||{};
+          return `<div class="kv"><span class="k">${dLabel(shiftKey(v.issued_at))} · ${esc(v.code)}${ind.vehicle_no?" · "+esc(ind.vehicle_no):""}</span>
+            <span class="v">${v.litres!=null?Number(v.litres)+" L":""} ${v.amount!=null?inr(v.amount):""}</span></div>`;}).join("")}
+      </div>
+      <button class="btn ok" data-act="ackday" data-ids="${ids}">✍️ Acknowledge all (${invs.length})</button>
+      <div style="height:10px"></div>
+      <button class="btn sec" id="ackp-later">Remind me later</button>
+    </div></div>`;
+  $("#ackp-later").onclick=()=>{ state.ackPopupDismissed=true; closeSheet(); };
+  bindActs(modal);
 }
 function rateBanner(prices){
   const set=(prices||[]).filter(p=>p.price!=null);
@@ -569,14 +617,14 @@ async function renderStaff(quiet){
   state.view="board";
   // Don't blow away the board (and search focus) on a realtime refresh.
   if(quiet && $("#board-search") && document.activeElement===$("#board-search")){
-    try{ const [ind,usr]=await Promise.all([allIndents(),usersList()]);
-      state.cache.indents=ind; state.cache.users=usr; paintBoard(); }catch(e){}
+    try{ const [ind,usr,inv]=await Promise.all([allIndents(),usersList(),allInvoices()]);
+      state.cache.indents=ind; state.cache.users=usr; cacheInvoices(inv); paintBoard(); }catch(e){}
     return;
   }
   if(!quiet) root.innerHTML = header()+`<main><div class="center"><div class="spin"></div></div></main>`;
-  let indents=[], users=[];
-  try{ [indents,users]=await Promise.all([allIndents(),usersList()]); }catch(e){ return toast(e.message,"bad"); }
-  state.cache.indents=indents; state.cache.users=users;
+  let indents=[], users=[], invoices=[];
+  try{ [indents,users,invoices]=await Promise.all([allIndents(),usersList(),allInvoices()]); }catch(e){ return toast(e.message,"bad"); }
+  state.cache.indents=indents; state.cache.users=users; cacheInvoices(invoices);
   const today = indents.filter(i=>isToday(i.created_at));
   const c=(s)=>today.filter(i=>i.status===s).length;
   const tab=state.tab;
@@ -591,7 +639,7 @@ async function renderStaff(quiet){
     <input class="inp" id="board-search" autocapitalize="characters" autocomplete="off"
       placeholder="🔍 Search vehicle number or IND-…" value="${esc(state.boardSearch||"")}" style="margin-bottom:10px">
     <div class="tabs">
-      ${["Pending","Awaiting","Delivered","All"].map(t=>`<button class="${t===tab?"on":""}" data-act="tab" data-tab="${t}">${t}</button>`).join("")}
+      ${["Pending","Awaiting","Delivered","Unack","All"].map(t=>`<button class="${t===tab?"on":""}" data-act="tab" data-tab="${t}">${t==="Unack"?"Unacknowledged":t}</button>`).join("")}
     </div>
     <div id="board"></div>
   </main>
@@ -609,7 +657,9 @@ function paintBoard(){
   const custById={}; users.forEach(u=>custById[u.id]=u);
   const tab=state.tab;
   const term=(state.boardSearch||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
-  let list=indents.filter(i=> tab==="All" ? true : i.status===tab);
+  let list = tab==="All" ? indents.slice()
+    : tab==="Unack" ? indents.filter(i=>{ const v=ackOf(i.id); return i.status==="Delivered" && v && v.ack_status!=="acknowledged"; })
+    : indents.filter(i=> i.status===tab);
   if(term) list=list.filter(i=>
     (i.vehicle_no||"").toUpperCase().replace(/[^A-Z0-9]/g,"").includes(term) ||
     (i.code||"").toUpperCase().replace(/[^A-Z0-9]/g,"").includes(term));
@@ -638,6 +688,12 @@ function staffTabbar(){
 function staffCard(i){
   const open = i.status==="Pending"||i.status==="Awaiting";
   const admin = state.me.role==="admin";
+  const inv = ackOf(i.id);
+  const ackBadge = i.status==="Delivered" && inv
+    ? (inv.ack_status==="acknowledged"
+        ? `<span class="ackb y">✓ Acknowledged</span>`
+        : `<span class="ackb n">⏳ Not acknowledged</span>`)
+    : "";
   return `<div class="icard" data-p="${i.product}">
     <div class="top">
       <span class="icode">${esc(i.code)} <span class="badge b-${i.status}">${STATUS_ICON[i.status]} ${i.status}</span></span>
@@ -645,6 +701,7 @@ function staffCard(i){
     <div class="spread" style="margin:6px 0 10px">
       <div><div style="font-weight:700">${vehText(i)}</div>
         <div class="tiny">${esc(i.product)} · ${fmtIST(i.created_at)}${isPartial(i)?` · <b>Partial: ${deliveredText(i)} delivered</b>`:""}</div></div>
+      ${ackBadge}
     </div>
     <div class="btnrow">
       ${open?`<button class="btn ok sm" data-act="deliver" data-id="${i.id}">✅ Delivered</button>`:""}
@@ -1085,11 +1142,16 @@ function resetPwSheet(id,name){
 async function renderReports(){
   state.view="reports";
   root.innerHTML = header("Admin · Reports")+`<main><div class="center"><div class="spin"></div></div></main>`;
-  let indents=[],users=[],prices=[],st={};
-  try{ [indents,users,prices,st]=await Promise.all([allIndents(),usersList(),fetchPrices(),fetchSettings(true)]); }
+  let indents=[],users=[],prices=[],st={},invoices=[];
+  try{ [indents,users,prices,st,invoices]=await Promise.all([allIndents(),usersList(),fetchPrices(),fetchSettings(true),allInvoices()]); }
   catch(e){ return toast(e.message,"bad"); }
-  state.cache.indents=indents; state.cache.users=users;
+  state.cache.indents=indents; state.cache.users=users; cacheInvoices(invoices);
   const today=indents.filter(i=>isToday(i.created_at));
+  // Unacknowledged deliveries grouped by customer (for owner follow-up).
+  const custName=(id)=>{ const u=users.find(x=>x.id===id); return u?u.name:"Unknown"; };
+  const unack=invoices.filter(v=>v.ack_status!=="acknowledged");
+  const unackByCust={}; unack.forEach(v=>{ (unackByCust[v.customer_id]=unackByCust[v.customer_id]||[]).push(v); });
+  const unackOrder=Object.keys(unackByCust).sort((a,b)=>custName(a).localeCompare(custName(b),undefined,{sensitivity:"base"}));
   const perProduct = PRODUCTS.map(p=>{
     const rows=today.filter(i=>i.product===p);
     const L=rows.filter(i=>i.order_type==="Litres").reduce((a,b)=>a+Number(b.value),0);
@@ -1128,6 +1190,15 @@ async function renderReports(){
       ${perProduct.map(x=>`<div class="kv"><span class="k">${x.p}</span>
         <span class="v">${x.n} indents · ${x.L?x.L+" L":""} ${x.A?inr(x.A):""}</span></div>`).join("")}
     </div>
+
+    <h2 class="sec">Unacknowledged deliveries${unack.length?" ("+unack.length+")":""}</h2>
+    <div class="card">
+      ${unack.length? unackOrder.map(cid=>{ const list=unackByCust[cid];
+        return `<div class="kv"><span class="k">${esc(custName(cid))}</span>
+          <span class="v">${list.length} pending · ${esc(list.map(v=>v.code).slice(0,4).join(", "))}${list.length>4?"…":""}</span></div>`;}).join("")
+        : `<div class="tiny">All delivered invoices are acknowledged. ✅</div>`}
+    </div>
+
     <h2 class="sec">Export</h2>
     <div class="card">
       <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -1281,7 +1352,12 @@ async function handleAct(act, ds){
       case "users": return renderUsers();
       case "reports": return renderReports();
       case "statements": return renderStatements();
-      case "new": return newIndentWizard(false);
+      case "new": {
+        const od=overdueAcks();
+        if(od.length){ const inds={}; (state.cache.indents||[]).forEach(x=>inds[x.id]=x);
+          toast("Please acknowledge previous deliveries first","bad"); return ackPopup(od, inds); }
+        return newIndentWizard(false);
+      }
       case "onbehalf": return newIndentWizard(true);
       case "adduser": return addUserSheet();
       case "detail": return openDetail(id);
@@ -1299,6 +1375,9 @@ async function handleAct(act, ds){
       case "resetpw": return resetPwSheet(id, ds.name);
       case "repeat": {
         const i=(state.cache.indents||[]).find(x=>x.id===id); if(!i) return;
+        const od=overdueAcks();
+        if(od.length){ const inds={}; (state.cache.indents||[]).forEach(x=>inds[x.id]=x);
+          toast("Please acknowledge previous deliveries first","bad"); return ackPopup(od, inds); }
         if(!confirmAct(`Repeat: ${i.vehicle_no?i.vehicle_no+" · ":""}${i.product} · ${qtyText(i)}?`)) return;
         await rpc("place_indent", withMeta({ p_vehicle:i.vehicle_no, p_product:i.product,
           p_order_type:i.order_type, p_value:Number(i.value), p_customer:null }));
