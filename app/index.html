@@ -543,13 +543,17 @@ async function renderCustomer(quiet){
     </div>
     <h2 class="sec">Download my deliveries (Excel)</h2>
     <div class="card">
-      <div class="tiny" style="margin-bottom:8px">Pick a date range (by delivery date) and download an Excel file of your deliveries.</div>
+      <div class="tiny" style="margin-bottom:8px">Get your report any time — pick a range, or tap a quick option.</div>
+      <div class="btnrow" style="margin-bottom:10px">
+        <button class="btn sec sm" data-act="myexport-today">Today</button>
+        <button class="btn sec sm" data-act="myexport-month">This month</button>
+      </div>
       <div class="row" style="gap:8px;flex-wrap:wrap">
         <input class="inp" id="cx-from" type="date" style="flex:1;min-width:130px">
         <input class="inp" id="cx-to" type="date" style="flex:1;min-width:130px">
       </div>
       <div style="height:10px"></div>
-      <button class="btn sec" data-act="myexport">⬇️ Download Excel</button>
+      <button class="btn sec" data-act="myexport">⬇️ Download Excel (this range)</button>
     </div>
     <h2 class="sec">My indents</h2>
     <div id="mylist">${indents.length?indents.map(customerCard).join(""):`<div class="empty">No indents yet.</div>`}</div>
@@ -1559,6 +1563,11 @@ async function handleAct(act, ds){
       case "reset": return resetSheet();
       case "exportcsv": return exportCSV();
       case "myexport": return customerExport();
+      case "myexport-today": { const t=new Date().toISOString().slice(0,10);
+        if($("#cx-from")) $("#cx-from").value=t; if($("#cx-to")) $("#cx-to").value=t; return customerExport(); }
+      case "myexport-month": { const n=new Date();
+        const f=new Date(n.getFullYear(),n.getMonth(),1).toISOString().slice(0,10), t=n.toISOString().slice(0,10);
+        if($("#cx-from")) $("#cx-from").value=f; if($("#cx-to")) $("#cx-to").value=t; return customerExport(); }
       case "ownerexport": return ownerExport();
       case "sendstmt": return sendStatement();
       case "resetpw": return resetPwSheet(id, ds.name);

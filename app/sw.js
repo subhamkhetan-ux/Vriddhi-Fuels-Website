@@ -1,7 +1,7 @@
 // Service worker — app-shell cache. Network-first for navigation so updates
 // land quickly; cache fallback keeps the shell (and cached history) available
 // offline. Placing indents requires a connection (see requirements §7).
-const CACHE = "vriddhi-indents-v1";
+const CACHE = "vriddhi-indents-v3";
 const SHELL = [
   "./",
   "./index.html",
