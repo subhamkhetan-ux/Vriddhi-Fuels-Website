@@ -225,12 +225,17 @@ begin
   on_behalf := p_customer is not null and p_customer <> caller.id;
 
   if on_behalf then
-    if caller.role not in ('employee','admin') then
-      raise exception 'Only staff may log on behalf of a customer';
+    -- Only the admin/owner may log on behalf; employees cannot create indents.
+    if caller.role <> 'admin' then
+      raise exception 'Only the owner can log an indent on behalf of a customer';
     end if;
     target := p_customer;
     new_status := 'Awaiting';                 -- needs customer approval
   else
+    -- Self-service placement is for customers only.
+    if caller.role <> 'customer' then
+      raise exception 'Only customers can place their own indent';
+    end if;
     target := caller.id;
     -- Blocked customers cannot place. §4 Blocked customers
     if caller.is_blocked then
@@ -240,10 +245,14 @@ begin
   end if;
 
   if p_value is null or p_value <= 0 then raise exception 'Value must be > 0'; end if;
-  if not public.is_valid_vehicle(p_vehicle) then
+  -- Vehicle number is optional. If given, it must be valid; if blank, store null.
+  if p_vehicle is null or btrim(p_vehicle) = '' then
+    veh := null;
+  elsif not public.is_valid_vehicle(p_vehicle) then
     raise exception 'Invalid vehicle number: %', p_vehicle;
+  else
+    veh := public.normalize_vehicle(p_vehicle);
   end if;
-  veh := public.normalize_vehicle(p_vehicle);
 
   insert into public.indents(code, customer_id, created_by, vehicle_no,
                              product, order_type, value, status)
@@ -251,9 +260,11 @@ begin
           target, caller.id, veh, p_product, p_order_type, p_value, new_status)
   returning * into rec;
 
-  -- Remember the vehicle for the customer's quick-pick list.
-  insert into public.vehicles(customer_id, vehicle_no)
-  values (target, veh) on conflict do nothing;
+  -- Remember the vehicle for the customer's quick-pick list (only if given).
+  if veh is not null then
+    insert into public.vehicles(customer_id, vehicle_no)
+    values (target, veh) on conflict do nothing;
+  end if;
 
   perform public._audit(rec.id, 'created', null, to_jsonb(rec),
     case when on_behalf then 'Logged on behalf by staff (awaiting approval)'
@@ -300,7 +311,7 @@ begin
 end $$;
 
 -- Cancel an open indent (Awaiting or Pending).
---   customer: own only.  staff: any open.
+--   customer: own only.  admin: any open.  employees CANNOT cancel.
 create or replace function public.cancel_indent(
   p_id uuid, p_ua text default null, p_ip text default null)
 returns public.indents
@@ -313,8 +324,8 @@ begin
   if caller.role = 'customer' then
     if caller.id <> old.customer_id then raise exception 'You can only cancel your own indent'; end if;
     if caller.is_blocked then raise exception 'Your account is blocked. Please contact us.'; end if;
-  elsif caller.role not in ('employee','admin') then
-    raise exception 'Not permitted';
+  elsif caller.role <> 'admin' then
+    raise exception 'Not permitted';   -- employees cannot cancel
   end if;
 
   update public.indents set status='Cancelled', handled_by=caller.id, handled_at=now(),
@@ -343,9 +354,15 @@ begin
   elsif caller.role not in ('employee','admin') then
     raise exception 'Not permitted';
   end if;
-  if not public.is_valid_vehicle(p_vehicle) then raise exception 'Invalid vehicle number: %', p_vehicle; end if;
   if p_value is null or p_value <= 0 then raise exception 'Value must be > 0'; end if;
-  veh := public.normalize_vehicle(p_vehicle);
+  -- Vehicle optional (see place_indent).
+  if p_vehicle is null or btrim(p_vehicle) = '' then
+    veh := null;
+  elsif not public.is_valid_vehicle(p_vehicle) then
+    raise exception 'Invalid vehicle number: %', p_vehicle;
+  else
+    veh := public.normalize_vehicle(p_vehicle);
+  end if;
 
   note := 'Modified';
   if old.value <> p_value or old.order_type <> p_order_type then
@@ -354,7 +371,7 @@ begin
       p_order_type, trim(to_char(p_value,'FM999999990.00')));
   end if;
   if old.product <> p_product then note := note || format('; product %s -> %s', old.product, p_product); end if;
-  if old.vehicle_no <> veh then note := note || format('; vehicle %s -> %s', old.vehicle_no, veh); end if;
+  if old.vehicle_no is distinct from veh then note := note || format('; vehicle %s -> %s', coalesce(old.vehicle_no,'—'), coalesce(veh,'—')); end if;
 
   update public.indents set vehicle_no=veh, product=p_product, order_type=p_order_type,
     value=p_value, updated_at=now() where id = p_id returning * into rec;
@@ -362,25 +379,41 @@ begin
   return rec;
 end $$;
 
+-- Drop the earlier 3-arg version so re-running doesn't leave an ambiguous overload.
+drop function if exists public.deliver_indent(uuid, text, text);
+
 -- Mark delivered (staff only). Delivery allowed from Awaiting too, but flagged.
+-- p_delivered: the quantity/amount actually delivered, in the indent's own unit
+-- (litres or ₹). NULL = fully delivered (uses the ordered value). A smaller
+-- value = partial delivery; the invoice bills the delivered amount.
 create or replace function public.deliver_indent(
-  p_id uuid, p_ua text default null, p_ip text default null)
+  p_id uuid, p_delivered numeric default null,
+  p_ua text default null, p_ip text default null)
 returns public.indents
 language plpgsql security definer set search_path = public as $$
-declare caller public.app_users := public.me(); old public.indents; rec public.indents; note text;
+declare caller public.app_users := public.me(); old public.indents; rec public.indents; note text; dv numeric;
 begin
   if not public.is_staff() then raise exception 'Only staff can mark delivered'; end if;
   select * into old from public.indents where id = p_id;
   if old.id is null then raise exception 'Indent not found'; end if;
   if old.status not in ('Awaiting','Pending') then raise exception 'Indent is not open'; end if;
 
-  note := 'Delivered';
+  dv := coalesce(p_delivered, old.value);
+  if dv <= 0 then raise exception 'Delivered quantity must be > 0'; end if;
+
+  if dv < old.value then
+    note := format('Partially delivered: %s of %s %s',
+      trim(to_char(dv,'FM999999990.00')), trim(to_char(old.value,'FM999999990.00')), old.order_type);
+  else
+    note := 'Delivered (full)';
+  end if;
   if old.status = 'Awaiting' then
-    note := 'DELIVERED WITHOUT CUSTOMER APPROVAL (weaker proof)';  -- §6.6
+    note := note || ' — WITHOUT CUSTOMER APPROVAL (weaker proof)';  -- §6.6
   end if;
 
-  update public.indents set status='Delivered', handled_by=caller.id, handled_at=now(),
-    updated_at=now() where id = p_id returning * into rec;
+  update public.indents set status='Delivered', delivered_value=dv,
+    handled_by=caller.id, handled_at=now(), updated_at=now()
+    where id = p_id returning * into rec;
   perform public._audit(p_id, 'delivered', to_jsonb(old), to_jsonb(rec), note, p_ua, p_ip);
   perform public._create_invoice(p_id, false);   -- auto-generate the invoice
   return rec;
@@ -571,6 +604,10 @@ revoke execute on function public._audit(uuid, audit_event, jsonb, jsonb, text, 
 -- DAILY PRICES + INVOICES  (added after v1 — safe to re-run)
 -- =====================================================================
 
+-- Vehicle number is optional now; partial deliveries record what was delivered.
+alter table public.indents alter column vehicle_no drop not null;
+alter table public.indents add column if not exists delivered_value numeric(12,2);
+
 -- Shift date helper: the 6am-to-6am business day (IST) as a plain date.
 create or replace function public.shift_date(p_ts timestamptz)
 returns date language sql immutable as $$
@@ -662,7 +699,7 @@ create index if not exists idx_invoices_customer on public.invoices(customer_id)
 create or replace function public._create_invoice(p_indent uuid, p_force boolean)
 returns public.invoices
 language plpgsql security definer set search_path = public as $$
-declare i public.indents; inv public.invoices; r numeric; l numeric; a numeric; d date;
+declare i public.indents; inv public.invoices; r numeric; l numeric; a numeric; d date; basis numeric;
 begin
   select * into i from public.indents where id = p_indent;
   if i.id is null then raise exception 'Indent not found'; end if;
@@ -671,22 +708,24 @@ begin
 
   d := public.shift_date(coalesce(i.handled_at, now()));
   r := public.price_on(i.product, d);
+  basis := coalesce(i.delivered_value, i.value);   -- bill the DELIVERED amount
   if i.order_type = 'Litres' then
-    l := i.value;
-    a := case when r is not null then round(i.value * r, 2) else null end;
+    l := basis;
+    a := case when r is not null then round(basis * r, 2) else null end;
   else
-    a := i.value;
-    l := case when r is not null and r > 0 then round(i.value / r, 3) else null end;
+    a := basis;
+    l := case when r is not null and r > 0 then round(basis / r, 3) else null end;
   end if;
 
   if inv.id is null then
     insert into public.invoices(code, indent_id, customer_id, product, order_type,
                                 ordered_value, rate, litres, amount, issued_by)
     values ('INV-' || lpad(nextval('public.invoice_code_seq')::text, 4, '0'),
-            p_indent, i.customer_id, i.product, i.order_type, i.value, r, l, a, auth.uid())
+            p_indent, i.customer_id, i.product, i.order_type, basis, r, l, a, auth.uid())
     returning * into inv;
   else
-    update public.invoices set rate=r, litres=l, amount=a, issued_by=auth.uid(), issued_at=now()
+    update public.invoices set ordered_value=basis, rate=r, litres=l, amount=a,
+      issued_by=auth.uid(), issued_at=now()
     where id = inv.id returning * into inv;
   end if;
   return inv;
