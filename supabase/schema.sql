@@ -781,3 +781,32 @@ grant execute on function
 -- Internal invoice writer must not be directly callable (like _audit).
 revoke execute on function public._create_invoice(uuid, boolean) from public, authenticated;
 
+
+-- =====================================================================
+-- ADMIN: reset / start afresh
+-- ---------------------------------------------------------------------
+-- Permanently wipes all transactional history — indents, invoices, the
+-- append-only audit trail, and statements — and resets numbering. KEEPS
+-- users, saved vehicles, product prices, and business settings. Intended
+-- for clearing test data before go-live. Requires typing the exact word.
+-- TRUNCATE (not DELETE) is used so it bypasses the audit append-only
+-- trigger and resets identities in one shot.
+-- =====================================================================
+create or replace function public.reset_indent_history(p_confirm text)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Admin only'; end if;
+  if p_confirm is distinct from 'RESET' then
+    raise exception 'Confirmation text does not match. Type RESET to confirm.';
+  end if;
+
+  truncate table public.invoices, public.audit_log, public.statements,
+                 public.indents restart identity;
+
+  alter sequence public.indent_code_seq  restart with 1;
+  alter sequence public.invoice_code_seq restart with 1;
+end $$;
+
+grant execute on function public.reset_indent_history(text) to authenticated;
+

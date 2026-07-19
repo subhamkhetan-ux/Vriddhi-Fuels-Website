@@ -1073,6 +1073,13 @@ async function renderReports(){
       <div style="height:12px"></div>
       <button class="btn sec" data-act="savesettings">Save business details</button>
     </div>
+
+    <h2 class="sec" style="color:var(--bad)">Danger zone</h2>
+    <div class="card" style="border-color:var(--bad)">
+      <div style="font-weight:800;margin-bottom:4px">Reset & start afresh</div>
+      <div class="tiny" style="margin-bottom:12px">Permanently deletes <b>all indents, invoices, delivery records, the audit trail, and statements</b>, and resets numbering to IND-0001. Keeps users, prices, and business settings. Use this to clear test data before going live. This cannot be undone.</div>
+      <button class="btn bad" data-act="reset">🗑️ Reset all indent history</button>
+    </div>
   </main>${staffTabbar()}`;
   const now=new Date(); const iso=(d)=>d.toISOString().slice(0,10);
   $("#ex-from").value=iso(new Date(now.getFullYear(),now.getMonth(),1)); $("#ex-to").value=iso(now);
@@ -1094,6 +1101,25 @@ async function setPrice(product){
   try{ await rpc("set_price",{ p_product:product, p_price:Number(v) });
     toast(product+" price updated","ok"); renderReports();
   }catch(e){ toast(e.message,"bad"); }
+}
+function resetSheet(){
+  sheet(`<h3 style="color:var(--bad)">Reset all indent history</h3>
+    <div class="blocknote" style="margin:8px 0 4px">This permanently deletes <b>all indents, invoices, delivery records, the audit trail, and statements</b>, and resets numbering to IND-0001.<br><br>Users, prices, and business settings are kept. <b>This cannot be undone.</b></div>
+    <label class="fld">Type <b>RESET</b> to confirm</label>
+    <input class="inp" id="rs-confirm" autocapitalize="characters" autocomplete="off" placeholder="RESET">
+    <div style="height:16px"></div>
+    <div class="btnrow"><button class="btn sec" id="rs-cancel">Cancel</button>
+      <button class="btn bad" id="rs-go">Delete everything</button></div>`);
+  $("#rs-cancel").onclick=closeSheet;
+  $("#rs-go").onclick=async ()=>{
+    const c=$("#rs-confirm").value.trim();
+    if(c!=="RESET") return toast("Type RESET to confirm","bad");
+    const b=$("#rs-go"); b.disabled=true; b.textContent="Resetting…";
+    try{ await rpc("reset_indent_history",{ p_confirm:c });
+      state.cache.indents=[];
+      closeSheet(); toast("History cleared — starting afresh","ok"); renderStaff();
+    }catch(e){ toast(e.message,"bad"); b.disabled=false; b.textContent="Delete everything"; }
+  };
 }
 function exportCSV(){
   const from=$("#ex-from").value, to=$("#ex-to").value;
@@ -1170,6 +1196,7 @@ async function handleAct(act, ds){
       case "regeninv": await rpc("generate_invoice",{p_indent:id,p_force:true}); toast("Invoice regenerated","ok"); return openInvoice(id);
       case "setprice": return setPrice(ds.product);
       case "savesettings": return saveSettings();
+      case "reset": return resetSheet();
       case "exportcsv": return exportCSV();
       case "sendstmt": return sendStatement();
       case "resetpw": return resetPwSheet(id, ds.name);
