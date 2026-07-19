@@ -819,8 +819,10 @@ grant execute on function public.reset_indent_history(text) to authenticated;
 -- customer cannot later deny taking the fuel. Supports one-click bulk
 -- acknowledgement of many invoices (e.g. a whole day) via an id array.
 -- =====================================================================
+-- ack_status: 'pending' | 'acknowledged' | 'disputed' (problem reported).
 alter table public.invoices add column if not exists ack_status text not null default 'pending';
 alter table public.invoices add column if not exists ack_at     timestamptz;
+alter table public.invoices add column if not exists ack_note   text;  -- problem description
 
 create or replace function public.acknowledge_invoices(
   p_ids uuid[], p_ua text default null, p_ip text default null)
@@ -843,4 +845,31 @@ begin
 end $$;
 
 grant execute on function public.acknowledge_invoices(uuid[], text, text) to authenticated;
+
+-- Customer reports a problem with a delivery instead of acknowledging it. This
+-- flags the invoice to the owner (ack_status='disputed') and records the reason
+-- in the audit trail, so the customer is unblocked without it counting as an
+-- acknowledgement.
+create or replace function public.report_invoice_problem(
+  p_id uuid, p_reason text default null, p_ua text default null, p_ip text default null)
+returns public.invoices
+language plpgsql security definer set search_path = public as $$
+declare caller public.app_users := public.me(); inv public.invoices; reason text;
+begin
+  select * into inv from public.invoices where id = p_id;
+  if inv.id is null then raise exception 'Invoice not found'; end if;
+  if caller.id <> inv.customer_id then raise exception 'Not your invoice'; end if;
+  if inv.ack_status = 'acknowledged' then raise exception 'Already acknowledged'; end if;
+  reason := nullif(btrim(coalesce(p_reason,'')), '');
+
+  update public.invoices set ack_status='disputed', ack_at=now(), ack_note=reason
+    where id = p_id returning * into inv;
+  perform public._audit(inv.indent_id, 'rejected', null,
+    jsonb_build_object('invoice', inv.code, 'ack', 'disputed', 'reason', reason),
+    'PROBLEM REPORTED by customer — invoice ' || inv.code || coalesce(': ' || reason, ''),
+    p_ua, p_ip);
+  return inv;
+end $$;
+
+grant execute on function public.report_invoice_problem(uuid, text, text, text) to authenticated;
 

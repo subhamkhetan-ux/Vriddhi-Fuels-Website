@@ -46,10 +46,15 @@ a **search box** to find an indent by **vehicle number** (or IND- code).
 - **Mandatory / next-day reminder:** on the first open of a new day, a popup
   reminds the customer to acknowledge previous days' deliveries, and **placing a
   new indent is blocked** until overdue deliveries are acknowledged.
-- **Employee & owner:** the live board shows an **✓ Acknowledged / ⏳ Not
-  acknowledged** badge on delivered cards and an **Unacknowledged** filter tab.
-  The owner's **Reports** has an **Unacknowledged deliveries** list grouped by
-  customer for follow-up.
+- **Report a problem:** instead of acknowledging, the customer can **Report a
+  problem** (with a note). This flags the delivery to the owner
+  (`ack_status='disputed'`, recorded in the audit log) and unblocks the customer
+  **without** counting as an acknowledgement.
+- **Employee & owner:** the live board shows **✓ Acknowledged / ⏳ Not
+  acknowledged / ⚠️ Problem reported** badges on delivered cards and an
+  **Unacknowledged** filter tab. The owner's **Reports** has a **⚠️ Reported
+  problems** list (with the customer's note) and an **Awaiting acknowledgement**
+  list, both grouped by customer.
 
 **Invoice stamp:** to print your round stamp/signature above "Sign.of Salesman",
 drop the image at **`app/stamp.png`** (transparent PNG recommended). If absent,
