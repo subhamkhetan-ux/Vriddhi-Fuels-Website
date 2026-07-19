@@ -29,9 +29,14 @@ supabase/
 
 | Role | Can do |
 |---|---|
-| **Customer** | Place indents (3-step wizard), repeat last order, approve/reject staff-logged indents, modify/cancel own open indents, view history + monthly statements, acknowledge/dispute statements. |
-| **Employee** | Live realtime board (today's totals + filters), mark delivered, log indents on behalf of a customer, modify/cancel any open indent. |
-| **Admin** | Everything employees do, plus user management (create / reset password / activate / deactivate), block/unblock customers, daily summary + monthly statement sender, CSV export, one-tap **proof pack** (indent + full audit trail, print to PDF). |
+| **Customer** | Place indents (3-step wizard, vehicle optional), repeat last order, approve/reject staff-logged indents, modify/cancel own open indents, view history + invoices + monthly statements, acknowledge/dispute statements. |
+| **Employee** | Live realtime board (today's totals + filters), mark delivered (full or partial), modify open indents. **Cannot create or cancel indents.** |
+| **Admin** | Everything employees do, **plus** create/cancel indents (log on behalf), user management (create / reset password / activate / deactivate), block/unblock customers, set daily prices, monthly statement sender, CSV export, one-tap **proof pack** (indent + full audit trail, print to PDF). |
+
+**Delivery (full / partial):** when marking an indent delivered, staff choose
+**Fully delivered** or **Partial**. Partial asks for the litres/₹ actually
+delivered, and the **invoice bills the delivered amount** (not the ordered
+amount). The board and detail view show "Partial: X delivered".
 
 ## Setup (one time)
 

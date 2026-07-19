@@ -227,6 +227,10 @@ const shiftKey = (ts)=> ts ? new Date(new Date(ts).getTime()+IST_MS-SHIFT_START_
 const fmtDay = (ts)=> ts ? new Date(shiftKey(ts)+"T12:00:00Z").toLocaleDateString("en-IN",{timeZone:"UTC",day:"2-digit",month:"short"}) : "";
 const inr = (n)=> "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
 const qtyText = (i)=> i.order_type==="Litres" ? (Number(i.value)+" L") : inr(i.value);
+const unitVal = (ot,v)=> ot==="Litres" ? (Number(v)+" L") : inr(v);
+const deliveredText = (i)=> unitVal(i.order_type, i.delivered_value);
+const isPartial = (i)=> i.status==="Delivered" && i.delivered_value!=null && Number(i.delivered_value) < Number(i.value);
+const vehText = (i)=> i.vehicle_no ? esc(i.vehicle_no) : '<span class="muted">No vehicle</span>';
 // Plain date-string (YYYY-MM-DD) -> "18 Jul", without shift math.
 const dLabel = (s)=> s ? new Date(s+"T12:00:00Z").toLocaleDateString("en-IN",{timeZone:"UTC",day:"2-digit",month:"short",year:"numeric"}) : "";
 // ₹ amount in Indian words (for the invoice).
@@ -483,7 +487,7 @@ function approvalBanner(i){
   return `<div class="banner">
     <div style="font-weight:800;margin-bottom:4px">🕐 Approval needed — ${esc(i.code)}</div>
     <div class="muted" style="margin-bottom:10px">Staff logged this on your behalf:
-      <b>${esc(i.vehicle_no)}</b> · ${esc(i.product)} · <b>${esc(qtyText(i))}</b></div>
+      ${i.vehicle_no?`<b>${esc(i.vehicle_no)}</b> · `:""}${esc(i.product)} · <b>${esc(qtyText(i))}</b></div>
     <div class="btnrow">
       <button class="btn ok sm" data-act="approve" data-id="${i.id}">Approve</button>
       <button class="btn bad sm" data-act="reject" data-id="${i.id}">Reject</button>
@@ -506,8 +510,8 @@ function customerCard(i){
     <div class="top"><span class="icode">${esc(i.code)}</span>
       <span class="badge b-${i.status}">${STATUS_ICON[i.status]} ${i.status}</span></div>
     <div class="spread" style="margin-top:6px">
-      <div><div style="font-weight:600">${esc(i.vehicle_no)}</div>
-        <div class="tiny">${esc(i.product)} · ${fmtIST(i.created_at)}</div></div>
+      <div><div style="font-weight:600">${i.vehicle_no?esc(i.vehicle_no):esc(i.product)}</div>
+        <div class="tiny">${esc(i.product)} · ${fmtIST(i.created_at)}${isPartial(i)?` · <b>Partial: ${deliveredText(i)}</b>`:""}</div></div>
       <div class="iqty">${esc(qtyText(i))}</div></div>
   </div>`;
 }
@@ -538,7 +542,7 @@ async function renderStaff(quiet){
     </div>
     <div id="board">${filtered.length?filtered.map(staffCard).join(""):`<div class="empty">Nothing here.</div>`}</div>
   </main>
-  <button class="btn fab" data-act="onbehalf">➕ Log indent for a customer</button>
+  ${state.me.role==="admin"?`<button class="btn fab" data-act="onbehalf">➕ Log indent for a customer</button>`:""}
   ${staffTabbar()}`;
   bindChrome();
 }
@@ -546,26 +550,27 @@ function staffTabbar(){
   const admin = state.me.role==="admin";
   return `<nav class="tabbar">
     <button class="${state.view==="board"?"on":""}" data-act="board"><span class="ic">📋</span>Board</button>
-    <button data-act="onbehalf"><span class="ic">➕</span>Log</button>
-    ${admin?`<button data-act="users"><span class="ic">👥</span>Users</button>
+    ${admin?`<button data-act="onbehalf"><span class="ic">➕</span>Log</button>
+    <button data-act="users"><span class="ic">👥</span>Users</button>
     <button data-act="reports"><span class="ic">📊</span>Reports</button>`:""}
   </nav>`;
 }
 function staffCard(i){
   const open = i.status==="Pending"||i.status==="Awaiting";
+  const admin = state.me.role==="admin";
   return `<div class="icard" data-p="${i.product}">
     <div class="top">
       <span class="icode">${esc(i.code)} <span class="badge b-${i.status}">${STATUS_ICON[i.status]} ${i.status}</span></span>
       <span class="iqty">${esc(qtyText(i))}</span></div>
     <div class="spread" style="margin:6px 0 10px">
-      <div><div style="font-weight:700">${esc(i.vehicle_no)}</div>
-        <div class="tiny">${esc(i.product)} · ${fmtIST(i.created_at)}</div></div>
+      <div><div style="font-weight:700">${vehText(i)}</div>
+        <div class="tiny">${esc(i.product)} · ${fmtIST(i.created_at)}${isPartial(i)?` · <b>Partial: ${deliveredText(i)} delivered</b>`:""}</div></div>
     </div>
     <div class="btnrow">
       ${open?`<button class="btn ok sm" data-act="deliver" data-id="${i.id}">✅ Delivered</button>`:""}
       <button class="btn sec sm" data-act="detail" data-id="${i.id}">Details</button>
-      ${open?`<button class="btn sec sm" data-act="modify" data-id="${i.id}">Modify</button>
-      <button class="btn bad sm" data-act="cancel" data-id="${i.id}">Cancel</button>`:""}
+      ${open?`<button class="btn sec sm" data-act="modify" data-id="${i.id}">Modify</button>`:""}
+      ${open&&admin?`<button class="btn bad sm" data-act="cancel" data-id="${i.id}">Cancel</button>`:""}
     </div></div>`;
 }
 
@@ -577,14 +582,17 @@ async function openDetail(id){
   if(!i) return;
   let audit=[]; try{ audit=await auditFor(id); }catch(e){}
   const mine = state.me.role==="customer";
+  const admin = state.me.role==="admin";
   const open = i.status==="Pending"||i.status==="Awaiting";
   const canModify = open && (!mine || (i.customer_id===state.me.id && !state.me.is_blocked));
+  const canCancel = open && (admin || (mine && i.customer_id===state.me.id && !state.me.is_blocked));
   const awaitingMine = i.status==="Awaiting" && mine && i.customer_id===state.me.id;
   sheet(`
     <div class="spread"><h3>${esc(i.code)}</h3><span class="badge b-${i.status}">${STATUS_ICON[i.status]} ${i.status}</span></div>
-    <div class="kv"><span class="k">Vehicle</span><span class="v">${esc(i.vehicle_no)}</span></div>
+    <div class="kv"><span class="k">Vehicle</span><span class="v">${vehText(i)}</span></div>
     <div class="kv"><span class="k">Product</span><span class="v">${esc(i.product)}</span></div>
-    <div class="kv"><span class="k">Quantity</span><span class="v">${esc(qtyText(i))}</span></div>
+    <div class="kv"><span class="k">Ordered</span><span class="v">${esc(qtyText(i))}</span></div>
+    ${i.status==="Delivered"&&i.delivered_value!=null?`<div class="kv"><span class="k">Delivered</span><span class="v">${deliveredText(i)}${isPartial(i)?" (partial)":""}</span></div>`:""}
     <div class="kv"><span class="k">Placed</span><span class="v">${fmtIST(i.created_at)}</span></div>
     ${i.handled_at?`<div class="kv"><span class="k">${i.status}</span><span class="v">${fmtIST(i.handled_at)}</span></div>`:""}
     <h2 class="sec" style="margin:16px 4px 4px">Audit trail (proof)</h2>
@@ -596,9 +604,9 @@ async function openDetail(id){
     <div style="height:14px"></div>
     ${awaitingMine?`<div class="btnrow no-print"><button class="btn ok" data-act="approve" data-id="${i.id}">Approve</button>
       <button class="btn bad" data-act="reject" data-id="${i.id}">Reject</button></div><div style="height:10px"></div>`:""}
-    ${canModify && !awaitingMine?`<div class="btnrow no-print">
-      <button class="btn sec" data-act="modify" data-id="${i.id}">Modify</button>
-      <button class="btn bad" data-act="cancel" data-id="${i.id}">Cancel</button></div><div style="height:10px"></div>`:""}
+    ${(canModify||canCancel) && !awaitingMine?`<div class="btnrow no-print">
+      ${canModify?`<button class="btn sec" data-act="modify" data-id="${i.id}">Modify</button>`:""}
+      ${canCancel?`<button class="btn bad" data-act="cancel" data-id="${i.id}">Cancel</button>`:""}</div><div style="height:10px"></div>`:""}
     ${!mine && open?`<button class="btn ok no-print" data-act="deliver" data-id="${i.id}">✅ Mark delivered</button><div style="height:10px"></div>`:""}
     ${i.status==="Delivered"?`<button class="btn info no-print" data-act="invoice" data-id="${i.id}">🧾 Invoice</button><div style="height:10px"></div>`:""}
     <button class="btn sec no-print" data-act="print">🖨️ Proof pack (PDF)</button>
@@ -657,7 +665,7 @@ function slipHTML(inv, i, cust, st){
     ${inv.amount!=null?`<div class="sl-words">Amount in words: <b>${esc(amountWords(inv.amount))}</b></div>`:
       `<div class="sl-warn">Rate not set for ${dLabel(shiftKey(i.handled_at||inv.issued_at))}. Set the day's price, then regenerate this invoice.</div>`}
     <div class="sl-note">Rate is inclusive of all applicable taxes.</div>
-    <div class="sl-ref">Ref: Indent ${esc(i.code||"")}${i.handled_at?" · Delivered "+fmtIST(i.handled_at):""}</div>
+    <div class="sl-ref">Ref: Indent ${esc(i.code||"")}${i.handled_at?" · Delivered "+fmtIST(i.handled_at):""}${isPartial(i)?" · Partial delivery (ordered "+esc(qtyText(i))+")":""}</div>
     <div class="sl-sign"><div>Customer Signature</div><div>For ${esc(st.business_name||"Vriddhi Fuels")}</div></div>
   </div>`;
 }
@@ -716,12 +724,12 @@ function newIndentWizard(onBehalf){
     <input class="inp" id="wz-cust-q" placeholder="Name or username" autocomplete="off">
     <div id="wz-cust-list" style="margin-top:10px"></div>`;
   const stepVehicle = ()=>`
-    <h3>Vehicle number</h3>
+    <h3>Vehicle number <span class="tiny" style="font-weight:600">(optional)</span></h3>
     ${saved.length?`<label class="fld">Recent</label><div class="chips" id="wz-saved">
       ${saved.map(v=>`<button class="chip" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div>`:""}
     <label class="fld">Enter vehicle</label>
-    <input class="inp" id="wz-veh" placeholder="WB-12-AB-1234" value="${esc(draft.vehicle)}" autocapitalize="characters">
-    <div class="tiny" style="margin-top:6px">Indian format, e.g. WB-12-AB-1234</div>`;
+    <input class="inp" id="wz-veh" placeholder="WB-12-AB-1234 (optional)" value="${esc(draft.vehicle)}" autocapitalize="characters">
+    <div class="tiny" style="margin-top:6px">Leave blank if not needed. Indian format, e.g. WB-12-AB-1234.</div>`;
   const stepProduct = ()=>`
     <h3>Product</h3>
     <div class="prodgrid" style="margin-top:12px">
@@ -742,7 +750,7 @@ function newIndentWizard(onBehalf){
     <p class="tiny">Please check the details below. Placing this indent is recorded with a timestamp as your confirmation.</p>
     <div class="card" style="margin-top:8px">
       ${onBehalf?`<div class="kv"><span class="k">Customer</span><span class="v">${esc(draft.customerName||"")}</span></div>`:""}
-      <div class="kv"><span class="k">Vehicle</span><span class="v">${esc(normVehicle(draft.vehicle))}</span></div>
+      <div class="kv"><span class="k">Vehicle</span><span class="v">${draft.vehicle&&draft.vehicle.trim()?esc(normVehicle(draft.vehicle)):"—"}</span></div>
       <div class="kv"><span class="k">Product</span><span class="v">${esc(draft.product)}</span></div>
       <div class="kv"><span class="k">Quantity</span><span class="v">${draft.order_type==="Litres"?draft.value+" L":inr(draft.value)}</span></div>
     </div>
@@ -790,7 +798,7 @@ function newIndentWizard(onBehalf){
   };
   const advance = async (last)=>{
     const name=steps[si];
-    if(name==="vehicle"){ if(!validVehicle(draft.vehicle)) return toast("Enter a valid vehicle number","bad"); }
+    if(name==="vehicle"){ if(draft.vehicle && draft.vehicle.trim() && !validVehicle(draft.vehicle)) return toast("Enter a valid vehicle number, or leave it blank","bad"); }
     if(name==="product"){ if(!draft.product) return toast("Pick a product","bad"); }
     if(name==="qty"){ draft.value=$("#wz-val").value; if(!(Number(draft.value)>0)) return toast("Enter a quantity","bad"); }
     if(!last){ si++; return draw(); }
@@ -808,13 +816,50 @@ function newIndentWizard(onBehalf){
 }
 
 // modify uses the same fields, prefilled, single sheet
+// Mark delivered — choose Full or Partial (enter delivered litres/₹).
+function deliverSheet(id){
+  const i=(state.cache.indents||[]).find(x=>x.id===id); if(!i) return;
+  const unit = i.order_type==="Litres" ? "Litres delivered" : "Amount delivered (₹)";
+  sheet(`<h3>Mark delivered — ${esc(i.code)}</h3>
+    <p class="muted" style="margin-bottom:12px">Ordered: <b>${esc(qtyText(i))}</b>${i.vehicle_no?` · ${esc(i.vehicle_no)}`:""}</p>
+    <div class="seg" id="dv-mode">
+      <button class="on" data-mode="full">Fully delivered</button>
+      <button data-mode="partial">Partial</button>
+    </div>
+    <div id="dv-partial" class="hidden">
+      <label class="fld">${unit}</label>
+      <input class="inp" id="dv-val" inputmode="decimal" value="${esc(i.value)}">
+      <div class="tiny" style="margin-top:6px">Enter the actual ${i.order_type==="Litres"?"litres":"₹ amount"} delivered. The invoice bills this amount.</div>
+    </div>
+    <div style="height:16px"></div>
+    <div class="btnrow"><button class="btn sec" id="dv-cancel">Cancel</button>
+      <button class="btn ok" id="dv-go">Confirm delivery</button></div>`);
+  let mode="full";
+  $("#dv-mode").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    mode=b.dataset.mode;
+    $("#dv-mode").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.mode===mode));
+    $("#dv-partial").classList.toggle("hidden", mode==="full");
+  });
+  $("#dv-cancel").onclick=closeSheet;
+  $("#dv-go").onclick=async ()=>{
+    let dv=null;
+    if(mode==="partial"){
+      dv=Number($("#dv-val").value);
+      if(!(dv>0)) return toast("Enter the delivered quantity","bad");
+      if(dv>Number(i.value) && !confirmAct("Delivered is more than ordered. Continue?")) return;
+    }
+    try{ await rpc("deliver_indent", withMeta({ p_id:id, p_delivered:dv }));
+      closeSheet(); toast(mode==="partial"?"Partial delivery recorded ✅":"Marked delivered ✅","ok"); refresh();
+    }catch(e){ toast(e.message,"bad"); }
+  };
+}
 function modifyWizard(id){
   const i=(state.cache.indents||[]).find(x=>x.id===id); if(!i) return;
-  const d={ vehicle:i.vehicle_no, product:i.product, order_type:i.order_type, value:String(i.value) };
+  const d={ vehicle:i.vehicle_no||"", product:i.product, order_type:i.order_type, value:String(i.value) };
   const draw=()=>{ sheet(`
     <h3>Modify ${esc(i.code)}</h3>
-    <label class="fld">Vehicle</label>
-    <input class="inp" id="m-veh" value="${esc(d.vehicle)}" autocapitalize="characters">
+    <label class="fld">Vehicle <span class="tiny" style="font-weight:600">(optional)</span></label>
+    <input class="inp" id="m-veh" value="${esc(d.vehicle)}" placeholder="Leave blank if none" autocapitalize="characters">
     <label class="fld">Product</label>
     <div class="prodgrid" style="margin-top:6px">
       ${PRODUCTS.map(p=>`<button class="prodbtn ${d.product===p?"on":""}" data-p="${p}">
@@ -834,7 +879,7 @@ function modifyWizard(id){
     $("#m-cancel").onclick=closeSheet;
     $("#m-save").onclick=async ()=>{
       d.vehicle=$("#m-veh").value; d.value=$("#m-val").value;
-      if(!validVehicle(d.vehicle)) return toast("Invalid vehicle number","bad");
+      if(d.vehicle && d.vehicle.trim() && !validVehicle(d.vehicle)) return toast("Invalid vehicle number, or leave it blank","bad");
       if(!(Number(d.value)>0)) return toast("Enter a quantity","bad");
       try{ await rpc("modify_indent", withMeta({ p_id:id, p_vehicle:d.vehicle, p_product:d.product,
         p_order_type:d.order_type, p_value:Number(d.value) }));
@@ -1102,7 +1147,7 @@ async function handleAct(act, ds){
       case "resetpw": return resetPwSheet(id, ds.name);
       case "repeat": {
         const i=(state.cache.indents||[]).find(x=>x.id===id); if(!i) return;
-        if(!confirmAct(`Repeat: ${i.vehicle_no} · ${i.product} · ${qtyText(i)}?`)) return;
+        if(!confirmAct(`Repeat: ${i.vehicle_no?i.vehicle_no+" · ":""}${i.product} · ${qtyText(i)}?`)) return;
         await rpc("place_indent", withMeta({ p_vehicle:i.vehicle_no, p_product:i.product,
           p_order_type:i.order_type, p_value:Number(i.value), p_customer:null }));
         toast("Indent placed ✅","ok"); return renderCustomer();
@@ -1110,7 +1155,7 @@ async function handleAct(act, ds){
       case "approve": await rpc("approve_indent", withMeta({p_id:id})); closeSheet(); toast("Approved ✅","ok"); return refresh();
       case "reject": if(!confirmAct("Reject this indent?"))return; await rpc("reject_indent", withMeta({p_id:id})); closeSheet(); toast("Rejected","ok"); return refresh();
       case "cancel": if(!confirmAct("Cancel this indent?"))return; await rpc("cancel_indent", withMeta({p_id:id})); closeSheet(); toast("Cancelled","ok"); return refresh();
-      case "deliver": if(!confirmAct("Mark as delivered?"))return; await rpc("deliver_indent", withMeta({p_id:id})); closeSheet(); toast("Marked delivered ✅","ok"); return refresh();
+      case "deliver": return deliverSheet(id);
       case "ack": await rpc("ack_statement", withMeta({p_id:id, p_confirm:true})); toast("Confirmed — thank you","ok"); return refresh();
       case "dispute": if(!confirmAct("Raise a dispute on this statement?"))return; await rpc("ack_statement", withMeta({p_id:id, p_confirm:false})); toast("Dispute raised","ok"); return refresh();
       case "toggleblock": await rpc("set_blocked",{p_customer:id, p_blocked: ds.blocked!=="true"}); toast("Updated","ok"); return renderUsers();
