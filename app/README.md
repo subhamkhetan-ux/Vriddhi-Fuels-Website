@@ -151,6 +151,16 @@ screen** to install the PWA.
 > Editor — it adds the `product_prices` and `invoices` tables and the pricing
 > functions. It's written to be safe to re-run.
 
+## Reset / start afresh (admin)
+
+**Admin → Reports → Danger zone → Reset all indent history** permanently deletes
+**all indents, invoices, delivery records, the audit trail, and statements**, and
+resets numbering back to `IND-0001` (and invoice `1`). It **keeps** users, saved
+vehicles, prices, and business settings. Requires typing `RESET` to confirm.
+Intended for clearing test data before go-live — it cannot be undone. (Backed by
+`reset_indent_history('RESET')`, which uses `TRUNCATE` so it also clears the
+append-only audit log in one shot.)
+
 ## Business day (shift)
 
 The business day is a **6am-to-6am IST shift**: an indent is attributed to the
