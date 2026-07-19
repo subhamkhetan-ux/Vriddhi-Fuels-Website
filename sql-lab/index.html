@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#111E3E">
+<title>SQL Connectivity Lab — Teach SQL Live</title>
+<style>
+:root{
+  --orange:#E46713; --orange-soft:#f0853a; --orange-tint:#fff1e6;
+  --navy:#111E3E; --navy-2:#1a2c52;
+  --bg:#f5f6f8; --bg-grad-top:#eef1f6;
+  --card:#ffffff; --card-2:#fbfcfe;
+  --line:#e7e9ee; --line-2:#eef0f4;
+  --txt:#1c2430; --txt-2:#5b6573; --txt-3:#8b94a3;
+  --ok:#0f9d6e; --err:#d1443b; --info:#2563eb;
+  --code-bg:#0f1524; --code-txt:#e6edf7;
+  --radius:16px; --radius-sm:11px;
+  --shadow:0 1px 2px rgba(17,30,62,.05), 0 6px 20px rgba(17,30,62,.07);
+  --safe-top:env(safe-area-inset-top); --safe-bot:env(safe-area-inset-bottom);
+  --mono:"SF Mono",ui-monospace,"Cascadia Code","Fira Code",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0e1320; --bg-grad-top:#121a2c;
+    --card:#172033; --card-2:#1b2538;
+    --line:#27324a; --line-2:#222c42;
+    --txt:#eef2f8; --txt-2:#a7b1c4; --txt-3:#7b8499;
+    --orange-tint:#2a1d12;
+    --code-bg:#0a0f1c; --code-txt:#e6edf7;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;color:var(--txt);
+  background:linear-gradient(180deg,var(--bg-grad-top),var(--bg) 280px);
+  background-attachment:fixed;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+
+header{position:sticky;top:0;z-index:30;
+  background:color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--line-2);
+  padding:calc(var(--safe-top) + 12px) 18px 12px}
+.hrow{display:flex;align-items:center;gap:12px;max-width:1200px;margin:0 auto}
+.logo{width:34px;height:34px;border-radius:9px;flex:none;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--orange),var(--orange-soft));color:#fff;font-weight:800;font-size:17px;
+  box-shadow:0 2px 8px rgba(228,103,19,.35)}
+.htitle{font-weight:800;font-size:19px;letter-spacing:-.4px;flex:1;min-width:0}
+.htitle small{display:block;font-weight:500;font-size:12px;color:var(--txt-2);letter-spacing:0}
+.pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
+  background:var(--orange-tint);color:var(--orange);white-space:nowrap}
+
+.wrap{max-width:1200px;margin:0 auto;padding:18px 18px calc(var(--safe-bot) + 40px);
+  display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);overflow:hidden}
+.card h2{margin:0;font-size:14px;font-weight:700;letter-spacing:-.2px;
+  padding:14px 16px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:8px}
+.card h2 .num{width:22px;height:22px;border-radius:7px;background:var(--navy);color:#fff;
+  display:grid;place-items:center;font-size:12px;font-weight:800;flex:none}
+@media (prefers-color-scheme: dark){.card h2 .num{background:var(--orange)}}
+.card .body{padding:16px}
+
+/* Connection panel */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{font-size:12px;font-weight:600;color:var(--txt-2);display:block;margin-bottom:5px}
+input,select,textarea{width:100%;font:inherit;color:var(--txt);background:var(--card-2);
+  border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 11px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--orange);box-shadow:0 0 0 3px var(--orange-tint)}
+.field{margin-bottom:10px}
+
+.connstr{margin-top:12px;font-family:var(--mono);font-size:12.5px;background:var(--code-bg);
+  color:var(--code-txt);padding:11px 13px;border-radius:var(--radius-sm);word-break:break-all;line-height:1.6}
+.connstr .k{color:#7ee0c0} .connstr .v{color:#ffd39b}
+
+.btnrow{display:flex;gap:9px;flex-wrap:wrap;margin-top:13px}
+button{font:inherit;font-weight:700;font-size:13.5px;border:none;border-radius:var(--radius-sm);
+  padding:10px 16px;cursor:pointer;transition:transform .08s, filter .15s;display:inline-flex;align-items:center;gap:7px}
+button:active{transform:scale(.97)}
+.btn-primary{background:linear-gradient(135deg,var(--orange),var(--orange-soft));color:#fff;
+  box-shadow:0 2px 8px rgba(228,103,19,.32)}
+.btn-primary:disabled{filter:grayscale(.6) opacity(.55);cursor:not-allowed}
+.btn-ghost{background:var(--card-2);color:var(--txt);border:1px solid var(--line)}
+.btn-run{background:var(--navy);color:#fff}
+@media (prefers-color-scheme: dark){.btn-run{background:var(--navy-2)}}
+
+.status{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;margin-top:12px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--txt-3);flex:none;transition:background .3s}
+.dot.connected{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 22%,transparent)}
+.dot.connecting{background:var(--orange);animation:pulse 1s infinite}
+.dot.error{background:var(--err)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* Console */
+.console{font-family:var(--mono);font-size:12.5px;background:var(--code-bg);color:var(--code-txt);
+  border-radius:var(--radius-sm);padding:12px;height:190px;overflow:auto;line-height:1.65}
+.console .line{white-space:pre-wrap;word-break:break-word;opacity:0;animation:fadein .25s forwards}
+@keyframes fadein{to{opacity:1}}
+.console .t{color:#6b7a90} .console .ok{color:#7ee0c0} .console .err{color:#ff9b91}
+.console .info{color:#8ab4ff} .console .warn{color:#ffd39b}
+.console .arrow{color:var(--orange-soft)}
+
+/* SQL editor */
+textarea#sql{font-family:var(--mono);font-size:13.5px;min-height:120px;resize:vertical;line-height:1.55}
+.snips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+.snip{font-size:11.5px;font-weight:600;padding:6px 11px;border-radius:999px;cursor:pointer;
+  background:var(--card-2);border:1px solid var(--line);color:var(--txt-2)}
+.snip:hover{border-color:var(--orange);color:var(--orange)}
+
+/* Results */
+.result-meta{font-size:12px;color:var(--txt-2);margin:12px 0 8px;font-weight:600}
+.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:var(--radius-sm);max-height:340px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{position:sticky;top:0;background:var(--navy);color:#fff;text-align:left;padding:9px 12px;
+  font-weight:700;font-size:12px;white-space:nowrap}
+@media (prefers-color-scheme: dark){th{background:var(--navy-2)}}
+td{padding:8px 12px;border-top:1px solid var(--line-2);white-space:nowrap}
+tbody tr:nth-child(even){background:var(--card-2)}
+.result-err{background:color-mix(in srgb,var(--err) 12%,transparent);color:var(--err);
+  border:1px solid color-mix(in srgb,var(--err) 30%,transparent);
+  padding:11px 13px;border-radius:var(--radius-sm);font-family:var(--mono);font-size:12.5px}
+
+/* Lesson code tabs */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tab{font-size:12px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;
+  background:var(--card-2);border:1px solid var(--line);color:var(--txt-2)}
+.tab.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+@media (prefers-color-scheme: dark){.tab.active{background:var(--orange);border-color:var(--orange)}}
+pre{margin:0;background:var(--code-bg);color:var(--code-txt);border-radius:var(--radius-sm);
+  padding:14px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.65}
+pre .cm{color:#6b7a90} pre .kw{color:#ff9b91} pre .st{color:#7ee0c0} pre .fn{color:#8ab4ff}
+.step{border-left:3px solid var(--line);padding:2px 0 2px 14px;margin-bottom:15px}
+.step:last-child{margin-bottom:0}
+.step b{font-size:13.5px} .step p{margin:3px 0 0;font-size:12.5px;color:var(--txt-2)}
+.step.active{border-left-color:var(--orange)}
+.step.active b{color:var(--orange)}
+
+.schema{font-family:var(--mono);font-size:12px;color:var(--txt-2);line-height:1.7}
+.schema b{color:var(--orange)}
+.note{font-size:12px;color:var(--txt-2);background:var(--orange-tint);
+  border-radius:var(--radius-sm);padding:10px 12px;margin-top:12px}
+.loading{text-align:center;color:var(--txt-2);font-size:13px;padding:20px}
+.full{grid-column:1/-1}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div class="logo">S</div>
+    <div class="htitle">SQL Connectivity Lab<small>Teach database connections live, on screen</small></div>
+    <span class="pill">SQLite · in browser</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- STEP 1: CONNECT -->
+  <section class="card">
+    <h2><span class="num">1</span> Open a Connection</h2>
+    <div class="body">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--txt-2)">
+        Every SQL program starts by connecting to a database server. Fill in the details students would get from a DBA,
+        then press <b>Connect</b> and watch the console narrate what happens.
+      </p>
+      <div class="grid2">
+        <div class="field"><label>Host</label><input id="host" value="localhost"></div>
+        <div class="field"><label>Port</label><input id="port" value="5432"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Database</label><input id="dbname" value="school"></div>
+        <div class="field"><label>Driver</label>
+          <select id="driver">
+            <option>PostgreSQL</option><option>MySQL</option><option>SQLite</option><option>SQL Server</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Username</label><input id="user" value="student"></div>
+        <div class="field"><label>Password</label><input id="pass" type="password" value="••••••"></div>
+      </div>
+
+      <div class="connstr" id="connstr"></div>
+
+      <div class="btnrow">
+        <button class="btn-primary" id="btnConnect">🔌 Connect</button>
+        <button class="btn-ghost" id="btnDisconnect" disabled>Disconnect</button>
+      </div>
+
+      <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Not connected</span></div>
+    </div>
+  </section>
+
+  <!-- CONSOLE -->
+  <section class="card">
+    <h2>📟 Connectivity Console <span style="flex:1"></span>
+      <button class="btn-ghost" id="btnClearLog" style="padding:5px 11px;font-size:11.5px">Clear</button>
+    </h2>
+    <div class="body">
+      <p style="margin:0 0 12px;font-size:13px;color:var(--txt-2)">
+        This is what happens under the hood — the exact lifecycle every SQL driver follows.
+      </p>
+      <div class="console" id="console"></div>
+    </div>
+  </section>
+
+  <!-- STEP 2: QUERY -->
+  <section class="card full">
+    <h2><span class="num">2</span> Execute a Query &amp; Fetch Results</h2>
+    <div class="body">
+      <div class="snips" id="snips"></div>
+      <textarea id="sql" spellcheck="false">SELECT s.name, s.city, c.title AS course, e.grade
+FROM students s
+JOIN enrollments e ON e.student_id = s.id
+JOIN courses c     ON c.id = e.course_id
+ORDER BY s.name;</textarea>
+      <div class="btnrow">
+        <button class="btn-run" id="btnRun">▶ Run query</button>
+        <button class="btn-ghost" id="btnReset">Reset database</button>
+      </div>
+      <div id="resultArea"></div>
+    </div>
+  </section>
+
+  <!-- LESSON: code in many languages -->
+  <section class="card">
+    <h2><span class="num">3</span> The Same Steps in Real Code</h2>
+    <div class="body">
+      <div class="tabs" id="langTabs"></div>
+      <pre id="codeBlock"></pre>
+      <div class="note">💡 Notice the pattern is identical in every language: <b>connect → statement/cursor → execute → fetch → close</b>.
+      Teach the pattern once and students can connect from anywhere.</div>
+    </div>
+  </section>
+
+  <!-- Lifecycle + schema -->
+  <section class="card">
+    <h2>🔁 The Connection Lifecycle &amp; Sample Data</h2>
+    <div class="body">
+      <div class="step" id="lc-1"><b>1 · Connect</b><p>Open a network connection to the DB server using host, port, credentials.</p></div>
+      <div class="step" id="lc-2"><b>2 · Create statement / cursor</b><p>Ask the connection for an object that can run SQL.</p></div>
+      <div class="step" id="lc-3"><b>3 · Execute</b><p>Send your SQL string to the server; it parses, plans and runs it.</p></div>
+      <div class="step" id="lc-4"><b>4 · Fetch</b><p>Read the returned rows into your program as a result set.</p></div>
+      <div class="step" id="lc-5"><b>5 · Close</b><p>Release the connection so the server can free resources.</p></div>
+
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line-2)">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">📚 Sample database: <code>school</code></div>
+        <div class="schema">
+          <b>students</b>(id, name, city, year)<br>
+          <b>courses</b>(id, title, credits)<br>
+          <b>enrollments</b>(id, student_id → students, course_id → courses, grade)
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="sql-wasm.js"></script>
+<script>
+/* ---------- Sample database ---------- */
+const SEED = `
+CREATE TABLE students (id INTEGER PRIMARY KEY, name TEXT, city TEXT, year INTEGER);
+CREATE TABLE courses  (id INTEGER PRIMARY KEY, title TEXT, credits INTEGER);
+CREATE TABLE enrollments (id INTEGER PRIMARY KEY, student_id INTEGER, course_id INTEGER, grade TEXT);
+
+INSERT INTO students VALUES
+ (1,'Aarav Sharma','Mumbai',2),
+ (2,'Diya Patel','Ahmedabad',1),
+ (3,'Kabir Singh','Delhi',3),
+ (4,'Ananya Rao','Bengaluru',2),
+ (5,'Vivaan Gupta','Pune',1);
+
+INSERT INTO courses VALUES
+ (101,'Databases 101',4),
+ (102,'Web Development',3),
+ (103,'Data Structures',4),
+ (104,'Operating Systems',3);
+
+INSERT INTO enrollments VALUES
+ (1,1,101,'A'),(2,1,103,'B'),(3,2,101,'A'),(4,2,102,'B'),
+ (5,3,103,'A'),(6,3,104,'C'),(7,4,101,'B'),(8,4,102,'A'),
+ (9,5,104,'B'),(10,5,101,'A');
+`;
+
+/* ---------- State ---------- */
+let SQL=null, db=null, connected=false, dbReady=false;
+
+/* ---------- Console logger ---------- */
+const consoleEl=document.getElementById('console');
+function log(msg, cls='', delay=0){
+  return new Promise(res=>{
+    setTimeout(()=>{
+      const now=new Date().toLocaleTimeString('en-GB');
+      const line=document.createElement('div');
+      line.className='line';
+      line.innerHTML=`<span class="t">${now}</span>  <span class="${cls}">${msg}</span>`;
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop=consoleEl.scrollHeight;
+      res();
+    },delay);
+  });
+}
+document.getElementById('btnClearLog').onclick=()=>consoleEl.innerHTML='';
+
+/* ---------- Connection string builder ---------- */
+const F=id=>document.getElementById(id);
+function buildConnStr(){
+  const driver=F('driver').value, host=F('host').value, port=F('port').value,
+        dbn=F('dbname').value, user=F('user').value;
+  const scheme={PostgreSQL:'postgresql',MySQL:'mysql',SQLite:'sqlite',['SQL Server']:'sqlserver'}[driver];
+  let s;
+  if(driver==='SQLite') s=`<span class="k">sqlite:///</span><span class="v">${dbn}.db</span>`;
+  else s=`<span class="k">${scheme}://</span><span class="v">${user}</span>:<span class="k">••••</span>@<span class="v">${host}</span>:<span class="v">${port}</span>/<span class="v">${dbn}</span>`;
+  F('connstr').innerHTML=s;
+}
+['driver','host','port','dbname','user'].forEach(id=>F(id).addEventListener('input',buildConnStr));
+buildConnStr();
+
+/* ---------- Lifecycle highlight ---------- */
+function lc(n){document.querySelectorAll('.step').forEach(s=>s.classList.remove('active'));
+  if(n) F('lc-'+n).classList.add('active');}
+
+/* ---------- Boot sql.js ---------- */
+(async function boot(){
+  try{
+    await log('Loading SQLite engine (WebAssembly)…','info');
+    SQL=await initSqlJs({locateFile:f=>f});
+    dbReady=true;
+    await log('✓ SQLite engine ready. Press Connect to begin.','ok');
+  }catch(e){
+    await log('✗ Failed to load engine: '+e.message,'err');
+    await log('Make sure sql-wasm.js and sql-wasm.wasm are next to this page.','warn');
+  }
+})();
+
+/* ---------- Connect ---------- */
+const dot=F('statusDot'), stext=F('statusText');
+F('btnConnect').onclick=async()=>{
+  if(!dbReady){await log('Engine not ready yet — please wait a moment.','warn');return;}
+  if(connected){await log('Already connected.','warn');return;}
+  F('btnConnect').disabled=true;
+  dot.className='dot connecting'; stext.textContent='Connecting…';
+  lc(1);
+  const d=F('driver').value,h=F('host').value,p=F('port').value,n=F('dbname').value,u=F('user').value;
+  await log(`Resolving host <span class="arrow">${h}:${p}</span> …`,'',300);
+  await log(`Opening ${d} connection to database "<b>${n}</b>" as user "<b>${u}</b>"…`,'',500);
+  await log('Authenticating credentials…','',450);
+  // build the actual in-memory DB
+  db=new SQL.Database();
+  db.run(SEED);
+  connected=true;
+  dot.className='dot connected'; stext.textContent=`Connected to ${n} (${d})`;
+  F('btnDisconnect').disabled=false;
+  await log('✓ Connection established. Session ready.','ok',300);
+  await log('Tables available: students, courses, enrollments','info');
+  lc(null);
+};
+F('btnDisconnect').onclick=async()=>{
+  if(!connected)return;
+  lc(5);
+  await log('Closing connection…','',200);
+  if(db){db.close();db=null;}
+  connected=false;
+  dot.className='dot'; stext.textContent='Not connected';
+  F('btnConnect').disabled=false; F('btnDisconnect').disabled=true;
+  await log('✓ Connection closed. Resources released.','ok',250);
+  lc(null);
+};
+
+/* ---------- Run query ---------- */
+F('btnRun').onclick=async()=>{
+  const area=F('resultArea');
+  if(!connected){
+    area.innerHTML='<div class="result-err">No open connection. Press <b>Connect</b> first — just like real code, you cannot query a closed connection.</div>';
+    await log('✗ Query rejected: no open connection.','err');
+    return;
+  }
+  const sql=F('sql').value.trim();
+  if(!sql){area.innerHTML='';return;}
+  lc(2); await log('Creating statement / cursor…','',150);
+  lc(3); await log('Executing SQL → '+sql.replace(/\s+/g,' ').slice(0,80)+(sql.length>80?'…':''),'',200);
+  const t0=performance.now();
+  try{
+    const res=db.exec(sql);
+    const ms=(performance.now()-t0).toFixed(1);
+    lc(4);
+    if(!res.length){
+      // non-SELECT (INSERT/UPDATE/CREATE...)
+      const changes=db.getRowsModified();
+      await log(`✓ Statement OK — ${changes} row(s) affected in ${ms} ms.`,'ok',150);
+      area.innerHTML=`<div class="result-meta">✓ Executed successfully · ${changes} row(s) affected · ${ms} ms</div>`;
+    }else{
+      const {columns,values}=res[0];
+      await log(`✓ Fetched ${values.length} row(s) in ${ms} ms.`,'ok',150);
+      renderTable(columns,values,ms);
+    }
+  }catch(e){
+    await log('✗ SQL error: '+e.message,'err',100);
+    area.innerHTML='<div class="result-err">SQL error: '+e.message+'</div>';
+  }
+  lc(null);
+};
+
+function renderTable(cols,rows,ms){
+  let h=`<div class="result-meta">📊 ${rows.length} row(s) returned · ${cols.length} column(s) · ${ms} ms</div>`;
+  h+='<div class="tablewrap"><table><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  h+=rows.map(r=>'<tr>'+r.map(v=>`<td>${v===null?'<i style="color:var(--txt-3)">NULL</i>':String(v)}</td>`).join('')+'</tr>').join('');
+  h+='</tbody></table></div>';
+  F('resultArea').innerHTML=h;
+}
+
+F('btnReset').onclick=async()=>{
+  if(!connected){await log('Connect first to reset the database.','warn');return;}
+  db.close(); db=new SQL.Database(); db.run(SEED);
+  await log('↻ Database reset to original sample data.','info');
+  F('resultArea').innerHTML='<div class="result-meta">↻ Database reset to sample data.</div>';
+};
+
+/* ---------- Query snippets ---------- */
+const SNIPS=[
+  ['All students','SELECT * FROM students;'],
+  ['Join grades',`SELECT s.name, c.title AS course, e.grade
+FROM students s
+JOIN enrollments e ON e.student_id = s.id
+JOIN courses c     ON c.id = e.course_id
+ORDER BY s.name;`],
+  ['Count per course',`SELECT c.title, COUNT(*) AS students
+FROM courses c
+JOIN enrollments e ON e.course_id = c.id
+GROUP BY c.title
+ORDER BY students DESC;`],
+  ['Filter by city',`SELECT name, city, year
+FROM students
+WHERE city = 'Mumbai';`],
+  ['Insert a row',`INSERT INTO students (id, name, city, year)
+VALUES (6, 'Meera Nair', 'Kochi', 1);`],
+  ['Update a grade',`UPDATE enrollments SET grade = 'A'
+WHERE student_id = 5 AND course_id = 104;`],
+];
+const snipEl=F('snips');
+SNIPS.forEach(([label,sql])=>{
+  const b=document.createElement('span'); b.className='snip'; b.textContent=label;
+  b.onclick=()=>{F('sql').value=sql;};
+  snipEl.appendChild(b);
+});
+
+/* ---------- Language code samples ---------- */
+const LANGS={
+Python:`<span class="cm"># Python — using psycopg2 (PostgreSQL)</span>
+<span class="kw">import</span> psycopg2
+
+<span class="cm"># 1 · CONNECT</span>
+conn = psycopg2.<span class="fn">connect</span>(
+    host=<span class="st">"localhost"</span>, port=<span class="st">5432</span>,
+    dbname=<span class="st">"school"</span>,
+    user=<span class="st">"student"</span>, password=<span class="st">"secret"</span>)
+
+<span class="cm"># 2 · CREATE CURSOR</span>
+cur = conn.<span class="fn">cursor</span>()
+
+<span class="cm"># 3 · EXECUTE</span>
+cur.<span class="fn">execute</span>(<span class="st">"SELECT name, city FROM students"</span>)
+
+<span class="cm"># 4 · FETCH</span>
+<span class="kw">for</span> row <span class="kw">in</span> cur.<span class="fn">fetchall</span>():
+    <span class="fn">print</span>(row)
+
+<span class="cm"># 5 · CLOSE</span>
+cur.<span class="fn">close</span>()
+conn.<span class="fn">close</span>()`,
+
+Java:`<span class="cm">// Java — using JDBC</span>
+<span class="kw">import</span> java.sql.*;
+
+<span class="cm">// 1 · CONNECT</span>
+String url = <span class="st">"jdbc:postgresql://localhost:5432/school"</span>;
+Connection conn = DriverManager.<span class="fn">getConnection</span>(
+        url, <span class="st">"student"</span>, <span class="st">"secret"</span>);
+
+<span class="cm">// 2 · CREATE STATEMENT</span>
+Statement stmt = conn.<span class="fn">createStatement</span>();
+
+<span class="cm">// 3 · EXECUTE</span>
+ResultSet rs = stmt.<span class="fn">executeQuery</span>(
+        <span class="st">"SELECT name, city FROM students"</span>);
+
+<span class="cm">// 4 · FETCH</span>
+<span class="kw">while</span> (rs.<span class="fn">next</span>()) {
+    System.out.<span class="fn">println</span>(rs.<span class="fn">getString</span>(<span class="st">"name"</span>));
+}
+
+<span class="cm">// 5 · CLOSE</span>
+rs.<span class="fn">close</span>(); stmt.<span class="fn">close</span>(); conn.<span class="fn">close</span>();`,
+
+['Node.js']:`<span class="cm">// Node.js — using the 'pg' package</span>
+<span class="kw">const</span> { Client } = <span class="fn">require</span>(<span class="st">'pg'</span>);
+
+<span class="kw">async function</span> <span class="fn">main</span>() {
+  <span class="cm">// 1 · CONNECT</span>
+  <span class="kw">const</span> client = <span class="kw">new</span> <span class="fn">Client</span>({
+    host: <span class="st">'localhost'</span>, port: <span class="st">5432</span>,
+    database: <span class="st">'school'</span>,
+    user: <span class="st">'student'</span>, password: <span class="st">'secret'</span>,
+  });
+  <span class="kw">await</span> client.<span class="fn">connect</span>();
+
+  <span class="cm">// 2+3 · EXECUTE (driver manages the cursor)</span>
+  <span class="kw">const</span> res = <span class="kw">await</span> client.<span class="fn">query</span>(
+    <span class="st">'SELECT name, city FROM students'</span>);
+
+  <span class="cm">// 4 · FETCH</span>
+  console.<span class="fn">table</span>(res.rows);
+
+  <span class="cm">// 5 · CLOSE</span>
+  <span class="kw">await</span> client.<span class="fn">end</span>();
+}
+<span class="fn">main</span>();`,
+
+PHP:`<span class="cm">// PHP — using PDO</span>
+<span class="cm">// 1 · CONNECT</span>
+$dsn  = <span class="st">"pgsql:host=localhost;port=5432;dbname=school"</span>;
+$pdo  = <span class="kw">new</span> <span class="fn">PDO</span>($dsn, <span class="st">"student"</span>, <span class="st">"secret"</span>);
+
+<span class="cm">// 2+3 · PREPARE &amp; EXECUTE</span>
+$stmt = $pdo-><span class="fn">query</span>(<span class="st">"SELECT name, city FROM students"</span>);
+
+<span class="cm">// 4 · FETCH</span>
+<span class="kw">foreach</span> ($stmt <span class="kw">as</span> $row) {
+    <span class="kw">echo</span> $row[<span class="st">"name"</span>] . PHP_EOL;
+}
+
+<span class="cm">// 5 · CLOSE (PDO closes when the variable goes out of scope)</span>
+$pdo = <span class="kw">null</span>;`
+};
+const tabsEl=F('langTabs'), codeEl=F('codeBlock');
+Object.keys(LANGS).forEach((name,i)=>{
+  const t=document.createElement('span'); t.className='tab'+(i===0?' active':''); t.textContent=name;
+  t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active'); codeEl.innerHTML=LANGS[name];};
+  tabsEl.appendChild(t);
+});
+codeEl.innerHTML=LANGS[Object.keys(LANGS)[0]];
+</script>
+</body>
+</html>
