@@ -22,6 +22,34 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// ---- Web Push ----
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data && e.data.text() }; }
+  const title = d.title || "Vriddhi Fuels";
+  e.waitUntil(self.registration.showNotification(title, {
+    body: d.body || "",
+    icon: "icon.png",
+    badge: "icon.png",
+    tag: d.tag,
+    renotify: !!d.tag,
+    data: { url: d.url || "./" },
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "./";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if ("focus" in w) { if (w.navigate) { try { w.navigate(url); } catch (_) {} } return w.focus(); }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;

@@ -10,4 +10,7 @@
 window.VRIDDHI_CONFIG = {
   SUPABASE_URL: "https://ikvtftohnynhqhpxqvgj.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_5K_YV6WziB056p7PHHxwEg_silIQRYL",
+  // For push notifications: paste your VAPID *public* key (see README §Push).
+  // Leave as-is to keep push disabled.
+  VAPID_PUBLIC_KEY: "PASTE_YOUR_VAPID_PUBLIC_KEY_HERE",
 };

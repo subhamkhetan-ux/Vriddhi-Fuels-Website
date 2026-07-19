@@ -290,6 +290,48 @@ async function edgeFn(name, body){
   if(!res.ok) throw new Error(out.error||("HTTP "+res.status));
   return out;
 }
+// Fire-and-forget push notification for an event; never breaks the main flow.
+function notify(event, indentId){
+  if(!indentId) return;
+  edgeFn("notify",{ event, indent_id:indentId }).catch(()=>{});
+}
+
+// ---------- Web Push ----------
+const pushConfigured = ()=> CFG.VAPID_PUBLIC_KEY && !CFG.VAPID_PUBLIC_KEY.includes("PASTE");
+function urlB64ToUint8(base64){
+  const pad="=".repeat((4-base64.length%4)%4);
+  const b=(base64+pad).replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(b); const arr=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) arr[i]=raw.charCodeAt(i);
+  return arr;
+}
+async function enablePush(interactive){
+  try{
+    if(!("serviceWorker" in navigator) || !("PushManager" in window)){
+      if(interactive) toast("Notifications aren't supported on this device","bad"); return; }
+    if(!pushConfigured()){ if(interactive) toast("Push isn't configured yet","bad"); return; }
+    let perm=Notification.permission;
+    if(perm==="default" && interactive) perm=await Notification.requestPermission();
+    if(perm!=="granted"){ if(interactive) toast("Notifications are blocked in settings","bad"); return; }
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8(CFG.VAPID_PUBLIC_KEY) });
+    const j=sub.toJSON();
+    await sb.from("push_subscriptions").upsert(
+      { user_id:state.me.id, endpoint:sub.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth, user_agent:UA },
+      { onConflict:"endpoint" });
+    state.pushOn=true;
+    if(interactive){ toast("Notifications enabled 🔔","ok"); routeHome(); }
+  }catch(e){ if(interactive) toast(e.message||"Could not enable notifications","bad"); }
+}
+function pushPrompt(){
+  if(!("PushManager" in window) || !pushConfigured()) return "";
+  if(typeof Notification==="undefined" || Notification.permission==="granted") return "";
+  const what = state.me.role==="customer" ? "deliveries and approvals" : "new indents";
+  return `<div class="card" style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+    <div><b>🔔 Turn on notifications</b><div class="tiny">Get alerts for ${what}.</div></div>
+    <button class="btn sm" data-act="enablepush">Enable</button></div>`;
+}
 
 // ---------- app state ----------
 const state = { me:null, view:"home", tab:"Pending", channel:null, cache:{} };
@@ -308,6 +350,7 @@ async function boot(){
     if(me.is_active===false){ await sb.auth.signOut(); return renderLogin("Account is inactive."); }
     state.me = me;
     subscribeRealtime();
+    if(typeof Notification!=="undefined" && Notification.permission==="granted") enablePush(false);
     routeHome();
   }catch(e){ renderLogin(e.message||"Could not load your profile."); }
 }
@@ -484,6 +527,7 @@ async function renderCustomer(quiet){
 
   root.innerHTML = header()+`<main>
     ${blocked?`<div class="blocknote">Your account is blocked. You can view history but cannot place indents. Please contact us.</div>`:""}
+    ${pushPrompt()}
     ${ackSection(pendingAcks, indById)}
     ${rateBanner(prices)}
     ${awaiting.map(i=>approvalBanner(i)).join("")}
@@ -642,6 +686,7 @@ async function renderStaff(quiet){
       <div class="tot"><b>${c("Delivered")}</b><span>Delivered</span></div>
       <div class="tot"><b>${c("Cancelled")}</b><span>Cancelled</span></div>
     </div>
+    ${pushPrompt()}
     <input class="inp" id="board-search" autocapitalize="characters" autocomplete="off"
       placeholder="🔍 Search vehicle number or IND-…" value="${esc(state.boardSearch||"")}" style="margin-bottom:10px">
     <div class="tabs">
@@ -664,7 +709,7 @@ function paintBoard(){
   const tab=state.tab;
   const term=(state.boardSearch||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
   let list = tab==="All" ? indents.slice()
-    : tab==="Unack" ? indents.filter(i=>{ const v=ackOf(i.id); return i.status==="Delivered" && v && v.ack_status!=="acknowledged"; })
+    : tab==="Unack" ? indents.filter(i=>{ const v=ackOf(i.id); return i.status==="Delivered" && v && (v.ack_status==="pending"||v.ack_status==="disputed"); })
     : indents.filter(i=> i.status===tab);
   if(term) list=list.filter(i=>
     (i.vehicle_no||"").toUpperCase().replace(/[^A-Z0-9]/g,"").includes(term) ||
@@ -697,7 +742,8 @@ function staffCard(i){
   const inv = ackOf(i.id);
   const ackBadge = i.status==="Delivered" && inv
     ? (inv.ack_status==="acknowledged" ? `<span class="ackb y">✓ Acknowledged</span>`
-      : inv.ack_status==="disputed"   ? `<span class="ackb d">⚠️ Problem reported</span>`
+      : inv.ack_status==="resolved"    ? `<span class="ackb y">✓ Resolved</span>`
+      : inv.ack_status==="disputed"    ? `<span class="ackb d">⚠️ Problem reported</span>`
       : `<span class="ackb n">⏳ Not acknowledged</span>`)
     : "";
   return `<div class="icard" data-p="${i.product}">
@@ -829,6 +875,7 @@ function slipHTML(inv, i, cust, st){
     ${isPartial(i)?`<div class="m-part">Partial delivery — ordered ${esc(qtyText(i))}, delivered ${esc(deliveredText(i))}.</div>`:""}
     ${inv.ack_status==="acknowledged"?`<div class="m-ack">✓ Receipt acknowledged by customer on ${fmtIST(inv.ack_at)}.</div>`:""}
     ${inv.ack_status==="disputed"?`<div class="m-warn">⚠ Problem reported by customer${inv.ack_note?": "+esc(inv.ack_note):""} (${fmtIST(inv.ack_at)}).</div>`:""}
+    ${inv.ack_status==="resolved"?`<div class="m-ack">✓ Problem resolved by owner${inv.resolution?": "+esc(inv.resolution):""} (${fmtIST(inv.ack_at)}).</div>`:""}
   </div>`;
 }
 const SLIP_CSS = `
@@ -875,7 +922,9 @@ function showInvoice(inv, i, cust, st, staff){
     <div style="height:16px"></div>
     ${(!staff && inv.ack_status==="pending")?`<div class="btnrow no-print"><button class="btn ok" data-act="ackone" data-ids="${inv.id}">✍️ Acknowledge</button><button class="btn bad" data-act="reportproblem" data-id="${inv.id}">Report problem</button></div><div style="height:10px"></div>`:""}
     ${inv.ack_status==="acknowledged"?`<div class="tiny no-print" style="margin-bottom:10px;color:var(--ok);font-weight:700">✓ Acknowledged on ${fmtIST(inv.ack_at)}</div>`:""}
-    ${inv.ack_status==="disputed"?`<div class="tiny no-print" style="margin-bottom:10px;color:var(--bad);font-weight:700">⚠️ Problem reported${inv.ack_note?": "+esc(inv.ack_note):""} (${fmtIST(inv.ack_at)})</div>`:""}
+    ${inv.ack_status==="disputed"?`<div class="tiny no-print" style="margin-bottom:8px;color:var(--bad);font-weight:700">⚠️ Problem reported${inv.ack_note?": "+esc(inv.ack_note):""} (${fmtIST(inv.ack_at)})</div>
+      ${state.me.role==="admin"?`<button class="btn ok no-print" data-act="resolve" data-id="${inv.id}" data-code="${esc(inv.code)}">Resolve problem</button><div style="height:10px"></div>`:""}`:""}
+    ${inv.ack_status==="resolved"?`<div class="tiny no-print" style="margin-bottom:10px;color:var(--ok);font-weight:700">✓ Resolved${inv.resolution?": "+esc(inv.resolution):""} (${fmtIST(inv.ack_at)})</div>`:""}
     <button class="btn info no-print" data-act="printinv" data-id="${inv.indent_id}">🖨️ Print / Save as PDF</button>
     ${staff?`<div style="height:10px"></div><button class="btn sec no-print" data-act="regeninv" data-id="${inv.indent_id}">↻ Regenerate (use latest price)</button>`:""}
   `);
@@ -985,9 +1034,10 @@ function newIndentWizard(onBehalf){
     if(!last){ si++; return draw(); }
     const btn=$("#wz-next"); btn.disabled=true; btn.textContent="Placing…";
     try{
-      await rpc("place_indent", withMeta({ p_vehicle:draft.vehicle, p_product:draft.product,
+      const rec=await rpc("place_indent", withMeta({ p_vehicle:draft.vehicle, p_product:draft.product,
         p_order_type:draft.order_type, p_value:Number(draft.value),
         p_customer: onBehalf?draft.customer:null }));
+      notify("created", rec&&rec.id);
       closeSheet();
       toast(onBehalf?"Logged — awaiting customer approval":"Indent placed ✅","ok");
       state.me.role==="customer"?renderCustomer():renderStaff();
@@ -1030,6 +1080,7 @@ function deliverSheet(id){
       if(dv>Number(i.value) && !confirmAct("Delivered is more than ordered. Continue?")) return;
     }
     try{ await rpc("deliver_indent", withMeta({ p_id:id, p_delivered:dv }));
+      notify("delivered", id);
       closeSheet(); toast(mode==="partial"?"Partial delivery recorded ✅":"Marked delivered ✅","ok"); refresh();
     }catch(e){ toast(e.message,"bad"); }
   };
@@ -1205,8 +1256,11 @@ async function renderReports(){
     <div class="card" style="border-color:var(--bad)">
       ${dg.order.map(cid=>{ const list=dg.map[cid];
         return `<div style="padding:8px 0;border-bottom:1px solid var(--line-2)">
-          <div class="spread"><b>${esc(custName(cid))}</b><span class="tiny">${list.length} reported</span></div>
-          ${list.map(v=>`<div class="tiny" style="margin-top:3px"><b>${esc(v.code)}</b>${v.ack_note?" — "+esc(v.ack_note):" — (no note)"}</div>`).join("")}
+          <div class="spread" style="margin-bottom:4px"><b>${esc(custName(cid))}</b><span class="tiny">${list.length} reported</span></div>
+          ${list.map(v=>`<div class="spread" style="gap:8px;margin-top:6px">
+            <div class="tiny"><b>${esc(v.code)}</b>${v.ack_note?" — "+esc(v.ack_note):" — (no note)"}</div>
+            <button class="btn ok sm" data-act="resolve" data-id="${v.id}" data-code="${esc(v.code)}">Resolve</button>
+          </div>`).join("")}
         </div>`;}).join("")}
     </div>`:""}
 
@@ -1288,6 +1342,28 @@ async function setPrice(product){
   try{ await rpc("set_price",{ p_product:product, p_price:Number(v) });
     toast(product+" price updated","ok"); renderReports();
   }catch(e){ toast(e.message,"bad"); }
+}
+function resolveSheet(id, code){
+  sheet(`<h3>Resolve problem — ${esc(code||"")}</h3>
+    <p class="muted">Mark how this reported delivery was settled. This clears it from the reported list.</p>
+    <div class="btnrow" style="flex-direction:column;gap:8px">
+      <button class="btn ok" data-res="Corrected & re-issued">Corrected & re-issued</button>
+      <button class="btn ok" data-res="Waived">Waived</button>
+    </div>
+    <label class="fld">Or write a custom resolution</label>
+    <input class="inp" id="rv-custom" placeholder="e.g. Adjusted in next bill">
+    <div style="height:14px"></div>
+    <div class="btnrow"><button class="btn sec" id="rv-cancel">Cancel</button>
+      <button class="btn" id="rv-custom-go">Save custom</button></div>`);
+  const go=async (res)=>{
+    if(!res) return toast("Enter a resolution","bad");
+    try{ await rpc("resolve_dispute", withMeta({p_id:id, p_resolution:res}));
+      closeSheet(); toast("Problem resolved","ok"); refresh();
+    }catch(e){ toast(e.message,"bad"); }
+  };
+  modal.querySelectorAll("[data-res]").forEach(b=>b.onclick=()=>go(b.dataset.res));
+  $("#rv-cancel").onclick=closeSheet;
+  $("#rv-custom-go").onclick=()=>go($("#rv-custom").value.trim());
 }
 function resetSheet(){
   sheet(`<h3 style="color:var(--bad)">Reset all indent history</h3>
@@ -1388,6 +1464,8 @@ async function handleAct(act, ds){
       case "regeninv": await rpc("generate_invoice",{p_indent:id,p_force:true}); toast("Invoice regenerated","ok"); return openInvoice(id);
       case "setprice": return setPrice(ds.product);
       case "savesettings": return saveSettings();
+      case "resolve": return resolveSheet(id, ds.code);
+      case "enablepush": return enablePush(true);
       case "reset": return resetSheet();
       case "exportcsv": return exportCSV();
       case "sendstmt": return sendStatement();
@@ -1398,8 +1476,9 @@ async function handleAct(act, ds){
         if(od.length){ const inds={}; (state.cache.indents||[]).forEach(x=>inds[x.id]=x);
           toast("Please acknowledge previous deliveries first","bad"); return ackPopup(od, inds); }
         if(!confirmAct(`Repeat: ${i.vehicle_no?i.vehicle_no+" · ":""}${i.product} · ${qtyText(i)}?`)) return;
-        await rpc("place_indent", withMeta({ p_vehicle:i.vehicle_no, p_product:i.product,
+        const rrec=await rpc("place_indent", withMeta({ p_vehicle:i.vehicle_no, p_product:i.product,
           p_order_type:i.order_type, p_value:Number(i.value), p_customer:null }));
+        notify("created", rrec&&rrec.id);
         toast("Indent placed ✅","ok"); return renderCustomer();
       }
       case "approve": await rpc("approve_indent", withMeta({p_id:id})); closeSheet(); toast("Approved ✅","ok"); return refresh();
