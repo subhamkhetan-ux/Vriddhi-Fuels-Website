@@ -60,6 +60,10 @@ a **search box** to find an indent by **vehicle number** (or IND- code).
   records the resolution in the audit trail.
 - **Push notifications (optional):** staff get a push on every new indent and
   customers get one when their fuel is delivered — see setup step 8.
+- **Customer Excel export:** on the customer home, a date-range **Download my
+  deliveries (Excel)** produces an `.xlsx` (falls back to CSV) with columns
+  Indent Date · Delivered Date · Invoice Number · Vehicle Number · Quantity (L)
+  · Price (₹/L) · Amount (₹) · Indent Number.
 
 **Invoice stamp:** to print your round stamp/signature above "Sign.of Salesman",
 drop the image at **`app/stamp.png`** (transparent PNG recommended). If absent,
