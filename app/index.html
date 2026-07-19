@@ -227,6 +227,25 @@ const shiftKey = (ts)=> ts ? new Date(new Date(ts).getTime()+IST_MS-SHIFT_START_
 const fmtDay = (ts)=> ts ? new Date(shiftKey(ts)+"T12:00:00Z").toLocaleDateString("en-IN",{timeZone:"UTC",day:"2-digit",month:"short"}) : "";
 const inr = (n)=> "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2});
 const qtyText = (i)=> i.order_type==="Litres" ? (Number(i.value)+" L") : inr(i.value);
+// Plain date-string (YYYY-MM-DD) -> "18 Jul", without shift math.
+const dLabel = (s)=> s ? new Date(s+"T12:00:00Z").toLocaleDateString("en-IN",{timeZone:"UTC",day:"2-digit",month:"short",year:"numeric"}) : "";
+// ₹ amount in Indian words (for the invoice).
+function amountWords(amount){
+  amount=Number(amount)||0;
+  const rupees=Math.floor(amount), paise=Math.round((amount-rupees)*100);
+  const ones=["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
+  const tens=["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+  const two=(n)=> n<20?ones[n]:tens[Math.floor(n/10)]+(n%10?" "+ones[n%10]:"");
+  const three=(n)=> (n>=100?ones[Math.floor(n/100)]+" Hundred"+(n%100?" ":""):"")+(n%100?two(n%100):"");
+  function words(n){ if(n===0)return "Zero"; let s="";
+    const cr=Math.floor(n/10000000); n%=10000000; const la=Math.floor(n/100000); n%=100000;
+    const th=Math.floor(n/1000); n%=1000;
+    if(cr)s+=words(cr)+" Crore "; if(la)s+=two(la)+" Lakh "; if(th)s+=two(th)+" Thousand "; if(n)s+=three(n)+" ";
+    return s.trim(); }
+  let s=words(rupees)+" Rupees";
+  if(paise) s+=" and "+two(paise)+" Paise";
+  return s+" Only";
+}
 
 function normVehicle(v){
   v=(v||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
@@ -396,6 +415,17 @@ async function auditFor(indentId){
     .eq("indent_id",indentId).order("created_at",{ascending:true});
   if(error) throw error; return data||[];
 }
+async function fetchSettings(force){
+  if(state.cache.settings && !force) return state.cache.settings;
+  const { data } = await sb.from("settings").select("*").eq("id",1).maybeSingle();
+  state.cache.settings = data || { business_name:"Vriddhi Fuels" };
+  return state.cache.settings;
+}
+async function fetchPrices(){
+  try{ state.cache.prices = await rpc("current_prices") || []; }catch(e){ state.cache.prices=[]; }
+  return state.cache.prices;
+}
+const priceStr = (p)=> p==null ? "—" : "₹"+Number(p).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
 const isToday = (ts)=> shiftKey(ts)===shiftKey(new Date().toISOString());
 
 // ============================================================
@@ -404,8 +434,8 @@ const isToday = (ts)=> shiftKey(ts)===shiftKey(new Date().toISOString());
 async function renderCustomer(quiet){
   state.view="home";
   if(!quiet) root.innerHTML = header()+`<main><div class="center"><div class="spin"></div></div></main>`;
-  let indents=[], stmts=[];
-  try{ [indents,stmts]=await Promise.all([myIndents(),myStatements()]); }
+  let indents=[], stmts=[], prices=[];
+  try{ [indents,stmts,prices]=await Promise.all([myIndents(),myStatements(),fetchPrices()]); }
   catch(e){ return toast(e.message,"bad"); }
   state.cache.indents=indents;
   const awaiting = indents.filter(i=>i.status==="Awaiting");
@@ -415,6 +445,7 @@ async function renderCustomer(quiet){
 
   root.innerHTML = header()+`<main>
     ${blocked?`<div class="blocknote">Your account is blocked. You can view history but cannot place indents. Please contact us.</div>`:""}
+    ${rateBanner(prices)}
     ${awaiting.map(i=>approvalBanner(i)).join("")}
     ${pendingStmt.map(s=>stmtBanner(s)).join("")}
     <div class="card">
@@ -437,6 +468,16 @@ function customerTabbar(){
     <button data-act="new"><span class="ic">➕</span>New</button>
     <button data-act="statements"><span class="ic">🧾</span>Statements</button>
   </nav>`;
+}
+function rateBanner(prices){
+  const set=(prices||[]).filter(p=>p.price!=null);
+  if(!set.length) return "";
+  return `<div class="card" style="padding:12px 14px">
+    <div class="tiny" style="margin-bottom:6px">⛽ Today's rates (₹/L, incl. taxes)</div>
+    <div class="row" style="gap:14px;flex-wrap:wrap">
+      ${set.map(p=>`<div><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--${p.product==="Petrol"?"petrol":p.product==="Diesel"?"diesel":"xg"});margin-right:5px"></span>
+        <b>${esc(p.product)}</b> ${priceStr(p.price)}</div>`).join("")}
+    </div></div>`;
 }
 function approvalBanner(i){
   return `<div class="banner">
@@ -559,10 +600,107 @@ async function openDetail(id){
       <button class="btn sec" data-act="modify" data-id="${i.id}">Modify</button>
       <button class="btn bad" data-act="cancel" data-id="${i.id}">Cancel</button></div><div style="height:10px"></div>`:""}
     ${!mine && open?`<button class="btn ok no-print" data-act="deliver" data-id="${i.id}">✅ Mark delivered</button><div style="height:10px"></div>`:""}
+    ${i.status==="Delivered"?`<button class="btn info no-print" data-act="invoice" data-id="${i.id}">🧾 Invoice</button><div style="height:10px"></div>`:""}
     <button class="btn sec no-print" data-act="print">🖨️ Proof pack (PDF)</button>
   `);
 }
 const cap=(s)=> s? s[0].toUpperCase()+s.slice(1):s;
+
+// ============================================================
+// INVOICE (tax-inclusive slip, INV-#### )
+// ============================================================
+async function openInvoice(indentId){
+  const staff = state.me.role!=="customer";
+  let i=(state.cache.indents||[]).find(x=>x.id===indentId);
+  let inv=null;
+  try{
+    if(!i){ const {data}=await sb.from("indents").select("*").eq("id",indentId).maybeSingle(); i=data; }
+    const { data } = await sb.from("invoices").select("*").eq("indent_id",indentId).maybeSingle();
+    inv = data;
+    if(!inv && staff){ inv = await rpc("generate_invoice",{ p_indent:indentId, p_force:false }); }
+  }catch(e){ return toast(e.message,"bad"); }
+  if(!inv){ return toast("No invoice for this indent yet","bad"); }
+  const st = await fetchSettings();
+  let cust = staff ? (state.cache.users||[]).find(u=>u.id===inv.customer_id) : state.me;
+  if(staff && !cust){ const {data}=await sb.from("app_users").select("*").eq("id",inv.customer_id).maybeSingle(); cust=data||{}; }
+  showInvoice(inv, i||{}, cust||{}, st, staff);
+}
+function slipHTML(inv, i, cust, st){
+  const rate = inv.rate!=null;
+  const litres = inv.litres!=null ? Number(inv.litres).toLocaleString("en-IN",{maximumFractionDigits:3}) : "—";
+  const rows = `<tr>
+      <td>${esc(inv.product)}${i.vehicle_no?`<div class="sub">Vehicle: ${esc(i.vehicle_no)}</div>`:""}</td>
+      <td class="num">${litres}</td>
+      <td class="num">${rate?priceStr(inv.rate):"—"}</td>
+      <td class="num">${inv.amount!=null?inr(inv.amount):"—"}</td></tr>`;
+  return `<div class="slip">
+    <div class="sl-head">
+      <div class="sl-biz">${esc(st.business_name||"Vriddhi Fuels")}</div>
+      ${st.address?`<div class="sl-line">${esc(st.address)}</div>`:""}
+      <div class="sl-line">${[st.contact?("Ph: "+st.contact):"", st.gst_no?("GSTIN: "+st.gst_no):""].filter(Boolean).map(esc).join("  •  ")}</div>
+    </div>
+    <div class="sl-title">TAX INVOICE</div>
+    <div class="sl-meta">
+      <div><span>Invoice No</span><b>${esc(inv.code)}</b></div>
+      <div><span>Date</span><b>${fmtIST(inv.issued_at)}</b></div>
+    </div>
+    <div class="sl-billto">
+      <span>Bill To</span>
+      <b>${esc(cust.name||"")}</b>
+      <div class="sl-line">${[cust.username?("@"+cust.username):"", cust.phone||""].filter(Boolean).map(esc).join("  •  ")}</div>
+    </div>
+    <table class="sl-table">
+      <thead><tr><th>Description</th><th class="num">Qty (L)</th><th class="num">Rate (₹/L)</th><th class="num">Amount (₹)</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="3" class="num">Total</td><td class="num"><b>${inv.amount!=null?inr(inv.amount):"—"}</b></td></tr></tfoot>
+    </table>
+    ${inv.amount!=null?`<div class="sl-words">Amount in words: <b>${esc(amountWords(inv.amount))}</b></div>`:
+      `<div class="sl-warn">Rate not set for ${dLabel(shiftKey(i.handled_at||inv.issued_at))}. Set the day's price, then regenerate this invoice.</div>`}
+    <div class="sl-note">Rate is inclusive of all applicable taxes.</div>
+    <div class="sl-ref">Ref: Indent ${esc(i.code||"")}${i.handled_at?" · Delivered "+fmtIST(i.handled_at):""}</div>
+    <div class="sl-sign"><div>Customer Signature</div><div>For ${esc(st.business_name||"Vriddhi Fuels")}</div></div>
+  </div>`;
+}
+const SLIP_CSS = `
+  .slip{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;max-width:640px;margin:0 auto}
+  .slip .sub{font-size:11px;color:#555;font-weight:400}
+  .sl-head{text-align:center;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}
+  .sl-biz{font-size:22px;font-weight:800;letter-spacing:.3px}
+  .sl-line{font-size:12px;color:#444}
+  .sl-title{text-align:center;font-weight:800;letter-spacing:2px;margin:6px 0 12px}
+  .sl-meta{display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px}
+  .sl-meta span{display:block;color:#666;font-size:11px}
+  .sl-billto{border:1px solid #ddd;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:14px}
+  .sl-billto span{color:#666;font-size:11px;display:block}
+  .sl-table{width:100%;border-collapse:collapse;font-size:14px}
+  .sl-table th,.sl-table td{border:1px solid #ccc;padding:8px 10px;text-align:left}
+  .sl-table .num{text-align:right}
+  .sl-table tfoot td{font-weight:700;background:#f6f6f6}
+  .sl-words{margin:10px 0;font-size:13px}
+  .sl-note{font-size:12px;color:#555;margin-top:4px}
+  .sl-warn{margin:10px 0;font-size:13px;color:#b00;font-weight:600}
+  .sl-ref{font-size:12px;color:#666;margin-top:6px}
+  .sl-sign{display:flex;justify-content:space-between;margin-top:44px;font-size:12px;color:#444}
+  .sl-sign div{border-top:1px solid #999;padding-top:6px;width:44%;text-align:center}
+`;
+function showInvoice(inv, i, cust, st, staff){
+  sheet(`${slipHTML(inv,i,cust,st)}
+    <style>${SLIP_CSS}</style>
+    <div style="height:16px"></div>
+    <button class="btn info no-print" data-act="printinv" data-id="${inv.indent_id}">🖨️ Print / Save as PDF</button>
+    ${staff?`<div style="height:10px"></div><button class="btn sec no-print" data-act="regeninv" data-id="${inv.indent_id}">↻ Regenerate (use latest price)</button>`:""}
+  `);
+  state.cache.lastInvoice = { inv, i, cust, st };
+}
+function printInvoice(){
+  const d=state.cache.lastInvoice; if(!d) return;
+  const w=window.open("","_blank");
+  if(!w){ return toast("Allow pop-ups to print","bad"); }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.inv.code)}</title>
+    <style>body{margin:24px}${SLIP_CSS}</style></head><body>${slipHTML(d.inv,d.i,d.cust,d.st)}</body></html>`);
+  w.document.close(); w.focus();
+  setTimeout(()=>{ try{ w.print(); }catch(e){} }, 350);
+}
 
 // ============================================================
 // PLACE / LOG-ON-BEHALF WIZARD
@@ -786,7 +924,9 @@ function resetPwSheet(id,name){
 async function renderReports(){
   state.view="reports";
   root.innerHTML = header("Admin · Reports")+`<main><div class="center"><div class="spin"></div></div></main>`;
-  let indents=[],users=[]; try{ [indents,users]=await Promise.all([allIndents(),usersList()]); }catch(e){ return toast(e.message,"bad"); }
+  let indents=[],users=[],prices=[],st={};
+  try{ [indents,users,prices,st]=await Promise.all([allIndents(),usersList(),fetchPrices(),fetchSettings(true)]); }
+  catch(e){ return toast(e.message,"bad"); }
   state.cache.indents=indents; state.cache.users=users;
   const today=indents.filter(i=>isToday(i.created_at));
   const perProduct = PRODUCTS.map(p=>{
@@ -797,7 +937,25 @@ async function renderReports(){
   });
   const c=(s)=>today.filter(i=>i.status===s).length;
   const custs=users.filter(u=>u.role==="customer");
+  const priceRow=(p)=>{
+    const carried = p.price!=null && !p.set_today;
+    return `<div class="spread" style="margin-bottom:10px">
+      <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--${p.product==="Petrol"?"petrol":p.product==="Diesel"?"diesel":"xg"});margin-right:6px"></span>
+        <b>${p.product}</b>
+        <div class="tiny">${p.price==null?"No price yet":(p.set_today?"Set today ✓":"Carried from "+dLabel(p.effective_date))}</div></div>
+      <div class="row" style="gap:6px">
+        <input class="inp" id="pr-${p.product}" inputmode="decimal" style="width:96px;text-align:right" placeholder="₹/L" value="${p.price!=null?p.price:""}">
+        <button class="btn sm" data-act="setprice" data-product="${p.product}">Save</button>
+      </div></div>`;
+  };
+  const anyToday = (prices||[]).some(p=>p.set_today);
   root.innerHTML = header("Admin · Reports")+`<main>
+    <h2 class="sec">Today's fuel prices (₹/L, incl. taxes)</h2>
+    ${!anyToday?`<div class="banner" style="margin-bottom:10px"><b>Set today's prices</b>
+      <div class="tiny">Until you set them, yesterday's rates carry forward and are used on new invoices.</div></div>`:""}
+    <div class="card">${(prices||[]).map(priceRow).join("")}
+      <div class="tiny">Skipping a day is fine — the last price stays in effect automatically.</div></div>
+
     <h2 class="sec">Daily summary — ${fmtDay(new Date().toISOString())}</h2>
     <div class="card">
       <div class="totrow" style="margin-bottom:6px">
@@ -829,11 +987,40 @@ async function renderReports(){
       <div style="height:10px"></div>
       <button class="btn info" data-act="sendstmt">🧾 Generate & send statement</button>
     </div>
+
+    <h2 class="sec">Business details (invoice header)</h2>
+    <div class="card">
+      <label class="fld">Business name</label>
+      <input class="inp" id="se-name" value="${esc(st.business_name||"Vriddhi Fuels")}">
+      <label class="fld">Address</label>
+      <input class="inp" id="se-addr" value="${esc(st.address||"")}" placeholder="Address line for the invoice">
+      <label class="fld">GSTIN</label>
+      <input class="inp" id="se-gst" value="${esc(st.gst_no||"")}" placeholder="e.g. 19ABCDE1234F1Z5">
+      <label class="fld">Contact</label>
+      <input class="inp" id="se-contact" value="${esc(st.contact||"")}" placeholder="Phone / email on the invoice">
+      <div style="height:12px"></div>
+      <button class="btn sec" data-act="savesettings">Save business details</button>
+    </div>
   </main>${staffTabbar()}`;
   const now=new Date(); const iso=(d)=>d.toISOString().slice(0,10);
   $("#ex-from").value=iso(new Date(now.getFullYear(),now.getMonth(),1)); $("#ex-to").value=iso(now);
   $("#st-month").value=now.getMonth()+1;
   bindChrome();
+}
+async function saveSettings(){
+  const patch={ business_name:$("#se-name").value.trim()||"Vriddhi Fuels",
+    address:$("#se-addr").value.trim()||null, gst_no:$("#se-gst").value.trim()||null,
+    contact:$("#se-contact").value.trim()||null };
+  const { error } = await sb.from("settings").update(patch).eq("id",1);
+  if(error) return toast(error.message,"bad");
+  state.cache.settings=null; toast("Business details saved","ok");
+}
+async function setPrice(product){
+  const v=$("#pr-"+product)?.value;
+  if(!(Number(v)>0)) return toast("Enter a valid price","bad");
+  try{ await rpc("set_price",{ p_product:product, p_price:Number(v) });
+    toast(product+" price updated","ok"); renderReports();
+  }catch(e){ toast(e.message,"bad"); }
 }
 function exportCSV(){
   const from=$("#ex-from").value, to=$("#ex-to").value;
@@ -905,6 +1092,11 @@ async function handleAct(act, ds){
       case "modify": return modifyWizard(id);
       case "tab": state.tab=ds.tab; return renderStaff(true);
       case "print": return window.print();
+      case "invoice": return openInvoice(id);
+      case "printinv": return printInvoice();
+      case "regeninv": await rpc("generate_invoice",{p_indent:id,p_force:true}); toast("Invoice regenerated","ok"); return openInvoice(id);
+      case "setprice": return setPrice(ds.product);
+      case "savesettings": return saveSettings();
       case "exportcsv": return exportCSV();
       case "sendstmt": return sendStatement();
       case "resetpw": return resetPwSheet(id, ds.name);

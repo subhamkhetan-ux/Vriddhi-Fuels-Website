@@ -382,6 +382,7 @@ begin
   update public.indents set status='Delivered', handled_by=caller.id, handled_at=now(),
     updated_at=now() where id = p_id returning * into rec;
   perform public._audit(p_id, 'delivered', to_jsonb(old), to_jsonb(rec), note, p_ua, p_ip);
+  perform public._create_invoice(p_id, false);   -- auto-generate the invoice
   return rec;
 end $$;
 
@@ -564,3 +565,164 @@ revoke execute on function public._audit(uuid, audit_event, jsonb, jsonb, text, 
 -- After that, the admin can create every other user from inside the app
 -- (which calls the admin-create-user edge function). See README.
 -- =====================================================================
+
+
+-- =====================================================================
+-- DAILY PRICES + INVOICES  (added after v1 — safe to re-run)
+-- =====================================================================
+
+-- Shift date helper: the 6am-to-6am business day (IST) as a plain date.
+create or replace function public.shift_date(p_ts timestamptz)
+returns date language sql immutable as $$
+  select ((p_ts at time zone 'Asia/Kolkata') - interval '6 hours')::date;
+$$;
+
+-- Business details for the invoice header (extend the single settings row).
+alter table public.settings add column if not exists address text;
+alter table public.settings add column if not exists gst_no  text;
+alter table public.settings add column if not exists contact text;
+
+-- Append-only price history. A price "takes effect" on its effective_date
+-- (a shift date) and carries forward until a newer one is entered — so a
+-- skipped day automatically keeps the previous day's rate.
+create table if not exists public.product_prices (
+  id             uuid primary key default gen_random_uuid(),
+  product        product_type not null,
+  price          numeric(10,2) not null check (price > 0),   -- ₹ per litre, tax-inclusive
+  effective_date date not null,
+  created_by     uuid references public.app_users(id),
+  created_at     timestamptz not null default now()
+);
+create index if not exists idx_prices_product_date
+  on public.product_prices(product, effective_date desc, created_at desc);
+
+-- Latest price for a product effective on/before a given date (carry-forward).
+create or replace function public.price_on(p_product product_type, p_date date)
+returns numeric language sql stable set search_path = public as $$
+  select price from public.product_prices
+  where product = p_product and effective_date <= p_date
+  order by effective_date desc, created_at desc
+  limit 1;
+$$;
+
+-- Today's effective price per product, and whether it was set today.
+create or replace function public.current_prices()
+returns table(product product_type, price numeric, effective_date date, set_today boolean)
+language sql stable security definer set search_path = public as $$
+  with d as (select public.shift_date(now()) as today),
+  prods as (select unnest(enum_range(null::product_type)) as product)
+  select p.product,
+    (select pp.price from public.product_prices pp, d
+      where pp.product = p.product and pp.effective_date <= d.today
+      order by pp.effective_date desc, pp.created_at desc limit 1),
+    (select pp.effective_date from public.product_prices pp, d
+      where pp.product = p.product and pp.effective_date <= d.today
+      order by pp.effective_date desc, pp.created_at desc limit 1),
+    exists(select 1 from public.product_prices pp, d
+      where pp.product = p.product and pp.effective_date = d.today)
+  from prods p;
+$$;
+
+-- Admin sets today's price for a product (inserts a new history row).
+create or replace function public.set_price(p_product product_type, p_price numeric)
+returns public.product_prices
+language plpgsql security definer set search_path = public as $$
+declare rec public.product_prices;
+begin
+  if not public.is_admin() then raise exception 'Admin only'; end if;
+  if p_price is null or p_price <= 0 then raise exception 'Price must be > 0'; end if;
+  insert into public.product_prices(product, price, effective_date, created_by)
+  values (p_product, p_price, public.shift_date(now()), auth.uid())
+  returning * into rec;
+  return rec;
+end $$;
+
+-- Sequential invoice numbers: INV-0001, INV-0002, ...
+create sequence if not exists public.invoice_code_seq;
+
+create table if not exists public.invoices (
+  id            uuid primary key default gen_random_uuid(),
+  code          text not null unique,             -- INV-0001
+  indent_id     uuid not null unique references public.indents(id),
+  customer_id   uuid not null references public.app_users(id),
+  product       product_type not null,
+  order_type    order_type   not null,
+  ordered_value numeric(12,2) not null,           -- litres or ₹ as originally ordered
+  rate          numeric(10,2),                    -- ₹/L used (null if no price yet)
+  litres        numeric(12,3),                    -- computed litres
+  amount        numeric(12,2),                    -- ₹ total (tax-inclusive)
+  issued_by     uuid references public.app_users(id),
+  issued_at     timestamptz not null default now()
+);
+create index if not exists idx_invoices_customer on public.invoices(customer_id);
+
+-- Internal: create (or, with force, refresh) the invoice for an indent.
+-- Uses the rate effective on the delivery shift date. Never raises on a
+-- missing price — it stores a rate-less invoice the admin can regenerate.
+create or replace function public._create_invoice(p_indent uuid, p_force boolean)
+returns public.invoices
+language plpgsql security definer set search_path = public as $$
+declare i public.indents; inv public.invoices; r numeric; l numeric; a numeric; d date;
+begin
+  select * into i from public.indents where id = p_indent;
+  if i.id is null then raise exception 'Indent not found'; end if;
+  select * into inv from public.invoices where indent_id = p_indent;
+  if inv.id is not null and not p_force then return inv; end if;
+
+  d := public.shift_date(coalesce(i.handled_at, now()));
+  r := public.price_on(i.product, d);
+  if i.order_type = 'Litres' then
+    l := i.value;
+    a := case when r is not null then round(i.value * r, 2) else null end;
+  else
+    a := i.value;
+    l := case when r is not null and r > 0 then round(i.value / r, 3) else null end;
+  end if;
+
+  if inv.id is null then
+    insert into public.invoices(code, indent_id, customer_id, product, order_type,
+                                ordered_value, rate, litres, amount, issued_by)
+    values ('INV-' || lpad(nextval('public.invoice_code_seq')::text, 4, '0'),
+            p_indent, i.customer_id, i.product, i.order_type, i.value, r, l, a, auth.uid())
+    returning * into inv;
+  else
+    update public.invoices set rate=r, litres=l, amount=a, issued_by=auth.uid(), issued_at=now()
+    where id = inv.id returning * into inv;
+  end if;
+  return inv;
+end $$;
+
+-- Staff-callable wrapper (deliver_indent calls _create_invoice directly).
+create or replace function public.generate_invoice(p_indent uuid, p_force boolean default false)
+returns public.invoices
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_staff() then raise exception 'Staff only'; end if;
+  return public._create_invoice(p_indent, p_force);
+end $$;
+
+-- RLS for the new tables.
+alter table public.product_prices enable row level security;
+alter table public.invoices       enable row level security;
+
+drop policy if exists prices_read on public.product_prices;
+create policy prices_read on public.product_prices for select
+  using (auth.uid() is not null);          -- rate-of-day is visible to all users
+
+drop policy if exists invoices_read on public.invoices;
+create policy invoices_read on public.invoices for select
+  using (customer_id = auth.uid() or public.is_staff());
+
+-- Grants (these functions/tables are created after the blanket grant above).
+grant select on public.product_prices, public.invoices to authenticated;
+grant update on public.settings to authenticated;   -- RLS still limits writes to admin
+grant execute on function
+  public.shift_date(timestamptz),
+  public.price_on(product_type, date),
+  public.current_prices(),
+  public.set_price(product_type, numeric),
+  public.generate_invoice(uuid, boolean)
+  to authenticated;
+-- Internal invoice writer must not be directly callable (like _audit).
+revoke execute on function public._create_invoice(uuid, boolean) from public, authenticated;
+
