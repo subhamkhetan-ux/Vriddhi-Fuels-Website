@@ -37,12 +37,19 @@ supabase/
 (customers sorted alphabetically) with a per-customer header + count, and there's
 a **search box** to find an indent by **vehicle number** (or IND- code).
 
-**Fuel-receipt acknowledgement (customer):** after each delivery the customer
-gets a **"Confirm fuel received"** prompt on their home screen, grouped by day,
-with a per-invoice **Acknowledge** button and a one-click **"Acknowledge all"**
-for a whole day. Each acknowledgement writes an audit row (with device metadata)
-so the customer cannot later deny taking the fuel; the invoice then shows
-"✓ Receipt acknowledged".
+**Fuel-receipt acknowledgement (mandatory):**
+- **Customer:** an **"Unacknowledged deliveries"** section on the home screen,
+  grouped by day (previous days flagged **⚠️ overdue**), with a per-invoice
+  **Acknowledge** button and a one-click **"Acknowledge all"** per day. Each
+  acknowledgement writes an audit row (with device metadata) so the customer
+  cannot later deny taking the fuel; the invoice then shows "✓ Receipt acknowledged".
+- **Mandatory / next-day reminder:** on the first open of a new day, a popup
+  reminds the customer to acknowledge previous days' deliveries, and **placing a
+  new indent is blocked** until overdue deliveries are acknowledged.
+- **Employee & owner:** the live board shows an **✓ Acknowledged / ⏳ Not
+  acknowledged** badge on delivered cards and an **Unacknowledged** filter tab.
+  The owner's **Reports** has an **Unacknowledged deliveries** list grouped by
+  customer for follow-up.
 
 **Invoice stamp:** to print your round stamp/signature above "Sign.of Salesman",
 drop the image at **`app/stamp.png`** (transparent PNG recommended). If absent,
