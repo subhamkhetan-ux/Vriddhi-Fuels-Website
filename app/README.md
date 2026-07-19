@@ -136,8 +136,16 @@ screen** to install the PWA.
   Open a delivered indent → **🧾 Invoice** to view and **Print / Save as PDF**.
   Staff can **Regenerate** an invoice (e.g. after entering a price that was
   missing at delivery time). Customers can view/print their own invoices.
-- **Invoice header** (business name, address, GSTIN, contact) is edited in
-  **Admin → Reports → Business details**.
+- **Invoice header** (business name + year, multi-line address, GSTIN, state
+  name/code, mobile, e-mail) is edited in **Admin → Reports → Business details**.
+- **Invoice layout** replicates the Vriddhi "CREDIT MEMO": black tag + mobile,
+  centered letterhead with logo, No./Date/M-s/Vehicle rows, a bordered
+  Particulars/Quantity/Rate/Amount table, a "Thank You / Total" row, and
+  Customer's / Salesman signature lines. Product names print formally
+  (Diesel → "High Speed Diesel", Petrol → "Motor Spirit", XtraGreen → "XtraGreen").
+  The invoice **No.** shows the plain running number (strip of `INV-`); to
+  continue an existing series, restart the sequence, e.g.
+  `alter sequence public.invoice_code_seq restart with 1619;`.
 
 > After pulling these changes, **re-run `supabase/schema.sql`** once in the SQL
 > Editor — it adds the `product_prices` and `invoices` tables and the pricing
