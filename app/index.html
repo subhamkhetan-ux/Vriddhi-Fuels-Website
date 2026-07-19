@@ -1300,8 +1300,22 @@ async function renderReports(){
         <input class="inp" id="ex-to" type="date" style="flex:1;min-width:130px">
       </div>
       <div style="height:10px"></div>
-      <button class="btn sec" data-act="exportcsv">⬇️ Download CSV</button>
+      <button class="btn sec" data-act="exportcsv">⬇️ Download CSV (all indents)</button>
     </div>
+
+    <h2 class="sec">Customer deliveries (Excel)</h2>
+    <div class="card">
+      <div class="tiny" style="margin-bottom:8px">Per-customer delivery report, same format the customer sees.</div>
+      <label class="fld">Customer</label>
+      <select class="inp" id="ox-cust">${custs.map(u=>`<option value="${u.id}">${esc(u.name)} · @${esc(u.username)}</option>`).join("")}</select>
+      <div class="row" style="gap:8px;margin-top:10px">
+        <input class="inp" id="ox-from" type="date" style="flex:1;min-width:130px">
+        <input class="inp" id="ox-to" type="date" style="flex:1;min-width:130px">
+      </div>
+      <div style="height:10px"></div>
+      <button class="btn sec" data-act="ownerexport">⬇️ Download Excel</button>
+    </div>
+
     <h2 class="sec">Monthly statement</h2>
     <div class="card">
       <label class="fld">Customer</label>
@@ -1344,7 +1358,9 @@ async function renderReports(){
     </div>
   </main>${staffTabbar()}`;
   const now=new Date(); const iso=(d)=>d.toISOString().slice(0,10);
-  $("#ex-from").value=iso(new Date(now.getFullYear(),now.getMonth(),1)); $("#ex-to").value=iso(now);
+  const mFrom=iso(new Date(now.getFullYear(),now.getMonth(),1)), mTo=iso(now);
+  $("#ex-from").value=mFrom; $("#ex-to").value=mTo;
+  $("#ox-from").value=mFrom; $("#ox-to").value=mTo;
   $("#st-month").value=now.getMonth()+1;
   bindChrome();
 }
@@ -1409,17 +1425,16 @@ function dl(blob, name){ const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); }
 const istDate=(ts)=> ts ? new Date(new Date(ts).getTime()+IST_MS).toISOString().slice(0,10).split("-").reverse().join("-") : "";
 const invNoOf=(c)=> String(c||"").replace(/^INV-0*/,"") || c;
-// Customer downloads their own deliveries (by delivery date) as an Excel file.
-async function customerExport(){
-  const from=$("#cx-from")?.value, to=$("#cx-to")?.value;
+// Shared deliveries export (customer's own, or a chosen customer for the owner).
+async function exportDeliveries({ customerId, from, to, fnameBase }){
   const t0=from?new Date(from+"T00:00:00"):null, t1=to?new Date(to+"T23:59:59"):null;
+  let q=sb.from("invoices")
+    .select("code,product,litres,rate,amount,issued_at,indents(code,vehicle_no,created_at,handled_at)")
+    .order("issued_at",{ascending:false});
+  if(customerId) q=q.eq("customer_id",customerId);
   let data;
-  try{
-    const r=await sb.from("invoices")
-      .select("code,litres,rate,amount,issued_at,indents(code,vehicle_no,created_at,handled_at)")
-      .order("issued_at",{ascending:false});
-    if(r.error) throw r.error; data=r.data||[];
-  }catch(e){ return toast(e.message,"bad"); }
+  try{ const r=await q; if(r.error) throw r.error; data=r.data||[]; }
+  catch(e){ return toast(e.message,"bad"); }
   const rows=data.filter(v=>{ const hd=v.indents&&v.indents.handled_at; const d=hd?new Date(hd):new Date(v.issued_at);
       return (!t0||d>=t0)&&(!t1||d<=t1); })
     .map(v=>{ const ind=v.indents||{}; return {
@@ -1427,26 +1442,37 @@ async function customerExport(){
       "Delivered Date": istDate(ind.handled_at),
       "Invoice Number": invNoOf(v.code),
       "Vehicle Number": ind.vehicle_no||"",
+      "Product": v.product||"",
       "Quantity (L)": v.litres!=null?Number(v.litres):"",
       "Price (₹/L)": v.rate!=null?Number(v.rate):"",
       "Amount (₹)": v.amount!=null?Number(v.amount):"",
       "Indent Number": ind.code||"" }; });
   if(!rows.length) return toast("No deliveries in that range","bad");
-  const fname=`vriddhi_deliveries_${from||"all"}_${to||"all"}`;
+  const cols=[{wch:13},{wch:14},{wch:14},{wch:15},{wch:11},{wch:12},{wch:11},{wch:13},{wch:13}];
   try{
     const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
-    const ws=XLSX.utils.json_to_sheet(rows);
-    ws["!cols"]=[{wch:13},{wch:14},{wch:14},{wch:15},{wch:12},{wch:11},{wch:13},{wch:13}];
+    const ws=XLSX.utils.json_to_sheet(rows); ws["!cols"]=cols;
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Deliveries");
-    const buf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
-    dl(new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
+    dl(new Blob([XLSX.write(wb,{bookType:"xlsx",type:"array"})],
+      {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fnameBase+".xlsx");
     toast(rows.length+" rows exported","ok");
   }catch(e){
-    const head=Object.keys(rows[0]); const q=s=>{ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
-    const csv="﻿"+[head.join(",")].concat(rows.map(r=>head.map(h=>q(r[h])).join(","))).join("\n");
-    dl(new Blob([csv],{type:"text/csv"}), fname+".csv");
+    const head=Object.keys(rows[0]); const qq=s=>{ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+    const csv="﻿"+[head.join(",")].concat(rows.map(r=>head.map(h=>qq(r[h])).join(","))).join("\n");
+    dl(new Blob([csv],{type:"text/csv"}), fnameBase+".csv");
     toast(rows.length+" rows exported (CSV)","ok");
   }
+}
+function customerExport(){
+  const from=$("#cx-from")?.value, to=$("#cx-to")?.value;
+  return exportDeliveries({ customerId:state.me.id, from, to, fnameBase:`vriddhi_deliveries_${from||"all"}_${to||"all"}` });
+}
+function ownerExport(){
+  const cid=$("#ox-cust")?.value, from=$("#ox-from")?.value, to=$("#ox-to")?.value;
+  if(!cid) return toast("Pick a customer","bad");
+  const u=(state.cache.users||[]).find(x=>x.id===cid);
+  const base=`vriddhi_${(u&&u.name||"customer").replace(/[^a-z0-9]+/gi,"_")}_${from||"all"}_${to||"all"}`;
+  return exportDeliveries({ customerId:cid, from, to, fnameBase:base });
 }
 function exportCSV(){
   const from=$("#ex-from").value, to=$("#ex-to").value;
@@ -1533,6 +1559,7 @@ async function handleAct(act, ds){
       case "reset": return resetSheet();
       case "exportcsv": return exportCSV();
       case "myexport": return customerExport();
+      case "ownerexport": return ownerExport();
       case "sendstmt": return sendStatement();
       case "resetpw": return resetPwSheet(id, ds.name);
       case "repeat": {
