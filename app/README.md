@@ -33,6 +33,21 @@ supabase/
 | **Employee** | Live realtime board (today's totals + filters), mark delivered (full or partial), modify open indents. **Cannot create or cancel indents.** |
 | **Admin** | Everything employees do, **plus** create/cancel indents (log on behalf), user management (create / reset password / activate / deactivate), block/unblock customers, set daily prices, monthly statement sender, CSV export, one-tap **proof pack** (indent + full audit trail, print to PDF). |
 
+**Live board (staff):** pending/incoming indents are **grouped by customer**
+(customers sorted alphabetically) with a per-customer header + count, and there's
+a **search box** to find an indent by **vehicle number** (or IND- code).
+
+**Fuel-receipt acknowledgement (customer):** after each delivery the customer
+gets a **"Confirm fuel received"** prompt on their home screen, grouped by day,
+with a per-invoice **Acknowledge** button and a one-click **"Acknowledge all"**
+for a whole day. Each acknowledgement writes an audit row (with device metadata)
+so the customer cannot later deny taking the fuel; the invoice then shows
+"✓ Receipt acknowledged".
+
+**Invoice stamp:** to print your round stamp/signature above "Sign.of Salesman",
+drop the image at **`app/stamp.png`** (transparent PNG recommended). If absent,
+the space is simply left blank for a physical stamp.
+
 **Delivery (full / partial):** when marking an indent delivered, staff choose
 **Fully delivered** or **Partial**. Partial asks for the litres/₹ actually
 delivered, and the **invoice bills the delivered amount** (not the ordered
