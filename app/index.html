@@ -108,6 +108,13 @@ input.inp:focus,select.inp:focus{outline:2px solid var(--orange-soft);border-col
   border:1px solid var(--line);font-weight:600;font-size:14px;color:var(--txt-2)}
 .tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 
+.grp{margin-bottom:16px}
+.grp-h{display:flex;align-items:center;gap:8px;font-weight:800;font-size:15px;
+  color:var(--txt);padding:6px 4px 8px;position:sticky;top:64px;z-index:5;
+  background:linear-gradient(180deg,var(--bg) 70%,transparent)}
+.grp-n{font-size:12px;font-weight:700;color:var(--txt-3);background:var(--card);
+  border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+
 .totrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
 .tot{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 8px;text-align:center;box-shadow:var(--shadow)}
 .tot b{display:block;font-size:22px;letter-spacing:-.5px}
@@ -414,6 +421,10 @@ async function myStatements(){
   const { data, error } = await sb.from("statements").select("*").order("sent_at",{ascending:false});
   if(error) throw error; return data||[];
 }
+async function myInvoices(){
+  const { data, error } = await sb.from("invoices").select("*").order("issued_at",{ascending:false});
+  if(error) throw error; return data||[];
+}
 async function auditFor(indentId){
   const { data, error } = await sb.from("audit_log").select("*")
     .eq("indent_id",indentId).order("created_at",{ascending:true});
@@ -438,17 +449,20 @@ const isToday = (ts)=> shiftKey(ts)===shiftKey(new Date().toISOString());
 async function renderCustomer(quiet){
   state.view="home";
   if(!quiet) root.innerHTML = header()+`<main><div class="center"><div class="spin"></div></div></main>`;
-  let indents=[], stmts=[], prices=[];
-  try{ [indents,stmts,prices]=await Promise.all([myIndents(),myStatements(),fetchPrices()]); }
+  let indents=[], stmts=[], prices=[], invoices=[];
+  try{ [indents,stmts,prices,invoices]=await Promise.all([myIndents(),myStatements(),fetchPrices(),myInvoices()]); }
   catch(e){ return toast(e.message,"bad"); }
-  state.cache.indents=indents;
+  state.cache.indents=indents; state.cache.invoices=invoices;
   const awaiting = indents.filter(i=>i.status==="Awaiting");
   const pendingStmt = stmts.filter(s=>s.ack_status==="pending");
+  const pendingAcks = invoices.filter(v=>v.ack_status!=="acknowledged");
+  const indById={}; indents.forEach(x=>indById[x.id]=x);
   const last = indents.find(i=>i.status!=="Cancelled");
   const blocked = state.me.is_blocked;
 
   root.innerHTML = header()+`<main>
     ${blocked?`<div class="blocknote">Your account is blocked. You can view history but cannot place indents. Please contact us.</div>`:""}
+    ${ackSection(pendingAcks, indById)}
     ${rateBanner(prices)}
     ${awaiting.map(i=>approvalBanner(i)).join("")}
     ${pendingStmt.map(s=>stmtBanner(s)).join("")}
@@ -472,6 +486,38 @@ function customerTabbar(){
     <button data-act="new"><span class="ic">➕</span>New</button>
     <button data-act="statements"><span class="ic">🧾</span>Statements</button>
   </nav>`;
+}
+// Pending fuel-receipt acknowledgements, grouped by delivery day, with a
+// one-click "acknowledge the whole day" button.
+function ackSection(invs, indById){
+  if(!invs || !invs.length) return "";
+  const groups={};
+  invs.forEach(v=>{ const k=shiftKey(v.issued_at); (groups[k]=groups[k]||[]).push(v); });
+  const days=Object.keys(groups).sort().reverse();
+  const line=(v)=>{ const ind=indById[v.indent_id]||{};
+    const q=[v.litres!=null?Number(v.litres)+" L":"", v.amount!=null?inr(v.amount):""].filter(Boolean).join(" · ");
+    return `<div class="icard" data-p="${v.product}" style="margin:0 0 8px">
+      <div class="spread"><div>
+        <b>${esc(v.code)}</b> · ${esc(v.product)}
+        <div class="tiny">${ind.vehicle_no?esc(ind.vehicle_no)+" · ":""}${esc(q)}</div>
+      </div></div>
+      <div class="btnrow" style="margin-top:8px">
+        <button class="btn ok sm" data-act="ackone" data-ids="${v.id}">✍️ Acknowledge</button>
+        <button class="btn sec sm" data-act="invoice" data-id="${v.indent_id}">View invoice</button>
+      </div></div>`;
+  };
+  return `<div class="banner">
+    <div style="font-weight:800;margin-bottom:4px">✍️ Confirm fuel received (${invs.length})</div>
+    <div class="tiny" style="margin-bottom:12px">Please acknowledge these deliveries — this is your record that the fuel was taken.</div>
+    ${days.map(k=>{ const list=groups[k]; const ids=list.map(v=>v.id).join(",");
+      return `<div style="margin-bottom:14px">
+        <div class="spread" style="margin-bottom:8px">
+          <b>${dLabel(k)}</b>
+          <button class="btn ok sm" data-act="ackday" data-ids="${ids}">Acknowledge all (${list.length})</button>
+        </div>
+        ${list.map(line).join("")}
+      </div>`;}).join("")}
+  </div>`;
 }
 function rateBanner(prices){
   const set=(prices||[]).filter(p=>p.price!=null);
@@ -521,14 +567,19 @@ function customerCard(i){
 // ============================================================
 async function renderStaff(quiet){
   state.view="board";
+  // Don't blow away the board (and search focus) on a realtime refresh.
+  if(quiet && $("#board-search") && document.activeElement===$("#board-search")){
+    try{ const [ind,usr]=await Promise.all([allIndents(),usersList()]);
+      state.cache.indents=ind; state.cache.users=usr; paintBoard(); }catch(e){}
+    return;
+  }
   if(!quiet) root.innerHTML = header()+`<main><div class="center"><div class="spin"></div></div></main>`;
-  let indents=[];
-  try{ indents=await allIndents(); }catch(e){ return toast(e.message,"bad"); }
-  state.cache.indents=indents;
+  let indents=[], users=[];
+  try{ [indents,users]=await Promise.all([allIndents(),usersList()]); }catch(e){ return toast(e.message,"bad"); }
+  state.cache.indents=indents; state.cache.users=users;
   const today = indents.filter(i=>isToday(i.created_at));
   const c=(s)=>today.filter(i=>i.status===s).length;
   const tab=state.tab;
-  const filtered = indents.filter(i=> tab==="All" ? true : i.status===tab);
 
   root.innerHTML = header()+`<main>
     <div class="totrow">
@@ -537,14 +588,43 @@ async function renderStaff(quiet){
       <div class="tot"><b>${c("Delivered")}</b><span>Delivered</span></div>
       <div class="tot"><b>${c("Cancelled")}</b><span>Cancelled</span></div>
     </div>
+    <input class="inp" id="board-search" autocapitalize="characters" autocomplete="off"
+      placeholder="🔍 Search vehicle number or IND-…" value="${esc(state.boardSearch||"")}" style="margin-bottom:10px">
     <div class="tabs">
       ${["Pending","Awaiting","Delivered","All"].map(t=>`<button class="${t===tab?"on":""}" data-act="tab" data-tab="${t}">${t}</button>`).join("")}
     </div>
-    <div id="board">${filtered.length?filtered.map(staffCard).join(""):`<div class="empty">Nothing here.</div>`}</div>
+    <div id="board"></div>
   </main>
   ${state.me.role==="admin"?`<button class="btn fab" data-act="onbehalf">➕ Log indent for a customer</button>`:""}
   ${staffTabbar()}`;
+  const si=$("#board-search"); if(si) si.oninput=()=>{ state.boardSearch=si.value; paintBoard(); };
+  paintBoard();
   bindChrome();
+}
+// Render the board list: grouped by customer (alphabetical), filtered by the
+// active tab and the vehicle/code search box.
+function paintBoard(){
+  const el=$("#board"); if(!el) return;
+  const indents=state.cache.indents||[], users=state.cache.users||[];
+  const custById={}; users.forEach(u=>custById[u.id]=u);
+  const tab=state.tab;
+  const term=(state.boardSearch||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  let list=indents.filter(i=> tab==="All" ? true : i.status===tab);
+  if(term) list=list.filter(i=>
+    (i.vehicle_no||"").toUpperCase().replace(/[^A-Z0-9]/g,"").includes(term) ||
+    (i.code||"").toUpperCase().replace(/[^A-Z0-9]/g,"").includes(term));
+  if(!list.length){ el.innerHTML=`<div class="empty">${term?"No indent found for that search.":"Nothing here."}</div>`; return; }
+  const groups={};
+  list.forEach(i=>{ (groups[i.customer_id]=groups[i.customer_id]||[]).push(i); });
+  const order=Object.keys(groups).sort((a,b)=>
+    (custById[a]?.name||"~").localeCompare(custById[b]?.name||"~",undefined,{sensitivity:"base"}));
+  el.innerHTML = order.map(cid=>{
+    const u=custById[cid]||{};
+    const items=groups[cid].sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+    return `<div class="grp"><div class="grp-h">${esc(u.name||"Unknown customer")}
+      <span class="grp-n">${items.length}</span></div>${items.map(staffCard).join("")}</div>`;
+  }).join("");
+  bindActs(el);
 }
 function staffTabbar(){
   const admin = state.me.role==="admin";
@@ -643,6 +723,7 @@ const memoDate = (ts)=>{ const d=new Date(new Date(ts).getTime()+IST_MS);
 
 function slipHTML(inv, i, cust, st){
   const iconURL = new URL("icon.png", location.href).href;
+  const stampURL = new URL("stamp.png", location.href).href;
   const no = String(inv.code||"").replace(/^INV-0*/,"") || esc(inv.code);
   const addrLines = String(st.address||"").split(/\r?\n/).filter(Boolean);
   const part = PARTICULARS[inv.product] || inv.product;
@@ -675,11 +756,15 @@ function slipHTML(inv, i, cust, st){
         <tr class="m-fill"><td class="l"></td><td></td><td></td><td></td></tr>
         <tr class="m-total"><td class="c" colspan="2">Thank You</td><td class="c">Total</td><td class="r">₹ ${total}</td></tr>
         <tr class="m-gap"><td colspan="4"></td></tr>
-        <tr class="m-sign"><td class="l" colspan="2">Customer's Sign.</td><td class="l" colspan="2">Sign.of Salesman</td></tr>
+        <tr class="m-sign">
+          <td class="l" colspan="2"><div class="m-signcell"><span class="lbl2">Customer's Sign.</span></div></td>
+          <td class="l" colspan="2"><div class="m-signcell"><img class="m-stamp" src="${stampURL}" alt="" onerror="this.style.display='none'"><span class="lbl2">Sign.of Salesman</span></div></td>
+        </tr>
       </tbody>
     </table>
     ${inv.amount==null?`<div class="m-warn">Rate not set for ${dLabel(shiftKey(i.handled_at||inv.issued_at))} — set the day's price and regenerate.</div>`:""}
     ${isPartial(i)?`<div class="m-part">Partial delivery — ordered ${esc(qtyText(i))}, delivered ${esc(deliveredText(i))}.</div>`:""}
+    ${inv.ack_status==="acknowledged"?`<div class="m-ack">✓ Receipt acknowledged by customer on ${fmtIST(inv.ack_at)}.</div>`:""}
   </div>`;
 }
 const SLIP_CSS = `
@@ -705,10 +790,14 @@ const SLIP_CSS = `
   .m-item td{font-weight:800;border-bottom:none;font-size:19px}
   .m-fill td{border-top:none;height:200px}
   .m-total td{font-weight:800;font-size:19px}
-  .m-sign td{height:110px;vertical-align:bottom;font-weight:800;font-size:19px}
+  .m-sign td{height:110px;vertical-align:bottom;font-weight:800;font-size:19px;padding:0}
+  .m-signcell{display:flex;flex-direction:column;height:100%;min-height:100px;padding:8px 12px}
+  .m-stamp{max-height:92px;max-width:78%;object-fit:contain;align-self:center;margin:2px auto}
+  .m-signcell .lbl2{margin-top:auto}
   .m-gap td{height:10px}
   .m-warn{margin-top:8px;color:#b00;font-weight:700;font-size:14px}
   .m-part{margin-top:6px;color:#333;font-size:13px}
+  .m-ack{margin-top:6px;color:#0a7d3b;font-weight:700;font-size:13px}
   @media print{
     @page{ size:A4; margin:12mm; }
     .memo{ max-width:none; width:100%; padding:0; }
@@ -720,6 +809,8 @@ function showInvoice(inv, i, cust, st, staff){
   sheet(`${slipHTML(inv,i,cust,st)}
     <style>${SLIP_CSS}</style>
     <div style="height:16px"></div>
+    ${(!staff && inv.ack_status!=="acknowledged")?`<button class="btn ok no-print" data-act="ackone" data-ids="${inv.id}">✍️ Acknowledge receipt</button><div style="height:10px"></div>`:""}
+    ${inv.ack_status==="acknowledged"?`<div class="tiny no-print" style="margin-bottom:10px;color:var(--ok);font-weight:700">✓ Acknowledged on ${fmtIST(inv.ack_at)}</div>`:""}
     <button class="btn info no-print" data-act="printinv" data-id="${inv.indent_id}">🖨️ Print / Save as PDF</button>
     ${staff?`<div style="height:10px"></div><button class="btn sec no-print" data-act="regeninv" data-id="${inv.indent_id}">↻ Regenerate (use latest price)</button>`:""}
   `);
@@ -1217,6 +1308,12 @@ async function handleAct(act, ds){
       case "reject": if(!confirmAct("Reject this indent?"))return; await rpc("reject_indent", withMeta({p_id:id})); closeSheet(); toast("Rejected","ok"); return refresh();
       case "cancel": if(!confirmAct("Cancel this indent?"))return; await rpc("cancel_indent", withMeta({p_id:id})); closeSheet(); toast("Cancelled","ok"); return refresh();
       case "deliver": return deliverSheet(id);
+      case "ackone": case "ackday": {
+        const ids=(ds.ids||"").split(",").filter(Boolean);
+        if(!ids.length) return;
+        const n=await rpc("acknowledge_invoices", withMeta({p_ids:ids}));
+        closeSheet(); toast("Acknowledged "+n+" — thank you","ok"); return renderCustomer();
+      }
       case "ack": await rpc("ack_statement", withMeta({p_id:id, p_confirm:true})); toast("Confirmed — thank you","ok"); return refresh();
       case "dispute": if(!confirmAct("Raise a dispute on this statement?"))return; await rpc("ack_statement", withMeta({p_id:id, p_confirm:false})); toast("Dispute raised","ok"); return refresh();
       case "toggleblock": await rpc("set_blocked",{p_customer:id, p_blocked: ds.blocked!=="true"}); toast("Updated","ok"); return renderUsers();

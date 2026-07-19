@@ -810,3 +810,37 @@ end $$;
 
 grant execute on function public.reset_indent_history(text) to authenticated;
 
+
+-- =====================================================================
+-- CUSTOMER: fuel-receipt acknowledgement (per invoice)
+-- ---------------------------------------------------------------------
+-- After delivery, the customer acknowledges that the fuel was received.
+-- Each acknowledgement writes an audit row (with device metadata) so the
+-- customer cannot later deny taking the fuel. Supports one-click bulk
+-- acknowledgement of many invoices (e.g. a whole day) via an id array.
+-- =====================================================================
+alter table public.invoices add column if not exists ack_status text not null default 'pending';
+alter table public.invoices add column if not exists ack_at     timestamptz;
+
+create or replace function public.acknowledge_invoices(
+  p_ids uuid[], p_ua text default null, p_ip text default null)
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare caller public.app_users := public.me(); rec record; n integer := 0;
+begin
+  if caller.id is null then raise exception 'Not authenticated'; end if;
+  for rec in
+    select * from public.invoices
+    where id = any(p_ids) and customer_id = caller.id and ack_status = 'pending'
+  loop
+    update public.invoices set ack_status='acknowledged', ack_at=now() where id = rec.id;
+    perform public._audit(rec.indent_id, 'approved', null,
+      jsonb_build_object('invoice', rec.code, 'ack', 'acknowledged'),
+      'FUEL RECEIPT ACKNOWLEDGED by customer — invoice ' || rec.code, p_ua, p_ip);
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+grant execute on function public.acknowledge_invoices(uuid[], text, text) to authenticated;
+
