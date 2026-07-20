@@ -331,6 +331,15 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
     <button class="btn ghost" id="btnAddParty">+ Add party</button>
   </div>
 
+  <div class="card">
+    <h2 class="cardtitle">Auto-clear old vouchers</h2>
+    <div class="chkrow" style="margin-top:6px">
+      <input type="checkbox" id="setAutoClear">
+      <label for="setAutoClear" style="margin:0;font-size:15px;color:var(--txt)">Automatically remove vouchers older than 2 days</label>
+    </div>
+    <div class="hint">Turn this on if you export to Tally every day and don't need old vouchers kept here. Vouchers dated today, yesterday and the day before are always kept; older ones are cleared on open. Invoice numbering continues forward — cleared numbers are never reused.</div>
+  </div>
+
   <div class="card" id="cloudCard" style="display:none">
     <h2 class="cardtitle">Account</h2>
     <div class="hint" style="margin-top:0" id="cloudUser"></div>
@@ -357,7 +366,15 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
   </div>
 
   <button class="btn navy" id="btnSaveSettings">Save settings</button>
-  <button class="btn danger" id="btnResetApp">Reset app data…</button>
+
+  <div class="card">
+    <h2 class="cardtitle" style="color:var(--red)">Danger zone</h2>
+    <div class="hint" style="margin-top:0">These cannot be undone. Make sure the data is exported to Tally first.</div>
+    <button class="btn danger" id="btnResetVouchers">🗑 Reset ALL vouchers…</button>
+    <div class="hint">Clears every voucher (pending, exported and old). Keeps customers, prices and invoice numbering (so the next number continues where it left off).</div>
+    <button class="btn danger" id="btnResetCustomers">🗑 Reset ALL customers…</button>
+    <div class="hint">Clears the whole customer list so you can start afresh (e.g. re-upload a Master XML). Does not touch vouchers.</div>
+  </div>
 </section>
 
 <!-- ======================= LOGIN (cloud mode) ======================= -->
@@ -717,6 +734,7 @@ function defaultState(){
       xg:  { last: TALLY.series.xg.defLast,  rate: TALLY.series.xg.defRate }
     },
     parties: TALLY.defaultParties.slice(),
+    autoClear: false, // when true, vouchers older than 2 days are cleared on open
     queue: [],   // {id, seriesKey, number, dateISO, party, vehicle, rate, qty, itemAmt, partyAmt, roff, exportedAt|null}
     history: []  // {seriesKey, number, dateISO, party, vehicle, qty, rate, amount, source:'tally'|'app'}
   };
@@ -724,11 +742,18 @@ function defaultState(){
 
 var state = null;
 var current = "home";
+var AUTOCLEAR_DAYS = 2; // keep today + this many previous days
 
 function cmp(a, b){ return a.localeCompare(b); }
 function histSort(a, b){
   if (a.dateISO !== b.dateISO) return a.dateISO < b.dateISO ? 1 : -1;
   return numPart(b.number) - numPart(a.number);
+}
+// oldest date (YYYY-MM-DD) still kept when auto-clear is on
+function autoClearCutoff(){
+  var d = new Date();
+  d.setDate(d.getDate() - AUTOCLEAR_DAYS);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
 
 function inr(n){
@@ -759,6 +784,14 @@ function freeNumber(seriesKey){
   return n;
 }
 
+// Advance a series' baseline to `number` when it is higher, so a number that
+// has been exported/locked is never handed out again even after its voucher
+// is cleared. (Local mode; cloud does this in the RPCs.)
+function bumpBaseline(seriesKey, number){
+  if (numPart(number) > numPart(state.series[seriesKey].last))
+    state.series[seriesKey].last = number;
+}
+
 /* ================= backends ================= */
 var backend;
 
@@ -770,6 +803,7 @@ var LocalBackend = {
       s = JSON.parse(localStorage.getItem(LS_KEY)) || defaultState();
       if (!s.series || !s.queue || !s.parties) s = defaultState();
       if (!s.history) s.history = [];
+      if (typeof s.autoClear !== "boolean") s.autoClear = false;
       if (!s.series.xg) s.series.xg = { last: TALLY.series.xg.defLast, rate: TALLY.series.xg.defRate };
     } catch(e){ s = defaultState(); }
     return Promise.resolve(s);
@@ -814,18 +848,45 @@ var LocalBackend = {
   },
   markExported: function(ids){
     var now = Date.now();
-    state.queue.forEach(function(v){ if (ids.indexOf(v.id) !== -1) v.exportedAt = now; });
+    state.queue.forEach(function(v){
+      if (ids.indexOf(v.id) !== -1){ v.exportedAt = now; bumpBaseline(v.seriesKey, v.number); }
+    });
     this._save();
     return Promise.resolve();
   },
   moveDay: function(day){
     state.queue.filter(function(v){ return v.dateISO === day; }).forEach(function(v){
+      bumpBaseline(v.seriesKey, v.number);
       state.history.push({ seriesKey: v.seriesKey, number: v.number, dateISO: v.dateISO,
         party: v.party, vehicle: v.vehicle || "", qty: v.qty, rate: v.rate,
         amount: v.itemAmt, partyAmt: v.partyAmt, roff: v.roff, source: "app" });
     });
     state.queue = state.queue.filter(function(v){ return v.dateISO !== day; });
     state.history.sort(histSort);
+    this._save();
+    return Promise.resolve();
+  },
+  autoClear: function(cutoff){
+    // lock in numbers before dropping the rows so they can't be reused
+    state.queue.concat(state.history).forEach(function(v){
+      if (v.dateISO < cutoff) bumpBaseline(v.seriesKey, v.number);
+    });
+    var before = state.queue.length + state.history.length;
+    state.queue = state.queue.filter(function(v){ return v.dateISO >= cutoff; });
+    state.history = state.history.filter(function(v){ return v.dateISO >= cutoff; });
+    this._save();
+    return Promise.resolve(before - (state.queue.length + state.history.length));
+  },
+  setAutoClear: function(on){ state.autoClear = !!on; this._save(); return Promise.resolve(); },
+  resetVouchers: function(){
+    // keep the baselines so invoice numbering continues past what's in Tally
+    state.queue.concat(state.history).forEach(function(v){ bumpBaseline(v.seriesKey, v.number); });
+    state.queue = []; state.history = [];
+    this._save();
+    return Promise.resolve();
+  },
+  resetParties: function(){
+    state.parties = [];
     this._save();
     return Promise.resolve();
   },
@@ -861,15 +922,14 @@ var LocalBackend = {
     return Promise.resolve({ added: added, dupes: dupes, newParties: newParties });
   },
   importMaster: function(names){
-    var keep = {};
-    names.forEach(function(p){ keep[p] = 1; });
-    state.queue.forEach(function(v){ keep[v.party] = 1; });
-    var before = state.parties.slice();
-    state.parties = Object.keys(keep).sort(cmp);
-    var addedN = state.parties.filter(function(p){ return before.indexOf(p) === -1; }).length;
-    var removedN = before.filter(function(p){ return state.parties.indexOf(p) === -1; }).length;
+    // additive only: add customers not already present, never remove existing
+    var have = {};
+    state.parties.forEach(function(p){ have[p] = 1; });
+    var addedN = 0;
+    names.forEach(function(p){ if (!have[p]){ have[p] = 1; state.parties.push(p); addedN++; } });
+    state.parties.sort(cmp);
     this._save();
-    return Promise.resolve({ added: addedN, removed: removedN, total: state.parties.length });
+    return Promise.resolve({ added: addedN, removed: 0, total: state.parties.length });
   },
   addParty: function(name){
     if (state.parties.indexOf(name) === -1){
@@ -907,7 +967,7 @@ var CloudBackend = {
   },
   load: function(){
     var c = this.client;
-    var pSettings = c.from("tally_settings").select("company").eq("id", 1).single();
+    var pSettings = c.from("tally_settings").select("company,auto_clear").eq("id", 1).single();
     var pSeries   = c.from("tally_series").select("*");
     var pParties  = c.from("tally_parties").select("name").order("name");
     function fetchVouchers(acc, from){
@@ -924,6 +984,7 @@ var CloudBackend = {
       if (r[2].error) throw new Error(r[2].error.message);
       var s = defaultState();
       s.company = r[0].data.company;
+      s.autoClear = !!r[0].data.auto_clear;
       (r[1].data || []).forEach(function(row){
         s.series[row.key] = { last: row.baseline, rate: parseFloat(row.rate) };
       });
@@ -966,6 +1027,10 @@ var CloudBackend = {
   deleteVoucher: function(id){ return this.rpc("tally_delete_voucher", { p_id: id }); },
   markExported: function(ids){ return this.rpc("tally_mark_exported", { p_ids: ids }); },
   moveDay: function(day){ return this.rpc("tally_move_day", { p_date: day }); },
+  autoClear: function(cutoff){ return this.rpc("tally_autoclear", { p_cutoff: cutoff }); },
+  setAutoClear: function(on){ return this.rpc("tally_set_autoclear", { p_on: !!on }); },
+  resetVouchers: function(){ return this.rpc("tally_reset_vouchers", {}); },
+  resetParties: function(){ return this.rpc("tally_reset_parties", {}); },
   importDaybook: function(vouchers){
     var self = this;
     var sum = { added: { hsd: 0, ms: 0, xg: 0 }, dupes: 0, newParties: 0 };
@@ -995,6 +1060,17 @@ var CloudBackend = {
 
 function refresh(){
   return backend.load().then(function(s){ state = s; rerender(); });
+}
+
+// When auto-clear is on, drop vouchers older than the cutoff (once per open).
+function maybeAutoClear(){
+  if (!state || !state.autoClear) return Promise.resolve();
+  var cutoff = autoClearCutoff();
+  var hasOld = state.queue.concat(state.history).some(function(v){ return v.dateISO < cutoff; });
+  if (!hasOld) return Promise.resolve();
+  return backend.autoClear(cutoff).then(function(){
+    return backend.load().then(function(s){ state = s; });
+  }).catch(function(){});
 }
 
 function rerender(){
@@ -1250,10 +1326,11 @@ $("fileDaybook").addEventListener("change", function(){
           backend.importMaster(master.debtors).then(function(sum){
             return refresh().then(function(){
               alert("Master imported ✓\n\n"
-                + "Customer list set to Sundry Debtors: " + master.debtors.length + " customers\n"
-                + "(from " + master.ledgerCount + " ledgers / " + master.groupCount + " groups in the file)\n"
-                + (sum.added ? "Added: " + sum.added + "\n" : "")
-                + (sum.removed ? "Removed (not Sundry Debtors): " + sum.removed + "\n" : ""));
+                + "Sundry Debtors in file: " + master.debtors.length
+                + " (from " + master.ledgerCount + " ledgers / " + master.groupCount + " groups)\n"
+                + "New customers added: " + sum.added + "\n"
+                + "Already present (kept): " + (master.debtors.length - sum.added) + "\n"
+                + "\nExisting customers are never removed — use “Reset ALL customers” in Settings to start afresh.");
             });
           }).catch(function(e){ alert("Could not import this file.\n\n" + e.message); }).then(done);
         } else {
@@ -1543,6 +1620,7 @@ function renderSettings(){
   $("setMsRate").value = fmtAmt(state.series.ms.rate);
   $("setXgLast").value = state.series.xg.last;
   $("setXgRate").value = fmtAmt(state.series.xg.rate);
+  $("setAutoClear").checked = !!state.autoClear;
   var el = $("setPartyList");
   el.innerHTML = "";
   state.parties.forEach(function(p){
@@ -1575,6 +1653,18 @@ $("btnAddParty").onclick = function(){
   }).catch(oops);
 };
 
+// Auto-clear toggle: persist immediately, and clear old vouchers right away
+$("setAutoClear").addEventListener("change", function(){
+  var on = this.checked;
+  backend.setAutoClear(on).then(function(){
+    return backend.load().then(function(s){ state = s; });
+  }).then(function(){
+    toast(on ? "Auto-clear turned on" : "Auto-clear turned off");
+    return on ? maybeAutoClear() : Promise.resolve();
+  }).then(function(){ renderSettings(); renderHome(); })
+    .catch(function(e){ oops(e); renderSettings(); });
+});
+
 $("btnSaveSettings").onclick = function(){
   var company = $("setCompany").value.trim();
   var vals = {
@@ -1594,15 +1684,27 @@ $("btnSaveSettings").onclick = function(){
   }).catch(oops);
 };
 
-$("btnResetApp").onclick = function(){
-  var word = prompt("This erases ALL app data (queue, old vouchers, counters, parties).\nType RESET to confirm:");
-  if (word === "RESET"){
-    localStorage.removeItem(LS_KEY);
-    state = defaultState();
-    LocalBackend._save();
-    toast("App reset");
-    show("home");
-  }
+$("btnResetVouchers").onclick = function(){
+  var n = state.queue.length + state.history.length;
+  if (!n){ toast("No vouchers to clear"); return; }
+  if (prompt("This permanently deletes ALL " + n + " voucher(s) — pending, exported and old.\n"
+    + "Customers, prices and invoice numbering are kept (the next number continues).\n"
+    + "Make sure everything is already imported into Tally.\n\nType DELETE to confirm:") !== "DELETE") return;
+  backend.resetVouchers().then(function(){
+    toast("All vouchers cleared");
+    return refresh().then(function(){ show("home"); });
+  }).catch(oops);
+};
+
+$("btnResetCustomers").onclick = function(){
+  var n = state.parties.length;
+  if (!n){ toast("Customer list is already empty"); return; }
+  if (prompt("This permanently deletes ALL " + n + " customer(s) from the app.\n"
+    + "Vouchers are not touched. You can re-upload a Master XML afterwards.\n\nType DELETE to confirm:") !== "DELETE") return;
+  backend.resetParties().then(function(){
+    toast("All customers cleared");
+    return refresh();
+  }).catch(oops);
 };
 
 /* ---------- header ---------- */
@@ -1630,9 +1732,10 @@ function startApp(session){
   CloudBackend.userLabel = (session.user.email || "").replace("@vriddhi.local", "");
   $("cloudUser").textContent = "Signed in as " + CloudBackend.userLabel + " — data is shared live with all employees.";
   $("cloudCard").style.display = "";
-  $("btnResetApp").style.display = "none";
   return backend.load().then(function(s){
     state = s;
+    return maybeAutoClear();
+  }).then(function(){
     subscribeRealtime();
     show("home");
   }).catch(function(e){
@@ -1687,7 +1790,7 @@ $("btnSignOut").onclick = function(){
 function boot(){
   if (!CLOUD){
     backend = LocalBackend;
-    LocalBackend.load().then(function(s){ state = s; show("home"); });
+    LocalBackend.load().then(function(s){ state = s; return maybeAutoClear(); }).then(function(){ show("home"); });
     return;
   }
   $("hdrTitle").textContent = "Connecting…";

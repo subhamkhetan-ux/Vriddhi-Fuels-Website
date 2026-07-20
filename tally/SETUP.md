@@ -81,6 +81,18 @@ This gives all employees one live shared dataset with instant sync.
 6. That's it — the data is **shared**. Every other phone only needs to
    sign in; customers, old vouchers, counters and prices are already there.
 
+> **Adding customers later.** When new customers come, add their ledgers in
+> Tally, export a fresh **Master XML**, and import it again. The app is
+> additive — it **keeps all existing customers and adds only the new ones**,
+> so re-uploading the whole file is always safe.
+
+> **Keeping the setup lean (optional).** In **Settings → Auto-clear old
+> vouchers**, turn the switch on if you export to Tally every day. Vouchers
+> older than 2 days (today, yesterday and the day before are always kept)
+> are then removed automatically each time the app opens, so old data
+> doesn't pile up. Invoice numbering continues forward — a cleared number is
+> never reused, so nothing in Tally is ever duplicated.
+
 ### Install on each phone
 
 7. Open the app URL in Chrome (Android) or Safari (iPhone), sign in, then
@@ -129,8 +141,11 @@ This gives all employees one live shared dataset with instant sync.
 | "Wrong username or password" | Check the username (no `@vriddhi.local` needed) and password; reset it in Supabase → Authentication → Users if forgotten. |
 | App loads without a login screen | `tally/config.js` still has placeholders, or the redeploy hasn't finished — hard-refresh after 2 minutes. |
 | Voucher import into Tally rejects/skips rows | Party/ledger name doesn't exist in Tally masters. Names must match EXACTLY (case, spacing, `&`). Create the ledger in Tally first. |
-| New customer walks in | Best: create the ledger in Tally first, then re-import Master.xml (or add the party in the app with the exact same spelling). |
+| New customer walks in | Create the ledger in Tally, export a fresh Master XML and import it again — the app keeps existing customers and adds only the new ones. (Or add the party in the app with the exact same spelling.) |
 | Vouchers were entered directly in Tally | Export a fresh DayBook and import it in the app (duplicates are skipped automatically), or correct "Last invoice number" in Settings. |
+| Old vouchers piling up | **Settings → Auto-clear old vouchers** on — anything older than 2 days is removed on open. Numbering still continues; cleared numbers are never reused. |
+| Start the vouchers over | **Settings → Danger zone → Reset ALL vouchers** (type DELETE). Clears every voucher but keeps customers, prices and numbering. Export to Tally first. |
+| Start the customer list over | **Settings → Danger zone → Reset ALL customers** (type DELETE). Clears the list so you can re-upload a Master XML. Vouchers are untouched. |
 | Change today's price | **Settings → the product's "Today's price"** → Save. It stays that price on the following days too, until you change it again. Saving vouchers never changes it, even if a voucher's own rate is edited. |
 | One-off different rate for a voucher | Just edit the Price field on that voucher. It affects only that voucher — the day's price stays as set in Settings. |
 | Employee left the company | Supabase → Authentication → Users → delete or ban the user. |

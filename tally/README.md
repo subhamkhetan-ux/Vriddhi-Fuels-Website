@@ -68,10 +68,19 @@ nothing.
     receipts…) are skipped; re-importing the same file is a no-op (duplicates
     detected per series + number). Uses a plain-text scan rather than a DOM
     parser, so a full-year ~100 MB daybook imports in about a second.
-  - **Masters (ledgers) export**: sets the billable customer list to exactly
-    the ledgers under the **Sundry Debtors** group (subgroups such as
-    RCP COMPANIES included), keeping any party still used by vouchers in the
-    app. Data never leaves the phone — it is stored in the browser only.
+  - **Masters (ledgers) export**: adds the ledgers under the **Sundry
+    Debtors** group (subgroups such as RCP COMPANIES included) to the
+    customer list. The merge is **additive** — existing customers are kept
+    and only new ones are added, so re-uploading the whole file whenever new
+    customers appear is always safe.
+- **Auto-clear old vouchers** (Settings toggle, off by default): when on,
+  vouchers older than 2 days are removed each time the app opens (today,
+  yesterday and the day before are always kept). Invoice numbering advances
+  as vouchers are exported/cleared, so a cleared number is **never reused**.
+- **Danger zone** (Settings): **Reset ALL vouchers** clears every voucher but
+  keeps customers, prices and numbering (the next number continues); **Reset
+  ALL customers** clears the customer list to start afresh. Both require
+  typing `DELETE`.
 - **Old vouchers screen**: searchable by customer / vehicle / invoice number.
   App vouchers moved here after a confirmed Tally import are kept too, so
   the full history stays in one place.
