@@ -17,23 +17,33 @@ in seconds and export them as XML for import into **Tally Prime**
   to today's price, editable) → **amount** (auto-filled as quantity × price,
   editable). Editing the amount derives the quantity instead (the
   "₹20,000 ka diesel" case) — last-edited side wins, live in both directions.
-- **Two independent invoice series**, matching the Tally voucher types:
+- **Three independent invoice series**, matching the Tally voucher types
+  (all verified against the client's real daybook):
   - Diesel → `HSD CREDIT`, item `High Speed Diesel`, ledger `SALE (HSD)`,
     plain numbers (`1639 → 1640`)
   - Petrol → `MS CREDIT`, item `Motor Spirit`, ledger `SALE (MS)`,
     prefixed numbers (`MS319 → MS320`)
+  - XtraGreen → `XG CREDIT`, item `XtraGreen Diesel`, ledger **`SALE (HSD)`**
+    (XG books to the HSD sales ledger in Tally), prefixed numbers (`XG6 → XG7`)
 - **Fully automatic invoice numbers** — displayed but **not editable** by the
   employee (Tally numbering is "Automatic (Manual Override)", so the app
   supplies `<VOUCHERNUMBER>`). Numbers already present in the pending queue
   or in old vouchers are skipped automatically. The owner can correct the
   counters in Settings.
-- **Import Tally daybook XML** (home screen → "⬆ Import Tally daybook XML"):
-  upload a DayBook export (UTF-16 or UTF-8; Tally artifacts like
-  `&#4; Not Applicable` are handled) and the app loads all `HSD CREDIT` /
-  `MS CREDIT` vouchers into **Old vouchers**, syncs both invoice counters to
-  the highest number seen, adds any unknown party ledgers, and picks up the
-  latest rates. Cancelled and non-sales vouchers are skipped; re-importing
-  the same file is a no-op (duplicates detected per series + number).
+- **Import Tally XML** (home screen → "⬆ Import Tally XML (DayBook / Master)",
+  auto-detects which file was given):
+  - **DayBook export** (UTF-16 or UTF-8; Tally artifacts like
+    `&#4; Not Applicable` are handled): loads all `HSD CREDIT` / `MS CREDIT` /
+    `XG CREDIT` vouchers into **Old vouchers**, syncs all three invoice
+    counters to the highest number seen, adds any unknown party ledgers, and
+    picks up the latest rates. Cancelled and other voucher types (cash,
+    receipts…) are skipped; re-importing the same file is a no-op (duplicates
+    detected per series + number). Uses a plain-text scan rather than a DOM
+    parser, so a full-year ~100 MB daybook imports in about a second.
+  - **Masters (ledgers) export**: sets the billable customer list to exactly
+    the ledgers under the **Sundry Debtors** group (subgroups such as
+    RCP COMPANIES included), keeping any party still used by vouchers in the
+    app. Data never leaves the phone — it is stored in the browser only.
 - **Old vouchers screen**: searchable by customer / vehicle / invoice number.
   App vouchers moved here after a confirmed Tally import are kept too, so
   the full history stays in one place.

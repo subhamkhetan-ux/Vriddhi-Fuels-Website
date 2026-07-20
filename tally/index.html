@@ -16,6 +16,7 @@
   --orange:#E46713; --navy:#111E3E;
   --amber:#b45309; --amber-tint:#fef3e2; --amber-line:#f5d9ae;
   --green:#0f766e; --green-tint:#e6f5f2; --green-line:#b7e0d9;
+  --blue:#1d4ed8; --blue-tint:#e8f0fe; --blue-line:#c3d7f7;
   --bg:#f5f6f8; --card:#ffffff; --line:#e7e9ee;
   --txt:#1c2430; --txt-2:#5b6573; --txt-3:#8b94a3;
   --red:#c0392b; --red-tint:#fdecea;
@@ -29,6 +30,7 @@
     --txt:#eef2f8; --txt-2:#a7b1c4; --txt-3:#7b8499;
     --amber-tint:#2a2010; --amber-line:#4a3a1a; --amber:#f5a94a;
     --green-tint:#0f2622; --green-line:#1e4a42; --green:#3fd29a;
+    --blue-tint:#101c33; --blue-line:#22396b; --blue:#7aa2f7;
     --red:#ff6b5b; --red-tint:#33130f;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.28);
   }
@@ -52,14 +54,17 @@ header.top h1{font-size:17px;margin:0;flex:1;font-weight:650;letter-spacing:.2px
 .series-card:active{transform:scale(.985)}
 .series-card.hsd{background:var(--amber-tint);border-color:var(--amber-line)}
 .series-card.ms{background:var(--green-tint);border-color:var(--green-line)}
+.series-card.xg{background:var(--blue-tint);border-color:var(--blue-line)}
 .series-card .sname{font-size:19px;font-weight:800;display:flex;align-items:center;gap:8px}
 .series-card.hsd .sname{color:var(--amber)}
 .series-card.ms .sname{color:var(--green)}
+.series-card.xg .sname{color:var(--blue)}
 .series-card .smeta{display:flex;gap:18px;margin-top:8px;font-size:14px;color:var(--txt-2)}
 .series-card .smeta b{display:block;font-size:17px;color:var(--txt);font-variant-numeric:tabular-nums}
 .series-card .cta{margin-top:12px;font-weight:700;font-size:15px}
 .series-card.hsd .cta{color:var(--amber)}
 .series-card.ms .cta{color:var(--green)}
+.series-card.xg .cta{color:var(--blue)}
 .sec-title{margin:22px 2px 0;font-size:13px;font-weight:700;color:var(--txt-3);
   text-transform:uppercase;letter-spacing:.08em}
 .vlist{margin-top:8px}
@@ -69,6 +74,7 @@ header.top h1{font-size:17px;margin:0;flex:1;font-weight:650;letter-spacing:.2px
 .vbadge{font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;white-space:nowrap}
 .vbadge.hsd{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber-line)}
 .vbadge.ms{background:var(--green-tint);color:var(--green);border:1px solid var(--green-line)}
+.vbadge.xg{background:var(--blue-tint);color:var(--blue);border:1px solid var(--blue-line)}
 .vmain{flex:1;min-width:0}
 .vparty{font-weight:650;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vsub{font-size:13px;color:var(--txt-2);font-variant-numeric:tabular-nums;
@@ -167,6 +173,15 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
     <div class="cta">+ New petrol voucher</div>
   </button>
 
+  <button class="series-card xg" id="cardXG">
+    <div class="sname">⛽ XtraGreen — XG CREDIT</div>
+    <div class="smeta">
+      <div>Next invoice no.<b id="xgNext">—</b></div>
+      <div>Today's price ₹/LTR<b id="xgRate">—</b></div>
+    </div>
+    <div class="cta">+ New XtraGreen voucher</div>
+  </button>
+
   <div class="sec-title">Pending vouchers</div>
   <div class="vlist" id="pendingList"></div>
   <div class="totalbar" id="pendingTotal" style="display:none">
@@ -184,9 +199,9 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
 
   <div class="sec-title">Records</div>
   <button class="btn ghost" id="btnHistory">🕘 Old vouchers (<span id="histCount">0</span>)</button>
-  <button class="btn ghost" id="btnImportDaybook">⬆ Import Tally daybook XML</button>
+  <button class="btn ghost" id="btnImportDaybook">⬆ Import Tally XML (DayBook / Master)</button>
   <input type="file" id="fileDaybook" accept=".xml,text/xml,application/xml" style="display:none">
-  <div class="hint" style="text-align:center">Upload a DayBook export to load old vouchers, sync invoice numbers, parties and prices.</div>
+  <div class="hint" style="text-align:center">Upload a DayBook export to load old vouchers and sync invoice numbers &amp; prices, or a Master (ledgers) export to load the customer list (Sundry Debtors).</div>
 </section>
 
 <!-- ======================= NEW VOUCHER ======================= -->
@@ -211,8 +226,9 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
     <div class="field" style="margin-top:0">
       <label>Product</label>
       <div class="seg">
-        <button id="prodHsd">Diesel (HSD)</button>
-        <button id="prodMs">Petrol (MS)</button>
+        <button id="prodHsd">Diesel</button>
+        <button id="prodMs">Petrol</button>
+        <button id="prodXg">XtraGreen</button>
       </div>
     </div>
     <div class="frow">
@@ -293,6 +309,18 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
     </div>
   </div>
 
+  <div class="card">
+    <h2 class="cardtitle">XtraGreen series (XG CREDIT)</h2>
+    <div class="field">
+      <label>Last invoice number used</label>
+      <input type="text" id="setXgLast">
+    </div>
+    <div class="field">
+      <label>Today's price (₹/LTR)</label>
+      <input type="number" id="setXgRate" inputmode="decimal" step="0.01">
+    </div>
+  </div>
+
   <div class="card settings-parties">
     <h2 class="cardtitle">Parties</h2>
     <div class="hint" style="margin-top:0">Names must match the Tally ledger exactly (case, spacing, “&amp;”).</div>
@@ -313,6 +341,9 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
       <tr><td>MS voucher type</td><td>MS CREDIT</td></tr>
       <tr><td>MS stock item</td><td>Motor Spirit</td></tr>
       <tr><td>MS sales ledger</td><td>SALE (MS)</td></tr>
+      <tr><td>XG voucher type</td><td>XG CREDIT</td></tr>
+      <tr><td>XG stock item</td><td>XtraGreen Diesel</td></tr>
+      <tr><td>XG sales ledger</td><td>SALE (HSD)</td></tr>
       <tr><td>Round-off ledger</td><td>R/off</td></tr>
       <tr><td>Unit</td><td>LTR</td></tr>
       <tr><td>Godown</td><td>Main Location</td></tr>
@@ -339,9 +370,12 @@ var TALLY = {
   batch: "Primary Batch",
   unit: "LTR",
   series: {
-    hsd: { key:"hsd", label:"Diesel",  vchType:"HSD CREDIT", item:"High Speed Diesel", salesLedger:"SALE (HSD)", defLast:"1639",  defRate:100.74 },
-    ms:  { key:"ms",  label:"Petrol",  vchType:"MS CREDIT",  item:"Motor Spirit",      salesLedger:"SALE (MS)",  defLast:"MS319", defRate:109.01 }
+    hsd: { key:"hsd", label:"Diesel",    vchType:"HSD CREDIT", item:"High Speed Diesel", salesLedger:"SALE (HSD)", defLast:"1639",  defRate:100.74 },
+    ms:  { key:"ms",  label:"Petrol",    vchType:"MS CREDIT",  item:"Motor Spirit",      salesLedger:"SALE (MS)",  defLast:"MS319", defRate:109.01 },
+    // XG books to SALE (HSD) — verified from the client's real daybook
+    xg:  { key:"xg",  label:"XtraGreen", vchType:"XG CREDIT",  item:"XtraGreen Diesel",  salesLedger:"SALE (HSD)", defLast:"XG6",   defRate:106.34 }
   },
+  seriesKeys: ["hsd","ms","xg"],
   defaultParties: [
     "Animesh Builders",
     "Bhatia Energy and Minerals (Sundargarh) Private Limited",
@@ -361,9 +395,35 @@ var TALLY = {
 };
 
 function seriesForVchType(vt){
-  if (vt === TALLY.series.hsd.vchType) return "hsd";
-  if (vt === TALLY.series.ms.vchType) return "ms";
+  for (var i = 0; i < TALLY.seriesKeys.length; i++)
+    if (TALLY.series[TALLY.seriesKeys[i]].vchType === vt) return TALLY.seriesKeys[i];
   return null;
+}
+
+// decode XML entities in extracted text (regex parser doesn't use a DOM)
+function decodeEnt(s){
+  return String(s)
+    .replace(/&#(\d+);/g, function(m, d){
+      var n = parseInt(d, 10);
+      return (n === 9 || n === 10 || n === 13 || n >= 32) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, function(m, h){
+      var n = parseInt(h, 16);
+      return (n === 9 || n === 10 || n === 13 || n >= 32) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+// first <TAG ...>text</TAG> inside a block of raw XML text
+function xmlTag(block, tag){
+  var m = block.match(new RegExp("<" + tag + "(?:\\s[^>]*)?>([\\s\\S]*?)</" + tag + ">"));
+  return m ? decodeEnt(m[1].trim()) : "";
+}
+function xmlAttr(openTag, name){
+  var m = openTag.match(new RegExp('\\s' + name + '="([^"]*)"'));
+  return m ? decodeEnt(m[1]) : "";
 }
 
 function r2(n){ return Math.round((n + Number.EPSILON) * 100) / 100; }
@@ -523,11 +583,79 @@ function buildEnvelope(company, vouchers){
   return x.join("\n");
 }
 
+// ---- Tally file parsers (plain-text scan; handles 100MB daybooks that
+// would exhaust memory under DOMParser, and Tally's invalid &#4; artifacts) ----
+
+// DayBook: extract HSD/MS/XG CREDIT vouchers.
+function parseDaybookText(text){
+  var out = [], skipped = 0;
+  var re = /<VOUCHER(\s[^>]*)?>([\s\S]*?)<\/VOUCHER>/g;
+  var m;
+  while ((m = re.exec(text))){
+    var open = m[1] || "", body = m[2];
+    var vt = xmlAttr(open, "VCHTYPE") || xmlTag(body, "VOUCHERTYPENAME");
+    var sk = seriesForVchType(vt);
+    if (!sk){ skipped++; continue; }
+    if (/<ISCANCELLED(?:\s[^>]*)?>\s*Yes\s*</.test(body)){ skipped++; continue; }
+    var number = xmlTag(body, "VOUCHERNUMBER");
+    var dateISO = tallyToDate(xmlTag(body, "DATE"));
+    var party = xmlTag(body, "PARTYLEDGERNAME") || xmlTag(body, "PARTYNAME");
+    if (!number || !dateISO || !party){ skipped++; continue; }
+    var vehicle = xmlTag(body, "BASICSHIPVEHICLENO");
+    var qty = 0, rate = 0, amount = 0;
+    var i0 = body.indexOf("<ALLINVENTORYENTRIES.LIST>");
+    if (i0 !== -1){
+      var i1 = body.indexOf("</ALLINVENTORYENTRIES.LIST>", i0);
+      var inv = body.slice(i0, i1 === -1 ? body.length : i1);
+      qty = Math.abs(parseFloat(xmlTag(inv, "BILLEDQTY") || xmlTag(inv, "ACTUALQTY")) || 0);
+      rate = parseFloat(xmlTag(inv, "RATE")) || 0;
+      amount = Math.abs(parseFloat(xmlTag(inv, "AMOUNT")) || 0);
+    }
+    out.push({ seriesKey: sk, number: number, dateISO: dateISO, party: party,
+      vehicle: vehicle, qty: qty, rate: rate, amount: amount, source: "tally" });
+  }
+  return { vouchers: out, skipped: skipped };
+}
+
+// Master (ledgers): return ledger names under the Sundry Debtors group
+// (including subgroups, e.g. RCP COMPANIES).
+function parseMasterText(text){
+  var groups = {}, ledgers = [];
+  var re = /<(GROUP|LEDGER)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+  var m;
+  while ((m = re.exec(text))){
+    var kind = m[1], open = m[2] || "", body = m[3];
+    var name = xmlAttr(open, "NAME") || xmlTag(body, "NAME");
+    if (!name) continue;
+    var parent = xmlTag(body, "PARENT");
+    if (kind === "GROUP") groups[name] = parent;
+    else ledgers.push({ name: name, parent: parent });
+  }
+  function underSundryDebtors(g){
+    var seen = {};
+    while (g && !seen[g]){
+      if (g === "Sundry Debtors") return true;
+      seen[g] = 1;
+      g = groups[g] || "";
+    }
+    return false;
+  }
+  return {
+    groupCount: Object.keys(groups).length,
+    ledgerCount: ledgers.length,
+    debtors: ledgers.filter(function(l){ return underSundryDebtors(l.parent); })
+      .map(function(l){ return l.name; })
+      .sort(function(a,b){ return a.localeCompare(b); })
+  };
+}
+
 if (typeof module !== "undefined" && module.exports){
   module.exports = { TALLY: TALLY, r2: r2, r3: r3, trunc3: trunc3, nextNumber: nextNumber,
     numPart: numPart, escXml: escXml, computeVoucher: computeVoucher, fmtQty: fmtQty,
     fmtAmt: fmtAmt, dateToTally: dateToTally, tallyToDate: tallyToDate,
     sanitizeTallyXml: sanitizeTallyXml, seriesForVchType: seriesForVchType,
+    decodeEnt: decodeEnt, xmlTag: xmlTag, xmlAttr: xmlAttr,
+    parseDaybookText: parseDaybookText, parseMasterText: parseMasterText,
     buildVoucherXml: buildVoucherXml, buildEnvelope: buildEnvelope };
 }
 </script>
@@ -544,7 +672,8 @@ function defaultState(){
     company: TALLY.defaultCompany,
     series: {
       hsd: { last: TALLY.series.hsd.defLast, rate: TALLY.series.hsd.defRate },
-      ms:  { last: TALLY.series.ms.defLast,  rate: TALLY.series.ms.defRate }
+      ms:  { last: TALLY.series.ms.defLast,  rate: TALLY.series.ms.defRate },
+      xg:  { last: TALLY.series.xg.defLast,  rate: TALLY.series.xg.defRate }
     },
     parties: TALLY.defaultParties.slice(),
     queue: [],   // {id, seriesKey, number, dateISO, party, vehicle, rate, qty, itemAmt, partyAmt, roff, exportedAt|null}
@@ -557,6 +686,7 @@ try {
   state = JSON.parse(localStorage.getItem(LS_KEY)) || defaultState();
   if (!state.series || !state.queue || !state.parties) state = defaultState();
   if (!state.history) state.history = [];
+  if (!state.series.xg) state.series.xg = { last: TALLY.series.xg.defLast, rate: TALLY.series.xg.defRate };
 } catch(e){ state = defaultState(); }
 
 function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
@@ -615,10 +745,10 @@ function show(screen){
 
 /* ---------- home ---------- */
 function renderHome(){
-  $("hsdNext").textContent = freeNumber("hsd");
-  $("msNext").textContent  = freeNumber("ms");
-  $("hsdRate").textContent = fmtAmt(state.series.hsd.rate);
-  $("msRate").textContent  = fmtAmt(state.series.ms.rate);
+  TALLY.seriesKeys.forEach(function(sk){
+    $(sk + "Next").textContent = freeNumber(sk);
+    $(sk + "Rate").textContent = fmtAmt(state.series[sk].rate);
+  });
   $("histCount").textContent = state.history.length;
 
   var pending  = state.queue.filter(function(v){ return !v.exportedAt; });
@@ -653,7 +783,7 @@ function renderList(el, items, exported){
     row.className = "vitem" + (exported ? " exported" : "");
     var badge = document.createElement("span");
     badge.className = "vbadge " + v.seriesKey;
-    badge.textContent = v.seriesKey === "hsd" ? "HSD" : "MS";
+    badge.textContent = v.seriesKey.toUpperCase();
     var main = document.createElement("div");
     main.className = "vmain";
     var p = document.createElement("div");
@@ -730,17 +860,34 @@ $("btnClearExported").onclick = function(){
   }
 };
 
-/* ---------- daybook import ---------- */
+/* ---------- Tally XML import (DayBook or Master, auto-detected) ---------- */
 $("btnImportDaybook").onclick = function(){ $("fileDaybook").click(); };
 
 $("fileDaybook").addEventListener("change", function(){
   var f = this.files && this.files[0];
   this.value = "";
   if (!f) return;
+  var btn = $("btnImportDaybook");
+  btn.textContent = "⏳ Reading " + f.name + "…";
+  btn.disabled = true;
   var reader = new FileReader();
   reader.onload = function(){
-    try { importDaybook(reader.result); }
-    catch(e){ alert("Could not read this file as a Tally daybook XML.\n\n" + e.message); }
+    // let the "Reading…" label paint before the heavy parse
+    setTimeout(function(){
+      try {
+        var text = decodeXmlBytes(reader.result);
+        if (/<VOUCHER[\s>]/.test(text)) importDaybookText(text);
+        else if (/<LEDGER[\s>]/.test(text)) importMasterText(text);
+        else throw new Error("No vouchers or ledgers found — export a DayBook or Masters XML from Tally.");
+      } catch(e){ alert("Could not import this file.\n\n" + e.message); }
+      btn.textContent = "⬆ Import Tally XML (DayBook / Master)";
+      btn.disabled = false;
+    }, 50);
+  };
+  reader.onerror = function(){
+    alert("Could not read the file.");
+    btn.textContent = "⬆ Import Tally XML (DayBook / Master)";
+    btn.disabled = false;
   };
   reader.readAsArrayBuffer(f);
 });
@@ -752,66 +899,35 @@ function decodeXmlBytes(buf){
   return new TextDecoder("utf-8").decode(b);
 }
 
-function childText(el, tag){
-  for (var c = el.firstElementChild; c; c = c.nextElementSibling)
-    if (c.tagName === tag) return (c.textContent || "").trim();
-  return "";
-}
-
-function importDaybook(buf){
-  var text = sanitizeTallyXml(decodeXmlBytes(buf));
-  var doc = new DOMParser().parseFromString(text, "text/xml");
-  if (doc.getElementsByTagName("parsererror").length)
-    throw new Error("The XML could not be parsed. Export the DayBook from Tally again and retry.");
+function importDaybookText(text){
+  var parsed = parseDaybookText(text);
 
   var existing = {};
   state.history.forEach(function(v){ existing[v.seriesKey + "|" + v.number] = 1; });
 
-  var nodes = doc.getElementsByTagName("VOUCHER");
-  var added = { hsd: 0, ms: 0 }, skipped = 0, dupes = 0;
+  var added = { hsd: 0, ms: 0, xg: 0 }, dupes = 0;
   var newParties = [];
   var latest = {}; // per series: voucher with max (dateISO, numPart) → today's price
 
-  for (var i = 0; i < nodes.length; i++){
-    var n = nodes[i];
-    var vt = n.getAttribute("VCHTYPE") || childText(n, "VOUCHERTYPENAME");
-    var sk = seriesForVchType(vt);
-    if (!sk){ skipped++; continue; }
-    if (childText(n, "ISCANCELLED") === "Yes"){ skipped++; continue; }
-    var number = childText(n, "VOUCHERNUMBER");
-    var dateISO = tallyToDate(childText(n, "DATE"));
-    var party = childText(n, "PARTYLEDGERNAME") || childText(n, "PARTYNAME");
-    if (!number || !dateISO || !party){ skipped++; continue; }
-    if (existing[sk + "|" + number]){ dupes++; continue; }
-
-    var vehicle = childText(n, "BASICSHIPVEHICLENO");
-    var qty = 0, rate = 0, amount = 0;
-    var inv = n.getElementsByTagName("ALLINVENTORYENTRIES.LIST")[0];
-    if (inv){
-      qty = Math.abs(parseFloat(childText(inv, "BILLEDQTY") || childText(inv, "ACTUALQTY")) || 0);
-      rate = parseFloat(childText(inv, "RATE")) || 0;
-      amount = Math.abs(parseFloat(childText(inv, "AMOUNT")) || 0);
-    }
-
-    var rec = { seriesKey: sk, number: number, dateISO: dateISO, party: party,
-      vehicle: vehicle, qty: qty, rate: rate, amount: amount, source: "tally" };
+  parsed.vouchers.forEach(function(rec){
+    if (existing[rec.seriesKey + "|" + rec.number]){ dupes++; return; }
     state.history.push(rec);
-    existing[sk + "|" + number] = 1;
-    added[sk]++;
-
-    if (state.parties.indexOf(party) === -1 && newParties.indexOf(party) === -1) newParties.push(party);
-
-    var cur = latest[sk];
+    existing[rec.seriesKey + "|" + rec.number] = 1;
+    added[rec.seriesKey]++;
+    if (state.parties.indexOf(rec.party) === -1 && newParties.indexOf(rec.party) === -1)
+      newParties.push(rec.party);
+    var cur = latest[rec.seriesKey];
     if (!cur || rec.dateISO > cur.dateISO ||
         (rec.dateISO === cur.dateISO && numPart(rec.number) > numPart(cur.number)))
-      latest[sk] = rec;
-  }
+      latest[rec.seriesKey] = rec;
+  });
 
-  if (!added.hsd && !added.ms && !dupes)
-    throw new Error("No HSD CREDIT / MS CREDIT vouchers were found in this file.");
+  var totalAdded = added.hsd + added.ms + added.xg;
+  if (!totalAdded && !dupes)
+    throw new Error("No HSD CREDIT / MS CREDIT / XG CREDIT vouchers were found in this file.");
 
   // sync counters: highest number seen per series wins
-  ["hsd","ms"].forEach(function(sk){
+  TALLY.seriesKeys.forEach(function(sk){
     var best = state.series[sk].last;
     state.history.forEach(function(v){
       if (v.seriesKey === sk && numPart(v.number) > numPart(best)) best = v.number;
@@ -831,13 +947,38 @@ function importDaybook(buf){
 
   save(); renderHome();
   alert("Daybook imported ✓\n\n"
-    + "Vouchers added: " + (added.hsd + added.ms) + " (" + added.hsd + " HSD, " + added.ms + " MS)\n"
+    + "Vouchers added: " + totalAdded + " (" + added.hsd + " HSD, " + added.ms + " MS, " + added.xg + " XG)\n"
     + (dupes ? "Already present (skipped): " + dupes + "\n" : "")
-    + (skipped ? "Other voucher types skipped: " + skipped + "\n" : "")
+    + (parsed.skipped ? "Other/cancelled vouchers skipped: " + parsed.skipped + "\n" : "")
     + (newParties.length ? "New parties added: " + newParties.length + "\n" : "")
-    + "\nNext invoice numbers: " + freeNumber("hsd") + " / " + freeNumber("ms")
-    + "\nToday's prices: ₹" + fmtAmt(state.series.hsd.rate) + " HSD / ₹" + fmtAmt(state.series.ms.rate) + " MS"
-    + "\n(check prices in Settings — imported from the latest vouchers)");
+    + "\nNext invoice numbers: " + freeNumber("hsd") + " / " + freeNumber("ms") + " / " + freeNumber("xg")
+    + "\nToday's prices: ₹" + fmtAmt(state.series.hsd.rate) + " HSD / ₹"
+    + fmtAmt(state.series.ms.rate) + " MS / ₹" + fmtAmt(state.series.xg.rate) + " XG"
+    + "\n(check prices in Settings — taken from the latest vouchers)");
+}
+
+function importMasterText(text){
+  var parsed = parseMasterText(text);
+  if (!parsed.debtors.length)
+    throw new Error("No ledgers under the Sundry Debtors group were found in this file.");
+
+  // The billable customer list becomes the master's Sundry Debtors.
+  // Parties used by vouchers still in the app are kept so those vouchers stay valid.
+  var keep = {};
+  parsed.debtors.forEach(function(p){ keep[p] = 1; });
+  state.queue.forEach(function(v){ keep[v.party] = 1; });
+
+  var before = state.parties.slice();
+  state.parties = Object.keys(keep).sort(function(a,b){ return a.localeCompare(b); });
+  var addedN = state.parties.filter(function(p){ return before.indexOf(p) === -1; }).length;
+  var removedN = before.filter(function(p){ return state.parties.indexOf(p) === -1; }).length;
+
+  save(); renderHome();
+  alert("Master imported ✓\n\n"
+    + "Customer list set to Sundry Debtors: " + parsed.debtors.length + " customers\n"
+    + "(from " + parsed.ledgerCount + " ledgers / " + parsed.groupCount + " groups in the file)\n"
+    + (addedN ? "Added: " + addedN + "\n" : "")
+    + (removedN ? "Removed (not Sundry Debtors): " + removedN + "\n" : ""));
 }
 
 /* ---------- history ---------- */
@@ -864,7 +1005,7 @@ function renderHistory(){
     row.className = "vitem";
     var badge = document.createElement("span");
     badge.className = "vbadge " + v.seriesKey;
-    badge.textContent = v.seriesKey === "hsd" ? "HSD" : "MS";
+    badge.textContent = v.seriesKey.toUpperCase();
     var main = document.createElement("div");
     main.className = "vmain";
     var p = document.createElement("div");
@@ -909,11 +1050,13 @@ function openNew(seriesKey){
 
 $("cardHSD").onclick = function(){ openNew("hsd"); };
 $("cardMS").onclick  = function(){ openNew("ms"); };
+$("cardXG").onclick  = function(){ openNew("xg"); };
 
 function setProduct(seriesKey, fresh){
   draft.seriesKey = seriesKey;
   $("prodHsd").classList.toggle("on", seriesKey === "hsd");
   $("prodMs").classList.toggle("on", seriesKey === "ms");
+  $("prodXg").classList.toggle("on", seriesKey === "xg");
   $("roNumber").textContent = freeNumber(seriesKey);
   $("fPrice").value = fmtAmt(state.series[seriesKey].rate);
   if (!fresh) syncQtyAmt();
@@ -921,6 +1064,7 @@ function setProduct(seriesKey, fresh){
 }
 $("prodHsd").onclick = function(){ setProduct("hsd"); };
 $("prodMs").onclick  = function(){ setProduct("ms"); };
+$("prodXg").onclick  = function(){ setProduct("xg"); };
 
 function setParty(name){
   draft.party = name;
@@ -1055,6 +1199,8 @@ function renderSettings(){
   $("setHsdRate").value = fmtAmt(state.series.hsd.rate);
   $("setMsLast").value = state.series.ms.last;
   $("setMsRate").value = fmtAmt(state.series.ms.rate);
+  $("setXgLast").value = state.series.xg.last;
+  $("setXgRate").value = fmtAmt(state.series.xg.rate);
   var el = $("setPartyList");
   el.innerHTML = "";
   state.parties.forEach(function(p, i){
@@ -1090,18 +1236,22 @@ $("btnAddParty").onclick = function(){
 
 $("btnSaveSettings").onclick = function(){
   var company = $("setCompany").value.trim();
-  var hsdLast = $("setHsdLast").value.trim();
-  var msLast  = $("setMsLast").value.trim();
-  var hsdRate = parseFloat($("setHsdRate").value);
-  var msRate  = parseFloat($("setMsRate").value);
+  var vals = {
+    hsd: { last: $("setHsdLast").value.trim(), rate: parseFloat($("setHsdRate").value) },
+    ms:  { last: $("setMsLast").value.trim(),  rate: parseFloat($("setMsRate").value) },
+    xg:  { last: $("setXgLast").value.trim(),  rate: parseFloat($("setXgRate").value) }
+  };
   if (!company){ toast("Company name is required"); return; }
-  if (!hsdLast || !msLast){ toast("Last invoice numbers are required"); return; }
-  if (!(hsdRate > 0) || !(msRate > 0)){ toast("Prices must be positive"); return; }
+  for (var i = 0; i < TALLY.seriesKeys.length; i++){
+    var sk = TALLY.seriesKeys[i];
+    if (!vals[sk].last){ toast("Last invoice numbers are required"); return; }
+    if (!(vals[sk].rate > 0)){ toast("Prices must be positive"); return; }
+  }
   state.company = company;
-  state.series.hsd.last = hsdLast;
-  state.series.hsd.rate = r2(hsdRate);
-  state.series.ms.last = msLast;
-  state.series.ms.rate = r2(msRate);
+  TALLY.seriesKeys.forEach(function(sk){
+    state.series[sk].last = vals[sk].last;
+    state.series[sk].rate = r2(vals[sk].rate);
+  });
   save();
   toast("Settings saved");
   show("home");
