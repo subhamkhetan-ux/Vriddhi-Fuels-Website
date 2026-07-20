@@ -15,6 +15,6 @@
 // mode (no login, data stays in this browser only).
 // =====================================================================
 window.VRIDDHI_TALLY_CONFIG = {
-  SUPABASE_URL: "PASTE_YOUR_SUPABASE_PROJECT_URL_HERE",
-  SUPABASE_ANON_KEY: "PASTE_YOUR_SUPABASE_ANON_KEY_HERE",
+  SUPABASE_URL: "https://qlloauxmfenrrqvfqibp.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_GKSHRkiK9yvhAFyfcWIA4g_OPApgcjn",
 };
