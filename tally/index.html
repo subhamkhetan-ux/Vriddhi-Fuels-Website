@@ -253,9 +253,9 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
       <label>Amount (₹)</label>
       <input type="number" id="fAmt" inputmode="decimal" step="any" min="0" placeholder="0.00">
     </div>
-    <div class="chkrow">
-      <input type="checkbox" id="fRound" checked>
-      <label for="fRound" style="margin:0;font-size:15px;color:var(--txt)">Round total to whole rupee (R/off)</label>
+    <div class="field">
+      <label>Round off (₹) — optional, + or −, goes to R/off</label>
+      <input type="number" id="fRoff" inputmode="decimal" step="0.01" placeholder="e.g. 0.22 or -0.11">
     </div>
     <div class="summary" id="fSummary">
       <div class="row" id="sRoffRow" style="display:none"><span>Round-off (R/off)</span><b id="sRoff">—</b></div>
@@ -456,7 +456,9 @@ function escXml(s){
 // Amount-driven: itemAmt is the entered amount (Tally accepts qty×rate drift).
 // Derived qty is TRUNCATED to 3dp, matching Tally's own stored values
 // (verified: ₹20,000 @ 100.74 → 198.530 LTR, not 198.531).
-function computeVoucher(mode, value, rate, roundOn){
+// roffInput: user-entered round-off in ₹ (never auto-computed);
+// party total = item amount + round-off.
+function computeVoucher(mode, value, rate, roffInput){
   var qty, itemAmt;
   if (mode === "amount"){
     itemAmt = r2(value);
@@ -465,8 +467,8 @@ function computeVoucher(mode, value, rate, roundOn){
     qty = r3(value);
     itemAmt = r2(qty * rate);
   }
-  var partyAmt = roundOn ? Math.round(itemAmt) : itemAmt;
-  var roff = r2(partyAmt - itemAmt);
+  var roff = r2(roffInput || 0);
+  var partyAmt = r2(itemAmt + roff);
   return { qty: qty, itemAmt: itemAmt, partyAmt: partyAmt, roff: roff };
 }
 
@@ -1053,7 +1055,7 @@ function openNew(seriesKey){
   $("fVehicle").value = "";
   $("fQty").value = "";
   $("fAmt").value = "";
-  $("fRound").checked = true;
+  $("fRoff").value = "";
   $("fPartySearch").value = "";
   setProduct(seriesKey, true);
   setParty(null);
@@ -1072,7 +1074,7 @@ function openEdit(v){
             editId: v.id, editSeries: v.seriesKey, editNumber: v.number };
   $("fDate").value = v.dateISO;
   $("fVehicle").value = v.vehicle || "";
-  $("fRound").checked = v.partyAmt === Math.round(v.itemAmt);
+  $("fRoff").value = v.roff ? fmtAmt(v.roff) : "";
   $("fPartySearch").value = "";
   setProduct(v.seriesKey, true);
   $("fPrice").value = fmtAmt(v.rate);          // the voucher's own rate, not today's
@@ -1183,14 +1185,14 @@ function syncQtyAmt(){
 $("fQty").addEventListener("input", function(){ draft.lastEdited = "qty"; syncQtyAmt(); renderSummary(); });
 $("fAmt").addEventListener("input", function(){ draft.lastEdited = "amount"; syncQtyAmt(); renderSummary(); });
 $("fPrice").addEventListener("input", function(){ syncQtyAmt(); renderSummary(); });
-$("fRound").addEventListener("change", renderSummary);
+$("fRoff").addEventListener("input", renderSummary);
 
 function currentCalc(){
   var price = parseFloat($("fPrice").value);
   var mode = draft.lastEdited === "amount" ? "amount" : "qty";
   var value = parseFloat(mode === "amount" ? $("fAmt").value : $("fQty").value);
   if (!(price > 0) || !(value > 0)) return null;
-  return computeVoucher(mode, value, price, $("fRound").checked);
+  return computeVoucher(mode, value, price, parseFloat($("fRoff").value) || 0);
 }
 
 function renderSummary(){
@@ -1217,6 +1219,8 @@ $("btnSave").onclick = function(){
   if (!(price > 0)){ toast("Enter a valid price"); $("fPrice").focus(); return; }
   var c = currentCalc();
   if (!c){ toast("Enter the quantity or the amount"); $("fQty").focus(); return; }
+  if (Math.abs(c.roff) >= 1 &&
+      !confirm("Round off of ₹" + fmtAmt(c.roff) + " is unusually large.\nSave anyway?")) return;
   var number = displayNumber(draft.seriesKey);
   var vehicle = $("fVehicle").value.trim().toUpperCase();
 

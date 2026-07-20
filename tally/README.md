@@ -47,8 +47,10 @@ in seconds and export them as XML for import into **Tally Prime**
 - **Old vouchers screen**: searchable by customer / vehicle / invoice number.
   App vouchers moved here after a confirmed Tally import are kept too, so
   the full history stays in one place.
-- **Round-off** to the whole rupee (default ON), posting the difference to the
-  `R/off` ledger with the correct debit/credit sign; omitted when zero.
+- **Round-off is user-entered only** (never automatic): an optional
+  "Round off (₹)" field (+ or −) posts to the `R/off` ledger with the correct
+  debit/credit sign; party total = amount + round-off. Omitted from the XML
+  when zero; values ≥ ₹1 ask for confirmation (typo guard).
 - **Vehicle number** is exported as `<BASICSHIPVEHICLENO>` plus a
   `Vehicle: …` narration, and shown in lists/search.
 - **Saved vouchers stay editable**: tap any pending voucher (or its ✎) to
