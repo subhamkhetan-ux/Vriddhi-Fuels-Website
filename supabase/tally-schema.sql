@@ -193,8 +193,9 @@ begin
       (p_series, num, p_date, p_party, coalesce(p_vehicle,''), p_qty, p_rate,
        p_item_amt, p_party_amt, coalesce(p_roff,0), auth.uid())
     returning id into rid;
-    -- remember today's price from the latest entry
-    update tally_series set rate = p_rate where key = p_series;
+    -- today's price is set only via Settings / daybook import, never as a
+    -- side effect of saving a voucher (a customer's own rate must not move
+    -- the shared default price)
   else
     select * into v from tally_vouchers
       where id = p_id and status in ('pending','exported') for update;

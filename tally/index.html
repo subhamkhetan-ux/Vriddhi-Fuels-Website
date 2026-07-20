@@ -243,8 +243,9 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
       <input type="number" id="fQty" inputmode="decimal" step="any" min="0" placeholder="0.000">
     </div>
     <div class="field">
-      <label>Price (₹ per LTR — today's price)</label>
+      <label>Price (₹ per LTR)</label>
       <input type="number" id="fPrice" inputmode="decimal" step="0.01" min="0">
+      <div class="hint" id="priceHint"></div>
     </div>
     <div class="field bignum">
       <label>Amount (₹)</label>
@@ -291,6 +292,7 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
     <div class="field">
       <label>Today's price (₹/LTR)</label>
       <input type="number" id="setHsdRate" inputmode="decimal" step="0.01">
+      <div class="hint">This stays the price on the following days too, until you change it. Saving vouchers never changes it — even if a voucher's rate is edited.</div>
     </div>
   </div>
 
@@ -797,8 +799,10 @@ var LocalBackend = {
     });
     // series.last stays a baseline (set by import/Settings); numbers in the
     // queue and old vouchers count as taken, so freeNumber() advances past
-    // them and reuses a number if its voucher is deleted or changes series
-    state.series[p.seriesKey].rate = p.rate;
+    // them and reuses a number if its voucher is deleted or changes series.
+    // NOTE: today's price is NOT changed here — it's set only in Settings
+    // (and seeded by daybook import); a per-voucher rate (e.g. a customer
+    // discount) must never move the shared default price.
     if (state.parties.indexOf(p.party) === -1){ state.parties.push(p.party); state.parties.sort(cmp); }
     this._save();
     return Promise.resolve({ number: num, wasExported: false });
@@ -1384,8 +1388,18 @@ function setProduct(seriesKey, fresh){
   $("prodXg").classList.toggle("on", seriesKey === "xg");
   $("roNumber").textContent = displayNumber(seriesKey);
   $("fPrice").value = fmtAmt(state.series[seriesKey].rate);
+  updatePriceHint();
   if (!fresh) syncQtyAmt();
   renderSummary();
+}
+
+function updatePriceHint(){
+  var h = $("priceHint");
+  if (draft.editId){
+    h.textContent = "This voucher's saved rate — edit if needed.";
+  } else {
+    h.textContent = "Today's price (from Settings; carries forward until changed). Editable per voucher — changing it here does not change the day's price.";
+  }
 }
 $("prodHsd").onclick = function(){ setProduct("hsd"); };
 $("prodMs").onclick  = function(){ setProduct("ms"); };

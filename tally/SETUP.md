@@ -96,6 +96,11 @@ This gives all employees one live shared dataset with instant sync.
    calculated. The price is preset to today's price; both stay editable.
 5. **Round off** only if needed: type the value yourself (e.g. `0.22` or
    `-0.11`). Nothing is rounded automatically.
+
+> **Prices.** The price prefilled here is today's price for that product,
+> set in **Settings** (see below). It is editable on the voucher for a
+> one-off rate, and changing it here **never changes that day's price** for
+> other vouchers.
 6. **Save.** The invoice number is automatic — every employee's phone shows
    the voucher instantly, and two employees can never get the same number.
 7. Mistake? Tap the voucher in the day list to **edit** it (it keeps its
@@ -126,6 +131,7 @@ This gives all employees one live shared dataset with instant sync.
 | Voucher import into Tally rejects/skips rows | Party/ledger name doesn't exist in Tally masters. Names must match EXACTLY (case, spacing, `&`). Create the ledger in Tally first. |
 | New customer walks in | Best: create the ledger in Tally first, then re-import Master.xml (or add the party in the app with the exact same spelling). |
 | Vouchers were entered directly in Tally | Export a fresh DayBook and import it in the app (duplicates are skipped automatically), or correct "Last invoice number" in Settings. |
-| Daily price change | It follows the latest saved voucher automatically; you can also set it in Settings → "Today's price". |
+| Change today's price | **Settings → the product's "Today's price"** → Save. It stays that price on the following days too, until you change it again. Saving vouchers never changes it, even if a voucher's own rate is edited. |
+| One-off different rate for a voucher | Just edit the Price field on that voucher. It affects only that voucher — the day's price stays as set in Settings. |
 | Employee left the company | Supabase → Authentication → Users → delete or ban the user. |
 | Imported the same day's XML into Tally twice | Duplicate vouchers in Tally — delete one set in Tally (Day Book → select voucher → Alt+D). The app deliberately allows repeated exports; managing repeats in Tally is the operator's job. |
