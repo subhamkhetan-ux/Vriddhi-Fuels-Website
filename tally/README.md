@@ -6,8 +6,36 @@ in seconds and export them as XML for import into **Tally Prime**
 
 > This is a **third, separate app** in this repo — independent of the Master
 > Ledger at `/index.html` and the Indent Management PWA at `/app/`. It lives
-> entirely under `/tally/`, is fully static (no build step, no backend), and
-> stores everything in the browser's localStorage.
+> entirely under `/tally/`, is fully static, and has two modes:
+>
+> - **Multi-employee (cloud) mode** — the intended production setup. A
+>   dedicated Supabase project (separate from the indent app's) holds one
+>   shared live dataset; every employee signs in with a username+password,
+>   sees the same pending vouchers/customers/prices instantly (realtime),
+>   and invoice numbers are allocated **on the server inside a lock**, so
+>   two employees saving at the same moment can never get the same number.
+> - **Single-device (local) mode** — if `config.js` is left with its
+>   placeholders, the app runs exactly as before: no login, everything in
+>   that browser's localStorage. Fine for one shared counter device.
+
+## Multi-employee setup (one time)
+
+1. Create a **new** Supabase project (free tier) — do NOT reuse the indent
+   app's project.
+2. In its **SQL Editor**, run [`../supabase/tally-schema.sql`](../supabase/tally-schema.sql)
+   (safe to re-run; seeds series counters/prices verified from the daybook).
+3. **Authentication → Users → Add user** for each employee:
+   email `<username>@vriddhi.local` (e.g. `ramesh@vriddhi.local`), a 6+ char
+   password, tick *Auto Confirm User*. Employees sign in with just the
+   username + password.
+4. Paste the project's **URL** and **anon/publishable key**
+   (Project Settings → API) into [`config.js`](./config.js) and deploy.
+5. On each phone: open `/tally/`, sign in, Add to Home Screen.
+
+Every signed-in employee has equal rights (create/edit/export/import), per
+the owner's decision. All writes go through server-side functions with
+sign-in checks + Row Level Security; the anon key alone can read/write
+nothing.
 
 ## What it does
 

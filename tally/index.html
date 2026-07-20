@@ -332,6 +332,12 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
     <button class="btn ghost" id="btnAddParty">+ Add party</button>
   </div>
 
+  <div class="card" id="cloudCard" style="display:none">
+    <h2 class="cardtitle">Account</h2>
+    <div class="hint" style="margin-top:0" id="cloudUser"></div>
+    <button class="btn ghost" id="btnSignOut">Sign out</button>
+  </div>
+
   <div class="card">
     <h2 class="cardtitle">Fixed Tally names (read-only)</h2>
     <table class="consts">
@@ -355,9 +361,29 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
   <button class="btn danger" id="btnResetApp">Reset app data…</button>
 </section>
 
+<!-- ======================= LOGIN (cloud mode) ======================= -->
+<section class="screen" id="scrLogin">
+  <div class="card" style="margin-top:40px">
+    <h2 class="cardtitle">Vriddhi Fuels — Tally Vouchers</h2>
+    <div class="hint" style="margin-top:0">Sign in with the username and password given to you.</div>
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="loginUser" autocomplete="username" autocapitalize="none" autocorrect="off">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="loginPass" autocomplete="current-password">
+    </div>
+    <div class="warn" id="loginErr"></div>
+    <button class="btn primary" id="btnLogin">Sign in</button>
+  </div>
+</section>
+
 </div>
 
 <div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
 
 <!-- ============ Pure logic (no DOM) — also unit-testable in Node ============ -->
 <script>
@@ -662,10 +688,24 @@ if (typeof module !== "undefined" && module.exports){
 }
 </script>
 
-<!-- ============ App (DOM, state, persistence) ============ -->
+<!-- ============ App (DOM, state, backends) ============ -->
 <script>
 "use strict";
 (function(){
+
+var $ = function(id){ return document.getElementById(id); };
+
+/* ================= mode & config =================
+   With Supabase configured in config.js the app runs in CLOUD mode:
+   every employee signs in and all devices share one live dataset
+   (vouchers, parties, counters, prices) with instant realtime sync and
+   server-side invoice-number allocation. Without config it runs in
+   LOCAL mode: single-device, everything in localStorage (no login). */
+var CFG = window.VRIDDHI_TALLY_CONFIG || {};
+var CLOUD = /^https:\/\//.test(CFG.SUPABASE_URL || "")
+  && String(CFG.SUPABASE_URL).indexOf("PASTE") === -1
+  && !!CFG.SUPABASE_ANON_KEY
+  && String(CFG.SUPABASE_ANON_KEY).indexOf("PASTE") === -1;
 
 var LS_KEY = "vf_tally_v1";
 
@@ -683,17 +723,14 @@ function defaultState(){
   };
 }
 
-var state;
-try {
-  state = JSON.parse(localStorage.getItem(LS_KEY)) || defaultState();
-  if (!state.series || !state.queue || !state.parties) state = defaultState();
-  if (!state.history) state.history = [];
-  if (!state.series.xg) state.series.xg = { last: TALLY.series.xg.defLast, rate: TALLY.series.xg.defRate };
-} catch(e){ state = defaultState(); }
+var state = null;
+var current = "home";
 
-function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
-
-var $ = function(id){ return document.getElementById(id); };
+function cmp(a, b){ return a.localeCompare(b); }
+function histSort(a, b){
+  if (a.dateISO !== b.dateISO) return a.dateISO < b.dateISO ? 1 : -1;
+  return numPart(b.number) - numPart(a.number);
+}
 
 function inr(n){
   return "₹" + n.toLocaleString("en-IN", {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -710,8 +747,10 @@ function toast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function(){ t.classList.remove("show"); }, 2600);
 }
+function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
 
-// next unused number for a series (skips numbers already in the queue or history)
+// next unused number for a series (display preview; in cloud mode the
+// server allocates the real number atomically at save time)
 function freeNumber(seriesKey){
   var taken = {};
   state.queue.forEach(function(v){ if (v.seriesKey === seriesKey) taken[v.number] = 1; });
@@ -721,9 +760,255 @@ function freeNumber(seriesKey){
   return n;
 }
 
+/* ================= backends ================= */
+var backend;
+
+var LocalBackend = {
+  cloud: false,
+  load: function(){
+    var s;
+    try {
+      s = JSON.parse(localStorage.getItem(LS_KEY)) || defaultState();
+      if (!s.series || !s.queue || !s.parties) s = defaultState();
+      if (!s.history) s.history = [];
+      if (!s.series.xg) s.series.xg = { last: TALLY.series.xg.defLast, rate: TALLY.series.xg.defRate };
+    } catch(e){ s = defaultState(); }
+    return Promise.resolve(s);
+  },
+  _save: function(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); },
+  saveVoucher: function(p){
+    if (p.editId){
+      var v = null;
+      for (var i = 0; i < state.queue.length; i++)
+        if (state.queue[i].id === p.editId){ v = state.queue[i]; break; }
+      if (!v) return Promise.reject(new Error("Voucher no longer exists"));
+      var wasExported = !!v.exportedAt;
+      var number = (p.seriesKey === v.seriesKey) ? v.number : freeNumber(p.seriesKey);
+      v.seriesKey = p.seriesKey; v.number = number; v.dateISO = p.dateISO;
+      v.party = p.party; v.vehicle = p.vehicle; v.rate = p.rate; v.qty = p.qty;
+      v.itemAmt = p.itemAmt; v.partyAmt = p.partyAmt; v.roff = p.roff;
+      v.exportedAt = null;   // edited voucher must be exported again
+      this._save();
+      return Promise.resolve({ number: number, wasExported: wasExported });
+    }
+    var num = freeNumber(p.seriesKey);
+    state.queue.push({
+      id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+      seriesKey: p.seriesKey, number: num, dateISO: p.dateISO, party: p.party,
+      vehicle: p.vehicle, rate: p.rate, qty: p.qty, itemAmt: p.itemAmt,
+      partyAmt: p.partyAmt, roff: p.roff, exportedAt: null
+    });
+    // series.last stays a baseline (set by import/Settings); numbers in the
+    // queue and old vouchers count as taken, so freeNumber() advances past
+    // them and reuses a number if its voucher is deleted or changes series
+    state.series[p.seriesKey].rate = p.rate;
+    if (state.parties.indexOf(p.party) === -1){ state.parties.push(p.party); state.parties.sort(cmp); }
+    this._save();
+    return Promise.resolve({ number: num, wasExported: false });
+  },
+  deleteVoucher: function(id){
+    state.queue = state.queue.filter(function(q){ return q.id !== id; });
+    this._save();
+    return Promise.resolve();
+  },
+  markExported: function(ids){
+    var now = Date.now();
+    state.queue.forEach(function(v){ if (ids.indexOf(v.id) !== -1) v.exportedAt = now; });
+    this._save();
+    return Promise.resolve();
+  },
+  clearExported: function(){
+    state.queue.filter(function(v){ return v.exportedAt; }).forEach(function(v){
+      state.history.push({ seriesKey: v.seriesKey, number: v.number, dateISO: v.dateISO,
+        party: v.party, vehicle: v.vehicle || "", qty: v.qty, rate: v.rate,
+        amount: v.itemAmt, source: "app" });
+    });
+    state.queue = state.queue.filter(function(v){ return !v.exportedAt; });
+    state.history.sort(histSort);
+    this._save();
+    return Promise.resolve();
+  },
+  importDaybook: function(vouchers){
+    var existing = {};
+    state.history.forEach(function(v){ existing[v.seriesKey + "|" + v.number] = 1; });
+    var added = { hsd: 0, ms: 0, xg: 0 }, dupes = 0, newParties = 0;
+    var latest = {};
+    vouchers.forEach(function(rec){
+      if (existing[rec.seriesKey + "|" + rec.number]){ dupes++; return; }
+      state.history.push(rec);
+      existing[rec.seriesKey + "|" + rec.number] = 1;
+      added[rec.seriesKey]++;
+      if (state.parties.indexOf(rec.party) === -1){
+        state.parties.push(rec.party); newParties++;
+      }
+      var cur = latest[rec.seriesKey];
+      if (!cur || rec.dateISO > cur.dateISO ||
+          (rec.dateISO === cur.dateISO && numPart(rec.number) > numPart(cur.number)))
+        latest[rec.seriesKey] = rec;
+    });
+    TALLY.seriesKeys.forEach(function(sk){
+      var best = state.series[sk].last;
+      state.history.forEach(function(v){
+        if (v.seriesKey === sk && numPart(v.number) > numPart(best)) best = v.number;
+      });
+      state.series[sk].last = best;
+      if (latest[sk] && latest[sk].rate > 0) state.series[sk].rate = r2(latest[sk].rate);
+    });
+    state.parties.sort(cmp);
+    state.history.sort(histSort);
+    this._save();
+    return Promise.resolve({ added: added, dupes: dupes, newParties: newParties });
+  },
+  importMaster: function(names){
+    var keep = {};
+    names.forEach(function(p){ keep[p] = 1; });
+    state.queue.forEach(function(v){ keep[v.party] = 1; });
+    var before = state.parties.slice();
+    state.parties = Object.keys(keep).sort(cmp);
+    var addedN = state.parties.filter(function(p){ return before.indexOf(p) === -1; }).length;
+    var removedN = before.filter(function(p){ return state.parties.indexOf(p) === -1; }).length;
+    this._save();
+    return Promise.resolve({ added: addedN, removed: removedN, total: state.parties.length });
+  },
+  addParty: function(name){
+    if (state.parties.indexOf(name) === -1){
+      state.parties.push(name);
+      state.parties.sort(cmp);
+      this._save();
+    }
+    return Promise.resolve();
+  },
+  removeParty: function(name){
+    state.parties = state.parties.filter(function(p){ return p !== name; });
+    this._save();
+    return Promise.resolve();
+  },
+  saveSettings: function(company, vals){
+    state.company = company;
+    TALLY.seriesKeys.forEach(function(sk){
+      state.series[sk].last = vals[sk].last;
+      state.series[sk].rate = r2(vals[sk].rate);
+    });
+    this._save();
+    return Promise.resolve();
+  }
+};
+
+var CloudBackend = {
+  cloud: true,
+  client: null,
+  userLabel: "",
+  rpc: function(name, args){
+    return this.client.rpc(name, args).then(function(res){
+      if (res.error) throw new Error(res.error.message || "Network error");
+      return res.data;
+    });
+  },
+  load: function(){
+    var c = this.client;
+    var pSettings = c.from("tally_settings").select("company").eq("id", 1).single();
+    var pSeries   = c.from("tally_series").select("*");
+    var pParties  = c.from("tally_parties").select("name").order("name");
+    function fetchVouchers(acc, from){
+      return c.from("tally_vouchers").select("*").range(from, from + 999).then(function(page){
+        if (page.error) throw new Error(page.error.message);
+        acc = acc.concat(page.data || []);
+        if ((page.data || []).length < 1000) return acc;
+        return fetchVouchers(acc, from + 1000);
+      });
+    }
+    return Promise.all([pSettings, pSeries, pParties, fetchVouchers([], 0)]).then(function(r){
+      if (r[0].error) throw new Error(r[0].error.message);
+      if (r[1].error) throw new Error(r[1].error.message);
+      if (r[2].error) throw new Error(r[2].error.message);
+      var s = defaultState();
+      s.company = r[0].data.company;
+      (r[1].data || []).forEach(function(row){
+        s.series[row.key] = { last: row.baseline, rate: parseFloat(row.rate) };
+      });
+      s.parties = (r[2].data || []).map(function(row){ return row.name; });
+      s.queue = []; s.history = [];
+      r[3].forEach(function(row){
+        if (row.status === "history"){
+          s.history.push({ seriesKey: row.series, number: row.number, dateISO: row.date,
+            party: row.party, vehicle: row.vehicle || "", qty: parseFloat(row.qty),
+            rate: parseFloat(row.rate), amount: parseFloat(row.item_amt), source: row.source });
+        } else {
+          s.queue.push({ id: row.id, seriesKey: row.series, number: row.number,
+            dateISO: row.date, party: row.party, vehicle: row.vehicle || "",
+            rate: parseFloat(row.rate), qty: parseFloat(row.qty),
+            itemAmt: parseFloat(row.item_amt), partyAmt: parseFloat(row.party_amt),
+            roff: parseFloat(row.roff),
+            exportedAt: row.exported_at ? Date.parse(row.exported_at) : null,
+            createdAt: row.created_at ? Date.parse(row.created_at) : 0 });
+        }
+      });
+      s.queue.sort(function(a, b){ return (a.createdAt || 0) - (b.createdAt || 0); });
+      s.history.sort(histSort);
+      return s;
+    });
+  },
+  saveVoucher: function(p){
+    var wasExported = false;
+    if (p.editId){
+      for (var i = 0; i < state.queue.length; i++)
+        if (state.queue[i].id === p.editId) wasExported = !!state.queue[i].exportedAt;
+    }
+    return this.rpc("tally_save_voucher", {
+      p_id: p.editId || null, p_series: p.seriesKey, p_date: p.dateISO,
+      p_party: p.party, p_vehicle: p.vehicle, p_qty: p.qty, p_rate: p.rate,
+      p_item_amt: p.itemAmt, p_party_amt: p.partyAmt, p_roff: p.roff
+    }).then(function(d){ return { number: d.number, wasExported: wasExported }; });
+  },
+  deleteVoucher: function(id){ return this.rpc("tally_delete_voucher", { p_id: id }); },
+  markExported: function(ids){ return this.rpc("tally_mark_exported", { p_ids: ids }); },
+  clearExported: function(){ return this.rpc("tally_clear_exported", {}); },
+  importDaybook: function(vouchers){
+    var self = this;
+    var sum = { added: { hsd: 0, ms: 0, xg: 0 }, dupes: 0, newParties: 0 };
+    var chunks = [];
+    for (var i = 0; i < vouchers.length; i += 500) chunks.push(vouchers.slice(i, i + 500));
+    return chunks.reduce(function(prev, chunk){
+      return prev.then(function(){
+        return self.rpc("tally_import_daybook", { p_vouchers: chunk }).then(function(d){
+          TALLY.seriesKeys.forEach(function(sk){ sum.added[sk] += (d.added && d.added[sk]) || 0; });
+          sum.dupes += d.dupes || 0;
+          sum.newParties += d.newParties || 0;
+        });
+      });
+    }, Promise.resolve()).then(function(){ return sum; });
+  },
+  importMaster: function(names){ return this.rpc("tally_import_master", { p_names: names }); },
+  addParty: function(name){ return this.rpc("tally_add_party", { p_name: name }); },
+  removeParty: function(name){ return this.rpc("tally_remove_party", { p_name: name }); },
+  saveSettings: function(company, vals){
+    return this.rpc("tally_save_settings", { p_company: company, p_series: {
+      hsd: { last: vals.hsd.last, rate: vals.hsd.rate },
+      ms:  { last: vals.ms.last,  rate: vals.ms.rate },
+      xg:  { last: vals.xg.last,  rate: vals.xg.rate }
+    }});
+  }
+};
+
+function refresh(){
+  return backend.load().then(function(s){ state = s; rerender(); });
+}
+
+function rerender(){
+  if (!state) return;
+  if (current === "home") renderHome();
+  else if (current === "history") renderHistory();
+  else if (current === "settings") renderSettings();
+  else if (current === "new"){
+    $("roNumber").textContent = displayNumber(draft.seriesKey);
+    if (!draft.party) renderPartyList();
+  }
+}
+
 /* ---------- navigation ---------- */
 function show(screen){
-  ["scrHome","scrNew","scrHistory","scrSettings"].forEach(function(id){ $(id).classList.remove("on"); });
+  current = screen;
+  ["scrHome","scrNew","scrHistory","scrSettings","scrLogin"].forEach(function(id){ $(id).classList.remove("on"); });
   $("btnBack").style.display = screen === "home" ? "none" : "";
   $("btnSettings").style.display = screen === "home" ? "" : "none";
   if (screen === "home"){
@@ -823,8 +1108,7 @@ function renderList(el, items, exported){
       del.onclick = function(e){
         e.stopPropagation();
         if (confirm("Delete voucher #" + v.number + " (" + v.party + ")?")){
-          state.queue = state.queue.filter(function(q){ return q.id !== v.id; });
-          save(); renderHome();
+          backend.deleteVoucher(v.id).then(refresh).catch(oops);
         }
       };
       row.appendChild(del);
@@ -850,10 +1134,10 @@ $("btnExport").onclick = function(){
   var pending = state.queue.filter(function(v){ return !v.exportedAt; });
   if (!pending.length) return;
   var name = downloadXml(pending);
-  var now = Date.now();
-  pending.forEach(function(v){ v.exportedAt = now; });
-  save(); renderHome();
-  toast("Downloaded " + name);
+  backend.markExported(pending.map(function(v){ return v.id; }))
+    .then(refresh)
+    .then(function(){ toast("Downloaded " + name); })
+    .catch(function(e){ toast("Downloaded, but could not mark exported: " + e.message); });
 };
 
 $("btnReExport").onclick = function(){
@@ -866,13 +1150,7 @@ $("btnClearExported").onclick = function(){
   var exported = state.queue.filter(function(v){ return v.exportedAt; });
   if (!exported.length) return;
   if (confirm("Move " + exported.length + " exported voucher(s) to old vouchers?\n\nOnly do this AFTER a successful import in Tally.")){
-    exported.forEach(function(v){
-      state.history.push({ seriesKey: v.seriesKey, number: v.number, dateISO: v.dateISO,
-        party: v.party, vehicle: v.vehicle || "", qty: v.qty, rate: v.rate,
-        amount: v.itemAmt, source: "app" });
-    });
-    state.queue = state.queue.filter(function(v){ return !v.exportedAt; });
-    save(); renderHome();
+    backend.clearExported().then(refresh).catch(oops);
   }
 };
 
@@ -884,27 +1162,57 @@ $("fileDaybook").addEventListener("change", function(){
   this.value = "";
   if (!f) return;
   var btn = $("btnImportDaybook");
+  var idle = "⬆ Import Tally XML (DayBook / Master)";
   btn.textContent = "⏳ Reading " + f.name + "…";
   btn.disabled = true;
+  function done(){ btn.textContent = idle; btn.disabled = false; }
   var reader = new FileReader();
   reader.onload = function(){
     // let the "Reading…" label paint before the heavy parse
     setTimeout(function(){
       try {
         var text = decodeXmlBytes(reader.result);
-        if (/<VOUCHER[\s>]/.test(text)) importDaybookText(text);
-        else if (/<LEDGER[\s>]/.test(text)) importMasterText(text);
-        else throw new Error("No vouchers or ledgers found — export a DayBook or Masters XML from Tally.");
-      } catch(e){ alert("Could not import this file.\n\n" + e.message); }
-      btn.textContent = "⬆ Import Tally XML (DayBook / Master)";
-      btn.disabled = false;
+        if (/<VOUCHER[\s>]/.test(text)){
+          var parsed = parseDaybookText(text);
+          backend.importDaybook(parsed.vouchers).then(function(sum){
+            return refresh().then(function(){
+              var total = sum.added.hsd + sum.added.ms + sum.added.xg;
+              if (!total && !sum.dupes)
+                throw new Error("No HSD CREDIT / MS CREDIT / XG CREDIT vouchers were found in this file.");
+              alert("Daybook imported ✓\n\n"
+                + "Vouchers added: " + total + " (" + sum.added.hsd + " HSD, " + sum.added.ms + " MS, " + sum.added.xg + " XG)\n"
+                + (sum.dupes ? "Already present (skipped): " + sum.dupes + "\n" : "")
+                + (parsed.skipped ? "Other/cancelled vouchers skipped: " + parsed.skipped + "\n" : "")
+                + (sum.newParties ? "New parties added: " + sum.newParties + "\n" : "")
+                + "\nNext invoice numbers: " + freeNumber("hsd") + " / " + freeNumber("ms") + " / " + freeNumber("xg")
+                + "\nToday's prices: ₹" + fmtAmt(state.series.hsd.rate) + " HSD / ₹"
+                + fmtAmt(state.series.ms.rate) + " MS / ₹" + fmtAmt(state.series.xg.rate) + " XG"
+                + "\n(check prices in Settings — taken from the latest vouchers)");
+            });
+          }).catch(function(e){ alert("Could not import this file.\n\n" + e.message); }).then(done);
+        } else if (/<LEDGER[\s>]/.test(text)){
+          var master = parseMasterText(text);
+          if (!master.debtors.length)
+            throw new Error("No ledgers under the Sundry Debtors group were found in this file.");
+          backend.importMaster(master.debtors).then(function(sum){
+            return refresh().then(function(){
+              alert("Master imported ✓\n\n"
+                + "Customer list set to Sundry Debtors: " + master.debtors.length + " customers\n"
+                + "(from " + master.ledgerCount + " ledgers / " + master.groupCount + " groups in the file)\n"
+                + (sum.added ? "Added: " + sum.added + "\n" : "")
+                + (sum.removed ? "Removed (not Sundry Debtors): " + sum.removed + "\n" : ""));
+            });
+          }).catch(function(e){ alert("Could not import this file.\n\n" + e.message); }).then(done);
+        } else {
+          throw new Error("No vouchers or ledgers found — export a DayBook or Masters XML from Tally.");
+        }
+      } catch(e){
+        alert("Could not import this file.\n\n" + e.message);
+        done();
+      }
     }, 50);
   };
-  reader.onerror = function(){
-    alert("Could not read the file.");
-    btn.textContent = "⬆ Import Tally XML (DayBook / Master)";
-    btn.disabled = false;
-  };
+  reader.onerror = function(){ alert("Could not read the file."); done(); };
   reader.readAsArrayBuffer(f);
 });
 
@@ -913,88 +1221,6 @@ function decodeXmlBytes(buf){
   if (b.length >= 2 && b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder("utf-16le").decode(b.subarray(2));
   if (b.length >= 2 && b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder("utf-16be").decode(b.subarray(2));
   return new TextDecoder("utf-8").decode(b);
-}
-
-function importDaybookText(text){
-  var parsed = parseDaybookText(text);
-
-  var existing = {};
-  state.history.forEach(function(v){ existing[v.seriesKey + "|" + v.number] = 1; });
-
-  var added = { hsd: 0, ms: 0, xg: 0 }, dupes = 0;
-  var newParties = [];
-  var latest = {}; // per series: voucher with max (dateISO, numPart) → today's price
-
-  parsed.vouchers.forEach(function(rec){
-    if (existing[rec.seriesKey + "|" + rec.number]){ dupes++; return; }
-    state.history.push(rec);
-    existing[rec.seriesKey + "|" + rec.number] = 1;
-    added[rec.seriesKey]++;
-    if (state.parties.indexOf(rec.party) === -1 && newParties.indexOf(rec.party) === -1)
-      newParties.push(rec.party);
-    var cur = latest[rec.seriesKey];
-    if (!cur || rec.dateISO > cur.dateISO ||
-        (rec.dateISO === cur.dateISO && numPart(rec.number) > numPart(cur.number)))
-      latest[rec.seriesKey] = rec;
-  });
-
-  var totalAdded = added.hsd + added.ms + added.xg;
-  if (!totalAdded && !dupes)
-    throw new Error("No HSD CREDIT / MS CREDIT / XG CREDIT vouchers were found in this file.");
-
-  // sync counters: highest number seen per series wins
-  TALLY.seriesKeys.forEach(function(sk){
-    var best = state.series[sk].last;
-    state.history.forEach(function(v){
-      if (v.seriesKey === sk && numPart(v.number) > numPart(best)) best = v.number;
-    });
-    state.series[sk].last = best;
-    if (latest[sk] && latest[sk].rate > 0) state.series[sk].rate = r2(latest[sk].rate);
-  });
-
-  newParties.forEach(function(p){ state.parties.push(p); });
-  state.parties.sort(function(a,b){ return a.localeCompare(b); });
-
-  // newest first
-  state.history.sort(function(a,b){
-    if (a.dateISO !== b.dateISO) return a.dateISO < b.dateISO ? 1 : -1;
-    return numPart(b.number) - numPart(a.number);
-  });
-
-  save(); renderHome();
-  alert("Daybook imported ✓\n\n"
-    + "Vouchers added: " + totalAdded + " (" + added.hsd + " HSD, " + added.ms + " MS, " + added.xg + " XG)\n"
-    + (dupes ? "Already present (skipped): " + dupes + "\n" : "")
-    + (parsed.skipped ? "Other/cancelled vouchers skipped: " + parsed.skipped + "\n" : "")
-    + (newParties.length ? "New parties added: " + newParties.length + "\n" : "")
-    + "\nNext invoice numbers: " + freeNumber("hsd") + " / " + freeNumber("ms") + " / " + freeNumber("xg")
-    + "\nToday's prices: ₹" + fmtAmt(state.series.hsd.rate) + " HSD / ₹"
-    + fmtAmt(state.series.ms.rate) + " MS / ₹" + fmtAmt(state.series.xg.rate) + " XG"
-    + "\n(check prices in Settings — taken from the latest vouchers)");
-}
-
-function importMasterText(text){
-  var parsed = parseMasterText(text);
-  if (!parsed.debtors.length)
-    throw new Error("No ledgers under the Sundry Debtors group were found in this file.");
-
-  // The billable customer list becomes the master's Sundry Debtors.
-  // Parties used by vouchers still in the app are kept so those vouchers stay valid.
-  var keep = {};
-  parsed.debtors.forEach(function(p){ keep[p] = 1; });
-  state.queue.forEach(function(v){ keep[v.party] = 1; });
-
-  var before = state.parties.slice();
-  state.parties = Object.keys(keep).sort(function(a,b){ return a.localeCompare(b); });
-  var addedN = state.parties.filter(function(p){ return before.indexOf(p) === -1; }).length;
-  var removedN = before.filter(function(p){ return state.parties.indexOf(p) === -1; }).length;
-
-  save(); renderHome();
-  alert("Master imported ✓\n\n"
-    + "Customer list set to Sundry Debtors: " + parsed.debtors.length + " customers\n"
-    + "(from " + parsed.ledgerCount + " ledgers / " + parsed.groupCount + " groups in the file)\n"
-    + (addedN ? "Added: " + addedN + "\n" : "")
-    + (removedN ? "Removed (not Sundry Debtors): " + removedN + "\n" : ""));
 }
 
 /* ---------- history ---------- */
@@ -1156,10 +1382,10 @@ function renderPartyList(){
     add.textContent = '+ Add “' + typed + '” as new party';
     add.onclick = function(){
       if (!confirm('Add new party “' + typed + '”?\n\nIt must match the Tally ledger name EXACTLY (case, spacing, &).')) return;
-      state.parties.push(typed);
-      state.parties.sort(function(a,b){ return a.localeCompare(b); });
-      save();
-      setParty(typed);
+      backend.addParty(typed).then(function(){
+        setParty(typed);
+        return refresh();
+      }).catch(oops);
     };
     list.appendChild(add);
   }
@@ -1221,53 +1447,28 @@ $("btnSave").onclick = function(){
   if (!c){ toast("Enter the quantity or the amount"); $("fQty").focus(); return; }
   if (Math.abs(c.roff) >= 1 &&
       !confirm("Round off of ₹" + fmtAmt(c.roff) + " is unusually large.\nSave anyway?")) return;
-  var number = displayNumber(draft.seriesKey);
-  var vehicle = $("fVehicle").value.trim().toUpperCase();
 
-  if (draft.editId){
-    var v = null;
-    for (var i = 0; i < state.queue.length; i++)
-      if (state.queue[i].id === draft.editId){ v = state.queue[i]; break; }
-    if (!v){ toast("Voucher no longer exists"); show("home"); return; }
-    var wasExported = !!v.exportedAt;
-    v.seriesKey = draft.seriesKey;
-    v.number = number;
-    v.dateISO = dateISO;
-    v.party = draft.party;
-    v.vehicle = vehicle;
-    v.rate = r2(price);
-    v.qty = c.qty;
-    v.itemAmt = c.itemAmt;
-    v.partyAmt = c.partyAmt;
-    v.roff = c.roff;
-    v.exportedAt = null;   // edited voucher must be exported again
-    save();
-    toast(wasExported
-      ? "Updated #" + number + " — moved back to pending, download the XML again"
-      : "Updated voucher #" + number);
-  } else {
-    state.queue.push({
-      id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-      seriesKey: draft.seriesKey,
-      number: number,
-      dateISO: dateISO,
-      party: draft.party,
-      vehicle: vehicle,
-      rate: r2(price),
-      qty: c.qty,
-      itemAmt: c.itemAmt,
-      partyAmt: c.partyAmt,
-      roff: c.roff,
-      exportedAt: null
-    });
-    // series.last stays a baseline (set by import/Settings); numbers in the
-    // queue and old vouchers count as taken, so freeNumber() advances past
-    // them and reuses a number if its voucher is deleted or changes series
-    state.series[draft.seriesKey].rate = r2(price);
-    save();
-    toast("Saved voucher #" + number);
-  }
-  show("home");
+  var btn = $("btnSave");
+  btn.disabled = true;   // no double-taps while the server confirms
+  backend.saveVoucher({
+    editId: draft.editId || null,
+    seriesKey: draft.seriesKey,
+    dateISO: dateISO,
+    party: draft.party,
+    vehicle: $("fVehicle").value.trim().toUpperCase(),
+    rate: r2(price),
+    qty: c.qty,
+    itemAmt: c.itemAmt,
+    partyAmt: c.partyAmt,
+    roff: c.roff
+  }).then(function(res){
+    toast(draft.editId
+      ? (res.wasExported
+          ? "Updated #" + res.number + " — moved back to pending, download the XML again"
+          : "Updated voucher #" + res.number)
+      : "Saved voucher #" + res.number);
+    return refresh().then(function(){ show("home"); });
+  }).catch(oops).then(function(){ btn.disabled = false; });
 };
 
 /* ---------- settings ---------- */
@@ -1281,7 +1482,7 @@ function renderSettings(){
   $("setXgRate").value = fmtAmt(state.series.xg.rate);
   var el = $("setPartyList");
   el.innerHTML = "";
-  state.parties.forEach(function(p, i){
+  state.parties.forEach(function(p){
     var row = document.createElement("div");
     row.className = "prow";
     var span = document.createElement("span");
@@ -1292,8 +1493,7 @@ function renderSettings(){
     del.setAttribute("aria-label", "Remove " + p);
     del.onclick = function(){
       if (confirm("Remove party “" + p + "”?")){
-        state.parties.splice(i, 1);
-        save(); renderSettings();
+        backend.removeParty(p).then(refresh).catch(oops);
       }
     };
     row.appendChild(span); row.appendChild(del);
@@ -1305,11 +1505,11 @@ $("btnAddParty").onclick = function(){
   var name = $("setPartyNew").value.trim();
   if (!name){ toast("Type the party name first"); return; }
   if (state.parties.indexOf(name) !== -1){ toast("Party already exists"); return; }
-  state.parties.push(name);
-  state.parties.sort(function(a,b){ return a.localeCompare(b); });
-  $("setPartyNew").value = "";
-  save(); renderSettings();
-  toast("Added " + name);
+  backend.addParty(name).then(function(){
+    $("setPartyNew").value = "";
+    toast("Added " + name);
+    return refresh();
+  }).catch(oops);
 };
 
 $("btnSaveSettings").onclick = function(){
@@ -1325,14 +1525,10 @@ $("btnSaveSettings").onclick = function(){
     if (!vals[sk].last){ toast("Last invoice numbers are required"); return; }
     if (!(vals[sk].rate > 0)){ toast("Prices must be positive"); return; }
   }
-  state.company = company;
-  TALLY.seriesKeys.forEach(function(sk){
-    state.series[sk].last = vals[sk].last;
-    state.series[sk].rate = r2(vals[sk].rate);
-  });
-  save();
-  toast("Settings saved");
-  show("home");
+  backend.saveSettings(company, vals).then(function(){
+    toast("Settings saved");
+    return refresh().then(function(){ show("home"); });
+  }).catch(oops);
 };
 
 $("btnResetApp").onclick = function(){
@@ -1340,7 +1536,7 @@ $("btnResetApp").onclick = function(){
   if (word === "RESET"){
     localStorage.removeItem(LS_KEY);
     state = defaultState();
-    save();
+    LocalBackend._save();
     toast("App reset");
     show("home");
   }
@@ -1350,8 +1546,109 @@ $("btnResetApp").onclick = function(){
 $("btnBack").onclick = function(){ show("home"); };
 $("btnSettings").onclick = function(){ show("settings"); };
 
+/* ---------- login (cloud mode) ---------- */
+function showLogin(){
+  current = "login";
+  ["scrHome","scrNew","scrHistory","scrSettings"].forEach(function(id){ $(id).classList.remove("on"); });
+  $("scrLogin").classList.add("on");
+  $("hdrTitle").textContent = "Sign in";
+  $("btnBack").style.display = "none";
+  $("btnSettings").style.display = "none";
+  $("loginErr").style.display = "none";
+}
+
+function loginError(msg){
+  var el = $("loginErr");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function startApp(session){
+  CloudBackend.userLabel = (session.user.email || "").replace("@vriddhi.local", "");
+  $("cloudUser").textContent = "Signed in as " + CloudBackend.userLabel + " — data is shared live with all employees.";
+  $("cloudCard").style.display = "";
+  $("btnResetApp").style.display = "none";
+  return backend.load().then(function(s){
+    state = s;
+    subscribeRealtime();
+    show("home");
+  }).catch(function(e){
+    loginError("Could not load data: " + e.message);
+    showLogin();
+  });
+}
+
+var realtimeOn = false;
+function subscribeRealtime(){
+  if (realtimeOn || !CloudBackend.client.channel) return;
+  realtimeOn = true;
+  var t;
+  function poke(){
+    clearTimeout(t);
+    t = setTimeout(function(){ refresh().catch(function(){}); }, 400);
+  }
+  var ch = CloudBackend.client.channel("tally-live");
+  ["tally_vouchers","tally_parties","tally_series","tally_settings"].forEach(function(tab){
+    ch = ch.on("postgres_changes", { event: "*", schema: "public", table: tab }, poke);
+  });
+  ch.subscribe();
+}
+
+$("btnLogin").onclick = function(){
+  var u = $("loginUser").value.trim().toLowerCase();
+  var p = $("loginPass").value;
+  if (!u || !p){ loginError("Enter username and password"); return; }
+  var email = u.indexOf("@") !== -1 ? u : u + "@vriddhi.local";
+  var btn = $("btnLogin");
+  btn.disabled = true;
+  btn.textContent = "Signing in…";
+  CloudBackend.client.auth.signInWithPassword({ email: email, password: p }).then(function(res){
+    btn.disabled = false;
+    btn.textContent = "Sign in";
+    if (res.error){ loginError("Wrong username or password"); return; }
+    $("loginPass").value = "";
+    return startApp(res.data.session);
+  });
+};
+$("loginPass").addEventListener("keydown", function(e){ if (e.key === "Enter") $("btnLogin").click(); });
+
+$("btnSignOut").onclick = function(){
+  if (!confirm("Sign out of this device?")) return;
+  CloudBackend.client.auth.signOut().then(function(){
+    state = null;
+    showLogin();
+  });
+};
+
 /* ---------- boot ---------- */
-show("home");
+function boot(){
+  if (!CLOUD){
+    backend = LocalBackend;
+    LocalBackend.load().then(function(s){ state = s; show("home"); });
+    return;
+  }
+  $("hdrTitle").textContent = "Connecting…";
+  var factory = window.__VF_TEST_SUPABASE_FACTORY
+    ? Promise.resolve(window.__VF_TEST_SUPABASE_FACTORY)
+    : import("https://esm.sh/@supabase/supabase-js@2").then(function(m){ return m.createClient; });
+  factory.then(function(createClient){
+    CloudBackend.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    backend = CloudBackend;
+    CloudBackend.client.auth.onAuthStateChange(function(event){
+      if (event === "SIGNED_OUT"){ state = null; showLogin(); }
+    });
+    return CloudBackend.client.auth.getSession().then(function(res){
+      var sess = res.data && res.data.session;
+      if (sess) return startApp(sess);
+      showLogin();
+    });
+  }).catch(function(e){
+    showLogin();
+    loginError("Could not connect: " + ((e && e.message) || e));
+  });
+}
+boot();
+
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("sw.js").catch(function(){});
 }
