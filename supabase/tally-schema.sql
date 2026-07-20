@@ -23,9 +23,12 @@ create extension if not exists pgcrypto;
 -- ---------------------------------------------------------------------
 
 create table if not exists public.tally_settings (
-  id      int  primary key default 1 check (id = 1),
-  company text not null default 'VRIDDHI FUELS (2026-27)'
+  id         int     primary key default 1 check (id = 1),
+  company    text    not null default 'VRIDDHI FUELS (2026-27)',
+  auto_clear boolean not null default false  -- clear vouchers older than 2 days on open
 );
+-- add the column if an earlier version of this table already exists
+alter table public.tally_settings add column if not exists auto_clear boolean not null default false;
 
 create table if not exists public.tally_series (
   key      text primary key check (key in ('hsd','ms','xg')),
@@ -156,6 +159,22 @@ begin
   return cand;
 end $$;
 
+-- Advance a series' baseline to the highest number among the given voucher
+-- ids, so exported/cleared numbers are never handed out again.
+create or replace function public._tally_bump_baselines(p_ids uuid[]) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update tally_series ts set baseline = best.number
+  from (
+    select distinct on (series) series, number
+    from tally_vouchers
+    where id = any(p_ids)
+    order by series, _tally_numpart(number) desc
+  ) best
+  where ts.key = best.series
+    and _tally_numpart(best.number) > _tally_numpart(ts.baseline);
+end $$;
+
 -- ---------------------------------------------------------------------
 -- RPCs (the client's only write path)
 -- ---------------------------------------------------------------------
@@ -193,8 +212,9 @@ begin
       (p_series, num, p_date, p_party, coalesce(p_vehicle,''), p_qty, p_rate,
        p_item_amt, p_party_amt, coalesce(p_roff,0), auth.uid())
     returning id into rid;
-    -- remember today's price from the latest entry
-    update tally_series set rate = p_rate where key = p_series;
+    -- today's price is set only via Settings / daybook import, never as a
+    -- side effect of saving a voucher (a customer's own rate must not move
+    -- the shared default price)
   else
     select * into v from tally_vouchers
       where id = p_id and status in ('pending','exported') for update;
@@ -219,18 +239,21 @@ begin
   return jsonb_build_object('id', rid, 'number', num);
 end $$;
 
+-- A voucher can be deleted while it is still pending or exported (not once
+-- moved to history). Its number is not reused unless it was never exported.
 create or replace function public.tally_delete_voucher(p_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform _tally_auth();
-  delete from tally_vouchers where id = p_id and status = 'pending';
+  delete from tally_vouchers where id = p_id and status in ('pending','exported');
   if not found then
-    raise exception 'Voucher not found or not pending';
+    raise exception 'Voucher not found or already moved to old vouchers';
   end if;
 end $$;
 
 -- Exports are whole-day and repeatable: marking updates the timestamp on
--- every included voucher, whether or not it was exported before.
+-- every included voucher, whether or not it was exported before. The
+-- baseline advances so these numbers are permanently reserved.
 create or replace function public.tally_mark_exported(p_ids uuid[]) returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
@@ -239,21 +262,67 @@ begin
   update tally_vouchers set status = 'exported', exported_at = now(), updated_at = now()
     where id = any(p_ids) and status in ('pending','exported');
   get diagnostics n = row_count;
+  perform _tally_bump_baselines(p_ids);
   return n;
 end $$;
 
 drop function if exists public.tally_clear_exported();
 
 -- Optional cleanup after a day is confirmed imported in Tally: move that
--- day's app vouchers to old vouchers. They remain part of the day's
--- repeatable export.
+-- day's app vouchers to old vouchers. Numbers are reserved (baseline bumped).
 create or replace function public.tally_move_day(p_date date) returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
   perform _tally_auth();
+  perform _tally_bump_baselines(array(
+    select id from tally_vouchers where date = p_date and status in ('pending','exported')));
   update tally_vouchers set status = 'history', updated_at = now()
     where date = p_date and status in ('pending','exported');
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- Auto-clear: remove vouchers dated before the cutoff, reserving their
+-- numbers first so they are never reused.
+create or replace function public.tally_autoclear(p_cutoff date) returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  perform _tally_auth();
+  perform _tally_bump_baselines(array(select id from tally_vouchers where date < p_cutoff));
+  delete from tally_vouchers where date < p_cutoff;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+create or replace function public.tally_set_autoclear(p_on boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _tally_auth();
+  update tally_settings set auto_clear = coalesce(p_on, false) where id = 1;
+end $$;
+
+-- Danger zone: clear ALL vouchers (numbering baselines are kept so the next
+-- number continues where Tally left off).
+create or replace function public.tally_reset_vouchers() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  perform _tally_auth();
+  perform _tally_bump_baselines(array(select id from tally_vouchers));
+  delete from tally_vouchers;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- Danger zone: clear the whole customer list.
+create or replace function public.tally_reset_parties() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  perform _tally_auth();
+  delete from tally_parties;
   get diagnostics n = row_count;
   return n;
 end $$;
@@ -319,28 +388,23 @@ begin
   return jsonb_build_object('added', added, 'dupes', dupes, 'newParties', new_p);
 end $$;
 
--- Replace the customer list with the master's Sundry Debtors; parties still
--- referenced by pending/exported vouchers are kept so those stay valid.
+-- Additive merge: add the master's Sundry Debtors that are not already in the
+-- list; existing customers are never removed (re-upload only adds the new ones).
 create or replace function public.tally_import_master(p_names text[]) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare removed int; added int;
+declare added int;
 begin
   perform _tally_auth();
   if p_names is null or array_length(p_names, 1) is null then
     raise exception 'No customers in list';
   end if;
 
-  delete from tally_parties
-    where name <> all (p_names)
-      and name not in (select party from tally_vouchers where status in ('pending','exported'));
-  get diagnostics removed = row_count;
-
   insert into tally_parties (name)
     select distinct unnest(p_names)
   on conflict do nothing;
   get diagnostics added = row_count;
 
-  return jsonb_build_object('added', added, 'removed', removed,
+  return jsonb_build_object('added', added, 'removed', 0,
     'total', (select count(*) from tally_parties));
 end $$;
 
@@ -397,6 +461,10 @@ begin
       public.tally_delete_voucher(uuid),
       public.tally_mark_exported(uuid[]),
       public.tally_move_day(date),
+      public.tally_autoclear(date),
+      public.tally_set_autoclear(boolean),
+      public.tally_reset_vouchers(),
+      public.tally_reset_parties(),
       public.tally_import_daybook(jsonb),
       public.tally_import_master(text[]),
       public.tally_add_party(text),
