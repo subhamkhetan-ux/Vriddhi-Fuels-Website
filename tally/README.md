@@ -6,8 +6,36 @@ in seconds and export them as XML for import into **Tally Prime**
 
 > This is a **third, separate app** in this repo — independent of the Master
 > Ledger at `/index.html` and the Indent Management PWA at `/app/`. It lives
-> entirely under `/tally/`, is fully static (no build step, no backend), and
-> stores everything in the browser's localStorage.
+> entirely under `/tally/`, is fully static, and has two modes:
+>
+> - **Multi-employee (cloud) mode** — the intended production setup. A
+>   dedicated Supabase project (separate from the indent app's) holds one
+>   shared live dataset; every employee signs in with a username+password,
+>   sees the same pending vouchers/customers/prices instantly (realtime),
+>   and invoice numbers are allocated **on the server inside a lock**, so
+>   two employees saving at the same moment can never get the same number.
+> - **Single-device (local) mode** — if `config.js` is left with its
+>   placeholders, the app runs exactly as before: no login, everything in
+>   that browser's localStorage. Fine for one shared counter device.
+
+## Multi-employee setup (one time)
+
+1. Create a **new** Supabase project (free tier) — do NOT reuse the indent
+   app's project.
+2. In its **SQL Editor**, run [`../supabase/tally-schema.sql`](../supabase/tally-schema.sql)
+   (safe to re-run; seeds series counters/prices verified from the daybook).
+3. **Authentication → Users → Add user** for each employee:
+   email `<username>@vriddhi.local` (e.g. `ramesh@vriddhi.local`), a 6+ char
+   password, tick *Auto Confirm User*. Employees sign in with just the
+   username + password.
+4. Paste the project's **URL** and **anon/publishable key**
+   (Project Settings → API) into [`config.js`](./config.js) and deploy.
+5. On each phone: open `/tally/`, sign in, Add to Home Screen.
+
+Every signed-in employee has equal rights (create/edit/export/import), per
+the owner's decision. All writes go through server-side functions with
+sign-in checks + Row Level Security; the anon key alone can read/write
+nothing.
 
 ## What it does
 
@@ -53,20 +81,21 @@ in seconds and export them as XML for import into **Tally Prime**
   when zero; values ≥ ₹1 ask for confirmation (typo guard).
 - **Vehicle number** is exported as `<BASICSHIPVEHICLENO>` plus a
   `Vehicle: …` narration, and shown in lists/search.
-- **Saved vouchers stay editable**: tap any pending voucher (or its ✎) to
-  reopen it in the entry form — it keeps its invoice number, and
+- **Saved vouchers stay editable**: tap any voucher in the day list (or its
+  ✎) to reopen it in the entry form — it keeps its invoice number, and
   amount-driven vouchers reopen amount-driven so resaving changes nothing.
-  Editing an already-exported voucher moves it back to pending (after a
-  confirmation) so the corrected XML gets downloaded again. Switching the
-  product while editing assigns the next number of the new series and frees
-  the old number for reuse — invoice numbering is gap-free: the next number
-  is computed from the numbers actually in use (queue + old vouchers) above
-  the per-series baseline set by import/Settings.
-- **Pending queue → single XML download** (`Sales_YYYY-MM-DD_Nvch.xml`).
-  Exported vouchers are *marked* exported (greyed out, timestamped) rather
-  than deleted, so the file can be re-downloaded if lost; after confirming a
-  successful Tally import the user moves them to Old vouchers. This protects
-  against accidental double-import.
+  Switching the product while editing assigns the next number of the new
+  series and frees the old number for reuse — invoice numbering is gap-free:
+  the next number is computed from the numbers actually in use above the
+  per-series baseline set by import/Settings.
+- **Whole-day, repeatable export**: the home screen shows one day at a time
+  (date picker, default today). "Download XML" always produces the complete
+  file for that day — every app voucher of the date, including ones exported
+  earlier or already moved to old vouchers — and can be downloaded again and
+  again (`Sales_YYYY-MM-DD_Nvch.xml`, vouchers ordered by series + number).
+  Duplicate-import management in Tally is deliberately left to the operator.
+  After a day is confirmed imported, an optional "move day to old vouchers"
+  tidies the list; the day remains exportable afterwards.
 - **Settings**: company name, per-series last invoice no. + today's price
   (to fix counter drift if vouchers were entered directly in Tally), party
   management, and a read-only table of the fixed Tally names.
