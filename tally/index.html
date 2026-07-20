@@ -730,7 +730,8 @@ function show(screen){
     renderHome();
   } else if (screen === "new"){
     $("scrNew").classList.add("on");
-    $("hdrTitle").textContent = "New sales voucher";
+    $("hdrTitle").textContent = draft.editId ? "Edit voucher #" + draft.editNumber : "New sales voucher";
+    $("btnSave").textContent = draft.editId ? "Save changes" : "Save voucher";
   } else if (screen === "history"){
     $("scrHistory").classList.add("on");
     $("hdrTitle").textContent = "Old vouchers";
@@ -800,12 +801,25 @@ function renderList(el, items, exported){
     amt.className = "vamt";
     amt.textContent = inr(v.partyAmt);
     row.appendChild(badge); row.appendChild(main); row.appendChild(amt);
+    // tap a saved voucher to edit it (exported ones move back to pending)
+    row.style.cursor = "pointer";
+    row.onclick = function(){
+      if (exported && !confirm("Voucher #" + v.number + " was already exported.\n\nEditing moves it back to pending — download the XML again after saving.")) return;
+      openEdit(v);
+    };
     if (!exported){
+      var edit = document.createElement("button");
+      edit.className = "vdel";
+      edit.textContent = "✎";
+      edit.setAttribute("aria-label", "Edit voucher " + v.number);
+      edit.onclick = function(e){ e.stopPropagation(); openEdit(v); };
+      row.appendChild(edit);
       var del = document.createElement("button");
       del.className = "vdel";
       del.textContent = "✕";
       del.setAttribute("aria-label", "Delete voucher " + v.number);
-      del.onclick = function(){
+      del.onclick = function(e){
+        e.stopPropagation();
         if (confirm("Delete voucher #" + v.number + " (" + v.party + ")?")){
           state.queue = state.queue.filter(function(q){ return q.id !== v.id; });
           save(); renderHome();
@@ -1052,12 +1066,46 @@ $("cardHSD").onclick = function(){ openNew("hsd"); };
 $("cardMS").onclick  = function(){ openNew("ms"); };
 $("cardXG").onclick  = function(){ openNew("xg"); };
 
+// Reopen a saved (pending/exported) voucher in the form for correction.
+function openEdit(v){
+  draft = { seriesKey: v.seriesKey, party: null, lastEdited: "qty",
+            editId: v.id, editSeries: v.seriesKey, editNumber: v.number };
+  $("fDate").value = v.dateISO;
+  $("fVehicle").value = v.vehicle || "";
+  $("fRound").checked = v.partyAmt === Math.round(v.itemAmt);
+  $("fPartySearch").value = "";
+  setProduct(v.seriesKey, true);
+  $("fPrice").value = fmtAmt(v.rate);          // the voucher's own rate, not today's
+  // amount-driven vouchers (itemAmt ≠ qty×rate) reopen amount-driven, so
+  // re-saving without touching anything keeps the exact same figures
+  if (r2(v.qty * v.rate) === v.itemAmt){
+    draft.lastEdited = "qty";
+    $("fQty").value = v.qty.toFixed(3);
+    $("fAmt").value = fmtAmt(v.itemAmt);
+  } else {
+    draft.lastEdited = "amount";
+    $("fAmt").value = fmtAmt(v.itemAmt);
+    $("fQty").value = v.qty.toFixed(3);
+  }
+  setParty(v.party);
+  renderPartyList();
+  renderSummary();
+  show("new");
+}
+
+// While editing, the voucher keeps its own number as long as the product
+// stays the same; switching product assigns the next free number of the
+// new series (the old number is freed by the update).
+function displayNumber(seriesKey){
+  return (draft.editId && seriesKey === draft.editSeries) ? draft.editNumber : freeNumber(seriesKey);
+}
+
 function setProduct(seriesKey, fresh){
   draft.seriesKey = seriesKey;
   $("prodHsd").classList.toggle("on", seriesKey === "hsd");
   $("prodMs").classList.toggle("on", seriesKey === "ms");
   $("prodXg").classList.toggle("on", seriesKey === "xg");
-  $("roNumber").textContent = freeNumber(seriesKey);
+  $("roNumber").textContent = displayNumber(seriesKey);
   $("fPrice").value = fmtAmt(state.series[seriesKey].rate);
   if (!fresh) syncQtyAmt();
   renderSummary();
@@ -1169,26 +1217,52 @@ $("btnSave").onclick = function(){
   if (!(price > 0)){ toast("Enter a valid price"); $("fPrice").focus(); return; }
   var c = currentCalc();
   if (!c){ toast("Enter the quantity or the amount"); $("fQty").focus(); return; }
-  var number = freeNumber(draft.seriesKey);
+  var number = displayNumber(draft.seriesKey);
+  var vehicle = $("fVehicle").value.trim().toUpperCase();
 
-  state.queue.push({
-    id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-    seriesKey: draft.seriesKey,
-    number: number,
-    dateISO: dateISO,
-    party: draft.party,
-    vehicle: $("fVehicle").value.trim().toUpperCase(),
-    rate: r2(price),
-    qty: c.qty,
-    itemAmt: c.itemAmt,
-    partyAmt: c.partyAmt,
-    roff: c.roff,
-    exportedAt: null
-  });
-  state.series[draft.seriesKey].last = number;
-  state.series[draft.seriesKey].rate = r2(price);
-  save();
-  toast("Saved voucher #" + number);
+  if (draft.editId){
+    var v = null;
+    for (var i = 0; i < state.queue.length; i++)
+      if (state.queue[i].id === draft.editId){ v = state.queue[i]; break; }
+    if (!v){ toast("Voucher no longer exists"); show("home"); return; }
+    var wasExported = !!v.exportedAt;
+    v.seriesKey = draft.seriesKey;
+    v.number = number;
+    v.dateISO = dateISO;
+    v.party = draft.party;
+    v.vehicle = vehicle;
+    v.rate = r2(price);
+    v.qty = c.qty;
+    v.itemAmt = c.itemAmt;
+    v.partyAmt = c.partyAmt;
+    v.roff = c.roff;
+    v.exportedAt = null;   // edited voucher must be exported again
+    save();
+    toast(wasExported
+      ? "Updated #" + number + " — moved back to pending, download the XML again"
+      : "Updated voucher #" + number);
+  } else {
+    state.queue.push({
+      id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+      seriesKey: draft.seriesKey,
+      number: number,
+      dateISO: dateISO,
+      party: draft.party,
+      vehicle: vehicle,
+      rate: r2(price),
+      qty: c.qty,
+      itemAmt: c.itemAmt,
+      partyAmt: c.partyAmt,
+      roff: c.roff,
+      exportedAt: null
+    });
+    // series.last stays a baseline (set by import/Settings); numbers in the
+    // queue and old vouchers count as taken, so freeNumber() advances past
+    // them and reuses a number if its voucher is deleted or changes series
+    state.series[draft.seriesKey].rate = r2(price);
+    save();
+    toast("Saved voucher #" + number);
+  }
   show("home");
 };
 

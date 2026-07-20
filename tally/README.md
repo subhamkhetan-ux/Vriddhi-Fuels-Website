@@ -51,6 +51,15 @@ in seconds and export them as XML for import into **Tally Prime**
   `R/off` ledger with the correct debit/credit sign; omitted when zero.
 - **Vehicle number** is exported as `<BASICSHIPVEHICLENO>` plus a
   `Vehicle: …` narration, and shown in lists/search.
+- **Saved vouchers stay editable**: tap any pending voucher (or its ✎) to
+  reopen it in the entry form — it keeps its invoice number, and
+  amount-driven vouchers reopen amount-driven so resaving changes nothing.
+  Editing an already-exported voucher moves it back to pending (after a
+  confirmation) so the corrected XML gets downloaded again. Switching the
+  product while editing assigns the next number of the new series and frees
+  the old number for reuse — invoice numbering is gap-free: the next number
+  is computed from the numbers actually in use (queue + old vouchers) above
+  the per-series baseline set by import/Settings.
 - **Pending queue → single XML download** (`Sales_YYYY-MM-DD_Nvch.xml`).
   Exported vouchers are *marked* exported (greyed out, timestamped) rather
   than deleted, so the file can be re-downloaded if lost; after confirming a
