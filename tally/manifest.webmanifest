@@ -1,0 +1,18 @@
+{
+  "name": "Vriddhi Fuels — Tally Vouchers",
+  "short_name": "Tally Vouchers",
+  "description": "Create sales vouchers and export XML for import into Tally Prime.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#111E3E",
+  "icons": [
+    {
+      "src": "../Vriddhi%20Fuels%20Logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

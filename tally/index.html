@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Tally Vouchers">
+<meta name="theme-color" content="#111E3E">
+<title>Tally Vouchers — Vriddhi Fuels</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png">
+<link rel="icon" type="image/png" href="../Vriddhi%20Fuels%20Logo.png">
+<style>
+:root{
+  --orange:#E46713; --navy:#111E3E;
+  --amber:#b45309; --amber-tint:#fef3e2; --amber-line:#f5d9ae;
+  --green:#0f766e; --green-tint:#e6f5f2; --green-line:#b7e0d9;
+  --bg:#f5f6f8; --card:#ffffff; --line:#e7e9ee;
+  --txt:#1c2430; --txt-2:#5b6573; --txt-3:#8b94a3;
+  --red:#c0392b; --red-tint:#fdecea;
+  --radius:16px; --radius-sm:12px;
+  --shadow:0 1px 2px rgba(17,30,62,.05), 0 6px 20px rgba(17,30,62,.07);
+  --safe-top:env(safe-area-inset-top); --safe-bot:env(safe-area-inset-bottom);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0e1320; --card:#172033; --line:#27324a;
+    --txt:#eef2f8; --txt-2:#a7b1c4; --txt-3:#7b8499;
+    --amber-tint:#2a2010; --amber-line:#4a3a1a; --amber:#f5a94a;
+    --green-tint:#0f2622; --green-line:#1e4a42; --green:#3fd29a;
+    --red:#ff6b5b; --red-tint:#33130f;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.28);
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:16px;line-height:1.5;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+input,select{font:inherit;color:var(--txt)}
+.wrap{max-width:560px;margin:0 auto;padding:0 14px calc(30px + var(--safe-bot))}
+header.top{position:sticky;top:0;z-index:20;background:var(--navy);color:#fff;
+  padding:calc(10px + var(--safe-top)) 14px 10px;display:flex;align-items:center;gap:10px}
+header.top .hbtn{font-size:22px;line-height:1;padding:6px 10px;color:#fff;border-radius:10px}
+header.top .hbtn:active{background:rgba(255,255,255,.15)}
+header.top h1{font-size:17px;margin:0;flex:1;font-weight:650;letter-spacing:.2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:16px;margin-top:14px}
+.series-card{display:block;width:100%;text-align:left;border-radius:var(--radius);
+  padding:18px 16px;margin-top:14px;border:1.5px solid;box-shadow:var(--shadow)}
+.series-card:active{transform:scale(.985)}
+.series-card.hsd{background:var(--amber-tint);border-color:var(--amber-line)}
+.series-card.ms{background:var(--green-tint);border-color:var(--green-line)}
+.series-card .sname{font-size:19px;font-weight:800;display:flex;align-items:center;gap:8px}
+.series-card.hsd .sname{color:var(--amber)}
+.series-card.ms .sname{color:var(--green)}
+.series-card .smeta{display:flex;gap:18px;margin-top:8px;font-size:14px;color:var(--txt-2)}
+.series-card .smeta b{display:block;font-size:17px;color:var(--txt);font-variant-numeric:tabular-nums}
+.series-card .cta{margin-top:12px;font-weight:700;font-size:15px}
+.series-card.hsd .cta{color:var(--amber)}
+.series-card.ms .cta{color:var(--green)}
+.sec-title{margin:22px 2px 0;font-size:13px;font-weight:700;color:var(--txt-3);
+  text-transform:uppercase;letter-spacing:.08em}
+.vlist{margin-top:8px}
+.vitem{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:12px 12px;margin-top:8px;display:flex;align-items:center;gap:10px}
+.vitem.exported{opacity:.62}
+.vbadge{font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.vbadge.hsd{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber-line)}
+.vbadge.ms{background:var(--green-tint);color:var(--green);border:1px solid var(--green-line)}
+.vmain{flex:1;min-width:0}
+.vparty{font-weight:650;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vsub{font-size:13px;color:var(--txt-2);font-variant-numeric:tabular-nums}
+.vamt{font-weight:750;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.vdel{font-size:18px;color:var(--txt-3);padding:8px 6px;border-radius:8px}
+.vdel:active{background:var(--red-tint);color:var(--red)}
+.totalbar{display:flex;justify-content:space-between;align-items:center;margin-top:12px;
+  padding:0 4px;font-size:15px;color:var(--txt-2)}
+.totalbar b{font-size:18px;color:var(--txt);font-variant-numeric:tabular-nums}
+.btn{display:block;width:100%;text-align:center;padding:15px;border-radius:14px;
+  font-size:16px;font-weight:750;margin-top:12px}
+.btn:active{transform:scale(.985)}
+.btn.primary{background:var(--orange);color:#fff}
+.btn.navy{background:var(--navy);color:#fff}
+.btn.ghost{background:transparent;border:1.5px solid var(--line);color:var(--txt-2)}
+.btn.danger{background:transparent;border:1.5px solid var(--red);color:var(--red)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.field{margin-top:14px}
+.field label{display:block;font-size:13px;font-weight:700;color:var(--txt-2);margin-bottom:6px}
+.field input[type=text],.field input[type=number],.field input[type=date],.field input[type=search]{
+  width:100%;padding:13px 12px;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--card);font-size:17px;outline:none}
+.field input:focus{border-color:var(--orange)}
+.bignum input{font-size:26px;font-weight:750;text-align:center;font-variant-numeric:tabular-nums}
+.seg{display:flex;background:var(--card);border:1.5px solid var(--line);border-radius:14px;overflow:hidden}
+.seg button{flex:1;padding:13px 6px;font-size:15px;font-weight:700;color:var(--txt-2)}
+.seg button.on{background:var(--navy);color:#fff}
+.plist{max-height:240px;overflow-y:auto;margin-top:8px;border:1.5px solid var(--line);
+  border-radius:12px;background:var(--card)}
+.plist button{display:block;width:100%;text-align:left;padding:12px 12px;font-size:15px;
+  border-bottom:1px solid var(--line)}
+.plist button:last-child{border-bottom:0}
+.plist button.sel{background:var(--orange);color:#fff;font-weight:700}
+.plist .addnew{color:var(--orange);font-weight:700}
+.chip{display:inline-block;background:var(--green-tint);color:var(--green);
+  border:1px solid var(--green-line);border-radius:999px;padding:4px 12px;
+  font-size:14px;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chkrow{display:flex;align-items:center;gap:10px;margin-top:16px;font-size:15px;font-weight:600}
+.chkrow input{width:22px;height:22px;accent-color:var(--orange)}
+.summary{margin-top:16px;border-top:1.5px dashed var(--line);padding-top:10px}
+.summary .row{display:flex;justify-content:space-between;padding:4px 0;font-size:15px;
+  color:var(--txt-2);font-variant-numeric:tabular-nums}
+.summary .row b{color:var(--txt)}
+.summary .row.grand{font-size:18px;font-weight:800;color:var(--txt);border-top:1.5px solid var(--line);
+  margin-top:6px;padding-top:9px}
+.summary .row.grand span{color:var(--txt)}
+.hint{font-size:13px;color:var(--txt-3);margin-top:6px}
+.warn{background:var(--red-tint);color:var(--red);border-radius:10px;padding:10px 12px;
+  font-size:14px;font-weight:600;margin-top:10px;display:none}
+.consts{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.consts td{padding:6px 4px;border-bottom:1px solid var(--line);color:var(--txt-2);vertical-align:top}
+.consts td:last-child{color:var(--txt);font-weight:600;text-align:right;word-break:break-word}
+.empty{color:var(--txt-3);font-size:14px;text-align:center;padding:22px 8px}
+.screen{display:none}
+.screen.on{display:block}
+h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
+.settings-parties .prow{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:15px}
+.settings-parties .prow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(26px + var(--safe-bot));
+  background:var(--navy);color:#fff;padding:11px 18px;border-radius:999px;font-size:14px;
+  font-weight:650;box-shadow:var(--shadow);z-index:50;opacity:0;pointer-events:none;transition:opacity .25s}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <button class="hbtn" id="btnBack" style="display:none" aria-label="Back">‹</button>
+  <h1 id="hdrTitle">Tally Vouchers</h1>
+  <button class="hbtn" id="btnSettings" aria-label="Settings">⚙︎</button>
+</header>
+
+<div class="wrap">
+
+<!-- ======================= HOME ======================= -->
+<section class="screen" id="scrHome">
+  <button class="series-card hsd" id="cardHSD">
+    <div class="sname">⛽ Diesel — HSD CREDIT</div>
+    <div class="smeta">
+      <div>Next invoice no.<b id="hsdNext">—</b></div>
+      <div>Rate ₹/LTR<b id="hsdRate">—</b></div>
+    </div>
+    <div class="cta">+ New diesel voucher</div>
+  </button>
+
+  <button class="series-card ms" id="cardMS">
+    <div class="sname">⛽ Petrol — MS CREDIT</div>
+    <div class="smeta">
+      <div>Next invoice no.<b id="msNext">—</b></div>
+      <div>Rate ₹/LTR<b id="msRate">—</b></div>
+    </div>
+    <div class="cta">+ New petrol voucher</div>
+  </button>
+
+  <div class="sec-title">Pending vouchers</div>
+  <div class="vlist" id="pendingList"></div>
+  <div class="totalbar" id="pendingTotal" style="display:none">
+    <span id="pendingCount"></span><b id="pendingSum"></b>
+  </div>
+  <button class="btn primary" id="btnExport" disabled>⬇ Download XML for Tally</button>
+  <div class="hint" style="text-align:center">Import in Tally Prime: Gateway of Tally → Import Data → Vouchers</div>
+
+  <div id="exportedBlock" style="display:none">
+    <div class="sec-title">Exported — waiting for Tally import</div>
+    <div class="vlist" id="exportedList"></div>
+    <button class="btn ghost" id="btnReExport">⬇ Download exported again</button>
+    <button class="btn danger" id="btnClearExported">✓ Imported in Tally — clear these</button>
+  </div>
+</section>
+
+<!-- ======================= NEW VOUCHER ======================= -->
+<section class="screen" id="scrNew">
+  <div class="card">
+    <div class="field">
+      <label>Invoice number</label>
+      <input type="text" id="fNumber" autocomplete="off">
+      <div class="warn" id="warnDup">⚠️ This invoice number is already in the pending list.</div>
+    </div>
+    <div class="field">
+      <label>Date</label>
+      <input type="date" id="fDate">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="field" style="margin-top:0">
+      <label>Party</label>
+      <div id="fPartySel" style="display:none;margin-bottom:8px">
+        <span class="chip" id="fPartyChip"></span>
+        <button style="color:var(--txt-3);font-size:13px;padding:4px 8px;font-weight:700" id="btnChangeParty">change</button>
+      </div>
+      <input type="search" id="fPartySearch" placeholder="Search party…" autocomplete="off">
+      <div class="plist" id="fPartyList"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="field" style="margin-top:0">
+      <label>Rate (₹ per LTR)</label>
+      <input type="number" id="fRate" inputmode="decimal" step="0.01" min="0">
+    </div>
+    <div class="field">
+      <label>Enter by</label>
+      <div class="seg">
+        <button id="modeAmt">Amount ₹</button>
+        <button id="modeQty">Litres</button>
+      </div>
+    </div>
+    <div class="field bignum">
+      <label id="fValueLabel">Amount (₹)</label>
+      <input type="number" id="fValue" inputmode="decimal" step="any" min="0" placeholder="0">
+    </div>
+    <div class="chkrow">
+      <input type="checkbox" id="fRound" checked>
+      <label for="fRound" style="margin:0;font-size:15px;color:var(--txt)">Round total to whole rupee (R/off)</label>
+    </div>
+    <div class="summary" id="fSummary">
+      <div class="row"><span>Quantity</span><b id="sQty">—</b></div>
+      <div class="row"><span>Item amount</span><b id="sItemAmt">—</b></div>
+      <div class="row" id="sRoffRow" style="display:none"><span>Round-off (R/off)</span><b id="sRoff">—</b></div>
+      <div class="row grand"><span>Party total</span><span id="sTotal">—</span></div>
+    </div>
+  </div>
+
+  <button class="btn primary" id="btnSave">Save voucher</button>
+</section>
+
+<!-- ======================= SETTINGS ======================= -->
+<section class="screen" id="scrSettings">
+  <div class="card">
+    <h2 class="cardtitle">Company</h2>
+    <div class="field">
+      <label>Tally company name (must match exactly)</label>
+      <input type="text" id="setCompany">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="cardtitle">Diesel series (HSD CREDIT)</h2>
+    <div class="field">
+      <label>Last invoice number used</label>
+      <input type="text" id="setHsdLast">
+    </div>
+    <div class="field">
+      <label>Current rate (₹/LTR)</label>
+      <input type="number" id="setHsdRate" inputmode="decimal" step="0.01">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="cardtitle">Petrol series (MS CREDIT)</h2>
+    <div class="field">
+      <label>Last invoice number used</label>
+      <input type="text" id="setMsLast">
+    </div>
+    <div class="field">
+      <label>Current rate (₹/LTR)</label>
+      <input type="number" id="setMsRate" inputmode="decimal" step="0.01">
+    </div>
+  </div>
+
+  <div class="card settings-parties">
+    <h2 class="cardtitle">Parties</h2>
+    <div class="hint" style="margin-top:0">Names must match the Tally ledger exactly (case, spacing, “&amp;”).</div>
+    <div id="setPartyList"></div>
+    <div class="field">
+      <label>Add party</label>
+      <input type="text" id="setPartyNew" placeholder="Exact Tally ledger name">
+    </div>
+    <button class="btn ghost" id="btnAddParty">+ Add party</button>
+  </div>
+
+  <div class="card">
+    <h2 class="cardtitle">Fixed Tally names (read-only)</h2>
+    <table class="consts">
+      <tr><td>HSD voucher type</td><td>HSD CREDIT</td></tr>
+      <tr><td>HSD stock item</td><td>High Speed Diesel</td></tr>
+      <tr><td>HSD sales ledger</td><td>SALE (HSD)</td></tr>
+      <tr><td>MS voucher type</td><td>MS CREDIT</td></tr>
+      <tr><td>MS stock item</td><td>Motor Spirit</td></tr>
+      <tr><td>MS sales ledger</td><td>SALE (MS)</td></tr>
+      <tr><td>Round-off ledger</td><td>R/off</td></tr>
+      <tr><td>Unit</td><td>LTR</td></tr>
+      <tr><td>Godown</td><td>Main Location</td></tr>
+      <tr><td>Batch</td><td>Primary Batch</td></tr>
+    </table>
+  </div>
+
+  <button class="btn navy" id="btnSaveSettings">Save settings</button>
+  <button class="btn danger" id="btnResetApp">Reset app data…</button>
+</section>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============ Pure logic (no DOM) — also unit-testable in Node ============ -->
+<script>
+"use strict";
+
+var TALLY = {
+  defaultCompany: "VRIDDHI FUELS (2026-27)",
+  roundLedger: "R/off",
+  godown: "Main Location",
+  batch: "Primary Batch",
+  unit: "LTR",
+  series: {
+    hsd: { key:"hsd", label:"Diesel",  vchType:"HSD CREDIT", item:"High Speed Diesel", salesLedger:"SALE (HSD)", defLast:"1639",  defRate:100.74 },
+    ms:  { key:"ms",  label:"Petrol",  vchType:"MS CREDIT",  item:"Motor Spirit",      salesLedger:"SALE (MS)",  defLast:"MS319", defRate:109.01 }
+  },
+  defaultParties: [
+    "Animesh Builders",
+    "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+    "Ekdant Logistic",
+    "Ember Coal Beneficiation Private Limited",
+    "EzyPay UPI ICICI",
+    "Fleet Card Posting",
+    "Keshav Minerals",
+    "Orissa Metaliks Private Limited",
+    "Pine Labs Nodal Account",
+    "Simar Infrastructure LTD",
+    "Ss Freight Carrier",
+    "Steels and Carriers Private Limited",
+    "Sudarshan Minerals & Logistics",
+    "Swagat Sundar Mohanty"
+  ]
+};
+
+function r2(n){ return Math.round((n + Number.EPSILON) * 100) / 100; }
+function r3(n){ return Math.round((n + Number.EPSILON) * 1000) / 1000; }
+
+// "1639" -> "1640", "MS319" -> "MS320", preserves prefix and zero-padding.
+function nextNumber(last){
+  var m = String(last || "").match(/^(.*?)(\d+)\s*$/);
+  if (!m) return String(last || "") + "1";
+  var prefix = m[1], digits = m[2];
+  var inc = String(parseInt(digits, 10) + 1);
+  if (inc.length < digits.length) inc = inc.padStart(digits.length, "0");
+  return prefix + inc;
+}
+
+function escXml(s){
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+// mode: "amount" | "qty". Returns {qty, itemAmt, partyAmt, roff}.
+// Amount-driven: itemAmt is the entered amount (Tally accepts qty×rate drift).
+// Derived qty is TRUNCATED to 3dp, matching Tally's own stored values
+// (verified: ₹20,000 @ 100.74 → 198.530 LTR, not 198.531).
+function computeVoucher(mode, value, rate, roundOn){
+  var qty, itemAmt;
+  if (mode === "amount"){
+    itemAmt = r2(value);
+    qty = rate > 0 ? Math.floor((itemAmt / rate) * 1000 + 1e-9) / 1000 : 0;
+  } else {
+    qty = r3(value);
+    itemAmt = r2(qty * rate);
+  }
+  var partyAmt = roundOn ? Math.round(itemAmt) : itemAmt;
+  var roff = r2(partyAmt - itemAmt);
+  return { qty: qty, itemAmt: itemAmt, partyAmt: partyAmt, roff: roff };
+}
+
+function fmtQty(q){ return " " + q.toFixed(3) + " " + TALLY.unit; }
+function fmtAmt(n){ return n.toFixed(2); }
+function dateToTally(iso){ return String(iso).replace(/-/g, ""); } // YYYY-MM-DD -> YYYYMMDD
+
+// v: {seriesKey, number, dateISO, party, rate, qty, itemAmt, partyAmt, roff}
+function buildVoucherXml(v){
+  var s = TALLY.series[v.seriesKey];
+  var party = escXml(v.party);
+  var d = dateToTally(v.dateISO);
+  var qtyS = escXml(fmtQty(v.qty));
+  var x = [];
+  x.push('  <TALLYMESSAGE xmlns:UDF="TallyUDF">');
+  x.push('   <VOUCHER VCHTYPE="' + escXml(s.vchType) + '" ACTION="Create" OBJVIEW="Invoice Voucher View">');
+  x.push('    <DATE>' + d + '</DATE>');
+  x.push('    <EFFECTIVEDATE>' + d + '</EFFECTIVEDATE>');
+  x.push('    <VOUCHERTYPENAME>' + escXml(s.vchType) + '</VOUCHERTYPENAME>');
+  x.push('    <VOUCHERNUMBER>' + escXml(v.number) + '</VOUCHERNUMBER>');
+  x.push('    <PARTYNAME>' + party + '</PARTYNAME>');
+  x.push('    <PARTYLEDGERNAME>' + party + '</PARTYLEDGERNAME>');
+  x.push('    <BASICBASEPARTYNAME>' + party + '</BASICBASEPARTYNAME>');
+  x.push('    <BASICBUYERNAME>' + party + '</BASICBUYERNAME>');
+  x.push('    <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>');
+  x.push('    <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>');
+  x.push('    <ISINVOICE>Yes</ISINVOICE>');
+  // Party ledger: debit = ISDEEMEDPOSITIVE Yes + negative amount
+  x.push('    <LEDGERENTRIES.LIST>');
+  x.push('     <LEDGERNAME>' + party + '</LEDGERNAME>');
+  x.push('     <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>');
+  x.push('     <ISPARTYLEDGER>Yes</ISPARTYLEDGER>');
+  x.push('     <AMOUNT>' + fmtAmt(-v.partyAmt) + '</AMOUNT>');
+  x.push('    </LEDGERENTRIES.LIST>');
+  if (v.roff !== 0){
+    var roffDebit = v.roff < 0;
+    x.push('    <LEDGERENTRIES.LIST>');
+    x.push('     <LEDGERNAME>' + escXml(TALLY.roundLedger) + '</LEDGERNAME>');
+    x.push('     <ISDEEMEDPOSITIVE>' + (roffDebit ? 'Yes' : 'No') + '</ISDEEMEDPOSITIVE>');
+    x.push('     <ISPARTYLEDGER>No</ISPARTYLEDGER>');
+    x.push('     <AMOUNT>' + fmtAmt(v.roff) + '</AMOUNT>');
+    x.push('    </LEDGERENTRIES.LIST>');
+  }
+  x.push('    <ALLINVENTORYENTRIES.LIST>');
+  x.push('     <STOCKITEMNAME>' + escXml(s.item) + '</STOCKITEMNAME>');
+  x.push('     <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>');
+  x.push('     <RATE>' + fmtAmt(v.rate) + '/' + TALLY.unit + '</RATE>');
+  x.push('     <AMOUNT>' + fmtAmt(v.itemAmt) + '</AMOUNT>');
+  x.push('     <ACTUALQTY>' + qtyS + '</ACTUALQTY>');
+  x.push('     <BILLEDQTY>' + qtyS + '</BILLEDQTY>');
+  x.push('     <BATCHALLOCATIONS.LIST>');
+  x.push('      <GODOWNNAME>' + escXml(TALLY.godown) + '</GODOWNNAME>');
+  x.push('      <BATCHNAME>' + escXml(TALLY.batch) + '</BATCHNAME>');
+  x.push('      <AMOUNT>' + fmtAmt(v.itemAmt) + '</AMOUNT>');
+  x.push('      <ACTUALQTY>' + qtyS + '</ACTUALQTY>');
+  x.push('      <BILLEDQTY>' + qtyS + '</BILLEDQTY>');
+  x.push('     </BATCHALLOCATIONS.LIST>');
+  x.push('     <ACCOUNTINGALLOCATIONS.LIST>');
+  x.push('      <LEDGERNAME>' + escXml(s.salesLedger) + '</LEDGERNAME>');
+  x.push('      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>');
+  x.push('      <AMOUNT>' + fmtAmt(v.itemAmt) + '</AMOUNT>');
+  x.push('     </ACCOUNTINGALLOCATIONS.LIST>');
+  x.push('    </ALLINVENTORYENTRIES.LIST>');
+  x.push('   </VOUCHER>');
+  x.push('  </TALLYMESSAGE>');
+  return x.join("\n");
+}
+
+function buildEnvelope(company, vouchers){
+  var x = [];
+  x.push('<?xml version="1.0" encoding="UTF-8"?>');
+  x.push('<ENVELOPE>');
+  x.push(' <HEADER>');
+  x.push('  <TALLYREQUEST>Import Data</TALLYREQUEST>');
+  x.push(' </HEADER>');
+  x.push(' <BODY>');
+  x.push('  <IMPORTDATA>');
+  x.push('   <REQUESTDESC>');
+  x.push('    <REPORTNAME>Vouchers</REPORTNAME>');
+  x.push('    <STATICVARIABLES>');
+  x.push('     <SVCURRENTCOMPANY>' + escXml(company) + '</SVCURRENTCOMPANY>');
+  x.push('    </STATICVARIABLES>');
+  x.push('   </REQUESTDESC>');
+  x.push('   <REQUESTDATA>');
+  for (var i = 0; i < vouchers.length; i++) x.push(buildVoucherXml(vouchers[i]));
+  x.push('   </REQUESTDATA>');
+  x.push('  </IMPORTDATA>');
+  x.push(' </BODY>');
+  x.push('</ENVELOPE>');
+  return x.join("\n");
+}
+
+if (typeof module !== "undefined" && module.exports){
+  module.exports = { TALLY: TALLY, r2: r2, r3: r3, nextNumber: nextNumber, escXml: escXml,
+    computeVoucher: computeVoucher, fmtQty: fmtQty, fmtAmt: fmtAmt,
+    dateToTally: dateToTally, buildVoucherXml: buildVoucherXml, buildEnvelope: buildEnvelope };
+}
+</script>
+
+<!-- ============ App (DOM, state, persistence) ============ -->
+<script>
+"use strict";
+(function(){
+
+var LS_KEY = "vf_tally_v1";
+
+function defaultState(){
+  return {
+    company: TALLY.defaultCompany,
+    series: {
+      hsd: { last: TALLY.series.hsd.defLast, rate: TALLY.series.hsd.defRate },
+      ms:  { last: TALLY.series.ms.defLast,  rate: TALLY.series.ms.defRate }
+    },
+    parties: TALLY.defaultParties.slice(),
+    queue: []   // {id, seriesKey, number, dateISO, party, rate, qty, itemAmt, partyAmt, roff, exportedAt|null}
+  };
+}
+
+var state;
+try {
+  state = JSON.parse(localStorage.getItem(LS_KEY)) || defaultState();
+  if (!state.series || !state.queue || !state.parties) state = defaultState();
+} catch(e){ state = defaultState(); }
+
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+var $ = function(id){ return document.getElementById(id); };
+
+function inr(n){
+  return "₹" + n.toLocaleString("en-IN", {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function todayISO(){
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+var toastTimer;
+function toast(msg){
+  var t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ t.classList.remove("show"); }, 2600);
+}
+
+/* ---------- navigation ---------- */
+var current = "home";
+function show(screen){
+  current = screen;
+  ["scrHome","scrNew","scrSettings"].forEach(function(id){ $(id).classList.remove("on"); });
+  if (screen === "home"){
+    $("scrHome").classList.add("on");
+    $("hdrTitle").textContent = "Tally Vouchers";
+    $("btnBack").style.display = "none";
+    $("btnSettings").style.display = "";
+    renderHome();
+  } else if (screen === "new"){
+    $("scrNew").classList.add("on");
+    $("hdrTitle").textContent = "New " + TALLY.series[draft.seriesKey].vchType + " voucher";
+    $("btnBack").style.display = "";
+    $("btnSettings").style.display = "none";
+  } else {
+    $("scrSettings").classList.add("on");
+    $("hdrTitle").textContent = "Settings";
+    $("btnBack").style.display = "";
+    $("btnSettings").style.display = "none";
+    renderSettings();
+  }
+  window.scrollTo(0, 0);
+}
+
+/* ---------- home ---------- */
+function renderHome(){
+  $("hsdNext").textContent = nextNumber(state.series.hsd.last);
+  $("msNext").textContent  = nextNumber(state.series.ms.last);
+  $("hsdRate").textContent = fmtAmt(state.series.hsd.rate);
+  $("msRate").textContent  = fmtAmt(state.series.ms.rate);
+
+  var pending  = state.queue.filter(function(v){ return !v.exportedAt; });
+  var exported = state.queue.filter(function(v){ return  v.exportedAt; });
+
+  renderList($("pendingList"), pending, false);
+  renderList($("exportedList"), exported, true);
+
+  if (pending.length){
+    var sum = pending.reduce(function(a,v){ return a + v.partyAmt; }, 0);
+    $("pendingTotal").style.display = "";
+    $("pendingCount").textContent = pending.length + " voucher" + (pending.length > 1 ? "s" : "");
+    $("pendingSum").textContent = inr(sum);
+    $("btnExport").disabled = false;
+    $("btnExport").textContent = "⬇ Download XML for Tally (" + pending.length + ")";
+  } else {
+    $("pendingTotal").style.display = "none";
+    $("btnExport").disabled = true;
+    $("btnExport").textContent = "⬇ Download XML for Tally";
+  }
+  $("exportedBlock").style.display = exported.length ? "" : "none";
+}
+
+function renderList(el, items, exported){
+  el.innerHTML = "";
+  if (!items.length && !exported){
+    el.innerHTML = '<div class="empty">No pending vouchers.<br>Tap a card above to create one.</div>';
+    return;
+  }
+  items.forEach(function(v){
+    var row = document.createElement("div");
+    row.className = "vitem" + (exported ? " exported" : "");
+    var badge = document.createElement("span");
+    badge.className = "vbadge " + v.seriesKey;
+    badge.textContent = v.seriesKey === "hsd" ? "HSD" : "MS";
+    var main = document.createElement("div");
+    main.className = "vmain";
+    var p = document.createElement("div");
+    p.className = "vparty";
+    p.textContent = "#" + v.number + " · " + v.party;
+    var sub = document.createElement("div");
+    sub.className = "vsub";
+    sub.textContent = v.dateISO.split("-").reverse().join("/") + " · " + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate)
+      + (exported ? " · exported " + new Date(v.exportedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}) : "");
+    main.appendChild(p); main.appendChild(sub);
+    var amt = document.createElement("div");
+    amt.className = "vamt";
+    amt.textContent = inr(v.partyAmt);
+    row.appendChild(badge); row.appendChild(main); row.appendChild(amt);
+    if (!exported){
+      var del = document.createElement("button");
+      del.className = "vdel";
+      del.textContent = "✕";
+      del.setAttribute("aria-label", "Delete voucher " + v.number);
+      del.onclick = function(){
+        if (confirm("Delete voucher #" + v.number + " (" + v.party + ")?")){
+          state.queue = state.queue.filter(function(q){ return q.id !== v.id; });
+          save(); renderHome();
+        }
+      };
+      row.appendChild(del);
+    }
+    el.appendChild(row);
+  });
+}
+
+function downloadXml(vouchers){
+  var xml = buildEnvelope(state.company, vouchers);
+  var name = "Sales_" + todayISO() + "_" + vouchers.length + "vch.xml";
+  var blob = new Blob([xml], {type: "text/xml;charset=utf-8"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 800);
+  return name;
+}
+
+$("btnExport").onclick = function(){
+  var pending = state.queue.filter(function(v){ return !v.exportedAt; });
+  if (!pending.length) return;
+  var name = downloadXml(pending);
+  var now = Date.now();
+  pending.forEach(function(v){ v.exportedAt = now; });
+  save(); renderHome();
+  toast("Downloaded " + name);
+};
+
+$("btnReExport").onclick = function(){
+  var exported = state.queue.filter(function(v){ return v.exportedAt; });
+  if (!exported.length) return;
+  toast("Downloaded " + downloadXml(exported));
+};
+
+$("btnClearExported").onclick = function(){
+  var exported = state.queue.filter(function(v){ return v.exportedAt; });
+  if (!exported.length) return;
+  if (confirm("Remove " + exported.length + " exported voucher(s) from the app?\n\nOnly do this AFTER a successful import in Tally.")){
+    state.queue = state.queue.filter(function(v){ return !v.exportedAt; });
+    save(); renderHome();
+  }
+};
+
+/* ---------- new voucher ---------- */
+var draft = { seriesKey: "hsd", mode: "amount", party: null };
+
+function openNew(seriesKey){
+  draft = { seriesKey: seriesKey, mode: "amount", party: null };
+  $("fNumber").value = nextNumber(state.series[seriesKey].last);
+  $("fDate").value = todayISO();
+  $("fRate").value = fmtAmt(state.series[seriesKey].rate);
+  $("fValue").value = "";
+  $("fRound").checked = true;
+  $("fPartySearch").value = "";
+  setMode("amount");
+  setParty(null);
+  renderPartyList();
+  checkDup();
+  show("new");
+}
+
+$("cardHSD").onclick = function(){ openNew("hsd"); };
+$("cardMS").onclick  = function(){ openNew("ms"); };
+
+function setMode(mode){
+  draft.mode = mode;
+  $("modeAmt").classList.toggle("on", mode === "amount");
+  $("modeQty").classList.toggle("on", mode === "qty");
+  $("fValueLabel").textContent = mode === "amount" ? "Amount (₹)" : "Quantity (Litres)";
+  renderSummary();
+}
+$("modeAmt").onclick = function(){ setMode("amount"); };
+$("modeQty").onclick = function(){ setMode("qty"); };
+
+function setParty(name){
+  draft.party = name;
+  if (name){
+    $("fPartyChip").textContent = name;
+    $("fPartySel").style.display = "";
+    $("fPartySearch").style.display = "none";
+    $("fPartyList").style.display = "none";
+  } else {
+    $("fPartySel").style.display = "none";
+    $("fPartySearch").style.display = "";
+    $("fPartyList").style.display = "";
+  }
+}
+$("btnChangeParty").onclick = function(){
+  setParty(null);
+  renderPartyList();
+  $("fPartySearch").focus();
+};
+
+function renderPartyList(){
+  var q = $("fPartySearch").value.trim().toLowerCase();
+  var list = $("fPartyList");
+  list.innerHTML = "";
+  var matches = state.parties.filter(function(p){ return p.toLowerCase().indexOf(q) !== -1; });
+  matches.forEach(function(p){
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = p;
+    b.onclick = function(){ setParty(p); renderSummary(); };
+    list.appendChild(b);
+  });
+  var typed = $("fPartySearch").value.trim();
+  var exact = state.parties.some(function(p){ return p === typed; });
+  if (typed && !exact){
+    var add = document.createElement("button");
+    add.type = "button";
+    add.className = "addnew";
+    add.textContent = '+ Add “' + typed + '” as new party';
+    add.onclick = function(){
+      if (!confirm('Add new party “' + typed + '”?\n\nIt must match the Tally ledger name EXACTLY (case, spacing, &).')) return;
+      state.parties.push(typed);
+      state.parties.sort(function(a,b){ return a.localeCompare(b); });
+      save();
+      setParty(typed);
+      renderSummary();
+    };
+    list.appendChild(add);
+  }
+  if (!matches.length && !typed){
+    list.innerHTML = '<div class="empty">No parties yet — type a name to add one.</div>';
+  }
+}
+$("fPartySearch").addEventListener("input", renderPartyList);
+
+function currentCalc(){
+  var rate = parseFloat($("fRate").value);
+  var value = parseFloat($("fValue").value);
+  if (!(rate > 0) || !(value > 0)) return null;
+  return computeVoucher(draft.mode, value, rate, $("fRound").checked);
+}
+
+function renderSummary(){
+  var c = currentCalc();
+  if (!c){
+    $("sQty").textContent = "—";
+    $("sItemAmt").textContent = "—";
+    $("sRoffRow").style.display = "none";
+    $("sTotal").textContent = "—";
+    return;
+  }
+  $("sQty").textContent = c.qty.toFixed(3) + " LTR";
+  $("sItemAmt").textContent = inr(c.itemAmt);
+  if (c.roff !== 0){
+    $("sRoffRow").style.display = "";
+    $("sRoff").textContent = (c.roff > 0 ? "+" : "") + fmtAmt(c.roff);
+  } else {
+    $("sRoffRow").style.display = "none";
+  }
+  $("sTotal").textContent = inr(c.partyAmt);
+}
+["fRate","fValue"].forEach(function(id){ $(id).addEventListener("input", renderSummary); });
+$("fRound").addEventListener("change", renderSummary);
+
+function checkDup(){
+  var n = $("fNumber").value.trim();
+  var dup = n && state.queue.some(function(v){ return v.seriesKey === draft.seriesKey && v.number === n; });
+  $("warnDup").style.display = dup ? "block" : "none";
+  return dup;
+}
+$("fNumber").addEventListener("input", checkDup);
+
+$("btnSave").onclick = function(){
+  var number = $("fNumber").value.trim();
+  if (!number){ toast("Enter an invoice number"); $("fNumber").focus(); return; }
+  if (!draft.party){ toast("Select a party"); return; }
+  var dateISO = $("fDate").value;
+  if (!dateISO){ toast("Pick a date"); $("fDate").focus(); return; }
+  var rate = parseFloat($("fRate").value);
+  if (!(rate > 0)){ toast("Enter a valid rate"); $("fRate").focus(); return; }
+  var c = currentCalc();
+  if (!c){ toast(draft.mode === "amount" ? "Enter the amount" : "Enter the litres"); $("fValue").focus(); return; }
+  if (checkDup() && !confirm("Invoice number " + number + " is already in the pending list. Save anyway?")) return;
+
+  state.queue.push({
+    id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+    seriesKey: draft.seriesKey,
+    number: number,
+    dateISO: dateISO,
+    party: draft.party,
+    rate: r2(rate),
+    qty: c.qty,
+    itemAmt: c.itemAmt,
+    partyAmt: c.partyAmt,
+    roff: c.roff,
+    exportedAt: null
+  });
+  // advance counter to the saved number (manual overrides advance it too) + remember rate
+  state.series[draft.seriesKey].last = number;
+  state.series[draft.seriesKey].rate = r2(rate);
+  save();
+  toast("Saved voucher #" + number);
+  show("home");
+};
+
+/* ---------- settings ---------- */
+function renderSettings(){
+  $("setCompany").value = state.company;
+  $("setHsdLast").value = state.series.hsd.last;
+  $("setHsdRate").value = fmtAmt(state.series.hsd.rate);
+  $("setMsLast").value = state.series.ms.last;
+  $("setMsRate").value = fmtAmt(state.series.ms.rate);
+  var el = $("setPartyList");
+  el.innerHTML = "";
+  state.parties.forEach(function(p, i){
+    var row = document.createElement("div");
+    row.className = "prow";
+    var span = document.createElement("span");
+    span.textContent = p;
+    var del = document.createElement("button");
+    del.className = "vdel";
+    del.textContent = "✕";
+    del.setAttribute("aria-label", "Remove " + p);
+    del.onclick = function(){
+      if (confirm("Remove party “" + p + "”?")){
+        state.parties.splice(i, 1);
+        save(); renderSettings();
+      }
+    };
+    row.appendChild(span); row.appendChild(del);
+    el.appendChild(row);
+  });
+}
+
+$("btnAddParty").onclick = function(){
+  var name = $("setPartyNew").value.trim();
+  if (!name){ toast("Type the party name first"); return; }
+  if (state.parties.indexOf(name) !== -1){ toast("Party already exists"); return; }
+  state.parties.push(name);
+  state.parties.sort(function(a,b){ return a.localeCompare(b); });
+  $("setPartyNew").value = "";
+  save(); renderSettings();
+  toast("Added " + name);
+};
+
+$("btnSaveSettings").onclick = function(){
+  var company = $("setCompany").value.trim();
+  var hsdLast = $("setHsdLast").value.trim();
+  var msLast  = $("setMsLast").value.trim();
+  var hsdRate = parseFloat($("setHsdRate").value);
+  var msRate  = parseFloat($("setMsRate").value);
+  if (!company){ toast("Company name is required"); return; }
+  if (!hsdLast || !msLast){ toast("Last invoice numbers are required"); return; }
+  if (!(hsdRate > 0) || !(msRate > 0)){ toast("Rates must be positive"); return; }
+  state.company = company;
+  state.series.hsd.last = hsdLast;
+  state.series.hsd.rate = r2(hsdRate);
+  state.series.ms.last = msLast;
+  state.series.ms.rate = r2(msRate);
+  save();
+  toast("Settings saved");
+  show("home");
+};
+
+$("btnResetApp").onclick = function(){
+  var word = prompt("This erases ALL app data (queue, counters, parties).\nType RESET to confirm:");
+  if (word === "RESET"){
+    localStorage.removeItem(LS_KEY);
+    state = defaultState();
+    save();
+    toast("App reset");
+    show("home");
+  }
+};
+
+/* ---------- header ---------- */
+$("btnBack").onclick = function(){ show("home"); };
+$("btnSettings").onclick = function(){ show("settings"); };
+
+/* ---------- boot ---------- */
+show("home");
+if ("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+
+})();
+</script>
+</body>
+</html>
