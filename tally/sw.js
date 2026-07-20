@@ -1,5 +1,5 @@
 /* Tally Vouchers — service worker (app-shell cache) */
-const CACHE = "vf-tally-v6";
+const CACHE = "vf-tally-v7";
 const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

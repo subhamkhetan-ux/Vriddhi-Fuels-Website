@@ -182,20 +182,17 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
     <div class="cta">+ New XtraGreen voucher</div>
   </button>
 
-  <div class="sec-title">Pending vouchers</div>
-  <div class="vlist" id="pendingList"></div>
-  <div class="totalbar" id="pendingTotal" style="display:none">
-    <span id="pendingCount"></span><b id="pendingSum"></b>
+  <div class="sec-title">Day's vouchers</div>
+  <div class="field" style="margin-top:8px">
+    <input type="date" id="dayPick">
+  </div>
+  <div class="vlist" id="dayList"></div>
+  <div class="totalbar" id="dayTotal" style="display:none">
+    <span id="dayCount"></span><b id="daySum"></b>
   </div>
   <button class="btn primary" id="btnExport" disabled>⬇ Download XML for Tally</button>
-  <div class="hint" style="text-align:center">Import in Tally Prime: Gateway of Tally → Import Data → Vouchers</div>
-
-  <div id="exportedBlock" style="display:none">
-    <div class="sec-title">Exported — waiting for Tally import</div>
-    <div class="vlist" id="exportedList"></div>
-    <button class="btn ghost" id="btnReExport">⬇ Download exported again</button>
-    <button class="btn danger" id="btnClearExported">✓ Imported in Tally — move to old vouchers</button>
-  </div>
+  <div class="hint" style="text-align:center">The file contains <b>every voucher of the selected day</b> — you can download it again anytime.<br>Import in Tally Prime: Gateway of Tally → Import Data → Vouchers</div>
+  <button class="btn ghost" id="btnMoveDay" style="display:none">✓ Day imported in Tally — move to old vouchers</button>
 
   <div class="sec-title">Records</div>
   <button class="btn ghost" id="btnHistory">🕘 Old vouchers (<span id="histCount">0</span>)</button>
@@ -817,13 +814,13 @@ var LocalBackend = {
     this._save();
     return Promise.resolve();
   },
-  clearExported: function(){
-    state.queue.filter(function(v){ return v.exportedAt; }).forEach(function(v){
+  moveDay: function(day){
+    state.queue.filter(function(v){ return v.dateISO === day; }).forEach(function(v){
       state.history.push({ seriesKey: v.seriesKey, number: v.number, dateISO: v.dateISO,
         party: v.party, vehicle: v.vehicle || "", qty: v.qty, rate: v.rate,
-        amount: v.itemAmt, source: "app" });
+        amount: v.itemAmt, partyAmt: v.partyAmt, roff: v.roff, source: "app" });
     });
-    state.queue = state.queue.filter(function(v){ return !v.exportedAt; });
+    state.queue = state.queue.filter(function(v){ return v.dateISO !== day; });
     state.history.sort(histSort);
     this._save();
     return Promise.resolve();
@@ -932,7 +929,9 @@ var CloudBackend = {
         if (row.status === "history"){
           s.history.push({ seriesKey: row.series, number: row.number, dateISO: row.date,
             party: row.party, vehicle: row.vehicle || "", qty: parseFloat(row.qty),
-            rate: parseFloat(row.rate), amount: parseFloat(row.item_amt), source: row.source });
+            rate: parseFloat(row.rate), amount: parseFloat(row.item_amt),
+            partyAmt: parseFloat(row.party_amt), roff: parseFloat(row.roff),
+            source: row.source });
         } else {
           s.queue.push({ id: row.id, seriesKey: row.series, number: row.number,
             dateISO: row.date, party: row.party, vehicle: row.vehicle || "",
@@ -962,7 +961,7 @@ var CloudBackend = {
   },
   deleteVoucher: function(id){ return this.rpc("tally_delete_voucher", { p_id: id }); },
   markExported: function(ids){ return this.rpc("tally_mark_exported", { p_ids: ids }); },
-  clearExported: function(){ return this.rpc("tally_clear_exported", {}); },
+  moveDay: function(day){ return this.rpc("tally_move_day", { p_date: day }); },
   importDaybook: function(vouchers){
     var self = this;
     var sum = { added: { hsd: 0, ms: 0, xg: 0 }, dupes: 0, newParties: 0 };
@@ -1031,7 +1030,19 @@ function show(screen){
   window.scrollTo(0, 0);
 }
 
-/* ---------- home ---------- */
+/* ---------- home (whole-day view & export) ---------- */
+function selectedDay(){
+  return $("dayPick").value || todayISO();
+}
+// every voucher of the day that belongs in the day's export file:
+// live queue entries + app vouchers already moved to old vouchers
+function dayQueue(day){
+  return state.queue.filter(function(v){ return v.dateISO === day; });
+}
+function dayMoved(day){
+  return state.history.filter(function(v){ return v.dateISO === day && v.source === "app"; });
+}
+
 function renderHome(){
   TALLY.seriesKeys.forEach(function(sk){
     $(sk + "Next").textContent = freeNumber(sk);
@@ -1039,36 +1050,41 @@ function renderHome(){
   });
   $("histCount").textContent = state.history.length;
 
-  var pending  = state.queue.filter(function(v){ return !v.exportedAt; });
-  var exported = state.queue.filter(function(v){ return  v.exportedAt; });
+  if (!$("dayPick").value) $("dayPick").value = todayISO();
+  var day = selectedDay();
+  var live = dayQueue(day);
+  var moved = dayMoved(day);
 
-  renderList($("pendingList"), pending, false);
-  renderList($("exportedList"), exported, true);
+  renderDayList($("dayList"), live, moved);
 
-  if (pending.length){
-    var sum = pending.reduce(function(a,v){ return a + v.partyAmt; }, 0);
-    $("pendingTotal").style.display = "";
-    $("pendingCount").textContent = pending.length + " voucher" + (pending.length > 1 ? "s" : "");
-    $("pendingSum").textContent = inr(sum);
+  var total = live.reduce(function(a,v){ return a + v.partyAmt; }, 0)
+            + moved.reduce(function(a,v){ return a + (v.partyAmt != null ? v.partyAmt : v.amount); }, 0);
+  var n = live.length + moved.length;
+  var dayLabel = day.split("-").reverse().join("/");
+  if (n){
+    $("dayTotal").style.display = "";
+    $("dayCount").textContent = n + " voucher" + (n > 1 ? "s" : "") + " · " + dayLabel;
+    $("daySum").textContent = inr(total);
     $("btnExport").disabled = false;
-    $("btnExport").textContent = "⬇ Download XML for Tally (" + pending.length + ")";
+    $("btnExport").textContent = "⬇ Download XML — " + dayLabel + " (" + n + ")";
   } else {
-    $("pendingTotal").style.display = "none";
+    $("dayTotal").style.display = "none";
     $("btnExport").disabled = true;
-    $("btnExport").textContent = "⬇ Download XML for Tally";
+    $("btnExport").textContent = "⬇ Download XML — " + dayLabel;
   }
-  $("exportedBlock").style.display = exported.length ? "" : "none";
+  $("btnMoveDay").style.display = live.length ? "" : "none";
 }
+$("dayPick").addEventListener("change", renderHome);
 
-function renderList(el, items, exported){
+function renderDayList(el, live, moved){
   el.innerHTML = "";
-  if (!items.length && !exported){
-    el.innerHTML = '<div class="empty">No pending vouchers.<br>Tap a card above to create one.</div>';
+  if (!live.length && !moved.length){
+    el.innerHTML = '<div class="empty">No vouchers on this day yet.<br>Tap a card above to create one.</div>';
     return;
   }
-  items.forEach(function(v){
+  live.forEach(function(v){
     var row = document.createElement("div");
-    row.className = "vitem" + (exported ? " exported" : "");
+    row.className = "vitem";
     var badge = document.createElement("span");
     badge.className = "vbadge " + v.seriesKey;
     badge.textContent = v.seriesKey.toUpperCase();
@@ -1079,47 +1095,64 @@ function renderList(el, items, exported){
     p.textContent = "#" + v.number + " · " + v.party;
     var sub = document.createElement("div");
     sub.className = "vsub";
-    sub.textContent = v.dateISO.split("-").reverse().join("/")
-      + (v.vehicle ? " · " + v.vehicle : "")
-      + " · " + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate)
-      + (exported ? " · exported " + new Date(v.exportedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}) : "");
+    sub.textContent = (v.vehicle ? v.vehicle + " · " : "")
+      + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate)
+      + (v.exportedAt ? " · exported " + new Date(v.exportedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}) : "");
     main.appendChild(p); main.appendChild(sub);
     var amt = document.createElement("div");
     amt.className = "vamt";
     amt.textContent = inr(v.partyAmt);
     row.appendChild(badge); row.appendChild(main); row.appendChild(amt);
-    // tap a saved voucher to edit it (exported ones move back to pending)
+    // tap to edit (re-download the day's XML after changes)
     row.style.cursor = "pointer";
-    row.onclick = function(){
-      if (exported && !confirm("Voucher #" + v.number + " was already exported.\n\nEditing moves it back to pending — download the XML again after saving.")) return;
-      openEdit(v);
+    row.onclick = function(){ openEdit(v); };
+    var edit = document.createElement("button");
+    edit.className = "vdel";
+    edit.textContent = "✎";
+    edit.setAttribute("aria-label", "Edit voucher " + v.number);
+    edit.onclick = function(e){ e.stopPropagation(); openEdit(v); };
+    row.appendChild(edit);
+    var del = document.createElement("button");
+    del.className = "vdel";
+    del.textContent = "✕";
+    del.setAttribute("aria-label", "Delete voucher " + v.number);
+    del.onclick = function(e){
+      e.stopPropagation();
+      if (confirm("Delete voucher #" + v.number + " (" + v.party + ")?"
+          + (v.exportedAt ? "\n\nIt was already exported — also remove it in Tally if imported." : ""))){
+        backend.deleteVoucher(v.id).then(refresh).catch(oops);
+      }
     };
-    if (!exported){
-      var edit = document.createElement("button");
-      edit.className = "vdel";
-      edit.textContent = "✎";
-      edit.setAttribute("aria-label", "Edit voucher " + v.number);
-      edit.onclick = function(e){ e.stopPropagation(); openEdit(v); };
-      row.appendChild(edit);
-      var del = document.createElement("button");
-      del.className = "vdel";
-      del.textContent = "✕";
-      del.setAttribute("aria-label", "Delete voucher " + v.number);
-      del.onclick = function(e){
-        e.stopPropagation();
-        if (confirm("Delete voucher #" + v.number + " (" + v.party + ")?")){
-          backend.deleteVoucher(v.id).then(refresh).catch(oops);
-        }
-      };
-      row.appendChild(del);
-    }
+    row.appendChild(del);
+    el.appendChild(row);
+  });
+  moved.forEach(function(v){
+    var row = document.createElement("div");
+    row.className = "vitem exported";
+    var badge = document.createElement("span");
+    badge.className = "vbadge " + v.seriesKey;
+    badge.textContent = v.seriesKey.toUpperCase();
+    var main = document.createElement("div");
+    main.className = "vmain";
+    var p = document.createElement("div");
+    p.className = "vparty";
+    p.textContent = "#" + v.number + " · " + v.party;
+    var sub = document.createElement("div");
+    sub.className = "vsub";
+    sub.textContent = (v.vehicle ? v.vehicle + " · " : "")
+      + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate) + " · in old vouchers";
+    main.appendChild(p); main.appendChild(sub);
+    var amt = document.createElement("div");
+    amt.className = "vamt";
+    amt.textContent = inr(v.partyAmt != null ? v.partyAmt : v.amount);
+    row.appendChild(badge); row.appendChild(main); row.appendChild(amt);
     el.appendChild(row);
   });
 }
 
-function downloadXml(vouchers){
+function downloadXml(vouchers, day){
   var xml = buildEnvelope(state.company, vouchers);
-  var name = "Sales_" + todayISO() + "_" + vouchers.length + "vch.xml";
+  var name = "Sales_" + day + "_" + vouchers.length + "vch.xml";
   var blob = new Blob([xml], {type: "text/xml;charset=utf-8"});
   var a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -1130,27 +1163,43 @@ function downloadXml(vouchers){
   return name;
 }
 
+// Whole-day export, repeatable any number of times: the file always
+// contains every app voucher of the selected day (live + already moved).
 $("btnExport").onclick = function(){
-  var pending = state.queue.filter(function(v){ return !v.exportedAt; });
-  if (!pending.length) return;
-  var name = downloadXml(pending);
-  backend.markExported(pending.map(function(v){ return v.id; }))
-    .then(refresh)
-    .then(function(){ toast("Downloaded " + name); })
-    .catch(function(e){ toast("Downloaded, but could not mark exported: " + e.message); });
+  var day = selectedDay();
+  var live = dayQueue(day);
+  var moved = dayMoved(day).map(function(v){
+    return { seriesKey: v.seriesKey, number: v.number, dateISO: v.dateISO,
+      party: v.party, vehicle: v.vehicle, rate: v.rate, qty: v.qty,
+      itemAmt: v.amount,
+      partyAmt: v.partyAmt != null ? v.partyAmt : v.amount,
+      roff: v.roff || 0 };
+  });
+  var all = live.concat(moved);
+  if (!all.length) return;
+  all.sort(function(a, b){
+    if (a.seriesKey !== b.seriesKey) return a.seriesKey < b.seriesKey ? -1 : 1;
+    return numPart(a.number) - numPart(b.number);
+  });
+  var name = downloadXml(all, day);
+  if (live.length){
+    backend.markExported(live.map(function(v){ return v.id; }))
+      .then(refresh)
+      .then(function(){ toast("Downloaded " + name); })
+      .catch(function(e){ toast("Downloaded, but could not mark exported: " + e.message); });
+  } else {
+    toast("Downloaded " + name);
+  }
 };
 
-$("btnReExport").onclick = function(){
-  var exported = state.queue.filter(function(v){ return v.exportedAt; });
-  if (!exported.length) return;
-  toast("Downloaded " + downloadXml(exported));
-};
-
-$("btnClearExported").onclick = function(){
-  var exported = state.queue.filter(function(v){ return v.exportedAt; });
-  if (!exported.length) return;
-  if (confirm("Move " + exported.length + " exported voucher(s) to old vouchers?\n\nOnly do this AFTER a successful import in Tally.")){
-    backend.clearExported().then(refresh).catch(oops);
+$("btnMoveDay").onclick = function(){
+  var day = selectedDay();
+  var live = dayQueue(day);
+  if (!live.length) return;
+  if (confirm("Move " + live.length + " voucher(s) of " + day.split("-").reverse().join("/")
+      + " to old vouchers?\n\nOnly do this AFTER a successful import in Tally. "
+      + "The day can still be exported again afterwards.")){
+    backend.moveDay(day).then(refresh).catch(oops);
   }
 };
 
@@ -1464,7 +1513,7 @@ $("btnSave").onclick = function(){
   }).then(function(res){
     toast(draft.editId
       ? (res.wasExported
-          ? "Updated #" + res.number + " — moved back to pending, download the XML again"
+          ? "Updated #" + res.number + " — download the day's XML again"
           : "Updated voucher #" + res.number)
       : "Saved voucher #" + res.number);
     return refresh().then(function(){ show("home"); });

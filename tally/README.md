@@ -81,20 +81,21 @@ nothing.
   when zero; values ≥ ₹1 ask for confirmation (typo guard).
 - **Vehicle number** is exported as `<BASICSHIPVEHICLENO>` plus a
   `Vehicle: …` narration, and shown in lists/search.
-- **Saved vouchers stay editable**: tap any pending voucher (or its ✎) to
-  reopen it in the entry form — it keeps its invoice number, and
+- **Saved vouchers stay editable**: tap any voucher in the day list (or its
+  ✎) to reopen it in the entry form — it keeps its invoice number, and
   amount-driven vouchers reopen amount-driven so resaving changes nothing.
-  Editing an already-exported voucher moves it back to pending (after a
-  confirmation) so the corrected XML gets downloaded again. Switching the
-  product while editing assigns the next number of the new series and frees
-  the old number for reuse — invoice numbering is gap-free: the next number
-  is computed from the numbers actually in use (queue + old vouchers) above
-  the per-series baseline set by import/Settings.
-- **Pending queue → single XML download** (`Sales_YYYY-MM-DD_Nvch.xml`).
-  Exported vouchers are *marked* exported (greyed out, timestamped) rather
-  than deleted, so the file can be re-downloaded if lost; after confirming a
-  successful Tally import the user moves them to Old vouchers. This protects
-  against accidental double-import.
+  Switching the product while editing assigns the next number of the new
+  series and frees the old number for reuse — invoice numbering is gap-free:
+  the next number is computed from the numbers actually in use above the
+  per-series baseline set by import/Settings.
+- **Whole-day, repeatable export**: the home screen shows one day at a time
+  (date picker, default today). "Download XML" always produces the complete
+  file for that day — every app voucher of the date, including ones exported
+  earlier or already moved to old vouchers — and can be downloaded again and
+  again (`Sales_YYYY-MM-DD_Nvch.xml`, vouchers ordered by series + number).
+  Duplicate-import management in Tally is deliberately left to the operator.
+  After a day is confirmed imported, an optional "move day to old vouchers"
+  tidies the list; the day remains exportable afterwards.
 - **Settings**: company name, per-series last invoice no. + today's price
   (to fix counter drift if vouchers were entered directly in Tally), party
   management, and a read-only table of the fixed Tally names.

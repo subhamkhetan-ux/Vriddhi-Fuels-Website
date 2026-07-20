@@ -229,24 +229,31 @@ begin
   end if;
 end $$;
 
+-- Exports are whole-day and repeatable: marking updates the timestamp on
+-- every included voucher, whether or not it was exported before.
 create or replace function public.tally_mark_exported(p_ids uuid[]) returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
   perform _tally_auth();
   update tally_vouchers set status = 'exported', exported_at = now(), updated_at = now()
-    where id = any(p_ids) and status = 'pending';
+    where id = any(p_ids) and status in ('pending','exported');
   get diagnostics n = row_count;
   return n;
 end $$;
 
-create or replace function public.tally_clear_exported() returns int
+drop function if exists public.tally_clear_exported();
+
+-- Optional cleanup after a day is confirmed imported in Tally: move that
+-- day's app vouchers to old vouchers. They remain part of the day's
+-- repeatable export.
+create or replace function public.tally_move_day(p_date date) returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
   perform _tally_auth();
   update tally_vouchers set status = 'history', updated_at = now()
-    where status = 'exported';
+    where date = p_date and status in ('pending','exported');
   get diagnostics n = row_count;
   return n;
 end $$;
@@ -389,7 +396,7 @@ begin
       public.tally_save_voucher(uuid, text, date, text, text, numeric, numeric, numeric, numeric, numeric),
       public.tally_delete_voucher(uuid),
       public.tally_mark_exported(uuid[]),
-      public.tally_clear_exported(),
+      public.tally_move_day(date),
       public.tally_import_daybook(jsonb),
       public.tally_import_master(text[]),
       public.tally_add_party(text),
