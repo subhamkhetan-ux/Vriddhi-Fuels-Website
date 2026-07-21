@@ -342,40 +342,50 @@ begin
 end $$;
 
 -- Bulk-load parsed daybook vouchers (source='tally', status='history').
--- Duplicates (same series+number) are skipped; baselines advance to the
--- highest number seen; rates follow the latest voucher per series.
+-- Tally is the source of truth: a voucher that already exists in the app
+-- with the same series+number is OVERWRITTEN with the daybook's version
+-- (even if it was made in the app and is still pending/exported).
+-- Baselines advance to the highest number seen; rates follow the latest
+-- voucher per series.
 create or replace function public.tally_import_daybook(p_vouchers jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
-  r        jsonb;
-  added    jsonb := '{"hsd":0,"ms":0,"xg":0}'::jsonb;
-  dupes    int := 0;
-  sk       text;
-  new_p    int := 0;
-  best     text;
+  r          jsonb;
+  added      jsonb := '{"hsd":0,"ms":0,"xg":0}'::jsonb;
+  updated    int := 0;
+  sk         text;
+  new_p      int := 0;
+  best       text;
+  v_inserted boolean;
 begin
   perform _tally_auth();
 
   for r in select * from jsonb_array_elements(coalesce(p_vouchers,'[]'::jsonb)) loop
     sk := r->>'seriesKey';
     if sk not in ('hsd','ms','xg') then continue; end if;
-    begin
-      insert into tally_vouchers
-        (series, number, date, party, vehicle, qty, rate, item_amt, party_amt, roff,
-         status, source, created_by)
-      values
-        (sk, r->>'number', (r->>'dateISO')::date, r->>'party',
-         coalesce(r->>'vehicle',''), (r->>'qty')::numeric, (r->>'rate')::numeric,
-         (r->>'amount')::numeric, (r->>'amount')::numeric, 0,
-         'history', 'tally', auth.uid());
+    insert into tally_vouchers
+      (series, number, date, party, vehicle, qty, rate, item_amt, party_amt, roff,
+       status, source, created_by)
+    values
+      (sk, r->>'number', (r->>'dateISO')::date, r->>'party',
+       coalesce(r->>'vehicle',''), (r->>'qty')::numeric, (r->>'rate')::numeric,
+       (r->>'amount')::numeric, (r->>'amount')::numeric, 0,
+       'history', 'tally', auth.uid())
+    on conflict (series, number) do update set
+      date = excluded.date, party = excluded.party, vehicle = excluded.vehicle,
+      qty = excluded.qty, rate = excluded.rate, item_amt = excluded.item_amt,
+      party_amt = excluded.party_amt, roff = excluded.roff,
+      status = 'history', source = 'tally', exported_at = null, updated_at = now()
+    returning (xmax = 0) into v_inserted;
+    if v_inserted then
       added := jsonb_set(added, array[sk], to_jsonb((added->>sk)::int + 1));
-      if not exists (select 1 from tally_parties where name = r->>'party') then
-        insert into tally_parties (name) values (r->>'party') on conflict do nothing;
-        new_p := new_p + 1;
-      end if;
-    exception when unique_violation then
-      dupes := dupes + 1;
-    end;
+    else
+      updated := updated + 1;
+    end if;
+    if not exists (select 1 from tally_parties where name = r->>'party') then
+      insert into tally_parties (name) values (r->>'party') on conflict do nothing;
+      new_p := new_p + 1;
+    end if;
   end loop;
 
   -- advance baselines to the highest number now present
@@ -399,7 +409,7 @@ begin
   ) latest
   where ts.key = latest.key;
 
-  return jsonb_build_object('added', added, 'dupes', dupes, 'newParties', new_p);
+  return jsonb_build_object('added', added, 'updated', updated, 'newParties', new_p);
 end $$;
 
 drop function if exists public.tally_import_master(text[]);

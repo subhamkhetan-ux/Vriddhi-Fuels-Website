@@ -146,7 +146,7 @@ This gives all employees one live shared dataset with instant sync.
 | App loads without a login screen | `tally/config.js` still has placeholders, or the redeploy hasn't finished — hard-refresh after 2 minutes. |
 | Voucher import into Tally rejects/skips rows | Party/ledger name doesn't exist in Tally masters. Names must match EXACTLY (case, spacing, `&`). Create the ledger in Tally first. |
 | New customer walks in | Create the ledger in Tally, export a fresh Master XML and import it again — the app keeps existing customers and adds only the new ones. (Or add the party in the app with the exact same spelling.) |
-| Vouchers were entered directly in Tally | Export a fresh DayBook and import it in the app (duplicates are skipped automatically), or correct "Last invoice number" in Settings. |
+| Vouchers were entered directly in Tally | Export a fresh DayBook and import it in the app — vouchers already in the app are overwritten with Tally's version — or correct "Last invoice number" in Settings. |
 | Old vouchers piling up | **Settings → Auto-clear old vouchers** on — anything older than 2 days is removed on open. Numbering still continues; cleared numbers are never reused. |
 | Start the vouchers over | **Settings → Danger zone → Reset ALL vouchers** (type DELETE). Clears every voucher but keeps customers, prices and numbering. Export to Tally first. |
 | Start the customer list over | **Settings → Danger zone → Reset ALL customers** (type DELETE). Clears the list so you can re-upload a Master XML. Vouchers are untouched. |

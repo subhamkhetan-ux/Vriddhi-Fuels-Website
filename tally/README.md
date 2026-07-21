@@ -65,9 +65,12 @@ nothing.
     `XG CREDIT` vouchers into **Old vouchers**, syncs all three invoice
     counters to the highest number seen, adds any unknown party ledgers, and
     picks up the latest rates. Cancelled and other voucher types (cash,
-    receipts…) are skipped; re-importing the same file is a no-op (duplicates
-    detected per series + number). Uses a plain-text scan rather than a DOM
-    parser, so a full-year ~100 MB daybook imports in about a second.
+    receipts…) are skipped. **Tally is the source of truth**: a voucher
+    already in the app with the same series + number is **overwritten** with
+    the imported version (even an app-made pending one), so re-uploading a
+    fresh daybook reconciles the app to Tally. Uses a plain-text scan rather
+    than a DOM parser, so a full-year ~100 MB daybook imports in about a
+    second.
   - **Masters (ledgers) export**: adds the ledgers under the **Sundry
     Debtors** group (subgroups such as RCP COMPANIES included) to the
     customer list. The merge is **additive** — existing customers are kept

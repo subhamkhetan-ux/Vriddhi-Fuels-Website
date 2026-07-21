@@ -957,15 +957,32 @@ var LocalBackend = {
     return Promise.resolve();
   },
   importDaybook: function(vouchers){
-    var existing = {};
-    state.history.forEach(function(v){ existing[v.seriesKey + "|" + v.number] = 1; });
-    var added = { hsd: 0, ms: 0, xg: 0 }, dupes = 0, newParties = 0;
+    // Tally is the source of truth: a voucher already in the app with the
+    // same series+number is OVERWRITTEN by the daybook's version — whether
+    // it sits in old vouchers or is still an app-made pending/exported one.
+    var histIdx = {};
+    state.history.forEach(function(v, i){ histIdx[v.seriesKey + "|" + v.number] = i; });
+    var queueIdx = {};
+    state.queue.forEach(function(v){ queueIdx[v.seriesKey + "|" + v.number] = v.id; });
+    var added = { hsd: 0, ms: 0, xg: 0 }, updated = 0, newParties = 0;
     var latest = {};
     vouchers.forEach(function(rec){
-      if (existing[rec.seriesKey + "|" + rec.number]){ dupes++; return; }
-      state.history.push(rec);
-      existing[rec.seriesKey + "|" + rec.number] = 1;
-      added[rec.seriesKey]++;
+      var key = rec.seriesKey + "|" + rec.number;
+      if (histIdx[key] != null){
+        state.history[histIdx[key]] = rec;
+        updated++;
+      } else if (queueIdx[key]){
+        var qid = queueIdx[key];
+        state.queue = state.queue.filter(function(q){ return q.id !== qid; });
+        delete queueIdx[key];
+        state.history.push(rec);
+        histIdx[key] = state.history.length - 1;
+        updated++;
+      } else {
+        state.history.push(rec);
+        histIdx[key] = state.history.length - 1;
+        added[rec.seriesKey]++;
+      }
       if (state.parties.indexOf(rec.party) === -1){
         state.parties.push(rec.party); newParties++;
       }
@@ -985,7 +1002,7 @@ var LocalBackend = {
     state.parties.sort(cmp);
     state.history.sort(histSort);
     this._save();
-    return Promise.resolve({ added: added, dupes: dupes, newParties: newParties });
+    return Promise.resolve({ added: added, updated: updated, newParties: newParties });
   },
   importMaster: function(debtors){
     // additive only: add customers not already present, never remove existing.
@@ -1115,14 +1132,14 @@ var CloudBackend = {
   resetParties: function(){ return this.rpc("tally_reset_parties", {}); },
   importDaybook: function(vouchers){
     var self = this;
-    var sum = { added: { hsd: 0, ms: 0, xg: 0 }, dupes: 0, newParties: 0 };
+    var sum = { added: { hsd: 0, ms: 0, xg: 0 }, updated: 0, newParties: 0 };
     var chunks = [];
     for (var i = 0; i < vouchers.length; i += 500) chunks.push(vouchers.slice(i, i + 500));
     return chunks.reduce(function(prev, chunk){
       return prev.then(function(){
         return self.rpc("tally_import_daybook", { p_vouchers: chunk }).then(function(d){
           TALLY.seriesKeys.forEach(function(sk){ sum.added[sk] += (d.added && d.added[sk]) || 0; });
-          sum.dupes += d.dupes || 0;
+          sum.updated += d.updated || 0;
           sum.newParties += d.newParties || 0;
         });
       });
@@ -1391,11 +1408,11 @@ $("fileDaybook").addEventListener("change", function(){
           backend.importDaybook(parsed.vouchers).then(function(sum){
             return refresh().then(function(){
               var total = sum.added.hsd + sum.added.ms + sum.added.xg;
-              if (!total && !sum.dupes)
+              if (!total && !sum.updated)
                 throw new Error("No HSD CREDIT / MS CREDIT / XG CREDIT vouchers were found in this file.");
               alert("Daybook imported ✓\n\n"
                 + "Vouchers added: " + total + " (" + sum.added.hsd + " HSD, " + sum.added.ms + " MS, " + sum.added.xg + " XG)\n"
-                + (sum.dupes ? "Already present (skipped): " + sum.dupes + "\n" : "")
+                + (sum.updated ? "Overwritten with Tally's version: " + sum.updated + "\n" : "")
                 + (parsed.skipped ? "Other/cancelled vouchers skipped: " + parsed.skipped + "\n" : "")
                 + (sum.newParties ? "New parties added: " + sum.newParties + "\n" : "")
                 + "\nNext invoice numbers: " + freeNumber("hsd") + " / " + freeNumber("ms") + " / " + freeNumber("xg")
