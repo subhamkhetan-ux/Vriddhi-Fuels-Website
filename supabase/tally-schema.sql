@@ -317,25 +317,26 @@ begin
 end $$;
 
 -- Danger zone: clear ALL vouchers (numbering baselines are kept so the next
--- number continues where Tally left off).
+-- number continues where Tally left off). The WHERE clause is required by
+-- Supabase's pg_safeupdate guard, which rejects unqualified DELETEs.
 create or replace function public.tally_reset_vouchers() returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
   perform _tally_auth();
   perform _tally_bump_baselines(array(select id from tally_vouchers));
-  delete from tally_vouchers;
+  delete from tally_vouchers where id is not null;
   get diagnostics n = row_count;
   return n;
 end $$;
 
--- Danger zone: clear the whole customer list.
+-- Danger zone: clear the whole customer list. (WHERE required by pg_safeupdate.)
 create or replace function public.tally_reset_parties() returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
   perform _tally_auth();
-  delete from tally_parties;
+  delete from tally_parties where name is not null;
   get diagnostics n = row_count;
   return n;
 end $$;
