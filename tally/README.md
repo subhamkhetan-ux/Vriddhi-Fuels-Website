@@ -88,8 +88,15 @@ nothing.
   "Round off (₹)" field (+ or −) posts to the `R/off` ledger with the correct
   debit/credit sign; party total = amount + round-off. Omitted from the XML
   when zero; values ≥ ₹1 ask for confirmation (typo guard).
-- **Vehicle number** is exported as `<BASICSHIPVEHICLENO>` plus a
-  `Vehicle: …` narration, and shown in lists/search.
+- **Vehicle number** is exported into the company's existing Tally UDF
+  (`UDF:EIVEHNO`, the "Vehicle No" field at the top of the voucher screen —
+  exact structure copied from the real daybook), and shown in lists/search.
+- **Party GST details in every export**: each voucher carries the party's
+  `PARTYGSTIN`, registration type, state, place of supply, pincode and the
+  consignee fields (plus the company's GST identity), sourced from the
+  party's ledger in the Master import — so GSTR reports classify the sale
+  correctly. Parties without a GSTIN are emitted as Unregistered/Consumer,
+  matching how Tally itself records them.
 - **Saved vouchers stay editable**: tap any voucher in the day list (or its
   ✎) to reopen it in the entry form — it keeps its invoice number, and
   amount-driven vouchers reopen amount-driven so resaving changes nothing.

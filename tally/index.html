@@ -411,6 +411,10 @@ var TALLY = {
   godown: "Main Location",
   batch: "Primary Batch",
   unit: "LTR",
+  // Company GST identity (verified from the client's real daybook)
+  companyGstin: "21AATFV8250A1Z8",
+  gstRegistrationName: "Odisha Registration",
+  companyState: "Odisha",
   series: {
     hsd: { key:"hsd", label:"Diesel",    vchType:"HSD CREDIT", item:"High Speed Diesel", salesLedger:"SALE (HSD)", defLast:"1639",  defRate:100.74 },
     ms:  { key:"ms",  label:"Petrol",    vchType:"MS CREDIT",  item:"Motor Spirit",      salesLedger:"SALE (MS)",  defLast:"MS319", defRate:109.01 },
@@ -538,30 +542,52 @@ function sanitizeTallyXml(s){
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
 }
 
-// v: {seriesKey, number, dateISO, party, vehicle?, rate, qty, itemAmt, partyAmt, roff}
+// v: {seriesKey, number, dateISO, party, vehicle?, rate, qty, itemAmt, partyAmt, roff, gst?}
+// v.gst (from the party's Tally master): {gstin, regType, state, place, pincode, country}
+// Party GST details are emitted so GST reports classify the sale correctly;
+// registered parties get PARTYGSTIN/CONSIGNEEGSTIN, unregistered ones the
+// same structure without GSTIN — both verified against the real daybook.
 function buildVoucherXml(v){
   var s = TALLY.series[v.seriesKey];
   var party = escXml(v.party);
   var d = dateToTally(v.dateISO);
   var qtyS = escXml(fmtQty(v.qty));
+  var g = v.gst || {};
+  var regType = g.regType || "Unregistered/Consumer";
+  var pState  = g.state || TALLY.companyState;
+  var place   = g.place || pState;
+  var country = g.country || "India";
   var x = [];
   x.push('  <TALLYMESSAGE xmlns:UDF="TallyUDF">');
   x.push('   <VOUCHER VCHTYPE="' + escXml(s.vchType) + '" ACTION="Create" OBJVIEW="Invoice Voucher View">');
   x.push('    <DATE>' + d + '</DATE>');
   x.push('    <EFFECTIVEDATE>' + d + '</EFFECTIVEDATE>');
+  x.push('    <GSTREGISTRATIONTYPE>' + escXml(regType) + '</GSTREGISTRATIONTYPE>');
+  x.push('    <STATENAME>' + escXml(pState) + '</STATENAME>');
+  x.push('    <COUNTRYOFRESIDENCE>' + escXml(country) + '</COUNTRYOFRESIDENCE>');
+  if (g.gstin) x.push('    <PARTYGSTIN>' + escXml(g.gstin) + '</PARTYGSTIN>');
+  x.push('    <PLACEOFSUPPLY>' + escXml(place) + '</PLACEOFSUPPLY>');
   x.push('    <VOUCHERTYPENAME>' + escXml(s.vchType) + '</VOUCHERTYPENAME>');
   x.push('    <VOUCHERNUMBER>' + escXml(v.number) + '</VOUCHERNUMBER>');
   x.push('    <PARTYNAME>' + party + '</PARTYNAME>');
+  x.push('    <GSTREGISTRATION TAXTYPE="GST" TAXREGISTRATION="' + escXml(TALLY.companyGstin) + '">'
+    + escXml(TALLY.gstRegistrationName) + '</GSTREGISTRATION>');
+  x.push('    <CMPGSTIN>' + escXml(TALLY.companyGstin) + '</CMPGSTIN>');
   x.push('    <PARTYLEDGERNAME>' + party + '</PARTYLEDGERNAME>');
+  x.push('    <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>');
+  x.push('    <PARTYMAILINGNAME>' + party + '</PARTYMAILINGNAME>');
+  if (g.pincode) x.push('    <PARTYPINCODE>' + escXml(g.pincode) + '</PARTYPINCODE>');
+  if (g.gstin) x.push('    <CONSIGNEEGSTIN>' + escXml(g.gstin) + '</CONSIGNEEGSTIN>');
+  x.push('    <CONSIGNEEMAILINGNAME>' + party + '</CONSIGNEEMAILINGNAME>');
+  if (g.pincode) x.push('    <CONSIGNEEPINCODE>' + escXml(g.pincode) + '</CONSIGNEEPINCODE>');
+  x.push('    <CONSIGNEESTATENAME>' + escXml(pState) + '</CONSIGNEESTATENAME>');
+  x.push('    <CMPGSTSTATE>' + escXml(TALLY.companyState) + '</CMPGSTSTATE>');
+  x.push('    <CONSIGNEECOUNTRYNAME>' + escXml(country) + '</CONSIGNEECOUNTRYNAME>');
   x.push('    <BASICBASEPARTYNAME>' + party + '</BASICBASEPARTYNAME>');
   x.push('    <BASICBUYERNAME>' + party + '</BASICBUYERNAME>');
   x.push('    <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>');
   x.push('    <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>');
   x.push('    <ISINVOICE>Yes</ISINVOICE>');
-  if (v.vehicle){
-    x.push('    <BASICSHIPVEHICLENO>' + escXml(v.vehicle) + '</BASICSHIPVEHICLENO>');
-    x.push('    <NARRATION>Vehicle: ' + escXml(v.vehicle) + '</NARRATION>');
-  }
   // Party ledger: debit = ISDEEMEDPOSITIVE Yes + negative amount
   x.push('    <LEDGERENTRIES.LIST>');
   x.push('     <LEDGERNAME>' + party + '</LEDGERNAME>');
@@ -598,6 +624,13 @@ function buildVoucherXml(v){
   x.push('      <AMOUNT>' + fmtAmt(v.itemAmt) + '</AMOUNT>');
   x.push('     </ACCOUNTINGALLOCATIONS.LIST>');
   x.push('    </ALLINVENTORYENTRIES.LIST>');
+  if (v.vehicle){
+    // Vehicle No goes into the company's existing User Defined Field
+    // (UDF:EIVEHNO — exact structure copied from the real daybook export)
+    x.push('    <UDF:EIVEHNO.LIST DESC="`EiVehNo`" ISLIST="YES" TYPE="String" INDEX="120">');
+    x.push('     <UDF:EIVEHNO DESC="`EiVehNo`">' + escXml(v.vehicle) + '</UDF:EIVEHNO>');
+    x.push('    </UDF:EIVEHNO.LIST>');
+  }
   x.push('   </VOUCHER>');
   x.push('  </TALLYMESSAGE>');
   return x.join("\n");
@@ -645,7 +678,7 @@ function parseDaybookText(text){
     var dateISO = tallyToDate(xmlTag(body, "DATE"));
     var party = xmlTag(body, "PARTYLEDGERNAME") || xmlTag(body, "PARTYNAME");
     if (!number || !dateISO || !party){ skipped++; continue; }
-    var vehicle = xmlTag(body, "BASICSHIPVEHICLENO");
+    var vehicle = xmlTag(body, "UDF:EIVEHNO") || xmlTag(body, "BASICSHIPVEHICLENO");
     var qty = 0, rate = 0, amount = 0;
     var i0 = body.indexOf("<ALLINVENTORYENTRIES.LIST>");
     if (i0 !== -1){
@@ -661,8 +694,9 @@ function parseDaybookText(text){
   return { vouchers: out, skipped: skipped };
 }
 
-// Master (ledgers): return ledger names under the Sundry Debtors group
-// (including subgroups, e.g. RCP COMPANIES).
+// Master (ledgers): return the ledgers under the Sundry Debtors group
+// (including subgroups, e.g. RCP COMPANIES), each with its GST details so
+// exported vouchers carry the right party GST information.
 function parseMasterText(text){
   var groups = {}, ledgers = [];
   var re = /<(GROUP|LEDGER)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
@@ -672,8 +706,28 @@ function parseMasterText(text){
     var name = xmlAttr(open, "NAME") || xmlTag(body, "NAME");
     if (!name) continue;
     var parent = xmlTag(body, "PARENT");
-    if (kind === "GROUP") groups[name] = parent;
-    else ledgers.push({ name: name, parent: parent });
+    if (kind === "GROUP"){ groups[name] = parent; continue; }
+    // GST registration details (last block = latest APPLICABLEFROM)
+    var regType = "", state = "", place = "";
+    var gd = body.match(/<LEDGSTREGDETAILS\.LIST(?:\s[^>]*)?>[\s\S]*?<\/LEDGSTREGDETAILS\.LIST>/g);
+    if (gd && gd.length){
+      var last = gd[gd.length - 1];
+      regType = xmlTag(last, "GSTREGISTRATIONTYPE");
+      state   = xmlTag(last, "STATE");
+      place   = xmlTag(last, "PLACEOFSUPPLY");
+    }
+    // mailing details: state/country/pincode fallbacks
+    var md = body.match(/<LEDMAILINGDETAILS\.LIST(?:\s[^>]*)?>[\s\S]*?<\/LEDMAILINGDETAILS\.LIST>/);
+    var country = "", pincode = "";
+    if (md){
+      if (!state) state = xmlTag(md[0], "STATE");
+      country = xmlTag(md[0], "COUNTRY");
+      pincode = xmlTag(md[0], "PINCODE");
+    }
+    if (!pincode) pincode = xmlTag(body, "PINCODE");
+    ledgers.push({ name: name, parent: parent,
+      gstin: xmlTag(body, "GSTIN"), regType: regType, state: state,
+      place: place, pincode: pincode, country: country });
   }
   function underSundryDebtors(g){
     var seen = {};
@@ -688,8 +742,11 @@ function parseMasterText(text){
     groupCount: Object.keys(groups).length,
     ledgerCount: ledgers.length,
     debtors: ledgers.filter(function(l){ return underSundryDebtors(l.parent); })
-      .map(function(l){ return l.name; })
-      .sort(function(a,b){ return a.localeCompare(b); })
+      .map(function(l){
+        return { name: l.name, gstin: l.gstin, regType: l.regType,
+          state: l.state, place: l.place, pincode: l.pincode, country: l.country };
+      })
+      .sort(function(a,b){ return a.name.localeCompare(b.name); })
   };
 }
 
@@ -734,6 +791,7 @@ function defaultState(){
       xg:  { last: TALLY.series.xg.defLast,  rate: TALLY.series.xg.defRate }
     },
     parties: TALLY.defaultParties.slice(),
+    partyGst: {},     // { name: {gstin, regType, state, place, pincode, country} } from Master import
     autoClear: false, // when true, vouchers older than 2 days are cleared on open
     queue: [],   // {id, seriesKey, number, dateISO, party, vehicle, rate, qty, itemAmt, partyAmt, roff, exportedAt|null}
     history: []  // {seriesKey, number, dateISO, party, vehicle, qty, rate, amount, source:'tally'|'app'}
@@ -784,6 +842,12 @@ function freeNumber(seriesKey){
   return n;
 }
 
+// GST details for a party (from the Master import); null → builder emits
+// the unregistered-consumer defaults, same as Tally does
+function gstFor(name){
+  return (state.partyGst && state.partyGst[name]) || null;
+}
+
 // Advance a series' baseline to `number` when it is higher, so a number that
 // has been exported/locked is never handed out again even after its voucher
 // is cleared. (Local mode; cloud does this in the RPCs.)
@@ -803,6 +867,7 @@ var LocalBackend = {
       s = JSON.parse(localStorage.getItem(LS_KEY)) || defaultState();
       if (!s.series || !s.queue || !s.parties) s = defaultState();
       if (!s.history) s.history = [];
+      if (!s.partyGst) s.partyGst = {};
       if (typeof s.autoClear !== "boolean") s.autoClear = false;
       if (!s.series.xg) s.series.xg = { last: TALLY.series.xg.defLast, rate: TALLY.series.xg.defRate };
     } catch(e){ s = defaultState(); }
@@ -887,6 +952,7 @@ var LocalBackend = {
   },
   resetParties: function(){
     state.parties = [];
+    state.partyGst = {};
     this._save();
     return Promise.resolve();
   },
@@ -921,12 +987,19 @@ var LocalBackend = {
     this._save();
     return Promise.resolve({ added: added, dupes: dupes, newParties: newParties });
   },
-  importMaster: function(names){
-    // additive only: add customers not already present, never remove existing
+  importMaster: function(debtors){
+    // additive only: add customers not already present, never remove existing.
+    // GST details are refreshed for every debtor in the file (existing too).
     var have = {};
     state.parties.forEach(function(p){ have[p] = 1; });
     var addedN = 0;
-    names.forEach(function(p){ if (!have[p]){ have[p] = 1; state.parties.push(p); addedN++; } });
+    if (!state.partyGst) state.partyGst = {};
+    debtors.forEach(function(d){
+      if (!have[d.name]){ have[d.name] = 1; state.parties.push(d.name); addedN++; }
+      state.partyGst[d.name] = { gstin: d.gstin || "", regType: d.regType || "",
+        state: d.state || "", place: d.place || "", pincode: d.pincode || "",
+        country: d.country || "" };
+    });
     state.parties.sort(cmp);
     this._save();
     return Promise.resolve({ added: addedN, removed: 0, total: state.parties.length });
@@ -941,6 +1014,7 @@ var LocalBackend = {
   },
   removeParty: function(name){
     state.parties = state.parties.filter(function(p){ return p !== name; });
+    if (state.partyGst) delete state.partyGst[name];
     this._save();
     return Promise.resolve();
   },
@@ -969,7 +1043,7 @@ var CloudBackend = {
     var c = this.client;
     var pSettings = c.from("tally_settings").select("company,auto_clear").eq("id", 1).single();
     var pSeries   = c.from("tally_series").select("*");
-    var pParties  = c.from("tally_parties").select("name").order("name");
+    var pParties  = c.from("tally_parties").select("name,gstin,reg_type,state,place_of_supply,pincode,country").order("name");
     function fetchVouchers(acc, from){
       return c.from("tally_vouchers").select("*").range(from, from + 999).then(function(page){
         if (page.error) throw new Error(page.error.message);
@@ -989,6 +1063,14 @@ var CloudBackend = {
         s.series[row.key] = { last: row.baseline, rate: parseFloat(row.rate) };
       });
       s.parties = (r[2].data || []).map(function(row){ return row.name; });
+      s.partyGst = {};
+      (r[2].data || []).forEach(function(row){
+        if (row.gstin || row.reg_type || row.state){
+          s.partyGst[row.name] = { gstin: row.gstin || "", regType: row.reg_type || "",
+            state: row.state || "", place: row.place_of_supply || "",
+            pincode: row.pincode || "", country: row.country || "" };
+        }
+      });
       s.queue = []; s.history = [];
       r[3].forEach(function(row){
         if (row.status === "history"){
@@ -1046,7 +1128,7 @@ var CloudBackend = {
       });
     }, Promise.resolve()).then(function(){ return sum; });
   },
-  importMaster: function(names){ return this.rpc("tally_import_master", { p_names: names }); },
+  importMaster: function(debtors){ return this.rpc("tally_import_master", { p_parties: debtors }); },
   addParty: function(name){ return this.rpc("tally_add_party", { p_name: name }); },
   removeParty: function(name){ return this.rpc("tally_remove_party", { p_name: name }); },
   saveSettings: function(company, vals){
@@ -1255,7 +1337,10 @@ $("btnExport").onclick = function(){
       partyAmt: v.partyAmt != null ? v.partyAmt : v.amount,
       roff: v.roff || 0 };
   });
-  var all = live.concat(moved);
+  var all = live.concat(moved).map(function(v){
+    // attach the party's GST details (from the Master import) for the XML
+    return Object.assign({}, v, { gst: gstFor(v.party) });
+  });
   if (!all.length) return;
   all.sort(function(a, b){
     if (a.seriesKey !== b.seriesKey) return a.seriesKey < b.seriesKey ? -1 : 1;

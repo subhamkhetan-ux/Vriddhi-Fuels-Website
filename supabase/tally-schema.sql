@@ -37,8 +37,21 @@ create table if not exists public.tally_series (
 );
 
 create table if not exists public.tally_parties (
-  name text primary key
+  name            text primary key,
+  gstin           text,   -- party GST details (from the Master import) so
+  reg_type        text,   -- exported vouchers carry correct GST information
+  state           text,
+  place_of_supply text,
+  pincode         text,
+  country         text
 );
+-- add the columns if an earlier version of this table already exists
+alter table public.tally_parties add column if not exists gstin           text;
+alter table public.tally_parties add column if not exists reg_type        text;
+alter table public.tally_parties add column if not exists state           text;
+alter table public.tally_parties add column if not exists place_of_supply text;
+alter table public.tally_parties add column if not exists pincode         text;
+alter table public.tally_parties add column if not exists country         text;
 
 create table if not exists public.tally_vouchers (
   id          uuid primary key default gen_random_uuid(),
@@ -388,21 +401,39 @@ begin
   return jsonb_build_object('added', added, 'dupes', dupes, 'newParties', new_p);
 end $$;
 
+drop function if exists public.tally_import_master(text[]);
+
 -- Additive merge: add the master's Sundry Debtors that are not already in the
--- list; existing customers are never removed (re-upload only adds the new ones).
-create or replace function public.tally_import_master(p_names text[]) returns jsonb
+-- list; existing customers are never removed (re-upload only adds new ones).
+-- GST details are refreshed for every debtor in the file, existing included.
+-- p_parties: jsonb array of {name, gstin, regType, state, place, pincode, country}
+create or replace function public.tally_import_master(p_parties jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare added int;
 begin
   perform _tally_auth();
-  if p_names is null or array_length(p_names, 1) is null then
+  if p_parties is null or jsonb_array_length(p_parties) = 0 then
     raise exception 'No customers in list';
   end if;
 
-  insert into tally_parties (name)
-    select distinct unnest(p_names)
-  on conflict do nothing;
-  get diagnostics added = row_count;
+  with src as (
+    select distinct on (x->>'name')
+      x->>'name' as name, nullif(x->>'gstin','') as gstin,
+      nullif(x->>'regType','') as reg_type, nullif(x->>'state','') as state,
+      nullif(x->>'place','') as place_of_supply,
+      nullif(x->>'pincode','') as pincode, nullif(x->>'country','') as country
+    from jsonb_array_elements(p_parties) x
+    where coalesce(x->>'name','') <> ''
+  ), ins as (
+    insert into tally_parties as tp (name, gstin, reg_type, state, place_of_supply, pincode, country)
+      select name, gstin, reg_type, state, place_of_supply, pincode, country from src
+    on conflict (name) do update set
+      gstin = excluded.gstin, reg_type = excluded.reg_type, state = excluded.state,
+      place_of_supply = excluded.place_of_supply, pincode = excluded.pincode,
+      country = excluded.country
+    returning (xmax = 0) as inserted
+  )
+  select count(*) filter (where inserted) into added from ins;
 
   return jsonb_build_object('added', added, 'removed', 0,
     'total', (select count(*) from tally_parties));
@@ -466,7 +497,7 @@ begin
       public.tally_reset_vouchers(),
       public.tally_reset_parties(),
       public.tally_import_daybook(jsonb),
-      public.tally_import_master(text[]),
+      public.tally_import_master(jsonb),
       public.tally_add_party(text),
       public.tally_remove_party(text),
       public.tally_save_settings(text, jsonb)
