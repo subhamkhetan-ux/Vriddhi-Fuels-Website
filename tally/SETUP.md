@@ -84,7 +84,11 @@ This gives all employees one live shared dataset with instant sync.
 > **Adding customers later.** When new customers come, add their ledgers in
 > Tally, export a fresh **Master XML**, and import it again. The app is
 > additive — it **keeps all existing customers and adds only the new ones**,
-> so re-uploading the whole file is always safe.
+> so re-uploading the whole file is always safe. Each import also refreshes
+> every customer's **GST details** (GSTIN, registration type, state, place
+> of supply), which the app puts into the exported vouchers so GST reports
+> in Tally come out correct. If a customer's GSTIN changes in Tally, just
+> re-upload the master.
 
 > **Keeping the setup lean (optional).** In **Settings → Auto-clear old
 > vouchers**, turn the switch on if you export to Tally every day. Vouchers
