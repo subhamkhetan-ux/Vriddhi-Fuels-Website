@@ -99,8 +99,21 @@
   .cham .badge{width:44px;height:44px;border-radius:12px;background:var(--navy);color:#fff;font-weight:900;font-size:18px;display:flex;align-items:center;justify-content:center;flex:none}
   .cham .cn{font-weight:800;font-size:17px}
   .cham .cd{font-size:12px;color:var(--muted)}
+  .cham .cap-tag{margin-left:auto;font-size:13px;font-weight:800;color:var(--muted);white-space:nowrap}
   .cham .warn{color:var(--red);font-weight:700;font-size:12px;margin-top:2px;display:none}
   .cham.over .warn{display:block}
+  /* progress bar */
+  .bar{height:14px;border-radius:8px;background:#e6eaf1;overflow:hidden;margin:2px 0 8px}
+  .bar.lg{height:20px;border-radius:10px;background:rgba(255,255,255,.22);margin:8px 0 6px}
+  .bar .fill{height:100%;width:0%;background:var(--green);border-radius:8px;transition:width .18s ease}
+  .bar.lg .fill{background:#37d67a}
+  .cham.over .bar .fill{background:var(--red)}
+  .lr{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:15px}
+  .lr .loaded b{color:var(--green-d);font-weight:900;font-size:18px}
+  .lr .left b{color:var(--navy);font-weight:900;font-size:18px}
+  .lr .over-txt{color:var(--red);font-weight:800;display:none}
+  .cham.over .lr .left{display:none}
+  .cham.over .lr .over-txt{display:inline}
   .qtyrow{display:flex;gap:8px;align-items:stretch}
   .qtyrow input{
     flex:1;min-width:0;font-size:30px;font-weight:900;text-align:center;color:var(--navy);
@@ -114,9 +127,11 @@
   .qbtn:active{transform:translateY(1px)}
 
   .runtot{position:sticky;bottom:0;background:linear-gradient(#eef1f6cc,#eef1f6);padding-top:8px}
-  .runbar{background:var(--navy);color:#fff;border-radius:16px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow);margin-bottom:10px}
-  .runbar .l{font-size:13px;opacity:.8;font-weight:700}
-  .runbar .n{font-size:26px;font-weight:900}
+  .sumbar{background:var(--navy);color:#fff;border-radius:16px;padding:14px 16px;box-shadow:var(--shadow);margin-bottom:10px}
+  .sumrow{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:700}
+  .sumrow .s-load b{font-size:24px;font-weight:900;color:#37d67a}
+  .sumrow .s-left b{font-size:24px;font-weight:900;color:#ffd27a}
+  .sumcap{text-align:center;font-size:12px;opacity:.75;font-weight:600}
 
   /* Confirm */
   .confbox{background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--shadow);margin-bottom:14px}
@@ -164,7 +179,7 @@
     <img src="../Vriddhi%20Fuels%20Logo.png" alt="Vriddhi Fuels" onerror="this.style.display='none'"/>
     <div style="flex:1">
       <div class="t">Tanker Loading</div>
-      <div class="s" id="subT">टैंकर में डीज़ल भरने का हिसाब</div>
+      <div class="s" id="subT">Diesel loading record</div>
     </div>
     <button class="installbtn" id="installBtn" style="display:none">Install</button>
   </header>
@@ -174,11 +189,11 @@
     <section class="screen on" id="scHome">
       <button class="big" id="newBtn">
         <span class="em">⛽</span>
-        <span>New Loading<span class="hi">नई भराई शुरू करें</span></span>
+        <span>New Loading</span>
       </button>
 
       <div class="stat">
-        <div class="label">Today loaded / आज भरा</div>
+        <div class="label">Today loaded</div>
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
         <div class="sub"><span id="todayCnt">0</span> loadings today</div>
       </div>
@@ -188,7 +203,7 @@
         <div class="mini"><div class="n" id="allCnt">0</div><div class="l" id="allCntL">Loadings</div></div>
       </div>
 
-      <div class="sectitle">Recent / हाल की भराई
+      <div class="sectitle">Recent
         <button class="lnk" id="toHist">View all ›</button>
       </div>
       <div id="recentList"></div>
@@ -199,7 +214,7 @@
 
     <!-- PICK VEHICLE -->
     <section class="screen" id="scPick">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Which tanker? / कौन सी गाड़ी?</div>
+      <div class="sectitle" style="font-size:18px;justify-content:center">Step 1 — Choose the tanker</div>
       <div id="vList"></div>
     </section>
 
@@ -207,23 +222,30 @@
     <section class="screen" id="scQty">
       <div class="vhead">
         <div class="pl" id="qPlate">—</div>
-        <div class="cap">Type litres in each chamber you filled · जितना भरा वो लिखें</div>
+        <div class="cap">Step 2 — Type how many litres you loaded into each chamber</div>
       </div>
       <div id="chamList"></div>
       <div class="runtot">
-        <div class="runbar"><span class="l">TOTAL / कुल</span><span class="n"><span id="qRun">0</span> L</span></div>
+        <div class="sumbar">
+          <div class="sumrow">
+            <span class="s-load">Loaded <b id="sumLoaded">0</b> L</span>
+            <span class="s-left">Left <b id="sumLeft">0</b> L</span>
+          </div>
+          <div class="bar lg"><div class="fill" id="sumFill" style="width:0%"></div></div>
+          <div class="sumcap">of <span id="sumCap">0</span> L full tanker</div>
+        </div>
         <button class="big green" id="reviewBtn" style="margin-bottom:6px">
-          <span class="em">✓</span><span>Save<span class="hi">आगे बढ़ें</span></span>
+          <span class="em">✓</span><span>Save</span>
         </button>
       </div>
     </section>
 
     <!-- CONFIRM -->
     <section class="screen" id="scConf">
-      <div class="sectitle" style="justify-content:center">Check &amp; save / जाँच कर सेव करें</div>
+      <div class="sectitle" style="justify-content:center">Step 3 — Check &amp; save</div>
       <div class="confbox" id="confBox"></div>
-      <button class="big green" id="saveBtn"><span class="em">✓</span><span>Confirm &amp; Save<span class="hi">पक्का सेव करें</span></span></button>
-      <button class="big navy" id="editBtn" style="background:#8894ad"><span>‹ Edit / बदलें</span></button>
+      <button class="big green" id="saveBtn"><span class="em">✓</span><span>Confirm &amp; Save</span></button>
+      <button class="big navy" id="editBtn" style="background:#8894ad"><span>‹ Edit</span></button>
     </section>
 
     <!-- HISTORY -->
@@ -245,11 +267,11 @@
   <div class="loginbox">
     <img src="../Vriddhi%20Fuels%20Logo.png" alt="Vriddhi Fuels" onerror="this.style.display='none'"/>
     <h1>Tanker Loading</h1>
-    <div class="lsub">Sign in / साइन इन करें</div>
-    <input id="loginUser" placeholder="Username / यूज़रनेम" autocapitalize="off" autocorrect="off" autocomplete="username" spellcheck="false" />
-    <input id="loginPass" type="password" placeholder="Password / पासवर्ड" autocomplete="current-password" />
+    <div class="lsub">Sign in</div>
+    <input id="loginUser" placeholder="Username" autocapitalize="off" autocorrect="off" autocomplete="username" spellcheck="false" />
+    <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password" />
     <div class="lerr" id="loginErr"></div>
-    <button class="big green" id="btnLogin" style="margin-bottom:0"><span>Sign in / साइन इन</span></button>
+    <button class="big green" id="btnLogin" style="margin-bottom:0"><span>Sign in</span></button>
   </div>
 </div>
 
@@ -286,8 +308,8 @@ function pad(n){ return n<10?"0"+n:""+n; }
 function dayKey(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function dayLabel(ts){
   const d=new Date(ts), t=new Date(), y=new Date(Date.now()-864e5);
-  if(dayKey(ts)===dayKey(t.getTime())) return "Today · आज";
-  if(dayKey(ts)===dayKey(y.getTime())) return "Yesterday · कल";
+  if(dayKey(ts)===dayKey(t.getTime())) return "Today";
+  if(dayKey(ts)===dayKey(y.getTime())) return "Yesterday";
   return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
 }
 function timeLabel(ts){ const d=new Date(ts); let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%12||12; return h+":"+pad(d.getMinutes())+" "+ap; }
@@ -370,12 +392,12 @@ function renderHome(){
   $("#allCntL").textContent = CLOUD ? "Loadings · 7 days" : "Loadings";
   const recent=[...LOG].slice(-5).reverse();
   const box=$("#recentList");
-  if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap “New Loading” to start.<br><small>अभी कोई भराई नहीं</small></div>'; }
+  if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap “New Loading” to start.</div>'; }
   else box.innerHTML=recent.map(entryHTML).join("");
   $("#storeNote").innerHTML = CLOUD
-    ? "Shared live list — all employees see the same data. Kept for the last 7 days.<br><small>सभी कर्मचारियों को एक ही सूची दिखती है · पिछले 7 दिन तक</small>"
+    ? "Shared live list — all employees see the same data. Kept for the last 7 days."
     : (LOG.length
-      ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup.<br><small>हिसाब इसी फ़ोन में सेव है — बैकअप के लिए Export करें।</small>"
+      ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup."
       : "");
   const sr=$("#signRow");
   if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>';
@@ -417,8 +439,14 @@ function renderChambers(){
     const over = val!=="" && (+val)>cap;
     return '<div class="cham'+(val!==""&&+val>0?" filled":"")+(over?" over":"")+'" data-i="'+i+'">'
       +'<div class="top"><div class="badge">C'+(i+1)+'</div>'
-      +'<div><div class="cn">Chamber '+(i+1)+'</div><div class="cd">Full = '+fmt(cap)+' L</div>'
-      +'<div class="warn">⚠ More than full ('+fmt(cap)+' L)</div></div></div>'
+      +'<div class="cn">Chamber '+(i+1)+'</div>'
+      +'<div class="cap-tag">Full '+fmt(cap)+' L</div></div>'
+      +'<div class="bar"><div class="fill" data-fill></div></div>'
+      +'<div class="lr">'
+      +'<span class="loaded">Loaded <b data-loaded>0</b> L</span>'
+      +'<span class="left">Left <b data-left>'+fmt(cap)+'</b> L</span>'
+      +'<span class="over-txt">⚠ Over full by <b data-over>0</b> L</span>'
+      +'</div>'
       +'<div class="qtyrow">'
       +'<button class="qbtn clr" data-clr="'+i+'">Clear</button>'
       +'<input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+val+'" data-in="'+i+'" />'
@@ -427,22 +455,36 @@ function renderChambers(){
   }).join("");
   const cl=$("#chamList");
   cl.querySelectorAll("input[data-in]").forEach(inp=>{
-    inp.oninput=()=>{ let val=inp.value.replace(/[^0-9]/g,""); inp.value=val; draft.qty[+inp.dataset.in]=val; updateRun(); refreshChamState(); };
+    inp.oninput=()=>{ let val=inp.value.replace(/[^0-9]/g,""); inp.value=val; draft.qty[+inp.dataset.in]=val; refreshChamState(); };
   });
-  cl.querySelectorAll("[data-full]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.full; draft.qty[i]=""+v.caps[i]; renderChambers(); updateRun(); }; });
-  cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.qty[i]=""; renderChambers(); updateRun(); }; });
-  updateRun();
+  cl.querySelectorAll("[data-full]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.full; draft.qty[i]=""+v.caps[i]; renderChambers(); }; });
+  cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.qty[i]=""; renderChambers(); }; });
+  refreshChamState();
 }
 function refreshChamState(){
   const v=vehicleOf(draft.plate);
   $("#chamList").querySelectorAll(".cham").forEach(el=>{
-    const i=+el.dataset.i, val=draft.qty[i];
-    el.classList.toggle("filled", val!==""&&+val>0);
-    el.classList.toggle("over", val!==""&&+val>v.caps[i]);
+    const i=+el.dataset.i, cap=v.caps[i], raw=draft.qty[i], entered=raw===""?0:+raw;
+    const over = raw!=="" && entered>cap;
+    el.classList.toggle("filled", entered>0);
+    el.classList.toggle("over", over);
+    const pct = cap>0 ? Math.min(entered/cap,1)*100 : 0;
+    el.querySelector("[data-fill]").style.width = pct+"%";
+    el.querySelector("[data-loaded]").textContent = fmt(entered);
+    el.querySelector("[data-left]").textContent = fmt(Math.max(cap-entered,0));
+    el.querySelector("[data-over]").textContent = fmt(Math.max(entered-cap,0));
   });
+  updateRun();
 }
 function draftTotal(){ return draft.qty.reduce((s,q)=> s+(q===""?0:+q),0); }
-function updateRun(){ $("#qRun").textContent=fmt(draftTotal()); }
+function capTotal(){ return vehicleOf(draft.plate).caps.reduce((s,c)=>s+c,0); }
+function updateRun(){
+  const loaded=draftTotal(), cap=capTotal(), left=Math.max(cap-loaded,0);
+  $("#sumLoaded").textContent=fmt(loaded);
+  $("#sumLeft").textContent=fmt(left);
+  $("#sumCap").textContent=fmt(cap);
+  $("#sumFill").style.width=(cap>0?Math.min(loaded/cap,1)*100:0)+"%";
+}
 
 $("#reviewBtn").onclick=()=>{
   const tot=draftTotal();
@@ -501,7 +543,7 @@ function renderHist(){
   box.querySelectorAll("[data-del]").forEach(b=>{
     b.onclick=()=>{
       const e=LOG.find(x=>x.id===b.dataset.del); if(!e) return;
-      if(confirm("Delete this record?\n"+e.plate+" — "+fmt(e.total)+" L\nमिटाएँ?")){
+      if(confirm("Delete this record?\n"+e.plate+" — "+fmt(e.total)+" L")){
         Backend.remove(b.dataset.del).then(refresh).then(()=>{ renderHist(); toast("Deleted"); }).catch(oops);
       }
     };
@@ -568,7 +610,7 @@ function startApp(session){
   return refresh().then(()=>{ goHome(); }).catch(oops);
 }
 function signOut(){
-  if(!confirm("Sign out of this phone? / साइन आउट करें?")) return;
+  if(!confirm("Sign out of this phone?")) return;
   CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; goHome(); showLogin(); });
 }
 
