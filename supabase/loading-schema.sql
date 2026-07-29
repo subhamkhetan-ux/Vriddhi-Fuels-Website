@@ -1,0 +1,158 @@
+-- =====================================================================
+-- VRIDDHI FUELS — Tanker Loading app schema
+-- Run this in the SQL Editor of a DEDICATED Supabase project (separate
+-- from the indent-app and tally-app projects). Safe to re-run.
+--
+-- Design:
+--  * Every signed-in employee shares ONE live dataset of loading events —
+--    a save on one phone appears on every other phone instantly (Supabase
+--    realtime).
+--  * Data is kept for the LAST 7 DAYS ONLY. This is enforced three ways so
+--    it holds no matter what:
+--      1. The read policy only exposes rows from the last 7 days, so older
+--         rows are invisible even before they are deleted.
+--      2. Every insert opportunistically deletes rows older than 7 days,
+--         and the app calls loading_purge() on open.
+--      3. If pg_cron is available it also purges on a schedule.
+--  * Clients get read-only table access; every write goes through a
+--    SECURITY DEFINER function that checks sign-in.
+-- =====================================================================
+
+create extension if not exists pgcrypto;
+
+-- ---------------------------------------------------------------------
+-- Table
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_events (
+  id         uuid primary key default gen_random_uuid(),
+  vehicle    text not null,
+  -- chambers: [{"name":"C1","qty":3985,"cap":3985}, ...]
+  chambers   jsonb not null,
+  total      numeric(12,2) not null check (total > 0),
+  by_name    text not null default '',  -- who loaded it (for accountability)
+  created_by uuid,
+  created_at timestamptz not null default now()  -- server time; never the client clock
+);
+
+create index if not exists loading_events_created_idx on public.loading_events(created_at desc);
+
+-- ---------------------------------------------------------------------
+-- Row Level Security: signed-in users can READ the last 7 days only; no
+-- direct writes (all mutations go through the RPCs below).
+-- (authenticated/anon already exist on Supabase; created here only when the
+-- schema is loaded into a plain Postgres, e.g. for testing.)
+-- ---------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    create role authenticated nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
+end $$;
+
+alter table public.loading_events enable row level security;
+
+drop policy if exists loading_events_read on public.loading_events;
+create policy loading_events_read on public.loading_events
+  for select to authenticated
+  using (created_at >= now() - interval '7 days');
+
+-- ---------------------------------------------------------------------
+-- Helper
+-- ---------------------------------------------------------------------
+create or replace function public._loading_auth() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- RPCs (the client's only write path)
+-- ---------------------------------------------------------------------
+
+-- Record one loading event. Also drops anything older than 7 days so the
+-- table never grows past a week.
+create or replace function public.loading_add(
+  p_vehicle text, p_chambers jsonb, p_total numeric, p_by text
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare rid uuid;
+begin
+  perform _loading_auth();
+  if coalesce(p_vehicle,'') = '' then raise exception 'Vehicle required'; end if;
+  if p_chambers is null or jsonb_array_length(p_chambers) = 0 then
+    raise exception 'At least one chamber is required';
+  end if;
+  if p_total is null or p_total <= 0 then raise exception 'Total must be positive'; end if;
+
+  insert into loading_events (vehicle, chambers, total, by_name, created_by)
+  values (p_vehicle, p_chambers, p_total, coalesce(p_by,''), auth.uid())
+  returning id into rid;
+
+  delete from loading_events where created_at < now() - interval '7 days';
+  return rid;
+end $$;
+
+-- Delete a (recent) event. Any signed-in employee may correct a mistake.
+create or replace function public.loading_delete(p_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  delete from loading_events
+    where id = p_id and created_at >= now() - interval '7 days';
+  if not found then
+    raise exception 'Record not found or older than 7 days';
+  end if;
+end $$;
+
+-- Explicit purge (the app calls this on open). Returns rows removed.
+create or replace function public.loading_purge() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  perform _loading_auth();
+  delete from loading_events where created_at < now() - interval '7 days';
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Grants: RPCs for signed-in users only (Supabase-specific; skipped
+-- gracefully on a plain Postgres used for testing).
+-- ---------------------------------------------------------------------
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke execute on all functions in schema public from public, anon;
+    grant execute on function
+      public.loading_add(text, jsonb, numeric, text),
+      public.loading_delete(uuid),
+      public.loading_purge()
+    to authenticated;
+  end if;
+end $$;
+
+-- Realtime: broadcast changes so every device updates at once (safe to re-run).
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.loading_events;
+  exception when others then null;
+  end;
+end $$;
+
+-- Optional belt-and-suspenders: if pg_cron is installed, purge hourly too.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule(
+      'loading_purge_hourly', '0 * * * *',
+      $q$ delete from public.loading_events where created_at < now() - interval '7 days' $q$
+    );
+  end if;
+exception when others then null;
+end $$;

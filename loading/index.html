@@ -7,6 +7,7 @@
 <title>Vriddhi Fuels — Tanker Loading</title>
 <link rel="manifest" href="./manifest.webmanifest" />
 <link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png" />
+<script src="./config.js"></script>
 <style>
   :root{
     --navy:#111E3E; --navy2:#1c2f5e; --amber:#f5a623; --amber-d:#d98a05;
@@ -47,6 +48,7 @@
     -webkit-appearance:none;
   }
   .big:active{transform:translateY(1px)}
+  .big:disabled{opacity:.6}
   .big.green{background:var(--green)} .big.navy{background:var(--navy)} .big.red{background:var(--red)}
   .big .hi{display:block;font-size:13px;font-weight:600;opacity:.9;margin-top:2px}
   .big .em{font-size:26px}
@@ -131,11 +133,28 @@
   .del{background:none;border:0;color:var(--red);font-size:20px;cursor:pointer;padding:4px 6px;flex:none}
 
   .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
+  .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
+  .signrow b{color:var(--navy)}
+  .signrow button{background:none;border:0;color:var(--red-d);font-weight:700;cursor:pointer;text-decoration:underline;font-size:13px}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--green-d);color:#fff;
     padding:14px 22px;border-radius:14px;font-weight:800;font-size:16px;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;
     transition:.25s;z-index:100;pointer-events:none;max-width:90%}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .installbtn{background:none;border:1px solid rgba(255,255,255,.4);color:#fff;font-size:12px;font-weight:700;border-radius:10px;padding:6px 10px;cursor:pointer}
+  .livedot{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#bfe6cf;background:rgba(31,157,85,.18);border:1px solid rgba(31,157,85,.5);border-radius:20px;padding:3px 9px}
+  .livedot i{width:8px;height:8px;border-radius:50%;background:#37d67a;display:inline-block;animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* Login */
+  .loginwrap{position:fixed;inset:0;background:var(--navy);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
+  .loginwrap.on{display:flex}
+  .loginbox{width:100%;max-width:380px;text-align:center;color:#fff}
+  .loginbox img{width:76px;height:76px;border-radius:18px;background:#fff;padding:8px;object-fit:contain;margin-bottom:14px}
+  .loginbox h1{font-size:24px;font-weight:900;margin:0 0 2px}
+  .loginbox .lsub{font-size:14px;opacity:.75;margin-bottom:22px}
+  .loginbox input{width:100%;font-size:19px;padding:16px;border-radius:14px;border:0;margin-bottom:12px;text-align:center;background:#fff;color:var(--ink);font-weight:600}
+  .loginbox input:focus{outline:3px solid var(--amber)}
+  .lerr{color:#ffb4b4;font-weight:700;font-size:14px;min-height:20px;margin-bottom:8px}
 </style>
 </head>
 <body>
@@ -165,8 +184,8 @@
       </div>
 
       <div class="row2">
-        <div class="mini"><div class="n" id="allTot">0</div><div class="l">Total L (all)</div></div>
-        <div class="mini"><div class="n" id="allCnt">0</div><div class="l">Total loadings</div></div>
+        <div class="mini"><div class="n" id="allTot">0</div><div class="l" id="allTotL">Total L</div></div>
+        <div class="mini"><div class="n" id="allCnt">0</div><div class="l" id="allCntL">Loadings</div></div>
       </div>
 
       <div class="sectitle">Recent / हाल की भराई
@@ -175,6 +194,7 @@
       <div id="recentList"></div>
 
       <div class="note" id="storeNote"></div>
+      <div class="signrow" id="signRow" style="display:none"></div>
     </section>
 
     <!-- PICK VEHICLE -->
@@ -219,6 +239,20 @@
     </section>
   </main>
 </div>
+
+<!-- LOGIN (cloud mode only) -->
+<div class="loginwrap" id="login">
+  <div class="loginbox">
+    <img src="../Vriddhi%20Fuels%20Logo.png" alt="Vriddhi Fuels" onerror="this.style.display='none'"/>
+    <h1>Tanker Loading</h1>
+    <div class="lsub">Sign in / साइन इन करें</div>
+    <input id="loginUser" placeholder="Username / यूज़रनेम" autocapitalize="off" autocorrect="off" autocomplete="username" spellcheck="false" />
+    <input id="loginPass" type="password" placeholder="Password / पासवर्ड" autocomplete="current-password" />
+    <div class="lerr" id="loginErr"></div>
+    <button class="big green" id="btnLogin" style="margin-bottom:0"><span>Sign in / साइन इन</span></button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -233,11 +267,17 @@ const VEHICLES = [
   { plate:"OR15R9360", caps:[4485,4485,4485,4485],  color:"#6a3d8c" },
 ];
 
-/* ---------- Storage ---------- */
-const KEY = "vf_loading_log_v1";
-function load(){ try{ return JSON.parse(localStorage.getItem(KEY)||"[]"); }catch(e){ return []; } }
-function save(list){ localStorage.setItem(KEY, JSON.stringify(list)); }
-let LOG = load();
+/* ---------- Mode & config ----------
+   With Supabase configured in config.js the app runs in CLOUD mode: every
+   employee signs in, all phones share ONE live list (instant realtime sync),
+   and data is kept for the last 7 days only. Without config it runs in LOCAL
+   mode: single-device, everything in this browser's storage, kept forever. */
+const CFG = window.VRIDDHI_LOADING_CONFIG || {};
+const CLOUD = /^https:\/\//.test(CFG.SUPABASE_URL || "")
+  && String(CFG.SUPABASE_URL).indexOf("PASTE") === -1
+  && !!CFG.SUPABASE_ANON_KEY
+  && String(CFG.SUPABASE_ANON_KEY).indexOf("PASTE") === -1;
+const RETAIN_DAYS = 7;
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -251,8 +291,51 @@ function dayLabel(ts){
   return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
 }
 function timeLabel(ts){ const d=new Date(ts); let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%12||12; return h+":"+pad(d.getMinutes())+" "+ap; }
-function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2200); }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2400); }
+function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
 function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
+function localId(){ return Date.now()+"-"+Math.random().toString(36).slice(2,7); }
+
+/* ---------- Data (in-memory cache of loading events) ---------- */
+let LOG = [];        // [{id, ts, plate, chambers:[{name,qty,cap}], total, by}]
+let ME = "";         // signed-in username (cloud mode)
+
+/* ---------- Backends ---------- */
+const LS_KEY = "vf_loading_log_v1";
+function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
+function lsSave(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
+
+const LocalBackend = {
+  cloud:false,
+  load(){ return Promise.resolve(lsLoad().sort((a,b)=>a.ts-b.ts)); },
+  add(entry){ const l=lsLoad(); l.push(entry); lsSave(l); return Promise.resolve(); },
+  remove(id){ lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve(); },
+};
+
+const CloudBackend = {
+  cloud:true, client:null,
+  rpc(name,args){ return this.client.rpc(name,args).then(r=>{ if(r.error) throw new Error(r.error.message||"Network error"); return r.data; }); },
+  load(){
+    // RLS already restricts to the last 7 days; ask oldest-first for display.
+    return this.client.from("loading_events").select("*").order("created_at",{ascending:true}).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      return (r.data||[]).map(row=>({
+        id: row.id,
+        ts: row.created_at ? Date.parse(row.created_at) : Date.now(),
+        plate: row.vehicle,
+        chambers: Array.isArray(row.chambers) ? row.chambers : (row.chambers||[]),
+        total: parseFloat(row.total),
+        by: row.by_name || "",
+      }));
+    });
+  },
+  add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME }); },
+  remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
+  purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
+};
+
+let Backend = LocalBackend;
+function refresh(){ return Backend.load().then(list=>{ LOG=list; }); }
 
 /* ---------- Screen routing ---------- */
 const SCREENS=["scHome","scPick","scQty","scConf","scHist"];
@@ -269,6 +352,7 @@ function goBack(){
   if(stack[stack.length-1]==="scHist") renderHist();
 }
 $("#backBtn").onclick=goBack;
+function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
 
 /* ---------- Draft (current loading) ---------- */
 let draft = null; // { plate, qty:[..] }
@@ -282,19 +366,28 @@ function renderHome(){
   $("#todayCnt").textContent=today.length;
   $("#allTot").textContent=fmt(totals(LOG));
   $("#allCnt").textContent=LOG.length;
+  $("#allTotL").textContent = CLOUD ? "Litres · 7 days" : "Total L";
+  $("#allCntL").textContent = CLOUD ? "Loadings · 7 days" : "Loadings";
   const recent=[...LOG].slice(-5).reverse();
   const box=$("#recentList");
   if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap “New Loading” to start.<br><small>अभी कोई भराई नहीं</small></div>'; }
   else box.innerHTML=recent.map(entryHTML).join("");
-  $("#storeNote").innerHTML = LOG.length
-    ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup.<br><small>हिसाब इसी फ़ोन में सेव है — बैकअप के लिए Export करें।</small>"
-    : "";
+  $("#storeNote").innerHTML = CLOUD
+    ? "Shared live list — all employees see the same data. Kept for the last 7 days.<br><small>सभी कर्मचारियों को एक ही सूची दिखती है · पिछले 7 दिन तक</small>"
+    : (LOG.length
+      ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup.<br><small>हिसाब इसी फ़ोन में सेव है — बैकअप के लिए Export करें।</small>"
+      : "");
+  const sr=$("#signRow");
+  if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>';
+    $("#btnSignOut").onclick=signOut; }
+  else sr.style.display="none";
 }
 function entryHTML(e){
   const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
+  const who = (CLOUD && e.by) ? ' · '+e.by : '';
   return '<div class="entry">'
     +'<span class="plate">'+e.plate+'</span>'
-    +'<div class="mid"><div class="ch">'+chs+'</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+'</div></div>'
+    +'<div class="mid"><div class="ch">'+chs+'</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
     +'<span class="tot">'+fmt(e.total)+' L</span></div>';
 }
 
@@ -367,7 +460,7 @@ function renderConfirm(){
     if(q!==""&&+q>0) rows+='<div class="cline"><span>Chamber '+(i+1)+'</span><span class="cq">'+fmt(+q)+' L</span></div>';
   });
   $("#confBox").innerHTML='<div class="cp">'+draft.plate+'</div>'
-    +'<div class="ct">'+new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+' · '+timeLabel(Date.now())+'</div>'
+    +'<div class="ct">'+new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+' · '+timeLabel(Date.now())+(CLOUD&&ME?' · '+ME:'')+'</div>'
     +rows
     +'<div class="cline grand"><span>TOTAL</span><span>'+fmt(draftTotal())+' L</span></div>';
 }
@@ -377,11 +470,11 @@ $("#saveBtn").onclick=()=>{
   const chambers=[];
   v.caps.forEach((cap,i)=>{ const q=draft.qty[i]; if(q!==""&&+q>0) chambers.push({name:"C"+(i+1),qty:+q,cap:cap}); });
   if(!chambers.length){ toast("Nothing to save"); return; }
-  const entry={ id:Date.now()+"-"+Math.random().toString(36).slice(2,7), ts:Date.now(), plate:draft.plate, chambers:chambers, total:draftTotal() };
-  LOG.push(entry); save(LOG);
-  draft=null;
-  stack=["scHome"]; show("scHome",false); renderHome();
-  toast("✓ Saved — "+fmt(entry.total)+" L");
+  const entry={ id:localId(), ts:Date.now(), plate:draft.plate, chambers:chambers, total:draftTotal(), by:ME };
+  const btn=$("#saveBtn"); btn.disabled=true;
+  Backend.add(entry).then(refresh).then(()=>{
+    btn.disabled=false; draft=null; goHome(); toast("✓ Saved — "+fmt(entry.total)+" L");
+  }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
 /* ---------- HISTORY ---------- */
@@ -397,8 +490,9 @@ function renderHist(){
     return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].ts)+'</span><span class="dt">'+fmt(dtot)+' L</span></div>'
       + arr.map(e=>{
         const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
+        const who=(CLOUD&&e.by)?' · '+e.by:'';
         return '<div class="entry"><span class="plate">'+e.plate+'</span>'
-          +'<div class="mid"><div class="ch">'+chs+'</div><div class="tm">'+timeLabel(e.ts)+'</div></div>'
+          +'<div class="mid"><div class="ch">'+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
           +'<span class="tot">'+fmt(e.total)+' L</span>'
           +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
       }).join("")
@@ -408,7 +502,7 @@ function renderHist(){
     b.onclick=()=>{
       const e=LOG.find(x=>x.id===b.dataset.del); if(!e) return;
       if(confirm("Delete this record?\n"+e.plate+" — "+fmt(e.total)+" L\nमिटाएँ?")){
-        LOG=LOG.filter(x=>x.id!==b.dataset.del); save(LOG); renderHist(); toast("Deleted");
+        Backend.remove(b.dataset.del).then(refresh).then(()=>{ renderHist(); toast("Deleted"); }).catch(oops);
       }
     };
   });
@@ -421,20 +515,21 @@ $("#exportBtn").onclick=()=>{
   const head=["Date","Time","Vehicle"];
   for(let i=1;i<=maxC;i++) head.push("C"+i+" (L)");
   head.push("Total (L)");
+  if(CLOUD) head.push("By");
   const rows=[head];
   [...LOG].sort((a,b)=>a.ts-b.ts).forEach(e=>{
     const d=new Date(e.ts);
     const r=[ d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()), timeLabel(e.ts), e.plate ];
     for(let i=1;i<=maxC;i++){ const c=e.chambers.find(x=>x.name==="C"+i); r.push(c?c.qty:""); }
     r.push(e.total);
+    if(CLOUD) r.push(e.by||"");
     rows.push(r);
   });
   const csv=rows.map(r=>r.map(c=>{ const s=String(c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(",")).join("\r\n");
   const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
-  const dk=dayKey(Date.now());
-  a.href=url; a.download="Tanker_Loading_"+dk+".csv"; document.body.appendChild(a); a.click();
+  a.href=url; a.download="Tanker_Loading_"+dayKey(Date.now())+".csv"; document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },500);
   toast("Exported "+LOG.length+" records");
 };
@@ -443,14 +538,85 @@ $("#exportBtn").onclick=()=>{
 $("#newBtn").onclick=()=>{ renderPick(); show("scPick"); };
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 
-/* ---------- PWA ---------- */
-if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
+/* ---------- Realtime (cloud) ---------- */
+let realtimeOn=false;
+function subscribeRealtime(){
+  if(realtimeOn || !CloudBackend.client.channel) return;
+  realtimeOn=true;
+  let t;
+  const poke=()=>{ clearTimeout(t); t=setTimeout(()=>{ refresh().then(()=>{
+    const cur=stack[stack.length-1];
+    if(cur==="scHome") renderHome(); else if(cur==="scHist") renderHist();
+  }).catch(()=>{}); }, 350); };
+  CloudBackend.client.channel("loading-live")
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_events"},poke)
+    .subscribe();
+}
+
+/* ---------- Login / session (cloud) ---------- */
+function showLogin(){ $("#login").classList.add("on"); }
+function hideLogin(){ $("#login").classList.remove("on"); }
+function loginError(m){ $("#loginErr").textContent=m||""; }
+function usernameFromEmail(email){ return (email||"").split("@")[0]; }
+
+function startApp(session){
+  hideLogin();
+  Backend=CloudBackend;
+  ME = usernameFromEmail(session && session.user && session.user.email);
+  subscribeRealtime();
+  CloudBackend.purge();
+  return refresh().then(()=>{ goHome(); }).catch(oops);
+}
+function signOut(){
+  if(!confirm("Sign out of this phone? / साइन आउट करें?")) return;
+  CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; goHome(); showLogin(); });
+}
+
+$("#btnLogin").onclick=function(){
+  const u=$("#loginUser").value.trim().toLowerCase();
+  const p=$("#loginPass").value;
+  if(!u||!p){ loginError("Enter username and password"); return; }
+  const email = u.indexOf("@")!==-1 ? u : u+"@vriddhi.local";
+  const btn=$("#btnLogin"); btn.disabled=true;
+  loginError("");
+  CloudBackend.client.auth.signInWithPassword({ email:email, password:p }).then(res=>{
+    btn.disabled=false;
+    if(res.error){ loginError("Wrong username or password"); return; }
+    $("#loginPass").value="";
+    return startApp(res.data.session);
+  });
+};
+$("#loginPass").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#btnLogin").click(); });
+
+/* ---------- PWA install ---------- */
 let deferredPrompt=null;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("#installBtn").style.display=""; });
 $("#installBtn").onclick=async()=>{ if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("#installBtn").style.display="none"; };
 
 /* ---------- Boot ---------- */
-renderHome();
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
+
+function boot(){
+  if(!CLOUD){
+    Backend=LocalBackend;
+    refresh().then(()=>{ renderHome(); }).catch(oops);
+    return;
+  }
+  const factory = window.__VF_TEST_SUPABASE_FACTORY
+    ? Promise.resolve(window.__VF_TEST_SUPABASE_FACTORY)
+    : import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
+  factory.then(createClient=>{
+    CloudBackend.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    CloudBackend.client.auth.onAuthStateChange((event)=>{ if(event==="SIGNED_OUT"){ LOG=[]; ME=""; showLogin(); } });
+    return CloudBackend.client.auth.getSession().then(res=>{
+      const sess = res.data && res.data.session;
+      if(sess) return startApp(sess);
+      showLogin();
+    });
+  }).catch(e=>{ showLogin(); loginError("Could not connect: "+((e&&e.message)||e)); });
+}
+boot();
+
 })();
 </script>
 </body>
