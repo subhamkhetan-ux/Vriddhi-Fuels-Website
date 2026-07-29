@@ -103,11 +103,29 @@ It holds three ways, so a week is the most that is ever kept:
   `+ litres` and each dispatch as `🚚 Sent for sale`, with a per-day loaded
   total. You can delete a wrong entry (with a confirm); the tanker's fill
   recalculates automatically.
-- **Export to Excel / CSV** downloads the records as a spreadsheet
-  (`Tanker_Loading_YYYY-MM-DD.csv`, opens in Excel / Google Sheets) with columns
-  *Date · Time · Vehicle · Type · C1 · C2 · C3 · C4 · Total* (plus *By* in cloud
-  mode). Since cloud data only spans 7 days, export weekly to keep a longer
-  archive.
+
+## Reports (📊) — data-rich Excel
+
+**Reports** (button on the home screen and in History) shows headline figures
+for a chosen **date range** (From/To, with **Today / 7 days / All** presets):
+litres loaded, loadings, litres sold, tankers sold, and a per-tanker breakdown
+with each tanker's current fill.
+
+**Download Excel report** produces a multi-sheet `.xlsx`
+(`Vriddhi_Tanker_Report_<from>_to_<to>.xlsx`) built with
+[SheetJS](https://sheetjs.com) — it **falls back to a CSV** of the transactions
+if the device is offline. Sheets:
+
+| Sheet | What's in it |
+|---|---|
+| **Summary** | Report metadata + headline totals + current fill per tanker |
+| **Transactions** | The full statement — one row per event: *Date · Time · Vehicle · Type · C1–C4 · Total · **Tanker after** (running fill) · By*, with an auto-filter |
+| **By tanker** | Per-vehicle: capacity, loadings, litres loaded, tankers sold, litres sold, current fill, status |
+| **By day** | Per-day loadings / litres loaded / tankers sold / litres sold |
+| **By employee** | (cloud mode) the same totals per signed-in employee |
+
+Litres columns are thousands-formatted and columns are pre-sized. Since cloud
+data only spans 7 days, download a report weekly to keep a longer archive.
 
 > In **single-device mode** the records live in that phone's browser storage;
 > clearing the browser's site data or uninstalling erases them, so the periodic

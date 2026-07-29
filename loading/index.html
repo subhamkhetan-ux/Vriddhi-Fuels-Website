@@ -173,6 +173,15 @@
   .dayhd .dt{font-weight:900;color:var(--green-d)}
   .del{background:none;border:0;color:var(--red);font-size:20px;cursor:pointer;padding:4px 6px;flex:none}
 
+  /* Reports */
+  .rrange{display:flex;gap:10px;margin-bottom:10px}
+  .rrange label{flex:1;font-size:12px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  .rrange input{font-size:16px;padding:11px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600;width:100%}
+  .rpresets{display:flex;gap:8px;margin-bottom:14px}
+  .rpresets button{flex:1;padding:11px;border:0;border-radius:12px;background:#e6eaf1;color:var(--navy);font-weight:800;font-size:14px;cursor:pointer}
+  .rpresets button.on{background:var(--amber);color:#fff}
+  .rpresets button:active{transform:translateY(1px)}
+
   .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
   .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
   .signrow b{color:var(--navy)}
@@ -227,6 +236,10 @@
       </div>
       <div id="recentList"></div>
 
+      <button class="big navy" id="toReport" style="font-size:16px;padding:14px;background:var(--navy2);margin-top:4px">
+        <span class="em">📊</span><span>Reports &amp; Excel export</span>
+      </button>
+
       <div class="note" id="storeNote"></div>
       <div class="signrow" id="signRow" style="display:none"></div>
     </section>
@@ -267,10 +280,36 @@
         <div class="mini"><div class="n" id="hTot">0</div><div class="l">Total litres</div></div>
         <div class="mini"><div class="n" id="hCnt">0</div><div class="l">Loadings</div></div>
       </div>
-      <button class="big navy" id="exportBtn" style="font-size:17px;padding:16px">
-        <span class="em">📤</span><span>Export to Excel / CSV</span>
+      <button class="big navy" id="toReport2" style="font-size:16px;padding:14px;background:var(--navy2)">
+        <span class="em">📊</span><span>Reports &amp; Excel export</span>
       </button>
       <div id="histList"></div>
+    </section>
+
+    <!-- REPORTS -->
+    <section class="screen" id="scReport">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Reports</div>
+      <div class="rrange">
+        <label>From<input type="date" id="repFrom" /></label>
+        <label>To<input type="date" id="repTo" /></label>
+      </div>
+      <div class="rpresets">
+        <button data-preset="today">Today</button>
+        <button data-preset="7">7 days</button>
+        <button data-preset="all">All</button>
+      </div>
+      <div class="row2" style="margin-bottom:10px">
+        <div class="mini"><div class="n" id="repLoaded">0</div><div class="l">Litres loaded</div></div>
+        <div class="mini"><div class="n" id="repLoadings">0</div><div class="l">Loadings</div></div>
+      </div>
+      <div class="row2" style="margin-bottom:14px">
+        <div class="mini"><div class="n" id="repSold">0</div><div class="l">Litres sold</div></div>
+        <div class="mini"><div class="n" id="repTrips">0</div><div class="l">Tankers sold</div></div>
+      </div>
+      <div class="sectitle">By tanker</div>
+      <div id="repTankers"></div>
+      <button class="big green" id="dlExcel" style="margin-top:8px"><span class="em">⬇</span><span>Download Excel report</span></button>
+      <div class="note" id="repNote"></div>
     </section>
   </main>
 </div>
@@ -378,7 +417,7 @@ let Backend = LocalBackend;
 function refresh(){ return Backend.load().then(list=>{ LOG=list; }); }
 
 /* ---------- Screen routing ---------- */
-const SCREENS=["scHome","scAdd","scConf","scHist"];
+const SCREENS=["scHome","scAdd","scConf","scHist","scReport"];
 let stack=["scHome"];
 function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
@@ -390,6 +429,7 @@ function goBack(){
   if(stack.length>1){ stack.pop(); const id=stack[stack.length-1]; show(id,false); }
   if(stack[stack.length-1]==="scHome") renderHome();
   if(stack[stack.length-1]==="scHist") renderHist();
+  if(stack[stack.length-1]==="scReport") renderReport();
 }
 $("#backBtn").onclick=goBack;
 function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
@@ -612,35 +652,146 @@ function renderHist(){
   });
 }
 
-/* ---------- EXPORT CSV ---------- */
-$("#exportBtn").onclick=()=>{
-  if(!LOG.length){ toast("Nothing to export"); return; }
-  const maxC=Math.max(...VEHICLES.map(v=>v.caps.length));
-  const head=["Date","Time","Vehicle","Type"];
-  for(let i=1;i<=maxC;i++) head.push("C"+i+" (L)");
-  head.push("Total (L)");
-  if(CLOUD) head.push("By");
-  const rows=[head];
+/* ---------- REPORTS ---------- */
+const MAXC=Math.max(...VEHICLES.map(v=>v.caps.length));
+function chIdx(name){ return (parseInt(String(name).replace(/\D/g,""),10)||0)-1; }
+function dayStartMs(iso){ const p=iso.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],0,0,0,0).getTime(); }
+function dayEndMs(iso){ const p=iso.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],23,59,59,999).getTime(); }
+function isDisp(e){ return (e.kind||"load")==="dispatch"; }
+
+// running tanker fill after each event (chronological over the whole log)
+function runningAfter(){
+  const map={}, byV={};
   [...LOG].sort((a,b)=>a.ts-b.ts).forEach(e=>{
-    const d=new Date(e.ts);
-    const type=(e.kind||"load")==="dispatch"?"Sent for sale":"Load";
-    const r=[ d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()), timeLabel(e.ts), e.plate, type ];
-    for(let i=1;i<=maxC;i++){ const c=e.chambers.find(x=>x.name==="C"+i); r.push(c?c.qty:""); }
-    r.push(e.total);
-    if(CLOUD) r.push(e.by||"");
-    rows.push(r);
+    const v=vehicleOf(e.plate); if(!v) return;
+    if(!byV[e.plate]) byV[e.plate]=v.caps.map(()=>0);
+    if(isDisp(e)){ byV[e.plate]=v.caps.map(()=>0); map[e.id]=0; }
+    else { (e.chambers||[]).forEach(c=>{ const i=chIdx(c.name); if(i>=0&&i<byV[e.plate].length) byV[e.plate][i]+=(+c.qty||0); }); map[e.id]=byV[e.plate].reduce((s,x)=>s+x,0); }
   });
-  const csv=rows.map(r=>r.map(c=>{ const s=String(c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(",")).join("\r\n");
-  const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url; a.download="Tanker_Loading_"+dayKey(Date.now())+".csv"; document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },500);
-  toast("Exported "+LOG.length+" records");
+  return map;
+}
+function rangeEvents(){
+  const f=$("#repFrom").value, t=$("#repTo").value;
+  const from=f?dayStartMs(f):null, to=t?dayEndMs(t):null;
+  return LOG.filter(e=>(from==null||e.ts>=from)&&(to==null||e.ts<=to)).sort((a,b)=>a.ts-b.ts);
+}
+function openReport(){
+  const dts=LOG.map(e=>e.ts);
+  $("#repFrom").value = dayKey(dts.length?Math.min.apply(null,dts):Date.now());
+  $("#repTo").value = dayKey(Date.now());
+  setPreset("all");
+  show("scReport");
+}
+function setPreset(p){
+  const today=dayKey(Date.now());
+  if(p==="today"){ $("#repFrom").value=today; $("#repTo").value=today; }
+  else if(p==="7"){ $("#repFrom").value=dayKey(Date.now()-6*864e5); $("#repTo").value=today; }
+  else if(p==="all"){ const dts=LOG.map(e=>e.ts); $("#repFrom").value=dayKey(dts.length?Math.min.apply(null,dts):Date.now()); $("#repTo").value=today; }
+  $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.toggle("on",b.dataset.preset===p));
+  renderReport();
+}
+function renderReport(){
+  const evs=rangeEvents();
+  const loads=evs.filter(e=>!isDisp(e)), disp=evs.filter(isDisp);
+  $("#repLoaded").textContent=fmt(loads.reduce((s,e)=>s+e.total,0));
+  $("#repLoadings").textContent=loads.length;
+  $("#repSold").textContent=fmt(disp.reduce((s,e)=>s+e.total,0));
+  $("#repTrips").textContent=disp.length;
+  $("#repTankers").innerHTML=VEHICLES.map(v=>{
+    const ve=evs.filter(e=>e.plate===v.plate);
+    const vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
+    return '<div class="entry"><span class="plate">'+v.plate+'</span>'
+      +'<div class="mid"><div class="ch">Loaded '+fmt(vl.reduce((s,e)=>s+e.total,0))+' L · '+vl.length+' loadings · '+vd.length+' sold</div>'
+      +'<div class="tm">Now in tanker: '+fmt(st.total)+' / '+fmt(st.cap)+' L'+(st.full?' · FULL':'')+'</div></div></div>';
+  }).join("");
+  const empty=!evs.length;
+  $("#dlExcel").disabled=empty;
+  $("#repNote").innerHTML = empty ? "No records in this date range."
+    : "Excel has Summary · Transactions · By tanker · By day"+(CLOUD?" · By employee":"")+" sheets. Falls back to CSV if offline.";
+}
+$("#scReport").querySelectorAll(".rpresets button").forEach(b=>{ b.onclick=()=>setPreset(b.dataset.preset); });
+["#repFrom","#repTo"].forEach(sel=>$(sel).addEventListener("change",()=>{
+  $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.remove("on"));
+  renderReport();
+}));
+
+function dl(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },600); }
+function numfmt(XLSX,ws,fromRow){ const rng=XLSX.utils.decode_range(ws["!ref"]); for(let R=(fromRow||0);R<=rng.e.r;R++){ for(let C=rng.s.c;C<=rng.e.c;C++){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(cell&&cell.t==="n") cell.z="#,##0"; } } }
+
+$("#dlExcel").onclick=async()=>{
+  const evs=rangeEvents();
+  if(!evs.length){ toast("No records in this range"); return; }
+  const afterMap=runningAfter();
+  const loads=evs.filter(e=>!isDisp(e)), disp=evs.filter(isDisp);
+
+  // Transactions (detailed statement, one row per event, with running balance)
+  const tx=evs.map(e=>{
+    const row={ "Date":dayKey(e.ts), "Time":timeLabel(e.ts), "Vehicle":e.plate, "Type":isDisp(e)?"Sent for sale":"Load" };
+    for(let i=1;i<=MAXC;i++){ const c=(e.chambers||[]).find(x=>chIdx(x.name)===i-1); row["C"+i+" (L)"]=c?(+c.qty):""; }
+    row["Total (L)"]=e.total;
+    row["Tanker after (L)"]=afterMap[e.id]!=null?afterMap[e.id]:"";
+    row["By"]=e.by||"";
+    return row;
+  });
+  // By tanker
+  const byT=VEHICLES.map(v=>{
+    const ve=evs.filter(e=>e.plate===v.plate), vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
+    return { "Vehicle":v.plate, "Chambers":v.caps.length, "Full capacity (L)":v.caps.reduce((s,x)=>s+x,0),
+      "Loadings":vl.length, "Litres loaded":vl.reduce((s,e)=>s+e.total,0),
+      "Tankers sold":vd.length, "Litres sold":vd.reduce((s,e)=>s+e.total,0),
+      "Current fill (L)":st.total, "Status":st.full?"FULL":(st.total>0?"Filling":"Empty") };
+  });
+  // By day
+  const dm={};
+  evs.forEach(e=>{ const k=dayKey(e.ts), d=dm[k]||(dm[k]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
+  const byD=Object.keys(dm).sort().map(k=>({ "Date":k, "Loadings":dm[k].l, "Litres loaded":dm[k].ll, "Tankers sold":dm[k].s, "Litres sold":dm[k].sl }));
+  // By employee (cloud)
+  let byE=null;
+  if(CLOUD){ const em={}; evs.forEach(e=>{ const n=e.by||"(unknown)", d=em[n]||(em[n]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
+    byE=Object.keys(em).sort().map(n=>({ "Employee":n, "Loadings":em[n].l, "Litres loaded":em[n].ll, "Tankers sold":em[n].s, "Litres sold":em[n].sl })); }
+  // Summary sheet (title + key figures)
+  const summary=[
+    ["Vriddhi Fuels — Tanker Loading report"],
+    ["Generated", new Date().toLocaleString("en-IN")],
+    ["Date range", ($("#repFrom").value||"start")+"  to  "+($("#repTo").value||"today")],
+    ["Mode", CLOUD?"Cloud (shared, last 7 days)":"Single device"],
+    [],
+    ["Total loadings", loads.length],
+    ["Litres loaded", loads.reduce((s,e)=>s+e.total,0)],
+    ["Tankers sold (dispatched)", disp.length],
+    ["Litres sold", disp.reduce((s,e)=>s+e.total,0)],
+    [],
+    ["Current fill by tanker", ""]
+  ].concat(VEHICLES.map(v=>{ const st=tankerState(v.plate); return ["   "+v.plate, fmt(st.total)+" / "+fmt(st.cap)+" L"+(st.full?"  (FULL)":"")]; }));
+
+  const fname="Vriddhi_Tanker_Report_"+($("#repFrom").value||"")+"_to_"+($("#repTo").value||"");
+  try{
+    const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+    const wb=XLSX.utils.book_new();
+    const wsS=XLSX.utils.aoa_to_sheet(summary); wsS["!cols"]=[{wch:30},{wch:28}]; XLSX.utils.book_append_sheet(wb,wsS,"Summary");
+    const wsT=XLSX.utils.json_to_sheet(tx);
+    wsT["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:13}].concat(Array(MAXC).fill({wch:9})).concat([{wch:11},{wch:16},{wch:12}]);
+    wsT["!autofilter"]={ref:wsT["!ref"]}; numfmt(XLSX,wsT,1);
+    XLSX.utils.book_append_sheet(wb,wsT,"Transactions");
+    const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:10},{wch:13},{wch:12},{wch:12},{wch:14},{wch:9}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
+    const wsD=XLSX.utils.json_to_sheet(byD); wsD["!cols"]=[{wch:12},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsD,1); XLSX.utils.book_append_sheet(wb,wsD,"By day");
+    if(byE&&byE.length){ const wsE=XLSX.utils.json_to_sheet(byE); wsE["!cols"]=[{wch:16},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsE,1); XLSX.utils.book_append_sheet(wb,wsE,"By employee"); }
+    const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+    dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
+    toast("Excel report downloaded ("+tx.length+" rows)");
+  }catch(err){
+    // CSV fallback = the Transactions statement
+    const head=Object.keys(tx[0]), q=s=>{ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+    const csv="﻿"+[head.join(",")].concat(tx.map(r=>head.map(h=>q(r[h])).join(","))).join("\r\n");
+    dl(new Blob([csv],{type:"text/csv;charset=utf-8"}), fname+".csv");
+    toast("Downloaded as CSV ("+tx.length+" rows)");
+  }
 };
 
 /* ---------- Nav buttons ---------- */
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
+$("#toReport").onclick=openReport;
+$("#toReport2").onclick=openReport;
 
 /* ---------- Realtime (cloud) ---------- */
 let realtimeOn=false;
