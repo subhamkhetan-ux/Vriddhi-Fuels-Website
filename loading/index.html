@@ -707,7 +707,7 @@ function renderReport(){
   const empty=!evs.length;
   $("#dlExcel").disabled=empty;
   $("#repNote").innerHTML = empty ? "No records in this date range."
-    : "Excel has Summary · Transactions · By tanker · By day"+(CLOUD?" · By employee":"")+" sheets. Falls back to CSV if offline.";
+    : "Excel has Summary · Transactions · By tanker · By day sheets. Falls back to CSV if offline.";
 }
 $("#scReport").querySelectorAll(".rpresets button").forEach(b=>{ b.onclick=()=>setPreset(b.dataset.preset); });
 ["#repFrom","#repTo"].forEach(sel=>$(sel).addEventListener("change",()=>{
@@ -745,10 +745,6 @@ $("#dlExcel").onclick=async()=>{
   const dm={};
   evs.forEach(e=>{ const k=dayKey(e.ts), d=dm[k]||(dm[k]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
   const byD=Object.keys(dm).sort().map(k=>({ "Date":k, "Loadings":dm[k].l, "Litres loaded":dm[k].ll, "Tankers sold":dm[k].s, "Litres sold":dm[k].sl }));
-  // By employee (cloud)
-  let byE=null;
-  if(CLOUD){ const em={}; evs.forEach(e=>{ const n=e.by||"(unknown)", d=em[n]||(em[n]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
-    byE=Object.keys(em).sort().map(n=>({ "Employee":n, "Loadings":em[n].l, "Litres loaded":em[n].ll, "Tankers sold":em[n].s, "Litres sold":em[n].sl })); }
   // Summary sheet (title + key figures)
   const summary=[
     ["Vriddhi Fuels — Tanker Loading report"],
@@ -775,7 +771,6 @@ $("#dlExcel").onclick=async()=>{
     XLSX.utils.book_append_sheet(wb,wsT,"Transactions");
     const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:10},{wch:13},{wch:12},{wch:12},{wch:14},{wch:9}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
     const wsD=XLSX.utils.json_to_sheet(byD); wsD["!cols"]=[{wch:12},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsD,1); XLSX.utils.book_append_sheet(wb,wsD,"By day");
-    if(byE&&byE.length){ const wsE=XLSX.utils.json_to_sheet(byE); wsE["!cols"]=[{wch:16},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsE,1); XLSX.utils.book_append_sheet(wb,wsE,"By employee"); }
     const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
     dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
     toast("Excel report downloaded ("+tx.length+" rows)");

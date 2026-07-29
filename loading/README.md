@@ -122,7 +122,6 @@ if the device is offline. Sheets:
 | **Transactions** | The full statement — one row per event: *Date · Time · Vehicle · Type · C1–C4 · Total · **Tanker after** (running fill) · By*, with an auto-filter |
 | **By tanker** | Per-vehicle: capacity, loadings, litres loaded, tankers sold, litres sold, current fill, status |
 | **By day** | Per-day loadings / litres loaded / tankers sold / litres sold |
-| **By employee** | (cloud mode) the same totals per signed-in employee |
 
 Litres columns are thousands-formatted and columns are pre-sized. Since cloud
 data only spans 7 days, download a report weekly to keep a longer archive.
