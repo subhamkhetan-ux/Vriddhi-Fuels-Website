@@ -76,6 +76,10 @@
   .entry .ch{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .entry .tm{font-size:12px;color:var(--muted);margin-top:2px}
   .entry .tot{font-weight:900;font-size:17px;color:var(--green-d);white-space:nowrap}
+  .entry.disp{background:#eef6ff}
+  .entry.disp .plate{background:var(--amber-d)}
+  .entry.disp .tot{color:var(--amber-d)}
+  .entry.disp .dtag{font-size:13px;font-weight:800;color:var(--amber-d)}
   .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:15px}
 
   /* Vehicle cards */
@@ -94,7 +98,8 @@
   .vhead .pl{font-size:26px;font-weight:900;letter-spacing:1px}
   .vhead .cap{font-size:12px;opacity:.8;margin-top:3px}
   .cham{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:12px;border:2px solid transparent}
-  .cham.filled{border-color:var(--green)}
+  .cham.full{border-color:var(--green)}
+  .cham.over{border-color:var(--red)}
   .cham .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   .cham .badge{width:44px;height:44px;border-radius:12px;background:var(--navy);color:#fff;font-weight:900;font-size:18px;display:flex;align-items:center;justify-content:center;flex:none}
   .cham .cn{font-weight:800;font-size:17px}
@@ -102,19 +107,40 @@
   .cham .cap-tag{margin-left:auto;font-size:13px;font-weight:800;color:var(--muted);white-space:nowrap}
   .cham .warn{color:var(--red);font-weight:700;font-size:12px;margin-top:2px;display:none}
   .cham.over .warn{display:block}
-  /* progress bar */
-  .bar{height:14px;border-radius:8px;background:#e6eaf1;overflow:hidden;margin:2px 0 8px}
-  .bar.lg{height:20px;border-radius:10px;background:rgba(255,255,255,.22);margin:8px 0 6px}
-  .bar .fill{height:100%;width:0%;background:var(--green);border-radius:8px;transition:width .18s ease}
-  .bar.lg .fill{background:#37d67a}
-  .cham.over .bar .fill{background:var(--red)}
+  /* progress bar (two-tone: already-in + adding-now) */
+  .bar{height:16px;border-radius:8px;background:#e6eaf1;overflow:hidden;margin:2px 0 8px;display:flex}
+  .bar.lg{height:22px;border-radius:11px;background:rgba(255,255,255,.22);margin:8px 0 6px}
+  .bar .fill{height:100%;width:0%;transition:width .18s ease}
+  .bar .fill.have{background:#3aa869}
+  .bar .fill.add{background:#8ff0b6}
+  .bar.lg .fill.have{background:#2ea866}
+  .bar.lg .fill.add{background:#8affc4}
+  .cham.over .bar .fill.add{background:var(--red)}
   .lr{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:15px}
-  .lr .loaded b{color:var(--green-d);font-weight:900;font-size:18px}
   .lr .left b{color:var(--navy);font-weight:900;font-size:18px}
   .lr .over-txt{color:var(--red);font-weight:800;display:none}
-  .cham.over .lr .left{display:none}
+  .lr .fulltag{color:var(--green-d);font-weight:900;display:none}
+  .cham.full .lr .left{display:none}
+  .cham.full .lr .fulltag{display:inline}
+  .cham.over .lr .left,.cham.over .lr .fulltag{display:none}
   .cham.over .lr .over-txt{display:inline}
   .qtyrow{display:flex;gap:8px;align-items:stretch}
+
+  /* Tanker status cards (home) */
+  .tcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden;border:2px solid transparent}
+  .tcard.full{border-color:var(--green)}
+  .tcard .tap{width:100%;text-align:left;background:none;border:0;padding:14px;cursor:pointer;display:block}
+  .tcard .tap:active{background:#f6f8fb}
+  .tcard .th{display:flex;justify-content:space-between;align-items:center}
+  .tcard .pl{font-size:21px;font-weight:900;color:var(--navy);letter-spacing:.5px}
+  .tcard .badge2{font-size:12px;font-weight:800;padding:5px 11px;border-radius:20px;background:#eef1f6;color:var(--muted);white-space:nowrap}
+  .tcard.full .badge2{background:var(--green);color:#fff}
+  .tcard .tsub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
+  .tcard .tsub b{color:var(--navy);font-size:15px}
+  /* subtle when partly filled (avoids accidental resets); bold green when full */
+  .dispatch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-top:1px solid var(--line);background:none;color:var(--amber-d);font-size:14px;font-weight:700;padding:11px;cursor:pointer}
+  .tcard.full .dispatch{background:var(--green);color:#fff;font-size:16px;font-weight:800;padding:14px}
+  .dispatch:active{transform:translateY(1px)}
   .qtyrow input{
     flex:1;min-width:0;font-size:30px;font-weight:900;text-align:center;color:var(--navy);
     border:2px solid var(--line);border-radius:12px;padding:8px 6px;background:#fff;width:100%;
@@ -187,21 +213,14 @@
   <main>
     <!-- HOME -->
     <section class="screen on" id="scHome">
-      <button class="big" id="newBtn">
-        <span class="em">⛽</span>
-        <span>New Loading</span>
-      </button>
-
-      <div class="stat">
+      <div class="stat" style="padding:12px 14px">
         <div class="label">Today loaded</div>
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
         <div class="sub"><span id="todayCnt">0</span> loadings today</div>
       </div>
 
-      <div class="row2">
-        <div class="mini"><div class="n" id="allTot">0</div><div class="l" id="allTotL">Total L</div></div>
-        <div class="mini"><div class="n" id="allCnt">0</div><div class="l" id="allCntL">Loadings</div></div>
-      </div>
+      <div class="sectitle" style="font-size:16px">Tap a tanker to load diesel</div>
+      <div id="tankerList"></div>
 
       <div class="sectitle">Recent
         <button class="lnk" id="toHist">View all ›</button>
@@ -212,27 +231,21 @@
       <div class="signrow" id="signRow" style="display:none"></div>
     </section>
 
-    <!-- PICK VEHICLE -->
-    <section class="screen" id="scPick">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Step 1 — Choose the tanker</div>
-      <div id="vList"></div>
-    </section>
-
-    <!-- ENTER QTY -->
-    <section class="screen" id="scQty">
+    <!-- ADD DIESEL TO CHAMBERS -->
+    <section class="screen" id="scAdd">
       <div class="vhead">
         <div class="pl" id="qPlate">—</div>
-        <div class="cap">Step 2 — Type how many litres you loaded into each chamber</div>
+        <div class="cap">Add the litres you are loading now into each chamber</div>
       </div>
       <div id="chamList"></div>
       <div class="runtot">
         <div class="sumbar">
           <div class="sumrow">
-            <span class="s-load">Loaded <b id="sumLoaded">0</b> L</span>
+            <span class="s-load">In tanker <b id="sumLoaded">0</b> L</span>
             <span class="s-left">Left <b id="sumLeft">0</b> L</span>
           </div>
-          <div class="bar lg"><div class="fill" id="sumFill" style="width:0%"></div></div>
-          <div class="sumcap">of <span id="sumCap">0</span> L full tanker</div>
+          <div class="bar lg"><div class="fill" id="sumFillHave" style="width:0%"></div><div class="fill add" id="sumFillAdd" style="width:0%"></div></div>
+          <div class="sumcap">of <span id="sumCap">0</span> L full tanker <span id="sumAddNote"></span></div>
         </div>
         <button class="big green" id="reviewBtn" style="margin-bottom:6px">
           <span class="em">✓</span><span>Save</span>
@@ -242,7 +255,7 @@
 
     <!-- CONFIRM -->
     <section class="screen" id="scConf">
-      <div class="sectitle" style="justify-content:center">Step 3 — Check &amp; save</div>
+      <div class="sectitle" style="justify-content:center">Check &amp; save</div>
       <div class="confbox" id="confBox"></div>
       <button class="big green" id="saveBtn"><span class="em">✓</span><span>Confirm &amp; Save</span></button>
       <button class="big navy" id="editBtn" style="background:#8894ad"><span>‹ Edit</span></button>
@@ -318,8 +331,12 @@ function oops(e){ toast((e && e.message) || "Something went wrong — try again"
 function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
 function localId(){ return Date.now()+"-"+Math.random().toString(36).slice(2,7); }
 
-/* ---------- Data (in-memory cache of loading events) ---------- */
-let LOG = [];        // [{id, ts, plate, chambers:[{name,qty,cap}], total, by}]
+/* ---------- Data (in-memory cache of loading events) ----------
+   Each event is either a 'load' (diesel added to chambers) or a 'dispatch'
+   ('Sent for sale' — tanker emptied). A tanker's current fill = the sum of all
+   'load' events since its most recent 'dispatch'. So fills accumulate across
+   many small loadings and only reset when the full tanker is sent for sale. */
+let LOG = [];        // [{id, ts, plate, kind:'load'|'dispatch', chambers:[{name,qty}], total, by}]
 let ME = "";         // signed-in username (cloud mode)
 
 /* ---------- Backends ---------- */
@@ -345,13 +362,14 @@ const CloudBackend = {
         id: row.id,
         ts: row.created_at ? Date.parse(row.created_at) : Date.now(),
         plate: row.vehicle,
+        kind: row.kind || "load",
         chambers: Array.isArray(row.chambers) ? row.chambers : (row.chambers||[]),
         total: parseFloat(row.total),
         by: row.by_name || "",
       }));
     });
   },
-  add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME }); },
+  add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME, p_kind:entry.kind||"load" }); },
   remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
   purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
 };
@@ -360,7 +378,7 @@ let Backend = LocalBackend;
 function refresh(){ return Backend.load().then(list=>{ LOG=list; }); }
 
 /* ---------- Screen routing ---------- */
-const SCREENS=["scHome","scPick","scQty","scConf","scHist"];
+const SCREENS=["scHome","scAdd","scConf","scHist"];
 let stack=["scHome"];
 function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
@@ -376,166 +394,210 @@ function goBack(){
 $("#backBtn").onclick=goBack;
 function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
 
-/* ---------- Draft (current loading) ---------- */
-let draft = null; // { plate, qty:[..] }
+/* ---------- Draft (diesel being added now) ---------- */
+let draft = null; // { plate, caps:[], existing:[], add:[""] }
+
+/* ---------- Tanker fill state (accumulates until 'Sent for sale') ---------- */
+function tankerState(plate){
+  const v=vehicleOf(plate);
+  const cham=v.caps.map(()=>0);
+  const evs=LOG.filter(e=>e.plate===plate).sort((a,b)=>a.ts-b.ts);
+  let start=0;
+  for(let i=0;i<evs.length;i++) if((evs[i].kind||"load")==="dispatch") start=i+1;
+  for(let i=start;i<evs.length;i++){
+    const e=evs[i]; if((e.kind||"load")==="dispatch") continue;
+    (e.chambers||[]).forEach(c=>{ const idx=(parseInt(String(c.name).replace(/\D/g,""),10)||0)-1; if(idx>=0&&idx<cham.length) cham[idx]+=(+c.qty||0); });
+  }
+  const total=cham.reduce((s,x)=>s+x,0);
+  const cap=v.caps.reduce((s,x)=>s+x,0);
+  const full=v.caps.every((c,i)=>cham[i]>=c);
+  return { cham, total, cap, caps:v.caps, full };
+}
 
 /* ---------- HOME ---------- */
-function totals(list){ return list.reduce((s,e)=>s+e.total,0); }
+// total litres LOADED (dispatch rows are not fresh diesel, so excluded)
+function totals(list){ return list.reduce((s,e)=>s+((e.kind||"load")==="dispatch"?0:e.total),0); }
 function renderHome(){
   const tKey=dayKey(Date.now());
-  const today=LOG.filter(e=>dayKey(e.ts)===tKey);
-  $("#todayTot").textContent=fmt(totals(today));
+  const today=LOG.filter(e=>dayKey(e.ts)===tKey && (e.kind||"load")!=="dispatch");
+  $("#todayTot").textContent=fmt(today.reduce((s,e)=>s+e.total,0));
   $("#todayCnt").textContent=today.length;
-  $("#allTot").textContent=fmt(totals(LOG));
-  $("#allCnt").textContent=LOG.length;
-  $("#allTotL").textContent = CLOUD ? "Litres · 7 days" : "Total L";
-  $("#allCntL").textContent = CLOUD ? "Loadings · 7 days" : "Loadings";
-  const recent=[...LOG].slice(-5).reverse();
+  renderTankers();
+  const recent=[...LOG].slice(-6).reverse();
   const box=$("#recentList");
-  if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap “New Loading” to start.</div>'; }
+  if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap a tanker above to start.</div>'; }
   else box.innerHTML=recent.map(entryHTML).join("");
   $("#storeNote").innerHTML = CLOUD
-    ? "Shared live list — all employees see the same data. Kept for the last 7 days."
-    : (LOG.length
-      ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup."
-      : "");
+    ? "Shared live tankers — every employee sees the same fill. History kept for the last 7 days."
+    : (LOG.length ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup." : "");
   const sr=$("#signRow");
-  if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>';
-    $("#btnSignOut").onclick=signOut; }
+  if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
   else sr.style.display="none";
 }
+function renderTankers(){
+  $("#tankerList").innerHTML = VEHICLES.map(v=>{
+    const st=tankerState(v.plate);
+    const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
+    const left=Math.max(st.cap-st.total,0);
+    const fullN=st.caps.filter((c,i)=>st.cham[i]>=c).length;
+    const badge = st.full ? "FULL ✓" : fmt(st.total)+" / "+fmt(st.cap)+" L";
+    const sub = st.full ? "Full — send for sale when dispatched"
+                        : "Left to fill <b>"+fmt(left)+"</b> L · "+fullN+"/"+st.caps.length+" chambers full";
+    return '<div class="tcard'+(st.full?" full":"")+'">'
+      +'<button class="tap" data-plate="'+v.plate+'">'
+      +'<div class="th"><span class="pl">'+v.plate+'</span><span class="badge2">'+badge+'</span></div>'
+      +'<div class="bar"><div class="fill have" style="width:'+pct+'%"></div></div>'
+      +'<div class="tsub">'+sub+'</div></button>'
+      +(st.total>0?'<button class="dispatch" data-disp="'+v.plate+'">🚚 Sent for sale — empty tanker</button>':'')
+      +'</div>';
+  }).join("");
+  $("#tankerList").querySelectorAll(".tap").forEach(b=>{ b.onclick=()=>startAdd(b.dataset.plate); });
+  $("#tankerList").querySelectorAll(".dispatch").forEach(b=>{ b.onclick=()=>dispatchTanker(b.dataset.disp); });
+}
 function entryHTML(e){
+  const who=(CLOUD&&e.by)?' · '+e.by:'';
+  if((e.kind||"load")==="dispatch"){
+    return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
+      +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
+      +'<span class="tot">'+fmt(e.total)+' L</span></div>';
+  }
   const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
-  const who = (CLOUD && e.by) ? ' · '+e.by : '';
-  return '<div class="entry">'
-    +'<span class="plate">'+e.plate+'</span>'
-    +'<div class="mid"><div class="ch">'+chs+'</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
-    +'<span class="tot">'+fmt(e.total)+' L</span></div>';
+  return '<div class="entry"><span class="plate">'+e.plate+'</span>'
+    +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
+    +'<span class="tot">+'+fmt(e.total)+' L</span></div>';
 }
 
-/* ---------- PICK VEHICLE ---------- */
-function renderPick(){
-  $("#vList").innerHTML = VEHICLES.map((v,i)=>
-    '<button class="vcard" style="background:'+v.color+'" data-i="'+i+'">'
-    +'<div><div class="pl">'+v.plate+'</div><div class="info">'+v.caps.length+' chambers · '+fmt(v.caps[0])+' L each</div></div>'
-    +'<div class="cc">'+v.caps.length+'</div></button>'
-  ).join("");
-  $("#vList").querySelectorAll(".vcard").forEach(b=>{
-    b.onclick=()=>{ const v=VEHICLES[+b.dataset.i]; startDraft(v); };
-  });
+/* ---------- Dispatch (Sent for sale) — empties the tanker ---------- */
+function dispatchTanker(plate){
+  const st=tankerState(plate);
+  if(st.total<=0){ toast("Tanker is already empty"); return; }
+  if(!confirm("Send this tanker for sale?\n"+plate+" — "+fmt(st.total)+" L\nThis empties the tanker and starts a new fill.")) return;
+  const chambers=st.caps.map((c,i)=>({name:"C"+(i+1),qty:st.cham[i]})).filter(c=>c.qty>0);
+  const entry={ id:localId(), ts:Date.now(), plate:plate, kind:"dispatch", chambers:chambers, total:st.total, by:ME };
+  Backend.add(entry).then(refresh).then(()=>{ renderHome(); toast("🚚 "+plate+" sent for sale"); }).catch(oops);
 }
 
-/* ---------- ENTER QTY ---------- */
-function startDraft(v){
-  draft={ plate:v.plate, qty:v.caps.map(()=>"") };
-  $("#qPlate").textContent=v.plate;
+/* ---------- ADD DIESEL to a tanker's chambers ---------- */
+function startAdd(plate){
+  const st=tankerState(plate);
+  draft={ plate:plate, caps:st.caps.slice(), existing:st.cham.slice(), add:st.caps.map(()=>"") };
+  $("#qPlate").textContent=plate;
   renderChambers();
-  show("scQty");
+  show("scAdd");
 }
 function renderChambers(){
-  const v=vehicleOf(draft.plate);
-  $("#chamList").innerHTML = v.caps.map((cap,i)=>{
-    const val=draft.qty[i];
-    const over = val!=="" && (+val)>cap;
-    return '<div class="cham'+(val!==""&&+val>0?" filled":"")+(over?" over":"")+'" data-i="'+i+'">'
+  $("#chamList").innerHTML = draft.caps.map((cap,i)=>{
+    const have=draft.existing[i];
+    return '<div class="cham" data-i="'+i+'">'
       +'<div class="top"><div class="badge">C'+(i+1)+'</div>'
       +'<div class="cn">Chamber '+(i+1)+'</div>'
-      +'<div class="cap-tag">Full '+fmt(cap)+' L</div></div>'
-      +'<div class="bar"><div class="fill" data-fill></div></div>'
+      +'<div class="cap-tag"><span data-have>'+fmt(have)+'</span> / '+fmt(cap)+' L</div></div>'
+      +'<div class="bar"><div class="fill have" data-fhave></div><div class="fill add" data-fadd></div></div>'
       +'<div class="lr">'
-      +'<span class="loaded">Loaded <b data-loaded>0</b> L</span>'
-      +'<span class="left">Left <b data-left>'+fmt(cap)+'</b> L</span>'
+      +'<span class="left">Left <b data-left>'+fmt(Math.max(cap-have,0))+'</b> L</span>'
+      +'<span class="fulltag">✓ FULL</span>'
       +'<span class="over-txt">⚠ Over full by <b data-over>0</b> L</span>'
       +'</div>'
       +'<div class="qtyrow">'
       +'<button class="qbtn clr" data-clr="'+i+'">Clear</button>'
-      +'<input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+val+'" data-in="'+i+'" />'
-      +'<button class="qbtn" data-full="'+i+'">Full</button>'
+      +'<input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Add" value="'+draft.add[i]+'" data-in="'+i+'" />'
+      +'<button class="qbtn" data-top="'+i+'">Top&nbsp;up</button>'
       +'</div></div>';
   }).join("");
   const cl=$("#chamList");
-  cl.querySelectorAll("input[data-in]").forEach(inp=>{
-    inp.oninput=()=>{ let val=inp.value.replace(/[^0-9]/g,""); inp.value=val; draft.qty[+inp.dataset.in]=val; refreshChamState(); };
-  });
-  cl.querySelectorAll("[data-full]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.full; draft.qty[i]=""+v.caps[i]; renderChambers(); }; });
-  cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.qty[i]=""; renderChambers(); }; });
+  cl.querySelectorAll("input[data-in]").forEach(inp=>{ inp.oninput=()=>{ let val=inp.value.replace(/[^0-9]/g,""); inp.value=val; draft.add[+inp.dataset.in]=val; refreshChamState(); }; });
+  cl.querySelectorAll("[data-top]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.top; draft.add[i]=""+Math.max(draft.caps[i]-draft.existing[i],0); renderChambers(); }; });
+  cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.add[i]=""; renderChambers(); }; });
   refreshChamState();
 }
 function refreshChamState(){
-  const v=vehicleOf(draft.plate);
   $("#chamList").querySelectorAll(".cham").forEach(el=>{
-    const i=+el.dataset.i, cap=v.caps[i], raw=draft.qty[i], entered=raw===""?0:+raw;
-    const over = raw!=="" && entered>cap;
-    el.classList.toggle("filled", entered>0);
+    const i=+el.dataset.i, cap=draft.caps[i], have=draft.existing[i];
+    const raw=draft.add[i], add=raw===""?0:+raw, newTot=have+add, over=newTot>cap;
+    el.classList.toggle("full", newTot>=cap && !over);
     el.classList.toggle("over", over);
-    const pct = cap>0 ? Math.min(entered/cap,1)*100 : 0;
-    el.querySelector("[data-fill]").style.width = pct+"%";
-    el.querySelector("[data-loaded]").textContent = fmt(entered);
-    el.querySelector("[data-left]").textContent = fmt(Math.max(cap-entered,0));
-    el.querySelector("[data-over]").textContent = fmt(Math.max(entered-cap,0));
+    const haveW=cap>0?Math.min(have/cap,1)*100:0;
+    const addW=over?Math.max(100-haveW,0):(cap>0?add/cap*100:0);
+    el.querySelector("[data-fhave]").style.width=haveW+"%";
+    el.querySelector("[data-fadd]").style.width=addW+"%";
+    el.querySelector("[data-left]").textContent=fmt(Math.max(cap-newTot,0));
+    el.querySelector("[data-over]").textContent=fmt(Math.max(newTot-cap,0));
   });
   updateRun();
 }
-function draftTotal(){ return draft.qty.reduce((s,q)=> s+(q===""?0:+q),0); }
-function capTotal(){ return vehicleOf(draft.plate).caps.reduce((s,c)=>s+c,0); }
+function addTotal(){ return draft.add.reduce((s,q)=> s+(q===""?0:+q),0); }
+function haveTotal(){ return draft.existing.reduce((s,q)=>s+q,0); }
+function capTotal(){ return draft.caps.reduce((s,c)=>s+c,0); }
 function updateRun(){
-  const loaded=draftTotal(), cap=capTotal(), left=Math.max(cap-loaded,0);
-  $("#sumLoaded").textContent=fmt(loaded);
+  const have=haveTotal(), add=addTotal(), cap=capTotal(), after=have+add, left=Math.max(cap-after,0);
+  $("#sumLoaded").textContent=fmt(after);
   $("#sumLeft").textContent=fmt(left);
   $("#sumCap").textContent=fmt(cap);
-  $("#sumFill").style.width=(cap>0?Math.min(loaded/cap,1)*100:0)+"%";
+  const haveW=cap>0?Math.min(have/cap,1)*100:0;
+  const addW=cap>0?Math.min(add,Math.max(cap-have,0))/cap*100:0;
+  $("#sumFillHave").style.width=haveW+"%";
+  $("#sumFillAdd").style.width=addW+"%";
+  $("#sumAddNote").textContent = add>0 ? "· adding "+fmt(add)+" L now" : "";
 }
 
 $("#reviewBtn").onclick=()=>{
-  const tot=draftTotal();
-  if(tot<=0){ toast("Enter at least one quantity"); return; }
+  if(addTotal()<=0){ toast("Enter how much you are adding"); return; }
   renderConfirm();
   show("scConf");
 };
 
 /* ---------- CONFIRM ---------- */
 function renderConfirm(){
-  const v=vehicleOf(draft.plate);
   let rows="";
-  v.caps.forEach((cap,i)=>{
-    const q=draft.qty[i];
-    if(q!==""&&+q>0) rows+='<div class="cline"><span>Chamber '+(i+1)+'</span><span class="cq">'+fmt(+q)+' L</span></div>';
+  draft.caps.forEach((cap,i)=>{
+    const q=draft.add[i];
+    if(q!==""&&+q>0){
+      const after=draft.existing[i]+ +q;
+      rows+='<div class="cline"><span>Chamber '+(i+1)+' <small style="color:var(--muted)">('+fmt(draft.existing[i])+' → '+fmt(after)+')</small></span><span class="cq">+'+fmt(+q)+' L</span></div>';
+    }
   });
+  const after=haveTotal()+addTotal();
   $("#confBox").innerHTML='<div class="cp">'+draft.plate+'</div>'
-    +'<div class="ct">'+new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+' · '+timeLabel(Date.now())+(CLOUD&&ME?' · '+ME:'')+'</div>'
+    +'<div class="ct">Adding now · '+timeLabel(Date.now())+(CLOUD&&ME?' · '+ME:'')+'</div>'
     +rows
-    +'<div class="cline grand"><span>TOTAL</span><span>'+fmt(draftTotal())+' L</span></div>';
+    +'<div class="cline grand"><span>Adding now</span><span>+'+fmt(addTotal())+' L</span></div>'
+    +'<div class="cline"><span>Tanker after</span><span class="cq">'+fmt(after)+' / '+fmt(capTotal())+' L</span></div>';
 }
-$("#editBtn").onclick=()=>{ show("scQty",false); stack.pop(); $("#backBtn").style.display=stack.length>1?"":"none"; };
+$("#editBtn").onclick=()=>{ show("scAdd",false); stack.pop(); $("#backBtn").style.display=stack.length>1?"":"none"; };
 $("#saveBtn").onclick=()=>{
-  const v=vehicleOf(draft.plate);
   const chambers=[];
-  v.caps.forEach((cap,i)=>{ const q=draft.qty[i]; if(q!==""&&+q>0) chambers.push({name:"C"+(i+1),qty:+q,cap:cap}); });
+  draft.caps.forEach((cap,i)=>{ const q=draft.add[i]; if(q!==""&&+q>0) chambers.push({name:"C"+(i+1),qty:+q}); });
   if(!chambers.length){ toast("Nothing to save"); return; }
-  const entry={ id:localId(), ts:Date.now(), plate:draft.plate, chambers:chambers, total:draftTotal(), by:ME };
+  const entry={ id:localId(), ts:Date.now(), plate:draft.plate, kind:"load", chambers:chambers, total:addTotal(), by:ME };
   const btn=$("#saveBtn"); btn.disabled=true;
   Backend.add(entry).then(refresh).then(()=>{
-    btn.disabled=false; draft=null; goHome(); toast("✓ Saved — "+fmt(entry.total)+" L");
+    btn.disabled=false; draft=null; goHome(); toast("✓ Added "+fmt(entry.total)+" L");
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
 /* ---------- HISTORY ---------- */
 function renderHist(){
   $("#hTot").textContent=fmt(totals(LOG));
-  $("#hCnt").textContent=LOG.length;
+  $("#hCnt").textContent=LOG.filter(e=>(e.kind||"load")!=="dispatch").length;
   const box=$("#histList");
   if(!LOG.length){ box.innerHTML='<div class="empty">No records yet.</div>'; return; }
   const groups={};
   [...LOG].reverse().forEach(e=>{ const k=dayKey(e.ts); (groups[k]=groups[k]||[]).push(e); });
   box.innerHTML=Object.keys(groups).map(k=>{
     const arr=groups[k], dtot=totals(arr);
-    return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].ts)+'</span><span class="dt">'+fmt(dtot)+' L</span></div>'
+    return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].ts)+'</span><span class="dt">'+fmt(dtot)+' L loaded</span></div>'
       + arr.map(e=>{
-        const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
         const who=(CLOUD&&e.by)?' · '+e.by:'';
+        if((e.kind||"load")==="dispatch"){
+          return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
+            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
+            +'<span class="tot">'+fmt(e.total)+' L</span>'
+            +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
+        }
+        const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
         return '<div class="entry"><span class="plate">'+e.plate+'</span>'
-          +'<div class="mid"><div class="ch">'+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
-          +'<span class="tot">'+fmt(e.total)+' L</span>'
+          +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
+          +'<span class="tot">+'+fmt(e.total)+' L</span>'
           +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
       }).join("")
       +'</div>';
@@ -554,14 +616,15 @@ function renderHist(){
 $("#exportBtn").onclick=()=>{
   if(!LOG.length){ toast("Nothing to export"); return; }
   const maxC=Math.max(...VEHICLES.map(v=>v.caps.length));
-  const head=["Date","Time","Vehicle"];
+  const head=["Date","Time","Vehicle","Type"];
   for(let i=1;i<=maxC;i++) head.push("C"+i+" (L)");
   head.push("Total (L)");
   if(CLOUD) head.push("By");
   const rows=[head];
   [...LOG].sort((a,b)=>a.ts-b.ts).forEach(e=>{
     const d=new Date(e.ts);
-    const r=[ d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()), timeLabel(e.ts), e.plate ];
+    const type=(e.kind||"load")==="dispatch"?"Sent for sale":"Load";
+    const r=[ d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()), timeLabel(e.ts), e.plate, type ];
     for(let i=1;i<=maxC;i++){ const c=e.chambers.find(x=>x.name==="C"+i); r.push(c?c.qty:""); }
     r.push(e.total);
     if(CLOUD) r.push(e.by||"");
@@ -577,7 +640,6 @@ $("#exportBtn").onclick=()=>{
 };
 
 /* ---------- Nav buttons ---------- */
-$("#newBtn").onclick=()=>{ renderPick(); show("scPick"); };
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 
 /* ---------- Realtime (cloud) ---------- */

@@ -26,13 +26,18 @@ create extension if not exists pgcrypto;
 create table if not exists public.loading_events (
   id         uuid primary key default gen_random_uuid(),
   vehicle    text not null,
-  -- chambers: [{"name":"C1","qty":3985,"cap":3985}, ...]
+  -- 'load' = diesel added to chambers; 'dispatch' = tanker sent for sale (emptied).
+  -- A tanker's current fill = sum of 'load' events since its latest 'dispatch'.
+  kind       text not null default 'load' check (kind in ('load','dispatch')),
+  -- chambers: [{"name":"C1","qty":3985}, ...]
   chambers   jsonb not null,
   total      numeric(12,2) not null check (total > 0),
-  by_name    text not null default '',  -- who loaded it (for accountability)
+  by_name    text not null default '',  -- who did it (for accountability)
   created_by uuid,
   created_at timestamptz not null default now()  -- server time; never the client clock
 );
+-- add the column if an earlier version of this table already exists
+alter table public.loading_events add column if not exists kind text not null default 'load';
 
 create index if not exists loading_events_created_idx on public.loading_events(created_at desc);
 
@@ -74,10 +79,12 @@ end $$;
 -- RPCs (the client's only write path)
 -- ---------------------------------------------------------------------
 
--- Record one loading event. Also drops anything older than 7 days so the
--- table never grows past a week.
+-- Record one event (a 'load' or a 'dispatch'). Also drops anything older than
+-- 7 days so the table never grows past a week.
+-- Drop the earlier 4-arg version (before 'kind' existed) so there is no overload.
+drop function if exists public.loading_add(text, jsonb, numeric, text);
 create or replace function public.loading_add(
-  p_vehicle text, p_chambers jsonb, p_total numeric, p_by text
+  p_vehicle text, p_chambers jsonb, p_total numeric, p_by text, p_kind text
 ) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare rid uuid;
@@ -88,9 +95,10 @@ begin
     raise exception 'At least one chamber is required';
   end if;
   if p_total is null or p_total <= 0 then raise exception 'Total must be positive'; end if;
+  if coalesce(p_kind,'load') not in ('load','dispatch') then raise exception 'Bad kind'; end if;
 
-  insert into loading_events (vehicle, chambers, total, by_name, created_by)
-  values (p_vehicle, p_chambers, p_total, coalesce(p_by,''), auth.uid())
+  insert into loading_events (vehicle, kind, chambers, total, by_name, created_by)
+  values (p_vehicle, coalesce(p_kind,'load'), p_chambers, p_total, coalesce(p_by,''), auth.uid())
   returning id into rid;
 
   delete from loading_events where created_at < now() - interval '7 days';
@@ -129,7 +137,7 @@ begin
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
     revoke execute on all functions in schema public from public, anon;
     grant execute on function
-      public.loading_add(text, jsonb, numeric, text),
+      public.loading_add(text, jsonb, numeric, text, text),
       public.loading_delete(uuid),
       public.loading_purge()
     to authenticated;

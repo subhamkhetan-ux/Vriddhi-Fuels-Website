@@ -1,9 +1,9 @@
 # Vriddhi Fuels — Tanker Loading Log
 
-A dead-simple, installable PWA for employees to record how much diesel is loaded
-into each tanker chamber. Built for a low-literacy user: big buttons, big
-numbers, colour-coded tankers, English + Hindi labels, and a number-pad keyboard
-for every quantity.
+A dead-simple, installable PWA for employees to fill diesel tankers in many small
+loadings and keep a running account of each tanker's fill level. Built for a
+low-literacy user: big buttons, big numbers, live progress bars, and a number-pad
+keyboard for every quantity. English only.
 
 > This is a **fourth, separate app** in this repo — independent of the Master
 > Ledger at `/index.html`, the Indent PWA at `/app/`, and the Tally app at
@@ -15,27 +15,39 @@ The app auto-detects its mode from [`config.js`](./config.js):
 
 - **Cloud mode (recommended for multiple employees)** — fill in your Supabase
   URL + anon key and every employee signs in with a username + password. All
-  phones share **one live list**: a save on one phone appears on every other
-  phone **instantly** (Supabase realtime). Data is **kept for the last 7 days
-  only** — older loadings drop off automatically. Each record also stores **who
-  loaded it**. Records use the **server's clock**, not the phone's.
+  phones share **one live set of tankers**: a save on one phone updates every
+  other phone **instantly** (Supabase realtime), so everyone sees the same fill
+  levels. History is **kept for the last 7 days only**. Each record stores **who
+  did it**, and records use the **server's clock**, not the phone's.
 - **Single-device mode (zero setup)** — leave `config.js` as its placeholders
   and the app runs with **no server and no login**, storing records in that one
   phone's browser storage (kept until you clear it). Fine for one shared phone.
 
-## How the employee uses it
+## How it works (the fill model)
 
-1. **Tap “⛽ New Loading”.**
-2. **Pick the tanker** — four big colour cards, one per vehicle number.
-3. **Type how many litres went into each chamber.** Each chamber has a big
-   number box, a **Full** button (fills that chamber's capacity in one tap) and
-   a **Clear** button. Multiple chambers can be filled in the same loading.
-   Leave a chamber blank/0 if it wasn't filled. A running **TOTAL** shows at the
-   bottom, and a chamber turns green once it has a quantity.
-4. **Tap “✓ Save”** → a plain check-and-save summary → **“Confirm & Save”.**
+A tanker is filled in **many small loadings**, and each tanker keeps a **running
+fill level that accumulates** across those loadings. It does **not** reset when a
+chamber becomes full. When the whole tanker is full it is **sent for sale**; that
+empties the tanker's gauge, and when it comes back it starts filling from empty
+again.
 
-The home screen then shows **today's total litres**, today's loading count, the
-all-time totals, and the most recent loadings.
+1. **Home shows a card per tanker** with a big fill bar, the current litres
+   (e.g. `5,485 / 11,955 L`), how much is **left to fill**, and how many chambers
+   are full. A full tanker shows a green **FULL ✓** badge.
+2. **Tap a tanker → Add diesel.** Each chamber shows what is **already in it**
+   (`1,500 / 3,985 L`) with a two-tone bar — the darker part is what's already
+   there, the brighter part is what you're **adding now**. Type the litres you're
+   loading; **Top up** fills the chamber to the brim; **Left** updates live. A
+   sticky summary shows the tanker total after this save and the litres left.
+3. **Save** → a check-and-confirm screen → the tanker's fill goes up by that
+   amount. Do this as many times as you like; it keeps adding.
+4. **When the tanker is full, tap “🚚 Sent for sale”** (a bold green button on a
+   full tanker; a quiet link on a partly-filled one). Confirm, and the tanker
+   empties back to `0` — ready for the next round.
+
+Every loading (`+ litres`) and every dispatch (`🚚 Sent for sale`) is kept in
+**History** and the export, so the full account of what went into each tanker and
+when it was sent out is preserved.
 
 ## Vehicles & chambers (fixed in the app)
 
@@ -78,17 +90,24 @@ It holds three ways, so a week is the most that is ever kept:
    `loading_purge()` on open.
 3. If `pg_cron` is installed, it purges hourly on a schedule too.
 
+> A tanker's current fill is computed from its loadings since its last
+> **dispatch**, all within this 7-day window — which is fine because a fill →
+> sale cycle takes far less than a week. (If a tanker were left partly filled for
+> more than 7 days, the oldest loadings would age out of the window.)
+
 ## Records & backup
 
-- Every loading stores the **date, time, vehicle, per-chamber litres, total**,
-  and (cloud mode) **who loaded it**.
-- **History** (“View all”) groups loadings by day with per-day and grand totals,
-  and lets you delete a wrong entry (with a confirm). In cloud mode this shows
-  the last 7 days shared across all employees.
+- Every record stores the **date, time, vehicle, type (Load / Sent for sale),
+  per-chamber litres, total**, and (cloud mode) **who did it**.
+- **History** (“View all”) groups records by day and shows each loading as
+  `+ litres` and each dispatch as `🚚 Sent for sale`, with a per-day loaded
+  total. You can delete a wrong entry (with a confirm); the tanker's fill
+  recalculates automatically.
 - **Export to Excel / CSV** downloads the records as a spreadsheet
   (`Tanker_Loading_YYYY-MM-DD.csv`, opens in Excel / Google Sheets) with columns
-  *Date · Time · Vehicle · C1 · C2 · C3 · C4 · Total* (plus *By* in cloud mode).
-  Since cloud data only spans 7 days, export weekly to keep a longer archive.
+  *Date · Time · Vehicle · Type · C1 · C2 · C3 · C4 · Total* (plus *By* in cloud
+  mode). Since cloud data only spans 7 days, export weekly to keep a longer
+  archive.
 
 > In **single-device mode** the records live in that phone's browser storage;
 > clearing the browser's site data or uninstalling erases them, so the periodic
@@ -107,6 +126,9 @@ sign in and sync.
 
 - In cloud mode, times use the **server's clock**; in single-device mode, the
   phone's clock.
-- Quantities accept whole litres only; typing more than a chamber's capacity
-  shows a gentle “⚠ More than full” warning but still lets you save (in case of
-  genuine top-ups).
+- Quantities accept whole litres only; if a chamber's already-in amount plus what
+  you're adding would exceed its capacity, the bar turns red with an “⚠ Over full”
+  warning, but it still lets you save (in case of a genuine top-up).
+- The **🚚 Sent for sale** button appears once a tanker has any diesel in it —
+  bold and green when the tanker is full, a quiet link when it's only partly
+  filled. It always asks for confirmation before emptying the tanker.
