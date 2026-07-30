@@ -210,15 +210,21 @@ end $$;
 -- the same day fail. Returns the date the day was booked under.
 create or replace function public.loading_end_day() returns text
 language plpgsql security definer set search_path = public as $$
-declare cd date;
+declare
+  ist timestamp := now() at time zone 'Asia/Kolkata';
+  mins int := extract(hour from ist)*60 + extract(minute from ist);
+  cd date := ist::date - 1;   -- the day being ended (yesterday, in IST)
 begin
   perform _loading_auth();
-  cd := ((now() at time zone 'Asia/Kolkata')::date) - 1;   -- yesterday, in IST
+  -- manual End Day is only for the morning shift-change window (5:30–7:30 AM IST)
+  if mins < 330 or mins >= 450 then
+    raise exception 'End Day is available only between 5:30 and 7:30 AM';
+  end if;
   if exists (select 1 from loading_day_closes where close_date = cd) then
     raise exception 'This day has already been ended';
   end if;
   insert into loading_day_closes (close_date, closed_by) values (cd, auth.uid());
-  delete from loading_day_closes where close_date < ((now() at time zone 'Asia/Kolkata')::date) - 30;
+  delete from loading_day_closes where close_date < ist::date - 30;
   return to_char(cd, 'YYYY-MM-DD');
 end $$;
 
@@ -239,7 +245,7 @@ begin
     into d from loading_day_closes;
   if d is null then return 0; end if;
   while d < today_ist loop
-    deadline := ((d + 1)::text || ' 08:00:00')::timestamp at time zone 'Asia/Kolkata';
+    deadline := ((d + 1)::text || ' 07:30:00')::timestamp at time zone 'Asia/Kolkata';
     exit when now() < deadline;
     insert into loading_day_closes (close_date, closed_at, closed_by)
       values (d, deadline, p_by)
