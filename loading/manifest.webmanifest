@@ -1,0 +1,19 @@
+{
+  "name": "Vriddhi Fuels — Tanker Loading",
+  "short_name": "Loading",
+  "description": "Log diesel loaded into tanker chambers. Simple, offline, installable.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111E3E",
+  "theme_color": "#111E3E",
+  "icons": [
+    {
+      "src": "../Vriddhi%20Fuels%20Logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

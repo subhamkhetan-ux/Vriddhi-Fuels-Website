@@ -1,0 +1,873 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#111E3E" />
+<title>Vriddhi Fuels — Tanker Loading</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png" />
+<script src="./config.js"></script>
+<style>
+  :root{
+    --navy:#111E3E; --navy2:#1c2f5e; --amber:#f5a623; --amber-d:#d98a05;
+    --green:#1f9d55; --green-d:#178048; --red:#d64545; --red-d:#b83636;
+    --bg:#eef1f6; --card:#ffffff; --ink:#16233f; --muted:#5b6b83;
+    --line:#d9dee8; --shadow:0 6px 18px rgba(17,30,62,.10);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--ink);
+    -webkit-text-size-adjust:100%;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .wrap{max-width:520px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+  /* Header */
+  header{
+    background:var(--navy); color:#fff; padding:14px 16px;
+    display:flex;align-items:center;gap:12px; position:sticky; top:0; z-index:10;
+    box-shadow:0 2px 10px rgba(0,0,0,.15);
+  }
+  header img{width:40px;height:40px;border-radius:9px;background:#fff;object-fit:contain;padding:3px}
+  header .t{font-size:19px;font-weight:800;letter-spacing:.2px;line-height:1.1}
+  header .s{font-size:12px;opacity:.75;margin-top:2px}
+  .back{background:rgba(255,255,255,.14);border:0;color:#fff;font-size:22px;font-weight:800;
+    width:44px;height:44px;border-radius:12px;line-height:1;cursor:pointer;flex:none}
+  main{flex:1;padding:16px 16px 28px}
+  .screen{display:none;animation:fade .18s ease}
+  .screen.on{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* Big primary button */
+  .big{
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    width:100%;border:0;border-radius:18px;padding:22px 18px;font-size:22px;font-weight:800;
+    color:#fff;background:var(--amber);box-shadow:var(--shadow);cursor:pointer;margin-bottom:14px;
+    -webkit-appearance:none;
+  }
+  .big:active{transform:translateY(1px)}
+  .big:disabled{opacity:.6}
+  .big.green{background:var(--green)} .big.navy{background:var(--navy)} .big.red{background:var(--red)}
+  .big .hi{display:block;font-size:13px;font-weight:600;opacity:.9;margin-top:2px}
+  .big .em{font-size:26px}
+
+  /* Stat card */
+  .stat{background:var(--card);border-radius:18px;padding:18px;box-shadow:var(--shadow);margin-bottom:14px;text-align:center}
+  .stat .label{font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
+  .stat .num{font-size:44px;font-weight:900;color:var(--navy);line-height:1.05;margin:4px 0}
+  .stat .num small{font-size:20px;font-weight:800;color:var(--amber-d)}
+  .stat .sub{font-size:13px;color:var(--muted)}
+
+  .row2{display:flex;gap:10px}
+  .row2>*{flex:1}
+  .mini{background:var(--card);border-radius:14px;padding:12px;box-shadow:var(--shadow);text-align:center}
+  .mini .n{font-size:24px;font-weight:900;color:var(--navy)}
+  .mini .l{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+
+  .sectitle{font-size:14px;font-weight:800;color:var(--navy);margin:18px 2px 8px;display:flex;justify-content:space-between;align-items:center}
+  .sectitle .lnk{font-size:13px;color:var(--amber-d);font-weight:700;cursor:pointer;background:none;border:0}
+
+  /* Entry list */
+  .entry{background:var(--card);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow);margin-bottom:10px;display:flex;align-items:center;gap:12px}
+  .entry .plate{font-weight:900;font-size:15px;color:#fff;background:var(--navy);border-radius:8px;padding:6px 8px;letter-spacing:.5px;white-space:nowrap}
+  .entry .mid{flex:1;min-width:0}
+  .entry .ch{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .entry .tm{font-size:12px;color:var(--muted);margin-top:2px}
+  .entry .tot{font-weight:900;font-size:17px;color:var(--green-d);white-space:nowrap}
+  .entry.disp{background:#eef6ff}
+  .entry.disp .plate{background:var(--amber-d)}
+  .entry.disp .tot{color:var(--amber-d)}
+  .entry.disp .dtag{font-size:13px;font-weight:800;color:var(--amber-d)}
+  .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:15px}
+
+  /* Vehicle cards */
+  .vcard{
+    width:100%;border:0;border-radius:18px;padding:20px;margin-bottom:14px;cursor:pointer;
+    display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shadow);
+    color:#fff;text-align:left;-webkit-appearance:none;
+  }
+  .vcard:active{transform:translateY(1px)}
+  .vcard .pl{font-size:26px;font-weight:900;letter-spacing:1px}
+  .vcard .info{font-size:13px;opacity:.9;margin-top:4px;font-weight:600}
+  .vcard .cc{font-size:34px;font-weight:900;opacity:.9}
+
+  /* Chamber rows */
+  .vhead{background:var(--navy);color:#fff;border-radius:16px;padding:14px 16px;margin-bottom:14px;text-align:center;box-shadow:var(--shadow)}
+  .vhead .pl{font-size:26px;font-weight:900;letter-spacing:1px}
+  .vhead .cap{font-size:12px;opacity:.8;margin-top:3px}
+  .cham{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:12px;border:2px solid transparent}
+  .cham.full{border-color:var(--green)}
+  .cham.over{border-color:var(--red)}
+  .cham .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .cham .badge{width:44px;height:44px;border-radius:12px;background:var(--navy);color:#fff;font-weight:900;font-size:18px;display:flex;align-items:center;justify-content:center;flex:none}
+  .cham .cn{font-weight:800;font-size:17px}
+  .cham .cd{font-size:12px;color:var(--muted)}
+  .cham .cap-tag{margin-left:auto;font-size:13px;font-weight:800;color:var(--muted);white-space:nowrap}
+  .cham .warn{color:var(--red);font-weight:700;font-size:12px;margin-top:2px;display:none}
+  .cham.over .warn{display:block}
+  /* progress bar (two-tone: already-in + adding-now) */
+  .bar{height:16px;border-radius:8px;background:#e6eaf1;overflow:hidden;margin:2px 0 8px;display:flex}
+  .bar.lg{height:22px;border-radius:11px;background:rgba(255,255,255,.22);margin:8px 0 6px}
+  .bar .fill{height:100%;width:0%;transition:width .18s ease}
+  .bar .fill.have{background:#3aa869}
+  .bar .fill.add{background:#8ff0b6}
+  .bar.lg .fill.have{background:#2ea866}
+  .bar.lg .fill.add{background:#8affc4}
+  .cham.over .bar .fill.add{background:var(--red)}
+  .lr{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:15px}
+  .lr .left b{color:var(--navy);font-weight:900;font-size:18px}
+  .lr .over-txt{color:var(--red);font-weight:800;display:none}
+  .lr .fulltag{color:var(--green-d);font-weight:900;display:none}
+  .cham.full .lr .left{display:none}
+  .cham.full .lr .fulltag{display:inline}
+  .cham.over .lr .left,.cham.over .lr .fulltag{display:none}
+  .cham.over .lr .over-txt{display:inline}
+  .qtyrow{display:flex;gap:8px;align-items:stretch}
+
+  /* Tanker status cards (home) */
+  .tcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden;border:2px solid transparent}
+  .tcard.full{border-color:var(--green)}
+  .tcard .tap{width:100%;text-align:left;background:none;border:0;padding:14px;cursor:pointer;display:block}
+  .tcard .tap:active{background:#f6f8fb}
+  .tcard .th{display:flex;justify-content:space-between;align-items:center}
+  .tcard .pl{font-size:21px;font-weight:900;color:var(--navy);letter-spacing:.5px}
+  .tcard .badge2{font-size:12px;font-weight:800;padding:5px 11px;border-radius:20px;background:#eef1f6;color:var(--muted);white-space:nowrap}
+  .tcard.full .badge2{background:var(--green);color:#fff}
+  .tcard .tsub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
+  .tcard .tsub b{color:var(--navy);font-size:15px}
+  /* subtle when partly filled (avoids accidental resets); bold green when full */
+  .dispatch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-top:1px solid var(--line);background:none;color:var(--amber-d);font-size:14px;font-weight:700;padding:11px;cursor:pointer}
+  .tcard.full .dispatch{background:var(--green);color:#fff;font-size:16px;font-weight:800;padding:14px}
+  .dispatch:active{transform:translateY(1px)}
+  .qtyrow input{
+    flex:1;min-width:0;font-size:30px;font-weight:900;text-align:center;color:var(--navy);
+    border:2px solid var(--line);border-radius:12px;padding:8px 6px;background:#fff;width:100%;
+    -moz-appearance:textfield;
+  }
+  .qtyrow input::-webkit-outer-spin-button,.qtyrow input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .qtyrow input:focus{outline:none;border-color:var(--amber)}
+  .qbtn{border:0;border-radius:12px;padding:0 14px;font-weight:800;font-size:14px;cursor:pointer;color:#fff;background:var(--navy2);flex:none}
+  .qbtn.clr{background:#8894ad}
+  .qbtn:active{transform:translateY(1px)}
+
+  .runtot{position:sticky;bottom:0;background:linear-gradient(#eef1f6cc,#eef1f6);padding-top:8px}
+  .sumbar{background:var(--navy);color:#fff;border-radius:16px;padding:14px 16px;box-shadow:var(--shadow);margin-bottom:10px}
+  .sumrow{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:700}
+  .sumrow .s-load b{font-size:24px;font-weight:900;color:#37d67a}
+  .sumrow .s-left b{font-size:24px;font-weight:900;color:#ffd27a}
+  .sumcap{text-align:center;font-size:12px;opacity:.75;font-weight:600}
+
+  /* Confirm */
+  .confbox{background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--shadow);margin-bottom:14px}
+  .confbox .cp{text-align:center;font-size:26px;font-weight:900;color:var(--navy);letter-spacing:1px;margin-bottom:4px}
+  .confbox .ct{text-align:center;font-size:13px;color:var(--muted);margin-bottom:12px}
+  .cline{display:flex;justify-content:space-between;padding:10px 4px;border-top:1px solid var(--line);font-size:17px}
+  .cline .cq{font-weight:900}
+  .cline.grand{border-top:2px solid var(--navy);margin-top:4px;font-size:20px;font-weight:900;color:var(--green-d)}
+
+  /* History */
+  .daygrp{margin-bottom:16px}
+  .dayhd{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 8px;font-weight:800;color:var(--navy);font-size:15px}
+  .dayhd .dt{font-weight:900;color:var(--green-d)}
+  .del{background:none;border:0;color:var(--red);font-size:20px;cursor:pointer;padding:4px 6px;flex:none}
+
+  /* Reports */
+  .rrange{display:flex;gap:10px;margin-bottom:10px}
+  .rrange label{flex:1;font-size:12px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  .rrange input{font-size:16px;padding:11px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600;width:100%}
+  .rpresets{display:flex;gap:8px;margin-bottom:14px}
+  .rpresets button{flex:1;padding:11px;border:0;border-radius:12px;background:#e6eaf1;color:var(--navy);font-weight:800;font-size:14px;cursor:pointer}
+  .rpresets button.on{background:var(--amber);color:#fff}
+  .rpresets button:active{transform:translateY(1px)}
+
+  .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
+  .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
+  .signrow b{color:var(--navy)}
+  .signrow button{background:none;border:0;color:var(--red-d);font-weight:700;cursor:pointer;text-decoration:underline;font-size:13px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--green-d);color:#fff;
+    padding:14px 22px;border-radius:14px;font-weight:800;font-size:16px;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;
+    transition:.25s;z-index:100;pointer-events:none;max-width:90%}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .installbtn{background:none;border:1px solid rgba(255,255,255,.4);color:#fff;font-size:12px;font-weight:700;border-radius:10px;padding:6px 10px;cursor:pointer}
+  .livedot{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#bfe6cf;background:rgba(31,157,85,.18);border:1px solid rgba(31,157,85,.5);border-radius:20px;padding:3px 9px}
+  .livedot i{width:8px;height:8px;border-radius:50%;background:#37d67a;display:inline-block;animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* Login */
+  .loginwrap{position:fixed;inset:0;background:var(--navy);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
+  .loginwrap.on{display:flex}
+  .loginbox{width:100%;max-width:380px;text-align:center;color:#fff}
+  .loginbox img{width:76px;height:76px;border-radius:18px;background:#fff;padding:8px;object-fit:contain;margin-bottom:14px}
+  .loginbox h1{font-size:24px;font-weight:900;margin:0 0 2px}
+  .loginbox .lsub{font-size:14px;opacity:.75;margin-bottom:22px}
+  .loginbox input{width:100%;font-size:19px;padding:16px;border-radius:14px;border:0;margin-bottom:12px;text-align:center;background:#fff;color:var(--ink);font-weight:600}
+  .loginbox input:focus{outline:3px solid var(--amber)}
+  .lerr{color:#ffb4b4;font-weight:700;font-size:14px;min-height:20px;margin-bottom:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <button class="back" id="backBtn" style="display:none" aria-label="Back">‹</button>
+    <img src="../Vriddhi%20Fuels%20Logo.png" alt="Vriddhi Fuels" onerror="this.style.display='none'"/>
+    <div style="flex:1">
+      <div class="t">Tanker Loading</div>
+      <div class="s" id="subT">Diesel loading record</div>
+    </div>
+    <button class="installbtn" id="installBtn" style="display:none">Install</button>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section class="screen on" id="scHome">
+      <div class="stat" style="padding:12px 14px">
+        <div class="label">Today loaded</div>
+        <div class="num"><span id="todayTot">0</span> <small>L</small></div>
+        <div class="sub"><span id="todayCnt">0</span> loadings today</div>
+      </div>
+
+      <div class="sectitle" style="font-size:16px">Tap a tanker to load diesel</div>
+      <div id="tankerList"></div>
+
+      <div class="sectitle">Recent
+        <button class="lnk" id="toHist">View all ›</button>
+      </div>
+      <div id="recentList"></div>
+
+      <button class="big navy" id="toReport" style="font-size:16px;padding:14px;background:var(--navy2);margin-top:4px">
+        <span class="em">📊</span><span>Reports &amp; Excel export</span>
+      </button>
+
+      <div class="note" id="storeNote"></div>
+      <div class="signrow" id="signRow" style="display:none"></div>
+    </section>
+
+    <!-- ADD DIESEL TO CHAMBERS -->
+    <section class="screen" id="scAdd">
+      <div class="vhead">
+        <div class="pl" id="qPlate">—</div>
+        <div class="cap">Add the litres you are loading now into each chamber</div>
+      </div>
+      <div id="chamList"></div>
+      <div class="runtot">
+        <div class="sumbar">
+          <div class="sumrow">
+            <span class="s-load">In tanker <b id="sumLoaded">0</b> L</span>
+            <span class="s-left">Left <b id="sumLeft">0</b> L</span>
+          </div>
+          <div class="bar lg"><div class="fill" id="sumFillHave" style="width:0%"></div><div class="fill add" id="sumFillAdd" style="width:0%"></div></div>
+          <div class="sumcap">of <span id="sumCap">0</span> L full tanker <span id="sumAddNote"></span></div>
+        </div>
+        <button class="big green" id="reviewBtn" style="margin-bottom:6px">
+          <span class="em">✓</span><span>Save</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- CONFIRM -->
+    <section class="screen" id="scConf">
+      <div class="sectitle" style="justify-content:center">Check &amp; save</div>
+      <div class="confbox" id="confBox"></div>
+      <button class="big green" id="saveBtn"><span class="em">✓</span><span>Confirm &amp; Save</span></button>
+      <button class="big navy" id="editBtn" style="background:#8894ad"><span>‹ Edit</span></button>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="screen" id="scHist">
+      <div class="row2" style="margin-bottom:12px">
+        <div class="mini"><div class="n" id="hTot">0</div><div class="l">Total litres</div></div>
+        <div class="mini"><div class="n" id="hCnt">0</div><div class="l">Loadings</div></div>
+      </div>
+      <button class="big navy" id="toReport2" style="font-size:16px;padding:14px;background:var(--navy2)">
+        <span class="em">📊</span><span>Reports &amp; Excel export</span>
+      </button>
+      <div id="histList"></div>
+    </section>
+
+    <!-- REPORTS -->
+    <section class="screen" id="scReport">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Reports</div>
+      <div class="rrange">
+        <label>From<input type="date" id="repFrom" /></label>
+        <label>To<input type="date" id="repTo" /></label>
+      </div>
+      <div class="rpresets">
+        <button data-preset="today">Today</button>
+        <button data-preset="7">7 days</button>
+        <button data-preset="all">All</button>
+      </div>
+      <div class="row2" style="margin-bottom:10px">
+        <div class="mini"><div class="n" id="repLoaded">0</div><div class="l">Litres loaded</div></div>
+        <div class="mini"><div class="n" id="repLoadings">0</div><div class="l">Loadings</div></div>
+      </div>
+      <div class="row2" style="margin-bottom:14px">
+        <div class="mini"><div class="n" id="repSold">0</div><div class="l">Litres sold</div></div>
+        <div class="mini"><div class="n" id="repTrips">0</div><div class="l">Tankers sold</div></div>
+      </div>
+      <div class="sectitle">By tanker</div>
+      <div id="repTankers"></div>
+      <button class="big green" id="dlExcel" style="margin-top:8px"><span class="em">⬇</span><span>Download Excel report</span></button>
+      <div class="note" id="repNote"></div>
+    </section>
+  </main>
+</div>
+
+<!-- LOGIN (cloud mode only) -->
+<div class="loginwrap" id="login">
+  <div class="loginbox">
+    <img src="../Vriddhi%20Fuels%20Logo.png" alt="Vriddhi Fuels" onerror="this.style.display='none'"/>
+    <h1>Tanker Loading</h1>
+    <div class="lsub">Sign in</div>
+    <input id="loginUser" placeholder="Username" autocapitalize="off" autocorrect="off" autocomplete="username" spellcheck="false" />
+    <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password" />
+    <div class="lerr" id="loginErr"></div>
+    <button class="big green" id="btnLogin" style="margin-bottom:0"><span>Sign in</span></button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------- Vehicle configuration ---------- */
+const VEHICLES = [
+  { plate:"OD23A3710", caps:[3985,3985,3985],       color:"#1f6f8b" },
+  { plate:"OR15R1110", caps:[3985,3985,3985],       color:"#2d7d46" },
+  { plate:"OR15R5510", caps:[3985,3985,3985],       color:"#8a5a1e" },
+  { plate:"OR15R9360", caps:[4485,4485,4485,4485],  color:"#6a3d8c" },
+];
+
+/* ---------- Mode & config ----------
+   With Supabase configured in config.js the app runs in CLOUD mode: every
+   employee signs in, all phones share ONE live list (instant realtime sync),
+   and data is kept for the last 7 days only. Without config it runs in LOCAL
+   mode: single-device, everything in this browser's storage, kept forever. */
+const CFG = window.VRIDDHI_LOADING_CONFIG || {};
+const CLOUD = /^https:\/\//.test(CFG.SUPABASE_URL || "")
+  && String(CFG.SUPABASE_URL).indexOf("PASTE") === -1
+  && !!CFG.SUPABASE_ANON_KEY
+  && String(CFG.SUPABASE_ANON_KEY).indexOf("PASTE") === -1;
+const RETAIN_DAYS = 7;
+
+/* ---------- Helpers ---------- */
+const $ = s=>document.querySelector(s);
+const fmt = n=> (Math.round(n)).toLocaleString("en-IN");
+function pad(n){ return n<10?"0"+n:""+n; }
+function dayKey(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function dayLabel(ts){
+  const d=new Date(ts), t=new Date(), y=new Date(Date.now()-864e5);
+  if(dayKey(ts)===dayKey(t.getTime())) return "Today";
+  if(dayKey(ts)===dayKey(y.getTime())) return "Yesterday";
+  return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+}
+function timeLabel(ts){ const d=new Date(ts); let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%12||12; return h+":"+pad(d.getMinutes())+" "+ap; }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2400); }
+function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
+function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
+function localId(){ return Date.now()+"-"+Math.random().toString(36).slice(2,7); }
+
+/* ---------- Data (in-memory cache of loading events) ----------
+   Each event is either a 'load' (diesel added to chambers) or a 'dispatch'
+   ('Sent for sale' — tanker emptied). A tanker's current fill = the sum of all
+   'load' events since its most recent 'dispatch'. So fills accumulate across
+   many small loadings and only reset when the full tanker is sent for sale. */
+let LOG = [];        // [{id, ts, plate, kind:'load'|'dispatch', chambers:[{name,qty}], total, by}]
+let ME = "";         // signed-in username (cloud mode)
+
+/* ---------- Backends ---------- */
+const LS_KEY = "vf_loading_log_v1";
+function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
+function lsSave(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
+
+const LocalBackend = {
+  cloud:false,
+  load(){ return Promise.resolve(lsLoad().sort((a,b)=>a.ts-b.ts)); },
+  add(entry){ const l=lsLoad(); l.push(entry); lsSave(l); return Promise.resolve(); },
+  remove(id){ lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve(); },
+};
+
+const CloudBackend = {
+  cloud:true, client:null,
+  rpc(name,args){ return this.client.rpc(name,args).then(r=>{ if(r.error) throw new Error(r.error.message||"Network error"); return r.data; }); },
+  load(){
+    // RLS already restricts to the last 7 days; ask oldest-first for display.
+    return this.client.from("loading_events").select("*").order("created_at",{ascending:true}).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      return (r.data||[]).map(row=>({
+        id: row.id,
+        ts: row.created_at ? Date.parse(row.created_at) : Date.now(),
+        plate: row.vehicle,
+        kind: row.kind || "load",
+        chambers: Array.isArray(row.chambers) ? row.chambers : (row.chambers||[]),
+        total: parseFloat(row.total),
+        by: row.by_name || "",
+      }));
+    });
+  },
+  add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME, p_kind:entry.kind||"load" }); },
+  remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
+  purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
+};
+
+let Backend = LocalBackend;
+function refresh(){ return Backend.load().then(list=>{ LOG=list; }); }
+
+/* ---------- Screen routing ---------- */
+const SCREENS=["scHome","scAdd","scConf","scHist","scReport"];
+let stack=["scHome"];
+function show(id, pushIt){
+  SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
+  if(pushIt!==false){ if(stack[stack.length-1]!==id) stack.push(id); }
+  $("#backBtn").style.display = stack.length>1 ? "" : "none";
+  window.scrollTo(0,0);
+}
+function goBack(){
+  if(stack.length>1){ stack.pop(); const id=stack[stack.length-1]; show(id,false); }
+  if(stack[stack.length-1]==="scHome") renderHome();
+  if(stack[stack.length-1]==="scHist") renderHist();
+  if(stack[stack.length-1]==="scReport") renderReport();
+}
+$("#backBtn").onclick=goBack;
+function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
+
+/* ---------- Draft (diesel being added now) ---------- */
+let draft = null; // { plate, caps:[], existing:[], add:[""] }
+
+/* ---------- Tanker fill state (accumulates until 'Sent for sale') ---------- */
+function tankerState(plate){
+  const v=vehicleOf(plate);
+  const cham=v.caps.map(()=>0);
+  const evs=LOG.filter(e=>e.plate===plate).sort((a,b)=>a.ts-b.ts);
+  let start=0;
+  for(let i=0;i<evs.length;i++) if((evs[i].kind||"load")==="dispatch") start=i+1;
+  for(let i=start;i<evs.length;i++){
+    const e=evs[i]; if((e.kind||"load")==="dispatch") continue;
+    (e.chambers||[]).forEach(c=>{ const idx=(parseInt(String(c.name).replace(/\D/g,""),10)||0)-1; if(idx>=0&&idx<cham.length) cham[idx]+=(+c.qty||0); });
+  }
+  const total=cham.reduce((s,x)=>s+x,0);
+  const cap=v.caps.reduce((s,x)=>s+x,0);
+  const full=v.caps.every((c,i)=>cham[i]>=c);
+  return { cham, total, cap, caps:v.caps, full };
+}
+
+/* ---------- HOME ---------- */
+// total litres LOADED (dispatch rows are not fresh diesel, so excluded)
+function totals(list){ return list.reduce((s,e)=>s+((e.kind||"load")==="dispatch"?0:e.total),0); }
+function renderHome(){
+  const tKey=dayKey(Date.now());
+  const today=LOG.filter(e=>dayKey(e.ts)===tKey && (e.kind||"load")!=="dispatch");
+  $("#todayTot").textContent=fmt(today.reduce((s,e)=>s+e.total,0));
+  $("#todayCnt").textContent=today.length;
+  renderTankers();
+  const recent=[...LOG].slice(-6).reverse();
+  const box=$("#recentList");
+  if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap a tanker above to start.</div>'; }
+  else box.innerHTML=recent.map(entryHTML).join("");
+  $("#storeNote").innerHTML = CLOUD
+    ? "Shared live tankers — every employee sees the same fill. History kept for the last 7 days."
+    : (LOG.length ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup." : "");
+  const sr=$("#signRow");
+  if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
+  else sr.style.display="none";
+}
+function renderTankers(){
+  $("#tankerList").innerHTML = VEHICLES.map(v=>{
+    const st=tankerState(v.plate);
+    const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
+    const left=Math.max(st.cap-st.total,0);
+    const fullN=st.caps.filter((c,i)=>st.cham[i]>=c).length;
+    const badge = st.full ? "FULL ✓" : fmt(st.total)+" / "+fmt(st.cap)+" L";
+    const sub = st.full ? "Full — send for sale when dispatched"
+                        : "Left to fill <b>"+fmt(left)+"</b> L · "+fullN+"/"+st.caps.length+" chambers full";
+    return '<div class="tcard'+(st.full?" full":"")+'">'
+      +'<button class="tap" data-plate="'+v.plate+'">'
+      +'<div class="th"><span class="pl">'+v.plate+'</span><span class="badge2">'+badge+'</span></div>'
+      +'<div class="bar"><div class="fill have" style="width:'+pct+'%"></div></div>'
+      +'<div class="tsub">'+sub+'</div></button>'
+      +(st.total>0?'<button class="dispatch" data-disp="'+v.plate+'">🚚 Sent for sale — empty tanker</button>':'')
+      +'</div>';
+  }).join("");
+  $("#tankerList").querySelectorAll(".tap").forEach(b=>{ b.onclick=()=>startAdd(b.dataset.plate); });
+  $("#tankerList").querySelectorAll(".dispatch").forEach(b=>{ b.onclick=()=>dispatchTanker(b.dataset.disp); });
+}
+function entryHTML(e){
+  const who=(CLOUD&&e.by)?' · '+e.by:'';
+  if((e.kind||"load")==="dispatch"){
+    return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
+      +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
+      +'<span class="tot">'+fmt(e.total)+' L</span></div>';
+  }
+  const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
+  return '<div class="entry"><span class="plate">'+e.plate+'</span>'
+    +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
+    +'<span class="tot">+'+fmt(e.total)+' L</span></div>';
+}
+
+/* ---------- Dispatch (Sent for sale) — empties the tanker ---------- */
+function dispatchTanker(plate){
+  const st=tankerState(plate);
+  if(st.total<=0){ toast("Tanker is already empty"); return; }
+  if(!confirm("Send this tanker for sale?\n"+plate+" — "+fmt(st.total)+" L\nThis empties the tanker and starts a new fill.")) return;
+  const chambers=st.caps.map((c,i)=>({name:"C"+(i+1),qty:st.cham[i]})).filter(c=>c.qty>0);
+  const entry={ id:localId(), ts:Date.now(), plate:plate, kind:"dispatch", chambers:chambers, total:st.total, by:ME };
+  Backend.add(entry).then(refresh).then(()=>{ renderHome(); toast("🚚 "+plate+" sent for sale"); }).catch(oops);
+}
+
+/* ---------- ADD DIESEL to a tanker's chambers ---------- */
+function startAdd(plate){
+  const st=tankerState(plate);
+  draft={ plate:plate, caps:st.caps.slice(), existing:st.cham.slice(), add:st.caps.map(()=>"") };
+  $("#qPlate").textContent=plate;
+  renderChambers();
+  show("scAdd");
+}
+function renderChambers(){
+  $("#chamList").innerHTML = draft.caps.map((cap,i)=>{
+    const have=draft.existing[i];
+    return '<div class="cham" data-i="'+i+'">'
+      +'<div class="top"><div class="badge">C'+(i+1)+'</div>'
+      +'<div class="cn">Chamber '+(i+1)+'</div>'
+      +'<div class="cap-tag"><span data-have>'+fmt(have)+'</span> / '+fmt(cap)+' L</div></div>'
+      +'<div class="bar"><div class="fill have" data-fhave></div><div class="fill add" data-fadd></div></div>'
+      +'<div class="lr">'
+      +'<span class="left">Left <b data-left>'+fmt(Math.max(cap-have,0))+'</b> L</span>'
+      +'<span class="fulltag">✓ FULL</span>'
+      +'<span class="over-txt">⚠ Over full by <b data-over>0</b> L</span>'
+      +'</div>'
+      +'<div class="qtyrow">'
+      +'<button class="qbtn clr" data-clr="'+i+'">Clear</button>'
+      +'<input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Add" value="'+draft.add[i]+'" data-in="'+i+'" />'
+      +'<button class="qbtn" data-top="'+i+'">Top&nbsp;up</button>'
+      +'</div></div>';
+  }).join("");
+  const cl=$("#chamList");
+  cl.querySelectorAll("input[data-in]").forEach(inp=>{ inp.oninput=()=>{ let val=inp.value.replace(/[^0-9]/g,""); inp.value=val; draft.add[+inp.dataset.in]=val; refreshChamState(); }; });
+  cl.querySelectorAll("[data-top]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.top; draft.add[i]=""+Math.max(draft.caps[i]-draft.existing[i],0); renderChambers(); }; });
+  cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.add[i]=""; renderChambers(); }; });
+  refreshChamState();
+}
+function refreshChamState(){
+  $("#chamList").querySelectorAll(".cham").forEach(el=>{
+    const i=+el.dataset.i, cap=draft.caps[i], have=draft.existing[i];
+    const raw=draft.add[i], add=raw===""?0:+raw, newTot=have+add, over=newTot>cap;
+    el.classList.toggle("full", newTot>=cap && !over);
+    el.classList.toggle("over", over);
+    const haveW=cap>0?Math.min(have/cap,1)*100:0;
+    const addW=over?Math.max(100-haveW,0):(cap>0?add/cap*100:0);
+    el.querySelector("[data-fhave]").style.width=haveW+"%";
+    el.querySelector("[data-fadd]").style.width=addW+"%";
+    el.querySelector("[data-left]").textContent=fmt(Math.max(cap-newTot,0));
+    el.querySelector("[data-over]").textContent=fmt(Math.max(newTot-cap,0));
+  });
+  updateRun();
+}
+function addTotal(){ return draft.add.reduce((s,q)=> s+(q===""?0:+q),0); }
+function haveTotal(){ return draft.existing.reduce((s,q)=>s+q,0); }
+function capTotal(){ return draft.caps.reduce((s,c)=>s+c,0); }
+function updateRun(){
+  const have=haveTotal(), add=addTotal(), cap=capTotal(), after=have+add, left=Math.max(cap-after,0);
+  $("#sumLoaded").textContent=fmt(after);
+  $("#sumLeft").textContent=fmt(left);
+  $("#sumCap").textContent=fmt(cap);
+  const haveW=cap>0?Math.min(have/cap,1)*100:0;
+  const addW=cap>0?Math.min(add,Math.max(cap-have,0))/cap*100:0;
+  $("#sumFillHave").style.width=haveW+"%";
+  $("#sumFillAdd").style.width=addW+"%";
+  $("#sumAddNote").textContent = add>0 ? "· adding "+fmt(add)+" L now" : "";
+}
+
+$("#reviewBtn").onclick=()=>{
+  if(addTotal()<=0){ toast("Enter how much you are adding"); return; }
+  renderConfirm();
+  show("scConf");
+};
+
+/* ---------- CONFIRM ---------- */
+function renderConfirm(){
+  let rows="";
+  draft.caps.forEach((cap,i)=>{
+    const q=draft.add[i];
+    if(q!==""&&+q>0){
+      const after=draft.existing[i]+ +q;
+      rows+='<div class="cline"><span>Chamber '+(i+1)+' <small style="color:var(--muted)">('+fmt(draft.existing[i])+' → '+fmt(after)+')</small></span><span class="cq">+'+fmt(+q)+' L</span></div>';
+    }
+  });
+  const after=haveTotal()+addTotal();
+  $("#confBox").innerHTML='<div class="cp">'+draft.plate+'</div>'
+    +'<div class="ct">Adding now · '+timeLabel(Date.now())+(CLOUD&&ME?' · '+ME:'')+'</div>'
+    +rows
+    +'<div class="cline grand"><span>Adding now</span><span>+'+fmt(addTotal())+' L</span></div>'
+    +'<div class="cline"><span>Tanker after</span><span class="cq">'+fmt(after)+' / '+fmt(capTotal())+' L</span></div>';
+}
+$("#editBtn").onclick=()=>{ show("scAdd",false); stack.pop(); $("#backBtn").style.display=stack.length>1?"":"none"; };
+$("#saveBtn").onclick=()=>{
+  const chambers=[];
+  draft.caps.forEach((cap,i)=>{ const q=draft.add[i]; if(q!==""&&+q>0) chambers.push({name:"C"+(i+1),qty:+q}); });
+  if(!chambers.length){ toast("Nothing to save"); return; }
+  const entry={ id:localId(), ts:Date.now(), plate:draft.plate, kind:"load", chambers:chambers, total:addTotal(), by:ME };
+  const btn=$("#saveBtn"); btn.disabled=true;
+  Backend.add(entry).then(refresh).then(()=>{
+    btn.disabled=false; draft=null; goHome(); toast("✓ Added "+fmt(entry.total)+" L");
+  }).catch(e=>{ btn.disabled=false; oops(e); });
+};
+
+/* ---------- HISTORY ---------- */
+function renderHist(){
+  $("#hTot").textContent=fmt(totals(LOG));
+  $("#hCnt").textContent=LOG.filter(e=>(e.kind||"load")!=="dispatch").length;
+  const box=$("#histList");
+  if(!LOG.length){ box.innerHTML='<div class="empty">No records yet.</div>'; return; }
+  const groups={};
+  [...LOG].reverse().forEach(e=>{ const k=dayKey(e.ts); (groups[k]=groups[k]||[]).push(e); });
+  box.innerHTML=Object.keys(groups).map(k=>{
+    const arr=groups[k], dtot=totals(arr);
+    return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].ts)+'</span><span class="dt">'+fmt(dtot)+' L loaded</span></div>'
+      + arr.map(e=>{
+        const who=(CLOUD&&e.by)?' · '+e.by:'';
+        if((e.kind||"load")==="dispatch"){
+          return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
+            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
+            +'<span class="tot">'+fmt(e.total)+' L</span>'
+            +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
+        }
+        const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
+        return '<div class="entry"><span class="plate">'+e.plate+'</span>'
+          +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
+          +'<span class="tot">+'+fmt(e.total)+' L</span>'
+          +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
+      }).join("")
+      +'</div>';
+  }).join("");
+  box.querySelectorAll("[data-del]").forEach(b=>{
+    b.onclick=()=>{
+      const e=LOG.find(x=>x.id===b.dataset.del); if(!e) return;
+      if(confirm("Delete this record?\n"+e.plate+" — "+fmt(e.total)+" L")){
+        Backend.remove(b.dataset.del).then(refresh).then(()=>{ renderHist(); toast("Deleted"); }).catch(oops);
+      }
+    };
+  });
+}
+
+/* ---------- REPORTS ---------- */
+const MAXC=Math.max(...VEHICLES.map(v=>v.caps.length));
+function chIdx(name){ return (parseInt(String(name).replace(/\D/g,""),10)||0)-1; }
+function dayStartMs(iso){ const p=iso.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],0,0,0,0).getTime(); }
+function dayEndMs(iso){ const p=iso.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],23,59,59,999).getTime(); }
+function isDisp(e){ return (e.kind||"load")==="dispatch"; }
+
+// running tanker fill after each event (chronological over the whole log)
+function runningAfter(){
+  const map={}, byV={};
+  [...LOG].sort((a,b)=>a.ts-b.ts).forEach(e=>{
+    const v=vehicleOf(e.plate); if(!v) return;
+    if(!byV[e.plate]) byV[e.plate]=v.caps.map(()=>0);
+    if(isDisp(e)){ byV[e.plate]=v.caps.map(()=>0); map[e.id]=0; }
+    else { (e.chambers||[]).forEach(c=>{ const i=chIdx(c.name); if(i>=0&&i<byV[e.plate].length) byV[e.plate][i]+=(+c.qty||0); }); map[e.id]=byV[e.plate].reduce((s,x)=>s+x,0); }
+  });
+  return map;
+}
+function rangeEvents(){
+  const f=$("#repFrom").value, t=$("#repTo").value;
+  const from=f?dayStartMs(f):null, to=t?dayEndMs(t):null;
+  return LOG.filter(e=>(from==null||e.ts>=from)&&(to==null||e.ts<=to)).sort((a,b)=>a.ts-b.ts);
+}
+function openReport(){
+  const dts=LOG.map(e=>e.ts);
+  $("#repFrom").value = dayKey(dts.length?Math.min.apply(null,dts):Date.now());
+  $("#repTo").value = dayKey(Date.now());
+  setPreset("all");
+  show("scReport");
+}
+function setPreset(p){
+  const today=dayKey(Date.now());
+  if(p==="today"){ $("#repFrom").value=today; $("#repTo").value=today; }
+  else if(p==="7"){ $("#repFrom").value=dayKey(Date.now()-6*864e5); $("#repTo").value=today; }
+  else if(p==="all"){ const dts=LOG.map(e=>e.ts); $("#repFrom").value=dayKey(dts.length?Math.min.apply(null,dts):Date.now()); $("#repTo").value=today; }
+  $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.toggle("on",b.dataset.preset===p));
+  renderReport();
+}
+function renderReport(){
+  const evs=rangeEvents();
+  const loads=evs.filter(e=>!isDisp(e)), disp=evs.filter(isDisp);
+  $("#repLoaded").textContent=fmt(loads.reduce((s,e)=>s+e.total,0));
+  $("#repLoadings").textContent=loads.length;
+  $("#repSold").textContent=fmt(disp.reduce((s,e)=>s+e.total,0));
+  $("#repTrips").textContent=disp.length;
+  $("#repTankers").innerHTML=VEHICLES.map(v=>{
+    const ve=evs.filter(e=>e.plate===v.plate);
+    const vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
+    return '<div class="entry"><span class="plate">'+v.plate+'</span>'
+      +'<div class="mid"><div class="ch">Loaded '+fmt(vl.reduce((s,e)=>s+e.total,0))+' L · '+vl.length+' loadings · '+vd.length+' sold</div>'
+      +'<div class="tm">Now in tanker: '+fmt(st.total)+' / '+fmt(st.cap)+' L'+(st.full?' · FULL':'')+'</div></div></div>';
+  }).join("");
+  const empty=!evs.length;
+  $("#dlExcel").disabled=empty;
+  $("#repNote").innerHTML = empty ? "No records in this date range."
+    : "Excel has Summary · Transactions · By tanker · By day sheets. Falls back to CSV if offline.";
+}
+$("#scReport").querySelectorAll(".rpresets button").forEach(b=>{ b.onclick=()=>setPreset(b.dataset.preset); });
+["#repFrom","#repTo"].forEach(sel=>$(sel).addEventListener("change",()=>{
+  $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.remove("on"));
+  renderReport();
+}));
+
+function dl(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },600); }
+function numfmt(XLSX,ws,fromRow){ const rng=XLSX.utils.decode_range(ws["!ref"]); for(let R=(fromRow||0);R<=rng.e.r;R++){ for(let C=rng.s.c;C<=rng.e.c;C++){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(cell&&cell.t==="n") cell.z="#,##0"; } } }
+
+$("#dlExcel").onclick=async()=>{
+  const evs=rangeEvents();
+  if(!evs.length){ toast("No records in this range"); return; }
+  const afterMap=runningAfter();
+  const loads=evs.filter(e=>!isDisp(e)), disp=evs.filter(isDisp);
+
+  // Transactions (detailed statement, one row per event, with running balance)
+  const tx=evs.map(e=>{
+    const row={ "Date":dayKey(e.ts), "Time":timeLabel(e.ts), "Vehicle":e.plate, "Type":isDisp(e)?"Sent for sale":"Load" };
+    for(let i=1;i<=MAXC;i++){ const c=(e.chambers||[]).find(x=>chIdx(x.name)===i-1); row["C"+i+" (L)"]=c?(+c.qty):""; }
+    row["Total (L)"]=e.total;
+    row["Tanker after (L)"]=afterMap[e.id]!=null?afterMap[e.id]:"";
+    row["By"]=e.by||"";
+    return row;
+  });
+  // By tanker
+  const byT=VEHICLES.map(v=>{
+    const ve=evs.filter(e=>e.plate===v.plate), vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
+    return { "Vehicle":v.plate, "Chambers":v.caps.length, "Full capacity (L)":v.caps.reduce((s,x)=>s+x,0),
+      "Loadings":vl.length, "Litres loaded":vl.reduce((s,e)=>s+e.total,0),
+      "Tankers sold":vd.length, "Litres sold":vd.reduce((s,e)=>s+e.total,0),
+      "Current fill (L)":st.total, "Status":st.full?"FULL":(st.total>0?"Filling":"Empty") };
+  });
+  // By day
+  const dm={};
+  evs.forEach(e=>{ const k=dayKey(e.ts), d=dm[k]||(dm[k]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
+  const byD=Object.keys(dm).sort().map(k=>({ "Date":k, "Loadings":dm[k].l, "Litres loaded":dm[k].ll, "Tankers sold":dm[k].s, "Litres sold":dm[k].sl }));
+  // Summary sheet (title + key figures)
+  const summary=[
+    ["Vriddhi Fuels — Tanker Loading report"],
+    ["Generated", new Date().toLocaleString("en-IN")],
+    ["Date range", ($("#repFrom").value||"start")+"  to  "+($("#repTo").value||"today")],
+    ["Mode", CLOUD?"Cloud (shared, last 7 days)":"Single device"],
+    [],
+    ["Total loadings", loads.length],
+    ["Litres loaded", loads.reduce((s,e)=>s+e.total,0)],
+    ["Tankers sold (dispatched)", disp.length],
+    ["Litres sold", disp.reduce((s,e)=>s+e.total,0)],
+    [],
+    ["Current fill by tanker", ""]
+  ].concat(VEHICLES.map(v=>{ const st=tankerState(v.plate); return ["   "+v.plate, fmt(st.total)+" / "+fmt(st.cap)+" L"+(st.full?"  (FULL)":"")]; }));
+
+  const fname="Vriddhi_Tanker_Report_"+($("#repFrom").value||"")+"_to_"+($("#repTo").value||"");
+  try{
+    const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+    const wb=XLSX.utils.book_new();
+    const wsS=XLSX.utils.aoa_to_sheet(summary); wsS["!cols"]=[{wch:30},{wch:28}]; XLSX.utils.book_append_sheet(wb,wsS,"Summary");
+    const wsT=XLSX.utils.json_to_sheet(tx);
+    wsT["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:13}].concat(Array(MAXC).fill({wch:9})).concat([{wch:11},{wch:16},{wch:12}]);
+    wsT["!autofilter"]={ref:wsT["!ref"]}; numfmt(XLSX,wsT,1);
+    XLSX.utils.book_append_sheet(wb,wsT,"Transactions");
+    const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:10},{wch:13},{wch:12},{wch:12},{wch:14},{wch:9}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
+    const wsD=XLSX.utils.json_to_sheet(byD); wsD["!cols"]=[{wch:12},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsD,1); XLSX.utils.book_append_sheet(wb,wsD,"By day");
+    const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+    dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
+    toast("Excel report downloaded ("+tx.length+" rows)");
+  }catch(err){
+    // CSV fallback = the Transactions statement
+    const head=Object.keys(tx[0]), q=s=>{ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+    const csv="﻿"+[head.join(",")].concat(tx.map(r=>head.map(h=>q(r[h])).join(","))).join("\r\n");
+    dl(new Blob([csv],{type:"text/csv;charset=utf-8"}), fname+".csv");
+    toast("Downloaded as CSV ("+tx.length+" rows)");
+  }
+};
+
+/* ---------- Nav buttons ---------- */
+$("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
+$("#toReport").onclick=openReport;
+$("#toReport2").onclick=openReport;
+
+/* ---------- Realtime (cloud) ---------- */
+let realtimeOn=false;
+function subscribeRealtime(){
+  if(realtimeOn || !CloudBackend.client.channel) return;
+  realtimeOn=true;
+  let t;
+  const poke=()=>{ clearTimeout(t); t=setTimeout(()=>{ refresh().then(()=>{
+    const cur=stack[stack.length-1];
+    if(cur==="scHome") renderHome(); else if(cur==="scHist") renderHist();
+  }).catch(()=>{}); }, 350); };
+  CloudBackend.client.channel("loading-live")
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_events"},poke)
+    .subscribe();
+}
+
+/* ---------- Login / session (cloud) ---------- */
+function showLogin(){ $("#login").classList.add("on"); }
+function hideLogin(){ $("#login").classList.remove("on"); }
+function loginError(m){ $("#loginErr").textContent=m||""; }
+function usernameFromEmail(email){ return (email||"").split("@")[0]; }
+
+function startApp(session){
+  hideLogin();
+  Backend=CloudBackend;
+  ME = usernameFromEmail(session && session.user && session.user.email);
+  subscribeRealtime();
+  CloudBackend.purge();
+  return refresh().then(()=>{ goHome(); }).catch(oops);
+}
+function signOut(){
+  if(!confirm("Sign out of this phone?")) return;
+  CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; goHome(); showLogin(); });
+}
+
+$("#btnLogin").onclick=function(){
+  const u=$("#loginUser").value.trim().toLowerCase();
+  const p=$("#loginPass").value;
+  if(!u||!p){ loginError("Enter username and password"); return; }
+  const email = u.indexOf("@")!==-1 ? u : u+"@vriddhi.local";
+  const btn=$("#btnLogin"); btn.disabled=true;
+  loginError("");
+  CloudBackend.client.auth.signInWithPassword({ email:email, password:p }).then(res=>{
+    btn.disabled=false;
+    if(res.error){ loginError("Wrong username or password"); return; }
+    $("#loginPass").value="";
+    return startApp(res.data.session);
+  });
+};
+$("#loginPass").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#btnLogin").click(); });
+
+/* ---------- PWA install ---------- */
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("#installBtn").style.display=""; });
+$("#installBtn").onclick=async()=>{ if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("#installBtn").style.display="none"; };
+
+/* ---------- Boot ---------- */
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
+
+function boot(){
+  if(!CLOUD){
+    Backend=LocalBackend;
+    refresh().then(()=>{ renderHome(); }).catch(oops);
+    return;
+  }
+  const factory = window.__VF_TEST_SUPABASE_FACTORY
+    ? Promise.resolve(window.__VF_TEST_SUPABASE_FACTORY)
+    : import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
+  factory.then(createClient=>{
+    CloudBackend.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    CloudBackend.client.auth.onAuthStateChange((event)=>{ if(event==="SIGNED_OUT"){ LOG=[]; ME=""; showLogin(); } });
+    return CloudBackend.client.auth.getSession().then(res=>{
+      const sess = res.data && res.data.session;
+      if(sess) return startApp(sess);
+      showLogin();
+    });
+  }).catch(e=>{ showLogin(); loginError("Could not connect: "+((e&&e.message)||e)); });
+}
+boot();
+
+})();
+</script>
+</body>
+</html>
