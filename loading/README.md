@@ -129,24 +129,32 @@ It holds three ways, so a week is the most that is ever kept:
 
 ## Business day & “End Day”
 
-The financial day does **not** end at midnight — it ends at the **morning shift
-change** (a variable time). So the app keeps every record in the current **open**
-business day until someone presses **🔒 End Day**.
+The financial day does **not** end at midnight — a business day runs from the
+**morning shift change (~7:30 AM) to the next morning's**. So a record's business
+date is the date of the shift it was loaded in, and the whole night belongs to
+the day that started that morning.
 
-- The home screen shows the **current (open) day** total and an **End Day** button
-  labelled with the date it will book to (yesterday, e.g. *End Day & date to
-  29/07/2026*).
-- Pressing **End Day** the next morning books **all still-open records** under the
-  **previous calendar date** and starts a fresh open day. It's **final** and can
-  be done **only once per day** — a second press (even from another phone) is
-  refused (*“This day has already been ended”*). Dates are computed in **IST**.
-- Records made after midnight but before the shift change still fall under the
-  previous business day, because they're closed together by that morning's End
-  Day — exactly matching the shift.
+- The home screen shows the **current business day** (e.g. *Current business day —
+  30 Jul 2026*) and its open total. The boundary is **7:30 AM**: a record loaded
+  before 7:30 AM counts under the **previous** day; from 7:30 AM onward it counts
+  under that day. (So the transactions from ~7 AM on the 30th through the early
+  hours of the 31st all fall under **30 Jul**.)
+- **End Day button — only in the 5:30–7:30 AM window.** During the morning
+  shift-change window staff can hand over early by pressing **🔒 End Day**, which
+  closes the day that's ending and **starts the new one from that moment**
+  (records loaded after the press go to the new day). Outside 5:30–7:30 AM the
+  button is hidden — you can't accidentally end the day in the afternoon. It's
+  **final** and **once per day** (a second press, even from another phone, is
+  refused). Times are **IST**.
+- **Automatic fallback:** if nobody presses End Day, the day ends **automatically
+  at 7:30 AM**. The auto-close is timestamped at exactly 7:30 AM (the deadline),
+  so business dates are identical no matter when it actually runs — when the app
+  is next opened, on its timer, or (optionally) an hourly `pg_cron` job on the
+  server. Opening the app after a gap catches up any missed days automatically.
 - History, the chamber log, reports and the Excel all group by this **business
-  date**. Open (not-yet-ended) records are grouped under **“Current day — open”**
-  and flagged **Open** in the export's *Day ended?* column; the Excel date column
-  is the **Business date**.
+  date**. Open records are grouped under **“Current day — open · <date>”** and
+  flagged **Open** in the export's *Day ended?* column; the Excel date column is
+  the **Business date**.
 
 ## Reports (📊) — data-rich Excel
 

@@ -267,7 +267,7 @@
     <!-- HOME -->
     <section class="screen on" id="scHome">
       <div class="stat" style="padding:12px 14px">
-        <div class="label">Current day — open</div>
+        <div class="label" id="curDayLabel">Current day — open</div>
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
         <div class="sub"><span id="todayCnt">0</span> loadings since last End Day</div>
       </div>
@@ -475,7 +475,7 @@ function todayStr(){ return dayKey(Date.now()); }
 function prevDateStr(){ const t=new Date(); t.setDate(t.getDate()-1); return dayKey(t.getTime()); }  // yesterday (the date End Day assigns)
 function dmy(key){ const p=String(key).split("-"); return p.length===3 ? p[2]+"/"+p[1]+"/"+p[0] : key; }
 function keyLabel(key){
-  if(key==="OPEN") return "Current day — open";
+  if(key==="OPEN") return "Current day — open · "+keyLabel(currentOpenDate());
   const p=String(key).split("-"); const d=new Date(+p[0],+p[1]-1,+p[2]);
   return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
 }
@@ -483,10 +483,45 @@ function keyLabel(key){
    date is the date of the earliest close AT OR AFTER its timestamp; events with
    no later close are still "open" (the current, not-yet-ended day). */
 function isOpen(e){ for(let i=0;i<CLOSES.length;i++){ if(CLOSES[i].ts>=e.ts) return false; } return true; }
-function bizDate(e){ for(let i=0;i<CLOSES.length;i++){ if(CLOSES[i].ts>=e.ts) return CLOSES[i].date; } return dayKey(e.ts); }
-function effDate(e){ return bizDate(e); }               // business date (provisional calendar date while open)
+// The business day runs from the morning shift-change to the next morning's.
+// Auto boundary is 7:30 AM; staff may hand over manually in the 5:30–7:30 AM
+// window (an early 'End Day' press). A record's business date is the date of the
+// earliest close at/after its time; a still-open record's date is the day AFTER
+// the last close (so an early manual press moves new records to the new day),
+// or the 7:30 shift-date if nothing has ever been closed.
+const HANDOVER_MIN = 7*60+30;                  // 7:30 AM auto day-change
+const WIN_START = 5*60+30, WIN_END = 7*60+30;  // manual End Day window: 5:30–7:30 AM
+function minOfDay(ms){ const d=new Date(ms); return d.getHours()*60+d.getMinutes(); }
+function inEndDayWindow(ms){ const m=minOfDay(ms); return m>=WIN_START && m<WIN_END; }
+function addDays(key,n){ const p=key.split("-").map(Number); const d=new Date(p[0],p[1]-1,p[2]); d.setDate(d.getDate()+n); return dayKey(d.getTime()); }
+function shiftDate(ts){ return minOfDay(ts)>=HANDOVER_MIN ? dayKey(ts) : addDays(dayKey(ts),-1); } // 7:30 boundary
+function lastCloseDate(){ return CLOSES.length ? CLOSES[CLOSES.length-1].date : null; }
+function currentOpenDate(){ const lc=lastCloseDate(); return lc ? addDays(lc,1) : shiftDate(Date.now()); }
+function bizDate(e){
+  for(let i=0;i<CLOSES.length;i++){ if(CLOSES[i].ts>=e.ts) return CLOSES[i].date; }
+  const lc=lastCloseDate(); return lc ? addDays(lc,1) : shiftDate(e.ts);
+}
+function effDate(e){ return bizDate(e); }
 function groupKey(e){ return isOpen(e) ? "OPEN" : bizDate(e); }
-function endedToday(){ return CLOSES.some(c=>c.date===prevDateStr()); }  // a close already assigned to yesterday = pressed today
+function endedToday(){ return CLOSES.some(c=>c.date===prevDateStr()); }  // a close assigned to yesterday = handed over this morning
+function autoCloseMs(key){ const p=key.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],7,30,0,0).getTime(); } // 7:30 AM (IST) on `key`
+// Business days past their 7:30 AM-next-day deadline that nobody ended. The
+// close is timestamped at that exact 7:30 AM, so business dates are the same no
+// matter when this runs (app open, timer, or server cron).
+function computeDueCloses(closes, events, nowMs){
+  const res=[], closed=new Set(closes.map(c=>c.date));
+  let start;
+  if(closes.length){ start=addDays(closes.map(c=>c.date).sort()[closes.length-1],1); }
+  else { if(!events.length) return res; start=shiftDate(Math.min.apply(null,events.map(e=>e.ts))); }
+  const todayK=dayKey(nowMs);
+  let d=start, guard=0;
+  while(d<todayK && guard++<400){
+    const deadline=autoCloseMs(addDays(d,1));   // 7:30 AM on D+1
+    if(nowMs>=deadline){ if(!closed.has(d)) res.push({date:d, ts:deadline}); d=addDays(d,1); }
+    else break;
+  }
+  return res;
+}
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2400); }
 function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
 function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
@@ -532,6 +567,11 @@ const LocalBackend = {
     const l=lsCloses(); l.push({date:cd, ts:Date.now()}); lsClosesSave(l);
     return Promise.resolve(cd);
   },
+  closeDue(){
+    const due=computeDueCloses(lsCloses(), lsLoad(), Date.now());
+    if(due.length){ const l=lsCloses(); due.forEach(d=>{ if(!l.some(c=>c.date===d.date)) l.push(d); }); lsClosesSave(l); }
+    return Promise.resolve();
+  },
 };
 
 const CloudBackend = {
@@ -571,6 +611,7 @@ const CloudBackend = {
   removeVehicle(plate){ return this.rpc("loading_vehicle_remove",{ p_plate:plate }); },
   clearAll(){ return this.rpc("loading_clear_all",{}); },
   endDay(){ return this.rpc("loading_end_day",{}); },
+  closeDue(){ return this.rpc("loading_close_due",{}).catch(()=>{}); },
   purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
 };
 
@@ -581,6 +622,18 @@ function refresh(){
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
   });
 }
+function rerenderCurrent(){
+  const cur=stack[stack.length-1];
+  if(cur==="scHome") renderHome(); else if(cur==="scHist") renderHist();
+  else if(cur==="scReport") renderReport(); else if(cur==="scLog") renderLog();
+  else if(cur==="scSettings") renderSettings();
+}
+// Auto-end any business day whose 8 AM deadline has passed, then reload.
+function maybeAutoClose(){ return Backend.closeDue().then(refresh).then(rerenderCurrent).catch(()=>{}); }
+setInterval(()=>{ if(Backend && (Backend!==CloudBackend || ME)) maybeAutoClose(); }, 5*60*1000);
+// re-render the End Day area every minute so the 5:30/7:30 window edges show promptly
+setInterval(()=>{ if(stack[stack.length-1]==="scHome" && (Backend!==CloudBackend || ME)) renderEndDay(); }, 60*1000);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (Backend!==CloudBackend || ME)) maybeAutoClose(); });
 
 /* ---------- Screen routing ---------- */
 const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings"];
@@ -631,6 +684,7 @@ function renderHome(){
   const openLoads=LOG.filter(e=>isOpen(e) && (e.kind||"load")!=="dispatch");
   $("#todayTot").textContent=fmt(openLoads.reduce((s,e)=>s+e.total,0));
   $("#todayCnt").textContent=openLoads.length;
+  $("#curDayLabel").textContent="Current business day — "+keyLabel(currentOpenDate());
   renderEndDay();
   renderTankers();
   const recent=[...LOG].slice(-6).reverse();
@@ -646,24 +700,30 @@ function renderHome(){
 }
 function renderEndDay(){
   const wrap=$("#endDayWrap");
-  const openCount=LOG.filter(isOpen).length;
-  if(endedToday()){
-    wrap.innerHTML='<div class="endednote">✓ Day ended for '+dmy(prevDateStr())+'. Next End Day is allowed after midnight.</div>';
+  // Ended this morning already (manual or the 7:30 AM auto)?
+  const lastC = CLOSES.length ? CLOSES[CLOSES.length-1] : null;
+  if(lastC && lastC.date===prevDateStr()){
+    wrap.innerHTML='<div class="endednote">✓ '+dmy(lastC.date)+' ended at '+timeLabel(lastC.ts)+'. New day '+dmy(currentOpenDate())+' is running.</div>';
     return;
   }
-  wrap.innerHTML='<button class="big endday" id="endDayBtn"><span class="em">🔒</span><span>End Day &amp; date to '+dmy(prevDateStr())+'</span></button>';
-  $("#endDayBtn").onclick=endDay;
+  if(inEndDayWindow(Date.now())){
+    wrap.innerHTML='<button class="big endday" id="endDayBtn"><span class="em">🔒</span><span>End Day '+dmy(currentOpenDate())+' &amp; start '+dmy(addDays(currentOpenDate(),1))+'</span></button>'
+      +'<div class="note" style="margin:-6px 2px 12px">Shift change window (5:30–7:30 AM). If not pressed, the day ends automatically at 7:30 AM.</div>';
+    $("#endDayBtn").onclick=endDay;
+  } else {
+    wrap.innerHTML='<div class="note" style="margin:0 2px 14px">The day changes automatically at <b>7:30 AM</b>. Staff can end it manually between <b>5:30–7:30 AM</b>.</div>';
+  }
 }
 function endDay(){
+  if(!inEndDayWindow(Date.now())){ toast("End Day is available only 5:30–7:30 AM"); return; }
+  const cd=currentOpenDate();
+  if(endedToday()){ toast("Day already ended this morning"); return; }
   const open=LOG.filter(isOpen);
-  if(!open.length){ toast("Nothing to end yet"); return; }
-  if(endedToday()){ toast("Day already ended — next after midnight"); return; }
-  const cd=prevDateStr();
   const loads=open.filter(e=>(e.kind||"load")!=="dispatch").length;
   const sales=open.filter(e=>(e.kind||"load")==="dispatch").length;
-  if(!confirm("End the day now?\n\nAll open records ("+loads+" loadings, "+sales+" sales) will be booked under "+dmy(cd)+".\n\nThis is final and can be done only once per day.")) return;
+  if(!confirm("End business day "+dmy(cd)+" now?\n\nAll open records ("+loads+" loadings, "+sales+" sales) will be booked under "+dmy(cd)+", and a new day ("+dmy(addDays(cd,1))+") starts.\n\nThis is final and can be done only once per day.")) return;
   const btn=$("#endDayBtn"); if(btn) btn.disabled=true;
-  Backend.endDay().then(refresh).then(()=>{ renderHome(); toast("✓ Day ended — booked under "+dmy(cd)); })
+  Backend.endDay().then(refresh).then(()=>{ renderHome(); toast("✓ "+dmy(cd)+" ended"); })
     .catch(e=>{ if(btn) btn.disabled=false; oops(e); });
 }
 function renderTankers(){
@@ -1116,7 +1176,7 @@ function startApp(session){
   ME = usernameFromEmail(session && session.user && session.user.email);
   subscribeRealtime();
   CloudBackend.purge();
-  return refresh().then(()=>{ goHome(); }).catch(oops);
+  return CloudBackend.closeDue().then(refresh).then(()=>{ goHome(); }).catch(oops);
 }
 function signOut(){
   if(!confirm("Sign out of this phone?")) return;
@@ -1150,7 +1210,7 @@ if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.s
 function boot(){
   if(!CLOUD){
     Backend=LocalBackend;
-    refresh().then(()=>{ renderHome(); }).catch(oops);
+    LocalBackend.closeDue().then(refresh).then(()=>{ renderHome(); }).catch(oops);
     return;
   }
   const factory = window.__VF_TEST_SUPABASE_FACTORY
