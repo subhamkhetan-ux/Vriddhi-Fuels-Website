@@ -127,6 +127,27 @@ It holds three ways, so a week is the most that is ever kept:
   total. You can delete a wrong entry (with a confirm); the tanker's fill
   recalculates automatically.
 
+## Business day & “End Day”
+
+The financial day does **not** end at midnight — it ends at the **morning shift
+change** (a variable time). So the app keeps every record in the current **open**
+business day until someone presses **🔒 End Day**.
+
+- The home screen shows the **current (open) day** total and an **End Day** button
+  labelled with the date it will book to (yesterday, e.g. *End Day & date to
+  29/07/2026*).
+- Pressing **End Day** the next morning books **all still-open records** under the
+  **previous calendar date** and starts a fresh open day. It's **final** and can
+  be done **only once per day** — a second press (even from another phone) is
+  refused (*“This day has already been ended”*). Dates are computed in **IST**.
+- Records made after midnight but before the shift change still fall under the
+  previous business day, because they're closed together by that morning's End
+  Day — exactly matching the shift.
+- History, the chamber log, reports and the Excel all group by this **business
+  date**. Open (not-yet-ended) records are grouped under **“Current day — open”**
+  and flagged **Open** in the export's *Day ended?* column; the Excel date column
+  is the **Business date**.
+
 ## Reports (📊) — data-rich Excel
 
 **Reports** (button on the home screen and in History) shows headline figures

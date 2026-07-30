@@ -183,6 +183,10 @@
   .rpresets button.on{background:var(--amber);color:#fff}
   .rpresets button:active{transform:translateY(1px)}
 
+  /* End Day */
+  .big.endday{background:var(--navy2);font-size:17px;padding:15px;margin-bottom:14px}
+  .endednote{background:#eaf6ee;border:1px solid #bfe6cf;color:var(--green-d);border-radius:14px;padding:12px 14px;font-size:13px;font-weight:700;text-align:center;margin-bottom:14px}
+
   /* Chamber log (detailed, per-chamber transactions) */
   .logrow{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
   .logrow.disp{background:#eef6ff}
@@ -263,10 +267,11 @@
     <!-- HOME -->
     <section class="screen on" id="scHome">
       <div class="stat" style="padding:12px 14px">
-        <div class="label">Today loaded</div>
+        <div class="label">Current day — open</div>
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
-        <div class="sub"><span id="todayCnt">0</span> loadings today</div>
+        <div class="sub"><span id="todayCnt">0</span> loadings since last End Day</div>
       </div>
+      <div id="endDayWrap"></div>
 
       <div class="sectitle" style="font-size:16px">Tap a tanker to load diesel</div>
       <div id="tankerList"></div>
@@ -466,6 +471,22 @@ function dayLabel(ts){
   return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
 }
 function timeLabel(ts){ const d=new Date(ts); let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%12||12; return h+":"+pad(d.getMinutes())+" "+ap; }
+function todayStr(){ return dayKey(Date.now()); }
+function prevDateStr(){ const t=new Date(); t.setDate(t.getDate()-1); return dayKey(t.getTime()); }  // yesterday (the date End Day assigns)
+function dmy(key){ const p=String(key).split("-"); return p.length===3 ? p[2]+"/"+p[1]+"/"+p[0] : key; }
+function keyLabel(key){
+  if(key==="OPEN") return "Current day — open";
+  const p=String(key).split("-"); const d=new Date(+p[0],+p[1]-1,+p[2]);
+  return d.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+}
+/* Business day: 'End Day' closes are stored as {date, ts}. An event's business
+   date is the date of the earliest close AT OR AFTER its timestamp; events with
+   no later close are still "open" (the current, not-yet-ended day). */
+function isOpen(e){ for(let i=0;i<CLOSES.length;i++){ if(CLOSES[i].ts>=e.ts) return false; } return true; }
+function bizDate(e){ for(let i=0;i<CLOSES.length;i++){ if(CLOSES[i].ts>=e.ts) return CLOSES[i].date; } return dayKey(e.ts); }
+function effDate(e){ return bizDate(e); }               // business date (provisional calendar date while open)
+function groupKey(e){ return isOpen(e) ? "OPEN" : bizDate(e); }
+function endedToday(){ return CLOSES.some(c=>c.date===prevDateStr()); }  // a close already assigned to yesterday = pressed today
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2400); }
 function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
 function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
@@ -478,11 +499,13 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;"
    'load' events since its most recent 'dispatch'. So fills accumulate across
    many small loadings and only reset when the full tanker is sent for sale. */
 let LOG = [];        // [{id, ts, plate, kind:'load'|'dispatch', chambers:[{name,qty}], total, by, remark}]
+let CLOSES = [];     // [{date:'YYYY-MM-DD', ts}] End-Day closes, sorted by ts asc
 let ME = "";         // signed-in username (cloud mode)
 
 /* ---------- Backends ---------- */
 const LS_KEY = "vf_loading_log_v1";
 const VLS_KEY = "vf_loading_vehicles_v1";
+const CLS_KEY = "vf_loading_closes_v1";
 function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
 function lsSave(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
 function lsVehicles(){
@@ -490,16 +513,25 @@ function lsVehicles(){
   localStorage.setItem(VLS_KEY, JSON.stringify(DEFAULT_VEHICLES)); return DEFAULT_VEHICLES.slice();
 }
 function lsVehiclesSave(list){ localStorage.setItem(VLS_KEY, JSON.stringify(list)); }
+function lsCloses(){ try{ const v=JSON.parse(localStorage.getItem(CLS_KEY)); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+function lsClosesSave(list){ localStorage.setItem(CLS_KEY, JSON.stringify(list)); }
 
 const LocalBackend = {
   cloud:false,
   load(){ return Promise.resolve(lsLoad().sort((a,b)=>a.ts-b.ts)); },
   loadVehicles(){ return Promise.resolve(lsVehicles()); },
+  loadCloses(){ return Promise.resolve(lsCloses().sort((a,b)=>a.ts-b.ts)); },
   add(entry){ const l=lsLoad(); l.push(entry); lsSave(l); return Promise.resolve(); },
   remove(id){ lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve(); },
   addVehicle(v){ const l=lsVehicles(); l.push(v); lsVehiclesSave(l); return Promise.resolve(); },
   removeVehicle(plate){ lsVehiclesSave(lsVehicles().filter(v=>v.plate!==plate)); return Promise.resolve(); },
   clearAll(){ lsSave([]); return Promise.resolve(); },
+  endDay(){
+    const cd=prevDateStr();
+    if(lsCloses().some(c=>c.date===cd)) return Promise.reject(new Error("This day has already been ended"));
+    const l=lsCloses(); l.push({date:cd, ts:Date.now()}); lsClosesSave(l);
+    return Promise.resolve(cd);
+  },
 };
 
 const CloudBackend = {
@@ -527,18 +559,27 @@ const CloudBackend = {
       return (r.data||[]).map(row=>({ plate:row.plate, caps:(Array.isArray(row.caps)?row.caps:(row.caps||[])).map(Number), color:row.color||"" }));
     });
   },
+  loadCloses(){
+    return this.client.from("loading_day_closes").select("close_date,closed_at").order("closed_at",{ascending:true}).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      return (r.data||[]).map(row=>({ date:row.close_date, ts:row.closed_at?Date.parse(row.closed_at):Date.now() }));
+    });
+  },
   add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME, p_kind:entry.kind||"load", p_remark:entry.remark||"" }); },
   remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
   addVehicle(v){ return this.rpc("loading_vehicle_add",{ p_plate:v.plate, p_caps:v.caps, p_color:v.color||"" }); },
   removeVehicle(plate){ return this.rpc("loading_vehicle_remove",{ p_plate:plate }); },
   clearAll(){ return this.rpc("loading_clear_all",{}); },
+  endDay(){ return this.rpc("loading_end_day",{}); },
   purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
 };
 
 let Backend = LocalBackend;
 function applyVehicles(list){ VEHICLES = (list&&list.length)?list:(CLOUD?[]:DEFAULT_VEHICLES.slice()); }
 function refresh(){
-  return Promise.all([Backend.load(), Backend.loadVehicles()]).then(r=>{ LOG=r[0]; applyVehicles(r[1]); });
+  return Promise.all([Backend.load(), Backend.loadVehicles(), Backend.loadCloses()]).then(r=>{
+    LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
+  });
 }
 
 /* ---------- Screen routing ---------- */
@@ -586,10 +627,11 @@ function tankerState(plate){
 // total litres LOADED (dispatch rows are not fresh diesel, so excluded)
 function totals(list){ return list.reduce((s,e)=>s+((e.kind||"load")==="dispatch"?0:e.total),0); }
 function renderHome(){
-  const tKey=dayKey(Date.now());
-  const today=LOG.filter(e=>dayKey(e.ts)===tKey && (e.kind||"load")!=="dispatch");
-  $("#todayTot").textContent=fmt(today.reduce((s,e)=>s+e.total,0));
-  $("#todayCnt").textContent=today.length;
+  // "Current day" = the open (not-yet-ended) business day
+  const openLoads=LOG.filter(e=>isOpen(e) && (e.kind||"load")!=="dispatch");
+  $("#todayTot").textContent=fmt(openLoads.reduce((s,e)=>s+e.total,0));
+  $("#todayCnt").textContent=openLoads.length;
+  renderEndDay();
   renderTankers();
   const recent=[...LOG].slice(-6).reverse();
   const box=$("#recentList");
@@ -601,6 +643,28 @@ function renderHome(){
   const sr=$("#signRow");
   if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
   else sr.style.display="none";
+}
+function renderEndDay(){
+  const wrap=$("#endDayWrap");
+  const openCount=LOG.filter(isOpen).length;
+  if(endedToday()){
+    wrap.innerHTML='<div class="endednote">✓ Day ended for '+dmy(prevDateStr())+'. Next End Day is allowed after midnight.</div>';
+    return;
+  }
+  wrap.innerHTML='<button class="big endday" id="endDayBtn"><span class="em">🔒</span><span>End Day &amp; date to '+dmy(prevDateStr())+'</span></button>';
+  $("#endDayBtn").onclick=endDay;
+}
+function endDay(){
+  const open=LOG.filter(isOpen);
+  if(!open.length){ toast("Nothing to end yet"); return; }
+  if(endedToday()){ toast("Day already ended — next after midnight"); return; }
+  const cd=prevDateStr();
+  const loads=open.filter(e=>(e.kind||"load")!=="dispatch").length;
+  const sales=open.filter(e=>(e.kind||"load")==="dispatch").length;
+  if(!confirm("End the day now?\n\nAll open records ("+loads+" loadings, "+sales+" sales) will be booked under "+dmy(cd)+".\n\nThis is final and can be done only once per day.")) return;
+  const btn=$("#endDayBtn"); if(btn) btn.disabled=true;
+  Backend.endDay().then(refresh).then(()=>{ renderHome(); toast("✓ Day ended — booked under "+dmy(cd)); })
+    .catch(e=>{ if(btn) btn.disabled=false; oops(e); });
 }
 function renderTankers(){
   if(!VEHICLES.length){ $("#tankerList").innerHTML='<div class="empty">No tankers yet.<br>Add one in ⚙ Manage tankers &amp; data.</div>'; return; }
@@ -769,11 +833,11 @@ function renderHist(){
   $("#hCnt").textContent=LOG.filter(e=>(e.kind||"load")!=="dispatch").length;
   const box=$("#histList");
   if(!LOG.length){ box.innerHTML='<div class="empty">No records yet.</div>'; return; }
-  const groups={};
-  [...LOG].reverse().forEach(e=>{ const k=dayKey(e.ts); (groups[k]=groups[k]||[]).push(e); });
-  box.innerHTML=Object.keys(groups).map(k=>{
+  const groups={}, order=[];
+  [...LOG].reverse().forEach(e=>{ const k=groupKey(e); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(e); });
+  box.innerHTML=order.map(k=>{
     const arr=groups[k], dtot=totals(arr);
-    return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].ts)+'</span><span class="dt">'+fmt(dtot)+' L loaded</span></div>'
+    return '<div class="daygrp"><div class="dayhd"><span>'+keyLabel(k)+'</span><span class="dt">'+fmt(dtot)+' L loaded</span></div>'
       + arr.map(e=>{
         const who=(CLOUD&&e.by)?' · '+e.by:'';
         if((e.kind||"load")==="dispatch"){
@@ -820,21 +884,20 @@ function runningAfter(){
 }
 function rangeEvents(){
   const f=$("#repFrom").value, t=$("#repTo").value;
-  const from=f?dayStartMs(f):null, to=t?dayEndMs(t):null;
-  return LOG.filter(e=>(from==null||e.ts>=from)&&(to==null||e.ts<=to)).sort((a,b)=>a.ts-b.ts);
+  return LOG.filter(e=>{ const d=effDate(e); return (!f||d>=f)&&(!t||d<=t); }).sort((a,b)=>a.ts-b.ts);
 }
+function minEffDate(){ let m=null; LOG.forEach(e=>{ const d=effDate(e); if(m===null||d<m) m=d; }); return m||todayStr(); }
 function openReport(){
-  const dts=LOG.map(e=>e.ts);
-  $("#repFrom").value = dayKey(dts.length?Math.min.apply(null,dts):Date.now());
-  $("#repTo").value = dayKey(Date.now());
+  $("#repFrom").value = minEffDate();
+  $("#repTo").value = todayStr();
   setPreset("all");
   show("scReport");
 }
 function setPreset(p){
-  const today=dayKey(Date.now());
+  const today=todayStr();
   if(p==="today"){ $("#repFrom").value=today; $("#repTo").value=today; }
   else if(p==="7"){ $("#repFrom").value=dayKey(Date.now()-6*864e5); $("#repTo").value=today; }
-  else if(p==="all"){ const dts=LOG.map(e=>e.ts); $("#repFrom").value=dayKey(dts.length?Math.min.apply(null,dts):Date.now()); $("#repTo").value=today; }
+  else if(p==="all"){ $("#repFrom").value=minEffDate(); $("#repTo").value=today; }
   $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.toggle("on",b.dataset.preset===p));
   renderReport();
 }
@@ -871,11 +934,11 @@ function renderLog(){
   rows.reverse(); // newest first
   const box=$("#logList");
   if(!rows.length){ box.innerHTML='<div class="empty">No records in this date range.</div>'; return; }
-  const groups={};
-  rows.forEach(r=>{ const k=dayKey(r.e.ts); (groups[k]=groups[k]||[]).push(r); });
-  box.innerHTML=Object.keys(groups).map(k=>{
+  const groups={}, order=[];
+  rows.forEach(r=>{ const k=groupKey(r.e); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(r); });
+  box.innerHTML=order.map(k=>{
     const arr=groups[k];
-    return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].e.ts)+'</span><span class="dt">'+arr.length+' entries</span></div>'
+    return '<div class="daygrp"><div class="dayhd"><span>'+keyLabel(k)+'</span><span class="dt">'+arr.length+' entries</span></div>'
       + arr.map(r=>{
           const e=r.e, c=r.c, disp=isDisp(e);
           const who=(CLOUD&&e.by)?' · '+esc(e.by):'';
@@ -901,21 +964,22 @@ $("#dlExcel").onclick=async()=>{
 
   // Transactions (detailed statement, one row per event, with running balance)
   const tx=evs.map(e=>{
-    const row={ "Date":dayKey(e.ts), "Time":timeLabel(e.ts), "Vehicle":e.plate, "Type":isDisp(e)?"Sent for sale":"Load" };
+    const row={ "Business date":effDate(e), "Time":timeLabel(e.ts), "Vehicle":e.plate, "Type":isDisp(e)?"Sent for sale":"Load" };
     const mc=maxChambers();
     for(let i=1;i<=mc;i++){ const c=(e.chambers||[]).find(x=>chIdx(x.name)===i-1); row["C"+i+" (L)"]=c?(+c.qty):""; }
     row["Total (L)"]=e.total;
     row["Tanker after (L)"]=afterMap[e.id]!=null?afterMap[e.id]:"";
     row["Remarks / Sold to"]=e.remark||"";
     row["By"]=e.by||"";
+    row["Day ended?"]=isOpen(e)?"Open":"Ended";
     return row;
   });
   // Chamber log — one row per chamber per transaction (easiest to reconcile)
   const chlog=[];
   evs.forEach(e=>{ (e.chambers||[]).forEach(c=>{ chlog.push({
-    "Date":dayKey(e.ts), "Time":timeLabel(e.ts), "Vehicle":e.plate,
+    "Business date":effDate(e), "Time":timeLabel(e.ts), "Vehicle":e.plate,
     "Chamber":c.name, "Litres":(+c.qty), "Type":isDisp(e)?"Emptied (sold)":"Loaded",
-    "Remarks / Sold to":e.remark||"", "By":e.by||"" }); }); });
+    "Remarks / Sold to":e.remark||"", "By":e.by||"", "Day ended?":isOpen(e)?"Open":"Ended" }); }); });
   // By tanker
   const byT=VEHICLES.map(v=>{
     const ve=evs.filter(e=>e.plate===v.plate), vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
@@ -924,10 +988,10 @@ $("#dlExcel").onclick=async()=>{
       "Tankers sold":vd.length, "Litres sold":vd.reduce((s,e)=>s+e.total,0),
       "Current fill (L)":st.total, "Status":st.full?"FULL":(st.total>0?"Filling":"Empty") };
   });
-  // By day
+  // By day (business date)
   const dm={};
-  evs.forEach(e=>{ const k=dayKey(e.ts), d=dm[k]||(dm[k]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
-  const byD=Object.keys(dm).sort().map(k=>({ "Date":k, "Loadings":dm[k].l, "Litres loaded":dm[k].ll, "Tankers sold":dm[k].s, "Litres sold":dm[k].sl }));
+  evs.forEach(e=>{ const k=effDate(e), d=dm[k]||(dm[k]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
+  const byD=Object.keys(dm).sort().map(k=>({ "Business date":k, "Loadings":dm[k].l, "Litres loaded":dm[k].ll, "Tankers sold":dm[k].s, "Litres sold":dm[k].sl }));
   // Summary sheet (title + key figures)
   const summary=[
     ["Vriddhi Fuels — Tanker Loading report"],
@@ -949,15 +1013,15 @@ $("#dlExcel").onclick=async()=>{
     const wb=XLSX.utils.book_new();
     const wsS=XLSX.utils.aoa_to_sheet(summary); wsS["!cols"]=[{wch:30},{wch:28}]; XLSX.utils.book_append_sheet(wb,wsS,"Summary");
     const wsT=XLSX.utils.json_to_sheet(tx);
-    wsT["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:13}].concat(Array(maxChambers()).fill({wch:9})).concat([{wch:11},{wch:16},{wch:22},{wch:12}]);
+    wsT["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:13}].concat(Array(maxChambers()).fill({wch:9})).concat([{wch:11},{wch:16},{wch:22},{wch:12},{wch:11}]);
     wsT["!autofilter"]={ref:wsT["!ref"]}; numfmt(XLSX,wsT,1);
     XLSX.utils.book_append_sheet(wb,wsT,"Transactions");
     const wsC=XLSX.utils.json_to_sheet(chlog);
-    wsC["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:9},{wch:10},{wch:14},{wch:22},{wch:12}];
+    wsC["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:9},{wch:10},{wch:14},{wch:22},{wch:12},{wch:11}];
     wsC["!autofilter"]={ref:wsC["!ref"]}; numfmt(XLSX,wsC,1);
     XLSX.utils.book_append_sheet(wb,wsC,"Chamber log");
     const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:10},{wch:13},{wch:12},{wch:12},{wch:14},{wch:9}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
-    const wsD=XLSX.utils.json_to_sheet(byD); wsD["!cols"]=[{wch:12},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsD,1); XLSX.utils.book_append_sheet(wb,wsD,"By day");
+    const wsD=XLSX.utils.json_to_sheet(byD); wsD["!cols"]=[{wch:13},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsD,1); XLSX.utils.book_append_sheet(wb,wsD,"By day");
     const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
     dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
     toast("Excel report downloaded ("+tx.length+" rows)");
@@ -1036,6 +1100,7 @@ function subscribeRealtime(){
   CloudBackend.client.channel("loading-live")
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_events"},poke)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_vehicles"},poke)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_day_closes"},poke)
     .subscribe();
 }
 

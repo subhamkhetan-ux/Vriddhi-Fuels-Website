@@ -61,6 +61,19 @@ insert into public.loading_vehicles (plate, caps, color) values
 on conflict (plate) do nothing;
 
 -- ---------------------------------------------------------------------
+-- Business-day closes ("End Day"). The financial day ends at the morning
+-- shift change (variable time), not midnight. Pressing "End Day" the next
+-- morning books all still-open records under the PREVIOUS calendar date.
+-- close_date is the primary key, so a given day can be ended only once
+-- (guards against multiple presses in a day). Dates are computed in IST.
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_day_closes (
+  close_date date primary key,
+  closed_at  timestamptz not null default now(),
+  closed_by  uuid
+);
+
+-- ---------------------------------------------------------------------
 -- Row Level Security: signed-in users can READ the last 7 days only; no
 -- direct writes (all mutations go through the RPCs below).
 -- (authenticated/anon already exist on Supabase; created here only when the
@@ -78,6 +91,7 @@ end $$;
 
 alter table public.loading_events enable row level security;
 alter table public.loading_vehicles enable row level security;
+alter table public.loading_day_closes enable row level security;
 
 drop policy if exists loading_events_read on public.loading_events;
 create policy loading_events_read on public.loading_events
@@ -87,6 +101,11 @@ create policy loading_events_read on public.loading_events
 drop policy if exists loading_vehicles_read on public.loading_vehicles;
 create policy loading_vehicles_read on public.loading_vehicles
   for select to authenticated using (true);
+
+drop policy if exists loading_day_closes_read on public.loading_day_closes;
+create policy loading_day_closes_read on public.loading_day_closes
+  for select to authenticated
+  using (close_date >= ((now() at time zone 'Asia/Kolkata')::date) - 30);
 
 -- ---------------------------------------------------------------------
 -- Helper
@@ -186,6 +205,23 @@ begin
   delete from loading_vehicles where plate = p_plate;
 end $$;
 
+-- End Day: book the just-finished business day under the PREVIOUS calendar date
+-- (IST). Allowed once per day — the close_date primary key makes a second press
+-- the same day fail. Returns the date the day was booked under.
+create or replace function public.loading_end_day() returns text
+language plpgsql security definer set search_path = public as $$
+declare cd date;
+begin
+  perform _loading_auth();
+  cd := ((now() at time zone 'Asia/Kolkata')::date) - 1;   -- yesterday, in IST
+  if exists (select 1 from loading_day_closes where close_date = cd) then
+    raise exception 'This day has already been ended';
+  end if;
+  insert into loading_day_closes (close_date, closed_by) values (cd, auth.uid());
+  delete from loading_day_closes where close_date < ((now() at time zone 'Asia/Kolkata')::date) - 30;
+  return to_char(cd, 'YYYY-MM-DD');
+end $$;
+
 -- ---------------------------------------------------------------------
 -- Grants: RPCs for signed-in users only (Supabase-specific; skipped
 -- gracefully on a plain Postgres used for testing).
@@ -200,7 +236,8 @@ begin
       public.loading_purge(),
       public.loading_clear_all(),
       public.loading_vehicle_add(text, jsonb, text),
-      public.loading_vehicle_remove(text)
+      public.loading_vehicle_remove(text),
+      public.loading_end_day()
     to authenticated;
   end if;
 end $$;
@@ -214,6 +251,10 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.loading_vehicles;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_day_closes;
   exception when others then null;
   end;
 end $$;
