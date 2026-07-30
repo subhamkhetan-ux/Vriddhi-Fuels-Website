@@ -183,6 +183,17 @@
   .rpresets button.on{background:var(--amber);color:#fff}
   .rpresets button:active{transform:translateY(1px)}
 
+  /* Chamber log (detailed, per-chamber transactions) */
+  .logrow{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
+  .logrow.disp{background:#eef6ff}
+  .logrow .lc{width:42px;height:42px;border-radius:11px;background:var(--navy);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px}
+  .logrow.disp .lc{background:var(--amber-d)}
+  .logrow .lmid{flex:1;min-width:0}
+  .logrow .lp{font-weight:800;color:var(--navy);font-size:14px}
+  .logrow .lt{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .logrow .lq{font-weight:900;color:var(--green-d);white-space:nowrap;font-size:16px}
+  .logrow.disp .lq{color:var(--amber-d)}
+
   /* Settings / manage */
   .linkbtn{background:none;border:0;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer;text-decoration:underline;display:block;margin:16px auto 4px;padding:8px}
   .card-add{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:16px}
@@ -338,8 +349,16 @@
       </div>
       <div class="sectitle">By tanker</div>
       <div id="repTankers"></div>
-      <button class="big green" id="dlExcel" style="margin-top:8px"><span class="em">⬇</span><span>Download Excel report</span></button>
+      <button class="big navy" id="toLog" style="background:var(--navy2);font-size:16px;padding:14px"><span class="em">📋</span><span>View chamber log (detailed)</span></button>
+      <button class="big green" id="dlExcel" style="margin-top:0"><span class="em">⬇</span><span>Download Excel report</span></button>
       <div class="note" id="repNote"></div>
+    </section>
+
+    <!-- CHAMBER LOG (detailed, on-screen) -->
+    <section class="screen" id="scLog">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Chamber log</div>
+      <div class="note" id="logRange" style="margin:0 0 10px"></div>
+      <div id="logList"></div>
     </section>
 
     <!-- SETTINGS / MANAGE -->
@@ -515,7 +534,7 @@ function refresh(){
 }
 
 /* ---------- Screen routing ---------- */
-const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scSettings"];
+const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings"];
 let stack=["scHome"];
 function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
@@ -528,6 +547,7 @@ function goBack(){
   if(stack[stack.length-1]==="scHome") renderHome();
   if(stack[stack.length-1]==="scHist") renderHist();
   if(stack[stack.length-1]==="scReport") renderReport();
+  if(stack[stack.length-1]==="scLog") renderLog();
   if(stack[stack.length-1]==="scSettings") renderSettings();
 }
 $("#backBtn").onclick=goBack;
@@ -834,6 +854,33 @@ $("#scReport").querySelectorAll(".rpresets button").forEach(b=>{ b.onclick=()=>s
   renderReport();
 }));
 
+/* On-screen chamber log: one row per chamber per transaction, for the range */
+function renderLog(){
+  $("#logRange").textContent = "From "+($("#repFrom").value||"start")+" to "+($("#repTo").value||"today");
+  const rows=[];
+  rangeEvents().forEach(e=>{ (e.chambers||[]).forEach(c=>rows.push({e:e,c:c})); });
+  rows.reverse(); // newest first
+  const box=$("#logList");
+  if(!rows.length){ box.innerHTML='<div class="empty">No records in this date range.</div>'; return; }
+  const groups={};
+  rows.forEach(r=>{ const k=dayKey(r.e.ts); (groups[k]=groups[k]||[]).push(r); });
+  box.innerHTML=Object.keys(groups).map(k=>{
+    const arr=groups[k];
+    return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].e.ts)+'</span><span class="dt">'+arr.length+' entries</span></div>'
+      + arr.map(r=>{
+          const e=r.e, c=r.c, disp=isDisp(e);
+          const who=(CLOUD&&e.by)?' · '+esc(e.by):'';
+          const rem=(disp&&e.remark)?' · sold to '+esc(e.remark):'';
+          return '<div class="logrow'+(disp?' disp':'')+'">'
+            +'<span class="lc">'+esc(c.name)+'</span>'
+            +'<div class="lmid"><div class="lp">'+esc(e.plate)+(disp?' · sent for sale':'')+'</div>'
+            +'<div class="lt">'+timeLabel(e.ts)+who+rem+'</div></div>'
+            +'<span class="lq">'+(disp?'−':'+')+fmt(c.qty)+' L</span></div>';
+      }).join("")
+      +'</div>';
+  }).join("");
+}
+
 function dl(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },600); }
 function numfmt(XLSX,ws,fromRow){ const rng=XLSX.utils.decode_range(ws["!ref"]); for(let R=(fromRow||0);R<=rng.e.r;R++){ for(let C=rng.s.c;C<=rng.e.c;C++){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(cell&&cell.t==="n") cell.z="#,##0"; } } }
 
@@ -962,6 +1009,7 @@ $("#clearBtn").onclick=()=>{
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 $("#toReport").onclick=openReport;
 $("#toReport2").onclick=openReport;
+$("#toLog").onclick=()=>{ renderLog(); show("scLog"); };
 $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
 
 /* ---------- Realtime (cloud) ---------- */

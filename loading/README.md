@@ -134,6 +134,11 @@ for a chosen **date range** (From/To, with **Today / 7 days / All** presets):
 litres loaded, loadings, litres sold, tankers sold, and a per-tanker breakdown
 with each tanker's current fill.
 
+**View chamber log (detailed)** opens an on-screen log for the chosen range —
+one row per **chamber per transaction** (chamber, vehicle, time, `+`litres loaded
+or `−`litres emptied on a sale, with the sold-to name), newest first and grouped
+by day. It's the same breakdown as the Excel "Chamber log" sheet, right in the app.
+
 **Download Excel report** produces a multi-sheet `.xlsx`
 (`Vriddhi_Tanker_Report_<from>_to_<to>.xlsx`) built with
 [SheetJS](https://sheetjs.com) — it **falls back to a CSV** of the transactions
