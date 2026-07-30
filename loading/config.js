@@ -17,6 +17,6 @@
 // live list, and data is kept for the last 7 days only.
 // =====================================================================
 window.VRIDDHI_LOADING_CONFIG = {
-  SUPABASE_URL: "PASTE_YOUR_SUPABASE_URL_HERE",
-  SUPABASE_ANON_KEY: "PASTE_YOUR_SUPABASE_ANON_KEY_HERE",
+  SUPABASE_URL: "https://hzkyftfgcnphnsmidnhz.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_AcmqkLsx9GQGm-wY6qlwBA_qWLz9Rpi",
 };
