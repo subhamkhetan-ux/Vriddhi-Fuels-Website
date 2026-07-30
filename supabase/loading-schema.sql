@@ -33,13 +33,32 @@ create table if not exists public.loading_events (
   chambers   jsonb not null,
   total      numeric(12,2) not null check (total > 0),
   by_name    text not null default '',  -- who did it (for accountability)
+  remark     text not null default '',  -- free text; on a dispatch this is "sold to"
   created_by uuid,
   created_at timestamptz not null default now()  -- server time; never the client clock
 );
--- add the column if an earlier version of this table already exists
-alter table public.loading_events add column if not exists kind text not null default 'load';
+-- add columns if an earlier version of this table already exists
+alter table public.loading_events add column if not exists kind   text not null default 'load';
+alter table public.loading_events add column if not exists remark text not null default '';
 
 create index if not exists loading_events_created_idx on public.loading_events(created_at desc);
+
+-- ---------------------------------------------------------------------
+-- Tankers (shared, editable from the app's Manage screen)
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_vehicles (
+  plate      text primary key,
+  caps       jsonb not null,      -- [3985,3985,3985]
+  color      text not null default '',
+  created_at timestamptz not null default now()
+);
+-- seed the known tankers (safe to re-run; only inserts missing ones)
+insert into public.loading_vehicles (plate, caps, color) values
+  ('OD23A3710', '[3985,3985,3985]',      '#1f6f8b'),
+  ('OR15R1110', '[3985,3985,3985]',      '#2d7d46'),
+  ('OR15R5510', '[3985,3985,3985]',      '#8a5a1e'),
+  ('OR15R9360', '[4485,4485,4485,4485]', '#6a3d8c')
+on conflict (plate) do nothing;
 
 -- ---------------------------------------------------------------------
 -- Row Level Security: signed-in users can READ the last 7 days only; no
@@ -58,11 +77,16 @@ begin
 end $$;
 
 alter table public.loading_events enable row level security;
+alter table public.loading_vehicles enable row level security;
 
 drop policy if exists loading_events_read on public.loading_events;
 create policy loading_events_read on public.loading_events
   for select to authenticated
   using (created_at >= now() - interval '7 days');
+
+drop policy if exists loading_vehicles_read on public.loading_vehicles;
+create policy loading_vehicles_read on public.loading_vehicles
+  for select to authenticated using (true);
 
 -- ---------------------------------------------------------------------
 -- Helper
@@ -81,10 +105,11 @@ end $$;
 
 -- Record one event (a 'load' or a 'dispatch'). Also drops anything older than
 -- 7 days so the table never grows past a week.
--- Drop the earlier 4-arg version (before 'kind' existed) so there is no overload.
+-- Drop earlier versions (4-arg pre-'kind', 5-arg pre-'remark') so there is no overload.
 drop function if exists public.loading_add(text, jsonb, numeric, text);
+drop function if exists public.loading_add(text, jsonb, numeric, text, text);
 create or replace function public.loading_add(
-  p_vehicle text, p_chambers jsonb, p_total numeric, p_by text, p_kind text
+  p_vehicle text, p_chambers jsonb, p_total numeric, p_by text, p_kind text, p_remark text
 ) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare rid uuid;
@@ -97,8 +122,9 @@ begin
   if p_total is null or p_total <= 0 then raise exception 'Total must be positive'; end if;
   if coalesce(p_kind,'load') not in ('load','dispatch') then raise exception 'Bad kind'; end if;
 
-  insert into loading_events (vehicle, kind, chambers, total, by_name, created_by)
-  values (p_vehicle, coalesce(p_kind,'load'), p_chambers, p_total, coalesce(p_by,''), auth.uid())
+  insert into loading_events (vehicle, kind, chambers, total, by_name, remark, created_by)
+  values (p_vehicle, coalesce(p_kind,'load'), p_chambers, p_total, coalesce(p_by,''),
+          coalesce(p_remark,''), auth.uid())
   returning id into rid;
 
   delete from loading_events where created_at < now() - interval '7 days';
@@ -128,6 +154,38 @@ begin
   return n;
 end $$;
 
+-- Danger zone: clear ALL loading & sale records (empties every tanker).
+-- Tankers themselves are kept. WHERE is required by Supabase's pg_safeupdate.
+create or replace function public.loading_clear_all() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  perform _loading_auth();
+  delete from loading_events where id is not null;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- Add / remove a shared tanker (Manage screen).
+create or replace function public.loading_vehicle_add(p_plate text, p_caps jsonb, p_color text)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  if coalesce(trim(p_plate),'') = '' then raise exception 'Vehicle number required'; end if;
+  if p_caps is null or jsonb_array_length(p_caps) = 0 then raise exception 'At least one chamber is required'; end if;
+  insert into loading_vehicles (plate, caps, color)
+  values (upper(trim(p_plate)), p_caps, coalesce(p_color,''))
+  on conflict (plate) do update set caps = excluded.caps, color = excluded.color;
+end $$;
+
+create or replace function public.loading_vehicle_remove(p_plate text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  delete from loading_vehicles where plate = p_plate;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- Grants: RPCs for signed-in users only (Supabase-specific; skipped
 -- gracefully on a plain Postgres used for testing).
@@ -137,9 +195,12 @@ begin
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
     revoke execute on all functions in schema public from public, anon;
     grant execute on function
-      public.loading_add(text, jsonb, numeric, text, text),
+      public.loading_add(text, jsonb, numeric, text, text, text),
       public.loading_delete(uuid),
-      public.loading_purge()
+      public.loading_purge(),
+      public.loading_clear_all(),
+      public.loading_vehicle_add(text, jsonb, text),
+      public.loading_vehicle_remove(text)
     to authenticated;
   end if;
 end $$;
@@ -149,6 +210,10 @@ do $$
 begin
   begin
     alter publication supabase_realtime add table public.loading_events;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_vehicles;
   exception when others then null;
   end;
 end $$;
