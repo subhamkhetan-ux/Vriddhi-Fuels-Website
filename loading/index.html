@@ -137,6 +137,7 @@
   .tcard.full .badge2{background:var(--green);color:#fff}
   .tcard .tsub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
   .tcard .tsub b{color:var(--navy);font-size:15px}
+  .tcard .tsub2{font-size:12px;color:var(--muted);margin-top:3px;font-weight:600}
   /* subtle when partly filled (avoids accidental resets); bold green when full */
   .dispatch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-top:1px solid var(--line);background:none;color:var(--amber-d);font-size:14px;font-weight:700;padding:11px;cursor:pointer}
   .tcard.full .dispatch{background:var(--green);color:#fff;font-size:16px;font-weight:800;padding:14px}
@@ -181,6 +182,17 @@
   .rpresets button{flex:1;padding:11px;border:0;border-radius:12px;background:#e6eaf1;color:var(--navy);font-weight:800;font-size:14px;cursor:pointer}
   .rpresets button.on{background:var(--amber);color:#fff}
   .rpresets button:active{transform:translateY(1px)}
+
+  /* Chamber log (detailed, per-chamber transactions) */
+  .logrow{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
+  .logrow.disp{background:#eef6ff}
+  .logrow .lc{width:42px;height:42px;border-radius:11px;background:var(--navy);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px}
+  .logrow.disp .lc{background:var(--amber-d)}
+  .logrow .lmid{flex:1;min-width:0}
+  .logrow .lp{font-weight:800;color:var(--navy);font-size:14px}
+  .logrow .lt{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .logrow .lq{font-weight:900;color:var(--green-d);white-space:nowrap;font-size:16px}
+  .logrow.disp .lq{color:var(--amber-d)}
 
   /* Settings / manage */
   .linkbtn{background:none;border:0;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer;text-decoration:underline;display:block;margin:16px auto 4px;padding:8px}
@@ -284,7 +296,7 @@
         <div class="sumbar">
           <div class="sumrow">
             <span class="s-load">In tanker <b id="sumLoaded">0</b> L</span>
-            <span class="s-left">Left <b id="sumLeft">0</b> L</span>
+            <span class="s-left">Left to fill <b id="sumLeft">0</b> L</span>
           </div>
           <div class="bar lg"><div class="fill" id="sumFillHave" style="width:0%"></div><div class="fill add" id="sumFillAdd" style="width:0%"></div></div>
           <div class="sumcap">of <span id="sumCap">0</span> L full tanker <span id="sumAddNote"></span></div>
@@ -337,8 +349,16 @@
       </div>
       <div class="sectitle">By tanker</div>
       <div id="repTankers"></div>
-      <button class="big green" id="dlExcel" style="margin-top:8px"><span class="em">⬇</span><span>Download Excel report</span></button>
+      <button class="big navy" id="toLog" style="background:var(--navy2);font-size:16px;padding:14px"><span class="em">📋</span><span>View chamber log (detailed)</span></button>
+      <button class="big green" id="dlExcel" style="margin-top:0"><span class="em">⬇</span><span>Download Excel report</span></button>
       <div class="note" id="repNote"></div>
+    </section>
+
+    <!-- CHAMBER LOG (detailed, on-screen) -->
+    <section class="screen" id="scLog">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Chamber log</div>
+      <div class="note" id="logRange" style="margin:0 0 10px"></div>
+      <div id="logList"></div>
     </section>
 
     <!-- SETTINGS / MANAGE -->
@@ -514,7 +534,7 @@ function refresh(){
 }
 
 /* ---------- Screen routing ---------- */
-const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scSettings"];
+const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings"];
 let stack=["scHome"];
 function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
@@ -527,6 +547,7 @@ function goBack(){
   if(stack[stack.length-1]==="scHome") renderHome();
   if(stack[stack.length-1]==="scHist") renderHist();
   if(stack[stack.length-1]==="scReport") renderReport();
+  if(stack[stack.length-1]==="scLog") renderLog();
   if(stack[stack.length-1]==="scSettings") renderSettings();
 }
 $("#backBtn").onclick=goBack;
@@ -578,15 +599,16 @@ function renderTankers(){
     const st=tankerState(v.plate);
     const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
     const left=Math.max(st.cap-st.total,0);
-    const fullN=st.caps.filter((c,i)=>st.cham[i]>=c).length;
     const badge = st.full ? "FULL ✓" : fmt(st.total)+" / "+fmt(st.cap)+" L";
+    const perCh = st.caps.map((c,i)=>{ const l=Math.max(c-st.cham[i],0); return 'C'+(i+1)+' '+(l===0?'✓':fmt(l)); }).join(' · ');
     const sub = st.full ? "Full — send for sale when dispatched"
-                        : "Left to fill <b>"+fmt(left)+"</b> L · "+fullN+"/"+st.caps.length+" chambers full";
+                        : "Left to fill <b>"+fmt(left)+"</b> L";
     return '<div class="tcard'+(st.full?" full":"")+'">'
       +'<button class="tap" data-plate="'+v.plate+'">'
       +'<div class="th"><span class="pl">'+v.plate+'</span><span class="badge2">'+badge+'</span></div>'
       +'<div class="bar"><div class="fill have" style="width:'+pct+'%"></div></div>'
-      +'<div class="tsub">'+sub+'</div></button>'
+      +'<div class="tsub">'+sub+'</div>'
+      +(st.full?'':'<div class="tsub2">Left per chamber — '+perCh+' L</div>')+'</button>'
       +(st.total>0?'<button class="dispatch" data-disp="'+v.plate+'">🚚 Sent for sale — empty tanker</button>':'')
       +'</div>';
   }).join("");
@@ -653,19 +675,17 @@ function renderChambers(){
       +'<div class="cap-tag"><span data-have>'+fmt(have)+'</span> / '+fmt(cap)+' L</div></div>'
       +'<div class="bar"><div class="fill have" data-fhave></div><div class="fill add" data-fadd></div></div>'
       +'<div class="lr">'
-      +'<span class="left">Left <b data-left>'+fmt(Math.max(cap-have,0))+'</b> L</span>'
+      +'<span class="left">Left to fill <b data-left>'+fmt(Math.max(cap-have,0))+'</b> L</span>'
       +'<span class="fulltag">✓ FULL</span>'
       +'<span class="over-txt">⚠ Over full by <b data-over>0</b> L</span>'
       +'</div>'
       +'<div class="qtyrow">'
+      +'<input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Add litres" value="'+draft.add[i]+'" data-in="'+i+'" />'
       +'<button class="qbtn clr" data-clr="'+i+'">Clear</button>'
-      +'<input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Add" value="'+draft.add[i]+'" data-in="'+i+'" />'
-      +'<button class="qbtn" data-top="'+i+'">Top&nbsp;up</button>'
       +'</div></div>';
   }).join("");
   const cl=$("#chamList");
   cl.querySelectorAll("input[data-in]").forEach(inp=>{ inp.oninput=()=>{ let val=inp.value.replace(/[^0-9]/g,""); inp.value=val; draft.add[+inp.dataset.in]=val; refreshChamState(); }; });
-  cl.querySelectorAll("[data-top]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.top; draft.add[i]=""+Math.max(draft.caps[i]-draft.existing[i],0); renderChambers(); }; });
   cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.add[i]=""; renderChambers(); }; });
   refreshChamState();
 }
@@ -826,13 +846,40 @@ function renderReport(){
   const empty=!evs.length;
   $("#dlExcel").disabled=empty;
   $("#repNote").innerHTML = empty ? "No records in this date range."
-    : "Excel has Summary · Transactions · By tanker · By day sheets. Falls back to CSV if offline.";
+    : "Excel has Summary · Transactions · Chamber log · By tanker · By day sheets. Falls back to CSV if offline.";
 }
 $("#scReport").querySelectorAll(".rpresets button").forEach(b=>{ b.onclick=()=>setPreset(b.dataset.preset); });
 ["#repFrom","#repTo"].forEach(sel=>$(sel).addEventListener("change",()=>{
   $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.remove("on"));
   renderReport();
 }));
+
+/* On-screen chamber log: one row per chamber per transaction, for the range */
+function renderLog(){
+  $("#logRange").textContent = "From "+($("#repFrom").value||"start")+" to "+($("#repTo").value||"today");
+  const rows=[];
+  rangeEvents().forEach(e=>{ (e.chambers||[]).forEach(c=>rows.push({e:e,c:c})); });
+  rows.reverse(); // newest first
+  const box=$("#logList");
+  if(!rows.length){ box.innerHTML='<div class="empty">No records in this date range.</div>'; return; }
+  const groups={};
+  rows.forEach(r=>{ const k=dayKey(r.e.ts); (groups[k]=groups[k]||[]).push(r); });
+  box.innerHTML=Object.keys(groups).map(k=>{
+    const arr=groups[k];
+    return '<div class="daygrp"><div class="dayhd"><span>'+dayLabel(arr[0].e.ts)+'</span><span class="dt">'+arr.length+' entries</span></div>'
+      + arr.map(r=>{
+          const e=r.e, c=r.c, disp=isDisp(e);
+          const who=(CLOUD&&e.by)?' · '+esc(e.by):'';
+          const rem=(disp&&e.remark)?' · sold to '+esc(e.remark):'';
+          return '<div class="logrow'+(disp?' disp':'')+'">'
+            +'<span class="lc">'+esc(c.name)+'</span>'
+            +'<div class="lmid"><div class="lp">'+esc(e.plate)+(disp?' · sent for sale':'')+'</div>'
+            +'<div class="lt">'+timeLabel(e.ts)+who+rem+'</div></div>'
+            +'<span class="lq">'+(disp?'−':'+')+fmt(c.qty)+' L</span></div>';
+      }).join("")
+      +'</div>';
+  }).join("");
+}
 
 function dl(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },600); }
 function numfmt(XLSX,ws,fromRow){ const rng=XLSX.utils.decode_range(ws["!ref"]); for(let R=(fromRow||0);R<=rng.e.r;R++){ for(let C=rng.s.c;C<=rng.e.c;C++){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(cell&&cell.t==="n") cell.z="#,##0"; } } }
@@ -854,6 +901,12 @@ $("#dlExcel").onclick=async()=>{
     row["By"]=e.by||"";
     return row;
   });
+  // Chamber log — one row per chamber per transaction (easiest to reconcile)
+  const chlog=[];
+  evs.forEach(e=>{ (e.chambers||[]).forEach(c=>{ chlog.push({
+    "Date":dayKey(e.ts), "Time":timeLabel(e.ts), "Vehicle":e.plate,
+    "Chamber":c.name, "Litres":(+c.qty), "Type":isDisp(e)?"Emptied (sold)":"Loaded",
+    "Remarks / Sold to":e.remark||"", "By":e.by||"" }); }); });
   // By tanker
   const byT=VEHICLES.map(v=>{
     const ve=evs.filter(e=>e.plate===v.plate), vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
@@ -890,6 +943,10 @@ $("#dlExcel").onclick=async()=>{
     wsT["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:13}].concat(Array(maxChambers()).fill({wch:9})).concat([{wch:11},{wch:16},{wch:22},{wch:12}]);
     wsT["!autofilter"]={ref:wsT["!ref"]}; numfmt(XLSX,wsT,1);
     XLSX.utils.book_append_sheet(wb,wsT,"Transactions");
+    const wsC=XLSX.utils.json_to_sheet(chlog);
+    wsC["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:9},{wch:10},{wch:14},{wch:22},{wch:12}];
+    wsC["!autofilter"]={ref:wsC["!ref"]}; numfmt(XLSX,wsC,1);
+    XLSX.utils.book_append_sheet(wb,wsC,"Chamber log");
     const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:10},{wch:13},{wch:12},{wch:12},{wch:14},{wch:9}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
     const wsD=XLSX.utils.json_to_sheet(byD); wsD["!cols"]=[{wch:12},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsD,1); XLSX.utils.book_append_sheet(wb,wsD,"By day");
     const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
@@ -952,6 +1009,7 @@ $("#clearBtn").onclick=()=>{
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 $("#toReport").onclick=openReport;
 $("#toReport2").onclick=openReport;
+$("#toLog").onclick=()=>{ renderLog(); show("scLog"); };
 $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
 
 /* ---------- Realtime (cloud) ---------- */

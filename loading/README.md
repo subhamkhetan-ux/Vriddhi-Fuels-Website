@@ -36,9 +36,11 @@ again.
    are full. A full tanker shows a green **FULL ✓** badge.
 2. **Tap a tanker → Add diesel.** Each chamber shows what is **already in it**
    (`1,500 / 3,985 L`) with a two-tone bar — the darker part is what's already
-   there, the brighter part is what you're **adding now**. Type the litres you're
-   loading; **Top up** fills the chamber to the brim; **Left** updates live. A
-   sticky summary shows the tanker total after this save and the litres left.
+   there, the brighter part is what you're **adding now**. The **Add litres** box
+   is always blank; type the litres you're loading and **Left to fill** for that
+   chamber updates live. A sticky summary shows the tanker total after this save
+   and the litres left to fill. The home card also lists **left to fill per
+   chamber** and for the **whole tanker**, so it's clear at a glance.
 3. **Save** → a check-and-confirm screen → the tanker's fill goes up by that
    amount. Do this as many times as you like; it keeps adding.
 4. **When the tanker is full, tap “🚚 Sent for sale”** (a bold green button on a
@@ -132,6 +134,11 @@ for a chosen **date range** (From/To, with **Today / 7 days / All** presets):
 litres loaded, loadings, litres sold, tankers sold, and a per-tanker breakdown
 with each tanker's current fill.
 
+**View chamber log (detailed)** opens an on-screen log for the chosen range —
+one row per **chamber per transaction** (chamber, vehicle, time, `+`litres loaded
+or `−`litres emptied on a sale, with the sold-to name), newest first and grouped
+by day. It's the same breakdown as the Excel "Chamber log" sheet, right in the app.
+
 **Download Excel report** produces a multi-sheet `.xlsx`
 (`Vriddhi_Tanker_Report_<from>_to_<to>.xlsx`) built with
 [SheetJS](https://sheetjs.com) — it **falls back to a CSV** of the transactions
@@ -141,6 +148,7 @@ if the device is offline. Sheets:
 |---|---|
 | **Summary** | Report metadata + headline totals + current fill per tanker |
 | **Transactions** | The full statement — one row per event: *Date · Time · Vehicle · Type · C1–C4 · Total · **Tanker after** (running fill) · **Remarks / Sold to** · By*, with an auto-filter |
+| **Chamber log** | One row **per chamber per transaction** — *Date · Time · Vehicle · Chamber · Litres · Type · Remarks · By* — the easiest layout to reconcile chamber by chamber |
 | **By tanker** | Per-vehicle: capacity, loadings, litres loaded, tankers sold, litres sold, current fill, status |
 | **By day** | Per-day loadings / litres loaded / tankers sold / litres sold |
 
