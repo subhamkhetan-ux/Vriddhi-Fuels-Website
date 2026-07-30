@@ -36,9 +36,11 @@ again.
    are full. A full tanker shows a green **FULL ✓** badge.
 2. **Tap a tanker → Add diesel.** Each chamber shows what is **already in it**
    (`1,500 / 3,985 L`) with a two-tone bar — the darker part is what's already
-   there, the brighter part is what you're **adding now**. Type the litres you're
-   loading; **Top up** fills the chamber to the brim; **Left** updates live. A
-   sticky summary shows the tanker total after this save and the litres left.
+   there, the brighter part is what you're **adding now**. The **Add litres** box
+   is always blank; type the litres you're loading and **Left to fill** for that
+   chamber updates live. A sticky summary shows the tanker total after this save
+   and the litres left to fill. The home card also lists **left to fill per
+   chamber** and for the **whole tanker**, so it's clear at a glance.
 3. **Save** → a check-and-confirm screen → the tanker's fill goes up by that
    amount. Do this as many times as you like; it keeps adding.
 4. **When the tanker is full, tap “🚚 Sent for sale”** (a bold green button on a
@@ -141,6 +143,7 @@ if the device is offline. Sheets:
 |---|---|
 | **Summary** | Report metadata + headline totals + current fill per tanker |
 | **Transactions** | The full statement — one row per event: *Date · Time · Vehicle · Type · C1–C4 · Total · **Tanker after** (running fill) · **Remarks / Sold to** · By*, with an auto-filter |
+| **Chamber log** | One row **per chamber per transaction** — *Date · Time · Vehicle · Chamber · Litres · Type · Remarks · By* — the easiest layout to reconcile chamber by chamber |
 | **By tanker** | Per-vehicle: capacity, loadings, litres loaded, tankers sold, litres sold, current fill, status |
 | **By day** | Per-day loadings / litres loaded / tankers sold / litres sold |
 
