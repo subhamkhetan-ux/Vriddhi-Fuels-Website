@@ -140,6 +140,12 @@ business day until someone presses **🔒 End Day**.
   **previous calendar date** and starts a fresh open day. It's **final** and can
   be done **only once per day** — a second press (even from another phone) is
   refused (*“This day has already been ended”*). Dates are computed in **IST**.
+- **Automatic fallback:** if nobody presses End Day, the day ends **automatically
+  at 8:00 AM** the next morning. The auto-close is timestamped at exactly 8:00 AM
+  (the deadline), so the business dates are identical no matter when it actually
+  runs — when the app is next opened, on its 5-minute timer, or (optionally) an
+  hourly `pg_cron` job on the server. Opening the app after a gap catches up any
+  missed days automatically.
 - Records made after midnight but before the shift change still fall under the
   previous business day, because they're closed together by that morning's End
   Day — exactly matching the shift.

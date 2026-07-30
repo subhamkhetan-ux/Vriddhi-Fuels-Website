@@ -222,6 +222,43 @@ begin
   return to_char(cd, 'YYYY-MM-DD');
 end $$;
 
+-- Internal: auto-close any business day whose deadline (8:00 AM IST the next
+-- day) has passed and that nobody ended manually. The close is timestamped at
+-- that exact 8:00 AM, so business dates come out identical no matter when this
+-- runs. No auth check (called by the auth wrapper below and by pg_cron).
+create or replace function public._loading_close_due(p_by uuid) returns int
+language plpgsql security definer set search_path = public as $$
+declare
+  today_ist date := (now() at time zone 'Asia/Kolkata')::date;
+  d date;
+  deadline timestamptz;
+  n int := 0;
+begin
+  select coalesce(max(close_date) + 1,
+                  (select (min(created_at) at time zone 'Asia/Kolkata')::date from loading_events))
+    into d from loading_day_closes;
+  if d is null then return 0; end if;
+  while d < today_ist loop
+    deadline := ((d + 1)::text || ' 08:00:00')::timestamp at time zone 'Asia/Kolkata';
+    exit when now() < deadline;
+    insert into loading_day_closes (close_date, closed_at, closed_by)
+      values (d, deadline, p_by)
+      on conflict (close_date) do nothing;
+    n := n + 1;
+    d := d + 1;
+  end loop;
+  delete from loading_day_closes where close_date < today_ist - 30;
+  return n;
+end $$;
+
+-- Client-callable wrapper (the app calls this on open and on a timer).
+create or replace function public.loading_close_due() returns int
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  return _loading_close_due(auth.uid());
+end $$;
+
 -- ---------------------------------------------------------------------
 -- Grants: RPCs for signed-in users only (Supabase-specific; skipped
 -- gracefully on a plain Postgres used for testing).
@@ -237,7 +274,8 @@ begin
       public.loading_clear_all(),
       public.loading_vehicle_add(text, jsonb, text),
       public.loading_vehicle_remove(text),
-      public.loading_end_day()
+      public.loading_end_day(),
+      public.loading_close_due()
     to authenticated;
   end if;
 end $$;
@@ -259,13 +297,20 @@ begin
   end;
 end $$;
 
--- Optional belt-and-suspenders: if pg_cron is installed, purge hourly too.
+-- Optional belt-and-suspenders: if pg_cron is installed, purge hourly and run
+-- the 8 AM auto-close hourly too (so days close on time even if nobody opens
+-- the app; the close is timestamped at the 8 AM deadline regardless of when it
+-- runs, so business dates are unaffected).
 do $$
 begin
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
     perform cron.schedule(
       'loading_purge_hourly', '0 * * * *',
       $q$ delete from public.loading_events where created_at < now() - interval '7 days' $q$
+    );
+    perform cron.schedule(
+      'loading_close_due_hourly', '5 * * * *',
+      $q$ select public._loading_close_due(null) $q$
     );
   end if;
 exception when others then null;

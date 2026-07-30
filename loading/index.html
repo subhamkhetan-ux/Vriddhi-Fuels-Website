@@ -487,6 +487,26 @@ function bizDate(e){ for(let i=0;i<CLOSES.length;i++){ if(CLOSES[i].ts>=e.ts) re
 function effDate(e){ return bizDate(e); }               // business date (provisional calendar date while open)
 function groupKey(e){ return isOpen(e) ? "OPEN" : bizDate(e); }
 function endedToday(){ return CLOSES.some(c=>c.date===prevDateStr()); }  // a close already assigned to yesterday = pressed today
+const AUTO_CLOSE_HOUR = 8; // if 'End Day' is not pressed, auto-end at 8:00 AM the next day
+function addDays(key,n){ const p=key.split("-").map(Number); const d=new Date(p[0],p[1]-1,p[2]); d.setDate(d.getDate()+n); return dayKey(d.getTime()); }
+function autoCloseMs(key){ const p=key.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],AUTO_CLOSE_HOUR,0,0,0).getTime(); } // 8:00 AM local (IST) on `key`
+// Business dates that should be auto-closed by now: each day D is closed at
+// 8:00 AM on D+1 if no one ended it first. Deterministic timestamp, so the
+// result is the same whenever it runs (client on open, timer, or server cron).
+function computeDueCloses(closes, events, nowMs){
+  const res=[], closed=new Set(closes.map(c=>c.date));
+  let start;
+  if(closes.length){ start=addDays(closes.map(c=>c.date).sort()[closes.length-1],1); }
+  else { if(!events.length) return res; start=dayKey(Math.min.apply(null,events.map(e=>e.ts))); }
+  const todayK=dayKey(nowMs);
+  let d=start, guard=0;
+  while(d<todayK && guard++<400){
+    const deadline=autoCloseMs(addDays(d,1));
+    if(nowMs>=deadline){ if(!closed.has(d)) res.push({date:d, ts:deadline}); d=addDays(d,1); }
+    else break;
+  }
+  return res;
+}
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),2400); }
 function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
 function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
@@ -532,6 +552,11 @@ const LocalBackend = {
     const l=lsCloses(); l.push({date:cd, ts:Date.now()}); lsClosesSave(l);
     return Promise.resolve(cd);
   },
+  closeDue(){
+    const due=computeDueCloses(lsCloses(), lsLoad(), Date.now());
+    if(due.length){ const l=lsCloses(); due.forEach(d=>{ if(!l.some(c=>c.date===d.date)) l.push(d); }); lsClosesSave(l); }
+    return Promise.resolve();
+  },
 };
 
 const CloudBackend = {
@@ -571,6 +596,7 @@ const CloudBackend = {
   removeVehicle(plate){ return this.rpc("loading_vehicle_remove",{ p_plate:plate }); },
   clearAll(){ return this.rpc("loading_clear_all",{}); },
   endDay(){ return this.rpc("loading_end_day",{}); },
+  closeDue(){ return this.rpc("loading_close_due",{}).catch(()=>{}); },
   purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
 };
 
@@ -581,6 +607,16 @@ function refresh(){
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
   });
 }
+function rerenderCurrent(){
+  const cur=stack[stack.length-1];
+  if(cur==="scHome") renderHome(); else if(cur==="scHist") renderHist();
+  else if(cur==="scReport") renderReport(); else if(cur==="scLog") renderLog();
+  else if(cur==="scSettings") renderSettings();
+}
+// Auto-end any business day whose 8 AM deadline has passed, then reload.
+function maybeAutoClose(){ return Backend.closeDue().then(refresh).then(rerenderCurrent).catch(()=>{}); }
+setInterval(()=>{ if(Backend && (Backend!==CloudBackend || ME)) maybeAutoClose(); }, 5*60*1000);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (Backend!==CloudBackend || ME)) maybeAutoClose(); });
 
 /* ---------- Screen routing ---------- */
 const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings"];
@@ -648,10 +684,13 @@ function renderEndDay(){
   const wrap=$("#endDayWrap");
   const openCount=LOG.filter(isOpen).length;
   if(endedToday()){
-    wrap.innerHTML='<div class="endednote">✓ Day ended for '+dmy(prevDateStr())+'. Next End Day is allowed after midnight.</div>';
+    const c=CLOSES.find(x=>x.date===prevDateStr());
+    const when=c?(" at "+timeLabel(c.ts)):"";
+    wrap.innerHTML='<div class="endednote">✓ Day ended for '+dmy(prevDateStr())+when+'. Next End Day is allowed after midnight.</div>';
     return;
   }
-  wrap.innerHTML='<button class="big endday" id="endDayBtn"><span class="em">🔒</span><span>End Day &amp; date to '+dmy(prevDateStr())+'</span></button>';
+  wrap.innerHTML='<button class="big endday" id="endDayBtn"><span class="em">🔒</span><span>End Day &amp; date to '+dmy(prevDateStr())+'</span></button>'
+    +'<div class="note" style="margin:-6px 2px 12px">If not pressed, the day ends automatically at 8:00 AM.</div>';
   $("#endDayBtn").onclick=endDay;
 }
 function endDay(){
@@ -1116,7 +1155,7 @@ function startApp(session){
   ME = usernameFromEmail(session && session.user && session.user.email);
   subscribeRealtime();
   CloudBackend.purge();
-  return refresh().then(()=>{ goHome(); }).catch(oops);
+  return CloudBackend.closeDue().then(refresh).then(()=>{ goHome(); }).catch(oops);
 }
 function signOut(){
   if(!confirm("Sign out of this phone?")) return;
@@ -1150,7 +1189,7 @@ if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.s
 function boot(){
   if(!CLOUD){
     Backend=LocalBackend;
-    refresh().then(()=>{ renderHome(); }).catch(oops);
+    LocalBackend.closeDue().then(refresh).then(()=>{ renderHome(); }).catch(oops);
     return;
   }
   const factory = window.__VF_TEST_SUPABASE_FACTORY
