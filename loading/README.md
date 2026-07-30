@@ -42,8 +42,10 @@ again.
 3. **Save** → a check-and-confirm screen → the tanker's fill goes up by that
    amount. Do this as many times as you like; it keeps adding.
 4. **When the tanker is full, tap “🚚 Sent for sale”** (a bold green button on a
-   full tanker; a quiet link on a partly-filled one). Confirm, and the tanker
-   empties back to `0` — ready for the next round.
+   full tanker; a quiet link on a partly-filled one). A box asks **whom it was
+   sold to / remarks** (optional); confirm, and the tanker empties back to `0` —
+   ready for the next round. The sold-to note is saved on the record and shown
+   in History and the Excel report.
 
 Every loading (`+ litres`) and every dispatch (`🚚 Sent for sale`) is kept in
 **History** and the export, so the full account of what went into each tanker and
@@ -58,17 +60,36 @@ when it was sent out is preserved.
 | **OR15R5510** | C1, C2, C3 | 3,985 L |
 | **OR15R9360** | C1, C2, C3, C4 | 4,485 L |
 
-To add/change a vehicle or capacity, edit the `VEHICLES` array near the top of
-the `<script>` in [`index.html`](./index.html) — nothing else needs changing.
+These are just the **seed defaults**. Tankers are now managed in-app (see below),
+so you add or remove vehicles without touching any code. In cloud mode the tanker
+list is shared across all employees.
+
+## Manage tankers & data (⚙)
+
+The **⚙ Manage tankers & data** link at the bottom of the home screen opens a
+small admin screen:
+
+- **Tankers** — lists every tanker with its chambers and full capacity, each with
+  a 🗑 to remove it (with a confirm; past records stay in History).
+- **Add a new tanker** — type the vehicle number, pick the number of **chambers**
+  (− / +) and the **litres per chamber**, then **Add tanker**. It appears
+  immediately as a new card on the home screen (and, in cloud mode, on every
+  employee's phone).
+- **Danger zone → Clear all records** — deletes **all** loading & sale records
+  (which also empties every tanker); the tankers themselves are kept. Requires
+  typing `CLEAR` to confirm. In cloud mode this clears the shared data for
+  everyone.
 
 ## Cloud setup (one time)
 
 1. Create a **new** Supabase project (free tier) — do **not** reuse the indent
    or tally project.
 2. In its **SQL Editor**, run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
-   (safe to re-run). It creates the `loading_events` table, the read policy that
-   only exposes the last 7 days, the write functions, realtime, and — if
-   `pg_cron` is available — an hourly purge.
+   (safe to re-run). It creates the `loading_events` and `loading_vehicles`
+   tables (seeded with the four tankers), the read policy that only exposes the
+   last 7 days of records, the write functions (add / delete / clear / add-vehicle
+   / remove-vehicle), realtime, and — if `pg_cron` is available — an hourly purge.
+   Re-run it after pulling updates; it is written to be safe to re-run.
 3. **Authentication → Users → Add user** for each employee: email
    `<username>@vriddhi.local` (e.g. `ramesh@vriddhi.local`), a 6+ char password,
    tick *Auto Confirm User*. Employees sign in with just the username + password.
@@ -119,7 +140,7 @@ if the device is offline. Sheets:
 | Sheet | What's in it |
 |---|---|
 | **Summary** | Report metadata + headline totals + current fill per tanker |
-| **Transactions** | The full statement — one row per event: *Date · Time · Vehicle · Type · C1–C4 · Total · **Tanker after** (running fill) · By*, with an auto-filter |
+| **Transactions** | The full statement — one row per event: *Date · Time · Vehicle · Type · C1–C4 · Total · **Tanker after** (running fill) · **Remarks / Sold to** · By*, with an auto-filter |
 | **By tanker** | Per-vehicle: capacity, loadings, litres loaded, tankers sold, litres sold, current fill, status |
 | **By day** | Per-day loadings / litres loaded / tankers sold / litres sold |
 

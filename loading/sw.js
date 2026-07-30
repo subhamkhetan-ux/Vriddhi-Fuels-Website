@@ -1,5 +1,5 @@
 /* Tanker Loading — service worker (app-shell cache, offline-first) */
-const CACHE = "vf-loading-v3";
+const CACHE = "vf-loading-v4";
 const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

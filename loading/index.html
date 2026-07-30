@@ -182,6 +182,34 @@
   .rpresets button.on{background:var(--amber);color:#fff}
   .rpresets button:active{transform:translateY(1px)}
 
+  /* Settings / manage */
+  .linkbtn{background:none;border:0;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer;text-decoration:underline;display:block;margin:16px auto 4px;padding:8px}
+  .card-add{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:16px}
+  .card-add .ca-h{font-weight:800;color:var(--navy);margin-bottom:10px}
+  .card-add input{width:100%;font-size:17px;padding:12px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600}
+  .card-add input:focus{outline:none;border-color:var(--amber)}
+  .ca-row{display:flex;gap:10px;margin:10px 0}
+  .ca-field{flex:1}
+  .ca-field label{font-size:12px;color:var(--muted);font-weight:700;display:block;margin-bottom:4px}
+  .stepper{display:flex;align-items:center;gap:0;border:2px solid var(--line);border-radius:12px;overflow:hidden}
+  .stepper button{flex:none;width:44px;height:46px;border:0;background:var(--navy2);color:#fff;font-size:24px;font-weight:800;cursor:pointer}
+  .stepper span{flex:1;text-align:center;font-size:20px;font-weight:900;color:var(--navy)}
+
+  /* Modal (sold-to at dispatch) */
+  .modal{position:fixed;inset:0;background:rgba(17,30,62,.55);display:none;align-items:center;justify-content:center;padding:22px;z-index:60}
+  .modal.on{display:flex}
+  .modalbox{width:100%;max-width:400px;background:var(--card);border-radius:18px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+  .modalbox .mh{font-size:18px;font-weight:900;color:var(--navy);text-align:center}
+  .modalbox .mp{text-align:center;color:var(--green-d);font-weight:800;font-size:20px;margin:2px 0 12px}
+  .modalbox .mlab{font-size:13px;color:var(--muted);font-weight:700;display:block;margin-bottom:6px}
+  .modalbox input{width:100%;font-size:18px;padding:13px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600}
+  .modalbox input:focus{outline:none;border-color:var(--amber)}
+  .mbtns{display:flex;gap:10px;margin-top:14px}
+  .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:800;cursor:pointer}
+  .mbtn.ghost{background:#e6eaf1;color:var(--navy)}
+  .mbtn.go{background:var(--green);color:#fff}
+  .mbtn:active{transform:translateY(1px)}
+
   .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
   .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
   .signrow b{color:var(--navy)}
@@ -241,6 +269,7 @@
       </button>
 
       <div class="note" id="storeNote"></div>
+      <button class="linkbtn" id="toSettings">⚙ Manage tankers &amp; data</button>
       <div class="signrow" id="signRow" style="display:none"></div>
     </section>
 
@@ -311,7 +340,46 @@
       <button class="big green" id="dlExcel" style="margin-top:8px"><span class="em">⬇</span><span>Download Excel report</span></button>
       <div class="note" id="repNote"></div>
     </section>
+
+    <!-- SETTINGS / MANAGE -->
+    <section class="screen" id="scSettings">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Manage tankers &amp; data</div>
+
+      <div class="sectitle">Tankers</div>
+      <div id="vehList"></div>
+
+      <div class="card-add">
+        <div class="ca-h">Add a new tanker</div>
+        <input id="newPlate" placeholder="Vehicle number (e.g. OD23A9999)" autocapitalize="characters" autocorrect="off" spellcheck="false" />
+        <div class="ca-row">
+          <div class="ca-field"><label>Chambers</label>
+            <div class="stepper"><button type="button" id="chLess">−</button><span id="chCount">3</span><button type="button" id="chMore">+</button></div>
+          </div>
+          <div class="ca-field"><label>Litres per chamber</label>
+            <input id="newCap" type="number" inputmode="numeric" value="3985" /></div>
+        </div>
+        <button class="big green" id="addVehBtn" style="font-size:17px;padding:14px;margin-bottom:0"><span class="em">＋</span><span>Add tanker</span></button>
+      </div>
+
+      <div class="sectitle" style="color:var(--red-d)">Danger zone</div>
+      <div class="note" style="text-align:left;margin:0 2px 10px">Clearing removes <b>all</b> loading &amp; sale records (this also empties every tanker). The tankers themselves are kept.</div>
+      <button class="big red" id="clearBtn"><span class="em">🗑</span><span>Clear all records</span></button>
+    </section>
   </main>
+</div>
+
+<!-- Dispatch modal: capture whom it was sold to -->
+<div class="modal" id="dispModal">
+  <div class="modalbox">
+    <div class="mh">Send for sale</div>
+    <div class="mp" id="dispTitle">—</div>
+    <label class="mlab">Sold to / remarks (optional)</label>
+    <input id="dispSold" placeholder="e.g. Ramesh Traders" autocomplete="off" />
+    <div class="mbtns">
+      <button class="mbtn ghost" id="dispCancel">Cancel</button>
+      <button class="mbtn go" id="dispOk">🚚 Confirm sale</button>
+    </div>
+  </div>
 </div>
 
 <!-- LOGIN (cloud mode only) -->
@@ -333,13 +401,18 @@
 (function(){
 "use strict";
 
-/* ---------- Vehicle configuration ---------- */
-const VEHICLES = [
+/* ---------- Vehicle configuration ----------
+   Tankers are editable data now (Manage screen), stored in localStorage
+   (local mode) or a shared table (cloud). These are the seed defaults. */
+const DEFAULT_VEHICLES = [
   { plate:"OD23A3710", caps:[3985,3985,3985],       color:"#1f6f8b" },
   { plate:"OR15R1110", caps:[3985,3985,3985],       color:"#2d7d46" },
   { plate:"OR15R5510", caps:[3985,3985,3985],       color:"#8a5a1e" },
   { plate:"OR15R9360", caps:[4485,4485,4485,4485],  color:"#6a3d8c" },
 ];
+const VCOLORS = ["#1f6f8b","#2d7d46","#8a5a1e","#6a3d8c","#b3402f","#2f6f6f","#5a4bd1","#946a00"];
+let VEHICLES = DEFAULT_VEHICLES.slice();
+function maxChambers(){ return VEHICLES.length?Math.max.apply(null,VEHICLES.map(v=>v.caps.length)):4; }
 
 /* ---------- Mode & config ----------
    With Supabase configured in config.js the app runs in CLOUD mode: every
@@ -369,25 +442,36 @@ function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("sh
 function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
 function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
 function localId(){ return Date.now()+"-"+Math.random().toString(36).slice(2,7); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 /* ---------- Data (in-memory cache of loading events) ----------
    Each event is either a 'load' (diesel added to chambers) or a 'dispatch'
    ('Sent for sale' — tanker emptied). A tanker's current fill = the sum of all
    'load' events since its most recent 'dispatch'. So fills accumulate across
    many small loadings and only reset when the full tanker is sent for sale. */
-let LOG = [];        // [{id, ts, plate, kind:'load'|'dispatch', chambers:[{name,qty}], total, by}]
+let LOG = [];        // [{id, ts, plate, kind:'load'|'dispatch', chambers:[{name,qty}], total, by, remark}]
 let ME = "";         // signed-in username (cloud mode)
 
 /* ---------- Backends ---------- */
 const LS_KEY = "vf_loading_log_v1";
+const VLS_KEY = "vf_loading_vehicles_v1";
 function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
 function lsSave(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
+function lsVehicles(){
+  try{ const v=JSON.parse(localStorage.getItem(VLS_KEY)); if(Array.isArray(v)) return v; }catch(e){}
+  localStorage.setItem(VLS_KEY, JSON.stringify(DEFAULT_VEHICLES)); return DEFAULT_VEHICLES.slice();
+}
+function lsVehiclesSave(list){ localStorage.setItem(VLS_KEY, JSON.stringify(list)); }
 
 const LocalBackend = {
   cloud:false,
   load(){ return Promise.resolve(lsLoad().sort((a,b)=>a.ts-b.ts)); },
+  loadVehicles(){ return Promise.resolve(lsVehicles()); },
   add(entry){ const l=lsLoad(); l.push(entry); lsSave(l); return Promise.resolve(); },
   remove(id){ lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve(); },
+  addVehicle(v){ const l=lsVehicles(); l.push(v); lsVehiclesSave(l); return Promise.resolve(); },
+  removeVehicle(plate){ lsVehiclesSave(lsVehicles().filter(v=>v.plate!==plate)); return Promise.resolve(); },
+  clearAll(){ lsSave([]); return Promise.resolve(); },
 };
 
 const CloudBackend = {
@@ -405,19 +489,32 @@ const CloudBackend = {
         chambers: Array.isArray(row.chambers) ? row.chambers : (row.chambers||[]),
         total: parseFloat(row.total),
         by: row.by_name || "",
+        remark: row.remark || "",
       }));
     });
   },
-  add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME, p_kind:entry.kind||"load" }); },
+  loadVehicles(){
+    return this.client.from("loading_vehicles").select("*").order("plate",{ascending:true}).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      return (r.data||[]).map(row=>({ plate:row.plate, caps:(Array.isArray(row.caps)?row.caps:(row.caps||[])).map(Number), color:row.color||"" }));
+    });
+  },
+  add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME, p_kind:entry.kind||"load", p_remark:entry.remark||"" }); },
   remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
+  addVehicle(v){ return this.rpc("loading_vehicle_add",{ p_plate:v.plate, p_caps:v.caps, p_color:v.color||"" }); },
+  removeVehicle(plate){ return this.rpc("loading_vehicle_remove",{ p_plate:plate }); },
+  clearAll(){ return this.rpc("loading_clear_all",{}); },
   purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
 };
 
 let Backend = LocalBackend;
-function refresh(){ return Backend.load().then(list=>{ LOG=list; }); }
+function applyVehicles(list){ VEHICLES = (list&&list.length)?list:(CLOUD?[]:DEFAULT_VEHICLES.slice()); }
+function refresh(){
+  return Promise.all([Backend.load(), Backend.loadVehicles()]).then(r=>{ LOG=r[0]; applyVehicles(r[1]); });
+}
 
 /* ---------- Screen routing ---------- */
-const SCREENS=["scHome","scAdd","scConf","scHist","scReport"];
+const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scSettings"];
 let stack=["scHome"];
 function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
@@ -430,6 +527,7 @@ function goBack(){
   if(stack[stack.length-1]==="scHome") renderHome();
   if(stack[stack.length-1]==="scHist") renderHist();
   if(stack[stack.length-1]==="scReport") renderReport();
+  if(stack[stack.length-1]==="scSettings") renderSettings();
 }
 $("#backBtn").onclick=goBack;
 function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
@@ -475,6 +573,7 @@ function renderHome(){
   else sr.style.display="none";
 }
 function renderTankers(){
+  if(!VEHICLES.length){ $("#tankerList").innerHTML='<div class="empty">No tankers yet.<br>Add one in ⚙ Manage tankers &amp; data.</div>'; return; }
   $("#tankerList").innerHTML = VEHICLES.map(v=>{
     const st=tankerState(v.plate);
     const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
@@ -497,8 +596,9 @@ function renderTankers(){
 function entryHTML(e){
   const who=(CLOUD&&e.by)?' · '+e.by:'';
   if((e.kind||"load")==="dispatch"){
+    const sold=e.remark?' — '+esc(e.remark):'';
     return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
-      +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
+      +'<div class="mid"><div class="ch dtag">🚚 Sent for sale'+sold+'</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
       +'<span class="tot">'+fmt(e.total)+' L</span></div>';
   }
   const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
@@ -507,15 +607,34 @@ function entryHTML(e){
     +'<span class="tot">+'+fmt(e.total)+' L</span></div>';
 }
 
-/* ---------- Dispatch (Sent for sale) — empties the tanker ---------- */
+/* ---------- Dispatch (Sent for sale) — empties the tanker, records sold-to ---------- */
+let pendingDispatch=null;
 function dispatchTanker(plate){
   const st=tankerState(plate);
   if(st.total<=0){ toast("Tanker is already empty"); return; }
-  if(!confirm("Send this tanker for sale?\n"+plate+" — "+fmt(st.total)+" L\nThis empties the tanker and starts a new fill.")) return;
-  const chambers=st.caps.map((c,i)=>({name:"C"+(i+1),qty:st.cham[i]})).filter(c=>c.qty>0);
-  const entry={ id:localId(), ts:Date.now(), plate:plate, kind:"dispatch", chambers:chambers, total:st.total, by:ME };
-  Backend.add(entry).then(refresh).then(()=>{ renderHome(); toast("🚚 "+plate+" sent for sale"); }).catch(oops);
+  pendingDispatch=plate;
+  $("#dispTitle").textContent=plate+" — "+fmt(st.total)+" L";
+  $("#dispSold").value="";
+  $("#dispModal").classList.add("on");
+  setTimeout(()=>$("#dispSold").focus(),60);
 }
+function closeDisp(){ $("#dispModal").classList.remove("on"); pendingDispatch=null; }
+$("#dispCancel").onclick=closeDisp;
+$("#dispModal").addEventListener("click",e=>{ if(e.target===$("#dispModal")) closeDisp(); });
+$("#dispOk").onclick=()=>{
+  const plate=pendingDispatch; if(!plate) return;
+  const st=tankerState(plate);
+  if(st.total<=0){ closeDisp(); return; }
+  const remark=$("#dispSold").value.trim();
+  const chambers=st.caps.map((c,i)=>({name:"C"+(i+1),qty:st.cham[i]})).filter(c=>c.qty>0);
+  const entry={ id:localId(), ts:Date.now(), plate:plate, kind:"dispatch", chambers:chambers, total:st.total, by:ME, remark:remark };
+  const btn=$("#dispOk"); btn.disabled=true;
+  Backend.add(entry).then(refresh).then(()=>{
+    btn.disabled=false; closeDisp(); renderHome();
+    toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:""));
+  }).catch(e=>{ btn.disabled=false; oops(e); });
+};
+$("#dispSold").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#dispOk").click(); });
 
 /* ---------- ADD DIESEL to a tanker's chambers ---------- */
 function startAdd(plate){
@@ -629,8 +748,9 @@ function renderHist(){
       + arr.map(e=>{
         const who=(CLOUD&&e.by)?' · '+e.by:'';
         if((e.kind||"load")==="dispatch"){
+          const sold=e.remark?' — '+esc(e.remark):'';
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
-            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
+            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale'+sold+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
             +'<span class="tot">'+fmt(e.total)+' L</span>'
             +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
         }
@@ -653,7 +773,6 @@ function renderHist(){
 }
 
 /* ---------- REPORTS ---------- */
-const MAXC=Math.max(...VEHICLES.map(v=>v.caps.length));
 function chIdx(name){ return (parseInt(String(name).replace(/\D/g,""),10)||0)-1; }
 function dayStartMs(iso){ const p=iso.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],0,0,0,0).getTime(); }
 function dayEndMs(iso){ const p=iso.split("-").map(Number); return new Date(p[0],p[1]-1,p[2],23,59,59,999).getTime(); }
@@ -727,9 +846,11 @@ $("#dlExcel").onclick=async()=>{
   // Transactions (detailed statement, one row per event, with running balance)
   const tx=evs.map(e=>{
     const row={ "Date":dayKey(e.ts), "Time":timeLabel(e.ts), "Vehicle":e.plate, "Type":isDisp(e)?"Sent for sale":"Load" };
-    for(let i=1;i<=MAXC;i++){ const c=(e.chambers||[]).find(x=>chIdx(x.name)===i-1); row["C"+i+" (L)"]=c?(+c.qty):""; }
+    const mc=maxChambers();
+    for(let i=1;i<=mc;i++){ const c=(e.chambers||[]).find(x=>chIdx(x.name)===i-1); row["C"+i+" (L)"]=c?(+c.qty):""; }
     row["Total (L)"]=e.total;
     row["Tanker after (L)"]=afterMap[e.id]!=null?afterMap[e.id]:"";
+    row["Remarks / Sold to"]=e.remark||"";
     row["By"]=e.by||"";
     return row;
   });
@@ -766,7 +887,7 @@ $("#dlExcel").onclick=async()=>{
     const wb=XLSX.utils.book_new();
     const wsS=XLSX.utils.aoa_to_sheet(summary); wsS["!cols"]=[{wch:30},{wch:28}]; XLSX.utils.book_append_sheet(wb,wsS,"Summary");
     const wsT=XLSX.utils.json_to_sheet(tx);
-    wsT["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:13}].concat(Array(MAXC).fill({wch:9})).concat([{wch:11},{wch:16},{wch:12}]);
+    wsT["!cols"]=[{wch:11},{wch:9},{wch:12},{wch:13}].concat(Array(maxChambers()).fill({wch:9})).concat([{wch:11},{wch:16},{wch:22},{wch:12}]);
     wsT["!autofilter"]={ref:wsT["!ref"]}; numfmt(XLSX,wsT,1);
     XLSX.utils.book_append_sheet(wb,wsT,"Transactions");
     const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:10},{wch:13},{wch:12},{wch:12},{wch:14},{wch:9}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
@@ -783,10 +904,55 @@ $("#dlExcel").onclick=async()=>{
   }
 };
 
+/* ---------- SETTINGS / MANAGE TANKERS ---------- */
+let addCount=3;
+function setCount(n){ addCount=Math.max(1,Math.min(12,n)); $("#chCount").textContent=addCount; }
+function renderSettings(){
+  const box=$("#vehList");
+  box.innerHTML = VEHICLES.length ? VEHICLES.map(v=>{
+    const cap=v.caps.reduce((s,c)=>s+c,0), st=tankerState(v.plate);
+    return '<div class="entry"><span class="plate">'+esc(v.plate)+'</span>'
+      +'<div class="mid"><div class="ch">'+v.caps.length+' chambers · '+v.caps.map(c=>fmt(c)).join(", ")+' L</div>'
+      +'<div class="tm">Full '+fmt(cap)+' L'+(st.total>0?' · now '+fmt(st.total)+' L in':'')+'</div></div>'
+      +'<button class="del" data-rmveh="'+esc(v.plate)+'" aria-label="Remove">🗑</button></div>';
+  }).join("") : '<div class="empty">No tankers yet. Add one below.</div>';
+  box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
+}
+function removeVehicleUI(plate){
+  const st=tankerState(plate);
+  let msg="Remove tanker "+plate+"?";
+  if(st.total>0) msg+="\nIt still has "+fmt(st.total)+" L loaded.";
+  msg+="\nPast records stay in history.";
+  if(!confirm(msg)) return;
+  Backend.removeVehicle(plate).then(refresh).then(()=>{ renderSettings(); toast("Removed "+plate); }).catch(oops);
+}
+$("#chLess").onclick=()=>setCount(addCount-1);
+$("#chMore").onclick=()=>setCount(addCount+1);
+$("#addVehBtn").onclick=()=>{
+  const plate=$("#newPlate").value.trim().toUpperCase().replace(/\s+/g,"");
+  const cap=parseInt($("#newCap").value,10);
+  if(!plate){ toast("Enter a vehicle number"); return; }
+  if(VEHICLES.some(v=>v.plate===plate)){ toast("That vehicle already exists"); return; }
+  if(!(cap>0)){ toast("Enter litres per chamber"); return; }
+  const caps=[]; for(let i=0;i<addCount;i++) caps.push(cap);
+  const btn=$("#addVehBtn"); btn.disabled=true;
+  Backend.addVehicle({ plate:plate, caps:caps, color:VCOLORS[VEHICLES.length%VCOLORS.length] })
+    .then(refresh).then(()=>{ btn.disabled=false; $("#newPlate").value=""; setCount(3); $("#newCap").value="3985"; renderSettings(); toast("Added "+plate); })
+    .catch(e=>{ btn.disabled=false; oops(e); });
+};
+$("#clearBtn").onclick=()=>{
+  if(!LOG.length){ toast("No records to clear"); return; }
+  const ans=prompt("This deletes ALL loading & sale records"+(CLOUD?" for everyone":"")+" and empties every tanker.\n\nType CLEAR to confirm.");
+  if(ans==null) return;
+  if(ans.trim().toUpperCase()!=="CLEAR"){ toast("Not cleared"); return; }
+  Backend.clearAll().then(refresh).then(()=>{ renderSettings(); toast("All records cleared"); }).catch(oops);
+};
+
 /* ---------- Nav buttons ---------- */
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 $("#toReport").onclick=openReport;
 $("#toReport2").onclick=openReport;
+$("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
 
 /* ---------- Realtime (cloud) ---------- */
 let realtimeOn=false;
@@ -797,9 +963,11 @@ function subscribeRealtime(){
   const poke=()=>{ clearTimeout(t); t=setTimeout(()=>{ refresh().then(()=>{
     const cur=stack[stack.length-1];
     if(cur==="scHome") renderHome(); else if(cur==="scHist") renderHist();
+    else if(cur==="scReport") renderReport(); else if(cur==="scSettings") renderSettings();
   }).catch(()=>{}); }, 350); };
   CloudBackend.client.channel("loading-live")
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_events"},poke)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_vehicles"},poke)
     .subscribe();
 }
 
