@@ -376,7 +376,7 @@
             <div class="stepper"><button type="button" id="chLess">−</button><span id="chCount">3</span><button type="button" id="chMore">+</button></div>
           </div>
           <div class="ca-field"><label>Litres per chamber</label>
-            <input id="newCap" type="number" inputmode="numeric" value="3985" /></div>
+            <input id="newCap" type="text" inputmode="decimal" value="3985" /></div>
         </div>
         <button class="big green" id="addVehBtn" style="font-size:17px;padding:14px;margin-bottom:0"><span class="em">＋</span><span>Add tanker</span></button>
       </div>
@@ -448,7 +448,15 @@ const RETAIN_DAYS = 7;
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
-const fmt = n=> (Math.round(n)).toLocaleString("en-IN");
+const fmt = n=> Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2});
+function r2(n){ return Math.round((Number(n)||0)*100)/100; }          // round to 2 dp
+function num(q){ return q===""||q==null?0:(parseFloat(q)||0); }        // parse a qty string
+function sanQty(s){                                                     // allow digits + up to 2 decimals
+  s=String(s).replace(/[^0-9.]/g,"");
+  const i=s.indexOf(".");
+  if(i!==-1){ s=s.slice(0,i+1)+s.slice(i+1).replace(/\./g,""); const p=s.split("."); s=p[0]+"."+p[1].slice(0,2); }
+  return s;
+}
 function pad(n){ return n<10?"0"+n:""+n; }
 function dayKey(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function dayLabel(ts){
@@ -567,8 +575,9 @@ function tankerState(plate){
     const e=evs[i]; if((e.kind||"load")==="dispatch") continue;
     (e.chambers||[]).forEach(c=>{ const idx=(parseInt(String(c.name).replace(/\D/g,""),10)||0)-1; if(idx>=0&&idx<cham.length) cham[idx]+=(+c.qty||0); });
   }
-  const total=cham.reduce((s,x)=>s+x,0);
-  const cap=v.caps.reduce((s,x)=>s+x,0);
+  cham.forEach((x,i)=>{ cham[i]=r2(x); });
+  const total=r2(cham.reduce((s,x)=>s+x,0));
+  const cap=r2(v.caps.reduce((s,x)=>s+x,0));
   const full=v.caps.every((c,i)=>cham[i]>=c);
   return { cham, total, cap, caps:v.caps, full };
 }
@@ -680,33 +689,33 @@ function renderChambers(){
       +'<span class="over-txt">⚠ Over full by <b data-over>0</b> L</span>'
       +'</div>'
       +'<div class="qtyrow">'
-      +'<input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Add litres" value="'+draft.add[i]+'" data-in="'+i+'" />'
+      +'<input type="text" inputmode="decimal" placeholder="Add litres" value="'+draft.add[i]+'" data-in="'+i+'" />'
       +'<button class="qbtn clr" data-clr="'+i+'">Clear</button>'
       +'</div></div>';
   }).join("");
   const cl=$("#chamList");
-  cl.querySelectorAll("input[data-in]").forEach(inp=>{ inp.oninput=()=>{ let val=inp.value.replace(/[^0-9]/g,""); inp.value=val; draft.add[+inp.dataset.in]=val; refreshChamState(); }; });
+  cl.querySelectorAll("input[data-in]").forEach(inp=>{ inp.oninput=()=>{ const val=sanQty(inp.value); inp.value=val; draft.add[+inp.dataset.in]=val; refreshChamState(); }; });
   cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.add[i]=""; renderChambers(); }; });
   refreshChamState();
 }
 function refreshChamState(){
   $("#chamList").querySelectorAll(".cham").forEach(el=>{
     const i=+el.dataset.i, cap=draft.caps[i], have=draft.existing[i];
-    const raw=draft.add[i], add=raw===""?0:+raw, newTot=have+add, over=newTot>cap;
+    const add=num(draft.add[i]), newTot=r2(have+add), over=newTot>cap;
     el.classList.toggle("full", newTot>=cap && !over);
     el.classList.toggle("over", over);
     const haveW=cap>0?Math.min(have/cap,1)*100:0;
     const addW=over?Math.max(100-haveW,0):(cap>0?add/cap*100:0);
     el.querySelector("[data-fhave]").style.width=haveW+"%";
     el.querySelector("[data-fadd]").style.width=addW+"%";
-    el.querySelector("[data-left]").textContent=fmt(Math.max(cap-newTot,0));
-    el.querySelector("[data-over]").textContent=fmt(Math.max(newTot-cap,0));
+    el.querySelector("[data-left]").textContent=fmt(Math.max(r2(cap-newTot),0));
+    el.querySelector("[data-over]").textContent=fmt(Math.max(r2(newTot-cap),0));
   });
   updateRun();
 }
-function addTotal(){ return draft.add.reduce((s,q)=> s+(q===""?0:+q),0); }
-function haveTotal(){ return draft.existing.reduce((s,q)=>s+q,0); }
-function capTotal(){ return draft.caps.reduce((s,c)=>s+c,0); }
+function addTotal(){ return r2(draft.add.reduce((s,q)=> s+num(q),0)); }
+function haveTotal(){ return r2(draft.existing.reduce((s,q)=>s+q,0)); }
+function capTotal(){ return r2(draft.caps.reduce((s,c)=>s+c,0)); }
 function updateRun(){
   const have=haveTotal(), add=addTotal(), cap=capTotal(), after=have+add, left=Math.max(cap-after,0);
   $("#sumLoaded").textContent=fmt(after);
@@ -729,13 +738,13 @@ $("#reviewBtn").onclick=()=>{
 function renderConfirm(){
   let rows="";
   draft.caps.forEach((cap,i)=>{
-    const q=draft.add[i];
-    if(q!==""&&+q>0){
-      const after=draft.existing[i]+ +q;
-      rows+='<div class="cline"><span>Chamber '+(i+1)+' <small style="color:var(--muted)">('+fmt(draft.existing[i])+' → '+fmt(after)+')</small></span><span class="cq">+'+fmt(+q)+' L</span></div>';
+    const q=num(draft.add[i]);
+    if(q>0){
+      const after=r2(draft.existing[i]+q);
+      rows+='<div class="cline"><span>Chamber '+(i+1)+' <small style="color:var(--muted)">('+fmt(draft.existing[i])+' → '+fmt(after)+')</small></span><span class="cq">+'+fmt(q)+' L</span></div>';
     }
   });
-  const after=haveTotal()+addTotal();
+  const after=r2(haveTotal()+addTotal());
   $("#confBox").innerHTML='<div class="cp">'+draft.plate+'</div>'
     +'<div class="ct">Adding now · '+timeLabel(Date.now())+(CLOUD&&ME?' · '+ME:'')+'</div>'
     +rows
@@ -745,7 +754,7 @@ function renderConfirm(){
 $("#editBtn").onclick=()=>{ show("scAdd",false); stack.pop(); $("#backBtn").style.display=stack.length>1?"":"none"; };
 $("#saveBtn").onclick=()=>{
   const chambers=[];
-  draft.caps.forEach((cap,i)=>{ const q=draft.add[i]; if(q!==""&&+q>0) chambers.push({name:"C"+(i+1),qty:+q}); });
+  draft.caps.forEach((cap,i)=>{ const q=num(draft.add[i]); if(q>0) chambers.push({name:"C"+(i+1),qty:r2(q)}); });
   if(!chambers.length){ toast("Nothing to save"); return; }
   const entry={ id:localId(), ts:Date.now(), plate:draft.plate, kind:"load", chambers:chambers, total:addTotal(), by:ME };
   const btn=$("#saveBtn"); btn.disabled=true;
@@ -882,7 +891,7 @@ function renderLog(){
 }
 
 function dl(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },600); }
-function numfmt(XLSX,ws,fromRow){ const rng=XLSX.utils.decode_range(ws["!ref"]); for(let R=(fromRow||0);R<=rng.e.r;R++){ for(let C=rng.s.c;C<=rng.e.c;C++){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(cell&&cell.t==="n") cell.z="#,##0"; } } }
+function numfmt(XLSX,ws,fromRow){ const rng=XLSX.utils.decode_range(ws["!ref"]); for(let R=(fromRow||0);R<=rng.e.r;R++){ for(let C=rng.s.c;C<=rng.e.c;C++){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(cell&&cell.t==="n") cell.z="#,##0.##"; } } }
 
 $("#dlExcel").onclick=async()=>{
   const evs=rangeEvents();
@@ -985,9 +994,10 @@ function removeVehicleUI(plate){
 }
 $("#chLess").onclick=()=>setCount(addCount-1);
 $("#chMore").onclick=()=>setCount(addCount+1);
+$("#newCap").addEventListener("input",()=>{ $("#newCap").value=sanQty($("#newCap").value); });
 $("#addVehBtn").onclick=()=>{
   const plate=$("#newPlate").value.trim().toUpperCase().replace(/\s+/g,"");
-  const cap=parseInt($("#newCap").value,10);
+  const cap=r2(num($("#newCap").value));
   if(!plate){ toast("Enter a vehicle number"); return; }
   if(VEHICLES.some(v=>v.plate===plate)){ toast("That vehicle already exists"); return; }
   if(!(cap>0)){ toast("Enter litres per chamber"); return; }

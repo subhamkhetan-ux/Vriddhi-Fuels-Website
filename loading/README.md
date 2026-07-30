@@ -172,7 +172,8 @@ sign in and sync.
 
 - In cloud mode, times use the **server's clock**; in single-device mode, the
   phone's clock.
-- Quantities accept whole litres only; if a chamber's already-in amount plus what
+- Quantities accept **decimals up to 2 places** (e.g. `600.75`) via a decimal
+  keypad; values are rounded to 2 dp. If a chamber's already-in amount plus what
   you're adding would exceed its capacity, the bar turns red with an “⚠ Over full”
   warning, but it still lets you save (in case of a genuine top-up).
 - The **🚚 Sent for sale** button appears once a tanker has any diesel in it —
