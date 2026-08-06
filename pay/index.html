@@ -52,6 +52,13 @@ header{position:sticky;top:0;z-index:30;
 .hrow{display:flex;align-items:center;gap:11px;max-width:940px;margin:0 auto}
 .brandmark{width:30px;height:30px;border-radius:8px;flex:none;object-fit:cover;box-shadow:0 1px 4px rgba(17,30,62,.18)}
 .htitle{font-weight:700;font-size:18px;letter-spacing:-.3px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status{font-size:12px;color:var(--txt-3);margin:8px auto 0;display:flex;align-items:center;gap:7px;max-width:940px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--txt-3);flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--txt-3) 18%,transparent)}
+.dot.ok{background:var(--neg);box-shadow:0 0 0 3px color-mix(in srgb,var(--neg) 20%,transparent)}
+.dot.err{background:var(--err);box-shadow:0 0 0 3px rgba(224,82,78,.2)}
+.dot.load{background:var(--orange);box-shadow:0 0 0 3px rgba(228,103,19,.2);animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
 .btn{background:var(--card);border:1px solid var(--line);color:var(--txt);
   padding:9px 14px;border-radius:11px;font-size:13.5px;font-weight:600;cursor:pointer;
   display:inline-flex;align-items:center;gap:6px;white-space:nowrap;box-shadow:var(--shadow);
@@ -62,18 +69,14 @@ header{position:sticky;top:0;z-index:30;
 .btn.accent{background:linear-gradient(180deg,var(--orange-soft),var(--orange));border-color:transparent;color:#fff;box-shadow:0 2px 8px rgba(228,103,19,.35)}
 .btn.ghost{background:transparent;box-shadow:none}
 .btn.sm{padding:6px 10px;font-size:12.5px;border-radius:9px}
-.status{font-size:12px;color:var(--txt-3);margin:8px auto 0;display:flex;align-items:center;gap:7px;max-width:940px}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--txt-3);flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--txt-3) 18%,transparent)}
-.dot.ok{background:var(--neg);box-shadow:0 0 0 3px color-mix(in srgb,var(--neg) 20%,transparent)}
-.dot.err{background:var(--err);box-shadow:0 0 0 3px rgba(224,82,78,.2)}
-.dot.load{background:var(--orange);box-shadow:0 0 0 3px rgba(228,103,19,.2);animation:pulse 1.1s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.btn.danger{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,transparent)}
 
 main{padding:16px 16px calc(var(--safe-bot) + 120px);max-width:940px;margin:0 auto}
 .section-label{font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt-3);
   margin:24px 4px 12px;display:flex;align-items:center;gap:8px}
 .section-label:first-child{margin-top:6px}
 .section-label::before{content:"";width:14px;height:2px;border-radius:2px;background:var(--orange);opacity:.7}
+.section-label .r{margin-left:auto;font-weight:600;letter-spacing:0;text-transform:none;color:var(--txt-3)}
 
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
 .card + .card{margin-top:12px}
@@ -92,6 +95,8 @@ textarea:focus,input:focus,select:focus{border-color:var(--orange);box-shadow:0 
 .tabs button{flex:1;background:transparent;border:none;color:var(--txt-2);font-weight:600;font-size:13.5px;
   padding:9px;border-radius:9px;cursor:pointer;transition:all .15s}
 .tabs button.on{background:var(--card);color:var(--txt);box-shadow:var(--shadow)}
+.custline{font-size:13.5px;color:var(--txt-2);font-weight:500;display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.custline b{color:var(--txt);font-weight:700}
 
 /* Stat tiles */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:11px}
@@ -100,7 +105,6 @@ textarea:focus,input:focus,select:focus{border-color:var(--orange);box-shadow:0 
 .stat .val{font-size:20px;font-weight:750;margin-top:5px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
 .stat.hero{background:linear-gradient(135deg,var(--navy-2),var(--navy));border-color:transparent}
 .stat.hero .lbl{color:rgba(255,255,255,.65)} .stat.hero .val{color:#fff}
-.stat .val .unit{font-size:12px;font-weight:600;color:var(--txt-3)}
 
 /* Table */
 .tablewrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:auto;-webkit-overflow-scrolling:touch;box-shadow:var(--shadow)}
@@ -111,34 +115,28 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 tr:last-child td{border-bottom:none}
 tbody tr.bad{background:color-mix(in srgb,var(--err) 8%,transparent)}
 tbody tr.warnrow{background:color-mix(in srgb,var(--warn) 9%,transparent)}
+tbody tr.lockrow{background:color-mix(in srgb,var(--txt-3) 8%,transparent);opacity:.85}
 td .cell-in{padding:7px 9px;font-size:13.5px;border-radius:8px;min-width:96px}
 td .cell-in.amt{text-align:right;min-width:96px}
 td select.cell-in{min-width:150px}
 .resname{font-weight:650}
 .rawnote{font-size:11px;color:var(--txt-3);margin-top:2px}
-.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
-.chip{font-size:11.5px;padding:4px 9px;border-radius:20px;background:var(--orange-tint);border:1px solid color-mix(in srgb,var(--orange) 25%,transparent);color:var(--orange);font-weight:600;cursor:pointer}
-.chip:hover{background:color-mix(in srgb,var(--orange) 18%,transparent)}
 .pill{font-size:10.5px;padding:3px 8px;border-radius:20px;font-weight:700;white-space:nowrap;display:inline-block}
 .pill.ok{background:color-mix(in srgb,var(--neg) 16%,transparent);color:var(--neg)}
 .pill.amb{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 .pill.no{background:color-mix(in srgb,var(--err) 15%,transparent);color:var(--err)}
-.pill.dup{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.pill.lock{background:var(--line-2);color:var(--txt-2)}
 .pill.mode{background:var(--line-2);color:var(--txt-2)}
 .flagline{font-size:11.5px;color:var(--warn);margin-top:4px;font-weight:600}
+.flagline.lock{color:var(--txt-2)}
 .xbtn{background:transparent;border:none;color:var(--txt-3);font-size:16px;cursor:pointer;padding:4px 6px;border-radius:8px;line-height:1}
 .xbtn:hover{background:var(--line-2);color:var(--err)}
 
 .subtitle{color:var(--txt-2);font-size:13.5px;margin:0 2px 12px;font-weight:500}
-.center{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:40px 20px;text-align:center;color:var(--txt-3)}
-.spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
 .hide{display:none!important}
-.empty{padding:34px 20px;text-align:center;color:var(--txt-3);font-size:14px}
 .banner{border-radius:var(--radius-sm);padding:12px 14px;font-size:13px;font-weight:500;margin-bottom:14px;display:flex;gap:9px;align-items:flex-start;line-height:1.5}
 .banner.warn{background:var(--warn-bg);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);color:var(--warn)}
 .banner.info{background:var(--card);border:1px solid var(--line);color:var(--txt-2);box-shadow:var(--shadow)}
-.banner.good{background:color-mix(in srgb,var(--neg) 10%,transparent);border:1px solid color-mix(in srgb,var(--neg) 30%,transparent);color:var(--neg)}
 .banner b{font-weight:700}
 
 /* Sticky export bar */
@@ -157,12 +155,25 @@ td select.cell-in{min-width:150px}
   <div class="hrow">
     <img class="brandmark" src="icon.png" alt="Vriddhi Fuels">
     <div class="htitle">Payment Entry</div>
-    <button class="btn accent sm" id="refreshBtn" onclick="loadNames(true)" title="Refresh customer list">↻ Names</button>
   </div>
-  <div class="status"><span class="dot load" id="statusDot"></span><span id="statusText">Loading customer list…</span></div>
+  <div class="status"><span class="dot load" id="statusDot"></span><span id="statusText">Starting…</span></div>
 </header>
 
 <main id="main">
+  <!-- CUSTOMER LIST SOURCE -->
+  <div class="section-label">Customer list</div>
+  <div class="card">
+    <div class="custline"><span id="custLine">No customer list loaded yet.</span></div>
+    <div class="rowbtns">
+      <button class="btn accent" onclick="pickMaster()">⬆ Upload Tally Master.xml</button>
+      <button class="btn ghost sm" id="feedBtn" onclick="loadNames(true)">↻ Refresh from ledger feed</button>
+    </div>
+    <input type="file" id="masterFile" accept=".xml,text/xml,application/xml" style="display:none">
+    <div class="hint">Export <b>Masters (Ledgers)</b> from Tally as XML and upload it here — the app reads every ledger
+      under <b>Sundry Debtors</b> as your customer list (same as the Tally app). Re-upload anytime to add new customers;
+      the list is stored on this device and works offline.</div>
+  </div>
+
   <!-- INPUT -->
   <div class="section-label">New payments</div>
   <div class="card">
@@ -199,6 +210,9 @@ td select.cell-in{min-width:150px}
 
   <!-- REVIEW + ANALYSIS -->
   <div id="reviewSection"></div>
+
+  <!-- OLD (already-entered) ENTRIES -->
+  <div id="oldSection"></div>
 </main>
 
 <!-- Sticky export bar -->
@@ -216,19 +230,24 @@ td select.cell-in{min-width:150px}
 /* ============================================================
    Vriddhi Fuels — Payment Entry
    Parses "pay ..." lines / form entries, resolves partial customer
-   names against the live Master Paid customer list, and exports a
-   clean .xlsx ready to append to the Master Paid sheet (Option A).
+   names against the Tally Masters customer list (uploaded Master.xml),
+   and exports a clean .xlsx ready to append to Master Paid (Option A).
+
+   Exported entries move into a persistent "Old entries" store; an entry
+   already present there can never be exported again (no duplicates).
    ============================================================ */
 const CFG = (window.VRIDDHI_PAY_CONFIG || {});
-const NAMES_CACHE_KEY = "vriddhi_pay_names";
-const SEEN_KEY = "vriddhi_pay_seen";
+const MASTER_KEY = "vriddhi_pay_master";    // {names:[], ts, count}  — from uploaded Master.xml
+const FEED_KEY   = "vriddhi_pay_feed";      // {names:[], hist:[], ts} — optional ledger-feed cache (history)
+const ENTERED_KEY = "vriddhi_pay_entered";  // { key: {serial,dateStr,customer,amount,mode,ts} }
 
 let NAMES = [];            // canonical display names, sorted
 let NORMED = [];           // [ [name, norm], ... ]
-let HIST = new Map();      // norm -> {count,total,amts:[]}  (historical amounts per customer)
-let namesSource = "none";  // 'live' | 'cache' | 'none'
+let HIST = new Map();      // norm -> {count,total,amts:[]}  (historical amounts, feed-only, best-effort)
+let nameSource = "none";   // 'master' | 'feed' | 'feed-cache' | 'none'
+let masterMeta = null;     // {ts, count}
 
-let ROWS = [];             // batch of entries
+let ROWS = [];             // batch of entries under review
 let rowSeq = 1;
 
 /* ---------------- Parser (ported from the reference Python) ---------------- */
@@ -303,96 +322,93 @@ function modeClass(mode){
   return "Other";
 }
 
-/* ---------------- Feed: build the canonical customer list ---------------- */
-function buildFromFeed(j){
-  const sheets = (j && j.sheets) || {};
-  const nameMap = new Map();   // norm -> display (first seen wins)
-  const hist = new Map();
-  const add = (name) => {
-    const nm = String(name == null ? "" : name).trim();
-    if(!nm) return;
-    const k = _norm(nm);
-    if(k && !nameMap.has(k)) nameMap.set(k, nm);
+/* ============================================================
+   Tally Master.xml parsing (same approach as the Tally app):
+   scan LEDGER/GROUP blocks, keep ledgers under "Sundry Debtors".
+   ============================================================ */
+function decodeEnt(s){
+  return String(s)
+    .replace(/&#(\d+);/g, (m, d) => { const n = parseInt(d, 10); return (n === 9 || n === 10 || n === 13 || n >= 32) ? String.fromCodePoint(n) : ""; })
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, h) => { const n = parseInt(h, 16); return (n === 9 || n === 10 || n === 13 || n >= 32) ? String.fromCodePoint(n) : ""; })
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+function xmlTag(block, tag){
+  const m = block.match(new RegExp("<" + tag + "(?:\\s[^>]*)?>([\\s\\S]*?)</" + tag + ">"));
+  return m ? decodeEnt(m[1].trim()) : "";
+}
+function xmlAttr(openTag, name){
+  const m = openTag.match(new RegExp('\\s' + name + '="([^"]*)"'));
+  return m ? decodeEnt(m[1]) : "";
+}
+// Return the customer ledger names under the Sundry Debtors group (incl. subgroups).
+function parseMasterNames(text){
+  const groups = {}, ledgers = [];
+  const re = /<(GROUP|LEDGER)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+  let m;
+  while((m = re.exec(text))){
+    const kind = m[1], open = m[2] || "", body = m[3];
+    const name = xmlAttr(open, "NAME") || xmlTag(body, "NAME");
+    if(!name) continue;
+    const parent = xmlTag(body, "PARENT");
+    if(kind === "GROUP"){ groups[name] = parent; continue; }
+    ledgers.push({name, parent});
+  }
+  const underSundryDebtors = (g) => {
+    const seen = {};
+    while(g && !seen[g]){
+      if(g === "Sundry Debtors") return true;
+      seen[g] = 1; g = groups[g] || "";
+    }
+    return false;
   };
-  const mp = sheets["Master Paid"];
-  if(mp && mp.values){
-    const v = mp.values;
-    for(let i = 0; i < v.length; i++){
-      const row = v[i] || [];
-      if(row[5] != null && row[5] !== "") add(row[5]);          // column F: canonical list
-      if(i >= 1){                                                // rows: B=customer, C=amount
-        const cust = row[1], amt = row[2];
-        if(cust != null && cust !== ""){
-          add(cust);
-          if(typeof amt === "number" && !isNaN(amt)){
-            const k = _norm(cust);
-            const h = hist.get(k) || {count:0, total:0, amts:[]};
-            h.count++; h.total += amt; h.amts.push(amt); hist.set(k, h);
-          }
-        }
-      }
-    }
-  }
-  const out = sheets["Outstanding"];       // customer ledgers — every account name
-  if(out && out.values){
-    for(const row of out.values){
-      const name = row[1], sheet = row[2];
-      if(name && sheet && sheet !== "Ledger") add(name);
-    }
-  }
-  const names = [...nameMap.values()].sort((a, b) => (_norm(a) < _norm(b) ? -1 : 1));
-  return {names, hist: [...hist.entries()], ts: Date.now()};
+  const names = ledgers.filter(l => underSundryDebtors(l.parent)).map(l => l.name)
+    .sort((a, b) => a.localeCompare(b));
+  return {names, ledgerCount: ledgers.length, groupCount: Object.keys(groups).length};
+}
+function decodeXmlBytes(buf){
+  const b = new Uint8Array(buf);
+  if(b.length >= 2 && b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder("utf-16le").decode(b.subarray(2));
+  if(b.length >= 2 && b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder("utf-16be").decode(b.subarray(2));
+  return new TextDecoder("utf-8").decode(b);
 }
 
-function applyBuilt(built, source){
-  NAMES = built.names || [];
+/* ---------------- Customer-name sources ---------------- */
+function setNames(names, source, meta){
+  NAMES = names || [];
   NORMED = NAMES.map(n => [n, _norm(n)]);
-  HIST = new Map(built.hist || []);
-  namesSource = source;
-  // populate the <datalist> for the form autocomplete
-  document.getElementById("allnames").innerHTML =
-    NAMES.map(n => `<option value="${escAttr(n)}">`).join("");
-  // re-resolve any rows already in the batch (list may have just arrived)
+  nameSource = source;
+  if(source === "master") masterMeta = meta || masterMeta;
+  document.getElementById("allnames").innerHTML = NAMES.map(n => `<option value="${escAttr(n)}">`).join("");
   for(const r of ROWS) resolveRow(r);
-  recomputeAndRender();
+  updateStatus();
 }
+function setHist(entries){ HIST = new Map(entries || []); }
 
-function readCache(){
-  try{ const s = localStorage.getItem(NAMES_CACHE_KEY); return s ? JSON.parse(s) : null; }
-  catch(_){ return null; }
-}
-function writeCache(built){ try{ localStorage.setItem(NAMES_CACHE_KEY, JSON.stringify(built)); }catch(_){} }
+function readMaster(){ try{ const s = localStorage.getItem(MASTER_KEY); return s ? JSON.parse(s) : null; }catch(_){ return null; } }
+function readFeed(){ try{ const s = localStorage.getItem(FEED_KEY); return s ? JSON.parse(s) : null; }catch(_){ return null; } }
+function writeFeed(o){ try{ localStorage.setItem(FEED_KEY, JSON.stringify(o)); }catch(_){} }
 
-async function loadNames(force){
-  setStatus("load", "Loading customer list…");
-  const cached = readCache();
-  if(cached && cached.names && cached.names.length && namesSource !== "live"){
-    applyBuilt(cached, "cache");
-    setStatus("load", `Using ${cached.names.length} cached names — refreshing…`);
+function updateStatus(){
+  let cls = "ok", txt = "";
+  if(nameSource === "master"){
+    const when = masterMeta && masterMeta.ts ? new Date(masterMeta.ts).toLocaleDateString("en-GB") : "";
+    txt = `${NAMES.length} customers · from Master.xml${when ? " (" + when + ")" : ""}`;
+  }else if(nameSource === "feed"){
+    txt = `${NAMES.length} customers · from ledger feed`;
+  }else if(nameSource === "feed-cache"){
+    txt = `${NAMES.length} cached customers · upload Master.xml to update`;
+  }else{
+    cls = "err"; txt = "No customer list — upload Tally Master.xml";
   }
-  if(!CFG.DATA_URL){
-    setStatus("err", "No DATA_URL configured (see config.js)");
-    return;
-  }
-  try{
-    const res = await fetch(CFG.DATA_URL + (force ? ("?_t=" + Date.now()) : ""), {cache:"no-store"});
-    if(!res.ok) throw new Error("HTTP " + res.status);
-    const j = await res.json();
-    if(j.error) throw new Error(j.error);
-    const built = buildFromFeed(j);
-    if(!built.names.length) throw new Error("no customer names in feed");
-    writeCache(built);
-    applyBuilt(built, "live");
-    const t = j.updated ? new Date(j.updated).toLocaleString("en-GB") : new Date().toLocaleTimeString();
-    setStatus("ok", `${built.names.length} customers · updated ${t}`);
-  }catch(e){
-    if(namesSource === "cache"){
-      setStatus("err", `Offline — using ${NAMES.length} cached names (${e.message})`);
-    }else{
-      namesSource = "none";
-      setStatus("err", `Couldn't load customer list: ${e.message}`);
-      recomputeAndRender();
-    }
+  setStatus(cls, txt);
+  const cl = document.getElementById("custLine");
+  if(nameSource === "master"){
+    const when = masterMeta && masterMeta.ts ? new Date(masterMeta.ts).toLocaleString("en-GB") : "";
+    cl.innerHTML = `<b>${NAMES.length}</b>&nbsp;customers loaded from Master.xml${when ? ` &middot; uploaded ${escHtml(when)}` : ""}.`;
+  }else if(nameSource === "feed" || nameSource === "feed-cache"){
+    cl.innerHTML = `<b>${NAMES.length}</b>&nbsp;customers from the ledger feed. Upload a Tally Master.xml to make it authoritative.`;
+  }else{
+    cl.innerHTML = `No customer list yet — <b>upload a Tally Master.xml</b> to load your customers.`;
   }
 }
 function setStatus(cls, txt){
@@ -400,23 +416,103 @@ function setStatus(cls, txt){
   document.getElementById("statusText").textContent = txt;
 }
 
+/* Upload + parse Master.xml */
+function pickMaster(){ document.getElementById("masterFile").click(); }
+document.getElementById("masterFile").addEventListener("change", function(){
+  const f = this.files && this.files[0];
+  this.value = "";
+  if(!f) return;
+  setStatus("load", "Reading " + f.name + "…");
+  const reader = new FileReader();
+  reader.onload = () => {
+    setTimeout(() => {
+      try{
+        const text = decodeXmlBytes(reader.result);
+        if(!/<LEDGER[\s>]/.test(text)) throw new Error("No <LEDGER> elements found — export a Masters (Ledgers) XML from Tally.");
+        const parsed = parseMasterNames(text);
+        if(!parsed.names.length) throw new Error("No ledgers under the Sundry Debtors group were found in this file.");
+        const meta = {ts: Date.now(), count: parsed.names.length};
+        try{ localStorage.setItem(MASTER_KEY, JSON.stringify({names: parsed.names, ts: meta.ts, count: meta.count})); }catch(_){}
+        setNames(parsed.names, "master", meta);
+        recomputeAndRender();
+        alert(`Customer list loaded ✓\n\nSundry Debtors: ${parsed.names.length}\n(from ${parsed.ledgerCount} ledgers / ${parsed.groupCount} groups)\n\nThese names are now used to resolve every payment. Re-upload anytime to add new customers.`);
+      }catch(e){
+        alert("Could not read this file.\n\n" + e.message);
+        updateStatus();
+      }
+    }, 40);
+  };
+  reader.onerror = () => { alert("Could not read the file."); updateStatus(); };
+  reader.readAsArrayBuffer(f);
+});
+
+/* Optional: pull historical amounts (and fallback names) from the ledger feed. Best-effort. */
+async function loadNames(force){
+  // Master.xml is authoritative; feed only supplies history (+ fallback names before any upload).
+  const feedBtn = document.getElementById("feedBtn");
+  if(feedBtn){ feedBtn.disabled = true; feedBtn.textContent = "↻ Refreshing…"; }
+  if(!CFG.DATA_URL){
+    if(feedBtn){ feedBtn.disabled = false; feedBtn.textContent = "↻ Refresh from ledger feed"; }
+    updateStatus(); return;
+  }
+  try{
+    const res = await fetch(CFG.DATA_URL + (force ? ("?_t=" + Date.now()) : ""), {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const j = await res.json();
+    if(j.error) throw new Error(j.error);
+    const built = buildFromFeed(j);
+    writeFeed(built);
+    setHist(built.hist);
+    if(nameSource !== "master" && built.names.length){ setNames(built.names, "feed"); }
+    recomputeAndRender();
+  }catch(e){
+    // keep whatever we have; not fatal — Master.xml is the real source
+  }finally{
+    if(feedBtn){ feedBtn.disabled = false; feedBtn.textContent = "↻ Refresh from ledger feed"; }
+  }
+}
+function buildFromFeed(j){
+  const sheets = (j && j.sheets) || {};
+  const nameMap = new Map(), hist = new Map();
+  const add = (name) => { const nm = String(name == null ? "" : name).trim(); if(!nm) return; const k = _norm(nm); if(k && !nameMap.has(k)) nameMap.set(k, nm); };
+  const mp = sheets["Master Paid"];
+  if(mp && mp.values){
+    const v = mp.values;
+    for(let i = 0; i < v.length; i++){
+      const row = v[i] || [];
+      if(row[5] != null && row[5] !== "") add(row[5]);
+      if(i >= 1){
+        const cust = row[1], amt = row[2];
+        if(cust != null && cust !== ""){
+          add(cust);
+          if(typeof amt === "number" && !isNaN(amt)){
+            const k = _norm(cust); const h = hist.get(k) || {count:0, total:0, amts:[]};
+            h.count++; h.total += amt; h.amts.push(amt); hist.set(k, h);
+          }
+        }
+      }
+    }
+  }
+  const out = sheets["Outstanding"];
+  if(out && out.values){ for(const row of out.values){ const name = row[1], sheet = row[2]; if(name && sheet && sheet !== "Ledger") add(name); } }
+  const names = [...nameMap.values()].sort((a, b) => (_norm(a) < _norm(b) ? -1 : 1));
+  return {names, hist: [...hist.entries()], ts: Date.now()};
+}
+
 /* ---------------- Row model ---------------- */
 function makeRow(parsed, raw){
   const r = {id: rowSeq++, raw: raw || "", rawName: parsed.name, amount: parsed.amount,
     amountNum: null, dateStr: parsed.dateStr, serial: null, dateValid: false,
     mode: parsed.mode || "", resolved: null, candidates: [], status: "nomatch",
-    autoResolved: false, flags: {dupBatch:false, dupSeen:false, outlier:false}};
+    autoResolved: false, block: null, flags: {outlier:false}};
   resolveRow(r);
   return r;
 }
 function resolveRow(r){
-  // date
   const sd = toSerial(r.dateStr);
   r.serial = sd.serial; r.dateValid = sd.valid;
-  // amount
   const a = parseFloat(String(r.amount).replace(/,/g, ""));
   r.amountNum = (isNaN(a) ? null : a);
-  // name
   if(!NAMES.length){ r.resolved = null; r.candidates = []; r.status = "pending"; return; }
   const mm = matchName(r.rawName);
   if(mm.exact){
@@ -429,8 +525,6 @@ function resolveRow(r){
     r.resolved = null; r.candidates = mm.list; r.status = "nomatch";
   }
 }
-
-/* Historical-typical outlier check */
 function isOutlier(normName, amountNum){
   const h = HIST.get(normName);
   if(!h || h.amts.length < 3 || !(amountNum > 0)) return false;
@@ -440,25 +534,31 @@ function isOutlier(normName, amountNum){
   return amountNum > med * 6 || amountNum < med / 6;
 }
 
-function readSeen(){ try{ return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); }catch(_){ return {}; } }
+/* ---------------- Old (already-entered) entries store ---------------- */
+function readEntered(){ try{ return JSON.parse(localStorage.getItem(ENTERED_KEY) || "{}"); }catch(_){ return {}; } }
+function writeEntered(o){ try{ localStorage.setItem(ENTERED_KEY, JSON.stringify(o)); }catch(_){} }
+// Identity of a payment: date + customer + amount. Mode is not part of it.
 function rowKey(r){ return `${r.serial}|${r.resolved ? _norm(r.resolved) : ""}|${r.amountNum}`; }
+function enteredKey(e){ return `${e.serial}|${_norm(e.customer)}|${e.amount}`; }
 
-/* Recompute cross-row flags (duplicates within batch + against exported history) */
+/* Recompute per-row blocking + outlier flags.
+   Hard rules (so duplicates can NEVER be exported):
+   - a row matching an already-entered payment  -> block = 'entered'
+   - a second row with the same key in this batch -> block = 'dupbatch' */
 function recomputeFlags(){
-  const seen = readSeen();
-  const batchKeys = {};
+  const entered = readEntered();
+  const seenInBatch = {};
   for(const r of ROWS){
-    r.flags.dupBatch = false; r.flags.dupSeen = false; r.flags.outlier = false;
+    r.block = null; r.flags.outlier = false;
     if(r.status !== "ok" || !r.dateValid || !(r.amountNum > 0)) continue;
     const k = rowKey(r);
-    batchKeys[k] = (batchKeys[k] || 0) + 1;
-    if(seen[k]) r.flags.dupSeen = true;
+    if(entered[k]){ r.block = "entered"; continue; }
+    if(seenInBatch[k]){ r.block = "dupbatch"; continue; }
+    seenInBatch[k] = true;
     if(isOutlier(_norm(r.resolved), r.amountNum)) r.flags.outlier = true;
   }
-  for(const r of ROWS){
-    if(r.status === "ok" && r.dateValid && r.amountNum > 0 && batchKeys[rowKey(r)] > 1) r.flags.dupBatch = true;
-  }
 }
+function exportableRows(){ return ROWS.filter(r => r.status === "ok" && r.dateValid && r.amountNum > 0 && !r.block); }
 
 /* ---------------- Input handlers ---------------- */
 function switchTab(which){
@@ -475,7 +575,7 @@ function fillSample(){
 function parseTextarea(){
   const box = document.getElementById("bulk");
   const lines = box.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  let added = 0, errs = [];
+  let added = 0; const errs = [];
   for(const line of lines){
     const p = parsePay(line);
     if(p.err){ errs.push(`“${line}” — ${p.err}`); continue; }
@@ -487,7 +587,7 @@ function parseTextarea(){
   recomputeAndRender();
 }
 function addFormRow(){
-  const dv = document.getElementById("fDate").value;   // yyyy-mm-dd
+  const dv = document.getElementById("fDate").value;
   const name = document.getElementById("fName").value.trim();
   const amount = document.getElementById("fAmount").value.trim();
   const mode = document.getElementById("fMode").value.trim();
@@ -500,99 +600,66 @@ function addFormRow(){
   document.getElementById("fMode").value = "";
   recomputeAndRender();
 }
-
-/* Row edits from the review table */
-function pickCand(id, name){
-  const r = ROWS.find(x => x.id === id); if(!r) return;
-  if(!name) return;
-  r.resolved = name; r.status = "ok"; r.autoResolved = true;
-  recomputeAndRender();
-}
+function pickCand(id, name){ const r = ROWS.find(x => x.id === id); if(!r || !name) return; r.resolved = name; r.status = "ok"; r.autoResolved = true; recomputeAndRender(); }
 function overrideName(id, value){
   const r = ROWS.find(x => x.id === id); if(!r) return;
   const v = value.trim();
   if(!v){ r.rawName = ""; resolveRow(r); recomputeAndRender(); return; }
-  // exact canonical name typed via the datalist?
   const exact = NAMES.find(n => _norm(n) === _norm(v));
-  if(exact){ r.resolved = exact; r.status = "ok"; r.autoResolved = true; }
-  else { r.rawName = v; resolveRow(r); }
+  if(exact){ r.resolved = exact; r.status = "ok"; r.autoResolved = true; } else { r.rawName = v; resolveRow(r); }
   recomputeAndRender();
 }
-function setAmount(id, value){
-  const r = ROWS.find(x => x.id === id); if(!r) return;
-  r.amount = value;
-  const a = parseFloat(String(value).replace(/,/g, ""));
-  r.amountNum = isNaN(a) ? null : a;
-  recomputeAndRender();
-}
+function setAmount(id, value){ const r = ROWS.find(x => x.id === id); if(!r) return; r.amount = value; const a = parseFloat(String(value).replace(/,/g, "")); r.amountNum = isNaN(a) ? null : a; recomputeAndRender(); }
 function setMode(id, value){ const r = ROWS.find(x => x.id === id); if(r){ r.mode = value; recomputeAndRender(); } }
-function setDate(id, value){
-  const r = ROWS.find(x => x.id === id); if(!r) return;
-  r.dateStr = value; const sd = toSerial(value); r.serial = sd.serial; r.dateValid = sd.valid;
-  recomputeAndRender();
-}
+function setDate(id, value){ const r = ROWS.find(x => x.id === id); if(!r) return; r.dateStr = value; const sd = toSerial(value); r.serial = sd.serial; r.dateValid = sd.valid; recomputeAndRender(); }
 function delRow(id){ ROWS = ROWS.filter(x => x.id !== id); recomputeAndRender(); }
 function clearBatch(){ if(ROWS.length && confirm("Clear all " + ROWS.length + " row(s) from review?")){ ROWS = []; recomputeAndRender(); } }
 
 /* ---------------- Rendering ---------------- */
-function money(n){
-  if(n == null || isNaN(n)) return "";
-  return Math.abs(n).toLocaleString("en-IN", {maximumFractionDigits:2}) ;
-}
+function money(n){ if(n == null || isNaN(n)) return ""; return Math.abs(n).toLocaleString("en-IN", {maximumFractionDigits:2}); }
 function escHtml(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function escAttr(s){ return escHtml(s).replace(/'/g, "&#39;"); }
 
-function exportableRows(){ return ROWS.filter(r => r.status === "ok" && r.dateValid && r.amountNum > 0); }
-
-function recomputeAndRender(){
-  recomputeFlags();
-  renderReview();
-  renderExportBar();
-}
+function recomputeAndRender(){ recomputeFlags(); renderReview(); renderOld(); renderExportBar(); }
 
 function renderReview(){
   const host = document.getElementById("reviewSection");
   if(!ROWS.length){ host.innerHTML = ""; return; }
-
   let html = "";
 
-  // Warnings banner (top of review)
-  const probs = ROWS.filter(r => r.status !== "ok" || !r.dateValid || !(r.amountNum > 0)).length;
-  const dups  = ROWS.filter(r => r.flags.dupBatch || r.flags.dupSeen).length;
-  const outs  = ROWS.filter(r => r.flags.outlier).length;
-  if(namesSource === "none"){
-    html += `<div class="banner warn">⚠️ <span><b>Customer list unavailable.</b> Names can't be resolved right now — connect once to load them, or type exact names. You can still edit and export, but double-check spellings.</span></div>`;
+  if(nameSource === "none"){
+    html += `<div class="banner warn">⚠️ <span><b>No customer list.</b> Upload a Tally Master.xml above so names can be resolved. You can still edit rows, but nothing exports until names resolve.</span></div>`;
   }
+  const probs = ROWS.filter(r => r.status !== "ok" || !r.dateValid || !(r.amountNum > 0)).length;
+  const blocked = ROWS.filter(r => r.block).length;
+  const outs = ROWS.filter(r => r.flags.outlier).length;
   const notes = [];
   if(probs) notes.push(`${probs} row(s) need attention`);
-  if(dups)  notes.push(`${dups} possible duplicate(s)`);
-  if(outs)  notes.push(`${outs} unusual amount(s)`);
-  if(notes.length) html += `<div class="banner warn">⚠️ <span>${notes.join(" · ")}. Fix the flagged rows below before exporting.</span></div>`;
+  if(blocked) notes.push(`${blocked} blocked as duplicate/already-entered`);
+  if(outs) notes.push(`${outs} unusual amount(s)`);
+  if(notes.length) html += `<div class="banner warn">⚠️ <span>${notes.join(" · ")}.</span></div>`;
 
-  // Review table
-  html += `<div class="section-label">Review — ${ROWS.length} entr${ROWS.length===1?"y":"ies"}</div>`;
+  html += `<div class="section-label">Review<span class="r">${ROWS.length} entr${ROWS.length===1?"y":"ies"}</span></div>`;
   html += `<div class="tablewrap"><table><thead><tr>
     <th>Status</th><th>Date</th><th>Customer</th><th class="num">Amount ₹</th><th>Mode</th><th></th></tr></thead><tbody>`;
   for(const r of ROWS){
-    const bad = (r.status === "nomatch" || r.status === "ambiguous" || !r.dateValid || !(r.amountNum > 0));
-    const warn = !bad && (r.flags.dupBatch || r.flags.dupSeen || r.flags.outlier);
-    html += `<tr class="${bad?"bad":(warn?"warnrow":"")}">`;
+    const isProblem = (r.status === "nomatch" || r.status === "ambiguous" || !r.dateValid || !(r.amountNum > 0));
+    const rowCls = r.block ? "lockrow" : (isProblem ? "bad" : (r.flags.outlier ? "warnrow" : ""));
+    html += `<tr class="${rowCls}">`;
 
-    // status pill
     let pill;
-    if(!r.dateValid) pill = `<span class="pill no">bad date</span>`;
+    if(r.block === "entered") pill = `<span class="pill lock">🔒 already entered</span>`;
+    else if(r.block === "dupbatch") pill = `<span class="pill lock">🔒 duplicate</span>`;
+    else if(!r.dateValid) pill = `<span class="pill no">bad date</span>`;
     else if(!(r.amountNum > 0)) pill = `<span class="pill no">bad amount</span>`;
     else if(r.status === "ok") pill = `<span class="pill ok">ready</span>`;
     else if(r.status === "ambiguous") pill = `<span class="pill amb">pick one</span>`;
-    else if(r.status === "pending") pill = `<span class="pill amb">loading…</span>`;
+    else if(r.status === "pending") pill = `<span class="pill amb">need names</span>`;
     else pill = `<span class="pill no">no match</span>`;
     html += `<td>${pill}</td>`;
 
-    // date (editable)
-    html += `<td><input class="cell-in mono" style="min-width:92px" value="${escAttr(r.dateStr)}"
-      onchange="setDate(${r.id}, this.value)"> ${r.dateValid?`<div class="rawnote">#${r.serial}</div>`:``}</td>`;
+    html += `<td><input class="cell-in mono" style="min-width:92px" value="${escAttr(r.dateStr)}" onchange="setDate(${r.id}, this.value)">${r.dateValid?`<div class="rawnote">#${r.serial}</div>`:``}</td>`;
 
-    // customer
     html += `<td>`;
     if(r.status === "ok"){
       html += `<div class="resname">${escHtml(r.resolved)}</div>`;
@@ -600,70 +667,49 @@ function renderReview(){
     }else{
       html += `<div class="rawnote">typed: “${escHtml(r.rawName)}”</div>`;
       if(r.candidates.length){
-        html += `<select class="cell-in" onchange="pickCand(${r.id}, this.value)">
-          <option value="">${r.status==="ambiguous"?"— choose the right one —":"— closest matches —"}</option>`;
+        html += `<select class="cell-in" onchange="pickCand(${r.id}, this.value)"><option value="">${r.status==="ambiguous"?"— choose the right one —":"— closest matches —"}</option>`;
         for(const c of r.candidates) html += `<option value="${escAttr(c)}">${escHtml(c)}</option>`;
         html += `</select>`;
       }
-      html += `<div style="margin-top:6px"><input class="cell-in" list="allnames" placeholder="search all names…"
-        onchange="overrideName(${r.id}, this.value)"></div>`;
+      html += `<div style="margin-top:6px"><input class="cell-in" list="allnames" placeholder="search all names…" onchange="overrideName(${r.id}, this.value)"></div>`;
     }
     html += `</td>`;
 
-    // amount (editable)
-    html += `<td class="num"><input class="cell-in amt mono" value="${escAttr(r.amount)}"
-      onchange="setAmount(${r.id}, this.value)"></td>`;
-
-    // mode (editable) + class pill
-    const mc = modeClass(r.mode);
-    html += `<td><input class="cell-in" style="min-width:150px" value="${escAttr(r.mode)}"
-      onchange="setMode(${r.id}, this.value)"><div class="rawnote"><span class="pill mode">${escHtml(mc)}</span></div></td>`;
-
-    // remove
+    html += `<td class="num"><input class="cell-in amt mono" value="${escAttr(r.amount)}" onchange="setAmount(${r.id}, this.value)"></td>`;
+    html += `<td><input class="cell-in" style="min-width:150px" value="${escAttr(r.mode)}" onchange="setMode(${r.id}, this.value)"><div class="rawnote"><span class="pill mode">${escHtml(modeClass(r.mode))}</span></div></td>`;
     html += `<td><button class="xbtn" title="Remove" onclick="delRow(${r.id})">✕</button></td>`;
 
-    // flag line spanning under
     const fl = [];
-    if(r.flags.dupBatch) fl.push("duplicate within this batch");
-    if(r.flags.dupSeen)  fl.push("already exported earlier");
-    if(r.flags.outlier)  fl.push("amount looks unusual vs this customer's history");
-    if(fl.length) html += `</tr><tr class="warnrow"><td></td><td colspan="5"><div class="flagline">⚠︎ ${escHtml(fl.join(" · "))}</div></td>`;
+    if(r.block === "entered") fl.push({t:"this exact payment was already exported — it can't be entered again", lock:true});
+    else if(r.block === "dupbatch") fl.push({t:"same date + customer + amount as another row above — only one will export", lock:true});
+    if(r.flags.outlier) fl.push({t:"amount looks unusual vs this customer's history", lock:false});
+    for(const f of fl) html += `</tr><tr class="${f.lock?"lockrow":"warnrow"}"><td></td><td colspan="5"><div class="flagline ${f.lock?"lock":""}">${f.lock?"🔒":"⚠︎"} ${escHtml(f.t)}</div></td>`;
 
     html += `</tr>`;
   }
   html += `</tbody></table></div>`;
-
-  // Analysis
   html += renderAnalysis();
-
   host.innerHTML = html;
 }
 
 function renderAnalysis(){
   const ex = exportableRows();
   if(!ex.length) return "";
-  let total = 0, dates = [];
-  const byCust = new Map(), byMode = new Map();
+  let total = 0; const dates = [], byCust = new Map(), byMode = new Map();
   for(const r of ex){
-    total += r.amountNum;
-    dates.push(r.serial);
+    total += r.amountNum; dates.push(r.serial);
     byCust.set(r.resolved, (byCust.get(r.resolved) || 0) + r.amountNum);
-    const mc = modeClass(r.mode);
-    byMode.set(mc, (byMode.get(mc) || 0) + r.amountNum);
+    const mc = modeClass(r.mode); byMode.set(mc, (byMode.get(mc) || 0) + r.amountNum);
   }
   dates.sort((a, b) => a - b);
-  const range = dates.length ? (dates[0] === dates[dates.length-1] ? serialToDMY(dates[0])
-    : serialToDMY(dates[0]) + " – " + serialToDMY(dates[dates.length-1])) : "—";
+  const range = dates.length ? (dates[0] === dates[dates.length-1] ? serialToDMY(dates[0]) : serialToDMY(dates[0]) + " – " + serialToDMY(dates[dates.length-1])) : "—";
 
-  let html = `<div class="section-label">Batch summary</div>`;
-  html += `<div class="stats">
+  let html = `<div class="section-label">Batch summary</div><div class="stats">
     <div class="stat hero"><div class="lbl">Total to enter</div><div class="val">₹ ${money(total)}</div></div>
     <div class="stat"><div class="lbl">Ready entries</div><div class="val">${ex.length}</div></div>
     <div class="stat"><div class="lbl">Customers</div><div class="val">${byCust.size}</div></div>
-    <div class="stat"><div class="lbl">Date range</div><div class="val" style="font-size:14px">${range}</div></div>
-  </div>`;
+    <div class="stat"><div class="lbl">Date range</div><div class="val" style="font-size:14px">${range}</div></div></div>`;
 
-  // By mode
   const modeOrder = ["UPI","Bank","Cash","Cheque","Mixed","Other","Unspecified"];
   const modeRows = modeOrder.filter(m => byMode.has(m));
   if(modeRows.length){
@@ -671,19 +717,57 @@ function renderAnalysis(){
     for(const m of modeRows) html += `<div class="stat"><div class="lbl">${escHtml(m)}</div><div class="val">₹ ${money(byMode.get(m))}</div></div>`;
     html += `</div>`;
   }
-
-  // Running total per customer
   const custRows = [...byCust.entries()].sort((a, b) => b[1] - a[1]);
   if(custRows.length){
-    html += `<div class="section-label">Total per customer (this batch)</div>`;
-    html += `<div class="tablewrap"><table><thead><tr><th>Customer</th><th class="num">Entries</th><th class="num">Total ₹</th></tr></thead><tbody>`;
-    for(const [name, amt] of custRows){
-      const cnt = ex.filter(r => r.resolved === name).length;
-      html += `<tr><td>${escHtml(name)}</td><td class="num">${cnt}</td><td class="num">${money(amt)}</td></tr>`;
-    }
+    html += `<div class="section-label">Total per customer (this batch)</div><div class="tablewrap"><table><thead><tr><th>Customer</th><th class="num">Entries</th><th class="num">Total ₹</th></tr></thead><tbody>`;
+    for(const [name, amt] of custRows){ const cnt = ex.filter(r => r.resolved === name).length; html += `<tr><td>${escHtml(name)}</td><td class="num">${cnt}</td><td class="num">${money(amt)}</td></tr>`; }
     html += `</tbody></table></div>`;
   }
   return html;
+}
+
+/* Old entries: everything ever exported. Searchable; a mistaken entry can be
+   removed (which unlocks re-export). "Impossible to duplicate" holds as long
+   as an entry stays here. */
+function renderOld(){
+  const host = document.getElementById("oldSection");
+  const entered = readEntered();
+  const keys = Object.keys(entered);
+  if(!keys.length){ host.innerHTML = ""; return; }
+  const list = keys.map(k => ({k, e: entered[k]})).sort((a, b) => (b.e.ts || 0) - (a.e.ts || 0));
+  const q = (window._oldQ || "").toLowerCase().trim();
+  const shown = q ? list.filter(x => (`${x.e.customer} ${x.e.mode} ${x.e.dateStr} ${x.e.amount}`).toLowerCase().includes(q)) : list;
+  const total = list.reduce((s, x) => s + (Number(x.e.amount) || 0), 0);
+
+  let html = `<div class="section-label">Old entries<span class="r">${list.length} · ₹ ${money(total)}</span></div>`;
+  html += `<div class="banner info">🔒 <span>These payments have already been exported. Any new row matching one of them is blocked, so the same payment can't be exported twice.</span></div>`;
+  html += `<div style="margin-bottom:10px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+    <input type="search" placeholder="Search old entries…" value="${escAttr(window._oldQ||"")}" oninput="oldSearch(this.value)" style="flex:1;min-width:180px">
+    <button class="btn danger sm" onclick="clearEntered()">Clear history…</button></div>`;
+  html += `<div class="tablewrap"><table><thead><tr><th>Date</th><th>Customer</th><th class="num">Amount ₹</th><th>Mode</th><th>Exported</th><th></th></tr></thead><tbody>`;
+  for(const {k, e} of shown){
+    const when = e.ts ? new Date(e.ts).toLocaleString("en-GB") : "";
+    html += `<tr><td class="mono">${escHtml(e.dateStr || (e.serial!=null?serialToDMY(e.serial):""))}</td>
+      <td>${escHtml(e.customer)}</td><td class="num">${money(Number(e.amount))}</td>
+      <td>${escHtml(e.mode || "")}</td><td class="rawnote">${escHtml(when)}</td>
+      <td><button class="xbtn" title="Remove from history (allows re-export)" onclick="removeEntered('${escAttr(k)}')">✕</button></td></tr>`;
+  }
+  if(!shown.length) html += `<tr><td colspan="6" style="text-align:center;color:var(--txt-3);padding:22px">No matches</td></tr>`;
+  html += `</tbody></table></div>`;
+  host.innerHTML = html;
+}
+function oldSearch(v){ window._oldQ = v; renderOld(); }
+function removeEntered(key){
+  const entered = readEntered();
+  const e = entered[key]; if(!e) return;
+  if(!confirm(`Remove this from the old-entries history?\n\n${e.dateStr||""}  ${e.customer}  ₹${money(Number(e.amount))}\n\nAfter removing, this payment can be exported again.`)) return;
+  delete entered[key]; writeEntered(entered); recomputeAndRender();
+}
+function clearEntered(){
+  const entered = readEntered(); const n = Object.keys(entered).length;
+  if(!n) return;
+  if(!confirm(`Clear all ${n} old entr${n===1?"y":"ies"}?\n\nAfter this, previously-exported payments are no longer blocked and could be exported again. This only affects this device's history.`)) return;
+  writeEntered({}); recomputeAndRender();
 }
 
 function renderExportBar(){
@@ -692,18 +776,21 @@ function renderExportBar(){
   bar.classList.remove("hide");
   const ex = exportableRows();
   const total = ex.reduce((s, r) => s + r.amountNum, 0);
-  const blocked = ROWS.length - ex.length;
-  document.getElementById("exportSum").innerHTML =
-    `<b>${ex.length}</b> ready · ₹ ${money(total)}` + (blocked ? ` · <span style="color:var(--warn)">${blocked} need fixing</span>` : "");
+  const problems = ROWS.filter(r => !r.block && (r.status !== "ok" || !r.dateValid || !(r.amountNum > 0))).length;
+  const blocked = ROWS.filter(r => r.block).length;
+  let extra = "";
+  if(problems) extra += ` · <span style="color:var(--warn)">${problems} need fixing</span>`;
+  if(blocked) extra += ` · <span style="color:var(--txt-3)">${blocked} blocked</span>`;
+  document.getElementById("exportSum").innerHTML = `<b>${ex.length}</b> ready · ₹ ${money(total)}${extra}`;
   document.getElementById("xlsxBtn").disabled = ex.length === 0;
 }
 
-/* ---------------- Export: .xlsx (dependency-free) ---------------- */
+/* ---------------- Export: .xlsx, then move to Old entries ---------------- */
 function exportXlsx(){
   const ex = exportableRows();
   if(!ex.length){ alert("No ready entries to export."); return; }
-  const blocked = ROWS.length - ex.length;
-  if(blocked && !confirm(`${blocked} row(s) still need fixing and will be left out. Export the ${ex.length} ready entr${ex.length===1?"y":"ies"} anyway?`)) return;
+  const problems = ROWS.filter(r => !r.block && (r.status !== "ok" || !r.dateValid || !(r.amountNum > 0))).length;
+  if(problems && !confirm(`${problems} row(s) still need fixing and will be left out. Export the ${ex.length} ready entr${ex.length===1?"y":"ies"} now?`)) return;
 
   const header = ["Date", "Customer", "Amount Paid", "Payment Mode"];
   const data = ex.map(r => ({serial:r.serial, customer:r.resolved, amount:r.amountNum, mode:r.mode}));
@@ -712,15 +799,17 @@ function exportXlsx(){
   const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}`;
   downloadBlob(blob, `vriddhi-payments-${stamp}.xlsx`);
 
-  // Idempotency: record exported keys so a re-run flags duplicates.
-  const seen = readSeen();
-  for(const r of ex) seen[rowKey(r)] = {ts:Date.now(), customer:r.resolved, amount:r.amountNum, date:r.dateStr};
-  try{ localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); }catch(_){}
+  // Move exported rows into Old entries (so they can never be exported again),
+  // and remove them from the pending batch.
+  const entered = readEntered();
+  for(const r of ex) entered[rowKey(r)] = {serial:r.serial, dateStr:r.dateStr, customer:r.resolved, amount:r.amountNum, mode:r.mode, ts:Date.now()};
+  writeEntered(entered);
+  const exSet = new Set(ex.map(r => r.id));
+  ROWS = ROWS.filter(r => !exSet.has(r.id));
 
   recomputeAndRender();
-  alert(`Exported ${ex.length} entr${ex.length===1?"y":"ies"} (₹ ${money(data.reduce((s,d)=>s+d.amount,0))}).\n\nImport the file into Master Paid. These entries are now marked so re-exporting won't duplicate them.`);
+  alert(`Exported ${ex.length} entr${ex.length===1?"y":"ies"} (₹ ${money(data.reduce((s,d)=>s+d.amount,0))}).\n\nImport the file into Master Paid. These entries moved to “Old entries” and can't be exported again.`);
 }
-
 function exportCsv(){
   const ex = exportableRows();
   if(!ex.length){ alert("No ready entries to export."); return; }
@@ -729,7 +818,6 @@ function exportCsv(){
   for(const r of ex) lines.push([r.serial, serialToDMY(r.serial), r.resolved, r.amountNum, r.mode].map(esc).join(","));
   downloadBlob(new Blob([lines.join("\r\n")], {type:"text/csv"}), "vriddhi-payments.csv");
 }
-
 function downloadBlob(blob, name){
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = name;
@@ -737,57 +825,37 @@ function downloadBlob(blob, name){
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
 
-/* ---- Minimal, dependency-free XLSX writer (store-only ZIP) ----
-   Column A = Excel date serial (numeric, shown as a date via cell format —
-   the stored value is the plain serial, exactly what Master Paid uses).
-   Column C = plain number (grouping is a display format, not in the value). */
+/* ---- Dependency-free XLSX writer (store-only ZIP).
+   Column A = date serial (shown as a date via cell format; stored value is the
+   plain serial, exactly as Master Paid uses). Column C = plain number. ---- */
 function buildXlsx(header, rows){
   const N = rows.length + 1;
   const colLetter = c => String.fromCharCode(65 + c);
   const xesc = s => String(s).replace(/[&<>]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
-
-  // sheet cells
-  let sheet = "";
-  // header row (style s=3 bold)
-  sheet += `<row r="1">`;
-  for(let c = 0; c < header.length; c++)
-    sheet += `<c r="${colLetter(c)}1" t="inlineStr" s="3"><is><t xml:space="preserve">${xesc(header[c])}</t></is></c>`;
+  let sheet = `<row r="1">`;
+  for(let c = 0; c < header.length; c++) sheet += `<c r="${colLetter(c)}1" t="inlineStr" s="3"><is><t xml:space="preserve">${xesc(header[c])}</t></is></c>`;
   sheet += `</row>`;
-  // data rows
   rows.forEach((r, i) => {
     const rr = i + 2;
     sheet += `<row r="${rr}">`;
-    sheet += `<c r="A${rr}" s="1"><v>${r.serial}</v></c>`;                                   // date serial
+    sheet += `<c r="A${rr}" s="1"><v>${r.serial}</v></c>`;
     sheet += `<c r="B${rr}" t="inlineStr"><is><t xml:space="preserve">${xesc(r.customer)}</t></is></c>`;
-    sheet += `<c r="C${rr}" s="2"><v>${r.amount}</v></c>`;                                    // plain number
+    sheet += `<c r="C${rr}" s="2"><v>${r.amount}</v></c>`;
     sheet += `<c r="D${rr}" t="inlineStr"><is><t xml:space="preserve">${xesc(r.mode || "")}</t></is></c>`;
     sheet += `</row>`;
   });
-
-  const sheetXml =
-`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:D${N}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="12" customWidth="1"/><col min="2" max="2" width="34" customWidth="1"/><col min="3" max="3" width="14" customWidth="1"/><col min="4" max="4" width="30" customWidth="1"/></cols><sheetData>${sheet}</sheetData></worksheet>`;
-
-  const stylesXml =
-`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="#,##0"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
-
-  const contentTypes =
-`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
-
-  const rootRels =
-`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
-
-  const workbook =
-`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Master Paid" sheetId="1" r:id="rId1"/></sheets></workbook>`;
-
-  const wbRels =
-`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
-
   return zipStore([
     {name:"[Content_Types].xml", data:contentTypes},
     {name:"_rels/.rels", data:rootRels},
@@ -797,76 +865,47 @@ function buildXlsx(header, rows){
     {name:"xl/worksheets/sheet1.xml", data:sheetXml},
   ]);
 }
-
-/* CRC-32 */
-const _crcTable = (() => {
-  const t = new Uint32Array(256);
-  for(let n = 0; n < 256; n++){ let c = n; for(let k = 0; k < 8; k++) c = c & 1 ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; }
-  return t;
-})();
-function crc32(bytes){
-  let crc = 0xFFFFFFFF;
-  for(let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ _crcTable[(crc ^ bytes[i]) & 0xFF];
-  return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-/* Build a valid ZIP using the "store" (no compression) method. */
+const _crcTable = (() => { const t = new Uint32Array(256); for(let n = 0; n < 256; n++){ let c = n; for(let k = 0; k < 8; k++) c = c & 1 ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+function crc32(bytes){ let crc = 0xFFFFFFFF; for(let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ _crcTable[(crc ^ bytes[i]) & 0xFF]; return (crc ^ 0xFFFFFFFF) >>> 0; }
 function zipStore(files){
   const enc = new TextEncoder();
-  const parts = [];      // Uint8Arrays for local records
-  const central = [];
-  let offset = 0;
+  const parts = [], central = []; let offset = 0;
   const u16 = n => [n & 0xFF, (n >>> 8) & 0xFF];
   const u32 = n => [n & 0xFF, (n >>> 8) & 0xFF, (n >>> 16) & 0xFF, (n >>> 24) & 0xFF];
-
-  // DOS time/date (fixed to now)
   const dt = new Date();
   const dosTime = ((dt.getHours() & 0x1F) << 11) | ((dt.getMinutes() & 0x3F) << 5) | ((dt.getSeconds() / 2) & 0x1F);
   const dosDate = (((dt.getFullYear() - 1980) & 0x7F) << 9) | (((dt.getMonth() + 1) & 0x0F) << 5) | (dt.getDate() & 0x1F);
-
   for(const f of files){
-    const nameBytes = enc.encode(f.name);
-    const dataBytes = enc.encode(f.data);
+    const nameBytes = enc.encode(f.name), dataBytes = enc.encode(f.data);
     const crc = crc32(dataBytes);
-    const local = [].concat(
-      u32(0x04034b50), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate),
-      u32(crc), u32(dataBytes.length), u32(dataBytes.length), u16(nameBytes.length), u16(0)
-    );
-    const localHeader = new Uint8Array(local);
+    const localHeader = new Uint8Array([].concat(u32(0x04034b50), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate), u32(crc), u32(dataBytes.length), u32(dataBytes.length), u16(nameBytes.length), u16(0)));
     const rec = new Uint8Array(localHeader.length + nameBytes.length + dataBytes.length);
     rec.set(localHeader, 0); rec.set(nameBytes, localHeader.length); rec.set(dataBytes, localHeader.length + nameBytes.length);
     parts.push(rec);
-
-    const cen = [].concat(
-      u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate),
-      u32(crc), u32(dataBytes.length), u32(dataBytes.length),
-      u16(nameBytes.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset)
-    );
-    const cenHeader = new Uint8Array(cen);
+    const cenHeader = new Uint8Array([].concat(u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate), u32(crc), u32(dataBytes.length), u32(dataBytes.length), u16(nameBytes.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset)));
     const cenRec = new Uint8Array(cenHeader.length + nameBytes.length);
     cenRec.set(cenHeader, 0); cenRec.set(nameBytes, cenHeader.length);
     central.push(cenRec);
-
     offset += rec.length;
   }
   const centralSize = central.reduce((s, c) => s + c.length, 0);
-  const eocd = new Uint8Array([].concat(
-    u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
-    u32(centralSize), u32(offset), u16(0)
-  ));
-  return new Blob([...parts, ...central, eocd],
-    {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const eocd = new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length), u32(centralSize), u32(offset), u16(0)));
+  return new Blob([...parts, ...central, eocd], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
 }
 
 /* ---------------- Boot ---------------- */
-if("serviceWorker" in navigator){
-  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
-}
-// default the form date to today
-(function(){
-  const d = new Date();
-  document.getElementById("fDate").value =
-    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-})();
+if("serviceWorker" in navigator){ window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {})); }
+(function(){ const d = new Date(); document.getElementById("fDate").value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+
+// 1) Master.xml (authoritative) if previously uploaded.
+const _m = readMaster();
+if(_m && _m.names && _m.names.length){ setNames(_m.names, "master", {ts:_m.ts, count:_m.count}); }
+// 2) Cached feed for history (+ fallback names before any Master upload).
+const _f = readFeed();
+if(_f){ setHist(_f.hist); if(nameSource !== "master" && _f.names && _f.names.length) setNames(_f.names, "feed-cache"); }
+updateStatus();
+recomputeAndRender();
+// 3) Best-effort live feed refresh (history + fallback names).
 loadNames(false);
 </script>
 </body>

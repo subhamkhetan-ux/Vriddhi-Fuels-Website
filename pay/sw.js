@@ -2,7 +2,7 @@
 // land quickly; cache fallback keeps the shell available offline. The customer
 // name list is fetched from the Apps Script feed and cached in localStorage by
 // the app itself, so name-matching keeps working after the first online load.
-const CACHE = "vriddhi-pay-v1";
+const CACHE = "vriddhi-pay-v2";
 const SHELL = [
   "./",
   "./index.html",
