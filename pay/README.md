@@ -70,8 +70,8 @@ required.
 
 ## Old entries — and why duplicates are impossible
 
-When you export, those entries **move into a persistent “Old entries” list** on
-the device (and out of the pending batch). A payment is identified by
+When you export, those entries **move into a persistent “Old entries” list**
+(and out of the pending batch). A payment is identified by
 **date + customer + amount**.
 
 - Any new row that matches an entry already in **Old entries** is **hard-blocked**
@@ -84,6 +84,28 @@ The **Old entries** section is searchable and shows what was exported and when.
 If a payment was recorded by mistake, you can remove that single entry from the
 history (which unblocks it), or clear the whole history to start afresh — both
 require an explicit confirm.
+
+**Auto-clear after 7 days.** The Old-entries history keeps entries for **7 days**
+and then clears them automatically (pruned on the device, filtered on read, and
+purged server-side when cloud sync is on). So the no-duplicate guard covers the
+last week; older payments drop off on their own.
+
+## Cloud sync across devices (optional)
+
+Set **`SUPABASE_URL` + `SUPABASE_ANON_KEY`** in [`config.js`](./config.js) and run
+[`supabase/pay-schema.sql`](../supabase/pay-schema.sql) once (see
+[SETUP.md](./SETUP.md)) to keep **the exported-entries history and the customer
+list consistent across every device, in real time**:
+
+- Export on one phone and it appears in **Old entries** on your other devices
+  within a moment — and **the same payment is blocked on every device**, so two
+  people entering in parallel can't double-export.
+- Upload a Tally Master.xml on one device and the customer list updates everywhere.
+- The header shows **☁ synced / connecting… / offline**. If the cloud is
+  unreachable the app keeps working on-device and reconciles when it reconnects.
+
+Leave the `PASTE_…` placeholders and the app runs **purely on-device**
+(localStorage) exactly as before — cloud sync is entirely optional.
 
 ## How the `.xlsx` matches Master Paid (spec constraints kept)
 
@@ -107,11 +129,15 @@ Home screen** to install the PWA.
 
 ```
 pay/
-  index.html            The whole app — Master.xml parser, form entry,
-                        name matcher, review UI, old-entries/dedupe, analysis,
-                        and the built-in .xlsx writer.
-  config.js             Optional DATA_URL for the ledger feed (history + fallback).
+  index.html            The whole app — Master.xml parser, form entry, name
+                        matcher, review UI, old-entries/dedupe, cloud sync,
+                        analysis, and the built-in .xlsx writer.
+  config.js             Optional SUPABASE_URL + SUPABASE_ANON_KEY (cross-device
+                        sync) and DATA_URL (ledger feed for history + fallback).
   manifest.webmanifest  PWA manifest (installable).
   sw.js                 Service worker (app-shell cache; never caches the feed).
   icon.png              App icon.
+  SETUP.md              One-time Supabase setup for cloud sync.
+supabase/
+  pay-schema.sql        Tables + RLS + realtime + 7-day purge for cloud sync.
 ```
