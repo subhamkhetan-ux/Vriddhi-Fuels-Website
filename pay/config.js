@@ -16,7 +16,7 @@
 // "" to disable it.
 // =====================================================================
 window.VRIDDHI_PAY_CONFIG = {
-  SUPABASE_URL: "PASTE_YOUR_SUPABASE_URL_HERE",
-  SUPABASE_ANON_KEY: "PASTE_YOUR_SUPABASE_ANON_KEY_HERE",
+  SUPABASE_URL: "https://ycqvpqnbiqeldayglqgk.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_Zd1fhvQlfxPvWTS7HRcnSQ_Vc9El2IC",
   DATA_URL: "https://script.google.com/macros/s/AKfycbzNC2KNGSZgeaQzKa9YJt7J3VCknQAbPXuFp3q8Vzeuo7J6CEkY6yg_uGclCqwqglmQsg/exec",
 };
