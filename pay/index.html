@@ -220,6 +220,7 @@ const CFG = (window.VRIDDHI_PAY_CONFIG || {});
 const MASTER_KEY = "vriddhi_pay_master";    // {names:[], ts, count}  — from uploaded Master.xml
 const FEED_KEY   = "vriddhi_pay_feed";      // {names:[], hist:[], ts} — optional ledger-feed cache (history)
 const ENTERED_KEY = "vriddhi_pay_entered";  // { key: {serial,dateStr,customer,amount,mode,ts} }
+const SEVEN_DAYS = 7 * 86400000;            // exported-entries history auto-clears after 7 days
 
 let NAMES = [];            // canonical display names, sorted
 let NORMED = [];           // [ [name, norm], ... ]
@@ -227,8 +228,108 @@ let HIST = new Map();      // norm -> {count,total,amts:[]}  (historical amounts
 let nameSource = "none";   // 'master' | 'feed' | 'feed-cache' | 'none'
 let masterMeta = null;     // {ts, count}
 
+let ENTERED = {};          // in-memory: key -> {serial,dateStr,customer,amount,mode,ts}. Mirrored to localStorage + cloud.
+
 let ROWS = [];             // batch of entries under review
 let rowSeq = 1;
+
+/* ---------------- Cloud sync (Supabase) — optional, cross-device ----------------
+   When SUPABASE_URL + SUPABASE_ANON_KEY are set in config.js, the exported-entries
+   history AND the customer list are shared across every device in real time.
+   Without them, the app runs purely on-device (localStorage). Every cloud call is
+   best-effort: any error silently falls back to local, so the app always works. */
+const Cloud = {
+  enabled: !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY &&
+              !/PASTE_/.test(CFG.SUPABASE_URL) && !/PASTE_/.test(CFG.SUPABASE_ANON_KEY)),
+  client: null,
+  state: "off",   // off | connecting | live | offline
+  setState(s){ this.state = s; updateStatus(); },
+
+  async init(){
+    if(!this.enabled) return;
+    this.setState("connecting");
+    try{
+      const factory = window.__VF_TEST_SUPABASE_FACTORY
+        ? Promise.resolve(window.__VF_TEST_SUPABASE_FACTORY)
+        : import("https://esm.sh/@supabase/supabase-js@2").then(m => m.createClient);
+      const createClient = await factory;
+      this.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth:{ persistSession:false } });
+      // Reconcile: push anything exported locally (e.g. while offline) up, then
+      // pull the shared set down as the source of truth.
+      await this.pushEntries(Object.keys(ENTERED).map(k => Object.assign({entry_key:k}, ENTERED[k])));
+      await this.pullEntries();
+      await this.pullMasters();
+      this.subscribe();
+      this.setState("live");
+      recomputeAndRender();
+    }catch(e){ this.setState("offline"); }
+  },
+
+  subscribe(){
+    if(!this.client || !this.client.channel) return;
+    let t;
+    const poke = (fn) => { clearTimeout(t); t = setTimeout(fn, 300); };
+    this.client.channel("pay-live")
+      .on("postgres_changes", { event:"*", schema:"public", table:"pay_entries" },
+          () => poke(() => this.pullEntries().then(recomputeAndRender)))
+      .on("postgres_changes", { event:"*", schema:"public", table:"pay_masters" },
+          () => poke(() => this.pullMasters()))
+      .subscribe();
+  },
+
+  async pushEntries(rows){
+    if(!this.enabled || !this.client || !rows || !rows.length) return;
+    const payload = rows.map(r => ({
+      entry_key: r.entry_key, serial: r.serial, date_str: r.dateStr, customer: r.customer,
+      amount: r.amount, mode: r.mode || "", exported_at: new Date(r.ts || Date.now()).toISOString()
+    }));
+    try{ await this.client.from("pay_entries").upsert(payload, { onConflict:"entry_key", ignoreDuplicates:true }); }catch(_){}
+  },
+  async pullEntries(){
+    if(!this.enabled || !this.client) return;
+    try{
+      await this.client.rpc("pay_purge_old");                       // server-side 7-day purge
+      const cutoff = new Date(Date.now() - SEVEN_DAYS).toISOString();
+      const { data, error } = await this.client.from("pay_entries").select("*").gte("exported_at", cutoff);
+      if(error) throw error;
+      const map = {};
+      for(const row of (data || [])) map[row.entry_key] = {
+        serial: row.serial, dateStr: row.date_str, customer: row.customer,
+        amount: Number(row.amount), mode: row.mode || "", ts: Date.parse(row.exported_at)
+      };
+      ENTERED = map; saveEnteredLocal();
+    }catch(_){ this.setState("offline"); }
+  },
+  async removeEntry(key){
+    if(!this.enabled || !this.client) return;
+    try{ await this.client.from("pay_entries").delete().eq("entry_key", key); }catch(_){}
+  },
+  async clearEntries(){
+    if(!this.enabled || !this.client) return;
+    try{ await this.client.from("pay_entries").delete().neq("entry_key", "___never___"); }catch(_){}
+  },
+
+  async pushMasters(names){
+    if(!this.enabled || !this.client) return;
+    try{ await this.client.from("pay_masters").upsert(
+      { id:1, names, count:names.length, updated_at:new Date().toISOString() }, { onConflict:"id" }); }catch(_){}
+  },
+  async pullMasters(){
+    if(!this.enabled || !this.client) return;
+    try{
+      const { data, error } = await this.client.from("pay_masters").select("*").eq("id", 1).maybeSingle();
+      if(error) throw error;
+      if(data && Array.isArray(data.names) && data.names.length){
+        const ts = Date.parse(data.updated_at) || Date.now();
+        const local = readMaster();
+        if(!local || !local.ts || ts >= local.ts){
+          try{ localStorage.setItem(MASTER_KEY, JSON.stringify({names:data.names, ts, count:data.count||data.names.length})); }catch(_){}
+          setNames(data.names, "master", {ts, count:data.count||data.names.length});
+        }
+      }
+    }catch(_){}
+  },
+};
 
 /* ---------------- Date <-> Excel serial ---------------- */
 const EPOCH = Date.UTC(1899, 11, 30);   // 1899-12-30
@@ -363,6 +464,11 @@ function updateStatus(){
   }else{
     cls = "err"; txt = "No customer list — upload Tally Master.xml";
   }
+  if(Cloud.enabled){
+    txt += Cloud.state === "live" ? " · ☁ synced"
+         : Cloud.state === "connecting" ? " · ☁ connecting…"
+         : " · ☁ offline";
+  }
   setStatus(cls, txt);
   const cl = document.getElementById("custLine");
   if(nameSource === "master"){
@@ -397,6 +503,7 @@ document.getElementById("masterFile").addEventListener("change", function(){
         const meta = {ts: Date.now(), count: parsed.names.length};
         try{ localStorage.setItem(MASTER_KEY, JSON.stringify({names: parsed.names, ts: meta.ts, count: meta.count})); }catch(_){}
         setNames(parsed.names, "master", meta);
+        Cloud.pushMasters(parsed.names);          // share the list with every device
         recomputeAndRender();
         alert(`Customer list loaded ✓\n\nSundry Debtors: ${parsed.names.length}\n(from ${parsed.ledgerCount} ledgers / ${parsed.groupCount} groups)\n\nThese names are now used to resolve every payment. Re-upload anytime to add new customers.`);
       }catch(e){
@@ -497,19 +604,33 @@ function isOutlier(normName, amountNum){
   return amountNum > med * 6 || amountNum < med / 6;
 }
 
-/* ---------------- Old (already-entered) entries store ---------------- */
-function readEntered(){ try{ return JSON.parse(localStorage.getItem(ENTERED_KEY) || "{}"); }catch(_){ return {}; } }
-function writeEntered(o){ try{ localStorage.setItem(ENTERED_KEY, JSON.stringify(o)); }catch(_){} }
-// Identity of a payment: date + customer + amount. Mode is not part of it.
+/* ---------------- Old (already-entered) entries store ----------------
+   Kept in memory (ENTERED), mirrored to localStorage for offline use, and — when
+   Supabase is configured — synced across devices in real time. Entries older than
+   7 days auto-clear (pruned locally, filtered on read, and purged server-side).
+   Identity of a payment: date + customer + amount (mode is not part of it). */
+function pruneEntered(map){
+  const cut = Date.now() - SEVEN_DAYS;
+  let changed = false;
+  for(const k of Object.keys(map)){ const ts = map[k] && map[k].ts; if(!ts || ts < cut){ delete map[k]; changed = true; } }
+  return changed;
+}
+function loadEnteredLocal(){
+  let map = {};
+  try{ map = JSON.parse(localStorage.getItem(ENTERED_KEY) || "{}"); }catch(_){ map = {}; }
+  pruneEntered(map);
+  ENTERED = map; saveEnteredLocal();
+}
+function saveEnteredLocal(){ try{ localStorage.setItem(ENTERED_KEY, JSON.stringify(ENTERED)); }catch(_){} }
 function rowKey(r){ return `${r.serial}|${r.resolved ? _norm(r.resolved) : ""}|${r.amountNum}`; }
-function enteredKey(e){ return `${e.serial}|${_norm(e.customer)}|${e.amount}`; }
 
 /* Recompute per-row blocking + outlier flags.
    Hard rules (so duplicates can NEVER be exported):
    - a row matching an already-entered payment  -> block = 'entered'
    - a second row with the same key in this batch -> block = 'dupbatch' */
 function recomputeFlags(){
-  const entered = readEntered();
+  if(pruneEntered(ENTERED)) saveEnteredLocal();    // honour the 7-day window even mid-session
+  const entered = ENTERED;
   const seenInBatch = {};
   for(const r of ROWS){
     r.block = null; r.flags.outlier = false;
@@ -669,7 +790,7 @@ function renderAnalysis(){
    as an entry stays here. */
 function renderOld(){
   const host = document.getElementById("oldSection");
-  const entered = readEntered();
+  const entered = ENTERED;
   const keys = Object.keys(entered);
   if(!keys.length){ host.innerHTML = ""; return; }
   const list = keys.map(k => ({k, e: entered[k]})).sort((a, b) => (b.e.ts || 0) - (a.e.ts || 0));
@@ -678,7 +799,7 @@ function renderOld(){
   const total = list.reduce((s, x) => s + (Number(x.e.amount) || 0), 0);
 
   let html = `<div class="section-label">Old entries<span class="r">${list.length} · ₹ ${money(total)}</span></div>`;
-  html += `<div class="banner info">🔒 <span>These payments have already been exported. Any new row matching one of them is blocked, so the same payment can't be exported twice.</span></div>`;
+  html += `<div class="banner info">🔒 <span>These payments have already been exported${Cloud.state === "live" ? ", <b>shared across your devices</b>" : ""}. Any new row matching one of them is blocked, so the same payment can't be exported twice. History auto-clears after 7 days.</span></div>`;
   html += `<div style="margin-bottom:10px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
     <input type="search" placeholder="Search old entries…" value="${escAttr(window._oldQ||"")}" oninput="oldSearch(this.value)" style="flex:1;min-width:180px">
     <button class="btn danger sm" onclick="clearEntered()">Clear history…</button></div>`;
@@ -696,16 +817,17 @@ function renderOld(){
 }
 function oldSearch(v){ window._oldQ = v; renderOld(); }
 function removeEntered(key){
-  const entered = readEntered();
-  const e = entered[key]; if(!e) return;
-  if(!confirm(`Remove this from the old-entries history?\n\n${e.dateStr||""}  ${e.customer}  ₹${money(Number(e.amount))}\n\nAfter removing, this payment can be exported again.`)) return;
-  delete entered[key]; writeEntered(entered); recomputeAndRender();
+  const e = ENTERED[key]; if(!e) return;
+  const where = Cloud.state === "live" ? "\n\nThis removes it on all your devices." : "";
+  if(!confirm(`Remove this from the old-entries history?\n\n${e.dateStr||""}  ${e.customer}  ₹${money(Number(e.amount))}\n\nAfter removing, this payment can be exported again.${where}`)) return;
+  delete ENTERED[key]; saveEnteredLocal(); Cloud.removeEntry(key); recomputeAndRender();
 }
 function clearEntered(){
-  const entered = readEntered(); const n = Object.keys(entered).length;
+  const n = Object.keys(ENTERED).length;
   if(!n) return;
-  if(!confirm(`Clear all ${n} old entr${n===1?"y":"ies"}?\n\nAfter this, previously-exported payments are no longer blocked and could be exported again. This only affects this device's history.`)) return;
-  writeEntered({}); recomputeAndRender();
+  const where = Cloud.state === "live" ? "on all your devices" : "on this device";
+  if(!confirm(`Clear all ${n} old entr${n===1?"y":"ies"}?\n\nAfter this, previously-exported payments are no longer blocked and could be exported again. This clears the history ${where}.`)) return;
+  ENTERED = {}; saveEnteredLocal(); Cloud.clearEntries(); recomputeAndRender();
 }
 
 function renderExportBar(){
@@ -738,15 +860,22 @@ function exportXlsx(){
   downloadBlob(blob, `vriddhi-payments-${stamp}.xlsx`);
 
   // Move exported rows into Old entries (so they can never be exported again),
-  // and remove them from the pending batch.
-  const entered = readEntered();
-  for(const r of ex) entered[rowKey(r)] = {serial:r.serial, dateStr:r.dateStr, customer:r.resolved, amount:r.amountNum, mode:r.mode, ts:Date.now()};
-  writeEntered(entered);
+  // and remove them from the pending batch. Push to the cloud so every device
+  // sees them immediately.
+  const added = [];
+  for(const r of ex){
+    const k = rowKey(r);
+    const rec = {serial:r.serial, dateStr:r.dateStr, customer:r.resolved, amount:r.amountNum, mode:r.mode, ts:Date.now()};
+    ENTERED[k] = rec; added.push(Object.assign({entry_key:k}, rec));
+  }
+  saveEnteredLocal();
+  Cloud.pushEntries(added);
   const exSet = new Set(ex.map(r => r.id));
   ROWS = ROWS.filter(r => !exSet.has(r.id));
 
   recomputeAndRender();
-  alert(`Exported ${ex.length} entr${ex.length===1?"y":"ies"} (₹ ${money(data.reduce((s,d)=>s+d.amount,0))}).\n\nImport the file into Master Paid. These entries moved to “Old entries” and can't be exported again.`);
+  const synced = Cloud.state === "live" ? "\nThey're synced to your other devices too." : "";
+  alert(`Exported ${ex.length} entr${ex.length===1?"y":"ies"} (₹ ${money(data.reduce((s,d)=>s+d.amount,0))}).\n\nImport the file into Master Paid. These entries moved to “Old entries” and can't be exported again.${synced}`);
 }
 function exportCsv(){
   const ex = exportableRows();
@@ -835,6 +964,8 @@ function zipStore(files){
 if("serviceWorker" in navigator){ window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {})); }
 (function(){ const d = new Date(); document.getElementById("fDate").value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
 
+// 0) Load the exported-entries history from this device (pruned to the last 7 days).
+loadEnteredLocal();
 // 1) Master.xml (authoritative) if previously uploaded.
 const _m = readMaster();
 if(_m && _m.names && _m.names.length){ setNames(_m.names, "master", {ts:_m.ts, count:_m.count}); }
@@ -845,6 +976,8 @@ updateStatus();
 recomputeAndRender();
 // 3) Best-effort live feed refresh (history + fallback names).
 loadNames(false);
+// 4) Cloud sync (cross-device): reconcile the shared entries + customer list and subscribe to realtime.
+Cloud.init();
 </script>
 </body>
 </html>
