@@ -38,14 +38,10 @@ required.
 
 ## What it does
 
-1. **Input** — paste `pay …` lines (the format you already use) **or** use the
-   form (date picker, customer autocomplete, amount, mode). Both are supported.
-   ```
-   pay 28/07/26 akv 60000 30000 UPI + 30000 HDFC
-   pay 28/07/26 sudarshan 50000 HDFC 1010
-   ```
-   Grammar: `pay · DATE(dd/mm/yy) · NAME… · AMOUNT · MODE…` — amount may have
-   commas (`1,25,000`); mode may be empty.
+1. **Input** — a simple **form**: date picker, customer (with autocomplete),
+   amount, and payment mode. Add as many payments as you like; the date is kept
+   between entries so a run of same-day payments is quick. The customer can be a
+   partial (e.g. `akv`) — it resolves to the full name in the review below.
 
 2. **Resolve** — each partial name is matched against the uploaded customer list.
    Matching **ignores case and punctuation**, so `akv` → “A.K.V. Logistics”,
@@ -111,7 +107,7 @@ Home screen** to install the PWA.
 
 ```
 pay/
-  index.html            The whole app — Master.xml parser, payment parser,
+  index.html            The whole app — Master.xml parser, form entry,
                         name matcher, review UI, old-entries/dedupe, analysis,
                         and the built-in .xlsx writer.
   config.js             Optional DATA_URL for the ledger feed (history + fallback).

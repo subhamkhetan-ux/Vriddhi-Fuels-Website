@@ -91,10 +91,6 @@ textarea:focus,input:focus,select:focus{border-color:var(--orange);box-shadow:0 
 .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
 .formgrid .full{grid-column:1/-1}
 .rowbtns{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
-.tabs{display:flex;gap:6px;background:var(--line-2);padding:4px;border-radius:12px;margin-bottom:14px}
-.tabs button{flex:1;background:transparent;border:none;color:var(--txt-2);font-weight:600;font-size:13.5px;
-  padding:9px;border-radius:9px;cursor:pointer;transition:all .15s}
-.tabs button.on{background:var(--card);color:var(--txt);box-shadow:var(--shadow)}
 .custline{font-size:13.5px;color:var(--txt-2);font-weight:500;display:flex;align-items:center;gap:8px;margin-bottom:2px}
 .custline b{color:var(--txt);font-weight:700}
 
@@ -175,35 +171,19 @@ td select.cell-in{min-width:150px}
   </div>
 
   <!-- INPUT -->
-  <div class="section-label">New payments</div>
+  <div class="section-label">New payment</div>
   <div class="card">
-    <div class="tabs">
-      <button id="tabTextBtn" class="on" onclick="switchTab('text')">Paste lines</button>
-      <button id="tabFormBtn" onclick="switchTab('form')">Form</button>
+    <div class="formgrid">
+      <div><label class="fl" for="fDate">Date</label><input type="date" id="fDate"></div>
+      <div><label class="fl" for="fAmount">Amount ₹</label><input type="text" id="fAmount" inputmode="decimal" placeholder="60000"></div>
+      <div class="full"><label class="fl" for="fName">Customer</label>
+        <input type="text" id="fName" list="allnames" placeholder="Type a name or partial…" autocomplete="off"></div>
+      <div class="full"><label class="fl" for="fMode">Payment mode</label>
+        <input type="text" id="fMode" placeholder="e.g. HDFC 1010  ·  30000 UPI + 30000 HDFC"></div>
     </div>
-
-    <div id="tabText">
-      <label class="fl" for="bulk">One payment per line</label>
-      <textarea id="bulk" class="mono" placeholder="pay 28/07/26 akv 60000 30000 UPI + 30000 HDFC&#10;pay 28/07/26 sudarshan 50000 HDFC 1010"></textarea>
-      <div class="hint">Grammar: <b>pay</b> · date <span class="mono">dd/mm/yy</span> · customer · amount · mode.
-        Names can be partial (e.g. <span class="mono">akv</span>, <span class="mono">smc</span>) — they're resolved to the full customer name below.</div>
-      <div class="rowbtns">
-        <button class="btn accent" onclick="parseTextarea()">Add to review ↓</button>
-        <button class="btn ghost" onclick="fillSample()">Insert example</button>
-      </div>
-    </div>
-
-    <div id="tabForm" class="hide">
-      <div class="formgrid">
-        <div><label class="fl" for="fDate">Date</label><input type="date" id="fDate"></div>
-        <div><label class="fl" for="fAmount">Amount ₹</label><input type="text" id="fAmount" inputmode="decimal" placeholder="60000"></div>
-        <div class="full"><label class="fl" for="fName">Customer</label>
-          <input type="text" id="fName" list="allnames" placeholder="Type a name or partial…" autocomplete="off"></div>
-        <div class="full"><label class="fl" for="fMode">Payment mode</label>
-          <input type="text" id="fMode" placeholder="e.g. HDFC 1010  ·  30000 UPI + 30000 HDFC"></div>
-      </div>
-      <div class="rowbtns"><button class="btn accent" onclick="addFormRow()">Add to review ↓</button></div>
-    </div>
+    <div class="rowbtns"><button class="btn accent" onclick="addFormRow()">Add to review ↓</button></div>
+    <div class="hint">Pick the date, type the customer (a partial is fine — it resolves to the full name below),
+      then the amount and payment mode. Add as many payments as you like, then review and export.</div>
   </div>
 
   <datalist id="allnames"></datalist>
@@ -249,23 +229,6 @@ let masterMeta = null;     // {ts, count}
 
 let ROWS = [];             // batch of entries under review
 let rowSeq = 1;
-
-/* ---------------- Parser (ported from the reference Python) ---------------- */
-function parsePay(text){
-  let body = String(text).trim();
-  if(!body.toLowerCase().startsWith("pay")) return {err:"not a pay message"};
-  body = body.slice(3).trim();
-  const m = body.match(/^(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([\s\S]*)$/);
-  if(!m) return {err:"missing or invalid date"};
-  const dateStr = m[1], rest = m[2];
-  const am = rest.match(/(?<!\S)(\d[\d,]*(?:\.\d+)?)(?!\S)/);
-  if(!am) return {err:"no amount found"};
-  const name = rest.slice(0, am.index).trim();
-  const amount = am[1].replace(/,/g, "");
-  const mode = rest.slice(am.index + am[0].length).trim();
-  if(!name) return {err:"no customer name"};
-  return {dateStr, name, amount, mode};
-}
 
 /* ---------------- Date <-> Excel serial ---------------- */
 const EPOCH = Date.UTC(1899, 11, 30);   // 1899-12-30
@@ -560,32 +523,7 @@ function recomputeFlags(){
 }
 function exportableRows(){ return ROWS.filter(r => r.status === "ok" && r.dateValid && r.amountNum > 0 && !r.block); }
 
-/* ---------------- Input handlers ---------------- */
-function switchTab(which){
-  const t = which === "form";
-  document.getElementById("tabForm").classList.toggle("hide", !t);
-  document.getElementById("tabText").classList.toggle("hide", t);
-  document.getElementById("tabFormBtn").classList.toggle("on", t);
-  document.getElementById("tabTextBtn").classList.toggle("on", !t);
-}
-function fillSample(){
-  document.getElementById("bulk").value =
-    "pay 28/07/26 akv 60000 30000 UPI + 30000 HDFC\npay 28/07/26 sudarshan 50000 HDFC 1010";
-}
-function parseTextarea(){
-  const box = document.getElementById("bulk");
-  const lines = box.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  let added = 0; const errs = [];
-  for(const line of lines){
-    const p = parsePay(line);
-    if(p.err){ errs.push(`“${line}” — ${p.err}`); continue; }
-    ROWS.push(makeRow(p, line)); added++;
-  }
-  if(added) box.value = errs.length ? lines.filter(l => parsePay(l).err).join("\n") : "";
-  if(errs.length) alert("Couldn't parse " + errs.length + " line(s):\n\n" + errs.join("\n") +
-    "\n\nThey've been left in the box so you can fix them.");
-  recomputeAndRender();
-}
+/* ---------------- Input handler ---------------- */
 function addFormRow(){
   const dv = document.getElementById("fDate").value;
   const name = document.getElementById("fName").value.trim();
