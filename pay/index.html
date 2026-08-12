@@ -163,6 +163,7 @@ td select.cell-in{min-width:150px}
     <div class="rowbtns">
       <button class="btn accent" onclick="pickMaster()">⬆ Upload Tally Master.xml</button>
       <button class="btn ghost sm" id="feedBtn" onclick="loadNames(true)">↻ Refresh from ledger feed</button>
+      <button class="btn danger sm" onclick="clearMasterList()">🗑 Clear ledgers</button>
     </div>
     <input type="file" id="masterFile" accept=".xml,text/xml,application/xml" style="display:none">
     <div class="hint">Export <b>Masters (Ledgers)</b> from Tally as XML and upload it here — the app reads every ledger
@@ -308,25 +309,47 @@ const Cloud = {
     if(!this.enabled || !this.client) return;
     try{ await this.client.from("pay_entries").delete().neq("entry_key", "___never___"); }catch(_){}
   },
+  async clearEntriesRange(fromS, toS){
+    if(!this.enabled || !this.client) return;
+    try{
+      let q = this.client.from("pay_entries").delete();
+      if(fromS != null) q = q.gte("serial", fromS);
+      if(toS != null)   q = q.lte("serial", toS);
+      await q;
+    }catch(_){}
+  },
 
-  async pushMasters(names){
+  async pushMasters(names, ts){
     if(!this.enabled || !this.client) return;
     try{ await this.client.from("pay_masters").upsert(
-      { id:1, names, count:names.length, updated_at:new Date().toISOString() }, { onConflict:"id" }); }catch(_){}
+      { id:1, names, count:names.length, updated_at:new Date(ts || Date.now()).toISOString() }, { onConflict:"id" }); }catch(_){}
   },
+  async clearMasters(){ await this.pushMasters([], Date.now()); },   // newest empty snapshot = "cleared everywhere"
   async pullMasters(){
     if(!this.enabled || !this.client) return;
     try{
       const { data, error } = await this.client.from("pay_masters").select("*").eq("id", 1).maybeSingle();
       if(error) throw error;
-      if(data && Array.isArray(data.names) && data.names.length){
-        const ts = Date.parse(data.updated_at) || Date.now();
-        const local = readMaster();
-        if(!local || !local.ts || ts >= local.ts){
-          try{ localStorage.setItem(MASTER_KEY, JSON.stringify({names:data.names, ts, count:data.count||data.names.length})); }catch(_){}
-          setNames(data.names, "master", {ts, count:data.count||data.names.length});
-        }
+      const cloudTs = data ? (Date.parse(data.updated_at) || 0) : -1;
+      const local = readMaster();
+      const localTs = (local && local.ts) || 0;
+      // Our local list is newer than the cloud (e.g. uploaded offline) -> share it.
+      if(local && local.names && local.names.length && localTs > cloudTs){
+        await this.pushMasters(local.names, localTs);
+        return;
       }
+      if(!data) return;
+      const names = Array.isArray(data.names) ? data.names : [];
+      if(names.length){
+        try{ localStorage.setItem(MASTER_KEY, JSON.stringify({names, ts:cloudTs, count:data.count||names.length})); }catch(_){}
+        setNames(names, "master", {ts:cloudTs, count:data.count||names.length});
+      }else{
+        // tombstone: the list was cleared on another device — reflect that here too.
+        try{ localStorage.removeItem(MASTER_KEY); }catch(_){}
+        masterMeta = null; HIST = new Map();
+        if(nameSource === "master") setNames([], "none");
+      }
+      recomputeAndRender();
     }catch(_){}
   },
 };
@@ -503,7 +526,7 @@ document.getElementById("masterFile").addEventListener("change", function(){
         const meta = {ts: Date.now(), count: parsed.names.length};
         try{ localStorage.setItem(MASTER_KEY, JSON.stringify({names: parsed.names, ts: meta.ts, count: meta.count})); }catch(_){}
         setNames(parsed.names, "master", meta);
-        Cloud.pushMasters(parsed.names);          // share the list with every device
+        Cloud.pushMasters(parsed.names, meta.ts); // share the list with every device
         recomputeAndRender();
         alert(`Customer list loaded ✓\n\nSundry Debtors: ${parsed.names.length}\n(from ${parsed.ledgerCount} ledgers / ${parsed.groupCount} groups)\n\nThese names are now used to resolve every payment. Re-upload anytime to add new customers.`);
       }catch(e){
@@ -800,9 +823,20 @@ function renderOld(){
 
   let html = `<div class="section-label">Old entries<span class="r">${list.length} · ₹ ${money(total)}</span></div>`;
   html += `<div class="banner info">🔒 <span>These payments have already been exported${Cloud.state === "live" ? ", <b>shared across your devices</b>" : ""}. Any new row matching one of them is blocked, so the same payment can't be exported twice. History auto-clears after 7 days.</span></div>`;
+  const clearOpen = !!window._clearOpen;
   html += `<div style="margin-bottom:10px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
     <input type="search" placeholder="Search old entries…" value="${escAttr(window._oldQ||"")}" oninput="oldSearch(this.value)" style="flex:1;min-width:180px">
-    <button class="btn danger sm" onclick="clearEntered()">Clear history…</button></div>`;
+    <button class="btn danger sm" onclick="toggleClear()">🗑 Clear entries ${clearOpen?"▴":"▾"}</button></div>`;
+  if(clearOpen){
+    html += `<div class="card" style="margin:0 0 12px;padding:14px">
+      <div class="hint" style="margin:0 0 10px">Clears exported entries so those payments are no longer blocked${Cloud.state==="live"?" — on all your devices":""}. Default clears everything; or clear a date range by payment date.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div><label class="fl" for="clrFrom">From</label><input type="date" id="clrFrom" value="${escAttr(window._clrFrom||"")}" onchange="setClr('From',this.value)" style="min-width:150px"></div>
+        <div><label class="fl" for="clrTo">To</label><input type="date" id="clrTo" value="${escAttr(window._clrTo||"")}" onchange="setClr('To',this.value)" style="min-width:150px"></div>
+        <button class="btn sm" onclick="clearEnteredRange()">Clear range</button>
+        <button class="btn danger sm" onclick="clearEntered()">Clear ALL</button>
+      </div></div>`;
+  }
   html += `<div class="tablewrap"><table><thead><tr><th>Date</th><th>Customer</th><th class="num">Amount ₹</th><th>Mode</th><th>Exported</th><th></th></tr></thead><tbody>`;
   for(const {k, e} of shown){
     const when = e.ts ? new Date(e.ts).toLocaleString("en-GB") : "";
@@ -828,6 +862,38 @@ function clearEntered(){
   const where = Cloud.state === "live" ? "on all your devices" : "on this device";
   if(!confirm(`Clear all ${n} old entr${n===1?"y":"ies"}?\n\nAfter this, previously-exported payments are no longer blocked and could be exported again. This clears the history ${where}.`)) return;
   ENTERED = {}; saveEnteredLocal(); Cloud.clearEntries(); recomputeAndRender();
+}
+function toggleClear(){ window._clearOpen = !window._clearOpen; renderOld(); }
+function setClr(which, v){ window["_clr" + which] = v; }   // remember dates without re-rendering
+function isoToSerial(iso){ if(!iso) return null; const [y,m,d] = iso.split("-").map(Number); return Math.round((Date.UTC(y,(m||1)-1,d||1) - EPOCH) / 86400000); }
+function isoToDMY(iso){ if(!iso) return ""; const [y,m,d] = iso.split("-"); return `${d}/${m}/${y.slice(-2)}`; }
+function clearEnteredRange(){
+  const fromS = isoToSerial(window._clrFrom), toS = isoToSerial(window._clrTo);
+  if(fromS == null && toS == null){ alert("Pick a From and/or To date, or use Clear ALL."); return; }
+  const lo = fromS == null ? -Infinity : fromS, hi = toS == null ? Infinity : toS;
+  if(lo > hi){ alert("The From date is after the To date."); return; }
+  const keys = Object.keys(ENTERED).filter(k => { const s = ENTERED[k].serial; return s != null && s >= lo && s <= hi; });
+  if(!keys.length){ alert("No entries fall in that date range."); return; }
+  const rangeTxt = `${window._clrFrom ? isoToDMY(window._clrFrom) : "the start"} → ${window._clrTo ? isoToDMY(window._clrTo) : "today"}`;
+  const where = Cloud.state === "live" ? " on all your devices" : "";
+  if(!confirm(`Clear ${keys.length} entr${keys.length===1?"y":"ies"} dated ${rangeTxt}${where}?\n\nThose payments will no longer be blocked and could be exported again.`)) return;
+  for(const k of keys) delete ENTERED[k];
+  saveEnteredLocal();
+  Cloud.clearEntriesRange(fromS, toS);
+  recomputeAndRender();
+}
+
+/* Clear the entire customer list (ledgers/master) + its cached data — locally
+   and, when synced, on every device. Does not touch the exported-entries history. */
+function clearMasterList(){
+  if(nameSource !== "master" && !NAMES.length){ alert("There's no customer list to clear."); return; }
+  const where = Cloud.state === "live" ? " on all your devices" : "";
+  if(!confirm(`Delete the entire customer list${where}?\n\n${NAMES.length} customer(s) and their cached data will be removed. You'll need to upload a Tally Master.xml again to resolve names.\n\nThis does NOT touch the exported-entries history.`)) return;
+  try{ localStorage.removeItem(MASTER_KEY); localStorage.removeItem(FEED_KEY); }catch(_){}
+  HIST = new Map(); masterMeta = null;
+  setNames([], "none");
+  Cloud.clearMasters();
+  recomputeAndRender();
 }
 
 function renderExportBar(){

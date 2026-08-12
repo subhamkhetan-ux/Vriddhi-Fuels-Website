@@ -29,6 +29,9 @@ customer list.
   matching works fully offline.
 - **Re-upload anytime to add new customers** — a fresh Master export replaces the
   stored list.
+- **🗑 Clear ledgers** deletes the whole customer list and its cached data — on
+  all your devices when cloud sync is on — after a confirm. It does **not** touch
+  the exported-entries history; upload a Master.xml again to reload customers.
 
 The uploaded list is **authoritative**. An optional ledger feed (`DATA_URL` in
 [`config.js`](./config.js)) is used only as a convenience: it supplies each
@@ -81,9 +84,10 @@ When you export, those entries **move into a persistent “Old entries” list**
   second is **🔒 duplicate**.
 
 The **Old entries** section is searchable and shows what was exported and when.
-If a payment was recorded by mistake, you can remove that single entry from the
-history (which unblocks it), or clear the whole history to start afresh — both
-require an explicit confirm.
+If a payment was recorded by mistake, you can remove that single entry (which
+unblocks it), or use **🗑 Clear entries** to clear the history — **all of it by
+default, or a date range** (by payment date) via the From/To fields. Every clear
+asks for confirmation, and when cloud sync is on it clears on all your devices.
 
 **Auto-clear after 7 days.** The Old-entries history keeps entries for **7 days**
 and then clears them automatically (pruned on the device, filtered on read, and
