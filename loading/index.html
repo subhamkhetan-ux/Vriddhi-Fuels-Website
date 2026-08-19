@@ -352,6 +352,11 @@
         <div class="mini"><div class="n" id="repSold">0</div><div class="l">Litres sold</div></div>
         <div class="mini"><div class="n" id="repTrips">0</div><div class="l">Tankers sold</div></div>
       </div>
+      <div class="sectitle">All-time totals <span style="font-weight:600;color:var(--muted);font-size:12px">· kept beyond 7 days</span></div>
+      <div class="row2" style="margin-bottom:14px">
+        <div class="mini"><div class="n" id="allTimeLoaded">0</div><div class="l">Loaded ever</div></div>
+        <div class="mini"><div class="n" id="allTimeSold">0</div><div class="l">Sold ever</div></div>
+      </div>
       <div class="sectitle">By tanker</div>
       <div id="repTankers"></div>
       <button class="big navy" id="toLog" style="background:var(--navy2);font-size:16px;padding:14px"><span class="em">📋</span><span>View chamber log (detailed)</span></button>
@@ -543,9 +548,10 @@ const VLS_KEY = "vf_loading_vehicles_v1";
 const CLS_KEY = "vf_loading_closes_v1";
 function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
 function lsSave(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
+function vNorm(v){ return { plate:v.plate, caps:v.caps, color:v.color||"", fill:v.fill||{}, total_loaded:+v.total_loaded||0, total_sold:+v.total_sold||0 }; }
 function lsVehicles(){
-  try{ const v=JSON.parse(localStorage.getItem(VLS_KEY)); if(Array.isArray(v)) return v; }catch(e){}
-  localStorage.setItem(VLS_KEY, JSON.stringify(DEFAULT_VEHICLES)); return DEFAULT_VEHICLES.slice();
+  try{ const v=JSON.parse(localStorage.getItem(VLS_KEY)); if(Array.isArray(v)) return v.map(vNorm); }catch(e){}
+  const d=DEFAULT_VEHICLES.map(vNorm); localStorage.setItem(VLS_KEY, JSON.stringify(d)); return d;
 }
 function lsVehiclesSave(list){ localStorage.setItem(VLS_KEY, JSON.stringify(list)); }
 function lsCloses(){ try{ const v=JSON.parse(localStorage.getItem(CLS_KEY)); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
@@ -556,11 +562,36 @@ const LocalBackend = {
   load(){ return Promise.resolve(lsLoad().sort((a,b)=>a.ts-b.ts)); },
   loadVehicles(){ return Promise.resolve(lsVehicles()); },
   loadCloses(){ return Promise.resolve(lsCloses().sort((a,b)=>a.ts-b.ts)); },
-  add(entry){ const l=lsLoad(); l.push(entry); lsSave(l); return Promise.resolve(); },
-  remove(id){ lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve(); },
-  addVehicle(v){ const l=lsVehicles(); l.push(v); lsVehiclesSave(l); return Promise.resolve(); },
+  add(entry){ // 'load' only (dispatch goes through dispatch())
+    const l=lsLoad(); l.push(entry); lsSave(l);
+    const vs=lsVehicles(), v=vs.find(x=>x.plate===entry.plate);
+    if(v && (entry.kind||"load")==="load"){ v.fill=v.fill||{}; (entry.chambers||[]).forEach(c=>{ v.fill[c.name]=r2((+v.fill[c.name]||0)+(+c.qty||0)); }); v.total_loaded=r2((+v.total_loaded||0)+entry.total); lsVehiclesSave(vs); }
+    return Promise.resolve();
+  },
+  dispatch(plate, remark){
+    const vs=lsVehicles(), v=vs.find(x=>x.plate===plate);
+    if(!v) return Promise.reject(new Error("Unknown tanker"));
+    const chambers=[]; let tot=0;
+    (v.caps||[]).forEach((cap,i)=>{ const q=r2(+(v.fill||{})["C"+(i+1)]||0); if(q>0){ chambers.push({name:"C"+(i+1),qty:q}); tot=r2(tot+q); } });
+    if(tot<=0) return Promise.reject(new Error("Tanker is already empty"));
+    const l=lsLoad(); l.push({ id:localId(), ts:Date.now(), plate:plate, kind:"dispatch", chambers:chambers, total:tot, by:ME, remark:remark||"" }); lsSave(l);
+    v.fill={}; v.total_sold=r2((+v.total_sold||0)+tot); lsVehiclesSave(vs);
+    return Promise.resolve();
+  },
+  remove(id){
+    const all=lsLoad(), e=all.find(x=>x.id===id);
+    if(e){ const vs=lsVehicles(), v=vs.find(x=>x.plate===e.plate);
+      if(v){ v.fill=v.fill||{};
+        if((e.kind||"load")==="load"){ (e.chambers||[]).forEach(c=>{ v.fill[c.name]=Math.max(r2((+v.fill[c.name]||0)-(+c.qty||0)),0); }); v.total_loaded=Math.max(r2((+v.total_loaded||0)-e.total),0); }
+        else { (e.chambers||[]).forEach(c=>{ v.fill[c.name]=r2((+v.fill[c.name]||0)+(+c.qty||0)); }); v.total_sold=Math.max(r2((+v.total_sold||0)-e.total),0); }
+        lsVehiclesSave(vs);
+      }
+    }
+    lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve();
+  },
+  addVehicle(v){ const l=lsVehicles(); l.push(vNorm(v)); lsVehiclesSave(l); return Promise.resolve(); },
   removeVehicle(plate){ lsVehiclesSave(lsVehicles().filter(v=>v.plate!==plate)); return Promise.resolve(); },
-  clearAll(){ lsSave([]); return Promise.resolve(); },
+  clearAll(){ lsSave([]); const vs=lsVehicles(); vs.forEach(v=>{ v.fill={}; v.total_loaded=0; v.total_sold=0; }); lsVehiclesSave(vs); return Promise.resolve(); },
   endDay(){
     const cd=prevDateStr();
     if(lsCloses().some(c=>c.date===cd)) return Promise.reject(new Error("This day has already been ended"));
@@ -596,7 +627,8 @@ const CloudBackend = {
   loadVehicles(){
     return this.client.from("loading_vehicles").select("*").order("plate",{ascending:true}).then(r=>{
       if(r.error) throw new Error(r.error.message);
-      return (r.data||[]).map(row=>({ plate:row.plate, caps:(Array.isArray(row.caps)?row.caps:(row.caps||[])).map(Number), color:row.color||"" }));
+      return (r.data||[]).map(row=>({ plate:row.plate, caps:(Array.isArray(row.caps)?row.caps:(row.caps||[])).map(Number),
+        color:row.color||"", fill:row.fill||{}, total_loaded:+row.total_loaded||0, total_sold:+row.total_sold||0 }));
     });
   },
   loadCloses(){
@@ -606,6 +638,7 @@ const CloudBackend = {
     });
   },
   add(entry){ return this.rpc("loading_add",{ p_vehicle:entry.plate, p_chambers:entry.chambers, p_total:entry.total, p_by:entry.by||ME, p_kind:entry.kind||"load", p_remark:entry.remark||"" }); },
+  dispatch(plate, remark){ return this.rpc("loading_dispatch",{ p_vehicle:plate, p_by:ME, p_remark:remark||"" }); },
   remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
   addVehicle(v){ return this.rpc("loading_vehicle_add",{ p_plate:v.plate, p_caps:v.caps, p_color:v.color||"" }); },
   removeVehicle(plate){ return this.rpc("loading_vehicle_remove",{ p_plate:plate }); },
@@ -658,18 +691,15 @@ function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
 /* ---------- Draft (diesel being added now) ---------- */
 let draft = null; // { plate, caps:[], existing:[], add:[""] }
 
-/* ---------- Tanker fill state (accumulates until 'Sent for sale') ---------- */
+/* ---------- Tanker fill state ----------
+   Current fill is PERSISTENT state on the tanker (fill per chamber), updated on
+   every load / sale, so it survives the 7-day purge of detailed events — a
+   loaded-but-unsold tanker never resets to 0 when its load rows age out. */
 function tankerState(plate){
   const v=vehicleOf(plate);
-  const cham=v.caps.map(()=>0);
-  const evs=LOG.filter(e=>e.plate===plate).sort((a,b)=>a.ts-b.ts);
-  let start=0;
-  for(let i=0;i<evs.length;i++) if((evs[i].kind||"load")==="dispatch") start=i+1;
-  for(let i=start;i<evs.length;i++){
-    const e=evs[i]; if((e.kind||"load")==="dispatch") continue;
-    (e.chambers||[]).forEach(c=>{ const idx=(parseInt(String(c.name).replace(/\D/g,""),10)||0)-1; if(idx>=0&&idx<cham.length) cham[idx]+=(+c.qty||0); });
-  }
-  cham.forEach((x,i)=>{ cham[i]=r2(x); });
+  if(!v) return { cham:[], total:0, cap:0, caps:[], full:false };
+  const fill=v.fill||{};
+  const cham=v.caps.map((c,i)=> r2(+(fill["C"+(i+1)]||0)));
   const total=r2(cham.reduce((s,x)=>s+x,0));
   const cap=r2(v.caps.reduce((s,x)=>s+x,0));
   const full=v.caps.every((c,i)=>cham[i]>=c);
@@ -781,10 +811,8 @@ $("#dispOk").onclick=()=>{
   const st=tankerState(plate);
   if(st.total<=0){ closeDisp(); return; }
   const remark=$("#dispSold").value.trim();
-  const chambers=st.caps.map((c,i)=>({name:"C"+(i+1),qty:st.cham[i]})).filter(c=>c.qty>0);
-  const entry={ id:localId(), ts:Date.now(), plate:plate, kind:"dispatch", chambers:chambers, total:st.total, by:ME, remark:remark };
   const btn=$("#dispOk"); btn.disabled=true;
-  Backend.add(entry).then(refresh).then(()=>{
+  Backend.dispatch(plate, remark).then(refresh).then(()=>{
     btn.disabled=false; closeDisp(); renderHome();
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:""));
   }).catch(e=>{ btn.disabled=false; oops(e); });
@@ -961,6 +989,7 @@ function setPreset(p){
   $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.toggle("on",b.dataset.preset===p));
   renderReport();
 }
+function allTime(field){ return r2(VEHICLES.reduce((s,v)=>s+(+v[field]||0),0)); }
 function renderReport(){
   const evs=rangeEvents();
   const loads=evs.filter(e=>!isDisp(e)), disp=evs.filter(isDisp);
@@ -968,17 +997,19 @@ function renderReport(){
   $("#repLoadings").textContent=loads.length;
   $("#repSold").textContent=fmt(disp.reduce((s,e)=>s+e.total,0));
   $("#repTrips").textContent=disp.length;
+  $("#allTimeLoaded").textContent=fmt(allTime("total_loaded"));
+  $("#allTimeSold").textContent=fmt(allTime("total_sold"));
   $("#repTankers").innerHTML=VEHICLES.map(v=>{
     const ve=evs.filter(e=>e.plate===v.plate);
     const vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
     return '<div class="entry"><span class="plate">'+v.plate+'</span>'
-      +'<div class="mid"><div class="ch">Loaded '+fmt(vl.reduce((s,e)=>s+e.total,0))+' L · '+vl.length+' loadings · '+vd.length+' sold</div>'
-      +'<div class="tm">Now in tanker: '+fmt(st.total)+' / '+fmt(st.cap)+' L'+(st.full?' · FULL':'')+'</div></div></div>';
+      +'<div class="mid"><div class="ch">Now in tanker: <b>'+fmt(st.total)+'</b> / '+fmt(st.cap)+' L'+(st.full?' · FULL':'')+'</div>'
+      +'<div class="tm">All-time: loaded '+fmt(+v.total_loaded||0)+' L · sold '+fmt(+v.total_sold||0)+' L</div></div></div>';
   }).join("");
-  const empty=!evs.length;
+  const empty=!evs.length && allTime("total_loaded")===0;
   $("#dlExcel").disabled=empty;
-  $("#repNote").innerHTML = empty ? "No records in this date range."
-    : "Excel has Summary · Transactions · Chamber log · By tanker · By day sheets. Falls back to CSV if offline.";
+  $("#repNote").innerHTML = empty ? "No records yet."
+    : "Range tiles use the last 7 days of detail; all-time totals and tanker fills are kept permanently. Excel: Summary · Transactions · Chamber log · By tanker · By day. Falls back to CSV if offline.";
 }
 $("#scReport").querySelectorAll(".rpresets button").forEach(b=>{ b.onclick=()=>setPreset(b.dataset.preset); });
 ["#repFrom","#repTo"].forEach(sel=>$(sel).addEventListener("change",()=>{
@@ -1040,13 +1071,14 @@ $("#dlExcel").onclick=async()=>{
     "Business date":effDate(e), "Time":timeLabel(e.ts), "Vehicle":e.plate,
     "Chamber":c.name, "Litres":(+c.qty), "Type":isDisp(e)?"Emptied (sold)":"Loaded",
     "Remarks / Sold to":e.remark||"", "By":e.by||"", "Day ended?":isOpen(e)?"Open":"Ended" }); }); });
-  // By tanker
+  // By tanker (range figures + persistent current fill and all-time totals)
   const byT=VEHICLES.map(v=>{
     const ve=evs.filter(e=>e.plate===v.plate), vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
     return { "Vehicle":v.plate, "Chambers":v.caps.length, "Full capacity (L)":v.caps.reduce((s,x)=>s+x,0),
-      "Loadings":vl.length, "Litres loaded":vl.reduce((s,e)=>s+e.total,0),
-      "Tankers sold":vd.length, "Litres sold":vd.reduce((s,e)=>s+e.total,0),
-      "Current fill (L)":st.total, "Status":st.full?"FULL":(st.total>0?"Filling":"Empty") };
+      "Loadings (range)":vl.length, "Litres loaded (range)":vl.reduce((s,e)=>s+e.total,0),
+      "Tankers sold (range)":vd.length, "Litres sold (range)":vd.reduce((s,e)=>s+e.total,0),
+      "Current fill (L)":st.total, "Status":st.full?"FULL":(st.total>0?"Filling":"Empty"),
+      "All-time loaded (L)":(+v.total_loaded||0), "All-time sold (L)":(+v.total_sold||0) };
   });
   // By day (business date)
   const dm={};
@@ -1059,10 +1091,13 @@ $("#dlExcel").onclick=async()=>{
     ["Date range", ($("#repFrom").value||"start")+"  to  "+($("#repTo").value||"today")],
     ["Mode", CLOUD?"Cloud (shared, last 7 days)":"Single device"],
     [],
-    ["Total loadings", loads.length],
-    ["Litres loaded", loads.reduce((s,e)=>s+e.total,0)],
-    ["Tankers sold (dispatched)", disp.length],
-    ["Litres sold", disp.reduce((s,e)=>s+e.total,0)],
+    ["Litres loaded (range)", loads.reduce((s,e)=>s+e.total,0)],
+    ["Loadings (range)", loads.length],
+    ["Litres sold (range)", disp.reduce((s,e)=>s+e.total,0)],
+    ["Tankers sold (range)", disp.length],
+    [],
+    ["All-time litres loaded", allTime("total_loaded")],
+    ["All-time litres sold", allTime("total_sold")],
     [],
     ["Current fill by tanker", ""]
   ].concat(VEHICLES.map(v=>{ const st=tankerState(v.plate); return ["   "+v.plate, fmt(st.total)+" / "+fmt(st.cap)+" L"+(st.full?"  (FULL)":"")]; }));
@@ -1080,7 +1115,7 @@ $("#dlExcel").onclick=async()=>{
     wsC["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:9},{wch:10},{wch:14},{wch:22},{wch:12},{wch:11}];
     wsC["!autofilter"]={ref:wsC["!ref"]}; numfmt(XLSX,wsC,1);
     XLSX.utils.book_append_sheet(wb,wsC,"Chamber log");
-    const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:10},{wch:13},{wch:12},{wch:12},{wch:14},{wch:9}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
+    const wsB=XLSX.utils.json_to_sheet(byT); wsB["!cols"]=[{wch:12},{wch:9},{wch:16},{wch:15},{wch:18},{wch:16},{wch:16},{wch:14},{wch:9},{wch:16},{wch:15}]; numfmt(XLSX,wsB,1); XLSX.utils.book_append_sheet(wb,wsB,"By tanker");
     const wsD=XLSX.utils.json_to_sheet(byD); wsD["!cols"]=[{wch:13},{wch:10},{wch:13},{wch:12},{wch:12}]; numfmt(XLSX,wsD,1); XLSX.utils.book_append_sheet(wb,wsD,"By day");
     const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
     dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");

@@ -50,8 +50,17 @@ create table if not exists public.loading_vehicles (
   plate      text primary key,
   caps       jsonb not null,      -- [3985,3985,3985]
   color      text not null default '',
+  -- PERSISTENT current fill + all-time totals, so a loaded-but-unsold tanker
+  -- never resets when its detailed load events age out of the 7-day window.
+  fill         jsonb   not null default '{}'::jsonb,  -- {"C1":3985,"C2":1500,...}
+  total_loaded numeric not null default 0,            -- all-time litres loaded
+  total_sold   numeric not null default 0,            -- all-time litres sold
   created_at timestamptz not null default now()
 );
+-- add the columns if an earlier version of this table already exists
+alter table public.loading_vehicles add column if not exists fill         jsonb   not null default '{}'::jsonb;
+alter table public.loading_vehicles add column if not exists total_loaded numeric not null default 0;
+alter table public.loading_vehicles add column if not exists total_sold   numeric not null default 0;
 -- seed the known tankers (safe to re-run; only inserts missing ones)
 insert into public.loading_vehicles (plate, caps, color) values
   ('OD23A3710', '[3985,3985,3985]',      '#1f6f8b'),
@@ -118,6 +127,21 @@ begin
   end if;
 end $$;
 
+-- Add (sign +1) or subtract (sign -1) a chambers array [{name,qty}] to a fill
+-- object {"C1":qty,...}, clamping at 0 and rounding to 2 dp.
+create or replace function public._fill_apply(p_fill jsonb, p_chambers jsonb, p_sign int)
+returns jsonb language plpgsql immutable as $$
+declare c jsonb; nm text; cur numeric; res jsonb := coalesce(p_fill,'{}'::jsonb);
+begin
+  for c in select * from jsonb_array_elements(coalesce(p_chambers,'[]'::jsonb)) loop
+    nm := c->>'name';
+    cur := coalesce((res->>nm)::numeric,0) + p_sign*(c->>'qty')::numeric;
+    if cur < 0 then cur := 0; end if;
+    res := jsonb_set(res, array[nm], to_jsonb(round(cur,2)));
+  end loop;
+  return res;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- RPCs (the client's only write path)
 -- ---------------------------------------------------------------------
@@ -146,20 +170,60 @@ begin
           coalesce(p_remark,''), auth.uid())
   returning id into rid;
 
+  -- keep the tanker's PERSISTENT fill + all-time loaded in sync (loads only)
+  if coalesce(p_kind,'load') = 'load' then
+    update loading_vehicles
+      set fill = _fill_apply(fill, p_chambers, 1),
+          total_loaded = round(total_loaded + p_total, 2)
+      where plate = p_vehicle;
+  end if;
+
   delete from loading_events where created_at < now() - interval '7 days';
   return rid;
 end $$;
 
--- Delete a (recent) event. Any signed-in employee may correct a mistake.
-create or replace function public.loading_delete(p_id uuid) returns void
+-- Sell (empty) a tanker: snapshot its persistent fill into a 'dispatch' event,
+-- add to all-time sold, and reset the fill to empty. Fill is server state, so
+-- this is independent of the 7-day event window.
+create or replace function public.loading_dispatch(p_vehicle text, p_by text, p_remark text)
+returns uuid
 language plpgsql security definer set search_path = public as $$
+declare v loading_vehicles; snap jsonb := '[]'::jsonb; tot numeric := 0; k text; val numeric; rid uuid;
 begin
   perform _loading_auth();
-  delete from loading_events
-    where id = p_id and created_at >= now() - interval '7 days';
-  if not found then
-    raise exception 'Record not found or older than 7 days';
+  select * into v from loading_vehicles where plate = p_vehicle;
+  if not found then raise exception 'Unknown tanker'; end if;
+  for k, val in select key, value::numeric from jsonb_each_text(coalesce(v.fill,'{}'::jsonb)) order by key loop
+    if val > 0 then
+      snap := snap || jsonb_build_array(jsonb_build_object('name', k, 'qty', round(val,2)));
+      tot := tot + val;
+    end if;
+  end loop;
+  if tot <= 0 then raise exception 'Tanker is already empty'; end if;
+  insert into loading_events (vehicle, kind, chambers, total, by_name, remark, created_by)
+    values (p_vehicle, 'dispatch', snap, round(tot,2), coalesce(p_by,''), coalesce(p_remark,''), auth.uid())
+    returning id into rid;
+  update loading_vehicles set fill = '{}'::jsonb, total_sold = round(total_sold + tot, 2) where plate = p_vehicle;
+  delete from loading_events where created_at < now() - interval '7 days';
+  return rid;
+end $$;
+
+-- Delete a (recent) event, reversing its effect on the persistent fill/totals.
+create or replace function public.loading_delete(p_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare e loading_events;
+begin
+  perform _loading_auth();
+  select * into e from loading_events where id = p_id and created_at >= now() - interval '7 days';
+  if not found then raise exception 'Record not found or older than 7 days'; end if;
+  if e.kind = 'load' then
+    update loading_vehicles set fill = _fill_apply(fill, e.chambers, -1),
+      total_loaded = greatest(round(total_loaded - e.total, 2), 0) where plate = e.vehicle;
+  elsif e.kind = 'dispatch' then
+    update loading_vehicles set fill = _fill_apply(fill, e.chambers, 1),
+      total_sold = greatest(round(total_sold - e.total, 2), 0) where plate = e.vehicle;
   end if;
+  delete from loading_events where id = p_id;
 end $$;
 
 -- Explicit purge (the app calls this on open). Returns rows removed.
@@ -182,6 +246,7 @@ begin
   perform _loading_auth();
   delete from loading_events where id is not null;
   get diagnostics n = row_count;
+  update loading_vehicles set fill = '{}'::jsonb, total_loaded = 0, total_sold = 0 where plate is not null;
   return n;
 end $$;
 
@@ -275,6 +340,7 @@ begin
     revoke execute on all functions in schema public from public, anon;
     grant execute on function
       public.loading_add(text, jsonb, numeric, text, text, text),
+      public.loading_dispatch(text, text, text),
       public.loading_delete(uuid),
       public.loading_purge(),
       public.loading_clear_all(),

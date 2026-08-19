@@ -103,15 +103,25 @@ Every signed-in employee has equal rights (add / delete / export). The anon key
 alone can read or write nothing — access is gated by sign-in and Row Level
 Security, and all writes go through server functions.
 
-### How the 7-day retention is enforced
+### What's kept vs. what's trimmed after 7 days
 
-It holds three ways, so a week is the most that is ever kept:
+Only the **detailed transaction rows** (the chamber-log / per-loading history) are
+trimmed to the **last 7 days** — that's what would otherwise pile up. Enforced
+three ways: the read policy only exposes the last 7 days, every save deletes older
+rows, and (if `pg_cron` is present) an hourly purge.
 
-1. The read policy only returns rows from the **last 7 days** (older rows are
-   invisible even before deletion).
-2. Every save also deletes rows older than 7 days, and the app calls
-   `loading_purge()` on open.
-3. If `pg_cron` is installed, it purges hourly on a schedule too.
+**What is kept permanently** (and takes almost no space):
+
+- **Each tanker's current fill** — stored as persistent state on the tanker row
+  (`loading_vehicles.fill`), updated on every load and sale. So a tanker that was
+  loaded but **not yet sold does not reset to 0** when its detailed load rows age
+  out of the 7-day window. (This was the bug — the fill used to be re-derived
+  from the events and collapsed to 0 once they were purged.)
+- **All-time litres loaded and litres sold** per tanker (`total_loaded`,
+  `total_sold`), shown under **Reports → All-time totals** and in the Excel.
+
+So you keep the running fill and the lifetime totals forever, and only lose the
+line-by-line detail older than a week.
 
 > A tanker's current fill is computed from its loadings since its last
 > **dispatch**, all within this 7-day window — which is fine because a fill →
