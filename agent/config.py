@@ -80,8 +80,9 @@ ICICI = ParserProfile(
 # ``token_env`` names the GitHub secret (a Gmail OAuth refresh-token JSON blob)
 # that authenticates that mailbox. See §7 of the build spec.
 ACCOUNTS = [
-    {"id": "bank1", "profile": HDFC, "token_env": "GMAIL_TOKEN_BANK1"},
-    {"id": "bank2", "profile": ICICI, "token_env": "GMAIL_TOKEN_BANK2"},
+    # Account 1's mailbox receives ICICI alerts; account 2's receives HDFC.
+    {"id": "bank1", "profile": ICICI, "token_env": "GMAIL_TOKEN_BANK1"},
+    {"id": "bank2", "profile": HDFC, "token_env": "GMAIL_TOKEN_BANK2"},
 ]
 
 # Telegram failure-alert secrets (reused from the IOCL monitor).
