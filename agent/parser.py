@@ -42,7 +42,21 @@ class ParserProfile:
     payer_patterns: list[str]
     rail_pattern: str | None = None             # extracts NEFT/RTGS/IMPS/UPI...
     default_rail: str = ""                      # used when rail_pattern misses
+    # Gate: an email is only ours if EVERY accept_if_all pattern is present and
+    # NO reject_if_any pattern is. A gated-out email is ignored entirely (not
+    # even queued for review) — e.g. debit alerts, or a second account's credits.
+    accept_if_all: list[str] = field(default_factory=list)
+    reject_if_any: list[str] = field(default_factory=list)
     flags: int = field(default=re.IGNORECASE)
+
+    def applies(self, text: str) -> bool:
+        for pat in self.accept_if_all:
+            if not re.search(pat, text, self.flags):
+                return False
+        for pat in self.reject_if_any:
+            if re.search(pat, text, self.flags):
+                return False
+        return True
 
 
 @dataclass
@@ -56,6 +70,7 @@ class ParseResult:
     mode: str = ""
     error: str | None = None
     raw_text: str | None = None
+    ignore: bool = False        # True -> not a target alert; drop it entirely
 
 
 def _first_group(patterns: list[str], text: str, flags: int) -> str | None:
@@ -105,6 +120,11 @@ def parse(profile: ParserProfile, subject: str, body: str) -> ParseResult:
     """Parse one alert. Never raises on bad content — returns ``ok=False`` with
     the raw text so the caller can queue a debuggable ``review`` row."""
     text = f"{subject or ''}\n{body or ''}"
+
+    # Gate first: debit alerts, other accounts, non-credit noise -> ignore.
+    if not profile.applies(text):
+        return ParseResult(ok=False, bank=profile.bank, ignore=True,
+                           error="ignored: not a target credit alert")
 
     amount = parse_amount(_first_group(profile.amount_patterns, text, profile.flags))
     date_str = normalize_date(_first_group(profile.date_patterns, text, profile.flags) or "")
