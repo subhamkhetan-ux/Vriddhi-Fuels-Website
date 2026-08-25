@@ -72,27 +72,30 @@ ICICI = ParserProfile(
     bank="ICICI",
     gmail_query='from:(alerts@icicibank.com OR credit_alert@icicibank.com) '
                 '(subject:credited OR "has been credited")',
-    # Credit alerts only; drop debit alerts even if the query catches them.
-    # TODO: tune against a real ICICI credit email (see Phase 5) — add the
-    # account-number gate here too if this mailbox gets more than one account.
-    accept_if_all=[r"credited"],
-    reject_if_any=[r"has been debited", r"\bdebited\b"],
+    # Credit alerts only. Ignore debit alerts and the daily "Ezy QR" auto-credits
+    # (small QR-collection FT credits with no real remitter name).
+    accept_if_all=[r"has been credited"],
+    reject_if_any=[r"EZY ?QR", r"has been debited", r"\bdebited\b"],
     amount_patterns=[
+        # "...has been credited with Rs. 34,79,017.00 on..."
         r"credited with\s*(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{1,2})?)",
         r"(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{1,2})?)",
     ],
     date_patterns=[
+        # "on 06-Aug-26"
         r"\bon\s+(\d{1,2}[-/][A-Za-z]{3,4}[-/]\d{2,4})",
         r"\bon\s+(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",
     ],
     payer_patterns=[
+        # "Info: RTGS-<UTR>-<REMITTER>" -> remitter is the last field
+        r"Info[:\s]+(?:RTGS|NEFT|IMPS)-[^-]*-([^-.\n]+)",
         # "Info: UPI/<rrn>/<purpose>/<NAME>/"
         r"Info[:\s]+UPI/[^/]*/[^/]*/([^/\n]+)",
         r"\bfrom\s+([A-Z][A-Za-z0-9&./ ]{2,}?)(?=\s+(?:Ref|UTR|on|Info|\(|\.|$))",
-        r"Info[:\s]+[A-Z]+[/-][^/-]*[/-]\s*([^./\n]+)",
     ],
-    rail_pattern=r"\b(NEFT|RTGS|IMPS|UPI)\b",
-    default_rail="",
+    # Column D / remarks is a fixed tag for this account.
+    rail_pattern=None,
+    default_rail="BANK LTD",   # -> mode "ICICI BANK LTD"
 )
 
 

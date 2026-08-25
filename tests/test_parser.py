@@ -34,10 +34,20 @@ HDFC_OTHER_ACCT = (
     "Reference Details: NEFT Cr-ICIC0000123-SOME OTHER PARTY-VRIDDHI FUELS-REF123"
 )
 
+# Real ICICI credit alert.
 ICICI_BODY = (
-    "Dear Customer, Your ICICI Bank Account XX123 has been credited with "
-    "INR 5,000.00 on 16-Jun-2025. Info: UPI/512345678901/Payment/RAKESH KUMAR/. "
-    "Available balance: INR 22,000.00."
+    "Dear Customer,\n"
+    "Greetings from ICICI Bank.\n"
+    "Your ICICI Bank Account XX716 has been credited with Rs. 34,79,017.00 on "
+    "06-Aug-26. Info: RTGS-CNRBR52026080693241568-SMC POWER GENERATION L."
+)
+
+# Daily Ezy QR auto-credit — must be ignored.
+ICICI_EZY_QR = (
+    "Dear Customer,\n"
+    "Greetings from ICICI Bank.\n"
+    "Your ICICI Bank Account XX716 has been credited with Rs. 72,249.99 on "
+    "25-Aug-26. Info: FT-EZY QR 317673344411 24-Aug-26."
 )
 
 
@@ -78,13 +88,21 @@ def test_hdfc_other_account_is_ignored():
     assert r.ignore is True         # account 2542, not 1010
 
 
-def test_icici_alert_parses():
+def test_icici_credit_parses():
     r = parse(ICICI, "Account credited", ICICI_BODY)
     assert r.ok, r.error
     assert r.bank == "ICICI"
-    assert r.amount == 5000.0
-    assert r.date_str == "16/06/2025"
-    assert "RAKESH KUMAR" in r.raw_payer
+    assert r.amount == 3479017.0
+    assert r.date_str == "06/08/26"
+    assert r.date_serial is not None
+    assert "SMC POWER GENERATION L" in r.raw_payer
+    assert r.mode == "ICICI BANK LTD"      # fixed remarks tag
+
+
+def test_icici_ezy_qr_is_ignored():
+    r = parse(ICICI, "Account credited", ICICI_EZY_QR)
+    assert not r.ok
+    assert r.ignore is True                 # daily QR auto-credit, dropped
 
 
 def test_parse_failure_keeps_raw_text_not_ok():
