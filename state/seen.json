@@ -1,1 +1,10 @@
-{}
+{
+  "bank1": {
+    "high_water": 0,
+    "ids": []
+  },
+  "bank2": {
+    "high_water": 0,
+    "ids": []
+  }
+}
