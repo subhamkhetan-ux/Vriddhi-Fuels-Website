@@ -1,0 +1,74 @@
+name: Payment agent (Gmail -> queue)
+
+# Cloud half of the Gmail -> Master Paid agent. Reads new bank credit alerts,
+# parses + matches them, and commits the updated queue/seen state. The Mac later
+# runs materialize.py to turn the queue into an .xlsx. See agent/README.md.
+
+on:
+  schedule:
+    # Every 20 minutes. GitHub cron is best-effort and throttles tighter
+    # schedules; a credit alert queued 20 min late is fine (spec §8).
+    - cron: "*/20 * * * *"
+  workflow_dispatch: {}  # allow manual runs
+
+# Prevent overlapping runs from racing on the state commit.
+concurrency:
+  group: payment-agent
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # needed to commit state/*.json back to the repo
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ingest
+        id: ingest
+        env:
+          GMAIL_TOKEN_BANK1: ${{ secrets.GMAIL_TOKEN_BANK1 }}
+          GMAIL_TOKEN_BANK2: ${{ secrets.GMAIL_TOKEN_BANK2 }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+        run: |
+          set -o pipefail
+          python -m agent.run 2>&1 | tee run.log
+
+      - name: Commit state
+        # Always commit whatever progress was made, even if ingest reported an
+        # account error (the queue/seen advance only past handled alerts).
+        if: always()
+        run: |
+          git config user.name  "payment-agent[bot]"
+          git config user.email "payment-agent@users.noreply.github.com"
+          git add state/queue.json state/seen.json
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+          else
+            git commit -m "agent: update queue/seen state"
+            git push
+          fi
+
+      - name: Upload run log artifact
+        # Debuggable trail — raw text of parse failures is in the queue's review
+        # rows; the log captures per-account counts and any tracebacks (spec §4).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-log
+          path: run.log
+          retention-days: 14
+
+      - name: Fail the job if ingest reported errors
+        if: always() && steps.ingest.outcome == 'failure'
+        run: exit 1
