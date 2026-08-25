@@ -71,15 +71,21 @@ The runner authenticates each mailbox with a **refresh token** (not a password â
 Google blocks datacenter password logins; a refresh token is revocable and
 scoped to read-only Gmail).
 
-1. In Google Cloud Console create an OAuth client (Desktop app) and enable the
-   Gmail API. Download `credentials.json`.
-2. On the Mac, run the consent flow **once per account** with the read-only
-   scope `https://www.googleapis.com/auth/gmail.readonly`, e.g. with
-   `google-auth-oauthlib`'s `InstalledAppFlow.run_local_server(...)`, and save
-   the resulting authorized-user JSON (contains `refresh_token`, `client_id`,
-   `client_secret`, `token_uri`).
-3. Paste each account's JSON blob into a GitHub repo secret:
-   `GMAIL_TOKEN_BANK1` (HDFC), `GMAIL_TOKEN_BANK2` (ICICI).
+1. In Google Cloud Console create a project, enable the Gmail API, and create an
+   OAuth client of type **Desktop app**. Download `credentials.json`. Add each
+   Gmail address as a **Test user** on the OAuth consent screen.
+2. On the Mac, mint a refresh token **once per account** with the bundled helper
+   (signs you in via the browser, read-only scope):
+
+   ```bash
+   pip install -r requirements.txt
+   python3 mint_token.py --credentials credentials.json --out token_bank1.json  # sign in as account 1
+   python3 mint_token.py --credentials credentials.json --out token_bank2.json  # sign in as account 2
+   ```
+
+3. Paste each printed JSON blob into a GitHub repo secret:
+   `GMAIL_TOKEN_BANK1` (HDFC), `GMAIL_TOKEN_BANK2` (ICICI). The `token_*.json`
+   files are git-ignored â€” delete them after copying.
 
 ### 2. Other secrets
 
