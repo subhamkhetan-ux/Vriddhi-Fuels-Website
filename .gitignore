@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Generated locally on the Mac by materialize.py — not committed
+PaymentEntries_*.xlsx
+run.log
+
+# Local Gmail OAuth material — never commit tokens or client secrets
+credentials.json
+token_*.json
+*.oauth.json
