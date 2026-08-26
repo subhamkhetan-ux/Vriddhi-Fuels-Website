@@ -204,10 +204,10 @@ const Cloud = {
     try{
       const createClient = await import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
       this.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {auth:{persistSession:false}});
-      await this.pull();
+      const ok = await this.pull();          // sets live/offline itself
       this.subscribe();
-      this.setState("live");
-    }catch(e){ this.setState("offline"); }
+      if(ok) clearError();
+    }catch(e){ this.setState("offline"); showError("Could not connect to Supabase: "+(e&&e.message||e)); }
   },
   subscribe(){
     if(!this.client||!this.client.channel) return;
@@ -218,15 +218,28 @@ const Cloud = {
       .subscribe();
   },
   async pull(){
-    if(!this.client) return;
+    if(!this.client) return false;
     try{
-      await this.client.rpc("pay_credit_purge_old").catch(()=>{});
-      const cutoff = new Date(Date.now()-SEVEN_DAYS).toISOString();
-      const { data, error } = await this.client.from("pay_credit_queue").select("*")
-        .or(`exported.eq.false,exported_at.gte.${cutoff}`);
+      this.client.rpc("pay_credit_purge_old").catch(()=>{});     // fire-and-forget
+      // Fetch all and filter client-side (tiny volume) — avoids brittle server
+      // filters, and surfaces the row count so an empty read is obvious.
+      const { data, error } = await this.client.from("pay_credit_queue")
+        .select("*").order("date_serial", {ascending:true}).limit(2000);
       if(error) throw error;
-      ROWS = data||[]; this.setState("live"); render();
-    }catch(e){ this.setState("offline"); }
+      const cutoff = Date.now() - SEVEN_DAYS;
+      ROWS = (data||[]).filter(r => !r.exported ||
+              (r.exported_at && Date.parse(r.exported_at) >= cutoff));
+      this.setState("live"); clearError(); render();
+      if(!(data||[]).length)
+        showError("Connected, but the payments table is empty for this key. "
+          + "Check the SUPABASE_URL secret matches this app's project, and that "
+          + "payments-schema.sql was run in it (RLS policy present).", "warn");
+      return true;
+    }catch(e){
+      this.setState("offline");
+      showError("Couldn't read payments from Supabase: "+(e&&e.message||e));
+      return false;
+    }
   },
   async resolve(id, customer, key){
     if(!this.client) return;
@@ -440,6 +453,11 @@ function showSetup(){
   el.className="setup";
   el.innerHTML = `<b>Cloud not configured.</b> Add your Supabase URL + anon key to <code>payments/config.js</code> and run <code>supabase/payments-schema.sql</code> once. See the README.`;
 }
+function showError(msg, kind){
+  const el=document.getElementById("setup"); el.style.display="block";
+  el.className="setup"; el.innerHTML = (kind==="warn"?"⚠️ ":"❌ ")+esc(msg);
+}
+function clearError(){ const el=document.getElementById("setup"); el.style.display="none"; el.innerHTML=""; }
 
 /* ---------- dependency-free .xlsx writer (verbatim from the pay app) ---------- */
 function buildXlsx(header, rows){
