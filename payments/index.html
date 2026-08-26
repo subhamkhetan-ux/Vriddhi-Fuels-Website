@@ -220,7 +220,9 @@ const Cloud = {
   async pull(){
     if(!this.client) return false;
     try{
-      this.client.rpc("pay_credit_purge_old").catch(()=>{});     // fire-and-forget
+      // best-effort purge; wrap in Promise.resolve so it's a real promise
+      // (the query builder is a thenable without a .catch method).
+      Promise.resolve(this.client.rpc("pay_credit_purge_old")).catch(()=>{});
       // Fetch all and filter client-side (tiny volume) — avoids brittle server
       // filters, and surfaces the row count so an empty read is obvious.
       const { data, error } = await this.client.from("pay_credit_queue")
