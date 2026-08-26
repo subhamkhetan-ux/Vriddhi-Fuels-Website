@@ -112,7 +112,15 @@ regex line if the wording differs. A parse miss never drops an alert — it queu
 a `review` row carrying the raw text (also in the run-log artifact), so tuning is
 low-risk and iterative.
 
-## Daily use (Mac)
+## Daily use — the app (no terminal)
+
+The easiest daily path is the **[`/payments/`](../payments/) web app** (a PWA,
+like `/pay`). It reads the queue from Supabase, lets you resolve review names on
+your phone (saving aliases the agent reads back), and exports the `.xlsx` — no
+`git`/`python`. See [`payments/README.md`](../payments/README.md) for the one-time
+Supabase setup. The terminal flow below still works as a fallback.
+
+## Daily use (Mac, terminal fallback)
 
 ```bash
 git pull

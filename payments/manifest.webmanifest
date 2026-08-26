@@ -1,0 +1,16 @@
+{
+  "name": "Vriddhi Fuels — Payments",
+  "short_name": "Payments",
+  "description": "Review and export bank credit alerts to Master Paid — Vriddhi Fuels.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0C1730",
+  "theme_color": "#111E3E",
+  "icons": [
+    { "src": "icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
