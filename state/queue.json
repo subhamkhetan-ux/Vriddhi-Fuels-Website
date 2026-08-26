@@ -590,6 +590,27 @@
       "status": "review",
       "error": "could not extract: payer",
       "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 13,000.00 on 26-Aug-26. Info: BIL*INFT*FHU0853112*.\r\n\r\nThe Available Balance in your account is Rs. 63,421.96.\r\n\r\nIn case you have not done this transaction, please call on 00914071403333  from your registered mobile number.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
+    },
+    {
+      "entry_id": "36933637b82e620e",
+      "gmail_msg_id": "1a03cd3bb34cb431",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "26/08/2026",
+      "date_serial": 46260,
+      "amount": 20000.0,
+      "raw_payer": "SWAGAT SUNDAR MOHANTY",
+      "customer": "Swagat Sundar Mohanty",
+      "candidates": [
+        "Swagat Sundar Mohanty"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T07:29:30.911410+00:00",
+      "status": "matched"
     }
   ]
 }
