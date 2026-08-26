@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vriddhi Fuels — Payments</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111E3E">
+<link rel="apple-touch-icon" href="icon.png">
+<script src="config.js"></script>
+<style>
+:root{
+  --bg:#0C1730; --panel:#111E3E; --panel2:#16264C; --line:#23366A;
+  --ink:#EAF0FF; --muted:#9DB0DA; --faint:#6F84B8;
+  --accent:#4C8DFF; --good:#33C08A; --good-bg:#33c08a1f;
+  --warn:#E0A048; --warn-bg:#e0a0481f; --bad:#E06B5E; --bad-bg:#e06b5e1f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;padding-bottom:80px}
+header{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line);
+  padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));display:flex;align-items:center;gap:10px}
+header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
+.pill{font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.pill.live .dot{background:var(--good)} .pill.live{color:var(--good)}
+.pill.connecting .dot{background:var(--warn)} .pill.offline .dot{background:var(--bad)}
+.wrap{max-width:760px;margin:0 auto;padding:14px 14px 40px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+.stat .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat .v{font-size:24px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums}
+.stat .s{font-size:12px;color:var(--faint);margin-top:2px}
+.stat.ready .v{color:var(--good)} .stat.review .v{color:var(--warn)}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 4px 10px;font-weight:700}
+h2 .count{color:var(--faint);font-weight:600}
+.empty{color:var(--faint);font-size:14px;padding:14px;text-align:center;
+  border:1px dashed var(--line);border-radius:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.card.warnrow{border-color:var(--warn)}
+.row-top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.amt{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rp{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--muted);margin-top:2px;word-break:break-word}
+.meta{font-size:12px;color:var(--faint);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+.tag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px;background:var(--panel2);color:var(--muted)}
+.cands{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+.cand{font-size:13px;padding:7px 11px;border-radius:9px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--ink);cursor:pointer}
+.cand:hover{border-color:var(--accent)} .cand.best{border-color:var(--good)}
+.resolve{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+input[type=text]{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:9px;
+  color:var(--ink);padding:9px 11px;font-size:14px}
+input[type=text]:focus{outline:none;border-color:var(--accent)}
+.addgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#addCard label{font-size:12px;color:var(--muted)}
+#addCard input{width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--line);
+  border-radius:9px;color:var(--ink);padding:9px 11px;font-size:14px}
+#addCard input:focus{outline:none;border-color:var(--accent)}
+button{font-family:inherit}
+.btn{font-size:13px;font-weight:600;padding:9px 13px;border-radius:9px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--ink);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:5px 9px;font-size:12px}
+.ready-row{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--line)}
+.ready-row:last-child{border-bottom:none}
+.ready-row .cust{flex:1;min-width:0}
+.ready-row .cust .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ready-row .cust .d{font-size:12px;color:var(--faint)}
+.ready-row .a{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.dupflag{font-size:11px;color:var(--warn);font-weight:600}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--good)}
+.exportbar{position:fixed;left:0;right:0;bottom:0;z-index:25;background:var(--panel);
+  border-top:1px solid var(--line);padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));
+  display:flex;gap:12px;align-items:center}
+.exportbar .sum{flex:1;font-size:13px;color:var(--muted)}
+.exportbar .sum b{color:var(--ink);font-size:15px}
+.cta{font-size:15px;font-weight:700;padding:12px 18px;border-radius:11px;border:none;
+  background:var(--good);color:#04130c;cursor:pointer}
+.cta:disabled{background:var(--panel2);color:var(--faint);cursor:default}
+details{margin-top:8px}
+summary{cursor:pointer;color:var(--muted);font-size:13px;padding:8px 4px;list-style:none}
+summary::-webkit-details-marker{display:none}
+.exp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.exp-row .c{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.exp-row .a{font-variant-numeric:tabular-nums;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--panel2);
+  border:1px solid var(--line);color:var(--ink);padding:10px 16px;border-radius:11px;font-size:13px;
+  z-index:40;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+.setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
+.setup code{background:#0006;padding:1px 5px;border-radius:4px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Payments</h1>
+  <button class="btn sm" id="addBtn" title="Log a payment received off-email">＋ Add</button>
+  <button class="btn sm ghost" id="refreshBtn" title="Refresh">↻</button>
+  <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">…</span></span>
+</header>
+
+<div class="wrap">
+  <div id="setup" style="display:none"></div>
+
+  <div class="card" id="addCard" style="display:none">
+    <div style="font-weight:700;margin-bottom:10px">Log a payment (cash / cheque / other)</div>
+    <div class="addgrid">
+      <label>Date<input type="date" id="mDate"></label>
+      <label>Amount<input type="number" id="mAmount" inputmode="decimal" placeholder="0" min="0" step="0.01"></label>
+    </div>
+    <label style="display:block;margin-top:10px">Customer
+      <input type="text" id="mCust" list="custList" placeholder="type customer name…"></label>
+    <label style="display:block;margin-top:10px">Mode / remarks
+      <input type="text" id="mMode" placeholder="Cash"></label>
+    <div class="cands" id="modeChips">
+      <button class="cand" onclick="setMode('Cash')">Cash</button>
+      <button class="cand" onclick="setMode('Cheque')">Cheque</button>
+      <button class="cand" onclick="setMode('UPI')">UPI</button>
+      <button class="cand" onclick="setMode('Bank Transfer')">Bank Transfer</button>
+    </div>
+    <div class="resolve" style="margin-top:12px">
+      <button class="cta" style="flex:1" onclick="submitManual()">Add to Ready</button>
+      <button class="btn ghost" onclick="toggleAdd(false)">Cancel</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat ready"><div class="k">Ready to export</div><div class="v" id="readyCount">0</div><div class="s" id="readyTotal">₹0</div></div>
+    <div class="stat review"><div class="k">Needs review</div><div class="v" id="reviewCount">0</div><div class="s">tap a name to resolve</div></div>
+  </div>
+
+  <div id="reviewWrap"></div>
+  <div id="readyWrap"></div>
+  <div id="exportedWrap"></div>
+</div>
+
+<div class="exportbar">
+  <div class="sum" id="exportSum">Nothing selected</div>
+  <button class="cta" id="exportBtn" disabled>Download .xlsx</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const CFG = window.VRIDDHI_PAYMENTS_CONFIG || {};
+const SEVEN_DAYS = 7*24*3600*1000;
+const EPOCH = Date.UTC(1899,11,30);
+
+/* ---------- helpers (mirrored from the pay app / agent) ---------- */
+function serialToDMY(s){ if(s==null) return ""; const d=new Date(EPOCH+Number(s)*86400000);
+  return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")}/${d.getUTCFullYear()}`; }
+function money(n){ if(n==null||isNaN(n)) return ""; return "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2}); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function escAttr(s){ return esc(s).replace(/'/g,"&#39;"); }
+function norm(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
+
+// clean_remitter + alias_key — must match agent/normalize.py so app-saved
+// aliases line up with what the cloud agent computes for the same remitter.
+const PREFIX = new Set(["m","s","ms","mr","mrs","messrs","sri","shri","smt"]);
+function cleanRemitter(raw){
+  let s = String(raw==null?"":raw);
+  s = s.replace(/\b(?:utr|ref|rrn|txn|neft|rtgs|imps|upi|chq|cheque)\b[:\s-]*[a-z0-9/-]*/gi," ");
+  s = s.replace(/\b\d{9,}\b/g," ");
+  s = s.replace(/\b(?=[a-z0-9]*\d)[a-z0-9]{10,}\b/gi," ");
+  let words = s.split(/[\s/]+/).filter(Boolean);
+  while(words.length && PREFIX.has(norm(words[0]).replace(/ /g,""))) words.shift();
+  return words.join(" ").trim();
+}
+function aliasKey(raw){ return norm(cleanRemitter(raw)) || norm(raw); }
+
+/* ---------- customer master list (for review autocomplete) ---------- */
+let NAMES=[], NORMED=[];
+async function loadCustomers(){
+  if(!CFG.CUSTOMERS_URL) return;
+  try{
+    const r = await fetch(CFG.CUSTOMERS_URL+(CFG.CUSTOMERS_URL.includes("?")?"":"?_t="+Date.now()),{cache:"no-store"});
+    const j = await r.json();
+    NAMES = Array.isArray(j) ? j : (j.customers||[]);
+    NORMED = NAMES.map(n=>[n,norm(n)]);
+    let dl = document.getElementById("custList");
+    if(!dl){ dl=document.createElement("datalist"); dl.id="custList"; document.body.appendChild(dl); }
+    dl.innerHTML = NAMES.map(n=>`<option value="${escAttr(n)}">`).join("");
+  }catch(_){}
+}
+function canonicalFor(input){
+  const q = norm(input);
+  for(const [n,nn] of NORMED) if(nn===q) return n;   // exact
+  return null;
+}
+
+/* ---------- Supabase cloud ---------- */
+const Cloud = {
+  enabled: !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY &&
+              !/PASTE_/.test(CFG.SUPABASE_URL) && !/PASTE_/.test(CFG.SUPABASE_ANON_KEY)),
+  client:null, state:"off",
+  setState(s){ this.state=s; const p=document.getElementById("statusPill"), t=document.getElementById("statusText");
+    p.className="pill "+s; t.textContent={off:"local",connecting:"connecting…",live:"synced",offline:"offline"}[s]||s; },
+  async init(){
+    if(!this.enabled){ showSetup(); return; }
+    this.setState("connecting");
+    try{
+      const createClient = await import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
+      this.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {auth:{persistSession:false}});
+      await this.pull();
+      this.subscribe();
+      this.setState("live");
+    }catch(e){ this.setState("offline"); }
+  },
+  subscribe(){
+    if(!this.client||!this.client.channel) return;
+    let t; const poke=fn=>{clearTimeout(t);t=setTimeout(fn,300);};
+    this.client.channel("payments-live")
+      .on("postgres_changes",{event:"*",schema:"public",table:"pay_credit_queue"},
+          ()=>poke(()=>this.pull()))
+      .subscribe();
+  },
+  async pull(){
+    if(!this.client) return;
+    try{
+      await this.client.rpc("pay_credit_purge_old").catch(()=>{});
+      const cutoff = new Date(Date.now()-SEVEN_DAYS).toISOString();
+      const { data, error } = await this.client.from("pay_credit_queue").select("*")
+        .or(`exported.eq.false,exported_at.gte.${cutoff}`);
+      if(error) throw error;
+      ROWS = data||[]; this.setState("live"); render();
+    }catch(e){ this.setState("offline"); }
+  },
+  async resolve(id, customer, key){
+    if(!this.client) return;
+    try{
+      await this.client.from("pay_credit_queue").update({status:"matched",customer,match_tier:"resolved"}).eq("entry_id",id);
+      if(key) await this.client.from("pay_credit_aliases").upsert({alias_key:key,canonical:customer,updated_at:new Date().toISOString()},{onConflict:"alias_key"});
+    }catch(_){}
+  },
+  async setStatus(id, patch){ if(!this.client) return; try{ await this.client.from("pay_credit_queue").update(patch).eq("entry_id",id); }catch(_){} },
+  async markExported(ids){
+    if(!this.client||!ids.length) return;
+    try{ await this.client.from("pay_credit_queue").update({exported:true,exported_at:new Date().toISOString()}).in("entry_id",ids); }catch(_){}
+  },
+  async drop(id){ if(!this.client) return; try{ await this.client.from("pay_credit_queue").delete().eq("entry_id",id); }catch(_){} },
+  async addManual(row){
+    if(!this.client){ toast("Offline — added locally only"); return; }
+    try{ await this.client.from("pay_credit_queue").insert([{
+      entry_id:row.entry_id, account:row.account, bank:row.bank, mode:row.mode,
+      date_str:row.date_str, date_serial:row.date_serial, amount:row.amount,
+      raw_payer:row.raw_payer, customer:row.customer, candidates:row.candidates,
+      match_tier:row.match_tier, status:row.status, flags:row.flags, queued_at:row.queued_at
+    }]); }catch(_){ toast("Couldn't save to cloud — check connection"); }
+  },
+};
+
+/* ---------- state + render ---------- */
+let ROWS=[];
+const SEL = new Set();          // selected ready entry_ids for export
+const SEEN_READY = new Set();   // ready ids we've defaulted-on once
+
+function dupKey(r){ return `${r.date_serial}|${norm(r.customer||"")}|${r.amount}`; }
+
+function render(){
+  const pending = ROWS.filter(r=>!r.exported);
+  const review = pending.filter(r=>r.status==="review" && !r._skipped);
+  const ready  = pending.filter(r=>r.status==="matched");
+  // new ready rows start selected (one-tap export); user deselections persist
+  for(const r of ready){ if(!SEEN_READY.has(r.entry_id)){ SEEN_READY.add(r.entry_id); SEL.add(r.entry_id); } }
+  const exported = ROWS.filter(r=>r.exported).sort((a,b)=>(b.exported_at||"").localeCompare(a.exported_at||""));
+
+  // stats
+  document.getElementById("reviewCount").textContent = review.length;
+  document.getElementById("readyCount").textContent = ready.length;
+  document.getElementById("readyTotal").textContent = money(ready.reduce((s,r)=>s+Number(r.amount||0),0));
+
+  renderReview(review);
+  renderReady(ready);
+  renderExported(exported);
+  renderExportBar(ready);
+}
+
+function renderReview(rows){
+  const w = document.getElementById("reviewWrap");
+  if(!rows.length){ w.innerHTML=""; return; }
+  let h = `<h2>Needs review <span class="count">· ${rows.length}</span></h2>`;
+  for(const r of rows){
+    const cands = (r.candidates||[]);
+    h += `<div class="card">
+      <div class="row-top"><div><div class="rp">${esc(r.raw_payer||"(no remitter parsed)")}</div>
+        <div class="meta"><span class="tag">${esc(r.mode||"")}</span><span>${esc(serialToDMY(r.date_serial))}</span>
+        ${r.match_tier==="parse_error"?'<span class="tag" style="color:var(--bad)">parse error</span>':''}</div></div>
+        <div class="amt">${money(r.amount)}</div></div>`;
+    if(cands.length){
+      h += `<div class="cands">`+cands.map((c,i)=>`<button class="cand ${i===0?'best':''}" onclick="pickCand('${escAttr(r.entry_id)}', this.dataset.n)" data-n="${escAttr(c)}">${esc(c)}</button>`).join("")+`</div>`;
+    }
+    h += `<div class="resolve">
+      <input type="text" list="custList" placeholder="type customer name…" id="in_${escAttr(r.entry_id)}">
+      <button class="btn" onclick="resolveTyped('${escAttr(r.entry_id)}')">Set</button>
+      <button class="btn ghost sm" onclick="skipRow('${escAttr(r.entry_id)}')">skip</button>
+      <button class="btn ghost sm" onclick="dropRow('${escAttr(r.entry_id)}')">drop</button>
+    </div></div>`;
+  }
+  w.innerHTML = h;
+}
+
+function renderReady(rows){
+  const w = document.getElementById("readyWrap");
+  if(!rows.length){ w.innerHTML = `<h2>Ready to export</h2><div class="empty">No matched payments waiting. New bank credits appear here automatically.</div>`; return; }
+  // dup detection within the ready batch
+  const counts={}; rows.forEach(r=>counts[dupKey(r)]=(counts[dupKey(r)]||0)+1);
+  rows.sort((a,b)=>(a.date_serial-b.date_serial)|| String(a.customer).localeCompare(b.customer));
+  let h = `<h2>Ready to export <span class="count">· ${rows.length}</span> <button class="btn ghost sm" style="float:right" onclick="toggleAll()">${allSelected(rows)?"clear":"select all"}</button></h2><div class="card">`;
+  for(const r of rows){
+    const dup = counts[dupKey(r)]>1;
+    const on = SEL.has(r.entry_id);
+    h += `<label class="ready-row">
+      <input type="checkbox" ${on?"checked":""} onchange="toggleSel('${escAttr(r.entry_id)}',this.checked)">
+      <span class="cust"><span class="n">${esc(r.customer)}</span>
+        <span class="d">${esc(serialToDMY(r.date_serial))} · ${esc(r.mode||"")}${dup?' · <span class="dupflag">possible duplicate</span>':''}</span></span>
+      <span class="a">${money(r.amount)}</span></label>`;
+  }
+  h += `</div>`;
+  w.innerHTML = h;
+}
+
+function renderExported(rows){
+  const w = document.getElementById("exportedWrap");
+  if(!rows.length){ w.innerHTML=""; return; }
+  const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
+  let h = `<details><summary>Exported · last 7 days (${rows.length}, ${money(total)}) ▾</summary><div class="card">`;
+  for(const r of rows){
+    h += `<div class="exp-row"><span class="c">${esc(r.customer||r.raw_payer)}</span>
+      <span class="a">${esc(serialToDMY(r.date_serial))}</span>
+      <span class="a">${money(r.amount)}</span>
+      <button class="btn ghost sm" onclick="unExport('${escAttr(r.entry_id)}')">undo</button></div>`;
+  }
+  h += `</div></details>`;
+  w.innerHTML = h;
+}
+
+function allSelected(rows){ return rows.length && rows.every(r=>SEL.has(r.entry_id)); }
+function renderExportBar(ready){
+  // default: select all ready that aren't explicitly deselected
+  const sel = ready.filter(r=>SEL.has(r.entry_id));
+  const bar = document.getElementById("exportSum"), btn = document.getElementById("exportBtn");
+  if(!sel.length){ bar.textContent = ready.length? "Nothing selected" : "No payments ready"; btn.disabled=true; btn.textContent="Download .xlsx"; return; }
+  bar.innerHTML = `<b>${sel.length}</b> selected · ${money(sel.reduce((s,r)=>s+Number(r.amount||0),0))}`;
+  btn.disabled=false; btn.textContent=`Download .xlsx (${sel.length})`;
+}
+
+/* ---------- actions ---------- */
+function pickCand(id, name){ doResolve(id, name); }
+function resolveTyped(id){
+  const v = (document.getElementById("in_"+id).value||"").trim();
+  if(!v) return;
+  const canon = canonicalFor(v) || (NAMES.includes(v)?v:null);
+  if(!canon){ toast(`"${v}" isn't in the customer list`); return; }
+  doResolve(id, canon);
+}
+function doResolve(id, customer){
+  const r = ROWS.find(x=>x.entry_id===id); if(!r) return;
+  const key = aliasKey(r.raw_payer||"");
+  r.status="matched"; r.customer=customer; SEL.add(id);      // optimistic
+  Cloud.resolve(id, customer, key);
+  toast(`→ ${customer} (remembered)`);
+  render();
+}
+function skipRow(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r._skipped=true; } render(); toast("skipped — stays for later"); }
+function dropRow(id){ if(!confirm("Drop this alert entirely?")) return;
+  ROWS=ROWS.filter(x=>x.entry_id!==id); Cloud.drop(id); render(); }
+function toggleSel(id,on){ if(on) SEL.add(id); else SEL.delete(id); render(); }
+function toggleAll(){
+  const ready = ROWS.filter(r=>!r.exported && r.status==="matched");
+  if(allSelected(ready)) ready.forEach(r=>SEL.delete(r.entry_id));
+  else ready.forEach(r=>SEL.add(r.entry_id));
+  render();
+}
+function unExport(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r.exported=false; r.exported_at=null; SEL.add(id); }
+  Cloud.setStatus(id,{exported:false,exported_at:null}); render(); }
+
+document.getElementById("refreshBtn").onclick = ()=>Cloud.pull();
+document.getElementById("exportBtn").onclick = doExport;
+document.getElementById("addBtn").onclick = ()=>toggleAdd();
+
+/* ---------- manual entry (payments received off-email) ---------- */
+function isoToSerial(iso){ if(!iso) return null; const [y,m,d]=iso.split("-").map(Number);
+  if(!(y&&m&&d)) return null; return Math.round((Date.UTC(y,m-1,d)-EPOCH)/86400000); }
+function toggleAdd(show){
+  const c=document.getElementById("addCard");
+  const open = show===undefined ? c.style.display==="none" : show;
+  c.style.display = open?"block":"none";
+  if(open){ const d=new Date();
+    document.getElementById("mDate").value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    document.getElementById("mAmount").value=""; document.getElementById("mCust").value=""; document.getElementById("mMode").value="";
+    document.getElementById("mCust").focus(); }
+}
+function setMode(m){ document.getElementById("mMode").value=m; }
+function submitManual(){
+  const serial=isoToSerial(document.getElementById("mDate").value);
+  const amount=parseFloat(document.getElementById("mAmount").value);
+  const custRaw=(document.getElementById("mCust").value||"").trim();
+  const mode=(document.getElementById("mMode").value||"").trim()||"Cash";
+  if(serial==null){ toast("Pick a valid date"); return; }
+  if(!(amount>0)){ toast("Enter an amount"); return; }
+  if(!custRaw){ toast("Enter a customer"); return; }
+  const customer = canonicalFor(custRaw) || custRaw;   // snap to canonical if known
+  if(!canonicalFor(custRaw) && !confirm(`"${custRaw}" isn't in your customer list. Add it as typed?`)) return;
+  const row = {
+    entry_id: "man-"+Date.now().toString(36)+Math.random().toString(36).slice(2,8),
+    account:"manual", bank:"", mode, date_str:serialToDMY(serial), date_serial:serial,
+    amount, raw_payer:custRaw, customer, candidates:[customer], match_tier:"manual",
+    status:"matched", flags:{}, queued_at:new Date().toISOString(),
+  };
+  ROWS.push(row); SEEN_READY.add(row.entry_id); SEL.add(row.entry_id);   // optimistic
+  Cloud.addManual(row);
+  toggleAdd(false); render(); toast(`Added ${money(amount)} · ${customer}`);
+}
+
+function doExport(){
+  const rows = ROWS.filter(r=>!r.exported && r.status==="matched" && SEL.has(r.entry_id))
+                   .sort((a,b)=>a.date_serial-b.date_serial);
+  if(!rows.length) return;
+  const header = ["Date","Customer","Amount Paid","Payment Mode"];
+  const data = rows.map(r=>({serial:Number(r.date_serial), customer:r.customer, amount:Number(r.amount), mode:r.mode||""}));
+  const blob = buildXlsx(header, data);
+  const name = `PaymentEntries_${new Date().toISOString().slice(0,10)}.xlsx`;
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  const ids = rows.map(r=>r.entry_id);
+  ids.forEach(id=>{ const r=ROWS.find(x=>x.entry_id===id); if(r){ r.exported=true; r.exported_at=new Date().toISOString(); } SEL.delete(id); });
+  Cloud.markExported(ids);
+  toast(`Exported ${ids.length} — paste into Master Paid`);
+  render();
+}
+
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2600); }
+
+function showSetup(){
+  const el=document.getElementById("setup"); el.style.display="block";
+  el.className="setup";
+  el.innerHTML = `<b>Cloud not configured.</b> Add your Supabase URL + anon key to <code>payments/config.js</code> and run <code>supabase/payments-schema.sql</code> once. See the README.`;
+}
+
+/* ---------- dependency-free .xlsx writer (verbatim from the pay app) ---------- */
+function buildXlsx(header, rows){
+  const N = rows.length + 1;
+  const colLetter = c => String.fromCharCode(65 + c);
+  const xesc = s => String(s).replace(/[&<>]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
+  let sheet = `<row r="1">`;
+  for(let c=0;c<header.length;c++) sheet += `<c r="${colLetter(c)}1" t="inlineStr" s="3"><is><t xml:space="preserve">${xesc(header[c])}</t></is></c>`;
+  sheet += `</row>`;
+  rows.forEach((r,i)=>{
+    const rr=i+2;
+    sheet += `<row r="${rr}">`;
+    sheet += `<c r="A${rr}" s="1"><v>${r.serial}</v></c>`;
+    sheet += `<c r="B${rr}" t="inlineStr"><is><t xml:space="preserve">${xesc(r.customer)}</t></is></c>`;
+    sheet += `<c r="C${rr}" s="2"><v>${r.amount}</v></c>`;
+    sheet += `<c r="D${rr}" t="inlineStr"><is><t xml:space="preserve">${xesc(r.mode||"")}</t></is></c>`;
+    sheet += `</row>`;
+  });
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:D${N}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="12" customWidth="1"/><col min="2" max="2" width="34" customWidth="1"/><col min="3" max="3" width="14" customWidth="1"/><col min="4" max="4" width="30" customWidth="1"/></cols><sheetData>${sheet}</sheetData></worksheet>`;
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="#,##0"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+  const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Master Paid" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  return zipStore([
+    {name:"[Content_Types].xml", data:contentTypes},
+    {name:"_rels/.rels", data:rootRels},
+    {name:"xl/workbook.xml", data:workbook},
+    {name:"xl/_rels/workbook.xml.rels", data:wbRels},
+    {name:"xl/styles.xml", data:stylesXml},
+    {name:"xl/worksheets/sheet1.xml", data:sheetXml},
+  ]);
+}
+const _crcTable = (()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?(0xEDB88320^(c>>>1)):(c>>>1); t[n]=c>>>0; } return t; })();
+function crc32(bytes){ let crc=0xFFFFFFFF; for(let i=0;i<bytes.length;i++) crc=(crc>>>8)^_crcTable[(crc^bytes[i])&0xFF]; return (crc^0xFFFFFFFF)>>>0; }
+function zipStore(files){
+  const enc=new TextEncoder(); const parts=[],central=[]; let offset=0;
+  const u16=n=>[n&0xFF,(n>>>8)&0xFF]; const u32=n=>[n&0xFF,(n>>>8)&0xFF,(n>>>16)&0xFF,(n>>>24)&0xFF];
+  const dt=new Date();
+  const dosTime=((dt.getHours()&0x1F)<<11)|((dt.getMinutes()&0x3F)<<5)|((dt.getSeconds()/2)&0x1F);
+  const dosDate=(((dt.getFullYear()-1980)&0x7F)<<9)|(((dt.getMonth()+1)&0x0F)<<5)|(dt.getDate()&0x1F);
+  for(const f of files){
+    const nameBytes=enc.encode(f.name), dataBytes=enc.encode(f.data); const crc=crc32(dataBytes);
+    const localHeader=new Uint8Array([].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(dosTime),u16(dosDate),u32(crc),u32(dataBytes.length),u32(dataBytes.length),u16(nameBytes.length),u16(0)));
+    const rec=new Uint8Array(localHeader.length+nameBytes.length+dataBytes.length);
+    rec.set(localHeader,0); rec.set(nameBytes,localHeader.length); rec.set(dataBytes,localHeader.length+nameBytes.length);
+    parts.push(rec);
+    const cenHeader=new Uint8Array([].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(dosTime),u16(dosDate),u32(crc),u32(dataBytes.length),u32(dataBytes.length),u16(nameBytes.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset)));
+    const cenRec=new Uint8Array(cenHeader.length+nameBytes.length);
+    cenRec.set(cenHeader,0); cenRec.set(nameBytes,cenHeader.length); central.push(cenRec);
+    offset+=rec.length;
+  }
+  const centralSize=central.reduce((s,c)=>s+c.length,0);
+  const eocd=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),u32(centralSize),u32(offset),u16(0)));
+  return new Blob([...parts,...central,eocd],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+}
+
+/* ---------- boot ---------- */
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
+loadCustomers();
+Cloud.init();
+</script>
+</body>
+</html>

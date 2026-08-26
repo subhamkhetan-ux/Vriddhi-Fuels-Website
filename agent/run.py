@@ -142,11 +142,16 @@ def process_account(account, customers, aliases, history, queue, seen) -> tuple[
 
 
 def main() -> int:
+    from . import supabase_sync
+
     customers = state_store.load_customers()
     aliases = state_store.load_aliases()
+    # Overlay aliases the user resolved in the /payments app (live source).
+    aliases.update(supabase_sync.fetch_aliases())
     history = _load_history()
     queue = state_store.load_queue()
     seen = state_store.load_seen()
+    known_ids = {r["entry_id"] for r in queue}
 
     if not customers:
         print("WARNING: state/customers.json is empty — everything will be 'review'. "
@@ -169,6 +174,12 @@ def main() -> int:
     # Persist whatever progress we made, even on partial failure.
     state_store.save_queue(queue)
     state_store.save_seen(seen)
+
+    # Mirror newly-queued rows to Supabase for the /payments app (best-effort).
+    new_rows = [r for r in queue if r["entry_id"] not in known_ids]
+    if new_rows and supabase_sync.enabled():
+        sent = supabase_sync.upsert_rows(new_rows)
+        print(f"Supabase: pushed {sent} new row(s).")
 
     print(f"Total queued {totals['queued']} ({totals['reviewed']} review); "
           f"{len(errors)} account error(s).")

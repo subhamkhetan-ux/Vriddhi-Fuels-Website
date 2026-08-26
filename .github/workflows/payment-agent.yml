@@ -40,6 +40,9 @@ jobs:
           GMAIL_TOKEN_BANK2: ${{ secrets.GMAIL_TOKEN_BANK2 }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+          # Optional: mirror the queue to Supabase for the /payments app.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set -o pipefail
           python -m agent.run 2>&1 | tee run.log
