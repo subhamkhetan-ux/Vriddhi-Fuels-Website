@@ -1,3 +1,477 @@
 {
-  "rows": []
+  "rows": [
+    {
+      "entry_id": "1983d274d95536f0",
+      "gmail_msg_id": "1a018bd096a89b25",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 251912.0,
+      "raw_payer": "INDIABUILD INFRA PRIVATE LIMITED",
+      "customer": "Indiabuild Infra Private Limited",
+      "candidates": [
+        "Indiabuild Infra Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.041552+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "beb88dadccccefc8",
+      "gmail_msg_id": "1a019a6f56550691",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 201480.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.041993+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "e5f978a8232aec4f",
+      "gmail_msg_id": "1a019b81a0c5235d",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 15805.0,
+      "raw_payer": "ODISHA SARKAR",
+      "customer": null,
+      "candidates": [],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.042290+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "844fb5ce67d9a2b8",
+      "gmail_msg_id": "1a019cdb2a7e30f5",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 120888.0,
+      "raw_payer": "JAI BALAJI OXYGEN PVT LTD",
+      "customer": null,
+      "candidates": [
+        "M/s Jai Balaji Oxygen Private Limited",
+        "KRISHNA INFRATECH PVT LTD",
+        "SAMARPAN LOGISTICS PVT LTD",
+        "Aryan Ispat & Power Private Ltd.",
+        "M/S Ultratech Cement Ltd",
+        "M/s Smc Power Generation Ltd."
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.042725+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "f955a3529c07d693",
+      "gmail_msg_id": "1a01a0215acad222",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 21780.0,
+      "raw_payer": "ORISSA METALIKS PVT LIMITED",
+      "customer": null,
+      "candidates": [
+        "Orissa Metaliks Private Limited",
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.043187+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "116e85fd67cb3fc3",
+      "gmail_msg_id": "1a01ce731fa5386a",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/08/2026",
+      "date_serial": 46254,
+      "amount": 11240.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": null,
+      "candidates": [
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited",
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.043625+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "9a1b210c1e2289f1",
+      "gmail_msg_id": "1a01f44c5c9a0130",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/08/2026",
+      "date_serial": 46254,
+      "amount": 1192806.0,
+      "raw_payer": "ORISSA METALIKS PRIVATE LIMITED JHARSUGUDA UNIT",
+      "customer": null,
+      "candidates": [
+        "Orissa Metaliks Private Limited",
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.044060+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "01c60bb1fdfc1667",
+      "gmail_msg_id": "1a01f721a396eec3",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/08/2026",
+      "date_serial": 46254,
+      "amount": 61076.0,
+      "raw_payer": null,
+      "customer": null,
+      "candidates": [],
+      "match_tier": "parse_error",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.044627+00:00",
+      "status": "review",
+      "error": "could not extract: payer",
+      "raw_text": "❗ New Deposit Alert: Check your A/c balance now!\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n HDFC BANK \r\n -->\r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Dear Customer, You have received a credit in your HDFC Bank account. Details of the transaction: Amount received: INR 61,076.00 Account: XX1010 Date: 20-AUG-2026 Reference Details: XXXXXXXXXX9708-TPT-Payment-SAPNA BUILDERS AND SUPPLIERS Available Balance: INR 71,453.75 For real-time account balance, please call 1800 270 3333. Thank you for banking with HDFC Bank. Warm Regards, HDFC Bank\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n For more details on Service charges and Fees, click here. \r\n \r\n \r\n \r\n \r\n © HDFC Bank \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n "
+    },
+    {
+      "entry_id": "21a3fa377a1900ef",
+      "gmail_msg_id": "1a0220dde7a699fe",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "21/08/2026",
+      "date_serial": 46255,
+      "amount": 20712.62,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": null,
+      "candidates": [
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited",
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.044742+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "252ce8b31d1e83ce",
+      "gmail_msg_id": "1a024d882afde4f8",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "21/08/2026",
+      "date_serial": 46255,
+      "amount": 100000.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.045225+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "4a431031bf5b1c29",
+      "gmail_msg_id": "1a0275fecb347d60",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "22/08/2026",
+      "date_serial": 46256,
+      "amount": 14003.95,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": null,
+      "candidates": [
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited",
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.045536+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "4a1412a416d0bf9a",
+      "gmail_msg_id": "1a031b7b9360cc13",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 28578.85,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": null,
+      "candidates": [
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited",
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.046041+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "aacbce7dfd76d829",
+      "gmail_msg_id": "1a031b819b69001a",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 7742.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": null,
+      "candidates": [
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited",
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.046444+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "86e5f7c32110a7cd",
+      "gmail_msg_id": "1a032a41f6aa1f90",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 30000.0,
+      "raw_payer": null,
+      "customer": null,
+      "candidates": [],
+      "match_tier": "parse_error",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.046899+00:00",
+      "status": "review",
+      "error": "could not extract: payer",
+      "raw_text": "❗ New Deposit Alert: Check your A/c balance now!\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n HDFC BANK \r\n -->\r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Dear Customer, You have received a credit in your HDFC Bank account. Details of the transaction: Amount received: INR 30,000.00 Account: XX1010 Date: 24-AUG-2026 Reference Details: XXXXXXXXXX7882-TPT-hsd bpsl-ATUL TRADING COMPANY Available Balance: INR 74,334.17 For real-time account balance, please call 1800 270 3333. Thank you for banking with HDFC Bank. Warm Regards, HDFC Bank\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n For more details on Service charges and Fees, click here. \r\n \r\n \r\n \r\n \r\n © HDFC Bank \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n "
+    },
+    {
+      "entry_id": "5bf41ad52dedf1ed",
+      "gmail_msg_id": "1a0336b022e410d9",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 1192806.0,
+      "raw_payer": "ORISSA METALIKS PRIVATE LIMITED JHARSUGUDA UNIT",
+      "customer": null,
+      "candidates": [
+        "Orissa Metaliks Private Limited",
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.046986+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "c1151ee5d6096164",
+      "gmail_msg_id": "1a036a937913f6a3",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 10427.84,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": null,
+      "candidates": [
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited",
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.047415+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "930afd5c710e4745",
+      "gmail_msg_id": "1a0371766b411d39",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 250000.0,
+      "raw_payer": "INDIABUILD INFRA PRIVATE LIMITED",
+      "customer": "Indiabuild Infra Private Limited",
+      "candidates": [
+        "Indiabuild Infra Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.047825+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "937ced62e38d7b89",
+      "gmail_msg_id": "1a037bb9e66a44ca",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 100000.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.048101+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "a34cebc43a837aab",
+      "gmail_msg_id": "1a038d2b58fc8717",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 4197180.0,
+      "raw_payer": "DBL SIARMAL COAL MINES PRIVATE LIM",
+      "customer": "Dbl-Siarmal Coal Mines Private Limited",
+      "candidates": [
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.048356+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "abf4af056873e8a8",
+      "gmail_msg_id": "1a03be983aeabc64",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "26/08/2026",
+      "date_serial": 46260,
+      "amount": 86992.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": null,
+      "candidates": [
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited",
+        "Ember Coal Beneficiation Private Limited",
+        "Great River Coy Private Limited",
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T04:44:39.048724+00:00",
+      "status": "review"
+    }
+  ]
 }
