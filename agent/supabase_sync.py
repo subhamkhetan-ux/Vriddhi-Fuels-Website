@@ -66,6 +66,21 @@ def fetch_aliases() -> dict[str, str]:
         return {}
 
 
+def fetch_done_entry_ids() -> set[str]:
+    """Return entry_ids the user has finished with in the app (exported or
+    dropped — both carry ``exported=true``). Empty on any error."""
+    cfg = _config()
+    if not cfg:
+        return set()
+    url, key = cfg
+    try:
+        rows = _request("GET", "pay_credit_queue?select=entry_id&exported=eq.true",
+                        key, url) or []
+        return {r["entry_id"] for r in rows if r.get("entry_id")}
+    except Exception:
+        return set()
+
+
 def _row_payload(row: dict) -> dict:
     """Map an internal queue row to the Supabase column shape."""
     return {
