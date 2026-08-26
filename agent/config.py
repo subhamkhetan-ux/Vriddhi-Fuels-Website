@@ -111,6 +111,18 @@ ACCOUNTS = [
     {"id": "bank2", "profile": HDFC, "token_env": "GMAIL_TOKEN_BANK2"},
 ]
 
+# ---- Consignment notes (Indian Oil invoices for own tank truck) ------------
+# Every new IOCL tax invoice for our own TT arrives in the HDFC mailbox (same
+# account that gets the HDFC credit alerts). The agent detects it, extracts the
+# fields from the attached PDF, and queues a consignment note for the app to
+# generate. Only invoices for OUR truck get a note.
+CONSIGNMENT = {
+    "account_id": "bank2",                       # the HDFC mailbox (see ACCOUNTS)
+    "gmail_query": "from:B2BPRD@indianoil.in has:attachment filename:pdf",
+    "own_tt": "OD23U8210",                       # only generate for our own truck
+    "serial_prefix": "VF/CN2627/",
+}
+
 # Telegram failure-alert secrets (reused from the IOCL monitor).
 TELEGRAM_TOKEN_ENV = "TELEGRAM_TOKEN"
 TELEGRAM_CHAT_ENV = "TELEGRAM_CHAT"
