@@ -152,6 +152,18 @@ def main() -> int:
     queue = state_store.load_queue()
     seen = state_store.load_seen()
 
+    # Reconcile app-side completions (exported OR dropped in the /payments app)
+    # into the repo's permanent "materialized" flag. This makes them stop being
+    # re-synced to Supabase, so they can never reappear or be double-exported —
+    # even after Supabase's 7-day history purge removes them there.
+    done_ids = supabase_sync.fetch_done_entry_ids()
+    if done_ids:
+        stamp = dt.datetime.now(dt.timezone.utc).isoformat()
+        for r in queue:
+            if r["entry_id"] in done_ids and not r.get("materialized"):
+                r["materialized"] = True
+                r["materialized_at"] = stamp
+
     if not customers:
         print("WARNING: state/customers.json is empty — everything will be 'review'. "
               "Run export_customers.py on the Mac to populate it.")

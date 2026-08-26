@@ -6,6 +6,7 @@ def test_disabled_without_env(monkeypatch):
     monkeypatch.delenv("SUPABASE_KEY", raising=False)
     assert supabase_sync.enabled() is False
     assert supabase_sync.fetch_aliases() == {}
+    assert supabase_sync.fetch_done_entry_ids() == set()
     assert supabase_sync.upsert_rows([{"entry_id": "x"}]) == 0
 
 
