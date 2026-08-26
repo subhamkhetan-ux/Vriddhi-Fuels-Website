@@ -90,6 +90,12 @@ summary::-webkit-details-marker{display:none}
   border:1px solid var(--line);color:var(--ink);padding:10px 16px;border-radius:11px;font-size:13px;
   z-index:40;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 .toast.show{opacity:1}
+.tabbar{display:flex;background:var(--panel);border-bottom:1px solid var(--line)}
+.tab{flex:1;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);
+  font-size:14px;font-weight:600;padding:12px 8px;cursor:pointer}
+.tab.active{color:var(--ink);border-bottom-color:var(--accent)}
+.tabbadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 5px;border-radius:999px;
+  background:var(--accent);color:#04122e;font-size:11px;font-weight:800;line-height:18px;text-align:center}
 .cn-card{border-color:var(--accent)}
 .cn-serial{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:800;color:var(--accent)}
 .cn-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:10px;font-size:13px}
@@ -99,6 +105,16 @@ summary::-webkit-details-marker{display:none}
 .cn-date label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .cn-date input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:14px}
 .cn-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+/* consignment note print: off-screen normally, the only thing on the printed page */
+#printArea{position:fixed;left:-99999px;top:0;background:#fff}
+#printArea .docx-wrapper{background:#fff!important;padding:0!important;box-shadow:none!important}
+@media print{
+  @page{size:A4;margin:8mm}
+  body{background:#fff!important;padding:0!important}
+  body>*{display:none!important}
+  #printArea{display:block!important;position:static!important;left:0!important;width:auto!important}
+  #printArea .docx-wrapper>section.docx{box-shadow:none!important;margin:0 auto!important}
+}
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
 a{color:var(--accent)}
@@ -106,15 +122,20 @@ a{color:var(--accent)}
 </head>
 <body>
 <header>
-  <h1>Payments</h1>
+  <h1 id="appTitle">Payments</h1>
   <button class="btn sm" id="addBtn" title="Log a payment received off-email">＋ Add</button>
   <button class="btn sm ghost" id="refreshBtn" title="Refresh">↻</button>
   <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">…</span></span>
 </header>
+<nav class="tabbar">
+  <button class="tab active" id="tabPay" onclick="showView('pay')">Payments</button>
+  <button class="tab" id="tabNotes" onclick="showView('notes')">Consignment notes<span class="tabbadge" id="notesBadge" hidden></span></button>
+</nav>
 
 <div class="wrap">
   <div id="setup" style="display:none"></div>
 
+  <div id="viewPay">
   <div class="card" id="addCard" style="display:none">
     <div style="font-weight:700;margin-bottom:10px">Log a payment (cash / cheque / other)</div>
     <div class="addgrid">
@@ -142,10 +163,14 @@ a{color:var(--accent)}
     <div class="stat review"><div class="k">Needs review</div><div class="v" id="reviewCount">0</div><div class="s">tap a name to resolve</div></div>
   </div>
 
-  <div id="consignWrap"></div>
   <div id="reviewWrap"></div>
   <div id="readyWrap"></div>
   <div id="exportedWrap"></div>
+  </div><!-- /viewPay -->
+
+  <div id="viewNotes" style="display:none">
+    <div id="consignWrap"></div>
+  </div>
 </div>
 
 <div class="exportbar">
@@ -153,6 +178,7 @@ a{color:var(--accent)}
   <button class="cta" id="exportBtn" disabled>Download .xlsx</button>
 </div>
 <div class="toast" id="toast"></div>
+<div id="printArea" aria-hidden="true"></div>
 
 <script>
 const CFG = window.VRIDDHI_PAYMENTS_CONFIG || {};
@@ -294,11 +320,9 @@ const Cloud = {
     try{
       Promise.resolve(this.client.rpc("pay_consignment_purge_old")).catch(()=>{});
       const { data, error } = await this.client.from("pay_consignment_notes")
-        .select("*").order("serial_num",{ascending:false}).limit(200);
+        .select("*").order("serial_num",{ascending:false}).limit(50);
       if(error) throw error;
-      const cutoff = Date.now() - SEVEN_DAYS;
-      CNOTES = (data||[]).filter(n => n.status!=="done" ||
-                (n.done_at && Date.parse(n.done_at) >= cutoff));
+      CNOTES = data||[];   // render caps to the latest 5; purge caps storage to 5
       renderConsign();
     }catch(_){ /* keep whatever we have; payments still work */ }
   },
@@ -407,9 +431,18 @@ function renderExported(rows){
 function renderConsign(){
   const w = document.getElementById("consignWrap");
   if(!w) return;
-  const pending = CNOTES.filter(n=>n.status!=="done");
-  if(!pending.length){ w.innerHTML=""; return; }
-  let h = `<h2>Consignment notes <span class="count">· ${pending.length}</span></h2>`;
+  // Show the latest 5 (newest serial first); storage is capped to 5 server-side.
+  const pending = CNOTES.filter(n=>n.status!=="done")
+                        .sort((a,b)=>(b.serial_num||0)-(a.serial_num||0))
+                        .slice(0,5);
+  // badge on the tab
+  const badge = document.getElementById("notesBadge");
+  if(badge){ if(pending.length){ badge.textContent=pending.length; badge.hidden=false; } else badge.hidden=true; }
+  if(!pending.length){
+    w.innerHTML = `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically.</div>`;
+    return;
+  }
+  let h = "";
   for(const n of pending){
     const isoRep = dmyToIso(n.reporting_date || n.invoice_date) || "";
     h += `<div class="card cn-card">
@@ -430,7 +463,8 @@ function renderConsign(){
                onchange="onReportingDate('${escAttr(n.id)}', this.value)">
       </div>
       <div class="cn-actions">
-        <button class="cta" style="flex:1" onclick="downloadNote('${escAttr(n.id)}')">Download note (.docx)</button>
+        <button class="cta" style="flex:1" onclick="printNote('${escAttr(n.id)}')">Print / Save as PDF</button>
+        <button class="btn" onclick="downloadNote('${escAttr(n.id)}')">.docx</button>
         <button class="btn ghost sm" onclick="dismissNote('${escAttr(n.id)}')">dismiss</button>
       </div>
     </div>`;
@@ -445,7 +479,7 @@ function onReportingDate(id, iso){
   Cloud.setReportingDate(id, dmy);
 }
 function dismissNote(id){
-  if(!confirm("Dismiss this consignment note? It drops off the list (kept 7 days).")) return;
+  if(!confirm("Dismiss this consignment note? It drops off the list.")) return;
   const n=CNOTES.find(x=>x.id===id); if(!n) return;
   n.status="done"; n.done_at=new Date().toISOString();
   Cloud.markNoteDone(id); renderConsign(); toast("Dismissed");
@@ -458,46 +492,78 @@ const COLUMN_TOKEN = {
   "MS | EBMS":"{{QTY_MSEBMS}}", "XtraGreen HSD":"{{QTY_XG}}",
   "HSD":"{{QTY_HSD}}", "LSHFHSD":"{{QTY_LSHF}}",
 };
-let _JSZip=null;
+let _JSZip=null, _docxPreview=null;
 async function getJSZip(){
   if(_JSZip) return _JSZip;
   _JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
   return _JSZip;
 }
+async function getDocxPreview(){
+  if(_docxPreview) return _docxPreview;
+  _docxPreview = await import("https://esm.sh/docx-preview@0.3.7");
+  return _docxPreview;
+}
+
+// Reporting date currently shown for a note (input override → stored → invoice date).
+function noteReportingDate(n){
+  const el = document.getElementById("cnd_"+n.id);
+  return (el && el.value ? isoToDmy(el.value) : "") || n.reporting_date || n.invoice_date || "";
+}
+
+// Fill the letterhead template for a note; returns a .docx Blob.
+async function buildFilledDocx(n, repDmy){
+  const JSZip = await getJSZip();
+  const buf = await fetch("./consignment_template.docx",{cache:"no-store"}).then(r=>{
+    if(!r.ok) throw new Error("template "+r.status); return r.arrayBuffer(); });
+  const zip = await JSZip.loadAsync(buf);
+  let xml = await zip.file("word/document.xml").async("string");
+  const vals = {
+    "{{SERIAL}}": n.serial_str||"",
+    "{{DATE}}": repDmy,
+    "{{VALUE}}": (n.value==null?"":String(n.value)),
+    "{{INVNO}}": n.invoice_no||"",
+    "{{INVDATE}}": n.invoice_date||"",
+    "{{QTY_MSEBMS}}":"", "{{QTY_XG}}":"", "{{QTY_HSD}}":"", "{{QTY_LSHF}}":"",
+  };
+  const tok = COLUMN_TOKEN[n.column_key];
+  if(tok) vals[tok] = (n.qty==null?"":String(n.qty));
+  for(const [k,v] of Object.entries(vals)) xml = xml.split(k).join(xmlEsc(v));
+  zip.file("word/document.xml", xml);
+  return zip.generateAsync({type:"blob",
+    mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+}
+
+// Print / Save-as-PDF: render the filled note on the letterhead and open the
+// print dialog (the user picks "Save as PDF" or a printer). The .docx download
+// stays available for editing in Word.
+async function printNote(id){
+  const n = CNOTES.find(x=>x.id===id); if(!n) return;
+  const repDmy = noteReportingDate(n);
+  try{
+    toast("Preparing PDF…");
+    const [blob, docx] = await Promise.all([buildFilledDocx(n, repDmy), getDocxPreview()]);
+    const area = document.getElementById("printArea");
+    area.innerHTML = "";
+    await docx.renderAsync(blob, area, null,
+      {inWrapper:true, ignoreWidth:false, ignoreHeight:false, breakPages:true});
+    if(repDmy) Cloud.setReportingDate(id, repDmy);
+    const done = ()=>{ area.innerHTML=""; window.removeEventListener("afterprint", done); };
+    window.addEventListener("afterprint", done);
+    setTimeout(()=>{ window.print(); }, 250);
+  }catch(e){ toast("Couldn't build PDF: "+(e&&e.message||e)); }
+}
 
 async function downloadNote(id){
   const n = CNOTES.find(x=>x.id===id); if(!n) return;
-  const repDmy = (document.getElementById("cnd_"+id)?.value ? isoToDmy(document.getElementById("cnd_"+id).value) : "")
-                 || n.reporting_date || n.invoice_date || "";
+  const repDmy = noteReportingDate(n);
   try{
     toast("Preparing note…");
-    const JSZip = await getJSZip();
-    const buf = await fetch("./consignment_template.docx",{cache:"no-store"}).then(r=>{
-      if(!r.ok) throw new Error("template "+r.status); return r.arrayBuffer(); });
-    const zip = await JSZip.loadAsync(buf);
-    let xml = await zip.file("word/document.xml").async("string");
-    const vals = {
-      "{{SERIAL}}": n.serial_str||"",
-      "{{DATE}}": repDmy,
-      "{{VALUE}}": (n.value==null?"":String(n.value)),
-      "{{INVNO}}": n.invoice_no||"",
-      "{{INVDATE}}": n.invoice_date||"",
-      "{{QTY_MSEBMS}}":"", "{{QTY_XG}}":"", "{{QTY_HSD}}":"", "{{QTY_LSHF}}":"",
-    };
-    const tok = COLUMN_TOKEN[n.column_key];
-    if(tok) vals[tok] = (n.qty==null?"":String(n.qty));
-    for(const [k,v] of Object.entries(vals)) xml = xml.split(k).join(xmlEsc(v));
-    zip.file("word/document.xml", xml);
-    const blob = await zip.generateAsync({type:"blob",
-      mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+    const blob = await buildFilledDocx(n, repDmy);
     const fname = "Consignment_Note_"+String(n.serial_str||"note").replace(/[^\w]+/g,"_")+".docx";
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=fname;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
-    // Persist the reporting date and mark the note done (drops off, kept 7 days).
     if(repDmy) Cloud.setReportingDate(id, repDmy);
-    n.status="done"; n.done_at=new Date().toISOString();
-    Cloud.markNoteDone(id); renderConsign();
     toast("Downloaded "+(n.serial_str||"note"));
   }catch(e){ toast("Couldn't build note: "+(e&&e.message||e)); }
 }
@@ -550,6 +616,23 @@ function unExport(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r.exported=
 document.getElementById("refreshBtn").onclick = ()=>{ Cloud.pull(); Cloud.pullConsign(); };
 document.getElementById("exportBtn").onclick = doExport;
 document.getElementById("addBtn").onclick = ()=>toggleAdd();
+
+/* ---------- view switching (Payments | Consignment notes) ---------- */
+let VIEW = "pay";
+function showView(v){
+  VIEW = v;
+  const pay = v==="pay";
+  document.getElementById("viewPay").style.display   = pay ? "" : "none";
+  document.getElementById("viewNotes").style.display = pay ? "none" : "";
+  document.getElementById("tabPay").classList.toggle("active", pay);
+  document.getElementById("tabNotes").classList.toggle("active", !pay);
+  document.getElementById("appTitle").textContent = pay ? "Payments" : "Consignment notes";
+  document.getElementById("addBtn").style.display = pay ? "" : "none";
+  document.querySelector(".exportbar").style.display = pay ? "" : "none";
+  if(!pay) toggleAdd(false);                 // close the add-payment card when leaving
+  try{ localStorage.setItem("vf_view", v); }catch(_){}
+  window.scrollTo(0,0);
+}
 
 /* ---------- manual entry (payments received off-email) ---------- */
 function isoToSerial(iso){ if(!iso) return null; const [y,m,d]=iso.split("-").map(Number);
@@ -680,6 +763,7 @@ function zipStore(files){
 
 /* ---------- boot ---------- */
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
+try{ const v=localStorage.getItem("vf_view"); if(v==="notes"||v==="pay") showView(v); }catch(_){}
 loadCustomers();
 Cloud.init();
 </script>
