@@ -30,10 +30,9 @@ HDFC = ParserProfile(
     bank="HDFC",
     # This mailbox also gets debit alerts and alerts for a second HDFC account
     # (ending 2542). We want ONLY credit alerts for the account ending 1010.
-    # The Gmail query is a first cut; the accept/reject gate below is what
-    # actually enforces "credit + account 1010".
-    gmail_query='from:(alerts@hdfcbank.net OR alerts@hdfcbank.com) '
-                '("received a credit" OR subject:credit)',
+    # Match on the alert's own distinctive wording (robust to the sender
+    # address); the accept/reject gate below enforces "credit + account 1010".
+    gmail_query='"received a credit in your HDFC Bank account"',
     # Only ours if it's a credit AND names account 1010; drop anything that
     # names the 2542 account or reads as a debit.
     accept_if_all=[
@@ -70,8 +69,9 @@ HDFC = ParserProfile(
 # ---- Bank 2: ICICI ---------------------------------------------------------
 ICICI = ParserProfile(
     bank="ICICI",
-    gmail_query='from:(alerts@icicibank.com OR credit_alert@icicibank.com) '
-                '(subject:credited OR "has been credited")',
+    # Match the alert's own wording (robust to the sender address). Ezy QR
+    # auto-credits also match this; the reject gate below drops them.
+    gmail_query='"has been credited with"',
     # Credit alerts only. Ignore debit alerts and the daily "Ezy QR" auto-credits
     # (small QR-collection FT credits with no real remitter name).
     accept_if_all=[r"has been credited"],
