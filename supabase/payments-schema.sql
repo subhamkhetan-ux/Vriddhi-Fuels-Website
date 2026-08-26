@@ -173,11 +173,18 @@ begin
   return rec;
 end $$;
 
--- ---- 7-day purge of done notes ---------------------------------------
+-- ---- keep only the latest 5 notes (storage cap) ----------------------
+-- Deletes everything except the 5 highest serials, so at most 5 consignment
+-- notes are ever stored. The serial counter (pay_consignment_seq) is separate
+-- and never resets, so numbers keep incrementing even as old notes drop off.
 create or replace function public.pay_consignment_purge_old()
 returns void language sql security definer as $$
   delete from public.pay_consignment_notes
-  where status = 'done' and done_at < now() - interval '7 days';
+  where serial_num not in (
+    select serial_num from public.pay_consignment_notes
+    order by serial_num desc
+    limit 5
+  );
 $$;
 
 -- ---- RLS + realtime (same personal-owner model as above) -------------

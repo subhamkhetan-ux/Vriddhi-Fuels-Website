@@ -40,6 +40,29 @@ def test_handle_mail_claims_own_tt():
     assert record[0]["tt_no"] == "OD23U8210"
 
 
+def test_handle_mail_skips_below_min_invoice():
+    # Own truck, but the invoice number is below the anchor -> skip, don't claim.
+    record = []
+    mail = FakeMail("m1b", [b"pdf-old"])
+    n = consignment._handle_mail(
+        mail, "OD23U8210", _pdf_to_text({b"pdf-old": INVOICE_TEXT}),
+        _fake_supabase(record), min_invoice_no="7010221545")
+    assert n == 0
+    assert record == []
+
+
+def test_handle_mail_claims_at_or_above_min_invoice():
+    # Same invoice bumped to the anchor number -> claimed.
+    record = []
+    atmin = INVOICE_TEXT.replace("7010195291", "7010221545")
+    mail = FakeMail("m1c", [b"pdf-new"])
+    n = consignment._handle_mail(
+        mail, "OD23U8210", _pdf_to_text({b"pdf-new": atmin}),
+        _fake_supabase(record), min_invoice_no="7010221545")
+    assert n == 1
+    assert record and record[0]["invoice_no"] == "7010221545"
+
+
 def test_handle_mail_ignores_other_tt():
     record = []
     other = INVOICE_TEXT.replace("OD23U8210", "OD23X9999")

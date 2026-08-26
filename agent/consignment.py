@@ -79,6 +79,7 @@ def run(seen: dict) -> tuple[int, list[str]]:
     seen_ids = set(acc_state.get("ids", []))
 
     own_tt = CONSIGNMENT["own_tt"].upper()
+    min_invoice_no = str(CONSIGNMENT.get("min_invoice_no") or "")
     created = 0
     try:
         service = build_service(token)
@@ -89,7 +90,8 @@ def run(seen: dict) -> tuple[int, list[str]]:
 
     for mail in mails:  # oldest first
         try:
-            handled = _handle_mail(mail, own_tt, pdf_to_text, supabase_sync)
+            handled = _handle_mail(mail, own_tt, pdf_to_text, supabase_sync,
+                                   min_invoice_no)
             created += handled
         except Exception as exc:
             errors.append(f"consignment: {mail.msg_id} failed: {exc}")
@@ -102,7 +104,8 @@ def run(seen: dict) -> tuple[int, list[str]]:
     return created, errors
 
 
-def _handle_mail(mail, own_tt: str, pdf_to_text, supabase_sync) -> int:
+def _handle_mail(mail, own_tt: str, pdf_to_text, supabase_sync,
+                 min_invoice_no: str = "") -> int:
     """Extract the first usable own-TT invoice from a mail's PDFs and claim a
     note. Returns 1 if a note was claimed, else 0."""
     for pdf in mail.pdfs:
@@ -110,6 +113,12 @@ def _handle_mail(mail, own_tt: str, pdf_to_text, supabase_sync) -> int:
         fields = invoice_mod.extract_fields(text)
         # Only our own truck; ignore invoices for other trucks / customers.
         if not fields.tt_no or fields.tt_no.upper() != own_tt:
+            continue
+        # Anchor: only number invoices from min_invoice_no onward. Older ones
+        # (smaller IOCL document number) were noted manually up to 046 — skip
+        # them quietly, they are not errors.
+        if (min_invoice_no and fields.invoice_no and fields.invoice_no.isdigit()
+                and int(fields.invoice_no) < int(min_invoice_no)):
             continue
         if not invoice_mod.is_complete(fields):
             # A partial parse on our own truck is worth surfacing loudly.

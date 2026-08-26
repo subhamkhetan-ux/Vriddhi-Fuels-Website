@@ -121,6 +121,10 @@ CONSIGNMENT = {
     "gmail_query": "from:B2BPRD@indianoil.in has:attachment filename:pdf",
     "own_tt": "OD23U8210",                       # only generate for our own truck
     "serial_prefix": "VF/CN2627/",
+    # Anchor: numbering starts here. Serial 047 = this invoice; anything with a
+    # smaller IOCL document number is ignored (older loads were noted manually up
+    # to 046). Every later invoice has a larger number, so it flows on to 048+.
+    "min_invoice_no": "7010221545",
 }
 
 # Telegram failure-alert secrets (reused from the IOCL monitor).
