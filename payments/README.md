@@ -19,6 +19,10 @@ Master-Paid `.xlsx` — all from your phone or desktop.
 
 No `git`, no `python`. The cloud cron keeps the list filled every ~20 minutes.
 
+**Off-email payments** (cash, cheque, a transfer with no alert) — tap **＋ Add**,
+enter date / customer / amount / mode, and it joins **Ready to export** like any
+matched credit. It exports and drops off the same way.
+
 ## How it connects
 
 ```
