@@ -111,3 +111,75 @@ def fetch_alerts(service, query: str, after_ms: int | None,
 
     alerts.sort(key=lambda a: a.internal_ms)
     return alerts
+
+
+@dataclass
+class InvoiceMail:
+    msg_id: str
+    internal_ms: int
+    pdfs: list[bytes]         # decoded PDF attachment bytes
+
+
+def _walk_pdf_attachments(service, msg_id: str, payload: dict) -> list[bytes]:
+    """Collect the bytes of every PDF attachment on a message."""
+    pdfs: list[bytes] = []
+
+    def walk(part):
+        filename = (part.get("filename") or "").lower()
+        mime = part.get("mimeType", "")
+        body = part.get("body", {})
+        is_pdf = filename.endswith(".pdf") or mime == "application/pdf"
+        if is_pdf:
+            data = body.get("data")
+            att_id = body.get("attachmentId")
+            if not data and att_id:
+                att = service.users().messages().attachments().get(
+                    userId="me", messageId=msg_id, id=att_id).execute()
+                data = att.get("data")
+            if data:
+                pdfs.append(base64.urlsafe_b64decode(data.encode("utf-8")))
+        for sub in part.get("parts", []) or []:
+            walk(sub)
+
+    walk(payload)
+    return pdfs
+
+
+def fetch_invoice_mails(service, query: str, after_ms: int | None,
+                        seen_ids: set[str], max_results: int = 25) -> list[InvoiceMail]:
+    """Return IOC invoice mails (with their PDF attachments) newer than
+    ``after_ms`` and not already seen, oldest first."""
+    q = query
+    if after_ms:
+        q = f"{query} after:{max(0, after_ms // 1000 - 60)}"
+
+    listed = service.users().messages().list(
+        userId="me", q=q, maxResults=max_results).execute()
+    ids = [m["id"] for m in listed.get("messages", [])]
+
+    mails: list[InvoiceMail] = []
+    for mid in ids:
+        if mid in seen_ids:
+            continue
+        msg = service.users().messages().get(
+            userId="me", id=mid, format="full").execute()
+        internal = int(msg.get("internalDate", "0"))
+        if after_ms and internal <= after_ms:
+            continue
+        payload = msg.get("payload", {})
+        pdfs = _walk_pdf_attachments(service, mid, payload)
+        mails.append(InvoiceMail(msg_id=mid, internal_ms=internal, pdfs=pdfs))
+
+    mails.sort(key=lambda m: m.internal_ms)
+    return mails
+
+
+def pdf_to_text(pdf_bytes: bytes) -> str:
+    """Extract text from a PDF (lazy pymupdf import; only needed on the runner)."""
+    import pymupdf  # lazy: keeps pure-logic tests import-free
+
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        return "".join(page.get_text() for page in doc)
+    finally:
+        doc.close()

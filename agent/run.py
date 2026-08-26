@@ -182,6 +182,20 @@ def main() -> int:
             traceback.print_exc()
             errors.append(msg)
 
+    # Consignment notes: detect new IOCL invoices for our own TT and queue a
+    # note for the app. Best-effort and isolated — never sinks credit ingest.
+    from . import consignment
+    try:
+        cn_created, cn_errors = consignment.run(seen)
+        if cn_created:
+            print(f"Consignment: queued {cn_created} note(s).")
+        errors.extend(cn_errors)
+    except Exception as exc:  # last-resort guard
+        msg = f"consignment: FAILED: {exc}"
+        print(msg)
+        traceback.print_exc()
+        errors.append(msg)
+
     # Persist whatever progress we made, even on partial failure.
     state_store.save_queue(queue)
     state_store.save_seen(seen)

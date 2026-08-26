@@ -103,6 +103,38 @@ def _row_payload(row: dict) -> dict:
     }
 
 
+def claim_consignment(note: dict) -> dict | None:
+    """Idempotently claim a consignment note for one invoice via the DB RPC.
+
+    Returns the note row (with its assigned ``serial_str``) or ``None`` if
+    Supabase isn't configured / the call fails. Safe to call repeatedly for the
+    same invoice — the RPC returns the existing note without spending a serial.
+    """
+    cfg = _config()
+    if not cfg:
+        return None
+    url, key = cfg
+    body = {
+        "p_id": note["id"],
+        "p_gmail_msg_id": note.get("gmail_msg_id"),
+        "p_invoice_no": note.get("invoice_no"),
+        "p_invoice_date": note.get("invoice_date"),
+        "p_tt_no": note.get("tt_no"),
+        "p_product": note.get("product"),
+        "p_column_key": note.get("column_key"),
+        "p_qty": note.get("qty"),
+        "p_value": note.get("value"),
+    }
+    try:
+        # PostgREST returns the function's row result; ask for the JSON object.
+        res = _request("POST", "rpc/pay_claim_consignment", key, url, body=body)
+        if isinstance(res, list):
+            return res[0] if res else None
+        return res
+    except Exception:
+        return None
+
+
 def upsert_rows(rows: list[dict]) -> int:
     """Insert new queue rows; ignore ones already present (so app edits — a
     resolved name, an exported flag — are never clobbered). Returns count sent.

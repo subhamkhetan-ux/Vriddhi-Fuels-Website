@@ -90,6 +90,15 @@ summary::-webkit-details-marker{display:none}
   border:1px solid var(--line);color:var(--ink);padding:10px 16px;border-radius:11px;font-size:13px;
   z-index:40;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 .toast.show{opacity:1}
+.cn-card{border-color:var(--accent)}
+.cn-serial{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:800;color:var(--accent)}
+.cn-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:10px;font-size:13px}
+.cn-grid .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.cn-grid .v{color:var(--ink);font-variant-numeric:tabular-nums}
+.cn-date{margin-top:12px}
+.cn-date label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+.cn-date input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:14px}
+.cn-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
 a{color:var(--accent)}
@@ -133,6 +142,7 @@ a{color:var(--accent)}
     <div class="stat review"><div class="k">Needs review</div><div class="v" id="reviewCount">0</div><div class="s">tap a name to resolve</div></div>
   </div>
 
+  <div id="consignWrap"></div>
   <div id="reviewWrap"></div>
   <div id="readyWrap"></div>
   <div id="exportedWrap"></div>
@@ -156,6 +166,10 @@ function money(n){ if(n==null||isNaN(n)) return ""; return "₹"+Number(n).toLoc
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function escAttr(s){ return esc(s).replace(/'/g,"&#39;"); }
 function norm(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
+function dmyToIso(s){ const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s||"").trim());
+  return m ? `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}` : ""; }
+function isoToDmy(s){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||"").trim());
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; }
 
 // clean_remitter + alias_key — must match agent/normalize.py so app-saved
 // aliases line up with what the cloud agent computes for the same remitter.
@@ -206,6 +220,8 @@ const Cloud = {
       this.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {auth:{persistSession:false}});
       const ok = await this.pull();          // sets live/offline itself
       this.subscribe();
+      this.pullConsign();
+      this.subscribeConsign();
       if(ok) clearError();
     }catch(e){ this.setState("offline"); showError("Could not connect to Supabase: "+(e&&e.message||e)); }
   },
@@ -272,10 +288,38 @@ const Cloud = {
       match_tier:row.match_tier, status:row.status, flags:row.flags, queued_at:row.queued_at
     }]); }catch(_){ toast("Couldn't save to cloud — check connection"); }
   },
+  /* ---- consignment notes ---- */
+  async pullConsign(){
+    if(!this.client) return;
+    try{
+      Promise.resolve(this.client.rpc("pay_consignment_purge_old")).catch(()=>{});
+      const { data, error } = await this.client.from("pay_consignment_notes")
+        .select("*").order("serial_num",{ascending:false}).limit(200);
+      if(error) throw error;
+      const cutoff = Date.now() - SEVEN_DAYS;
+      CNOTES = (data||[]).filter(n => n.status!=="done" ||
+                (n.done_at && Date.parse(n.done_at) >= cutoff));
+      renderConsign();
+    }catch(_){ /* keep whatever we have; payments still work */ }
+  },
+  subscribeConsign(){
+    if(!this.client||!this.client.channel) return;
+    let t; const poke=fn=>{clearTimeout(t);t=setTimeout(fn,300);};
+    this.client.channel("consign-live")
+      .on("postgres_changes",{event:"*",schema:"public",table:"pay_consignment_notes"},
+          ()=>poke(()=>this.pullConsign()))
+      .subscribe();
+  },
+  async setReportingDate(id, dmy){ if(!this.client) return;
+    try{ await this.client.from("pay_consignment_notes").update({reporting_date:dmy}).eq("id",id); }catch(_){} },
+  async markNoteDone(id){ if(!this.client) return;
+    try{ await this.client.from("pay_consignment_notes")
+      .update({status:"done", done_at:new Date().toISOString()}).eq("id",id); }catch(_){} },
 };
 
 /* ---------- state + render ---------- */
 let ROWS=[];
+let CNOTES=[];                  // pending consignment notes
 const SEL = new Set();          // selected ready entry_ids for export
 const SEEN_READY = new Set();   // ready ids we've defaulted-on once
 
@@ -359,6 +403,105 @@ function renderExported(rows){
   w.innerHTML = h;
 }
 
+/* ---------- consignment notes ---------- */
+function renderConsign(){
+  const w = document.getElementById("consignWrap");
+  if(!w) return;
+  const pending = CNOTES.filter(n=>n.status!=="done");
+  if(!pending.length){ w.innerHTML=""; return; }
+  let h = `<h2>Consignment notes <span class="count">· ${pending.length}</span></h2>`;
+  for(const n of pending){
+    const isoRep = dmyToIso(n.reporting_date || n.invoice_date) || "";
+    h += `<div class="card cn-card">
+      <div class="row-top">
+        <div class="cn-serial">${esc(n.serial_str||"")}</div>
+        <div class="tag">TT ${esc(n.tt_no||"")}</div>
+      </div>
+      <div class="cn-grid">
+        <div><div class="k">Invoice</div><div class="v">${esc(n.invoice_no||"")}</div></div>
+        <div><div class="k">Invoice date</div><div class="v">${esc(n.invoice_date||"")}</div></div>
+        <div><div class="k">Goods</div><div class="v">${esc(n.product||"")} · ${esc(n.column_key||"")}</div></div>
+        <div><div class="k">Quantity</div><div class="v">${esc(n.qty||"")} KL</div></div>
+        <div><div class="k">Value of goods</div><div class="v">${money(n.value)}</div></div>
+      </div>
+      <div class="cn-date">
+        <label>Reporting date (top of note) — usually same or next day</label>
+        <input type="date" id="cnd_${escAttr(n.id)}" value="${escAttr(isoRep)}"
+               onchange="onReportingDate('${escAttr(n.id)}', this.value)">
+      </div>
+      <div class="cn-actions">
+        <button class="cta" style="flex:1" onclick="downloadNote('${escAttr(n.id)}')">Download note (.docx)</button>
+        <button class="btn ghost sm" onclick="dismissNote('${escAttr(n.id)}')">dismiss</button>
+      </div>
+    </div>`;
+  }
+  w.innerHTML = h;
+}
+
+function onReportingDate(id, iso){
+  const n = CNOTES.find(x=>x.id===id); if(!n) return;
+  const dmy = isoToDmy(iso); if(!dmy) return;
+  n.reporting_date = dmy;                 // optimistic; persists so it survives reloads
+  Cloud.setReportingDate(id, dmy);
+}
+function dismissNote(id){
+  if(!confirm("Dismiss this consignment note? It drops off the list (kept 7 days).")) return;
+  const n=CNOTES.find(x=>x.id===id); if(!n) return;
+  n.status="done"; n.done_at=new Date().toISOString();
+  Cloud.markNoteDone(id); renderConsign(); toast("Dismissed");
+}
+
+// XML text escape for tokens written into word/document.xml
+function xmlEsc(s){ return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+const COLUMN_TOKEN = {
+  "MS | EBMS":"{{QTY_MSEBMS}}", "XtraGreen HSD":"{{QTY_XG}}",
+  "HSD":"{{QTY_HSD}}", "LSHFHSD":"{{QTY_LSHF}}",
+};
+let _JSZip=null;
+async function getJSZip(){
+  if(_JSZip) return _JSZip;
+  _JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
+  return _JSZip;
+}
+
+async function downloadNote(id){
+  const n = CNOTES.find(x=>x.id===id); if(!n) return;
+  const repDmy = (document.getElementById("cnd_"+id)?.value ? isoToDmy(document.getElementById("cnd_"+id).value) : "")
+                 || n.reporting_date || n.invoice_date || "";
+  try{
+    toast("Preparing note…");
+    const JSZip = await getJSZip();
+    const buf = await fetch("./consignment_template.docx",{cache:"no-store"}).then(r=>{
+      if(!r.ok) throw new Error("template "+r.status); return r.arrayBuffer(); });
+    const zip = await JSZip.loadAsync(buf);
+    let xml = await zip.file("word/document.xml").async("string");
+    const vals = {
+      "{{SERIAL}}": n.serial_str||"",
+      "{{DATE}}": repDmy,
+      "{{VALUE}}": (n.value==null?"":String(n.value)),
+      "{{INVNO}}": n.invoice_no||"",
+      "{{INVDATE}}": n.invoice_date||"",
+      "{{QTY_MSEBMS}}":"", "{{QTY_XG}}":"", "{{QTY_HSD}}":"", "{{QTY_LSHF}}":"",
+    };
+    const tok = COLUMN_TOKEN[n.column_key];
+    if(tok) vals[tok] = (n.qty==null?"":String(n.qty));
+    for(const [k,v] of Object.entries(vals)) xml = xml.split(k).join(xmlEsc(v));
+    zip.file("word/document.xml", xml);
+    const blob = await zip.generateAsync({type:"blob",
+      mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+    const fname = "Consignment_Note_"+String(n.serial_str||"note").replace(/[^\w]+/g,"_")+".docx";
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    // Persist the reporting date and mark the note done (drops off, kept 7 days).
+    if(repDmy) Cloud.setReportingDate(id, repDmy);
+    n.status="done"; n.done_at=new Date().toISOString();
+    Cloud.markNoteDone(id); renderConsign();
+    toast("Downloaded "+(n.serial_str||"note"));
+  }catch(e){ toast("Couldn't build note: "+(e&&e.message||e)); }
+}
+
 function allSelected(rows){ return rows.length && rows.every(r=>SEL.has(r.entry_id)); }
 function renderExportBar(ready){
   // default: select all ready that aren't explicitly deselected
@@ -404,7 +547,7 @@ function toggleAll(){
 function unExport(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r.exported=false; r.exported_at=null; SEL.add(id); }
   Cloud.setStatus(id,{exported:false,exported_at:null}); render(); }
 
-document.getElementById("refreshBtn").onclick = ()=>Cloud.pull();
+document.getElementById("refreshBtn").onclick = ()=>{ Cloud.pull(); Cloud.pullConsign(); };
 document.getElementById("exportBtn").onclick = doExport;
 document.getElementById("addBtn").onclick = ()=>toggleAdd();
 
