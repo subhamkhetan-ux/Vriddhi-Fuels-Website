@@ -25,6 +25,27 @@ from .normalize import clean_remitter, norm
 # at least this long. Shorter shorthand (e.g. "hp") stays a review row.
 MIN_CONFIDENT_SUBSTR = 4
 
+# A whole canonical name may match as a substring INSIDE a longer remitter (banks
+# often write the fuller legal name, e.g. "... PRIVATE LIMITED JHARSUGUDA UNIT").
+# Only trust that when the canonical compact name is at least this long and is
+# multi-word, so a short generic name can't spuriously match inside a long string.
+MIN_REVERSE_SUBSTR = 8
+
+# Company-suffix abbreviations folded to one spelling on BOTH sides before
+# comparison, so "PVT LTD" matches "Private Limited". Applied per whole token.
+_ABBR = {
+    "pvt": "private",
+    "ltd": "limited",
+    "co": "company",
+    "corp": "corporation",
+    "corpn": "corporation",
+}
+
+
+def _canon(s: str) -> str:
+    """Normalize + fold common company-suffix abbreviations."""
+    return " ".join(_ABBR.get(t, t) for t in norm(s).split())
+
 
 @dataclass
 class MatchResult:
@@ -34,25 +55,32 @@ class MatchResult:
     candidates: list[str] = field(default_factory=list)
 
 
-def _core_match(raw: str, normed: list[tuple[str, str]]) -> tuple[str, str | None, list[str]]:
-    """The ported ``matchName``. ``normed`` is ``[(name, norm(name)), ...]``.
+def _core_match(raw: str, customers: list[str]) -> tuple[str, str | None, list[str]]:
+    """The ported ``matchName``, extended with abbreviation folding and
+    reverse containment.
 
     Returns ``(tier, exact_or_none, candidate_list)`` where tier is one of
     ``exact``, ``substring``, ``ambiguous``, ``nomatch``.
     """
-    q = norm(raw)
+    normed = [(c, _canon(c)) for c in customers]
+    q = _canon(raw)
     qc = q.replace(" ", "")
 
-    # Tier 1: exact normalized equality.
+    # Tier 1: exact (abbreviation-folded) equality.
     for n, nn in normed:
         if nn == q:
             return "exact", n, [n]
 
-    # Tier 2: substring / word-prefix on the compact query.
+    # Tier 2: substring / word-prefix, in EITHER direction:
+    #   - query inside a name  -> shorthand ("akv" in "akv logistics")
+    #   - name inside a query  -> bank wrote the fuller legal name
     def hit(nn: str) -> bool:
         if not qc:
             return False
-        if qc in nn.replace(" ", ""):
+        nnc = nn.replace(" ", "")
+        if qc in nnc:
+            return True
+        if len(nnc) >= MIN_REVERSE_SUBSTR and " " in nn and nnc in qc:
             return True
         return any(w.startswith(qc) for w in nn.split(" "))
 
@@ -85,7 +113,6 @@ def match_name(
     first (see :func:`alias_key`).
     """
     aliases = aliases or {}
-    normed = [(c, norm(c)) for c in customers]
     canon_set = {norm(c): c for c in customers}
 
     # Learned alias — checked FIRST, auto-passes forever.
@@ -97,7 +124,7 @@ def match_name(
         return MatchResult("matched", "alias", canonical=canonical, candidates=[canonical])
 
     cleaned = clean_remitter(raw_payer) or raw_payer
-    tier, exact, candidates = _core_match(cleaned, normed)
+    tier, exact, candidates = _core_match(cleaned, customers)
 
     if tier == "exact":
         return MatchResult("matched", "exact", canonical=exact, candidates=candidates)

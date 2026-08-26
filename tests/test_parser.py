@@ -76,6 +76,21 @@ def test_hdfc_credit_1010_parses():
     assert r.mode == "HDFC 1010"   # fixed account tag, not the payment rail
 
 
+def test_hdfc_tpt_reference_format_parses():
+    # The other HDFC reference wording: "<acct>-TPT-<narration>-<REMITTER>".
+    body = (
+        "You have received a credit in your HDFC Bank account.\n"
+        "Amount received: INR 61,076.00\nAccount: XX1010\nDate: 20-AUG-2026\n"
+        "Reference Details: XXXXXXXXXX9708-TPT-Payment-SAPNA BUILDERS AND SUPPLIERS "
+        "Available Balance: INR 71,453.75"
+    )
+    r = parse(HDFC, "credit", body)
+    assert r.ok, r.error
+    assert r.amount == 61076.0
+    assert r.raw_payer == "SAPNA BUILDERS AND SUPPLIERS"
+    assert r.mode == "HDFC 1010"
+
+
 def test_hdfc_debit_is_ignored():
     r = parse(HDFC, "debit alert", HDFC_DEBIT)
     assert not r.ok
