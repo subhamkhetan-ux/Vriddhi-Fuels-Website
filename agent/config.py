@@ -22,7 +22,7 @@ from .parser import ParserProfile
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 # How far back to look on a cold start (no high-water mark yet), in days.
-LOOKBACK_DAYS = int(os.environ.get("AGENT_LOOKBACK_DAYS", "7"))
+LOOKBACK_DAYS = int(os.environ.get("AGENT_LOOKBACK_DAYS", "10"))
 
 
 # ---- Bank 1: HDFC ----------------------------------------------------------
@@ -58,6 +58,9 @@ HDFC = ParserProfile(
         # "Reference Details: RTGS Cr-<IFSC>-<REMITTER>-<BENEFICIARY>-<UTR>"
         # capture the remitter (3rd hyphen field): "DBL SIARMAL COAL MINES..."
         r"Reference Details:\s*(?:RTGS|NEFT|IMPS)\s+Cr-[^-]*-([^-]+?)-",
+        # "Reference Details: <masked-acct>-TPT-<narration>-<REMITTER> Available"
+        # the remitter is the last field, before "Available Balance".
+        r"Reference Details:\s*[^-\n]*-TPT-[^-\n]*-([^-\n]+?)\s+Available",
         # generic fallback: "...Cr-<IFSC>-<REMITTER>-"
         r"\bCr-[^-]*-([^-]+?)-",
     ],
