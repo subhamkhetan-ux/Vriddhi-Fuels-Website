@@ -28,28 +28,43 @@ LOOKBACK_DAYS = int(os.environ.get("AGENT_LOOKBACK_DAYS", "7"))
 # ---- Bank 1: HDFC ----------------------------------------------------------
 HDFC = ParserProfile(
     bank="HDFC",
-    # Narrow the mailbox to genuine credit alerts. Tune the from:/subject: to
-    # the exact sender address your HDFC account receives.
+    # This mailbox also gets debit alerts and alerts for a second HDFC account
+    # (ending 2542). We want ONLY credit alerts for the account ending 1010.
+    # The Gmail query is a first cut; the accept/reject gate below is what
+    # actually enforces "credit + account 1010".
     gmail_query='from:(alerts@hdfcbank.net OR alerts@hdfcbank.com) '
-                '(subject:credited OR subject:credit OR "has been credited")',
+                '("received a credit" OR subject:credit)',
+    # Only ours if it's a credit AND names account 1010; drop anything that
+    # names the 2542 account or reads as a debit.
+    accept_if_all=[
+        r"received a credit",
+        r"X{0,4}1010\b",
+    ],
+    reject_if_any=[
+        r"X{0,4}2542\b",
+        r"\bdebit",
+        r"has been debited",
+    ],
     amount_patterns=[
-        r"(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{1,2})?)",
-        r"credited (?:with|by)\s*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d{1,2})?)",
+        # "Amount received: INR 41,97,180.00"
+        r"Amount received:\s*(?:INR|Rs\.?)?\s*([\d,]+(?:\.\d{1,2})?)",
+        r"(?:INR|Rs\.?)\s*([\d,]+(?:\.\d{1,2})?)",
     ],
     date_patterns=[
+        # "Date: 25-AUG-2026"
+        r"Date:\s*(\d{1,2}[-/][A-Za-z]{3}[-/]\d{2,4})",
         r"\bon\s+(\d{1,2}[-/][A-Za-z0-9]{2,4}[-/]\d{2,4})",
-        r"value date[:\s]+(\d{1,2}[-/][A-Za-z0-9]{2,4}[-/]\d{2,4})",
-        r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",
     ],
     payer_patterns=[
-        # "...by M/S SUDARSHAN MINERALS AND LOG" / "from <NAME>"
-        r"\b(?:by|from)\s+(M/S[ ][A-Za-z0-9&./ ]+?)(?=\s+(?:Ref|UTR|on|towards|Info|\(|\.|$))",
-        r"\b(?:by|from)\s+([A-Z][A-Za-z0-9&./ ]{2,}?)(?=\s+(?:Ref|UTR|on|towards|Info|\(|\.|$))",
-        # "Info: NEFT-<ref>-<NAME>"
-        r"Info[:\s]+[A-Z]+-[^-]*-\s*([^.\n]+)",
+        # "Reference Details: RTGS Cr-<IFSC>-<REMITTER>-<BENEFICIARY>-<UTR>"
+        # capture the remitter (3rd hyphen field): "DBL SIARMAL COAL MINES..."
+        r"Reference Details:\s*(?:RTGS|NEFT|IMPS)\s+Cr-[^-]*-([^-]+?)-",
+        # generic fallback: "...Cr-<IFSC>-<REMITTER>-"
+        r"\bCr-[^-]*-([^-]+?)-",
     ],
-    rail_pattern=r"\b(NEFT|RTGS|IMPS|UPI)\b",
-    default_rail="",
+    # Column D / remarks is a fixed tag for this account, not the payment rail.
+    rail_pattern=None,
+    default_rail="1010",   # -> mode "HDFC 1010"
 )
 
 # ---- Bank 2: ICICI ---------------------------------------------------------
@@ -57,22 +72,30 @@ ICICI = ParserProfile(
     bank="ICICI",
     gmail_query='from:(alerts@icicibank.com OR credit_alert@icicibank.com) '
                 '(subject:credited OR "has been credited")',
+    # Credit alerts only. Ignore debit alerts and the daily "Ezy QR" auto-credits
+    # (small QR-collection FT credits with no real remitter name).
+    accept_if_all=[r"has been credited"],
+    reject_if_any=[r"EZY ?QR", r"has been debited", r"\bdebited\b"],
     amount_patterns=[
+        # "...has been credited with Rs. 34,79,017.00 on..."
         r"credited with\s*(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{1,2})?)",
         r"(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{1,2})?)",
     ],
     date_patterns=[
+        # "on 06-Aug-26"
         r"\bon\s+(\d{1,2}[-/][A-Za-z]{3,4}[-/]\d{2,4})",
         r"\bon\s+(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",
     ],
     payer_patterns=[
+        # "Info: RTGS-<UTR>-<REMITTER>" -> remitter is the last field
+        r"Info[:\s]+(?:RTGS|NEFT|IMPS)-[^-]*-([^-.\n]+)",
         # "Info: UPI/<rrn>/<purpose>/<NAME>/"
         r"Info[:\s]+UPI/[^/]*/[^/]*/([^/\n]+)",
         r"\bfrom\s+([A-Z][A-Za-z0-9&./ ]{2,}?)(?=\s+(?:Ref|UTR|on|Info|\(|\.|$))",
-        r"Info[:\s]+[A-Z]+[/-][^/-]*[/-]\s*([^./\n]+)",
     ],
-    rail_pattern=r"\b(NEFT|RTGS|IMPS|UPI)\b",
-    default_rail="",
+    # Column D / remarks is a fixed tag for this account.
+    rail_pattern=None,
+    default_rail="BANK LTD",   # -> mode "ICICI BANK LTD"
 )
 
 

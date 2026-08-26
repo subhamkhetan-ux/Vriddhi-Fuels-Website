@@ -48,9 +48,14 @@ def _is_outlier(history: dict, customer: str, amount: float) -> bool:
     return amount > med * 6 or amount < med / 6
 
 
-def _row_from_alert(account_id, profile, alert, customers, aliases, history) -> dict:
-    """Build a queue row from one alert (parse + match + flags)."""
+def _row_from_alert(account_id, profile, alert, customers, aliases, history) -> dict | None:
+    """Build a queue row from one alert (parse + match + flags).
+
+    Returns ``None`` when the profile's gate rejects the email (a debit alert, a
+    non-target account, non-credit noise) — the caller then drops it entirely."""
     res = parse(profile, alert.subject, alert.body)
+    if res.ignore:
+        return None
     row = {
         "entry_id": state_store.entry_id(alert.msg_id),
         "gmail_msg_id": alert.msg_id,
@@ -118,14 +123,15 @@ def process_account(account, customers, aliases, history, queue, seen) -> tuple[
     for alert in alerts:  # oldest first
         eid = state_store.entry_id(alert.msg_id)
         # Advance the mark past this alert regardless (we've now handled it),
-        # but only append a row if it isn't already queued.
+        # but only append a row if it's a target alert and isn't already queued.
         if eid not in existing_entry_ids:
             row = _row_from_alert(acc_id, profile, alert, customers, aliases, history)
-            queue.append(row)
-            existing_entry_ids.add(eid)
-            queued += 1
-            if row["status"] == "review":
-                reviewed += 1
+            if row is not None:  # None == gated out (debit / other account); drop
+                queue.append(row)
+                existing_entry_ids.add(eid)
+                queued += 1
+                if row["status"] == "review":
+                    reviewed += 1
         acc_state["high_water"] = max(acc_state.get("high_water", 0), alert.internal_ms)
         if alert.msg_id not in acc_state["ids"]:
             acc_state["ids"].append(alert.msg_id)
