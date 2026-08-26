@@ -666,7 +666,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T07:29:30.911410+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T14:05:34.260790+00:00"
     },
     {
       "entry_id": "7ee5936a9e41fc14",
@@ -687,6 +689,29 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T12:00:05.602823+00:00",
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T14:05:34.260790+00:00"
+    },
+    {
+      "entry_id": "cea0c4d08e0516ee",
+      "gmail_msg_id": "1a03e605890a24a2",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "26/08/2026",
+      "date_serial": 46260,
+      "amount": 14389.0,
+      "raw_payer": "MARUTI REALITIES DEVELOPERS",
+      "customer": "Maruti Realities & Developers",
+      "candidates": [
+        "Maruti Realities & Developers"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T14:05:36.101669+00:00",
       "status": "matched"
     }
   ]
