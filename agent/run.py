@@ -151,7 +151,6 @@ def main() -> int:
     history = _load_history()
     queue = state_store.load_queue()
     seen = state_store.load_seen()
-    known_ids = {r["entry_id"] for r in queue}
 
     if not customers:
         print("WARNING: state/customers.json is empty — everything will be 'review'. "
@@ -175,11 +174,16 @@ def main() -> int:
     state_store.save_queue(queue)
     state_store.save_seen(seen)
 
-    # Mirror newly-queued rows to Supabase for the /payments app (best-effort).
-    new_rows = [r for r in queue if r["entry_id"] not in known_ids]
-    if new_rows and supabase_sync.enabled():
-        sent = supabase_sync.upsert_rows(new_rows)
-        print(f"Supabase: pushed {sent} new row(s).")
+    # Mirror the live (un-materialized) queue to Supabase for the /payments app.
+    # Idempotent insert-if-absent every run: backfills anything missed and never
+    # clobbers app edits (a resolved name, an exported flag). Materialized rows
+    # (already imported via materialize.py) are excluded. Best-effort.
+    live_rows = [r for r in queue if not r.get("materialized")]
+    if supabase_sync.enabled():
+        sent = supabase_sync.upsert_rows(live_rows)
+        print(f"Supabase: enabled; synced {sent}/{len(live_rows)} live row(s).")
+    else:
+        print("Supabase: not configured (SUPABASE_URL/SUPABASE_KEY unset).")
 
     print(f"Total queued {totals['queued']} ({totals['reviewed']} review); "
           f"{len(errors)} account error(s).")

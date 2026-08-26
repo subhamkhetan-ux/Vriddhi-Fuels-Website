@@ -19,7 +19,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.808762+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "f8b70124187d166c",
@@ -40,7 +42,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.809322+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "52461a046e2f17a3",
@@ -61,7 +65,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.809794+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "799259ea75fa3e55",
@@ -73,7 +79,7 @@
       "date_serial": 46252,
       "amount": 302220.0,
       "raw_payer": "ARYAN ISPAT AND POWER PRIVATE LI",
-      "customer": null,
+      "customer": "Aryan Ispat & Power Private Ltd.",
       "candidates": [
         "Aryan Ispat & Power Private Ltd.",
         "Hm Power and Cables Private Limited",
@@ -82,12 +88,14 @@
         "Bkd Logistics Private Limited",
         "Dbl-Siarmal Coal Mines Private Limited"
       ],
-      "match_tier": "nomatch",
+      "match_tier": "resolved",
       "flags": {
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.810031+00:00",
-      "status": "review"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "d0cc0d20f0ce85b0",
@@ -108,7 +116,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.810711+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "d87f55e1c548487f",
@@ -129,7 +139,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.811308+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "36d0c77104e7171b",
@@ -150,7 +162,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.811673+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "1983d274d95536f0",
@@ -171,7 +185,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.811858+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "beb88dadccccefc8",
@@ -192,7 +208,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.812219+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "e5f978a8232aec4f",
@@ -232,7 +250,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.812988+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "f955a3529c07d693",
@@ -253,7 +273,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.813421+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "116e85fd67cb3fc3",
@@ -274,7 +296,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.813760+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "9a1b210c1e2289f1",
@@ -295,7 +319,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.813932+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "01c60bb1fdfc1667",
@@ -316,7 +342,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.814387+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "21a3fa377a1900ef",
@@ -337,7 +365,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.814720+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "252ce8b31d1e83ce",
@@ -358,7 +388,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.814923+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "4a431031bf5b1c29",
@@ -379,7 +411,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.815281+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "4a1412a416d0bf9a",
@@ -400,7 +434,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.815521+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "aacbce7dfd76d829",
@@ -421,7 +457,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.815688+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "86e5f7c32110a7cd",
@@ -442,7 +480,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.815878+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "5bf41ad52dedf1ed",
@@ -463,7 +503,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.816057+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "c1151ee5d6096164",
@@ -484,7 +526,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.816490+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "930afd5c710e4745",
@@ -505,7 +549,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.816659+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "937ced62e38d7b89",
@@ -526,7 +572,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.816980+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "a34cebc43a837aab",
@@ -547,7 +595,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.817305+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "abf4af056873e8a8",
@@ -568,7 +618,9 @@
         "outlier": false
       },
       "queued_at": "2026-08-26T05:02:27.817729+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-26T10:05:11.130364+00:00"
     },
     {
       "entry_id": "ca62e71717086082",
