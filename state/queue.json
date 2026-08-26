@@ -1,3 +1,574 @@
 {
-  "rows": []
+  "rows": [
+    {
+      "entry_id": "e9e9ae5fc7a46dcf",
+      "gmail_msg_id": "1a00f7c373522c4c",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "17/08/2026",
+      "date_serial": 46251,
+      "amount": 397602.0,
+      "raw_payer": "SAMARPAN LOGISTICS PRIVATE LIMITED",
+      "customer": "SAMARPAN LOGISTICS PVT LTD",
+      "candidates": [
+        "SAMARPAN LOGISTICS PVT LTD"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.808762+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "f8b70124187d166c",
+      "gmail_msg_id": "1a00f7c624cf5dd6",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "17/08/2026",
+      "date_serial": 46251,
+      "amount": 397602.0,
+      "raw_payer": "SAMARPAN LOGISTICS PRIVATE LIMITED",
+      "customer": "SAMARPAN LOGISTICS PVT LTD",
+      "candidates": [
+        "SAMARPAN LOGISTICS PVT LTD"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.809322+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "52461a046e2f17a3",
+      "gmail_msg_id": "1a012b64e45bb237",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "18/08/2026",
+      "date_serial": 46252,
+      "amount": 7466.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.809794+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "799259ea75fa3e55",
+      "gmail_msg_id": "1a0144e6d832bce1",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "18/08/2026",
+      "date_serial": 46252,
+      "amount": 302220.0,
+      "raw_payer": "ARYAN ISPAT AND POWER PRIVATE LI",
+      "customer": null,
+      "candidates": [
+        "Aryan Ispat & Power Private Ltd.",
+        "Hm Power and Cables Private Limited",
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Steels and Carriers Private Limited",
+        "Bkd Logistics Private Limited",
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.810031+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "d0cc0d20f0ce85b0",
+      "gmail_msg_id": "1a01489561a18aee",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "18/08/2026",
+      "date_serial": 46252,
+      "amount": 1192806.0,
+      "raw_payer": "ORISSA METALIKS PRIVATE LIMITED JHARSUGUDA UNIT",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.810711+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "d87f55e1c548487f",
+      "gmail_msg_id": "1a017c216d548a64",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 6903.43,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.811308+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "36d0c77104e7171b",
+      "gmail_msg_id": "1a0184307fb78354",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 30000.0,
+      "raw_payer": "ATUL TRADING COMPANY",
+      "customer": "A.K.V. Logistics",
+      "candidates": [
+        "A.K.V. Logistics"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.811673+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "1983d274d95536f0",
+      "gmail_msg_id": "1a018bd096a89b25",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 251912.0,
+      "raw_payer": "INDIABUILD INFRA PRIVATE LIMITED",
+      "customer": "Indiabuild Infra Private Limited",
+      "candidates": [
+        "Indiabuild Infra Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.811858+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "beb88dadccccefc8",
+      "gmail_msg_id": "1a019a6f56550691",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 201480.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.812219+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "e5f978a8232aec4f",
+      "gmail_msg_id": "1a019b81a0c5235d",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 15805.0,
+      "raw_payer": "ODISHA SARKAR",
+      "customer": null,
+      "candidates": [],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.812535+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "844fb5ce67d9a2b8",
+      "gmail_msg_id": "1a019cdb2a7e30f5",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 120888.0,
+      "raw_payer": "JAI BALAJI OXYGEN PVT LTD",
+      "customer": "M/s Jai Balaji Oxygen Private Limited",
+      "candidates": [
+        "M/s Jai Balaji Oxygen Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.812988+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "f955a3529c07d693",
+      "gmail_msg_id": "1a01a0215acad222",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/08/2026",
+      "date_serial": 46253,
+      "amount": 21780.0,
+      "raw_payer": "ORISSA METALIKS PVT LIMITED",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.813421+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "116e85fd67cb3fc3",
+      "gmail_msg_id": "1a01ce731fa5386a",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/08/2026",
+      "date_serial": 46254,
+      "amount": 11240.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.813760+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "9a1b210c1e2289f1",
+      "gmail_msg_id": "1a01f44c5c9a0130",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/08/2026",
+      "date_serial": 46254,
+      "amount": 1192806.0,
+      "raw_payer": "ORISSA METALIKS PRIVATE LIMITED JHARSUGUDA UNIT",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.813932+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "01c60bb1fdfc1667",
+      "gmail_msg_id": "1a01f721a396eec3",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "20/08/2026",
+      "date_serial": 46254,
+      "amount": 61076.0,
+      "raw_payer": "SAPNA BUILDERS AND SUPPLIERS",
+      "customer": "SAPNA BUILDERS AND SUPPLIERS",
+      "candidates": [
+        "SAPNA BUILDERS AND SUPPLIERS"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.814387+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "21a3fa377a1900ef",
+      "gmail_msg_id": "1a0220dde7a699fe",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "21/08/2026",
+      "date_serial": 46255,
+      "amount": 20712.62,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.814720+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "252ce8b31d1e83ce",
+      "gmail_msg_id": "1a024d882afde4f8",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "21/08/2026",
+      "date_serial": 46255,
+      "amount": 100000.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.814923+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "4a431031bf5b1c29",
+      "gmail_msg_id": "1a0275fecb347d60",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "22/08/2026",
+      "date_serial": 46256,
+      "amount": 14003.95,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.815281+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "4a1412a416d0bf9a",
+      "gmail_msg_id": "1a031b7b9360cc13",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 28578.85,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.815521+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "aacbce7dfd76d829",
+      "gmail_msg_id": "1a031b819b69001a",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 7742.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.815688+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "86e5f7c32110a7cd",
+      "gmail_msg_id": "1a032a41f6aa1f90",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 30000.0,
+      "raw_payer": "ATUL TRADING COMPANY",
+      "customer": "A.K.V. Logistics",
+      "candidates": [
+        "A.K.V. Logistics"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.815878+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "5bf41ad52dedf1ed",
+      "gmail_msg_id": "1a0336b022e410d9",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "24/08/2026",
+      "date_serial": 46258,
+      "amount": 1192806.0,
+      "raw_payer": "ORISSA METALIKS PRIVATE LIMITED JHARSUGUDA UNIT",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.816057+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "c1151ee5d6096164",
+      "gmail_msg_id": "1a036a937913f6a3",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 10427.84,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.816490+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "930afd5c710e4745",
+      "gmail_msg_id": "1a0371766b411d39",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 250000.0,
+      "raw_payer": "INDIABUILD INFRA PRIVATE LIMITED",
+      "customer": "Indiabuild Infra Private Limited",
+      "candidates": [
+        "Indiabuild Infra Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.816659+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "937ced62e38d7b89",
+      "gmail_msg_id": "1a037bb9e66a44ca",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 100000.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.816980+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "a34cebc43a837aab",
+      "gmail_msg_id": "1a038d2b58fc8717",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/08/2026",
+      "date_serial": 46259,
+      "amount": 4197180.0,
+      "raw_payer": "DBL SIARMAL COAL MINES PRIVATE LIM",
+      "customer": "Dbl-Siarmal Coal Mines Private Limited",
+      "candidates": [
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.817305+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "abf4af056873e8a8",
+      "gmail_msg_id": "1a03be983aeabc64",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "26/08/2026",
+      "date_serial": 46260,
+      "amount": 86992.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-26T05:02:27.817729+00:00",
+      "status": "matched"
+    }
+  ]
 }
