@@ -255,7 +255,14 @@ const Cloud = {
     if(!this.client||!ids.length) return;
     try{ await this.client.from("pay_credit_queue").update({exported:true,exported_at:new Date().toISOString()}).in("entry_id",ids); }catch(_){}
   },
-  async drop(id){ if(!this.client) return; try{ await this.client.from("pay_credit_queue").delete().eq("entry_id",id); }catch(_){} },
+  async drop(id, flags){ if(!this.client) return; try{
+    // Mark handled instead of deleting, so the agent's re-sync (insert-if-absent
+    // on entry_id) can't resurrect it. Flagged dropped so it's hidden everywhere.
+    await this.client.from("pay_credit_queue").update({
+      exported:true, exported_at:new Date().toISOString(),
+      flags:Object.assign({}, flags, {dropped:true})
+    }).eq("entry_id",id);
+  }catch(_){} },
   async addManual(row){
     if(!this.client){ toast("Offline — added locally only"); return; }
     try{ await this.client.from("pay_credit_queue").insert([{
@@ -280,7 +287,7 @@ function render(){
   const ready  = pending.filter(r=>r.status==="matched");
   // new ready rows start selected (one-tap export); user deselections persist
   for(const r of ready){ if(!SEEN_READY.has(r.entry_id)){ SEEN_READY.add(r.entry_id); SEL.add(r.entry_id); } }
-  const exported = ROWS.filter(r=>r.exported).sort((a,b)=>(b.exported_at||"").localeCompare(a.exported_at||""));
+  const exported = ROWS.filter(r=>r.exported && !(r.flags&&r.flags.dropped)).sort((a,b)=>(b.exported_at||"").localeCompare(a.exported_at||""));
 
   // stats
   document.getElementById("reviewCount").textContent = review.length;
@@ -380,8 +387,13 @@ function doResolve(id, customer){
   render();
 }
 function skipRow(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r._skipped=true; } render(); toast("skipped — stays for later"); }
-function dropRow(id){ if(!confirm("Drop this alert entirely?")) return;
-  ROWS=ROWS.filter(x=>x.entry_id!==id); Cloud.drop(id); render(); }
+function dropRow(id){
+  if(!confirm("Drop this alert? It won't be imported, and it won't come back.")) return;
+  const r=ROWS.find(x=>x.entry_id===id); if(!r) return;
+  r.exported=true; r.exported_at=new Date().toISOString();
+  r.flags=Object.assign({}, r.flags, {dropped:true});
+  Cloud.drop(id, r.flags); render(); toast("Dropped");
+}
 function toggleSel(id,on){ if(on) SEL.add(id); else SEL.delete(id); render(); }
 function toggleAll(){
   const ready = ROWS.filter(r=>!r.exported && r.status==="matched");
