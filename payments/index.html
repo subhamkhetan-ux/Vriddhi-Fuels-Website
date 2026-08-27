@@ -288,7 +288,12 @@ const Cloud = {
         .select("*").order("date_serial", {ascending:true}).limit(2000);
       if(error) throw error;
       const cutoff = Date.now() - SEVEN_DAYS;
-      ROWS = (data||[]).filter(r => !r.exported ||
+      // Force-keep rows just exported/dropped here whose Supabase write may still
+      // be in flight, so this pull can't bounce them back to "Ready to export".
+      ROWS = (data||[]).map(r => (PENDING_EXPORT.has(r.entry_id) && !r.exported)
+              ? {...r, exported:true, exported_at:r.exported_at || new Date().toISOString()}
+              : r)
+        .filter(r => !r.exported || PENDING_EXPORT.has(r.entry_id) ||
               (r.exported_at && Date.parse(r.exported_at) >= cutoff));
       this.setState("live"); clearError(); render();
       if(!(data||[]).length)
@@ -311,17 +316,27 @@ const Cloud = {
   },
   async setStatus(id, patch){ if(!this.client) return; try{ await this.client.from("pay_credit_queue").update(patch).eq("entry_id",id); }catch(_){} },
   async markExported(ids){
-    if(!this.client||!ids.length) return;
-    try{ await this.client.from("pay_credit_queue").update({exported:true,exported_at:new Date().toISOString()}).in("entry_id",ids); }catch(_){}
+    // Returns true only if Supabase confirmed the write — the caller relies on
+    // this to keep or roll back the optimistic "exported" state.
+    if(!this.client||!ids.length) return false;
+    try{
+      const { error } = await this.client.from("pay_credit_queue")
+        .update({exported:true, exported_at:new Date().toISOString()}).in("entry_id",ids);
+      return !error;
+    }catch(_){ return false; }
   },
-  async drop(id, flags){ if(!this.client) return; try{
+  async drop(id, flags){
+    if(!this.client) return false;
     // Mark handled instead of deleting, so the agent's re-sync (insert-if-absent
     // on entry_id) can't resurrect it. Flagged dropped so it's hidden everywhere.
-    await this.client.from("pay_credit_queue").update({
-      exported:true, exported_at:new Date().toISOString(),
-      flags:Object.assign({}, flags, {dropped:true})
-    }).eq("entry_id",id);
-  }catch(_){} },
+    try{
+      const { error } = await this.client.from("pay_credit_queue").update({
+        exported:true, exported_at:new Date().toISOString(),
+        flags:Object.assign({}, flags, {dropped:true})
+      }).eq("entry_id",id);
+      return !error;
+    }catch(_){ return false; }
+  },
   async addManual(row){
     if(!this.client){ toast("Offline — added locally only"); return; }
     try{ await this.client.from("pay_credit_queue").insert([{
@@ -363,6 +378,8 @@ let ROWS=[];
 let CNOTES=[];                  // pending consignment notes
 const SEL = new Set();          // selected ready entry_ids for export
 const SEEN_READY = new Set();   // ready ids we've defaulted-on once
+const PENDING_EXPORT = new Set(); // ids exported/dropped locally, write still confirming
+                                  // — keeps a mid-flight pull from bouncing them back
 
 function dupKey(r){ return `${r.date_serial}|${norm(r.customer||"")}|${r.amount}`; }
 
@@ -643,12 +660,23 @@ function doResolve(id, customer){
   render();
 }
 function skipRow(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r._skipped=true; } render(); toast("skipped — stays for later"); }
-function dropRow(id){
+async function dropRow(id){
   if(!confirm("Drop this alert? It won't be imported, and it won't come back.")) return;
   const r=ROWS.find(x=>x.entry_id===id); if(!r) return;
+  PENDING_EXPORT.add(id);
   r.exported=true; r.exported_at=new Date().toISOString();
   r.flags=Object.assign({}, r.flags, {dropped:true});
-  Cloud.drop(id, r.flags); render(); toast("Dropped");
+  render();
+  const ok = await Cloud.drop(id, r.flags);
+  if(!ok){
+    PENDING_EXPORT.delete(id);
+    r.exported=false; r.exported_at=null; if(r.flags) delete r.flags.dropped;
+    render(); toast("⚠️ Couldn't drop — check connection and try again");
+    return;
+  }
+  toast("Dropped");
+  await Cloud.pull();
+  PENDING_EXPORT.delete(id);
 }
 function toggleSel(id,on){ if(on) SEL.add(id); else SEL.delete(id); render(); }
 function toggleAll(){
@@ -715,7 +743,7 @@ function submitManual(){
   toggleAdd(false); render(); toast(`Added ${money(amount)} · ${customer}`);
 }
 
-function doExport(){
+async function doExport(){
   const rows = ROWS.filter(r=>!r.exported && r.status==="matched" && SEL.has(r.entry_id))
                    .sort((a,b)=>a.date_serial-b.date_serial);
   if(!rows.length) return;
@@ -726,10 +754,23 @@ function doExport(){
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;
   document.body.appendChild(a); a.click(); a.remove();
   const ids = rows.map(r=>r.entry_id);
-  ids.forEach(id=>{ const r=ROWS.find(x=>x.entry_id===id); if(r){ r.exported=true; r.exported_at=new Date().toISOString(); } SEL.delete(id); });
-  Cloud.markExported(ids);
-  toast(`Exported ${ids.length} — paste into Master Paid`);
+  // optimistic move to Exported + guard so a mid-flight pull can't revert it
+  ids.forEach(id=>{ PENDING_EXPORT.add(id); const r=ROWS.find(x=>x.entry_id===id);
+    if(r){ r.exported=true; r.exported_at=new Date().toISOString(); } SEL.delete(id); });
   render();
+  const ok = await Cloud.markExported(ids);
+  if(!ok){
+    // the write didn't land — roll back the move and tell the user (don't leave
+    // it looking exported when Supabase still has it as pending)
+    ids.forEach(id=>{ PENDING_EXPORT.delete(id); const r=ROWS.find(x=>x.entry_id===id);
+      if(r){ r.exported=false; r.exported_at=null; SEL.add(id); } });
+    render();
+    toast("⚠️ Couldn't save the export — check connection and try again");
+    return;
+  }
+  toast(`Exported ${ids.length} — paste into Master Paid`);
+  await Cloud.pull();                          // reconcile with Supabase (source of truth)
+  ids.forEach(id=>PENDING_EXPORT.delete(id));  // confirmed persisted; release guard
 }
 
 function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
