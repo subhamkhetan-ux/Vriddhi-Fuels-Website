@@ -116,6 +116,9 @@ summary::-webkit-details-marker{display:none}
 .cn-sub{text-align:center;margin:2pt 0 8pt}
 .cn-line{margin:7pt 0}
 .cn-slno{display:flex;justify-content:space-between;margin:6pt 0}
+/* pull the Date in from the margin so it ends under the centered line above
+   (matches the Word original: the date ends ~30mm from the page's right edge) */
+.cn-slno .cn-date{margin-right:18mm}
 .cn-u{font-weight:bold;text-decoration:underline}
 .cn-b{font-weight:bold}
 table.cn-goods{width:100%;border-collapse:collapse;margin:6pt 0}
@@ -555,7 +558,7 @@ function buildNoteHTML(n, repDmy){
     <div class="cn-body">
       <div class="cn-title">CONSIGNMENT NOTE</div>
       <div class="cn-sub">(Issued as per Fuel Notification No. - 512017 - Central Tax dated 19.05.2017 of CGST Act 2017)</div>
-      <div class="cn-slno"><span>Consignment Note Sl. No. <span class="cn-u">${esc(n.serial_str||"")}</span></span><span>Date: <span class="cn-u">${esc(repDmy)}</span></span></div>
+      <div class="cn-slno"><span>Consignment Note Sl. No. <span class="cn-u">${esc(n.serial_str||"")}</span></span><span class="cn-date">Date: <span class="cn-u">${esc(repDmy)}</span></span></div>
       <div class="cn-line">Name of Consignor : <span class="cn-b">Indian Oil Corporation Ltd. (MD)</span></div>
       <div class="cn-line">(Place of Origin) : <span class="cn-b">Jharsuguda Terminal, Jharsuguda, Odisha</span></div>
       <div class="cn-line">Name of the Consignee : <span class="cn-b">VRIDDHI FUELS</span></div>
