@@ -105,19 +105,29 @@ summary::-webkit-details-marker{display:none}
 .cn-date label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .cn-date input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:14px}
 .cn-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-/* consignment note print: off-screen normally, the only thing on the printed page */
-#printArea{position:fixed;left:-99999px;top:0;background:#fff}
-#printArea .docx-wrapper{background:#fff!important;padding:0!important;box-shadow:none!important}
+/* consignment note print — a hand-built A4 page (no docx renderer), so it looks
+   identical in every browser. Off-screen normally; the only thing printed. */
+#printArea{position:fixed;left:-99999px;top:0}
+.cn-page{width:210mm;min-height:296mm;background:#fff;color:#000;
+  font-family:"Times New Roman",Times,Georgia,serif;font-size:12.5pt;line-height:1.5}
+.cn-page img.cn-lh{display:block;width:100%;margin:0}
+.cn-body{padding:0 12mm}
+.cn-title{text-align:center;font-weight:bold;text-decoration:underline;font-size:14pt;margin:6pt 0 0}
+.cn-sub{text-align:center;margin:2pt 0 8pt}
+.cn-line{margin:7pt 0}
+.cn-slno{display:flex;justify-content:space-between;margin:6pt 0}
+.cn-u{font-weight:bold;text-decoration:underline}
+.cn-b{font-weight:bold}
+table.cn-goods{width:100%;border-collapse:collapse;margin:6pt 0}
+table.cn-goods th,table.cn-goods td{border:1px solid #000;padding:2pt 6pt;text-align:center;font-weight:normal}
+table.cn-goods td:first-child{text-align:left}
+.cn-sign{text-align:right;margin-top:64pt}
 @media print{
-  /* margin:0 keeps it to one A4 page and suppresses the browser URL/date header */
   @page{size:A4;margin:0}
   html,body{background:#fff!important;padding:0!important;margin:0!important}
   body>*{display:none!important}
-  #printArea{display:block!important;position:static!important;left:0!important;width:auto!important}
-  /* the note already carries its own page margins; zoom trims the slight
-     overflow so it always fits one page (no blank second page) */
-  #printArea .docx-wrapper{zoom:0.92}
-  #printArea .docx-wrapper>section.docx{box-shadow:none!important;margin:0 auto!important}
+  #printArea{display:block!important;position:static!important;left:0!important;top:0!important;width:auto!important}
+  .cn-page{width:auto;min-height:0}
 }
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
 .setup code{background:#0006;padding:1px 5px;border-radius:4px}
@@ -496,16 +506,11 @@ const COLUMN_TOKEN = {
   "MS | EBMS":"{{QTY_MSEBMS}}", "XtraGreen HSD":"{{QTY_XG}}",
   "HSD":"{{QTY_HSD}}", "LSHFHSD":"{{QTY_LSHF}}",
 };
-let _JSZip=null, _docxPreview=null;
+let _JSZip=null;
 async function getJSZip(){
   if(_JSZip) return _JSZip;
   _JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
   return _JSZip;
-}
-async function getDocxPreview(){
-  if(_docxPreview) return _docxPreview;
-  _docxPreview = await import("https://esm.sh/docx-preview@0.3.7");
-  return _docxPreview;
 }
 
 // Reporting date currently shown for a note (input override → stored → invoice date).
@@ -537,24 +542,59 @@ async function buildFilledDocx(n, repDmy){
     mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
 }
 
-// Print / Save-as-PDF: render the filled note on the letterhead and open the
-// print dialog (the user picks "Save as PDF" or a printer). The .docx download
-// stays available for editing in Word.
+// Build the consignment note as a self-contained A4 HTML page — the fixed
+// letterhead as an image, then the note's fixed boilerplate with the invoice
+// values filled in. Rendered by the browser itself (not a docx engine), so the
+// print looks identical everywhere and always fits one page.
+function buildNoteHTML(n, repDmy){
+  const cols = {"MS | EBMS":"", "XtraGreen HSD":"", "HSD":"", "LSHFHSD":""};
+  if(n.column_key in cols) cols[n.column_key] = (n.qty==null ? "" : String(n.qty));
+  const val = (n.value==null ? "" : String(n.value));
+  return `<div class="cn-page">
+    <img class="cn-lh" src="./letterhead.png" alt="">
+    <div class="cn-body">
+      <div class="cn-title">CONSIGNMENT NOTE</div>
+      <div class="cn-sub">(Issued as per Fuel Notification No. - 512017 - Central Tax dated 19.05.2017 of CGST Act 2017)</div>
+      <div class="cn-slno"><span>Consignment Note Sl. No. <span class="cn-u">${esc(n.serial_str||"")}</span></span><span>Date: <span class="cn-u">${esc(repDmy)}</span></span></div>
+      <div class="cn-line">Name of Consignor : <span class="cn-b">Indian Oil Corporation Ltd. (MD)</span></div>
+      <div class="cn-line">(Place of Origin) : <span class="cn-b">Jharsuguda Terminal, Jharsuguda, Odisha</span></div>
+      <div class="cn-line">Name of the Consignee : <span class="cn-b">VRIDDHI FUELS</span></div>
+      <div class="cn-line">Place of Destination : Jharsuguda (Vriddhi Fuels).</div>
+      <div class="cn-line">Goods Carriage Regn. No. (TT No.) : <span class="cn-b">OD23U8210</span></div>
+      <div class="cn-line">Transporter Name : <span class="cn-b">M/s. VRIDDHI FUELS</span></div>
+      <div class="cn-line">Details of Goods Transported :</div>
+      <table class="cn-goods">
+        <tr><th>Product</th><th>MS | EBMS</th><th>XtraGreen HSD</th><th>HSD</th><th>LSHFHSD</th></tr>
+        <tr><td>Quantity (KL)</td><td>${esc(cols["MS | EBMS"])}</td><td>${esc(cols["XtraGreen HSD"])}</td><td>${esc(cols["HSD"])}</td><td>${esc(cols["LSHFHSD"])}</td></tr>
+      </table>
+      <div class="cn-line">Value of Goods: <span class="cn-b">Rs. ${esc(val)}/-</span></div>
+      <div class="cn-line">Invoice No. &amp; Date: <span class="cn-b">${esc(n.invoice_no||"")} on ${esc(n.invoice_date||"")}</span></div>
+      <div class="cn-line">Person Liability for paying GST - <span class="cn-b">M/s. Indian Oil Corporation Ltd. (MD)</span><br>GSTIN of IOCL - <span class="cn-b">21AAACI1681G1Z1</span></div>
+      <div class="cn-line">GST Liability is to be paid by - <span class="cn-b">M/s. Indian Oil Corporation Ltd. (MD)</span><br><span class="cn-b">Under Reverse Charge Mechanism (RCM)</span></div>
+      <div class="cn-sign">Signature of the Authorised Person with Rubber Seal</div>
+    </div>
+  </div>`;
+}
+
+// Print / Save-as-PDF: lay out the note as HTML and open the print dialog (pick a
+// printer or "Save as PDF"). The .docx download stays available for editing in Word.
 async function printNote(id){
   const n = CNOTES.find(x=>x.id===id); if(!n) return;
   const repDmy = noteReportingDate(n);
   try{
-    toast("Preparing PDF…");
-    const [blob, docx] = await Promise.all([buildFilledDocx(n, repDmy), getDocxPreview()]);
     const area = document.getElementById("printArea");
-    area.innerHTML = "";
-    await docx.renderAsync(blob, area, null,
-      {inWrapper:true, ignoreWidth:false, ignoreHeight:false, breakPages:true});
+    area.innerHTML = buildNoteHTML(n, repDmy);
     if(repDmy) Cloud.setReportingDate(id, repDmy);
+    // wait for the letterhead image so it's captured in the printout
+    const img = area.querySelector("img.cn-lh");
+    await new Promise(res=>{
+      if(!img || img.complete) return res();
+      img.onload = img.onerror = res; setTimeout(res, 4000);
+    });
     const done = ()=>{ area.innerHTML=""; window.removeEventListener("afterprint", done); };
     window.addEventListener("afterprint", done);
-    setTimeout(()=>{ window.print(); }, 250);
-  }catch(e){ toast("Couldn't build PDF: "+(e&&e.message||e)); }
+    setTimeout(()=>window.print(), 100);
+  }catch(e){ toast("Couldn't prepare print: "+(e&&e.message||e)); }
 }
 
 async function downloadNote(id){
