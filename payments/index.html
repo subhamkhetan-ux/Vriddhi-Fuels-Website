@@ -808,6 +808,23 @@ function zipStore(files){
   return new Blob([...parts,...central,eocd],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
 }
 
+/* ---------- cross-device freshness ----------
+   Supabase is the source of truth; the realtime socket pushes changes live, but
+   mobile browsers suspend background tabs and drop that socket — so an action on
+   another device (e.g. an export on the Mac) wouldn't show here until a manual
+   refresh. Re-pull whenever the app becomes visible/focused so it's always
+   current the moment you look at it, on any device. */
+let _lastRefresh = 0;
+function refreshLive(){
+  const now = Date.now();
+  if(now - _lastRefresh < 1500) return;   // throttle: visibility+focus fire together
+  _lastRefresh = now;
+  if(Cloud.client){ Cloud.pull(); Cloud.pullConsign(); }
+}
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") refreshLive(); });
+window.addEventListener("focus", refreshLive);
+window.addEventListener("pageshow", (e)=>{ if(e.persisted) refreshLive(); });   // iOS bfcache restore
+
 /* ---------- boot ---------- */
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
 try{ const v=localStorage.getItem("vf_view"); if(v==="notes"||v==="pay") showView(v); }catch(_){}
