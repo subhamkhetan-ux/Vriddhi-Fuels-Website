@@ -315,27 +315,52 @@ const Cloud = {
     }catch(_){}
   },
   async setStatus(id, patch){ if(!this.client) return; try{ await this.client.from("pay_credit_queue").update(patch).eq("entry_id",id); }catch(_){} },
+  lastWriteError: null,
+  // Run a Supabase write with up to 3 attempts (short backoff) so a single
+  // transient blip — a dropped request, a 5xx, a flaky mobile radio — doesn't
+  // fail an export. On genuine failure the real PostgREST error is stashed in
+  // `lastWriteError` (and logged) so the UI can show *why*, not just "connection".
+  async _write(label, run){
+    this.lastWriteError = null;
+    let last = null;
+    for(let attempt=1; attempt<=3; attempt++){
+      try{
+        const { error } = await run();
+        if(!error) return true;
+        last = error;
+      }catch(e){ last = e; }
+      if(attempt<3) await new Promise(r=>setTimeout(r, attempt*600));
+    }
+    this.lastWriteError = last;
+    console.error(`[Supabase] ${label} failed after 3 attempts:`, last);
+    return false;
+  },
+  // Short, human-readable reason for the last failed write, for a toast.
+  writeErrText(){
+    const e = this.lastWriteError; if(!e) return "";
+    const parts = [];
+    if(e.code) parts.push(e.code);
+    if(e.message) parts.push(e.message);
+    else if(typeof e==="string") parts.push(e);
+    let s = parts.join(" · ");
+    if(s.length>140) s = s.slice(0,140)+"…";
+    return s;
+  },
   async markExported(ids){
     // Returns true only if Supabase confirmed the write — the caller relies on
     // this to keep or roll back the optimistic "exported" state.
     if(!this.client||!ids.length) return false;
-    try{
-      const { error } = await this.client.from("pay_credit_queue")
-        .update({exported:true, exported_at:new Date().toISOString()}).in("entry_id",ids);
-      return !error;
-    }catch(_){ return false; }
+    return this._write("markExported", ()=> this.client.from("pay_credit_queue")
+      .update({exported:true, exported_at:new Date().toISOString()}).in("entry_id",ids));
   },
   async drop(id, flags){
     if(!this.client) return false;
     // Mark handled instead of deleting, so the agent's re-sync (insert-if-absent
     // on entry_id) can't resurrect it. Flagged dropped so it's hidden everywhere.
-    try{
-      const { error } = await this.client.from("pay_credit_queue").update({
-        exported:true, exported_at:new Date().toISOString(),
-        flags:Object.assign({}, flags, {dropped:true})
-      }).eq("entry_id",id);
-      return !error;
-    }catch(_){ return false; }
+    return this._write("drop", ()=> this.client.from("pay_credit_queue").update({
+      exported:true, exported_at:new Date().toISOString(),
+      flags:Object.assign({}, flags, {dropped:true})
+    }).eq("entry_id",id));
   },
   async addManual(row){
     if(!this.client){ toast("Offline — added locally only"); return; }
@@ -671,7 +696,8 @@ async function dropRow(id){
   if(!ok){
     PENDING_EXPORT.delete(id);
     r.exported=false; r.exported_at=null; if(r.flags) delete r.flags.dropped;
-    render(); toast("⚠️ Couldn't drop — check connection and try again");
+    const why = Cloud.writeErrText();
+    render(); toast(why ? "⚠️ Couldn't drop — "+why : "⚠️ Couldn't drop — check connection and try again");
     return;
   }
   toast("Dropped");
@@ -765,7 +791,8 @@ async function doExport(){
     ids.forEach(id=>{ PENDING_EXPORT.delete(id); const r=ROWS.find(x=>x.entry_id===id);
       if(r){ r.exported=false; r.exported_at=null; SEL.add(id); } });
     render();
-    toast("⚠️ Couldn't save the export — check connection and try again");
+    const why = Cloud.writeErrText();
+    toast(why ? "⚠️ Couldn't save the export — "+why : "⚠️ Couldn't save the export — check connection and try again");
     return;
   }
   toast(`Exported ${ids.length} — paste into Master Paid`);
