@@ -109,10 +109,14 @@ summary::-webkit-details-marker{display:none}
 #printArea{position:fixed;left:-99999px;top:0;background:#fff}
 #printArea .docx-wrapper{background:#fff!important;padding:0!important;box-shadow:none!important}
 @media print{
-  @page{size:A4;margin:8mm}
-  body{background:#fff!important;padding:0!important}
+  /* margin:0 keeps it to one A4 page and suppresses the browser URL/date header */
+  @page{size:A4;margin:0}
+  html,body{background:#fff!important;padding:0!important;margin:0!important}
   body>*{display:none!important}
   #printArea{display:block!important;position:static!important;left:0!important;width:auto!important}
+  /* the note already carries its own page margins; zoom trims the slight
+     overflow so it always fits one page (no blank second page) */
+  #printArea .docx-wrapper{zoom:0.92}
   #printArea .docx-wrapper>section.docx{box-shadow:none!important;margin:0 auto!important}
 }
 .setup{background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:14px;font-size:13px;color:var(--ink)}
