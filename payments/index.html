@@ -5,41 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Vriddhi Fuels — Payments</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#111E3E">
+<meta name="theme-color" content="#F4511E">
 <link rel="apple-touch-icon" href="icon.png">
 <script src="config.js"></script>
 <style>
 :root{
-  --bg:#0C1730; --panel:#111E3E; --panel2:#16264C; --line:#23366A;
-  --ink:#EAF0FF; --muted:#9DB0DA; --faint:#6F84B8;
-  --accent:#4C8DFF; --good:#33C08A; --good-bg:#33c08a1f;
-  --warn:#E0A048; --warn-bg:#e0a0481f; --bad:#E06B5E; --bad-bg:#e06b5e1f;
+  /* Vriddhi / IndianOil scheme — deep navy base, vibrant orange brand accent */
+  --bg:#0A1730; --bg-glow:#1a2f66;
+  --panel:#122349; --panel2:#1A2F5C; --line:#2A3F72;
+  --ink:#F2F6FF; --muted:#A6B7DF; --faint:#7387B8;
+  --accent:#FF7A1A; --accent-2:#F4511E; --accent-soft:#ff7a1a24;
+  --good:#2FD08A; --good-bg:#2fd08a1f;
+  --warn:#FFB23E; --warn-bg:#ffb23e1f;
+  --bad:#FF6B5E; --bad-bg:#ff6b5e1f;
+  --grad-brand:linear-gradient(120deg,#F4511E 0%,#FF7A1A 52%,#FF9E42 100%);
+  --grad-cta:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
+body{margin:0;color:var(--ink);
+  background:
+    radial-gradient(1100px 460px at 50% -180px, var(--bg-glow) 0%, rgba(26,47,102,0) 70%),
+    var(--bg);
+  background-attachment:fixed;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5;
   -webkit-font-smoothing:antialiased;padding-bottom:80px}
-header{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line);
+header{position:sticky;top:0;z-index:20;background:var(--grad-brand);
+  box-shadow:0 4px 18px -6px rgba(244,81,30,.55);
   padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));display:flex;align-items:center;gap:10px}
-header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
-.pill{font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;border:1px solid var(--line);
-  color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
-.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
-.pill.live .dot{background:var(--good)} .pill.live{color:var(--good)}
-.pill.connecting .dot{background:var(--warn)} .pill.offline .dot{background:var(--bad)}
+header h1{font-size:17px;margin:0;font-weight:800;letter-spacing:.3px;flex:1;color:#fff;
+  text-shadow:0 1px 2px rgba(120,30,0,.35);display:flex;align-items:center;gap:8px}
+header h1::before{content:"⛽";font-size:16px}
+.pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;
+  border:1px solid rgba(255,255,255,.38);background:rgba(255,255,255,.18);
+  color:#fff;white-space:nowrap;display:flex;align-items:center;gap:5px;backdrop-filter:blur(4px)}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:#fff}
+.pill.live .dot{background:#8dffcf} .pill.live{background:rgba(47,208,138,.28)}
+.pill.connecting .dot{background:#ffe08a} .pill.offline .dot{background:#ffd0cb}
+.pill.offline{background:rgba(255,107,94,.3)}
+header .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;font-weight:700}
+header .btn:hover{border-color:#fff;background:rgba(255,255,255,.28)}
 .wrap{max-width:760px;margin:0 auto;padding:14px 14px 40px}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+.stat{position:relative;overflow:hidden;background:linear-gradient(160deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);border-radius:16px;padding:14px 14px 14px 16px;
+  box-shadow:0 6px 16px -12px rgba(0,0,0,.7)}
+.stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent)}
+.stat.ready::before{background:linear-gradient(var(--good),#1f9e69)}
+.stat.review::before{background:linear-gradient(var(--warn),#e08a20)}
+.stat.total::before{background:var(--grad-cta)}
 .stat .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-.stat .v{font-size:24px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums}
+.stat .v{font-size:25px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums}
 .stat .s{font-size:12px;color:var(--faint);margin-top:2px}
 .stat.ready .v{color:var(--good)} .stat.review .v{color:var(--warn)}
 h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 4px 10px;font-weight:700}
 h2 .count{color:var(--faint);font-weight:600}
 .empty{color:var(--faint);font-size:14px;padding:14px;text-align:center;
   border:1px dashed var(--line);border-radius:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
-.card.warnrow{border-color:var(--warn)}
+.card{background:linear-gradient(165deg,var(--panel2),var(--panel));border:1px solid var(--line);
+  border-radius:16px;padding:14px;margin-bottom:10px;box-shadow:0 6px 16px -12px rgba(0,0,0,.7)}
+.card.warnrow{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn-bg),0 6px 16px -12px rgba(0,0,0,.7)}
 .row-top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
 .amt{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .rp{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--muted);margin-top:2px;word-break:break-word}
@@ -77,9 +101,11 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--good)}
   display:flex;gap:12px;align-items:center}
 .exportbar .sum{flex:1;font-size:13px;color:var(--muted)}
 .exportbar .sum b{color:var(--ink);font-size:15px}
-.cta{font-size:15px;font-weight:700;padding:12px 18px;border-radius:11px;border:none;
-  background:var(--good);color:#04130c;cursor:pointer}
-.cta:disabled{background:var(--panel2);color:var(--faint);cursor:default}
+.cta{font-size:15px;font-weight:800;padding:12px 20px;border-radius:12px;border:none;
+  background:var(--grad-cta);color:#fff;cursor:pointer;letter-spacing:.2px;
+  box-shadow:0 6px 16px -6px rgba(244,81,30,.7)}
+.cta:active{transform:translateY(1px)}
+.cta:disabled{background:var(--panel2);color:var(--faint);cursor:default;box-shadow:none}
 details{margin-top:8px}
 summary{cursor:pointer;color:var(--muted);font-size:13px;padding:8px 4px;list-style:none}
 summary::-webkit-details-marker{display:none}
@@ -91,12 +117,16 @@ summary::-webkit-details-marker{display:none}
   z-index:40;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 .toast.show{opacity:1}
 .tabbar{display:flex;background:var(--panel);border-bottom:1px solid var(--line)}
-.tab{flex:1;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);
-  font-size:14px;font-weight:600;padding:12px 8px;cursor:pointer}
-.tab.active{color:var(--ink);border-bottom-color:var(--accent)}
+.tab{flex:1;position:relative;background:transparent;border:none;color:var(--muted);
+  font-size:14px;font-weight:700;padding:13px 8px;cursor:pointer;transition:color .15s}
+.tab.active{color:var(--ink)}
+.tab.active::after{content:"";position:absolute;left:16%;right:16%;bottom:0;height:3px;border-radius:3px 3px 0 0;
+  background:var(--grad-cta)}
+.tab:not(.active):hover{color:var(--ink)}
 .tabbadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 5px;border-radius:999px;
-  background:var(--accent);color:#04122e;font-size:11px;font-weight:800;line-height:18px;text-align:center}
-.cn-card{border-color:var(--accent)}
+  background:var(--grad-cta);color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center}
+.cn-card{position:relative;border-color:var(--accent);overflow:hidden}
+.cn-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--grad-cta)}
 .cn-serial{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:800;color:var(--accent)}
 .cn-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:10px;font-size:13px}
 .cn-grid .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
