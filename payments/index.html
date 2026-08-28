@@ -77,6 +77,15 @@ h2 .count{color:var(--faint);font-weight:600}
 input[type=text]{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:9px;
   color:var(--ink);padding:9px 11px;font-size:14px}
 input[type=text]:focus{outline:none;border-color:var(--accent)}
+/* customer autocomplete dropdown */
+.ac-menu{position:fixed;z-index:60;display:none;padding:4px;max-height:46vh;overflow-y:auto;
+  background:var(--panel2);border:1px solid var(--line);border-radius:11px;
+  box-shadow:0 14px 34px -10px rgba(0,0,0,.85);-webkit-overflow-scrolling:touch}
+.ac-menu.show{display:block}
+.ac-item{padding:11px 12px;border-radius:8px;font-size:14px;color:var(--ink);cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac-item.active,.ac-item:hover{background:var(--accent-soft)}
+.ac-item b{color:var(--accent);font-weight:800}
 .addgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #addCard label{font-size:12px;color:var(--muted)}
 #addCard input{width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--line);
@@ -190,7 +199,7 @@ a{color:var(--accent)}
       <label>Amount<input type="number" id="mAmount" inputmode="decimal" placeholder="0" min="0" step="0.01"></label>
     </div>
     <label style="display:block;margin-top:10px">Customer
-      <input type="text" id="mCust" list="custList" placeholder="type customer name…"></label>
+      <input type="text" id="mCust" class="ac" autocomplete="off" placeholder="type a few letters…"></label>
     <label style="display:block;margin-top:10px">Mode / remarks
       <input type="text" id="mMode" placeholder="Cash"></label>
     <div class="cands" id="modeChips">
@@ -267,9 +276,6 @@ async function loadCustomers(){
     const j = await r.json();
     NAMES = Array.isArray(j) ? j : (j.customers||[]);
     NORMED = NAMES.map(n=>[n,norm(n)]);
-    let dl = document.getElementById("custList");
-    if(!dl){ dl=document.createElement("datalist"); dl.id="custList"; document.body.appendChild(dl); }
-    dl.innerHTML = NAMES.map(n=>`<option value="${escAttr(n)}">`).join("");
   }catch(_){}
 }
 function canonicalFor(input){
@@ -277,6 +283,79 @@ function canonicalFor(input){
   for(const [n,nn] of NORMED) if(nn===q) return n;   // exact
   return null;
 }
+
+/* ---------- customer autocomplete (contains-match, mobile-friendly) ----------
+   A custom dropdown instead of <datalist>, which on iOS Safari only prefix-
+   matches and barely shows. Any input.ac gets a live "contains" suggestion
+   list (matches anywhere in the name), tap/click or arrow+Enter to fill. */
+let AC_MENU=null, AC_INPUT=null, AC_ITEMS=[], AC_ACTIVE=-1, AC_SILENCE=false;
+function acMenu(){
+  if(AC_MENU) return AC_MENU;
+  AC_MENU=document.createElement("div"); AC_MENU.className="ac-menu";
+  document.body.appendChild(AC_MENU);
+  AC_MENU.addEventListener("mousedown", e=>e.preventDefault()); // don't blur the input
+  return AC_MENU;
+}
+function acFind(q){
+  const nq=norm(q); if(!nq) return [];
+  const starts=[], has=[];
+  for(const [name,nn] of NORMED){
+    const i=nn.indexOf(nq);
+    if(i===0) starts.push(name);
+    else if(i>0) has.push(name);
+  }
+  return starts.concat(has).slice(0,10);
+}
+function acMark(name,q){
+  const raw=name.toLowerCase(), rq=q.trim().toLowerCase(), j=rq?raw.indexOf(rq):-1;
+  return j>=0
+    ? esc(name.slice(0,j))+"<b>"+esc(name.slice(j,j+rq.length))+"</b>"+esc(name.slice(j+rq.length))
+    : esc(name);
+}
+function acPlace(){
+  if(!AC_INPUT||!AC_MENU) return;
+  const r=AC_INPUT.getBoundingClientRect();
+  AC_MENU.style.left=r.left+"px"; AC_MENU.style.top=(r.bottom+4)+"px"; AC_MENU.style.width=r.width+"px";
+}
+function acShow(input){
+  if(!NAMES.length) return;
+  AC_INPUT=input; AC_ITEMS=acFind(input.value); AC_ACTIVE=-1;
+  const m=acMenu();
+  if(!AC_ITEMS.length){ acHide(); return; }
+  m.innerHTML=AC_ITEMS.map((n,i)=>`<div class="ac-item" data-i="${i}">${acMark(n,input.value)}</div>`).join("");
+  m.classList.add("show"); acPlace();
+}
+function acHide(){ if(AC_MENU) AC_MENU.classList.remove("show"); AC_INPUT=null; AC_ITEMS=[]; AC_ACTIVE=-1; }
+function acPick(i){
+  if(!AC_INPUT||i<0||i>=AC_ITEMS.length) return;
+  AC_SILENCE=true;
+  AC_INPUT.value=AC_ITEMS[i];
+  AC_INPUT.dispatchEvent(new Event("input",{bubbles:true}));
+  AC_SILENCE=false;
+  acHide();
+}
+function acMove(d){
+  if(!AC_ITEMS.length) return;
+  AC_ACTIVE=(AC_ACTIVE+d+AC_ITEMS.length)%AC_ITEMS.length;
+  [...AC_MENU.children].forEach((el,i)=>el.classList.toggle("active",i===AC_ACTIVE));
+  const el=AC_MENU.children[AC_ACTIVE]; if(el) el.scrollIntoView({block:"nearest"});
+}
+document.addEventListener("input",  e=>{ if(!AC_SILENCE && e.target.matches && e.target.matches("input.ac")) acShow(e.target); });
+document.addEventListener("focusin", e=>{ if(e.target.matches && e.target.matches("input.ac")) acShow(e.target); });
+document.addEventListener("click", e=>{
+  const item=e.target.closest && e.target.closest(".ac-item");
+  if(item && AC_MENU && AC_MENU.contains(item)){ acPick(Number(item.dataset.i)); return; }
+  if(e.target!==AC_INPUT && !(AC_MENU && AC_MENU.contains(e.target))) acHide();
+});
+document.addEventListener("keydown", e=>{
+  if(!AC_INPUT || !AC_MENU || !AC_MENU.classList.contains("show")) return;
+  if(e.key==="ArrowDown"){ e.preventDefault(); acMove(1); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); acMove(-1); }
+  else if(e.key==="Enter" && AC_ACTIVE>=0){ e.preventDefault(); acPick(AC_ACTIVE); }
+  else if(e.key==="Escape"){ acHide(); }
+});
+window.addEventListener("scroll", ()=>{ if(AC_INPUT) acPlace(); }, true);
+window.addEventListener("resize", ()=>{ if(AC_INPUT) acPlace(); });
 
 /* ---------- Supabase cloud ---------- */
 const Cloud = {
@@ -472,7 +551,7 @@ function renderReview(rows){
       h += `<div class="cands">`+cands.map((c,i)=>`<button class="cand ${i===0?'best':''}" onclick="pickCand('${escAttr(r.entry_id)}', this.dataset.n)" data-n="${escAttr(c)}">${esc(c)}</button>`).join("")+`</div>`;
     }
     h += `<div class="resolve">
-      <input type="text" list="custList" placeholder="type customer name…" id="in_${escAttr(r.entry_id)}">
+      <input type="text" class="ac" autocomplete="off" placeholder="type a few letters…" id="in_${escAttr(r.entry_id)}">
       <button class="btn" onclick="resolveTyped('${escAttr(r.entry_id)}')">Set</button>
       <button class="btn ghost sm" onclick="skipRow('${escAttr(r.entry_id)}')">skip</button>
       <button class="btn ghost sm" onclick="dropRow('${escAttr(r.entry_id)}')">drop</button>
