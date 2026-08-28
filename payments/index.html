@@ -267,15 +267,34 @@ function cleanRemitter(raw){
 }
 function aliasKey(raw){ return norm(cleanRemitter(raw)) || norm(raw); }
 
-/* ---------- customer master list (for review autocomplete) ---------- */
+/* ---------- customer master list (for review autocomplete) ----------
+   The suggestion pool is the static master list UNION every customer name
+   the app has actually seen — names on queued/manual rows and resolved
+   aliases — so a new customer starts appearing here automatically the moment
+   it's used, with no edit to customers.json. De-duplicated by normalized key
+   (first spelling wins, so the master-list casing is preferred). */
 let NAMES=[], NORMED=[];
+const NAME_KEYS=new Set();
+function registerNames(list){
+  let added=false;
+  for(const raw of (list||[])){
+    const d=String(raw==null?"":raw).trim(); if(!d) continue;
+    const k=norm(d); if(!k) continue;
+    if(!NAME_KEYS.has(k)){ NAME_KEYS.add(k); NAMES.push(d); added=true; }
+  }
+  if(added){
+    NAMES.sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));
+    NORMED=NAMES.map(n=>[n,norm(n)]);
+    // if the suggestion box is open, refresh it against the grown list
+    if(AC_INPUT && AC_MENU && AC_MENU.classList.contains("show")) acShow(AC_INPUT);
+  }
+}
 async function loadCustomers(){
   if(!CFG.CUSTOMERS_URL) return;
   try{
     const r = await fetch(CFG.CUSTOMERS_URL+(CFG.CUSTOMERS_URL.includes("?")?"":"?_t="+Date.now()),{cache:"no-store"});
     const j = await r.json();
-    NAMES = Array.isArray(j) ? j : (j.customers||[]);
-    NORMED = NAMES.map(n=>[n,norm(n)]);
+    registerNames(Array.isArray(j) ? j : (j.customers||[]));
   }catch(_){}
 }
 function canonicalFor(input){
@@ -371,6 +390,7 @@ const Cloud = {
       const createClient = await import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
       this.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {auth:{persistSession:false}});
       const ok = await this.pull();          // sets live/offline itself
+      this.pullAliasNames();                 // learn resolved customer names
       this.subscribe();
       this.pullConsign();
       this.subscribeConsign();
@@ -396,6 +416,7 @@ const Cloud = {
       const { data, error } = await this.client.from("pay_credit_queue")
         .select("*").order("date_serial", {ascending:true}).limit(2000);
       if(error) throw error;
+      registerNames((data||[]).map(r=>r.customer));  // learn any new customers seen
       const cutoff = Date.now() - SEVEN_DAYS;
       // Force-keep rows just exported/dropped here whose Supabase write may still
       // be in flight, so this pull can't bounce them back to "Ready to export".
@@ -415,6 +436,15 @@ const Cloud = {
       showError("Couldn't read payments from Supabase: "+(e&&e.message||e));
       return false;
     }
+  },
+  async pullAliasNames(){
+    // The canonical names the user has resolved — a durable source of the
+    // customers actually in play, kept even after their rows purge.
+    if(!this.client) return;
+    try{
+      const { data } = await this.client.from("pay_credit_aliases").select("canonical").limit(2000);
+      registerNames((data||[]).map(r=>r.canonical));
+    }catch(_){}
   },
   async resolve(id, customer, key){
     if(!this.client) return;
@@ -873,6 +903,7 @@ function submitManual(){
     amount, raw_payer:custRaw, customer, candidates:[customer], match_tier:"manual",
     status:"matched", flags:{}, queued_at:new Date().toISOString(),
   };
+  registerNames([customer]);                                             // new customer joins the suggestions
   ROWS.push(row); SEEN_READY.add(row.entry_id); SEL.add(row.entry_id);   // optimistic
   Cloud.addManual(row);
   toggleAdd(false); render(); toast(`Added ${money(amount)} · ${customer}`);
