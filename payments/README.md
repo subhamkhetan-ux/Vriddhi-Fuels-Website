@@ -12,10 +12,16 @@ Master-Paid `.xlsx` — all from your phone or desktop.
    agent couldn't match sits under **Needs review** — tap a suggested name (or
    type one) to resolve it. Each name you confirm is **remembered** (saved as an
    alias) so that payer auto-matches next time.
-3. Tap **Download .xlsx** → open it and paste the rows into the **Master Paid**
-   sheet of `Master Ledger.xlsm` (Paste Special → Values, under the last row).
-4. Exported entries **drop off the list** and move to a searchable **Exported ·
-   last 7 days** section (then auto-clear). They can never be double-exported.
+3. Tap **⤴ Log to Excel** → the entries are sent to the always-on **Mac agent**,
+   which writes them straight into the **Master Paid** sheet of `Master Ledger.xlsm`
+   for you. They appear under **Queued to log** (with a **cancel** until the agent
+   picks them up), then drop into **Exported** marked **logged ✓**. The **Activity**
+   feed at the bottom shows the agent online and every row it logs. See
+   [`local_agent/README.md`](../local_agent/README.md) for the one-time Mac setup.
+   *(The **.xlsx** button is still there as a fallback: download a batch and paste
+   it into Master Paid by hand — Paste Special → Values, under the last row.)*
+4. Logged/exported entries **drop off the list** and move to a searchable **Exported
+   · last 7 days** section (then auto-clear). They can never be double-logged.
 
 No `git`, no `python`. The cloud cron keeps the list filled every ~20 minutes.
 

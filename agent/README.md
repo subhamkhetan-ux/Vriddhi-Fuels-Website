@@ -120,6 +120,16 @@ your phone (saving aliases the agent reads back), and exports the `.xlsx` — no
 `git`/`python`. See [`payments/README.md`](../payments/README.md) for the one-time
 Supabase setup. The terminal flow below still works as a fallback.
 
+### Fully hands-off: the Mac logging agent
+
+To skip even the `.xlsx` paste, run the **[`local_agent/`](../local_agent/)** daemon
+on your Mac. It's always on, and when you tap **⤴ Log to Excel** in the app it writes
+the approved payments straight into the **Master Paid** sheet of `Master Ledger.xlsm`
+(driving the real Excel app, so macros/formulas survive) and reports every action
+back to the app's **Activity** feed. It only ever writes rows you pushed, catches up
+safely after being offline, and can never double-post. See
+[`local_agent/README.md`](../local_agent/README.md).
+
 ## Daily use (Mac, terminal fallback)
 
 ```bash
