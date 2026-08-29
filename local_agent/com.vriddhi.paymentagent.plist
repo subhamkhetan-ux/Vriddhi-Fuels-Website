@@ -29,20 +29,20 @@
 
   <!-- The repo root on your Mac (so `local_agent` imports and paths resolve). -->
   <key>WorkingDirectory</key>
-  <string>/Users/USERNAME/path/to/Vriddhi-Fuels-Website</string>
+  <string>/Users/subhamkhetan/Vriddhi-Fuels-Website</string>
 
   <key>EnvironmentVariables</key>
   <dict>
     <!-- Full path to your macro-enabled ledger (spaces are fine, no escaping). -->
     <key>MASTER_LEDGER_PATH</key>
-    <string>/Users/USERNAME/Library/Mobile Documents/com~apple~CloudDocs/Master Ledger.xlsm</string>
+    <string>/Users/subhamkhetan/Library/Mobile\ Documents/com\~apple\~CloudDocs/Vriddhi\ Fuels/Master\ Ledger.xlsm</string>
 
     <!-- Same Supabase project as the /payments app. The anon key works with the
          schema's RLS; the service_role key is fine too (kept off the web here). -->
     <key>SUPABASE_URL</key>
-    <string>https://YOUR-PROJECT.supabase.co</string>
+    <string>https://ycqvpqnbiqeldayglqgk.supabase.co</string>
     <key>SUPABASE_KEY</key>
-    <string>YOUR_SUPABASE_KEY</string>
+    <string>sb_publishable_Zd1fhvQlfxPvWTS7HRcnSQ_Vc9El2IC</string>
 
     <!-- Optional overrides (defaults shown): -->
     <!-- <key>MASTER_PAID_SHEET</key><string>Master Paid</string> -->
@@ -57,8 +57,8 @@
   <true/>
 
   <key>StandardOutPath</key>
-  <string>/Users/USERNAME/Library/Logs/vriddhi-payment-agent.log</string>
+  <string>/Users/subhamkhetan/Library/Logs/vriddhi-payment-agent.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/USERNAME/Library/Logs/vriddhi-payment-agent.err.log</string>
+  <string>/Users/subhamkhetan/Library/Logs/vriddhi-payment-agent.err.log</string>
 </dict>
 </plist>
