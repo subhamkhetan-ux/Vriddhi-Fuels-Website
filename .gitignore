@@ -10,6 +10,11 @@ venv/
 PaymentEntries_*.xlsx
 run.log
 
+# The master ledger lives on the Mac (the agent reads it via MASTER_LEDGER_PATH).
+# It holds real customer/payment data and must never be committed.
+Master Ledger.xlsm
+*.xlsm
+
 # Local Gmail OAuth material — never commit tokens or client secrets
 credentials.json
 token_*.json
