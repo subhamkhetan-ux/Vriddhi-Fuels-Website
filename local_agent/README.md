@@ -24,8 +24,11 @@ Gmail → GitHub Actions → Supabase pay_credit_queue → /payments app
   (`log_requested = true` and not yet `logged_at`). Review rows and un-pushed
   matched rows are never touched.
 - **It drives real Excel** (via xlwings), so macros, spill formulas, other sheets
-  and formatting are all preserved — it only *appends* rows to Master Paid, never
-  edits or deletes anything.
+  and formatting are all preserved. It writes each entry into the **next blank
+  row** of the Master Paid table (the first row whose Date cell is empty), keeping
+  that row's own formatting — it never overrides existing entries. When the
+  pre-made blank rows run out it adds one more (extending the table so the new row
+  keeps its formatting).
 - **The queue is the offline buffer.** If your Mac is asleep, offline, or Excel is
   closed, pressed entries just wait in Supabase. When the agent is healthy again it
   drains everything in one pass.

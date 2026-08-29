@@ -12,6 +12,7 @@ import pytest
 
 from agent.serial import EPOCH, date_to_serial
 from local_agent import poster
+from local_agent.excel_writer import first_blank_offset
 from local_agent.seen_store import SeenStore
 
 
@@ -160,3 +161,27 @@ def test_seen_store_survives_corrupt_file(tmp_path):
     assert "anything" not in s                       # starts empty, no crash
     s.add("ok")
     assert "ok" in SeenStore(str(path))
+
+
+# ---- first blank row (Date column) -----------------------------------
+
+def test_first_blank_offset_finds_first_empty_date():
+    # two filled rows, then pre-formatted blanks -> write into the first blank
+    dates = [dt.date(2026, 8, 1), dt.date(2026, 8, 2), None, None]
+    assert first_blank_offset(dates) == 2
+
+def test_first_blank_offset_treats_blank_string_as_empty():
+    assert first_blank_offset(["01/08/2026", "", "   "]) == 1
+
+def test_first_blank_offset_all_filled_returns_len_for_extend():
+    # no blank rows left -> len(...) signals the caller to add a new row
+    dates = [dt.date(2026, 8, 1), dt.date(2026, 8, 2)]
+    assert first_blank_offset(dates) == 2
+
+def test_first_blank_offset_empty_body():
+    assert first_blank_offset([]) == 0
+
+def test_first_blank_offset_picks_top_most_gap():
+    # an interior blank is filled before later ones
+    dates = ["a", None, "c", None]
+    assert first_blank_offset(dates) == 1
