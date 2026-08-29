@@ -830,6 +830,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-08-29T03:00:17.539894+00:00"
+    },
+    {
+      "entry_id": "33ee75f93b1ea9d9",
+      "gmail_msg_id": "1a04b982d59e4fb0",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "29/08/2026",
+      "date_serial": 46263,
+      "amount": 20000.0,
+      "raw_payer": "SWAGAT SUNDAR MOHANTY",
+      "customer": "Swagat Sundar Mohanty",
+      "candidates": [
+        "Swagat Sundar Mohanty"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-29T03:45:19.380556+00:00",
+      "status": "matched"
     }
   ]
 }
