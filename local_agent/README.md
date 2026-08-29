@@ -114,8 +114,15 @@ bash local_agent/agentctl.sh restart   # reload (after editing the plist)
 bash local_agent/agentctl.sh logs      # show the last errors
 ```
 
-It just wraps the `launchctl enable/bootstrap` (on) and `bootout/disable` (off)
-commands, so editing the plist still needs a `restart` to take effect.
+It auto-detects how the agent is installed and does the right thing:
+- **app mode** (the normal macOS setup via `setup_login_app.sh`): `on` opens
+  `VriddhiPaymentAgent.app` and adds it to Login Items; `off` quits it and removes
+  it from Login Items; `restart` reloads the worker with new code; `logs` shows the
+  recent activity feed.
+- **launchd mode** (fallback, no app): wraps `launchctl enable/bootstrap` (on) and
+  `bootout/disable` (off).
+
+After a code update (`git pull`), run `restart` to pick it up.
 
 ## macOS: let the agent control Excel (one-time) — `setup_login_app.sh`
 
