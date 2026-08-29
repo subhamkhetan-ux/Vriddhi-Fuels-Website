@@ -919,7 +919,49 @@
         "outlier": false
       },
       "queued_at": "2026-08-29T11:15:21.467888+00:00",
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-08-29T11:28:36.312931+00:00"
+    },
+    {
+      "entry_id": "ede433a5b27bf8bc",
+      "gmail_msg_id": "1a04d455aa4a1e2e",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "29/08/26",
+      "date_serial": 46263,
+      "amount": 397600.0,
+      "raw_payer": "GRK LOGISTICS PVT LTD",
+      "customer": "Grk Logistics Private Limited",
+      "candidates": [
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-29T11:28:37.246164+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "4d3f321efc8ea76d",
+      "gmail_msg_id": "1a04d461bf220dc2",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "29/08/2026",
+      "date_serial": 46263,
+      "amount": 2398162.0,
+      "raw_payer": "DBLSCMPL",
+      "customer": null,
+      "candidates": [],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-08-29T11:28:37.630106+00:00",
+      "status": "review"
     }
   ]
 }
