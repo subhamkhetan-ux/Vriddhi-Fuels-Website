@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd LaunchAgent for the always-on Mac payment logging daemon.
+
+  This is a TEMPLATE — edit the four ALL-CAPS placeholders, then install:
+
+    1. Copy it (with your edits) to ~/Library/LaunchAgents/:
+         cp local_agent/com.vriddhi.paymentagent.plist ~/Library/LaunchAgents/
+    2. Load it (starts now + at every login, restarts on crash):
+         launchctl load ~/Library/LaunchAgents/com.vriddhi.paymentagent.plist
+    3. Stop / reload it later:
+         launchctl unload ~/Library/LaunchAgents/com.vriddhi.paymentagent.plist
+
+  Keep Excel signed in with Master Ledger.xlsm; the agent attaches to it if it's
+  already open, or opens it if not. Logs go to the two paths at the bottom.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vriddhi.paymentagent</string>
+
+  <!-- Run the daemon as a module from the repo checkout. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>-m</string>
+    <string>local_agent.mac_agent</string>
+  </array>
+
+  <!-- The repo root on your Mac (so `local_agent` imports and paths resolve). -->
+  <key>WorkingDirectory</key>
+  <string>/Users/USERNAME/path/to/Vriddhi-Fuels-Website</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Full path to your macro-enabled ledger (spaces are fine, no escaping). -->
+    <key>MASTER_LEDGER_PATH</key>
+    <string>/Users/USERNAME/Library/Mobile Documents/com~apple~CloudDocs/Master Ledger.xlsm</string>
+
+    <!-- Same Supabase project as the /payments app. The anon key works with the
+         schema's RLS; the service_role key is fine too (kept off the web here). -->
+    <key>SUPABASE_URL</key>
+    <string>https://YOUR-PROJECT.supabase.co</string>
+    <key>SUPABASE_KEY</key>
+    <string>YOUR_SUPABASE_KEY</string>
+
+    <!-- Optional overrides (defaults shown): -->
+    <!-- <key>MASTER_PAID_SHEET</key><string>Master Paid</string> -->
+    <!-- <key>AGENT_POLL_SECONDS</key><string>20</string> -->
+    <!-- <key>AGENT_HEARTBEAT_SECONDS</key><string>120</string> -->
+  </dict>
+
+  <!-- Start at load/login and keep it alive (relaunch on crash or logout/login). -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/USERNAME/Library/Logs/vriddhi-payment-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USERNAME/Library/Logs/vriddhi-payment-agent.err.log</string>
+</dict>
+</plist>

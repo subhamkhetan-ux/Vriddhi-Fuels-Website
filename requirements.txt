@@ -6,6 +6,12 @@ google-auth-oauthlib>=1.1
 # Local half (Mac) — .xlsx writing and reading Master Ledger.xlsm.
 openpyxl>=3.1
 
+# Always-on Mac logging daemon (local_agent/) — drives the real Excel app to
+# append rows straight into Master Ledger.xlsm, preserving macros/formulas.
+# Mac/Windows only at runtime (needs Excel installed); pip-installs anywhere, so
+# CI can still import it. The daemon imports it lazily.
+xlwings>=0.31
+
 # Consignment notes — read IndianOil invoice PDFs attached to HDFC mail.
 pymupdf>=1.24
 

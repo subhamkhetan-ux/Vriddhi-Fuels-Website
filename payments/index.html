@@ -121,6 +121,28 @@ summary::-webkit-details-marker{display:none}
 .exp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
 .exp-row .c{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .exp-row .a{font-variant-numeric:tabular-nums;color:var(--muted)}
+.exp-row .logged{font-size:11px;color:var(--good);font-weight:700;white-space:nowrap}
+/* queued-to-log rows (handed to the Mac agent, awaiting write) */
+.q-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.q-row:last-child{border-bottom:none}
+.q-row .c{flex:1;min-width:0}
+.q-row .c .n{display:block;font-weight:600}
+.q-row .c .d{display:block;font-size:12px;color:var(--faint)}
+.q-row .a{font-variant-numeric:tabular-nums;color:var(--muted)}
+.q-spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--good);animation:qspin .8s linear infinite;flex:none}
+@keyframes qspin{to{transform:rotate(360deg)}}
+/* agent activity feed + online pill */
+.agent-status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin:22px 4px 10px}
+.agent-status .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
+.agent-status.online .dot{background:var(--good);box-shadow:0 0 0 3px var(--good-bg)}
+.agent-status.offline .dot{background:var(--bad);box-shadow:0 0 0 3px var(--bad-bg)}
+.ev-row{display:flex;align-items:baseline;gap:9px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.ev-row:last-child{border-bottom:none}
+.ev-row .i{flex:none}
+.ev-row .t{flex:1;min-width:0;color:var(--ink)}
+.ev-row .t .sub{color:var(--faint)}
+.ev-row.err .t{color:var(--bad)}
+.ev-row .when{color:var(--faint);font-size:11px;white-space:nowrap}
 .toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--panel2);
   border:1px solid var(--line);color:var(--ink);padding:10px 16px;border-radius:11px;font-size:13px;
   z-index:40;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
@@ -221,7 +243,9 @@ a{color:var(--accent)}
 
   <div id="reviewWrap"></div>
   <div id="readyWrap"></div>
+  <div id="queuedWrap"></div>
   <div id="exportedWrap"></div>
+  <div id="agentWrap"></div>
   </div><!-- /viewPay -->
 
   <div id="viewNotes" style="display:none">
@@ -231,7 +255,8 @@ a{color:var(--accent)}
 
 <div class="exportbar">
   <div class="sum" id="exportSum">Nothing selected</div>
-  <button class="cta" id="exportBtn" disabled>Download .xlsx</button>
+  <button class="btn ghost" id="exportBtn" disabled title="Download an .xlsx to paste in by hand (fallback)">.xlsx</button>
+  <button class="cta" id="logBtn" disabled title="Send the selected entries to the Mac agent to log into Master Paid">⤴ Log to Excel</button>
 </div>
 <div class="toast" id="toast"></div>
 <div id="printArea" aria-hidden="true"></div>
@@ -374,6 +399,8 @@ const Cloud = {
       this.subscribe();
       this.pullConsign();
       this.subscribeConsign();
+      this.pullEvents();
+      this.subscribeEvents();
       if(ok) clearError();
     }catch(e){ this.setState("offline"); showError("Could not connect to Supabase: "+(e&&e.message||e)); }
   },
@@ -397,11 +424,17 @@ const Cloud = {
         .select("*").order("date_serial", {ascending:true}).limit(2000);
       if(error) throw error;
       const cutoff = Date.now() - SEVEN_DAYS;
-      // Force-keep rows just exported/dropped here whose Supabase write may still
-      // be in flight, so this pull can't bounce them back to "Ready to export".
-      ROWS = (data||[]).map(r => (PENDING_EXPORT.has(r.entry_id) && !r.exported)
-              ? {...r, exported:true, exported_at:r.exported_at || new Date().toISOString()}
-              : r)
+      // Force-keep rows whose optimistic write may still be in flight, so this
+      // pull can't bounce them back: exported/dropped -> stay exported, and
+      // just-sent-to-agent -> stay "Queued to log".
+      ROWS = (data||[]).map(r => {
+          let x = r;
+          if(PENDING_EXPORT.has(r.entry_id) && !r.exported)
+            x = {...x, exported:true, exported_at:x.exported_at || new Date().toISOString()};
+          if(PENDING_LOG.has(r.entry_id) && !x.exported && !x.log_requested)
+            x = {...x, log_requested:true, log_requested_at:x.log_requested_at || new Date().toISOString()};
+          return x;
+        })
         .filter(r => !r.exported || PENDING_EXPORT.has(r.entry_id) ||
               (r.exported_at && Date.parse(r.exported_at) >= cutoff));
       this.setState("live"); clearError(); render();
@@ -480,6 +513,41 @@ const Cloud = {
       match_tier:row.match_tier, status:row.status, flags:row.flags, queued_at:row.queued_at
     }]); }catch(_){ toast("Couldn't save to cloud — check connection"); }
   },
+  /* ---- Mac logging agent: push requests + activity feed ---- */
+  async requestLog(ids){
+    // Flag the selected rows for the Mac agent to write into Master Paid. The
+    // agent stamps logged_at + exported once it's done; until then they show as
+    // "Queued to log". Confirmed-persisted return so the caller can roll back.
+    if(!this.client||!ids.length) return false;
+    return this._write("requestLog", ()=> this.client.from("pay_credit_queue")
+      .update({log_requested:true, log_requested_at:new Date().toISOString()}).in("entry_id",ids));
+  },
+  async cancelLog(id){
+    // Take a row back before the agent has written it (logged_at still null).
+    if(!this.client) return false;
+    return this._write("cancelLog", ()=> this.client.from("pay_credit_queue")
+      .update({log_requested:false, log_requested_at:null})
+      .eq("entry_id",id).is("logged_at",null));
+  },
+  async pullEvents(){
+    if(!this.client) return;
+    try{
+      Promise.resolve(this.client.rpc("pay_agent_events_purge_old")).catch(()=>{});
+      const { data, error } = await this.client.from("pay_agent_events")
+        .select("*").order("created_at",{ascending:false}).limit(100);
+      if(error) throw error;
+      EVENTS = data||[];
+      renderAgent();
+    }catch(_){ /* feed is non-critical; payments still work */ }
+  },
+  subscribeEvents(){
+    if(!this.client||!this.client.channel) return;
+    let t; const poke=fn=>{clearTimeout(t);t=setTimeout(fn,300);};
+    this.client.channel("agent-events-live")
+      .on("postgres_changes",{event:"*",schema:"public",table:"pay_agent_events"},
+          ()=>poke(()=>this.pullEvents()))
+      .subscribe();
+  },
   /* ---- consignment notes ---- */
   async pullConsign(){
     if(!this.client) return;
@@ -510,18 +578,22 @@ const Cloud = {
 /* ---------- state + render ---------- */
 let ROWS=[];
 let CNOTES=[];                  // pending consignment notes
+let EVENTS=[];                  // Mac-agent activity feed (newest first)
 const SEL = new Set();          // selected ready entry_ids for export
 const SEEN_READY = new Set();   // ready ids we've defaulted-on once
 const PENDING_EXPORT = new Set(); // ids exported/dropped locally, write still confirming
                                   // — keeps a mid-flight pull from bouncing them back
+const PENDING_LOG = new Set();    // ids just sent to the agent (log_requested), same guard
 
 function dupKey(r){ return `${r.date_serial}|${norm(r.customer||"")}|${r.amount}`; }
 
 function render(){
   const pending = ROWS.filter(r=>!r.exported);
   const review = pending.filter(r=>r.status==="review" && !r._skipped);
-  const ready  = pending.filter(r=>r.status==="matched");
-  // new ready rows start selected (one-tap export); user deselections persist
+  const matched = pending.filter(r=>r.status==="matched");
+  const ready  = matched.filter(r=>!r.log_requested);   // selectable, awaiting a push
+  const queued = matched.filter(r=>r.log_requested);    // handed to the agent
+  // new ready rows start selected (one-tap); user deselections persist
   for(const r of ready){ if(!SEEN_READY.has(r.entry_id)){ SEEN_READY.add(r.entry_id); SEL.add(r.entry_id); } }
   const exported = ROWS.filter(r=>r.exported && !(r.flags&&r.flags.dropped)).sort((a,b)=>(b.exported_at||"").localeCompare(a.exported_at||""));
 
@@ -532,8 +604,10 @@ function render(){
 
   renderReview(review);
   renderReady(ready);
+  renderQueued(queued);
   renderExported(exported);
   renderExportBar(ready);
+  renderAgent();
 }
 
 function renderReview(rows){
@@ -586,12 +660,76 @@ function renderExported(rows){
   const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
   let h = `<details><summary>Exported · last 7 days (${rows.length}, ${money(total)}) ▾</summary><div class="card">`;
   for(const r of rows){
+    // A row the Mac agent wrote into Master Paid (logged_at set) offers no undo:
+    // the ledger already has it, so bouncing it back to Ready would desync.
+    const logged = !!r.logged_at;
     h += `<div class="exp-row"><span class="c">${esc(r.customer||r.raw_payer)}</span>
       <span class="a">${esc(serialToDMY(r.date_serial))}</span>
       <span class="a">${money(r.amount)}</span>
-      <button class="btn ghost sm" onclick="unExport('${escAttr(r.entry_id)}')">undo</button></div>`;
+      ${logged ? `<span class="logged" title="written into Master Paid by the Mac agent">logged ✓</span>`
+               : `<button class="btn ghost sm" onclick="unExport('${escAttr(r.entry_id)}')">undo</button>`}</div>`;
   }
   h += `</div></details>`;
+  w.innerHTML = h;
+}
+
+/* Rows the user pushed to the Mac agent, waiting to be written into Master Paid. */
+function renderQueued(rows){
+  const w = document.getElementById("queuedWrap");
+  if(!rows.length){ w.innerHTML=""; return; }
+  rows.sort((a,b)=>(a.date_serial-b.date_serial)|| String(a.customer).localeCompare(b.customer));
+  const total = rows.reduce((s,r)=>s+Number(r.amount||0),0);
+  let h = `<h2>Queued to log <span class="count">· ${rows.length} · ${money(total)}</span></h2><div class="card">`;
+  for(const r of rows){
+    h += `<div class="q-row">
+      <span class="q-spin" title="waiting for the Mac agent"></span>
+      <span class="c"><span class="n">${esc(r.customer)}</span>
+        <span class="d">${esc(serialToDMY(r.date_serial))} · ${esc(r.mode||"")} · waiting for agent</span></span>
+      <span class="a">${money(r.amount)}</span>
+      <button class="btn ghost sm" onclick="cancelLogRow('${escAttr(r.entry_id)}')">cancel</button></div>`;
+  }
+  h += `</div>`;
+  w.innerHTML = h;
+}
+
+/* ---------- Mac-agent activity feed + online pill ---------- */
+function relTime(ts){
+  if(!ts) return "";
+  const s = Math.max(0,(Date.now()-ts)/1000);
+  if(s<45) return "just now";
+  const m=s/60; if(m<60) return `${Math.round(m)}m ago`;
+  const h=m/60; if(h<24) return `${Math.round(h)}h ago`;
+  return `${Math.round(h/24)}d ago`;
+}
+function eventRowHTML(e){
+  const icon = {posted:"✅", error:"⚠️", caught_up:"📥", heartbeat:"🟢"}[e.kind] || "•";
+  const cls = e.kind==="error" ? "ev-row err" : "ev-row";
+  let text;
+  if(e.kind==="posted") text = `Logged ${money(e.amount)} · ${esc(e.customer||"")} <span class="sub">${esc(e.mode||"")}</span>`;
+  else if(e.kind==="caught_up") text = `<span class="sub">${esc(e.detail||"batch done")}</span>`;
+  else if(e.kind==="error") text = esc(e.detail||"couldn't write to Excel — check it's open");
+  else text = `<span class="sub">${esc(e.detail||e.kind)}</span>`;
+  const when = e.created_at ? relTime(Date.parse(e.created_at)) : "";
+  return `<div class="${cls}"><span class="i">${icon}</span><span class="t">${text}</span><span class="when">${esc(when)}</span></div>`;
+}
+function renderAgent(){
+  const w = document.getElementById("agentWrap");
+  if(!w) return;
+  if(!Cloud.enabled){ w.innerHTML=""; return; }
+  const evs = EVENTS||[];
+  const ONLINE_MS = 5*60*1000;   // online if seen within 5 min (heartbeat is ~2 min)
+  const lastBeat = evs.reduce((m,e)=>{ const t=e.created_at?Date.parse(e.created_at):0; return t>m?t:m; }, 0);
+  const online = lastBeat && (Date.now()-lastBeat < ONLINE_MS);
+  const cls = !lastBeat ? "offline" : (online ? "online" : "offline");
+  const txt = !lastBeat ? "Mac agent — no activity yet"
+            : online ? `Mac agent online · ${relTime(lastBeat)}`
+                     : `Mac agent offline · last seen ${relTime(lastBeat)}`;
+  let h = `<div class="agent-status ${cls}"><span class="dot"></span><span>${esc(txt)}</span></div>`;
+  const shown = evs.filter(e=>e.kind!=="heartbeat").slice(0,30);
+  if(shown.length){
+    h += `<details><summary>Agent activity · ${shown.length} recent ▾</summary><div class="card">`
+       + shown.map(eventRowHTML).join("") + `</div></details>`;
+  }
   w.innerHTML = h;
 }
 
@@ -770,10 +908,14 @@ function allSelected(rows){ return rows.length && rows.every(r=>SEL.has(r.entry_
 function renderExportBar(ready){
   // default: select all ready that aren't explicitly deselected
   const sel = ready.filter(r=>SEL.has(r.entry_id));
-  const bar = document.getElementById("exportSum"), btn = document.getElementById("exportBtn");
-  if(!sel.length){ bar.textContent = ready.length? "Nothing selected" : "No payments ready"; btn.disabled=true; btn.textContent="Download .xlsx"; return; }
+  const bar = document.getElementById("exportSum");
+  const xbtn = document.getElementById("exportBtn"), lbtn = document.getElementById("logBtn");
+  if(!sel.length){
+    bar.textContent = ready.length? "Nothing selected" : "No payments ready";
+    xbtn.disabled=true; lbtn.disabled=true; lbtn.textContent="⤴ Log to Excel"; return;
+  }
   bar.innerHTML = `<b>${sel.length}</b> selected · ${money(sel.reduce((s,r)=>s+Number(r.amount||0),0))}`;
-  btn.disabled=false; btn.textContent=`Download .xlsx (${sel.length})`;
+  xbtn.disabled=false; lbtn.disabled=false; lbtn.textContent=`⤴ Log to Excel (${sel.length})`;
 }
 
 /* ---------- actions ---------- */
@@ -815,7 +957,7 @@ async function dropRow(id){
 }
 function toggleSel(id,on){ if(on) SEL.add(id); else SEL.delete(id); render(); }
 function toggleAll(){
-  const ready = ROWS.filter(r=>!r.exported && r.status==="matched");
+  const ready = ROWS.filter(r=>!r.exported && r.status==="matched" && !r.log_requested);
   if(allSelected(ready)) ready.forEach(r=>SEL.delete(r.entry_id));
   else ready.forEach(r=>SEL.add(r.entry_id));
   render();
@@ -823,9 +965,12 @@ function toggleAll(){
 function unExport(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r.exported=false; r.exported_at=null; SEL.add(id); }
   Cloud.setStatus(id,{exported:false,exported_at:null}); render(); }
 
-document.getElementById("refreshBtn").onclick = ()=>{ Cloud.pull(); Cloud.pullConsign(); };
+document.getElementById("refreshBtn").onclick = ()=>{ Cloud.pull(); Cloud.pullConsign(); Cloud.pullEvents(); };
 document.getElementById("exportBtn").onclick = doExport;
+document.getElementById("logBtn").onclick = doLog;
 document.getElementById("addBtn").onclick = ()=>toggleAdd();
+// keep the agent's relative times + online/offline pill fresh between events
+setInterval(()=>{ if(VIEW==="pay") renderAgent(); }, 60000);
 
 /* ---------- view switching (Payments | Consignment notes) ---------- */
 let VIEW = "pay";
@@ -878,8 +1023,40 @@ function submitManual(){
   toggleAdd(false); render(); toast(`Added ${money(amount)} · ${customer}`);
 }
 
+/* ---------- Log to Excel (push to the Mac agent) ---------- */
+async function doLog(){
+  const rows = ROWS.filter(r=>!r.exported && r.status==="matched" && !r.log_requested && SEL.has(r.entry_id))
+                   .sort((a,b)=>a.date_serial-b.date_serial);
+  if(!rows.length) return;
+  const ids = rows.map(r=>r.entry_id);
+  // optimistic: move to "Queued to log" and guard against a mid-flight bounce
+  ids.forEach(id=>{ PENDING_LOG.add(id); const r=ROWS.find(x=>x.entry_id===id);
+    if(r){ r.log_requested=true; r.log_requested_at=new Date().toISOString(); } SEL.delete(id); });
+  render();
+  const ok = await Cloud.requestLog(ids);
+  if(!ok){
+    // the write didn't land — roll back and tell the user why
+    ids.forEach(id=>{ PENDING_LOG.delete(id); const r=ROWS.find(x=>x.entry_id===id);
+      if(r){ r.log_requested=false; r.log_requested_at=null; } SEL.add(id); });
+    const why = Cloud.writeErrText();
+    render(); toast(why ? "⚠️ Couldn't send — "+why : "⚠️ Couldn't send — check connection and try again");
+    return;
+  }
+  ids.forEach(id=>PENDING_LOG.delete(id));   // confirmed persisted; realtime keeps them queued
+  toast(`Sent ${ids.length} to the agent — logging into Master Paid`);
+}
+async function cancelLogRow(id){
+  const r=ROWS.find(x=>x.entry_id===id); if(!r) return;
+  if(r.logged_at){ toast("Already logged — can't cancel"); return; }
+  r.log_requested=false; r.log_requested_at=null; SEL.add(id);   // optimistic: back to Ready
+  render();
+  const ok = await Cloud.cancelLog(id);
+  if(!ok){ const why=Cloud.writeErrText(); toast(why?("⚠️ Couldn't cancel — "+why):"⚠️ Couldn't cancel — the agent may have taken it"); await Cloud.pull(); return; }
+  toast("Brought back to Ready");
+}
+
 async function doExport(){
-  const rows = ROWS.filter(r=>!r.exported && r.status==="matched" && SEL.has(r.entry_id))
+  const rows = ROWS.filter(r=>!r.exported && r.status==="matched" && !r.log_requested && SEL.has(r.entry_id))
                    .sort((a,b)=>a.date_serial-b.date_serial);
   if(!rows.length) return;
   const header = ["Date","Customer","Amount Paid","Payment Mode"];
