@@ -69,57 +69,119 @@ def first_blank_offset(date_values: list) -> int:
 
 
 class ExcelWriter:
-    """Fills one entry at a time into the next blank row, saving after each, so a
-    mid-batch failure leaves every already-written row safely persisted.
+    """Opens the ledger on demand, fills entries into the next blank rows, saves,
+    then closes/quits Excel again — so you don't keep the ledger or Excel open.
 
-    Attaches to the workbook if Excel already has it open (the common case — you
-    keep the ledger open), otherwise opens it. Excel stays open between calls."""
+    A batch is bracketed by ``open_session()`` / ``close_session()``: open once,
+    ``append`` each row (writing + saving as it goes, so a mid-batch failure still
+    leaves earlier rows persisted), then close. The close is polite:
+
+      - if the workbook was ALREADY open (you're using it), it's left open;
+      - if this writer opened it, the workbook is closed;
+      - if this writer also had to launch Excel, Excel is quit — but only when no
+        other workbooks remain, so it never quits an Excel you're using.
+    """
 
     def __init__(self, ledger_path: str, sheet_name: str = "Master Paid") -> None:
         self.ledger_path = ledger_path
         self.sheet_name = sheet_name
         self._xw = None
+        self._app = None
         self._book = None
+        self._we_launched_app = False
+        self._we_opened_book = False
 
-    # ---- workbook / sheet plumbing -----------------------------------
+    # ---- session: open on demand, close/quit when done ----------------
 
-    def _ensure_book(self):
+    def open_session(self) -> None:
+        """Make ``self._book`` point at the ledger, launching Excel / opening the
+        workbook only as needed, and remembering what we opened so we can undo it
+        in ``close_session``."""
         try:
             import xlwings as xw
         except ImportError as ex:  # pragma: no cover - environment-specific
             raise ExcelUnavailable(
                 "xlwings is not installed — run `pip install xlwings` on the Mac"
             ) from ex
-
         self._xw = xw
-        if self._book is not None:
-            try:
-                _ = self._book.name  # still alive?
-                return self._book
-            except Exception:
-                self._book = None
 
         import os
 
         target = os.path.abspath(self.ledger_path)
+        self._app = None
+        self._book = None
+        self._we_launched_app = False
+        self._we_opened_book = False
+
         try:
+            # 1) Already open somewhere? Attach and leave it as we found it.
             for app in xw.apps:
                 for bk in app.books:
                     try:
                         if os.path.abspath(bk.fullname) == target:
-                            self._book = bk
-                            return bk
+                            self._app, self._book = app, bk
+                            return
                     except Exception:
                         continue
-            self._book = xw.Book(self.ledger_path)  # opens (attaches if already open)
-            return self._book
+
+            # 2) Reuse a running Excel if there is one, else launch it hidden.
+            if xw.apps.count > 0:
+                self._app = xw.apps.active
+            else:
+                self._app = xw.App(visible=False, add_book=False)
+                self._we_launched_app = True
+
+            try:
+                self._app.display_alerts = False
+            except Exception:
+                pass
+
+            self._book = self._app.books.open(target)
+            self._we_opened_book = True
+        except ExcelUnavailable:
+            raise
         except Exception as ex:
+            # If we launched Excel just now but failed to open the book, don't
+            # leave a stray hidden Excel behind.
+            if self._we_launched_app and self._app is not None:
+                try:
+                    self._app.quit()
+                except Exception:
+                    pass
+            self._app = self._book = None
+            self._we_launched_app = self._we_opened_book = False
             raise ExcelUnavailable(f"can't open {self.ledger_path}: {ex}") from ex
 
-    def _sheet(self):
-        book = self._ensure_book()
+    def close_session(self) -> None:
+        """Save, then undo exactly what ``open_session`` opened (see class doc)."""
+        if self._book is None:
+            self._app = None
+            return
         try:
-            return book.sheets[self.sheet_name]
+            try:
+                self._book.save()
+            except Exception:
+                pass
+            if self._we_opened_book:
+                try:
+                    self._book.close()
+                except Exception:
+                    pass
+            if self._we_launched_app and self._app is not None:
+                try:
+                    if len(self._app.books) == 0:
+                        self._app.quit()
+                except Exception:
+                    pass
+        finally:
+            self._app = self._book = None
+            self._we_launched_app = self._we_opened_book = False
+
+    def _sheet(self):
+        if self._book is None:
+            raise ExcelUnavailable("no Excel session open (internal error)")
+        try:
+            return self._book.sheets[self.sheet_name]
         except Exception as ex:
             raise ExcelUnavailable(
                 f"sheet '{self.sheet_name}' not found in {self.ledger_path}: {ex}"
