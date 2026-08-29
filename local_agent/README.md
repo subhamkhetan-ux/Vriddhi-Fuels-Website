@@ -23,6 +23,11 @@ Gmail → GitHub Actions → Supabase pay_credit_queue → /payments app
 - **Pull, not push.** The agent only ever writes rows you pressed **Log** on
   (`log_requested = true` and not yet `logged_at`). Review rows and un-pushed
   matched rows are never touched.
+- **You don't keep Excel or the ledger open.** When entries are waiting the agent
+  opens the ledger on its own (launching Excel hidden if it isn't running), writes,
+  saves, then closes the workbook and quits Excel again — but only what *it* opened:
+  if you happen to have the ledger open yourself, it writes + saves and leaves it
+  alone, never interrupting you.
 - **It drives real Excel** (via xlwings), so macros, spill formulas, other sheets
   and formatting are all preserved. It writes each entry into the **next blank
   row** of the Master Paid table (the first row whose Date cell is empty), keeping
@@ -58,8 +63,8 @@ The app's **Activity** section shows a live feed and an **online/offline** pill:
 
 - 🟢 `Mac agent online · just now` — driven by a heartbeat every ~2 minutes.
 - ✅ `Logged ₹1,20,000 · A.K.V. Logistics · HDFC NEFT` — each row written.
-- ⚠️ `couldn't write to Excel — check it's open` — Excel closed / workbook locked;
-  the agent holds the batch and retries, nothing is lost.
+- ⚠️ `couldn't write to Excel …` — e.g. the workbook is locked or Excel can't be
+  driven; the agent holds the batch and retries, nothing is lost.
 
 Pushed entries sit under **Queued to log** (with a **cancel** you can tap until the
 agent picks them up); once written they drop into **Exported** marked **logged ✓**.

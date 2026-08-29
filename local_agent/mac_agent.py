@@ -33,13 +33,21 @@ from .supabase_client import SupabaseClient
 
 
 def _drain_once(cfg: Config, sb: SupabaseClient, writer: ExcelWriter, seen: SeenStore) -> int:
-    """One read -> write -> mark pass. Returns rows posted (0 if none/holding)."""
+    """One read -> write -> mark pass. Returns rows posted (0 if none/holding).
+
+    Opens Excel + the ledger only when there is something to write, and closes /
+    quits them afterwards (see ExcelWriter.close_session), so the ledger and Excel
+    don't have to be left open."""
     rows = sb.fetch_log_requested()
     if not rows:
         return 0
     if not poster.select_postable(rows, seen):
         return 0
-    return poster.post_batch(rows, writer, seen, sb)
+    writer.open_session()  # launches Excel / opens the ledger as needed
+    try:
+        return poster.post_batch(rows, writer, seen, sb)
+    finally:
+        writer.close_session()  # save + close/quit what we opened
 
 
 def run(cfg: Config, *, once: bool = False) -> int:
