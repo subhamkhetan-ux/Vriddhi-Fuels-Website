@@ -29,6 +29,12 @@ Gmail → GitHub Actions → Supabase pay_credit_queue → /payments app
   that row's own formatting — it never overrides existing entries. When the
   pre-made blank rows run out it adds one more (extending the table so the new row
   keeps its formatting).
+  *(Verified against the real ledger: Master Paid is the Excel Table `MasterPaid`,
+  `A1:D650`, columns A–D = Date / Customer / Amount Paid / Payment Mode, with ~100
+  pre-formatted blank rows below the data. The blank cells already carry the
+  ledger's own Date `dd/mm/yy` and Amount `₹#,##0.00` formats, which the agent
+  leaves untouched. The customer-list spill formula in column F is outside the
+  table and never touched.)*
 - **The queue is the offline buffer.** If your Mac is asleep, offline, or Excel is
   closed, pressed entries just wait in Supabase. When the agent is healthy again it
   drains everything in one pass.

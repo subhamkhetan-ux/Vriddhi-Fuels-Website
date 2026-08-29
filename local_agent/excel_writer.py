@@ -12,10 +12,16 @@ number format is set only if it was still "General"). When the pre-made blank
 rows run out, it adds one more row — and if Master Paid is a real Excel Table
 (ListObject), it extends the table so the new row keeps the table's formatting.
 
+Verified against the real ``Master Ledger.xlsm``: Master Paid is the Excel Table
+``MasterPaid`` (ref ``A1:D650``, header row 1), columns A–D = Date / Customer /
+Amount Paid / Payment Mode, with pre-formatted blank rows waiting below the data.
+The blank cells already carry the ledger's own formats (Date ``dd/mm/yy``, Amount
+``"₹"#,##0.00``), so we write values only and leave those formats alone.
+
 Column layout (confirmed A–D, Date first):
-  A  date          real date value (the row's own dd/mm/yyyy format is kept)
+  A  date          real date value (the row's own dd/mm/yy format is kept)
   B  customer      canonical name
-  C  amount        plain number (the row's own #,##0 format is kept)
+  C  amount        number with decimals (the row's own ₹#,##0.00 format is kept)
   D  mode          "<BANK> <RAIL>", e.g. "HDFC NEFT"
 
 xlwings is Mac/Windows-only and needs Excel installed, so it's imported lazily:
@@ -27,8 +33,11 @@ from __future__ import annotations
 
 import datetime as dt
 
-DATE_FMT = "dd/mm/yyyy"
-AMOUNT_FMT = "#,##0"
+# Fallback formats, matched to the ledger — applied ONLY to a cell that is still
+# "General" (e.g. a freshly-extended row past the pre-formatted blanks). Existing
+# blank rows keep their own formats untouched.
+DATE_FMT = "dd/mm/yy"
+AMOUNT_FMT = '"₹"#,##0.00'
 DATE_COL, CUST_COL, AMOUNT_COL, MODE_COL = 1, 2, 3, 4  # A, B, C, D
 
 
