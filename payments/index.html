@@ -267,15 +267,68 @@ function cleanRemitter(raw){
 }
 function aliasKey(raw){ return norm(cleanRemitter(raw)) || norm(raw); }
 
-/* ---------- customer master list (for review autocomplete) ---------- */
+/* ---------- customer master list (for review autocomplete) ----------
+   Source of truth for customer names. Two supported formats:
+     • JSON  — a ["Name", ...] array or {"customers":[...]} (the default,
+       state/customers.json).
+     • Tally master XML — a Masters export from Tally (Gateway → Display →
+       List of Accounts, or an export of Ledgers). Set MASTER_XML_URL in
+       config.js to a committed .xml and it takes precedence; customer names
+       are read from the <LEDGER> masters (those under a "Sundry Debtors"-type
+       group when the export marks parents, otherwise every ledger).
+   This keeps one shared master between the app and Tally, instead of the app
+   inventing names. MASTER_XML_URL is empty by default, so nothing changes
+   until you opt in. */
 let NAMES=[], NORMED=[];
+function setCustomerNames(list){
+  // de-duplicate by normalized key, keep first spelling, sort case-insensitively
+  const seen=new Set(); NAMES=[];
+  for(const raw of (list||[])){
+    const d=String(raw==null?"":raw).trim(); if(!d) continue;
+    const k=norm(d); if(!k || seen.has(k)) continue;
+    seen.add(k); NAMES.push(d);
+  }
+  NAMES.sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));
+  NORMED=NAMES.map(n=>[n,norm(n)]);
+}
+// Pull customer names out of a Tally "Masters" XML export. Tolerant of case
+// and of NAME appearing as an attribute or a child element.
+function parseTallyMasters(xmlText){
+  let doc; try{ doc=new DOMParser().parseFromString(xmlText,"application/xml"); }catch(_){ return []; }
+  if(!doc || doc.getElementsByTagName("parsererror").length) return [];
+  const byTag=(el,tag)=>{ // case-insensitive child lookup
+    const t=tag.toUpperCase();
+    return [...el.children].find(c=>c.tagName && c.tagName.toUpperCase()===t) || null;
+  };
+  const ledgers=[...doc.getElementsByTagName("*")].filter(el=>el.tagName && el.tagName.toUpperCase()==="LEDGER");
+  const rows=[];
+  for(const led of ledgers){
+    let name=led.getAttribute("NAME")||led.getAttribute("Name")||"";
+    if(!name){ const n=byTag(led,"NAME"); if(n) name=n.textContent; }
+    name=(name||"").trim(); if(!name) continue;
+    const p=byTag(led,"PARENT"); const parent=(p?p.textContent:"").toLowerCase();
+    rows.push({name,parent});
+  }
+  // If the export tags parents and any look like debtors/customers, keep only
+  // those; otherwise fall back to every ledger name.
+  const debtors=rows.filter(r=>/debtor|customer|receivable/.test(r.parent));
+  return (debtors.length?debtors:rows).map(r=>r.name);
+}
 async function loadCustomers(){
-  if(!CFG.CUSTOMERS_URL) return;
+  const xmlUrl=(CFG.MASTER_XML_URL||"").trim();
+  const url=xmlUrl||CFG.CUSTOMERS_URL;
+  if(!url) return;
   try{
-    const r = await fetch(CFG.CUSTOMERS_URL+(CFG.CUSTOMERS_URL.includes("?")?"":"?_t="+Date.now()),{cache:"no-store"});
-    const j = await r.json();
-    NAMES = Array.isArray(j) ? j : (j.customers||[]);
-    NORMED = NAMES.map(n=>[n,norm(n)]);
+    const r=await fetch(url+(url.includes("?")?"":"?_t="+Date.now()),{cache:"no-store"});
+    const text=await r.text();
+    let names;
+    if(xmlUrl || /^\s*</.test(text)){          // XML source
+      names=parseTallyMasters(text);
+    }else{                                      // JSON source
+      const j=JSON.parse(text);
+      names=Array.isArray(j)?j:(j.customers||[]);
+    }
+    setCustomerNames(names);
   }catch(_){}
 }
 function canonicalFor(input){

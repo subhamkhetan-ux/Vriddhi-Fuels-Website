@@ -1,0 +1,517 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SAMPLE Tally "Masters" export (List of Accounts / Ledgers).
+  Seeded here from state/customers.json so the format is ready to use.
+
+  To make Tally the source of truth for the /payments customer typeahead:
+    1. In Tally: Gateway of Tally > Display > List of Accounts (or export
+       Ledgers as Masters). Export as XML.
+    2. Commit it as state/master.xml (replace this sample's data).
+    3. In payments/config.js set  MASTER_XML_URL: "../state/master.xml"
+  The app reads every <LEDGER> under a "Sundry Debtors"-type PARENT as a
+  customer name (falling back to all ledgers if parents aren't marked).
+-->
+<ENVELOPE>
+ <HEADER>
+  <TALLYREQUEST>Export Data</TALLYREQUEST>
+ </HEADER>
+ <BODY>
+  <IMPORTDATA>
+   <REQUESTDESC>
+    <REPORTNAME>List of Accounts</REPORTNAME>
+   </REQUESTDESC>
+   <REQUESTDATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="A.K.V. Logistics" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>A.K.V. Logistics</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Animesh Builders" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Animesh Builders</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Aryan Ispat &amp; Power Private Ltd." RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Aryan Ispat &amp; Power Private Ltd.</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Ashish Garg" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Ashish Garg</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Bhatia Energy and Minerals (Sundargarh) Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Bhatia Energy and Minerals (Sundargarh) Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Bkd Logistics Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Bkd Logistics Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Customer List (auto-source)" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Customer List (auto-source)</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="DEV TRANSPORT" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>DEV TRANSPORT</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="DG VRIDDHI FUELS" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>DG VRIDDHI FUELS</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Dbl-Siarmal Coal Mines Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Dbl-Siarmal Coal Mines Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Ekdant Logistic" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Ekdant Logistic</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Ember Coal Beneficiation Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Ember Coal Beneficiation Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="EzyPay UPI ICICI" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>EzyPay UPI ICICI</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Fleet Card Posting" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Fleet Card Posting</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Gandhar Concrete Pole" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Gandhar Concrete Pole</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Great River Coy Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Great River Coy Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Grk Logistics Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Grk Logistics Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Harnoor Logistics Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Harnoor Logistics Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Hm Power and Cables Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Hm Power and Cables Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Indiabuild Infra Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Indiabuild Infra Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Indian Enterprises" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Indian Enterprises</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Inland World Logistics Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Inland World Logistics Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="JYOTI RANJAN DASH" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>JYOTI RANJAN DASH</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Jaymaa Mangla Construction" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Jaymaa Mangla Construction</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="KRISHNA INFRATECH PVT LTD" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>KRISHNA INFRATECH PVT LTD</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Kalyani Ventures Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Kalyani Ventures Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Kanha Enterprises" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Kanha Enterprises</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Keshav Minerals" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Keshav Minerals</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Krl Infratech (India) Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Krl Infratech (India) Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/S Ultratech Cement Ltd" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/S Ultratech Cement Ltd</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/s  Ankita Air Products Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/s  Ankita Air Products Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/s Global Movers" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/s Global Movers</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/s Jai Balaji Oxygen Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/s Jai Balaji Oxygen Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/s Shree Balajee Enterprises" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/s Shree Balajee Enterprises</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/s Smc Power Generation Ltd." RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/s Smc Power Generation Ltd.</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/s-Capital Engineering Services" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/s-Capital Engineering Services</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="M/s. Ajit Kumar Debta" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>M/s. Ajit Kumar Debta</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="MAA DURGA CONSTRUCTION" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>MAA DURGA CONSTRUCTION</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Maa Karni Earthmover Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Maa Karni Earthmover Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Maa Samlai Logistics Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Maa Samlai Logistics Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Maa Samleswari Equipments" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Maa Samleswari Equipments</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Maruti Realities &amp; Developers" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Maruti Realities &amp; Developers</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Mineral Co." RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Mineral Co.</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Mukesh Rana Ref OMPL" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Mukesh Rana Ref OMPL</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="OIC Jharsuguda FS" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>OIC Jharsuguda FS</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Orissa Metaliks Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Orissa Metaliks Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Pine Labs Nodal Account" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Pine Labs Nodal Account</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Pioneer Pultru Tech Engineering Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Pioneer Pultru Tech Engineering Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Radhe Shyam Mining" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Radhe Shyam Mining</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Raventrax Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Raventrax Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Rsa Infraproject Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Rsa Infraproject Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="S K Trading" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>S K Trading</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="SAMARPAN LOGISTICS PVT LTD" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>SAMARPAN LOGISTICS PVT LTD</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="SAPNA BUILDERS AND SUPPLIERS" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>SAPNA BUILDERS AND SUPPLIERS</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="SHRI LAL KHETAN" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>SHRI LAL KHETAN</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="SSFCxSSL" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>SSFCxSSL</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Shivaay Logistics" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Shivaay Logistics</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Shree Jhadeswar Associates" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Shree Jhadeswar Associates</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Shree Karni Kripa Construction Company" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Shree Karni Kripa Construction Company</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Shyam Metalics and Energy Ltd" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Shyam Metalics and Energy Ltd</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Simar Infrastructure LTD" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Simar Infrastructure LTD</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Ss Freight Carrier" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Ss Freight Carrier</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Steels and Carriers Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Steels and Carriers Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="String  Logistics" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>String  Logistics</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Sudarshan Minerals &amp; Logistics" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Sudarshan Minerals &amp; Logistics</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Swagat Sundar Mohanty" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Swagat Sundar Mohanty</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="T N Roadlines" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>T N Roadlines</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="VRIDDHI FUELS CAR" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>VRIDDHI FUELS CAR</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="VRIDDHI FUELS TANKER" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>VRIDDHI FUELS TANKER</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="Virendra Logistics Private Limited" RESERVEDNAME="">
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>Yes</ISBILLWISEON>
+      <NAME.LIST><NAME>Virendra Logistics Private Limited</NAME></NAME.LIST>
+     </LEDGER>
+    </TALLYMESSAGE>
+   </REQUESTDATA>
+  </IMPORTDATA>
+ </BODY>
+</ENVELOPE>
