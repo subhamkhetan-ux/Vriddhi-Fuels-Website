@@ -112,6 +112,29 @@ bash local_agent/agentctl.sh logs      # show the last errors
 It just wraps the `launchctl enable/bootstrap` (on) and `bootout/disable` (off)
 commands, so editing the plist still needs a `restart` to take effect.
 
+## macOS: let the agent control Excel (one-time) — `setup_login_app.sh`
+
+macOS gates control of one app by another (Automation / Apple Events). A plain
+launchd-run `python3` has no stable app identity, so macOS **silently denies** it
+(error `-1743`) and never shows a permission prompt — the entry just stays
+"waiting for agent". The fix is to run the agent from a real **app** instead:
+
+```bash
+bash local_agent/setup_login_app.sh
+```
+
+This builds `~/Applications/VriddhiPaymentAgent.app` (a tiny AppleScript applet
+that runs the same agent loop, reusing the config already in your plist), stops
+the launchd version, and adds the app to Login Items. Because it's a real app,
+macOS shows the **"…wants to control Microsoft Excel"** prompt exactly **once** —
+click **Allow** and it's remembered forever. From then on it logs automatically
+and starts at login. Run it once per Mac. Manage it with:
+
+```bash
+osascript -e 'tell app "VriddhiPaymentAgent" to quit'   # stop
+open ~/Applications/VriddhiPaymentAgent.app             # start
+```
+
 ## Try it before installing the daemon
 
 A one-shot drain (writes whatever you've already pressed **Log** on, then exits):
