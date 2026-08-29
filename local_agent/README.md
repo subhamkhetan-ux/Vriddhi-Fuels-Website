@@ -94,11 +94,23 @@ agent picks them up); once written they drop into **Exported** marked **logged â
    It now starts at login and restarts on crash. Logs stream to
    `~/Library/Logs/vriddhi-payment-agent.log` (and `.err.log`).
 
-   Stop or reload it any time:
+## On/off switch (`agentctl.sh`)
 
-   ```bash
-   launchctl unload ~/Library/LaunchAgents/com.vriddhi.paymentagent.plist
-   ```
+A one-word switch for turning the agent on or off on any machine â€” handy when you
+move it between Macs (turn it **off** on the old one, **on** on the new one). Off
+stops the agent completely, so heartbeats and all logging stop; on both starts it
+now and re-enables it to come back after a reboot.
+
+```bash
+bash local_agent/agentctl.sh on        # start now + start at login
+bash local_agent/agentctl.sh off       # stop now + stay off across reboots
+bash local_agent/agentctl.sh status    # is it running?
+bash local_agent/agentctl.sh restart   # reload (after editing the plist)
+bash local_agent/agentctl.sh logs      # show the last errors
+```
+
+It just wraps the `launchctl enable/bootstrap` (on) and `bootout/disable` (off)
+commands, so editing the plist still needs a `restart` to take effect.
 
 ## Try it before installing the daemon
 
