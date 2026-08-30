@@ -11,10 +11,23 @@ automatically instead of by hand.
              · clone templates
 ```
 
-## Run
+## Run — the app (no terminal)
 
 ```bash
-python3 -m iocl_tally.run --pad IOCL_PAD_Statement.pdf --out out/
+iocl_tally/run_app.sh          # starts the local web app, opens the browser
+```
+
+Drop the month's **PAD PDF** in, point the settings at your **IOCL invoice
+folder** (the same iCloud folder the `consign/` app reads), and click
+**Generate**. You get the reconciliation summary, a per-line review (OK /
+SKIPPED with reasons), the list of purchases still waiting on an invoice, and a
+**download** for `IOCL_import.xml`. Everything runs on your Mac — nothing leaves
+the machine.
+
+## Run — the CLI
+
+```bash
+python3 -m iocl_tally.run --pad IOCL_PAD_Statement.pdf --out out/ --invoices INVOICE_DIR/
 # out/IOCL_import.xml   -> Tally: Gateway > Import > Vouchers
 # out/IOCL_review.csv   -> every PAD line, its mapping, OK / SKIPPED
 ```
@@ -69,16 +82,21 @@ generated voucher **balances Dr = Cr = 0** by construction.
 | Interest | Journal | `Interest Paid` |
 | Product Supply Invoice (fuel) | Purchase | from the **invoice PDF** — `PURCHASE HSD MS & XG` + HSD/MS VAT + R/off |
 
-## Purchases need the invoice PDF
+## Purchases: matched to the invoice PDF
 
 A fuel Product Supply Invoice line can't be split into base + VAT + rounding from
 the PAD alone (freight is baked in and a flat VAT % is off by thousands on
-petrol). Each purchase must be joined to its invoice by
-**SAP Entry no. == PAD document number** and the base / per-product VAT / ZRND
-round-off read straight off the invoice. Until that invoice matching is wired in,
-purchase lines are **SKIPPED and flagged** in the review sheet; every other
-voucher still generates. (This is the next phase — the invoices are already
-available in the iCloud folder the `consign/` app reads.)
+petrol). So each purchase is **joined to its invoice PDF by document number**
+(`invoice_parser.py` reads the base / per-product VAT / ZRND round-off straight
+off the invoice), and the purchase voucher is built from those figures — mapping
+`HSD-BSVI → High Speed Diesel + HSD VAT` and `EBMS → Motor Spirit + MS VAT`, with
+`R/off = −ZRND` so the voucher balances. As a guard, a purchase is only generated
+when the **invoice total equals the PAD amount**; otherwise (no invoice, an
+unreadable invoice, a total mismatch, or a product mix without a template) the
+line is **SKIPPED and flagged**, and every other voucher still generates.
+
+Point the app/CLI at the folder where the invoices accumulate (the same iCloud
+folder the `consign/` app watches) and drop new invoices in as they arrive.
 
 ## Verified against the real export
 
@@ -90,16 +108,23 @@ export (`Master.xml` / `Transactions.xml` / the IOCL ledger report):
 - Category counts match the export: `TDS 71, Fleet 156, Collection 44 (43 OD +
   1 C/A), K1 2, License 2, Dealer Margin 2, NFR 1, Interest 1`, `Purchase 71`.
 - **279 journal vouchers generated, every one balances Dr = Cr = 0**, all
-  identity fields stripped; 71 purchases await their invoices.
+  identity fields stripped.
+- With 5 sample invoices supplied, **5 purchase vouchers generated — each an
+  exact match to the company's own Tally voucher** for that invoice (per-product
+  base + VAT, party total, R/off, rate, quantity), including the 2-product
+  Diesel + Petrol edge case; the remaining 66 purchases are flagged as awaiting
+  their invoice.
 
 ## Files
 
 | Path | Role |
 |---|---|
+| `server.py` / `index.html` | The local web app (`iocl_tally/run_app.sh`) |
 | `run.py` | CLI orchestrator — `python3 -m iocl_tally.run --pad X.pdf --out DIR` |
 | `pad_parser.py` | Parse + classify + reconcile the PAD |
+| `invoice_parser.py` | Read base / per-product VAT / round-off off an invoice |
 | `xml_generator.py` | Build vouchers by cloning `templates/` + substituting |
-| `templates/*.xml` | Real Tally-exported voucher skeletons (one per category) — load-bearing |
+| `templates/*.xml` | Real Tally-exported voucher skeletons (one per category) |
 
-Tests: `python3 -m pytest tests/test_iocl_tally.py` (synthetic PAD fixture; the
-real statement is private and not committed).
+Tests: `python3 -m pytest tests/test_iocl_tally.py` (synthetic PAD + invoice
+fixtures; the real statement and invoices are private and not committed).

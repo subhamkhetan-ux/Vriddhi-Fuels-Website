@@ -20,6 +20,7 @@ import argparse
 import csv
 import os
 
+from . import invoice_parser as IP
 from . import pad_parser as P
 from . import xml_generator as G
 
@@ -46,9 +47,32 @@ def _is_ca_collection(rec) -> bool:
     return rec.category == "COLLECTION" and "5921701" in rec.item_text
 
 
-def process(text: str, invoices_dir: str | None = None):
+def load_invoices(invoices_dir: str | None) -> dict:
+    """Index invoices in a folder by their document number, for purchase matching.
+
+    Returns ``{invoice_no: Invoice}``. Best-effort: an unreadable/again-unparsable
+    PDF is skipped (the purchase then simply has no match and is flagged)."""
+    index: dict = {}
+    if not invoices_dir or not os.path.isdir(invoices_dir):
+        return index
+    for name in sorted(os.listdir(invoices_dir)):
+        if name.startswith(".") or not name.lower().endswith(".pdf"):
+            continue
+        try:
+            text = P.extract_text(os.path.join(invoices_dir, name))
+            iv = IP.parse_invoice(text)
+        except Exception:
+            continue
+        if iv.invoice_no:
+            index[iv.invoice_no] = iv
+    return index
+
+
+def process(text: str, invoices_dir: str | None = None, invoices: dict | None = None):
     """Parse + generate. Returns ``(records, vouchers, review_rows, summary)``."""
     records, summary = P.parse(text)
+    if invoices is None:
+        invoices = load_invoices(invoices_dir)
     vouchers: list[str] = []
     review: list[dict] = []
 
@@ -62,11 +86,30 @@ def process(text: str, invoices_dir: str | None = None):
         note = ""
         if r.category == P.CAT_PURCHASE:
             vtype = "Purchase"
-            # Purchases require the invoice PDF (base + per-product VAT + ZRND);
-            # not wired yet -> skip and flag so every other voucher still posts.
-            status = "SKIPPED"
-            note = "needs invoice PDF (SAP entry = doc number)"
-            skipped_purchases += 1
+            iv = invoices.get(r.doc_number or "")
+            if iv is None:
+                status, note = "SKIPPED", "no matching invoice PDF"
+                skipped_purchases += 1
+            elif not iv.is_complete():
+                status, note = "SKIPPED", f"invoice {r.doc_number} parsed incompletely"
+                skipped_purchases += 1
+            elif abs((iv.total or 0) - r.debit) >= 0.005:
+                status, note = "SKIPPED", (
+                    f"invoice total {iv.total} != PAD amount {r.debit:.2f}")
+                skipped_purchases += 1
+            else:
+                vch = G.make_purchase(iv, _ymd(r.date), reference=r.doc_number)
+                if vch is None:
+                    status, note = "SKIPPED", (
+                        "unsupported product mix "
+                        f"({', '.join(p.description for p in iv.products)})")
+                    skipped_purchases += 1
+                elif not G.purchase_balances(vch):
+                    status, note = "SKIPPED", "purchase voucher did not balance"
+                    skipped_purchases += 1
+                else:
+                    vouchers.append(vch)
+                    counts["PURCHASE"] = counts.get("PURCHASE", 0) + 1
         elif r.category in G.JOURNAL_TEMPLATES:
             vch = G.make_journal(
                 r.category, _ymd(r.date), r.amount,
