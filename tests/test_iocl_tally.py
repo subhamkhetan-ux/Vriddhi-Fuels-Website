@@ -238,6 +238,34 @@ def test_make_purchase_two_products_balances_and_matches_totals():
     assert "-1345554.42" in v and "-322933.06" in v
 
 
+def test_tt_numbering_format_and_idempotent():
+    st = {"next_tt": 131, "issued": {}}
+    assert G.assign_tt(st, "7010099224") == "TT131"
+    assert G.assign_tt(st, "7010117417") == "TT132"
+    assert G.assign_tt(st, "7010099224") == "TT131"   # same doc -> same number
+    assert st["next_tt"] == 133                         # not spent again
+    assert G.format_tt(63) == "TT063"
+
+
+def test_make_purchase_emits_voucher_number():
+    iv = IP.parse_invoice(INVOICE_2PROD)
+    v = G.make_purchase(iv, "20260825", reference="7010117417", voucher_number="TT131")
+    assert "<VOUCHERNUMBER>TT131</VOUCHERNUMBER>" in v
+
+
+def test_process_numbers_purchases_sequentially():
+    inv = {"7008000004": IP.Invoice(
+        invoice_no="7008000004", date="02-Jul-26", tt_no="OD23U8210",
+        products=[IP.Product("50703", "HSD-BSVI [PDRP]", "High Speed Diesel",
+                             "HSD VAT", 22.0, 1209.68, 24.0, 290.32)],
+        zrnd=0.0, total=1500.00)}
+    tt = {"next_tt": 131, "issued": {}}
+    _, vouchers, review, _ = R.process(PAD_TEXT, invoices=inv, tt_state=tt)
+    pv = [v for v in vouchers if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v]
+    assert pv and "<VOUCHERNUMBER>TT131</VOUCHERNUMBER>" in pv[0]
+    assert tt["issued"]["7008000004"] == 131
+
+
 def test_make_purchase_single_product_balances():
     iv = IP.Invoice(
         invoice_no="7010000001", date="25-Aug-26", tt_no="OD23U8210",

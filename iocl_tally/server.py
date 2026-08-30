@@ -30,7 +30,9 @@ from iocl_tally import run as R  # noqa: E402
 DATA_PATH = os.path.join(_HERE, "data.json")
 OUT_DIR = os.path.join(_HERE, "out")
 
-DEFAULTS = {"invoices_dir": ""}
+# next_tt seeds the manual purchase (TT) voucher-number counter — set it to the
+# number AFTER your last TT purchase in Tally so new ones continue the sequence.
+DEFAULTS = {"invoices_dir": "", "tt": {"next_tt": 131, "issued": {}}}
 
 
 def load_data() -> dict:
@@ -40,7 +42,9 @@ def load_data() -> dict:
     except (OSError, ValueError):
         data = {}
     for k, v in DEFAULTS.items():
-        data.setdefault(k, v)
+        data.setdefault(k, json.loads(json.dumps(v)))
+    data["tt"].setdefault("next_tt", 131)
+    data["tt"].setdefault("issued", {})
     return data
 
 
@@ -96,7 +100,8 @@ class Handler(BaseHTTPRequestHandler):
             d = load_data()
             folder = R.normalize_dir(d.get("invoices_dir", ""))
             return self._json({"invoices_dir": folder,
-                               "folder_ok": bool(folder) and os.path.isdir(folder)})
+                               "folder_ok": bool(folder) and os.path.isdir(folder),
+                               "next_tt": d["tt"].get("next_tt", 131)})
         if route == "/download/import.xml":
             return self._file(os.path.join(OUT_DIR, "IOCL_import.xml"),
                               "application/xml", "IOCL_import.xml")
@@ -110,13 +115,19 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         data = load_data()
         if route == "/api/config":
+            folder = data.get("invoices_dir", "")
             if "invoices_dir" in body:
                 folder = R.normalize_dir(str(body["invoices_dir"]))
                 data["invoices_dir"] = folder
-                save_data(data)
-                return self._json({"ok": True, "invoices_dir": folder,
-                                   "folder_ok": bool(folder) and os.path.isdir(folder)})
-            return self._json({"ok": True})
+            if "next_tt" in body:
+                try:
+                    data["tt"]["next_tt"] = int(body["next_tt"])
+                except (TypeError, ValueError):
+                    pass
+            save_data(data)
+            return self._json({"ok": True, "invoices_dir": folder,
+                               "folder_ok": bool(folder) and os.path.isdir(folder),
+                               "next_tt": data["tt"].get("next_tt", 131)})
         if route == "/api/run":
             return self._run(body, data)
         return self._send(404, b"not found", "text/plain")
@@ -139,8 +150,11 @@ class Handler(BaseHTTPRequestHandler):
                 pad_path = tf.name
             text = R.P.extract_text(pad_path)
             os.unlink(pad_path)
-            records, vouchers, review, summary = R.process(text, invoices_dir)
+            tt_state = data["tt"]
+            records, vouchers, review, summary = R.process(
+                text, invoices_dir, tt_state=tt_state)
             R.write_outputs(OUT_DIR, vouchers, review)
+            save_data(data)   # persist the advanced TT counter + issued map
         except Exception as exc:
             return self._json({"error": f"run failed: {exc}"}, 500)
 

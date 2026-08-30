@@ -87,11 +87,18 @@ def load_invoices(invoices_dir: str | None) -> dict:
     return index
 
 
-def process(text: str, invoices_dir: str | None = None, invoices: dict | None = None):
-    """Parse + generate. Returns ``(records, vouchers, review_rows, summary)``."""
+def process(text: str, invoices_dir: str | None = None, invoices: dict | None = None,
+            tt_state: dict | None = None):
+    """Parse + generate. Returns ``(records, vouchers, review_rows, summary)``.
+
+    ``tt_state`` (``{"next_tt": N, "issued": {...}}``) carries the manual TT
+    voucher-number counter for purchases; it is mutated in place so the caller
+    can persist it. Defaults to starting at TT001 if not given."""
     records, summary = P.parse(text)
     if invoices is None:
         invoices = load_invoices(invoices_dir)
+    if tt_state is None:
+        tt_state = {"next_tt": 1, "issued": {}}
     vouchers: list[str] = []
     review: list[dict] = []
 
@@ -116,18 +123,21 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
                 status, note = "SKIPPED", (
                     f"invoice total {iv.total} != PAD amount {r.debit:.2f}")
                 skipped_purchases += 1
+            elif G.choose_purchase_template(iv.products) is None:
+                status, note = "SKIPPED", (
+                    "unsupported product mix "
+                    f"({', '.join(p.description for p in iv.products)})")
+                skipped_purchases += 1
             else:
-                vch = G.make_purchase(iv, _ymd(r.date), reference=r.doc_number)
-                if vch is None:
-                    status, note = "SKIPPED", (
-                        "unsupported product mix "
-                        f"({', '.join(p.description for p in iv.products)})")
-                    skipped_purchases += 1
-                elif not G.purchase_balances(vch):
+                tt = G.assign_tt(tt_state, r.doc_number)
+                vch = G.make_purchase(iv, _ymd(r.date), reference=r.doc_number,
+                                      voucher_number=tt)
+                if not G.purchase_balances(vch):
                     status, note = "SKIPPED", "purchase voucher did not balance"
                     skipped_purchases += 1
                 else:
                     vouchers.append(vch)
+                    vtype = f"Purchase ({tt})"
                     counts["PURCHASE"] = counts.get("PURCHASE", 0) + 1
         elif r.category in G.JOURNAL_TEMPLATES:
             vch = G.make_journal(
@@ -201,10 +211,14 @@ def main(argv=None):
     ap.add_argument("--pad", required=True, help="PAD statement PDF")
     ap.add_argument("--out", required=True, help="output directory")
     ap.add_argument("--invoices", help="folder of IOCL invoice PDFs (for purchases)")
+    ap.add_argument("--tt-start", type=int, default=131,
+                    help="first purchase (TT) voucher number to assign")
     args = ap.parse_args(argv)
 
     text = P.extract_text(args.pad)
-    records, vouchers, review, summary = process(text, args.invoices)
+    tt_state = {"next_tt": args.tt_start, "issued": {}}
+    records, vouchers, review, summary = process(
+        text, args.invoices, tt_state=tt_state)
     xml_path, csv_path = write_outputs(args.out, vouchers, review)
 
     print(f"Parsed {summary['n_postable']} postable lines "

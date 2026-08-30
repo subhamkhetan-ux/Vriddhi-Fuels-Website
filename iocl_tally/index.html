@@ -82,8 +82,13 @@
     <h2>IOCL invoice folder (for purchase vouchers)</h2>
     <label class="f" for="invoices_dir">Full path of the folder holding the IOCL invoice PDFs</label>
     <input class="t" id="invoices_dir" placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Vriddhi Invoices">
-    <div class="hint">Same folder the consignment-note app watches. Each fuel Product Supply Invoice line
+    <div class="hint">Point at a year folder to cover every month inside it. Each fuel Product Supply Invoice line
       is matched to its invoice by document number; lines with no invoice are skipped and listed so you know what to add.</div>
+    <label class="f" for="next_tt" style="margin-top:14px">Next purchase voucher no. (TT)</label>
+    <input class="t" id="next_tt" type="number" style="max-width:160px" placeholder="131">
+    <div class="hint">Purchases use manual <code>TT</code> numbering. Set this to the number <b>after</b> your last
+      TT purchase in Tally (e.g. if your last was <code>TT130</code>, enter <code>131</code>). Each invoice keeps its
+      number on re-runs, so re-importing never renumbers.</div>
     <div class="row"><button class="btn primary" id="saveCfg">Save</button><span id="cfgStatus" class="hint"></span></div>
   </section>
 
@@ -149,11 +154,15 @@ async function api(path,body){const o=body?{method:"POST",headers:{"Content-Type
   const r=await fetch(path,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j;}
 
 // ---- config ----
-async function loadCfg(){try{const c=await api("/api/config");$("#invoices_dir").value=c.invoices_dir||"";}catch(_){}}
+async function loadCfg(){try{const c=await api("/api/config");$("#invoices_dir").value=c.invoices_dir||"";
+  if(c.next_tt!=null)$("#next_tt").value=c.next_tt;}catch(_){}}
 $("#settingsBtn").onclick=()=>{const p=$("#settingsPanel");p.hidden=!p.hidden;};
 $("#saveCfg").onclick=async()=>{try{
-  const r=await api("/api/config",{invoices_dir:$("#invoices_dir").value.trim()});
+  const body={invoices_dir:$("#invoices_dir").value.trim()};
+  if($("#next_tt").value!=="") body.next_tt=Number($("#next_tt").value);
+  const r=await api("/api/config",body);
   if(r.invoices_dir!=null) $("#invoices_dir").value=r.invoices_dir;   // show cleaned path
+  if(r.next_tt!=null) $("#next_tt").value=r.next_tt;
   if(r.folder_ok){$("#cfgStatus").style.color="var(--ok)";$("#cfgStatus").textContent="Saved ✓ — folder found";}
   else {$("#cfgStatus").style.color="var(--bad)";
     $("#cfgStatus").textContent="Saved, but that folder wasn't found — check the path (no backslashes).";}
