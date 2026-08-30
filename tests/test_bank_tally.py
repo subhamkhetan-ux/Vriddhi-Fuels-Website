@@ -73,6 +73,30 @@ def test_staff_payment_maps_to_salary():
         assert cl.vtype == C.PAYMENT and cl.counter_ledger == "Salary", narr
 
 
+def test_resolved_alias_applies_both_directions():
+    from agent.matcher import alias_key
+    aliases = {alias_key("BHARAT LOGISTICS"): "Shivaay Logistics",
+               alias_key("CARD BILL PAYMENT"): "HDFC Corporate Credit Card 7311"}
+    # receipt side
+    rc = C.classify(_row("IMPS-618-BHARAT LOGISTICS-UTIB-XXXX6993", deposit=20000),
+                    CUSTOMERS, aliases)
+    assert rc.vtype == C.RECEIPT and rc.counter_ledger == "Shivaay Logistics"
+    # payment side (card)
+    pc = C.classify(_row("IB BILLPAY DR-HDFCYC-463918XXXXXX7113", withdrawal=565399),
+                    CUSTOMERS, aliases)
+    assert pc.vtype == C.PAYMENT and pc.counter_ledger == "HDFC Corporate Credit Card 7311"
+
+
+def test_cms_extracts_payer_name():
+    assert C.extract_remitter("CMS/ CMS5835842331/SMEL STEEL STRUCTURAL PRIVATE") \
+        == "SMEL STEEL STRUCTURAL PRIVATE"
+
+
+def test_interest_debited_keyword():
+    cl = C.classify(_row("INTEREST DEBITED TILL 31-JUL-2026", withdrawal=194675), CUSTOMERS)
+    assert cl.vtype == C.PAYMENT and cl.counter_ledger == "Interest Paid"
+
+
 def test_non_staff_payment_still_reviews():
     cl = C.classify(_row("INF/NEFT/IN42/HDFC0000763/SOME SUPPLIER CO", withdrawal=5000),
                     CUSTOMERS)

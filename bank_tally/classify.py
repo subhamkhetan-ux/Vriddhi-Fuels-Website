@@ -36,6 +36,8 @@ PAYMENT_RULES = [
     # IOCL payments are handled by the skip rule above (owned by the PAD tool).
     (r"\bCBDT\b|TAX PAYMENT|INCOME TAX", "TDS PAID 194Q 2026-27"),
     (r"\bSALARY\b", "Salary"),
+    (r"INTEREST DEBITED|INTEREST CHARGED", "Interest Paid"),
+    (r"TOYOTA", "INNOVA EMI"),
     (r"CREDIT CARD|CC PAYMENT|CARD 7311", "HDFC Corporate Credit Card 7311"),
     (r"ELECTRICITY|TPSODL|TPCODL|WESCO", "Electricity Charges Payble"),
 ]
@@ -135,6 +137,11 @@ def extract_remitter(narration: str) -> str:
     # Card bill payment (masked card number) — not a party name.
     if re.search(r"BILLPAY|CC PAYMENT|CARD", up) and _MASKED.search(up):
         return "Card bill payment"
+    # ICICI CMS collections: "CMS/ <ref>/<NAME>" — the payer name is the last field.
+    if up.startswith("CMS"):
+        parts = [p.strip() for p in n.split("/") if p.strip()]
+        if len(parts) >= 3:
+            return parts[-1]
     # HDFC "A2AINT01 - <bank> - <ref> -  - <acct> - <NAME>" and DOM*/other spaced
     # formats use " - " separators with the payee NAME in the last field.
     if " - " in n:
@@ -208,6 +215,14 @@ def classify(row, customers, aliases=None):
         led = _IFSC_TO_OWN.get(m.group(1)) if m else None
         return Classification(CONTRA, led, "Self transfer (own accounts)",
                               "self-transfer", [])
+
+    # 1c. A resolved alias (learned in the app / from the review sheet) wins for
+    #     either direction — this is where the user's confirmed mappings live.
+    from agent.matcher import alias_key
+    led = aliases.get(alias_key(party))
+    if led:
+        return Classification(RECEIPT if row.is_credit else PAYMENT, led, party,
+                              "alias", [led])
 
     # 2. Payment rules (money out, known payees).
     if not row.is_credit:
