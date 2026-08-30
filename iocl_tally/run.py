@@ -196,8 +196,15 @@ def write_outputs(out_dir: str, vouchers: list[str], review: list[dict]) -> tupl
     os.makedirs(out_dir, exist_ok=True)
     xml_path = os.path.join(out_dir, "IOCL_import.xml")
     csv_path = os.path.join(out_dir, "IOCL_review.csv")
+    purch_path = os.path.join(out_dir, "IOCL_purchases.xml")
     with open(xml_path, "w", encoding="utf-8") as fh:
         fh.write(G.build_envelope(vouchers))
+    # A purchases-only file, so purchases can be re-imported (e.g. to fix their
+    # numbering) without duplicating journals that already imported fine.
+    purchases = [v for v in vouchers
+                 if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v]
+    with open(purch_path, "w", encoding="utf-8") as fh:
+        fh.write(G.build_envelope(purchases))
     with open(csv_path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(review[0].keys()) if review else [])
         if review:

@@ -112,9 +112,11 @@
     <div class="stats" id="stats"></div>
     <div class="counts" id="counts"></div>
     <div class="row">
-      <a class="btn primary" id="dlXml" href="/download/import.xml">⬇ IOCL_import.xml</a>
+      <a class="btn primary" id="dlXml" href="/download/import.xml">⬇ IOCL_import.xml (all)</a>
+      <a class="btn" id="dlPur" href="/download/purchases.xml">⬇ Purchases only</a>
       <a class="btn" id="dlCsv" href="/download/review.csv">⬇ IOCL_review.csv</a>
-      <span class="hint">Import the XML into Tally: Gateway → Import → Vouchers. Test one voucher on a backup company first.</span>
+      <span class="hint">Import into Tally: Gateway → Import → Vouchers. Test on a backup company first.
+        Use <b>Purchases only</b> to re-import just the purchases (e.g. to fix their numbering) without duplicating journals.</span>
     </div>
   </section>
 
@@ -219,7 +221,7 @@ function renderResult(res){
   REVIEW=res.review||[];renderReview();$("#reviewPanel").hidden=false;
   // bust download cache
   const t=Date.now();
-  $("#dlXml").href="/download/import.xml?"+t;$("#dlCsv").href="/download/review.csv?"+t;
+  $("#dlXml").href="/download/import.xml?"+t;$("#dlPur").href="/download/purchases.xml?"+t;$("#dlCsv").href="/download/review.csv?"+t;
   toast(`Generated ${s.n_vouchers} vouchers`);
 }
 

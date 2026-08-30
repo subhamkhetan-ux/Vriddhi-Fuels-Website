@@ -105,6 +105,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/download/import.xml":
             return self._file(os.path.join(OUT_DIR, "IOCL_import.xml"),
                               "application/xml", "IOCL_import.xml")
+        if route == "/download/purchases.xml":
+            return self._file(os.path.join(OUT_DIR, "IOCL_purchases.xml"),
+                              "application/xml", "IOCL_purchases.xml")
         if route == "/download/review.csv":
             return self._file(os.path.join(OUT_DIR, "IOCL_review.csv"),
                               "text/csv", "IOCL_review.csv")
