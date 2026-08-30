@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vriddhi Fuels — Bank → Tally</title>
+<style>
+  :root{--bg:#0e1116;--card:#171b22;--line:#262c36;--ink:#eef2f7;--muted:#9aa4b2;
+    --faint:#6b7382;--accent:#1f9d55;--accent2:#1f6feb;--ok:#2ea043;--bad:#e5534b;--warn:#e3b341;
+    --grad:linear-gradient(135deg,#1f9d55,#2ec27e);--warn-bg:#2a2410;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:800}
+  header .sub{color:var(--faint);font-size:12px}
+  main{max-width:1000px;margin:0 auto;padding:18px 20px 60px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:hover{border-color:var(--accent)} .btn.primary{background:var(--grad);border:none;color:#052e16}
+  .btn.sm{padding:6px 9px;font-size:12px} .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:24px;text-align:center;cursor:pointer}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:#1f9d5511}
+  .drop .big{font-size:15px;font-weight:700}
+  .files{margin-top:10px;font-size:13px;color:var(--muted)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}
+  .stat{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:10px}
+  .stat .k{color:var(--faint);font-size:11px;text-transform:uppercase} .stat .v{font-size:20px;font-weight:800}
+  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)}
+  .chip{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;margin:4px 6px 0 0;display:inline-block}
+  .chip b{color:var(--accent)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  input.led{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:7px 9px;font-size:13px}
+  input.led:focus{outline:none;border-color:var(--accent)}
+  .narr{color:var(--faint);font-size:11px;max-width:340px;word-break:break-all}
+  .empty{color:var(--faint);text-align:center;padding:22px}
+  .warnbox{background:var(--warn-bg);border:1px solid var(--warn);border-radius:11px;padding:10px 14px;color:#f4e2b0;font-size:13px;margin-bottom:12px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}
+  .toast.show{opacity:1}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Bank → Tally</h1><div class="sub">Statements → import XML · VRIDDHI FUELS</div></div>
+</header>
+<main>
+  <section class="panel">
+    <h2>1 · The month's statements</h2>
+    <div class="drop" id="drop">
+      <div class="big">Drop your bank statements here (.xls / .xlsx), or click to choose</div>
+      <div class="sub" style="color:var(--faint)">Any of the three accounts — HDFC C/A, HDFC OD, ICICI. The account is detected automatically.</div>
+      <div class="files" id="files"></div>
+    </div>
+    <input type="file" id="fileInput" accept=".xls,.xlsx" multiple hidden>
+    <div class="row">
+      <button class="btn primary" id="runBtn" disabled>Generate vouchers</button>
+      <span id="runStatus" class="sub" style="color:var(--faint)"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="resultPanel" hidden>
+    <h2>2 · Result</h2>
+    <div id="acctLine" class="sub" style="color:var(--faint);margin-bottom:10px"></div>
+    <div class="stats" id="stats"></div>
+    <div id="counts" style="margin-top:10px"></div>
+    <div class="row">
+      <a class="btn primary" id="dlXml" href="/download/bank_import.xml">⬇ bank_import.xml</a>
+      <span class="sub" id="exportNote" style="color:var(--faint)"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="reviewPanel" hidden>
+    <h2>3 · Resolve before export</h2>
+    <div class="warnbox" id="reviewIntro"></div>
+    <table>
+      <thead><tr><th>Account</th><th>Date</th><th>Type</th><th class="num">Amount</th><th>Parsed name / narration</th><th>Ledger</th><th></th></tr></thead>
+      <tbody id="reviewBody"></tbody>
+    </table>
+  </section>
+</main>
+<datalist id="ledgers"></datalist>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+let FILES=[];
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),1900);}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function money(s){const n=Number(s);return n?n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}):s;}
+async function api(path,body){const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j;}
+
+const drop=$("#drop"),fi=$("#fileInput");
+drop.onclick=()=>fi.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add("drag");};
+drop.ondragleave=()=>drop.classList.remove("drag");
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove("drag");take(e.dataTransfer.files);};
+fi.onchange=()=>take(fi.files);
+function take(list){
+  const arr=[...list].filter(f=>/\.xlsx?$/i.test(f.name));
+  if(!arr.length){toast("Please choose .xls/.xlsx files");return;}
+  let left=arr.length;FILES=[];
+  arr.forEach(f=>{const r=new FileReader();r.onload=()=>{FILES.push({name:f.name,b64:r.result});
+    if(--left===0){$("#files").textContent=FILES.map(x=>x.name).join(" · ");$("#runBtn").disabled=false;}};r.readAsDataURL(f);});
+}
+
+$("#runBtn").onclick=async()=>{
+  if(!FILES.length){toast("Choose statement files first");return;}
+  $("#runBtn").disabled=true;$("#runStatus").innerHTML='<span class="spin"></span>Parsing & generating…';
+  try{ render(await api("/api/run",{files:FILES})); $("#runStatus").textContent=""; }
+  catch(e){ $("#runStatus").textContent="Failed: "+e.message; toast("Failed: "+e.message); }
+  $("#runBtn").disabled=false;
+};
+
+function render(res){
+  const s=res.summary;
+  if(res.accounts) $("#acctLine").textContent="Accounts detected: "+res.accounts.join(" · ");
+  if(res.problems && res.problems.length) toast(res.problems[0]);
+  $("#resultPanel").hidden=false;
+  $("#stats").innerHTML=`
+    <div class="stat"><div class="k">Lines</div><div class="v">${s.n_lines}</div></div>
+    <div class="stat"><div class="k">Reconciles</div><div class="v ${s.reconciles?'ok':'bad'}">${s.reconciles?'Yes':'NO'}</div></div>
+    <div class="stat"><div class="k">Vouchers</div><div class="v ok">${s.n_vouchers}</div></div>
+    <div class="stat"><div class="k">IOCL skipped</div><div class="v">${s.skipped_iocl}</div></div>
+    <div class="stat"><div class="k">To review</div><div class="v ${s.n_review?'bad':'ok'}">${s.n_review}</div></div>`;
+  $("#counts").innerHTML=Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("");
+  $("#dlXml").href="/download/bank_import.xml?"+Date.now();
+  $("#exportNote").textContent = s.n_review ? "Resolve the "+s.n_review+" below, then re-download — import into Tally on a backup company first."
+                                            : "Import into Tally: Gateway → Import → Vouchers. Test on a backup company first.";
+  $("#ledgers").innerHTML=(res.suggestions||[]).map(l=>`<option value="${esc(l)}">`).join("");
+  renderReview(res.review||[]);
+}
+
+function renderReview(rows){
+  $("#reviewPanel").hidden = rows.length===0;
+  $("#reviewIntro").textContent = rows.length ? `${rows.length} line(s) need a ledger. Type or pick one and Save — it's remembered, and the voucher is added to the export.` : "";
+  $("#reviewBody").innerHTML = rows.map((r,i)=>`
+    <tr>
+      <td>${esc((r.account||'').split(' - ')[0])}</td><td>${esc(r.date)}</td>
+      <td>${esc(r.type)}<div class="sub" style="color:var(--faint)">${esc(r.direction)}</div></td>
+      <td class="num">${money(r.amount)}</td>
+      <td><b>${esc(r.parsed_name)}</b><div class="narr">${esc(r.narration)}</div>
+          <div class="sub" style="color:var(--warn)">${esc(r.note)}</div></td>
+      <td><input class="led" list="ledgers" id="led${i}" placeholder="Ledger name"></td>
+      <td><button class="btn sm" onclick="resolveRow(${i},'${encodeURIComponent(r.parsed_name)}')">Save</button></td>
+    </tr>`).join("");
+}
+
+async function resolveRow(i, encName){
+  const led=$("#led"+i).value.trim();
+  if(!led){toast("Type a ledger name");return;}
+  try{ render(await api("/api/resolve",{parsed_name:decodeURIComponent(encName),ledger:led})); toast("Saved — re-generated"); }
+  catch(e){ toast("Failed: "+e.message); }
+}
+</script>
+</body>
+</html>

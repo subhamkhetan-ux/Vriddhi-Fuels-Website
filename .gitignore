@@ -30,3 +30,7 @@ IOCL_review.csv
 # IOCL PAD -> Tally web app — local config + generated output directory.
 iocl_tally/data.json
 iocl_tally/out/
+
+# Bank -> Tally web app — local aliases + generated output.
+bank_tally/data.json
+bank_tally/out/
