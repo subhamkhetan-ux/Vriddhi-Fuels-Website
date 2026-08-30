@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 
 from . import invoice_parser as IP
 from . import pad_parser as P
@@ -47,32 +48,57 @@ def _is_ca_collection(rec) -> bool:
     return rec.category == "COLLECTION" and "5921701" in rec.item_text
 
 
-def load_invoices(invoices_dir: str | None) -> dict:
-    """Index invoices in a folder by their document number, for purchase matching.
+def normalize_dir(path: str | None) -> str:
+    """Make a pasted folder path usable.
 
-    Returns ``{invoice_no: Invoice}``. Best-effort: an unreadable/again-unparsable
-    PDF is skipped (the purchase then simply has no match and is flagged)."""
+    macOS users paste paths two ways: dragged from Terminal (shell-escaped, e.g.
+    ``com\\~apple\\~CloudDocs`` and ``\\ `` for spaces) or copied from Finder's
+    Get Info (plain). Un-escape the shell form, drop surrounding quotes, and
+    expand ``~`` so either paste resolves to the real directory."""
+    if not path:
+        return ""
+    p = path.strip().strip('"').strip("'")
+    p = re.sub(r"\\(.)", r"\1", p)          # \  -> space, \~ -> ~, \\ -> \
+    return os.path.expanduser(p)
+
+
+def load_invoices(invoices_dir: str | None) -> dict:
+    """Index invoices under a folder (and its subfolders) by document number.
+
+    Returns ``{invoice_no: Invoice}``. Recurses so a folder organised by month
+    (``…/IOCL Challan/2026/August 2026/…``) is covered when you point at the
+    ``2026`` parent. Best-effort: an unreadable/again-unparsable PDF is skipped
+    (the purchase then simply has no match and is flagged)."""
     index: dict = {}
-    if not invoices_dir or not os.path.isdir(invoices_dir):
+    root = normalize_dir(invoices_dir)
+    if not root or not os.path.isdir(root):
         return index
-    for name in sorted(os.listdir(invoices_dir)):
-        if name.startswith(".") or not name.lower().endswith(".pdf"):
-            continue
-        try:
-            text = P.extract_text(os.path.join(invoices_dir, name))
-            iv = IP.parse_invoice(text)
-        except Exception:
-            continue
-        if iv.invoice_no:
-            index[iv.invoice_no] = iv
+    for dirpath, _dirs, files in os.walk(root):
+        for name in sorted(files):
+            if name.startswith(".") or not name.lower().endswith(".pdf"):
+                continue
+            try:
+                text = P.extract_text(os.path.join(dirpath, name))
+                iv = IP.parse_invoice(text)
+            except Exception:
+                continue
+            if iv.invoice_no:
+                index[iv.invoice_no] = iv
     return index
 
 
-def process(text: str, invoices_dir: str | None = None, invoices: dict | None = None):
-    """Parse + generate. Returns ``(records, vouchers, review_rows, summary)``."""
+def process(text: str, invoices_dir: str | None = None, invoices: dict | None = None,
+            tt_state: dict | None = None):
+    """Parse + generate. Returns ``(records, vouchers, review_rows, summary)``.
+
+    ``tt_state`` (``{"next_tt": N, "issued": {...}}``) carries the manual TT
+    voucher-number counter for purchases; it is mutated in place so the caller
+    can persist it. Defaults to starting at TT001 if not given."""
     records, summary = P.parse(text)
     if invoices is None:
         invoices = load_invoices(invoices_dir)
+    if tt_state is None:
+        tt_state = {"next_tt": 1, "issued": {}}
     vouchers: list[str] = []
     review: list[dict] = []
 
@@ -97,18 +123,21 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
                 status, note = "SKIPPED", (
                     f"invoice total {iv.total} != PAD amount {r.debit:.2f}")
                 skipped_purchases += 1
+            elif G.choose_purchase_template(iv.products) is None:
+                status, note = "SKIPPED", (
+                    "unsupported product mix "
+                    f"({', '.join(p.description for p in iv.products)})")
+                skipped_purchases += 1
             else:
-                vch = G.make_purchase(iv, _ymd(r.date), reference=r.doc_number)
-                if vch is None:
-                    status, note = "SKIPPED", (
-                        "unsupported product mix "
-                        f"({', '.join(p.description for p in iv.products)})")
-                    skipped_purchases += 1
-                elif not G.purchase_balances(vch):
+                tt = G.assign_tt(tt_state, r.doc_number)
+                vch = G.make_purchase(iv, _ymd(r.date), reference=r.doc_number,
+                                      voucher_number=tt)
+                if not G.purchase_balances(vch):
                     status, note = "SKIPPED", "purchase voucher did not balance"
                     skipped_purchases += 1
                 else:
                     vouchers.append(vch)
+                    vtype = f"Purchase ({tt})"
                     counts["PURCHASE"] = counts.get("PURCHASE", 0) + 1
         elif r.category in G.JOURNAL_TEMPLATES:
             vch = G.make_journal(
@@ -167,8 +196,15 @@ def write_outputs(out_dir: str, vouchers: list[str], review: list[dict]) -> tupl
     os.makedirs(out_dir, exist_ok=True)
     xml_path = os.path.join(out_dir, "IOCL_import.xml")
     csv_path = os.path.join(out_dir, "IOCL_review.csv")
+    purch_path = os.path.join(out_dir, "IOCL_purchases.xml")
     with open(xml_path, "w", encoding="utf-8") as fh:
         fh.write(G.build_envelope(vouchers))
+    # A purchases-only file, so purchases can be re-imported (e.g. to fix their
+    # numbering) without duplicating journals that already imported fine.
+    purchases = [v for v in vouchers
+                 if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v]
+    with open(purch_path, "w", encoding="utf-8") as fh:
+        fh.write(G.build_envelope(purchases))
     with open(csv_path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(review[0].keys()) if review else [])
         if review:
@@ -182,10 +218,14 @@ def main(argv=None):
     ap.add_argument("--pad", required=True, help="PAD statement PDF")
     ap.add_argument("--out", required=True, help="output directory")
     ap.add_argument("--invoices", help="folder of IOCL invoice PDFs (for purchases)")
+    ap.add_argument("--tt-start", type=int, default=96,
+                    help="first purchase (TT) voucher number to assign")
     args = ap.parse_args(argv)
 
     text = P.extract_text(args.pad)
-    records, vouchers, review, summary = process(text, args.invoices)
+    tt_state = {"next_tt": args.tt_start, "issued": {}}
+    records, vouchers, review, summary = process(
+        text, args.invoices, tt_state=tt_state)
     xml_path, csv_path = write_outputs(args.out, vouchers, review)
 
     print(f"Parsed {summary['n_postable']} postable lines "

@@ -139,6 +139,31 @@ PURCHASE_TEMPLATE_2 = {
 }
 _PURCHASE_DATE_TAGS = ["DATE", "VCHSTATUSDATE", "EFFECTIVEDATE", "REFERENCEDATE"]
 
+# Purchase vouchers carry a manual TT number (TT063, TT064, …).
+TT_PREFIX = "TT"
+
+
+def format_tt(n: int) -> str:
+    return f"{TT_PREFIX}{int(n):03d}"
+
+
+def assign_tt(state: dict, doc_number: str) -> str:
+    """Idempotent TT number for a purchase, keyed by its document number.
+
+    Same invoice always maps to the same TT number (so a re-run / re-import never
+    renumbers it); a new invoice takes the next number. ``state`` is mutated::
+
+        {"next_tt": 131, "issued": {"7010099224": 131, ...}}
+    """
+    doc = str(doc_number)
+    issued = state.setdefault("issued", {})
+    if doc in issued:
+        return format_tt(issued[doc])
+    n = int(state.get("next_tt", 1))
+    issued[doc] = n
+    state["next_tt"] = n + 1
+    return format_tt(n)
+
 
 def _fmt_neg(v: float) -> str:
     return f"-{abs(v):.2f}"
@@ -155,14 +180,29 @@ def choose_purchase_template(products) -> dict | None:
     return None
 
 
-def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None):
+def _set_voucher_number(vch: str, number: str) -> str:
+    """Insert an explicit ``<VOUCHERNUMBER>`` (purchases use a manual TT number,
+    so Tally won't auto-assign one — without this it stamps them all '1')."""
+    tag = f"<VOUCHERNUMBER>{number}</VOUCHERNUMBER>"
+    if "<VOUCHERNUMBER>" in vch:
+        return re.sub(r"<VOUCHERNUMBER>[^<]*</VOUCHERNUMBER>", tag, vch, count=1)
+    return re.sub(r"(<VOUCHERTYPENAME>)", tag + r"\1", vch, count=1)
+
+
+def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None,
+                  voucher_number: str | None = None):
     """Return a purchase ``TALLYMESSAGE`` block for an invoice, or ``None`` if the
-    invoice's product mix has no matching template (caller skips + flags it)."""
+    invoice's product mix has no matching template (caller skips + flags it).
+
+    ``voucher_number`` (e.g. ``TT131``) is emitted because the Purchase voucher
+    type numbers manually; omit it and Tally stamps every purchase '1'."""
     tpl = choose_purchase_template(invoice.products)
     if tpl is None:
         return None
     vch = _read_template(tpl["file"])
     vch = _strip_identity(vch)
+    if voucher_number:
+        vch = _set_voucher_number(vch, voucher_number)
     for tag in _PURCHASE_DATE_TAGS:
         vch = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{date_yyyymmdd}</{tag}>", vch)
     vch = _set_reference(vch, reference)

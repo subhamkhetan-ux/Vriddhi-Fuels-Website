@@ -238,6 +238,34 @@ def test_make_purchase_two_products_balances_and_matches_totals():
     assert "-1345554.42" in v and "-322933.06" in v
 
 
+def test_tt_numbering_format_and_idempotent():
+    st = {"next_tt": 131, "issued": {}}
+    assert G.assign_tt(st, "7010099224") == "TT131"
+    assert G.assign_tt(st, "7010117417") == "TT132"
+    assert G.assign_tt(st, "7010099224") == "TT131"   # same doc -> same number
+    assert st["next_tt"] == 133                         # not spent again
+    assert G.format_tt(63) == "TT063"
+
+
+def test_make_purchase_emits_voucher_number():
+    iv = IP.parse_invoice(INVOICE_2PROD)
+    v = G.make_purchase(iv, "20260825", reference="7010117417", voucher_number="TT131")
+    assert "<VOUCHERNUMBER>TT131</VOUCHERNUMBER>" in v
+
+
+def test_process_numbers_purchases_sequentially():
+    inv = {"7008000004": IP.Invoice(
+        invoice_no="7008000004", date="02-Jul-26", tt_no="OD23U8210",
+        products=[IP.Product("50703", "HSD-BSVI [PDRP]", "High Speed Diesel",
+                             "HSD VAT", 22.0, 1209.68, 24.0, 290.32)],
+        zrnd=0.0, total=1500.00)}
+    tt = {"next_tt": 131, "issued": {}}
+    _, vouchers, review, _ = R.process(PAD_TEXT, invoices=inv, tt_state=tt)
+    pv = [v for v in vouchers if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v]
+    assert pv and "<VOUCHERNUMBER>TT131</VOUCHERNUMBER>" in pv[0]
+    assert tt["issued"]["7008000004"] == 131
+
+
 def test_make_purchase_single_product_balances():
     iv = IP.Invoice(
         invoice_no="7010000001", date="25-Aug-26", tt_no="OD23U8210",
@@ -271,6 +299,29 @@ def test_process_generates_purchase_when_invoice_matches():
     assert summary["counts"].get("PURCHASE") == 1
     assert all(G.purchase_balances(v) for v in vouchers
                if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v)
+
+
+def test_normalize_dir_unescapes_and_expands():
+    # Terminal-escaped paste (spaces + tildes) -> real path.
+    esc = r"/Users/x/Library/Mobile\ Documents/com\~apple\~CloudDocs/Vriddhi\ Fuels"
+    assert R.normalize_dir(esc) == "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Vriddhi Fuels"
+    # surrounding quotes are dropped
+    assert R.normalize_dir('"/tmp/a b"') == "/tmp/a b"
+    assert R.normalize_dir("") == ""
+
+
+def test_load_invoices_recurses_subfolders(tmp_path):
+    # An invoice sitting in a month subfolder is still found.
+    import pytest
+    pymupdf = pytest.importorskip("pymupdf")  # needs the PDF lib
+    month = tmp_path / "2026" / "August 2026"
+    month.mkdir(parents=True)
+    doc = pymupdf.open()
+    doc.new_page().insert_text((40, 50), INVOICE_2PROD, fontsize=8)
+    doc.save(str(month / "challan.pdf"))
+    doc.close()
+    idx = R.load_invoices(str(tmp_path))          # point at the 2026 parent
+    assert "7010117417" in idx
 
 
 def test_process_flags_invoice_total_mismatch():
