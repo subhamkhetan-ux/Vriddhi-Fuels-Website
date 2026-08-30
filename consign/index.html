@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vriddhi Fuels — Consignment Notes</title>
+<style>
+  :root{
+    --bg:#0e1116; --card:#171b22; --line:#262c36; --ink:#eef2f7; --muted:#9aa4b2;
+    --faint:#6b7382; --accent:#ff7a1a; --accent2:#1f6feb; --ok:#2ea043;
+    --warn:#e3b341; --warn-bg:#2a2410; --grad:linear-gradient(135deg,#ff7a1a,#ff9d4d);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:800;letter-spacing:.2px}
+  header .sub{color:var(--faint);font-size:12px}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;
+    padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--grad);border:none;color:#111}
+  .btn.sm{padding:6px 9px;font-size:12px}
+  .btn.ghost{background:transparent}
+  main{max-width:920px;margin:0 auto;padding:18px 20px 60px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input.t{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);
+    padding:9px 11px;font-size:14px}
+  input.t:focus{outline:none;border-color:var(--accent)}
+  .hint{color:var(--faint);font-size:12px;margin-top:6px}
+  .row-actions{display:flex;gap:8px;margin-top:14px;align-items:center;flex-wrap:wrap}
+  .status{font-size:12px}
+  .status.ok{color:var(--ok)} .status.bad{color:var(--warn)}
+  .warnbox{background:var(--warn-bg);border:1px solid var(--warn);border-radius:11px;padding:12px 14px;
+    color:#f4e2b0;font-size:13px;margin-bottom:18px}
+  .warnbox ul{margin:6px 0 0;padding-left:18px}
+  .cn-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;
+    position:relative;overflow:hidden}
+  .cn-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--grad)}
+  .cn-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .cn-serial{font-family:ui-monospace,Menlo,monospace;font-size:16px;font-weight:800;color:var(--accent)}
+  .cn-inv{color:var(--muted);font-size:13px}
+  .cn-facts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 14px;margin-top:12px}
+  @media(max-width:640px){.cn-facts{grid-template-columns:1fr 1fr}}
+  .cn-facts .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .cn-facts .v{font-variant-numeric:tabular-nums;font-weight:700}
+  .cn-rep{margin-top:14px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .cn-rep label{font-size:12px;color:var(--muted);display:block;margin-bottom:5px}
+  .cn-rep input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);
+    padding:9px 11px;font-size:14px}
+  .cn-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .empty{color:var(--faint);text-align:center;padding:28px 10px}
+  details.done summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:700;margin-bottom:10px}
+  .done-item{display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid var(--line);
+    border-radius:10px;margin-bottom:8px;font-size:13px}
+  .done-item .re{color:var(--faint)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;
+    padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+  .toast.show{opacity:1}
+
+  /* ---- consignment note print (identical layout to /payments) ---- */
+  #printArea{position:fixed;left:-99999px;top:0}
+  .cn-page{width:210mm;min-height:296mm;background:#fff;color:#000;
+    font-family:"Times New Roman",Times,Georgia,serif;font-size:12.5pt;line-height:1.5}
+  .cn-page img.cn-lh{display:block;width:100%;margin:0}
+  .cn-body{padding:0 12mm}
+  .cn-title{text-align:center;font-weight:bold;text-decoration:underline;font-size:14pt;margin:6pt 0 0}
+  .cn-sub{text-align:center;margin:2pt 0 8pt}
+  .cn-line{margin:7pt 0}
+  .cn-slno{display:flex;justify-content:space-between;margin:6pt 0}
+  .cn-slno .cn-date{margin-right:18mm}
+  .cn-u{font-weight:bold;text-decoration:underline}
+  .cn-b{font-weight:bold}
+  table.cn-goods{width:100%;border-collapse:collapse;margin:6pt 0}
+  table.cn-goods th,table.cn-goods td{border:1px solid #000;padding:2pt 6pt;text-align:center;font-weight:normal}
+  table.cn-goods td:first-child{text-align:left}
+  .cn-sign{text-align:right;margin-top:64pt}
+  @media print{
+    @page{size:A4;margin:0}
+    html,body{background:#fff!important;padding:0!important;margin:0!important}
+    body>*{display:none!important}
+    #printArea{display:block!important;position:static!important;left:0!important;top:0!important;width:auto!important}
+    .cn-page{width:auto;min-height:0}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Consignment Notes</h1>
+    <div class="sub">iCloud invoices → printable notes · VRIDDHI FUELS</div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn sm ghost" id="settingsBtn" title="Folder & settings">⚙ Settings</button>
+  <button class="btn sm" id="refreshBtn" title="Re-scan the folder">↻ Refresh</button>
+</header>
+
+<main>
+  <section class="panel" id="settingsPanel" hidden>
+    <h2>Folder &amp; settings</h2>
+    <div class="grid">
+      <div style="grid-column:1/-1">
+        <label class="f" for="invoices_dir">iCloud folder with the invoice PDFs (full path)</label>
+        <input class="t" id="invoices_dir" placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Vriddhi Invoices">
+        <div class="hint">In Finder, open your invoices folder → right-click a file → “Get Info” to see the path,
+          or drag the folder onto Terminal to reveal it. Files can stay in iCloud — the app reads them on your Mac.</div>
+      </div>
+      <div>
+        <label class="f" for="own_tt">Our tank-truck number (only these get a note)</label>
+        <input class="t" id="own_tt" placeholder="OD23U8210">
+      </div>
+      <div>
+        <label class="f" for="min_invoice_no">Ignore invoices below this IOCL number</label>
+        <input class="t" id="min_invoice_no" placeholder="7010221545">
+      </div>
+      <div>
+        <label class="f" for="next_serial">Next serial number (only editable before the first note is issued)</label>
+        <input class="t" id="next_serial" type="number" placeholder="47">
+        <div class="hint">The serial shows as <code>VF/CN2627/047</code>. Once notes exist this is locked so numbers never shift.</div>
+      </div>
+    </div>
+    <div class="row-actions">
+      <button class="btn primary" id="saveCfg">Save &amp; scan</button>
+      <span class="status" id="cfgStatus"></span>
+    </div>
+  </section>
+
+  <div id="warnWrap"></div>
+  <div id="notesWrap"></div>
+  <div id="doneWrap"></div>
+</main>
+
+<div id="printArea"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let STATE = {config:{}, notes:[], warnings:[]};
+
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1800); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function escAttr(s){ return esc(s).replace(/'/g,"&#39;"); }
+
+// dd/mm/yyyy <-> yyyy-mm-dd for the <input type=date>.
+function dmyToIso(dmy){ const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(String(dmy||"").trim());
+  if(!m) return ""; let[,d,mo,y]=m; if(y.length===2)y="20"+y;
+  return `${y}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}`; }
+function isoToDmy(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso||"").trim());
+  if(!m) return ""; const[,y,mo,d]=m; return `${d}/${mo}/${y}`; }
+
+async function api(path, body){
+  const opt = body ? {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt); if(!r.ok) throw new Error(await r.text()); return r.json();
+}
+
+async function refresh(){
+  try{ STATE = await api("/api/state"); render(); }
+  catch(e){ toast("Couldn't load: "+(e.message||e)); }
+}
+
+function render(){
+  const c = STATE.config||{};
+  $("#invoices_dir").value = c.invoices_dir||"";
+  $("#own_tt").value = c.own_tt||"";
+  $("#min_invoice_no").value = c.min_invoice_no||"";
+  $("#next_serial").value = c.next_serial!=null ? c.next_serial : "";
+  $("#next_serial").disabled = (STATE.notes||[]).length>0;
+
+  // First run / bad folder: pop the settings panel open.
+  if(!STATE.folder_ok){ $("#settingsPanel").hidden = false; }
+
+  // warnings
+  const ww = $("#warnWrap");
+  if((STATE.warnings||[]).length){
+    ww.innerHTML = `<div class="warnbox"><b>Some files need a look:</b>
+      <ul>${STATE.warnings.map(w=>`<li>${esc(w)}</li>`).join("")}</ul></div>`;
+  } else ww.innerHTML = "";
+
+  const pending = (STATE.notes||[]).filter(n=>!n.done);
+  const done = (STATE.notes||[]).filter(n=>n.done);
+
+  const nw = $("#notesWrap");
+  if(!pending.length){
+    nw.innerHTML = STATE.folder_ok
+      ? `<div class="panel"><div class="empty">No new consignment notes.<br>
+         Drop IndianOil invoices for TT ${esc(c.own_tt||"")} into the folder, then hit ↻ Refresh.</div></div>`
+      : `<div class="panel"><div class="empty">Set your iCloud invoice folder in ⚙ Settings to begin.</div></div>`;
+  } else {
+    nw.innerHTML = pending.map(cardHTML).join("");
+  }
+
+  const dw = $("#doneWrap");
+  dw.innerHTML = done.length ? `<details class="done"><summary>Archived (${done.length})</summary>
+    ${done.map(n=>`<div class="done-item"><span><b>${esc(n.serial_str)}</b> · inv ${esc(n.invoice_no)}
+      <span class="re">(${esc(n.reporting_date||n.invoice_date||"")})</span></span>
+      <button class="btn sm ghost" onclick="setDone('${escAttr(n.invoice_no)}',false)">Restore</button></div>`).join("")}
+    </details>` : "";
+}
+
+function cardHTML(n){
+  const iso = dmyToIso(n.reporting_date||n.invoice_date||"");
+  return `<div class="cn-card">
+    <div class="cn-head"><span class="cn-serial">${esc(n.serial_str)}</span>
+      <span class="cn-inv">Invoice ${esc(n.invoice_no)} · ${esc(n.invoice_date||"")} · ${esc(n.pdf_name||"")}</span></div>
+    <div class="cn-facts">
+      <div><div class="k">Product</div><div class="v">${esc(n.product||"")}</div></div>
+      <div><div class="k">Column</div><div class="v">${esc(n.column_key||"")}</div></div>
+      <div><div class="k">Qty (KL)</div><div class="v">${esc(n.qty||"")}</div></div>
+      <div><div class="k">Value</div><div class="v">Rs. ${esc(n.value!=null?n.value:"")}</div></div>
+    </div>
+    <div class="cn-rep">
+      <div><label>Reporting date (top of note) — usually same or next day</label>
+        <input type="date" value="${esc(iso)}" onchange="setReporting('${escAttr(n.invoice_no)}', this.value)"></div>
+      <div class="cn-actions">
+        <button class="btn primary" onclick="printNote('${escAttr(n.invoice_no)}')">🖨 Print / Save PDF</button>
+        <button class="btn ghost" onclick="setDone('${escAttr(n.invoice_no)}',true)">Archive</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// The consignment note itself — identical boilerplate & layout to /payments.
+function buildNoteHTML(n, repDmy){
+  const cols = {"MS | EBMS":"", "XtraGreen HSD":"", "HSD":"", "LSHFHSD":""};
+  if(n.column_key in cols) cols[n.column_key] = (n.qty==null ? "" : String(n.qty));
+  const val = (n.value==null ? "" : String(n.value));
+  return `<div class="cn-page">
+    <img class="cn-lh" src="./letterhead.png" alt="">
+    <div class="cn-body">
+      <div class="cn-title">CONSIGNMENT NOTE</div>
+      <div class="cn-sub">(Issued as per Fuel Notification No. - 512017 - Central Tax dated 19.05.2017 of CGST Act 2017)</div>
+      <div class="cn-slno"><span>Consignment Note Sl. No. <span class="cn-u">${esc(n.serial_str||"")}</span></span><span class="cn-date">Date: <span class="cn-u">${esc(repDmy)}</span></span></div>
+      <div class="cn-line">Name of Consignor : <span class="cn-b">Indian Oil Corporation Ltd. (MD)</span></div>
+      <div class="cn-line">(Place of Origin) : <span class="cn-b">Jharsuguda Terminal, Jharsuguda, Odisha</span></div>
+      <div class="cn-line">Name of the Consignee : <span class="cn-b">VRIDDHI FUELS</span></div>
+      <div class="cn-line">Place of Destination : Jharsuguda (Vriddhi Fuels).</div>
+      <div class="cn-line">Goods Carriage Regn. No. (TT No.) : <span class="cn-b">${esc(n.tt_no||"OD23U8210")}</span></div>
+      <div class="cn-line">Transporter Name : <span class="cn-b">M/s. VRIDDHI FUELS</span></div>
+      <div class="cn-line">Details of Goods Transported :</div>
+      <table class="cn-goods">
+        <tr><th>Product</th><th>MS | EBMS</th><th>XtraGreen HSD</th><th>HSD</th><th>LSHFHSD</th></tr>
+        <tr><td>Quantity (KL)</td><td>${esc(cols["MS | EBMS"])}</td><td>${esc(cols["XtraGreen HSD"])}</td><td>${esc(cols["HSD"])}</td><td>${esc(cols["LSHFHSD"])}</td></tr>
+      </table>
+      <div class="cn-line">Value of Goods: <span class="cn-b">Rs. ${esc(val)}/-</span></div>
+      <div class="cn-line">Invoice No. &amp; Date: <span class="cn-b">${esc(n.invoice_no||"")} on ${esc(n.invoice_date||"")}</span></div>
+      <div class="cn-line">Person Liability for paying GST - <span class="cn-b">M/s. Indian Oil Corporation Ltd. (MD)</span><br>GSTIN of IOCL - <span class="cn-b">21AAACI1681G1Z1</span></div>
+      <div class="cn-line">GST Liability is to be paid by - <span class="cn-b">M/s. Indian Oil Corporation Ltd. (MD)</span><br><span class="cn-b">Under Reverse Charge Mechanism (RCM)</span></div>
+      <div class="cn-sign">Signature of the Authorised Person with Rubber Seal</div>
+    </div>
+  </div>`;
+}
+
+async function printNote(inv){
+  const n = STATE.notes.find(x=>x.invoice_no===inv); if(!n) return;
+  const el = document.querySelector(`[onchange*="'${inv}'"]`);
+  const repDmy = (el && el.value ? isoToDmy(el.value) : "") || n.reporting_date || n.invoice_date || "";
+  const area = $("#printArea");
+  area.innerHTML = buildNoteHTML(n, repDmy);
+  const img = area.querySelector("img.cn-lh");
+  await new Promise(res=>{ if(!img||img.complete) return res(); img.onload=img.onerror=res; setTimeout(res,4000); });
+  const done = ()=>{ area.innerHTML=""; window.removeEventListener("afterprint", done); };
+  window.addEventListener("afterprint", done);
+  setTimeout(()=>window.print(), 80);
+}
+
+async function setReporting(inv, iso){
+  const dmy = isoToDmy(iso);
+  const n = STATE.notes.find(x=>x.invoice_no===inv); if(n) n.reporting_date = dmy;
+  try{ await api("/api/reporting", {invoice_no:inv, reporting_date:dmy}); }catch(_){}
+}
+async function setDone(inv, done){
+  try{ await api("/api/done", {invoice_no:inv, done:done}); toast(done?"Archived":"Restored"); refresh(); }
+  catch(e){ toast("Failed: "+(e.message||e)); }
+}
+async function saveCfg(){
+  const body = {
+    invoices_dir: $("#invoices_dir").value.trim(),
+    own_tt: $("#own_tt").value.trim(),
+    min_invoice_no: $("#min_invoice_no").value.trim(),
+  };
+  if(!$("#next_serial").disabled && $("#next_serial").value!=="") body.next_serial = Number($("#next_serial").value);
+  $("#cfgStatus").textContent = "Saving…"; $("#cfgStatus").className="status";
+  try{ await api("/api/config", body); $("#cfgStatus").textContent="Saved ✓"; $("#cfgStatus").className="status ok";
+    await refresh(); }
+  catch(e){ $("#cfgStatus").textContent="Failed: "+(e.message||e); $("#cfgStatus").className="status bad"; }
+}
+
+$("#settingsBtn").onclick = ()=>{ const p=$("#settingsPanel"); p.hidden=!p.hidden; };
+$("#refreshBtn").onclick = refresh;
+$("#saveCfg").onclick = saveCfg;
+refresh();
+</script>
+</body>
+</html>

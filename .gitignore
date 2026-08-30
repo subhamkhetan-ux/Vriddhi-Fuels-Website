@@ -19,3 +19,7 @@ Master Ledger.xlsm
 credentials.json
 token_*.json
 *.oauth.json
+
+# Standalone consignment-note app — local config + running serial counter.
+# Holds machine-specific paths and the note-number state; never committed.
+consign/data.json
