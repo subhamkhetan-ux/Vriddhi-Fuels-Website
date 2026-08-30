@@ -166,10 +166,23 @@ def test_journal_amount_signs_preserved():
     assert set(amts) == {"-500.00", "500.00"}   # party Dr, counter Cr
 
 
-def test_collection_ca_uses_ca_template():
-    v = G.make_journal("COLLECTION", "20260701", 10000.0, collection_to_ca=True)
-    assert "HDFC BANK C/A - 59217010101010" in v
-    assert "HDFC BANK OD A/C - 50200110712542" not in v
+def test_collection_routes_by_item_text():
+    # HDFC OD (default), HDFC C/A, and ICICI are chosen from the item text.
+    od = G.make_journal("COLLECTION", "20260701", 2000000.0,
+                        collection_item_text="HDFC26070177914197 HDFC0000240_5020011 0712542")
+    assert "HDFC BANK OD A/C - 50200110712542" in od
+    ca = G.make_journal("COLLECTION", "20260701", 10000.0,
+                        collection_item_text="HDFCH01097255799 HDFC0000240_5921701 0101010")
+    assert "HDFC BANK C/A - 59217010101010" in ca and "HDFC BANK OD" not in ca
+    icici = G.make_journal("COLLECTION", "20260829", 550000.0,
+                           collection_item_text="ICIC26082900509151 ICIC0000011_04680500 4716")
+    assert "ICICI BANK LTD" in icici and "HDFC BANK OD" not in icici and G.voucher_balances(icici)
+
+
+def test_collection_route_helper():
+    assert G.collection_route("x ICIC0000011_04680500 4716")[1] == "ICICI BANK LTD"
+    assert G.collection_route("x HDFC0000240_5921701 0101010")[1] == "HDFC BANK C/A - 59217010101010"
+    assert G.collection_route("x HDFC0000240_5020011 0712542")[1] == "HDFC BANK OD A/C - 50200110712542"
 
 
 def test_every_journal_template_balances():

@@ -44,8 +44,6 @@ def _ymd(date) -> str:
     return f"{date.year}{date.month:02d}{date.day:02d}"
 
 
-def _is_ca_collection(rec) -> bool:
-    return rec.category == "COLLECTION" and "5921701" in rec.item_text
 
 
 def normalize_dir(path: str | None) -> str:
@@ -110,6 +108,9 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
         status = "OK"
         vtype = "Journal"
         note = ""
+        counter_ledger = COUNTER_LEDGER.get(r.category, "")
+        if r.category == "COLLECTION":
+            counter_ledger = G.collection_route(r.item_text)[1]
         if r.category == P.CAT_PURCHASE:
             vtype = "Purchase"
             iv = invoices.get(r.doc_number or "")
@@ -143,7 +144,7 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
             vch = G.make_journal(
                 r.category, _ymd(r.date), r.amount,
                 reference=r.doc_number or r.fleet_ref,
-                collection_to_ca=_is_ca_collection(r))
+                collection_item_text=r.item_text)
             if not G.voucher_balances(vch):
                 status, note = "SKIPPED", "voucher did not balance"
             else:
@@ -162,7 +163,7 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
             "credit": f"{r.credit:.2f}",
             "balance": f"{r.balance:.2f}",
             "reconciles": "yes" if r.reconciles else "NO",
-            "counter_ledger": COUNTER_LEDGER.get(r.category, ""),
+            "counter_ledger": counter_ledger,
             "status": status,
             "note": note,
         })
