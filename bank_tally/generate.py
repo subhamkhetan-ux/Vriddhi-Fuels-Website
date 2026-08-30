@@ -37,7 +37,7 @@ TEMPLATES = {
 }
 
 _STRIP_TAGS = ["GUID", "ALTERID", "MASTERID", "VOUCHERKEY", "VOUCHERRETAINKEY",
-               "VOUCHERNUMBER"]
+               "VOUCHERNUMBER", "UNIQUEREFERENCENUMBER"]
 _DATE_TAGS = ["DATE", "VCHSTATUSDATE", "EFFECTIVEDATE", "INSTRUMENTDATE"]
 
 
@@ -66,6 +66,14 @@ def _set_amount(vch: str, old_mag: str, amount: float) -> str:
     return vch.replace(old_mag, f"{amount:.2f}")
 
 
+def _set_party(vch: str, party: str) -> str:
+    """Point the voucher's party hint fields at the counter ledger (some Receipt
+    templates carry the bank there; the accounting entries are unaffected)."""
+    for tag in ("PARTYLEDGERNAME", "PARTYNAME", "BASICBASEPARTYNAME"):
+        vch = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{party}</{tag}>", vch)
+    return vch
+
+
 def _set_narration(vch: str, text: str | None) -> str:
     if not text:
         return vch
@@ -92,6 +100,7 @@ def make_receipt(ymd: str, amount: float, bank_ledger: str, counter_ledger: str,
     vch = _set_dates(vch, ymd)
     vch = _swap(vch, [(t["bank"], bank_ledger), (t["counter"], counter_ledger)])
     vch = _set_amount(vch, t["amount"], amount)
+    vch = _set_party(vch, counter_ledger)   # receipts name the customer as party
     return _set_narration(vch, narration)
 
 
@@ -102,6 +111,8 @@ def make_payment(ymd: str, amount: float, bank_ledger: str, counter_ledger: str,
     vch = _set_dates(vch, ymd)
     vch = _swap(vch, [(t["bank"], bank_ledger), (t["counter"], counter_ledger)])
     vch = _set_amount(vch, t["amount"], amount)
+    # Payments keep the bank as PARTYLEDGERNAME (the template already does, via the
+    # bank swap), matching the real export — so no _set_party here.
     return _set_narration(vch, narration)
 
 
