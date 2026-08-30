@@ -16,7 +16,7 @@ PY="${PYTHON:-python3}"
 
 # Ensure the one runtime dependency (PDF text extraction) is present.
 if ! "$PY" -c "import pymupdf" >/dev/null 2>&1; then
-  echo "Installing PDF reader (pymupdf)…"
+  echo "Installing PDF reader (pymupdf)..."
   "$PY" -m pip install --quiet "pymupdf>=1.24"
 fi
 

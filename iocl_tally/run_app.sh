@@ -13,7 +13,7 @@ cd "$ROOT"
 PY="${PYTHON:-python3}"
 
 if ! "$PY" -c "import pymupdf" >/dev/null 2>&1; then
-  echo "Installing PDF reader (pymupdf)…"
+  echo "Installing PDF reader (pymupdf)..."
   "$PY" -m pip install --quiet "pymupdf>=1.24"
 fi
 
