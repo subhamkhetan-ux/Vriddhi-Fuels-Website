@@ -151,8 +151,13 @@ async function api(path,body){const o=body?{method:"POST",headers:{"Content-Type
 // ---- config ----
 async function loadCfg(){try{const c=await api("/api/config");$("#invoices_dir").value=c.invoices_dir||"";}catch(_){}}
 $("#settingsBtn").onclick=()=>{const p=$("#settingsPanel");p.hidden=!p.hidden;};
-$("#saveCfg").onclick=async()=>{try{await api("/api/config",{invoices_dir:$("#invoices_dir").value.trim()});
-  $("#cfgStatus").textContent="Saved ✓";}catch(e){$("#cfgStatus").textContent="Failed: "+e.message;}};
+$("#saveCfg").onclick=async()=>{try{
+  const r=await api("/api/config",{invoices_dir:$("#invoices_dir").value.trim()});
+  if(r.invoices_dir!=null) $("#invoices_dir").value=r.invoices_dir;   // show cleaned path
+  if(r.folder_ok){$("#cfgStatus").style.color="var(--ok)";$("#cfgStatus").textContent="Saved ✓ — folder found";}
+  else {$("#cfgStatus").style.color="var(--bad)";
+    $("#cfgStatus").textContent="Saved, but that folder wasn't found — check the path (no backslashes).";}
+}catch(e){$("#cfgStatus").style.color="var(--bad)";$("#cfgStatus").textContent="Failed: "+e.message;}};
 
 // ---- PAD file pick / drop ----
 const drop=$("#drop"), fileInput=$("#fileInput");

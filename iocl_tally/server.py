@@ -94,9 +94,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(os.path.join(_HERE, "index.html"), "text/html; charset=utf-8")
         if route == "/api/config":
             d = load_data()
-            return self._json({"invoices_dir": d.get("invoices_dir", ""),
-                               "folder_ok": bool(d.get("invoices_dir"))
-                               and os.path.isdir(d.get("invoices_dir", ""))})
+            folder = R.normalize_dir(d.get("invoices_dir", ""))
+            return self._json({"invoices_dir": folder,
+                               "folder_ok": bool(folder) and os.path.isdir(folder)})
         if route == "/download/import.xml":
             return self._file(os.path.join(OUT_DIR, "IOCL_import.xml"),
                               "application/xml", "IOCL_import.xml")
@@ -111,8 +111,11 @@ class Handler(BaseHTTPRequestHandler):
         data = load_data()
         if route == "/api/config":
             if "invoices_dir" in body:
-                data["invoices_dir"] = str(body["invoices_dir"]).strip()
+                folder = R.normalize_dir(str(body["invoices_dir"]))
+                data["invoices_dir"] = folder
                 save_data(data)
+                return self._json({"ok": True, "invoices_dir": folder,
+                                   "folder_ok": bool(folder) and os.path.isdir(folder)})
             return self._json({"ok": True})
         if route == "/api/run":
             return self._run(body, data)

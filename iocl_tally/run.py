@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 
 from . import invoice_parser as IP
 from . import pad_parser as P
@@ -47,24 +48,42 @@ def _is_ca_collection(rec) -> bool:
     return rec.category == "COLLECTION" and "5921701" in rec.item_text
 
 
-def load_invoices(invoices_dir: str | None) -> dict:
-    """Index invoices in a folder by their document number, for purchase matching.
+def normalize_dir(path: str | None) -> str:
+    """Make a pasted folder path usable.
 
-    Returns ``{invoice_no: Invoice}``. Best-effort: an unreadable/again-unparsable
-    PDF is skipped (the purchase then simply has no match and is flagged)."""
+    macOS users paste paths two ways: dragged from Terminal (shell-escaped, e.g.
+    ``com\\~apple\\~CloudDocs`` and ``\\ `` for spaces) or copied from Finder's
+    Get Info (plain). Un-escape the shell form, drop surrounding quotes, and
+    expand ``~`` so either paste resolves to the real directory."""
+    if not path:
+        return ""
+    p = path.strip().strip('"').strip("'")
+    p = re.sub(r"\\(.)", r"\1", p)          # \  -> space, \~ -> ~, \\ -> \
+    return os.path.expanduser(p)
+
+
+def load_invoices(invoices_dir: str | None) -> dict:
+    """Index invoices under a folder (and its subfolders) by document number.
+
+    Returns ``{invoice_no: Invoice}``. Recurses so a folder organised by month
+    (``…/IOCL Challan/2026/August 2026/…``) is covered when you point at the
+    ``2026`` parent. Best-effort: an unreadable/again-unparsable PDF is skipped
+    (the purchase then simply has no match and is flagged)."""
     index: dict = {}
-    if not invoices_dir or not os.path.isdir(invoices_dir):
+    root = normalize_dir(invoices_dir)
+    if not root or not os.path.isdir(root):
         return index
-    for name in sorted(os.listdir(invoices_dir)):
-        if name.startswith(".") or not name.lower().endswith(".pdf"):
-            continue
-        try:
-            text = P.extract_text(os.path.join(invoices_dir, name))
-            iv = IP.parse_invoice(text)
-        except Exception:
-            continue
-        if iv.invoice_no:
-            index[iv.invoice_no] = iv
+    for dirpath, _dirs, files in os.walk(root):
+        for name in sorted(files):
+            if name.startswith(".") or not name.lower().endswith(".pdf"):
+                continue
+            try:
+                text = P.extract_text(os.path.join(dirpath, name))
+                iv = IP.parse_invoice(text)
+            except Exception:
+                continue
+            if iv.invoice_no:
+                index[iv.invoice_no] = iv
     return index
 
 

@@ -273,6 +273,29 @@ def test_process_generates_purchase_when_invoice_matches():
                if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v)
 
 
+def test_normalize_dir_unescapes_and_expands():
+    # Terminal-escaped paste (spaces + tildes) -> real path.
+    esc = r"/Users/x/Library/Mobile\ Documents/com\~apple\~CloudDocs/Vriddhi\ Fuels"
+    assert R.normalize_dir(esc) == "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Vriddhi Fuels"
+    # surrounding quotes are dropped
+    assert R.normalize_dir('"/tmp/a b"') == "/tmp/a b"
+    assert R.normalize_dir("") == ""
+
+
+def test_load_invoices_recurses_subfolders(tmp_path):
+    # An invoice sitting in a month subfolder is still found.
+    import pytest
+    pymupdf = pytest.importorskip("pymupdf")  # needs the PDF lib
+    month = tmp_path / "2026" / "August 2026"
+    month.mkdir(parents=True)
+    doc = pymupdf.open()
+    doc.new_page().insert_text((40, 50), INVOICE_2PROD, fontsize=8)
+    doc.save(str(month / "challan.pdf"))
+    doc.close()
+    idx = R.load_invoices(str(tmp_path))          # point at the 2026 parent
+    assert "7010117417" in idx
+
+
 def test_process_flags_invoice_total_mismatch():
     # Invoice total != PAD amount -> flagged, never silently posted.
     inv = {"7008000004": IP.Invoice(
