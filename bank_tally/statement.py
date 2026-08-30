@@ -113,6 +113,22 @@ def _find_header(grid: list[list]) -> tuple[int, dict] | None:
     return None
 
 
+def detect_account(path: str) -> str | None:
+    """Return the statement's own account ledger, read from the header/metadata
+    ABOVE the transaction table only — an account number inside a transaction
+    narration (a transfer's destination) must not be mistaken for the owner."""
+    from .classify import OWN_ACCOUNTS
+    grid = _read_grid(path)
+    found = _find_header(grid)
+    top = grid[:found[0]] if found else grid
+    text = " ".join(str(c) for row in top for c in row if c is not None)
+    digits = re.sub(r"\D", "", text)
+    for acct, ledger in OWN_ACCOUNTS.items():
+        if acct in digits:
+            return ledger
+    return None
+
+
 def parse_excel(path: str) -> tuple[list[BankRow], dict]:
     grid = _read_grid(path)
     found = _find_header(grid)

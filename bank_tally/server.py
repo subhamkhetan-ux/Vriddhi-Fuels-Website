@@ -1,0 +1,195 @@
+"""Local web app: bank statements -> Tally import XML, with in-app review.
+
+Run on the Mac (``python3 -m bank_tally.server``); it opens a browser. Drop the
+month's statements (any of the three accounts, .xls/.xlsx), and it classifies
+every line, pairs inter-account transfers, skips IOCL payments, and lists
+whatever still needs a ledger. You resolve those in the page (each choice is
+remembered as an alias), then download the import XML. Nothing leaves the machine.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import sys
+import tempfile
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from bank_tally import generate as G          # noqa: E402
+from bank_tally import run as R               # noqa: E402
+from bank_tally import statement as S         # noqa: E402
+from agent.matcher import alias_key           # noqa: E402
+
+DATA_PATH = os.path.join(_HERE, "data.json")           # local aliases (git-ignored)
+COMMITTED_ALIASES = os.path.join(_ROOT, "state", "bank_aliases.json")
+CUSTOMERS = os.path.join(_ROOT, "state", "customers.json")
+OUT_DIR = os.path.join(_HERE, "out")
+
+_STATEMENTS: list = []      # last-uploaded (ledger, rows), so resolve can re-run
+
+
+def _load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
+
+
+def load_aliases() -> dict:
+    a = dict(_load_json(COMMITTED_ALIASES, {}))
+    a.update(_load_json(DATA_PATH, {}).get("aliases", {}))
+    return a
+
+
+def save_alias(parsed_name: str, ledger: str) -> None:
+    d = _load_json(DATA_PATH, {})
+    d.setdefault("aliases", {})[alias_key(parsed_name)] = ledger
+    tmp = DATA_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp, DATA_PATH)
+
+
+def customers() -> list:
+    return [c for c in _load_json(CUSTOMERS, []) if "auto-source" not in str(c).lower()]
+
+
+def ledger_suggestions() -> list:
+    """Names to offer in the resolve dropdown: customers + every ledger already
+    used in an alias."""
+    s = set(customers()) | set(load_aliases().values())
+    return sorted(s)
+
+
+def _process_and_write():
+    vouchers, review, summary = R.process(_STATEMENTS, customers(), load_aliases())
+    os.makedirs(OUT_DIR, exist_ok=True)
+    with open(os.path.join(OUT_DIR, "bank_import.xml"), "w", encoding="utf-8") as fh:
+        fh.write(G.build_envelope(vouchers))
+    return {"summary": summary, "review": review,
+            "suggestions": ledger_suggestions()}
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "BankTally/1.0"
+
+    def _send(self, code, body: bytes, ctype, extra=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, obj, code=200):
+        self._send(code, json.dumps(obj).encode(), "application/json")
+
+    def _body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            return json.loads(self.rfile.read(n).decode()) if n else {}
+        except ValueError:
+            return {}
+
+    def log_message(self, *a):
+        return
+
+    def do_GET(self):
+        route = urlparse(self.path).path
+        if route in ("/", "/index.html"):
+            try:
+                with open(os.path.join(_HERE, "index.html"), "rb") as fh:
+                    return self._send(200, fh.read(), "text/html; charset=utf-8")
+            except OSError:
+                return self._send(404, b"no ui", "text/plain")
+        if route == "/download/bank_import.xml":
+            try:
+                with open(os.path.join(OUT_DIR, "bank_import.xml"), "rb") as fh:
+                    return self._send(200, fh.read(), "application/xml",
+                                      {"Content-Disposition": 'attachment; filename="bank_import.xml"'})
+            except OSError:
+                return self._send(404, b"run first", "text/plain")
+        return self._send(404, b"not found", "text/plain")
+
+    def do_POST(self):
+        route = urlparse(self.path).path
+        body = self._body()
+        if route == "/api/run":
+            return self._run(body)
+        if route == "/api/resolve":
+            name, ledger = body.get("parsed_name"), (body.get("ledger") or "").strip()
+            if name and ledger:
+                save_alias(name, ledger)
+            return self._json(_process_and_write())
+        if route == "/api/rerun":
+            return self._json(_process_and_write())
+        return self._send(404, b"not found", "text/plain")
+
+    def _run(self, body):
+        global _STATEMENTS
+        files = body.get("files") or []
+        stmts, problems = [], []
+        for f in files:
+            name = f.get("name", "file")
+            try:
+                raw = base64.b64decode((f.get("b64") or "").split(",")[-1])
+                suffix = ".xlsx" if name.lower().endswith("x") else ".xls"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+                    tf.write(raw)
+                    path = tf.name
+                ledger = S.detect_account(path)
+                rows, summ = S.parse_excel(path)
+                os.unlink(path)
+                if not ledger:
+                    problems.append(f"{name}: could not detect the account number")
+                    continue
+                if not rows:
+                    problems.append(f"{name}: no transactions found ({summ.get('error','')})")
+                    continue
+                stmts.append((ledger, rows))
+            except Exception as exc:
+                problems.append(f"{name}: {exc}")
+        if not stmts:
+            return self._json({"error": "no usable statements", "problems": problems}, 400)
+        _STATEMENTS = stmts
+        res = _process_and_write()
+        res["accounts"] = [led for led, _ in stmts]
+        res["problems"] = problems
+        return self._json(res)
+
+
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(description="Bank statements -> Tally (web UI)")
+    ap.add_argument("--port", type=int, default=8770)
+    ap.add_argument("--no-open", action="store_true")
+    args = ap.parse_args(argv)
+    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"Bank -> Tally app running at {url}  (Ctrl-C to stop)")
+    if not args.no_open:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        httpd.server_close()
+
+
+if __name__ == "__main__":
+    main()
