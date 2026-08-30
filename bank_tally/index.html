@@ -25,8 +25,8 @@
   .drop .big{font-size:15px;font-weight:700}
   .files{margin-top:10px;font-size:13px;color:var(--muted)}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
-  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}
+  .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr 1fr}}
   .stat{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:10px}
   .stat .k{color:var(--faint);font-size:11px;text-transform:uppercase} .stat .v{font-size:20px;font-weight:800}
   .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)}
@@ -85,6 +85,22 @@
       <tbody id="reviewBody"></tbody>
     </table>
   </section>
+
+  <section class="panel" id="entriesPanel" hidden>
+    <h2>4 · Generated entries — drop any you'll key by hand</h2>
+    <div class="sub" style="color:var(--faint);margin-bottom:10px">
+      Every voucher going into the export is listed here. Drop a rare/special one to leave it out of
+      <code>bank_import.xml</code> — you'll enter it manually in Tally. Dropped rows stay dropped across re-runs; Restore to add it back.
+    </div>
+    <div class="row" style="margin-top:0">
+      <input class="led" id="entrySearch" placeholder="Filter by name, narration, amount, account…" style="max-width:340px">
+      <label class="sub" style="color:var(--faint)"><input type="checkbox" id="showDropped"> show dropped only</label>
+    </div>
+    <table>
+      <thead><tr><th>Account</th><th>Date</th><th>Type</th><th class="num">Amount</th><th>Ledger / narration</th><th></th></tr></thead>
+      <tbody id="entriesBody"></tbody>
+    </table>
+  </section>
 </main>
 <datalist id="ledgers"></datalist>
 <div class="toast" id="toast"></div>
@@ -128,14 +144,42 @@ function render(res){
     <div class="stat"><div class="k">Lines</div><div class="v">${s.n_lines}</div></div>
     <div class="stat"><div class="k">Reconciles</div><div class="v ${s.reconciles?'ok':'bad'}">${s.reconciles?'Yes':'NO'}</div></div>
     <div class="stat"><div class="k">Vouchers</div><div class="v ok">${s.n_vouchers}</div></div>
-    <div class="stat"><div class="k">IOCL skipped</div><div class="v">${s.skipped_iocl}</div></div>
-    <div class="stat"><div class="k">To review</div><div class="v ${s.n_review?'bad':'ok'}">${s.n_review}</div></div>`;
+    <div class="stat"><div class="k">To review</div><div class="v ${s.n_review?'bad':'ok'}">${s.n_review}</div></div>
+    <div class="stat"><div class="k">Dropped</div><div class="v ${s.n_dropped?'warn':''}" style="${s.n_dropped?'color:var(--warn)':''}">${s.n_dropped||0}</div></div>`;
   $("#counts").innerHTML=Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("");
   $("#dlXml").href="/download/bank_import.xml?"+Date.now();
   $("#exportNote").textContent = s.n_review ? "Resolve the "+s.n_review+" below, then re-download — import into Tally on a backup company first."
                                             : "Import into Tally: Gateway → Import → Vouchers. Test on a backup company first.";
   $("#ledgers").innerHTML=(res.suggestions||[]).map(l=>`<option value="${esc(l)}">`).join("");
   renderReview(res.review||[]);
+  ENTRIES=(s.entries||[]);
+  renderEntries();
+}
+
+let ENTRIES=[];
+$("#entrySearch").oninput=renderEntries;
+$("#showDropped").onchange=renderEntries;
+function renderEntries(){
+  const q=$("#entrySearch").value.trim().toLowerCase();
+  const only=$("#showDropped").checked;
+  $("#entriesPanel").hidden = ENTRIES.length===0;
+  const rows=ENTRIES.filter(e=>{
+    if(only && !e.dropped) return false;
+    if(!q) return true;
+    return [e.counter_ledger,e.narration,e.amount,e.account,e.type].join(" ").toLowerCase().includes(q);
+  });
+  $("#entriesBody").innerHTML = rows.map(e=>`
+    <tr style="${e.dropped?'opacity:.5':''}">
+      <td>${esc((e.account||'').split(' - ')[0])}</td><td>${esc(e.date)}</td>
+      <td>${esc(e.type)}<div class="sub" style="color:var(--faint)">${esc(e.direction)}</div></td>
+      <td class="num">${money(e.amount)}</td>
+      <td><b>${esc(e.counter_ledger)}</b><div class="narr">${esc(e.narration)}</div></td>
+      <td><button class="btn sm" onclick="dropEntry('${e.key}',${e.dropped?'false':'true'})">${e.dropped?'Restore':'Drop'}</button></td>
+    </tr>`).join("") || `<tr><td colspan="6" class="empty">No matching entries</td></tr>`;
+}
+async function dropEntry(key,drop){
+  try{ render(await api("/api/drop",{key,drop})); toast(drop?"Dropped — excluded from export":"Restored to export"); }
+  catch(e){ toast("Failed: "+e.message); }
 }
 
 function renderReview(rows){
