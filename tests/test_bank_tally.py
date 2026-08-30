@@ -49,6 +49,12 @@ def test_classify_contra_to_own_account():
     assert cl.counter_ledger == "HDFC BANK OD A/C - 50200110712542"
 
 
+def test_classify_cash_deposit_is_contra_to_cash():
+    cl = C.classify(_row("CASH DEPOSIT BY - SELF - JHARSUGUDA", deposit=600000),
+                    CUSTOMERS)
+    assert cl.vtype == C.CONTRA and cl.counter_ledger == "Cash"
+
+
 def test_classify_payment_to_iocl():
     cl = C.classify(_row("RTGS DR-SBIN0009995-INDIAN OIL CORPORATION LIMITED-NETBANK",
                          withdrawal=2000000), CUSTOMERS)

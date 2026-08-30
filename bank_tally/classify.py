@@ -43,7 +43,7 @@ PAYMENT_RULES = [
 # ledgers that exist in the company's masters; anything else goes to review.
 RECEIPT_RULES = [
     (r"PINE LABS", "Pine Labs Nodal Account"),
-    (r"\bEZY ?PAY\b|EZYPAY|EAZYPAY", "EzyPay UPI ICICI"),
+    (r"\bEZY ?PAY\b|EZYPAY|EAZYPAY|EZY QR|FT-EZY", "EzyPay UPI ICICI"),
 ]
 _OWN_NAME = re.compile(r"VRID?DHI\s*FUELS?", re.I)   # our own name (beneficiary)
 
@@ -87,17 +87,30 @@ def _stop_field(f: str) -> bool:
 def extract_remitter(narration: str) -> str:
     """Pull the remitter/counterparty name out of a narration.
 
-    ``NEFT CR-<IFSC>-<NAME>-…-VRIDDHI FUELS-<UTR>``, ``IMPS-<ref>-<NAME>-<bank>-…``
-    (name after the IFSC/ref, up to a bank tag or our own name), and
-    ``UPI-<NAME>-<vpa>-…`` (name is the first field)."""
-    parts = [p.strip() for p in re.split(r"\s*-\s*", narration) if p.strip()]
+    Handles the HDFC ``-``-separated forms (``NEFT CR-<IFSC>-<NAME>-…``,
+    ``IMPS-<ref>-<NAME>-<bank>-…``, ``UPI-<NAME>-…``) and the ICICI ``/``-separated
+    forms (``INF/NEFT/<UTR>/<IFSC>/<NAME>``, ``MMT/IMPS/<ref>/<x>/<NAME>/<IFSC>``).
+    """
+    n = narration.strip()
+    up = n.upper()
+    # ICICI slash forms: the payee name is the last field that isn't an IFSC or
+    # a pure reference number.
+    if "/" in n and re.match(r"(INF|MMT|UPI|IMPS|NEFT|RTGS|ACH|BIL)/", up):
+        parts = [p.strip() for p in n.split("/") if p.strip()]
+        for f in reversed(parts):
+            if _stop_field(f) or re.fullmatch(r"[A-Z]{3,5}\d*", f):
+                continue
+            return f
+        return parts[-1] if parts else n
+
+    parts = [p.strip() for p in re.split(r"\s*-\s*", n) if p.strip()]
     if not parts:
-        return narration.strip()
+        return n
     typ = parts[0].upper()
     if typ.startswith("UPI"):
-        return parts[1] if len(parts) > 1 else narration.strip()
+        return parts[1] if len(parts) > 1 else n
     if len(parts) < 3:
-        return narration.strip()
+        return n
     out = []
     for k in range(2, len(parts)):
         if _stop_field(parts[k]):
@@ -115,7 +128,10 @@ def classify(row, customers, aliases=None):
     narr = row.narration or ""
     up = narr.upper()
 
-    # 1. Contra — a transfer naming another own account.
+    # 1. Contra — a transfer between the firm's own accounts, or a cash deposit
+    #    into the bank (cash only flows in: Bank Dr / Cash Cr).
+    if re.search(r"CASH DEP(OSIT)?|BY CASH|CASH DEP BY|CDM ", up):
+        return Classification(CONTRA, "Cash", "Cash", "cash-deposit", ["Cash"])
     own = _own_account_in(narr, exclude=None)
     if own is not None:
         return Classification(CONTRA, own, own, "own-account", [own])
