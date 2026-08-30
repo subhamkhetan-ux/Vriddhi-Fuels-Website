@@ -60,7 +60,7 @@ def _pair_contras(items):
             used.add(id(match))
             used.add(id(w))
             pairs.append((w["row"].date, w["row"].amount, w["account"],
-                          match["account"], w["row"].narration))
+                          match["account"], w["row"].narration, w["row"].index))
     leftovers = [x for x in items if id(x) not in used]
     return pairs, leftovers
 
@@ -76,6 +76,9 @@ def process(statements, customers, aliases=None, dropped=None):
     """
     aliases = aliases or {}
     dropped = set(dropped or ())
+    # Bank priority = order the statements were given, so that on a shared date
+    # each bank's lines stay grouped in the order they appear on that statement.
+    acct_prio = {led: i for i, (led, _) in enumerate(statements)}
     classified = []          # (account_ledger, row, classification)
     for bank_ledger, rows in statements:
         for r in rows:
@@ -84,7 +87,15 @@ def process(statements, customers, aliases=None, dropped=None):
     entries, review = [], []
     skipped_iocl = 0
 
-    def add_entry(vtype, xml, account, date, amount, direction, narration, counter):
+    def _sort_key(account, date, index):
+        # Emit vouchers in the order the lines appear in the bank account: by
+        # date, then by which statement, then by the row's position in it.
+        return (date.toordinal() if date else 0,
+                acct_prio.get(account, 0),
+                index if index is not None else 0)
+
+    def add_entry(vtype, xml, account, date, amount, direction, narration,
+                  counter, index):
         entries.append({
             "key": entry_key(account, date, amount, narration),
             "type": vtype,
@@ -95,6 +106,7 @@ def process(statements, customers, aliases=None, dropped=None):
             "narration": narration or "",
             "counter_ledger": counter,
             "xml": xml,
+            "_sort": _sort_key(account, date, index),
         })
 
     # --- Contra: cash deposits post directly; inter-account transfers pair. ----
@@ -104,13 +116,14 @@ def process(statements, customers, aliases=None, dropped=None):
             (cash_items if cl.tier == "cash-deposit" else contra_items).append(
                 {"account": acct, "row": row, "cl": cl})
     pairs, leftovers = _pair_contras(contra_items)
-    for date, amount, src, dst, narr in pairs:
+    for date, amount, src, dst, narr, w_index in pairs:
         xml = G.make_contra(_ymd(date), amount, src, dst, narr)
-        add_entry("Contra", xml, src, date, amount, "debit", narr, dst)
+        add_entry("Contra", xml, src, date, amount, "debit", narr, dst, w_index)
     for it in cash_items:      # Bank Dr / Cash Cr — source is Cash, dest the bank
         r = it["row"]
         xml = G.make_contra(_ymd(r.date), r.amount, "Cash", it["account"], r.narration)
-        add_entry("Contra", xml, it["account"], r.date, r.amount, "credit", r.narration, "Cash")
+        add_entry("Contra", xml, it["account"], r.date, r.amount, "credit",
+                  r.narration, "Cash", r.index)
 
     # An unpaired transfer whose destination is already known (e.g. CGTMS -> OD,
     # or an ICICI-IFSC self-transfer) posts directly; the rest go to review.
@@ -120,7 +133,8 @@ def process(statements, customers, aliases=None, dropped=None):
         dest = cl.counter_ledger
         if (not r.is_credit) and dest and dest != acct:
             xml = G.make_contra(_ymd(r.date), r.amount, acct, dest, r.narration)
-            add_entry("Contra", xml, acct, r.date, r.amount, "debit", r.narration, dest)
+            add_entry("Contra", xml, acct, r.date, r.amount, "debit", r.narration,
+                      dest, r.index)
         else:
             leftover_reviewed.append(it)
 
@@ -141,11 +155,15 @@ def process(statements, customers, aliases=None, dropped=None):
         if cl.vtype == C.RECEIPT:
             xml = G.make_receipt(ymd, row.amount, acct, cl.counter_ledger, row.narration)
             add_entry("Receipt", xml, acct, row.date, row.amount, "credit",
-                      row.narration, cl.counter_ledger)
+                      row.narration, cl.counter_ledger, row.index)
         else:
             xml = G.make_payment(ymd, row.amount, acct, cl.counter_ledger, row.narration)
             add_entry("Payment", xml, acct, row.date, row.amount, "debit",
-                      row.narration, cl.counter_ledger)
+                      row.narration, cl.counter_ledger, row.index)
+
+    # Emit in bank-statement order (date, statement, row position) so the export
+    # mirrors the account rather than grouping by voucher type.
+    entries.sort(key=lambda e: e["_sort"])
 
     # Mark drops and collect the export (non-dropped) vouchers + counts.
     vouchers = []
@@ -172,7 +190,8 @@ def process(statements, customers, aliases=None, dropped=None):
         "n_review": n_review,
         "n_dropped": n_dropped,
         "reconciles": all(r.reconciles for _, r, _ in classified),
-        "entries": [{k: v for k, v in e.items() if k != "xml"} for e in entries],
+        "entries": [{k: v for k, v in e.items() if k not in ("xml", "_sort")}
+                    for e in entries],
     }
     return vouchers, review, summary
 

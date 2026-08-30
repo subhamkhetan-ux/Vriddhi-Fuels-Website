@@ -130,3 +130,17 @@ def test_alias_key_is_noise_insensitive():
     a = alias_key("M/S SUDARSHAN MINERALS UTR 123456789012")
     b = alias_key("Sudarshan Minerals")
     assert a == b == norm("sudarshan minerals")
+
+
+def test_token_subset_interleaved_words_matches():
+    # Every significant word of the customer appears in the remitter, but out of
+    # order and interleaved with extra words — not a contiguous substring.
+    r = match_name("SUDARSHAN GLOBAL MINERALS AND LOGISTICS HUB", CUSTOMERS)
+    assert r.status == "matched"
+    assert r.canonical == "Sudarshan Minerals And Logistics"
+
+
+def test_token_subset_needs_two_significant_words():
+    # A single generic-stripped word must NOT auto-match (too weak).
+    r = match_name("RELIANCE FRESH RETAIL OUTLET", ["Reliance Petro Marketing"])
+    assert r.status == "review"
