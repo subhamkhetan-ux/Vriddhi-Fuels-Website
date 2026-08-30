@@ -8,11 +8,17 @@ Given the month's statements (one per account), this:
   * generates the vouchers and lists whatever still needs a ledger, for in-app
     review before export.
 
+Every generated voucher is also exposed as an *entry* with a stable key, so the
+app can drop specific ones from the export (rare/manual transactions the user
+prefers to key by hand). Dropped keys are passed back in on the next run.
+
 A statement is ``(bank_ledger, rows)`` where ``rows`` come from
 ``statement.parse_excel``. ``bank_ledger`` is that account's Tally ledger name.
 """
 
 from __future__ import annotations
+
+import hashlib
 
 from . import classify as C
 from . import generate as G
@@ -20,6 +26,14 @@ from . import generate as G
 
 def _ymd(d) -> str:
     return f"{d.year}{d.month:02d}{d.day:02d}"
+
+
+def entry_key(account, date, amount, narration) -> str:
+    """Stable short key identifying a generated voucher by its primary source
+    row, so the app can drop/restore it across re-runs."""
+    ymd = _ymd(date) if date else ""
+    raw = f"{account}|{ymd}|{float(amount):.2f}|{narration or ''}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
 
 
 def _pair_contras(items):
@@ -51,21 +65,37 @@ def _pair_contras(items):
     return pairs, leftovers
 
 
-def process(statements, customers, aliases=None):
+def process(statements, customers, aliases=None, dropped=None):
     """Return ``(vouchers, review, summary)``.
 
+    ``vouchers`` is the XML for every generated voucher NOT in ``dropped``.
     ``review`` lists rows whose counter ledger is unresolved (skip/self-transfer
     handled) — the app resolves these before export.
+    ``summary["entries"]`` lists every generated voucher (dropped or not) with a
+    stable key, for the app's drop/restore list.
     """
     aliases = aliases or {}
+    dropped = set(dropped or ())
     classified = []          # (account_ledger, row, classification)
     for bank_ledger, rows in statements:
         for r in rows:
             classified.append((bank_ledger, r, C.classify(r, customers, aliases)))
 
-    vouchers, review = [], []
-    counts = {"Receipt": 0, "Payment": 0, "Contra": 0}
+    entries, review = [], []
     skipped_iocl = 0
+
+    def add_entry(vtype, xml, account, date, amount, direction, narration, counter):
+        entries.append({
+            "key": entry_key(account, date, amount, narration),
+            "type": vtype,
+            "account": account,
+            "date": date.strftime("%d-%m-%Y") if date else "",
+            "amount": f"{float(amount):.2f}",
+            "direction": direction,
+            "narration": narration or "",
+            "counter_ledger": counter,
+            "xml": xml,
+        })
 
     # --- Contra: cash deposits post directly; inter-account transfers pair. ----
     contra_items, cash_items = [], []
@@ -75,24 +105,31 @@ def process(statements, customers, aliases=None):
                 {"account": acct, "row": row, "cl": cl})
     pairs, leftovers = _pair_contras(contra_items)
     for date, amount, src, dst, narr in pairs:
-        vouchers.append(G.make_contra(_ymd(date), amount, src, dst, narr))
-        counts["Contra"] += 1
+        xml = G.make_contra(_ymd(date), amount, src, dst, narr)
+        add_entry("Contra", xml, src, date, amount, "debit", narr, dst)
     for it in cash_items:      # Bank Dr / Cash Cr — source is Cash, dest the bank
         r = it["row"]
-        vouchers.append(G.make_contra(_ymd(r.date), r.amount, "Cash", it["account"], r.narration))
-        counts["Contra"] += 1
+        xml = G.make_contra(_ymd(r.date), r.amount, "Cash", it["account"], r.narration)
+        add_entry("Contra", xml, it["account"], r.date, r.amount, "credit", r.narration, "Cash")
 
-    # --- Receipts / Payments / IOCL-skip / leftovers ---
-    leftover_ids = {id(x) for x in leftovers}
+    # An unpaired transfer whose destination is already known (e.g. CGTMS -> OD,
+    # or an ICICI-IFSC self-transfer) posts directly; the rest go to review.
+    leftover_reviewed = []
+    for it in leftovers:
+        acct, r, cl = it["account"], it["row"], it["cl"]
+        dest = cl.counter_ledger
+        if (not r.is_credit) and dest and dest != acct:
+            xml = G.make_contra(_ymd(r.date), r.amount, acct, dest, r.narration)
+            add_entry("Contra", xml, acct, r.date, r.amount, "debit", r.narration, dest)
+        else:
+            leftover_reviewed.append(it)
+
+    # --- Receipts / Payments / IOCL-skip / unresolved leftovers ---
+    for it in leftover_reviewed:
+        review.append(_review_row(it["account"], it["row"], it["cl"],
+                                  "unpaired transfer — pick the other account"))
     for acct, row, cl in classified:
         if cl.vtype == C.CONTRA:
-            # A leftover self-transfer we couldn't pair (other leg absent, or
-            # ambiguous) — surface for review rather than guess the account.
-            for lo in leftovers:
-                if lo["row"] is row and lo["account"] == acct:
-                    review.append(_review_row(acct, row, cl,
-                                              "unpaired transfer — pick the other account"))
-                    break
             continue
         if cl.skip:
             skipped_iocl += 1
@@ -102,11 +139,22 @@ def process(statements, customers, aliases=None):
             continue
         ymd = _ymd(row.date)
         if cl.vtype == C.RECEIPT:
-            vouchers.append(G.make_receipt(ymd, row.amount, acct, cl.counter_ledger, row.narration))
-            counts["Receipt"] += 1
+            xml = G.make_receipt(ymd, row.amount, acct, cl.counter_ledger, row.narration)
+            add_entry("Receipt", xml, acct, row.date, row.amount, "credit",
+                      row.narration, cl.counter_ledger)
         else:
-            vouchers.append(G.make_payment(ymd, row.amount, acct, cl.counter_ledger, row.narration))
-            counts["Payment"] += 1
+            xml = G.make_payment(ymd, row.amount, acct, cl.counter_ledger, row.narration)
+            add_entry("Payment", xml, acct, row.date, row.amount, "debit",
+                      row.narration, cl.counter_ledger)
+
+    # Mark drops and collect the export (non-dropped) vouchers + counts.
+    vouchers = []
+    counts = {"Receipt": 0, "Payment": 0, "Contra": 0}
+    for e in entries:
+        e["dropped"] = e["key"] in dropped
+        if not e["dropped"]:
+            vouchers.append(e["xml"])
+            counts[e["type"]] += 1
 
     summary = {
         "n_lines": len(classified),
@@ -114,7 +162,9 @@ def process(statements, customers, aliases=None):
         "counts": counts,
         "skipped_iocl": skipped_iocl,
         "n_review": len(review),
+        "n_dropped": sum(1 for e in entries if e["dropped"]),
         "reconciles": all(r.reconciles for _, r, _ in classified),
+        "entries": [{k: v for k, v in e.items() if k != "xml"} for e in entries],
     }
     return vouchers, review, summary
 

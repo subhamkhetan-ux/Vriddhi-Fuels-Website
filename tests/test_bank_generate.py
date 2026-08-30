@@ -67,3 +67,31 @@ def test_iocl_payment_skipped_in_process():
     vouchers, review, summary = R.process([od], customers=[], aliases={})
     assert summary["skipped_iocl"] == 1
     assert summary["n_vouchers"] == 0
+
+
+def test_cgtms_unpaired_transfer_posts_as_contra():
+    # A CGTMS leg with no matching pair still posts (destination known = OD).
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010",
+          [_row(0, d, "IB FUNDS TRANSFER DR-CGTMS-VRIDDHI FUELS", wd=800000)])
+    vouchers, review, summary = R.process([ca], customers=[], aliases={})
+    assert summary["counts"]["Contra"] == 1
+    assert review == []
+    assert all(G.voucher_balances(v) for v in vouchers)
+
+
+def test_drop_excludes_entry_from_export():
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010",
+          [_row(0, d, "NEFT CR-SBIN0009678-KESHAV MINERALS-VRIDDHI FUELS-SBIN", dep=141036)])
+    customers = ["Keshav Minerals"]
+    vouchers, review, summary = R.process([ca], customers=customers, aliases={})
+    assert summary["n_vouchers"] == 1
+    key = summary["entries"][0]["key"]
+    # Drop it -> excluded from export.
+    vouchers2, review2, summary2 = R.process([ca], customers=customers, aliases={},
+                                             dropped={key})
+    assert summary2["n_vouchers"] == 0
+    assert summary2["n_dropped"] == 1
+    assert vouchers2 == []
+    assert summary2["entries"][0]["dropped"] is True

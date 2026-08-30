@@ -50,13 +50,33 @@ def load_aliases() -> dict:
     return a
 
 
-def save_alias(parsed_name: str, ledger: str) -> None:
-    d = _load_json(DATA_PATH, {})
-    d.setdefault("aliases", {})[alias_key(parsed_name)] = ledger
+def _save_data(d: dict) -> None:
     tmp = DATA_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(d, fh, indent=2, ensure_ascii=False)
     os.replace(tmp, DATA_PATH)
+
+
+def save_alias(parsed_name: str, ledger: str) -> None:
+    d = _load_json(DATA_PATH, {})
+    d.setdefault("aliases", {})[alias_key(parsed_name)] = ledger
+    _save_data(d)
+
+
+def load_dropped() -> set:
+    """Keys of generated entries the user has dropped from the export (they'll
+    enter those by hand). Persisted locally so drops survive a re-run."""
+    return set(_load_json(DATA_PATH, {}).get("dropped", []))
+
+
+def toggle_dropped(key: str, drop: bool) -> None:
+    d = _load_json(DATA_PATH, {})
+    cur = set(d.get("dropped", []))
+    cur.discard(key)
+    if drop:
+        cur.add(key)
+    d["dropped"] = sorted(cur)
+    _save_data(d)
 
 
 def customers() -> list:
@@ -71,7 +91,8 @@ def ledger_suggestions() -> list:
 
 
 def _process_and_write():
-    vouchers, review, summary = R.process(_STATEMENTS, customers(), load_aliases())
+    vouchers, review, summary = R.process(
+        _STATEMENTS, customers(), load_aliases(), dropped=load_dropped())
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, "bank_import.xml"), "w", encoding="utf-8") as fh:
         fh.write(G.build_envelope(vouchers))
@@ -131,6 +152,11 @@ class Handler(BaseHTTPRequestHandler):
             name, ledger = body.get("parsed_name"), (body.get("ledger") or "").strip()
             if name and ledger:
                 save_alias(name, ledger)
+            return self._json(_process_and_write())
+        if route == "/api/drop":
+            key = (body.get("key") or "").strip()
+            if key:
+                toggle_dropped(key, bool(body.get("drop", True)))
             return self._json(_process_and_write())
         if route == "/api/rerun":
             return self._json(_process_and_write())

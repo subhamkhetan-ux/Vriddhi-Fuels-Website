@@ -50,6 +50,18 @@ RECEIPT_RULES = [
 _OWN_NAME = re.compile(r"VRID?DHI\s*FUELS?", re.I)   # our own name (beneficiary)
 _SELF = re.compile(r"VRID?DHI", re.I)                # any "Vriddhi…" = us (self-transfer)
 
+# Counterparties whose correct ledger changes from one transaction to the next,
+# so no fixed alias/rule can be right. These ALWAYS go to review (counter ledger
+# None) — any saved alias for them is deliberately ignored. E.g. ODISHA SARKAR
+# payments sometimes belong to JYOTI RANJAN DASH and sometimes to OIC FS
+# Jharsuguda, decided per entry by the user at review time.
+FORCE_REVIEW = {"odisha sarkar"}
+
+
+def _force_review(name: str) -> bool:
+    key = re.sub(r"\s+", " ", (name or "").strip().lower())
+    return key in FORCE_REVIEW
+
 # Source-bank IFSC prefix -> our ledger, for a self-transfer where only the name
 # (not the account number) appears in the narration. HDFC is ambiguous between
 # our two HDFC accounts, so those are resolved by pairing across statements.
@@ -211,10 +223,21 @@ def classify(row, customers, aliases=None):
     #     one statement). An ICICI IFSC pins it down.
     party = extract_remitter(narr)
     if _SELF.search(party):
-        m = re.search(r"\b(ICIC|HDFC|SBIN|UTIB|KKBK|PUNB)[0A-Z0-9]{6,}", up)
-        led = _IFSC_TO_OWN.get(m.group(1)) if m else None
+        # CGTMS transfers are our HDFC OD account (50200110712542). Otherwise the
+        # other account is pinned by an ICICI IFSC, else resolved by pairing.
+        if "CGTMS" in up:
+            led = OWN_ACCOUNTS["50200110712542"]
+        else:
+            m = re.search(r"\b(ICIC|HDFC|SBIN|UTIB|KKBK|PUNB)[0A-Z0-9]{6,}", up)
+            led = _IFSC_TO_OWN.get(m.group(1)) if m else None
         return Classification(CONTRA, led, "Self transfer (own accounts)",
-                              "self-transfer", [])
+                              "self-transfer", [led] if led else [])
+
+    # 1b-force. Ambiguous counterparties (ledger varies per transaction) always
+    #     go to review, overriding any saved alias — see FORCE_REVIEW.
+    if _force_review(party):
+        return Classification(RECEIPT if row.is_credit else PAYMENT, None, party,
+                              "force-review", [])
 
     # 1c. A resolved alias (learned in the app / from the review sheet) wins for
     #     either direction — this is where the user's confirmed mappings live.

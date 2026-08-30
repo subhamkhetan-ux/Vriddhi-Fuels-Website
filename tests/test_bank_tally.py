@@ -132,6 +132,26 @@ def test_alias_resolves_unmatched():
     assert cl.counter_ledger == "Simar Infrastructure LTD"
 
 
+def test_cgtms_self_transfer_routes_to_od():
+    # A CGTMS self-transfer is our HDFC OD account (50200110712542).
+    cl = C.classify(_row("IB FUNDS TRANSFER CR-CGTMS-VRIDDHI FUELS", deposit=1275000),
+                    CUSTOMERS)
+    assert cl.vtype == C.CONTRA
+    assert cl.counter_ledger == "HDFC BANK OD A/C - 50200110712542"
+
+
+def test_odisha_sarkar_always_reviews_even_with_alias():
+    # ODISHA SARKAR belongs to different ledgers per transaction (JYOTI RANJAN vs
+    # OIC FS Jharsuguda), so it must always go to review — even if an alias was
+    # saved by mistake.
+    from agent.matcher import alias_key
+    aliases = {alias_key("ODISHA SARKAR"): "JYOTI RANJAN DASH"}
+    cl = C.classify(_row("RTGS DR-SBIN0009995-ODISHA SARKAR-VRIDDHI FUELS-X",
+                         withdrawal=50000), CUSTOMERS, aliases=aliases)
+    assert cl.counter_ledger is None
+    assert cl.tier == "force-review"
+
+
 # ---- excel parsing + reconciliation ----------------------------------------
 
 def test_parse_excel_reconciles(tmp_path):
