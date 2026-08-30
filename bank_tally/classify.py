@@ -46,6 +46,12 @@ RECEIPT_RULES = [
     (r"\bEZY ?PAY\b|EZYPAY|EAZYPAY|EZY QR|FT-EZY", "EzyPay UPI ICICI"),
 ]
 _OWN_NAME = re.compile(r"VRID?DHI\s*FUELS?", re.I)   # our own name (beneficiary)
+_SELF = re.compile(r"VRID?DHI", re.I)                # any "Vriddhi…" = us (self-transfer)
+
+# Source-bank IFSC prefix -> our ledger, for a self-transfer where only the name
+# (not the account number) appears in the narration. HDFC is ambiguous between
+# our two HDFC accounts, so those are resolved by pairing across statements.
+_IFSC_TO_OWN = {"ICIC": "ICICI BANK LTD"}
 
 # Staff — any bank payment to one of these posts to the single Salary ledger.
 # Bank narrations truncate the name (e.g. "NarendraPr" for Narendra Kumar
@@ -126,6 +132,20 @@ def extract_remitter(narration: str) -> str:
     """
     n = narration.strip()
     up = n.upper()
+    # Card bill payment (masked card number) — not a party name.
+    if re.search(r"BILLPAY|CC PAYMENT|CARD", up) and _MASKED.search(up):
+        return "Card bill payment"
+    # HDFC "A2AINT01 - <bank> - <ref> -  - <acct> - <NAME>" and DOM*/other spaced
+    # formats use " - " separators with the payee NAME in the last field.
+    if " - " in n:
+        tail = [p.strip() for p in n.split(" - ") if p.strip()]
+        if tail:
+            return tail[-1]
+    # TPT third-party transfers (plain dashes): "<acct>-TPT-<ref>-<NAME>".
+    if "-TPT-" in up:
+        tail = [p.strip() for p in n.split("-") if p.strip()]
+        if tail:
+            return tail[-1]
     # ICICI slash forms: the payee name is the last field that isn't an IFSC or
     # a pure reference number.
     if "/" in n and re.match(r"(INF|MMT|UPI|IMPS|NEFT|RTGS|ACH|BIL)/", up):
@@ -177,6 +197,17 @@ def classify(row, customers, aliases=None):
     own = _own_account_in(narr, exclude=None)
     if own is not None:
         return Classification(CONTRA, own, own, "own-account", [own])
+
+    # 1b. Self-transfer — a NEFT/RTGS between our own accounts shows only our own
+    #     name (no account number). It's a Contra; the exact other account is
+    #     resolved by pairing across statements (HDFC OD vs C/A is ambiguous from
+    #     one statement). An ICICI IFSC pins it down.
+    party = extract_remitter(narr)
+    if _SELF.search(party):
+        m = re.search(r"\b(ICIC|HDFC|SBIN|UTIB|KKBK|PUNB)[0A-Z0-9]{6,}", up)
+        led = _IFSC_TO_OWN.get(m.group(1)) if m else None
+        return Classification(CONTRA, led, "Self transfer (own accounts)",
+                              "self-transfer", [])
 
     # 2. Payment rules (money out, known payees).
     if not row.is_credit:
