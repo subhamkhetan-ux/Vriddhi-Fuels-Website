@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vriddhi Fuels — IOCL PAD → Tally</title>
+<style>
+  :root{
+    --bg:#0e1116; --card:#171b22; --line:#262c36; --ink:#eef2f7; --muted:#9aa4b2;
+    --faint:#6b7382; --accent:#ff7a1a; --accent2:#1f6feb; --ok:#2ea043; --bad:#e5534b;
+    --warn:#e3b341; --warn-bg:#2a2410; --grad:linear-gradient(135deg,#ff7a1a,#ff9d4d);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:800}
+  header .sub{color:var(--faint);font-size:12px}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;
+    padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--grad);border:none;color:#111}
+  .btn.sm{padding:6px 9px;font-size:12px}
+  .btn.ghost{background:transparent}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  main{max-width:1000px;margin:0 auto;padding:18px 20px 60px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
+  label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input.t{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);
+    padding:9px 11px;font-size:14px}
+  input.t:focus{outline:none;border-color:var(--accent)}
+  .hint{color:var(--faint);font-size:12px;margin-top:6px}
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;cursor:pointer;
+    transition:border-color .15s,background .15s}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:#ff7a1a0d}
+  .drop .big{font-size:15px;font-weight:700}
+  .drop .fn{color:var(--accent);font-weight:700;margin-top:6px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}
+  .stat{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px}
+  .stat .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .stat .v{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:3px}
+  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800}
+  .pill.ok{background:#12331f;color:#5ad07f} .pill.skip{background:#33220f;color:var(--warn)}
+  .counts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .chip{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px}
+  .chip b{color:var(--accent)}
+  .warnbox{background:var(--warn-bg);border:1px solid var(--warn);border-radius:11px;padding:12px 14px;color:#f4e2b0;font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;background:var(--card)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tablewrap{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:11px}
+  .filters{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .filters .btn.active{background:var(--grad);color:#111;border:none}
+  .empty{color:var(--faint);text-align:center;padding:26px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;
+    padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+  .toast.show{opacity:1}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;
+    animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>IOCL PAD → Tally</h1>
+    <div class="sub">Statement PDF → import XML · VRIDDHI FUELS</div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn sm ghost" id="settingsBtn">⚙ Invoices folder</button>
+</header>
+
+<main>
+  <section class="panel" id="settingsPanel" hidden>
+    <h2>IOCL invoice folder (for purchase vouchers)</h2>
+    <label class="f" for="invoices_dir">Full path of the folder holding the IOCL invoice PDFs</label>
+    <input class="t" id="invoices_dir" placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Vriddhi Invoices">
+    <div class="hint">Same folder the consignment-note app watches. Each fuel Product Supply Invoice line
+      is matched to its invoice by document number; lines with no invoice are skipped and listed so you know what to add.</div>
+    <div class="row"><button class="btn primary" id="saveCfg">Save</button><span id="cfgStatus" class="hint"></span></div>
+  </section>
+
+  <section class="panel">
+    <h2>1 · The month's PAD statement</h2>
+    <div class="drop" id="drop">
+      <div class="big">Drop the PAD statement PDF here, or click to choose</div>
+      <div class="hint">IOCL Periodic Account of Dealer — the monthly statement PDF</div>
+      <div class="fn" id="fileName"></div>
+    </div>
+    <input type="file" id="fileInput" accept="application/pdf" hidden>
+    <div class="row">
+      <button class="btn primary" id="runBtn" disabled>Generate vouchers</button>
+      <span id="runStatus" class="hint"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="resultPanel" hidden>
+    <h2>2 · Result</h2>
+    <div class="stats" id="stats"></div>
+    <div class="counts" id="counts"></div>
+    <div class="row">
+      <a class="btn primary" id="dlXml" href="/download/import.xml">⬇ IOCL_import.xml</a>
+      <a class="btn" id="dlCsv" href="/download/review.csv">⬇ IOCL_review.csv</a>
+      <span class="hint">Import the XML into Tally: Gateway → Import → Vouchers. Test one voucher on a backup company first.</span>
+    </div>
+  </section>
+
+  <section class="panel" id="missingPanel" hidden>
+    <h2>Purchases waiting on an invoice</h2>
+    <div class="warnbox" id="missingBox"></div>
+  </section>
+
+  <section class="panel" id="reviewPanel" hidden>
+    <h2>3 · Every line</h2>
+    <div class="filters">
+      <button class="btn sm active" data-f="all">All</button>
+      <button class="btn sm" data-f="OK">Generated</button>
+      <button class="btn sm" data-f="SKIPPED">Skipped</button>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Date</th><th>Category</th><th>Doc no.</th>
+          <th class="num">Debit</th><th class="num">Credit</th><th>Status</th><th>Note</th></tr></thead>
+        <tbody id="reviewBody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+let PAD_B64=null, REVIEW=[], FILTER="all";
+
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");
+  clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),2000);}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function money(s){const n=Number(s);return n?n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}):"";}
+
+async function api(path,body){const o=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{};
+  const r=await fetch(path,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j;}
+
+// ---- config ----
+async function loadCfg(){try{const c=await api("/api/config");$("#invoices_dir").value=c.invoices_dir||"";}catch(_){}}
+$("#settingsBtn").onclick=()=>{const p=$("#settingsPanel");p.hidden=!p.hidden;};
+$("#saveCfg").onclick=async()=>{try{await api("/api/config",{invoices_dir:$("#invoices_dir").value.trim()});
+  $("#cfgStatus").textContent="Saved ✓";}catch(e){$("#cfgStatus").textContent="Failed: "+e.message;}};
+
+// ---- PAD file pick / drop ----
+const drop=$("#drop"), fileInput=$("#fileInput");
+drop.onclick=()=>fileInput.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add("drag");};
+drop.ondragleave=()=>drop.classList.remove("drag");
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files[0])takeFile(e.dataTransfer.files[0]);};
+fileInput.onchange=()=>{if(fileInput.files[0])takeFile(fileInput.files[0]);};
+function takeFile(f){
+  if(!f.name.toLowerCase().endsWith(".pdf")){toast("Please choose a PDF");return;}
+  const r=new FileReader();
+  r.onload=()=>{PAD_B64=r.result;$("#fileName").textContent=f.name;$("#runBtn").disabled=false;};
+  r.readAsDataURL(f);
+}
+
+// ---- run ----
+$("#runBtn").onclick=async()=>{
+  if(!PAD_B64){toast("Choose the PAD PDF first");return;}
+  $("#runBtn").disabled=true;$("#runStatus").innerHTML='<span class="spin"></span>Parsing & generating…';
+  try{
+    const res=await api("/api/run",{pad_b64:PAD_B64,invoices_dir:$("#invoices_dir").value.trim()});
+    renderResult(res);$("#runStatus").textContent="";
+  }catch(e){$("#runStatus").textContent="Failed: "+e.message;toast("Failed: "+e.message);}
+  $("#runBtn").disabled=false;
+};
+
+function renderResult(res){
+  const s=res.summary;
+  $("#resultPanel").hidden=false;
+  const recon = s.reconciles ? `<span class="v ok">Yes</span>` : `<span class="v bad">NO (line ${s.first_break})</span>`;
+  $("#stats").innerHTML=`
+    <div class="stat"><div class="k">Lines parsed</div><div class="v">${s.n_postable}</div></div>
+    <div class="stat"><div class="k">Reconciles</div><div>${recon}</div></div>
+    <div class="stat"><div class="k">Vouchers generated</div><div class="v ok">${s.n_vouchers}</div></div>
+    <div class="stat"><div class="k">Purchases waiting</div><div class="v ${s.skipped_purchases?'bad':'ok'}">${s.skipped_purchases}</div></div>`;
+  const oc = s.open_delivery_addon!=null ? `<span class="chip">Open-delivery add-on (not posted): <b>${money(s.open_delivery_addon)}</b></span>` : "";
+  $("#counts").innerHTML = Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("") + oc;
+
+  // missing invoices
+  if(res.missing && res.missing.length){
+    $("#missingPanel").hidden=false;
+    $("#missingBox").innerHTML = `<b>${res.missing.length} fuel purchase(s) need their invoice PDF</b> (drop them in the invoices folder, then Generate again):<br>`
+      + res.missing.map(m=>`${esc(m.doc_number||"?")} · ${esc(m.date)} · ₹${money(m.amount)}`).join("<br>");
+  } else { $("#missingPanel").hidden=true; }
+
+  REVIEW=res.review||[];renderReview();$("#reviewPanel").hidden=false;
+  // bust download cache
+  const t=Date.now();
+  $("#dlXml").href="/download/import.xml?"+t;$("#dlCsv").href="/download/review.csv?"+t;
+  toast(`Generated ${s.n_vouchers} vouchers`);
+}
+
+$$(".filters .btn").forEach(b=>b.onclick=()=>{FILTER=b.dataset.f;
+  $$(".filters .btn").forEach(x=>x.classList.toggle("active",x===b));renderReview();});
+
+function renderReview(){
+  const rows=REVIEW.filter(r=>FILTER==="all"||r.status===FILTER);
+  $("#reviewBody").innerHTML = rows.length ? rows.map(r=>`
+    <tr>
+      <td>${r.index}</td><td>${esc(r.date)}</td><td>${esc(r.category)}</td><td>${esc(r.doc_number)}</td>
+      <td class="num">${money(r.debit)}</td><td class="num">${money(r.credit)}</td>
+      <td><span class="pill ${r.status==='OK'?'ok':'skip'}">${esc(r.status)}</span></td>
+      <td>${esc(r.note)}</td>
+    </tr>`).join("") : `<tr><td colspan="8" class="empty">Nothing here.</td></tr>`;
+}
+
+loadCfg();
+</script>
+</body>
+</html>

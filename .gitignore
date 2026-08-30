@@ -19,3 +19,14 @@ Master Ledger.xlsm
 credentials.json
 token_*.json
 *.oauth.json
+
+# Standalone consignment-note app — local config + running serial counter.
+# Holds machine-specific paths and the note-number state; never committed.
+consign/data.json
+
+# IOCL PAD -> Tally importer outputs (generated locally from a PAD statement).
+IOCL_import.xml
+IOCL_review.csv
+# IOCL PAD -> Tally web app — local config + generated output directory.
+iocl_tally/data.json
+iocl_tally/out/
