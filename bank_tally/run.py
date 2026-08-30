@@ -156,13 +156,21 @@ def process(statements, customers, aliases=None, dropped=None):
             vouchers.append(e["xml"])
             counts[e["type"]] += 1
 
+    # A review row the user has dropped is one they'll key by hand — flag it so
+    # the app can hide it and stop counting it as "needs a ledger".
+    for rr in review:
+        rr["dropped"] = rr["key"] in dropped
+    n_review = sum(1 for rr in review if not rr["dropped"])
+    n_dropped = (sum(1 for e in entries if e["dropped"])
+                 + sum(1 for rr in review if rr["dropped"]))
+
     summary = {
         "n_lines": len(classified),
         "n_vouchers": len(vouchers),
         "counts": counts,
         "skipped_iocl": skipped_iocl,
-        "n_review": len(review),
-        "n_dropped": sum(1 for e in entries if e["dropped"]),
+        "n_review": n_review,
+        "n_dropped": n_dropped,
         "reconciles": all(r.reconciles for _, r, _ in classified),
         "entries": [{k: v for k, v in e.items() if k != "xml"} for e in entries],
     }
@@ -171,6 +179,7 @@ def process(statements, customers, aliases=None, dropped=None):
 
 def _review_row(account, row, cl, note):
     return {
+        "key": entry_key(account, row.date, row.amount, row.narration),
         "account": account,
         "date": row.date.strftime("%d-%m-%Y") if row.date else "",
         "type": cl.vtype,

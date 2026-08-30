@@ -80,6 +80,9 @@
   <section class="panel" id="reviewPanel" hidden>
     <h2>3 · Resolve before export</h2>
     <div class="warnbox" id="reviewIntro"></div>
+    <div class="row" style="margin-top:0;margin-bottom:6px">
+      <label class="sub" style="color:var(--faint)"><input type="checkbox" id="showDroppedReview"> show dropped (handled by hand)</label>
+    </div>
     <table>
       <thead><tr><th>Account</th><th>Date</th><th>Type</th><th class="num">Amount</th><th>Parsed name / narration</th><th>Ledger</th><th></th></tr></thead>
       <tbody id="reviewBody"></tbody>
@@ -151,7 +154,8 @@ function render(res){
   $("#exportNote").textContent = s.n_review ? "Resolve the "+s.n_review+" below, then re-download — import into Tally on a backup company first."
                                             : "Import into Tally: Gateway → Import → Vouchers. Test on a backup company first.";
   $("#ledgers").innerHTML=(res.suggestions||[]).map(l=>`<option value="${esc(l)}">`).join("");
-  renderReview(res.review||[]);
+  REVIEW=(res.review||[]);
+  renderReview();
   ENTRIES=(s.entries||[]);
   renderEntries();
 }
@@ -178,23 +182,36 @@ function renderEntries(){
     </tr>`).join("") || `<tr><td colspan="6" class="empty">No matching entries</td></tr>`;
 }
 async function dropEntry(key,drop){
-  try{ render(await api("/api/drop",{key,drop})); toast(drop?"Dropped — excluded from export":"Restored to export"); }
+  try{ render(await api("/api/drop",{key,drop})); toast(drop?"Dropped — you'll key this by hand":"Restored"); }
   catch(e){ toast("Failed: "+e.message); }
 }
 
-function renderReview(rows){
-  $("#reviewPanel").hidden = rows.length===0;
-  $("#reviewIntro").textContent = rows.length ? `${rows.length} line(s) need a ledger. Type or pick one and Save — it's remembered, and the voucher is added to the export.` : "";
-  $("#reviewBody").innerHTML = rows.map((r,i)=>`
-    <tr>
+let REVIEW=[];
+$("#showDroppedReview").onchange=renderReview;
+function renderReview(){
+  const showDropped=$("#showDroppedReview").checked;
+  const active=REVIEW.filter(r=>!r.dropped), dropped=REVIEW.filter(r=>r.dropped);
+  $("#reviewPanel").hidden = REVIEW.length===0;
+  const bits=[];
+  if(active.length) bits.push(`${active.length} line(s) need a ledger. Type or pick one and Save — it's remembered, and the voucher is added to the export. Or Drop a line to key it by hand (it stays out of the export).`);
+  if(dropped.length) bits.push(`${dropped.length} dropped — you'll enter those by hand.`);
+  $("#reviewIntro").textContent = bits.join(" ") || "All resolved.";
+  const rows = showDropped ? REVIEW : active;
+  $("#reviewBody").innerHTML = rows.map((r)=>{
+    const i=REVIEW.indexOf(r);
+    return `
+    <tr style="${r.dropped?'opacity:.5':''}">
       <td>${esc((r.account||'').split(' - ')[0])}</td><td>${esc(r.date)}</td>
       <td>${esc(r.type)}<div class="sub" style="color:var(--faint)">${esc(r.direction)}</div></td>
       <td class="num">${money(r.amount)}</td>
       <td><b>${esc(r.parsed_name)}</b><div class="narr">${esc(r.narration)}</div>
           <div class="sub" style="color:var(--warn)">${esc(r.note)}</div></td>
-      <td><input class="led" list="ledgers" id="led${i}" placeholder="Ledger name"></td>
-      <td><button class="btn sm" onclick="resolveRow(${i},'${encodeURIComponent(r.parsed_name)}')">Save</button></td>
-    </tr>`).join("");
+      <td>${r.dropped?'<span class="sub" style="color:var(--faint)">by hand</span>':`<input class="led" list="ledgers" id="led${i}" placeholder="Ledger name">`}</td>
+      <td>${r.dropped
+        ? `<button class="btn sm" onclick="dropEntry('${r.key}',false)">Restore</button>`
+        : `<button class="btn sm" onclick="resolveRow(${i},'${encodeURIComponent(r.parsed_name)}')">Save</button>
+           <button class="btn sm" onclick="dropEntry('${r.key}',true)">Drop</button>`}</td>
+    </tr>`;}).join("");
 }
 
 async function resolveRow(i, encName){
