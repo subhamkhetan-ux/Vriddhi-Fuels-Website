@@ -31,19 +31,38 @@ TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templat
 JOURNAL_TEMPLATES = {
     "TDS": "TDS.xml",
     "FLEET": "FLEET.xml",
-    "COLLECTION": "COLLECTION_OD.xml",       # default; C/A variant chosen per line
+    "COLLECTION": "COLLECTION_OD.xml",       # default; routed per line (see below)
     "K1": "K1.xml",
     "LICENSE": "LICENSE.xml",
     "DEALERMARGIN": "DEALERMARGIN.xml",
     "NFR": "NFR.xml",
     "INTEREST": "INTEREST.xml",
 }
-COLLECTION_CA_TEMPLATE = "COLLECTION_CA.xml"
+
+# A Customer ECollection lands in one of several bank ledgers. The PAD Item Text
+# names the receiving bank account (IFSC_account, e.g. HDFC0000240_5020011 0712542
+# or ICIC0000011_04680500 4716), so route by a distinctive fragment of it.
+# (marker found in the line's item text, template file, ledger shown in review)
+COLLECTION_ROUTES = [
+    ("5921701", "COLLECTION_CA.xml", "HDFC BANK C/A - 59217010101010"),
+    ("04680500", "COLLECTION_ICICI.xml", "ICICI BANK LTD"),
+]
+COLLECTION_DEFAULT = ("COLLECTION_OD.xml", "HDFC BANK OD A/C - 50200110712542")
+
+
+def collection_route(item_text: str) -> tuple[str, str]:
+    """Return (template_file, ledger_name) for an ECollection, by the bank
+    account named in its item text. Defaults to the HDFC OD account."""
+    t = item_text or ""
+    for marker, tpl, ledger in COLLECTION_ROUTES:
+        if marker in t:
+            return tpl, ledger
+    return COLLECTION_DEFAULT
 
 # Identity element tags stripped so nothing existing is overwritten on import.
 _STRIP_TAGS = ["GUID", "ALTERID", "MASTERID", "VOUCHERKEY", "VOUCHERRETAINKEY",
                "VOUCHERNUMBER"]
-_DATE_TAGS = ["DATE", "VCHSTATUSDATE", "EFFECTIVEDATE"]
+_DATE_TAGS = ["DATE", "VCHSTATUSDATE", "EFFECTIVEDATE", "INSTRUMENTDATE"]
 
 
 def _read_template(name: str) -> str:
@@ -99,10 +118,13 @@ def _set_reference(vch: str, reference: str | None) -> str:
 
 
 def make_journal(category: str, date_yyyymmdd: str, amount: float,
-                 reference: str | None = None, collection_to_ca: bool = False) -> str:
-    """Return one ``TALLYMESSAGE`` block for a journal-category PAD line."""
-    if category == "COLLECTION" and collection_to_ca:
-        tpl_name = COLLECTION_CA_TEMPLATE
+                 reference: str | None = None, collection_item_text: str = "") -> str:
+    """Return one ``TALLYMESSAGE`` block for a journal-category PAD line.
+
+    For a COLLECTION the receiving bank ledger is chosen from the line's item
+    text (HDFC OD / HDFC C/A / ICICI); other categories use their one template."""
+    if category == "COLLECTION":
+        tpl_name = collection_route(collection_item_text)[0]
     else:
         tpl_name = JOURNAL_TEMPLATES[category]
     vch = _read_template(tpl_name)
