@@ -62,6 +62,21 @@ def test_classify_payment_to_iocl():
     assert cl.counter_ledger == "M/s Indian Oil Corporation Limited"
 
 
+def test_staff_payment_maps_to_salary():
+    # Bank truncates the name; first+last prefix still matches the staff list.
+    for narr in ["MMT/IMPS/618308468876/BULD74167560/NarendraPr/UTIB0003650",
+                 "MMT/IMPS/618308468897/BULD74167560/BikramSahu/SBIN0013615",
+                 "MMT/IMPS/618308468941/BULD74167560/GokulaBhok/UBIN0572411"]:
+        cl = C.classify(_row(narr, withdrawal=7500), CUSTOMERS)
+        assert cl.vtype == C.PAYMENT and cl.counter_ledger == "Salary", narr
+
+
+def test_non_staff_payment_still_reviews():
+    cl = C.classify(_row("INF/NEFT/IN42/HDFC0000763/SOME SUPPLIER CO", withdrawal=5000),
+                    CUSTOMERS)
+    assert cl.counter_ledger is None
+
+
 def test_classify_receipt_matches_customer():
     cl = C.classify(_row("NEFT CR-SBIN0009678-KESHAV MINERALS-VRIDDHI FUELS-SBIN",
                          deposit=141036), CUSTOMERS)

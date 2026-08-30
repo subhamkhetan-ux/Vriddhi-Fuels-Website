@@ -47,6 +47,37 @@ RECEIPT_RULES = [
 ]
 _OWN_NAME = re.compile(r"VRID?DHI\s*FUELS?", re.I)   # our own name (beneficiary)
 
+# Staff — any bank payment to one of these posts to the single Salary ledger.
+# Bank narrations truncate the name (e.g. "NarendraPr" for Narendra Kumar
+# Pradhan), so we match on first+last name as a prefix. Edit this list as staff
+# change.
+STAFF_NAMES = [
+    "NARENDRA KUMAR PRADHAN", "BIKRAM SAHU", "CHIKUN DEHURY", "CHANDAN SAHU",
+    "BIKASH BEHERA", "PRABINA SETHI", "JITU MAHAKUL", "GOKULA BHOKTA",
+    "LALINDRA SETH", "NIRANJAN NAIK", "BABUNI SETHY", "LALIT KUMBHAR",
+    "BHARATI RAY", "KUNA MAHAKUL",
+]
+SALARY_LEDGER = "Salary"
+
+
+def _staff_key(full: str) -> str:
+    words = re.findall(r"[A-Za-z]+", full.upper())
+    if not words:
+        return ""
+    return words[0] + (words[-1] if len(words) > 1 else "")   # first+last, no spaces
+
+
+_STAFF_KEYS = [k for k in (_staff_key(s) for s in STAFF_NAMES) if k]
+
+
+def is_staff(name: str) -> bool:
+    """True if a parsed payee is one of the staff (prefix match, since the bank
+    truncates the name)."""
+    key = re.sub(r"[^A-Z]", "", name.upper())
+    if len(key) < 6:
+        return False
+    return any(sk.startswith(key) or key.startswith(sk) for sk in _STAFF_KEYS)
+
 
 @dataclass
 class Classification:
@@ -154,6 +185,8 @@ def classify(row, customers, aliases=None):
                                   res.candidates)
         return Classification(RECEIPT, None, remitter, res.tier, res.candidates)
 
-    # 4. Money out, no rule matched -> review as a Payment.
+    # 4. Money out — a staff payment posts to Salary; otherwise review.
     payee = extract_remitter(narr)
+    if is_staff(payee):
+        return Classification(PAYMENT, SALARY_LEDGER, payee, "staff", [SALARY_LEDGER])
     return Classification(PAYMENT, None, payee, "nomatch", [])
