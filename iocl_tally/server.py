@@ -32,7 +32,9 @@ OUT_DIR = os.path.join(_HERE, "out")
 
 # next_tt seeds the manual purchase (TT) voucher-number counter — set it to the
 # number AFTER your last TT purchase in Tally so new ones continue the sequence.
-DEFAULTS = {"invoices_dir": "", "tt": {"next_tt": 131, "issued": {}}}
+# next_tt seeds the manual purchase (TT) voucher-number counter — the number the
+# next purchase gets. You set it per run in the generate screen.
+DEFAULTS = {"invoices_dir": "", "next_tt": 96}
 
 
 def load_data() -> dict:
@@ -42,9 +44,7 @@ def load_data() -> dict:
     except (OSError, ValueError):
         data = {}
     for k, v in DEFAULTS.items():
-        data.setdefault(k, json.loads(json.dumps(v)))
-    data["tt"].setdefault("next_tt", 131)
-    data["tt"].setdefault("issued", {})
+        data.setdefault(k, v)
     return data
 
 
@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
             folder = R.normalize_dir(d.get("invoices_dir", ""))
             return self._json({"invoices_dir": folder,
                                "folder_ok": bool(folder) and os.path.isdir(folder),
-                               "next_tt": d["tt"].get("next_tt", 131)})
+                               "next_tt": d.get("next_tt", 96)})
         if route == "/download/import.xml":
             return self._file(os.path.join(OUT_DIR, "IOCL_import.xml"),
                               "application/xml", "IOCL_import.xml")
@@ -121,13 +121,13 @@ class Handler(BaseHTTPRequestHandler):
                 data["invoices_dir"] = folder
             if "next_tt" in body:
                 try:
-                    data["tt"]["next_tt"] = int(body["next_tt"])
+                    data["next_tt"] = int(body["next_tt"])
                 except (TypeError, ValueError):
                     pass
             save_data(data)
             return self._json({"ok": True, "invoices_dir": folder,
                                "folder_ok": bool(folder) and os.path.isdir(folder),
-                               "next_tt": data["tt"].get("next_tt", 131)})
+                               "next_tt": data.get("next_tt", 96)})
         if route == "/api/run":
             return self._run(body, data)
         return self._send(404, b"not found", "text/plain")
@@ -139,7 +139,16 @@ class Handler(BaseHTTPRequestHandler):
         invoices_dir = str(body.get("invoices_dir") or data.get("invoices_dir") or "").strip()
         if "invoices_dir" in body:
             data["invoices_dir"] = invoices_dir
-            save_data(data)
+        # Starting purchase (TT) number for this run — taken from the generate
+        # screen, so you control it each time. Numbering is fresh from here in
+        # PAD (date) order, so the same start + same invoices always reproduces
+        # the same TT numbers.
+        try:
+            start_tt = int(body.get("next_tt", data.get("next_tt", 96)))
+        except (TypeError, ValueError):
+            start_tt = data.get("next_tt", 96)
+        data["next_tt"] = start_tt
+        save_data(data)
         try:
             pad_bytes = base64.b64decode(pad_b64.split(",")[-1])
         except Exception as exc:
@@ -150,17 +159,17 @@ class Handler(BaseHTTPRequestHandler):
                 pad_path = tf.name
             text = R.P.extract_text(pad_path)
             os.unlink(pad_path)
-            tt_state = data["tt"]
+            tt_state = {"next_tt": start_tt, "issued": {}}
             records, vouchers, review, summary = R.process(
                 text, invoices_dir, tt_state=tt_state)
             R.write_outputs(OUT_DIR, vouchers, review)
-            save_data(data)   # persist the advanced TT counter + issued map
         except Exception as exc:
             return self._json({"error": f"run failed: {exc}"}, 500)
 
         missing = [{"doc_number": r["doc_number"], "date": r["date"],
                     "amount": r["debit"]} for r in review
                    if r["category"] == "PURCHASE" and r["status"] == "SKIPPED"]
+        n_purch = summary["counts"].get("PURCHASE", 0)
         return self._json({
             "summary": {k: summary[k] for k in (
                 "opening", "n_postable", "reconciles", "first_break",
@@ -169,6 +178,9 @@ class Handler(BaseHTTPRequestHandler):
             "review": review,
             "missing": missing,
             "invoices_dir": invoices_dir,
+            "tt_from": start_tt if n_purch else None,
+            "tt_to": start_tt + n_purch - 1 if n_purch else None,
+            "next_tt": tt_state.get("next_tt", start_tt),
         })
 
 

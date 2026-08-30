@@ -84,11 +84,6 @@
     <input class="t" id="invoices_dir" placeholder="/Users/you/Library/Mobile Documents/com~apple~CloudDocs/Vriddhi Invoices">
     <div class="hint">Point at a year folder to cover every month inside it. Each fuel Product Supply Invoice line
       is matched to its invoice by document number; lines with no invoice are skipped and listed so you know what to add.</div>
-    <label class="f" for="next_tt" style="margin-top:14px">Next purchase voucher no. (TT)</label>
-    <input class="t" id="next_tt" type="number" style="max-width:160px" placeholder="131">
-    <div class="hint">Purchases use manual <code>TT</code> numbering. Set this to the number <b>after</b> your last
-      TT purchase in Tally (e.g. if your last was <code>TT130</code>, enter <code>131</code>). Each invoice keeps its
-      number on re-runs, so re-importing never renumbers.</div>
     <div class="row"><button class="btn primary" id="saveCfg">Save</button><span id="cfgStatus" class="hint"></span></div>
   </section>
 
@@ -101,9 +96,15 @@
     </div>
     <input type="file" id="fileInput" accept="application/pdf" hidden>
     <div class="row">
-      <button class="btn primary" id="runBtn" disabled>Generate vouchers</button>
+      <div>
+        <label class="f" for="next_tt">Next purchase voucher no. (TT)</label>
+        <input class="t" id="next_tt" type="number" style="max-width:150px" placeholder="96">
+      </div>
+      <button class="btn primary" id="runBtn" disabled style="align-self:flex-end">Generate vouchers</button>
       <span id="runStatus" class="hint"></span>
     </div>
+    <div class="hint">Purchases use manual <code>TT</code> numbering — set this to one <b>after</b> your last TT purchase in Tally
+      (journals auto-number in Tally, so they're untouched). The same start + same invoices always produce the same TT numbers.</div>
   </section>
 
   <section class="panel" id="resultPanel" hidden>
@@ -187,7 +188,9 @@ $("#runBtn").onclick=async()=>{
   if(!PAD_B64){toast("Choose the PAD PDF first");return;}
   $("#runBtn").disabled=true;$("#runStatus").innerHTML='<span class="spin"></span>Parsing & generating…';
   try{
-    const res=await api("/api/run",{pad_b64:PAD_B64,invoices_dir:$("#invoices_dir").value.trim()});
+    const body={pad_b64:PAD_B64,invoices_dir:$("#invoices_dir").value.trim()};
+    if($("#next_tt").value!=="") body.next_tt=Number($("#next_tt").value);
+    const res=await api("/api/run",body);
     renderResult(res);$("#runStatus").textContent="";
   }catch(e){$("#runStatus").textContent="Failed: "+e.message;toast("Failed: "+e.message);}
   $("#runBtn").disabled=false;
@@ -203,7 +206,8 @@ function renderResult(res){
     <div class="stat"><div class="k">Vouchers generated</div><div class="v ok">${s.n_vouchers}</div></div>
     <div class="stat"><div class="k">Purchases waiting</div><div class="v ${s.skipped_purchases?'bad':'ok'}">${s.skipped_purchases}</div></div>`;
   const oc = s.open_delivery_addon!=null ? `<span class="chip">Open-delivery add-on (not posted): <b>${money(s.open_delivery_addon)}</b></span>` : "";
-  $("#counts").innerHTML = Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("") + oc;
+  const tt = (res.tt_from!=null) ? `<span class="chip">Purchases numbered <b>TT${String(res.tt_from).padStart(3,"0")}–TT${String(res.tt_to).padStart(3,"0")}</b></span>` : "";
+  $("#counts").innerHTML = Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("") + tt + oc;
 
   // missing invoices
   if(res.missing && res.missing.length){

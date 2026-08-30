@@ -211,7 +211,7 @@ def main(argv=None):
     ap.add_argument("--pad", required=True, help="PAD statement PDF")
     ap.add_argument("--out", required=True, help="output directory")
     ap.add_argument("--invoices", help="folder of IOCL invoice PDFs (for purchases)")
-    ap.add_argument("--tt-start", type=int, default=131,
+    ap.add_argument("--tt-start", type=int, default=96,
                     help="first purchase (TT) voucher number to assign")
     args = ap.parse_args(argv)
 
