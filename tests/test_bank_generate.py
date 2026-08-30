@@ -80,6 +80,20 @@ def test_cgtms_unpaired_transfer_posts_as_contra():
     assert all(G.voucher_balances(v) for v in vouchers)
 
 
+def test_vouchers_emit_in_statement_order():
+    # A cash-deposit (Contra) sits between two other lines; the export must keep
+    # statement order, not group all Contras first.
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010", [
+        _row(0, d, "NEFT CR-SBIN0009678-KESHAV MINERALS-VRIDDHI FUELS-SBIN", dep=141036),
+        _row(1, d, "CASH DEPOSIT BY SELF", dep=50000),
+        _row(2, d, "NEFT DR-X-SALARY PAYMENT", wd=3000),
+    ])
+    vouchers, review, summary = R.process([ca], customers=["Keshav Minerals"], aliases={})
+    types = [e["type"] for e in summary["entries"]]
+    assert types == ["Receipt", "Contra", "Payment"]      # row order, not type order
+
+
 def test_drop_review_row_clears_it_from_review():
     # An unresolved line (goes to review) can be dropped so it stops nagging;
     # it was never in the export anyway.

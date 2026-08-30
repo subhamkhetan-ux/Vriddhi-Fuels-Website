@@ -42,6 +42,15 @@ _ABBR = {
 }
 
 
+# Generic company words that carry no identity on their own — ignored when
+# checking whether a customer's significant tokens are all present in a remitter.
+_GENERIC = {
+    "private", "limited", "company", "corporation", "pvt", "ltd", "co", "corp",
+    "and", "the", "of", "unit", "india", "enterprises", "enterprise", "trading",
+    "traders", "industries", "services", "service", "m/s", "ms", "mrs", "mr",
+}
+
+
 def _canon(s: str) -> str:
     """Normalize + fold common company-suffix abbreviations."""
     return " ".join(_ABBR.get(t, t) for t in norm(s).split())
@@ -89,6 +98,27 @@ def _core_match(raw: str, customers: list[str]) -> tuple[str, str | None, list[s
         return "substring", subs[0], subs
     if len(subs) > 1:
         return "ambiguous", None, subs
+
+    # Tier 2b: token-subset — every SIGNIFICANT word of a customer name appears
+    # somewhere in the remitter, even out of order or interleaved with extra
+    # words ("SRI KESHAV MINERALS TRADING" -> "Keshav Minerals"). Generic company
+    # words are ignored so they can't carry a match on their own. Only trust it
+    # when the significant tokens are substantial (>=2 words, >=8 chars total),
+    # so a lone short word can't spuriously match.
+    qtokens = {w for w in q.split(" ") if w}
+
+    def sig_tokens(nn: str) -> set:
+        return {w for w in nn.split(" ") if w not in _GENERIC and len(w) >= 3}
+
+    tsubs = []
+    for n, nn in normed:
+        st = sig_tokens(nn)
+        if st and st <= qtokens and len(st) >= 2 and sum(len(w) for w in st) >= 8:
+            tsubs.append(n)
+    if len(tsubs) == 1:
+        return "substring", tsubs[0], tsubs
+    if len(tsubs) > 1:
+        return "ambiguous", None, tsubs
 
     # Tier 3: no substring — offer closest by word overlap (never auto-picked).
     words = {w for w in q.split(" ") if w}
