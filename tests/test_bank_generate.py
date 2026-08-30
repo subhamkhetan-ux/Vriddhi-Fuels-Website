@@ -80,6 +80,22 @@ def test_cgtms_unpaired_transfer_posts_as_contra():
     assert all(G.voucher_balances(v) for v in vouchers)
 
 
+def test_drop_review_row_clears_it_from_review():
+    # An unresolved line (goes to review) can be dropped so it stops nagging;
+    # it was never in the export anyway.
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010",
+          [_row(0, d, "NEFT CR-RBIS0GOODEP-ODISHA SARKAR-VRIDDHIFUELS-RBISH1", dep=23980)])
+    vouchers, review, summary = R.process([ca], customers=[], aliases={})
+    assert summary["n_review"] == 1 and summary["n_vouchers"] == 0
+    key = review[0]["key"]
+    vouchers2, review2, summary2 = R.process([ca], customers=[], aliases={}, dropped={key})
+    assert summary2["n_review"] == 0          # no longer nagging
+    assert summary2["n_dropped"] == 1
+    assert review2[0]["dropped"] is True      # still returned, flagged, for restore
+    assert vouchers2 == []
+
+
 def test_drop_excludes_entry_from_export():
     d = dt.date(2026, 8, 5)
     ca = ("HDFC BANK C/A - 59217010101010",
