@@ -23,3 +23,7 @@ token_*.json
 # Standalone consignment-note app — local config + running serial counter.
 # Holds machine-specific paths and the note-number state; never committed.
 consign/data.json
+
+# IOCL PAD -> Tally importer outputs (generated locally from a PAD statement).
+IOCL_import.xml
+IOCL_review.csv
