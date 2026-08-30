@@ -33,7 +33,7 @@ OWN_ACCOUNTS = {
 
 # Payment narration keyword -> counter ledger (extend as needed).
 PAYMENT_RULES = [
-    (r"INDIAN OIL", "M/s Indian Oil Corporation Limited"),
+    # IOCL payments are handled by the skip rule above (owned by the PAD tool).
     (r"\bCBDT\b|TAX PAYMENT|INCOME TAX", "TDS PAID 194Q 2026-27"),
     (r"\bSALARY\b", "Salary"),
     (r"CREDIT CARD|CC PAYMENT|CARD 7311", "HDFC Corporate Credit Card 7311"),
@@ -86,6 +86,8 @@ class Classification:
     counterparty_raw: str           # what we parsed from the narration
     tier: str                       # how we decided (own/rule/alias/exact/…)
     candidates: list[str]           # for a review dropdown
+    skip: bool = False              # already recorded elsewhere (IOCL PAD) — don't post
+    skip_reason: str = ""
 
 
 def _own_account_in(narration: str, exclude: str | None) -> str | None:
@@ -158,6 +160,15 @@ def classify(row, customers, aliases=None):
     aliases = aliases or {}
     narr = row.narration or ""
     up = narr.upper()
+
+    # 0. Payments to IOCL are already posted by the IOCL PAD tool (its "Customer
+    #    ECollection" journals). Skip them so the two tools never double-count —
+    #    verified: every bank->IOCL payment matches a PAD ECollection by date+amount.
+    if not row.is_credit and re.search(r"INDIAN OIL", up):
+        return Classification(
+            PAYMENT, "M/s Indian Oil Corporation Limited", "Indian Oil Corporation",
+            "iocl-pad", [], skip=True,
+            skip_reason="already posted by the IOCL PAD tool (Customer ECollection)")
 
     # 1. Contra — a transfer between the firm's own accounts, or a cash deposit
     #    into the bank (cash only flows in: Bank Dr / Cash Cr).

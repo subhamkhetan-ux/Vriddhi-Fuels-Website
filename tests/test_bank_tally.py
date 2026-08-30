@@ -55,10 +55,12 @@ def test_classify_cash_deposit_is_contra_to_cash():
     assert cl.vtype == C.CONTRA and cl.counter_ledger == "Cash"
 
 
-def test_classify_payment_to_iocl():
+def test_classify_iocl_payment_is_skipped():
+    # IOCL payments are posted by the PAD tool; the bank tool skips them to avoid
+    # double-counting.
     cl = C.classify(_row("RTGS DR-SBIN0009995-INDIAN OIL CORPORATION LIMITED-NETBANK",
                          withdrawal=2000000), CUSTOMERS)
-    assert cl.vtype == C.PAYMENT
+    assert cl.skip is True
     assert cl.counter_ledger == "M/s Indian Oil Corporation Limited"
 
 
