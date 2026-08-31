@@ -40,15 +40,50 @@ YOU (once)                          THIS MONITOR (every 2 min, per account)
   hold one XtraPower session, so each account gets its **own** Chrome window
   (own `--user-data-dir`, own debug port). All are watched together.
 
-## One-time setup
+## Quick start on a Mac (the easy path)
 
-1. **Install Python 3 and the driver:**
+Open **Terminal** (⌘-Space, type "Terminal") and run these, one at a time. All
+paths assume the repo is at `~/Vriddhi-Fuels-Website`.
+
+```bash
+cd ~/Vriddhi-Fuels-Website
+./xtrapower/setup-mac.sh          # installs everything into a local .venv, makes your config
+open -e xtrapower/config.json     # fill in your Telegram token + accounts, then save
+./xtrapower/launch-mac.sh         # opens one Chrome window per account — log into each
+./xtrapower/run-mac.sh            # starts monitoring (Ctrl-C to stop)
+```
+
+That's it. The four scripts handle Python, Playwright, and the virtual
+environment for you — you never type `pip` or `python` directly.
+
+- **`setup-mac.sh`** — run **once**. If it says Python isn't installed, run
+  `xcode-select --install`, finish the popup, and run it again.
+- **`config.json`** — reuse your existing Telegram bot **token** and **chat id**
+  from the old setup if you have them. Put one block per account under
+  `accounts`, each with a **unique `cdp_port`** (9222, 9223, 9224, …).
+  `watch: false` pauses an account without deleting it.
+- **`launch-mac.sh`** — opens the login windows. Log into each, go to
+  **Financials → Balance Info**, run **Search** once so the table shows, and
+  leave the window there.
+- **`run-mac.sh`** — start monitoring. Add `--once` for a single test pass:
+  `./xtrapower/run-mac.sh --once`.
+
+Everything below is the same thing explained in full, plus the manual commands
+if you'd rather not use the scripts.
+
+## Manual setup (any OS)
+
+1. **Install Python 3 and the driver** into a virtual environment (on macOS
+   there's no bare `pip` — use `python3 -m pip`, or just use the scripts above):
    ```bash
-   pip install -r xtrapower/requirements.txt
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install -r xtrapower/requirements.txt
    ```
    You already have Chrome, and the monitor drives *your* Chrome, so you do not
    need `playwright install` — but if you ever want Playwright's own Chromium,
-   run `python -m playwright install chromium`.
+   run `python -m playwright install chromium`. Each new terminal, re-run
+   `source .venv/bin/activate` before the `python -m xtrapower.*` commands.
 
 2. **Make a Telegram bot** (if you don't have one from the old setup): message
    [@BotFather](https://t.me/BotFather) → `/newbot` → copy the **token**. Send
@@ -64,11 +99,11 @@ YOU (once)                          THIS MONITOR (every 2 min, per account)
    - one block per account under `accounts`, each with a **unique `cdp_port`**
      (9222, 9223, 9224, …). `watch: false` pauses an account without deleting it.
 
-   `config.json`, the saved Chrome `profiles/`, and `state.json` are
+   `config.json`, the saved Chrome `profiles/`, `.venv`, and `state.json` are
    git-ignored — they hold your token and logged-in sessions and must stay on
    this machine only.
 
-## Every time you want to monitor
+## Every time you want to monitor (manual commands)
 
 1. **Open the Chrome windows:**
    ```bash
@@ -146,6 +181,9 @@ server and risks drawing a firewall block — 2 minutes is already brisk.
 
 | File | Purpose |
 |---|---|
+| `setup-mac.sh` | One-time Mac setup: makes `.venv`, installs Playwright, creates `config.json` |
+| `launch-mac.sh` | Mac wrapper: activates `.venv` and opens the login windows |
+| `run-mac.sh` | Mac wrapper: activates `.venv` and starts the monitor |
 | `launch.py` | Opens one Chrome window per account with a debug port + saved profile |
 | `monitor.py` | The 2-minute loop: attach → click Search → read CCMS → compare → alert |
 | `browser.py` | CDP attach, Search-button click, and CCMS table scrape (Playwright) |
