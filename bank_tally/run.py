@@ -93,6 +93,12 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         for r in rows:
             classified.append((bank_ledger, r, C.classify(r, customers, aliases)))
 
+    # Count all statement lines up front — resolved rows are removed from
+    # ``classified`` below, so measuring later would undercount n_lines and break
+    # the reconciliation.
+    n_lines = len(classified)
+    all_rows = [r for _, r, _ in classified]
+
     entries, review = [], []
     skipped_iocl = 0
 
@@ -252,7 +258,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     n_paired = sum(1 for e in entries if e["srclines"] == 2)
 
     summary = {
-        "n_lines": len(classified),
+        "n_lines": n_lines,
         "n_vouchers": len(vouchers),
         "counts": counts,
         "skipped_iocl": skipped_iocl,
@@ -260,8 +266,8 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         "n_dropped": n_dropped,
         "n_paired": n_paired,
         "lines_accounted": lines_accounted,
-        "accounted_ok": lines_accounted == len(classified),
-        "reconciles": all(r.reconciles for _, r, _ in classified),
+        "accounted_ok": lines_accounted == n_lines,
+        "reconciles": all(r.reconciles for r in all_rows),
         "entries": [{k: v for k, v in e.items() if k not in ("xml", "_sort", "_ymd")}
                     for e in entries],
         "skipped": skipped,
