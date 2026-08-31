@@ -127,20 +127,21 @@ def _audit_csv() -> bytes:
     review = _LAST.get("review", [])
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Account", "Date", "Direction", "Amount", "Disposition",
-                "Ledger", "Narration"])
+    w.writerow(["Account", "Date", "Voucher No", "Direction", "Amount",
+                "Disposition", "Ledger", "Narration"])
     rows = []
     for e in summary.get("entries", []):
         disp = "DROPPED (by hand)" if e.get("dropped") else e["type"]
-        rows.append([e["account"], e["date"], e["direction"], e["amount"], disp,
+        rows.append([e["account"], e["date"], e.get("voucher_no", ""),
+                     e["direction"], e["amount"], disp,
                      e.get("counter_ledger", ""), e["narration"]])
     for r in review:
         if r.get("dropped"):
             continue
-        rows.append([r["account"], r["date"], r["direction"], r["amount"],
+        rows.append([r["account"], r["date"], "", r["direction"], r["amount"],
                      "REVIEW (needs a ledger)", "", r["narration"]])
     for sk in summary.get("skipped", []):
-        rows.append([sk["account"], sk["date"], sk["direction"], sk["amount"],
+        rows.append([sk["account"], sk["date"], "", sk["direction"], sk["amount"],
                      "IOCL-SKIP (posted by PAD tool)", "", sk["narration"]])
     rows.sort(key=lambda r: (r[1][6:10], r[1][3:5], r[1][0:2]))   # by yyyy,mm,dd
     for r in rows:

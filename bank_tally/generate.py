@@ -127,6 +127,19 @@ def make_contra(ymd: str, amount: float, source_bank: str, dest_bank: str,
     return _set_narration(vch, narration)
 
 
+def add_voucher_number(vch: str, number: str) -> str:
+    """Stamp an explicit VOUCHERNUMBER. Tally silently DROPS ~half of
+    number-less vouchers on a bulk XML import (its auto-numbering collapses
+    them, with no skip warning); a unique number per voucher makes every one
+    import. Numbers are alphanumeric + date-based so they never collide with the
+    company's existing numeric series, and re-importing the same month updates
+    rather than duplicating."""
+    tag = f"<VOUCHERNUMBER>{number}</VOUCHERNUMBER>"
+    if "<VOUCHERNUMBER>" in vch:
+        return re.sub(r"<VOUCHERNUMBER>[^<]*</VOUCHERNUMBER>", tag, vch, count=1)
+    return re.sub(r"(<VOUCHERTYPENAME>)", tag + r"\1", vch, count=1)
+
+
 def voucher_balances(vch: str) -> bool:
     amts = [float(x) for x in re.findall(
         r"<ALLLEDGERENTRIES\.LIST>.*?<AMOUNT>(-?[\d.]+)</AMOUNT>", vch, re.S)]

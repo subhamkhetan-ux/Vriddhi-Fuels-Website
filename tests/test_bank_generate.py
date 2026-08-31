@@ -80,6 +80,23 @@ def test_cgtms_unpaired_transfer_posts_as_contra():
     assert all(G.voucher_balances(v) for v in vouchers)
 
 
+def test_every_voucher_gets_a_unique_number():
+    import re
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010", [
+        _row(0, d, "NEFT CR-SBIN0009678-KESHAV MINERALS-VRIDDHI FUELS-SBIN", dep=141036),
+        _row(1, d, "NEFT CR-SBIN0009678-KESHAV MINERALS-VRIDDHI FUELS-SBIN", dep=50000),
+        _row(2, dt.date(2026, 8, 6), "NEFT DR-X-SALARY PAYMENT", wd=3000),
+    ])
+    vouchers, review, summary = R.process([ca], customers=["Keshav Minerals"], aliases={})
+    nums = [re.search(r"<VOUCHERNUMBER>([^<]*)</VOUCHERNUMBER>", v).group(1) for v in vouchers]
+    assert len(nums) == len(set(nums)) == 3            # unique per voucher
+    assert nums[0] == "BR/20260805/01" and nums[1] == "BR/20260805/02"
+    assert any(n.startswith("BP/20260806/") for n in nums)
+    # the number is also exposed on the entries for the audit
+    assert all(e["voucher_no"] for e in summary["entries"])
+
+
 def test_reconciliation_accounts_for_every_line():
     d = dt.date(2026, 8, 5)
     ca = ("HDFC BANK C/A - 59217010101010", [
