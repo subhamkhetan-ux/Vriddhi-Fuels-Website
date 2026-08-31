@@ -1,0 +1,6 @@
+# XtraPower CCMS monitor. Install into a virtualenv, then run:
+#   python -m playwright install chromium   # only needed if you don't use system Chrome
+#
+# The monitor attaches to *your* Chrome over CDP, so a system Chrome install is
+# all that's strictly required for launch.py; Playwright drives it either way.
+playwright>=1.40

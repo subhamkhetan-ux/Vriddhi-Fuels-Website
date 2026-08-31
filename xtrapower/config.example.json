@@ -1,0 +1,27 @@
+{
+  "poll_seconds": 120,
+  "telegram": {
+    "token": "PUT-YOUR-BOTFATHER-TOKEN-HERE",
+    "chat_id": "PUT-YOUR-CHAT-ID-HERE"
+  },
+  "accounts": [
+    {
+      "label": "Shyam Metalics",
+      "customer_id": "1005218882",
+      "cdp_port": 9222,
+      "watch": true
+    },
+    {
+      "label": "Ember Coal",
+      "customer_id": "1005079471",
+      "cdp_port": 9223,
+      "watch": true
+    },
+    {
+      "label": "SSL XP",
+      "customer_id": "1005133705",
+      "cdp_port": 9224,
+      "watch": true
+    }
+  ]
+}
