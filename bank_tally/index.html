@@ -209,15 +209,15 @@ function renderReview(){
       <td>${r.dropped?'<span class="sub" style="color:var(--faint)">by hand</span>':`<input class="led" list="ledgers" id="led${i}" placeholder="Ledger name">`}</td>
       <td>${r.dropped
         ? `<button class="btn sm" onclick="dropEntry('${r.key}',false)">Restore</button>`
-        : `<button class="btn sm" onclick="resolveRow(${i},'${encodeURIComponent(r.parsed_name)}')">Save</button>
+        : `<button class="btn sm" onclick="resolveRow(${i},'${encodeURIComponent(r.parsed_name)}','${r.key}','${esc(r.tier)}')">Save</button>
            <button class="btn sm" onclick="dropEntry('${r.key}',true)">Drop</button>`}</td>
     </tr>`;}).join("");
 }
 
-async function resolveRow(i, encName){
+async function resolveRow(i, encName, key, tier){
   const led=$("#led"+i).value.trim();
   if(!led){toast("Type a ledger name");return;}
-  try{ render(await api("/api/resolve",{parsed_name:decodeURIComponent(encName),ledger:led})); toast("Saved — re-generated"); }
+  try{ render(await api("/api/resolve",{parsed_name:decodeURIComponent(encName),ledger:led,key:key,tier:tier})); toast("Saved — added to export"); }
   catch(e){ toast("Failed: "+e.message); }
 }
 </script>

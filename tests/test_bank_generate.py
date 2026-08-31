@@ -94,6 +94,37 @@ def test_vouchers_emit_in_statement_order():
     assert types == ["Receipt", "Contra", "Payment"]      # row order, not type order
 
 
+def test_resolve_force_review_row_by_key_adds_receipt():
+    # ODISHA SARKAR ignores aliases; a per-transaction resolution must still
+    # add the voucher and clear it from review.
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010",
+          [_row(0, d, "NEFT CR-RBIS0GOODEP-ODISHA SARKAR-VRIDDHIFUELS-RBISH1", dep=23980)])
+    vouchers, review, summary = R.process([ca], customers=[], aliases={})
+    assert summary["n_review"] == 1 and summary["n_vouchers"] == 0
+    key = review[0]["key"]
+    v2, r2, s2 = R.process([ca], customers=[], aliases={},
+                           resolved={key: "JYOTI RANJAN DASH"})
+    assert s2["n_review"] == 0 and s2["n_vouchers"] == 1
+    assert s2["entries"][0]["type"] == "Receipt"
+    assert s2["entries"][0]["counter_ledger"] == "JYOTI RANJAN DASH"
+    assert all(G.voucher_balances(v) for v in v2)
+
+
+def test_resolve_unpaired_transfer_by_key_to_bank_makes_contra():
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010",
+          [_row(0, d, "IB FUNDS TRANSFER DR-VRIDDHI FUELS", wd=500000)])
+    vouchers, review, summary = R.process([ca], customers=[], aliases={})
+    assert summary["n_review"] == 1                 # unpaired self-transfer
+    key = review[0]["key"]
+    dest = "HDFC BANK OD A/C - 50200110712542"
+    v2, r2, s2 = R.process([ca], customers=[], aliases={}, resolved={key: dest})
+    assert s2["n_review"] == 0 and s2["counts"]["Contra"] == 1
+    assert s2["entries"][0]["counter_ledger"] == dest
+    assert all(G.voucher_balances(v) for v in v2)
+
+
 def test_drop_review_row_clears_it_from_review():
     # An unresolved line (goes to review) can be dropped so it stops nagging;
     # it was never in the export anyway.

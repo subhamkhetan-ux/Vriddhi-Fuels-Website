@@ -79,6 +79,18 @@ def toggle_dropped(key: str, drop: bool) -> None:
     _save_data(d)
 
 
+def load_resolved() -> dict:
+    """Per-transaction ledger the user picked in review (entry key -> ledger).
+    Used for rows that ignore aliases (force-review, unpaired transfers)."""
+    return dict(_load_json(DATA_PATH, {}).get("resolved", {}))
+
+
+def save_resolved(key: str, ledger: str) -> None:
+    d = _load_json(DATA_PATH, {})
+    d.setdefault("resolved", {})[key] = ledger
+    _save_data(d)
+
+
 def customers() -> list:
     return [c for c in _load_json(CUSTOMERS, []) if "auto-source" not in str(c).lower()]
 
@@ -92,7 +104,8 @@ def ledger_suggestions() -> list:
 
 def _process_and_write():
     vouchers, review, summary = R.process(
-        _STATEMENTS, customers(), load_aliases(), dropped=load_dropped())
+        _STATEMENTS, customers(), load_aliases(),
+        dropped=load_dropped(), resolved=load_resolved())
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, "bank_import.xml"), "w", encoding="utf-8") as fh:
         fh.write(G.build_envelope(vouchers))
@@ -149,9 +162,21 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/run":
             return self._run(body)
         if route == "/api/resolve":
-            name, ledger = body.get("parsed_name"), (body.get("ledger") or "").strip()
-            if name and ledger:
-                save_alias(name, ledger)
+            name = body.get("parsed_name")
+            ledger = (body.get("ledger") or "").strip()
+            key = (body.get("key") or "").strip()
+            tier = body.get("tier") or ""
+            if ledger:
+                # Always resolve THIS transaction, so the row leaves review and
+                # enters the export — this is what makes force-review / unpaired
+                # transfers resolvable.
+                if key:
+                    save_resolved(key, ledger)
+                # Also learn an alias for a real payee name, so future statements
+                # auto-match. Skip it for rows that vary per transaction or aren't
+                # a payee (force-review like ODISHA SARKAR, self-transfers).
+                if name and tier not in ("force-review", "self-transfer"):
+                    save_alias(name, ledger)
             return self._json(_process_and_write())
         if route == "/api/drop":
             key = (body.get("key") or "").strip()
