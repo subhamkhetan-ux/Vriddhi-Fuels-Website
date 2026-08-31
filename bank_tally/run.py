@@ -65,17 +65,26 @@ def _pair_contras(items):
     return pairs, leftovers
 
 
-def process(statements, customers, aliases=None, dropped=None):
+# Ledgers that make a resolved row a Contra (an own bank account or Cash) rather
+# than a Receipt/Payment.
+BANK_LEDGERS = set(C.OWN_ACCOUNTS.values()) | {"Cash"}
+
+
+def process(statements, customers, aliases=None, dropped=None, resolved=None):
     """Return ``(vouchers, review, summary)``.
 
     ``vouchers`` is the XML for every generated voucher NOT in ``dropped``.
     ``review`` lists rows whose counter ledger is unresolved (skip/self-transfer
     handled) — the app resolves these before export.
+    ``resolved`` maps an entry key -> a ledger the user picked in review for that
+    exact transaction; it wins over classification (so force-review and
+    unpaired-transfer rows, which ignore aliases, can still be resolved by hand).
     ``summary["entries"]`` lists every generated voucher (dropped or not) with a
     stable key, for the app's drop/restore list.
     """
     aliases = aliases or {}
     dropped = set(dropped or ())
+    resolved = dict(resolved or {})
     # Bank priority = order the statements were given, so that on a shared date
     # each bank's lines stay grouped in the order they appear on that statement.
     acct_prio = {led: i for i, (led, _) in enumerate(statements)}
@@ -108,6 +117,35 @@ def process(statements, customers, aliases=None, dropped=None):
             "xml": xml,
             "_sort": _sort_key(account, date, index),
         })
+
+    # --- Per-transaction resolutions (a ledger the user picked in review) win
+    #     over classification, so force-review / unpaired-transfer rows resolve. -
+    handled = set()
+    for acct, row, cl in classified:
+        k = entry_key(acct, row.date, row.amount, row.narration)
+        if k not in resolved:
+            continue
+        handled.add(id(row))
+        led = resolved[k]
+        ymd = _ymd(row.date)
+        if led in BANK_LEDGERS:                 # transfer -> Contra
+            if row.is_credit:                   # money in: source(Cr)=led, dest(Dr)=acct
+                xml = G.make_contra(ymd, row.amount, led, acct, row.narration)
+                add_entry("Contra", xml, acct, row.date, row.amount, "credit",
+                          row.narration, led, row.index)
+            else:                               # money out: source(Cr)=acct, dest(Dr)=led
+                xml = G.make_contra(ymd, row.amount, acct, led, row.narration)
+                add_entry("Contra", xml, acct, row.date, row.amount, "debit",
+                          row.narration, led, row.index)
+        elif row.is_credit:
+            xml = G.make_receipt(ymd, row.amount, acct, led, row.narration)
+            add_entry("Receipt", xml, acct, row.date, row.amount, "credit",
+                      row.narration, led, row.index)
+        else:
+            xml = G.make_payment(ymd, row.amount, acct, led, row.narration)
+            add_entry("Payment", xml, acct, row.date, row.amount, "debit",
+                      row.narration, led, row.index)
+    classified = [(a, r, c) for a, r, c in classified if id(r) not in handled]
 
     # --- Contra: cash deposits post directly; inter-account transfers pair. ----
     contra_items, cash_items = [], []
@@ -199,6 +237,7 @@ def process(statements, customers, aliases=None, dropped=None):
 def _review_row(account, row, cl, note):
     return {
         "key": entry_key(account, row.date, row.amount, row.narration),
+        "tier": cl.tier,
         "account": account,
         "date": row.date.strftime("%d-%m-%Y") if row.date else "",
         "type": cl.vtype,
