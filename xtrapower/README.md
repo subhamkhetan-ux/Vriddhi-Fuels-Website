@@ -71,6 +71,45 @@ environment for you — you never type `pip` or `python` directly.
 Everything below is the same thing explained in full, plus the manual commands
 if you'd rather not use the scripts.
 
+## Daily use — turning it on and off
+
+Think of it as two things that must both be up: **the Chrome windows** (your
+logins) and **the monitor** (the watcher).
+
+**To turn it ON for the day:**
+```bash
+./xtrapower/launch-mac.sh          # only if the login windows aren't already open
+#   … log into each window, go to Balance Info, click Search once …
+./xtrapower/monitor-mac.sh start   # start watching (runs in the background)
+```
+`start` keeps running even after you close Terminal, and keeps the Mac awake
+while it runs. You'll get a ✅ on Telegram as each account is picked up, then a
+🟢 on every credit.
+
+**To check on it:**
+```bash
+./xtrapower/monitor-mac.sh status  # ON or OFF, plus recent activity
+./xtrapower/monitor-mac.sh logs    # watch it live (Ctrl-C just leaves the viewer)
+```
+
+**To turn it OFF:**
+```bash
+./xtrapower/monitor-mac.sh stop
+```
+That fully stops it — no more checks or alerts until you `start` again. The
+Chrome windows stay open (harmless); close them whenever you like.
+
+Notes for the daily rhythm:
+- The Chrome login windows need to stay open and logged in. If the Mac
+  restarts or you quit Chrome, run `launch-mac.sh` again and log back in, then
+  `monitor-mac.sh start`.
+- If a session times out during the day you'll get a ⚠️, and the monitor waits
+  quietly until you log that window back in — then it re-confirms with a ✅ on
+  its own. You don't need to restart anything.
+- `run-mac.sh` is the *foreground* alternative (runs in the Terminal window,
+  stops on Ctrl-C) — handy for a quick `--once` test; `monitor-mac.sh start` is
+  the set-and-forget one.
+
 ## Manual setup (any OS)
 
 1. **Install Python 3 and the driver** into a virtual environment (on macOS
@@ -183,7 +222,8 @@ server and risks drawing a firewall block — 2 minutes is already brisk.
 |---|---|
 | `setup-mac.sh` | One-time Mac setup: makes `.venv`, installs Playwright, creates `config.json` |
 | `launch-mac.sh` | Mac wrapper: activates `.venv` and opens the login windows |
-| `run-mac.sh` | Mac wrapper: activates `.venv` and starts the monitor |
+| `monitor-mac.sh` | On/off switch: `start` / `stop` / `status` / `logs` (background, keeps Mac awake) |
+| `run-mac.sh` | Mac wrapper: run the monitor in the foreground (good for `--once` tests) |
 | `launch.py` | Opens one Chrome window per account with a debug port + saved profile |
 | `monitor.py` | The 2-minute loop: attach → click Search → read CCMS → compare → alert |
 | `browser.py` | CDP attach, Search-button click, and CCMS table scrape (Playwright) |
