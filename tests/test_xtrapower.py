@@ -171,8 +171,12 @@ def _reading(headers, rows, text="Balance Info", url="https://beta.iocxtrapower.
     return browser_mod.Reading(url=url, text=text, headers=headers, rows=rows)
 
 
-def _run_check(monkeypatch, pool, readings, click_ok=True):
-    """Drive one check_account with scripted read_page results."""
+def _run_check(monkeypatch, pool, readings, click_ok=True, ready=None, st=None, cid="999"):
+    """Drive one check_account with scripted read_page results.
+
+    ``ready`` is the per-run hand-over dict; pass ``{cid: True}`` to simulate an
+    account that has already been handed over (past the quiet waiting phase).
+    """
     seq = list(readings)
 
     async def fake_read_page(page, settle_ms=1500):
@@ -185,105 +189,120 @@ def _run_check(monkeypatch, pool, readings, click_ok=True):
     monkeypatch.setattr(monitor.browser, "click_search", fake_click)
 
     tg = _CapturingTelegram()
-    st = {"accounts": {}}
-    acct_cfg = {"label": "Test", "customer_id": "999", "cdp_port": 9222}
-    asyncio.run(monitor.check_account(pool, acct_cfg, st, tg))
-    return tg, st
+    st = st if st is not None else {"accounts": {}}
+    ready = ready if ready is not None else {}
+    acct_cfg = {"label": "Test", "customer_id": cid, "cdp_port": 9222}
+    asyncio.run(monitor.check_account(pool, acct_cfg, st, tg, ready))
+    return tg, st, ready
 
 
-def test_check_baseline_then_change(tmp_path, monkeypatch):
+HDR = ["CCMS"]
+
+
+def test_handover_confirms_then_credits(monkeypatch):
+    """First clean read → ✅ 'now watching'; a later increase → 🟢 credit."""
     page = object()
-    pool = _FakePool(page)
-    hdr = ["CCMS"]
-    # cycle 1: pre-read (settle 0) + post-click read → baseline
-    tg, st = _run_check(monkeypatch, pool,
-                        [_reading(hdr, [["₹100.00"]]), _reading(hdr, [["₹100.00"]])])
-    assert tg.messages == []                      # baseline is silent
+    ready, st = {}, {"accounts": {}}
+
+    # Cycle 1 (not yet ready): confirmation, not a credit alert, and it baselines.
+    tg1, st, ready = _run_check(monkeypatch, _FakePool(page),
+                                [_reading(HDR, [["₹100.00"]]), _reading(HDR, [["₹100.00"]])],
+                                ready=ready, st=st)
+    assert len(tg1.messages) == 1
+    assert "now watching" in tg1.messages[0].lower()
+    assert ready["999"] is True
     assert st["accounts"]["999"]["ccms"] == "₹100.00"
 
-    # cycle 2: value moved up → one credited alert
-    tg2, _ = _run_check(monkeypatch, _FakePool(page),
-                        [_reading(hdr, [["₹100.00"]]), _reading(hdr, [["₹250.00"]])])
-    # reuse prior state
-    st2 = {"accounts": {"999": {"ccms": "₹100.00"}}}
-    seq = [_reading(hdr, [["₹100.00"]]), _reading(hdr, [["₹250.00"]])]
-
-    async def fake_read_page(page, settle_ms=1500):
-        return seq.pop(0)
-
-    async def fake_click(page, timeout_ms=8000):
-        return True
-
-    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
-    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
-    tgc = _CapturingTelegram()
-    asyncio.run(monitor.check_account(_FakePool(page), {"label": "Test", "customer_id": "999", "cdp_port": 9222}, st2, tgc))
-    assert len(tgc.messages) == 1
-    assert "credited" in tgc.messages[0]
-    assert st2["accounts"]["999"]["ccms"] == "₹250.00"
+    # Cycle 2 (now ready): value up → exactly one credited alert.
+    tg2, st, ready = _run_check(monkeypatch, _FakePool(page),
+                                [_reading(HDR, [["₹100.00"]]), _reading(HDR, [["₹250.00"]])],
+                                ready=ready, st=st)
+    assert len(tg2.messages) == 1
+    assert "credited" in tg2.messages[0]
+    assert st["accounts"]["999"]["ccms"] == "₹250.00"
 
 
-def test_check_decrease_does_not_alert(monkeypatch):
+def test_handover_flags_offline_credit(monkeypatch):
+    """A credit that landed while the monitor was off is reported on hand-over."""
     page = object()
-    hdr = ["CCMS"]
+    st = {"accounts": {"999": {"ccms": "₹100.00"}}}   # last-known from a prior run
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page),
+                               [_reading(HDR, [["₹500.00"]]), _reading(HDR, [["₹500.00"]])],
+                               ready={}, st=st)
+    assert len(tg.messages) == 1
+    assert "now watching" in tg.messages[0].lower()
+    assert "credited since last check" in tg.messages[0].lower()
+    assert ready["999"] is True
+
+
+def test_not_logged_in_is_quiet_until_handover(monkeypatch):
+    """A not-yet-logged-in window waits quietly — no alert while ready is unset."""
+    page = object()
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page),
+                               [_reading([], [], text="Customer ID Password",
+                                         url="https://beta.iocxtrapower.com/login")],
+                               ready={})
+    assert tg.messages == []               # quiet
+    assert ready.get("999") is not True
+
+
+def test_decrease_does_not_alert_when_ready(monkeypatch):
+    page = object()
     st = {"accounts": {"999": {"ccms": "₹250.00"}}}
-    seq = [_reading(hdr, [["₹250.00"]]), _reading(hdr, [["₹100.00"]])]
-
-    async def fake_read_page(page, settle_ms=1500):
-        return seq.pop(0)
-
-    async def fake_click(page, timeout_ms=8000):
-        return True
-
-    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
-    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
-    tg = _CapturingTelegram()
-    asyncio.run(monitor.check_account(_FakePool(page),
-                {"label": "T", "customer_id": "999", "cdp_port": 9222}, st, tg))
-    assert tg.messages == []                       # debit → no alert
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page),
+                               [_reading(HDR, [["₹250.00"]]), _reading(HDR, [["₹100.00"]])],
+                               ready={"999": True}, st=st)
+    assert tg.messages == []                            # debit → no alert
     assert st["accounts"]["999"]["ccms"] == "₹100.00"   # but value still refreshed
 
 
-def test_check_alerts_on_chrome_unreachable(monkeypatch):
-    pool = _FakePool(None, raise_on_find=True)
-    tg = _CapturingTelegram()
-    st = {"accounts": {}}
-    asyncio.run(monitor.check_account(pool, {"label": "T", "customer_id": "9", "cdp_port": 9222}, st, tg))
-    assert len(tg.messages) == 1
-    assert "debug port" in tg.messages[0]
-    assert pool.dropped == [9222]
-
-
-def test_check_alerts_on_logout(monkeypatch):
+def test_logout_after_handover_alerts_and_drops_to_waiting(monkeypatch):
+    """Once watching, a session drop alerts once and returns to quiet waiting."""
     page = object()
-    pool = _FakePool(page)
-    tg, st = _run_check(monkeypatch, pool,
-                        [_reading([], [], text="Your session has expired. Please login again.")])
+    ready = {"999": True}
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page),
+                               [_reading([], [], text="Your session has expired. Please login again.")],
+                               ready=ready)
     assert len(tg.messages) == 1
-    assert "logged out" in tg.messages[0].lower() or "session" in tg.messages[0].lower()
+    assert "session" in tg.messages[0].lower() or "logged out" in tg.messages[0].lower()
+    assert ready["999"] is False                        # back to awaiting, quiet next time
 
 
-def test_check_alerts_on_waf_block(monkeypatch):
+def test_chrome_unreachable_quiet_before_handover_alerts_after(monkeypatch):
+    # Before hand-over: quiet.
+    pool1 = _FakePool(None, raise_on_find=True)
+    tg1, _, ready = _run_check(monkeypatch, pool1, [], ready={}, cid="9")
+    assert tg1.messages == []
+    assert pool1.dropped == [9222]
+
+    # After hand-over: the same condition is a real alert.
+    pool2 = _FakePool(None, raise_on_find=True)
+    tg2, _, ready = _run_check(monkeypatch, pool2, [], ready={"9": True}, cid="9")
+    assert len(tg2.messages) == 1
+    assert "debug port" in tg2.messages[0]
+    assert ready["9"] is False
+
+
+def test_waf_block_alerts_even_before_handover(monkeypatch):
     page = object()
-    pool = _FakePool(page)
     waf = "The requested URL was rejected. Please consult with your administrator. Your support ID is: 1"
-    tg, st = _run_check(monkeypatch, pool, [_reading([], [], text=waf)])
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page), [_reading([], [], text=waf)], ready={})
     assert len(tg.messages) == 1
     assert "firewall" in tg.messages[0].lower()
 
 
-def test_check_alerts_when_search_button_missing(monkeypatch):
+def test_missing_search_alerts_when_ready(monkeypatch):
     page = object()
-    pool = _FakePool(page)
-    tg, st = _run_check(monkeypatch, pool, [_reading(["CCMS"], [["₹1"]])], click_ok=False)
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page), [_reading(HDR, [["₹1"]])],
+                               click_ok=False, ready={"999": True})
     assert len(tg.messages) == 1
     assert "Search" in tg.messages[0]
 
 
-def test_check_alerts_when_ccms_unreadable(monkeypatch):
+def test_unreadable_ccms_alerts_when_ready(monkeypatch):
     page = object()
-    pool = _FakePool(page)
-    tg, st = _run_check(monkeypatch, pool,
-                        [_reading(["Other"], [["x"]]), _reading(["Other"], [["x"]])])
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page),
+                               [_reading(["Other"], [["x"]]), _reading(["Other"], [["x"]])],
+                               ready={"999": True})
     assert len(tg.messages) == 1
     assert "CCMS" in tg.messages[0]

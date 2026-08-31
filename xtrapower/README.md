@@ -76,18 +76,20 @@ YOU (once)                          THIS MONITOR (every 2 min, per account)
    ```
    This opens one Chrome window per watched account (each on the portal).
 
-2. **In each window:** log in → **Financials → Balance Info** → run **Search**
-   once so the table is on screen → leave the window there.
-   (Because each window keeps its own profile, next time you'll often already
-   be logged in.)
-
-3. **Start the monitor:**
+2. **Start the monitor** (you can do this before or after logging in):
    ```bash
    python -m xtrapower.monitor --config xtrapower/config.json --announce
    ```
-   It clicks Search on every window every 2 minutes and messages you on any
-   change. `--announce` sends a "started" ping so you know it's live.
-   Leave this running (a terminal, or `nohup … &`). Stop it with Ctrl-C.
+   Leave it running (a terminal, or `nohup … &`). Stop it with Ctrl-C.
+
+3. **Hand over each account, at your own pace.** In each window: log in →
+   **Financials → Balance Info** → run **Search** once so the table is on
+   screen → leave the window there. The monitor **waits quietly** for each
+   account until you've done this, then sends a **✅ "now watching"** as it
+   takes that account over. So you can log in one account, get the ✅, log in
+   the next, and so on — no false "logged out" alerts while you're still
+   logging in. (Because each window keeps its own profile, next time you'll
+   often already be logged in.)
 
 **Test it without waiting:** `python -m xtrapower.monitor --config xtrapower/config.json --once`
 runs a single pass and exits — good for confirming it can see each window and
@@ -97,20 +99,30 @@ read the CCMS cell.
 
 | Situation | Telegram message |
 |---|---|
+| Account handed over (you logged in) | ✅ `<account>` — now watching. Current CCMS `<value>` |
+| A credit landed while the monitor was off | ✅ now watching — CCMS **credited since last check** `old → new` |
 | CCMS went **up** (a credit) | 🟢 `<account>` CCMS **credited** — `old → new` |
 | CCMS went down (a debit) | *(no alert — increase-only)* |
-| Logged out / session timed out | ⚠️ "looks logged out / session expired — log back in" |
+| Not logged in yet / still logging in | *(no alert — waiting quietly for hand-over)* |
+| Logged out / session timed out **after hand-over** | ⚠️ "looks logged out / session expired — log back in" (then waits quietly until you do) |
 | Chrome window closed / port unreachable | ⚠️ "can't reach Chrome on debug port N — re-run launch.py" |
 | **Search** button gone (site changed) | ⚠️ "couldn't find the Search button" |
 | CCMS cell unreadable (table changed) | ⚠️ "couldn't read a CCMS value" |
 | F5 firewall blocking this network | ⚠️ "the site firewall is rejecting this connection" |
 
-Alerts are **increase-only**: you're pinged when CCMS goes up (a credit), and
-debits or an unchanged balance stay quiet (the stored value still refreshes, so
-the next credit is measured from the current balance). The **first** reading of
-each account is a silent baseline. Repeated errors are rate-limited (a closed window
-alerts once, then at most every 30 min) so a fault doesn't flood your phone; a
-clean cycle resets that, so the next new fault alerts immediately.
+Balance alerts are **increase-only**: you're pinged when CCMS goes up (a
+credit), and debits or an unchanged balance stay quiet (the stored value still
+refreshes, so the next credit is measured from the current balance).
+
+**Hand-over is quiet, then confirmed.** Each account starts every run "awaiting
+log-in" and stays silent — no error alerts — until you've logged it in and it's
+on the Balance Info screen. The first clean read sends the ✅ "now watching"
+confirmation; only *after* that do problems on that account (logout, closed
+window, missing Search button, unreadable table) become ⚠️ alerts. A problem
+then quietly returns it to "awaiting log-in" until you log back in, when it
+re-confirms — so a session timeout won't spam you every 2 minutes. Because this
+is per-run, you can relaunch Chrome and re-hand-over each session cleanly.
+Repeated errors are additionally rate-limited (at most every 30 min).
 
 ## Configuration reference (`config.json`)
 

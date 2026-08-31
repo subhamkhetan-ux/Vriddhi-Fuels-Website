@@ -57,11 +57,22 @@ async def check_account(
     acct_cfg: dict[str, Any],
     st: dict[str, Any],
     tg: Telegram,
+    ready: dict[str, bool],
 ) -> None:
     """Run one check for one account and fire any Telegram messages.
 
     All failure modes are caught and turned into (de-duplicated) alerts — a
     single bad account must never take down the loop or the other accounts.
+
+    ``ready`` is per-run (in-memory) hand-over state, keyed by customer id. An
+    account starts *not ready* every run, so the monitor waits **quietly** while
+    you log in — a not-yet-logged-in window is "awaiting hand-over", not an
+    error. The first clean CCMS read flips it to ready and sends a ✅ "now
+    watching" confirmation; only after that do logout / closed-window / site
+    problems on that account turn into ⚠️ alerts. A problem then flips it back
+    to not-ready, so it goes quiet again until you log back in (and re-confirms
+    when you do). This makes "log in one account, hand it over, log in the next"
+    work without false alerts, and survives relaunching Chrome each session.
     """
     label = acct_cfg.get("label") or acct_cfg.get("customer_id") or "account"
     cid = str(acct_cfg.get("customer_id") or label)
@@ -75,22 +86,56 @@ async def check_account(
         state.record_error(acct_state, signature, now, _now_iso())
         log.warning("[%s] %s", label, message)
 
+    def not_usable(signature: str, message: str, waiting_log: str) -> None:
+        """The window can't be watched right now (not logged in, closed, …).
+
+        Before the account has been handed over this run, that's expected — you
+        just haven't logged in yet — so it stays quiet (log only). Once it *was*
+        being watched, the same condition is a real ⚠️ alert; we then flip it
+        back to not-ready so it waits quietly until you log in again (and
+        re-confirms with a ✅ when you do), instead of alerting every cycle.
+        """
+        if ready.get(cid):
+            alert_error(signature, message)
+            ready[cid] = False
+        else:
+            log.info("[%s] awaiting hand-over: %s", label, waiting_log)
+
+    def confirm_watching(old: str | None, new: str, when: str) -> None:
+        """✅ First clean read this run — hand-over confirmed."""
+        ready[cid] = True
+        state.clear_error(acct_state)
+        if old is not None and parse.ccms_increased(old, new):
+            tg.send(
+                f"✅ <b>{label}</b> ({cid}) — now watching.\n"
+                f"🟢 CCMS credited since last check: {old} → <b>{new}</b>\n"
+                f"<i>{when}</i>"
+            )
+        else:
+            tg.send(
+                f"✅ <b>{label}</b> ({cid}) — now watching. Current CCMS <b>{new}</b>.\n"
+                "You'll get a 🟢 alert on the next credit."
+            )
+        log.info("[%s] handed over, watching (CCMS=%s)", label, new)
+
     try:
         page = await pool.find_portal_page(port)
     except Exception as exc:  # noqa: BLE001 — Chrome closed / port not listening
         pool.drop(port)
-        alert_error(
+        not_usable(
             "chrome-unreachable",
             f"Can't reach Chrome on debug port {port}. Is that window still "
             f"open? Re-run launch.py and log in again.\n<code>{exc}</code>",
+            f"Chrome window on port {port} not open yet",
         )
         return
 
     if page is None:
-        alert_error(
+        not_usable(
             "no-page",
             f"Chrome on port {port} has no open tab. Open {browser.PORTAL_HINT} "
             "and log in to the Balance Info screen.",
+            f"no tab open on port {port} yet",
         )
         return
 
@@ -98,31 +143,37 @@ async def check_account(
     try:
         pre = await browser.read_page(page, settle_ms=0)
     except Exception as exc:  # noqa: BLE001
-        alert_error("read-failed", f"Couldn't read the page.\n<code>{exc}</code>")
+        not_usable("read-failed", f"Couldn't read the page.\n<code>{exc}</code>",
+                   "page not readable yet")
         return
 
+    # A firewall block is a real network problem worth surfacing even during
+    # hand-over, so it always alerts (and drops the account back to waiting).
     if parse.detect_waf_block(pre.text):
         alert_error(
             "waf-block",
             "The site firewall (F5) is rejecting this connection. Scripted "
             "refresh won't work from this network right now.",
         )
+        ready[cid] = False
         return
 
     if parse.detect_logout(pre.text, pre.url):
-        alert_error(
+        not_usable(
             "logged-out",
             "Looks logged out / session expired. Please log back in and return "
             "to the Balance Info screen.",
+            "not logged in yet",
         )
         return
 
     clicked = await browser.click_search(page)
     if not clicked:
-        alert_error(
+        not_usable(
             "no-search-button",
             "Couldn't find the <b>Search</b> button on the Balance Info screen. "
             "The portal layout may have changed, or the tab isn't on Balance Info.",
+            "Search button not present yet (not on Balance Info?)",
         )
         return
 
@@ -130,35 +181,37 @@ async def check_account(
 
     # A logout can also surface only after the click.
     if parse.detect_logout(reading.text, reading.url):
-        alert_error(
+        not_usable(
             "logged-out",
             "Session dropped during refresh. Please log back in and return to "
             "the Balance Info screen.",
+            "not logged in yet",
         )
         return
 
     ccms = parse.find_ccms(reading.headers, reading.rows)
     if ccms is None:
-        alert_error(
+        not_usable(
             "no-ccms",
             "Refreshed, but couldn't read a CCMS value from the results table. "
             "The table layout may have changed.",
+            "CCMS table not present yet (not on Balance Info?)",
         )
         return
 
-    # Success — clear any standing error so the next fault alerts immediately.
+    # Clean read. Clear any standing error, refresh the stored value.
     state.clear_error(acct_state)
     old = acct_state.get("ccms")
     acct_state["ccms"] = ccms
     acct_state["updated_at"] = _now_iso()
 
-    if old is None:
-        log.info("[%s] baseline CCMS = %s", label, ccms)
+    # First clean read this run → hand-over confirmed (a ✅, not a credit alert).
+    if not ready.get(cid):
+        confirm_watching(old, ccms, acct_state["updated_at"])
         return
 
-    # Increase-only: alert on credits, stay quiet on debits and no-change. The
-    # stored value is always refreshed above, so the next comparison is against
-    # the current balance either way.
+    # Already watching → increase-only credit alerts. The stored value is always
+    # refreshed above, so the next comparison is against the current balance.
     if parse.ccms_increased(old, ccms):
         tg.send(
             f"🟢 <b>{label}</b> ({cid}) CCMS credited\n"
@@ -177,12 +230,13 @@ async def run_cycle(
     cfg: dict[str, Any],
     state_path: str,
     tg: Telegram,
+    ready: dict[str, bool],
 ) -> None:
     st = state.load(state_path)
     watched = [a for a in cfg["accounts"] if a.get("watch", True)]
     for acct_cfg in watched:
         try:
-            await check_account(pool, acct_cfg, st, tg)
+            await check_account(pool, acct_cfg, st, tg, ready)
         except Exception as exc:  # noqa: BLE001 — never let one account kill the cycle
             log.exception("unexpected error for %s", acct_cfg.get("label"))
             tg.send(f"⚠️ <b>{acct_cfg.get('label')}</b> unexpected error: <code>{exc}</code>")
@@ -201,15 +255,23 @@ async def main_async(args: argparse.Namespace) -> None:
     if not tg.configured:
         log.warning("Telegram is not configured — changes will be logged but not pushed.")
 
+    # Per-run hand-over state: every account starts "awaiting log-in" and goes
+    # quiet until you hand it over, then confirms with a ✅ (see check_account).
+    ready: dict[str, bool] = {}
+
     async with browser.BrowserPool() as pool:
         if args.once:
-            await run_cycle(pool, cfg, state_path, tg)
+            await run_cycle(pool, cfg, state_path, tg, ready)
             return
         if args.announce and tg.configured:
-            tg.send(f"▶️ XtraPower monitor started — {len(watched)} account(s), every {poll//60}m.")
+            tg.send(
+                f"▶️ XtraPower monitor started — waiting for you to log in to "
+                f"{len(watched)} account(s). You'll get a ✅ as each is handed "
+                f"over, then a 🟢 on every credit (checking every {poll//60}m)."
+            )
         while True:
             started = time.time()
-            await run_cycle(pool, cfg, state_path, tg)
+            await run_cycle(pool, cfg, state_path, tg, ready)
             elapsed = time.time() - started
             await asyncio.sleep(max(1.0, poll - elapsed))
 
