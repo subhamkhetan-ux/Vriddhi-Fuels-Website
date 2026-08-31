@@ -116,6 +116,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             "counter_ledger": counter,
             "xml": xml,
             "srclines": srclines,       # statement lines this voucher covers (2 = paired transfer)
+            "_ymd": _ymd(date) if date else "",
             "_sort": _sort_key(account, date, index),
         })
 
@@ -214,6 +215,18 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     # mirrors the account rather than grouping by voucher type.
     entries.sort(key=lambda e: e["_sort"])
 
+    # Stamp a unique voucher number on each (see generate.add_voucher_number):
+    # Tally silently drops number-less vouchers on a bulk import. The number is
+    # per (type, date) so it's unique across the year and stable on re-import.
+    _PREFIX = {"Receipt": "BR", "Payment": "BP", "Contra": "BC"}
+    seq: dict = {}
+    for e in entries:
+        k = (e["type"], e["_ymd"])
+        seq[k] = seq.get(k, 0) + 1
+        num = f'{_PREFIX[e["type"]]}/{e["_ymd"]}/{seq[k]:02d}'
+        e["xml"] = G.add_voucher_number(e["xml"], num)
+        e["voucher_no"] = num
+
     # Mark drops and collect the export (non-dropped) vouchers + counts.
     vouchers = []
     counts = {"Receipt": 0, "Payment": 0, "Contra": 0}
@@ -249,7 +262,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         "lines_accounted": lines_accounted,
         "accounted_ok": lines_accounted == len(classified),
         "reconciles": all(r.reconciles for _, r, _ in classified),
-        "entries": [{k: v for k, v in e.items() if k not in ("xml", "_sort")}
+        "entries": [{k: v for k, v in e.items() if k not in ("xml", "_sort", "_ymd")}
                     for e in entries],
         "skipped": skipped,
     }
