@@ -63,6 +63,15 @@ def _set_type(vch: str, base_type: str) -> str:
     return vch
 
 
+def _esc(s: str) -> str:
+    """XML-escape a value we substitute into the template. Ledger/party names can
+    contain ``&`` ("Aryan Ispat & Power Private Ltd.") or ``<>``; a bare ``&``
+    makes the whole file invalid XML, and Tally then silently skips the voucher
+    (and often a chunk around it) on import. Tally decodes the entity back, so the
+    escaped name still matches the ledger exactly."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _read(name: str) -> str:
     with open(os.path.join(TEMPLATE_DIR, name), encoding="utf-8") as fh:
         return fh.read()
@@ -120,9 +129,9 @@ def make_receipt(ymd: str, amount: float, bank_ledger: str, counter_ledger: str,
     t = TEMPLATES["Receipt"]
     vch = _strip_identity(_read(t["file"]))
     vch = _set_dates(vch, ymd)
-    vch = _swap(vch, [(t["bank"], bank_ledger), (t["counter"], counter_ledger)])
+    vch = _swap(vch, [(t["bank"], _esc(bank_ledger)), (t["counter"], _esc(counter_ledger))])
     vch = _set_amount(vch, t["amount"], amount)
-    vch = _set_party(vch, counter_ledger)   # receipts name the customer as party
+    vch = _set_party(vch, _esc(counter_ledger))   # receipts name the customer as party
     vch = _set_type(vch, "Receipt")
     return _set_narration(vch, narration)
 
@@ -132,7 +141,7 @@ def make_payment(ymd: str, amount: float, bank_ledger: str, counter_ledger: str,
     t = TEMPLATES["Payment"]
     vch = _strip_identity(_read(t["file"]))
     vch = _set_dates(vch, ymd)
-    vch = _swap(vch, [(t["bank"], bank_ledger), (t["counter"], counter_ledger)])
+    vch = _swap(vch, [(t["bank"], _esc(bank_ledger)), (t["counter"], _esc(counter_ledger))])
     vch = _set_amount(vch, t["amount"], amount)
     # Payments keep the bank as PARTYLEDGERNAME (the template already does, via the
     # bank swap), matching the real export — so no _set_party here.
@@ -146,7 +155,7 @@ def make_contra(ymd: str, amount: float, source_bank: str, dest_bank: str,
     t = TEMPLATES["Contra"]
     vch = _strip_identity(_read(t["file"]))
     vch = _set_dates(vch, ymd)
-    vch = _swap(vch, [(t["source"], source_bank), (t["dest"], dest_bank)])
+    vch = _swap(vch, [(t["source"], _esc(source_bank)), (t["dest"], _esc(dest_bank))])
     vch = _set_amount(vch, t["amount"], amount)
     vch = _set_type(vch, "Contra")
     return _set_narration(vch, narration)

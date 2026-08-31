@@ -20,7 +20,8 @@ def test_receipt_signs_and_balance():
     leds = dict(re.findall(
         r"<ALLLEDGERENTRIES\.LIST>.*?<LEDGERNAME>([^<]*)</LEDGERNAME>.*?<AMOUNT>(-?[\d.]+)</AMOUNT>",
         v, re.S))
-    assert leds["Aryan Ispat & Power Private Ltd."] == "302220.00"    # party Cr
+    # The "&" in the ledger name is XML-escaped (else Tally drops the voucher).
+    assert leds["Aryan Ispat &amp; Power Private Ltd."] == "302220.00"    # party Cr
     assert leds["HDFC BANK C/A - 59217010101010"] == "-302220.00"     # bank Dr
     assert "<GUID>" not in v and "<VOUCHERNUMBER>" not in v
 
@@ -112,6 +113,21 @@ def test_reconciliation_holds_with_resolved_rows():
     assert s["n_lines"] == 2
     assert s["lines_accounted"] == 2
     assert s["accounted_ok"] is True
+
+
+def test_ledger_names_with_ampersand_are_escaped():
+    # A bare "&" makes the file invalid XML; Tally then silently skips the voucher
+    # (and a chunk around it). Every substituted name must be XML-escaped.
+    import re
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010", [
+        _row(0, d, "RTGS CR-KKBK-ARYAN ISPAT AND POWER PRIVATE LI-VRIDDHI FUELS", dep=302220),
+    ])
+    vouchers, review, summary = R.process(
+        [ca], customers=["Aryan Ispat & Power Private Ltd."], aliases={})
+    env = G.build_envelope(vouchers)
+    assert re.search(r"&(?!amp;|lt;|gt;|quot;|apos;|#)", env) is None   # no bare &
+    assert "Aryan Ispat &amp; Power Private Ltd." in env
 
 
 def test_vouchers_use_dedicated_bank_types():
