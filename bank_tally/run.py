@@ -104,7 +104,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
                 index if index is not None else 0)
 
     def add_entry(vtype, xml, account, date, amount, direction, narration,
-                  counter, index):
+                  counter, index, srclines=1):
         entries.append({
             "key": entry_key(account, date, amount, narration),
             "type": vtype,
@@ -115,6 +115,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             "narration": narration or "",
             "counter_ledger": counter,
             "xml": xml,
+            "srclines": srclines,       # statement lines this voucher covers (2 = paired transfer)
             "_sort": _sort_key(account, date, index),
         })
 
@@ -156,7 +157,8 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     pairs, leftovers = _pair_contras(contra_items)
     for date, amount, src, dst, narr, w_index in pairs:
         xml = G.make_contra(_ymd(date), amount, src, dst, narr)
-        add_entry("Contra", xml, src, date, amount, "debit", narr, dst, w_index)
+        add_entry("Contra", xml, src, date, amount, "debit", narr, dst, w_index,
+                  srclines=2)      # one voucher covers both legs (withdrawal + deposit)
     for it in cash_items:      # Bank Dr / Cash Cr — source is Cash, dest the bank
         r = it["row"]
         xml = G.make_contra(_ymd(r.date), r.amount, "Cash", it["account"], r.narration)
@@ -177,6 +179,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             leftover_reviewed.append(it)
 
     # --- Receipts / Payments / IOCL-skip / unresolved leftovers ---
+    skipped = []
     for it in leftover_reviewed:
         review.append(_review_row(it["account"], it["row"], it["cl"],
                                   "unpaired transfer — pick the other account"))
@@ -185,6 +188,14 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             continue
         if cl.skip:
             skipped_iocl += 1
+            skipped.append({
+                "account": acct,
+                "date": row.date.strftime("%d-%m-%Y") if row.date else "",
+                "amount": f"{row.amount:.2f}",
+                "direction": "credit" if row.is_credit else "debit",
+                "narration": row.narration or "",
+                "reason": cl.skip_reason or "already posted by the IOCL PAD tool",
+            })
             continue
         if cl.counter_ledger is None:
             review.append(_review_row(acct, row, cl, "needs a ledger"))
@@ -220,6 +231,13 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     n_dropped = (sum(1 for e in entries if e["dropped"])
                  + sum(1 for rr in review if rr["dropped"]))
 
+    # Reconciliation: every statement line is either covered by a voucher (a
+    # paired transfer covers 2 lines), waiting in review, or an IOCL skip. This
+    # must equal the number of statement lines — proof nothing was silently lost.
+    lines_in_vouchers = sum(e["srclines"] for e in entries)
+    lines_accounted = lines_in_vouchers + len(review) + skipped_iocl
+    n_paired = sum(1 for e in entries if e["srclines"] == 2)
+
     summary = {
         "n_lines": len(classified),
         "n_vouchers": len(vouchers),
@@ -227,9 +245,13 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         "skipped_iocl": skipped_iocl,
         "n_review": n_review,
         "n_dropped": n_dropped,
+        "n_paired": n_paired,
+        "lines_accounted": lines_accounted,
+        "accounted_ok": lines_accounted == len(classified),
         "reconciles": all(r.reconciles for _, r, _ in classified),
         "entries": [{k: v for k, v in e.items() if k not in ("xml", "_sort")}
                     for e in entries],
+        "skipped": skipped,
     }
     return vouchers, review, summary
 
