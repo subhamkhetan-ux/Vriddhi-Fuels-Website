@@ -36,9 +36,31 @@ TEMPLATES = {
                 "dest": "HDFC BANK OD A/C - 50200110712542"},
 }
 
+# Dedicated voucher types for the bank import, so numbering is isolated from the
+# company's own Receipt/Payment/Contra types. Create these three in Tally (each
+# "Type of voucher" = the base type on the right), numbering = Automatic (Manual
+# Override) so our supplied unique numbers stick. Set the values here to "" to
+# fall back to the base types instead.
+BANK_VCHTYPES = {
+    "Receipt": "Bank Receipt",
+    "Payment": "Bank Payment",
+    "Contra": "Bank Contra",
+}
+
 _STRIP_TAGS = ["GUID", "ALTERID", "MASTERID", "VOUCHERKEY", "VOUCHERRETAINKEY",
                "VOUCHERNUMBER", "UNIQUEREFERENCENUMBER"]
 _DATE_TAGS = ["DATE", "VCHSTATUSDATE", "EFFECTIVEDATE", "INSTRUMENTDATE"]
+
+
+def _set_type(vch: str, base_type: str) -> str:
+    """Point the voucher at its dedicated bank voucher type (VCHTYPE attribute +
+    VOUCHERTYPENAME), leaving the underlying accounting untouched."""
+    name = BANK_VCHTYPES.get(base_type) or base_type
+    vch = re.sub(r'(<VOUCHER\b[^>]*\bVCHTYPE=")[^"]*(")', rf"\g<1>{name}\g<2>",
+                 vch, count=1)
+    vch = re.sub(r"<VOUCHERTYPENAME>[^<]*</VOUCHERTYPENAME>",
+                 f"<VOUCHERTYPENAME>{name}</VOUCHERTYPENAME>", vch)
+    return vch
 
 
 def _read(name: str) -> str:
@@ -101,6 +123,7 @@ def make_receipt(ymd: str, amount: float, bank_ledger: str, counter_ledger: str,
     vch = _swap(vch, [(t["bank"], bank_ledger), (t["counter"], counter_ledger)])
     vch = _set_amount(vch, t["amount"], amount)
     vch = _set_party(vch, counter_ledger)   # receipts name the customer as party
+    vch = _set_type(vch, "Receipt")
     return _set_narration(vch, narration)
 
 
@@ -113,6 +136,7 @@ def make_payment(ymd: str, amount: float, bank_ledger: str, counter_ledger: str,
     vch = _set_amount(vch, t["amount"], amount)
     # Payments keep the bank as PARTYLEDGERNAME (the template already does, via the
     # bank swap), matching the real export — so no _set_party here.
+    vch = _set_type(vch, "Payment")
     return _set_narration(vch, narration)
 
 
@@ -124,6 +148,7 @@ def make_contra(ymd: str, amount: float, source_bank: str, dest_bank: str,
     vch = _set_dates(vch, ymd)
     vch = _swap(vch, [(t["source"], source_bank), (t["dest"], dest_bank)])
     vch = _set_amount(vch, t["amount"], amount)
+    vch = _set_type(vch, "Contra")
     return _set_narration(vch, narration)
 
 

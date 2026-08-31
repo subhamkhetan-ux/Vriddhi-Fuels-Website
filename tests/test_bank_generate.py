@@ -97,6 +97,36 @@ def test_every_voucher_gets_a_unique_number():
     assert all(e["voucher_no"] for e in summary["entries"])
 
 
+def test_reconciliation_holds_with_resolved_rows():
+    # Regression: resolving a review row removes it from `classified`; n_lines must
+    # still count it, or the reconciliation falsely reports a MISMATCH.
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010", [
+        _row(0, d, "NEFT CR-RBIS0GOODEP-ODISHA SARKAR-VRIDDHIFUELS-R1", dep=23980),
+        _row(1, d, "NEFT CR-SBIN0009678-KESHAV MINERALS-VRIDDHI FUELS-SBIN", dep=141036),
+    ])
+    _, review, _ = R.process([ca], customers=["Keshav Minerals"], aliases={})
+    key = review[0]["key"]
+    v, r2, s = R.process([ca], customers=["Keshav Minerals"], aliases={},
+                         resolved={key: "JYOTI RANJAN DASH"})
+    assert s["n_lines"] == 2
+    assert s["lines_accounted"] == 2
+    assert s["accounted_ok"] is True
+
+
+def test_vouchers_use_dedicated_bank_types():
+    v = G.make_receipt("20260805", 100.0, "HDFC BANK C/A - 59217010101010",
+                       "Keshav Minerals")
+    assert 'VCHTYPE="Bank Receipt"' in v
+    assert "<VOUCHERTYPENAME>Bank Receipt</VOUCHERTYPENAME>" in v
+    assert G.voucher_balances(v)
+    p = G.make_payment("20260805", 100.0, "ICICI BANK LTD", "Salary")
+    assert 'VCHTYPE="Bank Payment"' in p
+    c = G.make_contra("20260805", 100.0, "HDFC BANK C/A - 59217010101010",
+                      "HDFC BANK OD A/C - 50200110712542")
+    assert 'VCHTYPE="Bank Contra"' in c
+
+
 def test_reconciliation_accounts_for_every_line():
     d = dt.date(2026, 8, 5)
     ca = ("HDFC BANK C/A - 59217010101010", [
