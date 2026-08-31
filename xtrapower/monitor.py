@@ -156,15 +156,18 @@ async def check_account(
         log.info("[%s] baseline CCMS = %s", label, ccms)
         return
 
-    if parse.ccms_changed(old, ccms):
-        direction = parse.change_direction(old, ccms)
-        emoji = {"credited": "🟢", "debited": "🔴"}.get(direction, "🔵")
+    # Increase-only: alert on credits, stay quiet on debits and no-change. The
+    # stored value is always refreshed above, so the next comparison is against
+    # the current balance either way.
+    if parse.ccms_increased(old, ccms):
         tg.send(
-            f"{emoji} <b>{label}</b> ({cid}) CCMS {direction}\n"
+            f"🟢 <b>{label}</b> ({cid}) CCMS credited\n"
             f"{old} → <b>{ccms}</b>\n"
             f"<i>{acct_state['updated_at']}</i>"
         )
-        log.info("[%s] CCMS %s: %s -> %s", label, direction, old, ccms)
+        log.info("[%s] CCMS credited: %s -> %s", label, old, ccms)
+    elif parse.ccms_changed(old, ccms):
+        log.info("[%s] CCMS decreased (no alert): %s -> %s", label, old, ccms)
     else:
         log.info("[%s] CCMS unchanged (%s)", label, ccms)
 

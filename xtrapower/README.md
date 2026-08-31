@@ -1,7 +1,8 @@
 # XtraPower CCMS monitor (`xtrapower/`)
 
 Watches the **CCMS** balance on the IndianOil XtraPower fleet-card portal and
-pings you on **Telegram the moment it changes** — for several accounts at once.
+pings you on **Telegram the moment it goes up** (a credit) — for several
+accounts at once.
 
 This is the rebuilt monitor for the **updated** portal. The old approach (a
 headless browser logging in with saved credentials) no longer works: the site
@@ -96,17 +97,18 @@ read the CCMS cell.
 
 | Situation | Telegram message |
 |---|---|
-| CCMS went up | 🟢 `<account>` CCMS **credited** — `old → new` |
-| CCMS went down | 🔴 `<account>` CCMS **debited** — `old → new` |
-| CCMS changed (unparseable) | 🔵 `<account>` CCMS **changed** |
+| CCMS went **up** (a credit) | 🟢 `<account>` CCMS **credited** — `old → new` |
+| CCMS went down (a debit) | *(no alert — increase-only)* |
 | Logged out / session timed out | ⚠️ "looks logged out / session expired — log back in" |
 | Chrome window closed / port unreachable | ⚠️ "can't reach Chrome on debug port N — re-run launch.py" |
 | **Search** button gone (site changed) | ⚠️ "couldn't find the Search button" |
 | CCMS cell unreadable (table changed) | ⚠️ "couldn't read a CCMS value" |
 | F5 firewall blocking this network | ⚠️ "the site firewall is rejecting this connection" |
 
-The **first** reading of each account is a silent baseline — you're only
-pinged on the *next* change. Repeated errors are rate-limited (a closed window
+Alerts are **increase-only**: you're pinged when CCMS goes up (a credit), and
+debits or an unchanged balance stay quiet (the stored value still refreshes, so
+the next credit is measured from the current balance). The **first** reading of
+each account is a silent baseline. Repeated errors are rate-limited (a closed window
 alerts once, then at most every 30 min) so a fault doesn't flood your phone; a
 clean cycle resets that, so the next new fault alerts immediately.
 

@@ -79,6 +79,23 @@ def ccms_changed(old: Optional[str], new: Optional[str]) -> bool:
     return a != b
 
 
+def ccms_increased(old: Optional[str], new: Optional[str]) -> bool:
+    """True when CCMS went **up** — a credit — since the last reading.
+
+    This is the alert condition: the user wants to hear about money coming in,
+    not about debits or unchanged balances. A first-ever reading is a baseline,
+    not an increase. A change we can't parse numerically still counts as an
+    alert, so a genuine credit is never silently dropped just because the amount
+    string couldn't be parsed.
+    """
+    if not ccms_changed(old, new):
+        return False
+    a, b = normalize_amount(old), normalize_amount(new)
+    if a is None or b is None:
+        return True  # changed, but direction unknown — don't risk missing a credit
+    return b > a
+
+
 def change_direction(old: Optional[str], new: Optional[str]) -> str:
     """``"credited"`` / ``"debited"`` / ``"changed"`` for the alert wording."""
     a, b = normalize_amount(old), normalize_amount(new)

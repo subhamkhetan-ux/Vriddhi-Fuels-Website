@@ -64,6 +64,14 @@ def test_change_direction():
     assert parse.change_direction("A", "B") == "changed"
 
 
+def test_ccms_increased_only_on_credit():
+    assert parse.ccms_increased("₹100.00", "₹250.00") is True       # credit
+    assert parse.ccms_increased("₹250.00", "₹100.00") is False      # debit → quiet
+    assert parse.ccms_increased("₹1,00,000.00", "₹100000") is False  # reformat, same value
+    assert parse.ccms_increased(None, "₹100.00") is False           # baseline
+    assert parse.ccms_increased("A", "B") is True                   # changed, direction unknown
+
+
 # ---- logout / WAF detection ----------------------------------------------
 
 def test_detect_logout_on_session_expired():
@@ -213,6 +221,27 @@ def test_check_baseline_then_change(tmp_path, monkeypatch):
     assert len(tgc.messages) == 1
     assert "credited" in tgc.messages[0]
     assert st2["accounts"]["999"]["ccms"] == "₹250.00"
+
+
+def test_check_decrease_does_not_alert(monkeypatch):
+    page = object()
+    hdr = ["CCMS"]
+    st = {"accounts": {"999": {"ccms": "₹250.00"}}}
+    seq = [_reading(hdr, [["₹250.00"]]), _reading(hdr, [["₹100.00"]])]
+
+    async def fake_read_page(page, settle_ms=1500):
+        return seq.pop(0)
+
+    async def fake_click(page, timeout_ms=8000):
+        return True
+
+    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
+    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    tg = _CapturingTelegram()
+    asyncio.run(monitor.check_account(_FakePool(page),
+                {"label": "T", "customer_id": "999", "cdp_port": 9222}, st, tg))
+    assert tg.messages == []                       # debit → no alert
+    assert st["accounts"]["999"]["ccms"] == "₹100.00"   # but value still refreshed
 
 
 def test_check_alerts_on_chrome_unreachable(monkeypatch):
