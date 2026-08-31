@@ -80,6 +80,23 @@ def test_cgtms_unpaired_transfer_posts_as_contra():
     assert all(G.voucher_balances(v) for v in vouchers)
 
 
+def test_reconciliation_accounts_for_every_line():
+    d = dt.date(2026, 8, 5)
+    ca = ("HDFC BANK C/A - 59217010101010", [
+        _row(0, d, "NEFT CR-SBIN0009678-KESHAV MINERALS-VRIDDHI FUELS-SBIN", dep=141036),
+        _row(1, d, "RTGS DR-SBIN0009995-INDIAN OIL CORPORATION LIMITED-X", wd=2000000),
+        _row(2, d, "NEFT CR-UTIB0000240-SIMAR INFRASTRUCTURES LTD-VRIDDHI FUELS", dep=137940),
+    ])
+    od = ("HDFC BANK OD A/C - 50200110712542",
+          [_row(0, d, "IB FUNDS TRANSFER CR-59217010101010-VRIDDHI FUELS", dep=141036)])
+    vouchers, review, summary = R.process([ca, od], customers=["Keshav Minerals"], aliases={})
+    # 4 lines: 1 receipt + 1 IOCL skip + 1 review + 1 (paired OD leg with... none here)
+    assert summary["accounted_ok"] is True
+    assert summary["lines_accounted"] == summary["n_lines"] == 4
+    assert summary["skipped_iocl"] == 1
+    assert len(summary["skipped"]) == 1
+
+
 def test_vouchers_emit_in_statement_order():
     # A cash-deposit (Contra) sits between two other lines; the export must keep
     # statement order, not group all Contras first.

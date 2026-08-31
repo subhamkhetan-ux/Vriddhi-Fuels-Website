@@ -102,15 +102,50 @@ def ledger_suggestions() -> list:
     return sorted(s)
 
 
+_LAST: dict = {}      # last run's summary+review, for the audit CSV
+
+
 def _process_and_write():
+    global _LAST
     vouchers, review, summary = R.process(
         _STATEMENTS, customers(), load_aliases(),
         dropped=load_dropped(), resolved=load_resolved())
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, "bank_import.xml"), "w", encoding="utf-8") as fh:
         fh.write(G.build_envelope(vouchers))
+    _LAST = {"summary": summary, "review": review}
     return {"summary": summary, "review": review,
             "suggestions": ledger_suggestions()}
+
+
+def _audit_csv() -> bytes:
+    """Every statement line -> its disposition (voucher+ledger, review, drop, or
+    IOCL skip), so you can tick off exactly what should be in Tally."""
+    import csv
+    import io
+    summary = _LAST.get("summary", {})
+    review = _LAST.get("review", [])
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Account", "Date", "Direction", "Amount", "Disposition",
+                "Ledger", "Narration"])
+    rows = []
+    for e in summary.get("entries", []):
+        disp = "DROPPED (by hand)" if e.get("dropped") else e["type"]
+        rows.append([e["account"], e["date"], e["direction"], e["amount"], disp,
+                     e.get("counter_ledger", ""), e["narration"]])
+    for r in review:
+        if r.get("dropped"):
+            continue
+        rows.append([r["account"], r["date"], r["direction"], r["amount"],
+                     "REVIEW (needs a ledger)", "", r["narration"]])
+    for sk in summary.get("skipped", []):
+        rows.append([sk["account"], sk["date"], sk["direction"], sk["amount"],
+                     "IOCL-SKIP (posted by PAD tool)", "", sk["narration"]])
+    rows.sort(key=lambda r: (r[1][6:10], r[1][3:5], r[1][0:2]))   # by yyyy,mm,dd
+    for r in rows:
+        w.writerow(r)
+    return buf.getvalue().encode("utf-8-sig")     # BOM so Excel opens it cleanly
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -154,6 +189,11 @@ class Handler(BaseHTTPRequestHandler):
                                       {"Content-Disposition": 'attachment; filename="bank_import.xml"'})
             except OSError:
                 return self._send(404, b"run first", "text/plain")
+        if route == "/download/audit.csv":
+            if not _LAST:
+                return self._send(404, b"run first", "text/plain")
+            return self._send(200, _audit_csv(), "text/csv",
+                              {"Content-Disposition": 'attachment; filename="bank_audit.csv"'})
         return self._send(404, b"not found", "text/plain")
 
     def do_POST(self):

@@ -71,8 +71,10 @@
     <div id="acctLine" class="sub" style="color:var(--faint);margin-bottom:10px"></div>
     <div class="stats" id="stats"></div>
     <div id="counts" style="margin-top:10px"></div>
+    <div id="reconcile" class="warnbox" style="background:#0d1f14;border-color:var(--accent);color:#bfe6cf"></div>
     <div class="row">
       <a class="btn primary" id="dlXml" href="/download/bank_import.xml">⬇ bank_import.xml</a>
+      <a class="btn" id="dlAudit" href="/download/audit.csv">⬇ audit (CSV)</a>
       <span class="sub" id="exportNote" style="color:var(--faint)"></span>
     </div>
   </section>
@@ -150,7 +152,18 @@ function render(res){
     <div class="stat"><div class="k">To review</div><div class="v ${s.n_review?'bad':'ok'}">${s.n_review}</div></div>
     <div class="stat"><div class="k">Dropped</div><div class="v ${s.n_dropped?'warn':''}" style="${s.n_dropped?'color:var(--warn)':''}">${s.n_dropped||0}</div></div>`;
   $("#counts").innerHTML=Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("");
+  const paired=s.n_paired||0, pairedLines=paired*2;
+  const ok=s.accounted_ok;
+  $("#reconcile").style.background=ok?'#0d1f14':'#2a1010';
+  $("#reconcile").style.borderColor=ok?'var(--accent)':'var(--bad)';
+  $("#reconcile").style.color=ok?'#bfe6cf':'#f3b7b3';
+  $("#reconcile").innerHTML= (ok?'✓ ':'✗ ')+`Reconciliation: <b>${s.n_lines}</b> statement lines = `+
+    `${s.n_vouchers} vouchers`+(paired?` (incl. ${paired} paired transfers covering ${pairedLines} lines)`:``)+
+    ` + ${s.n_review} review + ${s.n_dropped} dropped + ${s.skipped_iocl} IOCL-skipped `+
+    `→ <b>${s.lines_accounted}</b> lines accounted.`+
+    (ok?' Every line is accounted for.':' MISMATCH — tell Claude.');
   $("#dlXml").href="/download/bank_import.xml?"+Date.now();
+  $("#dlAudit").href="/download/audit.csv?"+Date.now();
   $("#exportNote").textContent = s.n_review ? "Resolve the "+s.n_review+" below, then re-download — import into Tally on a backup company first."
                                             : "Import into Tally: Gateway → Import → Vouchers. Test on a backup company first.";
   $("#ledgers").innerHTML=(res.suggestions||[]).map(l=>`<option value="${esc(l)}">`).join("");
