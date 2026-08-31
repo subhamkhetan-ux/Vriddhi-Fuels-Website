@@ -49,6 +49,7 @@ class Product:
     base_value: float
     vat_pct: float
     vat_amount: float
+    density: str | None = None      # Density@15 for this product's tank
 
     @property
     def qty_ltr(self) -> float:
@@ -67,8 +68,17 @@ class Invoice:
 
     @property
     def density(self) -> str:
-        """Density@15 value(s), joined for the remarks."""
-        return ", ".join(self.densities)
+        """Density@15 value(s) for the remarks. With more than one product each
+        value is labelled by material (HSD/MS) so both tanks are unambiguous;
+        a single product shows just the value. Falls back to the whole-invoice
+        matches when a product block had none."""
+        _abbr = {"High Speed Diesel": "HSD", "Motor Spirit": "MS"}
+        pairs = [(p.stock_item, p.density) for p in self.products if p.density]
+        if not pairs:
+            return ", ".join(self.densities)
+        if len(pairs) == 1:
+            return pairs[0][1]
+        return ", ".join(f"{_abbr.get(s, s)} {d}" for s, d in pairs)
 
     @property
     def base_total(self) -> float:
@@ -115,11 +125,13 @@ def parse_invoice(text: str) -> Invoice:
         if not (bm and vm):
             continue
         stock, vat_led = _map_material(desc)
+        dm = re.search(r"Density@?15\s*[:\s]\s*([0-9]{3}\.[0-9]{1,3})", block)
         products.append(Product(
             material_code=mm.group(1), description=desc,
             stock_item=stock, vat_ledger=vat_led,
             qty_kl=float(bm.group(1)), base_value=float(bm.group(3)),
             vat_pct=float(vm.group(1)), vat_amount=float(vm.group(2)),
+            density=dm.group(1) if dm else None,
         ))
 
     # Density@15 value(s) — one per tank/product ("... Density@15: 829.400").
