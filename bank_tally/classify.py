@@ -31,6 +31,10 @@ OWN_ACCOUNTS = {
     "046805004716": "ICICI BANK LTD",
 }
 
+# Our own bank ledgers (+ Cash). A payee alias must never resolve to one of these
+# — that would post an unrelated payment as a cross-account transfer.
+_BANK_LEDGERS = set(OWN_ACCOUNTS.values()) | {"Cash"}
+
 # Payment narration keyword -> counter ledger (extend as needed).
 PAYMENT_RULES = [
     # IOCL payments are handled by the skip rule above (owned by the PAD tool).
@@ -241,9 +245,14 @@ def classify(row, customers, aliases=None):
 
     # 1c. A resolved alias (learned in the app / from the review sheet) wins for
     #     either direction — this is where the user's confirmed mappings live.
+    #     An alias must never point at one of our own bank ledgers: a payee name
+    #     mapped to a bank turns an unrelated payment into a phantom cross-account
+    #     transfer (a short token like "BBG" once aliased to a bank inflated the
+    #     other account). Ignore such aliases and let the row fall through to
+    #     normal classification / review.
     from agent.matcher import alias_key
     led = aliases.get(alias_key(party))
-    if led:
+    if led and led not in _BANK_LEDGERS:
         return Classification(RECEIPT if row.is_credit else PAYMENT, led, party,
                               "alias", [led])
 

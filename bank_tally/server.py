@@ -215,8 +215,12 @@ class Handler(BaseHTTPRequestHandler):
                     save_resolved(key, ledger)
                 # Also learn an alias for a real payee name, so future statements
                 # auto-match. Skip it for rows that vary per transaction or aren't
-                # a payee (force-review like ODISHA SARKAR, self-transfers).
-                if name and tier not in ("force-review", "self-transfer"):
+                # a payee (force-review like ODISHA SARKAR, self-transfers), and
+                # NEVER alias a name to one of our own bank ledgers — that maps a
+                # payee to a bank and posts unrelated payments as phantom transfers
+                # (this is per-transaction only; the resolution above handles it).
+                if (name and tier not in ("force-review", "self-transfer")
+                        and ledger not in R.BANK_LEDGERS):
                     save_alias(name, ledger)
             return self._json(_process_and_write())
         if route == "/api/drop":

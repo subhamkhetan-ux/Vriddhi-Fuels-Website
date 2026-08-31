@@ -132,6 +132,18 @@ def test_alias_resolves_unmatched():
     assert cl.counter_ledger == "Simar Infrastructure LTD"
 
 
+def test_alias_to_bank_ledger_is_ignored():
+    # A payee alias must never resolve to an own bank ledger — that turns an
+    # unrelated payment into a phantom cross-account transfer (the "bbg -> HDFC
+    # BANK C/A" bug that inflated CA by 75000).
+    from agent.matcher import alias_key
+    aliases = {alias_key("BBG"): "HDFC BANK C/A - 59217010101010"}
+    cl = C.classify(_row("803258437-RFVRIDDHI FUEL-BBG", withdrawal=75000),
+                    CUSTOMERS, aliases)
+    # The bank-ledger alias is ignored; the row does NOT post to a bank ledger.
+    assert cl.counter_ledger != "HDFC BANK C/A - 59217010101010"
+
+
 def test_cgtms_self_transfer_routes_to_od():
     # A CGTMS self-transfer is our HDFC OD account (50200110712542).
     cl = C.classify(_row("IB FUNDS TRANSFER CR-CGTMS-VRIDDHI FUELS", deposit=1275000),
