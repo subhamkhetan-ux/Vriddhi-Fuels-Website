@@ -236,8 +236,16 @@ def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None,
     vch = _strip_identity(vch)
     if voucher_number:
         vch = _set_voucher_number(vch, voucher_number)
-    # Remarks = the invoice's T.T. No. (the tank-truck number, e.g. OD23U8210).
-    vch = _set_narration(vch, getattr(invoice, "tt_no", None))
+    # Remarks = the invoice's T.T. No. (tank-truck number) + Density@15 value(s),
+    # e.g. "T.T.No: OD23U8210 | Den@15: 829.400".
+    bits = []
+    tt = getattr(invoice, "tt_no", None)
+    den = getattr(invoice, "density", "")
+    if tt:
+        bits.append(f"T.T.No: {tt}")
+    if den:
+        bits.append(f"Den@15: {den}")
+    vch = _set_narration(vch, " | ".join(bits))
     for tag in _PURCHASE_DATE_TAGS:
         vch = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{date_yyyymmdd}</{tag}>", vch)
     vch = _set_reference(vch, reference)

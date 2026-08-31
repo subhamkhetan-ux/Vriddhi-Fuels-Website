@@ -63,6 +63,12 @@ class Invoice:
     products: list[Product] = field(default_factory=list)
     zrnd: float = 0.0
     total: float | None = None
+    densities: list[str] = field(default_factory=list)   # Density@15 value(s)
+
+    @property
+    def density(self) -> str:
+        """Density@15 value(s), joined for the remarks."""
+        return ", ".join(self.densities)
 
     @property
     def base_total(self) -> float:
@@ -116,6 +122,9 @@ def parse_invoice(text: str) -> Invoice:
             vat_pct=float(vm.group(1)), vat_amount=float(vm.group(2)),
         ))
 
+    # Density@15 value(s) — one per tank/product ("... Density@15: 829.400").
+    densities = re.findall(r"Density@?15\s*[:\s]\s*([0-9]{3}\.[0-9]{1,3})", joined)
+
     zrnd_m = re.search(r"Rounding Difference\s*\n(-?[\d.]+)", joined)
     # Grand total: the number after the LAST bare "Total" (after the ZRND line).
     total = None
@@ -129,4 +138,5 @@ def parse_invoice(text: str) -> Invoice:
         products=products,
         zrnd=float(zrnd_m.group(1)) if zrnd_m else 0.0,
         total=total,
+        densities=densities,
     )

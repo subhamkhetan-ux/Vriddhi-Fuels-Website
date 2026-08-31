@@ -8,6 +8,7 @@ with a running balance that ties out so the reconciliation lock is exercised.
 """
 
 import datetime as dt
+import re
 
 from iocl_tally import invoice_parser as IP
 from iocl_tally import pad_parser as P
@@ -264,9 +265,13 @@ def test_make_purchase_emits_voucher_number():
     iv = IP.parse_invoice(INVOICE_2PROD)
     v = G.make_purchase(iv, "20260825", reference="7010117417", voucher_number="TT131")
     assert "<VOUCHERNUMBER>TT131</VOUCHERNUMBER>" in v
-    # Remarks carry the invoice's T.T. No. (tank-truck number), not the voucher no.
-    assert iv.tt_no and f"<NARRATION>{iv.tt_no}</NARRATION>" in v
-    assert "<NARRATION>TT131</NARRATION>" not in v
+    # Remarks carry the invoice's T.T. No. (tank-truck no) + Density@15, not the
+    # voucher no.
+    narr = re.search(r"<NARRATION>([^<]*)</NARRATION>", v).group(1)
+    assert iv.tt_no and iv.tt_no in narr
+    if iv.density:
+        assert iv.density in narr
+    assert "TT131" not in narr
 
 
 def test_process_numbers_purchases_sequentially():
