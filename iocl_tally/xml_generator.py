@@ -236,7 +236,8 @@ def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None,
     vch = _strip_identity(vch)
     if voucher_number:
         vch = _set_voucher_number(vch, voucher_number)
-        vch = _set_narration(vch, voucher_number)   # TT no. in the remarks
+    # Remarks = the invoice's T.T. No. (the tank-truck number, e.g. OD23U8210).
+    vch = _set_narration(vch, getattr(invoice, "tt_no", None))
     for tag in _PURCHASE_DATE_TAGS:
         vch = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{date_yyyymmdd}</{tag}>", vch)
     vch = _set_reference(vch, reference)
