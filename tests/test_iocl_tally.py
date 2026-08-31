@@ -264,6 +264,7 @@ def test_make_purchase_emits_voucher_number():
     iv = IP.parse_invoice(INVOICE_2PROD)
     v = G.make_purchase(iv, "20260825", reference="7010117417", voucher_number="TT131")
     assert "<VOUCHERNUMBER>TT131</VOUCHERNUMBER>" in v
+    assert "<NARRATION>TT131</NARRATION>" in v      # TT no. also in the remarks
 
 
 def test_process_numbers_purchases_sequentially():

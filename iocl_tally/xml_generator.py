@@ -117,6 +117,17 @@ def _set_reference(vch: str, reference: str | None) -> str:
     return re.sub(r"(<VOUCHERTYPENAME>)", ref + r"\1", vch, count=1)
 
 
+def _set_narration(vch: str, text: str | None) -> str:
+    """Set the voucher Narration (Tally's remarks field)."""
+    if not text:
+        return vch
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    tag = f"<NARRATION>{text}</NARRATION>"
+    if "<NARRATION>" in vch:
+        return re.sub(r"<NARRATION>[^<]*</NARRATION>", tag, vch, count=1)
+    return re.sub(r"(<VOUCHERTYPENAME>)", tag + r"\1", vch, count=1)
+
+
 def make_journal(category: str, date_yyyymmdd: str, amount: float,
                  reference: str | None = None, collection_item_text: str = "") -> str:
     """Return one ``TALLYMESSAGE`` block for a journal-category PAD line.
@@ -225,6 +236,7 @@ def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None,
     vch = _strip_identity(vch)
     if voucher_number:
         vch = _set_voucher_number(vch, voucher_number)
+        vch = _set_narration(vch, voucher_number)   # TT no. in the remarks
     for tag in _PURCHASE_DATE_TAGS:
         vch = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{date_yyyymmdd}</{tag}>", vch)
     vch = _set_reference(vch, reference)
