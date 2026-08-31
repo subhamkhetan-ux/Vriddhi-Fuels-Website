@@ -34,3 +34,11 @@ iocl_tally/out/
 # Bank -> Tally web app — local aliases + generated output.
 bank_tally/data.json
 bank_tally/out/
+
+# XtraPower CCMS monitor — local config (holds the Telegram token), the saved
+# Chrome profiles (hold the logged-in sessions), and runtime state. Never
+# committed. Copy config.example.json to config.json to set up.
+xtrapower/config.json
+xtrapower/profiles/
+xtrapower/state.json
+xtrapower/*.log
