@@ -8,6 +8,7 @@ with a running balance that ties out so the reconciliation lock is exercised.
 """
 
 import datetime as dt
+import re
 
 from iocl_tally import invoice_parser as IP
 from iocl_tally import pad_parser as P
@@ -30,6 +31,7 @@ Quantity Unit
 Total
 10
 16733   EBMS [PDRP]
+Tank no: T001 Density@15: 735.200
 5.000
 KL
 2710 12 41.
@@ -47,6 +49,7 @@ Total for material
 524763.90
 20
 50703   HSD-BSVI [PDRP]
+Tank no: T003 Density@15: 829.400
 17.000
 KL
 2710 19 44*
@@ -264,7 +267,26 @@ def test_make_purchase_emits_voucher_number():
     iv = IP.parse_invoice(INVOICE_2PROD)
     v = G.make_purchase(iv, "20260825", reference="7010117417", voucher_number="TT131")
     assert "<VOUCHERNUMBER>TT131</VOUCHERNUMBER>" in v
-    assert "<NARRATION>TT131</NARRATION>" in v      # TT no. also in the remarks
+    # Remarks carry the invoice's T.T. No. (tank-truck no) + Density@15, not the
+    # voucher no.
+    narr = re.search(r"<NARRATION>([^<]*)</NARRATION>", v).group(1)
+    assert iv.tt_no and iv.tt_no in narr
+    if iv.density:
+        assert iv.density in narr
+    assert "TT131" not in narr
+
+
+def test_multi_product_densities_per_product_in_remarks():
+    iv = IP.parse_invoice(INVOICE_2PROD)
+    # Each product carries its own tank's Density@15.
+    dens = {p.stock_item: p.density for p in iv.products}
+    assert dens["Motor Spirit"] == "735.200"
+    assert dens["High Speed Diesel"] == "829.400"
+    # Both labelled values land in the remarks.
+    v = G.make_purchase(iv, "20260825", reference=iv.invoice_no, voucher_number="TT9")
+    narr = re.search(r"<NARRATION>([^<]*)</NARRATION>", v).group(1)
+    assert "MS 735.200" in narr and "HSD 829.400" in narr
+    assert iv.tt_no in narr
 
 
 def test_process_numbers_purchases_sequentially():
