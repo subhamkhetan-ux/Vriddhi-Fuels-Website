@@ -255,28 +255,64 @@ async def read_page(page: Page, settle_ms: int = 1500) -> Reading:
 # Only reached when credentials are configured and login is username+password
 # (no OTP / captcha). All steps are best-effort with resilient selectors.
 
-async def _fill_first(page: Page, selectors, value: str, timeout_ms: int = 4000) -> bool:
-    for sel in selectors:
-        loc = page.locator(sel).first
-        try:
-            await loc.wait_for(state="visible", timeout=timeout_ms)
-            await loc.fill(value, timeout=timeout_ms)
-            return True
-        except Exception:  # noqa: BLE001
+def _app_frames(page: Page):
+    """Main frame + same-origin app frames (skip Google reCAPTCHA frames)."""
+    frames = [page.main_frame]
+    for fr in page.frames:
+        if fr is page.main_frame:
             continue
+        u = (fr.url or "").lower()
+        if (not u) or u == "about:blank" or PORTAL_HINT in u:
+            frames.append(fr)
+    return frames
+
+
+async def _fill_first(page: Page, selectors, value: str, timeout_ms: int = 1500) -> bool:
+    for fr in _app_frames(page):
+        for sel in selectors:
+            loc = fr.locator(sel).first
+            try:
+                await loc.wait_for(state="visible", timeout=timeout_ms)
+                await loc.fill(value, timeout=3000)
+                return True
+            except Exception:  # noqa: BLE001
+                continue
     return False
 
 
-async def _click_first(page: Page, selectors, timeout_ms: int = 4000) -> bool:
-    for sel in selectors:
-        loc = page.locator(sel).first
-        try:
-            await loc.wait_for(state="visible", timeout=timeout_ms)
-            await loc.click(timeout=timeout_ms)
-            return True
-        except Exception:  # noqa: BLE001
-            continue
+async def _click_first(page: Page, selectors, timeout_ms: int = 3000) -> bool:
+    for fr in _app_frames(page):
+        for sel in selectors:
+            loc = fr.locator(sel).first
+            try:
+                await loc.wait_for(state="visible", timeout=timeout_ms)
+                await loc.click(timeout=timeout_ms)
+                return True
+            except Exception:  # noqa: BLE001
+                continue
     return False
+
+
+async def _log_login_diagnostic(page: Page) -> None:
+    """Log what Playwright actually sees, to pin down a stubborn login form."""
+    try:
+        log.info("login diagnostic: attached page url = %s", page.url)
+        data = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('input,textarea')).map(e => ({"
+            "id: e.id||null, name: e.getAttribute('name'), "
+            "fcn: e.getAttribute('formcontrolname'), type: e.getAttribute('type'), "
+            "vis: !!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)}))"
+        )
+        log.info("login diagnostic: main-frame inputs = %s", data)
+        log.info("login diagnostic: %d frame(s) total", len(page.frames))
+        for i, fr in enumerate(page.frames):
+            try:
+                n = await fr.evaluate("() => document.querySelectorAll('input,textarea').length")
+                log.info("  frame[%d] inputs=%s url=%s", i, n, (fr.url or "")[:70])
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception as exc:  # noqa: BLE001
+        log.info("login diagnostic failed: %s", exc)
 
 
 async def dismiss_popup(page: Page) -> None:
@@ -367,8 +403,16 @@ async def do_login(page: Page, username: str, password: str) -> str:
     except Exception:  # noqa: BLE001
         pass
     await dismiss_popup(page)
+    # Give the SPA time to render the form before we hunt for fields.
+    try:
+        await page.wait_for_selector(
+            "#email, [formcontrolname='email'], input[autocomplete='username']",
+            state="visible", timeout=15000)
+    except Exception:  # noqa: BLE001
+        pass
     if not await _fill_first(page, _USER_SELECTORS, username):
         log.warning("login: User ID field not found")
+        await _log_login_diagnostic(page)
         return LOGIN_FORM
     if not await _fill_first(page, _PASS_SELECTORS, password):
         log.warning("login: password field not found")
