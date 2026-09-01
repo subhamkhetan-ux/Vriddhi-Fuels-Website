@@ -26,6 +26,48 @@ log = logging.getLogger("xtrapower.browser")
 
 # Substrings that identify a real portal tab among whatever else is open.
 PORTAL_HINT = "iocxtrapower"
+PORTAL_URL = "https://beta.iocxtrapower.com"
+
+# Default menu path to the balance table, clicked label by label after a
+# re-login. Overridable per account via config ("nav_labels").
+DEFAULT_NAV_LABELS = ["Financials", "Balance Info"]
+
+# Resilient selector lists for the login form (first that resolves wins).
+_USER_SELECTORS = (
+    "input[name*='user' i]",
+    "input[id*='user' i]",
+    "input[name*='login' i]",
+    "input[id*='login' i]",
+    "input[name*='customer' i]",
+    "input[placeholder*='customer' i]",
+    "input[placeholder*='user' i]",
+    "input[type='text']:visible",
+    "input:not([type='password']):not([type='hidden']):not([type='checkbox']):visible",
+)
+_PASS_SELECTORS = ("input[type='password']",)
+_SUBMIT_SELECTORS = (
+    "button[type='submit']",
+    "input[type='submit']",
+    "button:has-text('Login')",
+    "button:has-text('Log In')",
+    "button:has-text('Sign In')",
+    "button:has-text('LOGIN')",
+    "text=/^\\s*(log ?in|sign ?in)\\s*$/i",
+)
+
+# Buttons that dismiss the post-login "Welcome to the brand new XTRAPOWER"
+# popup (and similar modals). All best-effort.
+_POPUP_CLOSE_SELECTORS = (
+    "button:has-text('Got it')",
+    "button:has-text('Skip')",
+    "button:has-text('Continue')",
+    "button:has-text('Close')",
+    "button:has-text('OK')",
+    "button:has-text('Dismiss')",
+    "[aria-label='Close']",
+    "button.close",
+    ".modal button.close",
+)
 
 # JS that extracts the results table as {headers, rows}. Picks the first table
 # containing a CCMS header; falls back to the widest table so a header-wording
@@ -183,3 +225,104 @@ async def read_page(page: Page, settle_ms: int = 1500) -> Reading:
         headers=list(table.get("headers") or []),
         rows=[list(r) for r in (table.get("rows") or [])],
     )
+
+
+# ---- auto re-login --------------------------------------------------------
+# The portal expires the session on a fixed ~30-45 min schedule regardless of
+# activity, so to run unattended for hours the monitor must log itself back in.
+# Only reached when credentials are configured and login is username+password
+# (no OTP / captcha). All steps are best-effort with resilient selectors.
+
+async def _fill_first(page: Page, selectors, value: str, timeout_ms: int = 4000) -> bool:
+    for sel in selectors:
+        loc = page.locator(sel).first
+        try:
+            await loc.wait_for(state="visible", timeout=timeout_ms)
+            await loc.fill(value, timeout=timeout_ms)
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+async def _click_first(page: Page, selectors, timeout_ms: int = 4000) -> bool:
+    for sel in selectors:
+        loc = page.locator(sel).first
+        try:
+            await loc.wait_for(state="visible", timeout=timeout_ms)
+            await loc.click(timeout=timeout_ms)
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+async def dismiss_popup(page: Page) -> None:
+    """Close the welcome/announcement modal if one is up. Never raises."""
+    for sel in _POPUP_CLOSE_SELECTORS:
+        try:
+            loc = page.locator(sel).first
+            if await loc.count() and await loc.is_visible():
+                await loc.click(timeout=2000)
+                await page.wait_for_timeout(400)
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def is_logged_in(page: Page) -> bool:
+    """True when no password field is present (i.e. not on the login screen)."""
+    try:
+        return (await page.locator(_PASS_SELECTORS[0]).count()) == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def do_login(page: Page, username: str, password: str) -> bool:
+    """Fill and submit the login form. Returns True if the form is gone after.
+
+    Assumes the caller already determined the page is on the login screen.
+    """
+    try:
+        if PORTAL_HINT not in (page.url or "").lower():
+            await page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=20000)
+    except Exception:  # noqa: BLE001
+        pass
+    await dismiss_popup(page)
+    if not await _fill_first(page, _USER_SELECTORS, username):
+        log.warning("login: username field not found")
+        return False
+    if not await _fill_first(page, _PASS_SELECTORS, password):
+        log.warning("login: password field not found")
+        return False
+    if not await _click_first(page, _SUBMIT_SELECTORS):
+        # No obvious button — try submitting from the password field.
+        try:
+            await page.locator(_PASS_SELECTORS[0]).first.press("Enter")
+        except Exception:  # noqa: BLE001
+            log.warning("login: no submit button and Enter failed")
+            return False
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except PWTimeout:
+        pass
+    await page.wait_for_timeout(1500)
+    await dismiss_popup(page)
+    return await is_logged_in(page)
+
+
+async def navigate_to_balance(page: Page, labels) -> None:
+    """Click through the menu path (e.g. Financials → Balance Info). Best-effort."""
+    for label in labels:
+        await _click_first(page, [
+            f"role=link[name=/{label}/i]",
+            f"role=button[name=/{label}/i]",
+            f"role=menuitem[name=/{label}/i]",
+            f"a:has-text(\"{label}\")",
+            f"button:has-text(\"{label}\")",
+            f"text=/{label}/i",
+        ], timeout_ms=4000)
+        await page.wait_for_timeout(800)
