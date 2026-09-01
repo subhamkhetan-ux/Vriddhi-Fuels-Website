@@ -217,12 +217,19 @@ async def check_account(
 
     clicked = await browser.click_search(page)
     if not clicked:
-        if just_logged_in:
+        # We may be logged in but not on Balance Info (just landed on Quick
+        # Links, a tab drifted, or a popup is covering Search). Clear popups,
+        # walk the menu, and retry once.
+        await browser.navigate_to_balance(page, nav_labels)
+        clicked = await browser.click_search(page)
+    if not clicked:
+        if just_logged_in or ready.get(cid):
             alert_error(
                 "nav-failed",
-                "Logged in OK, but couldn't reach Balance Info / find the "
-                "<b>Search</b> button. The menu path may differ on your build — "
-                "tell me the exact menu names and I'll set <code>nav_labels</code>.",
+                "Couldn't reach Balance Info / find the <b>Search</b> button after "
+                "navigating (Financials → Balance Info). The menu path may differ on "
+                "your build — send me the exact menu names and I'll set "
+                "<code>nav_labels</code>.",
             )
             ready[cid] = False
         else:
