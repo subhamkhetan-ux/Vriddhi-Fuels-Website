@@ -128,18 +128,12 @@ async def check_account(
     nav_labels = acct_cfg.get("nav_labels") or browser.DEFAULT_NAV_LABELS
 
     async def try_relogin(pg) -> str:
-        # Back off after a reCAPTCHA wall so we don't re-tick the box every
-        # cycle (which could get the account/IP flagged) — wait for a human.
-        if acct_state.get("captcha_until_epoch", 0) > now:
-            return browser.LOGIN_CAPTCHA
         log.info("[%s] session expired — attempting auto re-login", label)
+        acct_state.pop("captcha_until_epoch", None)  # clear any stale back-off
         status = await browser.do_login(pg, creds_user, creds_pass)
         if status == browser.LOGIN_OK:
-            acct_state.pop("captcha_until_epoch", None)
             await browser.navigate_to_balance(pg, nav_labels)
             log.info("[%s] auto re-login succeeded", label)
-        elif status == browser.LOGIN_CAPTCHA:
-            acct_state["captcha_until_epoch"] = now + 600  # 10-min back-off
         return status
 
     def relogin_failed_alert(status: str) -> None:

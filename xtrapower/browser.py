@@ -455,10 +455,13 @@ async def do_login(page: Page, username: str, password: str) -> str:
         await _log_login_diagnostic(page)
         return LOGIN_FORM
 
-    present, satisfied = await _handle_recaptcha(page)
+    # NB: do NOT touch the reCAPTCHA. This login uses the *invisible* reCAPTCHA
+    # (bottom-right badge) which runs automatically on submit; poking the stray
+    # checkbox element only produced false "captcha" verdicts while the browser
+    # actually logged in fine.
 
     # Submit: try a normal click, then fall back to a direct JS click on the
-    # Sign In button (id="normal"). The invisible reCAPTCHA runs on submit.
+    # Sign In button (id="normal").
     if not await _click_first(page, _SUBMIT_SELECTORS):
         try:
             await frame.evaluate(
@@ -469,17 +472,14 @@ async def do_login(page: Page, username: str, password: str) -> str:
         except Exception:  # noqa: BLE001
             log.warning("login: could not click Sign In")
             return LOGIN_FAILED
-    try:
-        await page.wait_for_load_state("networkidle", timeout=10000)
-    except PWTimeout:
-        pass
-    await page.wait_for_timeout(2000)
+    # Poll for the navigation away from the login page (it takes a moment).
+    for _ in range(15):
+        await page.wait_for_timeout(1000)
+        if await is_logged_in(page):
+            await dismiss_popup(page)
+            return LOGIN_OK
     await dismiss_popup(page)
-    if await is_logged_in(page):
-        return LOGIN_OK
-    if present and not satisfied:
-        return LOGIN_CAPTCHA
-    return LOGIN_FAILED
+    return LOGIN_OK if await is_logged_in(page) else LOGIN_FAILED
 
 
 async def navigate_to_balance(page: Page, labels) -> None:
