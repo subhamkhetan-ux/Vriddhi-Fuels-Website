@@ -73,6 +73,31 @@ _REMEMBER_SELECTORS = ("#remember-check", "input[type='checkbox']")
 # Visible "I'm not a robot" reCAPTCHA checkbox lives in this iframe.
 _RECAPTCHA_ANCHOR = "iframe[src*='recaptcha/api2/anchor'][src*='size=normal']"
 
+# Set #email / #password via the native value setter and fire input/change so
+# Angular's reactive form registers them (plain .value assignment doesn't, and
+# Playwright fill() stalls on these inputs). Also ticks the remember-me box.
+_FILL_LOGIN_JS = r"""
+(args) => {
+  const setVal = (sel, val) => {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    const proto = el.tagName === 'TEXTAREA'
+      ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    setter.call(el, val);
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+    el.dispatchEvent(new Event('blur', {bubbles: true}));
+    return true;
+  };
+  const u = setVal('#email', args.user);
+  const p = setVal('#password', args.pw);
+  const cb = document.querySelector('#remember-check');
+  if (cb && !cb.checked) { try { cb.click(); } catch (e) {} }
+  return u && p;
+}
+"""
+
 # Buttons that dismiss the post-login popups (the "67th IndianOil Day"
 # announcement and the "Welcome to the brand new XTRAPOWER … Skip" modal), plus
 # generic close (×) affordances. All best-effort. NB: never match "Start Guided
@@ -403,39 +428,52 @@ async def do_login(page: Page, username: str, password: str) -> str:
     except Exception:  # noqa: BLE001
         pass
     await dismiss_popup(page)
-    # Give the SPA time to render the form before we hunt for fields.
+    # Wait for the form to exist, then find the frame that actually holds it.
     try:
-        await page.wait_for_selector(
-            "#email, [formcontrolname='email'], input[autocomplete='username']",
-            state="visible", timeout=15000)
+        await page.wait_for_selector("#email", state="attached", timeout=15000)
     except Exception:  # noqa: BLE001
-        pass
-    if not await _fill_first(page, _USER_SELECTORS, username):
-        log.warning("login: User ID field not found")
         await _log_login_diagnostic(page)
         return LOGIN_FORM
-    if not await _fill_first(page, _PASS_SELECTORS, password):
-        log.warning("login: password field not found")
+    frame = None
+    for fr in page.frames:
+        try:
+            if await fr.query_selector("#email"):
+                frame = fr
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    if frame is None:
+        await _log_login_diagnostic(page)
         return LOGIN_FORM
-    # Tick "remember me" — best-effort; may lengthen the session.
-    try:
-        cb = page.locator(_REMEMBER_SELECTORS[0]).first
-        if await cb.count() and not await cb.is_checked():
-            await cb.check(timeout=2000)
-    except Exception:  # noqa: BLE001
-        pass
+
+    # Set the values via the native setter + input/change events. Playwright's
+    # fill() stalls on these Angular reactive-form inputs, but driving the value
+    # this way updates the FormControl reliably. Also ticks "remember me".
+    filled = await frame.evaluate(_FILL_LOGIN_JS, {"user": username, "pw": password})
+    if not filled:
+        log.warning("login: could not set User ID / password fields")
+        await _log_login_diagnostic(page)
+        return LOGIN_FORM
+
     present, satisfied = await _handle_recaptcha(page)
+
+    # Submit: try a normal click, then fall back to a direct JS click on the
+    # Sign In button (id="normal"). The invisible reCAPTCHA runs on submit.
     if not await _click_first(page, _SUBMIT_SELECTORS):
         try:
-            await page.locator(_PASS_SELECTORS[0]).first.press("Enter")
+            await frame.evaluate(
+                "() => { const b = document.querySelector('#normal') || "
+                "Array.from(document.querySelectorAll('button'))"
+                ".find(x => /sign ?in/i.test(x.innerText||'')); if (b) b.click(); }"
+            )
         except Exception:  # noqa: BLE001
-            log.warning("login: no Sign In button and Enter failed")
+            log.warning("login: could not click Sign In")
             return LOGIN_FAILED
     try:
         await page.wait_for_load_state("networkidle", timeout=10000)
     except PWTimeout:
         pass
-    await page.wait_for_timeout(1500)
+    await page.wait_for_timeout(2000)
     await dismiss_popup(page)
     if await is_logged_in(page):
         return LOGIN_OK
