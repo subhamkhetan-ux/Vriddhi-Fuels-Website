@@ -100,15 +100,43 @@ That fully stops it — no more checks or alerts until you `start` again. The
 Chrome windows stay open (harmless); close them whenever you like.
 
 Notes for the daily rhythm:
-- The Chrome login windows need to stay open and logged in. If the Mac
-  restarts or you quit Chrome, run `launch-mac.sh` again and log back in, then
-  `monitor-mac.sh start`.
-- If a session times out during the day you'll get a ⚠️, and the monitor waits
-  quietly until you log that window back in — then it re-confirms with a ✅ on
-  its own. You don't need to restart anything.
+- The Chrome login windows need to stay open. If the Mac restarts or you quit
+  Chrome, run `launch-mac.sh` again, then `monitor-mac.sh start`.
 - `run-mac.sh` is the *foreground* alternative (runs in the Terminal window,
   stops on Ctrl-C) — handy for a quick `--once` test; `monitor-mac.sh start` is
   the set-and-forget one.
+
+## Running unattended for hours (auto re-login)
+
+The portal ends every session on a **fixed ~30–45 min timer**, no matter how
+active you are — so clicking Search can't keep it alive. To run for 5–6 hours
+(or all day) without babysitting, let the monitor **log itself back in** each
+time the portal times out.
+
+Turn it on by adding each account's login to `config.json`:
+```jsonc
+{ "label": "Shyam Metalics", "customer_id": "1005218882", "cdp_port": 9222,
+  "watch": true,
+  "username": "1005218882",         // the customer ID / login you type
+  "password": "your-password" }
+```
+Now the flow is hands-off: open the windows once with `launch-mac.sh` (you don't
+even need to log in — the monitor will), then `monitor-mac.sh start`. When the
+session drops, it logs back in, returns to Balance Info, and carries on —
+**silently**; you only hear about it (⚠️) if the auto-login *fails*, and 🟢
+credits keep coming through across re-logins.
+
+- **Only works because login is username + password** (no OTP, no captcha). If
+  the portal ever adds either, auto-login stops and you'd log in by hand.
+- **`nav_labels`** (optional, per account) is the menu path back to the balance
+  table after a re-login — default `["Financials", "Balance Info"]`. If your
+  build names them differently and you get a "couldn't reach Balance Info"
+  alert, set the exact names here.
+- **Passwords sit in `config.json` in plain text.** That file is git-ignored and
+  never leaves the machine, so this is fine on your own private/locked Mac or
+  device — but keep it off any shared or cloud-synced folder.
+- **Without** `username`/`password`, nothing changes: the monitor waits quietly
+  for you to log in by hand and you re-login yourself after each timeout.
 
 ## Manual setup (any OS)
 

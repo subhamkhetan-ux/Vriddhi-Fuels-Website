@@ -306,3 +306,95 @@ def test_unreadable_ccms_alerts_when_ready(monkeypatch):
                                ready={"999": True})
     assert len(tg.messages) == 1
     assert "CCMS" in tg.messages[0]
+
+
+# ---- auto re-login (credentials configured) -------------------------------
+
+def _run_login_check(monkeypatch, pool, readings, *, login_ok, ready=None, st=None, cid="999"):
+    """check_account with credentials set and browser.do_login stubbed."""
+    seq = list(readings)
+    calls = {"login": 0, "nav": 0}
+
+    async def fake_read_page(page, settle_ms=1500):
+        return seq.pop(0)
+
+    async def fake_click(page, timeout_ms=8000):
+        return True
+
+    async def fake_do_login(page, user, pw):
+        calls["login"] += 1
+        return login_ok
+
+    async def fake_nav(page, labels):
+        calls["nav"] += 1
+
+    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
+    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    monkeypatch.setattr(monitor.browser, "do_login", fake_do_login)
+    monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
+
+    tg = _CapturingTelegram()
+    st = st if st is not None else {"accounts": {}}
+    ready = ready if ready is not None else {}
+    acct = {"label": "Test", "customer_id": cid, "cdp_port": 9222,
+            "username": "u", "password": "p"}
+    asyncio.run(monitor.check_account(pool, acct, st, tg, ready))
+    return tg, st, ready, calls
+
+
+LOGOUT = browser_mod.Reading(url="https://beta.iocxtrapower.com/login",
+                             text="Your session has expired. Please login again.",
+                             headers=[], rows=[])
+
+
+def test_autologin_recovers_and_confirms(monkeypatch):
+    page = object()
+    tg, st, ready, calls = _run_login_check(
+        monkeypatch, _FakePool(page),
+        [LOGOUT, _reading(HDR, [["₹100.00"]])],   # pre=logged out, post-relogin=good
+        login_ok=True)
+    assert calls["login"] == 1 and calls["nav"] == 1
+    assert len(tg.messages) == 1 and "now watching" in tg.messages[0].lower()
+    assert ready["999"] is True
+    assert st["accounts"]["999"]["ccms"] == "₹100.00"
+
+
+def test_autologin_failure_alerts(monkeypatch):
+    page = object()
+    tg, st, ready, calls = _run_login_check(
+        monkeypatch, _FakePool(page), [LOGOUT], login_ok=False)
+    assert calls["login"] == 1
+    assert len(tg.messages) == 1 and "re-login failed" in tg.messages[0].lower()
+    assert ready.get("999") is not True
+
+
+def test_autologin_midcycle_recovery_is_silent(monkeypatch):
+    """Already watching; session drops mid-refresh; silent recovery, value same."""
+    page = object()
+    st = {"accounts": {"999": {"ccms": "₹100.00"}}}
+    tg, st, ready, calls = _run_login_check(
+        monkeypatch, _FakePool(page),
+        [_reading(HDR, [["₹100.00"]]), LOGOUT, _reading(HDR, [["₹100.00"]])],
+        login_ok=True, ready={"999": True}, st=st)
+    assert calls["login"] == 1
+    assert tg.messages == []                       # silent recovery, no ✅ spam
+    assert ready["999"] is True
+
+
+def test_autologin_midcycle_recovery_reports_credit(monkeypatch):
+    """A credit that lands right around a mid-cycle re-login is still reported."""
+    page = object()
+    st = {"accounts": {"999": {"ccms": "₹100.00"}}}
+    tg, st, ready, calls = _run_login_check(
+        monkeypatch, _FakePool(page),
+        [_reading(HDR, [["₹100.00"]]), LOGOUT, _reading(HDR, [["₹500.00"]])],
+        login_ok=True, ready={"999": True}, st=st)
+    assert len(tg.messages) == 1 and "credited" in tg.messages[0]
+    assert st["accounts"]["999"]["ccms"] == "₹500.00"
+
+
+def test_no_creds_still_quiet_on_logout(monkeypatch):
+    """Without credentials, a logout stays quiet before hand-over (unchanged)."""
+    page = object()
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page), [LOGOUT], ready={})
+    assert tg.messages == []

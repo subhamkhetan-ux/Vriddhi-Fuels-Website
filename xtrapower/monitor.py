@@ -118,6 +118,23 @@ async def check_account(
             )
         log.info("[%s] handed over, watching (CCMS=%s)", label, new)
 
+    # Optional stored credentials → the monitor can log itself back in when the
+    # portal's fixed session timeout (~30-45 min) kicks it out, so it runs
+    # unattended for hours. Only used when both are set (login is user+password,
+    # no OTP/captcha). Without them, behaviour is manual hand-over as before.
+    creds_user = acct_cfg.get("username")
+    creds_pass = acct_cfg.get("password")
+    has_creds = bool(creds_user and creds_pass)
+    nav_labels = acct_cfg.get("nav_labels") or browser.DEFAULT_NAV_LABELS
+
+    async def try_relogin(pg) -> bool:
+        log.info("[%s] session expired — attempting auto re-login", label)
+        ok = await browser.do_login(pg, creds_user, creds_pass)
+        if ok:
+            await browser.navigate_to_balance(pg, nav_labels)
+            log.info("[%s] auto re-login succeeded", label)
+        return ok
+
     try:
         page = await pool.find_portal_page(port)
     except Exception as exc:  # noqa: BLE001 — Chrome closed / port not listening
@@ -158,36 +175,68 @@ async def check_account(
         ready[cid] = False
         return
 
+    just_logged_in = False
     if parse.detect_logout(pre.text, pre.url):
-        not_usable(
-            "logged-out",
-            "Looks logged out / session expired. Please log back in and return "
-            "to the Balance Info screen.",
-            "not logged in yet",
-        )
-        return
+        if not has_creds:
+            not_usable(
+                "logged-out",
+                "Looks logged out / session expired. Please log back in and return "
+                "to the Balance Info screen.",
+                "not logged in yet",
+            )
+            return
+        if not await try_relogin(page):
+            alert_error(
+                "auto-login-failed",
+                "Auto re-login failed. Check the saved username/password for this "
+                "account, or log in by hand — I'll keep trying each cycle.",
+            )
+            ready[cid] = False
+            return
+        just_logged_in = True
 
     clicked = await browser.click_search(page)
     if not clicked:
-        not_usable(
-            "no-search-button",
-            "Couldn't find the <b>Search</b> button on the Balance Info screen. "
-            "The portal layout may have changed, or the tab isn't on Balance Info.",
-            "Search button not present yet (not on Balance Info?)",
-        )
+        if just_logged_in:
+            alert_error(
+                "nav-failed",
+                "Logged in OK, but couldn't reach Balance Info / find the "
+                "<b>Search</b> button. The menu path may differ on your build — "
+                "tell me the exact menu names and I'll set <code>nav_labels</code>.",
+            )
+            ready[cid] = False
+        else:
+            not_usable(
+                "no-search-button",
+                "Couldn't find the <b>Search</b> button on the Balance Info screen. "
+                "The portal layout may have changed, or the tab isn't on Balance Info.",
+                "Search button not present yet (not on Balance Info?)",
+            )
         return
 
     reading = await browser.read_page(page)
 
-    # A logout can also surface only after the click.
+    # A logout can also surface only after the click. Try one in-cycle re-login.
     if parse.detect_logout(reading.text, reading.url):
-        not_usable(
-            "logged-out",
-            "Session dropped during refresh. Please log back in and return to "
-            "the Balance Info screen.",
-            "not logged in yet",
-        )
-        return
+        if has_creds and await try_relogin(page):
+            await browser.click_search(page)
+            reading = await browser.read_page(page)
+        if parse.detect_logout(reading.text, reading.url):
+            if has_creds:
+                alert_error(
+                    "auto-login-failed",
+                    "Session dropped and auto re-login didn't take. Check the saved "
+                    "credentials, or log in by hand — I'll keep trying.",
+                )
+                ready[cid] = False
+            else:
+                not_usable(
+                    "logged-out",
+                    "Session dropped during refresh. Please log back in and return "
+                    "to the Balance Info screen.",
+                    "not logged in yet",
+                )
+            return
 
     ccms = parse.find_ccms(reading.headers, reading.rows)
     if ccms is None:
