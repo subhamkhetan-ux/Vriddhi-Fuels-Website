@@ -82,6 +82,13 @@ def test_detect_logout_on_login_url_with_prompt():
     assert parse.detect_logout("Customer ID Password", "https://beta.iocxtrapower.com/login")
 
 
+def test_detect_logout_on_fresh_login_url_without_visible_prompt():
+    # Fresh login page: placeholders aren't visible text, but the URL gives it away.
+    assert parse.detect_logout(
+        "Sign In New Here? Need Help?",
+        "https://beta.iocxtrapower.com/account/login?returnUrl=%2F") is True
+
+
 def test_detect_logout_false_on_balance_screen():
     assert parse.detect_logout("Balance Info CCMS ₹100", "https://beta.iocxtrapower.com/financials") is False
 

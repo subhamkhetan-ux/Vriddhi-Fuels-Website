@@ -131,12 +131,20 @@ _WAF_MARKERS = (
 
 
 def detect_logout(page_text: str, url: str) -> bool:
-    """True when the page looks like a login / expired-session screen."""
+    """True when the page looks like a login / expired-session screen.
+
+    The most reliable signal is the URL: the portal's login route is
+    ``/account/login``. A fresh login page shows "User ID"/"Password" only as
+    input *placeholders* (not visible text), so a text-only check missed it —
+    the URL check catches it regardless. Expiry-message markers still count too.
+    """
+    url_l = (url or "").lower()
+    if "account/login" in url_l or "/login" in url_l or url_l.endswith("/login"):
+        return True
     blob = f"{page_text}\n{url}".lower()
     if any(m in blob for m in _LOGGED_OUT_MARKERS):
         return True
-    # A bare login URL with a username/password prompt also counts.
-    if "login" in url.lower() and ("password" in blob or "customer id" in blob):
+    if "login" in url_l and ("password" in blob or "customer id" in blob):
         return True
     return False
 
