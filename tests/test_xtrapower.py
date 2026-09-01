@@ -310,8 +310,11 @@ def test_unreadable_ccms_alerts_when_ready(monkeypatch):
 
 # ---- auto re-login (credentials configured) -------------------------------
 
-def _run_login_check(monkeypatch, pool, readings, *, login_ok, ready=None, st=None, cid="999"):
-    """check_account with credentials set and browser.do_login stubbed."""
+def _run_login_check(monkeypatch, pool, readings, *, login_status="ok", ready=None, st=None, cid="999"):
+    """check_account with credentials set and browser.do_login stubbed.
+
+    ``login_status`` is one of browser.LOGIN_OK / LOGIN_CAPTCHA / LOGIN_FAILED.
+    """
     seq = list(readings)
     calls = {"login": 0, "nav": 0}
 
@@ -323,7 +326,7 @@ def _run_login_check(monkeypatch, pool, readings, *, login_ok, ready=None, st=No
 
     async def fake_do_login(page, user, pw):
         calls["login"] += 1
-        return login_ok
+        return login_status
 
     async def fake_nav(page, labels):
         calls["nav"] += 1
@@ -352,7 +355,7 @@ def test_autologin_recovers_and_confirms(monkeypatch):
     tg, st, ready, calls = _run_login_check(
         monkeypatch, _FakePool(page),
         [LOGOUT, _reading(HDR, [["₹100.00"]])],   # pre=logged out, post-relogin=good
-        login_ok=True)
+        login_status="ok")
     assert calls["login"] == 1 and calls["nav"] == 1
     assert len(tg.messages) == 1 and "now watching" in tg.messages[0].lower()
     assert ready["999"] is True
@@ -362,10 +365,22 @@ def test_autologin_recovers_and_confirms(monkeypatch):
 def test_autologin_failure_alerts(monkeypatch):
     page = object()
     tg, st, ready, calls = _run_login_check(
-        monkeypatch, _FakePool(page), [LOGOUT], login_ok=False)
+        monkeypatch, _FakePool(page), [LOGOUT], login_status="failed")
     assert calls["login"] == 1
-    assert len(tg.messages) == 1 and "re-login failed" in tg.messages[0].lower()
+    assert len(tg.messages) == 1 and "didn't go through" in tg.messages[0].lower()
     assert ready.get("999") is not True
+
+
+def test_autologin_captcha_asks_for_human_and_backs_off(monkeypatch):
+    page = object()
+    st = {"accounts": {}}
+    tg, st, ready, calls = _run_login_check(
+        monkeypatch, _FakePool(page), [LOGOUT], login_status="captcha", st=st)
+    assert calls["login"] == 1
+    assert len(tg.messages) == 1 and "recaptcha" in tg.messages[0].lower()
+    assert ready.get("999") is not True
+    # 10-min back-off recorded so we don't re-tick the box every cycle
+    assert st["accounts"]["999"].get("captcha_until_epoch", 0) > 0
 
 
 def test_autologin_midcycle_recovery_is_silent(monkeypatch):
@@ -375,7 +390,7 @@ def test_autologin_midcycle_recovery_is_silent(monkeypatch):
     tg, st, ready, calls = _run_login_check(
         monkeypatch, _FakePool(page),
         [_reading(HDR, [["₹100.00"]]), LOGOUT, _reading(HDR, [["₹100.00"]])],
-        login_ok=True, ready={"999": True}, st=st)
+        login_status="ok", ready={"999": True}, st=st)
     assert calls["login"] == 1
     assert tg.messages == []                       # silent recovery, no ✅ spam
     assert ready["999"] is True
@@ -388,7 +403,7 @@ def test_autologin_midcycle_recovery_reports_credit(monkeypatch):
     tg, st, ready, calls = _run_login_check(
         monkeypatch, _FakePool(page),
         [_reading(HDR, [["₹100.00"]]), LOGOUT, _reading(HDR, [["₹500.00"]])],
-        login_ok=True, ready={"999": True}, st=st)
+        login_status="ok", ready={"999": True}, st=st)
     assert len(tg.messages) == 1 and "credited" in tg.messages[0]
     assert st["accounts"]["999"]["ccms"] == "₹500.00"
 
