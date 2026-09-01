@@ -42,3 +42,4 @@ xtrapower/config.json
 xtrapower/profiles/
 xtrapower/state.json
 xtrapower/*.log
+xtrapower/monitor.pid
