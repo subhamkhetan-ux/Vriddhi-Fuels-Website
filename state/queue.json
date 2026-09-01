@@ -1124,7 +1124,9 @@
         "outlier": false
       },
       "queued_at": "2026-09-01T02:45:17.794930+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-09-01T09:45:18.313445+00:00"
     },
     {
       "entry_id": "ca37cec0d04c699f",
@@ -1145,7 +1147,28 @@
         "outlier": false
       },
       "queued_at": "2026-09-01T09:30:21.139127+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-09-01T09:45:18.313445+00:00"
+    },
+    {
+      "entry_id": "f15c4b7f73e338c7",
+      "gmail_msg_id": "1a05c5842724a205",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "01/09/26",
+      "date_serial": 46266,
+      "amount": 2500000.0,
+      "raw_payer": "MANOJ STORE",
+      "customer": null,
+      "candidates": [],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-01T09:45:19.086910+00:00",
+      "status": "review"
     }
   ]
 }
