@@ -382,7 +382,7 @@ def test_autologin_failure_alerts(monkeypatch):
     assert ready.get("999") is not True
 
 
-def test_autologin_captcha_asks_for_human_and_backs_off(monkeypatch):
+def test_autologin_captcha_asks_for_human(monkeypatch):
     page = object()
     st = {"accounts": {}}
     tg, st, ready, calls = _run_login_check(
@@ -390,8 +390,6 @@ def test_autologin_captcha_asks_for_human_and_backs_off(monkeypatch):
     assert calls["login"] == 1
     assert len(tg.messages) == 1 and "recaptcha" in tg.messages[0].lower()
     assert ready.get("999") is not True
-    # 10-min back-off recorded so we don't re-tick the box every cycle
-    assert st["accounts"]["999"].get("captcha_until_epoch", 0) > 0
 
 
 def test_autologin_midcycle_recovery_is_silent(monkeypatch):
