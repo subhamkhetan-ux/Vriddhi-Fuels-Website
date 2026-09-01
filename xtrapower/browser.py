@@ -73,18 +73,22 @@ _REMEMBER_SELECTORS = ("#remember-check", "input[type='checkbox']")
 # Visible "I'm not a robot" reCAPTCHA checkbox lives in this iframe.
 _RECAPTCHA_ANCHOR = "iframe[src*='recaptcha/api2/anchor'][src*='size=normal']"
 
-# Buttons that dismiss the post-login "Welcome to the brand new XTRAPOWER"
-# popup (and similar modals). All best-effort.
+# Buttons that dismiss the post-login popups (the "67th IndianOil Day"
+# announcement and the "Welcome to the brand new XTRAPOWER … Skip" modal), plus
+# generic close (×) affordances. All best-effort. NB: never match "Start Guided
+# Tour" — we want Skip, not the tour.
 _POPUP_CLOSE_SELECTORS = (
-    "button:has-text('Got it')",
     "button:has-text('Skip')",
-    "button:has-text('Continue')",
-    "button:has-text('Close')",
-    "button:has-text('OK')",
+    "button:has-text('No Thanks')",
+    "button:has-text('Maybe Later')",
+    "button:has-text('Got it')",
     "button:has-text('Dismiss')",
+    "button:has-text('Close')",
+    "button[aria-label*='close' i]",
     "[aria-label='Close']",
-    "button.close",
-    ".modal button.close",
+    "button.close, button.btn-close",
+    ".modal .close, .modal-header button, [role='dialog'] button[aria-label*='close' i]",
+    "mat-icon:has-text('close')",
 )
 
 # JS that extracts the results table as {headers, rows}. Picks the first table
@@ -276,19 +280,30 @@ async def _click_first(page: Page, selectors, timeout_ms: int = 4000) -> bool:
 
 
 async def dismiss_popup(page: Page) -> None:
-    """Close the welcome/announcement modal if one is up. Never raises."""
-    for sel in _POPUP_CLOSE_SELECTORS:
+    """Clear the post-login popups. Handles several stacked modals; never raises.
+
+    Loops a few rounds because there can be two at once (announcement + welcome
+    tour); each round clicks any visible Skip/close button and presses Escape,
+    stopping early once a round finds nothing left to close.
+    """
+    for _ in range(4):
+        acted = False
+        for sel in _POPUP_CLOSE_SELECTORS:
+            try:
+                loc = page.locator(sel).first
+                if await loc.count() and await loc.is_visible():
+                    await loc.click(timeout=1500)
+                    acted = True
+                    await page.wait_for_timeout(400)
+            except Exception:  # noqa: BLE001
+                continue
         try:
-            loc = page.locator(sel).first
-            if await loc.count() and await loc.is_visible():
-                await loc.click(timeout=2000)
-                await page.wait_for_timeout(400)
+            await page.keyboard.press("Escape")
         except Exception:  # noqa: BLE001
-            continue
-    try:
-        await page.keyboard.press("Escape")
-    except Exception:  # noqa: BLE001
-        pass
+            pass
+        await page.wait_for_timeout(300)
+        if not acted:
+            break
 
 
 async def is_logged_in(page: Page) -> bool:
@@ -386,7 +401,13 @@ async def do_login(page: Page, username: str, password: str) -> str:
 
 
 async def navigate_to_balance(page: Page, labels) -> None:
-    """Click through the menu path (e.g. Financials → Balance Info). Best-effort."""
+    """Click through the menu path (e.g. Financials → Balance Info). Best-effort.
+
+    Dismisses popups first (they land on the page right after login) and again
+    at the end (a promo can re-open), and clicks each label by whatever it turns
+    out to be — link, button, menu item, or a plain accordion row (text=…).
+    """
+    await dismiss_popup(page)
     for label in labels:
         await _click_first(page, [
             f"role=link[name=/{label}/i]",
@@ -394,6 +415,8 @@ async def navigate_to_balance(page: Page, labels) -> None:
             f"role=menuitem[name=/{label}/i]",
             f"a:has-text(\"{label}\")",
             f"button:has-text(\"{label}\")",
+            f"text=/^\\s*{label}\\s*$/i",
             f"text=/{label}/i",
-        ], timeout_ms=4000)
-        await page.wait_for_timeout(800)
+        ], timeout_ms=5000)
+        await page.wait_for_timeout(1000)
+    await dismiss_popup(page)

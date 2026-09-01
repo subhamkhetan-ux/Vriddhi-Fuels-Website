@@ -44,6 +44,24 @@ _DUMP_JS = r"""
   const inputs = Array.from(document.querySelectorAll('input, textarea, select')).map(attrs);
   const buttons = Array.from(document.querySelectorAll(
     "button, input[type=submit], input[type=button], a[role=button], [role=button]")).map(attrs);
+  const links = Array.from(document.querySelectorAll('a[href]')).map(a => ({
+    text: (a.innerText || '').trim().slice(0, 40) || null,
+    href: a.getAttribute('href'), id: a.id || null, visible: vis(a),
+  })).filter(l => l.text);
+  // Anything clickable whose label mentions the nav path / popup controls, so
+  // menu selectors can be tuned even when they're plain divs/rows.
+  const KW = ['financial', 'balance', 'skip', 'close', 'search', 'guided tour'];
+  const menuish = Array.from(document.querySelectorAll('a, button, [role], li, .nav-link, .accordion-button, span'))
+    .filter(el => vis(el) && KW.some(k => (el.innerText || '').trim().toLowerCase().includes(k)))
+    .slice(0, 40)
+    .map(el => ({
+      tag: el.tagName.toLowerCase(),
+      role: el.getAttribute('role'),
+      id: el.id || null,
+      cls: (el.getAttribute('class') || '').slice(0, 60) || null,
+      text: (el.innerText || '').trim().slice(0, 40),
+    }));
+  const dialogs = document.querySelectorAll("[role=dialog], .modal, .mat-dialog-container, .cdk-overlay-container > *").length;
   const iframes = Array.from(document.querySelectorAll('iframe')).map(f => ({
     src: f.getAttribute('src'), id: f.id || null, name: f.getAttribute('name'),
   }));
@@ -51,7 +69,7 @@ _DUMP_JS = r"""
     url: location.href,
     title: document.title,
     passwordFields: document.querySelectorAll("input[type=password]").length,
-    inputs, buttons, iframes,
+    dialogs, inputs, buttons, links, menuish, iframes,
   };
 }
 """
@@ -85,12 +103,12 @@ async def main_async(args) -> None:
             raise SystemExit(f"No page found on port {port}. Is the window open?")
 
         data = await page.evaluate(_DUMP_JS)
-        print("\n===== LOGIN PAGE INSPECTION =====")
+        print("\n===== PAGE INSPECTION =====")
         print(f"URL:   {data['url']}")
         print(f"Title: {data['title']}")
-        print(f"Password fields on page: {data['passwordFields']}")
+        print(f"Password fields: {data['passwordFields']}   Open dialogs/overlays: {data['dialogs']}")
         if data["iframes"]:
-            print("\n⚠️  IFRAMES present (login may live inside one):")
+            print("\n⚠️  IFRAMES present:")
             for f in data["iframes"]:
                 print(f"    {f}")
         print("\n--- INPUTS ---")
@@ -99,8 +117,14 @@ async def main_async(args) -> None:
         print("\n--- BUTTONS ---")
         for b in data["buttons"]:
             print(f"    {b}")
+        print("\n--- MENU / POPUP ELEMENTS (Financials / Balance / Skip / Close / Search) ---")
+        for m in data["menuish"]:
+            print(f"    {m}")
+        print("\n--- LINKS ---")
+        for l in data["links"][:40]:
+            print(f"    {l}")
         print("\n===== END =====\n")
-        print("Copy everything from LOGIN PAGE INSPECTION to END and paste it back.")
+        print("Copy everything from PAGE INSPECTION to END and paste it back.")
 
 
 def main() -> None:
