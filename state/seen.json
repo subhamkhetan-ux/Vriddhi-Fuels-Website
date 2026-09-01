@@ -21,7 +21,7 @@
     ]
   },
   "bank2": {
-    "high_water": 1788239538000,
+    "high_water": 1788254751000,
     "ids": [
       "1a00f7c373522c4c",
       "1a00f7c624cf5dd6",
@@ -102,7 +102,9 @@
       "1a05ad1f3bb481d2",
       "1a05ad5415df066a",
       "1a05addcb20f4abd",
-      "1a05b61ea002df96"
+      "1a05b61ea002df96",
+      "1a05c4873d26b123",
+      "1a05c4a0d38562f1"
     ]
   },
   "consignment": {
