@@ -185,8 +185,12 @@ def _run_check(monkeypatch, pool, readings, click_ok=True, ready=None, st=None, 
     async def fake_click(page, timeout_ms=8000):
         return click_ok
 
+    async def fake_nav(page, labels):
+        return None
+
     monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
     monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
 
     tg = _CapturingTelegram()
     st = st if st is not None else {"accounts": {}}
