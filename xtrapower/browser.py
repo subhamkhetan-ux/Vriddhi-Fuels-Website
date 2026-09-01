@@ -32,28 +32,46 @@ PORTAL_URL = "https://beta.iocxtrapower.com"
 # re-login. Overridable per account via config ("nav_labels").
 DEFAULT_NAV_LABELS = ["Financials", "Balance Info"]
 
+# Login result codes returned by do_login().
+LOGIN_OK = "ok"            # logged in
+LOGIN_CAPTCHA = "captcha"  # a reCAPTCHA challenge blocked us — needs a human
+LOGIN_FORM = "form"        # couldn't find the ID/password fields
+LOGIN_FAILED = "failed"    # submitted but still on the login page
+
 # Resilient selector lists for the login form (first that resolves wins).
+# The XTRAPOWER form uses id/formcontrolname "email" + "password"; note the
+# password field can be type=text when the show/hide toggle reveals it, so we
+# must NOT rely on input[type=password].
 _USER_SELECTORS = (
+    "#email",
+    "[formcontrolname='email']",
+    "input[autocomplete='username']",
     "input[name*='user' i]",
     "input[id*='user' i]",
-    "input[name*='login' i]",
-    "input[id*='login' i]",
-    "input[name*='customer' i]",
-    "input[placeholder*='customer' i]",
     "input[placeholder*='user' i]",
+    "input[placeholder*='customer' i]",
     "input[type='text']:visible",
-    "input:not([type='password']):not([type='hidden']):not([type='checkbox']):visible",
 )
-_PASS_SELECTORS = ("input[type='password']",)
+_PASS_SELECTORS = (
+    "#password",
+    "[formcontrolname='password']",
+    "input[autocomplete='current-password']",
+    "input[type='password']",
+)
 _SUBMIT_SELECTORS = (
+    "button#normal",
+    "button:has-text('Sign In')",
+    "button:has-text('Sign in')",
     "button[type='submit']",
     "input[type='submit']",
     "button:has-text('Login')",
     "button:has-text('Log In')",
-    "button:has-text('Sign In')",
-    "button:has-text('LOGIN')",
-    "text=/^\\s*(log ?in|sign ?in)\\s*$/i",
+    "text=/^\\s*(sign ?in|log ?in)\\s*$/i",
 )
+# The "keep me signed in" checkbox — ticking it may lengthen the session.
+_REMEMBER_SELECTORS = ("#remember-check", "input[type='checkbox']")
+# Visible "I'm not a robot" reCAPTCHA checkbox lives in this iframe.
+_RECAPTCHA_ANCHOR = "iframe[src*='recaptcha/api2/anchor'][src*='size=normal']"
 
 # Buttons that dismiss the post-login "Welcome to the brand new XTRAPOWER"
 # popup (and similar modals). All best-effort.
@@ -274,15 +292,57 @@ async def dismiss_popup(page: Page) -> None:
 
 
 async def is_logged_in(page: Page) -> bool:
-    """True when no password field is present (i.e. not on the login screen)."""
-    try:
-        return (await page.locator(_PASS_SELECTORS[0]).count()) == 0
-    except Exception:  # noqa: BLE001
+    """True when we're off the login screen.
+
+    URL-based (the login route contains ``login``) plus a check that no
+    ID/password field is showing — the password field can be ``type=text``
+    behind a show/hide toggle, so a type-based check alone is unreliable.
+    """
+    url = (page.url or "").lower()
+    if "login" in url:
         return False
+    try:
+        if (await page.locator("#password, [formcontrolname='password']").count()) > 0:
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
 
 
-async def do_login(page: Page, username: str, password: str) -> bool:
-    """Fill and submit the login form. Returns True if the form is gone after.
+async def _handle_recaptcha(page: Page) -> tuple[bool, bool]:
+    """Best-effort tick of the visible "I'm not a robot" box.
+
+    Returns (present, satisfied). On a trusted, daily-use profile the checkbox
+    usually passes with a single click and no image challenge; if a challenge
+    appears instead, we do NOT try to solve it — we report it unsatisfied so
+    the caller can hand off to a human. Returns (False, True) when there is no
+    visible checkbox reCAPTCHA at all.
+    """
+    try:
+        if (await page.locator(_RECAPTCHA_ANCHOR).count()) == 0:
+            return (False, True)
+    except Exception:  # noqa: BLE001
+        return (False, True)
+    box = page.frame_locator(_RECAPTCHA_ANCHOR).first.locator("#recaptcha-anchor")
+    try:
+        await box.wait_for(state="visible", timeout=4000)
+        if (await box.get_attribute("aria-checked")) == "true":
+            return (True, True)
+        await box.click(timeout=4000)
+    except Exception:  # noqa: BLE001
+        return (True, False)
+    for _ in range(16):  # up to ~8s for it to turn green (or a challenge to pop)
+        await page.wait_for_timeout(500)
+        try:
+            if (await box.get_attribute("aria-checked")) == "true":
+                return (True, True)
+        except Exception:  # noqa: BLE001
+            pass
+    return (True, False)
+
+
+async def do_login(page: Page, username: str, password: str) -> str:
+    """Fill and submit the login form. Returns one of the LOGIN_* codes.
 
     Assumes the caller already determined the page is on the login screen.
     """
@@ -293,25 +353,36 @@ async def do_login(page: Page, username: str, password: str) -> bool:
         pass
     await dismiss_popup(page)
     if not await _fill_first(page, _USER_SELECTORS, username):
-        log.warning("login: username field not found")
-        return False
+        log.warning("login: User ID field not found")
+        return LOGIN_FORM
     if not await _fill_first(page, _PASS_SELECTORS, password):
         log.warning("login: password field not found")
-        return False
+        return LOGIN_FORM
+    # Tick "remember me" — best-effort; may lengthen the session.
+    try:
+        cb = page.locator(_REMEMBER_SELECTORS[0]).first
+        if await cb.count() and not await cb.is_checked():
+            await cb.check(timeout=2000)
+    except Exception:  # noqa: BLE001
+        pass
+    present, satisfied = await _handle_recaptcha(page)
     if not await _click_first(page, _SUBMIT_SELECTORS):
-        # No obvious button — try submitting from the password field.
         try:
             await page.locator(_PASS_SELECTORS[0]).first.press("Enter")
         except Exception:  # noqa: BLE001
-            log.warning("login: no submit button and Enter failed")
-            return False
+            log.warning("login: no Sign In button and Enter failed")
+            return LOGIN_FAILED
     try:
         await page.wait_for_load_state("networkidle", timeout=10000)
     except PWTimeout:
         pass
     await page.wait_for_timeout(1500)
     await dismiss_popup(page)
-    return await is_logged_in(page)
+    if await is_logged_in(page):
+        return LOGIN_OK
+    if present and not satisfied:
+        return LOGIN_CAPTCHA
+    return LOGIN_FAILED
 
 
 async def navigate_to_balance(page: Page, labels) -> None:

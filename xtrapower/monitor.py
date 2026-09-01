@@ -127,13 +127,37 @@ async def check_account(
     has_creds = bool(creds_user and creds_pass)
     nav_labels = acct_cfg.get("nav_labels") or browser.DEFAULT_NAV_LABELS
 
-    async def try_relogin(pg) -> bool:
+    async def try_relogin(pg) -> str:
+        # Back off after a reCAPTCHA wall so we don't re-tick the box every
+        # cycle (which could get the account/IP flagged) — wait for a human.
+        if acct_state.get("captcha_until_epoch", 0) > now:
+            return browser.LOGIN_CAPTCHA
         log.info("[%s] session expired — attempting auto re-login", label)
-        ok = await browser.do_login(pg, creds_user, creds_pass)
-        if ok:
+        status = await browser.do_login(pg, creds_user, creds_pass)
+        if status == browser.LOGIN_OK:
+            acct_state.pop("captcha_until_epoch", None)
             await browser.navigate_to_balance(pg, nav_labels)
             log.info("[%s] auto re-login succeeded", label)
-        return ok
+        elif status == browser.LOGIN_CAPTCHA:
+            acct_state["captcha_until_epoch"] = now + 600  # 10-min back-off
+        return status
+
+    def relogin_failed_alert(status: str) -> None:
+        if status == browser.LOGIN_CAPTCHA:
+            alert_error(
+                "login-captcha",
+                "The portal login is showing a reCAPTCHA (\"I'm not a robot\") that "
+                "I can't clear on my own. Please sign in by hand in this account's "
+                "Chrome window and open Balance Info — I'll take over automatically "
+                "once you're there. (I'll pause auto-login attempts for 10 min.)",
+            )
+        else:
+            alert_error(
+                "auto-login-failed",
+                "Auto re-login didn't go through. Check the saved username/password "
+                "for this account, or log in by hand — I'll keep trying.",
+            )
+        ready[cid] = False
 
     try:
         page = await pool.find_portal_page(port)
@@ -185,13 +209,9 @@ async def check_account(
                 "not logged in yet",
             )
             return
-        if not await try_relogin(page):
-            alert_error(
-                "auto-login-failed",
-                "Auto re-login failed. Check the saved username/password for this "
-                "account, or log in by hand — I'll keep trying each cycle.",
-            )
-            ready[cid] = False
+        status = await try_relogin(page)
+        if status != browser.LOGIN_OK:
+            relogin_failed_alert(status)
             return
         just_logged_in = True
 
@@ -218,17 +238,13 @@ async def check_account(
 
     # A logout can also surface only after the click. Try one in-cycle re-login.
     if parse.detect_logout(reading.text, reading.url):
-        if has_creds and await try_relogin(page):
+        status = await try_relogin(page) if has_creds else browser.LOGIN_FAILED
+        if status == browser.LOGIN_OK:
             await browser.click_search(page)
             reading = await browser.read_page(page)
         if parse.detect_logout(reading.text, reading.url):
             if has_creds:
-                alert_error(
-                    "auto-login-failed",
-                    "Session dropped and auto re-login didn't take. Check the saved "
-                    "credentials, or log in by hand — I'll keep trying.",
-                )
-                ready[cid] = False
+                relogin_failed_alert(status)
             else:
                 not_usable(
                     "logged-out",

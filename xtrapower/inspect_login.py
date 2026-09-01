@@ -35,7 +35,11 @@ _DUMP_JS = r"""
     formcontrolname: el.getAttribute('formcontrolname'),
     autocomplete: el.getAttribute('autocomplete'),
     visible: vis(el),
-    text: (el.innerText || el.value || '').trim().slice(0, 40) || null,
+    // Buttons: show their label. Inputs: never print the VALUE (could be a
+    // password) — just note whether it's filled.
+    text: el.tagName.toLowerCase() === 'button'
+      ? (el.innerText || '').trim().slice(0, 40) || null
+      : (el.value ? '(filled)' : null),
   });
   const inputs = Array.from(document.querySelectorAll('input, textarea, select')).map(attrs);
   const buttons = Array.from(document.querySelectorAll(
