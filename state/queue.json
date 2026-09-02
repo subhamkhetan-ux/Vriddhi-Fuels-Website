@@ -1193,7 +1193,9 @@
         "outlier": false
       },
       "queued_at": "2026-09-02T02:15:18.982207+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-09-02T02:30:19.771990+00:00"
     },
     {
       "entry_id": "c608f38ffea7df1b",
