@@ -72,8 +72,10 @@ Google blocks datacenter password logins; a refresh token is revocable and
 scoped to read-only Gmail).
 
 1. In Google Cloud Console create a project, enable the Gmail API, and create an
-   OAuth client of type **Desktop app**. Download `credentials.json`. Add each
-   Gmail address as a **Test user** on the OAuth consent screen.
+   OAuth client of type **Desktop app**. Download `credentials.json`. On the
+   OAuth consent screen set **Publishing status → In production** (recommended —
+   see the token-expiry note below); otherwise add each Gmail address as a
+   **Test user**.
 2. On the Mac, mint a refresh token **once per account** with the bundled helper
    (signs you in via the browser, read-only scope):
 
@@ -83,9 +85,34 @@ scoped to read-only Gmail).
    python3 mint_token.py --credentials credentials.json --out token_bank2.json  # sign in as account 2
    ```
 
-3. Paste each printed JSON blob into a GitHub repo secret:
-   `GMAIL_TOKEN_BANK1` (HDFC), `GMAIL_TOKEN_BANK2` (ICICI). The `token_*.json`
-   files are git-ignored — delete them after copying.
+3. Paste each printed JSON blob into a GitHub repo secret (mapping per
+   `agent/config.py`): `GMAIL_TOKEN_BANK1` = account-1 mailbox (ICICI alerts),
+   `GMAIL_TOKEN_BANK2` = account-2 mailbox (HDFC alerts + IOC invoices). The
+   `token_*.json` files are git-ignored — delete them after copying.
+
+### Troubleshooting: `invalid_grant: Token has been expired or revoked`
+
+The run fails and the log shows e.g. `[bank2] FAILED: ('invalid_grant: Token has
+been expired or revoked.')`. That account's Gmail refresh token is dead (the
+other account keeps working). The usual cause is the OAuth consent screen being
+in **Testing** status, where **Google expires refresh tokens after ~7 days**.
+
+**Fix it (re-mint the affected token):**
+
+1. On the Mac, sign in as the *matching* Gmail account and mint a fresh token —
+   e.g. for `GMAIL_TOKEN_BANK2` (the account-2 mailbox = HDFC alerts + IOC
+   invoices): `python3 mint_token.py --credentials credentials.json --out token_bank2.json`
+2. Copy the file's contents into GitHub → **Settings → Secrets and variables →
+   Actions → `GMAIL_TOKEN_BANK2` → Update**, then delete the local file.
+3. Re-run: Actions → **Payment agent (Gmail → queue)** → **Run workflow** (or wait
+   for the next 20-min cron). It should go green.
+
+**Stop it recurring (permanent):** set the OAuth consent screen **Publishing
+status → In production** in Google Cloud Console. For your own accounts with the
+read-only `gmail.readonly` scope you can click through the "unverified app"
+warning at consent; once in production, refresh tokens no longer expire on the
+7-day clock. (Both tokens were likely minted together, so re-mint both after
+publishing.)
 
 ### 2. Other secrets
 
