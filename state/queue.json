@@ -1219,6 +1219,50 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-09-02T02:45:20.418455+00:00"
+    },
+    {
+      "entry_id": "46f6869414bae8c5",
+      "gmail_msg_id": "1875183791254689840",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "02/09/26",
+      "date_serial": 46267,
+      "amount": 50000.0,
+      "raw_payer": "VRIDDHI FUELS",
+      "customer": null,
+      "candidates": [
+        "DG VRIDDHI FUELS",
+        "VRIDDHI FUELS CAR",
+        "VRIDDHI FUELS TANKER"
+      ],
+      "match_tier": "ambiguous",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-02T09:00:22.129339+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "1dbbe44bad4c51dd",
+      "gmail_msg_id": "1875183699020375784",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "02/09/2026",
+      "date_serial": 46267,
+      "amount": 18662.61,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-02T09:00:23.096363+00:00",
+      "status": "matched"
     }
   ]
 }
