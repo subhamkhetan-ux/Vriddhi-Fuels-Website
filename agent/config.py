@@ -103,10 +103,12 @@ ICICI = ParserProfile(
 
 
 # ---- Account -> profile + secret env var mapping ---------------------------
-# ``token_env`` names the GitHub secret (a Gmail OAuth refresh-token JSON blob)
-# that authenticates that mailbox. See §7 of the build spec.
+# ``token_env`` names the GitHub secret that authenticates that mailbox over
+# IMAP. Each holds an app-password JSON blob (see agent/gmail_client.py):
+#     {"email": "you@gmail.com", "app_password": "abcd efgh ijkl mnop"}
 ACCOUNTS = [
-    # Account 1's mailbox receives ICICI alerts; account 2's receives HDFC.
+    # Account 1's mailbox receives ICICI alerts; account 2's receives HDFC
+    # (and the IndianOil invoices — see CONSIGNMENT below).
     {"id": "bank1", "profile": ICICI, "token_env": "GMAIL_TOKEN_BANK1"},
     {"id": "bank2", "profile": HDFC, "token_env": "GMAIL_TOKEN_BANK2"},
 ]
