@@ -3,10 +3,10 @@
 
 Run this ONCE per Gmail account. It opens a browser for Google consent, then
 prints (and optionally saves) an authorized-user JSON blob. Paste that blob into
-the matching GitHub Actions secret:
+the matching GitHub Actions secret (mapping per agent/config.py ACCOUNTS):
 
-    account 1 (HDFC)  ->  GMAIL_TOKEN_BANK1
-    account 2 (ICICI) ->  GMAIL_TOKEN_BANK2
+    account 1 mailbox (receives ICICI alerts)             ->  GMAIL_TOKEN_BANK1
+    account 2 mailbox (receives HDFC alerts + IOC invoices) ->  GMAIL_TOKEN_BANK2
 
 The blob is NOT a password — it is a revocable, read-only refresh token
 (scope: gmail.readonly). Google blocks datacenter password logins; a refresh
@@ -15,12 +15,17 @@ token is what the cloud runner exchanges for short-lived access at runtime.
 Prerequisites:
   1. In Google Cloud Console: create a project, enable the Gmail API, and create
      an OAuth client of type "Desktop app". Download its credentials.json.
-  2. Add your Gmail address as a Test user on the OAuth consent screen (or
-     publish the app) so consent succeeds.
+  2. On the OAuth consent screen, set Publishing status to "In production"
+     (recommended) so the refresh token doesn't expire. While the app is in
+     "Testing", Google EXPIRES refresh tokens after ~7 days — the agent then
+     fails with "invalid_grant: Token has been expired or revoked" and you have
+     to re-mint. Publishing (click through the "unverified app" warning at
+     consent — fine for your own accounts with the read-only scope) stops that.
+     If you leave it in Testing, add your Gmail address as a Test user.
 
-Usage (sign in as the bank-1 Gmail account in the browser it opens):
+Usage (sign in as the account-1 Gmail account in the browser it opens):
     python3 mint_token.py --credentials credentials.json --out token_bank1.json
-Then repeat for bank 2, signing in as the other account:
+Then repeat for account 2, signing in as the other Gmail account:
     python3 mint_token.py --credentials credentials.json --out token_bank2.json
 
 token_*.json is git-ignored — never commit it. Copy its contents into the
