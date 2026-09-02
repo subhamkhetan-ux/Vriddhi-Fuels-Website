@@ -216,6 +216,7 @@ a{color:var(--accent)}
   <div id="viewPay">
   <div class="card" id="addCard" style="display:none">
     <div style="font-weight:700;margin-bottom:10px" id="addTitle">Log a payment (cash / cheque / other)</div>
+    <div id="addHint" style="font-size:12px;color:var(--faint);margin:-4px 0 10px" hidden></div>
     <div class="addgrid">
       <label>Date<input type="date" id="mDate"></label>
       <label>Amount<input type="number" id="mAmount" inputmode="decimal" placeholder="0" min="0" step="0.01"></label>
@@ -517,7 +518,7 @@ const Cloud = {
     }]); }catch(_){ toast("Couldn't save to cloud — check connection"); }
   },
   async updateManual(id, patch){
-    // Edit a manual entry in place (date/customer/amount/mode) before export.
+    // Edit a Ready entry in place (date/customer/amount/mode) before export.
     if(!this.client){ toast("Offline — edited locally only"); return; }
     try{ await this.client.from("pay_credit_queue").update(patch).eq("entry_id",id); }
     catch(_){ toast("Couldn't save edit to cloud — check connection"); }
@@ -654,12 +655,11 @@ function renderReady(rows){
   for(const r of rows){
     const dup = counts[dupKey(r)]>1;
     const on = SEL.has(r.entry_id);
-    const editable = r.account==="manual" || r.match_tier==="manual";
     h += `<label class="ready-row">
       <input type="checkbox" ${on?"checked":""} onchange="toggleSel('${escAttr(r.entry_id)}',this.checked)">
       <span class="cust"><span class="n">${esc(r.customer)}</span>
         <span class="d">${esc(serialToDMY(r.date_serial))} · ${esc(r.mode||"")}${dup?' · <span class="dupflag">possible duplicate</span>':''}</span></span>
-      ${editable?`<button class="btn ghost sm" onclick="event.preventDefault();event.stopPropagation();editManual('${escAttr(r.entry_id)}')" title="Edit this manual entry">edit</button>`:""}
+      <button class="btn ghost sm" onclick="event.preventDefault();event.stopPropagation();editManual('${escAttr(r.entry_id)}')" title="Edit this entry before export">edit</button>
       <span class="a">${money(r.amount)}</span></label>`;
   }
   h += `</div>`;
@@ -1012,6 +1012,7 @@ function toggleAdd(show){
     EDITING = null;
     document.getElementById("addTitle").textContent = "Log a payment (cash / cheque / other)";
     document.getElementById("addSubmitBtn").textContent = "Add to Ready";
+    const hint=document.getElementById("addHint"); hint.hidden=true; hint.textContent="";
     const d=new Date();
     document.getElementById("mDate").value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     document.getElementById("mAmount").value=""; document.getElementById("mCust").value=""; document.getElementById("mMode").value="";
@@ -1020,19 +1021,25 @@ function toggleAdd(show){
     EDITING = null;                           // closing clears any edit in progress
   }
 }
-// Reopen the same card to edit a manual entry that's still in Ready.
+// Reopen the same card to edit any Ready entry (manual or bank-matched) before export.
 function editManual(id){
   const r = ROWS.find(x=>x.entry_id===id); if(!r) return;
   EDITING = id;
+  const isManual = r.account==="manual" || r.match_tier==="manual";
   document.getElementById("addCard").style.display = "block";
-  document.getElementById("addTitle").textContent = "Edit payment";
+  document.getElementById("addTitle").textContent = isManual ? "Edit payment" : "Fix matched customer";
   document.getElementById("addSubmitBtn").textContent = "Save changes";
+  const hint = document.getElementById("addHint");
+  if(!isManual && r.raw_payer){                 // bank row: show what the bank actually sent
+    hint.textContent = `Bank remitter: ${r.raw_payer} · ${r.mode||""}`;
+    hint.hidden = false;
+  } else { hint.hidden = true; hint.textContent = ""; }
   document.getElementById("mDate").value  = serialToISO(r.date_serial);
   document.getElementById("mAmount").value = r.amount;
   document.getElementById("mCust").value  = r.customer || r.raw_payer || "";
   document.getElementById("mMode").value  = r.mode || "";
   window.scrollTo(0,0);
-  document.getElementById("mAmount").focus();
+  document.getElementById("mCust").focus();     // customer is the usual thing to fix
 }
 function setMode(m){ document.getElementById("mMode").value=m; }
 function submitManual(){
@@ -1046,14 +1053,24 @@ function submitManual(){
   const customer = canonicalFor(custRaw) || custRaw;   // snap to canonical if known
   if(!canonicalFor(custRaw) && !confirm(`"${custRaw}" isn't in your customer list. Add it as typed?`)) return;
 
-  if(EDITING){                               // ---- save an edit to an existing manual row ----
+  if(EDITING){                               // ---- save an edit to an existing Ready row ----
     const r = ROWS.find(x=>x.entry_id===EDITING);
+    const isManual = !r || r.account==="manual" || r.match_tier==="manual";
     const patch = { date_serial:serial, date_str:serialToDMY(serial), amount,
-                    raw_payer:custRaw, customer, candidates:[customer], mode };
+                    customer, candidates:[customer], mode };
+    // Manual entries: the "customer" IS the payer, so keep raw_payer in sync.
+    // Bank entries: keep the real bank remitter untouched — only the customer changes.
+    if(isManual) patch.raw_payer = custRaw;
     if(r) Object.assign(r, patch);           // optimistic local update
     const id = EDITING; EDITING = null;
     Cloud.updateManual(id, patch);
-    toggleAdd(false); render(); toast(`Updated ${money(amount)} · ${customer}`);
+    // NB: a bank-row fix is a ONE-OFF for this transaction only — we deliberately
+    // do NOT learn a remitter->customer alias here, because the same remitter can
+    // legitimately pay for different customers (e.g. ODISHA SARKAR -> OIC FS one
+    // time, JYOTI RANJAN DASH another). Aliases are still learned via the review
+    // "resolve" flow, where that mapping is meant to be permanent.
+    toggleAdd(false); render();
+    toast(isManual ? `Updated ${money(amount)} · ${customer}` : `Set → ${customer} (this entry only)`);
     return;
   }
 
