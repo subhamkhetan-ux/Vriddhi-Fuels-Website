@@ -523,13 +523,6 @@ const Cloud = {
     try{ await this.client.from("pay_credit_queue").update(patch).eq("entry_id",id); }
     catch(_){ toast("Couldn't save edit to cloud — check connection"); }
   },
-  async saveAlias(key, customer){
-    // Remember remitter -> canonical customer (the agent reads these back to match).
-    if(!this.client || !key) return;
-    try{ await this.client.from("pay_credit_aliases")
-      .upsert({alias_key:key, canonical:customer, updated_at:new Date().toISOString()}, {onConflict:"alias_key"}); }
-    catch(_){}
-  },
   /* ---- Mac logging agent: push requests + activity feed ---- */
   async requestLog(ids){
     // Flag the selected rows for the Mac agent to write into Master Paid. The
@@ -1063,8 +1056,6 @@ function submitManual(){
   if(EDITING){                               // ---- save an edit to an existing Ready row ----
     const r = ROWS.find(x=>x.entry_id===EDITING);
     const isManual = !r || r.account==="manual" || r.match_tier==="manual";
-    const origRawPayer = r ? (r.raw_payer||"") : "";
-    const customerChanged = r && r.customer !== customer;
     const patch = { date_serial:serial, date_str:serialToDMY(serial), amount,
                     customer, candidates:[customer], mode };
     // Manual entries: the "customer" IS the payer, so keep raw_payer in sync.
@@ -1073,14 +1064,13 @@ function submitManual(){
     if(r) Object.assign(r, patch);           // optimistic local update
     const id = EDITING; EDITING = null;
     Cloud.updateManual(id, patch);
-    // For a corrected bank match, remember remitter -> customer so the agent
-    // auto-matches it right next time (same learning as the review "resolve" flow).
-    if(!isManual && customerChanged && origRawPayer){
-      const key = aliasKey(origRawPayer);
-      if(key) Cloud.saveAlias(key, customer);
-    }
+    // NB: a bank-row fix is a ONE-OFF for this transaction only — we deliberately
+    // do NOT learn a remitter->customer alias here, because the same remitter can
+    // legitimately pay for different customers (e.g. ODISHA SARKAR -> OIC FS one
+    // time, JYOTI RANJAN DASH another). Aliases are still learned via the review
+    // "resolve" flow, where that mapping is meant to be permanent.
     toggleAdd(false); render();
-    toast(isManual ? `Updated ${money(amount)} · ${customer}` : `Fixed → ${customer} (remembered)`);
+    toast(isManual ? `Updated ${money(amount)} · ${customer}` : `Set → ${customer} (this entry only)`);
     return;
   }
 
