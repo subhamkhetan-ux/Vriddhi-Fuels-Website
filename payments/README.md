@@ -27,7 +27,10 @@ No `git`, no `python`. The cloud cron keeps the list filled every ~20 minutes.
 
 **Off-email payments** (cash, cheque, a transfer with no alert) — tap **＋ Add**,
 enter date / customer / amount / mode, and it joins **Ready to export** like any
-matched credit. It exports and drops off the same way.
+matched credit. It exports and drops off the same way. Mode chips include Cash,
+Cheque, UPI, Bank Transfer and **XtraPower** (or type your own). Got a detail
+wrong? Tap **edit** on a manual entry in **Ready** to fix its date / customer /
+amount / mode before it's exported.
 
 ## Consignment notes (Indian Oil invoices, own TT OD23U8210)
 
