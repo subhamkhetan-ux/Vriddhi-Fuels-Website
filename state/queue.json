@@ -1359,6 +1359,48 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-09-03T03:00:20.871991+00:00"
+    },
+    {
+      "entry_id": "2bfec04fae3c49ef",
+      "gmail_msg_id": "1875307888963317498",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "03/09/2026",
+      "date_serial": 46268,
+      "amount": 1196880.0,
+      "raw_payer": "ARYAN ISPAT AND POWER PRIVATE LI",
+      "customer": "Aryan Ispat & Power Private Ltd.",
+      "candidates": [
+        "Aryan Ispat & Power Private Ltd."
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-03T11:01:30.846049+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "eefd510772fac6da",
+      "gmail_msg_id": "1875307891279306414",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "03/09/2026",
+      "date_serial": 46268,
+      "amount": 299220.0,
+      "raw_payer": "ARYAN ISPAT AND POWER PRIVATE LI",
+      "customer": "Aryan Ispat & Power Private Ltd.",
+      "candidates": [
+        "Aryan Ispat & Power Private Ltd."
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-03T11:01:30.846367+00:00",
+      "status": "matched"
     }
   ]
 }
