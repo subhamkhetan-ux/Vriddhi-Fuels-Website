@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Template quantity columns, in the order they appear on the consignment note.
 # The invoice's product description is mapped onto exactly one of these.
@@ -24,14 +24,29 @@ COLUMN_LSHF = "LSHFHSD"
 
 
 @dataclass
+class ProductLine:
+    """One product row off the invoice (an invoice can carry several, e.g. an
+    MS load and an HSD load on the same TT)."""
+    product: str                  # raw description, e.g. "HSD-BSVI [PDRP]"
+    column_key: str               # which template column this product maps to
+    qty: str                      # integer KL as a string, e.g. "22"
+
+
+@dataclass
 class InvoiceFields:
     invoice_no: str | None
     invoice_date: str | None      # normalized dd/mm/yyyy
     tt_no: str | None
-    product: str | None           # raw description, e.g. "HSD-BSVI [PDRP]"
-    column_key: str | None        # which template column the product maps to
-    qty: str | None               # integer KL as a string, e.g. "22"
-    value: int | None             # value of goods, whole rupees
+    product: str | None           # raw description of the FIRST product (back-compat/display)
+    column_key: str | None        # column the first product maps to (back-compat)
+    qty: str | None               # first product's qty (back-compat)
+    value: int | None             # value of goods, whole rupees (grand total, all products)
+    # Every product line on the invoice, in order. ``product``/``column_key``/
+    # ``qty`` above mirror ``lines[0]`` so single-product callers keep working.
+    lines: list[ProductLine] = field(default_factory=list)
+    # Template quantity per column, summed across lines that share a column,
+    # e.g. {"MS | EBMS": "5", "HSD": "17"}. This is what the note fills in.
+    columns: dict[str, str] = field(default_factory=dict)
 
 
 def _norm_date(s: str) -> str | None:
@@ -85,9 +100,11 @@ def extract_fields(text: str) -> InvoiceFields:
     m = re.search(r"\b([A-Z]{2}\d{2}[A-Z]{1,2}\d{3,4})\b", text)
     tt_no = m.group(1) if m else None
 
-    # Product + quantity: the item line "<material-code>   <DESCRIPTION>",
-    # followed within a few lines by "<qty>" then the unit "KL".
-    product = qty = None
+    # Product + quantity: each item line "<material-code>   <DESCRIPTION>",
+    # followed within a few lines by "<qty>" then the unit "KL". An invoice can
+    # list SEVERAL products for the same TT (e.g. MS and HSD on one load), so we
+    # collect every product line, not just the first.
+    product_lines: list[ProductLine] = []
     for i, ln in enumerate(lines):
         pm = re.match(r"\s*\d{4,6}\s+([A-Z][^\n]*?)\s*$", ln)
         if not pm:
@@ -98,11 +115,20 @@ def extract_fields(text: str) -> InvoiceFields:
         for j in range(i + 1, min(i + 4, len(lines))):
             qm = re.match(r"^(\d+(?:\.\d+)?)$", lines[j].strip())
             if qm:
-                product = desc
-                qty = str(int(round(float(qm.group(1)))))
+                product_lines.append(ProductLine(
+                    product=desc,
+                    column_key=product_column(desc),
+                    qty=str(int(round(float(qm.group(1))))),
+                ))
                 break
-        if product:
-            break
+
+    # Sum quantities per template column (two lines can share one column).
+    columns: dict[str, str] = {}
+    for pl in product_lines:
+        prev = int(columns.get(pl.column_key, "0"))
+        columns[pl.column_key] = str(prev + int(pl.qty))
+
+    first = product_lines[0] if product_lines else None
 
     # Value of goods: the grand total — the numeric value on the line after the
     # LAST bare "Total" label (i.e. after the rounding line). Falls back to the
@@ -121,10 +147,12 @@ def extract_fields(text: str) -> InvoiceFields:
         invoice_no=invoice_no,
         invoice_date=invoice_date,
         tt_no=tt_no,
-        product=product,
-        column_key=product_column(product) if product else None,
-        qty=qty,
+        product=first.product if first else None,
+        column_key=first.column_key if first else None,
+        qty=first.qty if first else None,
         value=value,
+        lines=product_lines,
+        columns=columns,
     )
 
 

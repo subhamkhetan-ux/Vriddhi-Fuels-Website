@@ -125,14 +125,21 @@ def claim_consignment(note: dict) -> dict | None:
         "p_qty": note.get("qty"),
         "p_value": note.get("value"),
     }
-    try:
-        # PostgREST returns the function's row result; ask for the JSON object.
-        res = _request("POST", "rpc/pay_claim_consignment", key, url, body=body)
-        if isinstance(res, list):
-            return res[0] if res else None
-        return res
-    except Exception:
-        return None
+    # Per-column quantities for multi-product invoices (e.g. MS + HSD on one
+    # load). Sent as an extra arg; if the DB still runs the old RPC signature
+    # (migration not applied yet), PostgREST rejects the unknown arg — so we
+    # retry without it. Single-product invoices keep working either way.
+    extended = dict(body, p_columns=note.get("columns") or {})
+    for payload in (extended, body):
+        try:
+            # PostgREST returns the function's row result; ask for the JSON object.
+            res = _request("POST", "rpc/pay_claim_consignment", key, url, body=payload)
+            if isinstance(res, list):
+                return res[0] if res else None
+            return res
+        except Exception:
+            continue
+    return None
 
 
 def upsert_rows(rows: list[dict]) -> int:

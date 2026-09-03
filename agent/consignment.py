@@ -39,9 +39,12 @@ def _note_from_invoice(msg_id: str, fields: invoice_mod.InvoiceFields) -> dict:
         "invoice_no": fields.invoice_no,
         "invoice_date": fields.invoice_date,
         "tt_no": fields.tt_no,
+        # First product mirrors the fields for back-compat/display; ``columns``
+        # carries every product line so multi-product invoices fill all columns.
         "product": fields.product,
         "column_key": fields.column_key,
         "qty": fields.qty,
+        "columns": fields.columns,
         "value": fields.value,
     }
 
