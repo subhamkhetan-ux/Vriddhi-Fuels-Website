@@ -59,6 +59,54 @@ This Document is Digitally Signed
 """
 
 
+# A real IOCL invoice can carry two products for the same TT on one load — here
+# an MS line (5 KL) and an HSD line (17 KL). The bug this guards against: only
+# the first product was kept, so the note dropped the second (HSD 17).
+MULTI_INVOICE_TEXT = """\
+TAX INVOICE
+7010493378
+OD23U8210
+T.T.No.
+03-Sep-26
+Date
+Item  Material Code / Material Description
+Quantity Unit
+Total
+10
+50701   MS-BSVI [PDRP]
+5.000
+KL
+2710 12 49*
+             BASIC DESTINATION PRICE
+5.000
+KL
+90000.000
+KL
+450000.00
+50703   HSD-BSVI [PDRP]
+17.000
+KL
+2710 19 44*
+             BASIC DESTINATION PRICE
+17.000
+KL
+79150.260
+KL
+1345554.42
+JIN6   A/R Vat Payable
+24.000
+%
+397696.58
+Total for material
+2193251.09
+ZRND  Rounding Difference
+-0.09
+Total
+2193251.00
+This Document is Digitally Signed
+"""
+
+
 def _fields():
     return invoice.extract_fields(INVOICE_TEXT)
 
@@ -112,3 +160,44 @@ def test_date_normalization_variants():
     assert invoice._norm_date("26-Aug-26") == "26/08/2026"
     assert invoice._norm_date("01-Jan-2026") == "01/01/2026"
     assert invoice._norm_date("not a date") is None
+
+
+# ---- multi-product invoices (MS + HSD on one load) -------------------------
+
+def _multi():
+    return invoice.extract_fields(MULTI_INVOICE_TEXT)
+
+
+def test_multi_captures_both_product_lines():
+    f = _multi()
+    assert len(f.lines) == 2
+    assert [(l.column_key, l.qty) for l in f.lines] == [
+        (invoice.COLUMN_MS_EBMS, "5"),
+        (invoice.COLUMN_HSD, "17"),
+    ]
+
+
+def test_multi_columns_map_has_both_quantities():
+    # This is what the note fills in — both columns, not just the first.
+    assert _multi().columns == {invoice.COLUMN_MS_EBMS: "5", invoice.COLUMN_HSD: "17"}
+
+
+def test_multi_first_product_mirrors_fields_for_backcompat():
+    f = _multi()
+    assert f.product == "MS-BSVI [PDRP]"
+    assert f.column_key == invoice.COLUMN_MS_EBMS
+    assert f.qty == "5"
+
+
+def test_multi_value_is_grand_total():
+    assert _multi().value == 2193251
+
+
+def test_multi_is_complete():
+    assert invoice.is_complete(_multi()) is True
+
+
+def test_single_product_columns_has_one_entry():
+    # The existing single-product invoice still yields a one-column map.
+    assert _fields().columns == {invoice.COLUMN_HSD: "22"}
+    assert len(_fields().lines) == 1

@@ -771,8 +771,7 @@ function renderConsign(){
       <div class="cn-grid">
         <div><div class="k">Invoice</div><div class="v">${esc(n.invoice_no||"")}</div></div>
         <div><div class="k">Invoice date</div><div class="v">${esc(n.invoice_date||"")}</div></div>
-        <div><div class="k">Goods</div><div class="v">${esc(n.product||"")} · ${esc(n.column_key||"")}</div></div>
-        <div><div class="k">Quantity</div><div class="v">${esc(n.qty||"")} KL</div></div>
+        <div><div class="k">Goods (KL)</div><div class="v">${esc(noteGoodsSummary(n))}</div></div>
         <div><div class="k">Value of goods</div><div class="v">${money(n.value)}</div></div>
       </div>
       <div class="cn-date">
@@ -810,6 +809,29 @@ const COLUMN_TOKEN = {
   "MS | EBMS":"{{QTY_MSEBMS}}", "XtraGreen HSD":"{{QTY_XG}}",
   "HSD":"{{QTY_HSD}}", "LSHFHSD":"{{QTY_LSHF}}",
 };
+
+// Per-column quantities for a note. Prefers `columns` (multi-product invoices,
+// e.g. {"MS | EBMS":"5","HSD":"17"}); falls back to the single column_key/qty
+// for older notes stored before multi-product support.
+function noteColumns(n){
+  const out = {};
+  const c = n && n.columns;
+  if(c && typeof c === "object" && Object.keys(c).length){
+    for(const [k,v] of Object.entries(c)){
+      if(v!=null && String(v)!=="") out[k] = String(v);
+    }
+  } else if(n && n.column_key && n.qty!=null && String(n.qty)!==""){
+    out[n.column_key] = String(n.qty);
+  }
+  return out;
+}
+
+// Human summary of a note's goods, e.g. "MS | EBMS 5 · HSD 17".
+function noteGoodsSummary(n){
+  const cols = noteColumns(n);
+  const parts = Object.entries(cols).map(([k,v])=>`${k} ${v}`);
+  return parts.length ? parts.join(" · ") : (n.product||"");
+}
 let _JSZip=null;
 async function getJSZip(){
   if(_JSZip) return _JSZip;
@@ -838,8 +860,10 @@ async function buildFilledDocx(n, repDmy){
     "{{INVDATE}}": n.invoice_date||"",
     "{{QTY_MSEBMS}}":"", "{{QTY_XG}}":"", "{{QTY_HSD}}":"", "{{QTY_LSHF}}":"",
   };
-  const tok = COLUMN_TOKEN[n.column_key];
-  if(tok) vals[tok] = (n.qty==null?"":String(n.qty));
+  for(const [col, q] of Object.entries(noteColumns(n))){
+    const tok = COLUMN_TOKEN[col];
+    if(tok) vals[tok] = q;
+  }
   for(const [k,v] of Object.entries(vals)) xml = xml.split(k).join(xmlEsc(v));
   zip.file("word/document.xml", xml);
   return zip.generateAsync({type:"blob",
@@ -852,7 +876,9 @@ async function buildFilledDocx(n, repDmy){
 // print looks identical everywhere and always fits one page.
 function buildNoteHTML(n, repDmy){
   const cols = {"MS | EBMS":"", "XtraGreen HSD":"", "HSD":"", "LSHFHSD":""};
-  if(n.column_key in cols) cols[n.column_key] = (n.qty==null ? "" : String(n.qty));
+  for(const [col, q] of Object.entries(noteColumns(n))){
+    if(col in cols) cols[col] = q;
+  }
   const val = (n.value==null ? "" : String(n.value));
   return `<div class="cn-page">
     <img class="cn-lh" src="./letterhead.png" alt="">

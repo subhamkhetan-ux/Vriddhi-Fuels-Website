@@ -168,10 +168,11 @@ create table if not exists public.pay_consignment_notes (
   invoice_date   text,                       -- dd/mm/yyyy from the invoice
   reporting_date text,                        -- top "Date"; app-editable, defaults to invoice_date
   tt_no          text,
-  product        text,                        -- raw product description from the invoice
-  column_key     text,                        -- template column: 'HSD' | 'XtraGreen HSD' | 'MS | EBMS' | 'LSHFHSD'
-  qty            text,                         -- e.g. '22'
-  value          bigint,                       -- value of goods, rupees
+  product        text,                        -- raw description of the FIRST product on the invoice
+  column_key     text,                        -- first product's template column: 'HSD' | 'XtraGreen HSD' | 'MS | EBMS' | 'LSHFHSD'
+  qty            text,                         -- first product's qty, e.g. '22'
+  columns        jsonb   default '{}'::jsonb,  -- per-column qty for multi-product loads, e.g. {"MS | EBMS":"5","HSD":"17"}
+  value          bigint,                       -- value of goods, rupees (grand total across products)
   status         text    default 'pending',    -- 'pending' | 'done'
   created_at     timestamptz default now(),
   done_at        timestamptz
@@ -181,6 +182,12 @@ create index if not exists pay_consignment_notes_pending_idx
   on public.pay_consignment_notes (status);
 create index if not exists pay_consignment_notes_done_at_idx
   on public.pay_consignment_notes (done_at);
+
+-- Back-fill for installs created before multi-product support: `create table
+-- if not exists` above won't add a new column to an existing table, so add it
+-- explicitly. Harmless (no-op) on a fresh install.
+alter table public.pay_consignment_notes
+  add column if not exists columns jsonb default '{}'::jsonb;
 
 -- ---- monotonic serial counter (never resets, survives purges) ---------
 create table if not exists public.pay_consignment_seq (
@@ -198,6 +205,11 @@ insert into public.pay_consignment_seq (id, next_val)
 -- otherwise the next serial is pulled from the counter and the row inserted.
 -- This makes agent retries safe — a serial is only ever spent on a genuinely
 -- new invoice, so the numbers stay gap-free and monotonic.
+-- Drop the pre-multi-product signature so the new one below fully replaces it
+-- (a changed argument list would otherwise create a second overload).
+drop function if exists public.pay_claim_consignment(
+  text, text, text, text, text, text, text, text, bigint);
+
 create or replace function public.pay_claim_consignment(
   p_id           text,
   p_gmail_msg_id text,
@@ -207,7 +219,8 @@ create or replace function public.pay_claim_consignment(
   p_product      text,
   p_column_key   text,
   p_qty          text,
-  p_value        bigint
+  p_value        bigint,
+  p_columns      jsonb default '{}'::jsonb
 ) returns public.pay_consignment_notes
 language plpgsql security definer as $$
 declare
@@ -224,12 +237,12 @@ begin
    returning next_val - 1 into v_serial;
   insert into public.pay_consignment_notes
     (id, gmail_msg_id, serial_num, serial_str, invoice_no, invoice_date,
-     reporting_date, tt_no, product, column_key, qty, value, status)
+     reporting_date, tt_no, product, column_key, qty, columns, value, status)
   values
     (p_id, p_gmail_msg_id, v_serial,
      'VF/CN2627/' || lpad(v_serial::text, 3, '0'),
      p_invoice_no, p_invoice_date, p_invoice_date, p_tt_no, p_product,
-     p_column_key, p_qty, p_value, 'pending')
+     p_column_key, p_qty, coalesce(p_columns, '{}'::jsonb), p_value, 'pending')
   returning * into rec;
   return rec;
 end $$;
