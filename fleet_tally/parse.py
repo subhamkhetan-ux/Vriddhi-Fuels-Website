@@ -57,30 +57,30 @@ def _to_amount(v) -> float | None:
 
 
 def _match_col(headers: list[str], *needles: str) -> int | None:
+    # Only treat a short, label-like cell as a header (so a long instruction
+    # note that happens to mention "date"/"amount" is not mistaken for one).
     for i, h in enumerate(headers):
         hl = str(h or "").strip().lower()
-        if any(n in hl for n in needles):
+        if len(hl) <= 30 and any(n in hl for n in needles):
             return i
     return None
 
 
-def _rows_from_grid(grid: list[list]) -> list[Row]:
-    # Find the header row (has Date + a customer/name + amount label).
-    header_i = None
+def _find_header(grid: list[list]):
+    """The header row is the first where Date, Customer and Amount labels land in
+    three DISTINCT columns."""
     for i, r in enumerate(grid[:25]):
-        cells = [str(c or "").lower() for c in r]
-        joined = " | ".join(cells)
-        if "date" in joined and ("customer" in joined or "name" in joined or "party" in joined) \
-                and ("amount" in joined or "value" in joined):
-            header_i = i
-            break
+        ci_date = _match_col(r, "date")
+        ci_cust = _match_col(r, "customer", "name", "party", "ledger")
+        ci_amt = _match_col(r, "amount", "value", "amt")
+        if None not in (ci_date, ci_cust, ci_amt) and len({ci_date, ci_cust, ci_amt}) == 3:
+            return i, ci_date, ci_cust, ci_amt
+    return None, None, None, None
+
+
+def _rows_from_grid(grid: list[list]) -> list[Row]:
+    header_i, ci_date, ci_cust, ci_amt = _find_header(grid)
     if header_i is None:
-        return []
-    headers = grid[header_i]
-    ci_date = _match_col(headers, "date")
-    ci_cust = _match_col(headers, "customer", "name", "party", "ledger")
-    ci_amt = _match_col(headers, "amount", "value", "amt")
-    if None in (ci_date, ci_cust, ci_amt):
         return []
 
     out: list[Row] = []
