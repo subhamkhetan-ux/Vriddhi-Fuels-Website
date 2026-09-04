@@ -65,27 +65,46 @@ that flush safe (see below), so nothing is ever entered twice.
 
 ## Setup
 
-### 1. Gmail OAuth (one-time, per account) — spec §7
+### 1. Gmail access — App Password over IMAP (one-time, per account)
 
-The runner authenticates each mailbox with a **refresh token** (not a password —
-Google blocks datacenter password logins; a refresh token is revocable and
-scoped to read-only Gmail).
+The runner reads each mailbox over **IMAP with a Google App Password** (see
+`agent/gmail_client.py`). App Passwords **don't expire** on a clock — no OAuth,
+no Google Cloud project, no consent screen, no verification. (This replaced OAuth
+refresh tokens, which Google expired every ~7 days for apps in "Testing".)
 
-1. In Google Cloud Console create a project, enable the Gmail API, and create an
-   OAuth client of type **Desktop app**. Download `credentials.json`. Add each
-   Gmail address as a **Test user** on the OAuth consent screen.
-2. On the Mac, mint a refresh token **once per account** with the bundled helper
-   (signs you in via the browser, read-only scope):
+Per account (do this for both Gmail accounts):
 
-   ```bash
-   pip install -r requirements.txt
-   python3 mint_token.py --credentials credentials.json --out token_bank1.json  # sign in as account 1
-   python3 mint_token.py --credentials credentials.json --out token_bank2.json  # sign in as account 2
+1. Enable **2-Step Verification** on the Google account (required for App
+   Passwords): Google Account → **Security → 2-Step Verification**.
+2. Create an **App Password**: Google Account → **Security → App passwords** →
+   name it e.g. `Vriddhi agent` → copy the 16-character password it shows.
+   (IMAP is already on in Gmail by default.)
+3. Put a JSON blob into the matching GitHub repo secret (mapping per
+   `agent/config.py`):
+   - `GMAIL_TOKEN_BANK1` = account-1 mailbox (ICICI alerts)
+   - `GMAIL_TOKEN_BANK2` = account-2 mailbox (HDFC alerts + IOC invoices)
+
+   ```json
+   {"email": "you@gmail.com", "app_password": "abcd efgh ijkl mnop"}
    ```
 
-3. Paste each printed JSON blob into a GitHub repo secret:
-   `GMAIL_TOKEN_BANK1` (HDFC), `GMAIL_TOKEN_BANK2` (ICICI). The `token_*.json`
-   files are git-ignored — delete them after copying.
+   (Spaces in the app password are ignored. The secret names are unchanged, so
+   the workflow needs no edit.) `mint_token.py` and the Google Cloud OAuth setup
+   are **no longer used**.
+
+### Troubleshooting: an account fails to authenticate
+
+If a run logs e.g. `[bank2] FAILED: … AUTHENTICATIONFAILED` for one mailbox:
+
+- The **App Password was revoked** or the account password changed → create a new
+  App Password (step 2 above) and update that mailbox's secret with fresh JSON.
+- **2-Step Verification got turned off** → App Passwords require it; re-enable it,
+  then create a new App Password.
+- The JSON is malformed → it must be exactly `{"email": "…", "app_password": "…"}`.
+
+Then re-run: Actions → **Payment agent (Gmail → queue)** → **Run workflow** (or
+wait for the 20-min cron). Unlike the old OAuth tokens, App Passwords don't expire
+on their own, so this shouldn't recur.
 
 ### 2. Other secrets
 

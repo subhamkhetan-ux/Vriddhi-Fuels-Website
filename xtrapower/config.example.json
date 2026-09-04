@@ -1,0 +1,37 @@
+{
+  "poll_seconds": 120,
+  "telegram": {
+    "token": "PUT-YOUR-BOTFATHER-TOKEN-HERE",
+    "chat_id": "PUT-YOUR-CHAT-ID-HERE"
+  },
+  "_comment": "username/password are OPTIONAL. Add them to let the monitor log itself back in when the portal's session times out (~30-45 min), so it runs unattended for hours. Leave them out to log in by hand each time. nav_labels is optional too — the menu path to the balance table, only needed if the defaults (Financials -> Balance Info) don't match your build.",
+  "accounts": [
+    {
+      "label": "Shyam Metalics",
+      "customer_id": "1005218882",
+      "cdp_port": 9222,
+      "watch": true,
+      "username": "",
+      "password": "",
+      "nav_labels": ["Financials", "Balance Info"]
+    },
+    {
+      "label": "Ember Coal",
+      "customer_id": "1005079471",
+      "cdp_port": 9223,
+      "watch": true,
+      "username": "",
+      "password": "",
+      "nav_labels": ["Financials", "Balance Info"]
+    },
+    {
+      "label": "SSL XP",
+      "customer_id": "1005133705",
+      "cdp_port": 9224,
+      "watch": true,
+      "username": "",
+      "password": "",
+      "nav_labels": ["Financials", "Balance Info"]
+    }
+  ]
+}

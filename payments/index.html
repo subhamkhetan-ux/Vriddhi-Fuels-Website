@@ -215,7 +215,8 @@ a{color:var(--accent)}
 
   <div id="viewPay">
   <div class="card" id="addCard" style="display:none">
-    <div style="font-weight:700;margin-bottom:10px">Log a payment (cash / cheque / other)</div>
+    <div style="font-weight:700;margin-bottom:10px" id="addTitle">Log a payment (cash / cheque / other)</div>
+    <div id="addHint" style="font-size:12px;color:var(--faint);margin:-4px 0 10px" hidden></div>
     <div class="addgrid">
       <label>Date<input type="date" id="mDate"></label>
       <label>Amount<input type="number" id="mAmount" inputmode="decimal" placeholder="0" min="0" step="0.01"></label>
@@ -229,9 +230,10 @@ a{color:var(--accent)}
       <button class="cand" onclick="setMode('Cheque')">Cheque</button>
       <button class="cand" onclick="setMode('UPI')">UPI</button>
       <button class="cand" onclick="setMode('Bank Transfer')">Bank Transfer</button>
+      <button class="cand" onclick="setMode('XtraPower')">XtraPower</button>
     </div>
     <div class="resolve" style="margin-top:12px">
-      <button class="cta" style="flex:1" onclick="submitManual()">Add to Ready</button>
+      <button class="cta" style="flex:1" id="addSubmitBtn" onclick="submitManual()">Add to Ready</button>
       <button class="btn ghost" onclick="toggleAdd(false)">Cancel</button>
     </div>
   </div>
@@ -269,6 +271,8 @@ const EPOCH = Date.UTC(1899,11,30);
 /* ---------- helpers (mirrored from the pay app / agent) ---------- */
 function serialToDMY(s){ if(s==null) return ""; const d=new Date(EPOCH+Number(s)*86400000);
   return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")}/${d.getUTCFullYear()}`; }
+function serialToISO(s){ if(s==null) return ""; const d=new Date(EPOCH+Number(s)*86400000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`; }
 function money(n){ if(n==null||isNaN(n)) return ""; return "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:2}); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function escAttr(s){ return esc(s).replace(/'/g,"&#39;"); }
@@ -513,6 +517,12 @@ const Cloud = {
       match_tier:row.match_tier, status:row.status, flags:row.flags, queued_at:row.queued_at
     }]); }catch(_){ toast("Couldn't save to cloud — check connection"); }
   },
+  async updateManual(id, patch){
+    // Edit a Ready entry in place (date/customer/amount/mode) before export.
+    if(!this.client){ toast("Offline — edited locally only"); return; }
+    try{ await this.client.from("pay_credit_queue").update(patch).eq("entry_id",id); }
+    catch(_){ toast("Couldn't save edit to cloud — check connection"); }
+  },
   /* ---- Mac logging agent: push requests + activity feed ---- */
   async requestLog(ids){
     // Flag the selected rows for the Mac agent to write into Master Paid. The
@@ -579,6 +589,7 @@ const Cloud = {
 let ROWS=[];
 let CNOTES=[];                  // pending consignment notes
 let EVENTS=[];                  // Mac-agent activity feed (newest first)
+let EDITING=null;               // entry_id of the manual row being edited (or null)
 const SEL = new Set();          // selected ready entry_ids for export
 const SEEN_READY = new Set();   // ready ids we've defaulted-on once
 const PENDING_EXPORT = new Set(); // ids exported/dropped locally, write still confirming
@@ -648,6 +659,7 @@ function renderReady(rows){
       <input type="checkbox" ${on?"checked":""} onchange="toggleSel('${escAttr(r.entry_id)}',this.checked)">
       <span class="cust"><span class="n">${esc(r.customer)}</span>
         <span class="d">${esc(serialToDMY(r.date_serial))} · ${esc(r.mode||"")}${dup?' · <span class="dupflag">possible duplicate</span>':''}</span></span>
+      <button class="btn ghost sm" onclick="event.preventDefault();event.stopPropagation();editManual('${escAttr(r.entry_id)}')" title="Edit this entry before export">edit</button>
       <span class="a">${money(r.amount)}</span></label>`;
   }
   h += `</div>`;
@@ -759,8 +771,7 @@ function renderConsign(){
       <div class="cn-grid">
         <div><div class="k">Invoice</div><div class="v">${esc(n.invoice_no||"")}</div></div>
         <div><div class="k">Invoice date</div><div class="v">${esc(n.invoice_date||"")}</div></div>
-        <div><div class="k">Goods</div><div class="v">${esc(n.product||"")} · ${esc(n.column_key||"")}</div></div>
-        <div><div class="k">Quantity</div><div class="v">${esc(n.qty||"")} KL</div></div>
+        <div><div class="k">Goods (KL)</div><div class="v">${esc(noteGoodsSummary(n))}</div></div>
         <div><div class="k">Value of goods</div><div class="v">${money(n.value)}</div></div>
       </div>
       <div class="cn-date">
@@ -798,6 +809,29 @@ const COLUMN_TOKEN = {
   "MS | EBMS":"{{QTY_MSEBMS}}", "XtraGreen HSD":"{{QTY_XG}}",
   "HSD":"{{QTY_HSD}}", "LSHFHSD":"{{QTY_LSHF}}",
 };
+
+// Per-column quantities for a note. Prefers `columns` (multi-product invoices,
+// e.g. {"MS | EBMS":"5","HSD":"17"}); falls back to the single column_key/qty
+// for older notes stored before multi-product support.
+function noteColumns(n){
+  const out = {};
+  const c = n && n.columns;
+  if(c && typeof c === "object" && Object.keys(c).length){
+    for(const [k,v] of Object.entries(c)){
+      if(v!=null && String(v)!=="") out[k] = String(v);
+    }
+  } else if(n && n.column_key && n.qty!=null && String(n.qty)!==""){
+    out[n.column_key] = String(n.qty);
+  }
+  return out;
+}
+
+// Human summary of a note's goods, e.g. "MS | EBMS 5 · HSD 17".
+function noteGoodsSummary(n){
+  const cols = noteColumns(n);
+  const parts = Object.entries(cols).map(([k,v])=>`${k} ${v}`);
+  return parts.length ? parts.join(" · ") : (n.product||"");
+}
 let _JSZip=null;
 async function getJSZip(){
   if(_JSZip) return _JSZip;
@@ -826,8 +860,10 @@ async function buildFilledDocx(n, repDmy){
     "{{INVDATE}}": n.invoice_date||"",
     "{{QTY_MSEBMS}}":"", "{{QTY_XG}}":"", "{{QTY_HSD}}":"", "{{QTY_LSHF}}":"",
   };
-  const tok = COLUMN_TOKEN[n.column_key];
-  if(tok) vals[tok] = (n.qty==null?"":String(n.qty));
+  for(const [col, q] of Object.entries(noteColumns(n))){
+    const tok = COLUMN_TOKEN[col];
+    if(tok) vals[tok] = q;
+  }
   for(const [k,v] of Object.entries(vals)) xml = xml.split(k).join(xmlEsc(v));
   zip.file("word/document.xml", xml);
   return zip.generateAsync({type:"blob",
@@ -840,7 +876,9 @@ async function buildFilledDocx(n, repDmy){
 // print looks identical everywhere and always fits one page.
 function buildNoteHTML(n, repDmy){
   const cols = {"MS | EBMS":"", "XtraGreen HSD":"", "HSD":"", "LSHFHSD":""};
-  if(n.column_key in cols) cols[n.column_key] = (n.qty==null ? "" : String(n.qty));
+  for(const [col, q] of Object.entries(noteColumns(n))){
+    if(col in cols) cols[col] = q;
+  }
   const val = (n.value==null ? "" : String(n.value));
   return `<div class="cn-page">
     <img class="cn-lh" src="./letterhead.png" alt="">
@@ -996,10 +1034,38 @@ function toggleAdd(show){
   const c=document.getElementById("addCard");
   const open = show===undefined ? c.style.display==="none" : show;
   c.style.display = open?"block":"none";
-  if(open){ const d=new Date();
+  if(open){                                   // ＋Add always starts a fresh entry
+    EDITING = null;
+    document.getElementById("addTitle").textContent = "Log a payment (cash / cheque / other)";
+    document.getElementById("addSubmitBtn").textContent = "Add to Ready";
+    const hint=document.getElementById("addHint"); hint.hidden=true; hint.textContent="";
+    const d=new Date();
     document.getElementById("mDate").value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     document.getElementById("mAmount").value=""; document.getElementById("mCust").value=""; document.getElementById("mMode").value="";
-    document.getElementById("mCust").focus(); }
+    document.getElementById("mCust").focus();
+  } else {
+    EDITING = null;                           // closing clears any edit in progress
+  }
+}
+// Reopen the same card to edit any Ready entry (manual or bank-matched) before export.
+function editManual(id){
+  const r = ROWS.find(x=>x.entry_id===id); if(!r) return;
+  EDITING = id;
+  const isManual = r.account==="manual" || r.match_tier==="manual";
+  document.getElementById("addCard").style.display = "block";
+  document.getElementById("addTitle").textContent = isManual ? "Edit payment" : "Fix matched customer";
+  document.getElementById("addSubmitBtn").textContent = "Save changes";
+  const hint = document.getElementById("addHint");
+  if(!isManual && r.raw_payer){                 // bank row: show what the bank actually sent
+    hint.textContent = `Bank remitter: ${r.raw_payer} · ${r.mode||""}`;
+    hint.hidden = false;
+  } else { hint.hidden = true; hint.textContent = ""; }
+  document.getElementById("mDate").value  = serialToISO(r.date_serial);
+  document.getElementById("mAmount").value = r.amount;
+  document.getElementById("mCust").value  = r.customer || r.raw_payer || "";
+  document.getElementById("mMode").value  = r.mode || "";
+  window.scrollTo(0,0);
+  document.getElementById("mCust").focus();     // customer is the usual thing to fix
 }
 function setMode(m){ document.getElementById("mMode").value=m; }
 function submitManual(){
@@ -1012,6 +1078,28 @@ function submitManual(){
   if(!custRaw){ toast("Enter a customer"); return; }
   const customer = canonicalFor(custRaw) || custRaw;   // snap to canonical if known
   if(!canonicalFor(custRaw) && !confirm(`"${custRaw}" isn't in your customer list. Add it as typed?`)) return;
+
+  if(EDITING){                               // ---- save an edit to an existing Ready row ----
+    const r = ROWS.find(x=>x.entry_id===EDITING);
+    const isManual = !r || r.account==="manual" || r.match_tier==="manual";
+    const patch = { date_serial:serial, date_str:serialToDMY(serial), amount,
+                    customer, candidates:[customer], mode };
+    // Manual entries: the "customer" IS the payer, so keep raw_payer in sync.
+    // Bank entries: keep the real bank remitter untouched — only the customer changes.
+    if(isManual) patch.raw_payer = custRaw;
+    if(r) Object.assign(r, patch);           // optimistic local update
+    const id = EDITING; EDITING = null;
+    Cloud.updateManual(id, patch);
+    // NB: a bank-row fix is a ONE-OFF for this transaction only — we deliberately
+    // do NOT learn a remitter->customer alias here, because the same remitter can
+    // legitimately pay for different customers (e.g. ODISHA SARKAR -> OIC FS one
+    // time, JYOTI RANJAN DASH another). Aliases are still learned via the review
+    // "resolve" flow, where that mapping is meant to be permanent.
+    toggleAdd(false); render();
+    toast(isManual ? `Updated ${money(amount)} · ${customer}` : `Set → ${customer} (this entry only)`);
+    return;
+  }
+
   const row = {
     entry_id: "man-"+Date.now().toString(36)+Math.random().toString(36).slice(2,8),
     account:"manual", bank:"", mode, date_str:serialToDMY(serial), date_serial:serial,
