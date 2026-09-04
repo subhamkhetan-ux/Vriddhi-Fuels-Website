@@ -1428,6 +1428,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-09-04T03:15:18.950176+00:00"
+    },
+    {
+      "entry_id": "543d546d9d9f197d",
+      "gmail_msg_id": "1875373316731171787",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "04/09/2026",
+      "date_serial": 46269,
+      "amount": 30000.0,
+      "raw_payer": "ATUL TRADING COMPANY",
+      "customer": "A.K.V. Logistics",
+      "candidates": [
+        "A.K.V. Logistics"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-04T04:30:29.274925+00:00",
+      "status": "matched"
     }
   ]
 }
