@@ -1425,7 +1425,9 @@
         "outlier": false
       },
       "queued_at": "2026-09-04T02:15:24.822729+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-09-04T03:15:18.950176+00:00"
     }
   ]
 }
