@@ -83,9 +83,9 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, b"not found", "text/plain")
 
     def _parse_file(self, f):
-        """Parse one uploaded file dict -> (rows, error). ``None`` file -> ([], None)."""
+        """Parse one uploaded file dict -> (rows, detected_kind, name, error)."""
         if not f:
-            return [], None
+            return [], None, None, None
         name = f.get("name", "file.xlsx")
         try:
             raw = base64.b64decode((f.get("b64") or "").split(",")[-1])
@@ -93,22 +93,38 @@ class Handler(BaseHTTPRequestHandler):
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
                 tf.write(raw)
                 path = tf.name
-            rows = P.parse_excel(path)
+            grid = P.load_grid(path)
             os.unlink(path)
+            rows = P._rows_from_grid(grid)
+            kind = P.detect_kind(name, grid)
         except Exception as exc:
-            return [], f"{name}: could not read the sheet ({exc})"
+            return [], None, name, f"{name}: could not read the sheet ({exc})"
         if not rows:
-            return [], f"{name}: no rows found — needs Date, Customer Name and Amount columns"
-        return rows, None
+            return [], kind, name, f"{name}: no rows found — needs Date, Customer Name and Amount columns"
+        return rows, kind, name, None
 
     def do_POST(self):
         if urlparse(self.path).path != "/api/run":
             return self._send(404, b"not found", "text/plain")
         body = self._body()
-        # Both sheets are optional and independent; either alone is fine.
-        fleet_rows, e1 = self._parse_file(body.get("fleet_file"))
-        tds_rows, e2 = self._parse_file(body.get("tds_file"))
-        problems = [e for e in (e1, e2) if e]
+        # Both sheets are optional and independent; either alone is fine. Each
+        # file is routed by what it looks like (title note / filename) when that's
+        # clear, so a file dropped in the wrong box still lands correctly.
+        problems = []
+        buckets = {"fleet": [], "tds": []}
+        for zone, key in (("fleet", "fleet_file"), ("tds", "tds_file")):
+            rows, detected, name, err = self._parse_file(body.get(key))
+            if err:
+                problems.append(err)
+                continue
+            if not rows:
+                continue
+            kind = detected or zone
+            if detected and detected != zone:
+                problems.append(f"{name}: looks like a {detected.upper()} sheet — "
+                                f"filed it as {detected.upper()} (not {zone.upper()}).")
+            buckets[kind].extend(rows)
+        fleet_rows, tds_rows = buckets["fleet"], buckets["tds"]
         if not fleet_rows and not tds_rows:
             return self._json({"error": "; ".join(problems) or
                                "drop at least one sheet (Fleet or TDS)"}, 400)

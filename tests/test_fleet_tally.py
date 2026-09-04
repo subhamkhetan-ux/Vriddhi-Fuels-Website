@@ -85,6 +85,22 @@ def test_process_holds_back_unparseable_rows():
     assert summary["n_vouchers"] == 1 and summary["n_error"] == 1
 
 
+def test_detect_kind_from_note_and_filename():
+    from fleet_tally.parse import detect_kind
+    fleet_grid = [["Fleet card (XtraPower) settlements — Dr Fleet Card Posting", None, None],
+                  ["Date", "Customer Name", "Amount"]]
+    tds_grid = [["TDS receivable — Dr TDS RECEIVABLE - DEBTORS", None, None],
+                ["Date", "Customer Name", "Amount"]]
+    plain = [["Date", "Customer Name", "Amount"]]
+    assert detect_kind("anything.xlsx", fleet_grid) == "fleet"
+    assert detect_kind("anything.xlsx", tds_grid) == "tds"
+    # filename alone is enough when the sheet has no note
+    assert detect_kind("my TDS aug.xlsx", plain) == "tds"
+    assert detect_kind("fleet_aug.xlsx", plain) == "fleet"
+    # genuinely ambiguous -> None (fall back to the drop zone)
+    assert detect_kind("data.xlsx", plain) is None
+
+
 def test_parser_finds_columns_any_order():
     grid = [
         ["XtraPower settlements", None, None],
