@@ -34,3 +34,6 @@ iocl_tally/out/
 # Bank -> Tally web app — local aliases + generated output.
 bank_tally/data.json
 bank_tally/out/
+
+# Fleet-card / TDS -> Tally web app — generated output.
+fleet_tally/out/
