@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vriddhi Fuels — Fleet → Tally</title>
+<style>
+  :root{--bg:#0e1116;--card:#171b22;--line:#262c36;--ink:#eef2f7;--muted:#9aa4b2;
+    --faint:#6b7382;--accent:#8957e5;--ok:#2ea043;--bad:#e5534b;--warn:#e3b341;
+    --grad:linear-gradient(135deg,#8957e5,#a371f7);}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:800}
+  main{max-width:960px;margin:0 auto;padding:18px 20px 60px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:hover{border-color:var(--accent)} .btn.primary{background:var(--grad);border:none;color:#fff}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:24px;text-align:center;cursor:pointer}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:#8957e511}
+  .drop .big{font-size:15px;font-weight:700}
+  .files{margin-top:10px;font-size:13px;color:var(--muted)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr 1fr}.dropgrid{grid-template-columns:1fr!important}}
+  .stat{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:10px}
+  .stat .k{color:var(--faint);font-size:11px;text-transform:uppercase} .stat .v{font-size:20px;font-weight:800}
+  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)} .stat .v.warn{color:var(--warn)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .pill.ok{background:#12331e;color:#4ac776} .pill.warn{background:#33280c;color:#e3b341} .pill.error{background:#3a1414;color:#f0857d}
+  .warnbox{background:#0d1f14;border:1px solid var(--accent);border-radius:11px;padding:10px 14px;color:#d9c7f5;font-size:13px;margin-bottom:12px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}
+  .toast.show{opacity:1}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  code{background:#0b0e13;padding:1px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Fleet → Tally</h1><div class="sub" style="color:var(--faint);font-size:12px">XtraPower settlements → journal XML · VRIDDHI FUELS</div></div>
+</header>
+<main>
+  <section class="panel">
+    <h2>1 · The settlement sheets — either or both</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="dropgrid">
+      <div>
+        <div class="drop" id="dropFleet" data-kind="fleet">
+          <div class="big">Fleet card (XtraPower)</div>
+          <div class="sub" style="color:var(--faint)">Dr Fleet Card Posting / Cr Customer</div>
+          <div class="files" id="filesFleet"></div>
+        </div>
+      </div>
+      <div>
+        <div class="drop" id="dropTds" data-kind="tds">
+          <div class="big">TDS receivable <span style="color:var(--faint);font-weight:400">(optional)</span></div>
+          <div class="sub" style="color:var(--faint)">Dr TDS RECEIVABLE - DEBTORS / Cr Customer</div>
+          <div class="files" id="filesTds"></div>
+        </div>
+      </div>
+    </div>
+    <input type="file" id="fileFleet" accept=".xls,.xlsx" hidden>
+    <input type="file" id="fileTds" accept=".xls,.xlsx" hidden>
+    <div class="sub" style="color:var(--faint);margin-top:12px">Each sheet has <b>Date</b>, <b>Customer Name</b> (exactly as in Tally), <b>Amount</b>. The two are independent — drop one or both.</div>
+    <div class="row">
+      <button class="btn primary" id="runBtn" disabled>Generate journals</button>
+      <span id="runStatus" class="sub" style="color:var(--faint)"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="resultPanel" hidden>
+    <h2>2 · Result</h2>
+    <div class="stats" id="stats"></div>
+    <div id="reconcile" class="warnbox" style="margin-top:12px"></div>
+    <div class="row">
+      <a class="btn primary" id="dlXml" href="/download/fleet_import.xml">⬇ fleet_import.xml</a>
+      <span class="sub" id="exportNote" style="color:var(--faint)"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="rowsPanel" hidden>
+    <h2>3 · Every row</h2>
+    <div class="sub" style="color:var(--faint);margin-bottom:10px">Fix any <span class="pill warn">unknown-customer</span> spellings or <span class="pill error">error</span> rows in the sheet and re-run.</div>
+    <table>
+      <thead><tr><th>Kind</th><th>Date</th><th>Customer</th><th class="num">Amount</th><th>Status</th></tr></thead>
+      <tbody id="rowsBody"></tbody>
+    </table>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const FILES={fleet:null,tds:null};
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),1900);}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function money(s){const n=Number(s);return n?n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}):s;}
+async function api(path,body){const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j;}
+
+function wire(kind, dropId, inputId, filesId){
+  const drop=$(dropId), fi=$(inputId);
+  drop.onclick=()=>fi.click();
+  drop.ondragover=e=>{e.preventDefault();drop.classList.add("drag");};
+  drop.ondragleave=()=>drop.classList.remove("drag");
+  drop.ondrop=e=>{e.preventDefault();drop.classList.remove("drag");take(e.dataTransfer.files);};
+  fi.onchange=()=>take(fi.files);
+  function take(list){
+    const f=[...list].find(f=>/\.xlsx?$/i.test(f.name));
+    if(!f){toast("Please choose an .xls/.xlsx file");return;}
+    const r=new FileReader();
+    r.onload=()=>{FILES[kind]={name:f.name,b64:r.result};$(filesId).textContent=f.name;refresh();};
+    r.readAsDataURL(f);
+  }
+}
+wire("fleet","#dropFleet","#fileFleet","#filesFleet");
+wire("tds","#dropTds","#fileTds","#filesTds");
+function refresh(){ $("#runBtn").disabled = !(FILES.fleet||FILES.tds); }
+
+$("#runBtn").onclick=async()=>{
+  if(!(FILES.fleet||FILES.tds)){toast("Drop at least one sheet");return;}
+  $("#runBtn").disabled=true;$("#runStatus").innerHTML='<span class="spin"></span>Reading & generating…';
+  try{ render(await api("/api/run",{fleet_file:FILES.fleet,tds_file:FILES.tds})); $("#runStatus").textContent=""; }
+  catch(e){ $("#runStatus").textContent="Failed: "+e.message; toast("Failed: "+e.message); }
+  $("#runBtn").disabled=false;
+};
+
+function render(res){
+  const s=res.summary;
+  if(res.problems && res.problems.length) toast(res.problems[0]);
+  $("#resultPanel").hidden=false;
+  $("#stats").innerHTML=`
+    <div class="stat"><div class="k">Fleet journals</div><div class="v ok">${s.fleet.n_vouchers}</div></div>
+    <div class="stat"><div class="k">TDS journals</div><div class="v ok">${s.tds.n_vouchers}</div></div>
+    <div class="stat"><div class="k">Unknown name</div><div class="v ${s.n_unknown?'warn':'ok'}">${s.n_unknown}</div></div>
+    <div class="stat"><div class="k">Errors</div><div class="v ${s.n_error?'bad':'ok'}">${s.n_error}</div></div>
+    <div class="stat"><div class="k">Total ₹</div><div class="v">${money(s.total_amount)}</div></div>`;
+  const ok=s.all_balance;
+  $("#reconcile").style.borderColor=ok?'var(--accent)':'var(--bad)';
+  $("#reconcile").innerHTML=(ok?'✓ ':'✗ ')+`${s.n_vouchers} balanced journal(s) — `+
+    `${s.fleet.n_vouchers} fleet (₹${money(s.fleet.total_amount)}) + ${s.tds.n_vouchers} TDS (₹${money(s.tds.total_amount)}).`+
+    (s.n_error?` <b style="color:var(--bad)">${s.n_error} row(s) skipped</b> (see below).`:'');
+  $("#dlXml").href="/download/fleet_import.xml?"+Date.now();
+  $("#exportNote").textContent="Import into Tally: Gateway → Import → Vouchers. Test on a backup company first.";
+  const rows=res.entries||[];
+  $("#rowsPanel").hidden=rows.length===0;
+  $("#rowsBody").innerHTML=rows.map(r=>`
+    <tr style="${r.status==='error'?'opacity:.6':''}">
+      <td>${esc(r.kind)}</td><td>${esc(r.date)}</td>
+      <td>${esc(r.customer)}${r.note?`<div class="sub" style="color:var(--faint)">${esc(r.note)}</div>`:''}</td>
+      <td class="num">${money(r.amount)}</td>
+      <td><span class="pill ${r.status==='ok'?'ok':(r.status==='error'?'error':'warn')}">${esc(r.status)}</span></td>
+    </tr>`).join("");
+}
+</script>
+</body>
+</html>
