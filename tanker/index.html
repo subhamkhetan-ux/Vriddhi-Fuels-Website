@@ -112,6 +112,9 @@
     <div class="derived" id="amount-derived" style="margin:2px 0 10px;font-size:14px;color:#1a1f29"></div>
     <div class="btnrow">
       <button class="primary" id="print">Print / Save PDF</button>
+    </div>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="ghost" id="word">Export Word (.docx)</button>
       <button class="ghost" id="reset">Clear</button>
     </div>
     <p class="note" id="status">Loading customer data…</p>
@@ -204,6 +207,7 @@
   </section>
 </div>
 
+<script src="docx-export.js"></script>
 <script>
 const HSD = "High Speed Diesel";
 // Density-/Seal No- appear together only for full loads in the reference
@@ -330,6 +334,61 @@ function buildPage2(){
   holder.appendChild(clone);
 }
 
+// Export the current bill as a real .docx (built client-side, no dependency).
+async function exportDocx(){
+  if(!window.TankerDocx){ alert("Word export module not loaded."); return; }
+  const cust = currentCustomer();
+  const product = $("product").value;
+  const iso = $("date").value;
+  const qty = parseFloat($("qty").value) || 0;
+  const price = parseFloat($("price").value) || 0;
+  const amount = Math.trunc(qty * price);
+  const poVal = ($("pono").value || "").trim();
+  let poLabel = cust ? cust.po_label : "";
+  if(!poLabel && poVal) poLabel = "P.O. No.:";
+  const isHSD = product === HSD;
+  const a = cust ? cust.address : ["","",""];
+  const model = {
+    date: fmtDate(iso), product,
+    name: cust ? cust.company : "",
+    address: [a[0]||"", a[1]||"", a[2]||""],
+    poLabel: poLabel || "", poVal,
+    density: isHSD && qty > DENSITY_MIN,
+    seal: isHSD && qty > SEAL_MIN,
+    payment: cust ? cust.payment.slice(0,5) : [],
+    row: {
+      date: fmtDate(iso), bill: $("billno").value || "",
+      vehicle: ($("vehicle").value || "").toUpperCase(),
+      qty: qty ? String(Math.trunc(qty)) : "",
+      price: price ? price.toFixed(2) : "",
+      amount: amount ? "₹" + inr(amount) : ""
+    },
+    images: {}
+  };
+  const btn = $("word"); const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Generating…";
+  try{
+    const [lh, st] = await Promise.all([
+      fetch("assets/letterhead.png").then(r => r.arrayBuffer()),
+      fetch("assets/stamp.png").then(r => r.arrayBuffer())
+    ]);
+    model.images = { letterhead: new Uint8Array(lh), stamp: new Uint8Array(st) };
+    const bytes = TankerDocx.build(model);
+    const blob = new Blob([bytes], {type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "Bill-" + ($("billno").value || "tanker") + ".docx";
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    const bn = parseInt($("billno").value, 10);
+    if(bn) localStorage.setItem("vf_last_billno", String(bn));
+  }catch(e){
+    alert("Word export failed: " + (e && e.message ? e.message : e));
+  }finally{
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
 function applyRateFromSheet(){
   const cust = currentCustomer();
   const dp = derivedPrice(cust, $("product").value);
@@ -360,6 +419,7 @@ function init(data){
     window.print();
   });
   $("reset").addEventListener("click", () => { $("vehicle").value=""; $("qty").value=""; render(); });
+  $("word").addEventListener("click", exportDocx);
 
   applyRateFromSheet();
   const gen = data.generated_at ? new Date(data.generated_at).toLocaleDateString() : "?";

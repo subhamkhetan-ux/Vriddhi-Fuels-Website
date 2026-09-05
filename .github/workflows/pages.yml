@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - "tanker/index.html"
+      - "tanker/docx-export.js"
       - "tanker/assets/**"
       - "state/tanker_billing.json"
       - ".github/workflows/pages.yml"
@@ -39,6 +40,7 @@ jobs:
         run: |
           mkdir -p _site/tanker _site/state
           cp tanker/index.html _site/tanker/index.html
+          cp tanker/docx-export.js _site/tanker/docx-export.js
           cp -r tanker/assets _site/tanker/assets
           cp state/tanker_billing.json _site/state/tanker_billing.json
           # root redirect -> the app
