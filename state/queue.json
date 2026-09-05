@@ -1560,6 +1560,27 @@
       },
       "queued_at": "2026-09-05T09:30:23.900502+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "b67f1f236fc2bee3",
+      "gmail_msg_id": "1875484038692977577",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "05/09/2026",
+      "date_serial": 46270,
+      "amount": 8900.0,
+      "raw_payer": "PIONEER PULTRUTECH ENGINEERING PRIVATE LIMITED",
+      "customer": "Pioneer Pultru Tech Engineering Private Limited",
+      "candidates": [
+        "Pioneer Pultru Tech Engineering Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-05T09:45:30.216425+00:00",
+      "status": "matched"
     }
   ]
 }
