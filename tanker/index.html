@@ -33,6 +33,18 @@
      print it is placed at exactly 210x297mm. */
   .sheet{width:210mm;max-width:100%;height:auto;background:#fff;box-shadow:0 2px 14px rgba(20,30,60,.15);display:block}
 
+  /* Exact-match font. Order of preference, per weight/style:
+       1. the machine's real Times New Roman (what Excel used) — via local();
+       2. a licensed Times New Roman you drop into assets/fonts/ (times*.ttf),
+          which makes it exact on devices that don't ship the font;
+       3. otherwise fall through the family list to the embedded, metric-
+          compatible BillSerif so nothing ever lands on a random system serif. */
+  @font-face{font-family:"VriddhiTimes";font-weight:normal;font-style:normal;font-display:swap;
+    src:local("Times New Roman"),local("TimesNewRomanPSMT"),url("assets/fonts/times.ttf") format("truetype")}
+  @font-face{font-family:"VriddhiTimes";font-weight:bold;font-style:normal;font-display:swap;
+    src:local("Times New Roman Bold"),local("TimesNewRomanPS-BoldMT"),url("assets/fonts/timesbd.ttf") format("truetype")}
+  @font-face{font-family:"VriddhiTimes";font-weight:normal;font-style:italic;font-display:swap;
+    src:local("Times New Roman Italic"),local("TimesNewRomanPS-ItalicMT"),url("assets/fonts/timesi.ttf") format("truetype")}
   @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Regular.ttf") format("truetype");font-weight:normal;font-style:normal;font-display:swap}
   @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Bold.ttf") format("truetype");font-weight:bold;font-style:normal;font-display:swap}
   @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Italic.ttf") format("truetype");font-weight:normal;font-style:italic;font-display:swap}
@@ -84,7 +96,7 @@
          is placed at the exact coordinates measured from the Excel export. -->
     <svg class="sheet" id="bill" xmlns="http://www.w3.org/2000/svg"
          viewBox="0 0 595.28 841.89" preserveAspectRatio="xMidYMid meet"
-         font-family='"Times New Roman","BillSerif",serif'>
+         font-family='"VriddhiTimes","Times New Roman","BillSerif",serif'>
       <rect x="0" y="0" width="595.28" height="841.89" fill="#fff"/>
 
       <!-- letterhead + stamp: the exact images from the workbook -->
