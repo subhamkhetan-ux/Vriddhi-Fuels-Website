@@ -14,8 +14,9 @@
   header.app .tabs a{color:#cdd6e6;text-decoration:none;padding:6px 12px;border-radius:6px;font-size:13px}
   header.app .tabs a.active{background:rgba(255,255,255,.15);color:#fff}
   header.app .tabs a[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
-  .wrap{display:flex;gap:20px;align-items:flex-start;padding:18px;flex-wrap:wrap}
-  .panel{flex:0 0 340px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;position:sticky;top:18px}
+  /* Mobile-first: form on top, preview below — both full width, no overlap. */
+  .wrap{display:flex;flex-direction:column;gap:16px;padding:14px}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;width:100%}
   .panel h2{margin:0 0 12px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
   .field{margin-bottom:12px}
   .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
@@ -27,8 +28,14 @@
   .primary{background:var(--navy);color:#fff;flex:1}
   .ghost{background:#eef1f5;color:#1a1f29;border:1px solid var(--border)}
   .note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
-  .stage{flex:1;min-width:320px;display:flex;justify-content:center}
-  .sheets{display:flex;flex-direction:column;gap:16px;align-items:center;width:100%}
+  .stage{width:100%;display:flex;justify-content:center}
+  .sheets{display:flex;flex-direction:column;gap:16px;align-items:center;width:100%;min-width:0}
+  /* Wide screens: form beside the preview, sticky so it stays while scrolling. */
+  @media (min-width:900px){
+    .wrap{flex-direction:row;align-items:flex-start;gap:20px;padding:18px}
+    .panel{flex:0 0 340px;position:sticky;top:18px}
+    .stage{flex:1;min-width:0}
+  }
   /* Each printable page. On screen it scales to the column width; on print it
      is clamped to exactly A4 with overflow hidden so nothing can spill onto an
      extra page. */
