@@ -28,6 +28,9 @@
   .ghost{background:#eef1f5;color:#1a1f29;border:1px solid var(--border)}
   .note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
   .stage{flex:1;min-width:320px;display:flex;justify-content:center}
+  .sheets{display:flex;flex-direction:column;gap:16px;align-items:center;width:100%}
+  #page2 .sheet{filter:grayscale(1)}
+  .page2-tag{font-size:12px;color:var(--muted);align-self:center;margin-top:4px}
 
   /* The bill is an SVG sized to A4. On screen we scale it down to fit; on
      print it is placed at exactly 210x297mm. */
@@ -55,6 +58,10 @@
     .wrap{padding:0;display:block}
     .stage{display:block}
     .sheet{width:210mm;height:297mm;box-shadow:none}
+    .sheets{display:block;gap:0}
+    .page2-tag{display:none}
+    #page2{break-before:page;page-break-before:always}
+    #page2 .sheet{filter:grayscale(1)}
     @page{size:A4;margin:0}
   }
 </style>
@@ -92,6 +99,7 @@
   </section>
 
   <section class="stage">
+   <div class="sheets">
     <!-- viewBox is the A4 page in PDF points (595.28 x 841.89). Every element
          is placed at the exact coordinates measured from the Excel export. -->
     <svg class="sheet" id="bill" xmlns="http://www.w3.org/2000/svg"
@@ -168,6 +176,10 @@
       <text x="56.6" y="818.9" font-size="15.4">for VRIDDHI FUELS</text>
       <text x="421.4" y="818.9" font-size="15.4" font-style="italic">Signature of Customer</text>
     </svg>
+    <!-- Page 2: greyscale "Receiving Copy" is built from page 1 at render time -->
+    <div id="page2"></div>
+    <div class="page2-tag">Page 2 — greyscale “Receiving Copy”</div>
+   </div>
   </section>
 </div>
 
@@ -234,6 +246,37 @@ function render(){
     ? `Sheet rate: ₹${dp.toFixed(2)}${Math.abs(dp-price)>0.001 ? " (overridden)" : ""}` : "No rate on file";
   $("amount-derived").textContent = amount
     ? `Amount: ₹${inr(amount)}  (${Math.trunc(qty)} × ${price.toFixed(2)}, truncated)` : "";
+
+  buildPage2();
+}
+
+const SVGNS = "http://www.w3.org/2000/svg";
+// Page 2 = a clone of the bill, desaturated to greyscale (via CSS on #page2),
+// with a 45° "Receiving Copy" watermark inserted just above the white
+// background so it sits *behind* the bill's text and images.
+function buildPage2(){
+  const holder = $("page2");
+  holder.innerHTML = "";
+  const clone = $("bill").cloneNode(true);
+  clone.removeAttribute("id");
+
+  const wm = document.createElementNS(SVGNS, "text");
+  wm.setAttribute("x", "297.64");
+  wm.setAttribute("y", "445");                       // vertical centre of A4
+  wm.setAttribute("text-anchor", "middle");
+  wm.setAttribute("transform", "rotate(-45 297.64 420.9)");
+  wm.setAttribute("font-size", "78");
+  wm.setAttribute("font-weight", "bold");
+  wm.setAttribute("fill", "#000000");
+  wm.setAttribute("fill-opacity", "0.3");            // 70% transparent
+  wm.textContent = "Receiving Copy";
+
+  // insert after the first child (the white background rect) => behind content
+  const bg = clone.firstElementChild;
+  if (bg && bg.nextSibling) clone.insertBefore(wm, bg.nextSibling);
+  else clone.appendChild(wm);
+
+  holder.appendChild(clone);
 }
 
 function applyRateFromSheet(){
