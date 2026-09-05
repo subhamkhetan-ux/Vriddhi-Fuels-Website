@@ -15,9 +15,10 @@ run.log
 Master Ledger.xlsm
 *.xlsm
 
-# Local Gmail OAuth material — never commit tokens or client secrets
+# Local Gmail / Drive OAuth material — never commit tokens or client secrets
 credentials.json
 token_*.json
+gdrive_token.json
 *.oauth.json
 
 # Standalone consignment-note app — local config + running serial counter.

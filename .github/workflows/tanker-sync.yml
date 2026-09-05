@@ -36,6 +36,9 @@ jobs:
 
       - name: Pull workbook from Drive and materialize JSON
         env:
+          # Preferred: OAuth refresh token for the account that owns the file
+          # (same mechanism as the Gmail agent). Service account is a fallback.
+          GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
           GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
           DRIVE_FILE_ID: ${{ vars.TANKER_DRIVE_FILE_ID }}
           TANKER_FILE_NAME: ${{ vars.TANKER_FILE_NAME }}

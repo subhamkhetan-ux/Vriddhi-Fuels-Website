@@ -42,35 +42,44 @@ so the app relies on the Google Drive copy you already sync to daily.
 A bill's price = customer's `hsd_rate` when product is High Speed Diesel,
 otherwise `product_rates[product]`; amount = `TRUNC(quantity × price)`.
 
-## One-time setup (Google Drive service account)
+## One-time setup
 
-You do this once. ~10 minutes.
+Two ways to authorize. **Method A (OAuth token) is recommended** — it reuses the
+exact mechanism the Gmail agent already uses (`mint_token.py` → a refresh token
+in a GitHub secret), and because the token is *your own Google account* — the
+one whose Drive holds the file — there is **no service account and no
+file-sharing** to set up.
 
-1. **Create a service account**
-   - Go to <https://console.cloud.google.com/> → create (or pick) a project.
-   - **APIs & Services → Library →** enable **Google Drive API**.
-   - **APIs & Services → Credentials → Create credentials → Service account.**
-     Name it e.g. `tanker-sync`. No roles needed.
-   - Open the new service account → **Keys → Add key → Create new key → JSON.**
-     A `.json` file downloads. Note the account's **email**
-     (`...@...iam.gserviceaccount.com`).
+### Method A — OAuth refresh token (recommended)
 
-2. **Share the workbook with it (read-only)**
-   - In Google Drive, right-click **`Tanker Billing.xlsm`** (or the folder it's
-     in) → **Share** → paste the service account email → **Viewer** → Send.
+> Note: a Gmail **App Password** (the 16-character kind) cannot be used here —
+> App Passwords only work for IMAP/SMTP, not the Drive API. What the Gmail agent
+> actually uses is an OAuth refresh token, and that is what we mint below.
 
-3. **Get the file id**
-   - Open the file in Drive; the URL is `.../file/d/<FILE_ID>/view`. Copy
-     `<FILE_ID>`. (Optional — the job can also find it by name.)
+1. **Enable the Drive API** — <https://console.cloud.google.com/> → your project
+   (the same one as the Gmail agent is fine) → **APIs & Services → Library** →
+   enable **Google Drive API**.
+2. **Mint the token** on your Mac, signing in as the account whose Drive holds
+   the workbook. Reuse the Gmail agent's `credentials.json` (Desktop-app OAuth
+   client), or create one:
+   ```bash
+   python3 tanker/mint_drive_token.py --credentials credentials.json --out gdrive_token.json
+   ```
+   It opens a browser for consent and prints an authorized-user JSON blob.
+3. **Add the GitHub secret/variable** — repo → **Settings → Secrets and
+   variables → Actions**:
+   - **Secrets → New:** `GDRIVE_TOKEN` = the entire blob it printed.
+   - **Variables → New:** `TANKER_DRIVE_FILE_ID` = the file id from its Drive URL
+     (`.../file/d/<FILE_ID>/view`). *(Optional — the job can also find it by
+     name; override the name with `TANKER_FILE_NAME`.)*
 
-4. **Add the GitHub secrets/variables**
-   In the repo: **Settings → Secrets and variables → Actions**.
-   - **Secrets → New repository secret:** `GDRIVE_SA_JSON` = the entire contents
-     of the downloaded JSON key file.
-   - **Variables → New repository variable:** `TANKER_DRIVE_FILE_ID` = the
-     `<FILE_ID>` from step 3.
-     *(Optional)* `TANKER_FILE_NAME` if you rely on name lookup instead of id
-     (defaults to `Tanker Billing.xlsm`).
+### Method B — service account (alternative)
+
+1. **APIs & Services → Credentials → Create credentials → Service account**
+   (no roles) → open it → **Keys → Add key → JSON**. Note its email.
+2. **Share** `Tanker Billing.xlsm` (or its folder) with that email as **Viewer**.
+3. Add secret `GDRIVE_SA_JSON` = the key file contents, and variable
+   `TANKER_DRIVE_FILE_ID` as above.
 
 That's it. The **Sync tanker billing data** workflow
 (`.github/workflows/tanker-sync.yml`) then runs **daily** and on demand
@@ -89,10 +98,12 @@ python3 tanker/sync_tanker_billing.py --xlsm "Tanker Billing.xlsm"
 Against Google Drive (what the Action runs):
 
 ```bash
-export GDRIVE_SA_JSON=/path/to/service-account.json   # file path or raw JSON
-export DRIVE_FILE_ID=<file id>                          # or rely on name search
+export GDRIVE_TOKEN=/path/to/gdrive_token.json   # OAuth blob (path or inline)
+# or, for method B:  export GDRIVE_SA_JSON=/path/to/service-account.json
+export DRIVE_FILE_ID=<file id>                    # or rely on name search
 python3 tanker/sync_tanker_billing.py --from-drive
 ```
 
 Dependencies: `openpyxl`, `google-api-python-client`, `google-auth`
-(all already in the repo's `requirements.txt`).
+(all already in the repo's `requirements.txt`). Minting a token additionally
+uses `google-auth-oauthlib`, also already listed.

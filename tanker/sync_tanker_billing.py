@@ -13,9 +13,10 @@ Two ways to run:
     python3 tanker/sync_tanker_billing.py --xlsm "Tanker Billing.xlsm"
 
     # 2) Pull the live copy from Google Drive (used by the scheduled Action).
-    #    Auth: a service account JSON, and the file shared read-only with its
-    #    client_email. See tanker/README.md for the one-time setup.
-    GDRIVE_SA_JSON=/path/sa.json DRIVE_FILE_ID=<id> \
+    #    Auth (recommended): an OAuth refresh token for the account that owns
+    #    the file — mint it with tanker/mint_drive_token.py. A service account
+    #    works too. See tanker/README.md for the one-time setup.
+    GDRIVE_TOKEN=/path/gdrive_token.json DRIVE_FILE_ID=<id> \
         python3 tanker/sync_tanker_billing.py --from-drive
 
 The workbook is read with ``data_only=True`` so cached formula values are used.
@@ -166,30 +167,58 @@ def parse_workbook(xlsm_path: str) -> dict:
     }
 
 
-def download_from_drive(dest_path: str) -> dict:
-    """Download the workbook from Google Drive using a service account.
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
-    Env:
-      GDRIVE_SA_JSON   path to the service-account JSON key (or the JSON itself)
-      DRIVE_FILE_ID    the Drive file id of the workbook (preferred), OR
-      TANKER_FILE_NAME name to search for (default "Tanker Billing.xlsm")
-    Returns a dict of source metadata.
+
+def _load_env_json(value: str):
+    """Return a dict from an env value that is either a path or inline JSON."""
+    if os.path.exists(value):
+        with open(value, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    return json.loads(value)
+
+
+def drive_credentials():
+    """Build read-only Drive credentials from whichever is configured.
+
+    Preferred (reuses the same OAuth setup as the Gmail agent):
+      GDRIVE_TOKEN     an OAuth *authorized-user* JSON (path or inline) minted by
+                       tanker/mint_drive_token.py — a refresh token for the
+                       Google account whose Drive holds the workbook. Because it
+                       is your own account, no file-sharing step is needed.
+
+    Alternative:
+      GDRIVE_SA_JSON   a service-account key JSON (path or inline). The workbook
+                       (or its folder) must be shared with the account's email.
     """
-    from google.oauth2 import service_account
+    token = os.environ.get("GDRIVE_TOKEN", "").strip()
+    if token:
+        from google.oauth2.credentials import Credentials
+        return Credentials.from_authorized_user_info(
+            _load_env_json(token), scopes=DRIVE_SCOPES)
+
+    sa = os.environ.get("GDRIVE_SA_JSON", "").strip()
+    if sa:
+        from google.oauth2 import service_account
+        return service_account.Credentials.from_service_account_info(
+            _load_env_json(sa), scopes=DRIVE_SCOPES)
+
+    raise SystemExit(
+        "No Drive credentials. Set GDRIVE_TOKEN (OAuth, recommended) or "
+        "GDRIVE_SA_JSON (service account). See tanker/README.md.")
+
+
+def download_from_drive(dest_path: str) -> dict:
+    """Download the workbook from Google Drive.
+
+    Auth: GDRIVE_TOKEN (OAuth, recommended) or GDRIVE_SA_JSON — see
+    drive_credentials(). File: DRIVE_FILE_ID (preferred) or TANKER_FILE_NAME
+    (default "Tanker Billing.xlsm"). Returns a dict of source metadata.
+    """
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaIoBaseDownload
 
-    sa = os.environ.get("GDRIVE_SA_JSON", "").strip()
-    if not sa:
-        raise SystemExit("GDRIVE_SA_JSON is not set")
-    if os.path.exists(sa):
-        creds = service_account.Credentials.from_service_account_file(
-            sa, scopes=["https://www.googleapis.com/auth/drive.readonly"])
-    else:  # allow the raw JSON to be passed inline (e.g. a GH secret)
-        creds = service_account.Credentials.from_service_account_info(
-            json.loads(sa),
-            scopes=["https://www.googleapis.com/auth/drive.readonly"])
-
+    creds = drive_credentials()
     service = build("drive", "v3", credentials=creds, cache_discovery=False)
 
     file_id = os.environ.get("DRIVE_FILE_ID", "").strip()
@@ -203,9 +232,10 @@ def download_from_drive(dest_path: str) -> dict:
         files = resp.get("files", [])
         if not files:
             raise SystemExit(
-                f"No Drive file named {name!r} is shared with the service "
-                "account. Share the file (or its folder) with the service "
-                "account's client_email, or set DRIVE_FILE_ID.")
+                f"No Drive file named {name!r} is visible to these credentials. "
+                "With GDRIVE_TOKEN, sign in as the account that owns the file; "
+                "with GDRIVE_SA_JSON, share the file (or its folder) with the "
+                "service account's email. Or set DRIVE_FILE_ID directly.")
         file_id = files[0]["id"]
 
     meta = service.files().get(
