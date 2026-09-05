@@ -29,7 +29,11 @@
   .note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
   .stage{flex:1;min-width:320px;display:flex;justify-content:center}
   .sheets{display:flex;flex-direction:column;gap:16px;align-items:center;width:100%}
-  #page2 .sheet{filter:grayscale(1)}
+  /* Each printable page. On screen it scales to the column width; on print it
+     is clamped to exactly A4 with overflow hidden so nothing can spill onto an
+     extra page. */
+  .printpage{width:210mm;max-width:100%;background:#fff;box-shadow:0 2px 14px rgba(20,30,60,.15)}
+  .printpage > svg{width:100%;height:auto;display:block}
   .page2-tag{font-size:12px;color:var(--muted);align-self:center;margin-top:4px}
 
   /* The bill is an SVG sized to A4. On screen we scale it down to fit; on
@@ -56,15 +60,19 @@
   @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Italic.ttf") format("truetype");font-weight:normal;font-style:italic;font-display:swap}
 
   @media print{
-    html,body{background:#fff;margin:0}
+    html,body{background:#fff;margin:0!important;padding:0!important}
     header.app,.panel{display:none!important}
     .wrap{padding:0;display:block}
     .stage{display:block}
-    .sheet{width:210mm;height:297mm;box-shadow:none}
     .sheets{display:block;gap:0}
     .page2-tag{display:none}
-    #page2{break-before:page;page-break-before:always}
-    #page2 .sheet{filter:grayscale(1)}
+    /* Size the page by WIDTH with height following the A4 aspect ratio, so the
+       bill can never be taller than the printable area (which is what made the
+       footer spill onto a 2nd sheet in Safari). One sheet per .printpage. */
+    .printpage{width:100%;max-width:none;overflow:hidden;box-shadow:none;margin:0;
+      break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid}
+    .printpage:last-of-type{break-after:auto;page-break-after:auto}
+    .printpage > svg{width:100%;height:auto;display:block}
     @page{size:A4;margin:0}
   }
 </style>
@@ -103,6 +111,7 @@
 
   <section class="stage">
    <div class="sheets">
+    <div class="printpage">
     <!-- viewBox is the A4 page in PDF points (595.28 x 841.89). Every element
          is placed at the exact coordinates measured from the Excel export. -->
     <svg class="sheet" id="bill" xmlns="http://www.w3.org/2000/svg"
@@ -179,8 +188,9 @@
       <text x="56.6" y="818.9" font-size="15.4">for VRIDDHI FUELS</text>
       <text x="421.4" y="818.9" font-size="15.4" font-style="italic">Signature of Customer</text>
     </svg>
+    </div>
     <!-- Page 2: greyscale "Receiving Copy" is built from page 1 at render time -->
-    <div id="page2"></div>
+    <div id="page2" class="printpage"></div>
     <div class="page2-tag">Page 2 — greyscale “Receiving Copy”</div>
    </div>
   </section>
@@ -254,28 +264,52 @@ function render(){
 }
 
 const SVGNS = "http://www.w3.org/2000/svg";
-// Page 2 = a clone of the bill, desaturated to greyscale (via CSS on #page2),
-// with a 45° "Receiving Copy" watermark inserted just above the white
-// background so it sits *behind* the bill's text and images.
+
+// Convert a colour to its greyscale (luminance) hex. Done in JS so page 2 is
+// truly greyscale in the printed file — no reliance on a CSS/SVG print filter,
+// which Safari drops when printing.
+function greyOf(col){
+  let r,g,b;
+  const m = /^#([0-9a-f]{6})$/i.exec(col || "");
+  if(m){ const n=parseInt(m[1],16); r=(n>>16)&255; g=(n>>8)&255; b=n&255; }
+  else return null;                                   // leave named/black as-is
+  const y = Math.round(0.299*r + 0.587*g + 0.114*b);
+  return "#" + [y,y,y].map(v=>v.toString(16).padStart(2,"0")).join("");
+}
+
+// Page 2 = a clone of the bill in greyscale, with a 45° "Receiving Copy"
+// watermark just above the white background so it sits *behind* the content.
 function buildPage2(){
   const holder = $("page2");
   holder.innerHTML = "";
   const clone = $("bill").cloneNode(true);
   clone.removeAttribute("id");
 
+  // 1) swap the colour images for their pre-greyscaled versions
+  clone.querySelectorAll("image").forEach(img => {
+    const href = img.getAttribute("href") || "";
+    if (href.indexOf("letterhead.png") >= 0) img.setAttribute("href", "assets/letterhead_grey.png");
+    if (href.indexOf("stamp.png") >= 0)      img.setAttribute("href", "assets/stamp_grey.png");
+  });
+  // 2) desaturate every coloured fill (orange labels, red amount, …) to grey
+  clone.querySelectorAll("[fill]").forEach(el => {
+    const grey = greyOf(el.getAttribute("fill"));
+    if (grey) el.setAttribute("fill", grey);
+  });
+
+  // 3) watermark, behind the content
   const wm = document.createElementNS(SVGNS, "text");
   wm.setAttribute("x", "297.64");
-  wm.setAttribute("y", "445");                       // vertical centre of A4
+  wm.setAttribute("y", "445");                        // vertical centre of A4
   wm.setAttribute("text-anchor", "middle");
   wm.setAttribute("transform", "rotate(-45 297.64 420.9)");
   wm.setAttribute("font-size", "78");
   wm.setAttribute("font-weight", "bold");
   wm.setAttribute("fill", "#000000");
-  wm.setAttribute("fill-opacity", "0.3");            // 70% transparent
+  wm.setAttribute("fill-opacity", "0.3");             // 70% transparent
   wm.textContent = "Receiving Copy";
 
-  // insert after the first child (the white background rect) => behind content
-  const bg = clone.firstElementChild;
+  const bg = clone.firstElementChild;                 // white background rect
   if (bg && bg.nextSibling) clone.insertBefore(wm, bg.nextSibling);
   else clone.appendChild(wm);
 
