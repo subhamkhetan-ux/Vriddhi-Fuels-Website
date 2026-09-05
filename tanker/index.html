@@ -5,14 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Vriddhi Fuels — Tanker Billing</title>
 <style>
-  :root{
-    --orange:#E8791D; --navy:#1F3864; --red:#C00000; --line:#000;
-    --bg:#eef1f5; --card:#fff; --muted:#5b6472; --border:#d3d9e2;
-  }
+  :root{ --navy:#1F3864; --bg:#eef1f5; --card:#fff; --muted:#5b6472; --border:#d3d9e2; }
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#1a1f29}
   header.app{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--navy);color:#fff}
-  header.app h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  header.app h1{font-size:16px;margin:0;font-weight:600}
   header.app .tabs{margin-left:auto;display:flex;gap:6px}
   header.app .tabs a{color:#cdd6e6;text-decoration:none;padding:6px 12px;border-radius:6px;font-size:13px}
   header.app .tabs a.active{background:rgba(255,255,255,.15);color:#fff}
@@ -23,7 +20,6 @@
   .field{margin-bottom:12px}
   .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
   .field input,.field select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff}
-  .field input:focus,.field select:focus{outline:2px solid var(--navy);outline-offset:-1px}
   .row2{display:flex;gap:10px}.row2>*{flex:1}
   .derived{font-size:12px;color:var(--muted);margin-top:2px}
   .btnrow{display:flex;gap:10px;margin-top:6px}
@@ -33,45 +29,20 @@
   .note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
   .stage{flex:1;min-width:320px;display:flex;justify-content:center}
 
-  /* ---- A4 bill (matches the Excel export) ---- */
-  .page{
-    background:#fff;width:210mm;min-height:297mm;padding:7mm;
-    box-shadow:0 2px 14px rgba(20,30,60,.15);
-    font-family:"Times New Roman",Times,Georgia,serif;color:#000;
-  }
-  .letterhead{width:100%;display:block}
-  .billrow{display:flex;justify-content:space-between;align-items:flex-start;margin-top:14px}
-  .billto-lbl{color:var(--orange);font-weight:bold;font-size:15px}
-  .date-lbl{color:var(--navy);font-weight:bold;font-size:15px}
-  .date-lbl b{color:#000}
-  .cust-name{font-weight:bold;font-size:16px;margin-top:2px}
-  .addr{font-size:15px}
-  .addr .gstin{font-style:italic}
-  .prod-lbl{color:var(--navy);font-weight:bold;font-size:15px;text-align:right;white-space:nowrap}
-  .prod-lbl b{color:#000}
-  .left-col{flex:1;padding-right:10px}
-  .right-col{width:44%;display:flex;flex-direction:column;align-items:flex-end}
-  .section{font-weight:bold;font-size:14px;margin:16px 0 4px}
-  table.inv{width:100%;border-collapse:collapse;font-size:15px}
-  table.inv th,table.inv td{border:1px solid var(--line);padding:3px 6px;text-align:center}
-  table.inv th{font-weight:bold}
-  table.inv td.amount{color:var(--red);font-weight:bold}
-  .po{font-weight:bold;font-size:15px;margin-top:18px}
-  .ds{font-style:italic;font-size:15px;margin-top:14px;min-height:16px}
-  .pay{font-size:15px;margin-top:20px}
-  .pay .h{font-weight:bold}
-  .foot{display:flex;justify-content:space-between;align-items:flex-end;margin-top:40px}
-  .foot .stamp{height:64px;display:block;margin-bottom:2px}
-  .foot .for{font-size:15px}
-  .foot .sign{font-style:italic;font-size:15px}
-  .spacer{height:150px}
+  /* The bill is an SVG sized to A4. On screen we scale it down to fit; on
+     print it is placed at exactly 210x297mm. */
+  .sheet{width:210mm;max-width:100%;height:auto;background:#fff;box-shadow:0 2px 14px rgba(20,30,60,.15);display:block}
+
+  @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Regular.ttf") format("truetype");font-weight:normal;font-style:normal;font-display:swap}
+  @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Bold.ttf") format("truetype");font-weight:bold;font-style:normal;font-display:swap}
+  @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Italic.ttf") format("truetype");font-weight:normal;font-style:italic;font-display:swap}
 
   @media print{
-    body{background:#fff}
-    header.app,.panel,.stage-hint{display:none!important}
+    html,body{background:#fff;margin:0}
+    header.app,.panel{display:none!important}
     .wrap{padding:0;display:block}
     .stage{display:block}
-    .page{width:auto;min-height:auto;box-shadow:none;padding:7mm;margin:0}
+    .sheet{width:210mm;height:297mm;box-shadow:none}
     @page{size:A4;margin:0}
   }
 </style>
@@ -87,40 +58,18 @@
 </header>
 
 <div class="wrap">
-  <section class="panel no-print">
+  <section class="panel">
     <h2>Create bill</h2>
-    <div class="field">
-      <label for="customer">Customer</label>
-      <select id="customer"></select>
-    </div>
-    <div class="field">
-      <label for="product">Product</label>
-      <select id="product"></select>
-    </div>
+    <div class="field"><label for="customer">Customer</label><select id="customer"></select></div>
+    <div class="field"><label for="product">Product</label><select id="product"></select></div>
     <div class="row2">
-      <div class="field">
-        <label for="date">Date</label>
-        <input type="date" id="date" />
-      </div>
-      <div class="field">
-        <label for="billno">Bill No</label>
-        <input type="text" id="billno" inputmode="numeric" />
-      </div>
+      <div class="field"><label for="date">Date</label><input type="date" id="date" /></div>
+      <div class="field"><label for="billno">Bill No</label><input type="text" id="billno" inputmode="numeric" /></div>
     </div>
-    <div class="field">
-      <label for="vehicle">Vehicle</label>
-      <input type="text" id="vehicle" placeholder="OR15R9360" autocapitalize="characters" />
-    </div>
+    <div class="field"><label for="vehicle">Vehicle</label><input type="text" id="vehicle" placeholder="OR15R9360" autocapitalize="characters" /></div>
     <div class="row2">
-      <div class="field">
-        <label for="qty">Quantity (Ltr)</label>
-        <input type="number" id="qty" min="0" step="1" />
-      </div>
-      <div class="field">
-        <label for="price">Price / Ltr</label>
-        <input type="number" id="price" min="0" step="0.01" />
-        <div class="derived" id="price-derived"></div>
-      </div>
+      <div class="field"><label for="qty">Quantity (Ltr)</label><input type="number" id="qty" min="0" step="1" /></div>
+      <div class="field"><label for="price">Price / Ltr</label><input type="number" id="price" min="0" step="0.01" /><div class="derived" id="price-derived"></div></div>
     </div>
     <div class="derived" id="amount-derived" style="margin:2px 0 10px;font-size:14px;color:#1a1f29"></div>
     <div class="btnrow">
@@ -131,78 +80,105 @@
   </section>
 
   <section class="stage">
-    <div class="page" id="page">
-      <img class="letterhead" src="assets/letterhead.png" alt="Vriddhi Fuels" />
-      <div class="billrow">
-        <div class="left-col">
-          <div class="billto-lbl">Bill To</div>
-          <div class="cust-name" id="p-name">—</div>
-          <div class="addr" id="p-addr"></div>
-        </div>
-        <div class="right-col">
-          <div class="date-lbl">Date: <b id="p-date"></b></div>
-          <div class="prod-lbl" id="p-prod-wrap" style="margin-top:18px">Product: <b id="p-prod"></b></div>
-        </div>
-      </div>
+    <!-- viewBox is the A4 page in PDF points (595.28 x 841.89). Every element
+         is placed at the exact coordinates measured from the Excel export. -->
+    <svg class="sheet" id="bill" xmlns="http://www.w3.org/2000/svg"
+         viewBox="0 0 595.28 841.89" preserveAspectRatio="xMidYMid meet"
+         font-family='"Times New Roman","BillSerif",serif'>
+      <rect x="0" y="0" width="595.28" height="841.89" fill="#fff"/>
 
-      <div class="section">Invoice Details:</div>
-      <table class="inv">
-        <thead>
-          <tr><th>Date</th><th>Bill No</th><th>Vehicle</th><th>Quantity</th><th>Price/Ltr</th><th>Amount</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td id="t-date"></td><td id="t-bill"></td><td id="t-veh"></td>
-            <td id="t-qty"></td><td id="t-price"></td><td class="amount" id="t-amt"></td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- letterhead + stamp: the exact images from the workbook -->
+      <image href="assets/letterhead.png" x="34.2" y="41.3" width="529.3" height="159.4" preserveAspectRatio="none"/>
+      <image href="assets/stamp.png" x="52.7" y="746.2" width="150.8" height="57.1" preserveAspectRatio="none"/>
 
-      <div class="po" id="p-po"></div>
-      <div class="ds" id="p-density"></div>
-      <div class="ds" id="p-seal"></div>
+      <!-- static labels -->
+      <text x="56.6" y="212.2" font-size="15.4" font-weight="bold" fill="#ED7D31">Bill To</text>
+      <text x="380.2" y="212.2" font-size="15.4" font-weight="bold" fill="#ED7D31">Date:</text>
+      <text x="357.1" y="267.8" font-size="15.4" font-weight="bold" fill="#ED7D31">Product:</text>
+      <text x="56.6" y="319.7" font-size="13.4" font-weight="bold">Invoice Details:</text>
 
-      <div class="pay" id="p-pay"></div>
+      <!-- invoice table borders -->
+      <g stroke="#000" stroke-width="0.9">
+        <line x1="54.25" y1="322.6" x2="54.25" y2="366.7"/>
+        <line x1="125.3" y1="322.6" x2="125.3" y2="366.7"/>
+        <line x1="187.7" y1="322.6" x2="187.7" y2="366.7"/>
+        <line x1="288.5" y1="322.6" x2="288.5" y2="366.7"/>
+        <line x1="352.8" y1="322.6" x2="352.8" y2="366.7"/>
+        <line x1="418.1" y1="322.6" x2="418.1" y2="366.7"/>
+        <line x1="501.6" y1="322.6" x2="501.6" y2="366.7"/>
+        <line x1="54.25" y1="323.05" x2="501.6" y2="323.05"/>
+        <line x1="54.25" y1="344.15" x2="501.6" y2="344.15"/>
+        <line x1="54.25" y1="366.25" x2="501.6" y2="366.25"/>
+      </g>
 
-      <div class="spacer"></div>
-      <div class="foot">
-        <div>
-          <img class="stamp" src="assets/stamp.png" alt="" />
-          <div class="for">for VRIDDHI FUELS</div>
-        </div>
-        <div class="sign">Signature of Customer</div>
-      </div>
-    </div>
+      <!-- table header (centered on each column) -->
+      <g font-size="15.4" font-weight="bold" text-anchor="middle">
+        <text x="89.8"  y="338.9">Date</text>
+        <text x="156.5" y="338.9">Bill No</text>
+        <text x="238.1" y="338.9">Vehicle</text>
+        <text x="320.65" y="338.9">Quantity</text>
+        <text x="385.45" y="338.9">Price/Ltr</text>
+        <text x="459.85" y="338.9">Amount</text>
+      </g>
+
+      <!-- table data row -->
+      <g font-size="15.4" text-anchor="middle">
+        <text id="t-date"  x="89.8"  y="361.0"></text>
+        <text id="t-bill"  x="156.5" y="361.0"></text>
+        <text id="t-veh"   x="238.1" y="361.0"></text>
+        <text id="t-qty"   x="320.65" y="361.0"></text>
+        <text id="t-price" x="385.45" y="361.0"></text>
+        <text id="t-amt"   x="498" y="361.0" text-anchor="end" font-weight="bold" fill="#FF0000"></text>
+      </g>
+
+      <!-- dynamic header values -->
+      <text id="p-date" x="420.5" y="212.2" font-size="15.4" font-weight="bold"></text>
+      <text id="p-prod" x="420.5" y="267.8" font-size="15.4" font-weight="bold"></text>
+      <text id="p-name" x="56.6" y="230.4" font-size="15.4" font-weight="bold"></text>
+      <text id="p-a1"   x="56.6" y="248.6" font-size="15.4"></text>
+      <text id="p-a2"   x="56.6" y="267.8" font-size="15.4"></text>
+      <text id="p-a3"   x="56.6" y="286.1" font-size="15.4" font-style="italic"></text>
+
+      <!-- PO / density / seal -->
+      <text id="p-po-lbl" x="56.6"  y="409.0" font-size="15.4" font-weight="bold"></text>
+      <text id="p-po-val" x="127.7" y="409.0" font-size="15.4" font-weight="bold"></text>
+      <text id="p-density" x="56.6" y="443.5" font-size="15.4" font-style="italic"></text>
+      <text id="p-seal"    x="56.6" y="498.2" font-size="15.4" font-style="italic"></text>
+
+      <!-- payment block (row 32 bold header, then 4 lines) -->
+      <text id="p-pay0" x="56.6" y="569.3" font-size="15.4" font-weight="bold"></text>
+      <text id="p-pay1" x="56.6" y="586.6" font-size="15.4"></text>
+      <text id="p-pay2" x="56.6" y="603.8" font-size="15.4"></text>
+      <text id="p-pay3" x="56.6" y="621.1" font-size="15.4"></text>
+      <text id="p-pay4" x="56.6" y="638.4" font-size="15.4"></text>
+
+      <!-- footer -->
+      <text x="56.6" y="818.9" font-size="15.4">for VRIDDHI FUELS</text>
+      <text x="421.4" y="818.9" font-size="15.4" font-style="italic">Signature of Customer</text>
+    </svg>
   </section>
 </div>
 
 <script>
 const HSD = "High Speed Diesel";
-// Density & Seal lines: the reference exports show both appear together only for
-// full loads (qty 9000 / 12000 shown, 3000 hidden). Threshold below is the one
-// switch to change if your workbook uses different cut-offs.
-const DENSITY_MIN = 3000;   // show "Density-" when HSD and qty > this
-const SEAL_MIN = 3000;      // show "Seal No-" when HSD and qty > this
+// Density-/Seal No- appear together only for full loads in the reference
+// exports (9000/12000 shown, 3000 hidden). One switch each if cut-offs differ.
+const DENSITY_MIN = 3000, SEAL_MIN = 3000;
 
 let DATA = null;
 const $ = (id) => document.getElementById(id);
+const setT = (id, v) => { $(id).textContent = (v == null ? "" : v); };
 
 function inr(n){
   n = Math.trunc(Math.abs(n));
   let s = String(n);
   if (s.length <= 3) return s;
-  let last3 = s.slice(-3), rest = s.slice(0, -3);
-  rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+  const last3 = s.slice(-3);
+  let rest = s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",");
   return rest + "," + last3;
 }
-function fmtDate(iso){
-  if(!iso) return "";
-  const [y,m,d] = iso.split("-");
-  return `${d}/${m}/${y.slice(2)}`;
-}
-function currentCustomer(){
-  return DATA.customers.find(c => c.company === $("customer").value);
-}
+function fmtDate(iso){ if(!iso) return ""; const [y,m,d]=iso.split("-"); return `${d}/${m}/${y.slice(2)}`; }
+function currentCustomer(){ return DATA.customers.find(c => c.company === $("customer").value); }
 function derivedPrice(cust, product){
   if(!cust) return null;
   if(product === HSD) return cust.hsd_rate;
@@ -218,56 +194,32 @@ function render(){
   const price = parseFloat($("price").value) || 0;
   const amount = Math.trunc(qty * price);
 
-  // header block
-  $("p-name").textContent = cust ? cust.company : "—";
-  const addr = $("p-addr"); addr.innerHTML = "";
-  if(cust){
-    cust.address.forEach(line => {
-      const div = document.createElement("div");
-      div.textContent = line;
-      if(/^\s*GSTIN/i.test(line)) div.className = "gstin";
-      addr.appendChild(div);
-    });
-  }
-  $("p-date").textContent = fmtDate(iso);
-  $("p-prod").textContent = product;
+  setT("p-date", fmtDate(iso));
+  setT("p-prod", product);
+  setT("p-name", cust ? cust.company : "");
+  const a = cust ? cust.address : ["","",""];
+  setT("p-a1", a[0] || ""); setT("p-a2", a[1] || ""); setT("p-a3", a[2] || "");
 
-  // table
-  $("t-date").textContent = fmtDate(iso);
-  $("t-bill").textContent = $("billno").value || "";
-  $("t-veh").textContent = ($("vehicle").value || "").toUpperCase();
-  $("t-qty").textContent = qty ? String(Math.trunc(qty)) : "";
-  $("t-price").textContent = price ? price.toFixed(2) : "";
-  $("t-amt").textContent = amount ? "₹" + inr(amount) : "";
+  setT("t-date", fmtDate(iso));
+  setT("t-bill", $("billno").value || "");
+  setT("t-veh", ($("vehicle").value || "").toUpperCase());
+  setT("t-qty", qty ? String(Math.trunc(qty)) : "");
+  setT("t-price", price ? price.toFixed(2) : "");
+  setT("t-amt", amount ? "₹" + inr(amount) : "");
 
-  // PO
-  const po = $("p-po");
-  if(cust && cust.po_label){
-    po.textContent = `${cust.po_label}  ${cust.po_no || ""}`.trimEnd();
-    po.style.display = "";
-  } else { po.style.display = "none"; }
+  if(cust && cust.po_label){ setT("p-po-lbl", cust.po_label); setT("p-po-val", cust.po_no || ""); }
+  else { setT("p-po-lbl",""); setT("p-po-val",""); }
 
-  // Density / Seal
   const isHSD = product === HSD;
-  $("p-density").textContent = (isHSD && qty > DENSITY_MIN) ? "Density-" : "";
-  $("p-seal").textContent    = (isHSD && qty > SEAL_MIN)    ? "Seal No-" : "";
+  setT("p-density", (isHSD && qty > DENSITY_MIN) ? "Density-" : "");
+  setT("p-seal",    (isHSD && qty > SEAL_MIN)    ? "Seal No-" : "");
 
-  // Payment block
-  const pay = $("p-pay"); pay.innerHTML = "";
-  if(cust){
-    cust.payment.forEach((line,i) => {
-      const div = document.createElement("div");
-      div.textContent = line;
-      if(i === 0) div.className = "h";
-      pay.appendChild(div);
-    });
-  }
+  const pay = cust ? cust.payment : [];
+  for(let i=0;i<5;i++) setT("p-pay"+i, pay[i] || "");
 
-  // side derived readouts
   const dp = derivedPrice(cust, product);
   $("price-derived").textContent = dp != null
-    ? `Sheet rate: ₹${dp.toFixed(2)}${Math.abs(dp-price)>0.001 ? " (overridden)" : ""}`
-    : "No rate on file";
+    ? `Sheet rate: ₹${dp.toFixed(2)}${Math.abs(dp-price)>0.001 ? " (overridden)" : ""}` : "No rate on file";
   $("amount-derived").textContent = amount
     ? `Amount: ₹${inr(amount)}  (${Math.trunc(qty)} × ${price.toFixed(2)}, truncated)` : "";
 }
@@ -281,52 +233,35 @@ function applyRateFromSheet(){
 function init(data){
   DATA = data;
   const cs = $("customer");
-  data.customers.forEach(c => {
-    const o = document.createElement("option");
-    o.value = c.company; o.textContent = c.company; cs.appendChild(o);
-  });
+  data.customers.forEach(c => { const o=document.createElement("option"); o.value=c.company; o.textContent=c.company; cs.appendChild(o); });
   const ps = $("product");
   (data.fuel_types.length ? data.fuel_types : [HSD]).forEach(ft => {
-    const o = document.createElement("option");
-    o.value = ft; o.textContent = ft;
-    if(ft === HSD) o.selected = true;
-    ps.appendChild(o);
+    const o=document.createElement("option"); o.value=ft; o.textContent=ft; if(ft===HSD) o.selected=true; ps.appendChild(o);
   });
-
-  // defaults
   $("date").value = new Date().toISOString().slice(0,10);
   const last = parseInt(localStorage.getItem("vf_last_billno") || "0", 10);
   if(last) $("billno").value = String(last + 1);
 
-  // events
   cs.addEventListener("change", applyRateFromSheet);
   ps.addEventListener("change", applyRateFromSheet);
-  ["date","billno","vehicle","qty","price"].forEach(id =>
-    $(id).addEventListener("input", render));
+  ["date","billno","vehicle","qty","price"].forEach(id => $(id).addEventListener("input", render));
   $("print").addEventListener("click", () => {
     const bn = parseInt($("billno").value, 10);
     if(bn) localStorage.setItem("vf_last_billno", String(bn));
     window.print();
   });
-  $("reset").addEventListener("click", () => {
-    $("vehicle").value = ""; $("qty").value = "";
-    render();
-  });
+  $("reset").addEventListener("click", () => { $("vehicle").value=""; $("qty").value=""; render(); });
 
   applyRateFromSheet();
   const gen = data.generated_at ? new Date(data.generated_at).toLocaleDateString() : "?";
-  $("status").innerHTML = `${data.customers.length} customers loaded · data as of ${gen}.<br>` +
-    `Pick a customer, set date / bill no / vehicle / quantity, then Print.`;
+  $("status").innerHTML = `${data.customers.length} customers loaded · data as of ${gen}.<br>Pick a customer, set date / bill no / vehicle / quantity, then Print.`;
 }
 
 fetch("../state/tanker_billing.json", {cache:"no-store"})
   .then(r => { if(!r.ok) throw new Error(r.status); return r.json(); })
   .then(init)
-  .catch(err => {
-    $("status").textContent =
-      "Could not load ../state/tanker_billing.json (" + err.message +
-      "). Serve the repo over http (not file://), or run the sync first.";
-  });
+  .catch(err => { $("status").textContent =
+    "Could not load ../state/tanker_billing.json (" + err.message + "). Serve over http, or run the sync first."; });
 </script>
 </body>
 </html>

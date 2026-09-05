@@ -45,7 +45,8 @@
       "hsd_rate": 99.74,
       "address": [
         "Sambalpur.",
-        "GSTIN: 21AAECA5656R1ZB"
+        "GSTIN: 21AAECA5656R1ZB",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -63,7 +64,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur ATPL Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details for XtraPower Account:",
@@ -195,7 +197,8 @@
       "hsd_rate": 99.5,
       "address": [
         "Near Samleswari OCP",
-        "PO- Lamtibahal, Via- Brajrajnagar."
+        "PO- Lamtibahal, Via- Brajrajnagar.",
+        ""
       ],
       "payment": [
         "Payment Details for XtraPower Account:",
@@ -232,7 +235,8 @@
       "hsd_rate": 100.74,
       "address": [
         "Behrapally Road,",
-        "Jharsuguda."
+        "Jharsuguda.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -250,7 +254,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur ATPL Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -268,7 +273,8 @@
       "hsd_rate": 100.74,
       "address": [
         "Behrapally Road,",
-        "Jharsuguda."
+        "Jharsuguda.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -286,7 +292,8 @@
       "hsd_rate": 100.74,
       "address": [
         "Behrapally Road,",
-        "Jharsuguda."
+        "Jharsuguda.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -323,7 +330,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur ATPL Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -360,7 +368,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur Jorabaga Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details for XtraPower Account:",
@@ -397,7 +406,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur ATPL Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details for XtraPower Account:",
@@ -472,7 +482,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur Jorabaga Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -490,7 +501,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur ATPL Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -508,7 +520,8 @@
       "hsd_rate": 99.5,
       "address": [
         "At- Lakanpur Jorabaga Camp",
-        "Post-Ubuda, Via- Belpahar."
+        "Post-Ubuda, Via- Belpahar.",
+        ""
       ],
       "payment": [
         "Payment Details:",
@@ -597,7 +610,7 @@
       "po_no": ""
     }
   ],
-  "generated_at": "2026-09-05T06:27:51+00:00",
+  "generated_at": "2026-09-05T06:45:14+00:00",
   "source": {
     "file_name": "Tanker Billing.xlsm",
     "drive_file_id": null,

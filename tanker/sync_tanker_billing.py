@@ -131,6 +131,10 @@ def parse_workbook(xlsm_path: str) -> dict:
         # value is missing, fall back to resolving the tier ourselves.
         if hsd is None and tier in rate_card:
             hsd = rate_card[tier]
+        # Keep all three address rows and all five payment rows *unfiltered*
+        # (blanks preserved). The bill grid is positional: Address 3 (row 16)
+        # is always italic, payment lines sit on fixed rows — dropping blanks
+        # would shift text off the cells it must line up with.
         address = [
             _clean(row.get("Address 1")),
             _clean(row.get("Address 2")),
@@ -144,8 +148,8 @@ def parse_workbook(xlsm_path: str) -> dict:
                 "company": company,
                 "price_tier": tier,
                 "hsd_rate": hsd,
-                "address": [a for a in address if a],
-                "payment": [p for p in payment if p],
+                "address": [str(a) if a != "" else "" for a in address],
+                "payment": [str(p) if p != "" else "" for p in payment],
                 "po_label": _clean(row.get("PO Label")),
                 "po_no": "" if po_no in (None, "") else str(po_no),
             }
