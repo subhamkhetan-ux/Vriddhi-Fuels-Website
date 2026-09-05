@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vriddhi Fuels — Tanker Billing</title>
+<style>
+  :root{ --navy:#1F3864; --bg:#eef1f5; --card:#fff; --muted:#5b6472; --border:#d3d9e2; }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#1a1f29}
+  header.app{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--navy);color:#fff}
+  header.app h1{font-size:16px;margin:0;font-weight:600}
+  header.app .tabs{margin-left:auto;display:flex;gap:6px}
+  header.app .tabs a{color:#cdd6e6;text-decoration:none;padding:6px 12px;border-radius:6px;font-size:13px}
+  header.app .tabs a.active{background:rgba(255,255,255,.15);color:#fff}
+  header.app .tabs a[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+  .wrap{display:flex;gap:20px;align-items:flex-start;padding:18px;flex-wrap:wrap}
+  .panel{flex:0 0 340px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;position:sticky;top:18px}
+  .panel h2{margin:0 0 12px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
+  .field input,.field select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff}
+  .row2{display:flex;gap:10px}.row2>*{flex:1}
+  .derived{font-size:12px;color:var(--muted);margin-top:2px}
+  .btnrow{display:flex;gap:10px;margin-top:6px}
+  button{cursor:pointer;border:0;border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600}
+  .primary{background:var(--navy);color:#fff;flex:1}
+  .ghost{background:#eef1f5;color:#1a1f29;border:1px solid var(--border)}
+  .note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .stage{flex:1;min-width:320px;display:flex;justify-content:center}
+  .sheets{display:flex;flex-direction:column;gap:16px;align-items:center;width:100%}
+  #page2 .sheet{filter:grayscale(1)}
+  .page2-tag{font-size:12px;color:var(--muted);align-self:center;margin-top:4px}
+
+  /* The bill is an SVG sized to A4. On screen we scale it down to fit; on
+     print it is placed at exactly 210x297mm. */
+  .sheet{width:210mm;max-width:100%;height:auto;background:#fff;box-shadow:0 2px 14px rgba(20,30,60,.15);display:block}
+  /* Excel lays out cell text without kerning or ligatures; match that so the
+     glyph advances line up with the export exactly (no rightward drift). */
+  .sheet text{font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"clig" 0,"calt" 0;font-variant-ligatures:none}
+
+  /* Exact-match font. Order of preference, per weight/style:
+       1. the machine's real Times New Roman (what Excel used) — via local();
+       2. a licensed Times New Roman you drop into assets/fonts/ (times*.ttf),
+          which makes it exact on devices that don't ship the font;
+       3. otherwise fall through the family list to the embedded, metric-
+          compatible BillSerif so nothing ever lands on a random system serif. */
+  @font-face{font-family:"VriddhiTimes";font-weight:normal;font-style:normal;font-display:swap;
+    src:local("Times New Roman"),local("TimesNewRomanPSMT"),url("assets/fonts/times.ttf") format("truetype")}
+  @font-face{font-family:"VriddhiTimes";font-weight:bold;font-style:normal;font-display:swap;
+    src:local("Times New Roman Bold"),local("TimesNewRomanPS-BoldMT"),url("assets/fonts/timesbd.ttf") format("truetype")}
+  @font-face{font-family:"VriddhiTimes";font-weight:normal;font-style:italic;font-display:swap;
+    src:local("Times New Roman Italic"),local("TimesNewRomanPS-ItalicMT"),url("assets/fonts/timesi.ttf") format("truetype")}
+  @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Regular.ttf") format("truetype");font-weight:normal;font-style:normal;font-display:swap}
+  @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Bold.ttf") format("truetype");font-weight:bold;font-style:normal;font-display:swap}
+  @font-face{font-family:"BillSerif";src:url("assets/fonts/BillSerif-Italic.ttf") format("truetype");font-weight:normal;font-style:italic;font-display:swap}
+
+  @media print{
+    html,body{background:#fff;margin:0}
+    header.app,.panel{display:none!important}
+    .wrap{padding:0;display:block}
+    .stage{display:block}
+    .sheet{width:210mm;height:297mm;box-shadow:none}
+    .sheets{display:block;gap:0}
+    .page2-tag{display:none}
+    #page2{break-before:page;page-break-before:always}
+    #page2 .sheet{filter:grayscale(1)}
+    @page{size:A4;margin:0}
+  }
+</style>
+</head>
+<body>
+<header class="app">
+  <h1>Vriddhi Fuels — Tanker Billing</h1>
+  <nav class="tabs">
+    <a href="#" class="active">Bill</a>
+    <a href="#" aria-disabled="true" title="Coming next">Proforma</a>
+    <a href="#" aria-disabled="true" title="Coming next">Credit Note</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <section class="panel">
+    <h2>Create bill</h2>
+    <div class="field"><label for="customer">Customer</label><select id="customer"></select></div>
+    <div class="field"><label for="product">Product</label><select id="product"></select></div>
+    <div class="row2">
+      <div class="field"><label for="date">Date</label><input type="date" id="date" /></div>
+      <div class="field"><label for="billno">Bill No</label><input type="text" id="billno" inputmode="numeric" /></div>
+    </div>
+    <div class="field"><label for="vehicle">Vehicle</label><input type="text" id="vehicle" placeholder="OR15R9360" autocapitalize="characters" /></div>
+    <div class="row2">
+      <div class="field"><label for="qty">Quantity (Ltr)</label><input type="number" id="qty" min="0" step="1" /></div>
+      <div class="field"><label for="price">Price / Ltr</label><input type="number" id="price" min="0" step="0.01" /><div class="derived" id="price-derived"></div></div>
+    </div>
+    <div class="derived" id="amount-derived" style="margin:2px 0 10px;font-size:14px;color:#1a1f29"></div>
+    <div class="btnrow">
+      <button class="primary" id="print">Print / Save PDF</button>
+      <button class="ghost" id="reset">Clear</button>
+    </div>
+    <p class="note" id="status">Loading customer data…</p>
+  </section>
+
+  <section class="stage">
+   <div class="sheets">
+    <!-- viewBox is the A4 page in PDF points (595.28 x 841.89). Every element
+         is placed at the exact coordinates measured from the Excel export. -->
+    <svg class="sheet" id="bill" xmlns="http://www.w3.org/2000/svg"
+         viewBox="0 0 595.28 841.89" preserveAspectRatio="xMidYMid meet"
+         font-family='"VriddhiTimes","Times New Roman","BillSerif",serif'>
+      <rect x="0" y="0" width="595.28" height="841.89" fill="#fff"/>
+
+      <!-- letterhead + stamp: the exact images from the workbook -->
+      <image href="assets/letterhead.png" x="34.2" y="41.3" width="529.3" height="159.4" preserveAspectRatio="none"/>
+      <image href="assets/stamp.png" x="52.7" y="746.2" width="150.8" height="57.1" preserveAspectRatio="none"/>
+
+      <!-- static labels -->
+      <text x="56.6" y="212.2" font-size="15.4" font-weight="bold" fill="#ED7D31">Bill To</text>
+      <text x="380.2" y="212.2" font-size="15.4" font-weight="bold" fill="#ED7D31">Date:</text>
+      <text x="357.1" y="267.8" font-size="15.4" font-weight="bold" fill="#ED7D31">Product:</text>
+      <text x="56.6" y="319.7" font-size="13.4" font-weight="bold">Invoice Details:</text>
+
+      <!-- invoice table borders -->
+      <g stroke="#000" stroke-width="0.9">
+        <line x1="54.25" y1="322.6" x2="54.25" y2="366.7"/>
+        <line x1="125.3" y1="322.6" x2="125.3" y2="366.7"/>
+        <line x1="187.7" y1="322.6" x2="187.7" y2="366.7"/>
+        <line x1="288.5" y1="322.6" x2="288.5" y2="366.7"/>
+        <line x1="352.8" y1="322.6" x2="352.8" y2="366.7"/>
+        <line x1="418.1" y1="322.6" x2="418.1" y2="366.7"/>
+        <line x1="501.6" y1="322.6" x2="501.6" y2="366.7"/>
+        <line x1="54.25" y1="323.05" x2="501.6" y2="323.05"/>
+        <line x1="54.25" y1="344.15" x2="501.6" y2="344.15"/>
+        <line x1="54.25" y1="366.25" x2="501.6" y2="366.25"/>
+      </g>
+
+      <!-- table header (centered on each column) -->
+      <g font-size="15.4" font-weight="bold" text-anchor="middle">
+        <text x="89.8"  y="338.9">Date</text>
+        <text x="156.5" y="338.9">Bill No</text>
+        <text x="238.1" y="338.9">Vehicle</text>
+        <text x="320.65" y="338.9">Quantity</text>
+        <text x="385.45" y="338.9">Price/Ltr</text>
+        <text x="459.85" y="338.9">Amount</text>
+      </g>
+
+      <!-- table data row -->
+      <g font-size="15.4" text-anchor="middle">
+        <text id="t-date"  x="89.8"  y="361.0"></text>
+        <text id="t-bill"  x="156.5" y="361.0"></text>
+        <text id="t-veh"   x="238.1" y="361.0"></text>
+        <text id="t-qty"   x="320.65" y="361.0"></text>
+        <text id="t-price" x="385.45" y="361.0"></text>
+        <text id="t-amt"   x="498" y="361.0" text-anchor="end" font-weight="bold" fill="#FF0000"></text>
+      </g>
+
+      <!-- dynamic header values -->
+      <text id="p-date" x="420.5" y="212.2" font-size="15.4" font-weight="bold"></text>
+      <text id="p-prod" x="420.5" y="267.8" font-size="15.4" font-weight="bold"></text>
+      <text id="p-name" x="56.6" y="230.4" font-size="15.4" font-weight="bold"></text>
+      <text id="p-a1"   x="56.6" y="248.6" font-size="15.4"></text>
+      <text id="p-a2"   x="56.6" y="267.8" font-size="15.4"></text>
+      <text id="p-a3"   x="56.6" y="286.1" font-size="15.4" font-style="italic"></text>
+
+      <!-- PO / density / seal -->
+      <text id="p-po-lbl" x="56.6"  y="409.0" font-size="15.4" font-weight="bold"></text>
+      <text id="p-po-val" x="127.7" y="409.0" font-size="15.4" font-weight="bold"></text>
+      <text id="p-density" x="56.6" y="443.5" font-size="15.4" font-style="italic"></text>
+      <text id="p-seal"    x="56.6" y="498.2" font-size="15.4" font-style="italic"></text>
+
+      <!-- payment block (row 32 bold header, then 4 lines) -->
+      <text id="p-pay0" x="56.6" y="569.3" font-size="15.4" font-weight="bold"></text>
+      <text id="p-pay1" x="56.6" y="586.6" font-size="15.4"></text>
+      <text id="p-pay2" x="56.6" y="603.8" font-size="15.4"></text>
+      <text id="p-pay3" x="56.6" y="621.1" font-size="15.4"></text>
+      <text id="p-pay4" x="56.6" y="638.4" font-size="15.4"></text>
+
+      <!-- footer -->
+      <text x="56.6" y="818.9" font-size="15.4">for VRIDDHI FUELS</text>
+      <text x="421.4" y="818.9" font-size="15.4" font-style="italic">Signature of Customer</text>
+    </svg>
+    <!-- Page 2: greyscale "Receiving Copy" is built from page 1 at render time -->
+    <div id="page2"></div>
+    <div class="page2-tag">Page 2 — greyscale “Receiving Copy”</div>
+   </div>
+  </section>
+</div>
+
+<script>
+const HSD = "High Speed Diesel";
+// Density-/Seal No- appear together only for full loads in the reference
+// exports (9000/12000 shown, 3000 hidden). One switch each if cut-offs differ.
+const DENSITY_MIN = 3000, SEAL_MIN = 3000;
+
+let DATA = null;
+const $ = (id) => document.getElementById(id);
+const setT = (id, v) => { $(id).textContent = (v == null ? "" : v); };
+
+function inr(n){
+  n = Math.trunc(Math.abs(n));
+  let s = String(n);
+  if (s.length <= 3) return s;
+  const last3 = s.slice(-3);
+  let rest = s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+  return rest + "," + last3;
+}
+function fmtDate(iso){ if(!iso) return ""; const [y,m,d]=iso.split("-"); return `${d}/${m}/${y.slice(2)}`; }
+function currentCustomer(){ return DATA.customers.find(c => c.company === $("customer").value); }
+function derivedPrice(cust, product){
+  if(!cust) return null;
+  if(product === HSD) return cust.hsd_rate;
+  const r = DATA.product_rates[product];
+  return (r === undefined ? null : r);
+}
+
+function render(){
+  const cust = currentCustomer();
+  const product = $("product").value;
+  const iso = $("date").value;
+  const qty = parseFloat($("qty").value) || 0;
+  const price = parseFloat($("price").value) || 0;
+  const amount = Math.trunc(qty * price);
+
+  setT("p-date", fmtDate(iso));
+  setT("p-prod", product);
+  setT("p-name", cust ? cust.company : "");
+  const a = cust ? cust.address : ["","",""];
+  setT("p-a1", a[0] || ""); setT("p-a2", a[1] || ""); setT("p-a3", a[2] || "");
+
+  setT("t-date", fmtDate(iso));
+  setT("t-bill", $("billno").value || "");
+  setT("t-veh", ($("vehicle").value || "").toUpperCase());
+  setT("t-qty", qty ? String(Math.trunc(qty)) : "");
+  setT("t-price", price ? price.toFixed(2) : "");
+  setT("t-amt", amount ? "₹" + inr(amount) : "");
+
+  if(cust && cust.po_label){ setT("p-po-lbl", cust.po_label); setT("p-po-val", cust.po_no || ""); }
+  else { setT("p-po-lbl",""); setT("p-po-val",""); }
+
+  const isHSD = product === HSD;
+  setT("p-density", (isHSD && qty > DENSITY_MIN) ? "Density-" : "");
+  setT("p-seal",    (isHSD && qty > SEAL_MIN)    ? "Seal No-" : "");
+
+  const pay = cust ? cust.payment : [];
+  for(let i=0;i<5;i++) setT("p-pay"+i, pay[i] || "");
+
+  const dp = derivedPrice(cust, product);
+  $("price-derived").textContent = dp != null
+    ? `Sheet rate: ₹${dp.toFixed(2)}${Math.abs(dp-price)>0.001 ? " (overridden)" : ""}` : "No rate on file";
+  $("amount-derived").textContent = amount
+    ? `Amount: ₹${inr(amount)}  (${Math.trunc(qty)} × ${price.toFixed(2)}, truncated)` : "";
+
+  buildPage2();
+}
+
+const SVGNS = "http://www.w3.org/2000/svg";
+// Page 2 = a clone of the bill, desaturated to greyscale (via CSS on #page2),
+// with a 45° "Receiving Copy" watermark inserted just above the white
+// background so it sits *behind* the bill's text and images.
+function buildPage2(){
+  const holder = $("page2");
+  holder.innerHTML = "";
+  const clone = $("bill").cloneNode(true);
+  clone.removeAttribute("id");
+
+  const wm = document.createElementNS(SVGNS, "text");
+  wm.setAttribute("x", "297.64");
+  wm.setAttribute("y", "445");                       // vertical centre of A4
+  wm.setAttribute("text-anchor", "middle");
+  wm.setAttribute("transform", "rotate(-45 297.64 420.9)");
+  wm.setAttribute("font-size", "78");
+  wm.setAttribute("font-weight", "bold");
+  wm.setAttribute("fill", "#000000");
+  wm.setAttribute("fill-opacity", "0.3");            // 70% transparent
+  wm.textContent = "Receiving Copy";
+
+  // insert after the first child (the white background rect) => behind content
+  const bg = clone.firstElementChild;
+  if (bg && bg.nextSibling) clone.insertBefore(wm, bg.nextSibling);
+  else clone.appendChild(wm);
+
+  holder.appendChild(clone);
+}
+
+function applyRateFromSheet(){
+  const dp = derivedPrice(currentCustomer(), $("product").value);
+  if(dp != null) $("price").value = dp;
+  render();
+}
+
+function init(data){
+  DATA = data;
+  const cs = $("customer");
+  data.customers.forEach(c => { const o=document.createElement("option"); o.value=c.company; o.textContent=c.company; cs.appendChild(o); });
+  const ps = $("product");
+  (data.fuel_types.length ? data.fuel_types : [HSD]).forEach(ft => {
+    const o=document.createElement("option"); o.value=ft; o.textContent=ft; if(ft===HSD) o.selected=true; ps.appendChild(o);
+  });
+  $("date").value = new Date().toISOString().slice(0,10);
+  const last = parseInt(localStorage.getItem("vf_last_billno") || "0", 10);
+  if(last) $("billno").value = String(last + 1);
+
+  cs.addEventListener("change", applyRateFromSheet);
+  ps.addEventListener("change", applyRateFromSheet);
+  ["date","billno","vehicle","qty","price"].forEach(id => $(id).addEventListener("input", render));
+  $("print").addEventListener("click", () => {
+    const bn = parseInt($("billno").value, 10);
+    if(bn) localStorage.setItem("vf_last_billno", String(bn));
+    window.print();
+  });
+  $("reset").addEventListener("click", () => { $("vehicle").value=""; $("qty").value=""; render(); });
+
+  applyRateFromSheet();
+  const gen = data.generated_at ? new Date(data.generated_at).toLocaleDateString() : "?";
+  $("status").innerHTML = `${data.customers.length} customers loaded · data as of ${gen}.<br>Pick a customer, set date / bill no / vehicle / quantity, then Print.`;
+}
+
+fetch("../state/tanker_billing.json", {cache:"no-store"})
+  .then(r => { if(!r.ok) throw new Error(r.status); return r.json(); })
+  .then(init)
+  .catch(err => { $("status").textContent =
+    "Could not load ../state/tanker_billing.json (" + err.message + "). Serve over http, or run the sync first."; });
+</script>
+</body>
+</html>

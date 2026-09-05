@@ -1,0 +1,619 @@
+{
+  "schema": 1,
+  "fuel_types": [
+    "High Speed Diesel",
+    "Motor Spirit",
+    "XtraGreen Diesel"
+  ],
+  "rate_card": {
+    "HSD RSP": 100.74,
+    "RCP Price": 99.5,
+    "UltraTech Price": 100.74,
+    "SMC Price": 99.5,
+    "SMEL Price": 99.5,
+    "OMPL Price": 99.5,
+    "DBL Price": 99.99,
+    "Aryan Price": 99.74
+  },
+  "product_rates": {
+    "Motor Spirit": 109.01,
+    "XtraGreen Diesel": 106.34
+  },
+  "customers": [
+    {
+      "company": "Agrim Mining (Jv)",
+      "price_tier": "HSD RSP",
+      "hsd_rate": 100.74,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        "GSTIN: 21AAKAA9885C1ZP"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Aryan Ispat & Power Private Ltd.",
+      "price_tier": "Aryan Price",
+      "hsd_rate": 99.74,
+      "address": [
+        "Sambalpur.",
+        "GSTIN: 21AAECA5656R1ZB",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "P.O. No.:",
+      "po_no": "P726Y-00713"
+    },
+    {
+      "company": "Babylon Logistics PVT LTD",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur ATPL Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033366",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Bhaskar Earthmover Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Kulda OCP, Garjanbahal",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AAICB2269B1Z8"
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033369",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Bkd Logistics Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Kulda OCP, Garjanbahal",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AAICB2388M1ZH"
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033478",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Dbl-Siarmal Coal Mines Private Limited",
+      "price_tier": "DBL Price",
+      "hsd_rate": 99.99,
+      "address": [
+        "Plot No 905, Hemgir",
+        "Vill: Gopalpur, Sundargarh.",
+        "GSTIN : 21AAICD4535C1Z7"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Great River Coy Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        "GSTIN: 21AAHCG4668E1ZR"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Grk Logistics Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        "GSTIN: 21AAHCG4558M1ZD"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Harnoor Logistics Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Near Samleswari OCP",
+        "PO- Lamtibahal, Via- Brajrajnagar.",
+        "GSTIN: 21AAECH6419F1ZY"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Ib Logistics Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Near Samleswari OCP",
+        "PO- Lamtibahal, Via- Brajrajnagar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033371",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        "GSTIN: 21AAKAJ1422C1ZF"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "KRISHNA INFRATECH PVT LTD",
+      "price_tier": "HSD RSP",
+      "hsd_rate": 100.74,
+      "address": [
+        "Behrapally Road,",
+        "Jharsuguda.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "LN LOGISTICS PVT LTD",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur ATPL Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "M/s Ankita Air Products Private Limited",
+      "price_tier": "HSD RSP",
+      "hsd_rate": 100.74,
+      "address": [
+        "Behrapally Road,",
+        "Jharsuguda.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "M/s Jai Balaji Oxygen Private Limited",
+      "price_tier": "HSD RSP",
+      "hsd_rate": 100.74,
+      "address": [
+        "Behrapally Road,",
+        "Jharsuguda.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "M/S Ultratech Cement Ltd",
+      "price_tier": "UltraTech Price",
+      "hsd_rate": 100.74,
+      "address": [
+        "(Unit: Jharsuguda Cement Works)",
+        "P.O. Arda, DIST: Jharsuguda.",
+        "GSTIN: 21AAACL6442L1ZM"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "P.O. No.:",
+      "po_no": ""
+    },
+    {
+      "company": "MA AUTOMOBILE",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur ATPL Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Maa Karni Earthmover Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Kulda OCP, Garjanbahal",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AAMCM4021C1Z5"
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033370",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Maheshanand Logistics Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033367",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Orissa Metaliks Private Limited",
+      "price_tier": "OMPL Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "J.L.No. 184, Marakuta,",
+        "Industrial Estate Jharsuguda.",
+        "GSTIN : 21AAACO8663L1Z8"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "P.O. No.:",
+      "po_no": "O326212575"
+    },
+    {
+      "company": "Pentane Logistics PVT LTD",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur ATPL Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002032631",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Rm3d Mining and Logistics Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Kulda OCP, Garjanbahal",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AAHCR6100J1ZQ"
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033477",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "S K Trading",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Kulda OCP, Garjanbahal",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AEPFS4587M1ZA"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Sainik Infratec Private Limited",
+      "price_tier": "HSD RSP",
+      "hsd_rate": 100.74,
+      "address": [
+        "Kulda OCP, Garjanbahal",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AAFCR1669A1ZV"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Samarpan Logistics PVT LTD",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "SANIR ENTERPRISES",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur ATPL Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Shiva Enterprises",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Shyam Metalics and Energy Ltd",
+      "price_tier": "SMEL Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Vill – Pandloi , P.O - Lapanga",
+        "Sambalpur.",
+        "GSTIN : 21AAHCS5842A1ZT"
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1005218882",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "P.O. No.:",
+      "po_no": "2110036253"
+    },
+    {
+      "company": "SMC Power Generation LTD, UNIT I",
+      "price_tier": "SMC Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Hirma,",
+        "Jharsuguda.",
+        "GSTIN: 21AAGCS3066B1ZW"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 046805004716",
+        "IFSC Code – ICIC0000468",
+        "Branch Name – ICICI BANK LTD, JHARSUGUDA",
+        "Beneficiary Name – Vriddhi Fuels"
+      ],
+      "po_label": "P.O. No.:",
+      "po_no": "4500216903"
+    },
+    {
+      "company": "SMC Power Generation LTD, UNIT II",
+      "price_tier": "SMC Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Kukurjanga, P.O.- Badmal",
+        "Jharsuguda.",
+        "GSTIN: 21AAGCS3066B1ZW"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 046805004716",
+        "IFSC Code – ICIC0000468",
+        "Branch Name – ICICI BANK LTD, JHARSUGUDA",
+        "Beneficiary Name – Vriddhi Fuels"
+      ],
+      "po_label": "P.O. No.:",
+      "po_no": ""
+    },
+    {
+      "company": "Virendra Logistics Private Limited",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "Kulda OCP, Garjanbahal",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AAECV8578K1ZT"
+      ],
+      "payment": [
+        "Payment Details for XtraPower Account:",
+        "Virtual Account No. – IOCLXPP1002033365",
+        "IFS Code – HDFC0000240",
+        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
+        "Beneficiary Name – Indian Oil Corporation Limited"
+      ],
+      "po_label": "",
+      "po_no": ""
+    }
+  ],
+  "generated_at": "2026-09-05T06:45:14+00:00",
+  "source": {
+    "file_name": "Tanker Billing.xlsm",
+    "drive_file_id": null,
+    "modified_time": null
+  }
+}

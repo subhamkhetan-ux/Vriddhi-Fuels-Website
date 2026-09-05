@@ -1,0 +1,62 @@
+name: Sync tanker billing data
+
+# Keeps state/tanker_billing.json current with the master "Tanker Billing"
+# workbook that lives on iCloud and is synced daily to Google Drive. A service
+# account reads the Drive copy (read-only), this parses the Customers / RateCard
+# / ProductRates tables, and commits the JSON the tanker-bill app reads.
+#
+# One-time setup (service account + secrets) is documented in tanker/README.md.
+
+on:
+  schedule:
+    # 04:30 UTC = 10:00 IST — after the daily iCloud -> Google Drive sync.
+    # Adjust to run a little after your own sync completes.
+    - cron: "30 4 * * *"
+  workflow_dispatch: {}  # allow a manual "Run workflow" from the Actions tab
+
+concurrency:
+  group: tanker-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install "openpyxl>=3.1" "google-api-python-client>=2.100" "google-auth>=2.23"
+
+      - name: Pull workbook from Drive and materialize JSON
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          DRIVE_FILE_ID: ${{ vars.TANKER_DRIVE_FILE_ID }}
+          TANKER_FILE_NAME: ${{ vars.TANKER_FILE_NAME }}
+        run: python3 tanker/sync_tanker_billing.py --from-drive
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- state/tanker_billing.json; then
+            echo "No changes in tanker_billing.json — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/tanker_billing.json
+          git commit -m "tanker: refresh billing data from Drive"
+          # Rebase-safe push in case the branch moved during the run.
+          for i in 1 2 3 4; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "pushed"; exit 0
+            fi
+            sleep $((2 ** i))
+          done
+          echo "push failed after retries" >&2; exit 1
