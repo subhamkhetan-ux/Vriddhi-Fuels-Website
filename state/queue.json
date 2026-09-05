@@ -1581,6 +1581,48 @@
       },
       "queued_at": "2026-09-05T09:45:30.216425+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "367d66d59e27afa5",
+      "gmail_msg_id": "1875487550278397518",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "05/09/26",
+      "date_serial": 46270,
+      "amount": 3479017.0,
+      "raw_payer": "SMC POWER GENERATION L",
+      "customer": "M/s Smc Power Generation Ltd.",
+      "candidates": [
+        "M/s Smc Power Generation Ltd."
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-05T10:45:22.859697+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "8a8e5b265a8662b1",
+      "gmail_msg_id": "1875487862502634511",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "05/09/2026",
+      "date_serial": 46270,
+      "amount": 40296.0,
+      "raw_payer": "KRISHNA INFRATECH",
+      "customer": "KRISHNA INFRATECH PVT LTD",
+      "candidates": [
+        "KRISHNA INFRATECH PVT LTD"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-05T10:45:24.015330+00:00",
+      "status": "matched"
     }
   ]
 }
