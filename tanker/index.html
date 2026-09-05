@@ -35,6 +35,9 @@
   /* The bill is an SVG sized to A4. On screen we scale it down to fit; on
      print it is placed at exactly 210x297mm. */
   .sheet{width:210mm;max-width:100%;height:auto;background:#fff;box-shadow:0 2px 14px rgba(20,30,60,.15);display:block}
+  /* Excel lays out cell text without kerning or ligatures; match that so the
+     glyph advances line up with the export exactly (no rightward drift). */
+  .sheet text{font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"clig" 0,"calt" 0;font-variant-ligatures:none}
 
   /* Exact-match font. Order of preference, per weight/style:
        1. the machine's real Times New Roman (what Excel used) — via local();
