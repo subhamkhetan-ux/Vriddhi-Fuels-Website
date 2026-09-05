@@ -1,0 +1,59 @@
+name: Deploy tanker app to GitHub Pages
+
+# Publishes ONLY the tanker bill app and the one data file it needs. It does
+# NOT publish the rest of the repo — importantly not the other state/ files
+# (payment-agent queue / bank data) or the Master Ledger.
+#
+# One-time: repo Settings -> Pages -> Build and deployment -> Source:
+# "GitHub Actions". Then this deploys on every change to the app or its data.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tanker/index.html"
+      - "tanker/assets/**"
+      - "state/tanker_billing.json"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble site (tanker app + its data only)
+        run: |
+          mkdir -p _site/tanker _site/state
+          cp tanker/index.html _site/tanker/index.html
+          cp -r tanker/assets _site/tanker/assets
+          cp state/tanker_billing.json _site/state/tanker_billing.json
+          # root redirect -> the app
+          cat > _site/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=./tanker/">
+          <title>Vriddhi Fuels — Tanker Billing</title>
+          <a href="./tanker/">Open Tanker Billing</a>
+          HTML
+          # don't let Pages run Jekyll over the files
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
