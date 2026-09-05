@@ -97,6 +97,7 @@
       <div class="field"><label for="billno">Bill No</label><input type="text" id="billno" inputmode="numeric" /></div>
     </div>
     <div class="field"><label for="vehicle">Vehicle</label><input type="text" id="vehicle" placeholder="OR15R9360" autocapitalize="characters" /></div>
+    <div class="field"><label for="pono">P.O. No. <span style="font-weight:400;color:var(--muted)">(auto from customer — editable)</span></label><input type="text" id="pono" placeholder="—" /></div>
     <div class="row2">
       <div class="field"><label for="qty">Quantity (Ltr)</label><input type="number" id="qty" min="0" step="1" /></div>
       <div class="field"><label for="price">Price / Ltr</label><input type="number" id="price" min="0" step="0.01" /><div class="derived" id="price-derived"></div></div>
@@ -244,7 +245,13 @@ function render(){
   setT("t-price", price ? price.toFixed(2) : "");
   setT("t-amt", amount ? "₹" + inr(amount) : "");
 
-  if(cust && cust.po_label){ setT("p-po-lbl", cust.po_label); setT("p-po-val", cust.po_no || ""); }
+  // PO No. is looked up from the customer but editable in the form. Show the PO
+  // line when the customer has a PO label, or when a PO number has been typed
+  // (default the label so it prints sensibly even for a customer without one).
+  const poVal = ($("pono").value || "").trim();
+  let poLabel = cust ? cust.po_label : "";
+  if(!poLabel && poVal) poLabel = "P.O. No.:";
+  if(poLabel){ setT("p-po-lbl", poLabel); setT("p-po-val", poVal); }
   else { setT("p-po-lbl",""); setT("p-po-val",""); }
 
   const isHSD = product === HSD;
@@ -317,8 +324,11 @@ function buildPage2(){
 }
 
 function applyRateFromSheet(){
-  const dp = derivedPrice(currentCustomer(), $("product").value);
+  const cust = currentCustomer();
+  const dp = derivedPrice(cust, $("product").value);
   if(dp != null) $("price").value = dp;
+  // refill the editable PO No. from the selected customer
+  $("pono").value = cust ? (cust.po_no || "") : "";
   render();
 }
 
@@ -336,7 +346,7 @@ function init(data){
 
   cs.addEventListener("change", applyRateFromSheet);
   ps.addEventListener("change", applyRateFromSheet);
-  ["date","billno","vehicle","qty","price"].forEach(id => $(id).addEventListener("input", render));
+  ["date","billno","vehicle","pono","qty","price"].forEach(id => $(id).addEventListener("input", render));
   $("print").addEventListener("click", () => {
     const bn = parseInt($("billno").value, 10);
     if(bn) localStorage.setItem("vf_last_billno", String(bn));

@@ -221,8 +221,10 @@ def download_from_drive(dest_path: str) -> dict:
     creds = drive_credentials()
     service = build("drive", "v3", credentials=creds, cache_discovery=False)
 
-    file_id = os.environ.get("DRIVE_FILE_ID", "").strip()
-    name = os.environ.get("TANKER_FILE_NAME", "Tanker Billing.xlsm").strip()
+    file_id = (os.environ.get("DRIVE_FILE_ID") or "").strip()
+    # Fall back to the default name even when the env var is present but empty
+    # (an unset GitHub Actions `vars.` renders as an empty string, not unset).
+    name = (os.environ.get("TANKER_FILE_NAME") or "").strip() or "Tanker Billing.xlsm"
     if not file_id:
         q = f"name = '{name}' and trashed = false"
         resp = service.files().list(

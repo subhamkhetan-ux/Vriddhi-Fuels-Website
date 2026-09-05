@@ -9,10 +9,15 @@ name: Sync tanker billing data
 
 on:
   schedule:
-    # 04:30 UTC = 10:00 IST — after the daily iCloud -> Google Drive sync.
-    # Adjust to run a little after your own sync completes.
-    - cron: "30 4 * * *"
-  workflow_dispatch: {}  # allow a manual "Run workflow" from the Actions tab
+    # Hourly, on the hour. Only commits when the workbook actually changed, so
+    # frequent runs are cheap. (GitHub may delay scheduled runs under load.)
+    - cron: "0 * * * *"
+  workflow_dispatch:      # allow a manual "Run workflow" from the Actions tab
+    inputs:
+      file_id:
+        description: "Drive file id (overrides the TANKER_DRIVE_FILE_ID variable for this run)"
+        required: false
+        default: ""
 
 concurrency:
   group: tanker-sync
@@ -40,7 +45,8 @@ jobs:
           # (same mechanism as the Gmail agent). Service account is a fallback.
           GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
           GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
-          DRIVE_FILE_ID: ${{ vars.TANKER_DRIVE_FILE_ID }}
+          # A file id typed into "Run workflow" wins; otherwise the repo variable.
+          DRIVE_FILE_ID: ${{ inputs.file_id || vars.TANKER_DRIVE_FILE_ID }}
           TANKER_FILE_NAME: ${{ vars.TANKER_FILE_NAME }}
         run: python3 tanker/sync_tanker_billing.py --from-drive
 
