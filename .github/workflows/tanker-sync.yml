@@ -9,9 +9,9 @@ name: Sync tanker billing data
 
 on:
   schedule:
-    # 04:30 UTC = 10:00 IST — after the daily iCloud -> Google Drive sync.
-    # Adjust to run a little after your own sync completes.
-    - cron: "30 4 * * *"
+    # Hourly, on the hour. Only commits when the workbook actually changed, so
+    # frequent runs are cheap. (GitHub may delay scheduled runs under load.)
+    - cron: "0 * * * *"
   workflow_dispatch:      # allow a manual "Run workflow" from the Actions tab
     inputs:
       file_id:

@@ -96,10 +96,10 @@ public).
    `TANKER_DRIVE_FILE_ID` as above.
 
 That's it. The **Sync tanker billing data** workflow
-(`.github/workflows/tanker-sync.yml`) then runs **daily** and on demand
+(`.github/workflows/tanker-sync.yml`) then runs **hourly** and on demand
 (**Actions → Sync tanker billing data → Run workflow**), refreshing the JSON
-whenever the workbook changed. Change the `cron` in that file to run a little
-after your own daily Drive sync finishes.
+whenever the workbook changed (it only commits on an actual change). Adjust the
+`cron` in that file to change the cadence.
 
 ## Running it by hand
 
