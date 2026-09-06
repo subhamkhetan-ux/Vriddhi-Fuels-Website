@@ -166,6 +166,20 @@ summary::-webkit-details-marker{display:none}
 .cn-date label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .cn-date input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:14px}
 .cn-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.cust-count{font-size:13px;color:var(--muted);margin-bottom:12px}
+.cust-count b{color:var(--ink);font-variant-numeric:tabular-nums}
+.cust-upload{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.cust-upload input[type=file]{display:none}
+.cust-upload span{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 13px;font-size:14px}
+.cust-preview{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:11px;background:var(--bg)}
+.cust-preview h4{margin:0 0 8px;font-size:13px}
+.cust-diff{font-size:12px;color:var(--muted);margin:2px 0}
+.cust-diff.add{color:#1a7f37}
+.cust-diff.rm{color:#b3261e}
+.cust-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;max-height:160px;overflow:auto}
+.cust-chip{font-size:11px;background:var(--card,#fff);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+.cust-list{margin-top:16px;display:flex;flex-wrap:wrap;gap:5px}
+.cust-list .cust-chip{color:var(--muted)}
 /* consignment note print — a hand-built A4 page (no docx renderer), so it looks
    identical in every browser. Off-screen normally; the only thing printed. */
 #printArea{position:fixed;left:-99999px;top:0}
@@ -208,6 +222,7 @@ a{color:var(--accent)}
 <nav class="tabbar">
   <button class="tab active" id="tabPay" onclick="showView('pay')">Payments</button>
   <button class="tab" id="tabNotes" onclick="showView('notes')">Consignment notes<span class="tabbadge" id="notesBadge" hidden></span></button>
+  <button class="tab" id="tabCust" onclick="showView('customers')">Customers</button>
 </nav>
 
 <div class="wrap">
@@ -252,6 +267,24 @@ a{color:var(--accent)}
 
   <div id="viewNotes" style="display:none">
     <div id="consignWrap"></div>
+  </div>
+
+  <div id="viewCustomers" style="display:none">
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:6px">Customer list</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px">
+        The canonical names used to match bank credits and for manual entry.
+        Update the whole list by uploading your Tally <b>Master.xml</b> — only the
+        <b>Sundry Debtors</b> are imported.
+      </div>
+      <div class="cust-count" id="custCount">—</div>
+      <label class="cust-upload">
+        <input type="file" id="custFile" accept=".xml,text/xml,application/xml" onchange="onCustFile(this)">
+        <span>Choose Tally Master.xml…</span>
+      </label>
+      <div id="custPreview"></div>
+      <div id="custListWrap" class="cust-list"></div>
+    </div>
   </div>
 </div>
 
@@ -298,13 +331,23 @@ function aliasKey(raw){ return norm(cleanRemitter(raw)) || norm(raw); }
 
 /* ---------- customer master list (for review autocomplete) ---------- */
 let NAMES=[], NORMED=[];
+function setNames(list){
+  NAMES = (list||[]).slice().sort((a,b)=>a.toLowerCase()<b.toLowerCase()?-1:1);
+  NORMED = NAMES.map(n=>[n,norm(n)]);
+}
 async function loadCustomers(){
+  // Prefer the live roster in Supabase (kept current by the Tally-XML upload);
+  // fall back to the committed customers.json seed if it's empty/unreachable.
+  try{
+    const roster = await Cloud.pullCustomers();
+    if(roster && roster.length){ setNames(roster); if(VIEW==="customers") renderCustomers(); return; }
+  }catch(_){}
   if(!CFG.CUSTOMERS_URL) return;
   try{
     const r = await fetch(CFG.CUSTOMERS_URL+(CFG.CUSTOMERS_URL.includes("?")?"":"?_t="+Date.now()),{cache:"no-store"});
     const j = await r.json();
-    NAMES = Array.isArray(j) ? j : (j.customers||[]);
-    NORMED = NAMES.map(n=>[n,norm(n)]);
+    setNames(Array.isArray(j) ? j : (j.customers||[]));
+    if(VIEW==="customers") renderCustomers();
   }catch(_){}
 }
 function canonicalFor(input){
@@ -405,6 +448,8 @@ const Cloud = {
       this.subscribeConsign();
       this.pullEvents();
       this.subscribeEvents();
+      loadCustomers();                        // now the client exists: prefer the live roster
+      this.subscribeCustomers();
       if(ok) clearError();
     }catch(e){ this.setState("offline"); showError("Could not connect to Supabase: "+(e&&e.message||e)); }
   },
@@ -583,6 +628,33 @@ const Cloud = {
   async markNoteDone(id){ if(!this.client) return;
     try{ await this.client.from("pay_consignment_notes")
       .update({status:"done", done_at:new Date().toISOString()}).eq("id",id); }catch(_){} },
+  /* ---- customer roster ---- */
+  // The live roster (Sundry Debtors from the Tally upload). Returns null on any
+  // failure so the caller falls back to the committed customers.json file.
+  async pullCustomers(){
+    if(!this.client) return null;
+    try{
+      const { data, error } = await this.client.from("pay_customers")
+        .select("name").limit(5000);
+      if(error) throw error;
+      return (data||[]).map(r=>r.name).filter(Boolean);
+    }catch(_){ return null; }
+  },
+  // Atomically replace the whole roster (used by the Tally-XML upload).
+  async replaceCustomers(names){
+    if(!this.client) throw new Error("cloud not connected");
+    const { data, error } = await this.client.rpc("pay_replace_customers", {p_names:names});
+    if(error) throw error;
+    return data;               // count stored
+  },
+  subscribeCustomers(){
+    if(!this.client||!this.client.channel) return;
+    let t; const poke=fn=>{clearTimeout(t);t=setTimeout(fn,300);};
+    this.client.channel("customers-live")
+      .on("postgres_changes",{event:"*",schema:"public",table:"pay_customers"},
+          ()=>poke(()=>loadCustomers()))
+      .subscribe();
+  },
 };
 
 /* ---------- state + render ---------- */
@@ -1014,17 +1086,124 @@ setInterval(()=>{ if(VIEW==="pay") renderAgent(); }, 60000);
 let VIEW = "pay";
 function showView(v){
   VIEW = v;
-  const pay = v==="pay";
+  const pay = v==="pay", notes = v==="notes", cust = v==="customers";
   document.getElementById("viewPay").style.display   = pay ? "" : "none";
-  document.getElementById("viewNotes").style.display = pay ? "none" : "";
+  document.getElementById("viewNotes").style.display = notes ? "" : "none";
+  document.getElementById("viewCustomers").style.display = cust ? "" : "none";
   document.getElementById("tabPay").classList.toggle("active", pay);
-  document.getElementById("tabNotes").classList.toggle("active", !pay);
-  document.getElementById("appTitle").textContent = pay ? "Payments" : "Consignment notes";
+  document.getElementById("tabNotes").classList.toggle("active", notes);
+  document.getElementById("tabCust").classList.toggle("active", cust);
+  document.getElementById("appTitle").textContent =
+    pay ? "Payments" : notes ? "Consignment notes" : "Customers";
   document.getElementById("addBtn").style.display = pay ? "" : "none";
   document.querySelector(".exportbar").style.display = pay ? "" : "none";
   if(!pay) toggleAdd(false);                 // close the add-payment card when leaving
+  if(cust) renderCustomers();
   try{ localStorage.setItem("vf_view", v); }catch(_){}
   window.scrollTo(0,0);
+}
+
+/* ---------- customer roster (Tally Master.xml upload) ---------- */
+let CUST_PENDING = null;     // names parsed from an uploaded file, awaiting confirm
+
+// Decode XML entities (&amp; &#39; …) using the browser's own parser.
+function decodeEntities(s){ const t=document.createElement("textarea"); t.innerHTML=s||""; return t.value; }
+
+// Extract the Sundry Debtors (customers) from a Tally "All Masters" export.
+// A ledger is a customer when its group chain resolves to "Sundry Debtors"
+// (so sub-groups like "RCP COMPANIES" are included). Regex-based, so a stray
+// invalid char in the currency section can't break the whole parse.
+function parseTallyMasterXML(text){
+  const groupParent = {};
+  let m;
+  const gRe = /<GROUP\b([^>]*)>([\s\S]*?)<\/GROUP>/g;
+  while((m = gRe.exec(text))){
+    const na = /NAME="([^"]*)"/.exec(m[1]);
+    const pa = /<PARENT>([\s\S]*?)<\/PARENT>/.exec(m[2]);
+    if(na) groupParent[decodeEntities(na[1]).trim()] = decodeEntities(pa?pa[1]:"").trim();
+  }
+  const underSD = g => {
+    const seen = new Set();
+    while(g && !seen.has(g)){ if(g==="Sundry Debtors") return true; seen.add(g); g = groupParent[g]||""; }
+    return false;
+  };
+  const out = [], seen = new Set();
+  const lRe = /<LEDGER\b([^>]*)>([\s\S]*?)<\/LEDGER>/g;
+  while((m = lRe.exec(text))){
+    const na = /NAME="([^"]*)"/.exec(m[1]);
+    const pa = /<PARENT>([\s\S]*?)<\/PARENT>/.exec(m[2]);
+    const name = na ? decodeEntities(na[1]).trim() : "";
+    const parent = decodeEntities(pa?pa[1]:"").trim();
+    if(name && (parent==="Sundry Debtors" || underSD(parent))){
+      const k = name.toLowerCase();
+      if(!seen.has(k)){ seen.add(k); out.push(name); }
+    }
+  }
+  out.sort((a,b)=>a.toLowerCase()<b.toLowerCase()?-1:1);
+  return out;
+}
+
+function onCustFile(input){
+  const file = input.files && input.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const buf = reader.result, bytes = new Uint8Array(buf);
+      let text;                                   // Tally exports UTF-16 (BOM)
+      if(bytes[0]===0xFF && bytes[1]===0xFE)      text = new TextDecoder("utf-16le").decode(buf);
+      else if(bytes[0]===0xFE && bytes[1]===0xFF) text = new TextDecoder("utf-16be").decode(buf);
+      else                                        text = new TextDecoder("utf-8").decode(buf);
+      const names = parseTallyMasterXML(text);
+      if(!names.length){ toast("No Sundry Debtors found in that file"); CUST_PENDING=null; renderCustPreview(); return; }
+      CUST_PENDING = names; renderCustPreview();
+    }catch(e){ toast("Couldn't read that file: "+(e&&e.message||e)); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderCustPreview(){
+  const el = document.getElementById("custPreview"); if(!el) return;
+  if(!CUST_PENDING){ el.innerHTML = ""; return; }
+  const cur = new Set(NAMES.map(n=>n.toLowerCase()));
+  const nw  = new Set(CUST_PENDING.map(n=>n.toLowerCase()));
+  const added   = CUST_PENDING.filter(n=>!cur.has(n.toLowerCase()));
+  const removed = NAMES.filter(n=>!nw.has(n.toLowerCase()));
+  const chips = a => `<div class="cust-chips">${a.map(n=>`<span class="cust-chip">${esc(n)}</span>`).join("")}</div>`;
+  el.innerHTML = `<div class="cust-preview">
+    <h4>Found ${CUST_PENDING.length} Sundry Debtor(s)</h4>
+    <div class="cust-diff add">+ ${added.length} new</div>
+    <div class="cust-diff rm">− ${removed.length} will be removed</div>
+    ${added.length ? chips(added) : ""}
+    ${removed.length ? `<div class="cust-diff rm" style="margin-top:8px">Removing:</div>`+chips(removed) : ""}
+    <div class="cn-actions">
+      <button class="cta sm" style="flex:1" onclick="saveCustomers()">Replace list with these ${CUST_PENDING.length}</button>
+      <button class="btn ghost sm" onclick="cancelCust()">cancel</button>
+    </div>
+  </div>`;
+}
+
+function cancelCust(){ CUST_PENDING=null; const f=document.getElementById("custFile"); if(f) f.value=""; renderCustPreview(); }
+
+async function saveCustomers(){
+  if(!CUST_PENDING) return;
+  if(!Cloud.enabled || !Cloud.client){ toast("Connect to Supabase first — the list is stored there"); return; }
+  try{
+    toast("Saving customer list…");
+    await Cloud.replaceCustomers(CUST_PENDING);
+    setNames(CUST_PENDING);
+    CUST_PENDING = null;
+    const f = document.getElementById("custFile"); if(f) f.value="";
+    renderCustomers();
+    toast("Customer list updated ("+NAMES.length+")");
+  }catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
+}
+
+function renderCustomers(){
+  const c = document.getElementById("custCount");
+  if(c) c.innerHTML = `Currently <b>${NAMES.length}</b> customer(s) in the list.`;
+  const w = document.getElementById("custListWrap");
+  if(w) w.innerHTML = NAMES.map(n=>`<span class="cust-chip">${esc(n)}</span>`).join("");
+  renderCustPreview();
 }
 
 /* ---------- manual entry (payments received off-email) ---------- */
@@ -1269,7 +1448,7 @@ window.addEventListener("pageshow", (e)=>{ if(e.persisted) refreshLive(); });   
 
 /* ---------- boot ---------- */
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
-try{ const v=localStorage.getItem("vf_view"); if(v==="notes"||v==="pay") showView(v); }catch(_){}
+try{ const v=localStorage.getItem("vf_view"); if(v==="notes"||v==="pay"||v==="customers") showView(v); }catch(_){}
 loadCustomers();
 Cloud.init();
 </script>

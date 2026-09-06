@@ -283,3 +283,56 @@ begin
     alter publication supabase_realtime add table public.pay_consignment_notes;
   exception when duplicate_object then null; end;
 end $$;
+
+-- =====================================================================
+-- Customer roster (Sundry Debtors from Tally)
+-- ---------------------------------------------------------------------
+-- The canonical customer list both the matcher (cloud) and the app use.
+-- Seeded from state/customers.json, but the app's "Update customer list"
+-- upload (a Tally Master.xml -> Sundry Debtors parse) REPLACES this table,
+-- so it's the live source of truth across devices. The cloud agent reads
+-- it too (falling back to the committed customers.json when empty), so a
+-- roster update reaches matching on the next run with no code deploy.
+-- =====================================================================
+create table if not exists public.pay_customers (
+  name       text primary key,           -- exact canonical customer name
+  updated_at timestamptz default now()
+);
+
+-- Atomically replace the whole roster with a new set of names (used by the
+-- Tally-XML upload). One transaction, so the app never reads a half-written
+-- roster. Blank/duplicate names are dropped; an empty input is ignored (a
+-- guard against wiping the list from a bad upload).
+create or replace function public.pay_replace_customers(p_names text[])
+returns integer language plpgsql security definer as $$
+declare
+  n integer;
+begin
+  if p_names is null or array_length(p_names, 1) is null then
+    return (select count(*)::integer from public.pay_customers);
+  end if;
+  delete from public.pay_customers;
+  insert into public.pay_customers (name)
+    select distinct btrim(x)
+    from unnest(p_names) as x
+    where btrim(coalesce(x, '')) <> ''
+    on conflict (name) do nothing;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+alter table public.pay_customers enable row level security;
+do $$
+begin
+  if not exists (select 1 from pg_policies where policyname = 'pay_customers_all') then
+    create policy pay_customers_all on public.pay_customers
+      for all to anon, authenticated using (true) with check (true);
+  end if;
+end $$;
+
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.pay_customers;
+  exception when duplicate_object then null; end;
+end $$;

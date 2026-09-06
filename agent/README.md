@@ -115,13 +115,27 @@ on their own, so this shouldn't recur.
 
 ### 3. Customer list
 
+The canonical customer names (used to match bank credits, and for manual entry)
+come from your **Tally Sundry Debtors**. The easiest way to keep them current:
+
+- In the **[`/payments`](../payments/) app → Customers tab**, upload your Tally
+  **Master.xml** (Gateway of Tally → Export → All Masters, XML). The app parses
+  only the **Sundry Debtors** (including sub-groups like *RCP COMPANIES*), shows a
+  diff (new / removed), and on confirm **replaces** the roster in Supabase. Both
+  the app and this cloud agent read that roster (the agent unions it with the
+  committed `state/customers.json` seed, so a bad upload can never shrink the
+  matchable set). No `git`/deploy needed — it reaches matching on the next run.
+
+`state/customers.json` remains a committed fallback seed. To refresh it from the
+ledger instead (legacy path):
+
 ```bash
-python3 export_customers.py     # reads Master Ledger.xlsm, writes state/customers.json
+python3 export_customers.py     # reads Master Ledger.xlsm column F, writes state/customers.json
 git add state/customers.json && git commit -m "refresh customers" && git push
 ```
 
-Re-run whenever you add customers. (Open the workbook in Excel and save once
-first, so column F's spill-formula values are cached for `data_only` reads.)
+(Open the workbook in Excel and save once first, so column F's spill-formula
+values are cached for `data_only` reads.)
 
 ### 4. Tune the bank profiles
 

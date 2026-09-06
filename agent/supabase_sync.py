@@ -66,6 +66,21 @@ def fetch_aliases() -> dict[str, str]:
         return {}
 
 
+def fetch_customers() -> list[str]:
+    """Return the canonical customer roster the app maintains (from the Tally
+    ``Master.xml`` upload), or ``[]`` on any error / if unconfigured. When
+    non-empty this is authoritative over the committed ``customers.json``."""
+    cfg = _config()
+    if not cfg:
+        return []
+    url, key = cfg
+    try:
+        rows = _request("GET", "pay_customers?select=name", key, url) or []
+        return [r["name"] for r in rows if r.get("name")]
+    except Exception:
+        return []
+
+
 def fetch_done_entry_ids() -> set[str]:
     """Return entry_ids the user has finished with in the app (exported or
     dropped — both carry ``exported=true``). Empty on any error."""
