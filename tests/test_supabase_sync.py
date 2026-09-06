@@ -7,7 +7,25 @@ def test_disabled_without_env(monkeypatch):
     assert supabase_sync.enabled() is False
     assert supabase_sync.fetch_aliases() == {}
     assert supabase_sync.fetch_done_entry_ids() == set()
+    assert supabase_sync.fetch_customers() == []
     assert supabase_sync.upsert_rows([{"entry_id": "x"}]) == 0
+
+
+def test_fetch_customers_maps_names(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://real.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "realkey")
+    monkeypatch.setattr(supabase_sync, "_request",
+                        lambda *a, **k: [{"name": "A.K.V. Logistics"}, {"name": "Blue Bird"}, {"name": None}])
+    assert supabase_sync.fetch_customers() == ["A.K.V. Logistics", "Blue Bird"]
+
+
+def test_fetch_customers_swallows_errors(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://real.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "realkey")
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+    monkeypatch.setattr(supabase_sync, "_request", boom)
+    assert supabase_sync.fetch_customers() == []
 
 
 def test_disabled_with_placeholder(monkeypatch):

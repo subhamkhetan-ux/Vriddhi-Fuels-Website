@@ -145,6 +145,13 @@ def main() -> int:
     from . import supabase_sync
 
     customers = state_store.load_customers()
+    # The app's Tally-XML upload keeps the live roster in Supabase; when present
+    # it's authoritative, but union it with the committed file so a bad/empty
+    # upload can never shrink the matchable set below the seed.
+    cloud_customers = supabase_sync.fetch_customers()
+    if cloud_customers:
+        seen_lower = {c.lower() for c in customers}
+        customers = customers + [c for c in cloud_customers if c.lower() not in seen_lower]
     aliases = state_store.load_aliases()
     # Overlay aliases the user resolved in the /payments app (live source).
     aliases.update(supabase_sync.fetch_aliases())
