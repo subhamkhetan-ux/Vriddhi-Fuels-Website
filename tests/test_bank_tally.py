@@ -184,3 +184,14 @@ def test_parse_excel_reconciles(tmp_path):
     assert summ["n_rows"] == 3
     assert rows[0].deposit == 500 and rows[1].withdrawal == 200
     assert summ["opening"] == 1000.0 and summ["closing"] == 1400.0
+
+
+def test_ledger_suggestions_include_own_banks():
+    # The resolve dropdown must offer our own bank accounts + Cash so a contra /
+    # unpaired transfer can be pointed at the other account.
+    from bank_tally.server import ledger_suggestions
+    sug = set(ledger_suggestions())
+    assert "Cash" in sug
+    assert "HDFC BANK C/A - 59217010101010" in sug
+    assert "HDFC BANK OD A/C - 50200110712542" in sug
+    assert "ICICI BANK LTD" in sug
