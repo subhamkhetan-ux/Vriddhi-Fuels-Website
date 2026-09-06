@@ -96,9 +96,12 @@ def customers() -> list:
 
 
 def ledger_suggestions() -> list:
-    """Names to offer in the resolve dropdown: customers + every ledger already
-    used in an alias."""
-    s = set(customers()) | set(load_aliases().values())
+    """Names to offer in the resolve dropdown: our own bank accounts + Cash (so a
+    contra / unpaired transfer can be pointed at the other account), the
+    customers, and every ledger already used in an alias."""
+    from bank_tally import classify as C
+    s = set(C.OWN_ACCOUNTS.values()) | {"Cash"}
+    s |= set(customers()) | set(load_aliases().values())
     return sorted(s)
 
 
