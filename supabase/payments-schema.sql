@@ -311,7 +311,9 @@ begin
   if p_names is null or array_length(p_names, 1) is null then
     return (select count(*)::integer from public.pay_customers);
   end if;
-  delete from public.pay_customers;
+  -- `where true` clears every row while satisfying Supabase's safeupdate guard,
+  -- which rejects an unqualified DELETE ("DELETE requires a WHERE clause").
+  delete from public.pay_customers where true;
   insert into public.pay_customers (name)
     select distinct btrim(x)
     from unnest(p_names) as x
