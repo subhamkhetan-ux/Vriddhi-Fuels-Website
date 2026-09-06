@@ -17,6 +17,7 @@ browser-free and unit-tested.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -226,12 +227,146 @@ class BrowserPool:
         self._browsers.pop(port, None)
 
 
+# ---- resilient interaction helpers ----------------------------------------
+# The portal is a beta under active development: labels, ids and popups change
+# every few weeks. So we never depend on ONE selector. Every interaction goes
+# text-first (labels change far less often than markup), tries Playwright, then
+# falls back to a direct JS click, and any failure captures a screenshot + DOM
+# dump so a breakage can be diagnosed in one shot instead of five.
+
+# Words on a control that means "make this popup go away". Matched on the
+# visible label, case-insensitively.
+_DISMISS_TEXTS = ("skip", "close", "no thanks", "not now", "maybe later",
+                  "later", "got it", "dismiss", "ok", "okay", "understood")
+# Never click these while dismissing — they take an action rather than close.
+_AVOID_TEXTS = ("start guided tour", "guided tour", "take a tour", "sign in",
+                "log in", "login", "submit", "search", "continue to", "next")
+
+_DISMISS_JS = r"""
+(args) => {
+  const YES = args.yes, NO = args.no;
+  const vis = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+  let clicked = 0;
+  const controls = Array.from(document.querySelectorAll("button, [role='button'], a"));
+  for (const b of controls) {
+    if (!vis(b)) continue;
+    const label = (b.innerText || b.getAttribute('aria-label') || '').trim().toLowerCase();
+    if (!label) {
+      // Icon-only control: only click it if it is a close affordance in a modal.
+      const inDialog = b.closest("[role='dialog'], .modal, .mat-dialog-container, .cdk-overlay-pane, .modal-content");
+      const hint = ((b.className || '') + ' ' + (b.getAttribute('aria-label') || '')).toLowerCase();
+      if (inDialog && /close|dismiss|cross|times/.test(hint)) { try { b.click(); clicked++; } catch (e) {} }
+      continue;
+    }
+    if (label.length > 24) continue;
+    if (NO.some(n => label.includes(n))) continue;
+    if (label === '\u00d7' || label === 'x') { try { b.click(); clicked++; } catch (e) {} continue; }
+    if (YES.some(y => label === y || label.startsWith(y))) { try { b.click(); clicked++; } catch (e) {} }
+  }
+  return clicked;
+}
+"""
+
+_CLICK_TEXT_JS = r"""
+(args) => {
+  const want = args.texts.map(t => t.toLowerCase());
+  const vis = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+  const els = Array.from(document.querySelectorAll(
+    "button, [role='button'], [role='menuitem'], a, input[type=submit], input[type=button], li, span, div"));
+  const fire = el => { const t = el.closest("button, [role='button'], [role='menuitem'], a, li") || el;
+    try { t.click(); return true; } catch (e) { return false; } };
+  for (const el of els) {                       // exact label first
+    if (!vis(el)) continue;
+    const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().toLowerCase();
+    if (t && want.some(w => t === w) && fire(el)) return true;
+  }
+  for (const el of els) {                       // then a short containing label
+    if (!vis(el)) continue;
+    const t = (el.innerText || el.value || '').trim().toLowerCase();
+    if (t && t.length <= 40 && want.some(w => t.includes(w)) && fire(el)) return true;
+  }
+  return false;
+}
+"""
+
+_DEBUG_DUMP_JS = r"""
+() => {
+  const vis = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const lab = el => (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().slice(0, 40);
+  return {
+    url: location.href, title: document.title,
+    buttons: Array.from(document.querySelectorAll("button, [role='button'], a"))
+      .filter(vis).map(e => ({tag: e.tagName.toLowerCase(), id: e.id || null, text: lab(e)}))
+      .filter(e => e.text).slice(0, 60),
+    inputs: Array.from(document.querySelectorAll('input, textarea')).map(e => ({
+      id: e.id || null, fcn: e.getAttribute('formcontrolname'), type: e.getAttribute('type'), vis: vis(e)})),
+    tables: document.querySelectorAll('table').length,
+    dialogs: document.querySelectorAll("[role='dialog'], .modal, .cdk-overlay-pane").length,
+  };
+}
+"""
+
+
+async def click_text(page: Page, texts) -> bool:
+    """Click the first visible control whose label matches, via JS.
+
+    Labels ("Search", "Financials", "Balance Info") survive redesigns far better
+    than ids or classes, and a direct JS click sidesteps the Angular
+    actionability stalls that defeat Playwright's own click/fill on this app.
+    """
+    for fr in _app_frames(page):
+        try:
+            if await fr.evaluate(_CLICK_TEXT_JS, {"texts": [t for t in texts]}):
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+async def goto_url(page: Page, url: str) -> bool:
+    """Navigate straight to a known screen (skips menus and popups entirely)."""
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        await page.wait_for_timeout(1200)
+        await dismiss_popup(page)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.debug("goto %s failed: %s", url, exc)
+        return False
+
+
+async def capture_debug(page: Page, prefix: str) -> Optional[str]:
+    """Save a screenshot + DOM summary so a breakage is diagnosable at a glance."""
+    try:
+        os.makedirs(os.path.dirname(prefix) or ".", exist_ok=True)
+        png = f"{prefix}.png"
+        try:
+            await page.screenshot(path=png)
+        except Exception:  # noqa: BLE001
+            png = None
+        try:
+            info = await page.evaluate(_DEBUG_DUMP_JS)
+        except Exception as exc:  # noqa: BLE001
+            info = {"error": str(exc)}
+        with open(f"{prefix}.txt", "w", encoding="utf-8") as f:
+            f.write(f"url: {page.url}\n\n")
+            for k, v in (info or {}).items():
+                f.write(f"{k}: {v}\n\n")
+        log.warning("saved debug capture: %s.txt%s", prefix, f" and {png}" if png else "")
+        return png or f"{prefix}.txt"
+    except Exception as exc:  # noqa: BLE001
+        log.debug("capture_debug failed: %s", exc)
+        return None
+
+
 async def click_search(page: Page, timeout_ms: int = 8000) -> bool:
-    """Click the Search button. Returns True if a strategy connected."""
+    """Click the Search button: Playwright selectors first, then a JS click."""
     for sel in _SEARCH_SELECTORS:
         loc = page.locator(sel).first
         try:
-            await loc.wait_for(state="visible", timeout=timeout_ms // len(_SEARCH_SELECTORS) + 500)
+            await loc.wait_for(state="visible", timeout=1200)
             await loc.click(timeout=timeout_ms)
             return True
         except PWTimeout:
@@ -239,7 +374,7 @@ async def click_search(page: Page, timeout_ms: int = 8000) -> bool:
         except Exception as exc:  # noqa: BLE001
             log.debug("search selector %s failed: %s", sel, exc)
             continue
-    return False
+    return await click_text(page, ["search"])
 
 
 async def read_page(page: Page, settle_ms: int = 1500) -> Reading:
@@ -341,21 +476,29 @@ async def _log_login_diagnostic(page: Page) -> None:
 
 
 async def dismiss_popup(page: Page) -> None:
-    """Clear the post-login popups. Handles several stacked modals; never raises.
+    """Clear whatever modals are up. Generic by design; never raises.
 
-    Loops a few rounds because there can be two at once (announcement + welcome
-    tour); each round clicks any visible Skip/close button and presses Escape,
-    stopping early once a round finds nothing left to close.
+    The portal adds/removes announcement popups regularly, so this does not
+    enumerate specific ones: each round clicks any visible control whose label
+    reads as a dismissal (Skip / Close / Got it / OK / x ...), plus icon-only
+    close buttons inside a dialog, then presses Escape. Repeats while something
+    was closed, so stacked modals clear.
     """
     for _ in range(4):
-        acted = False
+        acted = 0
         for sel in _POPUP_CLOSE_SELECTORS:
             try:
                 loc = page.locator(sel).first
                 if await loc.count() and await loc.is_visible():
-                    await loc.click(timeout=1500)
-                    acted = True
-                    await page.wait_for_timeout(400)
+                    await loc.click(timeout=1200)
+                    acted += 1
+                    await page.wait_for_timeout(300)
+            except Exception:  # noqa: BLE001
+                continue
+        for fr in _app_frames(page):
+            try:
+                acted += await fr.evaluate(
+                    _DISMISS_JS, {"yes": list(_DISMISS_TEXTS), "no": list(_AVOID_TEXTS)})
             except Exception:  # noqa: BLE001
                 continue
         try:
@@ -365,6 +508,7 @@ async def dismiss_popup(page: Page) -> None:
         await page.wait_for_timeout(300)
         if not acted:
             break
+
 
 
 async def is_logged_in(page: Page) -> bool:
@@ -483,22 +627,22 @@ async def do_login(page: Page, username: str, password: str) -> str:
 
 
 async def navigate_to_balance(page: Page, labels) -> None:
-    """Click through the menu path (e.g. Financials → Balance Info). Best-effort.
+    """Walk the menu path (Financials -> Balance Info). Best-effort, text-first.
 
-    Dismisses popups first (they land on the page right after login) and again
-    at the end (a promo can re-open), and clicks each label by whatever it turns
-    out to be — link, button, menu item, or a plain accordion row (text=…).
+    Each label is tried as a link/button/menu item and then as a plain JS click
+    on any element with that visible text, so it survives the row being a div,
+    an accordion header, or a sidebar item.
     """
     await dismiss_popup(page)
     for label in labels:
-        await _click_first(page, [
+        hit = await _click_first(page, [
             f"role=link[name=/{label}/i]",
             f"role=button[name=/{label}/i]",
             f"role=menuitem[name=/{label}/i]",
             f"a:has-text(\"{label}\")",
             f"button:has-text(\"{label}\")",
-            f"text=/^\\s*{label}\\s*$/i",
-            f"text=/{label}/i",
-        ], timeout_ms=5000)
+        ], timeout_ms=2500)
+        if not hit:
+            await click_text(page, [label])
         await page.wait_for_timeout(1000)
     await dismiss_popup(page)
