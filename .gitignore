@@ -49,3 +49,4 @@ xtrapower/profiles/
 xtrapower/state.json
 xtrapower/*.log
 xtrapower/monitor.pid
+xtrapower/debug/

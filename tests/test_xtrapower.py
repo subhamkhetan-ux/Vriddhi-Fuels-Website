@@ -195,9 +195,21 @@ def _run_check(monkeypatch, pool, readings, click_ok=True, ready=None, st=None, 
     async def fake_nav(page, labels):
         return None
 
+    async def fake_dismiss(page):
+        return None
+
+    async def fake_goto(page, url):
+        return False
+
+    async def fake_capture(page, prefix):
+        return None
+
     monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
     monkeypatch.setattr(monitor.browser, "click_search", fake_click)
     monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
+    monkeypatch.setattr(monitor.browser, "dismiss_popup", fake_dismiss)
+    monkeypatch.setattr(monitor.browser, "goto_url", fake_goto)
+    monkeypatch.setattr(monitor.browser, "capture_debug", fake_capture)
 
     tg = _CapturingTelegram()
     st = st if st is not None else {"accounts": {}}
@@ -342,10 +354,22 @@ def _run_login_check(monkeypatch, pool, readings, *, login_status="ok", ready=No
     async def fake_nav(page, labels):
         calls["nav"] += 1
 
+    async def fake_dismiss(page):
+        return None
+
+    async def fake_goto(page, url):
+        return False
+
+    async def fake_capture(page, prefix):
+        return None
+
     monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
     monkeypatch.setattr(monitor.browser, "click_search", fake_click)
     monkeypatch.setattr(monitor.browser, "do_login", fake_do_login)
     monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
+    monkeypatch.setattr(monitor.browser, "dismiss_popup", fake_dismiss)
+    monkeypatch.setattr(monitor.browser, "goto_url", fake_goto)
+    monkeypatch.setattr(monitor.browser, "capture_debug", fake_capture)
 
     tg = _CapturingTelegram()
     st = st if st is not None else {"accounts": {}}
@@ -367,7 +391,7 @@ def test_autologin_recovers_and_confirms(monkeypatch):
         monkeypatch, _FakePool(page),
         [LOGOUT, _reading(HDR, [["₹100.00"]])],   # pre=logged out, post-relogin=good
         login_status="ok")
-    assert calls["login"] == 1 and calls["nav"] == 1
+    assert calls["login"] == 1
     assert len(tg.messages) == 1 and "now watching" in tg.messages[0].lower()
     assert ready["999"] is True
     assert st["accounts"]["999"]["ccms"] == "₹100.00"
@@ -422,3 +446,94 @@ def test_no_creds_still_quiet_on_logout(monkeypatch):
     page = object()
     tg, st, ready = _run_check(monkeypatch, _FakePool(page), [LOGOUT], ready={})
     assert tg.messages == []
+
+
+# ---- resilience: remembered balance URL + fallback ladder ------------------
+
+def test_balance_url_is_learned_from_a_good_read(monkeypatch):
+    """After a clean read we remember where the table lives, for later cycles."""
+    page = object()
+    url = "https://beta.iocxtrapower.com/financials/balance-info"
+    tg, st, ready = _run_check(
+        monkeypatch, _FakePool(page),
+        [_reading(HDR, [["₹100.00"]], url=url), _reading(HDR, [["₹100.00"]], url=url)])
+    assert st["accounts"]["999"]["balance_url"] == url
+
+
+def test_ladder_falls_back_to_remembered_url(monkeypatch):
+    """Search missing -> dismiss -> jump to the remembered URL -> Search works."""
+    page = object()
+    url = "https://beta.iocxtrapower.com/financials/balance-info"
+    st = {"accounts": {"999": {"ccms": "₹100.00", "balance_url": url}}}
+    seq = [_reading(HDR, [["₹100.00"]]), _reading(HDR, [["₹250.00"]])]
+    clicks = [False, False, True]          # rung 1 no, rung 2 no, after goto yes
+    visited = []
+
+    async def fake_read_page(page, settle_ms=1500):
+        return seq.pop(0)
+
+    async def fake_click(page, timeout_ms=8000):
+        return clicks.pop(0) if clicks else True
+
+    async def fake_goto(page, u):
+        visited.append(u)
+        return True
+
+    async def fake_dismiss(page):
+        return None
+
+    async def fake_nav(page, labels):
+        raise AssertionError("menu walk should not be needed when the URL is known")
+
+    async def fake_capture(page, prefix):
+        return None
+
+    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
+    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    monkeypatch.setattr(monitor.browser, "goto_url", fake_goto)
+    monkeypatch.setattr(monitor.browser, "dismiss_popup", fake_dismiss)
+    monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
+    monkeypatch.setattr(monitor.browser, "capture_debug", fake_capture)
+
+    tg = _CapturingTelegram()
+    asyncio.run(monitor.check_account(
+        _FakePool(page), {"label": "T", "customer_id": "999", "cdp_port": 9222},
+        st, tg, {"999": True}))
+    assert visited == [url]                       # jumped straight there
+    assert len(tg.messages) == 1 and "credited" in tg.messages[0]
+
+
+def test_nav_failure_captures_debug(monkeypatch):
+    """When every rung fails we save a capture and name it in the alert."""
+    page = object()
+    captured = []
+
+    async def fake_read_page(page, settle_ms=1500):
+        return _reading([], [], text="Balance Info")
+
+    async def fake_click(page, timeout_ms=8000):
+        return False
+
+    async def fake_capture(page, prefix):
+        captured.append(prefix)
+        return prefix + ".png"
+
+    async def fake_noop(page, *a, **k):
+        return None
+
+    async def fake_goto(page, u):
+        return False
+
+    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
+    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    monkeypatch.setattr(monitor.browser, "capture_debug", fake_capture)
+    monkeypatch.setattr(monitor.browser, "dismiss_popup", fake_noop)
+    monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_noop)
+    monkeypatch.setattr(monitor.browser, "goto_url", fake_goto)
+
+    tg = _CapturingTelegram()
+    asyncio.run(monitor.check_account(
+        _FakePool(page), {"label": "T", "customer_id": "999", "cdp_port": 9222},
+        {"accounts": {}}, tg, {"999": True}))
+    assert captured, "a debug capture should have been saved"
+    assert len(tg.messages) == 1 and ".png" in tg.messages[0]

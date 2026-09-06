@@ -39,6 +39,13 @@ log = logging.getLogger("xtrapower.monitor")
 ERROR_COOLDOWN_SECONDS = 30 * 60
 
 
+def _debug_prefix(label: str) -> str:
+    """Where to drop a failure capture: xtrapower/debug/<label>-<timestamp>."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    safe = "".join(c if c.isalnum() else "_" for c in label)[:30]
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug", f"{safe}-{stamp}")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -127,12 +134,36 @@ async def check_account(
     has_creds = bool(creds_user and creds_pass)
     nav_labels = acct_cfg.get("nav_labels") or browser.DEFAULT_NAV_LABELS
 
+
+    async def reach_balance_screen(pg) -> bool:
+        """Get to the Balance Info screen and click Search. Returns True if clicked.
+
+        A ladder of increasingly heavy strategies, cheapest first, so a UI tweak
+        on any one rung doesn't stop the monitor:
+          1. Search is already on screen (the steady-state case).
+          2. A popup appeared over it -> dismiss and retry.
+          3. Jump straight to the remembered Balance Info URL (learned the first
+             time we read it) -> no menus, no popups to walk.
+          4. Walk the menu by label (Financials -> Balance Info).
+        """
+        if await browser.click_search(pg):
+            return True
+        await browser.dismiss_popup(pg)
+        if await browser.click_search(pg):
+            return True
+        known = acct_state.get("balance_url")
+        if known and await browser.goto_url(pg, known):
+            if await browser.click_search(pg):
+                return True
+        await browser.navigate_to_balance(pg, nav_labels)
+        return await browser.click_search(pg)
+
     async def try_relogin(pg) -> str:
         log.info("[%s] session expired — attempting auto re-login", label)
         acct_state.pop("captcha_until_epoch", None)  # clear any stale back-off
         status = await browser.do_login(pg, creds_user, creds_pass)
         if status == browser.LOGIN_OK:
-            await browser.navigate_to_balance(pg, nav_labels)
+            await reach_balance_screen(pg)
             log.info("[%s] auto re-login succeeded", label)
         return status
 
@@ -209,28 +240,22 @@ async def check_account(
             return
         just_logged_in = True
 
-    clicked = await browser.click_search(page)
+    clicked = await reach_balance_screen(page)
     if not clicked:
-        # We may be logged in but not on Balance Info (just landed on Quick
-        # Links, a tab drifted, or a popup is covering Search). Clear popups,
-        # walk the menu, and retry once.
-        await browser.navigate_to_balance(page, nav_labels)
-        clicked = await browser.click_search(page)
-    if not clicked:
+        shot = await browser.capture_debug(page, _debug_prefix(label))
+        where = f"\nSaved a screenshot + page dump: <code>{shot}</code>" if shot else ""
         if just_logged_in or ready.get(cid):
             alert_error(
                 "nav-failed",
-                "Couldn't reach Balance Info / find the <b>Search</b> button after "
-                "navigating (Financials → Balance Info). The menu path may differ on "
-                "your build — send me the exact menu names and I'll set "
-                "<code>nav_labels</code>.",
+                "Couldn't reach Balance Info / find the <b>Search</b> button, even "
+                "after dismissing popups and walking the menu. The portal layout "
+                f"may have changed.{where}",
             )
             ready[cid] = False
         else:
             not_usable(
                 "no-search-button",
-                "Couldn't find the <b>Search</b> button on the Balance Info screen. "
-                "The portal layout may have changed, or the tab isn't on Balance Info.",
+                f"Couldn't find the <b>Search</b> button on the Balance Info screen.{where}",
                 "Search button not present yet (not on Balance Info?)",
             )
         return
@@ -257,6 +282,7 @@ async def check_account(
 
     ccms = parse.find_ccms(reading.headers, reading.rows)
     if ccms is None:
+        await browser.capture_debug(page, _debug_prefix(label))
         not_usable(
             "no-ccms",
             "Refreshed, but couldn't read a CCMS value from the results table. "
@@ -267,6 +293,10 @@ async def check_account(
 
     # Clean read. Clear any standing error, refresh the stored value.
     state.clear_error(acct_state)
+    # Remember where the balance table lives, so later cycles can jump straight
+    # back here instead of depending on the menu labels or popup buttons.
+    if reading.url:
+        acct_state["balance_url"] = reading.url
     old = acct_state.get("ccms")
     acct_state["ccms"] = ccms
     acct_state["updated_at"] = _now_iso()

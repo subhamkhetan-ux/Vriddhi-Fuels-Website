@@ -262,6 +262,44 @@ server and risks drawing a firewall block — 2 minutes is already brisk.
 
 Tests: `tests/test_xtrapower.py` (`python -m pytest tests/test_xtrapower.py`).
 
+## When the portal changes (it will)
+
+This is a beta under active development — popups come and go, labels move, a
+menu becomes an accordion. The monitor is built so those tweaks mostly *don't*
+need a code change:
+
+- **Direct URL, not menus.** The first time it reads the balance table it
+  remembers that screen's URL, and from then on jumps straight there. Menu
+  renames and new popups become irrelevant.
+- **A fallback ladder.** Each cycle it tries, cheapest first: click Search where
+  it is → dismiss popups and retry → jump to the remembered URL → walk the menu
+  (Financials → Balance Info). One broken rung doesn't stop it.
+- **Generic popup handling.** It doesn't hunt for one named popup; it closes any
+  visible control labelled like a dismissal (Skip / Close / Got it / OK / ×) plus
+  icon-only close buttons inside a dialog, then presses Escape — repeating until
+  nothing is left. A brand-new announcement modal is handled without changes.
+- **Text first, then JS.** Clicks target visible labels ("Search", "Financials")
+  rather than ids/classes, because labels survive redesigns; and if Playwright
+  can't drive an element (this Angular app stalls its `fill`/`click`), it falls
+  back to a direct JS click. Login fields are set the same way.
+- **Loose matching where it counts.** The CCMS column is found by header text,
+  case/spacing-insensitive, in whichever table has it — not by position.
+- **It never fails silently.** Anything it can't do sends a Telegram ⚠️ *and*
+  saves a screenshot + page dump to `xtrapower/debug/`.
+
+### If something does break
+You'll get a ⚠️ naming the step that failed and the capture path. Send me that
+`xtrapower/debug/<label>-<time>.txt` (and the `.png`) — it lists the page URL,
+every visible button, the inputs and the table count, which is normally enough
+to fix it in one go. For a one-off menu rename you can often fix it yourself
+without waiting: set `nav_labels` in `config.json`, e.g.
+`"nav_labels": ["Finance", "Balance Enquiry"]`.
+
+To grab a dump on demand at any time (no failure needed):
+```bash
+./xtrapower/inspect-mac.sh --port 9222
+```
+
 ## Limits and the durable fix
 
 - **One machine, awake and online.** If this PC sleeps or the window closes,
