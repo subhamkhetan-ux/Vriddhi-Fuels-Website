@@ -180,6 +180,9 @@ summary::-webkit-details-marker{display:none}
 .cust-chip{font-size:11px;background:var(--card,#fff);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
 .cust-list{margin-top:16px;display:flex;flex-wrap:wrap;gap:5px}
 .cust-list .cust-chip{color:var(--muted)}
+.cust-chip.removable{display:inline-flex;align-items:center;gap:3px;padding-right:4px}
+.cust-x{border:none;background:transparent;color:var(--faint);font-size:15px;line-height:1;cursor:pointer;padding:0 3px;border-radius:10px}
+.cust-x:hover{color:#b3261e;background:#b3261e18}
 /* consignment note print — a hand-built A4 page (no docx renderer), so it looks
    identical in every browser. Off-screen normally; the only thing printed. */
 #printArea{position:fixed;left:-99999px;top:0}
@@ -1200,10 +1203,31 @@ async function saveCustomers(){
 
 function renderCustomers(){
   const c = document.getElementById("custCount");
-  if(c) c.innerHTML = `Currently <b>${NAMES.length}</b> customer(s) in the list.`;
+  if(c) c.innerHTML = `Currently <b>${NAMES.length}</b> customer(s) in the list.`
+    + ` <span style="color:var(--faint)">Tap × to remove one — re-upload Master.xml to bring it back.</span>`;
   const w = document.getElementById("custListWrap");
-  if(w) w.innerHTML = NAMES.map(n=>`<span class="cust-chip">${esc(n)}</span>`).join("");
+  if(w) w.innerHTML = NAMES.map((n,i)=>
+    `<span class="cust-chip removable">${esc(n)}<button class="cust-x" title="Remove ${escAttr(n)}" onclick="removeCustomerAt(${i})">×</button></span>`
+  ).join("");
   renderCustPreview();
+}
+
+// Remove one name from the roster (persisted as a full atomic replace, so it
+// works whether the roster is already in Supabase or still the file seed).
+async function removeCustomerAt(i){
+  const name = NAMES[i]; if(name==null) return;
+  if(!Cloud.enabled || !Cloud.client){ toast("Connect to Supabase first — the list is stored there"); return; }
+  if(!confirm(`Remove "${name}" from the customer list?\n\nIt stops matching bank credits and won't appear in manual entry. Re-uploading your Tally Master.xml brings it back.`)) return;
+  const prev = NAMES.slice();
+  const next = NAMES.filter(n=>n!==name);
+  setNames(next); renderCustomers();               // optimistic
+  try{
+    await Cloud.replaceCustomers(next);
+    toast(`Removed ${name}`);
+  }catch(e){
+    setNames(prev); renderCustomers();             // revert on failure
+    toast("Couldn't remove: "+(e&&e.message||e));
+  }
 }
 
 /* ---------- manual entry (payments received off-email) ---------- */
