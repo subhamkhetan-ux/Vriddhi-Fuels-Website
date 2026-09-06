@@ -195,3 +195,17 @@ def test_ledger_suggestions_include_own_banks():
     assert "HDFC BANK C/A - 59217010101010" in sug
     assert "HDFC BANK OD A/C - 50200110712542" in sug
     assert "ICICI BANK LTD" in sug
+
+
+def test_parse_master_xml_extracts_ledgers():
+    from bank_tally.server import parse_master_xml
+    xml = ('<ENVELOPE><TALLYMESSAGE>'
+           '<LEDGER NAME="Aryan Ispat &amp; Power Private Ltd." RESERVEDNAME=""></LEDGER>'
+           '</TALLYMESSAGE><TALLYMESSAGE>'
+           '<LEDGER NAME="Keshav Minerals"></LEDGER></TALLYMESSAGE>'
+           '<LEDGER NAME="Keshav Minerals"></LEDGER></ENVELOPE>')   # dup
+    # UTF-8 and UTF-16 (Tally's usual export) both parse; the & is unescaped; dupes drop.
+    for raw in (xml.encode("utf-8"), b"\xff\xfe" + xml.encode("utf-16-le")):
+        names = parse_master_xml(raw)
+        assert "Aryan Ispat & Power Private Ltd." in names
+        assert names.count("Keshav Minerals") == 1

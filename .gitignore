@@ -32,8 +32,10 @@ IOCL_review.csv
 iocl_tally/data.json
 iocl_tally/out/
 
-# Bank -> Tally web app — local aliases + generated output.
+# Bank -> Tally web app — local aliases, ledger list (from Tally master.xml),
+# and generated output.
 bank_tally/data.json
+bank_tally/ledgers.json
 bank_tally/out/
 
 # Fleet-card / TDS -> Tally web app — generated output.
