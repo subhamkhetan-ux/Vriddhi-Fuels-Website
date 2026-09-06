@@ -29,6 +29,8 @@ from bank_tally import statement as S         # noqa: E402
 from agent.matcher import alias_key           # noqa: E402
 
 DATA_PATH = os.path.join(_HERE, "data.json")           # local aliases (git-ignored)
+LEDGERS_PATH = os.path.join(_HERE, "ledgers.json")     # ledgers from an uploaded master.xml (git-ignored)
+COMMITTED_LEDGERS = os.path.join(_ROOT, "state", "tally_ledgers.json")   # shipped Tally ledger list
 COMMITTED_ALIASES = os.path.join(_ROOT, "state", "bank_aliases.json")
 CUSTOMERS = os.path.join(_ROOT, "state", "customers.json")
 OUT_DIR = os.path.join(_HERE, "out")
@@ -95,13 +97,61 @@ def customers() -> list:
     return [c for c in _load_json(CUSTOMERS, []) if "auto-source" not in str(c).lower()]
 
 
+def load_ledgers() -> list:
+    """Every Tally ledger name: the shipped list (state/tally_ledgers.json) plus
+    any the user re-uploaded locally (a fresher master.xml wins/extends it)."""
+    committed = _load_json(COMMITTED_LEDGERS, [])
+    local = _load_json(LEDGERS_PATH, [])
+    seen, out = set(), []
+    for n in (local if isinstance(local, list) else []) + \
+             (committed if isinstance(committed, list) else []):
+        k = str(n).strip().lower()
+        if n and k not in seen:
+            seen.add(k)
+            out.append(n)
+    return out
+
+
+def _unescape(s: str) -> str:
+    return (s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&quot;", '"').replace("&apos;", "'"))
+
+
+def parse_master_xml(raw: bytes) -> list:
+    """Pull the ledger names out of a Tally master export. Ledgers appear as
+    ``<LEDGER NAME="...">`` (a Masters export) or ``<LEDGERNAME>...</LEDGERNAME>``;
+    take both, unescape XML entities, drop blanks and de-dupe."""
+    import re
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):     # Tally usually exports UTF-16 with a BOM
+        text = raw.decode("utf-16", errors="replace")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    names = re.findall(r'<LEDGER\b[^>]*\bNAME="([^"]*)"', text)
+    names += re.findall(r"<LEDGERNAME>([^<]*)</LEDGERNAME>", text)
+    seen, out = set(), []
+    for n in names:
+        n = _unescape(n).strip()
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            out.append(n)
+    return out
+
+
+def save_ledgers(names: list) -> None:
+    tmp = LEDGERS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(names, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp, LEDGERS_PATH)
+
+
 def ledger_suggestions() -> list:
     """Names to offer in the resolve dropdown: our own bank accounts + Cash (so a
-    contra / unpaired transfer can be pointed at the other account), the
-    customers, and every ledger already used in an alias."""
+    contra / unpaired transfer can be pointed at the other account), every ledger
+    from the uploaded Tally master.xml, the customers, and every ledger already
+    used in an alias."""
     from bank_tally import classify as C
     s = set(C.OWN_ACCOUNTS.values()) | {"Cash"}
-    s |= set(customers()) | set(load_aliases().values())
+    s |= set(load_ledgers()) | set(customers()) | set(load_aliases().values())
     return sorted(s)
 
 
@@ -118,7 +168,7 @@ def _process_and_write():
         fh.write(G.build_envelope(vouchers))
     _LAST = {"summary": summary, "review": review}
     return {"summary": summary, "review": review,
-            "suggestions": ledger_suggestions()}
+            "suggestions": ledger_suggestions(), "n_ledgers": len(load_ledgers())}
 
 
 def _audit_csv() -> bytes:
@@ -186,6 +236,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, fh.read(), "text/html; charset=utf-8")
             except OSError:
                 return self._send(404, b"no ui", "text/plain")
+        if route == "/api/ledgers":
+            return self._json({"n_ledgers": len(load_ledgers())})
         if route == "/download/bank_import.xml":
             try:
                 with open(os.path.join(OUT_DIR, "bank_import.xml"), "rb") as fh:
@@ -205,6 +257,19 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         if route == "/api/run":
             return self._run(body)
+        if route == "/api/ledgers":
+            f = body.get("file") or {}
+            try:
+                raw = base64.b64decode((f.get("b64") or "").split(",")[-1])
+                names = parse_master_xml(raw)
+            except Exception as exc:
+                return self._json({"error": f"could not read master.xml: {exc}"}, 400)
+            if not names:
+                return self._json({"error": "no <LEDGER> entries found — is this a "
+                                   "Tally master export?"}, 400)
+            save_ledgers(names)
+            return self._json({"n_ledgers": len(names),
+                               "suggestions": ledger_suggestions()})
         if route == "/api/resolve":
             name = body.get("parsed_name")
             ledger = (body.get("ledger") or "").strip()

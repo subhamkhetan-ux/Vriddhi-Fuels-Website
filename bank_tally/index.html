@@ -64,6 +64,12 @@
       <button class="btn primary" id="runBtn" disabled>Generate vouchers</button>
       <span id="runStatus" class="sub" style="color:var(--faint)"></span>
     </div>
+    <div class="row" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <button class="btn" id="masterBtn">⇪ Upload Tally master.xml</button>
+      <input type="file" id="masterInput" accept=".xml" hidden>
+      <span id="ledgerStatus" class="sub" style="color:var(--faint)"></span>
+    </div>
+    <div class="sub" style="color:var(--faint);margin-top:4px">Loads every ledger from Tally so the resolve dropdown is complete. Export it in Tally: Gateway → Export → Masters (All Ledgers) → XML. Re-upload whenever you add ledgers.</div>
   </section>
 
   <section class="panel" id="resultPanel" hidden>
@@ -145,6 +151,24 @@ $("#runBtn").onclick=async()=>{
   try{ render(await api("/api/run",{files:FILES})); $("#runStatus").textContent=""; }
   catch(e){ $("#runStatus").textContent="Failed: "+e.message; toast("Failed: "+e.message); }
   $("#runBtn").disabled=false;
+};
+
+// --- Tally master.xml → ledger list for the resolve dropdown ---
+function ledgerStatus(n){ $("#ledgerStatus").textContent = n ? (n+" ledgers loaded from Tally") : "no master.xml loaded yet"; }
+fetch("/api/ledgers").then(r=>r.json()).then(j=>ledgerStatus(j.n_ledgers||0)).catch(()=>{});
+$("#masterBtn").onclick=()=>$("#masterInput").click();
+$("#masterInput").onchange=()=>{
+  const f=$("#masterInput").files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=async()=>{
+    $("#ledgerStatus").innerHTML='<span class="spin"></span>Reading master…';
+    try{ const j=await api("/api/ledgers",{file:{name:f.name,b64:r.result}});
+      ledgerStatus(j.n_ledgers);
+      if(j.suggestions) $("#ledgers").innerHTML=j.suggestions.map(l=>`<option value="${esc(l)}">`).join("");
+      toast(j.n_ledgers+" ledgers loaded");
+    }catch(e){ $("#ledgerStatus").textContent="Failed: "+e.message; toast("Failed: "+e.message); }
+  };
+  r.readAsDataURL(f);
 };
 
 function render(res){
