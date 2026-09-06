@@ -135,7 +135,7 @@ async def check_account(
     nav_labels = acct_cfg.get("nav_labels") or browser.DEFAULT_NAV_LABELS
 
 
-    async def reach_balance_screen(pg) -> bool:
+    async def reach_balance_screen(pg, fresh: bool = False) -> bool:
         """Get to the Balance Info screen and click Search. Returns True if clicked.
 
         A ladder of increasingly heavy strategies, cheapest first, so a UI tweak
@@ -145,12 +145,18 @@ async def check_account(
           3. Jump straight to the remembered Balance Info URL (learned the first
              time we read it) -> no menus, no popups to walk.
           4. Walk the menu by label (Financials -> Balance Info).
+
+        ``fresh=True`` (right after a login) skips rungs 1-2: we know we just
+        landed on the post-login dashboard, not Balance Info, so probing it for
+        Search and dismissing popups there is just visible churn — jump straight
+        to the URL.
         """
-        if await browser.click_search(pg):
-            return True
-        await browser.dismiss_popup(pg)
-        if await browser.click_search(pg):
-            return True
+        if not fresh:
+            if await browser.click_search(pg):
+                return True
+            await browser.dismiss_popup(pg)
+            if await browser.click_search(pg):
+                return True
         # Prefer the URL learned from a past good read; on a fresh run fall back
         # to the configured/default Balance Info route so we can still jump
         # straight there instead of walking the collapsed side menu by hand.
@@ -174,7 +180,7 @@ async def check_account(
         acct_state.pop("captcha_until_epoch", None)  # clear any stale back-off
         status = await browser.do_login(pg, creds_user, creds_pass)
         if status == browser.LOGIN_OK:
-            await reach_balance_screen(pg)
+            await reach_balance_screen(pg, fresh=True)
             log.info("[%s] auto re-login succeeded", label)
         return status
 
