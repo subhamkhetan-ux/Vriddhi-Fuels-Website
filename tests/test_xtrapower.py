@@ -616,3 +616,53 @@ def test_config_balance_url_overrides_default(monkeypatch):
     asyncio.run(monitor.check_account(_FakePool(object()), acct_cfg, {"accounts": {}}, tg, {}))
     assert "https://beta.iocxtrapower.com/Custom/Route" in gotos
     assert browser_mod.DEFAULT_BALANCE_URL not in gotos
+
+
+def test_deep_link_waits_for_form_then_skips_menu_walk(monkeypatch):
+    """After jumping to the Balance Info URL, the monitor waits for the Search
+    form to render and clicks it — so it does NOT fall back to walking the menu
+    (the visible 'weird clicks')."""
+    called = {"wait": 0, "nav": 0}
+
+    class _Pg:
+        url = "https://beta.iocxtrapower.com/Transactions/BalanceInfo"
+
+    reading = _reading(["CCMS"], [["₹100.00"]])
+    cs = {"n": 0}
+
+    async def fake_read_page(p, settle_ms=1500):
+        return reading
+
+    async def fake_click(p, timeout_ms=8000):
+        cs["n"] += 1
+        return cs["n"] >= 3          # rungs 1-2 fail; the click after goto works
+
+    async def fake_goto(p, url):
+        return True
+
+    async def fake_dismiss(p):
+        return None
+
+    async def fake_nav(p, labels):
+        called["nav"] += 1
+
+    async def fake_wait(p, timeout_ms=12000):
+        called["wait"] += 1
+        return True
+
+    async def fake_capture(p, prefix):
+        return None
+
+    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
+    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    monkeypatch.setattr(monitor.browser, "goto_url", fake_goto)
+    monkeypatch.setattr(monitor.browser, "dismiss_popup", fake_dismiss)
+    monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
+    monkeypatch.setattr(monitor.browser, "wait_for_balance_form", fake_wait)
+    monkeypatch.setattr(monitor.browser, "capture_debug", fake_capture)
+
+    tg = _CapturingTelegram()
+    acct_cfg = {"label": "T", "customer_id": "999", "cdp_port": 9222}
+    asyncio.run(monitor.check_account(_FakePool(_Pg()), acct_cfg, {"accounts": {}}, tg, {}))
+    assert called["wait"] == 1       # waited for the form after the deep link
+    assert called["nav"] == 0        # never walked the menu

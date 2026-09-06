@@ -344,6 +344,34 @@ async def goto_url(page: Page, url: str) -> bool:
         return False
 
 
+# Controls that only exist on the Balance Info screen — used to confirm a deep
+# link actually rendered before we click Search.
+_BALANCE_READY_SELECTORS = (
+    "role=button[name=/^\\s*search\\s*$/i]",
+    "button:has-text('Search')",
+    "input#customerId",
+    "input[formcontrolname='customerId']",
+)
+
+
+async def wait_for_balance_form(page: Page, timeout_ms: int = 12000) -> bool:
+    """Wait for the Balance Info Search form to render after a deep-link goto.
+
+    A cold load of the SPA route takes a few seconds to boot; clicking Search
+    before the form exists is what made the monitor give up and fall back to
+    walking the side menu (the visible "weird clicks"). Returns True once the
+    form is up, False if it never appears (e.g. the build bounced the deep link
+    back to the dashboard) — in which case the caller walks the menu as before.
+    """
+    try:
+        await page.wait_for_selector(
+            ", ".join(_BALANCE_READY_SELECTORS), state="visible", timeout=timeout_ms)
+        return True
+    except Exception:  # noqa: BLE001
+        log.debug("balance form not visible within %dms of the deep-link goto", timeout_ms)
+        return False
+
+
 async def capture_debug(page: Page, prefix: str) -> Optional[str]:
     """Save a screenshot + DOM summary so a breakage is diagnosable at a glance."""
     try:

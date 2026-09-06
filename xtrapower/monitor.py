@@ -158,6 +158,12 @@ async def check_account(
                  or acct_cfg.get("balance_url")
                  or browser.DEFAULT_BALANCE_URL)
         if known and await browser.goto_url(pg, known):
+            # A cold deep-link load is slow; wait for the Search form to render
+            # before clicking, so we don't bail to the (visible) menu walk while
+            # the SPA is still booting. Skip the wait if the build bounced us off
+            # Balance Info — then the menu walk below is the real path.
+            if "balanceinfo" in (getattr(pg, "url", "") or "").lower():
+                await browser.wait_for_balance_form(pg)
             if await browser.click_search(pg):
                 return True
         await browser.navigate_to_balance(pg, nav_labels)
