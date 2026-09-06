@@ -128,10 +128,15 @@ credits keep coming through across re-logins.
 
 - **Only works because login is username + password** (no OTP, no captcha). If
   the portal ever adds either, auto-login stops and you'd log in by hand.
-- **`nav_labels`** (optional, per account) is the menu path back to the balance
-  table after a re-login — default `["Financials", "Balance Info"]`. If your
-  build names them differently and you get a "couldn't reach Balance Info"
-  alert, set the exact names here.
+- **Reaching Balance Info needs no manual clicks.** The monitor jumps straight
+  to the Balance Info route (`balance_url`, default
+  `https://beta.iocxtrapower.com/Transactions/BalanceInfo`) and clicks **Search**
+  itself — from the very first cycle, before it has learned anything. So on the
+  new dashboard you no longer have to open the collapsed (icon-only) side menu
+  and click Financials by hand: just log in and leave the tab wherever it lands.
+  Set `balance_url` only if your build's route differs.
+- **`nav_labels`** (optional, per account) is only the *fallback* menu path used
+  if that direct URL ever fails — default `["Financials", "Balance Info"]`.
 - **Passwords sit in `config.json` in plain text.** That file is git-ignored and
   never leaves the machine, so this is fine on your own private/locked Mac or
   device — but keep it off any shared or cloud-synced folder.

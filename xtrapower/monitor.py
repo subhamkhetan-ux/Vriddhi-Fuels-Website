@@ -151,7 +151,12 @@ async def check_account(
         await browser.dismiss_popup(pg)
         if await browser.click_search(pg):
             return True
-        known = acct_state.get("balance_url")
+        # Prefer the URL learned from a past good read; on a fresh run fall back
+        # to the configured/default Balance Info route so we can still jump
+        # straight there instead of walking the collapsed side menu by hand.
+        known = (acct_state.get("balance_url")
+                 or acct_cfg.get("balance_url")
+                 or browser.DEFAULT_BALANCE_URL)
         if known and await browser.goto_url(pg, known):
             if await browser.click_search(pg):
                 return True
