@@ -537,3 +537,82 @@ def test_nav_failure_captures_debug(monkeypatch):
         {"accounts": {}}, tg, {"999": True}))
     assert captured, "a debug capture should have been saved"
     assert len(tg.messages) == 1 and ".png" in tg.messages[0]
+
+
+def test_fresh_account_jumps_to_default_balance_url(monkeypatch):
+    """On a fresh run (no learned balance_url), the ladder still jumps straight
+    to the default Balance Info route instead of only walking the menu — so the
+    first hand-over needs no manual sidebar navigation."""
+    gotos = []
+    dashboard = _reading(["CCMS"], [], text="Dashboard", url="https://beta.iocxtrapower.com/dashboard")
+
+    async def fake_read_page(page, settle_ms=1500):
+        return dashboard
+
+    async def fake_click(page, timeout_ms=8000):
+        return False                    # Search never present -> ladder descends
+
+    async def fake_nav(page, labels):
+        return None
+
+    async def fake_dismiss(page):
+        return None
+
+    async def fake_goto(page, url):
+        gotos.append(url)
+        return True
+
+    async def fake_capture(page, prefix):
+        return None
+
+    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
+    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
+    monkeypatch.setattr(monitor.browser, "dismiss_popup", fake_dismiss)
+    monkeypatch.setattr(monitor.browser, "goto_url", fake_goto)
+    monkeypatch.setattr(monitor.browser, "capture_debug", fake_capture)
+
+    tg = _CapturingTelegram()
+    st = {"accounts": {}}               # fresh: no learned balance_url
+    acct_cfg = {"label": "Test", "customer_id": "999", "cdp_port": 9222}
+    asyncio.run(monitor.check_account(_FakePool(object()), acct_cfg, st, tg, {}))
+    assert browser_mod.DEFAULT_BALANCE_URL in gotos
+
+
+def test_config_balance_url_overrides_default(monkeypatch):
+    """A per-account balance_url in config is used ahead of the built-in default."""
+    gotos = []
+    dashboard = _reading(["CCMS"], [], text="Dashboard", url="https://beta.iocxtrapower.com/dashboard")
+
+    async def fake_read_page(page, settle_ms=1500):
+        return dashboard
+
+    async def fake_click(page, timeout_ms=8000):
+        return False
+
+    async def fake_nav(page, labels):
+        return None
+
+    async def fake_dismiss(page):
+        return None
+
+    async def fake_goto(page, url):
+        gotos.append(url)
+        return True
+
+    async def fake_capture(page, prefix):
+        return None
+
+    monkeypatch.setattr(monitor.browser, "read_page", fake_read_page)
+    monkeypatch.setattr(monitor.browser, "click_search", fake_click)
+    monkeypatch.setattr(monitor.browser, "navigate_to_balance", fake_nav)
+    monkeypatch.setattr(monitor.browser, "dismiss_popup", fake_dismiss)
+    monkeypatch.setattr(monitor.browser, "goto_url", fake_goto)
+    monkeypatch.setattr(monitor.browser, "capture_debug", fake_capture)
+
+    tg = _CapturingTelegram()
+    acct_cfg = {"label": "T", "customer_id": "999", "cdp_port": 9222,
+                "balance_url": "https://beta.iocxtrapower.com/Custom/Route"}
+    asyncio.run(monitor.check_account(_FakePool(object()), acct_cfg, {"accounts": {}}, tg, {}))
+    assert "https://beta.iocxtrapower.com/Custom/Route" in gotos
+    assert browser_mod.DEFAULT_BALANCE_URL not in gotos

@@ -33,6 +33,13 @@ PORTAL_URL = "https://beta.iocxtrapower.com"
 # re-login. Overridable per account via config ("nav_labels").
 DEFAULT_NAV_LABELS = ["Financials", "Balance Info"]
 
+# Deep-linkable route for the Balance Info screen. Used to jump straight there
+# on the FIRST cycle — before any URL has been learned from a good read — so a
+# fresh setup no longer needs a human to open the (collapsed, icon-only) side
+# menu and click Financials by hand. Overridable per account via config
+# ("balance_url"); a later good read replaces it with the exact observed URL.
+DEFAULT_BALANCE_URL = "https://beta.iocxtrapower.com/Transactions/BalanceInfo"
+
 # Login result codes returned by do_login().
 LOGIN_OK = "ok"            # logged in
 LOGIN_CAPTCHA = "captcha"  # a reCAPTCHA challenge blocked us — needs a human

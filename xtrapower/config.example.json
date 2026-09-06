@@ -4,7 +4,7 @@
     "token": "PUT-YOUR-BOTFATHER-TOKEN-HERE",
     "chat_id": "PUT-YOUR-CHAT-ID-HERE"
   },
-  "_comment": "username/password are OPTIONAL. Add them to let the monitor log itself back in when the portal's session times out (~30-45 min), so it runs unattended for hours. Leave them out to log in by hand each time. nav_labels is optional too — the menu path to the balance table, only needed if the defaults (Financials -> Balance Info) don't match your build.",
+  "_comment": "username/password are OPTIONAL. Add them to let the monitor log itself back in when the portal's session times out (~30-45 min), so it runs unattended for hours. Leave them out to log in by hand each time. The monitor jumps straight to the Balance Info URL (default https://beta.iocxtrapower.com/Transactions/BalanceInfo) — even on the first cycle, so you don't have to open the side menu and click Financials by hand; set balance_url only if your build's route differs. nav_labels is just the menu fallback (Financials -> Balance Info) if that URL ever fails.",
   "accounts": [
     {
       "label": "Shyam Metalics",
