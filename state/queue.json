@@ -1656,6 +1656,32 @@
       },
       "queued_at": "2026-09-07T03:15:24.175910+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "50ffe2d0e58ba684",
+      "gmail_msg_id": "1875663788554457324",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "07/09/2026",
+      "date_serial": 46272,
+      "amount": 220733.0,
+      "raw_payer": "SIMAR INFRASTRUCTURES LTD",
+      "customer": null,
+      "candidates": [
+        "Simar Infrastructure LTD",
+        "Aryan Ispat & Power Private Ltd.",
+        "Babylon Logistics Private Limited",
+        "Bhaskar Earthmover Private Limited",
+        "Bhatia Energy and Minerals (Sundargarh) Private Limited",
+        "Bkd Logistics Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-07T09:15:25.226131+00:00",
+      "status": "review"
     }
   ]
 }
