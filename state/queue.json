@@ -1776,6 +1776,27 @@
       },
       "queued_at": "2026-09-08T14:00:37.635844+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "ca396f4bf6c4b402",
+      "gmail_msg_id": "1875783909437743382",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "08/09/2026",
+      "date_serial": 46273,
+      "amount": 105727.0,
+      "raw_payer": "T N ROADLINES",
+      "customer": "T N Roadlines",
+      "candidates": [
+        "T N Roadlines"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-08T17:15:24.083446+00:00",
+      "status": "matched"
     }
   ]
 }
