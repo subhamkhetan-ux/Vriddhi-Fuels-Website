@@ -1,5 +1,5 @@
 /* Tanker Loading — service worker (app-shell cache, offline-first) */
-const CACHE = "vf-loading-v12";
+const CACHE = "vf-loading-v13";
 // Cache storage is per-origin, not per-scope — the other Vriddhi apps (/app/,
 // /pay/, /payments/, /tally/) keep their caches alongside ours. Only ever
 // delete our own, so bumping this app's version can't wipe theirs.
@@ -22,17 +22,28 @@ self.addEventListener("activate", (e) => {
 });
 
 // ---- Web Push (loading alerts: started / full / sent for sale) ----
+const ICON = "../Vriddhi%20Fuels%20Logo.png";
 self.addEventListener("push", (e) => {
   let d = {};
-  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || "Tanker Loading", {
-    body: d.body || "",
-    icon: "../Vriddhi%20Fuels%20Logo.png",
-    badge: "../Vriddhi%20Fuels%20Logo.png",
-    tag: d.tag,
-    renotify: !!d.tag,
-    data: { url: d.url || "./" },
-  }));
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: (e.data && e.data.text()) || "" }; }
+  const title = d.title || "Tanker Loading";
+  const data = { url: d.url || "./" };
+  // Decoration must never cost us the message: some platforms reject the whole
+  // notification when an icon or badge fails to load, and renotify is invalid
+  // without a tag. Fall back to the plainest notification that can still show.
+  const rich = { body: d.body || "", icon: ICON, badge: ICON, data: data };
+  if (d.tag) { rich.tag = d.tag; rich.renotify = true; }
+  e.waitUntil(
+    self.registration.showNotification(title, rich)
+      .catch(() => self.registration.showNotification(title, { body: d.body || "", data: data }))
+      .catch(() => self.registration.showNotification(title))
+  );
+});
+
+// Lets the page ask which worker is actually running, so a stale service
+// worker can be told apart from a delivery failure.
+self.addEventListener("message", (e) => {
+  if (e.data && e.data.q === "version" && e.source) e.source.postMessage({ swVersion: CACHE });
 });
 
 // Tapping a notification focuses the already-open app rather than opening a
