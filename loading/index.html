@@ -600,7 +600,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v14 · 2026-09-09";
+const APP_BUILD = "v15 · 2026-09-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1129,10 +1129,12 @@ $("#dispOk").onclick=()=>{
   if(st.total<=0){ closeDisp(); return; }
   const remark=$("#dispSold").value.trim();
   const btn=$("#dispOk"); btn.disabled=true;
-  Backend.dispatch(plate, remark).then(refresh).then(()=>{
+  Backend.dispatch(plate, remark).then(()=>{
+    notifyStaff("sold", plate, remark);   // fire first; don't wait on the reload
+    return refresh();
+  }).then(()=>{
     btn.disabled=false; closeDisp(); renderHome();
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:""));
-    notifyStaff("sold", plate, remark);
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 $("#dispSold").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#dispOk").click(); });
@@ -1260,15 +1262,27 @@ $("#saveBtn").onclick=()=>{
   // Snapshot before the save — afterwards the gap would read as zero, and we
   // need the old fill to tell "started" from "just became full".
   const plate=draft.plate, was=tankerState(plate), gap=sinceLastLoad(plate);
-  Backend.add(entry).then(refresh).then(()=>{
-    btn.disabled=false; draft=null; goHome(); toast("✓ Added "+fmt(entry.total)+" L");
-    const now=tankerState(plate);
+  // Work out the resulting fill from what we are saving, rather than waiting to
+  // read it back. The alert can then go out the instant the save lands, instead
+  // of after three more round trips — and it no longer depends on that reload
+  // succeeding at all.
+  const afterCham=was.caps.map((c,i)=>{
+    const hit=chambers.find(x=>x.name==="C"+(i+1));
+    return r2(was.cham[i]+(hit?hit.qty:0));
+  });
+  const afterTotal=r2(afterCham.reduce((s,x)=>s+x,0));
+  const afterFull=was.caps.every((c,i)=>afterCham[i]>=c);
+  Backend.add(entry).then(()=>{
     // One save, one alert. Full beats started beats resumed: a tanker filled in
     // one go is announced once, and diesel into an empty tanker is a start even
     // if it has stood idle for days.
-    if(!was.full && now.full) notifyStaff("complete", plate);
-    else if(was.total<=0 && now.total>0) notifyStaff("start", plate);
+    if(!was.full && afterFull) notifyStaff("complete", plate);
+    else if(was.total<=0 && afterTotal>0) notifyStaff("start", plate);
     else if(gap!==null && gap>RESUME_MS) notifyStaff("resume", plate);
+    else noteNotify({ t:Date.now(), event:"none", plate:plate, out:"top-up — no alert is sent for these" });
+    return refresh();
+  }).then(()=>{
+    btn.disabled=false; draft=null; goHome(); toast("✓ Added "+fmt(entry.total)+" L");
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
@@ -1538,7 +1552,9 @@ function renderPushBox(){
       // app often can't tell it is on, and that is exactly when you need to be
       // able to test. It reports "not registered" rather than hiding itself.
       +'<button class="lnk" id="pushTest" style="display:block;margin:12px auto 0">Send a test notification</button>'
-      +'<div class="note" id="pushDiag" style="text-align:left;margin:8px 2px 0;font-size:13px;line-height:1.5"></div>';
+      +'<div class="note" id="pushDiag" style="text-align:left;margin:8px 2px 0;font-size:13px;line-height:1.5"></div>'
+      +'<div class="note" style="text-align:left;margin:10px 2px 0;font-size:13px;opacity:.85">'
+      +'Last alert from this phone:<br><b id="pushLast">'+esc(describeNotify(lastNotify())||"none yet")+'</b></div>';
     const on1=$("#pushOn"), off1=$("#pushOff"), t1=$("#pushTest");
     if(on1) on1.onclick=()=>enablePush(true);
     if(off1) off1.onclick=disablePush;
@@ -1762,18 +1778,58 @@ function loadMyEndpoint(){
 // Ask the server to notify the other phones. Returns the server's reply so the
 // test button can report what actually happened; callers that don't care simply
 // ignore it. A failure here must never fail or delay a save.
+/* The outcome of the last attempt is kept so it can be read back in ⚙ later.
+   A notification that fails does so on a phone nobody is watching, and without
+   this there is no way to tell "never attempted" from "attempted and refused". */
+const LAST_NOTIFY_KEY="vf_loading_lastnotify";
+function noteNotify(rec){
+  try{ localStorage.setItem(LAST_NOTIFY_KEY, JSON.stringify(rec)); }catch(_){}
+  const el=$("#pushLast"); if(el) el.textContent=describeNotify(rec);
+}
+function lastNotify(){
+  try{ return JSON.parse(localStorage.getItem(LAST_NOTIFY_KEY)||"null"); }catch(_){ return null; }
+}
+function describeNotify(r){
+  if(!r) return "";
+  const when=timeLabel(r.t)+" · "+(r.event||"?")+(r.plate?" "+r.plate:"");
+  if(r.out) return when+" · "+r.out;
+  const b=r.body||{};
+  if(r.status!==200) return when+" · FAILED "+(b.error||("HTTP "+r.status));
+  if(b.errors && b.errors.length) return when+" · REJECTED "+String(b.errors[0]).slice(0,60);
+  return when+" · sent to "+(b.sent||0)+" of "+(b.recipients||0)+" phones";
+}
 function notifyStaff(event, plate, remark){
-  if(!pushConfigured() || !CloudBackend.client) return Promise.resolve(null);
+  if(!pushConfigured() || !CloudBackend.client){
+    noteNotify({ t:Date.now(), event:event, plate:plate, out:"skipped — notifications not set up" });
+    return Promise.resolve(null);
+  }
   return Promise.all([CloudBackend.client.auth.getSession(), loadMyEndpoint()]).then(r=>{
     const res=r[0], ep=r[1];
     const tok=res && res.data && res.data.session && res.data.session.access_token;
-    if(!tok) return null;
-    return fetch(String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-notify",{
+    if(!tok){ noteNotify({ t:Date.now(), event:event, plate:plate, out:"skipped — not signed in" }); return null; }
+    const url=String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-notify";
+    const opts={
       method:"POST",
+      // keepalive lets the request finish even if the app is backgrounded or
+      // the screen locks the moment after Save — otherwise the browser simply
+      // cancels it and the alert is lost with no trace anywhere.
+      keepalive:true,
       headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+tok, "apikey":CFG.SUPABASE_ANON_KEY },
       body:JSON.stringify({ event:event, vehicle:plate||"", remark:remark||"", endpoint:ep, client:APP_BUILD }),
-    }).then(r2=>r2.json().then(j=>({ status:r2.status, body:j })).catch(()=>({ status:r2.status, body:null })));
-  }).catch(e=>({ status:0, body:{ error:(e&&e.message)||"Network error" } }));
+    };
+    const once=()=>fetch(url,opts).then(r2=>r2.json().then(j=>({ status:r2.status, body:j }))
+                                             .catch(()=>({ status:r2.status, body:null })));
+    // One retry: a phone at a fuel depot drops packets, and losing an alert to
+    // a single flaky request is not acceptable.
+    return once().catch(()=>once()).then(r2=>{
+      noteNotify({ t:Date.now(), event:event, plate:plate, status:r2.status, body:r2.body });
+      return r2;
+    });
+  }).catch(e=>{
+    const r={ status:0, body:{ error:(e&&e.message)||"Network error" } };
+    noteNotify({ t:Date.now(), event:event, plate:plate, status:0, body:r.body });
+    return r;
+  });
 }
 function hostOf(u){ try{ return new URL(u).host; }catch(_){ return "unknown"; } }
 // Ask the running worker which build it is, so a stale worker is distinguishable
