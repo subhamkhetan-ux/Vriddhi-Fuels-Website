@@ -34,13 +34,20 @@ again.
 1. **Home shows a card per tanker** drawn as an actual **tanker graphic**: the
    tank is split into its **numbered chambers** (widths scaled to each chamber's
    capacity) and each one **fills with diesel from the bottom**, animating up as
-   the level changes. Alongside it: the current litres (e.g. `5,485 / 11,955 L`),
+   the level changes. A tanker that is **being loaded right now** gets a **fuel
+   nozzle** that drops in over the chamber last filled and **pours a live stream
+   of diesel into it**, with that chamber outlined. It goes back to the plain
+   graphic once **an hour passes with no loading** on that tanker (or it fills
+   up, or it is sent for sale — the loading is over either way).
+   Alongside it: the current litres (e.g. `5,485 / 11,955 L`),
    how much is **left to fill**, and per-chamber remaining. A full tanker glows
    green with a **FULL ✓** badge.
 2. **Tap a tanker → Add diesel.** The same tanker graphic sits at the top of the
    screen and **fills live as you type** — the chamber you're typing into is
-   outlined, and the litres you're adding show as a brighter layer on top of what
-   is already in that chamber. Below, each chamber shows what is **already in it**
+   outlined, the **nozzle swings over it and starts pouring** as soon as there
+   are litres in the box, and the litres you're adding show as a brighter layer
+   on top of what is already in that chamber. Below, each chamber shows what is
+   **already in it**
    (`1,500 / 3,985 L`) with a two-tone bar — the darker part is what's already
    there, the brighter part is what you're **adding now**. The **Add litres** box
    is always blank; type the litres you're loading and **Left to fill** for that
@@ -117,6 +124,48 @@ small admin screen:
 Every signed-in employee has equal rights (add / delete / export). The anon key
 alone can read or write nothing — access is gated by sign-in and Row Level
 Security, and all writes go through server functions.
+
+## Notifications (optional)
+
+Every signed-in employee can get a push alert **on their own phone** when a
+tanker changes state — **except the person who pressed the button**, who
+already knows:
+
+| Alert | When |
+|---|---|
+| 🛢️ **`<tanker>` — loading started** | the first diesel goes into an empty tanker |
+| ✅ **`<tanker>` — tanker full** | a loading fills the last of it |
+| 🚚 **`<tanker>` — sent for sale** | it is dispatched (includes the sold-to note) |
+
+A tanker filled in one go is announced **once** (as *full*), not twice. The
+litres in the message are read from the database by the server, so the text
+can't be faked by a phone. Turn it on per phone under **⚙ Manage tankers &
+data → Notifications → 🔔 Turn on notifications**; signing out of a phone
+detaches it again.
+
+> **iPhone:** web push needs **iOS 16.4+** and the app **added to the Home
+> Screen** — Apple does not deliver push to a page open in a Safari tab. The
+> permission prompt only appears on a real tap, which is why it's a button.
+> Android/Chrome works either way.
+
+Leave `VAPID_PUBLIC_KEY` in [`config.js`](./config.js) as its placeholder and
+the app simply runs **without** notifications — everything else is unchanged.
+
+### Turning it on (one time, all in the Supabase dashboard)
+
+1. **Generate a VAPID key pair** — e.g. `npx web-push generate-vapid-keys`.
+   The **public** key goes in `config.js`; the **private** key never leaves
+   Supabase.
+2. **Re-run** [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
+   in the SQL Editor (safe to re-run). It adds the `loading_push_subs` table and
+   the register/forget functions.
+3. **Edge Functions → Deploy a new function** named `loading-notify`, pasting
+   [`../supabase/functions/loading-notify/index.ts`](../supabase/functions/loading-notify/index.ts).
+   (Or `supabase functions deploy loading-notify` with the CLI.)
+4. **Set its secrets** — `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and
+   `VAPID_SUBJECT` (e.g. `mailto:you@example.com`).
+5. Paste the **public** key into `config.js` as `VAPID_PUBLIC_KEY` and deploy.
+6. On each phone: open `/loading/`, sign in, **⚙ → 🔔 Turn on notifications**.
 
 ### What's kept vs. what's trimmed after 7 days
 

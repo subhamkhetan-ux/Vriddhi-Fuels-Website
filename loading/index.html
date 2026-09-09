@@ -260,7 +260,9 @@
   .lerr{color:#ffb4b4;font-weight:700;font-size:14px;min-height:20px;margin-bottom:8px}
 
   /* ===== Tanker graphic (chambers visible, fills with animation) ===== */
-  .tankwrap{width:100%;margin:8px 0 6px;position:relative}
+  /* the svg carries ~30 units of headroom for the nozzle; pull it back up so
+     the cards don't grow a gap when nothing is pouring */
+  .tankwrap{width:100%;margin:-10px 0 4px;position:relative}
   .tanksvg{width:100%;height:auto;display:block}
   .tanksvg .body{fill:url(#tkBody);stroke:#33477a;stroke-width:1.6}
   .tanksvg .cab,.tanksvg .chassis{fill:#1c2f5e}
@@ -278,13 +280,30 @@
     paint-order:stroke;stroke:#101b33;stroke-width:3.5px;stroke-linejoin:round}
   .tanksvg .seghl{fill:none;stroke:var(--amber);stroke-width:0;rx:4}
   .tanksvg .seghl.on{stroke-width:2.5;animation:segpulse 1.5s ease-in-out infinite}
+  .tanksvg .seghl.pour{stroke:#8ff0c6;stroke-width:2.5;animation:segpulse 1.5s ease-in-out infinite}
   @keyframes segpulse{0%,100%{opacity:.55}50%{opacity:1}}
+
+  /* ---- Live fuel nozzle (shown while a tanker is actively loading) ---- */
+  .tanksvg .pourpos{display:none}
+  .tanksvg.pouring .pourpos{display:block}
+  .tanksvg.pouring .pourin{animation:nzdrop .45s cubic-bezier(.2,1.5,.4,1) both}
+  .tanksvg .hose{fill:none;stroke:#0d1730;stroke-width:4.5;stroke-linecap:round}
+  .tanksvg .nzbody{fill:#a8bce0;stroke:#33477a;stroke-width:1}
+  .tanksvg .nzgrip{fill:#33477a}
+  .tanksvg .nzspout{fill:#6d7c9c}
+  .tanksvg .pourjet{stroke:url(#tkJet);stroke-width:4.2;stroke-linecap:round;opacity:.92}
+  .tanksvg .pourdrops{stroke:#eafff7;stroke-width:2;stroke-linecap:round;
+    stroke-dasharray:3.5 6;animation:pourflow .5s linear infinite}
+  .tanksvg.pouring .pourg{animation:nzbob 2.4s ease-in-out infinite}
+  @keyframes pourflow{from{stroke-dashoffset:0}to{stroke-dashoffset:-11}}
+  @keyframes nzbob{0%,100%{transform:translateY(0)}50%{transform:translateY(1.2px)}}
+  @keyframes nzdrop{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
   .tanksvg .sheen{fill:url(#tkSheen);animation:tksheen 4.2s ease-in-out infinite}
   @keyframes tksheen{0%{transform:translateX(-45%)}60%,100%{transform:translateX(120%)}}
   /* on the dark add-screen header the tank needs a lighter edge to read */
   .vhead .tanksvg .body{stroke:#6c8ad0}
   .vhead .tanksvg .chassis,.vhead .tanksvg .cab{fill:#0d1730}
-  .vhead .tankwrap{margin:4px 0 8px}
+  .vhead .tankwrap{margin:-9px 0 6px}
   .tcard.full .tanksvg .body{stroke:var(--green)}
   .tcard.full .tankwrap{animation:tkglow 2.6s ease-in-out infinite}
   @keyframes tkglow{0%,100%{filter:drop-shadow(0 0 0 rgba(31,157,85,0))}
@@ -296,7 +315,10 @@
   @keyframes badgepulse{0%,100%{box-shadow:0 0 0 0 rgba(31,157,85,.5)}50%{box-shadow:0 0 0 7px rgba(31,157,85,0)}}
   @media (prefers-reduced-motion: reduce){
     .tanksvg .lq{transition:none}
-    .tanksvg .sheen,.tcard.full .tankwrap,.tcard.full .badge2,.tanksvg .seghl.on{animation:none}
+    .tanksvg .sheen,.tcard.full .tankwrap,.tcard.full .badge2,.tanksvg .seghl.on,
+    .tanksvg .seghl.pour,.tanksvg .pourdrops,
+    .tanksvg.pouring .pourg,.tanksvg.pouring .pourin{animation:none}
+    /* the nozzle still shows which chamber is filling — it just holds still */
   }
 </style>
 </head>
@@ -428,6 +450,11 @@
       <div class="sectitle">Tankers</div>
       <div id="vehList"></div>
 
+      <div id="pushWrap" style="display:none">
+        <div class="sectitle">Notifications</div>
+        <div id="pushBox"></div>
+      </div>
+
       <div class="card-add">
         <div class="ca-h">Add a new tanker</div>
         <input id="newPlate" placeholder="Vehicle number (e.g. OD23A9999)" autocapitalize="characters" autocorrect="off" spellcheck="false" />
@@ -511,6 +538,11 @@
   </linearGradient>
   <linearGradient id="tkOver" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="#ff8f8f"/><stop offset="1" stop-color="#d64545"/>
+  </linearGradient>
+  <!-- userSpaceOnUse: the jet is a vertical line, and a zero-width bounding box
+       makes an objectBoundingBox gradient paint nothing at all. -->
+  <linearGradient id="tkJet" gradientUnits="userSpaceOnUse" x1="0" y1="-2" x2="0" y2="15">
+    <stop offset="0" stop-color="#d6fff0"/><stop offset="0.45" stop-color="#8ff0c6"/><stop offset="1" stop-color="#3fbf7a"/>
   </linearGradient>
   <linearGradient id="tkSheen" x1="0" y1="0" x2="1" y2="0">
     <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.30"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
@@ -768,8 +800,11 @@ function rerenderCurrent(){
 // Auto-end any business day whose 8 AM deadline has passed, then reload.
 function maybeAutoClose(){ return Backend.closeDue().then(refresh).then(rerenderCurrent).catch(()=>{}); }
 setInterval(()=>{ if(Backend && (Backend!==CloudBackend || ME)) maybeAutoClose(); }, 5*60*1000);
-// re-render the End Day area every minute so the 5:30/7:30 window edges show promptly
-setInterval(()=>{ if(stack[stack.length-1]==="scHome" && (Backend!==CloudBackend || ME)) renderEndDay(); }, 60*1000);
+// re-render the End Day area every minute so the 5:30/7:30 window edges show
+// promptly, and re-check which tankers are still actively loading
+setInterval(()=>{
+  if(stack[stack.length-1]==="scHome" && (Backend!==CloudBackend || ME)){ renderEndDay(); applyPourAll(); }
+}, 60*1000);
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (Backend!==CloudBackend || ME)) maybeAutoClose(); });
 
 /* ---------- Screen routing ---------- */
@@ -814,27 +849,54 @@ function tankerState(plate){
    Side-view tanker whose chambers are drawn to scale (width ∝ capacity), each
    numbered and filling from the bottom. Liquid rects are always emitted (even at
    height 0) so the DOM is stable and CSS can transition y/height as it fills. */
-const TK={W:320,H:104,x:52,y:10,w:262,h:54};
+// TOP is negative: the headroom above the tank where the fuel nozzle hangs.
+const TK={W:320,H:128,TOP:-24,x:52,y:10,w:262,h:54};
 function f1(n){ return (Math.round(n*10)/10); }
-function tankerSVG(caps){
+// One source of truth for where each chamber sits, so the nozzle lines up
+// with the same chamber the liquid rects use.
+function chamberBoxes(caps){
   const capT=caps.reduce((s,c)=>s+(+c||0),0)||1;
+  let x=TK.x; const out=[];
+  caps.forEach(cap=>{ const w=TK.w*((+cap||0)/capT); out.push({x:x,w:w}); x+=w; });
+  return out;
+}
+/* The fuel nozzle, drawn around x=0 so one group can be slid over whichever
+   chamber is being filled. It is emitted BEFORE the tank body, so the jet
+   vanishes behind the tank's top edge exactly like diesel going in the filler.
+   Hidden until the svg gets the .pouring class. */
+function nozzleSVG(){
+  // Three nested groups on purpose: .pourpos carries the x position as an SVG
+  // attribute, and a CSS transform would clobber it — so the entrance and the
+  // idle bob get a layer each of their own.
+  return '<g class="pourpos" aria-hidden="true"><g class="pourin"><g class="pourg">'
+    +'<line class="pourjet" x1="0" y1="-2" x2="0" y2="15"/>'
+    +'<line class="pourdrops" x1="0" y1="-2" x2="0" y2="15"/>'
+    +'<path class="hose" d="M-34 -20 C -22 -20 -16 -17 -10 -13"/>'
+    +'<path class="nzbody" d="M-8 -16 L8 -16 L6 -5 L-6 -5 Z"/>'
+    +'<rect class="nzgrip" x="-12" y="-15" width="6" height="4.5" rx="2.2"/>'
+    +'<rect class="nzspout" x="-2.6" y="-6" width="5.2" height="5" rx="1.4"/>'
+    +'</g></g></g>';
+}
+function tankerSVG(caps){
+  const boxes=chamberBoxes(caps);
   const bot=TK.y+TK.h;
-  let x=TK.x, liquids="", baffles="", labels="", fillers="", segs="";
+  let liquids="", baffles="", labels="", fillers="", segs="";
   caps.forEach((cap,i)=>{
-    const w=TK.w*((+cap||0)/capT);
+    const x=boxes[i].x, w=boxes[i].w;
     liquids+='<rect class="lq have" x="'+f1(x)+'" width="'+f1(w)+'" y="'+bot+'" height="0"/>'
             +'<rect class="lq add" x="'+f1(x)+'" width="'+f1(w)+'" y="'+bot+'" height="0"/>';
     labels+='<text class="cnum" x="'+f1(x+w/2)+'" y="'+f1(TK.y+TK.h/2+5)+'">'+(i+1)+'</text>';
     fillers+='<rect class="filler" x="'+f1(x+w/2-5)+'" y="'+(TK.y-4)+'" width="10" height="5" rx="2"/>';
     segs+='<rect class="seghl" data-seg="'+i+'" x="'+f1(x+1.5)+'" y="'+(TK.y+1.5)+'" width="'+f1(Math.max(w-3,0))+'" height="'+(TK.h-3)+'"/>';
-    x+=w;
-    if(i<caps.length-1) baffles+='<line class="baffle" x1="'+f1(x)+'" y1="'+TK.y+'" x2="'+f1(x)+'" y2="'+bot+'"/>';
+    const edge=x+w;
+    if(i<caps.length-1) baffles+='<line class="baffle" x1="'+f1(edge)+'" y1="'+TK.y+'" x2="'+f1(edge)+'" y2="'+bot+'"/>';
   });
-  return '<svg class="tanksvg" viewBox="0 0 '+TK.W+' '+TK.H+'" role="img" aria-label="Tanker chambers">'
+  return '<svg class="tanksvg" viewBox="0 '+TK.TOP+' '+TK.W+' '+TK.H+'" role="img" aria-label="Tanker chambers">'
     +'<rect class="chassis" x="14" y="66" width="292" height="7" rx="3"/>'
     +'<path class="cab" d="M8 40 L26 40 L40 52 L40 68 L8 68 Z"/>'
     +'<path class="win" d="M27 43 L36 52 L27 52 Z"/>'
     +fillers
+    +nozzleSVG()
     +'<rect class="body" x="'+TK.x+'" y="'+TK.y+'" width="'+TK.w+'" height="'+TK.h+'" rx="10"/>'
     +'<g clip-path="url(#tkClip)">'+liquids
       +'<rect class="sheen" x="'+TK.x+'" y="'+TK.y+'" width="46" height="'+TK.h+'"/></g>'
@@ -861,6 +923,45 @@ function tankFill(svg, caps, cham, addArr){
     const h=haves[i], a=adds[i];
     if(h){ h.setAttribute("y",f1(bot-hH)); h.setAttribute("height",f1(hH)); h.classList.toggle("over",over); }
     if(a){ a.setAttribute("y",f1(bot-hH-aH)); a.setAttribute("height",f1(aH)); a.classList.toggle("over",over); }
+  });
+}
+
+/* ---------- "Pouring" state ----------
+   A tanker shows the live nozzle while it is actively being loaded. It goes
+   back to the plain graphic once an hour passes with no loading on it (or it
+   is sent for sale, or it fills up — in both cases the loading is over). */
+const POUR_MS = 60*60*1000;   // one quiet hour ends the pour
+function pourTarget(plate){
+  const st=tankerState(plate);
+  if(st.total<=0 || st.full) return -1;            // empty, or finished filling
+  let last=null;
+  for(let i=LOG.length-1;i>=0;i--){ if(LOG[i].plate===plate){ last=LOG[i]; break; } }
+  if(!last || (last.kind||"load")==="dispatch") return -1;   // last action was a sale
+  if(Date.now()-last.ts > POUR_MS) return -1;                // gone quiet
+  const chs=last.chambers||[];
+  const nm=chs.length ? String(chs[chs.length-1].name||"") : "";
+  const i=parseInt(nm.replace(/^C/i,""),10)-1;
+  return (i>=0 && i<st.caps.length) ? i : 0;       // the chamber last filled
+}
+// Move the nozzle over chamber `idx` and start it pouring; idx<0 turns it off.
+function applyPour(svg, caps, idx){
+  if(!svg) return;
+  svg.querySelectorAll(".seghl").forEach(s=>s.classList.remove("pour"));
+  const pos=svg.querySelector(".pourpos");
+  const box=(idx>=0 && caps && caps.length) ? chamberBoxes(caps)[idx] : null;
+  if(!pos || !box){ svg.classList.remove("pouring"); return; }
+  pos.setAttribute("transform","translate("+f1(box.x+box.w/2)+",0)");
+  svg.classList.add("pouring");
+  const seg=svg.querySelector('.seghl[data-seg="'+idx+'"]');
+  if(seg) seg.classList.add("pour");
+}
+// Re-check every card without rebuilding them (a rebuild would replay the
+// fill animation); this is what makes the nozzle stop on its own after an hour.
+function applyPourAll(){
+  const list=$("#tankerList"); if(!list) return;
+  list.querySelectorAll(".tcard").forEach(card=>{
+    const plate=card.dataset.plate;
+    applyPour(card.querySelector(".tanksvg"), tankerState(plate).caps, pourTarget(plate));
   });
 }
 
@@ -941,6 +1042,7 @@ function renderTankers(){
       const st=tankerState(card.dataset.plate);
       tankFill(card.querySelector(".tanksvg"), st.caps, st.cham, null);
     });
+    applyPourAll();
   });
 }
 function entryHTML(e){
@@ -980,6 +1082,7 @@ $("#dispOk").onclick=()=>{
   Backend.dispatch(plate, remark).then(refresh).then(()=>{
     btn.disabled=false; closeDisp(); renderHome();
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:""));
+    notifyStaff("sold", plate, remark);
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 $("#dispSold").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#dispOk").click(); });
@@ -990,15 +1093,30 @@ function startAdd(plate){
   const st=tankerState(plate);
   draft={ plate:plate, caps:st.caps.slice(), existing:st.cham.slice(), add:st.caps.map(()=>"") };
   $("#qPlate").textContent=plate;
+  focusSeg=-1;
   tankReady=false;                                  // draw empty first…
   $("#addTank").innerHTML=tankerSVG(draft.caps);
   renderChambers();
   show("scAdd");
   requestAnimationFrame(()=>{ tankReady=true; refreshChamState(); });  // …then fill, so it animates
 }
+let focusSeg=-1;   // chamber whose input has the keyboard, or -1
 function highlightSeg(i){
+  focusSeg=i;
   const svg=$("#addTank .tanksvg"); if(!svg) return;
   svg.querySelectorAll(".seghl").forEach(s=>s.classList.toggle("on", +s.dataset.seg===i));
+  updateAddPour();
+}
+// On the add screen the nozzle pours into the chamber being typed into. It
+// keeps pouring there after the keyboard closes — what matters is that litres
+// are pending, not where the cursor is — and stops when the boxes are empty.
+function updateAddPour(){
+  if(!draft) return;
+  let live = (focusSeg>=0 && num(draft.add[focusSeg])>0) ? focusSeg : -1;
+  if(live<0){
+    for(let i=draft.caps.length-1;i>=0;i--){ if(num(draft.add[i])>0){ live=i; break; } }
+  }
+  applyPour($("#addTank .tanksvg"), draft.caps, live);
 }
 function renderChambers(){
   $("#chamList").innerHTML = draft.caps.map((cap,i)=>{
@@ -1040,7 +1158,10 @@ function refreshChamState(){
     el.querySelector("[data-left]").textContent=fmt(Math.max(r2(cap-newTot),0));
     el.querySelector("[data-over]").textContent=fmt(Math.max(r2(newTot-cap),0));
   });
-  if(tankReady) tankFill($("#addTank .tanksvg"), draft.caps, draft.existing, draft.add.map(num));
+  if(tankReady){
+    tankFill($("#addTank .tanksvg"), draft.caps, draft.existing, draft.add.map(num));
+    updateAddPour();
+  }
   updateRun();
 }
 function addTotal(){ return r2(draft.add.reduce((s,q)=> s+num(q),0)); }
@@ -1088,8 +1209,14 @@ $("#saveBtn").onclick=()=>{
   if(!chambers.length){ toast("Nothing to save"); return; }
   const entry={ id:localId(), ts:Date.now(), plate:draft.plate, kind:"load", chambers:chambers, total:addTotal(), by:ME };
   const btn=$("#saveBtn"); btn.disabled=true;
+  // Snapshot before the save so we can tell "started" from "just became full".
+  const plate=draft.plate, was=tankerState(plate);
   Backend.add(entry).then(refresh).then(()=>{
     btn.disabled=false; draft=null; goHome(); toast("✓ Added "+fmt(entry.total)+" L");
+    const now=tankerState(plate);
+    // Full wins over started: a tanker filled in one go is only announced once.
+    if(!was.full && now.full) notifyStaff("complete", plate);
+    else if(was.total<=0 && now.total>0) notifyStaff("start", plate);
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
@@ -1322,6 +1449,46 @@ function renderSettings(){
   }).join("") : '<div class="empty">No tankers yet. Add one below.</div>';
   box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
+  renderPushBox();
+}
+
+/* ---- Notifications: one switch per phone ---- */
+function renderPushBox(){
+  const wrap=$("#pushWrap"); if(!wrap) return;
+  if(!pushConfigured()){ wrap.style.display="none"; return; }
+  wrap.style.display="";
+  const box=$("#pushBox");
+  const note='<div class="note" style="text-align:left;margin:0 2px 10px">'
+    +'Get an alert when a tanker <b>starts loading</b>, becomes <b>full</b>, or is '
+    +'<b>sent for sale</b> — on every phone except the one that did it.</div>';
+  if(!pushSupported()){
+    box.innerHTML=note+'<div class="note" style="text-align:left;margin:0 2px">'
+      +'This phone can\'t show notifications. On iPhone you need iOS 16.4+ and the app '
+      +'<b>added to the Home Screen</b> (they don\'t work in a Safari tab).</div>';
+    return;
+  }
+  if(Notification.permission==="denied"){
+    box.innerHTML=note+'<div class="note" style="text-align:left;margin:0 2px">'
+      +'Notifications are <b>blocked</b> for this app in the phone\'s settings. '
+      +'Allow them there, then come back and turn them on here.</div>';
+    return;
+  }
+  navigator.serviceWorker.ready
+    .then(reg=>reg.pushManager.getSubscription())
+    .then(sub=>{
+      const on = Notification.permission==="granted" && !!sub;
+      box.innerHTML=note
+        + (on
+          ? '<div class="endednote" style="margin:0 2px 10px">🔔 On for this phone.</div>'
+            +'<button class="big" id="pushOff" style="font-size:16px;padding:13px;margin-bottom:0">'
+            +'<span class="em">🔕</span><span>Turn off on this phone</span></button>'
+          : '<button class="big green" id="pushOn" style="font-size:17px;padding:14px;margin-bottom:0">'
+            +'<span class="em">🔔</span><span>Turn on notifications</span></button>');
+      const on1=$("#pushOn"), off1=$("#pushOff");
+      if(on1) on1.onclick=()=>enablePush(true);
+      if(off1) off1.onclick=disablePush;
+    })
+    .catch(()=>{ box.innerHTML=note; });
 }
 
 /* ---- Edit a tanker's chambers/capacities (fill, totals & history are kept) ---- */
@@ -1423,6 +1590,83 @@ $("#toReport2").onclick=openReport;
 $("#toLog").onclick=()=>{ renderLog(); show("scLog"); };
 $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
 
+/* ---------- Push notifications (cloud mode only) ----------
+   Alerts every OTHER signed-in employee when a tanker starts loading, becomes
+   full, or is sent for sale. Who to skip is decided server-side from the
+   caller's token, so nobody is pinged about their own tap.
+
+   iPhone: web push needs iOS 16.4+ AND the app added to the Home Screen —
+   it does not work in a Safari tab. Permission must come from a real tap,
+   which is why this is a button rather than an automatic prompt. */
+function pushConfigured(){
+  const k=CFG.VAPID_PUBLIC_KEY||"";
+  return CLOUD && !!k && k.indexOf("PASTE")===-1;
+}
+function pushSupported(){
+  return "serviceWorker" in navigator && "PushManager" in window && typeof Notification!=="undefined";
+}
+function urlB64ToUint8(s){
+  const pad="=".repeat((4-s.length%4)%4);
+  const b64=(s+pad).replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(b64), out=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+  return out;
+}
+// interactive=true means the user tapped the button, so we may prompt and talk back.
+async function enablePush(interactive){
+  if(!pushConfigured() || !pushSupported()){
+    if(interactive) toast("Notifications aren't available on this device");
+    return false;
+  }
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    let perm=Notification.permission;
+    if(perm==="default" && interactive) perm=await Notification.requestPermission();
+    if(perm!=="granted"){
+      if(interactive) toast(perm==="denied" ? "Notifications are blocked in phone settings" : "Notifications not turned on");
+      return false;
+    }
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({
+      userVisibleOnly:true, applicationServerKey:urlB64ToUint8(CFG.VAPID_PUBLIC_KEY),
+    });
+    const j=sub.toJSON(), k=j.keys||{};
+    await CloudBackend.rpc("loading_push_save",{
+      p_endpoint:j.endpoint, p_p256dh:k.p256dh, p_auth:k.auth, p_by:ME||"",
+    });
+    if(interactive){ toast("🔔 Notifications on for this phone"); renderSettings(); }
+    return true;
+  }catch(e){
+    if(interactive) toast("Could not turn on notifications");
+    return false;
+  }
+}
+async function disablePush(){
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription();
+    if(sub){
+      await CloudBackend.rpc("loading_push_drop",{ p_endpoint:sub.endpoint }).catch(()=>{});
+      await sub.unsubscribe().catch(()=>{});
+    }
+    toast("Notifications off for this phone");
+  }catch(e){ /* nothing worth interrupting the user for */ }
+  renderSettings();
+}
+// Fire-and-forget: a failed notification must never fail or delay a save.
+function notifyStaff(event, plate, remark){
+  if(!pushConfigured() || !CloudBackend.client) return;
+  CloudBackend.client.auth.getSession().then(res=>{
+    const tok=res && res.data && res.data.session && res.data.session.access_token;
+    if(!tok) return;
+    return fetch(String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-notify",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+tok, "apikey":CFG.SUPABASE_ANON_KEY },
+      body:JSON.stringify({ event:event, vehicle:plate, remark:remark||"" }),
+    });
+  }).catch(()=>{});
+}
+
 /* ---------- Realtime (cloud) ---------- */
 let realtimeOn=false;
 function subscribeRealtime(){
@@ -1452,12 +1696,23 @@ function startApp(session){
   Backend=CloudBackend;
   ME = usernameFromEmail(session && session.user && session.user.email);
   subscribeRealtime();
+  // Already allowed on this phone? Re-register silently — the browser can
+  // rotate a subscription, and a new sign-in must be attached to this user.
+  if(pushConfigured() && pushSupported() && Notification.permission==="granted") enablePush(false);
   CloudBackend.purge();
   return CloudBackend.closeDue().then(refresh).then(()=>{ goHome(); }).catch(oops);
 }
 function signOut(){
   if(!confirm("Sign out of this phone?")) return;
-  CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; goHome(); showLogin(); });
+  // Detach this phone's push subscription first (the RPC needs the session),
+  // so a signed-out phone stops receiving this employee's alerts.
+  const done=()=>CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; goHome(); showLogin(); });
+  if(!pushConfigured() || !pushSupported()) return done();
+  navigator.serviceWorker.ready
+    .then(reg=>reg.pushManager.getSubscription())
+    .then(sub=>sub ? CloudBackend.rpc("loading_push_drop",{ p_endpoint:sub.endpoint }).catch(()=>{}) : null)
+    .catch(()=>{})
+    .then(done);
 }
 
 $("#btnLogin").onclick=function(){

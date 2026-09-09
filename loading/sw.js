@@ -1,5 +1,5 @@
 /* Tanker Loading — service worker (app-shell cache, offline-first) */
-const CACHE = "vf-loading-v10";
+const CACHE = "vf-loading-v11";
 // Cache storage is per-origin, not per-scope — the other Vriddhi apps (/app/,
 // /pay/, /payments/, /tally/) keep their caches alongside ours. Only ever
 // delete our own, so bumping this app's version can't wipe theirs.
@@ -18,6 +18,38 @@ self.addEventListener("activate", (e) => {
         keys.filter((k) => k.startsWith(MINE) && k !== CACHE).map((k) => caches.delete(k))
       )
     ).then(() => self.clients.claim())
+  );
+});
+
+// ---- Web Push (loading alerts: started / full / sent for sale) ----
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || "Tanker Loading", {
+    body: d.body || "",
+    icon: "../Vriddhi%20Fuels%20Logo.png",
+    badge: "../Vriddhi%20Fuels%20Logo.png",
+    tag: d.tag,
+    renotify: !!d.tag,
+    data: { url: d.url || "./" },
+  }));
+});
+
+// Tapping a notification focuses the already-open app rather than opening a
+// second copy of it.
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "./";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if ("focus" in w) {
+          if (w.navigate) { try { w.navigate(url); } catch (_) {} }
+          return w.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
   );
 });
 

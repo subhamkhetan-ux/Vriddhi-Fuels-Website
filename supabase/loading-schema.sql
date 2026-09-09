@@ -83,6 +83,22 @@ create table if not exists public.loading_day_closes (
 );
 
 -- ---------------------------------------------------------------------
+-- Web-push subscriptions — one row per phone (endpoint) per employee.
+-- Used by the `loading-notify` edge function to alert everyone EXCEPT the
+-- person who pressed the button. (No FK to auth.users — like closed_by above,
+-- so this file still loads into a plain Postgres for testing.)
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_push_subs (
+  endpoint   text primary key,
+  user_id    uuid not null,
+  by_name    text not null default '',
+  p256dh     text not null,
+  auth       text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_loading_push_user on public.loading_push_subs(user_id);
+
+-- ---------------------------------------------------------------------
 -- Row Level Security: signed-in users can READ the last 7 days only; no
 -- direct writes (all mutations go through the RPCs below).
 -- (authenticated/anon already exist on Supabase; created here only when the
@@ -101,6 +117,22 @@ end $$;
 alter table public.loading_events enable row level security;
 alter table public.loading_vehicles enable row level security;
 alter table public.loading_day_closes enable row level security;
+alter table public.loading_push_subs enable row level security;
+
+-- A phone may only ever see or touch its own owner's subscriptions. The edge
+-- function reads every row with the service-role key, which bypasses RLS.
+-- Unlike the read policies above this one names auth.uid(), which a policy
+-- expression resolves at creation time — so it is skipped on a plain Postgres
+-- that has no auth schema (testing), exactly like the realtime block below.
+do $$
+begin
+  if exists (select 1 from pg_namespace where nspname = 'auth') then
+    drop policy if exists loading_push_own on public.loading_push_subs;
+    create policy loading_push_own on public.loading_push_subs
+      for all to authenticated
+      using (user_id = auth.uid()) with check (user_id = auth.uid());
+  end if;
+end $$;
 
 drop policy if exists loading_events_read on public.loading_events;
 create policy loading_events_read on public.loading_events
@@ -331,6 +363,33 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
+-- Web push: register / forget this phone. Keyed on the browser's endpoint,
+-- so re-registering the same phone updates its keys instead of piling up.
+-- ---------------------------------------------------------------------
+create or replace function public.loading_push_save(
+  p_endpoint text, p_p256dh text, p_auth text, p_by text
+) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  if coalesce(p_endpoint,'') = '' or coalesce(p_p256dh,'') = '' or coalesce(p_auth,'') = '' then
+    raise exception 'Incomplete push subscription';
+  end if;
+  insert into loading_push_subs (endpoint, user_id, by_name, p256dh, auth)
+    values (p_endpoint, auth.uid(), coalesce(p_by,''), p_p256dh, p_auth)
+  on conflict (endpoint) do update
+    set user_id = excluded.user_id, by_name = excluded.by_name,
+        p256dh  = excluded.p256dh,  auth    = excluded.auth;
+end $$;
+
+create or replace function public.loading_push_drop(p_endpoint text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  delete from loading_push_subs where endpoint = p_endpoint and user_id = auth.uid();
+end $$;
+
+-- ---------------------------------------------------------------------
 -- Grants: RPCs for signed-in users only (Supabase-specific; skipped
 -- gracefully on a plain Postgres used for testing).
 -- ---------------------------------------------------------------------
@@ -347,7 +406,9 @@ begin
       public.loading_vehicle_add(text, jsonb, text),
       public.loading_vehicle_remove(text),
       public.loading_end_day(),
-      public.loading_close_due()
+      public.loading_close_due(),
+      public.loading_push_save(text, text, text, text),
+      public.loading_push_drop(text)
     to authenticated;
   end if;
 end $$;
