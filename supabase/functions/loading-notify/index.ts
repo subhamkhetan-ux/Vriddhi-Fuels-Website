@@ -101,6 +101,9 @@ Deno.serve(async (req) => {
   // subscription at all (notifications switched off there).
   const hasEndpointField = Object.prototype.hasOwnProperty.call(body, "endpoint");
   const selfEndpoint = String(body.endpoint ?? "");
+  // Which build called. A phone running a stale cached copy behaves differently
+  // from an updated one, and that is invisible from the server otherwise.
+  const client = String(body.client ?? "unknown").slice(0, 40);
   if (!["start", "resume", "complete", "sold", "test"].includes(event)) {
     return json({ error: "Unknown event" }, 400);
   }
@@ -179,8 +182,14 @@ Deno.serve(async (req) => {
   } else {
     if (event === "test") q = q.eq("endpoint", selfEndpoint);
     else if (selfEndpoint) q = q.neq("endpoint", selfEndpoint);
-    else if (!hasEndpointField) q = q.neq("user_id", actorId);   // pre-endpoint client
-    // else: sender has no subscription — exclude nothing, notify everyone.
+    // No endpoint: either the phone has push off, or it is an older build that
+    // doesn't send one. Both mean we cannot identify the sending DEVICE — and
+    // excluding by account instead silences every phone on a shared login,
+    // which is the whole team. Notify everyone: the worst case is the sender
+    // seeing their own alert, which beats nobody being told at all.
+    else if (!hasEndpointField) {
+      console.warn("caller sent no endpoint field (older client) — notifying everyone");
+    }
     const r = await q;
     subs = r.data;
     subsErr = r.error;
@@ -189,7 +198,7 @@ Deno.serve(async (req) => {
     console.error("could not read subscriptions:", subsErr.message);
     return json({ error: "Could not read subscriptions: " + subsErr.message }, 500);
   }
-  console.log(`event=${event} vehicle=${plate} by=${actor} recipients=${subs?.length ?? 0}`);
+  console.log(`event=${event} vehicle=${plate} by=${actor} client=${client} endpoint=${selfEndpoint ? "yes" : (hasEndpointField ? "none" : "MISSING-old-build")} recipients=${subs?.length ?? 0}`);
 
   let sent = 0;
   const stale: string[] = [];

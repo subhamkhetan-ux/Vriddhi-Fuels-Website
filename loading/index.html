@@ -600,7 +600,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v12 · 2026-09-09";
+const APP_BUILD = "v14 · 2026-09-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1771,7 +1771,7 @@ function notifyStaff(event, plate, remark){
     return fetch(String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-notify",{
       method:"POST",
       headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+tok, "apikey":CFG.SUPABASE_ANON_KEY },
-      body:JSON.stringify({ event:event, vehicle:plate||"", remark:remark||"", endpoint:ep }),
+      body:JSON.stringify({ event:event, vehicle:plate||"", remark:remark||"", endpoint:ep, client:APP_BUILD }),
     }).then(r2=>r2.json().then(j=>({ status:r2.status, body:j })).catch(()=>({ status:r2.status, body:null })));
   }).catch(e=>({ status:0, body:{ error:(e&&e.message)||"Network error" } }));
 }
