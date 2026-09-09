@@ -97,6 +97,10 @@ create table if not exists public.loading_push_subs (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_loading_push_user on public.loading_push_subs(user_id);
+-- Refreshed every time a phone re-registers (which is every app open), so a
+-- row that stops being refreshed is a device that no longer exists.
+alter table public.loading_push_subs
+  add column if not exists seen_at timestamptz not null default now();
 
 -- ---------------------------------------------------------------------
 -- Row Level Security: signed-in users can READ the last 7 days only; no
@@ -375,11 +379,19 @@ begin
   if coalesce(p_endpoint,'') = '' or coalesce(p_p256dh,'') = '' or coalesce(p_auth,'') = '' then
     raise exception 'Incomplete push subscription';
   end if;
-  insert into loading_push_subs (endpoint, user_id, by_name, p256dh, auth)
-    values (p_endpoint, auth.uid(), coalesce(p_by,''), p_p256dh, p_auth)
+  insert into loading_push_subs (endpoint, user_id, by_name, p256dh, auth, seen_at)
+    values (p_endpoint, auth.uid(), coalesce(p_by,''), p_p256dh, p_auth, now())
   on conflict (endpoint) do update
     set user_id = excluded.user_id, by_name = excluded.by_name,
-        p256dh  = excluded.p256dh,  auth    = excluded.auth;
+        p256dh  = excluded.p256dh,  auth    = excluded.auth,
+        seen_at = now();
+  -- A phone that re-subscribes gets a NEW endpoint, and the row for its old one
+  -- lives on for ever. Those dead rows are still accepted by the push service,
+  -- so they inflate the "sent" count while delivering to nobody. Every phone
+  -- refreshes seen_at each time the app opens, so anything untouched for a
+  -- month is genuinely gone.
+  delete from loading_push_subs
+   where user_id = auth.uid() and seen_at < now() - interval '30 days';
 end $$;
 
 create or replace function public.loading_push_drop(p_endpoint text) returns void
