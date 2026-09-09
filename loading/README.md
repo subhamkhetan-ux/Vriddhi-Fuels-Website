@@ -151,10 +151,30 @@ phone. Turn it on per phone under **⚙ Manage tankers &
 data → Notifications → 🔔 Turn on notifications**; signing out of a phone
 detaches it again.
 
+Alerts go to every phone **except the device that raised them** — by device,
+not by account, so staff sharing one login still notify each other.
+
 > **iPhone:** web push needs **iOS 16.4+** and the app **added to the Home
 > Screen** — Apple does not deliver push to a page open in a Safari tab. The
 > permission prompt only appears on a real tap, which is why it's a button.
 > Android/Chrome works either way.
+
+### Checking it works
+
+Once a phone is switched on, **⚙ → Notifications → Send a test notification**
+sends one to *that same phone* and reports what came back, so a single person
+can prove the whole chain end to end. The toast tells you which part failed:
+
+| Toast | What it means |
+|---|---|
+| *Test sent ✓* | Everything works. The notification should appear shortly. |
+| *This phone isn't registered* | The subscription didn't save — turn notifications off and on again. |
+| *Push rejected: 403…* | The VAPID keys don't match. The `VAPID_PUBLIC_KEY` in `config.js` and the `VAPID_PRIVATE_KEY` secret must be from the **same** generated pair. |
+| *Server error: VAPID keys not set* | The function's secrets are missing or misnamed. |
+
+The `loading-notify` function's **Logs** tab also prints one line per call —
+`event=… recipients=N` then `sent=… failed=…` — so you can see whether anyone
+was found to notify and whether the send itself failed.
 
 Leave `VAPID_PUBLIC_KEY` in [`config.js`](./config.js) as its placeholder and
 the app simply runs **without** notifications — everything else is unchanged.

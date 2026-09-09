@@ -62,19 +62,25 @@ Deno.serve(async (req) => {
   const event = String(body.event ?? "");
   const plate = String(body.vehicle ?? "").trim();
   const remark = String(body.remark ?? "").trim().slice(0, 80);
-  if (!plate) return json({ error: "vehicle required" }, 400);
-  if (!["start", "resume", "complete", "sold"].includes(event)) return json({ error: "Unknown event" }, 400);
+  // The calling phone's own push endpoint, so we can leave that one device out.
+  const selfEndpoint = String(body.endpoint ?? "");
+  if (!["start", "resume", "complete", "sold", "test"].includes(event)) {
+    return json({ error: "Unknown event" }, 400);
+  }
+  if (!plate && event !== "test") return json({ error: "vehicle required" }, 400);
 
-  // Authoritative litres straight from the tanker row.
-  const { data: veh } = await admin.from("loading_vehicles")
-    .select("plate, caps, fill").eq("plate", plate).maybeSingle();
-  if (!veh) return json({ error: "Unknown tanker" }, 404);
-
-  const caps: number[] = (Array.isArray(veh.caps) ? veh.caps : []).map(Number);
-  const fill: Record<string, number> = veh.fill ?? {};
-  const cap = caps.reduce((s, c) => s + (Number(c) || 0), 0);
-  const now = caps.reduce((s, _c, i) => s + (Number(fill["C" + (i + 1)]) || 0), 0);
-  const left = Math.max(cap - now, 0);
+  // Authoritative litres straight from the tanker row. A test needs no tanker.
+  let cap = 0, now = 0, left = 0;
+  if (event !== "test") {
+    const { data: veh } = await admin.from("loading_vehicles")
+      .select("plate, caps, fill").eq("plate", plate).maybeSingle();
+    if (!veh) return json({ error: "Unknown tanker" }, 404);
+    const caps: number[] = (Array.isArray(veh.caps) ? veh.caps : []).map(Number);
+    const fill: Record<string, number> = veh.fill ?? {};
+    cap = caps.reduce((s, c) => s + (Number(c) || 0), 0);
+    now = caps.reduce((s, _c, i) => s + (Number(fill["C" + (i + 1)]) || 0), 0);
+    left = Math.max(cap - now, 0);
+  }
 
   // For a resumed loading, work out how long it stood idle from the two most
   // recent loadings on the database's own clock — [0] is the one that just
@@ -91,7 +97,10 @@ Deno.serve(async (req) => {
   }
 
   let title: string, text: string;
-  if (event === "start") {
+  if (event === "test") {
+    title = "🔔 Notifications are working";
+    text = `Test sent from ${actor}'s phone. Loading alerts will arrive like this.`;
+  } else if (event === "start") {
     title = `🛢️ ${plate} — loading started`;
     text = `${L(now)} L in · ${L(left)} L to fill · by ${actor}`;
   } else if (event === "resume") {
@@ -105,15 +114,33 @@ Deno.serve(async (req) => {
     text = (remark ? `Sold to ${remark} · ` : "") + `tanker emptied · by ${actor}`;
   }
   const payload = JSON.stringify({
-    title, body: text, url: "./", tag: `loading-${plate}-${event}`,
+    title, body: text, url: "./",
+    // A fresh tag per test, so tapping it twice shows two notifications rather
+    // than the second silently replacing the first.
+    tag: event === "test" ? `loading-test-${Date.now()}` : `loading-${plate}-${event}`,
   });
 
-  // Everyone's phones except the person who pressed the button.
-  const { data: subs } = await admin.from("loading_push_subs")
-    .select("endpoint, p256dh, auth, user_id").neq("user_id", actorId);
+  // Pick the recipients.
+  //   test  -> only the phone that asked, so one person can prove it works.
+  //   else  -> every phone EXCEPT the one that raised this.
+  // Exclusion is by device (endpoint), not by account: staff commonly share a
+  // single login, and excluding the whole user would then silence every phone
+  // and deliver nothing at all.
+  let q = admin.from("loading_push_subs").select("endpoint, p256dh, auth, user_id");
+  if (event === "test") q = selfEndpoint ? q.eq("endpoint", selfEndpoint) : q.eq("user_id", actorId);
+  else if (selfEndpoint) q = q.neq("endpoint", selfEndpoint);
+  else q = q.neq("user_id", actorId);      // older client that sends no endpoint
+
+  const { data: subs, error: subsErr } = await q;
+  if (subsErr) {
+    console.error("could not read subscriptions:", subsErr.message);
+    return json({ error: "Could not read subscriptions: " + subsErr.message }, 500);
+  }
+  console.log(`event=${event} vehicle=${plate} by=${actor} recipients=${subs?.length ?? 0}`);
 
   let sent = 0;
   const stale: string[] = [];
+  const errors: string[] = [];
   for (const s of subs ?? []) {
     try {
       await webpush.sendNotification(
@@ -122,12 +149,20 @@ Deno.serve(async (req) => {
       );
       sent++;
     } catch (e) {
-      const code = (e as { statusCode?: number }).statusCode;
+      const err = e as { statusCode?: number; body?: string; message?: string };
+      const code = err.statusCode;
       // 404/410 = the browser threw this subscription away; stop trying it.
-      if (code === 404 || code === 410) stale.push(s.endpoint);
+      if (code === 404 || code === 410) { stale.push(s.endpoint); continue; }
+      // Anything else is a real failure. It used to be swallowed here, which
+      // made a totally dead push setup look like a clean run — log it and hand
+      // it back so the app can say what went wrong.
+      const msg = `${code ?? "no status"}: ${err.body || err.message || String(e)}`;
+      errors.push(msg);
+      console.error("push failed for one device:", msg);
     }
   }
   if (stale.length) await admin.from("loading_push_subs").delete().in("endpoint", stale);
+  console.log(`sent=${sent} dropped_stale=${stale.length} failed=${errors.length}`);
 
-  return json({ ok: true, sent });
+  return json({ ok: true, sent, recipients: subs?.length ?? 0, stale: stale.length, errors });
 });
