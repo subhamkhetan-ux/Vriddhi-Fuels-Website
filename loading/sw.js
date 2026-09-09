@@ -1,5 +1,9 @@
 /* Tanker Loading — service worker (app-shell cache, offline-first) */
 const CACHE = "vf-loading-v10";
+// Cache storage is per-origin, not per-scope — the other Vriddhi apps (/app/,
+// /pay/, /payments/, /tally/) keep their caches alongside ours. Only ever
+// delete our own, so bumping this app's version can't wipe theirs.
+const MINE = "vf-loading-";
 const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -10,7 +14,9 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      Promise.all(
+        keys.filter((k) => k.startsWith(MINE) && k !== CACHE).map((k) => caches.delete(k))
+      )
     ).then(() => self.clients.claim())
   );
 });
