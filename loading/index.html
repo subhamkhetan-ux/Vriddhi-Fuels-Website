@@ -600,7 +600,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v15 · 2026-09-09";
+const APP_BUILD = "v16 · 2026-09-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1552,13 +1552,15 @@ function renderPushBox(){
       // app often can't tell it is on, and that is exactly when you need to be
       // able to test. It reports "not registered" rather than hiding itself.
       +'<button class="lnk" id="pushTest" style="display:block;margin:12px auto 0">Send a test notification</button>'
+      +'<button class="lnk" id="pushFix" style="display:block;margin:8px auto 0">Re-register this phone</button>'
       +'<div class="note" id="pushDiag" style="text-align:left;margin:8px 2px 0;font-size:13px;line-height:1.5"></div>'
       +'<div class="note" style="text-align:left;margin:10px 2px 0;font-size:13px;opacity:.85">'
       +'Last alert from this phone:<br><b id="pushLast">'+esc(describeNotify(lastNotify())||"none yet")+'</b></div>';
-    const on1=$("#pushOn"), off1=$("#pushOff"), t1=$("#pushTest");
+    const on1=$("#pushOn"), off1=$("#pushOff"), t1=$("#pushTest"), f1=$("#pushFix");
     if(on1) on1.onclick=()=>enablePush(true);
     if(off1) off1.onclick=disablePush;
     if(t1) t1.onclick=testPush;
+    if(f1) f1.onclick=reRegisterPush;
   };
   // Draw the button straight away, then upgrade to the "on" state if this phone
   // already holds a subscription. Never wait on the service worker to paint:
@@ -1745,6 +1747,26 @@ async function enablePush(interactive){
     return false;
   }
 }
+/* Throw away this phone's subscription and build a fresh one. Repairs a device
+   whose registration on the server has gone stale — the app cannot tell that
+   from a working one, because a dead endpoint is still accepted by the push
+   service, so this is the manual escape hatch. */
+async function reRegisterPush(){
+  const btn=$("#pushFix"); if(btn){ btn.disabled=true; btn.textContent="Re-registering…"; }
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const old=await reg.pushManager.getSubscription();
+    if(old){
+      await CloudBackend.rpc("loading_push_drop",{ p_endpoint:old.endpoint }).catch(()=>{});
+      await old.unsubscribe().catch(()=>{});
+    }
+    myEndpoint=null;
+    const ok=await enablePush(true);
+    toast(ok ? "Re-registered ✓ — send a test now" : "Could not re-register");
+  }catch(e){ toast("Could not re-register: "+((e&&e.message)||e)); }
+  if(btn){ btn.disabled=false; btn.textContent="Re-register this phone"; }
+  renderSettings();
+}
 async function disablePush(){
   try{
     const reg=await navigator.serviceWorker.ready;
@@ -1893,6 +1915,20 @@ async function testPush(){
     return finish();
   }
   lines.push("Registered with "+hostOf(sub.endpoint));
+
+  // Is THIS phone's live subscription actually the one the server will push to?
+  // "sent to 3 of 3" means three rows were pushed, not that any of them is this
+  // device — a phone that re-subscribed leaves its old row behind, and the push
+  // service still accepts messages for it.
+  try{
+    const rows=await CloudBackend.client.from("loading_push_subs").select("endpoint,seen_at");
+    const all=(rows && rows.data) || [];
+    const mine=all.some(x=>x.endpoint===sub.endpoint);
+    const old=all.filter(x=>x.seen_at && (Date.now()-Date.parse(x.seen_at))>2*86400000).length;
+    lines.push((mine?"✓":"✗")+" This phone is "+(mine?"":"NOT ")+"in the server's list ("
+      +all.length+" registered"+(old?", "+old+" not seen in days":"")+")");
+    if(!mine) lines.push("→ Tap “Re-register this phone” below");
+  }catch(_){ }
 
   // 3. Round trip through the server and the push service.
   const r=await notifyStaff("test","");
