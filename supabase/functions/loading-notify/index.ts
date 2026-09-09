@@ -22,7 +22,9 @@
 // =====================================================================
 
 import webpush from "npm:web-push@3.6.7";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Pinned: an unpinned "@2" re-resolves to whatever is latest at deploy time,
+// so identical code could behave differently between two deploys.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -51,11 +53,39 @@ Deno.serve(async (req) => {
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
-  // Who is calling? Their own phones are excluded from the send.
-  const { data: who, error: whoErr } = await admin.auth.getUser(auth.slice(7));
-  if (whoErr || !who?.user) return json({ error: "Not signed in" }, 401);
-  const actorId = who.user.id;
-  const actor = (who.user.email ?? "").split("@")[0] || "someone";
+  // Who is calling? Their own device is excluded from the send.
+  //
+  // This must be done with a client carrying the CALLER's token, not the
+  // service-role client: a service key is not a user token, and asking that
+  // client to resolve one fails outright — which surfaced as "Not signed in"
+  // for a perfectly valid session. The gateway has already verified the token's
+  // signature before we run, so this is a lookup, not a trust decision.
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")
+    ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY")
+    ?? req.headers.get("apikey") ?? "";
+  let actorId = "";
+  let actor = "someone";
+  const asUser = createClient(url, anonKey, {
+    global: { headers: { Authorization: auth } },
+    auth: { persistSession: false },
+  });
+  const { data: who, error: whoErr } = await asUser.auth.getUser();
+  if (who?.user) {
+    actorId = who.user.id;
+    actor = (who.user.email ?? "").split("@")[0] || "someone";
+  } else {
+    // Older path, kept as a fallback in case the anon key isn't in the env.
+    const alt = await admin.auth.getUser(auth.slice(7));
+    if (alt.data?.user) {
+      actorId = alt.data.user.id;
+      actor = (alt.data.user.email ?? "").split("@")[0] || "someone";
+    } else {
+      const why = whoErr?.message || alt.error?.message || "token not accepted";
+      console.error("could not identify caller:", why);
+      return json({ error: "Could not identify you: " + why }, 401);
+    }
+  }
+  console.log(`caller=${actor} (${actorId})`);
 
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
