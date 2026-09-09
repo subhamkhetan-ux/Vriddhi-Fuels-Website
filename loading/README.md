@@ -134,12 +134,20 @@ already knows:
 | Alert | When |
 |---|---|
 | 🛢️ **`<tanker>` — loading started** | the first diesel goes into an empty tanker |
+| 🔄 **`<tanker>` — loading resumed** *after Nh idle* | a loading lands on a part-filled tanker whose previous loading was **3+ hours** ago |
 | ✅ **`<tanker>` — tanker full** | a loading fills the last of it |
 | 🚚 **`<tanker>` — sent for sale** | it is dispatched (includes the sold-to note) |
 
-A tanker filled in one go is announced **once** (as *full*), not twice. The
-litres in the message are read from the database by the server, so the text
-can't be faked by a phone. Turn it on per phone under **⚙ Manage tankers &
+**One save sends at most one alert**, in that order of importance: *full*
+beats *started* beats *resumed*. So a tanker filled in one go is announced
+once (as *full*), and the first diesel into an empty tanker is a *start* even
+if it stood idle for days — a *resume* is specifically a part-filled tanker
+being picked up again.
+
+The litres are read from the database by the server, so the text can't be
+faked by a phone, and the idle time on a *resumed* alert is measured from the
+database's own clock (the gap between the last two loadings), not sent by the
+phone. Turn it on per phone under **⚙ Manage tankers &
 data → Notifications → 🔔 Turn on notifications**; signing out of a phone
 detaches it again.
 

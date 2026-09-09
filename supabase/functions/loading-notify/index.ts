@@ -4,6 +4,7 @@
 // Sends a Web Push to every OTHER signed-in employee when a tanker's
 // loading state changes:
 //   "start"    -> first diesel went into an empty tanker
+//   "resume"   -> loading picked up again after a gap of 3h or more
 //   "complete" -> the tanker just became full
 //   "sold"     -> the tanker was sent for sale and emptied
 //
@@ -62,7 +63,7 @@ Deno.serve(async (req) => {
   const plate = String(body.vehicle ?? "").trim();
   const remark = String(body.remark ?? "").trim().slice(0, 80);
   if (!plate) return json({ error: "vehicle required" }, 400);
-  if (!["start", "complete", "sold"].includes(event)) return json({ error: "Unknown event" }, 400);
+  if (!["start", "resume", "complete", "sold"].includes(event)) return json({ error: "Unknown event" }, 400);
 
   // Authoritative litres straight from the tanker row.
   const { data: veh } = await admin.from("loading_vehicles")
@@ -75,9 +76,26 @@ Deno.serve(async (req) => {
   const now = caps.reduce((s, _c, i) => s + (Number(fill["C" + (i + 1)]) || 0), 0);
   const left = Math.max(cap - now, 0);
 
+  // For a resumed loading, work out how long it stood idle from the two most
+  // recent loadings on the database's own clock — [0] is the one that just
+  // landed, [1] the one before it — rather than trusting a figure from a phone.
+  let idle = "";
+  if (event === "resume") {
+    const { data: recent } = await admin.from("loading_events")
+      .select("created_at").eq("vehicle", plate).eq("kind", "load")
+      .order("created_at", { ascending: false }).limit(2);
+    if (recent && recent.length === 2) {
+      const h = (Date.parse(recent[0].created_at) - Date.parse(recent[1].created_at)) / 3600000;
+      if (h >= 1) idle = h >= 24 ? ` after ${Math.round(h / 24)}d idle` : ` after ${Math.round(h)}h idle`;
+    }
+  }
+
   let title: string, text: string;
   if (event === "start") {
     title = `🛢️ ${plate} — loading started`;
+    text = `${L(now)} L in · ${L(left)} L to fill · by ${actor}`;
+  } else if (event === "resume") {
+    title = `🔄 ${plate} — loading resumed${idle}`;
     text = `${L(now)} L in · ${L(left)} L to fill · by ${actor}`;
   } else if (event === "complete") {
     title = `✅ ${plate} — tanker full`;
