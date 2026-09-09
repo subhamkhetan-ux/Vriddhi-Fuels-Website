@@ -50,6 +50,9 @@ Deno.serve(async (req) => {
   const subject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@vriddhi.local";
   if (!pub || !priv) return json({ error: "VAPID keys not set" }, 500);
   webpush.setVapidDetails(subject, pub, priv);
+  if (/\.local$|localhost/.test(subject)) {
+    console.error("VAPID_SUBJECT is " + subject + " — Apple and Google expect a real mailto: or https: address; push may be dropped");
+  }
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
@@ -191,12 +194,14 @@ Deno.serve(async (req) => {
   let sent = 0;
   const stale: string[] = [];
   const errors: string[] = [];
+  const codes: number[] = [];
   for (const s of subs ?? []) {
     try {
-      await webpush.sendNotification(
+      const res = await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
       );
+      if (res && typeof res.statusCode === "number") codes.push(res.statusCode);
       sent++;
     } catch (e) {
       const err = e as { statusCode?: number; body?: string; message?: string };
@@ -212,7 +217,14 @@ Deno.serve(async (req) => {
     }
   }
   if (stale.length) await admin.from("loading_push_subs").delete().in("endpoint", stale);
-  console.log(`sent=${sent} dropped_stale=${stale.length} failed=${errors.length}`);
+  console.log(`sent=${sent} codes=${codes.join(",") || "-"} dropped_stale=${stale.length} failed=${errors.length}`);
 
-  return json({ ok: true, sent, recipients: subs?.length ?? 0, stale: stale.length, errors });
+  return json({
+    ok: true, sent, recipients: subs?.length ?? 0, stale: stale.length, errors,
+    codes,
+    // Apple and Google both check the VAPID "sub" claim. The default is a
+    // .local address, which is not a routable mailbox — reporting it makes a
+    // wrongly-configured subject visible instead of silently undelivered push.
+    subject,
+  });
 });

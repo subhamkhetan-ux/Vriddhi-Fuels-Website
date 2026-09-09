@@ -1537,7 +1537,8 @@ function renderPushBox(){
       // Always offered, not only in the "on" state: when something is wrong the
       // app often can't tell it is on, and that is exactly when you need to be
       // able to test. It reports "not registered" rather than hiding itself.
-      +'<button class="lnk" id="pushTest" style="display:block;margin:12px auto 0">Send a test notification</button>';
+      +'<button class="lnk" id="pushTest" style="display:block;margin:12px auto 0">Send a test notification</button>'
+      +'<div class="note" id="pushDiag" style="text-align:left;margin:8px 2px 0;font-size:13px;line-height:1.5"></div>';
     const on1=$("#pushOn"), off1=$("#pushOff"), t1=$("#pushTest");
     if(on1) on1.onclick=()=>enablePush(true);
     if(off1) off1.onclick=disablePush;
@@ -1677,6 +1678,15 @@ function urlB64ToUint8(s){
   for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
   return out;
 }
+// Do two application server keys match? Unknown (no options exposed) counts as
+// a match, so we never churn a working subscription on a browser that hides it.
+function sameKey(a, want){
+  if(a==null) return true;
+  const x=new Uint8Array(a), y=new Uint8Array(want);
+  if(x.length!==y.length) return false;
+  for(let i=0;i<x.length;i++) if(x[i]!==y[i]) return false;
+  return true;
+}
 // interactive=true means the user tapped the button, so we may prompt and talk back.
 async function enablePush(interactive){
   if(!pushConfigured() || !pushSupported()){
@@ -1691,9 +1701,19 @@ async function enablePush(interactive){
       if(interactive) toast(perm==="denied" ? "Notifications are blocked in phone settings" : "Notifications not turned on");
       return false;
     }
+    const want=urlB64ToUint8(CFG.VAPID_PUBLIC_KEY);
     let sub=await reg.pushManager.getSubscription();
+    // A subscription is bound to the VAPID key it was created with. If that key
+    // has since changed, the push service still ACCEPTS messages signed with
+    // the new key but can never deliver them — a silent, invisible failure. So
+    // check, and re-subscribe rather than reusing a subscription we can't reach.
+    if(sub && !sameKey(sub.options && sub.options.applicationServerKey, want)){
+      await CloudBackend.rpc("loading_push_drop",{ p_endpoint:sub.endpoint }).catch(()=>{});
+      await sub.unsubscribe().catch(()=>{});
+      sub=null;
+    }
     if(!sub) sub=await reg.pushManager.subscribe({
-      userVisibleOnly:true, applicationServerKey:urlB64ToUint8(CFG.VAPID_PUBLIC_KEY),
+      userVisibleOnly:true, applicationServerKey:want,
     });
     const j=sub.toJSON(), k=j.keys||{};
     await CloudBackend.rpc("loading_push_save",{
@@ -1755,19 +1775,83 @@ function notifyStaff(event, plate, remark){
     }).then(r2=>r2.json().then(j=>({ status:r2.status, body:j })).catch(()=>({ status:r2.status, body:null })));
   }).catch(e=>({ status:0, body:{ error:(e&&e.message)||"Network error" } }));
 }
-// Send a notification to THIS phone and say plainly what came back, so a single
-// person can prove the whole chain works instead of guessing at silence.
-function testPush(){
-  const btn=$("#pushTest"); if(btn){ btn.disabled=true; btn.textContent="Sending…"; }
-  const done=(m)=>{ toast(m); if(btn){ btn.disabled=false; btn.textContent="Send a test notification"; } };
-  notifyStaff("test","").then(r=>{
-    if(!r) return done("Not signed in — sign in and try again");
-    const b=r.body||{};
-    if(r.status!==200) return done("Server error: "+(b.error||("HTTP "+r.status)));
-    if(b.errors && b.errors.length) return done("Push rejected: "+String(b.errors[0]).slice(0,90));
-    if(!b.sent) return done("This phone isn't registered — turn notifications off and on again");
-    done("Test sent ✓ — it should appear in a moment");
+function hostOf(u){ try{ return new URL(u).host; }catch(_){ return "unknown"; } }
+// Ask the running worker which build it is, so a stale worker is distinguishable
+// from a delivery failure.
+function swVersion(reg){
+  return new Promise(res=>{
+    const sw=reg && reg.active;
+    if(!sw || !navigator.serviceWorker) return res("");
+    let done=false;
+    const finish=(v)=>{ if(!done){ done=true; navigator.serviceWorker.removeEventListener("message",h); res(v); } };
+    function h(e){ if(e.data && e.data.swVersion) finish(e.data.swVersion); }
+    navigator.serviceWorker.addEventListener("message",h);
+    setTimeout(()=>finish(""),1500);
+    try{ sw.postMessage({q:"version"}); }catch(_){ finish(""); }
   });
+}
+/* Walk the whole delivery chain and report each step, because "sent" only ever
+   meant the push service accepted the message — not that a phone displayed it.
+   The local notification is the decisive one: it needs no server and no push
+   service, so if it appears and the pushed one doesn't, the fault is in
+   delivery rather than on this phone. */
+async function testPush(){
+  const btn=$("#pushTest"), out=$("#pushDiag");
+  if(btn){ btn.disabled=true; btn.textContent="Testing…"; }
+  const lines=[];
+  const finish=()=>{
+    if(btn){ btn.disabled=false; btn.textContent="Send a test notification"; }
+    if(out) out.innerHTML=lines.map(l=>'<div style="margin:2px 0">'+esc(l)+'</div>').join("");
+  };
+
+  lines.push("Permission: "+(typeof Notification==="undefined"?"unsupported":Notification.permission));
+
+  let reg=null;
+  try{
+    reg=await Promise.race([navigator.serviceWorker.ready, new Promise(r=>setTimeout(()=>r(null),4000))]);
+  }catch(_){ }
+  if(!reg){
+    lines.push("✗ Service worker not running — fully close the app and reopen it");
+    return finish();
+  }
+  const v=await swVersion(reg);
+  lines.push("Worker: running"+(v?" ("+v+")":""));
+
+  // 1. Local — no network at all.
+  try{
+    await reg.showNotification("🔔 Local test", {
+      body:"Shown by this phone itself, no server involved.",
+      tag:"loading-local-"+Date.now(), data:{url:"./"},
+    });
+    lines.push("① Local notification sent — did it appear?");
+  }catch(e){
+    lines.push("✗ This phone cannot display notifications: "+((e&&e.message)||e));
+    return finish();
+  }
+
+  // 2. Is this device registered for push at all?
+  let sub=null;
+  try{ sub=await reg.pushManager.getSubscription(); }catch(_){ }
+  if(!sub){
+    lines.push("✗ Not registered for push — tap Turn on notifications");
+    return finish();
+  }
+  lines.push("Registered with "+hostOf(sub.endpoint));
+
+  // 3. Round trip through the server and the push service.
+  const r=await notifyStaff("test","");
+  const b=(r&&r.body)||{};
+  if(!r) lines.push("✗ Not signed in");
+  else if(r.status!==200) lines.push("✗ Server: "+(b.error||("HTTP "+r.status)));
+  else if(b.errors && b.errors.length) lines.push("✗ Push rejected: "+String(b.errors[0]).slice(0,120));
+  else if(!b.sent) lines.push("✗ Server matched no device (recipients "+(b.recipients||0)+")");
+  else lines.push("② Push accepted by "+hostOf(sub.endpoint)
+    +(b.codes && b.codes.length?" (HTTP "+b.codes.join(",")+")":"")+" — did it appear?");
+  // A .local sender address is not a routable mailbox; Apple and Google both
+  // inspect it, and it is a common reason for push that is accepted then never
+  // delivered. Worth showing rather than leaving to guesswork.
+  if(b.subject) lines.push((/\.local$|localhost/.test(b.subject)?"⚠ ":"")+"Sender: "+b.subject);
+  finish();
 }
 
 /* ---------- Realtime (cloud) ---------- */
