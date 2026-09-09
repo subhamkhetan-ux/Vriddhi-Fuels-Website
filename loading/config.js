@@ -19,4 +19,10 @@
 window.VRIDDHI_LOADING_CONFIG = {
   SUPABASE_URL: "https://hzkyftfgcnphnsmidnhz.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_AcmqkLsx9GQGm-wY6qlwBA_qWLz9Rpi",
+
+  // Push notifications (optional). Paste your VAPID *PUBLIC* key here — see
+  // README §Notifications. Leave the placeholder and the app simply runs
+  // without notifications; everything else works exactly the same.
+  // The matching PRIVATE key belongs in Supabase secrets, never in this file.
+  VAPID_PUBLIC_KEY: "PASTE_YOUR_VAPID_PUBLIC_KEY_HERE",
 };
