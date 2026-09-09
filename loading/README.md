@@ -2,7 +2,7 @@
 
 A dead-simple, installable PWA for employees to fill diesel tankers in many small
 loadings and keep a running account of each tanker's fill level. Built for a
-low-literacy user: big buttons, big numbers, live progress bars, and a number-pad
+low-literacy user: big buttons, big numbers, an animated tanker graphic, and a number-pad
 keyboard for every quantity. English only.
 
 > This is a **fourth, separate app** in this repo — independent of the Master
@@ -31,10 +31,16 @@ chamber becomes full. When the whole tanker is full it is **sent for sale**; tha
 empties the tanker's gauge, and when it comes back it starts filling from empty
 again.
 
-1. **Home shows a card per tanker** with a big fill bar, the current litres
-   (e.g. `5,485 / 11,955 L`), how much is **left to fill**, and how many chambers
-   are full. A full tanker shows a green **FULL ✓** badge.
-2. **Tap a tanker → Add diesel.** Each chamber shows what is **already in it**
+1. **Home shows a card per tanker** drawn as an actual **tanker graphic**: the
+   tank is split into its **numbered chambers** (widths scaled to each chamber's
+   capacity) and each one **fills with diesel from the bottom**, animating up as
+   the level changes. Alongside it: the current litres (e.g. `5,485 / 11,955 L`),
+   how much is **left to fill**, and per-chamber remaining. A full tanker glows
+   green with a **FULL ✓** badge.
+2. **Tap a tanker → Add diesel.** The same tanker graphic sits at the top of the
+   screen and **fills live as you type** — the chamber you're typing into is
+   outlined, and the litres you're adding show as a brighter layer on top of what
+   is already in that chamber. Below, each chamber shows what is **already in it**
    (`1,500 / 3,985 L`) with a two-tone bar — the darker part is what's already
    there, the brighter part is what you're **adding now**. The **Add litres** box
    is always blank; type the litres you're loading and **Left to fill** for that
@@ -72,7 +78,16 @@ The **⚙ Manage tankers & data** link at the bottom of the home screen opens a
 small admin screen:
 
 - **Tankers** — lists every tanker with its chambers and full capacity, each with
-  a 🗑 to remove it (with a confirm; past records stay in History).
+  a ✎ to **edit its chambers** and a 🗑 to remove it (with a confirm; past records
+  stay in History).
+- **✎ Edit chambers** — change a tanker's **chamber capacities without deleting
+  it**: set each chamber's litres individually, use **Set all to** to apply one
+  size to every chamber, or change the **chamber count** (− / +). Each row shows
+  how much that chamber currently holds. Saving keeps the tanker's **current
+  fill, all-time totals and history** untouched — only the sizes change. Two
+  guards: a chamber that still holds diesel **cannot be removed** (empty or sell
+  it first), and shrinking a chamber below what it already holds asks for
+  confirmation (it will read as over-full until sold).
 - **Add a new tanker** — type the vehicle number, pick the number of **chambers**
   (− / +) and the **litres per chamber**, then **Add tanker**. It appears
   immediately as a new card on the home screen (and, in cloud mode, on every

@@ -225,6 +225,15 @@
   .mbtn.ghost{background:#e6eaf1;color:var(--navy)}
   .mbtn.go{background:var(--green);color:#fff}
   .mbtn:active{transform:translateY(1px)}
+  /* Edit chamber capacities */
+  .modalbox.wide{max-height:86vh;overflow-y:auto}
+  .edit{background:none;border:0;color:var(--navy2);font-size:18px;cursor:pointer;padding:4px 6px;flex:none}
+  .caprow{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+  .caprow .cb{width:44px;height:44px;border-radius:11px;background:var(--navy);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px}
+  .caprow input{flex:1;min-width:0;text-align:center}
+  .caprow .cf{font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap;flex:none;width:68px;text-align:right;line-height:1.25}
+  .caprow.over .cb{background:var(--red)}
+  .caperr{color:var(--red);font-weight:700;font-size:13px;min-height:18px;margin:2px 0 0}
 
   .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
   .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
@@ -249,6 +258,46 @@
   .loginbox input{width:100%;font-size:19px;padding:16px;border-radius:14px;border:0;margin-bottom:12px;text-align:center;background:#fff;color:var(--ink);font-weight:600}
   .loginbox input:focus{outline:3px solid var(--amber)}
   .lerr{color:#ffb4b4;font-weight:700;font-size:14px;min-height:20px;margin-bottom:8px}
+
+  /* ===== Tanker graphic (chambers visible, fills with animation) ===== */
+  .tankwrap{width:100%;margin:8px 0 6px;position:relative}
+  .tanksvg{width:100%;height:auto;display:block}
+  .tanksvg .body{fill:url(#tkBody);stroke:#33477a;stroke-width:1.6}
+  .tanksvg .cab,.tanksvg .chassis{fill:#1c2f5e}
+  .tanksvg .win{fill:#8fd2ea;opacity:.85}
+  .tanksvg .tyre{fill:#101b33}
+  .tanksvg .hub{fill:#6d7c9c}
+  .tanksvg .filler{fill:#33477a}
+  .tanksvg .lq{transition:y .8s cubic-bezier(.34,1.2,.4,1),height .8s cubic-bezier(.34,1.2,.4,1)}
+  .tanksvg .lq.have{fill:url(#tkLq)}
+  .tanksvg .lq.add{fill:url(#tkAdd)}
+  .tanksvg .lq.over{fill:url(#tkOver)}
+  .tanksvg .baffle{stroke:#4a63a0;stroke-width:1.6;opacity:.95}
+  .tanksvg .rim{fill:none;stroke:#5f7ec2;stroke-width:1.2;opacity:.5}
+  .tanksvg .cnum{fill:#fff;font-size:14px;font-weight:800;text-anchor:middle;
+    paint-order:stroke;stroke:#101b33;stroke-width:3.5px;stroke-linejoin:round}
+  .tanksvg .seghl{fill:none;stroke:var(--amber);stroke-width:0;rx:4}
+  .tanksvg .seghl.on{stroke-width:2.5;animation:segpulse 1.5s ease-in-out infinite}
+  @keyframes segpulse{0%,100%{opacity:.55}50%{opacity:1}}
+  .tanksvg .sheen{fill:url(#tkSheen);animation:tksheen 4.2s ease-in-out infinite}
+  @keyframes tksheen{0%{transform:translateX(-45%)}60%,100%{transform:translateX(120%)}}
+  /* on the dark add-screen header the tank needs a lighter edge to read */
+  .vhead .tanksvg .body{stroke:#6c8ad0}
+  .vhead .tanksvg .chassis,.vhead .tanksvg .cab{fill:#0d1730}
+  .vhead .tankwrap{margin:4px 0 8px}
+  .tcard.full .tanksvg .body{stroke:var(--green)}
+  .tcard.full .tankwrap{animation:tkglow 2.6s ease-in-out infinite}
+  @keyframes tkglow{0%,100%{filter:drop-shadow(0 0 0 rgba(31,157,85,0))}
+    50%{filter:drop-shadow(0 0 7px rgba(31,157,85,.6))}}
+  .tcard{transition:transform .15s ease, box-shadow .2s ease}
+  .tcard .tap:active{background:#f2f6fc}
+  .badge2{transition:background .3s ease,color .3s ease}
+  .tcard.full .badge2{animation:badgepulse 2.6s ease-in-out infinite}
+  @keyframes badgepulse{0%,100%{box-shadow:0 0 0 0 rgba(31,157,85,.5)}50%{box-shadow:0 0 0 7px rgba(31,157,85,0)}}
+  @media (prefers-reduced-motion: reduce){
+    .tanksvg .lq{transition:none}
+    .tanksvg .sheen,.tcard.full .tankwrap,.tcard.full .badge2,.tanksvg .seghl.on{animation:none}
+  }
 </style>
 </head>
 <body>
@@ -294,6 +343,7 @@
     <section class="screen" id="scAdd">
       <div class="vhead">
         <div class="pl" id="qPlate">—</div>
+        <div class="tankwrap" id="addTank"></div>
         <div class="cap">Add the litres you are loading now into each chamber</div>
       </div>
       <div id="chamList"></div>
@@ -412,6 +462,28 @@
   </div>
 </div>
 
+<!-- Edit a tanker's chambers &amp; capacities (keeps its fill, totals and history) -->
+<div class="modal" id="capModal">
+  <div class="modalbox wide">
+    <div class="mh">Edit chambers</div>
+    <div class="mp" id="capTitle">—</div>
+    <div class="ca-row" style="margin-top:0">
+      <div class="ca-field"><label>Chambers</label>
+        <div class="stepper"><button type="button" id="capLess">−</button><span id="capCount">3</span><button type="button" id="capMore">+</button></div>
+      </div>
+      <div class="ca-field"><label>Set all to (L)</label>
+        <input id="capAll" type="text" inputmode="decimal" placeholder="optional" /></div>
+    </div>
+    <label class="mlab">Litres per chamber</label>
+    <div id="capList"></div>
+    <div class="caperr" id="capErr"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="capCancel">Cancel</button>
+      <button class="mbtn go" id="capOk">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- LOGIN (cloud mode only) -->
 <div class="loginwrap" id="login">
   <div class="loginbox">
@@ -424,6 +496,26 @@
     <button class="big green" id="btnLogin" style="margin-bottom:0"><span>Sign in</span></button>
   </div>
 </div>
+
+<!-- Shared gradients / clip for every tanker graphic (defined once) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <clipPath id="tkClip"><rect x="52" y="10" width="262" height="54" rx="10"/></clipPath>
+  <linearGradient id="tkBody" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#31456f"/><stop offset="0.5" stop-color="#22335c"/><stop offset="1" stop-color="#16233f"/>
+  </linearGradient>
+  <linearGradient id="tkLq" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#5fe39b"/><stop offset="1" stop-color="#1f9d55"/>
+  </linearGradient>
+  <linearGradient id="tkAdd" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#d6fff0"/><stop offset="1" stop-color="#8ff0c6"/>
+  </linearGradient>
+  <linearGradient id="tkOver" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ff8f8f"/><stop offset="1" stop-color="#d64545"/>
+  </linearGradient>
+  <linearGradient id="tkSheen" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.30"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+</defs></svg>
 
 <div class="toast" id="toast"></div>
 
@@ -590,6 +682,12 @@ const LocalBackend = {
     lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve();
   },
   addVehicle(v){ const l=lsVehicles(); l.push(vNorm(v)); lsVehiclesSave(l); return Promise.resolve(); },
+  // change chamber count / capacities only — fill, totals and history are kept
+  updateVehicle(plate, caps){
+    const l=lsVehicles(), v=l.find(x=>x.plate===plate);
+    if(!v) return Promise.reject(new Error("Unknown tanker"));
+    v.caps=caps.slice(); lsVehiclesSave(l); return Promise.resolve();
+  },
   removeVehicle(plate){ lsVehiclesSave(lsVehicles().filter(v=>v.plate!==plate)); return Promise.resolve(); },
   clearAll(){ lsSave([]); const vs=lsVehicles(); vs.forEach(v=>{ v.fill={}; v.total_loaded=0; v.total_sold=0; }); lsVehiclesSave(vs); return Promise.resolve(); },
   endDay(){
@@ -641,6 +739,12 @@ const CloudBackend = {
   dispatch(plate, remark){ return this.rpc("loading_dispatch",{ p_vehicle:plate, p_by:ME, p_remark:remark||"" }); },
   remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
   addVehicle(v){ return this.rpc("loading_vehicle_add",{ p_plate:v.plate, p_caps:v.caps, p_color:v.color||"" }); },
+  // loading_vehicle_add upserts caps/color on conflict and leaves fill,
+  // total_loaded and total_sold untouched — so editing capacities is safe.
+  updateVehicle(plate, caps){
+    const v=VEHICLES.find(x=>x.plate===plate);
+    return this.rpc("loading_vehicle_add",{ p_plate:plate, p_caps:caps, p_color:(v&&v.color)||"" });
+  },
   removeVehicle(plate){ return this.rpc("loading_vehicle_remove",{ p_plate:plate }); },
   clearAll(){ return this.rpc("loading_clear_all",{}); },
   endDay(){ return this.rpc("loading_end_day",{}); },
@@ -706,6 +810,60 @@ function tankerState(plate){
   return { cham, total, cap, caps:v.caps, full };
 }
 
+/* ---------- Tanker graphic ----------
+   Side-view tanker whose chambers are drawn to scale (width ∝ capacity), each
+   numbered and filling from the bottom. Liquid rects are always emitted (even at
+   height 0) so the DOM is stable and CSS can transition y/height as it fills. */
+const TK={W:320,H:104,x:52,y:10,w:262,h:54};
+function f1(n){ return (Math.round(n*10)/10); }
+function tankerSVG(caps){
+  const capT=caps.reduce((s,c)=>s+(+c||0),0)||1;
+  const bot=TK.y+TK.h;
+  let x=TK.x, liquids="", baffles="", labels="", fillers="", segs="";
+  caps.forEach((cap,i)=>{
+    const w=TK.w*((+cap||0)/capT);
+    liquids+='<rect class="lq have" x="'+f1(x)+'" width="'+f1(w)+'" y="'+bot+'" height="0"/>'
+            +'<rect class="lq add" x="'+f1(x)+'" width="'+f1(w)+'" y="'+bot+'" height="0"/>';
+    labels+='<text class="cnum" x="'+f1(x+w/2)+'" y="'+f1(TK.y+TK.h/2+5)+'">'+(i+1)+'</text>';
+    fillers+='<rect class="filler" x="'+f1(x+w/2-5)+'" y="'+(TK.y-4)+'" width="10" height="5" rx="2"/>';
+    segs+='<rect class="seghl" data-seg="'+i+'" x="'+f1(x+1.5)+'" y="'+(TK.y+1.5)+'" width="'+f1(Math.max(w-3,0))+'" height="'+(TK.h-3)+'"/>';
+    x+=w;
+    if(i<caps.length-1) baffles+='<line class="baffle" x1="'+f1(x)+'" y1="'+TK.y+'" x2="'+f1(x)+'" y2="'+bot+'"/>';
+  });
+  return '<svg class="tanksvg" viewBox="0 0 '+TK.W+' '+TK.H+'" role="img" aria-label="Tanker chambers">'
+    +'<rect class="chassis" x="14" y="66" width="292" height="7" rx="3"/>'
+    +'<path class="cab" d="M8 40 L26 40 L40 52 L40 68 L8 68 Z"/>'
+    +'<path class="win" d="M27 43 L36 52 L27 52 Z"/>'
+    +fillers
+    +'<rect class="body" x="'+TK.x+'" y="'+TK.y+'" width="'+TK.w+'" height="'+TK.h+'" rx="10"/>'
+    +'<g clip-path="url(#tkClip)">'+liquids
+      +'<rect class="sheen" x="'+TK.x+'" y="'+TK.y+'" width="46" height="'+TK.h+'"/></g>'
+    +baffles
+    +'<rect class="rim" x="'+(TK.x+3)+'" y="'+(TK.y+3)+'" width="'+(TK.w-6)+'" height="'+(TK.h-6)+'" rx="7"/>'
+    +labels+segs
+    +'<g class="wheels">'
+      +'<circle class="tyre" cx="30" cy="79" r="10"/><circle class="hub" cx="30" cy="79" r="4"/>'
+      +'<circle class="tyre" cx="214" cy="79" r="10"/><circle class="hub" cx="214" cy="79" r="4"/>'
+      +'<circle class="tyre" cx="250" cy="79" r="10"/><circle class="hub" cx="250" cy="79" r="4"/>'
+      +'<circle class="tyre" cx="286" cy="79" r="10"/><circle class="hub" cx="286" cy="79" r="4"/>'
+    +'</g></svg>';
+}
+// Set each chamber's liquid level; CSS transitions animate the change.
+function tankFill(svg, caps, cham, addArr){
+  if(!svg) return;
+  const haves=svg.querySelectorAll(".lq.have"), adds=svg.querySelectorAll(".lq.add");
+  const bot=TK.y+TK.h;
+  caps.forEach((cap,i)=>{
+    const c=+cap||0;
+    const have=Math.max(0,+(cham&&cham[i]||0)), addv=Math.max(0,+(addArr&&addArr[i]||0));
+    const hF=c>0?Math.min(have/c,1):0, tF=c>0?Math.min((have+addv)/c,1):0;
+    const hH=TK.h*hF, aH=TK.h*Math.max(tF-hF,0), over=(have+addv)>c+0.001;
+    const h=haves[i], a=adds[i];
+    if(h){ h.setAttribute("y",f1(bot-hH)); h.setAttribute("height",f1(hH)); h.classList.toggle("over",over); }
+    if(a){ a.setAttribute("y",f1(bot-hH-aH)); a.setAttribute("height",f1(aH)); a.classList.toggle("over",over); }
+  });
+}
+
 /* ---------- HOME ---------- */
 // total litres LOADED (dispatch rows are not fresh diesel, so excluded)
 function totals(list){ return list.reduce((s,e)=>s+((e.kind||"load")==="dispatch"?0:e.total),0); }
@@ -766,10 +924,10 @@ function renderTankers(){
     const perCh = st.caps.map((c,i)=>{ const l=Math.max(c-st.cham[i],0); return 'C'+(i+1)+' '+(l===0?'✓':fmt(l)); }).join(' · ');
     const sub = st.full ? "Full — send for sale when dispatched"
                         : "Left to fill <b>"+fmt(left)+"</b> L";
-    return '<div class="tcard'+(st.full?" full":"")+'">'
+    return '<div class="tcard'+(st.full?" full":"")+'" data-plate="'+v.plate+'">'
       +'<button class="tap" data-plate="'+v.plate+'">'
       +'<div class="th"><span class="pl">'+v.plate+'</span><span class="badge2">'+badge+'</span></div>'
-      +'<div class="bar"><div class="fill have" style="width:'+pct+'%"></div></div>'
+      +'<div class="tankwrap">'+tankerSVG(st.caps)+'</div>'
       +'<div class="tsub">'+sub+'</div>'
       +(st.full?'':'<div class="tsub2">Left per chamber — '+perCh+' L</div>')+'</button>'
       +(st.total>0?'<button class="dispatch" data-disp="'+v.plate+'">🚚 Sent for sale — empty tanker</button>':'')
@@ -777,6 +935,13 @@ function renderTankers(){
   }).join("");
   $("#tankerList").querySelectorAll(".tap").forEach(b=>{ b.onclick=()=>startAdd(b.dataset.plate); });
   $("#tankerList").querySelectorAll(".dispatch").forEach(b=>{ b.onclick=()=>dispatchTanker(b.dataset.disp); });
+  // let the tankers visibly fill on the next frame (rects start empty)
+  requestAnimationFrame(()=>{
+    $("#tankerList").querySelectorAll(".tcard").forEach(card=>{
+      const st=tankerState(card.dataset.plate);
+      tankFill(card.querySelector(".tanksvg"), st.caps, st.cham, null);
+    });
+  });
 }
 function entryHTML(e){
   const who=(CLOUD&&e.by)?' · '+e.by:'';
@@ -820,12 +985,20 @@ $("#dispOk").onclick=()=>{
 $("#dispSold").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#dispOk").click(); });
 
 /* ---------- ADD DIESEL to a tanker's chambers ---------- */
+let tankReady=false;
 function startAdd(plate){
   const st=tankerState(plate);
   draft={ plate:plate, caps:st.caps.slice(), existing:st.cham.slice(), add:st.caps.map(()=>"") };
   $("#qPlate").textContent=plate;
+  tankReady=false;                                  // draw empty first…
+  $("#addTank").innerHTML=tankerSVG(draft.caps);
   renderChambers();
   show("scAdd");
+  requestAnimationFrame(()=>{ tankReady=true; refreshChamState(); });  // …then fill, so it animates
+}
+function highlightSeg(i){
+  const svg=$("#addTank .tanksvg"); if(!svg) return;
+  svg.querySelectorAll(".seghl").forEach(s=>s.classList.toggle("on", +s.dataset.seg===i));
 }
 function renderChambers(){
   $("#chamList").innerHTML = draft.caps.map((cap,i)=>{
@@ -846,7 +1019,11 @@ function renderChambers(){
       +'</div></div>';
   }).join("");
   const cl=$("#chamList");
-  cl.querySelectorAll("input[data-in]").forEach(inp=>{ inp.oninput=()=>{ const val=sanQty(inp.value); inp.value=val; draft.add[+inp.dataset.in]=val; refreshChamState(); }; });
+  cl.querySelectorAll("input[data-in]").forEach(inp=>{
+    inp.oninput=()=>{ const val=sanQty(inp.value); inp.value=val; draft.add[+inp.dataset.in]=val; refreshChamState(); };
+    inp.onfocus=()=>highlightSeg(+inp.dataset.in);
+    inp.onblur=()=>highlightSeg(-1);
+  });
   cl.querySelectorAll("[data-clr]").forEach(b=>{ b.onclick=()=>{ const i=+b.dataset.clr; draft.add[i]=""; renderChambers(); }; });
   refreshChamState();
 }
@@ -863,6 +1040,7 @@ function refreshChamState(){
     el.querySelector("[data-left]").textContent=fmt(Math.max(r2(cap-newTot),0));
     el.querySelector("[data-over]").textContent=fmt(Math.max(r2(newTot-cap),0));
   });
+  if(tankReady) tankFill($("#addTank .tanksvg"), draft.caps, draft.existing, draft.add.map(num));
   updateRun();
 }
 function addTotal(){ return r2(draft.add.reduce((s,q)=> s+num(q),0)); }
@@ -1139,10 +1317,74 @@ function renderSettings(){
     return '<div class="entry"><span class="plate">'+esc(v.plate)+'</span>'
       +'<div class="mid"><div class="ch">'+v.caps.length+' chambers · '+v.caps.map(c=>fmt(c)).join(", ")+' L</div>'
       +'<div class="tm">Full '+fmt(cap)+' L'+(st.total>0?' · now '+fmt(st.total)+' L in':'')+'</div></div>'
+      +'<button class="edit" data-edveh="'+esc(v.plate)+'" aria-label="Edit chambers">✎</button>'
       +'<button class="del" data-rmveh="'+esc(v.plate)+'" aria-label="Remove">🗑</button></div>';
   }).join("") : '<div class="empty">No tankers yet. Add one below.</div>';
+  box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
 }
+
+/* ---- Edit a tanker's chambers/capacities (fill, totals & history are kept) ---- */
+let capDraft=null; // { plate, caps:[string] }
+function openCapEdit(plate){
+  const v=vehicleOf(plate); if(!v) return;
+  capDraft={ plate:plate, caps:v.caps.map(c=>String(c)) };
+  $("#capTitle").textContent=plate;
+  $("#capAll").value=""; $("#capErr").textContent="";
+  renderCapList();
+  $("#capModal").classList.add("on");
+}
+function closeCap(){ $("#capModal").classList.remove("on"); capDraft=null; }
+function renderCapList(){
+  if(!capDraft) return;
+  const st=tankerState(capDraft.plate);
+  $("#capCount").textContent=capDraft.caps.length;
+  $("#capList").innerHTML=capDraft.caps.map((c,i)=>{
+    const inTank=r2(+(st.cham[i]||0));
+    return '<div class="caprow" data-i="'+i+'">'
+      +'<span class="cb">C'+(i+1)+'</span>'
+      +'<input type="text" inputmode="decimal" value="'+esc(c)+'" data-cap="'+i+'" />'
+      +'<span class="cf">'+(inTank>0?("now "+fmt(inTank)+" L"):"empty")+'</span></div>';
+  }).join("");
+  $("#capList").querySelectorAll("input[data-cap]").forEach(inp=>{
+    inp.oninput=()=>{ const val=sanQty(inp.value); inp.value=val; capDraft.caps[+inp.dataset.cap]=val; capState(); };
+  });
+  capState();
+}
+function capState(){
+  if(!capDraft) return;
+  const st=tankerState(capDraft.plate);
+  $("#capList").querySelectorAll(".caprow").forEach(el=>{
+    const i=+el.dataset.i, inTank=r2(+(st.cham[i]||0)), c=num(capDraft.caps[i]);
+    el.classList.toggle("over", inTank>0 && c>0 && inTank>c);
+  });
+}
+$("#capLess").onclick=()=>{ if(capDraft && capDraft.caps.length>1){ capDraft.caps.pop(); renderCapList(); } };
+$("#capMore").onclick=()=>{ if(capDraft && capDraft.caps.length<12){ capDraft.caps.push(capDraft.caps[capDraft.caps.length-1]||"3985"); renderCapList(); } };
+$("#capAll").addEventListener("input",()=>{
+  const val=sanQty($("#capAll").value); $("#capAll").value=val;
+  if(capDraft && num(val)>0){ capDraft.caps=capDraft.caps.map(()=>val); renderCapList(); }
+});
+$("#capCancel").onclick=closeCap;
+$("#capModal").addEventListener("click",e=>{ if(e.target===$("#capModal")) closeCap(); });
+$("#capOk").onclick=()=>{
+  if(!capDraft) return;
+  const plate=capDraft.plate, st=tankerState(plate);
+  const caps=capDraft.caps.map(c=>r2(num(c)));
+  if(caps.some(c=>!(c>0))){ $("#capErr").textContent="Every chamber needs litres greater than 0."; return; }
+  // never silently orphan diesel: block removing chambers that still hold fuel
+  const held=[];
+  for(let i=caps.length;i<st.cham.length;i++){ const q=r2(+(st.cham[i]||0)); if(q>0) held.push("C"+(i+1)+" ("+fmt(q)+" L)"); }
+  if(held.length){ $("#capErr").textContent="Empty or sell "+held.join(", ")+" before removing "+(held.length>1?"those chambers":"that chamber")+"."; return; }
+  // a chamber may already hold more than its new capacity — warn, but allow
+  const over=[];
+  caps.forEach((c,i)=>{ const q=r2(+(st.cham[i]||0)); if(q>c) over.push("C"+(i+1)+": "+fmt(q)+" L in, new size "+fmt(c)+" L"); });
+  if(over.length && !confirm("These chambers would be over full:\n\n"+over.join("\n")+"\n\nSave anyway?")) return;
+  const btn=$("#capOk"); btn.disabled=true; $("#capErr").textContent="";
+  Backend.updateVehicle(plate, caps).then(refresh).then(()=>{
+    btn.disabled=false; closeCap(); renderSettings(); toast("Updated "+plate);
+  }).catch(e=>{ btn.disabled=false; $("#capErr").textContent=(e&&e.message)||"Could not save"; });
+};
 function removeVehicleUI(plate){
   const st=tankerState(plate);
   let msg="Remove tanker "+plate+"?";
