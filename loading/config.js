@@ -24,5 +24,5 @@ window.VRIDDHI_LOADING_CONFIG = {
   // README §Notifications. Leave the placeholder and the app simply runs
   // without notifications; everything else works exactly the same.
   // The matching PRIVATE key belongs in Supabase secrets, never in this file.
-  VAPID_PUBLIC_KEY: "PASTE_YOUR_VAPID_PUBLIC_KEY_HERE",
+  VAPID_PUBLIC_KEY: "BEa1TUaLV4nk3xBR9VBMjrvGIS8uGwY8M5oiqHbKgnbYU4pc38VaaLx8g2i-QitrKZdPEDzHHwPHpRJ0dUBXook",
 };

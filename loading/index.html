@@ -1519,22 +1519,29 @@ function renderPushBox(){
       +'Allow them there, then come back and turn them on here.</div>';
     return;
   }
-  navigator.serviceWorker.ready
-    .then(reg=>reg.pushManager.getSubscription())
-    .then(sub=>{
-      const on = Notification.permission==="granted" && !!sub;
-      box.innerHTML=note
-        + (on
-          ? '<div class="endednote" style="margin:0 2px 10px">🔔 On for this phone.</div>'
-            +'<button class="big" id="pushOff" style="font-size:16px;padding:13px;margin-bottom:0">'
-            +'<span class="em">🔕</span><span>Turn off on this phone</span></button>'
-          : '<button class="big green" id="pushOn" style="font-size:17px;padding:14px;margin-bottom:0">'
-            +'<span class="em">🔔</span><span>Turn on notifications</span></button>');
-      const on1=$("#pushOn"), off1=$("#pushOff");
-      if(on1) on1.onclick=()=>enablePush(true);
-      if(off1) off1.onclick=disablePush;
-    })
-    .catch(()=>{ box.innerHTML=note; });
+  const paint=(on)=>{
+    box.innerHTML=note
+      + (on
+        ? '<div class="endednote" style="margin:0 2px 10px">🔔 On for this phone.</div>'
+          +'<button class="big" id="pushOff" style="font-size:16px;padding:13px;margin-bottom:0">'
+          +'<span class="em">🔕</span><span>Turn off on this phone</span></button>'
+        : '<button class="big green" id="pushOn" style="font-size:17px;padding:14px;margin-bottom:0">'
+          +'<span class="em">🔔</span><span>Turn on notifications</span></button>');
+    const on1=$("#pushOn"), off1=$("#pushOff");
+    if(on1) on1.onclick=()=>enablePush(true);
+    if(off1) off1.onclick=disablePush;
+  };
+  // Draw the button straight away, then upgrade to the "on" state if this phone
+  // already holds a subscription. Never wait on the service worker to paint:
+  // navigator.serviceWorker.ready stays pending forever when registration never
+  // happened, which would leave this section as a bare heading with no button.
+  paint(false);
+  const ready = navigator.serviceWorker && navigator.serviceWorker.ready;
+  if(!ready) return;
+  Promise.race([ready, new Promise(r=>setTimeout(()=>r(null), 3000))])
+    .then(reg=> reg && reg.pushManager ? reg.pushManager.getSubscription() : null)
+    .then(sub=>{ if(sub && Notification.permission==="granted") paint(true); })
+    .catch(()=>{});
 }
 
 /* ---- Edit a tanker's chambers/capacities (fill, totals & history are kept) ---- */
