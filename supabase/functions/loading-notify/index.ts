@@ -155,9 +155,13 @@ Deno.serve(async (req) => {
   }
   const payload = JSON.stringify({
     title, body: text, url: "./",
-    // A fresh tag per test, so tapping it twice shows two notifications rather
-    // than the second silently replacing the first.
-    tag: event === "test" ? `loading-test-${Date.now()}` : `loading-${plate}-${event}`,
+    // EVERY notification gets a unique tag. A repeated tag REPLACES the
+    // notification already showing rather than raising a new one, and iOS
+    // ignores renotify — so a second "OD15AF5510 — loading started" was
+    // silently swallowed while the test, which always had a fresh tag, arrived
+    // every time. Each loading is a real event at its own moment and must
+    // alert on its own.
+    tag: `loading-${plate || "test"}-${event}-${Date.now()}`,
   });
 
   // Pick the recipients.
