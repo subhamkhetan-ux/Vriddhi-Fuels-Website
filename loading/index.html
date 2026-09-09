@@ -487,6 +487,8 @@
       <div class="sectitle" style="color:var(--red-d)">Danger zone</div>
       <div class="note" style="text-align:left;margin:0 2px 10px">Clearing removes <b>all</b> loading &amp; sale records (this also empties every tanker). The tankers themselves are kept.</div>
       <button class="big red" id="clearBtn"><span class="em">🗑</span><span>Clear all records</span></button>
+
+      <div class="note" style="margin:18px 2px 0;opacity:.7">App build <b id="buildTag">—</b></div>
     </section>
   </main>
 </div>
@@ -595,6 +597,10 @@ const CLOUD = /^https:\/\//.test(CFG.SUPABASE_URL || "")
   && !!CFG.SUPABASE_ANON_KEY
   && String(CFG.SUPABASE_ANON_KEY).indexOf("PASTE") === -1;
 const RETAIN_DAYS = 7;
+// Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
+// so when a phone seems to be missing a change, this says plainly whether it is
+// running the current build or a stale copy. Bump it with each release.
+const APP_BUILD = "v12 · 2026-09-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1495,6 +1501,7 @@ function renderSettings(){
   }).join("") : '<div class="empty">No tankers yet. Add one below.</div>';
   box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
+  const bt=$("#buildTag"); if(bt) bt.textContent=APP_BUILD;
   renderPushBox();
 }
 
@@ -1523,11 +1530,14 @@ function renderPushBox(){
     box.innerHTML=note
       + (on
         ? '<div class="endednote" style="margin:0 2px 10px">🔔 On for this phone.</div>'
-          +'<button class="lnk" id="pushTest" style="display:block;margin:0 auto 10px">Send a test notification</button>'
           +'<button class="big" id="pushOff" style="font-size:16px;padding:13px;margin-bottom:0">'
           +'<span class="em">🔕</span><span>Turn off on this phone</span></button>'
         : '<button class="big green" id="pushOn" style="font-size:17px;padding:14px;margin-bottom:0">'
-          +'<span class="em">🔔</span><span>Turn on notifications</span></button>');
+          +'<span class="em">🔔</span><span>Turn on notifications</span></button>')
+      // Always offered, not only in the "on" state: when something is wrong the
+      // app often can't tell it is on, and that is exactly when you need to be
+      // able to test. It reports "not registered" rather than hiding itself.
+      +'<button class="lnk" id="pushTest" style="display:block;margin:12px auto 0">Send a test notification</button>';
     const on1=$("#pushOn"), off1=$("#pushOff"), t1=$("#pushTest");
     if(on1) on1.onclick=()=>enablePush(true);
     if(off1) off1.onclick=disablePush;

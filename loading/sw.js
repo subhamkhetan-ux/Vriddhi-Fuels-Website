@@ -1,5 +1,5 @@
 /* Tanker Loading — service worker (app-shell cache, offline-first) */
-const CACHE = "vf-loading-v11";
+const CACHE = "vf-loading-v12";
 // Cache storage is per-origin, not per-scope — the other Vriddhi apps (/app/,
 // /pay/, /payments/, /tally/) keep their caches alongside ours. Only ever
 // delete our own, so bumping this app's version can't wipe theirs.
