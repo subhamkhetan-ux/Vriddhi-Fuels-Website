@@ -1523,13 +1523,15 @@ function renderPushBox(){
     box.innerHTML=note
       + (on
         ? '<div class="endednote" style="margin:0 2px 10px">🔔 On for this phone.</div>'
+          +'<button class="lnk" id="pushTest" style="display:block;margin:0 auto 10px">Send a test notification</button>'
           +'<button class="big" id="pushOff" style="font-size:16px;padding:13px;margin-bottom:0">'
           +'<span class="em">🔕</span><span>Turn off on this phone</span></button>'
         : '<button class="big green" id="pushOn" style="font-size:17px;padding:14px;margin-bottom:0">'
           +'<span class="em">🔔</span><span>Turn on notifications</span></button>');
-    const on1=$("#pushOn"), off1=$("#pushOff");
+    const on1=$("#pushOn"), off1=$("#pushOff"), t1=$("#pushTest");
     if(on1) on1.onclick=()=>enablePush(true);
     if(off1) off1.onclick=disablePush;
+    if(t1) t1.onclick=testPush;
   };
   // Draw the button straight away, then upgrade to the "on" state if this phone
   // already holds a subscription. Never wait on the service worker to paint:
@@ -1687,10 +1689,13 @@ async function enablePush(interactive){
     await CloudBackend.rpc("loading_push_save",{
       p_endpoint:j.endpoint, p_p256dh:k.p256dh, p_auth:k.auth, p_by:ME||"",
     });
+    myEndpoint=j.endpoint;   // so this device excludes itself from broadcasts
     if(interactive){ toast("🔔 Notifications on for this phone"); renderSettings(); }
     return true;
   }catch(e){
-    if(interactive) toast("Could not turn on notifications");
+    // Say what actually went wrong — "could not turn on" gave no way to tell a
+    // missing database table from a rejected key.
+    if(interactive) toast("Couldn't turn on: "+((e&&e.message)||e));
     return false;
   }
 }
@@ -1702,22 +1707,57 @@ async function disablePush(){
       await CloudBackend.rpc("loading_push_drop",{ p_endpoint:sub.endpoint }).catch(()=>{});
       await sub.unsubscribe().catch(()=>{});
     }
+    myEndpoint="";
     toast("Notifications off for this phone");
   }catch(e){ /* nothing worth interrupting the user for */ }
   renderSettings();
 }
-// Fire-and-forget: a failed notification must never fail or delay a save.
+// This phone's own push endpoint, so the server can leave this device out of
+// the broadcast (it belongs to whoever just pressed the button).
+// null = not looked up yet; "" = looked up and there is none. Without that
+// distinction an unresolvable endpoint would re-run the lookup, and re-wait,
+// on every single notification.
+let myEndpoint=null;
+function loadMyEndpoint(){
+  if(myEndpoint!==null) return Promise.resolve(myEndpoint);
+  if(!pushSupported() || !navigator.serviceWorker){ myEndpoint=""; return Promise.resolve(""); }
+  // Short fuse: serviceWorker.ready never settles when registration failed, and
+  // a notification must not sit waiting on it. It is warmed at sign-in anyway,
+  // so this slow path is only ever hit once.
+  return Promise.race([navigator.serviceWorker.ready, new Promise(r=>setTimeout(()=>r(null),1200))])
+    .then(reg=> reg && reg.pushManager ? reg.pushManager.getSubscription() : null)
+    .then(sub=>{ myEndpoint=(sub&&sub.endpoint)||""; return myEndpoint; })
+    .catch(()=>{ myEndpoint=""; return ""; });
+}
+// Ask the server to notify the other phones. Returns the server's reply so the
+// test button can report what actually happened; callers that don't care simply
+// ignore it. A failure here must never fail or delay a save.
 function notifyStaff(event, plate, remark){
-  if(!pushConfigured() || !CloudBackend.client) return;
-  CloudBackend.client.auth.getSession().then(res=>{
+  if(!pushConfigured() || !CloudBackend.client) return Promise.resolve(null);
+  return Promise.all([CloudBackend.client.auth.getSession(), loadMyEndpoint()]).then(r=>{
+    const res=r[0], ep=r[1];
     const tok=res && res.data && res.data.session && res.data.session.access_token;
-    if(!tok) return;
+    if(!tok) return null;
     return fetch(String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-notify",{
       method:"POST",
       headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+tok, "apikey":CFG.SUPABASE_ANON_KEY },
-      body:JSON.stringify({ event:event, vehicle:plate, remark:remark||"" }),
-    });
-  }).catch(()=>{});
+      body:JSON.stringify({ event:event, vehicle:plate||"", remark:remark||"", endpoint:ep }),
+    }).then(r2=>r2.json().then(j=>({ status:r2.status, body:j })).catch(()=>({ status:r2.status, body:null })));
+  }).catch(e=>({ status:0, body:{ error:(e&&e.message)||"Network error" } }));
+}
+// Send a notification to THIS phone and say plainly what came back, so a single
+// person can prove the whole chain works instead of guessing at silence.
+function testPush(){
+  const btn=$("#pushTest"); if(btn){ btn.disabled=true; btn.textContent="Sending…"; }
+  const done=(m)=>{ toast(m); if(btn){ btn.disabled=false; btn.textContent="Send a test notification"; } };
+  notifyStaff("test","").then(r=>{
+    if(!r) return done("Not signed in — sign in and try again");
+    const b=r.body||{};
+    if(r.status!==200) return done("Server error: "+(b.error||("HTTP "+r.status)));
+    if(b.errors && b.errors.length) return done("Push rejected: "+String(b.errors[0]).slice(0,90));
+    if(!b.sent) return done("This phone isn't registered — turn notifications off and on again");
+    done("Test sent ✓ — it should appear in a moment");
+  });
 }
 
 /* ---------- Realtime (cloud) ---------- */
@@ -1752,6 +1792,8 @@ function startApp(session){
   // Already allowed on this phone? Re-register silently — the browser can
   // rotate a subscription, and a new sign-in must be attached to this user.
   if(pushConfigured() && pushSupported() && Notification.permission==="granted") enablePush(false);
+  // Warm this device's push endpoint now, so the first save doesn't wait on it.
+  if(pushConfigured()) loadMyEndpoint();
   CloudBackend.purge();
   return CloudBackend.closeDue().then(refresh).then(()=>{ goHome(); }).catch(oops);
 }
