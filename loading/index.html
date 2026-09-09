@@ -225,6 +225,15 @@
   .mbtn.ghost{background:#e6eaf1;color:var(--navy)}
   .mbtn.go{background:var(--green);color:#fff}
   .mbtn:active{transform:translateY(1px)}
+  /* Edit chamber capacities */
+  .modalbox.wide{max-height:86vh;overflow-y:auto}
+  .edit{background:none;border:0;color:var(--navy2);font-size:18px;cursor:pointer;padding:4px 6px;flex:none}
+  .caprow{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+  .caprow .cb{width:44px;height:44px;border-radius:11px;background:var(--navy);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px}
+  .caprow input{flex:1;min-width:0;text-align:center}
+  .caprow .cf{font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap;flex:none;width:68px;text-align:right;line-height:1.25}
+  .caprow.over .cb{background:var(--red)}
+  .caperr{color:var(--red);font-weight:700;font-size:13px;min-height:18px;margin:2px 0 0}
 
   .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
   .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
@@ -412,6 +421,28 @@
   </div>
 </div>
 
+<!-- Edit a tanker's chambers &amp; capacities (keeps its fill, totals and history) -->
+<div class="modal" id="capModal">
+  <div class="modalbox wide">
+    <div class="mh">Edit chambers</div>
+    <div class="mp" id="capTitle">—</div>
+    <div class="ca-row" style="margin-top:0">
+      <div class="ca-field"><label>Chambers</label>
+        <div class="stepper"><button type="button" id="capLess">−</button><span id="capCount">3</span><button type="button" id="capMore">+</button></div>
+      </div>
+      <div class="ca-field"><label>Set all to (L)</label>
+        <input id="capAll" type="text" inputmode="decimal" placeholder="optional" /></div>
+    </div>
+    <label class="mlab">Litres per chamber</label>
+    <div id="capList"></div>
+    <div class="caperr" id="capErr"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="capCancel">Cancel</button>
+      <button class="mbtn go" id="capOk">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- LOGIN (cloud mode only) -->
 <div class="loginwrap" id="login">
   <div class="loginbox">
@@ -590,6 +621,12 @@ const LocalBackend = {
     lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve();
   },
   addVehicle(v){ const l=lsVehicles(); l.push(vNorm(v)); lsVehiclesSave(l); return Promise.resolve(); },
+  // change chamber count / capacities only — fill, totals and history are kept
+  updateVehicle(plate, caps){
+    const l=lsVehicles(), v=l.find(x=>x.plate===plate);
+    if(!v) return Promise.reject(new Error("Unknown tanker"));
+    v.caps=caps.slice(); lsVehiclesSave(l); return Promise.resolve();
+  },
   removeVehicle(plate){ lsVehiclesSave(lsVehicles().filter(v=>v.plate!==plate)); return Promise.resolve(); },
   clearAll(){ lsSave([]); const vs=lsVehicles(); vs.forEach(v=>{ v.fill={}; v.total_loaded=0; v.total_sold=0; }); lsVehiclesSave(vs); return Promise.resolve(); },
   endDay(){
@@ -641,6 +678,12 @@ const CloudBackend = {
   dispatch(plate, remark){ return this.rpc("loading_dispatch",{ p_vehicle:plate, p_by:ME, p_remark:remark||"" }); },
   remove(id){ return this.rpc("loading_delete",{ p_id:id }); },
   addVehicle(v){ return this.rpc("loading_vehicle_add",{ p_plate:v.plate, p_caps:v.caps, p_color:v.color||"" }); },
+  // loading_vehicle_add upserts caps/color on conflict and leaves fill,
+  // total_loaded and total_sold untouched — so editing capacities is safe.
+  updateVehicle(plate, caps){
+    const v=VEHICLES.find(x=>x.plate===plate);
+    return this.rpc("loading_vehicle_add",{ p_plate:plate, p_caps:caps, p_color:(v&&v.color)||"" });
+  },
   removeVehicle(plate){ return this.rpc("loading_vehicle_remove",{ p_plate:plate }); },
   clearAll(){ return this.rpc("loading_clear_all",{}); },
   endDay(){ return this.rpc("loading_end_day",{}); },
@@ -1139,10 +1182,74 @@ function renderSettings(){
     return '<div class="entry"><span class="plate">'+esc(v.plate)+'</span>'
       +'<div class="mid"><div class="ch">'+v.caps.length+' chambers · '+v.caps.map(c=>fmt(c)).join(", ")+' L</div>'
       +'<div class="tm">Full '+fmt(cap)+' L'+(st.total>0?' · now '+fmt(st.total)+' L in':'')+'</div></div>'
+      +'<button class="edit" data-edveh="'+esc(v.plate)+'" aria-label="Edit chambers">✎</button>'
       +'<button class="del" data-rmveh="'+esc(v.plate)+'" aria-label="Remove">🗑</button></div>';
   }).join("") : '<div class="empty">No tankers yet. Add one below.</div>';
+  box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
 }
+
+/* ---- Edit a tanker's chambers/capacities (fill, totals & history are kept) ---- */
+let capDraft=null; // { plate, caps:[string] }
+function openCapEdit(plate){
+  const v=vehicleOf(plate); if(!v) return;
+  capDraft={ plate:plate, caps:v.caps.map(c=>String(c)) };
+  $("#capTitle").textContent=plate;
+  $("#capAll").value=""; $("#capErr").textContent="";
+  renderCapList();
+  $("#capModal").classList.add("on");
+}
+function closeCap(){ $("#capModal").classList.remove("on"); capDraft=null; }
+function renderCapList(){
+  if(!capDraft) return;
+  const st=tankerState(capDraft.plate);
+  $("#capCount").textContent=capDraft.caps.length;
+  $("#capList").innerHTML=capDraft.caps.map((c,i)=>{
+    const inTank=r2(+(st.cham[i]||0));
+    return '<div class="caprow" data-i="'+i+'">'
+      +'<span class="cb">C'+(i+1)+'</span>'
+      +'<input type="text" inputmode="decimal" value="'+esc(c)+'" data-cap="'+i+'" />'
+      +'<span class="cf">'+(inTank>0?("now "+fmt(inTank)+" L"):"empty")+'</span></div>';
+  }).join("");
+  $("#capList").querySelectorAll("input[data-cap]").forEach(inp=>{
+    inp.oninput=()=>{ const val=sanQty(inp.value); inp.value=val; capDraft.caps[+inp.dataset.cap]=val; capState(); };
+  });
+  capState();
+}
+function capState(){
+  if(!capDraft) return;
+  const st=tankerState(capDraft.plate);
+  $("#capList").querySelectorAll(".caprow").forEach(el=>{
+    const i=+el.dataset.i, inTank=r2(+(st.cham[i]||0)), c=num(capDraft.caps[i]);
+    el.classList.toggle("over", inTank>0 && c>0 && inTank>c);
+  });
+}
+$("#capLess").onclick=()=>{ if(capDraft && capDraft.caps.length>1){ capDraft.caps.pop(); renderCapList(); } };
+$("#capMore").onclick=()=>{ if(capDraft && capDraft.caps.length<12){ capDraft.caps.push(capDraft.caps[capDraft.caps.length-1]||"3985"); renderCapList(); } };
+$("#capAll").addEventListener("input",()=>{
+  const val=sanQty($("#capAll").value); $("#capAll").value=val;
+  if(capDraft && num(val)>0){ capDraft.caps=capDraft.caps.map(()=>val); renderCapList(); }
+});
+$("#capCancel").onclick=closeCap;
+$("#capModal").addEventListener("click",e=>{ if(e.target===$("#capModal")) closeCap(); });
+$("#capOk").onclick=()=>{
+  if(!capDraft) return;
+  const plate=capDraft.plate, st=tankerState(plate);
+  const caps=capDraft.caps.map(c=>r2(num(c)));
+  if(caps.some(c=>!(c>0))){ $("#capErr").textContent="Every chamber needs litres greater than 0."; return; }
+  // never silently orphan diesel: block removing chambers that still hold fuel
+  const held=[];
+  for(let i=caps.length;i<st.cham.length;i++){ const q=r2(+(st.cham[i]||0)); if(q>0) held.push("C"+(i+1)+" ("+fmt(q)+" L)"); }
+  if(held.length){ $("#capErr").textContent="Empty or sell "+held.join(", ")+" before removing "+(held.length>1?"those chambers":"that chamber")+"."; return; }
+  // a chamber may already hold more than its new capacity — warn, but allow
+  const over=[];
+  caps.forEach((c,i)=>{ const q=r2(+(st.cham[i]||0)); if(q>c) over.push("C"+(i+1)+": "+fmt(q)+" L in, new size "+fmt(c)+" L"); });
+  if(over.length && !confirm("These chambers would be over full:\n\n"+over.join("\n")+"\n\nSave anyway?")) return;
+  const btn=$("#capOk"); btn.disabled=true; $("#capErr").textContent="";
+  Backend.updateVehicle(plate, caps).then(refresh).then(()=>{
+    btn.disabled=false; closeCap(); renderSettings(); toast("Updated "+plate);
+  }).catch(e=>{ btn.disabled=false; $("#capErr").textContent=(e&&e.message)||"Could not save"; });
+};
 function removeVehicleUI(plate){
   const st=tankerState(plate);
   let msg="Remove tanker "+plate+"?";

@@ -72,7 +72,16 @@ The **⚙ Manage tankers & data** link at the bottom of the home screen opens a
 small admin screen:
 
 - **Tankers** — lists every tanker with its chambers and full capacity, each with
-  a 🗑 to remove it (with a confirm; past records stay in History).
+  a ✎ to **edit its chambers** and a 🗑 to remove it (with a confirm; past records
+  stay in History).
+- **✎ Edit chambers** — change a tanker's **chamber capacities without deleting
+  it**: set each chamber's litres individually, use **Set all to** to apply one
+  size to every chamber, or change the **chamber count** (− / +). Each row shows
+  how much that chamber currently holds. Saving keeps the tanker's **current
+  fill, all-time totals and history** untouched — only the sizes change. Two
+  guards: a chamber that still holds diesel **cannot be removed** (empty or sell
+  it first), and shrinking a chamber below what it already holds asks for
+  confirmation (it will read as over-full until sold).
 - **Add a new tanker** — type the vehicle number, pick the number of **chambers**
   (− / +) and the **litres per chamber**, then **Add tanker**. It appears
   immediately as a new card on the home screen (and, in cloud mode, on every
