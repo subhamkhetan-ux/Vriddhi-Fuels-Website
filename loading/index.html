@@ -954,7 +954,21 @@ function tankFill(svg, caps, cham, addArr){
    A tanker shows the live nozzle while it is actively being loaded. It goes
    back to the plain graphic once an hour passes with no loading on it (or it
    is sent for sale, or it fills up — in both cases the loading is over). */
-const POUR_MS = 60*60*1000;   // one quiet hour ends the pour
+const POUR_MS = 60*60*1000;       // one quiet hour ends the pour (the graphic)
+const RESUME_MS = 3*60*60*1000;   // three quiet hours make the next load a "resumed"
+// How long since this tanker was last loaded, measured now. null means the last
+// thing that happened to it was a sale (the next load is a fresh start, not a
+// resumption); Infinity means it holds diesel but its loadings have already
+// aged out of the 7-day window — which is comfortably longer than three hours.
+function sinceLastLoad(plate){
+  for(let i=LOG.length-1;i>=0;i--){
+    const e=LOG[i];
+    if(e.plate!==plate) continue;
+    if((e.kind||"load")==="dispatch") return null;
+    return Date.now()-e.ts;
+  }
+  return Infinity;
+}
 // Which chambers are taking diesel right now — a loading usually fills several
 // at once, so this is the whole set from the most recent loading.
 function pourChambers(plate){
@@ -1237,14 +1251,18 @@ $("#saveBtn").onclick=()=>{
   if(!chambers.length){ toast("Nothing to save"); return; }
   const entry={ id:localId(), ts:Date.now(), plate:draft.plate, kind:"load", chambers:chambers, total:addTotal(), by:ME };
   const btn=$("#saveBtn"); btn.disabled=true;
-  // Snapshot before the save so we can tell "started" from "just became full".
-  const plate=draft.plate, was=tankerState(plate);
+  // Snapshot before the save — afterwards the gap would read as zero, and we
+  // need the old fill to tell "started" from "just became full".
+  const plate=draft.plate, was=tankerState(plate), gap=sinceLastLoad(plate);
   Backend.add(entry).then(refresh).then(()=>{
     btn.disabled=false; draft=null; goHome(); toast("✓ Added "+fmt(entry.total)+" L");
     const now=tankerState(plate);
-    // Full wins over started: a tanker filled in one go is only announced once.
+    // One save, one alert. Full beats started beats resumed: a tanker filled in
+    // one go is announced once, and diesel into an empty tanker is a start even
+    // if it has stood idle for days.
     if(!was.full && now.full) notifyStaff("complete", plate);
     else if(was.total<=0 && now.total>0) notifyStaff("start", plate);
+    else if(gap!==null && gap>RESUME_MS) notifyStaff("resume", plate);
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
