@@ -93,6 +93,10 @@ Deno.serve(async (req) => {
   const plate = String(body.vehicle ?? "").trim();
   const remark = String(body.remark ?? "").trim().slice(0, 80);
   // The calling phone's own push endpoint, so we can leave that one device out.
+  // Absent field and empty string mean different things: absent is a client
+  // from before this was added, empty is a phone telling us it has no
+  // subscription at all (notifications switched off there).
+  const hasEndpointField = Object.prototype.hasOwnProperty.call(body, "endpoint");
   const selfEndpoint = String(body.endpoint ?? "");
   if (!["start", "resume", "complete", "sold", "test"].includes(event)) {
     return json({ error: "Unknown event" }, 400);
@@ -152,16 +156,32 @@ Deno.serve(async (req) => {
 
   // Pick the recipients.
   //   test  -> only the phone that asked, so one person can prove it works.
-  //   else  -> every phone EXCEPT the one that raised this.
-  // Exclusion is by device (endpoint), not by account: staff commonly share a
-  // single login, and excluding the whole user would then silence every phone
-  // and deliver nothing at all.
+  //   else  -> every phone EXCEPT the device that raised this.
+  //
+  // Exclusion is by device, never by account: staff commonly share a single
+  // login, so excluding the whole user would silence every phone at once.
+  //
+  // A phone with notifications switched off sends endpoint:"" — it has no
+  // subscription, so there is nothing to exclude and everyone else must still
+  // be told. Falling back to the account-level filter here was what made a
+  // transaction from a notifications-off phone notify nobody at all.
   let q = admin.from("loading_push_subs").select("endpoint, p256dh, auth, user_id");
-  if (event === "test") q = selfEndpoint ? q.eq("endpoint", selfEndpoint) : q.eq("user_id", actorId);
-  else if (selfEndpoint) q = q.neq("endpoint", selfEndpoint);
-  else q = q.neq("user_id", actorId);      // older client that sends no endpoint
+  let subs: { endpoint: string; p256dh: string; auth: string; user_id: string }[] | null = [];
+  let subsErr: { message: string } | null = null;
 
-  const { data: subs, error: subsErr } = await q;
+  if (event === "test" && !selfEndpoint) {
+    // Nothing to test against: this phone holds no subscription. Say so rather
+    // than pushing to other people's phones and calling it a success.
+    console.log("test requested by a phone with no subscription of its own");
+  } else {
+    if (event === "test") q = q.eq("endpoint", selfEndpoint);
+    else if (selfEndpoint) q = q.neq("endpoint", selfEndpoint);
+    else if (!hasEndpointField) q = q.neq("user_id", actorId);   // pre-endpoint client
+    // else: sender has no subscription — exclude nothing, notify everyone.
+    const r = await q;
+    subs = r.data;
+    subsErr = r.error;
+  }
   if (subsErr) {
     console.error("could not read subscriptions:", subsErr.message);
     return json({ error: "Could not read subscriptions: " + subsErr.message }, 500);
