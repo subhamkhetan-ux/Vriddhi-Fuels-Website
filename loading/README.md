@@ -152,7 +152,9 @@ data → Notifications → 🔔 Turn on notifications**; signing out of a phone
 detaches it again.
 
 Alerts go to every phone **except the device that raised them** — by device,
-not by account, so staff sharing one login still notify each other.
+not by account, so staff sharing one login still notify each other. A phone
+with notifications **switched off still triggers alerts on everyone else's**;
+it simply doesn't receive any itself.
 
 > **iPhone:** web push needs **iOS 16.4+** and the app **added to the Home
 > Screen** — Apple does not deliver push to a page open in a Safari tab. The
