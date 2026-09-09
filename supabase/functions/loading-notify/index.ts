@@ -213,6 +213,18 @@ Deno.serve(async (req) => {
       const res = await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         payload,
+        {
+          // These were previously left to the library's defaults, which are
+          // Urgency: normal and a four-week TTL. Android holds normal-priority
+          // pushes in Doze until the device or the app next wakes — exactly
+          // "it arrived the moment I opened the app". "high" asks the push
+          // service to deliver immediately instead.
+          urgency: "high",
+          // Six hours rather than four weeks: a loading alert is worthless
+          // long after the fact, but this still covers a phone that is briefly
+          // switched off or out of signal.
+          TTL: 6 * 60 * 60,
+        },
       );
       if (res && typeof res.statusCode === "number") codes.push(res.statusCode);
       sent++;
