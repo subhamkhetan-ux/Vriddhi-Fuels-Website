@@ -1958,6 +1958,27 @@
       },
       "queued_at": "2026-09-11T13:45:25.800602+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "1225e096fa37d70c",
+      "gmail_msg_id": "1876044638698467523",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "11/09/2026",
+      "date_serial": 46276,
+      "amount": 139000.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-11T14:15:32.490713+00:00",
+      "status": "matched"
     }
   ]
 }
