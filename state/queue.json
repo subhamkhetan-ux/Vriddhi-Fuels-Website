@@ -2212,7 +2212,51 @@
       "queued_at": "2026-09-16T08:30:22.391609+00:00",
       "status": "review",
       "error": "could not extract: payer",
-      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 1,25,000.00 on 16-Sep-26. Info: BIL*INFT*FIK0798381*.\r\n\r\nThe Available Balance in your account is Rs. 1,92,166.23.\r\n\r\nIn case you have not done this transaction, please call on 00914071403333  from your registered mobile number.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
+      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 1,25,000.00 on 16-Sep-26. Info: BIL*INFT*FIK0798381*.\r\n\r\nThe Available Balance in your account is Rs. 1,92,166.23.\r\n\r\nIn case you have not done this transaction, please call on 00914071403333  from your registered mobile number.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n",
+      "materialized": true,
+      "materialized_at": "2026-09-16T08:41:18.501429+00:00"
+    },
+    {
+      "entry_id": "59d00c68720acaa8",
+      "gmail_msg_id": "1876476559345729330",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "16/09/2026",
+      "date_serial": 46281,
+      "amount": 175000.0,
+      "raw_payer": "SHEETAL BADHAN",
+      "customer": "SHEETAL BADHAN",
+      "candidates": [
+        "SHEETAL BADHAN"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-16T08:41:20.544029+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "7d12831c2c0f60c9",
+      "gmail_msg_id": "1876476620478041928",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "16/09/2026",
+      "date_serial": 46281,
+      "amount": 5367627.0,
+      "raw_payer": "DBL SIARMAL COAL MINES PRIVATE LTD",
+      "customer": "Dbl-Siarmal Coal Mines Private Limited",
+      "candidates": [
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-16T08:41:20.544695+00:00",
+      "status": "matched"
     }
   ]
 }
