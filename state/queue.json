@@ -2259,6 +2259,27 @@
       },
       "queued_at": "2026-09-16T08:41:20.544695+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "32d6e68fdeb50641",
+      "gmail_msg_id": "1876490402437667642",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "16/09/2026",
+      "date_serial": 46281,
+      "amount": 60444.0,
+      "raw_payer": "KRISHNA INFRATECH",
+      "customer": "KRISHNA INFRATECH PVT LTD",
+      "candidates": [
+        "KRISHNA INFRATECH PVT LTD"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-16T12:15:21.953984+00:00",
+      "status": "matched"
     }
   ]
 }
