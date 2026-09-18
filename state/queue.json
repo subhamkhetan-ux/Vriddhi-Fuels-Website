@@ -2397,6 +2397,29 @@
       },
       "queued_at": "2026-09-18T08:45:25.407270+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "62ccba84ed4f3828",
+      "gmail_msg_id": "1876662024264462830",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "18/09/26",
+      "date_serial": 46283,
+      "amount": 50000.0,
+      "raw_payer": "VRIDDHI FUELS",
+      "customer": null,
+      "candidates": [
+        "DG VRIDDHI FUELS",
+        "VRIDDHI FUELS CAR",
+        "VRIDDHI FUELS TANKER"
+      ],
+      "match_tier": "ambiguous",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-18T09:45:23.439840+00:00",
+      "status": "review"
     }
   ]
 }
