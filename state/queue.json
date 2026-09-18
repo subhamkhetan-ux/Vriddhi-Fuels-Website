@@ -2376,6 +2376,27 @@
       },
       "queued_at": "2026-09-18T02:45:23.771606+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "0cb7749189393bbd",
+      "gmail_msg_id": "1876658151318738705",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "18/09/2026",
+      "date_serial": 46283,
+      "amount": 120888.0,
+      "raw_payer": "JAI BALAJI OXYGEN PVT LTD",
+      "customer": "M/s Jai Balaji Oxygen Private Limited",
+      "candidates": [
+        "M/s Jai Balaji Oxygen Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-18T08:45:25.407270+00:00",
+      "status": "matched"
     }
   ]
 }
