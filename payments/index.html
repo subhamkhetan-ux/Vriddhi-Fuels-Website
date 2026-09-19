@@ -218,6 +218,9 @@ summary::-webkit-details-marker{display:none}
 .cr-badge.st-upcoming{background:var(--panel2);color:var(--muted)}
 .cr-badge.st-due{background:#ffa50022;color:#ffb020}
 .cr-badge.st-overdue{background:#ff6b6b22;color:#ff6b6b}
+.cr-badge.st-paid::before{content:"✓ "}
+.cr-row.st-paid td{background:#3fb9500f}
+.cr-row.st-paid td:first-child{box-shadow:inset 3px 0 0 #3fb950}
 .cr-row.st-overdue td{background:#ff6b6b0d}
 .cr-extra{font-size:12px;color:var(--muted);margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:9px}
 .cr-hint{font-size:11px;color:var(--faint);font-weight:400}
@@ -782,6 +785,7 @@ const Cloud = {
   async pullCredit(){
     if(!this.client) return;
     try{
+      Promise.resolve(this.client.rpc("pay_fuel_purge_old")).catch(()=>{});   // keep ~7 days
       const [cfg, inv, ovr, bal, hol, opn, prc] = await Promise.all([
         this.client.from("pay_credit_config").select("*").eq("id",1).maybeSingle(),
         this.client.from("pay_fuel_invoices").select("invoice_no,invoice_date,tt_no,amount").limit(5000),

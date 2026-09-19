@@ -429,6 +429,24 @@ create table if not exists public.pay_bank_holidays (
   updated_at timestamptz default now()
 );
 
+-- Keep only ~7 days of credit history (older is not useful once cleared). The
+-- app calls this on load. Uses IST for "today". Keeps prices (current) and bank
+-- holidays (future-relevant).
+create or replace function public.pay_fuel_purge_old()
+returns void language sql security definer as $$
+  delete from public.pay_fuel_invoices
+   where invoice_date ~ '^\d{1,2}/\d{1,2}/\d{4}$'
+     and to_date(invoice_date, 'DD/MM/YYYY') < ((now() at time zone 'Asia/Kolkata')::date - 7);
+  delete from public.pay_fuel_day_overrides
+   where day ~ '^\d{1,2}/\d{1,2}/\d{4}$'
+     and to_date(day, 'DD/MM/YYYY') < ((now() at time zone 'Asia/Kolkata')::date - 7);
+  delete from public.pay_credit_opening
+   where day ~ '^\d{4}-\d{2}-\d{2}$'
+     and day::date < ((now() at time zone 'Asia/Kolkata')::date - 7);
+  delete from public.pay_credit_balances
+   where at < now() - interval '7 days';
+$$;
+
 alter table public.pay_credit_config       enable row level security;
 alter table public.pay_fuel_invoices       enable row level security;
 alter table public.pay_fuel_prices          enable row level security;
