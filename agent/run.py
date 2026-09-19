@@ -203,6 +203,20 @@ def main() -> int:
         traceback.print_exc()
         errors.append(msg)
 
+    # Credit/dues: sum EVERY IOCL invoice (all trucks) into Supabase for the
+    # /payments Credit section. Best-effort and isolated.
+    from . import credit
+    try:
+        cr_created, cr_errors = credit.run(seen)
+        if cr_created:
+            print(f"Credit: upserted {cr_created} fuel invoice(s).")
+        errors.extend(cr_errors)
+    except Exception as exc:  # last-resort guard
+        msg = f"credit: FAILED: {exc}"
+        print(msg)
+        traceback.print_exc()
+        errors.append(msg)
+
     # Persist whatever progress we made, even on partial failure.
     state_store.save_queue(queue)
     state_store.save_seen(seen)

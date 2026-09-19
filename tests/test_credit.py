@@ -1,0 +1,81 @@
+"""Tests for the credit/dues invoice ingest (all IOCL invoices, any truck)."""
+
+import types
+
+from agent import credit
+from tests.test_invoice import INVOICE_TEXT
+
+
+class FakeMail:
+    def __init__(self, msg_id, pdfs, internal_ms=1000):
+        self.msg_id = msg_id
+        self.internal_ms = internal_ms
+        self.pdfs = pdfs
+
+
+def _pdf_to_text(mapping):
+    return lambda pdf: mapping[pdf]
+
+
+def test_rows_from_mail_extracts_any_truck():
+    # A different TT than our own — still captured (unlike consignment notes).
+    other = INVOICE_TEXT.replace("OD23U8210", "OD23X9999")
+    mail = FakeMail("m1", [b"pdf"])
+    rows = credit._rows_from_mail(mail, _pdf_to_text({b"pdf": other}))
+    assert len(rows) == 1
+    assert rows[0]["invoice_no"] == "7010195291"
+    assert rows[0]["tt_no"] == "OD23X9999"
+    assert rows[0]["amount"] == 2159219
+    assert rows[0]["invoice_date"] == "26/08/2026"
+
+
+def test_rows_from_mail_dedupes_same_invoice_in_one_mail():
+    mail = FakeMail("m2", [b"a", b"b"])
+    rows = credit._rows_from_mail(mail, _pdf_to_text({b"a": INVOICE_TEXT, b"b": INVOICE_TEXT}))
+    assert len(rows) == 1  # same invoice_no in two PDFs -> one row
+
+
+def test_rows_from_mail_skips_unparseable():
+    mail = FakeMail("m3", [b"junk"])
+    rows = credit._rows_from_mail(mail, _pdf_to_text({b"junk": "nothing useful"}))
+    assert rows == []
+
+
+def test_run_skips_when_supabase_disabled(monkeypatch):
+    import agent.supabase_sync as ss
+    monkeypatch.setattr(ss, "enabled", lambda: False)
+    created, errors = credit.run({})
+    assert created == 0
+    assert errors == []
+
+
+def test_upsert_fuel_invoices_disabled(monkeypatch):
+    import agent.supabase_sync as ss
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_KEY", raising=False)
+    assert ss.upsert_fuel_invoices([{"invoice_no": "7010195291", "amount": 1}]) == 0
+
+
+def test_upsert_fuel_invoices_shape(monkeypatch):
+    import agent.supabase_sync as ss
+    monkeypatch.setenv("SUPABASE_URL", "https://real.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "realkey")
+    captured = {}
+
+    def fake_request(method, path, key, url, body=None, prefer=None):
+        captured["path"] = path
+        captured["body"] = body
+        captured["prefer"] = prefer
+        return None
+
+    monkeypatch.setattr(ss, "_request", fake_request)
+    n = ss.upsert_fuel_invoices([
+        {"invoice_no": "7010195291", "invoice_date": "26/08/2026", "tt_no": "OD23U8210",
+         "amount": 2159219, "gmail_msg_id": "m1"},
+        {"invoice_no": None, "amount": 5},   # dropped (no PK)
+    ])
+    assert n == 1
+    assert "on_conflict=invoice_no" in captured["path"]
+    assert "ignore-duplicates" in captured["prefer"]
+    assert set(captured["body"][0]) == {
+        "invoice_no", "invoice_date", "tt_no", "amount", "gmail_msg_id"}

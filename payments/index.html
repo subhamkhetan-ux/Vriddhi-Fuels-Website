@@ -183,6 +183,49 @@ summary::-webkit-details-marker{display:none}
 .cust-chip.removable{display:inline-flex;align-items:center;gap:2px;padding:4px 5px 4px 10px}
 .cust-x{border:none;background:transparent;color:var(--faint);font-size:16px;line-height:1;cursor:pointer;padding:0 4px;border-radius:6px;transition:color .12s,background .12s}
 .cust-x:hover{color:#fff;background:var(--accent-2)}
+/* ---- credit / dues ---- */
+.cr-head{font-weight:700;margin-bottom:10px}
+.cr-sub{font-weight:500;color:var(--faint);font-size:12px}
+.cr-setgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.cr-setgrid label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:5px}
+.cr-setgrid input{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:15px;font-variant-numeric:tabular-nums}
+.cr-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.cr-stat{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+.cr-stat .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+.cr-stat .v{font-size:18px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;margin-top:3px}
+.cr-stat .s{font-size:11px;color:var(--faint);margin-top:2px}
+.cr-in{color:#3fb950}
+.cr-od{color:#ff6b6b}
+#crBalMsg{width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:14px;resize:vertical;font-family:inherit}
+.cr-balpreview{font-size:12.5px;color:var(--muted);margin:8px 2px}
+.cr-hist{margin-top:12px}
+.cr-histhead{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.cr-histrow{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+.cr-histamt{font-weight:600;font-variant-numeric:tabular-nums}
+.cr-histwhen{color:var(--faint);font-size:12px;margin-left:auto}
+.cr-holiday{border:1px solid var(--accent)}
+.cr-holrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+.cr-holbtns{display:flex;gap:6px}
+.cr-table{width:100%;border-collapse:collapse;font-size:13px}
+.cr-table th{text-align:left;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid var(--line)}
+.cr-table td{padding:8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.cr-table .num{text-align:right}
+.cr-amtbtn{background:transparent;border:1px dashed transparent;border-radius:7px;color:var(--ink);font:inherit;font-variant-numeric:tabular-nums;cursor:pointer;padding:2px 6px}
+.cr-amtbtn:hover{border-color:var(--line)}
+.cr-amtbtn.ovr{color:var(--accent);border-color:var(--accent)}
+.cr-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.cr-badge.st-paid{background:#3fb95022;color:#3fb950}
+.cr-badge.st-upcoming{background:var(--panel2);color:var(--muted)}
+.cr-badge.st-due{background:#ffa50022;color:#ffb020}
+.cr-badge.st-overdue{background:#ff6b6b22;color:#ff6b6b}
+.cr-row.st-overdue td{background:#ff6b6b0d}
+.cr-extra{font-size:12px;color:var(--muted);margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:9px}
+.cr-hint{font-size:11px;color:var(--faint);font-weight:400}
+.cr-carry{font-size:12.5px;color:var(--muted);margin-bottom:10px;padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px}
+.cr-amtbtn.cr-add{color:var(--faint);border-style:dashed;border-color:var(--line)}
+#crOpenDate,.cr-holclosing input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:13px}
+.cr-holclosing{flex-wrap:wrap;gap:8px}
+.cr-holclosing .cr-holbtns{flex-wrap:wrap;gap:6px}
 /* consignment note print — a hand-built A4 page (no docx renderer), so it looks
    identical in every browser. Off-screen normally; the only thing printed. */
 #printArea{position:fixed;left:-99999px;top:0}
@@ -226,6 +269,7 @@ a{color:var(--accent)}
   <button class="tab active" id="tabPay" onclick="showView('pay')">Payments</button>
   <button class="tab" id="tabNotes" onclick="showView('notes')">Consignment notes<span class="tabbadge" id="notesBadge" hidden></span></button>
   <button class="tab" id="tabCust" onclick="showView('customers')">Customers</button>
+  <button class="tab" id="tabCredit" onclick="showView('credit')">Credit<span class="tabbadge" id="creditBadge" hidden></span></button>
 </nav>
 
 <div class="wrap">
@@ -287,6 +331,51 @@ a{color:var(--accent)}
       </label>
       <div id="custPreview"></div>
       <div id="custListWrap" class="cust-list"></div>
+    </div>
+  </div>
+
+  <div id="viewCredit" style="display:none">
+    <!-- Facility settings -->
+    <div class="card">
+      <div class="cr-head">IOCL credit facility</div>
+      <div class="cr-setgrid">
+        <label>Credit limit (₹)
+          <input type="number" id="crLimit" inputmode="numeric" min="0" step="1" onchange="saveCreditConfig()"></label>
+        <label>Repayment window (working days)
+          <input type="number" id="crDays" inputmode="numeric" min="0" max="30" step="1" onchange="saveCreditConfig()">
+          <span class="cr-hint" id="crDaysHint"></span></label>
+      </div>
+      <div class="cr-stats">
+        <div class="cr-stat"><div class="k">Outstanding</div><div class="v" id="crOutstanding">—</div><div class="s" id="crOutAt"></div></div>
+        <div class="cr-stat"><div class="k">Available credit</div><div class="v" id="crAvail">—</div><div class="s" id="crAvailNote"></div></div>
+        <div class="cr-stat"><div class="k">Next due</div><div class="v" id="crNextDue">—</div><div class="s" id="crNextDueDate"></div></div>
+      </div>
+    </div>
+
+    <!-- Balance snapshot entry -->
+    <div class="card">
+      <div class="cr-head">Update balance</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+        Paste the IndianOil balance SMS/mail. I read the <b>amount</b> and <b>DR/CR</b>
+        (DR = you owe, CR = in credit) — wording can change.</div>
+      <textarea id="crBalMsg" rows="2" placeholder="e.g. …Provisional A/c Balance for MS-HSD is Rs. 6836847.03 Cr" oninput="onBalPreview()"></textarea>
+      <div class="cr-balpreview" id="crBalPreview"></div>
+      <div class="cn-actions">
+        <button class="cta sm" style="flex:1" onclick="saveBalance()">Save current balance</button>
+        <button class="btn sm" onclick="saveOpening()">Save as opening for…</button>
+        <input type="date" id="crOpenDate" title="Opening-balance date" style="max-width:150px">
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:6px">Opening balance = the figure at the start of a day. Recording it re-anchors the dues math so it stays precise.</div>
+      <div id="crBalHistory" class="cr-hist"></div>
+    </div>
+
+    <!-- Holiday confirmations (only when something is due on an unknown day) -->
+    <div id="crHolidays"></div>
+
+    <!-- Dues schedule -->
+    <div class="card">
+      <div class="cr-head">Dues schedule <span class="cr-sub" id="crDuesSub"></span></div>
+      <div id="crDuesWrap"></div>
     </div>
   </div>
 </div>
@@ -453,6 +542,8 @@ const Cloud = {
       this.subscribeEvents();
       loadCustomers();                        // now the client exists: prefer the live roster
       this.subscribeCustomers();
+      this.pullCredit();
+      this.subscribeCredit();
       if(ok) clearError();
     }catch(e){ this.setState("offline"); showError("Could not connect to Supabase: "+(e&&e.message||e)); }
   },
@@ -658,6 +749,60 @@ const Cloud = {
           ()=>poke(()=>loadCustomers()))
       .subscribe();
   },
+  /* ---- credit / dues ---- */
+  async pullCredit(){
+    if(!this.client) return;
+    try{
+      const [cfg, inv, ovr, bal, hol, opn] = await Promise.all([
+        this.client.from("pay_credit_config").select("*").eq("id",1).maybeSingle(),
+        this.client.from("pay_fuel_invoices").select("invoice_no,invoice_date,tt_no,amount").limit(5000),
+        this.client.from("pay_fuel_day_overrides").select("*").limit(2000),
+        this.client.from("pay_credit_balances").select("*").order("at",{ascending:false}).limit(200),
+        this.client.from("pay_bank_holidays").select("*").limit(2000),
+        this.client.from("pay_credit_opening").select("*").limit(2000),
+      ]);
+      if(cfg && cfg.data){ CREDIT_CFG = {limit:Number(cfg.data.credit_limit), days:Number(cfg.data.repayment_days)}; }
+      FUEL_INVOICES = (inv && inv.data) || [];
+      DAY_OVERRIDES = {}; ((ovr && ovr.data)||[]).forEach(r=>{ DAY_OVERRIDES[r.day]=Number(r.amount); });
+      BALANCES = (bal && bal.data) || [];
+      HOLIDAYS = {}; ((hol && hol.data)||[]).forEach(r=>{ HOLIDAYS[r.day]=r.is_holiday===true; });
+      OPENINGS = {}; ((opn && opn.data)||[]).forEach(r=>{ OPENINGS[r.day]={amount:Number(r.amount), sign:r.sign}; });
+      if(VIEW==="credit") renderCredit(); else updateCreditBadge();
+    }catch(_){ /* non-critical */ }
+  },
+  subscribeCredit(){
+    if(!this.client||!this.client.channel) return;
+    let t; const poke=fn=>{clearTimeout(t);t=setTimeout(fn,350);};
+    const ch = this.client.channel("credit-live");
+    ["pay_credit_config","pay_fuel_invoices","pay_fuel_day_overrides","pay_credit_balances","pay_bank_holidays","pay_credit_opening"]
+      .forEach(tbl=> ch.on("postgres_changes",{event:"*",schema:"public",table:tbl},()=>poke(()=>this.pullCredit())));
+    ch.subscribe();
+  },
+  async saveCreditConfig(limit, days){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_credit_config")
+      .update({credit_limit:limit, repayment_days:days, updated_at:new Date().toISOString()}).eq("id",1);
+    if(error) throw error; },
+  async addBalance(row){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_credit_balances").insert([row]);
+    if(error) throw error; },
+  async deleteBalance(id){ if(!this.client) return;
+    try{ await this.client.from("pay_credit_balances").delete().eq("id",id); }catch(_){} },
+  async setDayOverride(day, amount){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_fuel_day_overrides")
+      .upsert({day, amount, updated_at:new Date().toISOString()},{onConflict:"day"});
+    if(error) throw error; },
+  async clearDayOverride(day){ if(!this.client) return;
+    try{ await this.client.from("pay_fuel_day_overrides").delete().eq("day",day); }catch(_){} },
+  async setHoliday(day, isHoliday){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_bank_holidays")
+      .upsert({day, is_holiday:isHoliday, updated_at:new Date().toISOString()},{onConflict:"day"});
+    if(error) throw error; },
+  async setOpening(day, amount, sign){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_credit_opening")
+      .upsert({day, amount, sign, updated_at:new Date().toISOString()},{onConflict:"day"});
+    if(error) throw error; },
+  async clearOpening(day){ if(!this.client) return;
+    try{ await this.client.from("pay_credit_opening").delete().eq("day",day); }catch(_){} },
 };
 
 /* ---------- state + render ---------- */
@@ -1089,19 +1234,22 @@ setInterval(()=>{ if(VIEW==="pay") renderAgent(); }, 60000);
 let VIEW = "pay";
 function showView(v){
   VIEW = v;
-  const pay = v==="pay", notes = v==="notes", cust = v==="customers";
+  const pay = v==="pay", notes = v==="notes", cust = v==="customers", credit = v==="credit";
   document.getElementById("viewPay").style.display   = pay ? "" : "none";
   document.getElementById("viewNotes").style.display = notes ? "" : "none";
   document.getElementById("viewCustomers").style.display = cust ? "" : "none";
+  document.getElementById("viewCredit").style.display = credit ? "" : "none";
   document.getElementById("tabPay").classList.toggle("active", pay);
   document.getElementById("tabNotes").classList.toggle("active", notes);
   document.getElementById("tabCust").classList.toggle("active", cust);
+  document.getElementById("tabCredit").classList.toggle("active", credit);
   document.getElementById("appTitle").textContent =
-    pay ? "Payments" : notes ? "Consignment notes" : "Customers";
+    pay ? "Payments" : notes ? "Consignment notes" : cust ? "Customers" : "Credit & dues";
   document.getElementById("addBtn").style.display = pay ? "" : "none";
   document.querySelector(".exportbar").style.display = pay ? "" : "none";
   if(!pay) toggleAdd(false);                 // close the add-payment card when leaving
   if(cust) renderCustomers();
+  if(credit) renderCredit();
   try{ localStorage.setItem("vf_view", v); }catch(_){}
   window.scrollTo(0,0);
 }
@@ -1228,6 +1376,367 @@ async function removeCustomerAt(i){
     setNames(prev); renderCustomers();             // revert on failure
     toast("Couldn't remove: "+(e&&e.message||e));
   }
+}
+
+/* ---------- credit / dues tracker ---------- */
+let CREDIT_CFG = {limit:8500000, days:2};
+let FUEL_INVOICES = [];   // [{invoice_no, invoice_date(dd/mm/yyyy), tt_no, amount}]
+let DAY_OVERRIDES = {};   // {dd/mm/yyyy: amount}  (manual per-day correction)
+let BALANCES = [];        // [{id, at, amount, sign, raw}] newest first
+let HOLIDAYS = {};        // {iso: true=closed | false=confirmed open}
+let OPENINGS = {};        // {iso: {amount, sign}}  (opening balance recorded per day)
+
+function crUUID(){ try{ return crypto.randomUUID(); }catch(_){ return "b"+Date.now()+Math.random().toString(16).slice(2); } }
+
+// Parse a pasted balance message: the amount immediately before DR/CR (the LAST
+// such pair — the balance sits near the end), tolerant to surrounding wording.
+function parseBalanceMessage(text){
+  const re=/([\d,]+(?:\.\d+)?)\s*(dr|cr)\b/gi; let m, last=null;
+  while((m=re.exec(String(text||"")))) last=m;
+  if(!last) return null;
+  const amount=parseFloat(last[1].replace(/,/g,""));
+  if(!isFinite(amount)) return null;
+  return {amount, sign:last[2].toUpperCase()};
+}
+
+// ---- working-day / holiday helpers (ISO yyyy-mm-dd) ----
+function crDateFromISO(iso){ const [y,mo,d]=iso.split("-").map(Number); return new Date(y,mo-1,d); }
+function crISO(dt){ return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`; }
+function crTodayISO(){ return crISO(new Date()); }
+function isBankHoliday(dt){
+  const iso=crISO(dt);
+  if(iso in HOLIDAYS) return HOLIDAYS[iso]===true;    // confirmed open/closed wins
+  const dow=dt.getDay();
+  if(dow===0) return true;                            // Sunday
+  if(dow===6){ const occ=Math.ceil(dt.getDate()/7); if(occ===2||occ===4) return true; } // 2nd/4th Sat
+  return false;                                       // otherwise assume open
+}
+function dueDateISO(invoiceISO){
+  let cur=crDateFromISO(invoiceISO); cur.setDate(cur.getDate()+(CREDIT_CFG.days||0));
+  while(isBankHoliday(cur)) cur.setDate(cur.getDate()+1);
+  return crISO(cur);
+}
+// A due date we ASSUMED open (a plain weekday / non-2nd-4th Saturday, not yet
+// confirmed) — worth asking the user about, in case it's a festival holiday.
+function isUnconfirmedDay(iso){
+  if(iso in HOLIDAYS) return false;
+  const dt=crDateFromISO(iso), dow=dt.getDay();
+  if(dow===0) return false;
+  if(dow===6){ const occ=Math.ceil(dt.getDate()/7); if(occ===2||occ===4) return false; }
+  return true;
+}
+
+// ---- day totals + FIFO dues ----
+function dayTotalsISO(){
+  const byIso={};
+  for(const r of FUEL_INVOICES){
+    const iso=dmyToIso(r.invoice_date); if(!iso) continue;
+    byIso[iso]=(byIso[iso]||0)+Number(r.amount||0);
+  }
+  for(const [dmy,amt] of Object.entries(DAY_OVERRIDES)){   // override replaces the auto sum
+    const iso=dmyToIso(dmy); if(iso) byIso[iso]=Number(amt||0);
+  }
+  return byIso;
+}
+function currentBalance(){ return BALANCES.length ? BALANCES[0] : null; }   // newest first
+function outstandingNow(){ const b=currentBalance(); if(!b) return 0; return b.sign==="CR"?0:Number(b.amount||0); }
+function openOut(o){ return o ? (o.sign==="CR" ? 0 : Number(o.amount||0)) : 0; }  // DR owed, CR = 0
+
+// Reconcile the outstanding against invoices oldest-first (FIFO). When an
+// opening balance has been recorded, use the most recent one (<= today) as the
+// anchor: everything before that day collapses into the opening figure, so we
+// only need invoices from the anchor day onward — keeping tracking precise even
+// without the full invoice history. Without any opening, falls back to summing
+// every captured invoice.
+function computeDues(){
+  const totals=dayTotalsISO();
+  const today=crTodayISO();
+  const outstanding=outstandingNow();
+
+  const openKeys=Object.keys(OPENINGS).filter(k=>k<=today).sort();
+  const anchor=openKeys.length ? openKeys[openKeys.length-1] : null;
+
+  let carried=0, invDays;
+  if(anchor){
+    carried=openOut(OPENINGS[anchor]);                 // owed carried into the anchor day
+    invDays=Object.keys(totals).filter(k=>k>=anchor).sort();
+  }else{
+    invDays=Object.keys(totals).sort();
+  }
+  const pool=carried+invDays.reduce((a,d)=>a+totals[d],0);
+  let remaining=Math.max(0, pool-outstanding);          // amount paid off the pool
+  const carriedCov=Math.min(remaining,carried); remaining-=carriedCov;
+  const carriedUnpaid=Math.round((carried-carriedCov)*100)/100;
+
+  const rows=invDays.map(iso=>{
+    const amount=totals[iso];
+    const covered=Math.min(remaining,amount); remaining-=covered;
+    const unpaid=Math.round((amount-covered)*100)/100;
+    const due=dueDateISO(iso);
+    let status;
+    if(unpaid<=0.005) status="paid";
+    else if(due<today) status="overdue";
+    else if(due===today) status="due";
+    else status="upcoming";
+    return {iso, amount, unpaid, due, status};
+  });
+  const total=invDays.reduce((a,d)=>a+totals[d],0);
+  const extra=Math.max(0,Math.round((outstanding-pool)*100)/100);   // owed beyond what we've scheduled
+  return {rows, total, outstanding, extra, anchor, carried, carriedUnpaid};
+}
+
+function crWhen(at){
+  try{ return new Date(at).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); }
+  catch(_){ return String(at||""); }
+}
+
+function updateCreditBadge(){
+  const b=document.getElementById("creditBadge"); if(!b) return;
+  const d=computeDues();
+  const n=d.rows.filter(r=>r.status==="overdue"||r.status==="due").length;
+  if(n){ b.textContent=n; b.hidden=false; } else b.hidden=true;
+}
+
+const CR_STATUS_LABEL={paid:"paid",due:"due today",upcoming:"upcoming",overdue:"overdue"};
+
+function renderCredit(){
+  const lim=document.getElementById("crLimit"), dys=document.getElementById("crDays");
+  if(lim && document.activeElement!==lim) lim.value=CREDIT_CFG.limit;
+  if(dys && document.activeElement!==dys) dys.value=CREDIT_CFG.days;
+  const od=document.getElementById("crOpenDate"); if(od && !od.value) od.value=crTodayISO();
+  const dh=document.getElementById("crDaysHint");
+  if(dh) dh.textContent = CREDIT_CFG.days===0 ? "0 = clear the same day (before midnight)" : `due ${CREDIT_CFG.days} working day${CREDIT_CFG.days>1?"s":""} after the invoice`;
+
+  const d=computeDues();
+  const bal=currentBalance();
+  const inCredit = !!(bal && bal.sign==="CR");
+  document.getElementById("crOutstanding").innerHTML =
+    inCredit ? `<span class="cr-in">In credit ${esc(money(bal.amount))}</span>` : esc(money(d.outstanding));
+  document.getElementById("crOutAt").textContent = bal ? ("as of "+crWhen(bal.at)) : "no balance yet";
+  const avail = CREDIT_CFG.limit - d.outstanding + (inCredit?Number(bal.amount||0):0);
+  document.getElementById("crAvail").textContent = money(avail);
+  document.getElementById("crAvailNote").textContent = "of "+money(CREDIT_CFG.limit)+" limit";
+
+  const upcoming = d.rows.filter(r=>r.status!=="paid").sort((a,b)=>a.due<b.due?-1:1);
+  const nextDue = upcoming[0];
+  if(nextDue){
+    document.getElementById("crNextDue").textContent=money(nextDue.unpaid);
+    document.getElementById("crNextDueDate").innerHTML=(nextDue.status==="overdue"?"<span class='cr-od'>overdue</span> ":"by ")+esc(isoToDmy(nextDue.due));
+  } else { document.getElementById("crNextDue").textContent="—"; document.getElementById("crNextDueDate").textContent=bal?"all clear":""; }
+
+  renderBalHistory();
+  renderHolidayPrompts(d);
+  renderDuesTable(d);
+  updateCreditBadge();
+}
+
+function renderBalHistory(){
+  const w=document.getElementById("crBalHistory"); if(!w) return;
+  if(!BALANCES.length){ w.innerHTML=""; return; }
+  w.innerHTML = `<div class="cr-histhead">Recent balances</div>` + BALANCES.slice(0,8).map(b=>`
+    <div class="cr-histrow">
+      <span class="cr-histamt ${b.sign==='CR'?'cr-in':'cr-od'}">${esc(money(b.amount))} ${esc(b.sign)}</span>
+      <span class="cr-histwhen">${esc(crWhen(b.at))}</span>
+      <button class="cust-x" title="Delete" onclick="deleteBalanceRow('${escAttr(b.id)}')">×</button>
+    </div>`).join("");
+}
+
+let CR_CLOSING=null;   // a due date currently being marked closed (awaiting the reopen date)
+
+function renderHolidayPrompts(d){
+  const w=document.getElementById("crHolidays"); if(!w) return;
+  // Only ask about due dates that actually have money due and that we assumed open.
+  const seen=new Set(), due=[];
+  for(const r of d.rows){
+    if(r.status==="paid") continue;
+    if(isUnconfirmedDay(r.due) && !seen.has(r.due)){ seen.add(r.due); due.push(r.due); }
+  }
+  if(CR_CLOSING && !due.includes(CR_CLOSING)) CR_CLOSING=null;   // resolved elsewhere
+  if(!due.length){ w.innerHTML=""; return; }
+  w.innerHTML = `<div class="card cr-holiday">
+    <div class="cr-head">Confirm bank days</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">A payment is due on ${due.length>1?"these dates":"this date"}. Is the bank open? (Sundays and 2nd/4th Saturdays are handled automatically. If closed, tell me when it <b>reopens</b> and I'll mark every day in between as closed.)</div>
+    ${due.sort().map(iso=> CR_CLOSING===iso ? `
+      <div class="cr-holrow cr-holclosing">
+        <span>${esc(isoToDmy(iso))} closed — reopens on</span>
+        <span class="cr-holbtns">
+          <input type="date" id="crReopen_${iso}" min="${addDaysISO(iso,1)}" value="${addDaysISO(iso,1)}">
+          <button class="cta sm" onclick="confirmClosedRange('${iso}')">Confirm</button>
+          <button class="btn ghost sm" onclick="cancelClosing()">cancel</button>
+        </span>
+      </div>` : `
+      <div class="cr-holrow">
+        <span>${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))}</span>
+        <span class="cr-holbtns">
+          <button class="btn sm" onclick="confirmHoliday('${iso}',false)">Open</button>
+          <button class="btn ghost sm" onclick="startClosing('${iso}')">Closed</button>
+        </span>
+      </div>`).join("")}
+  </div>`;
+}
+function crWeekday(iso){ try{ return crDateFromISO(iso).toLocaleDateString("en-IN",{weekday:"long"}); }catch(_){ return ""; } }
+function addDaysISO(iso, n){ const d=crDateFromISO(iso); d.setDate(d.getDate()+n); return crISO(d); }
+
+function startClosing(iso){ CR_CLOSING=iso; renderCredit();
+  setTimeout(()=>{ const el=document.getElementById("crReopen_"+iso); if(el) el.focus(); }, 30); }
+function cancelClosing(){ CR_CLOSING=null; renderCredit(); }
+
+// Mark [closed .. reopen-1] all closed and reopen open, in one go — handles a
+// run of consecutive holidays without pecking one day at a time.
+async function confirmClosedRange(iso){
+  const el=document.getElementById("crReopen_"+iso);
+  const reopen=el && el.value;
+  if(!reopen || reopen<=iso){ toast("Pick the reopen date (after "+isoToDmy(iso)+")"); return; }
+  if(daysBetweenISO(iso, reopen) > 60){ toast("That's over 60 days — pick the actual reopen date"); return; }
+  const closed=[]; for(let cur=iso; cur<reopen; cur=addDaysISO(cur,1)){ HOLIDAYS[cur]=true; closed.push(cur); }
+  HOLIDAYS[reopen]=false;
+  CR_CLOSING=null; renderCredit();
+  if(!crNeedCloud()) return;
+  try{
+    await Promise.all([...closed.map(dd=>Cloud.setHoliday(dd,true)), Cloud.setHoliday(reopen,false)]);
+    toast(`Marked ${closed.length} day(s) closed; bank open ${isoToDmy(reopen)}`);
+  }catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
+}
+function daysBetweenISO(a,b){ return Math.round((crDateFromISO(b)-crDateFromISO(a))/86400000); }
+
+function renderDuesTable(d){
+  const w=document.getElementById("crDuesWrap"), sub=document.getElementById("crDuesSub");
+  if(!w) return;
+  if(!d.rows.length){
+    w.innerHTML=`<div class="empty">No invoices yet. New IndianOil invoices appear here automatically; you can also correct a day's total.</div>`;
+    if(sub) sub.textContent="";
+    return;
+  }
+  if(sub) sub.textContent = `· ${money(d.total)} invoiced`;
+  let h="";
+  if(d.anchor){
+    h+=`<div class="cr-carry">Carried forward from opening on <b>${esc(isoToDmy(d.anchor))}</b>: ${esc(money(d.carried))}`
+      + (d.carriedUnpaid>0.005?` · <span class="cr-od">${esc(money(d.carriedUnpaid))} still owed</span>`:` · <span class="cr-in">cleared</span>`)
+      + `</div>`;
+  }
+  const rows = d.rows.slice().sort((a,b)=>a.iso<b.iso?1:-1);   // newest day first
+  h+=`<table class="cr-table"><thead><tr>
+    <th>Invoice day</th><th class="num">Opening</th><th class="num">Invoices</th><th>Due</th><th class="num">Still owed</th><th>Status</th></tr></thead><tbody>`;
+  for(const r of rows){
+    const overridden = dmyOf(r.iso) in DAY_OVERRIDES;
+    const op = OPENINGS[r.iso];
+    const opCell = op
+      ? `<button class="cr-amtbtn ovr" title="Edit opening balance" onclick="editOpening('${r.iso}')">${esc(money(op.amount))} ${esc(op.sign)}</button>`
+      : `<button class="cr-amtbtn cr-add" title="Record the opening balance for this day" onclick="editOpening('${r.iso}')">+ set</button>`;
+    h+=`<tr class="cr-row st-${r.status}">
+      <td>${esc(isoToDmy(r.iso))}</td>
+      <td class="num">${opCell}</td>
+      <td class="num"><button class="cr-amtbtn${overridden?' ovr':''}" title="Correct this day's total" onclick="editDayOverride('${dmyOf(r.iso)}')">${esc(money(r.amount))}</button></td>
+      <td>${esc(isoToDmy(r.due))}</td>
+      <td class="num">${r.unpaid>0.005?esc(money(r.unpaid)):'—'}</td>
+      <td><span class="cr-badge st-${r.status}">${CR_STATUS_LABEL[r.status]}</span></td></tr>`;
+  }
+  h+=`</tbody></table>`;
+  if(d.extra>0.005){
+    h+=`<div class="cr-extra">+ ${esc(money(d.extra))} outstanding beyond the scheduled invoices${d.anchor?` since ${esc(isoToDmy(d.anchor))}`:""}. Record an opening balance for a recent day, or correct a day's invoice total (₹) — this clears once the numbers line up.</div>`;
+  }
+  w.innerHTML=h;
+}
+function dmyOf(iso){ return isoToDmy(iso); }
+
+// ---- handlers ----
+function crNeedCloud(){ if(!Cloud.enabled || !Cloud.client){ toast("Connect to Supabase first — the Credit data is stored there"); return false; } return true; }
+
+async function saveCreditConfig(){
+  const limit=Math.max(0, Math.round(Number(document.getElementById("crLimit").value)||0));
+  const days=Math.max(0, Math.min(30, Math.round(Number(document.getElementById("crDays").value)||0)));
+  CREDIT_CFG={limit, days};
+  renderCredit();
+  if(!crNeedCloud()) return;
+  try{ await Cloud.saveCreditConfig(limit, days); toast("Saved"); }
+  catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
+}
+
+function onBalPreview(){
+  const el=document.getElementById("crBalPreview"), p=parseBalanceMessage(document.getElementById("crBalMsg").value);
+  if(!el) return;
+  if(!p){ el.innerHTML=document.getElementById("crBalMsg").value.trim()?`<span class="cr-od">Couldn't read an amount + DR/CR</span>`:""; return; }
+  el.innerHTML=`Read: <b class="${p.sign==='CR'?'cr-in':'cr-od'}">${esc(money(p.amount))} ${p.sign}</b> — ${p.sign==='CR'?'in credit (nothing due)':'owed to IOCL'}`;
+}
+
+async function saveBalance(){
+  const raw=document.getElementById("crBalMsg").value;
+  const p=parseBalanceMessage(raw);
+  if(!p){ toast("Couldn't read an amount + DR/CR from that"); return; }
+  if(!crNeedCloud()) return;
+  const row={id:crUUID(), at:new Date().toISOString(), amount:p.amount, sign:p.sign, raw:raw.trim().slice(0,1000)};
+  BALANCES.unshift(row);                    // optimistic (newest first)
+  document.getElementById("crBalMsg").value=""; onBalPreview(); renderCredit();
+  try{ await Cloud.addBalance(row); toast(`Balance ${money(p.amount)} ${p.sign} saved`); }
+  catch(e){ BALANCES=BALANCES.filter(b=>b.id!==row.id); renderCredit(); toast("Couldn't save: "+(e&&e.message||e)); }
+}
+
+async function deleteBalanceRow(id){
+  if(!confirm("Delete this balance snapshot?")) return;
+  const prev=BALANCES.slice();
+  BALANCES=BALANCES.filter(b=>b.id!==id); renderCredit();
+  try{ await Cloud.deleteBalance(id); }catch(e){ BALANCES=prev; renderCredit(); toast("Couldn't delete: "+(e&&e.message||e)); }
+}
+
+// Save the pasted figure as the OPENING balance for the chosen date (default today).
+async function saveOpening(){
+  const p=parseBalanceMessage(document.getElementById("crBalMsg").value);
+  if(!p){ toast("Paste a balance (amount + DR/CR) above first"); return; }
+  const de=document.getElementById("crOpenDate");
+  const iso=(de && de.value) || crTodayISO();
+  await setOpeningISO(iso, p.amount, p.sign);
+  document.getElementById("crBalMsg").value=""; onBalPreview();
+  toast(`Opening ${money(p.amount)} ${p.sign} set for ${isoToDmy(iso)}`);
+}
+
+async function editOpening(iso){
+  const cur=OPENINGS[iso];
+  const input=prompt(`Opening balance for ${isoToDmy(iso)} — paste the message, or type e.g. "685000 DR" (CR = in credit).\nLeave blank to clear.`,
+                     cur?`${cur.amount} ${cur.sign}`:"");
+  if(input===null) return;
+  const t=input.trim();
+  if(t===""){
+    if(!(iso in OPENINGS)) return;
+    delete OPENINGS[iso]; renderCredit();
+    if(crNeedCloud()){ try{ await Cloud.clearOpening(iso); }catch(e){ toast("Couldn't clear: "+(e&&e.message||e)); } }
+    return;
+  }
+  const p=parseBalanceMessage(t);
+  if(!p){ toast("Couldn't read an amount + DR/CR"); return; }
+  await setOpeningISO(iso, p.amount, p.sign);
+}
+
+async function setOpeningISO(iso, amount, sign){
+  OPENINGS[iso]={amount, sign}; renderCredit();
+  if(!crNeedCloud()) return;
+  try{ await Cloud.setOpening(iso, amount, sign); }
+  catch(e){ toast("Couldn't save opening: "+(e&&e.message||e)); }
+}
+
+async function editDayOverride(dmy){
+  const cur = (dmy in DAY_OVERRIDES) ? DAY_OVERRIDES[dmy] : "";
+  const input=prompt(`Correct the total invoice amount for ${dmy} (₹).\nLeave blank to clear a correction and use the mail total.`, cur===""?"":String(cur));
+  if(input===null) return;                  // cancelled
+  const t=input.trim();
+  if(t===""){
+    if(!(dmy in DAY_OVERRIDES)) return;
+    delete DAY_OVERRIDES[dmy]; renderCredit();
+    if(crNeedCloud()) { try{ await Cloud.clearDayOverride(dmy); }catch(e){ toast("Couldn't clear: "+(e&&e.message||e)); } }
+    return;
+  }
+  const amt=Number(t.replace(/[, ₹]/g,""));
+  if(!isFinite(amt)||amt<0){ toast("Enter a valid amount"); return; }
+  DAY_OVERRIDES[dmy]=amt; renderCredit();
+  if(!crNeedCloud()) return;
+  try{ await Cloud.setDayOverride(dmy, amt); toast("Updated "+dmy); }
+  catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
+}
+
+async function confirmHoliday(iso, isHoliday){
+  HOLIDAYS[iso]=isHoliday; renderCredit();
+  if(!crNeedCloud()) return;
+  try{ await Cloud.setHoliday(iso, isHoliday); toast(isoToDmy(iso)+(isHoliday?" marked closed":" marked open")); }
+  catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
 }
 
 /* ---------- manual entry (payments received off-email) ---------- */
@@ -1472,7 +1981,7 @@ window.addEventListener("pageshow", (e)=>{ if(e.persisted) refreshLive(); });   
 
 /* ---------- boot ---------- */
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
-try{ const v=localStorage.getItem("vf_view"); if(v==="notes"||v==="pay"||v==="customers") showView(v); }catch(_){}
+try{ const v=localStorage.getItem("vf_view"); if(["notes","pay","customers","credit"].includes(v)) showView(v); }catch(_){}
 loadCustomers();
 Cloud.init();
 </script>

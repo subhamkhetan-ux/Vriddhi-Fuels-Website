@@ -129,6 +129,16 @@ CONSIGNMENT = {
     "min_invoice_no": "7010221545",
 }
 
+# ---- Credit / dues tracker (ALL IOCL fuel invoices) ------------------------
+# The /payments Credit section needs the day's TOTAL invoice amount across every
+# truck (not just our own TT). Same mailbox/sender as the consignment notes; the
+# agent sums each invoice's grand total into Supabase (pay_fuel_invoices),
+# idempotent by invoice number. Unlike CONSIGNMENT there is no own_tt filter.
+CREDIT = {
+    "account_id": "bank2",                       # the HDFC mailbox (see ACCOUNTS)
+    "gmail_query": "from:B2BPRD@indianoil.in has:attachment filename:pdf",
+}
+
 # Telegram failure-alert secrets (reused from the IOCL monitor).
 TELEGRAM_TOKEN_ENV = "TELEGRAM_TOKEN"
 TELEGRAM_CHAT_ENV = "TELEGRAM_CHAT"

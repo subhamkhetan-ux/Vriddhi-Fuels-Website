@@ -157,6 +157,36 @@ def claim_consignment(note: dict) -> dict | None:
     return None
 
 
+def upsert_fuel_invoices(rows: list[dict]) -> int:
+    """Insert fuel-invoice rows (all trucks) for the Credit dues tracker; ignore
+    ones already present (idempotent by invoice_no). Returns count sent.
+    Best-effort: returns 0 on any error."""
+    cfg = _config()
+    if not cfg or not rows:
+        return 0
+    url, key = cfg
+    # keep only the columns the table has, and drop rows missing the PK
+    payload = [
+        {
+            "invoice_no": r.get("invoice_no"),
+            "invoice_date": r.get("invoice_date"),
+            "tt_no": r.get("tt_no"),
+            "amount": r.get("amount"),
+            "gmail_msg_id": r.get("gmail_msg_id"),
+        }
+        for r in rows if r.get("invoice_no")
+    ]
+    if not payload:
+        return 0
+    try:
+        _request("POST", "pay_fuel_invoices?on_conflict=invoice_no", key, url,
+                 body=payload,
+                 prefer="resolution=ignore-duplicates,return=minimal")
+        return len(payload)
+    except Exception:
+        return 0
+
+
 def upsert_rows(rows: list[dict]) -> int:
     """Insert new queue rows; ignore ones already present (so app edits — a
     resolved name, an exported flag — are never clobbered). Returns count sent.

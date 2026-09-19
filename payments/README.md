@@ -57,6 +57,42 @@ note. The letterhead lives in
 [`payments/consignment_template.docx`](./consignment_template.docx) with the
 fill-in fields as `{{TOKENS}}`; the app never alters anything else.
 
+## Credit & dues (IOCL fuel account)
+
+The **Credit** tab tracks the IOCL credit facility and when each day's invoices
+must be repaid.
+
+- **Limit + repayment window** at the top are editable (default **₹85,00,000**
+  and **T+2 working days**). Change them any time. **0 working days** means each
+  day's invoices must be cleared the **same day, before midnight**.
+- **Opening balance (per day)** — paste the start-of-day figure and tap **Save as
+  opening for…** (or tap a day's *Opening* cell in the table). This re-anchors the
+  dues math to a known figure each morning, so tracking stays precise without
+  needing the entire invoice history; days before the latest opening collapse
+  into it and show as **carried forward**.
+- **Invoices** are pulled from mail automatically — **all** IndianOil invoices
+  (every truck, not just OD23U8210), summed per day. If a mail was missed or
+  misread, tap a day's **₹ amount** to correct that day's total by hand.
+- **Balance**: paste the IndianOil balance message (e.g. *"…Provisional A/c
+  Balance for MS-HSD is Rs. 6836847.03 Cr"*) and tap **Save balance**. The app
+  reads just the **amount** and **DR/CR** (DR = you owe, CR = in credit), so it
+  survives wording changes. Paste a fresh one whenever it updates through the day.
+- **Dues schedule**: each day's invoices get a due date = invoice date + the
+  repayment window, rolled to the next **working day** (Sundays and 2nd/4th
+  Saturdays are automatic). Your latest balance is applied **oldest-invoices-
+  first**, so the table shows exactly what's still owed and by when (overdue is
+  flagged, and the tab shows a badge when something is due/overdue).
+- **Other bank holidays**: when a payment is due on a date that isn't an
+  automatic holiday, the app asks *"is the bank open on <date>?"*. Tap **Open** to
+  confirm, or **Closed** and give the date the bank **reopens** — it marks every
+  day in between as closed (so a multi-day festival is one action) and moves the
+  due date to the reopen day. It only asks when money is actually due; otherwise
+  it assumes the bank is open.
+
+All of this is stored in Supabase (re-run `supabase/payments-schema.sql` once to
+add the new tables). The agent only writes the invoices; everything else you set
+in the app syncs across your devices.
+
 ## How it connects
 
 ```
