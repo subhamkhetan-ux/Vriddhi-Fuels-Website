@@ -22,7 +22,8 @@
   --grad-cta:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
 }
 *{box-sizing:border-box}
-body{margin:0;color:var(--ink);
+html{overflow-x:clip}
+body{margin:0;color:var(--ink);overflow-x:clip;max-width:100%;
   background:
     radial-gradient(1200px 420px at 50% -220px, rgba(244,81,30,.16) 0%, rgba(244,81,30,0) 70%),
     var(--bg);
@@ -187,8 +188,8 @@ summary::-webkit-details-marker{display:none}
 .cr-head{font-weight:700;margin-bottom:10px}
 .cr-sub{font-weight:500;color:var(--faint);font-size:12px}
 .cr-setgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;align-items:end}
-.cr-setgrid label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:5px;justify-content:flex-end}
-.cr-setgrid input{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:15px;font-variant-numeric:tabular-nums}
+.cr-setgrid label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:5px;justify-content:flex-end;min-width:0}
+.cr-setgrid input{width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:15px;font-variant-numeric:tabular-nums}
 .cr-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .cr-stat{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:10px 12px;min-width:0}
 .cr-stat .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
@@ -235,9 +236,9 @@ summary::-webkit-details-marker{display:none}
 .cr-planempty{font-size:13px;color:var(--faint);padding:6px 2px}
 .cr-order{margin-top:12px}
 .cr-ordgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.cr-ordcell{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:10px 12px}
-.cr-ordcell .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
-.cr-ordcell .v{font-size:20px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;margin-top:3px}
+.cr-ordcell{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:10px 12px;min-width:0}
+.cr-ordcell .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;overflow-wrap:anywhere}
+.cr-ordcell .v{font-size:20px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;margin-top:3px;overflow-wrap:anywhere}
 .cr-ordkl{font-size:12px;color:var(--faint);font-weight:600}
 .cr-ordsrc{font-size:10.5px;color:var(--faint);margin-top:2px}
 .cr-ordnote{font-size:11px;color:var(--faint);margin-top:8px}
