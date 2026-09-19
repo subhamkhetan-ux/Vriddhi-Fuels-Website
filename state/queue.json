@@ -2514,6 +2514,27 @@
       },
       "queued_at": "2026-09-19T07:00:19.502088+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "52a9c4fd551de2ee",
+      "gmail_msg_id": "1876746127753233625",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "19/09/26",
+      "date_serial": 46284,
+      "amount": 596403.0,
+      "raw_payer": "SAMARPAN LOGISTICS PRI",
+      "customer": "SAMARPAN LOGISTICS PVT LTD",
+      "candidates": [
+        "SAMARPAN LOGISTICS PVT LTD"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-19T08:00:19.981504+00:00",
+      "status": "matched"
     }
   ]
 }
