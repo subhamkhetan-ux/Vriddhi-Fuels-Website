@@ -1438,7 +1438,18 @@ function dayTotalsISO(){
   }
   return byIso;
 }
-function currentBalance(){ return BALANCES.length ? BALANCES[0] : null; }   // newest first
+// The most recent balance we know — either a pasted snapshot or a recorded
+// opening (a start-of-day observation at 00:00). Whichever is later wins, so
+// recording an opening also updates "outstanding now" until a fresh snapshot.
+function latestBalance(){
+  const today=crTodayISO(); let best=null, bestT=-Infinity;
+  for(const b of BALANCES){ const t=Date.parse(b.at)||0;
+    if(t>bestT){ bestT=t; best={amount:Number(b.amount||0), sign:b.sign, at:b.at, src:"snapshot"}; } }
+  for(const [iso,o] of Object.entries(OPENINGS)){ if(iso>today) continue; const t=Date.parse(iso+"T00:00:00")||0;
+    if(t>bestT){ bestT=t; best={amount:Number(o.amount||0), sign:o.sign, at:iso+"T00:00:00", src:"opening"}; } }
+  return best;
+}
+function currentBalance(){ return latestBalance(); }
 function outstandingNow(){ const b=currentBalance(); if(!b) return 0; return b.sign==="CR"?0:Number(b.amount||0); }
 function openOut(o){ return o ? (o.sign==="CR" ? 0 : Number(o.amount||0)) : 0; }  // DR owed, CR = 0
 
@@ -1512,7 +1523,7 @@ function renderCredit(){
   const inCredit = !!(bal && bal.sign==="CR");
   document.getElementById("crOutstanding").innerHTML =
     inCredit ? `<span class="cr-in">In credit ${esc(money(bal.amount))}</span>` : esc(money(d.outstanding));
-  document.getElementById("crOutAt").textContent = bal ? ("as of "+crWhen(bal.at)) : "no balance yet";
+  document.getElementById("crOutAt").textContent = bal ? ("as of "+crWhen(bal.at)+(bal.src==="opening"?" (opening)":"")) : "no balance yet";
   const avail = CREDIT_CFG.limit - d.outstanding + (inCredit?Number(bal.amount||0):0);
   document.getElementById("crAvail").textContent = money(avail);
   document.getElementById("crAvailNote").textContent = "of "+money(CREDIT_CFG.limit)+" limit";
