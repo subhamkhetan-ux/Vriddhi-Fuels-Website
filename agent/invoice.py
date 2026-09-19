@@ -30,6 +30,16 @@ class ProductLine:
     product: str                  # raw description, e.g. "HSD-BSVI [PDRP]"
     column_key: str               # which template column this product maps to
     qty: str                      # integer KL as a string, e.g. "22"
+    value: int | None = None      # this product's "Total for material" (after-VAT ₹)
+
+    @property
+    def price_per_kl(self) -> float | None:
+        """After-VAT ₹/KL for this product (value / qty), or None."""
+        try:
+            q = int(self.qty)
+            return round(self.value / q, 2) if (self.value and q) else None
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
 
 
 @dataclass
@@ -100,27 +110,39 @@ def extract_fields(text: str) -> InvoiceFields:
     m = re.search(r"\b([A-Z]{2}\d{2}[A-Z]{1,2}\d{3,4})\b", text)
     tt_no = m.group(1) if m else None
 
-    # Product + quantity: each item line "<material-code>   <DESCRIPTION>",
-    # followed within a few lines by "<qty>" then the unit "KL". An invoice can
-    # list SEVERAL products for the same TT (e.g. MS and HSD on one load), so we
-    # collect every product line, not just the first.
-    product_lines: list[ProductLine] = []
+    # Product lines: each item line "<material-code>   <DESCRIPTION>", followed
+    # within a few lines by "<qty>" then "KL", and — within that product's block —
+    # a "Total for material" label whose next number is that product's after-VAT
+    # value. An invoice can list SEVERAL products for one TT (e.g. MS + HSD), so
+    # we collect every product line and its own value (for per-product pricing).
+    prod_idx = []
     for i, ln in enumerate(lines):
         pm = re.match(r"\s*\d{4,6}\s+([A-Z][^\n]*?)\s*$", ln)
-        if not pm:
-            continue
-        desc = pm.group(1).strip()
-        if not re.search(r"HSD|MS|EBMS|LSHF|PETROL|DIESEL", desc.upper()):
-            continue
-        for j in range(i + 1, min(i + 4, len(lines))):
+        if pm and re.search(r"HSD|MS|EBMS|LSHF|PETROL|DIESEL", pm.group(1).upper()):
+            prod_idx.append((i, pm.group(1).strip()))
+
+    product_lines: list[ProductLine] = []
+    for k, (i, desc) in enumerate(prod_idx):
+        end = prod_idx[k + 1][0] if k + 1 < len(prod_idx) else len(lines)
+        qty = None
+        for j in range(i + 1, min(i + 4, end)):
             qm = re.match(r"^(\d+(?:\.\d+)?)$", lines[j].strip())
             if qm:
-                product_lines.append(ProductLine(
-                    product=desc,
-                    column_key=product_column(desc),
-                    qty=str(int(round(float(qm.group(1))))),
-                ))
+                qty = str(int(round(float(qm.group(1)))))
                 break
+        if qty is None:
+            continue
+        # This product's "Total for material" value, within its block only.
+        val = None
+        for j in range(i + 1, end):
+            if lines[j].strip() == "Total for material":
+                for t in range(j + 1, min(j + 3, end)):
+                    if re.match(r"^\d+(?:\.\d+)?$", lines[t].strip()):
+                        val = int(round(float(lines[t].strip())))
+                        break
+                break
+        product_lines.append(ProductLine(
+            product=desc, column_key=product_column(desc), qty=qty, value=val))
 
     # Sum quantities per template column (two lines can share one column).
     columns: dict[str, str] = {}

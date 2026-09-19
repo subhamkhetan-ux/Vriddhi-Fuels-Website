@@ -21,7 +21,7 @@ def test_rows_from_mail_extracts_any_truck():
     # A different TT than our own — still captured (unlike consignment notes).
     other = INVOICE_TEXT.replace("OD23U8210", "OD23X9999")
     mail = FakeMail("m1", [b"pdf"])
-    rows = credit._rows_from_mail(mail, _pdf_to_text({b"pdf": other}))
+    rows, _obs = credit._rows_from_mail(mail, _pdf_to_text({b"pdf": other}))
     assert len(rows) == 1
     assert rows[0]["invoice_no"] == "7010195291"
     assert rows[0]["tt_no"] == "OD23X9999"
@@ -31,14 +31,31 @@ def test_rows_from_mail_extracts_any_truck():
 
 def test_rows_from_mail_dedupes_same_invoice_in_one_mail():
     mail = FakeMail("m2", [b"a", b"b"])
-    rows = credit._rows_from_mail(mail, _pdf_to_text({b"a": INVOICE_TEXT, b"b": INVOICE_TEXT}))
+    rows, _obs = credit._rows_from_mail(mail, _pdf_to_text({b"a": INVOICE_TEXT, b"b": INVOICE_TEXT}))
     assert len(rows) == 1  # same invoice_no in two PDFs -> one row
 
 
 def test_rows_from_mail_skips_unparseable():
     mail = FakeMail("m3", [b"junk"])
-    rows = credit._rows_from_mail(mail, _pdf_to_text({b"junk": "nothing useful"}))
-    assert rows == []
+    rows, obs = credit._rows_from_mail(mail, _pdf_to_text({b"junk": "nothing useful"}))
+    assert rows == [] and obs == []
+
+
+def test_rows_from_mail_yields_per_product_price_observations():
+    from tests.test_invoice import MULTI_INVOICE_TEXT
+    mail = FakeMail("m4", [b"pdf"])
+    _rows, obs = credit._rows_from_mail(mail, _pdf_to_text({b"pdf": MULTI_INVOICE_TEXT}))
+    by = {o["col_key"]: o for o in obs}
+    assert set(by) == {"MS | EBMS", "HSD"}
+    assert by["MS | EBMS"]["price"] == round(524764 / 5, 2)
+    assert by["HSD"]["price"] == round(1668487 / 17, 2)
+    assert by["HSD"]["as_of"] == "2026-09-03"       # dd/mm/yyyy -> ISO for newest-wins
+    assert by["MS | EBMS"]["invoice_no"] == "7010493378"
+
+
+def test_dmy_to_iso():
+    assert credit._dmy_to_iso("03/09/2026") == "2026-09-03"
+    assert credit._dmy_to_iso("bad") == ""
 
 
 def test_run_skips_when_supabase_disabled(monkeypatch):
