@@ -83,9 +83,11 @@ must be repaid.
   first**, so the table shows exactly what's still owed and by when (overdue is
   flagged, and the tab shows a badge when something is due/overdue).
 - **Other bank holidays**: when a payment is due on a date that isn't an
-  automatic holiday, the app asks *"is the bank open on <date>?"* — tap **Closed**
-  and it moves the due date to the next open day (saved, so it won't ask again).
-  It only asks when money is actually due; otherwise it assumes the bank is open.
+  automatic holiday, the app asks *"is the bank open on <date>?"*. Tap **Open** to
+  confirm, or **Closed** and give the date the bank **reopens** — it marks every
+  day in between as closed (so a multi-day festival is one action) and moves the
+  due date to the reopen day. It only asks when money is actually due; otherwise
+  it assumes the bank is open.
 
 All of this is stored in Supabase (re-run `supabase/payments-schema.sql` once to
 add the new tables). The agent only writes the invoices; everything else you set

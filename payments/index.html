@@ -223,7 +223,9 @@ summary::-webkit-details-marker{display:none}
 .cr-hint{font-size:11px;color:var(--faint);font-weight:400}
 .cr-carry{font-size:12.5px;color:var(--muted);margin-bottom:10px;padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px}
 .cr-amtbtn.cr-add{color:var(--faint);border-style:dashed;border-color:var(--line)}
-#crOpenDate{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:13px}
+#crOpenDate,.cr-holclosing input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:13px}
+.cr-holclosing{flex-wrap:wrap;gap:8px}
+.cr-holclosing .cr-holbtns{flex-wrap:wrap;gap:6px}
 /* consignment note print — a hand-built A4 page (no docx renderer), so it looks
    identical in every browser. Off-screen normally; the only thing printed. */
 #printArea{position:fixed;left:-99999px;top:0}
@@ -1539,6 +1541,8 @@ function renderBalHistory(){
     </div>`).join("");
 }
 
+let CR_CLOSING=null;   // a due date currently being marked closed (awaiting the reopen date)
+
 function renderHolidayPrompts(d){
   const w=document.getElementById("crHolidays"); if(!w) return;
   // Only ask about due dates that actually have money due and that we assumed open.
@@ -1547,19 +1551,53 @@ function renderHolidayPrompts(d){
     if(r.status==="paid") continue;
     if(isUnconfirmedDay(r.due) && !seen.has(r.due)){ seen.add(r.due); due.push(r.due); }
   }
+  if(CR_CLOSING && !due.includes(CR_CLOSING)) CR_CLOSING=null;   // resolved elsewhere
   if(!due.length){ w.innerHTML=""; return; }
   w.innerHTML = `<div class="card cr-holiday">
     <div class="cr-head">Confirm bank days</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">A payment is due on ${due.length>1?"these dates":"this date"}. Is the bank open? (Sundays and 2nd/4th Saturdays are handled automatically.)</div>
-    ${due.sort().map(iso=>`<div class="cr-holrow">
-      <span>${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))}</span>
-      <span class="cr-holbtns">
-        <button class="btn sm" onclick="confirmHoliday('${iso}',false)">Open</button>
-        <button class="btn ghost sm" onclick="confirmHoliday('${iso}',true)">Closed</button>
-      </span></div>`).join("")}
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">A payment is due on ${due.length>1?"these dates":"this date"}. Is the bank open? (Sundays and 2nd/4th Saturdays are handled automatically. If closed, tell me when it <b>reopens</b> and I'll mark every day in between as closed.)</div>
+    ${due.sort().map(iso=> CR_CLOSING===iso ? `
+      <div class="cr-holrow cr-holclosing">
+        <span>${esc(isoToDmy(iso))} closed — reopens on</span>
+        <span class="cr-holbtns">
+          <input type="date" id="crReopen_${iso}" min="${addDaysISO(iso,1)}" value="${addDaysISO(iso,1)}">
+          <button class="cta sm" onclick="confirmClosedRange('${iso}')">Confirm</button>
+          <button class="btn ghost sm" onclick="cancelClosing()">cancel</button>
+        </span>
+      </div>` : `
+      <div class="cr-holrow">
+        <span>${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))}</span>
+        <span class="cr-holbtns">
+          <button class="btn sm" onclick="confirmHoliday('${iso}',false)">Open</button>
+          <button class="btn ghost sm" onclick="startClosing('${iso}')">Closed</button>
+        </span>
+      </div>`).join("")}
   </div>`;
 }
 function crWeekday(iso){ try{ return crDateFromISO(iso).toLocaleDateString("en-IN",{weekday:"long"}); }catch(_){ return ""; } }
+function addDaysISO(iso, n){ const d=crDateFromISO(iso); d.setDate(d.getDate()+n); return crISO(d); }
+
+function startClosing(iso){ CR_CLOSING=iso; renderCredit();
+  setTimeout(()=>{ const el=document.getElementById("crReopen_"+iso); if(el) el.focus(); }, 30); }
+function cancelClosing(){ CR_CLOSING=null; renderCredit(); }
+
+// Mark [closed .. reopen-1] all closed and reopen open, in one go — handles a
+// run of consecutive holidays without pecking one day at a time.
+async function confirmClosedRange(iso){
+  const el=document.getElementById("crReopen_"+iso);
+  const reopen=el && el.value;
+  if(!reopen || reopen<=iso){ toast("Pick the reopen date (after "+isoToDmy(iso)+")"); return; }
+  if(daysBetweenISO(iso, reopen) > 60){ toast("That's over 60 days — pick the actual reopen date"); return; }
+  const closed=[]; for(let cur=iso; cur<reopen; cur=addDaysISO(cur,1)){ HOLIDAYS[cur]=true; closed.push(cur); }
+  HOLIDAYS[reopen]=false;
+  CR_CLOSING=null; renderCredit();
+  if(!crNeedCloud()) return;
+  try{
+    await Promise.all([...closed.map(dd=>Cloud.setHoliday(dd,true)), Cloud.setHoliday(reopen,false)]);
+    toast(`Marked ${closed.length} day(s) closed; bank open ${isoToDmy(reopen)}`);
+  }catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
+}
+function daysBetweenISO(a,b){ return Math.round((crDateFromISO(b)-crDateFromISO(a))/86400000); }
 
 function renderDuesTable(d){
   const w=document.getElementById("crDuesWrap"), sub=document.getElementById("crDuesSub");
