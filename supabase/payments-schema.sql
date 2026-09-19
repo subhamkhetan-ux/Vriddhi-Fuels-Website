@@ -355,10 +355,15 @@ create table if not exists public.pay_credit_config (
   id             smallint primary key default 1,
   credit_limit   numeric  default 8500000,   -- 85 lakhs; editable
   repayment_days integer  default 2,          -- T+2 working days; editable
+  hsd_price      numeric,                      -- current HSD ₹/KL after VAT (editable)
+  ms_price       numeric,                      -- current MS  ₹/KL after VAT (editable)
   updated_at     timestamptz default now(),
   constraint pay_credit_config_single check (id = 1)
 );
 insert into public.pay_credit_config (id) values (1) on conflict (id) do nothing;
+-- back-fill the price columns for installs created before the ordering calculator
+alter table public.pay_credit_config add column if not exists hsd_price numeric;
+alter table public.pay_credit_config add column if not exists ms_price  numeric;
 
 -- Every IOCL fuel invoice (ALL trucks), idempotent by invoice number.
 -- The agent upserts these; the app sums them per invoice_date.

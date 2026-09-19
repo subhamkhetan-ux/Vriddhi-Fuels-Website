@@ -89,9 +89,17 @@ must be repaid.
   due date to the reopen day. It only asks when money is actually due; otherwise
   it assumes the bank is open.
 
+- **Funds needed by date**: right under the limit/cycle, a compact table groups
+  the unpaid dues by **due date** (₹ to arrange on each day, plus a total) so you
+  can plan cash date-wise.
+- **How much can I order**: enter the current **HSD** and **MS** ₹/KL (after VAT)
+  and the app shows how many **KL** of each the **PAD available** funds can cover.
+  It recomputes the moment you update the balance.
+
 All of this is stored in Supabase (re-run `supabase/payments-schema.sql` once to
-add the new tables). The agent only writes the invoices; everything else you set
-in the app syncs across your devices.
+add the new tables/columns). The agent only writes the invoices; everything else
+you set in the app syncs across your devices. The **Credit** tab sits right after
+**Payments**.
 
 ## How it connects
 
