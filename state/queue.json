@@ -2535,6 +2535,27 @@
       },
       "queued_at": "2026-09-19T08:00:19.981504+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "b5d4af03bfefca1c",
+      "gmail_msg_id": "1876763585729730506",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/09/2026",
+      "date_serial": 46284,
+      "amount": 300000.0,
+      "raw_payer": "STRING LOGISTICS",
+      "customer": "String  Logistics",
+      "candidates": [
+        "String  Logistics"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-19T12:45:19.289381+00:00",
+      "status": "matched"
     }
   ]
 }
