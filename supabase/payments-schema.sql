@@ -382,6 +382,15 @@ create table if not exists public.pay_fuel_day_overrides (
   updated_at timestamptz default now()
 );
 
+-- Opening balance recorded per day (the morning anchor). Lets the dues math
+-- re-baseline each day instead of relying on the full invoice history.
+create table if not exists public.pay_credit_opening (
+  day        text primary key,                -- ISO yyyy-mm-dd
+  amount     numeric,                          -- absolute figure
+  sign       text,                             -- 'DR' (owed) | 'CR' (in credit)
+  updated_at timestamptz default now()
+);
+
 -- Balance snapshots (pasted by hand as they update through the day).
 create table if not exists public.pay_credit_balances (
   id         text primary key,                -- client-generated id
@@ -406,6 +415,7 @@ create table if not exists public.pay_bank_holidays (
 alter table public.pay_credit_config       enable row level security;
 alter table public.pay_fuel_invoices       enable row level security;
 alter table public.pay_fuel_day_overrides  enable row level security;
+alter table public.pay_credit_opening      enable row level security;
 alter table public.pay_credit_balances     enable row level security;
 alter table public.pay_bank_holidays       enable row level security;
 
@@ -414,7 +424,7 @@ declare t text;
 begin
   foreach t in array array[
     'pay_credit_config','pay_fuel_invoices','pay_fuel_day_overrides',
-    'pay_credit_balances','pay_bank_holidays'] loop
+    'pay_credit_opening','pay_credit_balances','pay_bank_holidays'] loop
     if not exists (select 1 from pg_policies where policyname = t || '_all') then
       execute format(
         'create policy %I on public.%I for all to anon, authenticated using (true) with check (true)',
@@ -428,7 +438,7 @@ declare t text;
 begin
   foreach t in array array[
     'pay_credit_config','pay_fuel_invoices','pay_fuel_day_overrides',
-    'pay_credit_balances','pay_bank_holidays'] loop
+    'pay_credit_opening','pay_credit_balances','pay_bank_holidays'] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
     exception when duplicate_object then null; end;
