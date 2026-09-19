@@ -338,3 +338,99 @@ begin
     alter publication supabase_realtime add table public.pay_customers;
   exception when duplicate_object then null; end;
 end $$;
+
+-- =====================================================================
+-- Credit facility & dues tracker (IOCL fuel account)
+-- ---------------------------------------------------------------------
+-- The /payments "Credit" section tracks the IOCL credit facility: a
+-- limit, a T+2 (editable) working-day repayment schedule, the day's
+-- invoices (auto-summed from mail by the agent, all trucks), and manual
+-- balance snapshots (DR = owed, CR = in credit). The dues table applies
+-- the latest balance oldest-invoices-first (FIFO) to show what's still
+-- owed and by when. Everything is anon+RLS+realtime like the rest.
+-- =====================================================================
+
+-- Editable settings (singleton row)
+create table if not exists public.pay_credit_config (
+  id             smallint primary key default 1,
+  credit_limit   numeric  default 8500000,   -- 85 lakhs; editable
+  repayment_days integer  default 2,          -- T+2 working days; editable
+  updated_at     timestamptz default now(),
+  constraint pay_credit_config_single check (id = 1)
+);
+insert into public.pay_credit_config (id) values (1) on conflict (id) do nothing;
+
+-- Every IOCL fuel invoice (ALL trucks), idempotent by invoice number.
+-- The agent upserts these; the app sums them per invoice_date.
+create table if not exists public.pay_fuel_invoices (
+  invoice_no   text primary key,
+  invoice_date text,                          -- dd/mm/yyyy from the invoice
+  tt_no        text,
+  amount       numeric,                       -- invoice grand total, rupees
+  gmail_msg_id text,
+  created_at   timestamptz default now()
+);
+create index if not exists pay_fuel_invoices_date_idx
+  on public.pay_fuel_invoices (invoice_date);
+
+-- Manual correction of a day's invoice total (a missed / misread mail).
+-- When present it overrides the summed auto total for that day.
+create table if not exists public.pay_fuel_day_overrides (
+  day        text primary key,                -- dd/mm/yyyy
+  amount     numeric,
+  note       text,
+  updated_at timestamptz default now()
+);
+
+-- Balance snapshots (pasted by hand as they update through the day).
+create table if not exists public.pay_credit_balances (
+  id         text primary key,                -- client-generated id
+  at         timestamptz default now(),       -- when this balance was observed
+  amount     numeric,                         -- absolute figure
+  sign       text,                            -- 'DR' (owed) | 'CR' (in credit)
+  raw        text,                            -- the pasted message, for audit
+  created_at timestamptz default now()
+);
+create index if not exists pay_credit_balances_at_idx
+  on public.pay_credit_balances (at desc);
+
+-- Bank open/closed confirmations for dates that aren't auto-known
+-- (Sundays + 2nd/4th Saturdays are computed; festivals are confirmed here).
+create table if not exists public.pay_bank_holidays (
+  day        text primary key,                -- ISO yyyy-mm-dd
+  is_holiday boolean,                         -- true = closed, false = confirmed open
+  note       text,
+  updated_at timestamptz default now()
+);
+
+alter table public.pay_credit_config       enable row level security;
+alter table public.pay_fuel_invoices       enable row level security;
+alter table public.pay_fuel_day_overrides  enable row level security;
+alter table public.pay_credit_balances     enable row level security;
+alter table public.pay_bank_holidays       enable row level security;
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'pay_credit_config','pay_fuel_invoices','pay_fuel_day_overrides',
+    'pay_credit_balances','pay_bank_holidays'] loop
+    if not exists (select 1 from pg_policies where policyname = t || '_all') then
+      execute format(
+        'create policy %I on public.%I for all to anon, authenticated using (true) with check (true)',
+        t || '_all', t);
+    end if;
+  end loop;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'pay_credit_config','pay_fuel_invoices','pay_fuel_day_overrides',
+    'pay_credit_balances','pay_bank_holidays'] loop
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    exception when duplicate_object then null; end;
+  end loop;
+end $$;
