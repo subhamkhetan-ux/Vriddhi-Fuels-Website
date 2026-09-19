@@ -187,6 +187,41 @@ def upsert_fuel_invoices(rows: list[dict]) -> int:
         return 0
 
 
+def upsert_fuel_prices(prices: dict) -> int:
+    """Store the latest after-VAT ₹/KL per product. ``prices`` maps a column key
+    to ``{"price": float, "as_of": "YYYY-MM-DD", "invoice_no": str}``. Only a
+    strictly newer invoice date overwrites a stored price, so the current price
+    tracks the most recent invoice. Best-effort; returns count written."""
+    cfg = _config()
+    if not cfg or not prices:
+        return 0
+    url, key = cfg
+    try:
+        rows = _request("GET", "pay_fuel_prices?select=col_key,as_of", key, url) or []
+        current = {r["col_key"]: (r.get("as_of") or "") for r in rows}
+    except Exception:
+        current = {}
+    payload = []
+    for col_key, v in prices.items():
+        as_of = v.get("as_of") or ""
+        if current.get(col_key) and current[col_key] >= as_of:
+            continue                                   # keep the newer stored price
+        payload.append({
+            "col_key": col_key,
+            "price_per_kl": v.get("price"),
+            "as_of": as_of,
+            "invoice_no": v.get("invoice_no"),
+        })
+    if not payload:
+        return 0
+    try:
+        _request("POST", "pay_fuel_prices?on_conflict=col_key", key, url,
+                 body=payload, prefer="resolution=merge-duplicates,return=minimal")
+        return len(payload)
+    except Exception:
+        return 0
+
+
 def upsert_rows(rows: list[dict]) -> int:
     """Insert new queue rows; ignore ones already present (so app edits — a
     resolved name, an exported flag — are never clobbered). Returns count sent.

@@ -14,6 +14,7 @@ keeps it from re-scanning old mail.
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from . import invoice as invoice_mod
 from . import state_store
@@ -22,6 +23,12 @@ from .config import ACCOUNTS, CREDIT, LOOKBACK_DAYS
 # Separate high-water key so it never collides with the credit-alert or
 # consignment cursors for the same mailbox.
 SEEN_KEY = "credit_invoices"
+
+
+def _dmy_to_iso(dmy: str) -> str:
+    """dd/mm/yyyy -> yyyy-mm-dd (for date comparison); '' if unparseable."""
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", (dmy or "").strip())
+    return f"{m.group(3)}-{m.group(2).zfill(2)}-{m.group(1).zfill(2)}" if m else ""
 
 
 def _account_token_env() -> str | None:
@@ -79,9 +86,15 @@ def run(seen: dict) -> tuple[int, list[str]]:
         return 0, [f"credit: fetch failed: {exc}"]
 
     rows: list[dict] = []
+    prices: dict = {}                    # col_key -> {price, as_of, invoice_no} (newest date wins)
     for mail in mails:  # oldest first
         try:
-            rows.extend(_rows_from_mail(mail, pdf_to_text))
+            inv_rows, obs = _rows_from_mail(mail, pdf_to_text)
+            rows.extend(inv_rows)
+            for o in obs:
+                cur = prices.get(o["col_key"])
+                if (cur is None) or (o["as_of"] > cur["as_of"]):
+                    prices[o["col_key"]] = o
         except Exception as exc:
             errors.append(f"credit: {mail.msg_id} failed: {exc}")
         acc_state["high_water"] = max(acc_state.get("high_water", 0), mail.internal_ms)
@@ -93,21 +106,33 @@ def run(seen: dict) -> tuple[int, list[str]]:
     upserted = 0
     if rows:
         upserted = supabase_sync.upsert_fuel_invoices(rows)
+    if prices:
+        supabase_sync.upsert_fuel_prices(
+            {k: {"price": v["price"], "as_of": v["as_of"], "invoice_no": v["invoice_no"]}
+             for k, v in prices.items()})
     return upserted, errors
 
 
-def _rows_from_mail(mail, pdf_to_text) -> list[dict]:
-    """Extract one invoice row per usable PDF in a mail (any truck)."""
-    out: list[dict] = []
+def _rows_from_mail(mail, pdf_to_text):
+    """From each usable PDF in a mail (any truck): the invoice row for the dues
+    total, plus a per-product price observation (after-VAT ₹/KL). Returns
+    ``(invoice_rows, price_observations)``."""
+    inv_rows: list[dict] = []
+    obs: list[dict] = []
     seen_nos: set[str] = set()
     for pdf in mail.pdfs:
         text = pdf_to_text(pdf)
         fields = invoice_mod.extract_fields(text)
-        # Need at least an invoice number, a date and an amount to schedule it.
         if not (fields.invoice_no and fields.invoice_date and fields.value):
             continue
         if fields.invoice_no in seen_nos:
             continue
         seen_nos.add(fields.invoice_no)
-        out.append(_invoice_row(mail.msg_id, fields))
-    return out
+        inv_rows.append(_invoice_row(mail.msg_id, fields))
+        as_of = _dmy_to_iso(fields.invoice_date)
+        for line in fields.lines:
+            ppk = line.price_per_kl
+            if ppk and as_of:
+                obs.append({"col_key": line.column_key, "price": ppk,
+                            "as_of": as_of, "invoice_no": fields.invoice_no})
+    return inv_rows, obs

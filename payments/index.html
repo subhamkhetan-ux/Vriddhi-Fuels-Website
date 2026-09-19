@@ -235,6 +235,7 @@ summary::-webkit-details-marker{display:none}
 .cr-ordcell .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
 .cr-ordcell .v{font-size:20px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;margin-top:3px}
 .cr-ordkl{font-size:12px;color:var(--faint);font-weight:600}
+.cr-ordsrc{font-size:10.5px;color:var(--faint);margin-top:2px}
 .cr-ordnote{font-size:11px;color:var(--faint);margin-top:8px}
 .cr-carry{font-size:12.5px;color:var(--muted);margin-bottom:10px;padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px}
 .cr-amtbtn.cr-add{color:var(--faint);border-style:dashed;border-color:var(--line)}
@@ -389,7 +390,7 @@ a{color:var(--accent)}
     <!-- 3. Ordering capacity -->
     <div class="card">
       <div class="cr-head">How much can I order</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">From the PAD available, at your current per-KL prices (after VAT). Edit a price if it changed.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">From the PAD available, at the per-KL price (after VAT) auto-read from your latest invoice. Type a price only to override.</div>
       <div class="cr-setgrid">
         <label>HSD ₹/KL <input type="number" id="crHsdPrice" inputmode="decimal" min="0" step="0.01" onchange="saveCreditConfig()"></label>
         <label>MS ₹/KL <input type="number" id="crMsPrice" inputmode="decimal" min="0" step="0.01" onchange="saveCreditConfig()"></label>
@@ -781,13 +782,14 @@ const Cloud = {
   async pullCredit(){
     if(!this.client) return;
     try{
-      const [cfg, inv, ovr, bal, hol, opn] = await Promise.all([
+      const [cfg, inv, ovr, bal, hol, opn, prc] = await Promise.all([
         this.client.from("pay_credit_config").select("*").eq("id",1).maybeSingle(),
         this.client.from("pay_fuel_invoices").select("invoice_no,invoice_date,tt_no,amount").limit(5000),
         this.client.from("pay_fuel_day_overrides").select("*").limit(2000),
         this.client.from("pay_credit_balances").select("*").order("at",{ascending:false}).limit(200),
         this.client.from("pay_bank_holidays").select("*").limit(2000),
         this.client.from("pay_credit_opening").select("*").limit(2000),
+        this.client.from("pay_fuel_prices").select("*").limit(50),
       ]);
       if(cfg && cfg.data){ CREDIT_CFG = {limit:Number(cfg.data.credit_limit), days:Number(cfg.data.repayment_days),
         hsdPrice:cfg.data.hsd_price!=null?Number(cfg.data.hsd_price):null,
@@ -797,6 +799,7 @@ const Cloud = {
       BALANCES = (bal && bal.data) || [];
       HOLIDAYS = {}; ((hol && hol.data)||[]).forEach(r=>{ HOLIDAYS[r.day]=r.is_holiday===true; });
       OPENINGS = {}; ((opn && opn.data)||[]).forEach(r=>{ OPENINGS[r.day]={amount:Number(r.amount), sign:r.sign}; });
+      PRICES = {}; ((prc && prc.data)||[]).forEach(r=>{ PRICES[r.col_key]={price:Number(r.price_per_kl), as_of:r.as_of}; });
       if(VIEW==="credit") renderCredit(); else updateCreditBadge();
     }catch(_){ /* non-critical */ }
   },
@@ -804,7 +807,7 @@ const Cloud = {
     if(!this.client||!this.client.channel) return;
     let t; const poke=fn=>{clearTimeout(t);t=setTimeout(fn,350);};
     const ch = this.client.channel("credit-live");
-    ["pay_credit_config","pay_fuel_invoices","pay_fuel_day_overrides","pay_credit_balances","pay_bank_holidays","pay_credit_opening"]
+    ["pay_credit_config","pay_fuel_invoices","pay_fuel_prices","pay_fuel_day_overrides","pay_credit_balances","pay_bank_holidays","pay_credit_opening"]
       .forEach(tbl=> ch.on("postgres_changes",{event:"*",schema:"public",table:tbl},()=>poke(()=>this.pullCredit())));
     ch.subscribe();
   },
@@ -1416,6 +1419,7 @@ let DAY_OVERRIDES = {};   // {dd/mm/yyyy: amount}  (manual per-day correction)
 let BALANCES = [];        // [{id, at, amount, sign, raw}] newest first
 let HOLIDAYS = {};        // {iso: true=closed | false=confirmed open}
 let OPENINGS = {};        // {iso: {amount, sign}}  (opening balance recorded per day)
+let PRICES = {};          // {col_key: {price, as_of}}  auto after-VAT ₹/KL from invoices
 
 function crUUID(){ try{ return crypto.randomUUID(); }catch(_){ return "b"+Date.now()+Math.random().toString(16).slice(2); } }
 
@@ -1549,8 +1553,10 @@ function renderCredit(){
   const dh=document.getElementById("crDaysHint");
   if(dh) dh.textContent = CREDIT_CFG.days===0 ? "0 = clear the same day (before midnight)" : `due ${CREDIT_CFG.days} working day${CREDIT_CFG.days>1?"s":""} after the invoice`;
   const hp=document.getElementById("crHsdPrice"), mp=document.getElementById("crMsPrice");
-  if(hp && document.activeElement!==hp) hp.value=CREDIT_CFG.hsdPrice!=null?CREDIT_CFG.hsdPrice:"";
-  if(mp && document.activeElement!==mp) mp.value=CREDIT_CFG.msPrice!=null?CREDIT_CFG.msPrice:"";
+  if(hp && document.activeElement!==hp){ hp.value=CREDIT_CFG.hsdPrice!=null?CREDIT_CFG.hsdPrice:"";
+    hp.placeholder=PRICES["HSD"]?("auto "+PRICES["HSD"].price):"₹/KL"; }
+  if(mp && document.activeElement!==mp){ mp.value=CREDIT_CFG.msPrice!=null?CREDIT_CFG.msPrice:"";
+    mp.placeholder=PRICES["MS | EBMS"]?("auto "+PRICES["MS | EBMS"].price):"₹/KL"; }
 
   const d=computeDues();
   const bal=currentBalance();
@@ -1606,17 +1612,28 @@ function renderFundsPlan(d){
   w.innerHTML=h;
 }
 
+// The price used for a product: a manual override wins, else the auto price the
+// agent derived from the latest invoice ("Total for material" ÷ KL).
+function crEffectivePrice(colKey, manual){
+  if(manual!=null) return {price:manual, src:"manual"};
+  const p=PRICES[colKey];
+  return (p && p.price) ? {price:p.price, src:"auto", as_of:p.as_of} : null;
+}
 // How many KL of HSD / MS the PAD-available funds can cover, at current prices.
 function renderOrderCapacity(avail){
   const w=document.getElementById("crOrderWrap"); if(!w) return;
-  const rows=[["HSD", CREDIT_CFG.hsdPrice], ["MS", CREDIT_CFG.msPrice]];
   if(avail<=0){ w.innerHTML=`<div class="cr-planempty">No PAD available to order against right now.</div>`; return; }
-  const cells=rows.map(([name,price])=>{
-    if(!price) return `<div class="cr-ordcell"><div class="k">${name}</div><div class="v">— <span class="cr-ordkl">set ₹/KL</span></div></div>`;
-    const kl=avail/price;
-    return `<div class="cr-ordcell"><div class="k">${name} @ ${esc(money(price))}/KL</div><div class="v">${kl.toLocaleString("en-IN",{maximumFractionDigits:2})} <span class="cr-ordkl">KL</span></div></div>`;
+  const specs=[["HSD","HSD",CREDIT_CFG.hsdPrice], ["MS","MS | EBMS",CREDIT_CFG.msPrice]];
+  const cells=specs.map(([label,colKey,manual])=>{
+    const eff=crEffectivePrice(colKey,manual);
+    if(!eff) return `<div class="cr-ordcell"><div class="k">${label}</div><div class="v">— <span class="cr-ordkl">set ₹/KL</span></div></div>`;
+    const kl=avail/eff.price;
+    const src=eff.src==="manual" ? "manual price" : ("auto · invoice "+(eff.as_of?esc(isoToDmy(eff.as_of)):""));
+    return `<div class="cr-ordcell"><div class="k">${label} @ ${esc(money(eff.price))}/KL</div>`
+      + `<div class="v">${kl.toLocaleString("en-IN",{maximumFractionDigits:2})} <span class="cr-ordkl">KL</span></div>`
+      + `<div class="cr-ordsrc">${src}</div></div>`;
   }).join("");
-  w.innerHTML=`<div class="cr-ordgrid">${cells}</div><div class="cr-ordnote">On ${esc(money(avail))} PAD available. Ordering uses funds; each new invoice reduces what's left.</div>`;
+  w.innerHTML=`<div class="cr-ordgrid">${cells}</div><div class="cr-ordnote">On ${esc(money(avail))} PAD available. Prices auto-update from each new invoice; type a price to override.</div>`;
 }
 
 function renderBalHistory(){

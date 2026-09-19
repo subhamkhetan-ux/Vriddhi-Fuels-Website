@@ -378,6 +378,18 @@ create table if not exists public.pay_fuel_invoices (
 create index if not exists pay_fuel_invoices_date_idx
   on public.pay_fuel_invoices (invoice_date);
 
+-- Current after-VAT price per KL for each product, derived by the agent from
+-- each invoice's per-product "Total for material" ÷ qty. Newest invoice wins,
+-- so the price auto-updates when IOCL revises it. The app's ordering calculator
+-- reads this (a manual price in pay_credit_config overrides it if set).
+create table if not exists public.pay_fuel_prices (
+  col_key      text primary key,              -- 'MS | EBMS' | 'HSD' | 'XtraGreen HSD' | 'LSHFHSD'
+  price_per_kl numeric,
+  as_of        text,                           -- ISO date of the invoice it came from
+  invoice_no   text,
+  updated_at   timestamptz default now()
+);
+
 -- Manual correction of a day's invoice total (a missed / misread mail).
 -- When present it overrides the summed auto total for that day.
 create table if not exists public.pay_fuel_day_overrides (
@@ -419,6 +431,7 @@ create table if not exists public.pay_bank_holidays (
 
 alter table public.pay_credit_config       enable row level security;
 alter table public.pay_fuel_invoices       enable row level security;
+alter table public.pay_fuel_prices          enable row level security;
 alter table public.pay_fuel_day_overrides  enable row level security;
 alter table public.pay_credit_opening      enable row level security;
 alter table public.pay_credit_balances     enable row level security;
@@ -428,7 +441,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'pay_credit_config','pay_fuel_invoices','pay_fuel_day_overrides',
+    'pay_credit_config','pay_fuel_invoices','pay_fuel_prices','pay_fuel_day_overrides',
     'pay_credit_opening','pay_credit_balances','pay_bank_holidays'] loop
     if not exists (select 1 from pg_policies where policyname = t || '_all') then
       execute format(
@@ -442,7 +455,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'pay_credit_config','pay_fuel_invoices','pay_fuel_day_overrides',
+    'pay_credit_config','pay_fuel_invoices','pay_fuel_prices','pay_fuel_day_overrides',
     'pay_credit_opening','pay_credit_balances','pay_bank_holidays'] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);

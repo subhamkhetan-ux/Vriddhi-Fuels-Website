@@ -92,9 +92,11 @@ must be repaid.
 - **Funds needed by date**: right under the limit/cycle, a compact table groups
   the unpaid dues by **due date** (₹ to arrange on each day, plus a total) so you
   can plan cash date-wise.
-- **How much can I order**: enter the current **HSD** and **MS** ₹/KL (after VAT)
-  and the app shows how many **KL** of each the **PAD available** funds can cover.
-  It recomputes the moment you update the balance.
+- **How much can I order**: shows how many **KL** of **HSD** / **MS** the **PAD
+  available** funds can cover. The per-KL price (after VAT) is read
+  **automatically** from each invoice's per-product *"Total for material" ÷ KL*,
+  and updates whenever IOCL revises it; type a price only to override. Recomputes
+  the moment you update the balance.
 
 All of this is stored in Supabase (re-run `supabase/payments-schema.sql` once to
 add the new tables/columns). The agent only writes the invoices; everything else

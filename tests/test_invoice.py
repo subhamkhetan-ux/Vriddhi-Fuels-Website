@@ -80,9 +80,15 @@ KL
              BASIC DESTINATION PRICE
 5.000
 KL
-90000.000
+81994.360
 KL
-450000.00
+409971.80
+JIN6   A/R Vat Payable
+28.000
+%
+114792.10
+Total for material
+524763.90
 50703   HSD-BSVI [PDRP]
 17.000
 KL
@@ -96,11 +102,11 @@ KL
 JIN6   A/R Vat Payable
 24.000
 %
-397696.58
+322933.06
 Total for material
-2193251.09
+1668487.48
 ZRND  Rounding Difference
--0.09
+-0.38
 Total
 2193251.00
 This Document is Digitally Signed
@@ -191,6 +197,16 @@ def test_multi_first_product_mirrors_fields_for_backcompat():
 
 def test_multi_value_is_grand_total():
     assert _multi().value == 2193251
+
+
+def test_multi_per_product_values_and_prices():
+    f = _multi()
+    ms, hsd = f.lines[0], f.lines[1]
+    assert ms.value == 524764 and hsd.value == 1668487          # "Total for material" each
+    assert ms.price_per_kl == round(524764 / 5, 2)              # after-VAT ₹/KL
+    assert hsd.price_per_kl == round(1668487 / 17, 2)
+    # sanity: MS pricier per KL than HSD here
+    assert ms.price_per_kl > hsd.price_per_kl
 
 
 def test_multi_is_complete():
