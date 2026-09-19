@@ -2493,6 +2493,27 @@
       },
       "queued_at": "2026-09-19T04:30:24.848354+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "ecbeba2cfa9b39ed",
+      "gmail_msg_id": "1876741701188254244",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "19/09/2026",
+      "date_serial": 46284,
+      "amount": 397600.0,
+      "raw_payer": "GREAT RIVER COY PVT LTD",
+      "customer": "Great River Coy Private Limited",
+      "candidates": [
+        "Great River Coy Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-19T07:00:19.502088+00:00",
+      "status": "matched"
     }
   ]
 }
