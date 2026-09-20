@@ -82,16 +82,16 @@ def test_row_to_entry_tolerates_missing_mode_and_customer_ws():
 
 # ---- postable gate ----------------------------------------------------
 
-def test_select_postable_excludes_review_seen_and_incomplete():
+def test_select_postable_logs_pushed_rows_excludes_seen_and_incomplete():
     rows = [
         _row("ok"),
-        _row("review", status="review"),        # not resolved
-        _row("nocust", customer=""),             # no canonical name
-        {"entry_id": "noamt", "customer": "Y", "date_serial": 1, "status": "matched"},
-        _row("already"),                          # in seen
+        _row("resolved-review", status="review"),  # resolved (has customer) but status not flipped -> STILL logged
+        _row("nocust", customer=""),               # unresolved: no canonical name
+        {"entry_id": "noamt", "customer": "Y", "date_serial": 1, "status": "matched"},  # missing amount
+        _row("already"),                            # in seen
     ]
     out = poster.select_postable(rows, {"already"})
-    assert [r["entry_id"] for r in out] == ["ok"]
+    assert sorted(r["entry_id"] for r in out) == ["ok", "resolved-review"]
 
 def test_select_postable_sorts_by_date_then_customer():
     rows = [
@@ -137,9 +137,10 @@ def test_post_batch_stops_and_reports_on_writer_failure():
     err = next(e for e in sink.events if e["kind"] == "error")
     assert err["entry_id"] == "a2" and "Excel not open" in err["detail"]
 
-def test_post_batch_no_rows_emits_nothing():
+def test_post_batch_no_postable_emits_nothing():
+    # An unresolved row (no canonical customer) is not written and stays silent.
     w, sink, seen = FakeWriter(), FakeSink(), set()
-    assert poster.post_batch([_row("r", status="review")], w, seen, sink) == 0
+    assert poster.post_batch([_row("r", customer="")], w, seen, sink) == 0
     assert sink.events == []
 
 

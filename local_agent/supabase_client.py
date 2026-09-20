@@ -58,10 +58,16 @@ class SupabaseClient:
     # ---- reads --------------------------------------------------------
 
     def fetch_log_requested(self, limit: int = 500) -> list[dict]:
-        """Rows the user pressed Log on that the daemon hasn't written yet."""
+        """Rows the user pressed Log on that the daemon hasn't written yet.
+
+        Gated on user intent (``log_requested``) + a resolved customer, NOT on
+        ``status``: a resolved review row whose optimistic ``status='matched'``
+        update never reached Supabase would otherwise be pushed to Log yet
+        silently skipped here. ``is_postable`` is the defensive completeness gate.
+        """
         q = (
             "pay_credit_queue?select=*"
-            "&log_requested=eq.true&logged_at=is.null&status=eq.matched"
+            "&log_requested=eq.true&logged_at=is.null&customer=not.is.null"
             "&order=date_serial.asc&limit=" + str(limit)
         )
         rows = self._request("GET", q)

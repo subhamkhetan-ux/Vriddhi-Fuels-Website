@@ -43,13 +43,14 @@ def is_postable(row: dict, already_posted: Any) -> bool:
     ``already_posted`` is anything supporting ``in`` (a set, or the seen-store).
     The server query already narrows to ``log_requested & not yet logged``; this
     is a defensive second gate so a malformed or already-written row can never
-    reach Excel.
+    reach Excel. Completeness — a canonical customer plus a date and amount — is
+    what makes a row loggable; we do NOT require ``status == 'matched'``, because
+    the user pressing "Log to Excel" is the authorization and a resolved review
+    row can carry ``status='review'`` if its optimistic update didn't persist.
     """
     if row.get("entry_id") in already_posted:
         return False
-    if row.get("status") != "matched":
-        return False
-    if not row.get("customer"):
+    if not (row.get("customer") or "").strip():
         return False
     if row.get("date_serial") is None or row.get("amount") is None:
         return False
