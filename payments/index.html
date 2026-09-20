@@ -125,12 +125,17 @@ button{font-family:inherit}
 .btn:hover{border-color:var(--accent)}
 .btn.ghost{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
 .btn.sm{padding:5px 9px;font-size:12px}
-.ready-row{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--line)}
+.ready-row{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--line)}
 .ready-row:last-child{border-bottom:none}
 .ready-row .cust{flex:1;min-width:0}
-.ready-row .cust .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ready-row .cust .d{font-size:12px;color:var(--faint)}
-.ready-row .a{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+/* show the full name — it wraps and the row grows to fit, instead of being
+   clipped with an ellipsis. overflow-wrap:anywhere breaks a stray long token
+   so nothing can ever spill past the column. */
+.ready-row .cust .n{display:block;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.ready-row .cust .d{display:block;font-size:12px;color:var(--faint);margin-top:2px;overflow-wrap:anywhere}
+.ready-row .a{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap;flex:none;padding-top:1px}
+.ready-row .btn{flex:none}
+.ready-row input[type=checkbox]{margin-top:1px}
 .dupflag{font-size:11px;color:var(--warn);font-weight:600}
 input[type=checkbox]{width:20px;height:20px;accent-color:var(--good)}
 .exportbar{position:fixed;left:0;right:0;bottom:0;z-index:25;background:rgba(12,9,8,.6);
@@ -152,13 +157,13 @@ summary::-webkit-details-marker{display:none}
 .exp-row .a{font-variant-numeric:tabular-nums;color:var(--muted)}
 .exp-row .logged{font-size:11px;color:var(--good);font-weight:700;white-space:nowrap}
 /* queued-to-log rows (handed to the Mac agent, awaiting write) */
-.q-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.q-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .q-row:last-child{border-bottom:none}
 .q-row .c{flex:1;min-width:0}
-.q-row .c .n{display:block;font-weight:600}
-.q-row .c .d{display:block;font-size:12px;color:var(--faint)}
-.q-row .a{font-variant-numeric:tabular-nums;color:var(--muted)}
-.q-spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--good);animation:qspin .8s linear infinite;flex:none}
+.q-row .c .n{display:block;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.q-row .c .d{display:block;font-size:12px;color:var(--faint);margin-top:2px;overflow-wrap:anywhere}
+.q-row .a{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap;flex:none;padding-top:1px}
+.q-spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--good);animation:qspin .8s linear infinite;flex:none;margin-top:3px}
 @keyframes qspin{to{transform:rotate(360deg)}}
 /* agent activity feed + online pill */
 .agent-status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin:22px 4px 10px}
