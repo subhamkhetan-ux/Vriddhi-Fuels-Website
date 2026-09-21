@@ -130,6 +130,25 @@ This gives all employees one live shared dataset with instant sync.
    **"✓ Day imported in Tally — move to old vouchers"** to tidy the list.
    The day can still be re-exported later if the file is ever lost.
 
+### Printing the customer bill
+
+The tanker bill is now part of this app — no need to open a second one.
+
+1. On the voucher screen tap **"🧾 Create bill — fill the invoice from this
+   voucher"** (or 🧾 next to a saved voucher in the day list).
+2. Everything is already filled in: date, vehicle, quantity, price and
+   amount from the voucher, and the customer's address, GSTIN, P.O. number
+   and payment details from the **Tanker Billing** sheet. Adjust anything if
+   you need to — it does not affect the voucher.
+3. The **first time on a device**, type the bill number once; afterwards it
+   continues by itself.
+4. **🖨 Print / Save PDF** prints the two pages (customer copy + greyscale
+   "Receiving Copy"), or **⬇ Export Word (.docx)** if you need to edit it.
+
+> If the customer is not in the Tanker Billing sheet the app says so and
+> lets you pick the right one from the list. Add the customer to the
+> workbook so it is matched automatically next time.
+
 ## Part E — VERIFY BEFORE GO-LIVE (do this once, it matters)
 
 1. Create **one** small test voucher in the app and download the XML.

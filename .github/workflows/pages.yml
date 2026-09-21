@@ -1,8 +1,9 @@
-name: Deploy tanker app to GitHub Pages
+name: Deploy tanker + tally apps to GitHub Pages
 
-# Publishes ONLY the tanker bill app and the one data file it needs. It does
-# NOT publish the rest of the repo — importantly not the other state/ files
-# (payment-agent queue / bank data) or the Master Ledger.
+# Publishes ONLY the tanker bill app, the Tally voucher app (whose billing
+# module reads the tanker app's assets and the same data file) and that one
+# data file. It does NOT publish the rest of the repo — importantly not the
+# other state/ files (payment-agent queue / bank data) or the Master Ledger.
 #
 # One-time: repo Settings -> Pages -> Build and deployment -> Source:
 # "GitHub Actions". Then this deploys on every change to the app or its data.
@@ -14,6 +15,11 @@ on:
       - "tanker/index.html"
       - "tanker/docx-export.js"
       - "tanker/assets/**"
+      - "tally/index.html"
+      - "tally/billing.js"
+      - "tally/config.js"
+      - "tally/sw.js"
+      - "tally/manifest.webmanifest"
       - "state/tanker_billing.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch: {}
@@ -36,19 +42,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Assemble site (tanker app + its data only)
+      - name: Assemble site (tanker + tally apps and their data only)
         run: |
-          mkdir -p _site/tanker _site/state
+          mkdir -p _site/tanker _site/tally _site/state
           cp tanker/index.html _site/tanker/index.html
           cp tanker/docx-export.js _site/tanker/docx-export.js
           cp -r tanker/assets _site/tanker/assets
+          # Tally voucher app. Its billing module reuses /tanker/'s docx
+          # builder, fonts and letterhead, and reads the same data file.
+          cp tally/index.html tally/billing.js tally/config.js tally/sw.js \
+             tally/manifest.webmanifest _site/tally/
+          cp "Vriddhi Fuels Logo.png" _site/               # app icon
           cp state/tanker_billing.json _site/state/tanker_billing.json
           # root redirect -> the app
           cat > _site/index.html <<'HTML'
           <!doctype html><meta charset="utf-8">
           <meta http-equiv="refresh" content="0; url=./tanker/">
           <title>Vriddhi Fuels — Tanker Billing</title>
-          <a href="./tanker/">Open Tanker Billing</a>
+          <a href="./tanker/">Open Tanker Billing</a> ·
+          <a href="./tally/">Open Tally Vouchers</a>
           HTML
           # don't let Pages run Jekyll over the files
           touch _site/.nojekyll

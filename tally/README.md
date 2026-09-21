@@ -118,9 +118,55 @@ nothing.
 - **Settings**: company name, per-series last invoice no. + today's price
   (to fix counter drift if vouchers were entered directly in Tally), party
   management, and a read-only table of the fixed Tally names.
+- **Customer bill from the voucher** — the tanker-billing module, moved into
+  this app: one tap on the voucher screen opens the printable A4 bill with
+  every field already filled (see [below](#customer-bill-the-billing-module)).
 - **Persistence**: counters, prices, parties, queue and old vouchers survive
   restarts (localStorage). Installable to the home screen; works offline via
   a service worker.
+
+## Customer bill (the billing module)
+
+The tanker-billing module now lives in this app, so the printable customer
+bill is raised from the voucher instead of a second app. On the voucher
+screen, **"🧾 Create bill — fill the invoice from this voucher"** opens the
+bill with every field already filled:
+
+| Bill field | Comes from |
+|---|---|
+| Date, Vehicle, Quantity, Price/Ltr, Amount | the voucher being created (or the saved voucher you tapped 🧾 on) |
+| Product | the voucher's series — Diesel → *High Speed Diesel*, Petrol → *Motor Spirit*, XtraGreen → *XtraGreen Diesel* |
+| Customer name, address, GSTIN | the customer's row in the Tanker Billing sheet, matched to the Tally party ledger |
+| P.O. label + number | the same row (editable) |
+| Payment / bank block | the same row |
+| Density- / Seal No- lines | shown for diesel loads over 3 000 L, exactly as before |
+| Bill no. | the running bill counter, shared with the `/tanker/` app on the same device |
+
+The data is `state/tanker_billing.json` — the file the hourly
+[tanker sync](../tanker/README.md) Action commits from the
+`Tanker Billing.xlsm` workbook. You keep editing the workbook exactly as
+today; the app follows.
+
+- **Everything stays editable** on the bill screen, and editing a bill never
+  changes the voucher, the day's XML export or the invoice numbering — a
+  bill and a Tally voucher are two separate documents.
+- **The bill opens on the voucher's rate and amount**, so the printed bill
+  and the Tally invoice always agree. When the sheet's tier rate for that
+  customer differs it is shown underneath with a one-tap *use sheet rate*.
+- **Party ledger → sheet customer matching** ignores case, spacing,
+  punctuation and the usual `M/s` / `Private` / `Limited` / `&` variations.
+  If a party is not in the sheet the screen says so and offers the full
+  customer list to pick from — the bill still prints, with those fields blank
+  until one is chosen.
+- **Print / Save PDF** gives the same two A4 pages as before (customer copy
+  + greyscale "Receiving Copy"), and **Export Word (.docx)** the same
+  editable document.
+- 🧾 next to a saved voucher in the day list raises the bill for it later.
+
+The standalone app at `/tanker/` is unchanged and keeps working — both read
+the same data file, share the same bill-number counter, and this app reuses
+the tanker app's letterhead, stamp, fonts and `.docx` builder rather than
+keeping a second copy of them.
 
 ## XML format
 
