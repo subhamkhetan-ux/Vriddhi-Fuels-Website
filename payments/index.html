@@ -419,17 +419,21 @@ a{color:var(--accent)}
   </div>
 
   <div id="viewCredit" style="display:none">
-    <!-- 1. Facility settings + funds-needed-by-date plan -->
+    <!-- 1. Facility settings -->
     <div class="card">
       <div class="cr-head">IOCL credit facility</div>
-      <div class="cr-setgrid">
+      <div class="cr-setgrid" style="margin-bottom:0">
         <label>Credit limit (₹)
           <input type="number" id="crLimit" inputmode="numeric" min="0" step="1" onchange="saveCreditConfig()"></label>
         <label>Repayment window (working days)
           <input type="number" id="crDays" inputmode="numeric" min="0" max="30" step="1" onchange="saveCreditConfig()">
           <span class="cr-hint" id="crDaysHint"></span></label>
       </div>
-      <div class="cr-plan-head">Funds needed by date</div>
+    </div>
+
+    <!-- 2. Funds needed by date — its own card for legibility -->
+    <div class="card">
+      <div class="cr-head">Funds needed by date <span class="cr-sub">each day's closing, due by T+2</span></div>
       <div id="crPlanWrap"></div>
     </div>
 
