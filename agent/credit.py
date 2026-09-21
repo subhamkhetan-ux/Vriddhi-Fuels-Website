@@ -14,7 +14,6 @@ keeps it from re-scanning old mail.
 from __future__ import annotations
 
 import datetime as dt
-import os
 import re
 
 from . import invoice as invoice_mod
@@ -114,22 +113,6 @@ def run(seen: dict) -> tuple[int, list[str]]:
     return upserted, errors
 
 
-def _sap_entry_no(filename: str, text_invoice_no: str | None) -> str | None:
-    """The invoice's unique key = its SAP entry number, which is the PDF filename.
-
-    IndianOil occasionally resends the same invoice as a fresh mail; keying on
-    the filename (rather than the text-parsed number, which a resend can format
-    differently) means the duplicate collapses onto the same DB row. Prefer the
-    canonical 10-digit IOCL document number when the filename carries it (so we
-    match keys already stored), else the filename stem, else the parsed number.
-    """
-    stem = os.path.splitext(os.path.basename((filename or "").strip()))[0].strip()
-    m = re.search(r"70\d{8}", stem)
-    if m:
-        return m.group(0)
-    return stem or text_invoice_no
-
-
 def _rows_from_mail(mail, pdf_to_text):
     """From each usable PDF in a mail (any truck): the invoice row for the dues
     total, plus a per-product price observation (after-VAT ₹/KL). Rows are keyed
@@ -145,7 +128,7 @@ def _rows_from_mail(mail, pdf_to_text):
         fields = invoice_mod.extract_fields(text)
         if not (fields.invoice_date and fields.value):
             continue
-        key = _sap_entry_no(names[idx] if idx < len(names) else "", fields.invoice_no)
+        key = invoice_mod.sap_entry_no(names[idx] if idx < len(names) else "", fields.invoice_no)
         if not key or key in seen_nos:                 # missing key, or the same invoice again
             continue
         seen_nos.add(key)
