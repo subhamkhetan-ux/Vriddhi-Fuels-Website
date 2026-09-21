@@ -1649,21 +1649,24 @@ function renderCredit(){
 // Signed available balance: CR (in credit) is positive, DR (owed) is negative.
 function crSigned(o){ if(!o) return 0; return o.sign==="CR" ? Number(o.amount||0) : -Number(o.amount||0); }
 
-// Funds-needed obligations, keyed by the T+2 deadline. For each day T that has a
-// recorded opening, its closing balance = the next recorded opening (= opening of
-// day T+1), or the live balance for the still-running day. Whatever the balance
-// dropped over that day is what must be cleared before midnight of T+2; the part
-// explained by that day's invoices is the invoice due, and the remainder is
-// "Other Deductions" (licence-fee recovery, misc fees, interest — never ingested
-// separately, only seen through the balance). The still-owed total is pinned to
-// the current balance and cleared oldest-first, so a corrected/updated balance
-// always recomputes; anything owed we can't date shows as carried / overdue.
+// Funds-needed obligations. PRIMARY RULE: the closing balance of each day T
+// (= opening of day T+1, or the live balance for the running day) must be cleared
+// before midnight of T+2. For each recorded-opening day we take the balance drop
+// over its interval; the part explained by invoices is the invoice due (dated to
+// each invoice's OWN T+2), and the remainder is "Other Deductions" (licence-fee
+// recovery, misc fees, interest — never ingested separately, only seen through
+// the balance), due on the interval-start day's T+2.
+//
+// The still-owed total is pinned to the current balance, cleared oldest-first;
+// within a day, available credit knocks down invoices BEFORE Other Deductions.
+// So a corrected/updated balance always recomputes, and anything owed we can't
+// date shows as carried / overdue.
 function fundsObligations(){
   const today=crTodayISO();
   const totals=dayTotalsISO();
   const cur=currentBalance();
   const openDays=Object.keys(OPENINGS).filter(k=>k<=today).sort();
-  const days=[];
+  const items=[];   // flat obligations: {day, due, kind:'inv'|'oth', amt}
   if(openDays.length && cur){
     for(let i=0;i<openDays.length;i++){
       const T=openDays[i];
@@ -1671,27 +1674,35 @@ function fundsObligations(){
       const hi=nextIso||"9999-99-99";
       const clear=Math.round((crSigned(OPENINGS[T])-(nextIso?crSigned(OPENINGS[nextIso]):crSigned(cur)))*100)/100;
       if(clear<=0.005) continue;                       // balance flat / rose → nothing to clear
-      let inv=0; for(const k in totals){ if(k>=T && k<hi) inv+=totals[k]; }
-      inv=Math.min(inv, clear);                         // invoices can't exceed the day's drop
-      days.push({iso:T, due:dueDateISO(T), clear, inv, oth:Math.round((clear-inv)*100)/100});
+      const invDays=Object.keys(totals).filter(k=>k>=T && k<hi && totals[k]>0.005).sort();
+      const invSum=invDays.reduce((a,k)=>a+totals[k],0);
+      let invCap=Math.min(invSum, clear);              // invoices can't exceed the day's drop
+      for(const k of invDays){                          // each invoice dated to its own T+2
+        if(invCap<=0.005) break;
+        const a=Math.min(totals[k], invCap); invCap=Math.round((invCap-a)*100)/100;
+        items.push({day:k, due:dueDateISO(k), kind:"inv", amt:Math.round(a*100)/100});
+      }
+      const oth=Math.round((clear-Math.min(invSum,clear))*100)/100;
+      if(oth>0.005) items.push({day:T, due:dueDateISO(T), kind:"oth", amt:oth});
     }
   }
-  const grossTotal=days.reduce((a,r)=>a+r.clear,0);
+  const grossTotal=items.reduce((a,r)=>a+r.amt,0);
   const owed=cur ? Math.max(0, -crSigned(cur)) : 0;
-  let paid=Math.max(0, Math.round((grossTotal-owed)*100)/100);   // oldest cleared first
-  const out=[];
-  for(const r of days){
-    const cov=Math.min(paid, r.clear); paid=Math.round((paid-cov)*100)/100;
-    const unpaid=Math.round((r.clear-cov)*100)/100;
+  let paid=Math.max(0, Math.round((grossTotal-owed)*100)/100);   // credit clears oldest first
+  // oldest day first (primary), and within a day invoices before Other Deductions
+  items.sort((a,b)=> a.day<b.day?-1 : a.day>b.day?1 : (a.kind===b.kind?0 : a.kind==="inv"?-1:1));
+  const byDue={};
+  for(const it of items){
+    const cov=Math.min(paid, it.amt); paid=Math.round((paid-cov)*100)/100;
+    const unpaid=Math.round((it.amt-cov)*100)/100;
     if(unpaid<=0.005) continue;
-    const factor=unpaid/r.clear;
-    const uInv=Math.round(r.inv*factor*100)/100;
-    const uOth=Math.round((unpaid-uInv)*100)/100;
-    out.push({iso:r.iso, due:r.due, inv:uInv, oth:uOth, total:unpaid});
+    const b=byDue[it.due]||(byDue[it.due]={inv:0,oth:0});
+    if(it.kind==="inv") b.inv=Math.round((b.inv+unpaid)*100)/100;
+    else b.oth=Math.round((b.oth+unpaid)*100)/100;
   }
-  const attributed=out.reduce((a,r)=>a+r.total,0);
+  const attributed=Object.values(byDue).reduce((a,b)=>a+b.inv+b.oth,0);
   const carried=Math.round((owed-attributed)*100)/100;           // owed we couldn't date
-  return {rows:out, owed, carried:carried>0.005?carried:0};
+  return {byDue, owed, carried:carried>0.005?carried:0};
 }
 
 // Funds needed by date = invoice dues + Other Deductions, summed per due date, so
@@ -1700,8 +1711,7 @@ function renderFundsPlan(d){
   const w=document.getElementById("crPlanWrap"); if(!w) return;
   const today=crTodayISO();
   const plan=fundsObligations();
-  const byDue={};
-  for(const r of plan.rows){ const b=byDue[r.due]||(byDue[r.due]={inv:0,oth:0}); b.inv+=r.inv; b.oth+=r.oth; }
+  const byDue=plan.byDue;
   const dues=Object.keys(byDue).sort();
   if(!dues.length && !plan.carried){
     w.innerHTML=`<div class="cr-planempty">Nothing due — all clear.</div>`; return; }
