@@ -248,6 +248,15 @@ summary::-webkit-details-marker{display:none}
 .cr-table th{text-align:left;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
 .cr-table td{padding:8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cr-table .num{text-align:right}
+/* per-invoice breakdown rows under a multi-invoice day */
+.cr-invno{font-family:var(--mono);font-size:10.5px;color:var(--faint);font-weight:400;margin-top:2px}
+.cr-invrow td{padding-top:5px;padding-bottom:5px;border-bottom:1px dashed var(--line);color:var(--muted);font-size:12px}
+.cr-invcell{position:relative;padding-left:22px!important;font-family:var(--mono)}
+.cr-invcell::before{content:"↳";position:absolute;left:7px;color:var(--faint)}
+.cr-invrow.paid td{color:var(--faint)}
+.cr-invrow.paid .num:last-of-type{color:var(--good)}
+/* the day-wise ledger's grand-total footer row */
+.cr-totrow td{border-top:2px solid var(--line);border-bottom:none;font-weight:800;color:var(--ink);padding-top:10px}
 .cr-amtbtn{background:transparent;border:1px dashed transparent;border-radius:7px;color:var(--ink);font:inherit;font-variant-numeric:tabular-nums;cursor:pointer;padding:2px 6px}
 .cr-amtbtn:hover{border-color:var(--line)}
 .cr-amtbtn.ovr{color:var(--accent);border-color:var(--accent)}
@@ -1537,6 +1546,21 @@ function dayTotalsISO(){
   }
   return byIso;
 }
+// The individual invoices behind each day's total, in invoice-number order —
+// so the ledger can list each invoice and its own pending value under the day.
+// Deduped by SAP entry number, exactly like dayTotalsISO.
+function invoicesByDayISO(){
+  const byIso={};
+  const seenNo=new Set();
+  for(const r of FUEL_INVOICES){
+    const no=String(r.invoice_no||"").trim();
+    if(no){ if(seenNo.has(no)) continue; seenNo.add(no); }
+    const iso=dmyToIso(r.invoice_date); if(!iso) continue;
+    (byIso[iso]||(byIso[iso]=[])).push({invoice_no:no, amount:Number(r.amount||0)});
+  }
+  for(const arr of Object.values(byIso)) arr.sort((a,b)=>String(a.invoice_no).localeCompare(String(b.invoice_no)));
+  return byIso;
+}
 // The most recent balance we know — either a pasted snapshot or a recorded
 // opening (a start-of-day observation at 00:00). Whichever is later wins, so
 // recording an opening also updates "outstanding now" until a fresh snapshot.
@@ -1578,6 +1602,7 @@ function computeDues(){
   const carriedCov=Math.min(remaining,carried); remaining-=carriedCov;
   const carriedUnpaid=Math.round((carried-carriedCov)*100)/100;
 
+  const invByDay=invoicesByDayISO();
   const rows=invDays.map(iso=>{
     const amount=totals[iso];
     const covered=Math.min(remaining,amount); remaining-=covered;
@@ -1588,7 +1613,18 @@ function computeDues(){
     else if(due<today) status="overdue";
     else if(due===today) status="due";
     else status="upcoming";
-    return {iso, amount, unpaid, due, status};
+    // Break the day's payment down onto its individual invoices, oldest (by
+    // invoice number) first, so each invoice shows its own pending value. Only
+    // when the day isn't a manual override (then the parts don't sum to it).
+    let items=[];
+    if(!(isoToDmy(iso) in DAY_OVERRIDES) && invByDay[iso]){
+      let cov=covered;
+      items=invByDay[iso].map(it=>{
+        const c=Math.min(cov, it.amount); cov=Math.round((cov-c)*100)/100;
+        return {invoice_no:it.invoice_no, amount:it.amount, pending:Math.round((it.amount-c)*100)/100};
+      });
+    }
+    return {iso, amount, unpaid, due, status, items};
   });
   const total=invDays.reduce((a,d)=>a+totals[d],0);
   const extra=Math.max(0,Math.round((outstanding-pool)*100)/100);   // owed beyond what we've scheduled
@@ -1856,14 +1892,35 @@ function renderDuesTable(d){
     const opCell = op
       ? `<button class="cr-amtbtn ${opCls}" title="Edit opening balance" onclick="editOpening('${r.iso}')">${esc(money(op.amount))} ${esc(op.sign)}</button>`
       : `<button class="cr-amtbtn cr-add" title="Record the opening balance for this day" onclick="editOpening('${r.iso}')">+ set</button>`;
+    const items = r.items||[];
+    // Day header shows the day TOTAL; one invoice → name it inline, several →
+    // count them and list each below with its own pending value.
+    const daySub = items.length===1 ? `<div class="cr-invno">${esc(items[0].invoice_no)}</div>`
+                 : items.length>1  ? `<div class="cr-invno">${items.length} invoices</div>` : "";
     h+=`<tr class="cr-row st-${r.status}">
-      <td>${esc(isoToDmy(r.iso))}</td>
+      <td>${esc(isoToDmy(r.iso))}${daySub}</td>
       <td class="num">${opCell}</td>
       <td class="num"><button class="cr-amtbtn${overridden?' ovr':''}" title="Correct this day's total" onclick="editDayOverride('${dmyOf(r.iso)}')">${esc(money(r.amount))}</button></td>
       <td>${esc(isoToDmy(r.due))}</td>
       <td class="num">${r.unpaid>0.005?esc(money(r.unpaid)):'—'}</td>
       <td><span class="cr-badge st-${r.status}">${CR_STATUS_LABEL[r.status]}</span></td></tr>`;
+    if(items.length>1){
+      for(const it of items){
+        const paid = it.pending<=0.005;
+        h+=`<tr class="cr-invrow${paid?' paid':''}">
+          <td class="cr-invcell">${esc(it.invoice_no)}</td>
+          <td></td>
+          <td class="num">${esc(money(it.amount))}</td>
+          <td></td>
+          <td class="num">${paid?'✓ paid':esc(money(it.pending))}</td>
+          <td></td></tr>`;
+      }
+    }
   }
+  const owedTotal=Math.round((rows.reduce((a,r)=>a+r.unpaid,0)+d.carriedUnpaid)*100)/100;
+  h+=`<tr class="cr-totrow"><td>Total dues</td><td></td>`
+    + `<td class="num">${esc(money(d.total))}</td><td></td>`
+    + `<td class="num">${owedTotal>0.005?esc(money(owedTotal)):'—'}</td><td></td></tr>`;
   h+=`</tbody></table>`;
   if(d.extra>0.005){
     h+=`<div class="cr-extra">+ ${esc(money(d.extra))} in <b>Other Deductions</b> (licence fee, interest, misc) beyond the scheduled invoices${d.anchor?` since ${esc(isoToDmy(d.anchor))}`:""} — these are folded into “Funds needed by date” above. Record each day's opening balance so they date precisely.</div>`;
