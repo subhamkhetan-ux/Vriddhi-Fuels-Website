@@ -251,6 +251,9 @@ summary::-webkit-details-marker{display:none}
 .cr-amtbtn{background:transparent;border:1px dashed transparent;border-radius:7px;color:var(--ink);font:inherit;font-variant-numeric:tabular-nums;cursor:pointer;padding:2px 6px}
 .cr-amtbtn:hover{border-color:var(--line)}
 .cr-amtbtn.ovr{color:var(--accent);border-color:var(--accent)}
+/* a balance shown as CR (in credit) reads green anywhere; DR (owed) reads red */
+.cr-amtbtn.cr-in{color:var(--good);border-color:rgba(47,208,138,.5)}
+.cr-amtbtn.cr-od{color:var(--bad);border-color:rgba(255,107,94,.5)}
 .cr-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
 .cr-badge.st-paid{background:#3fb95022;color:#3fb950}
 .cr-badge.st-upcoming{background:var(--glass-2);color:var(--muted)}
@@ -270,6 +273,9 @@ summary::-webkit-details-marker{display:none}
 .cr-plan tr.overdue td{color:#ff6b6b}
 .cr-plan tr.cr-plantot td{border-bottom:none;border-top:2px solid var(--line);font-weight:800;color:var(--ink);padding-top:10px}
 .cr-planempty{font-size:13px;color:var(--faint);padding:6px 2px}
+/* the invoices + Other Deductions breakdown under each due-date's total */
+.cr-plan-split{font-size:11px;color:var(--faint);font-weight:400;margin-top:3px;line-height:1.4}
+.cr-plan .oth{color:var(--warn)}
 .cr-order{margin-top:12px}
 .cr-ordgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cr-ordcell{position:relative;overflow:hidden;background:var(--glass);border:1px solid var(--glass-line);border-radius:12px;padding:10px 12px;min-width:0;
@@ -1640,28 +1646,80 @@ function renderCredit(){
   updateCreditBadge();
 }
 
-// Group the unpaid dues by DUE DATE → "pay ₹X by <date>", for funds planning.
-function fundsByDate(d){
-  const by={};
-  for(const r of d.rows){ if(r.status==="paid") continue; by[r.due]=(by[r.due]||0)+r.unpaid; }
-  if(d.carriedUnpaid>0.005){ const k="__carried__"; by[k]=(by[k]||0)+d.carriedUnpaid; }
-  return by;
+// Signed available balance: CR (in credit) is positive, DR (owed) is negative.
+function crSigned(o){ if(!o) return 0; return o.sign==="CR" ? Number(o.amount||0) : -Number(o.amount||0); }
+
+// Funds-needed obligations, keyed by the T+2 deadline. For each day T that has a
+// recorded opening, its closing balance = the next recorded opening (= opening of
+// day T+1), or the live balance for the still-running day. Whatever the balance
+// dropped over that day is what must be cleared before midnight of T+2; the part
+// explained by that day's invoices is the invoice due, and the remainder is
+// "Other Deductions" (licence-fee recovery, misc fees, interest — never ingested
+// separately, only seen through the balance). The still-owed total is pinned to
+// the current balance and cleared oldest-first, so a corrected/updated balance
+// always recomputes; anything owed we can't date shows as carried / overdue.
+function fundsObligations(){
+  const today=crTodayISO();
+  const totals=dayTotalsISO();
+  const cur=currentBalance();
+  const openDays=Object.keys(OPENINGS).filter(k=>k<=today).sort();
+  const days=[];
+  if(openDays.length && cur){
+    for(let i=0;i<openDays.length;i++){
+      const T=openDays[i];
+      const nextIso=i+1<openDays.length?openDays[i+1]:null;
+      const hi=nextIso||"9999-99-99";
+      const clear=Math.round((crSigned(OPENINGS[T])-(nextIso?crSigned(OPENINGS[nextIso]):crSigned(cur)))*100)/100;
+      if(clear<=0.005) continue;                       // balance flat / rose → nothing to clear
+      let inv=0; for(const k in totals){ if(k>=T && k<hi) inv+=totals[k]; }
+      inv=Math.min(inv, clear);                         // invoices can't exceed the day's drop
+      days.push({iso:T, due:dueDateISO(T), clear, inv, oth:Math.round((clear-inv)*100)/100});
+    }
+  }
+  const grossTotal=days.reduce((a,r)=>a+r.clear,0);
+  const owed=cur ? Math.max(0, -crSigned(cur)) : 0;
+  let paid=Math.max(0, Math.round((grossTotal-owed)*100)/100);   // oldest cleared first
+  const out=[];
+  for(const r of days){
+    const cov=Math.min(paid, r.clear); paid=Math.round((paid-cov)*100)/100;
+    const unpaid=Math.round((r.clear-cov)*100)/100;
+    if(unpaid<=0.005) continue;
+    const factor=unpaid/r.clear;
+    const uInv=Math.round(r.inv*factor*100)/100;
+    const uOth=Math.round((unpaid-uInv)*100)/100;
+    out.push({iso:r.iso, due:r.due, inv:uInv, oth:uOth, total:unpaid});
+  }
+  const attributed=out.reduce((a,r)=>a+r.total,0);
+  const carried=Math.round((owed-attributed)*100)/100;           // owed we couldn't date
+  return {rows:out, owed, carried:carried>0.005?carried:0};
 }
+
+// Funds needed by date = invoice dues + Other Deductions, summed per due date, so
+// each date shows the full amount to arrange (closing of day T, due by T+2).
 function renderFundsPlan(d){
   const w=document.getElementById("crPlanWrap"); if(!w) return;
-  const by=fundsByDate(d);
-  const keys=Object.keys(by);
-  if(!keys.length){ w.innerHTML=`<div class="cr-planempty">Nothing due — all clear.</div>`; return; }
   const today=crTodayISO();
-  const carried = by["__carried__"];
-  const dated = keys.filter(k=>k!=="__carried__").sort();
+  const plan=fundsObligations();
+  const byDue={};
+  for(const r of plan.rows){ const b=byDue[r.due]||(byDue[r.due]={inv:0,oth:0}); b.inv+=r.inv; b.oth+=r.oth; }
+  const dues=Object.keys(byDue).sort();
+  if(!dues.length && !plan.carried){
+    w.innerHTML=`<div class="cr-planempty">Nothing due — all clear.</div>`; return; }
   let total=0; let h=`<table class="cr-plan"><tbody>`;
-  if(carried){ total+=carried;
-    h+=`<tr class="overdue"><td>Carried / overdue</td><td class="num">${esc(money(carried))}</td></tr>`; }
-  for(const iso of dated){ total+=by[iso];
+  if(plan.carried){ total+=plan.carried;
+    h+=`<tr class="overdue"><td>Carried / overdue</td><td class="num">${esc(money(plan.carried))}</td></tr>`; }
+  for(const iso of dues){
+    const inv=Math.round((byDue[iso].inv)*100)/100, oth=Math.round((byDue[iso].oth)*100)/100;
+    const sum=Math.round((inv+oth)*100)/100;
+    if(sum<=0.005) continue;
+    total+=sum;
     const cls = iso<today?"overdue":(iso===today?"due":"");
     const when = iso<today?"overdue since ":(iso===today?"today · ":"");
-    h+=`<tr class="${cls}"><td>${when}${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))}</td><td class="num">${esc(money(by[iso]))}</td></tr>`; }
+    let split="";
+    if(inv>0.005 && oth>0.005) split=`<div class="cr-plan-split">invoices ${esc(money(inv))} · <span class="oth">Other Deductions ${esc(money(oth))}</span></div>`;
+    else if(oth>0.005) split=`<div class="cr-plan-split"><span class="oth">Other Deductions ${esc(money(oth))}</span></div>`;
+    h+=`<tr class="${cls}"><td>${when}${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))}${split}</td><td class="num">${esc(money(sum))}</td></tr>`;
+  }
   h+=`<tr class="cr-plantot"><td>Total to arrange</td><td class="num">${esc(money(total))}</td></tr></tbody></table>`;
   w.innerHTML=h;
 }
@@ -1780,8 +1838,9 @@ function renderDuesTable(d){
   for(const r of rows){
     const overridden = dmyOf(r.iso) in DAY_OVERRIDES;
     const op = OPENINGS[r.iso];
+    const opCls = op ? (op.sign==="CR" ? "cr-in" : "cr-od") : "";   // CR reads green, DR red
     const opCell = op
-      ? `<button class="cr-amtbtn ovr" title="Edit opening balance" onclick="editOpening('${r.iso}')">${esc(money(op.amount))} ${esc(op.sign)}</button>`
+      ? `<button class="cr-amtbtn ${opCls}" title="Edit opening balance" onclick="editOpening('${r.iso}')">${esc(money(op.amount))} ${esc(op.sign)}</button>`
       : `<button class="cr-amtbtn cr-add" title="Record the opening balance for this day" onclick="editOpening('${r.iso}')">+ set</button>`;
     h+=`<tr class="cr-row st-${r.status}">
       <td>${esc(isoToDmy(r.iso))}</td>
@@ -1793,7 +1852,7 @@ function renderDuesTable(d){
   }
   h+=`</tbody></table>`;
   if(d.extra>0.005){
-    h+=`<div class="cr-extra">+ ${esc(money(d.extra))} outstanding beyond the scheduled invoices${d.anchor?` since ${esc(isoToDmy(d.anchor))}`:""}. Record an opening balance for a recent day, or correct a day's invoice total (₹) — this clears once the numbers line up.</div>`;
+    h+=`<div class="cr-extra">+ ${esc(money(d.extra))} in <b>Other Deductions</b> (licence fee, interest, misc) beyond the scheduled invoices${d.anchor?` since ${esc(isoToDmy(d.anchor))}`:""} — these are folded into “Funds needed by date” above. Record each day's opening balance so they date precisely.</div>`;
   }
   w.innerHTML=h;
 }
