@@ -11,10 +11,11 @@ from tests.test_invoice import INVOICE_TEXT
 
 
 class FakeMail:
-    def __init__(self, msg_id, pdfs):
+    def __init__(self, msg_id, pdfs, pdf_names=None):
         self.msg_id = msg_id
         self.internal_ms = 1000
         self.pdfs = pdfs
+        self.pdf_names = pdf_names or []
 
 
 def _pdf_to_text(mapping):
@@ -61,6 +62,21 @@ def test_handle_mail_claims_at_or_above_min_invoice():
         _fake_supabase(record), min_invoice_no="7010221545")
     assert n == 1
     assert record and record[0]["invoice_no"] == "7010221545"
+
+
+def test_handle_mail_keys_note_on_sap_entry_number():
+    # The note id + invoice_no come from the SAP entry number (the PDF filename),
+    # so a resend (a fresh mail for the same invoice) claims the same note id and
+    # the RPC returns it instead of spending a new serial.
+    from agent import state_store
+    record = []
+    mail = FakeMail("m-resend", [b"pdf"], pdf_names=["7010221545.pdf"])
+    n = consignment._handle_mail(
+        mail, "OD23U8210", _pdf_to_text({b"pdf": INVOICE_TEXT}),
+        _fake_supabase(record), min_invoice_no="7010221545")
+    assert n == 1
+    assert record[0]["invoice_no"] == "7010221545"                 # from the filename
+    assert record[0]["id"] == state_store.entry_id("7010221545")   # id keyed on it → resend-safe
 
 
 def test_handle_mail_ignores_other_tt():

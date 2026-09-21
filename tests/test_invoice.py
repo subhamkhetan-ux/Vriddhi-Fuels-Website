@@ -217,3 +217,21 @@ def test_single_product_columns_has_one_entry():
     # The existing single-product invoice still yields a one-column map.
     assert _fields().columns == {invoice.COLUMN_HSD: "22"}
     assert len(_fields().lines) == 1
+
+
+# ---- Place of Origin (loading terminal) ------------------------------
+
+def test_origin_defaults_to_jharsuguda():
+    # The plain sample names no terminal -> the usual Jharsuguda address.
+    assert _fields().origin == invoice.DEFAULT_ORIGIN
+    assert "Jharsuguda" in _fields().origin
+
+
+def test_origin_detects_paradeep_terminal():
+    txt = INVOICE_TEXT.replace("MALIMUNDA", "PARADEEP TERMINAL")
+    assert invoice.extract_fields(txt).origin == "Paradeep Terminal, Paradeep, Odisha"
+
+
+def test_parse_origin_unknown_falls_back_to_default():
+    assert invoice.parse_origin("some invoice with no known terminal") == invoice.DEFAULT_ORIGIN
+    assert invoice.parse_origin("") == invoice.DEFAULT_ORIGIN

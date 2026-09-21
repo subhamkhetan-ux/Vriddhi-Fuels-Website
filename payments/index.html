@@ -1172,6 +1172,7 @@ async function buildFilledDocx(n, repDmy){
     "{{VALUE}}": (n.value==null?"":String(n.value)),
     "{{INVNO}}": n.invoice_no||"",
     "{{INVDATE}}": n.invoice_date||"",
+    "{{ORIGIN}}": n.origin||"Jharsuguda Terminal, Jharsuguda, Odisha",
     "{{QTY_MSEBMS}}":"", "{{QTY_XG}}":"", "{{QTY_HSD}}":"", "{{QTY_LSHF}}":"",
   };
   for(const [col, q] of Object.entries(noteColumns(n))){
@@ -1201,7 +1202,7 @@ function buildNoteHTML(n, repDmy){
       <div class="cn-sub">(Issued as per Fuel Notification No. - 512017 - Central Tax dated 19.05.2017 of CGST Act 2017)</div>
       <div class="cn-slno"><span>Consignment Note Sl. No. <span class="cn-u">${esc(n.serial_str||"")}</span></span><span class="cn-date">Date: <span class="cn-u">${esc(repDmy)}</span></span></div>
       <div class="cn-line">Name of Consignor : <span class="cn-b">Indian Oil Corporation Ltd. (MD)</span></div>
-      <div class="cn-line">(Place of Origin) : <span class="cn-b">Jharsuguda Terminal, Jharsuguda, Odisha</span></div>
+      <div class="cn-line">(Place of Origin) : <span class="cn-b">${esc(n.origin||"Jharsuguda Terminal, Jharsuguda, Odisha")}</span></div>
       <div class="cn-line">Name of the Consignee : <span class="cn-b">VRIDDHI FUELS</span></div>
       <div class="cn-line">Place of Destination : Jharsuguda (Vriddhi Fuels).</div>
       <div class="cn-line">Goods Carriage Regn. No. (TT No.) : <span class="cn-b">OD23U8210</span></div>
@@ -1524,7 +1525,10 @@ function isUnconfirmedDay(iso){
 // ---- day totals + FIFO dues ----
 function dayTotalsISO(){
   const byIso={};
+  const seenNo=new Set();
   for(const r of FUEL_INVOICES){
+    const no=String(r.invoice_no||"").trim();
+    if(no){ if(seenNo.has(no)) continue; seenNo.add(no); }  // a resent invoice (same SAP entry no) counts once
     const iso=dmyToIso(r.invoice_date); if(!iso) continue;
     byIso[iso]=(byIso[iso]||0)+Number(r.amount||0);
   }

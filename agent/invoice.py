@@ -12,6 +12,7 @@ TT, product, qty and value).
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -21,6 +22,33 @@ COLUMN_MS_EBMS = "MS | EBMS"
 COLUMN_XTRAGREEN = "XtraGreen HSD"
 COLUMN_HSD = "HSD"
 COLUMN_LSHF = "LSHFHSD"
+
+# Loading terminal → the "Place of Origin" line printed on the consignment note.
+# The invoice always names the supplying IOCL terminal; we detect the terminal's
+# town in the invoice text and print its full address. Jharsuguda is the usual
+# terminal and the safe default when nothing else is recognised. Add a row here
+# for any new terminal (key = an UPPERCASE token that appears in that terminal's
+# invoices; first match wins).
+DEFAULT_ORIGIN = "Jharsuguda Terminal, Jharsuguda, Odisha"
+TERMINALS = {
+    "JHARSUGUDA": "Jharsuguda Terminal, Jharsuguda, Odisha",
+    "PARADEEP":   "Paradeep Terminal, Paradeep, Odisha",
+    "PARADIP":    "Paradeep Terminal, Paradeep, Odisha",
+}
+
+
+def parse_origin(text: str) -> str:
+    """The Place of Origin = the loading terminal named in the invoice.
+
+    Scans the invoice text for a known terminal token and returns its full
+    address; falls back to the usual Jharsuguda terminal when none is found, so a
+    note is never left without an origin.
+    """
+    upper = (text or "").upper()
+    for token, full in TERMINALS.items():
+        if token in upper:
+            return full
+    return DEFAULT_ORIGIN
 
 
 @dataclass
@@ -57,6 +85,25 @@ class InvoiceFields:
     # Template quantity per column, summed across lines that share a column,
     # e.g. {"MS | EBMS": "5", "HSD": "17"}. This is what the note fills in.
     columns: dict[str, str] = field(default_factory=dict)
+    # "Place of Origin" for the note — the loading terminal named in the invoice
+    # (e.g. Paradeep when loaded there), defaulting to the usual Jharsuguda.
+    origin: str = DEFAULT_ORIGIN
+
+
+def sap_entry_no(filename: str | None, text_invoice_no: str | None) -> str | None:
+    """The invoice's unique key = its SAP entry number, which is the PDF filename.
+
+    IndianOil occasionally resends the same invoice as a fresh mail; keying on the
+    filename (rather than the text-parsed number, which a resend can format
+    differently) means the duplicate collapses onto the same row / note. Prefer
+    the canonical 10-digit IOCL document number when the filename carries it (so
+    we match keys already stored), else the filename stem, else the parsed number.
+    """
+    stem = os.path.splitext(os.path.basename((filename or "").strip()))[0].strip()
+    m = re.search(r"70\d{8}", stem)
+    if m:
+        return m.group(0)
+    return stem or text_invoice_no
 
 
 def _norm_date(s: str) -> str | None:
@@ -175,6 +222,7 @@ def extract_fields(text: str) -> InvoiceFields:
         value=value,
         lines=product_lines,
         columns=columns,
+        origin=parse_origin(text),
     )
 
 

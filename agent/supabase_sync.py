@@ -140,12 +140,14 @@ def claim_consignment(note: dict) -> dict | None:
         "p_qty": note.get("qty"),
         "p_value": note.get("value"),
     }
-    # Per-column quantities for multi-product invoices (e.g. MS + HSD on one
-    # load). Sent as an extra arg; if the DB still runs the old RPC signature
-    # (migration not applied yet), PostgREST rejects the unknown arg — so we
-    # retry without it. Single-product invoices keep working either way.
-    extended = dict(body, p_columns=note.get("columns") or {})
-    for payload in (extended, body):
+    # Extra args added over time (p_columns for multi-product loads, p_origin for
+    # the loading terminal). If the DB still runs an older RPC signature (a
+    # migration not applied yet), PostgREST rejects the unknown arg — so we try
+    # the fullest payload first and fall back, oldest-compatible last. Every
+    # variant keeps single-product, single-terminal invoices working.
+    with_cols = dict(body, p_columns=note.get("columns") or {})
+    with_origin = dict(with_cols, p_origin=note.get("origin"))
+    for payload in (with_origin, with_cols, body):
         try:
             # PostgREST returns the function's row result; ask for the JSON object.
             res = _request("POST", "rpc/pay_claim_consignment", key, url, body=payload)

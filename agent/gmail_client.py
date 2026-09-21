@@ -30,7 +30,7 @@ import email
 import imaplib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email.header import decode_header, make_header
 from email.message import Message
 
@@ -50,6 +50,10 @@ class InvoiceMail:
     msg_id: str
     internal_ms: int
     pdfs: list[bytes]         # decoded PDF attachment bytes
+    # Attachment filenames, same order/length as ``pdfs``. The IOCL PDF filename
+    # is the SAP entry number — the invoice's true unique key — so the credit
+    # ingest dedupes a resent invoice by it. Empty string where a part had none.
+    pdf_names: list[str] = field(default_factory=list)
 
 
 # ---- connection ------------------------------------------------------------
@@ -180,15 +184,19 @@ def _extract_body(msg: Message) -> str:
     return "\n".join(plain) if plain else "\n".join(html)
 
 
-def _pdf_attachments(msg: Message) -> list[bytes]:
+def _pdf_attachments(msg: Message) -> tuple[list[bytes], list[str]]:
+    """Decoded PDF bytes and their filenames (same order). The filename is the
+    SAP entry number the credit ingest keys on, so we keep it alongside."""
     pdfs: list[bytes] = []
+    names: list[str] = []
     for part in msg.walk():
-        filename = (part.get_filename() or "").lower()
-        if filename.endswith(".pdf") or part.get_content_type() == "application/pdf":
+        raw_name = part.get_filename() or ""
+        if raw_name.lower().endswith(".pdf") or part.get_content_type() == "application/pdf":
             payload = part.get_payload(decode=True)
             if payload:
                 pdfs.append(payload)
-    return pdfs
+                names.append(raw_name)
+    return pdfs, names
 
 
 def _with_after(query: str, after_ms: int | None) -> str:
@@ -244,8 +252,9 @@ def fetch_invoice_mails(conn, query: str, after_ms: int | None,
         if after_ms and internal <= after_ms:
             continue
         msg = email.message_from_bytes(raw)
+        pdfs, pdf_names = _pdf_attachments(msg)
         mails.append(InvoiceMail(msg_id=mid, internal_ms=internal,
-                                 pdfs=_pdf_attachments(msg)))
+                                 pdfs=pdfs, pdf_names=pdf_names))
     mails.sort(key=lambda m: m.internal_ms)
     return mails
 

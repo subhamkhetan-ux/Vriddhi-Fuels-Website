@@ -115,24 +115,30 @@ def run(seen: dict) -> tuple[int, list[str]]:
 
 def _rows_from_mail(mail, pdf_to_text):
     """From each usable PDF in a mail (any truck): the invoice row for the dues
-    total, plus a per-product price observation (after-VAT ₹/KL). Returns
-    ``(invoice_rows, price_observations)``."""
+    total, plus a per-product price observation (after-VAT ₹/KL). Rows are keyed
+    on the SAP entry number (the PDF filename), so a resent invoice is deduped —
+    within this mail here, and across mails by the ``invoice_no`` primary key.
+    Returns ``(invoice_rows, price_observations)``."""
     inv_rows: list[dict] = []
     obs: list[dict] = []
     seen_nos: set[str] = set()
-    for pdf in mail.pdfs:
+    names = getattr(mail, "pdf_names", None) or []
+    for idx, pdf in enumerate(mail.pdfs):
         text = pdf_to_text(pdf)
         fields = invoice_mod.extract_fields(text)
-        if not (fields.invoice_no and fields.invoice_date and fields.value):
+        if not (fields.invoice_date and fields.value):
             continue
-        if fields.invoice_no in seen_nos:
+        key = invoice_mod.sap_entry_no(names[idx] if idx < len(names) else "", fields.invoice_no)
+        if not key or key in seen_nos:                 # missing key, or the same invoice again
             continue
-        seen_nos.add(fields.invoice_no)
-        inv_rows.append(_invoice_row(mail.msg_id, fields))
+        seen_nos.add(key)
+        row = _invoice_row(mail.msg_id, fields)
+        row["invoice_no"] = key                        # dedupe on the SAP entry number
+        inv_rows.append(row)
         as_of = _dmy_to_iso(fields.invoice_date)
         for line in fields.lines:
             ppk = line.price_per_kl
             if ppk and as_of:
                 obs.append({"col_key": line.column_key, "price": ppk,
-                            "as_of": as_of, "invoice_no": fields.invoice_no})
+                            "as_of": as_of, "invoice_no": key})
     return inv_rows, obs

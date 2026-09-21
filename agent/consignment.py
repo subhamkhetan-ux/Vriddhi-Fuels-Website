@@ -32,11 +32,14 @@ def _account_token_env() -> str | None:
     return None
 
 
-def _note_from_invoice(msg_id: str, fields: invoice_mod.InvoiceFields) -> dict:
+def _note_from_invoice(msg_id: str, fields: invoice_mod.InvoiceFields, sap_no: str) -> dict:
     return {
-        "id": state_store.entry_id(msg_id),
+        # Keyed on the SAP entry number (the PDF filename), NOT the gmail msg id,
+        # so a resent invoice (a fresh mail for the same invoice) maps to the same
+        # note id and the claim RPC returns it — no duplicate note, no wasted serial.
+        "id": state_store.entry_id(sap_no),
         "gmail_msg_id": msg_id,
-        "invoice_no": fields.invoice_no,
+        "invoice_no": sap_no,
         "invoice_date": fields.invoice_date,
         "tt_no": fields.tt_no,
         # First product mirrors the fields for back-compat/display; ``columns``
@@ -46,6 +49,7 @@ def _note_from_invoice(msg_id: str, fields: invoice_mod.InvoiceFields) -> dict:
         "qty": fields.qty,
         "columns": fields.columns,
         "value": fields.value,
+        "origin": fields.origin,   # loading terminal → note's Place of Origin
     }
 
 
@@ -111,25 +115,30 @@ def _handle_mail(mail, own_tt: str, pdf_to_text, supabase_sync,
                  min_invoice_no: str = "") -> int:
     """Extract the first usable own-TT invoice from a mail's PDFs and claim a
     note. Returns 1 if a note was claimed, else 0."""
-    for pdf in mail.pdfs:
+    names = getattr(mail, "pdf_names", None) or []
+    for idx, pdf in enumerate(mail.pdfs):
         text = pdf_to_text(pdf)
         fields = invoice_mod.extract_fields(text)
         # Only our own truck; ignore invoices for other trucks / customers.
         if not fields.tt_no or fields.tt_no.upper() != own_tt:
             continue
+        # The SAP entry number (PDF filename) is the invoice's authoritative key —
+        # it drives both the anchor check and the note id, so a resend is a no-op.
+        sap_no = invoice_mod.sap_entry_no(names[idx] if idx < len(names) else "",
+                                          fields.invoice_no)
         # Anchor: only number invoices from min_invoice_no onward. Older ones
         # (smaller IOCL document number) were noted manually up to 046 — skip
         # them quietly, they are not errors.
-        if (min_invoice_no and fields.invoice_no and fields.invoice_no.isdigit()
-                and int(fields.invoice_no) < int(min_invoice_no)):
+        if (min_invoice_no and sap_no and sap_no.isdigit()
+                and int(sap_no) < int(min_invoice_no)):
             continue
         if not invoice_mod.is_complete(fields):
             # A partial parse on our own truck is worth surfacing loudly.
             raise ValueError(
-                f"own-TT invoice {fields.invoice_no or '?'} parsed incompletely: "
+                f"own-TT invoice {sap_no or '?'} parsed incompletely: "
                 f"date={fields.invoice_date} product={fields.product} "
                 f"qty={fields.qty} value={fields.value}")
-        note = _note_from_invoice(mail.msg_id, fields)
+        note = _note_from_invoice(mail.msg_id, fields, sap_no)
         claimed = supabase_sync.claim_consignment(note)
         if claimed is None:
             raise RuntimeError("supabase claim_consignment returned nothing")
