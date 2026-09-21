@@ -140,7 +140,7 @@ bill with every field already filled:
 | P.O. label + number | the same row (editable) |
 | Payment / bank block | the same row |
 | Density- / Seal No- lines | shown for diesel loads over 3 000 L, exactly as before |
-| Bill no. | the running bill counter, shared with the `/tanker/` app on the same device |
+| Bill no. | **the voucher's own invoice number** — `1640`, `MS320`, `XG7` — so the bill and the Tally invoice carry one reference |
 
 The data is `state/tanker_billing.json` — the file the hourly
 [tanker sync](../tanker/README.md) Action commits from the
@@ -153,6 +153,13 @@ today; the app follows.
 - **The bill opens on the voucher's rate and amount**, so the printed bill
   and the Tally invoice always agree. When the sheet's tier rate for that
   customer differs it is shown underneath with a one-tap *use sheet rate*.
+- **The bill number is the voucher's invoice number.** Raised from a saved
+  voucher it is that voucher's number exactly; raised from a voucher still
+  being typed it is the number the app is about to allocate, so save the
+  voucher first if it must be guaranteed (in cloud mode the final number is
+  assigned by the server on save). Editing it by hand is allowed and the
+  screen then says what the voucher's number was. The `/tanker/` app's own
+  running counter is never written to.
 - **Party ledger → sheet customer matching** ignores case, spacing,
   punctuation and the usual `M/s` / `Private` / `Limited` / `&` variations.
   If a party is not in the sheet the screen says so and offers the full
@@ -164,9 +171,8 @@ today; the app follows.
 - 🧾 next to a saved voucher in the day list raises the bill for it later.
 
 The standalone app at `/tanker/` is unchanged and keeps working — both read
-the same data file, share the same bill-number counter, and this app reuses
-the tanker app's letterhead, stamp, fonts and `.docx` builder rather than
-keeping a second copy of them.
+the same data file, and this app reuses the tanker app's letterhead, stamp,
+fonts and `.docx` builder rather than keeping a second copy of them.
 
 ## XML format
 

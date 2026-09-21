@@ -362,7 +362,7 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
       </div>
       <div class="field">
         <label>Bill no.</label>
-        <input type="text" id="blNo" inputmode="numeric" placeholder="—">
+        <input type="text" id="blNo" placeholder="—" autocomplete="off" autocapitalize="characters">
         <div class="hint" id="blNoHint"></div>
       </div>
     </div>
@@ -1942,7 +1942,7 @@ $("btnSave").onclick = function(){
    editing a bill never writes back to the voucher, and the app's own
    invoice numbering is untouched (a bill carries the separate "Bill No"
    counter shared with the /tanker/ app). */
-var bill = { data: null, from: "new", customer: null, party: "" };
+var bill = { data: null, from: "new", customer: null, party: "", voucherNumber: "", saved: false };
 
 function blSet(id, v){ $(id).textContent = (v == null ? "" : v); }
 
@@ -1951,6 +1951,8 @@ function blSet(id, v){ $(id).textContent = (v == null ? "" : v); }
 function openBill(src){
   bill.from = src.from || "new";
   bill.party = src.party || "";
+  bill.voucherNumber = src.number || "";
+  bill.saved = !!src.saved;
   bill.customer = null;
   resetBillSheet();               // never leave the previous bill on screen
   show("bill");
@@ -2010,7 +2012,11 @@ function fillBillForm(src){
   });
 
   $("blDate").value = src.dateISO || todayISO();
-  $("blNo").value = VFBilling.nextBillNo();
+  // The bill number is the voucher's own invoice number, so the bill and
+  // the Tally invoice carry the same reference. Still editable; the
+  // device's old standalone counter is only a fallback when a voucher
+  // somehow has no number yet.
+  $("blNo").value = src.number || VFBilling.nextBillNo();
   $("blVehicle").value = (src.vehicle || "").toUpperCase();
   $("blPo").value = match ? (match.po_no || "") : "";
   $("blQty").value = src.qty ? String(Math.trunc(src.qty)) : "";
@@ -2071,9 +2077,18 @@ function renderBill(){
   blSet("blPSeal", m.seal ? "Seal No-" : "");
   for (var i = 0; i < 5; i++) blSet("blPPay" + i, m.payment[i] || "");
 
-  $("blNoHint").textContent = $("blNo").value.trim()
-    ? "Carries forward once this bill is printed or exported."
-    : "No previous bill number on this device — type it once and it carries forward.";
+  var no = $("blNo").value.trim();
+  if (!no){
+    $("blNoHint").textContent = "This voucher has no invoice number yet — type the bill number.";
+  } else if (no !== bill.voucherNumber){
+    $("blNoHint").textContent = "Changed by hand — the voucher's invoice number is "
+      + bill.voucherNumber + ".";
+  } else if (bill.saved){
+    $("blNoHint").textContent = "From voucher #" + bill.voucherNumber + ".";
+  } else {
+    $("blNoHint").textContent = "From this voucher's invoice number — save the voucher "
+      + "to be sure it is final.";
+  }
 
   // rate / amount hints. The bill opens on the voucher's rate (so the bill
   // and the Tally invoice agree); when the sheet's tier rate differs it is
@@ -2200,10 +2215,7 @@ $("blProduct").addEventListener("change", function(){ applyBillSheetRate(); rend
   $(id).addEventListener("input", renderBill);
 });
 
-$("blPrint").onclick = function(){
-  VFBilling.rememberBillNo($("blNo").value);
-  window.print();
-};
+$("blPrint").onclick = function(){ window.print(); };
 
 // Export the bill as a real .docx, using the /tanker/ app's builder.
 $("blWord").onclick = function(){
@@ -2223,7 +2235,6 @@ $("blWord").onclick = function(){
     a.href = url; a.download = "Bill-" + ($("blNo").value || "tanker") + ".docx";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-    VFBilling.rememberBillNo($("blNo").value);
   }).catch(function(e){
     toast("Word export failed: " + ((e && e.message) || e));
   }).then(function(){
@@ -2240,6 +2251,8 @@ $("btnBill").onclick = function(){
     from: "new",
     party: draft.party,
     seriesKey: draft.seriesKey,
+    number: displayNumber(draft.seriesKey),
+    saved: !!draft.editId,
     dateISO: $("fDate").value || todayISO(),
     vehicle: $("fVehicle").value.trim().toUpperCase(),
     qty: c ? c.qty : (parseFloat($("fQty").value) || 0),
@@ -2254,6 +2267,8 @@ function openBillForVoucher(v){
     from: "home",
     party: v.party,
     seriesKey: v.seriesKey,
+    number: v.number,
+    saved: true,
     dateISO: v.dateISO,
     vehicle: v.vehicle || "",
     qty: v.qty,

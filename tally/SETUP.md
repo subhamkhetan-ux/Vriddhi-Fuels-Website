@@ -140,8 +140,11 @@ The tanker bill is now part of this app — no need to open a second one.
    amount from the voucher, and the customer's address, GSTIN, P.O. number
    and payment details from the **Tanker Billing** sheet. Adjust anything if
    you need to — it does not affect the voucher.
-3. The **first time on a device**, type the bill number once; afterwards it
-   continues by itself.
+3. The **bill number is the voucher's invoice number** (`1640`, `MS320`,
+   `XG7`), so the bill and the Tally invoice match. If you raise the bill
+   before saving the voucher it shows the number about to be used — save
+   the voucher first if you want to be certain. You can still type a
+   different number.
 4. **🖨 Print / Save PDF** prints the two pages (customer copy + greyscale
    "Receiving Copy"), or **⬇ Export Word (.docx)** if you need to edit it.
 
