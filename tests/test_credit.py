@@ -7,10 +7,11 @@ from tests.test_invoice import INVOICE_TEXT
 
 
 class FakeMail:
-    def __init__(self, msg_id, pdfs, internal_ms=1000):
+    def __init__(self, msg_id, pdfs, internal_ms=1000, pdf_names=None):
         self.msg_id = msg_id
         self.internal_ms = internal_ms
         self.pdfs = pdfs
+        self.pdf_names = pdf_names or []
 
 
 def _pdf_to_text(mapping):
@@ -33,6 +34,26 @@ def test_rows_from_mail_dedupes_same_invoice_in_one_mail():
     mail = FakeMail("m2", [b"a", b"b"])
     rows, _obs = credit._rows_from_mail(mail, _pdf_to_text({b"a": INVOICE_TEXT, b"b": INVOICE_TEXT}))
     assert len(rows) == 1  # same invoice_no in two PDFs -> one row
+
+
+def test_rows_from_mail_keys_on_pdf_filename():
+    # The SAP entry number = the PDF filename, and it wins over the text-parsed
+    # number, so a resend (which may format the text differently) still collapses.
+    mail = FakeMail("m5", [b"pdf"], pdf_names=["7010999999.pdf"])
+    rows, obs = credit._rows_from_mail(mail, _pdf_to_text({b"pdf": INVOICE_TEXT}))
+    assert len(rows) == 1
+    assert rows[0]["invoice_no"] == "7010999999"        # from the filename, not the text
+    assert obs and all(o["invoice_no"] == "7010999999" for o in obs)
+
+
+def test_rows_from_mail_resent_invoice_same_filename_counts_once():
+    # Same invoice PDF twice (same filename), even if the text differs slightly —
+    # keyed on the SAP entry number, so it's a single row.
+    other_amount = INVOICE_TEXT.replace("2159219", "2159220")
+    mail = FakeMail("m6", [b"a", b"b"], pdf_names=["7010195291.pdf", "7010195291.pdf"])
+    rows, _obs = credit._rows_from_mail(mail, _pdf_to_text({b"a": INVOICE_TEXT, b"b": other_amount}))
+    assert len(rows) == 1
+    assert rows[0]["invoice_no"] == "7010195291"
 
 
 def test_rows_from_mail_skips_unparseable():

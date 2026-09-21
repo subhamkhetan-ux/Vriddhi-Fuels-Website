@@ -1524,7 +1524,10 @@ function isUnconfirmedDay(iso){
 // ---- day totals + FIFO dues ----
 function dayTotalsISO(){
   const byIso={};
+  const seenNo=new Set();
   for(const r of FUEL_INVOICES){
+    const no=String(r.invoice_no||"").trim();
+    if(no){ if(seenNo.has(no)) continue; seenNo.add(no); }  // a resent invoice (same SAP entry no) counts once
     const iso=dmyToIso(r.invoice_date); if(!iso) continue;
     byIso[iso]=(byIso[iso]||0)+Number(r.amount||0);
   }
