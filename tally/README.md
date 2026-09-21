@@ -86,7 +86,9 @@ nothing.
   typing `DELETE`.
 - **Old vouchers screen**: searchable by customer / vehicle / invoice number.
   App vouchers moved here after a confirmed Tally import are kept too, so
-  the full history stays in one place.
+  the full history stays in one place. Each row carries 🧾 to raise its
+  customer bill and ✎ to **alter the voucher behind a confirmation** —
+  both work on daybook-imported vouchers as well (see below).
 - **Round-off is user-entered only** (never automatic): an optional
   "Round off (₹)" field (+ or −) posts to the `R/off` ledger with the correct
   debit/credit sign; party total = amount + round-off. Omitted from the XML
@@ -140,7 +142,7 @@ bill with every field already filled:
 | P.O. label + number | the same row (editable) |
 | Payment / bank block | the same row |
 | Density- / Seal No- lines | shown for diesel loads over 3 000 L, exactly as before |
-| Bill no. | the running bill counter, shared with the `/tanker/` app on the same device |
+| Bill no. | **the voucher's own invoice number** — `1640`, `MS320`, `XG7` — so the bill and the Tally invoice carry one reference |
 
 The data is `state/tanker_billing.json` — the file the hourly
 [tanker sync](../tanker/README.md) Action commits from the
@@ -153,6 +155,13 @@ today; the app follows.
 - **The bill opens on the voucher's rate and amount**, so the printed bill
   and the Tally invoice always agree. When the sheet's tier rate for that
   customer differs it is shown underneath with a one-tap *use sheet rate*.
+- **The bill number is the voucher's invoice number.** Raised from a saved
+  voucher it is that voucher's number exactly; raised from a voucher still
+  being typed it is the number the app is about to allocate, so save the
+  voucher first if it must be guaranteed (in cloud mode the final number is
+  assigned by the server on save). Editing it by hand is allowed and the
+  screen then says what the voucher's number was. The `/tanker/` app's own
+  running counter is never written to.
 - **Party ledger → sheet customer matching** ignores case, spacing,
   punctuation and the usual `M/s` / `Private` / `Limited` / `&` variations.
   If a party is not in the sheet the screen says so and offers the full
@@ -161,12 +170,44 @@ today; the app follows.
 - **Print / Save PDF** gives the same two A4 pages as before (customer copy
   + greyscale "Receiving Copy"), and **Export Word (.docx)** the same
   editable document.
-- 🧾 next to a saved voucher in the day list raises the bill for it later.
+- 🧾 next to a voucher — in the day list **or in old vouchers** — raises its
+  bill later, including for vouchers that came in from a **DayBook XML
+  import**: the import carries the party, date, vehicle (`UDF:EIVEHNO`),
+  quantity, rate and amount, and the rest of the bill comes from the
+  Tanker Billing sheet as usual.
 
 The standalone app at `/tanker/` is unchanged and keeps working — both read
-the same data file, share the same bill-number counter, and this app reuses
-the tanker app's letterhead, stamp, fonts and `.docx` builder rather than
-keeping a second copy of them.
+the same data file, and this app reuses the tanker app's letterhead, stamp,
+fonts and `.docx` builder rather than keeping a second copy of them.
+
+## Altering an old voucher
+
+Vouchers in **Old vouchers** — both the ones moved there after a Tally
+import and the ones a **DayBook XML import** brought in — can be corrected
+with ✎, behind a confirmation. This exists mainly so a bill prints right
+when the daybook is missing a detail (a vehicle number, say) or a figure
+was wrong.
+
+- **The confirmation spells out what does not happen:** the voucher is
+  already in Tally and the app cannot change it there.
+  - A **daybook-imported** voucher is not part of the day's XML export, so
+    it has to be corrected in Tally by hand.
+  - A voucher the **app made** and later moved to old vouchers stays in the
+    day's export, so re-downloading the day's XML carries the correction —
+    the copy already imported into Tally still has to be corrected or
+    re-imported there.
+- **The invoice number and the product are locked.** The voucher exists in
+  Tally under that voucher type and number; renumbering it here would only
+  put the two out of step. Everything else — customer, vehicle, date,
+  quantity, price, amount, round-off — is editable, with the same
+  quantity ⇄ amount behaviour as a new voucher.
+- Invoice numbering is untouched: nothing is allocated or freed, and the
+  voucher stays in old vouchers with its source.
+
+> **Cloud mode:** this uses a new `tally_edit_history_voucher` function, so
+> re-run [`../supabase/tally-schema.sql`](../supabase/tally-schema.sql) in
+> the Supabase SQL Editor once (it is safe to re-run). Until then the app
+> says so instead of failing silently.
 
 ## XML format
 

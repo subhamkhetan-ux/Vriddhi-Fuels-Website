@@ -12,9 +12,9 @@
  * testing. Exposed as window.VFBilling.
  *
  * The standalone /tanker/ app is untouched and keeps working; both apps
- * read the same JSON and share the same bill-number counter in
- * localStorage (`vf_last_billno`), so numbering stays consistent when
- * bills are raised from either place on the same device.
+ * read the same JSON. A bill raised from a voucher takes that voucher's
+ * invoice number, so the bill and the Tally invoice carry one reference
+ * and the tanker app's own running counter is left alone.
  * ===================================================================== */
 (function (global) {
 "use strict";
@@ -26,7 +26,7 @@ var DENSITY_MIN = 3000, SEAL_MIN = 3000;
 
 var DATA_URL  = "../state/tanker_billing.json";
 var LS_DATA   = "vf_tally_billing_v1";   // offline copy of the sheet data
-var LS_BILLNO = "vf_last_billno";        // shared with the /tanker/ app
+var LS_BILLNO = "vf_last_billno";        // the /tanker/ app's counter (read-only here)
 
 // Tally series -> the product name used on the bill and in the rate tables
 var PRODUCT_BY_SERIES = { hsd: HSD, ms: "Motor Spirit", xg: "XtraGreen Diesel" };
@@ -147,21 +147,18 @@ function buildModel(o){
   };
 }
 
-/* ---------------- bill numbering (shared with the /tanker/ app) ---------------- */
+/* ---------------- bill numbering ----------------
+   A bill raised here carries the voucher's own invoice number, so the bill
+   and the Tally invoice share one reference. This is only the fallback for
+   the case where a voucher has no number yet: the standalone /tanker/
+   app's running counter, read but never written, so that app's own
+   numbering is left exactly as it is. */
 
-function lastBillNo(){
-  try { return parseInt(global.localStorage.getItem(LS_BILLNO) || "0", 10) || 0; }
-  catch(e){ return 0; }
-}
 function nextBillNo(){
-  var last = lastBillNo();
+  var last;
+  try { last = parseInt(global.localStorage.getItem(LS_BILLNO) || "0", 10) || 0; }
+  catch(e){ return ""; }
   return last ? String(last + 1) : "";
-}
-// Called once a bill has actually been printed/exported.
-function rememberBillNo(n){
-  var v = parseInt(n, 10);
-  if (!v) return;
-  try { global.localStorage.setItem(LS_BILLNO, String(v)); } catch(e){}
 }
 
 /* ---------------- data loading ---------------- */
@@ -218,7 +215,6 @@ global.VFBilling = {
   productForSeries: productForSeries,
   buildModel: buildModel,
   nextBillNo: nextBillNo,
-  rememberBillNo: rememberBillNo,
   load: load,
   cached: function(){ return cachedData; }
 };

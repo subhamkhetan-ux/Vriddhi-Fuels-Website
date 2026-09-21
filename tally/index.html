@@ -156,7 +156,7 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
    glyph advances line up with the Excel export exactly (no rightward drift). */
 .sheet text{font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"clig" 0,"calt" 0;font-variant-ligatures:none}
 .linkbtn{color:var(--orange);font-weight:750;font-size:13px;padding:0 2px;text-decoration:underline}
-.bl-warn{background:var(--amber-tint);border:1px solid var(--amber-line);color:var(--amber);
+.warnbox{background:var(--amber-tint);border:1px solid var(--amber-line);color:var(--amber);
   border-radius:12px;padding:10px 12px;font-size:13px;font-weight:650;margin-top:12px}
 .field select{width:100%;padding:13px 12px;border-radius:12px;border:1.5px solid var(--line);
   background:var(--card);font-size:16px;outline:none;-webkit-appearance:none;appearance:none}
@@ -259,6 +259,7 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
 
 <!-- ======================= NEW VOUCHER ======================= -->
 <section class="screen" id="scrNew">
+  <div class="warnbox" id="fHistWarn" style="display:none"></div>
   <div class="card">
     <div class="field" style="margin-top:0">
       <label>Customer</label>
@@ -278,11 +279,12 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
   <div class="card">
     <div class="field" style="margin-top:0">
       <label>Product</label>
-      <div class="seg">
+      <div class="seg" id="fProdSeg">
         <button id="prodHsd">Diesel</button>
         <button id="prodMs">Petrol</button>
         <button id="prodXg">XtraGreen</button>
       </div>
+      <div class="hint" id="prodHint" style="display:none"></div>
     </div>
     <div class="frow">
       <div class="field">
@@ -342,7 +344,7 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
      Every field stays editable here — editing a bill never touches the
      voucher. -->
 <section class="screen" id="scrBill">
-  <div class="bl-warn" id="blWarn" style="display:none"></div>
+  <div class="warnbox" id="blWarn" style="display:none"></div>
 
   <div class="card">
     <h2 class="cardtitle">Bill details</h2>
@@ -362,7 +364,7 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
       </div>
       <div class="field">
         <label>Bill no.</label>
-        <input type="text" id="blNo" inputmode="numeric" placeholder="—">
+        <input type="text" id="blNo" placeholder="—" autocomplete="off" autocapitalize="characters">
         <div class="hint" id="blNoHint"></div>
       </div>
     </div>
@@ -1125,6 +1127,24 @@ var LocalBackend = {
     this._save();
     return Promise.resolve();
   },
+  // Correct a voucher that already sits in old vouchers. It keeps its
+  // series, number and source (it exists in Tally under those already —
+  // the operator corrects it there); only the details change.
+  editHistoryVoucher: function(p){
+    var v = null;
+    for (var i = 0; i < state.history.length; i++)
+      if (state.history[i].seriesKey === p.seriesKey && state.history[i].number === p.number){
+        v = state.history[i]; break;
+      }
+    if (!v) return Promise.reject(new Error("Old voucher no longer exists"));
+    v.dateISO = p.dateISO; v.party = p.party; v.vehicle = p.vehicle;
+    v.rate = p.rate; v.qty = p.qty;
+    v.amount = p.itemAmt; v.partyAmt = p.partyAmt; v.roff = p.roff;
+    if (state.parties.indexOf(p.party) === -1){ state.parties.push(p.party); state.parties.sort(cmp); }
+    state.history.sort(histSort);
+    this._save();
+    return Promise.resolve({ number: v.number });
+  },
   markExported: function(ids){
     var now = Date.now();
     state.queue.forEach(function(v){
@@ -1305,7 +1325,8 @@ var CloudBackend = {
       s.queue = []; s.history = [];
       r[3].forEach(function(row){
         if (row.status === "history"){
-          s.history.push({ seriesKey: row.series, number: row.number, dateISO: row.date,
+          s.history.push({ id: row.id, seriesKey: row.series, number: row.number,
+            dateISO: row.date,
             party: row.party, vehicle: row.vehicle || "", qty: parseFloat(row.qty),
             rate: parseFloat(row.rate), amount: parseFloat(row.item_amt),
             partyAmt: parseFloat(row.party_amt), roff: parseFloat(row.roff),
@@ -1338,6 +1359,20 @@ var CloudBackend = {
     }).then(function(d){ return { number: d.number, wasExported: wasExported }; });
   },
   deleteVoucher: function(id){ return this.rpc("tally_delete_voucher", { p_id: id }); },
+  editHistoryVoucher: function(p){
+    return this.rpc("tally_edit_history_voucher", {
+      p_id: p.histId, p_date: p.dateISO, p_party: p.party, p_vehicle: p.vehicle,
+      p_qty: p.qty, p_rate: p.rate, p_item_amt: p.itemAmt,
+      p_party_amt: p.partyAmt, p_roff: p.roff
+    }).catch(function(e){
+      // the shared database has not been updated with this function yet
+      var m = (e && e.message) || "";
+      if (/tally_edit_history_voucher|schema cache|does not exist/i.test(m))
+        throw new Error("Editing old vouchers needs the updated database function — "
+          + "re-run supabase/tally-schema.sql in the Supabase SQL Editor.");
+      throw e;
+    }).then(function(d){ return { number: (d && d.number) || p.number }; });
+  },
   markExported: function(ids){ return this.rpc("tally_mark_exported", { p_ids: ids }); },
   moveDay: function(day){ return this.rpc("tally_move_day", { p_date: day }); },
   autoClear: function(cutoff){ return this.rpc("tally_autoclear", { p_cutoff: cutoff }); },
@@ -1409,8 +1444,12 @@ function show(screen){
     renderHome();
   } else if (screen === "new"){
     $("scrNew").classList.add("on");
-    $("hdrTitle").textContent = draft.editId ? "Edit voucher #" + draft.editNumber : "New sales voucher";
-    $("btnSave").textContent = draft.editId ? "Save changes" : "Save voucher";
+    $("hdrTitle").textContent = draft.editHist
+      ? "Alter old voucher #" + draft.editNumber
+      : (draft.editId ? "Edit voucher #" + draft.editNumber : "New sales voucher");
+    $("btnSave").textContent = draft.editHist
+      ? "Save changes to old voucher"
+      : (draft.editId ? "Save changes" : "Save voucher");
   } else if (screen === "bill"){
     $("scrBill").classList.add("on");
     $("hdrTitle").textContent = "Customer bill";
@@ -1718,6 +1757,20 @@ function renderHistory(){
     amt.className = "vamt";
     amt.textContent = inr(v.amount);
     row.appendChild(badge); row.appendChild(main); row.appendChild(amt);
+    // A bill can be raised for any old voucher, including the ones a Tally
+    // daybook import brought in; ✎ corrects the voucher (with a warning).
+    var billBtn = document.createElement("button");
+    billBtn.className = "vdel";
+    billBtn.textContent = "🧾";
+    billBtn.setAttribute("aria-label", "Create bill for voucher " + v.number);
+    billBtn.onclick = function(e){ e.stopPropagation(); openBillForVoucher(v); };
+    row.appendChild(billBtn);
+    var editBtn = document.createElement("button");
+    editBtn.className = "vdel";
+    editBtn.textContent = "✎";
+    editBtn.setAttribute("aria-label", "Alter old voucher " + v.number);
+    editBtn.onclick = function(e){ e.stopPropagation(); openEditHistory(v); };
+    row.appendChild(editBtn);
     el.appendChild(row);
   });
   $("histMore").textContent = items.length > HIST_PAGE
@@ -1776,10 +1829,63 @@ function openEdit(v){
   show("new");
 }
 
+// Reopen a voucher that has already been moved to old vouchers (or came in
+// from a Tally daybook import) to correct its details. It keeps its series
+// and number: it exists in Tally under those, so a renumber here would only
+// put the two out of step. Guarded by a confirmation because the change
+// does NOT travel to Tally — the operator has to make it there too.
+function openEditHistory(v){
+  // A daybook-imported voucher can never be re-exported from here (the day
+  // export only carries app-made vouchers), so the two warnings differ.
+  var fromTally = v.source === "tally";
+  if (!confirm("Alter old voucher #" + v.number + " (" + v.party + ")?\n\n"
+      + "It is already in Tally. The app's record and any bill printed from "
+      + "it are corrected here; Tally is not.\n\n"
+      + (fromTally
+          ? "This one came from a daybook import, so it is not part of the "
+            + "day's XML — correct it in Tally by hand."
+          : "Download the day's XML again to get the correction, and correct "
+            + "or re-import the voucher in Tally.")
+      + "\n\nThe invoice number and product stay as they are.")) return;
+
+  draft = { seriesKey: v.seriesKey, party: null, lastEdited: "qty",
+            editHist: true, histId: v.id || null,
+            editSeries: v.seriesKey, editNumber: v.number, histSource: v.source };
+  var itemAmt = (v.amount != null ? v.amount : v.partyAmt);
+  $("fDate").value = v.dateISO;
+  $("fVehicle").value = v.vehicle || "";
+  $("fRoff").value = v.roff ? fmtAmt(v.roff) : "";
+  $("fPartySearch").value = "";
+  setProduct(v.seriesKey, true);
+  $("fPrice").value = fmtAmt(v.rate);
+  if (r2(v.qty * v.rate) === r2(itemAmt)){
+    draft.lastEdited = "qty";
+  } else {
+    draft.lastEdited = "amount";
+  }
+  $("fQty").value = v.qty.toFixed(3);
+  $("fAmt").value = fmtAmt(itemAmt);
+  setParty(v.party);
+  renderPartyList();
+  renderSummary();
+  show("new");
+}
+
+// The product segment is locked while an old voucher is open, because its
+// series and number are fixed.
+function setProductLock(locked, seriesKey){
+  ["prodHsd","prodMs","prodXg"].forEach(function(id){ $(id).disabled = locked; });
+  $("fProdSeg").style.opacity = locked ? ".55" : "";
+  $("prodHint").style.display = locked ? "" : "none";
+  if (locked)
+    $("prodHint").textContent = "Locked — an old voucher keeps the series and number it has in Tally.";
+}
+
 // While editing, the voucher keeps its own number as long as the product
 // stays the same; switching product assigns the next free number of the
 // new series (the old number is freed by the update).
 function displayNumber(seriesKey){
+  if (draft.editHist) return draft.editNumber;
   return (draft.editId && seriesKey === draft.editSeries) ? draft.editNumber : freeNumber(seriesKey);
 }
 
@@ -1796,8 +1902,20 @@ function setProduct(seriesKey, fresh){
 }
 
 function updatePriceHint(){
+  setProductLock(!!draft.editHist, draft.seriesKey);
+  $("fHistWarn").style.display = draft.editHist ? "" : "none";
+  if (draft.editHist)
+    $("fHistWarn").textContent = draft.histSource === "tally"
+      ? "Altering old voucher #" + draft.editNumber + ", imported from Tally. "
+        + "The correction stays in this app and on its bill — make the same "
+        + "change in Tally by hand."
+      : "Altering old voucher #" + draft.editNumber + ". Download the day's XML "
+        + "again to carry the correction, and correct or re-import the voucher "
+        + "in Tally.";
   var h = $("priceHint");
-  if (draft.editId){
+  if (draft.editHist){
+    h.textContent = "This voucher's saved rate — edit if needed.";
+  } else if (draft.editId){
     h.textContent = "This voucher's saved rate — edit if needed.";
   } else {
     h.textContent = "Today's price (from Settings; carries forward until changed). Editable per voucher — changing it here does not change the day's price.";
@@ -1915,6 +2033,21 @@ $("btnSave").onclick = function(){
 
   var btn = $("btnSave");
   btn.disabled = true;   // no double-taps while the server confirms
+
+  if (draft.editHist){
+    backend.editHistoryVoucher({
+      histId: draft.histId, seriesKey: draft.seriesKey, number: draft.editNumber,
+      dateISO: dateISO, party: draft.party,
+      vehicle: $("fVehicle").value.trim().toUpperCase(),
+      rate: r2(price), qty: c.qty, itemAmt: c.itemAmt,
+      partyAmt: c.partyAmt, roff: c.roff
+    }).then(function(res){
+      toast("Old voucher #" + res.number + " updated — correct it in Tally too");
+      return refresh().then(function(){ $("histSearch").value = ""; show("history"); });
+    }).catch(oops).then(function(){ btn.disabled = false; });
+    return;
+  }
+
   backend.saveVoucher({
     editId: draft.editId || null,
     seriesKey: draft.seriesKey,
@@ -1942,7 +2075,7 @@ $("btnSave").onclick = function(){
    editing a bill never writes back to the voucher, and the app's own
    invoice numbering is untouched (a bill carries the separate "Bill No"
    counter shared with the /tanker/ app). */
-var bill = { data: null, from: "new", customer: null, party: "" };
+var bill = { data: null, from: "new", customer: null, party: "", voucherNumber: "", saved: false };
 
 function blSet(id, v){ $(id).textContent = (v == null ? "" : v); }
 
@@ -1951,6 +2084,8 @@ function blSet(id, v){ $(id).textContent = (v == null ? "" : v); }
 function openBill(src){
   bill.from = src.from || "new";
   bill.party = src.party || "";
+  bill.voucherNumber = src.number || "";
+  bill.saved = !!src.saved;
   bill.customer = null;
   resetBillSheet();               // never leave the previous bill on screen
   show("bill");
@@ -2010,7 +2145,11 @@ function fillBillForm(src){
   });
 
   $("blDate").value = src.dateISO || todayISO();
-  $("blNo").value = VFBilling.nextBillNo();
+  // The bill number is the voucher's own invoice number, so the bill and
+  // the Tally invoice carry the same reference. Still editable; the
+  // device's old standalone counter is only a fallback when a voucher
+  // somehow has no number yet.
+  $("blNo").value = src.number || VFBilling.nextBillNo();
   $("blVehicle").value = (src.vehicle || "").toUpperCase();
   $("blPo").value = match ? (match.po_no || "") : "";
   $("blQty").value = src.qty ? String(Math.trunc(src.qty)) : "";
@@ -2071,9 +2210,18 @@ function renderBill(){
   blSet("blPSeal", m.seal ? "Seal No-" : "");
   for (var i = 0; i < 5; i++) blSet("blPPay" + i, m.payment[i] || "");
 
-  $("blNoHint").textContent = $("blNo").value.trim()
-    ? "Carries forward once this bill is printed or exported."
-    : "No previous bill number on this device — type it once and it carries forward.";
+  var no = $("blNo").value.trim();
+  if (!no){
+    $("blNoHint").textContent = "This voucher has no invoice number yet — type the bill number.";
+  } else if (no !== bill.voucherNumber){
+    $("blNoHint").textContent = "Changed by hand — the voucher's invoice number is "
+      + bill.voucherNumber + ".";
+  } else if (bill.saved){
+    $("blNoHint").textContent = "From voucher #" + bill.voucherNumber + ".";
+  } else {
+    $("blNoHint").textContent = "From this voucher's invoice number — save the voucher "
+      + "to be sure it is final.";
+  }
 
   // rate / amount hints. The bill opens on the voucher's rate (so the bill
   // and the Tally invoice agree); when the sheet's tier rate differs it is
@@ -2200,10 +2348,7 @@ $("blProduct").addEventListener("change", function(){ applyBillSheetRate(); rend
   $(id).addEventListener("input", renderBill);
 });
 
-$("blPrint").onclick = function(){
-  VFBilling.rememberBillNo($("blNo").value);
-  window.print();
-};
+$("blPrint").onclick = function(){ window.print(); };
 
 // Export the bill as a real .docx, using the /tanker/ app's builder.
 $("blWord").onclick = function(){
@@ -2223,7 +2368,6 @@ $("blWord").onclick = function(){
     a.href = url; a.download = "Bill-" + ($("blNo").value || "tanker") + ".docx";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-    VFBilling.rememberBillNo($("blNo").value);
   }).catch(function(e){
     toast("Word export failed: " + ((e && e.message) || e));
   }).then(function(){
@@ -2240,6 +2384,8 @@ $("btnBill").onclick = function(){
     from: "new",
     party: draft.party,
     seriesKey: draft.seriesKey,
+    number: displayNumber(draft.seriesKey),
+    saved: !!draft.editId,
     dateISO: $("fDate").value || todayISO(),
     vehicle: $("fVehicle").value.trim().toUpperCase(),
     qty: c ? c.qty : (parseFloat($("fQty").value) || 0),
@@ -2251,9 +2397,11 @@ $("btnBill").onclick = function(){
 // Entry point from a saved voucher (the day list).
 function openBillForVoucher(v){
   openBill({
-    from: "home",
+    from: current === "history" ? "history" : "home",
     party: v.party,
     seriesKey: v.seriesKey,
+    number: v.number,
+    saved: true,
     dateISO: v.dateISO,
     vehicle: v.vehicle || "",
     qty: v.qty,
@@ -2360,7 +2508,11 @@ $("btnResetCustomers").onclick = function(){
 
 /* ---------- header ---------- */
 $("btnBack").onclick = function(){
-  show(current === "bill" && bill.from === "new" ? "new" : "home");
+  if (current === "bill" && (bill.from === "new" || bill.from === "history")){
+    show(bill.from);
+    return;
+  }
+  show("home");
 };
 $("btnSettings").onclick = function(){ show("settings"); };
 

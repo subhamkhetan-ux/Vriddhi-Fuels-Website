@@ -252,6 +252,47 @@ begin
   return jsonb_build_object('id', rid, 'number', num);
 end $$;
 
+-- Correct a voucher that already sits in old vouchers (moved there after a
+-- Tally import, or loaded by a daybook import). It keeps its series, number,
+-- status and source: the voucher exists in Tally under those already, so
+-- renumbering here would only put the two out of step. The correction is not
+-- sent to Tally — the operator makes the same change there.
+create or replace function public.tally_edit_history_voucher(
+  p_id uuid, p_date date, p_party text, p_vehicle text,
+  p_qty numeric, p_rate numeric, p_item_amt numeric, p_party_amt numeric,
+  p_roff numeric
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v tally_vouchers;
+begin
+  perform _tally_auth();
+  if coalesce(p_party,'') = '' then raise exception 'Party is required'; end if;
+  if p_qty is null  or p_qty  <= 0 then raise exception 'Quantity must be positive'; end if;
+  if p_rate is null or p_rate <= 0 then raise exception 'Rate must be positive'; end if;
+  if p_item_amt is null or p_item_amt <= 0 then raise exception 'Amount must be positive'; end if;
+  if abs(p_party_amt - (p_item_amt + coalesce(p_roff,0))) > 0.011 then
+    raise exception 'Totals do not balance';
+  end if;
+
+  select * into v from tally_vouchers
+    where id = p_id and status = 'history' for update;
+  if not found then
+    raise exception 'Old voucher not found';
+  end if;
+
+  update tally_vouchers set
+    date = p_date, party = p_party, vehicle = coalesce(p_vehicle,''),
+    qty = p_qty, rate = p_rate, item_amt = p_item_amt,
+    party_amt = p_party_amt, roff = coalesce(p_roff,0), updated_at = now()
+  where id = p_id;
+
+  -- inline-added parties become part of the shared list
+  insert into tally_parties (name) values (p_party) on conflict do nothing;
+
+  return jsonb_build_object('id', p_id, 'number', v.number);
+end $$;
+
 -- A voucher can be deleted while it is still pending or exported (not once
 -- moved to history). Its number is not reused unless it was never exported.
 create or replace function public.tally_delete_voucher(p_id uuid) returns void
@@ -500,6 +541,7 @@ begin
     revoke execute on all functions in schema public from public, anon;
     grant execute on function
       public.tally_save_voucher(uuid, text, date, text, text, numeric, numeric, numeric, numeric, numeric),
+      public.tally_edit_history_voucher(uuid, date, text, text, numeric, numeric, numeric, numeric, numeric),
       public.tally_delete_voucher(uuid),
       public.tally_mark_exported(uuid[]),
       public.tally_move_day(date),

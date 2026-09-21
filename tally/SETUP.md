@@ -130,18 +130,38 @@ This gives all employees one live shared dataset with instant sync.
    **"✓ Day imported in Tally — move to old vouchers"** to tidy the list.
    The day can still be re-exported later if the file is ever lost.
 
+### Correcting an old voucher
+
+Vouchers under **🕘 Old vouchers** — including everything a **DayBook XML**
+import brought in — can be corrected with **✎**. The app asks you to
+confirm first, because **the change does not reach Tally**:
+
+- a **daybook-imported** voucher is not in the day's XML, so correct it in
+  Tally by hand;
+- a voucher this app made and later moved to old vouchers *is* still in the
+  day's XML — download the day again to get the correction, and fix or
+  re-import that voucher in Tally.
+
+The invoice number and the product stay as they are; everything else is
+editable. Use it when a bill needs to print right — for example when the
+daybook had no vehicle number.
+
 ### Printing the customer bill
 
 The tanker bill is now part of this app — no need to open a second one.
 
 1. On the voucher screen tap **"🧾 Create bill — fill the invoice from this
-   voucher"** (or 🧾 next to a saved voucher in the day list).
+   voucher"** — or 🧾 next to any voucher in the day list or in
+   **🕘 Old vouchers**, daybook-imported ones included.
 2. Everything is already filled in: date, vehicle, quantity, price and
    amount from the voucher, and the customer's address, GSTIN, P.O. number
    and payment details from the **Tanker Billing** sheet. Adjust anything if
    you need to — it does not affect the voucher.
-3. The **first time on a device**, type the bill number once; afterwards it
-   continues by itself.
+3. The **bill number is the voucher's invoice number** (`1640`, `MS320`,
+   `XG7`), so the bill and the Tally invoice match. If you raise the bill
+   before saving the voucher it shows the number about to be used — save
+   the voucher first if you want to be certain. You can still type a
+   different number.
 4. **🖨 Print / Save PDF** prints the two pages (customer copy + greyscale
    "Receiving Copy"), or **⬇ Export Word (.docx)** if you need to edit it.
 
