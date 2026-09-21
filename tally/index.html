@@ -141,6 +141,62 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
   font-weight:650;box-shadow:var(--shadow);z-index:50;opacity:0;pointer-events:none;transition:opacity .25s;
   max-width:88vw;text-align:center}
 .toast.show{opacity:1}
+
+/* ======================= Tanker bill (invoice) =======================
+   The billing module moved in from the /tanker/ app: an A4 bill rendered
+   as SVG, pre-filled from the voucher being created. Its fonts and images
+   are the ones the /tanker/ app already ships — referenced, not copied,
+   so there is only ever one set to update. */
+.bl-stage{margin-top:14px}
+.bl-sheets{display:flex;flex-direction:column;gap:14px;align-items:center;width:100%;min-width:0}
+.printpage{width:210mm;max-width:100%;background:#fff;box-shadow:0 2px 14px rgba(20,30,60,.18)}
+.printpage > svg{width:100%;height:auto;display:block}
+.page2-tag{font-size:12px;color:var(--txt-3);align-self:center}
+/* Excel lays out cell text without kerning or ligatures; match that so the
+   glyph advances line up with the Excel export exactly (no rightward drift). */
+.sheet text{font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"clig" 0,"calt" 0;font-variant-ligatures:none}
+.linkbtn{color:var(--orange);font-weight:750;font-size:13px;padding:0 2px;text-decoration:underline}
+.bl-warn{background:var(--amber-tint);border:1px solid var(--amber-line);color:var(--amber);
+  border-radius:12px;padding:10px 12px;font-size:13px;font-weight:650;margin-top:12px}
+.field select{width:100%;padding:13px 12px;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--card);font-size:16px;outline:none;-webkit-appearance:none;appearance:none}
+.field select:focus{border-color:var(--orange)}
+
+/* Exact-match font. Order of preference, per weight/style:
+     1. the machine's real Times New Roman (what Excel used) — via local();
+     2. the licensed Times New Roman in the tanker app's assets/fonts/,
+        which makes it exact on devices that don't ship the font;
+     3. otherwise the embedded, metric-compatible BillSerif, so nothing
+        ever lands on a random system serif. */
+@font-face{font-family:"VriddhiTimes";font-weight:normal;font-style:normal;font-display:swap;
+  src:local("Times New Roman"),local("TimesNewRomanPSMT"),url("../tanker/assets/fonts/times.ttf") format("truetype")}
+@font-face{font-family:"VriddhiTimes";font-weight:bold;font-style:normal;font-display:swap;
+  src:local("Times New Roman Bold"),local("TimesNewRomanPS-BoldMT"),url("../tanker/assets/fonts/timesbd.ttf") format("truetype")}
+@font-face{font-family:"VriddhiTimes";font-weight:normal;font-style:italic;font-display:swap;
+  src:local("Times New Roman Italic"),local("TimesNewRomanPS-ItalicMT"),url("../tanker/assets/fonts/timesi.ttf") format("truetype")}
+@font-face{font-family:"BillSerif";src:url("../tanker/assets/fonts/BillSerif-Regular.ttf") format("truetype");font-weight:normal;font-style:normal;font-display:swap}
+@font-face{font-family:"BillSerif";src:url("../tanker/assets/fonts/BillSerif-Bold.ttf") format("truetype");font-weight:bold;font-style:normal;font-display:swap}
+@font-face{font-family:"BillSerif";src:url("../tanker/assets/fonts/BillSerif-Italic.ttf") format("truetype");font-weight:normal;font-style:italic;font-display:swap}
+
+/* Printing is only ever used for the bill: hide the app chrome and the
+   form, and size each sheet by WIDTH with the height following the A4
+   aspect ratio, so a bill can never spill onto a second sheet. */
+@media print{
+  html,body{background:#fff!important;margin:0!important;padding:0!important}
+  /* the toast is position:fixed — left in, it costs a blank third sheet */
+  header.top,.toast{display:none!important}
+  .wrap{max-width:none;margin:0;padding:0}
+  /* inside the bill screen only the sheets print — form, buttons, hints out */
+  #scrBill > *:not(.bl-stage){display:none!important}
+  #scrBill .page2-tag{display:none!important}
+  .bl-stage{margin:0}
+  .bl-sheets{display:block;gap:0}
+  .printpage{width:100%;max-width:none;overflow:hidden;box-shadow:none;margin:0;
+    break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid}
+  .printpage:last-of-type{break-after:auto;page-break-after:auto}
+  .printpage > svg{width:100%;height:auto;display:block}
+  @page{size:A4;margin:0}
+}
 </style>
 </head>
 <body>
@@ -262,6 +318,10 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
   </div>
 
   <button class="btn primary" id="btnSave">Save voucher</button>
+  <button class="btn ghost" id="btnBill">🧾 Create bill — fill the invoice from this voucher</button>
+  <div class="hint" style="text-align:center">Opens the printable customer bill with every field already filled:
+  date, vehicle, quantity, price and amount from this voucher, and the customer's address, GSTIN, P.O. no.
+  and payment details from the Tanker Billing sheet.</div>
 </section>
 
 <!-- ======================= HISTORY ======================= -->
@@ -271,6 +331,156 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
   </div>
   <div class="vlist" id="histList"></div>
   <div class="hint" style="text-align:center" id="histMore"></div>
+</section>
+
+<!-- ======================= TANKER BILL (INVOICE) =======================
+     The billing module, moved in from the /tanker/ app. It is opened from
+     the voucher form (or from a saved voucher) with every field already
+     filled: the voucher gives date / vehicle / quantity / price / amount
+     and the product; the customer's address, GSTIN, P.O. no. and payment
+     block come from the Tanker Billing sheet (state/tanker_billing.json).
+     Every field stays editable here — editing a bill never touches the
+     voucher. -->
+<section class="screen" id="scrBill">
+  <div class="bl-warn" id="blWarn" style="display:none"></div>
+
+  <div class="card">
+    <h2 class="cardtitle">Bill details</h2>
+    <div class="hint" id="blStatus" style="margin-top:2px">Loading customer data…</div>
+    <div class="field">
+      <label>Customer (from the Tanker Billing sheet)</label>
+      <select id="blCustomer"></select>
+    </div>
+    <div class="field">
+      <label>Product</label>
+      <select id="blProduct"></select>
+    </div>
+    <div class="frow">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="blDate">
+      </div>
+      <div class="field">
+        <label>Bill no.</label>
+        <input type="text" id="blNo" inputmode="numeric" placeholder="—">
+        <div class="hint" id="blNoHint"></div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Vehicle</label>
+      <input type="text" id="blVehicle" placeholder="e.g. OR15R9360" autocomplete="off" autocapitalize="characters">
+    </div>
+    <div class="field">
+      <label>P.O. No. — auto from the customer, editable</label>
+      <input type="text" id="blPo" placeholder="—" autocomplete="off">
+    </div>
+    <div class="frow">
+      <div class="field">
+        <label>Quantity (Ltr)</label>
+        <input type="number" id="blQty" inputmode="decimal" step="any" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Price / Ltr</label>
+        <input type="number" id="blPrice" inputmode="decimal" step="0.01" min="0">
+      </div>
+    </div>
+    <div class="hint" id="blRateHint"></div>
+    <div class="field">
+      <label>Amount (₹) — printed on the bill</label>
+      <input type="number" id="blAmount" inputmode="decimal" step="1" min="0" placeholder="0">
+      <div class="hint" id="blAmtHint"></div>
+    </div>
+  </div>
+
+  <button class="btn primary" id="blPrint">🖨 Print / Save PDF</button>
+  <button class="btn ghost" id="blWord">⬇ Export Word (.docx)</button>
+  <div class="hint" style="text-align:center">Two pages: the customer copy and the greyscale “Receiving Copy”.</div>
+
+  <div class="bl-stage">
+   <div class="bl-sheets">
+    <div class="printpage">
+    <!-- viewBox is the A4 page in PDF points (595.28 x 841.89). Every element
+         is placed at the exact coordinates measured from the Excel export. -->
+    <svg class="sheet" id="blSheet" xmlns="http://www.w3.org/2000/svg"
+         viewBox="0 0 595.28 841.89" preserveAspectRatio="xMidYMid meet"
+         font-family='"VriddhiTimes","Times New Roman","BillSerif",serif'>
+      <rect x="0" y="0" width="595.28" height="841.89" fill="#fff"/>
+
+      <!-- letterhead + stamp: the exact images the /tanker/ app already ships -->
+      <image href="../tanker/assets/letterhead.png" x="34.2" y="41.3" width="529.3" height="159.4" preserveAspectRatio="none"/>
+      <image href="../tanker/assets/stamp.png" x="52.7" y="746.2" width="150.8" height="57.1" preserveAspectRatio="none"/>
+
+      <!-- static labels -->
+      <text x="56.6" y="212.2" font-size="15.4" font-weight="bold" fill="#ED7D31">Bill To</text>
+      <text x="380.2" y="212.2" font-size="15.4" font-weight="bold" fill="#ED7D31">Date:</text>
+      <text x="357.1" y="267.8" font-size="15.4" font-weight="bold" fill="#ED7D31">Product:</text>
+      <text x="56.6" y="319.7" font-size="13.4" font-weight="bold">Invoice Details:</text>
+
+      <!-- invoice table borders -->
+      <g stroke="#000" stroke-width="0.9">
+        <line x1="54.25" y1="322.6" x2="54.25" y2="366.7"/>
+        <line x1="125.3" y1="322.6" x2="125.3" y2="366.7"/>
+        <line x1="187.7" y1="322.6" x2="187.7" y2="366.7"/>
+        <line x1="288.5" y1="322.6" x2="288.5" y2="366.7"/>
+        <line x1="352.8" y1="322.6" x2="352.8" y2="366.7"/>
+        <line x1="418.1" y1="322.6" x2="418.1" y2="366.7"/>
+        <line x1="501.6" y1="322.6" x2="501.6" y2="366.7"/>
+        <line x1="54.25" y1="323.05" x2="501.6" y2="323.05"/>
+        <line x1="54.25" y1="344.15" x2="501.6" y2="344.15"/>
+        <line x1="54.25" y1="366.25" x2="501.6" y2="366.25"/>
+      </g>
+
+      <!-- table header (centered on each column) -->
+      <g font-size="15.4" font-weight="bold" text-anchor="middle">
+        <text x="89.8"  y="338.9">Date</text>
+        <text x="156.5" y="338.9">Bill No</text>
+        <text x="238.1" y="338.9">Vehicle</text>
+        <text x="320.65" y="338.9">Quantity</text>
+        <text x="385.45" y="338.9">Price/Ltr</text>
+        <text x="459.85" y="338.9">Amount</text>
+      </g>
+
+      <!-- table data row -->
+      <g font-size="15.4" text-anchor="middle">
+        <text id="blTDate"  x="89.8"  y="361.0"></text>
+        <text id="blTBill"  x="156.5" y="361.0"></text>
+        <text id="blTVeh"   x="238.1" y="361.0"></text>
+        <text id="blTQty"   x="320.65" y="361.0"></text>
+        <text id="blTPrice" x="385.45" y="361.0"></text>
+        <text id="blTAmt"   x="498" y="361.0" text-anchor="end" font-weight="bold" fill="#FF0000"></text>
+      </g>
+
+      <!-- dynamic header values -->
+      <text id="blPDate" x="420.5" y="212.2" font-size="15.4" font-weight="bold"></text>
+      <text id="blPProd" x="420.5" y="267.8" font-size="15.4" font-weight="bold"></text>
+      <text id="blPName" x="56.6" y="230.4" font-size="15.4" font-weight="bold"></text>
+      <text id="blPA1"   x="56.6" y="248.6" font-size="15.4"></text>
+      <text id="blPA2"   x="56.6" y="267.8" font-size="15.4"></text>
+      <text id="blPA3"   x="56.6" y="286.1" font-size="15.4" font-style="italic"></text>
+
+      <!-- PO / density / seal -->
+      <text id="blPPoLbl" x="56.6"  y="409.0" font-size="15.4" font-weight="bold"></text>
+      <text id="blPPoVal" x="127.7" y="409.0" font-size="15.4" font-weight="bold"></text>
+      <text id="blPDensity" x="56.6" y="443.5" font-size="15.4" font-style="italic"></text>
+      <text id="blPSeal"    x="56.6" y="498.2" font-size="15.4" font-style="italic"></text>
+
+      <!-- payment block (row 32 bold header, then 4 lines) -->
+      <text id="blPPay0" x="56.6" y="569.3" font-size="15.4" font-weight="bold"></text>
+      <text id="blPPay1" x="56.6" y="586.6" font-size="15.4"></text>
+      <text id="blPPay2" x="56.6" y="603.8" font-size="15.4"></text>
+      <text id="blPPay3" x="56.6" y="621.1" font-size="15.4"></text>
+      <text id="blPPay4" x="56.6" y="638.4" font-size="15.4"></text>
+
+      <!-- footer -->
+      <text x="56.6" y="818.9" font-size="15.4">for VRIDDHI FUELS</text>
+      <text x="421.4" y="818.9" font-size="15.4" font-style="italic">Signature of Customer</text>
+    </svg>
+    </div>
+    <!-- Page 2: greyscale "Receiving Copy" is built from page 1 at render time -->
+    <div id="blPage2" class="printpage"></div>
+    <div class="page2-tag">Page 2 — greyscale “Receiving Copy”</div>
+   </div>
+  </div>
 </section>
 
 <!-- ======================= SETTINGS ======================= -->
@@ -400,6 +610,10 @@ h2.cardtitle{margin:0 0 4px;font-size:16px;font-weight:750}
 <div class="toast" id="toast"></div>
 
 <script src="config.js"></script>
+<!-- Billing module: the tanker-bill logic, now part of this app. The .docx
+     builder is the /tanker/ app's file, reused as-is (no copy to drift). -->
+<script src="../tanker/docx-export.js"></script>
+<script src="billing.js"></script>
 
 <!-- ============ Pure logic (no DOM) — also unit-testable in Node ============ -->
 <script>
@@ -1186,7 +1400,7 @@ function rerender(){
 /* ---------- navigation ---------- */
 function show(screen){
   current = screen;
-  ["scrHome","scrNew","scrHistory","scrSettings","scrLogin"].forEach(function(id){ $(id).classList.remove("on"); });
+  ["scrHome","scrNew","scrBill","scrHistory","scrSettings","scrLogin"].forEach(function(id){ $(id).classList.remove("on"); });
   $("btnBack").style.display = screen === "home" ? "none" : "";
   $("btnSettings").style.display = screen === "home" ? "" : "none";
   if (screen === "home"){
@@ -1197,6 +1411,9 @@ function show(screen){
     $("scrNew").classList.add("on");
     $("hdrTitle").textContent = draft.editId ? "Edit voucher #" + draft.editNumber : "New sales voucher";
     $("btnSave").textContent = draft.editId ? "Save changes" : "Save voucher";
+  } else if (screen === "bill"){
+    $("scrBill").classList.add("on");
+    $("hdrTitle").textContent = "Customer bill";
   } else if (screen === "history"){
     $("scrHistory").classList.add("on");
     $("hdrTitle").textContent = "Old vouchers";
@@ -1285,6 +1502,12 @@ function renderDayList(el, live, moved){
     // tap to edit (re-download the day's XML after changes)
     row.style.cursor = "pointer";
     row.onclick = function(){ openEdit(v); };
+    var billBtn = document.createElement("button");
+    billBtn.className = "vdel";
+    billBtn.textContent = "🧾";
+    billBtn.setAttribute("aria-label", "Create bill for voucher " + v.number);
+    billBtn.onclick = function(e){ e.stopPropagation(); openBillForVoucher(v); };
+    row.appendChild(billBtn);
     var edit = document.createElement("button");
     edit.className = "vdel";
     edit.textContent = "✎";
@@ -1713,6 +1936,332 @@ $("btnSave").onclick = function(){
   }).catch(oops).then(function(){ btn.disabled = false; });
 };
 
+/* ---------- tanker bill (invoice) ----------
+   The billing module's screen. It is seeded from a voucher — the one
+   being created, or a saved one — and then owned by the bill form:
+   editing a bill never writes back to the voucher, and the app's own
+   invoice numbering is untouched (a bill carries the separate "Bill No"
+   counter shared with the /tanker/ app). */
+var bill = { data: null, from: "new", customer: null, party: "" };
+
+function blSet(id, v){ $(id).textContent = (v == null ? "" : v); }
+
+// Open the bill screen pre-filled from a voucher.
+// src: {from, party, seriesKey, dateISO, vehicle, qty, rate, amount}
+function openBill(src){
+  bill.from = src.from || "new";
+  bill.party = src.party || "";
+  bill.customer = null;
+  resetBillSheet();               // never leave the previous bill on screen
+  show("bill");
+  $("blStatus").textContent = "Loading customer data…";
+  VFBilling.load().then(function(d){
+    bill.data = d;
+    fillBillForm(src);
+  }).catch(function(e){
+    $("blStatus").textContent = "Could not load ../state/tanker_billing.json ("
+      + ((e && e.message) || e) + ") — the bill needs it for the customer's "
+      + "address, GSTIN and payment details. Serve the app over http(s), or run the tanker sync.";
+  });
+}
+
+// Blank every value on the sheet (the static labels and rules stay).
+function resetBillSheet(){
+  $("blWarn").style.display = "none";
+  ["blPDate","blPProd","blPName","blPA1","blPA2","blPA3","blPPoLbl","blPPoVal",
+   "blPDensity","blPSeal","blTDate","blTBill","blTVeh","blTQty","blTPrice","blTAmt",
+   "blPPay0","blPPay1","blPPay2","blPPay3","blPPay4"].forEach(function(id){ blSet(id, ""); });
+  $("blPage2").innerHTML = "";
+  ["blNoHint","blRateHint","blAmtHint"].forEach(function(id){ $(id).textContent = ""; });
+}
+
+function fillBillForm(src){
+  var d = bill.data;
+  var gen = d.generated_at ? new Date(d.generated_at).toLocaleDateString("en-IN") : "?";
+  $("blStatus").textContent = d.customers.length + " customers · sheet data as of " + gen
+    + ". Every field is editable — changes here do not affect the voucher.";
+
+  // customer list, with the voucher's party matched to a sheet customer
+  var match = VFBilling.findCustomer(d, src.party);
+  var sel = $("blCustomer");
+  sel.innerHTML = "";
+  var none = document.createElement("option");
+  none.value = ""; none.textContent = "— pick the customer —";
+  sel.appendChild(none);
+  d.customers.forEach(function(c){
+    var o = document.createElement("option");
+    o.value = c.company; o.textContent = c.company;
+    sel.appendChild(o);
+  });
+  sel.value = match ? match.company : "";
+  bill.customer = match || null;
+
+  // product list (defaults to the voucher's series)
+  var ps = $("blProduct");
+  ps.innerHTML = "";
+  var fuels = (d.fuel_types && d.fuel_types.length) ? d.fuel_types : [VFBilling.HSD];
+  var want = VFBilling.productForSeries(src.seriesKey);
+  if (fuels.indexOf(want) === -1) fuels = fuels.concat([want]);
+  fuels.forEach(function(ft){
+    var o = document.createElement("option");
+    o.value = ft; o.textContent = ft;
+    if (ft === want) o.selected = true;
+    ps.appendChild(o);
+  });
+
+  $("blDate").value = src.dateISO || todayISO();
+  $("blNo").value = VFBilling.nextBillNo();
+  $("blVehicle").value = (src.vehicle || "").toUpperCase();
+  $("blPo").value = match ? (match.po_no || "") : "";
+  $("blQty").value = src.qty ? String(Math.trunc(src.qty)) : "";
+  $("blPrice").value = src.rate ? fmtAmt(src.rate) : "";
+  $("blAmount").value = (src.amount != null && src.amount !== "")
+    ? String(Math.trunc(src.amount))
+    : String(Math.trunc((src.qty || 0) * (src.rate || 0)));
+
+  updateBillWarning();
+  renderBill();
+}
+
+function updateBillWarning(){
+  var w = $("blWarn");
+  if (bill.customer){ w.style.display = "none"; return; }
+  w.style.display = "";
+  w.textContent = bill.party
+    ? "“" + bill.party + "” is not in the Tanker Billing sheet — pick the matching customer below, "
+      + "otherwise the address, GSTIN and payment details print blank."
+    : "Pick the customer below so the address, GSTIN and payment details are filled in.";
+}
+
+function billModelFromForm(){
+  return VFBilling.buildModel({
+    customer: bill.customer,
+    name: bill.party,
+    product: $("blProduct").value,
+    dateISO: $("blDate").value,
+    billNo: $("blNo").value,
+    vehicle: $("blVehicle").value,
+    qty: parseFloat($("blQty").value) || 0,
+    price: parseFloat($("blPrice").value) || 0,
+    amount: $("blAmount").value === "" ? null : parseFloat($("blAmount").value),
+    poNo: $("blPo").value
+  });
+}
+
+function renderBill(){
+  var m = billModelFromForm();
+
+  blSet("blPDate", m.date);
+  blSet("blPProd", m.product);
+  blSet("blPName", m.name);
+  blSet("blPA1", m.address[0]);
+  blSet("blPA2", m.address[1]);
+  blSet("blPA3", m.address[2]);
+
+  blSet("blTDate", m.row.date);
+  blSet("blTBill", m.row.bill);
+  blSet("blTVeh", m.row.vehicle);
+  blSet("blTQty", m.row.qty);
+  blSet("blTPrice", m.row.price);
+  blSet("blTAmt", m.row.amount);
+
+  blSet("blPPoLbl", m.poLabel);
+  blSet("blPPoVal", m.poLabel ? m.poVal : "");
+  blSet("blPDensity", m.density ? "Density-" : "");
+  blSet("blPSeal", m.seal ? "Seal No-" : "");
+  for (var i = 0; i < 5; i++) blSet("blPPay" + i, m.payment[i] || "");
+
+  $("blNoHint").textContent = $("blNo").value.trim()
+    ? "Carries forward once this bill is printed or exported."
+    : "No previous bill number on this device — type it once and it carries forward.";
+
+  // rate / amount hints. The bill opens on the voucher's rate (so the bill
+  // and the Tally invoice agree); when the sheet's tier rate differs it is
+  // shown with a one-tap way to switch to it.
+  var price = parseFloat($("blPrice").value) || 0;
+  var sheet = bill.data ? VFBilling.sheetRate(bill.data, bill.customer, $("blProduct").value) : null;
+  var rh = $("blRateHint");
+  rh.innerHTML = "";
+  if (sheet == null){
+    rh.textContent = "No rate on file for this customer/product.";
+  } else if (Math.abs(sheet - price) > 0.001){
+    rh.appendChild(document.createTextNode("Sheet rate: ₹" + fmtAmt(sheet)
+      + " — this bill uses ₹" + fmtAmt(price) + " "));
+    var useIt = document.createElement("button");
+    useIt.type = "button";
+    useIt.className = "linkbtn";
+    useIt.textContent = "use sheet rate";
+    useIt.onclick = function(){
+      $("blPrice").value = fmtAmt(sheet);
+      recomputeBillAmount();
+      renderBill();
+    };
+    rh.appendChild(useIt);
+  } else {
+    rh.textContent = "Sheet rate: ₹" + fmtAmt(sheet);
+  }
+  var qty = parseFloat($("blQty").value) || 0;
+  var calc = Math.trunc(qty * price);
+  var shown = parseInt($("blAmount").value, 10) || 0;
+  $("blAmtHint").textContent = (shown && calc && shown !== calc)
+    ? "Quantity × price would be ₹" + VFBilling.inr(calc) + " — the voucher's amount is printed instead."
+    : "Quantity × price, truncated. Editing quantity or price recomputes it.";
+
+  buildBillPage2();
+}
+
+var BL_SVGNS = "http://www.w3.org/2000/svg";
+
+// Convert a colour to its greyscale (luminance) hex. Done in JS so page 2 is
+// truly greyscale in the printed file — no reliance on a CSS/SVG print filter,
+// which Safari drops when printing.
+function blGreyOf(col){
+  var m = /^#([0-9a-f]{6})$/i.exec(col || "");
+  if (!m) return null;                                  // leave named/black as-is
+  var n = parseInt(m[1], 16);
+  var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  var y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+  return "#" + [y, y, y].map(function(v){ return v.toString(16).padStart(2, "0"); }).join("");
+}
+
+// Page 2 = a clone of the bill in greyscale, with a 45° "Receiving Copy"
+// watermark just above the white background so it sits *behind* the content.
+function buildBillPage2(){
+  var holder = $("blPage2");
+  holder.innerHTML = "";
+  var clone = $("blSheet").cloneNode(true);
+  clone.removeAttribute("id");
+  clone.querySelectorAll("[id]").forEach(function(el){ el.removeAttribute("id"); });
+
+  // 1) swap the colour images for their pre-greyscaled versions
+  clone.querySelectorAll("image").forEach(function(img){
+    var href = img.getAttribute("href") || "";
+    if (href.indexOf("letterhead.png") >= 0) img.setAttribute("href", "../tanker/assets/letterhead_grey.png");
+    if (href.indexOf("stamp.png") >= 0)      img.setAttribute("href", "../tanker/assets/stamp_grey.png");
+  });
+  // 2) desaturate every coloured fill (orange labels, red amount, …) to grey
+  clone.querySelectorAll("[fill]").forEach(function(el){
+    var grey = blGreyOf(el.getAttribute("fill"));
+    if (grey) el.setAttribute("fill", grey);
+  });
+
+  // 3) watermark, behind the content
+  var wm = document.createElementNS(BL_SVGNS, "text");
+  wm.setAttribute("x", "297.64");
+  wm.setAttribute("y", "445");                          // vertical centre of A4
+  wm.setAttribute("text-anchor", "middle");
+  wm.setAttribute("transform", "rotate(-45 297.64 420.9)");
+  wm.setAttribute("font-size", "78");
+  wm.setAttribute("font-weight", "bold");
+  wm.setAttribute("fill", "#000000");
+  wm.setAttribute("fill-opacity", "0.3");               // 70% transparent
+  wm.textContent = "Receiving Copy";
+
+  var bg = clone.firstElementChild;                     // white background rect
+  if (bg && bg.nextSibling) clone.insertBefore(wm, bg.nextSibling);
+  else clone.appendChild(wm);
+
+  holder.appendChild(clone);
+}
+
+// Customer / product changes are a deliberate deviation from the voucher,
+// so they bring the sheet's own P.O. no. and rate with them.
+function billCustomerChanged(){
+  var name = $("blCustomer").value;
+  bill.customer = null;
+  if (bill.data && name){
+    for (var i = 0; i < bill.data.customers.length; i++)
+      if (bill.data.customers[i].company === name) bill.customer = bill.data.customers[i];
+  }
+  $("blPo").value = bill.customer ? (bill.customer.po_no || "") : "";
+  applyBillSheetRate();
+  updateBillWarning();
+  renderBill();
+}
+function applyBillSheetRate(){
+  var r = bill.data ? VFBilling.sheetRate(bill.data, bill.customer, $("blProduct").value) : null;
+  if (r != null){
+    $("blPrice").value = fmtAmt(r);
+    recomputeBillAmount();
+  }
+}
+function recomputeBillAmount(){
+  var qty = parseFloat($("blQty").value) || 0;
+  var price = parseFloat($("blPrice").value) || 0;
+  $("blAmount").value = (qty > 0 && price > 0) ? String(Math.trunc(qty * price)) : "";
+}
+
+$("blCustomer").addEventListener("change", billCustomerChanged);
+$("blProduct").addEventListener("change", function(){ applyBillSheetRate(); renderBill(); });
+["blQty","blPrice"].forEach(function(id){
+  $(id).addEventListener("input", function(){ recomputeBillAmount(); renderBill(); });
+});
+["blDate","blNo","blVehicle","blPo","blAmount"].forEach(function(id){
+  $(id).addEventListener("input", renderBill);
+});
+
+$("blPrint").onclick = function(){
+  VFBilling.rememberBillNo($("blNo").value);
+  window.print();
+};
+
+// Export the bill as a real .docx, using the /tanker/ app's builder.
+$("blWord").onclick = function(){
+  if (!window.TankerDocx){ toast("Word export module not loaded"); return; }
+  var btn = $("blWord"), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Generating…";
+  var m = billModelFromForm();
+  Promise.all([
+    fetch("../tanker/assets/letterhead.png").then(function(r){ return r.arrayBuffer(); }),
+    fetch("../tanker/assets/stamp.png").then(function(r){ return r.arrayBuffer(); })
+  ]).then(function(imgs){
+    m.images = { letterhead: new Uint8Array(imgs[0]), stamp: new Uint8Array(imgs[1]) };
+    var blob = new Blob([TankerDocx.build(m)],
+      {type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "Bill-" + ($("blNo").value || "tanker") + ".docx";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    VFBilling.rememberBillNo($("blNo").value);
+  }).catch(function(e){
+    toast("Word export failed: " + ((e && e.message) || e));
+  }).then(function(){
+    btn.disabled = false; btn.textContent = label;
+  });
+};
+
+// Entry point from the voucher form — works on the unsaved draft, so the
+// bill can be printed while the voucher is still being typed.
+$("btnBill").onclick = function(){
+  if (!draft.party){ toast("Select a customer first"); return; }
+  var c = currentCalc();
+  openBill({
+    from: "new",
+    party: draft.party,
+    seriesKey: draft.seriesKey,
+    dateISO: $("fDate").value || todayISO(),
+    vehicle: $("fVehicle").value.trim().toUpperCase(),
+    qty: c ? c.qty : (parseFloat($("fQty").value) || 0),
+    rate: parseFloat($("fPrice").value) || 0,
+    amount: c ? c.partyAmt : null
+  });
+};
+
+// Entry point from a saved voucher (the day list).
+function openBillForVoucher(v){
+  openBill({
+    from: "home",
+    party: v.party,
+    seriesKey: v.seriesKey,
+    dateISO: v.dateISO,
+    vehicle: v.vehicle || "",
+    qty: v.qty,
+    rate: v.rate,
+    amount: (v.partyAmt != null ? v.partyAmt : v.amount)
+  });
+}
+
 /* ---------- settings ---------- */
 function renderSettings(){
   $("setCompany").value = state.company;
@@ -1810,13 +2359,15 @@ $("btnResetCustomers").onclick = function(){
 };
 
 /* ---------- header ---------- */
-$("btnBack").onclick = function(){ show("home"); };
+$("btnBack").onclick = function(){
+  show(current === "bill" && bill.from === "new" ? "new" : "home");
+};
 $("btnSettings").onclick = function(){ show("settings"); };
 
 /* ---------- login (cloud mode) ---------- */
 function showLogin(){
   current = "login";
-  ["scrHome","scrNew","scrHistory","scrSettings"].forEach(function(id){ $(id).classList.remove("on"); });
+  ["scrHome","scrNew","scrBill","scrHistory","scrSettings"].forEach(function(id){ $(id).classList.remove("on"); });
   $("scrLogin").classList.add("on");
   $("hdrTitle").textContent = "Sign in";
   $("btnBack").style.display = "none";
@@ -1916,6 +2467,10 @@ function boot(){
   });
 }
 boot();
+
+// Warm the billing sheet up in the background (also refreshes the offline
+// copy); the bill screen awaits this same promise when it is opened.
+if (window.VFBilling) VFBilling.load().catch(function(){});
 
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("sw.js").catch(function(){});
