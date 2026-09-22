@@ -1660,23 +1660,46 @@ function confirmedDeductions(){
 }
 
 // Un-recorded deductions, located to the DAY they belong to (the user's rule):
-// walk consecutive reference points — each recorded opening, then the live balance
-// as the final closing — and for each interval, closing − opening − invoices −
-// confirmed-deductions is the unexplained debit, attributed to the interval's
-// start day. So a gap you create by moving TODAY's balance (after today's opening)
-// dates to today; it only lands on 21 Sep if the 22 Sep opening itself exceeds
-// 21's opening + 21's invoices. Returned oldest → newest (last = most recent).
+// walk consecutive reference points and, for each interval, closing − opening −
+// invoices − confirmed-deductions is the unexplained debit, attributed to the
+// interval's start day.
+//
+// A PAST day is judged ONLY by its true CLOSING — the next day's recorded
+// opening — never by an intraday balance snapshot. During the day the balance
+// spikes when invoices post and is pulled back down as payments are credited in
+// SAP, so a mid-day peak is NOT a deduction; only where the day closes matters.
+// Hence recorded openings are the day boundaries, and the live balance closes
+// out only the current, still-open day (the one no later opening has closed).
+// So a gap you create by moving TODAY's balance (after today's opening) dates to
+// today; it lands on 21 Sep only if the 22 Sep opening itself exceeds 21's
+// opening + 21's invoices. Returned oldest → newest (last = most recent).
 function unexplainedDeductions(){
   const today=crTodayISO();
   const totals=dayTotalsISO();
   const cds=confirmedDeductions();
-  // Reference points in time order: recorded openings (start of their day) and
-  // balance snapshots (their timestamp). A day's invoices are keyed just after
-  // midnight, so they fall after that day's opening but before its later
-  // snapshots — matching "raise the invoice, then update the balance".
+  // Day boundaries = recorded openings (start of their day). A day's invoices
+  // are keyed just after midnight, so they fall after that day's opening but
+  // before the next day's — matching "raise the invoice, then it closes".
   const pts=[];
-  for(const [iso,o] of Object.entries(OPENINGS)){ if(iso<=today) pts.push({iso, t:Date.parse(iso+"T00:00:00")||0, owed:crOwed(o)}); }
-  for(const b of BALANCES){ const day=String(b.at||"").slice(0,10); if(day && day<=today) pts.push({iso:day, t:Date.parse(b.at)||0, owed:crOwed(b)}); }
+  let lastOpenT=-Infinity;
+  for(const [iso,o] of Object.entries(OPENINGS)){
+    if(iso>today) continue;
+    const t=Date.parse(iso+"T00:00:00")||0;
+    pts.push({iso, t, owed:crOwed(o)});
+    if(t>lastOpenT) lastOpenT=t;
+  }
+  // The live balance closes the last, still-open day — but ONLY if it lands
+  // after the latest opening. A snapshot before a later opening is an intraday
+  // observation of a day that opening already closed (payments not yet credited),
+  // so it must not become a boundary; the opening supersedes it. Among snapshots
+  // after the last opening, only the newest is "the balance now".
+  let live=null, liveT=-Infinity;
+  for(const b of BALANCES){
+    const day=String(b.at||"").slice(0,10); if(!day || day>today) continue;
+    const t=Date.parse(b.at)||0;
+    if(t>liveT){ liveT=t; live={iso:day, t, owed:crOwed(b)}; }
+  }
+  if(live && liveT>lastOpenT) pts.push(live);
   pts.sort((a,b)=>a.t-b.t);
   if(pts.length<2) return [];
   const key=k=>(Date.parse(k+"T00:00:01")||0);
