@@ -1659,6 +1659,39 @@ function confirmedDeductions(){
   }).filter(x=> x.amount>0.005 && x.iso<=today).sort((a,b)=>a.iso<b.iso?-1:a.iso>b.iso?1:0);
 }
 
+// Un-recorded deductions, located to the DAY they belong to (the user's rule):
+// walk consecutive reference points — each recorded opening, then the live balance
+// as the final closing — and for each interval, closing − opening − invoices −
+// confirmed-deductions is the unexplained debit, attributed to the interval's
+// start day. So a gap you create by moving TODAY's balance (after today's opening)
+// dates to today; it only lands on 21 Sep if the 22 Sep opening itself exceeds
+// 21's opening + 21's invoices. Returned oldest → newest (last = most recent).
+function unexplainedDeductions(){
+  const today=crTodayISO();
+  const totals=dayTotalsISO();
+  const cds=confirmedDeductions();
+  // Reference points in time order: recorded openings (start of their day) and
+  // balance snapshots (their timestamp). A day's invoices are keyed just after
+  // midnight, so they fall after that day's opening but before its later
+  // snapshots — matching "raise the invoice, then update the balance".
+  const pts=[];
+  for(const [iso,o] of Object.entries(OPENINGS)){ if(iso<=today) pts.push({iso, t:Date.parse(iso+"T00:00:00")||0, owed:crOwed(o)}); }
+  for(const b of BALANCES){ const day=String(b.at||"").slice(0,10); if(day && day<=today) pts.push({iso:day, t:Date.parse(b.at)||0, owed:crOwed(b)}); }
+  pts.sort((a,b)=>a.t-b.t);
+  if(pts.length<2) return [];
+  const key=k=>(Date.parse(k+"T00:00:01")||0);
+  const out=[];
+  for(let i=0;i<pts.length-1;i++){
+    const A=pts[i], B=pts[i+1];
+    let inv=0, ded=0;
+    for(const [k,v] of Object.entries(totals)){ const t=key(k); if(t>A.t && t<=B.t) inv+=Number(v||0); }
+    for(const x of cds){ const t=key(x.iso); if(t>A.t && t<=B.t) ded+=x.amount; }
+    const gap=Math.round((B.owed - A.owed - inv - ded)*100)/100;
+    if(gap>1) out.push({iso:A.iso, amount:gap});   // belongs to the interval's start day
+  }
+  return out;
+}
+
 // Reconcile the current owed against every known obligation — invoices AND
 // confirmed other-deductions — oldest-first. Each invoice day stays visible
 // until its own dues clear; each confirmed deduction likewise. `extra` is the
@@ -1845,15 +1878,17 @@ function renderFundsPlan(d){
 function renderDeductions(d){
   const det=document.getElementById("crDetectWrap");
   if(det){
-    const gap=Math.round((d.extra||0)*100)/100;
-    if(gap>1 && CR_DETECT_DISMISSED!==Math.round(gap)){
-      // Default the deduction to the most recent invoice day — a gap usually
-      // belongs to the day just gone (its closing wasn't fully explained), not
-      // to "today". The date is editable.
-      const defDate=Object.keys(dayTotalsISO()).sort().pop() || crTodayISO();
+    // Locate the gap to the DAY it belongs to (most recent one first), so the
+    // amount and date match where the balance actually moved.
+    const gaps=unexplainedDeductions();
+    const g=gaps.length ? gaps[gaps.length-1] : null;
+    const gap=g ? Math.round(g.amount*100)/100 : 0;
+    if(g && gap>1 && CR_DETECT_DISMISSED!==Math.round(gap)){
+      const defDate=g.iso;
+      const when = defDate===crTodayISO() ? "today" : isoToDmy(defDate);
       det.innerHTML=`<div class="cr-detect">
         <div class="cr-detect-h">⚠ Possible other deduction</div>
-        <div class="cr-detect-b">The balance is <b>${esc(money(gap))}</b> more than invoices + recorded deductions explain — likely a licence-fee, interest or misc debit. Check it and confirm with the reason and the date it belongs to.</div>
+        <div class="cr-detect-b"><b>${esc(when)}</b>'s balance is <b>${esc(money(gap))}</b> more than that day's opening + invoices explain — likely a licence-fee, interest or misc debit. Check it and confirm the amount, reason and date. (If an invoice for that day hasn't arrived yet, reduce the amount to only the deduction.)</div>
         <input type="text" id="crDedReason" placeholder="reason / remark — e.g. interest debit" autocomplete="off">
         <div class="cr-detect-a">
           <span class="cr-detamt">₹ <input type="number" id="crDedAmt" inputmode="decimal" step="0.01" value="${gap}"></span>
