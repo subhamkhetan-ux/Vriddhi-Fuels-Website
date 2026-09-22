@@ -79,16 +79,18 @@ def build_notes(data: dict) -> tuple[list[dict], list[str]]:
     rows = []
     for n in notes:
         inv = n["invoice_no"]
-        num, serial_str = serial.assign(data["serial"], inv)
+        num, serial_str = serial.assign(data["serial"], inv, n.get("invoice_date"))
         rows.append({
             **n,
-            "serial_num": num,
+            "serial_num": num,          # printed number, restarts each FY
+            "lifetime_num": serial.lifetime_of(data["serial"], inv),
             "serial_str": serial_str,
             # Reporting date defaults to the invoice date; user can override it.
             "reporting_date": reporting.get(inv) or n.get("invoice_date") or "",
             "done": inv in done,
         })
-    rows.sort(key=lambda r: r["serial_num"])
+    # Sort by lifetime index (true order) — the printed serial restarts per FY.
+    rows.sort(key=lambda r: (r.get("lifetime_num") or r["serial_num"]))
     return rows, warnings
 
 

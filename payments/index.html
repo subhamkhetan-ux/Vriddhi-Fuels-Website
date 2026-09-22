@@ -195,6 +195,9 @@ summary::-webkit-details-marker{display:none}
 .cn-card{position:relative;border-color:var(--accent);overflow:hidden}
 .cn-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--grad-cta)}
 .cn-serial{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--accent)}
+.cn-overall{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:1px}
+.cn-summary{font-size:12.5px;color:var(--muted);margin:2px 2px 12px;font-variant-numeric:tabular-nums}
+.cn-summary b{color:var(--ink);font-weight:700}
 .cn-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:10px;font-size:13px}
 .cn-grid .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
 .cn-grid .v{color:var(--ink);font-variant-numeric:tabular-nums}
@@ -823,7 +826,7 @@ const Cloud = {
     try{
       Promise.resolve(this.client.rpc("pay_consignment_purge_old")).catch(()=>{});
       const { data, error } = await this.client.from("pay_consignment_notes")
-        .select("*").order("serial_num",{ascending:false}).limit(50);
+        .select("*").order("lifetime_num",{ascending:false}).limit(50);
       if(error) throw error;
       CNOTES = data||[];   // render caps to the latest 5; purge caps storage to 5
       renderConsign();
@@ -1099,12 +1102,21 @@ function renderAgent(){
 }
 
 /* ---------- consignment notes ---------- */
+// The Indian financial year (1 Apr–31 Mar) a date falls in, as a '2627' code and
+// a '2026-27' label. Used for the "trips this FY" stat.
+function fyOfDate(d){
+  const m=d.getMonth()+1, y=d.getFullYear(), ys = m>=4?y:y-1;
+  const two=n=>String(n%100).padStart(2,"0");
+  return {code: two(ys)+two(ys+1), label: ys+"-"+two(ys+1)};
+}
 function renderConsign(){
   const w = document.getElementById("consignWrap");
   if(!w) return;
-  // Show the latest 5 (newest serial first); storage is capped to 5 server-side.
+  // Newest first — by lifetime index (true recency), since the printed serial_num
+  // now restarts each financial year. Storage is capped to 5 server-side.
+  const lnum=n=>Number(n.lifetime_num!=null?n.lifetime_num:n.serial_num||0);
   const pending = CNOTES.filter(n=>n.status!=="done")
-                        .sort((a,b)=>(b.serial_num||0)-(a.serial_num||0))
+                        .sort((a,b)=>lnum(b)-lnum(a))
                         .slice(0,5);
   // badge on the tab
   const badge = document.getElementById("notesBadge");
@@ -1113,12 +1125,22 @@ function renderConsign(){
     w.innerHTML = `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically.</div>`;
     return;
   }
-  let h = "";
+  // Totals: lifetime = the highest lifetime index we know (newest note); FY = the
+  // highest printed serial in the current financial year.
+  const total = CNOTES.reduce((m,n)=>Math.max(m, lnum(n)), 0);
+  const fy = fyOfDate(new Date());
+  const fyCount = CNOTES.reduce((m,n)=>
+    String(n.serial_str||"").indexOf("CN"+fy.code+"/")>=0 ? Math.max(m, Number(n.serial_num||0)) : m, 0);
+  let h = total ? `<div class="cn-summary">Total trips to date <b>${total}</b>`
+    + (fyCount?` · FY ${esc(fy.label)} <b>${fyCount}</b>`:``) + `</div>` : "";
   for(const n of pending){
     const isoRep = dmyToIso(n.reporting_date || n.invoice_date) || "";
     h += `<div class="card cn-card">
       <div class="row-top">
-        <div class="cn-serial">${esc(n.serial_str||"")}</div>
+        <div>
+          <div class="cn-serial">${esc(n.serial_str||"")}</div>
+          ${n.lifetime_num!=null?`<div class="cn-overall">overall trip #${esc(String(n.lifetime_num))}</div>`:""}
+        </div>
         <div class="tag">TT ${esc(n.tt_no||"")}</div>
       </div>
       <div class="cn-grid">

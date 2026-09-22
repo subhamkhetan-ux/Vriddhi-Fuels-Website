@@ -12,25 +12,57 @@ from tests.test_invoice import INVOICE_TEXT  # a structure-faithful IOCL invoice
 # ---- serial assignment -----------------------------------------------------
 
 def test_serial_format():
-    assert serial.format_serial(47) == "VF/CN2627/047"
-    assert serial.format_serial(3) == "VF/CN2627/003"
-    assert serial.format_serial(1234) == "VF/CN2627/1234"
+    assert serial.format_serial(47, "15/09/2026") == "VF/CN2627/047"
+    assert serial.format_serial(3, "15/09/2026") == "VF/CN2627/003"
+    assert serial.format_serial(1234, "15/09/2026") == "VF/CN2627/1234"
+
+
+def test_fy_code_rolls_over_by_financial_year():
+    assert serial.fy_code("31/03/2027") == "2627"   # Jan–Mar -> previous FY
+    assert serial.fy_code("01/04/2027") == "2728"   # new FY starts 1 Apr
+    assert serial.fy_code("10/12/2028") == "2829"
 
 
 def test_assign_starts_at_next_and_increments():
     state = {"next_serial": 47, "issued": {}}
-    assert serial.assign(state, "7010221545") == (47, "VF/CN2627/047")
-    assert serial.assign(state, "7010221600") == (48, "VF/CN2627/048")
-    assert state["next_serial"] == 49
+    assert serial.assign(state, "7010221545", "15/09/2026") == (47, "VF/CN2627/047")
+    assert serial.assign(state, "7010221600", "15/09/2026") == (48, "VF/CN2627/048")
+    assert state["lifetime_next"] == 49
+    assert state["fy_next"]["2627"] == 49
 
 
 def test_assign_is_idempotent_per_invoice():
     state = {"next_serial": 47, "issued": {}}
-    first = serial.assign(state, "7010221545")
-    serial.assign(state, "7010221600")           # spend one more
-    again = serial.assign(state, "7010221545")   # same invoice -> same serial
+    first = serial.assign(state, "7010221545", "15/09/2026")
+    serial.assign(state, "7010221600", "15/09/2026")           # spend one more
+    again = serial.assign(state, "7010221545", "15/09/2026")   # same invoice -> same serial
     assert first == again == (47, "VF/CN2627/047")
-    assert state["next_serial"] == 49            # not spent again
+    assert state["lifetime_next"] == 49            # not spent again
+
+
+def test_printed_serial_restarts_each_fy_lifetime_continues():
+    state = {"next_serial": 50, "issued": {}}
+    # FY 2026-27 note keeps the running number
+    assert serial.assign(state, "A", "15/09/2026") == (50, "VF/CN2627/050")
+    # First FY 2027-28 note: printed serial restarts at 001, lifetime continues
+    assert serial.assign(state, "B", "05/04/2027") == (1, "VF/CN2728/001")
+    assert serial.assign(state, "C", "06/04/2027") == (2, "VF/CN2728/002")
+    assert serial.lifetime_of(state, "A") == 50
+    assert serial.lifetime_of(state, "B") == 51
+    assert serial.lifetime_of(state, "C") == 52
+    assert state["lifetime_next"] == 53
+    assert state["fy_next"]["2627"] == 51
+    assert state["fy_next"]["2728"] == 3
+    # idempotent across the rollover
+    assert serial.assign(state, "B", "05/04/2027") == (1, "VF/CN2728/001")
+
+
+def test_assign_migrates_legacy_issued_rows():
+    # Old on-disk state: issued maps invoice -> plain int, single next_serial.
+    state = {"next_serial": 49, "issued": {"OLD": 47}}
+    assert serial.assign(state, "OLD", "15/09/2026") == (47, "VF/CN2627/047")
+    assert serial.lifetime_of(state, "OLD") == 47
+    assert serial.assign(state, "NEW", "15/09/2026") == (49, "VF/CN2627/049")
 
 
 # ---- folder scan -----------------------------------------------------------

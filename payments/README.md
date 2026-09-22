@@ -41,7 +41,12 @@ and queues a **consignment note** — you don't touch the terminal.
 The app has two tabs: **Payments** and **Consignment notes**. Open the
 **Consignment notes** tab (a badge shows how many are waiting). Each card shows
 the auto-assigned serial (`VF/CN2627/047`, `048`, …), the invoice number/date,
-and the goods, quantity and value pulled from the invoice.
+and the goods, quantity and value pulled from the invoice. The **printed serial
+restarts each Indian financial year** (invoice date based): `VF/CN2627/…` for
+FY 2026-27, then `VF/CN2728/001, 002, …` from 1 April 2027 — so the number reads
+as the trip count within that FY. A separate lifetime counter tracks **total
+trips to date**, shown in the app as a summary line and an "overall trip #" on
+each card (not on the printed note). Serials never change once issued.
 
 1. Set the **Reporting date** (top of the note — the TT's next reporting date;
    defaults to the invoice date, change it to the next day if needed).
