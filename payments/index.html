@@ -293,16 +293,30 @@ summary::-webkit-details-marker{display:none}
 .cr-detamt input[type=date]{width:auto}
 .cr-dedreason{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cr-plan-head{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 8px}
-.cr-plan{width:100%;border-collapse:collapse;font-size:13.5px}
-.cr-plan td{padding:8px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
-.cr-plan .num{text-align:right;font-weight:600}
-.cr-plan tr.due td{color:#ffb020}
-.cr-plan tr.overdue td{color:#ff6b6b}
-.cr-plan tr.cr-plantot td{border-bottom:none;border-top:2px solid var(--line);font-weight:800;color:var(--ink);padding-top:10px}
+.cr-plan{width:100%;border-collapse:separate;border-spacing:0 5px;font-size:14px}
+.cr-plan td{padding:11px 12px;border-bottom:1px solid var(--glass-line-soft);font-variant-numeric:tabular-nums}
+.cr-plan td:first-child{font-weight:600;color:var(--ink)}
+.cr-plan .num{text-align:right;font-weight:800;font-size:15.5px;white-space:nowrap;letter-spacing:.2px}
+/* colour-coded by urgency — upcoming reads accent, today amber, overdue red */
+.cr-plan tr:not(.cr-plantot) .num{color:var(--accent)}
+.cr-plan tr.due td{background:var(--warn-bg);color:var(--warn);border-bottom-color:transparent}
+.cr-plan tr.due .num{color:var(--warn)}
+.cr-plan tr.overdue td{background:var(--bad-bg);color:var(--bad);border-bottom-color:transparent}
+.cr-plan tr.overdue .num{color:var(--bad)}
+.cr-plan tr.due td:first-child,.cr-plan tr.overdue td:first-child{border-radius:10px 0 0 10px}
+.cr-plan tr.due td:last-child,.cr-plan tr.overdue td:last-child{border-radius:0 10px 10px 0}
+.cr-plan tr.cr-plantot td{border-bottom:none;border-top:2px solid var(--glass-line);font-weight:800;color:var(--ink);padding-top:13px;font-size:14.5px}
+.cr-plan tr.cr-plantot .num{font-size:21px;color:var(--accent);
+  background:var(--grad-cta);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .cr-planempty{font-size:13px;color:var(--faint);padding:6px 2px}
 /* the invoices + Other Deductions breakdown under each due-date's total */
 .cr-plan-split{font-size:11px;color:var(--faint);font-weight:400;margin-top:3px;line-height:1.4}
 .cr-plan .oth{color:var(--warn)}
+/* the Funds-needed card — accent-tinted glass so it stands out from the rest */
+.cr-fundscard{background:linear-gradient(150deg,var(--accent-soft),var(--glass) 55%);
+  border-color:rgba(255,122,26,.30);
+  box-shadow:0 0 0 1px rgba(255,122,26,.10),0 22px 48px -28px rgba(244,81,30,.5),var(--glass-shadow)}
+.cr-fundscard .cr-head{font-size:16px}
 .cr-order{margin-top:12px}
 .cr-ordgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cr-ordcell{position:relative;overflow:hidden;background:var(--glass);border:1px solid var(--glass-line);border-radius:12px;padding:10px 12px;min-width:0;
@@ -450,7 +464,7 @@ a{color:var(--accent)}
     </div>
 
     <!-- 2. Funds needed by date — its own card for legibility -->
-    <div class="card">
+    <div class="card cr-fundscard">
       <div class="cr-head">Funds needed by date <span class="cr-sub">each day's closing, due by T+2</span></div>
       <div id="crPlanWrap"></div>
     </div>
@@ -481,7 +495,16 @@ a{color:var(--accent)}
       <div id="crDeductWrap" class="cr-hist"></div>
     </div>
 
-    <!-- 3. Ordering capacity -->
+    <!-- 3. Dues schedule — directly below the balance card -->
+    <div class="card">
+      <div class="cr-head">Day-wise ledger <span class="cr-sub" id="crDuesSub"></span></div>
+      <div id="crDuesWrap"></div>
+    </div>
+
+    <!-- 4. Bank days (confirm + change any day you've set) — 2nd last -->
+    <div id="crHolidays"></div>
+
+    <!-- 5. Ordering capacity — last -->
     <div class="card">
       <div class="cr-head">How much can I order</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px">From the PAD available, at the per-KL price (after VAT) auto-read from your latest invoice. Type a price only to override.</div>
@@ -490,15 +513,6 @@ a{color:var(--accent)}
         <label>MS ₹/KL <input type="number" id="crMsPrice" inputmode="decimal" min="0" step="0.01" onchange="saveCreditConfig()"></label>
       </div>
       <div id="crOrderWrap" class="cr-order"></div>
-    </div>
-
-    <!-- 4. Holiday confirmations (only when something is due on an unknown day) -->
-    <div id="crHolidays"></div>
-
-    <!-- 5. Dues schedule (per-day opening + invoices, within the active window) -->
-    <div class="card">
-      <div class="cr-head">Day-wise ledger <span class="cr-sub" id="crDuesSub"></span></div>
-      <div id="crDuesWrap"></div>
     </div>
   </div>
 </div>
