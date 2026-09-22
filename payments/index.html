@@ -284,6 +284,7 @@ summary::-webkit-details-marker{display:none}
 .cr-detect-a{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .cr-detamt{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:13px}
 .cr-detamt input{width:130px;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:14px;font-variant-numeric:tabular-nums}
+.cr-detamt input[type=date]{width:auto}
 .cr-dedreason{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cr-plan-head{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 8px}
 .cr-plan{width:100%;border-collapse:collapse;font-size:13.5px}
@@ -1622,6 +1623,26 @@ function openingFor(iso){
   const inf=balanceBefore(iso);
   return inf ? {op:inf, assumed:true} : {op:null, assumed:false};
 }
+// When no opening anchors the window, back out the pre-window owed from the
+// EARLIEST reliable balance observation on/after the window start: its owed
+// minus the invoices + confirmed deductions it already reflects. An opening
+// (00:00) reflects activity up to the previous day; a pasted closing snapshot
+// reflects that day too. So a recorded closing balance still pins the maths even
+// when that day's opening wasn't entered. Returns null if nothing to anchor on.
+function carriedFromObservations(windowStart, totals, cds, today){
+  const obs=[];
+  for(const [iso,o] of Object.entries(OPENINGS)){
+    if(iso>=windowStart && iso<=today) obs.push({day:iso, endOfDay:false, owed:openOut(o), t:Date.parse(iso+"T00:00:00")||0}); }
+  for(const b of BALANCES){ const day=String(b.at||"").slice(0,10);
+    if(day>=windowStart && day<=today) obs.push({day, endOfDay:true, owed:(b.sign==="CR"?0:Number(b.amount||0)), t:Date.parse(b.at)||0}); }
+  if(!obs.length) return null;
+  obs.sort((a,b)=>a.t-b.t);
+  const o=obs[0];
+  let inv=0, ded=0;
+  for(const [k,v] of Object.entries(totals)){ if(k>=windowStart && (o.endOfDay ? k<=o.day : k<o.day)) inv+=Number(v||0); }
+  for(const x of cds){ if(x.iso>=windowStart && (o.endOfDay ? x.iso<=o.day : x.iso<o.day)) ded+=x.amount; }
+  return Math.max(0, Math.round((o.owed - inv - ded)*100)/100);
+}
 
 // Confirmed non-invoice PAD debits (licence fee, interest, misc), within the
 // window, each dated and reasoned by the user. These are real obligations that
@@ -1655,7 +1676,11 @@ function computeDues(){
   if(windowStart){
     const priorOpens=Object.keys(OPENINGS).filter(k=>k<=windowStart).sort();
     if(priorOpens.length){ anchor=priorOpens[priorOpens.length-1]; carried=openOut(OPENINGS[anchor]); }
-    else { const inf=balanceBefore(windowStart); carried=inf?openOut(inf):0; }
+    else {
+      const est=carriedFromObservations(windowStart, totals, cds, today);
+      if(est!=null) carried=est;                          // pin from a recorded closing balance
+      else { const inf=balanceBefore(windowStart); carried=inf?openOut(inf):0; }
+    }
   }
 
   // Merge invoice-day and deduction obligations, oldest-first; on the same day
@@ -1804,12 +1829,17 @@ function renderDeductions(d){
   if(det){
     const gap=Math.round((d.extra||0)*100)/100;
     if(gap>1 && CR_DETECT_DISMISSED!==Math.round(gap)){
+      // Default the deduction to the most recent invoice day — a gap usually
+      // belongs to the day just gone (its closing wasn't fully explained), not
+      // to "today". The date is editable.
+      const defDate=Object.keys(dayTotalsISO()).sort().pop() || crTodayISO();
       det.innerHTML=`<div class="cr-detect">
         <div class="cr-detect-h">⚠ Possible other deduction</div>
-        <div class="cr-detect-b">The balance is <b>${esc(money(gap))}</b> more than invoices + recorded deductions explain — likely a licence-fee, interest or misc debit. Check it and confirm with the reason.</div>
+        <div class="cr-detect-b">The balance is <b>${esc(money(gap))}</b> more than invoices + recorded deductions explain — likely a licence-fee, interest or misc debit. Check it and confirm with the reason and the date it belongs to.</div>
         <input type="text" id="crDedReason" placeholder="reason / remark — e.g. interest debit" autocomplete="off">
         <div class="cr-detect-a">
           <span class="cr-detamt">₹ <input type="number" id="crDedAmt" inputmode="decimal" step="0.01" value="${gap}"></span>
+          <span class="cr-detamt">on <input type="date" id="crDedDate" value="${defDate}"></span>
           <button class="cta sm" onclick="confirmDeduction()">Confirm deduction</button>
           <button class="btn ghost sm" onclick="dismissDetect(${Math.round(gap)})">Not now</button>
         </div></div>`;
@@ -1831,9 +1861,12 @@ function renderDeductions(d){
 async function confirmDeduction(){
   const amt=Number((document.getElementById("crDedAmt")||{}).value);
   const reason=((document.getElementById("crDedReason")||{}).value||"").trim();
+  const dstr=((document.getElementById("crDedDate")||{}).value||"").trim();
   if(!isFinite(amt)||amt<=0){ toast("Enter the deduction amount"); return; }
   if(!crNeedCloud()) return;
-  const row={id:crUUID(), at:new Date().toISOString(), amount:Math.round(amt*100)/100, reason};
+  // Store at noon of the chosen day so it dates to that day (its T+2 due).
+  const at=/^\d{4}-\d{2}-\d{2}$/.test(dstr) ? dstr+"T12:00:00" : new Date().toISOString();
+  const row={id:crUUID(), at, amount:Math.round(amt*100)/100, reason};
   OTHER_DEDUCTIONS=[row, ...OTHER_DEDUCTIONS];   // optimistic
   CR_DETECT_DISMISSED=null; renderCredit();
   try{ await Cloud.addDeduction(row); toast(`Deduction ${money(row.amount)} recorded`); }
