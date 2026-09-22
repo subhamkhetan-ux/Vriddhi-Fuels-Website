@@ -333,8 +333,9 @@ returns void language sql security definer as $$
 $$;
 
 -- ---- RLS + realtime (same personal-owner model as above) -------------
-alter table public.pay_consignment_notes enable row level security;
-alter table public.pay_consignment_seq   enable row level security;
+alter table public.pay_consignment_notes  enable row level security;
+alter table public.pay_consignment_seq    enable row level security;
+alter table public.pay_consignment_fy_seq enable row level security;
 
 do $$
 begin
@@ -344,6 +345,10 @@ begin
   end if;
   if not exists (select 1 from pg_policies where policyname = 'pay_consignment_seq_all') then
     create policy pay_consignment_seq_all on public.pay_consignment_seq
+      for all to anon, authenticated using (true) with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where policyname = 'pay_consignment_fy_seq_all') then
+    create policy pay_consignment_fy_seq_all on public.pay_consignment_fy_seq
       for all to anon, authenticated using (true) with check (true);
   end if;
 end $$;
