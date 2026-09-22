@@ -438,6 +438,19 @@ create table if not exists public.pay_bank_holidays (
   updated_at timestamptz default now()
 );
 
+-- Confirmed non-invoice PAD debits (licence-fee recovery, interest, misc fees).
+-- The app detects an unexplained balance gap, asks the user to confirm it, and
+-- stores it here with a reason so it reconciles alongside invoices.
+create table if not exists public.pay_other_deductions (
+  id         text primary key,                -- client-generated id
+  at         timestamptz default now(),       -- when it was confirmed / applied
+  amount     numeric,                         -- rupees debited
+  reason     text,                            -- user's remark (why)
+  created_at timestamptz default now()
+);
+create index if not exists pay_other_deductions_at_idx
+  on public.pay_other_deductions (at desc);
+
 -- Keep only ~7 days of credit history (older is not useful once cleared). The
 -- app calls this on load. Uses IST for "today". Keeps prices (current) and bank
 -- holidays (future-relevant).
@@ -454,6 +467,8 @@ returns void language sql security definer as $$
      and day::date < ((now() at time zone 'Asia/Kolkata')::date - 7);
   delete from public.pay_credit_balances
    where at < now() - interval '7 days';
+  delete from public.pay_other_deductions
+   where at < now() - interval '7 days';
 $$;
 
 alter table public.pay_credit_config       enable row level security;
@@ -463,13 +478,14 @@ alter table public.pay_fuel_day_overrides  enable row level security;
 alter table public.pay_credit_opening      enable row level security;
 alter table public.pay_credit_balances     enable row level security;
 alter table public.pay_bank_holidays       enable row level security;
+alter table public.pay_other_deductions    enable row level security;
 
 do $$
 declare t text;
 begin
   foreach t in array array[
     'pay_credit_config','pay_fuel_invoices','pay_fuel_prices','pay_fuel_day_overrides',
-    'pay_credit_opening','pay_credit_balances','pay_bank_holidays'] loop
+    'pay_credit_opening','pay_credit_balances','pay_bank_holidays','pay_other_deductions'] loop
     if not exists (select 1 from pg_policies where policyname = t || '_all') then
       execute format(
         'create policy %I on public.%I for all to anon, authenticated using (true) with check (true)',
@@ -483,7 +499,7 @@ declare t text;
 begin
   foreach t in array array[
     'pay_credit_config','pay_fuel_invoices','pay_fuel_prices','pay_fuel_day_overrides',
-    'pay_credit_opening','pay_credit_balances','pay_bank_holidays'] loop
+    'pay_credit_opening','pay_credit_balances','pay_bank_holidays','pay_other_deductions'] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
     exception when duplicate_object then null; end;

@@ -276,6 +276,16 @@ summary::-webkit-details-marker{display:none}
 .cr-row.st-overdue td{background:#ff6b6b0d}
 .cr-extra{font-size:12px;color:var(--muted);margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:9px}
 .cr-hint{font-size:11px;color:var(--faint);font-weight:400}
+/* possible-deduction detector prompt + the confirmed-deductions list */
+.cr-detect{background:var(--warn-bg);border:1px solid var(--warn);border-radius:14px;padding:14px;margin-bottom:10px}
+.cr-detect-h{font-family:var(--display);font-weight:800;color:var(--warn);font-size:14px;margin-bottom:4px}
+.cr-detect-b{font-size:12.5px;color:var(--ink);margin-bottom:10px;line-height:1.5}
+.cr-detect input[type=text]{width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:14px;margin-bottom:8px}
+.cr-detect-a{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cr-detamt{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:13px}
+.cr-detamt input{width:130px;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:14px;font-variant-numeric:tabular-nums}
+.cr-detamt input[type=date]{width:auto}
+.cr-dedreason{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cr-plan-head{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 8px}
 .cr-plan{width:100%;border-collapse:collapse;font-size:13.5px}
 .cr-plan td{padding:8px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
@@ -439,6 +449,9 @@ a{color:var(--accent)}
       <div id="crPlanWrap"></div>
     </div>
 
+    <!-- Possible-deduction prompt (shown only when the balance can't be explained) -->
+    <div id="crDetectWrap"></div>
+
     <!-- 2. Balance & PAD available -->
     <div class="card">
       <div class="cr-stats">
@@ -459,6 +472,7 @@ a{color:var(--accent)}
       </div>
       <div style="font-size:11px;color:var(--faint);margin-top:6px">Opening balance = the figure at the start of a day. Recording it re-anchors the dues math so it stays precise.</div>
       <div id="crBalHistory" class="cr-hist"></div>
+      <div id="crDeductWrap" class="cr-hist"></div>
     </div>
 
     <!-- 3. Ordering capacity -->
@@ -857,7 +871,7 @@ const Cloud = {
     if(!this.client) return;
     try{
       Promise.resolve(this.client.rpc("pay_fuel_purge_old")).catch(()=>{});   // keep ~7 days
-      const [cfg, inv, ovr, bal, hol, opn, prc] = await Promise.all([
+      const [cfg, inv, ovr, bal, hol, opn, prc, ded] = await Promise.all([
         this.client.from("pay_credit_config").select("*").eq("id",1).maybeSingle(),
         this.client.from("pay_fuel_invoices").select("invoice_no,invoice_date,tt_no,amount").limit(5000),
         this.client.from("pay_fuel_day_overrides").select("*").limit(2000),
@@ -865,6 +879,7 @@ const Cloud = {
         this.client.from("pay_bank_holidays").select("*").limit(2000),
         this.client.from("pay_credit_opening").select("*").limit(2000),
         this.client.from("pay_fuel_prices").select("*").limit(50),
+        this.client.from("pay_other_deductions").select("*").order("at",{ascending:false}).limit(200),
       ]);
       if(cfg && cfg.data){ CREDIT_CFG = {limit:Number(cfg.data.credit_limit), days:Number(cfg.data.repayment_days),
         hsdPrice:cfg.data.hsd_price!=null?Number(cfg.data.hsd_price):null,
@@ -875,6 +890,7 @@ const Cloud = {
       HOLIDAYS = {}; ((hol && hol.data)||[]).forEach(r=>{ HOLIDAYS[r.day]=r.is_holiday===true; });
       OPENINGS = {}; ((opn && opn.data)||[]).forEach(r=>{ OPENINGS[r.day]={amount:Number(r.amount), sign:r.sign}; });
       PRICES = {}; ((prc && prc.data)||[]).forEach(r=>{ PRICES[r.col_key]={price:Number(r.price_per_kl), as_of:r.as_of}; });
+      OTHER_DEDUCTIONS = ((ded && ded.data)||[]).map(r=>({id:r.id, at:r.at, amount:Number(r.amount), reason:r.reason||""}));
       if(VIEW==="credit") renderCredit(); else updateCreditBadge();
     }catch(_){ /* non-critical */ }
   },
@@ -882,7 +898,7 @@ const Cloud = {
     if(!this.client||!this.client.channel) return;
     let t; const poke=fn=>{clearTimeout(t);t=setTimeout(fn,350);};
     const ch = this.client.channel("credit-live");
-    ["pay_credit_config","pay_fuel_invoices","pay_fuel_prices","pay_fuel_day_overrides","pay_credit_balances","pay_bank_holidays","pay_credit_opening"]
+    ["pay_credit_config","pay_fuel_invoices","pay_fuel_prices","pay_fuel_day_overrides","pay_credit_balances","pay_bank_holidays","pay_credit_opening","pay_other_deductions"]
       .forEach(tbl=> ch.on("postgres_changes",{event:"*",schema:"public",table:tbl},()=>poke(()=>this.pullCredit())));
     ch.subscribe();
   },
@@ -896,6 +912,11 @@ const Cloud = {
     if(error) throw error; },
   async deleteBalance(id){ if(!this.client) return;
     try{ await this.client.from("pay_credit_balances").delete().eq("id",id); }catch(_){} },
+  async addDeduction(row){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_other_deductions").insert([row]);
+    if(error) throw error; },
+  async deleteDeduction(id){ if(!this.client) return;
+    try{ await this.client.from("pay_other_deductions").delete().eq("id",id); }catch(_){} },
   async setDayOverride(day, amount){ if(!this.client) throw new Error("cloud not connected");
     const { error } = await this.client.from("pay_fuel_day_overrides")
       .upsert({day, amount, updated_at:new Date().toISOString()},{onConflict:"day"});
@@ -1496,6 +1517,8 @@ let BALANCES = [];        // [{id, at, amount, sign, raw}] newest first
 let HOLIDAYS = {};        // {iso: true=closed | false=confirmed open}
 let OPENINGS = {};        // {iso: {amount, sign}}  (opening balance recorded per day)
 let PRICES = {};          // {col_key: {price, as_of}}  auto after-VAT ₹/KL from invoices
+let OTHER_DEDUCTIONS = []; // [{id, at(ISO), amount, reason}]  confirmed non-invoice PAD debits
+let CR_DETECT_DISMISSED = null;  // amount last dismissed, so the prompt doesn't nag until it changes
 
 function crUUID(){ try{ return crypto.randomUUID(); }catch(_){ return "b"+Date.now()+Math.random().toString(16).slice(2); } }
 
@@ -1581,6 +1604,10 @@ function latestBalance(){
 function currentBalance(){ return latestBalance(); }
 function outstandingNow(){ const b=currentBalance(); if(!b) return 0; return b.sign==="CR"?0:Number(b.amount||0); }
 function openOut(o){ return o ? (o.sign==="CR" ? 0 : Number(o.amount||0)) : 0; }  // DR owed, CR = 0
+// Signed owed: DR is positive (you owe), CR is negative (prepaid credit). Used so
+// prepaid credit offsets invoices in the reconciliation instead of vanishing —
+// which lets a deduction be detected even while the account is in credit.
+function crOwed(o){ return o ? (o.sign==="CR" ? -Number(o.amount||0) : Number(o.amount||0)) : 0; }
 // The latest balance known BEFORE a given day starts — a recorded opening or a
 // pasted snapshot from an earlier moment. Used to assume a day's opening when
 // none was entered ("carry forward the last known balance"), which the user can
@@ -1600,66 +1627,122 @@ function openingFor(iso){
   const inf=balanceBefore(iso);
   return inf ? {op:inf, assumed:true} : {op:null, assumed:false};
 }
+// When no opening anchors the window, back out the pre-window owed from the
+// EARLIEST reliable balance observation on/after the window start: its owed
+// minus the invoices + confirmed deductions it already reflects. An opening
+// (00:00) reflects activity up to the previous day; a pasted closing snapshot
+// reflects that day too. So a recorded closing balance still pins the maths even
+// when that day's opening wasn't entered. Returns null if nothing to anchor on.
+function carriedFromObservations(windowStart, totals, cds, today){
+  const obs=[];
+  for(const [iso,o] of Object.entries(OPENINGS)){
+    if(iso>=windowStart && iso<=today) obs.push({day:iso, endOfDay:false, owed:crOwed(o), t:Date.parse(iso+"T00:00:00")||0}); }
+  for(const b of BALANCES){ const day=String(b.at||"").slice(0,10);
+    if(day>=windowStart && day<=today) obs.push({day, endOfDay:true, owed:crOwed(b), t:Date.parse(b.at)||0}); }
+  if(!obs.length) return null;
+  obs.sort((a,b)=>a.t-b.t);
+  const o=obs[0];
+  let inv=0, ded=0;
+  for(const [k,v] of Object.entries(totals)){ if(k>=windowStart && (o.endOfDay ? k<=o.day : k<o.day)) inv+=Number(v||0); }
+  for(const x of cds){ if(x.iso>=windowStart && (o.endOfDay ? x.iso<=o.day : x.iso<o.day)) ded+=x.amount; }
+  return Math.round((o.owed - inv - ded)*100)/100;   // signed (may be negative = credit)
+}
 
-// Reconcile the outstanding against invoices oldest-first (FIFO). When an
-// opening balance has been recorded, use the most recent one (<= today) as the
-// anchor: everything before that day collapses into the opening figure, so we
-// only need invoices from the anchor day onward — keeping tracking precise even
-// without the full invoice history. Without any opening, falls back to summing
-// every captured invoice.
+// Confirmed non-invoice PAD debits (licence fee, interest, misc), within the
+// window, each dated and reasoned by the user. These are real obligations that
+// reconcile alongside invoices.
+function confirmedDeductions(){
+  const today=crTodayISO();
+  return (OTHER_DEDUCTIONS||[]).map(x=>{
+    const iso=String(x.at||"").slice(0,10) || today;
+    return {id:x.id, iso, due:dueDateISO(iso), amount:Number(x.amount||0), reason:x.reason||"", at:x.at};
+  }).filter(x=> x.amount>0.005 && x.iso<=today).sort((a,b)=>a.iso<b.iso?-1:a.iso>b.iso?1:0);
+}
+
+// Reconcile the current owed against every known obligation — invoices AND
+// confirmed other-deductions — oldest-first. Each invoice day stays visible
+// until its own dues clear; each confirmed deduction likewise. `extra` is the
+// owed we CANNOT explain from invoices + confirmed deductions + carried debt —
+// i.e. a likely un-recorded deduction the app should ask the user to confirm.
 function computeDues(){
   const totals=dayTotalsISO();
   const today=crTodayISO();
   const outstanding=outstandingNow();
+  const cds=confirmedDeductions();
 
-  // Itemise EVERY invoice day in the window — a day stays visible until its own
-  // dues are cleared, never hidden just because a later day got an opening/
-  // balance. The pre-window carried debt is the owed at the start of the oldest
-  // invoice day, taken from a recorded opening ON OR BEFORE that day (a later
-  // opening does NOT subsume earlier unpaid days), else assumed from the last
-  // balance before it, else zero.
+  // Window start = the earliest dated obligation (invoice day or deduction day).
+  // Pre-window carried debt = owed at that day's start, from a recorded opening
+  // ON OR BEFORE it (a later opening does NOT subsume earlier unpaid days), else
+  // assumed from the last balance before it, else zero.
   const invDays=Object.keys(totals).sort();
-  const windowStart=invDays[0]||null;
+  const windowStart=[...invDays, ...cds.map(x=>x.iso)].sort()[0]||null;
+  // carried is SIGNED: DR positive (owed carried in), CR negative (prepaid credit
+  // carried in). Prepaid credit offsets the oldest obligations rather than being
+  // dropped, so a deduction is still caught while the account is in credit.
   let carried=0, anchor=null;
   if(windowStart){
     const priorOpens=Object.keys(OPENINGS).filter(k=>k<=windowStart).sort();
-    if(priorOpens.length){ anchor=priorOpens[priorOpens.length-1]; carried=openOut(OPENINGS[anchor]); }
-    else { const inf=balanceBefore(windowStart); carried=inf?openOut(inf):0; }
+    if(priorOpens.length){ anchor=priorOpens[priorOpens.length-1]; carried=crOwed(OPENINGS[anchor]); }
+    else {
+      const est=carriedFromObservations(windowStart, totals, cds, today);
+      if(est!=null) carried=est;                          // pin from a recorded closing balance
+      else { const inf=balanceBefore(windowStart); carried=inf?crOwed(inf):0; }
+    }
   }
-  const pool=carried+invDays.reduce((a,d)=>a+totals[d],0);
-  let remaining=Math.max(0, pool-outstanding);          // amount paid off the pool, oldest first
-  const carriedCov=Math.min(remaining,carried); remaining-=carriedCov;
-  const carriedUnpaid=Math.round((carried-carriedCov)*100)/100;
+
+  // Merge invoice-day and deduction obligations, oldest-first; on the same day
+  // invoices are cleared BEFORE deductions (available credit knocks down
+  // invoices first).
+  const obligations=[];
+  for(const iso of invDays) obligations.push({iso, kind:"inv", amount:totals[iso]});
+  for(const x of cds) obligations.push({iso:x.iso, kind:"oth", amount:x.amount, id:x.id, reason:x.reason});
+  obligations.sort((a,b)=> a.iso<b.iso?-1 : a.iso>b.iso?1 : (a.kind===b.kind?0 : a.kind==="inv"?-1:1));
+
+  // Coverage that reduced what's owed = prepaid credit (CR carried) + any
+  // payments. `extra` is what's owed BEYOND the expected (carried + obligations)
+  // — an un-recorded deduction. Splitting carried into its DR part (an oldest
+  // obligation) and its CR part (credit that offsets obligations) keeps a
+  // deduction detectable even when carried in credit, and the invariant holds:
+  // carriedUnpaid + Σ unpaid + extra === outstanding.
+  const sumObl=obligations.reduce((a,o)=>a+o.amount,0);
+  const carriedDR=Math.max(0,carried);                        // DR debt carried in (CR credit offsets instead)
+  const grossOwed=Math.round((carriedDR+sumObl)*100)/100;
+  const expectedOwed=Math.max(0, Math.round((carried+sumObl)*100)/100);   // owed after prepaid credit, never below 0
+  const extra=Math.max(0, Math.round((outstanding-expectedOwed)*100)/100);   // UNEXPLAINED → confirm as a deduction
+  // Coverage that cleared obligations = prepaid credit + payments, oldest first.
+  let remaining=Math.round((grossOwed-Math.min(outstanding, expectedOwed))*100)/100;
+  const carriedCov=Math.min(remaining,carriedDR); remaining=Math.round((remaining-carriedCov)*100)/100;
+  const carriedUnpaid=Math.round((carriedDR-carriedCov)*100)/100;
 
   const invByDay=invoicesByDayISO();
-  const allRows=invDays.map(iso=>{
-    const amount=totals[iso];
-    const covered=Math.min(remaining,amount); remaining-=covered;
-    const unpaid=Math.round((amount-covered)*100)/100;
-    const due=dueDateISO(iso);
+  const rows=[], deductions=[];
+  for(const o of obligations){
+    const covered=Math.min(remaining,o.amount); remaining=Math.round((remaining-covered)*100)/100;
+    const unpaid=Math.round((o.amount-covered)*100)/100;
+    const due=dueDateISO(o.iso);
     let status;
     if(unpaid<=0.005) status="paid";
     else if(due<today) status="overdue";
     else if(due===today) status="due";
     else status="upcoming";
-    // Break the day's payment down onto its individual invoices, oldest (by
-    // invoice number) first, so each invoice shows its own pending value. Only
-    // when the day isn't a manual override (then the parts don't sum to it).
-    let items=[];
-    if(!(isoToDmy(iso) in DAY_OVERRIDES) && invByDay[iso]){
-      let cov=covered;
-      items=invByDay[iso].map(it=>{
-        const c=Math.min(cov, it.amount); cov=Math.round((cov-c)*100)/100;
-        return {invoice_no:it.invoice_no, amount:it.amount, pending:Math.round((it.amount-c)*100)/100};
-      });
+    if(o.kind==="inv"){
+      // Split the day's payment onto its individual invoices, oldest (by invoice
+      // number) first, so each invoice shows its own pending value.
+      let items=[];
+      if(!(isoToDmy(o.iso) in DAY_OVERRIDES) && invByDay[o.iso]){
+        let cov=covered;
+        items=invByDay[o.iso].map(it=>{
+          const c=Math.min(cov, it.amount); cov=Math.round((cov-c)*100)/100;
+          return {invoice_no:it.invoice_no, amount:it.amount, pending:Math.round((it.amount-c)*100)/100};
+        });
+      }
+      if(unpaid>0.005) rows.push({iso:o.iso, amount:o.amount, unpaid, due, status, items});
+    } else if(unpaid>0.005){
+      deductions.push({id:o.id, iso:o.iso, amount:o.amount, unpaid, due, status, reason:o.reason});
     }
-    return {iso, amount, unpaid, due, status, items};
-  });
-  // A day (and its invoices) disappears only once its dues are cleared.
-  const rows=allRows.filter(r=>r.unpaid>0.005);
+  }
   const total=rows.reduce((a,r)=>a+r.amount,0);         // invoiced still on the ledger
-  const extra=Math.max(0,Math.round((outstanding-pool)*100)/100);   // owed beyond what we've scheduled
-  return {rows, total, outstanding, extra, anchor, carried, carriedUnpaid};
+  return {rows, deductions, total, outstanding, extra, anchor, carried, carriedUnpaid};
 }
 
 function crWhen(at){
@@ -1670,7 +1753,7 @@ function crWhen(at){
 function updateCreditBadge(){
   const b=document.getElementById("creditBadge"); if(!b) return;
   const d=computeDues();
-  const n=d.rows.filter(r=>r.status==="overdue"||r.status==="due").length;
+  const n=[...d.rows, ...d.deductions].filter(r=>r.status==="overdue"||r.status==="due").length;
   if(n){ b.textContent=n; b.hidden=false; } else b.hidden=true;
 }
 
@@ -1702,7 +1785,8 @@ function renderCredit(){
     ? `${money(CREDIT_CFG.limit)} limit + ${money(bal.amount)} prepaid`
     : "of "+money(CREDIT_CFG.limit)+" limit";
 
-  const upcoming = d.rows.filter(r=>r.status!=="paid").sort((a,b)=>a.due<b.due?-1:1);
+  // Next due considers invoices AND confirmed deductions — both are real dues.
+  const upcoming = [...d.rows, ...d.deductions].filter(r=>r.status!=="paid").sort((a,b)=>a.due<b.due?-1:1);
   const nextDue = upcoming[0];
   if(nextDue){
     document.getElementById("crNextDue").textContent=money(nextDue.unpaid);
@@ -1710,6 +1794,7 @@ function renderCredit(){
   } else { document.getElementById("crNextDue").textContent="—"; document.getElementById("crNextDueDate").textContent=bal?"all clear":""; }
 
   renderFundsPlan(d);
+  renderDeductions(d);
   renderOrderCapacity(avail);
   renderBalHistory();
   renderHolidayPrompts(d);
@@ -1717,78 +1802,24 @@ function renderCredit(){
   updateCreditBadge();
 }
 
-// Signed available balance: CR (in credit) is positive, DR (owed) is negative.
-function crSigned(o){ if(!o) return 0; return o.sign==="CR" ? Number(o.amount||0) : -Number(o.amount||0); }
-
-// Funds-needed obligations. PRIMARY RULE: the closing balance of each day T
-// (= opening of day T+1, or the live balance for the running day) must be cleared
-// before midnight of T+2. For each recorded-opening day we take the balance drop
-// over its interval; the part explained by invoices is the invoice due (dated to
-// each invoice's OWN T+2), and the remainder is "Other Deductions" (licence-fee
-// recovery, misc fees, interest — never ingested separately, only seen through
-// the balance), due on the interval-start day's T+2.
-//
-// The still-owed total is pinned to the current balance, cleared oldest-first;
-// within a day, available credit knocks down invoices BEFORE Other Deductions.
-// So a corrected/updated balance always recomputes, and anything owed we can't
-// date shows as carried / overdue.
-function fundsObligations(){
-  const today=crTodayISO();
-  const totals=dayTotalsISO();
-  const cur=currentBalance();
-  const openDays=Object.keys(OPENINGS).filter(k=>k<=today).sort();
-  const items=[];   // flat obligations: {day, due, kind:'inv'|'oth', amt}
-  if(openDays.length && cur){
-    for(let i=0;i<openDays.length;i++){
-      const T=openDays[i];
-      const nextIso=i+1<openDays.length?openDays[i+1]:null;
-      const hi=nextIso||"9999-99-99";
-      const clear=Math.round((crSigned(OPENINGS[T])-(nextIso?crSigned(OPENINGS[nextIso]):crSigned(cur)))*100)/100;
-      if(clear<=0.005) continue;                       // balance flat / rose → nothing to clear
-      const invDays=Object.keys(totals).filter(k=>k>=T && k<hi && totals[k]>0.005).sort();
-      const invSum=invDays.reduce((a,k)=>a+totals[k],0);
-      let invCap=Math.min(invSum, clear);              // invoices can't exceed the day's drop
-      for(const k of invDays){                          // each invoice dated to its own T+2
-        if(invCap<=0.005) break;
-        const a=Math.min(totals[k], invCap); invCap=Math.round((invCap-a)*100)/100;
-        items.push({day:k, due:dueDateISO(k), kind:"inv", amt:Math.round(a*100)/100});
-      }
-      const oth=Math.round((clear-Math.min(invSum,clear))*100)/100;
-      if(oth>0.005) items.push({day:T, due:dueDateISO(T), kind:"oth", amt:oth});
-    }
-  }
-  const grossTotal=items.reduce((a,r)=>a+r.amt,0);
-  const owed=cur ? Math.max(0, -crSigned(cur)) : 0;
-  let paid=Math.max(0, Math.round((grossTotal-owed)*100)/100);   // credit clears oldest first
-  // oldest day first (primary), and within a day invoices before Other Deductions
-  items.sort((a,b)=> a.day<b.day?-1 : a.day>b.day?1 : (a.kind===b.kind?0 : a.kind==="inv"?-1:1));
-  const byDue={};
-  for(const it of items){
-    const cov=Math.min(paid, it.amt); paid=Math.round((paid-cov)*100)/100;
-    const unpaid=Math.round((it.amt-cov)*100)/100;
-    if(unpaid<=0.005) continue;
-    const b=byDue[it.due]||(byDue[it.due]={inv:0,oth:0});
-    if(it.kind==="inv") b.inv=Math.round((b.inv+unpaid)*100)/100;
-    else b.oth=Math.round((b.oth+unpaid)*100)/100;
-  }
-  const attributed=Object.values(byDue).reduce((a,b)=>a+b.inv+b.oth,0);
-  const carried=Math.round((owed-attributed)*100)/100;           // owed we couldn't date
-  return {byDue, owed, carried:carried>0.005?carried:0};
-}
-
 // Funds needed by date = invoice dues + Other Deductions, summed per due date, so
-// each date shows the full amount to arrange (closing of day T, due by T+2).
+// each date shows the full amount to arrange (closing of day T, due by T+2). Built
+// straight from computeDues so the plan and the ledger can never disagree.
 function renderFundsPlan(d){
   const w=document.getElementById("crPlanWrap"); if(!w) return;
   const today=crTodayISO();
-  const plan=fundsObligations();
-  const byDue=plan.byDue;
+  const byDue={};   // due -> {inv, oth, reasons:Set}
+  const bucket=iso=>byDue[iso]||(byDue[iso]={inv:0, oth:0, reasons:new Set()});
+  for(const r of d.rows){ const b=bucket(r.due); b.inv=Math.round((b.inv+r.unpaid)*100)/100; }
+  for(const x of d.deductions){ const b=bucket(x.due); b.oth=Math.round((b.oth+x.unpaid)*100)/100; if(x.reason) b.reasons.add(x.reason); }
   const dues=Object.keys(byDue).sort();
-  if(!dues.length && !plan.carried){
+  const carried=d.carriedUnpaid>0.005?d.carriedUnpaid:0;
+  const unconfirmed=d.extra>0.005?d.extra:0;
+  if(!dues.length && !carried && !unconfirmed){
     w.innerHTML=`<div class="cr-planempty">Nothing due — all clear.</div>`; return; }
   let total=0; let h=`<table class="cr-plan"><tbody>`;
-  if(plan.carried){ total+=plan.carried;
-    h+=`<tr class="overdue"><td>Carried / overdue</td><td class="num">${esc(money(plan.carried))}</td></tr>`; }
+  if(carried){ total+=carried;
+    h+=`<tr class="overdue"><td>Carried / overdue</td><td class="num">${esc(money(carried))}</td></tr>`; }
   for(const iso of dues){
     const inv=Math.round((byDue[iso].inv)*100)/100, oth=Math.round((byDue[iso].oth)*100)/100;
     const sum=Math.round((inv+oth)*100)/100;
@@ -1796,13 +1827,74 @@ function renderFundsPlan(d){
     total+=sum;
     const cls = iso<today?"overdue":(iso===today?"due":"");
     const when = iso<today?"overdue since ":(iso===today?"today · ":"");
+    const why = byDue[iso].reasons.size ? ` (${esc([...byDue[iso].reasons].join(", "))})` : "";
     let split="";
-    if(inv>0.005 && oth>0.005) split=`<div class="cr-plan-split">invoices ${esc(money(inv))} · <span class="oth">Other Deductions ${esc(money(oth))}</span></div>`;
-    else if(oth>0.005) split=`<div class="cr-plan-split"><span class="oth">Other Deductions ${esc(money(oth))}</span></div>`;
+    if(inv>0.005 && oth>0.005) split=`<div class="cr-plan-split">invoices ${esc(money(inv))} · <span class="oth">Other Deductions ${esc(money(oth))}${why}</span></div>`;
+    else if(oth>0.005) split=`<div class="cr-plan-split"><span class="oth">Other Deductions ${esc(money(oth))}${why}</span></div>`;
     h+=`<tr class="${cls}"><td>${when}${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))}${split}</td><td class="num">${esc(money(sum))}</td></tr>`;
   }
+  if(unconfirmed){ total+=unconfirmed;
+    h+=`<tr class="due"><td>Unconfirmed deduction <span class="cr-hint">· confirm below</span></td><td class="num">${esc(money(unconfirmed))}</td></tr>`; }
   h+=`<tr class="cr-plantot"><td>Total to arrange</td><td class="num">${esc(money(total))}</td></tr></tbody></table>`;
   w.innerHTML=h;
+}
+
+// Detect a likely non-invoice deduction (owed the invoices + recorded deductions
+// can't explain) and ask the user to confirm it with a reason; plus list the
+// confirmed deductions so they can be reviewed / removed.
+function renderDeductions(d){
+  const det=document.getElementById("crDetectWrap");
+  if(det){
+    const gap=Math.round((d.extra||0)*100)/100;
+    if(gap>1 && CR_DETECT_DISMISSED!==Math.round(gap)){
+      // Default the deduction to the most recent invoice day — a gap usually
+      // belongs to the day just gone (its closing wasn't fully explained), not
+      // to "today". The date is editable.
+      const defDate=Object.keys(dayTotalsISO()).sort().pop() || crTodayISO();
+      det.innerHTML=`<div class="cr-detect">
+        <div class="cr-detect-h">⚠ Possible other deduction</div>
+        <div class="cr-detect-b">The balance is <b>${esc(money(gap))}</b> more than invoices + recorded deductions explain — likely a licence-fee, interest or misc debit. Check it and confirm with the reason and the date it belongs to.</div>
+        <input type="text" id="crDedReason" placeholder="reason / remark — e.g. interest debit" autocomplete="off">
+        <div class="cr-detect-a">
+          <span class="cr-detamt">₹ <input type="number" id="crDedAmt" inputmode="decimal" step="0.01" value="${gap}"></span>
+          <span class="cr-detamt">on <input type="date" id="crDedDate" value="${defDate}"></span>
+          <button class="cta sm" onclick="confirmDeduction()">Confirm deduction</button>
+          <button class="btn ghost sm" onclick="dismissDetect(${Math.round(gap)})">Not now</button>
+        </div></div>`;
+    } else det.innerHTML="";
+  }
+  const w=document.getElementById("crDeductWrap"); if(!w) return;
+  if(!d.deductions.length){ w.innerHTML=""; return; }
+  const list=d.deductions.slice().sort((a,b)=>a.iso<b.iso?1:-1).map(x=>{
+    const when=isoToDmy(x.iso)+(x.unpaid<=0.005?` · <span class="cr-in">paid</span>`:"");
+    return `<div class="cr-histrow">
+      <span class="cr-histamt cr-od">${esc(money(x.amount))}</span>
+      <span class="cr-dedreason">${esc(x.reason||"—")}</span>
+      <span class="cr-histwhen">${when}</span>
+      <button class="cust-x" title="Delete" onclick="deleteDeduction('${escAttr(x.id)}')">×</button></div>`;
+  }).join("");
+  w.innerHTML=`<div class="cr-histhead">Other deductions</div>`+list;
+}
+
+async function confirmDeduction(){
+  const amt=Number((document.getElementById("crDedAmt")||{}).value);
+  const reason=((document.getElementById("crDedReason")||{}).value||"").trim();
+  const dstr=((document.getElementById("crDedDate")||{}).value||"").trim();
+  if(!isFinite(amt)||amt<=0){ toast("Enter the deduction amount"); return; }
+  if(!crNeedCloud()) return;
+  // Store at noon of the chosen day so it dates to that day (its T+2 due).
+  const at=/^\d{4}-\d{2}-\d{2}$/.test(dstr) ? dstr+"T12:00:00" : new Date().toISOString();
+  const row={id:crUUID(), at, amount:Math.round(amt*100)/100, reason};
+  OTHER_DEDUCTIONS=[row, ...OTHER_DEDUCTIONS];   // optimistic
+  CR_DETECT_DISMISSED=null; renderCredit();
+  try{ await Cloud.addDeduction(row); toast(`Deduction ${money(row.amount)} recorded`); }
+  catch(e){ OTHER_DEDUCTIONS=OTHER_DEDUCTIONS.filter(x=>x.id!==row.id); renderCredit(); toast("Couldn't save: "+(e&&e.message||e)); }
+}
+function dismissDetect(amt){ CR_DETECT_DISMISSED=amt; renderCredit(); }
+async function deleteDeduction(id){
+  const prev=OTHER_DEDUCTIONS.slice();
+  OTHER_DEDUCTIONS=OTHER_DEDUCTIONS.filter(x=>x.id!==id); CR_DETECT_DISMISSED=null; renderCredit();
+  try{ await Cloud.deleteDeduction(id); }catch(e){ OTHER_DEDUCTIONS=prev; renderCredit(); toast("Couldn't delete: "+(e&&e.message||e)); }
 }
 
 // The price used for a product: a manual override wins, else the auto price the
@@ -1908,7 +2000,7 @@ function renderDuesTable(d){
   }
   if(sub) sub.textContent = `· ${money(d.total)} invoiced`;
   let h="";
-  if(d.anchor){
+  if(d.anchor && d.carried>0.005){   // only a DR debt carried in is worth noting (credit isn't)
     h+=`<div class="cr-carry">Carried forward from opening on <b>${esc(isoToDmy(d.anchor))}</b>: ${esc(money(d.carried))}`
       + (d.carriedUnpaid>0.005?` · <span class="cr-od">${esc(money(d.carriedUnpaid))} still owed</span>`:` · <span class="cr-in">cleared</span>`)
       + `</div>`;
