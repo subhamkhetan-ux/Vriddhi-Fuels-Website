@@ -263,6 +263,8 @@ summary::-webkit-details-marker{display:none}
 /* a balance shown as CR (in credit) reads green anywhere; DR (owed) reads red */
 .cr-amtbtn.cr-in{color:var(--good);border-color:rgba(47,208,138,.5)}
 .cr-amtbtn.cr-od{color:var(--bad);border-color:rgba(255,107,94,.5)}
+/* an assumed (carried-forward) opening — faded, still tappable to set */
+.cr-amtbtn.cr-assumed{opacity:.6;border-style:dashed}
 .cr-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
 .cr-badge.st-paid{background:#3fb95022;color:#3fb950}
 .cr-badge.st-upcoming{background:var(--glass-2);color:var(--muted)}
@@ -1579,6 +1581,25 @@ function latestBalance(){
 function currentBalance(){ return latestBalance(); }
 function outstandingNow(){ const b=currentBalance(); if(!b) return 0; return b.sign==="CR"?0:Number(b.amount||0); }
 function openOut(o){ return o ? (o.sign==="CR" ? 0 : Number(o.amount||0)) : 0; }  // DR owed, CR = 0
+// The latest balance known BEFORE a given day starts — a recorded opening or a
+// pasted snapshot from an earlier moment. Used to assume a day's opening when
+// none was entered ("carry forward the last known balance"), which the user can
+// still edit.
+function balanceBefore(iso){
+  const cut=Date.parse(iso+"T00:00:00")||0; let best=null, bestT=-Infinity;
+  for(const b of BALANCES){ const t=Date.parse(b.at)||0;
+    if(t<cut && t>bestT){ bestT=t; best={amount:Number(b.amount||0), sign:b.sign}; } }
+  for(const [k,o] of Object.entries(OPENINGS)){ const t=Date.parse(k+"T00:00:00")||0;
+    if(t<cut && t>bestT){ bestT=t; best={amount:Number(o.amount||0), sign:o.sign}; } }
+  return best;
+}
+// A day's opening balance: the recorded one, else assumed = the last balance
+// known before that day (carried forward). Second return flags "assumed".
+function openingFor(iso){
+  if(OPENINGS[iso]) return {op:OPENINGS[iso], assumed:false};
+  const inf=balanceBefore(iso);
+  return inf ? {op:inf, assumed:true} : {op:null, assumed:false};
+}
 
 // Reconcile the outstanding against invoices oldest-first (FIFO). When an
 // opening balance has been recorded, use the most recent one (<= today) as the
@@ -1591,23 +1612,27 @@ function computeDues(){
   const today=crTodayISO();
   const outstanding=outstandingNow();
 
-  const openKeys=Object.keys(OPENINGS).filter(k=>k<=today).sort();
-  const anchor=openKeys.length ? openKeys[openKeys.length-1] : null;
-
-  let carried=0, invDays;
-  if(anchor){
-    carried=openOut(OPENINGS[anchor]);                 // owed carried into the anchor day
-    invDays=Object.keys(totals).filter(k=>k>=anchor).sort();
-  }else{
-    invDays=Object.keys(totals).sort();
+  // Itemise EVERY invoice day in the window — a day stays visible until its own
+  // dues are cleared, never hidden just because a later day got an opening/
+  // balance. The pre-window carried debt is the owed at the start of the oldest
+  // invoice day, taken from a recorded opening ON OR BEFORE that day (a later
+  // opening does NOT subsume earlier unpaid days), else assumed from the last
+  // balance before it, else zero.
+  const invDays=Object.keys(totals).sort();
+  const windowStart=invDays[0]||null;
+  let carried=0, anchor=null;
+  if(windowStart){
+    const priorOpens=Object.keys(OPENINGS).filter(k=>k<=windowStart).sort();
+    if(priorOpens.length){ anchor=priorOpens[priorOpens.length-1]; carried=openOut(OPENINGS[anchor]); }
+    else { const inf=balanceBefore(windowStart); carried=inf?openOut(inf):0; }
   }
   const pool=carried+invDays.reduce((a,d)=>a+totals[d],0);
-  let remaining=Math.max(0, pool-outstanding);          // amount paid off the pool
+  let remaining=Math.max(0, pool-outstanding);          // amount paid off the pool, oldest first
   const carriedCov=Math.min(remaining,carried); remaining-=carriedCov;
   const carriedUnpaid=Math.round((carried-carriedCov)*100)/100;
 
   const invByDay=invoicesByDayISO();
-  const rows=invDays.map(iso=>{
+  const allRows=invDays.map(iso=>{
     const amount=totals[iso];
     const covered=Math.min(remaining,amount); remaining-=covered;
     const unpaid=Math.round((amount-covered)*100)/100;
@@ -1630,7 +1655,9 @@ function computeDues(){
     }
     return {iso, amount, unpaid, due, status, items};
   });
-  const total=invDays.reduce((a,d)=>a+totals[d],0);
+  // A day (and its invoices) disappears only once its dues are cleared.
+  const rows=allRows.filter(r=>r.unpaid>0.005);
+  const total=rows.reduce((a,r)=>a+r.amount,0);         // invoiced still on the ledger
   const extra=Math.max(0,Math.round((outstanding-pool)*100)/100);   // owed beyond what we've scheduled
   return {rows, total, outstanding, extra, anchor, carried, carriedUnpaid};
 }
@@ -1891,10 +1918,12 @@ function renderDuesTable(d){
     <th>Invoice day</th><th class="num">Opening</th><th class="num">Invoices</th><th>Due</th><th class="num">Still owed</th><th>Status</th></tr></thead><tbody>`;
   for(const r of rows){
     const overridden = dmyOf(r.iso) in DAY_OVERRIDES;
-    const op = OPENINGS[r.iso];
+    // Opening: the recorded one, else the assumed carry-forward (last known
+    // balance before this day) shown faded with a "~", still tap-to-edit.
+    const of = openingFor(r.iso), op = of.op;
     const opCls = op ? (op.sign==="CR" ? "cr-in" : "cr-od") : "";   // CR reads green, DR red
     const opCell = op
-      ? `<button class="cr-amtbtn ${opCls}" title="Edit opening balance" onclick="editOpening('${r.iso}')">${esc(money(op.amount))} ${esc(op.sign)}</button>`
+      ? `<button class="cr-amtbtn ${opCls}${of.assumed?" cr-assumed":""}" title="${of.assumed?"Assumed from the last known balance — tap to set this day's opening":"Edit opening balance"}" onclick="editOpening('${r.iso}')">${of.assumed?"~ ":""}${esc(money(op.amount))} ${esc(op.sign)}</button>`
       : `<button class="cr-amtbtn cr-add" title="Record the opening balance for this day" onclick="editOpening('${r.iso}')">+ set</button>`;
     const items = r.items||[];
     // Day header shows the day TOTAL; one invoice → name it inline, several →
