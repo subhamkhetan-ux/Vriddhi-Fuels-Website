@@ -162,7 +162,8 @@ end $$;
 create table if not exists public.pay_consignment_notes (
   id             text primary key,          -- stable id (hash of gmail msg id)
   gmail_msg_id   text,
-  serial_num     integer not null,          -- 47
+  serial_num     integer not null,          -- printed number, restarts each FY (1, 2, …)
+  lifetime_num   integer,                    -- total-trips index, never resets across FYs
   serial_str     text    not null,          -- 'VF/CN2627/047'
   invoice_no     text,
   invoice_date   text,                       -- dd/mm/yyyy from the invoice
@@ -194,7 +195,21 @@ alter table public.pay_consignment_notes
 alter table public.pay_consignment_notes
   add column if not exists origin text;
 
--- ---- monotonic serial counter (never resets, survives purges) ---------
+-- Lifetime index (total trips ever). Added when the printed serial began
+-- restarting per financial year; for FY 2026-27 rows the per-FY number and the
+-- lifetime number coincide, so back-fill from serial_num.
+alter table public.pay_consignment_notes
+  add column if not exists lifetime_num integer;
+update public.pay_consignment_notes
+   set lifetime_num = serial_num
+ where lifetime_num is null;
+
+-- ---- serial counters -------------------------------------------------------
+-- Two counters, both survive purges:
+--   * pay_consignment_seq   — LIFETIME total, never resets. Its value-1 is the
+--     count of notes issued to date; each note stores it as lifetime_num.
+--   * pay_consignment_fy_seq — per financial year; the PRINTED serial restarts
+--     at 1 each FY (VF/CN2728/001, 002, …), read straight off the note.
 create table if not exists public.pay_consignment_seq (
   id       smallint primary key default 1,
   next_val integer  not null,
@@ -204,6 +219,39 @@ create table if not exists public.pay_consignment_seq (
 insert into public.pay_consignment_seq (id, next_val)
   values (1, 47)
   on conflict (id) do nothing;
+
+create table if not exists public.pay_consignment_fy_seq (
+  fy_code  text primary key,          -- '2728' for FY 2027-28
+  next_val integer not null
+);
+-- Seed the CURRENT financial year (2026-27) from the lifetime counter so its
+-- numbering continues without a jump — already-issued 047, 048… keep their
+-- numbers. A brand-new FY gets a fresh row starting at 1 on its first note.
+insert into public.pay_consignment_fy_seq (fy_code, next_val)
+  select '2627', next_val from public.pay_consignment_seq where id = 1
+  on conflict (fy_code) do nothing;
+
+-- The financial-year code ('2627', '2728', …) for a dd/mm/yyyy invoice date.
+-- Indian FY runs 1 Apr – 31 Mar: Apr–Dec belong to that year's FY, Jan–Mar to
+-- the FY that began the previous April. Falls back to today's FY if the date is
+-- missing or unparseable.
+create or replace function public.pay_consignment_fy_code(p_invoice_date text)
+returns text language plpgsql stable as $$
+declare
+  d  date;
+  ys int;   -- financial-year start year
+begin
+  begin
+    d := to_date(nullif(trim(p_invoice_date), ''), 'DD/MM/YYYY');
+  exception when others then
+    d := null;
+  end;
+  if d is null then d := current_date; end if;
+  ys := case when extract(month from d) >= 4
+             then extract(year from d)::int
+             else extract(year from d)::int - 1 end;
+  return lpad((ys % 100)::text, 2, '0') || lpad(((ys + 1) % 100)::text, 2, '0');
+end $$;
 
 -- Atomically claim a consignment note for one invoice. Idempotent by `id`:
 -- if the note already exists it is returned unchanged (no serial consumed),
@@ -233,23 +281,36 @@ create or replace function public.pay_claim_consignment(
 ) returns public.pay_consignment_notes
 language plpgsql security definer as $$
 declare
-  rec      public.pay_consignment_notes;
-  v_serial integer;
+  rec        public.pay_consignment_notes;
+  v_fy       text;
+  v_fynum    integer;   -- printed number within the financial year
+  v_lifetime integer;   -- total-trips index across all years
 begin
   select * into rec from public.pay_consignment_notes where id = p_id;
   if found then
     return rec;
   end if;
+  v_fy := public.pay_consignment_fy_code(p_invoice_date);
+  -- lifetime counter (total trips ever)
   update public.pay_consignment_seq
      set next_val = next_val + 1
    where id = 1
-   returning next_val - 1 into v_serial;
+   returning next_val - 1 into v_lifetime;
+  -- per-FY counter — the printed serial restarts at 1 each financial year. Make
+  -- sure the row exists (first note of a new FY), then take the next number.
+  insert into public.pay_consignment_fy_seq (fy_code, next_val)
+    values (v_fy, 1)
+    on conflict (fy_code) do nothing;
+  update public.pay_consignment_fy_seq
+     set next_val = next_val + 1
+   where fy_code = v_fy
+   returning next_val - 1 into v_fynum;
   insert into public.pay_consignment_notes
-    (id, gmail_msg_id, serial_num, serial_str, invoice_no, invoice_date,
+    (id, gmail_msg_id, serial_num, lifetime_num, serial_str, invoice_no, invoice_date,
      reporting_date, tt_no, product, column_key, qty, columns, value, origin, status)
   values
-    (p_id, p_gmail_msg_id, v_serial,
-     'VF/CN2627/' || lpad(v_serial::text, 3, '0'),
+    (p_id, p_gmail_msg_id, v_fynum, v_lifetime,
+     'VF/CN' || v_fy || '/' || lpad(v_fynum::text, 3, '0'),
      p_invoice_no, p_invoice_date, p_invoice_date, p_tt_no, p_product,
      p_column_key, p_qty, coalesce(p_columns, '{}'::jsonb), p_value, p_origin, 'pending')
   returning * into rec;
@@ -257,15 +318,16 @@ begin
 end $$;
 
 -- ---- keep only the latest 5 notes (storage cap) ----------------------
--- Deletes everything except the 5 highest serials, so at most 5 consignment
--- notes are ever stored. The serial counter (pay_consignment_seq) is separate
--- and never resets, so numbers keep incrementing even as old notes drop off.
+-- Deletes everything except the 5 most recent notes, so at most 5 are ever
+-- stored. Ordered by lifetime_num (true recency) because the printed serial_num
+-- now restarts each financial year. The counters are separate and never reset,
+-- so numbering continues even as old notes drop off.
 create or replace function public.pay_consignment_purge_old()
 returns void language sql security definer as $$
   delete from public.pay_consignment_notes
-  where serial_num not in (
-    select serial_num from public.pay_consignment_notes
-    order by serial_num desc
+  where id not in (
+    select id from public.pay_consignment_notes
+    order by coalesce(lifetime_num, serial_num) desc
     limit 5
   );
 $$;

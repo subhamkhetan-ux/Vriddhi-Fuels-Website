@@ -122,6 +122,10 @@ CONSIGNMENT = {
     "account_id": "bank2",                       # the HDFC mailbox (see ACCOUNTS)
     "gmail_query": "from:B2BPRD@indianoil.in has:attachment filename:pdf",
     "own_tt": "OD23U8210",                       # only generate for our own truck
+    # The serial is NOT taken from here — the Supabase RPC pay_claim_consignment
+    # assigns it: the printed number restarts each financial year (VF/CN2627/ for
+    # FY 2026-27, VF/CN2728/ from 1 Apr 2027, …) and a separate lifetime counter
+    # tracks total trips. Kept only as a reference to the current-year format.
     "serial_prefix": "VF/CN2627/",
     # Anchor: numbering starts here. Serial 047 = this invoice; anything with a
     # smaller IOCL document number is ignored (older loads were noted manually up
