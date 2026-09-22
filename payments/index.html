@@ -254,6 +254,9 @@ summary::-webkit-details-marker{display:none}
 .cr-invcell{position:relative;padding-left:22px!important;font-family:var(--mono)}
 .cr-invcell::before{content:"↳";position:absolute;left:7px;color:var(--faint)}
 .cr-invrow.paid td{color:var(--faint)}
+.cr-clbal{font-variant-numeric:tabular-nums;white-space:nowrap}
+.cr-clbal.cr-assumed{opacity:.6}
+.cr-clbal.cr-muted{color:var(--faint)}
 .cr-invrow.paid .num:last-of-type{color:var(--good)}
 /* the day-wise ledger's grand-total footer row */
 .cr-totrow td{border-top:2px solid var(--line);border-bottom:none;font-weight:800;color:var(--ink);padding-top:10px}
@@ -1627,6 +1630,22 @@ function openingFor(iso){
   const inf=balanceBefore(iso);
   return inf ? {op:inf, assumed:true} : {op:null, assumed:false};
 }
+// The balance a day CLOSED at = what carried into the NEXT day, i.e. the next
+// day's opening (recorded, else assumed from the last balance before it). The
+// current, still-open day has no next opening yet, so its closing is the live
+// balance so far (flagged `live`). Returns null when nothing is known.
+function closingFor(iso){
+  const today=crTodayISO();
+  const next=crISO(new Date(crDateFromISO(iso).getTime()+86400000));   // iso + 1 day
+  if(next<=today){
+    const of=openingFor(next);
+    if(of.op) return {bal:of.op, assumed:of.assumed, live:false};
+  }
+  const lb=latestBalance();
+  if(lb && String(lb.at||"").slice(0,10)>=iso)
+    return {bal:{amount:lb.amount, sign:lb.sign}, assumed:false, live:true};
+  return null;
+}
 // When no opening anchors the window, back out the pre-window owed from the
 // EARLIEST reliable balance observation on/after the window start: its owed
 // minus the invoices + confirmed deductions it already reflects. An opening
@@ -2065,7 +2084,7 @@ function renderDuesTable(d){
   }
   const rows = d.rows.slice().sort((a,b)=>a.iso<b.iso?1:-1);   // newest day first
   h+=`<table class="cr-table"><thead><tr>
-    <th>Invoice day</th><th class="num">Opening</th><th class="num">Invoices</th><th>Due</th><th class="num">Still owed</th><th>Status</th></tr></thead><tbody>`;
+    <th>Invoice day</th><th class="num">Opening</th><th class="num">Invoices</th><th class="num">Closing</th><th>Due</th><th class="num">Still owed</th><th>Status</th></tr></thead><tbody>`;
   for(const r of rows){
     const overridden = dmyOf(r.iso) in DAY_OVERRIDES;
     // Opening: the recorded one, else the assumed carry-forward (last known
@@ -2076,6 +2095,13 @@ function renderDuesTable(d){
       ? `<button class="cr-amtbtn ${opCls}${of.assumed?" cr-assumed":""}" title="${of.assumed?"Assumed from the last known balance — tap to set this day's opening":"Edit opening balance"}" onclick="editOpening('${r.iso}')">${of.assumed?"~ ":""}${esc(money(op.amount))} ${esc(op.sign)}</button>`
       : `<button class="cr-amtbtn cr-add" title="Record the opening balance for this day" onclick="editOpening('${r.iso}')">+ set</button>`;
     const items = r.items||[];
+    // Closing balance this day ended at = what carried into the next day (or the
+    // live balance for the current, still-open day). Read-only; CR green / DR red.
+    const cf = closingFor(r.iso);
+    const clCls = cf ? (cf.bal.sign==="CR" ? "cr-in" : "cr-od") : "";
+    const clCell = cf
+      ? `<span class="cr-clbal ${clCls}${cf.assumed?" cr-assumed":""}" title="${cf.live?"Balance now — this day is still open":(cf.assumed?"Assumed from the last known balance before the next day":"Closing = the next day's opening balance")}">${cf.assumed?"~ ":""}${esc(money(cf.bal.amount))} ${esc(cf.bal.sign)}${cf.live?" · now":""}</span>`
+      : `<span class="cr-clbal cr-muted">—</span>`;
     // Day header shows the day TOTAL; one invoice → name it inline, several →
     // count them and list each below with its own pending value.
     const daySub = items.length===1 ? `<div class="cr-invno">${esc(items[0].invoice_no)}</div>`
@@ -2084,6 +2110,7 @@ function renderDuesTable(d){
       <td>${esc(isoToDmy(r.iso))}${daySub}</td>
       <td class="num">${opCell}</td>
       <td class="num"><button class="cr-amtbtn${overridden?' ovr':''}" title="Correct this day's total" onclick="editDayOverride('${dmyOf(r.iso)}')">${esc(money(r.amount))}</button></td>
+      <td class="num">${clCell}</td>
       <td>${esc(isoToDmy(r.due))}</td>
       <td class="num">${r.unpaid>0.005?esc(money(r.unpaid)):'—'}</td>
       <td><span class="cr-badge st-${r.status}">${CR_STATUS_LABEL[r.status]}</span></td></tr>`;
@@ -2095,6 +2122,7 @@ function renderDuesTable(d){
           <td></td>
           <td class="num">${esc(money(it.amount))}</td>
           <td></td>
+          <td></td>
           <td class="num">${paid?'✓ paid':esc(money(it.pending))}</td>
           <td></td></tr>`;
       }
@@ -2102,7 +2130,7 @@ function renderDuesTable(d){
   }
   const owedTotal=Math.round((rows.reduce((a,r)=>a+r.unpaid,0)+d.carriedUnpaid)*100)/100;
   h+=`<tr class="cr-totrow"><td>Total dues</td><td></td>`
-    + `<td class="num">${esc(money(d.total))}</td><td></td>`
+    + `<td class="num">${esc(money(d.total))}</td><td></td><td></td>`
     + `<td class="num">${owedTotal>0.005?esc(money(owedTotal)):'—'}</td><td></td></tr>`;
   h+=`</tbody></table>`;
   if(d.extra>0.005){
