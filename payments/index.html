@@ -933,6 +933,8 @@ const Cloud = {
     const { error } = await this.client.from("pay_bank_holidays")
       .upsert({day, is_holiday:isHoliday, updated_at:new Date().toISOString()},{onConflict:"day"});
     if(error) throw error; },
+  async clearHoliday(day){ if(!this.client) return;   // back to automatic (weekend/weekday) detection
+    try{ await this.client.from("pay_bank_holidays").delete().eq("day",day); }catch(_){} },
   async setOpening(day, amount, sign){ if(!this.client) throw new Error("cloud not connected");
     const { error } = await this.client.from("pay_credit_opening")
       .upsert({day, amount, sign, updated_at:new Date().toISOString()},{onConflict:"day"});
@@ -2035,18 +2037,29 @@ let CR_CLOSING=null;   // a due date currently being marked closed (awaiting the
 
 function renderHolidayPrompts(d){
   const w=document.getElementById("crHolidays"); if(!w) return;
-  // Only ask about due dates that actually have money due and that we assumed open.
-  const seen=new Set(), due=[];
-  for(const r of d.rows){
-    if(r.status==="paid") continue;
-    if(isUnconfirmedDay(r.due) && !seen.has(r.due)){ seen.add(r.due); due.push(r.due); }
-  }
+  // Effective due dates that still carry money.
+  const dueSet=new Set();
+  for(const r of d.rows){ if(r.status!=="paid") dueSet.add(r.due); }
+  for(const x of (d.deductions||[])){ if(x.status!=="paid") dueSet.add(x.due); }
+  // Part A — proactively confirm any due date we ASSUMED open.
+  const due=[...dueSet].filter(iso=>isUnconfirmedDay(iso)).sort();
   if(CR_CLOSING && !due.includes(CR_CLOSING)) CR_CLOSING=null;   // resolved elsewhere
-  if(!due.length){ w.innerHTML=""; return; }
-  w.innerHTML = `<div class="card cr-holiday">
-    <div class="cr-head">Confirm bank days</div>
+  // Part B — days you've already marked (open or closed) near your dues, so you
+  // can change one anytime (e.g. the bank later announces it's open). A day you
+  // marked closed shifts its due forward, so it won't show as a due date any
+  // more — listing your manual marks is how you get back to it.
+  const dues=[...dueSet].sort();
+  const lo = dues.length ? addDaysISO(dues[0], -21) : crTodayISO();
+  const hi = dues.length ? dues[dues.length-1] : addDaysISO(crTodayISO(), 60);
+  const setDays = Object.keys(HOLIDAYS).filter(iso=> iso>=lo && iso<=hi).sort();
+
+  if(!due.length && !setDays.length){ w.innerHTML=""; return; }
+
+  let h = `<div class="card cr-holiday">`;
+  if(due.length){
+    h += `<div class="cr-head">Confirm bank days</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">A payment is due on ${due.length>1?"these dates":"this date"}. Is the bank open? (Sundays and 2nd/4th Saturdays are handled automatically. If closed, tell me when it <b>reopens</b> and I'll mark every day in between as closed.)</div>
-    ${due.sort().map(iso=> CR_CLOSING===iso ? `
+    ${due.map(iso=> CR_CLOSING===iso ? `
       <div class="cr-holrow cr-holclosing">
         <span>${esc(isoToDmy(iso))} closed — reopens on</span>
         <span class="cr-holbtns">
@@ -2061,8 +2074,27 @@ function renderHolidayPrompts(d){
           <button class="btn sm" onclick="confirmHoliday('${iso}',false)">Open</button>
           <button class="btn ghost sm" onclick="startClosing('${iso}')">Closed</button>
         </span>
-      </div>`).join("")}
-  </div>`;
+      </div>`).join("")}`;
+  }
+  if(setDays.length){
+    h += `<div class="cr-head"${due.length?' style="margin-top:16px"':''}>Bank days you've set</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Change a status anytime — e.g. if the bank later announces a day is open. “Auto” reverts to the normal weekend/weekday rule.</div>
+    ${setDays.map(iso=>{
+      const closed = HOLIDAYS[iso]===true;
+      const pill = closed ? `<span class="cr-od">Closed</span>` : `<span class="cr-in">Open ✓</span>`;
+      return `<div class="cr-holrow">
+        <span>${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))} · ${pill}</span>
+        <span class="cr-holbtns">
+          ${closed
+            ? `<button class="btn sm" onclick="confirmHoliday('${iso}',false)">Open</button>`
+            : `<button class="btn ghost sm" onclick="confirmHoliday('${iso}',true)">Closed</button>`}
+          <button class="btn ghost sm" onclick="clearHoliday('${iso}')">Auto</button>
+        </span>
+      </div>`;
+    }).join("")}`;
+  }
+  h += `</div>`;
+  w.innerHTML = h;
 }
 function crWeekday(iso){ try{ return crDateFromISO(iso).toLocaleDateString("en-IN",{weekday:"long"}); }catch(_){ return ""; } }
 function addDaysISO(iso, n){ const d=crDateFromISO(iso); d.setDate(d.getDate()+n); return crISO(d); }
@@ -2260,6 +2292,12 @@ async function confirmHoliday(iso, isHoliday){
   HOLIDAYS[iso]=isHoliday; renderCredit();
   if(!crNeedCloud()) return;
   try{ await Cloud.setHoliday(iso, isHoliday); toast(isoToDmy(iso)+(isHoliday?" marked closed":" marked open")); }
+  catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
+}
+// Drop a manual open/closed mark so the day falls back to automatic detection.
+async function clearHoliday(iso){
+  delete HOLIDAYS[iso]; renderCredit();
+  try{ await Cloud.clearHoliday(iso); toast(isoToDmy(iso)+" reset to automatic"); }
   catch(e){ toast("Couldn't save: "+(e&&e.message||e)); }
 }
 
