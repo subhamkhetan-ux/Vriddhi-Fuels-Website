@@ -17,11 +17,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
 import sys
+
+from .configfile import ConfigError, load as load_config
 
 PORTAL_URL = "https://beta.iocxtrapower.com"
 
@@ -86,8 +87,10 @@ def main() -> None:
     ap.add_argument("--only", default=None, help="launch just this customer_id")
     args = ap.parse_args()
 
-    with open(args.config, encoding="utf-8") as f:
-        cfg = json.load(f)
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as exc:
+        sys.exit(f"\n{exc}\n")
 
     chrome = find_chrome()
     if not chrome:

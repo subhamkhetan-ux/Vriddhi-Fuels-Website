@@ -29,7 +29,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from . import browser, parse, state
+from . import browser, configfile, parse, state
 from .notify import Telegram
 
 log = logging.getLogger("xtrapower.monitor")
@@ -51,8 +51,7 @@ def _now_iso() -> str:
 
 
 def load_config(path: str) -> dict[str, Any]:
-    with open(path, encoding="utf-8") as f:
-        cfg = json.load(f)
+    cfg = configfile.load(path)
     cfg.setdefault("poll_seconds", 120)
     cfg.setdefault("accounts", [])
     cfg.setdefault("telegram", {})
@@ -404,6 +403,8 @@ def main() -> None:
     )
     try:
         asyncio.run(main_async(args))
+    except configfile.ConfigError as exc:
+        raise SystemExit(f"\n{exc}\n")
     except KeyboardInterrupt:
         log.info("stopped")
 

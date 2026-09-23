@@ -143,6 +143,31 @@ credits keep coming through across re-logins.
 - **Without** `username`/`password`, nothing changes: the monitor waits quietly
   for you to log in by hand and you re-login yourself after each timeout.
 
+## If `config.json` won't load
+
+`config.json` is hand-edited, so the loader is forgiving. These are all fine:
+
+- `//` line comments and `/* ... */` blocks (the examples above use them)
+- a trailing comma before a `}` or `]`
+- curly "smart quotes" that TextEdit substitutes for `"` — repaired automatically
+- a UTF-8 BOM
+
+If it still can't parse, you get a plain-English message naming the line instead
+of a Python traceback, e.g.:
+
+```
+xtrapower/config.json is not valid JSON.
+
+  line 3:   "chat_id": "123"
+              ^
+  Expecting ',' delimiter
+```
+
+Fix that line and re-run. To start clean:
+`cp xtrapower/config.example.json xtrapower/config.json` and re-enter your
+token, chat id and accounts. If a password contains a `"` or `\`, escape it as
+`\"` or `\\`.
+
 ## Manual setup (any OS)
 
 1. **Install Python 3 and the driver** into a virtual environment (on macOS
