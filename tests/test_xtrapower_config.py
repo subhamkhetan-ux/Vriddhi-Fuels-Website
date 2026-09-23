@@ -114,3 +114,15 @@ def test_error_names_invisible_characters(tmp_path):
     msg = str(e.value)
     assert "U+00A0" in msg and "NO-BREAK SPACE" in msg
     assert "line 2" in msg
+
+
+def test_caret_points_at_the_column_json_reported(tmp_path):
+    """The caret must sit under the offending character, not near it."""
+    # An unquoted key: json reports the column of the 'x', which nothing repairs.
+    with pytest.raises(configfile.ConfigError) as e:
+        configfile.load(_write(tmp_path, '{\n  x: 1\n}'))
+    lines = str(e.value).splitlines()
+    body = next(i for i, l in enumerate(lines) if l.startswith("  line 2: "))
+    text_line, caret_line = lines[body], lines[body + 1]
+    caret_at = caret_line.index("^")
+    assert text_line[caret_at] == "x", "caret must land on the offending character"
