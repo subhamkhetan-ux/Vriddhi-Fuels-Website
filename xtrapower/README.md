@@ -150,6 +150,9 @@ credits keep coming through across re-logins.
 - `//` line comments and `/* ... */` blocks (the examples above use them)
 - a trailing comma before a `}` or `]`
 - curly "smart quotes" that TextEdit substitutes for `"` — repaired automatically
+- invisible look-alike whitespace from copy-paste (a no-break space, a
+  zero-width space) — the classic cause of an error on a line that looks
+  perfectly fine
 - a UTF-8 BOM
 
 If it still can't parse, you get a plain-English message naming the line instead
@@ -162,6 +165,10 @@ xtrapower/config.json is not valid JSON.
               ^
   Expecting ',' delimiter
 ```
+
+If a line looks correct but still fails, the message lists any non-ASCII
+character on it by name and column, e.g.
+`column 8: U+00A0 NO-BREAK SPACE` — retype that bit and it will parse.
 
 Fix that line and re-run. To start clean:
 `cp xtrapower/config.example.json xtrapower/config.json` and re-enter your

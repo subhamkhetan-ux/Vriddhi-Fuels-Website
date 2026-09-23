@@ -78,3 +78,39 @@ def test_real_syntax_error_names_the_line_and_hints(tmp_path):
 def test_clean_leaves_valid_json_untouched(tmp_path):
     src = json.dumps({"accounts": [{"label": "A", "cdp_port": 9222}]}, indent=2)
     assert json.loads(configfile.clean(src)) == json.loads(src)
+
+
+# ---- invisible / look-alike characters from copy-paste ---------------------
+
+def test_no_break_space_indentation_parses(tmp_path):
+    """The exact failure seen on a fresh Mac: NBSP indenting line 2."""
+    cfg = configfile.load(_write(
+        tmp_path, '{\n  "poll_seconds": 120,\n  "accounts": []\n}'))
+    assert cfg["poll_seconds"] == 120
+
+
+def test_zero_width_and_bom_inside_the_file_parse(tmp_path):
+    cfg = configfile.load(_write(
+        tmp_path, '{​\n  "a": 1,﻿\n  "b": 2\n}'))
+    assert cfg == {"a": 1, "b": 2}
+
+
+def test_unicode_line_separator_parses(tmp_path):
+    cfg = configfile.load(_write(tmp_path, '{   "a": 1 }'))
+    assert cfg == {"a": 1}
+
+
+def test_value_keeps_its_own_no_break_space(tmp_path):
+    """Normalisation is outside strings only — a real NBSP in a value survives."""
+    cfg = configfile.load(_write(tmp_path, '{"password": "a b"}'))
+    assert cfg["password"] == "a b"
+
+
+def test_error_names_invisible_characters(tmp_path):
+    """A line that looks right but has an odd character must say so."""
+    with pytest.raises(configfile.ConfigError) as e:
+        # NBSP *inside* the key name: cleaning can't help, so it must be explained
+        configfile.load(_write(tmp_path, '{\n  "poll seconds" 120\n}'))
+    msg = str(e.value)
+    assert "U+00A0" in msg and "NO-BREAK SPACE" in msg
+    assert "line 2" in msg
