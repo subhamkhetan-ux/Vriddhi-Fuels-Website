@@ -158,8 +158,14 @@ def _explain(path: str, raw: str, exc: json.JSONDecodeError) -> str:
     lines = raw.splitlines()
     lineno = max(1, min(exc.lineno, len(lines) or 1))
     offending = lines[lineno - 1] if lines else ""
-    caret = " " * max(0, exc.colno - 1) + "^"
     odd = _odd_characters(offending)
+    # Build the label once and measure it, so the caret lands under the exact
+    # column json reported. (Guessing the width drew it two columns off, which
+    # pointed at the wrong character and sent a real diagnosis down the garden
+    # path.) Tabs are shown as single spaces so the column count still holds.
+    shown = offending.replace("\t", " ")
+    prefix = f"  line {lineno}: "
+    caret_line = " " * (len(prefix) + max(0, exc.colno - 1)) + "^"
     odd_note = ""
     if odd:
         odd_note = (
@@ -169,8 +175,8 @@ def _explain(path: str, raw: str, exc: json.JSONDecodeError) -> str:
         )
     return (
         f"{path} is not valid JSON.\n\n"
-        f"  line {lineno}: {offending}\n"
-        f"           {' ' * len(str(lineno))}{caret}\n"
+        f"{prefix}{shown}\n"
+        f"{caret_line}\n"
         f"  {exc.msg}\n"
         f"{odd_note}\n"
         "Common causes:\n"
