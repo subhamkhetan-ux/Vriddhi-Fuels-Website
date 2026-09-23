@@ -6,7 +6,9 @@ from TextEdit must not produce a Python traceback. This module:
 * accepts ``//`` and ``/* ... */`` comments (the README documents the config as
   ``jsonc`` and shows ``//`` comments, so plain ``json.load`` was wrong),
 * accepts a trailing comma before ``}`` or ``]``,
-* repairs the “smart quotes” TextEdit substitutes for ``"``,
+* repairs the “smart quotes” TextEdit substitutes for ``"``, and the
+  invisible look-alike whitespace (no-break space, zero-width space) that
+  copy-paste introduces,
 * and, when it still can't parse, raises :class:`ConfigError` naming the line,
   quoting it, and listing the usual causes — instead of a stack trace.
 
@@ -17,6 +19,7 @@ and newlines are preserved so reported line numbers match the real file.
 from __future__ import annotations
 
 import json
+import unicodedata
 from typing import Any
 
 # TextEdit (and Word, and chat apps) silently turn " into these.
@@ -25,6 +28,24 @@ _SMART_QUOTES = {
     "„": '"', "‟": '"',
     "‘": "'", "’": "'",      # ‘ ’
     "«": '"', "»": '"',      # « »
+    "‚": '"', "‛": '"',      # low-9 / reversed-9 quotes
+    "＂": '"', "″": '"',      # fullwidth quote, double prime
+    "ʺ": '"', "′": "'", "ʹ": "'",
+}
+
+# Characters that LOOK like a space or newline but are not valid JSON
+# whitespace. JSON allows only space, tab, CR and LF, so one of these - a
+# no-break space pasted from a web page or a chat message is the usual culprit -
+# stops the parse dead with a baffling "Expecting property name" on a line that
+# looks perfect. Normalised outside strings only, so a value that genuinely
+# contains one keeps it.
+_SPACE_LOOKALIKES = {
+    " ": " ",                                     # NO-BREAK SPACE
+    " ": " ", " ": " ", " ": " ", " ": " ",
+    " ": " ", " ": " ", " ": " ", " ": " ",
+    " ": " ", " ": " ", " ": " ", "　": " ",
+    "​": "", "‌": "", "‍": "", "﻿": "",   # zero-width / BOM
+    " ": "\n", " ": "\n",                    # line / paragraph separators
 }
 
 
@@ -59,6 +80,10 @@ def _strip_comments(text: str) -> str:
         if c in '"\'':
             in_str, quote = True, c
             out.append(c)
+            i += 1
+            continue
+        if c in _SPACE_LOOKALIKES:
+            out.append(_SPACE_LOOKALIKES[c])
             i += 1
             continue
         if c == "/" and i + 1 < n and text[i + 1] == "/":
@@ -118,16 +143,36 @@ def clean(text: str) -> str:
     return _strip_trailing_commas(_strip_comments(_fix_smart_quotes(text)))
 
 
+def _odd_characters(line: str) -> list[str]:
+    """Describe any non-ASCII character on a line, so invisibles become visible."""
+    found = []
+    for col, ch in enumerate(line, start=1):
+        if ord(ch) < 128:
+            continue
+        name = unicodedata.name(ch, "unnamed character")
+        found.append(f"column {col}: U+{ord(ch):04X} {name}")
+    return found
+
+
 def _explain(path: str, raw: str, exc: json.JSONDecodeError) -> str:
     lines = raw.splitlines()
     lineno = max(1, min(exc.lineno, len(lines) or 1))
     offending = lines[lineno - 1] if lines else ""
     caret = " " * max(0, exc.colno - 1) + "^"
+    odd = _odd_characters(offending)
+    odd_note = ""
+    if odd:
+        odd_note = (
+            "\nThis line contains characters that are not plain ASCII — usually the\n"
+            "cause when the line looks correct:\n"
+            + "".join(f"  - {d}\n" for d in odd)
+        )
     return (
         f"{path} is not valid JSON.\n\n"
         f"  line {lineno}: {offending}\n"
         f"           {' ' * len(str(lineno))}{caret}\n"
-        f"  {exc.msg}\n\n"
+        f"  {exc.msg}\n"
+        f"{odd_note}\n"
         "Common causes:\n"
         '  - Curly "smart quotes" from TextEdit - retype them as straight " quotes\n'
         "  - A missing comma between two entries, or one comma too many\n"
