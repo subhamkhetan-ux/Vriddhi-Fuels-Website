@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
 
 from playwright.async_api import async_playwright
+
+from .configfile import ConfigError, load as _load_config
 
 _DUMP_JS = r"""
 () => {
@@ -85,8 +86,7 @@ def _pick_port(cfg: dict, port: int | None) -> int:
 
 
 async def main_async(args) -> None:
-    with open(args.config, encoding="utf-8") as f:
-        cfg = json.load(f)
+    cfg = _load_config(args.config)
     port = _pick_port(cfg, args.port)
     endpoint = f"http://127.0.0.1:{port}"
     async with async_playwright() as p:
@@ -131,8 +131,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Dump the portal login form for selector tuning")
     ap.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "config.json"))
     ap.add_argument("--port", type=int, default=None, help="CDP port of the window to inspect")
-    main_async_args = ap.parse_args()
-    asyncio.run(main_async(main_async_args))
+    parsed = ap.parse_args()
+    try:
+        asyncio.run(main_async(parsed))
+    except ConfigError as exc:
+        raise SystemExit(f"\n{exc}\n")
 
 
 if __name__ == "__main__":
