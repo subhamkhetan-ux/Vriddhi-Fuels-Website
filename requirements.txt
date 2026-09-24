@@ -6,6 +6,10 @@ google-auth-oauthlib>=1.1
 # Local half (Mac) — .xlsx writing and reading Master Ledger.xlsm.
 openpyxl>=3.1
 
+# Bank -> Tally / Fleet -> Tally — HDFC statements download as legacy binary
+# .xls (BIFF), which only xlrd can read (openpyxl handles .xlsx only).
+xlrd>=2.0
+
 # Always-on Mac logging daemon (local_agent/) — drives the real Excel app to
 # append rows straight into Master Ledger.xlsm, preserving macros/formulas.
 # Mac/Windows only at runtime (needs Excel installed); pip-installs anywhere, so

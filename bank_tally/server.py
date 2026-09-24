@@ -306,6 +306,7 @@ class Handler(BaseHTTPRequestHandler):
         stmts, problems = [], []
         for f in files:
             name = f.get("name", "file")
+            path = None
             try:
                 raw = base64.b64decode((f.get("b64") or "").split(",")[-1])
                 suffix = ".xlsx" if name.lower().endswith("x") else ".xls"
@@ -314,7 +315,6 @@ class Handler(BaseHTTPRequestHandler):
                     path = tf.name
                 ledger = S.detect_account(path)
                 rows, summ = S.parse_excel(path)
-                os.unlink(path)
                 if not ledger:
                     problems.append(f"{name}: could not detect the account number")
                     continue
@@ -322,10 +322,22 @@ class Handler(BaseHTTPRequestHandler):
                     problems.append(f"{name}: no transactions found ({summ.get('error','')})")
                     continue
                 stmts.append((ledger, rows))
+            except ModuleNotFoundError as exc:
+                # HDFC statements are legacy .xls and need xlrd; a fresh Mac may not
+                # have it. Say exactly how to fix it rather than a bare traceback.
+                mod = exc.name or "a required package"
+                problems.append(
+                    f"{name}: cannot read this file — the Python package '{mod}' is "
+                    f"not installed on this Mac. Stop the app, run "
+                    f"'python3 -m pip install --user {mod}' in Terminal, then restart it.")
             except Exception as exc:
                 problems.append(f"{name}: {exc}")
+            finally:
+                if path and os.path.exists(path):
+                    os.unlink(path)
         if not stmts:
-            return self._json({"error": "no usable statements", "problems": problems}, 400)
+            return self._json({"error": " | ".join(problems) or "no usable statements",
+                               "problems": problems}, 400)
         _STATEMENTS = stmts
         res = _process_and_write()
         res["accounts"] = [led for led, _ in stmts]
