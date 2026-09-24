@@ -74,6 +74,7 @@
 
   <section class="panel" id="resultPanel" hidden>
     <h2>2 · Result</h2>
+    <div id="problemBox" class="warnbox" style="display:none;background:#2a1010;border-color:var(--bad);color:#f3b7b3"></div>
     <div id="acctLine" class="sub" style="color:var(--faint);margin-bottom:10px"></div>
     <div class="stats" id="stats"></div>
     <div id="counts" style="margin-top:10px"></div>
@@ -174,7 +175,12 @@ $("#masterInput").onchange=()=>{
 function render(res){
   const s=res.summary;
   if(res.accounts) $("#acctLine").textContent="Accounts detected: "+res.accounts.join(" · ");
-  if(res.problems && res.problems.length) toast(res.problems[0]);
+  // Any file that could not be read stays visibly listed — never just a toast.
+  const probs=res.problems||[];
+  $("#problemBox").style.display = probs.length ? "block" : "none";
+  $("#problemBox").innerHTML = probs.length
+    ? `<b>⚠ ${probs.length} file(s) were NOT included:</b><ul style="margin:6px 0 0 18px;padding:0">`+
+      probs.map(p=>`<li>${esc(p)}</li>`).join("")+`</ul>` : "";
   $("#resultPanel").hidden=false;
   $("#stats").innerHTML=`
     <div class="stat"><div class="k">Lines</div><div class="v">${s.n_lines}</div></div>

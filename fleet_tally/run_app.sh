@@ -1,14 +1,27 @@
 #!/usr/bin/env bash
-# Launch the Fleet-card -> Tally web app on your Mac.
+# Launch the Fleet-card / TDS -> Tally web app on your Mac.
 #   fleet_tally/run_app.sh            # start the app and open the browser
 cd "$(dirname "$0")/.." || exit 1
 PY="${PYTHON:-python3}"
 
+# openpyxl reads .xlsx; xlrd reads legacy binary .xls sheets (e.g. anything
+# saved from an older Excel). Both are required.
 for mod in openpyxl xlrd; do
   if ! "$PY" -c "import ${mod}" >/dev/null 2>&1; then
     echo "Installing ${mod} ..."
-    "$PY" -m pip install --quiet "${mod}" >/dev/null 2>&1 \
-      || "$PY" -m pip install --user --quiet "${mod}"
+    # Plain, then per-user, then past macOS/Homebrew's "externally-managed" guard.
+    "$PY" -m pip install --quiet "${mod}" \
+      || "$PY" -m pip install --user --quiet "${mod}" \
+      || "$PY" -m pip install --user --break-system-packages --quiet "${mod}"
+  fi
+  if ! "$PY" -c "import ${mod}" >/dev/null 2>&1; then
+    echo ""
+    echo "ERROR: the Python package '${mod}' is not installed, and installing it failed."
+    echo "       Without it some statements cannot be read."
+    echo "       Fix it once with:   ${PY} -m pip install --user ${mod}"
+    echo "       (if that is refused: ${PY} -m pip install --user --break-system-packages ${mod})"
+    echo ""
+    exit 1
   fi
 done
 
