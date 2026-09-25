@@ -339,7 +339,8 @@ summary::-webkit-details-marker{display:none}
 }
 .cr-carry{font-size:12.5px;color:var(--muted);margin-bottom:10px;padding:8px 11px;background:var(--glass-2);border:1px solid var(--glass-line);border-radius:11px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .cr-amtbtn.cr-add{color:var(--faint);border-style:dashed;border-color:var(--line)}
-#crOpenDate,.cr-holclosing input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:13px}
+.cr-holauto{font-size:10.5px;color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-left:2px}
+#crOpenDate,#crHolMark,.cr-holclosing input[type=date]{background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:13px}
 .cr-holclosing{flex-wrap:wrap;gap:8px}
 .cr-holclosing .cr-holbtns{flex-wrap:wrap;gap:6px}
 /* consignment note print — a hand-built A4 page (no docx renderer), so it looks
@@ -1578,13 +1579,18 @@ function parseBalanceMessage(text){
 function crDateFromISO(iso){ const [y,mo,d]=iso.split("-").map(Number); return new Date(y,mo-1,d); }
 function crISO(dt){ return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`; }
 function crTodayISO(){ return crISO(new Date()); }
-function isBankHoliday(dt){
-  const iso=crISO(dt);
-  if(iso in HOLIDAYS) return HOLIDAYS[iso]===true;    // confirmed open/closed wins
+// The default weekly closures: every Sunday and the 2nd/4th Saturday. These are
+// closed unless you explicitly mark one open (a HOLIDAYS[iso]=false override).
+function isWeekendClosure(dt){
   const dow=dt.getDay();
   if(dow===0) return true;                            // Sunday
   if(dow===6){ const occ=Math.ceil(dt.getDate()/7); if(occ===2||occ===4) return true; } // 2nd/4th Sat
-  return false;                                       // otherwise assume open
+  return false;
+}
+function isBankHoliday(dt){
+  const iso=crISO(dt);
+  if(iso in HOLIDAYS) return HOLIDAYS[iso]===true;    // confirmed open/closed wins
+  return isWeekendClosure(dt);                        // else Sun + 2nd/4th Sat closed, rest open
 }
 function dueDateISO(invoiceISO){
   let cur=crDateFromISO(invoiceISO); cur.setDate(cur.getDate()+(CREDIT_CFG.days||0));
@@ -1595,10 +1601,7 @@ function dueDateISO(invoiceISO){
 // confirmed) — worth asking the user about, in case it's a festival holiday.
 function isUnconfirmedDay(iso){
   if(iso in HOLIDAYS) return false;
-  const dt=crDateFromISO(iso), dow=dt.getDay();
-  if(dow===0) return false;
-  if(dow===6){ const occ=Math.ceil(dt.getDate()/7); if(occ===2||occ===4) return false; }
-  return true;
+  return !isWeekendClosure(crDateFromISO(iso));
 }
 
 // ---- day totals + FIFO dues ----
@@ -2051,6 +2054,7 @@ let CR_CLOSING=null;   // a due date currently being marked closed (awaiting the
 
 function renderHolidayPrompts(d){
   const w=document.getElementById("crHolidays"); if(!w) return;
+  const prevMark=((document.getElementById("crHolMark")||{}).value)||"";   // keep the picker's date across re-renders
   // Effective due dates that still carry money.
   const dueSet=new Set();
   for(const r of d.rows){ if(r.status!=="paid") dueSet.add(r.due); }
@@ -2065,9 +2069,21 @@ function renderHolidayPrompts(d){
   const dues=[...dueSet].sort();
   const lo = dues.length ? addDaysISO(dues[0], -21) : crTodayISO();
   const hi = dues.length ? dues[dues.length-1] : addDaysISO(crTodayISO(), 60);
-  const setDays = Object.keys(HOLIDAYS).filter(iso=> iso>=lo && iso<=hi).sort();
-
-  if(!due.length && !setDays.length){ w.innerHTML=""; return; }
+  const today = crTodayISO();
+  // …plus every mark from today on, so a date set with the picker below always
+  // shows up here to change again.
+  const setDays = Object.keys(HOLIDAYS).filter(iso=> iso>=lo && (iso<=hi || iso>=today)).sort();
+  // Part C — the Sundays / 2nd-4th Saturdays that pushed a due date forward
+  // (closed by default). Mark one open if the bank announces it's working, and
+  // that due date moves back to it.
+  const wkSet=new Set();
+  const obls=[...d.rows, ...(d.deductions||[])].filter(o=>o.status!=="paid");
+  for(const o of obls){
+    for(let cur=addDaysISO(o.iso, CREDIT_CFG.days||0); cur<o.due; cur=addDaysISO(cur,1)){
+      if(!(cur in HOLIDAYS) && isWeekendClosure(crDateFromISO(cur))) wkSet.add(cur);
+    }
+  }
+  const weekends=[...wkSet].sort();
 
   let h = `<div class="card cr-holiday">`;
   if(due.length){
@@ -2090,14 +2106,25 @@ function renderHolidayPrompts(d){
         </span>
       </div>`).join("")}`;
   }
+  if(weekends.length){
+    h += `<div class="cr-head"${due.length?' style="margin-top:16px"':''}>Weekend closures</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Sundays and 2nd/4th Saturdays are closed by default, so these pushed a due date later. If the bank is working on one, mark it open.</div>
+    ${weekends.map(iso=>`<div class="cr-holrow">
+        <span>${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))} · <span class="cr-od">Closed</span> <span class="cr-holauto">weekend</span></span>
+        <span class="cr-holbtns">
+          <button class="btn sm" onclick="confirmHoliday('${iso}',false)">Open</button>
+        </span>
+      </div>`).join("")}`;
+  }
   if(setDays.length){
-    h += `<div class="cr-head"${due.length?' style="margin-top:16px"':''}>Bank days you've set</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Change a status anytime — e.g. if the bank later announces a day is open. “Auto” reverts to the normal weekend/weekday rule.</div>
+    h += `<div class="cr-head"${(due.length||weekends.length)?' style="margin-top:16px"':''}>Bank days you've set</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Change a status anytime — e.g. if the bank later announces a day is open. “Auto” reverts to the default: Sundays and 2nd/4th Saturdays closed, other days open.</div>
     ${setDays.map(iso=>{
       const closed = HOLIDAYS[iso]===true;
       const pill = closed ? `<span class="cr-od">Closed</span>` : `<span class="cr-in">Open ✓</span>`;
+      const wk = isWeekendClosure(crDateFromISO(iso)) ? ` <span class="cr-holauto">weekend</span>` : "";
       return `<div class="cr-holrow">
-        <span>${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))} · ${pill}</span>
+        <span>${esc(isoToDmy(iso))} · ${esc(crWeekday(iso))} · ${pill}${wk}</span>
         <span class="cr-holbtns">
           ${closed
             ? `<button class="btn sm" onclick="confirmHoliday('${iso}',false)">Open</button>`
@@ -2107,8 +2134,25 @@ function renderHolidayPrompts(d){
       </div>`;
     }).join("")}`;
   }
+  // Any other date (e.g. a future Sunday the bank says it will open).
+  const anyHead = (due.length||weekends.length||setDays.length) ? "Mark another date" : "Bank days";
+  h += `<div class="cr-head"${(due.length||weekends.length||setDays.length)?' style="margin-top:16px"':''}>${anyHead}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Sundays and 2nd/4th Saturdays are closed by default; other days open. Set any date open or closed here.</div>
+    <div class="cr-holrow">
+      <span><input type="date" id="crHolMark" value="${escAttr(prevMark||today)}"></span>
+      <span class="cr-holbtns">
+        <button class="btn sm" onclick="markBankDay(false)">Open</button>
+        <button class="btn ghost sm" onclick="markBankDay(true)">Closed</button>
+      </span>
+    </div>`;
   h += `</div>`;
   w.innerHTML = h;
+}
+// Set the date in the "Mark another date" picker open (false) or closed (true).
+function markBankDay(isHoliday){
+  const iso=((document.getElementById("crHolMark")||{}).value||"").trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(iso)){ toast("Pick a date"); return; }
+  confirmHoliday(iso, isHoliday);
 }
 function crWeekday(iso){ try{ return crDateFromISO(iso).toLocaleDateString("en-IN",{weekday:"long"}); }catch(_){ return ""; } }
 function addDaysISO(iso, n){ const d=crDateFromISO(iso); d.setDate(d.getDate()+n); return crISO(d); }
