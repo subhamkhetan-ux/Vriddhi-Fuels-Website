@@ -2991,6 +2991,27 @@
       },
       "queued_at": "2026-09-25T11:15:19.909999+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "488c01258378490f",
+      "gmail_msg_id": "1877306051826354286",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "25/09/2026",
+      "date_serial": 46290,
+      "amount": 3578418.0,
+      "raw_payer": "DBL SIARMAL COALMINES P L",
+      "customer": null,
+      "candidates": [
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-25T12:30:22.409521+00:00",
+      "status": "review"
     }
   ]
 }
