@@ -118,7 +118,19 @@ export function demoSeed(today = new Date()) {
     },
   };
 
+  // the payments app's list (read-only in the Payments tab): made-up entries
+  const serialOf = (iso) => Math.round((Date.parse(iso) - Date.UTC(1899, 11, 30)) / 86400000);
+  const nowIso = new Date().toISOString();
+  const payQueue = [
+    { entry_id: 'demo:hdfc:101', status: 'matched', customer: 'Sample Roadlines', amount: 32000, mode: 'HDFC 1010', date_serial: serialOf(isoDay(today, -1)), exported: false },
+    { entry_id: 'demo:upi:102', status: 'matched', customer: 'Example Infra', amount: 4500, mode: 'UPI', date_serial: serialOf(isoDay(today, -1)), log_requested: true, log_requested_at: nowIso },
+    { entry_id: 'demo:hdfc:103', status: 'matched', customer: 'Demo Power Ltd', amount: 300000, mode: 'HDFC 1010', date_serial: serialOf(isoDay(today, -2)), exported: true, exported_at: nowIso, logged_at: nowIso },
+    { entry_id: 'demo:cash:104', status: 'matched', customer: 'Fresh Traders', amount: 13500, mode: 'Cash', date_serial: serialOf(isoDay(today, 0)) },
+    { entry_id: 'demo:upi:105', status: 'review', raw_payer: 'UNKNOWN PAYER', amount: 800, mode: 'UPI', date_serial: serialOf(isoDay(today, 0)) },
+  ];
+
   return {
+    payQueue,
     master: { fileName: 'Demo Master Ledger.xlsm', payload },
     daybooks: [{ fileName: `DayBook ${isoDay(today, -1)}.xlsx`, rows: lastRows }],
   };

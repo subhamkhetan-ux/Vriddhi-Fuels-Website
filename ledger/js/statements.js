@@ -274,3 +274,34 @@ export function buildStatements({ kind, date, from, to, data, filter = '' }) {
     : kind === 'monthly' ? `Monthly Statements ${monthLabel(from)}` : `Statements ${label}`;
   return { kind, from, to, date, label, folder, customers, summaries };
 }
+
+// ---- sharing ------------------------------------------------------------------------
+
+// Android's share sheet takes at most 10 files (and ~50 MB) at a time, so
+// "Share all" goes in parts. groups: one array of files per customer / summary
+// (kept together); a part never mixes more than `max` files or `maxBytes`.
+export function shareBatches(groups, { max = 10, maxBytes = 45e6 } = {}) {
+  const parts = [];
+  let cur = [];
+  let bytes = 0;
+  const size = (f) => Number(f && f.size) || 0;
+  for (const g of groups) {
+    const gBytes = g.reduce((a, f) => a + size(f), 0);
+    if (cur.length && (cur.length + g.length > max || bytes + gBytes > maxBytes)) {
+      parts.push(cur);
+      cur = [];
+      bytes = 0;
+    }
+    for (const f of g) {                           // a group bigger than one part: split it
+      if (cur.length && (cur.length >= max || bytes + size(f) > maxBytes)) {
+        parts.push(cur);
+        cur = [];
+        bytes = 0;
+      }
+      cur.push(f);
+      bytes += size(f);
+    }
+  }
+  if (cur.length) parts.push(cur);
+  return parts;
+}
