@@ -412,3 +412,39 @@ def test_bill_and_customer_updates(pg):
     res = pg.owner(call("ledger_customer_update", custs["Brand New Movers"]["id"],
                         {"ledger": "Movers", "archived": True}))
     assert res["ledger"] == "Movers" and res["archived"] is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Tanker Master, slip heading, bills of a date range
+# ---------------------------------------------------------------------------
+def test_tanker_master_settings_and_sales_range(pg):
+    p = payload()
+    p["tanker"] = [
+        {"company": "Demo Power Ltd", "hsd_rate": 90.5, "address": ["At- Demo", "Testpur", ""],
+         "payment": ["Payment Details:", "A/c 0000", "", "", ""], "po_label": "P.O. No.:", "po_no": "",
+         "price_tier": "Bulk"},
+        {"company": "Twin Steel Ltd, UNIT I", "hsd_rate": 90, "address": [], "payment": []},
+        {"company": "Demo Power Ltd", "hsd_rate": 1},                     # listed twice: first kept
+    ]
+    p["settings"] = {"slip_header": {"title": "CREDIT MEMO", "mobile": "Mob : 1", "lines": ["DEMO FUELS"]}}
+    res = pg.owner(call("ledger_import_master", "Master Ledger v3.xlsm", p))
+    assert res["tanker"] == 2
+    tanker = pg.owner(call("ledger_tanker_list"))
+    assert [(t["company"], float(t["hsd_rate"])) for t in tanker] == [("Demo Power Ltd", 90.5), ("Twin Steel Ltd, UNIT I", 90)]
+    assert tanker[0]["address"] == ["At- Demo", "Testpur", ""]
+    assert pg.owner(call("ledger_setting_get", "slip_header"))["lines"] == ["DEMO FUELS"]
+    assert pg.ok("select ledger_setting_get('nothing') is null;", user=OWNER, email="owner@example.com") == "t"
+
+    # an upload without a Tanker Master sheet leaves it alone
+    res = pg.owner(call("ledger_import_master", "Master Ledger v4.xlsm", payload()))
+    assert res["tanker"] == 0 and len(pg.owner(call("ledger_tanker_list"))) == 2
+
+    bills = pg.owner(call("ledger_sales_range", "2026-04-01", "2026-04-02"))
+    assert [(b["product"], b["bill_no"]) for b in bills] == [("HSD", "1"), ("HSD", "2"), ("HSD", "3"), ("MS", "1")]
+    assert bills[1]["unit"] == "UNIT 1"
+    err = pg.fails(call("ledger_sales_range", "2026-04-02", "2026-04-01"), user=OWNER, email="owner@example.com")
+    assert "From date on or before" in err
+    err = pg.fails(call("ledger_sales_range", "2026-04-01", "2027-06-01"), user=OWNER, email="owner@example.com")
+    assert "at most 400 days" in err
+    assert "permission denied" in pg.fails("select ledger_tanker_list();", anon=True)
+    assert pg.ok("select count(*) from ledger_tanker_customers;", user=STRANGER, email="stranger@example.com") == "0"

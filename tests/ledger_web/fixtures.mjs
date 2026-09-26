@@ -121,8 +121,25 @@ export function demoWorkbook() {
     ],
   });
 
+  const tankerMaster = sheet({}, {
+    start: 1,
+    rows: [
+      ['Company', 'HSD', 'Address 1', 'Address 2', 'Address 3', 'Payment 1', 'Payment 2', 'Payment 3', 'Payment 4',
+        'Payment 5', 'PO Label', 'PO No.', 'Price Tier'],
+      ['Demo Power Ltd', formula(90.5, 'XLOOKUP(1)'), 'At- Demo', 'Testpur', 'GSTIN: 00AAAAA0000A0Z0', 'Payment Details:',
+        'Account No. – 0000', '', '', '', 'P.O. No.:', '', 'Bulk'],
+      ['Twin Steel Ltd, UNIT I', formula(90, 'XLOOKUP(1)'), 'Unit I', '', '', '', '', '', '', '', '', '', 'Bulk'],
+    ],
+  });
+  const hsdBill = sheet({
+    A1: 'CREDIT MEMO', D1: formula('Mob : 00000', '"Mob : 00000"'), A2: 'DEMO FUELS (2026-27)', A3: 'AT- SAMPLE',
+    A4: 'DIST- DEMO', A8: 'E-Mail : demo@example.com', H1: '1502', H9: 'HSD',
+  });
+
   return workbook({
     Index: sheet({ B2: 'Master Ledger' }),
+    'Tanker Master': tankerMaster,
+    'HSD Bill': hsdBill,
     'Master Paid': paid,
     Outstanding: outstanding,
     Demo_Bulk: demo,

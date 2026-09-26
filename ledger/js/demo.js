@@ -95,6 +95,19 @@ export function demoSeed(today = new Date()) {
       { customer: 'Sample Roadlines', month: monthStart, amount: 48250 },
       { customer: 'Example Infra', month: monthStart, amount: 12600 },
     ],
+    tanker: [
+      { company: 'Demo Power Ltd', hsd_rate: 90.52, address: ['At- Demo Industrial Estate', 'Post- Sampleganj, Via- Testpur.', 'GSTIN: 21AAACD0000A1Z1'], payment: ['Payment Details:', 'Account No. – 000000000000', 'IFSC Code – DEMO0000000', 'Branch Name – DEMO BANK, SAMPLE BRANCH', 'Beneficiary – DEMO FUELS'], po_label: 'P.O. No.:', po_no: '', price_tier: 'Bulk' },
+      { company: 'Twin Steel Ltd, UNIT I', hsd_rate: 90.02, address: ['Unit I, Twin Steel Works', 'Sample Road, Testpur.', 'GSTIN: 21AAACT0000B1Z2'], payment: ['Payment Details:', 'Account No. – 000000000000', 'IFSC Code – DEMO0000000'], po_label: 'P.O. No.:', po_no: '', price_tier: 'Bulk' },
+      { company: 'Twin Steel Ltd, UNIT II', hsd_rate: 90.02, address: ['Unit II, Twin Steel Works', 'Sample Road, Testpur.', 'GSTIN: 21AAACT0000B1Z2'], payment: ['Payment Details:', 'Account No. – 000000000000', 'IFSC Code – DEMO0000000'], po_label: 'P.O. No.:', po_no: '', price_tier: 'Bulk' },
+      { company: 'Crew One Logistics', hsd_rate: 90.52, address: ['Crew Camp, Sample Mines', 'Testpur.'], payment: ['Payment Details:', 'Account No. – 000000000000'], po_label: '', po_no: '', price_tier: 'Retail' },
+    ],
+    settings: {
+      slip_header: {
+        title: 'CREDIT MEMO', mobile: 'Mob : 00000 00000',
+        lines: ['DEMO FUELS (2026-27)', 'AT- SAMPLE ROAD PO- TESTPUR', 'DIST- DEMO, 000000', 'DEMO STATE',
+          'GSTIN/UIN: 00DEMO0000D0Z0', 'State Name : Demo, Code : 00', 'E-Mail : demo@example.com'],
+      },
+    },
   };
 
   return {

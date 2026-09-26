@@ -11,8 +11,19 @@ being on. **Phase 1** (this folder) covers:
 | — | **Sales** → the bills of any day. |
 | — | **Upload Master Ledger** → copies sales, payments, customers, opening balances, the Bulk sheets' PO lists and the Unit / PO / TDS / Shortage / Remarks typed against each bulk bill. |
 
-Coming next: **Phase 2** Daily Tanker Bill + Print Bills, **Phase 3** Daily /
-Monthly / Custom statements (with the month-end Outstanding update).
+**Phase 2** (the **Bills** tab):
+
+| Master Ledger | In the app |
+|---|---|
+| **Daily Tanker Bill** (Module8 `ExportHSDBills`) | Pick the dates (and optionally part of a customer name). One bill per HSD sale to a **Tanker Master** customer — letterhead, address, payment lines, **P.O. No. from the PO lists**, Density / Seal lines over 3,000 L — bundled like the macro: one PDF per day for ESM (Lakhanpur group), SMC Unit 1 / 2, OMPL and SMEL, one per customer per day for everyone else, with the same file names. **Download all (.zip)**, one PDF, or print. |
+| **Print Bills** (Module7 `ExportBillsPerCustomer`) | Every HSD, MS and XG bill in the range as an A5 credit memo, one PDF per customer named `<Customer> Slips <date>`, zipped in a `Fuel Bills <from> to <to>` folder. The heading is read from the HSD Bill sheet. |
+
+The Tanker Master and the slip heading come in with **Upload Master Ledger**
+(re-upload after changing them in Excel). Customers not in the Tanker Master
+are listed as skipped, like the macro.
+
+Coming next: **Phase 3** Daily / Monthly / Custom statements (with the
+month-end Outstanding update).
 
 This app is separate from every other app in this repo; it only adds files
 (`ledger/`, `supabase/ledger-schema.sql`, `tests/ledger_web/`,
@@ -87,12 +98,16 @@ Until step 5 the page shows these steps and a **Try the demo** button
 | `js/master.js` | Reads the Master Ledger (sale sheets, Master Paid, Outstanding, Customer GST, every `*_Bulk` sheet) |
 | `js/po.js` | The PO rule of the Bulk sheets |
 | `js/store.js` | Talks to the database (`ledger_*` functions); also the in-memory demo store |
+| `js/bills.js` | Which bills go in which PDF (Module8 / Module7 rules) |
+| `js/render.js` | Draws the tanker bill (A4) and fuel slip (A5); makes PDFs and zips |
+| `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`) |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |
 
 Libraries load from CDNs when needed: `@supabase/supabase-js` (esm.sh, same as
-the other apps) and SheetJS (cdn.sheetjs.com, same as `/loading/`).
+the other apps), SheetJS (cdn.sheetjs.com, same as `/loading/`), and jsPDF +
+JSZip (cdnjs) for the bill PDFs.
 
 ## Tests
 

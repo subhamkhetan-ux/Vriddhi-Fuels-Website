@@ -2,10 +2,14 @@
 // The logic lives in the other modules (daybook, master, po, store); this
 // file is the screens.
 
+import { normalizeCompany, slipBundles, tankerBundles } from './bills.js';
 import { daybookPayload, parseDaybook, sheetRows } from './daybook.js';
 import { demoSeed } from './demo.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
+import {
+  A4, A5, download, pdfFromSvgs, slipSvg, tankerBillSvg, toDataUrl, zipBlob,
+} from './render.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
 
@@ -172,7 +176,8 @@ async function signOut() {
 // shell + routing
 // ---------------------------------------------------------------------------
 const TABS = [
-  ['#/', 'Home'], ['#/import', 'Import'], ['#/pos', 'POs'], ['#/customers', 'Customers'], ['#/sales', 'Sales'],
+  ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/pos', 'POs'], ['#/customers', 'Customers'],
+  ['#/sales', 'Sales'],
 ];
 
 function renderShell() {
@@ -198,6 +203,7 @@ const ROUTES = [
   [/^#\/pos\/(.+)$/, (m) => viewPoGroup(decodeURIComponent(m[1]))],
   [/^#\/customers$/, () => viewCustomers()],
   [/^#\/sales(?:\/(\d{4}-\d{2}-\d{2}))?$/, (m) => viewSales(m[1] || null)],
+  [/^#\/bills$/, () => viewBills()],
 ];
 
 async function route() {
@@ -427,6 +433,7 @@ async function masterChosen(file, input) {
             <tr><td>Other Sale bills</td><td>${span(s.OTHER)}</td></tr>
             <tr><td>Payments (Master Paid)</td><td>${span(preview.payments)} · ${fmtMoney(preview.payments.total)}</td></tr>
             <tr><td>Customers</td><td>${preview.customers} <span class="muted">(${preview.ledgerNames} with a ledger name)</span></td></tr>
+            <tr><td>Tanker Master companies</td><td>${preview.tanker}</td></tr>
             <tr><td>Opening balances</td><td>${preview.opening.count} <span class="muted">(${preview.opening.months.map((m) => fmtDate(m).slice(3)).join(', ')})</span></td></tr>
           </tbody></table></div>
         <h3>Bulk ledgers</h3>
@@ -779,6 +786,200 @@ async function viewSales(date) {
     </section>
     <section class="card">${salesTable(day.bills.map((b) => ({ ...b, sale_date: day.date })))}</section>`);
   document.getElementById('sales-day').addEventListener('change', (e) => { location.hash = `#/sales/${e.target.value}`; });
+}
+
+// ---------------------------------------------------------------------------
+// Bills: Daily Tanker Bill (Module8) and Print Bills (Module7)
+// ---------------------------------------------------------------------------
+const IMAGES = { letterhead: 'assets/letterhead.png', stamp: 'assets/stamp.png' };
+const DEFAULT_SLIP_HEADER = { title: 'CREDIT MEMO', mobile: '', lines: ['VRIDDHI FUELS'] };
+
+function yesterday() {
+  const d = new Date(Date.now() - 86400000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const rangeName = (from, to) => (from === to ? dmyDash(from) : `${dmyDash(from)} to ${dmyDash(to)}`);
+const dmyDash = (iso) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
+
+async function viewBills() {
+  const [tanker, customers] = await Promise.all([state.store.tankerList(), state.store.customers()]);
+  const y = state.billDates || { from: yesterday(), to: yesterday() };
+  const dates = (id) => `<label>From <input type="date" name="from" value="${y.from}" required></label>
+    <label>To <input type="date" name="to" value="${y.to}" required></label>`;
+  setMain(`
+    <section class="card">
+      <h2>Daily Tanker Bill</h2>
+      <p class="muted">Same as the <b>Daily Tanker Bill</b> button: one bill per HSD sale to a Tanker Master customer, with its PO from the Bulk sheets. One PDF per group per day — ESM, SMC Unit 1 / 2, OMPL, SMEL — and one per customer per day for everyone else.</p>
+      ${tanker.length ? '' : '<p class="warn-text">No Tanker Master yet — upload the Master Ledger (Import) to bring it in.</p>'}
+      <form class="row-form" id="tanker-form">${dates('t')}
+        <label>Customer contains <input name="filter" placeholder="blank = all" autocomplete="off"></label>
+        <button class="btn" type="submit" ${tanker.length ? '' : 'disabled'}>Prepare bills</button></form>
+      <div id="tanker-out"></div>
+    </section>
+    <section class="card">
+      <h2>Print Bills — fuel slips</h2>
+      <p class="muted">Same as the <b>Print Bills</b> button on the HSD Bill sheet: every HSD, MS and XG bill in the range as an A5 credit memo, one PDF per customer (“&lt;Customer&gt; Slips &lt;date&gt;”).</p>
+      <form class="row-form" id="slip-form">${dates('s')}
+        <label>Customer <input name="filter" list="slip-customers" placeholder="blank = all" autocomplete="off"></label>
+        <datalist id="slip-customers">${customers.filter((c) => !c.archived).map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist>
+        <button class="btn" type="submit">Prepare slips</button></form>
+      <div id="slip-out"></div>
+    </section>
+    <section class="card">
+      <details><summary>Tanker Master · ${plural(tanker.length, 'company', 'companies')} (from the last Master Ledger upload)</summary>
+        <div class="table-wrap"><table class="compact"><thead><tr><th>Company</th><th>Address</th><th class="r">HSD rate</th><th>Price tier</th></tr></thead>
+        <tbody>${tanker.map((t) => `<tr><td>${esc(t.company)}</td><td class="small muted">${(t.address || []).filter(Boolean).map(esc).join(' · ')}</td><td class="r">${t.hsd_rate != null ? Number(t.hsd_rate).toFixed(2) : ''}</td><td>${esc(t.price_tier)}</td></tr>`).join('')}</tbody></table></div>
+      </details>
+    </section>`);
+  const read = (form) => {
+    const from = form.from.value;
+    const to = form.to.value;
+    if (!from || !to || to < from) throw new Error('Pick a From date on or before the To date.');
+    state.billDates = { from, to };
+    return { from, to, filter: form.filter.value.trim() };
+  };
+  document.getElementById('tanker-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    guard(async () => prepareTanker(read(e.target), tanker));
+  });
+  document.getElementById('slip-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    guard(async () => prepareSlips(read(e.target)));
+  });
+}
+
+async function prepareTanker({ from, to, filter }, tanker) {
+  const out = document.getElementById('tanker-out');
+  out.innerHTML = loadingHtml('Finding bills…');
+  const [sales, pod] = await Promise.all([state.store.salesRange(from, to), state.store.poData()]);
+  const poById = new Map();
+  poGroups(pod).forEach((g) => g.rows.forEach((r) => poById.set(r.id, r.po)));
+  const lakhanpur = new Set(pod.members.filter((m) => /lakhanpur/i.test(m.group || '')).map((m) => normalizeCompany(m.name)));
+  const res = tankerBundles({ sales, tanker, poOf: (s) => poById.get(s.id) || '', lakhanpur, from, to, filter });
+  const range = `${rangeName(from, to)}${filter ? ` · customer like “${esc(filter)}”` : ''}`;
+  if (!res.inRange) {
+    out.innerHTML = `<p class="warn-text">No HSD bills for ${range}.</p>`;
+    return;
+  }
+  const skipped = res.skipped.length
+    ? `<details><summary class="warn-text">${plural(res.skipped.reduce((a, x) => a + x.count, 0), 'bill')} skipped — customer not in Tanker Master</summary><ul class="small">${res.skipped.map((x) => `<li>${esc(x.customer)} (${x.count})</li>`).join('')}</ul></details>` : '';
+  if (!res.bundles.length) {
+    out.innerHTML = `<p class="warn-text">${plural(res.inRange, 'bill')} found for ${range}, but none of their customers are in Tanker Master.</p>${skipped}`;
+    return;
+  }
+  const pages = (b) => b.bills.map((x) => tankerBillSvg(x, x.company, IMAGES));
+  renderBundles(out, {
+    summary: `<b>${plural(res.bills, 'bill')}</b> in <b>${plural(res.bundles.length, 'PDF')}</b> · ${range}`,
+    extra: skipped,
+    bundles: res.bundles,
+    size: A4,
+    zipName: `Tanker Bills ${rangeName(from, to)}.zip`,
+    folder: '',
+    line: (b) => b.bills.map((x) => `${esc(x.bill_no)} · ${fmtLitres(x.qty)} L${x.po ? ` · PO ${esc(x.po)}` : ''}`).join('<br>'),
+    pages,
+    pdfPages: async (b) => {
+      const imgs = { letterhead: await toDataUrl(IMAGES.letterhead), stamp: await toDataUrl(IMAGES.stamp) };
+      return b.bills.map((x) => tankerBillSvg(x, x.company, imgs));
+    },
+  });
+}
+
+async function prepareSlips({ from, to, filter }) {
+  const out = document.getElementById('slip-out');
+  out.innerHTML = loadingHtml('Finding bills…');
+  const [sales, header] = await Promise.all([state.store.salesRange(from, to), state.store.setting('slip_header')]);
+  const res = slipBundles({ sales, from, to, filter });
+  const range = `${rangeName(from, to)}${filter ? ` · ${esc(filter)}` : ''}`;
+  if (!res.bills) {
+    out.innerHTML = `<p class="warn-text">No sales bills for ${range}.${filter ? ' Check the spelling of the customer name.' : ''}</p>`;
+    return;
+  }
+  const h = header || DEFAULT_SLIP_HEADER;
+  const pages = (b) => b.bills.map((x) => slipSvg(x, h));
+  renderBundles(out, {
+    summary: `<b>${plural(res.bills, 'bill')}</b> in <b>${plural(res.bundles.length, 'PDF')}</b> · ${range}`,
+    extra: header ? '' : '<p class="muted small">The slip heading comes from the HSD Bill sheet — upload the Master Ledger to bring in yours.</p>',
+    bundles: res.bundles,
+    size: A5,
+    zipName: `${res.folder}.zip`,
+    folder: res.folder,
+    line: (b) => `${plural(b.bills.length, 'bill')}: ${b.bills.slice(0, 6).map((x) => esc(x.bill_no)).join(', ')}${b.bills.length > 6 ? ' …' : ''}`,
+    pages,
+    pdfPages: async (b) => pages(b),
+  });
+}
+
+function renderBundles(out, o) {
+  out.innerHTML = `
+    <div class="preview">
+      <p>${o.summary}</p>${o.extra || ''}
+      <p class="actions"><button class="btn" data-all="zip">Download all PDFs (.zip)</button>
+        <button class="btn ghost" data-all="print">Print all</button></p>
+      <div class="bundles">${o.bundles.map((b, i) => `
+        <div class="bundle">
+          <div class="bundle-head"><b>${esc(b.fileName)}</b><span class="muted small">${plural(b.bills.length, 'page')}</span></div>
+          <div class="muted small">${o.line(b)}</div>
+          <div class="bundle-actions">
+            <button class="btn small" data-pdf="${i}">PDF</button>
+            <button class="btn ghost small" data-print="${i}">Print</button>
+            <button class="btn ghost small" data-look="${i}">Preview</button>
+          </div>
+          <div class="pages" data-pages="${i}" hidden></div>
+        </div>`).join('')}</div>
+    </div>`;
+  const busy = async (btn, text, fn) => {
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = text;
+    try { await fn(); } finally { btn.disabled = false; btn.textContent = old; }
+  };
+  const pdfOf = async (b) => pdfFromSvgs(await o.pdfPages(b), o.size);
+  out.querySelectorAll('[data-look]').forEach((btn) => btn.addEventListener('click', () => {
+    const box = out.querySelector(`[data-pages="${btn.dataset.look}"]`);
+    if (!box.innerHTML) box.innerHTML = o.pages(o.bundles[Number(btn.dataset.look)]).map((svg) => `<div class="page">${svg}</div>`).join('');
+    box.hidden = !box.hidden;
+    btn.textContent = box.hidden ? 'Preview' : 'Hide';
+  }));
+  out.querySelectorAll('[data-pdf]').forEach((btn) => btn.addEventListener('click', () => guard(() => busy(btn, 'Making…', async () => {
+    const b = o.bundles[Number(btn.dataset.pdf)];
+    download(await pdfOf(b), b.fileName);
+  }))));
+  out.querySelectorAll('[data-print]').forEach((btn) => btn.addEventListener('click', () => printPages(o.pages(o.bundles[Number(btn.dataset.print)]), o.size)));
+  out.querySelector('[data-all="print"]').addEventListener('click', () => printPages(o.bundles.flatMap(o.pages), o.size));
+  const zipBtn = out.querySelector('[data-all="zip"]');
+  zipBtn.addEventListener('click', () => guard(() => busy(zipBtn, 'Making PDFs…', async () => {
+    const files = [];
+    for (let i = 0; i < o.bundles.length; i++) {
+      zipBtn.textContent = `Making PDF ${i + 1} of ${o.bundles.length}…`;
+      files.push({ name: o.bundles[i].fileName, blob: await pdfOf(o.bundles[i]) });
+    }
+    download(await zipBlob(files, o.folder), o.zipName);
+    toast(`${plural(files.length, 'PDF')} downloaded.`);
+  })));
+}
+
+// Print only these pages (the browser's "Save as PDF" works too).
+function printPages(svgs, size) {
+  document.getElementById('print-area')?.remove();
+  document.getElementById('print-style')?.remove();
+  const area = document.createElement('div');
+  area.id = 'print-area';
+  area.innerHTML = svgs.map((svg) => `<div class="print-page">${svg}</div>`).join('');
+  const style = document.createElement('style');
+  style.id = 'print-style';
+  style.textContent = `@page { size: ${size === A5 ? 'A5' : 'A4'} portrait; margin: 0; }`;
+  document.head.append(style);
+  document.body.append(area);
+  document.body.classList.add('printing');
+  const done = () => {
+    document.body.classList.remove('printing');
+    area.remove();
+    style.remove();
+    window.removeEventListener('afterprint', done);
+  };
+  window.addEventListener('afterprint', done);
+  setTimeout(() => window.print(), 50);
 }
 
 boot().catch((err) => {
