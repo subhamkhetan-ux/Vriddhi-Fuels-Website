@@ -179,6 +179,17 @@ alter table public.ledger_imports drop constraint if exists ledger_imports_kind_
 alter table public.ledger_imports add constraint ledger_imports_kind_check
   check (kind in ('master_ledger', 'daybook', 'payments_app'));
 
+-- Phase 4: payments-app entries you chose not to count in the ledger
+-- (e.g. test entries). Only the ledger's view — the payments app isn't touched.
+create table if not exists public.ledger_payments_app_discarded (
+  ref        text primary key,                     -- the payments app's entry_id
+  pay_date   date,
+  customer   text not null default '',
+  amount     numeric,
+  by_email   text not null default '',
+  created_at timestamptz not null default now()
+);
+
 -- Phase 3: what a ledger sheet shows at the top of its statements.
 alter table public.ledger_customers add column if not exists title text not null default '';        -- ledger sheet A1
 alter table public.ledger_customers add column if not exists bill_address text not null default '';  -- ledger sheet Q10
@@ -318,7 +329,7 @@ declare t text;
 begin
   foreach t in array array['ledger_customers', 'ledger_bulk_groups', 'ledger_sales', 'ledger_payments',
                            'ledger_po', 'ledger_opening', 'ledger_imports', 'ledger_settings',
-                           'ledger_tanker_customers'] loop
+                           'ledger_tanker_customers', 'ledger_payments_app_discarded'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
@@ -1013,6 +1024,8 @@ begin
              'state', case
                when exists (select 1 from ledger_payments p where p.source = 'payments_app' and p.source_ref = btrim(x.ref))
                  then 'logged'
+               when exists (select 1 from ledger_payments_app_discarded d where d.ref = btrim(x.ref))
+                 then 'discarded'
                when exists (select 1 from ledger_payments p where p.source = 'master_ledger' and p.pay_date = x.pay_date
                               and p.customer_key = ledger_norm(x.customer) and p.amount = x.amount)
                  then 'in_excel'
@@ -1040,6 +1053,7 @@ begin
   from jsonb_to_recordset(p_rows) as x(ref text, pay_date date, customer text, amount numeric, mode text)
   where btrim(coalesce(x.ref, '')) <> '' and x.pay_date is not null and x.amount is not null and x.amount > 0
     and btrim(coalesce(x.customer, '')) <> ''
+    and not exists (select 1 from ledger_payments_app_discarded d where d.ref = btrim(x.ref))
   on conflict (source, source_ref) where source_ref is not null do nothing;
   get diagnostics n = row_count;
   update ledger_imports set counts = jsonb_build_object('payments', n) where id = v_import;
@@ -1063,6 +1077,76 @@ returns void language plpgsql set search_path = public as $$
 begin
   perform ledger_assert_member();
   delete from ledger_payments where id = p_id and source = 'payments_app';
+end $$;
+
+-- Discard / restore a payments-app entry (ledger only). Discarding one that
+-- was already logged takes it back out of the ledger too.
+create or replace function public.ledger_payments_app_discard(p_ref text, p_pay_date date, p_customer text, p_amount numeric)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if btrim(coalesce(p_ref, '')) = '' then raise exception 'Which entry?'; end if;
+  insert into ledger_payments_app_discarded (ref, pay_date, customer, amount, by_email)
+  values (btrim(p_ref), p_pay_date, coalesce(p_customer, ''), p_amount, coalesce(auth.jwt() ->> 'email', ''))
+  on conflict (ref) do nothing;
+  delete from ledger_payments where source = 'payments_app' and source_ref = btrim(p_ref);
+end $$;
+
+create or replace function public.ledger_payments_app_restore(p_ref text)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  delete from ledger_payments_app_discarded where ref = btrim(coalesce(p_ref, ''));
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Phase 5: Home dashboard. Sales and payments of p_from..p_to summed per
+-- day / product / customer (small enough for a phone), each product's
+-- highest bill price per day (the day's RSP, for the margin — Module14), and
+-- everyone's outstanding today: ledger customers as on their sheet, bulk
+-- groups as on their *_Bulk sheet (opening + amount − paid − TDS − shortage).
+-- ---------------------------------------------------------------------
+create or replace function public.ledger_dashboard(p_from date, p_to date)
+returns jsonb language plpgsql stable set search_path = public as $$
+declare v_today date := (now() at time zone 'Asia/Kolkata')::date;
+begin
+  perform ledger_assert_member();
+  if p_from is null or p_to is null or p_to < p_from then
+    raise exception 'Pick a From date on or before the To date.';
+  end if;
+  if p_to - p_from > 800 then raise exception 'Pick at most two years at a time.'; end if;
+  return jsonb_build_object(
+    'today', v_today,
+    'sales', coalesce((select jsonb_agg(jsonb_build_array(a.d, a.product, a.k, a.qty, a.amt, a.n) order by a.d)
+               from (select s.sale_date as d, s.product, s.customer_key as k, sum(coalesce(s.qty, 0)) as qty,
+                            sum(coalesce(s.amount, 0)) as amt, count(*) as n
+                     from ledger_sales s where s.sale_date between p_from and p_to group by 1, 2, 3) a), '[]'::jsonb),
+    'rsp', coalesce((select jsonb_agg(jsonb_build_array(a.d, a.product, a.rsp) order by a.d)
+             from (select s.sale_date as d, s.product, max(s.rate) as rsp
+                   from ledger_sales s
+                   where s.product in ('HSD', 'MS', 'XG') and s.rate > 0
+                     and s.sale_date between p_from - 15 and p_to + 15 group by 1, 2) a), '[]'::jsonb),
+    'payments', coalesce((select jsonb_agg(jsonb_build_array(a.d, a.k, a.amt) order by a.d)
+                  from (select p.pay_date as d, p.customer_key as k, sum(p.amount) as amt
+                        from ledger_payments p where p.pay_date between p_from and p_to group by 1, 2) a), '[]'::jsonb),
+    'customers', coalesce((select jsonb_agg(jsonb_build_array(c.customer_key, c.name, c.ledger, c.bulk_group) order by c.name)
+                   from ledger_customers c where not c.archived), '[]'::jsonb),
+    'groups', coalesce((select jsonb_agg(jsonb_build_array(g.code, g.title) order by g.code)
+                from ledger_bulk_groups g), '[]'::jsonb),
+    'outstanding', coalesce((select jsonb_agg(x order by (x ->> 2)::numeric desc) from (
+        select jsonb_build_array('c', c.customer_key, ledger_balance_before(c.customer_key, v_today + 1)) as x
+        from ledger_customers c where c.ledger is not null and c.bulk_group is null and not c.archived
+        union all
+        select jsonb_build_array('g', g.code,
+                 coalesce(g.opening, 0)
+                 + coalesce((select sum(s.amount) from ledger_sales s join ledger_customers c on c.customer_key = s.customer_key
+                             where c.bulk_group = g.code and s.sale_date >= coalesce(g.period_from, '1900-01-01'::date)
+                               and s.sale_date <= v_today), 0)
+                 - coalesce((select sum(p.amount + coalesce(p.tds, 0) + coalesce(p.shortage, 0))
+                             from ledger_payments p join ledger_customers c on c.customer_key = p.customer_key
+                             where c.bulk_group = g.code and p.pay_date >= coalesce(g.period_from, '1900-01-01'::date)
+                               and p.pay_date <= v_today), 0))
+        from ledger_bulk_groups g) o), '[]'::jsonb));
 end $$;
 
 -- ---------------------------------------------------------------------

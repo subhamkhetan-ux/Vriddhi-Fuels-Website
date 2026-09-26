@@ -38,10 +38,15 @@ export function demoSeed(today = new Date()) {
     counters[p] += 1;
     return p === 'XG' ? `XG${counters[p]}` : String(counters[p]);
   };
-  const sale = (product, date, customer, qty, extra = {}) => ({
-    product, bill_no: nextBill(product), sale_date: date, vehicle: plate(), qty,
-    rate: RATE[product], amount: Math.round(qty * RATE[product] * 100) / 100, customer, ...extra,
-  });
+  // bulk customers get a discount off the day's price (retail pays full RSP)
+  const DISCOUNT = { 'Demo Power Ltd': 1.2, 'Twin Steel Ltd': 0.5, 'Crew One Logistics': 0.8, 'Crew Two Movers': 0.8 };
+  const sale = (product, date, customer, qty, extra = {}) => {
+    const rate = Math.round((RATE[product] - (DISCOUNT[customer] || 0)) * 100) / 100;
+    return {
+      product, bill_no: nextBill(product), sale_date: date, vehicle: plate(), qty,
+      rate, amount: Math.round(qty * rate * 100) / 100, customer, ...extra,
+    };
+  };
 
   const masterSales = [];
   const lastRows = [];

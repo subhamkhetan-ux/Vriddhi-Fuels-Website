@@ -579,3 +579,46 @@ def test_payments_from_the_payments_app(pg):
     for fn in (call("ledger_payments_app_check", rows), call("ledger_payments_app_log", rows), call("ledger_payments_app_list")):
         assert "permission denied" in pg.fails(fn, anon=True)
         assert "member" in pg.fails(fn, user=STRANGER, email="stranger@example.com").lower()
+
+
+def test_discard_and_dashboard(pg):
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    pg.owner(call("ledger_import_master", "Master Ledger v10.xlsm", payload()))
+    rows = [{"ref": "test:1", "pay_date": "2026-04-07", "customer": "Retail Roadways", "amount": 1},
+            {"ref": "test:2", "pay_date": "2026-04-07", "customer": "Retail Roadways", "amount": 2}]
+    pg.owner(call("ledger_payments_app_log", rows[1:]))
+    # discard one never logged and one already logged (it comes back out of the ledger)
+    for r in rows:
+        pg.ok(call("ledger_payments_app_discard", r["ref"], r["pay_date"], r["customer"], r["amount"]), **as_owner)
+    assert [c["state"] for c in pg.owner(call("ledger_payments_app_check", rows))] == ["discarded", "discarded"]
+    assert pg.owner(call("ledger_payments_app_log", rows))["added"] == 0
+    assert pg.ok("select count(*) from ledger_payments where source_ref like 'test:%';", **as_owner) == "0"
+    pg.ok(call("ledger_payments_app_restore", "test:1"), **as_owner)
+    assert pg.owner(call("ledger_payments_app_log", rows))["added"] == 1
+    assert "permission denied" in pg.fails(call("ledger_payments_app_discard", "x", None, "", None), anon=True)
+    assert pg.ok("select count(*) from ledger_payments_app_discarded;", user=STRANGER, email="stranger@example.com") == "0"
+
+    d = pg.owner(call("ledger_dashboard", "2026-04-01", "2026-04-30"))
+    sales = {(s[1], s[2]): s for s in d["sales"]}
+    got = [0.0, 0]
+    for x in d["sales"]:
+        if x[1] == "HSD" and x[2] == "demo power ltd":
+            got = [got[0] + float(x[4]), got[1] + x[5]]
+    want = pg.ok("select sum(amount) || ',' || count(*) from ledger_sales where product = 'HSD'"
+                 " and customer_key = 'demo power ltd' and sale_date between '2026-04-01' and '2026-04-30';", **as_owner)
+    assert got == [float(want.split(',')[0]), int(want.split(',')[1])]
+    top = float(pg.ok("select max(rate) from ledger_sales where product = 'HSD' and sale_date = '2026-04-01';", **as_owner))
+    assert ["2026-04-01", "HSD", top] in [[r[0], r[1], float(r[2])] for r in d["rsp"]]
+    assert any(p[1] == "demo power ltd" and float(p[2]) == 50000 for p in d["payments"])
+    kinds = {(o[0], o[1]): float(o[2]) for o in d["outstanding"]}
+    assert ("g", "Demo_Bulk") in kinds and ("c", "retail roadways") in kinds
+    # Demo_Bulk: opening 1000 + member sales since 01-04 − payments (+TDS/shortage)
+    # (the sheet's period starts 2026-04-01; nothing after today)
+    today = "(now() at time zone 'Asia/Kolkata')::date"
+    expect = float(pg.ok("select 1000 + (select coalesce(sum(amount),0) from ledger_sales where customer_key = 'demo power ltd'"
+                         f" and sale_date between '2026-04-01' and {today})"
+                         " - (select coalesce(sum(amount + coalesce(tds,0) + coalesce(shortage,0)),0) from ledger_payments"
+                         f" where customer_key = 'demo power ltd' and pay_date between '2026-04-01' and {today});", **as_owner))
+    assert kinds[("g", "Demo_Bulk")] == expect
+    assert "at most two years" in pg.fails(call("ledger_dashboard", "2024-01-01", "2026-04-30"), **as_owner)
+    assert "member" in pg.fails(call("ledger_dashboard", "2026-04-01", "2026-04-30"), user=STRANGER, email="stranger@example.com").lower()
