@@ -298,6 +298,7 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .rank { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
 .rank-row { width: 100%; display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; text-align: left; background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 9px 12px; color: var(--ink); font: inherit; cursor: pointer; transition: border-color .15s, transform .15s; }
 .rank-row:hover { border-color: var(--glass-line); transform: translateX(2px); }
+a.rank-row { text-decoration: none; }
 .rank-row.static { cursor: default; } .rank-row.static:hover { transform: none; }
 .rank-row .n { color: var(--faint); font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; }
 .rank-row .who { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
@@ -316,6 +317,39 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .seg-row { display: grid; grid-template-columns: 70px 1fr 1fr; gap: 10px; align-items: center; background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 9px 12px; font-variant-numeric: tabular-nums; }
 .seg-row span { display: flex; flex-direction: column; }
 @media (prefers-reduced-motion: reduce) { .kpi { animation: none; transition: none; } .rank-row { transition: none; } #chart-tip { transition: none; } }
+
+/* ---- a customer's ledger, like their Excel sheet ---- */
+.acct-bal { display: flex; flex-direction: column; align-items: flex-end; }
+.acct-bal b { font-family: var(--display); font-size: 22px; }
+.month-nav { margin: 8px 0; }
+.xl-tools { display: flex; gap: 6px; justify-content: flex-end; margin: 8px 0 6px; }
+.xl-wrap { overflow: auto; max-height: 76vh; background: #fff; border-radius: 10px; border: 1px solid var(--glass-line); -webkit-overflow-scrolling: touch; }
+table.xl { border-collapse: collapse; table-layout: fixed; background: #fff; color: #000; font-family: "Times New Roman", Tinos, "Liberation Serif", Times, serif; font-size: 16px; }
+table.xl td, table.xl th { border: 1px solid #d9d9d9; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: clip; height: 21px; }
+table.xl thead th { position: sticky; top: 0; z-index: 2; background: #efefef; color: #555; font: 600 11px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; text-align: center; }
+table.xl th.rn, table.xl th.corner { position: sticky; left: 0; z-index: 1; background: #efefef; color: #666; font: 11px -apple-system, "Segoe UI", Roboto, sans-serif; text-align: center; }
+table.xl thead th.corner { z-index: 3; }
+table.xl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.xl td.c { text-align: right; }
+table.xl td.b { font-weight: bold; }
+table.xl td.neg { color: #ff0000; }
+table.xl td.or { color: #ed7d31; }
+table.xl td.xl-title { font-weight: bold; font-size: 18px; text-align: center; }
+table.xl td.xl-head { font-weight: bold; text-align: center; border-bottom: 2px solid #000; }
+.xl-retail table.xl td { font-size: 24px; height: auto; }
+.xl-retail table.xl td.xl-t1 { font-size: 32px; font-weight: bold; text-align: center; position: relative; border-top: 3px solid #000; }
+.xl-retail table.xl td.xl-t2 { font-size: 21px; font-style: italic; text-align: center; }
+.xl-retail table.xl td.pre { white-space: pre; }
+.xl-retail table.xl td.xl-h2 { text-align: center; border-top: 3px solid #000; border-color: #000; }
+.xl-retail table.xl tbody td { border-color: #000; }
+.xl-retail table.xl td.l { text-align: left; }
+.xl-retail table.xl td.xl-t1, .xl-retail table.xl td.xl-t2 { border-left: 3px solid #000; border-right: 3px solid #000; border-bottom: none; }
+.xl-retail table.xl td.xl-t2 { border-top: none; }
+.xl-retail table.xl td.xl-t1 { overflow: visible; z-index: 1; }
+.xl-retail table.xl tbody td:first-of-type { border-left: 3px solid #000; }
+.xl-retail table.xl tbody td:last-child { border-right: 3px solid #000; }
+.xl-retail table.xl tbody tr:last-child td { border-bottom: 2px solid #000; }
+.xl-logo { position: absolute; left: 12px; top: 6px; height: 86px; }
 </style>
 </head>
 <body>

@@ -84,6 +84,7 @@ export function demoWorkbook() {
       [d('2026-04-06'), 'XG2', 200, 95, 19000, '', '', '', 85000, 'XtraGreen', 'PO-B', ''],
     ],
   });
+  demo['!cols'] = [12.16, 12.16, 11.5, 9.83, 15, 15, 9.83, 13, 15.5, 12.83, 18.66, 24.83].map((width) => ({ width }));   // A:L as SheetJS reads them
 
   const twinHead = ['Date', 'Bill No.', 'Volume', 'Price', 'Amount', 'Paid', 'TDS', 'Shortage', 'Balance',
     'Unit', 'Product', 'PO No.', 'Remarks'];

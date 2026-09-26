@@ -195,6 +195,7 @@ alter table public.ledger_customers add column if not exists title text not null
 alter table public.ledger_customers add column if not exists bill_address text not null default '';  -- ledger sheet Q10
 -- ... and the sheet's column widths / row heights, so statements print the same size.
 alter table public.ledger_customers add column if not exists layout jsonb;
+alter table public.ledger_bulk_groups add column if not exists layout jsonb;       -- *_Bulk sheet column widths
 
 -- Tanker Master (the workbook's Customers table): who gets a Daily Tanker
 -- Bill, and the address / payment lines printed on it. Replaced by every
@@ -503,17 +504,18 @@ begin
   returning id into v_import;
 
   -- 1) Bulk ledgers
-  insert into ledger_bulk_groups as g (code, title, kind, units, period_from, opening, opening_by_unit, updated_at)
+  insert into ledger_bulk_groups as g (code, title, kind, units, period_from, opening, opening_by_unit, layout, updated_at)
   select distinct on (btrim(x.code)) btrim(x.code), coalesce(x.title, ''), x.kind, coalesce(x.units, '{}'),
-         x.period_from, x.opening, coalesce(x.opening_by_unit, '{}'::jsonb), now()
+         x.period_from, x.opening, coalesce(x.opening_by_unit, '{}'::jsonb),
+         case when jsonb_typeof(x.layout) = 'object' then x.layout end, now()
   from jsonb_to_recordset(coalesce(p_payload -> 'groups', '[]'::jsonb))
-       as x(code text, title text, kind text, units text[], period_from date, opening numeric, opening_by_unit jsonb)
+       as x(code text, title text, kind text, units text[], period_from date, opening numeric, opening_by_unit jsonb, layout jsonb)
   where btrim(coalesce(x.code, '')) <> '' and x.kind in ('po', 'po_units', 'group')
   order by btrim(x.code)
   on conflict (code) do update set
     title = excluded.title, kind = excluded.kind, units = excluded.units,
     period_from = excluded.period_from, opening = excluded.opening,
-    opening_by_unit = excluded.opening_by_unit, updated_at = now();
+    opening_by_unit = excluded.opening_by_unit, layout = coalesce(excluded.layout, g.layout), updated_at = now();
   get diagnostics v_groups = row_count;
 
   -- 2) Customers: the ones the workbook names (Outstanding, Customer GST,
@@ -1147,6 +1149,67 @@ begin
                              where c.bulk_group = g.code and p.pay_date >= coalesce(g.period_from, '1900-01-01'::date)
                                and p.pay_date <= v_today), 0))
         from ledger_bulk_groups g) o), '[]'::jsonb));
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Phase 6: one customer's ledger, as on their sheet in the Master Ledger.
+--   p_group given: a *_Bulk sheet — every member's bills and payments since
+--     the sheet's "period from", with the sheet's opening, unit / PO /
+--     TDS / shortage / remarks.
+--   otherwise: a ledger customer's sheet for p_from..p_to (a month), opening
+--     = their balance on p_from.
+-- ---------------------------------------------------------------------
+create or replace function public.ledger_account(p_key text, p_group text, p_from date, p_to date)
+returns jsonb language plpgsql stable set search_path = public as $$
+declare g ledger_bulk_groups; c ledger_customers; v_from date; v_to date;
+begin
+  perform ledger_assert_member();
+  if nullif(btrim(coalesce(p_group, '')), '') is not null then
+    select * into g from ledger_bulk_groups where code = btrim(p_group);
+    if not found then raise exception 'No bulk ledger %.', p_group; end if;
+    v_from := coalesce(g.period_from, '1900-01-01'::date);
+    v_to := coalesce(p_to, '2999-12-31'::date);
+    return jsonb_build_object(
+      'kind', 'bulk',
+      'group', jsonb_build_object('code', g.code, 'title', g.title, 'kind', g.kind, 'units', g.units,
+                                  'period_from', g.period_from, 'opening', g.opening, 'layout', g.layout),
+      'members', coalesce((select jsonb_agg(jsonb_build_object('key', m.customer_key, 'name', m.name) order by m.name)
+                           from ledger_customers m where m.bulk_group = g.code), '[]'::jsonb),
+      'sales', coalesce((select jsonb_agg(jsonb_build_object(
+                  'id', s.id, 'product', s.product, 'bill_no', s.bill_no, 'sale_date', s.sale_date, 'qty', s.qty,
+                  'rate', s.rate, 'amount', s.amount, 'customer', s.customer, 'item', s.item, 'seq', s.seq,
+                  'unit', s.unit, 'tds', s.tds, 'shortage', s.shortage, 'remarks', s.remarks)
+                  order by s.sale_date, s.product, s.seq, s.id)
+                from ledger_sales s join ledger_customers m on m.customer_key = s.customer_key
+                where m.bulk_group = g.code and s.sale_date between v_from and v_to), '[]'::jsonb),
+      'payments', coalesce((select jsonb_agg(jsonb_build_object(
+                  'id', p.id, 'pay_date', p.pay_date, 'customer', p.customer, 'amount', p.amount,
+                  'tds', p.tds, 'shortage', p.shortage, 'remarks', p.remarks, 'seq', p.seq)
+                  order by p.pay_date, p.seq, p.id)
+                from ledger_payments p join ledger_customers m on m.customer_key = p.customer_key
+                where m.bulk_group = g.code and p.pay_date between v_from and v_to), '[]'::jsonb));
+  end if;
+  select * into c from ledger_customers where customer_key = btrim(coalesce(p_key, ''));
+  if not found then raise exception 'No customer %.', p_key; end if;
+  if p_from is null or p_to is null or p_to < p_from then
+    raise exception 'Pick a From date on or before the To date.';
+  end if;
+  if p_to - p_from > 400 then raise exception 'Pick at most 400 days at a time.'; end if;
+  return jsonb_build_object(
+    'kind', 'retail',
+    'customer', jsonb_build_object('key', c.customer_key, 'name', c.name, 'ledger', c.ledger, 'title', c.title,
+                                   'bill_address', c.bill_address, 'gstin', c.gstin, 'layout', c.layout,
+                                   'opening', ledger_balance_before(c.customer_key, p_from)),
+    'sales', coalesce((select jsonb_agg(jsonb_build_object(
+                'id', s.id, 'product', s.product, 'bill_no', s.bill_no, 'sale_date', s.sale_date, 'vehicle', s.vehicle,
+                'qty', s.qty, 'rate', s.rate, 'amount', s.amount, 'customer', s.customer, 'key', s.customer_key,
+                'item', s.item, 'seq', s.seq) order by s.sale_date, s.product, s.seq, s.id)
+              from ledger_sales s where s.customer_key = c.customer_key and s.sale_date between p_from and p_to), '[]'::jsonb),
+    'payments', coalesce((select jsonb_agg(jsonb_build_object('pay_date', p.pay_date, 'key', p.customer_key, 'amount', p.amount)
+                  order by p.pay_date, p.seq, p.id)
+                from ledger_payments p where p.customer_key = c.customer_key and p.pay_date between p_from and p_to), '[]'::jsonb),
+    'first', (select min(d) from (select min(sale_date) as d from ledger_sales where customer_key = c.customer_key
+                                  union all select min(pay_date) from ledger_payments where customer_key = c.customer_key) x));
 end $$;
 
 -- ---------------------------------------------------------------------

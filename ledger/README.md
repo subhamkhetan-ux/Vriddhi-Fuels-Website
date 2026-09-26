@@ -54,6 +54,20 @@ bulk groups as on their *_Bulk sheet: opening + sales − paid − TDS −
 shortage); bulk vs retail; the FY month by month (sales vs collections); and
 the day's RSP per product. Tap or hover any chart for its numbers.
 
+**Customer ledgers**: tap anyone under *Outstanding today* (or *Open ledger*
+on a best customer) to see their ledger laid out like their sheet in the
+Master Ledger, with the sheet's column letters, row numbers and column widths:
+- **Bulk** — the *_Bulk sheet: title, Customer / Group, Opening Balance and
+  Period From, then every member's bill (diesel, petrol, XtraGreen, then
+  payments, then Other Sale, by date) with Unit, PO No., TDS, Shortage and
+  Remarks, and the running Balance (opening + amount − paid − TDS −
+  shortage), in the sheet's number formats (negatives in red). Group sheets
+  show the Billing Name; SMC-style sheets the Unit.
+- **Retail** — the ledger sheet (A:G) for a month, with ‹ › to move between
+  months, and *Share as picture* / *PDF* of the same page.
+**Fit / − / + / 100%** zoom the sheet (on a phone it scrolls sideways like
+Excel). The widths come with the Master Ledger upload.
+
 Earnings follow Module14: a bill earns *amount − litres × (day's RSP −
 margin)*, margin ₹2.58/L diesel and XtraGreen, ₹4/L petrol, the day's RSP
 being the highest price billed that day — so retail earns the full margin and
@@ -158,6 +172,7 @@ Until step 5 the page shows these steps and a **Try the demo** button
 | `js/payin.js` | Reads the payments app's list for the Payments tab |
 | `js/dash.js` | Home dashboard figures (earnings, customers, outstanding, months) |
 | `js/charts.js` | The dashboard's SVG charts and their tooltips |
+| `js/account.js` | A customer's ledger as on their sheet (bulk layouts, formats) |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |

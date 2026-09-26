@@ -622,3 +622,31 @@ def test_discard_and_dashboard(pg):
     assert kinds[("g", "Demo_Bulk")] == expect
     assert "at most two years" in pg.fails(call("ledger_dashboard", "2024-01-01", "2026-04-30"), **as_owner)
     assert "member" in pg.fails(call("ledger_dashboard", "2026-04-01", "2026-04-30"), user=STRANGER, email="stranger@example.com").lower()
+
+
+def test_customer_ledgers(pg):
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    p = payload()
+    p["groups"][0] = dict(p["groups"][0], layout={"cols": [12.16, 12.16, 11.5]})
+    pg.owner(call("ledger_import_master", "Master Ledger v11.xlsm", p))
+    g = pg.owner(call("ledger_account", None, "Demo_Bulk", None, None))
+    assert g["kind"] == "bulk" and g["group"]["layout"] == {"cols": [12.16, 12.16, 11.5]}
+    assert g["group"]["kind"] == "po" and float(g["group"]["opening"]) == 1000
+    assert [m["name"] for m in g["members"]] == ["Demo Power Ltd"]
+    want = pg.ok("select count(*) from ledger_sales s join ledger_customers c using (customer_key)"
+                 " where c.bulk_group = 'Demo_Bulk' and s.sale_date >= '2026-04-01';", **as_owner)
+    assert len(g["sales"]) == int(want) and all("remarks" in s and "unit" in s for s in g["sales"])
+    assert all({"tds", "shortage", "remarks"} <= set(x) for x in g["payments"])
+    # an upload without widths keeps them
+    pg.owner(call("ledger_import_master", "Master Ledger v12.xlsm", payload()))
+    assert pg.owner(call("ledger_account", None, "Demo_Bulk", None, None))["group"]["layout"] == {"cols": [12.16, 12.16, 11.5]}
+
+    r = pg.owner(call("ledger_account", "retail roadways", None, "2026-04-01", "2026-04-30"))
+    assert r["kind"] == "retail" and r["customer"]["name"] == "Retail Roadways"
+    assert float(r["customer"]["opening"]) == float(pg.ok("select ledger_balance_before('retail roadways', '2026-04-01');", **as_owner))
+    assert all(s["key"] == "retail roadways" and "2026-04-01" <= s["sale_date"] <= "2026-04-30" for s in r["sales"])
+    assert r["first"] is not None
+    assert "No customer" in pg.fails(call("ledger_account", "nobody", None, "2026-04-01", "2026-04-30"), **as_owner)
+    assert "No bulk ledger" in pg.fails(call("ledger_account", None, "Nope_Bulk", None, None), **as_owner)
+    assert "permission denied" in pg.fails(call("ledger_account", None, "Demo_Bulk", None, None), anon=True)
+    assert "member" in pg.fails(call("ledger_account", None, "Demo_Bulk", None, None), user=STRANGER, email="stranger@example.com").lower()

@@ -80,6 +80,20 @@ export function sheetLayout(ws) {
   return layout;
 }
 
+// A *_Bulk sheet's column widths A:O (Excel width units), for drawing its
+// ledger the same size as Excel. Null when the file carries none.
+export function bulkLayout(ws) {
+  const cols = ws['!cols'];
+  if (!Array.isArray(cols) || !cols.some((c) => c && c.width > 0)) return null;
+  return {
+    cols: Array.from({ length: 15 }, (_, i) => {
+      const c = cols[i];
+      const w = c && !c.hidden ? Number(c.width ?? c.wch) : NaN;
+      return Number.isFinite(w) && w > 0 ? Math.round(w * 100) / 100 : DEFAULT_WIDTH;
+    }),
+  };
+}
+
 function findSheet(wb, name) {
   const hit = wb.SheetNames.find((n) => n.trim().toLowerCase() === name.toLowerCase());
   return hit ? wb.Sheets[hit] : null;
@@ -443,7 +457,7 @@ function readBulk(ws, code, gst, date1904, warn) {
   return {
     group: {
       code, title: text(ws, 0, 0), kind, units, period_from: periodFrom, opening,
-      opening_by_unit: openingByUnit,
+      opening_by_unit: openingByUnit, layout: bulkLayout(ws),
     },
     members: [...members.values()],
     pos: registers.flatMap((g) => g.pos),
