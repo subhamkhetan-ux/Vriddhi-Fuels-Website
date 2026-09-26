@@ -7,7 +7,7 @@ import { demoWorkbook } from './fixtures.mjs';
 import { formula } from './sheets.mjs';
 
 test('picks only the sheets it needs', () => {
-  assert.deepEqual(sheetsToRead(demoWorkbook().SheetNames), ['Master Paid', 'Outstanding', 'Demo_Bulk',
+  assert.deepEqual(sheetsToRead(demoWorkbook().SheetNames), ['Tanker Master', 'HSD Bill', 'Master Paid', 'Outstanding', 'Demo_Bulk',
     'Twin_Bulk', 'Crew_Bulk', 'HSD Sale', 'MS Sale', 'XG Sale', 'Other Sale', 'Customer GST']);
 });
 
@@ -72,6 +72,16 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   assert.deepEqual(checks.Twin_Bulk, { code: 'Twin_Bulk', compared: 3, matched: 3, mismatches: [] });
   assert.deepEqual(preview.sales.HSD, { count: 8, from: '2026-04-01', to: '2026-04-04' });
   assert.equal(preview.payments.total, 80000);
+
+  assert.deepEqual(payload.tanker, [
+    { company: 'Demo Power Ltd', hsd_rate: 90.5, address: ['At- Demo', 'Testpur', 'GSTIN: 00AAAAA0000A0Z0'],
+      payment: ['Payment Details:', 'Account No. – 0000', '', '', ''], po_label: 'P.O. No.:', po_no: '', price_tier: 'Bulk' },
+    { company: 'Twin Steel Ltd, UNIT I', hsd_rate: 90, address: ['Unit I', '', ''], payment: ['', '', '', '', ''],
+      po_label: '', po_no: '', price_tier: 'Bulk' },
+  ]);
+  assert.deepEqual(payload.settings, { slip_header: { title: 'CREDIT MEMO', mobile: 'Mob : 00000',
+    lines: ['DEMO FUELS (2026-27)', 'AT- SAMPLE', 'DIST- DEMO', 'E-Mail : demo@example.com'] } });
+  assert.equal(preview.tanker, 2);
 
   assert.equal(warnings.length, 3, warnings.join('\n'));
   assert.match(warnings.join('\n'), /HSD Sale: 1 row\(s\) with a bill number but no date/);

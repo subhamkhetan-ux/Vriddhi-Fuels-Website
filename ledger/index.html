@@ -223,6 +223,25 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
   .b-po { grid-area: po; } .b-act { grid-area: act; align-self: center; } .b-unit { grid-area: unit; }
 }
 
+/* bills */
+.bundles { display: grid; gap: 10px; margin-top: 8px; }
+.bundle { background: var(--glass-2); border: 1px solid var(--glass-line); border-radius: 14px; padding: 12px 14px; }
+.bundle-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.bundle-head b { font-family: var(--display); overflow-wrap: anywhere; }
+.bundle-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pages { display: flex; gap: 12px; overflow-x: auto; margin-top: 12px; padding-bottom: 6px; }
+.pages .page { flex: none; width: 280px; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 10px 30px -12px rgba(0,0,0,.8); }
+.pages .page svg { width: 100%; height: auto; display: block; }
+#print-area { display: none; }
+@media print {
+  body.printing { background: #fff !important; padding: 0 !important; }
+  body.printing > *:not(#print-area) { display: none !important; }
+  body.printing #print-area { display: block; }
+  .print-page { break-after: page; page-break-after: always; break-inside: avoid; }
+  .print-page:last-child { break-after: auto; page-break-after: auto; }
+  .print-page svg { width: 100%; height: auto; display: block; }
+}
+
 /* feedback */
 .loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 18px 4px; }
 .spinner { width: 16px; height: 16px; border: 2px solid var(--glass-line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }

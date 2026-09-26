@@ -30,6 +30,9 @@ export function supabaseStore(client) {
     updateBill: (id, patch) => rpc('ledger_bill_update', { p_id: id, p_patch: patch }),
     salesDay: (date = null) => rpc('ledger_sales_day', { p_date: date }),
     imports: (limit = 20) => rpc('ledger_imports_list', { p_limit: limit }),
+    salesRange: (from, to) => rpc('ledger_sales_range', { p_from: from, p_to: to }),
+    tankerList: () => rpc('ledger_tanker_list'),
+    setting: (key) => rpc('ledger_setting_get', { p_key: key }),
   };
 }
 
@@ -40,7 +43,7 @@ const now = () => new Date().toISOString();
 
 export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   const db = {
-    customers: [], groups: [], sales: [], payments: [], pos: [], opening: [], imports: [],
+    customers: [], groups: [], sales: [], payments: [], pos: [], opening: [], imports: [], tanker: [], settings: {},
   };
   const ids = { customers: 0, sales: 0, payments: 0, pos: 0, imports: 0 };
   const nextId = (t) => { ids[t] += 1; return ids[t]; };
@@ -264,9 +267,26 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         if (i >= 0) db.opening[i] = row; else db.opening.push(row);
         opening += 1;
       }
+      // 7) Tanker Master follows Excel; 8) settings
+      let tanker = 0;
+      if ((p.tanker || []).length) {
+        const seen = new Set();
+        db.tanker = [];
+        p.tanker.forEach((t, i) => {
+          const company = trim(t.company);
+          if (!company || seen.has(company)) return;
+          seen.add(company);
+          db.tanker.push({
+            company, hsd_rate: t.hsd_rate ?? null, address: t.address || [], payment: t.payment || [],
+            po_label: t.po_label || '', po_no: t.po_no || '', price_tier: t.price_tier || '', seq: i + 1,
+          });
+        });
+        tanker = db.tanker.length;
+      }
+      Object.assign(db.settings, clone(p.settings || {}));
       imp.counts = {
         groups, customers_new: customersNew, sales_new: salesNew, sales_updated: salesUpd, payments: pays,
-        pos_new: posNew, opening,
+        pos_new: posNew, opening, tanker,
       };
       return { ...clone(imp.counts), import_id: imp.id };
     },
@@ -388,6 +408,25 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
           amount: s.amount, customer: s.customer, item: s.item, source: s.source,
         }));
       return clone({ date: d, dates: dates.slice(0, 120), bills });
+    },
+
+    async salesRange(from, to) {
+      if (!from || !to || to < from) fail('Pick a From date on or before the To date.');
+      const order = { HSD: 0, MS: 1, OTHER: 2, XG: 3 };
+      return clone(db.sales.filter((s) => s.sale_date >= from && s.sale_date <= to)
+        .sort((a, b) => order[a.product] - order[b.product] || a.seq - b.seq || a.id - b.id)
+        .map((s) => ({
+          id: s.id, product: s.product, bill_no: s.bill_no, sale_date: s.sale_date, vehicle: s.vehicle, qty: s.qty,
+          rate: s.rate, amount: s.amount, customer: s.customer, item: s.item, seq: s.seq, unit: s.unit,
+        })));
+    },
+
+    async tankerList() {
+      return clone(db.tanker);
+    },
+
+    async setting(key) {
+      return clone(db.settings[key] ?? null);
     },
 
     async imports(limit = 20) {

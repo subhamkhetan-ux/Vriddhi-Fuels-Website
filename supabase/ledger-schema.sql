@@ -174,7 +174,22 @@ create table if not exists public.ledger_imports (
   created_at timestamptz not null default now()
 );
 
--- App settings (used by later phases, e.g. the signature for statements).
+-- Tanker Master (the workbook's Customers table): who gets a Daily Tanker
+-- Bill, and the address / payment lines printed on it. Replaced by every
+-- Master Ledger upload that has the sheet.
+create table if not exists public.ledger_tanker_customers (
+  company    text primary key,
+  hsd_rate   numeric,
+  address    text[] not null default '{}',
+  payment    text[] not null default '{}',
+  po_label   text not null default '',
+  po_no      text not null default '',
+  price_tier text not null default '',
+  seq        int not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+-- App settings (e.g. the fuel-slip heading from the HSD Bill sheet).
 create table if not exists public.ledger_settings (
   key        text primary key,
   value      jsonb not null default 'null'::jsonb,
@@ -291,7 +306,8 @@ do $$
 declare t text;
 begin
   foreach t in array array['ledger_customers', 'ledger_bulk_groups', 'ledger_sales', 'ledger_payments',
-                           'ledger_po', 'ledger_opening', 'ledger_imports', 'ledger_settings'] loop
+                           'ledger_po', 'ledger_opening', 'ledger_imports', 'ledger_settings',
+                           'ledger_tanker_customers'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
@@ -455,6 +471,7 @@ declare
   v_pay       int;
   v_po_new    int;
   v_open      int;
+  v_tanker    int := 0;
 begin
   perform ledger_assert_member();
   insert into ledger_imports (kind, file_name, by_email)
@@ -591,9 +608,30 @@ begin
     amount = excluded.amount, customer = excluded.customer, source = 'master_ledger', updated_at = now();
   get diagnostics v_open = row_count;
 
+  -- 7) Tanker Master follows Excel (only when the upload has it)
+  if jsonb_array_length(coalesce(p_payload -> 'tanker', '[]'::jsonb)) > 0 then
+    delete from ledger_tanker_customers where true;
+    insert into ledger_tanker_customers (company, hsd_rate, address, payment, po_label, po_no, price_tier, seq)
+    select distinct on (btrim(x.company)) btrim(x.company), x.hsd_rate, coalesce(x.address, '{}'),
+           coalesce(x.payment, '{}'), coalesce(x.po_label, ''), coalesce(x.po_no, ''),
+           coalesce(x.price_tier, ''), t.n::int
+    from jsonb_array_elements(p_payload -> 'tanker') with ordinality as t(v, n),
+         jsonb_to_record(t.v) as x(company text, hsd_rate numeric, address text[], payment text[],
+                                   po_label text, po_no text, price_tier text)
+    where btrim(coalesce(x.company, '')) <> ''
+    order by btrim(x.company), t.n;
+    get diagnostics v_tanker = row_count;
+  end if;
+
+  -- 8) Settings read from the workbook (e.g. the fuel-slip heading)
+  insert into ledger_settings as st (key, value, updated_at)
+  select e.key, e.value, now() from jsonb_each(coalesce(p_payload -> 'settings', '{}'::jsonb)) e
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+
   v_counts := jsonb_build_object(
     'groups', v_groups, 'customers_new', v_cust_new, 'sales_new', v_sales_new,
-    'sales_updated', v_sales_upd, 'payments', v_pay, 'pos_new', v_po_new, 'opening', v_open);
+    'sales_updated', v_sales_upd, 'payments', v_pay, 'pos_new', v_po_new, 'opening', v_open,
+    'tanker', v_tanker);
   update ledger_imports set counts = v_counts where id = v_import;
   return v_counts || jsonb_build_object('import_id', v_import);
 end $$;
@@ -793,6 +831,38 @@ begin
                                 'source', s.source)
                               order by s.product, s.seq, s.id)
                        from ledger_sales s where s.sale_date = d), '[]'::jsonb));
+end $$;
+
+-- Bills of a date range (Daily Tanker Bill, Print Bills). At most 400 days.
+create or replace function public.ledger_sales_range(p_from date, p_to date)
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if p_from is null or p_to is null or p_to < p_from then
+    raise exception 'Pick a From date on or before the To date.';
+  end if;
+  if p_to - p_from > 400 then raise exception 'Pick at most 400 days at a time.'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object(
+                     'id', s.id, 'product', s.product, 'bill_no', s.bill_no, 'sale_date', s.sale_date,
+                     'vehicle', s.vehicle, 'qty', s.qty, 'rate', s.rate, 'amount', s.amount,
+                     'customer', s.customer, 'item', s.item, 'seq', s.seq, 'unit', s.unit)
+                   order by s.product, s.seq, s.id)
+                   from ledger_sales s where s.sale_date between p_from and p_to), '[]'::jsonb);
+end $$;
+
+create or replace function public.ledger_tanker_list()
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return coalesce((select jsonb_agg(to_jsonb(t) order by t.seq, t.company)
+                   from ledger_tanker_customers t), '[]'::jsonb);
+end $$;
+
+create or replace function public.ledger_setting_get(p_key text)
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return (select value from ledger_settings where key = p_key);
 end $$;
 
 create or replace function public.ledger_imports_list(p_limit int default 20)

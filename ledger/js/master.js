@@ -24,7 +24,7 @@ const SALE_SHEETS = [
   { name: 'XG Sale', product: 'XG' },
 ];
 const REQUIRED = ['HSD Sale', 'MS Sale', 'XG Sale', 'Master Paid'];
-const OPTIONAL = ['Other Sale', 'Outstanding', 'Customer GST'];
+const OPTIONAL = ['Other Sale', 'Outstanding', 'Customer GST', 'Tanker Master', 'HSD Bill'];
 const PRODUCT_OF = { DIESEL: 'HSD', PETROL: 'MS', XTRAGREEN: 'XG' };
 
 // Which sheets to parse (everything else in the workbook is skipped).
@@ -204,6 +204,39 @@ function readCustomerGst(ws) {
     if (name) out.push({ name, gstin });
   }
   return out;
+}
+
+// Tanker Master (the Customers table): who gets a Daily Tanker Bill, with
+// the address and payment lines printed on it.
+function readTankerMaster(ws, warn) {
+  const head = ['company', 'hsd', 'address 1', 'address 2', 'address 3', 'payment 1', 'payment 2', 'payment 3',
+    'payment 4', 'payment 5', 'po label', 'po no', 'price tier'];
+  const bad = head.filter((h, c) => label(text(ws, 0, c)) !== h);
+  if (bad.length) {
+    warn(`Tanker Master: columns A–M aren't the usual Company / HSD / Address / Payment / PO / Price Tier, so it wasn't copied.`);
+    return [];
+  }
+  const { rows } = sheetBounds(ws);
+  const out = [];
+  for (let r = 1; r < rows; r++) {
+    const company = text(ws, r, 0);
+    if (!company) continue;
+    out.push({
+      company, hsd_rate: cellNumber(ws[addr(r, 1)]),
+      address: [2, 3, 4].map((c) => text(ws, r, c)), payment: [5, 6, 7, 8, 9].map((c) => text(ws, r, c)),
+      po_label: text(ws, r, 10), po_no: text(ws, r, 11), price_tier: text(ws, r, 12),
+    });
+  }
+  return out;
+}
+
+// The HSD Bill sheet's heading (A1, D1, A2:A8), printed on every fuel slip.
+function readSlipHeader(ws) {
+  return {
+    title: text(ws, 0, 0) || 'CREDIT MEMO',
+    mobile: text(ws, 0, 3),
+    lines: [1, 2, 3, 4, 5, 6, 7].map((r) => text(ws, r, 0)).filter(Boolean),
+  };
 }
 
 // ---- *_Bulk sheets ------------------------------------------------------------
@@ -418,6 +451,11 @@ export function extractMaster(wb) {
   const out = findSheet(wb, 'Outstanding');
   const { ledgers, opening } = out ? readOutstanding(out, date1904, warn) : { ledgers: [], opening: [] };
   if (!out) warn('No "Outstanding" sheet, so ledger names and opening balances weren\'t copied.');
+  const tankerWs = findSheet(wb, 'Tanker Master');
+  const tanker = tankerWs ? readTankerMaster(tankerWs, warn) : [];
+  if (!tankerWs) warn('No "Tanker Master" sheet, so Daily Tanker Bills have no customer list yet.');
+  const slipWs = findSheet(wb, 'HSD Bill');
+  const settings = slipWs ? { slip_header: readSlipHeader(slipWs) } : {};
   const gstWs = findSheet(wb, 'Customer GST');
   const gstins = gstWs ? readCustomerGst(gstWs) : [];
 
@@ -527,6 +565,8 @@ export function extractMaster(wb) {
     })),
     pos: bulk.flatMap((b) => b.pos),
     opening,
+    tanker,
+    settings,
   };
 
   const span = (list, field) => {
@@ -539,6 +579,7 @@ export function extractMaster(wb) {
     customers: customers.size,
     ledgerNames: ledgers.filter((l) => l.ledger).length,
     opening: { count: opening.length, months: [...new Set(opening.map((o) => o.month))].sort() },
+    tanker: tanker.length,
     groups: bulk.map((b) => ({
       code: b.group.code, title: b.group.title, kind: b.group.kind, units: b.group.units,
       period_from: b.group.period_from, members: b.members, pos: b.pos.length,
