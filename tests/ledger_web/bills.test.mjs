@@ -7,7 +7,7 @@ import test from 'node:test';
 import {
   bundleInfo, firstNWords, normalizeCompany, resolveCustomer, slipBundles, tankerBundles,
 } from '../../ledger/js/bills.js';
-import { inr, money2, slipSvg, tankerBillSvg } from '../../ledger/js/render.js';
+import { inr, inr2, money2, slipSvg, tankerBillSvg } from '../../ledger/js/render.js';
 
 const TANKER = [
   { company: 'Demo Power Ltd', address: ['At- Demo', 'Testpur', 'GSTIN: X'], payment: ['Payment Details:', 'A/c 1'] },
@@ -101,8 +101,12 @@ test('bill drawings', () => {
   }
   const small = tankerBillSvg({ ...bill, qty: 3000, po: '' }, TANKER[0]);
   assert.ok(!small.includes('Density-') && !small.includes('P.O. No.:') && !small.includes('<image'));
-  const slip = slipSvg({ ...bill, product: 'XG', customer: 'Demo Power Ltd' }, { title: 'CREDIT MEMO', mobile: 'Mob : 1', lines: ['DEMO FUELS'] });
-  for (const want of ['CREDIT MEMO', 'Mob : 1', 'DEMO FUELS', '5-9-2026', 'XtraGreen Diesel', '3200.00 LTR', '90.50', '289,600.00', '₹ 289,600.00', "Customer&#39;s Sign."]) {
+  assert.equal(inr2(1791000), '17,91,000.00');
+  assert.equal(inr2(122468.614), '1,22,468.61');
+  assert.equal(inr2(16118.4), '16,118.40');
+  const slip = slipSvg({ ...bill, product: 'XG', customer: 'Demo Power Ltd' }, { title: 'CREDIT MEMO', mobile: 'Mob : 1', lines: ['DEMO FUELS'] }, 'data:image/png;base64,AA');
+  for (const want of ['CREDIT MEMO', 'Mob : 1', 'DEMO FUELS', '5-9-2026', 'XtraGreen Diesel', '3200.00 LTR', '90.50', '2,89,600.00', '₹ 2,89,600.00', "Customer&#39;s Sign.", 'data:image/png;base64,AA']) {
     assert.ok(slip.includes(want), want);
   }
+  assert.ok(!slipSvg(bill, {}).includes('<image'));
 });

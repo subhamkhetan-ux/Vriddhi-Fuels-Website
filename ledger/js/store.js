@@ -33,6 +33,7 @@ export function supabaseStore(client) {
     salesRange: (from, to) => rpc('ledger_sales_range', { p_from: from, p_to: to }),
     tankerList: () => rpc('ledger_tanker_list'),
     setting: (key) => rpc('ledger_setting_get', { p_key: key }),
+    setSetting: (key, value) => rpc('ledger_setting_set', { p_key: key, p_value: value }),
   };
 }
 
@@ -427,6 +428,11 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
 
     async setting(key) {
       return clone(db.settings[key] ?? null);
+    },
+
+    async setSetting(key, value) {
+      if (key !== 'slip_stamp') fail(`Unknown setting ${key}.`);
+      if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
     },
 
     async imports(limit = 20) {

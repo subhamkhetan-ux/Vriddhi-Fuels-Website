@@ -865,6 +865,22 @@ begin
   return (select value from ledger_settings where key = p_key);
 end $$;
 
+-- Settings you change in the app (not from the workbook): the stamp printed
+-- on fuel slips. Only these keys; a picture up to about 500 KB.
+create or replace function public.ledger_setting_set(p_key text, p_value jsonb)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if p_key not in ('slip_stamp') then raise exception 'Unknown setting %.', p_key; end if;
+  if length(coalesce(p_value::text, '')) > 700000 then raise exception 'That picture is too big (keep it under 500 KB).'; end if;
+  if p_value is null or p_value = 'null'::jsonb then
+    delete from ledger_settings where key = p_key;
+  else
+    insert into ledger_settings (key, value, updated_at) values (p_key, p_value, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+end $$;
+
 create or replace function public.ledger_imports_list(p_limit int default 20)
 returns jsonb language plpgsql stable set search_path = public as $$
 begin

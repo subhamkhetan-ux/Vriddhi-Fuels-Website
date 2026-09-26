@@ -448,3 +448,15 @@ def test_tanker_master_settings_and_sales_range(pg):
     assert "at most 400 days" in err
     assert "permission denied" in pg.fails("select ledger_tanker_list();", anon=True)
     assert pg.ok("select count(*) from ledger_tanker_customers;", user=STRANGER, email="stranger@example.com") == "0"
+
+
+def test_slip_stamp_setting(pg):
+    pg.ok(call("ledger_setting_set", "slip_stamp", {"data_url": "data:image/png;base64,AA"}), user=OWNER, email="owner@example.com")
+    assert pg.owner(call("ledger_setting_get", "slip_stamp"))["data_url"].startswith("data:image/png")
+    err = pg.fails(call("ledger_setting_set", "slip_header", {"x": 1}), user=OWNER, email="owner@example.com")
+    assert "Unknown setting" in err
+    err = pg.fails(call("ledger_setting_set", "slip_stamp", {"data_url": "x" * 800000}), user=OWNER, email="owner@example.com")
+    assert "too big" in err
+    pg.ok("select ledger_setting_set('slip_stamp', null);", user=OWNER, email="owner@example.com")
+    assert pg.ok("select ledger_setting_get('slip_stamp') is null;", user=OWNER, email="owner@example.com") == "t"
+    assert "permission denied" in pg.fails("select ledger_setting_set('slip_stamp', null);", anon=True)

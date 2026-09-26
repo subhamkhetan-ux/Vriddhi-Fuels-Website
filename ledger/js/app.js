@@ -803,7 +803,7 @@ const rangeName = (from, to) => (from === to ? dmyDash(from) : `${dmyDash(from)}
 const dmyDash = (iso) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
 
 async function viewBills() {
-  const [tanker, customers] = await Promise.all([state.store.tankerList(), state.store.customers()]);
+  const [tanker, customers, stamp] = await Promise.all([state.store.tankerList(), state.store.customers(), state.store.setting('slip_stamp')]);
   const y = state.billDates || { from: yesterday(), to: yesterday() };
   const dates = (id) => `<label>From <input type="date" name="from" value="${y.from}" required></label>
     <label>To <input type="date" name="to" value="${y.to}" required></label>`;
@@ -824,6 +824,12 @@ async function viewBills() {
         <label>Customer <input name="filter" list="slip-customers" placeholder="blank = all" autocomplete="off"></label>
         <datalist id="slip-customers">${customers.filter((c) => !c.archived).map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist>
         <button class="btn" type="submit">Prepare slips</button></form>
+      <div class="stamp-row">
+        ${stamp ? `<img src="${esc(stamp.data_url)}" alt="Stamp printed on the slips" class="stamp-thumb">` : '<span class="muted small">No stamp yet — slips print without one.</span>'}
+        <label class="file"><input type="file" id="stamp-file" accept="image/png,image/jpeg"><span class="btn ghost small">${stamp ? 'Change stamp' : 'Upload stamp'}</span></label>
+        ${stamp ? '<button class="btn ghost small" id="stamp-remove">Remove</button>' : ''}
+        <span class="muted small">Kept in your private database, not on the website.</span>
+      </div>
       <div id="slip-out"></div>
     </section>
     <section class="card">
@@ -847,6 +853,25 @@ async function viewBills() {
     e.preventDefault();
     guard(async () => prepareSlips(read(e.target)));
   });
+  document.getElementById('stamp-file').addEventListener('change', (e) => guard(async () => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500000) throw new Error('That picture is too big — keep it under 500 KB.');
+    const dataUrl = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(new Error('Couldn\'t read that file.'));
+      fr.readAsDataURL(file);
+    });
+    await state.store.setSetting('slip_stamp', { data_url: dataUrl, name: file.name });
+    toast('Stamp saved.');
+    await viewBills();
+  }));
+  document.getElementById('stamp-remove')?.addEventListener('click', () => guard(async () => {
+    await state.store.setSetting('slip_stamp', null);
+    toast('Stamp removed.');
+    await viewBills();
+  }));
 }
 
 async function prepareTanker({ from, to, filter }, tanker) {
@@ -888,7 +913,7 @@ async function prepareTanker({ from, to, filter }, tanker) {
 async function prepareSlips({ from, to, filter }) {
   const out = document.getElementById('slip-out');
   out.innerHTML = loadingHtml('Finding bills…');
-  const [sales, header] = await Promise.all([state.store.salesRange(from, to), state.store.setting('slip_header')]);
+  const [sales, header, stamp] = await Promise.all([state.store.salesRange(from, to), state.store.setting('slip_header'), state.store.setting('slip_stamp')]);
   const res = slipBundles({ sales, from, to, filter });
   const range = `${rangeName(from, to)}${filter ? ` · ${esc(filter)}` : ''}`;
   if (!res.bills) {
@@ -896,7 +921,7 @@ async function prepareSlips({ from, to, filter }) {
     return;
   }
   const h = header || DEFAULT_SLIP_HEADER;
-  const pages = (b) => b.bills.map((x) => slipSvg(x, h));
+  const pages = (b) => b.bills.map((x) => slipSvg(x, h, stamp ? stamp.data_url : ''));
   renderBundles(out, {
     summary: `<b>${plural(res.bills, 'bill')}</b> in <b>${plural(res.bundles.length, 'PDF')}</b> · ${range}`,
     extra: header ? '' : '<p class="muted small">The slip heading comes from the HSD Bill sheet — upload the Master Ledger to bring in yours.</p>',
