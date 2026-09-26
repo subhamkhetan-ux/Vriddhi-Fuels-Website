@@ -460,3 +460,58 @@ def test_slip_stamp_setting(pg):
     pg.ok("select ledger_setting_set('slip_stamp', null);", user=OWNER, email="owner@example.com")
     assert pg.ok("select ledger_setting_get('slip_stamp') is null;", user=OWNER, email="owner@example.com") == "t"
     assert "permission denied" in pg.fails("select ledger_setting_set('slip_stamp', null);", anon=True)
+
+
+def test_statements_balances_and_openings(pg):
+    p = payload()
+    p["customers"] = p["customers"] + [
+        {"name": "Retail Roadways", "ledger": "Roadways", "title": "Retail Roadways (Demo)", "bill_address": "Testpur."}]
+    pg.owner(call("ledger_import_master", "Master Ledger v5.xlsm", p))
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    key = "retail roadways"
+
+    def expected(before):
+        # opening of April + everything since, the long way round
+        return float(pg.ok(
+            f"select 2500 + coalesce((select sum(amount) from ledger_sales where customer_key = '{key}'"
+            f" and sale_date >= '2026-04-01' and sale_date < '{before}'), 0)"
+            f" - coalesce((select sum(amount) from ledger_payments where customer_key = '{key}'"
+            f" and pay_date >= '2026-04-01' and pay_date < '{before}'), 0);", **as_owner))
+
+    data = pg.owner(call("ledger_statement_data", "2026-04-01", "2026-04-30"))
+    custs = {c["name"]: c for c in data["customers"]}
+    assert "Retail Roadways" in custs                                 # bulk customers left out
+    assert not {"Demo Power Ltd", "Twin Steel Ltd", "Crew One Logistics"} & set(custs)
+    road = custs["Retail Roadways"]
+    assert (road["title"], road["bill_address"], road["key"]) == ("Retail Roadways (Demo)", "Testpur.", key)
+    assert float(road["opening"]) == 2500
+    assert {(s["product"], s["bill_no"]) for s in data["sales"]} >= {("HSD", "3"), ("MS", "1"), ("OTHER", "LUBE/001")}
+    assert all("key" in s for s in data["sales"]) and data["payments"]
+
+    mid = pg.owner(call("ledger_statement_data", "2026-04-03", "2026-04-03"))
+    opening_of = lambda d: {c["name"]: float(c["opening"]) for c in d["customers"]}["Retail Roadways"]
+    assert opening_of(mid) == expected("2026-04-03") == 2500 + 18000 + 1000
+
+    # month-end: save the balance as May's opening; May statements start from it
+    res = pg.owner(call("ledger_opening_save", "2026-05-17"))
+    assert res["month"] == "2026-05-01" and res["customers"] >= 1
+    row = pg.owner(f"select to_jsonb(o) from ledger_opening o where customer_key = '{key}' and month = '2026-05-01';")
+    assert row["source"] == "app" and float(row["amount"]) == expected("2026-05-01")
+    may = pg.owner(call("ledger_statement_data", "2026-05-01", "2026-05-31"))
+    assert opening_of(may) == float(row["amount"])
+    # saving again ignores May's own opening and gives the same figure
+    pg.owner(call("ledger_opening_save", "2026-05-01"))
+    again = pg.owner(f"select to_jsonb(o) from ledger_opening o where customer_key = '{key}' and month = '2026-05-01';")
+    assert float(again["amount"]) == float(row["amount"])
+
+    err = pg.fails(call("ledger_statement_data", "2026-04-02", "2026-04-01"), **as_owner)
+    assert "From date on or before" in err
+    assert "at most 400 days" in pg.fails(call("ledger_statement_data", "2026-01-01", "2027-06-01"), **as_owner)
+    assert "permission denied" in pg.fails(call("ledger_statement_data", "2026-04-01", "2026-04-30"), anon=True)
+    assert "permission denied" in pg.fails(call("ledger_opening_save", "2026-05-01"), anon=True)
+    assert "permission denied" in pg.fails(call("ledger_balance_before", key, "2026-05-01"), anon=True)
+    for fn in (call("ledger_statement_data", "2026-04-01", "2026-04-30"), call("ledger_opening_save", "2026-05-01")):
+        assert "member" in pg.fails(fn, user=STRANGER, email="stranger@example.com").lower()
+
+    pg.ok(call("ledger_setting_set", "statement_stamp", {"data_url": "data:image/png;base64,AA"}), **as_owner)
+    assert pg.owner(call("ledger_setting_get", "statement_stamp"))["data_url"].endswith("AA")

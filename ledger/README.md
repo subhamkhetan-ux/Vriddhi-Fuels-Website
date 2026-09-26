@@ -22,8 +22,19 @@ The Tanker Master and the slip heading come in with **Upload Master Ledger**
 (re-upload after changing them in Excel). Customers not in the Tanker Master
 are listed as skipped, like the macro.
 
-Coming next: **Phase 3** Daily / Monthly / Custom statements (with the
-month-end Outstanding update).
+**Phase 3** (the **Statements** tab):
+
+| Master Ledger | In the app |
+|---|---|
+| **Daily Screenshots** (Module1) | Pick the day (yesterday by default). Every ledger customer who bought anything that day gets a picture of their ledger (month so far) and of that day's bills, plus the **HSD / MS Daily** summaries — JPEGs the size of the Excel export, named like the macro (`Keshav Ledger 25-09-2026.jpeg`, `HSD Daily 25-09-2026.jpeg`). **Share all on WhatsApp** sends them in one go through the phone's share sheet; **Share** on a customer sends just their two. Browsers that can't share files download a zip instead. |
+| **Monthly Export** (Module2) | Pick the month (last month on the 1st, otherwise this month). A ledger PDF with a TOTAL row and a bill-statement PDF (header repeated on each page, TOTAL at the end) for every ledger customer with diesel, petrol or XtraGreen sales. |
+| **Update Monthly Outstanding** (Module5) | After a monthly run: **Save closing balances as (next month) opening**. Optional — balances already carry forward. |
+| **Custom Date Report** (Module6) | Any From..To range, optionally part of a customer name. Unlike Excel, the ledger opens with the customer's real balance on the From date, not only on the 1st of a month. |
+
+A ledger's title (sheet A1) and the bill-statement address (Q10) come with
+**Upload Master Ledger**; the GSTIN comes from Customer GST. Upload the
+stamp once on the Statements tab — it is kept in the database, not on the
+website.
 
 This app is separate from every other app in this repo; it only adds files
 (`ledger/`, `supabase/ledger-schema.sql`, `tests/ledger_web/`,
@@ -99,20 +110,22 @@ Until step 5 the page shows these steps and a **Try the demo** button
 | `js/po.js` | The PO rule of the Bulk sheets |
 | `js/store.js` | Talks to the database (`ledger_*` functions); also the in-memory demo store |
 | `js/bills.js` | Which bills go in which PDF (Module8 / Module7 rules) |
-| `js/render.js` | Draws the tanker bill (A4) and fuel slip (A5); makes PDFs and zips |
-| `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`) |
+| `js/render.js` | Draws the tanker bill (A4) and fuel slip (A5); makes PDFs, JPEGs and zips |
+| `js/statements.js` | Statement rules: ledger rows, bill statement, daily summaries, who gets what (Module1 / 2 / 6) |
+| `js/statement-svg.js` | Draws the ledger, bill statement and daily summary pages |
+| `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), logo for the ledger |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |
 
 Libraries load from CDNs when needed: `@supabase/supabase-js` (esm.sh, same as
 the other apps), SheetJS (cdn.sheetjs.com, same as `/loading/`), and jsPDF +
-JSZip (cdnjs) for the bill PDFs.
+JSZip (cdnjs) for the bill and statement PDFs.
 
 ## Tests
 
 ```bash
-node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, demo store
+node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, demo store
 python -m pytest tests/test_ledger_web.py tests/test_ledger_schema.py -q
 ```
 

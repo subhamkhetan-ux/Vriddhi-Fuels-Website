@@ -8,7 +8,7 @@ import { formula } from './sheets.mjs';
 
 test('picks only the sheets it needs', () => {
   assert.deepEqual(sheetsToRead(demoWorkbook().SheetNames), ['Tanker Master', 'HSD Bill', 'Master Paid', 'Outstanding', 'Demo_Bulk',
-    'Twin_Bulk', 'Crew_Bulk', 'HSD Sale', 'MS Sale', 'XG Sale', 'Other Sale', 'Customer GST']);
+    'Twin_Bulk', 'Crew_Bulk', 'HSD Sale', 'MS Sale', 'XG Sale', 'Other Sale', 'Customer GST', 'Roadways']);
 });
 
 test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
@@ -55,7 +55,8 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   ]);
 
   const customers = Object.fromEntries(payload.customers.map((c) => [c.name, c]));
-  assert.deepEqual(customers['Retail Roadways'], { name: 'Retail Roadways', ledger: 'Roadways', gstin: '21BBBBB1111B1Z6' });
+  assert.deepEqual(customers['Retail Roadways'], { name: 'Retail Roadways', ledger: 'Roadways', gstin: '21BBBBB1111B1Z6',
+    title: 'Retail Roadways (Demo)', bill_address: 'Testpur.' });
   assert.deepEqual(customers['Demo Power Ltd'], { name: 'Demo Power Ltd', gstin: '22AAAAA0000A1Z5', bulk_group: 'Demo_Bulk' });
   assert.equal(customers['Crew Two Movers'].bulk_group, 'Crew_Bulk');    // from Customer GST column G
   assert.equal(customers['Crew One Logistics'].bulk_group, 'Crew_Bulk');

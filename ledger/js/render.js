@@ -195,6 +195,12 @@ async function svgToJpeg(svg, size, scale) {
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
+// one page as a JPEG Blob, `size` in pixels (for sharing as an image)
+export async function jpegFromSvg(svg, size) {
+  const url = await svgToJpeg(svg, size, 1);
+  return (await fetch(url)).blob();
+}
+
 // svgs: page SVG strings (images already as data: URLs) -> PDF Blob
 export async function pdfFromSvgs(svgs, size, { scale = 2 } = {}) {
   const { jsPDF } = await loadScript(JSPDF, () => window.jspdf);

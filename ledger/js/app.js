@@ -8,8 +8,12 @@ import { demoSeed } from './demo.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
 import {
-  A4, A5, download, pdfFromSvgs, slipSvg, tankerBillSvg, toDataUrl, zipBlob,
+  A4, A5, download, jpegFromSvg, pdfFromSvgs, slipSvg, tankerBillSvg, toDataUrl, zipBlob,
 } from './render.js';
+import { billStatementSvgs, dailySummarySvg, ledgerSvg, PAGE, PAGE_PT } from './statement-svg.js';
+import {
+  addDays, buildStatements, defaultMonth, monthEnd, monthLabel, monthStart,
+} from './statements.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
 
@@ -176,8 +180,8 @@ async function signOut() {
 // shell + routing
 // ---------------------------------------------------------------------------
 const TABS = [
-  ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/pos', 'POs'], ['#/customers', 'Customers'],
-  ['#/sales', 'Sales'],
+  ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/statements', 'Statements'], ['#/pos', 'POs'],
+  ['#/customers', 'Customers'], ['#/sales', 'Sales'],
 ];
 
 function renderShell() {
@@ -204,6 +208,7 @@ const ROUTES = [
   [/^#\/customers$/, () => viewCustomers()],
   [/^#\/sales(?:\/(\d{4}-\d{2}-\d{2}))?$/, (m) => viewSales(m[1] || null)],
   [/^#\/bills$/, () => viewBills()],
+  [/^#\/statements$/, () => viewStatements()],
 ];
 
 async function route() {
@@ -824,12 +829,7 @@ async function viewBills() {
         <label>Customer <input name="filter" list="slip-customers" placeholder="blank = all" autocomplete="off"></label>
         <datalist id="slip-customers">${customers.filter((c) => !c.archived).map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist>
         <button class="btn" type="submit">Prepare slips</button></form>
-      <div class="stamp-row">
-        ${stamp ? `<img src="${esc(stamp.data_url)}" alt="Stamp printed on the slips" class="stamp-thumb">` : '<span class="muted small">No stamp yet — slips print without one.</span>'}
-        <label class="file"><input type="file" id="stamp-file" accept="image/png,image/jpeg"><span class="btn ghost small">${stamp ? 'Change stamp' : 'Upload stamp'}</span></label>
-        ${stamp ? '<button class="btn ghost small" id="stamp-remove">Remove</button>' : ''}
-        <span class="muted small">Kept in your private database, not on the website.</span>
-      </div>
+      ${stampRow(stamp, 'stamp-file', 'stamp-remove', 'slips')}
       <div id="slip-out"></div>
     </section>
     <section class="card">
@@ -853,7 +853,12 @@ async function viewBills() {
     e.preventDefault();
     guard(async () => prepareSlips(read(e.target)));
   });
-  document.getElementById('stamp-file').addEventListener('change', (e) => guard(async () => {
+  bindStamp('slip_stamp', 'stamp-file', 'stamp-remove', viewBills);
+}
+
+// Stamp pictures (slip_stamp, statement_stamp) are kept in the database.
+function bindStamp(key, inputId, removeId, reload) {
+  document.getElementById(inputId).addEventListener('change', (e) => guard(async () => {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 500000) throw new Error('That picture is too big — keep it under 500 KB.');
@@ -863,15 +868,24 @@ async function viewBills() {
       fr.onerror = () => rej(new Error('Couldn\'t read that file.'));
       fr.readAsDataURL(file);
     });
-    await state.store.setSetting('slip_stamp', { data_url: dataUrl, name: file.name });
+    await state.store.setSetting(key, { data_url: dataUrl, name: file.name });
     toast('Stamp saved.');
-    await viewBills();
+    await reload();
   }));
-  document.getElementById('stamp-remove')?.addEventListener('click', () => guard(async () => {
-    await state.store.setSetting('slip_stamp', null);
+  document.getElementById(removeId)?.addEventListener('click', () => guard(async () => {
+    await state.store.setSetting(key, null);
     toast('Stamp removed.');
-    await viewBills();
+    await reload();
   }));
+}
+
+function stampRow(stamp, inputId, removeId, what) {
+  return `<div class="stamp-row">
+    ${stamp ? `<img src="${esc(stamp.data_url)}" alt="Stamp printed on the ${what}" class="stamp-thumb">` : `<span class="muted small">No stamp yet — ${what} are made without one.</span>`}
+    <label class="file"><input type="file" id="${inputId}" accept="image/png,image/jpeg"><span class="btn ghost small">${stamp ? 'Change stamp' : 'Upload stamp'}</span></label>
+    ${stamp ? `<button class="btn ghost small" id="${removeId}">Remove</button>` : ''}
+    <span class="muted small">Kept in your private database, not on the website.</span>
+  </div>`;
 }
 
 async function prepareTanker({ from, to, filter }, tanker) {
@@ -959,7 +973,7 @@ function renderBundles(out, o) {
     btn.textContent = text;
     try { await fn(); } finally { btn.disabled = false; btn.textContent = old; }
   };
-  const pdfOf = async (b) => pdfFromSvgs(await o.pdfPages(b), o.size);
+  const pdfOf = async (b) => pdfFromSvgs(await o.pdfPages(b), o.size, { scale: o.scale || 2 });
   out.querySelectorAll('[data-look]').forEach((btn) => btn.addEventListener('click', () => {
     const box = out.querySelector(`[data-pages="${btn.dataset.look}"]`);
     if (!box.innerHTML) box.innerHTML = o.pages(o.bundles[Number(btn.dataset.look)]).map((svg) => `<div class="page">${svg}</div>`).join('');
@@ -982,6 +996,206 @@ function renderBundles(out, o) {
     download(await zipBlob(files, o.folder), o.zipName);
     toast(`${plural(files.length, 'PDF')} downloaded.`);
   })));
+}
+
+// ---------------------------------------------------------------------------
+// Statements (Daily Screenshots / Monthly Export / Custom Date Report)
+// ---------------------------------------------------------------------------
+const LOGO = 'assets/logo.png';
+
+async function statementImages() {
+  const stamp = await state.store.setting('statement_stamp');
+  return {
+    logo: await toDataUrl(LOGO),
+    letterhead: await toDataUrl(IMAGES.letterhead),
+    stamp: stamp ? stamp.data_url : '',
+  };
+}
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function viewStatements() {
+  const stamp = await state.store.setting('statement_stamp');
+  const s = state.statements || {
+    date: yesterday(), month: defaultMonth(todayIso()).slice(0, 7), from: monthStart(yesterday()), to: yesterday(),
+  };
+  setMain(`
+    <section class="card">
+      <h2>Daily statements — pictures for WhatsApp</h2>
+      <p class="muted">Same as <b>Daily Screenshots</b>: for every ledger customer who bought anything that day, a picture of their ledger (month so far) and of that day's bills, plus the HSD and MS daily summaries. Share them all in one go, or one customer at a time.</p>
+      <form class="row-form" id="daily-form">
+        <label>Day <input type="date" name="date" value="${s.date}" required></label>
+        <button class="btn" type="submit">Make pictures</button></form>
+      <div id="daily-out"></div>
+    </section>
+    <section class="card">
+      <h2>Monthly statements — PDFs</h2>
+      <p class="muted">Same as <b>Monthly Export</b>: a ledger PDF (with a TOTAL row) and a bill statement PDF for every ledger customer with diesel, petrol or XtraGreen sales in the month.</p>
+      <form class="row-form" id="monthly-form">
+        <label>Month <input type="month" name="month" value="${s.month}" required></label>
+        <button class="btn" type="submit">Make PDFs</button></form>
+      <div id="monthly-out"></div>
+    </section>
+    <section class="card">
+      <h2>Custom date statements — PDFs</h2>
+      <p class="muted">Same as <b>Custom Date Report</b>, for any range. The ledger starts from the customer's real balance on the From date.</p>
+      <form class="row-form" id="custom-form">
+        <label>From <input type="date" name="from" value="${s.from}" required></label>
+        <label>To <input type="date" name="to" value="${s.to}" required></label>
+        <label>Customer contains <input name="filter" placeholder="blank = all" autocomplete="off"></label>
+        <button class="btn" type="submit">Make PDFs</button></form>
+      <div id="custom-out"></div>
+    </section>
+    <section class="card">
+      <h2>Stamp on the statements</h2>
+      ${stampRow(stamp, 'st-stamp-file', 'st-stamp-remove', 'statements')}
+    </section>`);
+  const remember = (patch) => { state.statements = { ...s, ...(state.statements || {}), ...patch }; };
+  document.getElementById('daily-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const date = e.target.date.value;
+    remember({ date });
+    guard(() => prepareDaily(date));
+  });
+  document.getElementById('monthly-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const month = e.target.month.value;
+    if (!month) return;
+    remember({ month });
+    const from = `${month}-01`;
+    guard(() => preparePeriod('monthly', { from, to: monthEnd(from) }, 'monthly-out'));
+  });
+  document.getElementById('custom-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const { from, to } = { from: e.target.from.value, to: e.target.to.value };
+    if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    remember({ from, to });
+    guard(() => preparePeriod('custom', { from, to, filter: e.target.filter.value.trim() }, 'custom-out'));
+  });
+  bindStamp('statement_stamp', 'st-stamp-file', 'st-stamp-remove', viewStatements);
+}
+
+// The Web Share API needs the files ready before the click, so the pictures
+// are made first and the buttons only hand them over.
+async function shareOrSave(files, zipName, title) {
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try {
+      await navigator.share({ files, title });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;          // closed the share sheet
+      if (!(err && err.name === 'NotAllowedError')) throw err;
+    }
+  }
+  download(files.length === 1 ? files[0] : await zipBlob(files), files.length === 1 ? files[0].name : zipName);
+  toast('This browser can\'t send pictures to WhatsApp directly, so they were downloaded instead. On your phone, open the app in Chrome or Safari to share them straight away.');
+}
+
+async function prepareDaily(date) {
+  const out = document.getElementById('daily-out');
+  out.innerHTML = loadingHtml('Finding sales…');
+  const [data, images] = await Promise.all([state.store.statementData(monthStart(date), date), statementImages()]);
+  const res = buildStatements({ kind: 'daily', date, data });
+  if (!res.customers.length && !res.summaries.length) {
+    out.innerHTML = `<p class="warn-text">No sales on ${dmyDash(date)}.</p>`;
+    return;
+  }
+  const items = [
+    ...res.customers.map((c) => ({
+      title: c.customer.name,
+      pages: [{ name: `${c.ledgerFile}.jpeg`, svg: ledgerSvg(c.ledger, images) },
+        { name: `${c.billFile}.jpeg`, svg: billStatementSvgs(c.bills, images)[0] }],
+      line: `${plural(c.bills.rows.length, 'bill')} · balance ${fmtMoney(c.ledger.closing)}`,
+    })),
+    ...res.summaries.map((x) => ({
+      title: `${x.product === 'HSD' ? 'Diesel' : 'Petrol'} daily summary`,
+      pages: [{ name: `${x.file}.jpeg`, svg: dailySummarySvg(x, images) }],
+      line: `${plural(x.rows.length, 'customer')} · ${fmtLitres(x.qty)} L · ${fmtMoney(x.amount)}`,
+    })),
+  ];
+  const total = items.reduce((a, it) => a + it.pages.length, 0);
+  let done = 0;
+  for (const it of items) {
+    for (const p of it.pages) {
+      out.innerHTML = loadingHtml(`Making picture ${++done} of ${total}…`);
+      await paint();
+      const blob = await jpegFromSvg(p.svg, PAGE);
+      p.file = new File([blob], p.name, { type: 'image/jpeg' });
+      p.url = URL.createObjectURL(blob);
+    }
+  }
+  const all = items.flatMap((it) => it.pages.map((p) => p.file));
+  const zipName = `${res.folder}.zip`;
+  out.innerHTML = `
+    <div class="preview">
+      <p><b>${plural(total, 'picture')}</b> · ${plural(res.customers.length, 'customer')} · ${dmyDash(date)}${images.stamp ? '' : ' · <span class="warn-text">no stamp yet (upload it below)</span>'}</p>
+      <p class="actions"><button class="btn" data-share-all>Share all on WhatsApp</button>
+        <button class="btn ghost" data-zip>Download all (.zip)</button></p>
+      <div class="bundles">${items.map((it, i) => `
+        <div class="bundle">
+          <div class="bundle-head"><b>${esc(it.title)}</b><span class="muted small">${plural(it.pages.length, 'picture')}</span></div>
+          <div class="muted small">${esc(it.line)}</div>
+          <div class="pages shots">${it.pages.map((p) => `<a class="page" href="${p.url}" target="_blank" rel="noopener" title="${esc(p.name)}"><img src="${p.url}" alt="${esc(p.name)}" loading="lazy"></a>`).join('')}</div>
+          <div class="bundle-actions">
+            <button class="btn small" data-share="${i}">Share</button>
+            <button class="btn ghost small" data-save="${i}">Download</button>
+          </div>
+        </div>`).join('')}</div>
+    </div>`;
+  out.querySelector('[data-share-all]').addEventListener('click', () => guard(() => shareOrSave(all, zipName, `Statements ${dmyDash(date)}`)));
+  out.querySelector('[data-zip]').addEventListener('click', () => guard(async () => download(await zipBlob(all, res.folder), zipName)));
+  out.querySelectorAll('[data-share]').forEach((btn) => btn.addEventListener('click', () => guard(() => {
+    const it = items[Number(btn.dataset.share)];
+    return shareOrSave(it.pages.map((p) => p.file), `${it.title} ${dmyDash(date)}.zip`, it.title);
+  })));
+  out.querySelectorAll('[data-save]').forEach((btn) => btn.addEventListener('click', () => {
+    for (const p of items[Number(btn.dataset.save)].pages) download(p.file, p.name);
+  }));
+}
+
+async function preparePeriod(kind, { from, to, filter = '' }, outId) {
+  const out = document.getElementById(outId);
+  out.innerHTML = loadingHtml('Finding sales…');
+  const [data, images] = await Promise.all([state.store.statementData(from, to), statementImages()]);
+  const res = buildStatements({ kind, from, to, data, filter });
+  const what = kind === 'monthly' ? monthLabel(from) : rangeName(from, to);
+  if (!res.customers.length) {
+    out.innerHTML = `<p class="warn-text">No ledger customer bought diesel, petrol or XtraGreen in ${esc(what)}${filter ? ` matching “${esc(filter)}”` : ''}.</p>`;
+    return;
+  }
+  const bundles = res.customers.flatMap((c) => {
+    const bill = billStatementSvgs(c.bills, images);
+    return [
+      { fileName: `${c.ledgerFile}.pdf`, bills: [1], svgs: [ledgerSvg(c.ledger, images)], line: `Ledger · closing balance ${fmtMoney(c.ledger.closing)}` },
+      { fileName: `${c.billFile}.pdf`, bills: bill, svgs: bill, line: `${plural(c.bills.rows.length, 'bill')} · ${fmtMoney(c.bills.totals.amount)}` },
+    ];
+  });
+  const nextMonth = addDays(to, 1);
+  const saveBtn = kind === 'monthly'
+    ? `<div class="stamp-row"><button class="btn ghost small" data-save-opening>Save closing balances as ${esc(monthLabel(nextMonth))} opening</button>
+       <span class="muted small">Like <b>Update Monthly Outstanding</b>: fixes every ledger customer's balance at the end of ${esc(what)} (optional — balances carry forward on their own).</span></div>`
+    : '';
+  renderBundles(out, {
+    summary: `<b>${plural(bundles.length, 'PDF')}</b> for ${plural(res.customers.length, 'customer')} · ${esc(what)}${filter ? ` · “${esc(filter)}”` : ''}${images.stamp ? '' : ' · <span class="warn-text">no stamp yet</span>'}`,
+    extra: saveBtn,
+    bundles,
+    size: PAGE_PT,
+    scale: 2.5,
+    zipName: `${res.folder}.zip`,
+    folder: res.folder,
+    line: (b) => esc(b.line),
+    pages: (b) => b.svgs,
+    pdfPages: async (b) => b.svgs,
+  });
+  out.querySelector('[data-save-opening]')?.addEventListener('click', (e) => guard(async () => {
+    if (!window.confirm(`Save every ledger customer's balance at the end of ${what} as the ${monthLabel(nextMonth)} opening balance?`)) return;
+    e.target.disabled = true;
+    const r = await state.store.saveOpening(nextMonth);
+    toast(`Saved ${plural(r.customers, 'opening balance')} for ${monthLabel(nextMonth)}.`);
+  }));
 }
 
 // Print only these pages (the browser's "Save as PDF" works too).
