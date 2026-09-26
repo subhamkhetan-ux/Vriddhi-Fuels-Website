@@ -29,6 +29,7 @@ export function demoWorkbook() {
     rows: [
       ['Date', 'Bill No.', 'Vehicle', 'Quantity', 'RSP', 'Amount', 'Company'],
       [d('2026-04-02'), 'XG1', '', 10, 95, 950, 'Retail Roadways'],
+      [d('2026-04-06'), 'XG2', 'OD01X2222', 200, 95, 19000, 'Demo Power Ltd'],
       [formula(''), '', '', '', '', '', ''],
     ],
   });
@@ -80,6 +81,7 @@ export function demoWorkbook() {
       [d('2026-04-03'), '6', 500, 90, 45000, '', '', '', 127000, 'DIESEL', formula('PO-B', 'LET(1)'), ''],
       [d('2026-04-05'), '', '', '', '', 50000, 1000, '', 76000, 'Payment', formula('', 'LET(1)'), ''],
       [d('2026-04-05'), '', '', '', '', 10000, '', '', 66000, 'Payment', formula('', 'LET(1)'), 'cash'],
+      [d('2026-04-06'), 'XG2', 200, 95, 19000, '', '', '', 85000, 'XtraGreen', 'PO-B', ''],
     ],
   });
 
