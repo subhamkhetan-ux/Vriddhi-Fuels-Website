@@ -667,16 +667,18 @@ begin
     'pos', coalesce((select jsonb_agg(to_jsonb(p) order by p.group_code, p.unit, p.seq, p.id)
                      from ledger_po p where p_code is null or p.group_code = p_code), '[]'::jsonb),
     'bills', coalesce((select jsonb_agg(jsonb_build_object(
-                                'id', s.id, 'group', c.bulk_group, 'date', s.sale_date,
+                                'id', s.id, 'group', c.bulk_group, 'product', s.product,
+                                'date', s.sale_date,
                                 'bill_no', s.bill_no, 'vehicle', s.vehicle, 'qty', s.qty,
                                 'amount', s.amount, 'customer', s.customer, 'unit', s.unit,
                                 'po_mode', s.po_mode, 'po_fixed', s.po_fixed,
                                 'po_user_set', s.po_user_set, 'seq', s.seq)
-                              order by c.bulk_group, s.sale_date, s.seq, s.id)
+                              order by c.bulk_group, s.sale_date,
+                                       array_position(array['HSD', 'MS', 'XG'], s.product), s.seq, s.id)
                        from ledger_sales s
                        join ledger_customers c on c.customer_key = s.customer_key
                        join ledger_bulk_groups g on g.code = c.bulk_group
-                       where s.product = 'HSD' and g.kind in ('po', 'po_units')
+                       where s.product in ('HSD', 'MS', 'XG') and g.kind in ('po', 'po_units')
                          and (g.period_from is null or s.sale_date >= g.period_from)
                          and (p_code is null or g.code = p_code)), '[]'::jsonb)
   );

@@ -54,6 +54,7 @@ export function demoSeed(today = new Date()) {
     if (i % 2 === 0) rows.push(sale('MS', date, 'Example Infra', between(20, 45, 1)));
     if (i % 5 === 0) rows.push(sale('XG', date, 'Sample Roadlines', between(60, 140, 5)));
     if (i === 6) rows.push(sale('HSD', date, 'Test Carriers', 180));
+    if (i % 7 === 3) rows.push(sale('XG', date, 'Demo Power Ltd', 600, { po_mode: 'fixed', po_fixed: 'DP/26/XG-07' }));
   }
   lastRows.push(sale('HSD', isoDay(today, -1), 'Fresh Traders', 150));
   masterSales.forEach((s, i) => { s.seq = i + 2; });
@@ -86,6 +87,7 @@ export function demoSeed(today = new Date()) {
     pos: [
       { group_code: 'Demo Power_Bulk', unit: '', po_no: 'DP/26/0142', allotted: 50000, seq: 1 },
       { group_code: 'Demo Power_Bulk', unit: '', po_no: 'DP/26/0187', allotted: 40000, seq: 2 },
+      { group_code: 'Demo Power_Bulk', unit: '', po_no: 'DP/26/XG-07', allotted: 3000, seq: 3 },
       { group_code: 'Twin Steel_Bulk', unit: 'UNIT 1', po_no: 'TS-U1-7781', allotted: 24000, seq: 1 },
       { group_code: 'Twin Steel_Bulk', unit: 'UNIT 2', po_no: 'TS-U2-3310', allotted: 25000, seq: 1 },
     ],

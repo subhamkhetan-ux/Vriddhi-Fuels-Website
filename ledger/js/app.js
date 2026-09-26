@@ -481,7 +481,8 @@ async function viewPoGroup(code) {
     return;
   }
   const units = g.group.kind === 'po_units' ? g.group.units : [];
-  const filters = [['all', 'All'], ['no-po', 'No PO'], ...(units.length ? [['needs-unit', 'Needs unit']] : []), ['fixed', 'Typed PO']];
+  const filters = [['all', 'All'], ['no-po', 'No PO'], ...(units.length ? [['needs-unit', 'Needs unit']] : []), ['fixed', 'Typed PO'],
+    ...(g.rows.some((r) => r.how === 'not-diesel') ? [['not-diesel', 'Petrol / XG without PO']] : [])];
   const f = filters.some(([k]) => k === state.billFilter) ? state.billFilter : 'all';
   let rows = [...g.rows].reverse();
   if (f !== 'all') rows = rows.filter((r) => r.how === f);
@@ -507,7 +508,8 @@ async function viewPoGroup(code) {
       <p class="muted small">New POs go to the end of the list. Bills use POs in list order, so move a PO up to have it used first.</p>
     </section>
     <section class="card">
-      <h3>Diesel bills <span class="muted">(newest first)</span></h3>
+      <h3>Bills <span class="muted">(newest first)</span></h3>
+      <p class="muted small">Diesel bills get a PO automatically. Petrol and XtraGreen bills keep the PO typed on the Bulk sheet, or the one you pick with <b>Change</b> — and those litres count against that PO.</p>
       <div class="chips">${filters.map(([k, name]) => `<button class="chip ${k === f ? 'on' : ''}" data-filter="${k}">${name}${k === 'all' ? '' : ` · ${g.rows.filter((x) => x.how === k).length}`}</button>`).join('')}</div>
       ${shown.length ? `<div class="bills ${units.length ? 'units' : ''}" role="table" aria-label="Diesel bills">
         <div class="bill head" role="row"><span role="columnheader">Date · Bill</span><span role="columnheader">Vehicle</span><span class="r" role="columnheader">Litres</span>${units.length ? '<span role="columnheader">Unit</span>' : ''}<span role="columnheader">PO</span><span role="columnheader"><span class="sr">Change</span></span></div>
@@ -602,12 +604,14 @@ const HOW = {
   fixed: ['typed', 'info-pill', 'Typed in (kept as it is)'],
   'no-po': ['no PO', 'bad-pill', 'No PO has enough litres left'],
   'needs-unit': ['needs unit', 'warn-pill', 'Pick a unit first'],
+  'not-diesel': ['no PO', 'muted-pill', 'Petrol / XtraGreen bills only get a PO you pick with Change'],
 };
+const FUEL_TAG = { MS: 'Petrol', XG: 'XtraGreen' };
 
 function billRow(b, g, units) {
   const [tag, cls, title] = HOW[b.how];
   return `<div class="bill" role="row">
-    <span class="b-when" role="cell">${fmtDate(b.date)} · <b>${esc(b.bill_no)}</b></span>
+    <span class="b-when" role="cell">${fmtDate(b.date)} · <b>${esc(b.bill_no)}</b>${FUEL_TAG[b.product] ? ` <span class="pill fuel-pill">${FUEL_TAG[b.product]}</span>` : ''}</span>
     <span class="b-veh" role="cell">${esc(b.vehicle)}</span>
     <span class="b-qty r" role="cell">${fmtLitres(b.qty)} L</span>
     ${units.length ? `<span class="b-unit" role="cell"><select data-unit="${b.id}" aria-label="Unit for bill ${esc(b.bill_no)}"><option value="">Unit —</option>${units.map((u) => `<option value="${esc(u)}" ${poKey(b.unit) === poKey(u) ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></span>` : ''}
@@ -625,7 +629,7 @@ function editBillPo(btn, g, units, reload) {
   row.insertAdjacentHTML('afterend', `<div class="bill-editor">
     <form class="stack" data-bill-form>
       <b>PO for bill ${esc(b.bill_no)} (${fmtLitres(b.qty)} L)</b>
-      <label class="radio"><input type="radio" name="mode" value="auto" ${b.po_mode !== 'fixed' ? 'checked' : ''}> Automatic — first PO with enough litres left</label>
+      <label class="radio"><input type="radio" name="mode" value="auto" ${b.po_mode !== 'fixed' ? 'checked' : ''}> ${b.product && b.product !== 'HSD' ? 'Automatic — petrol / XtraGreen bills get no PO automatically' : 'Automatic — first PO with enough litres left'}</label>
       <label class="radio"><input type="radio" name="mode" value="fixed" ${b.po_mode === 'fixed' && current ? 'checked' : ''}> This PO:
         <input name="po" list="po-names-${b.id}" value="${esc(current)}" autocomplete="off" aria-label="PO number for bill ${esc(b.bill_no)}"></label>
       <datalist id="po-names-${b.id}">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>

@@ -6,7 +6,7 @@
 //                           the SQL functions (tests/ledger_web/store.test.mjs).
 
 import { fyOf, normKey } from './util.js';
-import { poKey } from './po.js';
+import { billOrder, poKey } from './po.js';
 
 export function supabaseStore(client) {
   const rpc = async (fn, args = {}) => {
@@ -305,18 +305,18 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         .sort((a, b) => a.group_code.localeCompare(b.group_code) || a.unit.localeCompare(b.unit) || a.seq - b.seq || a.id - b.id);
       const bills = [];
       for (const s of db.sales) {
-        if (s.product !== 'HSD') continue;
+        if (!['HSD', 'MS', 'XG'].includes(s.product)) continue;
         const c = customerByKey(s.customer_key);
         const g = c && c.bulk_group && db.groups.find((x) => x.code === c.bulk_group);
         if (!g || !['po', 'po_units'].includes(g.kind) || (code && g.code !== code)) continue;
         if (g.period_from && s.sale_date < g.period_from) continue;
         bills.push({
-          id: s.id, group: g.code, date: s.sale_date, bill_no: s.bill_no, vehicle: s.vehicle, qty: s.qty,
+          id: s.id, group: g.code, product: s.product, date: s.sale_date, bill_no: s.bill_no, vehicle: s.vehicle, qty: s.qty,
           amount: s.amount, customer: s.customer, unit: s.unit, po_mode: s.po_mode, po_fixed: s.po_fixed,
           po_user_set: s.po_user_set, seq: s.seq,
         });
       }
-      bills.sort((a, b) => a.group.localeCompare(b.group) || a.date.localeCompare(b.date) || a.seq - b.seq || a.id - b.id);
+      bills.sort((a, b) => a.group.localeCompare(b.group) || billOrder(a, b));
       return clone({ groups, members, pos, bills });
     },
 

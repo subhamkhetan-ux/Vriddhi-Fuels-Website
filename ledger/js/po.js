@@ -25,8 +25,14 @@ function round3(n) {
 }
 
 // Bills in the order the sheet has them: by date, then sheet row.
+const PRODUCT_RANK = { HSD: 0, MS: 1, XG: 2 };
+const rank = (p) => PRODUCT_RANK[p || 'HSD'] ?? 3;
+
+// Bills in the order the sheet has them: by date; within a day the diesel
+// rows, then petrol, then XtraGreen, each in its sale sheet's order.
 export function billOrder(a, b) {
-  return String(a.date).localeCompare(String(b.date)) || num(a.seq) - num(b.seq) || num(a.id) - num(b.id);
+  return String(a.date).localeCompare(String(b.date)) || rank(a.product) - rank(b.product)
+    || num(a.seq) - num(b.seq) || num(a.id) - num(b.id);
 }
 
 // kind: 'po' | 'po_units'; units: ['UNIT 1', 'UNIT 2'] for 'po_units'
@@ -34,6 +40,7 @@ export function billOrder(a, b) {
 // bills: [{qty, unit, po_mode, po_fixed, ...}] already in order (see billOrder)
 // Returns {bills: [{po, how}] (same order), registers: [{unit, pos: [...]}]}
 //   how: 'auto' | 'fixed' | 'no-po' (no PO has enough left) | 'needs-unit'
+//        | 'not-diesel' (petrol / XtraGreen: only a PO you pick, never automatic)
 export function allocate({ kind, units = [], pos = [], bills = [] }) {
   const unitList = kind === 'po_units' ? units.map(poKey) : [''];
   const lists = new Map(unitList.map((u) => [u, []]));
@@ -58,6 +65,8 @@ export function allocate({ kind, units = [], pos = [], bills = [] }) {
     if (b.po_mode === 'fixed') {
       po = String(b.po_fixed ?? '').trim();
       how = 'fixed';
+    } else if (b.product && b.product !== 'HSD') {
+      how = 'not-diesel';
     } else if (kind === 'po_units' && !unit) {
       how = 'needs-unit';
     } else {

@@ -347,10 +347,13 @@ function readBulk(ws, code, gst, date1904, warn) {
     }
     const row = { product, bill_no: bill, sale_date: date, customer: who, row: r + 1, ...extras };
     if (hdr.unit != null) row.unit = poKey(text(ws, r, hdr.unit));
-    if (hasPoColumn && product === 'HSD') {
+    if (hasPoColumn) {
       const cell = ws[addr(r, hdr['po no'])];
       const value = cellText(cell);
-      if (cell && cell.f) {
+      if (product !== 'HSD') {
+        row.po_mode = 'fixed';                   // XtraGreen / petrol: only a PO you type
+        row.po_fixed = cell && cell.f ? '' : value;
+      } else if (cell && cell.f) {
         row.po_mode = 'auto';
         row.excel_po = value;
       } else if (value) {
@@ -487,9 +490,9 @@ export function extractMaster(wb) {
 
   // PO check: the app's rule on the workbook's data vs. the POs Excel shows.
   const checks = bulk.filter((b) => b.group.kind !== 'group').map((b) => {
-    const rows = b.bills.filter((r) => r.product === 'HSD')
+    const rows = b.bills
       .map((r) => {
-        const s = byKey.get(billKey('HSD', r.sale_date, r.bill_no));
+        const s = byKey.get(billKey(r.product, r.sale_date, r.bill_no));
         return {
           ...r, date: r.sale_date, seq: s ? s.seq : r.row, qty: s ? s.qty : null,
           po_mode: r.po_mode === 'fixed' ? 'fixed' : 'auto',
@@ -539,7 +542,7 @@ export function extractMaster(wb) {
     groups: bulk.map((b) => ({
       code: b.group.code, title: b.group.title, kind: b.group.kind, units: b.group.units,
       period_from: b.group.period_from, members: b.members, pos: b.pos.length,
-      bills: b.bills.filter((r) => r.product === 'HSD').length,
+      bills: b.bills.length,
       check: checks.find((c) => c.code === b.group.code) || null,
     })),
   };

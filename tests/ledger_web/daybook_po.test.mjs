@@ -118,10 +118,21 @@ test('PO: unit-wise lists (SMC)', () => {
     [['UNIT 1', 400, 100], ['UNIT 2', 500, 0]]);
 });
 
+test('PO: petrol / XtraGreen bills only get a PO you pick, and it uses up litres', () => {
+  const pos = [{ id: 1, po_no: 'A', allotted: 1000, seq: 1 }];
+  const bills = [
+    bill(300, { product: 'XG' }), bill(400, { product: 'XG', po_mode: 'fixed', po_fixed: 'A' }),
+    bill(700, { product: 'HSD' }), bill(600, { product: 'HSD' }),
+  ];
+  const { bills: out, registers } = allocate({ kind: 'po', pos, bills });
+  assert.deepEqual(out.map((b) => [b.po, b.how]), [['', 'not-diesel'], ['A', 'fixed'], ['', 'no-po'], ['A', 'auto']]);
+  assert.equal(registers[0].pos[0].used, 1000);
+});
+
 test('PO: bills are taken by date, then sheet order', () => {
   const rows = [
     { id: 3, date: '2026-04-02', seq: 5 }, { id: 1, date: '2026-04-01', seq: 9 },
-    { id: 2, date: '2026-04-01', seq: 7 },
+    { id: 2, date: '2026-04-01', seq: 7 }, { id: 4, date: '2026-04-01', seq: 2, product: 'XG' },
   ];
-  assert.deepEqual(rows.sort(billOrder).map((r) => r.id), [2, 1, 3]);
+  assert.deepEqual(rows.sort(billOrder).map((r) => r.id), [2, 1, 4, 3]);   // diesel rows first each day
 });
