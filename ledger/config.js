@@ -10,6 +10,6 @@
 // Leave them empty and the page explains the setup and offers the demo.
 // =====================================================================
 window.LEDGER_CONFIG = {
-  SUPABASE_URL: "",
-  SUPABASE_ANON_KEY: "",
+  SUPABASE_URL: "https://behousmsujnlspwdxyas.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_BeflN_phUuD6BT_ZmAdDsw_tou7vxUa",
 };
