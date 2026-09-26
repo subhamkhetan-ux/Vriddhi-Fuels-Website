@@ -110,6 +110,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       return {
         sales,
         last_sale_date: db.sales.reduce((m, s) => (!m || s.sale_date > m ? s.sale_date : m), null),
+        master_until: ([...db.imports].reverse().find((i) => i.kind === 'master_ledger') || { counts: {} }).counts.sales_until || null,
         payments: db.payments.length,
         customers: db.customers.filter((c) => !c.archived).length,
         needs_ledger: db.customers.filter((c) => !c.archived && !c.ledger && !c.bulk_group && !c.no_ledger).length,
@@ -335,6 +336,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         groups, customers_new: customersNew, sales_new: salesNew, sales_updated: salesUpd, payments: pays,
         pos_new: posNew, opening, tanker,
         app_payments_in_excel: appDone, app_payments_open: db.payments.filter((x) => x.source === 'payments_app').length,
+        sales_until: (p.sales || []).reduce((m, x) => (x.sale_date && (!m || x.sale_date > m) ? x.sale_date : m), null),
       };
       return { ...clone(imp.counts), import_id: imp.id };
     },

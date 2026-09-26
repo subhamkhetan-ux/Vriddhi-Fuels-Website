@@ -280,7 +280,9 @@ def test_master_import(pg):
                    user=STRANGER, email="stranger@example.com")
     assert "row-level security" in err
 
+    assert res["sales_until"] == "2026-04-06"
     summary = pg.owner(call("ledger_summary"))
+    assert summary["master_until"] == "2026-04-06"                   # Home: "Master File is updated until"
     assert summary["sales"]["HSD"]["bills"] == 3
     assert summary["needs_ledger"] == 1                               # Walk In Cash
     assert summary["last_master_import"]["file_name"] == "Master Ledger.xlsm"

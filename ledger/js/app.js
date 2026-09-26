@@ -9,7 +9,7 @@ import { fromQueue } from './payin.js';
 import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate,
 } from './charts.js';
-import { analyse, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
+import { analyse, daysBetween, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
 import {
@@ -284,23 +284,18 @@ async function viewHome() {
     if (g.noPo) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.noPo, 'bill')} without a PO — add a new PO</a>`);
     if (g.needsUnit) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.needsUnit, 'bill')} need a unit</a>`);
   }
-  const sales = sum.sales || {};
   const last = sum.last_import;
+  const play = !state.greeted;                                   // the feather flies once per app open
+  state.greeted = true;
   setMain(`
-    <section class="hero card">
-      ${empty ? `
+    ${empty ? `<section class="hero card">
         <h2>Welcome</h2>
         <p>Start by uploading your <b>Master Ledger</b>: the app copies your sales, payments, customers and PO lists from it. Then import each day's Tally DayBook here instead of in Excel.</p>
-        <p><a class="btn" href="#/import">Upload Master Ledger</a></p>` : `
-        <p class="eyebrow">Sales in the app up to</p>
-        <h2>${fmtDate(sum.last_sale_date)}</h2>
-        <div class="stats">
-          ${['HSD', 'MS', 'XG', 'OTHER'].filter((p) => sales[p]).map((p) => `
-            <div><span class="num">${sales[p].bills.toLocaleString('en-IN')}</span><span class="lbl">${PRODUCT[p]} bills</span></div>`).join('')}
-          <div><span class="num">${(sum.payments || 0).toLocaleString('en-IN')}</span><span class="lbl">payments</span></div>
-        </div>
-        <p class="actions"><a class="btn" href="#/import">Import sales (DayBook)</a> <a class="btn ghost" href="#/sales">See the latest day</a></p>`}
-    </section>
+        <p><a class="btn" href="#/import">Upload Master Ledger</a></p></section>` : `
+    <section class="card greet">
+      <h1 class="jsk${play ? ' play' : ''}"><span class="jsk-text">Jai Shree Krishna</span><img class="jsk-feather" src="assets/morpankh.png" alt=""></h1>
+      <p class="greet-dates"><span>Today is <b>${esc(longDate(localToday()))}</b></span><span>Master File is updated until <b>${sum.master_until ? esc(fmtDate(sum.master_until)) : 'not uploaded yet'}</b></span></p>
+    </section>`}
     ${empty ? '' : `<div id="dash">${loadingHtml('Working out the figures…')}</div>`}
     ${todo.length ? `<section class="card"><h3>Needs your attention</h3><div class="todos">${todo.join('')}</div></section>` : (empty ? '' : '<section class="card good-card"><b>All caught up.</b> Every bulk bill has a PO and every customer has a ledger.</section>')}
     ${groups.length ? `<section class="card"><h3>PO lists</h3><div class="grid">${groups.map(poCard).join('')}</div></section>` : ''}
@@ -322,6 +317,17 @@ async function viewHome() {
 function localToday() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// a custom range: from the data already loaded when it covers it, else fetched
+async function customData(from, to) {
+  const { per, data } = await dashboardData();
+  if (from >= per.earliest && to <= per.month.to) return data;
+  const k = `${from}|${to}`;
+  if (!state.dashCustomData || state.dashCustomData.k !== k) {
+    state.dashCustomData = { k, data: await state.store.dashboard(from, to) };
+  }
+  return state.dashCustomData.data;
 }
 
 async function dashboardData() {
@@ -368,7 +374,12 @@ function dashboardHtml(a, per, key) {
   return `
     <section class="card dash">
       <div class="row-between"><h2>Overview</h2>
-        <div class="chips">${['month', 'last', 'd30', 'fy'].map((x) => `<button class="chip ${x === key ? 'on' : ''}" data-period="${x}">${per[x].label}</button>`).join('')}</div></div>
+        <div class="chips">${['month', 'last', 'd30', 'fy'].map((x) => `<button class="chip ${x === key ? 'on' : ''}" data-period="${x}">${per[x].label}</button>`).join('')}
+          <button class="chip ${key === 'custom' ? 'on' : ''}" data-period="custom">Custom</button></div></div>
+      ${key === 'custom' ? `<form class="custom-range" id="dash-range">
+        <label>From <input type="date" name="from" value="${a.from}" max="${per.month.to}" required></label>
+        <label>To <input type="date" name="to" value="${a.to}" max="${per.month.to}" required></label>
+        <button class="btn small" type="submit">Show</button></form>` : ''}
       <p class="muted small">${fmtDate(a.from)} – ${fmtDate(a.to)} · from the sales and payments in the app · earnings at ₹2.58/L diesel &amp; XtraGreen, ₹4/L petrol off the day's RSP</p>
       <div class="kpis">
         <div class="kpi hero"><span class="lbl">Earnings</span><span class="val">${money(k.earning)}</span><span class="sub">₹${k.perLitre.toFixed(2)} per litre</span></div>
@@ -485,7 +496,14 @@ function monthsHtml(fy) {
 async function renderDashboard(box) {
   const { per, data } = await dashboardData();
   const key = state.dashPeriod || 'month';
-  const a = analyse(data, per[key]);
+  let a;
+  if (key === 'custom') {
+    const c = state.dashCustom || { from: per.month.from, to: per.month.to };
+    per.custom = { label: 'Custom', from: c.from, to: c.to };
+    a = analyse(await customData(c.from, c.to), per.custom);
+  } else {
+    a = analyse(data, per[key]);
+  }
   setChartWidth(box.clientWidth - 38);                           // the card's inner width
   box.innerHTML = dashboardHtml(a, per, key);
   const fy = key === 'fy' ? a : analyse(data, per.fy);
@@ -515,6 +533,15 @@ async function renderDashboard(box) {
     state.dashPeriod = b.dataset.period;
     guard(() => renderDashboard(box));
   }));
+  box.querySelector('#dash-range')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const from = e.target.from.value;
+    const to = e.target.to.value;
+    if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    if (daysBetween(from, to) > 730) { toast('Pick at most two years at a time.', 'bad'); return; }
+    state.dashCustom = { from, to };
+    guard(() => renderDashboard(box));
+  });
   bindCharts(box);
   // redraw at the new width after a rotate / resize
   if (!state.dashResize) {
@@ -703,10 +730,35 @@ function poCard(g) {
 // ---------------------------------------------------------------------------
 // Import: Tally DayBook and Master Ledger
 // ---------------------------------------------------------------------------
+// "Sales in the app up to" — on the Import tab
+function salesCard(sum) {
+  if (!sum.last_sale_date) return '';
+  const sales = sum.sales || {};
+  return `<section class="hero card">
+    <p class="eyebrow">Sales in the app up to</p>
+    <h2>${fmtDate(sum.last_sale_date)}</h2>
+    <div class="stats">
+      ${['HSD', 'MS', 'XG', 'OTHER'].filter((p) => sales[p]).map((p) => `
+        <div><span class="num">${sales[p].bills.toLocaleString('en-IN')}</span><span class="lbl">${PRODUCT[p]} bills</span></div>`).join('')}
+      <div><span class="num">${(sum.payments || 0).toLocaleString('en-IN')}</span><span class="lbl">payments</span></div>
+    </div>
+    <p class="actions"><button class="btn" type="button" data-pick-daybook>Import sales (DayBook)</button> <a class="btn ghost" href="#/sales">See the latest day</a></p>
+  </section>`;
+}
+
+// 2026-09-26 -> Saturday, 26 September 2026
+function longDate(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
+  const month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getMonth()];
+  return `${day}, ${d.getDate()} ${month} ${d.getFullYear()}`;
+}
+
 async function viewImport() {
-  const imports = await state.store.imports(10);
+  const [imports, sum] = await Promise.all([state.store.imports(10), state.store.summary()]);
   setMain(`
-    <section class="card">
+    ${salesCard(sum)}
+    <section class="card" id="daybook-card">
       <h2>Import sales — Tally DayBook</h2>
       <p class="muted">Same as the <b>Import Sales</b> button in Excel: HSD, MS and XG credit vouchers are added; bills already in the app are skipped.</p>
       <label class="file"><input type="file" id="daybook-file" accept=".xls,.xlsx,.xlsm,.csv"><span class="btn">Choose DayBook file</span></label>
@@ -725,6 +777,7 @@ async function viewImport() {
         <tbody>${imports.map(importRow).join('')}</tbody></table></div>` : '<p class="muted">Nothing uploaded yet.</p>'}
     </section>`);
   document.getElementById('daybook-file').addEventListener('change', (e) => e.target.files[0] && daybookChosen(e.target.files[0], e.target));
+  main().querySelector('[data-pick-daybook]')?.addEventListener('click', () => document.getElementById('daybook-file').click());
   document.getElementById('master-file').addEventListener('change', (e) => e.target.files[0] && masterChosen(e.target.files[0], e.target));
 }
 

@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Dancing+Script:wght@700&display=swap">
 <style>
 /* Same family as /payments: glass panels over a true-black, orange-lit base. */
 :root {
@@ -350,6 +350,34 @@ table.xl td.xl-head { font-weight: bold; text-align: center; border-bottom: 2px 
 .xl-retail table.xl tbody td:last-child { border-right: 3px solid #000; }
 .xl-retail table.xl tbody tr:last-child td { border-bottom: 2px solid #000; }
 .xl-logo { position: absolute; left: 12px; top: 6px; height: 86px; }
+
+/* ---- Home greeting: the morpankh writes "Jai Shree Krishna" ---- */
+.greet { text-align: center; overflow: hidden; padding-top: 26px; }
+.jsk { position: relative; display: inline-block; margin: 8px 0 4px; }
+.jsk-text { display: inline-block; font-family: "Dancing Script", "Brush Script MT", cursive; font-weight: 700; font-size: clamp(38px, 9vw, 64px); line-height: 1.15; padding: 0 6px;
+  background: linear-gradient(100deg, #ffd27a 0%, #ff9e42 38%, #ff7a1a 62%, #2fd08a 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.jsk::before { content: ""; position: absolute; inset: 20% 10%; background: radial-gradient(closest-side, rgba(255,122,26,.28), transparent); filter: blur(14px); z-index: -1; pointer-events: none; }
+.jsk-feather { position: absolute; width: clamp(96px, 20vw, 150px); height: auto; top: -58%; left: 100%; opacity: 0; pointer-events: none; transform-origin: 12% 92%; }
+.jsk.play .jsk-text { animation: jsk-write 3.6s cubic-bezier(.45,.05,.55,.95) both; }
+.jsk.play .jsk-feather { animation: jsk-fly 3.6s cubic-bezier(.45,.05,.55,.95) both; }
+@keyframes jsk-write { 0%, 20% { clip-path: inset(0 100% 0 0); } 72%, 100% { clip-path: inset(0 0 0 0); } }
+@keyframes jsk-fly {
+  0%   { left: 125%; top: -170%; opacity: 0; transform: rotate(40deg) scale(1.25); }
+  10%  { opacity: 1; }
+  20%  { left: -6%;  top: -58%; transform: rotate(-8deg) scale(1); }
+  33%  { left: 18%;  top: -48%; transform: rotate(-2deg); }
+  46%  { left: 40%;  top: -60%; transform: rotate(-12deg); }
+  59%  { left: 62%;  top: -46%; transform: rotate(-3deg); }
+  72%  { left: 86%;  top: -58%; transform: rotate(-10deg); opacity: 1; }
+  100% { left: 140%; top: -210%; opacity: 0; transform: rotate(35deg) scale(.8); }
+}
+.greet-dates { color: var(--muted); margin: 6px 0 0; font-size: 14.5px; }
+.greet-dates b { color: var(--ink); }
+.greet-dates span { display: block; margin-top: 2px; }
+.custom-range { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 4px 0 8px; }
+.custom-range label { flex: 1 1 140px; }
+@media (prefers-reduced-motion: reduce) { .jsk.play .jsk-text, .jsk.play .jsk-feather { animation: none; } .jsk-feather { display: none; } }
 </style>
 </head>
 <body>

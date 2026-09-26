@@ -369,6 +369,8 @@ begin
                        from (select product, count(*) as n, max(sale_date) as last
                              from ledger_sales group by product) t), '{}'::jsonb),
     'last_sale_date', (select max(sale_date) from ledger_sales),
+    'master_until', (select (i.counts ->> 'sales_until')::date from ledger_imports i
+                     where i.kind = 'master_ledger' order by i.id desc limit 1),
     'payments', (select count(*) from ledger_payments),
     'customers', (select count(*) from ledger_customers where not archived),
     'needs_ledger', (select count(*) from ledger_customers
@@ -682,7 +684,9 @@ begin
   v_counts := jsonb_build_object(
     'groups', v_groups, 'customers_new', v_cust_new, 'sales_new', v_sales_new,
     'sales_updated', v_sales_upd, 'payments', v_pay, 'pos_new', v_po_new, 'opening', v_open,
-    'tanker', v_tanker, 'app_payments_in_excel', v_app_done, 'app_payments_open', v_app_open);
+    'tanker', v_tanker, 'app_payments_in_excel', v_app_done, 'app_payments_open', v_app_open,
+    'sales_until', (select max(x.sale_date) from jsonb_to_recordset(coalesce(p_payload -> 'sales', '[]'::jsonb))
+                    as x(sale_date date)));
   update ledger_imports set counts = v_counts where id = v_import;
   return v_counts || jsonb_build_object('import_id', v_import);
 end $$;

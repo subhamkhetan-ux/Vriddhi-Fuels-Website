@@ -43,9 +43,15 @@ Master Ledger). Upload the
 stamp once on the Statements tab — it is kept in the database, not on the
 website.
 
+**Home** opens with *Jai Shree Krishna* — a morpankh flies in, writes it and
+flies out (once each time the app opens; still for reduced-motion settings) —
+with today's date and the date the Master File is updated until (the latest
+sale in the last Master Ledger upload). *Sales in the app up to* and the bill
+counts are on the **Import** tab.
+
 **Home dashboard** (the workbook's Sales Analysis — Module14 — and the
 Outstanding sheet, live): pick *This month / Last month / Last 30 days / This
-FY* and see earnings, sales, collections and today's outstanding; each
+FY / Custom* (any From..To, up to two years) and see earnings, sales, collections and today's outstanding; each
 product's litres, sales and earnings; litres and earnings per day (per month
 for long periods); the best customers (sort by litres, sales or earnings;
 retail / bulk; tap one for the product split, payments and outstanding);
