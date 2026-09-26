@@ -1,0 +1,3 @@
+# Reports written by report.sh. They are never committed to this repo (it is
+# public); --push sends them to a separate private repo instead.
+out/
