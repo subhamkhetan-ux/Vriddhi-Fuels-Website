@@ -43,6 +43,7 @@ export function supabaseStore(client) {
     appPaymentsDiscard: (x) => rpc('ledger_payments_app_discard', { p_ref: x.ref, p_pay_date: x.pay_date, p_customer: x.customer, p_amount: x.amount }),
     appPaymentsRestore: (ref) => rpc('ledger_payments_app_restore', { p_ref: ref }),
     dashboard: (from, to) => rpc('ledger_dashboard', { p_from: from, p_to: to }),
+    account: (key, group, from, to) => rpc('ledger_account', { p_key: key, p_group: group, p_from: from, p_to: to }),
   };
 }
 
@@ -109,6 +110,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       return {
         sales,
         last_sale_date: db.sales.reduce((m, s) => (!m || s.sale_date > m ? s.sale_date : m), null),
+        master_until: ([...db.imports].reverse().find((i) => i.kind === 'master_ledger') || { counts: {} }).counts.sales_until || null,
         payments: db.payments.length,
         customers: db.customers.filter((c) => !c.archived).length,
         needs_ledger: db.customers.filter((c) => !c.archived && !c.ledger && !c.bulk_group && !c.no_ledger).length,
@@ -172,9 +174,10 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         seenGroups.add(code);
         const row = {
           code, title: g.title || '', kind: g.kind, units: g.units || [], period_from: g.period_from || null,
-          opening: g.opening ?? null, opening_by_unit: g.opening_by_unit || {},
+          opening: g.opening ?? null, opening_by_unit: g.opening_by_unit || {}, layout: g.layout || null,
         };
         const i = db.groups.findIndex((x) => x.code === code);
+        if (i >= 0 && !row.layout) row.layout = db.groups[i].layout || null;
         if (i >= 0) db.groups[i] = row; else db.groups.push(row);
         groups += 1;
       }
@@ -333,6 +336,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         groups, customers_new: customersNew, sales_new: salesNew, sales_updated: salesUpd, payments: pays,
         pos_new: posNew, opening, tanker,
         app_payments_in_excel: appDone, app_payments_open: db.payments.filter((x) => x.source === 'payments_app').length,
+        sales_until: (p.sales || []).reduce((m, x) => (x.sale_date && (!m || x.sale_date > m) ? x.sale_date : m), null),
       };
       return { ...clone(imp.counts), import_id: imp.id };
     },
@@ -617,6 +621,46 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
           .map((c) => [c.customer_key, c.name, c.ledger, c.bulk_group]),
         groups: [...db.groups].sort((a, b) => a.code.localeCompare(b.code)).map((g) => [g.code, g.title]),
         outstanding,
+      });
+    },
+
+    // same shape as ledger_account() in SQL
+    async account(key, group, from, to) {
+      const bySaleOrder = (a, b) => a.sale_date.localeCompare(b.sale_date) || a.product.localeCompare(b.product) || a.seq - b.seq || a.id - b.id;
+      const byPayOrder = (a, b) => a.pay_date.localeCompare(b.pay_date) || a.seq - b.seq || a.id - b.id;
+      if (group) {
+        const g = db.groups.find((x) => x.code === group);
+        if (!g) fail(`No bulk ledger ${group}.`);
+        const since = g.period_from || '1900-01-01';
+        const until = to || '2999-12-31';
+        const members = db.customers.filter((c) => c.bulk_group === g.code);
+        const keys = new Set(members.map((c) => c.customer_key));
+        return clone({
+          kind: 'bulk',
+          group: { code: g.code, title: g.title, kind: g.kind, units: g.units, period_from: g.period_from, opening: g.opening, layout: g.layout || null },
+          members: members.map((m) => ({ key: m.customer_key, name: m.name })).sort((a, b) => a.name.localeCompare(b.name)),
+          sales: db.sales.filter((x) => keys.has(x.customer_key) && x.sale_date >= since && x.sale_date <= until).sort(bySaleOrder)
+            .map((x) => ({ id: x.id, product: x.product, bill_no: x.bill_no, sale_date: x.sale_date, qty: x.qty, rate: x.rate, amount: x.amount,
+              customer: x.customer, item: x.item, seq: x.seq, unit: x.unit || '', tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '' })),
+          payments: db.payments.filter((x) => keys.has(x.customer_key) && x.pay_date >= since && x.pay_date <= until).sort(byPayOrder)
+            .map((x) => ({ id: x.id, pay_date: x.pay_date, customer: x.customer, amount: x.amount, tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '', seq: x.seq })),
+        });
+      }
+      const c = db.customers.find((x) => x.customer_key === key);
+      if (!c) fail(`No customer ${key}.`);
+      if (!from || !to || to < from) fail('Pick a From date on or before the To date.');
+      const dates = [...db.sales.filter((x) => x.customer_key === key).map((x) => x.sale_date),
+        ...db.payments.filter((x) => x.customer_key === key).map((x) => x.pay_date)].sort();
+      return clone({
+        kind: 'retail',
+        customer: { key, name: c.name, ledger: c.ledger, title: c.title || '', bill_address: c.bill_address || '', gstin: c.gstin,
+          layout: c.layout || null, opening: balanceBefore(key, from) },
+        sales: db.sales.filter((x) => x.customer_key === key && x.sale_date >= from && x.sale_date <= to).sort(bySaleOrder)
+          .map((x) => ({ id: x.id, product: x.product, bill_no: x.bill_no, sale_date: x.sale_date, vehicle: x.vehicle, qty: x.qty,
+            rate: x.rate, amount: x.amount, customer: x.customer, key, item: x.item, seq: x.seq })),
+        payments: db.payments.filter((x) => x.customer_key === key && x.pay_date >= from && x.pay_date <= to).sort(byPayOrder)
+          .map((x) => ({ pay_date: x.pay_date, key, amount: x.amount })),
+        first: dates[0] || null,
       });
     },
 

@@ -9,15 +9,19 @@ import { fromQueue } from './payin.js';
 import {
   barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate,
 } from './charts.js';
-import { analyse, FUELS, periods, PRODUCT_NAME } from './dash.js';
+import { analyse, daysBetween, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
 import {
   A4, A5, download, inkBox, jpegFromSvg, pdfFromSvgs, slipSvg, statementFontCss, tankerBillSvg, toDataUrl, zipBlob,
 } from './render.js';
-import { billStatementSvgs, dailySummarySvg, ledgerSvg, PAGE, PAGE_PT } from './statement-svg.js';
+import { billStatementSvgs, dailySummarySvg, DEFAULT_LAYOUT, ledgerSvg, PAGE, PAGE_PT } from './statement-svg.js';
 import {
-  addDays, buildStatements, defaultMonth, monthEnd, monthLabel, monthStart, shareBatches,
+  bulkRows, cellText, COLUMN_HEAD, DEFAULT_BULK_WIDTHS, isNegative, xlDate, xlRupee,
+} from './account.js';
+import {
+  addDays, buildStatements, ddmmyy, defaultMonth, firstWord, indAuto, ledgerRows, monthEnd, monthLabel, monthStart, rupeeAuto,
+  shareBatches,
 } from './statements.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
@@ -217,6 +221,7 @@ const ROUTES = [
   [/^#\/bills$/, () => viewBills()],
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/payments$/, () => viewPayments()],
+  [/^#\/account\/([cg])\/([^?]+)(?:\?m=(\d{4}-\d{2}))?$/, (m) => viewAccount(m[1], decodeURIComponent(m[2]), m[3])],
 ];
 
 async function route() {
@@ -279,23 +284,18 @@ async function viewHome() {
     if (g.noPo) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.noPo, 'bill')} without a PO — add a new PO</a>`);
     if (g.needsUnit) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.needsUnit, 'bill')} need a unit</a>`);
   }
-  const sales = sum.sales || {};
   const last = sum.last_import;
+  const play = !state.greeted;                                   // the feather flies once per app open
+  state.greeted = true;
   setMain(`
-    <section class="hero card">
-      ${empty ? `
+    ${empty ? `<section class="hero card">
         <h2>Welcome</h2>
         <p>Start by uploading your <b>Master Ledger</b>: the app copies your sales, payments, customers and PO lists from it. Then import each day's Tally DayBook here instead of in Excel.</p>
-        <p><a class="btn" href="#/import">Upload Master Ledger</a></p>` : `
-        <p class="eyebrow">Sales in the app up to</p>
-        <h2>${fmtDate(sum.last_sale_date)}</h2>
-        <div class="stats">
-          ${['HSD', 'MS', 'XG', 'OTHER'].filter((p) => sales[p]).map((p) => `
-            <div><span class="num">${sales[p].bills.toLocaleString('en-IN')}</span><span class="lbl">${PRODUCT[p]} bills</span></div>`).join('')}
-          <div><span class="num">${(sum.payments || 0).toLocaleString('en-IN')}</span><span class="lbl">payments</span></div>
-        </div>
-        <p class="actions"><a class="btn" href="#/import">Import sales (DayBook)</a> <a class="btn ghost" href="#/sales">See the latest day</a></p>`}
-    </section>
+        <p><a class="btn" href="#/import">Upload Master Ledger</a></p></section>` : `
+    <section class="card greet">
+      <h1 class="jsk${play ? ' play' : ''}"><span class="jsk-text">Jai Shree Krishna</span><img class="jsk-feather" src="assets/morpankh.png" alt=""></h1>
+      <p class="greet-dates"><span>Today is <b>${esc(longDate(localToday()))}</b></span><span>Master File is updated until <b>${sum.master_until ? esc(fmtDate(sum.master_until)) : 'not uploaded yet'}</b></span></p>
+    </section>`}
     ${empty ? '' : `<div id="dash">${loadingHtml('Working out the figures…')}</div>`}
     ${todo.length ? `<section class="card"><h3>Needs your attention</h3><div class="todos">${todo.join('')}</div></section>` : (empty ? '' : '<section class="card good-card"><b>All caught up.</b> Every bulk bill has a PO and every customer has a ledger.</section>')}
     ${groups.length ? `<section class="card"><h3>PO lists</h3><div class="grid">${groups.map(poCard).join('')}</div></section>` : ''}
@@ -317,6 +317,17 @@ async function viewHome() {
 function localToday() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// a custom range: from the data already loaded when it covers it, else fetched
+async function customData(from, to) {
+  const { per, data } = await dashboardData();
+  if (from >= per.earliest && to <= per.month.to) return data;
+  const k = `${from}|${to}`;
+  if (!state.dashCustomData || state.dashCustomData.k !== k) {
+    state.dashCustomData = { k, data: await state.store.dashboard(from, to) };
+  }
+  return state.dashCustomData.data;
 }
 
 async function dashboardData() {
@@ -363,7 +374,12 @@ function dashboardHtml(a, per, key) {
   return `
     <section class="card dash">
       <div class="row-between"><h2>Overview</h2>
-        <div class="chips">${['month', 'last', 'd30', 'fy'].map((x) => `<button class="chip ${x === key ? 'on' : ''}" data-period="${x}">${per[x].label}</button>`).join('')}</div></div>
+        <div class="chips">${['month', 'last', 'd30', 'fy'].map((x) => `<button class="chip ${x === key ? 'on' : ''}" data-period="${x}">${per[x].label}</button>`).join('')}
+          <button class="chip ${key === 'custom' ? 'on' : ''}" data-period="custom">Custom</button></div></div>
+      ${key === 'custom' ? `<form class="custom-range" id="dash-range">
+        <label>From <input type="date" name="from" value="${a.from}" max="${per.month.to}" required></label>
+        <label>To <input type="date" name="to" value="${a.to}" max="${per.month.to}" required></label>
+        <button class="btn small" type="submit">Show</button></form>` : ''}
       <p class="muted small">${fmtDate(a.from)} – ${fmtDate(a.to)} · from the sales and payments in the app · earnings at ₹2.58/L diesel &amp; XtraGreen, ₹4/L petrol off the day's RSP</p>
       <div class="kpis">
         <div class="kpi hero"><span class="lbl">Earnings</span><span class="val">${money(k.earning)}</span><span class="sub">₹${k.perLitre.toFixed(2)} per litre</span></div>
@@ -441,9 +457,13 @@ function customersHtml(a, sort, seg, all) {
       <div class="rank-more" hidden>
         <div class="table-wrap"><table class="compact"><tbody>${[...FUELS, 'OTHER'].filter((x) => c.products[x].amount).map((x) => `<tr><td>${PRODUCT_NAME[x]}</td><td class="r">${x === 'OTHER' ? '' : litres(c.products[x].qty)}</td><td class="r">${money(c.products[x].amount, { exact: true })}</td><td class="r">${x === 'OTHER' ? '' : `earned ${money(c.products[x].earning, { exact: true })}`}</td></tr>`).join('')}</tbody></table></div>
         <p class="small muted">${plural(c.bills, 'bill')} · last ${fmtDate(c.last)} · paid ${money(c.paid, { exact: true })} in this period${c.outstanding != null ? ` · outstanding today <b>${money(c.outstanding, { exact: true })}</b>` : ''}</p>
+        ${c.kind === 'bulk' || c.ledger ? `<p class="small"><a href="${acctHref(c)}">Open ledger →</a></p>` : ''}
       </div></li>`).join('')}</ol>` : '<p class="muted">No sales in this period.</p>'}
     ${list.length > 10 ? `<p><button class="btn ghost small" data-call>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}`;
 }
+
+// '#/account/g/SMC_Bulk' or '#/account/c/<customer key>'
+const acctHref = (e) => `#/account/${e.id.slice(0, 1)}/${encodeURIComponent(e.id.slice(2))}`;
 
 function outstandingHtml(a, seg, all) {
   const list = a.due.filter((o) => seg === 'all' || o.kind === seg);
@@ -454,12 +474,12 @@ function outstandingHtml(a, seg, all) {
     <div class="row-between"><h3>Outstanding today</h3><b class="total">${money(total, { exact: true })}</b></div>
     <div class="chips small-chips">${[['all', 'All'], ['retail', 'Retail'], ['bulk', 'Bulk']].map(([x, n]) => `<button class="chip ${x === seg ? 'on' : ''}" data-oseg="${x}">${n}</button>`).join('')}</div>
     ${shown.length ? `<ol class="rank">${shown.map((o, i) => `
-      <li><div class="rank-row static"><span class="n">${i + 1}</span>
+      <li><a class="rank-row" href="${acctHref(o)}" title="Open the ledger"><span class="n">${i + 1}</span>
         <span class="who"><b>${esc(o.name)}</b> ${TAG[o.kind]}<span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (o.balance / max) * 100)}%"></span></span></span>
-        <span class="amt"><b>${money(o.balance, { exact: true })}</b><small>${Math.round((o.balance / (total || 1)) * 100)}% of the total</small></span></div></li>`).join('')}</ol>` : '<p class="muted">Nobody owes anything. ✓</p>'}
+        <span class="amt"><b>${money(o.balance, { exact: true })}</b><small>${Math.round((o.balance / (total || 1)) * 100)}% of the total ›</small></span></a></li>`).join('')}</ol>` : '<p class="muted">Nobody owes anything. ✓</p>'}
     ${list.length > 10 ? `<p><button class="btn ghost small" data-oall>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}
     ${a.advance.length ? `<details><summary class="small">${plural(a.advance.length, 'customer')} paid in advance · ${money(-a.advance.reduce((s, o) => s + o.balance, 0), { exact: true })}</summary>
-      <ul class="small">${a.advance.map((o) => `<li>${esc(o.name)} — ${money(-o.balance, { exact: true })}</li>`).join('')}</ul></details>` : ''}
+      <ul class="small">${a.advance.map((o) => `<li><a href="${acctHref(o)}">${esc(o.name)}</a> — ${money(-o.balance, { exact: true })}</li>`).join('')}</ul></details>` : ''}
     <p class="small muted">Ledger customers as on their sheet; bulk groups as on their *_Bulk sheet (opening + sales − paid − TDS − shortage).</p>`;
 }
 
@@ -476,7 +496,14 @@ function monthsHtml(fy) {
 async function renderDashboard(box) {
   const { per, data } = await dashboardData();
   const key = state.dashPeriod || 'month';
-  const a = analyse(data, per[key]);
+  let a;
+  if (key === 'custom') {
+    const c = state.dashCustom || { from: per.month.from, to: per.month.to };
+    per.custom = { label: 'Custom', from: c.from, to: c.to };
+    a = analyse(await customData(c.from, c.to), per.custom);
+  } else {
+    a = analyse(data, per[key]);
+  }
   setChartWidth(box.clientWidth - 38);                           // the card's inner width
   box.innerHTML = dashboardHtml(a, per, key);
   const fy = key === 'fy' ? a : analyse(data, per.fy);
@@ -506,6 +533,15 @@ async function renderDashboard(box) {
     state.dashPeriod = b.dataset.period;
     guard(() => renderDashboard(box));
   }));
+  box.querySelector('#dash-range')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const from = e.target.from.value;
+    const to = e.target.to.value;
+    if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    if (daysBetween(from, to) > 730) { toast('Pick at most two years at a time.', 'bad'); return; }
+    state.dashCustom = { from, to };
+    guard(() => renderDashboard(box));
+  });
   bindCharts(box);
   // redraw at the new width after a rotate / resize
   if (!state.dashResize) {
@@ -520,6 +556,160 @@ async function renderDashboard(box) {
       }, 250);
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// A customer's ledger, laid out like their sheet in the Master Ledger
+// ---------------------------------------------------------------------------
+const colLetter = (i) => (i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26)));
+const xlPx = (w) => Math.round(Number(w) * 8);                 // Excel width units -> screen px (Times New Roman 12)
+const ptPx = (pt) => Math.round(pt * 96 / 72);
+
+// the sheet grid: column letters, row numbers, sticky header, zoom to fit
+function sheetHtml(widths, rows) {
+  const total = widths.reduce((a, w) => a + w, 0) + 40;
+  return `<div class="xl-tools"><button class="btn ghost small" data-zoom="-">−</button><button class="btn ghost small" data-zoom="fit">Fit</button><button class="btn ghost small" data-zoom="1">100%</button><button class="btn ghost small" data-zoom="+">+</button></div>
+    <div class="xl-wrap"><table class="xl" style="width:${total}px"><colgroup><col style="width:40px">${widths.map((w) => `<col style="width:${w}px">`).join('')}</colgroup>
+      <thead><tr><th class="corner"></th>${widths.map((_, i) => `<th>${colLetter(i)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map((r, i) => `<tr${r.h ? ` style="height:${r.h}px"` : ''}><th class="rn">${i + 1}</th>${r.cells}</tr>`).join('')}</tbody></table></div>`;
+}
+
+function bindSheet(root) {
+  const wrap = root.querySelector('.xl-wrap');
+  const table = root.querySelector('table.xl');
+  if (!wrap || !table) return;
+  const natural = parseFloat(table.style.width);
+  let z = 1;
+  const apply = () => { table.style.zoom = String(z); };
+  const fit = () => { z = Math.max(0.5, Math.min(1, (wrap.clientWidth - 2) / natural)); apply(); };   // never below 50%: scroll sideways instead
+  root.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => {
+    const v = b.dataset.zoom;
+    if (v === 'fit') fit();
+    else { z = v === '1' ? 1 : Math.max(0.35, Math.min(2, z + (v === '+' ? 0.15 : -0.15))); apply(); }
+  }));
+  if (natural > wrap.clientWidth) fit();
+}
+
+const cell = (text, cls = '', attrs = '') => `<td${cls ? ` class="${cls}"` : ''}${attrs ? ` ${attrs}` : ''}>${esc(text)}</td>`;
+
+async function viewAccount(type, id, month) {
+  if (type === 'g') return viewBulkAccount(id);
+  return viewRetailAccount(id, month);
+}
+
+async function viewBulkAccount(code) {
+  const [data, pod] = await Promise.all([state.store.account(null, code, null, null), state.store.poData()]);
+  const poById = new Map();
+  const pg = poGroups(pod).find((x) => x.group.code === code);
+  if (pg) pg.rows.forEach((r) => poById.set(r.id, r.po));
+  const res = bulkRows(data, (sid) => poById.get(sid) || '');
+  const g = data.group;
+  const n = res.columns.length;
+  const widths = (res.widths || DEFAULT_BULK_WIDTHS[res.kind]).slice(0, n).map(xlPx);
+  const spacer = res.widths && res.widths[n] ? xlPx(res.widths[n]) : 60;
+  const all = [...widths, spacer, xlPx(18), xlPx(18)];
+  const name = shortGroup(g.code, g.title);
+  const who = g.kind === 'group' ? 'Group:' : 'Customer:';
+  const whoValue = g.kind === 'group' ? name : (data.members[0] ? data.members[0].name : name);
+  const info = (label, value) => `<td></td>${cell(label, 'b')}${cell(value, 'b')}`;
+  const blankRow = (k = n) => '<td></td>'.repeat(k);
+  const rows = [
+    { cells: `<td colspan="${n}" class="xl-title">${esc(g.title || name)}</td>${blankRow(3)}` },
+    { cells: blankRow(n + 3) },
+    { cells: `${blankRow()}${info(who, whoValue)}` },
+    { cells: `${blankRow()}${info('Opening Balance:', xlRupee(res.opening))}` },
+    { cells: `${res.columns.map((c) => cell(COLUMN_HEAD[c], 'xl-head')).join('')}${info('Period From:', xlDate(g.period_from))}` },
+    ...res.rows.map((r) => ({
+      cells: `${res.columns.map((c) => {
+        const numeric = ['qty', 'rate', 'amount', 'paid', 'tds', 'shortage', 'balance'].includes(c);
+        return cell(cellText(c, r), `${numeric ? 'num' : ''}${isNegative(c, r) ? ' neg' : ''}${c === 'date' ? ' c' : ''}`);
+      }).join('')}${blankRow(3)}`,
+    })),
+  ];
+  setMain(`
+    <section class="card">
+      <p class="muted small"><a href="#/">← Home</a></p>
+      <div class="row-between"><h2>${esc(name)} <span class="tag bulk">Bulk</span></h2>
+        <div class="acct-bal"><span class="muted small">Balance</span><b class="${res.closing < 0 ? 'good-text' : ''}">${esc(money(res.closing, { exact: true }))}</b></div></div>
+      <p class="muted small">The <b>${esc(g.code)}</b> sheet: ${plural(res.rows.filter((r) => !r.payment).length, 'bill')} and ${plural(res.rows.filter((r) => r.payment).length, 'payment')} since ${fmtDate(g.period_from || res.rows[0]?.date || '')} · members: ${data.members.map((m) => esc(m.name)).join(', ') || '—'}${res.widths ? '' : ' · <span class="warn-text">column widths come with the next Master Ledger upload</span>'}</p>
+      ${sheetHtml(all, rows)}
+    </section>`);
+  bindSheet(main());
+}
+
+function monthShift(ym, n) {
+  const d = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1));
+  return d.toISOString().slice(0, 7);
+}
+
+async function viewRetailAccount(key, month) {
+  const today = localToday();
+  const ym = month && /^\d{4}-\d{2}$/.test(month) ? month : today.slice(0, 7);
+  const from = `${ym}-01`;
+  const to = monthEnd(from);
+  const data = await state.store.account(key, null, from, to);
+  const c = data.customer;
+  const led = ledgerRows({ opening: c.opening, from, sales: data.sales, payments: data.payments });
+  const L = c.layout && Array.isArray(c.layout.cols) && c.layout.cols.length === 7 ? c.layout : DEFAULT_LAYOUT;
+  const widths = L.cols.map(xlPx);
+  const rowH = ptPx(Number(L.row) > 5 ? Number(L.row) : DEFAULT_LAYOUT.row);
+  const headH = ptPx(Number(L.head) > 5 ? Number(L.head) : DEFAULT_LAYOUT.head);
+  const period = `for The Month of  ${monthLabel(from)}`;
+  const title = String(c.title || '').trim() || c.name;
+  // every column but the date is right-aligned on the sheet
+  const r = (vals) => vals.map((v, i) => cell(v.t ?? v, `${i ? 'num' : ''} ${v.c || ''}`.trim())).join('');
+  const rows = [
+    { h: ptPx(30), cells: `<td colspan="7" class="xl-t1"><img src="assets/logo.png" alt="" class="xl-logo">${esc(title)}</td>` },
+    { h: ptPx(19), cells: '<td colspan="7" class="xl-t2">Ledger Account for Diesel</td>' },
+    { h: ptPx(22), cells: `<td colspan="7" class="xl-t2 pre">${esc(period)}</td>` },
+    { h: headH, cells: ['Date', 'Volume', 'Price', 'Amount', 'Paid', 'Product', 'Balance'].map((x) => cell(x, 'xl-h2')).join('') },
+    { h: rowH, cells: r([ddmmyy(from), '', '', '', '', '', rupeeAuto(led.opening)]) },
+    ...led.rows.map((x) => ({
+      h: rowH,
+      cells: r([
+        { t: x.showDate ? ddmmyy(x.date) : '', c: 'l' },
+        { t: x.hasSale ? indAuto(x.qty) : '', c: x.petrol ? 'or' : '' },
+        { t: x.hasSale && x.rate != null ? x.rate.toFixed(2) : '', c: x.petrol ? 'or' : '' },
+        { t: x.hasSale ? indAuto(x.amount) : '', c: x.petrol ? 'or' : '' },
+        { t: x.paid ? indAuto(x.paid) : '', c: 'b' },
+        { t: x.label, c: x.petrol ? 'or' : '' },
+        { t: rupeeAuto(x.balance), c: x.balance < 0 ? 'neg' : '' },
+      ]),
+    })),
+  ];
+  const first = data.first ? data.first.slice(0, 7) : ym;
+  const prev = monthShift(ym, -1);
+  const next = monthShift(ym, 1);
+  setMain(`
+    <section class="card">
+      <p class="muted small"><a href="#/">← Home</a></p>
+      <div class="row-between"><h2>${esc(c.name)} <span class="tag">Retail</span></h2>
+        <div class="acct-bal"><span class="muted small">Balance ${ym === today.slice(0, 7) ? 'today' : `end of ${monthLabel(from)}`}</span><b>${esc(money(led.closing, { exact: true }))}</b></div></div>
+      <div class="row-between month-nav">
+        ${prev >= first ? `<a class="btn ghost small" href="#/account/c/${encodeURIComponent(key)}?m=${prev}">‹ ${monthLabel(`${prev}-01`)}</a>` : '<span></span>'}
+        <b>${monthLabel(from)}</b>
+        ${next <= today.slice(0, 7) ? `<a class="btn ghost small" href="#/account/c/${encodeURIComponent(key)}?m=${next}">${monthLabel(`${next}-01`)} ›</a>` : '<span></span>'}
+      </div>
+      <p class="muted small">The <b>${esc(c.ledger || c.name)}</b> sheet${L === DEFAULT_LAYOUT ? ' · <span class="warn-text">column widths come with the next Master Ledger upload</span>' : ''}</p>
+      <div class="xl-retail">${sheetHtml(widths, rows)}</div>
+      <p class="actions"><button class="btn small" data-acct="share">Share as picture</button><button class="btn ghost small" data-acct="pdf">PDF</button></p>
+    </section>`);
+  bindSheet(main());
+  const svgOf = async () => ledgerSvg({
+    title, subtitle: 'Ledger Account for Diesel', period, ...led, total: false, layout: c.layout,
+  }, await statementImages());
+  const base = `${firstWord(c.name)} Ledger ${monthLabel(from)}`;
+  main().querySelector('[data-acct="share"]').addEventListener('click', (e) => guard(async () => {
+    e.target.disabled = true;
+    try {
+      const blob = await jpegFromSvg(await svgOf(), PAGE);
+      await shareOrSave([new File([blob], `${base}.jpeg`, { type: 'image/jpeg' })], `${base}.zip`);
+    } finally { e.target.disabled = false; }
+  }));
+  main().querySelector('[data-acct="pdf"]').addEventListener('click', (e) => guard(async () => {
+    e.target.disabled = true;
+    try { download(await pdfFromSvgs([await svgOf()], PAGE_PT, { scale: 2.5 }), `${base}.pdf`); } finally { e.target.disabled = false; }
+  }));
 }
 
 function poCard(g) {
@@ -540,10 +730,35 @@ function poCard(g) {
 // ---------------------------------------------------------------------------
 // Import: Tally DayBook and Master Ledger
 // ---------------------------------------------------------------------------
+// "Sales in the app up to" — on the Import tab
+function salesCard(sum) {
+  if (!sum.last_sale_date) return '';
+  const sales = sum.sales || {};
+  return `<section class="hero card">
+    <p class="eyebrow">Sales in the app up to</p>
+    <h2>${fmtDate(sum.last_sale_date)}</h2>
+    <div class="stats">
+      ${['HSD', 'MS', 'XG', 'OTHER'].filter((p) => sales[p]).map((p) => `
+        <div><span class="num">${sales[p].bills.toLocaleString('en-IN')}</span><span class="lbl">${PRODUCT[p]} bills</span></div>`).join('')}
+      <div><span class="num">${(sum.payments || 0).toLocaleString('en-IN')}</span><span class="lbl">payments</span></div>
+    </div>
+    <p class="actions"><button class="btn" type="button" data-pick-daybook>Import sales (DayBook)</button> <a class="btn ghost" href="#/sales">See the latest day</a></p>
+  </section>`;
+}
+
+// 2026-09-26 -> Saturday, 26 September 2026
+function longDate(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
+  const month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getMonth()];
+  return `${day}, ${d.getDate()} ${month} ${d.getFullYear()}`;
+}
+
 async function viewImport() {
-  const imports = await state.store.imports(10);
+  const [imports, sum] = await Promise.all([state.store.imports(10), state.store.summary()]);
   setMain(`
-    <section class="card">
+    ${salesCard(sum)}
+    <section class="card" id="daybook-card">
       <h2>Import sales — Tally DayBook</h2>
       <p class="muted">Same as the <b>Import Sales</b> button in Excel: HSD, MS and XG credit vouchers are added; bills already in the app are skipped.</p>
       <label class="file"><input type="file" id="daybook-file" accept=".xls,.xlsx,.xlsm,.csv"><span class="btn">Choose DayBook file</span></label>
@@ -562,6 +777,7 @@ async function viewImport() {
         <tbody>${imports.map(importRow).join('')}</tbody></table></div>` : '<p class="muted">Nothing uploaded yet.</p>'}
     </section>`);
   document.getElementById('daybook-file').addEventListener('change', (e) => e.target.files[0] && daybookChosen(e.target.files[0], e.target));
+  main().querySelector('[data-pick-daybook]')?.addEventListener('click', () => document.getElementById('daybook-file').click());
   document.getElementById('master-file').addEventListener('change', (e) => e.target.files[0] && masterChosen(e.target.files[0], e.target));
 }
 

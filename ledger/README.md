@@ -43,9 +43,15 @@ Master Ledger). Upload the
 stamp once on the Statements tab — it is kept in the database, not on the
 website.
 
+**Home** opens with *Jai Shree Krishna* — a morpankh flies in, writes it and
+flies out (once each time the app opens; still for reduced-motion settings) —
+with today's date and the date the Master File is updated until (the latest
+sale in the last Master Ledger upload). *Sales in the app up to* and the bill
+counts are on the **Import** tab.
+
 **Home dashboard** (the workbook's Sales Analysis — Module14 — and the
 Outstanding sheet, live): pick *This month / Last month / Last 30 days / This
-FY* and see earnings, sales, collections and today's outstanding; each
+FY / Custom* (any From..To, up to two years) and see earnings, sales, collections and today's outstanding; each
 product's litres, sales and earnings; litres and earnings per day (per month
 for long periods); the best customers (sort by litres, sales or earnings;
 retail / bulk; tap one for the product split, payments and outstanding);
@@ -53,6 +59,20 @@ everyone's outstanding, largest first (ledger customers as on their sheet,
 bulk groups as on their *_Bulk sheet: opening + sales − paid − TDS −
 shortage); bulk vs retail; the FY month by month (sales vs collections); and
 the day's RSP per product. Tap or hover any chart for its numbers.
+
+**Customer ledgers**: tap anyone under *Outstanding today* (or *Open ledger*
+on a best customer) to see their ledger laid out like their sheet in the
+Master Ledger, with the sheet's column letters, row numbers and column widths:
+- **Bulk** — the *_Bulk sheet: title, Customer / Group, Opening Balance and
+  Period From, then every member's bill (diesel, petrol, XtraGreen, then
+  payments, then Other Sale, by date) with Unit, PO No., TDS, Shortage and
+  Remarks, and the running Balance (opening + amount − paid − TDS −
+  shortage), in the sheet's number formats (negatives in red). Group sheets
+  show the Billing Name; SMC-style sheets the Unit.
+- **Retail** — the ledger sheet (A:G) for a month, with ‹ › to move between
+  months, and *Share as picture* / *PDF* of the same page.
+**Fit / − / + / 100%** zoom the sheet (on a phone it scrolls sideways like
+Excel). The widths come with the Master Ledger upload.
 
 Earnings follow Module14: a bill earns *amount − litres × (day's RSP −
 margin)*, margin ₹2.58/L diesel and XtraGreen, ₹4/L petrol, the day's RSP
@@ -158,6 +178,7 @@ Until step 5 the page shows these steps and a **Try the demo** button
 | `js/payin.js` | Reads the payments app's list for the Payments tab |
 | `js/dash.js` | Home dashboard figures (earnings, customers, outstanding, months) |
 | `js/charts.js` | The dashboard's SVG charts and their tooltips |
+| `js/account.js` | A customer's ledger as on their sheet (bulk layouts, formats) |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |

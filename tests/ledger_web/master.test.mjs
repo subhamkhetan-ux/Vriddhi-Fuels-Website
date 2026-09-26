@@ -41,7 +41,9 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   assert.deepEqual(groups.Demo_Bulk, {
     code: 'Demo_Bulk', title: 'Demo Power — Bulk Ledger — Diesel (FY 2026-27)', kind: 'po', units: [],
     period_from: '2026-04-01', opening: 1000, opening_by_unit: {},
+    layout: { cols: [12.16, 12.16, 11.5, 9.83, 15, 15, 9.83, 13, 15.5, 12.83, 18.66, 24.83, 8.43, 8.43, 8.43] },
   });
+  assert.equal(groups.Twin_Bulk.layout, null);                     // no widths in the file: none
   assert.deepEqual([groups.Twin_Bulk.kind, groups.Twin_Bulk.units, groups.Twin_Bulk.opening,
     groups.Twin_Bulk.opening_by_unit], ['po_units', ['UNIT 1', 'UNIT 2'], 300, { 'UNIT 1': 100, 'UNIT 2': 200 }]);
   assert.deepEqual([groups.Crew_Bulk.kind, groups.Crew_Bulk.period_from], ['group', '2026-04-01']);
