@@ -43,9 +43,23 @@ Master Ledger). Upload the
 stamp once on the Statements tab — it is kept in the database, not on the
 website.
 
-This app is separate from every other app in this repo; it only adds files
+**Payments tab**: the [payments app](../payments/)'s matched entries, read
+straight from its database with the same public key it uses
+(`payments/config.js`) — read-only, so the payments app carries on exactly as
+before (keep logging to Excel from it). Each entry shows where it is in the
+payments app (Ready / Queued for Excel / In Excel) and in the ledger (Not in
+ledger / In ledger ✓ / In Excel copy ✓). Tick the ones you want and tap
+**Log payments**: they count in balances and statements straight away and
+their status turns to *In ledger ✓*. They stay listed under *Logged here, not
+in your Excel copy yet* until a Master Ledger upload shows them in Master
+Paid — then the ledger's copy is dropped (one for one), so the Mac's Excel
+file stays the source of truth and nothing counts twice. **Remove** takes one
+out of the ledger only.
+
+This app is separate from every other app in this repo (it only reads the
+payments app's list); it only adds files
 (`ledger/`, `supabase/ledger-schema.sql`, `tests/ledger_web/`,
-`tests/test_ledger_*.py`) and changes nothing else.
+`tests/test_ledger_*.py`).
 
 ## Where the data lives
 
@@ -121,6 +135,7 @@ Until step 5 the page shows these steps and a **Try the demo** button
 | `js/statements.js` | Statement rules: ledger rows, bill statement, daily summaries, who gets what (Module1 / 2 / 6) |
 | `js/statement-svg.js` | Draws the ledger, bill statement and daily summary pages |
 | `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), logo for the ledger |
+| `js/payin.js` | Reads the payments app's list for the Payments tab |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |

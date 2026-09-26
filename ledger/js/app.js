@@ -5,6 +5,7 @@
 import { normalizeCompany, slipBundles, tankerBundles } from './bills.js';
 import { daybookPayload, parseDaybook, sheetRows } from './daybook.js';
 import { demoSeed } from './demo.js';
+import { fromQueue } from './payin.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
 import {
@@ -81,7 +82,9 @@ async function boot() {
   const cfg = window.LEDGER_CONFIG || {};
   if (params.has('demo')) {
     state.demo = true;
-    state.store = memoryStore(demoSeed());
+    const seed = demoSeed();
+    state.store = memoryStore(seed);
+    state.demoPayQueue = seed.payQueue;
     return enter();
   }
   if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return renderSetup();
@@ -180,7 +183,7 @@ async function signOut() {
 // shell + routing
 // ---------------------------------------------------------------------------
 const TABS = [
-  ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/statements', 'Statements'], ['#/pos', 'POs'],
+  ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/statements', 'Statements'], ['#/payments', 'Payments'], ['#/pos', 'POs'],
   ['#/customers', 'Customers'], ['#/sales', 'Sales'],
 ];
 
@@ -209,6 +212,7 @@ const ROUTES = [
   [/^#\/sales(?:\/(\d{4}-\d{2}-\d{2}))?$/, (m) => viewSales(m[1] || null)],
   [/^#\/bills$/, () => viewBills()],
   [/^#\/statements$/, () => viewStatements()],
+  [/^#\/payments$/, () => viewPayments()],
 ];
 
 async function route() {
@@ -340,8 +344,10 @@ function importRow(i) {
   const c = i.counts || {};
   const result = i.kind === 'daybook'
     ? `${Object.entries(c.inserted || {}).map(([p, n]) => `${n} ${p}`).join(', ') || 'no new bills'}${c.duplicates ? ` · ${c.duplicates} already there` : ''}`
-    : `${c.sales_new ?? 0} new bills · ${c.sales_updated ?? 0} refreshed · ${c.payments ?? 0} payments · ${c.pos_new ?? 0} new POs`;
-  return `<tr><td>${esc(new Date(i.created_at).toLocaleString('en-IN'))}</td><td>${i.kind === 'daybook' ? 'DayBook' : 'Master Ledger'}</td><td>${esc(i.file_name)}</td><td>${esc(result)}</td></tr>`;
+    : i.kind === 'payments_app' ? `${c.payments ?? 0} payments added`
+      : `${c.sales_new ?? 0} new bills · ${c.sales_updated ?? 0} refreshed · ${c.payments ?? 0} payments · ${c.pos_new ?? 0} new POs`;
+  const what = { daybook: 'DayBook', payments_app: 'Payments app', master_ledger: 'Master Ledger' }[i.kind] || i.kind;
+  return `<tr><td>${esc(new Date(i.created_at).toLocaleString('en-IN'))}</td><td>${what}</td><td>${esc(i.file_name)}</td><td>${esc(result)}</td></tr>`;
 }
 
 async function daybookChosen(file, input) {
@@ -464,6 +470,7 @@ async function masterChosen(file, input) {
       const res = await state.store.importMaster(file.name, payload);
       input.value = '';
       out.innerHTML = `<div class="card good-card"><b>Done.</b> ${plural(res.sales_new, 'new bill')}, ${res.sales_updated} refreshed, ${plural(res.payments, 'payment')}, ${plural(res.customers_new, 'new customer')}, ${plural(res.pos_new, 'new PO')}, ${plural(res.opening, 'opening balance')}, ${plural(res.groups, 'bulk ledger')}.
+        ${res.app_payments_in_excel || res.app_payments_open ? `<p>Payments app: ${plural(res.app_payments_in_excel || 0, 'payment')} now in Master Paid (the app's copy was dropped)${res.app_payments_open ? `, ${res.app_payments_open} still waiting for Excel` : ''}.</p>` : ''}
         <p><a href="#/">Home →</a> · <a href="#/pos">PO lists →</a></p></div>`;
       toast('Master Ledger copied.');
     }).finally(() => { go.disabled = false; }));
@@ -1210,6 +1217,139 @@ async function preparePeriod(kind, { from, to, filter = '' }, outId) {
     const r = await state.store.saveOpening(nextMonth);
     toast(`Saved ${plural(r.customers, 'opening balance')} for ${monthLabel(nextMonth)}.`);
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Payments tab: the /payments app's list, read-only (its own Supabase project)
+// ---------------------------------------------------------------------------
+const APP_STATE = { ready: 'Ready', queued: 'Queued for Excel', excel: 'In Excel' };
+const PAYMENTS_CONFIG = '../payments/config.js';
+
+// A read-only client for the payments app's project, using the same public
+// key the payments app itself uses (payments/config.js). Demo: made-up rows.
+async function paymentsQueue() {
+  if (state.demo) return state.demoPayQueue || [];
+  if (!state.payClient) {
+    if (!window.VRIDDHI_PAYMENTS_CONFIG) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = PAYMENTS_CONFIG;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Couldn\'t load the payments app\'s settings.'));
+        document.head.append(s);
+      });
+    }
+    const cfg = window.VRIDDHI_PAYMENTS_CONFIG || {};
+    if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) throw new Error('The payments app isn\'t set up (payments/config.js).');
+    const { createClient } = await import(SUPABASE_JS);
+    state.payClient = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, storageKey: 'vriddhi-payments-readonly' },
+    });
+  }
+  const { data, error } = await state.payClient.from('pay_credit_queue').select('*')
+    .order('date_serial', { ascending: false }).limit(2000);
+  if (error) throw new Error(`Couldn't read the payments app: ${error.message}`);
+  return data || [];
+}
+
+const LEDGER_STATE = {
+  new: '<span class="warn-text">Not in ledger</span>',
+  logged: '<span class="good-text">In ledger ✓</span>',
+  in_excel: '<span class="good-text">In Excel copy ✓</span>',
+};
+
+async function viewPayments() {
+  const [queue, appPays] = await Promise.all([paymentsQueue(), state.store.appPaymentsList()]);
+  const { payments, review } = fromQueue(queue);
+  const checks = payments.length
+    ? await state.store.appPaymentsCheck(payments.map(({ ref, pay_date, customer, amount }) => ({ ref, pay_date, customer, amount })))
+    : [];
+  const byRef = new Map(checks.map((c) => [c.ref, c]));
+  const rows = payments.map((r) => ({ ...r, check: byRef.get(r.ref) || { state: 'new', known: true } }));
+  const todo = rows.filter((r) => r.check.state === 'new');
+  const unknown = [...new Set(todo.filter((r) => !r.check.known).map((r) => r.customer))];
+  const filter = state.payFilter || 'todo';
+  const shown = filter === 'todo' ? todo : rows;
+  setMain(`
+    <section class="card">
+      <div class="row-between"><h2>Payments</h2><button class="btn ghost small" id="pay-refresh">↻ Refresh</button></div>
+      <p class="muted">The payments app's matched entries, read straight from it — nothing there changes; keep logging to Excel from the payments app as usual. <b>Log payments</b> adds them here so balances and statements are up to date. Excel stays the source of truth: when a Master Ledger upload shows a payment in Master Paid, the ledger's copy is dropped, so nothing counts twice.</p>
+      <div class="chips">
+        <button class="chip ${filter === 'todo' ? 'on' : ''}" data-pay-filter="todo">Not in ledger · ${todo.length}</button>
+        <button class="chip ${filter === 'all' ? 'on' : ''}" data-pay-filter="all">All · ${rows.length}</button>
+      </div>
+      ${review ? `<p class="muted small">${plural(review, 'payment')} still under <b>Needs review</b> in the payments app — they show here once a customer is picked there.</p>` : ''}
+      ${unknown.length ? `<p class="warn-text small">Not a customer in the ledger app yet: ${unknown.map(esc).join(', ')} — logged anyway; they show in balances once the customer is in the app.</p>` : ''}
+      ${shown.length ? `<form id="pay-form">
+        <div class="table-wrap"><table class="compact">
+          <thead><tr><th>${filter === 'todo' ? '<input type="checkbox" id="pay-all" checked aria-label="All">' : ''}</th><th>Date</th><th>Customer</th><th class="r">Amount</th><th>Mode</th><th>Payments app</th><th>Ledger</th></tr></thead>
+          <tbody>${shown.map((r) => `<tr>
+            <td>${r.check.state === 'new' ? `<input type="checkbox" name="pick" value="${esc(r.ref)}" ${filter === 'todo' ? 'checked' : ''} aria-label="Log ${esc(r.customer)} ${esc(fmtMoney(r.amount))}">` : ''}</td>
+            <td>${esc(fmtDate(r.pay_date))}</td><td>${esc(r.customer)}</td><td class="r">${esc(fmtMoney(r.amount))}</td>
+            <td>${esc(r.mode)}</td><td>${APP_STATE[r.state]}</td><td>${LEDGER_STATE[r.check.state] || ''}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <p class="actions"><button class="btn" type="submit">Log payments</button></p>
+      </form>` : `<p class="muted">${filter === 'todo' ? 'Every matched payment is in the ledger. ✓' : 'No matched payments in the payments app.'}</p>`}
+    </section>
+    ${appPaymentsCard(appPays)}`);
+  document.getElementById('pay-refresh').addEventListener('click', () => guard(viewPayments));
+  document.querySelectorAll('[data-pay-filter]').forEach((b) => b.addEventListener('click', () => {
+    state.payFilter = b.dataset.payFilter;
+    guard(viewPayments);
+  }));
+  bindAppPayments(viewPayments);
+  const form = document.getElementById('pay-form');
+  if (!form) return;
+  const btn = form.querySelector('button[type=submit]');
+  const byKey = new Map(rows.map((r) => [r.ref, r]));
+  const picked = () => [...form.querySelectorAll('input[name=pick]:checked')].map((x) => byKey.get(x.value));
+  const update = () => {
+    const list = picked();
+    btn.textContent = list.length ? `Log ${plural(list.length, 'payment')} · ${fmtMoney(list.reduce((a, r) => a + r.amount, 0))}` : 'Log payments';
+    btn.disabled = !list.length;
+  };
+  document.getElementById('pay-all')?.addEventListener('change', (e) => {
+    form.querySelectorAll('input[name=pick]').forEach((x) => { x.checked = e.target.checked; });
+  });
+  form.addEventListener('change', update);
+  update();
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    guard(async () => {
+      const list = picked();
+      if (!list.length) return;
+      btn.disabled = true;
+      btn.textContent = 'Logging…';
+      const res = await state.store.appPaymentsLog(list.map(({ ref, pay_date, customer, amount, mode }) => ({ ref, pay_date, customer, amount, mode })));
+      toast(`${plural(res.added, 'payment')} logged to the ledger.`);
+      await viewPayments();                        // statuses update
+    }).finally(() => { if (document.body.contains(btn)) update(); });
+  });
+}
+
+function appPaymentsCard(list) {
+  const total = list.reduce((a, p) => a + Number(p.amount || 0), 0);
+  return `<section class="card" id="app-payments">
+    <h3>Logged here, not in your Excel copy yet</h3>
+    <p class="muted"> ${list.length
+    ? 'These count in balances now and stay until a Master Ledger upload shows them in Master Paid.'
+    : 'None waiting for Excel.'}</p>
+    ${list.length ? `<details><summary>${plural(list.length, 'payment')} · ${esc(fmtMoney(total))}</summary>
+      <div class="table-wrap"><table class="compact">
+        <thead><tr><th>Date</th><th>Customer</th><th class="r">Amount</th><th>Mode</th><th></th></tr></thead>
+        <tbody>${list.map((p) => `<tr><td>${esc(fmtDate(p.pay_date))}</td><td>${esc(p.customer)}</td><td class="r">${esc(fmtMoney(p.amount))}</td><td>${esc(p.mode)}</td>
+          <td><button class="btn ghost small" data-app-pay-del="${p.id}" title="Take it out of the ledger app (the payments app isn't touched)">Remove</button></td></tr>`).join('')}</tbody>
+      </table></div></details>` : ''}
+  </section>`;
+}
+
+function bindAppPayments(reload) {
+  document.querySelectorAll('[data-app-pay-del]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    if (!window.confirm('Take this payment out of the ledger app? (The payments app and Excel are not touched.)')) return;
+    await state.store.appPaymentsDelete(Number(b.dataset.appPayDel));
+    toast('Removed.');
+    await reload();
+  })));
 }
 
 // Print only these pages (the browser's "Save as PDF" works too).

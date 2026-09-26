@@ -174,6 +174,11 @@ create table if not exists public.ledger_imports (
   created_at timestamptz not null default now()
 );
 
+-- Phase 4: payments logged from the /payments app are an import kind too.
+alter table public.ledger_imports drop constraint if exists ledger_imports_kind_check;
+alter table public.ledger_imports add constraint ledger_imports_kind_check
+  check (kind in ('master_ledger', 'daybook', 'payments_app'));
+
 -- Phase 3: what a ledger sheet shows at the top of its statements.
 alter table public.ledger_customers add column if not exists title text not null default '';        -- ledger sheet A1
 alter table public.ledger_customers add column if not exists bill_address text not null default '';  -- ledger sheet Q10
@@ -478,6 +483,8 @@ declare
   v_po_new    int;
   v_open      int;
   v_tanker    int := 0;
+  v_app_done  int := 0;
+  v_app_open  int := 0;
 begin
   perform ledger_assert_member();
   insert into ledger_imports (kind, file_name, by_email)
@@ -582,6 +589,25 @@ begin
   where x.pay_date is not null and x.amount is not null and btrim(coalesce(x.customer, '')) <> '';
   get diagnostics v_pay = row_count;
 
+  -- 4b) Payments logged from the payments app that the workbook now has in
+  --     Master Paid (same date, customer and amount) are Excel's now: drop
+  --     the app's copy, one for one, so nothing counts twice. The rest stay
+  --     until Excel has them.
+  with app as (
+    select id, pay_date, customer_key, amount,
+           row_number() over (partition by pay_date, customer_key, amount order by id) as rn
+    from ledger_payments where source = 'payments_app'
+  ), m as (
+    select pay_date, customer_key, amount, count(*) as n
+    from ledger_payments where source = 'master_ledger' group by 1, 2, 3
+  ), gone as (
+    delete from ledger_payments p using app join m using (pay_date, customer_key, amount)
+    where p.id = app.id and app.rn <= m.n
+    returning p.id
+  )
+  select count(*) into v_app_done from gone;
+  select count(*) into v_app_open from ledger_payments where source = 'payments_app';
+
   -- 5) PO lists: only POs the app doesn't have yet are added, at the end
   --    of their list and in the workbook's order.
   with src as (
@@ -643,7 +669,7 @@ begin
   v_counts := jsonb_build_object(
     'groups', v_groups, 'customers_new', v_cust_new, 'sales_new', v_sales_new,
     'sales_updated', v_sales_upd, 'payments', v_pay, 'pos_new', v_po_new, 'opening', v_open,
-    'tanker', v_tanker);
+    'tanker', v_tanker, 'app_payments_in_excel', v_app_done, 'app_payments_open', v_app_open);
   update ledger_imports set counts = v_counts where id = v_import;
   return v_counts || jsonb_build_object('import_id', v_import);
 end $$;
@@ -965,6 +991,79 @@ begin
                          limit greatest(1, least(coalesce(p_limit, 20), 200))) i), '[]'::jsonb);
 end $$;
 
+
+-- ---------------------------------------------------------------------
+-- Phase 4: payments from the /payments app (a separate Supabase project).
+-- The payments app hands its matched entries over (read-only on its side);
+-- the ones picked here are added with source 'payments_app' and the payments
+-- app's entry id, so they count in balances straight away. Excel stays the
+-- source of truth: a Master Ledger upload drops each one once Master Paid
+-- has it (step 4b of the import).
+-- ---------------------------------------------------------------------
+create or replace function public.ledger_payments_app_check(p_rows jsonb)
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) > 2000 then
+    raise exception 'Send at most 2000 payments at a time.';
+  end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'ref', x.ref,
+             'state', case
+               when exists (select 1 from ledger_payments p where p.source = 'payments_app' and p.source_ref = btrim(x.ref))
+                 then 'logged'
+               when exists (select 1 from ledger_payments p where p.source = 'master_ledger' and p.pay_date = x.pay_date
+                              and p.customer_key = ledger_norm(x.customer) and p.amount = x.amount)
+                 then 'in_excel'
+               else 'new' end,
+             'known', exists (select 1 from ledger_customers c where c.customer_key = ledger_norm(x.customer)))
+           order by x.ord)
+    from (select e.v ->> 'ref' as ref, (e.v ->> 'pay_date')::date as pay_date, e.v ->> 'customer' as customer,
+                 (e.v ->> 'amount')::numeric as amount, e.ord
+          from jsonb_array_elements(p_rows) with ordinality as e(v, ord)) x), '[]'::jsonb);
+end $$;
+
+create or replace function public.ledger_payments_app_log(p_rows jsonb)
+returns jsonb language plpgsql set search_path = public as $$
+declare v_import bigint; n int;
+begin
+  perform ledger_assert_member();
+  if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) > 2000 then
+    raise exception 'Send at most 2000 payments at a time.';
+  end if;
+  insert into ledger_imports (kind, file_name, by_email)
+  values ('payments_app', 'Payments app', coalesce(auth.jwt() ->> 'email', '')) returning id into v_import;
+  insert into ledger_payments (pay_date, customer, customer_key, amount, mode, source, source_ref, seq, import_id)
+  select x.pay_date, btrim(x.customer), ledger_norm(x.customer), x.amount, btrim(coalesce(x.mode, '')),
+         'payments_app', btrim(x.ref), 0, v_import
+  from jsonb_to_recordset(p_rows) as x(ref text, pay_date date, customer text, amount numeric, mode text)
+  where btrim(coalesce(x.ref, '')) <> '' and x.pay_date is not null and x.amount is not null and x.amount > 0
+    and btrim(coalesce(x.customer, '')) <> ''
+  on conflict (source, source_ref) where source_ref is not null do nothing;
+  get diagnostics n = row_count;
+  update ledger_imports set counts = jsonb_build_object('payments', n) where id = v_import;
+  return jsonb_build_object('added', n, 'sent', jsonb_array_length(p_rows), 'import_id', v_import);
+end $$;
+
+-- The payments-app entries Excel doesn't have yet (they go at the next upload).
+create or replace function public.ledger_payments_app_list()
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return coalesce((select jsonb_agg(jsonb_build_object(
+                     'id', p.id, 'pay_date', p.pay_date, 'customer', p.customer, 'amount', p.amount,
+                     'mode', p.mode, 'ref', p.source_ref, 'created_at', p.created_at)
+                   order by p.pay_date desc, p.id desc)
+                   from ledger_payments p where p.source = 'payments_app'), '[]'::jsonb);
+end $$;
+
+create or replace function public.ledger_payments_app_delete(p_id bigint)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  delete from ledger_payments where id = p_id and source = 'payments_app';
+end $$;
 
 -- ---------------------------------------------------------------------
 -- Function permissions: nothing for anon; the app's functions for

@@ -36,6 +36,10 @@ export function supabaseStore(client) {
     setSetting: (key, value) => rpc('ledger_setting_set', { p_key: key, p_value: value }),
     statementData: (from, to) => rpc('ledger_statement_data', { p_from: from, p_to: to }),
     saveOpening: (month) => rpc('ledger_opening_save', { p_month: month }),
+    appPaymentsCheck: (rows) => rpc('ledger_payments_app_check', { p_rows: rows }),
+    appPaymentsLog: (rows) => rpc('ledger_payments_app_log', { p_rows: rows }),
+    appPaymentsList: () => rpc('ledger_payments_app_list'),
+    appPaymentsDelete: (id) => rpc('ledger_payments_app_delete', { p_id: id }),
   };
 }
 
@@ -250,6 +254,22 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         });
         pays += 1;
       }
+      // 4b) payments-app entries that Master Paid now has (same date, customer,
+      // amount) are dropped, one for one — same as the SQL
+      const inExcel = new Map();
+      for (const x of db.payments.filter((y) => y.source === 'master_ledger')) {
+        const k = `${x.pay_date}|${x.customer_key}|${Number(x.amount)}`;
+        inExcel.set(k, (inExcel.get(k) || 0) + 1);
+      }
+      let appDone = 0;
+      db.payments = db.payments.filter((x) => {
+        if (x.source !== 'payments_app') return true;
+        const k = `${x.pay_date}|${x.customer_key}|${Number(x.amount)}`;
+        if (!inExcel.get(k)) return true;
+        inExcel.set(k, inExcel.get(k) - 1);
+        appDone += 1;
+        return false;
+      });
       // 5) PO lists: only POs the app doesn't have, at the end of their list
       const fresh = new Map();
       for (const x of p.pos || []) {
@@ -308,6 +328,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       imp.counts = {
         groups, customers_new: customersNew, sales_new: salesNew, sales_updated: salesUpd, payments: pays,
         pos_new: posNew, opening, tanker,
+        app_payments_in_excel: appDone, app_payments_open: db.payments.filter((x) => x.source === 'payments_app').length,
       };
       return { ...clone(imp.counts), import_id: imp.id };
     },
@@ -489,6 +510,46 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         n += 1;
       }
       return { month: m, customers: n };
+    },
+
+    async appPaymentsCheck(rows) {
+      if (!Array.isArray(rows) || rows.length > 2000) fail('Send at most 2000 payments at a time.');
+      return rows.map((x) => {
+        const key = normKey(x.customer);
+        const logged = db.payments.some((p) => p.source === 'payments_app' && p.source_ref === trim(x.ref));
+        const inExcel = db.payments.some((p) => p.source === 'master_ledger' && p.pay_date === x.pay_date
+          && p.customer_key === key && Number(p.amount) === Number(x.amount));
+        return { ref: x.ref, state: logged ? 'logged' : inExcel ? 'in_excel' : 'new', known: db.customers.some((c) => c.customer_key === key) };
+      });
+    },
+
+    async appPaymentsLog(rows) {
+      if (!Array.isArray(rows) || rows.length > 2000) fail('Send at most 2000 payments at a time.');
+      const imp = logImport('payments_app', 'Payments app');
+      let added = 0;
+      for (const x of rows) {
+        const ref = trim(x.ref);
+        if (!ref || !x.pay_date || x.amount == null || !(Number(x.amount) > 0) || !trim(x.customer)) continue;
+        if (db.payments.some((p) => p.source === 'payments_app' && p.source_ref === ref)) continue;
+        db.payments.push({
+          id: nextId('payments'), pay_date: x.pay_date, customer: trim(x.customer), customer_key: normKey(x.customer),
+          amount: Number(x.amount), mode: trim(x.mode), source: 'payments_app', source_ref: ref, seq: 0, tds: null,
+          shortage: null, remarks: '', import_id: imp.id, created_at: now(),
+        });
+        added += 1;
+      }
+      imp.counts = { payments: added };
+      return { added, sent: rows.length, import_id: imp.id };
+    },
+
+    async appPaymentsList() {
+      return clone(db.payments.filter((p) => p.source === 'payments_app')
+        .sort((a, b) => b.pay_date.localeCompare(a.pay_date) || b.id - a.id)
+        .map((p) => ({ id: p.id, pay_date: p.pay_date, customer: p.customer, amount: p.amount, mode: p.mode, ref: p.source_ref, created_at: p.created_at })));
+    },
+
+    async appPaymentsDelete(id) {
+      db.payments = db.payments.filter((p) => !(p.id === id && p.source === 'payments_app'));
     },
 
     async imports(limit = 20) {

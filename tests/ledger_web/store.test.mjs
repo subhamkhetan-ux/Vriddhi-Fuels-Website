@@ -45,7 +45,7 @@ test('memory store follows the SQL rules', async () => {
   const s = memoryStore();
   let res = await s.importMaster('Master Ledger.xlsm', payload());
   assert.deepEqual(res, {
-    groups: 3, customers_new: 5, sales_new: 6, sales_updated: 0, payments: 2, pos_new: 3, opening: 1, tanker: 0, import_id: 1,
+    groups: 3, customers_new: 5, sales_new: 6, sales_updated: 0, payments: 2, pos_new: 3, opening: 1, tanker: 0, app_payments_in_excel: 0, app_payments_open: 0, import_id: 1,
   });
   let custs = Object.fromEntries((await s.customers()).map((c) => [c.name, c]));
   assert.deepEqual(Object.keys(custs), ['Crew One Logistics', 'Demo Power Ltd', 'Retail Roadways', 'Twin Steel Ltd', 'Walk In Cash']);

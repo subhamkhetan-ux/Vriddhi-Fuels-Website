@@ -530,3 +530,52 @@ def test_statement_layout_from_the_workbook(pg):
     pg.owner(call("ledger_import_master", "Master Ledger v7.xlsm", payload()))
     data = pg.owner(call("ledger_statement_data", "2026-04-01", "2026-04-30"))
     assert {c["name"]: c for c in data["customers"]}["Retail Roadways"]["layout"] == layout
+
+
+def test_payments_from_the_payments_app(pg):
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    pg.owner(call("ledger_import_master", "Master Ledger v8.xlsm", payload()))
+    key = "retail roadways"
+    rows = [
+        # already in Master Paid? payload() has Demo Power 50000 on 04-05
+        {"ref": "hdfc:1", "pay_date": "2026-04-05", "customer": "Demo Power Ltd", "amount": 50000, "mode": "HDFC"},
+        {"ref": "hdfc:2", "pay_date": "2026-04-07", "customer": "retail  roadways", "amount": 1500.5, "mode": "UPI"},
+        {"ref": "man:3", "pay_date": "2026-04-08", "customer": "Nobody Yet", "amount": 200, "mode": "Cash"},
+    ]
+    checks = pg.owner(call("ledger_payments_app_check", rows))
+    assert [(c["ref"], c["state"], c["known"]) for c in checks] == [
+        ("hdfc:1", "in_excel", True), ("hdfc:2", "new", True), ("man:3", "new", False)]
+
+    def balance():
+        return float(pg.ok(f"select ledger_balance_before('{key}', '2026-04-30');", **as_owner))
+    before = balance()
+    res = pg.owner(call("ledger_payments_app_log", rows[1:] + [
+        {"ref": "bad:1", "pay_date": "2026-04-08", "customer": "", "amount": 5},        # left out
+        {"ref": "bad:2", "pay_date": "2026-04-08", "customer": "X", "amount": 0}]))
+    assert res["added"] == 2 and res["sent"] == 4
+    assert pg.owner(call("ledger_payments_app_log", rows[1:]))["added"] == 0         # once only
+    assert balance() == before - 1500.5
+    assert pg.owner(call("ledger_payments_app_check", rows))[1]["state"] == "logged"
+    listed = pg.owner(call("ledger_payments_app_list"))
+    assert [p["ref"] for p in listed] == ["man:3", "hdfc:2"]
+    assert pg.owner(call("ledger_imports_list", 1))[0]["kind"] == "payments_app"
+
+    # the Mac logs hdfc:2 into Master Paid; the next upload drops the app's copy (counted once)
+    p = payload()
+    p["payments"] = p["payments"] + [{"pay_date": "2026-04-07", "customer": "Retail Roadways", "amount": 1500.5, "seq": 9}]
+    res = pg.owner(call("ledger_import_master", "Master Ledger v9.xlsm", p))
+    assert (res["app_payments_in_excel"], res["app_payments_open"]) == (1, 1)
+    assert balance() == before - 1500.5
+    assert [p["ref"] for p in pg.owner(call("ledger_payments_app_list"))] == ["man:3"]
+
+    # remove touches only payments-app rows
+    master_id = pg.ok("select id from ledger_payments where source = 'master_ledger' limit 1;", **as_owner)
+    pg.ok(f"select ledger_payments_app_delete({master_id});", **as_owner)
+    assert pg.ok(f"select count(*) from ledger_payments where id = {master_id};", **as_owner) == "1"
+    left = pg.owner(call("ledger_payments_app_list"))[0]["id"]
+    pg.ok(f"select ledger_payments_app_delete({left});", **as_owner)
+    assert pg.owner(call("ledger_payments_app_list")) == []
+
+    for fn in (call("ledger_payments_app_check", rows), call("ledger_payments_app_log", rows), call("ledger_payments_app_list")):
+        assert "permission denied" in pg.fails(fn, anon=True)
+        assert "member" in pg.fails(fn, user=STRANGER, email="stranger@example.com").lower()
