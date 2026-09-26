@@ -8,7 +8,7 @@ import { demoSeed } from './demo.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
 import {
-  A4, A5, download, jpegFromSvg, pdfFromSvgs, slipSvg, tankerBillSvg, toDataUrl, zipBlob,
+  A4, A5, download, inkBox, jpegFromSvg, pdfFromSvgs, slipSvg, statementFontCss, tankerBillSvg, toDataUrl, zipBlob,
 } from './render.js';
 import { billStatementSvgs, dailySummarySvg, ledgerSvg, PAGE, PAGE_PT } from './statement-svg.js';
 import {
@@ -438,6 +438,7 @@ async function masterChosen(file, input) {
             <tr><td>Other Sale bills</td><td>${span(s.OTHER)}</td></tr>
             <tr><td>Payments (Master Paid)</td><td>${span(preview.payments)} · ${fmtMoney(preview.payments.total)}</td></tr>
             <tr><td>Customers</td><td>${preview.customers} <span class="muted">(${preview.ledgerNames} with a ledger name)</span></td></tr>
+            <tr><td>Ledger sheets (for statements)</td><td>${preview.ledgerSheets} <span class="muted">(${preview.ledgerAddresses} with a Bill To address)</span></td></tr>
             <tr><td>Tanker Master companies</td><td>${preview.tanker}</td></tr>
             <tr><td>Opening balances</td><td>${preview.opening.count} <span class="muted">(${preview.opening.months.map((m) => fmtDate(m).slice(3)).join(', ')})</span></td></tr>
           </tbody></table></div>
@@ -1005,11 +1006,23 @@ const LOGO = 'assets/logo.png';
 
 async function statementImages() {
   const stamp = await state.store.setting('statement_stamp');
-  return {
-    logo: await toDataUrl(LOGO),
-    letterhead: await toDataUrl(IMAGES.letterhead),
-    stamp: stamp ? stamp.data_url : '',
-  };
+  const [logo, letterhead, fontCss, stampInk] = await Promise.all([
+    toDataUrl(LOGO), toDataUrl(IMAGES.letterhead), statementFontCss(),
+    stamp ? inkBox(stamp.data_url).catch(() => null) : null,
+  ]);
+  return { logo, letterhead, fontCss, stamp: stamp ? stamp.data_url : '', stampInk };
+}
+
+// Statements look like Excel's only with what the Master Ledger upload brings
+// for each ledger sheet: say when it's missing.
+function missingSheetInfo(customers) {
+  const noAddress = customers.filter((c) => !String(c.customer.bill_address || '').trim()).map((c) => c.customer.name);
+  const noLayout = customers.filter((c) => !c.customer.layout).length;
+  if (!noAddress.length && !noLayout) return '';
+  const parts = [];
+  if (noAddress.length) parts.push(`no Bill To address for ${noAddress.length > 4 ? plural(noAddress.length, 'customer') : noAddress.map(esc).join(', ')}`);
+  if (noLayout) parts.push(`${plural(noLayout, 'ledger')} without the sheet's column widths`);
+  return `<p class="warn-text small">${parts.join('; ')} — upload the Master Ledger again (Import) to bring them in.</p>`;
 }
 
 function todayIso() {
@@ -1132,6 +1145,7 @@ async function prepareDaily(date) {
   out.innerHTML = `
     <div class="preview">
       <p><b>${plural(total, 'picture')}</b> · ${plural(res.customers.length, 'customer')} · ${dmyDash(date)}${images.stamp ? '' : ' · <span class="warn-text">no stamp yet (upload it below)</span>'}</p>
+      ${missingSheetInfo(res.customers)}
       <p class="actions"><button class="btn" data-share-all>Share all on WhatsApp</button>
         <button class="btn ghost" data-zip>Download all (.zip)</button></p>
       <div class="bundles">${items.map((it, i) => `
@@ -1180,7 +1194,7 @@ async function preparePeriod(kind, { from, to, filter = '' }, outId) {
     : '';
   renderBundles(out, {
     summary: `<b>${plural(bundles.length, 'PDF')}</b> for ${plural(res.customers.length, 'customer')} · ${esc(what)}${filter ? ` · “${esc(filter)}”` : ''}${images.stamp ? '' : ' · <span class="warn-text">no stamp yet</span>'}`,
-    extra: saveBtn,
+    extra: missingSheetInfo(res.customers) + saveBtn,
     bundles,
     size: PAGE_PT,
     scale: 2.5,

@@ -42,7 +42,42 @@ export function readWorkbook(XLSX, data, { all = false } = {}) {
   const opts = { type: 'array', cellFormula: true, cellNF: true, cellText: false, cellDates: false };
   if (all) return XLSX.read(data, opts);
   const names = XLSX.read(data, { type: 'array', bookSheets: true }).SheetNames;
-  return XLSX.read(data, { ...opts, sheets: sheetsToRead(names) });
+  // cellStyles brings column widths and row heights (the statements are
+  // drawn with each ledger sheet's own geometry, like Excel prints them)
+  return XLSX.read(data, { ...opts, cellStyles: true, sheets: sheetsToRead(names) });
+}
+
+// A ledger sheet's print geometry: column widths A:G and Q:X (Excel width
+// units) and row heights in points (row 4 = the header, rows 5.. the
+// ledger). Null when the file carries none (e.g. a CSV).
+const DEFAULT_WIDTH = 8.43;
+export function sheetLayout(ws) {
+  const cols = ws['!cols'];
+  const rows = ws['!rows'] || [];
+  if (!Array.isArray(cols) || !cols.some((c) => c && c.width > 0)) return null;
+  const width = (i) => {
+    const c = cols[i];
+    const w = c && !c.hidden ? Number(c.width ?? c.wch) : NaN;
+    return Number.isFinite(w) && w > 0 ? Math.round(w * 100) / 100 : DEFAULT_WIDTH;
+  };
+  const hpt = (i) => {
+    const h = rows[i] && !rows[i].hidden ? Number(rows[i].hpt) : NaN;
+    return Number.isFinite(h) && h > 0 ? h : null;
+  };
+  const body = [];
+  for (let i = 4; i < 125; i++) body.push(hpt(i));
+  const known = body.filter((h) => h != null).sort((a, b) => a - b);
+  const layout = {
+    cols: [0, 1, 2, 3, 4, 5, 6].map(width),
+    bill: [16, 17, 18, 19, 20, 21, 22, 23].map(width),
+  };
+  if (hpt(3)) layout.head = hpt(3);
+  if (known.length) {
+    layout.row = known[Math.floor(known.length / 2)];
+    while (body.length && body[body.length - 1] == null) body.pop();
+    if (body.some((h) => h != null && h !== layout.row)) layout.rows = body.map((h) => h ?? layout.row);
+  }
+  return layout;
 }
 
 function findSheet(wb, name) {
@@ -531,7 +566,7 @@ export function extractMaster(wb) {
     const ws = wb.Sheets[n];
     if (!ws || !label(text(ws, 1, 0)).includes('ledger account')) continue;
     const name = text(ws, 2, 10);
-    if (name) addCustomer(name, { title: text(ws, 0, 0), bill_address: text(ws, 9, 16) });
+    if (name) addCustomer(name, { title: text(ws, 0, 0), bill_address: text(ws, 9, 16), layout: sheetLayout(ws) });
   }
   gstins.forEach((g) => addCustomer(g.name, { gstin: g.gstin }));
   bulk.forEach((b) => b.members.forEach((m) => addCustomer(m, { bulk_group: b.group.code })));
@@ -589,6 +624,7 @@ export function extractMaster(wb) {
     customers: customers.size,
     ledgerNames: ledgers.filter((l) => l.ledger).length,
     ledgerSheets: [...customers.values()].filter((c) => c.title || c.bill_address).length,
+    ledgerAddresses: [...customers.values()].filter((c) => c.bill_address).length,
     opening: { count: opening.length, months: [...new Set(opening.map((o) => o.month))].sort() },
     tanker: tanker.length,
     groups: bulk.map((b) => ({

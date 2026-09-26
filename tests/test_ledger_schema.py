@@ -515,3 +515,18 @@ def test_statements_balances_and_openings(pg):
 
     pg.ok(call("ledger_setting_set", "statement_stamp", {"data_url": "data:image/png;base64,AA"}), **as_owner)
     assert pg.owner(call("ledger_setting_get", "statement_stamp"))["data_url"].endswith("AA")
+
+
+def test_statement_layout_from_the_workbook(pg):
+    layout = {"cols": [12.16, 14.16, 10, 19.83, 17.16, 14.5, 18.5],
+              "bill": [0.33, 12.66, 12.5, 16.16, 13.16, 11.66, 15.5, 13.83], "head": 21.75, "row": 20}
+    p = payload()
+    p["customers"] = p["customers"] + [{"name": "Retail Roadways", "ledger": "Roadways", "layout": layout}]
+    pg.owner(call("ledger_import_master", "Master Ledger v6.xlsm", p))
+    data = pg.owner(call("ledger_statement_data", "2026-04-01", "2026-04-30"))
+    road = {c["name"]: c for c in data["customers"]}["Retail Roadways"]
+    assert road["layout"] == layout
+    # an upload without it (an older file) keeps what the app has
+    pg.owner(call("ledger_import_master", "Master Ledger v7.xlsm", payload()))
+    data = pg.owner(call("ledger_statement_data", "2026-04-01", "2026-04-30"))
+    assert {c["name"]: c for c in data["customers"]}["Retail Roadways"]["layout"] == layout

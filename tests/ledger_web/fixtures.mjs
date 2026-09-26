@@ -150,6 +150,11 @@ export function demoWorkbook() {
     'XG Sale': xg,
     'Other Sale': other,
     'Customer GST': gst,
-    Roadways: sheet({ A1: 'Retail Roadways (Demo)', A2: 'Ledger Account for Diesel', K3: 'Retail Roadways', Q10: 'Testpur.' }),
+    Roadways: Object.assign(sheet({ A1: 'Retail Roadways (Demo)', A2: 'Ledger Account for Diesel', K3: 'Retail Roadways', Q10: 'Testpur.' }), {
+      // column widths / row heights as SheetJS reads them with cellStyles
+      '!cols': [12.16, 14.16, 10, 19.83, 17.16, 14.5, 18.5, 10, 17.5, 8, 30, 8, 8, 8, 8, 8, 0.33, 12.66, 12.5, 16.16, 13.16, 11.66, 15.5, 13.83]
+        .map((width) => ({ width })),
+      '!rows': [{ hpt: 30 }, { hpt: 19 }, { hpt: 21 }, { hpt: 21.75 }, { hpt: 20 }, { hpt: 20 }, { hpt: 24 }],
+    }),
   });
 }

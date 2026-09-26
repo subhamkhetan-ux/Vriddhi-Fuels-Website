@@ -201,6 +201,68 @@ export async function jpegFromSvg(svg, size) {
   return (await fetch(url)).blob();
 }
 
+// ---- statements: font and stamp ---------------------------------------------------------
+
+// The statements use Times New Roman, like the workbook. Phones without it
+// (Android calls its own serif font "Times New Roman") get Tinos — a free
+// font with exactly the same letter widths — under that name, so the
+// pictures keep Excel's layout. '' when the real font (or one with the same
+// widths) is there.
+const TINOS_CSS = 'https://fonts.googleapis.com/css2?family=Tinos:ital,wght@0,400;0,700;1,400;1,700&display=block';
+const TNR_TEST = 'Ledger Account 0123456789 WMwm';
+const TNR_WIDTH = 1530.2246;                 // that text at 100px in Times New Roman
+let fontCssPromise = null;
+export function hasTimesMetrics() {
+  const c = document.createElement('canvas').getContext('2d');
+  c.font = '100px "Times New Roman"';
+  return Math.abs(c.measureText(TNR_TEST).width - TNR_WIDTH) / TNR_WIDTH < 0.003;
+}
+export function statementFontCss() {
+  if (!fontCssPromise) {
+    fontCssPromise = (async () => {
+      if (hasTimesMetrics()) return '';
+      try {
+        const css = await (await fetch(TINOS_CSS)).text();
+        const blocks = css.split('/*').filter((b) => /^\s*latin(-ext)?\s*\*\//.test(b)).map((b) => b.slice(b.indexOf('*/') + 2));
+        let out = blocks.join('\n').replaceAll("font-family: 'Tinos'", "font-family: 'Times New Roman'");
+        for (const url of new Set([...out.matchAll(/url\((https:[^)]+)\)/g)].map((m) => m[1]))) {
+          out = out.split(url).join(await toDataUrl(url));
+        }
+        return out;
+      } catch {
+        return '';                           // offline: the phone's own serif font
+      }
+    })();
+  }
+  return fontCssPromise;
+}
+
+// Where the stamp's ink sits inside the picture, as fractions [x0, y0, x1, y1]
+// (the drawing places the ink where Excel's footer stamp is).
+export async function inkBox(url) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const w = Math.min(400, img.naturalWidth);
+  const h = Math.max(1, Math.round((img.naturalHeight / img.naturalWidth) * w));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let x0 = w; let y0 = h; let x1 = -1; let y1 = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] > 60 && Math.min(d[i], d[i + 1], d[i + 2]) < 200) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+  }
+  return x1 < 0 ? null : [x0 / w, y0 / h, (x1 + 1) / w, (y1 + 1) / h];
+}
+
 // svgs: page SVG strings (images already as data: URLs) -> PDF Blob
 export async function pdfFromSvgs(svgs, size, { scale = 2 } = {}) {
   const { jsPDF } = await loadScript(JSPDF, () => window.jspdf);

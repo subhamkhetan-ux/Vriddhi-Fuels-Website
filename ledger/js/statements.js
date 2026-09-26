@@ -5,7 +5,7 @@
 // Pure functions: no DOM, no network. Drawing is in statement-svg.js.
 //
 // The data comes from store.statementData(from, to):
-//   customers: [{id, name, key, ledger, title, bill_address, gstin, opening}]
+//   customers: [{id, name, key, ledger, title, bill_address, gstin, layout, opening}]
 //              opening = balance before `from` (Outstanding table + later sales − payments)
 //   sales:     [{id, product, bill_no, sale_date, vehicle, qty, rate, amount, customer, key, item, seq}]
 //   payments:  [{pay_date, key, amount}]
@@ -255,12 +255,12 @@ export function buildStatements({ kind, date, from, to, data, filter = '' }) {
       ledger: {
         title: String(c.title || '').trim() || c.name, subtitle: 'Ledger Account for Diesel', period,
         ...ledgerRows({ opening: c.opening, from, sales: mine, payments: payOf.get(c.key) || [] }),
-        total: kind !== 'daily',
+        total: kind !== 'daily', layout: c.layout || null,
       },
       bills: {
         name: c.name, address: c.bill_address || '', gstin: c.gstin || '', from: billFrom, to,
         ...billRows(mine.filter((s) => s.sale_date >= billFrom)),
-        total: kind !== 'daily',
+        total: kind !== 'daily', layout: c.layout || null,
       },
       ledgerFile: `${short[i]} Ledger ${label}`,
       billFile: `${short[i]} Bill ${label}`,
