@@ -174,6 +174,10 @@ create table if not exists public.ledger_imports (
   created_at timestamptz not null default now()
 );
 
+-- Phase 3: what a ledger sheet shows at the top of its statements.
+alter table public.ledger_customers add column if not exists title text not null default '';        -- ledger sheet A1
+alter table public.ledger_customers add column if not exists bill_address text not null default '';  -- ledger sheet Q10
+
 -- Tanker Master (the workbook's Customers table): who gets a Daily Tanker
 -- Bill, and the address / payment lines printed on it. Replaced by every
 -- Master Ledger upload that has the sheet.
@@ -496,11 +500,11 @@ begin
   --    Bulk sheets) plus everyone on the HSD / MS / XG sale sheets — the
   --    same names the workbook's "Bulk Add Ledger" check looks at.
   with src as (
-    select x.name, x.ledger, x.gstin, x.bulk_group, 0 as pri
+    select x.name, x.ledger, x.gstin, x.bulk_group, x.title, x.bill_address, 0 as pri
     from jsonb_to_recordset(coalesce(p_payload -> 'customers', '[]'::jsonb))
-         as x(name text, ledger text, gstin text, bulk_group text)
+         as x(name text, ledger text, gstin text, bulk_group text, title text, bill_address text)
     union all
-    select x.customer, null, null, null, 1
+    select x.customer, null, null, null, null, null, 1
     from jsonb_to_recordset(coalesce(p_payload -> 'sales', '[]'::jsonb)) as x(customer text, product text)
     where x.product in ('HSD', 'MS', 'XG')
   ), agg as (
@@ -508,15 +512,19 @@ begin
            (array_agg(btrim(name) order by pri))[1] as name,
            max(nullif(btrim(ledger), '')) as ledger,
            max(nullif(btrim(gstin), '')) as gstin,
-           max(nullif(btrim(bulk_group), '')) as bulk_group
+           max(nullif(btrim(bulk_group), '')) as bulk_group,
+           max(nullif(btrim(title), '')) as title,
+           max(nullif(btrim(bill_address), '')) as bill_address
     from src where ledger_norm(name) <> '' group by 1
   ), up as (
-    insert into ledger_customers as c (name, customer_key, ledger, gstin, bulk_group)
-    select name, k, ledger, coalesce(gstin, ''), bulk_group from agg
+    insert into ledger_customers as c (name, customer_key, ledger, gstin, bulk_group, title, bill_address)
+    select name, k, ledger, coalesce(gstin, ''), bulk_group, coalesce(title, ''), coalesce(bill_address, '') from agg
     on conflict (customer_key) do update set
       ledger = coalesce(c.ledger, excluded.ledger),
       gstin = case when c.gstin = '' then excluded.gstin else c.gstin end,
       bulk_group = coalesce(c.bulk_group, excluded.bulk_group),
+      title = case when excluded.title <> '' then excluded.title else c.title end,
+      bill_address = case when excluded.bill_address <> '' then excluded.bill_address else c.bill_address end,
       updated_at = now()
     returning (xmax = 0) as inserted
   )
@@ -644,7 +652,7 @@ begin
     select jsonb_agg(jsonb_build_object(
              'id', c.id, 'name', c.name, 'key', c.customer_key, 'ledger', c.ledger,
              'no_ledger', c.no_ledger, 'bulk_group', c.bulk_group, 'gstin', c.gstin,
-             'archived', c.archived, 'created_at', c.created_at,
+             'archived', c.archived, 'created_at', c.created_at, 'title', c.title, 'bill_address', c.bill_address,
              'first_sale', st.first_sale, 'last_sale', st.last_sale, 'bills', coalesce(st.bills, 0))
            order by c.name)
     from ledger_customers c
@@ -833,6 +841,69 @@ begin
                        from ledger_sales s where s.sale_date = d), '[]'::jsonb));
 end $$;
 
+-- Phase 3: a customer's balance at the start of p_date: the latest month
+-- opening on or before it (or strictly before its month when
+-- p_skip_month), plus sales minus payments from that month to the day before.
+create or replace function public.ledger_balance_before(p_key text, p_date date, p_skip_month boolean default false)
+returns numeric language sql stable set search_path = public as $$
+  with base as (
+    select o.month, o.amount from ledger_opening o
+    where o.customer_key = p_key
+      and (case when p_skip_month then o.month < date_trunc('month', p_date)::date else o.month <= p_date end)
+    order by o.month desc limit 1
+  ), b as (select (select month from base) as m, coalesce((select amount from base), 0) as amt)
+  select b.amt
+       + coalesce((select sum(s.amount) from ledger_sales s where s.customer_key = p_key
+                   and s.sale_date >= coalesce(b.m, '1900-01-01'::date) and s.sale_date < p_date), 0)
+       - coalesce((select sum(p.amount) from ledger_payments p where p.customer_key = p_key
+                   and p.pay_date >= coalesce(b.m, '1900-01-01'::date) and p.pay_date < p_date), 0)
+  from b;
+$$;
+
+-- Everything the statements need for p_from..p_to: the ledger customers
+-- (not bulk, not archived) with their balance on p_from, all bills and
+-- payments of the range. At most 400 days.
+create or replace function public.ledger_statement_data(p_from date, p_to date)
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if p_from is null or p_to is null or p_to < p_from then
+    raise exception 'Pick a From date on or before the To date.';
+  end if;
+  if p_to - p_from > 400 then raise exception 'Pick at most 400 days at a time.'; end if;
+  return jsonb_build_object(
+    'customers', coalesce((select jsonb_agg(jsonb_build_object(
+                     'id', c.id, 'name', c.name, 'key', c.customer_key, 'ledger', c.ledger,
+                     'title', c.title, 'bill_address', c.bill_address, 'gstin', c.gstin,
+                     'opening', ledger_balance_before(c.customer_key, p_from)) order by c.name)
+                   from ledger_customers c
+                   where c.ledger is not null and c.bulk_group is null and not c.archived), '[]'::jsonb),
+    'sales', coalesce((select jsonb_agg(jsonb_build_object(
+                 'id', s.id, 'product', s.product, 'bill_no', s.bill_no, 'sale_date', s.sale_date,
+                 'vehicle', s.vehicle, 'qty', s.qty, 'rate', s.rate, 'amount', s.amount,
+                 'customer', s.customer, 'key', s.customer_key, 'item', s.item, 'seq', s.seq)
+               order by s.product, s.seq, s.id)
+               from ledger_sales s where s.sale_date between p_from and p_to), '[]'::jsonb),
+    'payments', coalesce((select jsonb_agg(jsonb_build_object(
+                    'pay_date', p.pay_date, 'key', p.customer_key, 'amount', p.amount) order by p.pay_date, p.seq, p.id)
+                  from ledger_payments p where p.pay_date between p_from and p_to), '[]'::jsonb));
+end $$;
+
+-- "Update Monthly Outstanding": save every ledger customer's balance at
+-- the start of p_month as that month's opening (replacing an earlier one).
+create or replace function public.ledger_opening_save(p_month date)
+returns jsonb language plpgsql set search_path = public as $$
+declare v_month date := date_trunc('month', p_month)::date; n int;
+begin
+  perform ledger_assert_member();
+  insert into ledger_opening as o (customer_key, month, customer, amount, source, updated_at)
+  select c.customer_key, v_month, c.name, ledger_balance_before(c.customer_key, v_month, true), 'app', now()
+  from ledger_customers c where c.ledger is not null and c.bulk_group is null and not c.archived
+  on conflict (customer_key, month) do update set amount = excluded.amount, source = 'app', updated_at = now();
+  get diagnostics n = row_count;
+  return jsonb_build_object('month', v_month, 'customers', n);
+end $$;
+
 -- Bills of a date range (Daily Tanker Bill, Print Bills). At most 400 days.
 create or replace function public.ledger_sales_range(p_from date, p_to date)
 returns jsonb language plpgsql stable set search_path = public as $$
@@ -863,6 +934,22 @@ returns jsonb language plpgsql stable set search_path = public as $$
 begin
   perform ledger_assert_member();
   return (select value from ledger_settings where key = p_key);
+end $$;
+
+-- Settings you change in the app (not from the workbook): the stamps printed
+-- on fuel slips and on statements. Only these keys; a picture up to about 500 KB.
+create or replace function public.ledger_setting_set(p_key text, p_value jsonb)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if p_key not in ('slip_stamp', 'statement_stamp') then raise exception 'Unknown setting %.', p_key; end if;
+  if length(coalesce(p_value::text, '')) > 700000 then raise exception 'That picture is too big (keep it under 500 KB).'; end if;
+  if p_value is null or p_value = 'null'::jsonb then
+    delete from ledger_settings where key = p_key;
+  else
+    insert into ledger_settings (key, value, updated_at) values (p_key, p_value, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
 end $$;
 
 create or replace function public.ledger_imports_list(p_limit int default 20)

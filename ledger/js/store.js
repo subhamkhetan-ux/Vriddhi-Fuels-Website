@@ -33,6 +33,9 @@ export function supabaseStore(client) {
     salesRange: (from, to) => rpc('ledger_sales_range', { p_from: from, p_to: to }),
     tankerList: () => rpc('ledger_tanker_list'),
     setting: (key) => rpc('ledger_setting_get', { p_key: key }),
+    setSetting: (key, value) => rpc('ledger_setting_set', { p_key: key, p_value: value }),
+    statementData: (from, to) => rpc('ledger_statement_data', { p_from: from, p_to: to }),
+    saveOpening: (month) => rpc('ledger_opening_save', { p_month: month }),
   };
 }
 
@@ -69,6 +72,17 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     return row;
   };
   const fail = (msg) => { throw new Error(msg); };
+
+  // same rule as ledger_balance_before() in SQL
+  const balanceBefore = (key, date, skipMonth = false) => {
+    const monthStart = `${date.slice(0, 7)}-01`;
+    const base = db.opening.filter((o) => o.customer_key === key && (skipMonth ? o.month < monthStart : o.month <= date))
+      .sort((a, b) => b.month.localeCompare(a.month))[0];
+    const from = base ? base.month : '1900-01-01';
+    const sum = (list, field, dateField) => list.filter((x) => x.customer_key === key && x[dateField] >= from && x[dateField] < date)
+      .reduce((a, x) => a + (Number(x[field]) || 0), 0);
+    return Math.round(((base ? Number(base.amount) : 0) + sum(db.sales, 'amount', 'sale_date') - sum(db.payments, 'amount', 'pay_date')) * 100) / 100;
+  };
 
   const api = {
     kind: 'memory',
@@ -164,7 +178,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         if (!k) return;
         const cur = named.get(k) || { name: trim(name), pri };
         if (pri < cur.pri) { cur.name = trim(name); cur.pri = pri; }
-        for (const field of ['ledger', 'gstin', 'bulk_group']) {
+        for (const field of ['ledger', 'gstin', 'bulk_group', 'title', 'bill_address']) {
           const v = trim(f[field]);
           if (v && (!cur[field] || v > cur[field])) cur[field] = v;
         }
@@ -174,9 +188,14 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       (p.sales || []).filter((s) => ['HSD', 'MS', 'XG'].includes(s.product)).forEach((s) => note(s.customer, {}, 1));
       let customersNew = 0;
       for (const [, c] of named) {
-        const res = addCustomer(c.name, { ledger: c.ledger || null, gstin: c.gstin || '', bulk_group: c.bulk_group || null });
+        const res = addCustomer(c.name, {
+          ledger: c.ledger || null, gstin: c.gstin || '', bulk_group: c.bulk_group || null,
+          title: c.title || '', bill_address: c.bill_address || '',
+        });
         if (res.inserted) { customersNew += 1; continue; }
         const cur = res.c;
+        if (c.title) cur.title = c.title;
+        if (c.bill_address) cur.bill_address = c.bill_address;
         if (!cur.ledger && c.ledger) cur.ledger = c.ledger;
         if (!cur.gstin && c.gstin) cur.gstin = c.gstin;
         if (!cur.bulk_group && c.bulk_group) cur.bulk_group = c.bulk_group;
@@ -297,6 +316,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         return {
           id: c.id, name: c.name, key: c.customer_key, ledger: c.ledger, no_ledger: c.no_ledger,
           bulk_group: c.bulk_group, gstin: c.gstin, archived: c.archived, created_at: c.created_at,
+          title: c.title || '', bill_address: c.bill_address || '',
           first_sale: mine[0] || null, last_sale: mine[mine.length - 1] || null, bills: mine.length,
         };
       }).sort((a, b) => a.name.localeCompare(b.name)));
@@ -427,6 +447,46 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
 
     async setting(key) {
       return clone(db.settings[key] ?? null);
+    },
+
+    async setSetting(key, value) {
+      if (!['slip_stamp', 'statement_stamp'].includes(key)) fail(`Unknown setting ${key}.`);
+      if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
+    },
+
+    async statementData(from, to) {
+      if (!from || !to || to < from) fail('Pick a From date on or before the To date.');
+      const ledgerCustomers = db.customers.filter((c) => c.ledger && !c.bulk_group && !c.archived)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const order = { HSD: 0, MS: 1, OTHER: 2, XG: 3 };
+      return clone({
+        customers: ledgerCustomers.map((c) => ({
+          id: c.id, name: c.name, key: c.customer_key, ledger: c.ledger, title: c.title || '',
+          bill_address: c.bill_address || '', gstin: c.gstin, opening: balanceBefore(c.customer_key, from),
+        })),
+        sales: db.sales.filter((x) => x.sale_date >= from && x.sale_date <= to)
+          .sort((a, b) => order[a.product] - order[b.product] || a.seq - b.seq || a.id - b.id)
+          .map((x) => ({
+            id: x.id, product: x.product, bill_no: x.bill_no, sale_date: x.sale_date, vehicle: x.vehicle, qty: x.qty,
+            rate: x.rate, amount: x.amount, customer: x.customer, key: x.customer_key, item: x.item, seq: x.seq,
+          })),
+        payments: db.payments.filter((x) => x.pay_date >= from && x.pay_date <= to)
+          .sort((a, b) => a.pay_date.localeCompare(b.pay_date) || a.seq - b.seq || a.id - b.id)
+          .map((x) => ({ pay_date: x.pay_date, key: x.customer_key, amount: x.amount })),
+      });
+    },
+
+    async saveOpening(month) {
+      const m = `${month.slice(0, 7)}-01`;
+      let n = 0;
+      for (const c of db.customers.filter((x) => x.ledger && !x.bulk_group && !x.archived)) {
+        const amount = balanceBefore(c.customer_key, m, true);
+        const i = db.opening.findIndex((o) => o.customer_key === c.customer_key && o.month === m);
+        const row = { customer_key: c.customer_key, month: m, customer: c.name, amount, source: 'app' };
+        if (i >= 0) db.opening[i] = row; else db.opening.push(row);
+        n += 1;
+      }
+      return { month: m, customers: n };
     },
 
     async imports(limit = 20) {

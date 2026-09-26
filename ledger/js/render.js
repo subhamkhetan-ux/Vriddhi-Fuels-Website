@@ -7,7 +7,7 @@
 import { dmy } from './bills.js';
 
 export const A4 = { width: 595.28, height: 841.89 };
-export const A5 = { width: 419.53, height: 595.28 };
+export const A5 = { width: 420, height: 595 };
 
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const FONT = '&quot;Times New Roman&quot;,Times,&quot;Liberation Serif&quot;,serif';
@@ -77,58 +77,78 @@ export const PRODUCT_NAME = { HSD: 'High Speed Diesel', MS: 'Motor Spirit', XG: 
 
 const dmyShort = (iso) => (iso ? `${Number(iso.slice(8, 10))}-${Number(iso.slice(5, 7))}-${iso.slice(0, 4)}` : '');
 
-// header: {title, mobile, lines[]} — the HSD Bill sheet's A1, D1 and A2:A8
-export function slipSvg(bill, header = {}) {
+// 1791000 -> 17,91,000.00 (Excel's "#,##0.00" on an Indian-locale Mac)
+export function inr2(n) {
+  const v = Number(n) || 0;
+  const [whole, frac] = Math.abs(v).toFixed(2).split('.');
+  const grouped = whole.length <= 3 ? whole : `${whole.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${whole.slice(-3)}`;
+  return `${v < 0 ? '-' : ''}${grouped}.${frac}`;
+}
+
+const ARIAL = 'Arial,&quot;Arial Unicode MS&quot;,Arimo,&quot;Liberation Sans&quot;,Helvetica,sans-serif';
+const TIMES = '&quot;Times New Roman&quot;,Times,&quot;Liberation Serif&quot;,serif';
+
+// The HSD Bill sheet's credit memo (A5). Positions, sizes and lines are
+// measured from a real Excel export of Print Bills.
+// header: {title, mobile, lines[]} (A1, D1, A2:A8); stamp: image URL or ''
+export function slipSvg(bill, header = {}, stamp = '') {
   const W = A5.width;
-  const L = 22;
-  const R = W - 22;
-  const lines = (header.lines || []).filter((x) => String(x || '').trim());
+  const H = A5.height;
   const out = [];
-  const t = (x, y, text, attrs = '') => out.push(`<text x="${x}" y="${y}" ${attrs}>${esc(text)}</text>`);
-  t(L, 36, header.title || 'CREDIT MEMO', 'font-size="13" font-weight="bold"');
-  if (header.mobile) t(R, 36, header.mobile, 'font-size="11" text-anchor="end"');
-  let y = 62;
-  lines.forEach((line, i) => {
-    t(W / 2, y, line, i === 0 ? 'font-size="17" font-weight="bold" text-anchor="middle"' : 'font-size="10.5" text-anchor="middle"');
-    y += i === 0 ? 18 : 14;
+  // text placed by its PDF box top (y0) -> SVG baseline (Arial ascent .905, Times .891)
+  const t = (x, y0, size, text, { bold = false, anchor = 'start', font = ARIAL, fill = '#000', clip = '' } = {}) => {
+    const base = y0 + size * (font === TIMES ? 0.891 : 0.905);
+    out.push(`<text x="${x}" y="${base.toFixed(2)}" font-size="${size}" font-family="${font}"${bold ? ' font-weight="bold"' : ''}${anchor !== 'start' ? ` text-anchor="${anchor}"` : ''}${fill !== '#000' ? ` fill="${fill}"` : ''}${clip ? ` clip-path="url(#${clip})"` : ''}>${esc(text)}</text>`);
+  };
+  const rect = (x0, y0, x1, y1) => out.push(`<rect x="${x0}" y="${y0}" width="${(x1 - x0).toFixed(2)}" height="${(y1 - y0).toFixed(2)}" fill="#000"/>`);
+
+  rect(18.62, 17.64, 128.38, 35.28);
+  t(21.6, 18.9, 13.7, header.title || 'CREDIT MEMO', { bold: true, fill: '#fff' });
+  if (header.mobile) t(396.9, 19.1, 13.7, header.mobile, { bold: true, anchor: 'end', font: TIMES });
+  const tops = [40.9, 59.0, 74.7, 90.4, 106.1, 121.8, 138.4];
+  (header.lines || []).slice(0, 7).forEach((line, i) => {
+    if (i === 0) t(210, tops[0], 15.7, line, { bold: true, anchor: 'middle', font: TIMES });
+    else t(210, tops[i], 12.7, line, { anchor: 'middle' });
   });
-  y += 8;
-  out.push(`<line x1="${L}" y1="${y}" x2="${R}" y2="${y}" stroke="#000" stroke-width="0.8"/>`);
-  y += 20;
-  t(L, y, 'No. :', 'font-size="11.5" font-weight="bold"');
-  t(L + 40, y, bill.bill_no, 'font-size="11.5"');
-  t(R - 110, y, 'Date :', 'font-size="11.5" font-weight="bold"');
-  t(R, y, dmyShort(bill.sale_date), 'font-size="11.5" text-anchor="end"');
-  y += 20;
-  t(L, y, 'M/s :', 'font-size="11.5" font-weight="bold"');
-  t(L + 40, y, bill.customer, 'font-size="11.5" font-weight="bold"');
-  y += 20;
-  t(L, y, 'Vehicle No. :', 'font-size="11.5" font-weight="bold"');
-  t(L + 80, y, bill.vehicle || '', 'font-size="11.5"');
-  y += 22;
-  // table: Particulars | Quantity | Rate | Amount
-  const cols = [L, L + 150, L + 245, L + 300, R];
-  const top = y;
-  const head = top + 20;
-  const bottom = top + 200;
-  out.push(`<g stroke="#000" stroke-width="0.8" fill="none"><rect x="${L}" y="${top}" width="${R - L}" height="${bottom - top}"/>
-<line x1="${L}" y1="${head}" x2="${R}" y2="${head}"/>${cols.slice(1, 4).map((x) => `<line x1="${x}" y1="${top}" x2="${x}" y2="${bottom - 22}"/>`).join('')}
-<line x1="${L}" y1="${bottom - 22}" x2="${R}" y2="${bottom - 22}"/><line x1="${cols[3]}" y1="${bottom - 22}" x2="${cols[3]}" y2="${bottom}"/></g>`);
-  const mid = (i) => (cols[i] + cols[i + 1]) / 2;
-  ['Particulars', 'Quantity', 'Rate', 'Amount'].forEach((h, i) => t(mid(i), top + 14, h, 'font-size="11.5" font-weight="bold" text-anchor="middle"'));
+
+  t(21.6, 162.0, 13.7, 'No. :');
+  t(130.3, 162.0, 13.7, bill.bill_no, { bold: true });
+  t(264.6, 162.0, 13.7, 'Date :');
+  t(306.7, 162.0, 13.7, dmyShort(bill.sale_date), { bold: true });
+  t(21.6, 187.5, 13.7, 'M/s :');
+  t(130.3, 188.4, 12.7, bill.customer, { bold: true, clip: 'edge' });
+  t(21.6, 210.0, 13.7, 'Vehicle No. :');
+  t(130.3, 210.0, 13.7, bill.vehicle || '', { bold: true, clip: 'edge' });
+
+  // table borders: 0.98 pt filled bars, as in the export
+  rect(18.62, 239.12, 19.6, 513.52);
+  rect(398.86, 240.1, 399.84, 513.52);
+  rect(166.6, 240.1, 167.58, 393.96);
+  rect(258.72, 240.1, 259.7, 410.62);
+  rect(303.8, 240.1, 304.78, 410.62);
+  for (const y of [239.12, 255.78, 392.98, 409.64, 426.3, 512.54]) rect(19.6, y, 399.84, y + 0.98);
+
+  t(21.6, 240.4, 13.7, 'Particulars');
+  t(213.15, 240.4, 13.7, 'Quantity', { anchor: 'middle' });
+  t(282.1, 240.4, 13.7, 'Rate', { anchor: 'middle' });
+  t(352.25, 240.4, 13.7, 'Amount', { anchor: 'middle' });
   const qty = Number(bill.qty) || 0;
-  t(cols[0] + 6, head + 18, PRODUCT_NAME[bill.product] || PRODUCT_NAME.HSD, 'font-size="11.5"');
-  t(cols[2] - 6, head + 18, `${qty.toFixed(2)} LTR`, 'font-size="11.5" text-anchor="end"');
-  t(cols[3] - 6, head + 18, (Number(bill.rate) || 0).toFixed(2), 'font-size="11.5" text-anchor="end"');
-  t(cols[4] - 6, head + 18, money2(bill.amount), 'font-size="11.5" text-anchor="end"');
-  t(cols[0] + 6, bottom - 7, 'Thank You', 'font-size="11.5" font-style="italic"');
-  t(cols[3] - 6, bottom - 7, 'Total', 'font-size="11.5" font-weight="bold" text-anchor="end"');
-  t(cols[4] - 6, bottom - 7, `₹ ${money2(bill.amount)}`, 'font-size="11.5" font-weight="bold" text-anchor="end"');
-  const sy = Math.min(A5.height - 30, bottom + 110);
-  t(L, sy, "Customer's Sign.", 'font-size="11"');
-  t(R, sy, 'Sign.of Salesman', 'font-size="11" text-anchor="end"');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${A5.height}" width="${W}" height="${A5.height}" font-family="${FONT}">
-<rect x="0" y="0" width="${W}" height="${A5.height}" fill="#fff"/>
+  t(21.6, 263.9, 13.7, PRODUCT_NAME[bill.product] || PRODUCT_NAME.HSD, { bold: true, clip: 'col1' });
+  t(213.85, 264.8, 12.7, `${qty.toFixed(2)} LTR`, { bold: true, anchor: 'middle' });
+  t(302.1, 264.8, 12.7, (Number(bill.rate) || 0).toFixed(2), { bold: true, anchor: 'end' });
+  t(397.1, 264.8, 12.7, inr2(bill.amount), { bold: true, anchor: 'end' });
+
+  t(139.15, 394.3, 13.7, 'Thank You', { bold: true, anchor: 'middle' });
+  t(301.7, 394.3, 13.7, 'Total', { bold: true, anchor: 'end' });
+  t(397.1, 395.2, 12.7, `₹ ${inr2(bill.amount)}`, { bold: true, anchor: 'end' });
+
+  if (stamp) out.push(`<image href="${esc(stamp)}" x="300.86" y="428.26" width="83.3" height="65.66" preserveAspectRatio="none"/>`);
+  t(21.6, 497.2, 13.7, "Customer's Sign.", { bold: true });
+  t(396.5, 497.2, 13.7, 'Sign.of Salesman', { bold: true, anchor: 'end' });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+<defs><clipPath id="edge"><rect x="0" y="0" width="398.8" height="${H}"/></clipPath><clipPath id="col1"><rect x="0" y="0" width="166.6" height="${H}"/></clipPath></defs>
+<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>
 ${out.join('\n')}
 </svg>`;
 }
@@ -173,6 +193,12 @@ async function svgToJpeg(svg, size, scale) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+// one page as a JPEG Blob, `size` in pixels (for sharing as an image)
+export async function jpegFromSvg(svg, size) {
+  const url = await svgToJpeg(svg, size, 1);
+  return (await fetch(url)).blob();
 }
 
 // svgs: page SVG strings (images already as data: URLs) -> PDF Blob

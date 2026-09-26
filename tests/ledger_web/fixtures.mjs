@@ -150,6 +150,6 @@ export function demoWorkbook() {
     'XG Sale': xg,
     'Other Sale': other,
     'Customer GST': gst,
-    Roadways: sheet({ K3: 'Retail Roadways' }),
+    Roadways: sheet({ A1: 'Retail Roadways (Demo)', A2: 'Ledger Account for Diesel', K3: 'Retail Roadways', Q10: 'Testpur.' }),
   });
 }

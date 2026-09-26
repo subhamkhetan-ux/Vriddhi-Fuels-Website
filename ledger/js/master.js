@@ -27,10 +27,12 @@ const REQUIRED = ['HSD Sale', 'MS Sale', 'XG Sale', 'Master Paid'];
 const OPTIONAL = ['Other Sale', 'Outstanding', 'Customer GST', 'Tanker Master', 'HSD Bill'];
 const PRODUCT_OF = { DIESEL: 'HSD', PETROL: 'MS', XTRAGREEN: 'XG' };
 
-// Which sheets to parse (everything else in the workbook is skipped).
+// Which sheets to parse: the ones above, every *_Bulk sheet and the
+// customer ledger sheets (for their statement title and bill address) —
+// i.e. everything except the big summary / pivot sheets.
+const SKIP = ['index', 'hsd daily', 'ms daily', 'hsd fy summary', 'ms fy summary', 'tds details', 'billing'];
 export function sheetsToRead(names) {
-  const want = [...REQUIRED, ...OPTIONAL].map((n) => n.toLowerCase());
-  return names.filter((n) => want.includes(n.trim().toLowerCase()) || /_bulk\s*$/i.test(n));
+  return names.filter((n) => !SKIP.includes(n.trim().toLowerCase()));
 }
 
 // Opens a file with SheetJS the way the app needs it: formulas and number
@@ -523,6 +525,14 @@ export function extractMaster(wb) {
     customers.set(k, c);
   };
   ledgers.forEach((l) => addCustomer(l.name, { ledger: l.ledger }));
+  // Customer ledger sheets: A2 "Ledger Account for …", K3 the customer,
+  // A1 the statement title, Q10 the address line on the bill statement.
+  for (const n of wb.SheetNames) {
+    const ws = wb.Sheets[n];
+    if (!ws || !label(text(ws, 1, 0)).includes('ledger account')) continue;
+    const name = text(ws, 2, 10);
+    if (name) addCustomer(name, { title: text(ws, 0, 0), bill_address: text(ws, 9, 16) });
+  }
   gstins.forEach((g) => addCustomer(g.name, { gstin: g.gstin }));
   bulk.forEach((b) => b.members.forEach((m) => addCustomer(m, { bulk_group: b.group.code })));
 
@@ -578,6 +588,7 @@ export function extractMaster(wb) {
     payments: { ...span(payments, 'pay_date'), total: payments.reduce((a, p) => a + (p.amount || 0), 0) },
     customers: customers.size,
     ledgerNames: ledgers.filter((l) => l.ledger).length,
+    ledgerSheets: [...customers.values()].filter((c) => c.title || c.bill_address).length,
     opening: { count: opening.length, months: [...new Set(opening.map((o) => o.month))].sort() },
     tanker: tanker.length,
     groups: bulk.map((b) => ({

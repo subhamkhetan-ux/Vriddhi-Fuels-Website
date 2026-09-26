@@ -55,6 +55,7 @@ export function demoSeed(today = new Date()) {
     if (i % 5 === 0) rows.push(sale('XG', date, 'Sample Roadlines', between(60, 140, 5)));
     if (i === 6) rows.push(sale('HSD', date, 'Test Carriers', 180));
     if (i % 7 === 3) rows.push(sale('XG', date, 'Demo Power Ltd', 600, { po_mode: 'fixed', po_fixed: 'DP/26/XG-07' }));
+    if (i === 4) rows.push({ product: 'OTHER', bill_no: 'LUBE/017', sale_date: date, vehicle: '', qty: 1, rate: 450, amount: 450, customer: 'Sample Roadlines', item: 'Engine oil 1L' });
   }
   lastRows.push(sale('HSD', isoDay(today, -1), 'Fresh Traders', 150));
   masterSales.forEach((s, i) => { s.seq = i + 2; });
@@ -79,8 +80,8 @@ export function demoSeed(today = new Date()) {
       { name: 'Twin Steel Ltd', bulk_group: 'Twin Steel_Bulk', gstin: '21AAACT0000B1Z2' },
       { name: 'Crew One Logistics', bulk_group: 'Crew Group_Bulk' },
       { name: 'Crew Two Movers', bulk_group: 'Crew Group_Bulk' },
-      { name: 'Sample Roadlines', ledger: 'Sample', gstin: '21AAACS0000C1Z3' },
-      { name: 'Example Infra', ledger: 'Example' },
+      { name: 'Sample Roadlines', ledger: 'Sample', gstin: '21AAACS0000C1Z3', title: 'Sample Roadlines', bill_address: 'Testpur.' },
+      { name: 'Example Infra', ledger: 'Example', title: 'Example Infra Pvt Ltd', bill_address: 'Demo Nagar.' },
     ],
     sales: masterSales,
     payments,
