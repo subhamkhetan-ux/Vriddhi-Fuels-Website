@@ -256,6 +256,66 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .toast { background: rgba(24,20,18,.85); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); border: 1px solid var(--glass-line); border-left: 4px solid var(--good); border-radius: 12px; padding: 11px 14px; font-size: 13.5px; box-shadow: 0 14px 34px -10px rgba(0,0,0,.85); }
 .toast.bad { border-left-color: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .po-card { transition: none; } }
+
+/* daily statements: always yesterday */
+.day-fixed { flex: 1 1 100%; margin: 0; }
+
+/* ---- Home dashboard (series colours validated as a set on the dark surface) ---- */
+:root { --s-hsd: #3987e5; --s-ms: #d95926; --s-xg: #199e70; --s-sales: #9085e9; --s-paid: #c98500; --s-earn: #ff9e42; }
+.dash h2 { margin: 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
+.kpi { position: relative; overflow: hidden; background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; transition: transform .18s ease, box-shadow .18s ease; animation: pop .45s cubic-bezier(.22,.61,.36,1) both; }
+.kpi:nth-child(2) { animation-delay: .05s; } .kpi:nth-child(3) { animation-delay: .1s; } .kpi:nth-child(4) { animation-delay: .15s; }
+.kpi:hover { transform: translateY(-2px); box-shadow: 0 14px 30px -18px rgba(0,0,0,.9); }
+.kpi .lbl { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.kpi .val { font-family: var(--display); font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.kpi .sub { color: var(--muted); font-size: 12.5px; }
+.kpi.hero { background: var(--grad-cta); border-color: transparent; box-shadow: 0 14px 30px -16px rgba(244,81,30,.85); }
+.kpi.hero .lbl, .kpi.hero .sub { color: rgba(255,255,255,.82); }
+.kpi.warn::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--warn); }
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+.prods { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.prod { background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; }
+.prod-head { display: flex; align-items: center; gap: 8px; }
+.prod-head i, .legend i, #chart-tip i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.prod .big { font-family: var(--display); font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.share { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; margin: 6px 0 4px; }
+.share span { min-width: 2px; }
+.share-label { margin: 14px 0 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted); margin: 6px 0 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart { width: 100%; height: auto; display: block; margin-top: 4px; overflow: visible; }
+.chart .gl { stroke: rgba(255,255,255,.08); stroke-width: 1; }
+.chart .tick { fill: var(--faint); font-size: 11px; font-family: inherit; }
+.chart .hit { fill: transparent; cursor: pointer; }
+.chart .hit.on { fill: rgba(255,255,255,.06); }
+.chart .xhair { stroke: rgba(255,255,255,.35); stroke-width: 1; stroke-dasharray: 3 3; }
+.sub-h { margin-top: 18px; }
+#chart-tip { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; background: rgba(20,14,11,.96); border: 1px solid var(--glass-line); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; line-height: 1.55; color: var(--ink); box-shadow: 0 12px 30px -12px #000; max-width: 260px; }
+#chart-tip.on { opacity: 1; transform: none; }
+#chart-tip i { margin-right: 6px; }
+.small-chips { margin: 6px 0; } .small-chips .chip { padding: 4px 10px; font-size: 12px; }
+.rank { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.rank-row { width: 100%; display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; text-align: left; background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 9px 12px; color: var(--ink); font: inherit; cursor: pointer; transition: border-color .15s, transform .15s; }
+.rank-row:hover { border-color: var(--glass-line); transform: translateX(2px); }
+.rank-row.static { cursor: default; } .rank-row.static:hover { transform: none; }
+.rank-row .n { color: var(--faint); font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; }
+.rank-row .who { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.rank-row .who b { overflow-wrap: anywhere; }
+.rank-row .amt { text-align: right; display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.rank-row .amt small, .seg small { color: var(--muted); font-size: 11.5px; }
+.mini-track { flex-basis: 100%; display: block; }
+.mini { display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 2px; }
+.mini i { min-width: 2px; }
+.mini.owe { background: var(--warn); opacity: .75; }
+.rank-more { padding: 6px 12px 2px 48px; }
+.tag { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--glass-line); border-radius: 6px; padding: 1px 6px; }
+.tag.bulk { color: var(--s-sales); border-color: rgba(144,133,233,.45); }
+.total { font-family: var(--display); font-size: 18px; }
+.seg { display: grid; gap: 6px; }
+.seg-row { display: grid; grid-template-columns: 70px 1fr 1fr; gap: 10px; align-items: center; background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 9px 12px; font-variant-numeric: tabular-nums; }
+.seg-row span { display: flex; flex-direction: column; }
+@media (prefers-reduced-motion: reduce) { .kpi { animation: none; transition: none; } .rank-row { transition: none; } #chart-tip { transition: none; } }
 </style>
 </head>
 <body>

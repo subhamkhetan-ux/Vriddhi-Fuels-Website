@@ -40,6 +40,9 @@ export function supabaseStore(client) {
     appPaymentsLog: (rows) => rpc('ledger_payments_app_log', { p_rows: rows }),
     appPaymentsList: () => rpc('ledger_payments_app_list'),
     appPaymentsDelete: (id) => rpc('ledger_payments_app_delete', { p_id: id }),
+    appPaymentsDiscard: (x) => rpc('ledger_payments_app_discard', { p_ref: x.ref, p_pay_date: x.pay_date, p_customer: x.customer, p_amount: x.amount }),
+    appPaymentsRestore: (ref) => rpc('ledger_payments_app_restore', { p_ref: ref }),
+    dashboard: (from, to) => rpc('ledger_dashboard', { p_from: from, p_to: to }),
   };
 }
 
@@ -51,6 +54,7 @@ const now = () => new Date().toISOString();
 export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   const db = {
     customers: [], groups: [], sales: [], payments: [], pos: [], opening: [], imports: [], tanker: [], settings: {},
+    discarded: new Map(),
   };
   const ids = { customers: 0, sales: 0, payments: 0, pos: 0, imports: 0 };
   const nextId = (t) => { ids[t] += 1; return ids[t]; };
@@ -519,7 +523,8 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         const logged = db.payments.some((p) => p.source === 'payments_app' && p.source_ref === trim(x.ref));
         const inExcel = db.payments.some((p) => p.source === 'master_ledger' && p.pay_date === x.pay_date
           && p.customer_key === key && Number(p.amount) === Number(x.amount));
-        return { ref: x.ref, state: logged ? 'logged' : inExcel ? 'in_excel' : 'new', known: db.customers.some((c) => c.customer_key === key) };
+        const discarded = db.discarded.has(trim(x.ref));
+        return { ref: x.ref, state: logged ? 'logged' : discarded ? 'discarded' : inExcel ? 'in_excel' : 'new', known: db.customers.some((c) => c.customer_key === key) };
       });
     },
 
@@ -530,7 +535,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       for (const x of rows) {
         const ref = trim(x.ref);
         if (!ref || !x.pay_date || x.amount == null || !(Number(x.amount) > 0) || !trim(x.customer)) continue;
-        if (db.payments.some((p) => p.source === 'payments_app' && p.source_ref === ref)) continue;
+        if (db.discarded.has(ref) || db.payments.some((p) => p.source === 'payments_app' && p.source_ref === ref)) continue;
         db.payments.push({
           id: nextId('payments'), pay_date: x.pay_date, customer: trim(x.customer), customer_key: normKey(x.customer),
           amount: Number(x.amount), mode: trim(x.mode), source: 'payments_app', source_ref: ref, seq: 0, tds: null,
@@ -550,6 +555,69 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
 
     async appPaymentsDelete(id) {
       db.payments = db.payments.filter((p) => !(p.id === id && p.source === 'payments_app'));
+    },
+
+    async appPaymentsDiscard(x) {
+      const ref = trim(x.ref);
+      if (!ref) fail('Which entry?');
+      if (!db.discarded.has(ref)) db.discarded.set(ref, { ref, pay_date: x.pay_date, customer: x.customer || '', amount: x.amount });
+      db.payments = db.payments.filter((p) => !(p.source === 'payments_app' && p.source_ref === ref));
+    },
+
+    async appPaymentsRestore(ref) {
+      db.discarded.delete(trim(ref));
+    },
+
+    // same shape as ledger_dashboard() in SQL
+    async dashboard(from, to) {
+      if (!from || !to || to < from) fail('Pick a From date on or before the To date.');
+      const today = new Date().toISOString().slice(0, 10);
+      const sum = new Map();
+      for (const s of db.sales.filter((x) => x.sale_date >= from && x.sale_date <= to)) {
+        const k = `${s.sale_date}|${s.product}|${s.customer_key}`;
+        const a = sum.get(k) || [s.sale_date, s.product, s.customer_key, 0, 0, 0];
+        a[3] += Number(s.qty) || 0; a[4] += Number(s.amount) || 0; a[5] += 1;
+        sum.set(k, a);
+      }
+      const shift = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+      const rsp = new Map();
+      for (const s of db.sales.filter((x) => ['HSD', 'MS', 'XG'].includes(x.product) && Number(x.rate) > 0
+        && x.sale_date >= shift(from, -15) && x.sale_date <= shift(to, 15))) {
+        const k = `${s.sale_date}|${s.product}`;
+        if (!rsp.has(k) || Number(s.rate) > rsp.get(k)[2]) rsp.set(k, [s.sale_date, s.product, Number(s.rate)]);
+      }
+      const pays = new Map();
+      for (const p of db.payments.filter((x) => x.pay_date >= from && x.pay_date <= to)) {
+        const k = `${p.pay_date}|${p.customer_key}`;
+        const a = pays.get(k) || [p.pay_date, p.customer_key, 0];
+        a[2] += Number(p.amount) || 0;
+        pays.set(k, a);
+      }
+      const byDate = (a, b) => a[0].localeCompare(b[0]);
+      const round = (n) => Math.round(n * 100) / 100;
+      const outstanding = [
+        ...db.customers.filter((c) => c.ledger && !c.bulk_group && !c.archived)
+          .map((c) => ['c', c.customer_key, balanceBefore(c.customer_key, shift(today, 1))]),
+        ...db.groups.map((g) => {
+          const members = new Set(db.customers.filter((c) => c.bulk_group === g.code).map((c) => c.customer_key));
+          const since = g.period_from || '1900-01-01';
+          const sales = db.sales.filter((s) => members.has(s.customer_key) && s.sale_date >= since && s.sale_date <= today)
+            .reduce((a, s) => a + (Number(s.amount) || 0), 0);
+          const paid = db.payments.filter((p) => members.has(p.customer_key) && p.pay_date >= since && p.pay_date <= today)
+            .reduce((a, p) => a + (Number(p.amount) || 0) + (Number(p.tds) || 0) + (Number(p.shortage) || 0), 0);
+          return ['g', g.code, round((Number(g.opening) || 0) + sales - paid)];
+        }),
+      ].sort((a, b) => b[2] - a[2]);
+      return clone({
+        today,
+        sales: [...sum.values()].sort(byDate),
+        rsp: [...rsp.values()].sort(byDate),
+        payments: [...pays.values()].sort(byDate),
+        customers: db.customers.filter((c) => !c.archived).sort((a, b) => a.name.localeCompare(b.name))
+          .map((c) => [c.customer_key, c.name, c.ledger, c.bulk_group]),
+        groups: [...db.groups].sort((a, b) => a.code.localeCompare(b.code)).map((g) => [g.code, g.title]),
+        outstanding,
+      });
     },
 
     async imports(limit = 20) {

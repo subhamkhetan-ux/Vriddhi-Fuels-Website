@@ -6,6 +6,10 @@ import { normalizeCompany, slipBundles, tankerBundles } from './bills.js';
 import { daybookPayload, parseDaybook, sheetRows } from './daybook.js';
 import { demoSeed } from './demo.js';
 import { fromQueue } from './payin.js';
+import {
+  barChart, bindCharts, dailyVolumeChart, legend, litres, money, monthlyChart, monthName, rspChart, SERIES, setChartWidth, shortDate,
+} from './charts.js';
+import { analyse, FUELS, periods, PRODUCT_NAME } from './dash.js';
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
 import {
@@ -292,9 +296,230 @@ async function viewHome() {
         </div>
         <p class="actions"><a class="btn" href="#/import">Import sales (DayBook)</a> <a class="btn ghost" href="#/sales">See the latest day</a></p>`}
     </section>
+    ${empty ? '' : `<div id="dash">${loadingHtml('Working out the figures…')}</div>`}
     ${todo.length ? `<section class="card"><h3>Needs your attention</h3><div class="todos">${todo.join('')}</div></section>` : (empty ? '' : '<section class="card good-card"><b>All caught up.</b> Every bulk bill has a PO and every customer has a ledger.</section>')}
     ${groups.length ? `<section class="card"><h3>PO lists</h3><div class="grid">${groups.map(poCard).join('')}</div></section>` : ''}
     ${last ? `<p class="muted small">Last upload: ${last.kind === 'daybook' ? 'DayBook' : 'Master Ledger'} “${esc(last.file_name)}” · ${new Date(last.created_at).toLocaleString('en-IN')}${last.by_email ? ` · ${esc(last.by_email)}` : ''}</p>` : ''}`);
+  const box = document.getElementById('dash');
+  if (box) {
+    try {
+      await renderDashboard(box);
+    } catch (err) {
+      console.error(err);
+      box.innerHTML = errorHtml(err);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Home dashboard — the Master Ledger's analysis (Module14, Outstanding sheet)
+// ---------------------------------------------------------------------------
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function dashboardData() {
+  const today = localToday();
+  if (!state.dash || state.dash.today !== today || Date.now() - state.dash.at > 5 * 60000) {
+    const per = periods(today);
+    const data = await state.store.dashboard(per.earliest, today);
+    state.dash = { today, at: Date.now(), per, data };
+  }
+  return state.dash;
+}
+
+const TAG = { bulk: '<span class="tag bulk">Bulk</span>', retail: '<span class="tag">Retail</span>' };
+
+function dashboardHtml(a, per, key) {
+  const p = a.products;
+  const k = a.kpi;
+  const fuelKeys = FUELS.filter((x) => p[x].qty > 0 || p[x].amount > 0);
+  const shareBar = (vals) => {
+    const total = vals.reduce((s, v) => s + v.value, 0) || 1;
+    return `<div class="share">${vals.filter((v) => v.value > 0).map((v) => `<span style="flex:${v.value / total};background:${v.color}" title="${esc(v.name)} ${Math.round((v.value / total) * 100)}%"></span>`).join('')}</div>`;
+  };
+  // volume chart: days, or months for long periods
+  const byMonth = a.days > 62;
+  let vol = a.daily;
+  if (byMonth) {
+    const m = new Map();
+    for (const d of a.daily) {
+      const mk = d.date.slice(0, 7);
+      if (!m.has(mk)) m.set(mk, { date: `${mk}-01`, qty: { HSD: 0, MS: 0, XG: 0 }, amount: 0, earning: 0 });
+      const x = m.get(mk);
+      FUELS.forEach((f) => { x.qty[f] += d.qty[f]; });
+      x.amount += d.amount;
+      x.earning += d.earning;
+    }
+    vol = [...m.values()];
+  }
+  const volOpts = byMonth ? { labelOf: (d) => monthName(d.date.slice(0, 7)), tipLabel: (d) => monthName(d.date.slice(0, 7)) } : {};
+  const earnItems = vol.map((d) => ({
+    label: byMonth ? monthName(d.date.slice(0, 7)) : shortDate(d.date), value: d.earning,
+    tip: `<b>${byMonth ? monthName(d.date.slice(0, 7)) : shortDate(d.date)}</b><br>Earned ${money(d.earning, { exact: true })}`,
+  }));
+  const rspDays = Object.fromEntries(Object.entries(a.rspSeries).map(([x, s]) => [x, s.slice(-62)]));
+  return `
+    <section class="card dash">
+      <div class="row-between"><h2>Overview</h2>
+        <div class="chips">${['month', 'last', 'd30', 'fy'].map((x) => `<button class="chip ${x === key ? 'on' : ''}" data-period="${x}">${per[x].label}</button>`).join('')}</div></div>
+      <p class="muted small">${fmtDate(a.from)} – ${fmtDate(a.to)} · from the sales and payments in the app · earnings at ₹2.58/L diesel &amp; XtraGreen, ₹4/L petrol off the day's RSP</p>
+      <div class="kpis">
+        <div class="kpi hero"><span class="lbl">Earnings</span><span class="val">${money(k.earning)}</span><span class="sub">₹${k.perLitre.toFixed(2)} per litre</span></div>
+        <div class="kpi"><span class="lbl">Sales</span><span class="val">${money(k.amount)}</span><span class="sub">${litres(k.qty)} · ${plural(k.customers, 'customer')}</span></div>
+        <div class="kpi"><span class="lbl">Collections</span><span class="val">${money(k.collections)}</span><span class="sub">${k.amount ? `${Math.round((k.collections / k.amount) * 100)}% of sales` : '&nbsp;'}</span></div>
+        <div class="kpi warn"><span class="lbl">Outstanding today</span><span class="val">${money(k.outstanding)}</span><span class="sub">${plural(a.due.length, 'customer')} owe${a.due.length === 1 ? 's' : ''}${k.advance ? ` · ${money(-k.advance)} advance` : ''}</span></div>
+      </div>
+      ${k.noRsp ? `<p class="warn-text small">${plural(k.noRsp, 'day-product')} had no RSP to work the margin from — left out of earnings.</p>` : ''}
+    </section>
+
+    <section class="card">
+      <h3>By product</h3>
+      <div class="prods">${[...fuelKeys, ...(p.OTHER.amount ? ['OTHER'] : [])].map((x) => `
+        <div class="prod">
+          <div class="prod-head">${x !== 'OTHER' ? `<i style="background:${SERIES[x].color}"></i>` : ''}<b>${PRODUCT_NAME[x]}</b></div>
+          ${x !== 'OTHER' ? `<span class="big">${litres(p[x].qty)}</span><span class="small muted">${money(p[x].amount)} · ${plural(p[x].bills, 'bill')}</span>
+          <span class="small">Earned <b>${money(p[x].earning)}</b> · ₹${p[x].qty ? (p[x].earning / p[x].qty).toFixed(2) : '0.00'}/L</span>`
+          : `<span class="big">${money(p[x].amount)}</span><span class="small muted">${plural(p[x].bills, 'bill')} · lubes &amp; others</span>`}
+        </div>`).join('')}</div>
+      ${fuelKeys.length > 1 ? `<p class="small muted share-label">Share of litres</p>${shareBar(fuelKeys.map((x) => ({ name: PRODUCT_NAME[x], value: p[x].qty, color: SERIES[x].color })))}${legend(fuelKeys)}` : ''}
+    </section>
+
+    <section class="card">
+      <h3>Litres ${byMonth ? 'per month' : 'per day'}</h3>
+      ${legend(FUELS.filter((x) => p[x].qty > 0))}
+      ${dailyVolumeChart(vol, volOpts)}
+      <h3 class="sub-h">Earnings ${byMonth ? 'per month' : 'per day'}</h3>
+      ${barChart(earnItems, { label: 'Earnings', h: 140 })}
+    </section>
+
+    <section class="card" id="dash-customers"></section>
+
+    <section class="card" id="dash-outstanding"></section>
+
+    <section class="card">
+      <h3>Bulk vs Retail</h3>
+      <div class="seg">${['bulk', 'retail'].map((s) => {
+    const x = a.segments[s];
+    return `<div class="seg-row"><b>${s === 'bulk' ? 'Bulk' : 'Retail'}</b>
+          <span>${litres(x.qty)}<small>${money(x.amount)}</small></span>
+          <span>${money(x.earning)}<small>₹${x.qty ? (x.earning / x.qty).toFixed(2) : '0.00'}/L earned</small></span></div>`;
+  }).join('')}</div>
+      <p class="small muted share-label">Share of litres — Bulk / Retail</p>
+      ${shareBar([{ name: 'Bulk', value: a.segments.bulk.qty, color: 'var(--s-sales)' }, { name: 'Retail', value: a.segments.retail.qty, color: 'var(--s-paid)' }])}
+      ${legend([{ name: 'Bulk', color: 'var(--s-sales)' }, { name: 'Retail', color: 'var(--s-paid)' }])}
+    </section>
+
+    <section class="card" id="dash-months"></section>
+
+    <section class="card">
+      <h3>Day's RSP${a.days > 62 ? ' · last 62 days' : ''}</h3>
+      <p class="small muted">The highest price billed each day — what the margin is worked from.</p>
+      ${legend(FUELS.filter((x) => rspDays[x].some((d) => d.rsp != null)))}
+      ${rspChart(rspDays)}
+    </section>`;
+}
+
+function customersHtml(a, sort, seg, all) {
+  const val = { qty: (c) => c.qty, amount: (c) => c.amount, earning: (c) => c.earning };
+  const list = a.customers.filter((c) => c.bills && (seg === 'all' || c.kind === seg)).sort((x, y) => val[sort](y) - val[sort](x));
+  const shown = all ? list : list.slice(0, 10);
+  const max = Math.max(1, ...list.map((c) => c.qty));
+  return `
+    <div class="row-between"><h3>Best customers</h3>
+      <div class="chips small-chips">${[['qty', 'Litres'], ['amount', 'Sales'], ['earning', 'Earnings']].map(([x, n]) => `<button class="chip ${x === sort ? 'on' : ''}" data-csort="${x}">${n}</button>`).join('')}</div></div>
+    <div class="chips small-chips">${[['all', 'All'], ['retail', 'Retail'], ['bulk', 'Bulk']].map(([x, n]) => `<button class="chip ${x === seg ? 'on' : ''}" data-cseg="${x}">${n}</button>`).join('')}</div>
+    ${shown.length ? `<ol class="rank">${shown.map((c, i) => `
+      <li><button class="rank-row" data-cust="${esc(c.id)}" aria-expanded="false">
+        <span class="n">${i + 1}</span>
+        <span class="who"><b>${esc(c.name)}</b> ${TAG[c.kind]}
+          <span class="mini-track"><span class="mini" style="width:${Math.max(2, (c.qty / max) * 100)}%">${FUELS.filter((x) => c.products[x].qty > 0).map((x) => `<i style="flex:${c.products[x].qty};background:${SERIES[x].color}"></i>`).join('')}</span></span></span>
+        <span class="amt"><b>${sort === 'amount' ? money(c.amount) : sort === 'earning' ? money(c.earning) : litres(c.qty)}</b>
+          <small>${sort === 'qty' ? money(c.amount) : litres(c.qty)} · earned ${money(c.earning)}</small></span>
+      </button>
+      <div class="rank-more" hidden>
+        <div class="table-wrap"><table class="compact"><tbody>${[...FUELS, 'OTHER'].filter((x) => c.products[x].amount).map((x) => `<tr><td>${PRODUCT_NAME[x]}</td><td class="r">${x === 'OTHER' ? '' : litres(c.products[x].qty)}</td><td class="r">${money(c.products[x].amount, { exact: true })}</td><td class="r">${x === 'OTHER' ? '' : `earned ${money(c.products[x].earning, { exact: true })}`}</td></tr>`).join('')}</tbody></table></div>
+        <p class="small muted">${plural(c.bills, 'bill')} · last ${fmtDate(c.last)} · paid ${money(c.paid, { exact: true })} in this period${c.outstanding != null ? ` · outstanding today <b>${money(c.outstanding, { exact: true })}</b>` : ''}</p>
+      </div></li>`).join('')}</ol>` : '<p class="muted">No sales in this period.</p>'}
+    ${list.length > 10 ? `<p><button class="btn ghost small" data-call>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}`;
+}
+
+function outstandingHtml(a, seg, all) {
+  const list = a.due.filter((o) => seg === 'all' || o.kind === seg);
+  const shown = all ? list : list.slice(0, 10);
+  const total = list.reduce((s, o) => s + o.balance, 0);
+  const max = Math.max(1, ...list.map((o) => o.balance));
+  return `
+    <div class="row-between"><h3>Outstanding today</h3><b class="total">${money(total, { exact: true })}</b></div>
+    <div class="chips small-chips">${[['all', 'All'], ['retail', 'Retail'], ['bulk', 'Bulk']].map(([x, n]) => `<button class="chip ${x === seg ? 'on' : ''}" data-oseg="${x}">${n}</button>`).join('')}</div>
+    ${shown.length ? `<ol class="rank">${shown.map((o, i) => `
+      <li><div class="rank-row static"><span class="n">${i + 1}</span>
+        <span class="who"><b>${esc(o.name)}</b> ${TAG[o.kind]}<span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (o.balance / max) * 100)}%"></span></span></span>
+        <span class="amt"><b>${money(o.balance, { exact: true })}</b><small>${Math.round((o.balance / (total || 1)) * 100)}% of the total</small></span></div></li>`).join('')}</ol>` : '<p class="muted">Nobody owes anything. ✓</p>'}
+    ${list.length > 10 ? `<p><button class="btn ghost small" data-oall>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}
+    ${a.advance.length ? `<details><summary class="small">${plural(a.advance.length, 'customer')} paid in advance · ${money(-a.advance.reduce((s, o) => s + o.balance, 0), { exact: true })}</summary>
+      <ul class="small">${a.advance.map((o) => `<li>${esc(o.name)} — ${money(-o.balance, { exact: true })}</li>`).join('')}</ul></details>` : ''}
+    <p class="small muted">Ledger customers as on their sheet; bulk groups as on their *_Bulk sheet (opening + sales − paid − TDS − shortage).</p>`;
+}
+
+function monthsHtml(fy) {
+  const months = fy.months.filter((m) => m.amount || m.paid);
+  if (!months.length) return '<h3>This FY by month</h3><p class="muted">No sales yet this FY.</p>';
+  return `<h3>This FY by month</h3>
+    ${legend([{ name: 'Sales', color: 'var(--s-sales)' }, { name: 'Collections', color: 'var(--s-paid)' }])}
+    ${monthlyChart(months)}
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Month</th><th class="r">Litres</th><th class="r">Sales</th><th class="r">Earned</th><th class="r">Collected</th></tr></thead>
+      <tbody>${months.map((m) => `<tr><td>${monthName(m.month)}</td><td class="r">${litres(m.qty)}</td><td class="r">${money(m.amount)}</td><td class="r">${money(m.earning)}</td><td class="r">${money(m.paid)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+async function renderDashboard(box) {
+  const { per, data } = await dashboardData();
+  const key = state.dashPeriod || 'month';
+  const a = analyse(data, per[key]);
+  setChartWidth(box.clientWidth - 38);                           // the card's inner width
+  box.innerHTML = dashboardHtml(a, per, key);
+  const fy = key === 'fy' ? a : analyse(data, per.fy);
+  const ui = state.dashUi || (state.dashUi = { sort: 'qty', seg: 'all', all: false, oseg: 'all', oall: false });
+  const cust = box.querySelector('#dash-customers');
+  const out = box.querySelector('#dash-outstanding');
+  const paintCustomers = () => {
+    cust.innerHTML = customersHtml(a, ui.sort, ui.seg, ui.all);
+    cust.querySelectorAll('[data-csort]').forEach((b) => b.addEventListener('click', () => { ui.sort = b.dataset.csort; paintCustomers(); }));
+    cust.querySelectorAll('[data-cseg]').forEach((b) => b.addEventListener('click', () => { ui.seg = b.dataset.cseg; paintCustomers(); }));
+    cust.querySelector('[data-call]')?.addEventListener('click', () => { ui.all = !ui.all; paintCustomers(); });
+    cust.querySelectorAll('[data-cust]').forEach((b) => b.addEventListener('click', () => {
+      const more = b.nextElementSibling;
+      more.hidden = !more.hidden;
+      b.setAttribute('aria-expanded', String(!more.hidden));
+    }));
+  };
+  const paintOutstanding = () => {
+    out.innerHTML = outstandingHtml(a, ui.oseg, ui.oall);
+    out.querySelectorAll('[data-oseg]').forEach((b) => b.addEventListener('click', () => { ui.oseg = b.dataset.oseg; paintOutstanding(); }));
+    out.querySelector('[data-oall]')?.addEventListener('click', () => { ui.oall = !ui.oall; paintOutstanding(); });
+  };
+  paintCustomers();
+  paintOutstanding();
+  box.querySelector('#dash-months').innerHTML = monthsHtml(fy);
+  box.querySelectorAll('[data-period]').forEach((b) => b.addEventListener('click', () => {
+    state.dashPeriod = b.dataset.period;
+    guard(() => renderDashboard(box));
+  }));
+  bindCharts(box);
+  // redraw at the new width after a rotate / resize
+  if (!state.dashResize) {
+    let last = window.innerWidth;
+    let t;
+    state.dashResize = true;
+    window.addEventListener('resize', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const el = document.getElementById('dash');
+        if (el && Math.abs(window.innerWidth - last) > 40) { last = window.innerWidth; guard(() => renderDashboard(el)); }
+      }, 250);
+    });
+  }
 }
 
 function poCard(g) {
@@ -1045,9 +1270,9 @@ async function viewStatements() {
   setMain(`
     <section class="card">
       <h2>Daily statements — pictures for WhatsApp</h2>
-      <p class="muted">Same as <b>Daily Screenshots</b>: for every ledger customer who bought anything that day, a picture of their ledger (month so far) and of that day's bills, plus the HSD and MS daily summaries. Share them all in one go, or one customer at a time.</p>
+      <p class="muted">Same as <b>Daily Screenshots</b>: for every ledger customer who bought anything yesterday, a picture of their ledger (month so far) and of that day's bills, plus the HSD and MS daily summaries. Share them all in one go, or one customer at a time.</p>
       <form class="row-form" id="daily-form">
-        <label>Day <input type="date" name="date" value="${s.date}" required></label>
+        <p class="day-fixed">For <b>yesterday, ${esc(fmtDate(yesterday()))}</b> <span class="muted small">— like the Excel macro, daily statements are always for yesterday.</span></p>
         <button class="btn" type="submit">Make pictures</button></form>
       <div id="daily-out"></div>
     </section>
@@ -1076,9 +1301,7 @@ async function viewStatements() {
   const remember = (patch) => { state.statements = { ...s, ...(state.statements || {}), ...patch }; };
   document.getElementById('daily-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const date = e.target.date.value;
-    remember({ date });
-    guard(() => prepareDaily(date));
+    guard(() => prepareDaily(yesterday()));                     // the macro's rule: always yesterday
   });
   document.getElementById('monthly-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1289,6 +1512,7 @@ const LEDGER_STATE = {
   new: '<span class="warn-text">Not in ledger</span>',
   logged: '<span class="good-text">In ledger ✓</span>',
   in_excel: '<span class="good-text">In Excel copy ✓</span>',
+  discarded: '<span class="faint">Discarded</span>',
 };
 
 async function viewPayments() {
@@ -1301,28 +1525,32 @@ async function viewPayments() {
   const rows = payments.map((r) => ({ ...r, check: byRef.get(r.ref) || { state: 'new', known: true } }));
   const todo = rows.filter((r) => r.check.state === 'new');
   const unknown = [...new Set(todo.filter((r) => !r.check.known).map((r) => r.customer))];
+  const discarded = rows.filter((r) => r.check.state === 'discarded');
   const filter = state.payFilter || 'todo';
-  const shown = filter === 'todo' ? todo : rows;
+  const shown = filter === 'todo' ? todo : filter === 'discarded' ? discarded : rows.filter((r) => r.check.state !== 'discarded');
   setMain(`
     <section class="card">
       <div class="row-between"><h2>Payments</h2><button class="btn ghost small" id="pay-refresh">↻ Refresh</button></div>
       <p class="muted">The payments app's matched entries, read straight from it — nothing there changes; keep logging to Excel from the payments app as usual. <b>Log payments</b> adds them here so balances and statements are up to date. Excel stays the source of truth: when a Master Ledger upload shows a payment in Master Paid, the ledger's copy is dropped, so nothing counts twice.</p>
       <div class="chips">
         <button class="chip ${filter === 'todo' ? 'on' : ''}" data-pay-filter="todo">Not in ledger · ${todo.length}</button>
-        <button class="chip ${filter === 'all' ? 'on' : ''}" data-pay-filter="all">All · ${rows.length}</button>
+        <button class="chip ${filter === 'all' ? 'on' : ''}" data-pay-filter="all">All · ${rows.length - discarded.length}</button>
+        ${discarded.length || filter === 'discarded' ? `<button class="chip ${filter === 'discarded' ? 'on' : ''}" data-pay-filter="discarded">Discarded · ${discarded.length}</button>` : ''}
       </div>
       ${review ? `<p class="muted small">${plural(review, 'payment')} still under <b>Needs review</b> in the payments app — they show here once a customer is picked there.</p>` : ''}
       ${unknown.length ? `<p class="warn-text small">Not a customer in the ledger app yet: ${unknown.map(esc).join(', ')} — logged anyway; they show in balances once the customer is in the app.</p>` : ''}
       ${shown.length ? `<form id="pay-form">
         <div class="table-wrap"><table class="compact">
-          <thead><tr><th>${filter === 'todo' ? '<input type="checkbox" id="pay-all" checked aria-label="All">' : ''}</th><th>Date</th><th>Customer</th><th class="r">Amount</th><th>Mode</th><th>Payments app</th><th>Ledger</th></tr></thead>
+          <thead><tr><th>${filter === 'todo' ? '<input type="checkbox" id="pay-all" checked aria-label="All">' : ''}</th><th>Date</th><th>Customer</th><th class="r">Amount</th><th>Mode</th><th>Payments app</th><th>Ledger</th><th></th></tr></thead>
           <tbody>${shown.map((r) => `<tr>
             <td>${r.check.state === 'new' ? `<input type="checkbox" name="pick" value="${esc(r.ref)}" ${filter === 'todo' ? 'checked' : ''} aria-label="Log ${esc(r.customer)} ${esc(fmtMoney(r.amount))}">` : ''}</td>
             <td>${esc(fmtDate(r.pay_date))}</td><td>${esc(r.customer)}</td><td class="r">${esc(fmtMoney(r.amount))}</td>
-            <td>${esc(r.mode)}</td><td>${APP_STATE[r.state]}</td><td>${LEDGER_STATE[r.check.state] || ''}</td></tr>`).join('')}</tbody>
+            <td>${esc(r.mode)}</td><td>${APP_STATE[r.state]}</td><td>${LEDGER_STATE[r.check.state] || ''}</td>
+            <td>${r.check.state === 'discarded' ? `<button type="button" class="btn ghost small" data-restore="${esc(r.ref)}">Restore</button>`
+    : r.check.state === 'in_excel' ? '' : `<button type="button" class="btn ghost small" data-discard="${esc(r.ref)}" title="Don't count this one in the ledger (e.g. a test entry). The payments app isn't touched.">Discard</button>`}</td></tr>`).join('')}</tbody>
         </table></div>
-        <p class="actions"><button class="btn" type="submit">Log payments</button></p>
-      </form>` : `<p class="muted">${filter === 'todo' ? 'Every matched payment is in the ledger. ✓' : 'No matched payments in the payments app.'}</p>`}
+        ${filter === 'discarded' ? '' : '<p class="actions"><button class="btn" type="submit">Log payments</button></p>'}
+      </form>` : `<p class="muted">${filter === 'todo' ? 'Every matched payment is in the ledger (or discarded). ✓' : filter === 'discarded' ? 'Nothing discarded.' : 'No matched payments in the payments app.'}</p>`}
     </section>
     ${appPaymentsCard(appPays)}`);
   document.getElementById('pay-refresh').addEventListener('click', () => guard(viewPayments));
@@ -1331,9 +1559,23 @@ async function viewPayments() {
     guard(viewPayments);
   }));
   bindAppPayments(viewPayments);
+  document.querySelectorAll('[data-discard]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    const r = rows.find((x) => x.ref === b.dataset.discard);
+    if (!r) return;
+    const note = r.check.state === 'logged' ? ' It is in the ledger now and will be taken out.' : '';
+    if (!window.confirm(`Discard ${r.customer} ${fmtMoney(r.amount)} (${fmtDate(r.pay_date)})? The ledger won't count it.${note} The payments app isn't touched, and you can restore it under "Discarded".`)) return;
+    await state.store.appPaymentsDiscard({ ref: r.ref, pay_date: r.pay_date, customer: r.customer, amount: r.amount });
+    toast('Discarded.');
+    await viewPayments();
+  })));
+  document.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    await state.store.appPaymentsRestore(b.dataset.restore);
+    toast('Restored — it can be logged again.');
+    await viewPayments();
+  })));
   const form = document.getElementById('pay-form');
-  if (!form) return;
-  const btn = form.querySelector('button[type=submit]');
+  const btn = form && form.querySelector('button[type=submit]');
+  if (!btn) return;                                              // e.g. the Discarded list: nothing to log
   const byKey = new Map(rows.map((r) => [r.ref, r]));
   const picked = () => [...form.querySelectorAll('input[name=pick]:checked')].map((x) => byKey.get(x.value));
   const update = () => {
