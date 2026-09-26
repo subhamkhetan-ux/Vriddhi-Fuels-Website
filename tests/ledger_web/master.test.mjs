@@ -56,7 +56,12 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
 
   const customers = Object.fromEntries(payload.customers.map((c) => [c.name, c]));
   assert.deepEqual(customers['Retail Roadways'], { name: 'Retail Roadways', ledger: 'Roadways', gstin: '21BBBBB1111B1Z6',
-    title: 'Retail Roadways (Demo)', bill_address: 'Testpur.' });
+    title: 'Retail Roadways (Demo)', bill_address: 'Testpur.',
+    layout: {
+      cols: [12.16, 14.16, 10, 19.83, 17.16, 14.5, 18.5],
+      bill: [0.33, 12.66, 12.5, 16.16, 13.16, 11.66, 15.5, 13.83],
+      head: 21.75, row: 20, rows: [20, 20, 24],
+    } });
   assert.deepEqual(customers['Demo Power Ltd'], { name: 'Demo Power Ltd', gstin: '22AAAAA0000A1Z5', bulk_group: 'Demo_Bulk' });
   assert.equal(customers['Crew Two Movers'].bulk_group, 'Crew_Bulk');    // from Customer GST column G
   assert.equal(customers['Crew One Logistics'].bulk_group, 'Crew_Bulk');

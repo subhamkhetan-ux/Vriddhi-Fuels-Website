@@ -19,6 +19,13 @@ function isoDay(base, offset) {
   return d.toISOString().slice(0, 10);
 }
 
+// a ledger sheet's column widths (A:G, Q:X) and row heights, as the upload reads them
+const SHEET = {
+  cols: [12.16, 13.66, 10, 17.83, 16.5, 14.5, 18.5],
+  bill: [0.33, 12.66, 12.5, 15.5, 13.16, 11.66, 14, 13.83],
+  head: 21.75, row: 20,
+};
+
 export function demoSeed(today = new Date()) {
   const rand = rng(20260401);
   const between = (lo, hi, step = 10) => lo + Math.round((rand() * (hi - lo)) / step) * step;
@@ -80,8 +87,8 @@ export function demoSeed(today = new Date()) {
       { name: 'Twin Steel Ltd', bulk_group: 'Twin Steel_Bulk', gstin: '21AAACT0000B1Z2' },
       { name: 'Crew One Logistics', bulk_group: 'Crew Group_Bulk' },
       { name: 'Crew Two Movers', bulk_group: 'Crew Group_Bulk' },
-      { name: 'Sample Roadlines', ledger: 'Sample', gstin: '21AAACS0000C1Z3', title: 'Sample Roadlines', bill_address: 'Testpur.' },
-      { name: 'Example Infra', ledger: 'Example', title: 'Example Infra Pvt Ltd', bill_address: 'Demo Nagar.' },
+      { name: 'Sample Roadlines', ledger: 'Sample', gstin: '21AAACS0000C1Z3', title: 'Sample Roadlines', bill_address: 'Testpur.', layout: SHEET },
+      { name: 'Example Infra', ledger: 'Example', title: 'Example Infra Pvt Ltd', bill_address: 'Demo Nagar.', layout: SHEET },
     ],
     sales: masterSales,
     payments,

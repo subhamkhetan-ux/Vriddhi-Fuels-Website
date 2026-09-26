@@ -159,9 +159,31 @@ test('statement drawings', () => {
   // daily: one page, shrunk to fit when long
   const daily = billStatementSvgs({ ...many, total: false }, img);
   assert.equal(daily.length, 1);
-  assert.ok(daily[0].includes('scale('));
+  const bodySize = (svg) => Number(svg.match(/<g font-size="([\d.]+)">/)[1]);
+  assert.ok(bodySize(daily[0]) < bodySize(bills[0]));              // zoomed out like Excel's fit to page
   const d = buildStatements({ kind: 'daily', date: '2026-09-25', data: DATA() });
   const sum = dailySummarySvg(d.summaries[0], img);
   for (const want of ['HSD Daily Sales Summary', 'Sum of Amount', '25/09/26', 'Bulk Co', '1791000']) assert.ok(sum.includes(want), want);
   assert.ok(!ledgerSvg(k.ledger, {}).includes('<image'));
+  assert.ok(sum.includes('#70AD47') && sum.includes('(blank)'));
+  const msSum = dailySummarySvg({ ...d.summaries[0], product: 'MS' }, img);
+  assert.ok(msSum.includes('MS Daily Sales Summary') && msSum.includes('#ED7D31'));
+});
+
+test('Excel page model: each sheet\'s column widths and a whole-number zoom', () => {
+  const res = buildStatements({ kind: 'daily', date: '2026-09-25', data: DATA() });
+  const led = res.customers[0].ledger;
+  // the default sheet prints at 87% like Keshav's: 18pt body text = 43.5 px at 200 dpi
+  const size = (svg) => Number(svg.match(/<g font-size="([\d.]+)">/)[1]);
+  assert.equal(size(ledgerSvg(led)), 43.5);
+  // narrower columns -> bigger zoom (Excel's fit to page width): 90%
+  const narrow = { cols: [12.16, 12.83, 11, 16.33, 17.5, 14.5, 18.5] };
+  assert.equal(size(ledgerSvg({ ...led, layout: narrow })), 45);
+  // the outer border spans the page width either way
+  const xs = (svg) => [...svg.matchAll(/<rect x="(\d+)" y="\d+" width="4"/g)].map((m) => Number(m[1]));
+  assert.deepEqual(xs(ledgerSvg(led)), [51, 1593]);
+  // the stamp is sized so its ink covers Excel's footer box
+  const st = ledgerSvg(led, { stamp: 'data:image/png;base64,S', stampInk: [0.25, 0.25, 0.75, 0.75] });
+  const m = st.match(/<image href="data:image\/png;base64,S" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)"/);
+  assert.deepEqual([Number(m[1]) + Number(m[3]) / 4, Number(m[3]) / 2], [1369.5, 206]);   // 209 x 206 box, centred
 });

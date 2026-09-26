@@ -182,6 +182,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
           const v = trim(f[field]);
           if (v && (!cur[field] || v > cur[field])) cur[field] = v;
         }
+        if (!cur.layout && f.layout && typeof f.layout === 'object') cur.layout = clone(f.layout);
         named.set(k, cur);
       };
       (p.customers || []).forEach((c) => note(c.name, c, 0));
@@ -190,12 +191,13 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       for (const [, c] of named) {
         const res = addCustomer(c.name, {
           ledger: c.ledger || null, gstin: c.gstin || '', bulk_group: c.bulk_group || null,
-          title: c.title || '', bill_address: c.bill_address || '',
+          title: c.title || '', bill_address: c.bill_address || '', layout: c.layout || null,
         });
         if (res.inserted) { customersNew += 1; continue; }
         const cur = res.c;
         if (c.title) cur.title = c.title;
         if (c.bill_address) cur.bill_address = c.bill_address;
+        if (c.layout) cur.layout = c.layout;
         if (!cur.ledger && c.ledger) cur.ledger = c.ledger;
         if (!cur.gstin && c.gstin) cur.gstin = c.gstin;
         if (!cur.bulk_group && c.bulk_group) cur.bulk_group = c.bulk_group;
@@ -462,7 +464,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       return clone({
         customers: ledgerCustomers.map((c) => ({
           id: c.id, name: c.name, key: c.customer_key, ledger: c.ledger, title: c.title || '',
-          bill_address: c.bill_address || '', gstin: c.gstin, opening: balanceBefore(c.customer_key, from),
+          bill_address: c.bill_address || '', gstin: c.gstin, layout: c.layout || null, opening: balanceBefore(c.customer_key, from),
         })),
         sales: db.sales.filter((x) => x.sale_date >= from && x.sale_date <= to)
           .sort((a, b) => order[a.product] - order[b.product] || a.seq - b.seq || a.id - b.id)

@@ -177,6 +177,8 @@ create table if not exists public.ledger_imports (
 -- Phase 3: what a ledger sheet shows at the top of its statements.
 alter table public.ledger_customers add column if not exists title text not null default '';        -- ledger sheet A1
 alter table public.ledger_customers add column if not exists bill_address text not null default '';  -- ledger sheet Q10
+-- ... and the sheet's column widths / row heights, so statements print the same size.
+alter table public.ledger_customers add column if not exists layout jsonb;
 
 -- Tanker Master (the workbook's Customers table): who gets a Daily Tanker
 -- Bill, and the address / payment lines printed on it. Replaced by every
@@ -500,11 +502,11 @@ begin
   --    Bulk sheets) plus everyone on the HSD / MS / XG sale sheets — the
   --    same names the workbook's "Bulk Add Ledger" check looks at.
   with src as (
-    select x.name, x.ledger, x.gstin, x.bulk_group, x.title, x.bill_address, 0 as pri
+    select x.name, x.ledger, x.gstin, x.bulk_group, x.title, x.bill_address, x.layout, 0 as pri
     from jsonb_to_recordset(coalesce(p_payload -> 'customers', '[]'::jsonb))
-         as x(name text, ledger text, gstin text, bulk_group text, title text, bill_address text)
+         as x(name text, ledger text, gstin text, bulk_group text, title text, bill_address text, layout jsonb)
     union all
-    select x.customer, null, null, null, null, null, 1
+    select x.customer, null, null, null, null, null, null, 1
     from jsonb_to_recordset(coalesce(p_payload -> 'sales', '[]'::jsonb)) as x(customer text, product text)
     where x.product in ('HSD', 'MS', 'XG')
   ), agg as (
@@ -514,17 +516,19 @@ begin
            max(nullif(btrim(gstin), '')) as gstin,
            max(nullif(btrim(bulk_group), '')) as bulk_group,
            max(nullif(btrim(title), '')) as title,
-           max(nullif(btrim(bill_address), '')) as bill_address
+           max(nullif(btrim(bill_address), '')) as bill_address,
+           (array_agg(layout) filter (where jsonb_typeof(layout) = 'object'))[1] as layout
     from src where ledger_norm(name) <> '' group by 1
   ), up as (
-    insert into ledger_customers as c (name, customer_key, ledger, gstin, bulk_group, title, bill_address)
-    select name, k, ledger, coalesce(gstin, ''), bulk_group, coalesce(title, ''), coalesce(bill_address, '') from agg
+    insert into ledger_customers as c (name, customer_key, ledger, gstin, bulk_group, title, bill_address, layout)
+    select name, k, ledger, coalesce(gstin, ''), bulk_group, coalesce(title, ''), coalesce(bill_address, ''), layout from agg
     on conflict (customer_key) do update set
       ledger = coalesce(c.ledger, excluded.ledger),
       gstin = case when c.gstin = '' then excluded.gstin else c.gstin end,
       bulk_group = coalesce(c.bulk_group, excluded.bulk_group),
       title = case when excluded.title <> '' then excluded.title else c.title end,
       bill_address = case when excluded.bill_address <> '' then excluded.bill_address else c.bill_address end,
+      layout = coalesce(excluded.layout, c.layout),
       updated_at = now()
     returning (xmax = 0) as inserted
   )
@@ -874,7 +878,7 @@ begin
   return jsonb_build_object(
     'customers', coalesce((select jsonb_agg(jsonb_build_object(
                      'id', c.id, 'name', c.name, 'key', c.customer_key, 'ledger', c.ledger,
-                     'title', c.title, 'bill_address', c.bill_address, 'gstin', c.gstin,
+                     'title', c.title, 'bill_address', c.bill_address, 'gstin', c.gstin, 'layout', c.layout,
                      'opening', ledger_balance_before(c.customer_key, p_from)) order by c.name)
                    from ledger_customers c
                    where c.ledger is not null and c.bulk_group is null and not c.archived), '[]'::jsonb),

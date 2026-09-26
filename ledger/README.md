@@ -31,8 +31,15 @@ are listed as skipped, like the macro.
 | **Update Monthly Outstanding** (Module5) | After a monthly run: **Save closing balances as (next month) opening**. Optional — balances already carry forward. |
 | **Custom Date Report** (Module6) | Any From..To range, optionally part of a customer name. Unlike Excel, the ledger opens with the customer's real balance on the From date, not only on the 1st of a month. |
 
-A ledger's title (sheet A1) and the bill-statement address (Q10) come with
-**Upload Master Ledger**; the GSTIN comes from Customer GST. Upload the
+A ledger's title (sheet A1), the bill-statement address (Q10) and the
+sheet's column widths / row heights come with **Upload Master Ledger**; the
+GSTIN comes from Customer GST. The pictures are drawn the way Excel prints
+them — Times New Roman at the sheet's own widths, whole-number "fit to page"
+zoom, the same margins, borders and stamp position — so they match the
+workbook's exports. Phones without Times New Roman (Android) get Tinos, a
+free font with the same letter widths, from Google Fonts. The Statements tab
+says when a customer's address or sheet widths are missing (re-upload the
+Master Ledger). Upload the
 stamp once on the Statements tab — it is kept in the database, not on the
 website.
 
