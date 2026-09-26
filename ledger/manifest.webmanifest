@@ -1,0 +1,13 @@
+{
+  "name": "Vriddhi Ledger",
+  "short_name": "Ledger",
+  "description": "Vriddhi Fuels Master Ledger in the cloud: sales import, PO lists, customers.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0706",
+  "theme_color": "#0a0706",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
