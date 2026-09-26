@@ -187,3 +187,19 @@ test('Excel page model: each sheet\'s column widths and a whole-number zoom', ()
   const m = st.match(/<image href="data:image\/png;base64,S" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)"/);
   assert.deepEqual([Number(m[1]) + Number(m[3]) / 4, Number(m[3]) / 2], [1369.5, 206]);   // 209 x 206 box, centred
 });
+
+test('sharing goes in parts of up to 10 pictures, customers kept together', async () => {
+  const { shareBatches } = await import('../../ledger/js/statements.js');
+  const f = (n, size = 300e3) => ({ name: n, size });
+  // 11 customers x 2 pictures + HSD + MS summaries = 24 pictures (the Android case)
+  const groups = [...Array.from({ length: 11 }, (_, i) => [f(`L${i}`), f(`B${i}`)]), [f('HSD')], [f('MS')]];
+  const parts = shareBatches(groups);
+  assert.deepEqual(parts.map((p) => p.length), [10, 10, 4]);
+  assert.ok(parts.every((p) => p.length <= 10));
+  assert.deepEqual(parts.flat().map((x) => x.name), groups.flat().map((x) => x.name));   // nothing lost, same order
+  assert.ok(parts.every((p) => p.every((x) => !x.name.startsWith('B') || p.some((y) => y.name === `L${x.name.slice(1)}`))));
+  assert.deepEqual(shareBatches([[f('a'), f('b')]]).map((p) => p.length), [2]);
+  assert.deepEqual(shareBatches([[f('a', 30e6), f('b', 30e6)]]).map((p) => p.length), [1, 1]);   // size limit
+  assert.deepEqual(shareBatches(Array.from({ length: 3 }, () => [f('x'), f('y'), f('z')])).map((p) => p.length), [9]);
+  assert.deepEqual(shareBatches(Array.from({ length: 4 }, () => [f('x'), f('y'), f('z')])).map((p) => p.length), [9, 3]);
+});

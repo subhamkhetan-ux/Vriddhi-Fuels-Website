@@ -13,7 +13,7 @@ import {
 } from './render.js';
 import { billStatementSvgs, dailySummarySvg, ledgerSvg, PAGE, PAGE_PT } from './statement-svg.js';
 import {
-  addDays, buildStatements, defaultMonth, monthEnd, monthLabel, monthStart,
+  addDays, buildStatements, defaultMonth, monthEnd, monthLabel, monthStart, shareBatches,
 } from './statements.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
@@ -1099,19 +1099,24 @@ async function viewStatements() {
 }
 
 // The Web Share API needs the files ready before the click, so the pictures
-// are made first and the buttons only hand them over.
-async function shareOrSave(files, zipName, title) {
-  if (navigator.canShare && navigator.canShare({ files })) {
+// are made first and the buttons only hand them over. Returns 'shared',
+// 'cancelled' or 'downloaded'.
+const canShareFiles = (files) => {
+  try { return !!(navigator.canShare && navigator.canShare({ files })); } catch { return false; }
+};
+async function shareOrSave(files, zipName) {
+  if (canShareFiles(files)) {
     try {
-      await navigator.share({ files, title });
-      return;
+      await navigator.share({ files });              // pictures only: extra text can make apps drop them
+      return 'shared';
     } catch (err) {
-      if (err && err.name === 'AbortError') return;          // closed the share sheet
+      if (err && err.name === 'AbortError') return 'cancelled';     // closed the share sheet
       if (!(err && err.name === 'NotAllowedError')) throw err;
     }
   }
   download(files.length === 1 ? files[0] : await zipBlob(files), files.length === 1 ? files[0].name : zipName);
-  toast('This browser can\'t send pictures to WhatsApp directly, so they were downloaded instead. On your phone, open the app in Chrome or Safari to share them straight away.');
+  toast('This browser can\'t hand pictures to WhatsApp, so they were downloaded instead.');
+  return 'downloaded';
 }
 
 async function prepareDaily(date) {
@@ -1153,6 +1158,7 @@ async function prepareDaily(date) {
     <div class="preview">
       <p><b>${plural(total, 'picture')}</b> · ${plural(res.customers.length, 'customer')} · ${dmyDash(date)}${images.stamp ? '' : ' · <span class="warn-text">no stamp yet (upload it below)</span>'}</p>
       ${missingSheetInfo(res.customers)}
+      <p class="muted small" data-share-note></p>
       <p class="actions"><button class="btn" data-share-all>Share all on WhatsApp</button>
         <button class="btn ghost" data-zip>Download all (.zip)</button></p>
       <div class="bundles">${items.map((it, i) => `
@@ -1166,11 +1172,38 @@ async function prepareDaily(date) {
           </div>
         </div>`).join('')}</div>
     </div>`;
-  out.querySelector('[data-share-all]').addEventListener('click', () => guard(() => shareOrSave(all, zipName, `Statements ${dmyDash(date)}`)));
+  // Android shares up to 10 pictures at a time: "Share all" goes in parts,
+  // one tap each, each customer's pictures kept together.
+  // ask the phone how many pictures it takes at once (iPhone: all; Android: 10)
+  let most = canShareFiles(all) ? all.length : 0;
+  for (let n = Math.min(10, all.length - 1); !most && n > 0; n--) if (canShareFiles(all.slice(0, n))) most = n;
+  const parts = shareBatches(items.map((it) => it.pages.map((p) => p.file)), { max: most || all.length });
+  const shareAll = out.querySelector('[data-share-all]');
+  const note = out.querySelector('[data-share-note]');
+  let part = 0;
+  const label = () => {
+    if (parts.length === 1) shareAll.textContent = part ? 'Share again' : 'Share all on WhatsApp';
+    else if (part < parts.length) shareAll.textContent = `Share part ${part + 1} of ${parts.length} on WhatsApp`;
+    else shareAll.textContent = 'All shared ✓ — share again';
+    note.textContent = parts.length > 1
+      ? `This phone shares up to ${most} pictures at a time, so they go in ${parts.length} parts (${parts.map((x) => x.length).join(' + ')}). Tap once for each part.`
+      : '';
+  };
+  label();
+  shareAll.addEventListener('click', () => guard(async () => {
+    if (part >= parts.length) part = 0;
+    if (!most) {                                              // no file sharing here at all
+      await shareOrSave(all, zipName);
+      return;
+    }
+    const res = await shareOrSave(parts[part], zipName);
+    if (res === 'shared') part += 1;
+    label();
+  }));
   out.querySelector('[data-zip]').addEventListener('click', () => guard(async () => download(await zipBlob(all, res.folder), zipName)));
   out.querySelectorAll('[data-share]').forEach((btn) => btn.addEventListener('click', () => guard(() => {
     const it = items[Number(btn.dataset.share)];
-    return shareOrSave(it.pages.map((p) => p.file), `${it.title} ${dmyDash(date)}.zip`, it.title);
+    return shareOrSave(it.pages.map((p) => p.file), `${it.title} ${dmyDash(date)}.zip`);
   })));
   out.querySelectorAll('[data-save]').forEach((btn) => btn.addEventListener('click', () => {
     for (const p of items[Number(btn.dataset.save)].pages) download(p.file, p.name);
