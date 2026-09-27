@@ -12,7 +12,7 @@ export const productShort = (k) => PRODUCTS[k]?.short || k || '—';
 
 export function fmtL(l, digits = 0) {
   if (!Number.isFinite(l)) return '—';
-  return `${Number(l).toLocaleString('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits })} L`;
+  return `${Number(l).toLocaleString('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits })}\u00a0L`;
 }
 export function fmtNum(n, digits = 0) {
   if (!Number.isFinite(n)) return '—';
@@ -33,7 +33,7 @@ export function fmtPct(p) {
   return `${p > 0 ? '+' : p < 0 ? '−' : '±'}${Math.abs(p).toFixed(2)}%`;
 }
 export function fmtDip(cm) {
-  return Number.isFinite(cm) ? `${cm.toFixed(1)} cm` : '—';
+  return Number.isFinite(cm) ? `${cm.toFixed(1)}\u00a0cm` : '—';              // the unit stays with its number when a line wraps
 }
 export function fmtMoney(n) {
   if (!Number.isFinite(n)) return '—';

@@ -286,8 +286,8 @@ function tankTile(t, busy) {
     <div class="t-head"><span class="t-name">Tank ${t.no}</span>${productChip(t.product)}</div>
     ${tankGauge({ product: t.product, volume: r?.volume, capacity: t.capacity, label: `Tank ${t.no}` })}
     <div class="t-vol">${r ? fmtL(r.volume) : '—'}</div>
-    <div class="t-sub">Room <b>${r ? fmtL(roomOf(r, t)) : '—'}</b> · Dip <b>${r ? fmtDip(r.dip) : '—'}</b></div>
-    <div class="t-age${stale ? ' stale' : ''}">${r ? `${fmtWhen(r.readingAt)} · ${ago(r.readingAt)}` : 'No reading yet'}</div>
+    <div class="t-sub"><span>Room <b>${r ? fmtL(roomOf(r, t)) : '—'}</b></span><span>Dip <b>${r ? fmtDip(r.dip) : '—'}</b></span></div>
+    <div class="t-age${stale ? ' stale' : ''}">${r ? `<span>${istDate(r.readingAt) === istDate(Date.now()) ? fmtTime(r.readingAt) : fmtWhen(r.readingAt)}</span><span>${ago(r.readingAt)}</span>` : 'No reading yet'}</div>
   </button>`;
 }
 
@@ -429,7 +429,7 @@ function renderHome(el) {
   const doneToday = state.sessions.filter((s) => s.status === 'done' && istDate(s.data?.decantedAt || s.created_at) === today);
 
   el.innerHTML = `
-    <h2>Tank stock <span class="sp"></span><button class="btn sm" data-stock>📷 Update</button><button class="btn sm ghost" data-dipcalc title="Dip ↔ litres">📏</button></h2>
+    <h2>Tank stock <span class="sp"></span><button class="btn sm" data-stock>📷 Update</button><button class="btn sm" data-dips title="Tank stock from physical dips">📏 Dip</button></h2>
     <div class="tanks">${tanks().map((t) => tankTile(t, busy)).join('')}</div>
     ${open.length ? `<h2>In progress <span class="count">${open.length}</span></h2>${open.map(sessionCard).join('')}` : ''}
     <h2>To decant <span class="count">${recent.length}</span><span class="sp"></span>
@@ -465,7 +465,7 @@ function onHomeClick(e) {
   const tile = t.closest('[data-tank]');
   if (tile) { tankSheet(tile.dataset.tank); return; }
   if (t.closest('[data-stock]')) { stockFlow(); return; }
-  if (t.closest('[data-dipcalc]')) { dipCalculator(); return; }
+  if (t.closest('[data-dips]')) { dipSheet(); return; }
   if (t.closest('[data-addinv]')) { invoiceForm(); return; }
   if (t.closest('[data-addpdf]')) { invoiceFromPdf(); return; }
   if (t.closest('[data-older]') && !t.closest('[data-dismissold]')) { APP.showOlder = !APP.showOlder; render(); return; }
@@ -598,6 +598,63 @@ function tankSheet(id) {
       } catch (e) { hint.textContent = e.message; }
     };
     body.querySelector('#tsPhoto').onclick = () => { closeSheet(); stockFlow(); };
+  });
+}
+
+// Tank stock from physical dips, for when no automation screenshot can be
+// taken: type each tank's dip, the litres come from the dip chart as you
+// type, and the tanks typed are saved as readings taken now.
+function dipSheet() {
+  const c = state.chart;
+  const got = {};                                      // tank id -> litres at the typed dip
+  openSheet('Stock by dip', (body) => {
+    body.innerHTML = `<div class="hint">Type each tank's dip — the litres come from the dip chart (${esc(c.name || 'dip chart')}, ${c.startCm}–${round2(chartMaxCm(c))} cm). Leave a tank empty to keep its stock.</div>
+      <div class="dip-list">${tanks().map((t) => {
+        const r = state.tankState[t.id];
+        return `<div class="dip-row">
+          <div class="dip-head"><span class="pt-name">Tank ${t.no}</span>${productChip(t.product)}<span class="sp"></span>
+            <span class="hint">${r ? `now ${fmtL(r.volume)}${Number.isFinite(r.dip) ? ` · ${fmtDip(r.dip)}` : ''}` : 'no reading yet'}</span></div>
+          <div class="dip-line">
+            <label class="dip-in"><input type="number" inputmode="decimal" step="0.1" min="0" data-dip="${t.id}" placeholder="dip" aria-label="Tank ${t.no} dip in cm"><span>cm</span></label>
+            <div class="dip-out" data-out="${t.id}"></div>
+          </div>
+        </div>`;
+      }).join('')}</div>
+      <div class="row-actions"><button class="btn" data-x>Cancel</button><button class="cta" data-savedips disabled>Save stock</button></div>
+      <div class="hint" style="margin-top:10px"><a href="#" data-convert>Convert litres ↔ dip</a> without saving</div>`;
+    const save = body.querySelector('[data-savedips]');
+    const show = (id) => {
+      const t = tankById(id);
+      const v = body.querySelector(`[data-dip="${id}"]`).value;
+      const out = body.querySelector(`[data-out="${id}"]`);
+      delete got[id];
+      if (v === '') out.innerHTML = '';
+      else {
+        const l = litresAtDip(c, Number(v));
+        if (!Number.isFinite(l)) out.innerHTML = `<span class="bad">outside the chart (${c.startCm}–${round2(chartMaxCm(c))} cm)</span>`;
+        else {
+          got[id] = l;
+          out.innerHTML = `<b>${fmtL(l, 2)}</b><span class="hint">room ${fmtL(fillLimit(t) - l)}</span>`;
+        }
+      }
+      const n = Object.keys(got).length;
+      save.disabled = !n;
+      save.textContent = n > 1 ? `Save ${n} tanks` : 'Save stock';
+    };
+    body.addEventListener('input', (e) => { if (e.target.dataset.dip) show(e.target.dataset.dip); });
+    body.querySelector('[data-x]').onclick = () => closeSheet();
+    body.querySelector('[data-convert]').onclick = (e) => { e.preventDefault(); dipCalculator(); };
+    save.onclick = async () => {
+      const done = [];
+      for (const id of Object.keys(got)) {
+        const dipCm = Number(body.querySelector(`[data-dip="${id}"]`).value);
+        await saveTankReading(id, typedReading(id, { dipCm }));
+        done.push(tankName(id));
+      }
+      closeSheet();
+      toast(`Stock from dips saved: ${done.join(', ')}.`);
+    };
+    body.querySelector('[data-dip]')?.focus();
   });
 }
 
@@ -893,6 +950,11 @@ function boot() {
   });
   document.getElementById('view-home').addEventListener('click', onHomeClick);
   document.getElementById('btnStock').onclick = () => stockFlow();
+  // the tab bar sticks right under the header, however tall it is (bigger text on Android)
+  const header = document.querySelector('header');
+  const setHdr = () => document.documentElement.style.setProperty('--hdr', `${header.offsetHeight}px`);
+  setHdr();
+  if (window.ResizeObserver) new window.ResizeObserver(setHdr).observe(header);
   document.getElementById('btnRefresh').onclick = () => { refreshNow(); render(); toast('Refreshing…'); };
   document.getElementById('btnSettings').onclick = () => settingsSheet();
   try {

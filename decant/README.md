@@ -220,7 +220,17 @@ One fix was made: the sheet's rows 143.2–143.9 cm all read 15,687.45 L (143.0
 cm's value copied down); they're put back on the line from 143.1 to 144.0 cm
 (e.g. 143.5 cm = 15,748.49 L). Correct the Excel sheet too. **Settings →
 Upload a chart** takes a new chart (.xlsx/.xlsm/.csv, dip in the first column,
-litres in the second) for every phone; **📏** converts dip ↔ litres.
+litres in the second) for every phone; **📏 Dip → Convert litres ↔ dip**
+converts without saving anything.
+
+## Stock by dip
+
+When no automation screenshot can be taken, dip the tanks by hand: **📏 Dip**
+on the Decant tab lists every tank — type each one's dip in cm and its litres
+(and the room left) fill in from the dip chart as you type. **Save** stores
+the tanks typed as readings taken now, for every phone; a tank left empty
+keeps its stock, and a dip outside the chart is refused. For one tank, tap its
+tile and type its dip there.
 
 ## Plan: what to dispense before the indented loads
 
