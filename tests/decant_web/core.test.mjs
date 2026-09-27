@@ -283,32 +283,38 @@ test('after decanting: chambers that went into the other tank are spotted', asyn
   assert.deepEqual(guessRouting([{ no: 1, litres: 4000 }], [{ id: 'T2', gain: 3990 }]).assign, { 1: 'T2' });
 });
 
-test('plan ahead: what to sell from each tank before the next loads', async () => {
-  const { planAhead } = await import('../../decant/js/core.js');
+test('plan: the least to dispense so every indented load fits', async () => {
+  const { planDispense } = await import('../../decant/js/core.js');
   // stock after the 26-Sep afternoon decanting
   const stock = {
     T1: { volume: 8886.77, ullage: 11113.23 }, T2: { volume: 18965.71, ullage: 1034.29 },
     T3: { volume: 18962.36, ullage: 1037.64 }, T4: { volume: 2559.46, ullage: 17440.54 },
   };
   const loads = [
-    { id: 'transit', chambers: [{ no: 5, litres: 4000, product: 'HSD' }] },               // still on the truck
-    { id: 'next', chambers: [{ no: 1, litres: 5000, product: 'MS' }, ...[2, 3, 4, 5].map((no) => ({ no, litres: no === 2 ? 5000 : 4000, product: 'HSD' }))] },
+    { id: 'a', chambers: [{ no: 5, litres: 4000, product: 'HSD' }] },
+    { id: 'b', chambers: [{ no: 1, litres: 5000, product: 'MS' }, ...[2, 3, 4, 5].map((no) => ({ no, litres: no === 2 ? 5000 : 4000, product: 'HSD' }))] },
   ];
-  const r = planAhead({ loads, tanks: DEFAULT_TANKS, stock, margin: 150 });
-  // the 4 KL still on the truck goes into Tank 3 (a touch more room), 3,112.36 L to sell first
-  assert.deepEqual(r.loads[0].split, { 5: 'T3' });
-  assert.deepEqual(r.loads[0].sell, { T3: 3112.36 });
-  // next load: MS fits; HSD 17 KL shared so neither tank has to sell much more than the other
-  assert.deepEqual(r.loads[1].split, { 1: 'T1', 2: 'T2', 3: 'T2', 4: 'T3', 5: 'T3' });
-  assert.deepEqual(r.loads[1].sell, { T1: 0, T2: 8115.71, T3: 8000 });
+  const r = planDispense({ loads, tanks: DEFAULT_TANKS, stock, margin: 150 });
+  // all the HSD chambers are split together: 9 KL to Tank 2, 12 KL to Tank 3 —
+  // the least dispensing in total (21 KL less the room), and the most even
+  assert.deepEqual(r.loads[0].split, { 5: 'T2' });
+  assert.deepEqual(r.loads[1].split, { 1: 'T1', 2: 'T2', 3: 'T3', 4: 'T3', 5: 'T3' });
   assert.deepEqual(r.products.HSD, { incoming: 21000, sell: 19228.07 });
   assert.deepEqual(r.products.MS, { incoming: 5000, sell: 0 });
-  assert.equal(r.tanks.T1.spare, 6113.23);
+  assert.equal(r.tanks.T2.sell, 8115.71);
   assert.equal(r.tanks.T3.sell, 11112.36);
   assert.equal(r.tanks.T3.after, 19850);                                              // full, less the 150 L margin
+  assert.equal(r.tanks.T1.spare, 6113.23);
+  assert.equal(r.tanks.T4.sell, 0);
   assert.deepEqual(r.missing, []);
+  // whole chambers only: 21 KL into two tanks of 10,850 L room each splits 9 + 12 KL
+  const tight = { ...stock, T2: { volume: 9000, ullage: 11000 }, T3: { volume: 9000, ullage: 11000 } };
+  assert.equal(planDispense({ loads, tanks: DEFAULT_TANKS, stock: tight }).products.HSD.sell, 1150);
+  // enough room: nothing to dispense
+  const roomy = { ...stock, T2: { volume: 7000, ullage: 13000 }, T3: { volume: 7000, ullage: 13000 } };
+  assert.equal(planDispense({ loads, tanks: DEFAULT_TANKS, stock: roomy }).products.HSD.sell, 0);
   // no stock for a tank: said so, and its product can't be planned
-  const partial = planAhead({ loads, tanks: DEFAULT_TANKS, stock: { T1: stock.T1 }, margin: 150 });
+  const partial = planDispense({ loads, tanks: DEFAULT_TANKS, stock: { T1: stock.T1 }, margin: 150 });
   assert.deepEqual(partial.missing, ['T2', 'T3', 'T4']);
   assert.deepEqual(partial.loads[1].noTank, [2, 3, 4, 5]);
 });

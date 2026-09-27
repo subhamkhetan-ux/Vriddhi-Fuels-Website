@@ -7,8 +7,8 @@ records the stock before and after — so every decantation ends with the
 **variation** between what the chambers held and what the tank actually
 gained. The reports show per product what was decanted, bought and is still
 **in transit**, and the variation by day, truck, product, tank and month; the
-**Plan** tab works out how much to dispense from each tank to make room for
-the loads coming next.
+**Plan** tab works out the least to dispense from each tank so the loads
+you've placed an indent for fit.
 
 It is a separate app (like `/payments/`, `/ledger/`, `/tally/`), installable
 as a PWA, in the same glassmorphism style as the payments app.
@@ -19,8 +19,9 @@ as a PWA, in the same glassmorphism style as the payments app.
    open *SQL Editor*, paste [`supabase/decant-schema.sql`](../supabase/decant-schema.sql)
    and **Run** (safe to run again). It adds the `dec_*` tables and the
    `dec_history` view. **Already ran an earlier version? Run it again** — it
-   adds the `dismiss_reason` column, the `dec_history` view and the new
-   retention (until then the app keeps working and shows a reminder).
+   adds the `dismiss_reason` column and the `dec_history` view, sets the new
+   retention and drops the old screenshots table (until then the app keeps
+   working and shows a reminder).
 2. That's it. [`decant/config.js`](./config.js) already points at the payments
    project, and the payment agent already has the Supabase secrets — from its
    next run (every ~20 min) it also stores every IndianOil invoice for this app.
@@ -129,40 +130,35 @@ cm's value copied down); they're put back on the line from 143.1 to 144.0 cm
 Upload a chart** takes a new chart (.xlsx/.xlsm/.csv, dip in the first column,
 litres in the second) for every phone; **📏** converts dip ↔ litres.
 
-## Plan: make room for the next loads
+## Plan: what to dispense before the indented loads
 
-The **Plan** tab answers "how much do I have to dispense from each tank before
-the next trucks come?":
+The **Plan** tab answers one question: *how little do I have to dispense from
+each tank so the loads I've placed an indent for fit?*
 
 1. **Stock now** — each tank's latest reading: the stock after the last
    decanting, or the last screenshot. **✎ Type** a new figure (litres or a dip)
-   or **📷 Screenshot** to update it; the plan follows.
-2. **Coming next** — the trucks **in transit** (invoiced, chambers not
-   decanted yet — from the last 3 days, see *Settings*), then the loads you've
-   **ordered**: **＋ Add what you've ordered** — the tanker (its chambers fill
-   in for a truck seen before), the **indent in KL per product** (MS goes from
-   chamber 1 up, then HSD, then XtraGreen; tap a chamber to change it) and when
-   it's expected. Untick a load to leave it out of the sums. When the ordered
-   load's invoice comes in it's followed as that invoice (tap *OK* to clear
-   the order); ordering the next trip of a truck that's still on the road is
-   fine — only a *new* invoice for it counts.
-3. **Make room for it** — per product and tank, in the order the loads come:
-   which chambers go where (every chamber goes in: the split needing the least
-   dispensing, spread evenly, roomiest tank first), how much to **dispense
-   before each load**, and the stock and dip after — keeping the 150 L room
-   margin.
-4. **Our tankers** — sign in once on the phone with a **Loading app** login
-   (the same username + password); the app reads how full each of our own
-   tankers is (read-only, live) and shows the **free space**, leaving out
-   **OD15AF5510** (change the list in *Settings*). The diesel card then says
-   whether our tankers can take the diesel to be dispensed.
+   or **📷 Screenshot** to update it.
+2. **Indents placed** — **＋ Add an indent** for each load: the tanker (its
+   chambers fill in for a truck seen before, or type them) and the **KL of each
+   product** (MS goes from chamber 1 up, then HSD, then XtraGreen; tap a chamber
+   to change it). **Clear all** once they've been decanted.
+3. **Dispense first** — per product and tank: the litres to **dispense**,
+   which chambers go into which tank, and the stock and dip after. All the
+   chambers of a product (from every indent) are split over its tanks together,
+   picking the split that needs **the least dispensing in total**, then the
+   most even, keeping the 150 L room margin. Chambers go in whole, so the
+   figure can be a little above "incoming − room".
+4. **Our tankers** — sign in once on the phone with a **Loading app** login;
+   the app reads how full each of our own tankers is (read-only, live) and
+   shows the free space, leaving out **OD15AF5510** (change the list in
+   *Settings*). The diesel card then says whether our tankers can take the
+   diesel to be dispensed.
 
 ## Log and reports
 
 - **Log** — every finished decantation of *today, 7 days, this month or last
   month*, one row per tank filled, with filters by truck and product, search,
-  and **⬇ Excel / CSV**. Tap a row for the full result, the screenshots and
-  notes.
+  and **⬇ Excel / CSV**. Tap a row for the full result and notes.
 - **Reports** — for **this month** (the default), **last month**, **this FY**
   (from 1 April), **all** (this FY and the last) or any dates, and any truck /
   product:
@@ -184,8 +180,8 @@ the next trucks come?":
 - **Decantations and invoices**: this financial year and the last, in the
   cloud. The phone keeps this month and last; *This FY* / *All* reports fetch
   the older months from the cloud (compact, via `dec_history`) when opened.
-- **Screenshots**: 31 days (*Settings → Keep the screenshots for*), except an
-  open decantation's.
+- **Screenshots are never kept** — they're read on the phone and only the
+  figures are saved.
 
 ## Offline
 
@@ -196,9 +192,8 @@ back, and other phones see them live.
 ## Settings (⚙)
 
 Tank products and capacities, the variation tolerance, the room warning, when
-a reading counts as old, the settling wait, the density limit, how long the
-screenshots are kept, how many days of undecanted invoices to list (and count
-as in transit on the Plan tab), our tankers to leave out of the room check
+a reading counts as old, the settling wait, the density limit, how many days
+of undecanted invoices to list, our tankers to leave out on the Plan tab
 (OD15AF5510 by default), the automation's date format (MM/DD/YYYY by default),
 and the dip chart.
 
@@ -211,9 +206,9 @@ and the dip chart.
 | `js/app.js` | Home screen, stock screenshots, invoices, settings |
 | `js/wizard.js` | The six decanting steps |
 | `js/views.js` | Log and reports |
-| `js/plan.js` | The Plan tab: stock now, loads coming, what to dispense |
+| `js/plan.js` | The Plan tab: stock now, indents placed, what to dispense |
 | `js/tankers.js` | Our tankers' free space, read from the Loading app (sign-in) |
-| `js/core.js` | The rules: dip chart, chambers, planning (now and ahead), checks, variation, density |
+| `js/core.js` | The rules: dip chart, chambers, planning (decanting and dispensing), checks, variation, density |
 | `js/automation.js` | Reading tank cards out of the screenshot text |
 | `js/ocr.js` | The in-browser text reader (Tesseract.js) |
 | `js/invoice.js` | Reading an invoice PDF in the browser (pdf.js) |

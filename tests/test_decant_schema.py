@@ -55,7 +55,7 @@ def pg():
 
 
 def _reset(pg):
-    pg.ok("delete from dec_sessions; delete from dec_photos; delete from dec_invoices;"
+    pg.ok("delete from dec_sessions; delete from dec_invoices;"
           "update dec_config set data = '{}'::jsonb;")
 
 
@@ -80,7 +80,7 @@ def test_realtime_publication_skips_photos(pg):
                                  "dec_vehicles"]
 
 
-def test_purge_keeps_two_fys_of_numbers_and_a_month_of_screenshots(pg):
+def test_purge_keeps_two_fys(pg):
     _reset(pg)
     pg.ok("""
       insert into dec_sessions (id, invoice_no, status, created_at, completed_at) values
@@ -88,40 +88,19 @@ def test_purge_keeps_two_fys_of_numbers_and_a_month_of_screenshots(pg):
         ('ancient-x',  'A', 'cancelled', now() - interval '790 days', now() - interval '790 days'),
         ('last-month', 'B', 'done',      now() - interval '40 days',  now() - interval '40 days'),
         ('stuck-open', 'C', 'settling',  now() - interval '900 days', null);
-      insert into dec_photos (id, session_id, kind, created_at) values
-        ('p-40d',    'last-month', 'before', now() - interval '40 days'),
-        ('p-20d',    'last-month', 'after',  now() - interval '20 days'),
-        ('p-open',   'stuck-open', 'before', now() - interval '900 days'),
-        ('p-stock',  null,         'stock',  now() - interval '33 days');
       insert into dec_invoices (invoice_no, created_at) values
         ('A', now() - interval '800 days'),
         ('C', now() - interval '900 days'),
         ('D', now() - interval '200 days');
       select dec_purge_old();
     """)
-    # numbers: two FYs are kept (so "this FY" works); older ones go, open work stays
+    # two FYs are kept (so "this FY" works); older ones go, open work stays
     assert pg.ok("select string_agg(id, ',' order by id) from dec_sessions;") == "last-month,stuck-open"
-    # screenshots: a month, except for an open decantation
-    assert pg.ok("select string_agg(id, ',' order by id) from dec_photos;") == "p-20d,p-open"
     assert pg.ok("select string_agg(invoice_no, ',' order by invoice_no) from dec_invoices;") == "C,D"
 
 
-def test_screenshot_days_setting(pg):
-    _reset(pg)
-    pg.ok("""
-      update dec_config set data = '{"settings": {"retentionDays": 60}}'::jsonb;
-      insert into dec_photos (id, kind, created_at) values
-        ('p45', 'stock', now() - interval '45 days'),
-        ('p70', 'stock', now() - interval '70 days');
-      select dec_purge_old();
-    """)
-    assert pg.ok("select string_agg(id, ',') from dec_photos;") == "p45"
-    # nonsense values fall back to a month
-    pg.ok("""
-      update dec_config set data = '{"settings": {"retentionDays": "lots"}}'::jsonb;
-      select dec_purge_old();
-    """)
-    assert pg.ok("select count(*) from dec_photos;") == "0"
+def test_screenshots_are_not_kept(pg):
+    assert pg.ok("select to_regclass('public.dec_photos') is null;") == "t"
 
 
 def test_dismiss_reason_column(pg):

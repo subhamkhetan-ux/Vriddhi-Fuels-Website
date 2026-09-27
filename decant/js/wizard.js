@@ -10,7 +10,7 @@ import {
   PRODUCTS, checkPlan, densityCheck, dipAtLitres, litresAtDip, round2, routingHint, solvePlan, suggestPlan, tankResult,
   usedChambers,
 } from './core.js';
-import { deleteSession, getPhoto, linkPhoto, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
+import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import {
   ask, bandBadge, closeSheet, confBadge, elapsed, esc, fmtDip, fmtKL, fmtL, fmtMoney, fmtPct, fmtSigned, fmtTime,
   fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
@@ -79,7 +79,6 @@ export async function startSession(inv) {
       before: {},
       plan: [],
       tanks: [],
-      photos: [],
       operator: state.device.operator || '',
     },
   };
@@ -118,7 +117,6 @@ export function renderWizard(el) {
   clearInterval(timer);
   if (step === 'decant' || step === 'after') timer = setInterval(tick, 1000);
   tick();
-  if (step === 'result') loadThumbs(s, el);
 }
 
 function tick() {
@@ -447,7 +445,6 @@ function stepResult(s) {
     ${routingCards(s)}
     <div class="card">
       <label class="f">Notes<textarea rows="2" data-notes placeholder="e.g. chamber 3 foamed, re-dipped after 15 min">${esc(d.notes || '')}</textarea></label>
-      <div class="photo-thumbs" id="wzThumbs"></div>
       <div class="hint" style="margin-top:8px">${d.operator ? `By ${esc(d.operator)} · ` : ''}Seals ${d.checks?.sealsOk ? 'checked ✓' : 'not ticked'}${Object.entries(d.checks?.density || {}).map(([p, v]) => { const c = densityCheck({ reading: v.reading, tempC: v.temp, invoice15: d.densities?.[p], limitKg: state.settings.densityLimit }); return c ? ` · ${p} density ${c.d15} (${fmtSigned(c.diff, '', 1)})` : ''; }).join('')}</div>
     </div>
     <div class="row-actions">
@@ -456,21 +453,6 @@ function stepResult(s) {
       <button class="btn" data-wz="reopen">✎ Change the after-stock</button>
       <button class="cta" data-wz="close">Done</button>
     </div>`;
-}
-
-async function loadThumbs(s, el) {
-  const box = el.querySelector('#wzThumbs');
-  if (!box) return;
-  for (const p of s.data.photos || []) {
-    const url = await getPhoto(p.id).catch(() => null);
-    if (!url || !el.contains(box)) continue;
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = `${p.kind} screenshot`;
-    img.title = `${p.kind === 'before' ? 'Before' : 'After'} · ${fmtWhen(p.at)}`;
-    img.onclick = () => openSheet(img.title, (b) => { b.innerHTML = `<img class="full" src="${url}" alt="">`; }, { wide: true });
-    box.append(img);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -648,7 +630,7 @@ function setReading(s, tankId, r, phase) {
 
 async function shot(s, phase) {
   const want = phase === 'after' ? s.data.tanks.map((t) => t.tank) : relevantTanks(s).map((t) => t.id);
-  const res = await readScreenshot({ kind: phase, sessionId: s.id, want });
+  const res = await readScreenshot({ want });
   if (!res) return;
   const fresh = session();
   if (!fresh) return;
@@ -658,8 +640,6 @@ async function shot(s, phase) {
     setReading(fresh, id, r, phase);
     used += 1;
   }
-  fresh.data.photos = [...(fresh.data.photos || []), { id: res.photoId, kind: phase, at: new Date().toISOString() }];
-  linkPhoto(res.photoId, fresh.id);
   await persist(fresh);
   if (!used) toast('None of this truck\'s tanks were on that screenshot.', 4000);
 }

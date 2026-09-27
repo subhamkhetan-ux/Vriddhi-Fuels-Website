@@ -224,14 +224,6 @@ export async function readRegions(file, regions, clean = true) {
   return out;
 }
 
-// A smaller JPEG of the screenshot to keep with the log (≈100–250 KB).
-export async function compressImage(file, maxSide = 1600, quality = 0.72) {
-  const img = await loadImage(file);
-  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-  const c = drawScaled(img, scale);
-  return c.toDataURL('image/jpeg', quality);
-}
-
 // The whole job for one screenshot: read it, find the tank cards, and give any
 // card whose "Last Updated" time was missed a second, closer look.
 // opts: {tanks, chart, dateOrder, now, onProgress}

@@ -8,7 +8,7 @@ import {
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
-  cloudEnabled, clearDevice, initStore, onChange, refreshNow, saveConfig, saveDevice, saveInvoice, savePhoto,
+  cloudEnabled, clearDevice, initStore, onChange, refreshNow, saveConfig, saveDevice, saveInvoice,
   saveTankReading, saveVehicle, state,
 } from './store.js';
 import {
@@ -17,7 +17,7 @@ import {
 } from './ui.js';
 import { openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
 import { renderLog, renderReports } from './views.js';
-import { renderPlan, transitTotals } from './plan.js';
+import { renderPlan } from './plan.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -89,9 +89,10 @@ export function pickFile(accept) {
   });
 }
 
-// Pick a screenshot, read it and let the user check what was found.
-// Resolves {photoId, readings: {tankId: reading}} or null.
-export async function readScreenshot({ kind = 'stock', sessionId = null, want = null } = {}) {
+// Pick a screenshot, read it and let the user check what was found. Only the
+// figures are kept — the picture itself is never stored or uploaded.
+// Resolves {readings: {tankId: reading}} or null.
+export async function readScreenshot({ want = null } = {}) {
   const file = await pickFile('image/*');
   if (!file) return null;
   return new Promise((resolve) => {
@@ -103,7 +104,7 @@ export async function readScreenshot({ kind = 'stock', sessionId = null, want = 
       body.querySelector('#rsImg').src = url;
       (async () => {
         try {
-          const { readAutomationPhoto, compressImage } = await import('./ocr.js');
+          const { readAutomationPhoto } = await import('./ocr.js');
           const parsed = await readAutomationPhoto(file, {
             tanks: tanks(), chart: state.chart, dateOrder: state.settings.dateOrder, now: Date.now(),
             onProgress: (f, label) => {
@@ -113,8 +114,7 @@ export async function readScreenshot({ kind = 'stock', sessionId = null, want = 
               if (st) st.textContent = label;
             },
           });
-          const dataUrl = await compressImage(file);
-          showFound(body, parsed, dataUrl, url);
+          showFound(body, parsed, url);
         } catch (e) {
           body.innerHTML = `<div class="banner bad">Couldn't read this picture: ${esc(e.message || e)}</div>
             <div class="hint">You can still type the stock in litres or as a dip.</div>
@@ -123,7 +123,7 @@ export async function readScreenshot({ kind = 'stock', sessionId = null, want = 
         }
       })();
 
-      function showFound(el, parsed, dataUrl, imgUrl) {
+      function showFound(el, parsed, imgUrl) {
         const found = parsed.tanks;
         const rows = found.map((t, i) => {
           const tank = t.tankId ? tankById(t.tankId) : null;
@@ -163,7 +163,6 @@ export async function readScreenshot({ kind = 'stock', sessionId = null, want = 
           <details style="margin-top:12px"><summary class="hint">Screenshot</summary><img class="full" src="${imgUrl}" alt="Automation screenshot"></details>`;
         el.querySelector('[data-cancel]').onclick = () => closeSheet();
         el.querySelector('[data-use]')?.addEventListener('click', async () => {
-          const photoId = await savePhoto({ session_id: sessionId, kind, data_url: dataUrl, meta: { tanks: found.map((t) => ({ no: t.no, volume: t.reading.volume, readingAt: t.reading.readingAt, confidence: t.confidence })) } });
           const readings = {};
           found.forEach((t, i) => {
             const id = t.tankId || el.querySelector(`[data-pick="${i}"]`)?.value;
@@ -177,10 +176,10 @@ export async function readScreenshot({ kind = 'stock', sessionId = null, want = 
               r.height = null;
               src = 'photo-edited';
             }
-            readings[id] = makeReading(id, r, src, { photoId, confidence: t.confidence, checks: t.checks });
+            readings[id] = makeReading(id, r, src, { confidence: t.confidence, checks: t.checks });
           });
           for (const [id, r] of Object.entries(readings)) saveTankReading(id, r);
-          result = { photoId, readings };
+          result = { readings };
           closeSheet();
         });
       }
@@ -349,7 +348,6 @@ function renderHome(el) {
   // them decanted before the app was in use.
   const firstDay = state.sessions.length ? [] : recent.filter((x) => x.st === 'new' && invKey(x.inv) < startToday);
   const doneToday = state.sessions.filter((s) => s.status === 'done' && istDate(s.data?.decantedAt || s.created_at) === today);
-  const onWay = Object.entries(transitTotals());
 
   el.innerHTML = `
     <h2>Tank stock <span class="sp"></span><button class="btn sm" data-stock>📷 Update</button><button class="btn sm ghost" data-dipcalc title="Dip ↔ litres">📏</button></h2>
@@ -357,7 +355,6 @@ function renderHome(el) {
     ${open.length ? `<h2>In progress <span class="count">${open.length}</span></h2>${open.map(sessionCard).join('')}` : ''}
     <h2>To decant <span class="count">${recent.length}</span><span class="sp"></span>
       <button class="btn sm" data-addpdf title="Add an invoice from its PDF">⬆ PDF</button><button class="btn sm" data-addinv title="Type an invoice in">＋ Add</button></h2>
-    ${onWay.length ? `<div class="hint" style="margin:-4px 4px 10px">In transit (invoiced, not decanted): ${onWay.map(([p, l]) => `<b style="color:var(--ink)">${productShort(p)} ${fmtKL(l)}</b>`).join(' · ')} — <a href="#" data-goplan>make room on the Plan tab</a></div>` : ''}
     ${firstDay.length ? `<div class="banner">${firstDay.length} of these invoice${firstDay.length === 1 ? ' is' : 's are'} from before today. If those tankers were already decanted before you started using the app,
       <button class="btn sm" data-hidebefore>hide ${firstDay.length === 1 ? 'it' : `all ${firstDay.length}`}</button></div>` : ''}
     ${recent.length ? recent.map((x) => invoiceCard(x.inv, x.st)).join('') : `<div class="empty">No tanker waiting. New IndianOil invoices appear here on their own (the payments agent reads them from mail every ~20 min) — or add one from its PDF.</div>`}
@@ -395,7 +392,6 @@ function onHomeClick(e) {
   if (t.closest('[data-older]') && !t.closest('[data-dismissold]')) { APP.showOlder = !APP.showOlder; render(); return; }
   if (t.closest('[data-dismissold]')) { dismissOlder(); return; }
   if (t.closest('[data-hidebefore]')) { hideBeforeToday(); return; }
-  if (t.closest('[data-goplan]')) { e.preventDefault(); setTab('plan'); window.scrollTo(0, 0); return; }
   const doneBtn = t.closest('[data-session-done]');
   if (doneBtn) { openWizard(doneBtn.dataset.sessionDone); return; }
   const card = t.closest('[data-inv]');
@@ -475,7 +471,7 @@ function invoiceMenu(inv) {
 // ---------------------------------------------------------------------------
 
 async function stockFlow() {
-  const res = await readScreenshot({ kind: 'stock' });
+  const res = await readScreenshot();
   if (res && Object.keys(res.readings).length) toast(`Stock updated: ${Object.keys(res.readings).map(tankName).join(', ')}.`);
 }
 
@@ -711,12 +707,11 @@ function settingsSheet() {
         <label class="f">A stock reading is old after (minutes)<input type="number" id="stStale" step="5" value="${s.staleMinutes}"></label>
         <label class="f">Wait after decanting before the after-stock (min)<input type="number" id="stSettle" step="1" value="${s.settleMinutes}"></label>
         <label class="f">Truck density vs invoice, OK within (± kg/m³)<input type="number" id="stDens" step="0.5" value="${s.densityLimit}"></label>
-        <label class="f">Keep the screenshots for (days)<input type="number" id="stKeep" step="1" min="7" max="120" value="${s.retentionDays}"></label>
         <label class="f">Show undecanted invoices from the last (days)<input type="number" id="stPend" step="1" min="1" value="${s.pendingDays}"></label>
       </div>
-      <label class="f" style="margin-top:10px">Our tankers to leave out of "room in our tankers" (Plan tab), comma separated
+      <label class="f" style="margin-top:10px">Our tankers to leave out on the Plan tab, comma separated
         <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
-      <div class="hint" style="margin-top:4px">Decantations and invoices are kept for this financial year and the last; screenshots for the days above.</div>
+      <div class="hint" style="margin-top:4px">Decantations and invoices are kept for this financial year and the last. Screenshots are only read — never stored.</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
         <select id="stDate"><option value="MDY" ${s.dateOrder === 'MDY' ? 'selected' : ''}>MM/DD/YYYY (09/26/2026)</option><option value="DMY" ${s.dateOrder === 'DMY' ? 'selected' : ''}>DD/MM/YYYY (26/09/2026)</option></select></label>
       <div class="row-actions"><button class="cta" id="stSave">Save settings</button></div>
@@ -747,7 +742,7 @@ function settingsSheet() {
           tolerancePct: num('#stTol', 0, 5, s.tolerancePct), toleranceMinL: num('#stTolL', 0, 1000, s.toleranceMinL),
           warnRoomL: num('#stWarn', 0, 5000, s.warnRoomL), staleMinutes: num('#stStale', 1, 1440, s.staleMinutes),
           settleMinutes: num('#stSettle', 0, 120, s.settleMinutes), densityLimit: num('#stDens', 0, 20, s.densityLimit),
-          retentionDays: num('#stKeep', 7, 120, s.retentionDays), pendingDays: num('#stPend', 1, 60, s.pendingDays),
+          pendingDays: num('#stPend', 1, 60, s.pendingDays),
           dateOrder: body.querySelector('#stDate').value,
           excludeTankers: body.querySelector('#stExTk').value.split(/[,;\s]+/).map((x) => x.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean),
         },

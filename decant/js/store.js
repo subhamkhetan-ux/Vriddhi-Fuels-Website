@@ -15,7 +15,6 @@ const CFG = window.VRIDDHI_DECANT_CONFIG || {};
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 const LS_KEY = 'vriddhi-decant-v1';
 const DEVICE_KEY = 'vriddhi-decant-device';
-const DAY = 86400000;
 
 export const state = {
   cloud: 'off',           // off | connecting | live | offline
@@ -74,7 +73,7 @@ function loadLocal() {
     state.vehicles = raw.vehicles || {};
     state.tankState = raw.tankState || {};
     state.config = raw.config || {};
-    state.outbox = raw.outbox || [];
+    state.outbox = (raw.outbox || []).filter((o) => o.table !== 'dec_photos');   // screenshots aren't kept any more
   } catch { /* a fresh start */ }
   try { state.device = { operator: '', ...JSON.parse(localStorage.getItem(DEVICE_KEY) || '{}') }; } catch { /* ignore */ }
   applyConfig();
@@ -97,29 +96,6 @@ export function saveDevice(patch) {
   state.device = { ...state.device, ...patch };
   try { localStorage.setItem(DEVICE_KEY, JSON.stringify(state.device)); } catch { /* ignore */ }
   emit();
-}
-
-// Screenshots live in IndexedDB (too big for localStorage).
-let idbPromise = null;
-function idb() {
-  if (!idbPromise) {
-    idbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open('vriddhi-decant', 1);
-      req.onupgradeneeded = () => req.result.createObjectStore('photos', { keyPath: 'id' });
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  return idbPromise;
-}
-async function idbDo(mode, fn) {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('photos', mode);
-    const req = fn(tx.objectStore('photos'));
-    tx.oncomplete = () => resolve(req?.result);
-    tx.onerror = () => reject(tx.error);
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -181,15 +157,8 @@ function queue(table, key) {
 async function push(table, key) {
   if (!client) { queue(table, key); return false; }
   let err;
-  if (table === 'dec_photos') {
-    const p = await idbDo('readonly', (s) => s.get(key)).catch(() => null);
-    if (!p) return true;
-    err = await withRetry(() => client.from('dec_photos').upsert({
-      id: p.id, session_id: p.session_id || null, kind: p.kind, data_url: p.data_url, meta: p.meta || {}, created_at: p.created_at,
-    }, { onConflict: 'id' }));
-  } else if (table === 'dec_sessions_delete') {
+  if (table === 'dec_sessions_delete') {
     err = await withRetry(() => client.from('dec_sessions').delete().eq('id', key));
-    if (!err) await withRetry(() => client.from('dec_photos').delete().eq('session_id', key));
   } else {
     const row = rowFor(table, key);
     if (!row) return true;
@@ -411,8 +380,7 @@ export async function loadHistory() {
 }
 
 // The phone keeps this month and last, anything still open and anything not
-// yet sent; older months live in the cloud. Screenshots go after the "Keep
-// the screenshots for" days (except an open decantation's).
+// yet sent; older months live in the cloud.
 function purgeLocal() {
   const since = Date.parse(windowStartIso());
   const open = (s) => OPEN.includes(s.status);
@@ -421,18 +389,8 @@ function purgeLocal() {
   state.invoices = state.invoices.filter((i) => Date.parse(i.created_at || 0) >= since || pending('dec_invoices', i.invoice_no)
     || state.sessions.some((s) => s.invoice_no === i.invoice_no && open(s)));
   saveLocal();
-  const photoCut = Date.now() - (state.settings.retentionDays || 31) * DAY;
-  idbDo('readwrite', (st) => {
-    const req = st.openCursor();
-    req.onsuccess = () => {
-      const c = req.result;
-      if (!c) return;
-      const s = state.sessions.find((x) => x.id === c.value.session_id);
-      if (Date.parse(c.value.created_at || 0) < photoCut && !(s && open(s)) && !pending('dec_photos', c.value.id)) c.delete();
-      c.continue();
-    };
-    return req;
-  }).catch(() => {});
+  // screenshots an earlier version kept on the phone
+  try { indexedDB.deleteDatabase('vriddhi-decant'); } catch { /* ignore */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -461,16 +419,6 @@ export async function deleteSession(id) {
   state.outbox = state.outbox.filter((o) => !(o.table === 'dec_sessions' && o.key === id));
   saveLocal();
   emit();
-  idbDo('readwrite', (s) => {
-    const req = s.openCursor();
-    req.onsuccess = () => {
-      const c = req.result;
-      if (!c) return;
-      if (c.value.session_id === id) c.delete();
-      c.continue();
-    };
-    return req;
-  }).catch(() => {});
   return push('dec_sessions_delete', id);
 }
 
@@ -524,29 +472,6 @@ export async function saveConfig(patch) {
   saveLocal();
   emit();
   return push('dec_config', 1);
-}
-
-export async function savePhoto({ id, session_id = null, kind, data_url, meta = {} }) {
-  const p = { id: id || newId('P'), session_id, kind, data_url, meta, created_at: nowIso() };
-  await idbDo('readwrite', (s) => s.put(p)).catch(() => {});
-  push('dec_photos', p.id);
-  return p.id;
-}
-
-export async function linkPhoto(id, sessionId) {
-  const p = await idbDo('readonly', (s) => s.get(id)).catch(() => null);
-  if (!p || p.session_id === sessionId) return;
-  p.session_id = sessionId;
-  await idbDo('readwrite', (s) => s.put(p)).catch(() => {});
-  push('dec_photos', id);
-}
-
-export async function getPhoto(id) {
-  const local = await idbDo('readonly', (s) => s.get(id)).catch(() => null);
-  if (local?.data_url) return local.data_url;
-  if (!client) return null;
-  const { data } = await client.from('dec_photos').select('data_url').eq('id', id).maybeSingle();
-  return data?.data_url || null;
 }
 
 export async function clearDevice() {

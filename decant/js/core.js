@@ -20,7 +20,6 @@ export const DEFAULT_SETTINGS = {
   warnRoomL: 150,       // warn when a tank would be left with less room than this
   staleMinutes: 30,     // a stock reading older than this is flagged before decanting
   settleMinutes: 10,    // suggested wait after decanting before the "after" screenshot
-  retentionDays: 31,    // screenshots are kept a month (the numbers: this FY and the last)
   pendingDays: 3,       // older undecanted invoices fold away under "Older"
   dateOrder: 'MDY',     // the automation prints dates as MM/DD/YYYY
   densityLimit: 3,      // truck density vs the invoice's Density@15, ± kg/m³
@@ -545,19 +544,22 @@ export function routingHint(rows, chambersByNo, settings = DEFAULT_SETTINGS) {
 }
 
 // ---------------------------------------------------------------------------
-// Planning ahead: room for the loads that are coming
+// Planning the dispensing: room for the loads indented
 // ---------------------------------------------------------------------------
 
-// How much each tank has to sell (dispense) before the coming loads arrive so
-// that every chamber goes in and each tank still keeps `margin` litres free.
-//   loads: [{id, chambers: [{no, litres, product}]}] in the order they'll arrive
+// How much to dispense from each tank so that all the indented loads fit, each
+// tank keeping `margin` litres free. All the chambers of a product (from every
+// load) are split over that product's tanks together: the split needing the
+// least dispensing, then the most even, then the roomiest tank first.
+//   loads: [{id, chambers: [{no, litres, product}]}]
 //   stock: {tankId: {volume, ullage}}
 // Returns {tanks: {id: {now, room, incoming, sell, after, spare}},
-//          loads: [{id, split: {no: tankId}, sell: {tankId: litres}, noTank: [no]}],
+//          loads: [{id, split: {no: tankId}, noTank: [no]}],
 //          products: {P: {incoming, sell}}, missing: [tankId without stock]}.
-export function planAhead({ loads, tanks, stock, margin = 150 }) {
+export function planDispense({ loads, tanks, stock, margin = 150 }) {
+  const list = loads || [];
   const room = {};
-  const out = { tanks: {}, loads: [], products: {}, missing: [] };
+  const out = { tanks: {}, loads: list.map((l) => ({ id: l.id, split: {}, noTank: [] })), products: {}, missing: [] };
   for (const t of tanks) {
     const r = stock?.[t.id];
     if (!r || !Number.isFinite(r.volume)) { out.missing.push(t.id); continue; }
@@ -565,32 +567,28 @@ export function planAhead({ loads, tanks, stock, margin = 150 }) {
     room[t.id] = ull - margin;
     out.tanks[t.id] = { now: r.volume, room: ull, incoming: 0, sell: 0, after: r.volume, spare: ull };
   }
-  for (const load of loads || []) {
-    const res = { id: load.id, split: {}, sell: {}, noTank: [] };
-    const chambers = (load.chambers || []).filter((c) => c.product && c.litres > 0);
-    for (const p of [...new Set(chambers.map((c) => c.product))]) {
-      const cs = chambers.filter((c) => c.product === p);
-      const ts = tanks.filter((t) => t.product === p && Number.isFinite(room[t.id]));
-      if (!ts.length) { res.noTank.push(...cs.map((c) => c.no)); continue; }
-      const best = splitForRoom(cs, ts.map((t) => ({ id: t.id, room: room[t.id] })));
-      Object.assign(res.split, best.assign);
-      const pr = (out.products[p] ||= { incoming: 0, sell: 0 });
-      for (const t of ts) {
-        const inc = best.perTank[t.id] || 0;
-        if (!inc) continue;
-        const sell = Math.max(0, inc - room[t.id]);
-        room[t.id] = room[t.id] + sell - inc;
-        res.sell[t.id] = round2(sell);
-        const row = out.tanks[t.id];
-        row.incoming += inc;
-        row.sell = round2(row.sell + sell);
-        row.after = round2(row.now + row.incoming - row.sell);
-        row.spare = round2(room[t.id] + margin);
-        pr.incoming += inc;
-        pr.sell = round2(pr.sell + sell);
-      }
+  const chambersOf = (l) => (l.chambers || []).filter((c) => c.product && c.litres > 0);
+  const products = [...new Set(list.flatMap((l) => chambersOf(l).map((c) => c.product)))];
+  for (const p of products) {
+    const cs = [];                                  // numbered in load order, then chamber order
+    list.forEach((l, li) => chambersOf(l).filter((c) => c.product === p).sort((a, b) => a.no - b.no)
+      .forEach((c) => cs.push({ no: cs.length + 1, litres: c.litres, li, cno: c.no })));
+    const ts = tanks.filter((t) => t.product === p && Number.isFinite(room[t.id]));
+    if (!ts.length) { for (const c of cs) out.loads[c.li].noTank.push(c.cno); continue; }
+    const best = splitForRoom(cs, ts.map((t) => ({ id: t.id, room: room[t.id] })));
+    for (const c of cs) out.loads[c.li].split[c.cno] = best.assign[c.no];
+    const pr = (out.products[p] = { incoming: 0, sell: 0 });
+    for (const t of ts) {
+      const inc = best.perTank[t.id] || 0;
+      const sell = inc ? round2(Math.max(0, inc - room[t.id])) : 0;
+      const row = out.tanks[t.id];
+      row.incoming = inc;
+      row.sell = sell;
+      row.after = round2(row.now + inc - sell);
+      row.spare = round2(row.room - inc + sell);
+      pr.incoming += inc;
+      pr.sell = round2(pr.sell + sell);
     }
-    out.loads.push(res);
   }
   return out;
 }
@@ -630,7 +628,7 @@ function splitForRoom(chambers, tanks) {
     let c = code;
     for (let i = 0; i < n; i++) { choice[i] = c % k; c = Math.floor(c / k); }
     const per = perOf(choice);
-    const sells = per.map((v, j) => Math.max(0, v - tanks[j].room));
+    const sells = per.map((v, j) => (v > 0 ? Math.max(0, v - tanks[j].room) : 0));
     let switches = 0;
     for (let i = 1; i < n; i++) if (choice[i] !== choice[i - 1]) switches += 1;
     let order = 0;

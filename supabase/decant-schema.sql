@@ -12,8 +12,6 @@
 --                   more tanks, with the stock before / after and the variation.
 --                   The app keeps the details in `data` (jsonb) so it can grow
 --                   without schema changes.
---   dec_photos      the automation screenshots (before / after / stock), as
---                   compressed JPEG data URLs. Fetched on demand, not realtime.
 --   dec_tank_state  the latest known reading per tank (the stock strip).
 --   dec_vehicles    each truck's chamber layout, learned from its invoices.
 --   dec_config      shared settings (tanks, tolerance, retention, dip chart)
@@ -22,9 +20,9 @@
 --                   reports read for the months the phone doesn't keep.
 --
 -- Retention: decantations and invoices are kept for this financial year and
--- the last (for the FY reports); screenshots for the app's "Keep the
--- screenshots for" setting (31 days by default). dec_purge_old() does it; the
--- app calls it on load. Same personal-owner model as the payments tables: the
+-- the last (for the FY reports); dec_purge_old() does it and the app calls it
+-- on load. Screenshots are only read on the phone — never stored (the
+-- dec_photos table of the first version is dropped). Same personal-owner model as the payments tables: the
 -- anon key may read/write these tables (RLS policy below).
 -- =====================================================================
 
@@ -65,16 +63,8 @@ create table if not exists public.dec_sessions (
 create index if not exists dec_sessions_created_idx on public.dec_sessions (created_at desc);
 create index if not exists dec_sessions_invoice_idx on public.dec_sessions (invoice_no);
 
-create table if not exists public.dec_photos (
-  id          text primary key,
-  session_id  text,                        -- null for a standalone stock update
-  kind        text,                        -- 'before' | 'after' | 'stock'
-  data_url    text,                        -- data:image/jpeg;base64,…
-  meta        jsonb default '{}'::jsonb,   -- what was read from it
-  created_at  timestamptz default now()
-);
-create index if not exists dec_photos_session_idx on public.dec_photos (session_id);
-create index if not exists dec_photos_created_idx on public.dec_photos (created_at);
+-- screenshots aren't kept (the first version stored them here)
+drop table if exists public.dec_photos;
 
 create table if not exists public.dec_tank_state (
   tank_id    text primary key,             -- 'T1' … 'T4'
@@ -97,27 +87,16 @@ create table if not exists public.dec_config (
 );
 insert into public.dec_config (id) values (1) on conflict (id) do nothing;
 
--- ---- keep the numbers for two financial years, the screenshots for a month ----
--- Decantations and invoices (small rows) are kept for this financial year and
--- the last, so the reports can show "this FY". The screenshots — the heavy
--- part — go after the app's "Keep the screenshots for" setting (31 days by
--- default), except those of a decantation that is still open.
+-- ---- keep two financial years ----
+-- Decantations and invoices are kept for this financial year and the last,
+-- so the reports can show "this FY"; a decantation still open stays.
 create or replace function public.dec_purge_old()
 returns void language plpgsql security definer as $$
 declare
-  keep_days    integer;
-  photo_cutoff timestamptz;
-  today        date := (now() at time zone 'Asia/Kolkata')::date;
-  fy_start     date;
-  keep_from    timestamptz;
+  today     date := (now() at time zone 'Asia/Kolkata')::date;
+  fy_start  date;
+  keep_from timestamptz;
 begin
-  -- the app keeps its settings under data.settings
-  select case when data->'settings'->>'retentionDays' ~ '^\d+$'
-              then (data->'settings'->>'retentionDays')::integer end
-    into keep_days
-    from public.dec_config where id = 1;
-  if keep_days is null or keep_days < 7 then keep_days := 31; end if;
-  photo_cutoff := now() - make_interval(days => keep_days);
   fy_start := make_date(case when extract(month from today) >= 4
                              then extract(year from today)::int
                              else extract(year from today)::int - 1 end, 4, 1);
@@ -126,11 +105,6 @@ begin
   delete from public.dec_sessions
    where status in ('done', 'cancelled')
      and coalesce(completed_at, updated_at, created_at) < keep_from;
-  delete from public.dec_photos p
-   where p.created_at < photo_cutoff
-     and not exists (select 1 from public.dec_sessions s
-                      where s.id = p.session_id
-                        and s.status not in ('done', 'cancelled'));
   delete from public.dec_invoices i
    where i.created_at < keep_from
      and not exists (select 1 from public.dec_sessions s
@@ -168,7 +142,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'dec_invoices','dec_sessions','dec_photos','dec_tank_state','dec_vehicles','dec_config'] loop
+    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config'] loop
     execute format('alter table public.%I enable row level security', t);
     if not exists (select 1 from pg_policies where policyname = t || '_all') then
       execute format(
@@ -178,7 +152,7 @@ begin
   end loop;
 end $$;
 
--- ---- realtime: every table but the (heavy) photos ----
+-- ---- realtime ----
 do $$
 declare t text;
 begin
