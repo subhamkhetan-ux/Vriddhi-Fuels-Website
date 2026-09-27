@@ -22,7 +22,6 @@ export const state = {
   cloudError: '',
   invoices: [],           // dec_invoices rows
   sessions: [],           // dec_sessions rows ({id, invoice_no, tt_no, status, data, …})
-  vehicles: {},           // tt_no -> {tt_no, chambers, note}
   tankState: {},          // tank id -> latest reading
   config: {},             // dec_config.data (settings + optional uploaded chart)
   settings: settingsWith(null),
@@ -71,10 +70,10 @@ function loadLocal() {
     const raw = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     state.invoices = raw.invoices || [];
     state.sessions = raw.sessions || [];
-    state.vehicles = raw.vehicles || {};
     state.tankState = raw.tankState || {};
     state.config = raw.config || {};
-    state.outbox = (raw.outbox || []).filter((o) => o.table !== 'dec_photos');   // screenshots aren't kept any more
+    // screenshots and trucks' chamber layouts aren't kept any more (our own TTs are in Settings)
+    state.outbox = (raw.outbox || []).filter((o) => o.table !== 'dec_photos' && o.table !== 'dec_vehicles');
   } catch { /* a fresh start */ }
   try { state.device = { operator: '', ...JSON.parse(localStorage.getItem(DEVICE_KEY) || '{}') }; } catch { /* ignore */ }
   applyConfig();
@@ -86,7 +85,7 @@ function saveLocal() {
   saveTimer = setTimeout(() => {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify({
-        invoices: state.invoices, sessions: state.sessions, vehicles: state.vehicles,
+        invoices: state.invoices, sessions: state.sessions,
         tankState: state.tankState, config: state.config, outbox: state.outbox,
       }));
     } catch { /* storage full or blocked — the cloud still has it */ }
@@ -116,7 +115,6 @@ function setCloud(s, err = '') {
 const TABLES = {
   dec_invoices: { key: 'invoice_no', list: () => state.invoices },
   dec_sessions: { key: 'id', list: () => state.sessions },
-  dec_vehicles: { key: 'tt_no', list: () => Object.values(state.vehicles) },
   dec_tank_state: { key: 'tank_id', list: () => Object.entries(state.tankState).map(([tank_id, reading]) => ({ tank_id, reading, updated_at: reading?.savedAt })) },
   dec_config: { key: 'id', list: () => [{ id: 1, data: state.config, updated_at: state.config?.updatedAt }] },
 };
@@ -248,13 +246,6 @@ async function pull(which = 'all') {
         state.sessions = mergeRows('dec_sessions', state.sessions, [...(recent.data || []), ...(open.data || [])], (r) => r.id);
       }));
     }
-    if (which === 'all' || which === 'dec_vehicles') {
-      jobs.push(client.from('dec_vehicles').select('*').then(({ data, error }) => {
-        if (error) throw error;
-        const merged = mergeRows('dec_vehicles', Object.values(state.vehicles), data || [], (r) => r.tt_no);
-        state.vehicles = Object.fromEntries(merged.map((v) => [v.tt_no, v]));
-      }));
-    }
     if (which === 'all' || which === 'dec_tank_state') {
       jobs.push(client.from('dec_tank_state').select('*').then(({ data, error }) => {
         if (error) throw error;
@@ -276,7 +267,6 @@ async function pull(which = 'all') {
     await Promise.all(jobs);
     setCloud('live');
     saveLocal();
-    learnVehicles();
     if (state.outbox.length) flushOutbox();          // e.g. rows the move just queued
   } catch (e) {
     const msg = e?.message || String(e);
@@ -297,7 +287,7 @@ function subscribe() {
   const timers = {};
   const poke = (t) => { clearTimeout(timers[t]); timers[t] = setTimeout(() => pull(t), 400); };
   let ch = client.channel('decant-live');
-  for (const t of ['dec_invoices', 'dec_sessions', 'dec_vehicles', 'dec_tank_state', 'dec_config']) {
+  for (const t of ['dec_invoices', 'dec_sessions', 'dec_tank_state', 'dec_config']) {
     ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => poke(t));
   }
   ch.subscribe();
@@ -316,7 +306,6 @@ async function adoptProject() {
     const tables = [
       ['dec_sessions', 'id', state.sessions],
       ['dec_invoices', 'invoice_no', state.invoices],
-      ['dec_vehicles', 'tt_no', Object.values(state.vehicles)],
     ];
     for (const [table, key, rows] of tables) {
       for (let i = 0; i < rows.length; i += 100) {
@@ -478,30 +467,7 @@ export async function saveInvoice(inv) {
   if (i >= 0) state.invoices[i] = inv; else state.invoices.unshift(inv);
   saveLocal();
   emit();
-  if (inv.chambers?.length && inv.tt_no) saveVehicle(inv.tt_no, inv.chambers, true);
   return push('dec_invoices', inv.invoice_no);
-}
-
-export async function saveVehicle(tt, chambers, onlyIfChanged = false) {
-  const cur = state.vehicles[tt];
-  const clean = chambers.map((c) => ({ no: Number(c.no), qty_kl: Number(c.qty_kl), dip_cm: c.dip_cm ?? null, pl_cm: c.pl_cm ?? null }));
-  if (onlyIfChanged && cur && JSON.stringify(cur.chambers) === JSON.stringify(clean)) return true;
-  state.vehicles[tt] = { ...(cur || {}), tt_no: tt, chambers: clean, updated_at: nowIso() };
-  saveLocal();
-  emit();
-  return push('dec_vehicles', tt);
-}
-
-// Trucks' chamber layouts, learned from every invoice that carried a table.
-function learnVehicles() {
-  const latest = {};
-  for (const inv of state.invoices) {
-    if (!inv.tt_no || !inv.chambers?.length) continue;
-    if (!latest[inv.tt_no] || (inv.created_at || '') > (latest[inv.tt_no].created_at || '')) latest[inv.tt_no] = inv;
-  }
-  for (const [tt, inv] of Object.entries(latest)) {
-    if (!state.vehicles[tt]) saveVehicle(tt, inv.chambers, true);
-  }
 }
 
 export async function saveTankReading(tankId, reading) {

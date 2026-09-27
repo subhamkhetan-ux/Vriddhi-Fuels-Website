@@ -3,10 +3,10 @@
 // CDN libraries (text reader, PDF reader, Supabase client) are cached on first
 // use so reading a screenshot works without a signal later. Supabase data is
 // never cached here — the app keeps its own copy.
-const CACHE = "vriddhi-decant-v3";
+const CACHE = "vriddhi-decant-v5";
 const SHELL = [
   "./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon.png",
-  "./js/app.js", "./js/wizard.js", "./js/views.js", "./js/plan.js", "./js/tankers.js", "./js/store.js", "./js/core.js", "./js/ui.js",
+  "./js/app.js", "./js/wizard.js", "./js/views.js", "./js/plan.js", "./js/tankers.js", "./js/shareimg.js", "./js/store.js", "./js/core.js", "./js/ui.js",
   "./js/automation.js", "./js/ocr.js", "./js/invoice.js", "./js/report.js", "./js/charts.js", "./js/xlsx.js", "./js/dipchart.js",
 ];
 const CDN = ["cdn.jsdelivr.net", "esm.sh", "cdn.sheetjs.com", "fonts.googleapis.com", "fonts.gstatic.com"];
