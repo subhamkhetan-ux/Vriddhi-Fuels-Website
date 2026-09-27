@@ -145,8 +145,9 @@ CREDIT = {
 
 # ---- Tanker decanting (the /decant app) ------------------------------------
 # Every IOCL invoice again (all trucks), this time with the truck's chamber table
-# and which chambers each product was loaded into, stored in Supabase
-# dec_invoices for the decanting app. Same mailbox/sender as CREDIT.
+# and which chambers each product was loaded into, stored in dec_invoices in the
+# decanting app's OWN Supabase project (see agent/decant.py) — never the
+# payments one. Same mailbox/sender as CREDIT.
 DECANT = {
     "account_id": "bank2",                       # the HDFC mailbox (see ACCOUNTS)
     "gmail_query": "from:B2BPRD@indianoil.in has:attachment filename:pdf",

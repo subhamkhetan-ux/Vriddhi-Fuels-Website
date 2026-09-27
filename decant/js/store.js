@@ -15,6 +15,7 @@ const CFG = window.VRIDDHI_DECANT_CONFIG || {};
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 const LS_KEY = 'vriddhi-decant-v1';
 const DEVICE_KEY = 'vriddhi-decant-device';
+const PROJECT_KEY = 'vriddhi-decant-project';      // the cloud project this phone's copy belongs to
 
 export const state = {
   cloud: 'off',           // off | connecting | live | offline
@@ -298,11 +299,27 @@ function subscribe() {
   ch.subscribe();
 }
 
+// A phone whose copy came from somewhere else — the payments project the first
+// version used, or working without a cloud — sends all of it to this project
+// once, so nothing recorded is lost in the move.
+function adoptProject() {
+  let prev = null;
+  try { prev = localStorage.getItem(PROJECT_KEY); } catch { /* ignore */ }
+  if (prev === CFG.SUPABASE_URL) return;
+  for (const s of state.sessions) queue('dec_sessions', s.id);
+  for (const inv of state.invoices) queue('dec_invoices', inv.invoice_no);
+  for (const tt of Object.keys(state.vehicles)) queue('dec_vehicles', tt);
+  for (const id of Object.keys(state.tankState)) queue('dec_tank_state', id);
+  if (Object.keys(state.config || {}).length) queue('dec_config', 1);
+  try { localStorage.setItem(PROJECT_KEY, CFG.SUPABASE_URL); } catch { /* ignore */ }
+}
+
 export async function initStore() {
   loadLocal();
   purgeLocal();
   emit();
   if (!cloudEnabled) { setCloud('off'); return; }
+  adoptProject();
   setCloud('connecting');
   try {
     const { createClient } = await import(SUPABASE_JS);

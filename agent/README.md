@@ -35,7 +35,7 @@ that flush safe (see below), so nothing is ever entered twice.
 | `agent/parser.py` + `agent/config.py` | cloud | Parser engine + **the two bank profiles (edit here)** |
 | `agent/matcher.py` `normalize.py` `serial.py` | both | Ported name matcher, noise-stripping, date-serial |
 | `agent/telegram.py` | cloud | Failure alerts (never fail silently) |
-| `agent/decant.py` | cloud | Every IOCL invoice with its chamber table → Supabase `dec_invoices`, for the [`/decant/`](../decant/) tanker-decanting app |
+| `agent/decant.py` | cloud | Every IOCL invoice with its chamber table → `dec_invoices` in the [`/decant/`](../decant/) app's **own** Supabase project (from `decant/config.js`, never the payments one); runs last, and its problems are only logged |
 | `materialize.py` | Mac | Queue → review → `.xlsx`, marks rows materialized |
 | `export_customers.py` | Mac | Export Master Paid column F → `state/customers.json` |
 | `state/*.json` | bridge | `queue` · `seen` (high-water) · `aliases` · `customers` |

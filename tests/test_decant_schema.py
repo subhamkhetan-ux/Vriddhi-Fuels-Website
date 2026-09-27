@@ -15,6 +15,7 @@ from tests.test_ledger_schema import SUPABASE_STUB, Pg, _free_port, _pg_bin
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCHEMA = os.path.join(ROOT, "supabase", "decant-schema.sql")
+REMOVE = os.path.join(ROOT, "supabase", "decant-remove-from-payments.sql")
 
 
 @pytest.fixture(scope="module")
@@ -134,3 +135,15 @@ def test_history_view_is_compact(pg):
 
 def test_single_config_row(pg):
     pg.fails("insert into dec_config (id) values (2);")
+
+
+def test_remove_from_payments_touches_only_the_dec_tables(pg):
+    # a stand-in for the payments project's own tables
+    pg.ok("create table if not exists pay_rows (id int primary key); insert into pay_rows values (1) on conflict do nothing;")
+    remove = open(REMOVE, encoding="utf-8").read()
+    pg.ok(remove)
+    pg.ok(remove)                                          # safe to run twice
+    assert pg.ok("select count(*) from pg_class where relname like 'dec\\_%';") == "0"
+    assert pg.ok("select count(*) from pg_proc where proname = 'dec_purge_old';") == "0"
+    assert pg.ok("select count(*) from pay_rows;") == "1"
+    pg.ok(open(SCHEMA, encoding="utf-8").read())           # put the schema back for any later test

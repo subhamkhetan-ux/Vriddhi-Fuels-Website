@@ -189,48 +189,6 @@ def upsert_fuel_invoices(rows: list[dict]) -> int:
         return 0
 
 
-DECANT_INVOICE_COLUMNS = (
-    "invoice_no", "invoice_date", "invoice_time", "tt_no", "lines", "chambers",
-    "density15", "seals", "origin", "amount", "gmail_msg_id", "source",
-)
-
-
-def decant_table_ready() -> bool:
-    """True when ``dec_invoices`` exists (supabase/decant-schema.sql has been
-    run). Until then the decant ingest skips quietly instead of alerting on
-    every run."""
-    cfg = _config()
-    if not cfg:
-        return False
-    url, key = cfg
-    try:
-        _request("GET", "dec_invoices?select=invoice_no&limit=1", key, url)
-        return True
-    except Exception:
-        return False
-
-
-def upsert_decant_invoices(rows: list[dict]) -> int:
-    """Insert invoices (with their chamber tables) for the /decant app; ignore
-    ones already present so app-side corrections are never overwritten.
-    Returns the count sent, or 0 on any error (best-effort)."""
-    cfg = _config()
-    if not cfg or not rows:
-        return 0
-    url, key = cfg
-    payload = [{c: r.get(c) for c in DECANT_INVOICE_COLUMNS}
-               for r in rows if r.get("invoice_no")]
-    if not payload:
-        return 0
-    try:
-        _request("POST", "dec_invoices?on_conflict=invoice_no", key, url,
-                 body=payload,
-                 prefer="resolution=ignore-duplicates,return=minimal")
-        return len(payload)
-    except Exception:
-        return 0
-
-
 def upsert_fuel_prices(prices: dict) -> int:
     """Store the latest after-VAT ₹/KL per product. ``prices`` maps a column key
     to ``{"price": float, "as_of": "YYYY-MM-DD", "invoice_no": str}``. Only a

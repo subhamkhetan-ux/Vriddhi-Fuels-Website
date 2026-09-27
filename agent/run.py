@@ -217,20 +217,6 @@ def main() -> int:
         traceback.print_exc()
         errors.append(msg)
 
-    # Tanker decanting: every IOCL invoice with its chamber table, for the
-    # /decant app. Best-effort and isolated.
-    from . import decant
-    try:
-        dc_sent, dc_errors = decant.run(seen)
-        if dc_sent:
-            print(f"Decant: stored {dc_sent} invoice(s).")
-        errors.extend(dc_errors)
-    except Exception as exc:  # last-resort guard
-        msg = f"decant: FAILED: {exc}"
-        print(msg)
-        traceback.print_exc()
-        errors.append(msg)
-
     # Persist whatever progress we made, even on partial failure.
     state_store.save_queue(queue)
     state_store.save_seen(seen)
@@ -248,6 +234,22 @@ def main() -> int:
 
     print(f"Total queued {totals['queued']} ({totals['reviewed']} review); "
           f"{len(errors)} account error(s).")
+
+    # Tanker decanting (/decant): every IOCL invoice with its chamber table,
+    # written to the decanting app's OWN Supabase project. It runs after all
+    # the payments work above is saved and synced, and its problems are only
+    # logged — they never fail this run or send the payments alert.
+    try:
+        from . import decant
+        dc_sent, dc_errors = decant.run(seen)
+        if dc_sent:
+            print(f"Decant: stored {dc_sent} invoice(s).")
+        for msg in dc_errors:
+            print(f"Decant (not a payments error): {msg}")
+        state_store.save_seen(seen)
+    except Exception as exc:  # last-resort guard
+        print(f"Decant (not a payments error): FAILED: {exc}")
+        traceback.print_exc()
 
     if errors:
         notify("Vriddhi payment agent errors:\n" + "\n".join(errors))
