@@ -456,7 +456,7 @@ function doneRow(s) {
   return `<button class="lrow" data-session-done="${esc(s.id)}">
     <span class="tm">${fmtTime(s.data?.decantedAt)}</span>
     <span class="mid"><b>${esc(s.tt_no || '')}</b><div>${(s.data?.tanks || []).map((t) => `${tankName(t.tank)} ${fmtKL(t.litres)}`).join(' · ')}</div></span>
-    <span class="rt"><b>${fmtSigned(total, ' L')}</b>${worst?.result ? `<span class="rt-badge">${bandBadge(worst.result.band, worst.result.direction)}</span>` : ''}</span>
+    <span class="rt"><b${total > 0 ? ' class="pos"' : ''}>${fmtSigned(total, ' L')}</b>${worst?.result ? `<span class="rt-badge">${bandBadge(worst.result.band, worst.result.direction)}</span>` : ''}</span>
   </button>`;
 }
 

@@ -312,6 +312,8 @@ test('after decanting: chambers that went into the other tank are spotted', asyn
   assert.equal(routingHint(right, byNo), null);
   assert.equal(routingHint(rows.slice(0, 1), byNo), null);
   assert.deepEqual(guessRouting([{ no: 1, litres: 4000 }], [{ id: 'T2', gain: 3990 }]).assign, { 1: 'T2' });
+  // a chamber's litres not known: no guess (rather than a garbled one)
+  assert.equal(routingHint(rows, { 1: 5000 }), null);
 });
 
 // The dispensing sums below are pinned on tanks filled to 20,000 L.

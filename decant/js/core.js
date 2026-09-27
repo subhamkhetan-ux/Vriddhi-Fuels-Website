@@ -604,6 +604,7 @@ export function routingHint(rows, chambersByNo, settings = DEFAULT_SETTINGS) {
   if (rows.length < 2 || !rows.every((r) => r.after && r.before)) return null;
   const tanks = rows.map((r) => ({ id: r.tank, gain: r.after.volume - r.before.volume + (Number(r.salesL) || 0) }));
   const chambers = rows.flatMap((r) => r.chambers.map((no) => ({ no, litres: chambersByNo[no] })));
+  if (chambers.some((c) => !Number.isFinite(c.litres))) return null;       // a chamber's litres unknown: no guessing
   const missNow = round2(rows.reduce((a, r, j) => a + Math.abs(tanks[j].gain - r.litres), 0));
   const g = guessRouting(chambers, tanks);
   if (!g) return null;

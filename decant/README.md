@@ -182,7 +182,9 @@ Tap **Start decanting** on the truck's card:
 
    negative = the tank got **less** than the chambers held (short). It is **OK**
    within ±0.25 % of the load or ±25 L (whichever is more), **Watch** up to
-   twice that, and **High** beyond. The value at the invoice price is shown too.
+   twice that, and **High** beyond. Positive (**excess** — the tank got more)
+   is good for us and shows in **green** everywhere, still marked by its size
+   (▲ *Excess*, ▲ *High excess*). The value at the invoice price is shown too.
    **📤 Share as picture** makes a PNG of the result (the truck, each tank's
    before / after / gain / chambers / variation, and the ₹ value) to send on
    WhatsApp or save.

@@ -157,11 +157,17 @@ export function productChip(key, extra = '') {
   return `<span class="pchip" style="--pc:${PRODUCT_COLOR[key] || '#898781'}"><i></i>${esc(productShort(key))}${extra ? ` <b>${extra}</b>` : ''}</span>`;
 }
 
+// How a result reads. Short: OK / Watch / High short by its size. A tank that
+// got more than the chambers held is good for us: green, whatever its size.
+export function bandView(band, direction) {
+  if (direction === 'excess') return { cls: 'ok', icon: band === 'ok' ? '✓' : '▲', label: { ok: 'OK', watch: 'Excess', high: 'High excess' }[band] };
+  return { cls: band, icon: { ok: '✓', watch: '!', high: '✕' }[band], label: { ok: 'OK', watch: 'Watch', high: 'High short' }[band] };
+}
+
 export function bandBadge(band, direction) {
   if (!band) return '';
-  const label = { ok: 'OK', watch: 'Watch', high: direction === 'excess' ? 'High excess' : 'High short' }[band];
-  const icon = { ok: '✓', watch: '!', high: '✕' }[band];
-  return `<span class="badge ${band}"><i aria-hidden="true">${icon}</i>${label}</span>`;
+  const { cls, icon, label } = bandView(band, direction);
+  return `<span class="badge ${cls}"><i aria-hidden="true">${icon}</i>${label}</span>`;
 }
 
 export function confBadge(conf, checks) {

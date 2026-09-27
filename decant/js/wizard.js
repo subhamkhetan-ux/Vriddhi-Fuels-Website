@@ -14,7 +14,7 @@ import {
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import {
-  PRODUCT_COLOR, ago, ask, bandBadge, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
+  PRODUCT_COLOR, ago, ask, bandBadge, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
 import {
@@ -445,7 +445,7 @@ function stageCard(s, t) {
         <tr><td>Before (${fmtTime(t.before.readingAt)})</td><td>${fmtL(t.before.volume, 2)}</td><td>${fmtDip(dipOf(t.before))}</td></tr>
         <tr><td>+ Chambers ${compactNos(t.chambers)}</td><td>${fmtL(t.litres)}</td><td></td></tr>
         <tr class="tot"><td>Should read</td><td>${fmtL(expect, 2)}</td><td>${fmtDip(dipAtLitres(state.chart, expect))}</td></tr>
-        ${res ? `<tr class="tot"><td>Variation</td><td>${fmtSigned(res.variation, ' L', 2)}</td><td>${bandBadge(res.band, res.direction)}</td></tr>` : ''}
+        ${res ? `<tr class="tot"><td>Variation</td><td${res.variation > 0 ? ' class="pos"' : ''}>${fmtSigned(res.variation, ' L', 2)}</td><td>${bandBadge(res.band, res.direction)}</td></tr>` : ''}
       </tbody></table>
       ${warn.length ? `<ul class="msgs">${warn.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`).join('')}</ul>` : ''}
     </div>`;
@@ -475,7 +475,10 @@ function routingCards(s) {
     const h = routingHint(rows, byNo, state.settings);
     if (!h) return '';
     const now = rows.map((r) => `${tankName(r.tank)} ${fmtSigned(r.after.volume - r.before.volume + (Number(r.salesL) || 0) - r.litres, ' L')}`).join(', ');
-    const then = rows.map((r) => `C${compactNos(Object.keys(h.assign).filter((no) => h.assign[no] === r.tank).map(Number))} → ${tankName(r.tank)}`).join(' and ');
+    const then = rows.map((r) => {
+      const nos = Object.keys(h.assign).filter((no) => h.assign[no] === r.tank).map(Number);
+      return `${nos.length ? `C${compactNos(nos)}` : 'nothing'} → ${tankName(r.tank)}`;
+    }).join(' and ');
     return `<div class="card warn">
       <div class="sect-title">⚠ Did the chambers go somewhere else?</div>
       <div class="hint">As planned, the ${productShort(p)} tanks are off by ${esc(now)}. If <b>${esc(then)}</b>, they'd be off by only ${fmtL(h.missThen)} in all.</div>
@@ -511,7 +514,7 @@ function stepResult(s) {
         <tr><td>Tank gained</td><td>${r ? fmtL(r.gain, 2) : '—'}</td><td></td></tr>
         <tr><td>Chambers ${compactNos(t.chambers)} (invoice)</td><td>${fmtL(t.litres)}</td><td></td></tr>
         ${t.salesL ? `<tr><td>Sold while decanting (older record)</td><td>${fmtL(t.salesL)}</td><td></td></tr>` : ''}
-        <tr class="tot"><td>Variation</td><td>${r ? fmtSigned(r.variation, ' L', 2) : '—'}</td><td>${r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : ''}</td></tr>
+        <tr class="tot"><td>Variation</td><td${r?.variation > 0 ? ' class="pos"' : ''}>${r ? fmtSigned(r.variation, ' L', 2) : '—'}</td><td${r?.variation > 0 ? ' class="pos"' : ''}>${r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : ''}</td></tr>
       </tbody></table>
     </div>`).join('')}
     ${routingCards(s)}
@@ -1019,8 +1022,8 @@ function resultModel(s) {
       name: tankName(t.tank),
       product: productShort(t.product),
       color: PRODUCT_COLOR[t.product] || '#898781',
-      band: r?.band || null,
-      bandLabel: r ? { ok: '✓ OK', watch: '! Watch', high: '! High' }[r.band] : '',
+      band: r ? bandView(r.band, r.direction).cls : null,
+      bandLabel: r ? `${bandView(r.band, r.direction).icon} ${bandView(r.band, r.direction).label}` : '',
       direction: r?.direction || 'exact',
       variation: r ? fmtSigned(r.variation, ' L', 2) : '—',
       pctLine: r ? `${fmtPct(r.pct)} · OK within ±${fmtL(r.tol)}` : '',
@@ -1031,7 +1034,7 @@ function resultModel(s) {
         ['Tank gained', r ? fmtL(r.gain, 2) : '—', ''],
         [`Chambers ${compactNos(t.chambers)} (invoice)`, fmtL(t.litres), ''],
         ...(t.salesL ? [['Sold while decanting', fmtL(t.salesL), '']] : []),
-        ['Variation', r ? fmtSigned(r.variation, ' L', 2) : '—', r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : '', true],
+        ['Variation', r ? fmtSigned(r.variation, ' L', 2) : '—', r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : '', true, r?.direction],
       ],
     })),
     notes: d.notes || '',
