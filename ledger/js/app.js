@@ -372,6 +372,8 @@ function dashboardHtml(a, per, key) {
   }));
   const rspDays = Object.fromEntries(Object.entries(a.rspSeries).map(([x, s]) => [x, s.slice(-62)]));
   return `
+    <section class="card" id="dash-outstanding"></section>
+
     <section class="card dash">
       <div class="row-between"><h2>Overview</h2>
         <div class="chips">${['month', 'last', 'd30', 'fy'].map((x) => `<button class="chip ${x === key ? 'on' : ''}" data-period="${x}">${per[x].label}</button>`).join('')}
@@ -412,7 +414,6 @@ function dashboardHtml(a, per, key) {
 
     <section class="card" id="dash-customers"></section>
 
-    <section class="card" id="dash-outstanding"></section>
 
     <section class="card">
       <h3>Bulk vs Retail</h3>
@@ -1003,22 +1004,27 @@ async function viewPoGroup(code) {
   main().querySelectorAll('[data-bill-po]').forEach((btn) => btn.addEventListener('click', () => editBillPo(btn, g, units, reload)));
 }
 
+// POs are shown by number, Z→A (PO-10 above PO-9); # is still the order the
+// bills use them in (the first PO with litres left), which ↑ / ↓ change.
+const byPoDesc = (pos) => pos.map((p, i) => ({ p, i }))
+  .sort((a, b) => String(b.p.po_no).localeCompare(String(a.p.po_no), 'en', { numeric: true, sensitivity: 'base' }));
+
 function registerCard(g, r) {
   const pending = r.pos.filter((p) => p.status === 'Pending');
   return `<section class="card">
     <h3>${r.unit ? `${esc(r.unit)} — ` : ''}PO list <span class="muted">· ${pending.length ? `${plural(pending.length, 'open PO')}, ${fmtLitres(pending.reduce((a, p) => a + p.balance, 0))} L left` : 'nothing left'}</span></h3>
     ${r.pos.length ? `<div class="plist" role="table" aria-label="${r.unit ? `${esc(r.unit)} ` : ''}PO list">
       <div class="prow head" role="row"><span role="columnheader">#</span><span role="columnheader">PO number</span><span class="r" role="columnheader">Allotted</span><span class="r" role="columnheader">Used</span><span class="r" role="columnheader">Left</span><span role="columnheader">Status</span><span role="columnheader"><span class="sr">Actions</span></span></div>
-      ${r.pos.map((p, i) => `<div class="prow" role="row" data-po-row="${p.id}">
-        <span class="p-n" role="cell">${i + 1}</span>
+      ${byPoDesc(r.pos).map(({ p, i }) => `<div class="prow" role="row" data-po-row="${p.id}">
+        <span class="p-n" role="cell" title="Bills use the POs in this order">${i + 1}</span>
         <span class="p-no" role="cell"><b>${esc(p.po_no)}</b></span>
         <span class="p-al r" role="cell"><span class="lbl-sm">Allotted </span>${fmtLitres(p.allotted)}</span>
         <span class="p-us r" role="cell"><span class="lbl-sm">Used </span>${fmtLitres(p.used)}</span>
         <span class="p-le r" role="cell"><span class="lbl-sm">Left </span><b>${fmtLitres(p.balance)}</b></span>
         <span class="p-st" role="cell"><span class="pill ${p.status === 'Pending' ? 'good-pill' : 'muted-pill'}">${p.status === 'Pending' ? 'Open' : 'Used up'}</span></span>
         <span class="p-act nowrap" role="cell">
-          <button class="icon" title="Move up" aria-label="Move ${esc(p.po_no)} up" data-po-action="up" data-id="${p.id}" ${i === 0 ? 'disabled' : ''}>↑</button>
-          <button class="icon" title="Move down" aria-label="Move ${esc(p.po_no)} down" data-po-action="down" data-id="${p.id}" ${i === r.pos.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="icon" title="Use earlier (order #${i})" aria-label="Use ${esc(p.po_no)} earlier" data-po-action="up" data-id="${p.id}" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="icon" title="Use later (order #${i + 2})" aria-label="Use ${esc(p.po_no)} later" data-po-action="down" data-id="${p.id}" ${i === r.pos.length - 1 ? 'disabled' : ''}>↓</button>
           <button class="icon" title="Edit" aria-label="Edit ${esc(p.po_no)}" data-po-action="edit" data-id="${p.id}">✎</button>
           <button class="icon" title="Delete" aria-label="Delete ${esc(p.po_no)}" data-po-action="delete" data-id="${p.id}">✕</button>
         </span></div>`).join('')}</div>` : '<p class="muted">No POs in this list yet.</p>'}

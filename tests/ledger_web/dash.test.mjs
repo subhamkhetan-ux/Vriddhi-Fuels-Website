@@ -83,3 +83,9 @@ test('demo store dashboard: same shape as the SQL, bulk groups owe opening + sal
   assert.deepEqual(d.outstanding.find((o) => o[0] === 'g'), ['g', 'Big_Bulk', 1000 + 900 - 515]);
   assert.deepEqual(d.outstanding.find((o) => o[1] === 'alpha'), ['c', 'alpha', 91]);
 });
+
+test('quantities: exact litres, kilolitres (exact to the litre) from 10,000 L', async () => {
+  const { litres } = await import('../../ledger/js/charts.js');
+  assert.deepEqual([5350, 11.74, 351, 9999.5, 54100, 192345.67, 1923460, 0].map(litres),
+    ['5,350 L', '11.74 L', '351 L', '9,999.5 L', '54.100 KL', '192.346 KL', '1,923.460 KL', '0 L']);
+});
