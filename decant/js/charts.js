@@ -82,9 +82,10 @@ function bindMark(mark, host, tip, rowsFn, anchor) {
   mark.addEventListener('click', show);
 }
 
-// Net variation per day, as columns up (excess) and down (short) from zero.
-//   days: [{key: 'YYYY-MM-DD', variation, litres, count}]
-export function dailyVariation(host, days, { fmtDay, fmtL, fmtVar, fmtPct }) {
+// Net variation per day (or per month), as columns up (excess) and down
+// (short) from zero.
+//   days: [{key: 'YYYY-MM-DD' | 'YYYY-MM', variation, litres, count}]
+export function dailyVariation(host, days, { fmtDay, fmtL, fmtVar, fmtPct, label = 'Net variation per day' }) {
   host.querySelectorAll('svg').forEach((s) => s.remove());
   const W = Math.max(280, host.clientWidth);
   const H = 210;
@@ -96,7 +97,7 @@ export function dailyVariation(host, days, { fmtDay, fmtL, fmtVar, fmtPct }) {
   const y = (v) => pad.t + ((hi - v) / (hi - lo || 1)) * (H - pad.t - pad.b);
   const band = (W - pad.l - pad.r) / Math.max(1, days.length);
   const bw = Math.max(2, Math.min(24, band - 2));
-  const svg = svgEl('svg', { width: W, height: H, class: 'viz', role: 'img', 'aria-label': 'Net variation per day' });
+  const svg = svgEl('svg', { width: W, height: H, class: 'viz', role: 'img', 'aria-label': label });
   host.prepend(svg);
   for (const t of ticks) {
     svgEl('line', { x1: pad.l, x2: W - pad.r, y1: y(t), y2: y(t), class: t === 0 ? 'viz-base' : 'viz-grid' }, svg);
@@ -107,7 +108,8 @@ export function dailyVariation(host, days, { fmtDay, fmtL, fmtVar, fmtPct }) {
   const tip = tooltip(host);
   days.forEach((d, i) => {
     const cx = pad.l + band * i + band / 2;
-    if (i % every === 0 || i === days.length - 1) {
+    // every n-th label, and always the last (dropping one that would crowd it)
+    if ((i % every === 0 && days.length - 1 - i >= every) || i === days.length - 1) {
       const lab = svgEl('text', { x: cx, y: H - 8, class: 'viz-tick', 'text-anchor': 'middle' }, svg);
       lab.textContent = fmtDay(d.key);
     }

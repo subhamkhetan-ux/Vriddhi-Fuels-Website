@@ -16,13 +16,16 @@
 --                   compressed JPEG data URLs. Fetched on demand, not realtime.
 --   dec_tank_state  the latest known reading per tank (the stock strip).
 --   dec_vehicles    each truck's chamber layout, learned from its invoices.
---   dec_config      shared settings (tanks, tolerance, retention, dip chart).
+--   dec_config      shared settings (tanks, tolerance, retention, dip chart)
+--                   and the loads you've ordered next (for the Plan tab).
+--   dec_history     (a view) finished decantations, compact — what the FY
+--                   reports read for the months the phone doesn't keep.
 --
--- Log retention: finished decantations and photos older than the app's
--- "Keep the log for" setting (default 31 days — one month) are purged by
--- dec_purge_old(),
--- which the app calls on load. Same personal-owner model as the payments
--- tables: the anon key may read/write these tables (RLS policy below).
+-- Retention: decantations and invoices are kept for this financial year and
+-- the last (for the FY reports); screenshots for the app's "Keep the
+-- screenshots for" setting (31 days by default). dec_purge_old() does it; the
+-- app calls it on load. Same personal-owner model as the payments tables: the
+-- anon key may read/write these tables (RLS policy below).
 -- =====================================================================
 
 create table if not exists public.dec_invoices (
@@ -39,10 +42,13 @@ create table if not exists public.dec_invoices (
   gmail_msg_id text,
   source       text default 'agent',       -- 'agent' | 'manual' | 'pdf'
   dismissed    boolean default false,      -- hidden from "to decant" (not ours / already done)
+  dismiss_reason text,                     -- 'outside' (decanted outside the app) | 'not_ours' | 'deleted'
   note         text,
   created_at   timestamptz default now(),
   updated_at   timestamptz default now()
 );
+-- added after the first version (safe to re-run)
+alter table public.dec_invoices add column if not exists dismiss_reason text;
 create index if not exists dec_invoices_created_idx on public.dec_invoices (created_at desc);
 create index if not exists dec_invoices_tt_idx on public.dec_invoices (tt_no);
 
@@ -91,36 +97,71 @@ create table if not exists public.dec_config (
 );
 insert into public.dec_config (id) values (1) on conflict (id) do nothing;
 
--- ---- one-month log: purge finished decantations, their photos, old invoices ----
+-- ---- keep the numbers for two financial years, the screenshots for a month ----
+-- Decantations and invoices (small rows) are kept for this financial year and
+-- the last, so the reports can show "this FY". The screenshots — the heavy
+-- part — go after the app's "Keep the screenshots for" setting (31 days by
+-- default), except those of a decantation that is still open.
 create or replace function public.dec_purge_old()
 returns void language plpgsql security definer as $$
 declare
-  keep_days integer;
-  cutoff    timestamptz;
+  keep_days    integer;
+  photo_cutoff timestamptz;
+  today        date := (now() at time zone 'Asia/Kolkata')::date;
+  fy_start     date;
+  keep_from    timestamptz;
 begin
-  -- the app keeps its settings under data.settings (Settings → "Keep the log for")
+  -- the app keeps its settings under data.settings
   select case when data->'settings'->>'retentionDays' ~ '^\d+$'
               then (data->'settings'->>'retentionDays')::integer end
     into keep_days
     from public.dec_config where id = 1;
   if keep_days is null or keep_days < 7 then keep_days := 31; end if;
-  cutoff := now() - make_interval(days => keep_days);
+  photo_cutoff := now() - make_interval(days => keep_days);
+  fy_start := make_date(case when extract(month from today) >= 4
+                             then extract(year from today)::int
+                             else extract(year from today)::int - 1 end, 4, 1);
+  keep_from := (fy_start - interval '1 year')::timestamp at time zone 'Asia/Kolkata';
 
   delete from public.dec_sessions
    where status in ('done', 'cancelled')
-     and coalesce(completed_at, updated_at, created_at) < cutoff;
-  -- photos go with their decantation (or on age, for standalone stock photos)
+     and coalesce(completed_at, updated_at, created_at) < keep_from;
   delete from public.dec_photos p
-   where p.created_at < cutoff
-     and (p.session_id is null
-          or not exists (select 1 from public.dec_sessions s where s.id = p.session_id));
-  -- invoices a little later than the log, unless a decantation is still open on one
+   where p.created_at < photo_cutoff
+     and not exists (select 1 from public.dec_sessions s
+                      where s.id = p.session_id
+                        and s.status not in ('done', 'cancelled'));
   delete from public.dec_invoices i
-   where i.created_at < cutoff - interval '14 days'
+   where i.created_at < keep_from
      and not exists (select 1 from public.dec_sessions s
                       where s.invoice_no = i.invoice_no
                         and s.status not in ('done', 'cancelled'));
 end $$;
+
+-- ---- dec_history: finished decantations, compact, for the FY reports ----
+-- The phone keeps this month and last; for "This FY" / "All" the app reads the
+-- older months from this view — only what the reports need (no screenshots,
+-- no OCR details), so a whole year is a small download.
+create or replace view public.dec_history with (security_invoker = true) as
+select s.id, s.invoice_no, s.tt_no, s.status, s.created_at, s.updated_at, s.completed_at,
+       jsonb_build_object(
+         'compact',    true,
+         'decantedAt', s.data->'decantedAt',
+         'startedAt',  s.data->'startedAt',
+         'plan',       coalesce(s.data->'plan', '[]'::jsonb),
+         'tanks', coalesce((
+           select jsonb_agg(jsonb_build_object(
+                    'tank', t->'tank', 'tankNo', t->'tankNo', 'product', t->'product',
+                    'chambers', t->'chambers', 'litres', t->'litres', 'salesL', t->'salesL',
+                    'pricePerL', t->'pricePerL',
+                    'before', jsonb_build_object('volume', t->'before'->'volume'),
+                    'after',  jsonb_build_object('volume', t->'after'->'volume')))
+             from jsonb_array_elements(
+                    case when jsonb_typeof(s.data->'tanks') = 'array' then s.data->'tanks' else '[]'::jsonb end) t),
+           '[]'::jsonb)) as data
+  from public.dec_sessions s
+ where s.status = 'done';
+grant select on public.dec_history to anon, authenticated;
 
 -- ---- RLS: personal owner tool, the anon key may read/write these tables ----
 do $$

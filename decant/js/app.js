@@ -17,6 +17,7 @@ import {
 } from './ui.js';
 import { openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
 import { renderLog, renderReports } from './views.js';
+import { renderPlan, transitTotals } from './plan.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -219,6 +220,8 @@ function renderBanner() {
   if (!cloudEnabled) {
     el.innerHTML = `<div class="banner"><b>Working on this phone only.</b> Add the Supabase URL + key to <code>decant/config.js</code> and run
       <code>supabase/decant-schema.sql</code> to get invoices from the payments agent and sync across phones.</div>`;
+  } else if (state.schemaNote) {
+    el.innerHTML = `<div class="banner">${esc(state.schemaNote)}</div>`;
   } else if (state.cloud === 'offline' && state.cloudError) {
     el.innerHTML = `<div class="banner${/missing/.test(state.cloudError) ? ' bad' : ''}">${/missing/.test(state.cloudError) ? '' : 'Offline — changes are kept on this phone and sent when the connection is back. '}${esc(state.cloudError)}</div>`;
   } else {
@@ -233,9 +236,14 @@ function setTab(tab) {
   render();
 }
 
+// A view isn't redrawn while one of its fields has the focus (the typing
+// would be lost); it is redrawn once the field lets go.
+let skipped = false;
 function viewHasFocus(id) {
   const a = document.activeElement;
-  return a && document.getElementById(id)?.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName);
+  const has = a && document.getElementById(id)?.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName);
+  if (has) skipped = true;
+  return has;
 }
 
 export function render() {
@@ -249,10 +257,12 @@ export function render() {
   document.getElementById('tabbar').hidden = inWizard;
   document.getElementById('view-wizard').hidden = !inWizard;
   document.getElementById('view-home').hidden = inWizard || APP.tab !== 'home';
+  document.getElementById('view-plan').hidden = inWizard || APP.tab !== 'plan';
   document.getElementById('view-log').hidden = inWizard || APP.tab !== 'log';
   document.getElementById('view-reports').hidden = inWizard || APP.tab !== 'reports';
   if (inWizard) { if (!viewHasFocus('view-wizard')) renderWizard(document.getElementById('view-wizard')); return; }
   if (APP.tab === 'home' && !viewHasFocus('view-home')) renderHome(document.getElementById('view-home'));
+  if (APP.tab === 'plan' && !viewHasFocus('view-plan')) renderPlan(document.getElementById('view-plan'));
   if (APP.tab === 'log' && !viewHasFocus('view-log')) renderLog(document.getElementById('view-log'));
   if (APP.tab === 'reports' && !viewHasFocus('view-reports')) renderReports(document.getElementById('view-reports'));
 }
@@ -339,6 +349,7 @@ function renderHome(el) {
   // them decanted before the app was in use.
   const firstDay = state.sessions.length ? [] : recent.filter((x) => x.st === 'new' && invKey(x.inv) < startToday);
   const doneToday = state.sessions.filter((s) => s.status === 'done' && istDate(s.data?.decantedAt || s.created_at) === today);
+  const onWay = Object.entries(transitTotals());
 
   el.innerHTML = `
     <h2>Tank stock <span class="sp"></span><button class="btn sm" data-stock>📷 Update</button><button class="btn sm ghost" data-dipcalc title="Dip ↔ litres">📏</button></h2>
@@ -346,6 +357,7 @@ function renderHome(el) {
     ${open.length ? `<h2>In progress <span class="count">${open.length}</span></h2>${open.map(sessionCard).join('')}` : ''}
     <h2>To decant <span class="count">${recent.length}</span><span class="sp"></span>
       <button class="btn sm" data-addpdf title="Add an invoice from its PDF">⬆ PDF</button><button class="btn sm" data-addinv title="Type an invoice in">＋ Add</button></h2>
+    ${onWay.length ? `<div class="hint" style="margin:-4px 4px 10px">In transit (invoiced, not decanted): ${onWay.map(([p, l]) => `<b style="color:var(--ink)">${productShort(p)} ${fmtKL(l)}</b>`).join(' · ')} — <a href="#" data-goplan>make room on the Plan tab</a></div>` : ''}
     ${firstDay.length ? `<div class="banner">${firstDay.length} of these invoice${firstDay.length === 1 ? ' is' : 's are'} from before today. If those tankers were already decanted before you started using the app,
       <button class="btn sm" data-hidebefore>hide ${firstDay.length === 1 ? 'it' : `all ${firstDay.length}`}</button></div>` : ''}
     ${recent.length ? recent.map((x) => invoiceCard(x.inv, x.st)).join('') : `<div class="empty">No tanker waiting. New IndianOil invoices appear here on their own (the payments agent reads them from mail every ~20 min) — or add one from its PDF.</div>`}
@@ -383,6 +395,7 @@ function onHomeClick(e) {
   if (t.closest('[data-older]') && !t.closest('[data-dismissold]')) { APP.showOlder = !APP.showOlder; render(); return; }
   if (t.closest('[data-dismissold]')) { dismissOlder(); return; }
   if (t.closest('[data-hidebefore]')) { hideBeforeToday(); return; }
+  if (t.closest('[data-goplan]')) { e.preventDefault(); setTab('plan'); window.scrollTo(0, 0); return; }
   const doneBtn = t.closest('[data-session-done]');
   if (doneBtn) { openWizard(doneBtn.dataset.sessionDone); return; }
   const card = t.closest('[data-inv]');
@@ -414,17 +427,17 @@ async function dismissOlder() {
   const cutoff = Date.now() - state.settings.pendingDays * 86400000;
   const list = state.invoices.filter((inv) => invoiceStatus(inv, state.sessions, layoutFor(inv)) === 'new' && invKey(inv) < cutoff);
   const yes = await ask(`Dismiss ${list.length} older invoice${list.length === 1 ? '' : 's'}?`,
-    'Use this once when you start with the app: those tankers were decanted before. They stay out of the list (and out of the reports).', { ok: 'Dismiss all' });
+    'Use this when those tankers were decanted outside the app. They leave the list; in the reports they count as bought, "decanted outside the app".', { ok: 'Dismiss all' });
   if (!yes) return;
-  for (const inv of list) saveInvoice({ ...inv, dismissed: true, note: inv.note || 'Decanted before the app' });
+  for (const inv of list) saveInvoice({ ...inv, dismissed: true, dismiss_reason: 'outside', note: inv.note || 'Decanted before the app' });
   toast(`Dismissed ${list.length}.`);
 }
 
 async function hideBeforeToday() {
   const start = Date.parse(`${istDate(Date.now())}T00:00:00+05:30`);
   const list = state.invoices.filter((inv) => invoiceStatus(inv, state.sessions, layoutFor(inv)) === 'new' && invKey(inv) < start);
-  for (const inv of list) saveInvoice({ ...inv, dismissed: true, note: inv.note || 'Decanted before the app' });
-  toast(`Hid ${list.length}. They're not in the reports either.`);
+  for (const inv of list) saveInvoice({ ...inv, dismissed: true, dismiss_reason: 'outside', note: inv.note || 'Decanted before the app' });
+  toast(`Hid ${list.length}. They still count as purchases in the reports.`);
 }
 
 function invoiceMenu(inv) {
@@ -439,18 +452,18 @@ function invoiceMenu(inv) {
     body.querySelector('[data-edit]').onclick = () => { closeSheet(); invoiceForm(inv); };
     body.querySelector('[data-dismiss]').onclick = async () => {
       closeSheet();
-      await saveInvoice({ ...inv, dismissed: true, note: 'Not for our tanks' });
+      await saveInvoice({ ...inv, dismissed: true, dismiss_reason: 'not_ours', note: 'Not for our tanks' });
       toast('Hidden. (It won\'t show in the list or the reports.)');
     };
     body.querySelector('[data-done]').onclick = async () => {
       closeSheet();
-      await saveInvoice({ ...inv, dismissed: true, note: 'Decanted outside the app' });
-      toast('Hidden.');
+      await saveInvoice({ ...inv, dismissed: true, dismiss_reason: 'outside', note: 'Decanted outside the app' });
+      toast('Hidden. It still counts as bought in the reports.');
     };
     body.querySelector('[data-del]')?.addEventListener('click', async () => {
       closeSheet();
       if (await ask('Delete this invoice?', 'Only invoices typed in or added from a PDF can be deleted.', { ok: 'Delete', danger: true })) {
-        await saveInvoice({ ...inv, dismissed: true, note: 'deleted' });
+        await saveInvoice({ ...inv, dismissed: true, dismiss_reason: 'deleted', note: 'deleted' });
         toast('Deleted.');
       }
     });
@@ -559,7 +572,7 @@ async function invoiceFromPdf() {
           <div class="row-actions"><button class="btn" data-x>Cancel</button><button class="cta" data-save>${existing ? 'Show it again' : 'Add to the list'}</button></div>`;
         body.querySelector('[data-x]').onclick = () => closeSheet();
         body.querySelector('[data-save]').onclick = async () => {
-          const row = existing ? { ...existing, dismissed: false } : {
+          const row = existing ? { ...existing, dismissed: false, dismiss_reason: null } : {
             invoice_no: inv.invoice_no, invoice_date: inv.invoice_date, invoice_time: inv.invoice_time, tt_no: inv.tt_no,
             lines: inv.lines, chambers: inv.chambers, density15: inv.density15, seals: inv.seals, origin: null,
             amount: inv.amount, gmail_msg_id: null, source: 'pdf', dismissed: false, note: null,
@@ -698,9 +711,12 @@ function settingsSheet() {
         <label class="f">A stock reading is old after (minutes)<input type="number" id="stStale" step="5" value="${s.staleMinutes}"></label>
         <label class="f">Wait after decanting before the after-stock (min)<input type="number" id="stSettle" step="1" value="${s.settleMinutes}"></label>
         <label class="f">Truck density vs invoice, OK within (± kg/m³)<input type="number" id="stDens" step="0.5" value="${s.densityLimit}"></label>
-        <label class="f">Keep the log for (days)<input type="number" id="stKeep" step="1" min="7" max="120" value="${s.retentionDays}"></label>
+        <label class="f">Keep the screenshots for (days)<input type="number" id="stKeep" step="1" min="7" max="120" value="${s.retentionDays}"></label>
         <label class="f">Show undecanted invoices from the last (days)<input type="number" id="stPend" step="1" min="1" value="${s.pendingDays}"></label>
       </div>
+      <label class="f" style="margin-top:10px">Our tankers to leave out of "room in our tankers" (Plan tab), comma separated
+        <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
+      <div class="hint" style="margin-top:4px">Decantations and invoices are kept for this financial year and the last; screenshots for the days above.</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
         <select id="stDate"><option value="MDY" ${s.dateOrder === 'MDY' ? 'selected' : ''}>MM/DD/YYYY (09/26/2026)</option><option value="DMY" ${s.dateOrder === 'DMY' ? 'selected' : ''}>DD/MM/YYYY (26/09/2026)</option></select></label>
       <div class="row-actions"><button class="cta" id="stSave">Save settings</button></div>
@@ -733,6 +749,7 @@ function settingsSheet() {
           settleMinutes: num('#stSettle', 0, 120, s.settleMinutes), densityLimit: num('#stDens', 0, 20, s.densityLimit),
           retentionDays: num('#stKeep', 7, 120, s.retentionDays), pendingDays: num('#stPend', 1, 60, s.pendingDays),
           dateOrder: body.querySelector('#stDate').value,
+          excludeTankers: body.querySelector('#stExTk').value.split(/[,;\s]+/).map((x) => x.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean),
         },
       });
       closeSheet();
@@ -788,13 +805,28 @@ function boot() {
   document.getElementById('btnSettings').onclick = () => settingsSheet();
   try {
     const t = localStorage.getItem('vriddhi-decant-tab');
-    if (['home', 'log', 'reports'].includes(t)) APP.tab = t;
+    if (['home', 'plan', 'log', 'reports'].includes(t)) APP.tab = t;
     document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === APP.tab));
   } catch { /* ignore */ }
   onChange(render);
   initStore().then(render);
   render();
-  document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) render(); }, 0));
+  // A redraw held back while typing happens once the field lets go — but not
+  // in the middle of a tap (a redraw between touch-down and click would swallow
+  // the click, e.g. on "Save" right after typing on iPhone).
+  let down = false;
+  document.addEventListener('pointerdown', () => { down = true; }, true);
+  document.addEventListener('pointerup', () => { setTimeout(() => { down = false; }, 400); }, true);
+  document.addEventListener('pointercancel', () => { down = false; }, true);
+  const settle = () => {
+    if (!skipped) return;
+    const a = document.activeElement;
+    if (a && a !== document.body && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
+    if (down) { setTimeout(settle, 250); return; }
+    skipped = false;
+    render();
+  };
+  document.addEventListener('focusout', () => setTimeout(settle, 0));
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(render, 200); });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

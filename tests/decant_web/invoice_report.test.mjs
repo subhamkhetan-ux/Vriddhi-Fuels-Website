@@ -111,3 +111,95 @@ test('filters and export', () => {
   const csv = toCsv([['a', 'b,c'], ['say "hi"', 1]]);
   assert.equal(csv, 'a,"b,c"\r\n"say ""hi""",1');
 });
+
+test('periods: this month, last month, this FY, all', async () => {
+  const { fyStart, periodRange } = await import('../../decant/js/report.js');
+  assert.equal(fyStart('2026-09-27'), '2026-04-01');
+  assert.equal(fyStart('2027-03-31'), '2026-04-01');
+  assert.equal(fyStart('2027-04-01'), '2027-04-01');
+  assert.deepEqual(periodRange('month', '2026-09-27'), ['2026-09-01', '2026-09-27']);
+  assert.deepEqual(periodRange('lastmonth', '2026-09-27'), ['2026-08-01', '2026-08-31']);
+  assert.deepEqual(periodRange('lastmonth', '2027-01-05'), ['2026-12-01', '2026-12-31']);
+  assert.deepEqual(periodRange('fy', '2027-02-10'), ['2026-04-01', '2027-02-10']);
+  assert.deepEqual(periodRange('all', '2026-09-27'), ['', '2026-09-27']);
+  assert.deepEqual(periodRange('custom', '2026-09-27', { from: '2026-09-10' }), ['2026-09-10', '2026-09-27']);
+});
+
+test('what the phone keeps, what the cloud keeps, and months', async () => {
+  const { localFrom, monthsBetween, oldestKept, withOlder } = await import('../../decant/js/report.js');
+  // the cloud: this FY and the last (matches dec_purge_old)
+  assert.equal(oldestKept('2026-09-27'), '2025-04-01');
+  assert.equal(oldestKept('2027-03-31'), '2025-04-01');
+  assert.equal(oldestKept('2027-04-01'), '2026-04-01');
+  // the phone: this month and last, with two days' slack
+  assert.equal(localFrom('2026-09-27'), '2026-07-30');
+  assert.equal(localFrom('2026-03-05'), '2026-01-30');
+  assert.equal(localFrom('2026-01-10'), '2025-11-29');
+  assert.equal(localFrom('2028-03-01'), '2028-01-30');
+  assert.deepEqual(monthsBetween('2025-11-29', '2026-02-03'), ['2025-11', '2025-12', '2026-01', '2026-02']);
+  assert.deepEqual(monthsBetween('2026-09-01', '2026-09-27'), ['2026-09']);
+  assert.equal(monthsBetween('2025-04-01', '2027-03-31').length, 24);
+  // the phone's copy wins over the cloud's older rows
+  const merged = withOlder([{ id: 'a', v: 'phone' }], [{ id: 'a', v: 'cloud' }, { id: 'b', v: 'cloud' }], 'id');
+  assert.deepEqual(merged, [{ id: 'a', v: 'phone' }, { id: 'b', v: 'cloud' }]);
+  assert.deepEqual(withOlder([{ id: 'a' }], undefined, 'id'), [{ id: 'a' }]);
+});
+
+test('reports read compact rows from the cloud history view', async () => {
+  const { entriesFrom, purchaseSummary } = await import('../../decant/js/report.js');
+  // the shape dec_history returns: no readings' details, no invoice copy
+  const compact = {
+    id: 'old1', invoice_no: 'I9', tt_no: 'OD23U8210', status: 'done', created_at: '2026-05-02T04:00:00Z',
+    data: {
+      compact: true, decantedAt: '2026-05-02T04:30:00Z', startedAt: null, plan: [{ no: 1, tank: 'T2' }],
+      tanks: [{ tank: 'T2', tankNo: 2, product: 'HSD', chambers: [1], litres: 5000, salesL: 12, pricePerL: null, before: { volume: 9000 }, after: { volume: 13950 } }],
+    },
+  };
+  const [e] = entriesFrom([compact], DEFAULT_SETTINGS);
+  assert.equal(e.day, '2026-05-02');
+  assert.equal(e.variation, -38);            // gained 4950, expected 5000 − 12
+  assert.equal(e.value, null);
+  const buy = purchaseSummary([{ invoice_no: 'I9', invoice_date: '02/05/2026', tt_no: 'OD23U8210', lines: [{ column_key: 'HSD', qty_kl: 5 }] }], [compact], {});
+  assert.equal(buy.byProduct.HSD.decanted, 5000);
+  assert.equal(buy.byProduct.HSD.transit, 0);
+});
+
+test('purchases: decanted + outside the app + in transit', async () => {
+  const { dismissReason, purchaseSummary } = await import('../../decant/js/report.js');
+  const inv = (no, date, tt, lines, extra = {}) => ({
+    invoice_no: no, invoice_date: date, invoice_time: '10:00', tt_no: tt,
+    lines: lines.map(([column_key, qty_kl]) => ({ column_key, qty_kl })), ...extra,
+  });
+  const invoices = [
+    inv('A', '26/09/2026', 'OD23U8210', [['HSD', 22]]),                                   // fully decanted
+    inv('B', '26/09/2026', 'OD23U8210', [['MS | EBMS', 5], ['HSD', 17]]),                  // HSD C5 still on the truck
+    inv('C', '27/09/2026', 'OR15X1234', [['XtraGreen HSD', 12]]),                          // not decanted yet
+    inv('D', '20/09/2026', 'OD23U8210', [['HSD', 22]], { dismissed: true, dismiss_reason: 'outside' }),
+    inv('E', '21/09/2026', 'OD01A0001', [['HSD', 12]], { dismissed: true, note: 'Not for our tanks' }),
+    inv('F', '31/08/2026', 'OD23U8210', [['HSD', 22]]),                                    // last month
+    inv('G', '27/09/2026', 'OD23U8210', [['HSD', 22]]),                                    // decanting right now
+  ];
+  const sess = (invoice_no, status, tanks) => ({ invoice_no, status, data: { tanks: tanks.map(([product, litres]) => ({ product, litres })) } });
+  const sessions = [
+    sess('A', 'done', [['HSD', 14000], ['HSD', 8000]]),
+    sess('B', 'done', [['MS', 5000], ['HSD', 9000], ['HSD', 4000]]),
+    sess('G', 'decanting', [['HSD', 14000]]),
+    sess('C', 'cancelled', [['XG', 12000]]),
+  ];
+  const r = purchaseSummary(invoices, sessions, { from: '2026-09-01', to: '2026-09-30' });
+  assert.deepEqual(r.byProduct.HSD, { purchased: 83000, decanted: 35000, outside: 22000, transit: 26000, trucks: 2 });
+  assert.deepEqual(r.byProduct.MS, { purchased: 5000, decanted: 5000, outside: 0, transit: 0, trucks: 0 });
+  assert.deepEqual(r.byProduct.XG, { purchased: 12000, decanted: 0, outside: 0, transit: 12000, trucks: 1 });
+  assert.deepEqual(r.total, { purchased: 100000, decanted: 40000, outside: 22000, transit: 38000 });
+  assert.deepEqual(r.transit.map((t) => [t.invoice_no, t.tt, t.products.map((p) => `${p.product}:${p.litres}${p.decanting ? ' now' : ''}`).join(' '), t.partial, t.decanting]), [
+    ['B', 'OD23U8210', 'HSD:4000', true, false],
+    ['C', 'OR15X1234', 'XG:12000', false, false],
+    ['G', 'OD23U8210', 'HSD:22000 now', false, true],
+  ]);
+  // one truck, one product
+  assert.equal(purchaseSummary(invoices, sessions, { from: '2026-09-01', tt: 'OR15X1234' }).total.purchased, 12000);
+  assert.equal(purchaseSummary(invoices, sessions, { product: 'MS' }).total.purchased, 5000);
+  assert.equal(purchaseSummary(invoices, sessions, { from: '2026-08-01', to: '2026-08-31' }).byProduct.HSD.transit, 22000);
+  assert.equal(dismissReason({ dismissed: true, note: 'Decanted before the app' }), 'outside');
+  assert.equal(dismissReason({ dismissed: false }), null);
+});

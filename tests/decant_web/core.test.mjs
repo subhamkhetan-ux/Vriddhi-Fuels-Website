@@ -282,3 +282,47 @@ test('after decanting: chambers that went into the other tank are spotted', asyn
   assert.equal(routingHint(rows.slice(0, 1), byNo), null);
   assert.deepEqual(guessRouting([{ no: 1, litres: 4000 }], [{ id: 'T2', gain: 3990 }]).assign, { 1: 'T2' });
 });
+
+test('plan ahead: what to sell from each tank before the next loads', async () => {
+  const { planAhead } = await import('../../decant/js/core.js');
+  // stock after the 26-Sep afternoon decanting
+  const stock = {
+    T1: { volume: 8886.77, ullage: 11113.23 }, T2: { volume: 18965.71, ullage: 1034.29 },
+    T3: { volume: 18962.36, ullage: 1037.64 }, T4: { volume: 2559.46, ullage: 17440.54 },
+  };
+  const loads = [
+    { id: 'transit', chambers: [{ no: 5, litres: 4000, product: 'HSD' }] },               // still on the truck
+    { id: 'next', chambers: [{ no: 1, litres: 5000, product: 'MS' }, ...[2, 3, 4, 5].map((no) => ({ no, litres: no === 2 ? 5000 : 4000, product: 'HSD' }))] },
+  ];
+  const r = planAhead({ loads, tanks: DEFAULT_TANKS, stock, margin: 150 });
+  // the 4 KL still on the truck goes into Tank 3 (a touch more room), 3,112.36 L to sell first
+  assert.deepEqual(r.loads[0].split, { 5: 'T3' });
+  assert.deepEqual(r.loads[0].sell, { T3: 3112.36 });
+  // next load: MS fits; HSD 17 KL shared so neither tank has to sell much more than the other
+  assert.deepEqual(r.loads[1].split, { 1: 'T1', 2: 'T2', 3: 'T2', 4: 'T3', 5: 'T3' });
+  assert.deepEqual(r.loads[1].sell, { T1: 0, T2: 8115.71, T3: 8000 });
+  assert.deepEqual(r.products.HSD, { incoming: 21000, sell: 19228.07 });
+  assert.deepEqual(r.products.MS, { incoming: 5000, sell: 0 });
+  assert.equal(r.tanks.T1.spare, 6113.23);
+  assert.equal(r.tanks.T3.sell, 11112.36);
+  assert.equal(r.tanks.T3.after, 19850);                                              // full, less the 150 L margin
+  assert.deepEqual(r.missing, []);
+  // no stock for a tank: said so, and its product can't be planned
+  const partial = planAhead({ loads, tanks: DEFAULT_TANKS, stock: { T1: stock.T1 }, margin: 150 });
+  assert.deepEqual(partial.missing, ['T2', 'T3', 'T4']);
+  assert.deepEqual(partial.loads[1].noTank, [2, 3, 4, 5]);
+});
+
+test('own tankers: free space, leaving some out', async () => {
+  const { tankerSpace } = await import('../../decant/js/core.js');
+  const vehicles = [
+    { plate: 'OD23A3710', caps: [3985, 3985, 3985], fill: { C1: 3985, C2: 1500 } },
+    { plate: 'OR15R9360', caps: [4485, 4485, 4485, 4485], fill: {} },
+    { plate: 'OD15AF5510', caps: [5000, 5000], fill: {} },
+    { plate: 'OR15R1110', caps: [3985, 3985, 3985], fill: { C1: 5000, C2: 3985, C3: 3985 } },   // an over-read stays full, not negative
+  ];
+  const r = tankerSpace(vehicles, ['OD15 AF 5510']);
+  assert.deepEqual(r.rows.map((x) => [x.plate, x.free]), [['OR15R9360', 17940], ['OD23A3710', 6470], ['OR15R1110', 0]]);
+  assert.equal(r.free, 24410);
+  assert.deepEqual(r.excluded, ['OD15AF5510']);
+});

@@ -20,15 +20,17 @@ export const DEFAULT_SETTINGS = {
   warnRoomL: 150,       // warn when a tank would be left with less room than this
   staleMinutes: 30,     // a stock reading older than this is flagged before decanting
   settleMinutes: 10,    // suggested wait after decanting before the "after" screenshot
-  retentionDays: 31,    // the log keeps one month
+  retentionDays: 31,    // screenshots are kept a month (the numbers: this FY and the last)
   pendingDays: 3,       // older undecanted invoices fold away under "Older"
   dateOrder: 'MDY',     // the automation prints dates as MM/DD/YYYY
   densityLimit: 3,      // truck density vs the invoice's Density@15, ± kg/m³
+  excludeTankers: ['OD15AF5510'],   // our tankers left out of "room in our tankers"
 };
 
 export function settingsWith(saved) {
   const s = { ...DEFAULT_SETTINGS, ...(saved || {}) };
   if (!Array.isArray(s.tanks) || !s.tanks.length) s.tanks = DEFAULT_TANKS;
+  if (!Array.isArray(s.excludeTankers)) s.excludeTankers = DEFAULT_SETTINGS.excludeTankers;
   s.tanks = s.tanks.map((t, i) => ({
     id: String(t.id || `T${i + 1}`),
     no: Number(t.no) || i + 1,
@@ -540,4 +542,122 @@ export function routingHint(rows, chambersByNo, settings = DEFAULT_SETTINGS) {
   const changed = rows.some((r) => r.chambers.some((no) => g.assign[no] !== r.tank));
   if (!changed || g.miss > missNow * 0.5 || missNow - g.miss < 4 * tol) return null;
   return { ...g, missNow, missThen: g.miss };
+}
+
+// ---------------------------------------------------------------------------
+// Planning ahead: room for the loads that are coming
+// ---------------------------------------------------------------------------
+
+// How much each tank has to sell (dispense) before the coming loads arrive so
+// that every chamber goes in and each tank still keeps `margin` litres free.
+//   loads: [{id, chambers: [{no, litres, product}]}] in the order they'll arrive
+//   stock: {tankId: {volume, ullage}}
+// Returns {tanks: {id: {now, room, incoming, sell, after, spare}},
+//          loads: [{id, split: {no: tankId}, sell: {tankId: litres}, noTank: [no]}],
+//          products: {P: {incoming, sell}}, missing: [tankId without stock]}.
+export function planAhead({ loads, tanks, stock, margin = 150 }) {
+  const room = {};
+  const out = { tanks: {}, loads: [], products: {}, missing: [] };
+  for (const t of tanks) {
+    const r = stock?.[t.id];
+    if (!r || !Number.isFinite(r.volume)) { out.missing.push(t.id); continue; }
+    const ull = Number.isFinite(r.ullage) ? r.ullage : t.capacity - r.volume;
+    room[t.id] = ull - margin;
+    out.tanks[t.id] = { now: r.volume, room: ull, incoming: 0, sell: 0, after: r.volume, spare: ull };
+  }
+  for (const load of loads || []) {
+    const res = { id: load.id, split: {}, sell: {}, noTank: [] };
+    const chambers = (load.chambers || []).filter((c) => c.product && c.litres > 0);
+    for (const p of [...new Set(chambers.map((c) => c.product))]) {
+      const cs = chambers.filter((c) => c.product === p);
+      const ts = tanks.filter((t) => t.product === p && Number.isFinite(room[t.id]));
+      if (!ts.length) { res.noTank.push(...cs.map((c) => c.no)); continue; }
+      const best = splitForRoom(cs, ts.map((t) => ({ id: t.id, room: room[t.id] })));
+      Object.assign(res.split, best.assign);
+      const pr = (out.products[p] ||= { incoming: 0, sell: 0 });
+      for (const t of ts) {
+        const inc = best.perTank[t.id] || 0;
+        if (!inc) continue;
+        const sell = Math.max(0, inc - room[t.id]);
+        room[t.id] = room[t.id] + sell - inc;
+        res.sell[t.id] = round2(sell);
+        const row = out.tanks[t.id];
+        row.incoming += inc;
+        row.sell = round2(row.sell + sell);
+        row.after = round2(row.now + row.incoming - row.sell);
+        row.spare = round2(room[t.id] + margin);
+        pr.incoming += inc;
+        pr.sell = round2(pr.sell + sell);
+      }
+    }
+    out.loads.push(res);
+  }
+  return out;
+}
+
+// Every chamber goes in (nothing is held back): the split needing the least
+// selling, then the least from any one tank, then chambers in order with the
+// roomiest tank first.
+function splitForRoom(chambers, tanks) {
+  const cs = [...chambers].sort((a, b) => a.no - b.no);
+  const k = tanks.length;
+  const n = cs.length;
+  const perOf = (choice) => {
+    const per = new Array(k).fill(0);
+    cs.forEach((c, i) => { per[choice[i]] += c.litres; });
+    return per;
+  };
+  if (k === 1 || k ** n > 200000) {
+    // one tank (or too many to try): fill the roomiest first, in order
+    const order = tanks.map((t, j) => j).sort((a, b) => tanks[b].room - tanks[a].room);
+    const choice = cs.map(() => order[0]);
+    if (k > 1) {
+      const per = new Array(k).fill(0);
+      cs.forEach((c, i) => {
+        const j = order.find((x) => per[x] + c.litres <= tanks[x].room) ?? order[0];
+        choice[i] = j;
+        per[j] += c.litres;
+      });
+    }
+    const per = perOf(choice);
+    return { assign: Object.fromEntries(cs.map((c, i) => [c.no, tanks[choice[i]].id])), perTank: Object.fromEntries(tanks.map((t, j) => [t.id, per[j]])) };
+  }
+  const rank = tanks.map((t, j) => j).sort((a, b) => tanks[b].room - tanks[a].room || a - b);
+  const rankOf = new Map(rank.map((j, r) => [j, r]));
+  const choice = new Array(n).fill(0);
+  let best = null;
+  for (let code = 0; code < k ** n; code++) {
+    let c = code;
+    for (let i = 0; i < n; i++) { choice[i] = c % k; c = Math.floor(c / k); }
+    const per = perOf(choice);
+    const sells = per.map((v, j) => Math.max(0, v - tanks[j].room));
+    let switches = 0;
+    for (let i = 1; i < n; i++) if (choice[i] !== choice[i - 1]) switches += 1;
+    let order = 0;
+    for (let i = 0; i < n; i++) order = order * k + rankOf.get(choice[i]);
+    const score = [sells.reduce((a, b) => a + b, 0), Math.max(...sells), switches, order];
+    if (!best || lexLess(score, best.score)) best = { score, choice: [...choice], per };
+  }
+  return {
+    assign: Object.fromEntries(cs.map((c, i) => [c.no, tanks[best.choice[i]].id])),
+    perTank: Object.fromEntries(tanks.map((t, j) => [t.id, best.per[j]])),
+  };
+}
+
+// Our own delivery tankers (from the Loading app): how much each can still
+// take — capacity minus what's in it. `exclude` lists plates to leave out.
+export function tankerSpace(vehicles, exclude = []) {
+  const norm = (p) => String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const ex = new Set(exclude.map(norm));
+  const rows = [];
+  const excluded = [];
+  for (const v of vehicles || []) {
+    if (ex.has(norm(v.plate))) { excluded.push(v.plate); continue; }
+    const caps = (v.caps || []).map(Number).filter((x) => x > 0);
+    const capacity = caps.reduce((a, b) => a + b, 0);
+    const filled = caps.reduce((a, cap, i) => a + Math.min(cap, Math.max(0, Number(v.fill?.[`C${i + 1}`]) || 0)), 0);
+    rows.push({ plate: v.plate, capacity, filled: round2(filled), free: round2(capacity - filled) });
+  }
+  rows.sort((a, b) => b.free - a.free || (a.plate < b.plate ? -1 : 1));
+  return { rows, free: round2(rows.reduce((a, r) => a + r.free, 0)), excluded };
 }

@@ -80,47 +80,77 @@ def test_realtime_publication_skips_photos(pg):
                                  "dec_vehicles"]
 
 
-def test_purge_keeps_one_month_and_open_work(pg):
+def test_purge_keeps_two_fys_of_numbers_and_a_month_of_screenshots(pg):
     _reset(pg)
     pg.ok("""
       insert into dec_sessions (id, invoice_no, status, created_at, completed_at) values
-        ('old-done',   'A', 'done',      now() - interval '40 days', now() - interval '40 days'),
-        ('old-cancel', 'A', 'cancelled', now() - interval '35 days', now() - interval '35 days'),
-        ('recent',     'B', 'done',      now() - interval '20 days', now() - interval '20 days'),
-        ('stuck-open', 'C', 'settling',  now() - interval '50 days', null);
+        ('ancient',    'A', 'done',      now() - interval '800 days', now() - interval '800 days'),
+        ('ancient-x',  'A', 'cancelled', now() - interval '790 days', now() - interval '790 days'),
+        ('last-month', 'B', 'done',      now() - interval '40 days',  now() - interval '40 days'),
+        ('stuck-open', 'C', 'settling',  now() - interval '900 days', null);
       insert into dec_photos (id, session_id, kind, created_at) values
-        ('p-old',    'old-done', 'before', now() - interval '40 days'),
-        ('p-recent', 'recent',   'after',  now() - interval '20 days'),
-        ('p-open',   'stuck-open','before', now() - interval '50 days'),
-        ('p-stock',  null,       'stock',  now() - interval '33 days');
+        ('p-40d',    'last-month', 'before', now() - interval '40 days'),
+        ('p-20d',    'last-month', 'after',  now() - interval '20 days'),
+        ('p-open',   'stuck-open', 'before', now() - interval '900 days'),
+        ('p-stock',  null,         'stock',  now() - interval '33 days');
       insert into dec_invoices (invoice_no, created_at) values
-        ('A', now() - interval '60 days'),
-        ('C', now() - interval '60 days'),
-        ('D', now() - interval '20 days');
+        ('A', now() - interval '800 days'),
+        ('C', now() - interval '900 days'),
+        ('D', now() - interval '200 days');
       select dec_purge_old();
     """)
-    assert pg.ok("select string_agg(id, ',' order by id) from dec_sessions;") == "recent,stuck-open"
-    assert pg.ok("select string_agg(id, ',' order by id) from dec_photos;") == "p-open,p-recent"
-    # 'A' is old and closed; 'C' still has an open decantation; 'D' is recent
+    # numbers: two FYs are kept (so "this FY" works); older ones go, open work stays
+    assert pg.ok("select string_agg(id, ',' order by id) from dec_sessions;") == "last-month,stuck-open"
+    # screenshots: a month, except for an open decantation
+    assert pg.ok("select string_agg(id, ',' order by id) from dec_photos;") == "p-20d,p-open"
     assert pg.ok("select string_agg(invoice_no, ',' order by invoice_no) from dec_invoices;") == "C,D"
 
 
-def test_retention_days_setting(pg):
+def test_screenshot_days_setting(pg):
     _reset(pg)
     pg.ok("""
       update dec_config set data = '{"settings": {"retentionDays": 60}}'::jsonb;
-      insert into dec_sessions (id, status, created_at, completed_at) values
-        ('d45', 'done', now() - interval '45 days', now() - interval '45 days'),
-        ('d70', 'done', now() - interval '70 days', now() - interval '70 days');
+      insert into dec_photos (id, kind, created_at) values
+        ('p45', 'stock', now() - interval '45 days'),
+        ('p70', 'stock', now() - interval '70 days');
       select dec_purge_old();
     """)
-    assert pg.ok("select string_agg(id, ',') from dec_sessions;") == "d45"
+    assert pg.ok("select string_agg(id, ',') from dec_photos;") == "p45"
     # nonsense values fall back to a month
     pg.ok("""
       update dec_config set data = '{"settings": {"retentionDays": "lots"}}'::jsonb;
       select dec_purge_old();
     """)
-    assert pg.ok("select count(*) from dec_sessions;") == "0"
+    assert pg.ok("select count(*) from dec_photos;") == "0"
+
+
+def test_dismiss_reason_column(pg):
+    _reset(pg)
+    pg.ok("insert into dec_invoices (invoice_no, dismissed, dismiss_reason) values ('Z', true, 'outside');", anon=True)
+    assert pg.ok("select dismiss_reason from dec_invoices where invoice_no = 'Z';", anon=True) == "outside"
+
+
+def test_history_view_is_compact(pg):
+    _reset(pg)
+    pg.ok("""
+      insert into dec_sessions (id, invoice_no, tt_no, status, data) values
+        ('h1', 'I1', 'OD23U8210', 'done', '{"decantedAt": "2026-05-02T10:00:00Z", "plan": [{"no": 1, "tank": "T2"}],
+           "tanks": [{"tank": "T2", "tankNo": 2, "product": "HSD", "chambers": [1], "litres": 5000, "salesL": 12,
+                      "before": {"volume": 9000.5, "checks": {"sum": {"ok": true}}, "photoId": "P1"},
+                      "after": {"volume": 13990, "confidence": "high"}}],
+           "invoice": {"lines": [{"qty_kl": 5}]}, "checks": ["lots of text"]}'),
+        ('h2', 'I2', 'OD23U8210', 'decanting', '{}'),
+        ('h3', 'I3', 'OD23U8210', 'done', '{"tanks": "not a list"}');
+    """)
+    # only finished decantations, readable with the public key
+    assert pg.ok("select string_agg(id, ',' order by id) from dec_history;", anon=True) == "h1,h3"
+    assert pg.json("select data from dec_history where id = 'h1';", anon=True) == {
+        "compact": True, "decantedAt": "2026-05-02T10:00:00Z", "startedAt": None,
+        "plan": [{"no": 1, "tank": "T2"}],
+        "tanks": [{"tank": "T2", "tankNo": 2, "product": "HSD", "chambers": [1], "litres": 5000, "salesL": 12,
+                   "pricePerL": None, "before": {"volume": 9000.5}, "after": {"volume": 13990}}],
+    }
+    assert pg.json("select data->'tanks' from dec_history where id = 'h3';", anon=True) == []
 
 
 def test_single_config_row(pg):
