@@ -3,8 +3,8 @@
 // views.js; the rules they all share are in core.js.
 
 import {
-  PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, invoiceStatus, istDate, layoutsText,
-  litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, round2, tankStage, transportOptions, usedChambers,
+  PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, invoiceStatus, istDate, layoutsText,
+  litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
@@ -146,7 +146,7 @@ export async function readScreenshot({ want = null } = {}) {
             </div>
             <div class="kv">
               <div><div class="k">Stock</div><div class="v big">${fmtL(r.volume, 2)}</div></div>
-              <div><div class="k">Room (ullage)</div><div class="v">${fmtL(r.ullage, 2)}</div></div>
+              <div><div class="k">Ullage on screen</div><div class="v">${fmtL(r.ullage, 2)}</div></div>
               <div><div class="k">Dip</div><div class="v">${fmtDip(Number.isFinite(r.height) ? r.height / 10 : dipAtLitres(state.chart, r.volume))}</div></div>
               <div><div class="k">Water</div><div class="v">${Number.isFinite(r.water) ? fmtL(r.water, 2) : '—'}</div></div>
               <div><div class="k">Density / (tc)</div><div class="v">${r.density ?? '—'} / ${r.densityTc ?? '—'}</div></div>
@@ -286,7 +286,7 @@ function tankTile(t, busy) {
     <div class="t-head"><span class="t-name">Tank ${t.no}</span>${productChip(t.product)}</div>
     ${tankGauge({ product: t.product, volume: r?.volume, capacity: t.capacity, label: `Tank ${t.no}` })}
     <div class="t-vol">${r ? fmtL(r.volume) : '—'}</div>
-    <div class="t-sub">Room <b>${r ? fmtL(r.ullage) : '—'}</b> · Dip <b>${r ? fmtDip(r.dip) : '—'}</b></div>
+    <div class="t-sub">Room <b>${r ? fmtL(roomOf(r, t)) : '—'}</b> · Dip <b>${r ? fmtDip(r.dip) : '—'}</b></div>
     <div class="t-age${stale ? ' stale' : ''}">${r ? `${fmtWhen(r.readingAt)} · ${ago(r.readingAt)}` : 'No reading yet'}</div>
   </button>`;
 }
@@ -562,7 +562,7 @@ function tankSheet(id) {
       ${tankGauge({ product: t.product, volume: r?.volume, capacity: t.capacity, label: `Tank ${t.no}` })}
       ${r ? `<div class="kv">
         <div><div class="k">Stock</div><div class="v big">${fmtL(r.volume, 2)}</div></div>
-        <div><div class="k">Room</div><div class="v">${fmtL(r.ullage, 2)}</div></div>
+        <div><div class="k">Room (to ${fmtNum(fillLimit(t))} L)</div><div class="v">${fmtL(roomOf(r, t), 2)}</div></div>
         <div><div class="k">Dip</div><div class="v">${fmtDip(r.dip)}</div></div>
         <div><div class="k">Water</div><div class="v">${r.water != null ? fmtL(r.water, 2) : '—'}</div></div>
         <div><div class="k">Density / (tc)</div><div class="v">${r.density ?? '—'} / ${r.densityTc ?? '—'}</div></div>
@@ -616,7 +616,7 @@ export function dipCalculator() {
     const show = (dip, litres) => {
       out.innerHTML = Number.isFinite(dip) && Number.isFinite(litres)
         ? `<div><div class="k">Dip</div><div class="v big">${fmtDip(dip)}</div></div><div><div class="k">Stock</div><div class="v big">${fmtL(litres, 2)}</div></div>
-           ${tanks().length ? `<div><div class="k">Room (${fmtNum(tanks()[0].capacity)} L tank)</div><div class="v">${fmtL(tanks()[0].capacity - litres, 2)}</div></div>` : ''}`
+           ${tanks().length ? `<div><div class="k">Room (to ${fmtNum(fillLimit(tanks()[0]))} L)</div><div class="v">${fmtL(fillLimit(tanks()[0]) - litres, 2)}</div></div>` : ''}`
         : '<div class="hint">Out of the chart\'s range.</div>';
     };
     D.oninput = () => { const d = Number(D.value); L.value = ''; show(d, litresAtDip(c, d)); };
@@ -777,10 +777,12 @@ function settingsSheet() {
     body.innerHTML = `
       <label class="f">Your name on this phone (saved with each decantation)<input type="text" id="stOp" value="${esc(state.device.operator || '')}" placeholder="optional"></label>
       <div class="sect-title" style="margin-top:16px">Tanks</div>
-      ${s.tanks.map((t, i) => `<div class="grid3" style="margin-bottom:8px;align-items:end">
-        <div class="pt-name" style="padding-bottom:10px">Tank ${t.no}</div>
+      ${s.tanks.map((t, i) => `<div class="pt-name" style="margin-top:6px">Tank ${t.no}</div>
+        <div class="grid3" style="margin-bottom:8px;align-items:end">
         <label class="f">Product<select data-tp="${i}">${Object.values(PRODUCTS).map((p) => `<option value="${p.key}" ${t.product === p.key ? 'selected' : ''}>${p.name}</option>`).join('')}</select></label>
-        <label class="f">Capacity (L)<input type="number" data-tc="${i}" value="${t.capacity}" inputmode="numeric"></label></div>`).join('')}
+        <label class="f">Capacity (L)<input type="number" data-tc="${i}" value="${t.capacity}" inputmode="numeric"></label>
+        <label class="f">Fill up to (L)<input type="number" data-tf="${i}" value="${fillLimit(t)}" inputmode="numeric"></label></div>`).join('')}
+      <div class="hint">Room is counted up to "fill up to" — our 20 KL tanks take 20,500 L (they hold about 21,000 L); the automation's ullage is to 20,000 L.</div>
       <div class="sect-title" style="margin-top:16px">Checks</div>
       <div class="grid2">
         <label class="f">Variation is OK within (%)<input type="number" id="stTol" step="0.05" value="${s.tolerancePct}"></label>
@@ -820,7 +822,11 @@ function settingsSheet() {
       </div>`;
     body.querySelector('#stSave').onclick = async () => {
       const num = (id, lo, hi, dflt) => { const v = Number(body.querySelector(id).value); return Number.isFinite(v) && v >= lo && v <= hi ? v : dflt; };
-      const tanksNew = s.tanks.map((t, i) => ({ ...t, product: body.querySelector(`[data-tp="${i}"]`).value, capacity: num(`[data-tc="${i}"]`, 1000, 100000, t.capacity) }));
+      const tanksNew = s.tanks.map((t, i) => {
+        const capacity = num(`[data-tc="${i}"]`, 1000, 100000, t.capacity);
+        // how full it may be filled: from 90 % to 105 % of its capacity
+        return { ...t, product: body.querySelector(`[data-tp="${i}"]`).value, capacity, fillTo: num(`[data-tf="${i}"]`, capacity * 0.9, capacity * 1.05, fillLimit(t)) };
+      });
       saveDevice({ operator: body.querySelector('#stOp').value.trim() });
       await saveConfig({
         settings: {

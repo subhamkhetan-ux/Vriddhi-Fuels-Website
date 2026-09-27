@@ -6,11 +6,14 @@ export const PRODUCTS = {
   XG: { key: 'XG', name: 'XtraGreen', short: 'XG', screen: 'XtraGreen' },
 };
 
+// capacity: the tank's rated size (the automation's ullage is measured to it);
+// fillTo: how full it may be filled — our 20 KL IndianOil tanks hold about
+// 21,000 L, and are filled up to 20,500 L.
 export const DEFAULT_TANKS = [
-  { id: 'T1', no: 1, product: 'MS', capacity: 20000 },
-  { id: 'T2', no: 2, product: 'HSD', capacity: 20000 },
-  { id: 'T3', no: 3, product: 'HSD', capacity: 20000 },
-  { id: 'T4', no: 4, product: 'XG', capacity: 20000 },
+  { id: 'T1', no: 1, product: 'MS', capacity: 20000, fillTo: 20500 },
+  { id: 'T2', no: 2, product: 'HSD', capacity: 20000, fillTo: 20500 },
+  { id: 'T3', no: 3, product: 'HSD', capacity: 20000, fillTo: 20500 },
+  { id: 'T4', no: 4, product: 'XG', capacity: 20000, fillTo: 20500 },
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -75,14 +78,22 @@ export function settingsWith(saved) {
   const clean = Object.fromEntries(Object.entries(table).map(([k, v]) => [Number(k), (Array.isArray(v) ? v : []).map(kls).filter((l) => l.length)])
     .filter(([k, v]) => k > 0 && v.length));
   s.transportTTs = Object.keys(clean).length ? clean : DEFAULT_SETTINGS.transportTTs;
-  s.tanks = s.tanks.map((t, i) => ({
-    id: String(t.id || `T${i + 1}`),
-    no: Number(t.no) || i + 1,
-    product: PRODUCTS[t.product] ? t.product : 'HSD',
-    capacity: Number(t.capacity) > 0 ? Number(t.capacity) : 20000,
-  }));
+  s.tanks = s.tanks.map((t, i) => {
+    const capacity = Number(t.capacity) > 0 ? Number(t.capacity) : 20000;
+    return {
+      id: String(t.id || `T${i + 1}`),
+      no: Number(t.no) || i + 1,
+      product: PRODUCTS[t.product] ? t.product : 'HSD',
+      capacity,
+      // saved before the fill limit existed: a 20 KL tank fills to 20,500 L
+      fillTo: Number(t.fillTo) > 0 ? Number(t.fillTo) : (capacity === 20000 ? 20500 : capacity),
+    };
+  });
   return s;
 }
+
+// How full a tank may be filled (litres).
+export const fillLimit = (tank) => (Number(tank?.fillTo) > 0 ? Number(tank.fillTo) : Number(tank?.capacity) || 20000);
 
 export const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -389,11 +400,11 @@ export function suggestPlan({ layout, tanks, readings, exclude = new Set(), requ
   return plan.sort((a, b) => a.no - b.no);
 }
 
-// Litres a tank can still take (its automation "ullage"; else capacity − volume).
+// Litres a tank can still take: up to its fill limit (20,500 L for our 20 KL
+// tanks) — so more than the automation's ullage, which is measured to 20,000 L.
 export function roomOf(reading, tank) {
   if (!reading || !Number.isFinite(reading.volume)) return NaN;
-  if (Number.isFinite(reading.ullage)) return reading.ullage;
-  return (tank?.capacity || reading.capacity || 20000) - reading.volume;
+  return round2((tank ? fillLimit(tank) : reading.capacity || 20000) - reading.volume);
 }
 
 // Everything that should stop or slow down a decantation, per tank.
@@ -727,7 +738,7 @@ export function planIndents({ indents, tanks, stock, margin = 150, table = DEFAU
   for (const t of tanks) {
     const r = stock?.[t.id];
     if (!r || !Number.isFinite(r.volume)) { out.missing.push(t.id); continue; }
-    const ull = Number.isFinite(r.ullage) ? r.ullage : t.capacity - r.volume;
+    const ull = roomOf(r, t);
     room[t.id] = ull - margin;
     out.tanks[t.id] = { now: r.volume, room: ull, sell: 0, incoming: [0, 0], after: [r.volume, r.volume], spare: ull };
   }

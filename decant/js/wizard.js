@@ -9,8 +9,8 @@
 //   5 Result  — variation per tank; shared as a picture
 
 import {
-  PRODUCTS, checkPlan, densityCheck, dipAtLitres, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan, suggestPlan,
-  tankResult, tankStage, transportOptions, usedChambers,
+  PRODUCTS, checkPlan, densityCheck, dipAtLitres, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
+  suggestPlan, tankResult, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import {
@@ -300,7 +300,7 @@ function readingInner(t, r, phase) {
   return `${r ? `<div class="kv">
         <div><div class="k">Stock</div><div class="v big">${fmtL(r.volume, 2)}</div></div>
         <div><div class="k">Dip</div><div class="v big">${fmtDip(r.dip)}</div></div>
-        <div><div class="k">Room</div><div class="v">${fmtL(r.ullage, 2)}</div></div>
+        <div><div class="k">Room</div><div class="v">${fmtL(roomOf(r, t), 2)}</div></div>
         <div><div class="k">Water</div><div class="v">${r.water != null ? fmtL(r.water, 2) : '—'}</div></div>
         <div><div class="k">Temp</div><div class="v">${r.temp ?? '—'}${r.temp != null ? ' °C' : ''}</div></div>
         <div><div class="k">Density (tc)</div><div class="v">${r.densityTc ?? '—'}</div></div>
@@ -369,7 +369,7 @@ function planTankRow(s, t, rows, chk, busy) {
   const mine = rows.filter((x) => x.tank === t.id);
   const litres = mine.reduce((a, x) => a + x.litres, 0);
   const info = chk.perTank.find((x) => x.tank === t.id);
-  const room = r ? (Number.isFinite(r.ullage) ? r.ullage : t.capacity - r.volume) : null;
+  const room = r ? roomOf(r, t) : null;
   const lvl = info?.level || '';
   const disabled = busy.has(t.id) || !r;
   return `<div class="plan-tank lvl-${lvl}">
@@ -377,7 +377,7 @@ function planTankRow(s, t, rows, chk, busy) {
       <div class="pt-name">Tank ${t.no} ${mine.length ? `<span class="hint">← C${compactNos(mine.map((x) => x.no))}</span>` : ''}</div>
       <div class="pt-sub">${busy.has(t.id) ? 'Being decanted from another truck' : !r ? 'No stock reading — add it in step 2' : `Room <b>${fmtL(room)}</b> · now <b>${fmtL(r.volume)}</b> (${fmtDip(r.dip)})`}
         ${info?.after ? `<br>After: <b>${fmtL(info.after)}</b> (${fmtDip(info.afterDip)}) · room left <b>${fmtL(info.leftRoom)}</b>` : ''}</div>
-      ${r ? tankGauge({ product: t.product, volume: r.volume, capacity: t.capacity, incoming: litres, label: `Tank ${t.no} plan` }) : ''}
+      ${r ? tankGauge({ product: t.product, volume: r.volume, capacity: t.capacity, limit: fillLimit(t), incoming: litres, label: `Tank ${t.no} plan` }) : ''}
     </div>
     <div class="pt-in"><input type="number" inputmode="decimal" step="0.5" min="0" data-req="${t.id}" data-prod="${t.product}" value="${litres ? litres / 1000 : ''}" placeholder="0" ${disabled ? 'disabled' : ''} aria-label="KL into Tank ${t.no}"><span>KL</span></div>
   </div>`;
@@ -743,7 +743,7 @@ function replanProduct(s, prod, requests, prefer) {
   const done = new Set(s.data.done);
   const chambers = s.data.chambers.filter((c) => c.product === prod && c.litres > 0 && !done.has(c.no));
   const ts = tanks().filter((t) => t.product === prod && !busy.has(t.id) && s.data.before[t.id])
-    .map((t) => ({ id: t.id, room: Number.isFinite(s.data.before[t.id].ullage) ? s.data.before[t.id].ullage : t.capacity - s.data.before[t.id].volume }));
+    .map((t) => ({ id: t.id, room: roomOf(s.data.before[t.id], t) }));
   const { assign, perTank } = solvePlan({ chambers, tanks: ts, requests, prefer, warnRoomL: state.settings.warnRoomL });
   for (const p of s.data.plan) if (p.product === prod) p.tank = assign[p.no] ?? null;
   const t = ts.find((x) => x.id === prefer);
