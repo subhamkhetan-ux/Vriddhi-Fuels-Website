@@ -283,40 +283,134 @@ test('after decanting: chambers that went into the other tank are spotted', asyn
   assert.deepEqual(guessRouting([{ no: 1, litres: 4000 }], [{ id: 'T2', gain: 3990 }]).assign, { 1: 'T2' });
 });
 
-test('plan: the least to dispense so every indented load fits', async () => {
-  const { planDispense } = await import('../../decant/js/core.js');
+const OWN = (id, chambers, extra = {}) => ({ id, kind: 'own', tt_no: 'OD23U8210', chambers, created_at: '2026-09-27T04:30:00Z', ...extra });
+const TRANSPORT = (id, qty, extra = {}) => ({ id, kind: 'transport', qty, created_at: '2026-09-27T04:30:00Z', ...extra });
+
+test('plan: the least to dispense so every indent fits (own TTs)', async () => {
+  const { planIndents } = await import('../../decant/js/core.js');
   // stock after the 26-Sep afternoon decanting
   const stock = {
     T1: { volume: 8886.77, ullage: 11113.23 }, T2: { volume: 18965.71, ullage: 1034.29 },
     T3: { volume: 18962.36, ullage: 1037.64 }, T4: { volume: 2559.46, ullage: 17440.54 },
   };
-  const loads = [
-    { id: 'a', chambers: [{ no: 5, litres: 4000, product: 'HSD' }] },
-    { id: 'b', chambers: [{ no: 1, litres: 5000, product: 'MS' }, ...[2, 3, 4, 5].map((no) => ({ no, litres: no === 2 ? 5000 : 4000, product: 'HSD' }))] },
+  const indents = [
+    OWN('a', [{ no: 5, litres: 4000, product: 'HSD' }]),
+    OWN('b', [{ no: 1, litres: 5000, product: 'MS' }, ...[2, 3, 4, 5].map((no) => ({ no, litres: no === 2 ? 5000 : 4000, product: 'HSD' }))]),
   ];
-  const r = planDispense({ loads, tanks: DEFAULT_TANKS, stock, margin: 150 });
-  // all the HSD chambers are split together: 9 KL to Tank 2, 12 KL to Tank 3 —
+  const r = planIndents({ indents, tanks: DEFAULT_TANKS, stock, margin: 150 });
+  // all the HSD chambers split together: 9 KL to Tank 2, 12 KL to Tank 3 —
   // the least dispensing in total (21 KL less the room), and the most even
-  assert.deepEqual(r.loads[0].split, { 5: 'T2' });
-  assert.deepEqual(r.loads[1].split, { 1: 'T1', 2: 'T2', 3: 'T3', 4: 'T3', 5: 'T3' });
+  assert.equal(r.ways.length, 1);
+  assert.deepEqual(r.ways[0][0].split, { 5: 'T2' });
+  assert.deepEqual(r.ways[0][1].split, { 1: 'T1', 2: 'T2', 3: 'T3', 4: 'T3', 5: 'T3' });
   assert.deepEqual(r.products.HSD, { incoming: 21000, sell: 19228.07 });
   assert.deepEqual(r.products.MS, { incoming: 5000, sell: 0 });
   assert.equal(r.tanks.T2.sell, 8115.71);
   assert.equal(r.tanks.T3.sell, 11112.36);
-  assert.equal(r.tanks.T3.after, 19850);                                              // full, less the 150 L margin
+  assert.deepEqual(r.tanks.T3.after, [19850, 19850]);                                   // full, less the 150 L margin
   assert.equal(r.tanks.T1.spare, 6113.23);
   assert.equal(r.tanks.T4.sell, 0);
   assert.deepEqual(r.missing, []);
   // whole chambers only: 21 KL into two tanks of 10,850 L room each splits 9 + 12 KL
   const tight = { ...stock, T2: { volume: 9000, ullage: 11000 }, T3: { volume: 9000, ullage: 11000 } };
-  assert.equal(planDispense({ loads, tanks: DEFAULT_TANKS, stock: tight }).products.HSD.sell, 1150);
-  // enough room: nothing to dispense
+  assert.equal(planIndents({ indents, tanks: DEFAULT_TANKS, stock: tight }).products.HSD.sell, 1150);
   const roomy = { ...stock, T2: { volume: 7000, ullage: 13000 }, T3: { volume: 7000, ullage: 13000 } };
-  assert.equal(planDispense({ loads, tanks: DEFAULT_TANKS, stock: roomy }).products.HSD.sell, 0);
+  assert.equal(planIndents({ indents, tanks: DEFAULT_TANKS, stock: roomy }).products.HSD.sell, 0);
   // no stock for a tank: said so, and its product can't be planned
-  const partial = planDispense({ loads, tanks: DEFAULT_TANKS, stock: { T1: stock.T1 }, margin: 150 });
+  const partial = planIndents({ indents, tanks: DEFAULT_TANKS, stock: { T1: stock.T1 }, margin: 150 });
   assert.deepEqual(partial.missing, ['T2', 'T3', 'T4']);
-  assert.deepEqual(partial.loads[1].noTank, [2, 3, 4, 5]);
+  assert.deepEqual(partial.ways[0][1].noTank, [2, 3, 4, 5]);
+});
+
+test('plan: a transport TT fits whichever standard layout comes', async () => {
+  const { planIndents, transportOptions } = await import('../../decant/js/core.js');
+  const stock = { T1: { volume: 12000, ullage: 8000 }, T2: { volume: 14973.71, ullage: 5026.29 }, T3: { volume: 15850, ullage: 4150 }, T4: { volume: 9000, ullage: 11000 } };
+  const r = planIndents({ indents: [TRANSPORT('t', { HSD: 22 })], tanks: DEFAULT_TANKS, stock });
+  // 22 KL comes as 4.5×4 + 4 or as 5+5+4+4+4: 13,123.71 L to dispense covers both —
+  // no more than the room shortfall itself (22,000 − 8,876.29), split 8,123.71 / 5,000
+  assert.equal(r.ways.length, 2);
+  assert.deepEqual(r.ways.map((w) => w[0].caps), transportOptions(22).layouts);
+  assert.deepEqual(r.products.HSD, { incoming: 22000, sell: 13123.71 });
+  assert.equal(r.tanks.T2.sell, 8123.71);
+  assert.equal(r.tanks.T3.sell, 5000);
+  for (const [w] of r.ways) {                                       // each layout really fits
+    const into = { T2: 0, T3: 0 };
+    w.caps.forEach((kl, i) => { into[w.split[i + 1]] += kl * 1000; });
+    assert.ok(into.T2 <= 5026.29 - 150 + 8123.71 + 0.01 && into.T3 <= 4150 - 150 + 5000 + 0.01, JSON.stringify(into));
+  }
+  assert.ok(r.tanks.T3.spare >= 150 && r.tanks.T2.spare >= 150);
+  // together with our own TT's next load: 2 ways × 1
+  const both = planIndents({ indents: [OWN('o', [5, 5, 4, 4, 4].map((kl, i) => ({ no: i + 1, litres: kl * 1000, product: 'HSD' }))), TRANSPORT('t', { HSD: 22 })], tanks: DEFAULT_TANKS, stock });
+  assert.equal(both.ways.length, 2);
+  assert.deepEqual(both.products.HSD, { incoming: 44000, sell: 35123.71 });
+  // MS and HSD on a transport TT: planned for the most each can bring in whole chambers
+  const mixed = planIndents({ indents: [TRANSPORT('m', { MS: 5, HSD: 17 })], tanks: DEFAULT_TANKS, stock });
+  assert.deepEqual(mixed.ways.map((w) => w[0].left), [0, 0]);
+  assert.equal(mixed.products.MS.incoming, 5000);
+  assert.equal(mixed.products.HSD.incoming, 17500);                 // 4.5×4 + 4: HSD gets C2–5
+  assert.deepEqual(mixed.tanks.T1.incoming, [4500, 5000]);
+  // a size with no standard layout: said so, nothing assumed
+  const odd = planIndents({ indents: [TRANSPORT('x', { HSD: 30 })], tanks: DEFAULT_TANKS, stock });
+  assert.equal(odd.ways[0][0].unknown, true);
+  assert.equal(odd.products.HSD, undefined);
+});
+
+test('transport TT layouts, chamber loading, settings', async () => {
+  const { layoutsText, loadChambers, normTT, ownTT, parseLayouts, settingsWith, transportOptions } = await import('../../decant/js/core.js');
+  assert.deepEqual(transportOptions(22).layouts, [[4.5, 4.5, 4.5, 4.5, 4], [5, 5, 4, 4, 4]]);
+  assert.equal(transportOptions(21).size, 22);                       // the smallest size that holds it
+  assert.equal(transportOptions(20).layouts.length, 2);
+  assert.equal(transportOptions(26).size, null);
+  assert.equal(transportOptions(12).size, null);                     // no transport TT under 20 KL
+  assert.deepEqual(loadChambers([4.5, 4.5, 4.5, 4.5, 4], { MS: 4.5, HSD: 17.5 }).chambers.map((c) => `${c.product}${c.litres}`),
+    ['MS4500', 'HSD4500', 'HSD4500', 'HSD4500', 'HSD4000']);
+  // whole chambers, each product the run closest to its KL: the same indent in a
+  // 5+5+4+4+4 TT comes as MS 5 + HSD 17, and MS 5 + HSD 17 as 4.5×4 + 4 is MS 4.5 + HSD 17.5
+  const of = (caps, qty) => { const r = loadChambers(caps, qty); return [r.chambers.map((c) => `${c.product}${c.litres}`).join(' '), r.left]; };
+  assert.deepEqual(of([5, 5, 4, 4, 4], { MS: 4.5, HSD: 17.5 }), ['MS5000 HSD5000 HSD4000 HSD4000 HSD4000', 0]);
+  assert.deepEqual(of([4.5, 4.5, 4.5, 4.5, 4], { MS: 5, HSD: 17 }), ['MS4500 HSD4500 HSD4500 HSD4500 HSD4000', 0]);
+  assert.deepEqual(of([5, 5, 4, 4, 4], { MS: 9, HSD: 13 }), ['MS5000 MS5000 HSD4000 HSD4000 HSD4000', 0]);
+  assert.deepEqual(of([5, 5], { MS: 5, HSD: 5, XG: 5 }), ['MS5000 HSD5000', 5000]);               // more than it holds
+  assert.deepEqual(of([5, 5, 4, 4, 4], { HSD: 21 }), ['HSD5000 HSD5000 HSD4000 HSD4000 HSD4000', 0]);   // 22 is closer than 18
+  assert.deepEqual(of([5, 4, 4, 4, 4], { MS: 7, HSD: 12 }), ['MS5000 MS4000 HSD4000 HSD4000 HSD4000', 0]);  // a tie takes the chamber
+  assert.deepEqual(of([5, 5, 5, 5], { XG: 5, MS: 5 }), ['MS5000 XG5000', 0]);
+  const text = '20: 5+5+5+5 | 4+4+4+4+4\n22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4\n23: 5+5+5+4+4\n24: 5+5+5+5+4\n25: 5+5+5+5+5';
+  assert.equal(layoutsText(DEFAULT_SETTINGS.transportTTs), text);
+  assert.deepEqual(parseLayouts(text), DEFAULT_SETTINGS.transportTTs);
+  assert.deepEqual(parseLayouts('18 kl: 6, 6, 6\nnonsense'), { 18: [[6, 6, 6]] });
+  assert.equal(normTT('od 23 u-8210'), 'OD23U8210');
+  assert.deepEqual(ownTT('od23u8210')?.chambers, [5, 5, 4, 4, 4]);
+  assert.equal(ownTT('OD02X9999'), null);
+  const s = settingsWith({ ownTTs: [{ tt: 'or 15 r 9360', chambers: ['4', 4, 4, 'x'] }, { tt: '', chambers: [5] }], transportTTs: 'bad' });
+  assert.deepEqual(s.ownTTs, [{ tt: 'OR15R9360', chambers: [4, 4, 4] }]);
+  assert.deepEqual(s.transportTTs, DEFAULT_SETTINGS.transportTTs);
+});
+
+test('indents come off the plan as their invoices arrive', async () => {
+  const { matchIndents } = await import('../../decant/js/core.js');
+  const inv = (no, tt, date, time, arrived, kl, extra = {}) => ({ invoice_no: no, tt_no: tt, invoice_date: date, invoice_time: time,
+    created_at: arrived, lines: [{ column_key: 'HSD', qty_kl: kl }], ...extra });
+  const indents = [
+    OWN('own1', [{ no: 1, litres: 22000, product: 'HSD' }], { created_at: '2026-09-27T04:30:00Z' }),   // 10:00 IST
+    TRANSPORT('tr1', { HSD: 22 }, { created_at: '2026-09-27T04:30:00Z' }),
+    TRANSPORT('tr2', { HSD: 17 }, { created_at: '2026-09-27T05:00:00Z' }),
+  ];
+  const invoices = [
+    inv('prev', 'OD23U8210', '27/09/2026', '09:30', '2026-09-27T04:35:00Z', 22),          // our TT's previous trip, arrived just after
+    inv('next', 'OD23U8210', '27/09/2026', '12:10', '2026-09-27T06:50:00Z', 22),          // its next trip
+    inv('t17', 'OD15AB1234', '27/09/2026', '11:00', '2026-09-27T05:40:00Z', 17),
+    inv('t22', 'OD02X9999', '27/09/2026', '11:30', '2026-09-27T06:10:00Z', 22),
+    inv('old', 'OD11Z1111', '20/09/2026', '08:00', '2026-09-27T05:00:00Z', 22),           // back-filled: made long before
+    inv('nope', 'OD11Z2222', '27/09/2026', '10:30', '2026-09-27T05:10:00Z', 22, { dismissed: true, dismiss_reason: 'not_ours' }),
+  ];
+  const m = matchIndents(indents, invoices, ['OD23U8210']);
+  assert.equal(m.get('own1').invoice_no, 'next');
+  assert.equal(m.get('tr1').invoice_no, 't22');                      // the closest quantity
+  assert.equal(m.get('tr2').invoice_no, 't17');
+  // "not this one": skipped
+  assert.equal(matchIndents([{ ...indents[0], ignore: ['next'] }], invoices, ['OD23U8210']).size, 0);
+  // an invoice from before the indent was added never matches
+  assert.equal(matchIndents([OWN('late', [], { created_at: '2026-09-27T07:00:00Z' })], invoices, ['OD23U8210']).size, 0);
 });
 
 test('own tankers: free space, leaving some out', async () => {

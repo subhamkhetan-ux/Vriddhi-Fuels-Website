@@ -3,13 +3,13 @@
 // views.js; the rules they all share are in core.js.
 
 import {
-  PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, invoiceStatus, istDate,
-  litresAtDip, productKey, round2, tankStage, usedChambers,
+  PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, invoiceStatus, istDate, layoutsText,
+  litresAtDip, normTT, ownTT, parseLayouts, productKey, round2, tankStage, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
   cloudEnabled, clearDevice, initStore, onChange, refreshNow, saveConfig, saveDevice, saveInvoice,
-  saveTankReading, saveVehicle, state,
+  saveTankReading, state,
 } from './store.js';
 import {
   ago, ask, bandBadge, closeSheet, confBadge, esc, fmtDip, fmtKL, fmtL, fmtNum, fmtSigned, fmtTime, fmtWhen,
@@ -29,8 +29,11 @@ export const tanks = () => state.settings.tanks;
 export const tankById = (id) => tanks().find((t) => t.id === id);
 export const tankName = (id) => { const t = tankById(id); return t ? `Tank ${t.no}` : id; };
 
+// An invoice's chambers: from the invoice, else — for one of our own TTs — from
+// our list. Transport TTs' chambers aren't kept (they follow a standard layout).
 export function layoutFor(inv) {
-  return chamberLayout(inv, state.vehicles[inv.tt_no]);
+  const own = ownTT(inv.tt_no, state.settings);
+  return chamberLayout(inv, own ? { chambers: own.chambers.map((qty_kl, i) => ({ no: i + 1, qty_kl })) } : null);
 }
 
 // Tanks taken by a truck being decanted — decanting now, settling, or next in
@@ -297,7 +300,7 @@ function invoiceCard(inv, st) {
   const stBadge = { new: '<span class="badge info">New</span>', partial: '<span class="badge watch"><i>◐</i>Part decanted</span>', active: '<span class="badge watch"><i>●</i>Decanting</span>' }[st] || '';
   return `<div class="card inv" data-inv="${esc(inv.invoice_no)}">
     <div class="inv-top">
-      <div><div class="inv-tt">${esc(inv.tt_no || 'Unknown truck')}</div>
+      <div><div class="inv-tt">${esc(inv.tt_no || 'Unknown truck')}${ownTT(inv.tt_no, state.settings) ? ' <span class="badge info">Our TT</span>' : ''}</div>
         <div class="inv-meta">${esc(inv.invoice_no)} · ${esc(inv.invoice_date || '')} ${esc(inv.invoice_time || '')}${inv.source && inv.source !== 'agent' ? ` · ${inv.source === 'pdf' ? 'from PDF' : 'typed in'}` : ''}</div></div>
       ${stBadge}
     </div>
@@ -568,7 +571,7 @@ async function invoiceFromPdf() {
         const { readInvoicePdf } = await import('./invoice.js');
         const inv = await readInvoicePdf(file);
         const existing = state.invoices.find((x) => x.invoice_no === inv.invoice_no);
-        const layout = chamberLayout(inv, state.vehicles[inv.tt_no]);
+        const layout = layoutFor(inv);
         body.innerHTML = `${existing ? `<div class="banner">This invoice is already in the list${existing.dismissed ? ' (hidden)' : ''}.</div>` : ''}
           <div class="inv-tt">${esc(inv.tt_no)}</div><div class="inv-meta">${esc(inv.invoice_no)} · ${esc(inv.invoice_date || '')} ${esc(inv.invoice_time || '')}</div>
           <div class="inv-prods">${layout.lines.map((l) => productChip(l.key, fmtKL(l.litres))).join('')}</div>
@@ -599,8 +602,10 @@ export function invoiceForm(existing = null) {
   const inv = existing ? JSON.parse(JSON.stringify(existing)) : null;
   openSheet(inv ? `Edit ${inv.tt_no} · ${inv.invoice_no}` : 'Add an invoice', (body) => {
     const today = new Date(Date.now() + 330 * 60000).toISOString();
-    const vehicles = Object.keys(state.vehicles).sort();
+    const vehicles = (state.settings.ownTTs || []).map((o) => o.tt);
     const known = inv ? layoutFor(inv) : null;
+    const table = state.settings.transportTTs || {};
+    const standard = Object.keys(table).map(Number).sort((a, b) => a - b).flatMap((size) => table[size].map((l) => l.join(', ')));
     body.innerHTML = `
       <div class="grid2">
         <label class="f">Truck (TT) number<input type="text" id="ivTT" list="ivTTs" autocomplete="off" placeholder="OD23U8210" value="${esc(inv?.tt_no || '')}" ${inv ? 'readonly' : ''}></label>
@@ -613,7 +618,8 @@ export function invoiceForm(existing = null) {
       </div>
       <label class="f" style="margin-top:10px">Chambers, KL each, from chamber 1 (e.g. 5, 5, 4, 4, 4)
         <input type="text" id="ivCh" inputmode="decimal" value="${esc((known?.chambers || []).map((c) => c.litres / 1000).join(', '))}"></label>
-      <div class="hint" id="ivChHint"></div>
+      <div class="chipset" style="margin-top:6px">${standard.map((l) => `<button type="button" class="chipbtn" data-std="${esc(l)}">${esc(l.replace(/, /g, '+'))}</button>`).join('')}</div>
+      <div class="hint" id="ivChHint">Transport TTs: tap its layout (standard by size), or type the chambers.</div>
       <div class="sect-title" style="margin-top:14px">What's in each chamber</div>
       <div id="ivProd"></div>
       <div class="hint" id="ivSum" style="margin-top:6px"></div>
@@ -638,14 +644,15 @@ export function invoiceForm(existing = null) {
       body.querySelector('#ivSum').textContent = Object.entries(tot).map(([p, kl]) => `${productShort(p)} ${kl} KL`).join(' · ');
     };
     tt.oninput = () => {
-      const v = state.vehicles[tt.value.trim().toUpperCase()];
-      if (v && !ch.value) {
-        ch.value = v.chambers.map((c) => c.qty_kl).join(', ');
-        body.querySelector('#ivChHint').textContent = 'Chambers from this truck\'s last invoice.';
+      const own = ownTT(tt.value, state.settings);
+      if (own && !ch.value) {
+        ch.value = own.chambers.join(', ');
+        body.querySelector('#ivChHint').textContent = 'Our TT — its chambers are filled in.';
         draw();
       }
     };
     ch.oninput = draw;
+    body.querySelectorAll('[data-std]').forEach((b) => { b.onclick = () => { ch.value = b.dataset.std; prodOf = {}; draw(); }; });
     prodEl.onclick = (e) => {
       const b = e.target.closest('[data-ch]');
       if (!b) return;
@@ -655,7 +662,7 @@ export function invoiceForm(existing = null) {
     draw();
     body.querySelector('[data-x]').onclick = () => closeSheet();
     body.querySelector('[data-save]').onclick = async () => {
-      const ttNo = tt.value.trim().toUpperCase().replace(/\s+/g, '');
+      const ttNo = normTT(tt.value);
       const caps = parseCh();
       if (!/^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{3,4}$/.test(ttNo)) { toast('Type the truck number, e.g. OD23U8210.'); return; }
       if (!caps.length) { toast('Type the chambers (KL each).'); return; }
@@ -685,7 +692,6 @@ export function invoiceForm(existing = null) {
       };
       if (!inv && state.invoices.some((x) => x.invoice_no === row.invoice_no)) { toast('That invoice number is already in the list.'); return; }
       await saveInvoice(row);
-      saveVehicle(ttNo, chambers, true);
       closeSheet();
       toast(inv ? 'Invoice updated.' : 'Invoice added.');
     };
@@ -718,7 +724,11 @@ function settingsSheet() {
         <label class="f">Truck density vs invoice, OK within (± kg/m³)<input type="number" id="stDens" step="0.5" value="${s.densityLimit}"></label>
         <label class="f">Show undecanted invoices from the last (days)<input type="number" id="stPend" step="1" min="1" value="${s.pendingDays}"></label>
       </div>
-      <label class="f" style="margin-top:10px">Our tankers to leave out on the Plan tab, comma separated
+      <div class="sect-title" style="margin-top:16px">Our TTs <span class="hint">tank trucks — one per line: number: chambers (KL from C1)</span></div>
+      <textarea id="stOwn" rows="3" style="font-family:var(--mono);font-size:14px">${esc((s.ownTTs || []).map((o) => `${o.tt}: ${o.chambers.join(', ')}`).join('\n'))}</textarea>
+      <div class="sect-title" style="margin-top:12px">Transport TTs <span class="hint">any other TT — its layouts by size, KL: 22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4</span></div>
+      <textarea id="stLayouts" rows="5" style="font-family:var(--mono);font-size:14px">${esc(layoutsText(s.transportTTs))}</textarea>
+      <label class="f" style="margin-top:10px">Our delivery tankers (Loading app) to leave out on the Plan tab, comma separated
         <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
       <div class="hint" style="margin-top:4px">Decantations and invoices are kept for this financial year and the last. Screenshots are only read — never stored.</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
@@ -754,6 +764,11 @@ function settingsSheet() {
           pendingDays: num('#stPend', 1, 60, s.pendingDays),
           dateOrder: body.querySelector('#stDate').value,
           excludeTankers: body.querySelector('#stExTk').value.split(/[,;\s]+/).map((x) => x.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean),
+          ownTTs: body.querySelector('#stOwn').value.split(/\n/).map((line) => {
+            const m = /^\s*([A-Za-z0-9 -]+?)\s*[:=]\s*(.+)$/.exec(line);
+            return m ? { tt: normTT(m[1]), chambers: m[2].split(/[,+\s]+/).map(Number).filter((x) => x > 0 && x <= 30) } : null;
+          }).filter((o) => o && o.tt && o.chambers.length),
+          transportTTs: (() => { const t = parseLayouts(body.querySelector('#stLayouts').value); return Object.keys(t).length ? t : s.transportTTs; })(),
         },
       });
       closeSheet();

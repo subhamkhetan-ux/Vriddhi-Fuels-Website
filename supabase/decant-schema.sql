@@ -16,9 +16,12 @@
 --                   The app keeps the details in `data` (jsonb) so it can grow
 --                   without schema changes.
 --   dec_tank_state  the latest known reading per tank (the stock strip).
---   dec_vehicles    each truck's chamber layout, learned from its invoices.
---   dec_config      shared settings (tanks, tolerance, dip chart) and the
---                   indents placed (for the Plan tab).
+--   dec_vehicles    trucks' chamber layouts — no longer used by the app (our
+--                   own TTs are in Settings; transport TTs have standard
+--                   layouts). Left in place; nothing reads or writes it.
+--   dec_config      shared settings (tanks, tolerance, dip chart, our own TTs,
+--                   the transport TT layouts) and the indents placed (for the
+--                   Plan tab).
 --   dec_history     (a view) finished decantations, compact — what the FY
 --                   reports read for the months the phone doesn't keep.
 --

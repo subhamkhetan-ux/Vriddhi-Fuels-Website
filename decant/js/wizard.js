@@ -9,8 +9,8 @@
 //   5 Result  — variation per tank; shared as a picture
 
 import {
-  PRODUCTS, checkPlan, densityCheck, dipAtLitres, litresAtDip, roomOf, round2, routingHint, solvePlan, suggestPlan, tankResult,
-  tankStage, usedChambers,
+  PRODUCTS, checkPlan, densityCheck, dipAtLitres, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan, suggestPlan,
+  tankResult, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import {
@@ -178,9 +178,22 @@ function stepTruck(s) {
       d.chambers = lay.chambers.map((c) => ({ no: c.no, litres: c.litres, product: c.product, dipCm: c.dipCm, how: c.how }));
       d.invoice = { ...d.invoice, lines: inv.lines, chambers: inv.chambers };
     } else {
+      // a transport TT: it has one of the standard layouts for its size — the
+      // ones that carry the invoice's products in whole chambers (MS from C1)
+      const qty = {};
+      for (const l of inv?.lines || d.invoice.lines || []) qty[productKeyOf(l)] = round2((qty[productKeyOf(l)] || 0) + (Number(l.qty_kl ?? l.qty) || 0));
+      const kl = round2(Object.values(qty).reduce((a, b) => a + b, 0));
+      const { size, layouts } = transportOptions(kl, state.settings.transportTTs);
+      const fits = layouts.filter((caps) => {
+        const r = loadChambers(caps, qty);
+        return !r.left && Object.entries(qty).every(([p, v]) => r.chambers.filter((c) => c.product === p).reduce((a, c) => a + c.litres, 0) === Math.round(v * 1000));
+      });
+      const offer = fits.length ? fits : layouts;
       return `<div class="card warn"><div class="sect-title">No chamber details</div>
-        <div class="hint">The invoice has no chamber table and this truck hasn't been seen before. Enter its chambers (KL each) and what's in them.</div>
-        <div class="row-actions" style="justify-content:flex-start"><button class="cta sm" data-wz="editInvoice">✎ Enter the chambers</button></div></div>`;
+        <div class="hint">The invoice has no chamber table.${size ? ` A ${size} KL transport TT comes as ${offer.length > 1 ? 'one of these — tap the one it is' : 'this — tap it if that\'s the TT'}:` : ' Enter its chambers (KL each) and what\'s in them.'}</div>
+        ${size ? `<div class="chipset" style="margin-top:8px">${offer.map((l) => `<button type="button" class="chipbtn" data-layout="${l.join(',')}">${l.join(' + ')}</button>`).join('')}</div>` : ''}
+        ${size && fits.length && fits.length < layouts.length ? `<div class="hint" style="margin-top:6px">The other ${size} KL layout${layouts.length - fits.length > 1 ? 's' : ''} can't carry this invoice's split in whole chambers.</div>` : ''}
+        <div class="row-actions" style="justify-content:flex-start"><button class="btn sm" data-wz="editInvoice">✎ Enter the chambers</button></div></div>`;
     }
   }
   const done = new Set(d.done);
@@ -571,6 +584,15 @@ async function onClick(e) {
     s.status = 'settling';
     s.completed_at = null;
     await persist(s);
+    return;
+  }
+  const lay = t.closest('[data-layout]');
+  if (lay) {
+    // the transport TT's standard layout: onto the invoice (it lists the chambers from now on)
+    const inv = state.invoices.find((x) => x.invoice_no === s.invoice_no);
+    if (!inv) return;
+    const chambers = lay.dataset.layout.split(',').map((kl, i) => ({ no: i + 1, qty_kl: Number(kl), dip_cm: null, pl_cm: null }));
+    await saveInvoice({ ...inv, chambers });
     return;
   }
   const setp = t.closest('[data-setp]');

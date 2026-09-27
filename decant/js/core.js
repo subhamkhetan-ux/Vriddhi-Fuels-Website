@@ -23,13 +23,58 @@ export const DEFAULT_SETTINGS = {
   pendingDays: 3,       // older undecanted invoices fold away under "Older"
   dateOrder: 'MDY',     // the automation prints dates as MM/DD/YYYY
   densityLimit: 3,      // truck density vs the invoice's Density@15, ± kg/m³
-  excludeTankers: ['OD15AF5510'],   // our tankers left out of "room in our tankers"
+  excludeTankers: ['OD15AF5510'],   // our delivery tankers left out of "room in our tankers"
+  // Our own TTs (tank trucks) and their chambers, KL from chamber 1.
+  ownTTs: [{ tt: 'OD23U8210', chambers: [5, 5, 4, 4, 4] }],
+  // Any other TT is a transport TT: its chambers aren't kept, they follow one of
+  // these layouts for its size (KL) — the plan makes room for whichever comes.
+  transportTTs: {
+    20: [[5, 5, 5, 5], [4, 4, 4, 4, 4]],
+    22: [[4.5, 4.5, 4.5, 4.5, 4], [5, 5, 4, 4, 4]],
+    23: [[5, 5, 5, 4, 4]],
+    24: [[5, 5, 5, 5, 4]],
+    25: [[5, 5, 5, 5, 5]],
+  },
 };
+
+// 'od 23 u 8210' -> 'OD23U8210'
+export const normTT = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+const kls = (list) => (Array.isArray(list) ? list.map(Number).filter((x) => x > 0 && x <= 30) : []);
+
+// One of our own TTs ({tt, chambers}), or null for a transport TT.
+export function ownTT(tt, settings = DEFAULT_SETTINGS) {
+  const n = normTT(tt);
+  return (settings.ownTTs || []).find((o) => o.tt === n) || null;
+}
+
+// "22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4" per line <-> {22: [[4.5, …], [5, …]]}
+export function parseLayouts(text) {
+  const out = {};
+  for (const line of String(text || '').split(/\n/)) {
+    const m = /^\s*(\d+(?:\.\d+)?)\s*(?:kl)?\s*[:=-]\s*(.+)$/i.exec(line);
+    if (!m) continue;
+    const layouts = m[2].split(/\||\bor\b/i).map((x) => kls(x.split(/[+,\s]+/).filter(Boolean))).filter((x) => x.length);
+    if (layouts.length) out[Number(m[1])] = layouts;
+  }
+  return out;
+}
+export function layoutsText(table) {
+  return Object.keys(table || {}).map(Number).sort((a, b) => a - b)
+    .map((size) => `${size}: ${table[size].map((l) => l.join('+')).join(' | ')}`).join('\n');
+}
 
 export function settingsWith(saved) {
   const s = { ...DEFAULT_SETTINGS, ...(saved || {}) };
   if (!Array.isArray(s.tanks) || !s.tanks.length) s.tanks = DEFAULT_TANKS;
   if (!Array.isArray(s.excludeTankers)) s.excludeTankers = DEFAULT_SETTINGS.excludeTankers;
+  s.ownTTs = Array.isArray(s.ownTTs)
+    ? s.ownTTs.map((o) => ({ tt: normTT(o?.tt), chambers: kls(o?.chambers) })).filter((o) => o.tt && o.chambers.length)
+    : DEFAULT_SETTINGS.ownTTs;
+  const table = s.transportTTs && typeof s.transportTTs === 'object' ? s.transportTTs : {};
+  const clean = Object.fromEntries(Object.entries(table).map(([k, v]) => [Number(k), (Array.isArray(v) ? v : []).map(kls).filter((l) => l.length)])
+    .filter(([k, v]) => k > 0 && v.length));
+  s.transportTTs = Object.keys(clean).length ? clean : DEFAULT_SETTINGS.transportTTs;
   s.tanks = s.tanks.map((t, i) => ({
     id: String(t.id || `T${i + 1}`),
     no: Number(t.no) || i + 1,
@@ -136,7 +181,7 @@ const toLitres = (kl) => Math.round(Number(kl) * 1000);
 //  2. otherwise MS fills from chamber 1 upward (C1, C2 … until its quantity),
 //     then the other products take the next chambers in invoice order;
 //  3. a chamber nothing reaches is empty.
-// `vehicle` (the truck's saved layout) stands in when the invoice has no table.
+// `vehicle` (one of our own TTs, from Settings) stands in when the invoice has no table.
 export function chamberLayout(inv, vehicle) {
   const src = inv?.chambers?.length ? inv.chambers : (vehicle?.chambers || []);
   const chambers = src
@@ -558,50 +603,193 @@ export function routingHint(rows, chambersByNo, settings = DEFAULT_SETTINGS) {
 }
 
 // ---------------------------------------------------------------------------
-// Planning the dispensing: room for the loads indented
+// Planning the dispensing: room for the indents placed
 // ---------------------------------------------------------------------------
 
-// How much to dispense from each tank so that all the indented loads fit, each
-// tank keeping `margin` litres free. All the chambers of a product (from every
-// load) are split over that product's tanks together: the split needing the
-// least dispensing, then the most even, then the roomiest tank first.
-//   loads: [{id, chambers: [{no, litres, product}]}]
-//   stock: {tankId: {volume, ullage}}
-// Returns {tanks: {id: {now, room, incoming, sell, after, spare}},
-//          loads: [{id, split: {no: tankId}, noTank: [no]}],
-//          products: {P: {incoming, sell}}, missing: [tankId without stock]}.
-export function planDispense({ loads, tanks, stock, margin = 150 }) {
-  const list = loads || [];
+// The KL an indent brings.
+export function indentKL(p) {
+  if (p?.kind === 'transport') return round2(Object.values(p.qty || {}).reduce((a, v) => a + (Number(v) || 0), 0));
+  return round2((p?.chambers || []).filter((c) => c.product).reduce((a, c) => a + (Number(c.litres) || 0), 0) / 1000);
+}
+
+// The standard layouts for a transport TT bringing `kl` (the smallest size
+// that holds it). A transport TT comes full, so nothing under the smallest
+// size (20 KL) is one.
+export function transportOptions(kl, table = DEFAULT_SETTINGS.transportTTs) {
+  const sizes = Object.keys(table || {}).map(Number).filter((n) => n > 0).sort((a, b) => a - b);
+  const size = kl >= sizes[0] - 0.001 ? sizes.find((n) => n >= kl - 0.001) : null;
+  return size ? { size, layouts: table[size] } : { size: null, layouts: [] };
+}
+
+// The smallest transport TT (KL).
+export const smallestTransport = (table = DEFAULT_SETTINGS.transportTTs) => Math.min(...Object.keys(table || {}).map(Number).filter((n) => n > 0));
+
+// A transport TT with these chambers (KL) carrying `qty` (KL per product), in
+// whole chambers as the terminal loads them: MS from chamber 1 up, then HSD,
+// then XtraGreen, each taking the run of chambers that comes closest to its KL
+// (a tie takes the extra chamber) — so 5 MS + 17 HSD in 4.5×4 + 4 comes as
+// 4.5 + 17.5. `left` is the part of the indent the chambers can't carry.
+export function loadChambers(caps, qty) {
+  const chambers = [];
+  let i = 0;
+  let want = 0;
+  for (const p of ['MS', 'HSD', 'XG']) {
+    const need = Math.round((Number(qty?.[p]) || 0) * 1000);
+    if (need <= 0) continue;
+    want += need;
+    let got = 0;
+    while (i < caps.length) {
+      const litres = Math.round(caps[i] * 1000);
+      if (got > 0 && Math.abs(got + litres - need) > Math.abs(got - need)) break;
+      chambers.push({ no: i + 1, litres, product: p });
+      got += litres;
+      i += 1;
+    }
+  }
+  return { chambers, left: Math.max(0, want - chambers.reduce((a, c) => a + c.litres, 0)) };
+}
+
+// Amounts one tank can take from these chambers (whole chambers), ascending.
+function subsetSums(litres) {
+  let sums = new Set([0]);
+  for (const l of litres) {
+    const next = new Set(sums);
+    for (const x of sums) next.add(round2(x + l));
+    sums = next;
+  }
+  return [...sums].sort((a, b) => a - b);
+}
+
+// The least to dispense from each of a product's tanks so the chambers fit
+// whichever way they come (`ways`: chamber litres, one list per way). `rooms`:
+// what each tank can take now, after the margin. Exact for one or two tanks.
+function dispenseFor(ways, rooms) {
+  const totals = ways.map((w) => w.reduce((a, b) => a + b, 0));
+  if (rooms.length === 1) return [round2(Math.max(0, ...totals.map((L) => (L > 0 ? L - rooms[0] : 0))))];
+  if (rooms.length === 2) {
+    const sums = ways.map(subsetSums);
+    const cands = new Set([0]);
+    for (const S of sums) for (const x of S) if (x > 0 && x > rooms[0]) cands.add(round2(x - rooms[0]));
+    let best = null;
+    for (const d0 of [...cands].sort((a, b) => a - b)) {
+      let d1 = 0;
+      sums.forEach((S, w) => {
+        let x = 0;                       // the most the first tank can take (nothing always fits)
+        for (const v of S) if (v <= rooms[0] + d0 + 0.005) x = v;
+        const rest = round2(totals[w] - x);
+        if (rest > 0) d1 = Math.max(d1, rest - rooms[1]);
+      });
+      d1 = round2(Math.max(0, d1));
+      const tot = round2(d0 + d1);
+      const most = Math.max(d0, d1);
+      if (!best || tot < best.tot - 0.005 || (Math.abs(tot - best.tot) <= 0.005 && most < best.most - 0.005)) best = { d: [d0, d1], tot, most };
+    }
+    return best.d;
+  }
+  // three or more tanks: what each tank needs in the worst way
+  const d = rooms.map(() => 0);
+  for (const w of ways) {
+    const best = splitForRoom(w.map((litres, i) => ({ no: i + 1, litres })), rooms.map((room, j) => ({ id: j, room })));
+    rooms.forEach((room, j) => { d[j] = Math.max(d[j], (best.perTank[j] || 0) > 0 ? round2((best.perTank[j] || 0) - room) : 0); });
+  }
+  return d.map((x) => Math.max(0, x));
+}
+
+// How much to dispense from each tank so every indent's load fits, each tank
+// keeping `margin` litres free. An indent on one of our own TTs has known
+// chambers; a transport TT can come with any standard layout of its size, so
+// the plan fits every way the loads can come. All the chambers of a product
+// are split over its tanks together, for the least dispensing in all.
+//   indents: [{id, kind: 'own' | 'transport', chambers (own), qty (transport)}]
+//   stock:   {tankId: {volume, ullage}}
+// Returns {tanks: {id: {now, room, sell, incoming: [least, most], after: [least, most], spare}},
+//          products: {P: {incoming, sell}},
+//          ways: [[{caps, left, unknown, split: {no: tankId}, noTank: [no]}]] — one list per way the indents can come,
+//          missing: [tankId without stock]}.
+export function planIndents({ indents, tanks, stock, margin = 150, table = DEFAULT_SETTINGS.transportTTs }) {
+  const list = indents || [];
+  let combos = [[]];
+  for (const p of list) {
+    let opts;
+    if (p.kind === 'transport') {
+      opts = transportOptions(indentKL(p), table).layouts.map((caps) => ({ caps, ...loadChambers(caps, p.qty) }));
+      if (!opts.length) opts = [{ caps: null, chambers: [], left: Math.round(indentKL(p) * 1000), unknown: true }];
+    } else {
+      opts = [{ caps: null, chambers: (p.chambers || []).filter((c) => c.product && c.litres > 0), left: 0 }];
+    }
+    combos = combos.flatMap((c) => opts.map((o) => [...c, o])).slice(0, 64);
+  }
+  const out = {
+    tanks: {}, products: {}, missing: [],
+    ways: combos.map((c) => c.map((o) => ({ caps: o.caps, left: o.left, unknown: Boolean(o.unknown), split: {}, noTank: [] }))),
+  };
   const room = {};
-  const out = { tanks: {}, loads: list.map((l) => ({ id: l.id, split: {}, noTank: [] })), products: {}, missing: [] };
   for (const t of tanks) {
     const r = stock?.[t.id];
     if (!r || !Number.isFinite(r.volume)) { out.missing.push(t.id); continue; }
     const ull = Number.isFinite(r.ullage) ? r.ullage : t.capacity - r.volume;
     room[t.id] = ull - margin;
-    out.tanks[t.id] = { now: r.volume, room: ull, incoming: 0, sell: 0, after: r.volume, spare: ull };
+    out.tanks[t.id] = { now: r.volume, room: ull, sell: 0, incoming: [0, 0], after: [r.volume, r.volume], spare: ull };
   }
-  const chambersOf = (l) => (l.chambers || []).filter((c) => c.product && c.litres > 0);
-  const products = [...new Set(list.flatMap((l) => chambersOf(l).map((c) => c.product)))];
+  const products = [...new Set(combos.flatMap((c) => c.flatMap((o) => o.chambers.map((ch) => ch.product))))];
   for (const p of products) {
-    const cs = [];                                  // numbered in load order, then chamber order
-    list.forEach((l, li) => chambersOf(l).filter((c) => c.product === p).sort((a, b) => a.no - b.no)
-      .forEach((c) => cs.push({ no: cs.length + 1, litres: c.litres, li, cno: c.no })));
     const ts = tanks.filter((t) => t.product === p && Number.isFinite(room[t.id]));
-    if (!ts.length) { for (const c of cs) out.loads[c.li].noTank.push(c.cno); continue; }
-    const best = splitForRoom(cs, ts.map((t) => ({ id: t.id, room: room[t.id] })));
-    for (const c of cs) out.loads[c.li].split[c.cno] = best.assign[c.no];
-    const pr = (out.products[p] = { incoming: 0, sell: 0 });
-    for (const t of ts) {
-      const inc = best.perTank[t.id] || 0;
-      const sell = inc ? round2(Math.max(0, inc - room[t.id])) : 0;
+    const chs = combos.map((c) => c.flatMap((o, li) => o.chambers.filter((ch) => ch.product === p)
+      .sort((a, b) => a.no - b.no).map((ch) => ({ li, cno: ch.no, litres: ch.litres }))));
+    if (!ts.length) {
+      chs.forEach((cs, w) => cs.forEach((x) => out.ways[w][x.li].noTank.push(x.cno)));
+      continue;
+    }
+    const rooms = ts.map((t) => room[t.id]);
+    const d = dispenseFor(chs.map((cs) => cs.map((x) => x.litres)), rooms);
+    out.products[p] = { incoming: Math.max(...chs.map((cs) => cs.reduce((a, x) => a + x.litres, 0))), sell: round2(d.reduce((a, b) => a + b, 0)) };
+    const inc = ts.map(() => [Infinity, 0]);
+    chs.forEach((cs, w) => {
+      if (!cs.length) return;
+      const best = splitForRoom(cs.map((x, i) => ({ no: i + 1, litres: x.litres })), ts.map((t, j) => ({ id: t.id, room: rooms[j] + d[j] + 0.01 })));
+      cs.forEach((x, i) => { out.ways[w][x.li].split[x.cno] = best.assign[i + 1]; });
+      ts.forEach((t, j) => {
+        const v = best.perTank[t.id] || 0;
+        inc[j] = [Math.min(inc[j][0], v), Math.max(inc[j][1], v)];
+      });
+    });
+    ts.forEach((t, j) => {
       const row = out.tanks[t.id];
-      row.incoming = inc;
-      row.sell = sell;
-      row.after = round2(row.now + inc - sell);
-      row.spare = round2(row.room - inc + sell);
-      pr.incoming += inc;
-      pr.sell = round2(pr.sell + sell);
+      const [lo, hi] = inc[j][0] === Infinity ? [0, 0] : inc[j];
+      row.sell = d[j];
+      row.incoming = [lo, hi];
+      row.after = [round2(row.now - d[j] + lo), round2(row.now - d[j] + hi)];
+      row.spare = round2(row.room - hi + d[j]);        // the least room left, whichever way it comes
+    });
+  }
+  return out;
+}
+
+// An indent's load has come in when its invoice arrives: for one of our own
+// TTs, the next invoice for that TT; for a transport TT, the next invoice from
+// a TT that isn't ours (the closest in quantity first). Only invoices that came
+// into the app after the indent was added, and were made no earlier than 15 min
+// before it, count — so a TT's previous trip never clears its next indent.
+// Returns Map(indent id -> invoice).
+export function matchIndents(indents, invoices, ownList = []) {
+  const own = new Set(ownList.map(normTT));
+  const at = (i) => Date.parse(`${dmyToIso(i.invoice_date)}T${i.invoice_time || '00:00'}:00+05:30`) || Date.parse(i.created_at || 0) || 0;
+  const kl = (i) => (i.lines || []).reduce((a, l) => a + (Number(l.qty_kl ?? l.qty) || 0), 0);
+  const hidden = (i) => i.dismissed && (i.dismiss_reason ? i.dismiss_reason !== 'outside' : !/before the app|outside the app/i.test(i.note || ''));
+  const used = new Set();
+  const out = new Map();
+  for (const p of [...(indents || [])].sort((a, b) => (a.created_at < b.created_at ? -1 : 1))) {
+    const made = Date.parse(p.created_at || 0);
+    if (!made) continue;
+    const skip = new Set(p.ignore || []);
+    const want = indentKL(p);
+    const cands = (invoices || []).filter((i) => !used.has(i.invoice_no) && !skip.has(i.invoice_no) && !hidden(i)
+      && Date.parse(i.created_at || 0) > made && at(i) >= made - 15 * 60000
+      && (p.kind === 'transport' ? !own.has(normTT(i.tt_no)) : normTT(i.tt_no) === normTT(p.tt_no)))
+      .sort((a, b) => (p.kind === 'transport' ? Math.abs(kl(a) - want) - Math.abs(kl(b) - want) : 0) || at(a) - at(b));
+    if (cands.length) {
+      used.add(cands[0].invoice_no);
+      out.set(p.id, cands[0]);
     }
   }
   return out;

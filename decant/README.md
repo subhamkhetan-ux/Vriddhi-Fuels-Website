@@ -80,13 +80,35 @@ If a truck arrives before the agent has picked its invoice up (it runs every
 ~20 minutes), add it on the spot:
 
 - **⬆ PDF** — pick the invoice PDF; the app reads it the same way.
-- **＋ Add** — type the TT number (a truck seen before fills its chambers in),
-  tap the product in each chamber.
+- **＋ Add** — type the TT number (one of our own TTs fills its chambers in;
+  for a transport TT tap its standard layout or type the chambers), tap the
+  product in each chamber.
 
 Each chamber's product comes from **Comp No(s)** on the invoice. When an
 invoice doesn't list them, **MS is taken from chamber 1 upward** (C1, C2 …
 until the MS quantity) and the other products take the next chambers — you can
 change any chamber on the first step.
+
+## Our TTs and transport TTs
+
+- **Our own TTs** — OD23U8210 to start with — have their chambers saved in
+  *Settings* (add one there, or with **＋ Our new TT** when adding an indent).
+  Their invoices are marked **Our TT**.
+- **Every other TT is a transport TT.** Their chambers aren't remembered: a
+  transport TT has one of the standard layouts of its size (*Settings →
+  Transport TT layouts*), and none is smaller than 20 KL:
+
+  | Size | Chambers from C1 (KL) |
+  |---|---|
+  | 20 KL | 5+5+5+5 or 4+4+4+4+4 |
+  | 22 KL | 4.5+4.5+4.5+4.5+4 or 5+5+4+4+4 |
+  | 23 KL | 5+5+5+4+4 |
+  | 24 KL | 5+5+5+5+4 |
+  | 25 KL | 5+5+5+5+5 |
+
+  The invoice normally carries the chamber table. When it doesn't, the
+  truck step offers the layouts of the truck's size that can carry the
+  invoice's products in whole chambers — tap the one it is.
 
 ## Decanting a truck
 
@@ -182,21 +204,40 @@ each tank so the loads I've placed an indent for fit?*
 1. **Stock now** — each tank's latest reading: the stock after the last
    decanting, or the last screenshot. **✎ Type** a new figure (litres or a dip)
    or **📷 Screenshot** to update it.
-2. **Indents placed** — **＋ Add an indent** for each load: the tanker (its
-   chambers fill in for a truck seen before, or type them) and the **KL of each
-   product** (MS goes from chamber 1 up, then HSD, then XtraGreen; tap a chamber
-   to change it). **Clear all** once they've been decanted.
-3. **Dispense first** — per product and tank: the litres to **dispense**,
-   which chambers go into which tank, and the stock and dip after. All the
-   chambers of a product (from every indent) are split over its tanks together,
-   picking the split that needs **the least dispensing in total**, then the
-   most even, keeping the 150 L room margin. Chambers go in whole, so the
-   figure can be a little above "incoming − room".
-4. **Our tankers** — sign in once on the phone with a **Loading app** login;
+2. **Indents placed** — **＋ Add an indent** for each load, as many as you've
+   placed:
+   - **Our TT** (the default: OD23U8210, or another of ours from the list) —
+     type the **KL of each product**; MS goes from chamber 1 up, then HSD, then
+     XtraGreen (tap a chamber to change it). **＋ Our new TT** adds a TT of
+     ours with its chambers, kept for next time.
+   - **Transport TT** — type only the **KL of each product** (20 KL or more).
+     Which truck comes isn't known, so the plan makes room for **every
+     standard layout of its size** — 22 KL as 4.5+4.5+4.5+4.5+4 or as
+     5+5+4+4+4. Each product fills the whole chambers closest to its KL, MS
+     from C1: MS 5 + HSD 17 in a 4.5 KL-chamber TT is planned as MS 4.5 +
+     HSD 17.5.
+
+   **✎** changes an indent, **✕** removes it, **Clear all** removes them all.
+3. **Off the plan as the invoices arrive** — an indent comes off by itself
+   when its invoice comes in during the day: for our TT, that TT's next
+   invoice; for a transport TT, the next invoice from a TT that isn't ours
+   (the closest in KL first). Only invoices that come in after the indent was
+   added count, so a TT's previous trip never clears its next indent. It shows
+   under **Arrived** — **Not this one** puts it back if the app picked the
+   wrong invoice — and leaves the list a day and a half later.
+4. **Dispense first** — per product and tank: the litres to **dispense**,
+   which chambers go into which tank (for a transport TT, **each way it can
+   come**), and the stock and dip after. All the chambers of a product (from
+   every indent) are split over its tanks together, picking the split that
+   needs **the least dispensing in total**, then the most even, keeping the
+   150 L room margin — and for a transport TT, the least that works **whichever
+   layout comes**. Chambers go in whole, so the figure can be a little above
+   "incoming − room".
+5. **Our delivery tankers** — sign in once on the phone with a **Loading app** login;
    the app reads how full each of our own tankers is (read-only, live) and
    shows the free space, leaving out **OD15AF5510** (change the list in
-   *Settings*). The diesel card then says whether our tankers can take the
-   diesel to be dispensed.
+   *Settings*). The diesel card then says whether our delivery tankers can take
+   the diesel to be dispensed.
 
 ## Log and reports
 
@@ -230,8 +271,8 @@ each tank so the loads I've placed an indent for fit?*
 ## Several phones at once
 
 Every phone opening `/decant/` uses the same project (from `decant/config.js`)
-and sees the others' work live: new invoices, stock readings, indents and the
-Plan's advice, a decantation in progress (its tanks show as busy, and a second
+and sees the others' work live: new invoices, stock readings, indents (and
+their coming off the plan) and the Plan's advice, a decantation in progress (its tanks show as busy, and a second
 phone is offered *Continue* rather than a second start).
 
 ## Offline
@@ -244,9 +285,13 @@ back, and other phones see them live.
 
 Tank products and capacities, the variation tolerance, the room warning, when
 a reading counts as old, the settling wait, the density limit, how many days
-of undecanted invoices to list, our tankers to leave out on the Plan tab
-(OD15AF5510 by default), the automation's date format (MM/DD/YYYY by default),
-and the dip chart.
+of undecanted invoices to list, our delivery tankers to leave out on the Plan
+tab (OD15AF5510 by default), the automation's date format (MM/DD/YYYY by
+default), the dip chart, and:
+
+- **Our TTs** — one per line with its chambers from C1: `OD23U8210: 5, 5, 4, 4, 4`
+- **Transport TT layouts** — one size per line, its layouts split by `|`:
+  `22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4`
 
 ## Files
 
@@ -255,10 +300,11 @@ and the dip chart.
 | `index.html` | The page and its styles |
 | `config.js` | Supabase URL + publishable key of the app's own project |
 | `js/app.js` | Home screen, stock screenshots, invoices, settings |
-| `js/wizard.js` | The six decanting steps |
+| `js/wizard.js` | The decanting steps, tank by tank |
+| `js/shareimg.js` | The result as a picture (PNG) to share |
 | `js/views.js` | Log and reports |
-| `js/plan.js` | The Plan tab: stock now, indents placed, what to dispense |
-| `js/tankers.js` | Our tankers' free space, read from the Loading app (sign-in) |
+| `js/plan.js` | The Plan tab: stock now, indents placed (our TTs, transport TTs), what to dispense |
+| `js/tankers.js` | Our delivery tankers' free space, read from the Loading app (sign-in) |
 | `js/core.js` | The rules: dip chart, chambers, planning (decanting and dispensing), checks, variation, density |
 | `js/automation.js` | Reading tank cards out of the screenshot text |
 | `js/ocr.js` | The in-browser text reader (Tesseract.js) |
