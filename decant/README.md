@@ -15,18 +15,46 @@ as a PWA, in the same glassmorphism style as the payments app.
 
 ## One-time setup
 
-1. **Supabase schema** — in the **same Supabase project as the payments app**,
-   open *SQL Editor*, paste [`supabase/decant-schema.sql`](../supabase/decant-schema.sql)
-   and **Run** (safe to run again). It adds the `dec_*` tables and the
-   `dec_history` view. **Already ran an earlier version? Run it again** — it
-   adds the `dismiss_reason` column and the `dec_history` view, sets the new
-   retention and drops the old screenshots table (until then the app keeps
-   working and shows a reminder).
-2. That's it. [`decant/config.js`](./config.js) already points at the payments
-   project, and the payment agent already has the Supabase secrets — from its
-   next run (every ~20 min) it also stores every IndianOil invoice for this app.
-   Open **`/decant/`** (e.g. `https://subhamkhetan-ux.github.io/Vriddhi-Fuels-Website/decant/`)
+The app has its **own Supabase project** — never the payments one, so it
+can't use up the payments project's free-tier limits (database, bandwidth,
+realtime).
+
+1. **New project** — on [supabase.com](https://supabase.com) create a new
+   project (the free plan is fine; it limits how many active free projects
+   one account can have, so this may need another account).
+2. **Schema** — in that project open *SQL Editor*, paste
+   [`supabase/decant-schema.sql`](../supabase/decant-schema.sql) and **Run**
+   (safe to run again).
+3. **Config** — *Project Settings → API Keys*: put the **Project URL** and the
+   **publishable key** in [`decant/config.js`](./config.js) (replacing the
+   `PASTE_…` placeholders) and commit. Never a secret / service_role key.
+4. Open **`/decant/`** (e.g. `https://subhamkhetan-ux.github.io/Vriddhi-Fuels-Website/decant/`)
    and *Add to Home Screen*.
+
+The payment agent reads `decant/config.js` too, and from its next run (every
+~20 min) stores every IndianOil invoice in the new project — it doesn't use the
+payments secrets for this, refuses to run if the config points at the payments
+project, and runs after the payments work is done: a problem there is only
+logged, never a failed payments run. Until the config is filled in, the app
+works on one phone only and the agent skips it.
+
+**Moving off the payments project** (the first version used it):
+
+- Each phone that used the app sends its copy — decantations, invoices, tank
+  stock, settings, indents — to the new project the first time it opens with
+  the new config. A row goes across only if the new project doesn't have it
+  yet or has an older version, so a phone that was closed for a while never
+  overwrites newer work from another phone; a phone that's offline then
+  keeps everything and tries again. Nothing is lost.
+- To avoid any "this phone only" gap, put the new project's URL and key in
+  `decant/config.js` **before** merging this change — then phones go
+  straight from the old project to the new one, still in sync.
+- The agent starts over in the new project, so it back-fills the recent
+  invoices there too.
+- Then run
+  [`supabase/decant-remove-from-payments.sql`](../supabase/decant-remove-from-payments.sql)
+  in the **payments** project. It drops only the `dec_*` tables, view and
+  function.
 
 On the first days the agent also brings in invoices from before the app was in
 use; the app offers to **hide invoices from before today** (they were decanted
@@ -43,7 +71,7 @@ count it:
 
 The payment agent (GitHub Actions, `agent/decant.py`) reads every IndianOil
 tax invoice PDF in the HDFC mailbox — the same mails the payments app uses —
-and stores, for each: the truck (TT) number, invoice no./date/time, each
+and stores in this app's own project, for each: the truck (TT) number, invoice no./date/time, each
 product with its quantity, **"Comp No(s)"** (which chambers it was loaded
 into), its Density@15, the seal/lock numbers, and the truck's **chamber
 table** (`PL - cm · DIP - Cm · QTY - kl` at the foot of the invoice).
@@ -183,6 +211,13 @@ each tank so the loads I've placed an indent for fit?*
 - **Screenshots are never kept** — they're read on the phone and only the
   figures are saved.
 
+## Several phones at once
+
+Every phone opening `/decant/` uses the same project (from `decant/config.js`)
+and sees the others' work live: new invoices, stock readings, indents and the
+Plan's advice, a decantation in progress (its tanks show as busy, and a second
+phone is offered *Continue* rather than a second start).
+
 ## Offline
 
 Everything is saved on the phone first. With no signal the pill says
@@ -202,7 +237,7 @@ and the dip chart.
 | File | What |
 |---|---|
 | `index.html` | The page and its styles |
-| `config.js` | Supabase URL + publishable key (the payments project) |
+| `config.js` | Supabase URL + publishable key of the app's own project |
 | `js/app.js` | Home screen, stock screenshots, invoices, settings |
 | `js/wizard.js` | The six decanting steps |
 | `js/views.js` | Log and reports |
@@ -215,7 +250,8 @@ and the dip chart.
 | `js/report.js` | Report maths (by day / truck / product / tank / month, purchases and in transit, periods, export) |
 | `js/charts.js`, `js/xlsx.js`, `js/ui.js`, `js/store.js`, `js/dipchart.js` | Charts, Excel export, UI bits, storage + sync, the dip chart |
 | `../agent/decant.py` | The agent side: invoices → `dec_invoices` |
-| `../supabase/decant-schema.sql` | The tables |
+| `../supabase/decant-schema.sql` | The tables (in the app's own project) |
+| `../supabase/decant-remove-from-payments.sql` | Takes the `dec_*` tables out of the payments project, if they were ever put there |
 
 Tests: `python -m pytest tests/test_decant.py tests/test_decant_schema.py
 tests/test_decant_web.py tests/test_invoice.py` (the web ones run

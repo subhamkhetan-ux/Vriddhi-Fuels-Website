@@ -1,8 +1,11 @@
 -- =====================================================================
 -- Vriddhi Fuels — Tanker Decanting app (/decant/) cloud store
 -- ---------------------------------------------------------------------
--- Run once in the SAME Supabase project as the /payments app (SQL Editor →
--- paste → Run). Safe to re-run.
+-- Run in the decanting app's OWN Supabase project (SQL Editor → paste → Run)
+-- — NOT the payments project, which this app must never load. Its URL and
+-- publishable key go in decant/config.js. Safe to re-run.
+-- (Ran it in the payments project before? decant-remove-from-payments.sql
+-- takes the dec_* tables out of there again.)
 --
 --   dec_invoices    every IOCL invoice with its chamber table. The payment
 --                   agent (GitHub Actions, agent/decant.py) inserts these from
@@ -14,16 +17,17 @@
 --                   without schema changes.
 --   dec_tank_state  the latest known reading per tank (the stock strip).
 --   dec_vehicles    each truck's chamber layout, learned from its invoices.
---   dec_config      shared settings (tanks, tolerance, retention, dip chart)
---                   and the loads you've ordered next (for the Plan tab).
+--   dec_config      shared settings (tanks, tolerance, dip chart) and the
+--                   indents placed (for the Plan tab).
 --   dec_history     (a view) finished decantations, compact — what the FY
 --                   reports read for the months the phone doesn't keep.
 --
 -- Retention: decantations and invoices are kept for this financial year and
 -- the last (for the FY reports); dec_purge_old() does it and the app calls it
 -- on load. Screenshots are only read on the phone — never stored (the
--- dec_photos table of the first version is dropped). Same personal-owner model as the payments tables: the
--- anon key may read/write these tables (RLS policy below).
+-- dec_photos table of the first version is dropped). Personal-owner model:
+-- the publishable (anon) key may read/write these tables (RLS policy below);
+-- the payments agent writes the invoices with it too.
 -- =====================================================================
 
 create table if not exists public.dec_invoices (

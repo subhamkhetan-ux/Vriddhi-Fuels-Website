@@ -217,8 +217,9 @@ function renderStatus() {
 function renderBanner() {
   const el = document.getElementById('banner');
   if (!cloudEnabled) {
-    el.innerHTML = `<div class="banner"><b>Working on this phone only.</b> Add the Supabase URL + key to <code>decant/config.js</code> and run
-      <code>supabase/decant-schema.sql</code> to get invoices from the payments agent and sync across phones.</div>`;
+    el.innerHTML = `<div class="banner"><b>Working on this phone only.</b> This app needs its own Supabase project (not the payments one):
+      run <code>supabase/decant-schema.sql</code> in it and put its URL + publishable key in <code>decant/config.js</code>. Then invoices come in
+      from the payments agent and phones sync.</div>`;
   } else if (state.schemaNote) {
     el.innerHTML = `<div class="banner">${esc(state.schemaNote)}</div>`;
   } else if (state.cloud === 'offline' && state.cloudError) {

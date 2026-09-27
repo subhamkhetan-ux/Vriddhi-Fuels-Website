@@ -15,6 +15,7 @@ const CFG = window.VRIDDHI_DECANT_CONFIG || {};
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 const LS_KEY = 'vriddhi-decant-v1';
 const DEVICE_KEY = 'vriddhi-decant-device';
+const PROJECT_KEY = 'vriddhi-decant-project';      // the cloud project this phone's copy belongs to
 
 export const state = {
   cloud: 'off',           // off | connecting | live | offline
@@ -103,6 +104,8 @@ export function saveDevice(patch) {
 // ---------------------------------------------------------------------------
 
 let client = null;
+let adopted = false;               // this phone's copy has been moved into this project (adoptProject)
+const later = (a, b) => (Date.parse(a || 0) || 0) > (Date.parse(b || 0) || 0);
 
 function setCloud(s, err = '') {
   state.cloud = s;
@@ -223,6 +226,7 @@ function mergeRows(table, local, remote, keyOf) {
 async function pull(which = 'all') {
   if (!client) return;
   try {
+    if (!adopted) await adoptProject();
     // this month and last; older months come on demand (loadHistory)
     const since = windowStartIso();
     const jobs = [];
@@ -273,6 +277,7 @@ async function pull(which = 'all') {
     setCloud('live');
     saveLocal();
     learnVehicles();
+    if (state.outbox.length) flushOutbox();          // e.g. rows the move just queued
   } catch (e) {
     const msg = e?.message || String(e);
     setCloud('offline', /dec_\w+|relation|schema cache|does not exist/i.test(msg)
@@ -296,6 +301,49 @@ function subscribe() {
     ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => poke(t));
   }
   ch.subscribe();
+}
+
+// A phone whose copy came from somewhere else — the payments project the first
+// version used, or working without a cloud — moves it into this project once.
+// A row goes across only if the project doesn't have it yet or has an older
+// version, so a phone that was closed for a while never overwrites newer work
+// done on another phone. pull() waits for the move, so until it has gone
+// through nothing on the phone is replaced by the cloud's copy.
+async function adoptProject() {
+  let prev = null;
+  try { prev = localStorage.getItem(PROJECT_KEY); } catch { /* ignore */ }
+  if (prev !== CFG.SUPABASE_URL) {
+    const tables = [
+      ['dec_sessions', 'id', state.sessions],
+      ['dec_invoices', 'invoice_no', state.invoices],
+      ['dec_vehicles', 'tt_no', Object.values(state.vehicles)],
+    ];
+    for (const [table, key, rows] of tables) {
+      for (let i = 0; i < rows.length; i += 100) {
+        const part = rows.slice(i, i + 100);
+        const { data, error } = await client.from(table).select(`${key},updated_at`).in(key, part.map((r) => r[key]));
+        if (error) throw error;
+        const have = new Map((data || []).map((r) => [String(r[key]), r.updated_at]));
+        for (const r of part) {
+          const k = String(r[key]);
+          if (!have.has(k) || later(r.updated_at, have.get(k))) queue(table, k);
+        }
+      }
+    }
+    if (Object.keys(state.tankState).length) {
+      const { data, error } = await client.from('dec_tank_state').select('tank_id,reading');
+      if (error) throw error;
+      const have = Object.fromEntries((data || []).map((r) => [r.tank_id, r.reading]));
+      for (const [id, r] of Object.entries(state.tankState)) if (!have[id] || newer(r, have[id])) queue('dec_tank_state', id);
+    }
+    if (Object.keys(state.config || {}).length) {
+      const { data, error } = await client.from('dec_config').select('data').eq('id', 1).maybeSingle();
+      if (error) throw error;
+      if (!data?.data?.updatedAt || later(state.config.updatedAt, data.data.updatedAt)) queue('dec_config', 1);
+    }
+    try { localStorage.setItem(PROJECT_KEY, CFG.SUPABASE_URL); } catch { /* ignore */ }
+  }
+  adopted = true;
 }
 
 export async function initStore() {
