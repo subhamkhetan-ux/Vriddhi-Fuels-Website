@@ -997,6 +997,11 @@ async function viewPoGroup(code) {
   const all = document.getElementById('all-bills');
   if (all) all.addEventListener('click', () => { state.showAllBills = true; reload(); });
   main().querySelectorAll('[data-po-action]').forEach((btn) => btn.addEventListener('click', () => poAction(btn, g, reload)));
+  main().querySelectorAll('[data-po-sort]').forEach((btn) => btn.addEventListener('click', () => {
+    state.poSort = btn.dataset.poSort;
+    try { localStorage.setItem('ledger-po-sort', state.poSort); } catch { /* private mode: just this visit */ }
+    guard(reload);
+  }));
   main().querySelectorAll('select[data-unit]').forEach((sel) => sel.addEventListener('change', () => guard(async () => {
     await state.store.updateBill(Number(sel.dataset.unit), { unit: sel.value });
     await reload();
@@ -1004,18 +1009,27 @@ async function viewPoGroup(code) {
   main().querySelectorAll('[data-bill-po]').forEach((btn) => btn.addEventListener('click', () => editBillPo(btn, g, units, reload)));
 }
 
-// POs are shown by number, Z→A (PO-10 above PO-9); # is still the order the
-// bills use them in (the first PO with litres left), which ↑ / ↓ change.
-const byPoDesc = (pos) => pos.map((p, i) => ({ p, i }))
-  .sort((a, b) => String(b.p.po_no).localeCompare(String(a.p.po_no), 'en', { numeric: true, sensitivity: 'base' }));
+// How PO lists are shown: 'no' — by PO number, Z→A (PO-10 above PO-9);
+// 'left' — most litres left first, then Z→A. # is still the order the bills
+// use them in (the first PO with litres left), which ↑ / ↓ change.
+const poNoDesc = (a, b) => String(b.po_no).localeCompare(String(a.po_no), 'en', { numeric: true, sensitivity: 'base' });
+function poSort() {
+  if (!state.poSort) {
+    try { state.poSort = localStorage.getItem('ledger-po-sort') === 'left' ? 'left' : 'no'; } catch { state.poSort = 'no'; }
+  }
+  return state.poSort;
+}
+const sortedPos = (pos, how = poSort()) => pos.map((p, i) => ({ p, i }))
+  .sort((a, b) => (how === 'left' ? (Number(b.p.balance) || 0) - (Number(a.p.balance) || 0) : 0) || poNoDesc(a.p, b.p));
 
 function registerCard(g, r) {
   const pending = r.pos.filter((p) => p.status === 'Pending');
   return `<section class="card">
-    <h3>${r.unit ? `${esc(r.unit)} — ` : ''}PO list <span class="muted">· ${pending.length ? `${plural(pending.length, 'open PO')}, ${fmtLitres(pending.reduce((a, p) => a + p.balance, 0))} L left` : 'nothing left'}</span></h3>
+    <div class="row-between"><h3>${r.unit ? `${esc(r.unit)} — ` : ''}PO list <span class="muted">· ${pending.length ? `${plural(pending.length, 'open PO')}, ${fmtLitres(pending.reduce((a, p) => a + p.balance, 0))} L left` : 'nothing left'}</span></h3>
+      ${r.pos.length > 1 ? `<div class="chips small-chips" role="group" aria-label="Sort POs">${[['no', 'PO no. Z→A'], ['left', 'Litres left']].map(([k, n]) => `<button class="chip ${poSort() === k ? 'on' : ''}" data-po-sort="${k}" aria-pressed="${poSort() === k}">${n}</button>`).join('')}</div>` : ''}</div>
     ${r.pos.length ? `<div class="plist" role="table" aria-label="${r.unit ? `${esc(r.unit)} ` : ''}PO list">
       <div class="prow head" role="row"><span role="columnheader">#</span><span role="columnheader">PO number</span><span class="r" role="columnheader">Allotted</span><span class="r" role="columnheader">Used</span><span class="r" role="columnheader">Left</span><span role="columnheader">Status</span><span role="columnheader"><span class="sr">Actions</span></span></div>
-      ${byPoDesc(r.pos).map(({ p, i }) => `<div class="prow" role="row" data-po-row="${p.id}">
+      ${sortedPos(r.pos).map(({ p, i }) => `<div class="prow" role="row" data-po-row="${p.id}">
         <span class="p-n" role="cell" title="Bills use the POs in this order">${i + 1}</span>
         <span class="p-no" role="cell"><b>${esc(p.po_no)}</b></span>
         <span class="p-al r" role="cell"><span class="lbl-sm">Allotted </span>${fmtLitres(p.allotted)}</span>

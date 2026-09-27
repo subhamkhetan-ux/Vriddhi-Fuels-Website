@@ -150,7 +150,8 @@ Until step 5 the page shows these steps and a **Try the demo** button
   you still use Excel for SCPL, the Sales Dashboard or the Own Tanker Report,
   keep importing the DayBook there too — the app never writes back to Excel.
 - **New PO:** **POs** → the customer → **Add a PO**. The list is shown by PO
-  number, Z→A; **#** is the order bills use them in (the first PO with room),
+  number, Z→A, or — tap **Litres left** — most unused litres first (ties and
+  used-up POs Z→A); the app remembers the choice. **#** is the order bills use them in (the first PO with room),
   and ↑ / ↓ change that order.
 - **Unit (SMC):** new SMC bills need a unit before they can get a PO; pick it
   in the bill list.
