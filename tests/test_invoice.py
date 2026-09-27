@@ -235,3 +235,161 @@ def test_origin_detects_paradeep_terminal():
 def test_parse_origin_unknown_falls_back_to_default():
     assert invoice.parse_origin("some invoice with no known terminal") == invoice.DEFAULT_ORIGIN
     assert invoice.parse_origin("") == invoice.DEFAULT_ORIGIN
+
+
+# ---- /decant: chamber table, compartments, densities, time, seals ----------
+# Structure-faithful slice of a real two-product IOCL invoice (pymupdf line
+# order): MS in chamber 1 and HSD in chambers 2-5 of a 5-chamber truck, with the
+# chamber table ("PL - cm / DIP - Cm QTY - kl") at the foot.
+CHAMBER_INVOICE_TEXT = """\
+Doc.Name
+& number
+TAX INVOICE
+AC4  31A
+7011294526
+SAP Entry no.
+Road
+Delivered
+Jharsuguda Terminal
+Den@15
+ 
+829.30
+PAYER - 338821 VRIDDHI FUELS
+OD23U8210
+T.T.No.
+14:15
+Rem.Date/Time
+Time
+26-Sep-26
+Date
+14:15
+Seal/Lock no: 439 & 440:KEY:BLR T2 439 & BLR T2 440
+DUTY PAID
+Item  Material Code / Material Description
+Quantity Unit
+Rate Unit
+HSN code
+Total
+10
+16733   EBMS [PDRP]
+5.000
+KL
+2710 12 41.
+             BASIC DESTINATION PRICE
+5.000
+KL
+81994.360
+KL
+409971.80
+JIN6   A/R Vat Payable
+28.000
+%
+114792.10
+Tank no: SUP1 Comp No(s) 1, Density@15: 748.200
+Total for material
+524763.90
+Sample no: EBMS/IOC/G/T007/2609
+20
+50703   HSD-BSVI [PDRP]
+17.000
+KL
+2710 19 44*
+             BASIC DESTINATION PRICE
+17.000
+KL
+79150.260
+KL
+1345554.42
+JIN6   A/R Vat Payable
+24.000
+%
+322933.06
+Tank no: T002 Comp No(s) 2,3,4,5, Density@15: 829.300
+Total for material
+1668487.48
+Sample no: HSD/JSG/G/T002/2609
+ZRND  Rounding Difference
+-0.38
+Total
+2193251.00
+PL - cm
+DIP - Cm QTY - kl
+184.9
+140.0
+5.00
+185.2
+145.3
+5.00
+186.9
+144.9
+4.00
+184.6
+149.0
+4.00
+184.8
+136.6
+4.00
+Captain ID and Name:   ;  
+Assistant ID and Name: ;
+This Document is Digitally Signed
+Date: Sat, Sep 26, 2026 14:15:47 IST
+"""
+
+
+def _chamber_inv():
+    return invoice.extract_fields(CHAMBER_INVOICE_TEXT)
+
+
+def test_chamber_table_parsed_in_order():
+    ch = _chamber_inv().chambers
+    assert [(c.no, c.pl_cm, c.dip_cm, c.qty_kl) for c in ch] == [
+        (1, 184.9, 140.0, 5.0), (2, 185.2, 145.3, 5.0), (3, 186.9, 144.9, 4.0),
+        (4, 184.6, 149.0, 4.0), (5, 184.8, 136.6, 4.0)]
+    assert sum(c.qty_kl for c in ch) == 22.0
+
+
+def test_product_compartments_density_and_terminal_tank():
+    ms, hsd = _chamber_inv().lines
+    assert (ms.compartments, ms.density15, ms.terminal_tank, ms.qty_kl) == ([1], 748.2, "SUP1", 5.0)
+    assert (hsd.compartments, hsd.density15, hsd.terminal_tank, hsd.qty_kl) == ([2, 3, 4, 5], 829.3, "T002", 17.0)
+
+
+def test_invoice_time_density_and_seals():
+    f = _chamber_inv()
+    assert f.invoice_time == "14:15"            # not the 14:15:47 signature stamp
+    assert f.density15 == 829.3
+    assert f.seals == "439 & 440:KEY:BLR T2 439 & BLR T2 440"
+
+
+def test_single_product_invoice_has_no_compartments_but_keeps_chambers():
+    # The plain HSD invoice has no "Comp No(s)" (it fills every chamber).
+    txt = CHAMBER_INVOICE_TEXT.replace("Comp No(s) 2,3,4,5, ", "")
+    hsd = invoice.extract_fields(txt).lines[1]
+    assert hsd.compartments == []
+    assert len(invoice.extract_fields(txt).chambers) == 5
+
+
+def test_old_fixture_without_chamber_table_parses_as_before():
+    f = _fields()
+    assert f.chambers == []
+    assert f.invoice_time == "09:39"
+    assert f.lines[0].compartments == [] and f.lines[0].qty_kl == 22.0
+
+
+def test_chamber_table_on_one_line_per_row():
+    # pdf renderers sometimes keep a row on one line: "184.9 140.0 5.00"
+    lines = ["PL - cm", "DIP - Cm QTY - kl", "184.9 140.0 5.00", "185.2 145.3 5.00", "Captain"]
+    assert [c.qty_kl for c in invoice.parse_chambers(lines)] == [5.0, 5.0]
+
+
+def test_chamber_table_incomplete_row_is_rejected():
+    lines = ["DIP - Cm QTY - kl", "184.9", "140.0", "5.00", "185.2", "Captain"]
+    assert invoice.parse_chambers(lines) == []
+    assert invoice.parse_chambers(["no table here"]) == []
+
+
+def test_xtragreen_product_line_is_detected():
+    txt = INVOICE_TEXT.replace("50703   HSD-BSVI [PDRP]", "50720   XTRAGREEN BS-VI")
+    f = invoice.extract_fields(txt)
+    assert f.product == "XTRAGREEN BS-VI"
+    assert f.column_key == invoice.COLUMN_XTRAGREEN

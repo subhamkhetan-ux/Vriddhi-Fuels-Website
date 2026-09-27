@@ -217,6 +217,20 @@ def main() -> int:
         traceback.print_exc()
         errors.append(msg)
 
+    # Tanker decanting: every IOCL invoice with its chamber table, for the
+    # /decant app. Best-effort and isolated.
+    from . import decant
+    try:
+        dc_sent, dc_errors = decant.run(seen)
+        if dc_sent:
+            print(f"Decant: stored {dc_sent} invoice(s).")
+        errors.extend(dc_errors)
+    except Exception as exc:  # last-resort guard
+        msg = f"decant: FAILED: {exc}"
+        print(msg)
+        traceback.print_exc()
+        errors.append(msg)
+
     # Persist whatever progress we made, even on partial failure.
     state_store.save_queue(queue)
     state_store.save_seen(seen)
