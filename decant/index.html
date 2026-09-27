@@ -60,7 +60,13 @@ header{position:sticky;top:0;z-index:20;
   border-bottom:1px solid rgba(255,255,255,.16);box-shadow:0 10px 30px -14px rgba(244,81,30,.7);
   padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));display:flex;align-items:center;gap:8px}
 header h1{font-family:var(--display);font-size:17px;margin:0;font-weight:800;letter-spacing:.3px;flex:1;color:#fff;
-  text-shadow:0 1px 2px rgba(120,30,0,.35);display:flex;align-items:center;gap:8px;min-width:0}
+  text-shadow:0 1px 2px rgba(120,30,0,.35);display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
+header h1 span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header > *{flex-shrink:0}
+header > h1{flex-shrink:1}
+/* narrow phones (and Android's text scaling / page zoom, which narrows the page): a tighter header */
+@media (max-width:419px){header{gap:6px;padding-left:12px;padding-right:12px} #btnStock .lbl{display:none} .pill{padding:4px 8px}}
+@media (max-width:339px){header h1::before{display:none}}
 header h1::before{content:"⛽";font-size:16px}
 header .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;font-weight:700}
 .pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.38);
@@ -68,7 +74,7 @@ header .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);
 .pill .dot{width:7px;height:7px;border-radius:50%;background:#fff}
 .pill.live .dot{background:#8dffcf} .pill.live{background:rgba(47,208,138,.28)}
 .pill.connecting .dot{background:#ffe08a} .pill.offline .dot{background:#ffd0cb} .pill.offline{background:rgba(255,107,94,.3)}
-.tabbar{display:flex;gap:4px;padding:8px 10px;background:rgba(12,9,8,.5);position:sticky;top:calc(56px + env(safe-area-inset-top));z-index:19;
+.tabbar{display:flex;gap:4px;padding:8px 10px;background:rgba(12,9,8,.5);position:sticky;top:var(--hdr,calc(56px + env(safe-area-inset-top)));z-index:19;
   backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);border-bottom:1px solid var(--glass-line-soft)}
 .tab{flex:1;position:relative;background:transparent;border:1px solid transparent;color:var(--muted);
   font-size:14px;font-weight:700;padding:10px 6px;border-radius:11px;cursor:pointer}
@@ -151,7 +157,8 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .tanks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 @media (max-width:620px){.tanks{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .tank{position:relative;background:var(--glass);border:1px solid var(--glass-line);border-radius:14px;padding:10px 10px 9px;cursor:pointer;
-  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--glass-shadow);min-width:0;text-align:left;color:var(--ink);font:inherit}
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--glass-shadow);min-width:0;text-align:left;color:var(--ink);font:inherit;
+  display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
 .tank .t-head{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12px;font-weight:700}
 .tank .t-name{font-family:var(--display);font-size:13px}
 .gauge{width:100%;height:auto;display:block;margin:6px 0 2px}
@@ -161,9 +168,10 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .gauge-leg{fill:rgba(255,255,255,.45)}
 .gauge-pct{font:700 12px var(--display);fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.45);stroke-width:3px}
 .tank .t-vol{font-family:var(--display);font-size:17px;font-weight:800;line-height:1.2}
-.tank .t-sub{font-size:11.5px;color:var(--muted);line-height:1.45}
+.tank .t-sub{font-size:11.5px;color:var(--muted);line-height:1.45;display:flex;flex-wrap:wrap;column-gap:8px}
+.tank .t-sub > span,.tank .t-age > span{white-space:nowrap}
 .tank .t-sub b{color:var(--ink);font-weight:600}
-.tank .t-age{font-size:11px;color:var(--faint);margin-top:2px}
+.tank .t-age{font-size:11px;color:var(--faint);margin-top:2px;display:flex;flex-wrap:wrap;column-gap:6px}
 .tank .t-age.stale{color:var(--warn)}
 .tank.busy{border-color:rgba(255,122,26,.55)}
 .tank .t-busy{position:absolute;top:8px;right:8px}
@@ -207,6 +215,20 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .step.on{color:#fff;border-color:var(--accent)}
 .step.done{color:var(--muted);border-color:rgba(255,122,26,.45)}
 .sect-title{font-family:var(--display);font-weight:700;font-size:15px;margin:0 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* ---- stock by dip ---- */
+.dip-list{margin-top:8px}
+.dip-row{padding:10px 0;border-top:1px solid var(--glass-line-soft)}
+.dip-row:first-child{border-top:none}
+.dip-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dip-head .pt-name{font-family:var(--display);font-weight:800}
+.dip-head .sp{flex:1}
+.dip-line{display:flex;align-items:center;gap:12px;margin-top:6px}
+.dip-in{display:flex;align-items:center;gap:6px;flex:none}
+.dip-in input{width:104px;text-align:right;font-family:var(--display);font-weight:800;font-size:17px;padding:8px 10px}
+.dip-in span{font-size:12px;color:var(--muted)}
+.dip-out{min-width:0;display:flex;flex-direction:column;line-height:1.3;font-variant-numeric:tabular-nums}
+.dip-out b{font-family:var(--display);font-size:16px}
+.dip-out .bad{color:var(--bad);font-size:12.5px}
 .kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;margin-top:8px}
 @media (max-width:480px){.kv{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .kv .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
@@ -401,8 +423,8 @@ input[type=number]{font-variant-numeric:tabular-nums}
 </head>
 <body>
 <header>
-  <h1 id="appTitle">Decanting</h1>
-  <button class="btn sm" id="btnStock" title="Read tank stock from an automation screenshot">📷 Stock</button>
+  <h1 id="appTitle"><span>Decanting</span></h1>
+  <button class="btn sm" id="btnStock" title="Read tank stock from an automation screenshot" aria-label="Read tank stock from a screenshot">📷<span class="lbl"> Stock</span></button>
   <button class="btn sm ghost" id="btnRefresh" title="Refresh" aria-label="Refresh">↻</button>
   <button class="btn sm ghost" id="btnSettings" title="Settings" aria-label="Settings">⚙</button>
   <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">…</span></span>
