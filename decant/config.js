@@ -8,8 +8,8 @@
 //   3. Project Settings → API Keys: paste the Project URL and the
 //      publishable key below.
 // The payments agent then also stores every IndianOil invoice here (it
-// reads this file), and the app syncs across phones. While these are left
-// as placeholders the app works on this phone only.
+// reads this file), and the app syncs across phones. (With placeholders
+// instead of these values, the app works on one phone only.)
 //
 // SUPABASE_URL is the base project URL (no /rest/v1/ suffix).
 // SUPABASE_ANON_KEY is the PUBLIC key (sb_publishable_... / anon). It is
@@ -17,6 +17,6 @@
 // service_role key here.
 // =====================================================================
 window.VRIDDHI_DECANT_CONFIG = {
-  SUPABASE_URL: "PASTE_DECANT_PROJECT_URL",
-  SUPABASE_ANON_KEY: "PASTE_DECANT_PUBLISHABLE_KEY",
+  SUPABASE_URL: "https://rqxzbenyztapjrswveqv.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_XLmSYRNkn6BPHVMy3Zwt5Q_Osu6nHsU",
 };
