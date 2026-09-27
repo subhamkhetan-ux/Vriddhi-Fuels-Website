@@ -51,11 +51,11 @@ counts are on the **Import** tab.
 
 **Home dashboard** (the workbook's Sales Analysis — Module14 — and the
 Outstanding sheet, live): pick *This month / Last month / Last 30 days / This
-FY / Custom* (any From..To, up to two years) and see earnings, sales, collections and today's outstanding; each
+FY / Custom* (any From..To, up to two years) and see today's outstanding (at the top), earnings, sales and collections; each
 product's litres, sales and earnings; litres and earnings per day (per month
 for long periods); the best customers (sort by litres, sales or earnings;
 retail / bulk; tap one for the product split, payments and outstanding);
-everyone's outstanding, largest first (ledger customers as on their sheet,
+everyone's outstanding, largest first (right under the heading) (ledger customers as on their sheet,
 bulk groups as on their *_Bulk sheet: opening + sales − paid − TDS −
 shortage); bulk vs retail; the FY month by month (sales vs collections); and
 the day's RSP per product. Tap or hover any chart for its numbers.
@@ -149,8 +149,10 @@ Until step 5 the page shows these steps and a **Try the demo** button
 - **Sales:** upload the Tally DayBook under **Import** (from any device). If
   you still use Excel for SCPL, the Sales Dashboard or the Own Tanker Report,
   keep importing the DayBook there too — the app never writes back to Excel.
-- **New PO:** **POs** → the customer → **Add a PO**. Order matters (bills use
-  the first PO with room), so use ↑ / ↓ to change which PO is used first.
+- **New PO:** **POs** → the customer → **Add a PO**. The list is shown by PO
+  number, Z→A, or — tap **Litres left** — most unused litres first (ties and
+  used-up POs Z→A); the app remembers the choice. **#** is the order bills use them in (the first PO with room),
+  and ↑ / ↓ change that order.
 - **Unit (SMC):** new SMC bills need a unit before they can get a PO; pick it
   in the bill list.
 - **Re-uploading the Master Ledger** brings the app in line with Excel for

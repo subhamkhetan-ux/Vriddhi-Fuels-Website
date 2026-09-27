@@ -28,11 +28,15 @@ export function money(n, { exact = false } = {}) {
   if (a >= 1e5) return `${s}₹${(a / 1e5).toFixed(2)} L`;
   return `${s}₹${(a / 1e3).toFixed(1)} K`;
 }
-// 12,345 L / 1.23 lakh L
+
+// exact litres (5,350 L · 11.74 L); from 10,000 L in kilolitres, still exact
+// to the litre (54.100 KL · 1,923.460 KL)
 export function litres(n) {
-  const a = Math.abs(Number(n) || 0);
-  if (a >= 1e5) return `${(a / 1e5).toFixed(2)} lakh L`;
-  return `${indian(a, a < 100 && a % 1 ? 1 : 0)} L`;
+  const v = Number(n) || 0;
+  const a = Math.abs(v);
+  const s = v < 0 ? '−' : '';
+  if (a >= 1e4) return `${s}${indian(a / 1000, 3)} KL`;
+  return `${s}${Number(a.toFixed(2)).toLocaleString('en-IN', { maximumFractionDigits: 2 })} L`;
 }
 export const shortDate = (iso) => `${Number(iso.slice(8, 10))} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(iso.slice(5, 7)) - 1]}`;
 export const monthName = (m) => `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m.slice(5, 7)) - 1]} ${m.slice(2, 4)}`;
@@ -82,7 +86,7 @@ export function dailyVolumeChart(days, { h = 220, labelOf = (d) => shortDate(d.d
   const keys = ['HSD', 'MS', 'XG'];
   const tot = (d) => keys.reduce((a, k) => a + d.qty[k], 0);
   const max = niceMax(Math.max(0, ...days.map(tot)));
-  const f = frame(h, max, (v) => (v >= 1000 ? `${r1(v / 1000)}k` : `${Math.round(v)}`), 'aria-label="Litres sold per day, by product"');
+  const f = frame(h, max, (v) => (v >= 1000 ? `${r1(v / 1000)} KL` : `${Math.round(v)} L`), 'aria-label="Litres sold per day, by product"');
   const step = (W - PAD.l - PAD.r) / Math.max(1, days.length);
   const bw = Math.max(2, Math.min(22, step - 2));
   const x = (i) => PAD.l + step * i + step / 2;
