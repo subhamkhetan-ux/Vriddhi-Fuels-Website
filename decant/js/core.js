@@ -422,8 +422,22 @@ export function fmtL(l) {
 // Results: stock after vs stock before + what was decanted
 // ---------------------------------------------------------------------------
 
-// variation = (after − before) − (decanted − sold during decanting);
-// negative = the tank got less than the chambers held (short).
+// Where one tank of a decantation is: 'waiting' (planned, not started yet),
+// 'decanting', 'settling' (done, no stock after yet) or 'read'. Tanks can go
+// one at a time — each with its own stock before (taken just before it starts,
+// as it sells until then) and after. Rows saved before that have no stage:
+// their tanks all started and finished together.
+export function tankStage(session, row) {
+  if (row?.stage) return row.stage;
+  if (session?.status === 'decanting') return 'decanting';
+  if (session?.status === 'draft') return 'waiting';
+  return row?.after ? 'read' : 'settling';
+}
+
+// variation = (after − before) − decanted; negative = the tank got less than
+// the chambers held (short). The automation blocks sales from a tank while it
+// is decanted, so nothing is sold in between (`salesL` is only for records
+// saved by the first version, which asked for it).
 export function tankResult({ litres, before, after, salesL = 0 }, settings) {
   const s = settings || DEFAULT_SETTINGS;
   if (!before || !after || !Number.isFinite(before.volume) || !Number.isFinite(after.volume)) return null;

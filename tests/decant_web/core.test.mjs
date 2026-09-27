@@ -332,3 +332,26 @@ test('own tankers: free space, leaving some out', async () => {
   assert.equal(r.free, 24410);
   assert.deepEqual(r.excluded, ['OD15AF5510']);
 });
+
+test('tank by tank: where each tank of a decantation is', async () => {
+  const { tankStage } = await import('../../decant/js/core.js');
+  const s = { status: 'decanting' };
+  assert.equal(tankStage(s, { stage: 'waiting' }), 'waiting');       // Tank 3 not started yet (still selling)
+  assert.equal(tankStage(s, { stage: 'decanting' }), 'decanting');
+  assert.equal(tankStage(s, { stage: 'settling' }), 'settling');
+  assert.equal(tankStage(s, { stage: 'read' }), 'read');
+  // rows saved before tank by tank: they all went together, as the session did
+  assert.equal(tankStage({ status: 'decanting' }, {}), 'decanting');
+  assert.equal(tankStage({ status: 'settling' }, {}), 'settling');
+  assert.equal(tankStage({ status: 'settling' }, { after: { volume: 1 } }), 'read');
+  assert.equal(tankStage({ status: 'done' }, { after: { volume: 1 } }), 'read');
+  assert.equal(tankStage({ status: 'draft' }, {}), 'waiting');
+});
+
+test('variation: nothing is sold while a tank decants', () => {
+  // (after − before) − chambers; the first version's "sold during" still counts for its old records
+  const r = tankResult({ litres: 14000, before: { volume: 4973.71 }, after: { volume: 18903.49 } });
+  assert.equal(r.gain, 13929.78);
+  assert.equal(r.variation, -70.22);
+  assert.equal(r.expected, 14000);
+});

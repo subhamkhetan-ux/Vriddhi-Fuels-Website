@@ -4,7 +4,7 @@
 
 import {
   PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, invoiceStatus, istDate,
-  litresAtDip, productKey, round2, usedChambers,
+  litresAtDip, productKey, round2, tankStage, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
@@ -33,12 +33,14 @@ export function layoutFor(inv) {
   return chamberLayout(inv, state.vehicles[inv.tt_no]);
 }
 
-// Tanks that are being decanted into right now (another truck can't use them).
+// Tanks taken by a truck being decanted — decanting now, settling, or next in
+// line for it (another truck can't use them). A tank whose stock after has
+// been read is free again.
 export function busyTanks(exceptId = null) {
   const busy = new Map();
   for (const s of state.sessions) {
     if (s.id === exceptId || !['decanting', 'settling'].includes(s.status)) continue;
-    for (const t of s.data?.tanks || []) busy.set(t.tank, s);
+    for (const t of s.data?.tanks || []) if (tankStage(s, t) !== 'read') busy.set(t.tank, s);
   }
   return busy;
 }
@@ -275,8 +277,9 @@ function tankTile(t, busy) {
   const r = state.tankState[t.id];
   const b = busy.get(t.id);
   const stale = r && isStale(r);
+  const stage = b ? tankStage(b, b.data.tanks.find((x) => x.tank === t.id)) : null;
   return `<button class="tank${b ? ' busy' : ''}" data-tank="${t.id}" aria-label="Tank ${t.no} ${productShort(t.product)}">
-    ${b ? '<span class="badge watch t-busy"><i>●</i>Decanting</span>' : ''}
+    ${b ? `<span class="badge watch t-busy">${{ waiting: '<i>◷</i>Next', decanting: '<i>●</i>Decanting', settling: '<i>◐</i>Settling' }[stage] || '<i>●</i>Decanting'}</span>` : ''}
     <div class="t-head"><span class="t-name">Tank ${t.no}</span>${productChip(t.product)}</div>
     ${tankGauge({ product: t.product, volume: r?.volume, capacity: t.capacity, label: `Tank ${t.no}` })}
     <div class="t-vol">${r ? fmtL(r.volume) : '—'}</div>
@@ -300,7 +303,7 @@ function invoiceCard(inv, st) {
     </div>
     <div class="inv-prods">${prods}</div>
     ${truckStrip(layout.chambers, { done: used })}
-    <div class="hint" style="margin-top:6px">${dens ? `Density@15: ${esc(dens)}` : ''}${inv.seals ? `${dens ? ' · ' : ''}Seals: ${esc(inv.seals)}` : ''}</div>
+    <div class="hint" style="margin-top:6px">${dens ? `Density@15: ${esc(dens)}` : ''}</div>
     ${[...layout.problems, ...noTank.map((l) => `No tank here holds ${l.key} — it can't be decanted.`)].map((p) => `<div class="banner" style="margin:8px 0 0">${esc(p)}</div>`).join('')}
     <div class="inv-actions">
       ${st === 'active' ? '<button class="cta" data-resume>Continue decanting ▶</button>' : `<button class="cta" data-start>${st === 'partial' ? 'Decant the rest ▶' : 'Start decanting ▶'}</button>`}
@@ -323,8 +326,13 @@ export function compactNos(nos) {
 
 function sessionCard(s) {
   const d = s.data || {};
-  const step = { draft: 'Getting ready', decanting: 'Decanting now', settling: 'Waiting for the after-stock' }[s.status];
-  const tanksTxt = (d.tanks || []).map((t) => `C${compactNos(t.chambers)} → ${tankName(t.tank)}`).join(' · ') || 'No chambers picked yet';
+  const st = (d.tanks || []).map((t) => tankStage(s, t));
+  const step = s.status === 'draft' ? 'Getting ready'
+    : st.includes('decanting') ? 'Decanting now'
+      : st.includes('waiting') ? 'Next tank to start'
+        : 'Waiting for the after-stock';
+  const word = { waiting: 'next', decanting: 'decanting', settling: 'settling', read: 'read' };
+  const tanksTxt = (d.tanks || []).map((t, i) => `C${compactNos(t.chambers)} → ${tankName(t.tank)}${s.status === 'draft' ? '' : ` (${word[st[i]]})`}`).join(' · ') || 'No chambers picked yet';
   return `<div class="card accent" data-session="${esc(s.id)}">
     <div class="inv-top"><div><div class="inv-tt">${esc(s.tt_no || '')}</div><div class="inv-meta">${esc(s.invoice_no || '')}</div></div>
       <span class="badge watch"><i>●</i>${step}</span></div>

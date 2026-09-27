@@ -107,7 +107,8 @@ test('filters and export', () => {
   const rows = exportRows(filterEntries(es, { tt: 'OR15R1110' }));
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[1].slice(0, 7), ['28/09/2026', '01:30', 'OR15R1110', 'INV-c', 'XG', 'Tank 4', 'C1']);
-  assert.equal(rows[1][14], 'High');
+  assert.equal(rows[1][13], 'High');
+  assert.ok(!rows[0].some((h) => /sold/i.test(h)));                       // nothing is sold while decanting
   const csv = toCsv([['a', 'b,c'], ['say "hi"', 1]]);
   assert.equal(csv, 'a,"b,c"\r\n"say ""hi""",1');
 });

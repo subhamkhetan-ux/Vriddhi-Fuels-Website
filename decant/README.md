@@ -92,11 +92,10 @@ change any chamber on the first step.
 
 Tap **Start decanting** on the truck's card:
 
-1. **Truck** — the chambers and their products, the **seals** to check, and an
-   optional **density check**: type the hydrometer reading and temperature of
-   the truck's sample; the app works out the density at 15 °C (ASTM D1250
-   Table 53B) and compares it with the invoice's Density@15 (± 3 kg/m³ by
-   default).
+1. **Truck** — the chambers and their products, and an optional **density
+   check**: type the hydrometer reading and temperature of the truck's sample;
+   the app works out the density at 15 °C (ASTM D1250 Table 53B) and compares
+   it with the invoice's Density@15 (± 3 kg/m³ by default).
 2. **Before** — the stock of the tanks that can take this product.
    **📷 Read a screenshot** of the automation's tank page (one screenshot can
    show all four tanks), or **✎ type** the stock in litres or as a **dip in cm**.
@@ -110,20 +109,37 @@ Tap **Start decanting** on the truck's card:
    after decanting. A tank already being decanted from another truck can't be
    used. Chambers that don't fit **stay in the truck** — the invoice stays on
    the list as *Part decanted* for later.
-4. **Decant** — **▶ Start decanting**, then **✓ Decanting done**. Untick any
-   chamber that wasn't emptied.
-5. **After** — after the level settles (the app counts down 10 minutes), read
-   the **after screenshot** or type the stock. If sales ran from the tank
-   while decanting, type the **litres sold**.
-6. **Result** — per tank:
+   Then either:
+   - **▶ Start decanting into all** — every tank at once, or
+   - **Tank by tank** — start each tank when you're ready, e.g. Tank 2 now
+     and Tank 3 later.
+4. **Decant** — one card per tank, each going *not started → decanting →
+   settling → stock after read*:
+   - **▶ Start Tank N**. A tank sells until its decanting starts, so its
+     stock before must be from just before it starts: a reading from before
+     the first tank started (or over 30 minutes old) is questioned — take a
+     new screenshot or type it. The room is checked again with that reading.
+   - **✓ Tank N done** — untick any chamber that wasn't emptied (it stays in
+     the truck).
+   - After the level settles (the app counts down 10 minutes per tank), read
+     its **stock after** — **📷 Screenshot** reads each tank's stock before or
+     after, whichever it needs, from one picture.
+   - **Not now — keep in the truck** leaves a tank not started out; its
+     chambers stay in the truck for later.
+   The IndianOil automation blocks sales from a tank while it is decanted, so
+   nothing is sold in between: each tank is measured on its own window.
+5. **Result** — per tank, with its own times:
 
    ```
-   variation = (stock after − stock before) − (chambers' litres − litres sold)
+   variation = (stock after − stock before) − chambers' litres
    ```
 
    negative = the tank got **less** than the chambers held (short). It is **OK**
    within ±0.25 % of the load or ±25 L (whichever is more), **Watch** up to
    twice that, and **High** beyond. The value at the invoice price is shown too.
+   **📤 Share as picture** makes a PNG of the result (the truck, each tank's
+   before / after / gain / chambers / variation, and the ₹ value) to send on
+   WhatsApp or save.
 
 **Chambers in the wrong tank?** If one tank came out well over and another
 of the same product well under, the app works out which chambers most

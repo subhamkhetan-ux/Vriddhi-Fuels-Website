@@ -121,13 +121,13 @@ export function daysBetween(from, to) {
 
 // Rows for the CSV / Excel export of the log.
 export function exportRows(entries) {
-  const head = ['Date', 'Time', 'Truck', 'Invoice', 'Product', 'Tank', 'Chambers', 'Decanted (L)', 'Sold during (L)',
+  const head = ['Date', 'Time', 'Truck', 'Invoice', 'Product', 'Tank', 'Chambers', 'Decanted (L)',
     'Stock before (L)', 'Stock after (L)', 'Tank gain (L)', 'Variation (L)', 'Variation (%)', 'Status', 'Value (₹)'];
   const rows = entries.map((e) => {
     const t = new Date(Date.parse(e.at) + 330 * 60000).toISOString();
     return [
       `${e.day.slice(8, 10)}/${e.day.slice(5, 7)}/${e.day.slice(0, 4)}`, t.slice(11, 16), e.tt, e.invoiceNo, e.product,
-      e.tankNo ? `Tank ${e.tankNo}` : e.tank, e.chambers.map((c) => `C${c}`).join(' + '), e.litres, e.salesL,
+      e.tankNo ? `Tank ${e.tankNo}` : e.tank, e.chambers.map((c) => `C${c}`).join(' + '), e.litres,
       e.before, e.after, e.gain, e.variation, e.pct, { ok: 'OK', watch: 'Watch', high: 'High' }[e.band], e.value ?? '',
     ];
   });

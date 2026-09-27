@@ -44,7 +44,7 @@ function exportEntries(list, name, kind) {
     download(new Blob([`﻿${toCsv(rows)}`], { type: 'text/csv' }), `${name}.csv`);
   } else {
     import('./xlsx.js').then(({ buildXlsx }) => {
-      download(buildXlsx('Decanting', rows, [11, 7, 13, 13, 8, 8, 14, 12, 12, 14, 14, 12, 12, 12, 11, 11]), `${name}.xlsx`);
+      download(buildXlsx('Decanting', rows, [11, 7, 13, 13, 8, 8, 14, 12, 14, 14, 12, 12, 12, 11, 11]), `${name}.xlsx`);
     }).catch((err) => toast(`Couldn't make the file: ${err.message}`));
   }
 }
@@ -98,7 +98,7 @@ function logRow(e) {
   return `<button class="lrow" data-open="${esc(e.sessionId)}">
     <span class="tm">${fmtTime(e.at)}</span>
     <span class="mid"><b>${esc(e.tt)}</b> <span class="hint">${esc(e.invoiceNo)}</span>
-      <div>${productChip(e.product)} ${tankName(e.tank)} · C${compactNos(e.chambers)} · ${fmtL(e.litres)}${e.salesL ? ` · sold ${fmtL(e.salesL)}` : ''}</div></span>
+      <div>${productChip(e.product)} ${tankName(e.tank)} · C${compactNos(e.chambers)} · ${fmtL(e.litres)}</div></span>
     <span class="rt"><b>${fmtSigned(e.variation, ' L', 1)}</b><span class="hint">${fmtPct(e.pct)}</span><span class="rt-badge">${bandBadge(e.band, e.direction)}</span></span>
   </button>`;
 }
