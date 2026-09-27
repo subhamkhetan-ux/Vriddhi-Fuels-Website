@@ -4,7 +4,7 @@
 
 import {
   PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, invoiceStatus, istDate, layoutsText,
-  litresAtDip, normTT, ownTT, parseLayouts, productKey, round2, tankStage, usedChambers,
+  litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, round2, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
@@ -291,7 +291,8 @@ function tankTile(t, busy) {
   </button>`;
 }
 
-function invoiceCard(inv, st) {
+// ctx (the To decant list): {busy: busyTanks(), waiting: [{inv, prods}]} — adds the room check.
+function invoiceCard(inv, st, ctx = null) {
   const layout = layoutFor(inv);
   const used = usedChambers(state.sessions, inv.invoice_no);
   const prods = layout.lines.map((l) => productChip(l.key, `${fmtKL(l.litres)}${l.chambers.length ? ` · C${compactNos(l.chambers)}` : ''}`)).join('');
@@ -308,11 +309,74 @@ function invoiceCard(inv, st) {
     ${truckStrip(layout.chambers, { done: used })}
     <div class="hint" style="margin-top:6px">${dens ? `Density@15: ${esc(dens)}` : ''}</div>
     ${[...layout.problems, ...noTank.map((l) => `No tank here holds ${l.key} — it can't be decanted.`)].map((p) => `<div class="banner" style="margin:8px 0 0">${esc(p)}</div>`).join('')}
+    ${ctx && st !== 'active' ? roomCheck(inv, layout, used, ctx) : ''}
     <div class="inv-actions">
       ${st === 'active' ? '<button class="cta" data-resume>Continue decanting ▶</button>' : `<button class="cta" data-start>${st === 'partial' ? 'Decant the rest ▶' : 'Start decanting ▶'}</button>`}
       <button class="btn" data-menu aria-label="More">⋯</button>
     </div>
   </div>`;
+}
+
+// A truck waiting to be decanted: the room to make in its tanks first — the
+// Plan tab's sums for this load alone, on each tank's latest stock (keeping the
+// room margin) — and which chambers then go into which tank, as the decanting's
+// Plan step suggests. A truck with no chamber table is planned for any standard
+// layout of its size. Tanks being decanted from another truck aren't counted.
+function roomCheck(inv, layout, used, { busy, waiting }) {
+  const all = tanks();
+  const holds = (p) => all.some((t) => t.product === p);
+  const left = layout.chambers.filter((c) => c.product && c.litres > 0 && !used.has(c.no) && holds(c.product));
+  let indent = null;
+  if (left.length) {
+    indent = { kind: 'own', chambers: left.map((c) => ({ no: c.no, litres: c.litres, product: c.product })) };
+  } else if (!layout.chambers.length) {
+    const qty = {};
+    for (const l of layout.lines) if (holds(l.key)) qty[l.key] = round2((qty[l.key] || 0) + l.litres / 1000);
+    if (transportOptions(Object.values(qty).reduce((a, b) => a + b, 0), state.settings.transportTTs).size) indent = { kind: 'transport', qty };
+  }
+  if (!indent) return '';
+  const res = planIndents({
+    indents: [indent], tanks: all.filter((t) => !busy.has(t.id)), stock: state.tankState,
+    margin: state.settings.warnRoomL, table: state.settings.transportTTs,
+  });
+  const many = res.ways.length > 1;
+  const litresOf = (p) => (indent.kind === 'own' ? indent.chambers.filter((c) => c.product === p).reduce((a, c) => a + c.litres, 0) : Math.round((indent.qty[p] || 0) * 1000));
+  const products = Object.keys(PRODUCTS).filter((p) => litresOf(p) > 0);
+  const range = (a, b, f) => (Math.abs(a - b) < 0.5 ? f(a) : `${f(a)}–${f(b)}`);
+  const notes = [];
+  const counted = [];
+  const blocks = products.map((p) => {
+    const ts = all.filter((t) => t.product === p);
+    const taken = ts.filter((t) => busy.has(t.id));
+    const noStock = ts.filter((t) => !busy.has(t.id) && !res.tanks[t.id]);
+    if (taken.length) {
+      notes.push(`${taken.map((t) => tankName(t.id)).join(' and ')} ${taken.length > 1 ? 'are' : 'is'} being decanted from ${esc(busy.get(taken[0].id).tt_no || 'another truck')} — not counted till its stock after is read.`);
+    }
+    if (noStock.length) notes.push(`No stock for ${noStock.map((t) => tankName(t.id)).join(' and ')} yet — not counted.`);
+    const pr = res.products[p];
+    const head = `<div class="room-head">${productChip(p, fmtKL(litresOf(p)))}${!pr ? ''
+      : pr.sell > 0 ? `<span class="badge high"><i>↓</i>Dispense ${fmtL(pr.sell)} first</span>` : '<span class="badge ok"><i>✓</i>Room now</span>'}</div>`;
+    if (!pr) return head;
+    const rows = ts.filter((t) => res.tanks[t.id] && (res.tanks[t.id].incoming[1] > 0 || res.tanks[t.id].sell > 0)).map((t) => {
+      const r = res.tanks[t.id];
+      counted.push(t.id);
+      const nos = many ? [] : Object.entries(res.ways[0][0].split).filter(([, id]) => id === t.id).map(([no]) => Number(no));
+      const into = many ? `${range(r.incoming[0] / 1000, r.incoming[1] / 1000, (x) => `${round2(x)}`)} KL, by its layout`
+        : nos.length ? `C${compactNos(nos)} · ${fmtKL(r.incoming[1])}` : 'nothing goes in';
+      return `<div class="plan-tank"${r.sell > 0 ? '' : ' style="grid-template-columns:minmax(0,1fr)"'}>
+        <div><div class="pt-name">${tankName(t.id)} <span class="into">← ${into}</span></div>
+          <div class="pt-sub">Now <b>${fmtL(r.now)}</b> · room <b>${fmtL(r.room)}</b> → after <b>${range(r.after[0], r.after[1], fmtL)}</b> (${fmtDip(dipAtLitres(state.chart, r.after[1]))})</div></div>
+        ${r.sell > 0 ? `<div class="plan-sell need"><b>${fmtL(r.sell)}</b><span>to dispense</span></div>` : ''}
+      </div>`;
+    }).join('');
+    return head + rows;
+  }).join('');
+  if (many) notes.unshift(`No chamber table — planned to fit any ${transportOptions(round2(Object.values(indent.qty).reduce((a, b) => a + b, 0)), state.settings.transportTTs).size} KL layout.`);
+  const old = counted.filter((id) => isStale(state.tankState[id]));
+  if (old.length) notes.push(`⚠ ${old.map(tankName).join(' and ')}: stock read ${ago(state.tankState[old[0]].readingAt)} — update it (📷 above) for an exact figure.`);
+  const also = waiting.filter((w) => w.inv.invoice_no !== inv.invoice_no && products.some((p) => w.prods.has(p)));
+  if (also.length) notes.push(`For this truck alone — ${also.map((w) => esc(w.inv.tt_no || 'another truck')).join(', ')} ${also.length > 1 ? 'are' : 'is'} waiting too.`);
+  return `<div class="room">${blocks}${notes.map((n) => `<div class="hint" style="margin-top:6px">${n}</div>`).join('')}</div>`;
 }
 
 export function compactNos(nos) {
@@ -359,6 +423,9 @@ function renderHome(el) {
   // First days with the app: the agent back-fills recent invoices, some of
   // them decanted before the app was in use.
   const firstDay = state.sessions.length ? [] : recent.filter((x) => x.st === 'new' && invKey(x.inv) < startToday);
+  // the room check on each truck waiting (see roomCheck)
+  const waiting = recent.filter((x) => x.st !== 'active').map((x) => ({ inv: x.inv, prods: new Set(layoutFor(x.inv).lines.map((l) => l.key)) }));
+  const ctx = { busy, waiting };
   const doneToday = state.sessions.filter((s) => s.status === 'done' && istDate(s.data?.decantedAt || s.created_at) === today);
 
   el.innerHTML = `
@@ -369,7 +436,7 @@ function renderHome(el) {
       <button class="btn sm" data-addpdf title="Add an invoice from its PDF">⬆ PDF</button><button class="btn sm" data-addinv title="Type an invoice in">＋ Add</button></h2>
     ${firstDay.length ? `<div class="banner">${firstDay.length} of these invoice${firstDay.length === 1 ? ' is' : 's are'} from before today. If those tankers were already decanted before you started using the app,
       <button class="btn sm" data-hidebefore>hide ${firstDay.length === 1 ? 'it' : `all ${firstDay.length}`}</button></div>` : ''}
-    ${recent.length ? recent.map((x) => invoiceCard(x.inv, x.st)).join('') : `<div class="empty">No tanker waiting. New IndianOil invoices appear here on their own (the payments agent reads them from mail every ~20 min) — or add one from its PDF.</div>`}
+    ${recent.length ? recent.map((x) => invoiceCard(x.inv, x.st, ctx)).join('') : `<div class="empty">No tanker waiting. New IndianOil invoices appear here on their own (the payments agent reads them from mail every ~20 min) — or add one from its PDF.</div>`}
     ${older.length ? `<h2 style="cursor:pointer" data-older>${APP.showOlder ? '▾' : '▸'} Older, not decanted in the app <span class="count">${older.length}</span><span class="sp"></span>
         ${APP.showOlder ? '<button class="btn sm ghost" data-dismissold>Dismiss all</button>' : ''}</h2>
       ${APP.showOlder ? older.map((x) => invoiceCard(x.inv, x.st)).join('') : ''}` : ''}
