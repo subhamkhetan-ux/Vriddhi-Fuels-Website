@@ -176,7 +176,7 @@ function arrivedCard(all, arrived) {
     const inv = arrived.get(p.id);
     return `<div class="load-row">
       <div class="load-mid"><div><b>${p.kind === 'transport' ? 'Transport TT' : esc(p.tt_no)}</b> → <b>${esc(inv.tt_no || '')}</b> <span class="badge ok"><i>✓</i>Invoiced</span></div>
-        <div class="hint">Invoice ${esc(inv.invoice_no)} · ${esc(inv.invoice_date || '')} ${esc(inv.invoice_time || '')} — decant it from the Decant tab.</div></div>
+        <div class="hint">Invoice ${esc(inv.invoice_no)} · ${esc(inv.invoice_date || '')} ${esc(inv.invoice_time || '')} — its card on the Decant tab shows the room to make.</div></div>
       <div class="load-act"><button class="btn sm ghost" data-notthis="${esc(p.id)}" data-inv="${esc(inv.invoice_no)}">Not this one</button></div>
     </div>`;
   }).join('')}</div>`;

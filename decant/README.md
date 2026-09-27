@@ -112,6 +112,20 @@ change any chamber on the first step.
 
 ## Decanting a truck
 
+**Room check.** Each truck under *To decant* shows, for each product, whether
+its tanks have room for it now — on each tank's latest stock, keeping the
+150 L room margin — the Plan tab's sums for this truck alone:
+
+- **✓ Room now** — which chambers go into which tank, and each tank's stock
+  and dip after (what the Plan step will suggest), or
+- **Dispense X L first** — how much to dispense from each tank so every
+  chamber fits, the least in total, and which chambers then go where.
+
+A truck with no chamber table is planned for any standard layout of its size.
+A tank being decanted from another truck isn't counted until its stock after
+is read. An old stock reading, and another truck waiting with the same
+product, are pointed out.
+
 Tap **Start decanting** on the truck's card:
 
 1. **Truck** — the chambers and their products, and an optional **density
@@ -224,7 +238,8 @@ each tank so the loads I've placed an indent for fit?*
    (the closest in KL first). Only invoices that come in after the indent was
    added count, so a TT's previous trip never clears its next indent. It shows
    under **Arrived** — **Not this one** puts it back if the app picked the
-   wrong invoice — and leaves the list a day and a half later.
+   wrong invoice — and leaves the list a day and a half later. The truck's
+   card on the Decant tab then shows the room to make for it.
 4. **Dispense first** — per product and tank: the litres to **dispense**,
    which chambers go into which tank (for a transport TT, **each way it can
    come**), and the stock and dip after. All the chambers of a product (from
