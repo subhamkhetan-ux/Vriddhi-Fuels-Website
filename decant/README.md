@@ -42,7 +42,13 @@ works on one phone only and the agent skips it.
 
 - Each phone that used the app sends its copy — decantations, invoices, tank
   stock, settings, indents — to the new project the first time it opens with
-  the new config. Nothing is lost.
+  the new config. A row goes across only if the new project doesn't have it
+  yet or has an older version, so a phone that was closed for a while never
+  overwrites newer work from another phone; a phone that's offline then
+  keeps everything and tries again. Nothing is lost.
+- To avoid any "this phone only" gap, put the new project's URL and key in
+  `decant/config.js` **before** merging this change — then phones go
+  straight from the old project to the new one, still in sync.
 - The agent starts over in the new project, so it back-fills the recent
   invoices there too.
 - Then run
@@ -204,6 +210,13 @@ each tank so the loads I've placed an indent for fit?*
   the older months from the cloud (compact, via `dec_history`) when opened.
 - **Screenshots are never kept** — they're read on the phone and only the
   figures are saved.
+
+## Several phones at once
+
+Every phone opening `/decant/` uses the same project (from `decant/config.js`)
+and sees the others' work live: new invoices, stock readings, indents and the
+Plan's advice, a decantation in progress (its tanks show as busy, and a second
+phone is offered *Continue* rather than a second start).
 
 ## Offline
 
