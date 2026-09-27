@@ -143,6 +143,15 @@ CREDIT = {
     "gmail_query": "from:B2BPRD@indianoil.in has:attachment filename:pdf",
 }
 
+# ---- Tanker decanting (the /decant app) ------------------------------------
+# Every IOCL invoice again (all trucks), this time with the truck's chamber table
+# and which chambers each product was loaded into, stored in Supabase
+# dec_invoices for the decanting app. Same mailbox/sender as CREDIT.
+DECANT = {
+    "account_id": "bank2",                       # the HDFC mailbox (see ACCOUNTS)
+    "gmail_query": "from:B2BPRD@indianoil.in has:attachment filename:pdf",
+}
+
 # Telegram failure-alert secrets (reused from the IOCL monitor).
 TELEGRAM_TOKEN_ENV = "TELEGRAM_TOKEN"
 TELEGRAM_CHAT_ENV = "TELEGRAM_CHAT"
