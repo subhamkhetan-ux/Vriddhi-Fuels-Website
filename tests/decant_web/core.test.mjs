@@ -84,8 +84,39 @@ test('settings fill in defaults and tidy tank rows', () => {
   const s = settingsWith({ tolerancePct: 0.5, tanks: [{ id: 'T1', no: 1, product: 'XX', capacity: 'x' }] });
   assert.equal(s.tolerancePct, 0.5);
   assert.equal(s.warnRoomL, DEFAULT_SETTINGS.warnRoomL);
-  assert.deepEqual(s.tanks, [{ id: 'T1', no: 1, product: 'HSD', capacity: 20000 }]);
+  assert.deepEqual(s.tanks, [{ id: 'T1', no: 1, product: 'HSD', capacity: 20000, fillTo: 20500 }]);
   assert.deepEqual(settingsWith(null).tanks, DEFAULT_TANKS);
+  // tanks saved before the fill limit: a 20 KL tank fills to 20,500 L; others to their capacity
+  const old = settingsWith({ tanks: [{ id: 'T1', capacity: 20000 }, { id: 'T2', capacity: 15000 }, { id: 'T3', capacity: 20000, fillTo: 20300 }] });
+  assert.deepEqual(old.tanks.map((t) => t.fillTo), [20500, 15000, 20300]);
+});
+
+test('fill limit: our 20 KL tanks take up to 20,500 L', async () => {
+  const { fillLimit, planIndents, roomOf } = await import('../../decant/js/core.js');
+  const T2 = DEFAULT_TANKS[1];
+  assert.equal(fillLimit(T2), 20500);
+  assert.equal(fillLimit({ capacity: 15000 }), 15000);
+  // the automation's ullage is to 20,000 L; the room goes to 20,500 L
+  assert.equal(roomOf({ volume: 14973.71, ullage: 5026.29 }, T2), 5526.29);
+  assert.equal(roomOf({ volume: 20300, ullage: -300 }, T2), 200);
+  // 5,500 L into a tank at 15,000 L: 20,500 L, allowed (a tight fit)
+  const at15 = { T2: { volume: 15000, ullage: 5000, readingAt: new Date(NOW).toISOString() } };
+  const fits = checkPlan({ plan: [{ no: 1, product: 'HSD', litres: 5500, tank: 'T2' }], tanks: DEFAULT_TANKS, readings: at15, now: NOW });
+  assert.deepEqual(fits.blocking, []);
+  assert.equal(fits.perTank[0].after, 20500);
+  assert.equal(fits.perTank[0].level, 'tight');
+  // …but not past it
+  const over = checkPlan({ plan: [{ no: 1, product: 'HSD', litres: 5600, tank: 'T2' }], tanks: DEFAULT_TANKS, readings: at15, now: NOW });
+  assert.match(over.blocking[0], /Tank 2 has room for 5,500 L; 5,600 L is planned/);
+  // the chambers are suggested up to it too: 5 KL into a tank at 15,300 L
+  const layout = { chambers: [{ no: 1, litres: 5000, product: 'HSD' }] };
+  const one = { T2: { volume: 15300, ullage: 4700 } };
+  assert.equal(suggestPlan({ layout, tanks: DEFAULT_TANKS.filter((t) => t.id === 'T2'), readings: one })[0].tank, 'T2');
+  // and the Plan tab's dispensing counts to it: 22 KL of HSD into Tanks 2 and 3 at 15,000 L each
+  const plan = planIndents({ indents: [{ id: 'o', kind: 'own', chambers: [5, 5, 4, 4, 4].map((kl, i) => ({ no: i + 1, litres: kl * 1000, product: 'HSD' })) }],
+    tanks: DEFAULT_TANKS, stock: { T2: { volume: 15000 }, T3: { volume: 15000 } } });
+  assert.equal(plan.tanks.T2.room, 5500);
+  assert.equal(plan.products.HSD.sell, 11300);                      // 22,000 − 2 × (5,500 − 150)
 });
 
 test('chambers: the invoice\'s "Comp No(s)" decide', () => {
@@ -176,7 +207,7 @@ test('plan for a whole invoice, and its checks', () => {
   const t3 = chk.perTank.find((r) => r.tank === 'T3');
   assert.equal(t3.litres, 9000);
   assert.equal(t3.after, 18989.83);
-  assert.equal(t3.leftRoom, 1010.17);
+  assert.equal(t3.leftRoom, 1510.17);                                  // room to 20,500 L
   assert.ok(Math.abs(t3.beforeDip - 98.709) < 0.01);
   assert.ok(t3.afterDip > t3.beforeDip);
   // chambers already emptied are left out of the next plan
@@ -196,7 +227,7 @@ test('checks stop the wrong product, too much, no stock and a busy tank', () => 
   assert.equal(chk.blocking.length, 4);
   assert.match(chk.blocking[0], /Chamber 1 holds MS — it can't go into Tank 2/);
   assert.ok(chk.blocking.some((b) => /Tank 2 is already being decanted/.test(b)));
-  assert.ok(chk.blocking.some((b) => /Tank 2 has room for 5,026 L; 14,000 L is planned/.test(b)));
+  assert.ok(chk.blocking.some((b) => /Tank 2 has room for 5,526 L; 14,000 L is planned/.test(b)));
   assert.ok(chk.blocking.some((b) => /Add Tank 4's stock/.test(b)));
   const none = checkPlan({ plan: [{ no: 1, product: 'MS', litres: 5000, tank: null }], tanks: DEFAULT_TANKS, readings: READINGS });
   assert.match(none.blocking[0], /Pick at least one chamber/);
@@ -204,11 +235,11 @@ test('checks stop the wrong product, too much, no stock and a busy tank', () => 
 
 test('checks warn about a tight fit, water, an old reading and an offline probe', () => {
   const readings = { T2: { ...READINGS.T2, water: 12.5, status: 'OFFLINE', readingAt: '2026-09-26T09:00:00+05:30' } };
-  const chk = checkPlan({ plan: [{ no: 1, product: 'HSD', litres: 5000, tank: 'T2' }], tanks: DEFAULT_TANKS, readings, now: NOW });
+  const chk = checkPlan({ plan: [{ no: 1, product: 'HSD', litres: 5400, tank: 'T2' }], tanks: DEFAULT_TANKS, readings, now: NOW });
   assert.deepEqual(chk.blocking, []);
   assert.equal(chk.perTank[0].level, 'tight');
   assert.equal(chk.warnings.length, 4);
-  assert.match(chk.warnings[0], /nearly full \(26 L room left\)/);
+  assert.match(chk.warnings[0], /nearly full \(126 L room left\)/);
   assert.match(chk.warnings[1], /13 L of water/);
   assert.match(chk.warnings[2], /OFFLINE/);
   assert.match(chk.warnings[3], /3 h old/);
@@ -281,8 +312,12 @@ test('after decanting: chambers that went into the other tank are spotted', asyn
   assert.equal(routingHint(right, byNo), null);
   assert.equal(routingHint(rows.slice(0, 1), byNo), null);
   assert.deepEqual(guessRouting([{ no: 1, litres: 4000 }], [{ id: 'T2', gain: 3990 }]).assign, { 1: 'T2' });
+  // a chamber's litres not known: no guess (rather than a garbled one)
+  assert.equal(routingHint(rows, { 1: 5000 }), null);
 });
 
+// The dispensing sums below are pinned on tanks filled to 20,000 L.
+const T20 = DEFAULT_TANKS.map((t) => ({ ...t, fillTo: 20000 }));
 const OWN = (id, chambers, extra = {}) => ({ id, kind: 'own', tt_no: 'OD23U8210', chambers, created_at: '2026-09-27T04:30:00Z', ...extra });
 const TRANSPORT = (id, qty, extra = {}) => ({ id, kind: 'transport', qty, created_at: '2026-09-27T04:30:00Z', ...extra });
 
@@ -297,7 +332,7 @@ test('plan: the least to dispense so every indent fits (own TTs)', async () => {
     OWN('a', [{ no: 5, litres: 4000, product: 'HSD' }]),
     OWN('b', [{ no: 1, litres: 5000, product: 'MS' }, ...[2, 3, 4, 5].map((no) => ({ no, litres: no === 2 ? 5000 : 4000, product: 'HSD' }))]),
   ];
-  const r = planIndents({ indents, tanks: DEFAULT_TANKS, stock, margin: 150 });
+  const r = planIndents({ indents, tanks: T20, stock, margin: 150 });
   // all the HSD chambers split together: 9 KL to Tank 2, 12 KL to Tank 3 —
   // the least dispensing in total (21 KL less the room), and the most even
   assert.equal(r.ways.length, 1);
@@ -313,11 +348,11 @@ test('plan: the least to dispense so every indent fits (own TTs)', async () => {
   assert.deepEqual(r.missing, []);
   // whole chambers only: 21 KL into two tanks of 10,850 L room each splits 9 + 12 KL
   const tight = { ...stock, T2: { volume: 9000, ullage: 11000 }, T3: { volume: 9000, ullage: 11000 } };
-  assert.equal(planIndents({ indents, tanks: DEFAULT_TANKS, stock: tight }).products.HSD.sell, 1150);
+  assert.equal(planIndents({ indents, tanks: T20, stock: tight }).products.HSD.sell, 1150);
   const roomy = { ...stock, T2: { volume: 7000, ullage: 13000 }, T3: { volume: 7000, ullage: 13000 } };
-  assert.equal(planIndents({ indents, tanks: DEFAULT_TANKS, stock: roomy }).products.HSD.sell, 0);
+  assert.equal(planIndents({ indents, tanks: T20, stock: roomy }).products.HSD.sell, 0);
   // no stock for a tank: said so, and its product can't be planned
-  const partial = planIndents({ indents, tanks: DEFAULT_TANKS, stock: { T1: stock.T1 }, margin: 150 });
+  const partial = planIndents({ indents, tanks: T20, stock: { T1: stock.T1 }, margin: 150 });
   assert.deepEqual(partial.missing, ['T2', 'T3', 'T4']);
   assert.deepEqual(partial.ways[0][1].noTank, [2, 3, 4, 5]);
 });
@@ -325,7 +360,7 @@ test('plan: the least to dispense so every indent fits (own TTs)', async () => {
 test('plan: a transport TT fits whichever standard layout comes', async () => {
   const { planIndents, transportOptions } = await import('../../decant/js/core.js');
   const stock = { T1: { volume: 12000, ullage: 8000 }, T2: { volume: 14973.71, ullage: 5026.29 }, T3: { volume: 15850, ullage: 4150 }, T4: { volume: 9000, ullage: 11000 } };
-  const r = planIndents({ indents: [TRANSPORT('t', { HSD: 22 })], tanks: DEFAULT_TANKS, stock });
+  const r = planIndents({ indents: [TRANSPORT('t', { HSD: 22 })], tanks: T20, stock });
   // 22 KL comes as 4.5×4 + 4 or as 5+5+4+4+4: 13,123.71 L to dispense covers both —
   // no more than the room shortfall itself (22,000 − 8,876.29), split 8,123.71 / 5,000
   assert.equal(r.ways.length, 2);
@@ -340,17 +375,17 @@ test('plan: a transport TT fits whichever standard layout comes', async () => {
   }
   assert.ok(r.tanks.T3.spare >= 150 && r.tanks.T2.spare >= 150);
   // together with our own TT's next load: 2 ways × 1
-  const both = planIndents({ indents: [OWN('o', [5, 5, 4, 4, 4].map((kl, i) => ({ no: i + 1, litres: kl * 1000, product: 'HSD' }))), TRANSPORT('t', { HSD: 22 })], tanks: DEFAULT_TANKS, stock });
+  const both = planIndents({ indents: [OWN('o', [5, 5, 4, 4, 4].map((kl, i) => ({ no: i + 1, litres: kl * 1000, product: 'HSD' }))), TRANSPORT('t', { HSD: 22 })], tanks: T20, stock });
   assert.equal(both.ways.length, 2);
   assert.deepEqual(both.products.HSD, { incoming: 44000, sell: 35123.71 });
   // MS and HSD on a transport TT: planned for the most each can bring in whole chambers
-  const mixed = planIndents({ indents: [TRANSPORT('m', { MS: 5, HSD: 17 })], tanks: DEFAULT_TANKS, stock });
+  const mixed = planIndents({ indents: [TRANSPORT('m', { MS: 5, HSD: 17 })], tanks: T20, stock });
   assert.deepEqual(mixed.ways.map((w) => w[0].left), [0, 0]);
   assert.equal(mixed.products.MS.incoming, 5000);
   assert.equal(mixed.products.HSD.incoming, 17500);                 // 4.5×4 + 4: HSD gets C2–5
   assert.deepEqual(mixed.tanks.T1.incoming, [4500, 5000]);
   // a size with no standard layout: said so, nothing assumed
-  const odd = planIndents({ indents: [TRANSPORT('x', { HSD: 30 })], tanks: DEFAULT_TANKS, stock });
+  const odd = planIndents({ indents: [TRANSPORT('x', { HSD: 30 })], tanks: T20, stock });
   assert.equal(odd.ways[0][0].unknown, true);
   assert.equal(odd.products.HSD, undefined);
 });

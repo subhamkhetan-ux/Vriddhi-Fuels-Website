@@ -157,16 +157,22 @@ export function productChip(key, extra = '') {
   return `<span class="pchip" style="--pc:${PRODUCT_COLOR[key] || '#898781'}"><i></i>${esc(productShort(key))}${extra ? ` <b>${extra}</b>` : ''}</span>`;
 }
 
+// How a result reads. Short: OK / Watch / High short by its size. A tank that
+// got more than the chambers held is good for us: green, whatever its size.
+export function bandView(band, direction) {
+  if (direction === 'excess') return { cls: 'ok', icon: band === 'ok' ? '✓' : '▲', label: { ok: 'OK', watch: 'Excess', high: 'High excess' }[band] };
+  return { cls: band, icon: { ok: '✓', watch: '!', high: '✕' }[band], label: { ok: 'OK', watch: 'Watch', high: 'High short' }[band] };
+}
+
 export function bandBadge(band, direction) {
   if (!band) return '';
-  const label = { ok: 'OK', watch: 'Watch', high: direction === 'excess' ? 'High excess' : 'High short' }[band];
-  const icon = { ok: '✓', watch: '!', high: '✕' }[band];
-  return `<span class="badge ${band}"><i aria-hidden="true">${icon}</i>${label}</span>`;
+  const { cls, icon, label } = bandView(band, direction);
+  return `<span class="badge ${cls}"><i aria-hidden="true">${icon}</i>${label}</span>`;
 }
 
 export function confBadge(conf, checks) {
   const tips = [];
-  if (checks?.sum?.ok) tips.push('volume + room = capacity');
+  if (checks?.sum?.ok) tips.push('volume + ullage = capacity');
   if (checks?.chart?.ok) tips.push('matches the dip chart');
   if (checks?.corrected?.length) tips.push(`fixed a misread ${checks.corrected.join(' & ')}`);
   const label = { high: 'Checked', medium: 'Fixed & checked', low: 'Please check' }[conf] || '';
@@ -177,7 +183,8 @@ export function confBadge(conf, checks) {
 // The automation's tank drawing: a capsule filled to the stock level, with an
 // optional brighter layer for what's about to go in.
 let gaugeSeq = 0;
-export function tankGauge({ product, volume, capacity = 20000, incoming = 0, label = '' }) {
+// capacity: 100 %; limit: how full it may be filled (the rim turns red past it).
+export function tankGauge({ product, volume, capacity = 20000, limit = null, incoming = 0, label = '' }) {
   const clip = `gc${++gaugeSeq}`;
   const c = PRODUCT_COLOR[product] || '#898781';
   const W = 120;
@@ -187,8 +194,8 @@ export function tankGauge({ product, volume, capacity = 20000, incoming = 0, lab
   const innerH = H - 8;
   const yFill = 4 + innerH * (1 - f);
   const yInc = 4 + innerH * (1 - f - g);
-  const pct = Number.isFinite(volume) ? Math.round(f * 100) : null;
-  const over = incoming && (volume || 0) + incoming > capacity;
+  const pct = Number.isFinite(volume) ? Math.max(0, Math.round((volume / capacity) * 100)) : null;
+  const over = incoming && (volume || 0) + incoming > (limit || capacity);
   return `<svg class="gauge" viewBox="0 0 ${W} ${H + 6}" role="img" aria-label="${esc(label || `${pct ?? '—'}% full`)}">
     <defs><clipPath id="${clip}"><rect x="4" y="4" width="${W - 8}" height="${innerH}" rx="${innerH / 2}"/></clipPath></defs>
     <g clip-path="url(#${clip})">

@@ -204,3 +204,10 @@ test('purchases: decanted + outside the app + in transit', async () => {
   assert.equal(dismissReason({ dismissed: true, note: 'Decanted before the app' }), 'outside');
   assert.equal(dismissReason({ dismissed: false }), null);
 });
+
+test('chart axis always reaches the biggest value', async () => {
+  const { niceTicks } = await import('../../decant/js/charts.js');
+  assert.deepEqual(niceTicks(-50, 165).ticks, [-100, 0, 100, 200]);    // a +165 L day no longer runs past a 100 top
+  assert.deepEqual(niceTicks(-117, 0).ticks, [-150, -100, -50, 0]);
+  assert.deepEqual(niceTicks(-40, 100).ticks, [-50, 0, 50, 100]);      // an exact top stays tight
+});

@@ -110,6 +110,16 @@ change any chamber on the first step.
   truck step offers the layouts of the truck's size that can carry the
   invoice's products in whole chambers — tap the one it is.
 
+## How full a tank may be filled
+
+Our 20 KL IndianOil tanks hold about 21,000 L and are filled up to
+**20,500 L**. The automation's ullage is measured to 20,000 L, so the app
+counts a tank's **room** as *20,500 L − stock* instead — 500 L more than the
+ullage on the screen — everywhere: the tank tiles, the Plan step (which never
+plans past 20,500 L), the room check on each truck and the Plan tab. Stock
+readings up to that (and beyond, as read) are taken as they are. The limit is
+per tank under *Settings → Tanks → Fill up to*.
+
 ## Decanting a truck
 
 **Room check.** Each truck under *To decant* shows, for each product, whether
@@ -141,7 +151,7 @@ Tap **Start decanting** on the truck's card:
    It starts with a suggestion: as much as fits, the tank with the most room
    taking the first chambers, and never leaving a tank with less than 150 L of
    room unless nothing else fits. The plan **only allows the same product**,
-   never more than the tank's **ullage**, and shows every tank's stock and dip
+   never more than the tank's **room** (up to 20,500 L), and shows every tank's stock and dip
    after decanting. A tank already being decanted from another truck can't be
    used. Chambers that don't fit **stay in the truck** — the invoice stays on
    the list as *Part decanted* for later.
@@ -172,7 +182,9 @@ Tap **Start decanting** on the truck's card:
 
    negative = the tank got **less** than the chambers held (short). It is **OK**
    within ±0.25 % of the load or ±25 L (whichever is more), **Watch** up to
-   twice that, and **High** beyond. The value at the invoice price is shown too.
+   twice that, and **High** beyond. Positive (**excess** — the tank got more)
+   is good for us and shows in **green** everywhere, still marked by its size
+   (▲ *Excess*, ▲ *High excess*). The value at the invoice price is shown too.
    **📤 Share as picture** makes a PNG of the result (the truck, each tank's
    before / after / gain / chambers / variation, and the ₹ value) to send on
    WhatsApp or save.
@@ -298,7 +310,8 @@ back, and other phones see them live.
 
 ## Settings (⚙)
 
-Tank products and capacities, the variation tolerance, the room warning, when
+Tank products, capacities and how full each may be filled (20,500 L for our
+20 KL tanks), the variation tolerance, the room warning, when
 a reading counts as old, the settling wait, the density limit, how many days
 of undecanted invoices to list, our delivery tankers to leave out on the Plan
 tab (OD15AF5510 by default), the automation's date format (MM/DD/YYYY by

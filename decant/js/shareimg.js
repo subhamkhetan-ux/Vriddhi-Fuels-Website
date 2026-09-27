@@ -8,7 +8,7 @@ const PAD = 48;
 const C = {
   bg: '#0f0c0b', card: 'rgba(255,255,255,0.06)', line: 'rgba(255,255,255,0.14)', soft: 'rgba(255,255,255,0.08)',
   ink: '#F5F0EB', muted: '#B4ABA2', faint: '#8a8178',
-  short: '#ff9a90', excess: '#b7afff',
+  short: '#ff9a90', excess: '#2FD08A',          // a tank that got more is good for us: green
 };
 const BAND = { ok: ['#2FD08A', 'rgba(47,208,138,0.18)'], watch: ['#FFB23E', 'rgba(255,178,62,0.18)'], high: ['#FF6B5E', 'rgba(255,107,94,0.2)'] };
 const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -68,7 +68,7 @@ function card(ctx, y, h) {
 }
 
 // m: {title, sub, when, total, variation, direction, summary,
-//     tanks: [{name, product, color, band, bandLabel, direction, variation, pctLine, meta, rows: [[label, litres, extra, bold]]}],
+//     tanks: [{name, product, color, band, bandLabel, direction, variation, pctLine, meta, rows: [[label, litres, extra, bold, direction]]}],
 //     notes, footer, made}
 export async function resultImage(m) {
   try { await Promise.all(['800 64px Sora', '700 34px Sora'].map((f) => document.fonts.load(f))); } catch { /* system fonts */ }
@@ -126,12 +126,13 @@ export async function resultImage(m) {
     text(ctx, t.variation, x, y + 186, { font: `800 60px ${DISPLAY}`, color: varColor(t.direction) });
     text(ctx, t.pctLine, right, y + 180, { font: `500 26px ${SANS}`, color: C.muted, align: 'right' });
     let ry = y + 262;
-    for (const [label, litres, extra, bold] of t.rows) {
+    for (const [label, litres, extra, bold, dir] of t.rows) {
+      const good = dir === 'excess';                                   // more than the chambers held: green
       ctx.fillStyle = C.soft;
       ctx.fillRect(x, ry - 40, right - x, 2);
       text(ctx, label, x, ry, { font: `${bold ? 700 : 500} 28px ${SANS}`, color: bold ? C.ink : C.muted });
-      text(ctx, litres, right - 210, ry, { font: `${bold ? 800 : 600} 30px ${SANS}`, align: 'right' });
-      if (extra) text(ctx, extra, right, ry, { font: `500 26px ${SANS}`, color: C.faint, align: 'right' });
+      text(ctx, litres, right - 210, ry, { font: `${bold ? 800 : 600} 30px ${SANS}`, color: good ? C.excess : C.ink, align: 'right' });
+      if (extra) text(ctx, extra, right, ry, { font: `500 26px ${SANS}`, color: good ? C.excess : C.faint, align: 'right' });
       ry += 56;
     }
     y += h + 24;

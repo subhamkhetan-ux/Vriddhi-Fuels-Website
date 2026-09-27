@@ -10,8 +10,8 @@
 //   4. Our delivery tankers — how much diesel they can take (Loading app).
 
 import {
-  PRODUCTS, dipAtLitres, indentKL, loadChambers, matchIndents, normTT, ownTT, planIndents, round2, smallestTransport, tankerSpace,
-  transportOptions,
+  PRODUCTS, dipAtLitres, indentKL, loadChambers, matchIndents, normTT, ownTT, planIndents, roomOf, round2, smallestTransport,
+  tankerSpace, transportOptions,
 } from './core.js';
 import { newId, saveConfig, saveTankReading, state } from './store.js';
 import { initTankers, onTankers, refreshTankers, retryTankers, tankers, tankersSignIn, tankersSignOut } from './tankers.js';
@@ -114,7 +114,7 @@ function stockCard() {
       if (!editing) {
         return `<div class="st-row">${name}
           <div class="st-v"><b>${r ? fmtL(r.volume) : '—'}</b><span>${r ? fmtDip(dip) : 'stock'}</span></div>
-          <div class="st-v"><b>${r ? fmtL(r.ullage) : '—'}</b><span>room</span></div></div>`;
+          <div class="st-v"><b>${r ? fmtL(roomOf(r, t)) : '—'}</b><span>room</span></div></div>`;
       }
       const d = typed[t.id];
       return `<div class="st-row edit">${name}

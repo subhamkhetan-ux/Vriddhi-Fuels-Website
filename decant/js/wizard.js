@@ -9,12 +9,12 @@
 //   5 Result  — variation per tank; shared as a picture
 
 import {
-  PRODUCTS, checkPlan, densityCheck, dipAtLitres, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan, suggestPlan,
-  tankResult, tankStage, transportOptions, usedChambers,
+  PRODUCTS, checkPlan, densityCheck, dipAtLitres, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
+  suggestPlan, tankResult, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import {
-  PRODUCT_COLOR, ago, ask, bandBadge, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
+  PRODUCT_COLOR, ago, ask, bandBadge, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
 import {
@@ -300,7 +300,7 @@ function readingInner(t, r, phase) {
   return `${r ? `<div class="kv">
         <div><div class="k">Stock</div><div class="v big">${fmtL(r.volume, 2)}</div></div>
         <div><div class="k">Dip</div><div class="v big">${fmtDip(r.dip)}</div></div>
-        <div><div class="k">Room</div><div class="v">${fmtL(r.ullage, 2)}</div></div>
+        <div><div class="k">Room</div><div class="v">${fmtL(roomOf(r, t), 2)}</div></div>
         <div><div class="k">Water</div><div class="v">${r.water != null ? fmtL(r.water, 2) : '—'}</div></div>
         <div><div class="k">Temp</div><div class="v">${r.temp ?? '—'}${r.temp != null ? ' °C' : ''}</div></div>
         <div><div class="k">Density (tc)</div><div class="v">${r.densityTc ?? '—'}</div></div>
@@ -369,7 +369,7 @@ function planTankRow(s, t, rows, chk, busy) {
   const mine = rows.filter((x) => x.tank === t.id);
   const litres = mine.reduce((a, x) => a + x.litres, 0);
   const info = chk.perTank.find((x) => x.tank === t.id);
-  const room = r ? (Number.isFinite(r.ullage) ? r.ullage : t.capacity - r.volume) : null;
+  const room = r ? roomOf(r, t) : null;
   const lvl = info?.level || '';
   const disabled = busy.has(t.id) || !r;
   return `<div class="plan-tank lvl-${lvl}">
@@ -377,7 +377,7 @@ function planTankRow(s, t, rows, chk, busy) {
       <div class="pt-name">Tank ${t.no} ${mine.length ? `<span class="hint">← C${compactNos(mine.map((x) => x.no))}</span>` : ''}</div>
       <div class="pt-sub">${busy.has(t.id) ? 'Being decanted from another truck' : !r ? 'No stock reading — add it in step 2' : `Room <b>${fmtL(room)}</b> · now <b>${fmtL(r.volume)}</b> (${fmtDip(r.dip)})`}
         ${info?.after ? `<br>After: <b>${fmtL(info.after)}</b> (${fmtDip(info.afterDip)}) · room left <b>${fmtL(info.leftRoom)}</b>` : ''}</div>
-      ${r ? tankGauge({ product: t.product, volume: r.volume, capacity: t.capacity, incoming: litres, label: `Tank ${t.no} plan` }) : ''}
+      ${r ? tankGauge({ product: t.product, volume: r.volume, capacity: t.capacity, limit: fillLimit(t), incoming: litres, label: `Tank ${t.no} plan` }) : ''}
     </div>
     <div class="pt-in"><input type="number" inputmode="decimal" step="0.5" min="0" data-req="${t.id}" data-prod="${t.product}" value="${litres ? litres / 1000 : ''}" placeholder="0" ${disabled ? 'disabled' : ''} aria-label="KL into Tank ${t.no}"><span>KL</span></div>
   </div>`;
@@ -445,7 +445,7 @@ function stageCard(s, t) {
         <tr><td>Before (${fmtTime(t.before.readingAt)})</td><td>${fmtL(t.before.volume, 2)}</td><td>${fmtDip(dipOf(t.before))}</td></tr>
         <tr><td>+ Chambers ${compactNos(t.chambers)}</td><td>${fmtL(t.litres)}</td><td></td></tr>
         <tr class="tot"><td>Should read</td><td>${fmtL(expect, 2)}</td><td>${fmtDip(dipAtLitres(state.chart, expect))}</td></tr>
-        ${res ? `<tr class="tot"><td>Variation</td><td>${fmtSigned(res.variation, ' L', 2)}</td><td>${bandBadge(res.band, res.direction)}</td></tr>` : ''}
+        ${res ? `<tr class="tot"><td>Variation</td><td${res.variation > 0 ? ' class="pos"' : ''}>${fmtSigned(res.variation, ' L', 2)}</td><td>${bandBadge(res.band, res.direction)}</td></tr>` : ''}
       </tbody></table>
       ${warn.length ? `<ul class="msgs">${warn.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`).join('')}</ul>` : ''}
     </div>`;
@@ -475,7 +475,10 @@ function routingCards(s) {
     const h = routingHint(rows, byNo, state.settings);
     if (!h) return '';
     const now = rows.map((r) => `${tankName(r.tank)} ${fmtSigned(r.after.volume - r.before.volume + (Number(r.salesL) || 0) - r.litres, ' L')}`).join(', ');
-    const then = rows.map((r) => `C${compactNos(Object.keys(h.assign).filter((no) => h.assign[no] === r.tank).map(Number))} → ${tankName(r.tank)}`).join(' and ');
+    const then = rows.map((r) => {
+      const nos = Object.keys(h.assign).filter((no) => h.assign[no] === r.tank).map(Number);
+      return `${nos.length ? `C${compactNos(nos)}` : 'nothing'} → ${tankName(r.tank)}`;
+    }).join(' and ');
     return `<div class="card warn">
       <div class="sect-title">⚠ Did the chambers go somewhere else?</div>
       <div class="hint">As planned, the ${productShort(p)} tanks are off by ${esc(now)}. If <b>${esc(then)}</b>, they'd be off by only ${fmtL(h.missThen)} in all.</div>
@@ -511,7 +514,7 @@ function stepResult(s) {
         <tr><td>Tank gained</td><td>${r ? fmtL(r.gain, 2) : '—'}</td><td></td></tr>
         <tr><td>Chambers ${compactNos(t.chambers)} (invoice)</td><td>${fmtL(t.litres)}</td><td></td></tr>
         ${t.salesL ? `<tr><td>Sold while decanting (older record)</td><td>${fmtL(t.salesL)}</td><td></td></tr>` : ''}
-        <tr class="tot"><td>Variation</td><td>${r ? fmtSigned(r.variation, ' L', 2) : '—'}</td><td>${r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : ''}</td></tr>
+        <tr class="tot"><td>Variation</td><td${r?.variation > 0 ? ' class="pos"' : ''}>${r ? fmtSigned(r.variation, ' L', 2) : '—'}</td><td${r?.variation > 0 ? ' class="pos"' : ''}>${r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : ''}</td></tr>
       </tbody></table>
     </div>`).join('')}
     ${routingCards(s)}
@@ -743,7 +746,7 @@ function replanProduct(s, prod, requests, prefer) {
   const done = new Set(s.data.done);
   const chambers = s.data.chambers.filter((c) => c.product === prod && c.litres > 0 && !done.has(c.no));
   const ts = tanks().filter((t) => t.product === prod && !busy.has(t.id) && s.data.before[t.id])
-    .map((t) => ({ id: t.id, room: Number.isFinite(s.data.before[t.id].ullage) ? s.data.before[t.id].ullage : t.capacity - s.data.before[t.id].volume }));
+    .map((t) => ({ id: t.id, room: roomOf(s.data.before[t.id], t) }));
   const { assign, perTank } = solvePlan({ chambers, tanks: ts, requests, prefer, warnRoomL: state.settings.warnRoomL });
   for (const p of s.data.plan) if (p.product === prod) p.tank = assign[p.no] ?? null;
   const t = ts.find((x) => x.id === prefer);
@@ -1019,8 +1022,8 @@ function resultModel(s) {
       name: tankName(t.tank),
       product: productShort(t.product),
       color: PRODUCT_COLOR[t.product] || '#898781',
-      band: r?.band || null,
-      bandLabel: r ? { ok: '✓ OK', watch: '! Watch', high: '! High' }[r.band] : '',
+      band: r ? bandView(r.band, r.direction).cls : null,
+      bandLabel: r ? `${bandView(r.band, r.direction).icon} ${bandView(r.band, r.direction).label}` : '',
       direction: r?.direction || 'exact',
       variation: r ? fmtSigned(r.variation, ' L', 2) : '—',
       pctLine: r ? `${fmtPct(r.pct)} · OK within ±${fmtL(r.tol)}` : '',
@@ -1031,7 +1034,7 @@ function resultModel(s) {
         ['Tank gained', r ? fmtL(r.gain, 2) : '—', ''],
         [`Chambers ${compactNos(t.chambers)} (invoice)`, fmtL(t.litres), ''],
         ...(t.salesL ? [['Sold while decanting', fmtL(t.salesL), '']] : []),
-        ['Variation', r ? fmtSigned(r.variation, ' L', 2) : '—', r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : '', true],
+        ['Variation', r ? fmtSigned(r.variation, ' L', 2) : '—', r && d.prices?.[t.product] ? fmtMoney(r.variation * d.prices[t.product]) : '', true, r?.direction],
       ],
     })),
     notes: d.notes || '',

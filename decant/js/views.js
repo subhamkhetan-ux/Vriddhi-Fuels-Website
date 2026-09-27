@@ -99,7 +99,7 @@ function logRow(e) {
     <span class="tm">${fmtTime(e.at)}</span>
     <span class="mid"><b>${esc(e.tt)}</b> <span class="hint">${esc(e.invoiceNo)}</span>
       <div>${productChip(e.product)} ${tankName(e.tank)} · C${compactNos(e.chambers)} · ${fmtL(e.litres)}</div></span>
-    <span class="rt"><b>${fmtSigned(e.variation, ' L', 1)}</b><span class="hint">${fmtPct(e.pct)}</span><span class="rt-badge">${bandBadge(e.band, e.direction)}</span></span>
+    <span class="rt"><b${e.variation > 0 ? ' class="pos"' : ''}>${fmtSigned(e.variation, ' L', 1)}</b><span class="hint">${fmtPct(e.pct)}</span><span class="rt-badge">${bandBadge(e.band, e.direction)}</span></span>
   </button>`;
 }
 
@@ -193,7 +193,7 @@ export function renderReports(el) {
     ${list.length ? `
     <div class="kpis">
       <div class="kpi"><div class="k">Decanted</div><div class="v">${fmtKL(sum.litres)}</div><div class="s">${sum.trips} decantation${sum.trips === 1 ? '' : 's'} · ${sum.count} tank fill${sum.count === 1 ? '' : 's'}</div></div>
-      <div class="kpi"><div class="k">Net variation</div><div class="v">${fmtSigned(sum.variation, ' L')}</div><div class="s">${fmtPct(sum.pct)} of decanted</div></div>
+      <div class="kpi"><div class="k">Net variation</div><div class="v${sum.variation > 0 ? ' pos' : ''}">${fmtSigned(sum.variation, ' L')}</div><div class="s">${fmtPct(sum.pct)} of decanted</div></div>
       <div class="kpi"><div class="k">Short / excess</div><div class="v">${fmtNum(-sum.short)} / ${fmtNum(sum.excess)} L</div><div class="s">tank got less / more</div></div>
       <div class="kpi"><div class="k">Outside tolerance</div><div class="v">${sum.flagged} of ${sum.count}</div><div class="s">±${tolPct}% or ±${state.settings.toleranceMinL} L</div></div>
       <div class="kpi"><div class="k">At invoice price</div><div class="v">${fmtMoney(sum.value)}</div><div class="s">net value of the variation</div></div>

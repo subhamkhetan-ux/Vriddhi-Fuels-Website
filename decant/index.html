@@ -35,7 +35,7 @@
   --p-hsd:#3987e5; --p-ms:#d95926; --p-xg:#199e70;
   /* charts */
   --viz-grid:#2c2c2a; --viz-base:#56524d; --viz-tick:#9a938b;
-  --viz-short:#e66767; --viz-excess:#9085e9;
+  --viz-short:#e66767; --viz-excess:#22a06b;   /* excess = good for us: green (checked for colour-blind separation from the red, with the up/down position as the second cue) */
 }
 *{box-sizing:border-box}
 html{overflow-x:clip}
@@ -244,7 +244,8 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .result{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center}
 .result .var{font-family:var(--display);font-size:30px;font-weight:800;line-height:1.1}
 .result .var.short{color:#ff9a90}
-.result .var.excess{color:#b7afff}
+.result .var.excess{color:var(--good)}
+.pos,.cmp tr.tot td.pos{color:var(--good)}
 .result .var.exact{color:var(--ink)}
 .cmp{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
 .cmp td,.cmp th{padding:6px 4px;border-top:1px solid var(--glass-line-soft);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
