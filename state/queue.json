@@ -3090,7 +3090,9 @@
         "outlier": false
       },
       "queued_at": "2026-09-27T11:15:21.115445+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-09-28T03:00:21.178412+00:00"
     },
     {
       "entry_id": "2bd351079dde5703",
@@ -3111,7 +3113,9 @@
         "outlier": false
       },
       "queued_at": "2026-09-28T02:15:22.022294+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-09-28T03:00:21.178412+00:00"
     }
   ]
 }
