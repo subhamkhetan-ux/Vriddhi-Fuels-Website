@@ -4,7 +4,7 @@
 
 import { PRODUCTS, istDate, pctOf, usedChambers } from './core.js';
 import {
-  PERIODS, byDay, byMonth, byProduct, byTank, byVehicle, daysBetween, decantedByProduct, entriesFrom, exportRows,
+  PERIODS, byDay, byInvoice, byMonth, byProduct, byTank, byVehicle, daysBetween, decantedByProduct, entriesFrom, exportRows,
   filterEntries, localFrom, monthsBetween, oldestKept, periodRange, purchaseSummary, summarize, toCsv, trend, withOlder,
 } from './report.js';
 import { cloudHistory, loadHistory, state } from './store.js';
@@ -87,23 +87,36 @@ export function renderLog(el) {
     </div>
     ${days.length ? days.map((d) => `
       <div class="day-h"><span>${fmtIsoDay(d.key, true)}</span><span>${d.trips} decant${d.trips === 1 ? '' : 's'} · ${fmtKL(d.litres)} · ${fmtSigned(d.variation, ' L')}</span></div>
-      ${d.entries.map(logRow).join('')}`).join('')
+      ${byInvoice(d.entries).map(logCard).join('')}`).join('')
     : '<div class="empty">Nothing in this period. Older months (this financial year and the last) are in Reports.</div>'}
     ${cancelled.length ? `<h2 style="cursor:pointer" data-cancelled>${F.log.showCancelled ? '▾' : '▸'} Cancelled <span class="count">${cancelled.length}</span></h2>
       ${F.log.showCancelled ? cancelled.map((s) => `<button class="lrow" data-open="${esc(s.id)}"><span class="tm">${fmtIsoDay(istDate(s.created_at))}</span>
         <span class="mid"><b>${esc(s.tt_no || '')}</b><div>${esc(s.data?.cancelReason || '')}</div></span><span class="rt"></span></button>`).join('') : ''}` : ''}`;
 }
 
-function logRow(e) {
-  return `<button class="lrow" data-open="${esc(e.sessionId)}">
-    <span class="tm">${fmtTime(e.at)}</span>
-    <span class="mid"><b>${esc(e.tt)}</b> <span class="hint">${esc(e.invoiceNo)}</span>${e.beforeFrom?.proof === false || e.afterFrom?.proof === false ? ' <span class="np">✎ typed stock, no proof</span>' : ''}
-      <div>${productChip(e.product)} ${tankName(e.tank)} · C${compactNos(e.chambers)} · ${fmtL(e.litres)}</div></span>
-    <span class="rt"><b${e.variation > 0 ? ' class="pos"' : ''}>${fmtSigned(e.variation, ' L', 1)}</b><span class="hint">${fmtPct(e.pct)}</span><span class="rt-badge">${bandBadge(e.band, e.direction)}</span></span>
-  </button>`;
+// One card per invoice: the truck, and a line per tank it filled. The card
+// opens the decantation; an invoice decanted in more than one go opens each
+// go from its own lines.
+function logCard(g) {
+  const many = g.sessions.length > 1;
+  const open = (id) => ` data-open="${esc(id)}" role="button" tabindex="0"`;
+  const lines = g.entries.map((e) => `<div class="lc-line"${many ? open(e.sessionId) : ''}>
+      <div class="mid">${many ? `<span class="tm">${fmtTime(e.at)}</span> ` : ''}${productChip(e.product)} ${tankName(e.tank)} · C${compactNos(e.chambers)} · ${fmtL(e.litres)}${e.beforeFrom?.proof === false || e.afterFrom?.proof === false ? ' <span class="np">✎ typed stock, no proof</span>' : ''}</div>
+      <span class="rt"><b${e.variation > 0 ? ' class="pos"' : ''}>${fmtSigned(e.variation, ' L', 1)}</b><span class="hint">${fmtPct(e.pct)}</span><span class="rt-badge">${bandBadge(e.band, e.direction)}</span></span>
+    </div>`).join('');
+  return `<div class="lrow lcard"${many ? '' : open(g.sessions[0])}>
+    <div class="lc-head"><span class="tm">${fmtTime(g.at)}</span>
+      <span class="mid"><b>${esc(g.tt)}</b> <span class="hint">${esc(g.invoiceNo)}</span></span>
+      ${g.entries.length > 1 ? `<span class="rt"><b${g.variation > 0 ? ' class="pos"' : ''}>${fmtSigned(g.variation, ' L', 1)}</b><span class="hint">${fmtPct(g.pct)} · ${fmtKL(g.litres)}</span></span>` : ''}</div>
+    ${lines}
+  </div>`;
 }
 
 function bindLog(el) {
+  el.addEventListener('keydown', (e) => {
+    const o = (e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-open][role="button"]') ? e.target : null;
+    if (o) { e.preventDefault(); openWizard(o.dataset.open); }
+  });
   el.addEventListener('click', (e) => {
     const t = e.target;
     const p = t.closest('[data-lp]');

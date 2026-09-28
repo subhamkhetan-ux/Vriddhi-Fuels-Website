@@ -214,6 +214,22 @@ test('purchases: decanted + outside the app + in transit', async () => {
   assert.equal(dismissReason({ dismissed: false }), null);
 });
 
+test('the Log: one card per invoice, a line per tank', async () => {
+  const { byInvoice } = await import('../../decant/js/report.js');
+  const e = (sessionId, invoiceNo, tank, at) => ({ sessionId, invoiceNo, tt: 'OD23U8210', tank, tankNo: Number(tank.slice(1)), at, litres: 1000, variation: 1 });
+  const groups = byInvoice([
+    e('S2', '7011319869', 'T3', '2026-09-27T11:45:00Z'), e('S2', '7011319869', 'T2', '2026-09-27T11:45:00Z'),
+    e('S1', '7011285916', 'T2', '2026-09-27T07:51:00Z'), e('S1', '7011285916', 'T3', '2026-09-27T07:51:00Z'),
+    // part decanted, the rest later: one invoice, two goes, in time order
+    e('S4', '7011300001', 'T2', '2026-09-26T12:00:00Z'), e('S3', '7011300001', 'T3', '2026-09-26T09:00:00Z'),
+  ]);
+  assert.deepEqual(groups.map((g) => [g.invoiceNo, g.entries.map((x) => x.tank).join('+'), g.sessions.length]),
+    [['7011319869', 'T2+T3', 1], ['7011285916', 'T2+T3', 1], ['7011300001', 'T3+T2', 2]]);
+  assert.equal(groups[0].litres, 2000);
+  assert.equal(groups[0].variation, 2);
+  assert.equal(groups[2].at, '2026-09-26T12:00:00Z');                   // the latest go
+});
+
 test('chart axis always reaches the biggest value', async () => {
   const { niceTicks } = await import('../../decant/js/charts.js');
   assert.deepEqual(niceTicks(-50, 165).ticks, [-100, 0, 100, 200]);    // a +165 L day no longer runs past a 100 top

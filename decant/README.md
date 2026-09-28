@@ -280,8 +280,9 @@ each tank so the loads I've placed an indent for fit?*
    invoice; for a transport TT, the next invoice from a TT that isn't ours
    (the closest in KL first). Only invoices that come in after the indent was
    added count, so a TT's previous trip never clears its next indent. It shows
-   under **Arrived** — **Not this one** puts it back if the app picked the
-   wrong invoice — and leaves the list a day and a half later. The truck's
+   under **Arrived** at the bottom of the tab — **Not this one** puts it back
+   if the app picked the wrong invoice — and leaves the list a day and a half
+   later. The truck's
    card on the Decant tab then shows the room to make for it.
 4. **Dispense first** — per product and tank: the litres to **dispense**,
    which chambers go into which tank (for a transport TT, **each way it can
@@ -300,8 +301,11 @@ each tank so the loads I've placed an indent for fit?*
 ## Log and reports
 
 - **Log** — every finished decantation of *today, 7 days, this month or last
-  month*, one row per tank filled, with filters by truck and product, search,
-  and **⬇ Excel / CSV**. Tap a row for the full result and notes.
+  month*: **one card per invoice** with a line per tank filled (and the
+  invoice's total variation), with filters by truck and product, search, and
+  **⬇ Excel / CSV**. Tap a card for the full result and notes; an invoice
+  decanted in two goes (part now, the rest later) is still one card, each line
+  opening its own go.
 - **Reports** — for **this month** (the default), **last month**, **this FY**
   (from 1 April), **all** (this FY and the last) or any dates, and any truck /
   product:
