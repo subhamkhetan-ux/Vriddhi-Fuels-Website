@@ -448,6 +448,23 @@ test('indents come off the plan as their invoices arrive', async () => {
   assert.equal(matchIndents([OWN('late', [], { created_at: '2026-09-27T07:00:00Z' })], invoices, ['OD23U8210']).size, 0);
 });
 
+test('internal audit: a screenshot (even corrected) or a dip is proof; typed litres are not', async () => {
+  const { stockProof, unprovenReadings } = await import('../../decant/js/core.js');
+  assert.deepEqual([stockProof({ source: 'photo' }), stockProof({ source: 'dip', dip: 84.2 }), stockProof({ source: 'litres' })].map((p) => [p.proof, p.short]),
+    [[true, 'screenshot'], [true, 'dip 84.2 cm'], [false, 'typed, no proof']]);
+  // a figure the automation got wrong, corrected by hand: still proof, the screen's figure kept
+  const fixed = stockProof({ source: 'photo-edited', volume: 12019.45, screenVolume: 12519.45 });
+  assert.equal(fixed.proof, true);
+  assert.match(fixed.text, /corrected by hand \(the screen said 12,519\.45 L\)/);
+  assert.equal(stockProof({ volume: 1000 }), null);                     // an old reading with no source: nothing claimed
+  assert.equal(stockProof(null), null);
+  const tanks = [
+    { tank: 'T2', tankNo: 2, before: { source: 'photo' }, after: { source: 'litres' } },
+    { tank: 'T3', tankNo: 3, before: { source: 'litres' }, after: { source: 'dip' } },
+  ];
+  assert.deepEqual(unprovenReadings(tanks), [{ tank: 'T2', tankNo: 2, which: 'after' }, { tank: 'T3', tankNo: 3, which: 'before' }]);
+});
+
 test('own tankers: free space, leaving some out', async () => {
   const { tankerSpace } = await import('../../decant/js/core.js');
   const vehicles = [

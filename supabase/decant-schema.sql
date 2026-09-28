@@ -122,7 +122,9 @@ end $$;
 -- ---- dec_history: finished decantations, compact, for the FY reports ----
 -- The phone keeps this month and last; for "This FY" / "All" the app reads the
 -- older months from this view — only what the reports need (no screenshots,
--- no OCR details), so a whole year is a small download.
+-- no OCR details), so a whole year is a small download. Each stock keeps where
+-- it came from (screenshot / dip / typed litres, and a corrected screenshot's
+-- own figure) for the internal audit.
 create or replace view public.dec_history with (security_invoker = true) as
 select s.id, s.invoice_no, s.tt_no, s.status, s.created_at, s.updated_at, s.completed_at,
        jsonb_build_object(
@@ -135,8 +137,10 @@ select s.id, s.invoice_no, s.tt_no, s.status, s.created_at, s.updated_at, s.comp
                     'tank', t->'tank', 'tankNo', t->'tankNo', 'product', t->'product',
                     'chambers', t->'chambers', 'litres', t->'litres', 'salesL', t->'salesL',
                     'pricePerL', t->'pricePerL',
-                    'before', jsonb_build_object('volume', t->'before'->'volume'),
-                    'after',  jsonb_build_object('volume', t->'after'->'volume')))
+                    'before', jsonb_strip_nulls(jsonb_build_object('volume', t->'before'->'volume', 'source', t->'before'->'source',
+                                'dip', t->'before'->'dip', 'screenVolume', t->'before'->'screenVolume')),
+                    'after',  jsonb_strip_nulls(jsonb_build_object('volume', t->'after'->'volume', 'source', t->'after'->'source',
+                                'dip', t->'after'->'dip', 'screenVolume', t->'after'->'screenVolume'))))
              from jsonb_array_elements(
                     case when jsonb_typeof(s.data->'tanks') = 'array' then s.data->'tanks' else '[]'::jsonb end) t),
            '[]'::jsonb)) as data

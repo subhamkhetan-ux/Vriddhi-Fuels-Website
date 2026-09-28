@@ -109,6 +109,15 @@ test('filters and export', () => {
   assert.deepEqual(rows[1].slice(0, 7), ['28/09/2026', '01:30', 'OR15R1110', 'INV-c', 'XG', 'Tank 4', 'C1']);
   assert.equal(rows[1][13], 'High');
   assert.ok(!rows[0].some((h) => /sold/i.test(h)));                       // nothing is sold while decanting
+  // the internal-audit columns come last, after the ones that were there
+  assert.deepEqual(rows[0].slice(14), ['Value (₹)', 'Stock before from', 'Stock after from', 'Stock proof']);
+  assert.deepEqual(rows[1].slice(15), ['', '', '']);                       // readings with no source: nothing claimed
+  const tank = (before, after) => ({ id: 'A', status: 'done', tt_no: 'OD23U8210', invoice_no: 'I', created_at: '2026-09-27T04:00:00Z',
+    data: { decantedAt: '2026-09-27T04:00:00Z', tanks: [{ tank: 'T2', tankNo: 2, product: 'HSD', chambers: [1], litres: 5000, before, after }] } });
+  const audit = (before, after) => exportRows(entriesFrom([tank(before, after)]))[1].slice(15);
+  assert.deepEqual(audit({ volume: 9000, source: 'photo' }, { volume: 14000, source: 'dip', dip: 150.1 }), ['Screenshot', 'Dip 150.1 cm', 'Yes']);
+  assert.deepEqual(audit({ volume: 9000, source: 'photo-edited', screenVolume: 9050 }, { volume: 14000, source: 'litres' }),
+    ['Screenshot, corrected by hand (the screen said 9,050.00 L)', 'Typed litres — no solid proof', 'No — typed litres']);
   const csv = toCsv([['a', 'b,c'], ['say "hi"', 1]]);
   assert.equal(csv, 'a,"b,c"\r\n"say ""hi""",1');
 });

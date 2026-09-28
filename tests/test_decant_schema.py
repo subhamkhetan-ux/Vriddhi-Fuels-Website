@@ -131,6 +131,16 @@ def test_history_view_is_compact(pg):
                    "pricePerL": None, "before": {"volume": 9000.5}, "after": {"volume": 13990}}],
     }
     assert pg.json("select data->'tanks' from dec_history where id = 'h3';", anon=True) == []
+    # each stock keeps where it came from, for the internal audit
+    pg.ok("""
+      insert into dec_sessions (id, invoice_no, tt_no, status, data) values
+        ('h4', 'I4', 'OD23U8210', 'done', '{"tanks": [{"tank": "T3", "litres": 4000,
+           "before": {"volume": 9989.83, "source": "photo-edited", "screenVolume": 9998.83, "dip": 98.7, "checks": {"x": 1}},
+           "after": {"volume": 13990, "source": "litres"}}]}');
+    """)
+    t = pg.json("select data->'tanks'->0 from dec_history where id = 'h4';", anon=True)
+    assert t["before"] == {"volume": 9989.83, "source": "photo-edited", "screenVolume": 9998.83, "dip": 98.7}
+    assert t["after"] == {"volume": 13990, "source": "litres"}
 
 
 def test_single_config_row(pg):

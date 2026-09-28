@@ -5,7 +5,7 @@
 // the variation between the two. Entries roll up by day, by truck, by product,
 // by month, and make the variation trend.
 
-import { DEFAULT_SETTINGS, PRODUCTS, dmyToIso, istDate, pctOf, productKey, round2, tankResult } from './core.js';
+import { DEFAULT_SETTINGS, PRODUCTS, dmyToIso, istDate, pctOf, productKey, round2, stockProof, tankResult } from './core.js';
 
 export function entriesFrom(sessions, settings = DEFAULT_SETTINGS) {
   const out = [];
@@ -32,6 +32,8 @@ export function entriesFrom(sessions, settings = DEFAULT_SETTINGS) {
         salesL: Number(t.salesL) || 0,
         before: t.before?.volume,
         after: t.after?.volume,
+        beforeFrom: stockProof(t.before),              // for the internal audit: what's behind each stock
+        afterFrom: stockProof(t.after),
         ...r,
         value: Number.isFinite(t.pricePerL) ? round2(r.variation * t.pricePerL) : null,
       });
@@ -122,13 +124,18 @@ export function daysBetween(from, to) {
 // Rows for the CSV / Excel export of the log.
 export function exportRows(entries) {
   const head = ['Date', 'Time', 'Truck', 'Invoice', 'Product', 'Tank', 'Chambers', 'Decanted (L)',
-    'Stock before (L)', 'Stock after (L)', 'Tank gain (L)', 'Variation (L)', 'Variation (%)', 'Status', 'Value (₹)'];
+    'Stock before (L)', 'Stock after (L)', 'Tank gain (L)', 'Variation (L)', 'Variation (%)', 'Status', 'Value (₹)',
+    'Stock before from', 'Stock after from', 'Stock proof'];
+  // the audit columns: a screenshot (even corrected) or a dip is proof; typed litres are not
+  const proof = (e) => (!e.beforeFrom && !e.afterFrom ? ''
+    : e.beforeFrom?.proof === false || e.afterFrom?.proof === false ? 'No — typed litres' : 'Yes');
   const rows = entries.map((e) => {
     const t = new Date(Date.parse(e.at) + 330 * 60000).toISOString();
     return [
       `${e.day.slice(8, 10)}/${e.day.slice(5, 7)}/${e.day.slice(0, 4)}`, t.slice(11, 16), e.tt, e.invoiceNo, e.product,
       e.tankNo ? `Tank ${e.tankNo}` : e.tank, e.chambers.map((c) => `C${c}`).join(' + '), e.litres,
       e.before, e.after, e.gain, e.variation, e.pct, { ok: 'OK', watch: 'Watch', high: 'High' }[e.band], e.value ?? '',
+      e.beforeFrom?.label ?? '', e.afterFrom?.label ?? '', proof(e),
     ];
   });
   return [head, ...rows];

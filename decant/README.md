@@ -232,6 +232,27 @@ the tanks typed as readings taken now, for every phone; a tank left empty
 keeps its stock, and a dip outside the chart is refused. For one tank, tap its
 tile and type its dip there.
 
+## Internal audit: what's behind each stock
+
+Every stock reading keeps where it came from, and the app remarks on it:
+
+- **Proof** — read from an **automation screenshot**, or from a **physical dip**
+  (the dip is kept; the litres come from the dip chart). A screenshot figure
+  corrected by hand still counts — the automation has its data errors — and
+  the screen's own figure is kept with it (*"corrected by hand (the screen
+  said 12,519.45 L)"*).
+- **No solid proof** — the litres were typed in by hand.
+
+It shows on the tank's sheet (tap a tile), under each reading in a
+decantation, as *"✎ typed, no proof"* on a tile or a Log row, on the Result
+(each stock's source, and one audit line) and on its shared picture, and in
+the Excel / CSV export as three last columns: *Stock before from*, *Stock
+after from* and *Stock proof* (Yes / No — typed litres). Nothing is
+calculated differently; readings saved before this remark existed carry
+their source already. For months older than the phone keeps, the FY export
+has the sources once `supabase/decant-schema.sql` has been re-run (it's safe
+to re-run).
+
 ## Plan: what to dispense before the indented loads
 
 The **Plan** tab answers one question: *how little do I have to dispense from

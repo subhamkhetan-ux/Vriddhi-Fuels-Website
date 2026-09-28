@@ -138,7 +138,7 @@ function stockHint() {
 }
 
 function srcText(r) {
-  return { photo: 'screenshot', 'photo-edited': 'screenshot (corrected)', litres: 'typed in', dip: 'from a dip' }[r.source] || 'reading';
+  return { photo: 'screenshot', 'photo-edited': 'screenshot (corrected)', litres: 'typed in, no proof', dip: 'from a dip' }[r.source] || 'reading';
 }
 
 function indentRow(p, active, i) {

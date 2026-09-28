@@ -10,7 +10,7 @@
 
 import {
   PRODUCTS, checkPlan, densityCheck, dipAtLitres, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
-  suggestPlan, tankResult, tankStage, transportOptions, usedChambers,
+  stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import {
@@ -18,7 +18,7 @@ import {
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
 import {
-  busyTanks, compactNos, invoiceForm, isStale, layoutFor, readScreenshot, render, tankById, tankName, tanks, typedReading,
+  busyTanks, compactNos, invoiceForm, isStale, layoutFor, proofLine, readScreenshot, render, tankById, tankName, tanks, typedReading,
 } from './app.js';
 
 let currentId = null;
@@ -305,7 +305,8 @@ function readingInner(t, r, phase) {
         <div><div class="k">Temp</div><div class="v">${r.temp ?? '—'}${r.temp != null ? ' °C' : ''}</div></div>
         <div><div class="k">Density (tc)</div><div class="v">${r.densityTc ?? '—'}</div></div>
       </div>
-      <div class="rd-src">${{ photo: 'Screenshot', 'photo-edited': 'Screenshot, corrected', litres: 'Typed in', dip: 'From the dip' }[r.source] || ''} · ${['litres', 'dip'].includes(r.source) ? fmtWhen(r.readingAt) : r.timeRead === false ? `taken ${fmtWhen(r.readingAt)} (time not on the picture)` : `automation time ${fmtWhen(r.readingAt)}`} · ${ago(r.readingAt)}</div>`
+      <div class="rd-src">${{ photo: 'Screenshot', 'photo-edited': 'Screenshot, corrected', litres: 'Typed in', dip: 'From the dip' }[r.source] || ''} · ${['litres', 'dip'].includes(r.source) ? fmtWhen(r.readingAt) : r.timeRead === false ? `taken ${fmtWhen(r.readingAt)} (time not on the picture)` : `automation time ${fmtWhen(r.readingAt)}`} · ${ago(r.readingAt)}</div>
+      ${proofLine(r)}`
     : '<div class="hint" style="margin-top:6px">No reading yet.</div>'}
     <div class="rd-actions">
       <button class="btn sm" data-shot="${phase}">📷 Screenshot</button>
@@ -503,14 +504,15 @@ function stepResult(s) {
       <div class="result"><div><div class="hint">Decanted ${fmtKL(totL)} from ${esc(s.tt_no)} · ${fmtTime(d.startedAt)}–${fmtTime(d.decantedAt)}</div>
         <div class="var ${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'}">${fmtSigned(totV, ' L', 2)}</div>
         <div class="hint">${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'} overall · ${fmtPct(totL ? (totV / totL) * 100 : 0)}${money ? ` · ≈ ${fmtMoney(money)} at invoice price` : ''}</div></div></div>
+      ${auditLine(d.tanks) ? `<div class="audit ${auditLine(d.tanks).ok ? 'ok' : 'no'}">${esc(auditLine(d.tanks).text)}</div>` : ''}
     </div>
     ${res.map(({ t, r }) => `<div class="card">
       <div class="rd-head"><span class="nm">${tankName(t.tank)}</span>${productChip(t.product)}${r ? bandBadge(r.band, r.direction) : ''}</div>
       <div class="hint">C${compactNos(t.chambers)} · ${fmtKL(t.litres)} · decanted ${fmtTime(startOf(s, t))}–${fmtTime(doneOf(s, t))}</div>
       ${r ? `<div class="result" style="margin-top:6px"><div class="var ${r.direction}">${fmtSigned(r.variation, ' L', 2)}</div><div class="hint" style="text-align:right">${fmtPct(r.pct)}<br>OK within ±${fmtL(r.tol)}</div></div>` : ''}
       <table class="cmp"><thead><tr><th></th><th>Litres</th><th>Dip</th></tr></thead><tbody>
-        <tr><td>Stock before · ${fmtTime(t.before.readingAt)}</td><td>${fmtL(t.before.volume, 2)}</td><td>${fmtDip(dipOf(t.before))}</td></tr>
-        <tr><td>Stock after · ${fmtTime(t.after?.readingAt)}</td><td>${fmtL(t.after?.volume, 2)}</td><td>${fmtDip(dipOf(t.after))}</td></tr>
+        <tr><td>Stock before · ${fmtTime(t.before.readingAt)}${fromOf(t.before)}</td><td>${fmtL(t.before.volume, 2)}</td><td>${fmtDip(dipOf(t.before))}</td></tr>
+        <tr><td>Stock after · ${fmtTime(t.after?.readingAt)}${fromOf(t.after)}</td><td>${fmtL(t.after?.volume, 2)}</td><td>${fmtDip(dipOf(t.after))}</td></tr>
         <tr><td>Tank gained</td><td>${r ? fmtL(r.gain, 2) : '—'}</td><td></td></tr>
         <tr><td>Chambers ${compactNos(t.chambers)} (invoice)</td><td>${fmtL(t.litres)}</td><td></td></tr>
         ${t.salesL ? `<tr><td>Sold while decanting (older record)</td><td>${fmtL(t.salesL)}</td><td></td></tr>` : ''}
@@ -991,6 +993,22 @@ async function cancelSession(s) {
 }
 
 // "By … · HSD density 831.2 (+0.2)" under the result.
+// For the internal audit: where a stock came from (" · screenshot"), and one
+// line for a decantation — every stock from a screenshot or a dip, or which
+// were typed in (no solid proof).
+function fromOf(r) {
+  const p = stockProof(r);
+  return p ? ` · <span class="${p.proof ? 'pf-ok' : 'pf-no'}">${esc(p.short)}</span>` : '';
+}
+
+function auditLine(tanks) {
+  const rows = (tanks || []).filter((t) => t.before && t.after);
+  if (!rows.some((t) => stockProof(t.before) || stockProof(t.after))) return null;
+  const none = unprovenReadings(rows);
+  if (!none.length) return { ok: true, text: '✓ Audit: every stock here is from a screenshot or a dip — proof held.' };
+  return { ok: false, text: `⚠ Audit: ${none.map((x) => `${tankName(x.tank)} stock ${x.which}`).join(', ')} typed in litres — no solid proof.` };
+}
+
 function resultFooter(s) {
   const d = s.data;
   const dens = Object.entries(d.checks?.density || {}).map(([p, v]) => {
@@ -1029,8 +1047,8 @@ function resultModel(s) {
       pctLine: r ? `${fmtPct(r.pct)} · OK within ±${fmtL(r.tol)}` : '',
       meta: `C${compactNos(t.chambers)} · ${fmtKL(t.litres)} · decanted ${fmtTime(startOf(s, t))}–${fmtTime(doneOf(s, t))}`,
       rows: [
-        [`Stock before · ${fmtTime(t.before?.readingAt)}`, fmtL(t.before?.volume, 2), fmtDip(dipOf(t.before))],
-        [`Stock after · ${fmtTime(t.after?.readingAt)}`, fmtL(t.after?.volume, 2), fmtDip(dipOf(t.after))],
+        [`Stock before · ${fmtTime(t.before?.readingAt)}${stockProof(t.before) ? ` · ${stockProof(t.before).short}` : ''}`, fmtL(t.before?.volume, 2), fmtDip(dipOf(t.before))],
+        [`Stock after · ${fmtTime(t.after?.readingAt)}${stockProof(t.after) ? ` · ${stockProof(t.after).short}` : ''}`, fmtL(t.after?.volume, 2), fmtDip(dipOf(t.after))],
         ['Tank gained', r ? fmtL(r.gain, 2) : '—', ''],
         [`Chambers ${compactNos(t.chambers)} (invoice)`, fmtL(t.litres), ''],
         ...(t.salesL ? [['Sold while decanting', fmtL(t.salesL), '']] : []),
@@ -1039,6 +1057,7 @@ function resultModel(s) {
     })),
     notes: d.notes || '',
     footer: resultFooter(s),
+    audit: auditLine(d.tanks),
     made: `Vriddhi Fuels decanting app · ${fmtDate(Date.now(), true)} ${fmtTime(Date.now())}`,
   };
 }
