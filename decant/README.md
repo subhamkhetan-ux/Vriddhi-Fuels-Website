@@ -167,14 +167,24 @@ Tap **Start decanting** on the truck's card:
    own.
 4. **Decant** — at the top, the truck and the tanks as they are: our TT
    (its number and capacity on the tank), a sight glass per chamber, the
-   bottom-loading valves, and a hose from each chamber to its tank's fill
-   point — flowing in the product's colour while that tank decants, the
-   planned level shimmering in the tank; *next* tanks show a dashed hose,
+   bottom-loading valves, and — as on the forecourt — **one pipe per tank**
+   being filled (two tanks at once: two pipes). The pipe sits on one
+   chamber's valve and moves to the tank's next chamber once that one is
+   empty, in the order the chambers were put in. Every chamber shows full
+   until its turn; the one on the pipe empties over its real time while the
+   tank rises by what it gives (the dashed outline is where it will end).
+   The times are in **Settings → Decanting time**: a 5 KL chamber empties in
+   8:15 and a 4 KL one in 7:00 by default; other sizes are worked out on the
+   line through the two (4.5 KL: 7:38; OD23U8210's 5+5+4+4+4 KL: 37:30 on
+   one pipe). Once all of a tank's chambers should be empty, its pipe stops
+   flowing. *Next* tanks show a dashed pipe to their first chamber,
    *settling* ones sit at their new level, *done* ones show a ✓. The same
    picture runs on the Home screen's *In progress* card, and a tank tile
-   being filled shows where it will reach. (Motion stops if the phone is set
-   to reduce motion.) Then one card per tank, each going *not started →
-   decanting → settling → stock after read*:
+   being filled shows where it will reach. (Ripples and flow stop if the
+   phone is set to reduce motion; the levels still follow the clock.) Then
+   one card per tank, each going *not started → decanting → settling →
+   stock after read* — a tank decanting says which chamber the pipe is on,
+   what's next and about how long is left:
    - **▶ Start Tank N**. A tank sells until its decanting starts, so its
      stock before must be from just before it starts: a reading from before
      the first tank started (or over 30 minutes old) is questioned — take a
@@ -193,8 +203,8 @@ Tap **Start decanting** on the truck's card:
      and **▶ Start**. A tank not in use starts — its stock before is checked
      as above, and if a fresh one is needed it waits on the screen with its
      own ▶ Start. A tank of this truck that is still decanting takes the
-     chamber too (its stock before stays; the result counts every chamber
-     that went in). A tank another truck is decanting into, or one of this
+     chamber too — its pipe moves to it after its other chambers (its stock
+     before stays; the result counts every chamber that went in). A tank another truck is decanting into, or one of this
      truck's that is settling or read, can't take more; chambers left when the
      decantation is saved are decanted later with **Decant the rest** on the
      list. The Home screen's *In progress* card says what's still in the
@@ -379,6 +389,11 @@ of undecanted invoices to list, our delivery tankers to leave out on the Plan
 tab (OD15AF5510 by default), the automation's date format (MM/DD/YYYY by
 default), the dip chart, and:
 
+- **Decanting time** — how long a 5 KL and a 4 KL chamber take to empty
+  through the pipe (minutes and seconds; 8:15 and 7:00 by default). Other
+  sizes follow from the two, and a note shows what they make (a 4.5 KL
+  chamber, our TT on one pipe). The decanting picture and each tank's time
+  left use them.
 - **Our TTs** — one per line with its chambers from C1: `OD23U8210: 5, 5, 4, 4, 4`
 - **Transport TT layouts** — one size per line, its layouts split by `|`:
   `22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4`

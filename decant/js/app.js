@@ -3,7 +3,7 @@
 // views.js; the rules they all share are in core.js.
 
 import {
-  PRODUCTS, chamberLayout, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, invoiceStatus, istDate, layoutsText,
+  PRODUCTS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, fmtMinSec, invoiceStatus, istDate, layoutsText,
   litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, stockProof, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
@@ -18,7 +18,7 @@ import {
 import { openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
-import { decantScene } from './scene.js';
+import { decantScene, tickScenes } from './scene.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -432,7 +432,7 @@ function sessionCard(s) {
   return `<div class="card accent" data-session="${esc(s.id)}">
     <div class="inv-top"><div><div class="inv-tt">${esc(s.tt_no || '')}</div><div class="inv-meta">${esc(s.invoice_no || '')}</div></div>
       <span class="badge watch${step === 'Decanting now' ? ' live' : ''}"><i>●</i>${step}</span></div>
-    ${['decanting', 'settling'].includes(s.status) ? decantScene(s, { tanks: tanks(), stock: state.tankState, compact: true }) : ''}
+    ${['decanting', 'settling'].includes(s.status) ? decantScene(s, { tanks: tanks(), stock: state.tankState, compact: true, settings: state.settings }) : ''}
     <div class="hint" style="margin:8px 0">${esc(tanksTxt)}${d.startedAt ? ` · started ${fmtTime(d.startedAt)}` : ''}${d.decantedAt ? ` · done ${fmtTime(d.decantedAt)}` : ''}</div>
     <div class="inv-actions"><button class="cta" data-open>Continue ▶</button>${s.status === 'draft' ? '<button class="btn" data-discard>Discard</button>' : ''}</div>
   </div>`;
@@ -883,6 +883,11 @@ function settingsSheet() {
         <label class="f">Truck density vs invoice, OK within (± kg/m³)<input type="number" id="stDens" step="0.5" value="${s.densityLimit}"></label>
         <label class="f">Show undecanted invoices from the last (days)<input type="number" id="stPend" step="1" min="1" value="${s.pendingDays}"></label>
       </div>
+      <div class="sect-title" style="margin-top:16px">Decanting time <span class="hint">one pipe per tank, a chamber at a time</span></div>
+      ${[[5, 'stE5', s.emptySecs5], [4, 'stE4', s.emptySecs4]].map(([kl, k, secs]) => `<div class="f" style="margin-bottom:8px">A ${kl} KL chamber empties in
+        <div class="minsec"><input type="number" id="${k}m" min="1" max="60" step="1" inputmode="numeric" value="${Math.floor(Math.round(secs) / 60)}" aria-label="${kl} KL chamber, minutes"><span>min</span>
+          <input type="number" id="${k}s" min="0" max="59" step="1" inputmode="numeric" value="${Math.round(secs) % 60}" aria-label="${kl} KL chamber, seconds"><span>s</span></div></div>`).join('')}
+      <div class="hint" id="stEHint"></div>
       <div class="sect-title" style="margin-top:16px">Our TTs <span class="hint">tank trucks — one per line: number: chambers (KL from C1)</span></div>
       <textarea id="stOwn" rows="3" style="font-family:var(--mono);font-size:14px">${esc((s.ownTTs || []).map((o) => `${o.tt}: ${o.chambers.join(', ')}`).join('\n'))}</textarea>
       <div class="sect-title" style="margin-top:12px">Transport TTs <span class="hint">any other TT — its layouts by size, KL: 22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4</span></div>
@@ -910,6 +915,19 @@ function settingsSheet() {
         <button class="btn" id="stRefresh">↻ Refresh from the cloud</button>
         <button class="btn danger" id="stClear">Clear this phone's copy</button>
       </div>`;
+    // a chamber's time from its minutes and seconds (1–60 min), else as it was
+    const emptySecs = (k, dflt) => {
+      const m = Number(body.querySelector(`#${k}m`).value);
+      const sec = Number(body.querySelector(`#${k}s`).value || 0);
+      return Number.isInteger(m) && Number.isInteger(sec) && sec >= 0 && sec < 60 && m * 60 + sec >= 60 && m * 60 + sec <= 3600 ? m * 60 + sec : dflt;
+    };
+    const emptyHint = () => {
+      const t = { emptySecs5: emptySecs('stE5', s.emptySecs5), emptySecs4: emptySecs('stE4', s.emptySecs4) };
+      const own = (s.ownTTs || [])[0];
+      body.querySelector('#stEHint').textContent = `So a 4.5 KL chamber takes ${fmtMinSec(chamberSeconds(4500, t))}${own ? `, and ${own.tt} (${own.chambers.join('+')} KL) ${fmtMinSec(own.chambers.reduce((a, kl) => a + chamberSeconds(kl * 1000, t), 0))} on one pipe` : ''}. The decanting picture and each tank's time left follow these.`;
+    };
+    emptyHint();
+    body.querySelectorAll('.minsec input').forEach((i) => { i.oninput = emptyHint; });
     body.querySelector('#stSave').onclick = async () => {
       const num = (id, lo, hi, dflt) => { const v = Number(body.querySelector(id).value); return Number.isFinite(v) && v >= lo && v <= hi ? v : dflt; };
       const tanksNew = s.tanks.map((t, i) => {
@@ -924,6 +942,7 @@ function settingsSheet() {
           tolerancePct: num('#stTol', 0, 5, s.tolerancePct), toleranceMinL: num('#stTolL', 0, 1000, s.toleranceMinL),
           warnRoomL: num('#stWarn', 0, 5000, s.warnRoomL), staleMinutes: num('#stStale', 1, 1440, s.staleMinutes),
           settleMinutes: num('#stSettle', 0, 120, s.settleMinutes), densityLimit: num('#stDens', 0, 20, s.densityLimit),
+          emptySecs5: emptySecs('stE5', s.emptySecs5), emptySecs4: emptySecs('stE4', s.emptySecs4),
           pendingDays: num('#stPend', 1, 60, s.pendingDays),
           dateOrder: body.querySelector('#stDate').value,
           excludeTankers: body.querySelector('#stExTk').value.split(/[,;\s]+/).map((x) => x.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean),
@@ -1016,6 +1035,8 @@ function boot() {
   document.addEventListener('focusout', () => setTimeout(settle, 0));
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(render, 200); });
+  // the decanting pictures: chambers empty and tanks fill by the clock
+  setInterval(() => { if (!document.hidden) tickScenes(); }, 1000);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
