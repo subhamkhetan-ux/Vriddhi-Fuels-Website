@@ -23,6 +23,10 @@ export const DEFAULT_SETTINGS = {
   warnRoomL: 150,       // warn when a tank would be left with less room than this
   staleMinutes: 30,     // a stock reading older than this is flagged before decanting
   settleMinutes: 10,    // suggested wait after decanting before the "after" screenshot
+  // How long a chamber takes to empty through the pipe, in seconds (5 KL:
+  // 8 min 15 s, 4 KL: 7 min); other sizes lie on the line through the two.
+  emptySecs5: 495,
+  emptySecs4: 420,
   pendingDays: 3,       // older undecanted invoices fold away under "Older"
   dateOrder: 'MDY',     // the automation prints dates as MM/DD/YYYY
   densityLimit: 3,      // truck density vs the invoice's Density@15, ± kg/m³
@@ -78,6 +82,7 @@ export function settingsWith(saved) {
   const clean = Object.fromEntries(Object.entries(table).map(([k, v]) => [Number(k), (Array.isArray(v) ? v : []).map(kls).filter((l) => l.length)])
     .filter(([k, v]) => k > 0 && v.length));
   s.transportTTs = Object.keys(clean).length ? clean : DEFAULT_SETTINGS.transportTTs;
+  for (const k of ['emptySecs5', 'emptySecs4']) s[k] = Number(s[k]) > 0 ? Number(s[k]) : DEFAULT_SETTINGS[k];
   s.tanks = s.tanks.map((t, i) => {
     const capacity = Number(t.capacity) > 0 ? Number(t.capacity) : 20000;
     return {
@@ -532,6 +537,61 @@ export function tankStage(session, row) {
   if (session?.status === 'decanting') return 'decanting';
   if (session?.status === 'draft') return 'waiting';
   return row?.after ? 'read' : 'settling';
+}
+
+// ---------------------------------------------------------------------------
+// Decanting time: one pipe per tank, moved from chamber to chamber
+// ---------------------------------------------------------------------------
+
+// Seconds a chamber of `litres` takes to empty: the settings' 5 KL and 4 KL
+// times, other sizes on the straight line through them (4.5 KL: 7:38).
+export function chamberSeconds(litres, settings) {
+  const s = settings || DEFAULT_SETTINGS;
+  const t5 = Number(s.emptySecs5) > 0 ? Number(s.emptySecs5) : DEFAULT_SETTINGS.emptySecs5;
+  const t4 = Number(s.emptySecs4) > 0 ? Number(s.emptySecs4) : DEFAULT_SETTINGS.emptySecs4;
+  const per = (t5 - t4) / 1000;
+  const secs = per >= 0 ? t4 + (litres - 4000) * per
+    : litres <= 4500 ? (t4 * litres) / 4000 : (t5 * litres) / 5000;   // a 5 KL set quicker than a 4 KL: pro rata
+  return Math.max(30, Math.round(secs));
+}
+
+// The pipe's round for one tank being decanted: its chambers one after
+// another, in the order they were put in — a chamber added while it decants
+// goes last, from when it was added. [{no, litres, from, to}], times in ms.
+export function drainTimeline(row, chambers, settings) {
+  const start = Date.parse(row?.startedAt || '');
+  if (!Number.isFinite(start)) return [];
+  let at = start;
+  return (row.chambers || []).map((no) => {
+    const litres = (chambers || []).find((c) => c.no === no)?.litres || 0;
+    const joined = Date.parse(row.joinedAt?.[no] || '');
+    const from = Number.isFinite(joined) ? Math.max(at, joined) : at;
+    const to = from + chamberSeconds(litres, settings) * 1000;
+    at = to;
+    return { no, litres, from, to };
+  });
+}
+
+// Where that round is at `now`: the chamber the pipe is on (the last one once
+// all are empty), how far each chamber has emptied (0 full … 1 empty), the
+// litres in the tank so far, the time left (ms) and whether it still flows.
+export function drainAt(timeline, now) {
+  if (!timeline?.length) return null;
+  const part = (w) => Math.min(1, Math.max(0, (now - w.from) / (w.to - w.from)));
+  const last = timeline[timeline.length - 1];
+  return {
+    on: (timeline.find((w) => now < w.to) || last).no,
+    drained: Object.fromEntries(timeline.map((w) => [w.no, part(w)])),
+    litres: timeline.reduce((a, w) => a + w.litres * part(w), 0),
+    left: Math.max(0, last.to - now),
+    flowing: now < last.to,
+  };
+}
+
+// 495 -> "8:15"
+export function fmtMinSec(secs) {
+  const r = Math.round(secs);
+  return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`;
 }
 
 // variation = (after − before) − decanted; negative = the tank got less than

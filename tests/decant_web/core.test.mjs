@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, invoiceStatus,
-  istDate, litresAtDip, productKey, settingsWith, solvePlan, suggestPlan, tankResult, usedChambers,
+  DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, drainAt, drainTimeline,
+  fmtMinSec, invoiceStatus, istDate, litresAtDip, productKey, settingsWith, solvePlan, suggestPlan, tankResult, usedChambers,
 } from '../../decant/js/core.js';
 import { DIP_CHART } from '../../decant/js/dipchart.js';
 
@@ -282,6 +282,44 @@ test('chambers still in the truck: in no tank of the decantation, not decanted b
   assert.deepEqual(nos(s([['T3', [2]]], [1])), [3, 4, 5]);                // C1 decanted before
   assert.deepEqual(nos({ data: { chambers: [{ no: 1, litres: 5000, product: null }, ...chambers.slice(1)], tanks: [] } }), [2, 3, 4, 5]);
   assert.deepEqual(nos({}), []);
+});
+
+test('chamber times: 5 KL 8:15, 4 KL 7:00, other sizes on the line through them', () => {
+  assert.equal(chamberSeconds(5000), 495);
+  assert.equal(chamberSeconds(4000), 420);
+  assert.equal(chamberSeconds(4500), 458);                               // 7:38
+  assert.equal(fmtMinSec(chamberSeconds(4500)), '7:38');
+  assert.equal([5, 5, 4, 4, 4].reduce((a, kl) => a + chamberSeconds(kl * 1000), 0), 2250);   // OD23U8210: 37:30
+  const s = settingsWith({ emptySecs5: 540, emptySecs4: 420 });           // set in Settings: 9:00 and 7:00
+  assert.equal(chamberSeconds(5000, s), 540);
+  assert.equal(chamberSeconds(4500, s), 480);
+  assert.equal(chamberSeconds(4000, settingsWith({ emptySecs5: 420, emptySecs4: 420 })), 420);
+  const odd = settingsWith({ emptySecs5: 400, emptySecs4: 420 });         // 5 KL quicker than 4 KL: each still as set
+  assert.equal(chamberSeconds(5000, odd), 400);
+  assert.equal(chamberSeconds(4000, odd), 420);
+  assert.equal(settingsWith({ emptySecs5: 'x' }).emptySecs5, 495);
+  assert.equal(fmtMinSec(495), '8:15');
+  assert.equal(fmtMinSec(59.6), '1:00');
+});
+
+test('the pipe\'s round: chambers one after another, a chamber added later from when it was added', () => {
+  const T0 = Date.parse('2026-09-28T11:45:00Z');
+  const at = (secs) => new Date(T0 + secs * 1000).toISOString();
+  const chambers = [[2, 5000], [3, 4000], [5, 4000]].map(([no, litres]) => ({ no, litres }));
+  const tl = drainTimeline({ startedAt: at(0), chambers: [2, 3, 5], joinedAt: { 5: at(60) } }, chambers);
+  assert.deepEqual(tl.map((w) => [w.no, (w.from - T0) / 1000, (w.to - T0) / 1000]), [[2, 0, 495], [3, 495, 915], [5, 915, 1335]]);
+  const late = drainTimeline({ startedAt: at(0), chambers: [2, 3, 5], joinedAt: { 5: at(1000) } }, chambers);
+  assert.deepEqual([(late[2].from - T0) / 1000, (late[2].to - T0) / 1000], [1000, 1420]);
+  const now = drainAt(tl, T0 + 600 * 1000);
+  assert.equal(now.on, 3);
+  assert.deepEqual(now.drained, { 2: 1, 3: 0.25, 5: 0 });
+  assert.equal(now.litres, 6000);
+  assert.equal(now.left, 735 * 1000);
+  assert.equal(now.flowing, true);
+  const end = drainAt(tl, T0 + 2000 * 1000);
+  assert.deepEqual([end.on, end.flowing, end.left, end.litres], [5, false, 0, 13000]);
+  assert.deepEqual(drainTimeline({ chambers: [2] }, chambers), []);        // not started
+  assert.equal(drainAt([], T0), null);
 });
 
 test('IST dates', () => {

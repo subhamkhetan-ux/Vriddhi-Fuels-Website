@@ -121,7 +121,9 @@ h2 .sp{flex:1}
 .cta.sm{font-size:13px;padding:9px 14px}
 .row-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;justify-content:flex-end}
 .row-actions .cta{flex:1}
-label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);min-width:0}
+label.f,div.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);min-width:0}
+.minsec{display:flex;align-items:center;gap:6px}
+.minsec input[type=number]{width:76px;flex:none}
 input[type=text],input[type=number],input[type=date],input[type=time],input[type=datetime-local],input[type=password],input[type=search],select,textarea{
   width:100%;min-width:0;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:10px;color:var(--ink);
   padding:10px 11px;font-size:15px;font-family:inherit}
@@ -420,12 +422,16 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .dscene .ds-settle{fill:#ffcf6e}
 .dscene .ds-next{fill:#9a918a}
 .dscene .ds-done{fill:#5fe0a6}
-.dscene .hose-flow{stroke-dasharray:5 7;animation:dflow .8s linear infinite}
+/* one pipe per tank: flowing while a chamber empties into it, still once all should be empty */
+.dscene .dp.flowing .hose-in{stroke-dasharray:5 7;animation:dflow .8s linear infinite}
+.dscene .dp:not(.flowing) .hose-in{opacity:.55}
+.dscene .dp.still{opacity:.7}
 @keyframes dflow{to{stroke-dashoffset:-12}}
 .dscene .wave{animation:dwave 1.8s linear infinite}
 .dscene .wave.slow{animation-duration:4.5s}
+.dscene .gl:not(.on) .wave{animation:none}
+.dscene .gl:not(.on) .bubble,.dscene .dt:not(.flowing) .drop{display:none}
 @keyframes dwave{to{transform:translateX(-12px)}}
-.dscene .filling{animation:dwave 1.8s linear infinite,dpulse 2.4s ease-in-out infinite}
 @keyframes dpulse{0%,100%{opacity:.3}50%{opacity:.6}}
 .dscene .drop{animation:ddrop 1.05s ease-in infinite}
 @keyframes ddrop{0%{transform:translateY(0);opacity:0}15%{opacity:1}100%{transform:translateY(26px);opacity:0}}

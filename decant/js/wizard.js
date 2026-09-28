@@ -11,7 +11,7 @@
 //   5 Result  — variation per tank; shared as a picture
 
 import {
-  PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
+  PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, drainAt, drainTimeline, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
@@ -161,6 +161,10 @@ function tick() {
     const t = row(el.dataset.ttimer);
     const at = t && startOf(s, t);
     if (at) el.textContent = elapsed(now - Date.parse(at));
+  });
+  document.querySelectorAll('[data-tdrain]').forEach((el) => {
+    const t = row(el.dataset.tdrain);
+    if (t) el.textContent = drainText(s, t, now);
   });
   document.querySelectorAll('[data-tsettle]').forEach((el) => {
     const t = row(el.dataset.tsettle);
@@ -411,7 +415,7 @@ function stepDecant(s) {
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
   return `<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
-      ${decantScene(s, { tanks: tanks(), stock: state.tankState })}
+      ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
       <div class="rd-actions"><button class="cta sm" data-wz="shotAfter">📷 Screenshot</button>
         <span class="hint" style="align-self:center">reads each tank's stock before or after, as needed</span></div>
@@ -532,7 +536,12 @@ async function startFromTruck(s, p) {
   for (const x of into) {
     const row = d.tanks.find((t) => t.tank === x.id);
     if (row) {
-      row.chambers = [...row.chambers, ...x.chambers].sort((a, b) => a - b);
+      // the pipe takes them after the chambers it has (its order is the list's)
+      if (stageOf(s, row) === 'decanting') {
+        const at = new Date().toISOString();
+        row.joinedAt = { ...(row.joinedAt || {}), ...Object.fromEntries(x.chambers.map((no) => [no, at])) };
+      }
+      row.chambers = [...row.chambers, ...x.chambers];
       row.litres += x.litres;
     } else {
       const before = newer(d.before[x.id], state.tankState[x.id]);
@@ -576,6 +585,7 @@ function stageCard(s, t) {
     return `<div class="card accent">${head}
       <div class="bigtimer sm" data-ttimer="${t.tank}">0:00</div>
       <div class="hint" style="text-align:center">since ${fmtTime(startOf(s, t))} · stock before ${fmtL(t.before?.volume, 2)} (${fmtDip(dipOf(t.before))})</div>
+      <div class="hint" style="text-align:center;margin-top:4px;color:var(--muted)" data-tdrain="${t.tank}">${esc(drainText(s, t, Date.now()))}</div>
       <div class="row-actions"><button class="cta" data-donetank="${t.tank}">✓ ${tankName(t.tank)} done</button></div>
     </div>`;
   }
@@ -594,6 +604,17 @@ function stageCard(s, t) {
       </tbody></table>
       ${warn.length ? `<ul class="msgs">${warn.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`).join('')}</ul>` : ''}
     </div>`;
+}
+
+// The pipe's round by the chambers' times (Settings): the chamber it's on,
+// what's next and about how long is left — or that all should be empty now.
+function drainText(s, t, now) {
+  const at = drainAt(drainTimeline(t, s.data.chambers, state.settings), now);
+  if (!at) return '';
+  const next = t.chambers.slice(t.chambers.indexOf(at.on) + 1);
+  return at.flowing
+    ? `Pipe on C${at.on}${next.length ? `, then C${next.join(', C')}` : ''} · about ${elapsed(at.left)} to go`
+    : `By the chamber times, C${compactNos(t.chambers)} should be empty now — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'}.`;
 }
 
 function afterWarnings(s, t) {
