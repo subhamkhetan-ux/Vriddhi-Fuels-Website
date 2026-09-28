@@ -265,6 +265,16 @@ export function usedChambers(sessions, invoiceNo, exceptId = null) {
   return used;
 }
 
+// A decantation's chambers still in the truck: not decanted before and in none
+// of its tanks — held back in the plan, kept for later, or not emptied. They
+// can go into a tank at any time, whatever its other tanks are doing.
+export function chambersLeft(session) {
+  const d = session?.data || {};
+  const done = new Set(d.done || []);
+  const inTank = new Set((d.tanks || []).flatMap((t) => t.chambers || []));
+  return (d.chambers || []).filter((c) => c.product && c.litres > 0 && !done.has(c.no) && !inTank.has(c.no));
+}
+
 // 'new' | 'active' | 'partial' | 'done' | 'dismissed' for the "to decant" list.
 export function invoiceStatus(inv, sessions, layout) {
   if (inv.dismissed) return 'dismissed';

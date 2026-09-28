@@ -3,7 +3,7 @@
 // views.js; the rules they all share are in core.js.
 
 import {
-  PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, invoiceStatus, istDate, layoutsText,
+  PRODUCTS, chamberLayout, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, invoiceStatus, istDate, layoutsText,
   litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, stockProof, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
@@ -426,7 +426,9 @@ function sessionCard(s) {
       : st.includes('waiting') ? 'Next tank to start'
         : 'Waiting for the after-stock';
   const word = { waiting: 'next', decanting: 'decanting', settling: 'settling', read: 'read' };
-  const tanksTxt = (d.tanks || []).map((t, i) => `C${compactNos(t.chambers)} → ${tankName(t.tank)}${s.status === 'draft' ? '' : ` (${word[st[i]]})`}`).join(' · ') || 'No chambers picked yet';
+  const left = (d.tanks || []).length ? chambersLeft(s).filter((c) => tanks().some((t) => t.product === c.product)) : [];
+  const tanksTxt = [...(d.tanks || []).map((t, i) => `C${compactNos(t.chambers)} → ${tankName(t.tank)}${s.status === 'draft' ? '' : ` (${word[st[i]]})`}`),
+    ...(left.length ? [`C${compactNos(left.map((c) => c.no))} still in the truck`] : [])].join(' · ') || 'No chambers picked yet';
   return `<div class="card accent" data-session="${esc(s.id)}">
     <div class="inv-top"><div><div class="inv-tt">${esc(s.tt_no || '')}</div><div class="inv-meta">${esc(s.invoice_no || '')}</div></div>
       <span class="badge watch${step === 'Decanting now' ? ' live' : ''}"><i>●</i>${step}</span></div>
@@ -790,7 +792,7 @@ export function invoiceForm(existing = null) {
         const cur = prodOf[no] ?? (i === 0 && !Object.keys(prodOf).length ? 'HSD' : prodOf[no - 1] || 'HSD');
         prodOf[no] = cur;
         return `<div class="plan-tank" style="grid-template-columns:70px minmax(0,1fr)"><div class="pt-name">C${no} <span class="hint">${kl} KL</span></div>
-          <div class="seg">${['MS', 'HSD', 'XG', ''].map((p) => `<button type="button" class="${cur === p ? 'on' : ''}" data-ch="${no}" data-p="${p}">${p ? productShort(p) : 'Empty'}</button>`).join('')}</div></div>`;
+          <div class="seg">${['MS', 'HSD', 'XG'].map((p) => `<button type="button" class="${cur === p ? 'on' : ''}" data-ch="${no}" data-p="${p}">${productShort(p)}</button>`).join('')}</div></div>`;
       }).join('') || '<div class="hint">Type the chambers above.</div>';
       const tot = {};
       caps.forEach((kl, i) => { const p = prodOf[i + 1]; if (p) tot[p] = (tot[p] || 0) + kl; });
@@ -825,6 +827,8 @@ export function invoiceForm(existing = null) {
       });
       const byP = {};
       caps.forEach((kl, i) => { const p = prodOf[i + 1]; if (p) (byP[p] ||= []).push(i + 1); });
+      const bare = caps.map((kl, i) => i + 1).filter((no) => !prodOf[no]);
+      if (bare.length) { toast(`Tap what's in chamber ${compactNos(bare)} — every chamber comes full.`, 4000); return; }
       if (!Object.keys(byP).length) { toast('Pick the product in at least one chamber.'); return; }
       const oldLines = inv?.lines || [];
       const lines = Object.entries(byP).map(([p, nos]) => {

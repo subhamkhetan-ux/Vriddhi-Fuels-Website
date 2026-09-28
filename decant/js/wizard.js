@@ -6,10 +6,12 @@
 //               once, or tank by tank (Tank 2 now, Tank 3 later): a tank sells
 //               until its decanting starts, so each gets its own stock before,
 //               taken just before it starts. Nothing sells while it decants.
+//               Chambers still in the truck go into a tank whenever you like —
+//               no tank waits for another to finish.
 //   5 Result  — variation per tank; shared as a picture
 
 import {
-  PRODUCTS, checkPlan, densityCheck, dipAtLitres, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
+  PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
@@ -25,6 +27,7 @@ import {
 let currentId = null;
 let shown = '';            // session:step last drawn (a new step's cards rise in)
 let typing = null;         // {tank, phase} while the "type the stock" row is open
+let moving = { id: null, pick: {} };   // the tank picked for each chamber still in the truck
 let timer = null;
 let bound = null;
 
@@ -211,6 +214,9 @@ function stepTruck(s) {
     const want = Math.round(Number(l.qty_kl) * 1000);
     return key && sum[key] !== want && d.chambers.length ? `The invoice has ${fmtKL(want)} of ${key}; the chambers marked ${key} hold ${fmtKL(sum[key] || 0)}.` : null;
   }).filter(Boolean);
+  // every chamber comes full (no part loads): one the invoice doesn't reach needs its product
+  const unset = d.chambers.filter((c) => !c.product && c.litres > 0 && !done.has(c.no)).map((c) => c.no);
+  if (unset.length) mismatch.push(`The invoice doesn't say what's in chamber${unset.length > 1 ? 's' : ''} ${compactNos(unset)} — every chamber comes full, so tap its product.`);
   return `
     <div class="card">
       <div class="sect-title">Chambers</div>
@@ -219,7 +225,7 @@ function stepTruck(s) {
         Tap a product to change it.${done.size ? ` Chambers ${compactNos([...done])} were decanted before.` : ''}</div>
       ${d.chambers.map((c) => `<div class="plan-tank" style="grid-template-columns:86px minmax(0,1fr)">
         <div class="pt-name">C${c.no} <span class="hint">${fmtKL(c.litres)}</span></div>
-        ${done.has(c.no) ? '<div class="hint">decanted</div>' : `<div class="seg">${['MS', 'HSD', 'XG', ''].map((p) => `<button type="button" class="${(c.product || '') === p ? 'on' : ''}" data-setp="${c.no}" data-p="${p}">${p ? productShort(p) : 'Empty'}</button>`).join('')}</div>`}
+        ${done.has(c.no) ? '<div class="hint">decanted</div>' : `<div class="seg">${['MS', 'HSD', 'XG'].map((p) => `<button type="button" class="${c.product === p ? 'on' : ''}" data-setp="${c.no}" data-p="${p}">${productShort(p)}</button>`).join('')}</div>`}
       </div>`).join('')}
       ${[...mismatch, ...noTank.map((p) => `No tank here holds ${p}; those chambers can't be decanted.`)].map((m) => `<div class="banner" style="margin:10px 0 0">${esc(m)}</div>`).join('')}
     </div>
@@ -356,7 +362,7 @@ function stepPlan(s) {
       ${truckStrip(chambers, { target: (no) => { const r = rows.find((x) => x.no === no); return r?.tank ? tankName(r.tank).replace('Tank ', 'T') : 'hold'; }, onTap: true, active: new Set(rows.filter((r) => r.tank).map((r) => r.no)) })}
       <div class="hint" style="margin:2px 0 8px">Type how much goes in each tank — the chambers are picked to match. Or tap a chamber to move it.</div>
       ${ts.map((t) => planTankRow(s, t, rows, chk, busy)).join('')}
-      ${held.length ? `<div class="hint" style="margin-top:8px">Stays in the truck for now: <b>C${compactNos(held.map((h) => h.no))}</b> (${fmtKL(held.reduce((a, h) => a + h.litres, 0))}) — decant it later from the list.</div>` : ''}
+      ${held.length ? `<div class="hint" style="margin-top:8px">Stays in the truck for now: <b>C${compactNos(held.map((h) => h.no))}</b> (${fmtKL(held.reduce((a, h) => a + h.litres, 0))}) — start it into a tank whenever you like on the decanting screen, even while the others decant.</div>` : ''}
     </div>`;
   }).join('');
   return `${sections}
@@ -413,10 +419,144 @@ function stepDecant(s) {
     ${d.tanks.map((t) => stageCard(s, t)).join('')}
     ${count('waiting') > 1 ? '<button class="btn block" data-wz="startAll">▶ Start all the tanks not started, together</button>' : ''}
     ${count('decanting') > 1 ? '<button class="cta block" data-wz="decanted">✓ Decanting done — all of them</button>' : ''}
+    ${truckCards(s)}
     ${routingCards(s)}
     ${st.includes('read') ? '<div class="row-actions" style="justify-content:flex-start;margin-top:0"><button class="btn sm ghost" data-wz="route">✎ Which chamber went where?</button></div>' : ''}
     <button class="cta block" data-wz="finish" ${allRead ? '' : 'disabled'}>Finish & save the result</button>
+    ${allRead && leftInTruck(s).length ? `<div class="hint" style="margin-top:6px">C${compactNos(leftInTruck(s).map((c) => c.no))} ${leftInTruck(s).length > 1 ? 'stay' : 'stays'} in the truck — once this is saved, "Decant the rest" on the list decants ${leftInTruck(s).length > 1 ? 'them' : 'it'}.</div>` : ''}
     ${started ? '' : '<div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="backToPlan">◀ Plan</button></div>'}`;
+}
+
+// ---- chambers still in the truck ------------------------------------------------
+// Held back in the plan, kept for later ("Not now") or not emptied: they go
+// into a tank whenever you like — it starts on its own, whatever the other
+// tanks are doing. The app suggests a tank per chamber; tap to change it.
+
+// This truck's chambers still in it that a tank here can take (and no other
+// phone's decantation of the invoice has taken meanwhile).
+function leftInTruck(s) {
+  const taken = usedChambers(state.sessions, s.invoice_no, s.id);
+  return chambersLeft(s).filter((c) => !taken.has(c.no) && tanks().some((t) => t.product === c.product));
+}
+
+// The newer of two stock readings.
+const newer = (a, b) => (!a ? b : !b ? a : Date.parse(b.readingAt || 0) > Date.parse(a.readingAt || 0) ? b : a);
+
+// Tanks that can take chambers of product `p` now, with the room each has left:
+// any not being decanted from another truck — of this truck's own, only one
+// still waiting or decanting (one settling or read has its stock after due).
+function takers(s, p) {
+  const busy = busyTanks(s.id);
+  const out = [];
+  for (const t of tanks()) {
+    if (t.product !== p || busy.has(t.id)) continue;
+    const row = s.data.tanks.find((x) => x.tank === t.id);
+    const st = row ? stageOf(s, row) : null;
+    if (st === 'settling' || st === 'read') continue;
+    const before = st === 'decanting' ? row.before : newer(row?.before || s.data.before[t.id], state.tankState[t.id]);
+    out.push({ id: t.id, stage: st, room: before ? round2(roomOf(before, t) - (row?.litres || 0)) : NaN });
+  }
+  return out;
+}
+
+// The tank picked for each chamber left ('' = later): your taps, else the
+// app's suggestion — as much as fits, in as few tanks as possible.
+function picksFor(s, left) {
+  if (moving.id !== s.id) moving = { id: s.id, pick: {} };
+  const out = {};
+  for (const p of new Set(left.map((c) => c.product))) {
+    const cs = left.filter((c) => c.product === p);
+    const ts = takers(s, p);
+    if (cs.some((c) => !(c.no in moving.pick))) {
+      const { assign } = solvePlan({ chambers: cs, tanks: ts.filter((t) => Number.isFinite(t.room)), warnRoomL: state.settings.warnRoomL });
+      for (const c of cs) if (!(c.no in moving.pick)) moving.pick[c.no] = assign[c.no] || '';
+    }
+    for (const c of cs) out[c.no] = ts.some((t) => t.id === moving.pick[c.no]) ? moving.pick[c.no] : '';
+  }
+  return out;
+}
+
+// What the picks of product `p` put into each tank: [{id, chambers, litres, over, taker}].
+function picksInto(s, p, left, pick) {
+  const ts = takers(s, p);
+  const into = {};
+  for (const c of left) if (c.product === p && pick[c.no]) (into[pick[c.no]] ||= []).push(c);
+  return Object.entries(into).map(([id, cs]) => {
+    const taker = ts.find((t) => t.id === id);
+    const litres = cs.reduce((a, c) => a + c.litres, 0);
+    return { id, chambers: cs.map((c) => c.no), litres, over: Number.isFinite(taker.room) && litres > taker.room + 1e-6, taker };
+  });
+}
+
+function truckCards(s) {
+  const left = leftInTruck(s);
+  if (!left.length) return '';
+  const pick = picksFor(s, left);
+  const busy = busyTanks(s.id);
+  return [...new Set(left.map((c) => c.product))].map((p) => {
+    const cs = left.filter((c) => c.product === p);
+    const ts = takers(s, p);
+    const head = `<div class="rd-head"><span class="nm">Still in the truck</span>${productChip(p, `${fmtKL(cs.reduce((a, c) => a + c.litres, 0))} · C${compactNos(cs.map((c) => c.no))}`)}</div>`;
+    if (!ts.length) {
+      const them = cs.length > 1 ? 'them' : 'it';
+      const mine = tanks().filter((t) => t.product === p);
+      const why = mine.map((t) => (busy.has(t.id) ? `${tankName(t.id)} is being decanted from ${busy.get(t.id).tt_no || 'another truck'}` : `${tankName(t.id)} was already filled from this truck`));
+      const other = mine.some((t) => busy.has(t.id));
+      return `<div class="card" data-intruck="${p}">${head}
+        <div class="hint" style="margin-top:6px">No ${esc(productShort(p))} tank can take ${them} just now: ${esc(why.join('; '))}. ${other ? `Start ${them} here once that tank is free — or save` : 'Save'} this decanting and decant ${them} later with "Decant the rest" on the list.</div></div>`;
+    }
+    const into = picksInto(s, p, left, pick);
+    const stage = { waiting: ' (not started)', decanting: ' (decanting now)' };
+    return `<div class="card" data-intruck="${p}">${head}
+      <div class="hint" style="margin:4px 0 8px">Start ${cs.length > 1 ? 'them' : 'it'} into a tank now — whatever the other tanks are doing — or leave ${cs.length > 1 ? 'them' : 'it'} for later.</div>
+      ${cs.map((c) => `<div class="plan-tank pick-row"><div class="pt-name">C${c.no} <span class="hint">${fmtKL(c.litres)}</span></div>
+        <div class="seg">${ts.map((t) => `<button type="button" class="${pick[c.no] === t.id ? 'on' : ''}" data-pick="${c.no}" data-to="${t.id}">${tankName(t.id)}</button>`).join('')}<button type="button" class="${pick[c.no] ? '' : 'on'}" data-pick="${c.no}" data-to="">Later</button></div></div>`).join('')}
+      ${into.map((x) => `<div class="hint${x.over ? ' bad' : ''}" style="margin-top:6px">${tankName(x.id)}${stage[x.taker.stage] || ''}: ${fmtKL(x.litres)} into ${Number.isFinite(x.taker.room) ? `room for ${fmtL(x.taker.room)}${x.over ? ' — too much, pick fewer chambers for it' : ''}` : 'no stock reading yet'}</div>`).join('')}
+      <div class="row-actions"><button class="cta sm" data-fromtruck="${p}" ${into.length && !into.some((x) => x.over) ? '' : 'disabled'}>▶ Start ${into.length ? into.map((x) => `C${compactNos(x.chambers)} into ${tankName(x.id)}`).join(', ') : 'into a tank'}</button></div>
+    </div>`;
+  }).join('');
+}
+
+// ▶ Start: the picked chambers go into their tanks now. A tank this truck isn't
+// filling yet joins and starts — its stock before is checked as for any tank,
+// and it waits on this screen if a fresh one is needed; a tank already
+// decanting takes them as well.
+async function startFromTruck(s, p) {
+  const d = s.data;
+  const left = leftInTruck(s).filter((c) => c.product === p);
+  const into = picksInto(s, p, left, picksFor(s, left));
+  if (!into.length) return;
+  const over = into.find((x) => x.over);
+  if (over) { toast(`${tankName(over.id)} has room for only ${fmtL(over.taker.room)} — pick fewer chambers for it.`, 5000); return; }
+  const byNo = new Map(left.map((c) => [c.no, c]));
+  for (const x of into) {
+    const row = d.tanks.find((t) => t.tank === x.id);
+    if (row) {
+      row.chambers = [...row.chambers, ...x.chambers].sort((a, b) => a - b);
+      row.litres += x.litres;
+    } else {
+      const before = newer(d.before[x.id], state.tankState[x.id]);
+      d.tanks.push({
+        tank: x.id, tankNo: tankById(x.id)?.no, product: p, litres: x.litres, chambers: x.chambers, before: before ? { ...before } : null, after: null,
+        pricePerL: d.prices?.[p] ?? null, stage: 'waiting', startedAt: null, doneAt: null,
+      });
+    }
+    for (const no of x.chambers) {
+      const row2 = d.plan.find((q) => q.no === no);
+      if (row2) row2.tank = x.id;
+      else d.plan.push({ no, product: p, litres: byNo.get(no).litres, tank: x.id });
+      delete moving.pick[no];
+    }
+  }
+  d.plan.sort((a, b) => a.no - b.no);
+  d.tanks.sort((a, b) => (a.tankNo || 0) - (b.tankNo || 0));
+  d.step = 'decant';
+  syncStatus(s);
+  const toStart = into.filter((x) => stageOf(s, d.tanks.find((t) => t.tank === x.id)) === 'waiting').map((x) => x.id);
+  const joined = into.filter((x) => !toStart.includes(x.id));
+  if (toStart.length && await startTanks(s, toStart)) return;
+  await persist(s);                        // e.g. "take a new reading first": the tank waits here, ready to start
+  if (joined.length && !toStart.length) toast(`${joined.map((x) => `C${compactNos(x.chambers)} into ${tankName(x.id)}`).join(', ')} too — decanting.`);
 }
 
 function stageCard(s, t) {
@@ -570,6 +710,15 @@ async function onClick(e) {
   if (doneBtn) { await doneTanks(s, [doneBtn.dataset.donetank]); return; }
   const dropBtn = t.closest('[data-drop]');
   if (dropBtn) { await dropTank(s, dropBtn.dataset.drop); return; }
+  const pickBtn = t.closest('[data-pick]');
+  if (pickBtn) {
+    if (moving.id !== s.id) moving = { id: s.id, pick: {} };
+    moving.pick[Number(pickBtn.dataset.pick)] = pickBtn.dataset.to;
+    render();
+    return;
+  }
+  const fromTruck = t.closest('[data-fromtruck]');
+  if (fromTruck) { await startFromTruck(s, fromTruck.dataset.fromtruck); return; }
   if (act === 'share') { share(s); return; }
   if (act === 'route') { routeEditor(s); return; }
   const useRoute = t.closest('[data-useroute]');
@@ -887,8 +1036,10 @@ async function dropTank(s, id) {
   const d = s.data;
   const row = d.tanks.find((t) => t.tank === id);
   if (!row || stageOf(s, row) !== 'waiting') return;
-  if (!(await ask(`Not now for ${tankName(id)}?`, `C${compactNos(row.chambers)} (${fmtKL(row.litres)}) stay in the truck; the invoice stays on the list as part decanted, to decant later.`, { ok: 'Keep in the truck' }))) return;
+  if (!(await ask(`Not now for ${tankName(id)}?`, `C${compactNos(row.chambers)} (${fmtKL(row.litres)}) stay in the truck — start them into a tank from this screen whenever you like.`, { ok: 'Keep in the truck' }))) return;
   for (const p of d.plan) if (p.tank === id) p.tank = null;
+  if (moving.id !== s.id) moving = { id: s.id, pick: {} };
+  for (const no of row.chambers) moving.pick[no] = '';      // kept back on purpose: not suggested again
   d.tanks = d.tanks.filter((t) => t.tank !== id);
   if (!d.tanks.length) d.step = 'plan';
   syncStatus(s);
