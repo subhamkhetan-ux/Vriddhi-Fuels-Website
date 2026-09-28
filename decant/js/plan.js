@@ -411,12 +411,13 @@ function indentForm(existing = null) {
       const chambers = cs.map((k, i) => ({ no: i + 1, litres: Math.round(k * 1000), product: prodOf[i + 1] || null }));
       box.innerHTML = chambers.length ? `${truckStrip(chambers)}
         ${chambers.map((c) => `<div class="plan-tank" style="grid-template-columns:70px minmax(0,1fr)"><div class="pt-name">C${c.no} <span class="hint">${c.litres / 1000} KL</span></div>
-          <div class="seg">${['MS', 'HSD', 'XG', ''].map((p) => `<button type="button" class="${(c.product || '') === p ? 'on' : ''}" data-cp="${c.no}" data-p="${p}">${p ? productShort(p) : 'Empty'}</button>`).join('')}</div></div>`).join('')}` : '';
+          <div class="seg">${['MS', 'HSD', 'XG'].map((p) => `<button type="button" class="${c.product === p ? 'on' : ''}" data-cp="${c.no}" data-p="${p}">${productShort(p)}</button>`).join('')}</div></div>`).join('')}` : '';
       const got = {};
       for (const c of chambers) if (c.product) got[c.product] = (got[c.product] || 0) + c.litres;
       const off = ['MS', 'HSD', 'XG'].filter((p) => Number(qty[p]) > 0 && Math.round(Number(qty[p]) * 1000) !== (got[p] || 0));
+      const bare = Object.keys(got).length ? chambers.filter((c) => !c.product).map((c) => c.no) : [];
       hint.textContent = !chambers.length ? 'Type the TT\'s chambers.'
-        : `${Object.entries(got).map(([p, l]) => `${productShort(p)} ${fmtKL(l)}`).join(' · ') || 'Type the KL of each product.'}${off.length ? ` — the indent doesn't fill whole chambers for ${off.join(', ')}; check the chambers.` : ''}`;
+        : `${Object.entries(got).map(([p, l]) => `${productShort(p)} ${fmtKL(l)}`).join(' · ') || 'Type the KL of each product.'}${off.length ? ` — the indent doesn't fill whole chambers for ${off.join(', ')}; check the chambers.` : ''}${bare.length ? ` — nothing in C${compactNos(bare)} yet: a TT always goes full, so add its KL or tap its product.` : ''}`;
     };
     const draw = () => {
       const chips = [...own.map((o) => [o.tt, `${o.tt} · ${round2(o.chambers.reduce((a, b) => a + b, 0))} KL`]), ['transport', 'Transport TT'], ['new', '＋ Our new TT']];

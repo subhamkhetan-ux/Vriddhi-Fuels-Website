@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chartFromRows, chartIssues, checkPlan, dipAtLitres, invoiceStatus,
+  DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, invoiceStatus,
   istDate, litresAtDip, productKey, settingsWith, solvePlan, suggestPlan, tankResult, usedChambers,
 } from '../../decant/js/core.js';
 import { DIP_CHART } from '../../decant/js/dipchart.js';
@@ -270,6 +270,18 @@ test('invoice status follows its decantations', () => {
   assert.equal(invoiceStatus(inv, [s('cancelled', [[1, 'T1']])], layout), 'new');
   assert.equal(invoiceStatus({ ...inv, dismissed: true }, [], layout), 'dismissed');
   assert.deepEqual([...usedChambers([s('done', [[1, 'T1'], [2, null]])], inv.invoice_no)], [1]);
+});
+
+test('chambers still in the truck: in no tank of the decantation, not decanted before', () => {
+  const chambers = [5, 5, 4, 4, 4].map((kl, i) => ({ no: i + 1, litres: kl * 1000, product: 'HSD' }));
+  const s = (tanks, done = []) => ({ data: { chambers, done, tanks: tanks.map(([tank, nos]) => ({ tank, chambers: nos })) } });
+  const nos = (x) => chambersLeft(x).map((c) => c.no);
+  // C1,2 decanting into Tank 3: C3–5 can go into Tank 2 now, without waiting for it
+  assert.deepEqual(nos(s([['T3', [1, 2]]])), [3, 4, 5]);
+  assert.deepEqual(nos(s([['T3', [1, 2]], ['T2', [3, 4, 5]]])), []);
+  assert.deepEqual(nos(s([['T3', [2]]], [1])), [3, 4, 5]);                // C1 decanted before
+  assert.deepEqual(nos({ data: { chambers: [{ no: 1, litres: 5000, product: null }, ...chambers.slice(1)], tanks: [] } }), [2, 3, 4, 5]);
+  assert.deepEqual(nos({}), []);
 });
 
 test('IST dates', () => {

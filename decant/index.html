@@ -94,6 +94,7 @@ h2 .count{color:var(--faint);font-weight:600}
 h2 .sp{flex:1}
 .empty{color:var(--faint);font-size:14px;padding:16px;text-align:center;border:1px dashed var(--glass-line);border-radius:12px;background:var(--glass)}
 .hint{font-size:12px;color:var(--faint)}
+.hint.bad{color:var(--bad)}
 .muted{color:var(--muted)}
 .mono{font-family:var(--mono)}
 .num{font-variant-numeric:tabular-nums}
@@ -254,6 +255,9 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .plan-tank .pt-in input{text-align:right;font-family:var(--display);font-weight:800;font-size:17px;padding:8px 10px}
 .plan-tank .pt-in span{font-size:12px;color:var(--muted)}
 .plan-tank .gauge{max-width:150px;margin-top:8px}
+/* a chamber still in the truck: which tank it goes into (fits a 320 px phone on one line) */
+.plan-tank.pick-row{grid-template-columns:58px minmax(0,1fr)}
+.pick-row .seg button{padding:8px 10px}
 .lvl-over .pt-name{color:var(--bad)}
 .lvl-tight .pt-name{color:var(--warn)}
 .bigtimer{font-family:var(--display);font-size:44px;font-weight:800;text-align:center;letter-spacing:1px;margin:6px 0 2px}

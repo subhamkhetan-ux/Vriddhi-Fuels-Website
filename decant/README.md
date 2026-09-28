@@ -138,7 +138,10 @@ product, are pointed out.
 
 Tap **Start decanting** on the truck's card:
 
-1. **Truck** — the chambers and their products, and an optional **density
+1. **Truck** — the chambers and their products (tap one to correct it — every
+   chamber comes full, there are no part loads, so a chamber can't be marked
+   empty; one the invoice doesn't reach is flagged to pick its product; the
+   same goes for typing an invoice or an indent), and an optional **density
    check**: type the hydrometer reading and temperature of the truck's sample;
    the app works out the density at 15 °C (ASTM D1250 Table 53B) and compares
    it with the invoice's Density@15 (± 3 kg/m³ by default).
@@ -153,12 +156,15 @@ Tap **Start decanting** on the truck's card:
    room unless nothing else fits. The plan **only allows the same product**,
    never more than the tank's **room** (up to 20,500 L), and shows every tank's stock and dip
    after decanting. A tank already being decanted from another truck can't be
-   used. Chambers that don't fit **stay in the truck** — the invoice stays on
-   the list as *Part decanted* for later.
+   used. Chambers that don't fit, or that you hold back, **stay in the
+   truck** — start them into a tank whenever you like on the next screen.
    Then either:
    - **▶ Start decanting into all** — every tank at once, or
    - **Tank by tank** — start each tank when you're ready, e.g. Tank 2 now
      and Tank 3 later.
+
+   No tank ever waits for another to finish: they start and finish on their
+   own.
 4. **Decant** — at the top, the truck and the tanks as they are: our TT
    (its number and capacity on the tank), a sight glass per chamber, the
    bottom-loading valves, and a hose from each chamber to its tank's fill
@@ -180,6 +186,19 @@ Tap **Start decanting** on the truck's card:
      after, whichever it needs, from one picture.
    - **Not now — keep in the truck** leaves a tank not started out; its
      chambers stay in the truck for later.
+   - **Still in the truck** — chambers held back in the plan, kept for later
+     or not emptied, while the other tanks go on: e.g. C1,2 decanting into
+     Tank 3, and two minutes later C3–5 into Tank 2. Pick the tank for each
+     chamber (the app suggests: as much as fits, in as few tanks as possible)
+     and **▶ Start**. A tank not in use starts — its stock before is checked
+     as above, and if a fresh one is needed it waits on the screen with its
+     own ▶ Start. A tank of this truck that is still decanting takes the
+     chamber too (its stock before stays; the result counts every chamber
+     that went in). A tank another truck is decanting into, or one of this
+     truck's that is settling or read, can't take more; chambers left when the
+     decantation is saved are decanted later with **Decant the rest** on the
+     list. The Home screen's *In progress* card says what's still in the
+     truck.
    The IndianOil automation blocks sales from a tank while it is decanted, so
    nothing is sold in between: each tank is measured on its own window.
 5. **Result** — per tank, with its own times:
