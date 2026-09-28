@@ -174,7 +174,7 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .tank .t-age{font-size:11px;color:var(--faint);margin-top:2px;display:flex;flex-wrap:wrap;column-gap:6px}
 .tank .t-age.stale{color:var(--warn)}
 .tank.busy{border-color:rgba(255,122,26,.55)}
-.tank .t-busy{position:absolute;top:8px;right:8px}
+.tank .t-busy{position:absolute;top:-9px;right:10px;z-index:1;background:#35270f;border-color:rgba(255,178,62,.45);box-shadow:0 2px 8px rgba(0,0,0,.45)}
 
 /* ---- invoice cards & truck ---- */
 .inv-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
@@ -403,6 +403,56 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .viz-grid{stroke:var(--viz-grid);stroke-width:1}
 .viz-base{stroke:var(--viz-base);stroke-width:1}
 .viz-tick{fill:var(--viz-tick);font-size:11px;font-variant-numeric:tabular-nums;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+/* ---- decanting scene (scene.js) ---- */
+.dscene{width:100%;height:auto;max-height:300px;display:block;margin:10px 0 4px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 45%)}
+.dscene.compact{max-height:190px}
+.dscene text{font-family:var(--display);text-anchor:middle}
+.dscene .ds-livery{font-size:6.8px;font-weight:800;letter-spacing:.9px;fill:#fff}
+.dscene .ds-ch{font-size:6.4px;font-weight:800;fill:#fff}
+.dscene .ds-kl{font-size:5.4px;font-weight:600;fill:#ffe3d0}
+.dscene .ds-tank{font-size:8.5px;font-weight:700;fill:#d9d1c9}
+.dscene .ds-stage{font-size:7.6px;font-weight:700}
+.dscene .ds-live{fill:#ffb074}
+.dscene .ds-settle{fill:#ffcf6e}
+.dscene .ds-next{fill:#9a918a}
+.dscene .ds-done{fill:#5fe0a6}
+.dscene .hose-flow{stroke-dasharray:5 7;animation:dflow .8s linear infinite}
+@keyframes dflow{to{stroke-dashoffset:-12}}
+.dscene .wave{animation:dwave 1.8s linear infinite}
+.dscene .wave.slow{animation-duration:4.5s}
+@keyframes dwave{to{transform:translateX(-12px)}}
+.dscene .filling{animation:dwave 1.8s linear infinite,dpulse 2.4s ease-in-out infinite}
+@keyframes dpulse{0%,100%{opacity:.3}50%{opacity:.6}}
+.dscene .drop{animation:ddrop 1.05s ease-in infinite}
+@keyframes ddrop{0%{transform:translateY(0);opacity:0}15%{opacity:1}100%{transform:translateY(26px);opacity:0}}
+.dscene .bubble{animation:dbubble 1.4s ease-in infinite}
+@keyframes dbubble{0%{transform:translateY(0);opacity:0}30%{opacity:.7}100%{transform:translateY(-14px);opacity:0}}
+/* ---- lively touches ---- */
+.gauge .gwave{animation:dwave 2.8s linear infinite}
+.gauge .gin{animation:dpulse 2s ease-in-out infinite}
+.badge.live i{animation:blink 1.2s ease-in-out infinite}
+@keyframes blink{50%{opacity:.25}}
+.pill.live .dot{animation:breathe 2.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(141,255,207,.6)}50%{box-shadow:0 0 0 4px rgba(141,255,207,0)}}
+.pill.connecting .dot{animation:blink 1s ease-in-out infinite}
+@keyframes vrise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.enter > *{animation:vrise .36s cubic-bezier(.2,.8,.2,1) both}
+.enter > :nth-child(2){animation-delay:.03s}
+.enter > :nth-child(3){animation-delay:.06s}
+.enter > :nth-child(4){animation-delay:.09s}
+.enter > :nth-child(5){animation-delay:.12s}
+.enter > :nth-child(n+6){animation-delay:.15s}
+.sheet-card{animation:sheetup .3s cubic-bezier(.2,.8,.2,1)}
+.sheet-back{animation:fadein .25s ease-out}
+@keyframes sheetup{from{transform:translateY(28px);opacity:.3}}
+@keyframes fadein{from{opacity:0}}
+.btn,.chipbtn,.tab,.lrow,.tank{transition:transform .1s ease,border-color .15s ease}
+.btn:active,.chipbtn:active,.tab:active,.lrow:active,.tank:active{transform:scale(.97)}
+.cta{transition:transform .1s ease}
+.cta:active{transform:translateY(1px) scale(.98)}
+.toast{transform:translate(-50%,8px);transition:opacity .2s,transform .25s ease}
+.toast.show{transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 .viz-short{fill:var(--viz-short)}
 .viz-excess{fill:var(--viz-excess)}
 .viz-tolband{fill:rgba(255,255,255,.06)}

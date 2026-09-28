@@ -13,15 +13,17 @@ import {
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
+import { decantScene } from './scene.js';
 import {
   PRODUCT_COLOR, ago, ask, bandBadge, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
 import {
-  busyTanks, compactNos, invoiceForm, isStale, layoutFor, proofLine, readScreenshot, render, tankById, tankName, tanks, typedReading,
+  busyTanks, compactNos, enter, invoiceForm, isStale, layoutFor, proofLine, readScreenshot, render, tankById, tankName, tanks, typedReading,
 } from './app.js';
 
 let currentId = null;
+let shown = '';            // session:step last drawn (a new step's cards rise in)
 let typing = null;         // {tank, phase} while the "type the stock" row is open
 let timer = null;
 let bound = null;
@@ -141,6 +143,7 @@ export function renderWizard(el) {
     </div>
     <div class="steps">${STEPS.map(([k, label], i) => `<div class="step${i === idx ? ' on' : i < idx ? ' done' : ''}"${i === idx ? ' aria-current="step"' : ''}>${label}</div>`).join('')}</div>
     <div id="wzBody">${{ truck: stepTruck, before: stepBefore, plan: stepPlan, decant: stepDecant, result: stepResult }[step](s)}</div>`;
+  if (shown !== `${s.id}:${step}`) { shown = `${s.id}:${step}`; enter(el.querySelector('#wzBody')); }
   clearInterval(timer);
   if (step === 'decant') timer = setInterval(tick, 1000);
   tick();
@@ -402,6 +405,7 @@ function stepDecant(s) {
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
   return `<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
+      ${decantScene(s, { tanks: tanks(), stock: state.tankState })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
       <div class="rd-actions"><button class="cta sm" data-wz="shotAfter">📷 Screenshot</button>
         <span class="hint" style="align-self:center">reads each tank's stock before or after, as needed</span></div>
