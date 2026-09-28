@@ -84,6 +84,21 @@ export function byDay(entries) {
     .sort((a, b) => (a.key < b.key ? 1 : -1));
 }
 
+// One group per invoice — a truck's unloading, in however many goes it took —
+// newest first, its tanks in order (by time, then tank, when it took more than
+// one go). The Log shows each as one card.
+export function byInvoice(entries) {
+  const when = (e) => Date.parse(e.at) || 0;
+  return groupRows(entries, (e) => e.invoiceNo || `session ${e.sessionId}`)
+    .map((g) => {
+      const sessions = [...new Set(g.entries.map((e) => e.sessionId))];
+      const list = [...g.entries].sort((a, b) => (sessions.length > 1 ? when(a) - when(b) : 0)
+        || (a.tankNo || 0) - (b.tankNo || 0) || String(a.tank).localeCompare(String(b.tank)));
+      return { ...g, entries: list, sessions, invoiceNo: list[0].invoiceNo, tt: list[0].tt, at: list.reduce((m, e) => (when(e) > when({ at: m }) ? e.at : m), list[0].at) };
+    })
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
 export function byVehicle(entries) {
   return groupRows(entries, (e) => e.tt || '—')
     .map((g) => ({ ...g, last: g.entries.reduce((m, e) => (e.day > m ? e.day : m), '') }))

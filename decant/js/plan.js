@@ -8,6 +8,7 @@
 //   3. Dispense first — per tank, the least to dispense so every chamber goes
 //      in whichever way the loads come (keeping the room margin).
 //   4. Our delivery tankers — how much diesel they can take (Loading app).
+//   5. Arrived — indents whose invoice has come in (off the plan), last.
 
 import {
   PRODUCTS, dipAtLitres, indentKL, loadChambers, matchIndents, normTT, ownTT, planIndents, roomOf, round2, smallestTransport,
@@ -92,11 +93,11 @@ export function renderPlan(el) {
       ${active.length ? active.map((p, i) => indentRow(p, active, i)).join('') : '<div class="empty" style="margin-bottom:10px">Add each load you\'ve placed an indent for — on our TT or a transport TT.</div>'}
       <div class="row-actions" style="justify-content:flex-start"><button class="cta sm" data-addload>＋ Add an indent</button></div>
     </div>
-    ${arrivedCard(all, arrived)}
     ${active.length ? `<h2>Dispense first</h2>
       ${Object.keys(PRODUCTS).map((p) => productPlan(p, active, res, space)).join('')}
       ${res.missing.length ? `<div class="banner">No stock for ${res.missing.map(tankName).join(', ')} yet — add it under <b>Stock now</b>.</div>` : ''}` : ''}
-    ${tankersCard(space)}`;
+    ${tankersCard(space)}
+    ${arrivedCard(all, arrived)}`;
 }
 
 function stockCard() {
