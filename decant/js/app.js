@@ -4,7 +4,7 @@
 
 import {
   PRODUCTS, chamberLayout, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, invoiceStatus, istDate, layoutsText,
-  litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, tankStage, transportOptions, usedChambers,
+  litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, stockProof, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
@@ -157,6 +157,7 @@ export async function readScreenshot({ want = null } = {}) {
             ${tankSel}
             <label class="f" style="margin-top:8px">Correct the stock if it's wrong (L)
               <input type="number" inputmode="decimal" step="0.01" data-vol="${i}" value="${r.volume}"></label>
+            <div class="hint">A corrected figure still counts as from the screenshot; the screen's own figure is kept with it for the audit.</div>
           </div>`;
         }).join('');
         el.innerHTML = `${parsed.warnings.map((w) => `<div class="banner">${esc(w)}</div>`).join('')}
@@ -175,13 +176,15 @@ export async function readScreenshot({ want = null } = {}) {
             const typed = Number(el.querySelector(`[data-vol="${i}"]`)?.value);
             const r = { ...t.reading };
             let src = 'photo';
+            const extra = { confidence: t.confidence, checks: t.checks };
             if (Number.isFinite(typed) && Math.abs(typed - r.volume) > 0.004) {
+              extra.screenVolume = r.volume;                       // what the screen said, for the audit
               r.volume = typed;
               r.ullage = round2((tankById(id)?.capacity || r.capacity || 20000) - typed);
               r.height = null;
               src = 'photo-edited';
             }
-            readings[id] = makeReading(id, r, src, { confidence: t.confidence, checks: t.checks });
+            readings[id] = makeReading(id, r, src, extra);
           });
           for (const [id, r] of Object.entries(readings)) saveTankReading(id, r);
           result = { readings };
@@ -288,6 +291,7 @@ function tankTile(t, busy) {
     <div class="t-vol">${r ? fmtL(r.volume) : '—'}</div>
     <div class="t-sub"><span>Room <b>${r ? fmtL(roomOf(r, t)) : '—'}</b></span><span>Dip <b>${r ? fmtDip(r.dip) : '—'}</b></span></div>
     <div class="t-age${stale ? ' stale' : ''}">${r ? `<span>${istDate(r.readingAt) === istDate(Date.now()) ? fmtTime(r.readingAt) : fmtWhen(r.readingAt)}</span><span>${ago(r.readingAt)}</span>` : 'No reading yet'}</div>
+    ${stockProof(r)?.proof === false ? '<div class="np">✎ typed, no proof</div>' : ''}
   </button>`;
 }
 
@@ -377,6 +381,14 @@ function roomCheck(inv, layout, used, { busy, waiting }) {
   const also = waiting.filter((w) => w.inv.invoice_no !== inv.invoice_no && products.some((p) => w.prods.has(p)));
   if (also.length) notes.push(`For this truck alone — ${also.map((w) => esc(w.inv.tt_no || 'another truck')).join(', ')} ${also.length > 1 ? 'are' : 'is'} waiting too.`);
   return `<div class="room">${blocks}${notes.map((n) => `<div class="hint" style="margin-top:6px">${n}</div>`).join('')}</div>`;
+}
+
+// The internal-audit remark for a stock reading: proof (a screenshot, even
+// corrected, or a dip) or none (litres typed in).
+export function proofLine(r) {
+  const p = stockProof(r);
+  if (!p) return '';
+  return `<div class="audit ${p.proof ? 'ok' : 'no'}">${p.proof ? `✓ Proof: ${esc(p.text)}` : `⚠ No solid proof: ${esc(p.text.replace(/ — no solid proof$/, ''))}`}</div>`;
 }
 
 export function compactNos(nos) {
@@ -567,7 +579,8 @@ function tankSheet(id) {
         <div><div class="k">Water</div><div class="v">${r.water != null ? fmtL(r.water, 2) : '—'}</div></div>
         <div><div class="k">Density / (tc)</div><div class="v">${r.density ?? '—'} / ${r.densityTc ?? '—'}</div></div>
         <div><div class="k">Temp</div><div class="v">${r.temp ?? '—'}</div></div></div>
-        <div class="rd-src" style="margin-top:8px">${{ photo: 'From a screenshot', 'photo-edited': 'From a screenshot (corrected)', litres: 'Typed in', dip: 'From a dip' }[r.source] || ''} · ${fmtWhen(r.readingAt)} (${ago(r.readingAt)})</div>` : '<div class="empty">No reading yet.</div>'}
+        <div class="rd-src" style="margin-top:8px">${{ photo: 'From a screenshot', 'photo-edited': 'From a screenshot (corrected)', litres: 'Typed in', dip: 'From a dip' }[r.source] || ''} · ${fmtWhen(r.readingAt)} (${ago(r.readingAt)})</div>
+        ${proofLine(r)}` : '<div class="empty">No reading yet.</div>'}
       <div class="hr"></div>
       <div class="sect-title">Type the stock</div>
       <div class="manual">

@@ -407,6 +407,40 @@ export function roomOf(reading, tank) {
   return round2((tank ? fillLimit(tank) : reading.capacity || 20000) - reading.volume);
 }
 
+// For the internal audit: what's behind a stock reading. An automation
+// screenshot (also when a misread figure was corrected by hand — the
+// automation has its data errors; the screen's figure is kept) or a physical
+// dip is proof the stock was genuine; litres typed in by hand are not.
+// Returns {proof, short, label, text}, or null for a reading with no source.
+export function stockProof(r) {
+  const litres = (v) => `${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L`;
+  switch (r?.source) {
+    case 'photo':
+      return { proof: true, short: 'screenshot', label: 'Screenshot', text: 'read from the automation screenshot' };
+    case 'photo-edited': {
+      const was = Number.isFinite(r.screenVolume) ? ` (the screen said ${litres(r.screenVolume)})` : '';
+      return { proof: true, short: 'screenshot, corrected', label: `Screenshot, corrected by hand${was}`, text: `from the automation screenshot, corrected by hand${was}` };
+    }
+    case 'dip': {
+      const cm = Number.isFinite(r.dip) ? `${r.dip} cm` : '';
+      return { proof: true, short: cm ? `dip ${cm}` : 'dip', label: `Dip${cm ? ` ${cm}` : ''}`, text: `from a physical dip${cm ? ` of ${cm}` : ''} (litres by the dip chart)` };
+    }
+    case 'litres':
+      return { proof: false, short: 'typed, no proof', label: 'Typed litres — no solid proof', text: 'litres typed in by hand — no solid proof' };
+    default:
+      return null;
+  }
+}
+
+// A decantation's stock readings with no proof: [{tank, tankNo, which: 'before' | 'after'}].
+export function unprovenReadings(tanks) {
+  const out = [];
+  for (const t of tanks || []) {
+    for (const which of ['before', 'after']) if (stockProof(t[which])?.proof === false) out.push({ tank: t.tank, tankNo: t.tankNo, which });
+  }
+  return out;
+}
+
 // Everything that should stop or slow down a decantation, per tank.
 export function checkPlan({ plan, tanks, readings, busy = new Set(), settings, now = Date.now(), chart = null }) {
   const s = settings || DEFAULT_SETTINGS;

@@ -69,7 +69,7 @@ function card(ctx, y, h) {
 
 // m: {title, sub, when, total, variation, direction, summary,
 //     tanks: [{name, product, color, band, bandLabel, direction, variation, pctLine, meta, rows: [[label, litres, extra, bold, direction]]}],
-//     notes, footer, made}
+//     notes, footer, audit: {ok, text} | null, made}
 export async function resultImage(m) {
   try { await Promise.all(['800 64px Sora', '700 34px Sora'].map((f) => document.fonts.load(f))); } catch { /* system fonts */ }
   const canvas = document.createElement('canvas');
@@ -146,6 +146,14 @@ export async function resultImage(m) {
     text(ctx, 'NOTES', PAD + 36, y + 48, { font: `700 22px ${SANS}`, color: C.faint });
     lines.forEach((l, i) => text(ctx, l, PAD + 36, y + 90 + i * 40, { font: `500 28px ${SANS}` }));
     y += h + 24;
+  }
+  // the internal-audit line: every stock from a screenshot or a dip, or which were typed in
+  if (m.audit) {
+    for (const l of wrap(ctx, m.audit.text, `600 26px ${SANS}`, W - 2 * PAD)) {
+      y += 36;
+      text(ctx, l, PAD, y, { font: `600 26px ${SANS}`, color: m.audit.ok ? '#2FD08A' : '#FFB23E' });
+    }
+    y += 6;
   }
   for (const l of wrap(ctx, m.footer || '', `500 26px ${SANS}`, W - 2 * PAD)) {
     if (!l) continue;

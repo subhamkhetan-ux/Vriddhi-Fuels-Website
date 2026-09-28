@@ -268,6 +268,12 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .result .var.short{color:#ff9a90}
 .result .var.excess{color:var(--good)}
 .pos,.cmp tr.tot td.pos{color:var(--good)}
+/* internal audit: what's behind a stock reading */
+.audit{font-size:12.5px;line-height:1.4;margin-top:8px}
+.audit.ok,.pf-ok{color:var(--good)}
+.audit.no,.pf-no{color:var(--warn)}
+.np{font-size:11px;font-weight:600;color:var(--warn)}
+.tank .np{margin-top:2px}
 .result .var.exact{color:var(--ink)}
 .cmp{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
 .cmp td,.cmp th{padding:6px 4px;border-top:1px solid var(--glass-line-soft);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
