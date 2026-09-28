@@ -159,8 +159,16 @@ Tap **Start decanting** on the truck's card:
    - **▶ Start decanting into all** — every tank at once, or
    - **Tank by tank** — start each tank when you're ready, e.g. Tank 2 now
      and Tank 3 later.
-4. **Decant** — one card per tank, each going *not started → decanting →
-   settling → stock after read*:
+4. **Decant** — at the top, the truck and the tanks as they are: our TT
+   (its number and capacity on the tank), a sight glass per chamber, the
+   bottom-loading valves, and a hose from each chamber to its tank's fill
+   point — flowing in the product's colour while that tank decants, the
+   planned level shimmering in the tank; *next* tanks show a dashed hose,
+   *settling* ones sit at their new level, *done* ones show a ✓. The same
+   picture runs on the Home screen's *In progress* card, and a tank tile
+   being filled shows where it will reach. (Motion stops if the phone is set
+   to reduce motion.) Then one card per tank, each going *not started →
+   decanting → settling → stock after read*:
    - **▶ Start Tank N**. A tank sells until its decanting starts, so its
      stock before must be from just before it starts: a reading from before
      the first tank started (or over 30 minutes old) is questioned — take a
@@ -365,6 +373,7 @@ default), the dip chart, and:
 | `js/app.js` | Home screen, stock screenshots, invoices, settings |
 | `js/wizard.js` | The decanting steps, tank by tank |
 | `js/shareimg.js` | The result as a picture (PNG) to share |
+| `js/scene.js` | The decanting picture: truck, hoses and underground tanks (animated) |
 | `js/views.js` | Log and reports |
 | `js/plan.js` | The Plan tab: stock now, indents placed (our TTs, transport TTs), what to dispense |
 | `js/tankers.js` | Our delivery tankers' free space, read from the Loading app (sign-in) |

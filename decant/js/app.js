@@ -18,6 +18,7 @@ import {
 import { openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
+import { decantScene } from './scene.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -242,6 +243,18 @@ function setTab(tab) {
   try { localStorage.setItem('vriddhi-decant-tab', tab); } catch { /* ignore */ }
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   render();
+  enter(document.getElementById(`view-${tab}`));
+}
+
+// A screen's cards rise in one after another — when it's opened, not on
+// every refresh (CSS: .enter).
+export function enter(el) {
+  if (!el) return;
+  el.classList.remove('enter');
+  void el.offsetWidth;                                   // restart the animation
+  el.classList.add('enter');
+  clearTimeout(el.enterTimer);
+  el.enterTimer = setTimeout(() => el.classList.remove('enter'), 800);
 }
 
 // A view isn't redrawn while one of its fields has the focus (the typing
@@ -285,9 +298,11 @@ function tankTile(t, busy) {
   const stale = r && isStale(r);
   const stage = b ? tankStage(b, b.data.tanks.find((x) => x.tank === t.id)) : null;
   return `<button class="tank${b ? ' busy' : ''}" data-tank="${t.id}" aria-label="Tank ${t.no} ${productShort(t.product)}">
-    ${b ? `<span class="badge watch t-busy">${{ waiting: '<i>◷</i>Next', decanting: '<i>●</i>Decanting', settling: '<i>◐</i>Settling' }[stage] || '<i>●</i>Decanting'}</span>` : ''}
+    ${b ? `<span class="badge watch t-busy${stage === 'decanting' ? ' live' : ''}">${{ waiting: '<i>◷</i>Next', decanting: '<i>●</i>Decanting', settling: '<i>◐</i>Settling' }[stage] || '<i>●</i>Decanting'}</span>` : ''}
     <div class="t-head"><span class="t-name">Tank ${t.no}</span>${productChip(t.product)}</div>
-    ${tankGauge({ product: t.product, volume: r?.volume, capacity: t.capacity, label: `Tank ${t.no}` })}
+    ${tankGauge({ product: t.product, volume: r?.volume, capacity: t.capacity, limit: fillLimit(t), label: `Tank ${t.no}`, live: true,
+    // a tank a truck is going into: where it will be, pulsing while it decants
+    incoming: b ? (b.data.tanks.find((x) => x.tank === t.id)?.litres || 0) : 0, filling: stage === 'decanting' })}
     <div class="t-vol">${r ? fmtL(r.volume) : '—'}</div>
     <div class="t-sub"><span>Room <b>${r ? fmtL(roomOf(r, t)) : '—'}</b></span><span>Dip <b>${r ? fmtDip(r.dip) : '—'}</b></span></div>
     <div class="t-age${stale ? ' stale' : ''}">${r ? `<span>${istDate(r.readingAt) === istDate(Date.now()) ? fmtTime(r.readingAt) : fmtWhen(r.readingAt)}</span><span>${ago(r.readingAt)}</span>` : 'No reading yet'}</div>
@@ -414,7 +429,8 @@ function sessionCard(s) {
   const tanksTxt = (d.tanks || []).map((t, i) => `C${compactNos(t.chambers)} → ${tankName(t.tank)}${s.status === 'draft' ? '' : ` (${word[st[i]]})`}`).join(' · ') || 'No chambers picked yet';
   return `<div class="card accent" data-session="${esc(s.id)}">
     <div class="inv-top"><div><div class="inv-tt">${esc(s.tt_no || '')}</div><div class="inv-meta">${esc(s.invoice_no || '')}</div></div>
-      <span class="badge watch"><i>●</i>${step}</span></div>
+      <span class="badge watch${step === 'Decanting now' ? ' live' : ''}"><i>●</i>${step}</span></div>
+    ${['decanting', 'settling'].includes(s.status) ? decantScene(s, { tanks: tanks(), stock: state.tankState, compact: true }) : ''}
     <div class="hint" style="margin:8px 0">${esc(tanksTxt)}${d.startedAt ? ` · started ${fmtTime(d.startedAt)}` : ''}${d.decantedAt ? ` · done ${fmtTime(d.decantedAt)}` : ''}</div>
     <div class="inv-actions"><button class="cta" data-open>Continue ▶</button>${s.status === 'draft' ? '<button class="btn" data-discard>Discard</button>' : ''}</div>
   </div>`;

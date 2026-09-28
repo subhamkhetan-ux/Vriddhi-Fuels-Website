@@ -184,7 +184,9 @@ export function confBadge(conf, checks) {
 // optional brighter layer for what's about to go in.
 let gaugeSeq = 0;
 // capacity: 100 %; limit: how full it may be filled (the rim turns red past it).
-export function tankGauge({ product, volume, capacity = 20000, limit = null, incoming = 0, label = '' }) {
+// live: a gentle wave on the product's surface; filling: the incoming part
+// pulses (a tank being decanted into right now).
+export function tankGauge({ product, volume, capacity = 20000, limit = null, incoming = 0, label = '', live = false, filling = false }) {
   const clip = `gc${++gaugeSeq}`;
   const c = PRODUCT_COLOR[product] || '#898781';
   const W = 120;
@@ -200,8 +202,9 @@ export function tankGauge({ product, volume, capacity = 20000, limit = null, inc
     <defs><clipPath id="${clip}"><rect x="4" y="4" width="${W - 8}" height="${innerH}" rx="${innerH / 2}"/></clipPath></defs>
     <g clip-path="url(#${clip})">
       <rect x="0" y="0" width="${W}" height="${H}" class="gauge-empty"/>
-      ${g > 0 ? `<rect x="0" y="${yInc}" width="${W}" height="${yFill - yInc}" fill="${c}" opacity=".38"/>` : ''}
-      <rect x="0" y="${yFill}" width="${W}" height="${H}" fill="${c}"/>
+      ${g > 0 ? `<rect x="0" y="${yInc}" width="${W}" height="${yFill - yInc}" fill="${c}" opacity=".38"${filling ? ' class="gin"' : ''}/>` : ''}
+      ${live && f > 0.02 && f < 0.98 ? `<path class="gwave" fill="${c}" d="M-12 ${yFill}${' q3 -1.3 6 0 t6 0'.repeat(Math.ceil(W / 12) + 2)} V${H} H-12 Z"/>`
+    : `<rect x="0" y="${yFill}" width="${W}" height="${H}" fill="${c}"/>`}
     </g>
     <rect x="4" y="4" width="${W - 8}" height="${innerH}" rx="${innerH / 2}" class="gauge-rim${over ? ' over' : ''}"/>
     <rect x="30" y="${H - 1}" width="14" height="5" rx="1.5" class="gauge-leg"/><rect x="${W - 44}" y="${H - 1}" width="14" height="5" rx="1.5" class="gauge-leg"/>
