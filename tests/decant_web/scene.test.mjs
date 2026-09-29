@@ -1,6 +1,7 @@
 // The decanting scene (decant/js/scene.js): what it draws for each tank's stage
 // and, while a tank decants, where its pipe and levels are by the clock.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 
 import { DEFAULT_SETTINGS, DEFAULT_TANKS } from '../../decant/js/core.js';
@@ -118,6 +119,28 @@ test('settling: the pipe still on the last chamber; done: no pipe', () => {
   assert.match(svg, /class="dp still" data-k="pT2">\s*<path class="hose" d="M95 103 /);
   assert.equal(count(svg, /data-k="pT3"/g), 0);
   assert.equal(count(svg, /done ✓/g), 1);
+});
+
+test('light on the phone: the pictures are moved by the ticker, and CSS only animates what the GPU does alone', () => {
+  // no CSS animation on the decanting picture or the tank tiles (those would
+  // redraw them 60 times a second — the ticker moves them about 10)
+  const css = fs.readFileSync(new URL('../../decant/index.html', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const animated = [...css.matchAll(/([^{}]+)\{[^{}]*\banimation:/g)].map((m) => m[1].trim());
+  assert.ok(animated.length > 0);
+  assert.ok(!animated.some((sel) => /\.dscene|\.gauge|\.wave|\.drop|\.bubble|\.hose/.test(sel)), animated.join(' | '));
+  // every keyframe animates only opacity and transform (no box-shadow, sizes, colours …)
+  const frames = [...css.matchAll(/@keyframes (\w+)\{((?:[^{}]*\{[^{}]*\})+)\}/g)];
+  assert.ok(frames.length > 0);
+  for (const [, name, body] of frames) {
+    const props = [...body.matchAll(/([a-z-]+):/g)].map((m) => m[1]);
+    assert.ok(props.every((p) => p === 'opacity' || p === 'transform'), `${name}: ${props.join(', ')}`);
+  }
+  // the drops carry their offset for the ticker, not a CSS delay
+  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645);
+  assert.equal(count(svg, /class="drop"[^>]*data-d="(0|350|700)"/g), 3);
+  assert.ok(!/animation-delay/.test(svg));
+  // a tank settling on its own still ripples (slowly), so its picture is ticked
+  assert.match(draw({ T1: 'settling', T2: 'waiting', T3: 'waiting' }, 0), /data-anim="/);
 });
 
 test('a tank not in this decantation shows its stock, dimmed', () => {

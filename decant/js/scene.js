@@ -11,10 +11,14 @@
 // walks up, the picture zooms in on him closing the emptied chamber's valve,
 // carrying the hose to the next one and opening it (worker.js), and a caption
 // counts the move down.
-// Plain SVG, drawn as things are now; tickScenes() moves the levels and pipes
-// on every second — every frame while a pipe is being moved (runScenes) — and
-// CSS (index.html, "decanting scene") runs the ripples and the flow — still
-// for reduced motion, which also leaves out the walking and the zoom.
+// Plain SVG, drawn as things are now; tickScenes() moves it on (runScenes):
+// the levels and pipes once a second, the ripples, flow and drops 30 times a
+// second, the attendant every frame — stepping down to a lighter pace, then to
+// the still picture, only on a phone that's held up again and again. The app
+// comes first: nothing moves while the picture is out of sight, and reduce
+// motion keeps it still (no ripples, walking or zoom). (Kept off CSS
+// animations on purpose: those redraw the whole picture 60 times a second
+// even where nothing needs it, which was most of what it cost.)
 
 import { drainAt, drainTimeline, tankStage } from './core.js';
 import { PRODUCT_COLOR, elapsed, esc, fmtL } from './ui.js';
@@ -27,7 +31,7 @@ const GLASS = { top: 34, bottom: 60 };
 const CURB = 134;
 const SOIL = 146;
 const TANK = { top: 160, bottom: 204, half: 37 };
-const WAVE = 12;                                         // wave length (the CSS moves it by this)
+const WAVE = 12;                                         // wave length (the ripple moves it by this)
 const FULL = 0.92;                                       // a full chamber's level in its sight glass
 const INK = '#15110f';
 const colorOf = (p) => PRODUCT_COLOR[p] || '#8a8178';
@@ -227,7 +231,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
         if (rd?.tl.length) anim.t.push({ k: `${t.id}`, before, cap, wins: rd.tl.map((w) => [w.from, w.to, w.litres]) });
         inside = `<g data-k="t${t.id}" transform="translate(0 ${tankY(now1, cap)})">${liquid(x0, x1, 0, th + 2, col, { wave: true })}</g>
           ${outline}
-          ${[0, 0.35, 0.7].map((delay) => `<circle class="drop" cx="${xc}" cy="${TANK.top + 12}" r="1.7" fill="${col}" style="animation-delay:${delay}s"/>`).join('')}`;
+          ${[0, 350, 700].map((delay) => `<circle class="drop" cx="${xc}" cy="${TANK.top + 12}" r="1.7" fill="${col}" data-d="${delay}"/>`).join('')}`;
         tag = '<tspan class="ds-live">decanting</tspan>';
         // counting up: what's in it now, and what's gone in so far
         nums = `${vol(now1, true, TANK.top + 21)}<text x="${xc}" y="${TANK.top + 31.5}" class="ds-add" data-k="a${t.id}">+${fmtL(now1 - before)}</text>`;
@@ -259,7 +263,8 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     const on = round.get(r)?.at;
     return `C${r.chambers.join(',')} into Tank ${tanks.find((t) => t.id === r.tank)?.no ?? r.tank} (${{ waiting: 'next', decanting: on?.moving ? `moving the pipe to C${on.moving.to}` : on?.flowing ? `pipe on C${on.on}` : 'decanting', settling: 'settling', read: 'done' }[st]})`;
   }).join('; ');
-  const moving = anim.g.length || anim.t.length || anim.p.length;
+  // ticked: anything moving by the clock, and a tank settling (its slow ripple)
+  const moving = anim.g.length || anim.t.length || anim.p.length || rows.some((r) => stageOf(r) === 'settling');
   return `<svg class="dscene${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${s.tt_no || 'Truck'}: ${said}`)}"${moving ? ` data-anim="${esc(JSON.stringify(anim))}"` : ''}>
     <defs>${defs.join('')}
       <linearGradient id="${id}soil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a1e16"/><stop offset="1" stop-color="#140e0a"/></linearGradient>
@@ -285,101 +290,284 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
 // the pipe and the litres left in it, each tank's level and litres, and each
 // pipe onto the chamber it's on — and stop the flow once all its chambers
 // should be empty. While a pipe is being moved: the attendant, the valves'
-// handles, the hose in his hands, the zoom and the caption. -> true while
-// someone is acting out a move (so runScenes gives it every frame).
-const parsed = new WeakMap();
-export function tickScenes(root = document, now = Date.now()) {
-  let busy = false;
-  for (const svg of root.querySelectorAll('svg.dscene[data-anim]')) {
-    if (svg.closest('[hidden]')) continue;               // a screen not showing (it's drawn afresh when it shows)
-    let a = parsed.get(svg);
-    if (!a) {
-      try { a = JSON.parse(svg.dataset.anim); } catch { continue; }
-      parsed.set(svg, a);
-    }
-    const el = (k) => svg.querySelector(`[data-k="${k}"]`);
-    const text = (k, v) => { const n = el(k); if (n && n.textContent !== v) n.textContent = v; };
-    const show = (n, on) => { if (!n) return; if (on) n.removeAttribute('display'); else if (n.getAttribute('display') !== 'none') n.setAttribute('display', 'none'); };
-    for (const g of a.g) {
-      const p = part(now, g.from, g.to);
-      const on = now >= g.from && now < g.to;
-      el(`l${g.k}`)?.setAttribute('transform', `translate(0 ${glassY(FULL * (1 - p))})`);
-      el(`g${g.k}`)?.classList.toggle('on', on);
-      show(el(`c${g.k}`), on);
-      if (on) text(`n${g.k}`, fmtL(g.l * (1 - p)));
-    }
-    for (const t of a.t) {
-      const litres = t.before + t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0);
-      el(`t${t.k}`)?.setAttribute('transform', `translate(0 ${tankY(litres, t.cap)})`);
-      el(`d${t.k}`)?.classList.toggle('flowing', inWindow(t.wins, now));   // not while the pipe is moved
-      text(`v${t.k}`, `≈${fmtL(litres)}`);
-      text(`a${t.k}`, `+${fmtL(litres - t.before)}`);
-    }
-    let focus = null;                                    // the first pipe being moved: what the picture zooms onto
-    for (const p of a.p) {
-      const g = el(p.k);
-      if (!g) continue;
-      // [start, end, valve left, valve to, from C, to C]: the move on now, or
-      // just done (he walks off for a few seconds more)
-      const mv = (p.moves || []).find(([t0, t1]) => now >= t0 && now < t1 + 8000);
-      const moving = Boolean(mv) && now < mv[1];
-      const man = el(`w${p.t}`);                         // (none on the Home card: there the pipe just moves over)
-      const sc = mv && man && !REDUCED() ? moveScene({ t0: mv[0], t1: mv[1], xa: mv[2], xb: mv[3] }, now) : null;
-      const w = p.wins.find(([, to]) => now < to) || p.wins[p.wins.length - 1];
-      // the hose's end: on the valve it's on — or, while it's moved, where the attendant has it
-      const end = sc ? sc.hose : { x: moving ? mv[2] : w[2], y: OUTLET_Y };
-      const d = pipeD(end.x, p.xi, p.sag, end.y);
-      g.querySelectorAll('path').forEach((path) => { if (path.getAttribute('d') !== d) path.setAttribute('d', d); });
-      const cp = g.querySelector('.coupling');
-      cp?.setAttribute('cx', r1(end.x));
-      cp?.setAttribute('cy', r1(end.y));
-      g.classList.toggle('flowing', inWindow(p.wins, now));
-      // the valves' handles: open on the chamber the fuel runs from, else shut;
-      // while the pipe is moved, where his hand has them
-      for (const [from, to, x, no] of p.wins) {
-        let angle = now >= from && now < to ? 0 : -90;
-        if (sc && no === mv[4]) angle = sc.levers.a;
-        if (sc && no === mv[5]) angle = sc.levers.b;
-        el(`v${no}`)?.setAttribute('transform', `rotate(${r1(angle)} ${x} ${OUTLET_Y})`);
-      }
-      const drip = el(`dr${p.t}`);
-      show(drip, Boolean(sc?.drip));
-      if (sc?.drip) { drip.setAttribute('cx', r1(sc.drip.x)); drip.setAttribute('cy', r1(sc.drip.y)); drip.setAttribute('opacity', r1(sc.drip.o)); }
-      const lk = el(`lk${p.t}`);
-      show(lk, Boolean(sc?.lock));
-      if (sc?.lock) { lk.setAttribute('cx', mv[3]); lk.setAttribute('cy', OUTLET_Y); lk.setAttribute('r', r1(3.6 + 5 * sc.lock)); lk.setAttribute('opacity', r1(1 - sc.lock)); }
-      show(man, Boolean(sc));
-      if (sc) { applyPose(man, `w${p.t}`, sc); busy = true; }
-      if (man && mv && !focus) focus = { sc, mv, moving };
-    }
-    // zoom onto the attendant while he works; the caption counts the move down
-    const world = el('world');
-    const z = focus?.sc ? focus.sc.zoom : 0;
-    if (world) {
-      if (z > 0.001) {
-        const k = 1 + (ZOOM - 1) * z;
-        const fx = W / 2 + (focus.sc.focus.x - W / 2) * z;
-        const fy = H / 2 + (focus.sc.focus.y - H / 2) * z;
-        world.setAttribute('transform', `translate(${W / 2} ${H / 2}) scale(${k.toFixed(4)}) translate(${(-fx).toFixed(2)} ${(-fy).toFixed(2)})`);
-      } else if (world.hasAttribute('transform')) world.removeAttribute('transform');
-    }
-    el('vig')?.setAttribute('opacity', r1(0.8 * z));      // the close-up's darker edges
-    show(el('cap'), Boolean(focus?.moving));
-    if (focus?.moving) text('capt', `🔧 Moving the pipe · C${focus.mv[4]} → C${focus.mv[5]} · ${elapsed(focus.mv[1] - now)}`);
+// handles, the hose in his hands, the zoom and the caption. And the ripples.
+// -> 2 while someone is acting out a move, 1 while something ripples, else 0
+// (runScenes ticks again sooner or later by that).
+// Kept light: each picture's parts are looked up once, and only what has
+// changed is written to the page.
+const parsed = new WeakMap();                            // svg -> {a: its data-anim, els: its parts by data-k}
+const was = new WeakMap();                               // element -> the attributes last written to it
+function put(n, name, v) {
+  if (!n) return;
+  let m = was.get(n);
+  if (!m) { m = {}; was.set(n, m); }
+  const s = String(v);
+  if (m[name] === s) return;
+  m[name] = s;
+  if (s === '') n.removeAttribute(name); else n.setAttribute(name, s);
+}
+let lite = false;                                        // on a phone that can't keep up: the still picture
+let kick = () => {};                                     // runScenes: draw now (a picture came back into view)
+const r2 = (v) => Math.round(v * 100) / 100;
+
+// The ripples, flow, drops and bubbles, each from the time (so they run on
+// smoothly whatever the rate): a sight glass ripples while it empties, a tank
+// being filled or settling always, a pipe's flow and its tank's drops while
+// fuel runs. -> true if any is moving.
+function ripple(svg, pic, now) {
+  let r = pic.rip;
+  if (!r) {
+    const all = (sel) => [...svg.querySelectorAll(sel)];
+    r = pic.rip = {
+      waves: all('.wave').map((n) => ({ n, gl: n.closest('.gl'), period: n.classList.contains('slow') ? 4500 : 1800 })),
+      flows: all('.dp .hose-in').map((n) => ({ n, g: n.closest('.dp') })),
+      drops: all('.drop').map((n) => ({ n, dt: n.closest('.dt'), d: Number(n.dataset.d) || 0 })),
+      bubbles: all('.bubble').map((n) => ({ n, gl: n.closest('.gl') })),
+    };
   }
-  return busy;
+  const phase = (period, delay = 0) => ((((now - delay) % period) + period) % period) / period;
+  let any = false;
+  for (const w of r.waves) {
+    if (w.gl && !w.gl.classList.contains('on')) continue;
+    any = true;
+    put(w.n, 'transform', `translate(${r2(-WAVE * phase(w.period))} 0)`);
+  }
+  for (const f of r.flows) {
+    if (!f.g?.classList.contains('flowing')) continue;
+    any = true;
+    put(f.n, 'stroke-dashoffset', r1(-12 * phase(800)));
+  }
+  for (const d of r.drops) {
+    if (!d.dt?.classList.contains('flowing')) continue;
+    any = true;
+    const p = phase(1050, d.d);
+    put(d.n, 'transform', `translate(0 ${r1(26 * p * p)})`);               // falling faster as it goes
+    put(d.n, 'opacity', r2(p < 0.15 ? p / 0.15 : (1 - p) / 0.85));
+  }
+  for (const b of r.bubbles) {
+    if (!b.gl?.classList.contains('on')) continue;
+    any = true;
+    const p = phase(1400);
+    put(b.n, 'transform', `translate(0 ${r1(-14 * p * p)})`);
+    put(b.n, 'opacity', r2(p < 0.3 ? (0.7 * p) / 0.3 : 1 - p));
+  }
+  return any;
 }
 
-// Keep the pictures going: about 30 frames a second while a pipe is being
-// moved in one (so he walks smoothly), else once a second; nothing while the
-// app is in the background.
-export function runScenes() {
-  let last = 0;
-  const loop = (t) => {
-    if (document.hidden) { setTimeout(loop, 1000); return; }
-    if (t !== undefined && t - last < 30) { requestAnimationFrame(loop); return; }
-    last = t ?? 0;
-    if (tickScenes()) requestAnimationFrame(loop); else setTimeout(loop, 1000);
+// A picture scrolled out of sight, or on a screen not showing, rests: it isn't
+// ticked, so nothing in it moves; it's brought up to date the moment it's back
+// in view.
+let sight = null;
+const watched = new Set();
+function watch(svg) {
+  if (sight === null) {
+    sight = typeof IntersectionObserver === 'function' ? new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        e.target.classList.toggle('off', !e.isIntersecting);
+        if (!e.isIntersecting) continue;
+        if (e.target.classList.contains('dscene')) { try { tickOne(e.target, Date.now()); } catch { /* the next tick */ } }
+        kick();
+      }
+    }) : false;
+  }
+  if (!sight || watched.has(svg)) return;
+  for (const old of watched) if (!old.isConnected) { sight.unobserve(old); watched.delete(old); }   // drawn over since
+  watched.add(svg);
+  sight.observe(svg);
+}
+
+// full: the levels, litres and pipes too (once a second is plenty for those);
+// else only what moves in between (the ripples, and a move being acted out).
+// The Home screen's tank tiles (ui.js tankGauge) ripple here too.
+export function tickScenes(root = document, now = Date.now(), full = true) {
+  let want = 0;
+  for (const svg of root.querySelectorAll('svg.dscene[data-anim]')) {
+    watch(svg);
+    if (svg.classList.contains('off') || svg.closest('[hidden]')) continue;
+    want = Math.max(want, tickOne(svg, now, full));
+  }
+  if (!lite && !REDUCED()) {
+    for (const svg of root.querySelectorAll('svg.gauge')) {
+      const r = gaugeParts(svg);
+      if (!r || svg.closest('[hidden]')) continue;
+      watch(svg);
+      if (svg.classList.contains('off')) continue;
+      // the wave on its product (2.8 s) and, while it's being filled, the incoming part pulsing (2 s)
+      const p = (now % 2800) / 2800;
+      for (const n of r.waves) put(n, 'transform', `translate(${r2(-12 * p)} 0)`);
+      const q = (now % 2000) / 2000;
+      for (const n of r.ins) put(n, 'opacity', r2(0.45 - 0.15 * Math.cos(2 * Math.PI * q)));
+      want = Math.max(want, 1);
+    }
+  }
+  return want;
+}
+
+// A tank tile's moving parts (null: it has none).
+const gauges = new WeakMap();
+function gaugeParts(svg) {
+  let r = gauges.get(svg);
+  if (r === undefined) {
+    const waves = [...svg.querySelectorAll('.gwave')];
+    const ins = [...svg.querySelectorAll('.gin')];
+    r = waves.length || ins.length ? { waves, ins } : null;
+    gauges.set(svg, r);
+  }
+  return r;
+}
+
+// One picture to `now`; -> 2 while someone in it is acting out a move, 1 while
+// something in it ripples, else 0.
+function tickOne(svg, now, full = true) {
+  let busy = false;
+  let pic = parsed.get(svg);
+  if (!pic) {
+    try { pic = { a: JSON.parse(svg.dataset.anim), els: new Map() }; } catch { return 0; }
+    parsed.set(svg, pic);
+  }
+  const { a, els } = pic;
+  const el = (k) => {
+    let n = els.get(k);
+    if (n === undefined) { n = svg.querySelector(`[data-k="${k}"]`); els.set(k, n); }
+    return n;
   };
+  const text = (k, v) => { const n = el(k); if (n && n.textContent !== v) n.textContent = v; };
+  const show = (n, on) => put(n, 'display', on ? '' : 'none');
+  for (const g of full ? a.g : []) {
+    const p = part(now, g.from, g.to);
+    const on = now >= g.from && now < g.to;
+    put(el(`l${g.k}`), 'transform', `translate(0 ${glassY(FULL * (1 - p))})`);
+    el(`g${g.k}`)?.classList.toggle('on', on);
+    show(el(`c${g.k}`), on);
+    if (on) text(`n${g.k}`, fmtL(g.l * (1 - p)));
+  }
+  for (const t of full ? a.t : []) {
+    const litres = t.before + t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0);
+    put(el(`t${t.k}`), 'transform', `translate(0 ${tankY(litres, t.cap)})`);
+    el(`d${t.k}`)?.classList.toggle('flowing', inWindow(t.wins, now));   // not while the pipe is moved
+    text(`v${t.k}`, `≈${fmtL(litres)}`);
+    text(`a${t.k}`, `+${fmtL(litres - t.before)}`);
+  }
+  let focus = null;                                      // the first pipe being moved: what the picture zooms onto
+  for (const p of a.p) {
+    const g = el(p.k);
+    if (!g) continue;
+    // [start, end, valve left, valve to, from C, to C]: the move on now, or
+    // just done (he walks off for a few seconds more)
+    const mv = (p.moves || []).find(([t0, t1]) => now >= t0 && now < t1 + 8000);
+    if (!full && !mv) continue;                          // (in between: only a move being acted out)
+    const moving = Boolean(mv) && now < mv[1];
+    const man = el(`w${p.t}`);                           // (none on the Home card: there the pipe just moves over)
+    const sc = mv && man && !lite && !REDUCED() ? moveScene({ t0: mv[0], t1: mv[1], xa: mv[2], xb: mv[3] }, now) : null;
+    const w = p.wins.find(([, to]) => now < to) || p.wins[p.wins.length - 1];
+    // the hose's end: on the valve it's on — or, while it's moved, where the attendant has it
+    const end = sc ? sc.hose : { x: moving ? mv[2] : w[2], y: OUTLET_Y };
+    const d = pipeD(end.x, p.xi, p.sag, end.y);
+    let parts = els.get(`${p.k}:parts`);
+    if (!parts) { parts = { paths: [...g.querySelectorAll('path')], cp: g.querySelector('.coupling') }; els.set(`${p.k}:parts`, parts); }
+    for (const path of parts.paths) put(path, 'd', d);
+    put(parts.cp, 'cx', r1(end.x));
+    put(parts.cp, 'cy', r1(end.y));
+    g.classList.toggle('flowing', inWindow(p.wins, now));
+    // the valves' handles: open on the chamber the fuel runs from, else shut;
+    // while the pipe is moved, where his hand has them
+    for (const [from, to, x, no] of p.wins) {
+      let angle = now >= from && now < to ? 0 : -90;
+      if (sc && no === mv[4]) angle = sc.levers.a;
+      if (sc && no === mv[5]) angle = sc.levers.b;
+      put(el(`v${no}`), 'transform', `rotate(${r1(angle)} ${x} ${OUTLET_Y})`);
+    }
+    const drip = el(`dr${p.t}`);
+    show(drip, Boolean(sc?.drip));
+    if (sc?.drip) { put(drip, 'cx', r1(sc.drip.x)); put(drip, 'cy', r1(sc.drip.y)); put(drip, 'opacity', r1(sc.drip.o)); }
+    const lk = el(`lk${p.t}`);
+    show(lk, Boolean(sc?.lock));
+    if (sc?.lock) { put(lk, 'cx', mv[3]); put(lk, 'cy', OUTLET_Y); put(lk, 'r', r1(3.6 + 5 * sc.lock)); put(lk, 'opacity', r1(1 - sc.lock)); }
+    show(man, Boolean(sc));
+    if (sc) { applyPose(man, `w${p.t}`, sc, el, put); busy = true; }
+    if (man && mv && !focus) focus = { sc, mv, moving };
+  }
+  // zoom onto the attendant while he works; the caption counts the move down
+  const z = focus?.sc ? focus.sc.zoom : 0;
+  let zoom = '';
+  if (z > 0.001) {
+    const k = 1 + (ZOOM - 1) * z;
+    const fx = W / 2 + (focus.sc.focus.x - W / 2) * z;
+    const fy = H / 2 + (focus.sc.focus.y - H / 2) * z;
+    zoom = `translate(${W / 2} ${H / 2}) scale(${k.toFixed(4)}) translate(${(-fx).toFixed(2)} ${(-fy).toFixed(2)})`;
+  }
+  put(el('world'), 'transform', zoom);
+  put(el('vig'), 'opacity', r1(0.8 * z));               // the close-up's darker edges
+  show(el('cap'), Boolean(focus?.moving));
+  if (focus?.moving) text('capt', `🔧 Moving the pipe · C${focus.mv[4]} → C${focus.mv[5]} · ${elapsed(focus.mv[1] - now)}`);
+  const rippling = !lite && !REDUCED() && ripple(svg, pic, now);
+  return busy ? 2 : rippling ? 1 : 0;
+}
+
+// Keep the pictures going — smoothly on a phone that keeps up: the attendant
+// every frame (up to 60 a second), the ripples 30 a second, the levels and
+// litres once a second. Nothing while the app is in the background or a
+// picture is out of sight. The app comes first: a picture that fails is left as
+// it is (the rest of the app carries on), and a phone that's held up — 50 ms or
+// more, five times in five seconds while a picture moves — steps down to a
+// lighter pace (the attendant 24 a second, the ripples 10), and if it's still
+// held up, to the still picture (no attendant or ripples: the pipe just moves
+// over, as with reduce motion).
+const PACE = { smooth: { move: 0, ripple: 33 }, light: { move: 42, ripple: 100 } };   // ms to the next tick; 0: every frame
+let smooth = true;
+export function runScenes() {
+  let timer = null;
+  let frame = null;
+  let due = 0;                                            // when this tick should have come (while moving)
+  let lastFull = 0;
+  let lastTick = 0;
+  let longs = 0;
+  let counted = 0;
+  let warned = false;
+  const stalls = [];
+  const since = performance.now();
+  // long tasks, where the browser reports them (Chrome, Android); elsewhere
+  // (Safari: it takes the request but never reports) a tick that comes late tells
+  const reported = typeof PerformanceObserver === 'function' && (PerformanceObserver.supportedEntryTypes || []).includes('longtask');
+  if (reported) {
+    try { new PerformanceObserver((l) => { longs += l.getEntries().length; }).observe({ type: 'longtask' }); } catch { /* as if not reported */ }
+  }
+  const loop = (t) => {
+    clearTimeout(timer);
+    timer = null;
+    if (frame !== null && t === undefined) cancelAnimationFrame(frame);
+    frame = null;
+    if (document.hidden) { due = 0; lastFull = 0; timer = setTimeout(loop, 1000); return; }
+    const t0 = performance.now();
+    if (t !== undefined && t0 - lastTick < 15) { frame = requestAnimationFrame(loop); return; }   // (a 120 Hz screen: every other frame)
+    lastTick = t0;
+    const full = !lastFull || t0 - lastFull >= 950;
+    if (full) lastFull = t0;
+    let want = 0;
+    try { want = tickScenes(document, Date.now(), full); } catch (e) { lite = true; if (!warned) { warned = true; console.warn('decanting picture:', e); } }
+    const t1 = performance.now();
+    if (want > 0 && due && t0 - since > 3000) {           // (not the app's own start)
+      const n = reported ? longs - counted : (t0 - due >= 50 ? 1 : 0) + (t1 - t0 >= 50 ? 1 : 0);
+      for (let i = 0; i < n; i += 1) stalls.push(t1);
+      while (stalls.length && t1 - stalls[0] > 5000) stalls.shift();
+      if (stalls.length >= 5) {
+        stalls.length = 0;
+        if (smooth) smooth = false;
+        else { lite = true; try { want = tickScenes(); } catch { want = 0; } }
+      }
+    }
+    counted = longs;
+    const pace = PACE[smooth ? 'smooth' : 'light'];
+    if (want === 0) { due = 0; timer = setTimeout(loop, 1000); } else if (want === 2 && pace.move === 0) {
+      due = t1 + 17;
+      frame = requestAnimationFrame(loop);
+    } else {
+      const ms = want === 2 ? pace.move : pace.ripple;
+      due = t1 + ms;
+      timer = setTimeout(loop, ms);
+    }
+  };
+  kick = () => { lastFull = 0; loop(); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
   loop();
 }

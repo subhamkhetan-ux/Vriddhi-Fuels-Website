@@ -196,10 +196,18 @@ Tap **Start decanting** on the truck's card:
    first chamber, *settling* ones sit at their new level, *done* ones show a
    ✓. The same picture runs on the Home screen's *In progress* card (there
    the pipe just moves over, with no one drawn), and a tank tile being
-   filled shows where it will reach. (Ripples, flow, the attendant and the
-   zoom stop if the phone is set to reduce motion; the levels and the pipe
-   still follow the clock.) Then one card per tank, each going *not started
-   → decanting → settling → stock after read* — a tank decanting says which
+   filled shows where it will reach. The picture is smooth but kept light,
+   so the app stays quick to tap. The attendant moves every frame (up to 60
+   a second) and the ripples and flow 30 times a second, and only what
+   changes is redrawn. Nothing moves while the picture is scrolled out of
+   sight or the app is in the background. A phone that's held up again and
+   again while the picture moves steps down to a lighter pace (24 and 10 a
+   second), and if that's still too much, to the still picture: no
+   attendant or ripples, and the pipe just moves over. Reduce motion on the
+   phone gives the still picture too; either way the levels and the pipe
+   still follow the clock. Then one card per tank, each
+   going *not started → decanting → settling → stock after read* — a tank
+   decanting says which
    chamber the pipe is on, what's next and about how long is left, then the
    litres left in that chamber and ≈ in the tank ("C4 ≈680 L left · Tank 3
    ≈10,357 L (+2,650 L)"); while the pipe is moved, where from and to and

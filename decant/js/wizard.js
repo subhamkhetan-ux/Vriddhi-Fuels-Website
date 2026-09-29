@@ -150,7 +150,7 @@ export function renderWizard(el) {
   clearInterval(timer);
   if (step === 'decant') timer = setInterval(tick, 1000);
   tick();
-  tickScenes(el);                                        // the picture as it is now (mid pipe move too)
+  try { tickScenes(el); } catch { /* the picture catches up on its next tick; the steps come first */ }
 }
 
 function tick() {
