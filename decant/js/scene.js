@@ -12,12 +12,13 @@
 // carrying the hose to the next one and opening it (worker.js), and a caption
 // counts the move down.
 // Plain SVG, drawn as things are now; tickScenes() moves it on (runScenes):
-// the levels and pipes once a second, the ripples, flow and drops about 12
-// times a second, the attendant 24. The app comes first: nothing moves while
-// the picture is out of sight, reduce motion keeps it still (no ripples,
-// walking or zoom), and a phone that can't keep up gets the still picture.
-// (Kept off CSS animations on purpose: those redraw the picture at 60 a
-// second, which is most of what a phone would spend on it.)
+// the levels and pipes once a second, the ripples, flow and drops 30 times a
+// second, the attendant every frame — stepping down to a lighter pace, then to
+// the still picture, only on a phone that's held up again and again. The app
+// comes first: nothing moves while the picture is out of sight, and reduce
+// motion keeps it still (no ripples, walking or zoom). (Kept off CSS
+// animations on purpose: those redraw the whole picture 60 times a second
+// even where nothing needs it, which was most of what it cost.)
 
 import { drainAt, drainTimeline, tankStage } from './core.js';
 import { PRODUCT_COLOR, elapsed, esc, fmtL } from './ui.js';
@@ -503,46 +504,68 @@ function tickOne(svg, now, full = true) {
   return busy ? 2 : rippling ? 1 : 0;
 }
 
-// Keep the pictures going: the attendant about 24 times a second, the ripples
-// about 10, the levels and litres once a second; nothing while the app is in
-// the background or a picture out of sight. The app comes first: a picture
-// that fails is left as it is (the rest of the app carries on), and on a phone
-// that can't keep up — held up 50 ms or more five times in five seconds while
-// the picture moves — it becomes the still picture: no attendant, no ripples,
-// the pipe just moves over (as with reduce motion).
-const PACE = [1000, 100, 42];                             // ms to the next tick: still, rippling, a move acted out
+// Keep the pictures going — smoothly on a phone that keeps up: the attendant
+// every frame (up to 60 a second), the ripples 30 a second, the levels and
+// litres once a second. Nothing while the app is in the background or a
+// picture is out of sight. The app comes first: a picture that fails is left as
+// it is (the rest of the app carries on), and a phone that's held up — 50 ms or
+// more, five times in five seconds while a picture moves — steps down to a
+// lighter pace (the attendant 24 a second, the ripples 10), and if it's still
+// held up, to the still picture (no attendant or ripples: the pipe just moves
+// over, as with reduce motion).
+const PACE = { smooth: { move: 0, ripple: 33 }, light: { move: 42, ripple: 100 } };   // ms to the next tick; 0: every frame
+let smooth = true;
 export function runScenes() {
   let timer = null;
+  let frame = null;
   let due = 0;                                            // when this tick should have come (while moving)
   let lastFull = 0;
-  let longs = 0;                                          // the browser's long tasks, where it reports them
+  let lastTick = 0;
+  let longs = 0;
   let counted = 0;
-  let observed = false;
   let warned = false;
   const stalls = [];
   const since = performance.now();
-  try {
-    new PerformanceObserver((l) => { longs += l.getEntries().length; }).observe({ type: 'longtask' });
-    observed = true;
-  } catch { /* not reported here: a tick that comes late tells instead */ }
-  const loop = () => {
+  // long tasks, where the browser reports them (Chrome, Android); elsewhere
+  // (Safari: it takes the request but never reports) a tick that comes late tells
+  const reported = typeof PerformanceObserver === 'function' && (PerformanceObserver.supportedEntryTypes || []).includes('longtask');
+  if (reported) {
+    try { new PerformanceObserver((l) => { longs += l.getEntries().length; }).observe({ type: 'longtask' }); } catch { /* as if not reported */ }
+  }
+  const loop = (t) => {
     clearTimeout(timer);
+    timer = null;
+    if (frame !== null && t === undefined) cancelAnimationFrame(frame);
+    frame = null;
     if (document.hidden) { due = 0; lastFull = 0; timer = setTimeout(loop, 1000); return; }
     const t0 = performance.now();
+    if (t !== undefined && t0 - lastTick < 15) { frame = requestAnimationFrame(loop); return; }   // (a 120 Hz screen: every other frame)
+    lastTick = t0;
     const full = !lastFull || t0 - lastFull >= 950;
     if (full) lastFull = t0;
     let want = 0;
     try { want = tickScenes(document, Date.now(), full); } catch (e) { lite = true; if (!warned) { warned = true; console.warn('decanting picture:', e); } }
     const t1 = performance.now();
     if (want > 0 && due && t0 - since > 3000) {           // (not the app's own start)
-      const n = observed ? longs - counted : (t0 - due >= 50 ? 1 : 0) + (t1 - t0 >= 50 ? 1 : 0);
+      const n = reported ? longs - counted : (t0 - due >= 50 ? 1 : 0) + (t1 - t0 >= 50 ? 1 : 0);
       for (let i = 0; i < n; i += 1) stalls.push(t1);
       while (stalls.length && t1 - stalls[0] > 5000) stalls.shift();
-      if (stalls.length >= 5) { lite = true; try { want = tickScenes(); } catch { want = 0; } }
+      if (stalls.length >= 5) {
+        stalls.length = 0;
+        if (smooth) smooth = false;
+        else { lite = true; try { want = tickScenes(); } catch { want = 0; } }
+      }
     }
     counted = longs;
-    due = want > 0 ? t1 + PACE[want] : 0;
-    timer = setTimeout(loop, PACE[want] ?? 1000);
+    const pace = PACE[smooth ? 'smooth' : 'light'];
+    if (want === 0) { due = 0; timer = setTimeout(loop, 1000); } else if (want === 2 && pace.move === 0) {
+      due = t1 + 17;
+      frame = requestAnimationFrame(loop);
+    } else {
+      const ms = want === 2 ? pace.move : pace.ripple;
+      due = t1 + ms;
+      timer = setTimeout(loop, ms);
+    }
   };
   kick = () => { lastFull = 0; loop(); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });

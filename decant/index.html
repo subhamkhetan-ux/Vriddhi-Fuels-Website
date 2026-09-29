@@ -444,9 +444,9 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .dscene .ds-vol{font-size:9.5px;font-weight:800;fill:#fff;stroke-width:2.4px}
 .dscene .ds-add{font-size:6.8px;font-weight:700;fill:#dcfbea;stroke-width:2px}
 /* one pipe per tank: flowing while a chamber empties into it, still once all should be empty.
-   The ripples, flow, drops and bubbles — and the tank tiles' waves — are moved by scene.js about
-   10 times a second, not by CSS animations: those redraw a picture 60 times a second, which was
-   most of what it cost the phone */
+   The ripples, flow, drops and bubbles — and the tank tiles' waves — are moved by scene.js (30 a
+   second, less on a phone that's held up), not by CSS animations: those redraw the whole picture
+   60 times a second whatever changed, which was most of what it cost the phone */
 .dscene .dp.flowing .hose-in{stroke-dasharray:5 7}
 .dscene .dp:not(.flowing) .hose-in{opacity:.55}
 .dscene .dp.still{opacity:.7}
