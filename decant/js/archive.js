@@ -96,7 +96,7 @@ export function logMonths({ counts, archive = {}, today, keep = 'fy2' }) {
   }).filter((f) => f.state !== 'new' || f.sessions || f.invoices);
 }
 
-export const fileName = (m) => `Vriddhi decanting log ${m}.xlsx`;
+export const fileName = (m, soFar = false) => `Vriddhi decanting log ${m}${soFar ? ' (so far)' : ''}.xlsx`;
 
 // ---------------------------------------------------------------------------
 // The file: one sheet per kind of record (plain tables, a header row each)
@@ -161,8 +161,10 @@ function decantedPerInvoice(sessions) {
 }
 
 // sessions / invoices: the month's records; known: every decantation this
-// phone knows of (for what each invoice has had decanted so far).
-export function logSheets({ month, sessions = [], invoices = [], known = [], settings, madeAt, madeBy = '', tanks = [] }) {
+// phone knows of (for what each invoice has had decanted so far). soFar: the
+// month isn't over yet (the Excel workbook replaces it with the whole month's
+// file later — same Month).
+export function logSheets({ month, sessions = [], invoices = [], known = [], settings, madeAt, madeBy = '', tanks = [], soFar = false }) {
   const done = sessions.filter((s) => s.status === 'done');
   // oldest first; a decantation's tanks in order
   const entries = entriesFrom(done, settings).sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0) || (a.tankNo || 0) - (b.tankNo || 0));
@@ -172,6 +174,7 @@ export function logSheets({ month, sessions = [], invoices = [], known = [], set
     ['Month', month],
     ['Month name', monthName(month)],
     ['Format', FORMAT],
+    ['Whole month', soFar ? 'No — so far (the month is not over)' : 'Yes'],
     ['Made at', at(madeAt)],
     ['Made by', madeBy],
     ['Decantations finished', done.length],

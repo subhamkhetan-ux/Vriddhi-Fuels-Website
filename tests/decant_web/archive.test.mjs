@@ -108,6 +108,7 @@ test('a month\'s log file: every record, and the app\'s results', () => {
   const info = Object.fromEntries(sheet('Info').map((r) => [r.Item, r.Value]));
   assert.equal(info.Month, '2026-08');
   assert.equal(info.Format, 1);
+  assert.equal(info['Whole month'], 'Yes');
   assert.equal(info['Decantations finished'], 1);
   assert.equal(info['Decantations cancelled'], 1);
 
@@ -153,6 +154,12 @@ test('a month\'s log file: every record, and the app\'s results', () => {
     'Variation (%)': -0.852, 'Short (L)': -187.38, 'Excess (L)': 0, 'Outside tolerance': 2, 'Value (₹)': -18391.34,
   });
   assert.deepEqual(totals.map((r) => `${r.Group} ${r.Key}`), ['Month 2026-08', 'Day 2026-08-26', 'Truck OD23U8210', 'Product HSD', 'Tank T2', 'Tank T3']);
+});
+
+test('this month so far: marked as not the whole month', () => {
+  const [info] = logSheets({ month: '2026-09', sessions: [], invoices: [], settings: DEFAULT_SETTINGS, madeAt: '2026-09-29T10:00:00Z', soFar: true });
+  assert.deepEqual(info.rows.find((r) => r[0] === 'Whole month'), ['Whole month', 'No — so far (the month is not over)']);
+  assert.equal(fileName('2026-09', true), 'Vriddhi decanting log 2026-09 (so far).xlsx');
 });
 
 test('the Excel writer: several sheets, real dates', async () => {
