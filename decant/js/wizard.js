@@ -15,7 +15,7 @@ import {
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
-import { decantScene } from './scene.js';
+import { decantScene, tickScenes } from './scene.js';
 import {
   PRODUCT_COLOR, ago, ask, bandBadge, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
@@ -150,6 +150,7 @@ export function renderWizard(el) {
   clearInterval(timer);
   if (step === 'decant') timer = setInterval(tick, 1000);
   tick();
+  tickScenes(el);                                        // the picture as it is now (mid pipe move too)
 }
 
 function tick() {
@@ -615,7 +616,12 @@ function drainText(s, t, now) {
   const next = t.chambers.slice(t.chambers.indexOf(at.on) + 1);
   const before = Number(t.before?.volume) || 0;
   const inTank = `${tankName(t.tank)} ≈${fmtL(before + at.litres)} (+${fmtL(at.litres)})`;
-  if (!at.flowing) return `By the chamber times, C${compactNos(t.chambers)} should be empty now — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'}.\n${inTank}`;
+  if (at.done) return `By the chamber times, C${compactNos(t.chambers)} should be empty now — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'}.\n${inTank}`;
+  if (at.moving) {
+    // C4 empty: its valve closed, the hose carried to C5, coupled, C5's valve opened
+    const after = t.chambers.slice(t.chambers.indexOf(at.moving.to) + 1);
+    return `Moving the pipe from C${at.moving.from} to C${at.moving.to}${after.length ? `, then C${after.join(', C')}` : ''} · ${elapsed(at.moving.until - now)} · about ${elapsed(at.left)} to go\n${inTank}`;
+  }
   const left = (s.data.chambers.find((c) => c.no === at.on)?.litres || 0) * (1 - at.drained[at.on]);
   return `Pipe on C${at.on}${next.length ? `, then C${next.join(', C')}` : ''} · about ${elapsed(at.left)} to go\nC${at.on} ≈${fmtL(left)} left · ${inTank}`;
 }

@@ -170,9 +170,18 @@ Tap **Start decanting** on the truck's card:
    bottom-loading valves, and — as on the forecourt — **one pipe per tank**
    being filled (two tanks at once: two pipes). The pipe sits on one
    chamber's valve and moves to the tank's next chamber once that one is
-   empty, in the order the chambers were put in. Every chamber shows full
-   until its turn; the one on the pipe empties over its real time while the
-   tank rises by what it gives (the dashed outline is where it will end).
+   empty, in the order the chambers were put in. Moving it takes **0:45**
+   (nothing runs meanwhile), and the picture acts it out: an IndianOil
+   attendant walks up and the picture zooms in on him. He points up at the
+   emptied chamber's sight glass and turns its valve shut. He unhooks the
+   hose (a drip as it comes off), carries it to the next chamber and couples
+   it (a click). Then he opens that valve and gives a thumbs-up as the fuel
+   runs again. He walks off as the picture zooms out, and a caption counts
+   the move down ("🔧 Moving the pipe · C2 → C3 · 0:23"). It all runs by the
+   clock, so a phone opening the screen mid-move sees him mid-move. Every
+   chamber shows full until its turn; the one on the pipe empties over its
+   real time while the tank rises by what it gives (the dashed outline is
+   where it will end).
    The numbers run with it, every second: above the chamber on the pipe, the
    litres left in it counting down; on the tank, **≈ its litres** counting up
    and what's gone in so far (≈ because they're worked out from the chambers'
@@ -181,17 +190,21 @@ Tap **Start decanting** on the truck's card:
    should be, one done its stock after.
    The times are in **Settings → Decanting time**: a 5 KL chamber empties in
    8:15 and a 4 KL one in 7:00 by default; other sizes are worked out on the
-   line through the two (4.5 KL: 7:38; OD23U8210's 5+5+4+4+4 KL: 37:30 on
-   one pipe). Once all of a tank's chambers should be empty, its pipe stops
-   flowing. *Next* tanks show a dashed pipe to their first chamber,
-   *settling* ones sit at their new level, *done* ones show a ✓. The same
-   picture runs on the Home screen's *In progress* card, and a tank tile
-   being filled shows where it will reach. (Ripples and flow stop if the
-   phone is set to reduce motion; the levels still follow the clock.) Then
-   one card per tank, each going *not started → decanting → settling →
-   stock after read* — a tank decanting says which chamber the pipe is on,
-   what's next and about how long is left, then the litres left in that
-   chamber and ≈ in the tank ("C4 ≈680 L left · Tank 3 ≈10,357 L (+2,650 L)"):
+   line through the two (4.5 KL: 7:38; OD23U8210's 5+5+4+4+4 KL: 40:30 on
+   one pipe, with its 4 pipe moves). Once all of a tank's chambers should be
+   empty, its pipe stops flowing. *Next* tanks show a dashed pipe to their
+   first chamber, *settling* ones sit at their new level, *done* ones show a
+   ✓. The same picture runs on the Home screen's *In progress* card (there
+   the pipe just moves over, with no one drawn), and a tank tile being
+   filled shows where it will reach. (Ripples, flow, the attendant and the
+   zoom stop if the phone is set to reduce motion; the levels and the pipe
+   still follow the clock.) Then one card per tank, each going *not started
+   → decanting → settling → stock after read* — a tank decanting says which
+   chamber the pipe is on, what's next and about how long is left, then the
+   litres left in that chamber and ≈ in the tank ("C4 ≈680 L left · Tank 3
+   ≈10,357 L (+2,650 L)"); while the pipe is moved, where from and to and
+   how long that takes ("Moving the pipe from C4 to C5 · 0:32 · about 7:32
+   to go"):
    - **▶ Start Tank N**. A tank sells until its decanting starts, so its
      stock before must be from just before it starts: a reading from before
      the first tank started (or over 30 minutes old) is questioned — take a
@@ -474,10 +487,12 @@ tab (OD15AF5510 by default), the automation's date format (MM/DD/YYYY by
 default), the dip chart, and:
 
 - **Decanting time** — how long a 5 KL and a 4 KL chamber take to empty
-  through the pipe (minutes and seconds; 8:15 and 7:00 by default). Other
+  through the pipe (minutes and seconds; 8:15 and 7:00 by default), and how
+  long moving the pipe to the tank's next chamber takes (0:45 by default;
+  0:00 for none, up to 10 minutes; under 0:12 it isn't acted out). Other
   sizes follow from the two, and a note shows what they make (a 4.5 KL
-  chamber, our TT on one pipe). The decanting picture and each tank's time
-  left use them.
+  chamber, our TT on one pipe with its pipe moves). The decanting picture
+  and each tank's time left use them.
 - **Our TTs** — one per line with its chambers from C1: `OD23U8210: 5, 5, 4, 4, 4`
 - **Transport TT layouts** — one size per line, its layouts split by `|`:
   `22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4`
@@ -492,6 +507,7 @@ default), the dip chart, and:
 | `js/wizard.js` | The decanting steps, tank by tank |
 | `js/shareimg.js` | The result as a picture (PNG) to share |
 | `js/scene.js` | The decanting picture: truck, hoses and underground tanks (animated) |
+| `js/worker.js` | The attendant who moves the pipe between chambers, in the decanting picture |
 | `js/views.js` | Log and reports |
 | `js/plan.js` | The Plan tab: stock now, indents placed (our TTs, transport TTs), what to dispense |
 | `js/tankers.js` | Our delivery tankers' free space, read from the Loading app (sign-in) |

@@ -302,22 +302,35 @@ test('chamber times: 5 KL 8:15, 4 KL 7:00, other sizes on the line through them'
   assert.equal(fmtMinSec(59.6), '1:00');
 });
 
-test('the pipe\'s round: chambers one after another, a chamber added later from when it was added', () => {
+test('the pipe\'s round: chambers one after another, 45 s to move the pipe between them, a chamber added later from when it was added', () => {
   const T0 = Date.parse('2026-09-28T11:45:00Z');
   const at = (secs) => new Date(T0 + secs * 1000).toISOString();
+  const sec = (ms) => (ms === null ? null : (ms - T0) / 1000);
   const chambers = [[2, 5000], [3, 4000], [5, 4000]].map(([no, litres]) => ({ no, litres }));
   const tl = drainTimeline({ startedAt: at(0), chambers: [2, 3, 5], joinedAt: { 5: at(60) } }, chambers);
-  assert.deepEqual(tl.map((w) => [w.no, (w.from - T0) / 1000, (w.to - T0) / 1000]), [[2, 0, 495], [3, 495, 915], [5, 915, 1335]]);
+  // C2 8:15; the pipe moved 0:45; C3 7:00; moved again; C5 7:00
+  assert.deepEqual(tl.map((w) => [w.no, sec(w.moveAt), sec(w.from), sec(w.to)]), [[2, null, 0, 495], [3, 495, 540, 960], [5, 960, 1005, 1425]]);
+  // added after the pipe fell idle: moved once it's added
   const late = drainTimeline({ startedAt: at(0), chambers: [2, 3, 5], joinedAt: { 5: at(1000) } }, chambers);
-  assert.deepEqual([(late[2].from - T0) / 1000, (late[2].to - T0) / 1000], [1000, 1420]);
-  const now = drainAt(tl, T0 + 600 * 1000);
+  assert.deepEqual([sec(late[2].moveAt), sec(late[2].from), sec(late[2].to)], [1000, 1045, 1465]);
+  // the pipe time from Settings (0: no move)
+  const quick = drainTimeline({ startedAt: at(0), chambers: [2, 3] }, chambers, settingsWith({ pipeMoveSecs: 0 }));
+  assert.deepEqual(quick.map((w) => [sec(w.from), sec(w.to)]), [[0, 495], [495, 915]]);
+  assert.equal(settingsWith({ pipeMoveSecs: 'x' }).pipeMoveSecs, 45);
+  assert.equal(settingsWith({ pipeMoveSecs: 0 }).pipeMoveSecs, 0);
+
+  const now = drainAt(tl, T0 + 645 * 1000);                               // C3 a quarter out
   assert.equal(now.on, 3);
   assert.deepEqual(now.drained, { 2: 1, 3: 0.25, 5: 0 });
   assert.equal(now.litres, 6000);
-  assert.equal(now.left, 735 * 1000);
-  assert.equal(now.flowing, true);
+  assert.equal(now.left, 780 * 1000);
+  assert.deepEqual([now.flowing, now.done, now.moving], [true, false, null]);
+  // 20 s into moving the pipe from C2 to C3: nothing flows, 25 s to go on the move
+  const mv = drainAt(tl, T0 + 515 * 1000);
+  assert.deepEqual(mv.moving, { from: 2, to: 3, at: T0 + 495 * 1000, until: T0 + 540 * 1000 });
+  assert.deepEqual([mv.on, mv.flowing, mv.done, mv.litres], [3, false, false, 5000]);
   const end = drainAt(tl, T0 + 2000 * 1000);
-  assert.deepEqual([end.on, end.flowing, end.left, end.litres], [5, false, 0, 13000]);
+  assert.deepEqual([end.on, end.flowing, end.done, end.left, end.litres, end.moving], [5, false, true, 0, 13000, null]);
   assert.deepEqual(drainTimeline({ chambers: [2] }, chambers), []);        // not started
   assert.equal(drainAt([], T0), null);
 });

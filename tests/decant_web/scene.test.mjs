@@ -40,8 +40,9 @@ test('the truck: its number and capacity, every chamber full', () => {
 });
 
 test('one pipe per tank, on one chamber at a time — moved on as each empties', () => {
-  // 10 min in: C2 (5 KL, 8:15) is empty, the pipe is on C3 (4 KL, 7:00), a quarter out
-  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 600);
+  // 10:45 in: C2 (5 KL, 8:15) is empty, the pipe moved over (0:45), and C3
+  // (4 KL, 7:00) a quarter out
+  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645);
   assert.equal(count(svg, /class="dp flowing"/g), 1);
   assert.match(svg, /data-k="pT2">\s*<path class="hose" d="M95 103 /);  // C3's valve
   assert.match(svg, /class="coupling" cx="95"/);
@@ -59,7 +60,7 @@ test('one pipe per tank, on one chamber at a time — moved on as each empties',
 });
 
 test('the litres, live: left in the chamber on the pipe, and in the tank', () => {
-  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 600);
+  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645);
   // C3, a quarter out: 3,000 L left, shown above it; C2 (empty) shows none
   assert.match(svg, /class="co" data-k="c3">[\s\S]*?data-k="n3">3,000\sL</);
   assert.match(svg, /class="co" data-k="c2" display="none"/);
@@ -79,12 +80,37 @@ test('two tanks at once: two pipes; once every chamber should be empty the pipes
   assert.equal(count(two, /class="dp flowing"/g), 2);
   assert.match(two, /data-k="pT2">\s*<path class="hose" d="M82.5 103 /);  // C2
   assert.match(two, /data-k="pT3">\s*<path class="hose" d="M107.5 103 /); // C4
-  const after = draw({ T1: 'waiting', T2: 'decanting', T3: 'decanting' }, 16 * 60);   // C2+C3 = 15:15, C4+C5 = 14:00
+  const after = draw({ T1: 'waiting', T2: 'decanting', T3: 'decanting' }, 17 * 60);   // C2, the move, C3 = 16:00; C4, C5 = 14:45
   assert.equal(count(after, /class="dp flowing"/g), 0);
   assert.equal(count(after, /class="dp"/g), 2);
   for (const no of [2, 3, 4, 5]) assert.equal(glassTop(after, no), 63, `C${no} empty`);
   assert.equal(tankTop(after, 'T2'), 160.5);                           // at 19,755 L
   assert.match(after, /class="dt" data-k="dT2"/);
+});
+
+test('between two chambers the pipe is moved: no flow, both valves shut, the attendant on his way', () => {
+  // 8:35 in: C2 emptied at 8:15, the pipe goes on C3 at 9:00
+  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 515);
+  assert.match(svg, /class="dp" data-k="pT2">\s*<path class="hose" d="M82\.5 103 /);   // still on C2's valve
+  assert.match(svg, /class="dt" data-k="dT2"/);                        // nothing running into Tank 2
+  assert.match(svg, /data-k="v2" transform="rotate\(-90 82\.5 101\)"/);   // C2 shut…
+  assert.match(svg, /data-k="v3" transform="rotate\(-90 95 101\)"/);     // …C3 not open yet
+  assert.equal(glassTop(svg, 2), 63);
+  assert.equal(glassTop(svg, 3), 36.1);
+  assert.match(svg, /data-k="vT2">≈15,755\sL</);
+  assert.match(svg, /C2,3 into Tank 2 \(moving the pipe to C3\)/);
+  // one attendant for Tank 2's pipe (Tank 1 has one chamber: no move), and the caption
+  assert.equal(count(svg, /class="worker"/g), 1);
+  assert.match(svg, /class="worker" data-k="wT2" display="none"/);
+  assert.match(svg, /class="ds-cap" data-k="cap" display="none"/);
+  // the moves the ticker acts out: [start, end, valve left, valve to, from C, to C]
+  const anim = JSON.parse(/data-anim="([^"]+)"/.exec(svg)[1].replace(/&quot;/g, '"'));
+  assert.deepEqual(anim.p.find((p) => p.t === 'T2').moves, [[T0 + 495000, T0 + 540000, 82.5, 95, 2, 3]]);
+  // on Home's card no one is drawn: the pipe just moves over
+  const home = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 515, { compact: true });
+  assert.ok(!/class="worker"|data-k="cap"/.test(home));
+  // flowing again from C3 once the move is done
+  assert.match(draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 541), /class="dp flowing" data-k="pT2">\s*<path class="hose" d="M95 103 /);
 });
 
 test('settling: the pipe still on the last chamber; done: no pipe', () => {

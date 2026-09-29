@@ -19,7 +19,7 @@ import {
 import { openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
-import { decantScene, tickScenes } from './scene.js';
+import { decantScene, runScenes } from './scene.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -895,6 +895,9 @@ function settingsSheet() {
       ${[[5, 'stE5', s.emptySecs5], [4, 'stE4', s.emptySecs4]].map(([kl, k, secs]) => `<div class="f" style="margin-bottom:8px">A ${kl} KL chamber empties in
         <div class="minsec"><input type="number" id="${k}m" min="1" max="60" step="1" inputmode="numeric" value="${Math.floor(Math.round(secs) / 60)}" aria-label="${kl} KL chamber, minutes"><span>min</span>
           <input type="number" id="${k}s" min="0" max="59" step="1" inputmode="numeric" value="${Math.round(secs) % 60}" aria-label="${kl} KL chamber, seconds"><span>s</span></div></div>`).join('')}
+      <div class="f" style="margin-bottom:8px">Moving the pipe to the next chamber takes
+        <div class="minsec"><input type="number" id="stPMm" min="0" max="10" step="1" inputmode="numeric" value="${Math.floor(Math.round(s.pipeMoveSecs) / 60)}" aria-label="Moving the pipe, minutes"><span>min</span>
+          <input type="number" id="stPMs" min="0" max="59" step="1" inputmode="numeric" value="${Math.round(s.pipeMoveSecs) % 60}" aria-label="Moving the pipe, seconds"><span>s</span></div></div>
       <div class="hint" id="stEHint"></div>
       <div class="sect-title" style="margin-top:16px">Our TTs <span class="hint">tank trucks — one per line: number: chambers (KL from C1)</span></div>
       <textarea id="stOwn" rows="3" style="font-family:var(--mono);font-size:14px">${esc((s.ownTTs || []).map((o) => `${o.tt}: ${o.chambers.join(', ')}`).join('\n'))}</textarea>
@@ -932,10 +935,17 @@ function settingsSheet() {
       const sec = Number(body.querySelector(`#${k}s`).value || 0);
       return Number.isInteger(m) && Number.isInteger(sec) && sec >= 0 && sec < 60 && m * 60 + sec >= 60 && m * 60 + sec <= 3600 ? m * 60 + sec : dflt;
     };
+    // the pipe's move (0–10 min), else as it was
+    const moveSecs = () => {
+      const m = Number(body.querySelector('#stPMm').value || 0);
+      const sec = Number(body.querySelector('#stPMs').value || 0);
+      return Number.isInteger(m) && Number.isInteger(sec) && m >= 0 && sec >= 0 && sec < 60 && m * 60 + sec <= 600 ? m * 60 + sec : s.pipeMoveSecs;
+    };
     const emptyHint = () => {
       const t = { emptySecs5: emptySecs('stE5', s.emptySecs5), emptySecs4: emptySecs('stE4', s.emptySecs4) };
       const own = (s.ownTTs || [])[0];
-      body.querySelector('#stEHint').textContent = `So a 4.5 KL chamber takes ${fmtMinSec(chamberSeconds(4500, t))}${own ? `, and ${own.tt} (${own.chambers.join('+')} KL) ${fmtMinSec(own.chambers.reduce((a, kl) => a + chamberSeconds(kl * 1000, t), 0))} on one pipe` : ''}. The decanting picture and each tank's time left follow these.`;
+      const moves = own ? (own.chambers.length - 1) * moveSecs() : 0;
+      body.querySelector('#stEHint').textContent = `So a 4.5 KL chamber takes ${fmtMinSec(chamberSeconds(4500, t))}${own ? `, and ${own.tt} (${own.chambers.join('+')} KL) ${fmtMinSec(own.chambers.reduce((a, kl) => a + chamberSeconds(kl * 1000, t), 0) + moves)} on one pipe, with its ${own.chambers.length - 1} pipe moves` : ''}. The decanting picture and each tank's time left follow these.`;
     };
     emptyHint();
     body.querySelectorAll('.minsec input').forEach((i) => { i.oninput = emptyHint; });
@@ -953,7 +963,7 @@ function settingsSheet() {
           tolerancePct: num('#stTol', 0, 5, s.tolerancePct), toleranceMinL: num('#stTolL', 0, 1000, s.toleranceMinL),
           warnRoomL: num('#stWarn', 0, 5000, s.warnRoomL), staleMinutes: num('#stStale', 1, 1440, s.staleMinutes),
           settleMinutes: num('#stSettle', 0, 120, s.settleMinutes), densityLimit: num('#stDens', 0, 20, s.densityLimit),
-          emptySecs5: emptySecs('stE5', s.emptySecs5), emptySecs4: emptySecs('stE4', s.emptySecs4),
+          emptySecs5: emptySecs('stE5', s.emptySecs5), emptySecs4: emptySecs('stE4', s.emptySecs4), pipeMoveSecs: moveSecs(),
           pendingDays: num('#stPend', 1, 60, s.pendingDays),
           dateOrder: body.querySelector('#stDate').value,
           keep: body.querySelector('#stKeep').value,
@@ -1061,8 +1071,9 @@ function boot() {
   document.addEventListener('focusout', () => setTimeout(settle, 0));
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(render, 200); });
-  // the decanting pictures: chambers empty and tanks fill by the clock
-  setInterval(() => { if (!document.hidden) tickScenes(); }, 1000);
+  // the decanting pictures: chambers empty and tanks fill by the clock, and
+  // the attendant moves the pipe between chambers
+  runScenes();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
