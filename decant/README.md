@@ -423,7 +423,9 @@ each tank so the loads I've placed an indent for fit?*
 - **The Excel workbook**: [`EXCEL-WORKBOOK.md`](EXCEL-WORKBOOK.md) is the
   message to give Claude in Excel. It builds a macro workbook that imports the
   monthly files and rebuilds the Log, Reports and Result screens with the
-  app's own rules.
+  app's own rules. [`EXCEL-DESIGN.md`](EXCEL-DESIGN.md) is the second
+  message: the app's look (glass cards, colours, type, charts) for Excel for
+  Mac.
 - **Screenshots are never kept**: they're read on the phone and only the
   figures are saved.
 
