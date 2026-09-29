@@ -173,6 +173,12 @@ Tap **Start decanting** on the truck's card:
    empty, in the order the chambers were put in. Every chamber shows full
    until its turn; the one on the pipe empties over its real time while the
    tank rises by what it gives (the dashed outline is where it will end).
+   The numbers run with it, every second: above the chamber on the pipe, the
+   litres left in it counting down; on the tank, **≈ its litres** counting up
+   and what's gone in so far (≈ because they're worked out from the chambers'
+   times — the stock after, read from the automation or a dip, is what
+   counts). A tank waiting shows its stock before, one settling ≈ where it
+   should be, one done its stock after.
    The times are in **Settings → Decanting time**: a 5 KL chamber empties in
    8:15 and a 4 KL one in 7:00 by default; other sizes are worked out on the
    line through the two (4.5 KL: 7:38; OD23U8210's 5+5+4+4+4 KL: 37:30 on
@@ -184,7 +190,8 @@ Tap **Start decanting** on the truck's card:
    phone is set to reduce motion; the levels still follow the clock.) Then
    one card per tank, each going *not started → decanting → settling →
    stock after read* — a tank decanting says which chamber the pipe is on,
-   what's next and about how long is left:
+   what's next and about how long is left, then the litres left in that
+   chamber and ≈ in the tank ("C4 ≈680 L left · Tank 3 ≈10,357 L (+2,650 L)"):
    - **▶ Start Tank N**. A tank sells until its decanting starts, so its
      stock before must be from just before it starts: a reading from before
      the first tank started (or over 30 minutes old) is questioned — take a
