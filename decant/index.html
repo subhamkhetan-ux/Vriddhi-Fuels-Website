@@ -443,31 +443,25 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .dscene .ds-vol,.dscene .ds-add{font-variant-numeric:tabular-nums;paint-order:stroke;stroke:rgba(10,8,6,.72);stroke-linejoin:round}
 .dscene .ds-vol{font-size:9.5px;font-weight:800;fill:#fff;stroke-width:2.4px}
 .dscene .ds-add{font-size:6.8px;font-weight:700;fill:#dcfbea;stroke-width:2px}
-/* one pipe per tank: flowing while a chamber empties into it, still once all should be empty */
-.dscene .dp.flowing .hose-in{stroke-dasharray:5 7;animation:dflow .8s linear infinite}
+/* one pipe per tank: flowing while a chamber empties into it, still once all should be empty.
+   The ripples, flow, drops and bubbles — and the tank tiles' waves — are moved by scene.js about
+   10 times a second, not by CSS animations: those redraw a picture 60 times a second, which was
+   most of what it cost the phone */
+.dscene .dp.flowing .hose-in{stroke-dasharray:5 7}
 .dscene .dp:not(.flowing) .hose-in{opacity:.55}
 .dscene .dp.still{opacity:.7}
-@keyframes dflow{to{stroke-dashoffset:-12}}
-.dscene .wave{animation:dwave 1.8s linear infinite}
-.dscene .wave.slow{animation-duration:4.5s}
-.dscene .gl:not(.on) .wave{animation:none}
 .dscene .gl:not(.on) .bubble,.dscene .dt:not(.flowing) .drop{display:none}
-@keyframes dwave{to{transform:translateX(-12px)}}
-@keyframes dpulse{0%,100%{opacity:.3}50%{opacity:.6}}
-.dscene .drop{animation:ddrop 1.05s ease-in infinite}
-@keyframes ddrop{0%{transform:translateY(0);opacity:0}15%{opacity:1}100%{transform:translateY(26px);opacity:0}}
-.dscene .bubble{animation:dbubble 1.4s ease-in infinite}
-@keyframes dbubble{0%{transform:translateY(0);opacity:0}30%{opacity:.7}100%{transform:translateY(-14px);opacity:0}}
 /* the pipe being moved between chambers (worker.js acts it out): the countdown over the close-up */
 .dscene .ds-cap rect{fill:rgba(21,17,15,.88);stroke:#f37021;stroke-opacity:.8;stroke-width:.8}
 .dscene .ds-cap text{font-size:8px;font-weight:800;fill:#fff;font-variant-numeric:tabular-nums}
-/* ---- lively touches ---- */
-.gauge .gwave{animation:dwave 2.8s linear infinite}
-.gauge .gin{animation:dpulse 2s ease-in-out infinite}
-.badge.live i{animation:blink 1.2s ease-in-out infinite}
+/* ---- lively touches (only opacity and transform: the graphics chip runs those on its own) ---- */
+.badge.live i{display:inline-block;animation:blink 1.2s ease-in-out infinite}
 @keyframes blink{50%{opacity:.25}}
-.pill.live .dot{animation:breathe 2.6s ease-in-out infinite}
-@keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(141,255,207,.6)}50%{box-shadow:0 0 0 4px rgba(141,255,207,0)}}
+/* the synced dot's ring: grown and faded (transform, opacity), which the phone's graphics chip
+   does on its own — an animated box-shadow would be redrawn by the app 60 times a second */
+.pill.live .dot{position:relative}
+.pill.live .dot::after{content:"";position:absolute;top:0;left:0;width:100%;height:100%;border-radius:50%;background:#8dffcf;animation:breathe 2.6s ease-out infinite}
+@keyframes breathe{0%{transform:scale(1);opacity:.6}60%,100%{transform:scale(2.15);opacity:0}}
 .pill.connecting .dot{animation:blink 1s ease-in-out infinite}
 @keyframes vrise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .enter > *{animation:vrise .36s cubic-bezier(.2,.8,.2,1) both}

@@ -309,22 +309,23 @@ export function workerSvg(id, key) {
 
 const tf = (p, a) => `translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) rotate(${(-a).toFixed(1)})`;
 
-// Put him where the step has him: g is his <g class="worker">.
-export function applyPose(g, key, sc) {
-  const k = (s) => g.querySelector(`[data-k="${key}${s}"]`);
+// Put him where the step has him: g is his <g class="worker">. find and set
+// can come from the picture (its parts looked up once, only changes written).
+const setAttr = (n, name, v) => { if (!n) return; if (v === '') n.removeAttribute(name); else n.setAttribute(name, v); };
+export function applyPose(g, key, sc, find = (k) => g.querySelector(`[data-k="${k}"]`), set = setAttr) {
+  const k = (s) => find(`${key}${s}`);
   const sk = skeleton(sc.pose);
-  g.setAttribute('transform', `translate(${sc.x.toFixed(2)} ${GROUND}) scale(${sc.face * SIZE} ${SIZE})`);
+  set(g, 'transform', `translate(${sc.x.toFixed(2)} ${GROUND}) scale(${sc.face * SIZE} ${SIZE})`);
   for (const side of ['f', 'b']) {
     const [thigh, knee] = sk.legs[side];
-    k(`l${side}`)?.setAttribute('transform', tf(sk.hip, thigh));
-    k(`l${side}k`)?.setAttribute('transform', `translate(0 ${THIGH}) rotate(${knee.toFixed(1)})`);
-    k(`l${side}f`)?.setAttribute('transform', `translate(0 ${SHIN}) rotate(${(thigh - knee).toFixed(1)})`);   // flat
+    set(k(`l${side}`), 'transform', tf(sk.hip, thigh));
+    set(k(`l${side}k`), 'transform', `translate(0 ${THIGH}) rotate(${knee.toFixed(1)})`);
+    set(k(`l${side}f`), 'transform', `translate(0 ${SHIN}) rotate(${(thigh - knee).toFixed(1)})`);   // flat
     const a = sk.arms[side];
-    k(`a${side}`)?.setAttribute('transform', tf(sk.shoulder, a.up));
-    k(`a${side}k`)?.setAttribute('transform', `translate(0 ${UPPER}) rotate(${(-(a.fore - a.up)).toFixed(1)})`);
+    set(k(`a${side}`), 'transform', tf(sk.shoulder, a.up));
+    set(k(`a${side}k`), 'transform', `translate(0 ${UPPER}) rotate(${(-(a.fore - a.up)).toFixed(1)})`);
   }
-  const th = k('aft');
-  if (th) { if (sc.thumb) th.removeAttribute('display'); else th.setAttribute('display', 'none'); }
-  k('t')?.setAttribute('transform', `translate(${sk.hip.x.toFixed(2)} ${sk.hip.y.toFixed(2)}) rotate(${sk.bend.toFixed(1)})`);
-  k('h')?.setAttribute('transform', `translate(${sk.neck.x.toFixed(2)} ${sk.neck.y.toFixed(2)}) rotate(${(sk.bend + sk.tilt).toFixed(1)})`);
+  set(k('aft'), 'display', sc.thumb ? '' : 'none');
+  set(k('t'), 'transform', `translate(${sk.hip.x.toFixed(2)} ${sk.hip.y.toFixed(2)}) rotate(${sk.bend.toFixed(1)})`);
+  set(k('h'), 'transform', `translate(${sk.neck.x.toFixed(2)} ${sk.neck.y.toFixed(2)}) rotate(${(sk.bend + sk.tilt).toFixed(1)})`);
 }
