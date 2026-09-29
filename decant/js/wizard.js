@@ -585,7 +585,7 @@ function stageCard(s, t) {
     return `<div class="card accent">${head}
       <div class="bigtimer sm" data-ttimer="${t.tank}">0:00</div>
       <div class="hint" style="text-align:center">since ${fmtTime(startOf(s, t))} · stock before ${fmtL(t.before?.volume, 2)} (${fmtDip(dipOf(t.before))})</div>
-      <div class="hint" style="text-align:center;margin-top:4px;color:var(--muted)" data-tdrain="${t.tank}">${esc(drainText(s, t, Date.now()))}</div>
+      <div class="hint" style="text-align:center;margin-top:4px;color:var(--muted);white-space:pre-line" data-tdrain="${t.tank}">${esc(drainText(s, t, Date.now()))}</div>
       <div class="row-actions"><button class="cta" data-donetank="${t.tank}">✓ ${tankName(t.tank)} done</button></div>
     </div>`;
   }
@@ -607,14 +607,17 @@ function stageCard(s, t) {
 }
 
 // The pipe's round by the chambers' times (Settings): the chamber it's on,
-// what's next and about how long is left — or that all should be empty now.
+// what's next and about how long is left — or that all should be empty now —
+// then the litres: left in that chamber, and in the tank (≈, till it's read).
 function drainText(s, t, now) {
   const at = drainAt(drainTimeline(t, s.data.chambers, state.settings), now);
   if (!at) return '';
   const next = t.chambers.slice(t.chambers.indexOf(at.on) + 1);
-  return at.flowing
-    ? `Pipe on C${at.on}${next.length ? `, then C${next.join(', C')}` : ''} · about ${elapsed(at.left)} to go`
-    : `By the chamber times, C${compactNos(t.chambers)} should be empty now — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'}.`;
+  const before = Number(t.before?.volume) || 0;
+  const inTank = `${tankName(t.tank)} ≈${fmtL(before + at.litres)} (+${fmtL(at.litres)})`;
+  if (!at.flowing) return `By the chamber times, C${compactNos(t.chambers)} should be empty now — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'}.\n${inTank}`;
+  const left = (s.data.chambers.find((c) => c.no === at.on)?.litres || 0) * (1 - at.drained[at.on]);
+  return `Pipe on C${at.on}${next.length ? `, then C${next.join(', C')}` : ''} · about ${elapsed(at.left)} to go\nC${at.on} ≈${fmtL(left)} left · ${inTank}`;
 }
 
 function afterWarnings(s, t) {

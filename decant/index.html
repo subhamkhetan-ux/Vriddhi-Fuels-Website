@@ -432,6 +432,11 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .dscene .ds-settle{fill:#ffcf6e}
 .dscene .ds-next{fill:#9a918a}
 .dscene .ds-done{fill:#5fe0a6}
+/* live litres: left in the chamber on the pipe, in the tank being filled (≈ = by the chambers' times) */
+.dscene .ds-co{font-size:7.6px;font-weight:800;fill:#fff;font-variant-numeric:tabular-nums}
+.dscene .ds-vol,.dscene .ds-add{font-variant-numeric:tabular-nums;paint-order:stroke;stroke:rgba(10,8,6,.72);stroke-linejoin:round}
+.dscene .ds-vol{font-size:9.5px;font-weight:800;fill:#fff;stroke-width:2.4px}
+.dscene .ds-add{font-size:6.8px;font-weight:700;fill:#dcfbea;stroke-width:2px}
 /* one pipe per tank: flowing while a chamber empties into it, still once all should be empty */
 .dscene .dp.flowing .hose-in{stroke-dasharray:5 7;animation:dflow .8s linear infinite}
 .dscene .dp:not(.flowing) .hose-in{opacity:.55}

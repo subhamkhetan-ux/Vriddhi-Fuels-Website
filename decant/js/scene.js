@@ -12,7 +12,7 @@
 // and the flow — still for reduced motion.
 
 import { drainAt, drainTimeline, tankStage } from './core.js';
-import { PRODUCT_COLOR, esc } from './ui.js';
+import { PRODUCT_COLOR, esc, fmtL } from './ui.js';
 
 const W = 360;
 const H = 240;
@@ -89,6 +89,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
   const clip = (name, shape) => { defs.push(`<clipPath id="${id}${name}">${shape}</clipPath>`); return `url(#${id}${name})`; };
 
   // ---- the truck
+  const callouts = [];                                   // the litres left in each chamber emptying now
   const glasses = cx.map(({ c, x0, x1, mid }) => {
     const row = rowOfChamber.get(c.no);
     const st = row ? stageOf(row) : null;
@@ -102,7 +103,13 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     const gh = GLASS.bottom - GLASS.top;
     const cp = clip(`g${c.no}`, `<rect x="${gx}" y="${GLASS.top}" width="${gw}" height="${gh}" rx="4"/>`);
     const on = Boolean(win) && now >= win.from && now < win.to;    // emptying now
-    if (win) anim.g.push({ k: `${c.no}`, from: win.from, to: win.to });
+    if (win) {
+      anim.g.push({ k: `${c.no}`, from: win.from, to: win.to, l: c.litres });
+      // above the chamber, while it empties: its litres counting down
+      callouts.push(`<g class="co" data-k="c${c.no}"${on ? '' : ' display="none"'}>
+        <rect x="${r1(mid - 19.5)}" y="1" width="39" height="12.5" rx="6.2" fill="${INK}" stroke="${colorOf(c.product)}" stroke-width="1.1"/>
+        <text x="${r1(mid)}" y="10.2" class="ds-co" data-k="n${c.no}">${fmtL(c.litres * (1 - part(now, win.from, win.to)))}</text></g>`);
+    }
     // the liquid is drawn from 0 and moved down to its level (the glass clips it)
     return `<g class="gl${on ? ' on' : ''}" data-k="g${c.no}"${!row && c.product ? ' opacity=".5"' : ''}>
       <rect x="${gx}" y="${GLASS.top}" width="${gw}" height="${gh}" rx="4" fill="#20262c" stroke="#8d969e" stroke-width="1"/>
@@ -135,6 +142,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       <rect x="64" y="${BODY.bottom + 4}" width="66" height="11" rx="2" fill="#a8b0b8" stroke="#6d757d"/>
       ${outlets}
       ${[34, 214, 246].map((wx) => `<circle cx="${wx}" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="${wx}" cy="104" r="4.8" fill="#b9bfc6"/>`).join('')}
+      ${callouts.join('')}
     </g>`;
 
   // ---- one pipe per tank: from the valve of the chamber it's on to the tank's fill point
@@ -173,6 +181,9 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     let inside = '';
     let tag = '';
     let flowing = false;
+    let nums = '';                                      // its litres, on the tank
+    // "≈" while it's worked out from the chambers' times, not read yet
+    const vol = (v, approx, y = TANK.top + 25) => `<text x="${xc}" y="${y}" class="ds-vol" data-k="v${t.id}">${approx ? '≈' : ''}${fmtL(v)}</text>`;
     if (!row) {
       inside = liquid(x0, x1, tankY(stock[t.id]?.volume, cap), TANK.bottom, col);
     } else {
@@ -182,21 +193,26 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       if (st === 'waiting') {
         inside = `${liquid(x0, x1, tankY(before, cap), TANK.bottom, col)}${outline}`;
         tag = '<tspan class="ds-next">next</tspan>';
+        if (row.before) nums = vol(before, false);
       } else if (st === 'decanting') {
         const rd = round.get(row);
         flowing = rd?.at ? rd.at.flowing : true;
         const now1 = before + (rd?.at?.litres || 0);
-        if (rd?.tl.length) anim.t.push({ k: `t${t.id}`, before, cap, wins: rd.tl.map((w) => [w.from, w.to, w.litres]) });
+        if (rd?.tl.length) anim.t.push({ k: `${t.id}`, before, cap, wins: rd.tl.map((w) => [w.from, w.to, w.litres]) });
         inside = `<g data-k="t${t.id}" transform="translate(0 ${tankY(now1, cap)})">${liquid(x0, x1, 0, th + 2, col, { wave: true })}</g>
           ${outline}
           ${[0, 0.35, 0.7].map((delay) => `<circle class="drop" cx="${xc}" cy="${TANK.top + 12}" r="1.7" fill="${col}" style="animation-delay:${delay}s"/>`).join('')}`;
         tag = '<tspan class="ds-live">decanting</tspan>';
+        // counting up: what's in it now, and what's gone in so far
+        nums = `${vol(now1, true, TANK.top + 21)}<text x="${xc}" y="${TANK.top + 31.5}" class="ds-add" data-k="a${t.id}">+${fmtL(now1 - before)}</text>`;
       } else if (st === 'settling') {
         inside = liquid(x0, x1, tankY(target, cap), TANK.bottom, col, { wave: true, cls: 'slow' });
         tag = '<tspan class="ds-settle">settling</tspan>';
+        nums = vol(target, true);
       } else {
         inside = liquid(x0, x1, tankY(row.after?.volume ?? target, cap), TANK.bottom, col);
         tag = '<tspan class="ds-done">done ✓</tspan>';
+        nums = vol(row.after?.volume ?? target, !row.after);
       }
     }
     return `<g class="dt${flowing ? ' flowing' : ''}" data-k="d${t.id}"${row ? '' : ' opacity=".42"'}>
@@ -206,6 +222,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="#191512"/>
       <g clip-path="${cp}">${inside}</g>
       <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="none" stroke="#7d746c" stroke-width="1.4"/>
+      ${nums}
       <text x="${xc}" y="${TANK.bottom + 15}" class="ds-tank">Tank ${t.no}<tspan fill="${col}"> ${esc(t.product)}</tspan></text>
       ${tag ? `<text x="${xc}" y="${TANK.bottom + 27}" class="ds-stage">${tag}</text>` : ''}
     </g>`;
@@ -233,8 +250,9 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
 }
 
 // Move every decanting picture on the page to `now`: each chamber's level on
-// the pipe, each tank's level, and each pipe onto the chamber it's on — and
-// stop the flow once all its chambers should be empty.
+// the pipe and the litres left in it, each tank's level and litres, and each
+// pipe onto the chamber it's on — and stop the flow once all its chambers
+// should be empty.
 const parsed = new WeakMap();
 export function tickScenes(root = document, now = Date.now()) {
   for (const svg of root.querySelectorAll('svg.dscene[data-anim]')) {
@@ -244,14 +262,22 @@ export function tickScenes(root = document, now = Date.now()) {
       parsed.set(svg, a);
     }
     const el = (k) => svg.querySelector(`[data-k="${k}"]`);
+    const text = (k, v) => { const n = el(k); if (n && n.textContent !== v) n.textContent = v; };
     for (const g of a.g) {
-      el(`l${g.k}`)?.setAttribute('transform', `translate(0 ${glassY(FULL * (1 - part(now, g.from, g.to)))})`);
-      el(`g${g.k}`)?.classList.toggle('on', now >= g.from && now < g.to);
+      const p = part(now, g.from, g.to);
+      const on = now >= g.from && now < g.to;
+      el(`l${g.k}`)?.setAttribute('transform', `translate(0 ${glassY(FULL * (1 - p))})`);
+      el(`g${g.k}`)?.classList.toggle('on', on);
+      const co = el(`c${g.k}`);
+      if (co) { if (on) co.removeAttribute('display'); else co.setAttribute('display', 'none'); }
+      if (on) text(`n${g.k}`, fmtL(g.l * (1 - p)));
     }
     for (const t of a.t) {
       const litres = t.before + t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0);
-      el(t.k)?.setAttribute('transform', `translate(0 ${tankY(litres, t.cap)})`);
-      el(`d${t.k.slice(1)}`)?.classList.toggle('flowing', now < t.wins[t.wins.length - 1][1]);
+      el(`t${t.k}`)?.setAttribute('transform', `translate(0 ${tankY(litres, t.cap)})`);
+      el(`d${t.k}`)?.classList.toggle('flowing', now < t.wins[t.wins.length - 1][1]);
+      text(`v${t.k}`, `≈${fmtL(litres)}`);
+      text(`a${t.k}`, `+${fmtL(litres - t.before)}`);
     }
     for (const p of a.p) {
       const g = el(p.k);

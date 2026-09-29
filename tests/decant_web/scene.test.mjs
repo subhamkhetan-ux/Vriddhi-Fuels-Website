@@ -58,6 +58,22 @@ test('one pipe per tank, on one chamber at a time — moved on as each empties',
   assert.match(svg, /data-anim="/);
 });
 
+test('the litres, live: left in the chamber on the pipe, and in the tank', () => {
+  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 600);
+  // C3, a quarter out: 3,000 L left, shown above it; C2 (empty) shows none
+  assert.match(svg, /class="co" data-k="c3">[\s\S]*?data-k="n3">3,000\sL</);
+  assert.match(svg, /class="co" data-k="c2" display="none"/);
+  // Tank 2 ≈ 10,755 + 6,000 L, +6,000 so far — worked out from the times
+  assert.match(svg, /data-k="vT2">≈16,755\sL</);
+  assert.match(svg, /data-k="aT2">\+6,000\sL</);
+  assert.match(svg, /data-k="vT3">11,495\sL</);                       // next: its stock before, as read
+  assert.match(svg, /data-k="vT1">≈12,682\sL</);                      // settling: where it should be
+  assert.ok(!/data-k="vT4"/.test(svg));                                // not in this decantation
+  const done = draw({ T1: 'read', T2: 'read', T3: 'read' }, 0);
+  assert.match(done, /data-k="vT2">≈19,755\sL</);                    // no stock after in the fixture: as planned, ≈
+  assert.ok(!/class="co"/.test(done));
+});
+
 test('two tanks at once: two pipes; once every chamber should be empty the pipes stop', () => {
   const two = draw({ T1: 'waiting', T2: 'decanting', T3: 'decanting' }, 60);
   assert.equal(count(two, /class="dp flowing"/g), 2);
