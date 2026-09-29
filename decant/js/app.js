@@ -111,8 +111,10 @@ export async function readScreenshot({ want = null } = {}) {
       (async () => {
         try {
           const { readAutomationPhoto } = await import('./ocr.js');
+          // when the picture was taken (a photo's file time), for a time whose date didn't read
+          const taken = file.lastModified > 0 && file.lastModified <= Date.now() ? file.lastModified : Date.now();
           const parsed = await readAutomationPhoto(file, {
-            tanks: tanks(), chart: state.chart, dateOrder: state.settings.dateOrder, now: Date.now(),
+            tanks: tanks(), chart: state.chart, dateOrder: state.settings.dateOrder, now: taken,
             onProgress: (f, label) => {
               const bar = body.querySelector('#rsBar');
               if (bar) bar.style.width = `${Math.round(f * 100)}%`;

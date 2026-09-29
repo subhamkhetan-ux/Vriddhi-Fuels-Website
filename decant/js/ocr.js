@@ -7,7 +7,10 @@
 //            catches the light-grey labels, the "Last Updated" time and the
 //            green ONLINE, at the cost of a few misread digits.
 // automation.js then combines both readings and checks them against each other
-// and the dip chart. Everything runs on the phone; nothing is uploaded.
+// and the dip chart. A photo of the screen (glare, blur, a tilt) that doesn't
+// check out gets a closer look, card by card, and any "Last Updated" line not
+// read gets one on its own (readAutomationPhoto). Everything runs on the phone;
+// nothing is uploaded.
 
 import { parseAutomation, readTime } from './automation.js';
 
@@ -192,8 +195,10 @@ export async function readImage(file, onProgress) {
 }
 
 // The text of a few bands of the picture — the "Last Updated" lines the two
-// full passes missed. Each band is cut out, enlarged and cleaned on its own.
-export async function readRegions(file, regions, clean = true) {
+// full passes missed. Each band is cut out, enlarged and cleaned on its own:
+// clean = 'stretch' (its own contrast), 'even' (the light evened out — a
+// photo) or false (as it is).
+export async function readRegions(file, regions, clean = 'stretch') {
   const out = [];
   if (!regions.length) return out;
   const img = await loadImage(file);
@@ -215,7 +220,8 @@ export async function readRegions(file, regions, clean = true) {
     ctx.drawImage(img, r.x0, r.y0, w, h, 0, 0, c.width, c.height);
     if (clean) {
       const px = ctx.getImageData(0, 0, c.width, c.height);
-      stretchBand(px.data);
+      if (clean === 'even') evenLight(px.data, c.width, c.height, 2.5 * c.height);
+      else stretchBand(px.data);
       ctx.putImageData(px, 0, 0);
     }
     const { data } = await worker.recognize(c, {}, { text: true });
@@ -224,25 +230,127 @@ export async function readRegions(file, regions, clean = true) {
   return out;
 }
 
-// The whole job for one screenshot: read it, find the tank cards, and give any
-// card whose "Last Updated" time was missed a second, closer look.
+// Even out the light across a photo of a screen (glare, a dark corner, the
+// screen's own gradient): each pixel against the mean of its surroundings
+// (`win` px square), so the page comes out white and the print dark wherever
+// it is. Grey-scale, in place.
+export function evenLight(data, w, h, win) {
+  const lum = new Float32Array(w * h);
+  for (let i = 0, k = 0; k < lum.length; i += 4, k++) lum[k] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  // summed-area table for the local means
+  const sat = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += lum[y * w + x];
+      sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row;
+    }
+  }
+  const r = Math.max(4, Math.round(win / 2));
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r);
+    const y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(w, x + r + 1);
+      const sum = sat[y1 * (w + 1) + x1] - sat[y0 * (w + 1) + x1] - sat[y1 * (w + 1) + x0] + sat[y0 * (w + 1) + x0];
+      const mean = sum / ((y1 - y0) * (x1 - x0)) || 1;
+      const t = Math.min(1, Math.max(0, (lum[y * w + x] / mean - 0.5) / 0.42));
+      const i = (y * w + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = Math.round(255 * t ** 1.3);
+      data[i + 3] = 255;
+    }
+  }
+  return data;
+}
+
+// A closer look at single cards (a photo of the screen reads better card by
+// card): each is cut out from its "Last Updated" line to below its last
+// figure, enlarged so the print is ~36 px tall, cleaned up and read again.
+// Two clean-ups that misread different digits (tried on photos of the screen):
+//   even   — the light evened out, read as sparse text;
+//   stretch — the band's own contrast stretched, read as one block.
+// frames: [{ci, x0, x1, figTop, figBottom, pitch}] (automation.js).
+// Returns [{card, words, how}] for parseAutomation's `ocr.zoom`.
+export async function readCards(file, frames, how = 'even', onProgress) {
+  const out = [];
+  if (!frames.length) return out;
+  const img = await loadImage(file);
+  const worker = await ocrWorker();
+  await worker.setParameters({ tessedit_pageseg_mode: how === 'even' ? '11' : '6', preserve_interword_spaces: '1' });
+  for (const [i, f] of frames.entries()) {
+    onProgress?.(i / frames.length);
+    const x0 = Math.max(0, f.x0 - 0.02 * img.width);
+    const x1 = Math.min(img.width, f.x1);
+    const y0 = Math.max(0, f.figTop - 2.7 * f.pitch);
+    const y1 = Math.min(img.height, f.figBottom + 0.9 * f.pitch);
+    const w = x1 - x0;
+    const h = y1 - y0;
+    if (!(w > 20 && h > 20)) continue;
+    const scale = Math.min(5, Math.max(1, 36 / (0.45 * f.pitch)), 2200 / w);
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * scale);
+    c.height = Math.round(h * scale);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, x0, y0, w, h, 0, 0, c.width, c.height);
+    const px = ctx.getImageData(0, 0, c.width, c.height);
+    if (how === 'even') evenLight(px.data, c.width, c.height, 2.2 * f.pitch * scale);
+    else stretchBand(px.data);
+    ctx.putImageData(px, 0, 0);
+    const { data } = await worker.recognize(c, {}, { text: true, tsv: true });
+    out.push({ card: f.ci, words: wordsFromTsv(data.tsv, 1), how });
+  }
+  return out;
+}
+
+// A card to look at closer: its stock not checked every way, its product
+// height missing, or its time (or the time's date) not read. Density and
+// temperature don't count.
+const unsure = (t) => t.confidence !== 'high' || !t.timeFrom || t.timeFrom === 'clock' || !Number.isFinite(t.reading.height);
+
+// The whole job for one screenshot: read it and find the tank cards; any card
+// whose "Last Updated" time the two passes missed gets a closer look at that
+// line, and — if a card is still unsure (the picture is a photo, not a clean
+// screenshot) — every card a closer look.
 // opts: {tanks, chart, dateOrder, now, onProgress}
 export async function readAutomationPhoto(file, opts = {}) {
-  const ocr = await readImage(file, (f, label) => opts.onProgress?.(f * 0.9, label));
-  const parsed = parseAutomation(ocr, opts);
-  const missing = parsed.tanks.filter((t) => !t.reading.readingAt && t.region);
-  if (missing.length) {
-    opts.onProgress?.(0.92, 'Reading the time…');
+  const ocr = await readImage(file, (f, label) => opts.onProgress?.(f * 0.75, label));
+  let parsed = parseAutomation(ocr, opts);
+  // a time the whole picture's passes didn't read: its line on its own,
+  // cleaned up one way after another until it reads with its date (each
+  // reading joins the card's others — automation.js picks)
+  let todo = parsed.tanks.filter((t) => t.timeFrom !== 'screen' && t.region).map((t) => t.region);
+  if (todo.length) {
+    opts.onProgress?.(0.76, 'Reading the time…');
     try {
-      const texts = await readRegions(file, missing.map((t) => t.region));
-      missing.forEach((t, i) => { t.reading.readingAt = readTime(texts[i], opts.dateOrder, opts.now); });
-      const still = missing.filter((t) => !t.reading.readingAt);
-      if (still.length) {
-        const raw = await readRegions(file, still.map((t) => t.region), false);
-        still.forEach((t, i) => { t.reading.readingAt = readTime(raw[i], opts.dateOrder, opts.now); });
+      ocr.lines = [];
+      for (const how of ['stretch', 'even', false]) {
+        if (!todo.length) break;
+        const texts = await readRegions(file, todo, how);
+        todo.forEach((r, i) => ocr.lines.push({ card: r.ci, text: texts[i], how }));
+        todo = todo.filter((r, i) => !readTime(texts[i], opts.dateOrder, opts.now));
       }
+      parsed = parseAutomation(ocr, opts);
     } catch { /* the time is a nice-to-have */ }
   }
+  // a card still unsure: look at every card closer, and at the ones still
+  // unsure once more, cleaned up the other way (each reading counts as a vote)
+  if (parsed.tanks.some(unsure)) {
+    try {
+      opts.onProgress?.(0.8, 'Looking closer at each tank…');
+      ocr.zoom = await readCards(file, parsed.tanks.map((t) => t.frame).filter(Boolean), 'even', (f) => opts.onProgress?.(0.8 + 0.1 * f, 'Looking closer at each tank…'));
+      parsed = parseAutomation(ocr, opts);
+      const again = parsed.tanks.filter(unsure).map((t) => t.frame).filter(Boolean);
+      if (again.length) {
+        ocr.zoom = [...ocr.zoom, ...await readCards(file, again, 'stretch', (f) => opts.onProgress?.(0.9 + 0.1 * f, 'Looking closer at each tank…'))];
+        parsed = parseAutomation(ocr, opts);
+      }
+    } catch { /* the reading so far stands */ }
+  }
   opts.onProgress?.(1, 'Done');
-  return { ...parsed, ms: ocr.ms, width: ocr.width, height: ocr.height };
+  return { ...parsed, ms: ocr.ms, width: ocr.width, height: ocr.height, ...(opts.keepOcr ? { ocr } : {}) };
 }
