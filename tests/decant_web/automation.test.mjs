@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 import {
-  findHeaders, labelField, parseAutomation, readNumber, readTime,
+  findHeaders, labelField, parseAutomation, pickTimes, readCard, readClock, readNumber, readTime, settleReading,
 } from '../../decant/js/automation.js';
 import { DEFAULT_TANKS } from '../../decant/js/core.js';
 import { DIP_CHART } from '../../decant/js/dipchart.js';
@@ -94,6 +94,13 @@ test('the figures pass alone still reads (no time without the labels pass)', () 
   assert.equal(res.tanks[1].reading.readingAt, null);
 });
 
+test('a heading misread as another tank in one pass: the number the other cards leave', () => {
+  const ocr = clone(OCR[1]);
+  ocr.passes[0].words.find((w) => w.text === '1' && w.x0 < 70 && w.y0 < 30).text = '3';   // "Tank 3 : Motor Spirit"
+  const res = parseAutomation(ocr, OPTS);
+  assert.deepEqual(res.tanks.map((t) => [t.no, t.reading.volume]), [[1, 3898.77], [2, 14973.71], [3, 9989.83], [4, 2559.46]]);
+});
+
 test('a card without its heading is read as an unknown tank', () => {
   const ocr = clone(OCR[3]);
   for (const p of ocr.passes) p.words = p.words.filter((w) => w.y0 > 40);   // crop the heading off
@@ -148,4 +155,101 @@ test('times whose separators were lost', () => {
   assert.equal(readTime('Last Updated @ 09/26/2026 1214.21'), '2026-09-26T12:14:21+05:30');
   assert.equal(readTime('Last Updated @ 09/26/2026 12.14'), '2026-09-26T12:14:00+05:30');
   assert.equal(readTime('Last Updated @ 09/26/2026 32:14:23'), null);              // no 32 o'clock
+});
+
+// Photos of the screen (a phone camera, not a screenshot): the misreads they bring.
+test('figures misread on a photo', () => {
+  assert.equal(readNumber('£20.30'), 820.3);                            // 8 read as £
+  assert.equal(readNumber('1,03%.90'), 1039.9);                         // 9 read as %
+  assert.equal(readNumber('368.068'), 368.06);                          // a speck after the last digit
+  assert.equal(readNumber('75%'), null);                                // the tank drawing's percentage
+});
+
+test('a figure whose decimal point was read as a gap', () => {
+  const lines = ['Tank Capacity 20,000.00 ltr', 'Product Volume 2546 04 ltr', 'Product Height 368.06 mm', 'Water Volume 0.00 ltr', 'Ullage Space 17,453.16 ltr'];
+  const words = lines.flatMap((line, i) => {
+    let x = 10;
+    return line.split(' ').map((text) => {
+      const w = { text, conf: 90, x0: x, y0: 30 * i, x1: x + 9 * text.length, y1: 30 * i + 14 };
+      x = w.x1 + 5;
+      return w;
+    });
+  });
+  const got = readCard({ words }, { capacity: 20000 });
+  assert.deepEqual([got.capacity, got.volume, got.height, got.water, got.ullage], [20000, 2546.04, 368.06, 0, 17453.16]);
+});
+
+test('a photo\'s time: the date run together, or not read at all', () => {
+  assert.equal(readTime('Last Updated @ 09282026 06:11:36'), '2026-09-28T06:11:36+05:30');
+  const now = Date.parse('2026-09-29T06:20:00+05:30');
+  assert.equal(readTime('Last Updates @ ON79202€ 06 18 26', 'MDY', now), null);
+  // the clock alone is from the day the picture was taken …
+  assert.equal(readClock('Last Updates @ ON79202€ 06 18 26', now), '2026-09-29T06:18:26+05:30');
+  // … or the day before, when that would put it well after the picture
+  assert.equal(readClock('Last Updated 23:59:50', Date.parse('2026-09-30T00:02:00+05:30')), '2026-09-29T23:59:50+05:30');
+  assert.equal(readClock('Last Updated 06:34:10', now), '2026-09-29T06:34:10+05:30');   // the automation's clock a little fast
+  assert.equal(readClock('t Updates § OW2W202% 26 18.29', now), null);  // no 26 o'clock
+  assert.equal(readClock('mt Updates? § OW2W2008 2% 18.09', now), null);
+  assert.equal(readClock('Last Updated 06 18 26', undefined), null);
+});
+
+test('two readings a litre apart, both near the dip chart: the one that adds up to the capacity exactly', () => {
+  const cands = [
+    { capacity: 20000, volume: 2546.04, height: 368.06, water: 0 },                 // the whole picture's read
+    { capacity: 20000, volume: 2546.84, height: 368.06, water: 0, ullage: 17453.16 }, // a closer look
+  ];
+  const { reading, checks } = settleReading(cands, { capacity: 20000, chart: DIP_CHART });
+  assert.equal(reading.volume, 2546.84);
+  assert.equal(reading.ullage, 17453.16);
+  assert.deepEqual(checks.corrected, ['volume']);
+});
+
+test('each card\'s time: its readings, and the other cards\' times', () => {
+  const at = (hms, day = '2026-09-26') => `${day}T${hms}+05:30`;
+  const [t1, t2, t3, t4] = pickTimes([
+    // one crop read three ways, "14" misread as "34" each time — counts once, and
+    // no other card was updated then; the closer look's clock agrees with Tank 3
+    [{ at: at('12:14:20'), kind: 'clock', src: 'zoom stretch' },
+      { at: at('12:34:20', '2026-09-25'), kind: 'clock', src: 'line' }, { at: at('12:34:20', '2026-09-25'), kind: 'clock', src: 'line' }],
+    // a probe stuck since the morning: nothing contradicts it
+    [{ at: at('09:02:11'), kind: 'screen', src: 'values' }],
+    // the year misread on its own line; the clock alone agrees with Tank 1
+    [{ at: at('12:14:21'), kind: 'clock', src: 'zoom stretch' }, { at: at('12:14:21', '2024-09-26'), kind: 'line', src: 'line' }],
+    // two readings seconds apart, both near the other cards': the one read with its date
+    [{ at: at('12:14:23'), kind: 'clock', src: 'zoom even' }, { at: at('12:14:28'), kind: 'zoom', src: 'zoom stretch' }],
+  ]);
+  assert.deepEqual(t1, { at: at('12:14:20'), kind: 'clock' });
+  assert.deepEqual(t2, { at: at('09:02:11'), kind: 'screen' });
+  assert.deepEqual(t3, { at: at('12:14:21'), kind: 'clock' });
+  assert.deepEqual(t4, { at: at('12:14:28'), kind: 'zoom' });
+  assert.deepEqual(pickTimes([[]]), [null]);
+});
+
+test('a card\'s date misread while its clock agrees with the other cards\'', () => {
+  const at = (day, hms) => `${day}T${hms}+05:30`;
+  const now = Date.parse('2026-09-26T12:20:00+05:30');
+  // "09262024 12 14:21": the year misread; Tank 1's clock alone is dated the photo's day
+  assert.deepEqual(pickTimes([
+    [{ at: at('2026-09-26', '12:14:20'), kind: 'clock', src: 'zoom stretch' }],
+    [{ at: at('2024-09-26', '12:14:21'), kind: 'line', src: 'line' }],
+  ], now).map((t) => t.at), [at('2026-09-26', '12:14:20'), at('2026-09-26', '12:14:21')]);
+  // an old screen: the one clock read alone takes the date the others show
+  assert.deepEqual(pickTimes([
+    [{ at: at('2021-04-08', '23:26:42'), kind: 'screen', src: 'values' }],
+    [{ at: at('2021-04-08', '23:26:46'), kind: 'screen', src: 'values' }],
+    [{ at: at('2026-09-26', '23:26:43'), kind: 'clock', src: 'line' }],
+  ], now).map((t) => t.at), [at('2021-04-08', '23:26:42'), at('2021-04-08', '23:26:46'), at('2021-04-08', '23:26:43')]);
+  // either side of midnight: left as they are
+  assert.deepEqual(pickTimes([
+    [{ at: at('2026-09-29', '23:59:58'), kind: 'screen', src: 'values' }],
+    [{ at: at('2026-09-30', '00:00:03'), kind: 'screen', src: 'values' }],
+  ], Date.parse('2026-09-30T00:03:00+05:30')).map((t) => t.at), [at('2026-09-29', '23:59:58'), at('2026-09-30', '00:00:03')]);
+});
+
+test('a year far from when the picture was taken is a misread', () => {
+  const now = Date.parse('2026-09-26T12:20:00+05:30');
+  assert.equal(readTime('Last Updated § 09262004 12 14:21', 'MDY', now), null);
+  assert.equal(readClock('Last Updated § 09262004 12 14:21', now), '2026-09-26T12:14:21+05:30');
+  // an old screen is still read as old
+  assert.equal(readTime('Last Updated @ 04/08/2021 23:26:42', 'MDY', now), '2021-04-08T23:26:42+05:30');
 });

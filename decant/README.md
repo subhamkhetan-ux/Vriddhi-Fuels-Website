@@ -256,6 +256,29 @@ Tested on the four sample screenshots, their WhatsApp-compressed and shrunken
 copies and a blurred, tilted "photo of the screen": every volume was read
 correctly.
 
+**Photos of the screen** (a phone camera instead of a screenshot) work too.
+Glare, blur and a cut-off edge are expected:
+
+- **Finding the cards.** They're found by their columns of figures, so a card
+  whose "Tank N" heading is cut off or whose grey labels didn't read still
+  counts. It's numbered from its heading, from a product only one tank holds, or
+  from the card beside it.
+- **A closer look.** When a card doesn't check out, each card is cut out,
+  enlarged, its light evened out, and read again two ways. Every reading
+  counts as a vote, and the dip chart and *volume + ullage = capacity* settle
+  between them.
+- **The time.** A **Last Updated** line that didn't read gets a second look on
+  its own. The tanks on one screen update together, seconds apart, so each
+  card's time is checked against the others'; a misread minute or year is
+  caught that way. If only the clock reads (its date garbled), the date comes
+  from the other cards, or else from the day the photo was taken.
+
+On four real photos of the screen, every tank's volume, ullage, height and
+water was read right. 14 of the 16 times read, one of them 33 seconds off; for
+the one that didn't, the upload time is used, as the sheet says. Density and
+temperature are read as well as the photo allows. They aren't checked against
+anything, so look at them before relying on them.
+
 ## Dip chart
 
 The app carries the 20 KL tanks' dip chart (`DIP_Chart.xlsm`, 1.0–209.0 cm
