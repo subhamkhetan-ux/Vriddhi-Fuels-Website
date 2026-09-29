@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS = {
   // 8 min 15 s, 4 KL: 7 min); other sizes lie on the line through the two.
   emptySecs5: 495,
   emptySecs4: 420,
+  pipeMoveSecs: 45,     // moving the pipe to the tank's next chamber: close the valve, unhook, carry, couple, open
   pendingDays: 3,       // older undecanted invoices fold away under "Older"
   dateOrder: 'MDY',     // the automation prints dates as MM/DD/YYYY
   densityLimit: 3,      // truck density vs the invoice's Density@15, ± kg/m³
@@ -84,6 +85,8 @@ export function settingsWith(saved) {
     .filter(([k, v]) => k > 0 && v.length));
   s.transportTTs = Object.keys(clean).length ? clean : DEFAULT_SETTINGS.transportTTs;
   for (const k of ['emptySecs5', 'emptySecs4']) s[k] = Number(s[k]) > 0 ? Number(s[k]) : DEFAULT_SETTINGS[k];
+  s.pipeMoveSecs = s.pipeMoveSecs !== null && s.pipeMoveSecs !== '' && Number(s.pipeMoveSecs) >= 0 && Number(s.pipeMoveSecs) <= 600
+    ? Number(s.pipeMoveSecs) : DEFAULT_SETTINGS.pipeMoveSecs;
   s.keep = ['fy2', '12', '6', '3'].includes(String(s.keep)) ? String(s.keep) : DEFAULT_SETTINGS.keep;
   s.tanks = s.tanks.map((t, i) => {
     const capacity = Number(t.capacity) > 0 ? Number(t.capacity) : 20000;
@@ -557,36 +560,55 @@ export function chamberSeconds(litres, settings) {
   return Math.max(30, Math.round(secs));
 }
 
+// Seconds to move the pipe to the tank's next chamber (Settings; 0:45).
+export function pipeMoveSeconds(settings) {
+  const v = Number((settings || DEFAULT_SETTINGS).pipeMoveSecs);
+  return Number.isFinite(v) && v >= 0 ? v : DEFAULT_SETTINGS.pipeMoveSecs;
+}
+
 // The pipe's round for one tank being decanted: its chambers one after
 // another, in the order they were put in — a chamber added while it decants
-// goes last, from when it was added. [{no, litres, from, to}], times in ms.
+// goes last, from when it was added. Between two chambers the pipe is moved
+// (the emptied chamber's valve closed, the hose carried to the next one,
+// coupled and its valve opened), which takes the Settings' pipe time.
+// [{no, litres, moveAt, from, to}], times in ms; moveAt: when the pipe
+// starts moving onto this chamber (null for the first).
 export function drainTimeline(row, chambers, settings) {
   const start = Date.parse(row?.startedAt || '');
   if (!Number.isFinite(start)) return [];
+  const move = pipeMoveSeconds(settings) * 1000;
   let at = start;
-  return (row.chambers || []).map((no) => {
+  return (row.chambers || []).map((no, i) => {
     const litres = (chambers || []).find((c) => c.no === no)?.litres || 0;
     const joined = Date.parse(row.joinedAt?.[no] || '');
-    const from = Number.isFinite(joined) ? Math.max(at, joined) : at;
+    const ready = Number.isFinite(joined) ? Math.max(at, joined) : at;   // the last one empty, and this one added
+    const moveAt = i === 0 ? null : ready;
+    const from = i === 0 ? ready : ready + move;
     const to = from + chamberSeconds(litres, settings) * 1000;
     at = to;
-    return { no, litres, from, to };
+    return { no, litres, moveAt, from, to };
   });
 }
 
-// Where that round is at `now`: the chamber the pipe is on (the last one once
-// all are empty), how far each chamber has emptied (0 full … 1 empty), the
-// litres in the tank so far, the time left (ms) and whether it still flows.
+// Where that round is at `now`: the chamber the pipe is on or being moved to
+// (the last one once all are empty), how far each chamber has emptied (0 full
+// … 1 empty), the litres in the tank so far, the time left (ms), whether it
+// flows now, whether all should be empty, and — while the pipe is being
+// moved — {from, to, at, until}: the chambers and the move's times (ms).
 export function drainAt(timeline, now) {
   if (!timeline?.length) return null;
   const part = (w) => Math.min(1, Math.max(0, (now - w.from) / (w.to - w.from)));
   const last = timeline[timeline.length - 1];
+  const i = timeline.findIndex((w) => w.moveAt !== null && w.moveAt !== undefined && now >= w.moveAt && now < w.from);
+  const moving = i > 0 ? { from: timeline[i - 1].no, to: timeline[i].no, at: timeline[i].moveAt, until: timeline[i].from } : null;
   return {
     on: (timeline.find((w) => now < w.to) || last).no,
     drained: Object.fromEntries(timeline.map((w) => [w.no, part(w)])),
     litres: timeline.reduce((a, w) => a + w.litres * part(w), 0),
     left: Math.max(0, last.to - now),
-    flowing: now < last.to,
+    flowing: now < last.to && !moving,
+    done: now >= last.to,
+    moving,
   };
 }
 

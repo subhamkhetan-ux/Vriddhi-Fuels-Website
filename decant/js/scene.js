@@ -7,19 +7,23 @@
 // 8:15, 4 KL 7:00) while the tank rises by what it gives, and once all should
 // be empty the pipe stops. A tank settling sits at its new level; a tank done
 // shows its stock after.
+// Between two chambers the pipe is moved (Settings: 0:45): an attendant
+// walks up, the picture zooms in on him closing the emptied chamber's valve,
+// carrying the hose to the next one and opening it (worker.js), and a caption
+// counts the move down.
 // Plain SVG, drawn as things are now; tickScenes() moves the levels and pipes
-// on every second, and CSS (index.html, "decanting scene") runs the ripples
-// and the flow — still for reduced motion.
+// on every second — every frame while a pipe is being moved (runScenes) — and
+// CSS (index.html, "decanting scene") runs the ripples and the flow — still
+// for reduced motion, which also leaves out the walking and the zoom.
 
 import { drainAt, drainTimeline, tankStage } from './core.js';
-import { PRODUCT_COLOR, esc, fmtL } from './ui.js';
+import { PRODUCT_COLOR, elapsed, esc, fmtL } from './ui.js';
+import { GROUND, LEVER, OUTLET_Y, ZOOM, applyPose, moveScene, workerDefs, workerSvg } from './worker.js';
 
 const W = 360;
 const H = 240;
 const BODY = { x0: 58, x1: 304, top: 16, navy: 28, orange: 64, bottom: 86 };
 const GLASS = { top: 34, bottom: 60 };
-const OUTLET_Y = 101;
-const GROUND = 115;
 const CURB = 134;
 const SOIL = 146;
 const TANK = { top: 160, bottom: 204, half: 37 };
@@ -45,9 +49,13 @@ const r1 = (v) => Math.round(v * 10) / 10;
 // an empty glass hides its liquid altogether (no ripple left at the bottom)
 const glassY = (level) => (level <= 0.001 ? GLASS.bottom + 3 : r1(GLASS.bottom - level * (GLASS.bottom - GLASS.top)));
 const tankY = (litres, cap) => r1(TANK.bottom - Math.max(0, Math.min(1.02, (litres || 0) / cap)) * (TANK.bottom - TANK.top));
-// sag: each pipe hangs a little differently, so two side by side stay apart
-const pipeD = (xo, xi, sag = 0) => `M${xo} ${OUTLET_Y + 2} C${xo} ${GROUND + 14 + sag} ${xi} ${GROUND - 12 + sag / 2} ${xi} ${GROUND + 1}`;
+// sag: each pipe hangs a little differently, so two side by side stay apart;
+// y: where its end is (on a valve, or in the attendant's hands)
+const pipeD = (xo, xi, sag = 0, y = OUTLET_Y) => `M${r1(xo)} ${r1(y + 2)} C${r1(xo)} ${GROUND + 14 + sag} ${xi} ${GROUND - 12 + sag / 2} ${xi} ${GROUND + 1}`;
 const part = (now, from, to) => Math.min(1, Math.max(0, (now - from) / (to - from)));
+const inWindow = (wins, now) => wins.some(([from, to]) => now >= from && now < to);
+// the phone's "reduce motion": no walking or zooming, the pipe just moves over
+const REDUCED = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 
 // s: a session; tanks: the settings' tanks; stock: the latest reading per tank
 // (for the tanks this truck doesn't fill); settings: for the chambers' times.
@@ -66,6 +74,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     return [r, { tl, at: drainAt(tl, now) }];
   }));
   const anim = { g: [], t: [], p: [] };                  // what tickScenes moves on
+  const workers = [];                                    // tanks whose pipe will be moved
 
   // chambers along the body, by size; the truck's capacity for its name band
   const total = chambers.reduce((a, c) => a + (c.litres || 4000), 0) || 1;
@@ -121,7 +130,12 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
   }).join('');
   const dividers = cx.slice(1).map(({ x0 }) => `<line x1="${x0}" y1="${BODY.navy}" x2="${x0}" y2="${BODY.bottom}" stroke="#000" stroke-opacity=".16"/>`).join('');
   const bodyClip = clip('body', `<rect x="${BODY.x0}" y="${BODY.top}" width="${BODY.x1 - BODY.x0}" height="${BODY.bottom - BODY.top}" rx="11"/>`);
-  const outlets = chambers.map((c) => `<circle cx="${outletX(c.no)}" cy="${OUTLET_Y}" r="3.4" fill="#cfd5db" stroke="#59616a" stroke-width="1"/>`).join('');
+  // each valve with its handle: along the pipe = open (the chamber the fuel runs from), up = closed
+  const openNos = new Set([...round.values()].filter((rd) => rd.at?.flowing).map((rd) => rd.at.on));
+  const outlets = chambers.map((c) => `<circle cx="${outletX(c.no)}" cy="${OUTLET_Y}" r="3.4" fill="#cfd5db" stroke="#59616a" stroke-width="1"/>
+      <g class="lever" data-k="v${c.no}" transform="rotate(${openNos.has(c.no) ? 0 : -90} ${outletX(c.no)} ${OUTLET_Y})">
+        <rect x="${outletX(c.no)}" y="${OUTLET_Y - 0.85}" width="${LEVER}" height="1.7" rx=".85" fill="#e0402e"/>
+        <circle cx="${outletX(c.no)}" cy="${OUTLET_Y}" r="1.3" fill="#3a3f45"/></g>`).join('');
   const truck = `
     <g class="ds-truck">
       <rect x="10" y="32" width="48" height="68" rx="7" fill="#1e3a8a"/>
@@ -158,14 +172,26 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     const rd = round.get(row);
     const onNo = st === 'settling' ? row.chambers[row.chambers.length - 1] : rd?.at ? rd.at.on : row.chambers[0];
     const flowing = st === 'decanting' && (rd?.at ? rd.at.flowing : true);
-    const xo = outletX(onNo);
-    if (rd?.tl.length) anim.p.push({ k: `p${row.tank}`, xi, sag, wins: rd.tl.map((w) => [w.from, w.to, outletX(w.no)]) });
+    // while the pipe is moved the hose still hangs from the chamber just emptied
+    const xo = outletX(rd?.at?.moving ? rd.at.moving.from : onNo);
+    if (rd?.tl.length) {
+      anim.p.push({
+        k: `p${row.tank}`, t: row.tank, xi, sag, wins: rd.tl.map((w) => [w.from, w.to, outletX(w.no), w.no]),
+        // the pipe's moves: [start, end, the valve it leaves, the valve it goes to, from C, to C]
+        moves: rd.tl.slice(1).map((w, i) => [w.moveAt, w.from, outletX(rd.tl[i].no), outletX(w.no), rd.tl[i].no, w.no]),
+      });
+      if (!compact && rd.tl.length > 1) workers.push(row.tank);
+    }
     return `<g class="dp${flowing ? ' flowing' : ''}${st === 'settling' ? ' still' : ''}" data-k="p${row.tank}">
       <path class="hose" d="${pipeD(xo, xi, sag)}" fill="none" stroke="${INK}" stroke-width="5.2" stroke-linecap="round"/>
       <path class="hose-in" d="${pipeD(xo, xi, sag)}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linecap="round"/>
       <circle class="coupling" cx="${xo}" cy="${OUTLET_Y}" r="3.6" fill="${INK}" stroke="${col}" stroke-width="1.6"/>
+      <circle class="drip" data-k="dr${row.tank}" r=".9" fill="${col}" display="none"/>
+      <circle class="lock" data-k="lk${row.tank}" r="4" fill="none" stroke="#fff" stroke-width=".8" display="none"/>
     </g>`;
   }).join('');
+  // the attendant who moves each tank's pipe (drawn over the truck)
+  const people = workers.map((t) => workerSvg(id, `w${t}`)).join('');
 
   // ---- the ground, fill points and the underground tanks
   const tanksSvg = tanks.map((t) => {
@@ -231,13 +257,15 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
   const said = rows.map((r) => {
     const st = stageOf(r);
     const on = round.get(r)?.at;
-    return `C${r.chambers.join(',')} into Tank ${tanks.find((t) => t.id === r.tank)?.no ?? r.tank} (${{ waiting: 'next', decanting: on?.flowing ? `pipe on C${on.on}` : 'decanting', settling: 'settling', read: 'done' }[st]})`;
+    return `C${r.chambers.join(',')} into Tank ${tanks.find((t) => t.id === r.tank)?.no ?? r.tank} (${{ waiting: 'next', decanting: on?.moving ? `moving the pipe to C${on.moving.to}` : on?.flowing ? `pipe on C${on.on}` : 'decanting', settling: 'settling', read: 'done' }[st]})`;
   }).join('; ');
   const moving = anim.g.length || anim.t.length || anim.p.length;
   return `<svg class="dscene${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${s.tt_no || 'Truck'}: ${said}`)}"${moving ? ` data-anim="${esc(JSON.stringify(anim))}"` : ''}>
     <defs>${defs.join('')}
       <linearGradient id="${id}soil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a1e16"/><stop offset="1" stop-color="#140e0a"/></linearGradient>
+      ${people ? `${workerDefs(id)}<radialGradient id="${id}vig" gradientUnits="userSpaceOnUse" cx="${W / 2}" cy="125" r="160" gradientTransform="translate(${W / 2} 125) scale(1.5 1) translate(${-W / 2} -125)"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".75"/></radialGradient>` : ''}
     </defs>
+    <g data-k="world">
     <!-- the ground runs past the sides, so a wide card shows the whole site -->
     <rect x="-1000" y="${GROUND}" width="${W + 2000}" height="${SOIL - GROUND}" fill="#2b2826"/>
     <rect x="-1000" y="${CURB}" width="${W + 2000}" height="${SOIL - CURB}" fill="#57524c"/>
@@ -246,16 +274,24 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     ${tanksSvg}
     ${truck}
     ${pipes}
+    ${people}
+    </g>
+    ${people ? `<rect data-k="vig" x="-1000" y="0" width="${W + 2000}" height="${H}" fill="url(#${id}vig)" opacity="0" pointer-events="none"/>` : ''}
+    ${people ? `<g class="ds-cap" data-k="cap" display="none"><rect x="${W / 2 - 88}" y="2.5" width="176" height="16" rx="8"/><text x="${W / 2}" y="13.3" data-k="capt"></text></g>` : ''}
   </svg>`;
 }
 
 // Move every decanting picture on the page to `now`: each chamber's level on
 // the pipe and the litres left in it, each tank's level and litres, and each
 // pipe onto the chamber it's on — and stop the flow once all its chambers
-// should be empty.
+// should be empty. While a pipe is being moved: the attendant, the valves'
+// handles, the hose in his hands, the zoom and the caption. -> true while
+// someone is acting out a move (so runScenes gives it every frame).
 const parsed = new WeakMap();
 export function tickScenes(root = document, now = Date.now()) {
+  let busy = false;
   for (const svg of root.querySelectorAll('svg.dscene[data-anim]')) {
+    if (svg.closest('[hidden]')) continue;               // a screen not showing (it's drawn afresh when it shows)
     let a = parsed.get(svg);
     if (!a) {
       try { a = JSON.parse(svg.dataset.anim); } catch { continue; }
@@ -263,30 +299,87 @@ export function tickScenes(root = document, now = Date.now()) {
     }
     const el = (k) => svg.querySelector(`[data-k="${k}"]`);
     const text = (k, v) => { const n = el(k); if (n && n.textContent !== v) n.textContent = v; };
+    const show = (n, on) => { if (!n) return; if (on) n.removeAttribute('display'); else if (n.getAttribute('display') !== 'none') n.setAttribute('display', 'none'); };
     for (const g of a.g) {
       const p = part(now, g.from, g.to);
       const on = now >= g.from && now < g.to;
       el(`l${g.k}`)?.setAttribute('transform', `translate(0 ${glassY(FULL * (1 - p))})`);
       el(`g${g.k}`)?.classList.toggle('on', on);
-      const co = el(`c${g.k}`);
-      if (co) { if (on) co.removeAttribute('display'); else co.setAttribute('display', 'none'); }
+      show(el(`c${g.k}`), on);
       if (on) text(`n${g.k}`, fmtL(g.l * (1 - p)));
     }
     for (const t of a.t) {
       const litres = t.before + t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0);
       el(`t${t.k}`)?.setAttribute('transform', `translate(0 ${tankY(litres, t.cap)})`);
-      el(`d${t.k}`)?.classList.toggle('flowing', now < t.wins[t.wins.length - 1][1]);
+      el(`d${t.k}`)?.classList.toggle('flowing', inWindow(t.wins, now));   // not while the pipe is moved
       text(`v${t.k}`, `≈${fmtL(litres)}`);
       text(`a${t.k}`, `+${fmtL(litres - t.before)}`);
     }
+    let focus = null;                                    // the first pipe being moved: what the picture zooms onto
     for (const p of a.p) {
       const g = el(p.k);
       if (!g) continue;
+      // [start, end, valve left, valve to, from C, to C]: the move on now, or
+      // just done (he walks off for a few seconds more)
+      const mv = (p.moves || []).find(([t0, t1]) => now >= t0 && now < t1 + 8000);
+      const moving = Boolean(mv) && now < mv[1];
+      const man = el(`w${p.t}`);                         // (none on the Home card: there the pipe just moves over)
+      const sc = mv && man && !REDUCED() ? moveScene({ t0: mv[0], t1: mv[1], xa: mv[2], xb: mv[3] }, now) : null;
       const w = p.wins.find(([, to]) => now < to) || p.wins[p.wins.length - 1];
-      const d = pipeD(w[2], p.xi, p.sag);
+      // the hose's end: on the valve it's on — or, while it's moved, where the attendant has it
+      const end = sc ? sc.hose : { x: moving ? mv[2] : w[2], y: OUTLET_Y };
+      const d = pipeD(end.x, p.xi, p.sag, end.y);
       g.querySelectorAll('path').forEach((path) => { if (path.getAttribute('d') !== d) path.setAttribute('d', d); });
-      g.querySelector('.coupling')?.setAttribute('cx', w[2]);
-      g.classList.toggle('flowing', now < p.wins[p.wins.length - 1][1]);
+      const cp = g.querySelector('.coupling');
+      cp?.setAttribute('cx', r1(end.x));
+      cp?.setAttribute('cy', r1(end.y));
+      g.classList.toggle('flowing', inWindow(p.wins, now));
+      // the valves' handles: open on the chamber the fuel runs from, else shut;
+      // while the pipe is moved, where his hand has them
+      for (const [from, to, x, no] of p.wins) {
+        let angle = now >= from && now < to ? 0 : -90;
+        if (sc && no === mv[4]) angle = sc.levers.a;
+        if (sc && no === mv[5]) angle = sc.levers.b;
+        el(`v${no}`)?.setAttribute('transform', `rotate(${r1(angle)} ${x} ${OUTLET_Y})`);
+      }
+      const drip = el(`dr${p.t}`);
+      show(drip, Boolean(sc?.drip));
+      if (sc?.drip) { drip.setAttribute('cx', r1(sc.drip.x)); drip.setAttribute('cy', r1(sc.drip.y)); drip.setAttribute('opacity', r1(sc.drip.o)); }
+      const lk = el(`lk${p.t}`);
+      show(lk, Boolean(sc?.lock));
+      if (sc?.lock) { lk.setAttribute('cx', mv[3]); lk.setAttribute('cy', OUTLET_Y); lk.setAttribute('r', r1(3.6 + 5 * sc.lock)); lk.setAttribute('opacity', r1(1 - sc.lock)); }
+      show(man, Boolean(sc));
+      if (sc) { applyPose(man, `w${p.t}`, sc); busy = true; }
+      if (man && mv && !focus) focus = { sc, mv, moving };
     }
+    // zoom onto the attendant while he works; the caption counts the move down
+    const world = el('world');
+    const z = focus?.sc ? focus.sc.zoom : 0;
+    if (world) {
+      if (z > 0.001) {
+        const k = 1 + (ZOOM - 1) * z;
+        const fx = W / 2 + (focus.sc.focus.x - W / 2) * z;
+        const fy = H / 2 + (focus.sc.focus.y - H / 2) * z;
+        world.setAttribute('transform', `translate(${W / 2} ${H / 2}) scale(${k.toFixed(4)}) translate(${(-fx).toFixed(2)} ${(-fy).toFixed(2)})`);
+      } else if (world.hasAttribute('transform')) world.removeAttribute('transform');
+    }
+    el('vig')?.setAttribute('opacity', r1(0.8 * z));      // the close-up's darker edges
+    show(el('cap'), Boolean(focus?.moving));
+    if (focus?.moving) text('capt', `🔧 Moving the pipe · C${focus.mv[4]} → C${focus.mv[5]} · ${elapsed(focus.mv[1] - now)}`);
   }
+  return busy;
+}
+
+// Keep the pictures going: about 30 frames a second while a pipe is being
+// moved in one (so he walks smoothly), else once a second; nothing while the
+// app is in the background.
+export function runScenes() {
+  let last = 0;
+  const loop = (t) => {
+    if (document.hidden) { setTimeout(loop, 1000); return; }
+    if (t !== undefined && t - last < 30) { requestAnimationFrame(loop); return; }
+    last = t ?? 0;
+    if (tickScenes()) requestAnimationFrame(loop); else setTimeout(loop, 1000);
+  };
+  loop();
 }
