@@ -5,11 +5,12 @@
 import { PRODUCTS, istDate, pctOf, usedChambers } from './core.js';
 import {
   PERIODS, byDay, byInvoice, byMonth, byProduct, byTank, byVehicle, daysBetween, decantedByProduct, entriesFrom, exportRows,
-  filterEntries, localFrom, monthsBetween, oldestKept, periodRange, purchaseSummary, summarize, toCsv, trend, withOlder,
+  filterEntries, localFrom, monthsBetween, periodRange, purchaseSummary, summarize, toCsv, trend, withOlder,
 } from './report.js';
-import { cloudHistory, loadHistory, state } from './store.js';
+import { cloudHistory, cloudMonths, fetchMonth, loadHistory, loadMonths, monthFiles, saveConfig, state, tidyMonths } from './store.js';
+import { KEEP_OPTIONS, fileName, keepFrom, logSheets, monthCounts, monthName } from './archive.js';
 import {
-  PRODUCT_COLOR, bandBadge, download, esc, fmtIsoDay, fmtKL, fmtL, fmtMoney, fmtNum, fmtPct, fmtSigned, fmtTime, productChip,
+  PRODUCT_COLOR, bandBadge, download, esc, fmtDate, fmtIsoDay, fmtKL, fmtL, fmtMoney, fmtNum, fmtPct, fmtSigned, fmtTime, productChip,
   productShort, toast,
 } from './ui.js';
 import { dailyVariation, variationDots } from './charts.js';
@@ -69,7 +70,7 @@ export function renderLog(el) {
   const sum = summarize(list);
   const days = byDay(list);
   const cancelled = state.sessions.filter((s) => s.status === 'cancelled');
-  el.innerHTML = `
+  el.innerHTML = `${filesCard()}
     <div class="filters">
       <div class="seg" role="group" aria-label="Period">${LOG_PERIODS
         .map(([k, l]) => `<button class="${F.log.period === k ? 'on' : ''}" data-lp="${k}">${l}</button>`).join('')}</div>
@@ -88,10 +89,55 @@ export function renderLog(el) {
     ${days.length ? days.map((d) => `
       <div class="day-h"><span>${fmtIsoDay(d.key, true)}</span><span>${d.trips} decant${d.trips === 1 ? '' : 's'} · ${fmtKL(d.litres)} · ${fmtSigned(d.variation, ' L')}</span></div>
       ${byInvoice(d.entries).map(logCard).join('')}`).join('')
-    : '<div class="empty">Nothing in this period. Older months (this financial year and the last) are in Reports.</div>'}
+    : '<div class="empty">Nothing in this period. Older months are in Reports, and in the monthly log files.</div>'}
     ${cancelled.length ? `<h2 style="cursor:pointer" data-cancelled>${F.log.showCancelled ? '▾' : '▸'} Cancelled <span class="count">${cancelled.length}</span></h2>
       ${F.log.showCancelled ? cancelled.map((s) => `<button class="lrow" data-open="${esc(s.id)}"><span class="tm">${fmtIsoDay(istDate(s.created_at))}</span>
         <span class="mid"><b>${esc(s.tt_no || '')}</b><div>${esc(s.data?.cancelReason || '')}</div></span><span class="rt"></span></button>`).join('') : ''}` : ''}`;
+}
+
+// The monthly log files: each finished month's records as an Excel file — to
+// keep, and for the Excel workbook that rebuilds the reports. The Log tab's
+// badge counts the ones to download.
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+function filesCard() {
+  loadMonths();                                        // does nothing while fresh
+  const files = monthFiles();
+  if (!files.length) return '';
+  const due = files.filter((f) => f.state === 'new' || f.state === 'changed');
+  const rest = files.filter((f) => !due.includes(f)).reverse();
+  const keep = (KEEP_OPTIONS.find(([k]) => k === state.settings.keep) || KEEP_OPTIONS[0])[1];
+  const what = (f) => [plural(f.sessions, 'decantation'), plural(f.invoices, 'invoice'), f.open ? `${f.open} still open` : ''].filter(Boolean).join(' · ');
+  return `<div class="card files${due.length ? ' due' : ''}">
+    <div class="sect-title">📥 Monthly log files${due.length ? ` <span class="count">${due.length} to download</span>` : ''}</div>
+    ${due.map((f) => `<div class="file-row">
+      <div class="mid"><b>${monthName(f.month)}</b><div class="hint">${what(f)}${f.state === 'changed' ? ` · <b style="color:var(--warn)">changed since its file of ${fmtDate(f.file.at)} — download it again</b>` : ''}</div></div>
+      <button class="btn sm" data-month="${f.month}">⬇ Excel</button></div>`).join('')}
+    ${rest.length ? `<details class="files-done"${due.length ? '' : ' open'}><summary class="hint">Downloaded (${rest.length})</summary>
+      ${rest.map((f) => `<div class="file-row"><div class="mid">${monthName(f.month)} <span class="hint">· ${fmtDate(f.file.at, true)}${f.file.by ? ` by ${esc(f.file.by)}` : ''}${f.state === 'cleared' ? ' · cleared from the cloud' : ''}</span></div>
+        ${f.state === 'cleared' ? '' : `<button class="btn sm" data-month="${f.month}" aria-label="Download ${monthName(f.month)} again">⬇</button>`}</div>`).join('')}</details>` : ''}
+    <div class="hint" style="margin-top:6px">The cloud keeps ${esc(keep.toLowerCase())} (Settings). An older month is cleared from it once its file is downloaded — never before.</div>
+  </div>`;
+}
+
+async function downloadMonth(m, el) {
+  const btn = el.querySelector(`[data-month="${m}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const { sessions, invoices } = await fetchMonth(m);
+    const { buildWorkbook } = await import('./xlsx.js');
+    const madeAt = new Date().toISOString();
+    const by = state.device.operator || '';
+    download(buildWorkbook(logSheets({
+      month: m, sessions, invoices, known: [...state.sessions, ...sessions], settings: state.settings, madeAt, madeBy: by, tanks: state.settings.tanks,
+    })), fileName(m));
+    const last = monthCounts(sessions, invoices)[m]?.updated || madeAt;
+    await saveConfig({ archive: { ...(state.config.archive || {}), [m]: { at: madeAt, by, s: sessions.length, i: invoices.length, u: last } } });
+    toast(`${monthName(m)}: saved to this phone's downloads.`);
+    tidyMonths();                                      // past what the cloud keeps? then it's cleared now
+  } catch (e) {
+    toast(`Couldn't make the file: ${e.message || e}`, 5000);
+    renderLog(el);
+  }
 }
 
 // One card per invoice: the truck, and a line per tank it filled. The card
@@ -123,6 +169,8 @@ function bindLog(el) {
     if (p) { F.log.period = p.dataset.lp; renderLog(el); return; }
     const o = t.closest('[data-open]');
     if (o) { openWizard(o.dataset.open); return; }
+    const mo = t.closest('[data-month]');
+    if (mo) { downloadMonth(mo.dataset.month, el); return; }
     if (t.closest('[data-cancelled]')) { F.log.showCancelled = !F.log.showCancelled; renderLog(el); return; }
     const x = t.closest('[data-export]');
     if (x) {
@@ -155,11 +203,19 @@ function bindLog(el) {
 
 let repBound = null;
 
+// The oldest day the reports reach: what the cloud keeps (Settings), or its
+// oldest month still there if older (a month stays until its file is saved).
+function oldestDay(t) {
+  const keep = `${keepFrom(t, state.settings.keep)}-01`;
+  const first = Object.keys(cloudMonths.counts || {}).sort()[0];
+  return first && `${first}-01` < keep ? `${first}-01` : keep;
+}
+
 // Everything the Reports need for the chosen period: the phone's months plus,
 // when the period reaches further back, the older ones from the cloud.
 function reportData() {
   const t = today();
-  const kept = oldestKept(t);
+  const kept = oldestDay(t);
   const [f0, to] = periodRange(F.rep.period, t, { from: F.rep.from, to: F.rep.to });
   const from = !f0 || f0 < kept ? kept : f0;
   const older = from < localFrom(t);
@@ -169,7 +225,7 @@ function reportData() {
   const all = entriesFrom(sessions, state.settings);
   const list = filterEntries(all, { from, to, tt: F.rep.tt, product: F.rep.product });
   const buy = purchaseSummary(invoices, sessions, { from, to, tt: F.rep.tt, product: F.rep.product });
-  return { t, kept, from, to, older, sessions, invoices, all, list, buy };
+  return { t, kept, f0, from, to, older, sessions, invoices, all, list, buy };
 }
 
 function historyNote(older) {
@@ -184,7 +240,7 @@ function historyNote(older) {
 
 export function renderReports(el) {
   if (repBound !== el) { bindReports(el); repBound = el; }
-  const { t, kept, from, to, older, sessions, invoices, all, list, buy } = reportData();
+  const { t, kept, f0, from, to, older, sessions, invoices, all, list, buy } = reportData();
   const sum = summarize(list);
   const periodSel = PERIODS.map(([k, l]) => `<option value="${k}" ${F.rep.period === k ? 'selected' : ''}>${l}</option>`).join('');
   const monthly = daysBetween(from, to).length > 62;
@@ -200,7 +256,7 @@ export function renderReports(el) {
       <select data-rf="product" aria-label="Product">${productOptions(F.rep.product)}</select>
       <button class="btn sm" data-rexport ${list.length ? '' : 'disabled'}>⬇ Excel</button>
     </div>
-    <div class="hint" style="margin:-4px 2px 10px">${fmtIsoDay(from, true)} – ${fmtIsoDay(to, true)}${F.rep.tt ? ` · ${esc(F.rep.tt)}` : ''}${F.rep.product ? ` · ${PRODUCTS[F.rep.product].name}` : ''}${F.rep.period === 'all' ? ' · all that is kept (this financial year and the last)' : ''}${historyNote(older)}</div>
+    <div class="hint" style="margin:-4px 2px 10px">${fmtIsoDay(from, true)} – ${fmtIsoDay(to, true)}${F.rep.tt ? ` · ${esc(F.rep.tt)}` : ''}${F.rep.product ? ` · ${PRODUCTS[F.rep.product].name}` : ''}${F.rep.period === 'all' || f0 < kept ? ' · all the cloud keeps — older months are in the monthly log files' : ''}${historyNote(older)}</div>
     ${productCards(list, buy, sessions)}
     <h2>Variation <span class="count">tank gain vs the chambers</span></h2>
     ${list.length ? `

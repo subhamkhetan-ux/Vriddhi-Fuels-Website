@@ -24,10 +24,15 @@
 --                   Plan tab).
 --   dec_history     (a view) finished decantations, compact — what the FY
 --                   reports read for the months the phone doesn't keep.
+--   dec_months      (a view) records per month — how the app knows which
+--                   monthly log files are ready, in a few rows.
 --
--- Retention: decantations and invoices are kept for this financial year and
--- the last (for the FY reports); dec_purge_old() does it and the app calls it
--- on load. Screenshots are only read on the phone — never stored (the
+-- Retention: every finished month becomes an Excel log file on the phone
+-- (Log tab). A month older than what the cloud keeps (Settings: this FY and
+-- the last, or 12 / 6 / 3 months) is cleared by the app once its file has
+-- been downloaded — never before (dec_purge_old() no longer deletes). Only
+-- finished and cancelled decantations and their invoices go; one still open
+-- stays. Screenshots are only read on the phone — never stored (the
 -- dec_photos table of the first version is dropped). Personal-owner model:
 -- the publishable (anon) key may read/write these tables (RLS policy below);
 -- the payments agent writes the invoices with it too.
@@ -94,34 +99,34 @@ create table if not exists public.dec_config (
 );
 insert into public.dec_config (id) values (1) on conflict (id) do nothing;
 
--- ---- keep two financial years ----
--- Decantations and invoices are kept for this financial year and the last,
--- so the reports can show "this FY"; a decantation still open stays.
+-- ---- old months: cleared by the app once their log file is saved ----
+-- This used to delete everything older than the last financial year, unseen.
+-- Now the app clears a month itself, only after its Excel log file has been
+-- downloaded (Log tab). Kept, doing nothing, so an old nightly job can't
+-- delete anything.
 create or replace function public.dec_purge_old()
 returns void language plpgsql security definer as $$
-declare
-  today     date := (now() at time zone 'Asia/Kolkata')::date;
-  fy_start  date;
-  keep_from timestamptz;
 begin
-  fy_start := make_date(case when extract(month from today) >= 4
-                             then extract(year from today)::int
-                             else extract(year from today)::int - 1 end, 4, 1);
-  keep_from := (fy_start - interval '1 year')::timestamp at time zone 'Asia/Kolkata';
-
-  delete from public.dec_sessions
-   where status in ('done', 'cancelled')
-     and coalesce(completed_at, updated_at, created_at) < keep_from;
-  delete from public.dec_invoices i
-   where i.created_at < keep_from
-     and not exists (select 1 from public.dec_sessions s
-                      where s.invoice_no = i.invoice_no
-                        and s.status not in ('done', 'cancelled'));
+  null;
 end $$;
+
+-- ---- dec_months: records per month (India time), for the monthly log files ----
+create or replace view public.dec_months with (security_invoker = true) as
+select 'sessions'::text as kind,
+       to_char(created_at at time zone 'Asia/Kolkata', 'YYYY-MM') as month,
+       count(*) as n,
+       count(*) filter (where status in ('draft', 'decanting', 'settling')) as open,
+       max(coalesce(updated_at, created_at)) as updated
+  from public.dec_sessions group by 2
+union all
+select 'invoices'::text, to_char(created_at at time zone 'Asia/Kolkata', 'YYYY-MM'), count(*), 0,
+       max(coalesce(updated_at, created_at))
+  from public.dec_invoices group by 2;
+grant select on public.dec_months to anon, authenticated;
 
 -- ---- dec_history: finished decantations, compact, for the FY reports ----
 -- The phone keeps this month and last; for "This FY" / "All" the app reads the
--- older months from this view — only what the reports need (no screenshots,
+-- older months the cloud still has from this view — only what the reports need (no screenshots,
 -- no OCR details), so a whole year is a small download. Each stock keeps where
 -- it came from (screenshot / dip / typed litres, and a corrected screenshot's
 -- own figure) for the internal audit.
@@ -175,5 +180,5 @@ begin
   end loop;
 end $$;
 
--- Optional: purge nightly regardless of app use (needs pg_cron enabled).
--- select cron.schedule('dec_purge_old', '30 2 * * *', $$ select public.dec_purge_old(); $$);
+-- (An old nightly job for dec_purge_old, if one was set up, now does nothing:
+--  months are cleared by the app, after their log file is downloaded.)
