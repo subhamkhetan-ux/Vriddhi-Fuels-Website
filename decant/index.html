@@ -368,6 +368,12 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .tr-top b.num{font-variant-numeric:tabular-nums}
 
 /* ---- log & reports ---- */
+/* monthly log files (top of the Log) */
+.files .file-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.files .file-row:first-of-type{border-top:0}
+.files .file-row .mid{flex:1;min-width:0}
+.files.due{border-color:rgba(255,122,26,.45)}
+.files-done summary{cursor:pointer;margin-top:6px}
 .day-h{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin:18px 4px 8px}
 .day-h span:last-child{text-transform:none;letter-spacing:0;font-weight:600;color:var(--faint)}
 .lrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:11px 12px;border-radius:12px;
@@ -522,7 +528,7 @@ input[type=number]{font-variant-numeric:tabular-nums}
 <nav class="tabbar" id="tabbar">
   <button class="tab active" data-tab="home">Decant<span class="tabbadge" id="homeBadge" hidden></span></button>
   <button class="tab" data-tab="plan">Plan</button>
-  <button class="tab" data-tab="log">Log</button>
+  <button class="tab" data-tab="log">Log<span class="tabbadge" id="logBadge" hidden title="Monthly log files to download"></span></button>
   <button class="tab" data-tab="reports">Reports</button>
 </nav>
 <main class="wrap">

@@ -8,9 +8,10 @@ import {
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
-  cloudEnabled, clearDevice, initStore, onChange, refreshNow, saveConfig, saveDevice, saveInvoice,
+  cloudEnabled, cloudMonths, clearDevice, initStore, loadMonths, meterNow, monthFiles, onChange, refreshNow, saveConfig, saveDevice, saveInvoice,
   saveTankReading, state,
 } from './store.js';
+import { KEEP_OPTIONS } from './archive.js';
 import {
   ago, ask, bandBadge, closeSheet, confBadge, esc, fmtDip, fmtKL, fmtL, fmtNum, fmtSigned, fmtTime, fmtWhen,
   openSheet, productChip, productShort, tankGauge, toast, truckStrip,
@@ -276,6 +277,11 @@ export function render() {
   const badge = document.getElementById('homeBadge');
   badge.hidden = !active;
   badge.textContent = active;
+  // monthly log files to download
+  const files = monthFiles().filter((f) => f.state === 'new' || f.state === 'changed').length;
+  const logBadge = document.getElementById('logBadge');
+  logBadge.hidden = !files;
+  logBadge.textContent = files;
   const inWizard = wizardActive();
   document.getElementById('tabbar').hidden = inWizard;
   document.getElementById('view-wizard').hidden = !inWizard;
@@ -896,7 +902,10 @@ function settingsSheet() {
       <textarea id="stLayouts" rows="5" style="font-family:var(--mono);font-size:14px">${esc(layoutsText(s.transportTTs))}</textarea>
       <label class="f" style="margin-top:10px">Our delivery tankers (Loading app) to leave out on the Plan tab, comma separated
         <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
-      <div class="hint" style="margin-top:4px">Decantations and invoices are kept for this financial year and the last. Screenshots are only read — never stored.</div>
+      <label class="f" style="margin-top:10px">The cloud keeps
+        <select id="stKeep">${KEEP_OPTIONS.map(([k, l]) => `<option value="${k}" ${s.keep === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are only read — never stored.</div>
+      <div class="hint" id="stUse" style="margin-top:4px">${cloudUse()}</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
         <select id="stDate"><option value="MDY" ${s.dateOrder === 'MDY' ? 'selected' : ''}>MM/DD/YYYY (09/26/2026)</option><option value="DMY" ${s.dateOrder === 'DMY' ? 'selected' : ''}>DD/MM/YYYY (26/09/2026)</option></select></label>
       <div class="row-actions"><button class="cta" id="stSave">Save settings</button></div>
@@ -947,6 +956,7 @@ function settingsSheet() {
           emptySecs5: emptySecs('stE5', s.emptySecs5), emptySecs4: emptySecs('stE4', s.emptySecs4),
           pendingDays: num('#stPend', 1, 60, s.pendingDays),
           dateOrder: body.querySelector('#stDate').value,
+          keep: body.querySelector('#stKeep').value,
           excludeTankers: body.querySelector('#stExTk').value.split(/[,;\s]+/).map((x) => x.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean),
           ownTTs: body.querySelector('#stOwn').value.split(/\n/).map((line) => {
             const m = /^\s*([A-Za-z0-9 -]+?)\s*[:=]\s*(.+)$/.exec(line);
@@ -968,6 +978,20 @@ function settingsSheet() {
       location.reload();
     };
   });
+}
+
+// Supabase's free plan: 500 MB of database and 5 GB downloaded a month. What
+// this app has in it (≈5 KB a decantation, ≈1 KB an invoice, with the
+// database's own overhead) and what this phone downloaded this month.
+function cloudUse() {
+  if (!cloudEnabled) return '';
+  loadMonths();
+  const n = Object.values(cloudMonths.counts || {}).reduce((a, x) => ({ s: a.s + x.sessions, i: a.i + x.invoices }), { s: 0, i: 0 });
+  const size = (bytes) => (bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / 1048576).toLocaleString('en-IN', { maximumFractionDigits: bytes < 10485760 ? 1 : 0 })} MB`);
+  const used = n.s * 6 * 1024 + n.i * 1.5 * 1024;
+  const got = meterNow().bytes;
+  return `${cloudMonths.status === 'done' ? `In the cloud: ${n.s.toLocaleString('en-IN')} decantations and ${n.i.toLocaleString('en-IN')} invoices, ≈${size(used)} of the free plan's 500 MB. ` : ''}This phone has downloaded ≈${size(got)} from it this month (the free plan allows 5 GB a month, all phones together).`;
 }
 
 async function uploadChart() {

@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS = {
   pendingDays: 3,       // older undecanted invoices fold away under "Older"
   dateOrder: 'MDY',     // the automation prints dates as MM/DD/YYYY
   densityLimit: 3,      // truck density vs the invoice's Density@15, ± kg/m³
+  keep: 'fy2',          // what the cloud keeps: 'fy2' (this FY and the last) or 12 / 6 / 3 months (archive.js)
   excludeTankers: ['OD15AF5510'],   // our delivery tankers left out of "room in our tankers"
   // Our own TTs (tank trucks) and their chambers, KL from chamber 1.
   ownTTs: [{ tt: 'OD23U8210', chambers: [5, 5, 4, 4, 4] }],
@@ -83,6 +84,7 @@ export function settingsWith(saved) {
     .filter(([k, v]) => k > 0 && v.length));
   s.transportTTs = Object.keys(clean).length ? clean : DEFAULT_SETTINGS.transportTTs;
   for (const k of ['emptySecs5', 'emptySecs4']) s[k] = Number(s[k]) > 0 ? Number(s[k]) : DEFAULT_SETTINGS[k];
+  s.keep = ['fy2', '12', '6', '3'].includes(String(s.keep)) ? String(s.keep) : DEFAULT_SETTINGS.keep;
   s.tanks = s.tanks.map((t, i) => {
     const capacity = Number(t.capacity) > 0 ? Number(t.capacity) : 20000;
     return {

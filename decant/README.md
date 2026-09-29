@@ -398,11 +398,53 @@ each tank so the loads I've placed an indent for fit?*
 
 ## What is kept
 
-- **Decantations and invoices**: this financial year and the last, in the
-  cloud. The phone keeps this month and last; *This FY* / *All* reports fetch
-  the older months from the cloud (compact, via `dec_history`) when opened.
-- **Screenshots are never kept** — they're read on the phone and only the
+- **Decantations and invoices**: in the cloud, for **this financial year and
+  the last** by default (⚙ Settings → *The cloud keeps*: or the last 12 / 6 /
+  3 months). The phone keeps this month and last; *This FY* / *All* reports
+  fetch the older months from the cloud (compact, via `dec_history`).
+- **Monthly log files**: every finished month is an Excel file (Log tab →
+  📥 *Monthly log files*; the Log tab's badge counts the ones to download).
+  Each holds everything about the month:
+  - **Fills**: one row per tank filled, with the stock before and after, where
+    each came from, and the result;
+  - **Decantations** and **Chambers**;
+  - **Density** checks;
+  - **Invoices** and **Invoice chambers**;
+  - the app's own **totals**, for checking.
+
+  A month edited after its file is flagged *changed — download it again*.
+- **Clearing**: a month older than what the cloud keeps is cleared from it,
+  but only once its file has been downloaded and nothing in it has changed
+  since. Nothing is deleted unseen: the old `dec_purge_old()` no longer
+  deletes anything. A decantation still open stays, with its invoice.
+- **The Excel workbook**: [`EXCEL-WORKBOOK.md`](EXCEL-WORKBOOK.md) is the
+  message to give Claude in Excel. It builds a macro workbook that imports the
+  monthly files and rebuilds the Log, Reports and Result screens with the
+  app's own rules.
+- **Screenshots are never kept**: they're read on the phone and only the
   figures are saved.
+
+### Supabase's free plan
+
+The free plan allows 500 MB of database and 5 GB of downloads a month.
+
+- **Database:** a finished decantation is about 5 KB and an invoice about
+  1 KB, so even 100 loads a month is about 10 MB a year. The database is not
+  what limits this app.
+- **Downloads:** these were the thing to watch. Before, every save on any
+  phone made every open phone download the whole two months again. At about
+  60 loads a month with two phones open, that was roughly 2–2.5 GB a month,
+  growing with the square of the load count.
+- **What changed:** now a change downloads just that record, and a phone
+  opening the app downloads only what changed. In a test with 90 decantations
+  in the cloud, the second phone downloaded 14 KB instead of 1.6 MB for the
+  same work.
+- **Check it:** ⚙ Settings shows what the cloud holds and what the phone
+  downloaded this month.
+- **Once:** run the updated `supabase/decant-schema.sql` in Supabase. It adds
+  the tiny `dec_months` view (the monthly-file check then needs a few rows)
+  and makes `dec_purge_old()` harmless. Without it the app still works, with
+  a slightly bigger check once a day.
 
 ## Several phones at once
 
@@ -454,6 +496,7 @@ default), the dip chart, and:
 | `js/invoice.js` | Reading an invoice PDF in the browser (pdf.js) |
 | `js/report.js` | Report maths (by day / truck / product / tank / month, purchases and in transit, periods, export) |
 | `js/charts.js`, `js/xlsx.js`, `js/ui.js`, `js/store.js`, `js/dipchart.js` | Charts, Excel export, UI bits, storage + sync, the dip chart |
+| `js/archive.js` | Monthly log files: which months are due, what the cloud keeps, the file's sheets |
 | `../agent/decant.py` | The agent side: invoices → `dec_invoices` |
 | `../supabase/decant-schema.sql` | The tables (in the app's own project) |
 | `../supabase/decant-remove-from-payments.sql` | Takes the `dec_*` tables out of the payments project, if they were ever put there |

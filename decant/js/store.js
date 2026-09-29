@@ -9,7 +9,8 @@
 
 import { DIP_CHART } from './dipchart.js';
 import { istDate, settingsWith } from './core.js';
-import { localFrom } from './report.js';
+import { localFrom, withOlder } from './report.js';
+import { logMonths, monthBounds, monthCounts } from './archive.js';
 
 const CFG = window.VRIDDHI_DECANT_CONFIG || {};
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
@@ -34,6 +35,28 @@ export const state = {
 // Older months for the FY reports, fetched from the cloud when a report
 // reaches back past what the phone keeps. Compact rows, in memory only.
 export const cloudHistory = { status: 'idle', sessions: [], invoices: [], at: 0, error: '' };
+
+// Records per month in the cloud, for the monthly log files (archive.js):
+// {month: {sessions, open, invoices, updated}}. Checked once a day.
+export const cloudMonths = { status: 'idle', counts: {}, at: 0, error: '' };
+
+// What this phone has downloaded from the cloud this month (bytes of the rows,
+// before compression) — Supabase's free plan counts every byte sent out.
+const METER_KEY = 'vriddhi-decant-meter';
+export function meterNow() {
+  try {
+    const m = JSON.parse(localStorage.getItem(METER_KEY) || '{}');
+    return m.month === istDate(Date.now()).slice(0, 7) ? m : { month: istDate(Date.now()).slice(0, 7), bytes: 0 };
+  } catch { return { month: istDate(Date.now()).slice(0, 7), bytes: 0 }; }
+}
+function meter(data) {
+  if (!data) return;
+  try {
+    const m = meterNow();
+    m.bytes += JSON.stringify(data).length;
+    localStorage.setItem(METER_KEY, JSON.stringify(m));
+  } catch { /* ignore */ }
+}
 
 // The phone keeps this month and last (plus anything still open).
 function windowStartIso() {
@@ -221,7 +244,10 @@ function mergeRows(table, local, remote, keyOf) {
   return [...byKey.values()];
 }
 
-async function pull(which = 'all') {
+// Everything this phone keeps, from the cloud. light: for the two big tables
+// first only each row's key and edit time, then just the rows that are new or
+// changed — a phone opening the app again downloads next to nothing.
+async function pull(which = 'all', { light = false } = {}) {
   if (!client) return;
   try {
     if (!adopted) await adoptProject();
@@ -229,26 +255,30 @@ async function pull(which = 'all') {
     const since = windowStartIso();
     const jobs = [];
     if (which === 'all' || which === 'dec_invoices') {
-      jobs.push(client.from('dec_invoices').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(1000)
+      jobs.push((light && state.invoices.length ? pullLight('dec_invoices') : client.from('dec_invoices').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(1000)
         .then(({ data, error }) => {
           if (error) throw error;
+          meter(data);
           state.invoices = mergeRows('dec_invoices', state.invoices, data || [], (r) => r.invoice_no);
-        }));
+        })));
     }
     if (which === 'all' || which === 'dec_sessions') {
-      jobs.push(Promise.all([
+      jobs.push(light && state.sessions.length ? pullLight('dec_sessions') : Promise.all([
         client.from('dec_sessions').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(1000),
         // a decantation left open from before (it still needs finishing)
         client.from('dec_sessions').select('*').in('status', OPEN).lt('created_at', since).limit(100),
       ]).then(([recent, open]) => {
         if (recent.error) throw recent.error;
         if (open.error) throw open.error;
+        meter(recent.data);
+        meter(open.data);
         state.sessions = mergeRows('dec_sessions', state.sessions, [...(recent.data || []), ...(open.data || [])], (r) => r.id);
       }));
     }
     if (which === 'all' || which === 'dec_tank_state') {
       jobs.push(client.from('dec_tank_state').select('*').then(({ data, error }) => {
         if (error) throw error;
+        meter(data);
         for (const r of data || []) {
           const cur = state.tankState[r.tank_id];
           if (!pending('dec_tank_state', r.tank_id) && (!cur || newer(r.reading, cur))) state.tankState[r.tank_id] = r.reading;
@@ -258,6 +288,7 @@ async function pull(which = 'all') {
     if (which === 'all' || which === 'dec_config') {
       jobs.push(client.from('dec_config').select('data,updated_at').eq('id', 1).maybeSingle().then(({ data, error }) => {
         if (error) throw error;
+        meter(data);
         if (data?.data && !pending('dec_config', 1)) {
           state.config = data.data;
           applyConfig();
@@ -276,19 +307,99 @@ async function pull(which = 'all') {
   }
 }
 
+const listOf = (table) => (table === 'dec_sessions' ? state.sessions : state.invoices);
+function setList(table, list) {
+  if (table === 'dec_sessions') state.sessions = list; else state.invoices = list;
+}
+
+async function pullLight(table) {
+  const { key } = TABLES[table];
+  const since = windowStartIso();
+  const asks = [client.from(table).select(`${key},updated_at`).gte('created_at', since).order('created_at', { ascending: false }).limit(1000)];
+  if (table === 'dec_sessions') asks.push(client.from(table).select(`${key},updated_at`).in('status', OPEN).lt('created_at', since).limit(100));
+  const got = await Promise.all(asks);
+  for (const g of got) if (g.error) throw g.error;
+  const heads = got.flatMap((g) => g.data || []);
+  meter(heads);
+  const mine = new Map(listOf(table).map((r) => [String(r[key]), r]));
+  const need = heads.filter((h) => {
+    const l = mine.get(String(h[key]));
+    return !l || (Date.parse(h.updated_at || 0) || 0) > (Date.parse(l.updated_at || 0) || 0);
+  }).map((h) => h[key]);
+  const fresh = new Map();
+  for (let i = 0; i < need.length; i += 100) {
+    const { data, error } = await client.from(table).select('*').in(key, need.slice(i, i + 100));
+    if (error) throw error;
+    meter(data);
+    for (const r of data || []) fresh.set(String(r[key]), r);
+  }
+  // the cloud's list, as the full pull would have it
+  const remote = heads.map((h) => fresh.get(String(h[key])) || mine.get(String(h[key]))).filter(Boolean);
+  setList(table, mergeRows(table, listOf(table), remote, (r) => r[key]));
+}
+
+// Rows another phone (or this one) just changed: fetched one by one instead of
+// the whole two months again. A row gone from the cloud is dropped here too.
+async function pullRows(table, keys) {
+  if (!client || !keys.length) return;
+  const { key } = TABLES[table];
+  try {
+    const { data, error } = await client.from(table).select('*').in(key, keys);
+    if (error) throw error;
+    meter(data);
+    const since = Date.parse(windowStartIso());
+    const list = [...listOf(table)];
+    for (const r of data || []) {
+      const k = String(r[key]);
+      const i = list.findIndex((x) => String(x[key]) === k);
+      const l = i >= 0 ? list[i] : null;
+      if (l && (pending(table, k) || (l.updated_at && r.updated_at && Date.parse(l.updated_at) > Date.parse(r.updated_at)))) continue;
+      if (i >= 0) list[i] = r;
+      else if (Date.parse(r.created_at || 0) >= since || (table === 'dec_sessions' && OPEN.includes(r.status))) list.unshift(r);
+    }
+    const back = new Set((data || []).map((r) => String(r[key])));
+    setList(table, list.filter((r) => back.has(String(r[key])) || !keys.map(String).includes(String(r[key])) || pending(table, r[key]) || r._local));
+    setCloud('live');
+    saveLocal();
+  } catch (e) {
+    setCloud('offline', e?.message || String(e));
+  }
+}
+
+function dropRow(table, k) {
+  const { key } = TABLES[table];
+  if (pending(table, k)) return;
+  setList(table, listOf(table).filter((r) => String(r[key]) !== String(k) || r._local));
+  saveLocal();
+  emit();
+}
+
 function newer(a, b) {
   const ta = Date.parse(a?.readingAt || a?.savedAt || 0) || 0;
   const tb = Date.parse(b?.readingAt || b?.savedAt || 0) || 0;
   return ta > tb || (ta === tb && (Date.parse(a?.savedAt || 0) || 0) > (Date.parse(b?.savedAt || 0) || 0));
 }
 
+// A change in the cloud. The two big tables fetch just the changed rows (the
+// event names them); the small ones are fetched whole.
 function subscribe() {
   if (!client?.channel) return;
   const timers = {};
   const poke = (t) => { clearTimeout(timers[t]); timers[t] = setTimeout(() => pull(t), 400); };
+  const waiting = { dec_sessions: new Set(), dec_invoices: new Set() };
+  const pokeRow = (t, k) => {
+    waiting[t].add(String(k));
+    clearTimeout(timers[`row ${t}`]);
+    timers[`row ${t}`] = setTimeout(() => { const keys = [...waiting[t]]; waiting[t].clear(); pullRows(t, keys); }, 400);
+  };
   let ch = client.channel('decant-live');
   for (const t of ['dec_invoices', 'dec_sessions', 'dec_tank_state', 'dec_config']) {
-    ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => poke(t));
+    ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, (change) => {
+      const { key } = TABLES[t];
+      const k = change?.new?.[key] ?? change?.old?.[key];
+      if (!waiting[t] || k === undefined || k === null) { poke(t); return; }
+      if (change.eventType === 'DELETE') dropRow(t, k); else pokeRow(t, k);
+    });
   }
   ch.subscribe();
 }
@@ -344,20 +455,21 @@ export async function initStore() {
   try {
     const { createClient } = await import(SUPABASE_JS);
     client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'vriddhi-decant' } });
-    Promise.resolve(client.rpc('dec_purge_old')).catch(() => {});
-    await pull();
+    // (old months are no longer deleted unseen: see tidyMonths)
+    await pull('all', { light: true });
     subscribe();
     await flushOutbox();
+    tidyMonths().catch(() => {});
   } catch (e) {
     setCloud('offline', e?.message || String(e));
   }
-  window.addEventListener('online', () => { pull(); flushOutbox(); });
+  window.addEventListener('online', () => { pull('all', { light: true }); flushOutbox(); });
   setInterval(() => { if (state.outbox.length) flushOutbox(); }, 30000);
   let last = 0;
   const refresh = () => {
     if (Date.now() - last < 2000) return;
     last = Date.now();
-    pull();
+    pull('all', { light: true });
     flushOutbox();
   };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
@@ -409,11 +521,138 @@ export async function loadHistory() {
     const invoices = await pageAll(() => client.from('dec_invoices')
       .select('invoice_no,invoice_date,invoice_time,tt_no,lines,dismissed,note,source,created_at')
       .lt('created_at', before).order('created_at', { ascending: false }));
+    meter(sessions);
+    meter(invoices);
     Object.assign(cloudHistory, { status: 'done', sessions, invoices, at: Date.now(), error: '' });
   } catch (e) {
     Object.assign(cloudHistory, { status: 'error', at: Date.now(), error: e?.message || String(e) });
   }
   emit();
+}
+
+// ---------------------------------------------------------------------------
+// Monthly log files (archive.js)
+// ---------------------------------------------------------------------------
+
+const MONTHS_KEY = 'vriddhi-decant-months';
+
+// Records per month in the cloud: from the dec_months view (a few rows), or —
+// a project set up before it — from every row's dates. Once a day.
+export async function loadMonths(force = false) {
+  if (cloudMonths.status === 'loading') return;
+  if (!client) {
+    Object.assign(cloudMonths, { status: 'done', counts: monthCounts(state.sessions, state.invoices), at: Date.now() });
+    return;
+  }
+  if (!force) {
+    try {
+      const c = JSON.parse(localStorage.getItem(MONTHS_KEY) || 'null');
+      if (c && c.project === CFG.SUPABASE_URL && Date.now() - c.at < 20 * 3600000 && istDate(c.at) === istDate(Date.now())) {
+        Object.assign(cloudMonths, { status: 'done', counts: c.counts, at: c.at, error: '' });
+        return;
+      }
+    } catch { /* ask the cloud */ }
+  }
+  cloudMonths.status = 'loading';
+  try {
+    let counts;
+    const view = await client.from('dec_months').select('*');
+    if (!view.error) {
+      meter(view.data);
+      counts = {};
+      for (const r of view.data || []) {
+        const x = (counts[r.month] ||= { sessions: 0, open: 0, invoices: 0, updated: '' });
+        if (r.kind === 'sessions') { x.sessions += Number(r.n) || 0; x.open += Number(r.open) || 0; } else x.invoices += Number(r.n) || 0;
+        if ((Date.parse(r.updated || 0) || 0) > (Date.parse(x.updated || 0) || 0)) x.updated = r.updated;
+      }
+    } else if (/dec_months|does not exist|schema cache/i.test(view.error.message || '')) {
+      const [s, i] = await Promise.all([
+        pageAll(() => client.from('dec_sessions').select('created_at,updated_at,status').order('created_at', { ascending: true })),
+        pageAll(() => client.from('dec_invoices').select('created_at,updated_at').order('created_at', { ascending: true })),
+      ]);
+      meter(s);
+      meter(i);
+      counts = monthCounts(s, i);
+    } else throw view.error;
+    Object.assign(cloudMonths, { status: 'done', counts, at: Date.now(), error: '' });
+    try { localStorage.setItem(MONTHS_KEY, JSON.stringify({ project: CFG.SUPABASE_URL, at: cloudMonths.at, counts })); } catch { /* ignore */ }
+  } catch (e) {
+    Object.assign(cloudMonths, { status: 'error', at: Date.now(), error: e?.message || String(e) });
+  }
+  emit();
+}
+
+// The monthly files as the Log shows them (archive.js logMonths).
+export function monthFiles() {
+  return logMonths({ counts: cloudMonths.counts, archive: state.config.archive || {}, today: istDate(Date.now()), keep: state.settings.keep });
+}
+
+const inMonth = (m) => {
+  const [a, b] = monthBounds(m).map(Date.parse);
+  return (r) => { const t = Date.parse(r.created_at || 0); return t >= a && t < b; };
+};
+
+// A month's records, whole: from the cloud (with this phone's newer copies).
+export async function fetchMonth(m) {
+  const pick = inMonth(m);
+  let sessions = state.sessions.filter(pick);
+  let invoices = state.invoices.filter(pick);
+  if (client) {
+    const [a, b] = monthBounds(m);
+    const [s, i] = await Promise.all([
+      pageAll(() => client.from('dec_sessions').select('*').gte('created_at', a).lt('created_at', b).order('created_at', { ascending: true })),
+      pageAll(() => client.from('dec_invoices').select('*').gte('created_at', a).lt('created_at', b).order('created_at', { ascending: true })),
+    ]);
+    meter(s);
+    meter(i);
+    sessions = withOlder(sessions, s, 'id');
+    invoices = withOlder(invoices, i, 'invoice_no');
+  }
+  return { sessions, invoices };
+}
+
+// Clear a month from the cloud (its file has been downloaded): its finished
+// and cancelled decantations and its invoices — not a decantation still open,
+// nor the invoice it is decanting.
+export async function clearMonth(m) {
+  if (!client) return false;
+  const [a, b] = monthBounds(m);
+  const busy = new Set(state.sessions.filter((s) => OPEN.includes(s.status)).map((s) => s.invoice_no).filter(Boolean));
+  const del = await client.from('dec_sessions').delete().in('status', ['done', 'cancelled']).gte('created_at', a).lt('created_at', b);
+  if (del.error) throw del.error;
+  const { data, error } = await client.from('dec_invoices').select('invoice_no').gte('created_at', a).lt('created_at', b);
+  if (error) throw error;
+  const gone = (data || []).map((r) => r.invoice_no).filter((n) => !busy.has(n));
+  for (let i = 0; i < gone.length; i += 100) {
+    const r = await client.from('dec_invoices').delete().in('invoice_no', gone.slice(i, i + 100));
+    if (r.error) throw r.error;
+  }
+  const pick = inMonth(m);
+  state.sessions = state.sessions.filter((s) => !(pick(s) && ['done', 'cancelled'].includes(s.status)));
+  state.invoices = state.invoices.filter((i) => !(pick(i) && gone.includes(i.invoice_no)));
+  Object.assign(cloudHistory, { status: 'idle', at: 0 });
+  saveLocal();
+  emit();
+  return true;
+}
+
+// On start: clear every month whose file is downloaded, unchanged since, and
+// older than what the cloud keeps (Settings). Nothing is cleared unseen.
+export async function tidyMonths() {
+  if (!client) return;
+  await loadMonths();
+  let cleared = 0;
+  for (const f of monthFiles().filter((x) => x.clear)) {
+    try {
+      await clearMonth(f.month);
+      await saveConfig({ archive: { ...(state.config.archive || {}), [f.month]: { ...f.file, cleared: new Date().toISOString() } } });
+      cleared += 1;
+    } catch (e) {
+      setCloud('offline', e?.message || String(e));
+      break;
+    }
+  }
+  if (cleared) await loadMonths(true);
 }
 
 // The phone keeps this month and last, anything still open and anything not
