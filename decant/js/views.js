@@ -102,7 +102,13 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 function filesCard() {
   loadMonths();                                        // does nothing while fresh
   const files = monthFiles();
-  if (!files.length) return '';
+  // this month so far (not a month's file yet: for a look in Excel before it ends)
+  const now = today().slice(0, 7);
+  const cur = monthCounts(state.sessions, state.invoices)[now];
+  const soFar = cur && (cur.sessions || cur.invoices) ? `<div class="file-row">
+      <div class="mid">${monthName(now)} <span class="hint">so far</span><div class="hint">${plural(cur.sessions, 'decantation')} · ${plural(cur.invoices, 'invoice')} · its file comes on the 1st</div></div>
+      <button class="btn sm" data-month="${now}" data-sofar="1">⬇ So far</button></div>` : '';
+  if (!files.length && !soFar) return '';
   const due = files.filter((f) => f.state === 'new' || f.state === 'changed');
   const rest = files.filter((f) => !due.includes(f)).reverse();
   const keep = (KEEP_OPTIONS.find(([k]) => k === state.settings.keep) || KEEP_OPTIONS[0])[1];
@@ -112,6 +118,7 @@ function filesCard() {
     ${due.map((f) => `<div class="file-row">
       <div class="mid"><b>${monthName(f.month)}</b><div class="hint">${what(f)}${f.state === 'changed' ? ` · <b style="color:var(--warn)">changed since its file of ${fmtDate(f.file.at)} — download it again</b>` : ''}</div></div>
       <button class="btn sm" data-month="${f.month}">⬇ Excel</button></div>`).join('')}
+    ${soFar}
     ${rest.length ? `<details class="files-done"${due.length ? '' : ' open'}><summary class="hint">Downloaded (${rest.length})</summary>
       ${rest.map((f) => `<div class="file-row"><div class="mid">${monthName(f.month)} <span class="hint">· ${fmtDate(f.file.at, true)}${f.file.by ? ` by ${esc(f.file.by)}` : ''}${f.state === 'cleared' ? ' · cleared from the cloud' : ''}</span></div>
         ${f.state === 'cleared' ? '' : `<button class="btn sm" data-month="${f.month}" aria-label="Download ${monthName(f.month)} again">⬇</button>`}</div>`).join('')}</details>` : ''}
@@ -119,7 +126,7 @@ function filesCard() {
   </div>`;
 }
 
-async function downloadMonth(m, el) {
+async function downloadMonth(m, el, soFar = false) {
   const btn = el.querySelector(`[data-month="${m}"]`);
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
@@ -128,8 +135,13 @@ async function downloadMonth(m, el) {
     const madeAt = new Date().toISOString();
     const by = state.device.operator || '';
     download(buildWorkbook(logSheets({
-      month: m, sessions, invoices, known: [...state.sessions, ...sessions], settings: state.settings, madeAt, madeBy: by, tanks: state.settings.tanks,
-    })), fileName(m));
+      month: m, sessions, invoices, known: [...state.sessions, ...sessions], settings: state.settings, madeAt, madeBy: by, tanks: state.settings.tanks, soFar,
+    })), fileName(m, soFar));
+    if (soFar) {                                       // not the month's file: nothing recorded, nothing cleared
+      toast(`${monthName(m)} so far: saved to this phone's downloads.`);
+      renderLog(el);
+      return;
+    }
     const last = monthCounts(sessions, invoices)[m]?.updated || madeAt;
     await saveConfig({ archive: { ...(state.config.archive || {}), [m]: { at: madeAt, by, s: sessions.length, i: invoices.length, u: last } } });
     toast(`${monthName(m)}: saved to this phone's downloads.`);
@@ -170,7 +182,7 @@ function bindLog(el) {
     const o = t.closest('[data-open]');
     if (o) { openWizard(o.dataset.open); return; }
     const mo = t.closest('[data-month]');
-    if (mo) { downloadMonth(mo.dataset.month, el); return; }
+    if (mo) { downloadMonth(mo.dataset.month, el, Boolean(mo.dataset.sofar)); return; }
     if (t.closest('[data-cancelled]')) { F.log.showCancelled = !F.log.showCancelled; renderLog(el); return; }
     const x = t.closest('[data-export]');
     if (x) {

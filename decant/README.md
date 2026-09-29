@@ -413,6 +413,9 @@ each tank so the loads I've placed an indent for fit?*
   - the app's own **totals**, for checking.
 
   A month edited after its file is flagged *changed — download it again*.
+  **This month so far** can be downloaded too, for a look in Excel before the
+  month ends. It records nothing and clears nothing; when the whole month's
+  file comes, importing it replaces the "so far" one.
 - **Clearing**: a month older than what the cloud keeps is cleared from it,
   but only once its file has been downloaded and nothing in it has changed
   since. Nothing is deleted unseen: the old `dec_purge_old()` no longer

@@ -43,6 +43,8 @@ The files are named `Vriddhi decanting log YYYY-MM.xlsx`.
 **Info** has two columns, `Item` and `Value`. Its rows are:
 - `File`, `Month` (YYYY-MM) and `Month name`;
 - `Format`, which is 1 (refuse any other);
+- `Whole month`: `Yes`, or `No — so far` for a file taken before the month
+  ended (the whole month's file replaces it later: it has the same Month);
 - `Made at` and `Made by`;
 - the counts of decantations (finished, cancelled, still open), tank fills and invoices;
 - `Variation OK within (%)`, `… or within (L), whichever is more` and
@@ -420,6 +422,24 @@ For every imported month, recompute from its fills the Month, Day, Truck,
 Product and Tank sums, and compare them with that file's App totals. Show ✓ or
 ✗ per row, and a count at the top. Everything should be ✓ when Settings match
 the file's Info tolerance. If a ✗ shows, the formulas are off.
+
+## 12. Excel on a Mac
+
+This is built and used in **Excel for Mac** (Microsoft 365). VBA runs there,
+but keep to what works on a Mac:
+
+- **No Windows-only objects.** Don't use `Application.FileDialog`, ActiveX
+  controls, or `CreateObject(…)` (no `Scripting.Dictionary` and no
+  `FileSystemObject`). Use Collections, arrays and `Dir` instead.
+- **Picking files.** Use `Application.GetOpenFilename`. If choosing several
+  files at once doesn't work, pick one at a time and ask "Import another?".
+  Also offer **Import open files**: it imports every open workbook whose Info
+  sheet says it is a Vriddhi decanting log.
+- **File access.** The Mac asks once to allow access to a file or folder.
+  That's expected; `GrantAccessToMultipleFiles` can ask for several at once.
+- **Buttons** are shapes with a macro assigned, not ActiveX buttons.
+- **Charts** are made with `ChartObjects` from VBA, which works on a Mac.
+- **Don't rely on Power Query.**
 
 **Deliver** an .xlsm with:
 - sheets: Settings, Imports, Log, Reports, Result, Checks and the data tables;
