@@ -961,10 +961,14 @@ function splitForRoom(chambers, tanks) {
 }
 
 // Our own delivery tankers (from the Loading app): how much each can still
-// take — capacity minus what's in it. `exclude` lists plates to leave out.
-export function tankerSpace(vehicles, exclude = []) {
+// take — capacity minus what's in it. `exclude` lists plates always left out
+// (Settings); `off` the ones marked not available to load now ({plate: {at,
+// by}}, shared by every phone) — listed, but not counted. Available ones
+// first, the roomiest on top. free: what the available ones can take.
+export function tankerSpace(vehicles, exclude = [], off = {}) {
   const norm = (p) => String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const ex = new Set(exclude.map(norm));
+  const offs = new Map(Object.entries(off || {}).map(([k, v]) => [norm(k), v || {}]));
   const rows = [];
   const excluded = [];
   for (const v of vehicles || []) {
@@ -972,8 +976,11 @@ export function tankerSpace(vehicles, exclude = []) {
     const caps = (v.caps || []).map(Number).filter((x) => x > 0);
     const capacity = caps.reduce((a, b) => a + b, 0);
     const filled = caps.reduce((a, cap, i) => a + Math.min(cap, Math.max(0, Number(v.fill?.[`C${i + 1}`]) || 0)), 0);
-    rows.push({ plate: v.plate, capacity, filled: round2(filled), free: round2(capacity - filled) });
+    const mark = offs.get(norm(v.plate)) || null;
+    rows.push({ plate: v.plate, capacity, filled: round2(filled), free: round2(capacity - filled), available: !mark, off: mark });
   }
-  rows.sort((a, b) => b.free - a.free || (a.plate < b.plate ? -1 : 1));
-  return { rows, free: round2(rows.reduce((a, r) => a + r.free, 0)), excluded };
+  rows.sort((a, b) => b.available - a.available || b.free - a.free || (a.plate < b.plate ? -1 : 1));
+  const sum = (list) => round2(list.reduce((a, r) => a + r.free, 0));
+  const unavailable = rows.filter((r) => !r.available);
+  return { rows, free: sum(rows.filter((r) => r.available)), freeAll: sum(rows), unavailable, excluded };
 }

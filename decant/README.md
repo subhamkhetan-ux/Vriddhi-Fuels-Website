@@ -332,8 +332,15 @@ each tank so the loads I've placed an indent for fit?*
 5. **Our delivery tankers** — sign in once on the phone with a **Loading app** login;
    the app reads how full each of our own tankers is (read-only, live) and
    shows the free space, leaving out **OD15AF5510** (change the list in
-   *Settings*). The diesel card then says whether our delivery tankers can take
-   the diesel to be dispensed.
+   *Settings*). Each tanker has an **available to load** switch: turn it off
+   when a tanker can't be loaded now (out on a trip, under repair…). It then
+   shows *Not available* (since when, and by whom if the phone has a name
+   set), moves to the bottom and isn't counted — the total becomes *Free to
+   load*. The switch is kept with the plan in this app's own cloud, so every
+   phone sees it; nothing is written to the Loading app. The diesel card
+   under **Dispense first** then says what the tankers available to load can
+   take, whether one alone can take it all, and which aren't available — or
+   that none is, and the diesel has to go through the pumps.
 
 ## Log and reports
 
