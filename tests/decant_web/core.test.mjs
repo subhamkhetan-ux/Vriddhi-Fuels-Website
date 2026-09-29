@@ -527,6 +527,13 @@ test('own tankers: free space, leaving some out', async () => {
   assert.deepEqual(r.rows.map((x) => [x.plate, x.free]), [['OR15R9360', 17940], ['OD23A3710', 6470], ['OR15R1110', 0]]);
   assert.equal(r.free, 24410);
   assert.deepEqual(r.excluded, ['OD15AF5510']);
+  assert.ok(r.rows.every((x) => x.available) && !r.unavailable.length);
+  // OR15R9360 marked not available to load: listed last, not counted
+  const off = tankerSpace(vehicles, ['OD15AF5510'], { 'or15 r 9360': { at: '2026-09-29T04:45:00Z', by: 'Subham' } });
+  assert.deepEqual(off.rows.map((x) => [x.plate, x.available]), [['OD23A3710', true], ['OR15R1110', true], ['OR15R9360', false]]);
+  assert.equal(off.free, 6470);
+  assert.equal(off.freeAll, 24410);
+  assert.deepEqual(off.unavailable.map((x) => [x.plate, x.off.by]), [['OR15R9360', 'Subham']]);
 });
 
 test('tank by tank: where each tank of a decantation is', async () => {
