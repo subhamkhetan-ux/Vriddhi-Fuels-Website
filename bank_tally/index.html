@@ -45,13 +45,32 @@
   .toast.show{opacity:1}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  .tabs{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .tab{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
+  .tab:hover{border-color:var(--accent);color:var(--ink)}
+  .tab.on{background:var(--grad);border-color:transparent;color:#052e16}
+  .badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .badge.added{border-color:var(--accent);color:var(--accent)} .badge.edited{border-color:var(--warn);color:var(--warn)}
+  .badge.bad{border-color:var(--bad);color:var(--bad)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .lbl{display:block;color:var(--faint);font-size:11px;text-transform:uppercase;margin-bottom:4px}
+  select.led{width:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:7px 9px;font-size:13px}
+  code.pat{font-size:11.5px;color:var(--muted);word-break:break-all}
+  .acts{white-space:nowrap}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 </style>
 </head>
 <body>
 <header>
   <div><h1>Bank → Tally</h1><div class="sub">Statements → import XML · VRIDDHI FUELS</div></div>
+  <nav class="tabs">
+    <button class="tab on" data-tab="statements">Statements → Tally</button>
+    <button class="tab" data-tab="mappings">Name ↔ Ledger mappings</button>
+  </nav>
 </header>
 <main>
+<div id="tab-statements">
   <section class="panel">
     <h2>1 · The month's statements</h2>
     <div class="drop" id="drop">
@@ -120,13 +139,88 @@
       <tbody id="entriesBody"></tbody>
     </table>
   </section>
+</div>
+
+<div id="tab-mappings" hidden>
+  <section class="panel">
+    <h2>Add or change a mapping</h2>
+    <div class="sub" style="color:var(--faint);margin-bottom:12px;line-height:1.55">
+      A mapping (alias) tells the app which Tally ledger a name in the bank narration belongs to — e.g.
+      <i>ARYAN ISPAT AND POWER PRIVATE LI</i> → <i>Aryan Ispat &amp; Power Private Ltd.</i>. It applies to receipts and payments on every
+      account, and is remembered on this Mac. Type the name the way the bank shows it; it's matched
+      ignoring case, spacing and words like <i>M/S</i>, <i>PVT</i>, <i>LTD</i>.
+    </div>
+    <div class="grid2">
+      <div><label class="lbl" for="mapName">Name in the bank statement</label>
+        <input class="led" id="mapName" placeholder="e.g. ARYAN ISPAT AND POWER PRIVATE LI"></div>
+      <div><label class="lbl" for="mapLedger">Tally ledger</label>
+        <input class="led" id="mapLedger" list="ledgers" placeholder="Pick or type a ledger"></div>
+      <div><button class="btn primary" id="mapSave">Save mapping</button></div>
+    </div>
+    <div class="sub" id="mapLedgerNote" style="color:var(--faint);margin-top:8px"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Mappings in use <span id="aliasCount" style="color:var(--faint)"></span></h2>
+    <div class="row" style="margin-top:0;margin-bottom:8px">
+      <input class="led" id="aliasSearch" placeholder="Filter by bank name or ledger…" style="max-width:320px">
+      <select class="led" id="aliasFilter">
+        <option value="">All</option>
+        <option value="local">Added / edited on this Mac</option>
+        <option value="shipped">Shipped with the app</option>
+        <option value="seen">Used in loaded statements</option>
+        <option value="problem">Ledger not in Tally list</option>
+      </select>
+      <a class="btn sm" href="/download/aliases.json" id="dlAliases" style="margin-left:auto">⬇ aliases.json</a>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>Name in bank (matched as)</th><th>Tally ledger</th><th>Source</th><th class="num">Lines</th><th></th></tr></thead>
+      <tbody id="aliasBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+    <div id="deletedBox" style="margin-top:14px" hidden>
+      <div class="sub" style="color:var(--faint);margin-bottom:6px">Shipped mappings you deleted on this Mac (they no longer apply):</div>
+      <div class="scroll"><table><tbody id="deletedBody"></tbody></table></div>
+    </div>
+    <div class="sub" style="color:var(--faint);margin-top:12px;line-height:1.55">
+      Changes are saved only on this Mac (<code>bank_tally/data.json</code>). “Shipped” mappings come with the app;
+      editing or deleting one here overrides it locally, and <b>Restore</b> brings back the shipped version.
+      Use <b>⬇ aliases.json</b> to hand the full current list to Claude to ship it for everyone.
+    </div>
+  </section>
+
+  <section class="panel" id="namesPanel">
+    <h2>Names in the loaded statements</h2>
+    <div id="namesEmpty" class="sub" style="color:var(--faint)">Generate vouchers in the Statements tab first — every payer/payee name it finds will be listed here with the ledger it went to.</div>
+    <div id="namesWrap" hidden>
+      <div class="row" style="margin-top:0;margin-bottom:8px">
+        <input class="led" id="namesSearch" placeholder="Filter names…" style="max-width:320px">
+        <label class="sub" style="color:var(--faint)"><input type="checkbox" id="namesUnmapped"> only names going to review</label>
+      </div>
+      <div class="scroll"><table>
+        <thead><tr><th>Name (as parsed)</th><th class="num">Lines</th><th class="num">Amount</th><th>Currently goes to</th><th></th></tr></thead>
+        <tbody id="namesBody"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Built-in rules (read-only)</h2>
+    <div class="sub" style="color:var(--faint);margin-bottom:10px;line-height:1.55">
+      Order the app decides a line: IOCL payments skipped (PAD tool) → cash deposits &amp; own-account
+      transfers (Contra) → “Vriddhi” self-transfers → always-review names → <b>your mappings</b> →
+      payment/receipt keyword rules → customer name match → staff (Salary) → review.
+      These rules live in the code (<code>bank_tally/classify.py</code>) — ask Claude to change them.
+    </div>
+    <div id="rulesBox"></div>
+  </section>
+</div>
 </main>
 <datalist id="ledgers"></datalist>
 <div class="toast" id="toast"></div>
 
 <script>
 const $=s=>document.querySelector(s);
-let FILES=[];
+let FILES=[], LASTPROBS=[];
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),1900);}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 function money(s){const n=Number(s);return n?n.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}):s;}
@@ -176,7 +270,8 @@ function render(res){
   const s=res.summary;
   if(res.accounts) $("#acctLine").textContent="Accounts detected: "+res.accounts.join(" · ");
   // Any file that could not be read stays visibly listed — never just a toast.
-  const probs=res.problems||[];
+  if(res.problems!==undefined) LASTPROBS=res.problems;
+  const probs=LASTPROBS;
   $("#problemBox").style.display = probs.length ? "block" : "none";
   $("#problemBox").innerHTML = probs.length
     ? `<b>⚠ ${probs.length} file(s) were NOT included:</b><ul style="margin:6px 0 0 18px;padding:0">`+
@@ -270,6 +365,157 @@ async function resolveRow(i, encName, key, tier){
   try{ render(await api("/api/resolve",{parsed_name:decodeURIComponent(encName),ledger:led,key:key,tier:tier})); toast("Saved — added to export"); }
   catch(e){ toast("Failed: "+e.message); }
 }
+
+// ===================== Tabs =====================
+function showTab(t){
+  if(t!=="mappings") t="statements";
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
+  $("#tab-statements").hidden = t!=="statements";
+  $("#tab-mappings").hidden = t!=="mappings";
+  if(location.hash!=="#"+t) history.replaceState(null,"","#"+t);
+  if(t==="mappings") loadMappings();
+}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+window.addEventListener("hashchange",()=>showTab(location.hash.slice(1)));
+
+// ===================== Mappings tab =====================
+let MAP={aliases:[],deleted:[],names:[],rules:null}, EDITING=null;
+async function loadMappings(){
+  try{ const r=await fetch("/api/aliases"); applyMappings(await r.json()); }
+  catch(e){ toast("Could not load mappings: "+e.message); }
+}
+function applyMappings(j){
+  MAP=j; EDITING=null;
+  if(j.suggestions) $("#ledgers").innerHTML=j.suggestions.map(l=>`<option value="${esc(l)}">`).join("");
+  $("#mapLedgerNote").textContent = j.n_ledgers ? "" :
+    "No Tally ledger list loaded — upload master.xml in the Statements tab so ledger names can be checked.";
+  if(j.run) render(j.run);          // statements were loaded: refresh that tab too
+  renderAliases(); renderDeleted(); renderNames(); renderRules();
+}
+async function aliasOp(body, okMsg){
+  try{ applyMappings(await api("/api/aliases",body)); toast(okMsg); return true; }
+  catch(e){
+    if(/not in the Tally ledger list/.test(e.message) && body.op==="set" && !body.allow_unknown){
+      if(confirm(e.message+"\n\nSave it anyway? (Tally will reject vouchers for a ledger it doesn't have.)"))
+        return aliasOp({...body,allow_unknown:true},okMsg);
+      return false;
+    }
+    toast("Failed: "+e.message); alert(e.message); return false;
+  }
+}
+$("#mapSave").onclick=async()=>{
+  const name=$("#mapName").value.trim(), ledger=$("#mapLedger").value.trim();
+  if(!name){toast("Type the name as it appears in the bank");return;}
+  if(!ledger){toast("Pick a Tally ledger");return;}
+  if(await aliasOp({op:"set",name,ledger},"Mapping saved")){ $("#mapName").value=""; $("#mapLedger").value=""; }
+};
+$("#aliasSearch").oninput=renderAliases;
+$("#aliasFilter").onchange=renderAliases;
+function srcBadge(a){
+  if(a.source==="added") return `<span class="badge added">added here</span>`;
+  if(a.source==="edited") return `<span class="badge edited" title="shipped: ${esc(a.shipped_ledger)}">edited here</span>`;
+  return `<span class="badge">shipped</span>`;
+}
+function renderAliases(){
+  const q=$("#aliasSearch").value.trim().toLowerCase(), f=$("#aliasFilter").value;
+  const all=MAP.aliases||[];
+  $("#aliasCount").textContent="· "+all.length;
+  const rows=all.map((a,i)=>[a,i]).filter(([a])=>{
+    if(f==="local" && a.source==="shipped") return false;
+    if(f==="shipped" && a.source!=="shipped") return false;
+    if(f==="seen" && !a.seen) return false;
+    if(f==="problem" && a.in_tally && !a.bank_ledger && !a.forced_review) return false;
+    return !q || (a.key+" "+a.ledger).toLowerCase().includes(q);
+  });
+  $("#aliasBody").innerHTML = rows.map(([a,i])=>{
+    const warn=[];
+    if(!a.in_tally) warn.push(`<span class="badge bad">not in Tally list</span>`);
+    if(a.bank_ledger) warn.push(`<span class="badge bad">bank ledger — ignored</span>`);
+    if(a.forced_review) warn.push(`<span class="badge bad">always reviewed — ignored</span>`);
+    if(EDITING===i) return `
+      <tr><td><input class="led" id="edName" value="${esc(a.key)}"></td>
+        <td><input class="led" id="edLedger" list="ledgers" value="${esc(a.ledger)}"></td>
+        <td>${srcBadge(a)}</td><td class="num">${a.seen||""}</td>
+        <td class="acts"><button class="btn sm primary" data-act="save" data-i="${i}">Save</button>
+          <button class="btn sm" data-act="cancel">Cancel</button></td></tr>`;
+    return `
+      <tr><td><b>${esc(a.key)}</b></td>
+        <td>${esc(a.ledger)} ${warn.join(" ")}</td>
+        <td>${srcBadge(a)}</td><td class="num">${a.seen||""}</td>
+        <td class="acts"><button class="btn sm" data-act="edit" data-i="${i}">Edit</button>
+          <button class="btn sm" data-act="del" data-i="${i}">Delete</button>
+          ${a.source==="edited"?`<button class="btn sm" data-act="restore" data-i="${i}" title="back to: ${esc(a.shipped_ledger)}">Restore</button>`:""}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" class="empty">No mappings match</td></tr>`;
+}
+$("#aliasBody").onclick=async e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const a=(MAP.aliases||[])[+b.dataset.i];
+  if(b.dataset.act==="edit"){ EDITING=+b.dataset.i; renderAliases(); $("#edLedger").focus(); return; }
+  if(b.dataset.act==="cancel"){ EDITING=null; renderAliases(); return; }
+  if(!a) return;
+  if(b.dataset.act==="save"){
+    const name=$("#edName").value.trim(), ledger=$("#edLedger").value.trim();
+    if(!name||!ledger){toast("Name and ledger are both needed");return;}
+    const body={op:"set",ledger,old_key:a.key};
+    if(name===a.key) body.key=a.key; else body.name=name;
+    await aliasOp(body,"Mapping updated");
+  }
+  if(b.dataset.act==="del"){
+    if(!confirm(`Delete the mapping “${a.key}” → “${a.ledger}”?\nLines with this name will go back to automatic matching / review.`)) return;
+    await aliasOp({op:"delete",key:a.key},"Mapping deleted");
+  }
+  if(b.dataset.act==="restore") await aliasOp({op:"restore",key:a.key},"Restored the shipped mapping");
+};
+function renderDeleted(){
+  const d=MAP.deleted||[];
+  $("#deletedBox").hidden=!d.length;
+  $("#deletedBody").innerHTML=d.map((x,i)=>`
+    <tr style="opacity:.6"><td><s>${esc(x.key)}</s></td><td><s>${esc(x.ledger)}</s></td>
+      <td class="acts"><button class="btn sm" data-i="${i}">Restore</button></td></tr>`).join("");
+}
+$("#deletedBody").onclick=async e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const x=(MAP.deleted||[])[+b.dataset.i]; if(x) await aliasOp({op:"restore",key:x.key},"Restored");
+};
+$("#namesSearch").oninput=renderNames;
+$("#namesUnmapped").onchange=renderNames;
+function renderNames(){
+  const loaded=!!MAP.loaded;
+  $("#namesEmpty").hidden=loaded; $("#namesWrap").hidden=!loaded;
+  if(!loaded) return;
+  const q=$("#namesSearch").value.trim().toLowerCase(), only=$("#namesUnmapped").checked;
+  const rows=(MAP.names||[]).map((n,i)=>[n,i]).filter(([n])=>{
+    if(only && n.ledger) return false;
+    return !q || (n.name+" "+n.key+" "+(n.ledger||"")).toLowerCase().includes(q);
+  });
+  $("#namesBody").innerHTML=rows.map(([n,i])=>`
+    <tr><td><b>${esc(n.name)}</b><div class="sub" style="color:var(--faint)">${n.credits?n.credits+" in":""}${n.credits&&n.debits?" · ":""}${n.debits?n.debits+" out":""}</div></td>
+      <td class="num">${n.count}</td><td class="num">${money(n.amount)}</td>
+      <td>${n.ledger?esc(n.ledger):'<span style="color:var(--bad);font-weight:700">REVIEW</span>'}
+        <div class="sub" style="color:var(--faint)">${esc(n.how)}${n.has_alias?" · has mapping":""}</div></td>
+      <td class="acts"><button class="btn sm" data-i="${i}">${n.has_alias?"Change":"Map"}…</button></td></tr>`).join("")
+    || `<tr><td colspan="5" class="empty">No names match</td></tr>`;
+}
+$("#namesBody").onclick=e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const n=(MAP.names||[])[+b.dataset.i]; if(!n) return;
+  $("#mapName").value=n.name; $("#mapLedger").value=n.ledger||"";
+  window.scrollTo({top:0,behavior:"smooth"}); $("#mapLedger").focus();
+};
+function renderRules(){
+  const r=MAP.rules; if(!r) return;
+  const tbl=(head,rows)=>`<div class="scroll" style="margin-bottom:14px"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  $("#rulesBox").innerHTML=
+    `<div class="lbl">Payments (money out) — narration contains → ledger</div>`+
+    tbl(["Pattern","Ledger"],r.payment.map(x=>`<tr><td><code class="pat">${esc(x.pattern)}</code></td><td>${esc(x.ledger)}</td></tr>`).join(""))+
+    `<div class="lbl">Receipts (money in) — narration contains → ledger</div>`+
+    tbl(["Pattern","Ledger"],r.receipt.map(x=>`<tr><td><code class="pat">${esc(x.pattern)}</code></td><td>${esc(x.ledger)}</td></tr>`).join(""))+
+    `<div class="lbl">Staff → ${esc(r.salary_ledger)}</div><div style="margin-bottom:14px">${r.staff.map(n=>`<span class="chip">${esc(n)}</span>`).join("")}</div>`+
+    `<div class="lbl">Always sent to review (ledger varies per transaction)</div><div style="margin-bottom:14px">${r.force_review.map(n=>`<span class="chip">${esc(n)}</span>`).join("")}</div>`+
+    `<div class="lbl">Our own accounts (transfers become Contra)</div>`+
+    tbl(["Account no.","Ledger"],r.own_accounts.map(x=>`<tr><td>${esc(x.account)}</td><td>${esc(x.ledger)}</td></tr>`).join(""));
+}
+showTab(location.hash.slice(1));
 </script>
 </body>
 </html>

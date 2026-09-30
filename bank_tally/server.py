@@ -47,8 +47,14 @@ def _load_json(path, default):
 
 
 def load_aliases() -> dict:
+    """Effective aliases: the shipped table (state/bank_aliases.json), overlaid
+    with this Mac's own (data.json "aliases"), minus any shipped alias the user
+    deleted in the Mappings tab (data.json "aliases_removed")."""
     a = dict(_load_json(COMMITTED_ALIASES, {}))
-    a.update(_load_json(DATA_PATH, {}).get("aliases", {}))
+    d = _load_json(DATA_PATH, {})
+    a.update(d.get("aliases", {}))
+    for k in d.get("aliases_removed", []):
+        a.pop(k, None)
     return a
 
 
@@ -60,9 +66,160 @@ def _save_data(d: dict) -> None:
 
 
 def save_alias(parsed_name: str, ledger: str) -> None:
+    _set_alias_key(alias_key(parsed_name), ledger)
+
+
+def _set_alias_key(key: str, ledger: str) -> None:
     d = _load_json(DATA_PATH, {})
-    d.setdefault("aliases", {})[alias_key(parsed_name)] = ledger
+    d.setdefault("aliases", {})[key] = ledger
+    # Re-adding a name the user had deleted brings it back.
+    if key in d.get("aliases_removed", []):
+        d["aliases_removed"] = [k for k in d["aliases_removed"] if k != key]
     _save_data(d)
+
+
+# --- Mappings tab: view / add / edit / delete aliases ------------------------
+#
+# Edits only ever touch this Mac's git-ignored data.json. The shipped table
+# (state/bank_aliases.json) is never rewritten: editing a shipped alias stores a
+# local override, deleting one stores a tombstone ("aliases_removed"), and
+# Restore removes both so the shipped value applies again.
+
+def delete_alias(key: str) -> None:
+    d = _load_json(DATA_PATH, {})
+    d.get("aliases", {}).pop(key, None)
+    if key in _load_json(COMMITTED_ALIASES, {}):
+        cur = set(d.get("aliases_removed", []))
+        cur.add(key)
+        d["aliases_removed"] = sorted(cur)
+    _save_data(d)
+
+
+def restore_alias(key: str) -> None:
+    """Undo local edits/deletion of a shipped alias (back to the shipped value)."""
+    d = _load_json(DATA_PATH, {})
+    d.get("aliases", {}).pop(key, None)
+    d["aliases_removed"] = [k for k in d.get("aliases_removed", []) if k != key]
+    _save_data(d)
+
+
+def _known_ledger(ledger: str):
+    """The exact Tally spelling of ``ledger`` if it is a known ledger (from the
+    Tally ledger list, customers, or an existing alias), matched ignoring case."""
+    known = list(load_ledgers()) + list(customers()) + list(load_aliases().values())
+    by_low = {str(n).strip().lower(): n for n in known if n}
+    return by_low.get(ledger.strip().lower())
+
+
+class AliasError(ValueError):
+    def __init__(self, msg, **extra):
+        super().__init__(msg)
+        self.extra = extra
+
+
+def set_alias(name: str, ledger: str, key: str = "", old_key: str = "",
+              allow_unknown: bool = False) -> str:
+    """Add or change one alias; returns its key. ``name`` is a name as it
+    appears in the bank narration (normalised to the alias key the classifier
+    uses); ``key`` may be given instead to edit an existing entry."""
+    from bank_tally import classify as C
+    ledger = (ledger or "").strip()
+    key = alias_key(name) if (name or "").strip() else (key or "").strip()
+    if not key or len(key.replace(" ", "")) < 3:
+        raise AliasError("the bank name is too short — use at least 3 letters "
+                         "so it can't match unrelated narrations")
+    if not ledger:
+        raise AliasError("choose a Tally ledger")
+    if ledger in R.BANK_LEDGERS or ledger.lower() in {b.lower() for b in R.BANK_LEDGERS}:
+        raise AliasError("a name can't be mapped to one of our own bank accounts / "
+                         "Cash — that would post unrelated payments as transfers. "
+                         "Resolve such lines one by one in the Statements tab.")
+    if key in C.FORCE_REVIEW or C._force_review(name or ""):
+        raise AliasError(f"'{key}' always goes to review (its ledger changes per "
+                         "transaction), so an alias for it would be ignored")
+    exact = _known_ledger(ledger)
+    if exact:
+        ledger = exact
+    elif not allow_unknown:
+        raise AliasError(f"'{ledger}' is not in the Tally ledger list — check the "
+                         "spelling, or upload a fresh master.xml",
+                         unknown_ledger=True)
+    old_key = (old_key or "").strip()
+    if old_key and old_key != key:
+        delete_alias(old_key)
+    _set_alias_key(key, ledger)
+    return key
+
+
+def _seen_names() -> dict:
+    """alias key -> how the loaded statements' lines under that name were
+    classified (only names the alias table can steer: receipts/payments)."""
+    from bank_tally import classify as C
+    if not _STATEMENTS:
+        return {}
+    cust, aliases = customers(), load_aliases()
+    out: dict = {}
+    for _acct, rows in _STATEMENTS:
+        for row in rows:
+            cl = C.classify(row, cust, aliases)
+            if cl.skip or cl.vtype == C.CONTRA or cl.tier in (
+                    "self-transfer", "own-account", "cash-deposit"):
+                continue
+            name = cl.counterparty_raw or ""
+            k = alias_key(name)
+            if not k:
+                continue
+            e = out.setdefault(k, {"key": k, "name": name, "count": 0, "amount": 0.0,
+                                   "credits": 0, "debits": 0, "ledger": None, "how": ""})
+            e["count"] += 1
+            e["amount"] += row.amount
+            e["credits" if row.is_credit else "debits"] += 1
+            if cl.counter_ledger and not e["ledger"]:
+                e["ledger"], e["how"] = cl.counter_ledger, cl.tier
+            elif not cl.counter_ledger and not e["how"]:
+                e["how"] = cl.tier
+    return out
+
+
+def aliases_view() -> dict:
+    """Everything the Mappings tab shows."""
+    from bank_tally import classify as C
+    shipped = _load_json(COMMITTED_ALIASES, {})
+    d = _load_json(DATA_PATH, {})
+    local = d.get("aliases", {})
+    removed = set(d.get("aliases_removed", []))
+    effective = load_aliases()
+    tally_low = {str(n).strip().lower() for n in load_ledgers()} | \
+                {str(n).strip().lower() for n in customers()}
+    seen = _seen_names()
+    rows = []
+    for k, led in sorted(effective.items()):
+        if k in local and k in shipped:
+            src = "edited" if local[k] != shipped[k] else "shipped"
+        else:
+            src = "added" if k in local else "shipped"
+        s = seen.get(k, {})
+        rows.append({"key": k, "ledger": led, "source": src,
+                     "shipped_ledger": shipped.get(k) if src == "edited" else None,
+                     "in_tally": led.strip().lower() in tally_low,
+                     "bank_ledger": led in R.BANK_LEDGERS,
+                     "forced_review": k in C.FORCE_REVIEW,
+                     "seen": s.get("count", 0)})
+    deleted = [{"key": k, "ledger": shipped[k]} for k in sorted(removed) if k in shipped]
+    names = sorted(seen.values(), key=lambda e: (e["ledger"] is not None, -e["count"], e["key"]))
+    for e in names:
+        e["amount"] = f"{e['amount']:.2f}"
+        e["has_alias"] = e["key"] in effective
+    rules = {
+        "payment": [{"pattern": p, "ledger": l} for p, l in C.PAYMENT_RULES],
+        "receipt": [{"pattern": p, "ledger": l} for p, l in C.RECEIPT_RULES],
+        "staff": list(C.STAFF_NAMES), "salary_ledger": C.SALARY_LEDGER,
+        "force_review": sorted(C.FORCE_REVIEW),
+        "own_accounts": [{"account": a, "ledger": l} for a, l in C.OWN_ACCOUNTS.items()],
+    }
+    return {"aliases": rows, "deleted": deleted, "names": names, "rules": rules,
+            "loaded": bool(_STATEMENTS), "suggestions": ledger_suggestions(),
+            "n_ledgers": len(load_ledgers())}
 
 
 def load_dropped() -> set:
@@ -238,6 +395,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, b"no ui", "text/plain")
         if route == "/api/ledgers":
             return self._json({"n_ledgers": len(load_ledgers())})
+        if route == "/api/aliases":
+            return self._json(aliases_view())
+        if route == "/download/aliases.json":
+            body = json.dumps(dict(sorted(load_aliases().items())), indent=2,
+                              ensure_ascii=False).encode("utf-8")
+            return self._send(200, body, "application/json",
+                              {"Content-Disposition": 'attachment; filename="bank_aliases.json"'})
         if route == "/download/bank_import.xml":
             try:
                 with open(os.path.join(OUT_DIR, "bank_import.xml"), "rb") as fh:
@@ -298,7 +462,33 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_process_and_write())
         if route == "/api/rerun":
             return self._json(_process_and_write())
+        if route == "/api/aliases":
+            return self._alias_op(body)
         return self._send(404, b"not found", "text/plain")
+
+    def _alias_op(self, body):
+        op = body.get("op") or "set"
+        key = (body.get("key") or "").strip()
+        try:
+            if op == "set":
+                key = set_alias(body.get("name") or "", body.get("ledger") or "",
+                                key=key, old_key=body.get("old_key") or "",
+                                allow_unknown=bool(body.get("allow_unknown")))
+            elif op == "delete" and key:
+                delete_alias(key)
+            elif op == "restore" and key:
+                restore_alias(key)
+            else:
+                return self._json({"error": "unknown alias operation"}, 400)
+        except AliasError as exc:
+            return self._json({"error": str(exc), **exc.extra}, 400)
+        res = aliases_view()
+        res["key"] = key
+        # Statements already loaded? Re-run them so the Statements tab (review,
+        # entries, bank_import.xml) reflects the change straight away.
+        if _STATEMENTS:
+            res["run"] = _process_and_write()
+        return self._json(res)
 
     def _run(self, body):
         global _STATEMENTS
