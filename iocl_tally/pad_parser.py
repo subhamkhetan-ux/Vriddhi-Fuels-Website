@@ -144,13 +144,59 @@ def _lock_money(nums: list[tuple[int, float]], prev: float
     return None
 
 
+_WRAPPED_HEAD = re.compile(r"\d\.\d?$")      # "10138850.0" / "10138850."
+_WRAPPED_TAIL = re.compile(r"^\d{1,2}$")
+
+
+def _rejoin_wrapped_amounts(lines: list[str]) -> list[str]:
+    """Undo an amount that overflowed its column: the PDF prints the last
+    digit(s) on the next line (``0 10138850.0`` / ``0`` for 10138850.00). Money
+    always has two decimals, so a number ending in ``.d`` / ``.`` followed by a
+    lone 1–2 digit line that completes it is one amount."""
+    out = list(lines)
+    for i in range(len(out) - 1):
+        head, tail = out[i], out[i + 1]
+        if _WRAPPED_HEAD.search(head) and _WRAPPED_TAIL.match(tail):
+            decimals = len(head) - head.rindex(".") - 1
+            if decimals + len(tail) == 2:
+                out[i], out[i + 1] = head + tail, ""
+    return out
+
+
+def _drop_page_headers(lines: list[str]) -> list[str]:
+    """Blank the table's column header (repeated at the top of every page:
+    'Plant / Item Text / Document Type / … / Balance (Rs.)') and 'Closing
+    Balance:' lines, so a record straddling a page break doesn't carry them in
+    its item text. (Opening/closing figures are read from the full text.)"""
+    out = list(lines)
+    i = 0
+    while i < len(out):
+        if out[i].startswith("Closing Balance:"):
+            out[i] = ""
+        elif out[i] == "Plant" and "Item Text" in out[i + 1:i + 3]:
+            # The header ends at the "(Rs.)" under "Balance" (the last column).
+            end, seen_balance = None, False
+            for k in range(i + 1, min(len(out), i + 30)):
+                seen_balance = seen_balance or out[k] == "Balance"
+                if seen_balance and out[k] == "(Rs.)":
+                    end = k
+                    break
+            if end is not None:
+                for k in range(i, end + 1):
+                    out[k] = ""
+                i = end
+        i += 1
+    return out
+
+
 def parse(text: str) -> tuple[list[PadRecord], dict]:
     """Parse the PAD text into records + a reconciliation summary.
 
     Returns ``(records, summary)`` where summary carries opening/closing balances
     and whether the rebuilt chain ties out.
     """
-    lines = [ln.strip() for ln in text.splitlines()]
+    lines = _drop_page_headers(
+        _rejoin_wrapped_amounts([ln.strip() for ln in text.splitlines()]))
     date_idx = [i for i, ln in enumerate(lines) if _DATE_RE.match(ln)]
 
     opening = opening_balance(text)

@@ -177,3 +177,16 @@ def test_master_upload_shared_and_used_for_unknown_check(tmp_path, monkeypatch):
     assert "Brand New Customer & Co" in led and "Uploaded In Bank App" in led
     assert SV.n_uploaded_ledgers() == 3
     assert SV._known("brand new customer & co") == "Brand New Customer & Co"
+
+
+def test_new_customer_kept_as_is_is_no_longer_flagged():
+    rows = [Row(1, dt.date(2026, 8, 1), "Brand New Transport Co", 700.0),
+            Row(2, dt.date(2026, 8, 2), "brand new  transport co", 300.0)]
+    known = ["Keshav Minerals"]
+    _, entries, summ = R.process(rows, [], known)
+    assert summ["n_unknown"] == 2
+    # "New customer" in the app = a mapping of the name to itself.
+    _, entries, summ = R.process(rows, [], known,
+                                 aliases={R.alias_key("Brand New Transport Co"):
+                                          "Brand New Transport Co"})
+    assert summ["n_unknown"] == 0 and all(e["status"] == "ok" for e in entries)

@@ -99,6 +99,62 @@ def apply_renames(vch: str) -> str:
     return vch
 
 
+# Rules set in the app for PAD lines no built-in category covers: (phrase,
+# ledger). A line whose text contains every word of the phrase (letters only;
+# the rule with the most words wins) posts as a journal between IOCL and that
+# ledger, in the PAD's direction:
+#   PAD debit  -> clone of the K1 voucher    (Dr ledger / Cr IOCL)
+#   PAD credit -> clone of the Fleet voucher (Dr IOCL   / Cr ledger)
+# — the same two shapes every built-in debit / credit category uses.
+CUSTOM_RULES: list = []
+_CUSTOM_DEBIT = ("K1.xml", "K1 PARTICIPATION FEE")
+_CUSTOM_CREDIT = ("FLEET.xml", "Fleet Card Posting")
+
+
+def rule_text(s: str) -> str:
+    """Letters-only, upper-case, single-spaced — what a rule phrase matches, so
+    changing numbers (dates, document refs) never break a rule."""
+    return " ".join(re.sub(r"[^A-Z]+", " ", (s or "").upper()).split())
+
+
+_MEMO_TAIL = re.compile(r"(\s+CUSTOMER\s+(DEBIT|CREDIT)\s+MEMO)+$")
+
+
+def rule_hint(item_text: str) -> str:
+    """Suggested words for a rule: the line's real words (3+ letters, no
+    references like ``BBNV01115C``), without the generic 'Customer debit/credit
+    memo' document type, e.g. 'Final TDS Credit/Q1/2026 …' -> 'FINAL TDS CREDIT'."""
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", (item_text or "").upper())
+             if len(w) >= 3 and w.isalpha()]
+    hint = _MEMO_TAIL.sub("", " ".join(words)).strip()
+    return hint or " ".join(words)
+
+
+def match_custom(item_text: str):
+    """(phrase, ledger) of the most specific rule whose words all appear in this
+    PAD line, else None."""
+    words = set(rule_text(item_text).split())
+    best = None
+    for phrase, ledger in CUSTOM_RULES:
+        pw = phrase.split()
+        if pw and set(pw) <= words and (best is None or len(pw) > len(best[0].split())):
+            best = (phrase, ledger)
+    return best
+
+
+def make_custom_journal(ledger: str, is_debit: bool, date_yyyymmdd: str,
+                        amount: float, reference: str | None = None) -> str:
+    """Journal between IOCL and ``ledger`` for a line mapped by a custom rule."""
+    tpl, own = _CUSTOM_DEBIT if is_debit else _CUSTOM_CREDIT
+    vch = _read_template(tpl)
+    vch = _strip_identity(vch)
+    vch = _set_dates(vch, date_yyyymmdd)
+    vch = _set_ledger_amounts(vch, amount)
+    vch = _set_reference(vch, reference)
+    vch = _swap_ledger(vch, own, ledger)
+    return apply_renames(vch)
+
+
 def template_ledgers() -> dict:
     """Every ledger name in the shipped templates -> the template files using it."""
     out: dict = {}

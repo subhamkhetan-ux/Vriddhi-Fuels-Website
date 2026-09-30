@@ -111,7 +111,14 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
         counter_ledger = G.renamed(COUNTER_LEDGER.get(r.category, ""))
         if r.category == "COLLECTION":
             counter_ledger = G.renamed(G.collection_route(r.item_text)[1])
-        if r.category == P.CAT_PURCHASE:
+        if not r.reconciles:
+            # The running balance didn't tie, so this line's amounts were not
+            # read reliably. Never post a guessed amount — list it for review.
+            status, note = "SKIPPED", ("amount not read reliably (running balance "
+                                       "doesn't tie) — check the PAD and enter by hand")
+            if r.category == P.CAT_PURCHASE:
+                skipped_purchases += 1
+        elif r.category == P.CAT_PURCHASE:
             vtype = "Purchase"
             iv = invoices.get(r.doc_number or "")
             if iv is None:
@@ -150,6 +157,17 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
             else:
                 vouchers.append(vch)
                 counts[r.category] = counts.get(r.category, 0) + 1
+        elif r.category == P.CAT_UNKNOWN and G.match_custom(r.item_text) and r.amount:
+            # A line type the PAD tool doesn't know, mapped to a ledger in the app.
+            phrase, counter_ledger = G.match_custom(r.item_text)
+            vch = G.make_custom_journal(counter_ledger, r.debit > 0, _ymd(r.date),
+                                        r.amount, reference=r.doc_number or r.fleet_ref)
+            if not G.voucher_balances(vch):
+                status, note = "SKIPPED", "voucher did not balance"
+            else:
+                vouchers.append(vch)
+                note = f"your rule: “{phrase}”"
+                counts["MAPPED"] = counts.get("MAPPED", 0) + 1
         else:
             status, note = "SKIPPED", f"unmapped category {r.category}"
 
@@ -166,6 +184,11 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
             "counter_ledger": counter_ledger,
             "status": status,
             "note": note,
+            # What the PAD says about the line (for review / mapping), and the
+            # raw numbers read for it (to diagnose a reconciliation break).
+            "description": " ".join((r.item_text or "").split()),
+            "rule_hint": G.rule_hint(r.item_text),
+            "raw_numbers": " | ".join(r.raw_tail or []),
         })
 
     open_delivery = None
