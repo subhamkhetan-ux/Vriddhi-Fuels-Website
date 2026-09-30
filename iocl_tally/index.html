@@ -143,6 +143,9 @@
   .filters{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
   .filters .btn.active{background:var(--grad);color:#fff;border-color:transparent}
   .mono{font-family:var(--mono);font-size:12px}
+  #ledBody tr.dirty td{background:var(--accent-soft)}
+  #ledBody tr.flash td{animation:flash 1.6s ease-out}
+  @keyframes flash{from{background:rgba(255,122,26,.35)}to{background:transparent}}
 </style>
 </head>
 <body>
@@ -245,8 +248,9 @@
     <h2>Ledgers the vouchers post to</h2>
     <div class="hint" style="margin:0 0 12px">Every voucher is cloned from a real Tally export, so it carries these ledger
       names. If a ledger is renamed or replaced in Tally (e.g. a new financial-year ledger like
-      <i>Dealer Margin 2027-28</i>), type the new name under <b>Posts to</b> and Save — every generated voucher then uses it.
-      Clear it to go back to the template's name. Saved only on this Mac.</div>
+      <i>TDS CREDIT NOTE IOCL 2026-27</i>), edit the name in its <b>Posts to</b> box and press <b>Save</b> (or Enter) —
+      every generated voucher then uses it. <b>Reset</b> goes back to the template's name. Saved only on this device.
+      Create the new ledger in Tally first (and re-upload master.xml so it's recognised).</div>
     <div class="scroll"><table>
       <thead><tr><th>Ledger in the template</th><th>Used by</th><th style="min-width:260px">Posts to</th><th></th></tr></thead>
       <tbody id="ledBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
@@ -292,7 +296,7 @@
   <section class="panel">
     <h2>PAD line → voucher (overview)</h2>
     <div class="scroll"><table>
-      <thead><tr><th>Category</th><th>Template</th><th>Counter ledger</th></tr></thead>
+      <thead><tr><th>Category</th><th>Template</th><th>Counter ledger</th><th></th></tr></thead>
       <tbody id="catBody"></tbody>
     </table></div>
     <div class="hint">Lines are categorised by the PAD's own wording (TDS credit note, Fleet, ECollection, K1, Licence
@@ -470,13 +474,14 @@ function applyMappings(j){
     || `<tr><td colspan="3" class="empty">No rules yet — add them from unknown lines in the PAD tab.</td></tr>`;
   $("#ledgers").innerHTML=(j.suggestions||[]).map(l=>`<option value="${esc(l)}">`).join("");
   $("#ledBody").innerHTML=j.ledgers.map((l,i)=>`
-    <tr><td><b>${esc(l.name)}</b></td>
+    <tr id="ledRow${i}"><td><b>${esc(l.name)}</b></td>
       <td class="mono" style="color:var(--faint)">${l.templates.map(esc).join(", ")}</td>
-      <td><input class="led" list="ledgers" id="ren${i}" value="${esc(l.renamed_to)}" placeholder="${esc(l.name)}">
-        ${l.renamed_to?'<div class="hint" style="margin-top:3px;color:var(--warn)">renamed on this Mac</div>':''}
+      <td><input class="led" list="ledgers" id="ren${i}" data-i="${i}" value="${esc(l.renamed_to||l.name)}"
+          title="Type the ledger name to post to, then Save">
+        ${l.renamed_to?'<div class="hint" style="margin-top:3px;color:var(--warn)">renamed on this device</div>':''}
         ${l.in_tally?'':'<div style="margin-top:4px"><span class="badge bad">not in Tally ledger list</span></div>'}</td>
       <td class="acts"><button class="btn sm" data-save="${i}">Save</button>
-        ${l.renamed_to?`<button class="btn sm" data-reset="${i}">Reset</button>`:''}</td></tr>`).join("");
+        ${l.renamed_to?`<button class="btn sm" data-reset="${i}" title="Back to ${esc(l.name)}">Reset</button>`:''}</td></tr>`).join("");
   $("#routeBody").innerHTML=j.routes.map((r,i)=>`
     <tr><td class="mono">${esc(r.marker)}</td><td>${esc(r.ledger)}</td>
       <td>${r.builtin?'<span class="badge">built-in</span>':'<span class="badge added">added here</span>'}</td>
@@ -486,7 +491,9 @@ function applyMappings(j){
   $("#collBody").innerHTML=coll.map(c=>`<tr><td>${esc(c.date)}</td><td class="mono">${esc(c.item_text)}</td>
     <td class="num">${money(c.amount)}</td><td>${esc(c.ledger)}</td></tr>`).join("");
   $("#catBody").innerHTML=j.categories.map(c=>`<tr><td><b>${esc(c.category)}</b></td>
-    <td class="mono" style="color:var(--faint)">${esc(c.template)}</td><td>${esc(c.ledger)}</td></tr>`).join("");
+    <td class="mono" style="color:var(--faint)">${esc(c.template)}</td><td>${esc(c.ledger)}</td>
+    <td class="acts">${c.template_ledger?`<button class="btn sm" data-change="${esc(c.template_ledger)}">Change</button>`
+      :(c.category==="COLLECTION"?'<span class="hint" style="margin:0">per bank, above</span>':'')}</td></tr>`).join("");
   if(document.activeElement!==$("#companyName")) $("#companyName").value=j.company;
   $("#companyHint").textContent = j.company!==j.default_company
     ? `Imports go to “${j.company}” (shipped default: ${j.default_company}). Must match Tally exactly.`
@@ -495,8 +502,29 @@ function applyMappings(j){
 $("#ledBody").onclick=async e=>{
   const b=e.target.closest("button"); if(!b) return;
   const i=+(b.dataset.save??b.dataset.reset), l=MAP.ledgers[i]; if(!l) return;
-  const nv=b.dataset.reset!==undefined ? "" : $("#ren"+i).value.trim();
-  await mapOp({op:"rename",name:l.name,new:nv}, nv&&nv!==l.name?"Saved — vouchers now post to "+nv:"Back to the template's ledger");
+  let nv=b.dataset.reset!==undefined ? "" : $("#ren"+i).value.trim();
+  if(nv===l.name) nv="";                            // same as the template = no rename
+  if(nv===(l.renamed_to||"")){ toast("No change — type the new ledger name first"); $("#ren"+i).focus(); return; }
+  await mapOp({op:"rename",name:l.name,new:nv}, nv?"Saved — vouchers now post to "+nv:"Back to the template's ledger");
+};
+// A changed box lights up its row and makes Save the obvious next step.
+$("#ledBody").oninput=e=>{
+  const inp=e.target.closest("input[data-i]"); if(!inp) return;
+  const l=MAP.ledgers[+inp.dataset.i], cur=l.renamed_to||l.name, dirty=inp.value.trim()!==cur;
+  inp.closest("tr").classList.toggle("dirty",dirty);
+  inp.closest("tr").querySelector("button[data-save]").classList.toggle("primary",dirty);
+};
+$("#ledBody").onkeydown=e=>{
+  if(e.key==="Enter" && e.target.matches("input[data-i]")) e.target.closest("tr").querySelector("button[data-save]").click();
+};
+// "Change" in the overview jumps to that ledger's box, ready to type.
+$("#catBody").onclick=e=>{
+  const b=e.target.closest("button[data-change]"); if(!b) return;
+  const i=MAP.ledgers.findIndex(l=>l.name===b.dataset.change); if(i<0) return;
+  const row=$("#ledRow"+i), inp=$("#ren"+i);
+  row.scrollIntoView({behavior:"smooth",block:"center"});
+  row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
+  setTimeout(()=>{ inp.focus(); inp.select(); },300);
 };
 $("#ruleBody").onclick=async e=>{
   const b=e.target.closest("button[data-rmrule]"); if(!b) return;
