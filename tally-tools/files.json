@@ -1,0 +1,61 @@
+{
+ "pyodide": "0.28.3",
+ "wheels": [
+  "openpyxl-3.1.5-py2.py3-none-any.whl",
+  "et_xmlfile-2.0.0-py3-none-any.whl"
+ ],
+ "packages": [
+  "agent",
+  "bank_tally",
+  "iocl_tally",
+  "fleet_tally"
+ ],
+ "apps": {
+  "bank": "bank_tally",
+  "iocl": "iocl_tally",
+  "fleet": "fleet_tally"
+ },
+ "files": [
+  "bank_tally/classify.py",
+  "bank_tally/generate.py",
+  "bank_tally/run.py",
+  "bank_tally/server.py",
+  "bank_tally/statement.py",
+  "bank_tally/templates/Contra.xml",
+  "bank_tally/templates/Payment.xml",
+  "bank_tally/templates/Receipt.xml",
+  "bank_tally/index.html",
+  "iocl_tally/invoice_parser.py",
+  "iocl_tally/pad_parser.py",
+  "iocl_tally/run.py",
+  "iocl_tally/server.py",
+  "iocl_tally/xml_generator.py",
+  "iocl_tally/templates/COLLECTION_CA.xml",
+  "iocl_tally/templates/COLLECTION_ICICI.xml",
+  "iocl_tally/templates/COLLECTION_OD.xml",
+  "iocl_tally/templates/DEALERMARGIN.xml",
+  "iocl_tally/templates/FLEET.xml",
+  "iocl_tally/templates/INTEREST.xml",
+  "iocl_tally/templates/K1.xml",
+  "iocl_tally/templates/LICENSE.xml",
+  "iocl_tally/templates/NFR.xml",
+  "iocl_tally/templates/PURCHASE_1prod.xml",
+  "iocl_tally/templates/PURCHASE_2prod.xml",
+  "iocl_tally/templates/TDS.xml",
+  "iocl_tally/index.html",
+  "fleet_tally/generate.py",
+  "fleet_tally/parse.py",
+  "fleet_tally/run.py",
+  "fleet_tally/server.py",
+  "fleet_tally/templates/FLEET_JOURNAL.xml",
+  "fleet_tally/templates/TDS_JOURNAL.xml",
+  "fleet_tally/samples/fleet_card_template.xlsx",
+  "fleet_tally/samples/tds_receivable_template.xlsx",
+  "fleet_tally/index.html",
+  "agent/matcher.py",
+  "agent/normalize.py",
+  "state/bank_aliases.json",
+  "state/customers.json",
+  "state/tally_ledgers.json"
+ ]
+}

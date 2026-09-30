@@ -1,6 +1,6 @@
 """Run the three local Tally apps' own server code inside the browser (Pyodide).
 
-The cloud build (see ``build.py``) serves each app's unchanged ``index.html``
+The tally-tools pages (see ``build.py``) run each app's unchanged ``index.html``
 plus ``cloud.js``. The page still calls ``fetch("/api/...")`` exactly as it does
 against the Mac server; ``cloud.js`` hands each such request to :func:`call`,
 which runs the app's real ``Handler.do_GET`` / ``do_POST`` with no HTTP server
