@@ -25,7 +25,7 @@ on:
       - "tally/manifest.webmanifest"
       - "state/tanker_billing.json"
       # In-browser Tally import tools (tally-tools/): the three apps' code + data.
-      - "tally_cloud/**"
+      - "tally-tools/**"
       - "bank_tally/**"
       - "iocl_tally/**"
       - "fleet_tally/**"
@@ -79,15 +79,14 @@ jobs:
           touch _site/.nojekyll
 
       # Bank / IOCL / Fleet -> Tally, running entirely in the browser (Pyodide):
-      # the same app code + templates + shipped ledger/customer/alias lists.
-      # Uploaded statements never leave the device. Isolated: if this step fails
-      # the tanker + tally apps above still deploy.
+      # tally-tools/ plus the app code + templates + shipped ledger/customer/
+      # alias lists it loads. (With Pages set to "Deploy from a branch" these are
+      # already served from main; this keeps them working if Pages is switched
+      # to "GitHub Actions".) Isolated: if this step fails the tanker + tally
+      # apps above still deploy.
       - name: Add the in-browser Tally import tools (tally-tools/)
         continue-on-error: true
-        run: |
-          python3 -m pip download --no-deps --only-binary=:all: -d /tmp/wheels \
-            openpyxl==3.1.5 et_xmlfile==2.0.0
-          python3 tally_cloud/build.py _site/tally-tools --wheels /tmp/wheels
+        run: python3 tally-tools/build.py site _site
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

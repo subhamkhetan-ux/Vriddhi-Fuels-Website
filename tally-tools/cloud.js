@@ -1,10 +1,13 @@
 /* Cloud (in-browser) runtime for the Bank / IOCL / Fleet -> Tally tools.
  *
- * Each tool's page is the same index.html the Mac app serves. On the Mac its
+ * Each tool's page is the same index.html the Mac app serves: the loader page
+ * (tally-tools/<tool>/index.html) fetches <app>/index.html from the site and
+ * re-opens itself with it plus this script. On the Mac the page's
  * fetch("/api/...") calls go to a small local Python server; here this script
- * starts Python in the browser (Pyodide), loads that same server code
- * (app.zip) and answers those calls itself — so every feature works the same,
- * and statements / PADs / invoices never leave this device.
+ * starts Python in the browser (Pyodide), loads that same server code (the
+ * files in files.json, read from the site) and answers those calls itself — so
+ * every feature works the same, and statements / PADs / invoices never leave
+ * this device.
  *
  *  - /api/* fetches        -> vf_cloud.call(app, method, path, body)
  *  - <a href="/download/*"> -> same, saved as a file download
@@ -15,8 +18,26 @@
   "use strict";
   const me = document.currentScript;
   const APP = me.dataset.app;                         // bank_tally | iocl_tally | fleet_tally
-  const BUILD = me.dataset.build || "";
   const BASE = new URL(".", me.src).href;             // …/tally-tools/
+  const ROOT = new URL("../", BASE).href;             // the site root (the repo)
+
+  // Loader mode: fetch the app's own page and re-open this document with it,
+  // adding this script (which then runs below, in normal mode).
+  if (me.dataset.page) {
+    fetch(new URL(me.dataset.page, location.href), { cache: "no-cache" })
+      .then(r => { if (!r.ok) throw new Error(`${me.dataset.page}: HTTP ${r.status}`); return r.text(); })
+      .then(html => {
+        const tag = `<script src="${me.getAttribute("src")}" data-app="${APP}"><\/script>\n`;
+        document.open();
+        document.write(html.replace("</head>", tag + "</head>"));
+        document.close();
+      })
+      .catch(e => {
+        document.body.innerHTML = `<p style="font:15px sans-serif;padding:24px">Could not load the tool:
+          ${String(e.message || e)}. Check the connection and reload.</p>`;
+      });
+    return;
+  }
   const STATE = "/vf_state", CODE = "/home/pyodide/vf", INVOICES = "/tmp/vf_invoices";
   const realFetch = window.fetch.bind(window);
   let py = null, callJs = null;
@@ -59,7 +80,7 @@
   async function boot() {
     const step = t => banner(`<span class="spin"></span>${t}`);
     step("Starting the Tally engine in your browser…");
-    const meta = await (await realFetch(BASE + "build.json?v=" + BUILD)).json();
+    const meta = await (await realFetch(BASE + "files.json", { cache: "no-cache" })).json();
     const cdn = `https://cdn.jsdelivr.net/pyodide/v${meta.pyodide}/full/`;
     await loadScript(cdn + "pyodide.js");
     py = await window.loadPyodide({ indexURL: cdn });
@@ -73,8 +94,24 @@
     py.FS.mkdirTree(STATE);
     py.FS.mount(py.FS.filesystems.IDBFS, {}, STATE);
     await syncfs(true);
-    const zip = await (await realFetch(BASE + "app.zip?v=" + BUILD)).arrayBuffer();
-    py.unpackArchive(zip, "zip", { extractDir: CODE });
+    // The apps' code + data, straight from the site (always the current main).
+    step("Loading the Tally tools…");
+    const get = async url => {
+      const r = await realFetch(url, { cache: "no-cache" });
+      if (!r.ok) throw new Error(`${url.replace(ROOT, "")}: HTTP ${r.status}`);
+      return new Uint8Array(await r.arrayBuffer());
+    };
+    const files = meta.files.map(f => [f, ROOT + f]).concat([["vf_cloud.py", BASE + "vf_cloud.py"]]);
+    const blobs = await Promise.all(files.map(([, url]) => get(url)));
+    files.forEach(([rel], i) => {
+      const path = `${CODE}/${rel}`;
+      py.FS.mkdirTree(path.slice(0, path.lastIndexOf("/")));
+      py.FS.writeFile(path, blobs[i]);
+    });
+    for (const pkg of meta.packages) {                // Pages doesn't publish "_" files
+      py.FS.mkdirTree(`${CODE}/${pkg}`);
+      if (!py.FS.analyzePath(`${CODE}/${pkg}/__init__.py`).exists) py.FS.writeFile(`${CODE}/${pkg}/__init__.py`, "");
+    }
     py.runPython(`import sys\nif ${JSON.stringify(CODE)} not in sys.path: sys.path.insert(0, ${JSON.stringify(CODE)})\n` +
                  `import vf_cloud\nvf_cloud.setup(${JSON.stringify(APP)})`);
     callJs = py.pyimport("vf_cloud").call_js;
