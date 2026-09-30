@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vriddhi Fuels — Tally Import Tools</title>
+<meta name="theme-color" content="#F4511E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap">
+<style>
+  :root{--bg:#0a0706;--glass:rgba(255,255,255,.055);--glass-line:rgba(255,255,255,.14);
+    --ink:#F5F0EB;--muted:#B4ABA2;--faint:#7C746C;--accent:#FF7A1A;
+    --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);min-height:100vh;
+    background:
+      radial-gradient(1100px 560px at 82% -60px, rgba(244,81,30,.24) 0%, rgba(244,81,30,0) 60%),
+      radial-gradient(880px 600px at 4% 6%, rgba(255,158,66,.13) 0%, rgba(255,158,66,0) 55%),
+      radial-gradient(1000px 700px at 50% 116%, rgba(120,40,180,.11) 0%, rgba(120,40,180,0) 60%),
+      var(--bg);
+    background-attachment:fixed;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:14px 20px;padding-top:calc(14px + env(safe-area-inset-top));
+    background:linear-gradient(135deg,rgba(244,81,30,.82),rgba(255,122,26,.62));
+    backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);
+    border-bottom:1px solid rgba(255,255,255,.16);box-shadow:0 10px 30px -14px rgba(244,81,30,.7)}
+  header h1{font-family:var(--display);font-size:18px;margin:0;font-weight:800;color:#fff}
+  header h1::before{content:"⛽ "}
+  header div{color:rgba(255,255,255,.85);font-size:12.5px}
+  main{max-width:880px;margin:0 auto;padding:22px 16px 60px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  a.card{display:block;text-decoration:none;color:var(--ink);background:var(--glass);border:1px solid var(--glass-line);
+    border-radius:18px;padding:18px;backdrop-filter:blur(22px) saturate(140%);-webkit-backdrop-filter:blur(22px) saturate(140%);
+    box-shadow:0 18px 40px -26px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.1) inset;transition:border-color .15s,transform .15s}
+  a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+  a.card .ic{font-size:26px} a.card h2{font-family:var(--display);font-size:16px;margin:8px 0 4px}
+  a.card p{color:var(--muted);font-size:13px;margin:0}
+  .note{margin-top:22px;color:var(--faint);font-size:13px;line-height:1.6;background:var(--glass);border:1px solid var(--glass-line);
+    border-radius:14px;padding:14px 16px}
+  .note b{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tally Import Tools</h1>
+  <div>Bank · IOCL PAD · Fleet card → Tally XML · VRIDDHI FUELS</div>
+</header>
+<main>
+  <div class="grid">
+    <a class="card" href="bank/"><div class="ic">🏦</div><h2>Bank → Tally</h2>
+      <p>HDFC / ICICI statements → receipts, payments &amp; contras, with review and name mappings.</p></a>
+    <a class="card" href="iocl/"><div class="ic">🛢️</div><h2>IOCL PAD → Tally</h2>
+      <p>PAD statement PDF (+ invoice PDFs) → journals and fuel purchases.</p></a>
+    <a class="card" href="fleet/"><div class="ic">💳</div><h2>Fleet → Tally</h2>
+      <p>XtraPower fleet-card and TDS sheets → settlement journals.</p></a>
+  </div>
+  <div class="note">
+    <b>Private by design.</b> These are the same tools as on the Mac, running entirely inside this browser —
+    statements, PADs and invoices are read on this device and never uploaded. Download the XML and import it in
+    Tally (Gateway → Import → Vouchers).<br>
+    <b>Mappings &amp; settings</b> are saved in this browser on this device. Use <b>⬇ Backup</b> / <b>⇪ Restore</b> in any
+    tool to carry them to another device — Restore also accepts a <code>data.json</code> from the Mac app.<br>
+    The first visit downloads the engine (about 15 MB; the IOCL tool adds a 17 MB PDF reader); after that it's cached.
+  </div>
+</main>
+</body>
+</html>

@@ -2,8 +2,11 @@ name: Deploy tanker + tally apps to GitHub Pages
 
 # Publishes ONLY the tanker bill app, the Tally voucher app (whose billing
 # module reads the tanker app's assets and the same data file) and that one
-# data file. It does NOT publish the rest of the repo — importantly not the
-# other state/ files (payment-agent queue / bank data) or the Master Ledger.
+# data file, plus the in-browser Tally import tools (tally-tools/), which bundle
+# the bank/IOCL/fleet app code with the three lists they read: state/
+# customers.json, bank_aliases.json and tally_ledgers.json. It does NOT publish
+# the rest of the repo — importantly not the other state/ files (payment-agent
+# queue / seen / bank data) or the Master Ledger.
 #
 # One-time: repo Settings -> Pages -> Build and deployment -> Source:
 # "GitHub Actions". Then this deploys on every change to the app or its data.
@@ -21,6 +24,16 @@ on:
       - "tally/sw.js"
       - "tally/manifest.webmanifest"
       - "state/tanker_billing.json"
+      # In-browser Tally import tools (tally-tools/): the three apps' code + data.
+      - "tally_cloud/**"
+      - "bank_tally/**"
+      - "iocl_tally/**"
+      - "fleet_tally/**"
+      - "agent/matcher.py"
+      - "agent/normalize.py"
+      - "state/bank_aliases.json"
+      - "state/customers.json"
+      - "state/tally_ledgers.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch: {}
 
@@ -64,6 +77,17 @@ jobs:
           HTML
           # don't let Pages run Jekyll over the files
           touch _site/.nojekyll
+
+      # Bank / IOCL / Fleet -> Tally, running entirely in the browser (Pyodide):
+      # the same app code + templates + shipped ledger/customer/alias lists.
+      # Uploaded statements never leave the device. Isolated: if this step fails
+      # the tanker + tally apps above still deploy.
+      - name: Add the in-browser Tally import tools (tally-tools/)
+        continue-on-error: true
+        run: |
+          python3 -m pip download --no-deps --only-binary=:all: -d /tmp/wheels \
+            openpyxl==3.1.5 et_xmlfile==2.0.0
+          python3 tally_cloud/build.py _site/tally-tools --wheels /tmp/wheels
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
