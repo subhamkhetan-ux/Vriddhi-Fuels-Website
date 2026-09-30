@@ -4,71 +4,141 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vriddhi Fuels — Bank → Tally</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<meta name="theme-color" content="#F4511E">
 <style>
-  :root{--bg:#0e1116;--card:#171b22;--line:#262c36;--ink:#eef2f7;--muted:#9aa4b2;
-    --faint:#6b7382;--accent:#1f9d55;--accent2:#1f6feb;--ok:#2ea043;--bad:#e5534b;--warn:#e3b341;
-    --grad:linear-gradient(135deg,#1f9d55,#2ec27e);--warn-bg:#2a2410;}
+  /* Vriddhi / IndianOil scheme (same as the Payments app) — glassmorphism over a
+     true-black, orange-lit base. Glass panels are translucent films with a
+     backdrop blur so the ambient glow reads through; green/amber/red stay semantic. */
+  :root{
+    --bg:#0a0706; --line:rgba(255,255,255,.10);
+    --glass:rgba(255,255,255,.055); --glass-2:rgba(255,255,255,.09);
+    --glass-line:rgba(255,255,255,.14); --glass-line-soft:rgba(255,255,255,.08);
+    --glass-blur:blur(22px) saturate(140%);
+    --glass-shadow:0 18px 40px -26px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.1) inset;
+    --card:var(--glass); --field:rgba(0,0,0,.34);
+    --ink:#F5F0EB; --muted:#B4ABA2; --faint:#7C746C;
+    --accent:#FF7A1A; --accent-2:#F4511E; --accent-soft:#ff7a1a24; --amber:#FF9E42;
+    --ok:#2FD08A; --ok-bg:#2fd08a29; --warn:#FFB23E; --warn-bg:#ffb23e26;
+    --bad:#FF6B5E; --bad-bg:#ff6b5e26;
+    --grad:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
+    --grad-brand:linear-gradient(120deg,#F4511E 0%,#FF7A1A 52%,#FF9E42 100%);
+    --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    color-scheme:dark;
+  }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
-  header h1{font-size:17px;margin:0;font-weight:800}
-  header .sub{color:var(--faint);font-size:12px}
-  main{max-width:1000px;margin:0 auto;padding:18px 20px 60px}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
-  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
-  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
-  .btn:hover{border-color:var(--accent)} .btn.primary{background:var(--grad);border:none;color:#052e16}
-  .btn.sm{padding:6px 9px;font-size:12px} .btn[disabled]{opacity:.5;cursor:not-allowed}
-  .drop{border:2px dashed var(--line);border-radius:12px;padding:24px;text-align:center;cursor:pointer}
-  .drop:hover,.drop.drag{border-color:var(--accent);background:#1f9d5511}
+  html{overflow-x:clip}
+  body{margin:0;color:var(--ink);overflow-x:clip;
+    background:
+      radial-gradient(1100px 560px at 82% -60px, rgba(244,81,30,.24) 0%, rgba(244,81,30,0) 60%),
+      radial-gradient(880px 600px at 4% 6%, rgba(255,158,66,.13) 0%, rgba(255,158,66,0) 55%),
+      radial-gradient(1000px 700px at 50% 116%, rgba(120,40,180,.11) 0%, rgba(120,40,180,0) 60%),
+      var(--bg);
+    background-attachment:fixed;
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .top{position:sticky;top:0;z-index:10}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;
+    background:linear-gradient(135deg,rgba(244,81,30,.82),rgba(255,122,26,.62));
+    backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);
+    border-bottom:1px solid rgba(255,255,255,.16);box-shadow:0 10px 30px -14px rgba(244,81,30,.7)}
+  header h1{font-family:var(--display);font-size:17px;margin:0;font-weight:800;letter-spacing:.3px;color:#fff;
+    text-shadow:0 1px 2px rgba(120,30,0,.35);display:flex;align-items:center;gap:8px}
+  header h1::before{content:"⛽";font-size:16px}
+  header .sub{color:rgba(255,255,255,.82);font-size:12px}
+  header .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff}
+  header .btn:hover{border-color:#fff;background:rgba(255,255,255,.28)}
+  .spacer{flex:1}
+  .tabbar{display:flex;gap:4px;padding:8px 10px;background:rgba(12,9,8,.55);
+    backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);
+    border-bottom:1px solid var(--glass-line-soft)}
+  .tabbar .tab{flex:1;max-width:280px;background:transparent;border:1px solid transparent;color:var(--muted);
+    font:700 14px/1.2 inherit;font-family:inherit;padding:10px 8px;border-radius:11px;cursor:pointer;transition:color .15s,background .15s}
+  .tabbar .tab.on{color:#fff;background:linear-gradient(150deg,rgba(255,122,26,.24),rgba(255,122,26,.07));
+    border-color:rgba(255,122,26,.4);box-shadow:0 4px 14px -8px rgba(255,122,26,.8)}
+  .tabbar .tab:not(.on):hover{color:var(--ink)}
+  main{max-width:1040px;margin:0 auto;padding:18px 16px 60px}
+  .panel{background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;padding:16px 18px;margin-bottom:18px;
+    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--glass-shadow)}
+  .panel h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px;font-weight:700}
+  button{font-family:inherit}
+  .btn{border:1px solid var(--glass-line);background:var(--glass-2);color:var(--ink);border-radius:10px;padding:8px 13px;
+    font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .15s,background .15s}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 8px 20px -10px rgba(244,81,30,.9)}
+  .btn.primary:hover{filter:brightness(1.07)}
+  .btn.sm{padding:5px 10px;font-size:12px} .btn.ghost{background:transparent}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+  input,select{font-family:inherit}
+  .drop{border:2px dashed var(--glass-line);border-radius:14px;padding:24px;text-align:center;cursor:pointer;
+    background:rgba(255,255,255,.025);transition:border-color .15s,background .15s}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:var(--accent-soft)}
   .drop .big{font-size:15px;font-weight:700}
-  .files{margin-top:10px;font-size:13px;color:var(--muted)}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-  .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
-  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr 1fr}}
-  .stat{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:10px}
-  .stat .k{color:var(--faint);font-size:11px;text-transform:uppercase} .stat .v{font-size:20px;font-weight:800}
-  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)}
-  .chip{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;margin:4px 6px 0 0;display:inline-block}
+  .stat{position:relative;overflow:hidden;background:var(--glass);border:1px solid var(--glass-line);border-radius:14px;
+    padding:11px 12px 11px 15px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+  .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--grad)}
+  .stat .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .stat .v{font-family:var(--display);font-size:21px;font-weight:800;font-variant-numeric:tabular-nums}
+  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)} .stat .v.warn{color:var(--warn)}
+  .chip{background:var(--glass-2);border:1px solid var(--glass-line-soft);border-radius:999px;padding:4px 10px;font-size:12px;
+    margin:4px 6px 0 0;display:inline-block}
   .chip b{color:var(--accent)}
   table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--muted);font-size:11px;text-transform:uppercase}
-  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-  input.led{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:7px 9px;font-size:13px}
-  input.led:focus{outline:none;border-color:var(--accent)}
-  .narr{color:var(--faint);font-size:11px;max-width:340px;word-break:break-all}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--glass-line-soft);vertical-align:top}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+  tbody tr:hover td{background:rgba(255,255,255,.025)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .empty{color:var(--faint);text-align:center;padding:22px}
-  .warnbox{background:var(--warn-bg);border:1px solid var(--warn);border-radius:11px;padding:10px 14px;color:#f4e2b0;font-size:13px;margin-bottom:12px}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:20}
+  .warnbox{background:var(--warn-bg);border:1px solid rgba(255,178,62,.45);border-radius:12px;padding:10px 14px;color:#ffe3b8;font-size:13px;margin-bottom:12px}
+  .okbox{background:var(--ok-bg);border:1px solid rgba(47,208,138,.45);color:#c6f5de}
+  .badbox{background:var(--bad-bg);border:1px solid rgba(255,107,94,.5);color:#ffd0cb}
+  .badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;border:1px solid var(--glass-line);
+    color:var(--muted);white-space:nowrap;background:var(--glass)}
+  .badge.added{border-color:rgba(47,208,138,.55);color:var(--ok)} .badge.edited{border-color:rgba(255,178,62,.55);color:var(--warn)}
+  .badge.bad{border-color:rgba(255,107,94,.55);color:var(--bad)}
+  .lbl{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+  .hint{color:var(--faint);font-size:12px;margin-top:6px;line-height:1.5}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .acts{white-space:nowrap}
+  code{font-family:var(--mono);font-size:.92em;background:rgba(0,0,0,.35);padding:1px 5px;border-radius:5px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(24,20,18,.88);color:#fff;
+    border:1px solid var(--glass-line);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+    padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30}
   .toast.show{opacity:1}
-  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;
+    animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
   @keyframes sp{to{transform:rotate(360deg)}}
-  .tabs{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
-  .tab{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
-  .tab:hover{border-color:var(--accent);color:var(--ink)}
-  .tab.on{background:var(--grad);border-color:transparent;color:#052e16}
-  .badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
-  .badge.added{border-color:var(--accent);color:var(--accent)} .badge.edited{border-color:var(--warn);color:var(--warn)}
-  .badge.bad{border-color:var(--bad);color:var(--bad)}
+  @media(max-width:640px){header{padding:10px 14px} header .sub{display:none} .tabbar .tab{font-size:13px;padding:9px 4px}}
+  input.led,input.t,select.led{width:100%;background:var(--field);border:1px solid var(--glass-line);border-radius:10px;
+    color:var(--ink);padding:8px 10px;font-size:13px;transition:border-color .15s,box-shadow .15s}
+  select.led{width:auto}
+  input.led:focus,input.t:focus,select.led:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  input[type=checkbox]{accent-color:var(--accent)}
   .grid2{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
   @media(max-width:720px){.grid2{grid-template-columns:1fr}}
-  .lbl{display:block;color:var(--faint);font-size:11px;text-transform:uppercase;margin-bottom:4px}
-  select.led{width:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:7px 9px;font-size:13px}
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr 1fr}}
+  .files{margin-top:10px;font-size:13px;color:var(--muted)}
+  .narr{color:var(--faint);font-size:11px;max-width:340px;word-break:break-all;font-family:var(--mono)}
   code.pat{font-size:11.5px;color:var(--muted);word-break:break-all}
-  .acts{white-space:nowrap}
-  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 </style>
 </head>
 <body>
+<div class="top">
 <header>
   <div><h1>Bank → Tally</h1><div class="sub">Statements → import XML · VRIDDHI FUELS</div></div>
-  <nav class="tabs">
-    <button class="tab on" data-tab="statements">Statements → Tally</button>
-    <button class="tab" data-tab="mappings">Name ↔ Ledger mappings</button>
-  </nav>
 </header>
+<nav class="tabbar">
+  <button class="tab on" data-tab="statements">Statements → Tally</button>
+  <button class="tab" data-tab="mappings">Mappings &amp; accounts</button>
+</nav>
+</div>
 <main>
 <div id="tab-statements">
   <section class="panel">
@@ -93,11 +163,11 @@
 
   <section class="panel" id="resultPanel" hidden>
     <h2>2 · Result</h2>
-    <div id="problemBox" class="warnbox" style="display:none;background:#2a1010;border-color:var(--bad);color:#f3b7b3"></div>
+    <div id="problemBox" class="warnbox badbox" style="display:none"></div>
     <div id="acctLine" class="sub" style="color:var(--faint);margin-bottom:10px"></div>
     <div class="stats" id="stats"></div>
     <div id="counts" style="margin-top:10px"></div>
-    <div id="reconcile" class="warnbox" style="background:#0d1f14;border-color:var(--accent);color:#bfe6cf"></div>
+    <div id="reconcile" class="warnbox okbox"></div>
     <div class="row">
       <a class="btn primary" id="dlXml" href="/download/bank_import.xml">⬇ bank_import.xml</a>
       <a class="btn" id="dlAudit" href="/download/audit.csv">⬇ audit (CSV)</a>
@@ -203,6 +273,35 @@
     </div>
   </section>
 
+  <section class="panel" id="settingsPanel">
+    <h2>Our bank accounts &amp; Tally company</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Account no.</th><th>Tally ledger</th><th>Source</th><th></th></tr></thead>
+      <tbody id="acctBody"></tbody>
+    </table></div>
+    <div class="lbl" style="margin-top:16px">Add another of our bank accounts</div>
+    <div class="grid2">
+      <div><label class="lbl" for="acctNo">Account number</label>
+        <input class="led" id="acctNo" inputmode="numeric" placeholder="e.g. 50200012345678"></div>
+      <div><label class="lbl" for="acctLedger">Its Tally ledger</label>
+        <input class="led" id="acctLedger" list="ledgers" placeholder="e.g. SBI BANK C/A - 12345678"></div>
+      <div><button class="btn primary" id="acctAdd">Add account</button></div>
+    </div>
+    <div class="hint">
+      Once added, that account's statements are recognised (the number must appear above the transaction table, as in
+      HDFC/ICICI exports), and transfers naming it become Contra entries. Another HDFC or ICICI account works straight
+      away; a different bank works if its Excel statement has Date / Narration / Withdrawal / Deposit / Balance columns —
+      if names come out oddly, send Claude a sample. Create the ledger in Tally first, then re-drop the statements.
+    </div>
+    <div class="lbl" style="margin-top:18px">Tally company the import goes into</div>
+    <div class="grid2">
+      <div style="grid-column:span 2"><input class="led" id="companyName" placeholder="VRIDDHI FUELS (2026-27)"></div>
+      <div><button class="btn" id="companySave">Save company</button></div>
+    </div>
+    <div class="hint" id="companyHint">Must match the company name in Tally exactly. Change it when you move to a new
+      financial-year company (e.g. VRIDDHI FUELS (2027-28)).</div>
+  </section>
+
   <section class="panel">
     <h2>Built-in rules (read-only)</h2>
     <div class="sub" style="color:var(--faint);margin-bottom:10px;line-height:1.55">
@@ -286,9 +385,8 @@ function render(res){
   $("#counts").innerHTML=Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("");
   const paired=s.n_paired||0, pairedLines=paired*2;
   const ok=s.accounted_ok;
-  $("#reconcile").style.background=ok?'#0d1f14':'#2a1010';
-  $("#reconcile").style.borderColor=ok?'var(--accent)':'var(--bad)';
-  $("#reconcile").style.color=ok?'#bfe6cf':'#f3b7b3';
+  $("#reconcile").classList.toggle("okbox",!!ok);
+  $("#reconcile").classList.toggle("badbox",!ok);
   $("#reconcile").innerHTML= (ok?'✓ ':'✗ ')+`Reconciliation: <b>${s.n_lines}</b> statement lines = `+
     `${s.n_vouchers} vouchers`+(paired?` (incl. ${paired} paired transfers covering ${pairedLines} lines)`:``)+
     ` + ${s.n_review} review + ${s.n_dropped} dropped + ${s.skipped_iocl} IOCL-skipped `+
@@ -390,14 +488,38 @@ function applyMappings(j){
   $("#mapLedgerNote").textContent = j.n_ledgers ? "" :
     "No Tally ledger list loaded — upload master.xml in the Statements tab so ledger names can be checked.";
   if(j.run) render(j.run);          // statements were loaded: refresh that tab too
-  renderAliases(); renderDeleted(); renderNames(); renderRules();
+  renderAliases(); renderDeleted(); renderNames(); renderRules(); renderSettings(j.settings);
 }
-async function aliasOp(body, okMsg){
-  try{ applyMappings(await api("/api/aliases",body)); toast(okMsg); return true; }
+function renderSettings(st){
+  if(!st) return;
+  $("#acctBody").innerHTML=st.accounts.map(a=>`
+    <tr><td style="font-family:var(--mono)">${esc(a.account)}</td><td>${esc(a.ledger)}</td>
+      <td>${a.builtin?'<span class="badge">built-in</span>':'<span class="badge added">added here</span>'}</td>
+      <td class="acts">${a.builtin?'':`<button class="btn sm" data-acct="${esc(a.account)}">Remove</button>`}</td></tr>`).join("");
+  if(document.activeElement!==$("#companyName")) $("#companyName").value=st.company;
+  $("#companyHint").textContent = st.company!==st.default_company
+    ? `Imports go to “${st.company}” (shipped default: ${st.default_company}). Must match Tally exactly. `
+    : "Must match the company name in Tally exactly. Change it when you move to a new financial-year company (e.g. VRIDDHI FUELS (2027-28)). ";
+}
+$("#acctBody").onclick=async e=>{
+  const b=e.target.closest("button[data-acct]"); if(!b) return;
+  if(!confirm(`Remove account ${b.dataset.acct}? Its statements will no longer be recognised.`)) return;
+  await aliasOp({op:"remove_account",account:b.dataset.acct},"Account removed","/api/settings");
+};
+$("#acctAdd").onclick=async()=>{
+  const account=$("#acctNo").value.trim(), ledger=$("#acctLedger").value.trim();
+  if(!account||!ledger){toast("Type the account number and its Tally ledger");return;}
+  if(await aliasOp({op:"add_account",account,ledger},"Account added — re-drop its statement","/api/settings")){
+    $("#acctNo").value=""; $("#acctLedger").value=""; }
+};
+$("#companySave").onclick=()=>aliasOp({op:"company",company:$("#companyName").value.trim()},"Company saved","/api/settings");
+async function aliasOp(body, okMsg, path){
+  path=path||"/api/aliases";
+  try{ applyMappings(await api(path,body)); toast(okMsg); return true; }
   catch(e){
-    if(/not in the Tally ledger list/.test(e.message) && body.op==="set" && !body.allow_unknown){
+    if(/not in the Tally ledger list/.test(e.message) && !body.allow_unknown){
       if(confirm(e.message+"\n\nSave it anyway? (Tally will reject vouchers for a ledger it doesn't have.)"))
-        return aliasOp({...body,allow_unknown:true},okMsg);
+        return aliasOp({...body,allow_unknown:true},okMsg,path);
       return false;
     }
     toast("Failed: "+e.message); alert(e.message); return false;
@@ -511,9 +633,7 @@ function renderRules(){
     `<div class="lbl">Receipts (money in) — narration contains → ledger</div>`+
     tbl(["Pattern","Ledger"],r.receipt.map(x=>`<tr><td><code class="pat">${esc(x.pattern)}</code></td><td>${esc(x.ledger)}</td></tr>`).join(""))+
     `<div class="lbl">Staff → ${esc(r.salary_ledger)}</div><div style="margin-bottom:14px">${r.staff.map(n=>`<span class="chip">${esc(n)}</span>`).join("")}</div>`+
-    `<div class="lbl">Always sent to review (ledger varies per transaction)</div><div style="margin-bottom:14px">${r.force_review.map(n=>`<span class="chip">${esc(n)}</span>`).join("")}</div>`+
-    `<div class="lbl">Our own accounts (transfers become Contra)</div>`+
-    tbl(["Account no.","Ledger"],r.own_accounts.map(x=>`<tr><td>${esc(x.account)}</td><td>${esc(x.ledger)}</td></tr>`).join(""));
+    `<div class="lbl">Always sent to review (ledger varies per transaction)</div><div>${r.force_review.map(n=>`<span class="chip">${esc(n)}</span>`).join("")}</div>`;
 }
 showTab(location.hash.slice(1));
 </script>

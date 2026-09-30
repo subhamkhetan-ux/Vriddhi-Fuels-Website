@@ -114,3 +114,66 @@ def test_parser_finds_columns_any_order():
     assert rows[0].customer == "Shree Shyam Logistics" and rows[0].amount == 250000.0
     assert rows[0].date == dt.date(2026, 8, 15)
     assert rows[1].amount == 100000.0
+
+
+# ---- Mappings tab: sheet name -> ledger, posting ledgers, company ----------
+
+def test_alias_posts_to_mapped_ledger_and_clears_unknown():
+    rows = [Row(1, dt.date(2026, 8, 1), "SHREE SHYAM LOGISTIC", 100.0)]
+    known = ["Shree Shyam Logistics"]
+    _, entries, summ = R.process(rows, [], known)
+    assert entries[0]["status"] == "unknown-customer"
+    v, entries, summ = R.process(rows, [], known,
+                                 aliases={R.alias_key(" Shree  Shyam Logistic "):
+                                          "Shree Shyam Logistics"})
+    assert entries[0]["status"] == "ok" and entries[0]["mapped"]
+    assert entries[0]["customer"] == "SHREE SHYAM LOGISTIC"
+    assert ("Shree Shyam Logistics", "No", "100.00") in _ledgers(v[0])
+
+
+def test_posting_ledger_override_and_company():
+    v = G.make_journal("fleet", "20260801", "Keshav Minerals", 50.0,
+                       posting_ledger="Fleet Card Posting 2027-28")
+    leds = _ledgers(v)
+    assert ("Fleet Card Posting 2027-28", "Yes", "-50.00") in leds
+    assert G.voucher_balances(v)
+    env = G.build_envelope([v], "VRIDDHI FUELS (2027-28)")
+    assert "<SVCURRENTCOMPANY>VRIDDHI FUELS (2027-28)</SVCURRENTCOMPANY>" in env
+    assert G.DEFAULT_COMPANY in G.build_envelope([v])
+
+
+def test_fleet_mapping_ops_store_locally(tmp_path, monkeypatch):
+    import pytest
+    from fleet_tally import server as SV
+    monkeypatch.setattr(SV, "DATA_PATH", str(tmp_path / "data.json"))
+    monkeypatch.setattr(SV, "_UPLOADED_LEDGERS", [str(tmp_path / "ledgers.json")])
+    SV.mapping_op({"op": "set_alias", "name": "Ember Coal Benefication",
+                   "ledger": "My Customer Ltd", "allow_unknown": True})
+    SV.mapping_op({"op": "posting", "kind": "tds", "ledger": "TDS X",
+                   "allow_unknown": True})
+    d = SV.load_data()
+    assert d["aliases"] == {"ember coal benefication": "My Customer Ltd"}
+    assert d["posting"] == {"tds": "TDS X"}
+    with pytest.raises(SV.MappingError) as ei:
+        SV.mapping_op({"op": "set_alias", "name": "Some Name", "ledger": "Unknown Ledger"})
+    assert ei.value.extra.get("unknown_ledger")
+    SV.mapping_op({"op": "delete_alias", "key": "ember coal benefication"})
+    SV.mapping_op({"op": "posting", "kind": "tds", "ledger": ""})   # back to default
+    assert SV.load_data()["aliases"] == {} and SV.load_data()["posting"] == {}
+
+
+def test_master_upload_shared_and_used_for_unknown_check(tmp_path, monkeypatch):
+    from fleet_tally import server as SV
+    mine, other = tmp_path / "fleet.json", tmp_path / "bank.json"
+    monkeypatch.setattr(SV, "LEDGERS_PATH", str(mine))
+    monkeypatch.setattr(SV, "_UPLOADED_LEDGERS", [str(mine), str(other)])
+    xml = ('<ENVELOPE><LEDGER NAME="Brand New Customer &amp; Co"></LEDGER>'
+           '<LEDGER NAME="Keshav Minerals"></LEDGER></ENVELOPE>')
+    names = SV.parse_master_xml(b"\xff\xfe" + xml.encode("utf-16-le"))
+    assert names == ["Brand New Customer & Co", "Keshav Minerals"]
+    SV.save_ledgers(names)
+    other.write_text('["Uploaded In Bank App"]')
+    led = SV.tally_ledgers()
+    assert "Brand New Customer & Co" in led and "Uploaded In Bank App" in led
+    assert SV.n_uploaded_ledgers() == 3
+    assert SV._known("brand new customer & co") == "Brand New Customer & Co"

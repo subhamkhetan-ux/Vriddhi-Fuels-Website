@@ -23,6 +23,7 @@ _ROOT = os.path.dirname(_HERE)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from bank_tally import classify as C          # noqa: E402
 from bank_tally import generate as G          # noqa: E402
 from bank_tally import run as R               # noqa: E402
 from bank_tally import statement as S         # noqa: E402
@@ -215,11 +216,84 @@ def aliases_view() -> dict:
         "receipt": [{"pattern": p, "ledger": l} for p, l in C.RECEIPT_RULES],
         "staff": list(C.STAFF_NAMES), "salary_ledger": C.SALARY_LEDGER,
         "force_review": sorted(C.FORCE_REVIEW),
-        "own_accounts": [{"account": a, "ledger": l} for a, l in C.OWN_ACCOUNTS.items()],
     }
     return {"aliases": rows, "deleted": deleted, "names": names, "rules": rules,
             "loaded": bool(_STATEMENTS), "suggestions": ledger_suggestions(),
-            "n_ledgers": len(load_ledgers())}
+            "n_ledgers": len(load_ledgers()), "settings": settings_view()}
+
+
+# --- Settings: our own bank accounts + the Tally company -------------------
+#
+# Also local to this Mac (data.json "own_accounts" / "company"). The built-in
+# accounts in classify.OWN_ACCOUNTS stay as shipped and can't be removed here.
+
+def _apply_accounts() -> None:
+    C.configure_accounts(_load_json(DATA_PATH, {}).get("own_accounts", {}))
+
+
+def company() -> str:
+    return (_load_json(DATA_PATH, {}).get("company") or "").strip() or G.DEFAULT_COMPANY
+
+
+def set_company(name: str) -> str:
+    name = " ".join((name or "").split())
+    if not name:
+        raise AliasError("type the Tally company name exactly as Tally shows it")
+    d = _load_json(DATA_PATH, {})
+    if name == G.DEFAULT_COMPANY:
+        d.pop("company", None)
+    else:
+        d["company"] = name
+    _save_data(d)
+    return name
+
+
+def add_account(account: str, ledger: str, allow_unknown: bool = False) -> str:
+    """Register another of our bank accounts: statements for it are then
+    recognised, and transfers naming it become Contras."""
+    import re
+    _apply_accounts()
+    acct = re.sub(r"\D", "", account or "")
+    ledger = (ledger or "").strip()
+    if not 9 <= len(acct) <= 18:
+        raise AliasError("type the full account number (9–18 digits)")
+    if acct in C.OWN_ACCOUNTS:
+        raise AliasError(f"account {acct} is already registered "
+                         f"({C.OWN_ACCOUNTS[acct]})")
+    if not ledger:
+        raise AliasError("type the account's Tally ledger name")
+    low = ledger.lower()
+    if low == "cash" or low in {l.lower() for l in C.OWN_ACCOUNTS.values()}:
+        raise AliasError(f"'{ledger}' is already used by another account")
+    exact = _known_ledger(ledger)
+    if exact:
+        ledger = exact
+    elif not allow_unknown:
+        raise AliasError(f"'{ledger}' is not in the Tally ledger list — check the "
+                         "spelling, or upload a fresh master.xml",
+                         unknown_ledger=True)
+    d = _load_json(DATA_PATH, {})
+    d.setdefault("own_accounts", {})[acct] = ledger
+    _save_data(d)
+    _apply_accounts()
+    return acct
+
+
+def remove_account(account: str) -> None:
+    d = _load_json(DATA_PATH, {})
+    if account not in d.get("own_accounts", {}):
+        raise AliasError("only accounts added in this app can be removed")
+    d["own_accounts"].pop(account)
+    _save_data(d)
+    _apply_accounts()
+
+
+def settings_view() -> dict:
+    _apply_accounts()
+    local = _load_json(DATA_PATH, {}).get("own_accounts", {})
+    return {"company": company(), "default_company": G.DEFAULT_COMPANY,
+            "accounts": [{"account": a, "ledger": l, "builtin": a not in local}
+                         for a, l in C.OWN_ACCOUNTS.items()]}
 
 
 def load_dropped() -> set:
@@ -254,11 +328,21 @@ def customers() -> list:
     return [c for c in _load_json(CUSTOMERS, []) if "auto-source" not in str(c).lower()]
 
 
+# A master.xml uploaded in the IOCL or Fleet app is used here too (and vice
+# versa), so one upload keeps all three Tally apps current.
+_OTHER_UPLOADS = [os.path.join(_ROOT, app, "ledgers.json")
+                  for app in ("iocl_tally", "fleet_tally")]
+
+
 def load_ledgers() -> list:
     """Every Tally ledger name: the shipped list (state/tally_ledgers.json) plus
     any the user re-uploaded locally (a fresher master.xml wins/extends it)."""
     committed = _load_json(COMMITTED_LEDGERS, [])
     local = _load_json(LEDGERS_PATH, [])
+    if isinstance(local, list):
+        for path in _OTHER_UPLOADS:
+            other = _load_json(path, [])
+            local = local + (other if isinstance(other, list) else [])
     seen, out = set(), []
     for n in (local if isinstance(local, list) else []) + \
              (committed if isinstance(committed, list) else []):
@@ -322,7 +406,7 @@ def _process_and_write():
         dropped=load_dropped(), resolved=load_resolved())
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, "bank_import.xml"), "w", encoding="utf-8") as fh:
-        fh.write(G.build_envelope(vouchers))
+        fh.write(G.build_envelope(vouchers, company()))
     _LAST = {"summary": summary, "review": review}
     return {"summary": summary, "review": review,
             "suggestions": ledger_suggestions(), "n_ledgers": len(load_ledgers())}
@@ -386,6 +470,7 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
+        _apply_accounts()
         route = urlparse(self.path).path
         if route in ("/", "/index.html"):
             try:
@@ -417,6 +502,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
+        _apply_accounts()
         route = urlparse(self.path).path
         body = self._body()
         if route == "/api/run":
@@ -464,6 +550,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_process_and_write())
         if route == "/api/aliases":
             return self._alias_op(body)
+        if route == "/api/settings":
+            return self._settings_op(body)
         return self._send(404, b"not found", "text/plain")
 
     def _alias_op(self, body):
@@ -486,6 +574,25 @@ class Handler(BaseHTTPRequestHandler):
         res["key"] = key
         # Statements already loaded? Re-run them so the Statements tab (review,
         # entries, bank_import.xml) reflects the change straight away.
+        if _STATEMENTS:
+            res["run"] = _process_and_write()
+        return self._json(res)
+
+    def _settings_op(self, body):
+        op = body.get("op") or ""
+        try:
+            if op == "company":
+                set_company(body.get("company") or "")
+            elif op == "add_account":
+                add_account(body.get("account") or "", body.get("ledger") or "",
+                            allow_unknown=bool(body.get("allow_unknown")))
+            elif op == "remove_account":
+                remove_account((body.get("account") or "").strip())
+            else:
+                return self._json({"error": "unknown settings operation"}, 400)
+        except AliasError as exc:
+            return self._json({"error": str(exc), **exc.extra}, 400)
+        res = aliases_view()
         if _STATEMENTS:
             res["run"] = _process_and_write()
         return self._json(res)

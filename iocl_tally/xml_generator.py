@@ -49,6 +49,18 @@ COLLECTION_ROUTES = [
 ]
 COLLECTION_DEFAULT = ("COLLECTION_OD.xml", "HDFC BANK OD A/C - 50200110712542")
 
+# Routes added in the app for a new bank account: (marker, ledger). Checked after
+# the built-in ones; the voucher clones the OD template with its bank swapped.
+EXTRA_COLLECTION_ROUTES: list = []
+
+# Ledger renames set in the app (template ledger name -> the name to post to),
+# e.g. a ledger renamed for a new financial year. Applied to every voucher.
+LEDGER_RENAMES: dict = {}
+
+# The bank ledger each collection template carries (what a route swaps out).
+_TEMPLATE_BANK = {tpl: led for _m, tpl, led in COLLECTION_ROUTES}
+_TEMPLATE_BANK[COLLECTION_DEFAULT[0]] = COLLECTION_DEFAULT[1]
+
 
 def collection_route(item_text: str) -> tuple[str, str]:
     """Return (template_file, ledger_name) for an ECollection, by the bank
@@ -57,7 +69,47 @@ def collection_route(item_text: str) -> tuple[str, str]:
     for marker, tpl, ledger in COLLECTION_ROUTES:
         if marker in t:
             return tpl, ledger
+    squashed = t.replace(" ", "")
+    for marker, ledger in EXTRA_COLLECTION_ROUTES:
+        if marker and marker in squashed:
+            return COLLECTION_DEFAULT[0], ledger
     return COLLECTION_DEFAULT
+
+
+def renamed(name: str) -> str:
+    """The ledger actually posted to for a template ledger ``name``."""
+    return LEDGER_RENAMES.get(name) or name
+
+
+def _xesc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _swap_ledger(vch: str, old: str, new: str) -> str:
+    """Replace a whole ledger name wherever it is an element's full text
+    (LEDGERNAME, PARTYLEDGERNAME, …) — never a substring of another name."""
+    if not new or new == old:
+        return vch
+    return vch.replace(f">{_xesc(old)}<", f">{_xesc(new)}<")
+
+
+def apply_renames(vch: str) -> str:
+    for old, new in LEDGER_RENAMES.items():
+        vch = _swap_ledger(vch, old, new)
+    return vch
+
+
+def template_ledgers() -> dict:
+    """Every ledger name in the shipped templates -> the template files using it."""
+    out: dict = {}
+    for name in sorted(os.listdir(TEMPLATE_DIR)):
+        if not name.endswith(".xml"):
+            continue
+        for led in set(re.findall(r"<LEDGERNAME>([^<]*)</LEDGERNAME>", _read_template(name))):
+            led = (led.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+                   .replace("&apos;", "'").replace("&amp;", "&"))
+            out.setdefault(led, []).append(name[:-4])
+    return out
 
 # Identity element tags stripped so nothing existing is overwritten on import.
 _STRIP_TAGS = ["GUID", "ALTERID", "MASTERID", "VOUCHERKEY", "VOUCHERRETAINKEY",
@@ -134,8 +186,9 @@ def make_journal(category: str, date_yyyymmdd: str, amount: float,
 
     For a COLLECTION the receiving bank ledger is chosen from the line's item
     text (HDFC OD / HDFC C/A / ICICI); other categories use their one template."""
+    bank = None
     if category == "COLLECTION":
-        tpl_name = collection_route(collection_item_text)[0]
+        tpl_name, bank = collection_route(collection_item_text)
     else:
         tpl_name = JOURNAL_TEMPLATES[category]
     vch = _read_template(tpl_name)
@@ -143,7 +196,9 @@ def make_journal(category: str, date_yyyymmdd: str, amount: float,
     vch = _set_dates(vch, date_yyyymmdd)
     vch = _set_ledger_amounts(vch, amount)
     vch = _set_reference(vch, reference)
-    return vch
+    if bank and tpl_name in _TEMPLATE_BANK:        # an app-added collection account
+        vch = _swap_ledger(vch, _TEMPLATE_BANK[tpl_name], bank)
+    return apply_renames(vch)
 
 
 # ---- purchases (from the invoice PDF) --------------------------------------
@@ -266,7 +321,7 @@ def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None,
     # R/off = -(ZRND) so the voucher balances; keep it in the R/off entry only.
     roff = round(-invoice.zrnd, 2)
     vch = _set_roff(vch, tpl["roff"], f"{roff:.2f}")
-    return vch
+    return apply_renames(vch)
 
 
 def _set_roff(vch: str, old: str, new: str) -> str:
@@ -310,6 +365,14 @@ ENVELOPE_HEAD = (
 ENVELOPE_TAIL = "   </REQUESTDATA>\n  </IMPORTDATA>\n </BODY>\n</ENVELOPE>\n"
 
 
-def build_envelope(vouchers: list[str]) -> str:
-    """Wrap voucher TALLYMESSAGE blocks in a Tally 'Import Data' envelope."""
-    return ENVELOPE_HEAD + "\n".join(vouchers) + "\n" + ENVELOPE_TAIL
+DEFAULT_COMPANY = "VRIDDHI FUELS (2026-27)"
+
+
+def build_envelope(vouchers: list[str], company: str | None = None) -> str:
+    """Wrap voucher TALLYMESSAGE blocks in a Tally 'Import Data' envelope.
+    ``company`` is the Tally company to import into (default as shipped)."""
+    head = ENVELOPE_HEAD
+    if company and company != DEFAULT_COMPANY:
+        head = head.replace(f"<SVCURRENTCOMPANY>{DEFAULT_COMPANY}</SVCURRENTCOMPANY>",
+                            f"<SVCURRENTCOMPANY>{_xesc(company)}</SVCURRENTCOMPANY>")
+    return head + "\n".join(vouchers) + "\n" + ENVELOPE_TAIL

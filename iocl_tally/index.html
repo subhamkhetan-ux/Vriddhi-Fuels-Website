@@ -4,80 +4,159 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vriddhi Fuels — IOCL PAD → Tally</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<meta name="theme-color" content="#F4511E">
 <style>
+  /* Vriddhi / IndianOil scheme (same as the Payments app) — glassmorphism over a
+     true-black, orange-lit base. Glass panels are translucent films with a
+     backdrop blur so the ambient glow reads through; green/amber/red stay semantic. */
   :root{
-    --bg:#0e1116; --card:#171b22; --line:#262c36; --ink:#eef2f7; --muted:#9aa4b2;
-    --faint:#6b7382; --accent:#ff7a1a; --accent2:#1f6feb; --ok:#2ea043; --bad:#e5534b;
-    --warn:#e3b341; --warn-bg:#2a2410; --grad:linear-gradient(135deg,#ff7a1a,#ff9d4d);
+    --bg:#0a0706; --line:rgba(255,255,255,.10);
+    --glass:rgba(255,255,255,.055); --glass-2:rgba(255,255,255,.09);
+    --glass-line:rgba(255,255,255,.14); --glass-line-soft:rgba(255,255,255,.08);
+    --glass-blur:blur(22px) saturate(140%);
+    --glass-shadow:0 18px 40px -26px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.1) inset;
+    --card:var(--glass); --field:rgba(0,0,0,.34);
+    --ink:#F5F0EB; --muted:#B4ABA2; --faint:#7C746C;
+    --accent:#FF7A1A; --accent-2:#F4511E; --accent-soft:#ff7a1a24; --amber:#FF9E42;
+    --ok:#2FD08A; --ok-bg:#2fd08a29; --warn:#FFB23E; --warn-bg:#ffb23e26;
+    --bad:#FF6B5E; --bad-bg:#ff6b5e26;
+    --grad:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
+    --grad-brand:linear-gradient(120deg,#F4511E 0%,#FF7A1A 52%,#FF9E42 100%);
+    --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    color-scheme:dark;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);
-    position:sticky;top:0;background:var(--bg);z-index:5}
-  header h1{font-size:17px;margin:0;font-weight:800}
-  header .sub{color:var(--faint);font-size:12px}
+  html{overflow-x:clip}
+  body{margin:0;color:var(--ink);overflow-x:clip;
+    background:
+      radial-gradient(1100px 560px at 82% -60px, rgba(244,81,30,.24) 0%, rgba(244,81,30,0) 60%),
+      radial-gradient(880px 600px at 4% 6%, rgba(255,158,66,.13) 0%, rgba(255,158,66,0) 55%),
+      radial-gradient(1000px 700px at 50% 116%, rgba(120,40,180,.11) 0%, rgba(120,40,180,0) 60%),
+      var(--bg);
+    background-attachment:fixed;
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .top{position:sticky;top:0;z-index:10}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;
+    background:linear-gradient(135deg,rgba(244,81,30,.82),rgba(255,122,26,.62));
+    backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);
+    border-bottom:1px solid rgba(255,255,255,.16);box-shadow:0 10px 30px -14px rgba(244,81,30,.7)}
+  header h1{font-family:var(--display);font-size:17px;margin:0;font-weight:800;letter-spacing:.3px;color:#fff;
+    text-shadow:0 1px 2px rgba(120,30,0,.35);display:flex;align-items:center;gap:8px}
+  header h1::before{content:"⛽";font-size:16px}
+  header .sub{color:rgba(255,255,255,.82);font-size:12px}
+  header .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff}
+  header .btn:hover{border-color:#fff;background:rgba(255,255,255,.28)}
   .spacer{flex:1}
-  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;
-    padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+  .tabbar{display:flex;gap:4px;padding:8px 10px;background:rgba(12,9,8,.55);
+    backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);
+    border-bottom:1px solid var(--glass-line-soft)}
+  .tabbar .tab{flex:1;max-width:280px;background:transparent;border:1px solid transparent;color:var(--muted);
+    font:700 14px/1.2 inherit;font-family:inherit;padding:10px 8px;border-radius:11px;cursor:pointer;transition:color .15s,background .15s}
+  .tabbar .tab.on{color:#fff;background:linear-gradient(150deg,rgba(255,122,26,.24),rgba(255,122,26,.07));
+    border-color:rgba(255,122,26,.4);box-shadow:0 4px 14px -8px rgba(255,122,26,.8)}
+  .tabbar .tab:not(.on):hover{color:var(--ink)}
+  main{max-width:1040px;margin:0 auto;padding:18px 16px 60px}
+  .panel{background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;padding:16px 18px;margin-bottom:18px;
+    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--glass-shadow)}
+  .panel h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px;font-weight:700}
+  button{font-family:inherit}
+  .btn{border:1px solid var(--glass-line);background:var(--glass-2);color:var(--ink);border-radius:10px;padding:8px 13px;
+    font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .15s,background .15s}
   .btn:hover{border-color:var(--accent)}
-  .btn.primary{background:var(--grad);border:none;color:#111}
-  .btn.sm{padding:6px 9px;font-size:12px}
-  .btn.ghost{background:transparent}
-  .btn[disabled]{opacity:.5;cursor:not-allowed}
-  main{max-width:1000px;margin:0 auto;padding:18px 20px 60px}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
-  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
-  label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
-  input.t{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);
-    padding:9px 11px;font-size:14px}
-  input.t:focus{outline:none;border-color:var(--accent)}
-  .hint{color:var(--faint);font-size:12px;margin-top:6px}
-  .drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;cursor:pointer;
-    transition:border-color .15s,background .15s}
-  .drop:hover,.drop.drag{border-color:var(--accent);background:#ff7a1a0d}
+  .btn.primary{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 8px 20px -10px rgba(244,81,30,.9)}
+  .btn.primary:hover{filter:brightness(1.07)}
+  .btn.sm{padding:5px 10px;font-size:12px} .btn.ghost{background:transparent}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+  input,select{font-family:inherit}
+  .drop{border:2px dashed var(--glass-line);border-radius:14px;padding:24px;text-align:center;cursor:pointer;
+    background:rgba(255,255,255,.025);transition:border-color .15s,background .15s}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:var(--accent-soft)}
   .drop .big{font-size:15px;font-weight:700}
-  .drop .fn{color:var(--accent);font-weight:700;margin-top:6px}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}
-  .stat{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px}
-  .stat .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-  .stat .v{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:3px}
-  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)}
-  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800}
-  .pill.ok{background:#12331f;color:#5ad07f} .pill.skip{background:#33220f;color:var(--warn)}
-  .counts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .chip{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px}
+  .stat{position:relative;overflow:hidden;background:var(--glass);border:1px solid var(--glass-line);border-radius:14px;
+    padding:11px 12px 11px 15px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+  .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--grad)}
+  .stat .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .stat .v{font-family:var(--display);font-size:21px;font-weight:800;font-variant-numeric:tabular-nums}
+  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)} .stat .v.warn{color:var(--warn)}
+  .chip{background:var(--glass-2);border:1px solid var(--glass-line-soft);border-radius:999px;padding:4px 10px;font-size:12px;
+    margin:4px 6px 0 0;display:inline-block}
   .chip b{color:var(--accent)}
-  .warnbox{background:var(--warn-bg);border:1px solid var(--warn);border-radius:11px;padding:12px 14px;color:#f4e2b0;font-size:13px}
   table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
-  th{color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;background:var(--card)}
-  td.num{text-align:right;font-variant-numeric:tabular-nums}
-  .tablewrap{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:11px}
-  .filters{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
-  .filters .btn.active{background:var(--grad);color:#111;border:none}
-  .empty{color:var(--faint);text-align:center;padding:26px}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;
-    padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--glass-line-soft);vertical-align:top}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+  tbody tr:hover td{background:rgba(255,255,255,.025)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .empty{color:var(--faint);text-align:center;padding:22px}
+  .warnbox{background:var(--warn-bg);border:1px solid rgba(255,178,62,.45);border-radius:12px;padding:10px 14px;color:#ffe3b8;font-size:13px;margin-bottom:12px}
+  .okbox{background:var(--ok-bg);border:1px solid rgba(47,208,138,.45);color:#c6f5de}
+  .badbox{background:var(--bad-bg);border:1px solid rgba(255,107,94,.5);color:#ffd0cb}
+  .badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;border:1px solid var(--glass-line);
+    color:var(--muted);white-space:nowrap;background:var(--glass)}
+  .badge.added{border-color:rgba(47,208,138,.55);color:var(--ok)} .badge.edited{border-color:rgba(255,178,62,.55);color:var(--warn)}
+  .badge.bad{border-color:rgba(255,107,94,.55);color:var(--bad)}
+  .lbl{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+  .hint{color:var(--faint);font-size:12px;margin-top:6px;line-height:1.5}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .acts{white-space:nowrap}
+  code{font-family:var(--mono);font-size:.92em;background:rgba(0,0,0,.35);padding:1px 5px;border-radius:5px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(24,20,18,.88);color:#fff;
+    border:1px solid var(--glass-line);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+    padding:10px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30}
   .toast.show{opacity:1}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;
     animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  @media(max-width:640px){header{padding:10px 14px} header .sub{display:none} .tabbar .tab{font-size:13px;padding:9px 4px}}
+  input.led,input.t,select.led{width:100%;background:var(--field);border:1px solid var(--glass-line);border-radius:10px;
+    color:var(--ink);padding:8px 10px;font-size:13px;transition:border-color .15s,box-shadow .15s}
+  select.led{width:auto}
+  input.led:focus,input.t:focus,select.led:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  input[type=checkbox]{accent-color:var(--accent)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+
+  label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input.t{font-size:14px;padding:9px 11px}
+  .drop .fn{color:var(--accent);font-weight:700;margin-top:6px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:720px){.stats{grid-template-columns:1fr 1fr}}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800}
+  .pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.skip{background:var(--warn-bg);color:var(--warn)}
+  .counts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .counts .chip{margin:0}
+  .tablewrap{max-height:460px;overflow:auto;border:1px solid var(--glass-line);border-radius:12px}
+  .tablewrap th{position:sticky;top:0;background:rgba(22,17,15,.96);z-index:1}
+  .tablewrap td,.tablewrap th{white-space:nowrap}
+  .filters{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .filters .btn.active{background:var(--grad);color:#fff;border-color:transparent}
+  .mono{font-family:var(--mono);font-size:12px}
 </style>
 </head>
 <body>
+<div class="top">
 <header>
   <div>
     <h1>IOCL PAD → Tally</h1>
     <div class="sub">Statement PDF → import XML · VRIDDHI FUELS</div>
   </div>
   <div class="spacer"></div>
-  <button class="btn sm ghost" id="settingsBtn">⚙ Invoices folder</button>
+  <button class="btn sm" id="settingsBtn">⚙ Invoices folder</button>
 </header>
+<nav class="tabbar">
+  <button class="tab on" data-tab="pad">PAD → Tally</button>
+  <button class="tab" data-tab="mappings">Ledger mappings</button>
+</nav>
+</div>
 
 <main>
+<div id="tab-pad">
   <section class="panel" id="settingsPanel" hidden>
     <h2>IOCL invoice folder (for purchase vouchers)</h2>
     <label class="f" for="invoices_dir">Full path of the folder holding the IOCL invoice PDFs</label>
@@ -140,7 +219,79 @@
       </table>
     </div>
   </section>
+</div>
+
+<div id="tab-mappings" hidden>
+  <section class="panel">
+    <h2>Tally ledger list</h2>
+    <div class="row" style="margin-top:0">
+      <button class="btn" id="masterBtn">⇪ Upload Tally master.xml</button>
+      <input type="file" id="masterInput" accept=".xml" hidden>
+      <span id="ledgerStatus" class="hint" style="margin:0"></span>
+    </div>
+    <div class="hint">Loads every ledger from Tally so names are checked against the latest list. Export in Tally:
+      Gateway → Export → Masters (All Ledgers) → XML. One upload here also updates the Bank and Fleet apps.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Ledgers the vouchers post to</h2>
+    <div class="hint" style="margin:0 0 12px">Every voucher is cloned from a real Tally export, so it carries these ledger
+      names. If a ledger is renamed or replaced in Tally (e.g. a new financial-year ledger like
+      <i>Dealer Margin 2027-28</i>), type the new name under <b>Posts to</b> and Save — every generated voucher then uses it.
+      Clear it to go back to the template's name. Saved only on this Mac.</div>
+    <div class="scroll"><table>
+      <thead><tr><th>Ledger in the template</th><th>Used by</th><th style="min-width:260px">Posts to</th><th></th></tr></thead>
+      <tbody id="ledBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Customer ECollection → which bank</h2>
+    <div class="hint" style="margin:0 0 12px">An ECollection is routed to a bank ledger by a piece of the account number
+      in the PAD's item text (e.g. <code>HDFC0000240_5921701 0101010</code> → HDFC C/A). To add a new bank account,
+      give a distinctive run of its account number (spaces are ignored) and its Tally ledger.</div>
+    <div class="scroll"><table>
+      <thead><tr><th>Item text contains</th><th>Bank ledger</th><th>Source</th><th></th></tr></thead>
+      <tbody id="routeBody"></tbody>
+    </table></div>
+    <div class="grid2" style="margin-top:14px">
+      <div><label class="lbl" for="routeMarker">Account-number piece</label>
+        <input class="led" id="routeMarker" placeholder="e.g. 12345678"></div>
+      <div><label class="lbl" for="routeLedger">Bank's Tally ledger</label>
+        <input class="led" id="routeLedger" list="ledgers" placeholder="e.g. SBI BANK C/A - 12345678"></div>
+      <div><button class="btn primary" id="routeAdd">Add route</button></div>
+    </div>
+    <div id="collWrap" hidden style="margin-top:16px">
+      <div class="lbl">ECollections in the last generated PAD</div>
+      <div class="scroll"><table>
+        <thead><tr><th>Date</th><th>Item text</th><th class="num">Amount</th><th>Went to</th></tr></thead>
+        <tbody id="collBody"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>PAD line → voucher (overview)</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Category</th><th>Template</th><th>Counter ledger</th></tr></thead>
+      <tbody id="catBody"></tbody>
+    </table></div>
+    <div class="hint">Lines are categorised by the PAD's own wording (TDS credit note, Fleet, ECollection, K1, Licence
+      fee, Dealer margin, NFR, Interest, Product supply invoice). A new kind of line shows as <b>unmapped</b> in the
+      review — send Claude a sample to add it.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Tally company</h2>
+    <div class="grid2">
+      <div style="grid-column:span 2"><input class="led" id="companyName" placeholder="VRIDDHI FUELS (2026-27)"></div>
+      <div><button class="btn" id="companySave">Save company</button></div>
+    </div>
+    <div class="hint" id="companyHint"></div>
+  </section>
+</div>
 </main>
+<datalist id="ledgers"></datalist>
 
 <div class="toast" id="toast"></div>
 
@@ -159,7 +310,7 @@ async function api(path,body){const o=body?{method:"POST",headers:{"Content-Type
 // ---- config ----
 async function loadCfg(){try{const c=await api("/api/config");$("#invoices_dir").value=c.invoices_dir||"";
   if(c.next_tt!=null)$("#next_tt").value=c.next_tt;}catch(_){}}
-$("#settingsBtn").onclick=()=>{const p=$("#settingsPanel");p.hidden=!p.hidden;};
+$("#settingsBtn").onclick=()=>{showTab("pad");const p=$("#settingsPanel");p.hidden=!p.hidden;};
 $("#saveCfg").onclick=async()=>{try{
   const body={invoices_dir:$("#invoices_dir").value.trim()};
   if($("#next_tt").value!=="") body.next_tt=Number($("#next_tt").value);
@@ -239,7 +390,97 @@ function renderReview(){
     </tr>`).join("") : `<tr><td colspan="8" class="empty">Nothing here.</td></tr>`;
 }
 
+// ===================== Tabs =====================
+function showTab(t){
+  if(t!=="mappings") t="pad";
+  $$(".tabbar .tab").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
+  $("#tab-pad").hidden = t!=="pad";
+  $("#tab-mappings").hidden = t!=="mappings";
+  if(location.hash!=="#"+t) history.replaceState(null,"","#"+t);
+  if(t==="mappings") loadMappings();
+}
+$$(".tabbar .tab").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+window.addEventListener("hashchange",()=>showTab(location.hash.slice(1)));
+
+// ===================== Ledger mappings =====================
+let MAP={ledgers:[],routes:[]};
+async function loadMappings(){ try{ applyMappings(await api("/api/mappings")); }catch(e){ toast("Could not load: "+e.message); } }
+async function mapOp(body,okMsg){
+  try{ applyMappings(await api("/api/mappings",body)); toast(okMsg); return true; }
+  catch(e){
+    if(/not in the Tally ledger list/.test(e.message) && !body.allow_unknown){
+      if(confirm(e.message+"\n\nSave it anyway? (Tally will reject vouchers for a ledger it doesn't have.)"))
+        return mapOp({...body,allow_unknown:true},okMsg);
+      return false;
+    }
+    toast("Failed: "+e.message); alert(e.message); return false;
+  }
+}
+function applyMappings(j){
+  MAP=j;
+  $("#ledgers").innerHTML=(j.suggestions||[]).map(l=>`<option value="${esc(l)}">`).join("");
+  $("#ledBody").innerHTML=j.ledgers.map((l,i)=>`
+    <tr><td><b>${esc(l.name)}</b></td>
+      <td class="mono" style="color:var(--faint)">${l.templates.map(esc).join(", ")}</td>
+      <td><input class="led" list="ledgers" id="ren${i}" value="${esc(l.renamed_to)}" placeholder="${esc(l.name)}">
+        ${l.renamed_to?'<div class="hint" style="margin-top:3px;color:var(--warn)">renamed on this Mac</div>':''}
+        ${l.in_tally?'':'<div style="margin-top:4px"><span class="badge bad">not in Tally ledger list</span></div>'}</td>
+      <td class="acts"><button class="btn sm" data-save="${i}">Save</button>
+        ${l.renamed_to?`<button class="btn sm" data-reset="${i}">Reset</button>`:''}</td></tr>`).join("");
+  $("#routeBody").innerHTML=j.routes.map((r,i)=>`
+    <tr><td class="mono">${esc(r.marker)}</td><td>${esc(r.ledger)}</td>
+      <td>${r.builtin?'<span class="badge">built-in</span>':'<span class="badge added">added here</span>'}</td>
+      <td class="acts">${r.builtin?'':`<button class="btn sm" data-route="${i}">Remove</button>`}</td></tr>`).join("");
+  const coll=j.collections||[];
+  $("#collWrap").hidden=!coll.length;
+  $("#collBody").innerHTML=coll.map(c=>`<tr><td>${esc(c.date)}</td><td class="mono">${esc(c.item_text)}</td>
+    <td class="num">${money(c.amount)}</td><td>${esc(c.ledger)}</td></tr>`).join("");
+  $("#catBody").innerHTML=j.categories.map(c=>`<tr><td><b>${esc(c.category)}</b></td>
+    <td class="mono" style="color:var(--faint)">${esc(c.template)}</td><td>${esc(c.ledger)}</td></tr>`).join("");
+  if(document.activeElement!==$("#companyName")) $("#companyName").value=j.company;
+  $("#companyHint").textContent = j.company!==j.default_company
+    ? `Imports go to “${j.company}” (shipped default: ${j.default_company}). Must match Tally exactly.`
+    : "Must match the company name in Tally exactly. Change it when you move to a new financial-year company (e.g. VRIDDHI FUELS (2027-28)).";
+}
+$("#ledBody").onclick=async e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const i=+(b.dataset.save??b.dataset.reset), l=MAP.ledgers[i]; if(!l) return;
+  const nv=b.dataset.reset!==undefined ? "" : $("#ren"+i).value.trim();
+  await mapOp({op:"rename",name:l.name,new:nv}, nv&&nv!==l.name?"Saved — vouchers now post to "+nv:"Back to the template's ledger");
+};
+$("#routeBody").onclick=async e=>{
+  const b=e.target.closest("button[data-route]"); if(!b) return;
+  const r=MAP.routes[+b.dataset.route]; if(!r) return;
+  if(confirm(`Remove the route ${r.marker} → ${r.ledger}?`)) await mapOp({op:"remove_route",marker:r.marker},"Route removed");
+};
+$("#routeAdd").onclick=async()=>{
+  const marker=$("#routeMarker").value.trim(), ledger=$("#routeLedger").value.trim();
+  if(!marker||!ledger){toast("Type the account-number piece and the bank ledger");return;}
+  if(await mapOp({op:"add_route",marker,ledger},"Route added")){ $("#routeMarker").value=""; $("#routeLedger").value=""; }
+};
+$("#companySave").onclick=()=>mapOp({op:"company",company:$("#companyName").value.trim()},"Company saved");
+
+
+// ---- Tally master.xml -> latest ledger list (shared with the other Tally apps) ----
+function ledgerStatus(n){ $("#ledgerStatus").textContent = n ? (n+" ledgers loaded from Tally master.xml") : "no master.xml uploaded yet — using the shipped ledger list"; }
+fetch("/api/ledgers").then(r=>r.json()).then(j=>ledgerStatus(j.n_ledgers||0)).catch(()=>{});
+$("#masterBtn").onclick=()=>$("#masterInput").click();
+$("#masterInput").onchange=()=>{
+  const f=$("#masterInput").files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=async()=>{
+    $("#ledgerStatus").innerHTML='<span class="spin"></span>Reading master…';
+    try{ const j=await api("/api/ledgers",{file:{name:f.name,b64:r.result}});
+      ledgerStatus(j.n_total||j.n_ledgers); toast(j.n_ledgers+" ledgers loaded");
+      if(!$("#tab-mappings").hidden) loadMappings();
+    }catch(e){ $("#ledgerStatus").textContent="Failed: "+e.message; toast("Failed: "+e.message); }
+    $("#masterInput").value="";
+  };
+  r.readAsDataURL(f);
+};
+
 loadCfg();
+showTab(location.hash.slice(1));
 </script>
 </body>
 </html>

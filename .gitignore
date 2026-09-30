@@ -30,6 +30,7 @@ IOCL_import.xml
 IOCL_review.csv
 # IOCL PAD -> Tally web app — local config + generated output directory.
 iocl_tally/data.json
+iocl_tally/ledgers.json
 iocl_tally/out/
 
 # Bank -> Tally web app — local aliases, ledger list (from Tally master.xml),
@@ -38,7 +39,9 @@ bank_tally/data.json
 bank_tally/ledgers.json
 bank_tally/out/
 
-# Fleet-card / TDS -> Tally web app — generated output.
+# Fleet-card / TDS -> Tally web app — local name mappings/settings + generated output.
+fleet_tally/data.json
+fleet_tally/ledgers.json
 fleet_tally/out/
 
 # XtraPower CCMS monitor — local config (holds the Telegram token), the saved

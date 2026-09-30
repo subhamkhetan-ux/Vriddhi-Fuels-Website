@@ -67,7 +67,8 @@ def _pair_contras(items):
 
 # Ledgers that make a resolved row a Contra (an own bank account or Cash) rather
 # than a Receipt/Payment.
-BANK_LEDGERS = set(C.OWN_ACCOUNTS.values()) | {"Cash"}
+# (The same set object as classify's, so accounts added in the app count too.)
+BANK_LEDGERS = C._BANK_LEDGERS
 
 
 def process(statements, customers, aliases=None, dropped=None, resolved=None):
