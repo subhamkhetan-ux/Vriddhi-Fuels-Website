@@ -445,3 +445,131 @@ def test_iocl_mapping_ops_store_locally(tmp_path, monkeypatch):
         assert SV.load_data()["collection_routes"] == []
     finally:
         _reset_iocl_config()
+
+
+# ---- wrapped amounts, unreliable lines, and your own rules for new line types --
+
+# A credit too wide for its column wraps its last digit onto the next line
+# ("0 10000000.0" / "0"), followed by the next line's fleet refs.
+PAD_WRAPPED = "\n".join([
+    "Opening Balance: Rs 500000.00",
+    "OP.BAL.in Comp Code:", "01.07.26", "0", "0", "500000.00",
+    "4000508523R0000525", "20260701000001", "Fleet- Card", "Posting",
+    "01.07.26", "0 10000000.0", "0", "-9500000.00",
+    "4000508523R0000526", "20260701000002", "Fleet- Card", "Posting",
+    "01.07.26", "0", "574110.20", "-10074110.20",
+    " C4 E-LOCK RECOVERY FROM DEALERS", "Customer", "debit memo",
+    "02.07.26", "1622.50", "0", "-10072487.70",
+    "BBNV01115C/Q1/26", "Final TDS", "Credit/Q1/2026", "Customer", "credit memo",
+    "02.07.26", "0", "91896.00", "-10164383.70",
+    "Closing Balance: Rs -10164383.70",
+    "CL.BAL.in Comp Code:", "02.07.26", "0", "0", "-10164383.70",
+])
+
+
+def test_wrapped_amount_is_rejoined_and_chain_reconciles():
+    records, summary = P.parse(PAD_WRAPPED)
+    assert summary["reconciles"] is True
+    fleet = [r for r in records if r.category == P.CAT_FLEET]
+    assert [(r.credit, r.fleet_ref) for r in fleet] == [
+        (10000000.00, "4000508523R0000525"), (574110.20, "4000508523R0000526")]
+
+
+def test_unreconciled_line_is_never_posted():
+    # Break the chain: the second fleet line's balance no longer ties.
+    bad = PAD_WRAPPED.replace("-10074110.20", "-10074999.99", 1)
+    _, vouchers, review, summary = R.process(bad, invoices={})
+    assert summary["reconciles"] is False
+    row = next(r for r in review if r["reconciles"] == "NO")
+    assert row["status"] == "SKIPPED" and "not read reliably" in row["note"]
+    assert row["raw_numbers"]                        # what was read, for diagnosis
+    amts = [float(x) for v in vouchers for x in re.findall(r"<AMOUNT>-?([\d.]+)</AMOUNT>", v)]
+    assert 10074999.99 not in amts and max(amts) <= 10000000.00
+
+
+def test_rule_hint_and_matching():
+    assert G.rule_hint("BBNV01115C/Q1/26 Final TDS Credit/Q1/2026 Customer credit memo") \
+        == "FINAL TDS CREDIT"
+    assert G.rule_hint(" C4 E-LOCK RECOVERY FROM DEALERS Customer debit memo") \
+        == "LOCK RECOVERY FROM DEALERS"
+    try:
+        G.CUSTOM_RULES[:] = [("TDS CREDIT", "TDS Generic"), ("FINAL TDS CREDIT", "TDS Final")]
+        # All words must appear (any order); the most specific rule wins.
+        assert G.match_custom("BBNV/Q1 Final TDS Credit/Q1 Customer credit memo") == \
+            ("FINAL TDS CREDIT", "TDS Final")
+        assert G.match_custom("Reversal of Prov. TDS Credit u/") == ("TDS CREDIT", "TDS Generic")
+        assert G.match_custom("K1 PARTICIPATION FEE") is None
+    finally:
+        G.CUSTOM_RULES[:] = []
+
+
+def test_mapped_unknown_lines_post_in_the_pad_direction():
+    try:
+        G.CUSTOM_RULES[:] = [("LOCK RECOVERY", "E-Lock Recovery"),
+                             ("FINAL TDS CREDIT", "TDS Receivable IOCL")]
+        _, vouchers, review, summary = R.process(PAD_WRAPPED, invoices={})
+        assert summary["counts"].get("MAPPED") == 2
+        mapped = [r for r in review if r["category"] == "UNKNOWN"]
+        assert all(r["status"] == "OK" for r in mapped)
+        assert {r["counter_ledger"] for r in mapped} == {"E-Lock Recovery", "TDS Receivable IOCL"}
+
+        def entries(v):
+            return {re.search(r"<LEDGERNAME>([^<]*)", b).group(1):
+                    re.search(r"<ISDEEMEDPOSITIVE>([^<]*)", b).group(1)
+                    for b in re.findall(r"<ALLLEDGERENTRIES\.LIST>(.*?)</ALLLEDGERENTRIES\.LIST>", v, re.S)}
+        dr = next(v for v in vouchers if "E-Lock Recovery" in v)       # PAD debit
+        assert entries(dr) == {"E-Lock Recovery": "Yes",
+                               "M/s Indian Oil Corporation Limited": "No"}
+        assert "1622.50" in dr and G.voucher_balances(dr)
+        cr = next(v for v in vouchers if "TDS Receivable IOCL" in v)   # PAD credit
+        assert entries(cr) == {"M/s Indian Oil Corporation Limited": "Yes",
+                               "TDS Receivable IOCL": "No"}
+        assert "91896.00" in cr and G.voucher_balances(cr)
+        assert "K1 PARTICIPATION FEE" not in dr and "Fleet Card Posting" not in cr
+    finally:
+        G.CUSTOM_RULES[:] = []
+
+
+def test_rule_saved_in_app_and_rerun(tmp_path, monkeypatch):
+    import pytest
+    from iocl_tally import server as SV
+    monkeypatch.setattr(SV, "DATA_PATH", str(tmp_path / "data.json"))
+    monkeypatch.setattr(SV, "OUT_DIR", str(tmp_path / "out"))
+    monkeypatch.setattr(SV, "_UPLOADED_LEDGERS", [str(tmp_path / "ledgers.json")])
+    try:
+        first = SV.generate(PAD_WRAPPED, "", 175)
+        unk = [r for r in first["review"] if r["category"] == "UNKNOWN"]
+        assert [r["status"] for r in unk] == ["SKIPPED", "SKIPPED"]
+        assert unk[0]["description"].startswith("C4 E-LOCK RECOVERY")
+        SV.mapping_op({"op": "add_rule", "phrase": unk[0]["rule_hint"],
+                       "ledger": "E-Lock Recovery", "allow_unknown": True})
+        assert SV.load_data()["line_rules"] == [
+            {"phrase": "LOCK RECOVERY FROM DEALERS", "ledger": "E-Lock Recovery"}]
+        again = SV.generate(PAD_WRAPPED, "", 175)
+        row = next(r for r in again["review"] if r["description"].startswith("C4 E-LOCK"))
+        assert row["status"] == "OK" and row["counter_ledger"] == "E-Lock Recovery"
+        with pytest.raises(SV.MappingError):              # too few letters
+            SV.mapping_op({"op": "add_rule", "phrase": "C4 1", "ledger": "X"})
+        with pytest.raises(SV.MappingError):              # IOCL is the other side
+            SV.mapping_op({"op": "add_rule", "phrase": "SOMETHING",
+                           "ledger": "M/s Indian Oil Corporation Limited"})
+        SV.mapping_op({"op": "remove_rule", "phrase": "LOCK RECOVERY FROM DEALERS"})
+        assert SV.load_data()["line_rules"] == []
+    finally:
+        G.CUSTOM_RULES[:] = []
+        _reset_iocl_config()
+
+
+def test_page_header_between_records_is_not_part_of_a_line():
+    header = ["Closing Balance: Rs -10164383.70", "Plant", "Item Text", "Document", "Type",
+              "Document", "Number", "Date", "Mat", "group", "Qty", "Unit Debit (Rs.)",
+              "Credit", "(Rs.)", "Balance", "(Rs.)"]
+    lines = PAD_WRAPPED.split("\n")
+    at = lines.index(" C4 E-LOCK RECOVERY FROM DEALERS")
+    text = "\n".join(lines[:at] + header + lines[at:])
+    records, summary = P.parse(text)
+    assert summary["reconciles"] is True
+    lock = next(r for r in records if "E-LOCK" in r.item_text)
+    assert "Plant" not in lock.item_text and "Closing Balance" not in lock.item_text
+    assert G.rule_hint(lock.item_text) == "LOCK RECOVERY FROM DEALERS"
+    assert R._stated_closing(text) == -10164383.70      # still read from the full text

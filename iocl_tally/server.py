@@ -63,6 +63,8 @@ def save_data(data: dict) -> None:
 # never edited. Applied to the generator before every run.
 
 _LAST_COLLECTIONS: list = []     # last run's ECollection lines, to help pick a marker
+_LAST_INPUT: dict = {}           # last PAD run (text, folder, TT start) — re-run after a rule change
+IOCL_PARTY = "M/s Indian Oil Corporation Limited"
 
 
 class MappingError(ValueError):
@@ -151,6 +153,8 @@ def apply_config(data: dict | None = None) -> None:
     G.EXTRA_COLLECTION_ROUTES[:] = [(r["marker"], r["ledger"])
                                     for r in data.get("collection_routes", [])
                                     if r.get("marker") and r.get("ledger")]
+    G.CUSTOM_RULES[:] = [(r["phrase"], r["ledger"]) for r in data.get("line_rules", [])
+                         if r.get("phrase") and r.get("ledger")]
 
 
 def company(data: dict | None = None) -> str:
@@ -201,6 +205,31 @@ def mapping_op(body: dict) -> None:
             raise MappingError(f"'{ledger}' is not in the Tally ledger list — check "
                                "the spelling", unknown_ledger=True)
         routes.append({"marker": marker, "ledger": ledger})
+    elif op == "add_rule":
+        # Map a PAD line type the tool doesn't know (shown as UNKNOWN) to a ledger.
+        phrase = G.rule_text(body.get("phrase") or "")
+        ledger = (body.get("ledger") or "").strip()
+        if len(phrase.replace(" ", "")) < 4:
+            raise MappingError("the words to match must have at least 4 letters "
+                               "(numbers are ignored, so dates/refs never break it)")
+        if not ledger:
+            raise MappingError("choose the Tally ledger for these lines")
+        if ledger.lower() == IOCL_PARTY.lower():
+            raise MappingError("IOCL is already the other side of every PAD voucher — "
+                               "choose the ledger these lines belong to")
+        exact = _known(ledger)
+        if exact:
+            ledger = exact
+        elif not allow_unknown:
+            raise MappingError(f"'{ledger}' is not in the Tally ledger list — check "
+                               "the spelling", unknown_ledger=True)
+        rules = [r for r in data.get("line_rules", []) if r.get("phrase") != phrase]
+        rules.append({"phrase": phrase, "ledger": ledger})
+        data["line_rules"] = rules
+    elif op == "remove_rule":
+        phrase = body.get("phrase") or ""
+        data["line_rules"] = [r for r in data.get("line_rules", [])
+                              if r.get("phrase") != phrase]
     elif op == "remove_route":
         marker = body.get("marker") or ""
         data["collection_routes"] = [r for r in data.get("collection_routes", [])
@@ -240,7 +269,8 @@ def mappings_view() -> dict:
              "template": G.JOURNAL_TEMPLATES.get(c, "PURCHASE_1prod / _2prod").replace(".xml", "")}
             for c in (P.CAT_TDS, P.CAT_FLEET, P.CAT_COLLECTION, P.CAT_K1, P.CAT_LICENSE,
                       P.CAT_DEALERMARGIN, P.CAT_NFR, P.CAT_INTEREST, P.CAT_PURCHASE)]
-    return {"ledgers": ledgers, "routes": routes, "categories": cats,
+    rules = [{"phrase": p, "ledger": led} for p, led in G.CUSTOM_RULES]
+    return {"ledgers": ledgers, "routes": routes, "categories": cats, "rules": rules,
             "company": company(data), "default_company": G.DEFAULT_COMPANY,
             "collections": _LAST_COLLECTIONS,
             "suggestions": sorted(set(tally_ledgers()) | set(G.template_ledgers()),
@@ -345,7 +375,13 @@ class Handler(BaseHTTPRequestHandler):
                 mapping_op(body)
             except MappingError as exc:
                 return self._json({"error": str(exc), **exc.extra}, 400)
-            return self._json(mappings_view())
+            res = mappings_view()
+            if _LAST_INPUT:                # regenerate so the PAD tab reflects it
+                try:
+                    res["run"] = generate(**_LAST_INPUT)
+                except Exception as exc:
+                    res["run_error"] = f"re-run failed: {exc}"
+            return self._json(res)
         return self._send(404, b"not found", "text/plain")
 
     def _run(self, body, data):
@@ -375,35 +411,43 @@ class Handler(BaseHTTPRequestHandler):
                 pad_path = tf.name
             text = R.P.extract_text(pad_path)
             os.unlink(pad_path)
-            apply_config(data)
-            tt_state = {"next_tt": start_tt, "issued": {}}
-            records, vouchers, review, summary = R.process(
-                text, invoices_dir, tt_state=tt_state)
-            R.write_outputs(OUT_DIR, vouchers, review, company(data))
-            _LAST_COLLECTIONS[:] = [
-                {"date": r.date.strftime("%d-%m-%Y") if r.date else "",
-                 "item_text": r.item_text, "amount": f"{r.amount:.2f}",
-                 "ledger": G.renamed(G.collection_route(r.item_text)[1])}
-                for r in records if r.category == "COLLECTION"]
+            _LAST_INPUT.clear()
+            _LAST_INPUT.update(text=text, invoices_dir=invoices_dir, start_tt=start_tt)
+            return self._json(generate(**_LAST_INPUT))
         except Exception as exc:
             return self._json({"error": f"run failed: {exc}"}, 500)
 
-        missing = [{"doc_number": r["doc_number"], "date": r["date"],
-                    "amount": r["debit"]} for r in review
-                   if r["category"] == "PURCHASE" and r["status"] == "SKIPPED"]
-        n_purch = summary["counts"].get("PURCHASE", 0)
-        return self._json({
-            "summary": {k: summary[k] for k in (
-                "opening", "n_postable", "reconciles", "first_break",
-                "n_vouchers", "counts", "skipped_purchases",
-                "stated_closing", "open_delivery_addon")},
-            "review": review,
-            "missing": missing,
-            "invoices_dir": invoices_dir,
-            "tt_from": start_tt if n_purch else None,
-            "tt_to": start_tt + n_purch - 1 if n_purch else None,
-            "next_tt": tt_state.get("next_tt", start_tt),
-        })
+
+def generate(text: str, invoices_dir: str, start_tt: int) -> dict:
+    """Process PAD text with the current mappings and write the outputs; the
+    result is what the PAD tab renders."""
+    data = load_data()
+    apply_config(data)
+    tt_state = {"next_tt": start_tt, "issued": {}}
+    records, vouchers, review, summary = R.process(text, invoices_dir, tt_state=tt_state)
+    R.write_outputs(OUT_DIR, vouchers, review, company(data))
+    _LAST_COLLECTIONS[:] = [
+        {"date": r.date.strftime("%d-%m-%Y") if r.date else "",
+         "item_text": r.item_text, "amount": f"{r.amount:.2f}",
+         "ledger": G.renamed(G.collection_route(r.item_text)[1])}
+        for r in records if r.category == "COLLECTION"]
+    missing = [{"doc_number": r["doc_number"], "date": r["date"],
+                "amount": r["debit"]} for r in review
+               if r["category"] == "PURCHASE" and r["status"] == "SKIPPED"]
+    n_purch = summary["counts"].get("PURCHASE", 0)
+    return {
+        "summary": {k: summary[k] for k in (
+            "opening", "n_postable", "reconciles", "first_break",
+            "n_vouchers", "counts", "skipped_purchases",
+            "stated_closing", "open_delivery_addon")},
+        "review": review,
+        "missing": missing,
+        "invoices_dir": invoices_dir,
+        "tt_from": start_tt if n_purch else None,
+        "tt_to": start_tt + n_purch - 1 if n_purch else None,
+        "next_tt": tt_state.get("next_tt", start_tt),
+        "suggestions": sorted(set(tally_ledgers()) | set(G.template_ledgers()), key=str.lower),
+    }
 
 
 def main(argv=None):

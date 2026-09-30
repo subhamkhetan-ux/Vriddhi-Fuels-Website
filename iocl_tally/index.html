@@ -134,6 +134,12 @@
   .tablewrap{max-height:460px;overflow:auto;border:1px solid var(--glass-line);border-radius:12px}
   .tablewrap th{position:sticky;top:0;background:rgba(22,17,15,.96);z-index:1}
   .tablewrap td,.tablewrap th{white-space:nowrap}
+  .tablewrap td.desc{white-space:normal;min-width:280px;max-width:460px}
+  .desc .d{color:var(--muted);font-size:12px;line-height:1.45;word-break:break-word}
+  .desc .raw{font-family:var(--mono);font-size:11px;color:var(--warn);margin-top:3px}
+  .mapline{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:8px}
+  @media(max-width:720px){.mapline{grid-template-columns:1fr}}
+  .mapline .lbl{margin:0 0 2px;font-size:10px}
   .filters{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
   .filters .btn.active{background:var(--grad);color:#fff;border-color:transparent}
   .mono{font-family:var(--mono);font-size:12px}
@@ -190,6 +196,7 @@
     <h2>2 · Result</h2>
     <div class="stats" id="stats"></div>
     <div class="counts" id="counts"></div>
+    <div class="warnbox badbox" id="breakBox" style="margin-top:12px" hidden></div>
     <div class="row">
       <a class="btn primary" id="dlXml" href="/download/import.xml">⬇ IOCL_import.xml (all)</a>
       <a class="btn" id="dlPur" href="/download/purchases.xml">⬇ Purchases only</a>
@@ -206,6 +213,7 @@
 
   <section class="panel" id="reviewPanel" hidden>
     <h2>3 · Every line</h2>
+    <div class="warnbox" id="unknownBox" hidden></div>
     <div class="filters">
       <button class="btn sm active" data-f="all">All</button>
       <button class="btn sm" data-f="OK">Generated</button>
@@ -214,7 +222,7 @@
     <div class="tablewrap">
       <table>
         <thead><tr><th>#</th><th>Date</th><th>Category</th><th>Doc no.</th>
-          <th class="num">Debit</th><th class="num">Credit</th><th>Status</th><th>Note</th></tr></thead>
+          <th class="num">Debit</th><th class="num">Credit</th><th>Status</th><th>What the PAD says / note</th></tr></thead>
         <tbody id="reviewBody"></tbody>
       </table>
     </div>
@@ -268,6 +276,17 @@
         <tbody id="collBody"></tbody>
       </table></div>
     </div>
+  </section>
+
+  <section class="panel">
+    <h2>Your rules for other PAD lines</h2>
+    <div class="hint" style="margin:0 0 12px">Lines of a kind the tool doesn't know are mapped from the PAD tab. A rule
+      matches when the line's text contains these words (letters only — numbers such as dates and document refs are
+      ignored). A PAD debit posts <i>Dr ledger / Cr IOCL</i>, a credit posts <i>Dr IOCL / Cr ledger</i>.</div>
+    <div class="scroll"><table>
+      <thead><tr><th>Line text contains</th><th>Tally ledger</th><th></th></tr></thead>
+      <tbody id="ruleBody"></tbody>
+    </table></div>
   </section>
 
   <section class="panel">
@@ -369,7 +388,20 @@ function renderResult(res){
       + res.missing.map(m=>`${esc(m.doc_number||"?")} · ${esc(m.date)} · ₹${money(m.amount)}`).join("<br>");
   } else { $("#missingPanel").hidden=true; }
 
+  if(res.suggestions) $("#ledgers").innerHTML=res.suggestions.map(l=>`<option value="${esc(l)}">`).join("");
   REVIEW=res.review||[];renderReview();$("#reviewPanel").hidden=false;
+  // A reconciliation break means that line's numbers were misread — show exactly what was read.
+  const brk = s.reconciles ? null : REVIEW.find(r=>r.index===s.first_break);
+  $("#breakBox").hidden = s.reconciles;
+  $("#breakBox").innerHTML = s.reconciles ? "" :
+    `<b>⚠ The running balance stops tying out at line ${s.first_break}.</b> That line's amount may have been read wrongly, so
+     check it in the PAD before importing${brk?`: <i>${esc(brk.description)}</i> — numbers read: <code>${esc(brk.raw_numbers)}</code>`:"."}
+     Send Claude the <b>IOCL_review.csv</b> (it has these columns) so the reader can be fixed.`;
+  const unk=REVIEW.filter(r=>r.category==="UNKNOWN"&&r.status==="SKIPPED");
+  $("#unknownBox").hidden=!unk.length;
+  $("#unknownBox").innerHTML = unk.length ? `<b>${unk.length} line(s) are a kind the tool doesn't know yet</b>, so they were left out.
+     For each, check <i>what the PAD says</i>, keep the words that identify that kind of line, pick its Tally ledger and
+     <b>Save &amp; remember</b> — it's posted as a journal against IOCL now and every month after.` : "";
   // bust download cache
   const t=Date.now();
   $("#dlXml").href="/download/import.xml?"+t;$("#dlPur").href="/download/purchases.xml?"+t;$("#dlCsv").href="/download/review.csv?"+t;
@@ -386,9 +418,21 @@ function renderReview(){
       <td>${r.index}</td><td>${esc(r.date)}</td><td>${esc(r.category)}</td><td>${esc(r.doc_number)}</td>
       <td class="num">${money(r.debit)}</td><td class="num">${money(r.credit)}</td>
       <td><span class="pill ${r.status==='OK'?'ok':'skip'}">${esc(r.status)}</span></td>
-      <td>${esc(r.note)}</td>
+      <td class="desc">${r.note?`<div>${esc(r.note)}</div>`:""}
+        <div class="d">${esc(r.description)}</div>
+        ${r.reconciles==="NO"?`<div class="raw">⚠ balance didn't tie — numbers read: ${esc(r.raw_numbers)}</div>`:""}
+        ${r.category==="UNKNOWN"&&r.status==="SKIPPED"?`<div class="mapline">
+          <div><div class="lbl">Words that identify it</div><input class="led" id="rp${r.index}" value="${esc(r.rule_hint)}"></div>
+          <div><div class="lbl">Tally ledger</div><input class="led" id="rl${r.index}" list="ledgers" placeholder="Pick or type a ledger"></div>
+          <div style="align-self:end"><button class="btn sm primary" data-rule="${r.index}">Save &amp; remember</button></div></div>`:""}</td>
     </tr>`).join("") : `<tr><td colspan="8" class="empty">Nothing here.</td></tr>`;
 }
+$("#reviewBody").onclick=async e=>{
+  const b=e.target.closest("button[data-rule]"); if(!b) return;
+  const i=b.dataset.rule, phrase=$("#rp"+i).value.trim(), ledger=$("#rl"+i).value.trim();
+  if(!phrase||!ledger){toast("Keep some identifying words and pick a ledger");return;}
+  await mapOp({op:"add_rule",phrase,ledger},"Saved — those lines now post to "+ledger);
+};
 
 // ===================== Tabs =====================
 function showTab(t){
@@ -418,6 +462,12 @@ async function mapOp(body,okMsg){
 }
 function applyMappings(j){
   MAP=j;
+  if(j.run) renderResult(j.run);
+  if(j.run_error) toast(j.run_error);
+  $("#ruleBody").innerHTML=(j.rules||[]).map((r,i)=>`
+    <tr><td class="mono">${esc(r.phrase)}</td><td>${esc(r.ledger)}</td>
+      <td class="acts"><button class="btn sm" data-rmrule="${i}">Remove</button></td></tr>`).join("")
+    || `<tr><td colspan="3" class="empty">No rules yet — add them from unknown lines in the PAD tab.</td></tr>`;
   $("#ledgers").innerHTML=(j.suggestions||[]).map(l=>`<option value="${esc(l)}">`).join("");
   $("#ledBody").innerHTML=j.ledgers.map((l,i)=>`
     <tr><td><b>${esc(l.name)}</b></td>
@@ -447,6 +497,12 @@ $("#ledBody").onclick=async e=>{
   const i=+(b.dataset.save??b.dataset.reset), l=MAP.ledgers[i]; if(!l) return;
   const nv=b.dataset.reset!==undefined ? "" : $("#ren"+i).value.trim();
   await mapOp({op:"rename",name:l.name,new:nv}, nv&&nv!==l.name?"Saved — vouchers now post to "+nv:"Back to the template's ledger");
+};
+$("#ruleBody").onclick=async e=>{
+  const b=e.target.closest("button[data-rmrule]"); if(!b) return;
+  const r=(MAP.rules||[])[+b.dataset.rmrule]; if(!r) return;
+  if(confirm(`Remove the rule “${r.phrase}” → ${r.ledger}? Those lines will be skipped again.`))
+    await mapOp({op:"remove_rule",phrase:r.phrase},"Rule removed");
 };
 $("#routeBody").onclick=async e=>{
   const b=e.target.closest("button[data-route]"); if(!b) return;

@@ -64,7 +64,10 @@ def process(fleet_rows=None, tds_rows=None, customers=None, aliases=None,
 
     ``aliases`` maps :func:`alias_key` of a sheet name -> the Tally ledger to post
     to; ``posting`` maps kind ("fleet"/"tds") -> an overriding Dr ledger."""
-    known = {_norm(c) for c in (customers or [])}
+    # A ledger you've confirmed in a mapping counts as known (e.g. a new
+    # customer you're creating in Tally under exactly that name).
+    known = {_norm(c) for c in (customers or [])} | \
+            {_norm(v) for v in (aliases or {}).values()}
     posting = posting or {}
     vouchers, entries = [], []
     fleet = _one_kind("fleet", fleet_rows or [], known, vouchers, entries,
