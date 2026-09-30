@@ -3252,6 +3252,27 @@
       "status": "review",
       "materialized": true,
       "materialized_at": "2026-09-30T06:00:19.324437+00:00"
+    },
+    {
+      "entry_id": "77e072eb53d89b4f",
+      "gmail_msg_id": "1877752817031640765",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "30/09/2026",
+      "date_serial": 46295,
+      "amount": 2385612.0,
+      "raw_payer": "ORISSA METALIKS PRIVATE LIMITED JHARSUGUDA UNIT",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-30T10:45:21.228854+00:00",
+      "status": "matched"
     }
   ]
 }
