@@ -209,3 +209,102 @@ def test_parse_master_xml_extracts_ledgers():
         names = parse_master_xml(raw)
         assert "Aryan Ispat & Power Private Ltd." in names
         assert names.count("Keshav Minerals") == 1
+
+
+# ---- Mappings tab: alias add / edit / delete / restore ---------------------
+
+@pytest.fixture
+def alias_store(tmp_path, monkeypatch):
+    """Point the server's alias/ledger files at a temp dir (never the real ones)."""
+    import json
+    from bank_tally import server as SV
+    shipped = tmp_path / "bank_aliases.json"
+    shipped.write_text(json.dumps({"bharat logistics": "Shivaay Logistics",
+                                   "keshav": "Keshav Minerals"}))
+    ledgers = tmp_path / "tally_ledgers.json"
+    ledgers.write_text(json.dumps(["Shivaay Logistics", "Keshav Minerals",
+                                   "Ekdant Logistic", "Salary"]))
+    monkeypatch.setattr(SV, "COMMITTED_ALIASES", str(shipped))
+    monkeypatch.setattr(SV, "COMMITTED_LEDGERS", str(ledgers))
+    monkeypatch.setattr(SV, "DATA_PATH", str(tmp_path / "data.json"))
+    monkeypatch.setattr(SV, "LEDGERS_PATH", str(tmp_path / "ledgers.json"))
+    monkeypatch.setattr(SV, "_STATEMENTS", [])
+    return SV, shipped
+
+
+def test_alias_add_edit_delete_local_only(alias_store):
+    SV, shipped = alias_store
+    before = shipped.read_text()
+    key = SV.set_alias("M/S EKDANT LOGISTIC PVT LTD", "ekdant logistic")
+    a = SV.load_aliases()
+    assert a[key] == "Ekdant Logistic"            # snapped to the Tally spelling
+    SV.set_alias("", "Salary", key=key)           # edit the ledger
+    assert SV.load_aliases()[key] == "Salary"
+    SV.delete_alias(key)
+    assert key not in SV.load_aliases()
+    assert shipped.read_text() == before          # shipped table never rewritten
+
+
+def test_delete_and_restore_shipped_alias(alias_store):
+    SV, _ = alias_store
+    SV.delete_alias("keshav")
+    assert "keshav" not in SV.load_aliases()
+    view = SV.aliases_view()
+    assert [d["key"] for d in view["deleted"]] == ["keshav"]
+    SV.restore_alias("keshav")
+    assert SV.load_aliases()["keshav"] == "Keshav Minerals"
+    # Edit a shipped one -> local override; restore -> back to shipped.
+    SV.set_alias("", "Ekdant Logistic", key="bharat logistics")
+    row = {r["key"]: r for r in SV.aliases_view()["aliases"]}["bharat logistics"]
+    assert row["source"] == "edited" and row["shipped_ledger"] == "Shivaay Logistics"
+    SV.restore_alias("bharat logistics")
+    assert SV.load_aliases()["bharat logistics"] == "Shivaay Logistics"
+
+
+def test_readding_deleted_shipped_alias_clears_tombstone(alias_store):
+    SV, _ = alias_store
+    SV.delete_alias("keshav")
+    SV.save_alias("KESHAV", "Keshav Minerals")    # e.g. re-learned in review
+    assert SV.load_aliases()["keshav"] == "Keshav Minerals"
+
+
+def test_rename_alias_moves_it(alias_store):
+    SV, _ = alias_store
+    new = SV.set_alias("BHARAT LOGISTICS CO", "Shivaay Logistics",
+                       old_key="bharat logistics")
+    a = SV.load_aliases()
+    assert new in a and "bharat logistics" not in a
+
+
+def test_alias_validation(alias_store):
+    SV, _ = alias_store
+    with pytest.raises(SV.AliasError):             # our own bank -> never
+        SV.set_alias("SOME PARTY", "HDFC BANK C/A - 59217010101010")
+    with pytest.raises(SV.AliasError):
+        SV.set_alias("SOME PARTY", "cash")
+    with pytest.raises(SV.AliasError):             # always-review name
+        SV.set_alias("ODISHA SARKAR", "Keshav Minerals")
+    with pytest.raises(SV.AliasError):             # too short to be safe
+        SV.set_alias("AB", "Keshav Minerals")
+    with pytest.raises(SV.AliasError) as ei:       # unknown ledger -> ask first
+        SV.set_alias("SOME PARTY", "Nonexistent Ledger")
+    assert ei.value.extra.get("unknown_ledger")
+    k = SV.set_alias("SOME PARTY", "Nonexistent Ledger", allow_unknown=True)
+    assert SV.load_aliases()[k] == "Nonexistent Ledger"
+
+
+def test_aliases_view_lists_names_in_loaded_statements(alias_store, monkeypatch):
+    SV, _ = alias_store
+    rows = [_row("IMPS-619018473341-BHARAT LOGISTICS-UTIB-XXXXXXXXXXX6993-DIESEL",
+                 deposit=5000),
+            _row("NEFT CR-ICIC0SF0002-UNKNOWN TRADERS-VRIDDHI FUELS-IN426",
+                 deposit=700)]
+    monkeypatch.setattr(SV, "_STATEMENTS", [("HDFC BANK C/A - 59217010101010", rows)])
+    view = SV.aliases_view()
+    names = {n["key"]: n for n in view["names"]}
+    assert names["bharat logistics"]["ledger"] == "Shivaay Logistics"
+    assert names["bharat logistics"]["has_alias"] is True
+    unknown = [n for n in view["names"] if n["ledger"] is None]
+    assert unknown and unknown[0]["name"] == "UNKNOWN TRADERS"
+    seen = {r["key"]: r["seen"] for r in view["aliases"]}
+    assert seen["bharat logistics"] == 1
