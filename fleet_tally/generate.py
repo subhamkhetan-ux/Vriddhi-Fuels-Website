@@ -64,12 +64,17 @@ def _set_dates(vch: str, ymd: str) -> str:
     return vch
 
 
-def make_journal(kind: str, ymd: str, customer: str, amount: float) -> str:
+def make_journal(kind: str, ymd: str, customer: str, amount: float,
+                 posting_ledger: str | None = None) -> str:
     """One settlement journal of ``kind`` ("fleet" or "tds"):
-    Dr <posting ledger> / Cr ``customer`` for ``amount``."""
+    Dr <posting ledger> / Cr ``customer`` for ``amount``. ``posting_ledger``
+    overrides the template's Dr ledger (set in the app, e.g. a renamed ledger)."""
     k = KINDS[kind]
     vch = _strip_identity(_read_template(k["file"]))
     vch = _set_dates(vch, ymd)
+    if posting_ledger and posting_ledger != k["ledger"]:
+        # Whole-name swap only (element text), so a customer can't be clipped.
+        vch = vch.replace(f">{_esc(k['ledger'])}<", f">{_esc(posting_ledger)}<")
     vch = vch.replace(k["tpl_customer"], _esc(customer))
     # Magnitude appears 4x (posting ledger AMOUNT/VATEXP as -, customer as +);
     # the leading '-' on the Dr side is preserved by the literal replace.
@@ -100,7 +105,15 @@ ENVELOPE_HEAD = (
 ENVELOPE_TAIL = "   </REQUESTDATA>\n  </IMPORTDATA>\n </BODY>\n</ENVELOPE>\n"
 
 
-def build_envelope(vouchers: list[str]) -> str:
+DEFAULT_COMPANY = "VRIDDHI FUELS (2026-27)"
+
+
+def build_envelope(vouchers: list[str], company: str | None = None) -> str:
+    """``company`` is the Tally company to import into (default as shipped)."""
+    head = ENVELOPE_HEAD
+    if company and company != DEFAULT_COMPANY:
+        head = head.replace(f"<SVCURRENTCOMPANY>{DEFAULT_COMPANY}</SVCURRENTCOMPANY>",
+                            f"<SVCURRENTCOMPANY>{_esc(company)}</SVCURRENTCOMPANY>")
     body = "\n".join(f"    <TALLYMESSAGE xmlns:UDF=\"TallyUDF\">\n{v}\n    </TALLYMESSAGE>"
                      for v in vouchers)
-    return ENVELOPE_HEAD + body + "\n" + ENVELOPE_TAIL
+    return head + body + "\n" + ENVELOPE_TAIL

@@ -108,9 +108,9 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
         status = "OK"
         vtype = "Journal"
         note = ""
-        counter_ledger = COUNTER_LEDGER.get(r.category, "")
+        counter_ledger = G.renamed(COUNTER_LEDGER.get(r.category, ""))
         if r.category == "COLLECTION":
-            counter_ledger = G.collection_route(r.item_text)[1]
+            counter_ledger = G.renamed(G.collection_route(r.item_text)[1])
         if r.category == P.CAT_PURCHASE:
             vtype = "Purchase"
             iv = invoices.get(r.doc_number or "")
@@ -193,19 +193,20 @@ def _stated_closing(text: str):
     return float(m.group(1).replace(",", "")) if m else None
 
 
-def write_outputs(out_dir: str, vouchers: list[str], review: list[dict]) -> tuple[str, str]:
+def write_outputs(out_dir: str, vouchers: list[str], review: list[dict],
+                  company: str | None = None) -> tuple[str, str]:
     os.makedirs(out_dir, exist_ok=True)
     xml_path = os.path.join(out_dir, "IOCL_import.xml")
     csv_path = os.path.join(out_dir, "IOCL_review.csv")
     purch_path = os.path.join(out_dir, "IOCL_purchases.xml")
     with open(xml_path, "w", encoding="utf-8") as fh:
-        fh.write(G.build_envelope(vouchers))
+        fh.write(G.build_envelope(vouchers, company))
     # A purchases-only file, so purchases can be re-imported (e.g. to fix their
     # numbering) without duplicating journals that already imported fine.
     purchases = [v for v in vouchers
                  if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v]
     with open(purch_path, "w", encoding="utf-8") as fh:
-        fh.write(G.build_envelope(purchases))
+        fh.write(G.build_envelope(purchases, company))
     with open(csv_path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(review[0].keys()) if review else [])
         if review:

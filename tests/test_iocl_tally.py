@@ -370,3 +370,78 @@ def test_process_flags_invoice_total_mismatch():
     _, _, review, _ = R.process(PAD_TEXT, invoices=inv)
     prow = next(r for r in review if r["category"] == "PURCHASE")
     assert prow["status"] == "SKIPPED" and "!=" in prow["note"]
+
+
+# ---- Mappings tab: ledger renames, extra collection accounts, company ------
+
+def _reset_iocl_config():
+    G.LEDGER_RENAMES.clear()
+    G.EXTRA_COLLECTION_ROUTES[:] = []
+
+
+def test_ledger_rename_applies_to_journals_and_review():
+    try:
+        G.LEDGER_RENAMES["TDS CREDIT NOTE IOCL 2025-26"] = "TDS CREDIT NOTE IOCL 2026-27"
+        v = G.make_journal("TDS", "20260801", 1000.0)
+        assert "<LEDGERNAME>TDS CREDIT NOTE IOCL 2026-27</LEDGERNAME>" in v
+        assert "2025-26" not in v and G.voucher_balances(v)
+        assert G.renamed("TDS CREDIT NOTE IOCL 2025-26") == "TDS CREDIT NOTE IOCL 2026-27"
+        # Names with '&' are matched/escaped as XML.
+        G.LEDGER_RENAMES["PURCHASE HSD MS & XG"] = "PURCHASE HSD & MS 27"
+        assert G._swap_ledger("<L>PURCHASE HSD MS &amp; XG</L>", "PURCHASE HSD MS & XG",
+                              "PURCHASE HSD & MS 27") == "<L>PURCHASE HSD &amp; MS 27</L>"
+    finally:
+        _reset_iocl_config()
+
+
+def test_extra_collection_route_swaps_bank_ledger():
+    try:
+        G.EXTRA_COLLECTION_ROUTES.append(("12345678", "SBI BANK C/A - 12345678"))
+        tpl, led = G.collection_route("SBIN0001234_1234 5678")    # spaces ignored
+        assert tpl == "COLLECTION_OD.xml" and led == "SBI BANK C/A - 12345678"
+        v = G.make_journal("COLLECTION", "20260801", 5000.0,
+                           collection_item_text="SBIN0001234_12345678")
+        assert "<LEDGERNAME>SBI BANK C/A - 12345678</LEDGERNAME>" in v
+        assert "HDFC BANK OD A/C" not in v and G.voucher_balances(v)
+        # Built-in routes still win.
+        assert G.collection_route("HDFC0000240_5921701 0101010")[1] == \
+            "HDFC BANK C/A - 59217010101010"
+    finally:
+        _reset_iocl_config()
+
+
+def test_iocl_company_in_envelope():
+    env = G.build_envelope([], "VRIDDHI FUELS (2027-28)")
+    assert "<SVCURRENTCOMPANY>VRIDDHI FUELS (2027-28)</SVCURRENTCOMPANY>" in env
+    assert G.DEFAULT_COMPANY in G.build_envelope([])
+
+
+def test_iocl_mapping_ops_store_locally(tmp_path, monkeypatch):
+    import pytest
+    from iocl_tally import server as SV
+    monkeypatch.setattr(SV, "DATA_PATH", str(tmp_path / "data.json"))
+    monkeypatch.setattr(SV, "_UPLOADED_LEDGERS", [str(tmp_path / "ledgers.json")])
+    try:
+        SV.mapping_op({"op": "rename", "name": "Dealer Margin 2026-27",
+                       "new": "Dealer Margin 2027-28", "allow_unknown": True})
+        SV.mapping_op({"op": "add_route", "marker": "1234 5678",
+                       "ledger": "ICICI BANK LTD"})
+        SV.mapping_op({"op": "company", "company": "VRIDDHI FUELS (2027-28)"})
+        d = SV.load_data()
+        assert d["ledger_renames"] == {"Dealer Margin 2026-27": "Dealer Margin 2027-28"}
+        assert d["collection_routes"] == [{"marker": "12345678", "ledger": "ICICI BANK LTD"}]
+        assert SV.company() == "VRIDDHI FUELS (2027-28)"
+        view = SV.mappings_view()
+        dm = [l for l in view["ledgers"] if l["name"] == "Dealer Margin 2026-27"][0]
+        assert dm["renamed_to"] == "Dealer Margin 2027-28"
+        with pytest.raises(SV.MappingError):       # overlaps a built-in marker
+            SV.mapping_op({"op": "add_route", "marker": "5921701", "ledger": "X"})
+        with pytest.raises(SV.MappingError) as ei:  # unknown ledger -> ask first
+            SV.mapping_op({"op": "rename", "name": "Interest Paid", "new": "Nope Ledger"})
+        assert ei.value.extra.get("unknown_ledger")
+        SV.mapping_op({"op": "rename", "name": "Dealer Margin 2026-27", "new": ""})
+        SV.mapping_op({"op": "remove_route", "marker": "12345678"})
+        assert SV.load_data()["ledger_renames"] == {}
+        assert SV.load_data()["collection_routes"] == []
+    finally:
+        _reset_iocl_config()

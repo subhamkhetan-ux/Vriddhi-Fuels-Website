@@ -228,6 +228,7 @@ def alias_store(tmp_path, monkeypatch):
     monkeypatch.setattr(SV, "COMMITTED_LEDGERS", str(ledgers))
     monkeypatch.setattr(SV, "DATA_PATH", str(tmp_path / "data.json"))
     monkeypatch.setattr(SV, "LEDGERS_PATH", str(tmp_path / "ledgers.json"))
+    monkeypatch.setattr(SV, "_OTHER_UPLOADS", [])
     monkeypatch.setattr(SV, "_STATEMENTS", [])
     return SV, shipped
 
@@ -308,3 +309,64 @@ def test_aliases_view_lists_names_in_loaded_statements(alias_store, monkeypatch)
     assert unknown and unknown[0]["name"] == "UNKNOWN TRADERS"
     seen = {r["key"]: r["seen"] for r in view["aliases"]}
     assert seen["bharat logistics"] == 1
+
+
+# ---- Mappings tab: our bank accounts + Tally company -----------------------
+
+def test_added_bank_account_is_recognised_and_removable(alias_store):
+    SV, _ = alias_store
+    from bank_tally import run as R
+    try:
+        SV.add_account("1234 5678 9012", "Salary", allow_unknown=True)
+        assert C.OWN_ACCOUNTS["123456789012"] == "Salary"
+        assert "Salary" in R.BANK_LEDGERS               # same set: contra target
+        cl = C.classify(_row("NEFT DR-123456789012-VRIDDHI FUELS", withdrawal=500),
+                        CUSTOMERS)
+        assert cl.vtype == C.CONTRA and cl.counter_ledger == "Salary"
+        with pytest.raises(SV.AliasError):              # duplicate
+            SV.add_account("123456789012", "Other Bank", allow_unknown=True)
+        with pytest.raises(SV.AliasError):              # built-in can't be removed
+            SV.remove_account("59217010101010")
+        SV.remove_account("123456789012")
+        assert "123456789012" not in C.OWN_ACCOUNTS and "Salary" not in R.BANK_LEDGERS
+    finally:
+        C.configure_accounts({})
+
+
+def test_bank_account_validation(alias_store):
+    SV, _ = alias_store
+    try:
+        with pytest.raises(SV.AliasError):              # too short
+            SV.add_account("12345", "Keshav Minerals")
+        with pytest.raises(SV.AliasError):              # ledger of another account
+            SV.add_account("123456789012", "ICICI BANK LTD")
+        with pytest.raises(SV.AliasError) as ei:        # unknown ledger -> ask
+            SV.add_account("123456789012", "SBI CA 9012")
+        assert ei.value.extra.get("unknown_ledger")
+        # A built-in account number is never overridden.
+        C.configure_accounts({"59217010101010": "Something Else"})
+        assert C.OWN_ACCOUNTS["59217010101010"] == "HDFC BANK C/A - 59217010101010"
+    finally:
+        C.configure_accounts({})
+
+
+def test_company_name_setting_goes_into_envelope(alias_store):
+    SV, _ = alias_store
+    from bank_tally import generate as G
+    assert SV.company() == G.DEFAULT_COMPANY
+    SV.set_company("VRIDDHI FUELS (2027-28)")
+    assert SV.company() == "VRIDDHI FUELS (2027-28)"
+    env = G.build_envelope([], SV.company())
+    assert "<SVCURRENTCOMPANY>VRIDDHI FUELS (2027-28)</SVCURRENTCOMPANY>" in env
+    assert G.DEFAULT_COMPANY in G.build_envelope([])    # default unchanged
+    SV.set_company(G.DEFAULT_COMPANY)                   # back to default clears it
+    assert "company" not in SV._load_json(SV.DATA_PATH, {})
+
+
+def test_ledgers_uploaded_in_other_tally_apps_are_used(alias_store, tmp_path, monkeypatch):
+    SV, _ = alias_store
+    other = tmp_path / "iocl_ledgers.json"
+    other.write_text('["SBI BANK C/A - 12345678"]')
+    monkeypatch.setattr(SV, "_OTHER_UPLOADS", [str(other)])
+    assert "SBI BANK C/A - 12345678" in SV.load_ledgers()
+    assert SV._known_ledger("sbi bank c/a - 12345678") == "SBI BANK C/A - 12345678"

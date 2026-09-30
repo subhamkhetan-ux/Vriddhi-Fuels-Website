@@ -22,24 +22,32 @@ def _norm(s: str) -> str:
     return " ".join(str(s).strip().lower().split())
 
 
-def _one_kind(kind, rows, known, vouchers, entries):
+alias_key = _norm      # sheet name -> key of the app's name mappings
+
+
+def _one_kind(kind, rows, known, vouchers, entries, aliases=None, posting=None):
     n_ok = n_warn = n_err = 0
     total = 0.0
     for r in rows:
+        # A name mapped in the app posts to its Tally ledger instead.
+        ledger = (aliases or {}).get(_norm(r.customer)) or r.customer
         base = {
             "kind": kind,
             "index": r.index,
             "date": r.date.strftime("%d-%m-%Y") if r.date else "",
             "customer": r.customer,
+            "ledger": ledger,
+            "mapped": ledger != r.customer,
             "amount": f"{r.amount:.2f}",
         }
         if r.error:
             n_err += 1
             entries.append({**base, "status": "error", "note": r.error})
             continue
-        vouchers.append(G.make_journal(kind, _ymd(r.date), r.customer, r.amount))
+        vouchers.append(G.make_journal(kind, _ymd(r.date), ledger, r.amount,
+                                       posting_ledger=posting))
         total += r.amount
-        if known and _norm(r.customer) not in known:
+        if known and _norm(ledger) not in known:
             n_warn += 1
             entries.append({**base, "status": "unknown-customer",
                             "note": "name not found in the customer list — check the spelling matches Tally"})
@@ -50,12 +58,19 @@ def _one_kind(kind, rows, known, vouchers, entries):
             "n_unknown": n_warn, "n_error": n_err, "total_amount": round(total, 2)}
 
 
-def process(fleet_rows=None, tds_rows=None, customers=None):
-    """Return ``(vouchers, entries, summary)`` for whichever sheets were given."""
+def process(fleet_rows=None, tds_rows=None, customers=None, aliases=None,
+            posting=None):
+    """Return ``(vouchers, entries, summary)`` for whichever sheets were given.
+
+    ``aliases`` maps :func:`alias_key` of a sheet name -> the Tally ledger to post
+    to; ``posting`` maps kind ("fleet"/"tds") -> an overriding Dr ledger."""
     known = {_norm(c) for c in (customers or [])}
+    posting = posting or {}
     vouchers, entries = [], []
-    fleet = _one_kind("fleet", fleet_rows or [], known, vouchers, entries)
-    tds = _one_kind("tds", tds_rows or [], known, vouchers, entries)
+    fleet = _one_kind("fleet", fleet_rows or [], known, vouchers, entries,
+                      aliases, posting.get("fleet"))
+    tds = _one_kind("tds", tds_rows or [], known, vouchers, entries,
+                    aliases, posting.get("tds"))
 
     summary = {
         "fleet": fleet,

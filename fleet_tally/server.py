@@ -27,16 +27,201 @@ from fleet_tally import parse as P          # noqa: E402
 from fleet_tally import run as R            # noqa: E402
 
 CUSTOMERS = os.path.join(_ROOT, "state", "customers.json")
+TALLY_LEDGERS = os.path.join(_ROOT, "state", "tally_ledgers.json")   # shipped ledger list (read-only)
+DATA_PATH = os.path.join(_HERE, "data.json")     # name mappings / settings (git-ignored)
 OUT_DIR = os.path.join(_HERE, "out")
+SAMPLES = {"fleet": "fleet_card_template.xlsx", "tds": "tds_receivable_template.xlsx"}
+
+_LAST: dict = {}     # last run's parsed rows, so a mapping change can re-run
+
+
+def _load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
 
 
 def customers() -> list:
+    data = _load_json(CUSTOMERS, [])
+    return [c for c in data if "auto-source" not in str(c).lower()]
+
+
+# --- Tally ledger list: shipped + any master.xml uploaded in the Tally apps ---
+# An upload in any of the three apps (bank / IOCL / fleet) is seen by all three;
+# each file is git-ignored and lives only on this Mac.
+LEDGERS_PATH = os.path.join(_HERE, "ledgers.json")
+_UPLOADED_LEDGERS = [LEDGERS_PATH] + [
+    os.path.join(_ROOT, app, "ledgers.json")
+    for app in ("bank_tally", "iocl_tally", "fleet_tally")
+    if app != os.path.basename(_HERE)]
+
+
+def _unescape_xml(s: str) -> str:
+    return (s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+            .replace("&apos;", "'").replace("&amp;", "&"))
+
+
+def parse_master_xml(raw: bytes) -> list:
+    """Ledger names from a Tally master export (``<LEDGER NAME="...">`` or
+    ``<LEDGERNAME>``), UTF-16 or UTF-8, unescaped and de-duplicated."""
+    import re
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text = raw.decode("utf-16", errors="replace")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    names = re.findall(r'<LEDGER\b[^>]*\bNAME="([^"]*)"', text)
+    names += re.findall(r"<LEDGERNAME>([^<]*)</LEDGERNAME>", text)
+    seen, out = set(), []
+    for n in names:
+        n = _unescape_xml(n).strip()
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            out.append(n)
+    return out
+
+
+def save_ledgers(names: list) -> None:
+    tmp = LEDGERS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(names, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp, LEDGERS_PATH)
+
+
+def n_uploaded_ledgers() -> int:
+    return len({n.lower() for p in _UPLOADED_LEDGERS for n in _read_list(p)})
+
+
+def _read_list(path) -> list:
     try:
-        with open(CUSTOMERS, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return []
-    return [c for c in data if "auto-source" not in str(c).lower()]
+    return [str(n) for n in data if n] if isinstance(data, list) else []
+
+
+def tally_ledgers() -> list:
+    """Every known Tally ledger: uploaded master.xml lists first, then the shipped
+    state/tally_ledgers.json, de-duplicated ignoring case."""
+    seen, out = set(), []
+    for path in _UPLOADED_LEDGERS + [TALLY_LEDGERS]:
+        for n in _read_list(path):
+            if n.strip().lower() not in seen:
+                seen.add(n.strip().lower())
+                out.append(n)
+    return out
+
+
+
+def load_data() -> dict:
+    d = _load_json(DATA_PATH, {})
+    return d if isinstance(d, dict) else {}
+
+
+def save_data(d: dict) -> None:
+    tmp = DATA_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp, DATA_PATH)
+
+
+def company(d: dict | None = None) -> str:
+    d = load_data() if d is None else d
+    return (d.get("company") or "").strip() or G.DEFAULT_COMPANY
+
+
+class MappingError(ValueError):
+    def __init__(self, msg, **extra):
+        super().__init__(msg)
+        self.extra = extra
+
+
+def _known(ledger: str):
+    by_low = {str(n).strip().lower(): n for n in tally_ledgers() + customers()}
+    return by_low.get(ledger.strip().lower())
+
+
+def mapping_op(body: dict) -> None:
+    """Apply one change from the Mappings tab (raises MappingError)."""
+    d = load_data()
+    op = body.get("op") or ""
+    allow_unknown = bool(body.get("allow_unknown"))
+
+    def checked(ledger):
+        ledger = (ledger or "").strip()
+        if not ledger:
+            raise MappingError("choose a Tally ledger")
+        exact = _known(ledger)
+        if exact:
+            return exact
+        if not allow_unknown:
+            raise MappingError(f"'{ledger}' is not in the Tally ledger / customer "
+                               "list — check the spelling", unknown_ledger=True)
+        return ledger
+
+    if op == "set_alias":
+        key = R.alias_key(body.get("name") or "")
+        if len(key.replace(" ", "")) < 3:
+            raise MappingError("the sheet name is too short — use at least 3 letters")
+        ledger = checked(body.get("ledger"))
+        old = R.alias_key(body.get("old_key") or "")
+        aliases = d.setdefault("aliases", {})
+        if old and old != key:
+            aliases.pop(old, None)
+        aliases[key] = ledger
+    elif op == "delete_alias":
+        d.setdefault("aliases", {}).pop(body.get("key") or "", None)
+    elif op == "posting":
+        kind = body.get("kind")
+        if kind not in G.KINDS:
+            raise MappingError("unknown journal kind")
+        posting = d.setdefault("posting", {})
+        ledger = (body.get("ledger") or "").strip()
+        if not ledger or ledger == G.KINDS[kind]["ledger"]:
+            posting.pop(kind, None)
+        else:
+            posting[kind] = checked(ledger)
+    elif op == "company":
+        name = " ".join((body.get("company") or "").split())
+        if not name:
+            raise MappingError("type the Tally company name exactly as Tally shows it")
+        if name == G.DEFAULT_COMPANY:
+            d.pop("company", None)
+        else:
+            d["company"] = name
+    else:
+        raise MappingError("unknown operation")
+    save_data(d)
+
+
+def mappings_view() -> dict:
+    d = load_data()
+    known_low = {str(n).strip().lower() for n in tally_ledgers() + customers()}
+    aliases = [{"key": k, "ledger": v, "in_tally": v.strip().lower() in known_low}
+               for k, v in sorted(d.get("aliases", {}).items())]
+    posting = {k: {"default": v["ledger"], "ledger": d.get("posting", {}).get(k, "")}
+               for k, v in G.KINDS.items()}
+    unknown = sorted({e["customer"] for e in _LAST.get("entries", [])
+                      if e.get("status") == "unknown-customer"}, key=str.lower)
+    return {"aliases": aliases, "posting": posting, "company": company(d),
+            "default_company": G.DEFAULT_COMPANY, "unknown": unknown,
+            "loaded": bool(_LAST),
+            "suggestions": sorted(set(customers()) | set(tally_ledgers()), key=str.lower)}
+
+
+def run_and_write(fleet_rows, tds_rows) -> dict:
+    d = load_data()
+    vouchers, entries, summary = R.process(
+        fleet_rows, tds_rows, customers() + tally_ledgers(), aliases=d.get("aliases", {}),
+        posting=d.get("posting", {}))
+    os.makedirs(OUT_DIR, exist_ok=True)
+    with open(os.path.join(OUT_DIR, "fleet_import.xml"), "w", encoding="utf-8") as fh:
+        fh.write(G.build_envelope(vouchers, company(d)))
+    _LAST.update({"fleet": fleet_rows, "tds": tds_rows, "entries": entries})
+    return {"summary": summary, "entries": entries,
+            "suggestions": sorted(set(customers()) | set(tally_ledgers()), key=str.lower)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -80,6 +265,21 @@ class Handler(BaseHTTPRequestHandler):
                                       {"Content-Disposition": 'attachment; filename="fleet_import.xml"'})
             except OSError:
                 return self._send(404, b"run first", "text/plain")
+        if route == "/api/mappings":
+            return self._json(mappings_view())
+        if route == "/api/ledgers":
+            return self._json({"n_ledgers": n_uploaded_ledgers()})
+        if route.startswith("/download/sample/"):
+            name = SAMPLES.get(route.rsplit("/", 1)[-1])
+            if name:
+                try:
+                    with open(os.path.join(_HERE, "samples", name), "rb") as fh:
+                        return self._send(
+                            200, fh.read(),
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            {"Content-Disposition": f'attachment; filename="{name}"'})
+                except OSError:
+                    pass
         return self._send(404, b"not found", "text/plain")
 
     def _parse_file(self, f):
@@ -104,7 +304,33 @@ class Handler(BaseHTTPRequestHandler):
         return rows, kind, name, None
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/run":
+        route = urlparse(self.path).path
+        if route == "/api/mappings":
+            try:
+                mapping_op(self._body())
+            except MappingError as exc:
+                return self._json({"error": str(exc), **exc.extra}, 400)
+            res = mappings_view()
+            if _LAST:
+                res["run"] = run_and_write(_LAST["fleet"], _LAST["tds"])
+                res["unknown"] = mappings_view()["unknown"]
+            return self._json(res)
+        if route == "/api/ledgers":
+            body = self._body()
+            f = body.get("file") or {}
+            try:
+                names = parse_master_xml(base64.b64decode((f.get("b64") or "").split(",")[-1]))
+            except Exception as exc:
+                return self._json({"error": f"could not read master.xml: {exc}"}, 400)
+            if not names:
+                return self._json({"error": "no <LEDGER> entries found — is this a "
+                                   "Tally master export?"}, 400)
+            save_ledgers(names)
+            res = {"n_ledgers": len(names), "n_total": n_uploaded_ledgers()}
+            if _LAST:                      # re-check names against the fresh list
+                res["run"] = run_and_write(_LAST["fleet"], _LAST["tds"])
+            return self._json(res)
+        if route != "/api/run":
             return self._send(404, b"not found", "text/plain")
         body = self._body()
         # Both sheets are optional and independent; either alone is fine. Each
@@ -128,11 +354,9 @@ class Handler(BaseHTTPRequestHandler):
         if not fleet_rows and not tds_rows:
             return self._json({"error": "; ".join(problems) or
                                "drop at least one sheet (Fleet or TDS)"}, 400)
-        vouchers, entries, summary = R.process(fleet_rows, tds_rows, customers())
-        os.makedirs(OUT_DIR, exist_ok=True)
-        with open(os.path.join(OUT_DIR, "fleet_import.xml"), "w", encoding="utf-8") as fh:
-            fh.write(G.build_envelope(vouchers))
-        return self._json({"summary": summary, "entries": entries, "problems": problems})
+        res = run_and_write(fleet_rows, tds_rows)
+        res["problems"] = problems
+        return self._json(res)
 
 
 def main(argv=None):

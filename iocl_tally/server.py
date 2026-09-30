@@ -26,9 +26,11 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from iocl_tally import run as R  # noqa: E402
+from iocl_tally import xml_generator as G  # noqa: E402
 
 DATA_PATH = os.path.join(_HERE, "data.json")
 OUT_DIR = os.path.join(_HERE, "out")
+TALLY_LEDGERS = os.path.join(_ROOT, "state", "tally_ledgers.json")   # shipped ledger list (read-only)
 
 # next_tt seeds the manual purchase (TT) voucher-number counter — set it to the
 # number AFTER your last TT purchase in Tally so new ones continue the sequence.
@@ -53,6 +55,196 @@ def save_data(data: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
     os.replace(tmp, DATA_PATH)
+
+
+# --- Mappings tab: ledger renames, extra collection accounts, company ---------
+#
+# All stored in this Mac's data.json (git-ignored); the shipped templates are
+# never edited. Applied to the generator before every run.
+
+_LAST_COLLECTIONS: list = []     # last run's ECollection lines, to help pick a marker
+
+
+class MappingError(ValueError):
+    def __init__(self, msg, **extra):
+        super().__init__(msg)
+        self.extra = extra
+
+
+# --- Tally ledger list: shipped + any master.xml uploaded in the Tally apps ---
+# An upload in any of the three apps (bank / IOCL / fleet) is seen by all three;
+# each file is git-ignored and lives only on this Mac.
+LEDGERS_PATH = os.path.join(_HERE, "ledgers.json")
+_UPLOADED_LEDGERS = [LEDGERS_PATH] + [
+    os.path.join(_ROOT, app, "ledgers.json")
+    for app in ("bank_tally", "iocl_tally", "fleet_tally")
+    if app != os.path.basename(_HERE)]
+
+
+def _unescape_xml(s: str) -> str:
+    return (s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+            .replace("&apos;", "'").replace("&amp;", "&"))
+
+
+def parse_master_xml(raw: bytes) -> list:
+    """Ledger names from a Tally master export (``<LEDGER NAME="...">`` or
+    ``<LEDGERNAME>``), UTF-16 or UTF-8, unescaped and de-duplicated."""
+    import re
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text = raw.decode("utf-16", errors="replace")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    names = re.findall(r'<LEDGER\b[^>]*\bNAME="([^"]*)"', text)
+    names += re.findall(r"<LEDGERNAME>([^<]*)</LEDGERNAME>", text)
+    seen, out = set(), []
+    for n in names:
+        n = _unescape_xml(n).strip()
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            out.append(n)
+    return out
+
+
+def save_ledgers(names: list) -> None:
+    tmp = LEDGERS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(names, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp, LEDGERS_PATH)
+
+
+def n_uploaded_ledgers() -> int:
+    return len({n.lower() for p in _UPLOADED_LEDGERS for n in _read_list(p)})
+
+
+def _read_list(path) -> list:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    return [str(n) for n in data if n] if isinstance(data, list) else []
+
+
+def tally_ledgers() -> list:
+    """Every known Tally ledger: uploaded master.xml lists first, then the shipped
+    state/tally_ledgers.json, de-duplicated ignoring case."""
+    seen, out = set(), []
+    for path in _UPLOADED_LEDGERS + [TALLY_LEDGERS]:
+        for n in _read_list(path):
+            if n.strip().lower() not in seen:
+                seen.add(n.strip().lower())
+                out.append(n)
+    return out
+
+
+
+def _known(ledger: str):
+    by_low = {n.strip().lower(): n for n in tally_ledgers()}
+    by_low.update({n.strip().lower(): n for n in G.template_ledgers()})
+    return by_low.get(ledger.strip().lower())
+
+
+def apply_config(data: dict | None = None) -> None:
+    data = load_data() if data is None else data
+    G.LEDGER_RENAMES.clear()
+    G.LEDGER_RENAMES.update({k: v for k, v in data.get("ledger_renames", {}).items() if v})
+    G.EXTRA_COLLECTION_ROUTES[:] = [(r["marker"], r["ledger"])
+                                    for r in data.get("collection_routes", [])
+                                    if r.get("marker") and r.get("ledger")]
+
+
+def company(data: dict | None = None) -> str:
+    data = load_data() if data is None else data
+    return (data.get("company") or "").strip() or G.DEFAULT_COMPANY
+
+
+def mapping_op(body: dict) -> None:
+    """Apply one change from the Mappings tab (raises MappingError)."""
+    import re
+    data = load_data()
+    op = body.get("op") or ""
+    allow_unknown = bool(body.get("allow_unknown"))
+    if op == "rename":
+        name = body.get("name") or ""
+        if name not in G.template_ledgers():
+            raise MappingError("that ledger isn't used by any template")
+        new = (body.get("new") or "").strip()
+        renames = data.setdefault("ledger_renames", {})
+        if not new or new == name:
+            renames.pop(name, None)
+        else:
+            exact = _known(new)
+            if exact:
+                new = exact
+            elif not allow_unknown:
+                raise MappingError(f"'{new}' is not in the Tally ledger list — check "
+                                   "the spelling", unknown_ledger=True)
+            renames[name] = new
+    elif op == "add_route":
+        marker = re.sub(r"\s+", "", body.get("marker") or "")
+        ledger = (body.get("ledger") or "").strip()
+        if len(marker) < 5:
+            raise MappingError("the account marker must be at least 5 characters "
+                               "(a run of the account number as the PAD shows it)")
+        for m, _tpl, led in G.COLLECTION_ROUTES:
+            if m in marker or marker in m:
+                raise MappingError(f"'{marker}' overlaps the built-in route for {led}")
+        routes = data.setdefault("collection_routes", [])
+        if any(r.get("marker") == marker for r in routes):
+            raise MappingError(f"a route for '{marker}' already exists")
+        if not ledger:
+            raise MappingError("type the bank's Tally ledger name")
+        exact = _known(ledger)
+        if exact:
+            ledger = exact
+        elif not allow_unknown:
+            raise MappingError(f"'{ledger}' is not in the Tally ledger list — check "
+                               "the spelling", unknown_ledger=True)
+        routes.append({"marker": marker, "ledger": ledger})
+    elif op == "remove_route":
+        marker = body.get("marker") or ""
+        data["collection_routes"] = [r for r in data.get("collection_routes", [])
+                                     if r.get("marker") != marker]
+    elif op == "company":
+        name = " ".join((body.get("company") or "").split())
+        if not name:
+            raise MappingError("type the Tally company name exactly as Tally shows it")
+        if name == G.DEFAULT_COMPANY:
+            data.pop("company", None)
+        else:
+            data["company"] = name
+    else:
+        raise MappingError("unknown operation")
+    save_data(data)
+    apply_config(data)
+
+
+def mappings_view() -> dict:
+    from iocl_tally import pad_parser as P
+    data = load_data()
+    apply_config(data)
+    known_low = {n.strip().lower() for n in tally_ledgers()}
+    ledgers = []
+    for name, used in sorted(G.template_ledgers().items(), key=lambda kv: kv[0].lower()):
+        now = G.renamed(name)
+        ledgers.append({"name": name, "templates": used,
+                        "renamed_to": now if now != name else "",
+                        "in_tally": not known_low or now.strip().lower() in known_low})
+    routes = [{"marker": m, "ledger": led, "builtin": True, "template": tpl[:-4]}
+              for m, tpl, led in G.COLLECTION_ROUTES]
+    routes.append({"marker": "(anything else)", "ledger": G.COLLECTION_DEFAULT[1],
+                   "builtin": True, "template": G.COLLECTION_DEFAULT[0][:-4]})
+    routes += [{"marker": m, "ledger": led, "builtin": False, "template": "COLLECTION_OD"}
+               for m, led in G.EXTRA_COLLECTION_ROUTES]
+    cats = [{"category": c, "ledger": G.renamed(R.COUNTER_LEDGER.get(c, "")),
+             "template": G.JOURNAL_TEMPLATES.get(c, "PURCHASE_1prod / _2prod").replace(".xml", "")}
+            for c in (P.CAT_TDS, P.CAT_FLEET, P.CAT_COLLECTION, P.CAT_K1, P.CAT_LICENSE,
+                      P.CAT_DEALERMARGIN, P.CAT_NFR, P.CAT_INTEREST, P.CAT_PURCHASE)]
+    return {"ledgers": ledgers, "routes": routes, "categories": cats,
+            "company": company(data), "default_company": G.DEFAULT_COMPANY,
+            "collections": _LAST_COLLECTIONS,
+            "suggestions": sorted(set(tally_ledgers()) | set(G.template_ledgers()),
+                                  key=str.lower)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -102,6 +294,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"invoices_dir": folder,
                                "folder_ok": bool(folder) and os.path.isdir(folder),
                                "next_tt": d.get("next_tt", 96)})
+        if route == "/api/mappings":
+            return self._json(mappings_view())
+        if route == "/api/ledgers":
+            return self._json({"n_ledgers": n_uploaded_ledgers()})
         if route == "/download/import.xml":
             return self._file(os.path.join(OUT_DIR, "IOCL_import.xml"),
                               "application/xml", "IOCL_import.xml")
@@ -133,6 +329,23 @@ class Handler(BaseHTTPRequestHandler):
                                "next_tt": data.get("next_tt", 96)})
         if route == "/api/run":
             return self._run(body, data)
+        if route == "/api/ledgers":
+            f = body.get("file") or {}
+            try:
+                names = parse_master_xml(base64.b64decode((f.get("b64") or "").split(",")[-1]))
+            except Exception as exc:
+                return self._json({"error": f"could not read master.xml: {exc}"}, 400)
+            if not names:
+                return self._json({"error": "no <LEDGER> entries found — is this a "
+                                   "Tally master export?"}, 400)
+            save_ledgers(names)
+            return self._json({"n_ledgers": len(names), "n_total": n_uploaded_ledgers()})
+        if route == "/api/mappings":
+            try:
+                mapping_op(body)
+            except MappingError as exc:
+                return self._json({"error": str(exc), **exc.extra}, 400)
+            return self._json(mappings_view())
         return self._send(404, b"not found", "text/plain")
 
     def _run(self, body, data):
@@ -162,10 +375,16 @@ class Handler(BaseHTTPRequestHandler):
                 pad_path = tf.name
             text = R.P.extract_text(pad_path)
             os.unlink(pad_path)
+            apply_config(data)
             tt_state = {"next_tt": start_tt, "issued": {}}
             records, vouchers, review, summary = R.process(
                 text, invoices_dir, tt_state=tt_state)
-            R.write_outputs(OUT_DIR, vouchers, review)
+            R.write_outputs(OUT_DIR, vouchers, review, company(data))
+            _LAST_COLLECTIONS[:] = [
+                {"date": r.date.strftime("%d-%m-%Y") if r.date else "",
+                 "item_text": r.item_text, "amount": f"{r.amount:.2f}",
+                 "ledger": G.renamed(G.collection_route(r.item_text)[1])}
+                for r in records if r.category == "COLLECTION"]
         except Exception as exc:
             return self._json({"error": f"run failed: {exc}"}, 500)
 

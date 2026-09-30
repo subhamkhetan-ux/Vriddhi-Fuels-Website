@@ -35,6 +35,22 @@ OWN_ACCOUNTS = {
 # — that would post an unrelated payment as a cross-account transfer.
 _BANK_LEDGERS = set(OWN_ACCOUNTS.values()) | {"Cash"}
 
+_BUILTIN_ACCOUNTS = dict(OWN_ACCOUNTS)
+
+
+def configure_accounts(extra: dict | None = None) -> None:
+    """Add accounts registered in the app (account no. -> Tally ledger) on top of
+    the built-in ones above. Updates OWN_ACCOUNTS / _BANK_LEDGERS *in place* so
+    every module holding them (statement.detect_account, run.BANK_LEDGERS) sees
+    the change. A built-in account number is never overridden."""
+    OWN_ACCOUNTS.clear()
+    OWN_ACCOUNTS.update(_BUILTIN_ACCOUNTS)
+    for acct, ledger in (extra or {}).items():
+        if acct not in _BUILTIN_ACCOUNTS:
+            OWN_ACCOUNTS[acct] = ledger
+    _BANK_LEDGERS.clear()
+    _BANK_LEDGERS.update(set(OWN_ACCOUNTS.values()) | {"Cash"})
+
 # Payment narration keyword -> counter ledger (extend as needed).
 PAYMENT_RULES = [
     # IOCL payments are handled by the skip rule above (owned by the PAD tool).

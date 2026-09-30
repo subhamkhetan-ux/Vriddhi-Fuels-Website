@@ -189,5 +189,14 @@ ENVELOPE_HEAD = (
 ENVELOPE_TAIL = "   </REQUESTDATA>\n  </IMPORTDATA>\n </BODY>\n</ENVELOPE>\n"
 
 
-def build_envelope(vouchers: list[str]) -> str:
-    return ENVELOPE_HEAD + "\n".join(vouchers) + "\n" + ENVELOPE_TAIL
+DEFAULT_COMPANY = "VRIDDHI FUELS (2026-27)"
+
+
+def build_envelope(vouchers: list[str], company: str | None = None) -> str:
+    """Wrap vouchers in the import envelope. ``company`` is the Tally company to
+    import into (set in the app for a new financial year); default as shipped."""
+    head = ENVELOPE_HEAD
+    if company and company != DEFAULT_COMPANY:
+        head = head.replace(f"<SVCURRENTCOMPANY>{DEFAULT_COMPANY}</SVCURRENTCOMPANY>",
+                            f"<SVCURRENTCOMPANY>{_esc(company)}</SVCURRENTCOMPANY>")
+    return head + "\n".join(vouchers) + "\n" + ENVELOPE_TAIL
