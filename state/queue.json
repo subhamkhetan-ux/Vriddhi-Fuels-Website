@@ -3315,6 +3315,27 @@
       },
       "queued_at": "2026-09-30T13:30:26.570895+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "a1caec6957c077cc",
+      "gmail_msg_id": "1877791839589983053",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "30/09/26",
+      "date_serial": 46295,
+      "amount": 694.0,
+      "raw_payer": null,
+      "customer": null,
+      "candidates": [],
+      "match_tier": "parse_error",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-09-30T21:00:20.449998+00:00",
+      "status": "review",
+      "error": "could not extract: payer",
+      "raw_text": "Transaction alert for your ICICI Bank account\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Dear Customer, \r\nGreetings from ICICI Bank. \r\nYour ICICI Bank Account XX074 has been credited with INR 694 on 30-Sep-26. Info: XX074:Int.Pd:30-06-2026 to 29-09-2026. \r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account. \r\n\r\nLooking forward to more opportunities to be of service to you. \r\n\r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n Sincerely, \r\nTeam ICICI Bank \r\n \r\n \r\n \r\n \r\n \r\n This is an auto-generated e-mail. Please do not reply. \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\r\n\r\n"
     }
   ]
 }
