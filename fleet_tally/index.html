@@ -401,8 +401,11 @@ function applyMappings(j){
   $("#unknownList").innerHTML=unk.map((n,i)=>`<button class="chip btn" data-unk="${i}" style="margin:6px 6px 0 0">${esc(n)} → map…</button>`).join("");
   $("#postBody").innerHTML=Object.entries(j.posting).map(([k,p])=>`
     <tr><td><b>${k==="fleet"?"Fleet card":"TDS receivable"}</b></td><td>${esc(p.default)}</td>
-      <td><input class="led" list="ledgers" id="post_${k}" value="${esc(p.ledger)}" placeholder="${esc(p.default)}"></td>
-      <td class="acts"><button class="btn sm" data-post="${k}">Save</button></td></tr>`).join("");
+      <td><input class="led" list="ledgers" id="post_${k}" data-k="${k}" value="${esc(p.ledger||p.default)}"
+          title="Type the ledger to debit, then Save">
+        ${p.ledger?'<div class="hint" style="margin-top:3px;color:var(--warn)">changed on this device</div>':''}</td>
+      <td class="acts"><button class="btn sm" data-post="${k}">Save</button>
+        ${p.ledger?`<button class="btn sm" data-postreset="${k}" title="Back to ${esc(p.default)}">Reset</button>`:''}</td></tr>`).join("");
   if(document.activeElement!==$("#companyName")) $("#companyName").value=j.company;
   $("#companyHint").textContent = j.company!==j.default_company
     ? `Imports go to “${j.company}” (shipped default: ${j.default_company}). Must match Tally exactly.`
@@ -426,9 +429,20 @@ $("#unknownList").onclick=e=>{
   EDIT_KEY=""; $("#mapName").value=MAP.unknown[+b.dataset.unk]; $("#mapLedger").value=""; $("#mapLedger").focus();
 };
 $("#postBody").onclick=async e=>{
-  const b=e.target.closest("button[data-post]"); if(!b) return;
-  const k=b.dataset.post, v=$("#post_"+k).value.trim();
+  const b=e.target.closest("button[data-post],button[data-postreset]"); if(!b) return;
+  const k=b.dataset.post||b.dataset.postreset, p=MAP.posting[k];
+  let v=b.dataset.postreset ? "" : $("#post_"+k).value.trim();
+  if(v===p.default) v="";                           // same as shipped = no override
+  if(v===(p.ledger||"")){ toast("No change — type the new ledger name first"); $("#post_"+k).focus(); return; }
   await mapOp({op:"posting",kind:k,ledger:v}, v?"Saved — "+k+" journals now debit "+v:"Back to the shipped ledger");
+};
+$("#postBody").oninput=e=>{
+  const inp=e.target.closest("input[data-k]"); if(!inp) return;
+  const p=MAP.posting[inp.dataset.k], dirty=inp.value.trim()!==(p.ledger||p.default);
+  inp.closest("tr").querySelector("button[data-post]").classList.toggle("primary",dirty);
+};
+$("#postBody").onkeydown=e=>{
+  if(e.key==="Enter" && e.target.matches("input[data-k]")) e.target.closest("tr").querySelector("button[data-post]").click();
 };
 $("#companySave").onclick=()=>mapOp({op:"company",company:$("#companyName").value.trim()},"Company saved");
 

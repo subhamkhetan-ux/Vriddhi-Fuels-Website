@@ -573,3 +573,22 @@ def test_page_header_between_records_is_not_part_of_a_line():
     assert "Plant" not in lock.item_text and "Closing Balance" not in lock.item_text
     assert G.rule_hint(lock.item_text) == "LOCK RECOVERY FROM DEALERS"
     assert R._stated_closing(text) == -10164383.70      # still read from the full text
+
+
+def test_overview_change_buttons_target_template_ledgers(tmp_path, monkeypatch):
+    from iocl_tally import server as SV
+    monkeypatch.setattr(SV, "DATA_PATH", str(tmp_path / "data.json"))
+    monkeypatch.setattr(SV, "_UPLOADED_LEDGERS", [str(tmp_path / "ledgers.json")])
+    try:
+        SV.mapping_op({"op": "rename", "name": "TDS CREDIT NOTE IOCL 2025-26",
+                       "new": "TDS CREDIT NOTE IOCL 2026-27", "allow_unknown": True})
+        cats = {c["category"]: c for c in SV.mappings_view()["categories"]}
+        # The overview shows the ledger posted to, and "Change" edits the template's.
+        assert cats["TDS"]["ledger"] == "TDS CREDIT NOTE IOCL 2026-27"
+        assert cats["TDS"]["template_ledger"] == "TDS CREDIT NOTE IOCL 2025-26"
+        assert cats["PURCHASE"]["template_ledger"] == "PURCHASE HSD MS & XG"
+        assert cats["COLLECTION"]["template_ledger"] == ""      # per bank, via routes
+        names = {l["name"] for l in SV.mappings_view()["ledgers"]}
+        assert all(c["template_ledger"] in names for c in cats.values() if c["template_ledger"])
+    finally:
+        _reset_iocl_config()

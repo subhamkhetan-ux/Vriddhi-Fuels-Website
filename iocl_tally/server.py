@@ -265,8 +265,15 @@ def mappings_view() -> dict:
                    "builtin": True, "template": G.COLLECTION_DEFAULT[0][:-4]})
     routes += [{"marker": m, "ledger": led, "builtin": False, "template": "COLLECTION_OD"}
                for m, led in G.EXTRA_COLLECTION_ROUTES]
+    # The template ledger each category's "Change" button edits (collections are
+    # changed per bank in the routes table instead).
+    changeable = {c: R.COUNTER_LEDGER.get(c, "") for c in R.COUNTER_LEDGER}
+    changeable[P.CAT_PURCHASE] = "PURCHASE HSD MS & XG"
+    changeable.pop(P.CAT_COLLECTION, None)
+    tpl_ledgers = G.template_ledgers()
     cats = [{"category": c, "ledger": G.renamed(R.COUNTER_LEDGER.get(c, "")),
-             "template": G.JOURNAL_TEMPLATES.get(c, "PURCHASE_1prod / _2prod").replace(".xml", "")}
+             "template": G.JOURNAL_TEMPLATES.get(c, "PURCHASE_1prod / _2prod").replace(".xml", ""),
+             "template_ledger": changeable.get(c) if changeable.get(c) in tpl_ledgers else ""}
             for c in (P.CAT_TDS, P.CAT_FLEET, P.CAT_COLLECTION, P.CAT_K1, P.CAT_LICENSE,
                       P.CAT_DEALERMARGIN, P.CAT_NFR, P.CAT_INTEREST, P.CAT_PURCHASE)]
     rules = [{"phrase": p, "ledger": led} for p, led in G.CUSTOM_RULES]
