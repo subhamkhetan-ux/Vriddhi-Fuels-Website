@@ -68,11 +68,11 @@
         ""
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033366",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -87,11 +87,11 @@
         "GSTIN: 21AAICB2269B1Z8"
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033369",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -106,11 +106,11 @@
         "GSTIN: 21AAICB2388M1ZH"
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033478",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -201,11 +201,11 @@
         ""
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033371",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -353,11 +353,30 @@
         "GSTIN: 21AAMCM4021C1Z5"
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033370",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
+      "company": "Maa Medhapat Firm",
+      "price_tier": "RCP Price",
+      "hsd_rate": 99.5,
+      "address": [
+        "At- Lakanpur Jorabaga Camp",
+        "Post-Ubuda, Via- Belpahar.",
+        ""
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -372,11 +391,11 @@
         ""
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033367",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -398,7 +417,7 @@
         "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "O326216049"
+      "po_no": ""
     },
     {
       "company": "Pentane Logistics PVT LTD",
@@ -410,11 +429,11 @@
         ""
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002032631",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -429,11 +448,11 @@
         "GSTIN: 21AAHCR6100J1ZQ"
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033477",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
@@ -550,7 +569,7 @@
         "Beneficiary Name – Indian Oil Corporation Limited"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "2110036746"
+      "po_no": "2110036943"
     },
     {
       "company": "SMC Power Generation LTD, UNIT I",
@@ -569,7 +588,7 @@
         "Beneficiary Name – Vriddhi Fuels"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "4500219666"
+      "po_no": ""
     },
     {
       "company": "SMC Power Generation LTD, UNIT II",
@@ -600,20 +619,20 @@
         "GSTIN: 21AAECV8578K1ZT"
       ],
       "payment": [
-        "Payment Details for XtraPower Account:",
-        "Virtual Account No. – IOCLXPP1002033365",
-        "IFS Code – HDFC0000240",
-        "Branch Name– HDFC Sandoz Branch, Worli, Mumbai",
-        "Beneficiary Name – Indian Oil Corporation Limited"
+        "Payment Details:",
+        "Account No. – 59217010101010",
+        "IFSC Code – HDFC0000763",
+        "Branch Name- HDFC BANK LTD, JHARSUGUDA",
+        "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "",
       "po_no": ""
     }
   ],
-  "generated_at": "2026-09-30T00:11:49+00:00",
+  "generated_at": "2026-09-30T06:28:11+00:00",
   "source": {
     "drive_file_id": "1xfU-xMgm9zllQCPZDOJ5e-6vCPIo3mOl",
     "file_name": "Tanker Billing.xlsm",
-    "modified_time": "2026-09-29T03:03:09.409Z"
+    "modified_time": "2026-09-30T03:06:36.819Z"
   }
 }
