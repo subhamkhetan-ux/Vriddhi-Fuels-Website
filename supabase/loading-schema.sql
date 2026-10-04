@@ -191,6 +191,73 @@ on conflict (key) do nothing;
 create index if not exists loading_fuel_logs_vehicle_idx on public.loading_fuel_logs(vehicle, reading_at);
 
 -- ---------------------------------------------------------------------
+-- Who may do what: ADMIN vs STAFF
+--  * Staff (every login not listed below as admin) may only add loadings,
+--    send tankers for sale, see the last 7 days of history, End Day in the
+--    morning window and switch notifications on/off for their phone. They
+--    cannot edit or delete anything, and cannot read trips, the fuel / mileage
+--    log or the settings.
+--  * Admins can do everything, change staff passwords (via the loading-admin
+--    edge function) and log every staff phone out at once.
+-- The email is the Supabase login, i.e. <username>@vriddhi.local.
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_roles (
+  email      text primary key,                      -- lower-case login email
+  role       text not null check (role in ('admin','staff')),
+  updated_at timestamptz not null default now()
+);
+-- >>> Make YOUR login the admin: uncomment, put your username, run once. <<<
+-- insert into public.loading_roles (email, role) values ('yourname@vriddhi.local', 'admin')
+--   on conflict (email) do update set role = 'admin';
+
+-- "Log out all staff devices": any STAFF session that signed in before
+-- staff_epoch is refused everywhere (reads return nothing, writes fail), and
+-- the app signs that phone out the moment it sees the change (realtime).
+create table if not exists public.loading_auth_state (
+  id          int primary key default 1 check (id = 1),
+  staff_epoch timestamptz
+);
+insert into public.loading_auth_state (id) values (1) on conflict (id) do nothing;
+
+-- plpgsql (not sql) so this file still loads into a plain Postgres for testing.
+create or replace function public._loading_email() returns text
+language plpgsql stable as $$
+begin
+  return lower(coalesce(auth.jwt() ->> 'email', ''));
+end $$;
+
+create or replace function public._loading_is_admin() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return exists (select 1 from loading_roles where email = _loading_email() and role = 'admin');
+end $$;
+
+-- When this session signed in. Supabase access tokens carry the sign-in time
+-- in the "amr" claim, and it stays the same when the token is refreshed
+-- (unlike "iat"), which is what makes a forced logout stick.
+create or replace function public._loading_signed_in_at() returns timestamptz
+language plpgsql stable as $$
+declare j jsonb := auth.jwt(); t bigint;
+begin
+  if jsonb_typeof(j -> 'amr') = 'array' then
+    select min((a ->> 'timestamp')::bigint) into t from jsonb_array_elements(j -> 'amr') a where a ? 'timestamp';
+  end if;
+  if t is null then t := (j ->> 'iat')::bigint; end if;
+  return to_timestamp(coalesce(t, 0));
+end $$;
+
+-- Is this a signed-in session that hasn't been logged out by the admin?
+create or replace function public._loading_session_ok() returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare ep timestamptz;
+begin
+  if auth.uid() is null then return false; end if;
+  if _loading_is_admin() then return true; end if;
+  select staff_epoch into ep from loading_auth_state where id = 1;
+  return ep is null or date_trunc('second', ep) <= _loading_signed_in_at();
+end $$;
+
+-- ---------------------------------------------------------------------
 -- Row Level Security: signed-in users can READ the last 7 days only; no
 -- direct writes (all mutations go through the RPCs below).
 -- (authenticated/anon already exist on Supabase; created here only when the
@@ -214,6 +281,8 @@ alter table public.loading_destinations enable row level security;
 alter table public.loading_trips enable row level security;
 alter table public.loading_fuel_logs enable row level security;
 alter table public.loading_settings enable row level security;
+alter table public.loading_roles enable row level security;
+alter table public.loading_auth_state enable row level security;
 
 -- A phone may only ever see or touch its own owner's subscriptions. The edge
 -- function reads every row with the service-role key, which bypasses RLS.
@@ -233,33 +302,43 @@ end $$;
 drop policy if exists loading_events_read on public.loading_events;
 create policy loading_events_read on public.loading_events
   for select to authenticated
-  using (created_at >= now() - interval '7 days');
+  using (created_at >= now() - interval '7 days' and public._loading_session_ok());
 
 drop policy if exists loading_vehicles_read on public.loading_vehicles;
 create policy loading_vehicles_read on public.loading_vehicles
-  for select to authenticated using (true);
+  for select to authenticated using (public._loading_session_ok());
 
 drop policy if exists loading_day_closes_read on public.loading_day_closes;
 create policy loading_day_closes_read on public.loading_day_closes
   for select to authenticated
-  using (close_date >= ((now() at time zone 'Asia/Kolkata')::date) - 30);
+  using (close_date >= ((now() at time zone 'Asia/Kolkata')::date) - 30 and public._loading_session_ok());
 
--- trips, customers and the fuel log are kept for good, so readable in full
+-- customers are needed by everyone (the "Sold to" list); trips, the fuel log
+-- and the settings are ADMIN-only
 drop policy if exists loading_destinations_read on public.loading_destinations;
 create policy loading_destinations_read on public.loading_destinations
-  for select to authenticated using (true);
+  for select to authenticated using (public._loading_session_ok());
 
 drop policy if exists loading_trips_read on public.loading_trips;
 create policy loading_trips_read on public.loading_trips
+  for select to authenticated using (public._loading_is_admin());
+
+-- the logout time is not secret — every phone watches it to sign itself out
+drop policy if exists loading_auth_state_read on public.loading_auth_state;
+create policy loading_auth_state_read on public.loading_auth_state
   for select to authenticated using (true);
+
+drop policy if exists loading_roles_read on public.loading_roles;
+create policy loading_roles_read on public.loading_roles
+  for select to authenticated using (public._loading_is_admin());
 
 drop policy if exists loading_settings_read on public.loading_settings;
 create policy loading_settings_read on public.loading_settings
-  for select to authenticated using (true);
+  for select to authenticated using (public._loading_is_admin());
 
 drop policy if exists loading_fuel_logs_read on public.loading_fuel_logs;
 create policy loading_fuel_logs_read on public.loading_fuel_logs
-  for select to authenticated using (true);
+  for select to authenticated using (public._loading_is_admin());
 
 -- ---------------------------------------------------------------------
 -- Helper
@@ -270,6 +349,17 @@ begin
   if auth.uid() is null then
     raise exception 'Not signed in';
   end if;
+  -- the app recognises the SIGNED_OUT prefix and signs the phone out
+  if not _loading_session_ok() then
+    raise exception 'SIGNED_OUT: you were signed out by the admin — please sign in again';
+  end if;
+end $$;
+
+create or replace function public._loading_admin() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  if not _loading_is_admin() then raise exception 'Admin only'; end if;
 end $$;
 
 -- Add (sign +1) or subtract (sign -1) a chambers array [{name,qty}] to a fill
@@ -309,6 +399,7 @@ begin
   end if;
   if p_total is null or p_total <= 0 then raise exception 'Total must be positive'; end if;
   if coalesce(p_kind,'load') not in ('load','dispatch') then raise exception 'Bad kind'; end if;
+  if coalesce(p_kind,'load') <> 'load' and not _loading_is_admin() then raise exception 'Admin only'; end if;
 
   insert into loading_events (vehicle, kind, chambers, total, by_name, remark, created_by)
   values (p_vehicle, coalesce(p_kind,'load'), p_chambers, p_total, coalesce(p_by,''),
@@ -362,7 +453,7 @@ create or replace function public.loading_delete(p_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
 declare e loading_events;
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   select * into e from loading_events where id = p_id and created_at >= now() - interval '7 days';
   if not found then raise exception 'Record not found or older than 7 days'; end if;
   if e.kind = 'load' then
@@ -393,7 +484,7 @@ create or replace function public.loading_clear_all() returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   delete from loading_events where id is not null;
   get diagnostics n = row_count;
   update loading_vehicles set fill = '{}'::jsonb, total_loaded = 0, total_sold = 0 where plate is not null;
@@ -406,7 +497,7 @@ create or replace function public.loading_vehicle_add(p_plate text, p_caps jsonb
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   if coalesce(trim(p_plate),'') = '' then raise exception 'Vehicle number required'; end if;
   if p_caps is null or jsonb_array_length(p_caps) = 0 then raise exception 'At least one chamber is required'; end if;
   insert into loading_vehicles (plate, caps, color)
@@ -417,7 +508,7 @@ end $$;
 create or replace function public.loading_vehicle_remove(p_plate text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   delete from loading_vehicles where plate = p_plate;
 end $$;
 
@@ -489,7 +580,7 @@ end $$;
 create or replace function public.loading_trip_set_dest(p_id uuid, p_dest text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   if not exists (select 1 from loading_destinations where name = p_dest) then
     raise exception 'Pick a customer from the list';
   end if;
@@ -504,7 +595,7 @@ create or replace function public.loading_dest_save(p_name text, p_rtd numeric, 
 language plpgsql security definer set search_path = public as $$
 declare nm text := trim(coalesce(p_name,'')); g text := trim(coalesce(p_grp,''));
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   if nm = '' then raise exception 'Customer name required'; end if;
   if p_rtd is null or p_rtd < 0 then raise exception 'RTD km must be 0 or more'; end if;
   insert into loading_destinations (name, rtd_km, grp, sort)
@@ -518,7 +609,7 @@ end $$;
 create or replace function public.loading_dest_remove(p_name text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   delete from loading_destinations where name = p_name;
 end $$;
 
@@ -534,7 +625,7 @@ create or replace function public.loading_fuel_add(
 language plpgsql security definer set search_path = public as $$
 declare rid uuid;
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   if coalesce(p_vehicle,'') = '' then raise exception 'Vehicle required'; end if;
   if p_odometer is null or p_odometer < 0 then raise exception 'Reading required'; end if;
   if p_litres is null or p_litres < 0 then raise exception 'Litres must be 0 or more'; end if;
@@ -552,7 +643,7 @@ create or replace function public.loading_setting_set(p_key text, p_value jsonb)
 language plpgsql security definer set search_path = public as $$
 declare v numeric;
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   if p_key not in ('angul_l','alert_pct') then raise exception 'Unknown setting'; end if;
   v := (p_value #>> '{}')::numeric;
   if p_key = 'angul_l'   and (v is null or v <= 0 or v > 1000) then raise exception 'Litres per Angul must be between 0 and 1000'; end if;
@@ -564,8 +655,35 @@ end $$;
 create or replace function public.loading_fuel_delete(p_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  perform _loading_auth();
+  perform _loading_admin();
   delete from loading_fuel_logs where id = p_id;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Who am I? The app calls this on sign-in and on every refresh: it decides
+-- what the phone shows, and a staff phone that has been logged out by the
+-- admin sees ok = false and signs itself out. `admins` = how many admin logins
+-- exist (0 means nobody has been made admin yet).
+-- ---------------------------------------------------------------------
+create or replace function public.loading_whoami() returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  return jsonb_build_object(
+    'email',  _loading_email(),
+    'role',   case when _loading_is_admin() then 'admin' else 'staff' end,
+    'ok',     _loading_session_ok(),
+    'admins', (select count(*) from loading_roles where role = 'admin'));
+end $$;
+
+-- Admin: log every STAFF phone out now. Their next request is refused and the
+-- app shows the sign-in screen; admins stay signed in.
+create or replace function public.loading_logout_staff() returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare t timestamptz := now();
+begin
+  perform _loading_admin();
+  update loading_auth_state set staff_epoch = t where id = 1;
+  return t;
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -628,6 +746,11 @@ begin
       public.loading_dest_remove(text),
       public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, numeric, text, text),
       public.loading_setting_set(text, jsonb),
+      public.loading_whoami(),
+      public.loading_logout_staff(),
+      -- called by the read policies, which run as the signed-in user
+      public._loading_session_ok(),
+      public._loading_is_admin(),
       public.loading_fuel_delete(uuid)
     to authenticated;
   end if;
@@ -662,6 +785,10 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.loading_settings;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_auth_state;
   exception when others then null;
   end;
 end $$;

@@ -365,6 +365,15 @@
   .badge.high{background:var(--bad-bg);color:var(--bad)}
   .badge.info{background:rgba(27,33,48,.07);color:var(--muted)}
   .flag.chk{border-left-color:#c3c2b7}
+  /* role gating: staff phones never see admin-only parts (the server refuses them too) */
+  body.staff .adm{display:none!important}
+  body:not(.staff) .stf{display:none!important}
+  .warnnote{background:var(--warn-bg);border-color:rgba(250,178,25,.5);color:var(--warn)}
+  .rolebadge{display:inline-block;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;margin-left:4px;vertical-align:middle}
+  .rolebadge.admin{background:var(--grad-cta);color:#fff}
+  .rolebadge.staff{background:rgba(27,33,48,.08);color:var(--muted)}
+  .urow .ub{display:flex;gap:6px;flex:none}
+  .urow .ub button{border:1px solid var(--line);background:var(--glass-3);color:var(--ink);font-weight:700;font-size:12.5px;border-radius:10px;padding:8px 9px;cursor:pointer}
   .stkrow{border:1px solid var(--line);border-radius:16px;padding:10px 12px;margin-bottom:10px;background:rgba(255,255,255,.6)}
   .stkrow .sh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
   .stkrow .sh small{font-size:11.5px;color:var(--muted);font-weight:600;text-align:right}
@@ -532,10 +541,10 @@
       </div>
       <div id="recentList"></div>
 
-      <button class="big glass" id="toReport">
+      <button class="big glass adm" id="toReport">
         <span class="em">📊</span><span>Reports &amp; Excel export</span>
       </button>
-      <div class="row2">
+      <div class="row2 adm">
         <button class="big glass" id="toTrips">
           <span class="em">🚚</span><span>Trips per tanker</span>
         </button>
@@ -545,6 +554,7 @@
       </div>
 
       <div class="note" id="storeNote"></div>
+      <div class="endednote warnnote" id="noAdminNote" style="display:none">No admin login is set up yet, so everyone has staff access. See README → “Admin &amp; staff logins”.</div>
       <button class="linkbtn" id="toSettings">⚙ Manage tankers &amp; data</button>
       <div class="signrow" id="signRow" style="display:none"></div>
     </section>
@@ -586,7 +596,7 @@
         <div class="mini"><div class="n" id="hTot">0</div><div class="l">Total litres</div></div>
         <div class="mini"><div class="n" id="hCnt">0</div><div class="l">Loadings</div></div>
       </div>
-      <button class="big glass" id="toReport2">
+      <button class="big glass adm" id="toReport2">
         <span class="em">📊</span><span>Reports &amp; Excel export</span>
       </button>
       <div id="histList"></div>
@@ -752,7 +762,34 @@
 
     <!-- SETTINGS / MANAGE -->
     <section class="screen" id="scSettings">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Manage tankers &amp; data</div>
+      <div class="sectitle" style="font-size:18px;justify-content:center" id="setTitle">Manage tankers &amp; data</div>
+      <div id="pushWrap" style="display:none">
+        <div class="sectitle">Notifications</div>
+        <div id="pushBox"></div>
+      </div>
+      <div class="note stf" id="stfNote" style="text-align:left">Signed in as staff — you can add loadings, send tankers for sale and see the last 7 days of history.</div>
+
+      <div class="adm">
+      <!-- Admin: staff logins (cloud) -->
+      <div id="staffWrap" style="display:none">
+        <div class="sectitle">Staff logins <span class="sub" id="meRole"></span></div>
+        <div class="card-add">
+          <div class="ca-h">🚪 Log out all staff devices</div>
+          <div class="note" style="text-align:left;margin:0 0 10px">Every staff phone is signed out at once and must sign in again (with the new password if you changed it). Admin phones stay signed in.</div>
+          <button class="big red sm" id="logoutAllBtn" style="margin-bottom:0"><span class="em">🚪</span><span>Log out all staff devices</span></button>
+        </div>
+        <div id="userList"></div>
+        <div class="card-add">
+          <div class="ca-h">Add a login</div>
+          <div class="ca-row">
+            <div class="ca-field"><label>Username</label><input id="nuUser" placeholder="e.g. ramesh" autocapitalize="off" autocorrect="off" spellcheck="false" /></div>
+            <div class="ca-field"><label>Password (6+)</label><input id="nuPass" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" /></div>
+          </div>
+          <div class="ca-field" style="margin-bottom:10px"><label>Access</label>
+            <select id="nuRole"><option value="staff">Staff — loadings, sales, 7-day history</option><option value="admin">Admin — everything</option></select></div>
+          <button class="big green sm" id="nuBtn" style="margin-bottom:0"><span class="em">＋</span><span>Add login</span></button>
+        </div>
+      </div>
 
       <div class="sectitle">Tankers</div>
       <div id="vehList"></div>
@@ -772,10 +809,6 @@
         <button class="big green sm" id="addDestBtn" style="margin-bottom:0"><span class="em">＋</span><span>Add customer</span></button>
       </div>
 
-      <div id="pushWrap" style="display:none">
-        <div class="sectitle">Notifications</div>
-        <div id="pushBox"></div>
-      </div>
 
       <div class="card-add">
         <div class="ca-h">Add a new tanker</div>
@@ -793,6 +826,8 @@
       <div class="sectitle" style="color:var(--red-d)">Danger zone</div>
       <div class="note" style="text-align:left;margin:0 2px 10px">Clearing removes <b>all</b> loading &amp; sale records (this also empties every tanker). The tankers themselves are kept.</div>
       <button class="big red" id="clearBtn"><span class="em">🗑</span><span>Clear all records</span></button>
+
+      </div><!-- /adm -->
 
       <div class="note" style="margin:18px 2px 0;opacity:.7">App build <b id="buildTag">—</b></div>
     </section>
@@ -947,7 +982,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v19 · 2026-10-04";
+const APP_BUILD = "v20 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1034,6 +1069,24 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;"
 let LOG = [];        // [{id, ts, plate, kind:'load'|'dispatch', chambers:[{name,qty}], total, by, remark}]
 let CLOSES = [];     // [{date:'YYYY-MM-DD', ts}] End-Day closes, sorted by ts asc
 let ME = "";         // signed-in username (cloud mode)
+/* Role (cloud): "admin" sees and does everything; "staff" may only add
+   loadings, send tankers for sale and see the 7-day history. The database
+   enforces the same rules; this only decides what the phone shows. "legacy" =
+   the database hasn't been updated with roles yet, so nothing changes. */
+let ROLE = CLOUD ? null : "admin";
+let ADMINS = 1;
+function isAdmin(){ return !CLOUD || ROLE==="admin" || ROLE==="legacy"; }
+function applyRole(){
+  const staff=!isAdmin();
+  document.body.classList.toggle("staff", staff);
+  $("#toSettings").textContent = staff ? "🔔 Notifications" : "⚙ Manage tankers & data";
+  $("#setTitle").textContent = staff ? "Notifications" : "Manage tankers & data";
+  $("#noAdminNote").style.display = (CLOUD && ROLE && ROLE!=="legacy" && ADMINS===0) ? "" : "none";
+  // a staff phone sitting on an admin screen (e.g. role just changed) goes home
+  const cur=stack[stack.length-1];
+  if(staff && ["scReport","scLog","scTrips","scMileage","scTrend"].indexOf(cur)!==-1) goHome();
+}
+function adminOnly(){ if(isAdmin()) return true; toast("Admin only"); return false; }
 
 /* ---------- Backends ---------- */
 const LS_KEY = "vf_loading_log_v1";
@@ -1135,7 +1188,20 @@ const LocalBackend = {
 
 const CloudBackend = {
   cloud:true, client:null,
-  rpc(name,args){ return this.client.rpc(name,args).then(r=>{ if(r.error) throw new Error(r.error.message||"Network error"); return r.data; }); },
+  rpc(name,args){ return this.client.rpc(name,args).then(r=>{
+    if(r.error){ const m=r.error.message||"Network error"; if(/^SIGNED_OUT/.test(m)) forceSignOut(); throw new Error(m.replace(/^SIGNED_OUT:\s*/,"")); }
+    return r.data; }); },
+  // role + whether this session is still allowed (not logged out by the admin)
+  whoami(){
+    return this.client.rpc("loading_whoami").then(r=>{
+      if(r.error){
+        // database not updated with roles yet → behave exactly as before
+        if(/loading_whoami|schema cache|does not exist|Could not find|PGRST20|42883/i.test(r.error.message||"")) return { role:"legacy", ok:true, admins:1 };
+        throw new Error(r.error.message);
+      }
+      return r.data || { role:"staff", ok:true, admins:1 };
+    });
+  },
   load(){
     // RLS already restricts to the last 7 days; ask oldest-first for display.
     return this.client.from("loading_events").select("*").order("created_at",{ascending:true}).then(r=>{
@@ -1233,8 +1299,13 @@ function refresh(){
   // The customer list must never take the app down: until the updated schema
   // is run in Supabase that table doesn't exist, so fall back to the seed copy.
   const dests=Backend.loadDests().catch(()=>null);
-  const sets=Backend.loadSettings().catch(()=>null);
-  return Promise.all([Backend.load(), Backend.loadVehicles(), Backend.loadCloses(), dests, sets]).then(r=>{
+  const sets=Backend.loadSettings().catch(()=>null);   // admin-only table; staff get the defaults
+  const who = Backend===CloudBackend ? CloudBackend.whoami() : Promise.resolve({ role:"admin", ok:true, admins:1 });
+  return who.then(w=>{
+    if(!w.ok){ forceSignOut(); throw new Error("You were signed out by the admin — please sign in again"); }
+    ROLE=w.role; ADMINS=+w.admins||0; applyRole();
+    return Promise.all([Backend.load(), Backend.loadVehicles(), Backend.loadCloses(), dests, sets]);
+  }).then(r=>{
     SETTINGS_FALLBACK = r[4]==null;
     SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
     if(r[4]) Object.keys(DEFAULT_SETTINGS).forEach(k=>{ const v=+r[4][k]; if(v>0) SETTINGS[k]=v; });
@@ -1468,7 +1539,9 @@ function renderHome(){
     ? "Shared live tankers — every employee sees the same fill. History kept for the last 7 days."
     : (LOG.length ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup." : "");
   const sr=$("#signRow");
-  if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
+  if(CLOUD && ME){ sr.style.display="";
+    const rb = ROLE==="admin" ? '<span class="rolebadge admin">Admin</span>' : ROLE==="staff" ? '<span class="rolebadge staff">Staff</span>' : '';
+    sr.innerHTML='Signed in as <b>'+esc(ME)+'</b>'+rb+' · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
   else sr.style.display="none";
 }
 function renderEndDay(){
@@ -1773,13 +1846,13 @@ function renderHist(){
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
             +'<div class="mid"><div class="ch dtag">🚚 Sent for sale'+sold+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
             +'<span class="tot">'+fmt(e.total)+' L</span>'
-            +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
+            +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
         }
         const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
         return '<div class="entry"><span class="plate">'+e.plate+'</span>'
           +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
           +'<span class="tot">+'+fmt(e.total)+' L</span>'
-          +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
+          +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
       }).join("")
       +'</div>';
   }).join("");
@@ -1816,6 +1889,7 @@ function rangeEvents(){
 }
 function minEffDate(){ let m=null; LOG.forEach(e=>{ const d=effDate(e); if(m===null||d<m) m=d; }); return m||todayStr(); }
 function openReport(){
+  if(!adminOnly()) return;
   $("#repFrom").value = minEffDate();
   $("#repTo").value = todayStr();
   setPreset("all");
@@ -1985,7 +2059,7 @@ function renderSettings(){
   box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
   const bt=$("#buildTag"); if(bt) bt.textContent=APP_BUILD;
-  renderDests();
+  if(isAdmin()){ renderDests(); renderStaff(); }
   renderPushBox();
 }
 
@@ -2246,7 +2320,7 @@ function isExcluded(p){ const k=plateKey(p); return TRIP_EXCLUDE.some(x=>plateKe
 function destOf(name){ const n=String(name||"").trim().toLowerCase(); return n ? DESTS.find(d=>d.name.trim().toLowerCase()===n) : null; }
 function tripKm(t){ const d=destOf(t.dest); return d ? d.rtd : 0; }
 const tripRange = makeRange({ prev:"#trPrev", next:"#trNext", label:"#trMonth", from:"#trFrom", to:"#trTo" }, ()=>loadTripReport());
-function openTrips(){ tripOpen=new Set(); show("scTrips"); tripRange.thisMonth(); }
+function openTrips(){ if(!adminOnly()) return; tripOpen=new Set(); show("scTrips"); tripRange.thisMonth(); }
 function loadTripReport(){
   const f=$("#trFrom").value, t=$("#trTo").value; if(!f || !t) return;
   const seq=++tripSeq;
@@ -2448,6 +2522,7 @@ function intervalKV(o, meter){
   return h;
 }
 function openMileage(){
+  if(!adminOnly()) return;
   const ps=mlPlates();
   if(!mlPlate || ps.indexOf(mlPlate)===-1) mlPlate=ps[0]||"";
   show("scMileage");
@@ -2891,6 +2966,7 @@ function hbarChart(host, rows, opt){
 let tdPlate="", tdMonths=6;
 function addMonthsKey(key, n){ const p=key.split("-").map(Number); const d=new Date(p[0], p[1]-1+n, p[2]); return dayKey(d.getTime()); }
 function openTrend(){
+  if(!adminOnly()) return;
   show("scTrend");
   setTdPreset(6);
   if(!FUEL.length && !FUEL_ERR) loadMileage();
@@ -3068,7 +3144,7 @@ window.addEventListener("resize",()=>{ clearTimeout(vzResizeT); vzResizeT=setTim
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 $("#toReport").onclick=openReport;
 $("#toReport2").onclick=openReport;
-$("#toLog").onclick=()=>{ renderLog(); show("scLog"); };
+$("#toLog").onclick=()=>{ if(!adminOnly()) return; renderLog(); show("scLog"); };
 $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
 $("#toTrips").onclick=openTrips;
 $("#toMileage").onclick=openMileage;
@@ -3371,6 +3447,10 @@ function subscribeRealtime(){
     if(cur==="scTrips") loadTripReport(); else if(cur==="scMileage" || cur==="scTrend") loadMileage();
     else if(cur==="scSettings") renderDests();
   }).catch(()=>{}); }, 350); };
+  // the admin's "log out all staff" lands here instantly on every phone
+  CloudBackend.client.channel("loading-live-auth")
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_auth_state"},()=>checkSession())
+    .subscribe();
   CloudBackend.client.channel("loading-live-trips")
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_trips"},poke2)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_destinations"},poke2)
@@ -3378,6 +3458,97 @@ function subscribeRealtime(){
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_settings"},poke2)
     .subscribe();
 }
+
+/* ---------- Forced sign-out (admin pressed "Log out all staff devices") ----------
+   The database refuses this phone's old session; drop it locally and show the
+   sign-in screen. Only this phone's copy of the session is cleared. */
+let forcingOut=false;
+function forceSignOut(){
+  if(forcingOut || !CloudBackend.client) return;
+  forcingOut=true;
+  const done=()=>{ forcingOut=false; LOG=[]; VEHICLES=[]; ME=""; ROLE=null; goHome(); showLogin();
+    loginError("You were signed out by the admin. Please sign in again."); };
+  CloudBackend.client.auth.signOut({ scope:"local" }).then(done, done);
+}
+// Re-ask the database whether this session is still allowed.
+function checkSession(){
+  if(Backend!==CloudBackend || !ME) return;
+  CloudBackend.whoami().then(w=>{
+    if(!w.ok) return forceSignOut();
+    const was=ROLE; ROLE=w.role; ADMINS=+w.admins||0; applyRole();
+    if(was!==ROLE) refresh().then(rerenderCurrent).catch(()=>{});
+  }).catch(()=>{});
+}
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkSession(); });
+
+/* ---------- Staff logins (admin, cloud) ----------
+   Passwords can only be changed with Supabase's service key, so the phone asks
+   the loading-admin edge function, which checks that the caller is an admin. */
+function adminFn(action, body){
+  return CloudBackend.client.auth.getSession().then(res=>{
+    const tok=res && res.data && res.data.session && res.data.session.access_token;
+    if(!tok) throw new Error("Not signed in");
+    return fetch(String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-admin", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+tok, "apikey":CFG.SUPABASE_ANON_KEY },
+      body:JSON.stringify(Object.assign({ action:action }, body||{})),
+    });
+  }).then(r=>r.json().catch(()=>({})).then(j=>{
+    if(r.status===404) throw new Error("Deploy the loading-admin edge function first (see README)");
+    if(!r.ok || j.error) throw new Error(j.error || ("Error "+r.status));
+    if(j.warning) toast(j.warning);
+    return j;
+  }));
+}
+let USERS=null;
+function renderStaff(){
+  const wrap=$("#staffWrap"); if(!wrap) return;
+  wrap.style.display = (CLOUD && ROLE && ROLE!=="legacy") ? "" : "none";
+  if(wrap.style.display==="none") return;
+  $("#meRole").innerHTML='you: <b>'+esc(ME)+'</b><span class="rolebadge admin">Admin</span>';
+  const box=$("#userList");
+  if(!USERS){ box.innerHTML='<div class="empty">Loading logins…</div>';
+    adminFn("list").then(j=>{ USERS=j.users||[]; renderStaff(); }).catch(e=>{ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(e.message)+'</div>'; });
+    return; }
+  box.innerHTML = USERS.length ? USERS.map(u=>
+    '<div class="entry urow"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:800">'+esc(u.username)
+    +'<span class="rolebadge '+(u.role==="admin"?'admin':'staff')+'">'+(u.role==="admin"?'Admin':'Staff')+'</span></div>'
+    +'<div class="tm">'+(u.last_sign_in_at?'last sign-in '+dmy(dayKey(Date.parse(u.last_sign_in_at)))+' '+timeLabel(Date.parse(u.last_sign_in_at)):'never signed in')+'</div></div>'
+    +'<div class="ub"><button type="button" data-pw="'+esc(u.id)+'">🔑 Password</button>'
+    +(u.email!==(ME.indexOf("@")===-1?ME+"@vriddhi.local":ME).toLowerCase()
+      ? '<button type="button" data-role="'+esc(u.email)+'" data-to="'+(u.role==="admin"?"staff":"admin")+'">'+(u.role==="admin"?'Make staff':'Make admin')+'</button>' : '')
+    +'</div></div>').join("") : '<div class="empty">No logins found.</div>';
+  box.querySelectorAll("[data-pw]").forEach(b=>{ b.onclick=()=>changePassword(USERS.find(u=>u.id===b.getAttribute("data-pw"))); });
+  box.querySelectorAll("[data-role]").forEach(b=>{ b.onclick=()=>{
+    const email=b.getAttribute("data-role"), to=b.getAttribute("data-to");
+    if(!confirm((to==="admin"?"Give ":"Remove ")+email.split("@")[0]+(to==="admin"?" ADMIN access (everything, incl. mileage and passwords)?":" admin access (staff only)?"))) return;
+    adminFn("set_role",{ email:email, role:to }).then(()=>{ USERS=null; toast("Updated"); renderStaff(); }).catch(e=>toast(e.message));
+  }; });
+}
+function changePassword(u){
+  if(!u) return;
+  const p1=prompt("New password for "+u.username+" (at least 6 characters):"); if(p1==null) return;
+  if(p1.length<6){ toast("At least 6 characters"); return; }
+  const p2=prompt("Type the new password again:"); if(p2==null) return;
+  if(p1!==p2){ toast("The two passwords don't match"); return; }
+  const out=confirm("Password for "+u.username+" will be changed.\n\nAlso log out ALL staff phones now, so everyone must sign in again?\n\nOK = change & log out staff · Cancel = just change it");
+  adminFn("set_password",{ user_id:u.id, password:p1, logout:out }).then(()=>{
+    toast("✓ Password changed"+(out?" — staff phones logged out":"")); }).catch(e=>toast(e.message));
+}
+$("#logoutAllBtn").onclick=()=>{
+  if(!confirm("Log out ALL staff phones now?\n\nEvery staff member must sign in again. Admin phones stay signed in.")) return;
+  CloudBackend.rpc("loading_logout_staff",{}).then(()=>toast("✓ All staff devices logged out")).catch(e=>toast(dbHint(e)));
+};
+$("#nuBtn").onclick=()=>{
+  const u=$("#nuUser").value.trim().toLowerCase(), p=$("#nuPass").value, role=$("#nuRole").value;
+  if(!/^[a-z0-9._-]{3,}$/.test(u)){ toast("Username: 3+ letters/numbers, no spaces"); return; }
+  if(p.length<6){ toast("Password: at least 6 characters"); return; }
+  const btn=$("#nuBtn"); btn.disabled=true;
+  adminFn("create",{ username:u, password:p, role:role }).then(()=>{
+    btn.disabled=false; $("#nuUser").value=""; $("#nuPass").value=""; $("#nuRole").value="staff"; USERS=null;
+    toast("✓ Login "+u+" added"); renderStaff();
+  }).catch(e=>{ btn.disabled=false; toast(e.message); });
+};
 
 /* ---------- Login / session (cloud) ---------- */
 function showLogin(){ $("#login").classList.add("on"); }
@@ -3402,7 +3573,7 @@ function signOut(){
   if(!confirm("Sign out of this phone?")) return;
   // Detach this phone's push subscription first (the RPC needs the session),
   // so a signed-out phone stops receiving this employee's alerts.
-  const done=()=>CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; goHome(); showLogin(); });
+  const done=()=>CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; ROLE=null; USERS=null; goHome(); showLogin(); });
   if(!pushConfigured() || !pushSupported()) return done();
   navigator.serviceWorker.ready
     .then(reg=>reg.pushManager.getSubscription())
@@ -3436,6 +3607,7 @@ $("#installBtn").onclick=async()=>{ if(!deferredPrompt) return; deferredPrompt.p
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
 
 function boot(){
+  applyRole();          // cloud: staff view until the database says otherwise
   if(!CLOUD){
     Backend=LocalBackend;
     LocalBackend.closeDue().then(refresh).then(()=>{ renderHome(); }).catch(oops);

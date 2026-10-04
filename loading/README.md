@@ -126,6 +126,72 @@ Every signed-in employee has equal rights (add / delete / export). The anon key
 alone can read or write nothing — access is gated by sign-in and Row Level
 Security, and all writes go through server functions.
 
+## Admin & staff logins
+
+Every login is either **Admin** or **Staff**. The database enforces it — a staff
+phone can't get round it by any button or by calling the server directly.
+
+| | Staff | Admin |
+|---|---|---|
+| Add diesel (loadings), 🚚 Sent for sale | ✓ | ✓ |
+| History — last 7 days, view only | ✓ | ✓ (+ delete) |
+| End Day (5:30–7:30 AM), notifications on/off for their phone | ✓ | ✓ |
+| Reports & Excel, chamber log, 🚚 Trips per tanker, ⛽ Mileage, 📈 Trends | — | ✓ |
+| Edit / delete anything: records, tankers, chambers, customers, settings, Clear all | — | ✓ |
+| Staff logins: change passwords, add logins, make admin, log out all staff | — | ✓ |
+
+Any login not marked admin is staff. A staff phone shows only the tankers,
+Recent / History and a 🔔 Notifications page; the signed-in line shows
+**Admin** or **Staff**.
+
+### One-time setup (Supabase dashboard of the loading project)
+
+1. **SQL Editor** → run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql) (safe to re-run).
+2. **Make yourself admin** — in the SQL Editor run, with your own username:
+
+   ```sql
+   insert into public.loading_roles (email, role)
+   values ('yourusername@vriddhi.local', 'admin')
+   on conflict (email) do update set role = 'admin';
+   ```
+
+   Until an admin exists, everyone is treated as staff and the home screen says
+   *“No admin login is set up yet”*.
+3. **Edge Functions → Deploy a new function** named `loading-admin`, pasting
+   [`../supabase/functions/loading-admin/index.ts`](../supabase/functions/loading-admin/index.ts)
+   (or `supabase functions deploy loading-admin`). No secrets needed. This is
+   what lets the app change passwords and add logins.
+4. Sign out and back in on your phone — you'll see **Admin** next to your name.
+
+### Changing the logins (in the app, as admin)
+
+**⚙ Manage tankers & data → Staff logins** lists every login with its role and
+last sign-in.
+
+- **Change a password** — tap **🔑 Password** next to the login, type the new
+  password twice (6+ characters). You're then asked whether to **also log out
+  all staff phones** — say OK so nobody stays signed in with the old password.
+- **Log out all staff devices** — the red button. Every staff phone drops to the
+  sign-in screen straight away (*“You were signed out by the admin”*) and must
+  sign in again. Admin phones stay signed in.
+- **Add a login** — username + password + Staff/Admin → **Add login**. Staff
+  sign in with just the username and password.
+- **Make admin / Make staff** — switch a login's access (you can't remove your
+  own admin access).
+- **Remove a login completely** — Supabase dashboard → **Authentication →
+  Users** → delete the user (then press *Log out all staff devices*).
+
+Changing a password alone doesn't end sessions that are already signed in —
+that's why the app offers to log out all staff at the same time.
+
+How the logout works: the admin's button stamps a *staff sign-out time*
+(`loading_auth_state`). Any staff session that signed in before it is refused
+by every read and write, and each phone notices instantly (realtime) and shows
+the sign-in screen.
+
+> Before step 1 is done the app behaves exactly as before (everyone can do
+> everything); the roles start applying the moment the schema is updated.
+
 ## Notifications (optional)
 
 Every signed-in employee can get a push alert **on their own phone** when a
