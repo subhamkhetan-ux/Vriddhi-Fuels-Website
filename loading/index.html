@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
 <script src="./config.js"></script>
 <style>
   /* ===== Light glassmorphism — the Decanting app's frosted-glass language
@@ -67,9 +67,11 @@
   /* Header — orange glass, as in the Decanting app */
   header{
     position:sticky;top:0;z-index:10;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;
-    background:linear-gradient(135deg,rgba(244,81,30,.88),rgba(255,138,43,.74));
-    backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
-    border-bottom:1px solid rgba(255,255,255,.35);box-shadow:0 12px 30px -16px rgba(244,81,30,.75);
+    background:
+      radial-gradient(120% 160% at 100% 0%, rgba(255,214,150,.55) 0%, rgba(255,214,150,0) 46%),
+      radial-gradient(80% 140% at 0% 100%, rgba(170,30,0,.28) 0%, rgba(170,30,0,0) 55%),
+      linear-gradient(135deg,#E5420E 0%,#F7651C 48%,#FF9A3C 100%);
+    border-bottom:1px solid rgba(255,255,255,.28);box-shadow:0 10px 28px -14px rgba(229,66,14,.8);
   }
   header img{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.95);object-fit:contain;padding:3px;box-shadow:0 4px 12px -4px rgba(120,30,0,.45)}
   header .t{font-family:var(--display);font-size:18px;font-weight:700;letter-spacing:.2px;line-height:1.1;text-shadow:0 1px 2px rgba(120,30,0,.3)}
@@ -438,7 +440,10 @@
 
   /* ===== iOS layout layer (type: the Decanting app's Sora / Plex Mono) ===== */
   body{font-size:16px}
-  header .t{letter-spacing:-.015em}
+  header .t{font-size:19.5px;font-weight:800;letter-spacing:-.01em;text-shadow:0 1px 2px rgba(110,25,0,.35)}
+  header .s{opacity:.92;font-weight:500}
+  header img{border-radius:13px;box-shadow:0 6px 16px -6px rgba(110,25,0,.6),0 0 0 1px rgba(255,255,255,.6)}
+  .back{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.5)}
   /* iOS large title on every screen */
   .ltitle{font-family:var(--display);font-size:28px;font-weight:700;letter-spacing:-.015em;line-height:1.12;color:var(--ink);margin:4px 4px 16px}
   /* grouped-list section headers */
@@ -448,10 +453,30 @@
   /* big numbers: tight tracking; number plates: tabular figures */
   .stat .num,.mini .n,.tile .tn,.kv.hl b,.trcard .trn b,.sumrow b,.lr .left b{letter-spacing:-.01em}
   .plate,.tcard .pl,.vhead .pl,.confbox .cp,.chips button,.flag .plate{font-variant-numeric:tabular-nums}
-  /* tanker numbers: bold and easy to read at a glance */
-  .tcard .pl{font-family:var(--display);font-size:22px;font-weight:800;letter-spacing:.01em;color:#141a2a}
-  .vhead .pl,.confbox .cp{font-family:var(--display);font-weight:800;letter-spacing:.02em}
-  .plate,.entry .plate,.flag .plate{font-weight:700;letter-spacing:.04em}
+  /* tanker numbers styled as Indian HSRP plates: white plate, black rim,
+     blue IND strip, bold characters */
+  .tcard .pl,.vhead .pl,.confbox .cp{
+    display:inline-flex;align-items:center;position:relative;white-space:nowrap;
+    font-family:var(--display);font-weight:800;font-size:17px;letter-spacing:.06em;color:#0f1320;line-height:1.2;
+    background:linear-gradient(180deg,#ffffff 0%,#f1f3f7 100%);border:2px solid #10141f;border-radius:8px;
+    padding:4px 10px 4px 29px;
+    box-shadow:0 1px 0 rgba(255,255,255,.95) inset,0 0 0 1px rgba(255,255,255,.7),0 5px 12px -5px rgba(16,20,31,.4)}
+  .tcard .pl::before,.vhead .pl::before,.confbox .cp::before{
+    content:"IND";position:absolute;left:3px;top:3px;bottom:3px;width:19px;border-radius:4px;
+    background:radial-gradient(circle at 50% 34%,#cfe0ff 0 2.6px,transparent 3.2px),linear-gradient(180deg,#2f63d6,#1b43a3);
+    color:#fff;font:700 6.5px/1 var(--text);letter-spacing:.02em;display:flex;align-items:flex-end;justify-content:center;padding-bottom:3px}
+  .vhead .pl{font-size:20px;margin:2px auto 6px}
+  .confbox .cp{font-size:20px;margin:0 auto 6px}
+  .tcard .th{flex-wrap:wrap;row-gap:8px}
+  .tcard .badge2{margin-left:auto}
+  .confbox{text-align:center}
+  .confbox .ct,.confbox .cline{text-align:initial}
+  /* the small plates in lists: a mini plate with the blue edge */
+  .plate,.entry .plate,.flag .plate,.trcard .plate{
+    font-family:var(--display);font-weight:800;font-size:12px;letter-spacing:.05em;color:#0f1320;
+    background:linear-gradient(180deg,#fff,#f1f3f7);border:1.5px solid #10141f;border-left:6px solid #2353c4;border-radius:6px;padding:4px 7px;
+    box-shadow:0 3px 8px -4px rgba(16,20,31,.35)}
+  .entry.disp .plate,.logrow.disp .plate{background:linear-gradient(180deg,#fff,#f1f3f7)}
   .chips button{font-weight:700;letter-spacing:.03em}
   /* buttons: SF-style semibold, gentle press */
   .big{font-size:17px;font-weight:600;letter-spacing:0;border-radius:16px;padding:17px 18px;transition:transform .12s ease,box-shadow .2s ease}
@@ -468,7 +493,7 @@
   .glist>.entry,.glist>.logrow{background:transparent;border:0;border-radius:0;box-shadow:none;margin:0;position:relative}
   .glist>.entry.disp,.glist>.logrow.disp{background:rgba(255,138,43,.07)}
   .glist .entry .tm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .glist .entry .plate{font-size:13px;padding:5px 7px}
+
   .glist>*+*::before{content:"";position:absolute;left:16px;right:0;top:0;height:1px;background:rgba(60,60,67,.16);transform:scaleY(.5);transform-origin:top}
   /* header status pill (as in the Decanting app) */
   .pill{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.2);color:#fff;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;flex:none}
@@ -491,9 +516,10 @@
   .tcard .tsub{font-size:14px;color:#4a5266;margin-top:6px;font-weight:600}
   .tcard .tsub b{font-family:var(--display);font-size:18px;font-weight:800;color:#141a2a;letter-spacing:-.01em}
   .tcard .tsub2{font-size:12.5px;color:var(--faint);margin-top:4px;font-weight:600;line-height:1.45}
-  .dispatch{font-weight:700;padding:13px;border-top:1px solid rgba(27,33,48,.07);background:rgba(255,248,242,.85)}
-  /* business-day total */
-  .stat{padding:18px 16px}
+  .dispatch{font-weight:700;padding:13px;border-top:1px solid rgba(229,66,14,.12);background:linear-gradient(180deg,rgba(255,246,238,.9),rgba(255,239,226,.9));color:#d4500f}
+  /* business-day total — with a thin brand accent along the top */
+  .stat{padding:18px 16px;position:relative;overflow:hidden}
+  .stat::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#E5420E,#FF9A3C 60%,#FFC37A)}
   .stat .label{font-weight:700;color:#6b7284}
   .stat .num{font-size:46px;font-weight:800;color:#141a2a;letter-spacing:-.02em}
   .stat .num small{font-size:20px;font-weight:800}
@@ -501,8 +527,10 @@
   .entry .tot,.logrow .lq,.mlrow .mk,.mini .n,.tile .tn,.trcard .trn b,.kv.hl b,.lr .left b,.sumrow b{font-weight:800}
   .entry .ch{color:#4a5266;font-weight:600}
   .sectitle{color:#6b7284}
-  /* glass buttons a touch brighter */
+  /* glass buttons a touch brighter, their icon in a soft brand tile */
   .big.glass{background:rgba(255,255,255,.86);font-weight:700}
+  .big.glass .em{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:20px;
+    background:linear-gradient(140deg,#FFF3EA,#FFDCC2);box-shadow:inset 0 0 0 1px rgba(229,66,14,.12)}
   .big{font-weight:700}
 
   /* each tanker's own diesel */
@@ -541,20 +569,29 @@
      exactly at any card size. */
   .tanksvg{width:100%;height:auto;display:block;margin-top:-8.75%;transition:margin-top .35s ease}
   .tanksvg.pouring{margin-top:0}
-  .tanksvg .body{fill:url(#tkBody);stroke:#33477a;stroke-width:1.6}
-  .tanksvg .cab,.tanksvg .chassis{fill:#1c2f5e}
-  .tanksvg .win{fill:#8fd2ea;opacity:.85}
-  .tanksvg .tyre{fill:#101b33}
-  .tanksvg .hub{fill:#6d7c9c}
-  .tanksvg .filler{fill:#33477a}
+  .tanksvg .body{fill:#f4f4f2}
+  .tanksvg .body-line{fill:none;stroke:rgba(0,0,0,.18);stroke-width:1.2}
+  .tanksvg .band-n{fill:#1e3a8a}
+  .tanksvg .band-o{fill:#ef6a28}
+  .tanksvg .band-y{fill:#f5c02a}
+  .tanksvg .livery{fill:#fff;font-family:var(--display);font-size:4.8px;font-weight:700;letter-spacing:.16em;text-anchor:middle}
+  .tanksvg .glass{fill:#20262c;stroke:#8d969e;stroke-width:1}
+  .tanksvg .cab{fill:#1e3a8a}
+  .tanksvg .cabw{fill:#f4f4f2}
+  .tanksvg .cabs{fill:#f36a21}
+  .tanksvg .win{fill:#9fb3c8;opacity:.9}
+  .tanksvg .bump,.tanksvg .chassis{fill:#86c5de}
+  .tanksvg .tbox{fill:#a8b0b8;stroke:#6d757d;stroke-width:.8}
+  .tanksvg .tyre{fill:#1b1b1b}
+  .tanksvg .hub{fill:#b9bfc6}
+  .tanksvg .filler{fill:#59616a}
   .tanksvg .lq{transition:y .8s cubic-bezier(.34,1.2,.4,1),height .8s cubic-bezier(.34,1.2,.4,1)}
   .tanksvg .lq.have{fill:url(#tkLq)}
   .tanksvg .lq.add{fill:url(#tkAdd)}
   .tanksvg .lq.over{fill:url(#tkOver)}
-  .tanksvg .baffle{stroke:#4a63a0;stroke-width:1.6;opacity:.95}
-  .tanksvg .rim{fill:none;stroke:#5f7ec2;stroke-width:1.2;opacity:.5}
-  .tanksvg .cnum{fill:#fff;font-size:14px;font-weight:700;text-anchor:middle;
-    paint-order:stroke;stroke:#101b33;stroke-width:3.5px;stroke-linejoin:round}
+  .tanksvg .baffle{stroke:#000;stroke-opacity:.16;stroke-width:1}
+  .tanksvg .cnum{fill:#fff;font-family:var(--display);font-size:7.4px;font-weight:800;text-anchor:middle}
+  .tanksvg .ccap{font-size:5.4px;font-weight:600;opacity:.9}
   .tanksvg .seghl{fill:none;stroke:var(--amber);stroke-width:0;rx:4}
   .tanksvg .seghl.pour{stroke:#8ff0c6;stroke-width:2.5;animation:segpulse 1.5s ease-in-out infinite}
   /* .on last: the chamber the keyboard is in keeps its amber ring even while pouring */
@@ -588,13 +625,11 @@
   @keyframes pourflow{from{stroke-dashoffset:0}to{stroke-dashoffset:-11}}
   @keyframes nzbob{0%,100%{transform:translateY(0)}50%{transform:translateY(1.2px)}}
   @keyframes nzdrop{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
-  .tanksvg .sheen{fill:url(#tkSheen);animation:tksheen 4.2s ease-in-out infinite}
-  @keyframes tksheen{0%{transform:translateX(-45%)}60%,100%{transform:translateX(120%)}}
+
   /* on the dark add-screen header the tank needs a lighter edge to read */
-  .vhead .tanksvg .body{stroke:#6c8ad0}
-  .vhead .tanksvg .chassis,.vhead .tanksvg .cab{fill:#0d1730}
+  .vhead .tanksvg .body-line{stroke:rgba(255,255,255,.35)}
   .vhead .tankwrap{margin:0 0 6px}
-  .tcard.full .tanksvg .body{stroke:var(--green)}
+  .tcard.full .tanksvg .body-line{stroke:var(--green);stroke-width:1.6}
   .tcard.full .tankwrap{animation:tkglow 2.6s ease-in-out infinite}
   @keyframes tkglow{0%,100%{filter:drop-shadow(0 0 0 rgba(31,157,85,0))}
     50%{filter:drop-shadow(0 0 7px rgba(31,157,85,.6))}}
@@ -605,7 +640,7 @@
   @keyframes badgepulse{0%,100%{box-shadow:0 0 0 0 rgba(31,157,85,.5)}50%{box-shadow:0 0 0 7px rgba(31,157,85,0)}}
   @media (prefers-reduced-motion: reduce){
     .tanksvg .lq{transition:none}
-    .tanksvg .sheen,.tcard.full .tankwrap,.tcard.full .badge2,.tanksvg .seghl.on,
+    .tcard.full .tankwrap,.tcard.full .badge2,.tanksvg .seghl.on,
     .tanksvg .seghl.pour,.tanksvg .nz.on .pourdrops,
     .tanksvg .nz.on .pourg,.tanksvg.pouring .pourin{animation:none}
     /* the nozzles still show which chambers are filling — they just hold still */
@@ -1008,14 +1043,12 @@
 <!-- Shared gradients / clip for every tanker graphic (defined once) -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
   <clipPath id="tkClip"><rect x="52" y="10" width="262" height="54" rx="10"/></clipPath>
-  <linearGradient id="tkBody" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#31456f"/><stop offset="0.5" stop-color="#22335c"/><stop offset="1" stop-color="#16233f"/>
-  </linearGradient>
+  <!-- diesel = HSD blue, as in the Decanting app -->
   <linearGradient id="tkLq" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#5fe39b"/><stop offset="1" stop-color="#1f9d55"/>
+    <stop offset="0" stop-color="#6fb0f5"/><stop offset="1" stop-color="#2a78d6"/>
   </linearGradient>
   <linearGradient id="tkAdd" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#d6fff0"/><stop offset="1" stop-color="#8ff0c6"/>
+    <stop offset="0" stop-color="#eef6ff"/><stop offset="1" stop-color="#a9cfff"/>
   </linearGradient>
   <linearGradient id="tkOver" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="#ff8f8f"/><stop offset="1" stop-color="#d64545"/>
@@ -1024,9 +1057,6 @@
        makes an objectBoundingBox gradient paint nothing at all. -->
   <linearGradient id="tkJet" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="15">
     <stop offset="0" stop-color="#d6fff0"/><stop offset="0.45" stop-color="#8ff0c6"/><stop offset="1" stop-color="#3fbf7a"/>
-  </linearGradient>
-  <linearGradient id="tkSheen" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.30"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
   </linearGradient>
 </defs></svg>
 
@@ -1086,7 +1116,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v23 · 2026-10-04";
+const APP_BUILD = "v24 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1163,6 +1193,11 @@ function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("sh
 function oops(e){ toast((e && e.message) || "Something went wrong — try again"); }
 function vehicleOf(plate){ return VEHICLES.find(v=>v.plate===plate); }
 function localId(){ return Date.now()+"-"+Math.random().toString(36).slice(2,7); }
+// "OR15R1110" -> "OR 15 R 1110", the way it is printed on the plate
+function fmtPlate(p){
+  const m=String(p||"").toUpperCase().replace(/\s+/g,"").match(/^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{1,4})$/);
+  return m ? [m[1],m[2],m[3],m[4]].filter(Boolean).join(" ") : String(p||"");
+}
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 /* ---------- Data (in-memory cache of loading events) ----------
@@ -1574,49 +1609,70 @@ function nozzlesSVG(caps){
       +'</g></g></g>';
   }).join("");
 }
+/* The Decanting app's tanker livery: navy band on top (our name and the
+   capacity), white body, orange band with a yellow pinstripe (the chamber
+   numbers), navy cab with a white lower half and light-blue trim — and, as
+   there, a sight glass per chamber showing its diesel (HSD blue) level. */
+// the sight glasses take most of the body: between the (slim) navy band and orange band
+const GL={top:19,bottom:50.5};
+let tkSeq=0;
 function tankerSVG(caps){
-  const boxes=chamberBoxes(caps);
-  const bot=TK.y+TK.h;
-  let liquids="", baffles="", labels="", fillers="", segs="";
+  const boxes=chamberBoxes(caps), id="tkg"+(++tkSeq);
+  const bot=TK.y+TK.h, navyB=TK.y+7, orangeT=TK.y+43;
+  const capKL=Math.round(caps.reduce((a,c)=>a+(+c||0),0)/10)/100;
+  let glasses="", clips="", liquids="", baffles="", labels="", fillers="", segs="";
   caps.forEach((cap,i)=>{
-    const x=boxes[i].x, w=boxes[i].w;
-    liquids+='<rect class="lq have" x="'+f1(x)+'" width="'+f1(w)+'" y="'+bot+'" height="0"/>'
-            +'<rect class="lq add" x="'+f1(x)+'" width="'+f1(w)+'" y="'+bot+'" height="0"/>';
-    labels+='<text class="cnum" x="'+f1(x+w/2)+'" y="'+f1(TK.y+TK.h/2+5)+'">'+(i+1)+'</text>';
-    fillers+='<rect class="filler" x="'+f1(x+w/2-5)+'" y="'+(TK.y-4)+'" width="10" height="5" rx="2"/>';
+    const x=boxes[i].x, w=boxes[i].w, mid=x+w/2;
+    const gw=Math.max(w-8, 6), gx=mid-gw/2, gh=GL.bottom-GL.top;
+    clips+='<rect x="'+f1(gx)+'" y="'+GL.top+'" width="'+f1(gw)+'" height="'+gh+'" rx="4"/>';
+    glasses+='<rect class="glass" x="'+f1(gx)+'" y="'+GL.top+'" width="'+f1(gw)+'" height="'+gh+'" rx="4"/>';
+    liquids+='<rect class="lq have" x="'+f1(gx)+'" width="'+f1(gw)+'" y="'+GL.bottom+'" height="0"/>'
+            +'<rect class="lq add" x="'+f1(gx)+'" width="'+f1(gw)+'" y="'+GL.bottom+'" height="0"/>';
+    labels+='<text class="cnum" x="'+f1(mid)+'" y="'+f1(orangeT+8.2)+'">C'+(i+1)
+           +'<tspan class="ccap" dx="3">'+fmt(cap)+'</tspan></text>';
+    fillers+='<rect class="filler" x="'+f1(mid-6)+'" y="'+(TK.y-3.5)+'" width="12" height="4.5" rx="1.6"/>';
     segs+='<rect class="seghl" data-seg="'+i+'" x="'+f1(x+1.5)+'" y="'+(TK.y+1.5)+'" width="'+f1(Math.max(w-3,0))+'" height="'+(TK.h-3)+'"/>';
-    const edge=x+w;
-    if(i<caps.length-1) baffles+='<line class="baffle" x1="'+f1(edge)+'" y1="'+TK.y+'" x2="'+f1(edge)+'" y2="'+bot+'"/>';
+    if(i<caps.length-1) baffles+='<line class="baffle" x1="'+f1(x+w)+'" y1="'+navyB+'" x2="'+f1(x+w)+'" y2="'+bot+'"/>';
   });
   return '<svg class="tanksvg" viewBox="0 '+TK.TOP+' '+TK.W+' '+TK.H+'" role="img" aria-label="Tanker chambers">'
-    +'<rect class="chassis" x="14" y="66" width="292" height="7" rx="3"/>'
-    +'<path class="cab" d="M8 40 L26 40 L40 52 L40 68 L8 68 Z"/>'
-    +'<path class="win" d="M27 43 L36 52 L27 52 Z"/>'
+    +'<defs><clipPath id="'+id+'">'+clips+'</clipPath></defs>'
+    // chassis, tool box, cab
+    +'<rect class="chassis" x="44" y="'+bot+'" width="'+(TK.x+TK.w-44)+'" height="5"/>'
+    +'<rect class="tbox" x="'+(TK.x+8)+'" y="'+(bot+3)+'" width="56" height="8" rx="2"/>'
+    +'<rect class="cab" x="8" y="28" width="40" height="42" rx="6"/>'
+    +'<rect class="cabw" x="8" y="52" width="40" height="13"/>'
+    +'<rect class="cabs" x="11" y="31.5" width="34" height="2.6" rx="1"/>'
+    +'<rect class="win" x="11" y="36.5" width="34" height="12" rx="3"/>'
+    +'<rect class="bump" x="5" y="64" width="46" height="6" rx="2"/>'
     +fillers
     +nozzlesSVG(caps)
+    // the body: white, navy band on top, orange band with a yellow pinstripe
     +'<rect class="body" x="'+TK.x+'" y="'+TK.y+'" width="'+TK.w+'" height="'+TK.h+'" rx="10"/>'
-    +'<g clip-path="url(#tkClip)">'+liquids
-      +'<rect class="sheen" x="'+TK.x+'" y="'+TK.y+'" width="46" height="'+TK.h+'"/></g>'
-    +baffles
-    +'<rect class="rim" x="'+(TK.x+3)+'" y="'+(TK.y+3)+'" width="'+(TK.w-6)+'" height="'+(TK.h-6)+'" rx="7"/>'
+    +'<g clip-path="url(#tkClip)">'
+      +'<rect class="band-n" x="'+TK.x+'" y="'+TK.y+'" width="'+TK.w+'" height="'+(navyB-TK.y)+'"/>'
+      +'<rect class="band-o" x="'+TK.x+'" y="'+orangeT+'" width="'+TK.w+'" height="'+(bot-orangeT)+'"/>'
+      +'<rect class="band-y" x="'+TK.x+'" y="'+(orangeT-1)+'" width="'+TK.w+'" height="1.6"/>'
+      +baffles
+    +'</g>'
+    +'<text class="livery" x="'+(TK.x+TK.w/2)+'" y="'+(TK.y+5.1)+'">VRIDDHI FUELS · '+capKL+' KL</text>'
+    +glasses
+    +'<g clip-path="url(#'+id+')">'+liquids+'</g>'
+    +'<rect class="body-line" x="'+TK.x+'" y="'+TK.y+'" width="'+TK.w+'" height="'+TK.h+'" rx="10"/>'
     +labels+segs
     +'<g class="wheels">'
-      +'<circle class="tyre" cx="30" cy="79" r="10"/><circle class="hub" cx="30" cy="79" r="4"/>'
-      +'<circle class="tyre" cx="214" cy="79" r="10"/><circle class="hub" cx="214" cy="79" r="4"/>'
-      +'<circle class="tyre" cx="250" cy="79" r="10"/><circle class="hub" cx="250" cy="79" r="4"/>'
-      +'<circle class="tyre" cx="286" cy="79" r="10"/><circle class="hub" cx="286" cy="79" r="4"/>'
+      +[30,214,250,286].map(cx=>'<circle class="tyre" cx="'+cx+'" cy="79" r="10"/><circle class="hub" cx="'+cx+'" cy="79" r="4.2"/>').join("")
     +'</g></svg>';
 }
-// Set each chamber's liquid level; CSS transitions animate the change.
+// Set each chamber's level in its sight glass; CSS transitions animate it.
 function tankFill(svg, caps, cham, addArr){
   if(!svg) return;
   const haves=svg.querySelectorAll(".lq.have"), adds=svg.querySelectorAll(".lq.add");
-  const bot=TK.y+TK.h;
+  const bot=GL.bottom, H=GL.bottom-GL.top;
   caps.forEach((cap,i)=>{
     const c=+cap||0;
     const have=Math.max(0,+(cham&&cham[i]||0)), addv=Math.max(0,+(addArr&&addArr[i]||0));
     const hF=c>0?Math.min(have/c,1):0, tF=c>0?Math.min((have+addv)/c,1):0;
-    const hH=TK.h*hF, aH=TK.h*Math.max(tF-hF,0), over=(have+addv)>c+0.001;
+    const hH=H*hF, aH=H*Math.max(tF-hF,0), over=(have+addv)>c+0.001;
     const h=haves[i], a=adds[i];
     if(h){ h.setAttribute("y",f1(bot-hH)); h.setAttribute("height",f1(hH)); h.classList.toggle("over",over); }
     if(a){ a.setAttribute("y",f1(bot-hH-aH)); a.setAttribute("height",f1(aH)); a.classList.toggle("over",over); }
@@ -1746,7 +1802,7 @@ function renderTankers(){
                         : "Left to fill <b>"+fmt(left)+"</b> L";
     return '<div class="tcard'+(st.full?" full":"")+'" data-plate="'+v.plate+'">'
       +'<button class="tap" data-plate="'+v.plate+'">'
-      +'<div class="th"><span class="pl">'+v.plate+'</span><span class="badge2">'+badge+'</span></div>'
+      +'<div class="th"><span class="pl">'+esc(fmtPlate(v.plate))+'</span><span class="badge2">'+badge+'</span></div>'
       +'<div class="tankwrap">'+tankerSVG(st.caps)+'</div>'
       +'<div class="tsub">'+sub+'</div>'
       +(st.full?'':'<div class="tsub2">Left per chamber — '+perCh+' L</div>')
@@ -1886,7 +1942,7 @@ let tankReady=false;
 function startAdd(plate){
   const st=tankerState(plate);
   draft={ plate:plate, caps:st.caps.slice(), existing:st.cham.slice(), add:st.caps.map(()=>"") };
-  $("#qPlate").textContent=plate;
+  $("#qPlate").textContent=fmtPlate(plate);
   focusSeg=-1;
   tankReady=false;                                  // draw empty first…
   $("#addTank").innerHTML=tankerSVG(draft.caps);
@@ -1988,7 +2044,7 @@ function renderConfirm(){
     }
   });
   const after=r2(haveTotal()+addTotal());
-  $("#confBox").innerHTML='<div class="cp">'+draft.plate+'</div>'
+  $("#confBox").innerHTML='<div class="cp">'+esc(fmtPlate(draft.plate))+'</div>'
     +'<div class="ct">Adding now · '+timeLabel(Date.now())+(CLOUD&&ME?' · '+ME:'')+'</div>'
     +rows
     +'<div class="cline grand"><span>Adding now</span><span>+'+fmt(addTotal())+' L</span></div>'
