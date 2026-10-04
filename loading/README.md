@@ -341,14 +341,25 @@ phones (`loading_destinations`).
 Every tanker is run to almost dry and then refilled. At each refill enter:
 
 - **Previous refill** — date & time, the reading and the litres filled then (and
-  the Anguls dip then). It is filled in automatically from the last saved refill;
+  the dip then). It is filled in automatically from the last saved refill;
   for the very first use type it in (e.g. yesterday's fill). If you change it,
   it is saved as an extra refill record so the chain carries on.
-- **Now** — date & time, the reading now, the **Anguls** dipped before refilling
-  and the litres filled now.
+- **Now** — date & time, the reading now, the **dip** before refilling and the
+  litres filled now.
+
+The dip has two linked boxes — **Anguls** and **Litres in tank** — type either
+and the other follows. **1 Angul = 16 L** by default; tap **✎ change** next to
+it to set your dip stick's figure (shared by all phones; the litres are stored
+with each refill, so changing it later never rewrites past mileage).
+
+Once the odometer is typed, the dip boxes are **pre-filled with the stock the
+tank should have** if the tanker ran at its normal mileage (previous litres +
+previous stock − km run ÷ normal km/L). Change them to the actual dip; the app
+then shows how far the dip is from what was expected (**↺ use expected** puts
+the estimate back).
 
 **Diesel used** = litres filled at the previous refill + stock left then − stock
-left now, where **1 Angul = 16 L** (no dip = taken as dry).
+left now (no dip = taken as dry).
 
 | Tanker | Reading | Mileage |
 |---|---|---|
@@ -360,10 +371,52 @@ their **RTD km**, and **Extra km** = km run − RTD km (running beyond the
 delivery trips), with the diesel that extra running took. The **Period summary**
 (month by default) gives the same figures from the opening to the closing
 refill of the period, and **Refills** lists every saved refill with its mileage
-(🗑 to delete a wrong one). Refills are kept permanently (`loading_fuel_logs`).
+(🗑 to delete a wrong one, flagged ones marked ⚠ / ⛔). Refills are kept
+permanently (`loading_fuel_logs`).
+
+## Mileage trends & alerts (📈)
+
+**📈 Trends & alerts** at the top of the Mileage screen (it shows how many refills
+were flagged in the last 30 days) opens a report for 3 / 6 / 12 months, all, or
+any From / To:
+
+- **Tiles** — refills analysed, flagged (high), fleet km/L, litres of diesel
+  above normal, and extra km beyond trips.
+- **⚠ Needs a look** — every suspicious refill, worst first, with the reason
+  in words and the numbers behind it.
+- **Mileage by tanker** — km/L of each odometer tanker against the fleet
+  average; OD15AF5510 has its own L dispensed / L tile.
+- **Tanker detail** (pick a tanker) — mileage per refill with the tanker's
+  normal band shaded and flagged refills marked; diesel used above / below
+  normal per refill; km per refill split into trip (RTD) km and extra km.
+  Hover or tap any chart for the figures.
+- **Monthly mileage** — month × tanker table with ▲▼ change vs the month before.
+- **Download mileage analysis (Excel)** — *Alerts*, *Refill analysis* (every
+  computed figure and the reason for each flag) and *Monthly* sheets.
+
+**What gets flagged.** "Normal" for a refill = the median mileage of the same
+tanker's *other* refills (needs at least two), so one bad refill can't hide in
+its own baseline.
+
+| Check | ⚠ Watch | ⛔ High |
+|---|---|---|
+| Mileage below normal | more than the alert % (15% by default) | more than twice the alert % |
+| Mileage far above normal (bad reading?) | more than twice the alert % | — |
+| Extra km beyond trips' RTD | > 25% of the km run and > 50 km | > 50% and > 100 km |
+| Reading didn't go up but diesel was used | — | always |
+| Diesel used works out ≤ 0 | always | — |
+
+The alert % is set under **Alert settings** at the bottom of the report
+(shared by all phones, `loading_settings`).
+
+## Look
+
+The app uses the same frosted-glass style as the Decanting app, in light mode:
+translucent cards over a warm, orange-lit background, an orange glass header,
+and the Sora / IBM Plex Mono typefaces (system fonts when offline).
 
 > **Cloud mode:** re-run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
-> in the SQL Editor once to create the customer, trip and fuel-log tables (safe
+> in the SQL Editor once to create the customer, trip, fuel-log and settings tables (safe
 > to re-run; it also back-fills trips from the sales still in the 7-day window).
 > Until then the app works exactly as before — the sale box uses the built-in
 > customer list and the two new screens say the database needs the update.

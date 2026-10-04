@@ -164,12 +164,30 @@ create table if not exists public.loading_fuel_logs (
   odometer    numeric(14,2) not null check (odometer >= 0),
   litres      numeric(12,2) not null default 0 check (litres >= 0),
   anguls      numeric(8,2) check (anguls is null or anguls >= 0),  -- dip before refilling; null = not taken
+  stock_l     numeric(10,2) check (stock_l is null or stock_l >= 0), -- litres in the tank before refilling (as entered)
   note        text not null default '',
   by_name     text not null default '',
   created_by  uuid,
   created_at  timestamptz not null default now()
 );
 alter table public.loading_fuel_logs add column if not exists anguls numeric(8,2);
+-- stock is stored in litres as entered, so changing the Angul size later never
+-- rewrites the diesel-used figures of past refills
+alter table public.loading_fuel_logs add column if not exists stock_l numeric(10,2);
+
+-- ---------------------------------------------------------------------
+-- Shared app settings (key → JSON value), e.g. {"angul_l":16} — litres per
+-- Angul on the dip stick — and {"alert_pct":15} — how far below a tanker's
+-- normal mileage a refill must be to be flagged.
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_at timestamptz not null default now()
+);
+insert into public.loading_settings (key, value) values
+  ('angul_l', '16'), ('alert_pct', '15')
+on conflict (key) do nothing;
 create index if not exists loading_fuel_logs_vehicle_idx on public.loading_fuel_logs(vehicle, reading_at);
 
 -- ---------------------------------------------------------------------
@@ -195,6 +213,7 @@ alter table public.loading_push_subs enable row level security;
 alter table public.loading_destinations enable row level security;
 alter table public.loading_trips enable row level security;
 alter table public.loading_fuel_logs enable row level security;
+alter table public.loading_settings enable row level security;
 
 -- A phone may only ever see or touch its own owner's subscriptions. The edge
 -- function reads every row with the service-role key, which bypasses RLS.
@@ -232,6 +251,10 @@ create policy loading_destinations_read on public.loading_destinations
 
 drop policy if exists loading_trips_read on public.loading_trips;
 create policy loading_trips_read on public.loading_trips
+  for select to authenticated using (true);
+
+drop policy if exists loading_settings_read on public.loading_settings;
+create policy loading_settings_read on public.loading_settings
   for select to authenticated using (true);
 
 drop policy if exists loading_fuel_logs_read on public.loading_fuel_logs;
@@ -500,9 +523,13 @@ begin
 end $$;
 
 -- Mileage: record a refill of the tanker's own diesel tank with the reading.
+-- (Earlier drafts of this function had other arguments — drop them so there is
+-- exactly one.)
+drop function if exists public.loading_fuel_add(text, timestamptz, numeric, numeric, boolean, text, text);
+drop function if exists public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, text, text);
 create or replace function public.loading_fuel_add(
   p_vehicle text, p_reading_at timestamptz, p_odometer numeric, p_litres numeric,
-  p_anguls numeric, p_note text, p_by text
+  p_anguls numeric, p_stock_l numeric, p_note text, p_by text
 ) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare rid uuid;
@@ -512,11 +539,26 @@ begin
   if p_odometer is null or p_odometer < 0 then raise exception 'Reading required'; end if;
   if p_litres is null or p_litres < 0 then raise exception 'Litres must be 0 or more'; end if;
   if p_anguls is not null and p_anguls < 0 then raise exception 'Anguls must be 0 or more'; end if;
-  insert into loading_fuel_logs (vehicle, reading_at, odometer, litres, anguls, note, by_name, created_by)
+  if p_stock_l is not null and p_stock_l < 0 then raise exception 'Stock must be 0 or more'; end if;
+  insert into loading_fuel_logs (vehicle, reading_at, odometer, litres, anguls, stock_l, note, by_name, created_by)
     values (p_vehicle, coalesce(p_reading_at, now()), round(p_odometer,2), round(p_litres,2),
-            round(p_anguls,2), coalesce(p_note,''), coalesce(p_by,''), auth.uid())
+            round(p_anguls,2), round(p_stock_l,2), coalesce(p_note,''), coalesce(p_by,''), auth.uid())
     returning id into rid;
   return rid;
+end $$;
+
+-- Change a shared setting (only the known keys, with sane values).
+create or replace function public.loading_setting_set(p_key text, p_value jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare v numeric;
+begin
+  perform _loading_auth();
+  if p_key not in ('angul_l','alert_pct') then raise exception 'Unknown setting'; end if;
+  v := (p_value #>> '{}')::numeric;
+  if p_key = 'angul_l'   and (v is null or v <= 0 or v > 1000) then raise exception 'Litres per Angul must be between 0 and 1000'; end if;
+  if p_key = 'alert_pct' and (v is null or v < 1 or v > 90)  then raise exception 'Alert percent must be between 1 and 90'; end if;
+  insert into loading_settings (key, value, updated_at) values (p_key, to_jsonb(v), now())
+  on conflict (key) do update set value = excluded.value, updated_at = now();
 end $$;
 
 create or replace function public.loading_fuel_delete(p_id uuid) returns void
@@ -584,7 +626,8 @@ begin
       public.loading_trip_set_dest(uuid, text),
       public.loading_dest_save(text, numeric, text),
       public.loading_dest_remove(text),
-      public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, text, text),
+      public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, numeric, text, text),
+      public.loading_setting_set(text, jsonb),
       public.loading_fuel_delete(uuid)
     to authenticated;
   end if;
@@ -615,6 +658,10 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.loading_fuel_logs;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_settings;
   exception when others then null;
   end;
 end $$;
