@@ -917,17 +917,21 @@ end $$;
 
 -- Every tanker's diesel now (home screen), with the refill verdict for its
 -- next trip — wherever it goes, so judged against the longest trip in the
--- customer list (OD15AF5510: a full load sold). Anyone signed in — staff see
--- this on the tanker cards.
+-- customer list. OD15AF5510 (a Bolero, ~50 L tank, dispensing from a 15,000 L
+-- tanker) is judged against its TYPICAL sale: the median litres of its last 10
+-- (a full load would need ~5 tanks of diesel, so it would always say "refill").
+-- Anyone signed in — staff see this on the tanker cards.
 create or replace function public.loading_fuel_status() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare v record; far text; res jsonb := '[]'::jsonb;
+declare v record; far text; typ numeric; res jsonb := '[]'::jsonb;
 begin
   perform _loading_auth();
   select name into far from loading_destinations order by rtd_km desc, name limit 1;
-  for v in select plate, caps from loading_vehicles order by plate loop
-    res := res || jsonb_build_array(_loading_fuel_advice(_loading_fuel_state(v.plate), far,
-      (select sum(c::numeric) from jsonb_array_elements_text(v.caps) c)));
+  for v in select plate from loading_vehicles order by plate loop
+    select percentile_cont(0.5) within group (order by q.total) into typ
+      from (select t.total from loading_trips t where t.vehicle = v.plate and t.total > 0
+             order by t.created_at desc limit 10) q;
+    res := res || jsonb_build_array(_loading_fuel_advice(_loading_fuel_state(v.plate), far, typ));
   end loop;
   return res;
 end $$;

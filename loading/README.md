@@ -417,6 +417,23 @@ phones (`loading_destinations`).
 
 ## Mileage calculator (⛽)
 
+**The screen, top to bottom:**
+
+- **Fleet now** — every tanker on one card: its mileage now (km/L, or L/L for
+  OD15AF5510), a bar of the diesel in its own tank, when it was last dipped, and
+  a badge (✓ steady · ⚠/⛔ mileage drop · ✎ check · settling). Above the list,
+  the few things worth knowing first: mileage drops in the last 30 days (with
+  the % and the extra litres), tankers to refill before / after their next
+  trip, entries to check, and tankers not dipped for 7+ days. Tap a tanker to
+  open its details.
+- **The tanker's details** — its own alerts, then four tiles (mileage now,
+  last stretch vs normal, own diesel now with the refill verdict, last entry)
+  and a chart of its mileage per stretch over the last 6 months.
+- Folding sections: **➕ Add a refill or stock check** (opens by itself for a
+  tanker with nothing saved yet), **🧾 Refills & stock checks** (newest 8,
+  *Show all* for the rest), **🗓️ Period summary** and **ℹ️ How it's worked out**.
+- 📈 Trends & alerts and 🛢️ Fuel in tank now sit side by side under the fleet card.
+
 **Start here — 🛢️ Fuel in tank now (all tankers).** Enter, for every tanker, its
 reading right now (odometer, or the dispenser meter for OD15AF5510) and the
 fuel in its tank (Anguls or litres; litres only for OD15AF5510). Each is saved
@@ -579,7 +596,8 @@ How it is worked out (in the database, so staff see only the answer):
 Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L**, and
 says when the tanker needs its own tank filled — wherever it goes next, so it
 is judged against the **longest trip in the customer list** (DBL - Siarmal,
-140 km; OD15AF5510: a full load sold):
+140 km; OD15AF5510: its typical sale — the median litres of its last 10
+sales, as a full 15,000 L load would need several of its 50 L tanks):
 
 - **⛔ refill before this trip** — the tank can't cover it
 - **⚠ refill after this trip** — less than the reserve would be left

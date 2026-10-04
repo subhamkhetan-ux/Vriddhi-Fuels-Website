@@ -364,6 +364,51 @@
   .mlrow .mk small{display:block;font-family:var(--text);font-size:11px;color:var(--muted);font-weight:700}
   .curml{display:inline-block;margin-top:6px;color:var(--ink)}
   .curml b{color:var(--good);font-family:var(--display);font-weight:800}
+  /* ---- Mileage: fleet at a glance (tap a tanker), its details, folding sections ---- */
+  .fleet{background:var(--glass);border:1px solid var(--glass-line);border-radius:22px;padding:14px 12px 8px;box-shadow:var(--shadow);margin-bottom:12px}
+  .fleet .fh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:0 4px 10px}
+  .fleet .fh b{font-family:var(--display);font-weight:700;font-size:16px;color:var(--ink)}
+  .fleet .fh span{font-size:12px;font-weight:600;color:var(--muted);text-align:right}
+  .fleet .fh span em{font-style:normal;font-family:var(--display);font-weight:800;color:var(--ink);font-size:14px}
+  .ins{display:flex;flex-direction:column;gap:6px;margin:0 0 10px}
+  .ins .in{display:flex;gap:8px;align-items:flex-start;font-size:13px;font-weight:600;line-height:1.35;color:var(--ink);
+    padding:8px 10px;border-radius:12px;background:rgba(27,33,48,.05)}
+  .ins .in .ii{flex:none;width:18px;text-align:center}
+  .ins .in.bad{background:var(--bad-bg)} .ins .in.warn{background:var(--warn-bg)} .ins .in.good{background:var(--good-bg);color:var(--good)}
+  .ins .in b{font-weight:800}
+  .fr{display:block;width:100%;text-align:left;font:inherit;color:inherit;background:rgba(255,255,255,.55);border:1px solid var(--glass-line);
+    border-radius:16px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color .2s ease,background .2s ease}
+  .fr.on{border-color:var(--amber);background:linear-gradient(140deg,rgba(255,138,43,.12),rgba(255,255,255,.7) 65%);box-shadow:0 0 0 1px rgba(255,138,43,.35)}
+  .fr .f1{display:flex;align-items:center;gap:10px}
+  .fr .f1 .plate{font-size:13px;padding:4px 7px}
+  .fr .fm{margin-left:auto;text-align:right;font-family:var(--display);font-weight:800;font-size:19px;color:var(--ink);line-height:1.1;white-space:nowrap}
+  .fr .fm small{font-family:var(--text);font-size:11px;font-weight:700;color:var(--muted)}
+  .fr .fm.na{font-size:13px;color:var(--faint);font-weight:700}
+  .fr .fv{flex:none;color:var(--faint);font-size:18px;margin-left:2px}
+  .fr .f2{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;font-weight:600;color:var(--muted)}
+  .fr .f2 .fx{white-space:nowrap}
+  .fr .f2 .badge{margin-left:auto}
+  .tbar{flex:1;min-width:48px;max-width:120px;height:7px;border-radius:99px;background:rgba(27,33,48,.09);overflow:hidden}
+  .tbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#5fd69a,#1f9d55)}
+  .tbar.low i{background:linear-gradient(90deg,#ffcf66,#fab219)} .tbar.bad i{background:linear-gradient(90deg,#ff8f8f,#d64545)}
+  .dn{font-weight:800} .dn.up{color:var(--good)} .dn.down{color:var(--bad)}
+  .mldet{margin:16px 0 4px}
+  .mldet .dh{display:flex;align-items:center;gap:10px;margin:0 4px 10px}
+  .mldet .dh .plate{font-size:15px}
+  .mldet .dh .dq{margin-left:auto;font-size:12px;font-weight:700;color:var(--muted)}
+  .mldet .tile .tn.good{color:var(--good)} .mldet .tile .tn.bad{color:var(--bad)} .mldet .tile .tn.warn{color:var(--warn)}
+  .mldet .tile .ts{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:3px;line-height:1.3}
+  .fold{background:var(--glass);border:1px solid var(--glass-line);border-radius:20px;box-shadow:var(--shadow);margin-bottom:12px;padding:0 12px}
+  .fold>summary{list-style:none;display:flex;align-items:center;gap:12px;padding:13px 2px;cursor:pointer;user-select:none}
+  .fold>summary::-webkit-details-marker{display:none}
+  .fold>summary::after{content:"›";margin-left:auto;font-size:22px;color:var(--faint);transition:transform .2s ease;line-height:1}
+  .fold[open]>summary::after{transform:rotate(90deg)}
+  .fold .fe{flex:none;width:36px;height:36px;border-radius:11px;background:rgba(255,138,43,.12);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .fold .ft{font-family:var(--display);font-weight:700;color:var(--ink);font-size:15px;min-width:0}
+  .fold .fs{display:block;font-family:var(--text);font-size:12px;font-weight:600;color:var(--muted);margin-top:1px}
+  .fold[open]{padding-bottom:12px}
+  .fold .card-add{box-shadow:none;background:rgba(255,255,255,.5);margin-bottom:10px}
+  .morebtn{display:block;margin:4px auto 2px;font-weight:700}
   .mltrips{font-size:13px;color:var(--muted);margin-top:10px;line-height:1.5}
   .mltrips:empty{display:none}
   .mltrips b{color:var(--ink)}
@@ -400,6 +445,7 @@
   .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:6px}
   .tile{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:12px;box-shadow:var(--shadow);min-width:0}
   .tile:first-child{grid-column:1/-1}
+  .mldet .tiles .tile:first-child{grid-column:auto}
   .tile .tn{font-family:var(--display);font-size:24px;font-weight:700;color:var(--ink);line-height:1.15}
   .tile .tn small{font-size:13px;font-weight:700;color:var(--muted)}
   .tile .tl{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
@@ -807,10 +853,19 @@
 
     <!-- MILEAGE CALCULATOR (previous reading + litres filled, dip in Anguls) -->
     <section class="screen" id="scMileage">
-      <div class="ltitle">Mileage calculator</div>
-      <button class="big glass" id="toTrend"><span class="em">📈</span><span>Trends &amp; alerts<span class="hi" id="trendHi">Mileage charts · mileage drops</span></span></button>
-      <button class="big glass" id="toStock"><span class="em">🛢️</span><span>Fuel in tank now — all tankers<span class="hi">Enter each tanker's current stock &amp; reading so the next fill measures from it</span></span></button>
-      <div class="chips" id="mlVeh"></div>
+      <div class="ltitle">Mileage</div>
+      <!-- Fleet at a glance: every tanker's mileage now; tap one for its details -->
+      <div class="fleet" id="mlFleet"></div>
+      <div class="row2">
+        <button class="big glass" id="toTrend"><span class="em">📈</span><span>Trends &amp; alerts<span class="hi" id="trendHi">Charts · mileage drops</span></span></button>
+        <button class="big glass" id="toStock"><span class="em">🛢️</span><span>Fuel in tank now<span class="hi">Dip all tankers</span></span></button>
+      </div>
+
+      <!-- The tanker picked above -->
+      <div class="mldet" id="mlDet"></div>
+
+      <details class="fold" id="mlAddFold">
+        <summary><span class="fe">➕</span><span class="ft">Add a refill or stock check<span class="fs" id="mlAddSub">—</span></span></summary>
       <div class="card-add">
         <div class="ca-h">Previous refill — <span id="mlPlate">—</span></div>
         <div class="note" id="mlLast" style="text-align:left;margin:0 0 10px"></div>
@@ -853,18 +908,28 @@
         <div class="calcbox" id="mlCalc"></div>
         <button class="big green sm" id="mlSave" style="margin-bottom:0"><span class="em">✓</span><span id="mlSaveTxt">Save this refill</span></button>
       </div>
+      </details>
 
-      <div class="sectitle">Period summary</div>
-      <div class="monthnav"><button id="mlPrev" aria-label="Previous month">‹</button><span id="mlMonth">—</span><button id="mlNext" aria-label="Next month">›</button></div>
-      <div class="rrange">
-        <label>From<input type="date" id="mlFrom" /></label>
-        <label>To<input type="date" id="mlTo" /></label>
-      </div>
-      <div class="calcbox solid" id="mlSum"></div>
+      <details class="fold" id="mlListFold" open>
+        <summary><span class="fe">🧾</span><span class="ft">Refills &amp; stock checks<span class="fs" id="mlListSub">newest first</span></span></summary>
+        <div id="mlList"></div>
+        <button type="button" class="lnk morebtn" id="mlMore" hidden></button>
+      </details>
 
-      <div class="sectitle">Refills <span style="font-weight:600;color:var(--muted);font-size:12px">newest first</span></div>
-      <div id="mlList"></div>
-      <div class="note" id="mlHow" style="text-align:left"></div>
+      <details class="fold" id="mlSumFold">
+        <summary><span class="fe">🗓️</span><span class="ft">Period summary<span class="fs" id="mlSumSub">km, diesel and mileage for any dates</span></span></summary>
+        <div class="monthnav"><button id="mlPrev" aria-label="Previous month">‹</button><span id="mlMonth">—</span><button id="mlNext" aria-label="Next month">›</button></div>
+        <div class="rrange">
+          <label>From<input type="date" id="mlFrom" /></label>
+          <label>To<input type="date" id="mlTo" /></label>
+        </div>
+        <div class="calcbox solid" id="mlSum"></div>
+      </details>
+
+      <details class="fold" id="mlHowFold">
+        <summary><span class="fe">ℹ️</span><span class="ft">How it's worked out<span class="fs">the rules behind these figures</span></span></summary>
+        <div class="note" id="mlHow" style="text-align:left;margin:0"></div>
+      </details>
     </section>
 
     <!-- MILEAGE TRENDS & ALERTS -->
@@ -1127,7 +1192,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v33 · 2026-10-04";
+const APP_BUILD = "v34 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1336,7 +1401,7 @@ const LocalBackend = {
   addFuel(r){ const l=lsGet(FLS_KEY, []); l.push(Object.assign({ id:localId(), cts:Date.now() }, r)); lsPut(FLS_KEY, l); return Promise.resolve(); },
   removeFuel(id){ lsPut(FLS_KEY, lsGet(FLS_KEY, []).filter(x=>x.id!==id)); return Promise.resolve(); },
   fuelStatus(){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
-    return Promise.resolve(VEHICLES.map(v=>forecastJS(fuelStateJS(v.plate, f, t), farDest(), tankerState(v.plate).cap))); },
+    return Promise.resolve(VEHICLES.map(v=>forecastJS(fuelStateJS(v.plate, f, t), farDest(), typicalSale(v.plate, t)))); },
   forecast(plate, dest, total){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
     return Promise.resolve(forecastJS(fuelStateJS(plate, f, t), dest, total)); },
 };
@@ -1483,7 +1548,13 @@ function refresh(){
    (fuelNow); a trip burns its customer's RTD km ÷ mileage (OD15AF5510: litres
    sold ÷ dispensed-per-litre). The home cards get the verdict for the next
    trip wherever it goes: against the longest trip in the customer list
-   (OD15AF5510: a full load). Cloud asks the database; single-device computes here. */
+   (OD15AF5510: its typical sale — the median litres of its last 10; a full
+   15,000 L load would need several of its 50 L tanks). Cloud asks the
+   database; single-device computes here. */
+function typicalSale(plate, trips){
+  const v=trips.filter(t=>t.plate===plate && t.total>0).sort((a,b)=>b.ts-a.ts).slice(0,10).map(t=>+t.total).sort((a,b)=>a-b);
+  return v.length ? (v.length%2 ? v[v.length>>1] : (v[v.length/2-1]+v[v.length/2])/2) : 0;
+}
 function farDest(){ let far=null; DESTS.forEach(d=>{ if(!far || d.rtd>far.rtd) far=d; }); return far?far.name:""; }
 let FUELSTAT={};
 function reserveL(meter){ const k=meter?"reserve_meter_l":"reserve_l", v=SETTINGS[k]; return v!=null && +v>=0 ? +v : DEFAULT_SETTINGS[k]; }
@@ -3051,10 +3122,6 @@ function paintAngul(){ document.querySelectorAll(".angLval").forEach(el=>{ el.te
 function renderMileage(){
   if(!$("#scMileage").classList.contains("on")) return;
   const meter=isMeter(mlPlate);
-  const vb=$("#mlVeh");
-  vb.innerHTML=mlPlates().map(p=>'<button type="button" class="'+(p===mlPlate?'on':'')+'" data-mlv="'+esc(p)+'">'+esc(p)+'</button>').join("")
-    || '<div class="empty">No tankers.</div>';
-  vb.querySelectorAll("[data-mlv]").forEach(b=>{ b.onclick=()=>{ mlPlate=b.getAttribute("data-mlv"); fillPrevFromSaved(true); }; });
   $("#mlPlate").textContent=mlPlate||"—";
   $("#scMileage").querySelectorAll(".mlAng").forEach(el=>{ el.style.display=meter?"none":""; });
   $("#scMileage").querySelector(".mlUnitLab").textContent = meter ? "Previous dispenser meter (L)" : "Previous odometer (km)";
@@ -3066,9 +3133,6 @@ function renderMileage(){
   const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
   $("#mlLast").innerHTML = FUEL_ERR ? '<span style="color:var(--red-d);font-weight:700">'+esc(FUEL_ERR)+'</span>'
     : last ? 'Filled in from the last saved '+(last.litres>0?'refill':'stock check')+' ('+dmy(dayKey(last.ts))+' '+timeLabel(last.ts)+'). Change it if needed.'
-      + (function(){ const m=analyse(mlPlate).current; return m.ratio
-          ? '<br><span class="curml">Current mileage ≈ <b>'+ratioTxt(m.ratio, meter)+'</b> · '+mileageQuality(m)+' · from '+m.n+' entries over '+fmt(m.span)+(meter?' L dispensed':' km')+'</span>'
-          : '<br><span class="curml">Mileage: not enough data yet — it appears after about '+(meter?fmt(MILEAGE.minSpan.meter)+' L dispensed':MILEAGE.minSpan.odo+' km')+' between two entries with a dip.</span>'; })()
     : 'No refill saved yet for this tanker — enter the previous refill'+(meter?' (dispenser meter reading and litres filled)':' (odometer and litres filled)')+'.';
   $("#mlHow").innerHTML = meter
     ? '<b>How it\'s worked out ('+esc(mlPlate)+'):</b> this tanker runs its engine to dispense, so its mileage is by <b>fuel dispensed</b>. '
@@ -3092,7 +3156,104 @@ function renderMileage(){
   renderPrevTrips(); paintPrevSave(); paintSaveTxt();
   renderMileageSummary(rows);
   renderMileageList(rows);
+  renderFleet(); renderMlDetail(rows);
+  const al=$("#mlAddFold");
+  if(al.dataset.auto!==mlPlate){ al.dataset.auto=mlPlate; al.open=!rows.length; }   // nothing saved yet: start with the form
+  $("#mlAddSub").textContent = last ? "Last: "+(last.litres>0?"refill ":"stock check ")+dmy(dayKey(last.ts)).slice(0,5)+" "+timeLabel(last.ts)+" · "+fmt(last.odo)+(meter?" L meter":" km")
+    : "No entry yet for "+(mlPlate||"this tanker")+" — start here";
 }
+/* ---------- Mileage: fleet at a glance + the picked tanker's details ----------
+   Everything here comes from the same model as the rest (analyse, fuelStateJS,
+   forecastJS); it only puts the figures that matter first. */
+function agoTxt(ts){ const d=Math.floor((dayStartMs(todayStr())-dayStartMs(dayKey(ts)))/864e5);
+  return d<=0 ? "today" : d===1 ? "yesterday" : d+" days ago"; }
+function fleetData(){
+  const now=Date.now();
+  return mlPlates().map(p=>{
+    const meter=isMeter(p), rows=fuelRows(p), an=analyse(p), st=fuelStateJS(p, FUEL, ML_TRIPS);
+    const fc=forecastJS(st, farDest(), meter ? typicalSale(p, ML_TRIPS) : 0);
+    const judged=an.iv.filter(o=>!o.checkOnly), lastIv=judged.length?judged[judged.length-1]:null;
+    const drops=judged.filter(o=>o.sev && o.cur.ts>now-31*864e5), checks=an.iv.filter(o=>o.checkOnly);
+    const last=rows.length?rows[rows.length-1]:null;
+    return { plate:p, meter:meter, rows:rows, an:an, st:st, fc:fc, lastIv:lastIv, drops:drops, checks:checks, last:last,
+      stale: last ? now-last.ts>7*864e5 : true };
+  });
+}
+// the few things worth knowing first, most serious first
+function fleetInsights(F){
+  const out=[], u=m=>m?" L/L":" km/L";
+  F.forEach(x=>{ const o=x.drops[x.drops.length-1]; if(!o) return;
+    out.push({ lv:o.sev===2?"bad":"warn", i:o.sev===2?"⛔":"⚠", t:'<b>'+esc(x.plate)+'</b> mileage down '+Math.abs(o.dropPct)+'% on '+stretchTxt(o)+' ('+o.ratio.toFixed(2)+' vs normal '+o.ref.toFixed(2)+u(x.meter)+', ≈ '+fmt(Math.round(o.excess))+' L extra) — possible fault or theft' }); });
+  F.forEach(x=>{ if(x.fc.advice==="refill_before") out.push({ lv:"bad", i:"⛽", t:'<b>'+esc(x.plate)+'</b> has ≈ '+fmt(x.st.stock_now)+' L of its own diesel — refill before its next trip' });
+    else if(x.fc.advice==="refill_after") out.push({ lv:"warn", i:"⛽", t:'<b>'+esc(x.plate)+'</b> ≈ '+fmt(x.st.stock_now)+' L left — refill when it returns' }); });
+  const ck=F.filter(x=>x.checks.length);
+  if(ck.length) out.push({ lv:"warn", i:"✎", t:'<b>'+ck.reduce((n,x)=>n+x.checks.length,0)+' entr'+(ck.reduce((n,x)=>n+x.checks.length,0)===1?'y':'ies')+' to check</b> — '+ck.map(x=>esc(x.plate)).join(", ")+' (tap the tanker)' });
+  const st=F.filter(x=>x.last && x.stale);
+  if(st.length) out.push({ lv:"", i:"🕒", t:'No dip for 7+ days: '+st.map(x=>'<b>'+esc(x.plate)+'</b> ('+agoTxt(x.last.ts)+')').join(", ")+' — a stock check keeps the figures live' });
+  const none=F.filter(x=>!x.last);
+  if(none.length) out.push({ lv:"", i:"➕", t:'No entries yet: '+none.map(x=>esc(x.plate)).join(", ") });
+  if(!out.some(o=>o.lv==="bad"||o.lv==="warn") && F.some(x=>x.an.current.ratio)) out.unshift({ lv:"good", i:"✓", t:'No mileage drops in the last 30 days — all tankers running normally' });
+  return out;
+}
+function insHTML(list){ return list.length ? '<div class="ins">'+list.map(o=>'<div class="in '+o.lv+'"><span class="ii">'+o.i+'</span><span>'+o.t+'</span></div>').join("")+'</div>' : ''; }
+function tankBar(x){
+  const cap=tankL(x.meter), v=x.st.stock_now;
+  if(v==null) return '<span class="tbar"></span><span class="fx">tank ?</span>';
+  const cls=x.fc.advice==="refill_before"?" bad":x.fc.advice==="refill_after"||v<x.st.reserve?" low":"";
+  return '<span class="tbar'+cls+'"><i style="width:'+Math.max(3, Math.min(100, Math.round(v/cap*100)))+'%"></i></span><span class="fx">≈ '+fmt(Math.round(v))+' L</span>';
+}
+function rowBadge(x){
+  const d=x.drops[x.drops.length-1];
+  if(d) return d.sev===2 ? '<span class="badge high">⛔ drop</span>' : '<span class="badge watch">⚠ drop</span>';
+  if(x.checks.length) return '<span class="badge watch">✎ check</span>';
+  if(!x.an.current.ratio) return '<span class="badge info">'+(x.last?'settling':'no data')+'</span>';
+  return '<span class="badge ok">✓ '+mileageQuality(x.an.current)+'</span>';
+}
+function renderFleet(){
+  const box=$("#mlFleet");
+  if(FUEL_ERR){ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(FUEL_ERR)+'</div>'; return; }
+  const F=fleetData(), odo=F.filter(x=>!x.meter && x.an.current.ratio);
+  const avg=odo.length ? odo.reduce((s,x)=>s+x.an.current.ratio,0)/odo.length : null;
+  box.innerHTML='<div class="fh"><b>Fleet now</b><span>'+(avg?'big tankers avg <em>'+avg.toFixed(2)+'</em> km/L':'tap a tanker for its details')+'</span></div>'
+    + insHTML(fleetInsights(F).slice(0,5))
+    + F.map(x=>{ const r=x.an.current.ratio;
+        return '<button type="button" class="fr'+(x.plate===mlPlate?' on':'')+'" data-fr="'+esc(x.plate)+'">'
+          +'<div class="f1"><span class="plate">'+esc(x.plate)+'</span>'
+          +(r ? '<span class="fm">'+r.toFixed(2)+' <small>'+(x.meter?'L/L':'km/L')+'</small></span>' : '<span class="fm na">'+(x.last?'mileage soon':'no entries')+'</span>')
+          +'<span class="fv">›</span></div>'
+          +'<div class="f2">'+tankBar(x)+(x.last?'<span class="fx">· '+agoTxt(x.last.ts)+'</span>':'')+rowBadge(x)+'</div></button>'; }).join("");
+  box.querySelectorAll("[data-fr]").forEach(b=>{ b.onclick=()=>{
+    const p=b.getAttribute("data-fr"), changed=p!==mlPlate; mlPlate=p;
+    if(changed){ mlShowAll=false; fillPrevFromSaved(true); } else renderMileage();
+    const d=$("#mlDet"), hd=document.querySelector("header");     // land just below the app bar
+    if(d) window.scrollTo({ top:Math.max(0, d.getBoundingClientRect().top+window.scrollY-(hd?hd.offsetHeight:0)-10), behavior:"smooth" });
+  }; });
+}
+function renderMlDetail(rows){
+  const box=$("#mlDet");
+  if(FUEL_ERR || !mlPlate){ box.innerHTML=""; return; }
+  const x=fleetData().find(f=>f.plate===mlPlate); if(!x) { box.innerHTML=""; return; }
+  const m=x.meter, unit=m?"L/L":"km/L", cur=x.an.current, o=x.lastIv, cap=tankL(m);
+  const tile=(label, val, sub, cls)=>'<div class="tile"><div class="tn'+(cls?' '+cls:'')+'">'+val+'</div><div class="tl">'+label+'</div>'+(sub?'<div class="ts">'+sub+'</div>':'')+'</div>';
+  const mine=fleetInsights([x]).filter(i=>i.lv!=="good");
+  const dPct=o && o.dropPct!=null ? '<span class="dn '+(o.dropPct<0?'down':'up')+'">'+(o.dropPct<0?'▼':'▲')+Math.abs(o.dropPct)+'%</span> vs normal' : '';
+  const fcTxt={ refill_before:"refill before its next trip", refill_after:"refill when it returns", ok:"enough for the next trip" }[x.fc.advice]||"";
+  box.innerHTML='<div class="dh"><span class="plate">'+esc(mlPlate)+'</span><span class="dq">'+(m?'Bolero · by fuel dispensed · '+cap+' L tank':'odometer · '+cap+' L tank')+'</span></div>'
+    + insHTML(mine)
+    + '<div class="tiles">'
+    + tile("Mileage now", cur.ratio ? cur.ratio.toFixed(2)+' <small>'+unit+'</small>' : '—', cur.ratio ? mileageQuality(cur)+' · '+cur.n+' entries · '+fmt(cur.span)+(m?' L dispensed':' km') : 'appears after '+(m?fmt(MILEAGE.minSpan.meter)+' L dispensed':MILEAGE.minSpan.odo+' km')+' between two dipped entries', '')
+    + tile("Last stretch", o ? o.ratio.toFixed(2)+' <small>'+unit+'</small>' : '—', o ? stretchTxt(o).slice(0,13)+(dPct?' · '+dPct:'') : 'needs '+(m?fmt(MILEAGE.judge.meter)+' L':MILEAGE.judge.odo+' km')+' between dips', o&&o.sev===2?'bad':o&&o.sev?'warn':'')
+    + tile("Own diesel now", x.st.stock_now!=null ? '≈ '+fmt(Math.round(x.st.stock_now))+' <small>L</small>' : '—', x.st.stock_now!=null ? 'of '+cap+' L'+(fcTxt?' · '+fcTxt:'') : 'needs a dip and a mileage', x.fc.advice==="refill_before"?'bad':x.fc.advice==="refill_after"?'warn':'')
+    + tile("Last entry", x.last ? dmy(dayKey(x.last.ts)).slice(0,5) : '—', x.last ? (x.last.litres>0?'refill':'stock check')+' · '+agoTxt(x.last.ts)+(x.st.trips_since?' · '+x.st.trips_since+' trip'+(x.st.trips_since===1?'':'s')+' since':'') : 'add the first one below', x.stale&&x.last?'warn':'')
+    + '</div>'
+    + '<div class="vizcard"><div class="vizh">'+(m?'Fuel dispensed per litre':'Mileage')+' per stretch</div>'
+    + '<div class="vizs">'+(cur.ratio?'Dashed line = its normal (mileage now) '+cur.ratio.toFixed(2)+' '+unit+' · ':'')+'⚠ / ⛔ points = mileage drop · last 6 months</div><div class="viz" id="vzMl"></div></div>';
+  const since=Date.now()-183*864e5;
+  const pts=x.an.iv.filter(v=>!v.checkOnly && v.ratio!=null && v.cur.ts>=since).map(v=>({ t:v.cur.ts, y:v.ratio, flag:v.sev,
+    tip:tipHTML(stretchTxt(v), [["Mileage",ratioTxt(v.ratio,m)],["vs normal",v.dropPct==null?"—":(v.dropPct>0?"+":"")+v.dropPct+"%"],[m?"Dispensed":"Km run",fmt(v.dist)+(m?" L":" km")],["Diesel used",fmt(v.used)+" L"]]) }));
+  lineChart($("#vzMl"), pts, { ref:cur.ratio||null, label:"Mileage per stretch", empty:"Shows once there are two dipped entries "+(m?fmt(MILEAGE.judge.meter)+" L":MILEAGE.judge.odo+" km")+" apart." });
+}
+let mlShowAll=false;
 function draftPrev(){
   if($("#mlPOdo").value==="") return null;
   // OD15AF5510 has no dip stick, but a stock check can still record litres in its tank
@@ -3277,12 +3438,17 @@ function renderMileageSummary(rows){
 function renderMileageList(rows){
   const box=$("#mlList"), meter=isMeter(mlPlate);
   if(FUEL_ERR){ box.innerHTML=''; return; }
+  const more=$("#mlMore"); more.hidden=true;
+  const nChk=analyse(mlPlate).iv.filter(o=>o.checkOnly).length;
+  $("#mlListSub").textContent = rows.length ? rows.length+" saved · newest first"+(nChk?" · ✎ "+nChk+" to check":"") : "none yet";
   if(!rows.length){ box.innerHTML='<div class="empty">No refills saved yet.</div>'; return; }
   const an=analyse(mlPlate), scr=screenRows(rows, meter);
   const dupOf=new Set(scr.dups.map(x=>x.row)), over=new Set(scr.kept.filter(x=>x.over).map(x=>x.row)), incl=new Set(scr.kept.filter(x=>x.incl).map(x=>x.row));
   const judged=new Map(), checked=new Map();
   an.iv.forEach(o=>{ (o.checkOnly?checked:judged).set(o.cur, o); });
-  box.innerHTML=rows.map((r,i)=>({ r:r, prev:i>0?rows[i-1]:null })).reverse().map(x=>{
+  const LIMIT=8, list=rows.map((r,i)=>({ r:r, prev:i>0?rows[i-1]:null })).reverse();
+  if(list.length>LIMIT && !mlShowAll){ more.hidden=false; more.textContent="Show all "+list.length+" entries"; }
+  box.innerHTML=list.slice(0, mlShowAll?list.length:LIMIT).map(x=>{
     const r=x.r, o=judged.get(r), c=checked.get(r);
     const dip=(r.anguls!=null || r.stock_l!=null) ? (r.anguls!=null?fmt(r.anguls)+" Anguls = ":"")+fmt(stockOf(r))+" L"
       +(r.anguls!=null && r.stock_l!=null && !near(r.stock_l, stockOf(r), 0.5) ? " (saved as "+fmt(r.stock_l)+" L at an earlier Angul size)" : "") : "";
@@ -3311,6 +3477,7 @@ function renderMileageList(rows){
     Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return loadMileage(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
   }; });
 }
+$("#mlMore").onclick=()=>{ mlShowAll=true; renderMileageList(fuelRows(mlPlate)); };
 
 /* ---------- Fuel in tank now (opening stock for every tanker) ----------
    Saved as a "stock check": a reading with 0 litres filled and the stock in
