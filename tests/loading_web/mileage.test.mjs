@@ -66,11 +66,28 @@ test('not enough data: no figure rather than a guess', () => {
   assert.equal(run(s).current.ratio, null);
 });
 
+// OD15AF5510 is a Bolero with a ~50 L tank, refilled near dry (≤ 10 L left, counted as 0)
+const BOLERO = { plate: 'OD15AF5510', meter: true, start: 100000, fillTo: 50, refillAt: 10, jobL: [300, 600], days: 90 };
+
 test('OD15AF5510 by fuel dispensed (refilled near dry, no dip): within 5%, no false drops', () => {
-  const s = simulate({ plate: 'OD15AF5510', meter: true, mpl: 60, start: 100000, fillTo: 200, stockCheckEvery: 3 });
+  const s = simulate({ ...BOLERO, mpl: 60, stockCheckEvery: 3 });
   const an = run(s, 'OD15AF5510');
   near(an.current.ratio, 60, 0.05, 'dispensed per litre');
   assert.equal(an.iv.filter((o) => o.sev).length, 0);
+});
+
+test('OD15AF5510 stress: accurate, no false alarms, every 25 L theft from its 50 L tank caught', () => {
+  let off = 0, falseDrop = 0, missed = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    for (const every of [0, 2, 4]) for (const mpl of [45, 60, 80]) {
+      const s = simulate({ ...BOLERO, mpl, seed: seed * 13 + every, stockCheckEvery: every }); const an = run(s, 'OD15AF5510');
+      if (Math.abs(an.current.ratio / s.truth - 1) > 0.05) off++;
+      if (an.iv.some((o) => o.sev)) falseDrop++;
+    }
+    const t = simulate({ ...BOLERO, mpl: 60, seed: seed * 7, faults: { theftAtTrip: 60 + (seed % 40), theftL: 25 } });
+    if (!run(t, 'OD15AF5510').iv.some((o) => o.sev)) missed++;
+  }
+  assert.deepEqual({ off, falseDrop, missed }, { off: 0, falseDrop: 0, missed: 0 });
 });
 
 test('stress: 40 random fleets — accurate, no false alarms, every 80 L theft caught', () => {

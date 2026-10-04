@@ -127,7 +127,7 @@ insert into public.loading_destinations (name, rtd_km, grp, sort) values
 on conflict (name) do nothing;
 
 -- ---------------------------------------------------------------------
--- Trips — one row per "Sent for sale", kept PERMANENTLY (loading_events is
+-- Trips — one row per "Sent for sale", kept for 6 MONTHS (loading_events is
 -- trimmed to 7 days, which is too short for a monthly trip report). The id is
 -- the dispatch event's id, so deleting that event (while it is still within
 -- the 7-day window) removes its trip too. `dest` is the customer it went to;
@@ -149,7 +149,7 @@ insert into public.loading_trips (id, vehicle, total, dest, by_name, created_at)
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------
--- Tanker fuel log (mileage calculator) — kept permanently.
+-- Tanker fuel log (mileage calculator) — kept for 6 months (_loading_prune_history).
 -- One row each time a tanker's own diesel tank is refilled (they are run to
 -- almost dry first): the reading at that moment, the litres put in and — for
 -- tankers with a dip stick — the stock found in the tank BEFORE refilling, in
@@ -187,6 +187,13 @@ create table if not exists public.loading_settings (
 );
 insert into public.loading_settings (key, value) values
   ('angul_l', '16'), ('alert_pct', '15'), ('reserve_l', '40')
+on conflict (key) do nothing;
+-- reserve_l is for the big tankers (365 L tanks); OD15AF5510 is a Bolero with a
+-- ~50 L tank and gets its own. First run: a reserve already set to a
+-- Bolero-sized value (≤ 50 L) carries over to it, otherwise 10 L.
+insert into public.loading_settings (key, value)
+select 'reserve_meter_l', to_jsonb(case when v <= 50 then v else 10 end)
+  from (select coalesce((select (value #>> '{}')::numeric from public.loading_settings where key = 'reserve_l'), 40) as v) q
 on conflict (key) do nothing;
 create index if not exists loading_fuel_logs_vehicle_idx on public.loading_fuel_logs(vehicle, reading_at);
 
@@ -583,6 +590,25 @@ end $$;
 -- day) has passed and that nobody ended manually. The close is timestamped at
 -- that exact 8:00 AM, so business dates come out identical no matter when this
 -- runs. No auth check (called by the auth wrapper below and by pg_cron).
+-- Mileage & trip history is kept for 6 MONTHS — enough for the trends. Older
+-- refills / stock checks are dropped, except each tanker's newest entry with a
+-- known stock and everything after it (the diesel-in-tank estimate counts from
+-- there), and older trips, except those after the tanker's newest fuel entry.
+-- Run from _loading_close_due (every app open, and hourly with pg_cron).
+create or replace function public._loading_prune_history() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from loading_fuel_logs f
+   where f.reading_at < now() - interval '6 months'
+     and exists (select 1 from loading_fuel_logs g
+                  where g.vehicle = f.vehicle and g.reading_at > f.reading_at
+                    and (g.stock_l is not null or g.anguls is not null
+                         or (upper(regexp_replace(g.vehicle, '[^A-Za-z0-9]', '', 'g')) = 'OD15AF5510' and g.litres > 0)));
+  delete from loading_trips t
+   where t.created_at < now() - interval '6 months'
+     and t.created_at < coalesce((select max(l.reading_at) from loading_fuel_logs l where l.vehicle = t.vehicle), 'infinity');
+end $$;
+
 create or replace function public._loading_close_due(p_by uuid) returns int
 language plpgsql security definer set search_path = public as $$
 declare
@@ -591,6 +617,7 @@ declare
   deadline timestamptz;
   n int := 0;
 begin
+  perform _loading_prune_history();
   select coalesce(max(close_date) + 1,
                   (select (min(created_at) at time zone 'Asia/Kolkata')::date from loading_events))
     into d from loading_day_closes;
@@ -688,11 +715,11 @@ language plpgsql security definer set search_path = public as $$
 declare v numeric;
 begin
   perform _loading_admin();
-  if p_key not in ('angul_l','alert_pct','reserve_l') then raise exception 'Unknown setting'; end if;
+  if p_key not in ('angul_l','alert_pct','reserve_l','reserve_meter_l') then raise exception 'Unknown setting'; end if;
   v := (p_value #>> '{}')::numeric;
   if p_key = 'angul_l'   and (v is null or v <= 0 or v > 1000) then raise exception 'Litres per Angul must be between 0 and 1000'; end if;
   if p_key = 'alert_pct' and (v is null or v < 1 or v > 90)  then raise exception 'Alert percent must be between 1 and 90'; end if;
-  if p_key = 'reserve_l' and (v is null or v < 0 or v > 2000) then raise exception 'Reserve must be between 0 and 2000 litres'; end if;
+  if p_key in ('reserve_l','reserve_meter_l') and (v is null or v < 0 or v > 2000) then raise exception 'Reserve must be between 0 and 2000 litres'; end if;
   insert into loading_settings (key, value, updated_at) values (p_key, to_jsonb(v), now())
   on conflict (key) do update set value = excluded.value, updated_at = now();
 end $$;
@@ -776,8 +803,9 @@ declare
   km numeric := 0; lit numeric := 0; trips int := 0; unknown int := 0; burnt numeric; stock numeric;
 begin
   select (value #>> '{}')::numeric into al  from loading_settings where key = 'angul_l';
-  select (value #>> '{}')::numeric into res from loading_settings where key = 'reserve_l';
-  al := coalesce(al, 16); res := coalesce(res, 40);
+  select (value #>> '{}')::numeric into res from loading_settings
+   where key = case when meter then 'reserve_meter_l' else 'reserve_l' end;
+  al := coalesce(al, 16); res := coalesce(res, case when meter then 10 else 40 end);
   lo := case when meter then 2 else 0.5 end;  hi := case when meter then 2000 else 10 end;
   minspan := case when meter then 3000 else 100 end;
 
