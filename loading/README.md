@@ -559,7 +559,7 @@ count 0 km (the forecast says so).
 **Tankers** are drawn in the Decanting app's livery — navy band with
 *VRIDDHI FUELS · capacity*, white body, orange band with a yellow pinstripe and
 the chamber numbers, navy cab — and each chamber is a large **sight glass**
-whose diesel (HSD blue) rises with the fill. **Tanker numbers** are shown as
+whose diesel (HSD green, the same green as the nozzle's jet) rises with the fill. **Tanker numbers** are shown as
 Indian HSRP plates (white plate, black rim, blue IND strip, "OR 15 R 1110").
 
 The app uses the Decanting app's frosted-glass language in light mode —
