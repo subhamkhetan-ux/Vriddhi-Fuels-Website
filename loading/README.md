@@ -540,19 +540,18 @@ How it is worked out (in the database, so staff see only the answer):
   dispensed-per-litre),
 - the **reserve** (40 L by default) is set by admin under Trends → Alert settings.
 
-Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L** with
-the same verdict for a **next trip like its last one** (same customer;
-OD15AF5510: same litres sold), so staff can see at a glance which tanker
-needs its own tank filled:
+Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L**, and
+says when the tanker needs its own tank filled — wherever it goes next, so it
+is judged against the **longest trip in the customer list** (DBL - Siarmal,
+140 km; OD15AF5510: a full load sold):
 
-- *enough for ≈ N trips to …*
-- **⚠ refill after next trip** — it can do one more, then needs diesel
-- **⛔ refill before next trip** — fill it before it leaves
+- **⛔ refill before this trip** — the tank can't cover it
+- **⚠ refill after this trip** — less than the reserve would be left
+- nothing extra — enough diesel for the next trip
 
 Staff see both the card line and the sale sheet (never the mileage data
 behind them). The line needs a dipped entry on record and enough data for a
-mileage (≥ 100 km); until the tanker has a trip with a listed customer it just
-says *refill soon* below the reserve. Sales whose customer isn't in the list
+mileage (≥ 100 km). Sales whose customer isn't in the list
 count 0 km (the forecast says so).
 
 ## Look

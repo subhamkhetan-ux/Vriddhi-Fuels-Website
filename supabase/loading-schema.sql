@@ -842,18 +842,19 @@ begin
     'trips_left', case when need > 0 and after is not null and after > res then floor((after - res) / need) end);
 end $$;
 
--- Every tanker's diesel now (home screen), with the verdict for a next trip
--- like its last one (same customer; OD15AF5510: same litres sold). Anyone
--- signed in — staff see this on the tanker cards.
+-- Every tanker's diesel now (home screen), with the refill verdict for its
+-- next trip — wherever it goes, so judged against the longest trip in the
+-- customer list (OD15AF5510: a full load sold). Anyone signed in — staff see
+-- this on the tanker cards.
 create or replace function public.loading_fuel_status() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare v record; d text; tot numeric; res jsonb := '[]'::jsonb;
+declare v record; far text; res jsonb := '[]'::jsonb;
 begin
   perform _loading_auth();
-  for v in select plate from loading_vehicles order by plate loop
-    d := null; tot := null;
-    select t.dest, t.total into d, tot from loading_trips t where t.vehicle = v.plate order by t.created_at desc limit 1;
-    res := res || jsonb_build_array(_loading_fuel_advice(_loading_fuel_state(v.plate), d, tot));
+  select name into far from loading_destinations order by rtd_km desc, name limit 1;
+  for v in select plate, caps from loading_vehicles order by plate loop
+    res := res || jsonb_build_array(_loading_fuel_advice(_loading_fuel_state(v.plate), far,
+      (select sum(c::numeric) from jsonb_array_elements_text(v.caps) c)));
   end loop;
   return res;
 end $$;

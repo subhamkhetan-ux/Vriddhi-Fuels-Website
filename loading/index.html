@@ -1126,7 +1126,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v28 · 2026-10-04";
+const APP_BUILD = "v29 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1335,9 +1335,7 @@ const LocalBackend = {
   addFuel(r){ const l=lsGet(FLS_KEY, []); l.push(Object.assign({ id:localId(), cts:Date.now() }, r)); lsPut(FLS_KEY, l); return Promise.resolve(); },
   removeFuel(id){ lsPut(FLS_KEY, lsGet(FLS_KEY, []).filter(x=>x.id!==id)); return Promise.resolve(); },
   fuelStatus(){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
-    return Promise.resolve(VEHICLES.map(v=>{   // verdict for a next trip like its last one
-      const last=t.filter(x=>x.plate===v.plate).sort((a,b)=>b.ts-a.ts)[0];
-      return forecastJS(fuelStateJS(v.plate, f, t), last?last.dest:"", last?last.total:0); })); },
+    return Promise.resolve(VEHICLES.map(v=>forecastJS(fuelStateJS(v.plate, f, t), farDest(), tankerState(v.plate).cap))); },
   forecast(plate, dest, total){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
     return Promise.resolve(forecastJS(fuelStateJS(plate, f, t), dest, total)); },
 };
@@ -1482,8 +1480,10 @@ function refresh(){
    Same rules as _loading_fuel_state / loading_fuel_forecast in the schema:
    mileage = the robust mileage above; in tank now = from the last dipped entry
    (fuelNow); a trip burns its customer's RTD km ÷ mileage (OD15AF5510: litres
-   sold ÷ dispensed-per-litre). The home cards get the verdict for a next trip
-   like each tanker's last one. Cloud asks the database; single-device computes here. */
+   sold ÷ dispensed-per-litre). The home cards get the verdict for the next
+   trip wherever it goes: against the longest trip in the customer list
+   (OD15AF5510: a full load). Cloud asks the database; single-device computes here. */
+function farDest(){ let far=null; DESTS.forEach(d=>{ if(!far || d.rtd>far.rtd) far=d; }); return far?far.name:""; }
 let FUELSTAT={};
 function fuelStateJS(plate, fuel, trips){
   const res=+SETTINGS.reserve_l||40, meter=isMeter(plate);
@@ -1509,19 +1509,18 @@ function forecastJS(o, dest, total){
   }
   return f;
 }
-// a small "⛽ Own diesel ≈ …" line on every tanker card, with the refill
-// verdict for a next trip like its last one — this is what staff go by
+// a small "⛽ Own diesel ≈ …" line on every tanker card, saying when the
+// tanker needs a refill — before this trip or after it (judged on the longest
+// trip, so wherever it goes). This is what staff go by.
 function paintDiesel(){
   document.querySelectorAll("#tankerList .tcard").forEach(card=>{
     const x=FUELSTAT[card.dataset.plate], el=card.querySelector(".diesel");
     if(!el) return;
     if(!x || x.stock_now==null){ el.innerHTML=""; el.className="diesel"; return; }
-    const trip = x.meter ? "sale" : "trip", to = !x.meter && x.dest ? ' <span class="muted">to '+esc(x.dest)+'</span>' : '';
     let cls="", say="";
-    if(x.advice==="refill_before"){ cls=" bad"; say=' · <b>⛔ refill before next '+trip+'</b>'+to; }
-    else if(x.advice==="refill_after"){ cls=" low"; say=' · <b>⚠ refill after next '+trip+'</b>'+to; }
-    else if(x.advice==="ok"){ const n=(+x.trips_left||0)+1; say=' · enough for ≈ <b>'+n+' '+trip+(n===1?'':'s')+'</b>'+to; }
-    else if(+x.stock_now < +x.reserve){ cls=" low"; say=' · <b>refill soon</b>'; }
+    if(x.advice==="refill_before"){ cls=" bad"; say=' · <b>⛔ refill before this trip</b>'; }
+    else if(x.advice==="refill_after"){ cls=" low"; say=' · <b>⚠ refill after this trip</b>'; }
+    else if(x.advice!=="ok" && +x.stock_now < +x.reserve){ cls=" low"; say=' · <b>refill soon</b>'; }
     el.className="diesel"+cls;
     el.innerHTML='<span class="dz">⛽</span>Own diesel ≈ <b>'+fmt(x.stock_now)+' L</b>'+say
       +(x.unknown_trips?' <span class="muted">· '+x.unknown_trips+' trip'+(x.unknown_trips===1?'':'s')+' without customer</span>':'');
