@@ -9,12 +9,12 @@
 <link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
 <script src="./config.js"></script>
 <style>
   /* ===== Light glassmorphism — the Decanting app's frosted-glass language
-     (Sora display type, orange-lit gradient header, translucent films) set on
-     a light, warm base. Light mode only. ===== */
+     (orange-lit gradient header, translucent films) on a light, warm base,
+     with Apple's typography and iOS patterns. Light mode only. ===== */
   :root{
     color-scheme: light;
     --bg:#f3eee8;
@@ -31,8 +31,11 @@
     --good:#12804a; --good-bg:rgba(18,128,74,.11);
     --warn:#a05f00; --warn-bg:rgba(250,178,25,.18);
     --bad:#c3352f; --bad-bg:rgba(208,59,59,.11);
-    --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    /* Apple's system typeface (SF Pro) wherever it exists — iPhone, iPad, Mac —
+       and Inter, its closest web twin, everywhere else (Android, Windows). */
+    --text:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:var(--display);   /* number plates: same face, tabular figures, a touch of tracking */
     /* legacy names the app's code still uses */
     --navy:#1b2540; --navy2:#2b3756; --amber:#FF8A2B; --amber-d:#e2620f;
     --green:#169a55; --green-d:#12804a; --red:#d64545; --red-d:#c3352f; --card:var(--glass-2);
@@ -41,22 +44,25 @@
   html{overflow-x:clip}
   html,body{margin:0;padding:0}
   body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    font-family:var(--text);letter-spacing:-.006em;
     color:var(--ink);-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;overflow-x:clip;
-    background:
+    background:var(--bg);
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  /* the warm, orange-lit backdrop is one fixed layer the GPU keeps still while
+     the page scrolls (background-attachment:fixed repaints on every frame) */
+  body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:
       radial-gradient(900px 520px at 88% -80px, rgba(255,122,26,.30) 0%, rgba(255,122,26,0) 62%),
       radial-gradient(760px 520px at -6% 8%, rgba(255,186,90,.30) 0%, rgba(255,186,90,0) 58%),
       radial-gradient(900px 640px at 50% 110%, rgba(70,130,220,.20) 0%, rgba(70,130,220,0) 62%),
       radial-gradient(600px 420px at 100% 60%, rgba(244,81,30,.10) 0%, rgba(244,81,30,0) 60%),
-      var(--bg);
-    background-attachment:fixed;
-    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  }
-  button{font-family:inherit}
+      var(--bg);}
+  input,select,textarea,button{font-family:inherit}
+  [hidden]{display:none!important}
   .wrap{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
-  /* frosted surface used by every card */
-  .stat,.mini,.entry,.tcard,.cham,.confbox,.card-add,.trcard,.mlrow,.logrow,.calcbox.solid,.vizcard,.tile,.flag,.dest,.empty{
-    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+  /* Cards are translucent films over the backdrop. Real blur is kept for the
+     surfaces that float over content (header, sheets, toast): over the smooth
+     backdrop a per-card blur is invisible but costs a GPU pass per card. */
 
   /* Header — orange glass, as in the Decanting app */
   header{
@@ -66,9 +72,9 @@
     border-bottom:1px solid rgba(255,255,255,.35);box-shadow:0 12px 30px -16px rgba(244,81,30,.75);
   }
   header img{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.95);object-fit:contain;padding:3px;box-shadow:0 4px 12px -4px rgba(120,30,0,.45)}
-  header .t{font-family:var(--display);font-size:18px;font-weight:800;letter-spacing:.2px;line-height:1.1;text-shadow:0 1px 2px rgba(120,30,0,.3)}
+  header .t{font-family:var(--display);font-size:18px;font-weight:700;letter-spacing:.2px;line-height:1.1;text-shadow:0 1px 2px rgba(120,30,0,.3)}
   header .s{font-size:12px;opacity:.88;margin-top:2px}
-  .back{background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.45);color:#fff;font-size:24px;font-weight:800;
+  .back{background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.45);color:#fff;font-size:24px;font-weight:700;
     width:44px;height:44px;border-radius:13px;line-height:1;cursor:pointer;flex:none}
   main{flex:1;padding:16px 16px 32px}
   .screen{display:none;animation:fade .2s ease}
@@ -79,7 +85,7 @@
   .big{
     display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
     border:1px solid rgba(255,255,255,.35);border-radius:18px;padding:20px 18px;margin-bottom:14px;cursor:pointer;
-    font-family:var(--display);font-size:20px;font-weight:800;letter-spacing:.2px;color:#fff;background:var(--grad-cta);
+    font-family:var(--display);font-size:20px;font-weight:700;letter-spacing:.2px;color:#fff;background:var(--grad-cta);
     box-shadow:0 14px 28px -14px rgba(244,81,30,.85),0 1px 0 rgba(255,255,255,.35) inset;-webkit-appearance:none;text-align:left;
   }
   .big:active{transform:translateY(1px)}
@@ -87,11 +93,10 @@
   .big.green{background:var(--grad-good);box-shadow:0 14px 28px -14px rgba(18,128,74,.8),0 1px 0 rgba(255,255,255,.3) inset}
   .big.red{background:var(--grad-bad);box-shadow:0 14px 28px -14px rgba(195,53,47,.8),0 1px 0 rgba(255,255,255,.3) inset}
   .big.navy{background:var(--grad-ink);box-shadow:0 14px 28px -16px rgba(27,37,64,.8),0 1px 0 rgba(255,255,255,.18) inset}
-  .big.glass{background:var(--glass-2);color:var(--ink);border:1px solid var(--glass-line);font-size:16px;padding:14px 16px;
-    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--shadow)}
+  .big.glass{background:var(--glass-2);color:var(--ink);border:1px solid var(--glass-line);font-size:16px;padding:14px 16px;box-shadow:var(--shadow)}
   .big.glass.alert{border-color:rgba(208,59,59,.45);background:linear-gradient(140deg,rgba(208,59,59,.12),var(--glass-2) 60%)}
-  .big.glass.alert .hi{color:var(--bad);font-weight:800}
-  .big .hi{display:block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12.5px;font-weight:600;opacity:.85;margin-top:2px}
+  .big.glass.alert .hi{color:var(--bad);font-weight:700}
+  .big .hi{display:block;font-family:var(--text);font-size:12.5px;font-weight:600;opacity:.85;margin-top:2px}
   .big.glass .hi{color:var(--muted);opacity:1}
   .big .em{font-size:24px}
   .big.sm{font-size:16px;padding:14px}
@@ -100,18 +105,18 @@
   /* Stat tiles */
   .stat{background:var(--glass);border:1px solid var(--glass-line);border-radius:20px;padding:16px;box-shadow:var(--shadow);margin-bottom:14px;text-align:center}
   .stat .label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-  .stat .num{font-family:var(--display);font-size:42px;font-weight:800;color:var(--ink);line-height:1.1;margin:4px 0;font-variant-numeric:tabular-nums}
+  .stat .num{font-family:var(--display);font-size:42px;font-weight:700;color:var(--ink);line-height:1.1;margin:4px 0;font-variant-numeric:tabular-nums}
   .stat .num small{font-size:18px;font-weight:700;color:var(--accent)}
   .stat .sub{font-size:13px;color:var(--muted)}
   .row2{display:flex;gap:10px}
   .row2>*{flex:1;min-width:0}
   .mini{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:12px 8px;box-shadow:var(--shadow);text-align:center}
-  .mini .n{font-family:var(--display);font-size:22px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .mini .n{font-family:var(--display);font-size:22px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
   .mini .n.sm{font-size:18px}
   .mini .l{font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 
   .sectitle{font-family:var(--display);font-size:14px;font-weight:700;color:var(--ink);margin:20px 2px 9px;display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .sectitle .sub{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-weight:600;color:var(--muted);font-size:12px}
+  .sectitle .sub{font-family:var(--text);font-weight:600;color:var(--muted);font-size:12px}
   .sectitle .lnk,.lnk{font-size:13px;color:var(--accent);font-weight:700;cursor:pointer;background:none;border:0;padding:2px 4px}
 
   /* Entry rows */
@@ -120,11 +125,11 @@
   .entry .mid{flex:1;min-width:0}
   .entry .ch{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .entry .tm{font-size:12px;color:var(--faint);margin-top:2px}
-  .entry .tot{font-family:var(--display);font-weight:800;font-size:16px;color:var(--good);white-space:nowrap}
+  .entry .tot{font-family:var(--display);font-weight:700;font-size:16px;color:var(--good);white-space:nowrap}
   .entry.disp{background:linear-gradient(140deg,rgba(255,138,43,.14),var(--glass) 65%)}
   .entry.disp .plate{background:var(--grad-cta)}
   .entry.disp .tot{color:var(--amber-d)}
-  .entry.disp .dtag{font-size:13px;font-weight:800;color:var(--amber-d)}
+  .entry.disp .dtag{font-size:13px;font-weight:700;color:var(--amber-d)}
   .empty{text-align:center;color:var(--muted);padding:22px 12px;font-size:14px;border:1px dashed rgba(27,33,48,.16);border-radius:16px;background:rgba(255,255,255,.4)}
 
   /* Add-diesel header (tanker graphic on a dark film for contrast) */
@@ -136,7 +141,7 @@
   .cham.full{border-color:rgba(18,128,74,.55);box-shadow:0 0 0 2px rgba(18,128,74,.15),var(--shadow)}
   .cham.over{border-color:rgba(208,59,59,.6);box-shadow:0 0 0 2px rgba(208,59,59,.15),var(--shadow)}
   .cham .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-  .cham .badge{width:44px;height:44px;border-radius:13px;background:var(--grad-ink);color:#fff;font-family:var(--display);font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;flex:none}
+  .cham .badge{width:44px;height:44px;border-radius:13px;background:var(--grad-ink);color:#fff;font-family:var(--display);font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center;flex:none}
   .cham .cn{font-family:var(--display);font-weight:700;font-size:16px}
   .cham .cd{font-size:12px;color:var(--muted)}
   .cham .cap-tag{margin-left:auto;font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -151,19 +156,19 @@
   .bar.lg .fill.add{background:#8affc4}
   .cham.over .bar .fill.add{background:var(--red)}
   .lr{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:15px}
-  .lr .left b{font-family:var(--display);color:var(--ink);font-weight:800;font-size:18px}
-  .lr .over-txt{color:var(--bad);font-weight:800;display:none}
-  .lr .fulltag{color:var(--good);font-weight:900;display:none}
+  .lr .left b{font-family:var(--display);color:var(--ink);font-weight:700;font-size:18px}
+  .lr .over-txt{color:var(--bad);font-weight:700;display:none}
+  .lr .fulltag{color:var(--good);font-weight:700;display:none}
   .cham.full .lr .left{display:none}
   .cham.full .lr .fulltag{display:inline}
   .cham.over .lr .left,.cham.over .lr .fulltag{display:none}
   .cham.over .lr .over-txt{display:inline}
   .qtyrow{display:flex;gap:8px;align-items:stretch}
-  .qtyrow input{flex:1;min-width:0;font-family:var(--display);font-size:28px;font-weight:800;text-align:center;color:var(--ink);
+  .qtyrow input{flex:1;min-width:0;font-family:var(--display);font-size:28px;font-weight:700;text-align:center;color:var(--ink);
     border:1px solid var(--line);border-radius:14px;padding:8px 6px;background:var(--glass-3);width:100%;-moz-appearance:textfield}
   .qtyrow input::-webkit-outer-spin-button,.qtyrow input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .qtyrow input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-  .qbtn{border:0;border-radius:12px;padding:0 14px;font-weight:800;font-size:14px;cursor:pointer;color:#fff;background:var(--grad-ink);flex:none}
+  .qbtn{border:0;border-radius:12px;padding:0 14px;font-weight:700;font-size:14px;cursor:pointer;color:#fff;background:var(--grad-ink);flex:none}
   .qbtn.clr{background:rgba(27,33,48,.42)}
   .qbtn:active{transform:translateY(1px)}
 
@@ -174,20 +179,20 @@
   .tcard .tap:active{background:rgba(255,255,255,.4)}
   .tcard .th{display:flex;justify-content:space-between;align-items:center;gap:8px}
   .tcard .pl{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--ink);letter-spacing:.4px}
-  .tcard .badge2{font-size:12px;font-weight:800;padding:5px 11px;border-radius:999px;background:rgba(27,33,48,.07);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .tcard .badge2{font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;background:rgba(27,33,48,.07);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
   .tcard.full .badge2{background:var(--grad-good);color:#fff}
   .tcard .tsub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
   .tcard .tsub b{font-family:var(--display);color:var(--ink);font-size:15px}
   .tcard .tsub2{font-size:12px;color:var(--faint);margin-top:3px;font-weight:600}
   .dispatch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-top:1px solid rgba(27,33,48,.08);background:rgba(255,255,255,.35);color:var(--amber-d);font-size:14px;font-weight:700;padding:12px;cursor:pointer}
-  .tcard.full .dispatch{background:var(--grad-good);color:#fff;font-family:var(--display);font-size:16px;font-weight:800;padding:14px}
+  .tcard.full .dispatch{background:var(--grad-good);color:#fff;font-family:var(--display);font-size:16px;font-weight:700;padding:14px}
   .dispatch:active{transform:translateY(1px)}
 
   .runtot{position:sticky;bottom:0;padding-top:8px;background:linear-gradient(rgba(243,238,232,0),rgba(243,238,232,.92) 30%)}
   .sumbar{background:var(--grad-ink);color:#fff;border-radius:18px;padding:14px 16px;box-shadow:0 16px 30px -16px rgba(27,37,64,.8);margin-bottom:10px}
   .sumrow{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;font-weight:700}
-  .sumrow .s-load b{font-family:var(--display);font-size:22px;font-weight:800;color:#5fe39b}
-  .sumrow .s-left b{font-family:var(--display);font-size:22px;font-weight:800;color:#ffc27a}
+  .sumrow .s-load b{font-family:var(--display);font-size:22px;font-weight:700;color:#5fe39b}
+  .sumrow .s-left b{font-family:var(--display);font-size:22px;font-weight:700;color:#ffc27a}
   .sumcap{text-align:center;font-size:12px;opacity:.75;font-weight:600}
 
   /* Confirm */
@@ -195,13 +200,13 @@
   .confbox .cp{text-align:center;font-family:var(--mono);font-size:24px;font-weight:600;color:var(--ink);letter-spacing:1px;margin-bottom:4px}
   .confbox .ct{text-align:center;font-size:13px;color:var(--muted);margin-bottom:12px}
   .cline{display:flex;justify-content:space-between;padding:10px 4px;border-top:1px solid var(--line);font-size:16px}
-  .cline .cq{font-family:var(--display);font-weight:800}
-  .cline.grand{border-top:2px solid var(--ink);margin-top:4px;font-family:var(--display);font-size:19px;font-weight:800;color:var(--good)}
+  .cline .cq{font-family:var(--display);font-weight:700}
+  .cline.grand{border-top:2px solid var(--ink);margin-top:4px;font-family:var(--display);font-size:19px;font-weight:700;color:var(--good)}
 
   /* History */
   .daygrp{margin-bottom:16px}
   .dayhd{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 8px;font-family:var(--display);font-weight:700;color:var(--ink);font-size:14px}
-  .dayhd .dt{font-weight:800;color:var(--good)}
+  .dayhd .dt{font-weight:700;color:var(--good)}
   .del{background:none;border:0;color:var(--bad);font-size:19px;cursor:pointer;padding:4px 6px;flex:none}
 
   /* Reports / date ranges */
@@ -220,12 +225,12 @@
   /* Chamber log */
   .logrow{display:flex;align-items:center;gap:10px;background:var(--glass);border:1px solid var(--glass-line);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
   .logrow.disp{background:linear-gradient(140deg,rgba(255,138,43,.14),var(--glass) 65%)}
-  .logrow .lc{width:42px;height:42px;border-radius:12px;background:var(--grad-ink);color:#fff;font-family:var(--display);font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px}
+  .logrow .lc{width:42px;height:42px;border-radius:12px;background:var(--grad-ink);color:#fff;font-family:var(--display);font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px}
   .logrow.disp .lc{background:var(--grad-cta)}
   .logrow .lmid{flex:1;min-width:0}
-  .logrow .lp{font-weight:800;color:var(--ink);font-size:14px}
+  .logrow .lp{font-weight:700;color:var(--ink);font-size:14px}
   .logrow .lt{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .logrow .lq{font-family:var(--display);font-weight:800;color:var(--good);white-space:nowrap;font-size:15px}
+  .logrow .lq{font-family:var(--display);font-weight:700;color:var(--good);white-space:nowrap;font-size:15px}
   .logrow.disp .lq{color:var(--amber-d)}
 
   /* Forms / manage */
@@ -240,28 +245,28 @@
   .ca-field{flex:1;min-width:0}
   .ca-field label{font-size:12px;color:var(--muted);font-weight:700;display:block;margin-bottom:4px}
   .stepper{display:flex;align-items:center;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--glass-3)}
-  .stepper button{flex:none;width:44px;height:46px;border:0;background:var(--grad-ink);color:#fff;font-size:22px;font-weight:800;cursor:pointer}
-  .stepper span{flex:1;text-align:center;font-family:var(--display);font-size:19px;font-weight:800;color:var(--ink)}
+  .stepper button{flex:none;width:44px;height:46px;border:0;background:var(--grad-ink);color:#fff;font-size:22px;font-weight:700;cursor:pointer}
+  .stepper span{flex:1;text-align:center;font-family:var(--display);font-size:19px;font-weight:700;color:var(--ink)}
 
   /* Modals */
   .modal{position:fixed;inset:0;background:rgba(27,33,48,.32);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:22px;z-index:60}
   .modal.on{display:flex}
   .modalbox{width:100%;max-width:420px;background:rgba(255,255,255,.86);border:1px solid var(--glass-line);border-radius:22px;padding:18px;
     backdrop-filter:blur(26px) saturate(170%);-webkit-backdrop-filter:blur(26px) saturate(170%);box-shadow:0 30px 60px -20px rgba(27,33,48,.45)}
-  .modalbox .mh{font-family:var(--display);font-size:18px;font-weight:800;color:var(--ink);text-align:center}
-  .modalbox .mp{text-align:center;color:var(--good);font-family:var(--display);font-weight:800;font-size:19px;margin:2px 0 12px}
+  .modalbox .mh{font-family:var(--display);font-size:18px;font-weight:700;color:var(--ink);text-align:center}
+  .modalbox .mp{text-align:center;color:var(--good);font-family:var(--display);font-weight:700;font-size:19px;margin:2px 0 12px}
   .modalbox .mlab{font-size:13px;color:var(--muted);font-weight:700;display:block;margin-bottom:6px}
   .modalbox input{width:100%;font-size:17px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--glass-3);color:var(--ink);font-weight:600}
   .modalbox input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
   .mbtns{display:flex;gap:10px;margin-top:14px}
-  .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-family:var(--display);font-size:15px;font-weight:800;cursor:pointer}
+  .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-family:var(--display);font-size:15px;font-weight:700;cursor:pointer}
   .mbtn.ghost{background:rgba(27,33,48,.07);color:var(--ink)}
   .mbtn.go{background:var(--grad-good);color:#fff;box-shadow:0 12px 24px -12px rgba(18,128,74,.8)}
   .mbtn:active{transform:translateY(1px)}
   .modalbox.wide{max-height:86vh;overflow-y:auto}
   .edit{background:none;border:0;color:var(--navy2);font-size:18px;cursor:pointer;padding:4px 6px;flex:none}
   .caprow{display:flex;align-items:center;gap:9px;margin-bottom:8px}
-  .caprow .cb{width:44px;height:44px;border-radius:12px;background:var(--grad-ink);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px}
+  .caprow .cb{width:44px;height:44px;border-radius:12px;background:var(--grad-ink);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px}
   .caprow input{flex:1;min-width:0;text-align:center}
   .caprow .cf{font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap;flex:none;width:68px;text-align:right;line-height:1.25}
   .caprow.over .cb{background:var(--grad-bad)}
@@ -290,7 +295,7 @@
     background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
     box-shadow:0 30px 60px -24px rgba(120,30,0,.55)}
   .loginbox img{width:76px;height:76px;border-radius:20px;background:#fff;padding:8px;object-fit:contain;margin-bottom:14px}
-  .loginbox h1{font-family:var(--display);font-size:24px;font-weight:800;margin:0 0 2px}
+  .loginbox h1{font-family:var(--display);font-size:24px;font-weight:700;margin:0 0 2px}
   .loginbox .lsub{font-size:14px;opacity:.85;margin-bottom:20px}
   .loginbox input{width:100%;font-size:18px;padding:15px;border-radius:14px;border:1px solid rgba(255,255,255,.6);margin-bottom:12px;text-align:center;background:rgba(255,255,255,.92);color:var(--ink);font-weight:600}
   .loginbox input:focus{outline:3px solid rgba(255,255,255,.7)}
@@ -307,44 +312,43 @@
 
   /* Month navigator */
   .monthnav{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-  .monthnav button{flex:none;width:48px;height:46px;border:1px solid var(--glass-line);border-radius:14px;background:var(--glass-2);color:var(--ink);font-size:24px;font-weight:800;cursor:pointer;box-shadow:var(--shadow)}
-  .monthnav span{flex:1;text-align:center;font-family:var(--display);font-size:18px;font-weight:800;color:var(--ink)}
+  .monthnav button{flex:none;width:48px;height:46px;border:1px solid var(--glass-line);border-radius:14px;background:var(--glass-2);color:var(--ink);font-size:24px;font-weight:700;cursor:pointer;box-shadow:var(--shadow)}
+  .monthnav span{flex:1;text-align:center;font-family:var(--display);font-size:18px;font-weight:700;color:var(--ink)}
 
   /* Trip report */
   .trcard{background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;box-shadow:var(--shadow);margin-bottom:12px;padding:12px 14px}
   .trcard .trh{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .trcard .trn{font-size:13px;color:var(--muted);font-weight:700;text-align:right}
-  .trcard .trn b{font-family:var(--display);font-size:22px;color:var(--ink);font-weight:800}
+  .trcard .trn b{font-family:var(--display);font-size:22px;color:var(--ink);font-weight:700}
   .trd{margin-top:10px;border-top:1px solid var(--line)}
   .trd .tl{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid rgba(27,33,48,.06);font-size:14px}
   .trd .tl .tn{flex:1;min-width:0;font-weight:700;color:var(--ink)}
   .trd .tl .tc{white-space:nowrap;color:var(--muted);font-weight:700;font-variant-numeric:tabular-nums}
-  .trd .tl .tk{white-space:nowrap;color:var(--ink);font-weight:800;min-width:64px;text-align:right;font-variant-numeric:tabular-nums}
+  .trd .tl .tk{white-space:nowrap;color:var(--ink);font-weight:700;min-width:64px;text-align:right;font-variant-numeric:tabular-nums}
   .trd .tl.warn .tn{color:var(--bad)}
   .trtrips{margin-top:6px}
   .trrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(27,33,48,.06);font-size:13px}
   .trrow .tw{white-space:nowrap;color:var(--muted);font-weight:700;flex:none}
   .trrow .td{flex:1;min-width:0;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .trrow .td.warn{color:var(--bad)}
-  .trrow .tq{white-space:nowrap;font-weight:800;color:var(--amber-d)}
-  .trshow{display:block;margin:8px auto 0;background:none;border:0;color:var(--accent);font-weight:800;font-size:13px;cursor:pointer}
+  .trrow .tq{white-space:nowrap;font-weight:700;color:var(--amber-d)}
+  .trshow{display:block;margin:8px auto 0;background:none;border:0;color:var(--accent);font-weight:700;font-size:13px;cursor:pointer}
 
   /* Mileage */
   .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-  .chips button{border:1px solid var(--glass-line);background:var(--glass);color:var(--ink);font-family:var(--mono);font-weight:600;font-size:13.5px;border-radius:12px;padding:10px 12px;cursor:pointer;box-shadow:var(--shadow);
-    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+  .chips button{border:1px solid var(--glass-line);background:var(--glass-2);color:var(--ink);font-family:var(--mono);font-weight:600;font-size:13.5px;border-radius:12px;padding:10px 12px;cursor:pointer;box-shadow:var(--shadow)}
   .chips button.on{background:var(--grad-ink);border-color:transparent;color:#fff}
   .chips .cnt{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--grad-bad);color:#fff;font-family:var(--display);font-size:11px;line-height:18px;text-align:center}
   .angchip{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:2px}
   .angchip b{color:var(--ink)}
   .expnote{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 0 10px;padding:8px 10px;border-radius:12px;background:var(--accent-soft);border:1px solid rgba(255,122,26,.2)}
   .expnote b{color:var(--ink)}
-  .pos{color:var(--good);font-weight:800}
-  .neg{color:var(--bad);font-weight:800}
+  .pos{color:var(--good);font-weight:700}
+  .neg{color:var(--bad);font-weight:700}
   .calcbox{background:rgba(255,255,255,.55);border:1px solid var(--glass-line);border-radius:16px;padding:10px 12px;margin:10px 0 12px}
   .calcbox.solid{box-shadow:var(--shadow)}
   .kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;font-size:14px;color:var(--muted);font-weight:600}
-  .kv b{color:var(--ink);font-weight:800;font-size:15px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .kv b{color:var(--ink);font-weight:700;font-size:15px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   .kv.hl{background:linear-gradient(120deg,rgba(18,128,74,.12),rgba(18,128,74,0));border-radius:10px;padding:8px 8px;margin:4px -6px}
   .kv.hl b{font-family:var(--display);font-size:24px;color:var(--good)}
   .kv.bad b,.kv.bad span{color:var(--bad)}
@@ -352,14 +356,14 @@
   .mlrow.high{border-color:rgba(208,59,59,.45)}
   .mlrow.watch{border-color:rgba(250,178,25,.6)}
   .mlrow .mm{flex:1;min-width:0}
-  .mlrow .m1{font-family:var(--display);font-weight:800;color:var(--ink);font-size:15px}
+  .mlrow .m1{font-family:var(--display);font-weight:700;color:var(--ink);font-size:15px}
   .mlrow .m2{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;line-height:1.45}
-  .mlrow .mk{font-family:var(--display);font-weight:800;color:var(--good);font-size:17px;white-space:nowrap;text-align:right}
-  .mlrow .mk small{display:block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:11px;color:var(--muted);font-weight:700}
+  .mlrow .mk{font-family:var(--display);font-weight:700;color:var(--good);font-size:17px;white-space:nowrap;text-align:right}
+  .mlrow .mk small{display:block;font-family:var(--text);font-size:11px;color:var(--muted);font-weight:700}
   .flagline{font-size:12px;color:var(--ink);margin-top:5px;line-height:1.45}
 
   /* Badges (status: icon + label, never colour alone) */
-  .badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;vertical-align:middle}
+  .badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;vertical-align:middle}
   .badge.ok{background:var(--good-bg);color:var(--good)}
   .badge.watch{background:var(--warn-bg);color:var(--warn)}
   .badge.high{background:var(--bad-bg);color:var(--bad)}
@@ -369,7 +373,7 @@
   body.staff .adm{display:none!important}
   body:not(.staff) .stf{display:none!important}
   .warnnote{background:var(--warn-bg);border-color:rgba(250,178,25,.5);color:var(--warn)}
-  .rolebadge{display:inline-block;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;margin-left:4px;vertical-align:middle}
+  .rolebadge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:4px;vertical-align:middle}
   .rolebadge.admin{background:var(--grad-cta);color:#fff}
   .rolebadge.staff{background:rgba(27,33,48,.08);color:var(--muted)}
   .urow .ub{display:flex;gap:6px;flex:none}
@@ -386,7 +390,7 @@
   .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:6px}
   .tile{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:12px;box-shadow:var(--shadow);min-width:0}
   .tile:first-child{grid-column:1/-1}
-  .tile .tn{font-family:var(--display);font-size:24px;font-weight:800;color:var(--ink);line-height:1.15}
+  .tile .tn{font-family:var(--display);font-size:24px;font-weight:700;color:var(--ink);line-height:1.15}
   .tile .tn small{font-size:13px;font-weight:700;color:var(--muted)}
   .tile .tl{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
   .tile.bad{background:linear-gradient(140deg,rgba(208,59,59,.13),var(--glass) 70%);border-color:rgba(208,59,59,.35)}
@@ -419,18 +423,89 @@
   .vizempty{font-size:13px;color:var(--muted);text-align:center;padding:26px 10px}
   .viz-tip{position:absolute;display:none;z-index:5;pointer-events:none;min-width:150px;max-width:260px;background:rgba(255,255,255,.96);
     border:1px solid rgba(11,11,11,.1);border-radius:12px;padding:8px 10px;box-shadow:0 12px 28px -10px rgba(27,33,48,.4);font-size:12px;color:#52514e}
-  .viz-tip-head{font-weight:800;color:#0b0b0b;margin-bottom:3px}
+  .viz-tip-head{font-weight:700;color:#0b0b0b;margin-bottom:3px}
   .viz-tip-row{display:flex;justify-content:space-between;gap:12px;line-height:1.5}
   .viz-tip-row b{color:#0b0b0b;font-variant-numeric:tabular-nums;text-align:right}
   .tablewrap{overflow-x:auto;padding:4px 6px}
   .mtab{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
   .mtab th,.mtab td{padding:8px 8px;text-align:right;border-bottom:1px solid rgba(27,33,48,.07);white-space:nowrap}
   .mtab thead th{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:600}
-  .mtab thead th small{display:block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-weight:600;color:var(--faint)}
+  .mtab thead th small{display:block;font-family:var(--text);font-weight:600;color:var(--faint)}
   .mtab tbody th{text-align:left;color:var(--ink);font-weight:700}
   .mtab td b{color:var(--ink)}
   .mtab td span{display:block;font-size:11px}
   .mtab td.na{color:var(--faint)}
+
+  /* ===== Apple layer — iOS type scale & patterns ===== */
+  body{font-size:16px}
+  header .t{letter-spacing:-.015em}
+  /* iOS large title on every screen */
+  .ltitle{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.026em;line-height:1.12;color:var(--ink);margin:4px 4px 16px}
+  /* grouped-list section headers */
+  .sectitle{font-family:var(--text);font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.045em;margin:24px 6px 8px}
+  .sectitle .sub,.sectitle .lnk{text-transform:none;letter-spacing:0}
+  .sectitle .lnk{font-size:15px;font-weight:500;color:var(--accent)}
+  /* big numbers: tight tracking; number plates: tabular figures */
+  .stat .num,.mini .n,.tile .tn,.kv.hl b,.trcard .trn b,.sumrow b,.lr .left b,.kpi .kn{letter-spacing:-.022em}
+  .plate,.tcard .pl,.vhead .pl,.confbox .cp,.chips button,.flag .plate{font-variant-numeric:tabular-nums;letter-spacing:.035em;font-weight:600}
+  .tcard .pl{font-size:19px}
+  /* buttons: SF-style semibold, gentle press */
+  .big{font-size:17px;font-weight:600;letter-spacing:-.012em;border-radius:16px;padding:17px 18px;transition:transform .12s ease,box-shadow .2s ease}
+  .big .em{font-size:22px}
+  .mbtn{font-weight:600;letter-spacing:-.01em}
+  .big:active,.tcard .tap:active,.dest:active,.chips button:active,.mbtn:active,.monthnav button:active,.rpresets button:active,.dispatch:active{transform:scale(.97)}
+  .tcard .tap{transition:transform .12s ease}
+  /* iOS segmented control */
+  .rpresets{background:rgba(118,118,128,.12);border-radius:11px;padding:2px;gap:2px}
+  .rpresets button{border:0;box-shadow:none;background:transparent;border-radius:9px;padding:9px 4px;font-weight:600;font-size:13px;color:var(--ink)}
+  .rpresets button.on{background:#fff;color:var(--ink);box-shadow:0 3px 8px rgba(0,0,0,.12),0 0 0 .5px rgba(0,0,0,.04)}
+  /* inset grouped lists with hairline separators */
+  .glist{background:var(--glass-2);border:1px solid var(--glass-line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:12px}
+  .glist>.entry,.glist>.logrow{background:transparent;border:0;border-radius:0;box-shadow:none;margin:0;position:relative}
+  .glist>.entry.disp,.glist>.logrow.disp{background:rgba(255,138,43,.07)}
+  .glist .entry .tm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .glist .entry .plate{font-size:13px;padding:5px 7px}
+  .glist>*+*::before{content:"";position:absolute;left:16px;right:0;top:0;height:1px;background:rgba(60,60,67,.16);transform:scaleY(.5);transform-origin:top}
+  /* header status pill (as in the Decanting app) */
+  .pill{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.2);color:#fff;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;flex:none}
+  .pill i{width:7px;height:7px;border-radius:50%;background:#fff}
+  .pill.live i{background:#8dffcf;animation:pulse 2s infinite}
+  .pill.off{background:rgba(120,20,10,.28)} .pill.off i{background:#ffd0cb}
+  /* fleet summary strip */
+  .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px}
+  .kpis:empty{display:none}
+  .kpi{background:var(--glass-2);border:1px solid var(--glass-line);border-radius:16px;padding:10px 12px;box-shadow:var(--shadow);min-width:0}
+  .kpi .kn{font-family:var(--display);font-size:20px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kpi .kn small{font-size:12px;color:var(--muted);font-weight:600}
+  .kpi .kl{font-size:11.5px;color:var(--muted);font-weight:500;margin-top:1px;display:flex;align-items:center;gap:5px}
+  .kpi .kl i{width:7px;height:7px;border-radius:50%;flex:none}
+  /* each tanker's own diesel */
+  .diesel{font-size:12.5px;color:var(--muted);font-weight:500;margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .diesel:empty{display:none}
+  .diesel b{color:var(--ink);font-weight:600}
+  .diesel .dz{width:22px;height:22px;border-radius:7px;background:rgba(18,128,74,.12);display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+  .diesel.low .dz{background:rgba(250,178,25,.25)} .diesel.low b{color:var(--warn)}
+  /* diesel forecast on the sale sheet */
+  .fcast{margin-top:12px;border-radius:16px;padding:10px 12px;background:rgba(118,118,128,.08);border:1px solid rgba(60,60,67,.1)}
+  .fcast .fh{font-weight:600;font-size:14.5px;color:var(--ink);margin-bottom:4px;letter-spacing:-.01em}
+  .fcast.good{background:var(--good-bg);border-color:rgba(18,128,74,.25)} .fcast.good .fh{color:var(--good)}
+  .fcast.warn{background:var(--warn-bg);border-color:rgba(250,178,25,.45)} .fcast.warn .fh{color:var(--warn)}
+  .fcast.bad{background:var(--bad-bg);border-color:rgba(208,59,59,.35)} .fcast.bad .fh{color:var(--bad)}
+  .fcast .kv{padding:3px 0;font-size:13px}
+  .fcast .kv b{font-size:13.5px}
+  .fcast .fn{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4}
+  /* toasts: an iOS capsule */
+  .toast{border-radius:999px;font-weight:600;font-size:14.5px;padding:12px 20px}
+  /* sheets slide up from the bottom on phones */
+  @media (max-width:640px){
+    .modal{align-items:flex-end;padding:0}
+    .modalbox{max-width:none;border-radius:24px 24px 0 0;padding:10px 18px calc(18px + env(safe-area-inset-bottom));border-bottom:0}
+    .modalbox::before{content:"";display:block;width:38px;height:5px;border-radius:3px;background:rgba(60,60,67,.28);margin:0 auto 12px}
+    .modal.on .modalbox{animation:sheetUp .32s cubic-bezier(.22,.9,.3,1)}
+    .modalbox.wide{max-height:92vh}
+  }
+  @keyframes sheetUp{from{transform:translateY(100%)}to{transform:none}}
+  @media (prefers-reduced-motion:reduce){.modal.on .modalbox{animation:none}.big,.tcard .tap{transition:none}}
 
   /* ===== Tanker graphic (chambers visible, fills with animation) ===== */
   .tankwrap{width:100%;margin:0 0 4px;position:relative}
@@ -452,7 +527,7 @@
   .tanksvg .lq.over{fill:url(#tkOver)}
   .tanksvg .baffle{stroke:#4a63a0;stroke-width:1.6;opacity:.95}
   .tanksvg .rim{fill:none;stroke:#5f7ec2;stroke-width:1.2;opacity:.5}
-  .tanksvg .cnum{fill:#fff;font-size:14px;font-weight:800;text-anchor:middle;
+  .tanksvg .cnum{fill:#fff;font-size:14px;font-weight:700;text-anchor:middle;
     paint-order:stroke;stroke:#101b33;stroke-width:3.5px;stroke-linejoin:round}
   .tanksvg .seghl{fill:none;stroke:var(--amber);stroke-width:0;rx:4}
   .tanksvg .seghl.pour{stroke:#8ff0c6;stroke-width:2.5;animation:segpulse 1.5s ease-in-out infinite}
@@ -520,6 +595,7 @@
       <div class="t">Tanker Loading</div>
       <div class="s" id="subT">Diesel loading record</div>
     </div>
+    <span class="pill" id="livePill" hidden><i></i><span>Live</span></span>
     <button class="installbtn" id="installBtn" style="display:none">Install</button>
   </header>
 
@@ -531,9 +607,10 @@
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
         <div class="sub"><span id="todayCnt">0</span> loadings since last End Day</div>
       </div>
+      <div class="kpis" id="fleetKpi"></div>
       <div id="endDayWrap"></div>
 
-      <div class="sectitle" style="font-size:16px">Tap a tanker to load diesel</div>
+      <div class="sectitle">Tap a tanker to load diesel</div>
       <div id="tankerList"></div>
 
       <div class="sectitle">Recent
@@ -584,7 +661,7 @@
 
     <!-- CONFIRM -->
     <section class="screen" id="scConf">
-      <div class="sectitle" style="justify-content:center">Check &amp; save</div>
+      <div class="ltitle">Check &amp; save</div>
       <div class="confbox" id="confBox"></div>
       <button class="big green" id="saveBtn"><span class="em">✓</span><span>Confirm &amp; Save</span></button>
       <button class="big glass" id="editBtn" style="justify-content:center"><span>‹ Edit</span></button>
@@ -604,7 +681,7 @@
 
     <!-- REPORTS -->
     <section class="screen" id="scReport">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Reports</div>
+      <div class="ltitle">Reports</div>
       <div class="rrange">
         <label>From<input type="date" id="repFrom" /></label>
         <label>To<input type="date" id="repTo" /></label>
@@ -636,14 +713,14 @@
 
     <!-- CHAMBER LOG (detailed, on-screen) -->
     <section class="screen" id="scLog">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Chamber log</div>
+      <div class="ltitle">Chamber log</div>
       <div class="note" id="logRange" style="margin:0 0 10px"></div>
       <div id="logList"></div>
     </section>
 
     <!-- TRIPS PER TANKER (permanent trip records, customer RTD) -->
     <section class="screen" id="scTrips">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Trips per tanker</div>
+      <div class="ltitle">Trips per tanker</div>
       <div class="monthnav"><button id="trPrev" aria-label="Previous month">‹</button><span id="trMonth">—</span><button id="trNext" aria-label="Next month">›</button></div>
       <div class="rrange">
         <label>From<input type="date" id="trFrom" /></label>
@@ -661,7 +738,7 @@
 
     <!-- MILEAGE CALCULATOR (previous reading + litres filled, dip in Anguls) -->
     <section class="screen" id="scMileage">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Mileage calculator</div>
+      <div class="ltitle">Mileage calculator</div>
       <button class="big glass" id="toTrend"><span class="em">📈</span><span>Trends &amp; alerts<span class="hi" id="trendHi">Mileage charts · mileage drops</span></span></button>
       <button class="big glass" id="toStock"><span class="em">🛢️</span><span>Fuel in tank now — all tankers<span class="hi">Enter each tanker's current stock &amp; reading so the next fill measures from it</span></span></button>
       <div class="chips" id="mlVeh"></div>
@@ -721,7 +798,7 @@
 
     <!-- MILEAGE TRENDS & ALERTS -->
     <section class="screen" id="scTrend">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Mileage trends &amp; alerts</div>
+      <div class="ltitle">Mileage trends &amp; alerts</div>
       <div class="rpresets" id="tdPresets">
         <button data-m="3">3 months</button>
         <button data-m="6">6 months</button>
@@ -754,6 +831,7 @@
         <div class="ca-h">Alert settings</div>
         <div class="kv"><span>Flag a mileage drop when it is below normal by</span><b><span id="tdPct">15</span>% <button type="button" class="lnk" id="tdPctEdit">✎</button></b></div>
         <div class="kv"><span>1 Angul on the dip stick</span><b><span class="angLval">16</span> L <button type="button" class="lnk angEdit">✎</button></b></div>
+        <div class="kv"><span>Refill when a tanker's own diesel would drop below</span><b><span id="tdRes">40</span> L <button type="button" class="lnk" id="tdResEdit">✎</button></b></div>
         <div class="note" style="text-align:left;margin:6px 0 0">“Normal” = the tanker's median mileage over all its other fill-to-fill stretches. ⛔ Sharp drop = twice the alert gap.</div>
       </div>
       <button class="big green" id="tdExcel"><span class="em">⬇</span><span>Download mileage analysis (Excel)</span></button>
@@ -762,7 +840,7 @@
 
     <!-- SETTINGS / MANAGE -->
     <section class="screen" id="scSettings">
-      <div class="sectitle" style="font-size:18px;justify-content:center" id="setTitle">Manage tankers &amp; data</div>
+      <div class="ltitle" id="setTitle">Manage tankers &amp; data</div>
       <div id="pushWrap" style="display:none">
         <div class="sectitle">Notifications</div>
         <div id="pushBox"></div>
@@ -841,6 +919,7 @@
     <div class="mp" id="dispTitle">—</div>
     <label class="mlab" id="dispLab">Sold to — choose the customer</label>
     <div class="destlist" id="dispDests"></div>
+    <div class="fcast" id="dispFc" hidden></div>
     <div class="caperr" id="dispErr"></div>
     <div class="mbtns">
       <button class="mbtn ghost" id="dispCancel">Cancel</button>
@@ -963,7 +1042,7 @@ let DESTS_FALLBACK = false;   // cloud list unreadable (schema not updated yet) 
 const TRIP_EXCLUDE = ["OD15AF5510"];
 /* Shared settings (⚙ / mileage screen): litres per Angul on the dip stick, and
    how far below a tanker's normal mileage a refill is flagged. */
-const DEFAULT_SETTINGS = { angul_l:16, alert_pct:15 };
+const DEFAULT_SETTINGS = { angul_l:16, alert_pct:15, reserve_l:40 };
 let SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
 let SETTINGS_FALLBACK = false;
 function maxChambers(){ return VEHICLES.length?Math.max.apply(null,VEHICLES.map(v=>v.caps.length)):4; }
@@ -982,7 +1061,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v20 · 2026-10-04";
+const APP_BUILD = "v21 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1184,6 +1263,10 @@ const LocalBackend = {
   saveSetting(k, v){ let o={}; try{ o=JSON.parse(localStorage.getItem(SLS_KEY))||{}; }catch(e){} o[k]=v; localStorage.setItem(SLS_KEY, JSON.stringify(o)); return Promise.resolve(); },
   addFuel(r){ const l=lsGet(FLS_KEY, []); l.push(Object.assign({ id:localId(), cts:Date.now() }, r)); lsPut(FLS_KEY, l); return Promise.resolve(); },
   removeFuel(id){ lsPut(FLS_KEY, lsGet(FLS_KEY, []).filter(x=>x.id!==id)); return Promise.resolve(); },
+  fuelStatus(){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
+    return Promise.resolve(VEHICLES.map(v=>fuelStateJS(v.plate, f, t))); },
+  forecast(plate, dest, total){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
+    return Promise.resolve(forecastJS(fuelStateJS(plate, f, t), dest, total)); },
 };
 
 const CloudBackend = {
@@ -1291,6 +1374,9 @@ const CloudBackend = {
     p_odometer:r.odo, p_litres:r.litres, p_anguls:r.anguls==null?null:r.anguls, p_stock_l:r.stock_l==null?null:r.stock_l,
     p_note:r.note||"", p_by:r.by||ME }); },
   removeFuel(id){ return this.rpc("loading_fuel_delete",{ p_id:id }); },
+  // computed in the database (staff can't read the fuel log itself)
+  fuelStatus(){ return this.rpc("loading_fuel_status",{}); },
+  forecast(plate, dest, total){ return this.rpc("loading_fuel_forecast",{ p_vehicle:plate, p_dest:dest||"", p_total:total||0 }); },
 };
 
 let Backend = LocalBackend;
@@ -1308,10 +1394,61 @@ function refresh(){
   }).then(r=>{
     SETTINGS_FALLBACK = r[4]==null;
     SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
-    if(r[4]) Object.keys(DEFAULT_SETTINGS).forEach(k=>{ const v=+r[4][k]; if(v>0) SETTINGS[k]=v; });
+    if(r[4]) Object.keys(DEFAULT_SETTINGS).forEach(k=>{ const v=+r[4][k]; if(v>0 || (k==="reserve_l" && v===0 && r[4][k]!=null)) SETTINGS[k]=v; });
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
     DESTS_FALLBACK = r[3]==null;
     DESTS = r[3]==null ? DEFAULT_DESTS.map(dNorm) : r[3];
+    // each tanker's own diesel (home cards) — fetched after, never holds up the screen
+    Backend.fuelStatus().then(list=>{
+      FUELSTAT={}; (list||[]).forEach(x=>{ if(x && x.vehicle) FUELSTAT[x.vehicle]=x; });
+      if(stack[stack.length-1]==="scHome") paintDiesel();
+    }).catch(()=>{});
+  });
+}
+/* ---------- Diesel forecast (each tanker's OWN tank) ----------
+   Same rules as _loading_fuel_state / loading_fuel_forecast in the schema:
+   mileage = median of the last 8 fill-to-fill stretches; in tank now = stock +
+   litres at the last refill/stock check − what the trips sold since then burn;
+   a trip burns its customer's RTD km ÷ mileage (OD15AF5510: litres sold ÷
+   dispensed-per-litre). Cloud asks the database; single-device computes here. */
+let FUELSTAT={};
+function fuelStateJS(plate, fuel, trips){
+  const al=angulL(), res=+SETTINGS.reserve_l||40, meter=isMeter(plate);
+  const st=r=>r.stock_l!=null ? +r.stock_l : (r.anguls!=null ? r.anguls*al : 0);
+  const rows=fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0));
+  const rs=[];
+  for(let i=1;i<rows.length;i++){ const d=rows[i].odo-rows[i-1].odo, u=(+rows[i-1].litres||0)+st(rows[i-1])-st(rows[i]); if(d>0 && u>0) rs.push(d/u); }
+  const recent=rs.slice(-8), mpl=recent.length?median(recent):null, last=rows.length?rows[rows.length-1]:null;
+  const o={ vehicle:plate, meter:meter, mileage:mpl, stretches:recent.length, reserve:res, stock_now:null, trips_since:0, unknown_trips:0 };
+  if(last){
+    o.after_fill=r2(st(last)+(+last.litres||0));
+    const since=trips.filter(t=>t.plate===plate && t.ts>last.ts);
+    let km=0, lit=0; since.forEach(t=>{ const d=destOf(t.dest); if(d) km+=d.rtd; else if(!meter) o.unknown_trips++; lit+=t.total; });
+    o.trips_since=since.length; o.km_since=km;
+    if(mpl>0){ o.burnt=r1((meter?lit:km)/mpl); o.stock_now=Math.max(0, r1(o.after_fill-o.burnt)); }
+  }
+  return o;
+}
+function forecastJS(o, dest, total){
+  const d=destOf(dest), f=Object.assign({}, o, { dest:dest, rtd:d?d.rtd:null, need:null, after:null, advice:"unknown", trips_left:null });
+  if(o.mileage>0) f.need=r1((o.meter ? (+total||0) : (d?d.rtd:0))/o.mileage);
+  if(f.need!=null && o.stock_now!=null){
+    f.after=r1(o.stock_now-f.need);
+    f.advice = f.after<0 ? "refill_before" : f.after<o.reserve ? "refill_after" : "ok";
+    if(f.need>0 && f.after>o.reserve) f.trips_left=Math.floor((f.after-o.reserve)/f.need);
+  }
+  return f;
+}
+// a small "⛽ Diesel ≈ …" line on every tanker card
+function paintDiesel(){
+  document.querySelectorAll("#tankerList .tcard").forEach(card=>{
+    const x=FUELSTAT[card.dataset.plate], el=card.querySelector(".diesel");
+    if(!el) return;
+    if(!x || x.stock_now==null){ el.innerHTML=""; el.className="diesel"; return; }
+    const low = +x.stock_now < +x.reserve;
+    el.className="diesel"+(low?" low":"");
+    el.innerHTML='<span class="dz">⛽</span>Own diesel ≈ <b>'+fmt(x.stock_now)+' L</b>'+(low?' · <b>refill soon</b>':'')
+      +(x.unknown_trips?' <span class="muted">· '+x.unknown_trips+' trip'+(x.unknown_trips===1?'':'s')+' without customer</span>':'');
   });
 }
 function rerenderCurrent(){
@@ -1529,12 +1666,13 @@ function renderHome(){
   $("#todayTot").textContent=fmt(openLoads.reduce((s,e)=>s+e.total,0));
   $("#todayCnt").textContent=openLoads.length;
   $("#curDayLabel").textContent="Current business day — "+keyLabel(currentOpenDate());
+  renderKpis();
   renderEndDay();
   renderTankers();
   const recent=[...LOG].slice(-6).reverse();
   const box=$("#recentList");
   if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap a tanker above to start.</div>'; }
-  else box.innerHTML=recent.map(entryHTML).join("");
+  else box.innerHTML='<div class="glist">'+recent.map(entryHTML).join("")+'</div>';
   $("#storeNote").innerHTML = CLOUD
     ? "Shared live tankers — every employee sees the same fill. History kept for the last 7 days."
     : (LOG.length ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup." : "");
@@ -1543,6 +1681,17 @@ function renderHome(){
     const rb = ROLE==="admin" ? '<span class="rolebadge admin">Admin</span>' : ROLE==="staff" ? '<span class="rolebadge staff">Staff</span>' : '';
     sr.innerHTML='Signed in as <b>'+esc(ME)+'</b>'+rb+' · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
   else sr.style.display="none";
+}
+// fleet at a glance: diesel sitting in the tankers, how many are full, how many loading
+function renderKpis(){
+  const box=$("#fleetKpi"); if(!box) return;
+  if(!VEHICLES.length){ box.innerHTML=""; return; }
+  let held=0, cap=0, full=0, pouring=0;
+  VEHICLES.forEach(v=>{ const st=tankerState(v.plate); held+=st.total; cap+=st.cap; if(st.full) full++; if(pourChambers(v.plate).length) pouring++; });
+  box.innerHTML=
+     '<div class="kpi"><div class="kn">'+fmt(Math.round(held))+'<small> L</small></div><div class="kl">in tankers</div></div>'
+    +'<div class="kpi"><div class="kn">'+full+'<small> / '+VEHICLES.length+'</small></div><div class="kl"><i style="background:#1f9d55"></i>full, ready</div></div>'
+    +'<div class="kpi"><div class="kn">'+pouring+'</div><div class="kl"><i style="background:#FF8A2B"></i>loading now</div></div>';
 }
 function renderEndDay(){
   const wrap=$("#endDayWrap");
@@ -1578,7 +1727,7 @@ function renderTankers(){
     const st=tankerState(v.plate);
     const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
     const left=Math.max(st.cap-st.total,0);
-    const badge = st.full ? "FULL ✓" : fmt(st.total)+" / "+fmt(st.cap)+" L";
+    const badge = st.full ? "FULL ✓" : (st.total>0 ? Math.round(pct)+"% · " : "")+fmt(st.total)+" / "+fmt(st.cap)+" L";
     const perCh = st.caps.map((c,i)=>{ const l=Math.max(c-st.cham[i],0); return 'C'+(i+1)+' '+(l===0?'✓':fmt(l)); }).join(' · ');
     const sub = st.full ? "Full — send for sale when dispatched"
                         : "Left to fill <b>"+fmt(left)+"</b> L";
@@ -1587,7 +1736,8 @@ function renderTankers(){
       +'<div class="th"><span class="pl">'+v.plate+'</span><span class="badge2">'+badge+'</span></div>'
       +'<div class="tankwrap">'+tankerSVG(st.caps)+'</div>'
       +'<div class="tsub">'+sub+'</div>'
-      +(st.full?'':'<div class="tsub2">Left per chamber — '+perCh+' L</div>')+'</button>'
+      +(st.full?'':'<div class="tsub2">Left per chamber — '+perCh+' L</div>')
+      +'<div class="diesel"></div></button>'
       +(st.total>0?'<button class="dispatch" data-disp="'+v.plate+'">🚚 Sent for sale — empty tanker</button>':'')
       +'</div>';
   }).join("");
@@ -1599,6 +1749,7 @@ function renderTankers(){
       const st=tankerState(card.dataset.plate);
       tankFill(card.querySelector(".tanksvg"), st.caps, st.cham, null);
     });
+    paintDiesel();
     applyPourAll();
   });
 }
@@ -1631,8 +1782,42 @@ function renderDestPicker(current){
   box.querySelectorAll(".dest").forEach(b=>{ b.onclick=()=>{
     pickedDest=b.getAttribute("data-dest"); $("#dispErr").textContent="";
     box.querySelectorAll(".dest").forEach(x=>x.classList.toggle("on", x===b));
+    showForecast();
   }; });
   $("#dispErr").textContent="";
+  showForecast();
+}
+/* Diesel forecast for this sale: what the trip will burn from the tanker's own
+   tank and whether to refill first (it is marked sold at the pump, as it leaves). */
+let fcSeq=0, lastFc=null;
+function showForecast(){
+  const box=$("#dispFc"), pd=pendingDispatch; lastFc=null;
+  if(!pd || pd.mode!=="sale"){ box.hidden=true; return; }
+  const meter=isMeter(pd.plate);
+  if(!meter && !pickedDest){ box.hidden=true; return; }
+  const total=tankerState(pd.plate).total, seq=++fcSeq;
+  box.hidden=false; box.className="fcast"; box.innerHTML='<div class="fh">⛽ Diesel forecast…</div>';
+  Backend.forecast(pd.plate, pickedDest, total).then(f=>{
+    if(seq!==fcSeq || !f) return;
+    lastFc=f;
+    const L=v=>fmt(v)+" L";
+    let head, cls;
+    if(f.advice==="refill_before"){ cls="bad"; head="⛔ Refill before dispatch — about "+L(-f.after)+" short"; }
+    else if(f.advice==="refill_after"){ cls="warn"; head="⚠ Refill when it returns — only ≈ "+L(f.after)+" left after"; }
+    else if(f.advice==="ok"){ cls="good"; head="✓ Enough diesel"+(f.trips_left?" — ≈ "+f.trips_left+" more trip"+(f.trips_left===1?"":"s")+" like this":""); }
+    else { cls=""; head = f.need!=null ? "This trip needs ≈ "+L(f.need)+" of diesel" : "No mileage yet for this tanker"; }
+    const rows=[];
+    if(f.need!=null) rows.push(["This trip will burn", "≈ "+L(f.need)+(f.meter?" ("+fmt(total)+" L sold)":(f.rtd!=null?" ("+fmt(f.rtd)+" km)":""))]);
+    if(f.stock_now!=null) rows.push(["In its tank now", "≈ "+L(f.stock_now)]);
+    if(f.after!=null) rows.push(["Left after the trip", "≈ "+L(Math.max(0,f.after))]);
+    if(f.mileage) rows.push(["Recent mileage", (+f.mileage).toFixed(2)+(f.meter?" L dispensed / L":" km/L")]);
+    let note="";
+    if(f.stock_now==null) note=f.mileage ? "Fuel in its tank is unknown — do a 🛢️ stock check (admin, Mileage screen)." : "Mileage appears after a few refills are recorded.";
+    else if(f.unknown_trips) note=f.unknown_trips+" earlier trip"+(f.unknown_trips===1?" has":"s have")+" no customer, so the tank may hold less.";
+    box.className="fcast "+cls;
+    box.innerHTML='<div class="fh">'+head+'</div>'+rows.map(r=>'<div class="kv"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>').join("")
+      +(note?'<div class="fn">'+esc(note)+'</div>':'');
+  }).catch(()=>{ if(seq===fcSeq) box.hidden=true; });   // older database: just no forecast
 }
 function dispatchTanker(plate){
   const st=tankerState(plate);
@@ -1642,7 +1827,7 @@ function dispatchTanker(plate){
   $("#dispTitle").textContent=plate+" — "+fmt(st.total)+" L";
   $("#dispLab").textContent="Sold to — choose the customer";
   $("#dispOk").textContent="🚚 Confirm sale";
-  renderDestPicker("");
+  renderDestPicker("");   // also starts the forecast (OD15AF5510 needs no customer)
   $("#dispModal").classList.add("on");
 }
 function editTripDest(trip){
@@ -1676,8 +1861,10 @@ $("#dispOk").onclick=()=>{
     notifyStaff("sold", plate, remark);   // fire first; don't wait on the reload
     return refresh();
   }).then(()=>{
+    const fc=lastFc;
     btn.disabled=false; closeDisp(); renderHome();
-    toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:""));
+    toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:"")
+      +(fc && fc.advice==="refill_before" ? " · ⛔ refill diesel first" : fc && fc.advice==="refill_after" ? " · ⚠ refill diesel on return" : ""));
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
@@ -1839,7 +2026,7 @@ function renderHist(){
   box.innerHTML=order.map(k=>{
     const arr=groups[k], dtot=totals(arr);
     return '<div class="daygrp"><div class="dayhd"><span>'+keyLabel(k)+'</span><span class="dt">'+fmt(dtot)+' L loaded</span></div>'
-      + arr.map(e=>{
+      + '<div class="glist">' + arr.map(e=>{
         const who=(CLOUD&&e.by)?' · '+e.by:'';
         if((e.kind||"load")==="dispatch"){
           const sold=e.remark?' — '+esc(e.remark):'';
@@ -1853,7 +2040,7 @@ function renderHist(){
           +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
           +'<span class="tot">+'+fmt(e.total)+' L</span>'
           +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
-      }).join("")
+      }).join("") + '</div>'
       +'</div>';
   }).join("");
   box.querySelectorAll("[data-del]").forEach(b=>{
@@ -1913,13 +2100,13 @@ function renderReport(){
   $("#repTrips").textContent=disp.length;
   $("#allTimeLoaded").textContent=fmt(allTime("total_loaded"));
   $("#allTimeSold").textContent=fmt(allTime("total_sold"));
-  $("#repTankers").innerHTML=VEHICLES.map(v=>{
+  $("#repTankers").innerHTML='<div class="glist">'+VEHICLES.map(v=>{
     const ve=evs.filter(e=>e.plate===v.plate);
     const vl=ve.filter(e=>!isDisp(e)), vd=ve.filter(isDisp), st=tankerState(v.plate);
     return '<div class="entry"><span class="plate">'+v.plate+'</span>'
       +'<div class="mid"><div class="ch">Now in tanker: <b>'+fmt(st.total)+'</b> / '+fmt(st.cap)+' L'+(st.full?' · FULL':'')+'</div>'
       +'<div class="tm">All-time: loaded '+fmt(+v.total_loaded||0)+' L · sold '+fmt(+v.total_sold||0)+' L</div></div></div>';
-  }).join("");
+  }).join("")+'</div>';
   const empty=!evs.length && allTime("total_loaded")===0;
   $("#dlExcel").disabled=empty;
   $("#repNote").innerHTML = empty ? "No records yet."
@@ -1944,7 +2131,7 @@ function renderLog(){
   box.innerHTML=order.map(k=>{
     const arr=groups[k];
     return '<div class="daygrp"><div class="dayhd"><span>'+keyLabel(k)+'</span><span class="dt">'+arr.length+' entries</span></div>'
-      + arr.map(r=>{
+      + '<div class="glist">' + arr.map(r=>{
           const e=r.e, c=r.c, disp=isDisp(e);
           const who=(CLOUD&&e.by)?' · '+esc(e.by):'';
           const rem=(disp&&e.remark)?' · sold to '+esc(e.remark):'';
@@ -1953,7 +2140,7 @@ function renderLog(){
             +'<div class="lmid"><div class="lp">'+esc(e.plate)+(disp?' · sent for sale':'')+'</div>'
             +'<div class="lt">'+timeLabel(e.ts)+who+rem+'</div></div>'
             +'<span class="lq">'+(disp?'−':'+')+fmt(c.qty)+' L</span></div>';
-      }).join("")
+      }).join("") + '</div>'
       +'</div>';
   }).join("");
 }
@@ -2048,14 +2235,14 @@ let addCount=3;
 function setCount(n){ addCount=Math.max(1,Math.min(12,n)); $("#chCount").textContent=addCount; }
 function renderSettings(){
   const box=$("#vehList");
-  box.innerHTML = VEHICLES.length ? VEHICLES.map(v=>{
+  box.innerHTML = VEHICLES.length ? '<div class="glist">'+VEHICLES.map(v=>{
     const cap=v.caps.reduce((s,c)=>s+c,0), st=tankerState(v.plate);
     return '<div class="entry"><span class="plate">'+esc(v.plate)+'</span>'
       +'<div class="mid"><div class="ch">'+v.caps.length+' chambers · '+v.caps.map(c=>fmt(c)).join(", ")+' L</div>'
       +'<div class="tm">Full '+fmt(cap)+' L'+(st.total>0?' · now '+fmt(st.total)+' L in':'')+'</div></div>'
       +'<button class="edit" data-edveh="'+esc(v.plate)+'" aria-label="Edit chambers">✎</button>'
       +'<button class="del" data-rmveh="'+esc(v.plate)+'" aria-label="Remove">🗑</button></div>';
-  }).join("") : '<div class="empty">No tankers yet. Add one below.</div>';
+  }).join("")+'</div>' : '<div class="empty">No tankers yet. Add one below.</div>';
   box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
   const bt=$("#buildTag"); if(bt) bt.textContent=APP_BUILD;
@@ -2218,11 +2405,11 @@ function renderDests(){
   $("#destNote").innerHTML = DESTS_FALLBACK
     ? '⚠ The shared customer list isn\'t set up yet — showing the built-in list. Re-run <b>supabase/loading-schema.sql</b> in Supabase to enable it.'
     : 'RTD = round-trip km per trip. Customers in the same group always share one RTD.';
-  box.innerHTML = DESTS.length ? DESTS.map(d=>
-    '<div class="entry"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:800;white-space:normal">'+esc(d.name)+'</div>'
+  box.innerHTML = DESTS.length ? '<div class="glist">'+DESTS.map(d=>
+    '<div class="entry"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:600;white-space:normal">'+esc(d.name)+'</div>'
     +'<div class="tm">RTD <b>'+fmt(d.rtd)+' km</b> / trip'+(d.grp?' · group: '+esc(d.grp):'')+'</div></div>'
     +'<button class="edit" data-eddest="'+esc(d.name)+'" aria-label="Edit RTD">✎</button>'
-    +'<button class="del" data-rmdest="'+esc(d.name)+'" aria-label="Remove">🗑</button></div>').join("")
+    +'<button class="del" data-rmdest="'+esc(d.name)+'" aria-label="Remove">🗑</button></div>').join("")+'</div>'
     : '<div class="empty">No customers yet. Add one below.</div>';
   box.querySelectorAll("[data-eddest]").forEach(b=>{ b.onclick=()=>editDestRtd(b.getAttribute("data-eddest")); });
   box.querySelectorAll("[data-rmdest]").forEach(b=>{ b.onclick=()=>removeDestUI(b.getAttribute("data-rmdest")); });
@@ -2994,6 +3181,7 @@ function renderTrend(){
   if(!$("#scTrend").classList.contains("on")) return;
   paintAngul();
   $("#tdPct").textContent=fmt(SETTINGS.alert_pct);
+  $("#tdRes").textContent=fmt(SETTINGS.reserve_l);
   if(FUEL_ERR){ $("#tdTiles").innerHTML='<div class="empty" style="grid-column:1/-1;color:var(--red-d)">'+esc(FUEL_ERR)+'</div>';
     ["#tdFlags","#vzFleet","#tdMeter","#tdMonthly"].forEach(s=>{ $(s).innerHTML=""; }); return; }
   const D=trendData(), odo=D.all.filter(x=>!x.meter), met=D.all.filter(x=>x.meter);
@@ -3093,6 +3281,13 @@ function renderMonthly(D){
   }).reverse().join("");
   $("#tdMonthly").innerHTML='<table class="mtab"><thead><tr><th>Month</th>'+plates.map(p=>'<th>'+esc(p)+(isMeter(p)?'<small>L/L</small>':'<small>km/L</small>')+'</th>').join("")+'</tr></thead><tbody>'+body+'</tbody></table>';
 }
+$("#tdResEdit").onclick=()=>{
+  const ans=prompt("Refill when a tanker's own diesel would be below how many litres after a trip?", String(SETTINGS.reserve_l));
+  if(ans==null) return;
+  const v=Math.round(num(sanQty(ans)));
+  if(!(v>=0 && v<=2000)){ toast("Enter litres between 0 and 2000"); return; }
+  Backend.saveSetting("reserve_l", v).then(refresh).then(()=>{ toast("Refill reserve "+v+" L"); renderTrend(); }).catch(e=>toast(dbHint(e)));
+};
 $("#tdPctEdit").onclick=()=>{
   const ans=prompt("Flag a mileage drop when mileage is below the tanker's normal by how many %?", String(SETTINGS.alert_pct));
   if(ans==null) return;
@@ -3423,6 +3618,17 @@ async function testPush(){
   finish();
 }
 
+/* ---------- Live / offline pill in the header (cloud) ---------- */
+let liveOk=false;
+function paintLive(){
+  const p=$("#livePill"); if(!p) return;
+  if(!CLOUD || !ME){ p.hidden=true; return; }
+  const on=navigator.onLine!==false && liveOk;
+  p.hidden=false; p.className="pill "+(on?"live":"off");
+  p.querySelector("span").textContent = navigator.onLine===false ? "Offline" : on ? "Live" : "Connecting";
+}
+window.addEventListener("online",paintLive); window.addEventListener("offline",paintLive);
+
 /* ---------- Realtime (cloud) ---------- */
 let realtimeOn=false;
 function subscribeRealtime(){
@@ -3438,7 +3644,7 @@ function subscribeRealtime(){
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_events"},poke)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_vehicles"},poke)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_day_closes"},poke)
-    .subscribe();
+    .subscribe(status=>{ liveOk = status==="SUBSCRIBED"; paintLive(); });
   // The trip / customer / fuel tables get their own channel, so a database that
   // hasn't been updated with them yet can't disturb the live tanker sync above.
   let t2;
@@ -3510,14 +3716,14 @@ function renderStaff(){
   if(!USERS){ box.innerHTML='<div class="empty">Loading logins…</div>';
     adminFn("list").then(j=>{ USERS=j.users||[]; renderStaff(); }).catch(e=>{ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(e.message)+'</div>'; });
     return; }
-  box.innerHTML = USERS.length ? USERS.map(u=>
-    '<div class="entry urow"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:800">'+esc(u.username)
+  box.innerHTML = USERS.length ? '<div class="glist">'+USERS.map(u=>
+    '<div class="entry urow"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:600">'+esc(u.username)
     +'<span class="rolebadge '+(u.role==="admin"?'admin':'staff')+'">'+(u.role==="admin"?'Admin':'Staff')+'</span></div>'
     +'<div class="tm">'+(u.last_sign_in_at?'last sign-in '+dmy(dayKey(Date.parse(u.last_sign_in_at)))+' '+timeLabel(Date.parse(u.last_sign_in_at)):'never signed in')+'</div></div>'
     +'<div class="ub"><button type="button" data-pw="'+esc(u.id)+'">🔑 Password</button>'
     +(u.email!==(ME.indexOf("@")===-1?ME+"@vriddhi.local":ME).toLowerCase()
       ? '<button type="button" data-role="'+esc(u.email)+'" data-to="'+(u.role==="admin"?"staff":"admin")+'">'+(u.role==="admin"?'Make staff':'Make admin')+'</button>' : '')
-    +'</div></div>').join("") : '<div class="empty">No logins found.</div>';
+    +'</div></div>').join("")+'</div>' : '<div class="empty">No logins found.</div>';
   box.querySelectorAll("[data-pw]").forEach(b=>{ b.onclick=()=>changePassword(USERS.find(u=>u.id===b.getAttribute("data-pw"))); });
   box.querySelectorAll("[data-role]").forEach(b=>{ b.onclick=()=>{
     const email=b.getAttribute("data-role"), to=b.getAttribute("data-to");
@@ -3561,6 +3767,7 @@ function startApp(session){
   Backend=CloudBackend;
   ME = usernameFromEmail(session && session.user && session.user.email);
   subscribeRealtime();
+  paintLive();
   // Already allowed on this phone? Re-register silently — the browser can
   // rotate a subscription, and a new sign-in must be attached to this user.
   if(pushConfigured() && pushSupported() && Notification.permission==="granted") enablePush(false);
