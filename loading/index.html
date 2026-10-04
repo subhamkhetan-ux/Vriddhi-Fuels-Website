@@ -214,8 +214,6 @@
   /* earlier refills / stock checks of a tanker, as a table (tap a row to correct it) */
   .fltab{margin-top:4px}
   .fltab .mtab th,.fltab .mtab td{padding:8px 6px}
-  .fltab tbody tr{cursor:pointer}
-  .fltab tbody tr:active{background:rgba(255,138,43,.08)}
   .fltab tbody th small{display:block;font-size:11px;color:var(--muted);font-weight:600}
   .fltab td.ck{color:var(--muted);font-size:12px}
   .fltab td.af b{color:var(--good)}
@@ -1226,7 +1224,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v36 · 2026-10-04";
+const APP_BUILD = "v37 · 2026-10-05";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3406,7 +3404,7 @@ function guardEntry(e, exceptId){
 function correctedEntry(p){
   const rows=fuelRows(p.plate);
   if(rows.some(r=>sameReading(p, r))) return null;
-  return rows.find(r=>near(r.odo, p.odo, 0.5) && (r.litres>0)===(p.litres>0) && Math.abs(r.ts-p.ts)<=MILEAGE.dupHours*3600e3) || null;
+  return rows.slice(-2).find(r=>near(r.odo, p.odo, 0.5) && (r.litres>0)===(p.litres>0) && Math.abs(r.ts-p.ts)<=MILEAGE.dupHours*3600e3) || null;
 }
 function entryTxt(r){ return fmt(r.odo)+(isMeter(r.plate)?" L meter":" km")+", "+fmt(r.litres)+" L"+(dipped(r)?", dip "+fmt(stockOf(r))+" L":"")+" on "+dmy(dayKey(r.ts))+" "+timeLabel(r.ts); }
 function sameReading(a,b){
@@ -3480,7 +3478,7 @@ function earlierTable(rs, meter, dupOf, over, incl){
   const body=rs.map(r=>{
     const d=dipped(r), filled=+r.litres||0, flag=dupOf.has(r)?"saved twice — not counted":over.has(r)?"more than the tank":incl.has(r)?"already holds the refill after it":"";
     const after = d ? r2(stockOf(r)+filled) : (meter && filled>0 ? filled : null);
-    return '<tr data-edfuel="'+esc(r.id)+'"'+(flag?' class="flag" title="'+esc(flag)+'"':'')+'>'
+    return '<tr'+(flag?' class="flag" title="'+esc(flag)+'"':'')+'>'
       +'<th>'+dmy(dayKey(r.ts)).slice(0,5)+'<small>'+timeLabel(r.ts)+'</small></th>'
       +'<td>'+fmt(r.odo)+'</td>'
       +'<td>'+(d ? fmt(stockOf(r))+(r.anguls!=null?'<span>'+fmt(r.anguls)+' Ang</span>':'') : (meter&&filled>0?'<span>dry</span>':'—'))+'</td>'
@@ -3488,7 +3486,7 @@ function earlierTable(rs, meter, dupOf, over, incl){
       +'<td class="af">'+(after!=null ? '<b>≈ '+fmt(after)+'</b>' : '?')+'</td></tr>';
   }).join("");
   return '<div class="vizcard tablewrap fltab"><div class="vizh">Earlier entries ('+rs.length+')</div>'
-    +'<div class="vizs">In tank after = dip + litres filled · “check” = stock check · ⚠ = see Check the readings · tap a row to correct or delete it</div>'
+    +'<div class="vizs">In tank after = dip + litres filled · “check” = stock check · ⚠ = see Check the readings · read-only: only the latest 2 above can be corrected</div>'
     +'<table class="mtab"><thead><tr><th style="text-align:left">Date</th><th>'+(meter?'Meter<small>L</small>':'Odometer<small>km</small>')+'</th>'
     +'<th>Dip<small>L</small></th><th>Filled<small>L</small></th><th>In tank<small>after</small></th></tr></thead><tbody>'+body+'</tbody></table></div>';
 }
@@ -3496,7 +3494,7 @@ function renderMileageList(rows){
   const box=$("#mlList"), meter=isMeter(mlPlate);
   if(FUEL_ERR){ box.innerHTML=''; return; }
   const nChk=analyse(mlPlate).iv.filter(o=>o.checkOnly).length;
-  $("#mlListSub").textContent = rows.length ? rows.length+" saved · latest 2 first · tap ✎ or a row to correct"+(nChk?" · ✎ "+nChk+" to check":"") : "none yet";
+  $("#mlListSub").textContent = rows.length ? rows.length+" saved · the latest 2 can be corrected (✎)"+(nChk?" · ✎ "+nChk+" to check":"") : "none yet";
   if(!rows.length){ box.innerHTML='<div class="empty">No refills saved yet.</div>'; return; }
   const an=analyse(mlPlate), scr=screenRows(rows, meter);
   const dupOf=new Set(scr.dups.map(x=>x.row)), over=new Set(scr.kept.filter(x=>x.over).map(x=>x.row)), incl=new Set(scr.kept.filter(x=>x.incl).map(x=>x.row));
