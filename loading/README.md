@@ -509,6 +509,16 @@ first − stock at the second.
 - **Check the readings** — impossible stretches (litres typed ×10, an odometer
   with an extra digit or going back, diesel used ≤ 0) are listed separately and
   never counted as drops.
+  Each step between two neighbouring entries is also checked on its own:
+  more than a full tank (365 L; OD15AF5510 50 L) gone beyond what the km could
+  burn, or stock rising with nothing filled, is listed with the arithmetic
+  (*X L in tank on … + Y L filled since − Z L on …*) and the stretch restarts
+  after it, so one wrong entry spoils only itself.
+- **A stock check that already includes a refill** — a *Fuel in tank now*
+  entered after a refill, but dated before it (same odometer, its stock =
+  that refill's dip + litres), would count the refill's litres twice. It is
+  recognised and not used as a point (the entry list says so — check its
+  time), in the app and in the database alike.
 
 Tested in `tests/loading_web` (`node --test tests/loading_web/*.test.mjs`):
 simulated tankers dipped in whole Anguls, with daily stock checks, typos, a

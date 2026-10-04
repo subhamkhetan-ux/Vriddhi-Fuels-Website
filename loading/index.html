@@ -1127,7 +1127,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v31 · 2026-10-04";
+const APP_BUILD = "v32 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -2748,6 +2748,10 @@ function interval(prev, cur){
    stock check with its dip; for OD15AF5510 (no dip stick) a refill counts as
    run dry. A refill saved without its dip still adds its litres, but is not a
    point — an unknown stock can't put an error into the figure.
+   One exception: a stock check that ALREADY INCLUDES the refill saved right
+   after it (same odometer, within MILEAGE.sameKm; its stock ≈ that refill's
+   dip + litres) was really taken after the refill — its time is off — so it
+   is not a point, or the refill's litres would count twice.
    For each point:  odo = its reading,  C = litres filled before it − its stock
    (diesel consumed so far, give or take a constant). Between any two points:
         distance = odo₂ − odo₁        diesel used = C₂ − C₁
@@ -2765,8 +2769,12 @@ function interval(prev, cur){
    Each stretch is compared with the mileage from the points BEFORE it, and a
    drop is reported only when the extra diesel is also more than the readings
    themselves could be off by (MILEAGE.tolerance: a dip is good to about one
-   Angul at each end; OD15AF5510's "refilled when dry" by what's left, ≤ ~40 L). One that
-   is impossible goes to "check the readings", never to the alerts. */
+   Angul at each end; OD15AF5510's "refilled when dry" by what's left, ≤ ~10 L). One that
+   is impossible goes to "check the readings", never to the alerts. So does
+   any single step between two neighbouring points that can't happen (more
+   than a full tank gone beyond what even 0.5 km/L burns — less could be theft,
+   so that is left to the drop alerts — or stock rising with nothing filled):
+   the stretch restarts after it, so one wrong entry spoils only itself. */
 const MILEAGE = {
   points: 12,
   bounds: { odo:[0.5, 10], meter:[2, 2000] },   // km/L · litres dispensed per litre
@@ -2775,14 +2783,23 @@ const MILEAGE = {
   // litres a stretch can be off by from the readings alone: [⚠ drop, ⛔ sharp]
   // OD15AF5510 is a Bolero with a ~50 L tank, refilled near dry (≤ ~10 L left, counted as 0)
   tolerance: { odo:[2, 3] /* × litres per Angul */, meter:[18, 25] /* litres */ },
+  sameKm: 20,   // a stock check this close before a refill may be that refill's after-stock
+  tank: { odo:365, meter:50 },   // litres: the big tankers' tanks, OD15AF5510's (a Bolero)
 };
 function dropTolerance(meter){ return meter ? MILEAGE.tolerance.meter : MILEAGE.tolerance.odo.map(x=>x*angulL()); }
 function stockKnown(r, meter){ return r.stock_l!=null || r.anguls!=null || (meter && r.litres>0); }
+function dipped(r){ return r.stock_l!=null || r.anguls!=null; }
+// a stock check whose stock already includes the refill saved right after it
+function includesNextRefill(r, n, meter){
+  return !meter && !!n && !(r.litres>0) && dipped(r) && n.litres>0 && dipped(n)
+    && +n.odo>=+r.odo && +n.odo-r.odo<=MILEAGE.sameKm
+    && Math.abs(stockOf(r)-(stockOf(n)+(+n.litres)))<=dropTolerance(false)[0];
+}
 // rows (sorted, one tanker) → its measuring points
 function mileagePoints(rows, meter){
   let filled=0; const pts=[];
-  rows.forEach(r=>{
-    if(stockKnown(r, meter)) pts.push({ row:r, ts:r.ts, odo:+r.odo, stock:stockOf(r), C:filled-stockOf(r) });
+  rows.forEach((r,i)=>{
+    if(stockKnown(r, meter) && !includesNextRefill(r, rows[i+1], meter)) pts.push({ row:r, ts:r.ts, odo:+r.odo, stock:stockOf(r), C:filled-stockOf(r) });
     filled+=(+r.litres||0);
   });
   return pts;
@@ -2816,7 +2833,12 @@ function mileageQuality(m){
 function analyse(plate){
   const rows=fuelRows(plate), meter=isMeter(plate), P=alertP(), pts=mileagePoints(rows, meter);
   const J=meter?MILEAGE.judge.meter:MILEAGE.judge.odo, unit=meter?"L/L":"km/L";
-  const iv=[], checks=[];
+  const iv=[], checks=[], lo=meter?MILEAGE.bounds.meter[0]:MILEAGE.bounds.odo[0], tol=dropTolerance(meter)[0];
+  const tank=meter?MILEAGE.tank.meter:MILEAGE.tank.odo;
+  const dist=meter?" L dispensed":" km";
+  // "X L in tank on 03/10 + Y L filled since − Z L on 04/10": how diesel used was worked out
+  const sums=(a,b,u)=>fmt(a.stock)+" L in tank on "+dmy(dayKey(a.ts)).slice(0,5)+" "+timeLabel(a.ts)
+    +" + "+fmt(r2(u-a.stock+b.stock))+" L filled since − "+fmt(b.stock)+" L on "+dmy(dayKey(b.ts)).slice(0,5)+" "+timeLabel(b.ts);
   let s=0;
   for(let k=1;k<pts.length;k++){
     const a=pts[s], b=pts[k], d=b.odo-a.odo, u=b.C-a.C;
@@ -2824,12 +2846,20 @@ function analyse(plate){
       checks.push({ prev:a.row, cur:b.row, text:(meter?"Meter":"Odometer")+" reads "+fmt(b.odo)+", lower than "+fmt(a.odo)+" before it — check the reading" });
       s=k; continue;
     }
+    // the single step from the point just before: impossible on its own?
+    const p=pts[k-1], ds=b.odo-p.odo, us=b.C-p.C;
+    if(ds>=0 && (us > ds/lo + tank || us < -tol)){
+      checks.push({ prev:p.row, cur:b.row, text: us>0
+        ? fmt(r2(us))+" L of diesel gone over "+fmt(r2(ds))+dist+" ("+sums(p,b,us)+") — these two entries can't both be right: check their dates & times (which came first), the dips and the litres"
+        : "Stock rose by "+fmt(r2(-us))+" L with nothing filled ("+sums(p,b,us)+") — check the dips, or a refill missing between them" });
+      s=k; continue;
+    }
     if(d<J) continue;                                      // too short yet: keep joining
     const ratio=(d>0 && u>0) ? d/u : null;
     if(ratio==null || !inBounds(ratio, meter)){
       checks.push({ prev:a.row, cur:b.row, text: u<=0
         ? "Diesel used works out to "+fmt(r2(u))+" L over "+fmt(r2(d))+(meter?" L dispensed":" km")+" — check the litres and the dips"
-        : fmt(r2(d))+(meter?" L dispensed":" km")+" on "+fmt(r2(u))+" L ("+ratioTxt(ratio,meter)+") isn't possible — check the reading, litres or dip" });
+        : fmt(r2(d))+dist+" on "+fmt(r2(u))+" L ("+ratioTxt(ratio,meter)+") isn't possible — "+sums(a,b,u)+" — check the reading, litres or dip" });
       s=k; continue;
     }
     const o={ prev:a.row, cur:b.row, dist:r2(d), used:r2(u), ratio:ratio, trips:0, rtd:0, extra:null, points:k-s };
@@ -3174,6 +3204,7 @@ function renderMileageList(rows){
     const parts=[ !(r.litres>0) ? "🛢️ Stock check · "+(dip||"0 L")+" in tank"
       : "Filled "+fmt(r.litres)+" L"+(dip?" · dip before filling "+dip:"") ];
     if(!stockKnown(r, meter)) parts.push("no dip — not a measuring point (its litres still count)");
+    else if(includesNextRefill(r, rows[rows.indexOf(r)+1], meter)) parts.push("already includes the refill saved after it — not a measuring point (check its time)");
     if(x.prev) parts.push("+"+fmt(r2(r.odo-x.prev.odo))+(meter?" L dispensed":" km")+" since the entry before");
     else parts.push("starting point");
     if(r.note) parts.push(esc(r.note));

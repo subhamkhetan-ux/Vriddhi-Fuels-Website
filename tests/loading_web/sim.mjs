@@ -20,7 +20,7 @@ export function loadModel(rows, trips = [], src = SRC) {
     const SETTINGS = { angul_l: 16, alert_pct: 15, reserve_l: 40 };
     const r1 = (n) => Math.round((+n || 0) * 10) / 10, r2 = (n) => Math.round((+n || 0) * 100) / 100;
     const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-    const dmy = (k) => k, dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const dmy = (k) => k, dayKey = (ms) => new Date(ms).toISOString().slice(0, 10), timeLabel = (ms) => new Date(ms).toISOString().slice(11, 16);
     const angulL = () => 16, alertP = () => 0.15, isMeter = (p) => p === 'OD15AF5510';
     const stockOf = (r) => !r ? 0 : (r.stock_l != null ? +r.stock_l : (r.anguls != null ? r2(r.anguls * angulL()) : 0));
     const fuelRows = (p) => rows.filter((r) => r.plate === p).sort((a, b) => a.ts - b.ts || (a.cts || 0) - (b.cts || 0));

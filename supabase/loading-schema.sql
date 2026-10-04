@@ -781,15 +781,24 @@ end $$;
 create or replace function public._loading_fuel_points(p_vehicle text, p_meter boolean, p_al numeric)
 returns table (odo numeric, c numeric, stk numeric, reading_at timestamptz, created_at timestamptz)
 language sql stable security definer set search_path = public as $$
-  select e.odometer, e.fb - e.stk, e.stk, e.reading_at, e.created_at from (
-    select odometer, reading_at, created_at,
-           case when stock_l is not null then stock_l
-                when anguls is not null then anguls * p_al
-                when p_meter and litres > 0 then 0 end as stk,
+  with r as (
+    select odometer, reading_at, created_at, litres,
+           case when stock_l is not null then stock_l when anguls is not null then anguls * p_al end as dip,
            coalesce(sum(litres) over (order by reading_at, created_at
                                       rows between unbounded preceding and 1 preceding), 0) as fb
-      from loading_fuel_logs where vehicle = p_vehicle) e
-  where e.stk is not null
+      from loading_fuel_logs where vehicle = p_vehicle),
+  e as (
+    select r.*, case when dip is not null then dip when p_meter and litres > 0 then 0 end as stk,
+           lead(odometer) over w as n_odo, lead(litres) over w as n_lit, lead(dip) over w as n_dip
+      from r window w as (order by reading_at, created_at))
+  select e.odometer, e.fb - e.stk, e.stk, e.reading_at, e.created_at from e
+   where e.stk is not null
+     -- a stock check that already includes the refill saved right after it
+     -- (same odometer, stock = that refill's dip + litres) is not a point —
+     -- its time is off, and the refill's litres would count twice (app: includesNextRefill)
+     and not coalesce(not p_meter and e.litres = 0 and e.dip is not null and e.n_lit > 0 and e.n_dip is not null
+                      and e.n_odo >= e.odometer and e.n_odo - e.odometer <= 20
+                      and abs(e.dip - (e.n_dip + e.n_lit)) <= 2 * p_al, false)
 $$;
 
 create or replace function public._loading_fuel_state(p_vehicle text) returns jsonb
