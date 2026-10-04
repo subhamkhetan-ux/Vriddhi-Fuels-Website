@@ -731,6 +731,27 @@ begin
   delete from loading_fuel_logs where id = p_id;
 end $$;
 
+-- Correct a saved refill / stock check in place (admin, Mileage → ✎ Edit).
+-- Same checks as loading_fuel_add; the tanker and who saved it stay as they were.
+create or replace function public.loading_fuel_update(
+  p_id uuid, p_reading_at timestamptz, p_odometer numeric, p_litres numeric,
+  p_anguls numeric, p_stock_l numeric, p_note text
+) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  if p_reading_at is null then raise exception 'Date & time required'; end if;
+  if p_odometer is null or p_odometer < 0 then raise exception 'Reading required'; end if;
+  if p_litres is null or p_litres < 0 then raise exception 'Litres must be 0 or more'; end if;
+  if p_anguls is not null and p_anguls < 0 then raise exception 'Anguls must be 0 or more'; end if;
+  if p_stock_l is not null and p_stock_l < 0 then raise exception 'Stock must be 0 or more'; end if;
+  update loading_fuel_logs
+     set reading_at = p_reading_at, odometer = round(p_odometer,2), litres = round(p_litres,2),
+         anguls = round(p_anguls,2), stock_l = round(p_stock_l,2), note = coalesce(p_note,'')
+   where id = p_id;
+  if not found then raise exception 'Entry not found — it may have been deleted'; end if;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- Who am I? The app calls this on sign-in and on every refresh: it decides
 -- what the phone shows, and a staff phone that has been logged out by the
@@ -1012,7 +1033,8 @@ begin
       -- called by the read policies, which run as the signed-in user
       public._loading_session_ok(),
       public._loading_is_admin(),
-      public.loading_fuel_delete(uuid)
+      public.loading_fuel_delete(uuid),
+      public.loading_fuel_update(uuid, timestamptz, numeric, numeric, numeric, numeric, text)
     to authenticated;
   end if;
 end $$;
