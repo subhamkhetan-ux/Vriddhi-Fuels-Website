@@ -135,13 +135,14 @@ phone can't get round it by any button or by calling the server directly.
 |---|---|---|
 | Add diesel (loadings), 🚚 Sent for sale | ✓ | ✓ |
 | History — last 7 days, view only | ✓ | ✓ (+ delete) |
-| End Day (5:30–7:30 AM), notifications on/off for their phone | ✓ | ✓ |
+| End Day (5:30–7:30 AM) | ✓ | ✓ |
+| 🔔 Push notifications on their phone | — | ✓ |
 | Reports & Excel, chamber log, 🚚 Trips per tanker, ⛽ Mileage, 📈 Trends | — | ✓ |
 | Edit / delete anything: records, tankers, chambers, customers, settings, Clear all | — | ✓ |
 | Staff logins: change passwords, add logins, make admin, log out all staff | — | ✓ |
 
-Any login not marked admin is staff. A staff phone shows only the tankers,
-Recent / History and a 🔔 Notifications page; the signed-in line shows
+Any login not marked admin is staff. A staff phone shows only the tankers and
+Recent / History (no ⚙ page, no notifications); the signed-in line shows
 **Admin** or **Staff**.
 
 ### One-time setup (Supabase dashboard of the loading project)
@@ -195,9 +196,11 @@ the sign-in screen.
 
 ## Notifications (optional)
 
-Every signed-in employee can get a push alert **on their own phone** when a
-tanker changes state — **except the person who pressed the button**, who
-already knows:
+**Admin phones only.** An admin can get a push alert **on their own phone**
+when a tanker changes state — whether a staff member or another admin pressed
+the button — **except on the device that pressed it**, which already knows.
+Staff logins never register for or receive notifications (the database
+refuses them), but what staff do still alerts the admins:
 
 | Alert | When |
 |---|---|
@@ -219,10 +222,12 @@ phone. Turn it on per phone under **⚙ Manage tankers &
 data → Notifications → 🔔 Turn on notifications**; signing out of a phone
 detaches it again.
 
-Alerts go to every phone **except the device that raised them** — by device,
-not by account, so staff sharing one login still notify each other. A phone
-with notifications **switched off still triggers alerts on everyone else's**;
-it simply doesn't receive any itself.
+Alerts go to every admin phone **except the device that raised them** — by
+device, not by account, so two phones on one admin login still notify each
+other. Any phone, staff or admin, **still triggers alerts on the admins'**
+phones; it just doesn't receive any itself unless it is an admin's phone with
+notifications turned on. If a login is changed from admin to staff, its
+phones are detached automatically.
 
 > **iPhone:** web push needs **iOS 16.4+** and the app **added to the Home
 > Screen** — Apple does not deliver push to a page open in a Safari tab. The
@@ -473,14 +478,39 @@ any From / To:
 - **Download mileage analysis (Excel)** — *Alerts*, *Refill analysis* (every
   computed figure and the reason for each flag) and *Monthly* sheets.
 
-**What gets flagged.** The refill itself is never the suspect — the **mileage
-drop** over the stretch since the previous fill is. "Normal" for a stretch =
-the median mileage of the same tanker's *other* stretches (needs at least two),
-so one bad stretch can't hide in its own baseline.
+**How mileage is worked out (robust).** A refill records the dip taken
+**before** filling plus the litres filled; a stock check is a dip alone. Every
+entry with a dip is a *measuring point* (OD15AF5510: a refill counts as run
+dry); a refill saved without its dip still adds its litres but isn't a point.
+Between any two points, diesel used = litres filled in between + stock at the
+first − stock at the second.
+
+- **Current mileage** — over the newest 12 points, every pair of points gives a
+  mileage; pairs that are physically impossible (outside 0.5–10 km/L, or 2–2,000
+  L dispensed per litre for OD15AF5510: typing slips, an odometer gone back)
+  are thrown out, and the rest give a **distance-weighted median**. Long spans
+  weigh most, so a dip that is an Angul out barely moves it, and one bad entry
+  is outvoted. It firms up with every refill and stock check and follows the
+  tanker as it changes. Shown as *steady* or *still settling*; nothing is shown
+  until there's at least 100 km (3,000 L) and 25 L of sound data.
+- **Mileage drops** — the points are joined into stretches of at least 150 km
+  (5,000 L dispensed); each is compared with the mileage from the points
+  before it. A drop is reported only if the extra diesel is also more than the
+  readings could be off by — 2 Anguls (32 L) for a ⚠ drop, 3 Anguls for ⛔
+  (OD15AF5510: 45 L / 65 L, as "near dry" leaves some in the tank).
+- **Check the readings** — impossible stretches (litres typed ×10, an odometer
+  with an extra digit or going back, diesel used ≤ 0) are listed separately and
+  never counted as drops.
+
+Tested in `tests/loading_web` (`node --test tests/loading_web/*.test.mjs`):
+simulated tankers dipped in whole Anguls, with daily stock checks, typos, a
+missing dip, a backdated entry and an 80 L theft — mileage within 5% of the
+truth in all 160 random runs, no false drops, every theft caught; the database
+gives the same figures as the app.
 
 | | ⚠ Mileage drop | ⛔ Sharp drop |
 |---|---|---|
-| Mileage below the tanker's normal | by more than the alert % (15% by default) | by more than twice the alert % |
+| Mileage below the tanker's normal | by more than the alert % (15% by default) **and** ≥ 2 Anguls extra | by more than twice the alert % **and** ≥ 3 Anguls extra |
 
 Extra km beyond the trips' RTD is shown in the tiles and the km chart, but is not
 an alert.
@@ -500,17 +530,18 @@ the tanker's **own** diesel tank and whether to refill:
 
 How it is worked out (in the database, so staff see only the answer):
 
-- **mileage** = median of the tanker's last 8 fill-to-fill stretches (km/L;
-  for OD15AF5510 litres dispensed per litre),
-- **in its tank now** = stock + litres at its last refill / stock check − what
-  the trips sold since then burn (their customers' RTD km ÷ mileage),
+- **mileage** = the tanker's current mileage (above; for OD15AF5510 litres
+  dispensed per litre),
+- **in its tank now** = the stock at its last dipped entry + every litre filled
+  since − the distance since ÷ mileage − what the trips sold since the last
+  entry burn (their customers' RTD km ÷ mileage),
 - **this trip** = the customer's RTD km ÷ mileage (OD15AF5510: litres sold ÷
   dispensed-per-litre),
 - the **reserve** (40 L by default) is set by admin under Trends → Alert settings.
 
 Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L**, marked
-*refill soon* below the reserve. It needs a stock check or refill on record and
-a couple of fill-to-fill stretches; sales whose customer isn't in the list
+*refill soon* below the reserve. It needs a dipped entry on record and enough
+data for a mileage (≥ 100 km); sales whose customer isn't in the list
 count 0 km (the forecast says so).
 
 ## Look
