@@ -1053,12 +1053,12 @@
 <!-- Shared gradients / clip for every tanker graphic (defined once) -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
   <clipPath id="tkClip"><rect x="52" y="10" width="262" height="54" rx="10"/></clipPath>
-  <!-- diesel = HSD blue, as in the Decanting app -->
+  <!-- diesel = HSD green, the same green as the nozzle's jet (#tkJet) -->
   <linearGradient id="tkLq" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#6fb0f5"/><stop offset="1" stop-color="#2a78d6"/>
+    <stop offset="0" stop-color="#5fd69a"/><stop offset="1" stop-color="#1f9d55"/>
   </linearGradient>
   <linearGradient id="tkAdd" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#eef6ff"/><stop offset="1" stop-color="#a9cfff"/>
+    <stop offset="0" stop-color="#ecfff5"/><stop offset="1" stop-color="#b4efcf"/>
   </linearGradient>
   <linearGradient id="tkOver" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="#ff8f8f"/><stop offset="1" stop-color="#d64545"/>
@@ -1126,7 +1126,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v29 · 2026-10-04";
+const APP_BUILD = "v30 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1627,7 +1627,7 @@ function nozzlesSVG(caps){
 /* The Decanting app's tanker livery: navy band on top (our name and the
    capacity), white body, orange band with a yellow pinstripe (the chamber
    numbers), navy cab with a white lower half and light-blue trim — and, as
-   there, a sight glass per chamber showing its diesel (HSD blue) level. */
+   there, a sight glass per chamber showing its diesel (HSD green) level. */
 // the sight glasses take most of the body: between the (slim) navy band and orange band
 const GL={top:19,bottom:50.5};
 let tkSeq=0;
