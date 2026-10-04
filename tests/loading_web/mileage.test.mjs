@@ -115,3 +115,46 @@ test('diesel in the tank now counts from the last dipped entry', () => {
   const g = m.fuelNow(rows, false, mpl, 140);                       // one DBL trip sold since
   assert.ok(Math.abs((f.stock_now - g.stock_now) - 140 / mpl) < 0.2);
 });
+
+// "Fuel in tank now" entered AFTER a refill (so its stock already includes it), but
+// the refill itself saved with a later time: the refill's litres must not count twice.
+function withStockBeforeRefill(s, pick = 3) {
+  const refills = s.rows.filter((r) => r.litres > 0 && r.stock_l != null);
+  const R = refills[pick];
+  const after = R.stock_l + R.litres;
+  s.rows.push({ id: 'S', plate: R.plate, ts: R.ts - 3600e3, cts: 0, odo: R.odo, litres: 0, anguls: after / 16, stock_l: after, note: 'stock check — fuel in tank' });
+  s.rows.sort((a, b) => a.ts - b.ts || (a.cts || 0) - (b.cts || 0));
+  return R;
+}
+
+test('a stock check that already includes the refill saved after it is not counted twice', () => {
+  const s = simulate({ seed: 5, stockCheckEvery: 2 }); withStockBeforeRefill(s);
+  const an = run(s);
+  near(an.current.ratio, s.truth, 0.05, 'mileage');
+  const checks = an.iv.filter((o) => o.checkOnly);
+  assert.equal(checks.length, 1, 'one note: the stock check whose time is off');
+  assert.match(checks[0].checks[0], /already holds the refill/);
+  assert.equal(an.iv.filter((o) => o.sev).length, 0, 'no false drop');
+  for (const o of an.iv.filter((x) => !x.checkOnly)) assert.ok(o.ratio > s.truth * 0.85, 'no stretch with the litres counted twice');
+});
+
+test('a stock check taken right before refilling (its dip) is still a measuring point', () => {
+  const s = simulate({ seed: 5 });
+  const R = s.rows.filter((r) => r.litres > 0 && r.stock_l != null)[3];
+  s.rows.push({ id: 'D', plate: R.plate, ts: R.ts - 600e3, cts: 0, odo: R.odo, litres: 0, anguls: R.anguls, stock_l: R.stock_l });
+  s.rows.sort((a, b) => a.ts - b.ts);
+  const m = loadModel(s.rows, s.trips);
+  assert.ok(m.mileagePoints(s.rows, false).some((p) => p.row.id === 'D'));
+  assert.equal(m.analyse('OR15R1110').iv.filter((o) => o.checkOnly).length, 0);
+});
+
+test('stock rising with nothing filled is flagged on that step only', () => {
+  const s = simulate({ seed: 9, stockCheckEvery: 2 });
+  const chk = s.rows.filter((r) => r.litres === 0)[6];
+  chk.stock_l += 160; chk.anguls += 10;                     // dip typed 10 Anguls too high
+  const an = run(s);
+  const checks = an.iv.filter((o) => o.checkOnly);
+  assert.ok(checks.length >= 1 && checks.length <= 2);
+  assert.ok(checks.some((o) => /Stock rose/.test(o.checks[0]) || /isn't possible|gone/.test(o.checks[0])));
+  near(an.current.ratio, s.truth, 0.05, 'mileage unaffected');
+});
