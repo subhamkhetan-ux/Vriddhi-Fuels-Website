@@ -362,6 +362,12 @@
   .mlrow .m2{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;line-height:1.45}
   .mlrow .mk{font-family:var(--display);font-weight:700;color:var(--good);font-size:17px;white-space:nowrap;text-align:right}
   .mlrow .mk small{display:block;font-family:var(--text);font-size:11px;color:var(--muted);font-weight:700}
+  .mltrips{font-size:13px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .mltrips:empty{display:none}
+  .mltrips b{color:var(--ink)}
+  .mltrips .tr{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid rgba(27,33,48,.07)}
+  .mltrips .tr span:last-child{white-space:nowrap;font-weight:700;color:var(--ink)}
+  .mltrips .tr.warn span{color:var(--bad)}
   .flagline{font-size:12px;color:var(--ink);margin-top:5px;line-height:1.45}
 
   /* Badges (status: icon + label, never colour alone) */
@@ -820,6 +826,8 @@
             <input id="mlPStk" type="text" inputmode="decimal" placeholder="0" /></div>
         </div>
         <div class="angchip mlAng">1 Angul = <b class="angLval">16</b> L <button type="button" class="lnk angEdit">✎ change</button></div>
+        <div class="mltrips" id="mlPTrips"></div>
+        <button class="big green sm" id="mlPSave" style="margin:12px 0 0" hidden><span class="em">✓</span><span>Save previous refill</span></button>
       </div>
       <div class="card-add">
         <div class="ca-h">Now — refill</div>
@@ -1116,7 +1124,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v24 · 2026-10-04";
+const APP_BUILD = "v25 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -2812,6 +2820,47 @@ function fillPrevFromSaved(resetNow){
   }
   renderMileage();
 }
+/* The trips counted after the previous refill: every sale of this tanker marked
+   after the refill's time (it refuels, then leaves on the trip). Shown so it is
+   plain which trips the stretch and the diesel forecast include. */
+function renderPrevTrips(){
+  const box=$("#mlPTrips"), p=draftPrev(), meter=isMeter(mlPlate);
+  if(!box) return;
+  if(!p || p.ts==null){ box.innerHTML=""; return; }
+  const tr=ML_TRIPS.filter(t=>t.plate===mlPlate && t.ts>p.ts).sort((a,b)=>a.ts-b.ts);
+  if(!tr.length){ box.innerHTML='No sale marked for '+esc(mlPlate)+' since this refill.'; return; }
+  let km=0, lit=0;
+  box.innerHTML='<b>Trips after this refill ('+tr.length+')</b> — counted in the mileage and diesel forecast'
+    + tr.map(t=>{ const d=destOf(t.dest); if(d) km+=d.rtd; lit+=t.total;
+      const when=dmy(dayKey(t.ts)).slice(0,5)+' '+timeLabel(t.ts);
+      if(meter) return '<div class="tr"><span>'+when+' · '+esc(t.dest||'sale')+'</span><span>'+fmt(t.total)+' L sold</span></div>';
+      return d ? '<div class="tr"><span>'+when+' · '+esc(d.name)+'</span><span>'+fmt(d.rtd)+' km</span></div>'
+               : '<div class="tr warn"><span>'+when+' · ⚠ '+esc(t.dest||'no customer')+' — not in the list (0 km), fix it with ✎ in Trips per tanker</span><span>?</span></div>';
+    }).join("")
+    + '<div class="tr"><span>Total</span><span>'+(meter?fmt(lit)+' L sold':fmt(km)+' km RTD')+'</span></div>';
+}
+// "Save previous refill" shows while the previous refill on screen isn't saved yet
+function paintPrevSave(){
+  const b=$("#mlPSave"); if(!b) return;
+  const p=draftPrev(), rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  b.hidden = FUEL_ERR || !p || p.ts==null || sameReading(p, last) || rows.some(r=>sameReading(p, r));
+}
+$("#mlPSave").onclick=async()=>{
+  const p=draftPrev(), meter=isMeter(mlPlate);
+  if(!p){ toast("Enter the previous "+(meter?"meter reading":"odometer")); return; }
+  if(p.ts==null){ toast("Enter the date & time of the previous refill"); return; }
+  if(p.ts>Date.now()+5*60000){ toast("The date & time is in the future"); return; }
+  if(!(p.odo>0)){ toast("Enter the previous "+(meter?"meter reading":"odometer")); return; }
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  if(last && p.ts<=last.ts && !confirm("This is earlier than the last saved entry ("+dmy(dayKey(last.ts))+" "+timeLabel(last.ts)+").\n\nSave it anyway?")) return;
+  const btn=$("#mlPSave"); btn.disabled=true;
+  try{
+    await Backend.addFuel({ plate:mlPlate, ts:p.ts, odo:p.odo, litres:p.litres, anguls:p.anguls, stock_l:p.stock_l, note:"refill (entered)", by:ME });
+    toast("✓ Previous refill saved — the next refill measures from it");
+    await loadMileage(); fillPrevFromSaved(false);
+  }catch(e){ toast(dbHint(e)); }
+  btn.disabled=false;
+};
 function paintAngul(){ document.querySelectorAll(".angLval").forEach(el=>{ el.textContent=fmt(angulL()); }); }
 function renderMileage(){
   if(!$("#scMileage").classList.contains("on")) return;
@@ -2848,6 +2897,7 @@ function renderMileage(){
   $("#mlSave").disabled=!!FUEL_ERR || !mlPlate;
   prefillExpected();
   updateMlCalc();
+  renderPrevTrips(); paintPrevSave();
   renderMileageSummary(rows);
   renderMileageList(rows);
 }
@@ -2922,7 +2972,9 @@ function linkPair(angSel, stkSel, touched){
 }
 linkPair("#mlPAng","#mlPStk",false);
 linkPair("#mlAng","#mlStk",true);
-["#mlPOdo","#mlPLit","#mlOdo","#mlLit"].forEach(sel=>$(sel).addEventListener("input",()=>{ $(sel).value=sanQty($(sel).value); prefillExpected(); updateMlCalc(); }));
+["#mlPOdo","#mlPLit","#mlOdo","#mlLit"].forEach(sel=>$(sel).addEventListener("input",()=>{ $(sel).value=sanQty($(sel).value); prefillExpected(); updateMlCalc(); renderPrevTrips(); paintPrevSave(); }));
+["#mlPAng","#mlPStk"].forEach(sel=>$(sel).addEventListener("input",paintPrevSave));
+$("#mlPWhen").addEventListener("change",()=>{ renderPrevTrips(); paintPrevSave(); });
 ["#mlPWhen","#mlWhen"].forEach(sel=>$(sel).addEventListener("change",()=>{ prefillExpected(); updateMlCalc(); }));
 // Change the litres per Angul (shared). Litres already typed follow the Anguls.
 function editAngul(){
