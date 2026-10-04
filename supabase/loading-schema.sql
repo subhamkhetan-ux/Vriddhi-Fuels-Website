@@ -818,28 +818,20 @@ begin
     'unknown_trips', unknown, 'burnt', burnt, 'stock_now', stock, 'reserve', res);
 end $$;
 
--- Every tanker's diesel now (home screen). Anyone signed in.
-create or replace function public.loading_fuel_status() returns jsonb
-language plpgsql stable security definer set search_path = public as $$
-begin
-  perform _loading_auth();
-  return coalesce((select jsonb_agg(_loading_fuel_state(plate) order by plate) from loading_vehicles), '[]'::jsonb);
-end $$;
-
--- Forecast for one sale, before it is confirmed: what this trip will burn and
+-- The verdict for one trip from a tanker's fuel state: what it burns and
 -- whether the tanker should be refilled. advice = ok | refill_after |
--- refill_before | unknown.
-create or replace function public.loading_fuel_forecast(p_vehicle text, p_dest text, p_total numeric)
+-- refill_before | unknown. A trip with no known customer (RTD) is unknown —
+-- OD15AF5510's trip is measured by the litres sold instead (none = unknown).
+create or replace function public._loading_fuel_advice(st jsonb, p_dest text, p_total numeric)
 returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare st jsonb; mpl numeric; rtd numeric; need numeric; stock numeric; after numeric; res numeric; adv text;
+declare mpl numeric; rtd numeric; need numeric; stock numeric; after numeric; res numeric; adv text;
+  meter boolean := coalesce((st ->> 'meter')::boolean, false);
 begin
-  perform _loading_auth();
-  st := _loading_fuel_state(p_vehicle);
   mpl := (st ->> 'mileage')::numeric; stock := (st ->> 'stock_now')::numeric; res := (st ->> 'reserve')::numeric;
   select rtd_km into rtd from loading_destinations where lower(trim(name)) = lower(trim(coalesce(p_dest,'')));
-  if mpl > 0 then
-    need := round(case when (st ->> 'meter')::boolean then coalesce(p_total, 0) else coalesce(rtd, 0) end / mpl, 1);
+  if mpl > 0 and (case when meter then coalesce(p_total, 0) > 0 else rtd is not null end) then
+    need := round(case when meter then p_total else rtd end / mpl, 1);
   end if;
   if need is null or stock is null then adv := 'unknown';
   else
@@ -848,6 +840,32 @@ begin
   end if;
   return st || jsonb_build_object('dest', p_dest, 'rtd', rtd, 'need', need, 'after', after, 'advice', adv,
     'trips_left', case when need > 0 and after is not null and after > res then floor((after - res) / need) end);
+end $$;
+
+-- Every tanker's diesel now (home screen), with the refill verdict for its
+-- next trip — wherever it goes, so judged against the longest trip in the
+-- customer list (OD15AF5510: a full load sold). Anyone signed in — staff see
+-- this on the tanker cards.
+create or replace function public.loading_fuel_status() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare v record; far text; res jsonb := '[]'::jsonb;
+begin
+  perform _loading_auth();
+  select name into far from loading_destinations order by rtd_km desc, name limit 1;
+  for v in select plate, caps from loading_vehicles order by plate loop
+    res := res || jsonb_build_array(_loading_fuel_advice(_loading_fuel_state(v.plate), far,
+      (select sum(c::numeric) from jsonb_array_elements_text(v.caps) c)));
+  end loop;
+  return res;
+end $$;
+
+-- Forecast for one sale, before it is confirmed (the sale sheet).
+create or replace function public.loading_fuel_forecast(p_vehicle text, p_dest text, p_total numeric)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  return _loading_fuel_advice(_loading_fuel_state(p_vehicle), p_dest, p_total);
 end $$;
 
 -- ---------------------------------------------------------------------

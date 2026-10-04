@@ -547,6 +547,7 @@
   .diesel b{color:var(--ink);font-weight:600}
   .diesel .dz{width:22px;height:22px;border-radius:7px;background:rgba(18,128,74,.12);display:inline-flex;align-items:center;justify-content:center;font-size:12px}
   .diesel.low .dz{background:rgba(250,178,25,.25)} .diesel.low b{color:var(--warn)}
+  .diesel.bad .dz{background:rgba(208,59,59,.16)} .diesel.bad b{color:var(--bad)}
   /* diesel forecast on the sale sheet */
   .fcast{margin-top:12px;border-radius:16px;padding:10px 12px;background:rgba(118,118,128,.08);border:1px solid rgba(60,60,67,.1)}
   .fcast .fh{font-weight:600;font-size:14.5px;color:var(--ink);margin-bottom:4px;letter-spacing:-.01em}
@@ -1125,7 +1126,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v27 · 2026-10-04";
+const APP_BUILD = "v29 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1334,7 +1335,7 @@ const LocalBackend = {
   addFuel(r){ const l=lsGet(FLS_KEY, []); l.push(Object.assign({ id:localId(), cts:Date.now() }, r)); lsPut(FLS_KEY, l); return Promise.resolve(); },
   removeFuel(id){ lsPut(FLS_KEY, lsGet(FLS_KEY, []).filter(x=>x.id!==id)); return Promise.resolve(); },
   fuelStatus(){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
-    return Promise.resolve(VEHICLES.map(v=>fuelStateJS(v.plate, f, t))); },
+    return Promise.resolve(VEHICLES.map(v=>forecastJS(fuelStateJS(v.plate, f, t), farDest(), tankerState(v.plate).cap))); },
   forecast(plate, dest, total){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
     return Promise.resolve(forecastJS(fuelStateJS(plate, f, t), dest, total)); },
 };
@@ -1477,10 +1478,12 @@ function refresh(){
 }
 /* ---------- Diesel forecast (each tanker's OWN tank) ----------
    Same rules as _loading_fuel_state / loading_fuel_forecast in the schema:
-   mileage = median of the last 8 fill-to-fill stretches; in tank now = stock +
-   litres at the last refill/stock check − what the trips sold since then burn;
-   a trip burns its customer's RTD km ÷ mileage (OD15AF5510: litres sold ÷
-   dispensed-per-litre). Cloud asks the database; single-device computes here. */
+   mileage = the robust mileage above; in tank now = from the last dipped entry
+   (fuelNow); a trip burns its customer's RTD km ÷ mileage (OD15AF5510: litres
+   sold ÷ dispensed-per-litre). The home cards get the verdict for the next
+   trip wherever it goes: against the longest trip in the customer list
+   (OD15AF5510: a full load). Cloud asks the database; single-device computes here. */
+function farDest(){ let far=null; DESTS.forEach(d=>{ if(!far || d.rtd>far.rtd) far=d; }); return far?far.name:""; }
 let FUELSTAT={};
 function fuelStateJS(plate, fuel, trips){
   const res=+SETTINGS.reserve_l||40, meter=isMeter(plate);
@@ -1498,7 +1501,7 @@ function fuelStateJS(plate, fuel, trips){
 }
 function forecastJS(o, dest, total){
   const d=destOf(dest), f=Object.assign({}, o, { dest:dest, rtd:d?d.rtd:null, need:null, after:null, advice:"unknown", trips_left:null });
-  if(o.mileage>0) f.need=r1((o.meter ? (+total||0) : (d?d.rtd:0))/o.mileage);
+  if(o.mileage>0 && (o.meter ? +total>0 : d)) f.need=r1((o.meter ? +total : d.rtd)/o.mileage);
   if(f.need!=null && o.stock_now!=null){
     f.after=r1(o.stock_now-f.need);
     f.advice = f.after<0 ? "refill_before" : f.after<o.reserve ? "refill_after" : "ok";
@@ -1506,15 +1509,20 @@ function forecastJS(o, dest, total){
   }
   return f;
 }
-// a small "⛽ Diesel ≈ …" line on every tanker card
+// a small "⛽ Own diesel ≈ …" line on every tanker card, saying when the
+// tanker needs a refill — before this trip or after it (judged on the longest
+// trip, so wherever it goes). This is what staff go by.
 function paintDiesel(){
   document.querySelectorAll("#tankerList .tcard").forEach(card=>{
     const x=FUELSTAT[card.dataset.plate], el=card.querySelector(".diesel");
     if(!el) return;
     if(!x || x.stock_now==null){ el.innerHTML=""; el.className="diesel"; return; }
-    const low = +x.stock_now < +x.reserve;
-    el.className="diesel"+(low?" low":"");
-    el.innerHTML='<span class="dz">⛽</span>Own diesel ≈ <b>'+fmt(x.stock_now)+' L</b>'+(low?' · <b>refill soon</b>':'')
+    let cls="", say="";
+    if(x.advice==="refill_before"){ cls=" bad"; say=' · <b>⛔ refill before this trip</b>'; }
+    else if(x.advice==="refill_after"){ cls=" low"; say=' · <b>⚠ refill after this trip</b>'; }
+    else if(x.advice!=="ok" && +x.stock_now < +x.reserve){ cls=" low"; say=' · <b>refill soon</b>'; }
+    el.className="diesel"+cls;
+    el.innerHTML='<span class="dz">⛽</span>Own diesel ≈ <b>'+fmt(x.stock_now)+' L</b>'+say
       +(x.unknown_trips?' <span class="muted">· '+x.unknown_trips+' trip'+(x.unknown_trips===1?'':'s')+' without customer</span>':'');
   });
 }
@@ -1888,7 +1896,7 @@ function showForecast(){
     if(f.after!=null) rows.push(["Left after the trip", "≈ "+L(Math.max(0,f.after))]);
     if(f.mileage) rows.push(["Recent mileage", (+f.mileage).toFixed(2)+(f.meter?" L dispensed / L":" km/L")]);
     let note="";
-    if(f.stock_now==null) note=f.mileage ? "Fuel in its tank is unknown — do a 🛢️ stock check (admin, Mileage screen)." : "Mileage appears after a few refills are recorded.";
+    if(f.stock_now==null) note=f.mileage ? "Fuel in its tank is unknown — "+(isAdmin()?"do a 🛢️ stock check (Mileage screen).":"ask the admin for a 🛢️ stock check.") : "Mileage appears after a few refills are recorded.";
     else if(f.unknown_trips) note=f.unknown_trips+" earlier trip"+(f.unknown_trips===1?" has":"s have")+" no customer, so the tank may hold less.";
     box.className="fcast "+cls;
     box.innerHTML='<div class="fh">'+head+'</div>'+rows.map(r=>'<div class="kv"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>').join("")

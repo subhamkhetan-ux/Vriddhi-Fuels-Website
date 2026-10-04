@@ -134,6 +134,7 @@ phone can't get round it by any button or by calling the server directly.
 | | Staff | Admin |
 |---|---|---|
 | Add diesel (loadings), 🚚 Sent for sale | ✓ | ✓ |
+| ⛽ Diesel forecast: own diesel & refill verdict on each tanker and at sale | ✓ | ✓ |
 | History — last 7 days, view only | ✓ | ✓ (+ delete) |
 | End Day (5:30–7:30 AM) | ✓ | ✓ |
 | 🔔 Push notifications on their phone | — | ✓ |
@@ -539,9 +540,18 @@ How it is worked out (in the database, so staff see only the answer):
   dispensed-per-litre),
 - the **reserve** (40 L by default) is set by admin under Trends → Alert settings.
 
-Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L**, marked
-*refill soon* below the reserve. It needs a dipped entry on record and enough
-data for a mileage (≥ 100 km); sales whose customer isn't in the list
+Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L**, and
+says when the tanker needs its own tank filled — wherever it goes next, so it
+is judged against the **longest trip in the customer list** (DBL - Siarmal,
+140 km; OD15AF5510: a full load sold):
+
+- **⛔ refill before this trip** — the tank can't cover it
+- **⚠ refill after this trip** — less than the reserve would be left
+- nothing extra — enough diesel for the next trip
+
+Staff see both the card line and the sale sheet (never the mileage data
+behind them). The line needs a dipped entry on record and enough data for a
+mileage (≥ 100 km). Sales whose customer isn't in the list
 count 0 km (the forecast says so).
 
 ## Look
