@@ -488,11 +488,42 @@ an alert.
 The alert % is set under **Alert settings** at the bottom of the report
 (shared by all phones, `loading_settings`).
 
+## Diesel forecast at the pump (⛽)
+
+When a tanker is marked **🚚 Sent for sale** (as it leaves the pump), the sale
+sheet shows — as soon as the customer is picked — what the trip will burn from
+the tanker's **own** diesel tank and whether to refill:
+
+- **✓ Enough diesel** — and roughly how many more trips like this it can do.
+- **⚠ Refill when it returns** — less than the reserve would be left after.
+- **⛔ Refill before dispatch** — the tank can't cover this trip.
+
+How it is worked out (in the database, so staff see only the answer):
+
+- **mileage** = median of the tanker's last 8 fill-to-fill stretches (km/L;
+  for OD15AF5510 litres dispensed per litre),
+- **in its tank now** = stock + litres at its last refill / stock check − what
+  the trips sold since then burn (their customers' RTD km ÷ mileage),
+- **this trip** = the customer's RTD km ÷ mileage (OD15AF5510: litres sold ÷
+  dispensed-per-litre),
+- the **reserve** (40 L by default) is set by admin under Trends → Alert settings.
+
+Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L**, marked
+*refill soon* below the reserve. It needs a stock check or refill on record and
+a couple of fill-to-fill stretches; sales whose customer isn't in the list
+count 0 km (the forecast says so).
+
 ## Look
 
-The app uses the same frosted-glass style as the Decanting app, in light mode:
-translucent cards over a warm, orange-lit background, an orange glass header,
-and the Sora / IBM Plex Mono typefaces (system fonts when offline).
+The app uses the Decanting app's frosted-glass language in light mode —
+translucent cards over a warm, orange-lit background and an orange glass header
+with a **Live / Offline** pill — with Apple's typography and iOS patterns: SF
+Pro on iPhone / iPad / Mac and Inter (its closest web twin) elsewhere, large
+screen titles, grouped lists with hairline separators, segmented date presets
+and bottom sheets. The home screen adds a fleet strip (diesel in the tankers,
+full, loading now). Motion is limited to a light press effect and the sheet
+sliding up; per-card blur was dropped (invisible over the smooth backdrop but
+costly on budget phones).
 
 > **Cloud mode:** re-run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
 > in the SQL Editor once to create the customer, trip, fuel-log and settings tables (safe

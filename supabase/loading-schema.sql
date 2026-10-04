@@ -186,7 +186,7 @@ create table if not exists public.loading_settings (
   updated_at timestamptz not null default now()
 );
 insert into public.loading_settings (key, value) values
-  ('angul_l', '16'), ('alert_pct', '15')
+  ('angul_l', '16'), ('alert_pct', '15'), ('reserve_l', '40')
 on conflict (key) do nothing;
 create index if not exists loading_fuel_logs_vehicle_idx on public.loading_fuel_logs(vehicle, reading_at);
 
@@ -662,10 +662,11 @@ language plpgsql security definer set search_path = public as $$
 declare v numeric;
 begin
   perform _loading_admin();
-  if p_key not in ('angul_l','alert_pct') then raise exception 'Unknown setting'; end if;
+  if p_key not in ('angul_l','alert_pct','reserve_l') then raise exception 'Unknown setting'; end if;
   v := (p_value #>> '{}')::numeric;
   if p_key = 'angul_l'   and (v is null or v <= 0 or v > 1000) then raise exception 'Litres per Angul must be between 0 and 1000'; end if;
   if p_key = 'alert_pct' and (v is null or v < 1 or v > 90)  then raise exception 'Alert percent must be between 1 and 90'; end if;
+  if p_key = 'reserve_l' and (v is null or v < 0 or v > 2000) then raise exception 'Reserve must be between 0 and 2000 litres'; end if;
   insert into loading_settings (key, value, updated_at) values (p_key, to_jsonb(v), now())
   on conflict (key) do update set value = excluded.value, updated_at = now();
 end $$;
@@ -702,6 +703,90 @@ begin
   perform _loading_admin();
   update loading_auth_state set staff_epoch = t where id = 1;
   return t;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Diesel forecast (the tanker's OWN tank). Staff can't read the fuel log, so
+-- these functions return only the answer: how much diesel is in the tank
+-- now, what a trip will burn, and whether to refill.
+--   mileage   = median of the tanker's last 8 fill-to-fill stretches
+--               (km/L; for OD15AF5510 litres dispensed per litre)
+--   in tank   = (stock + litres at its last refill / stock check)
+--               − what the trips sold since then burn at that mileage
+--   a trip    = its customer's RTD km ÷ mileage
+--               (OD15AF5510: the litres sold ÷ dispensed-per-litre)
+-- OD15AF5510 is named here as in the app (METER_VEHICLES) — keep them in step.
+-- ---------------------------------------------------------------------
+create or replace function public._loading_fuel_state(p_vehicle text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  al numeric; res numeric;
+  meter boolean := upper(regexp_replace(coalesce(p_vehicle,''), '[^A-Za-z0-9]', '', 'g')) = 'OD15AF5510';
+  mpl numeric; n int; l loading_fuel_logs; after_fill numeric;
+  km numeric := 0; lit numeric := 0; trips int := 0; unknown int := 0; burnt numeric; stock numeric;
+begin
+  select (value #>> '{}')::numeric into al  from loading_settings where key = 'angul_l';
+  select (value #>> '{}')::numeric into res from loading_settings where key = 'reserve_l';
+  al := coalesce(al, 16); res := coalesce(res, 40);
+  with f as (
+    select odometer, litres, coalesce(stock_l, anguls * al, 0) as stk, reading_at, created_at
+      from loading_fuel_logs where vehicle = p_vehicle),
+  iv as (
+    select odometer - lag(odometer) over w as dist,
+           lag(litres) over w + lag(stk) over w - stk as used, reading_at
+      from f window w as (order by reading_at, created_at)),
+  ok as (select dist / used as r from iv where dist > 0 and used > 0 order by reading_at desc limit 8)
+  select percentile_cont(0.5) within group (order by r), count(*) into mpl, n from ok;
+
+  select * into l from loading_fuel_logs where vehicle = p_vehicle order by reading_at desc, created_at desc limit 1;
+  if found then
+    after_fill := coalesce(l.stock_l, l.anguls * al, 0) + l.litres;
+    select coalesce(sum(d.rtd_km), 0), coalesce(sum(t.total), 0), count(*), count(*) filter (where d.name is null and not meter)
+      into km, lit, trips, unknown
+      from loading_trips t
+      left join loading_destinations d on lower(trim(d.name)) = lower(trim(t.dest))
+     where t.vehicle = p_vehicle and t.created_at > l.reading_at;
+    if mpl > 0 then
+      burnt := round((case when meter then lit else km end) / mpl, 1);
+      stock := greatest(0, round(after_fill - burnt, 1));
+    end if;
+  end if;
+  return jsonb_build_object(
+    'vehicle', p_vehicle, 'meter', meter, 'mileage', round(mpl::numeric, 3), 'stretches', coalesce(n, 0),
+    'last_at', l.reading_at, 'after_fill', after_fill, 'trips_since', trips, 'km_since', km,
+    'unknown_trips', unknown, 'burnt', burnt, 'stock_now', stock, 'reserve', res);
+end $$;
+
+-- Every tanker's diesel now (home screen). Anyone signed in.
+create or replace function public.loading_fuel_status() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  return coalesce((select jsonb_agg(_loading_fuel_state(plate) order by plate) from loading_vehicles), '[]'::jsonb);
+end $$;
+
+-- Forecast for one sale, before it is confirmed: what this trip will burn and
+-- whether the tanker should be refilled. advice = ok | refill_after |
+-- refill_before | unknown.
+create or replace function public.loading_fuel_forecast(p_vehicle text, p_dest text, p_total numeric)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare st jsonb; mpl numeric; rtd numeric; need numeric; stock numeric; after numeric; res numeric; adv text;
+begin
+  perform _loading_auth();
+  st := _loading_fuel_state(p_vehicle);
+  mpl := (st ->> 'mileage')::numeric; stock := (st ->> 'stock_now')::numeric; res := (st ->> 'reserve')::numeric;
+  select rtd_km into rtd from loading_destinations where lower(trim(name)) = lower(trim(coalesce(p_dest,'')));
+  if mpl > 0 then
+    need := round(case when (st ->> 'meter')::boolean then coalesce(p_total, 0) else coalesce(rtd, 0) end / mpl, 1);
+  end if;
+  if need is null or stock is null then adv := 'unknown';
+  else
+    after := round(stock - need, 1);
+    adv := case when after < 0 then 'refill_before' when after < res then 'refill_after' else 'ok' end;
+  end if;
+  return st || jsonb_build_object('dest', p_dest, 'rtd', rtd, 'need', need, 'after', after, 'advice', adv,
+    'trips_left', case when need > 0 and after is not null and after > res then floor((after - res) / need) end);
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -766,6 +851,8 @@ begin
       public.loading_setting_set(text, jsonb),
       public.loading_whoami(),
       public.loading_logout_staff(),
+      public.loading_fuel_status(),
+      public.loading_fuel_forecast(text, text, numeric),
       -- called by the read policies, which run as the signed-in user
       public._loading_session_ok(),
       public._loading_is_admin(),
