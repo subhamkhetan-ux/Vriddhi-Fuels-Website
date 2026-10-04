@@ -155,7 +155,8 @@ Recent / History and a 🔔 Notifications page; the signed-in line shows
    on conflict (email) do update set role = 'admin';
    ```
 
-   Until an admin exists, everyone is treated as staff and the home screen says
+   Capital letters don't matter (`SKhetan@…` and `skhetan@…` are the same
+   login). Until an admin exists, everyone is treated as staff and the home screen says
    *“No admin login is set up yet”*.
 3. **Edge Functions → Deploy a new function** named `loading-admin`, pasting
    [`../supabase/functions/loading-admin/index.ts`](../supabase/functions/loading-admin/index.ts)
