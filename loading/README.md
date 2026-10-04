@@ -58,9 +58,10 @@ again.
    amount. Do this as many times as you like; it keeps adding.
 4. **When the tanker is full, tap “🚚 Sent for sale”** (a bold green button on a
    full tanker; a quiet link on a partly-filled one). A box asks **whom it was
-   sold to / remarks** (optional); confirm, and the tanker empties back to `0` —
-   ready for the next round. The sold-to note is saved on the record and shown
-   in History and the Excel report.
+   sold to** — you **pick the customer from the list** (see *Customers & RTD*);
+   confirm, and the tanker empties back to `0` — ready for the next round. The
+   customer is saved on the record, shown in History and the Excel report, and
+   counted as one **trip** in the trip report.
 
 Every loading (`+ litres`) and every dispatch (`🚚 Sent for sale`) is kept in
 **History** and the export, so the full account of what went into each tanker and
@@ -124,6 +125,72 @@ small admin screen:
 Every signed-in employee has equal rights (add / delete / export). The anon key
 alone can read or write nothing — access is gated by sign-in and Row Level
 Security, and all writes go through server functions.
+
+## Admin & staff logins
+
+Every login is either **Admin** or **Staff**. The database enforces it — a staff
+phone can't get round it by any button or by calling the server directly.
+
+| | Staff | Admin |
+|---|---|---|
+| Add diesel (loadings), 🚚 Sent for sale | ✓ | ✓ |
+| History — last 7 days, view only | ✓ | ✓ (+ delete) |
+| End Day (5:30–7:30 AM), notifications on/off for their phone | ✓ | ✓ |
+| Reports & Excel, chamber log, 🚚 Trips per tanker, ⛽ Mileage, 📈 Trends | — | ✓ |
+| Edit / delete anything: records, tankers, chambers, customers, settings, Clear all | — | ✓ |
+| Staff logins: change passwords, add logins, make admin, log out all staff | — | ✓ |
+
+Any login not marked admin is staff. A staff phone shows only the tankers,
+Recent / History and a 🔔 Notifications page; the signed-in line shows
+**Admin** or **Staff**.
+
+### One-time setup (Supabase dashboard of the loading project)
+
+1. **SQL Editor** → run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql) (safe to re-run).
+2. **Make yourself admin** — in the SQL Editor run, with your own username:
+
+   ```sql
+   insert into public.loading_roles (email, role)
+   values ('yourusername@vriddhi.local', 'admin')
+   on conflict (email) do update set role = 'admin';
+   ```
+
+   Until an admin exists, everyone is treated as staff and the home screen says
+   *“No admin login is set up yet”*.
+3. **Edge Functions → Deploy a new function** named `loading-admin`, pasting
+   [`../supabase/functions/loading-admin/index.ts`](../supabase/functions/loading-admin/index.ts)
+   (or `supabase functions deploy loading-admin`). No secrets needed. This is
+   what lets the app change passwords and add logins.
+4. Sign out and back in on your phone — you'll see **Admin** next to your name.
+
+### Changing the logins (in the app, as admin)
+
+**⚙ Manage tankers & data → Staff logins** lists every login with its role and
+last sign-in.
+
+- **Change a password** — tap **🔑 Password** next to the login, type the new
+  password twice (6+ characters). You're then asked whether to **also log out
+  all staff phones** — say OK so nobody stays signed in with the old password.
+- **Log out all staff devices** — the red button. Every staff phone drops to the
+  sign-in screen straight away (*“You were signed out by the admin”*) and must
+  sign in again. Admin phones stay signed in.
+- **Add a login** — username + password + Staff/Admin → **Add login**. Staff
+  sign in with just the username and password.
+- **Make admin / Make staff** — switch a login's access (you can't remove your
+  own admin access).
+- **Remove a login completely** — Supabase dashboard → **Authentication →
+  Users** → delete the user (then press *Log out all staff devices*).
+
+Changing a password alone doesn't end sessions that are already signed in —
+that's why the app offers to log out all staff at the same time.
+
+How the logout works: the admin's button stamps a *staff sign-out time*
+(`loading_auth_state`). Any staff session that signed in before it is refused
+by every read and write, and each phone notices instantly (realtime) and shows
+the sign-in screen.
+
+> Before step 1 is done the app behaves exactly as before (everyone can do
+> everything); the roles start applying the moment the schema is updated.
 
 ## Notifications (optional)
 
@@ -292,6 +359,145 @@ data only spans 7 days, download a report weekly to keep a longer archive.
 > clearing the browser's site data or uninstalling erases them, so the periodic
 > CSV export is the backup. In **cloud mode** the data lives in Supabase and is
 > intentionally trimmed to the last 7 days.
+
+## Trips per tanker (🚚)
+
+**Trips per tanker** on the home screen counts how many times each tanker was
+**sent for sale** in a date range — **one sale = one trip**. It opens on the
+**current month**; ‹ › step a month at a time, or set your own From / To dates.
+Dates are business days (7:30 AM → 7:30 AM), the same as everywhere else.
+
+- Tiles: total trips, total **RTD km** and litres sold.
+- One card per tanker: its trips and RTD km, broken down by customer
+  (`Shyam Metalics — 3 × 36 km = 108 km`). **Show trips** lists each trip with
+  a ✎ to correct the customer if the wrong one was picked.
+- A sale whose customer isn't in the list (e.g. an old free-text remark) is
+  flagged ⚠ and counts 0 km until a customer is picked with ✎.
+- **OD15AF5510 is not counted** in this report (`TRIP_EXCLUDE` in `index.html`).
+- **Download trip report (Excel)** — sheets *Trips by tanker* (tanker ×
+  customer matrix with totals), *Trip list* and *Customers (RTD)*.
+
+Trips are stored **permanently** in their own table (`loading_trips`), so the
+monthly report works even though the detailed loading history is trimmed to 7
+days. Deleting a sale from History (within those 7 days) removes its trip too.
+
+## Customers & RTD (⚙)
+
+The **Sold to** choices are the customer list under **⚙ Manage tankers & data →
+Customers & RTD**, seeded from the RTD master sheet:
+
+| Customer | RTD km / trip |
+|---|---|
+| Shyam Metalics | 36 |
+| SMC Unit 1 | 16 |
+| SMC Unit 2 | 20 |
+| Orissa Metaliks | 30 |
+| Lakhanpur Group Companies | 70 |
+| DBL - Siarmal | 140 |
+| Aryan Ispat & Power Private Ltd. | 30 |
+
+RTD = round-trip km per trip. Add a customer with its own RTD, or pick
+**Group company of** an existing customer: it joins that group and takes the
+group's RTD. **Group companies always share one RTD** — changing the RTD (✎) of
+any of them changes the whole group. In cloud mode the list is shared by all
+phones (`loading_destinations`).
+
+## Mileage calculator (⛽)
+
+**Start here — 🛢️ Fuel in tank now (all tankers).** Enter, for every tanker, its
+reading right now (odometer, or the dispenser meter for OD15AF5510) and the
+fuel in its tank (Anguls or litres; litres only for OD15AF5510). Each is saved
+as a **stock check** — no diesel added — and the next fill is measured from it:
+diesel used = stock entered − dip at that fill. Use it any time you want a
+fresh, exact starting point.
+
+Every tanker is run to almost dry and then refilled. At each refill enter:
+
+- **Previous refill** — date & time, the reading and the litres filled then (and
+  the dip then). It is filled in automatically from the last saved refill;
+  for the very first use type it in (e.g. yesterday's fill). If you change it,
+  it is saved as an extra refill record so the chain carries on.
+- **Now** — date & time, the reading now, the **dip** before refilling and the
+  litres filled now.
+
+The dip has two linked boxes — **Anguls** and **Litres in tank** — type either
+and the other follows. **1 Angul = 16 L** by default; tap **✎ change** next to
+it to set your dip stick's figure (shared by all phones; the litres are stored
+with each refill, so changing it later never rewrites past mileage).
+
+Once the odometer is typed, the dip boxes are **pre-filled with the stock the
+tank should have** if the tanker ran at its normal mileage (previous litres +
+previous stock − km run ÷ normal km/L). Change them to the actual dip; the app
+then shows how far the dip is from what was expected (**↺ use expected** puts
+the estimate back).
+
+**Diesel used** = litres filled at the previous refill + stock left then − stock
+left now (no dip = taken as dry).
+
+| Tanker | Reading | Mileage |
+|---|---|---|
+| All tankers except OD15AF5510 | **Odometer** (km) | km run ÷ diesel used = **km/L** |
+| **OD15AF5510** (engine mostly on, dispenses with its own pump) | **Fuel-dispenser meter** (litres) | litres dispensed ÷ diesel used = **L dispensed per L**, plus diesel per 1,000 L dispensed |
+
+For odometer tankers the calculator also shows the **trips** in between and
+their **RTD km**, and **Extra km** = km run − RTD km (running beyond the
+delivery trips), with the diesel that extra running took. The **Period summary**
+(month by default) gives the same figures from the opening to the closing
+refill of the period, and **Refills** lists every saved refill with its mileage
+(🗑 to delete a wrong one, flagged ones marked ⚠ / ⛔). Refills are kept
+permanently (`loading_fuel_logs`).
+
+## Mileage trends & alerts (📈)
+
+**📈 Trends & alerts** at the top of the Mileage screen (it shows how many refills
+were flagged in the last 30 days) opens a report for 3 / 6 / 12 months, all, or
+any From / To:
+
+- **Tiles** — stretches measured, mileage drops (sharp), fleet km/L, extra
+  diesel burnt in the drops, and extra km beyond trips.
+- **⚠ Mileage drops** — every stretch between two fills where the tanker burnt
+  more diesel than usual for the distance (or, for OD15AF5510, for the fuel it
+  dispensed): a possible **engine fault or diesel theft**. Worst first, with
+  the drop %, the extra litres and the numbers behind it.
+- **✎ Check the readings** — figures that can't be right (reading not going
+  up, diesel used ≤ 0, mileage far above normal). These are entry mistakes to
+  correct, not suspicion.
+- **Mileage by tanker** — km/L of each odometer tanker against the fleet
+  average; OD15AF5510 has its own L dispensed / L tile.
+- **Tanker detail** (pick a tanker) — mileage per refill with the tanker's
+  normal band shaded and flagged refills marked; diesel used above / below
+  normal per refill; km per refill split into trip (RTD) km and extra km.
+  Hover or tap any chart for the figures.
+- **Monthly mileage** — month × tanker table with ▲▼ change vs the month before.
+- **Download mileage analysis (Excel)** — *Alerts*, *Refill analysis* (every
+  computed figure and the reason for each flag) and *Monthly* sheets.
+
+**What gets flagged.** The refill itself is never the suspect — the **mileage
+drop** over the stretch since the previous fill is. "Normal" for a stretch =
+the median mileage of the same tanker's *other* stretches (needs at least two),
+so one bad stretch can't hide in its own baseline.
+
+| | ⚠ Mileage drop | ⛔ Sharp drop |
+|---|---|---|
+| Mileage below the tanker's normal | by more than the alert % (15% by default) | by more than twice the alert % |
+
+Extra km beyond the trips' RTD is shown in the tiles and the km chart, but is not
+an alert.
+
+The alert % is set under **Alert settings** at the bottom of the report
+(shared by all phones, `loading_settings`).
+
+## Look
+
+The app uses the same frosted-glass style as the Decanting app, in light mode:
+translucent cards over a warm, orange-lit background, an orange glass header,
+and the Sora / IBM Plex Mono typefaces (system fonts when offline).
+
+> **Cloud mode:** re-run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
+> in the SQL Editor once to create the customer, trip, fuel-log and settings tables (safe
+> to re-run; it also back-fills trips from the sales still in the 7-day window).
+> Until then the app works exactly as before — the sale box uses the built-in
+> customer list and the two new screens say the database needs the update.
 
 ## Install on the phone
 

@@ -3,261 +3,434 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-<meta name="theme-color" content="#111E3E" />
+<meta name="theme-color" content="#F4511E" />
 <title>Vriddhi Fuels — Tanker Loading</title>
 <link rel="manifest" href="./manifest.webmanifest" />
 <link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" />
 <script src="./config.js"></script>
 <style>
+  /* ===== Light glassmorphism — the Decanting app's frosted-glass language
+     (Sora display type, orange-lit gradient header, translucent films) set on
+     a light, warm base. Light mode only. ===== */
   :root{
-    --navy:#111E3E; --navy2:#1c2f5e; --amber:#f5a623; --amber-d:#d98a05;
-    --green:#1f9d55; --green-d:#178048; --red:#d64545; --red-d:#b83636;
-    --bg:#eef1f6; --card:#ffffff; --ink:#16233f; --muted:#5b6b83;
-    --line:#d9dee8; --shadow:0 6px 18px rgba(17,30,62,.10);
+    color-scheme: light;
+    --bg:#f3eee8;
+    --glass:rgba(255,255,255,.58); --glass-2:rgba(255,255,255,.78); --glass-3:rgba(255,255,255,.9);
+    --glass-line:rgba(255,255,255,.85); --edge:rgba(27,33,48,.09);
+    --glass-blur:blur(22px) saturate(170%);
+    --shadow:0 14px 34px -18px rgba(70,45,20,.35),0 2px 6px -2px rgba(70,45,20,.08),0 1px 0 rgba(255,255,255,.95) inset;
+    --ink:#1b2130; --muted:#5d6475; --faint:#8b91a0; --line:rgba(27,33,48,.12);
+    --accent:#F4511E; --accent-2:#FF8A2B; --accent-soft:rgba(255,122,26,.12);
+    --grad-cta:linear-gradient(135deg,#F4511E 0%,#FF8A2B 100%);
+    --grad-good:linear-gradient(135deg,#128a4a 0%,#2cc277 100%);
+    --grad-bad:linear-gradient(135deg,#c93434 0%,#ef6b5e 100%);
+    --grad-ink:linear-gradient(140deg,#1d2538 0%,#33405e 100%);
+    --good:#12804a; --good-bg:rgba(18,128,74,.11);
+    --warn:#a05f00; --warn-bg:rgba(250,178,25,.18);
+    --bad:#c3352f; --bad-bg:rgba(208,59,59,.11);
+    --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    /* legacy names the app's code still uses */
+    --navy:#1b2540; --navy2:#2b3756; --amber:#FF8A2B; --amber-d:#e2620f;
+    --green:#169a55; --green-d:#12804a; --red:#d64545; --red-d:#c3352f; --card:var(--glass-2);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{overflow-x:clip}
   html,body{margin:0;padding:0}
   body{
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
-    background:var(--bg); color:var(--ink);
-    -webkit-text-size-adjust:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    color:var(--ink);-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;overflow-x:clip;
+    background:
+      radial-gradient(900px 520px at 88% -80px, rgba(255,122,26,.30) 0%, rgba(255,122,26,0) 62%),
+      radial-gradient(760px 520px at -6% 8%, rgba(255,186,90,.30) 0%, rgba(255,186,90,0) 58%),
+      radial-gradient(900px 640px at 50% 110%, rgba(70,130,220,.20) 0%, rgba(70,130,220,0) 62%),
+      radial-gradient(600px 420px at 100% 60%, rgba(244,81,30,.10) 0%, rgba(244,81,30,0) 60%),
+      var(--bg);
+    background-attachment:fixed;
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
-  .wrap{max-width:520px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
-  /* Header */
+  button{font-family:inherit}
+  .wrap{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+  /* frosted surface used by every card */
+  .stat,.mini,.entry,.tcard,.cham,.confbox,.card-add,.trcard,.mlrow,.logrow,.calcbox.solid,.vizcard,.tile,.flag,.dest,.empty{
+    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+
+  /* Header — orange glass, as in the Decanting app */
   header{
-    background:var(--navy); color:#fff; padding:14px 16px;
-    display:flex;align-items:center;gap:12px; position:sticky; top:0; z-index:10;
-    box-shadow:0 2px 10px rgba(0,0,0,.15);
+    position:sticky;top:0;z-index:10;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;
+    background:linear-gradient(135deg,rgba(244,81,30,.88),rgba(255,138,43,.74));
+    backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);
+    border-bottom:1px solid rgba(255,255,255,.35);box-shadow:0 12px 30px -16px rgba(244,81,30,.75);
   }
-  header img{width:40px;height:40px;border-radius:9px;background:#fff;object-fit:contain;padding:3px}
-  header .t{font-size:19px;font-weight:800;letter-spacing:.2px;line-height:1.1}
-  header .s{font-size:12px;opacity:.75;margin-top:2px}
-  .back{background:rgba(255,255,255,.14);border:0;color:#fff;font-size:22px;font-weight:800;
-    width:44px;height:44px;border-radius:12px;line-height:1;cursor:pointer;flex:none}
-  main{flex:1;padding:16px 16px 28px}
-  .screen{display:none;animation:fade .18s ease}
+  header img{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.95);object-fit:contain;padding:3px;box-shadow:0 4px 12px -4px rgba(120,30,0,.45)}
+  header .t{font-family:var(--display);font-size:18px;font-weight:800;letter-spacing:.2px;line-height:1.1;text-shadow:0 1px 2px rgba(120,30,0,.3)}
+  header .s{font-size:12px;opacity:.88;margin-top:2px}
+  .back{background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.45);color:#fff;font-size:24px;font-weight:800;
+    width:44px;height:44px;border-radius:13px;line-height:1;cursor:pointer;flex:none}
+  main{flex:1;padding:16px 16px 32px}
+  .screen{display:none;animation:fade .2s ease}
   .screen.on{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
-  /* Big primary button */
+  /* Big buttons — large tap targets, gradient films */
   .big{
-    display:flex;align-items:center;justify-content:center;gap:10px;
-    width:100%;border:0;border-radius:18px;padding:22px 18px;font-size:22px;font-weight:800;
-    color:#fff;background:var(--amber);box-shadow:var(--shadow);cursor:pointer;margin-bottom:14px;
-    -webkit-appearance:none;
+    display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+    border:1px solid rgba(255,255,255,.35);border-radius:18px;padding:20px 18px;margin-bottom:14px;cursor:pointer;
+    font-family:var(--display);font-size:20px;font-weight:800;letter-spacing:.2px;color:#fff;background:var(--grad-cta);
+    box-shadow:0 14px 28px -14px rgba(244,81,30,.85),0 1px 0 rgba(255,255,255,.35) inset;-webkit-appearance:none;text-align:left;
   }
   .big:active{transform:translateY(1px)}
-  .big:disabled{opacity:.6}
-  .big.green{background:var(--green)} .big.navy{background:var(--navy)} .big.red{background:var(--red)}
-  .big .hi{display:block;font-size:13px;font-weight:600;opacity:.9;margin-top:2px}
-  .big .em{font-size:26px}
+  .big:disabled{opacity:.5;box-shadow:none}
+  .big.green{background:var(--grad-good);box-shadow:0 14px 28px -14px rgba(18,128,74,.8),0 1px 0 rgba(255,255,255,.3) inset}
+  .big.red{background:var(--grad-bad);box-shadow:0 14px 28px -14px rgba(195,53,47,.8),0 1px 0 rgba(255,255,255,.3) inset}
+  .big.navy{background:var(--grad-ink);box-shadow:0 14px 28px -16px rgba(27,37,64,.8),0 1px 0 rgba(255,255,255,.18) inset}
+  .big.glass{background:var(--glass-2);color:var(--ink);border:1px solid var(--glass-line);font-size:16px;padding:14px 16px;
+    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--shadow)}
+  .big.glass.alert{border-color:rgba(208,59,59,.45);background:linear-gradient(140deg,rgba(208,59,59,.12),var(--glass-2) 60%)}
+  .big.glass.alert .hi{color:var(--bad);font-weight:800}
+  .big .hi{display:block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12.5px;font-weight:600;opacity:.85;margin-top:2px}
+  .big.glass .hi{color:var(--muted);opacity:1}
+  .big .em{font-size:24px}
+  .big.sm{font-size:16px;padding:14px}
+  .row2 .big.glass{flex-direction:column;gap:4px;text-align:center;padding:14px 8px}
 
-  /* Stat card */
-  .stat{background:var(--card);border-radius:18px;padding:18px;box-shadow:var(--shadow);margin-bottom:14px;text-align:center}
-  .stat .label{font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
-  .stat .num{font-size:44px;font-weight:900;color:var(--navy);line-height:1.05;margin:4px 0}
-  .stat .num small{font-size:20px;font-weight:800;color:var(--amber-d)}
+  /* Stat tiles */
+  .stat{background:var(--glass);border:1px solid var(--glass-line);border-radius:20px;padding:16px;box-shadow:var(--shadow);margin-bottom:14px;text-align:center}
+  .stat .label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+  .stat .num{font-family:var(--display);font-size:42px;font-weight:800;color:var(--ink);line-height:1.1;margin:4px 0;font-variant-numeric:tabular-nums}
+  .stat .num small{font-size:18px;font-weight:700;color:var(--accent)}
   .stat .sub{font-size:13px;color:var(--muted)}
-
   .row2{display:flex;gap:10px}
-  .row2>*{flex:1}
-  .mini{background:var(--card);border-radius:14px;padding:12px;box-shadow:var(--shadow);text-align:center}
-  .mini .n{font-size:24px;font-weight:900;color:var(--navy)}
-  .mini .l{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  .row2>*{flex:1;min-width:0}
+  .mini{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:12px 8px;box-shadow:var(--shadow);text-align:center}
+  .mini .n{font-family:var(--display);font-size:22px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .mini .n.sm{font-size:18px}
+  .mini .l{font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 
-  .sectitle{font-size:14px;font-weight:800;color:var(--navy);margin:18px 2px 8px;display:flex;justify-content:space-between;align-items:center}
-  .sectitle .lnk{font-size:13px;color:var(--amber-d);font-weight:700;cursor:pointer;background:none;border:0}
+  .sectitle{font-family:var(--display);font-size:14px;font-weight:700;color:var(--ink);margin:20px 2px 9px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .sectitle .sub{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-weight:600;color:var(--muted);font-size:12px}
+  .sectitle .lnk,.lnk{font-size:13px;color:var(--accent);font-weight:700;cursor:pointer;background:none;border:0;padding:2px 4px}
 
-  /* Entry list */
-  .entry{background:var(--card);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow);margin-bottom:10px;display:flex;align-items:center;gap:12px}
-  .entry .plate{font-weight:900;font-size:15px;color:#fff;background:var(--navy);border-radius:8px;padding:6px 8px;letter-spacing:.5px;white-space:nowrap}
+  /* Entry rows */
+  .entry{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:12px 14px;box-shadow:var(--shadow);margin-bottom:10px;display:flex;align-items:center;gap:12px}
+  .plate,.entry .plate{font-family:var(--mono);font-weight:600;font-size:14px;color:#fff;background:var(--grad-ink);border-radius:9px;padding:6px 8px;letter-spacing:.3px;white-space:nowrap}
   .entry .mid{flex:1;min-width:0}
   .entry .ch{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .entry .tm{font-size:12px;color:var(--muted);margin-top:2px}
-  .entry .tot{font-weight:900;font-size:17px;color:var(--green-d);white-space:nowrap}
-  .entry.disp{background:#eef6ff}
-  .entry.disp .plate{background:var(--amber-d)}
+  .entry .tm{font-size:12px;color:var(--faint);margin-top:2px}
+  .entry .tot{font-family:var(--display);font-weight:800;font-size:16px;color:var(--good);white-space:nowrap}
+  .entry.disp{background:linear-gradient(140deg,rgba(255,138,43,.14),var(--glass) 65%)}
+  .entry.disp .plate{background:var(--grad-cta)}
   .entry.disp .tot{color:var(--amber-d)}
   .entry.disp .dtag{font-size:13px;font-weight:800;color:var(--amber-d)}
-  .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:15px}
+  .empty{text-align:center;color:var(--muted);padding:22px 12px;font-size:14px;border:1px dashed rgba(27,33,48,.16);border-radius:16px;background:rgba(255,255,255,.4)}
 
-  /* Vehicle cards */
-  .vcard{
-    width:100%;border:0;border-radius:18px;padding:20px;margin-bottom:14px;cursor:pointer;
-    display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shadow);
-    color:#fff;text-align:left;-webkit-appearance:none;
-  }
-  .vcard:active{transform:translateY(1px)}
-  .vcard .pl{font-size:26px;font-weight:900;letter-spacing:1px}
-  .vcard .info{font-size:13px;opacity:.9;margin-top:4px;font-weight:600}
-  .vcard .cc{font-size:34px;font-weight:900;opacity:.9}
-
-  /* Chamber rows */
-  .vhead{background:var(--navy);color:#fff;border-radius:16px;padding:14px 16px;margin-bottom:14px;text-align:center;box-shadow:var(--shadow)}
-  .vhead .pl{font-size:26px;font-weight:900;letter-spacing:1px}
+  /* Add-diesel header (tanker graphic on a dark film for contrast) */
+  .vhead{background:var(--grad-ink);color:#fff;border-radius:20px;padding:14px 16px;margin-bottom:14px;text-align:center;
+    box-shadow:0 18px 34px -18px rgba(27,37,64,.75),0 1px 0 rgba(255,255,255,.15) inset}
+  .vhead .pl{font-family:var(--mono);font-size:24px;font-weight:600;letter-spacing:1px}
   .vhead .cap{font-size:12px;opacity:.8;margin-top:3px}
-  .cham{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:12px;border:2px solid transparent}
-  .cham.full{border-color:var(--green)}
-  .cham.over{border-color:var(--red)}
+  .cham{background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;padding:14px;box-shadow:var(--shadow);margin-bottom:12px}
+  .cham.full{border-color:rgba(18,128,74,.55);box-shadow:0 0 0 2px rgba(18,128,74,.15),var(--shadow)}
+  .cham.over{border-color:rgba(208,59,59,.6);box-shadow:0 0 0 2px rgba(208,59,59,.15),var(--shadow)}
   .cham .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-  .cham .badge{width:44px;height:44px;border-radius:12px;background:var(--navy);color:#fff;font-weight:900;font-size:18px;display:flex;align-items:center;justify-content:center;flex:none}
-  .cham .cn{font-weight:800;font-size:17px}
+  .cham .badge{width:44px;height:44px;border-radius:13px;background:var(--grad-ink);color:#fff;font-family:var(--display);font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;flex:none}
+  .cham .cn{font-family:var(--display);font-weight:700;font-size:16px}
   .cham .cd{font-size:12px;color:var(--muted)}
-  .cham .cap-tag{margin-left:auto;font-size:13px;font-weight:800;color:var(--muted);white-space:nowrap}
-  .cham .warn{color:var(--red);font-weight:700;font-size:12px;margin-top:2px;display:none}
+  .cham .cap-tag{margin-left:auto;font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .cham .warn{color:var(--bad);font-weight:700;font-size:12px;margin-top:2px;display:none}
   .cham.over .warn{display:block}
-  /* progress bar (two-tone: already-in + adding-now) */
-  .bar{height:16px;border-radius:8px;background:#e6eaf1;overflow:hidden;margin:2px 0 8px;display:flex}
-  .bar.lg{height:22px;border-radius:11px;background:rgba(255,255,255,.22);margin:8px 0 6px}
+  .bar{height:14px;border-radius:8px;background:rgba(27,33,48,.08);overflow:hidden;margin:2px 0 8px;display:flex}
+  .bar.lg{height:20px;border-radius:11px;background:rgba(255,255,255,.18);margin:8px 0 6px}
   .bar .fill{height:100%;width:0%;transition:width .18s ease}
-  .bar .fill.have{background:#3aa869}
+  .bar .fill.have{background:#2ea866}
   .bar .fill.add{background:#8ff0b6}
   .bar.lg .fill.have{background:#2ea866}
   .bar.lg .fill.add{background:#8affc4}
   .cham.over .bar .fill.add{background:var(--red)}
   .lr{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:15px}
-  .lr .left b{color:var(--navy);font-weight:900;font-size:18px}
-  .lr .over-txt{color:var(--red);font-weight:800;display:none}
-  .lr .fulltag{color:var(--green-d);font-weight:900;display:none}
+  .lr .left b{font-family:var(--display);color:var(--ink);font-weight:800;font-size:18px}
+  .lr .over-txt{color:var(--bad);font-weight:800;display:none}
+  .lr .fulltag{color:var(--good);font-weight:900;display:none}
   .cham.full .lr .left{display:none}
   .cham.full .lr .fulltag{display:inline}
   .cham.over .lr .left,.cham.over .lr .fulltag{display:none}
   .cham.over .lr .over-txt{display:inline}
   .qtyrow{display:flex;gap:8px;align-items:stretch}
-
-  /* Tanker status cards (home) */
-  .tcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden;border:2px solid transparent}
-  .tcard.full{border-color:var(--green)}
-  .tcard .tap{width:100%;text-align:left;background:none;border:0;padding:14px;cursor:pointer;display:block}
-  .tcard .tap:active{background:#f6f8fb}
-  .tcard .th{display:flex;justify-content:space-between;align-items:center}
-  .tcard .pl{font-size:21px;font-weight:900;color:var(--navy);letter-spacing:.5px}
-  .tcard .badge2{font-size:12px;font-weight:800;padding:5px 11px;border-radius:20px;background:#eef1f6;color:var(--muted);white-space:nowrap}
-  .tcard.full .badge2{background:var(--green);color:#fff}
-  .tcard .tsub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
-  .tcard .tsub b{color:var(--navy);font-size:15px}
-  .tcard .tsub2{font-size:12px;color:var(--muted);margin-top:3px;font-weight:600}
-  /* subtle when partly filled (avoids accidental resets); bold green when full */
-  .dispatch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-top:1px solid var(--line);background:none;color:var(--amber-d);font-size:14px;font-weight:700;padding:11px;cursor:pointer}
-  .tcard.full .dispatch{background:var(--green);color:#fff;font-size:16px;font-weight:800;padding:14px}
-  .dispatch:active{transform:translateY(1px)}
-  .qtyrow input{
-    flex:1;min-width:0;font-size:30px;font-weight:900;text-align:center;color:var(--navy);
-    border:2px solid var(--line);border-radius:12px;padding:8px 6px;background:#fff;width:100%;
-    -moz-appearance:textfield;
-  }
+  .qtyrow input{flex:1;min-width:0;font-family:var(--display);font-size:28px;font-weight:800;text-align:center;color:var(--ink);
+    border:1px solid var(--line);border-radius:14px;padding:8px 6px;background:var(--glass-3);width:100%;-moz-appearance:textfield}
   .qtyrow input::-webkit-outer-spin-button,.qtyrow input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-  .qtyrow input:focus{outline:none;border-color:var(--amber)}
-  .qbtn{border:0;border-radius:12px;padding:0 14px;font-weight:800;font-size:14px;cursor:pointer;color:#fff;background:var(--navy2);flex:none}
-  .qbtn.clr{background:#8894ad}
+  .qtyrow input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .qbtn{border:0;border-radius:12px;padding:0 14px;font-weight:800;font-size:14px;cursor:pointer;color:#fff;background:var(--grad-ink);flex:none}
+  .qbtn.clr{background:rgba(27,33,48,.42)}
   .qbtn:active{transform:translateY(1px)}
 
-  .runtot{position:sticky;bottom:0;background:linear-gradient(#eef1f6cc,#eef1f6);padding-top:8px}
-  .sumbar{background:var(--navy);color:#fff;border-radius:16px;padding:14px 16px;box-shadow:var(--shadow);margin-bottom:10px}
-  .sumrow{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:700}
-  .sumrow .s-load b{font-size:24px;font-weight:900;color:#37d67a}
-  .sumrow .s-left b{font-size:24px;font-weight:900;color:#ffd27a}
+  /* Tanker cards (home) */
+  .tcard{background:var(--glass);border:1px solid var(--glass-line);border-radius:20px;box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden;transition:transform .15s ease,box-shadow .2s ease}
+  .tcard.full{border-color:rgba(18,128,74,.55);box-shadow:0 0 0 2px rgba(18,128,74,.14),var(--shadow)}
+  .tcard .tap{width:100%;text-align:left;background:none;border:0;padding:14px;cursor:pointer;display:block;color:inherit}
+  .tcard .tap:active{background:rgba(255,255,255,.4)}
+  .tcard .th{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .tcard .pl{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--ink);letter-spacing:.4px}
+  .tcard .badge2{font-size:12px;font-weight:800;padding:5px 11px;border-radius:999px;background:rgba(27,33,48,.07);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .tcard.full .badge2{background:var(--grad-good);color:#fff}
+  .tcard .tsub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
+  .tcard .tsub b{font-family:var(--display);color:var(--ink);font-size:15px}
+  .tcard .tsub2{font-size:12px;color:var(--faint);margin-top:3px;font-weight:600}
+  .dispatch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-top:1px solid rgba(27,33,48,.08);background:rgba(255,255,255,.35);color:var(--amber-d);font-size:14px;font-weight:700;padding:12px;cursor:pointer}
+  .tcard.full .dispatch{background:var(--grad-good);color:#fff;font-family:var(--display);font-size:16px;font-weight:800;padding:14px}
+  .dispatch:active{transform:translateY(1px)}
+
+  .runtot{position:sticky;bottom:0;padding-top:8px;background:linear-gradient(rgba(243,238,232,0),rgba(243,238,232,.92) 30%)}
+  .sumbar{background:var(--grad-ink);color:#fff;border-radius:18px;padding:14px 16px;box-shadow:0 16px 30px -16px rgba(27,37,64,.8);margin-bottom:10px}
+  .sumrow{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;font-weight:700}
+  .sumrow .s-load b{font-family:var(--display);font-size:22px;font-weight:800;color:#5fe39b}
+  .sumrow .s-left b{font-family:var(--display);font-size:22px;font-weight:800;color:#ffc27a}
   .sumcap{text-align:center;font-size:12px;opacity:.75;font-weight:600}
 
   /* Confirm */
-  .confbox{background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--shadow);margin-bottom:14px}
-  .confbox .cp{text-align:center;font-size:26px;font-weight:900;color:var(--navy);letter-spacing:1px;margin-bottom:4px}
+  .confbox{background:var(--glass-2);border:1px solid var(--glass-line);border-radius:20px;padding:16px;box-shadow:var(--shadow);margin-bottom:14px}
+  .confbox .cp{text-align:center;font-family:var(--mono);font-size:24px;font-weight:600;color:var(--ink);letter-spacing:1px;margin-bottom:4px}
   .confbox .ct{text-align:center;font-size:13px;color:var(--muted);margin-bottom:12px}
-  .cline{display:flex;justify-content:space-between;padding:10px 4px;border-top:1px solid var(--line);font-size:17px}
-  .cline .cq{font-weight:900}
-  .cline.grand{border-top:2px solid var(--navy);margin-top:4px;font-size:20px;font-weight:900;color:var(--green-d)}
+  .cline{display:flex;justify-content:space-between;padding:10px 4px;border-top:1px solid var(--line);font-size:16px}
+  .cline .cq{font-family:var(--display);font-weight:800}
+  .cline.grand{border-top:2px solid var(--ink);margin-top:4px;font-family:var(--display);font-size:19px;font-weight:800;color:var(--good)}
 
   /* History */
   .daygrp{margin-bottom:16px}
-  .dayhd{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 8px;font-weight:800;color:var(--navy);font-size:15px}
-  .dayhd .dt{font-weight:900;color:var(--green-d)}
-  .del{background:none;border:0;color:var(--red);font-size:20px;cursor:pointer;padding:4px 6px;flex:none}
+  .dayhd{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 8px;font-family:var(--display);font-weight:700;color:var(--ink);font-size:14px}
+  .dayhd .dt{font-weight:800;color:var(--good)}
+  .del{background:none;border:0;color:var(--bad);font-size:19px;cursor:pointer;padding:4px 6px;flex:none}
 
-  /* Reports */
+  /* Reports / date ranges */
   .rrange{display:flex;gap:10px;margin-bottom:10px}
-  .rrange label{flex:1;font-size:12px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px}
-  .rrange input{font-size:16px;padding:11px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600;width:100%}
+  .rrange label{flex:1;font-size:12px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px;min-width:0}
+  .rrange input{font-size:15px;padding:11px;border:1px solid var(--line);border-radius:12px;background:var(--glass-2);color:var(--ink);font-weight:600;width:100%;min-width:0}
   .rpresets{display:flex;gap:8px;margin-bottom:14px}
-  .rpresets button{flex:1;padding:11px;border:0;border-radius:12px;background:#e6eaf1;color:var(--navy);font-weight:800;font-size:14px;cursor:pointer}
-  .rpresets button.on{background:var(--amber);color:#fff}
+  .rpresets button{flex:1;padding:11px 4px;border:1px solid var(--glass-line);border-radius:12px;background:var(--glass);color:var(--ink);font-weight:700;font-size:13px;cursor:pointer;box-shadow:var(--shadow)}
+  .rpresets button.on{background:var(--grad-cta);color:#fff;border-color:transparent}
   .rpresets button:active{transform:translateY(1px)}
 
   /* End Day */
-  .big.endday{background:var(--navy2);font-size:17px;padding:15px;margin-bottom:14px}
-  .endednote{background:#eaf6ee;border:1px solid #bfe6cf;color:var(--green-d);border-radius:14px;padding:12px 14px;font-size:13px;font-weight:700;text-align:center;margin-bottom:14px}
+  .big.endday{background:var(--grad-ink);font-size:16px;padding:15px;margin-bottom:14px;text-align:center}
+  .endednote{background:var(--good-bg);border:1px solid rgba(18,128,74,.3);color:var(--good);border-radius:14px;padding:12px 14px;font-size:13px;font-weight:700;text-align:center;margin-bottom:14px}
 
-  /* Chamber log (detailed, per-chamber transactions) */
-  .logrow{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
-  .logrow.disp{background:#eef6ff}
-  .logrow .lc{width:42px;height:42px;border-radius:11px;background:var(--navy);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px}
-  .logrow.disp .lc{background:var(--amber-d)}
+  /* Chamber log */
+  .logrow{display:flex;align-items:center;gap:10px;background:var(--glass);border:1px solid var(--glass-line);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
+  .logrow.disp{background:linear-gradient(140deg,rgba(255,138,43,.14),var(--glass) 65%)}
+  .logrow .lc{width:42px;height:42px;border-radius:12px;background:var(--grad-ink);color:#fff;font-family:var(--display);font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px}
+  .logrow.disp .lc{background:var(--grad-cta)}
   .logrow .lmid{flex:1;min-width:0}
-  .logrow .lp{font-weight:800;color:var(--navy);font-size:14px}
+  .logrow .lp{font-weight:800;color:var(--ink);font-size:14px}
   .logrow .lt{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .logrow .lq{font-weight:900;color:var(--green-d);white-space:nowrap;font-size:16px}
+  .logrow .lq{font-family:var(--display);font-weight:800;color:var(--good);white-space:nowrap;font-size:15px}
   .logrow.disp .lq{color:var(--amber-d)}
 
-  /* Settings / manage */
+  /* Forms / manage */
   .linkbtn{background:none;border:0;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer;text-decoration:underline;display:block;margin:16px auto 4px;padding:8px}
-  .card-add{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-bottom:16px}
-  .card-add .ca-h{font-weight:800;color:var(--navy);margin-bottom:10px}
-  .card-add input{width:100%;font-size:17px;padding:12px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600}
-  .card-add input:focus{outline:none;border-color:var(--amber)}
+  .card-add{background:var(--glass);border:1px solid var(--glass-line);border-radius:20px;padding:14px;box-shadow:var(--shadow);margin-bottom:16px}
+  .card-add .ca-h{font-family:var(--display);font-weight:700;color:var(--ink);margin-bottom:10px}
+  .card-add input,.card-add select,.selectg{width:100%;min-width:0;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--glass-3);color:var(--ink);font-weight:600}
+  .card-add input:focus,.card-add select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .card-add input:disabled{background:rgba(27,33,48,.05);color:var(--muted)}
   .ca-row{display:flex;gap:10px;margin:10px 0}
-  .ca-field{flex:1}
+  .ca-row.al{align-items:flex-end}
+  .ca-field{flex:1;min-width:0}
   .ca-field label{font-size:12px;color:var(--muted);font-weight:700;display:block;margin-bottom:4px}
-  .stepper{display:flex;align-items:center;gap:0;border:2px solid var(--line);border-radius:12px;overflow:hidden}
-  .stepper button{flex:none;width:44px;height:46px;border:0;background:var(--navy2);color:#fff;font-size:24px;font-weight:800;cursor:pointer}
-  .stepper span{flex:1;text-align:center;font-size:20px;font-weight:900;color:var(--navy)}
+  .stepper{display:flex;align-items:center;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--glass-3)}
+  .stepper button{flex:none;width:44px;height:46px;border:0;background:var(--grad-ink);color:#fff;font-size:22px;font-weight:800;cursor:pointer}
+  .stepper span{flex:1;text-align:center;font-family:var(--display);font-size:19px;font-weight:800;color:var(--ink)}
 
-  /* Modal (sold-to at dispatch) */
-  .modal{position:fixed;inset:0;background:rgba(17,30,62,.55);display:none;align-items:center;justify-content:center;padding:22px;z-index:60}
+  /* Modals */
+  .modal{position:fixed;inset:0;background:rgba(27,33,48,.32);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:22px;z-index:60}
   .modal.on{display:flex}
-  .modalbox{width:100%;max-width:400px;background:var(--card);border-radius:18px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
-  .modalbox .mh{font-size:18px;font-weight:900;color:var(--navy);text-align:center}
-  .modalbox .mp{text-align:center;color:var(--green-d);font-weight:800;font-size:20px;margin:2px 0 12px}
+  .modalbox{width:100%;max-width:420px;background:rgba(255,255,255,.86);border:1px solid var(--glass-line);border-radius:22px;padding:18px;
+    backdrop-filter:blur(26px) saturate(170%);-webkit-backdrop-filter:blur(26px) saturate(170%);box-shadow:0 30px 60px -20px rgba(27,33,48,.45)}
+  .modalbox .mh{font-family:var(--display);font-size:18px;font-weight:800;color:var(--ink);text-align:center}
+  .modalbox .mp{text-align:center;color:var(--good);font-family:var(--display);font-weight:800;font-size:19px;margin:2px 0 12px}
   .modalbox .mlab{font-size:13px;color:var(--muted);font-weight:700;display:block;margin-bottom:6px}
-  .modalbox input{width:100%;font-size:18px;padding:13px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600}
-  .modalbox input:focus{outline:none;border-color:var(--amber)}
+  .modalbox input{width:100%;font-size:17px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--glass-3);color:var(--ink);font-weight:600}
+  .modalbox input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
   .mbtns{display:flex;gap:10px;margin-top:14px}
-  .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:800;cursor:pointer}
-  .mbtn.ghost{background:#e6eaf1;color:var(--navy)}
-  .mbtn.go{background:var(--green);color:#fff}
+  .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-family:var(--display);font-size:15px;font-weight:800;cursor:pointer}
+  .mbtn.ghost{background:rgba(27,33,48,.07);color:var(--ink)}
+  .mbtn.go{background:var(--grad-good);color:#fff;box-shadow:0 12px 24px -12px rgba(18,128,74,.8)}
   .mbtn:active{transform:translateY(1px)}
-  /* Edit chamber capacities */
   .modalbox.wide{max-height:86vh;overflow-y:auto}
   .edit{background:none;border:0;color:var(--navy2);font-size:18px;cursor:pointer;padding:4px 6px;flex:none}
   .caprow{display:flex;align-items:center;gap:9px;margin-bottom:8px}
-  .caprow .cb{width:44px;height:44px;border-radius:11px;background:var(--navy);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px}
+  .caprow .cb{width:44px;height:44px;border-radius:12px;background:var(--grad-ink);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px}
   .caprow input{flex:1;min-width:0;text-align:center}
   .caprow .cf{font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap;flex:none;width:68px;text-align:right;line-height:1.25}
-  .caprow.over .cb{background:var(--red)}
-  .caperr{color:var(--red);font-weight:700;font-size:13px;min-height:18px;margin:2px 0 0}
+  .caprow.over .cb{background:var(--grad-bad)}
+  .caperr{color:var(--bad);font-weight:700;font-size:13px;min-height:18px;margin:2px 0 0}
 
-  .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
+  .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.55}
+  .muted{color:var(--muted)}
   .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
-  .signrow b{color:var(--navy)}
-  .signrow button{background:none;border:0;color:var(--red-d);font-weight:700;cursor:pointer;text-decoration:underline;font-size:13px}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--green-d);color:#fff;
-    padding:14px 22px;border-radius:14px;font-weight:800;font-size:16px;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;
-    transition:.25s;z-index:100;pointer-events:none;max-width:90%}
+  .signrow b{color:var(--ink)}
+  .signrow button{background:none;border:0;color:var(--bad);font-weight:700;cursor:pointer;text-decoration:underline;font-size:13px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:rgba(27,33,48,.88);color:#fff;
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.15);
+    padding:13px 20px;border-radius:14px;font-weight:700;font-size:15px;box-shadow:0 14px 30px -10px rgba(0,0,0,.4);opacity:0;
+    transition:.25s;z-index:100;pointer-events:none;max-width:90%;text-align:center}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  .installbtn{background:none;border:1px solid rgba(255,255,255,.4);color:#fff;font-size:12px;font-weight:700;border-radius:10px;padding:6px 10px;cursor:pointer}
-  .livedot{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#bfe6cf;background:rgba(31,157,85,.18);border:1px solid rgba(31,157,85,.5);border-radius:20px;padding:3px 9px}
-  .livedot i{width:8px;height:8px;border-radius:50%;background:#37d67a;display:inline-block;animation:pulse 1.6s infinite}
+  .installbtn{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.5);color:#fff;font-size:12px;font-weight:700;border-radius:10px;padding:6px 10px;cursor:pointer}
+  .livedot{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#fff;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.45);border-radius:20px;padding:3px 9px}
+  .livedot i{width:8px;height:8px;border-radius:50%;background:#8dffcf;display:inline-block;animation:pulse 1.6s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
   /* Login */
-  .loginwrap{position:fixed;inset:0;background:var(--navy);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
+  .loginwrap{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:24px;z-index:50;
+    background:radial-gradient(700px 500px at 85% 0%, rgba(255,255,255,.35), rgba(255,255,255,0) 60%),linear-gradient(150deg,#F4511E 0%,#FF8A2B 55%,#ffb35c 100%)}
   .loginwrap.on{display:flex}
-  .loginbox{width:100%;max-width:380px;text-align:center;color:#fff}
-  .loginbox img{width:76px;height:76px;border-radius:18px;background:#fff;padding:8px;object-fit:contain;margin-bottom:14px}
-  .loginbox h1{font-size:24px;font-weight:900;margin:0 0 2px}
-  .loginbox .lsub{font-size:14px;opacity:.75;margin-bottom:22px}
-  .loginbox input{width:100%;font-size:19px;padding:16px;border-radius:14px;border:0;margin-bottom:12px;text-align:center;background:#fff;color:var(--ink);font-weight:600}
-  .loginbox input:focus{outline:3px solid var(--amber)}
-  .lerr{color:#ffb4b4;font-weight:700;font-size:14px;min-height:20px;margin-bottom:8px}
+  .loginbox{width:100%;max-width:380px;text-align:center;color:#fff;padding:26px 22px;border-radius:26px;
+    background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
+    box-shadow:0 30px 60px -24px rgba(120,30,0,.55)}
+  .loginbox img{width:76px;height:76px;border-radius:20px;background:#fff;padding:8px;object-fit:contain;margin-bottom:14px}
+  .loginbox h1{font-family:var(--display);font-size:24px;font-weight:800;margin:0 0 2px}
+  .loginbox .lsub{font-size:14px;opacity:.85;margin-bottom:20px}
+  .loginbox input{width:100%;font-size:18px;padding:15px;border-radius:14px;border:1px solid rgba(255,255,255,.6);margin-bottom:12px;text-align:center;background:rgba(255,255,255,.92);color:var(--ink);font-weight:600}
+  .loginbox input:focus{outline:3px solid rgba(255,255,255,.7)}
+  .lerr{color:#fff;font-weight:700;font-size:14px;min-height:20px;margin-bottom:8px}
+
+  /* Customer picker */
+  .destlist{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow-y:auto;padding:2px}
+  .dest{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;border:1px solid var(--line);
+    background:var(--glass-3);border-radius:14px;padding:13px 14px;font-size:16px;font-weight:700;color:var(--ink);cursor:pointer}
+  .dest .dk{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .dest.on{border-color:var(--green);background:linear-gradient(140deg,rgba(18,128,74,.14),var(--glass-3) 70%);box-shadow:0 0 0 2px rgba(18,128,74,.18)}
+  .dest.on .dk{color:var(--good)}
+  .dest:active{transform:translateY(1px)}
+
+  /* Month navigator */
+  .monthnav{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .monthnav button{flex:none;width:48px;height:46px;border:1px solid var(--glass-line);border-radius:14px;background:var(--glass-2);color:var(--ink);font-size:24px;font-weight:800;cursor:pointer;box-shadow:var(--shadow)}
+  .monthnav span{flex:1;text-align:center;font-family:var(--display);font-size:18px;font-weight:800;color:var(--ink)}
+
+  /* Trip report */
+  .trcard{background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;box-shadow:var(--shadow);margin-bottom:12px;padding:12px 14px}
+  .trcard .trh{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .trcard .trn{font-size:13px;color:var(--muted);font-weight:700;text-align:right}
+  .trcard .trn b{font-family:var(--display);font-size:22px;color:var(--ink);font-weight:800}
+  .trd{margin-top:10px;border-top:1px solid var(--line)}
+  .trd .tl{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid rgba(27,33,48,.06);font-size:14px}
+  .trd .tl .tn{flex:1;min-width:0;font-weight:700;color:var(--ink)}
+  .trd .tl .tc{white-space:nowrap;color:var(--muted);font-weight:700;font-variant-numeric:tabular-nums}
+  .trd .tl .tk{white-space:nowrap;color:var(--ink);font-weight:800;min-width:64px;text-align:right;font-variant-numeric:tabular-nums}
+  .trd .tl.warn .tn{color:var(--bad)}
+  .trtrips{margin-top:6px}
+  .trrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(27,33,48,.06);font-size:13px}
+  .trrow .tw{white-space:nowrap;color:var(--muted);font-weight:700;flex:none}
+  .trrow .td{flex:1;min-width:0;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .trrow .td.warn{color:var(--bad)}
+  .trrow .tq{white-space:nowrap;font-weight:800;color:var(--amber-d)}
+  .trshow{display:block;margin:8px auto 0;background:none;border:0;color:var(--accent);font-weight:800;font-size:13px;cursor:pointer}
+
+  /* Mileage */
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .chips button{border:1px solid var(--glass-line);background:var(--glass);color:var(--ink);font-family:var(--mono);font-weight:600;font-size:13.5px;border-radius:12px;padding:10px 12px;cursor:pointer;box-shadow:var(--shadow);
+    backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+  .chips button.on{background:var(--grad-ink);border-color:transparent;color:#fff}
+  .chips .cnt{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--grad-bad);color:#fff;font-family:var(--display);font-size:11px;line-height:18px;text-align:center}
+  .angchip{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:2px}
+  .angchip b{color:var(--ink)}
+  .expnote{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 0 10px;padding:8px 10px;border-radius:12px;background:var(--accent-soft);border:1px solid rgba(255,122,26,.2)}
+  .expnote b{color:var(--ink)}
+  .pos{color:var(--good);font-weight:800}
+  .neg{color:var(--bad);font-weight:800}
+  .calcbox{background:rgba(255,255,255,.55);border:1px solid var(--glass-line);border-radius:16px;padding:10px 12px;margin:10px 0 12px}
+  .calcbox.solid{box-shadow:var(--shadow)}
+  .kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;font-size:14px;color:var(--muted);font-weight:600}
+  .kv b{color:var(--ink);font-weight:800;font-size:15px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .kv.hl{background:linear-gradient(120deg,rgba(18,128,74,.12),rgba(18,128,74,0));border-radius:10px;padding:8px 8px;margin:4px -6px}
+  .kv.hl b{font-family:var(--display);font-size:24px;color:var(--good)}
+  .kv.bad b,.kv.bad span{color:var(--bad)}
+  .mlrow{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px;display:flex;gap:10px;align-items:center}
+  .mlrow.high{border-color:rgba(208,59,59,.45)}
+  .mlrow.watch{border-color:rgba(250,178,25,.6)}
+  .mlrow .mm{flex:1;min-width:0}
+  .mlrow .m1{font-family:var(--display);font-weight:800;color:var(--ink);font-size:15px}
+  .mlrow .m2{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;line-height:1.45}
+  .mlrow .mk{font-family:var(--display);font-weight:800;color:var(--good);font-size:17px;white-space:nowrap;text-align:right}
+  .mlrow .mk small{display:block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:11px;color:var(--muted);font-weight:700}
+  .flagline{font-size:12px;color:var(--ink);margin-top:5px;line-height:1.45}
+
+  /* Badges (status: icon + label, never colour alone) */
+  .badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;vertical-align:middle}
+  .badge.ok{background:var(--good-bg);color:var(--good)}
+  .badge.watch{background:var(--warn-bg);color:var(--warn)}
+  .badge.high{background:var(--bad-bg);color:var(--bad)}
+  .badge.info{background:rgba(27,33,48,.07);color:var(--muted)}
+  .flag.chk{border-left-color:#c3c2b7}
+  /* role gating: staff phones never see admin-only parts (the server refuses them too) */
+  body.staff .adm{display:none!important}
+  body:not(.staff) .stf{display:none!important}
+  .warnnote{background:var(--warn-bg);border-color:rgba(250,178,25,.5);color:var(--warn)}
+  .rolebadge{display:inline-block;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;margin-left:4px;vertical-align:middle}
+  .rolebadge.admin{background:var(--grad-cta);color:#fff}
+  .rolebadge.staff{background:rgba(27,33,48,.08);color:var(--muted)}
+  .urow .ub{display:flex;gap:6px;flex:none}
+  .urow .ub button{border:1px solid var(--line);background:var(--glass-3);color:var(--ink);font-weight:700;font-size:12.5px;border-radius:10px;padding:8px 9px;cursor:pointer}
+  .stkrow{border:1px solid var(--line);border-radius:16px;padding:10px 12px;margin-bottom:10px;background:rgba(255,255,255,.6)}
+  .stkrow .sh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+  .stkrow .sh small{font-size:11.5px;color:var(--muted);font-weight:600;text-align:right}
+  .stkrow .ca-row{margin:6px 0 0}
+  .stkrow .ca-field label{font-size:11.5px;color:var(--muted);font-weight:700;display:block;margin-bottom:3px}
+  .stkrow input{width:100%;min-width:0;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:11px;background:var(--glass-3);color:var(--ink);font-weight:600}
+  .stkrow input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+  /* Trends */
+  .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:6px}
+  .tile{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:12px;box-shadow:var(--shadow);min-width:0}
+  .tile:first-child{grid-column:1/-1}
+  .tile .tn{font-family:var(--display);font-size:24px;font-weight:800;color:var(--ink);line-height:1.15}
+  .tile .tn small{font-size:13px;font-weight:700;color:var(--muted)}
+  .tile .tl{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+  .tile.bad{background:linear-gradient(140deg,rgba(208,59,59,.13),var(--glass) 70%);border-color:rgba(208,59,59,.35)}
+  .tile.bad .tn{color:var(--bad)}
+  .tile.warn{background:linear-gradient(140deg,rgba(250,178,25,.2),var(--glass) 70%)}
+  .tile.warn .tn{color:var(--warn)}
+  .tile.good .tn{color:var(--good)}
+  .tile.wide{grid-column:1/-1;margin:10px 0}
+  .tile.wide .tl{text-transform:none;letter-spacing:0;font-size:12px}
+  .flag{background:var(--glass);border:1px solid var(--glass-line);border-left:4px solid #fab219;border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
+  .flag.high{border-left-color:#d03b3b}
+  .flag .fh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .flag .plate{font-size:12px;padding:3px 7px}
+  .flag .fd{font-size:12px;color:var(--muted);font-weight:700;margin-left:auto}
+  .flag ul{margin:6px 0 4px;padding-left:18px;font-size:13px;line-height:1.45;color:var(--ink)}
+  .flag .fm{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .vizcard{background:rgba(252,252,251,.82);border:1px solid var(--glass-line);border-radius:18px;padding:12px 12px 8px;box-shadow:var(--shadow);margin-bottom:12px;position:relative}
+  .vizh{font-family:var(--display);font-weight:700;font-size:14px;color:var(--ink)}
+  .vizs{font-size:12px;color:var(--muted);margin:2px 0 6px;line-height:1.4}
+  .viz{position:relative;width:100%;min-height:40px}
+  .vsvg{display:block;width:100%;height:auto;touch-action:pan-y}
+  .vsvg .vt{font-size:10.5px;fill:#898781;font-variant-numeric:tabular-nums}
+  .vsvg .vt.val{fill:#0b0b0b;font-weight:700;font-size:11px}
+  .vsvg .vt.name{fill:#52514e;font-weight:600;font-size:11px;font-family:var(--mono)}
+  .vsvg .vt.lab{fill:#52514e}
+  .vizfoot{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);margin:6px 2px 2px}
+  .vizfoot .lg{display:inline-flex;align-items:center;gap:6px}
+  .vizfoot i{display:inline-block;width:10px;height:10px;border-radius:3px}
+  .vizfoot i.dash{width:16px;height:0;border-top:1.5px dashed #52514e;border-radius:0}
+  .vizempty{font-size:13px;color:var(--muted);text-align:center;padding:26px 10px}
+  .viz-tip{position:absolute;display:none;z-index:5;pointer-events:none;min-width:150px;max-width:260px;background:rgba(255,255,255,.96);
+    border:1px solid rgba(11,11,11,.1);border-radius:12px;padding:8px 10px;box-shadow:0 12px 28px -10px rgba(27,33,48,.4);font-size:12px;color:#52514e}
+  .viz-tip-head{font-weight:800;color:#0b0b0b;margin-bottom:3px}
+  .viz-tip-row{display:flex;justify-content:space-between;gap:12px;line-height:1.5}
+  .viz-tip-row b{color:#0b0b0b;font-variant-numeric:tabular-nums;text-align:right}
+  .tablewrap{overflow-x:auto;padding:4px 6px}
+  .mtab{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+  .mtab th,.mtab td{padding:8px 8px;text-align:right;border-bottom:1px solid rgba(27,33,48,.07);white-space:nowrap}
+  .mtab thead th{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:600}
+  .mtab thead th small{display:block;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-weight:600;color:var(--faint)}
+  .mtab tbody th{text-align:left;color:var(--ink);font-weight:700}
+  .mtab td b{color:var(--ink)}
+  .mtab td span{display:block;font-size:11px}
+  .mtab td.na{color:var(--faint)}
 
   /* ===== Tanker graphic (chambers visible, fills with animation) ===== */
   .tankwrap{width:100%;margin:0 0 4px;position:relative}
@@ -368,11 +541,20 @@
       </div>
       <div id="recentList"></div>
 
-      <button class="big navy" id="toReport" style="font-size:16px;padding:14px;background:var(--navy2);margin-top:4px">
+      <button class="big glass adm" id="toReport">
         <span class="em">📊</span><span>Reports &amp; Excel export</span>
       </button>
+      <div class="row2 adm">
+        <button class="big glass" id="toTrips">
+          <span class="em">🚚</span><span>Trips per tanker</span>
+        </button>
+        <button class="big glass" id="toMileage">
+          <span class="em">⛽</span><span>Mileage</span>
+        </button>
+      </div>
 
       <div class="note" id="storeNote"></div>
+      <div class="endednote warnnote" id="noAdminNote" style="display:none">No admin login is set up yet, so everyone has staff access. See README → “Admin &amp; staff logins”.</div>
       <button class="linkbtn" id="toSettings">⚙ Manage tankers &amp; data</button>
       <div class="signrow" id="signRow" style="display:none"></div>
     </section>
@@ -405,7 +587,7 @@
       <div class="sectitle" style="justify-content:center">Check &amp; save</div>
       <div class="confbox" id="confBox"></div>
       <button class="big green" id="saveBtn"><span class="em">✓</span><span>Confirm &amp; Save</span></button>
-      <button class="big navy" id="editBtn" style="background:#8894ad"><span>‹ Edit</span></button>
+      <button class="big glass" id="editBtn" style="justify-content:center"><span>‹ Edit</span></button>
     </section>
 
     <!-- HISTORY -->
@@ -414,7 +596,7 @@
         <div class="mini"><div class="n" id="hTot">0</div><div class="l">Total litres</div></div>
         <div class="mini"><div class="n" id="hCnt">0</div><div class="l">Loadings</div></div>
       </div>
-      <button class="big navy" id="toReport2" style="font-size:16px;padding:14px;background:var(--navy2)">
+      <button class="big glass adm" id="toReport2">
         <span class="em">📊</span><span>Reports &amp; Excel export</span>
       </button>
       <div id="histList"></div>
@@ -447,7 +629,7 @@
       </div>
       <div class="sectitle">By tanker</div>
       <div id="repTankers"></div>
-      <button class="big navy" id="toLog" style="background:var(--navy2);font-size:16px;padding:14px"><span class="em">📋</span><span>View chamber log (detailed)</span></button>
+      <button class="big glass" id="toLog"><span class="em">📋</span><span>View chamber log (detailed)</span></button>
       <button class="big green" id="dlExcel" style="margin-top:0"><span class="em">⬇</span><span>Download Excel report</span></button>
       <div class="note" id="repNote"></div>
     </section>
@@ -459,17 +641,174 @@
       <div id="logList"></div>
     </section>
 
+    <!-- TRIPS PER TANKER (permanent trip records, customer RTD) -->
+    <section class="screen" id="scTrips">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Trips per tanker</div>
+      <div class="monthnav"><button id="trPrev" aria-label="Previous month">‹</button><span id="trMonth">—</span><button id="trNext" aria-label="Next month">›</button></div>
+      <div class="rrange">
+        <label>From<input type="date" id="trFrom" /></label>
+        <label>To<input type="date" id="trTo" /></label>
+      </div>
+      <div class="row2" style="margin-bottom:14px">
+        <div class="mini"><div class="n" id="trTrips">0</div><div class="l">Trips</div></div>
+        <div class="mini"><div class="n" id="trKm">0</div><div class="l">RTD km</div></div>
+        <div class="mini"><div class="n sm" id="trLit">0</div><div class="l">Litres sold</div></div>
+      </div>
+      <div id="trList"></div>
+      <button class="big green" id="trExcel"><span class="em">⬇</span><span>Download trip report (Excel)</span></button>
+      <div class="note" id="trNote"></div>
+    </section>
+
+    <!-- MILEAGE CALCULATOR (previous reading + litres filled, dip in Anguls) -->
+    <section class="screen" id="scMileage">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Mileage calculator</div>
+      <button class="big glass" id="toTrend"><span class="em">📈</span><span>Trends &amp; alerts<span class="hi" id="trendHi">Mileage charts · mileage drops</span></span></button>
+      <button class="big glass" id="toStock"><span class="em">🛢️</span><span>Fuel in tank now — all tankers<span class="hi">Enter each tanker's current stock &amp; reading so the next fill measures from it</span></span></button>
+      <div class="chips" id="mlVeh"></div>
+      <div class="card-add">
+        <div class="ca-h">Previous refill — <span id="mlPlate">—</span></div>
+        <div class="note" id="mlLast" style="text-align:left;margin:0 0 10px"></div>
+        <div class="ca-field" style="margin-bottom:10px"><label>Date &amp; time of previous refill</label>
+          <input type="datetime-local" id="mlPWhen" /></div>
+        <div class="ca-row al">
+          <div class="ca-field"><label class="mlUnitLab">Previous odometer (km)</label>
+            <input id="mlPOdo" type="text" inputmode="decimal" /></div>
+          <div class="ca-field"><label>Diesel filled then (L)</label>
+            <input id="mlPLit" type="text" inputmode="decimal" /></div>
+        </div>
+        <div class="ca-row al">
+          <div class="ca-field mlAng"><label>Anguls before that refill</label>
+            <input id="mlPAng" type="text" inputmode="decimal" placeholder="0 if dry" /></div>
+          <div class="ca-field"><label id="mlPStkLab">= Litres in tank</label>
+            <input id="mlPStk" type="text" inputmode="decimal" placeholder="0" /></div>
+        </div>
+        <div class="angchip mlAng">1 Angul = <b class="angLval">16</b> L <button type="button" class="lnk angEdit">✎ change</button></div>
+      </div>
+      <div class="card-add">
+        <div class="ca-h">Now — refill</div>
+        <div class="ca-field" style="margin-bottom:10px"><label>Date &amp; time of this refill</label>
+          <input type="datetime-local" id="mlWhen" /></div>
+        <div class="ca-field" style="margin-bottom:10px"><label class="mlUnitLab2">Odometer now (km)</label>
+          <input id="mlOdo" type="text" inputmode="decimal" /></div>
+        <div class="mlAng">
+          <div class="ca-row al" style="margin-bottom:4px">
+            <div class="ca-field"><label>Anguls in tank now (dip)</label>
+              <input id="mlAng" type="text" inputmode="decimal" placeholder="dip" /></div>
+            <div class="ca-field"><label>= Litres in tank now</label>
+              <input id="mlStk" type="text" inputmode="decimal" placeholder="0" /></div>
+          </div>
+          <div class="expnote" id="mlExp"></div>
+        </div>
+        <div class="ca-field" style="margin-bottom:10px"><label>Diesel filled now (L)</label>
+          <input id="mlLit" type="text" inputmode="decimal" placeholder="e.g. 180" /></div>
+        <input id="mlNote" placeholder="Note (optional)" autocomplete="off" />
+        <div class="calcbox" id="mlCalc"></div>
+        <button class="big green sm" id="mlSave" style="margin-bottom:0"><span class="em">✓</span><span>Save this refill</span></button>
+      </div>
+
+      <div class="sectitle">Period summary</div>
+      <div class="monthnav"><button id="mlPrev" aria-label="Previous month">‹</button><span id="mlMonth">—</span><button id="mlNext" aria-label="Next month">›</button></div>
+      <div class="rrange">
+        <label>From<input type="date" id="mlFrom" /></label>
+        <label>To<input type="date" id="mlTo" /></label>
+      </div>
+      <div class="calcbox solid" id="mlSum"></div>
+
+      <div class="sectitle">Refills <span style="font-weight:600;color:var(--muted);font-size:12px">newest first</span></div>
+      <div id="mlList"></div>
+      <div class="note" id="mlHow" style="text-align:left"></div>
+    </section>
+
+    <!-- MILEAGE TRENDS & ALERTS -->
+    <section class="screen" id="scTrend">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Mileage trends &amp; alerts</div>
+      <div class="rpresets" id="tdPresets">
+        <button data-m="3">3 months</button>
+        <button data-m="6">6 months</button>
+        <button data-m="12">12 months</button>
+        <button data-m="0">All</button>
+      </div>
+      <div class="rrange">
+        <label>From<input type="date" id="tdFrom" /></label>
+        <label>To<input type="date" id="tdTo" /></label>
+      </div>
+      <div class="tiles" id="tdTiles"></div>
+
+      <div class="sectitle">⚠ Mileage drops <span class="sub" id="tdFlagSub"></span></div>
+      <div id="tdFlags"></div>
+
+      <div class="sectitle">Mileage by tanker <span class="sub">km per litre · odometer tankers</span></div>
+      <div class="vizcard"><div class="viz" id="vzFleet"></div><div class="vizfoot" id="vzFleetFoot"></div></div>
+      <div id="tdMeter"></div>
+
+      <div class="sectitle">Tanker detail</div>
+      <div class="chips" id="tdVeh"></div>
+      <div class="vizcard"><div class="vizh" id="vzTrendH">Mileage per refill</div><div class="vizs" id="vzTrendS"></div><div class="viz" id="vzTrend"></div></div>
+      <div class="vizcard"><div class="vizh">Diesel vs normal, per refill</div><div class="vizs">Litres used above (red) or below (blue) what the tanker's normal mileage needs for the distance</div><div class="viz" id="vzExcess"></div></div>
+      <div class="vizcard" id="vzKmCard"><div class="vizh">Km run per refill — trips vs extra</div><div class="vizs">RTD km of the trips in between, and the extra km the odometer shows beyond them</div><div class="viz" id="vzKm"></div></div>
+
+      <div class="sectitle">Monthly mileage <span class="sub">change vs previous month</span></div>
+      <div class="vizcard tablewrap" id="tdMonthly"></div>
+
+      <div class="card-add" style="margin-top:14px">
+        <div class="ca-h">Alert settings</div>
+        <div class="kv"><span>Flag a mileage drop when it is below normal by</span><b><span id="tdPct">15</span>% <button type="button" class="lnk" id="tdPctEdit">✎</button></b></div>
+        <div class="kv"><span>1 Angul on the dip stick</span><b><span class="angLval">16</span> L <button type="button" class="lnk angEdit">✎</button></b></div>
+        <div class="note" style="text-align:left;margin:6px 0 0">“Normal” = the tanker's median mileage over all its other fill-to-fill stretches. ⛔ Sharp drop = twice the alert gap.</div>
+      </div>
+      <button class="big green" id="tdExcel"><span class="em">⬇</span><span>Download mileage analysis (Excel)</span></button>
+      <div class="note" id="tdNote"></div>
+    </section>
+
     <!-- SETTINGS / MANAGE -->
     <section class="screen" id="scSettings">
-      <div class="sectitle" style="font-size:18px;justify-content:center">Manage tankers &amp; data</div>
-
-      <div class="sectitle">Tankers</div>
-      <div id="vehList"></div>
-
+      <div class="sectitle" style="font-size:18px;justify-content:center" id="setTitle">Manage tankers &amp; data</div>
       <div id="pushWrap" style="display:none">
         <div class="sectitle">Notifications</div>
         <div id="pushBox"></div>
       </div>
+      <div class="note stf" id="stfNote" style="text-align:left">Signed in as staff — you can add loadings, send tankers for sale and see the last 7 days of history.</div>
+
+      <div class="adm">
+      <!-- Admin: staff logins (cloud) -->
+      <div id="staffWrap" style="display:none">
+        <div class="sectitle">Staff logins <span class="sub" id="meRole"></span></div>
+        <div class="card-add">
+          <div class="ca-h">🚪 Log out all staff devices</div>
+          <div class="note" style="text-align:left;margin:0 0 10px">Every staff phone is signed out at once and must sign in again (with the new password if you changed it). Admin phones stay signed in.</div>
+          <button class="big red sm" id="logoutAllBtn" style="margin-bottom:0"><span class="em">🚪</span><span>Log out all staff devices</span></button>
+        </div>
+        <div id="userList"></div>
+        <div class="card-add">
+          <div class="ca-h">Add a login</div>
+          <div class="ca-row">
+            <div class="ca-field"><label>Username</label><input id="nuUser" placeholder="e.g. ramesh" autocapitalize="off" autocorrect="off" spellcheck="false" /></div>
+            <div class="ca-field"><label>Password (6+)</label><input id="nuPass" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" /></div>
+          </div>
+          <div class="ca-field" style="margin-bottom:10px"><label>Access</label>
+            <select id="nuRole"><option value="staff">Staff — loadings, sales, 7-day history</option><option value="admin">Admin — everything</option></select></div>
+          <button class="big green sm" id="nuBtn" style="margin-bottom:0"><span class="em">＋</span><span>Add login</span></button>
+        </div>
+      </div>
+
+      <div class="sectitle">Tankers</div>
+      <div id="vehList"></div>
+
+      <div class="sectitle">Customers &amp; RTD <span style="font-weight:600;color:var(--muted);font-size:12px">· the “Sold to” list</span></div>
+      <div class="note" id="destNote" style="text-align:left;margin:0 2px 8px">RTD = round-trip km per trip. Customers in the same group always share one RTD.</div>
+      <div id="destList"></div>
+      <div class="card-add">
+        <div class="ca-h">Add a customer</div>
+        <input id="newDest" placeholder="Customer name" autocomplete="off" />
+        <div class="ca-row">
+          <div class="ca-field"><label>Group company of</label>
+            <select id="newDestGrp"></select></div>
+          <div class="ca-field"><label>RTD km / trip</label>
+            <input id="newDestKm" type="text" inputmode="decimal" placeholder="e.g. 36" /></div>
+        </div>
+        <button class="big green sm" id="addDestBtn" style="margin-bottom:0"><span class="em">＋</span><span>Add customer</span></button>
+      </div>
+
 
       <div class="card-add">
         <div class="ca-h">Add a new tanker</div>
@@ -481,25 +820,28 @@
           <div class="ca-field"><label>Litres per chamber</label>
             <input id="newCap" type="text" inputmode="decimal" value="3985" /></div>
         </div>
-        <button class="big green" id="addVehBtn" style="font-size:17px;padding:14px;margin-bottom:0"><span class="em">＋</span><span>Add tanker</span></button>
+        <button class="big green sm" id="addVehBtn" style="margin-bottom:0"><span class="em">＋</span><span>Add tanker</span></button>
       </div>
 
       <div class="sectitle" style="color:var(--red-d)">Danger zone</div>
       <div class="note" style="text-align:left;margin:0 2px 10px">Clearing removes <b>all</b> loading &amp; sale records (this also empties every tanker). The tankers themselves are kept.</div>
       <button class="big red" id="clearBtn"><span class="em">🗑</span><span>Clear all records</span></button>
 
+      </div><!-- /adm -->
+
       <div class="note" style="margin:18px 2px 0;opacity:.7">App build <b id="buildTag">—</b></div>
     </section>
   </main>
 </div>
 
-<!-- Dispatch modal: capture whom it was sold to -->
+<!-- Dispatch modal: choose the customer it was sold to (also used to correct a trip) -->
 <div class="modal" id="dispModal">
-  <div class="modalbox">
-    <div class="mh">Send for sale</div>
+  <div class="modalbox wide">
+    <div class="mh" id="dispHead">Send for sale</div>
     <div class="mp" id="dispTitle">—</div>
-    <label class="mlab">Sold to / remarks (optional)</label>
-    <input id="dispSold" placeholder="e.g. Ramesh Traders" autocomplete="off" />
+    <label class="mlab" id="dispLab">Sold to — choose the customer</label>
+    <div class="destlist" id="dispDests"></div>
+    <div class="caperr" id="dispErr"></div>
     <div class="mbtns">
       <button class="mbtn ghost" id="dispCancel">Cancel</button>
       <button class="mbtn go" id="dispOk">🚚 Confirm sale</button>
@@ -525,6 +867,23 @@
     <div class="mbtns">
       <button class="mbtn ghost" id="capCancel">Cancel</button>
       <button class="mbtn go" id="capOk">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fuel in tank now (opening stock) for every tanker -->
+<div class="modal" id="stkModal">
+  <div class="modalbox wide">
+    <div class="mh">Fuel in tank now</div>
+    <div class="note" style="margin:4px 0 10px">Enter what is in each tanker's tank right now and its reading. It is saved as a
+      <b>stock check</b> (no diesel added) — the next fill's mileage is measured from here. Leave a tanker blank to skip it.</div>
+    <div class="ca-field" style="margin-bottom:10px"><label class="mlab">Date &amp; time of the check</label>
+      <input type="datetime-local" id="stkWhen" /></div>
+    <div id="stkList"></div>
+    <div class="caperr" id="stkErr"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="stkCancel">Cancel</button>
+      <button class="mbtn go" id="stkOk">Save stock</button>
     </div>
   </div>
 </div>
@@ -584,6 +943,29 @@ const DEFAULT_VEHICLES = [
 ];
 const VCOLORS = ["#1f6f8b","#2d7d46","#8a5a1e","#6a3d8c","#b3402f","#2f6f6f","#5a4bd1","#946a00"];
 let VEHICLES = DEFAULT_VEHICLES.slice();
+
+/* ---------- Customers (the "Sold to" choices) & their RTD ----------
+   RTD = round-trip km per trip. Seed copy of the RTD master; in cloud mode the
+   shared list lives in loading_destinations and is editable under ⚙. Customers
+   sharing a `grp` are group companies and always carry the same RTD. */
+const DEFAULT_DESTS = [
+  { name:"Shyam Metalics",                   rtd:36,  grp:"" },
+  { name:"SMC Unit 1",                       rtd:16,  grp:"" },
+  { name:"SMC Unit 2",                       rtd:20,  grp:"" },
+  { name:"Orissa Metaliks",                  rtd:30,  grp:"" },
+  { name:"Lakhanpur Group Companies",        rtd:70,  grp:"Lakhanpur Group" },
+  { name:"DBL - Siarmal",                    rtd:140, grp:"" },
+  { name:"Aryan Ispat & Power Private Ltd.", rtd:30,  grp:"" },
+];
+let DESTS = DEFAULT_DESTS.slice();
+let DESTS_FALLBACK = false;   // cloud list unreadable (schema not updated yet) → seed copy
+// Tankers left out of the trip report.
+const TRIP_EXCLUDE = ["OD15AF5510"];
+/* Shared settings (⚙ / mileage screen): litres per Angul on the dip stick, and
+   how far below a tanker's normal mileage a refill is flagged. */
+const DEFAULT_SETTINGS = { angul_l:16, alert_pct:15 };
+let SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
+let SETTINGS_FALLBACK = false;
 function maxChambers(){ return VEHICLES.length?Math.max.apply(null,VEHICLES.map(v=>v.caps.length)):4; }
 
 /* ---------- Mode & config ----------
@@ -600,7 +982,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v16 · 2026-09-09";
+const APP_BUILD = "v20 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -687,11 +1069,37 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;"
 let LOG = [];        // [{id, ts, plate, kind:'load'|'dispatch', chambers:[{name,qty}], total, by, remark}]
 let CLOSES = [];     // [{date:'YYYY-MM-DD', ts}] End-Day closes, sorted by ts asc
 let ME = "";         // signed-in username (cloud mode)
+/* Role (cloud): "admin" sees and does everything; "staff" may only add
+   loadings, send tankers for sale and see the 7-day history. The database
+   enforces the same rules; this only decides what the phone shows. "legacy" =
+   the database hasn't been updated with roles yet, so nothing changes. */
+let ROLE = CLOUD ? null : "admin";
+let ADMINS = 1;
+function isAdmin(){ return !CLOUD || ROLE==="admin" || ROLE==="legacy"; }
+function applyRole(){
+  const staff=!isAdmin();
+  document.body.classList.toggle("staff", staff);
+  $("#toSettings").textContent = staff ? "🔔 Notifications" : "⚙ Manage tankers & data";
+  $("#setTitle").textContent = staff ? "Notifications" : "Manage tankers & data";
+  $("#noAdminNote").style.display = (CLOUD && ROLE && ROLE!=="legacy" && ADMINS===0) ? "" : "none";
+  // a staff phone sitting on an admin screen (e.g. role just changed) goes home
+  const cur=stack[stack.length-1];
+  if(staff && ["scReport","scLog","scTrips","scMileage","scTrend"].indexOf(cur)!==-1) goHome();
+}
+function adminOnly(){ if(isAdmin()) return true; toast("Admin only"); return false; }
 
 /* ---------- Backends ---------- */
 const LS_KEY = "vf_loading_log_v1";
 const VLS_KEY = "vf_loading_vehicles_v1";
 const CLS_KEY = "vf_loading_closes_v1";
+const DLS_KEY = "vf_loading_dests_v1";
+const FLS_KEY = "vf_loading_fuel_v1";
+const SLS_KEY = "vf_loading_settings_v1";
+function lsGet(k,d){ try{ const v=JSON.parse(localStorage.getItem(k)); return Array.isArray(v)?v:d; }catch(e){ return d; } }
+function lsPut(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+function dNorm(d){ return { name:String(d.name||""), rtd:+d.rtd||0, grp:String(d.grp||"") }; }
+// a 'dispatch' event as a trip row
+function evTrip(e){ return { id:e.id, ts:e.ts, plate:e.plate, total:+e.total||0, dest:e.remark||"", by:e.by||"" }; }
 function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
 function lsSave(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
 function vNorm(v){ return { plate:v.plate, caps:v.caps, color:v.color||"", fill:v.fill||{}, total_loaded:+v.total_loaded||0, total_sold:+v.total_sold||0 }; }
@@ -755,11 +1163,45 @@ const LocalBackend = {
     if(due.length){ const l=lsCloses(); due.forEach(d=>{ if(!l.some(c=>c.date===d.date)) l.push(d); }); lsClosesSave(l); }
     return Promise.resolve();
   },
+  // ---- customers / trips / fuel log (single-device: all kept in this browser) ----
+  loadDests(){ return Promise.resolve(lsGet(DLS_KEY, DEFAULT_DESTS).map(dNorm)); },
+  saveDest(name, rtd, grp){
+    const l=lsGet(DLS_KEY, DEFAULT_DESTS).map(dNorm), d=l.find(x=>x.name===name);
+    if(d){ d.rtd=rtd; d.grp=grp; } else l.push({ name:name, rtd:rtd, grp:grp });
+    if(grp) l.forEach(x=>{ if(x.grp===grp) x.rtd=rtd; });
+    lsPut(DLS_KEY, l); return Promise.resolve();
+  },
+  removeDest(name){ lsPut(DLS_KEY, lsGet(DLS_KEY, DEFAULT_DESTS).map(dNorm).filter(x=>x.name!==name)); return Promise.resolve(); },
+  // local history is kept for good, so trips are simply its sales
+  loadTrips(fromMs, toMs){ return Promise.resolve(lsLoad().filter(e=>e.kind==="dispatch" && e.ts>=fromMs && e.ts<toMs).sort((a,b)=>a.ts-b.ts).map(evTrip)); },
+  setTripDest(id, dest){
+    const l=lsLoad(), e=l.find(x=>x.id===id && x.kind==="dispatch");
+    if(!e) return Promise.reject(new Error("Trip not found"));
+    e.remark=dest; lsSave(l); return Promise.resolve();
+  },
+  loadFuel(){ return Promise.resolve(lsGet(FLS_KEY, []).slice()); },
+  loadSettings(){ try{ return Promise.resolve(JSON.parse(localStorage.getItem(SLS_KEY))||{}); }catch(e){ return Promise.resolve({}); } },
+  saveSetting(k, v){ let o={}; try{ o=JSON.parse(localStorage.getItem(SLS_KEY))||{}; }catch(e){} o[k]=v; localStorage.setItem(SLS_KEY, JSON.stringify(o)); return Promise.resolve(); },
+  addFuel(r){ const l=lsGet(FLS_KEY, []); l.push(Object.assign({ id:localId(), cts:Date.now() }, r)); lsPut(FLS_KEY, l); return Promise.resolve(); },
+  removeFuel(id){ lsPut(FLS_KEY, lsGet(FLS_KEY, []).filter(x=>x.id!==id)); return Promise.resolve(); },
 };
 
 const CloudBackend = {
   cloud:true, client:null,
-  rpc(name,args){ return this.client.rpc(name,args).then(r=>{ if(r.error) throw new Error(r.error.message||"Network error"); return r.data; }); },
+  rpc(name,args){ return this.client.rpc(name,args).then(r=>{
+    if(r.error){ const m=r.error.message||"Network error"; if(/^SIGNED_OUT/.test(m)) forceSignOut(); throw new Error(m.replace(/^SIGNED_OUT:\s*/,"")); }
+    return r.data; }); },
+  // role + whether this session is still allowed (not logged out by the admin)
+  whoami(){
+    return this.client.rpc("loading_whoami").then(r=>{
+      if(r.error){
+        // database not updated with roles yet → behave exactly as before
+        if(/loading_whoami|schema cache|does not exist|Could not find|PGRST20|42883/i.test(r.error.message||"")) return { role:"legacy", ok:true, admins:1 };
+        throw new Error(r.error.message);
+      }
+      return r.data || { role:"staff", ok:true, admins:1 };
+    });
+  },
   load(){
     // RLS already restricts to the last 7 days; ask oldest-first for display.
     return this.client.from("loading_events").select("*").order("created_at",{ascending:true}).then(r=>{
@@ -804,13 +1246,72 @@ const CloudBackend = {
   endDay(){ return this.rpc("loading_end_day",{}); },
   closeDue(){ return this.rpc("loading_close_due",{}).catch(()=>{}); },
   purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
+  // Read every page of a query (PostgREST caps a response at 1,000 rows).
+  // `q` must build a fresh query each call.
+  all(q){
+    const out=[], step=1000;
+    const next=(from)=>q().range(from, from+step-1).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      const d=r.data||[]; out.push.apply(out, d);
+      return d.length===step ? next(from+step) : out;
+    });
+    return next(0);
+  },
+  // ---- customers / trips / fuel log (permanent tables, see loading-schema.sql) ----
+  loadDests(){
+    return this.client.from("loading_destinations").select("*").order("sort",{ascending:true}).order("name",{ascending:true}).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      return (r.data||[]).map(row=>dNorm({ name:row.name, rtd:row.rtd_km, grp:row.grp }));
+    });
+  },
+  saveDest(name, rtd, grp){ return this.rpc("loading_dest_save",{ p_name:name, p_rtd:rtd, p_grp:grp||"" }); },
+  removeDest(name){ return this.rpc("loading_dest_remove",{ p_name:name }); },
+  loadTrips(fromMs, toMs){
+    return this.all(()=>this.client.from("loading_trips").select("*")
+      .gte("created_at", new Date(fromMs).toISOString()).lt("created_at", new Date(toMs).toISOString())
+      .order("created_at",{ascending:true}))
+      .then(rows=>rows.map(row=>({ id:row.id, ts:Date.parse(row.created_at), plate:row.vehicle,
+        total:+row.total||0, dest:row.dest||"", by:row.by_name||"" })));
+  },
+  setTripDest(id, dest){ return this.rpc("loading_trip_set_dest",{ p_id:id, p_dest:dest }); },
+  loadFuel(){
+    return this.all(()=>this.client.from("loading_fuel_logs").select("*").order("reading_at",{ascending:true}))
+      .then(rows=>rows.map(row=>({ id:row.id, plate:row.vehicle, ts:Date.parse(row.reading_at), odo:+row.odometer||0,
+        litres:+row.litres||0, anguls:row.anguls==null?null:+row.anguls, stock_l:row.stock_l==null?null:+row.stock_l,
+        note:row.note||"", by:row.by_name||"", cts:Date.parse(row.created_at) })));
+  },
+  loadSettings(){
+    return this.client.from("loading_settings").select("key,value").then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      const o={}; (r.data||[]).forEach(x=>{ o[x.key]=x.value; }); return o;
+    });
+  },
+  saveSetting(k, v){ return this.rpc("loading_setting_set",{ p_key:k, p_value:v }); },
+  addFuel(r){ return this.rpc("loading_fuel_add",{ p_vehicle:r.plate, p_reading_at:new Date(r.ts).toISOString(),
+    p_odometer:r.odo, p_litres:r.litres, p_anguls:r.anguls==null?null:r.anguls, p_stock_l:r.stock_l==null?null:r.stock_l,
+    p_note:r.note||"", p_by:r.by||ME }); },
+  removeFuel(id){ return this.rpc("loading_fuel_delete",{ p_id:id }); },
 };
 
 let Backend = LocalBackend;
 function applyVehicles(list){ VEHICLES = (list&&list.length)?list:(CLOUD?[]:DEFAULT_VEHICLES.slice()); }
 function refresh(){
-  return Promise.all([Backend.load(), Backend.loadVehicles(), Backend.loadCloses()]).then(r=>{
+  // The customer list must never take the app down: until the updated schema
+  // is run in Supabase that table doesn't exist, so fall back to the seed copy.
+  const dests=Backend.loadDests().catch(()=>null);
+  const sets=Backend.loadSettings().catch(()=>null);   // admin-only table; staff get the defaults
+  const who = Backend===CloudBackend ? CloudBackend.whoami() : Promise.resolve({ role:"admin", ok:true, admins:1 });
+  return who.then(w=>{
+    if(!w.ok){ forceSignOut(); throw new Error("You were signed out by the admin — please sign in again"); }
+    ROLE=w.role; ADMINS=+w.admins||0; applyRole();
+    return Promise.all([Backend.load(), Backend.loadVehicles(), Backend.loadCloses(), dests, sets]);
+  }).then(r=>{
+    SETTINGS_FALLBACK = r[4]==null;
+    SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
+    if(r[4]) Object.keys(DEFAULT_SETTINGS).forEach(k=>{ const v=+r[4][k]; if(v>0) SETTINGS[k]=v; });
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
+    DESTS_FALLBACK = r[3]==null;
+    DESTS = r[3]==null ? DEFAULT_DESTS.map(dNorm) : r[3];
   });
 }
 function rerenderCurrent(){
@@ -818,6 +1319,7 @@ function rerenderCurrent(){
   if(cur==="scHome") renderHome(); else if(cur==="scHist") renderHist();
   else if(cur==="scReport") renderReport(); else if(cur==="scLog") renderLog();
   else if(cur==="scSettings") renderSettings();
+  else if(cur==="scTrips") loadTripReport(); else if(cur==="scMileage" || cur==="scTrend") loadMileage();
 }
 // Auto-end any business day whose 8 AM deadline has passed, then reload.
 function maybeAutoClose(){ return Backend.closeDue().then(refresh).then(rerenderCurrent).catch(()=>{}); }
@@ -830,7 +1332,7 @@ setInterval(()=>{
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (Backend!==CloudBackend || ME)) maybeAutoClose(); });
 
 /* ---------- Screen routing ---------- */
-const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings"];
+const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings","scTrips","scMileage","scTrend"];
 let stack=["scHome"];
 function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
@@ -845,6 +1347,9 @@ function goBack(){
   if(stack[stack.length-1]==="scReport") renderReport();
   if(stack[stack.length-1]==="scLog") renderLog();
   if(stack[stack.length-1]==="scSettings") renderSettings();
+  if(stack[stack.length-1]==="scTrips") renderTrips();
+  if(stack[stack.length-1]==="scMileage") renderMileage();
+  if(stack[stack.length-1]==="scTrend") renderTrend();
 }
 $("#backBtn").onclick=goBack;
 function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
@@ -1034,7 +1539,9 @@ function renderHome(){
     ? "Shared live tankers — every employee sees the same fill. History kept for the last 7 days."
     : (LOG.length ? "Records are saved on this phone. Tap “Export” in history now and then to keep a backup." : "");
   const sr=$("#signRow");
-  if(CLOUD && ME){ sr.style.display=""; sr.innerHTML='Signed in as <b>'+ME+'</b> · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
+  if(CLOUD && ME){ sr.style.display="";
+    const rb = ROLE==="admin" ? '<span class="rolebadge admin">Admin</span>' : ROLE==="staff" ? '<span class="rolebadge staff">Staff</span>' : '';
+    sr.innerHTML='Signed in as <b>'+esc(ME)+'</b>'+rb+' · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
   else sr.style.display="none";
 }
 function renderEndDay(){
@@ -1109,26 +1616,62 @@ function entryHTML(e){
     +'<span class="tot">+'+fmt(e.total)+' L</span></div>';
 }
 
-/* ---------- Dispatch (Sent for sale) — empties the tanker, records sold-to ---------- */
-let pendingDispatch=null;
+/* ---------- Dispatch (Sent for sale) — empties the tanker, records sold-to ----------
+   "Sold to" is picked from the customer list only (each carries its RTD for
+   the trip report). The same picker corrects the customer on a past trip. */
+let pendingDispatch=null;   // { mode:'sale', plate } | { mode:'trip', id, plate }
+let pickedDest="";
+function renderDestPicker(current){
+  pickedDest = DESTS.some(d=>d.name===current) ? current : "";
+  const box=$("#dispDests");
+  box.innerHTML = DESTS.length ? DESTS.map(d=>
+    '<button type="button" class="dest'+(d.name===pickedDest?' on':'')+'" data-dest="'+esc(d.name)+'">'
+    +'<span class="dn">'+esc(d.name)+'</span><span class="dk">'+fmt(d.rtd)+' km RTD'+(d.grp?' · '+esc(d.grp):'')+'</span></button>').join("")
+    : '<div class="empty" style="padding:12px">No customers in the list yet.<br>Add them in ⚙ Manage tankers &amp; data.</div>';
+  box.querySelectorAll(".dest").forEach(b=>{ b.onclick=()=>{
+    pickedDest=b.getAttribute("data-dest"); $("#dispErr").textContent="";
+    box.querySelectorAll(".dest").forEach(x=>x.classList.toggle("on", x===b));
+  }; });
+  $("#dispErr").textContent="";
+}
 function dispatchTanker(plate){
   const st=tankerState(plate);
   if(st.total<=0){ toast("Tanker is already empty"); return; }
-  pendingDispatch=plate;
+  pendingDispatch={ mode:"sale", plate:plate };
+  $("#dispHead").textContent="Send for sale";
   $("#dispTitle").textContent=plate+" — "+fmt(st.total)+" L";
-  $("#dispSold").value="";
+  $("#dispLab").textContent="Sold to — choose the customer";
+  $("#dispOk").textContent="🚚 Confirm sale";
+  renderDestPicker("");
   $("#dispModal").classList.add("on");
-  setTimeout(()=>$("#dispSold").focus(),60);
+}
+function editTripDest(trip){
+  pendingDispatch={ mode:"trip", id:trip.id, plate:trip.plate };
+  $("#dispHead").textContent="Change customer";
+  $("#dispTitle").textContent=trip.plate+" · "+dmy(shiftDate(trip.ts))+" "+timeLabel(trip.ts);
+  $("#dispLab").textContent="This trip went to — choose the customer";
+  $("#dispOk").textContent="Save";
+  renderDestPicker(trip.dest);
+  $("#dispModal").classList.add("on");
 }
 function closeDisp(){ $("#dispModal").classList.remove("on"); pendingDispatch=null; }
 $("#dispCancel").onclick=closeDisp;
 $("#dispModal").addEventListener("click",e=>{ if(e.target===$("#dispModal")) closeDisp(); });
 $("#dispOk").onclick=()=>{
-  const plate=pendingDispatch; if(!plate) return;
-  const st=tankerState(plate);
-  if(st.total<=0){ closeDisp(); return; }
-  const remark=$("#dispSold").value.trim();
+  const pd=pendingDispatch; if(!pd) return;
+  // with an empty list nobody could ever sell, so only insist when there is a choice
+  if(!pickedDest && DESTS.length){ $("#dispErr").textContent="Choose the customer it was sold to."; return; }
+  const remark=pickedDest;
   const btn=$("#dispOk"); btn.disabled=true;
+  if(pd.mode==="trip"){
+    Backend.setTripDest(pd.id, remark).then(refresh).then(()=>{
+      btn.disabled=false; closeDisp(); toast("✓ Trip updated — "+remark); loadTripReport();
+    }).catch(e=>{ btn.disabled=false; $("#dispErr").textContent=dbHint(e); });
+    return;
+  }
+  const plate=pd.plate;
+  const st=tankerState(plate);
+  if(st.total<=0){ btn.disabled=false; closeDisp(); return; }
   Backend.dispatch(plate, remark).then(()=>{
     notifyStaff("sold", plate, remark);   // fire first; don't wait on the reload
     return refresh();
@@ -1137,7 +1680,6 @@ $("#dispOk").onclick=()=>{
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:""));
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
-$("#dispSold").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#dispOk").click(); });
 
 /* ---------- ADD DIESEL to a tanker's chambers ---------- */
 let tankReady=false;
@@ -1304,13 +1846,13 @@ function renderHist(){
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
             +'<div class="mid"><div class="ch dtag">🚚 Sent for sale'+sold+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
             +'<span class="tot">'+fmt(e.total)+' L</span>'
-            +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
+            +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
         }
         const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
         return '<div class="entry"><span class="plate">'+e.plate+'</span>'
           +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
           +'<span class="tot">+'+fmt(e.total)+' L</span>'
-          +'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button></div>';
+          +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
       }).join("")
       +'</div>';
   }).join("");
@@ -1347,6 +1889,7 @@ function rangeEvents(){
 }
 function minEffDate(){ let m=null; LOG.forEach(e=>{ const d=effDate(e); if(m===null||d<m) m=d; }); return m||todayStr(); }
 function openReport(){
+  if(!adminOnly()) return;
   $("#repFrom").value = minEffDate();
   $("#repTo").value = todayStr();
   setPreset("all");
@@ -1516,6 +2059,7 @@ function renderSettings(){
   box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
   const bt=$("#buildTag"); if(bt) bt.textContent=APP_BUILD;
+  if(isAdmin()){ renderDests(); renderStaff(); }
   renderPushBox();
 }
 
@@ -1667,12 +2211,945 @@ $("#clearBtn").onclick=()=>{
   Backend.clearAll().then(refresh).then(()=>{ renderSettings(); toast("All records cleared"); }).catch(oops);
 };
 
+/* ---------- Customers & RTD (⚙) ---------- */
+function groupOf(name){ const d=DESTS.find(x=>x.name===name); return d ? (d.grp || "") : ""; }
+function renderDests(){
+  const box=$("#destList"); if(!box) return;
+  $("#destNote").innerHTML = DESTS_FALLBACK
+    ? '⚠ The shared customer list isn\'t set up yet — showing the built-in list. Re-run <b>supabase/loading-schema.sql</b> in Supabase to enable it.'
+    : 'RTD = round-trip km per trip. Customers in the same group always share one RTD.';
+  box.innerHTML = DESTS.length ? DESTS.map(d=>
+    '<div class="entry"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:800;white-space:normal">'+esc(d.name)+'</div>'
+    +'<div class="tm">RTD <b>'+fmt(d.rtd)+' km</b> / trip'+(d.grp?' · group: '+esc(d.grp):'')+'</div></div>'
+    +'<button class="edit" data-eddest="'+esc(d.name)+'" aria-label="Edit RTD">✎</button>'
+    +'<button class="del" data-rmdest="'+esc(d.name)+'" aria-label="Remove">🗑</button></div>').join("")
+    : '<div class="empty">No customers yet. Add one below.</div>';
+  box.querySelectorAll("[data-eddest]").forEach(b=>{ b.onclick=()=>editDestRtd(b.getAttribute("data-eddest")); });
+  box.querySelectorAll("[data-rmdest]").forEach(b=>{ b.onclick=()=>removeDestUI(b.getAttribute("data-rmdest")); });
+  const sel=$("#newDestGrp"), keep=sel.value;
+  sel.innerHTML='<option value="">— none (own RTD) —</option>'
+    + DESTS.map(d=>'<option value="'+esc(d.name)+'">'+esc(d.name)+(d.grp?' ('+esc(d.grp)+')':'')+'</option>').join("");
+  sel.value = DESTS.some(d=>d.name===keep) ? keep : "";
+  syncNewDestKm();
+}
+// picking "group company of" copies that customer's RTD and locks the field
+function syncNewDestKm(){
+  const sel=$("#newDestGrp"), km=$("#newDestKm"), d=DESTS.find(x=>x.name===sel.value);
+  if(d){ km.value=String(d.rtd); km.disabled=true; } else { if(km.disabled) km.value=""; km.disabled=false; }
+}
+$("#newDestGrp").addEventListener("change", syncNewDestKm);
+$("#newDestKm").addEventListener("input",()=>{ $("#newDestKm").value=sanQty($("#newDestKm").value); });
+function needDestTable(){ if(DESTS_FALLBACK){ toast("Re-run loading-schema.sql in Supabase first"); return true; } return false; }
+$("#addDestBtn").onclick=()=>{
+  if(needDestTable()) return;
+  const name=$("#newDest").value.trim().replace(/\s+/g," ");
+  if(!name){ toast("Enter the customer name"); return; }
+  if(DESTS.some(d=>d.name.toLowerCase()===name.toLowerCase())){ toast("That customer is already in the list"); return; }
+  const parent=DESTS.find(d=>d.name===$("#newDestGrp").value);
+  const rtd=parent ? parent.rtd : r2(num($("#newDestKm").value));
+  if(!parent && !(rtd>0)){ toast("Enter the RTD km"); return; }
+  // joining a customer that has no group yet starts a group named after it
+  const grp=parent ? (parent.grp || parent.name) : "";
+  const btn=$("#addDestBtn"); btn.disabled=true;
+  const first=(parent && !parent.grp) ? Backend.saveDest(parent.name, parent.rtd, grp) : Promise.resolve();
+  first.then(()=>Backend.saveDest(name, rtd, grp)).then(refresh).then(()=>{
+    btn.disabled=false; $("#newDest").value=""; $("#newDestKm").value=""; $("#newDestGrp").value="";
+    renderDests(); toast("Added "+name);
+  }).catch(e=>{ btn.disabled=false; toast(dbHint(e)); });
+};
+function editDestRtd(name){
+  if(needDestTable()) return;
+  const d=DESTS.find(x=>x.name===name); if(!d) return;
+  const mates=d.grp ? DESTS.filter(x=>x.grp===d.grp && x.name!==d.name).length : 0;
+  const ans=prompt("RTD km per trip for "+name+(mates?"\n(applies to all "+(mates+1)+" companies of "+d.grp+")":""), String(d.rtd));
+  if(ans==null) return;
+  const v=r2(num(sanQty(ans)));
+  if(!(v>0)){ toast("Enter km greater than 0"); return; }
+  Backend.saveDest(name, v, d.grp).then(refresh).then(()=>{ renderDests(); toast("RTD updated"); }).catch(e=>toast(dbHint(e)));
+}
+function removeDestUI(name){
+  if(needDestTable()) return;
+  if(!confirm("Remove "+name+" from the customer list?\nPast trips keep its name, but their RTD will no longer count until a customer is picked again.")) return;
+  Backend.removeDest(name).then(refresh).then(()=>{ renderDests(); toast("Removed "+name); }).catch(e=>toast(dbHint(e)));
+}
+// Explain the one failure people will actually meet: the new tables not created yet.
+function dbHint(e){
+  const m=(e&&e.message)||String(e||"");
+  return /does not exist|schema cache|Could not find|42P01|PGRST20/i.test(m)
+    ? "Database needs the update — re-run supabase/loading-schema.sql in Supabase"
+    : (m || "Something went wrong — try again");
+}
+
+/* ---------- Shared date-range helpers (month by default) ---------- */
+function monthKeys(y,m){ const last=new Date(y,m+1,0).getDate(); return { from:y+"-"+pad(m+1)+"-01", to:y+"-"+pad(m+1)+"-"+pad(last) }; }
+function monthName(y,m){ return new Date(y,m,1).toLocaleDateString("en-IN",{month:"long",year:"numeric"}); }
+/* A small month navigator over two date inputs. Arrows step a whole month;
+   editing a date by hand switches it to a custom range. */
+function makeRange(ids, onChange){
+  const now=new Date(), cur=shiftDate(now.getTime()).split("-").map(Number);
+  const st={ y:cur[0], m:cur[1]-1 };
+  function setMonth(y,m){
+    const d=new Date(y,m,1); st.y=d.getFullYear(); st.m=d.getMonth();
+    const k=monthKeys(st.y, st.m); $(ids.from).value=k.from; $(ids.to).value=k.to;
+    $(ids.label).textContent=monthName(st.y, st.m);
+    onChange();
+  }
+  $(ids.prev).onclick=()=>setMonth(st.y, st.m-1);
+  $(ids.next).onclick=()=>setMonth(st.y, st.m+1);
+  [ids.from, ids.to].forEach(sel=>$(sel).addEventListener("change",()=>{
+    const f=$(ids.from).value, t=$(ids.to).value;
+    if(f && t && f>t){ $(ids.to).value=f; }
+    const k=monthKeys(st.y, st.m);
+    $(ids.label).textContent = ($(ids.from).value===k.from && $(ids.to).value===k.to) ? monthName(st.y, st.m) : "Custom range";
+    onChange();
+  }));
+  return { st:st, setMonth:setMonth, thisMonth:()=>{ const c=shiftDate(Date.now()).split("-").map(Number); setMonth(c[0], c[1]-1); } };
+}
+// business-day bounds: a business date D runs 7:30 AM on D → 7:30 AM on D+1
+function bizStartMs(key){ return dayStartMs(key)+HANDOVER_MIN*60000; }
+function bizEndMs(key){ return bizStartMs(addDays(key,1)); }
+
+/* ---------- TRIPS PER TANKER ----------
+   One trip = one "Sent for sale". Trips are permanent (not trimmed to 7 days).
+   A trip's date is its business day (7:30 AM → 7:30 AM). Each trip's km comes
+   from its customer's RTD; trips to a name not in the customer list count 0 km
+   and are flagged so they can be corrected with ✎. */
+let TRIPS=[], TRIPS_ERR="", tripOpen=new Set(), tripSeq=0;
+function plateKey(p){ return String(p||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
+function isExcluded(p){ const k=plateKey(p); return TRIP_EXCLUDE.some(x=>plateKey(x)===k); }
+function destOf(name){ const n=String(name||"").trim().toLowerCase(); return n ? DESTS.find(d=>d.name.trim().toLowerCase()===n) : null; }
+function tripKm(t){ const d=destOf(t.dest); return d ? d.rtd : 0; }
+const tripRange = makeRange({ prev:"#trPrev", next:"#trNext", label:"#trMonth", from:"#trFrom", to:"#trTo" }, ()=>loadTripReport());
+function openTrips(){ if(!adminOnly()) return; tripOpen=new Set(); show("scTrips"); tripRange.thisMonth(); }
+function loadTripReport(){
+  const f=$("#trFrom").value, t=$("#trTo").value; if(!f || !t) return;
+  const seq=++tripSeq;
+  $("#trNote").textContent="Loading…";
+  return Backend.loadTrips(bizStartMs(f), bizEndMs(t)).then(list=>{
+    if(seq!==tripSeq) return;           // a newer range was asked for meanwhile
+    TRIPS=list.filter(x=>!isExcluded(x.plate)); TRIPS_ERR=""; renderTrips();
+  }).catch(e=>{ if(seq!==tripSeq) return; TRIPS=[]; TRIPS_ERR=dbHint(e); renderTrips(); });
+}
+function tripPlates(){
+  const out=[];
+  VEHICLES.forEach(v=>{ if(!isExcluded(v.plate)) out.push(v.plate); });
+  TRIPS.forEach(t=>{ if(out.indexOf(t.plate)===-1) out.push(t.plate); });   // a tanker since removed
+  return out;
+}
+// per tanker → per customer counts, in customer-list order, unknown names last
+function tripSummary(){
+  return tripPlates().map(plate=>{
+    const ts=TRIPS.filter(t=>t.plate===plate), by={};
+    ts.forEach(t=>{ const d=destOf(t.dest), k=d?d.name:(t.dest.trim()||"(no customer)");
+      (by[k]=by[k]||{ name:k, known:!!d, rtd:d?d.rtd:0, n:0, litres:0 }); by[k].n++; by[k].litres+=t.total; });
+    const order=DESTS.map(d=>d.name);
+    const rows=Object.keys(by).map(k=>by[k]).sort((a,b)=>{
+      const ia=order.indexOf(a.name), ib=order.indexOf(b.name);
+      return (ia<0?999:ia)-(ib<0?999:ib) || a.name.localeCompare(b.name);
+    });
+    return { plate:plate, trips:ts, rows:rows, n:ts.length,
+      km:r2(ts.reduce((s,t)=>s+tripKm(t),0)), litres:r2(ts.reduce((s,t)=>s+t.total,0)),
+      unknown:ts.filter(t=>!destOf(t.dest)).length };
+  });
+}
+function renderTrips(){
+  const sum=tripSummary();
+  $("#trTrips").textContent=TRIPS.length;
+  $("#trKm").textContent=fmt(sum.reduce((s,x)=>s+x.km,0));
+  $("#trLit").textContent=fmt(sum.reduce((s,x)=>s+x.litres,0));
+  const box=$("#trList");
+  if(TRIPS_ERR){ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(TRIPS_ERR)+'</div>'; }
+  else if(!sum.length){ box.innerHTML='<div class="empty">No tankers.</div>'; }
+  else box.innerHTML=sum.map(x=>{
+    const open=tripOpen.has(x.plate);
+    const lines=x.rows.map(r=>'<div class="tl'+(r.known?'':' warn')+'"><span class="tn">'+(r.known?'':'⚠ ')+esc(r.name)+'</span>'
+      +'<span class="tc">'+r.n+' × '+(r.known?fmt(r.rtd)+' km':'? km')+'</span><span class="tk">'+fmt(r.known?r2(r.n*r.rtd):0)+' km</span></div>').join("");
+    const list=open ? '<div class="trtrips">'+x.trips.slice().reverse().map(t=>{
+      const d=destOf(t.dest);
+      return '<div class="trrow"><span class="tw">'+dmy(shiftDate(t.ts)).slice(0,5)+' · '+timeLabel(t.ts)+'</span>'
+        +'<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>'
+        +'<span class="tq">'+fmt(t.total)+' L</span>'
+        +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>';
+    }).join("")+'</div>' : '';
+    return '<div class="trcard"><div class="trh"><span class="plate">'+esc(x.plate)+'</span>'
+      +'<span class="trn"><b>'+x.n+'</b> trip'+(x.n===1?'':'s')+'<br>'+fmt(x.km)+' km RTD</span></div>'
+      +(x.n ? '<div class="trd">'+lines+'</div>'
+            +(x.unknown?'<div class="note" style="color:var(--red-d);text-align:left;margin:6px 0 0">⚠ '+x.unknown+' trip'+(x.unknown===1?'':'s')+' to a customer not in the list (0 km) — tap ✎ on the trip to pick the customer.</div>':'')
+            +'<button class="trshow" data-trshow="'+esc(x.plate)+'">'+(open?'Hide trips ▴':'Show '+x.n+' trip'+(x.n===1?'':'s')+' ▾')+'</button>'+list
+          : '<div class="tm" style="margin-top:6px;color:var(--muted);font-size:13px">No trips in this period.</div>')
+      +'</div>';
+  }).join("");
+  box.querySelectorAll("[data-trshow]").forEach(b=>{ b.onclick=()=>{
+    const p=b.getAttribute("data-trshow"); if(tripOpen.has(p)) tripOpen.delete(p); else tripOpen.add(p); renderTrips(); }; });
+  box.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{
+    const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
+  $("#trExcel").disabled=!!TRIPS_ERR || !TRIPS.length;
+  $("#trNote").innerHTML = TRIPS_ERR ? "" : "A trip = one “Sent for sale”. Dates are business days (7:30 AM to 7:30 AM). "
+    + esc(TRIP_EXCLUDE.join(", "))+" is not counted in this report."
+    + (DESTS_FALLBACK?" ⚠ Using the built-in customer list.":"");
+}
+$("#trExcel").onclick=async()=>{
+  if(!TRIPS.length){ toast("No trips in this period"); return; }
+  const sum=tripSummary(), f=$("#trFrom").value, t=$("#trTo").value;
+  const names=DESTS.map(d=>d.name);
+  TRIPS.forEach(x=>{ if(!destOf(x.dest)){ const k=x.dest.trim()||"(no customer)"; if(names.indexOf(k)===-1) names.push(k); } });
+  const head=["Vehicle","Trips","RTD km","Litres sold"].concat(names.map(n=>{ const d=destOf(n); return n+(d?" ("+fmt(d.rtd)+" km)":" (not in list)"); }));
+  const byT=[head].concat(sum.map(x=>[x.plate, x.n, x.km, x.litres].concat(names.map(n=>{ const r=x.rows.find(rr=>rr.name===n); return r?r.n:0; }))));
+  byT.push(["Total", TRIPS.length, r2(sum.reduce((s,x)=>s+x.km,0)), r2(sum.reduce((s,x)=>s+x.litres,0))]
+    .concat(names.map(n=>sum.reduce((s,x)=>{ const r=x.rows.find(rr=>rr.name===n); return s+(r?r.n:0); },0))));
+  const list=TRIPS.map(x=>{ const d=destOf(x.dest); return { "Business date":shiftDate(x.ts), "Time":timeLabel(x.ts), "Vehicle":x.plate,
+    "Customer":x.dest||"", "RTD km":d?d.rtd:0, "In customer list?":d?"Yes":"No", "Litres":x.total, "By":x.by||"" }; });
+  const cust=DESTS.map(d=>({ "Customer":d.name, "RTD km / trip":d.rtd, "Group":d.grp||"" }));
+  const fname="Vriddhi_Trips_per_Tanker_"+f+"_to_"+t;
+  try{
+    const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+    const wb=XLSX.utils.book_new();
+    const top=[["Vriddhi Fuels — Trips per tanker"],["Period", f+"  to  "+t],["Generated", new Date().toLocaleString("en-IN")],
+      ["Excluded", TRIP_EXCLUDE.join(", ")],[]];
+    const ws=XLSX.utils.aoa_to_sheet(top.concat(byT));
+    ws["!cols"]=[{wch:14},{wch:7},{wch:9},{wch:12}].concat(names.map(()=>({wch:16})));
+    numfmt(XLSX,ws,top.length+1); XLSX.utils.book_append_sheet(wb,ws,"Trips by tanker");
+    const wl=XLSX.utils.json_to_sheet(list); wl["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:30},{wch:8},{wch:15},{wch:10},{wch:12}];
+    wl["!autofilter"]={ref:wl["!ref"]}; numfmt(XLSX,wl,1); XLSX.utils.book_append_sheet(wb,wl,"Trip list");
+    const wc=XLSX.utils.json_to_sheet(cust); wc["!cols"]=[{wch:32},{wch:13},{wch:18}]; XLSX.utils.book_append_sheet(wb,wc,"Customers (RTD)");
+    const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+    dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
+    toast("Trip report downloaded ("+TRIPS.length+" trips)");
+  }catch(err){
+    const q=s=>{ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+    const csv="﻿"+byT.map(r=>r.map(q).join(",")).join("\r\n");
+    dl(new Blob([csv],{type:"text/csv;charset=utf-8"}), fname+".csv");
+    toast("Downloaded as CSV");
+  }
+};
+
+/* ---------- MILEAGE CALCULATOR ----------
+   Every tanker is run to almost dry and then refilled. Each saved refill holds:
+   when, the reading, the litres filled and (dip-stick tankers) the stock found
+   in the tank BEFORE refilling — as Anguls and as litres (1 Angul = the
+   litres set under "1 Angul = … L", 16 by default).
+     diesel used between two refills = previous litres + previous stock − stock now
+   Normal tankers: reading = ODOMETER (km)  → mileage = km run ÷ diesel used.
+   OD15AF5510 (engine mostly on, works its own dispenser): reading = DISPENSER
+   METER (litres)  → mileage = litres dispensed ÷ diesel used. It has no dip, so
+   its tank is taken as dry at each refill. */
+const METER_VEHICLES = ["OD15AF5510"];
+function angulL(){ return +SETTINGS.angul_l || DEFAULT_SETTINGS.angul_l; }
+function alertP(){ return (+SETTINGS.alert_pct || DEFAULT_SETTINGS.alert_pct)/100; }
+function isMeter(p){ const k=plateKey(p); return METER_VEHICLES.some(x=>plateKey(x)===k); }
+let FUEL=[], FUEL_ERR="", ML_TRIPS=[], mlPlate="", mlSeq=0, mlStkTouched=false;
+const mileRange = makeRange({ prev:"#mlPrev", next:"#mlNext", label:"#mlMonth", from:"#mlFrom", to:"#mlTo" }, ()=>renderMileage());
+function nowLocalInput(ms){ const d=new Date(ms); return dayKey(ms)+"T"+pad(d.getHours())+":"+pad(d.getMinutes()); }
+function inputMs(sel){ const v=$(sel).value; const t=v?new Date(v).getTime():NaN; return isNaN(t)?null:t; }
+function optNum(sel){ const v=$(sel).value; return v==="" ? null : r2(num(v)); }
+function r1(n){ return Math.round((+n||0)*10)/10; }
+// litres in the tank before a refill: as entered, else from the Anguls
+function stockOf(r){
+  if(!r) return 0;
+  if(r.stock_l!=null) return +r.stock_l;
+  return r.anguls!=null ? r2(r.anguls*angulL()) : 0;
+}
+function mlPlates(){ const out=VEHICLES.map(v=>v.plate); METER_VEHICLES.forEach(p=>{ if(!out.some(x=>plateKey(x)===plateKey(p))) out.push(p); }); return out; }
+function fuelRows(plate){ return FUEL.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0)); }
+function tripsIn(plate, a, b){ return ML_TRIPS.filter(t=>t.plate===plate && t.ts>a && t.ts<=b); }
+function median(a){ if(!a.length) return null; const b=a.slice().sort((x,y)=>x-y), m=b.length>>1; return b.length%2 ? b[m] : (b[m-1]+b[m])/2; }
+// one refill-to-refill interval
+function interval(prev, cur){
+  const o={ prev:prev, cur:cur, dist:r2(cur.odo-prev.odo), used:r2((+prev.litres||0)+stockOf(prev)-stockOf(cur)), trips:0, rtd:0, ratio:null };
+  o.ratio = (o.used>0 && o.dist>0) ? o.dist/o.used : null;
+  if(!isMeter(cur.plate) && prev.ts!=null && cur.ts!=null){
+    const tr=tripsIn(cur.plate, prev.ts, cur.ts); o.trips=tr.length; o.rtd=r2(tr.reduce((s,t)=>s+tripKm(t),0));
+  }
+  o.extra = isMeter(cur.plate) ? null : r2(o.dist-o.rtd);
+  return o;
+}
+/* ---- What gets flagged ----
+   The suspicious thing is a MILEAGE DROP over the stretch between two fills —
+   the tanker burnt more diesel than usual for the distance (or, for
+   OD15AF5510, for the fuel it dispensed): a possible engine fault, or diesel
+   taken out of the tank. "Normal" for a stretch = the median mileage of the
+   tanker's OTHER stretches (needs at least two), so one bad stretch can't hide
+   inside its own baseline. Drop = below normal by the alert % (⚠); sharp drop =
+   by twice that (⛔).
+   Separately, figures that can't be right (reading not moving, diesel used ≤ 0,
+   mileage far ABOVE normal) are listed as "check the readings" — those are
+   entry mistakes to correct, not suspicion. */
+function analyse(plate){
+  const rows=fuelRows(plate), meter=isMeter(plate), P=alertP();
+  const iv=[]; for(let i=1;i<rows.length;i++) iv.push(interval(rows[i-1], rows[i]));
+  const valid=iv.filter(o=>o.ratio!=null);
+  iv.forEach(o=>{
+    const others=valid.filter(x=>x!==o).map(x=>x.ratio);
+    o.ref = others.length>=2 ? median(others) : null;
+    o.expUsed = (o.ref && o.dist>0) ? r2(o.dist/o.ref) : null;
+    o.excess = o.expUsed!=null ? r2(o.used-o.expUsed) : null;
+    const unit=meter?"L/L":"km/L";
+    o.sev=0; o.dropPct=null; o.dropText=""; o.checks=[];
+    if(o.ratio!=null && o.ref){
+      o.dropPct=Math.round((o.ratio/o.ref-1)*100);
+      if(o.ratio < o.ref*(1-P)){
+        o.sev = o.ratio < o.ref*(1-2*P) ? 2 : 1;
+        o.dropText="Mileage dropped to "+o.ratio.toFixed(2)+" "+unit+" from normal "+o.ref.toFixed(2)+" ("+o.dropPct+"%) — about "+fmt(o.excess)+" L more diesel used than normal";
+      } else if(o.ratio > o.ref*(1+2*P)) o.checks.push("Mileage "+o.ratio.toFixed(2)+" "+unit+" is far above normal "+o.ref.toFixed(2)+" (+"+o.dropPct+"%) — likely a wrong reading or dip");
+    }
+    if(o.dist<=0 && o.used>0) o.checks.push((meter?"Meter":"Odometer")+" did not go up, but "+fmt(o.used)+" L of diesel was used");
+    if(o.used<=0) o.checks.push("Diesel used works out to "+fmt(o.used)+" L — check the litres and the dip");
+  });
+  return { plate:plate, meter:meter, rows:rows, iv:iv, normal:median(valid.map(x=>x.ratio)) };
+}
+function stretchTxt(o){ return dmy(dayKey(o.prev.ts)).slice(0,5)+" → "+dmy(dayKey(o.cur.ts)); }
+function ratioTxt(v, meter){ return v==null ? "—" : (Math.round(v*100)/100).toFixed(2)+(meter?" L / L":" km/L"); }
+function kv(label, val, cls){ return '<div class="kv'+(cls?' '+cls:'')+'"><span>'+label+'</span><b>'+val+'</b></div>'; }
+function sevBadge(sev){ return sev===2 ? '<span class="badge high">⛔ Sharp drop</span>' : sev===1 ? '<span class="badge watch">⚠ Mileage drop</span>' : '<span class="badge ok">✓ Normal</span>'; }
+const DROP_WHY="Possible engine fault or diesel theft — check the vehicle and ask the driver.";
+// the interval figures, shared by the live calculator and the period summary
+function intervalKV(o, meter){
+  let h="";
+  if(meter){
+    h+=kv("Fuel dispensed (meter)", fmt(o.dist)+" L", o.dist<0?"bad":"");
+    h+=kv("Diesel used", fmt(o.used)+" L", o.used<=0?"bad":"");
+    h+=kv("Mileage — dispensed per litre", ratioTxt(o.ratio,true), "hl");
+    if(o.ratio) h+=kv("Diesel per 1,000 L dispensed", fmt(r2(o.used/o.dist*1000))+" L");
+  } else {
+    h+=kv("Distance run", fmt(o.dist)+" km", o.dist<0?"bad":"");
+    h+=kv("Diesel used", fmt(o.used)+" L", o.used<=0?"bad":"");
+    h+=kv("Mileage", ratioTxt(o.ratio,false), "hl");
+    h+=kv("Trips · RTD km", o.trips+" · "+fmt(o.rtd)+" km");
+    const extra=r2(o.dist-o.rtd);
+    h+=kv("Extra km (odometer − RTD)", fmt(extra)+" km", extra<0?"bad":"");
+    if(o.ratio && extra>0) h+=kv("Diesel for the extra km", fmt(r2(extra/o.ratio))+" L");
+  }
+  return h;
+}
+function openMileage(){
+  if(!adminOnly()) return;
+  const ps=mlPlates();
+  if(!mlPlate || ps.indexOf(mlPlate)===-1) mlPlate=ps[0]||"";
+  show("scMileage");
+  mileRange.thisMonth();
+  loadMileage().then(()=>fillPrevFromSaved(true));
+}
+function loadMileage(){
+  const seq=++mlSeq;
+  return Backend.loadFuel().then(rows=>{
+    if(seq!==mlSeq) return;
+    FUEL=rows; FUEL_ERR="";
+    // trips for the RTD comparison: from the oldest refill (or a month back) onward
+    const first=Math.min(Date.now()-35*864e5, FUEL.length ? Math.min.apply(null, FUEL.map(r=>r.ts)) : Infinity);
+    return Backend.loadTrips(first-864e5, Date.now()+864e5).then(tr=>{ if(seq===mlSeq) ML_TRIPS=tr; }).catch(()=>{ ML_TRIPS=[]; });
+  }).then(()=>{ if(seq===mlSeq){ renderMileage(); renderTrend(); } })
+    .catch(e=>{ if(seq!==mlSeq) return; FUEL=[]; ML_TRIPS=[]; FUEL_ERR=dbHint(e); renderMileage(); renderTrend(); });
+}
+/* The "previous refill" box is pre-filled from this tanker's last saved refill,
+   and stays editable — e.g. to start from yesterday's reading on paper. */
+function fillPrevFromSaved(resetNow){
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  $("#mlPWhen").value=nowLocalInput(last?last.ts:Date.now()-864e5);
+  $("#mlPOdo").value=last?String(last.odo):"";
+  $("#mlPLit").value=last?String(last.litres):"";
+  $("#mlPAng").value=(last && last.anguls!=null)?String(last.anguls):"";
+  $("#mlPStk").value=(last && (last.anguls!=null || last.stock_l!=null))?String(stockOf(last)):"";
+  if(resetNow){
+    $("#mlWhen").value=nowLocalInput(Date.now());
+    $("#mlOdo").value=""; $("#mlLit").value=""; $("#mlAng").value=""; $("#mlStk").value=""; $("#mlNote").value="";
+    mlStkTouched=false;
+  }
+  renderMileage();
+}
+function paintAngul(){ document.querySelectorAll(".angLval").forEach(el=>{ el.textContent=fmt(angulL()); }); }
+function renderMileage(){
+  if(!$("#scMileage").classList.contains("on")) return;
+  const meter=isMeter(mlPlate);
+  const vb=$("#mlVeh");
+  vb.innerHTML=mlPlates().map(p=>'<button type="button" class="'+(p===mlPlate?'on':'')+'" data-mlv="'+esc(p)+'">'+esc(p)+'</button>').join("")
+    || '<div class="empty">No tankers.</div>';
+  vb.querySelectorAll("[data-mlv]").forEach(b=>{ b.onclick=()=>{ mlPlate=b.getAttribute("data-mlv"); fillPrevFromSaved(true); }; });
+  $("#mlPlate").textContent=mlPlate||"—";
+  $("#scMileage").querySelectorAll(".mlAng").forEach(el=>{ el.style.display=meter?"none":""; });
+  $("#scMileage").querySelector(".mlUnitLab").textContent = meter ? "Previous dispenser meter (L)" : "Previous odometer (km)";
+  $("#scMileage").querySelector(".mlUnitLab2").textContent = meter ? "Dispenser meter now (L)" : "Odometer now (km)";
+  $("#mlPOdo").placeholder = meter ? "meter reading" : "e.g. 45210";
+  $("#mlOdo").placeholder = meter ? "meter reading" : "e.g. 45630";
+  $("#mlPStkLab").textContent = meter ? "Litres in tank then (0 if dry)" : "= Litres in tank";
+  paintAngul();
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  $("#mlLast").innerHTML = FUEL_ERR ? '<span style="color:var(--red-d);font-weight:700">'+esc(FUEL_ERR)+'</span>'
+    : last ? 'Filled in from the last saved '+(last.litres>0?'refill':'stock check')+' ('+dmy(dayKey(last.ts))+' '+timeLabel(last.ts)+'). Change it if needed.'
+    : 'No refill saved yet for this tanker — enter the previous refill'+(meter?' (dispenser meter reading and litres filled)':' (odometer and litres filled)')+'.';
+  $("#mlHow").innerHTML = meter
+    ? '<b>How it\'s worked out ('+esc(mlPlate)+'):</b> this tanker runs its engine to dispense, so its mileage is by <b>fuel dispensed</b>. '
+      +'Dispensed = meter now − previous meter. It is refilled when almost dry, so diesel used = the litres filled at the previous refill. '
+      +'Mileage = litres dispensed ÷ diesel used.'
+    : '<b>How it\'s worked out:</b> before refilling, dip the tank — <b>1 Angul = '+fmt(angulL())+' L</b>. '
+      +'Diesel used = litres filled at the previous refill + stock left then − stock left now. '
+      +'Mileage = km run (odometer now − previous odometer) ÷ diesel used. '
+      +'<b>RTD km</b> = round-trip km of the customers this tanker was sent to in between, so <b>Extra km</b> = km run − RTD km.';
+  // mileage drops in the last 30 days — a nudge towards the trends screen
+  let hi=0, wa=0;
+  if(!FUEL_ERR) mlPlates().forEach(p=>{ analyse(p).iv.forEach(o=>{ if(o.cur.ts>Date.now()-31*864e5){ if(o.sev===2) hi++; else if(o.sev===1) wa++; } }); });
+  $("#trendHi").textContent = (hi||wa) ? "Last 30 days: "+(hi+wa)+" mileage drop"+(hi+wa===1?"":"s")+(hi?" ("+hi+" sharp)":"") : "Mileage charts · mileage drops";
+  $("#toTrend").classList.toggle("alert", hi>0);
+  $("#mlSave").disabled=!!FUEL_ERR || !mlPlate;
+  prefillExpected();
+  updateMlCalc();
+  renderMileageSummary(rows);
+  renderMileageList(rows);
+}
+function draftPrev(){
+  if($("#mlPOdo").value==="") return null;
+  // OD15AF5510 has no dip stick, but a stock check can still record litres in its tank
+  const ang=isMeter(mlPlate)?null:optNum("#mlPAng"), stk=optNum("#mlPStk");
+  return { plate:mlPlate, ts:inputMs("#mlPWhen"), odo:r2(num($("#mlPOdo").value)), litres:r2(num($("#mlPLit").value)),
+    anguls:ang, stock_l: stk!=null ? stk : (ang!=null ? r2(ang*angulL()) : null) };
+}
+function draftCur(){
+  if($("#mlOdo").value==="") return null;
+  const ang=isMeter(mlPlate)?null:optNum("#mlAng"), stk=isMeter(mlPlate)?null:optNum("#mlStk");
+  return { plate:mlPlate, ts:inputMs("#mlWhen"), odo:r2(num($("#mlOdo").value)), litres:r2(num($("#mlLit").value)),
+    anguls:ang, stock_l: stk!=null ? stk : (ang!=null ? r2(ang*angulL()) : null) };
+}
+/* What should be left in the tank now, if the tanker ran at its normal mileage:
+   previous litres + previous stock − km run ÷ normal km/L. Pre-filled into the
+   dip boxes until someone types their own figure. */
+function expectedNow(){
+  if(isMeter(mlPlate)) return null;
+  const p=draftPrev(), odo=$("#mlOdo").value===""?null:num($("#mlOdo").value);
+  const ref=analyse(mlPlate).normal;
+  if(!p || odo==null || !ref || odo<p.odo) return null;
+  return { ref:ref, stock:Math.max(0, r2((+p.litres||0)+stockOf(p)-(odo-p.odo)/ref)) };
+}
+function prefillExpected(){
+  const e=expectedNow(), box=$("#mlExp");
+  if(isMeter(mlPlate)){ box.innerHTML=""; return; }
+  if(e && !mlStkTouched){ $("#mlStk").value=String(r1(e.stock)); $("#mlAng").value=String(r1(e.stock/angulL())); }
+  if(!e){
+    box.innerHTML = analyse(mlPlate).normal ? "Enter the odometer now to see the stock expected in the tank."
+      : "Expected stock appears once this tanker has a saved mileage. Dip the tank and enter it.";
+    return;
+  }
+  const actual=optNum("#mlStk"), diff=actual==null?null:r2(actual-e.stock);
+  box.innerHTML='Expected now ≈ <b>'+fmt(r1(e.stock))+' L</b> ('+fmt(r1(e.stock/angulL()))+' Anguls) at normal '+e.ref.toFixed(2)+' km/L'
+    +(mlStkTouched ? ' · <button type="button" class="lnk" id="mlUseExp">↺ use expected</button>' : ' · <span class="muted">pre-filled — change it to the actual dip</span>')
+    +(diff!=null && mlStkTouched && Math.abs(diff)>=0.5 ? '<br><span class="'+(diff<0?'neg':'pos')+'">Dip is '+(diff>0?'+':'')+fmt(diff)+' L vs expected</span>' : '');
+  const b=$("#mlUseExp"); if(b) b.onclick=()=>{ mlStkTouched=false; prefillExpected(); updateMlCalc(); };
+}
+function updateMlCalc(){
+  const box=$("#mlCalc"), meter=isMeter(mlPlate), p=draftPrev(), c=draftCur();
+  if(!p){ box.innerHTML='<div class="kv"><span>Enter the previous '+(meter?'meter reading':'odometer')+' and the litres filled then.</span></div>'; return; }
+  if(!c){ box.innerHTML='<div class="kv"><span>Enter the '+(meter?'dispenser meter':'odometer')+' reading now'+(meter?'':' and the dip in the tank')+'.</span></div>'; return; }
+  const o=interval(p, c);
+  let h="";
+  if(!meter){
+    h+=kv("Stock in tank at previous entry", fmt(stockOf(p))+" L");
+    h+=kv("Stock left now", c.stock_l==null ? "not dipped — taken as 0 L" : fmt(stockOf(c))+" L");
+  } else if(stockOf(p)>0) h+=kv("Stock in tank at previous entry", fmt(stockOf(p))+" L");
+  h+=kv("Diesel available since previous entry", fmt(r2((+p.litres||0)+stockOf(p)))+" L");
+  h+=intervalKV(o, meter);
+  const ref=analyse(mlPlate).normal;
+  if(ref && o.ratio!=null){
+    const P=alertP(), pct=Math.round((o.ratio/ref-1)*100);
+    const sev = o.ratio<ref*(1-2*P) ? 2 : o.ratio<ref*(1-P) ? 1 : 0;
+    h+='<div class="kv"><span>vs this tanker\'s normal '+ratioTxt(ref,meter)+'</span><b>'+(pct>0?'+':'')+pct+'% '+sevBadge(sev)+'</b></div>';
+    if(sev) h+='<div class="kv bad"><span>'+DROP_WHY+'</span></div>';
+  }
+  if(o.dist<0) h+='<div class="kv bad"><span>The reading now is lower than the previous one — please check.</span></div>';
+  if(o.used<=0) h+='<div class="kv bad"><span>Diesel used is 0 or less — check the litres and the dip.</span></div>';
+  if(c.ts!=null && p.ts!=null && c.ts<=p.ts) h+='<div class="kv bad"><span>This refill\'s time is before the previous refill.</span></div>';
+  box.innerHTML=h;
+}
+// Anguls ↔ litres boxes stay in step (litres = Anguls × litres per Angul)
+function linkPair(angSel, stkSel, touched){
+  $(angSel).addEventListener("input",()=>{ const v=sanQty($(angSel).value); $(angSel).value=v;
+    $(stkSel).value = v==="" ? "" : String(r2(num(v)*angulL())); if(touched) mlStkTouched=true; prefillExpected(); updateMlCalc(); });
+  $(stkSel).addEventListener("input",()=>{ const v=sanQty($(stkSel).value); $(stkSel).value=v;
+    $(angSel).value = v==="" ? "" : String(r2(num(v)/angulL())); if(touched) mlStkTouched=true; prefillExpected(); updateMlCalc(); });
+}
+linkPair("#mlPAng","#mlPStk",false);
+linkPair("#mlAng","#mlStk",true);
+["#mlPOdo","#mlPLit","#mlOdo","#mlLit"].forEach(sel=>$(sel).addEventListener("input",()=>{ $(sel).value=sanQty($(sel).value); prefillExpected(); updateMlCalc(); }));
+["#mlPWhen","#mlWhen"].forEach(sel=>$(sel).addEventListener("change",()=>{ prefillExpected(); updateMlCalc(); }));
+// Change the litres per Angul (shared). Litres already typed follow the Anguls.
+function editAngul(){
+  const ans=prompt("Litres in 1 Angul on the dip stick:", String(angulL()));
+  if(ans==null) return;
+  const v=r2(num(sanQty(ans)));
+  if(!(v>0)){ toast("Enter litres greater than 0"); return; }
+  Backend.saveSetting("angul_l", v).then(refresh).then(()=>{
+    [["#mlPAng","#mlPStk"],["#mlAng","#mlStk"]].forEach(pr=>{ const a=$(pr[0]).value; if(a!=="") $(pr[1]).value=String(r2(num(a)*angulL())); });
+    toast("1 Angul = "+fmt(angulL())+" L"); renderMileage(); renderTrend();
+  }).catch(e=>toast(dbHint(e)));
+}
+document.querySelectorAll(".angEdit").forEach(b=>{ b.onclick=editAngul; });
+function sameReading(a,b){
+  return !!a && !!b && a.odo===b.odo && r2(a.litres)===r2(b.litres)
+    && r2(stockOf(a))===r2(stockOf(b))
+    && nowLocalInput(a.ts)===nowLocalInput(b.ts);
+}
+$("#mlSave").onclick=async()=>{
+  const meter=isMeter(mlPlate), p=draftPrev(), c=draftCur();
+  if(!mlPlate){ toast("Pick a tanker"); return; }
+  if(!p){ toast("Enter the previous "+(meter?"meter reading":"odometer")); return; }
+  if(p.ts==null){ toast("Enter the date & time of the previous refill"); return; }
+  if(!c || !(c.odo>0)){ toast("Enter the "+(meter?"meter reading":"odometer")+" now"); return; }
+  if(c.ts==null){ toast("Enter the date & time of this refill"); return; }
+  if(c.ts>Date.now()+5*60000){ toast("The date & time is in the future"); return; }
+  if(c.ts<=p.ts){ toast("This refill must be after the previous one"); return; }
+  if(!(c.litres>0)){ toast("Enter the diesel filled now"); return; }
+  if(c.odo<p.odo && !confirm("The reading now ("+fmt(c.odo)+") is LOWER than the previous one ("+fmt(p.odo)+").\n\nSave anyway?")) return;
+  if(!meter && c.stock_l==null && !confirm("No dip entered — the tank will be taken as dry (0 L).\n\nSave anyway?")) return;
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  // A previous refill typed by hand (first use, or different from the last saved
+  // one) is saved too, so the next calculation can carry on from this one.
+  const savePrev=!sameReading(p, last);
+  if(savePrev && last && !confirm("The previous refill entered differs from the last saved one ("
+      +fmt(last.odo)+", "+fmt(last.litres)+" L on "+dmy(dayKey(last.ts))+").\n\nSave it as an extra refill record too?")) return;
+  const btn=$("#mlSave"); btn.disabled=true;
+  try{
+    if(savePrev) await Backend.addFuel({ plate:mlPlate, ts:p.ts, odo:p.odo, litres:p.litres, anguls:p.anguls, stock_l:p.stock_l, note:"previous refill (entered)", by:ME });
+    await Backend.addFuel({ plate:mlPlate, ts:c.ts, odo:c.odo, litres:c.litres, anguls:c.anguls, stock_l:c.stock_l, note:$("#mlNote").value.trim(), by:ME });
+    toast("✓ Refill saved");
+    await loadMileage();
+    fillPrevFromSaved(true);
+  }catch(e){ toast(dbHint(e)); }
+  btn.disabled=false;
+};
+function renderMileageSummary(rows){
+  const box=$("#mlSum"), f=$("#mlFrom").value, t=$("#mlTo").value, meter=isMeter(mlPlate);
+  if(FUEL_ERR || !f || !t){ box.innerHTML='<div class="kv"><span>—</span></div>'; return; }
+  const a=dayStartMs(f), b=dayEndMs(t);
+  const inR=rows.filter(r=>r.ts>=a && r.ts<=b), before=rows.filter(r=>r.ts<a);
+  // opening = the last refill before the period (else the first one in it)
+  const base=before.length ? before[before.length-1] : inR[0];
+  const end=inR.length ? inR[inR.length-1] : null;
+  if(!base || !end || base===end){ box.innerHTML='<div class="kv"><span>Needs at least two refills of '+esc(mlPlate)+' around this period.</span></div>'; return; }
+  // diesel used over several intervals telescopes to: Σ litres filled from the
+  // opening refill up to (not incl.) the closing one + opening stock − closing stock
+  const i0=rows.indexOf(base), i1=rows.indexOf(end);
+  let lit=0; for(let k=i0;k<i1;k++) lit+=(+rows[k].litres||0);
+  const o={ prev:base, cur:end, dist:r2(end.odo-base.odo), used:r2(lit+stockOf(base)-stockOf(end)), trips:0, rtd:0, ratio:null };
+  o.ratio=(o.used>0 && o.dist>0) ? o.dist/o.used : null;
+  if(!meter){ const tr=tripsIn(mlPlate, base.ts, end.ts); o.trips=tr.length; o.rtd=r2(tr.reduce((s,x)=>s+tripKm(x),0)); }
+  box.innerHTML=kv("Opening "+(meter?"meter":"odometer"), fmt(base.odo)+(meter?" L":" km")+" · "+dmy(dayKey(base.ts)))
+    +kv("Closing "+(meter?"meter":"odometer"), fmt(end.odo)+(meter?" L":" km")+" · "+dmy(dayKey(end.ts)))
+    +kv("Refills", (i1-i0))
+    +intervalKV(o, meter);
+}
+function renderMileageList(rows){
+  const box=$("#mlList"), meter=isMeter(mlPlate);
+  if(FUEL_ERR){ box.innerHTML=''; return; }
+  if(!rows.length){ box.innerHTML='<div class="empty">No refills saved yet.</div>'; return; }
+  const an=analyse(mlPlate), byCur=new Map(an.iv.map(o=>[o.cur,o]));
+  box.innerHTML=rows.slice().reverse().map(r=>{
+    const o=byCur.get(r);
+    const dip=(r.anguls!=null || r.stock_l!=null) ? (r.anguls!=null?fmt(r.anguls)+" Anguls = ":"")+fmt(stockOf(r))+" L" : "";
+    const parts=[ !(r.litres>0) ? "🛢️ Stock check · "+(dip||"0 L")+" in tank"
+      : "Filled "+fmt(r.litres)+" L"+(dip?" · dip "+dip:"") ];
+    if(o) parts.push(meter ? "dispensed "+fmt(o.dist)+" L · diesel used "+fmt(o.used)+" L"
+      : "+"+fmt(o.dist)+" km · used "+fmt(o.used)+" L · "+o.trips+" trip"+(o.trips===1?"":"s")+" ("+fmt(o.rtd)+" km RTD) · extra "+fmt(r2(o.dist-o.rtd))+" km");
+    else parts.push("starting point");
+    if(r.note) parts.push(esc(r.note));
+    if(CLOUD && r.by) parts.push(esc(r.by));
+    const fl = (o && o.sev ? '<div class="flagline">'+sevBadge(o.sev)+' '+esc(o.dropText)+'</div>' : '')
+      + (o && o.checks.length ? '<div class="flagline">✎ Check the readings: '+esc(o.checks.join(" · "))+'</div>' : '');
+    return '<div class="mlrow'+(o&&o.sev===2?' high':o&&o.sev===1?' watch':'')+'"><div class="mm"><div class="m1">'+fmt(r.odo)+(meter?' L meter':' km')+'</div>'
+      +'<div class="m2">'+dmy(dayKey(r.ts))+' · '+timeLabel(r.ts)+'<br>'+parts.join(" · ")+'</div>'+fl+'</div>'
+      +'<span class="mk">'+(o && o.ratio!=null?(Math.round(o.ratio*100)/100).toFixed(2)+'<small>'+(meter?'L / L':'km/L')+'</small>':'—')+'</span>'
+      +'<button class="del" data-rmfuel="'+esc(r.id)+'" aria-label="Delete">🗑</button></div>';
+  }).join("");
+  box.querySelectorAll("[data-rmfuel]").forEach(b=>{ b.onclick=()=>{
+    const r=FUEL.find(x=>String(x.id)===b.getAttribute("data-rmfuel")); if(!r) return;
+    if(!confirm("Delete this refill?\n"+r.plate+" — "+fmt(r.odo)+", "+fmt(r.litres)+" L")) return;
+    Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return loadMileage(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
+  }; });
+}
+
+/* ---------- Fuel in tank now (opening stock for every tanker) ----------
+   Saved as a "stock check": a reading with 0 litres filled and the stock in
+   the tank. The next fill then measures diesel used = this stock − dip then,
+   so mileage is accurate from the very next fill. OD15AF5510 has no dip stick,
+   so its stock is entered in litres only. */
+function openStock(){
+  $("#stkWhen").value=nowLocalInput(Date.now());
+  $("#stkErr").textContent="";
+  $("#stkList").innerHTML=mlPlates().map((p,i)=>{
+    const m=isMeter(p), rows=fuelRows(p), last=rows.length?rows[rows.length-1]:null;
+    return '<div class="stkrow" data-i="'+i+'" data-plate="'+esc(p)+'"><div class="sh"><span class="plate">'+esc(p)+'</span>'
+      +'<small>'+(last?'last '+(m?'meter ':'')+fmt(last.odo)+(m?' L':' km')+' · '+dmy(dayKey(last.ts)):'no reading yet')+'</small></div>'
+      +'<div class="ca-field"><label>'+(m?'Dispenser meter now (L)':'Odometer now (km)')+'</label><input data-k="odo" inputmode="decimal" type="text" /></div>'
+      +(m ? '<div class="ca-row"><div class="ca-field"><label>Litres in tank now</label><input data-k="stk" inputmode="decimal" type="text" /></div></div>'
+          : '<div class="ca-row"><div class="ca-field"><label>Anguls (dip)</label><input data-k="ang" inputmode="decimal" type="text" /></div>'
+           +'<div class="ca-field"><label>= Litres in tank</label><input data-k="stk" inputmode="decimal" type="text" /></div></div>')
+      +'</div>';
+  }).join("");
+  $("#stkList").querySelectorAll(".stkrow").forEach(row=>{
+    const g=k=>row.querySelector('[data-k="'+k+'"]');
+    row.querySelectorAll("input").forEach(inp=>inp.addEventListener("input",()=>{
+      inp.value=sanQty(inp.value);
+      if(inp.dataset.k==="ang") g("stk").value = inp.value==="" ? "" : String(r2(num(inp.value)*angulL()));
+      if(inp.dataset.k==="stk" && g("ang")) g("ang").value = inp.value==="" ? "" : String(r2(num(inp.value)/angulL()));
+    }));
+  });
+  $("#stkModal").classList.add("on");
+}
+function closeStock(){ $("#stkModal").classList.remove("on"); }
+$("#stkCancel").onclick=closeStock;
+$("#stkModal").addEventListener("click",e=>{ if(e.target===$("#stkModal")) closeStock(); });
+$("#stkOk").onclick=async()=>{
+  const ts=inputMs("#stkWhen"), err=$("#stkErr"); err.textContent="";
+  if(ts==null){ err.textContent="Enter the date & time of the check."; return; }
+  if(ts>Date.now()+5*60000){ err.textContent="The date & time is in the future."; return; }
+  const todo=[], warn=[];
+  for(const row of $("#stkList").querySelectorAll(".stkrow")){
+    const plate=row.getAttribute("data-plate"), g=k=>{ const el=row.querySelector('[data-k="'+k+'"]'); return el?el.value:""; };
+    const odoS=g("odo"), stkS=g("stk"), angS=g("ang");
+    if(odoS==="" && stkS==="" && angS==="") continue;               // skipped
+    if(odoS===""){ err.textContent=plate+": enter the "+(isMeter(plate)?"meter reading":"odometer")+"."; return; }
+    if(stkS==="" && angS===""){ err.textContent=plate+": enter the fuel in the tank (0 if dry)."; return; }
+    const odo=r2(num(odoS)), stock=stkS!=="" ? r2(num(stkS)) : r2(num(angS)*angulL());
+    const rows=fuelRows(plate), last=rows.length?rows[rows.length-1]:null;
+    if(last && ts<=last.ts){ err.textContent=plate+": the check must be after its last saved entry ("+dmy(dayKey(last.ts))+" "+timeLabel(last.ts)+")."; return; }
+    if(last && odo<last.odo) warn.push(plate+": "+fmt(odo)+" is lower than its last reading "+fmt(last.odo));
+    todo.push({ plate:plate, ts:ts, odo:odo, litres:0, anguls:angS!==""?r2(num(angS)):null, stock_l:stock, note:"stock check — fuel in tank", by:ME });
+  }
+  if(!todo.length){ err.textContent="Enter at least one tanker."; return; }
+  if(warn.length && !confirm(warn.join("\n")+"\n\nSave anyway?")) return;
+  const btn=$("#stkOk"); btn.disabled=true;
+  try{
+    for(const r of todo) await Backend.addFuel(r);
+    closeStock(); toast("✓ Stock saved for "+todo.length+" tanker"+(todo.length===1?"":"s"));
+    await loadMileage(); fillPrevFromSaved(true);
+  }catch(e){ err.textContent=dbHint(e); }
+  btn.disabled=false;
+};
+
+/* ---------- Charts (small, dependency-free SVG) ----------
+   Drawn at the card's real width and redrawn on resize. Light surface only.
+   Series: one hue per chart (blue); blue/red only for the above/below-normal
+   diverging bars; orange is the second series of the km split. Status colours
+   (red / amber) only on mileage-drop points, always with the ⚠ list beside them. */
+const VZ={ s1:"#2a78d6", s2:"#eb6834", pos:"#d03b3b", neg:"#2a78d6", crit:"#d03b3b", warn:"#fab219",
+  grid:"#e1e0d9", axis:"#c3c2b7", tick:"#898781", ink:"#0b0b0b", ink2:"#52514e", surf:"#fcfcfb", band:"rgba(42,120,214,.11)" };
+const SVGNS="http://www.w3.org/2000/svg";
+function sv(tag, at, parent){ const e=document.createElementNS(SVGNS, tag); for(const k in at) e.setAttribute(k, at[k]); if(parent) parent.appendChild(e); return e; }
+function niceTicks(lo, hi, n){
+  const span=Math.max(1e-9, hi-lo), raw=span/(n||4), mag=Math.pow(10, Math.floor(Math.log10(raw)));
+  const step=[1,2,2.5,5,10].map(m=>m*mag).find(x=>x>=raw) || 10*mag;
+  const out=[]; for(let v=Math.floor(lo/step)*step; v<=Math.ceil(hi/step-1e-9)*step+step*1e-3; v+=step) out.push(Math.round(v*1e6)/1e6);
+  return out;
+}
+function tickFmt(v){ return (v<0?"−":"")+Math.abs(v).toLocaleString("en-IN",{maximumFractionDigits:2}); }
+function vizTip(host){
+  let t=host.querySelector(".viz-tip");
+  if(!t){ t=document.createElement("div"); t.className="viz-tip"; t.setAttribute("role","status"); host.appendChild(t); }
+  return {
+    show(html, x, y){ t.innerHTML=html; t.style.display="block";
+      const w=t.offsetWidth, W=host.clientWidth; t.style.left=Math.max(0, Math.min(W-w, x-w/2))+"px"; t.style.top=Math.max(0, y-t.offsetHeight-10)+"px"; },
+    hide(){ t.style.display="none"; }
+  };
+}
+function vizEmpty(host, msg){ host.innerHTML='<div class="vizempty">'+esc(msg)+'</div>'; }
+// vertical bar with a 4px rounded data-end, square at the baseline
+function vbar(x, y0, y1, w, r){
+  const h=Math.abs(y1-y0); r=Math.min(r, h, w/2); const up=y1<y0, d=up?r:-r;
+  return "M"+x+","+y0+"V"+(y1+d)+"Q"+x+","+y1+" "+(x+r)+","+y1+"H"+(x+w-r)+"Q"+(x+w)+","+y1+" "+(x+w)+","+(y1+d)+"V"+y0+"Z";
+}
+function hbar(x0, y, x1, h, r){ const w=Math.abs(x1-x0); r=Math.min(r, w, h/2); return "M"+x0+","+y+"H"+(x1-r)+"Q"+x1+","+y+" "+x1+","+(y+r)+"V"+(y+h-r)+"Q"+x1+","+(y+h)+" "+(x1-r)+","+(y+h)+"H"+x0+"Z"; }
+function xLabelEvery(n, W){ return Math.max(1, Math.ceil(n/Math.max(2, Math.floor(W/62)))); }
+// label every k-th column, always the last one, and drop a label that would crowd the last
+function xLabelAt(i, n, k){ return i===n-1 || (i%k===0 && n-1-i>=k); }
+function axisY(svg, ticks, y, L, R, W){
+  ticks.forEach(v=>{
+    sv("line",{x1:L, x2:W-R, y1:y(v), y2:y(v), stroke:v===0?VZ.axis:VZ.grid, "stroke-width":1}, svg);
+    const t=sv("text",{x:L-6, y:y(v)+4, "text-anchor":"end", class:"vt"}, svg); t.textContent=tickFmt(v);
+  });
+}
+/* Line chart over refills (x = refill date). band:[lo,hi] shades the normal
+   range; mileage-drop points get a status-colour marker. */
+function lineChart(host, pts, opt){
+  host.innerHTML="";
+  if(pts.length<1){ vizEmpty(host, opt.empty||"Not enough refills yet."); return; }
+  const W=Math.max(260, host.clientWidth), H=210, L=44, R=16, T=14, B=28;
+  const ys=pts.map(p=>p.y).concat(opt.band?opt.band:[]).concat(opt.ref!=null?[opt.ref]:[]);
+  let lo=Math.min.apply(null,ys), hi=Math.max.apply(null,ys); const pad=(hi-lo)*0.15||Math.abs(hi)*0.1||1; lo=Math.max(0, lo-pad); hi+=pad;
+  const ticks=niceTicks(lo, hi, 4); lo=ticks[0]; hi=ticks[ticks.length-1];
+  const t0=pts[0].t, t1=pts[pts.length-1].t;
+  const x=t=>t1===t0 ? (L+W-R)/2 : L+(t-t0)/(t1-t0)*(W-L-R), y=v=>T+(hi-v)/(hi-lo)*(H-T-B);
+  const svg=sv("svg",{viewBox:"0 0 "+W+" "+H, width:W, height:H, class:"vsvg", role:"img", "aria-label":opt.label||"chart"});
+  host.appendChild(svg);
+  if(opt.band) sv("rect",{x:L, width:W-L-R, y:y(opt.band[1]), height:Math.max(0,y(opt.band[0])-y(opt.band[1])), fill:VZ.band}, svg);
+  axisY(svg, ticks, y, L, R, W);
+  if(opt.ref!=null){
+    sv("line",{x1:L, x2:W-R, y1:y(opt.ref), y2:y(opt.ref), stroke:VZ.ink2, "stroke-width":1, "stroke-dasharray":"4 4"}, svg);
+    const tl=sv("text",{x:L+4, y:y(opt.ref)-5, "text-anchor":"start", class:"vt lab"}, svg); tl.textContent="normal "+opt.ref.toFixed(2);
+  }
+  const every=xLabelEvery(pts.length, W);
+  pts.forEach((p,i)=>{ if(!xLabelAt(i, pts.length, every)) return;
+    const tx=sv("text",{x:x(p.t), y:H-8, "text-anchor":i===0&&pts.length>1?"start":(i===pts.length-1&&pts.length>1?"end":"middle"), class:"vt"}, svg);
+    tx.textContent=dmy(dayKey(p.t)).slice(0,5); });
+  if(pts.length>1) sv("path",{d:pts.map((p,i)=>(i?"L":"M")+x(p.t).toFixed(1)+","+y(p.y).toFixed(1)).join(""), fill:"none", stroke:VZ.s1, "stroke-width":2, "stroke-linejoin":"round", "stroke-linecap":"round"}, svg);
+  pts.forEach(p=>{
+    const c=p.flag===2?VZ.crit:p.flag===1?VZ.warn:VZ.s1;
+    sv("circle",{cx:x(p.t), cy:y(p.y), r:p.flag?6:4, fill:c, stroke:VZ.surf, "stroke-width":2}, svg);
+  });
+  const last=pts[pts.length-1];
+  const ll=sv("text",{x:Math.min(x(last.t)+0, W-R), y:y(last.y)-10, "text-anchor":"end", class:"vt val"}, svg); ll.textContent=last.y.toFixed(2);
+  // crosshair + tooltip
+  const tip=vizTip(host), cross=sv("line",{y1:T, y2:H-B, stroke:VZ.axis, "stroke-width":1, visibility:"hidden"}, svg);
+  const hit=sv("rect",{x:L, y:0, width:W-L-R, height:H, fill:"transparent"}, svg);
+  const move=ev=>{
+    const r=svg.getBoundingClientRect(), mx=(ev.clientX-r.left)*W/r.width;
+    let best=pts[0]; pts.forEach(p=>{ if(Math.abs(x(p.t)-mx)<Math.abs(x(best.t)-mx)) best=p; });
+    cross.setAttribute("x1",x(best.t)); cross.setAttribute("x2",x(best.t)); cross.setAttribute("visibility","visible");
+    tip.show(best.tip, x(best.t)*r.width/W, y(best.y)*r.height/H);
+  };
+  hit.addEventListener("pointermove",move); hit.addEventListener("pointerdown",move);
+  hit.addEventListener("pointerleave",()=>{ cross.setAttribute("visibility","hidden"); tip.hide(); });
+}
+/* Column chart, one column per item. Each item: {label, segs:[{v,color}], tip}.
+   A single segment may be negative (diverging around 0). Stacked segments are
+   positive and get a 2px surface gap between them. */
+function colChart(host, items, opt){
+  host.innerHTML="";
+  if(!items.length){ vizEmpty(host, opt.empty||"Not enough refills yet."); return; }
+  const W=Math.max(260, host.clientWidth), H=200, L=44, R=10, T=12, B=28;
+  const tops=items.map(it=>it.segs.reduce((s,g)=>s+Math.max(0,g.v),0)), bots=items.map(it=>it.segs.reduce((s,g)=>s+Math.min(0,g.v),0));
+  let hi=Math.max(0, Math.max.apply(null,tops)), lo=Math.min(0, Math.min.apply(null,bots));
+  if(hi===lo) hi=lo+1;
+  const ticks=niceTicks(lo, hi, 4); lo=ticks[0]; hi=ticks[ticks.length-1];
+  const y=v=>T+(hi-v)/(hi-lo)*(H-T-B);
+  const svg=sv("svg",{viewBox:"0 0 "+W+" "+H, width:W, height:H, class:"vsvg", role:"img", "aria-label":opt.label||"chart"});
+  host.appendChild(svg);
+  axisY(svg, ticks, y, L, R, W);
+  const slot=(W-L-R)/items.length, bw=Math.max(3, Math.min(24, slot-2)), every=xLabelEvery(items.length, W);
+  const tip=vizTip(host);
+  items.forEach((it,i)=>{
+    const x0=L+i*slot+(slot-bw)/2;
+    let base=0; const pos=it.segs.filter(g=>g.v>0), neg=it.segs.filter(g=>g.v<0);
+    pos.forEach((g,k)=>{ const yb=y(base)-(k?1:0), ye=y(base+g.v)+(k<pos.length-1?1:0);
+      if(Math.abs(yb-ye)>0.5) sv("path",{d: k===pos.length-1 ? vbar(x0, yb, ye, bw, 4) : "M"+x0+","+yb+"V"+ye+"H"+(x0+bw)+"V"+yb+"Z", fill:g.color}, svg);
+      base+=g.v; });
+    base=0; neg.forEach(g=>{ sv("path",{d:vbar(x0, y(0), y(g.v), bw, 4), fill:g.color}, svg); base+=g.v; });
+    if(xLabelAt(i, items.length, every)){ const tx=sv("text",{x:x0+bw/2, y:H-8, "text-anchor":"middle", class:"vt"}, svg); tx.textContent=it.label; }
+    const hit=sv("rect",{x:L+i*slot, y:0, width:slot, height:H, fill:"transparent"}, svg);
+    const showIt=ev=>{ const r=svg.getBoundingClientRect(); tip.show(it.tip, (x0+bw/2)*r.width/W, y(Math.max(0,tops[i]))*r.height/H); };
+    hit.addEventListener("pointermove",showIt); hit.addEventListener("pointerdown",showIt); hit.addEventListener("pointerleave",()=>tip.hide());
+  });
+}
+// Horizontal bars (fleet comparison) with a fleet-average reference line.
+function hbarChart(host, rows, opt){
+  host.innerHTML="";
+  if(!rows.length){ vizEmpty(host, opt.empty||"No data in this period."); return; }
+  const W=Math.max(260, host.clientWidth), rowH=34, T=8, B=24, L=112, R=52, H=T+B+rows.length*rowH;
+  const max=Math.max.apply(null, rows.map(r=>r.v).concat(opt.ref||0));
+  const ticks=niceTicks(0, max, 4), hi=ticks[ticks.length-1];
+  const x=v=>L+v/hi*(W-L-R);
+  const svg=sv("svg",{viewBox:"0 0 "+W+" "+H, width:W, height:H, class:"vsvg", role:"img", "aria-label":opt.label||"chart"});
+  host.appendChild(svg);
+  ticks.forEach(v=>{ sv("line",{x1:x(v), x2:x(v), y1:T, y2:H-B, stroke:v===0?VZ.axis:VZ.grid, "stroke-width":1}, svg);
+    const t=sv("text",{x:x(v), y:H-8, "text-anchor":"middle", class:"vt"}, svg); t.textContent=tickFmt(v); });
+  const tip=vizTip(host);
+  rows.forEach((r,i)=>{
+    const yy=T+i*rowH+(rowH-18)/2;
+    const lab=sv("text",{x:L-8, y:yy+13, "text-anchor":"end", class:"vt name"}, svg); lab.textContent=(r.flag===2?"⛔ ":r.flag===1?"⚠ ":"")+r.label;
+    if(r.v>0) sv("path",{d:hbar(x(0), yy, x(r.v), 18, 4), fill:VZ.s1}, svg);
+    const vl=sv("text",{x:x(r.v)+6, y:yy+13, class:"vt val"}, svg); vl.textContent=r.v.toFixed(2);
+    const hit=sv("rect",{x:0, y:T+i*rowH, width:W, height:rowH, fill:"transparent"}, svg);
+    const showIt=()=>{ const b=svg.getBoundingClientRect(); tip.show(r.tip, x(r.v)*b.width/W, yy*b.height/H); };
+    hit.addEventListener("pointermove",showIt); hit.addEventListener("pointerdown",showIt); hit.addEventListener("pointerleave",()=>tip.hide());
+  });
+  if(opt.ref){
+    sv("line",{x1:x(opt.ref), x2:x(opt.ref), y1:T-4, y2:H-B, stroke:VZ.ink2, "stroke-width":1, "stroke-dasharray":"4 4"}, svg);
+  }
+}
+
+/* ---------- MILEAGE TRENDS & ALERTS ---------- */
+let tdPlate="", tdMonths=6;
+function addMonthsKey(key, n){ const p=key.split("-").map(Number); const d=new Date(p[0], p[1]-1+n, p[2]); return dayKey(d.getTime()); }
+function openTrend(){
+  if(!adminOnly()) return;
+  show("scTrend");
+  setTdPreset(6);
+  if(!FUEL.length && !FUEL_ERR) loadMileage();
+}
+function setTdPreset(m){
+  tdMonths=m;
+  const today=todayStr();
+  $("#tdTo").value=today;
+  $("#tdFrom").value = m ? addDays(addMonthsKey(today,-m),1) : (FUEL.length ? dayKey(Math.min.apply(null,FUEL.map(r=>r.ts))) : addMonthsKey(today,-12));
+  $("#tdPresets").querySelectorAll("button").forEach(b=>b.classList.toggle("on", +b.dataset.m===m));
+  renderTrend();
+}
+$("#tdPresets").querySelectorAll("button").forEach(b=>{ b.onclick=()=>setTdPreset(+b.dataset.m); });
+["#tdFrom","#tdTo"].forEach(sel=>$(sel).addEventListener("change",()=>{ $("#tdPresets").querySelectorAll("button").forEach(b=>b.classList.remove("on")); renderTrend(); }));
+function trendData(){
+  const a=dayStartMs($("#tdFrom").value||"2000-01-01"), b=dayEndMs($("#tdTo").value||todayStr());
+  const plates=mlPlates().filter(p=>FUEL.some(r=>r.plate===p));
+  const all=plates.map(p=>{ const an=analyse(p); an.inR=an.iv.filter(o=>o.cur.ts>=a && o.cur.ts<=b); return an; });
+  return { a:a, b:b, all:all };
+}
+function agg(ivs){ const ok=ivs.filter(o=>o.dist>0 && o.used>0); const d=ok.reduce((s,o)=>s+o.dist,0), u=ok.reduce((s,o)=>s+o.used,0);
+  return { n:ok.length, dist:r2(d), used:r2(u), ratio:u>0?d/u:null }; }
+function tipHTML(head, rows){ return '<div class="viz-tip-head">'+esc(head)+'</div>'+rows.map(r=>'<div class="viz-tip-row"><span>'+esc(r[0])+'</span><b>'+esc(r[1])+'</b></div>').join(""); }
+function renderTrend(){
+  if(!$("#scTrend").classList.contains("on")) return;
+  paintAngul();
+  $("#tdPct").textContent=fmt(SETTINGS.alert_pct);
+  if(FUEL_ERR){ $("#tdTiles").innerHTML='<div class="empty" style="grid-column:1/-1;color:var(--red-d)">'+esc(FUEL_ERR)+'</div>';
+    ["#tdFlags","#vzFleet","#tdMeter","#tdMonthly"].forEach(s=>{ $(s).innerHTML=""; }); return; }
+  const D=trendData(), odo=D.all.filter(x=>!x.meter), met=D.all.filter(x=>x.meter);
+  const inAll=[].concat.apply([], D.all.map(x=>x.inR));
+  const flagged=inAll.filter(o=>o.sev>0).sort((p,q)=>q.sev-p.sev || (q.excess||0)-(p.excess||0) || q.cur.ts-p.cur.ts);
+  const checks=inAll.filter(o=>o.checks.length).sort((p,q)=>q.cur.ts-p.cur.ts);
+  const fleet=agg([].concat.apply([], odo.map(x=>x.inR)));
+  const excess=r2(flagged.reduce((s,o)=>s+(o.excess>0?o.excess:0),0));
+  const extra=r2(inAll.reduce((s,o)=>s+(o.extra>0?o.extra:0),0));
+  const hiN=flagged.filter(o=>o.sev===2).length, waN=flagged.length-hiN;
+  $("#tdTiles").innerHTML=
+     '<div class="tile"><div class="tn">'+inAll.length+'</div><div class="tl">Fill-to-fill stretches measured</div></div>'
+    +'<div class="tile'+(hiN?' bad':waN?' warn':' good')+'"><div class="tn">'+(hiN?'⛔ ':waN?'⚠ ':'✓ ')+flagged.length+'</div><div class="tl">Mileage drops · '+hiN+' sharp</div></div>'
+    +'<div class="tile"><div class="tn">'+(fleet.ratio?fleet.ratio.toFixed(2):'—')+'</div><div class="tl">Fleet km/L</div></div>'
+    +'<div class="tile'+(excess>0?' warn':'')+'"><div class="tn">'+fmt(excess)+'<small> L</small></div><div class="tl">Extra diesel in drops</div></div>'
+    +'<div class="tile"><div class="tn">'+fmt(extra)+'<small> km</small></div><div class="tl">Extra km vs trips</div></div>';
+  // the list of refills that need a look
+  $("#tdFlagSub").textContent = flagged.length ? flagged.length+" stretch"+(flagged.length===1?"":"es")+" between fills" : "";
+  $("#tdFlags").innerHTML = (flagged.length ? '<div class="note" style="text-align:left;margin:0 2px 8px">A drop means the tanker burnt more diesel than usual for the '
+      +'distance (or, for OD15AF5510, for the fuel it dispensed). '+DROP_WHY+'</div>'
+    + flagged.slice(0,30).map(o=>{
+    const m=isMeter(o.cur.plate);
+    return '<div class="flag '+(o.sev===2?'high':'watch')+'"><div class="fh">'+sevBadge(o.sev)+'<span class="plate">'+esc(o.cur.plate)+'</span>'
+      +'<span class="fd">'+stretchTxt(o)+'</span></div>'
+      +'<ul><li>'+esc(o.dropText)+'</li></ul>'
+      +'<div class="fm">'+fmt(o.dist)+(m?' L dispensed':' km')+' · '+fmt(o.used)+' L used · '+ratioTxt(o.ratio,m)+(o.ref?' (normal '+o.ref.toFixed(2)+')':'')+'</div></div>';
+  }).join("")+(flagged.length>30?'<div class="note">+ '+(flagged.length-30)+' more in the Excel download</div>':'')
+    : '<div class="empty">✓ No mileage drops in this period.</div>')
+    + (checks.length ? '<div class="sectitle" style="margin-top:16px">✎ Check the readings <span class="sub">entry mistakes, not suspicion</span></div>'
+      + checks.slice(0,15).map(o=>'<div class="flag chk"><div class="fh"><span class="badge info">✎ Check</span><span class="plate">'+esc(o.cur.plate)+'</span>'
+        +'<span class="fd">'+stretchTxt(o)+'</span></div><ul>'+o.checks.map(t=>'<li>'+esc(t)+'</li>').join("")+'</ul></div>').join("") : '');
+  // fleet comparison
+  const rows=odo.map(x=>{ const g=agg(x.inR), worst=x.inR.reduce((m,o)=>Math.max(m,o.sev),0);
+    return g.ratio ? { label:x.plate, v:g.ratio, flag:worst,
+      tip:tipHTML(x.plate, [["Mileage",g.ratio.toFixed(2)+" km/L"],["Km run",fmt(g.dist)+" km"],["Diesel used",fmt(g.used)+" L"],["Refills",String(g.n)],["Normal (all time)",x.normal?x.normal.toFixed(2)+" km/L":"—"],["Mileage drops",String(x.inR.filter(o=>o.sev).length)]]) } : null; }).filter(Boolean)
+    .sort((p,q)=>q.v-p.v);
+  hbarChart($("#vzFleet"), rows, { ref:fleet.ratio, label:"Average km per litre by tanker", empty:"No complete refill intervals in this period." });
+  $("#vzFleetFoot").innerHTML = rows.length ? '<span class="lg"><i style="background:'+VZ.s1+'"></i>km/L in the period</span>'
+    +'<span class="lg"><i class="dash"></i>fleet average '+(fleet.ratio?fleet.ratio.toFixed(2):'—')+'</span>'
+    +'<span class="lg">⚠ / ⛔ = had a mileage drop</span>' : '';
+  $("#tdMeter").innerHTML = met.map(x=>{ const g=agg(x.inR);
+    return '<div class="tile wide"><div class="tl">'+esc(x.plate)+' · by fuel dispensed</div><div class="tn">'+(g.ratio?g.ratio.toFixed(2):'—')+'<small> L dispensed / L diesel</small></div>'
+      +'<div class="tl">'+fmt(g.dist)+' L dispensed · '+fmt(g.used)+' L used · normal '+(x.normal?x.normal.toFixed(2):'—')+(g.dist>0&&g.used>0?' · '+fmt(r2(g.used/g.dist*1000))+' L per 1,000 L':'')+'</div></div>'; }).join("");
+  // tanker detail
+  const plates=D.all.map(x=>x.plate);
+  if(!tdPlate || plates.indexOf(tdPlate)===-1){
+    const most=D.all.slice().sort((p,q)=>q.inR.filter(o=>o.sev).length-p.inR.filter(o=>o.sev).length)[0];
+    tdPlate=most?most.plate:"";
+  }
+  $("#tdVeh").innerHTML=plates.map(p=>{ const n=D.all.find(x=>x.plate===p).inR.filter(o=>o.sev).length;
+    return '<button type="button" class="'+(p===tdPlate?'on':'')+'" data-tdv="'+esc(p)+'">'+esc(p)+(n?' <span class="cnt">'+n+'</span>':'')+'</button>'; }).join("")
+    || '<div class="empty">No refills saved yet.</div>';
+  $("#tdVeh").querySelectorAll("[data-tdv]").forEach(b=>{ b.onclick=()=>{ tdPlate=b.getAttribute("data-tdv"); renderTrend(); }; });
+  renderTrendCharts(D);
+  renderMonthly(D);
+  $("#tdNote").textContent = SETTINGS_FALLBACK && CLOUD ? "⚠ Using default settings — re-run loading-schema.sql to share them." : "";
+}
+function renderTrendCharts(D){
+  const x=(D||trendData()).all.find(t=>t.plate===tdPlate);
+  if(!x){ ["#vzTrend","#vzExcess","#vzKm"].forEach(s=>vizEmpty($(s),"No refills saved yet.")); return; }
+  const m=x.meter, P=alertP(), unit=m?"L dispensed / L":"km/L";
+  $("#vzTrendH").textContent=(m?"Fuel dispensed per litre":"Mileage")+" per refill — "+x.plate;
+  $("#vzTrendS").textContent=(x.normal?"Shaded band = normal "+x.normal.toFixed(2)+" "+unit+" ± "+fmt(SETTINGS.alert_pct)+"% · ":"")+"⚠ amber / ⛔ red points = mileage drop";
+  const pts=x.inR.filter(o=>o.ratio!=null).map(o=>({ t:o.cur.ts, y:o.ratio, flag:o.sev,
+    tip:tipHTML(stretchTxt(o)+(o.sev?(o.sev===2?"  ⛔ Sharp drop":"  ⚠ Mileage drop"):""), [["Mileage",ratioTxt(o.ratio,m)],["Normal",o.ref?o.ref.toFixed(2):"—"],["vs normal",o.dropPct==null?"—":(o.dropPct>0?"+":"")+o.dropPct+"%"],[m?"Dispensed":"Km run",fmt(o.dist)+(m?" L":" km")],["Diesel used",fmt(o.used)+" L"]]) }));
+  lineChart($("#vzTrend"), pts, { ref:x.normal, band:x.normal?[x.normal*(1-P), x.normal*(1+P)]:null, label:"Mileage per refill", empty:"Needs two refills in this period." });
+  const ex=x.inR.filter(o=>o.excess!=null).map(o=>({ label:dmy(dayKey(o.cur.ts)).slice(0,5),
+    segs:[{ v:o.excess, color:o.excess>0?VZ.pos:VZ.neg }],
+    tip:tipHTML(dmy(dayKey(o.cur.ts)), [[o.excess>0?"Above normal":"Below normal",(o.excess>0?"+":"")+fmt(o.excess)+" L"],["Used",fmt(o.used)+" L"],["Normal would use",fmt(o.expUsed)+" L"]]) }));
+  colChart($("#vzExcess"), ex, { label:"Diesel above or below normal per refill", empty:"Needs a few refills to know what's normal." });
+  $("#vzKmCard").style.display = m ? "none" : "";
+  if(!m){
+    const km=x.inR.filter(o=>o.dist>0).map(o=>({ label:dmy(dayKey(o.cur.ts)).slice(0,5),
+      segs:[{ v:Math.min(o.rtd,o.dist), color:VZ.s1 }, { v:Math.max(0,o.extra), color:VZ.s2 }],
+      tip:tipHTML(dmy(dayKey(o.cur.ts)), [["Km run",fmt(o.dist)+" km"],["Trips",o.trips+" · "+fmt(o.rtd)+" km RTD"],["Extra km",fmt(o.extra)+" km"]]) }));
+    colChart($("#vzKm"), km, { label:"Km per refill split into trip km and extra km", empty:"Needs two refills in this period." });
+    const leg=document.createElement("div"); leg.className="vizfoot";
+    leg.innerHTML='<span class="lg"><i style="background:'+VZ.s1+'"></i>Trip km (RTD)</span><span class="lg"><i style="background:'+VZ.s2+'"></i>Extra km</span>';
+    $("#vzKm").appendChild(leg);
+  }
+}
+function renderMonthly(D){
+  const months={}, plates=D.all.map(x=>x.plate);
+  D.all.forEach(x=>x.inR.forEach(o=>{ const k=dayKey(o.cur.ts).slice(0,7); (months[k]=months[k]||{}); (months[k][x.plate]=months[k][x.plate]||[]).push(o); }));
+  const keys=Object.keys(months).sort();
+  if(!keys.length){ $("#tdMonthly").innerHTML='<div class="vizempty">No refills in this period.</div>'; return; }
+  const prevVal={};
+  const body=keys.map(k=>{
+    const p=k.split("-").map(Number);
+    return '<tr><th>'+new Date(p[0],p[1]-1,1).toLocaleDateString("en-IN",{month:"short",year:"2-digit"})+'</th>'+plates.map(pl=>{
+      const g=agg(months[k][pl]||[]); if(!g.ratio) return '<td class="na">—</td>';
+      const pv=prevVal[pl]; prevVal[pl]=g.ratio;
+      let d=""; if(pv){ const c=Math.round((g.ratio/pv-1)*100); if(c) d='<span class="'+(c<0?'neg':'pos')+'">'+(c<0?'▼':'▲')+Math.abs(c)+'%</span>'; }
+      const fl=(months[k][pl]||[]).some(o=>o.sev===2)?' ⛔':(months[k][pl]||[]).some(o=>o.sev)?' ⚠':'';
+      return '<td><b>'+g.ratio.toFixed(2)+'</b>'+fl+d+'</td>';
+    }).join("")+'</tr>';
+  }).reverse().join("");
+  $("#tdMonthly").innerHTML='<table class="mtab"><thead><tr><th>Month</th>'+plates.map(p=>'<th>'+esc(p)+(isMeter(p)?'<small>L/L</small>':'<small>km/L</small>')+'</th>').join("")+'</tr></thead><tbody>'+body+'</tbody></table>';
+}
+$("#tdPctEdit").onclick=()=>{
+  const ans=prompt("Flag a mileage drop when mileage is below the tanker's normal by how many %?", String(SETTINGS.alert_pct));
+  if(ans==null) return;
+  const v=Math.round(num(sanQty(ans)));
+  if(!(v>=1 && v<=90)){ toast("Enter a % between 1 and 90"); return; }
+  Backend.saveSetting("alert_pct", v).then(refresh).then(()=>{ toast("Alert at "+v+"% below normal"); renderTrend(); renderMileage(); }).catch(e=>toast(dbHint(e)));
+};
+$("#tdExcel").onclick=async()=>{
+  const D=trendData(), inAll=[].concat.apply([], D.all.map(x=>x.inR));
+  if(!inAll.length){ toast("No refills in this period"); return; }
+  const rows=inAll.sort((p,q)=>p.cur.ts-q.cur.ts).map(o=>{ const m=isMeter(o.cur.plate); return {
+    "Vehicle":o.cur.plate, "Measured by":m?"Fuel dispensed":"Odometer",
+    "Previous refill":dmy(dayKey(o.prev.ts))+" "+timeLabel(o.prev.ts), "This refill":dmy(dayKey(o.cur.ts))+" "+timeLabel(o.cur.ts),
+    "Previous reading":o.prev.odo, "Reading":o.cur.odo, "Km run / L dispensed":o.dist,
+    "Litres filled previous":o.prev.litres, "Stock previous (L)":stockOf(o.prev), "Stock now (L)":stockOf(o.cur),
+    "Diesel used (L)":o.used, "Mileage":o.ratio!=null?r2(o.ratio):"", "Normal":o.ref?r2(o.ref):"",
+    "Above normal (L)":o.excess!=null?o.excess:"", "Trips":m?"":o.trips, "RTD km":m?"":o.rtd, "Extra km":m?"":o.extra,
+    "Mileage drop":o.sev===2?"SHARP DROP":o.sev===1?"DROP":"", "vs normal %":o.dropPct==null?"":o.dropPct,
+    "Detail":o.dropText, "Check the readings":o.checks.join(" | "),
+    "Litres filled now":o.cur.litres }; });
+  const months={};
+  D.all.forEach(x=>x.inR.forEach(o=>{ const k=dayKey(o.cur.ts).slice(0,7)+"|"+x.plate; (months[k]=months[k]||[]).push(o); }));
+  const mon=Object.keys(months).sort().map(k=>{ const g=agg(months[k]), p=k.split("|"); return { "Month":p[0], "Vehicle":p[1],
+    "Refills":months[k].length, "Km run / L dispensed":g.dist, "Diesel used (L)":g.used, "Mileage":g.ratio?r2(g.ratio):"",
+    "Mileage drops":months[k].filter(o=>o.sev).length }; });
+  const f=$("#tdFrom").value, t=$("#tdTo").value, fname="Vriddhi_Mileage_Analysis_"+f+"_to_"+t;
+  try{
+    const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+    const wb=XLSX.utils.book_new();
+    const dr=rows.filter(r=>r["Mileage drop"]);
+    const al=XLSX.utils.json_to_sheet(dr.length?dr:[{ "Mileage drop":"none in this period" }]); al["!cols"]=[{wch:12},{wch:14},{wch:18},{wch:18}]; XLSX.utils.book_append_sheet(wb, al, "Mileage drops");
+    const ws=XLSX.utils.json_to_sheet(rows); ws["!autofilter"]={ref:ws["!ref"]}; numfmt(XLSX,ws,1);
+    ws["!cols"]=[{wch:12},{wch:14},{wch:18},{wch:18}].concat(Array(15).fill({wch:12})).concat([{wch:60}]);
+    XLSX.utils.book_append_sheet(wb, ws, "Refill analysis");
+    const wm=XLSX.utils.json_to_sheet(mon); numfmt(XLSX,wm,1); XLSX.utils.book_append_sheet(wb, wm, "Monthly");
+    const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+    dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
+    toast("Mileage analysis downloaded");
+  }catch(err){
+    const head=Object.keys(rows[0]), q=v=>{ v=String(v==null?"":v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+    dl(new Blob(["﻿"+[head.join(",")].concat(rows.map(r=>head.map(h=>q(r[h])).join(","))).join("\r\n")],{type:"text/csv;charset=utf-8"}), fname+".csv");
+    toast("Downloaded as CSV");
+  }
+};
+let vzResizeT;
+window.addEventListener("resize",()=>{ clearTimeout(vzResizeT); vzResizeT=setTimeout(()=>{ if($("#scTrend").classList.contains("on")) renderTrend(); }, 200); });
+
 /* ---------- Nav buttons ---------- */
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 $("#toReport").onclick=openReport;
 $("#toReport2").onclick=openReport;
-$("#toLog").onclick=()=>{ renderLog(); show("scLog"); };
+$("#toLog").onclick=()=>{ if(!adminOnly()) return; renderLog(); show("scLog"); };
 $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
+$("#toTrips").onclick=openTrips;
+$("#toMileage").onclick=openMileage;
+$("#toTrend").onclick=openTrend;
+$("#toStock").onclick=openStock;
 
 /* ---------- Push notifications (cloud mode only) ----------
    Alerts every OTHER signed-in employee when a tanker starts loading, becomes
@@ -1962,7 +3439,116 @@ function subscribeRealtime(){
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_vehicles"},poke)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_day_closes"},poke)
     .subscribe();
+  // The trip / customer / fuel tables get their own channel, so a database that
+  // hasn't been updated with them yet can't disturb the live tanker sync above.
+  let t2;
+  const poke2=()=>{ clearTimeout(t2); t2=setTimeout(()=>{ refresh().then(()=>{
+    const cur=stack[stack.length-1];
+    if(cur==="scTrips") loadTripReport(); else if(cur==="scMileage" || cur==="scTrend") loadMileage();
+    else if(cur==="scSettings") renderDests();
+  }).catch(()=>{}); }, 350); };
+  // the admin's "log out all staff" lands here instantly on every phone
+  CloudBackend.client.channel("loading-live-auth")
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_auth_state"},()=>checkSession())
+    .subscribe();
+  CloudBackend.client.channel("loading-live-trips")
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_trips"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_destinations"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_fuel_logs"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_settings"},poke2)
+    .subscribe();
 }
+
+/* ---------- Forced sign-out (admin pressed "Log out all staff devices") ----------
+   The database refuses this phone's old session; drop it locally and show the
+   sign-in screen. Only this phone's copy of the session is cleared. */
+let forcingOut=false;
+function forceSignOut(){
+  if(forcingOut || !CloudBackend.client) return;
+  forcingOut=true;
+  const done=()=>{ forcingOut=false; LOG=[]; VEHICLES=[]; ME=""; ROLE=null; goHome(); showLogin();
+    loginError("You were signed out by the admin. Please sign in again."); };
+  CloudBackend.client.auth.signOut({ scope:"local" }).then(done, done);
+}
+// Re-ask the database whether this session is still allowed.
+function checkSession(){
+  if(Backend!==CloudBackend || !ME) return;
+  CloudBackend.whoami().then(w=>{
+    if(!w.ok) return forceSignOut();
+    const was=ROLE; ROLE=w.role; ADMINS=+w.admins||0; applyRole();
+    if(was!==ROLE) refresh().then(rerenderCurrent).catch(()=>{});
+  }).catch(()=>{});
+}
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkSession(); });
+
+/* ---------- Staff logins (admin, cloud) ----------
+   Passwords can only be changed with Supabase's service key, so the phone asks
+   the loading-admin edge function, which checks that the caller is an admin. */
+function adminFn(action, body){
+  return CloudBackend.client.auth.getSession().then(res=>{
+    const tok=res && res.data && res.data.session && res.data.session.access_token;
+    if(!tok) throw new Error("Not signed in");
+    return fetch(String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-admin", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+tok, "apikey":CFG.SUPABASE_ANON_KEY },
+      body:JSON.stringify(Object.assign({ action:action }, body||{})),
+    });
+  }).then(r=>r.json().catch(()=>({})).then(j=>{
+    if(r.status===404) throw new Error("Deploy the loading-admin edge function first (see README)");
+    if(!r.ok || j.error) throw new Error(j.error || ("Error "+r.status));
+    if(j.warning) toast(j.warning);
+    return j;
+  }));
+}
+let USERS=null;
+function renderStaff(){
+  const wrap=$("#staffWrap"); if(!wrap) return;
+  wrap.style.display = (CLOUD && ROLE && ROLE!=="legacy") ? "" : "none";
+  if(wrap.style.display==="none") return;
+  $("#meRole").innerHTML='you: <b>'+esc(ME)+'</b><span class="rolebadge admin">Admin</span>';
+  const box=$("#userList");
+  if(!USERS){ box.innerHTML='<div class="empty">Loading logins…</div>';
+    adminFn("list").then(j=>{ USERS=j.users||[]; renderStaff(); }).catch(e=>{ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(e.message)+'</div>'; });
+    return; }
+  box.innerHTML = USERS.length ? USERS.map(u=>
+    '<div class="entry urow"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:800">'+esc(u.username)
+    +'<span class="rolebadge '+(u.role==="admin"?'admin':'staff')+'">'+(u.role==="admin"?'Admin':'Staff')+'</span></div>'
+    +'<div class="tm">'+(u.last_sign_in_at?'last sign-in '+dmy(dayKey(Date.parse(u.last_sign_in_at)))+' '+timeLabel(Date.parse(u.last_sign_in_at)):'never signed in')+'</div></div>'
+    +'<div class="ub"><button type="button" data-pw="'+esc(u.id)+'">🔑 Password</button>'
+    +(u.email!==(ME.indexOf("@")===-1?ME+"@vriddhi.local":ME).toLowerCase()
+      ? '<button type="button" data-role="'+esc(u.email)+'" data-to="'+(u.role==="admin"?"staff":"admin")+'">'+(u.role==="admin"?'Make staff':'Make admin')+'</button>' : '')
+    +'</div></div>').join("") : '<div class="empty">No logins found.</div>';
+  box.querySelectorAll("[data-pw]").forEach(b=>{ b.onclick=()=>changePassword(USERS.find(u=>u.id===b.getAttribute("data-pw"))); });
+  box.querySelectorAll("[data-role]").forEach(b=>{ b.onclick=()=>{
+    const email=b.getAttribute("data-role"), to=b.getAttribute("data-to");
+    if(!confirm((to==="admin"?"Give ":"Remove ")+email.split("@")[0]+(to==="admin"?" ADMIN access (everything, incl. mileage and passwords)?":" admin access (staff only)?"))) return;
+    adminFn("set_role",{ email:email, role:to }).then(()=>{ USERS=null; toast("Updated"); renderStaff(); }).catch(e=>toast(e.message));
+  }; });
+}
+function changePassword(u){
+  if(!u) return;
+  const p1=prompt("New password for "+u.username+" (at least 6 characters):"); if(p1==null) return;
+  if(p1.length<6){ toast("At least 6 characters"); return; }
+  const p2=prompt("Type the new password again:"); if(p2==null) return;
+  if(p1!==p2){ toast("The two passwords don't match"); return; }
+  const out=confirm("Password for "+u.username+" will be changed.\n\nAlso log out ALL staff phones now, so everyone must sign in again?\n\nOK = change & log out staff · Cancel = just change it");
+  adminFn("set_password",{ user_id:u.id, password:p1, logout:out }).then(()=>{
+    toast("✓ Password changed"+(out?" — staff phones logged out":"")); }).catch(e=>toast(e.message));
+}
+$("#logoutAllBtn").onclick=()=>{
+  if(!confirm("Log out ALL staff phones now?\n\nEvery staff member must sign in again. Admin phones stay signed in.")) return;
+  CloudBackend.rpc("loading_logout_staff",{}).then(()=>toast("✓ All staff devices logged out")).catch(e=>toast(dbHint(e)));
+};
+$("#nuBtn").onclick=()=>{
+  const u=$("#nuUser").value.trim().toLowerCase(), p=$("#nuPass").value, role=$("#nuRole").value;
+  if(!/^[a-z0-9._-]{3,}$/.test(u)){ toast("Username: 3+ letters/numbers, no spaces"); return; }
+  if(p.length<6){ toast("Password: at least 6 characters"); return; }
+  const btn=$("#nuBtn"); btn.disabled=true;
+  adminFn("create",{ username:u, password:p, role:role }).then(()=>{
+    btn.disabled=false; $("#nuUser").value=""; $("#nuPass").value=""; $("#nuRole").value="staff"; USERS=null;
+    toast("✓ Login "+u+" added"); renderStaff();
+  }).catch(e=>{ btn.disabled=false; toast(e.message); });
+};
 
 /* ---------- Login / session (cloud) ---------- */
 function showLogin(){ $("#login").classList.add("on"); }
@@ -1987,7 +3573,7 @@ function signOut(){
   if(!confirm("Sign out of this phone?")) return;
   // Detach this phone's push subscription first (the RPC needs the session),
   // so a signed-out phone stops receiving this employee's alerts.
-  const done=()=>CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; goHome(); showLogin(); });
+  const done=()=>CloudBackend.client.auth.signOut().then(()=>{ LOG=[]; ME=""; ROLE=null; USERS=null; goHome(); showLogin(); });
   if(!pushConfigured() || !pushSupported()) return done();
   navigator.serviceWorker.ready
     .then(reg=>reg.pushManager.getSubscription())
@@ -2021,6 +3607,7 @@ $("#installBtn").onclick=async()=>{ if(!deferredPrompt) return; deferredPrompt.p
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
 
 function boot(){
+  applyRole();          // cloud: staff view until the database says otherwise
   if(!CLOUD){
     Backend=LocalBackend;
     LocalBackend.closeDue().then(refresh).then(()=>{ renderHome(); }).catch(oops);
