@@ -58,9 +58,10 @@ again.
    amount. Do this as many times as you like; it keeps adding.
 4. **When the tanker is full, tap “🚚 Sent for sale”** (a bold green button on a
    full tanker; a quiet link on a partly-filled one). A box asks **whom it was
-   sold to / remarks** (optional); confirm, and the tanker empties back to `0` —
-   ready for the next round. The sold-to note is saved on the record and shown
-   in History and the Excel report.
+   sold to** — you **pick the customer from the list** (see *Customers & RTD*);
+   confirm, and the tanker empties back to `0` — ready for the next round. The
+   customer is saved on the record, shown in History and the Excel report, and
+   counted as one **trip** in the trip report.
 
 Every loading (`+ litres`) and every dispatch (`🚚 Sent for sale`) is kept in
 **History** and the export, so the full account of what went into each tanker and
@@ -292,6 +293,80 @@ data only spans 7 days, download a report weekly to keep a longer archive.
 > clearing the browser's site data or uninstalling erases them, so the periodic
 > CSV export is the backup. In **cloud mode** the data lives in Supabase and is
 > intentionally trimmed to the last 7 days.
+
+## Trips per tanker (🚚)
+
+**Trips per tanker** on the home screen counts how many times each tanker was
+**sent for sale** in a date range — **one sale = one trip**. It opens on the
+**current month**; ‹ › step a month at a time, or set your own From / To dates.
+Dates are business days (7:30 AM → 7:30 AM), the same as everywhere else.
+
+- Tiles: total trips, total **RTD km** and litres sold.
+- One card per tanker: its trips and RTD km, broken down by customer
+  (`Shyam Metalics — 3 × 36 km = 108 km`). **Show trips** lists each trip with
+  a ✎ to correct the customer if the wrong one was picked.
+- A sale whose customer isn't in the list (e.g. an old free-text remark) is
+  flagged ⚠ and counts 0 km until a customer is picked with ✎.
+- **OD15AF5510 is not counted** in this report (`TRIP_EXCLUDE` in `index.html`).
+- **Download trip report (Excel)** — sheets *Trips by tanker* (tanker ×
+  customer matrix with totals), *Trip list* and *Customers (RTD)*.
+
+Trips are stored **permanently** in their own table (`loading_trips`), so the
+monthly report works even though the detailed loading history is trimmed to 7
+days. Deleting a sale from History (within those 7 days) removes its trip too.
+
+## Customers & RTD (⚙)
+
+The **Sold to** choices are the customer list under **⚙ Manage tankers & data →
+Customers & RTD**, seeded from the RTD master sheet:
+
+| Customer | RTD km / trip |
+|---|---|
+| Shyam Metalics | 36 |
+| SMC Unit 1 | 16 |
+| SMC Unit 2 | 20 |
+| Orissa Metaliks | 30 |
+| Lakhanpur Group Companies | 70 |
+| DBL - Siarmal | 140 |
+| Aryan Ispat & Power Private Ltd. | 30 |
+
+RTD = round-trip km per trip. Add a customer with its own RTD, or pick
+**Group company of** an existing customer: it joins that group and takes the
+group's RTD. **Group companies always share one RTD** — changing the RTD (✎) of
+any of them changes the whole group. In cloud mode the list is shared by all
+phones (`loading_destinations`).
+
+## Mileage calculator (⛽)
+
+Every tanker is run to almost dry and then refilled. At each refill enter:
+
+- **Previous refill** — date & time, the reading and the litres filled then (and
+  the Anguls dip then). It is filled in automatically from the last saved refill;
+  for the very first use type it in (e.g. yesterday's fill). If you change it,
+  it is saved as an extra refill record so the chain carries on.
+- **Now** — date & time, the reading now, the **Anguls** dipped before refilling
+  and the litres filled now.
+
+**Diesel used** = litres filled at the previous refill + stock left then − stock
+left now, where **1 Angul = 16 L** (no dip = taken as dry).
+
+| Tanker | Reading | Mileage |
+|---|---|---|
+| All tankers except OD15AF5510 | **Odometer** (km) | km run ÷ diesel used = **km/L** |
+| **OD15AF5510** (engine mostly on, dispenses with its own pump) | **Fuel-dispenser meter** (litres) | litres dispensed ÷ diesel used = **L dispensed per L**, plus diesel per 1,000 L dispensed |
+
+For odometer tankers the calculator also shows the **trips** in between and
+their **RTD km**, and **Extra km** = km run − RTD km (running beyond the
+delivery trips), with the diesel that extra running took. The **Period summary**
+(month by default) gives the same figures from the opening to the closing
+refill of the period, and **Refills** lists every saved refill with its mileage
+(🗑 to delete a wrong one). Refills are kept permanently (`loading_fuel_logs`).
+
+> **Cloud mode:** re-run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
+> in the SQL Editor once to create the customer, trip and fuel-log tables (safe
+> to re-run; it also back-fills trips from the sales still in the 7-day window).
+> Until then the app works exactly as before — the sale box uses the built-in
+> customer list and the two new screens say the database needs the update.
 
 ## Install on the phone
 

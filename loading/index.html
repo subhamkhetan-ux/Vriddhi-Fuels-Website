@@ -235,6 +235,58 @@
   .caprow.over .cb{background:var(--red)}
   .caperr{color:var(--red);font-weight:700;font-size:13px;min-height:18px;margin:2px 0 0}
 
+  /* Customer picker (sold to) */
+  .destlist{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow-y:auto;padding:2px}
+  .dest{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;border:2px solid var(--line);
+    background:#fff;border-radius:14px;padding:13px 14px;font-size:16px;font-weight:800;color:var(--navy);cursor:pointer}
+  .dest .dk{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .dest.on{border-color:var(--green);background:#eaf6ee}
+  .dest.on .dk{color:var(--green-d)}
+  .dest:active{transform:translateY(1px)}
+
+  /* Month navigator (trip report / mileage) */
+  .monthnav{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .monthnav button{flex:none;width:48px;height:46px;border:0;border-radius:12px;background:var(--navy2);color:#fff;font-size:24px;font-weight:800;cursor:pointer}
+  .monthnav span{flex:1;text-align:center;font-size:18px;font-weight:900;color:var(--navy)}
+  .mini .n.sm{font-size:20px}
+
+  /* Trip report */
+  .trcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);margin-bottom:12px;padding:12px 14px}
+  .trcard .trh{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .trcard .plate{font-weight:900;font-size:15px;color:#fff;background:var(--navy);border-radius:8px;padding:6px 8px;letter-spacing:.5px;white-space:nowrap}
+  .trcard .trn{font-size:14px;color:var(--muted);font-weight:700;text-align:right}
+  .trcard .trn b{font-size:22px;color:var(--navy);font-weight:900}
+  .trd{margin-top:10px;border-top:1px solid var(--line)}
+  .trd .tl{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #eef1f6;font-size:14px}
+  .trd .tl .tn{flex:1;min-width:0;font-weight:700;color:var(--ink)}
+  .trd .tl .tc{white-space:nowrap;color:var(--muted);font-weight:700}
+  .trd .tl .tk{white-space:nowrap;color:var(--navy);font-weight:900;min-width:64px;text-align:right}
+  .trd .tl.warn .tn{color:var(--red-d)}
+  .trtrips{margin-top:6px}
+  .trrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eef1f6;font-size:13px}
+  .trrow .tw{white-space:nowrap;color:var(--muted);font-weight:700;flex:none}
+  .trrow .td{flex:1;min-width:0;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .trrow .td.warn{color:var(--red-d)}
+  .trrow .tq{white-space:nowrap;font-weight:800;color:var(--amber-d)}
+  .trshow{display:block;margin:8px auto 0;background:none;border:0;color:var(--amber-d);font-weight:800;font-size:13px;cursor:pointer}
+
+  /* Mileage */
+  .ca-row.al{align-items:flex-end}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .chips button{border:2px solid var(--line);background:#fff;color:var(--navy);font-weight:900;font-size:14px;border-radius:12px;padding:10px 12px;cursor:pointer;letter-spacing:.4px}
+  .chips button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .calcbox{background:#f4f7fb;border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:10px 0 12px}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:14px;color:var(--muted);font-weight:700}
+  .kv b{color:var(--navy);font-weight:900;font-size:15px;text-align:right;white-space:nowrap}
+  .kv.hl b{font-size:24px;color:var(--green-d)}
+  .kv.bad b{color:var(--red-d)}
+  .mlrow{background:var(--card);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px;display:flex;gap:10px;align-items:center}
+  .mlrow .mm{flex:1;min-width:0}
+  .mlrow .m1{font-weight:900;color:var(--navy);font-size:15px}
+  .mlrow .m2{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;line-height:1.45}
+  .mlrow .mk{font-weight:900;color:var(--green-d);font-size:17px;white-space:nowrap;text-align:right}
+  .mlrow .mk small{display:block;font-size:11px;color:var(--muted);font-weight:700}
+
   .note{font-size:12px;color:var(--muted);text-align:center;margin:12px 4px;line-height:1.5}
   .signrow{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
   .signrow b{color:var(--navy)}
@@ -371,6 +423,14 @@
       <button class="big navy" id="toReport" style="font-size:16px;padding:14px;background:var(--navy2);margin-top:4px">
         <span class="em">📊</span><span>Reports &amp; Excel export</span>
       </button>
+      <div class="row2">
+        <button class="big navy" id="toTrips" style="font-size:15px;padding:14px 10px;background:var(--navy2)">
+          <span class="em">🚚</span><span>Trips per tanker</span>
+        </button>
+        <button class="big navy" id="toMileage" style="font-size:15px;padding:14px 10px;background:var(--navy2)">
+          <span class="em">⛽</span><span>Mileage</span>
+        </button>
+      </div>
 
       <div class="note" id="storeNote"></div>
       <button class="linkbtn" id="toSettings">⚙ Manage tankers &amp; data</button>
@@ -459,12 +519,93 @@
       <div id="logList"></div>
     </section>
 
+    <!-- TRIPS PER TANKER (permanent trip records, customer RTD) -->
+    <section class="screen" id="scTrips">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Trips per tanker</div>
+      <div class="monthnav"><button id="trPrev" aria-label="Previous month">‹</button><span id="trMonth">—</span><button id="trNext" aria-label="Next month">›</button></div>
+      <div class="rrange">
+        <label>From<input type="date" id="trFrom" /></label>
+        <label>To<input type="date" id="trTo" /></label>
+      </div>
+      <div class="row2" style="margin-bottom:14px">
+        <div class="mini"><div class="n" id="trTrips">0</div><div class="l">Trips</div></div>
+        <div class="mini"><div class="n" id="trKm">0</div><div class="l">RTD km</div></div>
+        <div class="mini"><div class="n sm" id="trLit">0</div><div class="l">Litres sold</div></div>
+      </div>
+      <div id="trList"></div>
+      <button class="big green" id="trExcel"><span class="em">⬇</span><span>Download trip report (Excel)</span></button>
+      <div class="note" id="trNote"></div>
+    </section>
+
+    <!-- MILEAGE CALCULATOR (previous reading + litres filled, dip in Anguls) -->
+    <section class="screen" id="scMileage">
+      <div class="sectitle" style="font-size:18px;justify-content:center">Mileage calculator</div>
+      <div class="chips" id="mlVeh"></div>
+      <div class="card-add">
+        <div class="ca-h">Previous refill — <span id="mlPlate">—</span></div>
+        <div class="note" id="mlLast" style="text-align:left;margin:0 0 10px"></div>
+        <div class="ca-field" style="margin-bottom:10px"><label>Date &amp; time of previous refill</label>
+          <input type="datetime-local" id="mlPWhen" /></div>
+        <div class="ca-row al">
+          <div class="ca-field"><label class="mlUnitLab">Previous odometer (km)</label>
+            <input id="mlPOdo" type="text" inputmode="decimal" /></div>
+          <div class="ca-field"><label>Diesel filled then (L)</label>
+            <input id="mlPLit" type="text" inputmode="decimal" /></div>
+        </div>
+        <div class="ca-field mlAng"><label>Anguls in tank before that refill <span class="angL" data-for="mlPAng"></span></label>
+          <input id="mlPAng" type="text" inputmode="decimal" placeholder="0 if dry" /></div>
+      </div>
+      <div class="card-add">
+        <div class="ca-h">Now — refill</div>
+        <div class="ca-field" style="margin-bottom:10px"><label>Date &amp; time of this refill</label>
+          <input type="datetime-local" id="mlWhen" /></div>
+        <div class="ca-row al">
+          <div class="ca-field"><label class="mlUnitLab2">Odometer now (km)</label>
+            <input id="mlOdo" type="text" inputmode="decimal" /></div>
+          <div class="ca-field mlAng"><label>Anguls in tank now <span class="angL" data-for="mlAng"></span></label>
+            <input id="mlAng" type="text" inputmode="decimal" placeholder="dip before refill" /></div>
+        </div>
+        <div class="ca-field" style="margin-bottom:10px"><label>Diesel filled now (L)</label>
+          <input id="mlLit" type="text" inputmode="decimal" placeholder="e.g. 180" /></div>
+        <input id="mlNote" placeholder="Note (optional)" autocomplete="off" />
+        <div class="calcbox" id="mlCalc"></div>
+        <button class="big green" id="mlSave" style="font-size:17px;padding:14px;margin-bottom:0"><span class="em">✓</span><span>Save this refill</span></button>
+      </div>
+
+      <div class="sectitle">Period summary</div>
+      <div class="monthnav"><button id="mlPrev" aria-label="Previous month">‹</button><span id="mlMonth">—</span><button id="mlNext" aria-label="Next month">›</button></div>
+      <div class="rrange">
+        <label>From<input type="date" id="mlFrom" /></label>
+        <label>To<input type="date" id="mlTo" /></label>
+      </div>
+      <div class="calcbox" id="mlSum" style="background:var(--card);box-shadow:var(--shadow);border:0"></div>
+
+      <div class="sectitle">Refills <span style="font-weight:600;color:var(--muted);font-size:12px">newest first</span></div>
+      <div id="mlList"></div>
+      <div class="note" id="mlHow" style="text-align:left"></div>
+    </section>
+
     <!-- SETTINGS / MANAGE -->
     <section class="screen" id="scSettings">
       <div class="sectitle" style="font-size:18px;justify-content:center">Manage tankers &amp; data</div>
 
       <div class="sectitle">Tankers</div>
       <div id="vehList"></div>
+
+      <div class="sectitle">Customers &amp; RTD <span style="font-weight:600;color:var(--muted);font-size:12px">· the “Sold to” list</span></div>
+      <div class="note" id="destNote" style="text-align:left;margin:0 2px 8px">RTD = round-trip km per trip. Customers in the same group always share one RTD.</div>
+      <div id="destList"></div>
+      <div class="card-add">
+        <div class="ca-h">Add a customer</div>
+        <input id="newDest" placeholder="Customer name" autocomplete="off" />
+        <div class="ca-row">
+          <div class="ca-field"><label>Group company of</label>
+            <select id="newDestGrp" style="width:100%;font-size:16px;padding:12px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-weight:600"></select></div>
+          <div class="ca-field"><label>RTD km / trip</label>
+            <input id="newDestKm" type="text" inputmode="decimal" placeholder="e.g. 36" /></div>
+        </div>
+        <button class="big green" id="addDestBtn" style="font-size:17px;padding:14px;margin-bottom:0"><span class="em">＋</span><span>Add customer</span></button>
+      </div>
 
       <div id="pushWrap" style="display:none">
         <div class="sectitle">Notifications</div>
@@ -493,13 +634,14 @@
   </main>
 </div>
 
-<!-- Dispatch modal: capture whom it was sold to -->
+<!-- Dispatch modal: choose the customer it was sold to (also used to correct a trip) -->
 <div class="modal" id="dispModal">
-  <div class="modalbox">
-    <div class="mh">Send for sale</div>
+  <div class="modalbox wide">
+    <div class="mh" id="dispHead">Send for sale</div>
     <div class="mp" id="dispTitle">—</div>
-    <label class="mlab">Sold to / remarks (optional)</label>
-    <input id="dispSold" placeholder="e.g. Ramesh Traders" autocomplete="off" />
+    <label class="mlab" id="dispLab">Sold to — choose the customer</label>
+    <div class="destlist" id="dispDests"></div>
+    <div class="caperr" id="dispErr"></div>
     <div class="mbtns">
       <button class="mbtn ghost" id="dispCancel">Cancel</button>
       <button class="mbtn go" id="dispOk">🚚 Confirm sale</button>
@@ -584,6 +726,24 @@ const DEFAULT_VEHICLES = [
 ];
 const VCOLORS = ["#1f6f8b","#2d7d46","#8a5a1e","#6a3d8c","#b3402f","#2f6f6f","#5a4bd1","#946a00"];
 let VEHICLES = DEFAULT_VEHICLES.slice();
+
+/* ---------- Customers (the "Sold to" choices) & their RTD ----------
+   RTD = round-trip km per trip. Seed copy of the RTD master; in cloud mode the
+   shared list lives in loading_destinations and is editable under ⚙. Customers
+   sharing a `grp` are group companies and always carry the same RTD. */
+const DEFAULT_DESTS = [
+  { name:"Shyam Metalics",                   rtd:36,  grp:"" },
+  { name:"SMC Unit 1",                       rtd:16,  grp:"" },
+  { name:"SMC Unit 2",                       rtd:20,  grp:"" },
+  { name:"Orissa Metaliks",                  rtd:30,  grp:"" },
+  { name:"Lakhanpur Group Companies",        rtd:70,  grp:"Lakhanpur Group" },
+  { name:"DBL - Siarmal",                    rtd:140, grp:"" },
+  { name:"Aryan Ispat & Power Private Ltd.", rtd:30,  grp:"" },
+];
+let DESTS = DEFAULT_DESTS.slice();
+let DESTS_FALLBACK = false;   // cloud list unreadable (schema not updated yet) → seed copy
+// Tankers left out of the trip report.
+const TRIP_EXCLUDE = ["OD15AF5510"];
 function maxChambers(){ return VEHICLES.length?Math.max.apply(null,VEHICLES.map(v=>v.caps.length)):4; }
 
 /* ---------- Mode & config ----------
@@ -600,7 +760,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v16 · 2026-09-09";
+const APP_BUILD = "v17 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -692,6 +852,13 @@ let ME = "";         // signed-in username (cloud mode)
 const LS_KEY = "vf_loading_log_v1";
 const VLS_KEY = "vf_loading_vehicles_v1";
 const CLS_KEY = "vf_loading_closes_v1";
+const DLS_KEY = "vf_loading_dests_v1";
+const FLS_KEY = "vf_loading_fuel_v1";
+function lsGet(k,d){ try{ const v=JSON.parse(localStorage.getItem(k)); return Array.isArray(v)?v:d; }catch(e){ return d; } }
+function lsPut(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+function dNorm(d){ return { name:String(d.name||""), rtd:+d.rtd||0, grp:String(d.grp||"") }; }
+// a 'dispatch' event as a trip row
+function evTrip(e){ return { id:e.id, ts:e.ts, plate:e.plate, total:+e.total||0, dest:e.remark||"", by:e.by||"" }; }
 function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
 function lsSave(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
 function vNorm(v){ return { plate:v.plate, caps:v.caps, color:v.color||"", fill:v.fill||{}, total_loaded:+v.total_loaded||0, total_sold:+v.total_sold||0 }; }
@@ -755,6 +922,25 @@ const LocalBackend = {
     if(due.length){ const l=lsCloses(); due.forEach(d=>{ if(!l.some(c=>c.date===d.date)) l.push(d); }); lsClosesSave(l); }
     return Promise.resolve();
   },
+  // ---- customers / trips / fuel log (single-device: all kept in this browser) ----
+  loadDests(){ return Promise.resolve(lsGet(DLS_KEY, DEFAULT_DESTS).map(dNorm)); },
+  saveDest(name, rtd, grp){
+    const l=lsGet(DLS_KEY, DEFAULT_DESTS).map(dNorm), d=l.find(x=>x.name===name);
+    if(d){ d.rtd=rtd; d.grp=grp; } else l.push({ name:name, rtd:rtd, grp:grp });
+    if(grp) l.forEach(x=>{ if(x.grp===grp) x.rtd=rtd; });
+    lsPut(DLS_KEY, l); return Promise.resolve();
+  },
+  removeDest(name){ lsPut(DLS_KEY, lsGet(DLS_KEY, DEFAULT_DESTS).map(dNorm).filter(x=>x.name!==name)); return Promise.resolve(); },
+  // local history is kept for good, so trips are simply its sales
+  loadTrips(fromMs, toMs){ return Promise.resolve(lsLoad().filter(e=>e.kind==="dispatch" && e.ts>=fromMs && e.ts<toMs).sort((a,b)=>a.ts-b.ts).map(evTrip)); },
+  setTripDest(id, dest){
+    const l=lsLoad(), e=l.find(x=>x.id===id && x.kind==="dispatch");
+    if(!e) return Promise.reject(new Error("Trip not found"));
+    e.remark=dest; lsSave(l); return Promise.resolve();
+  },
+  loadFuel(){ return Promise.resolve(lsGet(FLS_KEY, []).slice()); },
+  addFuel(r){ const l=lsGet(FLS_KEY, []); l.push(Object.assign({ id:localId(), cts:Date.now() }, r)); lsPut(FLS_KEY, l); return Promise.resolve(); },
+  removeFuel(id){ lsPut(FLS_KEY, lsGet(FLS_KEY, []).filter(x=>x.id!==id)); return Promise.resolve(); },
 };
 
 const CloudBackend = {
@@ -804,13 +990,54 @@ const CloudBackend = {
   endDay(){ return this.rpc("loading_end_day",{}); },
   closeDue(){ return this.rpc("loading_close_due",{}).catch(()=>{}); },
   purge(){ return this.rpc("loading_purge",{}).catch(()=>{}); },
+  // Read every page of a query (PostgREST caps a response at 1,000 rows).
+  // `q` must build a fresh query each call.
+  all(q){
+    const out=[], step=1000;
+    const next=(from)=>q().range(from, from+step-1).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      const d=r.data||[]; out.push.apply(out, d);
+      return d.length===step ? next(from+step) : out;
+    });
+    return next(0);
+  },
+  // ---- customers / trips / fuel log (permanent tables, see loading-schema.sql) ----
+  loadDests(){
+    return this.client.from("loading_destinations").select("*").order("sort",{ascending:true}).order("name",{ascending:true}).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      return (r.data||[]).map(row=>dNorm({ name:row.name, rtd:row.rtd_km, grp:row.grp }));
+    });
+  },
+  saveDest(name, rtd, grp){ return this.rpc("loading_dest_save",{ p_name:name, p_rtd:rtd, p_grp:grp||"" }); },
+  removeDest(name){ return this.rpc("loading_dest_remove",{ p_name:name }); },
+  loadTrips(fromMs, toMs){
+    return this.all(()=>this.client.from("loading_trips").select("*")
+      .gte("created_at", new Date(fromMs).toISOString()).lt("created_at", new Date(toMs).toISOString())
+      .order("created_at",{ascending:true}))
+      .then(rows=>rows.map(row=>({ id:row.id, ts:Date.parse(row.created_at), plate:row.vehicle,
+        total:+row.total||0, dest:row.dest||"", by:row.by_name||"" })));
+  },
+  setTripDest(id, dest){ return this.rpc("loading_trip_set_dest",{ p_id:id, p_dest:dest }); },
+  loadFuel(){
+    return this.all(()=>this.client.from("loading_fuel_logs").select("*").order("reading_at",{ascending:true}))
+      .then(rows=>rows.map(row=>({ id:row.id, plate:row.vehicle, ts:Date.parse(row.reading_at), odo:+row.odometer||0,
+        litres:+row.litres||0, anguls:row.anguls==null?null:+row.anguls, note:row.note||"", by:row.by_name||"", cts:Date.parse(row.created_at) })));
+  },
+  addFuel(r){ return this.rpc("loading_fuel_add",{ p_vehicle:r.plate, p_reading_at:new Date(r.ts).toISOString(),
+    p_odometer:r.odo, p_litres:r.litres, p_anguls:r.anguls==null?null:r.anguls, p_note:r.note||"", p_by:r.by||ME }); },
+  removeFuel(id){ return this.rpc("loading_fuel_delete",{ p_id:id }); },
 };
 
 let Backend = LocalBackend;
 function applyVehicles(list){ VEHICLES = (list&&list.length)?list:(CLOUD?[]:DEFAULT_VEHICLES.slice()); }
 function refresh(){
-  return Promise.all([Backend.load(), Backend.loadVehicles(), Backend.loadCloses()]).then(r=>{
+  // The customer list must never take the app down: until the updated schema
+  // is run in Supabase that table doesn't exist, so fall back to the seed copy.
+  const dests=Backend.loadDests().catch(()=>null);
+  return Promise.all([Backend.load(), Backend.loadVehicles(), Backend.loadCloses(), dests]).then(r=>{
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
+    DESTS_FALLBACK = r[3]==null;
+    DESTS = r[3]==null ? DEFAULT_DESTS.map(dNorm) : r[3];
   });
 }
 function rerenderCurrent(){
@@ -818,6 +1045,7 @@ function rerenderCurrent(){
   if(cur==="scHome") renderHome(); else if(cur==="scHist") renderHist();
   else if(cur==="scReport") renderReport(); else if(cur==="scLog") renderLog();
   else if(cur==="scSettings") renderSettings();
+  else if(cur==="scTrips") loadTripReport(); else if(cur==="scMileage") loadMileage();
 }
 // Auto-end any business day whose 8 AM deadline has passed, then reload.
 function maybeAutoClose(){ return Backend.closeDue().then(refresh).then(rerenderCurrent).catch(()=>{}); }
@@ -830,7 +1058,7 @@ setInterval(()=>{
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (Backend!==CloudBackend || ME)) maybeAutoClose(); });
 
 /* ---------- Screen routing ---------- */
-const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings"];
+const SCREENS=["scHome","scAdd","scConf","scHist","scReport","scLog","scSettings","scTrips","scMileage"];
 let stack=["scHome"];
 function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
@@ -845,6 +1073,8 @@ function goBack(){
   if(stack[stack.length-1]==="scReport") renderReport();
   if(stack[stack.length-1]==="scLog") renderLog();
   if(stack[stack.length-1]==="scSettings") renderSettings();
+  if(stack[stack.length-1]==="scTrips") renderTrips();
+  if(stack[stack.length-1]==="scMileage") renderMileage();
 }
 $("#backBtn").onclick=goBack;
 function goHome(){ stack=["scHome"]; show("scHome",false); renderHome(); }
@@ -1109,26 +1339,62 @@ function entryHTML(e){
     +'<span class="tot">+'+fmt(e.total)+' L</span></div>';
 }
 
-/* ---------- Dispatch (Sent for sale) — empties the tanker, records sold-to ---------- */
-let pendingDispatch=null;
+/* ---------- Dispatch (Sent for sale) — empties the tanker, records sold-to ----------
+   "Sold to" is picked from the customer list only (each carries its RTD for
+   the trip report). The same picker corrects the customer on a past trip. */
+let pendingDispatch=null;   // { mode:'sale', plate } | { mode:'trip', id, plate }
+let pickedDest="";
+function renderDestPicker(current){
+  pickedDest = DESTS.some(d=>d.name===current) ? current : "";
+  const box=$("#dispDests");
+  box.innerHTML = DESTS.length ? DESTS.map(d=>
+    '<button type="button" class="dest'+(d.name===pickedDest?' on':'')+'" data-dest="'+esc(d.name)+'">'
+    +'<span class="dn">'+esc(d.name)+'</span><span class="dk">'+fmt(d.rtd)+' km RTD'+(d.grp?' · '+esc(d.grp):'')+'</span></button>').join("")
+    : '<div class="empty" style="padding:12px">No customers in the list yet.<br>Add them in ⚙ Manage tankers &amp; data.</div>';
+  box.querySelectorAll(".dest").forEach(b=>{ b.onclick=()=>{
+    pickedDest=b.getAttribute("data-dest"); $("#dispErr").textContent="";
+    box.querySelectorAll(".dest").forEach(x=>x.classList.toggle("on", x===b));
+  }; });
+  $("#dispErr").textContent="";
+}
 function dispatchTanker(plate){
   const st=tankerState(plate);
   if(st.total<=0){ toast("Tanker is already empty"); return; }
-  pendingDispatch=plate;
+  pendingDispatch={ mode:"sale", plate:plate };
+  $("#dispHead").textContent="Send for sale";
   $("#dispTitle").textContent=plate+" — "+fmt(st.total)+" L";
-  $("#dispSold").value="";
+  $("#dispLab").textContent="Sold to — choose the customer";
+  $("#dispOk").textContent="🚚 Confirm sale";
+  renderDestPicker("");
   $("#dispModal").classList.add("on");
-  setTimeout(()=>$("#dispSold").focus(),60);
+}
+function editTripDest(trip){
+  pendingDispatch={ mode:"trip", id:trip.id, plate:trip.plate };
+  $("#dispHead").textContent="Change customer";
+  $("#dispTitle").textContent=trip.plate+" · "+dmy(shiftDate(trip.ts))+" "+timeLabel(trip.ts);
+  $("#dispLab").textContent="This trip went to — choose the customer";
+  $("#dispOk").textContent="Save";
+  renderDestPicker(trip.dest);
+  $("#dispModal").classList.add("on");
 }
 function closeDisp(){ $("#dispModal").classList.remove("on"); pendingDispatch=null; }
 $("#dispCancel").onclick=closeDisp;
 $("#dispModal").addEventListener("click",e=>{ if(e.target===$("#dispModal")) closeDisp(); });
 $("#dispOk").onclick=()=>{
-  const plate=pendingDispatch; if(!plate) return;
-  const st=tankerState(plate);
-  if(st.total<=0){ closeDisp(); return; }
-  const remark=$("#dispSold").value.trim();
+  const pd=pendingDispatch; if(!pd) return;
+  // with an empty list nobody could ever sell, so only insist when there is a choice
+  if(!pickedDest && DESTS.length){ $("#dispErr").textContent="Choose the customer it was sold to."; return; }
+  const remark=pickedDest;
   const btn=$("#dispOk"); btn.disabled=true;
+  if(pd.mode==="trip"){
+    Backend.setTripDest(pd.id, remark).then(refresh).then(()=>{
+      btn.disabled=false; closeDisp(); toast("✓ Trip updated — "+remark); loadTripReport();
+    }).catch(e=>{ btn.disabled=false; $("#dispErr").textContent=dbHint(e); });
+    return;
+  }
+  const plate=pd.plate;
+  const st=tankerState(plate);
+  if(st.total<=0){ btn.disabled=false; closeDisp(); return; }
   Backend.dispatch(plate, remark).then(()=>{
     notifyStaff("sold", plate, remark);   // fire first; don't wait on the reload
     return refresh();
@@ -1137,7 +1403,6 @@ $("#dispOk").onclick=()=>{
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:""));
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
-$("#dispSold").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#dispOk").click(); });
 
 /* ---------- ADD DIESEL to a tanker's chambers ---------- */
 let tankReady=false;
@@ -1516,6 +1781,7 @@ function renderSettings(){
   box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
   const bt=$("#buildTag"); if(bt) bt.textContent=APP_BUILD;
+  renderDests();
   renderPushBox();
 }
 
@@ -1667,12 +1933,453 @@ $("#clearBtn").onclick=()=>{
   Backend.clearAll().then(refresh).then(()=>{ renderSettings(); toast("All records cleared"); }).catch(oops);
 };
 
+/* ---------- Customers & RTD (⚙) ---------- */
+function groupOf(name){ const d=DESTS.find(x=>x.name===name); return d ? (d.grp || "") : ""; }
+function renderDests(){
+  const box=$("#destList"); if(!box) return;
+  $("#destNote").innerHTML = DESTS_FALLBACK
+    ? '⚠ The shared customer list isn\'t set up yet — showing the built-in list. Re-run <b>supabase/loading-schema.sql</b> in Supabase to enable it.'
+    : 'RTD = round-trip km per trip. Customers in the same group always share one RTD.';
+  box.innerHTML = DESTS.length ? DESTS.map(d=>
+    '<div class="entry"><div class="mid"><div class="ch" style="color:var(--ink);font-weight:800;white-space:normal">'+esc(d.name)+'</div>'
+    +'<div class="tm">RTD <b>'+fmt(d.rtd)+' km</b> / trip'+(d.grp?' · group: '+esc(d.grp):'')+'</div></div>'
+    +'<button class="edit" data-eddest="'+esc(d.name)+'" aria-label="Edit RTD">✎</button>'
+    +'<button class="del" data-rmdest="'+esc(d.name)+'" aria-label="Remove">🗑</button></div>').join("")
+    : '<div class="empty">No customers yet. Add one below.</div>';
+  box.querySelectorAll("[data-eddest]").forEach(b=>{ b.onclick=()=>editDestRtd(b.getAttribute("data-eddest")); });
+  box.querySelectorAll("[data-rmdest]").forEach(b=>{ b.onclick=()=>removeDestUI(b.getAttribute("data-rmdest")); });
+  const sel=$("#newDestGrp"), keep=sel.value;
+  sel.innerHTML='<option value="">— none (own RTD) —</option>'
+    + DESTS.map(d=>'<option value="'+esc(d.name)+'">'+esc(d.name)+(d.grp?' ('+esc(d.grp)+')':'')+'</option>').join("");
+  sel.value = DESTS.some(d=>d.name===keep) ? keep : "";
+  syncNewDestKm();
+}
+// picking "group company of" copies that customer's RTD and locks the field
+function syncNewDestKm(){
+  const sel=$("#newDestGrp"), km=$("#newDestKm"), d=DESTS.find(x=>x.name===sel.value);
+  if(d){ km.value=String(d.rtd); km.disabled=true; } else { if(km.disabled) km.value=""; km.disabled=false; }
+}
+$("#newDestGrp").addEventListener("change", syncNewDestKm);
+$("#newDestKm").addEventListener("input",()=>{ $("#newDestKm").value=sanQty($("#newDestKm").value); });
+function needDestTable(){ if(DESTS_FALLBACK){ toast("Re-run loading-schema.sql in Supabase first"); return true; } return false; }
+$("#addDestBtn").onclick=()=>{
+  if(needDestTable()) return;
+  const name=$("#newDest").value.trim().replace(/\s+/g," ");
+  if(!name){ toast("Enter the customer name"); return; }
+  if(DESTS.some(d=>d.name.toLowerCase()===name.toLowerCase())){ toast("That customer is already in the list"); return; }
+  const parent=DESTS.find(d=>d.name===$("#newDestGrp").value);
+  const rtd=parent ? parent.rtd : r2(num($("#newDestKm").value));
+  if(!parent && !(rtd>0)){ toast("Enter the RTD km"); return; }
+  // joining a customer that has no group yet starts a group named after it
+  const grp=parent ? (parent.grp || parent.name) : "";
+  const btn=$("#addDestBtn"); btn.disabled=true;
+  const first=(parent && !parent.grp) ? Backend.saveDest(parent.name, parent.rtd, grp) : Promise.resolve();
+  first.then(()=>Backend.saveDest(name, rtd, grp)).then(refresh).then(()=>{
+    btn.disabled=false; $("#newDest").value=""; $("#newDestKm").value=""; $("#newDestGrp").value="";
+    renderDests(); toast("Added "+name);
+  }).catch(e=>{ btn.disabled=false; toast(dbHint(e)); });
+};
+function editDestRtd(name){
+  if(needDestTable()) return;
+  const d=DESTS.find(x=>x.name===name); if(!d) return;
+  const mates=d.grp ? DESTS.filter(x=>x.grp===d.grp && x.name!==d.name).length : 0;
+  const ans=prompt("RTD km per trip for "+name+(mates?"\n(applies to all "+(mates+1)+" companies of "+d.grp+")":""), String(d.rtd));
+  if(ans==null) return;
+  const v=r2(num(sanQty(ans)));
+  if(!(v>0)){ toast("Enter km greater than 0"); return; }
+  Backend.saveDest(name, v, d.grp).then(refresh).then(()=>{ renderDests(); toast("RTD updated"); }).catch(e=>toast(dbHint(e)));
+}
+function removeDestUI(name){
+  if(needDestTable()) return;
+  if(!confirm("Remove "+name+" from the customer list?\nPast trips keep its name, but their RTD will no longer count until a customer is picked again.")) return;
+  Backend.removeDest(name).then(refresh).then(()=>{ renderDests(); toast("Removed "+name); }).catch(e=>toast(dbHint(e)));
+}
+// Explain the one failure people will actually meet: the new tables not created yet.
+function dbHint(e){
+  const m=(e&&e.message)||String(e||"");
+  return /does not exist|schema cache|Could not find|42P01|PGRST20/i.test(m)
+    ? "Database needs the update — re-run supabase/loading-schema.sql in Supabase"
+    : (m || "Something went wrong — try again");
+}
+
+/* ---------- Shared date-range helpers (month by default) ---------- */
+function monthKeys(y,m){ const last=new Date(y,m+1,0).getDate(); return { from:y+"-"+pad(m+1)+"-01", to:y+"-"+pad(m+1)+"-"+pad(last) }; }
+function monthName(y,m){ return new Date(y,m,1).toLocaleDateString("en-IN",{month:"long",year:"numeric"}); }
+/* A small month navigator over two date inputs. Arrows step a whole month;
+   editing a date by hand switches it to a custom range. */
+function makeRange(ids, onChange){
+  const now=new Date(), cur=shiftDate(now.getTime()).split("-").map(Number);
+  const st={ y:cur[0], m:cur[1]-1 };
+  function setMonth(y,m){
+    const d=new Date(y,m,1); st.y=d.getFullYear(); st.m=d.getMonth();
+    const k=monthKeys(st.y, st.m); $(ids.from).value=k.from; $(ids.to).value=k.to;
+    $(ids.label).textContent=monthName(st.y, st.m);
+    onChange();
+  }
+  $(ids.prev).onclick=()=>setMonth(st.y, st.m-1);
+  $(ids.next).onclick=()=>setMonth(st.y, st.m+1);
+  [ids.from, ids.to].forEach(sel=>$(sel).addEventListener("change",()=>{
+    const f=$(ids.from).value, t=$(ids.to).value;
+    if(f && t && f>t){ $(ids.to).value=f; }
+    const k=monthKeys(st.y, st.m);
+    $(ids.label).textContent = ($(ids.from).value===k.from && $(ids.to).value===k.to) ? monthName(st.y, st.m) : "Custom range";
+    onChange();
+  }));
+  return { st:st, setMonth:setMonth, thisMonth:()=>{ const c=shiftDate(Date.now()).split("-").map(Number); setMonth(c[0], c[1]-1); } };
+}
+// business-day bounds: a business date D runs 7:30 AM on D → 7:30 AM on D+1
+function bizStartMs(key){ return dayStartMs(key)+HANDOVER_MIN*60000; }
+function bizEndMs(key){ return bizStartMs(addDays(key,1)); }
+
+/* ---------- TRIPS PER TANKER ----------
+   One trip = one "Sent for sale". Trips are permanent (not trimmed to 7 days).
+   A trip's date is its business day (7:30 AM → 7:30 AM). Each trip's km comes
+   from its customer's RTD; trips to a name not in the customer list count 0 km
+   and are flagged so they can be corrected with ✎. */
+let TRIPS=[], TRIPS_ERR="", tripOpen=new Set(), tripSeq=0;
+function plateKey(p){ return String(p||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
+function isExcluded(p){ const k=plateKey(p); return TRIP_EXCLUDE.some(x=>plateKey(x)===k); }
+function destOf(name){ const n=String(name||"").trim().toLowerCase(); return n ? DESTS.find(d=>d.name.trim().toLowerCase()===n) : null; }
+function tripKm(t){ const d=destOf(t.dest); return d ? d.rtd : 0; }
+const tripRange = makeRange({ prev:"#trPrev", next:"#trNext", label:"#trMonth", from:"#trFrom", to:"#trTo" }, ()=>loadTripReport());
+function openTrips(){ tripOpen=new Set(); show("scTrips"); tripRange.thisMonth(); }
+function loadTripReport(){
+  const f=$("#trFrom").value, t=$("#trTo").value; if(!f || !t) return;
+  const seq=++tripSeq;
+  $("#trNote").textContent="Loading…";
+  return Backend.loadTrips(bizStartMs(f), bizEndMs(t)).then(list=>{
+    if(seq!==tripSeq) return;           // a newer range was asked for meanwhile
+    TRIPS=list.filter(x=>!isExcluded(x.plate)); TRIPS_ERR=""; renderTrips();
+  }).catch(e=>{ if(seq!==tripSeq) return; TRIPS=[]; TRIPS_ERR=dbHint(e); renderTrips(); });
+}
+function tripPlates(){
+  const out=[];
+  VEHICLES.forEach(v=>{ if(!isExcluded(v.plate)) out.push(v.plate); });
+  TRIPS.forEach(t=>{ if(out.indexOf(t.plate)===-1) out.push(t.plate); });   // a tanker since removed
+  return out;
+}
+// per tanker → per customer counts, in customer-list order, unknown names last
+function tripSummary(){
+  return tripPlates().map(plate=>{
+    const ts=TRIPS.filter(t=>t.plate===plate), by={};
+    ts.forEach(t=>{ const d=destOf(t.dest), k=d?d.name:(t.dest.trim()||"(no customer)");
+      (by[k]=by[k]||{ name:k, known:!!d, rtd:d?d.rtd:0, n:0, litres:0 }); by[k].n++; by[k].litres+=t.total; });
+    const order=DESTS.map(d=>d.name);
+    const rows=Object.keys(by).map(k=>by[k]).sort((a,b)=>{
+      const ia=order.indexOf(a.name), ib=order.indexOf(b.name);
+      return (ia<0?999:ia)-(ib<0?999:ib) || a.name.localeCompare(b.name);
+    });
+    return { plate:plate, trips:ts, rows:rows, n:ts.length,
+      km:r2(ts.reduce((s,t)=>s+tripKm(t),0)), litres:r2(ts.reduce((s,t)=>s+t.total,0)),
+      unknown:ts.filter(t=>!destOf(t.dest)).length };
+  });
+}
+function renderTrips(){
+  const sum=tripSummary();
+  $("#trTrips").textContent=TRIPS.length;
+  $("#trKm").textContent=fmt(sum.reduce((s,x)=>s+x.km,0));
+  $("#trLit").textContent=fmt(sum.reduce((s,x)=>s+x.litres,0));
+  const box=$("#trList");
+  if(TRIPS_ERR){ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(TRIPS_ERR)+'</div>'; }
+  else if(!sum.length){ box.innerHTML='<div class="empty">No tankers.</div>'; }
+  else box.innerHTML=sum.map(x=>{
+    const open=tripOpen.has(x.plate);
+    const lines=x.rows.map(r=>'<div class="tl'+(r.known?'':' warn')+'"><span class="tn">'+(r.known?'':'⚠ ')+esc(r.name)+'</span>'
+      +'<span class="tc">'+r.n+' × '+(r.known?fmt(r.rtd)+' km':'? km')+'</span><span class="tk">'+fmt(r.known?r2(r.n*r.rtd):0)+' km</span></div>').join("");
+    const list=open ? '<div class="trtrips">'+x.trips.slice().reverse().map(t=>{
+      const d=destOf(t.dest);
+      return '<div class="trrow"><span class="tw">'+dmy(shiftDate(t.ts)).slice(0,5)+' · '+timeLabel(t.ts)+'</span>'
+        +'<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>'
+        +'<span class="tq">'+fmt(t.total)+' L</span>'
+        +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>';
+    }).join("")+'</div>' : '';
+    return '<div class="trcard"><div class="trh"><span class="plate">'+esc(x.plate)+'</span>'
+      +'<span class="trn"><b>'+x.n+'</b> trip'+(x.n===1?'':'s')+'<br>'+fmt(x.km)+' km RTD</span></div>'
+      +(x.n ? '<div class="trd">'+lines+'</div>'
+            +(x.unknown?'<div class="note" style="color:var(--red-d);text-align:left;margin:6px 0 0">⚠ '+x.unknown+' trip'+(x.unknown===1?'':'s')+' to a customer not in the list (0 km) — tap ✎ on the trip to pick the customer.</div>':'')
+            +'<button class="trshow" data-trshow="'+esc(x.plate)+'">'+(open?'Hide trips ▴':'Show '+x.n+' trip'+(x.n===1?'':'s')+' ▾')+'</button>'+list
+          : '<div class="tm" style="margin-top:6px;color:var(--muted);font-size:13px">No trips in this period.</div>')
+      +'</div>';
+  }).join("");
+  box.querySelectorAll("[data-trshow]").forEach(b=>{ b.onclick=()=>{
+    const p=b.getAttribute("data-trshow"); if(tripOpen.has(p)) tripOpen.delete(p); else tripOpen.add(p); renderTrips(); }; });
+  box.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{
+    const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
+  $("#trExcel").disabled=!!TRIPS_ERR || !TRIPS.length;
+  $("#trNote").innerHTML = TRIPS_ERR ? "" : "A trip = one “Sent for sale”. Dates are business days (7:30 AM to 7:30 AM). "
+    + esc(TRIP_EXCLUDE.join(", "))+" is not counted in this report."
+    + (DESTS_FALLBACK?" ⚠ Using the built-in customer list.":"");
+}
+$("#trExcel").onclick=async()=>{
+  if(!TRIPS.length){ toast("No trips in this period"); return; }
+  const sum=tripSummary(), f=$("#trFrom").value, t=$("#trTo").value;
+  const names=DESTS.map(d=>d.name);
+  TRIPS.forEach(x=>{ if(!destOf(x.dest)){ const k=x.dest.trim()||"(no customer)"; if(names.indexOf(k)===-1) names.push(k); } });
+  const head=["Vehicle","Trips","RTD km","Litres sold"].concat(names.map(n=>{ const d=destOf(n); return n+(d?" ("+fmt(d.rtd)+" km)":" (not in list)"); }));
+  const byT=[head].concat(sum.map(x=>[x.plate, x.n, x.km, x.litres].concat(names.map(n=>{ const r=x.rows.find(rr=>rr.name===n); return r?r.n:0; }))));
+  byT.push(["Total", TRIPS.length, r2(sum.reduce((s,x)=>s+x.km,0)), r2(sum.reduce((s,x)=>s+x.litres,0))]
+    .concat(names.map(n=>sum.reduce((s,x)=>{ const r=x.rows.find(rr=>rr.name===n); return s+(r?r.n:0); },0))));
+  const list=TRIPS.map(x=>{ const d=destOf(x.dest); return { "Business date":shiftDate(x.ts), "Time":timeLabel(x.ts), "Vehicle":x.plate,
+    "Customer":x.dest||"", "RTD km":d?d.rtd:0, "In customer list?":d?"Yes":"No", "Litres":x.total, "By":x.by||"" }; });
+  const cust=DESTS.map(d=>({ "Customer":d.name, "RTD km / trip":d.rtd, "Group":d.grp||"" }));
+  const fname="Vriddhi_Trips_per_Tanker_"+f+"_to_"+t;
+  try{
+    const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+    const wb=XLSX.utils.book_new();
+    const top=[["Vriddhi Fuels — Trips per tanker"],["Period", f+"  to  "+t],["Generated", new Date().toLocaleString("en-IN")],
+      ["Excluded", TRIP_EXCLUDE.join(", ")],[]];
+    const ws=XLSX.utils.aoa_to_sheet(top.concat(byT));
+    ws["!cols"]=[{wch:14},{wch:7},{wch:9},{wch:12}].concat(names.map(()=>({wch:16})));
+    numfmt(XLSX,ws,top.length+1); XLSX.utils.book_append_sheet(wb,ws,"Trips by tanker");
+    const wl=XLSX.utils.json_to_sheet(list); wl["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:30},{wch:8},{wch:15},{wch:10},{wch:12}];
+    wl["!autofilter"]={ref:wl["!ref"]}; numfmt(XLSX,wl,1); XLSX.utils.book_append_sheet(wb,wl,"Trip list");
+    const wc=XLSX.utils.json_to_sheet(cust); wc["!cols"]=[{wch:32},{wch:13},{wch:18}]; XLSX.utils.book_append_sheet(wb,wc,"Customers (RTD)");
+    const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+    dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
+    toast("Trip report downloaded ("+TRIPS.length+" trips)");
+  }catch(err){
+    const q=s=>{ s=String(s==null?"":s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+    const csv="﻿"+byT.map(r=>r.map(q).join(",")).join("\r\n");
+    dl(new Blob([csv],{type:"text/csv;charset=utf-8"}), fname+".csv");
+    toast("Downloaded as CSV");
+  }
+};
+
+/* ---------- MILEAGE CALCULATOR ----------
+   Every tanker is run to almost dry and then refilled. Each saved refill holds:
+   when, the reading, the litres filled and (dip-stick tankers) the stock found
+   in the tank BEFORE refilling, in Anguls (1 Angul = 16 L).
+     diesel used between two refills = previous litres + previous stock − stock now
+   Normal tankers: reading = ODOMETER (km)  → mileage = km run ÷ diesel used.
+   OD15AF5510 (engine mostly on, works its own dispenser): reading = DISPENSER
+   METER (litres)  → mileage = litres dispensed ÷ diesel used. It has no dip, so
+   its tank is taken as dry at each refill. */
+const ANGUL_L = 16;
+const METER_VEHICLES = ["OD15AF5510"];
+function isMeter(p){ const k=plateKey(p); return METER_VEHICLES.some(x=>plateKey(x)===k); }
+let FUEL=[], FUEL_ERR="", ML_TRIPS=[], mlPlate="", mlSeq=0;
+const mileRange = makeRange({ prev:"#mlPrev", next:"#mlNext", label:"#mlMonth", from:"#mlFrom", to:"#mlTo" }, ()=>renderMileage());
+function nowLocalInput(ms){ const d=new Date(ms); return dayKey(ms)+"T"+pad(d.getHours())+":"+pad(d.getMinutes()); }
+function inputMs(sel){ const v=$(sel).value; const t=v?new Date(v).getTime():NaN; return isNaN(t)?null:t; }
+function optNum(sel){ const v=$(sel).value; return v==="" ? null : r2(num(v)); }
+function stockOf(r){ return (r && r.anguls!=null) ? r2(r.anguls*ANGUL_L) : 0; }
+function mlPlates(){ const out=VEHICLES.map(v=>v.plate); METER_VEHICLES.forEach(p=>{ if(!out.some(x=>plateKey(x)===plateKey(p))) out.push(p); }); return out; }
+function fuelRows(plate){ return FUEL.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0)); }
+function tripsIn(plate, a, b){ return ML_TRIPS.filter(t=>t.plate===plate && t.ts>a && t.ts<=b); }
+// one refill-to-refill interval
+function interval(prev, cur){
+  const o={ prev:prev, cur:cur, dist:r2(cur.odo-prev.odo), used:r2((+prev.litres||0)+stockOf(prev)-stockOf(cur)), trips:0, rtd:0, ratio:null };
+  o.ratio = (o.used>0 && o.dist>0) ? o.dist/o.used : null;
+  if(!isMeter(cur.plate) && prev.ts!=null && cur.ts!=null){
+    const tr=tripsIn(cur.plate, prev.ts, cur.ts); o.trips=tr.length; o.rtd=r2(tr.reduce((s,t)=>s+tripKm(t),0));
+  }
+  return o;
+}
+function ratioTxt(v, meter){ return v==null ? "—" : (Math.round(v*100)/100).toFixed(2)+(meter?" L / L":" km/L"); }
+function kv(label, val, cls){ return '<div class="kv'+(cls?' '+cls:'')+'"><span>'+label+'</span><b>'+val+'</b></div>'; }
+// the interval figures, shared by the live calculator, the refill list and the period summary
+function intervalKV(o, meter){
+  let h="";
+  if(meter){
+    h+=kv("Fuel dispensed (meter)", fmt(o.dist)+" L", o.dist<0?"bad":"");
+    h+=kv("Diesel used", fmt(o.used)+" L", o.used<=0?"bad":"");
+    h+=kv("Mileage — dispensed per litre", ratioTxt(o.ratio,true), "hl");
+    if(o.ratio) h+=kv("Diesel per 1,000 L dispensed", fmt(r2(o.used/o.dist*1000))+" L");
+  } else {
+    h+=kv("Distance run", fmt(o.dist)+" km", o.dist<0?"bad":"");
+    h+=kv("Diesel used", fmt(o.used)+" L", o.used<=0?"bad":"");
+    h+=kv("Mileage", ratioTxt(o.ratio,false), "hl");
+    h+=kv("Trips · RTD km", o.trips+" · "+fmt(o.rtd)+" km");
+    const extra=r2(o.dist-o.rtd);
+    h+=kv("Extra km (odometer − RTD)", fmt(extra)+" km", extra<0?"bad":"");
+    if(o.ratio && extra>0) h+=kv("Diesel for the extra km", fmt(r2(extra/o.ratio))+" L");
+  }
+  return h;
+}
+function openMileage(){
+  const ps=mlPlates();
+  if(!mlPlate || ps.indexOf(mlPlate)===-1) mlPlate=ps[0]||"";
+  show("scMileage");
+  mileRange.thisMonth();
+  loadMileage().then(()=>fillPrevFromSaved(true));
+}
+function loadMileage(){
+  const seq=++mlSeq;
+  return Backend.loadFuel().then(rows=>{
+    if(seq!==mlSeq) return;
+    FUEL=rows; FUEL_ERR="";
+    // trips for the RTD comparison: from the oldest refill (or a month back) onward
+    const first=Math.min(Date.now()-35*864e5, FUEL.length ? Math.min.apply(null, FUEL.map(r=>r.ts)) : Infinity);
+    return Backend.loadTrips(first-864e5, Date.now()+864e5).then(tr=>{ if(seq===mlSeq) ML_TRIPS=tr; }).catch(()=>{ ML_TRIPS=[]; });
+  }).then(()=>{ if(seq===mlSeq) renderMileage(); })
+    .catch(e=>{ if(seq!==mlSeq) return; FUEL=[]; ML_TRIPS=[]; FUEL_ERR=dbHint(e); renderMileage(); });
+}
+/* The "previous refill" box is pre-filled from this tanker's last saved refill,
+   and stays editable — e.g. to start from yesterday's reading on paper. */
+function fillPrevFromSaved(resetNow){
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  $("#mlPWhen").value=nowLocalInput(last?last.ts:Date.now()-864e5);
+  $("#mlPOdo").value=last?String(last.odo):"";
+  $("#mlPLit").value=last?String(last.litres):"";
+  $("#mlPAng").value=(last && last.anguls!=null)?String(last.anguls):"";
+  if(resetNow){
+    $("#mlWhen").value=nowLocalInput(Date.now());
+    $("#mlOdo").value=""; $("#mlLit").value=""; $("#mlAng").value=""; $("#mlNote").value="";
+  }
+  renderMileage();
+}
+function renderMileage(){
+  if(!$("#scMileage").classList.contains("on")) return;
+  const meter=isMeter(mlPlate);
+  const vb=$("#mlVeh");
+  vb.innerHTML=mlPlates().map(p=>'<button type="button" class="'+(p===mlPlate?'on':'')+'" data-mlv="'+esc(p)+'">'+esc(p)+'</button>').join("")
+    || '<div class="empty">No tankers.</div>';
+  vb.querySelectorAll("[data-mlv]").forEach(b=>{ b.onclick=()=>{ mlPlate=b.getAttribute("data-mlv"); fillPrevFromSaved(true); }; });
+  $("#mlPlate").textContent=mlPlate||"—";
+  $("#scMileage").querySelectorAll(".mlAng").forEach(el=>{ el.style.display=meter?"none":""; });
+  $("#scMileage").querySelector(".mlUnitLab").textContent = meter ? "Previous dispenser meter (L)" : "Previous odometer (km)";
+  $("#scMileage").querySelector(".mlUnitLab2").textContent = meter ? "Dispenser meter now (L)" : "Odometer now (km)";
+  $("#mlPOdo").placeholder = meter ? "meter reading" : "e.g. 45210";
+  $("#mlOdo").placeholder = meter ? "meter reading" : "e.g. 45630";
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  $("#mlLast").innerHTML = FUEL_ERR ? '<span style="color:var(--red-d);font-weight:700">'+esc(FUEL_ERR)+'</span>'
+    : last ? 'Filled in from the last saved refill ('+dmy(dayKey(last.ts))+' '+timeLabel(last.ts)+'). Change it if needed.'
+    : 'No refill saved yet for this tanker — enter the previous refill'+(meter?' (dispenser meter reading and litres filled)':' (odometer and litres filled)')+'.';
+  $("#mlHow").innerHTML = meter
+    ? '<b>How it\'s worked out ('+esc(mlPlate)+'):</b> this tanker runs its engine to dispense, so its mileage is by <b>fuel dispensed</b>. '
+      +'Dispensed = meter now − previous meter. It is refilled when almost dry, so diesel used = the litres filled at the previous refill. '
+      +'Mileage = litres dispensed ÷ diesel used.'
+    : '<b>How it\'s worked out:</b> before refilling, dip the tank — <b>1 Angul = '+ANGUL_L+' L</b>. '
+      +'Diesel used = litres filled at the previous refill + stock left then − stock left now. '
+      +'Mileage = km run (odometer now − previous odometer) ÷ diesel used. '
+      +'<b>RTD km</b> = round-trip km of the customers this tanker was sent to in between, so <b>Extra km</b> = km run − RTD km.';
+  $("#mlSave").disabled=!!FUEL_ERR || !mlPlate;
+  updateAngL();
+  updateMlCalc();
+  renderMileageSummary(rows);
+  renderMileageList(rows);
+}
+function updateAngL(){
+  $("#scMileage").querySelectorAll(".angL").forEach(el=>{
+    const v=$("#"+el.getAttribute("data-for")).value;
+    el.textContent = v==="" ? "" : "= "+fmt(r2(num(v)*ANGUL_L))+" L";
+  });
+}
+function draftPrev(){
+  if($("#mlPOdo").value==="") return null;
+  return { plate:mlPlate, ts:inputMs("#mlPWhen"), odo:r2(num($("#mlPOdo").value)), litres:r2(num($("#mlPLit").value)),
+    anguls:isMeter(mlPlate)?null:optNum("#mlPAng") };
+}
+function draftCur(){
+  if($("#mlOdo").value==="") return null;
+  return { plate:mlPlate, ts:inputMs("#mlWhen"), odo:r2(num($("#mlOdo").value)), litres:r2(num($("#mlLit").value)),
+    anguls:isMeter(mlPlate)?null:optNum("#mlAng") };
+}
+function updateMlCalc(){
+  const box=$("#mlCalc"), meter=isMeter(mlPlate), p=draftPrev(), c=draftCur();
+  if(!p){ box.innerHTML='<div class="kv"><span>Enter the previous '+(meter?'meter reading':'odometer')+' and the litres filled then.</span></div>'; return; }
+  if(!c){ box.innerHTML='<div class="kv"><span>Enter the '+(meter?'dispenser meter':'odometer')+' reading now'+(meter?'':' and the Anguls in the tank')+'.</span></div>'; return; }
+  const o=interval(p, c);
+  let h="";
+  if(!meter){
+    h+=kv("Stock left at previous refill", fmt(stockOf(p))+" L");
+    h+=kv("Stock left now", c.anguls==null ? "not dipped — taken as 0 L" : fmt(stockOf(c))+" L");
+  }
+  h+=kv("Diesel available since previous refill", fmt(r2((+p.litres||0)+stockOf(p)))+" L");
+  h+=intervalKV(o, meter);
+  if(o.dist<0) h+='<div class="kv bad"><span>The reading now is lower than the previous one — please check.</span></div>';
+  if(o.used<=0) h+='<div class="kv bad"><span>Diesel used is 0 or less — check the litres and Anguls.</span></div>';
+  if(c.ts!=null && p.ts!=null && c.ts<=p.ts) h+='<div class="kv bad"><span>This refill\'s time is before the previous refill.</span></div>';
+  box.innerHTML=h;
+}
+["#mlPOdo","#mlPLit","#mlPAng","#mlOdo","#mlLit","#mlAng"].forEach(sel=>$(sel).addEventListener("input",()=>{ $(sel).value=sanQty($(sel).value); updateAngL(); updateMlCalc(); }));
+["#mlPWhen","#mlWhen"].forEach(sel=>$(sel).addEventListener("change",updateMlCalc));
+function sameReading(a,b){
+  return !!a && !!b && a.odo===b.odo && r2(a.litres)===r2(b.litres)
+    && (a.anguls==null?null:r2(a.anguls))===(b.anguls==null?null:r2(b.anguls))
+    && nowLocalInput(a.ts)===nowLocalInput(b.ts);
+}
+$("#mlSave").onclick=async()=>{
+  const meter=isMeter(mlPlate), p=draftPrev(), c=draftCur();
+  if(!mlPlate){ toast("Pick a tanker"); return; }
+  if(!p){ toast("Enter the previous "+(meter?"meter reading":"odometer")); return; }
+  if(p.ts==null){ toast("Enter the date & time of the previous refill"); return; }
+  if(!c || !(c.odo>0)){ toast("Enter the "+(meter?"meter reading":"odometer")+" now"); return; }
+  if(c.ts==null){ toast("Enter the date & time of this refill"); return; }
+  if(c.ts>Date.now()+5*60000){ toast("The date & time is in the future"); return; }
+  if(c.ts<=p.ts){ toast("This refill must be after the previous one"); return; }
+  if(!(c.litres>0)){ toast("Enter the diesel filled now"); return; }
+  if(c.odo<p.odo && !confirm("The reading now ("+fmt(c.odo)+") is LOWER than the previous one ("+fmt(p.odo)+").\n\nSave anyway?")) return;
+  if(!meter && c.anguls==null && !confirm("Anguls not entered — the tank will be taken as dry (0 L).\n\nSave anyway?")) return;
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
+  // A previous refill typed by hand (first use, or different from the last saved
+  // one) is saved too, so the next calculation can carry on from this one.
+  const savePrev=!sameReading(p, last);
+  if(savePrev && last && !confirm("The previous refill entered differs from the last saved one ("
+      +fmt(last.odo)+", "+fmt(last.litres)+" L on "+dmy(dayKey(last.ts))+").\n\nSave it as an extra refill record too?")) return;
+  const btn=$("#mlSave"); btn.disabled=true;
+  try{
+    if(savePrev) await Backend.addFuel({ plate:mlPlate, ts:p.ts, odo:p.odo, litres:p.litres, anguls:p.anguls, note:"previous refill (entered)", by:ME });
+    await Backend.addFuel({ plate:mlPlate, ts:c.ts, odo:c.odo, litres:c.litres, anguls:c.anguls, note:$("#mlNote").value.trim(), by:ME });
+    toast("✓ Refill saved");
+    await loadMileage();
+    fillPrevFromSaved(true);
+  }catch(e){ toast(dbHint(e)); }
+  btn.disabled=false;
+};
+function renderMileageSummary(rows){
+  const box=$("#mlSum"), f=$("#mlFrom").value, t=$("#mlTo").value, meter=isMeter(mlPlate);
+  if(FUEL_ERR || !f || !t){ box.innerHTML='<div class="kv"><span>—</span></div>'; return; }
+  const a=dayStartMs(f), b=dayEndMs(t);
+  const inR=rows.filter(r=>r.ts>=a && r.ts<=b), before=rows.filter(r=>r.ts<a);
+  // opening = the last refill before the period (else the first one in it)
+  const base=before.length ? before[before.length-1] : inR[0];
+  const end=inR.length ? inR[inR.length-1] : null;
+  if(!base || !end || base===end){ box.innerHTML='<div class="kv"><span>Needs at least two refills of '+esc(mlPlate)+' around this period.</span></div>'; return; }
+  // diesel used over several intervals telescopes to: Σ litres filled from the
+  // opening refill up to (not incl.) the closing one + opening stock − closing stock
+  const i0=rows.indexOf(base), i1=rows.indexOf(end);
+  let lit=0; for(let k=i0;k<i1;k++) lit+=(+rows[k].litres||0);
+  const o={ prev:base, cur:end, dist:r2(end.odo-base.odo), used:r2(lit+stockOf(base)-stockOf(end)), trips:0, rtd:0, ratio:null };
+  o.ratio=(o.used>0 && o.dist>0) ? o.dist/o.used : null;
+  if(!meter){ const tr=tripsIn(mlPlate, base.ts, end.ts); o.trips=tr.length; o.rtd=r2(tr.reduce((s,x)=>s+tripKm(x),0)); }
+  box.innerHTML=kv("Opening "+(meter?"meter":"odometer"), fmt(base.odo)+(meter?" L":" km")+" · "+dmy(dayKey(base.ts)))
+    +kv("Closing "+(meter?"meter":"odometer"), fmt(end.odo)+(meter?" L":" km")+" · "+dmy(dayKey(end.ts)))
+    +kv("Refills", (i1-i0))
+    +intervalKV(o, meter);
+}
+function renderMileageList(rows){
+  const box=$("#mlList"), meter=isMeter(mlPlate);
+  if(FUEL_ERR){ box.innerHTML=''; return; }
+  if(!rows.length){ box.innerHTML='<div class="empty">No refills saved yet.</div>'; return; }
+  box.innerHTML=rows.map((r,i)=>({ r:r, o:i>0?interval(rows[i-1], r):null })).reverse().map(x=>{
+    const r=x.r, o=x.o;
+    const parts=["Filled "+fmt(r.litres)+" L"+(!meter && r.anguls!=null?" · dip "+fmt(r.anguls)+" Anguls ("+fmt(stockOf(r))+" L)":"")];
+    if(o) parts.push(meter ? "dispensed "+fmt(o.dist)+" L · diesel used "+fmt(o.used)+" L"
+      : "+"+fmt(o.dist)+" km · used "+fmt(o.used)+" L · "+o.trips+" trip"+(o.trips===1?"":"s")+" ("+fmt(o.rtd)+" km RTD) · extra "+fmt(r2(o.dist-o.rtd))+" km");
+    else parts.push("starting refill");
+    if(r.note) parts.push(esc(r.note));
+    if(CLOUD && r.by) parts.push(esc(r.by));
+    return '<div class="mlrow"><div class="mm"><div class="m1">'+fmt(r.odo)+(meter?' L meter':' km')+'</div>'
+      +'<div class="m2">'+dmy(dayKey(r.ts))+' · '+timeLabel(r.ts)+'<br>'+parts.join(" · ")+'</div></div>'
+      +'<span class="mk">'+(o && o.ratio!=null?(Math.round(o.ratio*100)/100).toFixed(2)+'<small>'+(meter?'L / L':'km/L')+'</small>':'—')+'</span>'
+      +'<button class="del" data-rmfuel="'+esc(r.id)+'" aria-label="Delete">🗑</button></div>';
+  }).join("");
+  box.querySelectorAll("[data-rmfuel]").forEach(b=>{ b.onclick=()=>{
+    const r=FUEL.find(x=>String(x.id)===b.getAttribute("data-rmfuel")); if(!r) return;
+    if(!confirm("Delete this refill?\n"+r.plate+" — "+fmt(r.odo)+", "+fmt(r.litres)+" L")) return;
+    Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return loadMileage(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
+  }; });
+}
+
 /* ---------- Nav buttons ---------- */
 $("#toHist").onclick=()=>{ renderHist(); show("scHist"); };
 $("#toReport").onclick=openReport;
 $("#toReport2").onclick=openReport;
 $("#toLog").onclick=()=>{ renderLog(); show("scLog"); };
 $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
+$("#toTrips").onclick=openTrips;
+$("#toMileage").onclick=openMileage;
 
 /* ---------- Push notifications (cloud mode only) ----------
    Alerts every OTHER signed-in employee when a tanker starts loading, becomes
@@ -1961,6 +2668,19 @@ function subscribeRealtime(){
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_events"},poke)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_vehicles"},poke)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_day_closes"},poke)
+    .subscribe();
+  // The trip / customer / fuel tables get their own channel, so a database that
+  // hasn't been updated with them yet can't disturb the live tanker sync above.
+  let t2;
+  const poke2=()=>{ clearTimeout(t2); t2=setTimeout(()=>{ refresh().then(()=>{
+    const cur=stack[stack.length-1];
+    if(cur==="scTrips") loadTripReport(); else if(cur==="scMileage") loadMileage();
+    else if(cur==="scSettings") renderDests();
+  }).catch(()=>{}); }, 350); };
+  CloudBackend.client.channel("loading-live-trips")
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_trips"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_destinations"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_fuel_logs"},poke2)
     .subscribe();
 }
 

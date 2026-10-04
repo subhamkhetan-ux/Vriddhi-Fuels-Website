@@ -103,6 +103,76 @@ alter table public.loading_push_subs
   add column if not exists seen_at timestamptz not null default now();
 
 -- ---------------------------------------------------------------------
+-- Customers / destinations (RTD master) — the only choices offered in the
+-- "Sold to" box when a tanker is sent for sale. rtd_km = round-trip km per
+-- trip. Customers that share a non-empty `grp` are one group company and
+-- always carry the SAME RTD (changing one changes the whole group).
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_destinations (
+  name       text primary key,
+  rtd_km     numeric not null default 0 check (rtd_km >= 0),
+  grp        text not null default '',
+  sort       int  not null default 0,
+  created_at timestamptz not null default now()
+);
+-- seed from the RTD master sheet (safe to re-run; only inserts missing ones)
+insert into public.loading_destinations (name, rtd_km, grp, sort) values
+  ('Shyam Metalics',                   36,  '',                1),
+  ('SMC Unit 1',                       16,  '',                2),
+  ('SMC Unit 2',                       20,  '',                3),
+  ('Orissa Metaliks',                  30,  '',                4),
+  ('Lakhanpur Group Companies',        70,  'Lakhanpur Group', 5),
+  ('DBL - Siarmal',                    140, '',                6),
+  ('Aryan Ispat & Power Private Ltd.', 30,  '',                7)
+on conflict (name) do nothing;
+
+-- ---------------------------------------------------------------------
+-- Trips — one row per "Sent for sale", kept PERMANENTLY (loading_events is
+-- trimmed to 7 days, which is too short for a monthly trip report). The id is
+-- the dispatch event's id, so deleting that event (while it is still within
+-- the 7-day window) removes its trip too. `dest` is the customer it went to;
+-- its RTD is looked up from loading_destinations when reporting.
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_trips (
+  id         uuid primary key,
+  vehicle    text not null,
+  total      numeric(12,2) not null default 0,
+  dest       text not null default '',
+  by_name    text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists loading_trips_created_idx on public.loading_trips(created_at desc);
+-- back-fill trips from the sales still inside the 7-day window (safe to re-run)
+insert into public.loading_trips (id, vehicle, total, dest, by_name, created_at)
+  select id, vehicle, total, remark, by_name, created_at
+    from public.loading_events where kind = 'dispatch'
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------
+-- Tanker fuel log (mileage calculator) — kept permanently.
+-- One row each time a tanker's own diesel tank is refilled (they are run to
+-- almost dry first): the reading at that moment, the litres put in and — for
+-- tankers with a dip stick — the stock found in the tank BEFORE refilling, in
+-- Anguls (1 Angul = 16 L). `odometer` holds the km reading; for a tanker that
+-- works off its fuel-dispenser meter (OD15AF5510) it holds that meter reading.
+-- Diesel used between two refills = previous litres + previous stock − stock now.
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_fuel_logs (
+  id          uuid primary key default gen_random_uuid(),
+  vehicle     text not null,
+  reading_at  timestamptz not null default now(),
+  odometer    numeric(14,2) not null check (odometer >= 0),
+  litres      numeric(12,2) not null default 0 check (litres >= 0),
+  anguls      numeric(8,2) check (anguls is null or anguls >= 0),  -- dip before refilling; null = not taken
+  note        text not null default '',
+  by_name     text not null default '',
+  created_by  uuid,
+  created_at  timestamptz not null default now()
+);
+alter table public.loading_fuel_logs add column if not exists anguls numeric(8,2);
+create index if not exists loading_fuel_logs_vehicle_idx on public.loading_fuel_logs(vehicle, reading_at);
+
+-- ---------------------------------------------------------------------
 -- Row Level Security: signed-in users can READ the last 7 days only; no
 -- direct writes (all mutations go through the RPCs below).
 -- (authenticated/anon already exist on Supabase; created here only when the
@@ -122,6 +192,9 @@ alter table public.loading_events enable row level security;
 alter table public.loading_vehicles enable row level security;
 alter table public.loading_day_closes enable row level security;
 alter table public.loading_push_subs enable row level security;
+alter table public.loading_destinations enable row level security;
+alter table public.loading_trips enable row level security;
+alter table public.loading_fuel_logs enable row level security;
 
 -- A phone may only ever see or touch its own owner's subscriptions. The edge
 -- function reads every row with the service-role key, which bypasses RLS.
@@ -151,6 +224,19 @@ drop policy if exists loading_day_closes_read on public.loading_day_closes;
 create policy loading_day_closes_read on public.loading_day_closes
   for select to authenticated
   using (close_date >= ((now() at time zone 'Asia/Kolkata')::date) - 30);
+
+-- trips, customers and the fuel log are kept for good, so readable in full
+drop policy if exists loading_destinations_read on public.loading_destinations;
+create policy loading_destinations_read on public.loading_destinations
+  for select to authenticated using (true);
+
+drop policy if exists loading_trips_read on public.loading_trips;
+create policy loading_trips_read on public.loading_trips
+  for select to authenticated using (true);
+
+drop policy if exists loading_fuel_logs_read on public.loading_fuel_logs;
+create policy loading_fuel_logs_read on public.loading_fuel_logs
+  for select to authenticated using (true);
 
 -- ---------------------------------------------------------------------
 -- Helper
@@ -240,6 +326,10 @@ begin
     values (p_vehicle, 'dispatch', snap, round(tot,2), coalesce(p_by,''), coalesce(p_remark,''), auth.uid())
     returning id into rid;
   update loading_vehicles set fill = '{}'::jsonb, total_sold = round(total_sold + tot, 2) where plate = p_vehicle;
+  -- the permanent trip record (same id, same server time) for the trip report
+  insert into loading_trips (id, vehicle, total, dest, by_name, created_at)
+    select id, vehicle, total, remark, by_name, created_at from loading_events where id = rid
+  on conflict (id) do nothing;
   delete from loading_events where created_at < now() - interval '7 days';
   return rid;
 end $$;
@@ -258,6 +348,7 @@ begin
   elsif e.kind = 'dispatch' then
     update loading_vehicles set fill = _fill_apply(fill, e.chambers, 1),
       total_sold = greatest(round(total_sold - e.total, 2), 0) where plate = e.vehicle;
+    delete from loading_trips where id = p_id;   -- an undone sale is not a trip
   end if;
   delete from loading_events where id = p_id;
 end $$;
@@ -283,6 +374,7 @@ begin
   delete from loading_events where id is not null;
   get diagnostics n = row_count;
   update loading_vehicles set fill = '{}'::jsonb, total_loaded = 0, total_sold = 0 where plate is not null;
+  delete from loading_trips where id is not null;   -- trips are sale records too
   return n;
 end $$;
 
@@ -367,6 +459,74 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
+-- Trip report: correct the customer a trip went to (e.g. a wrong pick, or an
+-- older free-text "sold to" that isn't in the customer list). Also fixes the
+-- remark on the sale record while it is still within the 7-day window.
+-- ---------------------------------------------------------------------
+create or replace function public.loading_trip_set_dest(p_id uuid, p_dest text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  if not exists (select 1 from loading_destinations where name = p_dest) then
+    raise exception 'Pick a customer from the list';
+  end if;
+  update loading_trips set dest = p_dest where id = p_id;
+  if not found then raise exception 'Trip not found'; end if;
+  update loading_events set remark = p_dest where id = p_id and kind = 'dispatch';
+end $$;
+
+-- Customers / RTD master. Saving a customer that belongs to a group sets the
+-- SAME RTD on every customer of that group.
+create or replace function public.loading_dest_save(p_name text, p_rtd numeric, p_grp text) returns void
+language plpgsql security definer set search_path = public as $$
+declare nm text := trim(coalesce(p_name,'')); g text := trim(coalesce(p_grp,''));
+begin
+  perform _loading_auth();
+  if nm = '' then raise exception 'Customer name required'; end if;
+  if p_rtd is null or p_rtd < 0 then raise exception 'RTD km must be 0 or more'; end if;
+  insert into loading_destinations (name, rtd_km, grp, sort)
+    values (nm, round(p_rtd,1), g, coalesce((select max(sort) from loading_destinations),0) + 1)
+  on conflict (name) do update set rtd_km = excluded.rtd_km, grp = excluded.grp;
+  if g <> '' then
+    update loading_destinations set rtd_km = round(p_rtd,1) where grp = g;
+  end if;
+end $$;
+
+create or replace function public.loading_dest_remove(p_name text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  delete from loading_destinations where name = p_name;
+end $$;
+
+-- Mileage: record a refill of the tanker's own diesel tank with the reading.
+create or replace function public.loading_fuel_add(
+  p_vehicle text, p_reading_at timestamptz, p_odometer numeric, p_litres numeric,
+  p_anguls numeric, p_note text, p_by text
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare rid uuid;
+begin
+  perform _loading_auth();
+  if coalesce(p_vehicle,'') = '' then raise exception 'Vehicle required'; end if;
+  if p_odometer is null or p_odometer < 0 then raise exception 'Reading required'; end if;
+  if p_litres is null or p_litres < 0 then raise exception 'Litres must be 0 or more'; end if;
+  if p_anguls is not null and p_anguls < 0 then raise exception 'Anguls must be 0 or more'; end if;
+  insert into loading_fuel_logs (vehicle, reading_at, odometer, litres, anguls, note, by_name, created_by)
+    values (p_vehicle, coalesce(p_reading_at, now()), round(p_odometer,2), round(p_litres,2),
+            round(p_anguls,2), coalesce(p_note,''), coalesce(p_by,''), auth.uid())
+    returning id into rid;
+  return rid;
+end $$;
+
+create or replace function public.loading_fuel_delete(p_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_auth();
+  delete from loading_fuel_logs where id = p_id;
+end $$;
+
+-- ---------------------------------------------------------------------
 -- Web push: register / forget this phone. Keyed on the browser's endpoint,
 -- so re-registering the same phone updates its keys instead of piling up.
 -- ---------------------------------------------------------------------
@@ -420,7 +580,12 @@ begin
       public.loading_end_day(),
       public.loading_close_due(),
       public.loading_push_save(text, text, text, text),
-      public.loading_push_drop(text)
+      public.loading_push_drop(text),
+      public.loading_trip_set_dest(uuid, text),
+      public.loading_dest_save(text, numeric, text),
+      public.loading_dest_remove(text),
+      public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, text, text),
+      public.loading_fuel_delete(uuid)
     to authenticated;
   end if;
 end $$;
@@ -438,6 +603,18 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.loading_day_closes;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_trips;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_destinations;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_fuel_logs;
   exception when others then null;
   end;
 end $$;
