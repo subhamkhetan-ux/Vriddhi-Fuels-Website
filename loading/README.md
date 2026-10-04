@@ -291,6 +291,12 @@ rows, and (if `pg_cron` is present) an hourly purge.
 So you keep the running fill and the lifetime totals forever, and only lose the
 line-by-line detail older than a week.
 
+**Kept for 6 months** — enough to see the trends: the **trips** (trip report)
+and the **refills / stock checks** (mileage, trends). Older ones are dropped
+automatically, except each tanker's newest entry with a known stock and
+everything after it, so the *diesel in its tank* estimate never loses its
+starting point.
+
 > A tanker's current fill is computed from its loadings since its last
 > **dispatch**, all within this 7-day window — which is fine because a fill →
 > sale cycle takes far less than a week. (If a tanker were left partly filled for
@@ -384,7 +390,7 @@ Dates are business days (7:30 AM → 7:30 AM), the same as everywhere else.
 - **Download trip report (Excel)** — sheets *Trips by tanker* (tanker ×
   customer matrix with totals), *Trip list* and *Customers (RTD)*.
 
-Trips are stored **permanently** in their own table (`loading_trips`), so the
+Trips are stored for **6 months** in their own table (`loading_trips`), so the
 monthly report works even though the detailed loading history is trimmed to 7
 days. Deleting a sale from History (within those 7 days) removes its trip too.
 
@@ -498,7 +504,8 @@ first − stock at the second.
   (5,000 L dispensed); each is compared with the mileage from the points
   before it. A drop is reported only if the extra diesel is also more than the
   readings could be off by — 2 Anguls (32 L) for a ⚠ drop, 3 Anguls for ⛔
-  (OD15AF5510: 45 L / 65 L, as "near dry" leaves some in the tank).
+  (OD15AF5510: 18 L / 25 L — it's a Bolero with a ~50 L tank, refilled near
+  dry, and "near dry" can leave up to ~10 L in it).
 - **Check the readings** — impossible stretches (litres typed ×10, an odometer
   with an extra digit or going back, diesel used ≤ 0) are listed separately and
   never counted as drops.
@@ -538,7 +545,9 @@ How it is worked out (in the database, so staff see only the answer):
   entry burn (their customers' RTD km ÷ mileage),
 - **this trip** = the customer's RTD km ÷ mileage (OD15AF5510: litres sold ÷
   dispensed-per-litre),
-- the **reserve** (40 L by default) is set by admin under Trends → Alert settings.
+- the **reserve** is set by admin under Trends → Alert settings, separately
+  for the **big tankers** (365 L tanks, 40 L by default) and for
+  **OD15AF5510** (~50 L tank, 10 L by default).
 
 Every tanker card on the home screen also shows **⛽ Own diesel ≈ … L**, and
 says when the tanker needs its own tank filled — wherever it goes next, so it

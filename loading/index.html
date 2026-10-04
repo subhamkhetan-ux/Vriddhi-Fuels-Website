@@ -873,7 +873,6 @@
       <div class="rpresets" id="tdPresets">
         <button data-m="3">3 months</button>
         <button data-m="6">6 months</button>
-        <button data-m="12">12 months</button>
         <button data-m="0">All</button>
       </div>
       <div class="rrange">
@@ -902,7 +901,8 @@
         <div class="ca-h">Alert settings</div>
         <div class="kv"><span>Flag a mileage drop when it is below normal by</span><b><span id="tdPct">15</span>% <button type="button" class="lnk" id="tdPctEdit">✎</button></b></div>
         <div class="kv"><span>1 Angul on the dip stick</span><b><span class="angLval">16</span> L <button type="button" class="lnk angEdit">✎</button></b></div>
-        <div class="kv"><span>Refill when a tanker's own diesel would drop below</span><b><span id="tdRes">40</span> L <button type="button" class="lnk" id="tdResEdit">✎</button></b></div>
+        <div class="kv"><span>Refill when a big tanker's own diesel would drop below</span><b><span id="tdRes">40</span> L <button type="button" class="lnk" id="tdResEdit">✎</button></b></div>
+        <div class="kv"><span>Refill when OD15AF5510's own diesel would drop below</span><b><span id="tdResM">10</span> L <button type="button" class="lnk" id="tdResMEdit">✎</button></b></div>
         <div class="note" style="text-align:left;margin:6px 0 0">“Normal” = the tanker's median mileage over all its other fill-to-fill stretches. ⛔ Sharp drop = twice the alert gap.</div>
       </div>
       <button class="big green" id="tdExcel"><span class="em">⬇</span><span>Download mileage analysis (Excel)</span></button>
@@ -1107,7 +1107,8 @@ let DESTS_FALLBACK = false;   // cloud list unreadable (schema not updated yet) 
 const TRIP_EXCLUDE = ["OD15AF5510"];
 /* Shared settings (⚙ / mileage screen): litres per Angul on the dip stick, and
    how far below a tanker's normal mileage a refill is flagged. */
-const DEFAULT_SETTINGS = { angul_l:16, alert_pct:15, reserve_l:40 };
+// reserve_l: big tankers (365 L tanks) · reserve_meter_l: OD15AF5510 (a Bolero, ~50 L tank)
+const DEFAULT_SETTINGS = { angul_l:16, alert_pct:15, reserve_l:40, reserve_meter_l:10 };
 let SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
 let SETTINGS_FALLBACK = false;
 function maxChambers(){ return VEHICLES.length?Math.max.apply(null,VEHICLES.map(v=>v.caps.length)):4; }
@@ -1126,7 +1127,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v30 · 2026-10-04";
+const APP_BUILD = "v31 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1465,7 +1466,7 @@ function refresh(){
   }).then(r=>{
     SETTINGS_FALLBACK = r[4]==null;
     SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
-    if(r[4]) Object.keys(DEFAULT_SETTINGS).forEach(k=>{ const v=+r[4][k]; if(v>0 || (k==="reserve_l" && v===0 && r[4][k]!=null)) SETTINGS[k]=v; });
+    if(r[4]) Object.keys(DEFAULT_SETTINGS).forEach(k=>{ const v=+r[4][k]; if(v>0 || (/^reserve/.test(k) && v===0 && r[4][k]!=null)) SETTINGS[k]=v; });
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
     DESTS_FALLBACK = r[3]==null;
     DESTS = r[3]==null ? DEFAULT_DESTS.map(dNorm) : r[3];
@@ -1485,8 +1486,9 @@ function refresh(){
    (OD15AF5510: a full load). Cloud asks the database; single-device computes here. */
 function farDest(){ let far=null; DESTS.forEach(d=>{ if(!far || d.rtd>far.rtd) far=d; }); return far?far.name:""; }
 let FUELSTAT={};
+function reserveL(meter){ const k=meter?"reserve_meter_l":"reserve_l", v=SETTINGS[k]; return v!=null && +v>=0 ? +v : DEFAULT_SETTINGS[k]; }
 function fuelStateJS(plate, fuel, trips){
-  const res=+SETTINGS.reserve_l||40, meter=isMeter(plate);
+  const meter=isMeter(plate), res=reserveL(meter);
   const rows=fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0));
   const m=robustMileage(mileagePoints(rows, meter), meter), mpl=m.ratio, last=rows.length?rows[rows.length-1]:null;
   const o={ vehicle:plate, meter:meter, mileage:mpl, stretches:m.n, spread:m.spread, reserve:res, stock_now:null, trips_since:0, unknown_trips:0 };
@@ -2771,7 +2773,8 @@ const MILEAGE = {
   minSpan: { odo:100, meter:3000, litres:25 },
   judge:   { odo:150, meter:5000, litres:25 },
   // litres a stretch can be off by from the readings alone: [⚠ drop, ⛔ sharp]
-  tolerance: { odo:[2, 3] /* × litres per Angul */, meter:[45, 65] /* litres: "near dry" leaves ≤ ~40 L */ },
+  // OD15AF5510 is a Bolero with a ~50 L tank, refilled near dry (≤ ~10 L left, counted as 0)
+  tolerance: { odo:[2, 3] /* × litres per Angul */, meter:[18, 25] /* litres */ },
 };
 function dropTolerance(meter){ return meter ? MILEAGE.tolerance.meter : MILEAGE.tolerance.odo.map(x=>x*angulL()); }
 function stockKnown(r, meter){ return r.stock_l!=null || r.anguls!=null || (meter && r.litres>0); }
@@ -3422,7 +3425,8 @@ function renderTrend(){
   if(!$("#scTrend").classList.contains("on")) return;
   paintAngul();
   $("#tdPct").textContent=fmt(SETTINGS.alert_pct);
-  $("#tdRes").textContent=fmt(SETTINGS.reserve_l);
+  $("#tdRes").textContent=fmt(reserveL(false));
+  $("#tdResM").textContent=fmt(reserveL(true));
   if(FUEL_ERR){ $("#tdTiles").innerHTML='<div class="empty" style="grid-column:1/-1;color:var(--red-d)">'+esc(FUEL_ERR)+'</div>';
     ["#tdFlags","#vzFleet","#tdMeter","#tdMonthly"].forEach(s=>{ $(s).innerHTML=""; }); return; }
   const D=trendData(), odo=D.all.filter(x=>!x.meter), met=D.all.filter(x=>x.meter);
@@ -3522,13 +3526,16 @@ function renderMonthly(D){
   }).reverse().join("");
   $("#tdMonthly").innerHTML='<table class="mtab"><thead><tr><th>Month</th>'+plates.map(p=>'<th>'+esc(p)+(isMeter(p)?'<small>L/L</small>':'<small>km/L</small>')+'</th>').join("")+'</tr></thead><tbody>'+body+'</tbody></table>';
 }
-$("#tdResEdit").onclick=()=>{
-  const ans=prompt("Refill when a tanker's own diesel would be below how many litres after a trip?", String(SETTINGS.reserve_l));
+function editReserve(meter){
+  const who=meter?"OD15AF5510":"a big tanker", key=meter?"reserve_meter_l":"reserve_l";
+  const ans=prompt("Refill when "+who+"'s own diesel would be below how many litres after a trip?", String(reserveL(meter)));
   if(ans==null) return;
   const v=Math.round(num(sanQty(ans)));
   if(!(v>=0 && v<=2000)){ toast("Enter litres between 0 and 2000"); return; }
-  Backend.saveSetting("reserve_l", v).then(refresh).then(()=>{ toast("Refill reserve "+v+" L"); renderTrend(); }).catch(e=>toast(dbHint(e)));
-};
+  Backend.saveSetting(key, v).then(refresh).then(()=>{ toast("Refill reserve "+(meter?"OD15AF5510 ":"big tankers ")+v+" L"); renderTrend(); }).catch(e=>toast(dbHint(e)));
+}
+$("#tdResEdit").onclick=()=>editReserve(false);
+$("#tdResMEdit").onclick=()=>editReserve(true);
 $("#tdPctEdit").onclick=()=>{
   const ans=prompt("Flag a mileage drop when mileage is below the tanker's normal by how many %?", String(SETTINGS.alert_pct));
   if(ans==null) return;
