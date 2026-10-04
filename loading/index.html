@@ -1127,7 +1127,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v32 · 2026-10-04";
+const APP_BUILD = "v33 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1490,7 +1490,8 @@ function reserveL(meter){ const k=meter?"reserve_meter_l":"reserve_l", v=SETTING
 function fuelStateJS(plate, fuel, trips){
   const meter=isMeter(plate), res=reserveL(meter);
   const rows=fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0));
-  const m=robustMileage(mileagePoints(rows, meter), meter), mpl=m.ratio, last=rows.length?rows[rows.length-1]:null;
+  const kept=screenRows(rows, meter).kept, last=kept.length?kept[kept.length-1].row:null;   // a later duplicate doesn't move "since"
+  const m=robustMileage(mileagePoints(rows, meter), meter), mpl=m.ratio;
   const o={ vehicle:plate, meter:meter, mileage:mpl, stretches:m.n, spread:m.spread, reserve:res, stock_now:null, trips_since:0, unknown_trips:0 };
   if(last){
     const since=trips.filter(t=>t.plate===plate && t.ts>last.ts);
@@ -2716,12 +2717,6 @@ function nowLocalInput(ms){ const d=new Date(ms); return dayKey(ms)+"T"+pad(d.ge
 function inputMs(sel){ const v=$(sel).value; const t=v?new Date(v).getTime():NaN; return isNaN(t)?null:t; }
 function optNum(sel){ const v=$(sel).value; return v==="" ? null : r2(num(v)); }
 function r1(n){ return Math.round((+n||0)*10)/10; }
-// litres in the tank before a refill: as entered, else from the Anguls
-function stockOf(r){
-  if(!r) return 0;
-  if(r.stock_l!=null) return +r.stock_l;
-  return r.anguls!=null ? r2(r.anguls*angulL()) : 0;
-}
 function mlPlates(){ const out=VEHICLES.map(v=>v.plate); METER_VEHICLES.forEach(p=>{ if(!out.some(x=>plateKey(x)===plateKey(p))) out.push(p); }); return out; }
 function fuelRows(plate){ return FUEL.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0)); }
 function tripsIn(plate, a, b){ return ML_TRIPS.filter(t=>t.plate===plate && t.ts>a && t.ts<=b); }
@@ -2744,14 +2739,26 @@ function interval(prev, cur){
    and the litres filled; a stock check records a dip alone (0 filled). The
    tank is never dipped after filling — the stock then is dip + litres.
 
-   Points. Every entry whose stock is known is a measuring point: a refill or
-   stock check with its dip; for OD15AF5510 (no dip stick) a refill counts as
-   run dry. A refill saved without its dip still adds its litres, but is not a
-   point — an unknown stock can't put an error into the figure.
-   One exception: a stock check that ALREADY INCLUDES the refill saved right
-   after it (same odometer, within MILEAGE.sameKm; its stock ≈ that refill's
-   dip + litres) was really taken after the refill — its time is off — so it
-   is not a point, or the refill's litres would count twice.
+   Dips. The dip stick reads Anguls, so an entry's stock is its Anguls × the
+   CURRENT litres per Angul (correcting that setting re-reads every dip); an
+   entry typed in litres (no Anguls) keeps its litres.
+
+   Screening (screenRows) — entries that can't be taken at face value:
+    · a DUPLICATE (same reading, litres and dip as the entry just before it,
+      within a day — saved twice) is ignored entirely, or its litres would
+      count twice and look like theft;
+    · an OVERFULL entry (dip + litres more than the tank can hold, MILEAGE.tank)
+      can't be right — its litres still count, but it is not a point, and no
+      stretch across it is judged for drops;
+    · a stock check that ALREADY INCLUDES the refill saved right after it (same
+      odometer, within MILEAGE.sameKm; its stock ≈ that refill's dip + litres,
+      or stock + litres more than the tank) was really taken after the refill —
+      its time is off — so it is not a point, or the refill would count twice.
+
+   Points. Every other entry whose stock is known is a measuring point: a
+   refill or stock check with its dip; for OD15AF5510 (no dip stick) a refill
+   counts as run dry. A refill saved without its dip still adds its litres,
+   but is not a point — an unknown stock can't put an error into the figure.
    For each point:  odo = its reading,  C = litres filled before it − its stock
    (diesel consumed so far, give or take a constant). Between any two points:
         distance = odo₂ − odo₁        diesel used = C₂ − C₁
@@ -2785,21 +2792,50 @@ const MILEAGE = {
   tolerance: { odo:[2, 3] /* × litres per Angul */, meter:[18, 25] /* litres */ },
   sameKm: 20,   // a stock check this close before a refill may be that refill's after-stock
   tank: { odo:365, meter:50 },   // litres: the big tankers' tanks, OD15AF5510's (a Bolero)
+  overfull: 1.1,                 // × tank (+ the dip tolerance) before "more than the tank holds"
+  dupHours: 24,                  // a repeat of the entry before within this long = saved twice
 };
+// litres in the tank (before a refill): the Anguls × litres per Angul now, else as typed
+function stockOf(r){
+  if(!r) return 0;
+  if(r.anguls!=null) return r2(r.anguls*angulL());
+  return r.stock_l!=null ? +r.stock_l : 0;
+}
+function tankL(meter){ return meter ? MILEAGE.tank.meter : MILEAGE.tank.odo; }
+function tankMax(meter){ return r2(tankL(meter)*MILEAGE.overfull + dropTolerance(meter)[0]); }
 function dropTolerance(meter){ return meter ? MILEAGE.tolerance.meter : MILEAGE.tolerance.odo.map(x=>x*angulL()); }
 function stockKnown(r, meter){ return r.stock_l!=null || r.anguls!=null || (meter && r.litres>0); }
 function dipped(r){ return r.stock_l!=null || r.anguls!=null; }
+const near=(a,b,t)=>Math.abs((+a||0)-(+b||0))<=t;
+// the same entry saved twice (p = the entry just before it)
+function isDuplicate(r, p){
+  return !!p && near(r.odo, p.odo, 0.5) && near(r.litres, p.litres, 0.5) && dipped(r)===dipped(p)
+    && (!dipped(r) || near(stockOf(r), stockOf(p), 0.5)) && Math.abs(r.ts-p.ts)<=MILEAGE.dupHours*3600e3;
+}
+// dip + litres more than the tank can hold (OD15AF5510 without a dip: litres alone)
+function isOverfull(r, meter){ return (stockKnown(r, meter) || r.litres>0) && stockOf(r)+(+r.litres||0) > tankMax(meter); }
 // a stock check whose stock already includes the refill saved right after it
 function includesNextRefill(r, n, meter){
-  return !meter && !!n && !(r.litres>0) && dipped(r) && n.litres>0 && dipped(n)
-    && +n.odo>=+r.odo && +n.odo-r.odo<=MILEAGE.sameKm
-    && Math.abs(stockOf(r)-(stockOf(n)+(+n.litres)))<=dropTolerance(false)[0];
+  // a top-up smaller than the dip tolerance can't be told apart — left alone
+  if(meter || !n || r.litres>0 || !dipped(r) || !(n.litres>dropTolerance(false)[0])) return false;
+  if(!(+n.odo>=+r.odo && +n.odo-r.odo<=MILEAGE.sameKm)) return false;
+  return dipped(n) ? near(stockOf(r), stockOf(n)+(+n.litres), dropTolerance(false)[0])
+                   : stockOf(r)+(+n.litres) > tankMax(false);
+}
+/* Screen one tanker's sorted entries: duplicates dropped, and each kept entry
+   marked { over, incl } (overfull / includes the next refill) — see above. */
+function screenRows(rows, meter){
+  const kept=[], dups=[];
+  rows.forEach((r,i)=>{ if(isDuplicate(r, rows[i-1])) dups.push({ row:r, of:rows[i-1] }); else kept.push({ row:r }); });
+  kept.forEach((k,i)=>{ k.over=isOverfull(k.row, meter); k.incl=!k.over && includesNextRefill(k.row, kept[i+1]&&kept[i+1].row, meter); });
+  return { kept:kept, dups:dups };
 }
 // rows (sorted, one tanker) → its measuring points
 function mileagePoints(rows, meter){
   let filled=0; const pts=[];
-  rows.forEach((r,i)=>{
-    if(stockKnown(r, meter) && !includesNextRefill(r, rows[i+1], meter)) pts.push({ row:r, ts:r.ts, odo:+r.odo, stock:stockOf(r), C:filled-stockOf(r) });
+  screenRows(rows, meter).kept.forEach(k=>{
+    const r=k.row;
+    if(stockKnown(r, meter) && !k.over && !k.incl) pts.push({ row:r, ts:r.ts, odo:+r.odo, stock:stockOf(r), C:filled-stockOf(r) });
     filled+=(+r.litres||0);
   });
   return pts;
@@ -2831,7 +2867,7 @@ function mileageQuality(m){
 /* ---- The analysis behind the calculator, the list and the trends ----
    iv = the judged stretches (each a run of ≥ MILEAGE.judge between points). */
 function analyse(plate){
-  const rows=fuelRows(plate), meter=isMeter(plate), P=alertP(), pts=mileagePoints(rows, meter);
+  const rows=fuelRows(plate), meter=isMeter(plate), P=alertP(), pts=mileagePoints(rows, meter), scr=screenRows(rows, meter);
   const J=meter?MILEAGE.judge.meter:MILEAGE.judge.odo, unit=meter?"L/L":"km/L";
   const iv=[], checks=[], lo=meter?MILEAGE.bounds.meter[0]:MILEAGE.bounds.odo[0], tol=dropTolerance(meter)[0];
   const tank=meter?MILEAGE.tank.meter:MILEAGE.tank.odo;
@@ -2839,6 +2875,14 @@ function analyse(plate){
   // "X L in tank on 03/10 + Y L filled since − Z L on 04/10": how diesel used was worked out
   const sums=(a,b,u)=>fmt(a.stock)+" L in tank on "+dmy(dayKey(a.ts)).slice(0,5)+" "+timeLabel(a.ts)
     +" + "+fmt(r2(u-a.stock+b.stock))+" L filled since − "+fmt(b.stock)+" L on "+dmy(dayKey(b.ts)).slice(0,5)+" "+timeLabel(b.ts);
+  const when=r=>dmy(dayKey(r.ts)).slice(0,5)+" "+timeLabel(r.ts);
+  // entries the screening set aside — each one is an entry mistake to fix
+  scr.dups.forEach(x=>checks.push({ prev:x.of, cur:x.row, text:"The entry on "+when(x.row)+" repeats the one before it ("+fmt(x.row.odo)+dist.replace(" dispensed","")+", "+fmt(x.row.litres)+" L) — saved twice, counted once. Delete the extra one." }));
+  const overs=scr.kept.filter(x=>x.over).map(x=>x.row);
+  overs.forEach(r=>checks.push({ prev:r, cur:r, text:(dipped(r)?fmt(stockOf(r))+" L in tank + ":"")+fmt(r.litres)+" L filled on "+when(r)+" = "+fmt(r2(stockOf(r)+(+r.litres||0)))
+    +" L — more than the "+fmt(tankL(meter))+" L tank. Check the "+(dipped(r)?"dip (Anguls) or the ":"")+"litres; this entry isn't used to measure, and no drop is judged across it." }));
+  scr.kept.forEach((x,i)=>{ if(x.incl){ const n=scr.kept[i+1].row;
+    checks.push({ prev:x.row, cur:n, text:"The stock check on "+when(x.row)+" ("+fmt(stockOf(x.row))+" L) already holds the refill saved after it ("+when(n)+", "+fmt(n.litres)+" L) — its time must be off. It isn't used to measure, so the refill counts once." }); } });
   let s=0;
   for(let k=1;k<pts.length;k++){
     const a=pts[s], b=pts[k], d=b.odo-a.odo, u=b.C-a.C;
@@ -2855,6 +2899,8 @@ function analyse(plate){
       s=k; continue;
     }
     if(d<J) continue;                                      // too short yet: keep joining
+    // a stretch across an overfull entry: its litres can't be trusted — don't judge it
+    if(overs.some(r=>r.ts>a.ts && r.ts<=b.ts)){ s=k; continue; }
     const ratio=(d>0 && u>0) ? d/u : null;
     if(ratio==null || !inBounds(ratio, meter)){
       checks.push({ prev:a.row, cur:b.row, text: u<=0
@@ -2892,11 +2938,11 @@ function analyse(plate){
 // since the last entry burn at the current mileage.
 function fuelNow(rows, meter, mpl, tripsSince){
   const pts=mileagePoints(rows, meter); if(!pts.length || !(mpl>0)) return null;
-  const k=pts[pts.length-1], last=rows[rows.length-1];
-  let filled=0, on=false; rows.forEach(r=>{ if(r===k.row) on=true; if(on) filled+=(+r.litres||0); });
+  const kept=screenRows(rows, meter).kept.map(x=>x.row), k=pts[pts.length-1], last=kept[kept.length-1];
+  let filled=0, on=false; kept.forEach(r=>{ if(r===k.row) on=true; if(on) filled+=(+r.litres||0); });
   const afterLast=k.stock+filled-Math.max(0,last.odo-k.odo)/mpl;     // right after the last entry
-  const burnt=tripsSince/mpl;
-  return { after_fill:r1(Math.max(0,afterLast)), burnt:r1(burnt), stock_now:r1(Math.min(Math.max(0, afterLast-burnt), k.stock+filled)) };
+  const burnt=tripsSince/mpl, cap=Math.min(k.stock+filled, tankL(meter));   // never more than the tank holds
+  return { after_fill:r1(Math.min(Math.max(0,afterLast), cap)), burnt:r1(burnt), stock_now:r1(Math.min(Math.max(0, afterLast-burnt), cap)) };
 }
 function stretchTxt(o){ return dmy(dayKey(o.prev.ts)).slice(0,5)+" → "+dmy(dayKey(o.cur.ts)); }
 function ratioTxt(v, meter){ return v==null ? "—" : (Math.round(v*100)/100).toFixed(2)+(meter?" L / L":" km/L"); }
@@ -2948,11 +2994,11 @@ function fillPrevFromSaved(resetNow){
   $("#mlPWhen").value=nowLocalInput(last?last.ts:Date.now()-864e5);
   $("#mlPOdo").value=last?String(last.odo):"";
   $("#mlPLit").value=last?String(last.litres):"";
-  $("#mlPAng").value=(last && last.anguls!=null)?String(last.anguls):"";
+  $("#mlPAng").value=(last && last.anguls!=null)?String(last.anguls):""; $("#mlPAng").dataset.typed=(last && last.anguls!=null)?"1":"";
   $("#mlPStk").value=(last && (last.anguls!=null || last.stock_l!=null))?String(stockOf(last)):"";
   if(resetNow){
     $("#mlWhen").value=nowLocalInput(Date.now());
-    $("#mlOdo").value=""; $("#mlLit").value=""; $("#mlAng").value=""; $("#mlStk").value=""; $("#mlNote").value="";
+    $("#mlOdo").value=""; $("#mlLit").value=""; $("#mlAng").value=""; $("#mlStk").value=""; $("#mlNote").value=""; $("#mlAng").dataset.typed="";
     mlStkTouched=false;
   }
   renderMileage();
@@ -2988,12 +3034,15 @@ $("#mlPSave").onclick=async()=>{
   if(p.ts==null){ toast("Enter the date & time of the previous refill"); return; }
   if(p.ts>Date.now()+5*60000){ toast("The date & time is in the future"); return; }
   if(!(p.odo>0)){ toast("Enter the previous "+(meter?"meter reading":"odometer")); return; }
-  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
-  if(last && p.ts<=last.ts && !confirm("This is earlier than the last saved entry ("+dmy(dayKey(last.ts))+" "+timeLabel(last.ts)+").\n\nSave it anyway?")) return;
+  const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null, fix=correctedEntry(p);
+  if(fix){ if(!confirm("A refill at this reading is already saved:\n"+entryTxt(fix)+"\n\nReplace it with the one entered now?\n"+entryTxt(p))) return; }
+  else if(last && p.ts<=last.ts && !confirm("This is earlier than the last saved entry ("+dmy(dayKey(last.ts))+" "+timeLabel(last.ts)+").\n\nSave it anyway?")) return;
+  const g=guardEntry(p, fix&&fix.id); if(g==="cancel") return; if(g==="already"){ toast("This refill is already saved"); paintPrevSave(); return; }
   const btn=$("#mlPSave"); btn.disabled=true;
   try{
+    if(fix) await Backend.removeFuel(fix.id);
     await Backend.addFuel({ plate:mlPlate, ts:p.ts, odo:p.odo, litres:p.litres, anguls:p.anguls, stock_l:p.stock_l, note:"refill (entered)", by:ME });
-    toast("✓ Previous refill saved — the next refill measures from it");
+    toast(fix ? "✓ Previous refill corrected" : "✓ Previous refill saved — the next refill measures from it");
     await loadMileage(); fillPrevFromSaved(false);
   }catch(e){ toast(dbHint(e)); }
   btn.disabled=false;
@@ -3047,13 +3096,13 @@ function renderMileage(){
 function draftPrev(){
   if($("#mlPOdo").value==="") return null;
   // OD15AF5510 has no dip stick, but a stock check can still record litres in its tank
-  const ang=isMeter(mlPlate)?null:optNum("#mlPAng"), stk=optNum("#mlPStk");
+  const ang=isMeter(mlPlate)||$("#mlPAng").dataset.typed!=="1"?null:optNum("#mlPAng"), stk=optNum("#mlPStk");
   return { plate:mlPlate, ts:inputMs("#mlPWhen"), odo:r2(num($("#mlPOdo").value)), litres:r2(num($("#mlPLit").value)),
     anguls:ang, stock_l: stk!=null ? stk : (ang!=null ? r2(ang*angulL()) : null) };
 }
 function draftCur(){
   if($("#mlOdo").value==="") return null;
-  const ang=isMeter(mlPlate)?null:optNum("#mlAng"), stk=isMeter(mlPlate)?null:optNum("#mlStk");
+  const ang=isMeter(mlPlate)||$("#mlAng").dataset.typed!=="1"?null:optNum("#mlAng"), stk=isMeter(mlPlate)?null:optNum("#mlStk");
   return { plate:mlPlate, ts:inputMs("#mlWhen"), odo:r2(num($("#mlOdo").value)), litres:r2(num($("#mlLit").value)),
     anguls:ang, stock_l: stk!=null ? stk : (ang!=null ? r2(ang*angulL()) : null) };
 }
@@ -3065,12 +3114,17 @@ function expectedNow(){
   const p=draftPrev(), odo=$("#mlOdo").value===""?null:num($("#mlOdo").value);
   const ref=analyse(mlPlate).current.ratio;
   if(!p || odo==null || !ref || odo<p.odo) return null;
-  return { ref:ref, stock:Math.max(0, r2((+p.litres||0)+stockOf(p)-(odo-p.odo)/ref)) };
+  if(!dipped(p)){   // no dip then: carry the tank on from the saved entries up to it, if it is one of them
+    const rows=fuelRows(mlPlate), at=rows.findIndex(r=>sameReading(p, r)); if(at<0) return null;
+    const f=fuelNow(rows.slice(0, at+1), false, ref, 0); if(!f) return null;
+    return { ref:ref, stock:Math.max(0, r2(f.after_fill-(odo-p.odo)/ref)) };
+  }
+  return { ref:ref, stock:Math.max(0, r2(Math.min((+p.litres||0)+stockOf(p), tankL(false))-(odo-p.odo)/ref)) };
 }
 function prefillExpected(){
   const e=expectedNow(), box=$("#mlExp");
   if(isMeter(mlPlate)){ box.innerHTML=""; return; }
-  if(e && !mlStkTouched){ $("#mlStk").value=String(r1(e.stock)); $("#mlAng").value=String(r1(e.stock/angulL())); }
+  if(e && !mlStkTouched){ $("#mlStk").value=String(r1(e.stock)); $("#mlAng").value=String(r1(e.stock/angulL())); $("#mlAng").dataset.typed=""; }
   if(!e){
     box.innerHTML = analyse(mlPlate).normal ? "Enter the odometer now to see the stock expected in the tank."
       : "Expected stock appears once this tanker has a saved mileage. Dip the tank and enter it.";
@@ -3089,7 +3143,7 @@ function updateMlCalc(){
   const o=interval(p, c);
   let h="";
   if(!meter){
-    h+=kv("Stock in tank at previous entry", fmt(stockOf(p))+" L");
+    h+=kv("Stock in tank at previous entry", dipped(p) ? fmt(stockOf(p))+" L" : "not dipped — taken as 0 L");
     h+=kv("Stock left now", c.stock_l==null ? "not dipped — taken as 0 L" : fmt(stockOf(c))+" L");
   } else if(stockOf(p)>0) h+=kv("Stock in tank at previous entry", fmt(stockOf(p))+" L");
   h+=kv("Diesel available since previous entry", fmt(r2((+p.litres||0)+stockOf(p)))+" L");
@@ -3106,13 +3160,16 @@ function updateMlCalc(){
   if(o.dist<0) h+='<div class="kv bad"><span>The reading now is lower than the previous one — please check.</span></div>';
   if(o.used<=0) h+='<div class="kv bad"><span>Diesel used is 0 or less — check the litres and the dip.</span></div>';
   if(c.ts!=null && p.ts!=null && c.ts<=p.ts) h+='<div class="kv bad"><span>This refill\'s time is before the previous refill.</span></div>';
+  [["previous entry",p],["entry now",c]].forEach(x=>{ if(isOverfull(x[1], meter)) h+='<div class="kv bad"><span>The '+x[0]+': '+fmt(stockOf(x[1]))+' L in tank + '+fmt(x[1].litres)+' L filled is more than the '+fmt(tankL(meter))+' L tank — check the Anguls and litres.</span></div>'; });
   box.innerHTML=h;
 }
 // Anguls ↔ litres boxes stay in step (litres = Anguls × litres per Angul)
+// The Anguls are saved only if they were what was typed (dip stick reading);
+// a figure typed in litres is saved as litres (data-typed on the Anguls box).
 function linkPair(angSel, stkSel, touched){
-  $(angSel).addEventListener("input",()=>{ const v=sanQty($(angSel).value); $(angSel).value=v;
+  $(angSel).addEventListener("input",()=>{ const v=sanQty($(angSel).value); $(angSel).value=v; $(angSel).dataset.typed=v===""?"":"1";
     $(stkSel).value = v==="" ? "" : String(r2(num(v)*angulL())); if(touched) mlStkTouched=true; prefillExpected(); updateMlCalc(); });
-  $(stkSel).addEventListener("input",()=>{ const v=sanQty($(stkSel).value); $(stkSel).value=v;
+  $(stkSel).addEventListener("input",()=>{ const v=sanQty($(stkSel).value); $(stkSel).value=v; $(angSel).dataset.typed="";
     $(angSel).value = v==="" ? "" : String(r2(num(v)/angulL())); if(touched) mlStkTouched=true; prefillExpected(); updateMlCalc(); });
 }
 linkPair("#mlPAng","#mlPStk",false);
@@ -3136,6 +3193,24 @@ function editAngul(){
   }).catch(e=>toast(dbHint(e)));
 }
 document.querySelectorAll(".angEdit").forEach(b=>{ b.onclick=editAngul; });
+/* Before saving an entry: an exact repeat of a saved one is not saved again
+   ("already" — saving it would count its litres twice), and one that can't fit
+   in the tank needs a confirm. Returns "save" | "already" | "cancel". */
+function guardEntry(e, exceptId){
+  const meter=isMeter(e.plate);
+  if(fuelRows(e.plate).some(r=>r.id!==exceptId && isDuplicate(e, r))) return "already";
+  if(isOverfull(e, meter) && !confirm((dipped(e)?fmt(stockOf(e))+" L in tank + ":"")+fmt(e.litres)+" L filled = "+fmt(r2(stockOf(e)+(+e.litres||0)))
+      +" L — more than the "+fmt(tankL(meter))+" L tank of "+e.plate+".\n\nCheck the "+(dipped(e)?"Anguls and the ":"")+"litres. Save anyway?")) return "cancel";
+  return "save";
+}
+// a saved entry of this tanker of the same kind (refill / stock check), at the
+// same reading and within a day, but with other figures = the one being corrected
+function correctedEntry(p){
+  const rows=fuelRows(p.plate);
+  if(rows.some(r=>sameReading(p, r))) return null;
+  return rows.find(r=>near(r.odo, p.odo, 0.5) && (r.litres>0)===(p.litres>0) && Math.abs(r.ts-p.ts)<=MILEAGE.dupHours*3600e3) || null;
+}
+function entryTxt(r){ return fmt(r.odo)+(isMeter(r.plate)?" L meter":" km")+", "+fmt(r.litres)+" L"+(dipped(r)?", dip "+fmt(stockOf(r))+" L":"")+" on "+dmy(dayKey(r.ts))+" "+timeLabel(r.ts); }
 function sameReading(a,b){
   return !!a && !!b && a.odo===b.odo && r2(a.litres)===r2(b.litres)
     && r2(stockOf(a))===r2(stockOf(b))
@@ -3155,15 +3230,23 @@ $("#mlSave").onclick=async()=>{
   if(check && c.stock_l==null){ toast("For a stock check, enter the dip (Anguls or litres in tank)"); return; }
   if(c.odo<p.odo && !confirm("The reading now ("+fmt(c.odo)+") is LOWER than the previous one ("+fmt(p.odo)+").\n\nSave anyway?")) return;
   if(!check && !meter && c.stock_l==null && !confirm("No dip entered.\n\nThe litres will count, but without the dip this refill can't be a measuring point for mileage.\n\nSave anyway?")) return;
+  // the dip still holding the app's own pre-filled estimate is not a reading
+  const ex=expectedNow();
+  if(!meter && !mlStkTouched && ex && c.stock_l!=null && near(c.stock_l, r1(ex.stock), 0.6)
+     && !confirm("The dip box still shows the EXPECTED stock ("+fmt(c.stock_l)+" L) that the app filled in — not a reading.\n\nOK = the dip stick really shows this\nCancel = go back and enter the real dip")) return;
   const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
-  // A previous refill typed by hand (first use, or different from the last saved
-  // one) is saved too, so the next calculation can carry on from this one.
-  const savePrev=!sameReading(p, last);
-  if(savePrev && last && !confirm("The previous refill entered differs from the last saved one ("
-      +fmt(last.odo)+", "+fmt(last.litres)+" L on "+dmy(dayKey(last.ts))+").\n\nSave it as an extra refill record too?")) return;
+  // A previous refill typed by hand (first use, or not the saved one) is saved
+  // too, so the next calculation can carry on from it. If it is a saved entry
+  // with its figures corrected, it REPLACES that entry (never a second copy).
+  const fix=correctedEntry(p), savePrev=!rows.some(r=>sameReading(p, r));
+  if(fix){ if(!confirm("You changed the previous refill. Saved:\n"+entryTxt(fix)+"\n\nReplace it with:\n"+entryTxt(p)+" ?")) return; }
+  else if(savePrev && last && !confirm("The previous refill entered isn't saved yet:\n"+entryTxt(p)+"\n\nSave it as a separate refill too? (Cancel if it is the last saved one with a typo — fix the figures instead.)")) return;
+  const gc=guardEntry(c); if(gc==="cancel") return; if(gc==="already"){ toast("This entry is already saved"); return; }
+  const gp=savePrev ? guardEntry(p, fix&&fix.id) : "already"; if(gp==="cancel") return;
   const btn=$("#mlSave"); btn.disabled=true;
   try{
-    if(savePrev) await Backend.addFuel({ plate:mlPlate, ts:p.ts, odo:p.odo, litres:p.litres, anguls:p.anguls, stock_l:p.stock_l, note:"previous refill (entered)", by:ME });
+    if(fix) await Backend.removeFuel(fix.id);
+    if(gp==="save") await Backend.addFuel({ plate:mlPlate, ts:p.ts, odo:p.odo, litres:p.litres, anguls:p.anguls, stock_l:p.stock_l, note:"previous refill (entered)", by:ME });
     await Backend.addFuel({ plate:mlPlate, ts:c.ts, odo:c.odo, litres:check?0:c.litres, anguls:c.anguls, stock_l:c.stock_l,
       note:$("#mlNote").value.trim() || (check?"stock check":""), by:ME });
     toast(check ? "✓ Stock check saved" : "✓ Refill saved");
@@ -3195,16 +3278,20 @@ function renderMileageList(rows){
   const box=$("#mlList"), meter=isMeter(mlPlate);
   if(FUEL_ERR){ box.innerHTML=''; return; }
   if(!rows.length){ box.innerHTML='<div class="empty">No refills saved yet.</div>'; return; }
-  const an=analyse(mlPlate);
+  const an=analyse(mlPlate), scr=screenRows(rows, meter);
+  const dupOf=new Set(scr.dups.map(x=>x.row)), over=new Set(scr.kept.filter(x=>x.over).map(x=>x.row)), incl=new Set(scr.kept.filter(x=>x.incl).map(x=>x.row));
   const judged=new Map(), checked=new Map();
   an.iv.forEach(o=>{ (o.checkOnly?checked:judged).set(o.cur, o); });
   box.innerHTML=rows.map((r,i)=>({ r:r, prev:i>0?rows[i-1]:null })).reverse().map(x=>{
     const r=x.r, o=judged.get(r), c=checked.get(r);
-    const dip=(r.anguls!=null || r.stock_l!=null) ? (r.anguls!=null?fmt(r.anguls)+" Anguls = ":"")+fmt(stockOf(r))+" L" : "";
+    const dip=(r.anguls!=null || r.stock_l!=null) ? (r.anguls!=null?fmt(r.anguls)+" Anguls = ":"")+fmt(stockOf(r))+" L"
+      +(r.anguls!=null && r.stock_l!=null && !near(r.stock_l, stockOf(r), 0.5) ? " (saved as "+fmt(r.stock_l)+" L at an earlier Angul size)" : "") : "";
     const parts=[ !(r.litres>0) ? "🛢️ Stock check · "+(dip||"0 L")+" in tank"
       : "Filled "+fmt(r.litres)+" L"+(dip?" · dip before filling "+dip:"") ];
-    if(!stockKnown(r, meter)) parts.push("no dip — not a measuring point (its litres still count)");
-    else if(includesNextRefill(r, rows[rows.indexOf(r)+1], meter)) parts.push("already includes the refill saved after it — not a measuring point (check its time)");
+    if(dupOf.has(r)) parts.push("⚠ saved twice — the same as the entry before it; not counted (delete one)");
+    else if(over.has(r)) parts.push("⚠ more than the "+fmt(tankL(meter))+" L tank — check the dip and litres; not used to measure");
+    else if(!stockKnown(r, meter)) parts.push("no dip — not a measuring point (its litres still count)");
+    else if(incl.has(r)) parts.push("already includes the refill saved after it — not a measuring point (check its time)");
     if(x.prev) parts.push("+"+fmt(r2(r.odo-x.prev.odo))+(meter?" L dispensed":" km")+" since the entry before");
     else parts.push("starting point");
     if(r.note) parts.push(esc(r.note));
@@ -3247,8 +3334,8 @@ function openStock(){
     const g=k=>row.querySelector('[data-k="'+k+'"]');
     row.querySelectorAll("input").forEach(inp=>inp.addEventListener("input",()=>{
       inp.value=sanQty(inp.value);
-      if(inp.dataset.k==="ang") g("stk").value = inp.value==="" ? "" : String(r2(num(inp.value)*angulL()));
-      if(inp.dataset.k==="stk" && g("ang")) g("ang").value = inp.value==="" ? "" : String(r2(num(inp.value)/angulL()));
+      if(inp.dataset.k==="ang"){ g("stk").value = inp.value==="" ? "" : String(r2(num(inp.value)*angulL())); row.dataset.typed="ang"; }
+      if(inp.dataset.k==="stk"){ if(g("ang")) g("ang").value = inp.value==="" ? "" : String(r2(num(inp.value)/angulL())); row.dataset.typed="stk"; }
     }));
   });
   $("#stkModal").classList.add("on");
@@ -3260,7 +3347,7 @@ $("#stkOk").onclick=async()=>{
   const ts=inputMs("#stkWhen"), err=$("#stkErr"); err.textContent="";
   if(ts==null){ err.textContent="Enter the date & time of the check."; return; }
   if(ts>Date.now()+5*60000){ err.textContent="The date & time is in the future."; return; }
-  const todo=[], warn=[];
+  const todo=[], warn=[]; let dupSkip=0;
   for(const row of $("#stkList").querySelectorAll(".stkrow")){
     const plate=row.getAttribute("data-plate"), g=k=>{ const el=row.querySelector('[data-k="'+k+'"]'); return el?el.value:""; };
     const odoS=g("odo"), stkS=g("stk"), angS=g("ang");
@@ -3271,9 +3358,11 @@ $("#stkOk").onclick=async()=>{
     const rows=fuelRows(plate), last=rows.length?rows[rows.length-1]:null;
     if(last && ts<=last.ts){ err.textContent=plate+": the check must be after its last saved entry ("+dmy(dayKey(last.ts))+" "+timeLabel(last.ts)+")."; return; }
     if(last && odo<last.odo) warn.push(plate+": "+fmt(odo)+" is lower than its last reading "+fmt(last.odo));
-    todo.push({ plate:plate, ts:ts, odo:odo, litres:0, anguls:angS!==""?r2(num(angS)):null, stock_l:stock, note:"stock check — fuel in tank", by:ME });
+    const e={ plate:plate, ts:ts, odo:odo, litres:0, anguls:angS!=="" && row.dataset.typed==="ang" ? r2(num(angS)) : null, stock_l:stock, note:"stock check — fuel in tank", by:ME };
+    const gd=guardEntry(e); if(gd==="cancel") return; if(gd==="already"){ dupSkip++; continue; }
+    todo.push(e);
   }
-  if(!todo.length){ err.textContent="Enter at least one tanker."; return; }
+  if(!todo.length){ err.textContent=dupSkip ? "Already saved." : "Enter at least one tanker."; return; }
   if(warn.length && !confirm(warn.join("\n")+"\n\nSave anyway?")) return;
   const btn=$("#stkOk"); btn.disabled=true;
   try{

@@ -778,27 +778,60 @@ end $$;
 -- Staff can't read the fuel log; these functions return only the answers.
 -- OD15AF5510 is named here as in the app (METER_VEHICLES) — keep them in step.
 -- ---------------------------------------------------------------------
+-- One tanker's entries, screened exactly as the app's screenRows() does:
+--  · dip = Anguls × litres per Angul NOW (else the litres typed);
+--  · an entry repeating the one just before it (same reading, litres and dip,
+--    within a day) was saved twice — dropped, so its litres count once;
+--  · is_point = a measuring point: stock known, and not OVERFULL (dip + litres
+--    more than the tank: 365 L, OD15AF5510 50 L, × 1.1 + the dip tolerance) and
+--    not a stock check that already holds the refill saved right after it (same
+--    odometer within 20 km; its stock ≈ that refill's dip + litres, or more than
+--    the tank with it) — its time is off, and the refill would count twice.
+--  fb = litres filled before the entry (overfull entries' litres still count).
+create or replace function public._loading_fuel_rows(p_vehicle text, p_meter boolean, p_al numeric)
+returns table (odo numeric, litres numeric, stk numeric, fb numeric,
+               reading_at timestamptz, created_at timestamptz, is_point boolean)
+language sql stable security definer set search_path = public as $$
+  with raw as (
+    select f.odometer, f.litres, f.reading_at, f.created_at, f.dip,
+           lag(f.odometer) over w as p_odo, lag(f.litres) over w as p_lit, lag(f.reading_at) over w as p_at,
+           lag(f.dip) over w as p_dip, lag(f.dip is not null) over w as p_dipped
+      from (select *, case when anguls is not null then round(anguls * p_al, 2)
+                           when stock_l is not null then stock_l end as dip
+              from loading_fuel_logs where vehicle = p_vehicle) f
+    window w as (order by f.reading_at, f.created_at)),
+  kept as (
+    select * from raw
+     where not coalesce(abs(odometer - p_odo) <= 0.5 and abs(litres - p_lit) <= 0.5
+                        and (dip is not null) = p_dipped and (dip is null or abs(dip - p_dip) <= 0.5)
+                        and abs(extract(epoch from reading_at - p_at)) <= 24 * 3600, false)),
+  e as (
+    select k.*,
+           coalesce(sum(k.litres) over (order by k.reading_at, k.created_at
+                                        rows between unbounded preceding and 1 preceding), 0) as fb,
+           case when k.dip is not null then k.dip when p_meter and k.litres > 0 then 0 end as stk0,
+           lead(k.odometer) over w2 as n_odo, lead(k.litres) over w2 as n_lit, lead(k.dip) over w2 as n_dip,
+           case when p_meter then 50 * 1.1 + 18 else 365 * 1.1 + 2 * p_al end as tmax
+      from kept k window w2 as (order by k.reading_at, k.created_at)),
+  f as (
+    select e.*, (e.dip is not null or e.litres > 0 or e.stk0 is not null)
+                and coalesce(e.dip, 0) + e.litres > e.tmax as over
+      from e)
+  select f.odometer, f.litres, f.stk0, f.fb, f.reading_at, f.created_at,
+         f.stk0 is not null and not f.over
+         and not coalesce(not p_meter and f.litres = 0 and f.dip is not null and f.n_lit > 2 * p_al
+                          and f.n_odo >= f.odometer and f.n_odo - f.odometer <= 20
+                          and case when f.n_dip is not null then abs(f.dip - (f.n_dip + f.n_lit)) <= 2 * p_al
+                                   else f.dip + f.n_lit > f.tmax end, false)
+    from f
+$$;
+
+-- The measuring points (app: mileagePoints): odo, C = litres before − stock.
 create or replace function public._loading_fuel_points(p_vehicle text, p_meter boolean, p_al numeric)
 returns table (odo numeric, c numeric, stk numeric, reading_at timestamptz, created_at timestamptz)
 language sql stable security definer set search_path = public as $$
-  with r as (
-    select odometer, reading_at, created_at, litres,
-           case when stock_l is not null then stock_l when anguls is not null then anguls * p_al end as dip,
-           coalesce(sum(litres) over (order by reading_at, created_at
-                                      rows between unbounded preceding and 1 preceding), 0) as fb
-      from loading_fuel_logs where vehicle = p_vehicle),
-  e as (
-    select r.*, case when dip is not null then dip when p_meter and litres > 0 then 0 end as stk,
-           lead(odometer) over w as n_odo, lead(litres) over w as n_lit, lead(dip) over w as n_dip
-      from r window w as (order by reading_at, created_at))
-  select e.odometer, e.fb - e.stk, e.stk, e.reading_at, e.created_at from e
-   where e.stk is not null
-     -- a stock check that already includes the refill saved right after it
-     -- (same odometer, stock = that refill's dip + litres) is not a point —
-     -- its time is off, and the refill's litres would count twice (app: includesNextRefill)
-     and not coalesce(not p_meter and e.litres = 0 and e.dip is not null and e.n_lit > 0 and e.n_dip is not null
-                      and e.n_odo >= e.odometer and e.n_odo - e.odometer <= 20
-                      and abs(e.dip - (e.n_dip + e.n_lit)) <= 2 * p_al, false)
+  select odo, fb - stk, stk, reading_at, created_at
+    from _loading_fuel_rows(p_vehicle, p_meter, p_al) where is_point
 $$;
 
 create or replace function public._loading_fuel_state(p_vehicle text) returns jsonb
@@ -808,8 +841,8 @@ declare
   meter boolean := upper(regexp_replace(coalesce(p_vehicle,''), '[^A-Za-z0-9]', '', 'g')) = 'OD15AF5510';
   lo numeric; hi numeric; minspan numeric;
   mpl numeric; q1 numeric; q3 numeric; span numeric; maxu numeric; n int;
-  k record; l loading_fuel_logs; filled numeric; after_last numeric; after_fill numeric;
-  km numeric := 0; lit numeric := 0; trips int := 0; unknown int := 0; burnt numeric; stock numeric;
+  k record; l record; filled numeric; after_last numeric; after_fill numeric;
+  km numeric := 0; lit numeric := 0; trips int := 0; unknown int := 0; burnt numeric; stock numeric; cap numeric;
 begin
   select (value #>> '{}')::numeric into al  from loading_settings where key = 'angul_l';
   select (value #>> '{}')::numeric into res from loading_settings
@@ -831,7 +864,9 @@ begin
     into mpl, q1, q3, span, maxu, n from ag;
   if mpl is not null and (span < minspan or maxu < 25) then mpl := null; end if;   -- not enough data yet
 
-  select * into l from loading_fuel_logs where vehicle = p_vehicle order by reading_at desc, created_at desc limit 1;
+  -- the last entry (duplicates screened out, so a re-save doesn't move "since")
+  select r.odo as odometer, r.reading_at into l from _loading_fuel_rows(p_vehicle, meter, al) r
+   order by r.reading_at desc, r.created_at desc limit 1;
   if found then
     select coalesce(sum(d.rtd_km), 0), coalesce(sum(t.total), 0), count(*), count(*) filter (where d.name is null and not meter)
       into km, lit, trips, unknown
@@ -840,12 +875,13 @@ begin
      where t.vehicle = p_vehicle and t.created_at > l.reading_at;
     select * into k from _loading_fuel_points(p_vehicle, meter, al) order by reading_at desc, created_at desc limit 1;
     if found and mpl > 0 then                -- no point with a known dip yet, or no mileage: unknown
-      select coalesce(sum(litres), 0) into filled from loading_fuel_logs
-       where vehicle = p_vehicle and (reading_at, created_at) >= (k.reading_at, k.created_at);
+      select coalesce(sum(r.litres), 0) into filled from _loading_fuel_rows(p_vehicle, meter, al) r
+       where (r.reading_at, r.created_at) >= (k.reading_at, k.created_at);   -- duplicates excluded
       after_last := k.stk + filled - greatest(0, l.odometer - k.odo) / mpl;
-      after_fill := round(greatest(0, after_last), 1);
+      cap := least(k.stk + filled, case when meter then 50 else 365 end);  -- never more than the tank holds
+      after_fill := round(least(greatest(0, after_last), cap), 1);
       burnt := round((case when meter then lit else km end) / mpl, 1);
-      stock := round(least(greatest(0, after_last - burnt), k.stk + filled), 1);
+      stock := round(least(greatest(0, after_last - burnt), cap), 1);
     end if;
   end if;
   return jsonb_build_object(

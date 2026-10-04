@@ -131,9 +131,11 @@ test('a stock check that already includes the refill saved after it is not count
   const s = simulate({ seed: 5, stockCheckEvery: 2 }); withStockBeforeRefill(s);
   const an = run(s);
   near(an.current.ratio, s.truth, 0.05, 'mileage');
-  assert.equal(an.iv.filter((o) => o.checkOnly).length, 0, 'no "check the readings"');
+  const checks = an.iv.filter((o) => o.checkOnly);
+  assert.equal(checks.length, 1, 'one note: the stock check whose time is off');
+  assert.match(checks[0].checks[0], /already holds the refill/);
   assert.equal(an.iv.filter((o) => o.sev).length, 0, 'no false drop');
-  for (const o of an.iv) assert.ok(o.ratio > s.truth * 0.85, 'no stretch with the litres counted twice');
+  for (const o of an.iv.filter((x) => !x.checkOnly)) assert.ok(o.ratio > s.truth * 0.85, 'no stretch with the litres counted twice');
 });
 
 test('a stock check taken right before refilling (its dip) is still a measuring point', () => {

@@ -516,9 +516,26 @@ first − stock at the second.
   after it, so one wrong entry spoils only itself.
 - **A stock check that already includes a refill** — a *Fuel in tank now*
   entered after a refill, but dated before it (same odometer, its stock =
-  that refill's dip + litres), would count the refill's litres twice. It is
-  recognised and not used as a point (the entry list says so — check its
-  time), in the app and in the database alike.
+  that refill's dip + litres, or more than the tank with it), would count the
+  refill's litres twice. It is recognised and not used as a point (the entry
+  list says so — check its time), in the app and in the database alike.
+- **An entry saved twice** (same reading, litres and dip within a day — a
+  double save, two phones) is counted once and listed to delete; otherwise its
+  litres would look like a theft. Saving the same entry again is refused.
+- **More than the tank holds** — dip + litres over the tank (365 L; OD15AF5510
+  50 L; with 10 % and the dip tolerance to spare) can't be right. The entry is
+  listed, isn't used to measure, and no drop is judged across it; saving one
+  asks first, and the calculator says so while typing.
+- **Dips follow the Angul size.** A dip read in Anguls is always Anguls × the
+  current litres per Angul, so correcting that setting re-reads every dip (the
+  list shows "saved as … L at an earlier Angul size"). A figure typed in litres
+  is kept in litres.
+- **Correcting the previous refill** (same reading, same kind of entry, within
+  a day) *replaces* the saved one instead of adding a second copy.
+- **The pre-filled expected stock** is the app's estimate, not a reading:
+  saving it unchanged asks *"does the dip stick really show this?"* first.
+- **Diesel in the tank now** never shows more than the tank holds, and a
+  re-saved entry doesn't hide the trips sold since the original.
 
 Tested in `tests/loading_web` (`node --test tests/loading_web/*.test.mjs`):
 simulated tankers dipped in whole Anguls, with daily stock checks, typos, a
