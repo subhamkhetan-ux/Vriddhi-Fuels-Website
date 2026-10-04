@@ -363,6 +363,15 @@
   .badge.ok{background:var(--good-bg);color:var(--good)}
   .badge.watch{background:var(--warn-bg);color:var(--warn)}
   .badge.high{background:var(--bad-bg);color:var(--bad)}
+  .badge.info{background:rgba(27,33,48,.07);color:var(--muted)}
+  .flag.chk{border-left-color:#c3c2b7}
+  .stkrow{border:1px solid var(--line);border-radius:16px;padding:10px 12px;margin-bottom:10px;background:rgba(255,255,255,.6)}
+  .stkrow .sh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+  .stkrow .sh small{font-size:11.5px;color:var(--muted);font-weight:600;text-align:right}
+  .stkrow .ca-row{margin:6px 0 0}
+  .stkrow .ca-field label{font-size:11.5px;color:var(--muted);font-weight:700;display:block;margin-bottom:3px}
+  .stkrow input{width:100%;min-width:0;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:11px;background:var(--glass-3);color:var(--ink);font-weight:600}
+  .stkrow input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 
   /* Trends */
   .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:6px}
@@ -643,7 +652,8 @@
     <!-- MILEAGE CALCULATOR (previous reading + litres filled, dip in Anguls) -->
     <section class="screen" id="scMileage">
       <div class="sectitle" style="font-size:18px;justify-content:center">Mileage calculator</div>
-      <button class="big glass" id="toTrend"><span class="em">📈</span><span>Trends &amp; alerts<span class="hi" id="trendHi">Mileage charts · suspicious refills</span></span></button>
+      <button class="big glass" id="toTrend"><span class="em">📈</span><span>Trends &amp; alerts<span class="hi" id="trendHi">Mileage charts · mileage drops</span></span></button>
+      <button class="big glass" id="toStock"><span class="em">🛢️</span><span>Fuel in tank now — all tankers<span class="hi">Enter each tanker's current stock &amp; reading so the next fill measures from it</span></span></button>
       <div class="chips" id="mlVeh"></div>
       <div class="card-add">
         <div class="ca-h">Previous refill — <span id="mlPlate">—</span></div>
@@ -656,10 +666,10 @@
           <div class="ca-field"><label>Diesel filled then (L)</label>
             <input id="mlPLit" type="text" inputmode="decimal" /></div>
         </div>
-        <div class="ca-row al mlAng">
-          <div class="ca-field"><label>Anguls before that refill</label>
+        <div class="ca-row al">
+          <div class="ca-field mlAng"><label>Anguls before that refill</label>
             <input id="mlPAng" type="text" inputmode="decimal" placeholder="0 if dry" /></div>
-          <div class="ca-field"><label>= Litres in tank</label>
+          <div class="ca-field"><label id="mlPStkLab">= Litres in tank</label>
             <input id="mlPStk" type="text" inputmode="decimal" placeholder="0" /></div>
         </div>
         <div class="angchip mlAng">1 Angul = <b class="angLval">16</b> L <button type="button" class="lnk angEdit">✎ change</button></div>
@@ -714,7 +724,7 @@
       </div>
       <div class="tiles" id="tdTiles"></div>
 
-      <div class="sectitle">⚠ Needs a look <span class="sub" id="tdFlagSub"></span></div>
+      <div class="sectitle">⚠ Mileage drops <span class="sub" id="tdFlagSub"></span></div>
       <div id="tdFlags"></div>
 
       <div class="sectitle">Mileage by tanker <span class="sub">km per litre · odometer tankers</span></div>
@@ -732,9 +742,9 @@
 
       <div class="card-add" style="margin-top:14px">
         <div class="ca-h">Alert settings</div>
-        <div class="kv"><span>Flag a refill when mileage is below normal by</span><b><span id="tdPct">15</span>% <button type="button" class="lnk" id="tdPctEdit">✎</button></b></div>
+        <div class="kv"><span>Flag a mileage drop when it is below normal by</span><b><span id="tdPct">15</span>% <button type="button" class="lnk" id="tdPctEdit">✎</button></b></div>
         <div class="kv"><span>1 Angul on the dip stick</span><b><span class="angLval">16</span> L <button type="button" class="lnk angEdit">✎</button></b></div>
-        <div class="note" style="text-align:left;margin:6px 0 0">“Normal” = the tanker's median mileage over all its other refills. High (red) = twice the alert gap.</div>
+        <div class="note" style="text-align:left;margin:6px 0 0">“Normal” = the tanker's median mileage over all its other fill-to-fill stretches. ⛔ Sharp drop = twice the alert gap.</div>
       </div>
       <button class="big green" id="tdExcel"><span class="em">⬇</span><span>Download mileage analysis (Excel)</span></button>
       <div class="note" id="tdNote"></div>
@@ -822,6 +832,23 @@
     <div class="mbtns">
       <button class="mbtn ghost" id="capCancel">Cancel</button>
       <button class="mbtn go" id="capOk">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fuel in tank now (opening stock) for every tanker -->
+<div class="modal" id="stkModal">
+  <div class="modalbox wide">
+    <div class="mh">Fuel in tank now</div>
+    <div class="note" style="margin:4px 0 10px">Enter what is in each tanker's tank right now and its reading. It is saved as a
+      <b>stock check</b> (no diesel added) — the next fill's mileage is measured from here. Leave a tanker blank to skip it.</div>
+    <div class="ca-field" style="margin-bottom:10px"><label class="mlab">Date &amp; time of the check</label>
+      <input type="datetime-local" id="stkWhen" /></div>
+    <div id="stkList"></div>
+    <div class="caperr" id="stkErr"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="stkCancel">Cancel</button>
+      <button class="mbtn go" id="stkOk">Save stock</button>
     </div>
   </div>
 </div>
@@ -920,7 +947,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v18 · 2026-10-04";
+const APP_BUILD = "v19 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -2362,10 +2389,17 @@ function interval(prev, cur){
   o.extra = isMeter(cur.plate) ? null : r2(o.dist-o.rtd);
   return o;
 }
-/* ---- The checks: what makes a refill worth a second look ----
-   "Normal" for a refill = the median mileage of the tanker's OTHER refills
-   (needs at least two), so one bad refill can't hide inside its own baseline.
-   High = beyond twice the alert gap; Watch = beyond the gap. */
+/* ---- What gets flagged ----
+   The suspicious thing is a MILEAGE DROP over the stretch between two fills —
+   the tanker burnt more diesel than usual for the distance (or, for
+   OD15AF5510, for the fuel it dispensed): a possible engine fault, or diesel
+   taken out of the tank. "Normal" for a stretch = the median mileage of the
+   tanker's OTHER stretches (needs at least two), so one bad stretch can't hide
+   inside its own baseline. Drop = below normal by the alert % (⚠); sharp drop =
+   by twice that (⛔).
+   Separately, figures that can't be right (reading not moving, diesel used ≤ 0,
+   mileage far ABOVE normal) are listed as "check the readings" — those are
+   entry mistakes to correct, not suspicion. */
 function analyse(plate){
   const rows=fuelRows(plate), meter=isMeter(plate), P=alertP();
   const iv=[]; for(let i=1;i<rows.length;i++) iv.push(interval(rows[i-1], rows[i]));
@@ -2375,30 +2409,25 @@ function analyse(plate){
     o.ref = others.length>=2 ? median(others) : null;
     o.expUsed = (o.ref && o.dist>0) ? r2(o.dist/o.ref) : null;
     o.excess = o.expUsed!=null ? r2(o.used-o.expUsed) : null;
-    const f=[], unit=meter?"L/L":"km/L";
-    if(o.dist<=0 && o.used>0) f.push({ sev:2, text:(meter?"Meter":"Odometer")+" did not go up, but "+fmt(o.used)+" L of diesel was used" });
-    if(o.used<=0) f.push({ sev:1, text:"Diesel used works out to "+fmt(o.used)+" L — check the litres and the dip" });
+    const unit=meter?"L/L":"km/L";
+    o.sev=0; o.dropPct=null; o.dropText=""; o.checks=[];
     if(o.ratio!=null && o.ref){
-      const pct=Math.round((o.ratio/o.ref-1)*100);
-      if(o.ratio < o.ref*(1-P)) f.push({ sev: o.ratio < o.ref*(1-2*P) ? 2 : 1,
-        text:"Low mileage "+o.ratio.toFixed(2)+" "+unit+" vs normal "+o.ref.toFixed(2)+" ("+pct+"%) — about "+fmt(o.excess)+" L more diesel than normal" });
-      else if(o.ratio > o.ref*(1+2*P)) f.push({ sev:1,
-        text:"Mileage "+o.ratio.toFixed(2)+" "+unit+" is far above normal "+o.ref.toFixed(2)+" (+"+pct+"%) — check the readings" });
+      o.dropPct=Math.round((o.ratio/o.ref-1)*100);
+      if(o.ratio < o.ref*(1-P)){
+        o.sev = o.ratio < o.ref*(1-2*P) ? 2 : 1;
+        o.dropText="Mileage dropped to "+o.ratio.toFixed(2)+" "+unit+" from normal "+o.ref.toFixed(2)+" ("+o.dropPct+"%) — about "+fmt(o.excess)+" L more diesel used than normal";
+      } else if(o.ratio > o.ref*(1+2*P)) o.checks.push("Mileage "+o.ratio.toFixed(2)+" "+unit+" is far above normal "+o.ref.toFixed(2)+" (+"+o.dropPct+"%) — likely a wrong reading or dip");
     }
-    if(!meter && o.dist>0){
-      const ex=o.extra;
-      const what = o.trips ? "Extra running "+fmt(ex)+" km beyond "+o.trips+" trip"+(o.trips===1?"":"s")+" ("+fmt(o.rtd)+" km RTD) of "+fmt(o.dist)+" km"
-                           : "No trips recorded, but "+fmt(o.dist)+" km on the odometer";
-      if(ex > Math.max(100, 0.5*o.dist)) f.push({ sev:2, text:what });
-      else if(ex > Math.max(50, 0.25*o.dist)) f.push({ sev:1, text:what });
-    }
-    o.flags=f; o.sev=f.reduce((m,x)=>Math.max(m,x.sev),0);
+    if(o.dist<=0 && o.used>0) o.checks.push((meter?"Meter":"Odometer")+" did not go up, but "+fmt(o.used)+" L of diesel was used");
+    if(o.used<=0) o.checks.push("Diesel used works out to "+fmt(o.used)+" L — check the litres and the dip");
   });
   return { plate:plate, meter:meter, rows:rows, iv:iv, normal:median(valid.map(x=>x.ratio)) };
 }
+function stretchTxt(o){ return dmy(dayKey(o.prev.ts)).slice(0,5)+" → "+dmy(dayKey(o.cur.ts)); }
 function ratioTxt(v, meter){ return v==null ? "—" : (Math.round(v*100)/100).toFixed(2)+(meter?" L / L":" km/L"); }
 function kv(label, val, cls){ return '<div class="kv'+(cls?' '+cls:'')+'"><span>'+label+'</span><b>'+val+'</b></div>'; }
-function sevBadge(sev){ return sev===2 ? '<span class="badge high">⛔ High</span>' : sev===1 ? '<span class="badge watch">⚠ Watch</span>' : '<span class="badge ok">✓ OK</span>'; }
+function sevBadge(sev){ return sev===2 ? '<span class="badge high">⛔ Sharp drop</span>' : sev===1 ? '<span class="badge watch">⚠ Mileage drop</span>' : '<span class="badge ok">✓ Normal</span>'; }
+const DROP_WHY="Possible engine fault or diesel theft — check the vehicle and ask the driver.";
 // the interval figures, shared by the live calculator and the period summary
 function intervalKV(o, meter){
   let h="";
@@ -2466,10 +2495,11 @@ function renderMileage(){
   $("#scMileage").querySelector(".mlUnitLab2").textContent = meter ? "Dispenser meter now (L)" : "Odometer now (km)";
   $("#mlPOdo").placeholder = meter ? "meter reading" : "e.g. 45210";
   $("#mlOdo").placeholder = meter ? "meter reading" : "e.g. 45630";
+  $("#mlPStkLab").textContent = meter ? "Litres in tank then (0 if dry)" : "= Litres in tank";
   paintAngul();
   const rows=fuelRows(mlPlate), last=rows.length?rows[rows.length-1]:null;
   $("#mlLast").innerHTML = FUEL_ERR ? '<span style="color:var(--red-d);font-weight:700">'+esc(FUEL_ERR)+'</span>'
-    : last ? 'Filled in from the last saved refill ('+dmy(dayKey(last.ts))+' '+timeLabel(last.ts)+'). Change it if needed.'
+    : last ? 'Filled in from the last saved '+(last.litres>0?'refill':'stock check')+' ('+dmy(dayKey(last.ts))+' '+timeLabel(last.ts)+'). Change it if needed.'
     : 'No refill saved yet for this tanker — enter the previous refill'+(meter?' (dispenser meter reading and litres filled)':' (odometer and litres filled)')+'.';
   $("#mlHow").innerHTML = meter
     ? '<b>How it\'s worked out ('+esc(mlPlate)+'):</b> this tanker runs its engine to dispense, so its mileage is by <b>fuel dispensed</b>. '
@@ -2479,10 +2509,10 @@ function renderMileage(){
       +'Diesel used = litres filled at the previous refill + stock left then − stock left now. '
       +'Mileage = km run (odometer now − previous odometer) ÷ diesel used. '
       +'<b>RTD km</b> = round-trip km of the customers this tanker was sent to in between, so <b>Extra km</b> = km run − RTD km.';
-  // how many refills are flagged — a nudge towards the trends screen
+  // mileage drops in the last 30 days — a nudge towards the trends screen
   let hi=0, wa=0;
   if(!FUEL_ERR) mlPlates().forEach(p=>{ analyse(p).iv.forEach(o=>{ if(o.cur.ts>Date.now()-31*864e5){ if(o.sev===2) hi++; else if(o.sev===1) wa++; } }); });
-  $("#trendHi").textContent = (hi||wa) ? "Last 30 days: "+(hi?hi+" high · ":"")+wa+" to watch" : "Mileage charts · suspicious refills";
+  $("#trendHi").textContent = (hi||wa) ? "Last 30 days: "+(hi+wa)+" mileage drop"+(hi+wa===1?"":"s")+(hi?" ("+hi+" sharp)":"") : "Mileage charts · mileage drops";
   $("#toTrend").classList.toggle("alert", hi>0);
   $("#mlSave").disabled=!!FUEL_ERR || !mlPlate;
   prefillExpected();
@@ -2492,7 +2522,8 @@ function renderMileage(){
 }
 function draftPrev(){
   if($("#mlPOdo").value==="") return null;
-  const ang=isMeter(mlPlate)?null:optNum("#mlPAng"), stk=isMeter(mlPlate)?null:optNum("#mlPStk");
+  // OD15AF5510 has no dip stick, but a stock check can still record litres in its tank
+  const ang=isMeter(mlPlate)?null:optNum("#mlPAng"), stk=optNum("#mlPStk");
   return { plate:mlPlate, ts:inputMs("#mlPWhen"), odo:r2(num($("#mlPOdo").value)), litres:r2(num($("#mlPLit").value)),
     anguls:ang, stock_l: stk!=null ? stk : (ang!=null ? r2(ang*angulL()) : null) };
 }
@@ -2534,16 +2565,17 @@ function updateMlCalc(){
   const o=interval(p, c);
   let h="";
   if(!meter){
-    h+=kv("Stock left at previous refill", fmt(stockOf(p))+" L");
+    h+=kv("Stock in tank at previous entry", fmt(stockOf(p))+" L");
     h+=kv("Stock left now", c.stock_l==null ? "not dipped — taken as 0 L" : fmt(stockOf(c))+" L");
-  }
-  h+=kv("Diesel available since previous refill", fmt(r2((+p.litres||0)+stockOf(p)))+" L");
+  } else if(stockOf(p)>0) h+=kv("Stock in tank at previous entry", fmt(stockOf(p))+" L");
+  h+=kv("Diesel available since previous entry", fmt(r2((+p.litres||0)+stockOf(p)))+" L");
   h+=intervalKV(o, meter);
   const ref=analyse(mlPlate).normal;
   if(ref && o.ratio!=null){
     const P=alertP(), pct=Math.round((o.ratio/ref-1)*100);
     const sev = o.ratio<ref*(1-2*P) ? 2 : o.ratio<ref*(1-P) ? 1 : 0;
     h+='<div class="kv"><span>vs this tanker\'s normal '+ratioTxt(ref,meter)+'</span><b>'+(pct>0?'+':'')+pct+'% '+sevBadge(sev)+'</b></div>';
+    if(sev) h+='<div class="kv bad"><span>'+DROP_WHY+'</span></div>';
   }
   if(o.dist<0) h+='<div class="kv bad"><span>The reading now is lower than the previous one — please check.</span></div>';
   if(o.used<=0) h+='<div class="kv bad"><span>Diesel used is 0 or less — check the litres and the dip.</span></div>';
@@ -2634,13 +2666,16 @@ function renderMileageList(rows){
   const an=analyse(mlPlate), byCur=new Map(an.iv.map(o=>[o.cur,o]));
   box.innerHTML=rows.slice().reverse().map(r=>{
     const o=byCur.get(r);
-    const parts=["Filled "+fmt(r.litres)+" L"+(!meter && (r.anguls!=null || r.stock_l!=null)?" · dip "+(r.anguls!=null?fmt(r.anguls)+" Anguls = ":"")+fmt(stockOf(r))+" L":"")];
+    const dip=(r.anguls!=null || r.stock_l!=null) ? (r.anguls!=null?fmt(r.anguls)+" Anguls = ":"")+fmt(stockOf(r))+" L" : "";
+    const parts=[ !(r.litres>0) ? "🛢️ Stock check · "+(dip||"0 L")+" in tank"
+      : "Filled "+fmt(r.litres)+" L"+(dip?" · dip "+dip:"") ];
     if(o) parts.push(meter ? "dispensed "+fmt(o.dist)+" L · diesel used "+fmt(o.used)+" L"
       : "+"+fmt(o.dist)+" km · used "+fmt(o.used)+" L · "+o.trips+" trip"+(o.trips===1?"":"s")+" ("+fmt(o.rtd)+" km RTD) · extra "+fmt(r2(o.dist-o.rtd))+" km");
-    else parts.push("starting refill");
+    else parts.push("starting point");
     if(r.note) parts.push(esc(r.note));
     if(CLOUD && r.by) parts.push(esc(r.by));
-    const fl = o && o.flags.length ? '<div class="flagline">'+sevBadge(o.sev)+' '+esc(o.flags.map(x=>x.text).join(" · "))+'</div>' : '';
+    const fl = (o && o.sev ? '<div class="flagline">'+sevBadge(o.sev)+' '+esc(o.dropText)+'</div>' : '')
+      + (o && o.checks.length ? '<div class="flagline">✎ Check the readings: '+esc(o.checks.join(" · "))+'</div>' : '');
     return '<div class="mlrow'+(o&&o.sev===2?' high':o&&o.sev===1?' watch':'')+'"><div class="mm"><div class="m1">'+fmt(r.odo)+(meter?' L meter':' km')+'</div>'
       +'<div class="m2">'+dmy(dayKey(r.ts))+' · '+timeLabel(r.ts)+'<br>'+parts.join(" · ")+'</div>'+fl+'</div>'
       +'<span class="mk">'+(o && o.ratio!=null?(Math.round(o.ratio*100)/100).toFixed(2)+'<small>'+(meter?'L / L':'km/L')+'</small>':'—')+'</span>'
@@ -2653,11 +2688,70 @@ function renderMileageList(rows){
   }; });
 }
 
+/* ---------- Fuel in tank now (opening stock for every tanker) ----------
+   Saved as a "stock check": a reading with 0 litres filled and the stock in
+   the tank. The next fill then measures diesel used = this stock − dip then,
+   so mileage is accurate from the very next fill. OD15AF5510 has no dip stick,
+   so its stock is entered in litres only. */
+function openStock(){
+  $("#stkWhen").value=nowLocalInput(Date.now());
+  $("#stkErr").textContent="";
+  $("#stkList").innerHTML=mlPlates().map((p,i)=>{
+    const m=isMeter(p), rows=fuelRows(p), last=rows.length?rows[rows.length-1]:null;
+    return '<div class="stkrow" data-i="'+i+'" data-plate="'+esc(p)+'"><div class="sh"><span class="plate">'+esc(p)+'</span>'
+      +'<small>'+(last?'last '+(m?'meter ':'')+fmt(last.odo)+(m?' L':' km')+' · '+dmy(dayKey(last.ts)):'no reading yet')+'</small></div>'
+      +'<div class="ca-field"><label>'+(m?'Dispenser meter now (L)':'Odometer now (km)')+'</label><input data-k="odo" inputmode="decimal" type="text" /></div>'
+      +(m ? '<div class="ca-row"><div class="ca-field"><label>Litres in tank now</label><input data-k="stk" inputmode="decimal" type="text" /></div></div>'
+          : '<div class="ca-row"><div class="ca-field"><label>Anguls (dip)</label><input data-k="ang" inputmode="decimal" type="text" /></div>'
+           +'<div class="ca-field"><label>= Litres in tank</label><input data-k="stk" inputmode="decimal" type="text" /></div></div>')
+      +'</div>';
+  }).join("");
+  $("#stkList").querySelectorAll(".stkrow").forEach(row=>{
+    const g=k=>row.querySelector('[data-k="'+k+'"]');
+    row.querySelectorAll("input").forEach(inp=>inp.addEventListener("input",()=>{
+      inp.value=sanQty(inp.value);
+      if(inp.dataset.k==="ang") g("stk").value = inp.value==="" ? "" : String(r2(num(inp.value)*angulL()));
+      if(inp.dataset.k==="stk" && g("ang")) g("ang").value = inp.value==="" ? "" : String(r2(num(inp.value)/angulL()));
+    }));
+  });
+  $("#stkModal").classList.add("on");
+}
+function closeStock(){ $("#stkModal").classList.remove("on"); }
+$("#stkCancel").onclick=closeStock;
+$("#stkModal").addEventListener("click",e=>{ if(e.target===$("#stkModal")) closeStock(); });
+$("#stkOk").onclick=async()=>{
+  const ts=inputMs("#stkWhen"), err=$("#stkErr"); err.textContent="";
+  if(ts==null){ err.textContent="Enter the date & time of the check."; return; }
+  if(ts>Date.now()+5*60000){ err.textContent="The date & time is in the future."; return; }
+  const todo=[], warn=[];
+  for(const row of $("#stkList").querySelectorAll(".stkrow")){
+    const plate=row.getAttribute("data-plate"), g=k=>{ const el=row.querySelector('[data-k="'+k+'"]'); return el?el.value:""; };
+    const odoS=g("odo"), stkS=g("stk"), angS=g("ang");
+    if(odoS==="" && stkS==="" && angS==="") continue;               // skipped
+    if(odoS===""){ err.textContent=plate+": enter the "+(isMeter(plate)?"meter reading":"odometer")+"."; return; }
+    if(stkS==="" && angS===""){ err.textContent=plate+": enter the fuel in the tank (0 if dry)."; return; }
+    const odo=r2(num(odoS)), stock=stkS!=="" ? r2(num(stkS)) : r2(num(angS)*angulL());
+    const rows=fuelRows(plate), last=rows.length?rows[rows.length-1]:null;
+    if(last && ts<=last.ts){ err.textContent=plate+": the check must be after its last saved entry ("+dmy(dayKey(last.ts))+" "+timeLabel(last.ts)+")."; return; }
+    if(last && odo<last.odo) warn.push(plate+": "+fmt(odo)+" is lower than its last reading "+fmt(last.odo));
+    todo.push({ plate:plate, ts:ts, odo:odo, litres:0, anguls:angS!==""?r2(num(angS)):null, stock_l:stock, note:"stock check — fuel in tank", by:ME });
+  }
+  if(!todo.length){ err.textContent="Enter at least one tanker."; return; }
+  if(warn.length && !confirm(warn.join("\n")+"\n\nSave anyway?")) return;
+  const btn=$("#stkOk"); btn.disabled=true;
+  try{
+    for(const r of todo) await Backend.addFuel(r);
+    closeStock(); toast("✓ Stock saved for "+todo.length+" tanker"+(todo.length===1?"":"s"));
+    await loadMileage(); fillPrevFromSaved(true);
+  }catch(e){ err.textContent=dbHint(e); }
+  btn.disabled=false;
+};
+
 /* ---------- Charts (small, dependency-free SVG) ----------
    Drawn at the card's real width and redrawn on resize. Light surface only.
    Series: one hue per chart (blue); blue/red only for the above/below-normal
    diverging bars; orange is the second series of the km split. Status colours
-   (red / amber) only on flagged points, always with the ⚠ list beside them. */
+   (red / amber) only on mileage-drop points, always with the ⚠ list beside them. */
 const VZ={ s1:"#2a78d6", s2:"#eb6834", pos:"#d03b3b", neg:"#2a78d6", crit:"#d03b3b", warn:"#fab219",
   grid:"#e1e0d9", axis:"#c3c2b7", tick:"#898781", ink:"#0b0b0b", ink2:"#52514e", surf:"#fcfcfb", band:"rgba(42,120,214,.11)" };
 const SVGNS="http://www.w3.org/2000/svg";
@@ -2695,7 +2789,7 @@ function axisY(svg, ticks, y, L, R, W){
   });
 }
 /* Line chart over refills (x = refill date). band:[lo,hi] shades the normal
-   range; flagged points get a status-colour marker. */
+   range; mileage-drop points get a status-colour marker. */
 function lineChart(host, pts, opt){
   host.innerHTML="";
   if(pts.length<1){ vizEmpty(host, opt.empty||"Not enough refills yet."); return; }
@@ -2829,35 +2923,41 @@ function renderTrend(){
   const D=trendData(), odo=D.all.filter(x=>!x.meter), met=D.all.filter(x=>x.meter);
   const inAll=[].concat.apply([], D.all.map(x=>x.inR));
   const flagged=inAll.filter(o=>o.sev>0).sort((p,q)=>q.sev-p.sev || (q.excess||0)-(p.excess||0) || q.cur.ts-p.cur.ts);
+  const checks=inAll.filter(o=>o.checks.length).sort((p,q)=>q.cur.ts-p.cur.ts);
   const fleet=agg([].concat.apply([], odo.map(x=>x.inR)));
-  const excess=r2(inAll.reduce((s,o)=>s+(o.excess>0?o.excess:0),0));
+  const excess=r2(flagged.reduce((s,o)=>s+(o.excess>0?o.excess:0),0));
   const extra=r2(inAll.reduce((s,o)=>s+(o.extra>0?o.extra:0),0));
   const hiN=flagged.filter(o=>o.sev===2).length, waN=flagged.length-hiN;
   $("#tdTiles").innerHTML=
-     '<div class="tile"><div class="tn">'+inAll.length+'</div><div class="tl">Refills analysed</div></div>'
-    +'<div class="tile'+(hiN?' bad':waN?' warn':' good')+'"><div class="tn">'+(hiN?'⛔ ':waN?'⚠ ':'✓ ')+flagged.length+'</div><div class="tl">Flagged · '+hiN+' high</div></div>'
+     '<div class="tile"><div class="tn">'+inAll.length+'</div><div class="tl">Fill-to-fill stretches measured</div></div>'
+    +'<div class="tile'+(hiN?' bad':waN?' warn':' good')+'"><div class="tn">'+(hiN?'⛔ ':waN?'⚠ ':'✓ ')+flagged.length+'</div><div class="tl">Mileage drops · '+hiN+' sharp</div></div>'
     +'<div class="tile"><div class="tn">'+(fleet.ratio?fleet.ratio.toFixed(2):'—')+'</div><div class="tl">Fleet km/L</div></div>'
-    +'<div class="tile"><div class="tn">'+fmt(excess)+'<small> L</small></div><div class="tl">Diesel above normal</div></div>'
+    +'<div class="tile'+(excess>0?' warn':'')+'"><div class="tn">'+fmt(excess)+'<small> L</small></div><div class="tl">Extra diesel in drops</div></div>'
     +'<div class="tile"><div class="tn">'+fmt(extra)+'<small> km</small></div><div class="tl">Extra km vs trips</div></div>';
   // the list of refills that need a look
-  $("#tdFlagSub").textContent = flagged.length ? flagged.length+" refill"+(flagged.length===1?"":"s") : "";
-  $("#tdFlags").innerHTML = flagged.length ? flagged.slice(0,30).map(o=>{
+  $("#tdFlagSub").textContent = flagged.length ? flagged.length+" stretch"+(flagged.length===1?"":"es")+" between fills" : "";
+  $("#tdFlags").innerHTML = (flagged.length ? '<div class="note" style="text-align:left;margin:0 2px 8px">A drop means the tanker burnt more diesel than usual for the '
+      +'distance (or, for OD15AF5510, for the fuel it dispensed). '+DROP_WHY+'</div>'
+    + flagged.slice(0,30).map(o=>{
     const m=isMeter(o.cur.plate);
     return '<div class="flag '+(o.sev===2?'high':'watch')+'"><div class="fh">'+sevBadge(o.sev)+'<span class="plate">'+esc(o.cur.plate)+'</span>'
-      +'<span class="fd">'+dmy(dayKey(o.prev.ts)).slice(0,5)+' → '+dmy(dayKey(o.cur.ts))+'</span></div>'
-      +'<ul>'+o.flags.map(f=>'<li>'+esc(f.text)+'</li>').join("")+'</ul>'
+      +'<span class="fd">'+stretchTxt(o)+'</span></div>'
+      +'<ul><li>'+esc(o.dropText)+'</li></ul>'
       +'<div class="fm">'+fmt(o.dist)+(m?' L dispensed':' km')+' · '+fmt(o.used)+' L used · '+ratioTxt(o.ratio,m)+(o.ref?' (normal '+o.ref.toFixed(2)+')':'')+'</div></div>';
   }).join("")+(flagged.length>30?'<div class="note">+ '+(flagged.length-30)+' more in the Excel download</div>':'')
-    : '<div class="empty">✓ Nothing suspicious in this period.</div>';
+    : '<div class="empty">✓ No mileage drops in this period.</div>')
+    + (checks.length ? '<div class="sectitle" style="margin-top:16px">✎ Check the readings <span class="sub">entry mistakes, not suspicion</span></div>'
+      + checks.slice(0,15).map(o=>'<div class="flag chk"><div class="fh"><span class="badge info">✎ Check</span><span class="plate">'+esc(o.cur.plate)+'</span>'
+        +'<span class="fd">'+stretchTxt(o)+'</span></div><ul>'+o.checks.map(t=>'<li>'+esc(t)+'</li>').join("")+'</ul></div>').join("") : '');
   // fleet comparison
   const rows=odo.map(x=>{ const g=agg(x.inR), worst=x.inR.reduce((m,o)=>Math.max(m,o.sev),0);
     return g.ratio ? { label:x.plate, v:g.ratio, flag:worst,
-      tip:tipHTML(x.plate, [["Mileage",g.ratio.toFixed(2)+" km/L"],["Km run",fmt(g.dist)+" km"],["Diesel used",fmt(g.used)+" L"],["Refills",String(g.n)],["Normal (all time)",x.normal?x.normal.toFixed(2)+" km/L":"—"],["Flagged",String(x.inR.filter(o=>o.sev).length)]]) } : null; }).filter(Boolean)
+      tip:tipHTML(x.plate, [["Mileage",g.ratio.toFixed(2)+" km/L"],["Km run",fmt(g.dist)+" km"],["Diesel used",fmt(g.used)+" L"],["Refills",String(g.n)],["Normal (all time)",x.normal?x.normal.toFixed(2)+" km/L":"—"],["Mileage drops",String(x.inR.filter(o=>o.sev).length)]]) } : null; }).filter(Boolean)
     .sort((p,q)=>q.v-p.v);
   hbarChart($("#vzFleet"), rows, { ref:fleet.ratio, label:"Average km per litre by tanker", empty:"No complete refill intervals in this period." });
   $("#vzFleetFoot").innerHTML = rows.length ? '<span class="lg"><i style="background:'+VZ.s1+'"></i>km/L in the period</span>'
     +'<span class="lg"><i class="dash"></i>fleet average '+(fleet.ratio?fleet.ratio.toFixed(2):'—')+'</span>'
-    +'<span class="lg">⚠ / ⛔ = has flagged refills</span>' : '';
+    +'<span class="lg">⚠ / ⛔ = had a mileage drop</span>' : '';
   $("#tdMeter").innerHTML = met.map(x=>{ const g=agg(x.inR);
     return '<div class="tile wide"><div class="tl">'+esc(x.plate)+' · by fuel dispensed</div><div class="tn">'+(g.ratio?g.ratio.toFixed(2):'—')+'<small> L dispensed / L diesel</small></div>'
       +'<div class="tl">'+fmt(g.dist)+' L dispensed · '+fmt(g.used)+' L used · normal '+(x.normal?x.normal.toFixed(2):'—')+(g.dist>0&&g.used>0?' · '+fmt(r2(g.used/g.dist*1000))+' L per 1,000 L':'')+'</div></div>'; }).join("");
@@ -2880,9 +2980,9 @@ function renderTrendCharts(D){
   if(!x){ ["#vzTrend","#vzExcess","#vzKm"].forEach(s=>vizEmpty($(s),"No refills saved yet.")); return; }
   const m=x.meter, P=alertP(), unit=m?"L dispensed / L":"km/L";
   $("#vzTrendH").textContent=(m?"Fuel dispensed per litre":"Mileage")+" per refill — "+x.plate;
-  $("#vzTrendS").textContent=(x.normal?"Shaded band = normal "+x.normal.toFixed(2)+" "+unit+" ± "+fmt(SETTINGS.alert_pct)+"% · ":"")+"⚠ amber / ⛔ red points are flagged";
+  $("#vzTrendS").textContent=(x.normal?"Shaded band = normal "+x.normal.toFixed(2)+" "+unit+" ± "+fmt(SETTINGS.alert_pct)+"% · ":"")+"⚠ amber / ⛔ red points = mileage drop";
   const pts=x.inR.filter(o=>o.ratio!=null).map(o=>({ t:o.cur.ts, y:o.ratio, flag:o.sev,
-    tip:tipHTML(dmy(dayKey(o.cur.ts))+(o.sev?(o.sev===2?"  ⛔ High":"  ⚠ Watch"):""), [["Mileage",ratioTxt(o.ratio,m)],["Normal",o.ref?o.ref.toFixed(2):"—"],[m?"Dispensed":"Km run",fmt(o.dist)+(m?" L":" km")],["Diesel used",fmt(o.used)+" L"]].concat(o.flags.map(f=>["⚠",f.text]))) }));
+    tip:tipHTML(stretchTxt(o)+(o.sev?(o.sev===2?"  ⛔ Sharp drop":"  ⚠ Mileage drop"):""), [["Mileage",ratioTxt(o.ratio,m)],["Normal",o.ref?o.ref.toFixed(2):"—"],["vs normal",o.dropPct==null?"—":(o.dropPct>0?"+":"")+o.dropPct+"%"],[m?"Dispensed":"Km run",fmt(o.dist)+(m?" L":" km")],["Diesel used",fmt(o.used)+" L"]]) }));
   lineChart($("#vzTrend"), pts, { ref:x.normal, band:x.normal?[x.normal*(1-P), x.normal*(1+P)]:null, label:"Mileage per refill", empty:"Needs two refills in this period." });
   const ex=x.inR.filter(o=>o.excess!=null).map(o=>({ label:dmy(dayKey(o.cur.ts)).slice(0,5),
     segs:[{ v:o.excess, color:o.excess>0?VZ.pos:VZ.neg }],
@@ -2918,7 +3018,7 @@ function renderMonthly(D){
   $("#tdMonthly").innerHTML='<table class="mtab"><thead><tr><th>Month</th>'+plates.map(p=>'<th>'+esc(p)+(isMeter(p)?'<small>L/L</small>':'<small>km/L</small>')+'</th>').join("")+'</tr></thead><tbody>'+body+'</tbody></table>';
 }
 $("#tdPctEdit").onclick=()=>{
-  const ans=prompt("Flag a refill when mileage is below the tanker's normal by how many %?", String(SETTINGS.alert_pct));
+  const ans=prompt("Flag a mileage drop when mileage is below the tanker's normal by how many %?", String(SETTINGS.alert_pct));
   if(ans==null) return;
   const v=Math.round(num(sanQty(ans)));
   if(!(v>=1 && v<=90)){ toast("Enter a % between 1 and 90"); return; }
@@ -2934,18 +3034,20 @@ $("#tdExcel").onclick=async()=>{
     "Litres filled previous":o.prev.litres, "Stock previous (L)":stockOf(o.prev), "Stock now (L)":stockOf(o.cur),
     "Diesel used (L)":o.used, "Mileage":o.ratio!=null?r2(o.ratio):"", "Normal":o.ref?r2(o.ref):"",
     "Above normal (L)":o.excess!=null?o.excess:"", "Trips":m?"":o.trips, "RTD km":m?"":o.rtd, "Extra km":m?"":o.extra,
-    "Flag":o.sev===2?"HIGH":o.sev===1?"WATCH":"", "Why":o.flags.map(f=>f.text).join(" | "),
+    "Mileage drop":o.sev===2?"SHARP DROP":o.sev===1?"DROP":"", "vs normal %":o.dropPct==null?"":o.dropPct,
+    "Detail":o.dropText, "Check the readings":o.checks.join(" | "),
     "Litres filled now":o.cur.litres }; });
   const months={};
   D.all.forEach(x=>x.inR.forEach(o=>{ const k=dayKey(o.cur.ts).slice(0,7)+"|"+x.plate; (months[k]=months[k]||[]).push(o); }));
   const mon=Object.keys(months).sort().map(k=>{ const g=agg(months[k]), p=k.split("|"); return { "Month":p[0], "Vehicle":p[1],
     "Refills":months[k].length, "Km run / L dispensed":g.dist, "Diesel used (L)":g.used, "Mileage":g.ratio?r2(g.ratio):"",
-    "Flagged":months[k].filter(o=>o.sev).length }; });
+    "Mileage drops":months[k].filter(o=>o.sev).length }; });
   const f=$("#tdFrom").value, t=$("#tdTo").value, fname="Vriddhi_Mileage_Analysis_"+f+"_to_"+t;
   try{
     const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
     const wb=XLSX.utils.book_new();
-    const al=XLSX.utils.json_to_sheet(rows.filter(r=>r.Flag)); al["!cols"]=[{wch:12},{wch:14},{wch:18},{wch:18}]; XLSX.utils.book_append_sheet(wb, al, "Alerts");
+    const dr=rows.filter(r=>r["Mileage drop"]);
+    const al=XLSX.utils.json_to_sheet(dr.length?dr:[{ "Mileage drop":"none in this period" }]); al["!cols"]=[{wch:12},{wch:14},{wch:18},{wch:18}]; XLSX.utils.book_append_sheet(wb, al, "Mileage drops");
     const ws=XLSX.utils.json_to_sheet(rows); ws["!autofilter"]={ref:ws["!ref"]}; numfmt(XLSX,ws,1);
     ws["!cols"]=[{wch:12},{wch:14},{wch:18},{wch:18}].concat(Array(15).fill({wch:12})).concat([{wch:60}]);
     XLSX.utils.book_append_sheet(wb, ws, "Refill analysis");
@@ -2971,6 +3073,7 @@ $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings")
 $("#toTrips").onclick=openTrips;
 $("#toMileage").onclick=openMileage;
 $("#toTrend").onclick=openTrend;
+$("#toStock").onclick=openStock;
 
 /* ---------- Push notifications (cloud mode only) ----------
    Alerts every OTHER signed-in employee when a tanker starts loading, becomes

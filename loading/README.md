@@ -338,6 +338,13 @@ phones (`loading_destinations`).
 
 ## Mileage calculator (⛽)
 
+**Start here — 🛢️ Fuel in tank now (all tankers).** Enter, for every tanker, its
+reading right now (odometer, or the dispenser meter for OD15AF5510) and the
+fuel in its tank (Anguls or litres; litres only for OD15AF5510). Each is saved
+as a **stock check** — no diesel added — and the next fill is measured from it:
+diesel used = stock entered − dip at that fill. Use it any time you want a
+fresh, exact starting point.
+
 Every tanker is run to almost dry and then refilled. At each refill enter:
 
 - **Previous refill** — date & time, the reading and the litres filled then (and
@@ -380,10 +387,15 @@ permanently (`loading_fuel_logs`).
 were flagged in the last 30 days) opens a report for 3 / 6 / 12 months, all, or
 any From / To:
 
-- **Tiles** — refills analysed, flagged (high), fleet km/L, litres of diesel
-  above normal, and extra km beyond trips.
-- **⚠ Needs a look** — every suspicious refill, worst first, with the reason
-  in words and the numbers behind it.
+- **Tiles** — stretches measured, mileage drops (sharp), fleet km/L, extra
+  diesel burnt in the drops, and extra km beyond trips.
+- **⚠ Mileage drops** — every stretch between two fills where the tanker burnt
+  more diesel than usual for the distance (or, for OD15AF5510, for the fuel it
+  dispensed): a possible **engine fault or diesel theft**. Worst first, with
+  the drop %, the extra litres and the numbers behind it.
+- **✎ Check the readings** — figures that can't be right (reading not going
+  up, diesel used ≤ 0, mileage far above normal). These are entry mistakes to
+  correct, not suspicion.
 - **Mileage by tanker** — km/L of each odometer tanker against the fleet
   average; OD15AF5510 has its own L dispensed / L tile.
 - **Tanker detail** (pick a tanker) — mileage per refill with the tanker's
@@ -394,17 +406,17 @@ any From / To:
 - **Download mileage analysis (Excel)** — *Alerts*, *Refill analysis* (every
   computed figure and the reason for each flag) and *Monthly* sheets.
 
-**What gets flagged.** "Normal" for a refill = the median mileage of the same
-tanker's *other* refills (needs at least two), so one bad refill can't hide in
-its own baseline.
+**What gets flagged.** The refill itself is never the suspect — the **mileage
+drop** over the stretch since the previous fill is. "Normal" for a stretch =
+the median mileage of the same tanker's *other* stretches (needs at least two),
+so one bad stretch can't hide in its own baseline.
 
-| Check | ⚠ Watch | ⛔ High |
+| | ⚠ Mileage drop | ⛔ Sharp drop |
 |---|---|---|
-| Mileage below normal | more than the alert % (15% by default) | more than twice the alert % |
-| Mileage far above normal (bad reading?) | more than twice the alert % | — |
-| Extra km beyond trips' RTD | > 25% of the km run and > 50 km | > 50% and > 100 km |
-| Reading didn't go up but diesel was used | — | always |
-| Diesel used works out ≤ 0 | always | — |
+| Mileage below the tanker's normal | by more than the alert % (15% by default) | by more than twice the alert % |
+
+Extra km beyond the trips' RTD is shown in the tiles and the km chart, but is not
+an alert.
 
 The alert % is set under **Alert settings** at the bottom of the report
 (shared by all phones, `loading_settings`).
