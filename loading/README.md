@@ -135,13 +135,14 @@ phone can't get round it by any button or by calling the server directly.
 |---|---|---|
 | Add diesel (loadings), 🚚 Sent for sale | ✓ | ✓ |
 | History — last 7 days, view only | ✓ | ✓ (+ delete) |
-| End Day (5:30–7:30 AM), notifications on/off for their phone | ✓ | ✓ |
+| End Day (5:30–7:30 AM) | ✓ | ✓ |
+| 🔔 Push notifications on their phone | — | ✓ |
 | Reports & Excel, chamber log, 🚚 Trips per tanker, ⛽ Mileage, 📈 Trends | — | ✓ |
 | Edit / delete anything: records, tankers, chambers, customers, settings, Clear all | — | ✓ |
 | Staff logins: change passwords, add logins, make admin, log out all staff | — | ✓ |
 
-Any login not marked admin is staff. A staff phone shows only the tankers,
-Recent / History and a 🔔 Notifications page; the signed-in line shows
+Any login not marked admin is staff. A staff phone shows only the tankers and
+Recent / History (no ⚙ page, no notifications); the signed-in line shows
 **Admin** or **Staff**.
 
 ### One-time setup (Supabase dashboard of the loading project)
@@ -195,9 +196,11 @@ the sign-in screen.
 
 ## Notifications (optional)
 
-Every signed-in employee can get a push alert **on their own phone** when a
-tanker changes state — **except the person who pressed the button**, who
-already knows:
+**Admin phones only.** An admin can get a push alert **on their own phone**
+when a tanker changes state — whether a staff member or another admin pressed
+the button — **except on the device that pressed it**, which already knows.
+Staff logins never register for or receive notifications (the database
+refuses them), but what staff do still alerts the admins:
 
 | Alert | When |
 |---|---|
@@ -219,10 +222,12 @@ phone. Turn it on per phone under **⚙ Manage tankers &
 data → Notifications → 🔔 Turn on notifications**; signing out of a phone
 detaches it again.
 
-Alerts go to every phone **except the device that raised them** — by device,
-not by account, so staff sharing one login still notify each other. A phone
-with notifications **switched off still triggers alerts on everyone else's**;
-it simply doesn't receive any itself.
+Alerts go to every admin phone **except the device that raised them** — by
+device, not by account, so two phones on one admin login still notify each
+other. Any phone, staff or admin, **still triggers alerts on the admins'**
+phones; it just doesn't receive any itself unless it is an admin's phone with
+notifications turned on. If a login is changed from admin to staff, its
+phones are detached automatically.
 
 > **iPhone:** web push needs **iOS 16.4+** and the app **added to the Home
 > Screen** — Apple does not deliver push to a page open in a Safari tab. The

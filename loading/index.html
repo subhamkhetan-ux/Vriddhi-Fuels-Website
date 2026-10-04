@@ -915,7 +915,6 @@
         <div class="sectitle">Notifications</div>
         <div id="pushBox"></div>
       </div>
-      <div class="note stf" id="stfNote" style="text-align:left">Signed in as staff — you can add loadings, send tankers for sale and see the last 7 days of history.</div>
 
       <div class="adm">
       <!-- Admin: staff logins (cloud) -->
@@ -1126,7 +1125,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v26 · 2026-10-04";
+const APP_BUILD = "v27 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1228,8 +1227,9 @@ function isAdmin(){ return !CLOUD || ROLE==="admin" || ROLE==="legacy"; }
 function applyRole(){
   const staff=!isAdmin();
   document.body.classList.toggle("staff", staff);
-  $("#toSettings").textContent = staff ? "🔔 Notifications" : "⚙ Manage tankers & data";
-  $("#setTitle").textContent = staff ? "Notifications" : "Manage tankers & data";
+  $("#toSettings").textContent = "⚙ Manage tankers & data";
+  $("#toSettings").style.display = staff ? "none" : "";      // staff: nothing to manage, no notifications
+  $("#setTitle").textContent = "Manage tankers & data";
   $("#noAdminNote").style.display = (CLOUD && ROLE && ROLE!=="legacy" && ADMINS===0) ? "" : "none";
   // a staff phone sitting on an admin screen (e.g. role just changed) goes home
   const cur=stack[stack.length-1];
@@ -2329,7 +2329,7 @@ function renderSettings(){
 /* ---- Notifications: one switch per phone ---- */
 function renderPushBox(){
   const wrap=$("#pushWrap"); if(!wrap) return;
-  if(!pushConfigured()){ wrap.style.display="none"; return; }
+  if(!pushConfigured() || !isAdmin()){ wrap.style.display="none"; return; }   // notifications are for admin phones
   wrap.style.display="";
   const box=$("#pushBox");
   const note='<div class="note" style="text-align:left;margin:0 2px 10px">'
@@ -3898,6 +3898,21 @@ function subscribeRealtime(){
     .subscribe();
 }
 
+/* Notifications are for admin phones only. Once the role is known: an admin
+   phone that already allowed them re-registers silently (the browser can
+   rotate a subscription, and a new sign-in must be attached to this login);
+   a staff phone lets go of any subscription it still holds. Staff actions
+   still notify the admins (notifyStaff), whatever this phone's role. */
+function syncPushForRole(){
+  if(!pushConfigured() || !pushSupported() || !navigator.serviceWorker) return;
+  if(isAdmin()){ if(Notification.permission==="granted") enablePush(false); return; }
+  Promise.race([navigator.serviceWorker.ready, new Promise(r=>setTimeout(()=>r(null),3000))])
+    .then(reg=>reg && reg.pushManager ? reg.pushManager.getSubscription() : null)
+    .then(sub=>{ if(!sub) return;
+      return CloudBackend.rpc("loading_push_drop",{ p_endpoint:sub.endpoint }).catch(()=>{}).then(()=>sub.unsubscribe().catch(()=>{})); })
+    .then(()=>{ myEndpoint=""; }).catch(()=>{});
+}
+
 /* ---------- Forced sign-out (admin pressed "Log out all staff devices") ----------
    The database refuses this phone's old session; drop it locally and show the
    sign-in screen. Only this phone's copy of the session is cleared. */
@@ -3915,7 +3930,7 @@ function checkSession(){
   CloudBackend.whoami().then(w=>{
     if(!w.ok) return forceSignOut();
     const was=ROLE; ROLE=w.role; ADMINS=+w.admins||0; applyRole();
-    if(was!==ROLE) refresh().then(rerenderCurrent).catch(()=>{});
+    if(was!==ROLE){ refresh().then(rerenderCurrent).catch(()=>{}); syncPushForRole(); }
   }).catch(()=>{});
 }
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkSession(); });
@@ -4001,13 +4016,10 @@ function startApp(session){
   ME = usernameFromEmail(session && session.user && session.user.email);
   subscribeRealtime();
   paintLive();
-  // Already allowed on this phone? Re-register silently — the browser can
-  // rotate a subscription, and a new sign-in must be attached to this user.
-  if(pushConfigured() && pushSupported() && Notification.permission==="granted") enablePush(false);
   // Warm this device's push endpoint now, so the first save doesn't wait on it.
   if(pushConfigured()) loadMyEndpoint();
   CloudBackend.purge();
-  return CloudBackend.closeDue().then(refresh).then(()=>{ goHome(); }).catch(oops);
+  return CloudBackend.closeDue().then(refresh).then(()=>{ goHome(); syncPushForRole(); }).catch(oops);
 }
 function signOut(){
   if(!confirm("Sign out of this phone?")) return;

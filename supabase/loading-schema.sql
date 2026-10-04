@@ -237,6 +237,32 @@ create table if not exists public.loading_auth_state (
 );
 insert into public.loading_auth_state (id) values (1) on conflict (id) do nothing;
 
+-- Push notifications are for ADMIN phones only. Each registered phone carries
+-- its login's email; staff phones are removed here, and a login that stops
+-- being admin loses its phones at once (trigger below), so the loading-notify
+-- function only ever reaches admins. Staff actions still notify the admins.
+alter table public.loading_push_subs add column if not exists email text not null default '';
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'auth' and table_name = 'users') then
+    execute $q$ update public.loading_push_subs s set email = lower(u.email)
+                  from auth.users u where u.id = s.user_id and s.email = '' $q$;
+  end if;
+end $$;
+delete from public.loading_push_subs s
+ where not exists (select 1 from public.loading_roles r where r.role = 'admin' and r.email = s.email);
+create or replace function public._loading_roles_push_cleanup() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'DELETE' or new.role <> 'admin' or new.email <> old.email then
+    delete from loading_push_subs where email = old.email;
+  end if;
+  return null;
+end $$;
+drop trigger if exists loading_roles_push_cleanup on public.loading_roles;
+create trigger loading_roles_push_cleanup after update or delete on public.loading_roles
+  for each row execute function public._loading_roles_push_cleanup();
+
 -- plpgsql (not sql) so this file still loads into a plain Postgres for testing.
 create or replace function public._loading_email() returns text
 language plpgsql stable as $$
@@ -833,16 +859,16 @@ create or replace function public.loading_push_save(
 ) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  perform _loading_auth();
+  perform _loading_admin();                  -- notifications are for admin phones only
   if coalesce(p_endpoint,'') = '' or coalesce(p_p256dh,'') = '' or coalesce(p_auth,'') = '' then
     raise exception 'Incomplete push subscription';
   end if;
-  insert into loading_push_subs (endpoint, user_id, by_name, p256dh, auth, seen_at)
-    values (p_endpoint, auth.uid(), coalesce(p_by,''), p_p256dh, p_auth, now())
+  insert into loading_push_subs (endpoint, user_id, by_name, p256dh, auth, seen_at, email)
+    values (p_endpoint, auth.uid(), coalesce(p_by,''), p_p256dh, p_auth, now(), _loading_email())
   on conflict (endpoint) do update
     set user_id = excluded.user_id, by_name = excluded.by_name,
         p256dh  = excluded.p256dh,  auth    = excluded.auth,
-        seen_at = now();
+        seen_at = now(), email = excluded.email;
   -- A phone that re-subscribes gets a NEW endpoint, and the row for its old one
   -- lives on for ever. Those dead rows are still accepted by the push service,
   -- so they inflate the "sent" count while delivering to nobody. Every phone
