@@ -206,6 +206,24 @@ create table if not exists public.loading_roles (
   role       text not null check (role in ('admin','staff')),
   updated_at timestamptz not null default now()
 );
+-- Emails are stored lower-case whatever case they are typed in (Supabase
+-- logins are case-insensitive), so 'SKhetan@…' and 'skhetan@…' are one login.
+create or replace function public._loading_roles_norm() returns trigger
+language plpgsql as $$
+begin
+  new.email := lower(trim(new.email));
+  return new;
+end $$;
+drop trigger if exists loading_roles_norm on public.loading_roles;
+create trigger loading_roles_norm before insert or update on public.loading_roles
+  for each row execute function public._loading_roles_norm();
+-- tidy rows typed with capitals before this existed (keep the admin one if a
+-- login appears twice in different case)
+delete from public.loading_roles r using public.loading_roles o
+ where r.email <> o.email and lower(r.email) = lower(o.email)
+   and (r.role = 'staff' and o.role = 'admin' or r.role = o.role and r.email > o.email);
+update public.loading_roles set email = lower(trim(email)) where email <> lower(trim(email));
+
 -- >>> Make YOUR login the admin: uncomment, put your username, run once. <<<
 -- insert into public.loading_roles (email, role) values ('yourname@vriddhi.local', 'admin')
 --   on conflict (email) do update set role = 'admin';
@@ -229,7 +247,7 @@ end $$;
 create or replace function public._loading_is_admin() returns boolean
 language plpgsql stable security definer set search_path = public as $$
 begin
-  return exists (select 1 from loading_roles where email = _loading_email() and role = 'admin');
+  return exists (select 1 from loading_roles where lower(email) = _loading_email() and role = 'admin');
 end $$;
 
 -- When this session signed in. Supabase access tokens carry the sign-in time

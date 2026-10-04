@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
       if (data.users.length < 200) break;
     }
     const { data: roles } = await admin.from("loading_roles").select("email,role");
-    const roleOf = new Map((roles ?? []).map((r: { email: string; role: string }) => [r.email, r.role]));
+    const roleOf = new Map((roles ?? []).map((r: { email: string; role: string }) => [r.email.toLowerCase(), r.role]));
     return json({
       ok: true,
       users: users.map((u) => {
