@@ -517,10 +517,10 @@ count 0 km (the forecast says so).
 
 The app uses the Decanting app's frosted-glass language in light mode —
 translucent cards over a warm, orange-lit background and an orange glass header
-with a **Live / Offline** pill — with Apple's typography and iOS patterns: SF
-Pro on iPhone / iPad / Mac and Inter (its closest web twin) elsewhere, large
-screen titles, grouped lists with hairline separators, segmented date presets
-and bottom sheets. The home screen adds a fleet strip (diesel in the tankers,
+with a **Live / Offline** pill — and the Decanting app's typefaces (**Sora** for
+headings and figures, **IBM Plex Mono** for number plates, the phone's own font
+for body text), laid out with iOS patterns: large screen titles, grouped lists
+with hairline separators, segmented date presets and bottom sheets. The home screen adds a fleet strip (diesel in the tankers,
 full, loading now). Motion is limited to a light press effect and the sheet
 sliding up; per-card blur was dropped (invisible over the smooth backdrop but
 costly on budget phones).
