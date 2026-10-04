@@ -446,9 +446,13 @@
   .sectitle .sub,.sectitle .lnk{text-transform:none;letter-spacing:0}
   .sectitle .lnk{font-size:15px;font-weight:500;color:var(--accent)}
   /* big numbers: tight tracking; number plates: tabular figures */
-  .stat .num,.mini .n,.tile .tn,.kv.hl b,.trcard .trn b,.sumrow b,.lr .left b,.kpi .kn{letter-spacing:-.01em}
-  .plate,.tcard .pl,.vhead .pl,.confbox .cp,.chips button,.flag .plate{font-variant-numeric:tabular-nums;letter-spacing:.02em;font-weight:600}
-  .tcard .pl{font-size:19px}
+  .stat .num,.mini .n,.tile .tn,.kv.hl b,.trcard .trn b,.sumrow b,.lr .left b{letter-spacing:-.01em}
+  .plate,.tcard .pl,.vhead .pl,.confbox .cp,.chips button,.flag .plate{font-variant-numeric:tabular-nums}
+  /* tanker numbers: bold and easy to read at a glance */
+  .tcard .pl{font-family:var(--display);font-size:22px;font-weight:800;letter-spacing:.01em;color:#141a2a}
+  .vhead .pl,.confbox .cp{font-family:var(--display);font-weight:800;letter-spacing:.02em}
+  .plate,.entry .plate,.flag .plate{font-weight:700;letter-spacing:.04em}
+  .chips button{font-weight:700;letter-spacing:.03em}
   /* buttons: SF-style semibold, gentle press */
   .big{font-size:17px;font-weight:600;letter-spacing:0;border-radius:16px;padding:17px 18px;transition:transform .12s ease,box-shadow .2s ease}
   .big .em{font-size:22px}
@@ -471,14 +475,36 @@
   .pill i{width:7px;height:7px;border-radius:50%;background:#fff}
   .pill.live i{background:#8dffcf;animation:pulse 2s infinite}
   .pill.off{background:rgba(120,20,10,.28)} .pill.off i{background:#ffd0cb}
-  /* fleet summary strip */
-  .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px}
-  .kpis:empty{display:none}
-  .kpi{background:var(--glass-2);border:1px solid var(--glass-line);border-radius:16px;padding:10px 12px;box-shadow:var(--shadow);min-width:0}
-  .kpi .kn{font-family:var(--display);font-size:20px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .kpi .kn small{font-size:12px;color:var(--muted);font-weight:600}
-  .kpi .kl{font-size:11.5px;color:var(--muted);font-weight:500;margin-top:1px;display:flex;align-items:center;gap:5px}
-  .kpi .kl i{width:7px;height:7px;border-radius:50%;flex:none}
+  /* ---- finishing: the same elements, richer surfaces & stronger type ---- */
+  /* cards: a brighter, more solid film with a soft two-layer shadow */
+  .stat,.tcard,.entry,.cham,.confbox,.card-add,.trcard,.mlrow,.logrow,.mini,.tile,.vizcard,.flag,.glist{
+    background:rgba(255,255,255,.80);border-color:rgba(255,255,255,.95);
+    box-shadow:0 1px 2px rgba(27,33,48,.05),0 12px 30px -16px rgba(80,50,20,.30)}
+  .glist>.entry,.glist>.logrow{background:transparent;box-shadow:none}
+  .glist>.entry.disp,.glist>.logrow.disp{background:rgba(255,138,43,.07)}
+  .tcard{border-radius:22px;margin-bottom:14px}
+  .tcard .tap{padding:16px 16px 14px}
+  .tcard .th{margin-bottom:2px}
+  .tcard .badge2{font-family:var(--display);font-size:12px;font-weight:700;padding:6px 12px;
+    background:rgba(27,33,48,.06);color:#4a5266;box-shadow:inset 0 0 0 1px rgba(27,33,48,.05)}
+  .tcard.full{border-color:rgba(18,128,74,.45);box-shadow:0 0 0 2px rgba(18,128,74,.12),0 12px 30px -16px rgba(18,128,74,.35)}
+  .tcard .tsub{font-size:14px;color:#4a5266;margin-top:6px;font-weight:600}
+  .tcard .tsub b{font-family:var(--display);font-size:18px;font-weight:800;color:#141a2a;letter-spacing:-.01em}
+  .tcard .tsub2{font-size:12.5px;color:var(--faint);margin-top:4px;font-weight:600;line-height:1.45}
+  .dispatch{font-weight:700;padding:13px;border-top:1px solid rgba(27,33,48,.07);background:rgba(255,248,242,.85)}
+  /* business-day total */
+  .stat{padding:18px 16px}
+  .stat .label{font-weight:700;color:#6b7284}
+  .stat .num{font-size:46px;font-weight:800;color:#141a2a;letter-spacing:-.02em}
+  .stat .num small{font-size:20px;font-weight:800}
+  /* numbers everywhere: heavier */
+  .entry .tot,.logrow .lq,.mlrow .mk,.mini .n,.tile .tn,.trcard .trn b,.kv.hl b,.lr .left b,.sumrow b{font-weight:800}
+  .entry .ch{color:#4a5266;font-weight:600}
+  .sectitle{color:#6b7284}
+  /* glass buttons a touch brighter */
+  .big.glass{background:rgba(255,255,255,.86);font-weight:700}
+  .big{font-weight:700}
+
   /* each tanker's own diesel */
   .diesel{font-size:12.5px;color:var(--muted);font-weight:500;margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .diesel:empty{display:none}
@@ -607,7 +633,6 @@
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
         <div class="sub"><span id="todayCnt">0</span> loadings since last End Day</div>
       </div>
-      <div class="kpis" id="fleetKpi"></div>
       <div id="endDayWrap"></div>
 
       <div class="sectitle">Tap a tanker to load diesel</div>
@@ -1061,7 +1086,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v22 · 2026-10-04";
+const APP_BUILD = "v23 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1666,7 +1691,6 @@ function renderHome(){
   $("#todayTot").textContent=fmt(openLoads.reduce((s,e)=>s+e.total,0));
   $("#todayCnt").textContent=openLoads.length;
   $("#curDayLabel").textContent="Current business day — "+keyLabel(currentOpenDate());
-  renderKpis();
   renderEndDay();
   renderTankers();
   const recent=[...LOG].slice(-6).reverse();
@@ -1681,17 +1705,6 @@ function renderHome(){
     const rb = ROLE==="admin" ? '<span class="rolebadge admin">Admin</span>' : ROLE==="staff" ? '<span class="rolebadge staff">Staff</span>' : '';
     sr.innerHTML='Signed in as <b>'+esc(ME)+'</b>'+rb+' · <button id="btnSignOut">Sign out</button>'; $("#btnSignOut").onclick=signOut; }
   else sr.style.display="none";
-}
-// fleet at a glance: diesel sitting in the tankers, how many are full, how many loading
-function renderKpis(){
-  const box=$("#fleetKpi"); if(!box) return;
-  if(!VEHICLES.length){ box.innerHTML=""; return; }
-  let held=0, cap=0, full=0, pouring=0;
-  VEHICLES.forEach(v=>{ const st=tankerState(v.plate); held+=st.total; cap+=st.cap; if(st.full) full++; if(pourChambers(v.plate).length) pouring++; });
-  box.innerHTML=
-     '<div class="kpi"><div class="kn">'+fmt(Math.round(held))+'<small> L</small></div><div class="kl">in tankers</div></div>'
-    +'<div class="kpi"><div class="kn">'+full+'<small> / '+VEHICLES.length+'</small></div><div class="kl"><i style="background:#1f9d55"></i>full, ready</div></div>'
-    +'<div class="kpi"><div class="kn">'+pouring+'</div><div class="kl"><i style="background:#FF8A2B"></i>loading now</div></div>';
 }
 function renderEndDay(){
   const wrap=$("#endDayWrap");
