@@ -9,12 +9,12 @@
 <link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
 <script src="./config.js"></script>
 <style>
   /* ===== Light glassmorphism — the Decanting app's frosted-glass language
      (orange-lit gradient header, translucent films) on a light, warm base,
-     with Apple's typography and iOS patterns. Light mode only. ===== */
+     with iOS layout patterns. Light mode only. ===== */
   :root{
     color-scheme: light;
     --bg:#f3eee8;
@@ -31,11 +31,11 @@
     --good:#12804a; --good-bg:rgba(18,128,74,.11);
     --warn:#a05f00; --warn-bg:rgba(250,178,25,.18);
     --bad:#c3352f; --bad-bg:rgba(208,59,59,.11);
-    /* Apple's system typeface (SF Pro) wherever it exists — iPhone, iPad, Mac —
-       and Inter, its closest web twin, everywhere else (Android, Windows). */
-    --text:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    --mono:var(--display);   /* number plates: same face, tabular figures, a touch of tracking */
+    /* the Decanting app's typefaces: Sora for headings & figures, IBM Plex Mono
+       for number plates, the phone's own system font for body text */
+    --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --display:"Sora",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
     /* legacy names the app's code still uses */
     --navy:#1b2540; --navy2:#2b3756; --amber:#FF8A2B; --amber-d:#e2620f;
     --green:#169a55; --green-d:#12804a; --red:#d64545; --red-d:#c3352f; --card:var(--glass-2);
@@ -44,7 +44,7 @@
   html{overflow-x:clip}
   html,body{margin:0;padding:0}
   body{
-    font-family:var(--text);letter-spacing:-.006em;
+    font-family:var(--text);
     color:var(--ink);-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;overflow-x:clip;
     background:var(--bg);
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -436,21 +436,21 @@
   .mtab td span{display:block;font-size:11px}
   .mtab td.na{color:var(--faint)}
 
-  /* ===== Apple layer — iOS type scale & patterns ===== */
+  /* ===== iOS layout layer (type: the Decanting app's Sora / Plex Mono) ===== */
   body{font-size:16px}
   header .t{letter-spacing:-.015em}
   /* iOS large title on every screen */
-  .ltitle{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.026em;line-height:1.12;color:var(--ink);margin:4px 4px 16px}
+  .ltitle{font-family:var(--display);font-size:28px;font-weight:700;letter-spacing:-.015em;line-height:1.12;color:var(--ink);margin:4px 4px 16px}
   /* grouped-list section headers */
   .sectitle{font-family:var(--text);font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.045em;margin:24px 6px 8px}
   .sectitle .sub,.sectitle .lnk{text-transform:none;letter-spacing:0}
   .sectitle .lnk{font-size:15px;font-weight:500;color:var(--accent)}
   /* big numbers: tight tracking; number plates: tabular figures */
-  .stat .num,.mini .n,.tile .tn,.kv.hl b,.trcard .trn b,.sumrow b,.lr .left b,.kpi .kn{letter-spacing:-.022em}
-  .plate,.tcard .pl,.vhead .pl,.confbox .cp,.chips button,.flag .plate{font-variant-numeric:tabular-nums;letter-spacing:.035em;font-weight:600}
+  .stat .num,.mini .n,.tile .tn,.kv.hl b,.trcard .trn b,.sumrow b,.lr .left b,.kpi .kn{letter-spacing:-.01em}
+  .plate,.tcard .pl,.vhead .pl,.confbox .cp,.chips button,.flag .plate{font-variant-numeric:tabular-nums;letter-spacing:.02em;font-weight:600}
   .tcard .pl{font-size:19px}
   /* buttons: SF-style semibold, gentle press */
-  .big{font-size:17px;font-weight:600;letter-spacing:-.012em;border-radius:16px;padding:17px 18px;transition:transform .12s ease,box-shadow .2s ease}
+  .big{font-size:17px;font-weight:600;letter-spacing:0;border-radius:16px;padding:17px 18px;transition:transform .12s ease,box-shadow .2s ease}
   .big .em{font-size:22px}
   .mbtn{font-weight:600;letter-spacing:-.01em}
   .big:active,.tcard .tap:active,.dest:active,.chips button:active,.mbtn:active,.monthnav button:active,.rpresets button:active,.dispatch:active{transform:scale(.97)}
@@ -1061,7 +1061,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v21 · 2026-10-04";
+const APP_BUILD = "v22 · 2026-10-04";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
