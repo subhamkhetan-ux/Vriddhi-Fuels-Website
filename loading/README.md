@@ -430,9 +430,10 @@ phones (`loading_destinations`).
   last stretch vs normal, own diesel now with the refill verdict, last entry)
   and a chart of its mileage per stretch over the last 6 months.
 - Folding sections: **➕ Add a refill or stock check** (opens by itself for a
-  tanker with nothing saved yet), **🧾 Refills & stock checks** (the latest 2,
-  each with **✎ Edit** and 🗑 — older entries are no longer listed but stay
-  saved, as the mileage is worked out from them), **🗓️ Period summary** and
+  tanker with nothing saved yet), **🧾 Refills & stock checks** (the latest 2 as
+  cards, each with **✎ Edit** and 🗑; every earlier entry in a table below —
+  date, reading, dip, litres filled and **≈ in tank after** = dip + filled, a
+  stock check showing *check*; tap a row to correct or delete it), **🗓️ Period summary** and
   **ℹ️ How it's worked out**.
 - **✎ Edit** corrects an entry in place — date & time, reading, litres filled,
   dip (Anguls or litres) and note — and the mileage is worked out again. It
