@@ -1224,7 +1224,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v37 · 2026-10-05";
+const APP_BUILD = "v38 · 2026-10-05";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1974,8 +1974,10 @@ function renderDestPicker(current){
     +'<span class="dn">'+esc(d.name)+'</span><span class="dk">'+fmt(d.rtd)+' km RTD'+(d.grp?' · '+esc(d.grp):'')+'</span></button>').join("")
     : '<div class="empty" style="padding:12px">No customers in the list yet.<br>Add them in ⚙ Manage tankers &amp; data.</div>';
   box.querySelectorAll(".dest").forEach(b=>{ b.onclick=()=>{
-    pickedDest=b.getAttribute("data-dest"); $("#dispErr").textContent="";
-    box.querySelectorAll(".dest").forEach(x=>x.classList.toggle("on", x===b));
+    const d=b.getAttribute("data-dest"), pd=pendingDispatch;
+    // OD15AF5510: the customer is optional, so tapping the picked one again clears it
+    pickedDest = (pd && isMeter(pd.plate) && pickedDest===d) ? "" : d; $("#dispErr").textContent="";
+    box.querySelectorAll(".dest").forEach(x=>x.classList.toggle("on", x.getAttribute("data-dest")===pickedDest));
     showForecast();
   }; });
   $("#dispErr").textContent="";
@@ -2019,7 +2021,7 @@ function dispatchTanker(plate){
   pendingDispatch={ mode:"sale", plate:plate };
   $("#dispHead").textContent="Send for sale";
   $("#dispTitle").textContent=plate+" — "+fmt(st.total)+" L";
-  $("#dispLab").textContent="Sold to — choose the customer";
+  $("#dispLab").textContent = isMeter(plate) ? "Sold to — optional for "+plate+" (its mileage goes by the dispenser meter)" : "Sold to — choose the customer";
   $("#dispOk").textContent="🚚 Confirm sale";
   renderDestPicker("");   // also starts the forecast (OD15AF5510 needs no customer)
   $("#dispModal").classList.add("on");
@@ -2028,7 +2030,7 @@ function editTripDest(trip){
   pendingDispatch={ mode:"trip", id:trip.id, plate:trip.plate };
   $("#dispHead").textContent="Change customer";
   $("#dispTitle").textContent=trip.plate+" · "+dmy(shiftDate(trip.ts))+" "+timeLabel(trip.ts);
-  $("#dispLab").textContent="This trip went to — choose the customer";
+  $("#dispLab").textContent = isMeter(trip.plate) ? "This trip went to — optional for "+trip.plate : "This trip went to — choose the customer";
   $("#dispOk").textContent="Save";
   renderDestPicker(trip.dest);
   $("#dispModal").classList.add("on");
@@ -2038,13 +2040,14 @@ $("#dispCancel").onclick=closeDisp;
 $("#dispModal").addEventListener("click",e=>{ if(e.target===$("#dispModal")) closeDisp(); });
 $("#dispOk").onclick=()=>{
   const pd=pendingDispatch; if(!pd) return;
-  // with an empty list nobody could ever sell, so only insist when there is a choice
-  if(!pickedDest && DESTS.length){ $("#dispErr").textContent="Choose the customer it was sold to."; return; }
+  // with an empty list nobody could ever sell, so only insist when there is a choice;
+  // OD15AF5510's mileage goes by its dispenser meter, not km, so its customer is optional
+  if(!pickedDest && DESTS.length && !isMeter(pd.plate)){ $("#dispErr").textContent="Choose the customer it was sold to."; return; }
   const remark=pickedDest;
   const btn=$("#dispOk"); btn.disabled=true;
   if(pd.mode==="trip"){
     Backend.setTripDest(pd.id, remark).then(refresh).then(()=>{
-      btn.disabled=false; closeDisp(); toast("✓ Trip updated — "+remark); loadTripReport();
+      btn.disabled=false; closeDisp(); toast("✓ Trip updated"+(remark?" — "+remark:" — no customer")); loadTripReport();
     }).catch(e=>{ btn.disabled=false; $("#dispErr").textContent=dbHint(e); });
     return;
   }

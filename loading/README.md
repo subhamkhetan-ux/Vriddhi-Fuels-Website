@@ -397,7 +397,12 @@ days. Deleting a sale from History (within those 7 days) removes its trip too.
 ## Customers & RTD (⚙)
 
 The **Sold to** choices are the customer list under **⚙ Manage tankers & data →
-Customers & RTD**, seeded from the RTD master sheet:
+Customers & RTD**, seeded from the RTD master sheet. Picking one is required for
+every tanker except **OD15AF5510**: its mileage goes by the dispenser meter (the
+litres sold), not by km, so its customer is optional — tap a picked customer
+again to clear it. It is not in the trip report either.
+
+
 
 | Customer | RTD km / trip |
 |---|---|
