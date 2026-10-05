@@ -210,6 +210,15 @@
   .dayhd{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 8px;font-family:var(--display);font-weight:700;color:var(--ink);font-size:14px}
   .dayhd .dt{font-weight:700;color:var(--good)}
   .del{background:none;border:0;color:var(--bad);font-size:19px;cursor:pointer;padding:4px 6px;flex:none}
+  .edt{background:none;border:0;color:var(--amber-d);font-size:19px;cursor:pointer;padding:4px 6px;flex:none}
+  /* earlier refills / stock checks of a tanker, as a table (tap a row to correct it) */
+  .fltab{margin-top:4px}
+  .fltab .mtab th,.fltab .mtab td{padding:8px 6px}
+  .fltab tbody th small{display:block;font-size:11px;color:var(--muted);font-weight:600}
+  .fltab td.ck{color:var(--muted);font-size:12px}
+  .fltab td.af b{color:var(--good)}
+  .fltab tr.flag th::after{content:" ⚠";color:var(--warn)}
+  .mbtn.danger{color:var(--bad)}
 
   /* Reports / date ranges */
   .rrange{display:flex;gap:10px;margin-bottom:10px}
@@ -408,7 +417,7 @@
   .fold .fs{display:block;font-family:var(--text);font-size:12px;font-weight:600;color:var(--muted);margin-top:1px}
   .fold[open]{padding-bottom:12px}
   .fold .card-add{box-shadow:none;background:rgba(255,255,255,.5);margin-bottom:10px}
-  .morebtn{display:block;margin:4px auto 2px;font-weight:700}
+
   .mltrips{font-size:13px;color:var(--muted);margin-top:10px;line-height:1.5}
   .mltrips:empty{display:none}
   .mltrips b{color:var(--ink)}
@@ -913,7 +922,6 @@
       <details class="fold" id="mlListFold" open>
         <summary><span class="fe">🧾</span><span class="ft">Refills &amp; stock checks<span class="fs" id="mlListSub">newest first</span></span></summary>
         <div id="mlList"></div>
-        <button type="button" class="lnk morebtn" id="mlMore" hidden></button>
       </details>
 
       <details class="fold" id="mlSumFold">
@@ -1086,6 +1094,30 @@
 </div>
 
 <!-- Fuel in tank now (opening stock) for every tanker -->
+<!-- Edit one saved refill / stock check (Mileage → ✎) -->
+<div class="modal" id="feModal">
+  <div class="modalbox">
+    <div class="mh" id="feTitle">Edit entry</div>
+    <div class="note" style="margin:4px 0 10px;text-align:left" id="feNote"></div>
+    <div class="ca-field" style="margin-bottom:10px"><label class="mlab">Date &amp; time</label>
+      <input type="datetime-local" id="feWhen" /></div>
+    <div class="ca-row al">
+      <div class="ca-field"><label id="feOdoLab">Odometer (km)</label><input id="feOdo" type="text" inputmode="decimal" /></div>
+      <div class="ca-field"><label>Diesel filled (L)</label><input id="feLit" type="text" inputmode="decimal" placeholder="0 = stock check" /></div>
+    </div>
+    <div class="ca-row al">
+      <div class="ca-field" id="feAngF"><label>Anguls (dip)</label><input id="feAng" type="text" inputmode="decimal" placeholder="dip" /></div>
+      <div class="ca-field"><label id="feStkLab">= Litres in tank</label><input id="feStk" type="text" inputmode="decimal" placeholder="empty = not dipped" /></div>
+    </div>
+    <input id="feNoteIn" placeholder="Note (optional)" autocomplete="off" style="margin-top:4px" />
+    <div class="caperr" id="feErr"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost danger" id="feDel">🗑 Delete</button>
+      <button class="mbtn ghost" id="feCancel">Cancel</button>
+      <button class="mbtn go" id="feOk">Save</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="stkModal">
   <div class="modalbox wide">
     <div class="mh">Fuel in tank now</div>
@@ -1192,7 +1224,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v34 · 2026-10-04";
+const APP_BUILD = "v37 · 2026-10-05";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1400,6 +1432,8 @@ const LocalBackend = {
   saveSetting(k, v){ let o={}; try{ o=JSON.parse(localStorage.getItem(SLS_KEY))||{}; }catch(e){} o[k]=v; localStorage.setItem(SLS_KEY, JSON.stringify(o)); return Promise.resolve(); },
   addFuel(r){ const l=lsGet(FLS_KEY, []); l.push(Object.assign({ id:localId(), cts:Date.now() }, r)); lsPut(FLS_KEY, l); return Promise.resolve(); },
   removeFuel(id){ lsPut(FLS_KEY, lsGet(FLS_KEY, []).filter(x=>x.id!==id)); return Promise.resolve(); },
+  updateFuel(r){ const l=lsGet(FLS_KEY, []), x=l.find(e=>e.id===r.id); if(!x) return Promise.reject(new Error("Entry not found"));
+    Object.assign(x, { ts:r.ts, odo:r.odo, litres:r.litres, anguls:r.anguls, stock_l:r.stock_l, note:r.note }); lsPut(FLS_KEY, l); return Promise.resolve(); },
   fuelStatus(){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
     return Promise.resolve(VEHICLES.map(v=>forecastJS(fuelStateJS(v.plate, f, t), farDest(), typicalSale(v.plate, t)))); },
   forecast(plate, dest, total){ const f=lsGet(FLS_KEY, []), t=lsLoad().filter(e=>e.kind==="dispatch").map(evTrip);
@@ -1511,6 +1545,8 @@ const CloudBackend = {
     p_odometer:r.odo, p_litres:r.litres, p_anguls:r.anguls==null?null:r.anguls, p_stock_l:r.stock_l==null?null:r.stock_l,
     p_note:r.note||"", p_by:r.by||ME }); },
   removeFuel(id){ return this.rpc("loading_fuel_delete",{ p_id:id }); },
+  updateFuel(r){ return this.rpc("loading_fuel_update",{ p_id:r.id, p_reading_at:new Date(r.ts).toISOString(), p_odometer:r.odo,
+    p_litres:r.litres, p_anguls:r.anguls==null?null:r.anguls, p_stock_l:r.stock_l==null?null:r.stock_l, p_note:r.note||"" }); },
   // computed in the database (staff can't read the fuel log itself)
   fuelStatus(){ return this.rpc("loading_fuel_status",{}); },
   forecast(plate, dest, total){ return this.rpc("loading_fuel_forecast",{ p_vehicle:plate, p_dest:dest||"", p_total:total||0 }); },
@@ -3224,7 +3260,7 @@ function renderFleet(){
           +'<div class="f2">'+tankBar(x)+(x.last?'<span class="fx">· '+agoTxt(x.last.ts)+'</span>':'')+rowBadge(x)+'</div></button>'; }).join("");
   box.querySelectorAll("[data-fr]").forEach(b=>{ b.onclick=()=>{
     const p=b.getAttribute("data-fr"), changed=p!==mlPlate; mlPlate=p;
-    if(changed){ mlShowAll=false; fillPrevFromSaved(true); } else renderMileage();
+    if(changed) fillPrevFromSaved(true); else renderMileage();
     const d=$("#mlDet"), hd=document.querySelector("header");     // land just below the app bar
     if(d) window.scrollTo({ top:Math.max(0, d.getBoundingClientRect().top+window.scrollY-(hd?hd.offsetHeight:0)-10), behavior:"smooth" });
   }; });
@@ -3253,7 +3289,6 @@ function renderMlDetail(rows){
     tip:tipHTML(stretchTxt(v), [["Mileage",ratioTxt(v.ratio,m)],["vs normal",v.dropPct==null?"—":(v.dropPct>0?"+":"")+v.dropPct+"%"],[m?"Dispensed":"Km run",fmt(v.dist)+(m?" L":" km")],["Diesel used",fmt(v.used)+" L"]]) }));
   lineChart($("#vzMl"), pts, { ref:cur.ratio||null, label:"Mileage per stretch", empty:"Shows once there are two dipped entries "+(m?fmt(MILEAGE.judge.meter)+" L":MILEAGE.judge.odo+" km")+" apart." });
 }
-let mlShowAll=false;
 function draftPrev(){
   if($("#mlPOdo").value==="") return null;
   // OD15AF5510 has no dip stick, but a stock check can still record litres in its tank
@@ -3369,7 +3404,7 @@ function guardEntry(e, exceptId){
 function correctedEntry(p){
   const rows=fuelRows(p.plate);
   if(rows.some(r=>sameReading(p, r))) return null;
-  return rows.find(r=>near(r.odo, p.odo, 0.5) && (r.litres>0)===(p.litres>0) && Math.abs(r.ts-p.ts)<=MILEAGE.dupHours*3600e3) || null;
+  return rows.slice(-2).find(r=>near(r.odo, p.odo, 0.5) && (r.litres>0)===(p.litres>0) && Math.abs(r.ts-p.ts)<=MILEAGE.dupHours*3600e3) || null;
 }
 function entryTxt(r){ return fmt(r.odo)+(isMeter(r.plate)?" L meter":" km")+", "+fmt(r.litres)+" L"+(dipped(r)?", dip "+fmt(stockOf(r))+" L":"")+" on "+dmy(dayKey(r.ts))+" "+timeLabel(r.ts); }
 function sameReading(a,b){
@@ -3435,20 +3470,39 @@ function renderMileageSummary(rows){
     +intervalKV(o, meter)
     +(o.ratio==null && o.used>0 && o.dist>0 ? '<div class="kv bad"><span>These figures can\'t be right — see “Check the readings” in Trends.</span></div>' : '');
 }
+/* Earlier entries (newest first): date, reading, dip, litres filled and what the
+   tank held right after = dip + filled (a stock check: its dip). OD15AF5510's
+   refill without a dip counts as run dry, so after = litres filled. */
+function earlierTable(rs, meter, dupOf, over, incl){
+  if(!rs.length) return "";
+  const body=rs.map(r=>{
+    const d=dipped(r), filled=+r.litres||0, flag=dupOf.has(r)?"saved twice — not counted":over.has(r)?"more than the tank":incl.has(r)?"already holds the refill after it":"";
+    const after = d ? r2(stockOf(r)+filled) : (meter && filled>0 ? filled : null);
+    return '<tr'+(flag?' class="flag" title="'+esc(flag)+'"':'')+'>'
+      +'<th>'+dmy(dayKey(r.ts)).slice(0,5)+'<small>'+timeLabel(r.ts)+'</small></th>'
+      +'<td>'+fmt(r.odo)+'</td>'
+      +'<td>'+(d ? fmt(stockOf(r))+(r.anguls!=null?'<span>'+fmt(r.anguls)+' Ang</span>':'') : (meter&&filled>0?'<span>dry</span>':'—'))+'</td>'
+      +(filled>0 ? '<td><b>'+fmt(filled)+'</b></td>' : '<td class="ck">check</td>')
+      +'<td class="af">'+(after!=null ? '<b>≈ '+fmt(after)+'</b>' : '?')+'</td></tr>';
+  }).join("");
+  return '<div class="vizcard tablewrap fltab"><div class="vizh">Earlier entries ('+rs.length+')</div>'
+    +'<div class="vizs">In tank after = dip + litres filled · “check” = stock check · ⚠ = see Check the readings · read-only: only the latest 2 above can be corrected</div>'
+    +'<table class="mtab"><thead><tr><th style="text-align:left">Date</th><th>'+(meter?'Meter<small>L</small>':'Odometer<small>km</small>')+'</th>'
+    +'<th>Dip<small>L</small></th><th>Filled<small>L</small></th><th>In tank<small>after</small></th></tr></thead><tbody>'+body+'</tbody></table></div>';
+}
 function renderMileageList(rows){
   const box=$("#mlList"), meter=isMeter(mlPlate);
   if(FUEL_ERR){ box.innerHTML=''; return; }
-  const more=$("#mlMore"); more.hidden=true;
   const nChk=analyse(mlPlate).iv.filter(o=>o.checkOnly).length;
-  $("#mlListSub").textContent = rows.length ? rows.length+" saved · newest first"+(nChk?" · ✎ "+nChk+" to check":"") : "none yet";
+  $("#mlListSub").textContent = rows.length ? rows.length+" saved · the latest 2 can be corrected (✎)"+(nChk?" · ✎ "+nChk+" to check":"") : "none yet";
   if(!rows.length){ box.innerHTML='<div class="empty">No refills saved yet.</div>'; return; }
   const an=analyse(mlPlate), scr=screenRows(rows, meter);
   const dupOf=new Set(scr.dups.map(x=>x.row)), over=new Set(scr.kept.filter(x=>x.over).map(x=>x.row)), incl=new Set(scr.kept.filter(x=>x.incl).map(x=>x.row));
   const judged=new Map(), checked=new Map();
   an.iv.forEach(o=>{ (o.checkOnly?checked:judged).set(o.cur, o); });
-  const LIMIT=8, list=rows.map((r,i)=>({ r:r, prev:i>0?rows[i-1]:null })).reverse();
-  if(list.length>LIMIT && !mlShowAll){ more.hidden=false; more.textContent="Show all "+list.length+" entries"; }
-  box.innerHTML=list.slice(0, mlShowAll?list.length:LIMIT).map(x=>{
+  // the latest 2 as cards (with the stretch they close); the rest as a table below
+  const LIMIT=2, list=rows.map((r,i)=>({ r:r, prev:i>0?rows[i-1]:null })).reverse();
+  box.innerHTML=list.slice(0, LIMIT).map(x=>{
     const r=x.r, o=judged.get(r), c=checked.get(r);
     const dip=(r.anguls!=null || r.stock_l!=null) ? (r.anguls!=null?fmt(r.anguls)+" Anguls = ":"")+fmt(stockOf(r))+" L"
       +(r.anguls!=null && r.stock_l!=null && !near(r.stock_l, stockOf(r), 0.5) ? " (saved as "+fmt(r.stock_l)+" L at an earlier Angul size)" : "") : "";
@@ -3469,15 +3523,16 @@ function renderMileageList(rows){
     return '<div class="mlrow'+(o&&o.sev===2?' high':o&&o.sev===1?' watch':c?' watch':'')+'"><div class="mm"><div class="m1">'+fmt(r.odo)+(meter?' L meter':' km')+'</div>'
       +'<div class="m2">'+dmy(dayKey(r.ts))+' · '+timeLabel(r.ts)+'<br>'+parts.join(" · ")+'</div>'+st+fl+'</div>'
       +'<span class="mk">'+(o && o.ratio!=null?(Math.round(o.ratio*100)/100).toFixed(2)+'<small>'+(meter?'L / L':'km/L')+'</small>':'—')+'</span>'
+      +'<button class="edt" data-edfuel="'+esc(r.id)+'" aria-label="Edit">✎</button>'
       +'<button class="del" data-rmfuel="'+esc(r.id)+'" aria-label="Delete">🗑</button></div>';
-  }).join("");
+  }).join("") + earlierTable(list.slice(LIMIT).map(x=>x.r), meter, dupOf, over, incl);
+  box.querySelectorAll("[data-edfuel]").forEach(b=>{ b.onclick=()=>{ const r=FUEL.find(x=>String(x.id)===b.getAttribute("data-edfuel")); if(r) openFuelEdit(r); }; });
   box.querySelectorAll("[data-rmfuel]").forEach(b=>{ b.onclick=()=>{
     const r=FUEL.find(x=>String(x.id)===b.getAttribute("data-rmfuel")); if(!r) return;
     if(!confirm("Delete this refill?\n"+r.plate+" — "+fmt(r.odo)+", "+fmt(r.litres)+" L")) return;
     Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return loadMileage(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
   }; });
 }
-$("#mlMore").onclick=()=>{ mlShowAll=true; renderMileageList(fuelRows(mlPlate)); };
 
 /* ---------- Fuel in tank now (opening stock for every tanker) ----------
    Saved as a "stock check": a reading with 0 litres filled and the stock in
@@ -3509,6 +3564,65 @@ function openStock(){
 }
 function closeStock(){ $("#stkModal").classList.remove("on"); }
 $("#stkCancel").onclick=closeStock;
+
+/* ---------- Edit a saved refill / stock check ----------
+   Corrects one entry in place (date, reading, litres, dip, note). The same
+   checks as a new entry apply: it can't become a copy of another entry, and
+   more than the tank holds needs a confirm. */
+let feRow=null;
+function openFuelEdit(r){
+  feRow=r; const m=isMeter(r.plate);
+  $("#feTitle").textContent="Edit "+(r.litres>0?"refill":"stock check")+" — "+r.plate;
+  $("#feNote").textContent="Saved "+dmy(dayKey(r.ts))+" "+timeLabel(r.ts)+(CLOUD&&r.by?" by "+r.by:"")+". The mileage is worked out again from the corrected figures.";
+  $("#feOdoLab").textContent=m?"Dispenser meter (L)":"Odometer (km)";
+  $("#feAngF").style.display=m?"none":"";
+  $("#feStkLab").textContent=m?"Litres in tank (optional)":r.litres>0?"= Litres in tank before filling":"= Litres in tank";
+  $("#feWhen").value=nowLocalInput(r.ts); $("#feOdo").value=String(r.odo); $("#feLit").value=r.litres>0?String(r.litres):"";
+  $("#feAng").value=(!m && r.anguls!=null)?String(r.anguls):""; $("#feAng").dataset.typed=(!m && r.anguls!=null)?"1":"";
+  $("#feStk").value=dipped(r)?String(stockOf(r)):""; $("#feNoteIn").value=r.note||""; $("#feErr").textContent="";
+  $("#feModal").classList.add("on");
+}
+function closeFuelEdit(){ $("#feModal").classList.remove("on"); feRow=null; }
+$("#feDel").onclick=()=>{
+  const r=feRow; if(!r) return;
+  if(!confirm("Delete this "+(r.litres>0?"refill":"stock check")+"?\n"+entryTxt(r))) return;
+  closeFuelEdit();
+  Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return loadMileage(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
+};
+$("#feCancel").onclick=closeFuelEdit;
+$("#feModal").addEventListener("click",e=>{ if(e.target===$("#feModal")) closeFuelEdit(); });
+["#feOdo","#feLit"].forEach(sel=>$(sel).addEventListener("input",()=>{ $(sel).value=sanQty($(sel).value); }));
+$("#feAng").addEventListener("input",()=>{ const v=sanQty($("#feAng").value); $("#feAng").value=v; $("#feAng").dataset.typed=v===""?"":"1";
+  $("#feStk").value = v==="" ? "" : String(r2(num(v)*angulL())); });
+$("#feStk").addEventListener("input",()=>{ const v=sanQty($("#feStk").value); $("#feStk").value=v; $("#feAng").dataset.typed="";
+  $("#feAng").value = v==="" ? "" : String(r2(num(v)/angulL())); });
+$("#feOk").onclick=async()=>{
+  if(!feRow) return;
+  const err=$("#feErr"), m=isMeter(feRow.plate), ts=inputMs("#feWhen"); err.textContent="";
+  if(ts==null){ err.textContent="Enter the date & time."; return; }
+  if(ts>Date.now()+5*60000){ err.textContent="The date & time is in the future."; return; }
+  if($("#feOdo").value===""){ err.textContent="Enter the "+(m?"meter reading":"odometer")+"."; return; }
+  const odo=r2(num($("#feOdo").value)), litres=r2(num($("#feLit").value));
+  const ang=(!m && $("#feAng").dataset.typed==="1" && $("#feAng").value!=="") ? r2(num($("#feAng").value)) : null;
+  const stk=$("#feStk").value!=="" ? r2(num($("#feStk").value)) : (ang!=null ? r2(ang*angulL()) : null);
+  if(!(litres>0) && stk==null){ err.textContent="A stock check needs the "+(m?"litres in the tank":"dip (Anguls or litres)")+"."; return; }
+  const e={ id:feRow.id, plate:feRow.plate, ts:ts, odo:odo, litres:litres, anguls:ang, stock_l:stk, note:$("#feNoteIn").value.trim() };
+  // the entries around it (by time) — a reading out of order is worth a second look
+  const others=fuelRows(feRow.plate).filter(r=>r.id!==feRow.id), before=others.filter(r=>r.ts<ts).pop(), after=others.find(r=>r.ts>ts);
+  if((before && odo<before.odo) || (after && odo>after.odo)){
+    if(!confirm("The "+(m?"meter reading":"odometer")+" "+fmt(odo)+" is out of order with the entries around it"
+      +(before?" (before: "+fmt(before.odo)+")":"")+(after?" (after: "+fmt(after.odo)+")":"")+".\n\nSave anyway?")) return; }
+  const g=guardEntry(e, feRow.id);
+  if(g==="cancel") return;
+  if(g==="already"){ err.textContent="Another saved entry already has these figures — delete one of them instead."; return; }
+  const btn=$("#feOk"); btn.disabled=true;
+  try{
+    await Backend.updateFuel(e);
+    closeFuelEdit(); toast("✓ Entry corrected");
+    await loadMileage(); fillPrevFromSaved(false);
+  }catch(x){ err.textContent=dbHint(x); }
+  btn.disabled=false;
+};
 $("#stkModal").addEventListener("click",e=>{ if(e.target===$("#stkModal")) closeStock(); });
 $("#stkOk").onclick=async()=>{
   const ts=inputMs("#stkWhen"), err=$("#stkErr"); err.textContent="";

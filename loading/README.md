@@ -430,8 +430,19 @@ phones (`loading_destinations`).
   last stretch vs normal, own diesel now with the refill verdict, last entry)
   and a chart of its mileage per stretch over the last 6 months.
 - Folding sections: **➕ Add a refill or stock check** (opens by itself for a
-  tanker with nothing saved yet), **🧾 Refills & stock checks** (newest 8,
-  *Show all* for the rest), **🗓️ Period summary** and **ℹ️ How it's worked out**.
+  tanker with nothing saved yet), **🧾 Refills & stock checks** (the latest 2 as
+  cards, each with **✎ Edit** and 🗑; every earlier entry in a table below —
+  date, reading, dip, litres filled and **≈ in tank after** = dip + filled, a
+  stock check showing *check*; read-only), **🗓️ Period summary** and
+  **ℹ️ How it's worked out**.
+- **✎ Edit** corrects one of a tanker's **latest 2** entries in place — date &
+  time, reading, litres filled, dip (Anguls or litres) and note — and the
+  mileage is worked out again; 🗑 deletes one. Older entries are settled history
+  and can't be changed or deleted (the database refuses it too). An edit can't
+  turn an entry into a copy of another, and more than the tank holds asks first.
+- **How much is kept:** 6 months of refills / stock checks and trips. That is
+  well under 1 MB for the whole fleet (about 250 bytes per entry), far inside
+  Supabase's free 500 MB, and long enough for the 3- and 6-month trends.
 - 📈 Trends & alerts and 🛢️ Fuel in tank now sit side by side under the fleet card.
 
 **Start here — 🛢️ Fuel in tank now (all tankers).** Enter, for every tanker, its
