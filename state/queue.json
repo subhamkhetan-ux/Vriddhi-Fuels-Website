@@ -3522,6 +3522,48 @@
       },
       "queued_at": "2026-10-05T12:45:18.075959+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "3ae4218661468306",
+      "gmail_msg_id": "1878218687017507482",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "05/10/2026",
+      "date_serial": 46300,
+      "amount": 60444.0,
+      "raw_payer": "ANIMESH BUILDERS",
+      "customer": "Animesh Builders",
+      "candidates": [
+        "Animesh Builders"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-05T14:15:22.080692+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "ba7f73ad82af6c37",
+      "gmail_msg_id": "1878219320415035204",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "05/10/2026",
+      "date_serial": 46300,
+      "amount": 400000.0,
+      "raw_payer": "KESHAV MINERALS",
+      "customer": "Keshav Minerals",
+      "candidates": [
+        "Keshav Minerals"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-05T14:15:22.081478+00:00",
+      "status": "matched"
     }
   ]
 }
