@@ -13,7 +13,7 @@
     "SMEL Price": 99.5,
     "OMPL Price": 99.5,
     "DBL Price": 99.5,
-    "Aryan Price": 99.74
+    "Aryan Price": 100.24
   },
   "product_rates": {
     "Motor Spirit": 109.01,
@@ -42,7 +42,7 @@
     {
       "company": "Aryan Ispat & Power Private Ltd.",
       "price_tier": "Aryan Price",
-      "hsd_rate": 99.74,
+      "hsd_rate": 100.24,
       "address": [
         "Sambalpur.",
         "GSTIN: 21AAECA5656R1ZB",
@@ -610,10 +610,10 @@
       "po_no": ""
     }
   ],
-  "generated_at": "2026-10-05T22:24:40+00:00",
+  "generated_at": "2026-10-06T02:47:38+00:00",
   "source": {
     "drive_file_id": "1xfU-xMgm9zllQCPZDOJ5e-6vCPIo3mOl",
     "file_name": "Tanker Billing.xlsm",
-    "modified_time": "2026-10-05T03:09:13.725Z"
+    "modified_time": "2026-10-06T02:38:11.294Z"
   }
 }
