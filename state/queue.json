@@ -3616,6 +3616,48 @@
       },
       "queued_at": "2026-10-06T04:00:21.008852+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "5695f9ae768c08e3",
+      "gmail_msg_id": "1878283196327891280",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "06/10/26",
+      "date_serial": 46301,
+      "amount": 397602.0,
+      "raw_payer": "VIRENDRA LOGISTICS PVT",
+      "customer": "Virendra Logistics Private Limited",
+      "candidates": [
+        "Virendra Logistics Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-06T07:15:26.718280+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "01763c6a9245f052",
+      "gmail_msg_id": "1878283191389655829",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "06/10/2026",
+      "date_serial": 46301,
+      "amount": 397600.0,
+      "raw_payer": "GREAT RIVER COY PVT LTD",
+      "customer": "Great River Coy Private Limited",
+      "candidates": [
+        "Great River Coy Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-06T07:15:27.984001+00:00",
+      "status": "matched"
     }
   ]
 }
