@@ -871,6 +871,14 @@ export function invoiceForm(existing = null) {
 // Settings
 // ---------------------------------------------------------------------------
 
+// The app version this phone has: the newest of its saved app files (sw.js).
+async function appVersion() {
+  try {
+    const nos = (await caches.keys()).map((k) => /^vriddhi-decant-v(\d+)$/.exec(k)?.[1]).filter(Boolean).map(Number);
+    return nos.length ? `v${Math.max(...nos)}` : '';
+  } catch { return ''; }
+}
+
 function settingsSheet() {
   openSheet('Settings', (body) => {
     const s = state.settings;
@@ -932,6 +940,7 @@ function settingsSheet() {
       <div class="hr"></div>
       <div class="sect-title">This phone</div>
       <div class="hint">${cloudEnabled ? `Cloud: ${esc(state.cloud)}${state.outbox.length ? ` · ${state.outbox.length} change(s) waiting to be sent` : ''}.` : 'Cloud not set up — everything stays on this phone.'}</div>
+      <div class="hint" id="stVersion"></div>
       <div class="row-actions" style="justify-content:flex-start">
         <button class="btn" id="stRefresh">↻ Refresh from the cloud</button>
         <button class="btn danger" id="stClear">Clear this phone's copy</button>
@@ -998,6 +1007,10 @@ function settingsSheet() {
     body.querySelector('#stCalc').onclick = () => dipCalculator();
     body.querySelector('#stChart').onclick = () => uploadChart();
     body.querySelector('#stChartReset')?.addEventListener('click', async () => { await saveConfig({ chart: null }); closeSheet(); toast('Using the built-in dip chart.'); });
+    appVersion().then((v) => {
+      const el = body.querySelector('#stVersion');
+      if (el && v) el.textContent = `App version ${v} — an update arrives the next time the app is opened with a signal.`;
+    });
     body.querySelector('#stRefresh').onclick = () => { refreshNow(); toast('Refreshing…'); };
     body.querySelector('#stClear').onclick = async () => {
       if (!(await ask('Clear this phone\'s copy?', `Everything synced to the cloud stays there and comes back on refresh.${state.outbox.length ? ` <b>${state.outbox.length} change(s) not yet sent will be lost.</b>` : ''}`, { ok: 'Clear', danger: true }))) return;

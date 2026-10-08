@@ -522,6 +522,9 @@ default), the dip chart, and:
 - **Our TTs** — one per line with its chambers from C1: `OD23U8210: 5, 5, 4, 4, 4`
 - **Transport TT layouts** — one size per line, its layouts split by `|`:
   `22: 4.5+4.5+4.5+4.5+4 | 5+5+4+4+4`
+- **This phone** shows the app version it has (`sw.js`'s cache number). The
+  app's files are always fetched fresh when there's a signal, so an update
+  is in use from the second time the app is opened after it's published.
 
 ## Files
 
