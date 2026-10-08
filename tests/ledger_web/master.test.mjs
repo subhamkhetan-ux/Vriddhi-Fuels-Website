@@ -16,7 +16,7 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
 
   const bills = Object.fromEntries(payload.sales.map((s) => [`${s.product} ${s.bill_no}`, s]));
   assert.deepEqual(Object.keys(bills).sort(), ['HSD 1', 'HSD 2', 'HSD 3', 'HSD 4', 'HSD 5', 'HSD 6', 'HSD 7',
-    'HSD 8', 'MS 1', 'OTHER LUBE/001', 'XG XG1', 'XG XG2']);
+    'HSD 8', 'MS 1', 'OTHER LUBE/001', 'OTHER LUBE/002', 'XG XG1', 'XG XG2']);
   assert.deepEqual([bills['XG XG2'].po_mode, bills['XG XG2'].po_fixed], ['fixed', 'PO-B']);   // typed on the Bulk sheet
   assert.equal(bills['HSD 3'].vehicle, 'OD01A3333');                  // first row wins
   assert.deepEqual(bills['HSD 1'], {
@@ -30,6 +30,9 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   assert.equal(bills['HSD 8'].unit, '');
   assert.equal(bills['HSD 4'].tds, 20);                               // from the group ledger
   assert.equal(bills['OTHER LUBE/001'].item, 'Engine oil');
+  // an Other Sale row on a Bulk sheet (no bill no. there): its Unit and remark reach the bill
+  assert.deepEqual([bills['OTHER LUBE/002'].unit, bills['OTHER LUBE/002'].remarks], ['UNIT 2', 'drum']);
+  assert.equal(bills['OTHER LUBE/001'].unit, '');
 
   assert.deepEqual(payload.payments, [
     { pay_date: '2026-04-05', customer: 'Demo Power Ltd', amount: 50000, mode: 'HDFC 1010', seq: 2, tds: 1000, shortage: null, remarks: '' },

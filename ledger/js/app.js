@@ -951,8 +951,9 @@ function bulkAccount(data, res, name, openingByUnit, asOn) {
     for (const k of Object.keys(fifo.keys)) if (k && !keys.includes(k)) keys.push(k);
     const none = unitStatement(st, fifo, '', { openingByUnit: obu });
     units = keys.map((k) => ({ unit: k, st: unitStatement(st, fifo, k, { openingByUnit: obu }) }));
-    // bills with no unit yet (or an opening the units don't split): their own part
-    if (none.entries.some((e) => e.type !== 'pay') || Math.round(none.closing)) units.push({ unit: '', st: none });
+    // bills with no unit yet (or an opening the units don't split): their own
+    // part — only while something there is owed (or in advance)
+    if (Math.round(none.closing)) units.push({ unit: '', st: none });
     for (const u of units) {
       u.fifo = { pending: fifo.pending.filter((d) => d.key === u.unit), advance: fifo.keys[u.unit]?.advance || 0 };
     }
