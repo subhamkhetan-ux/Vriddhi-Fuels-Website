@@ -183,7 +183,7 @@ ${T(x + w - 24, yy + 34, drCr(c.outstanding), { size: 23, weight: 800, anchor: '
 // ---- FIFO: the bills that make up the balance -------------------------------------------
 // pending: ledger-view.js fifoPending().pending — [{date, bill, title, key, company, amount, pending, days}]
 const MAX_PENDING = 40;
-const pendingWho = (d) => [d.key ? unitName(d.key) : '', d.company && d.showCompany ? d.company : ''].filter(Boolean).join(' · ');
+const pendingWho = (d) => [d.key ? unitName(d.key) : '', d.po ? `PO ${d.po}` : '', d.company && d.showCompany ? d.company : ''].filter(Boolean).join(' · ');
 const unitName = (u) => String(u).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 function pendingList(pending) {
   if (pending.length <= MAX_PENDING) return { rows: pending, more: null };
@@ -205,6 +205,30 @@ ${T(x + w - 120, y + 36, rupees(d.pending), { size: 19, weight: 800, anchor: 'en
 ${d.days != null ? T(x + w - 18, y + 36, `${d.days} day${d.days === 1 ? '' : 's'}`, { size: 15, weight: 700, anchor: 'end', fill: d.days > 30 ? C.bad : d.days > 15 ? C.warn : C.muted }) : ''}`;
 }
 const PEND_H = 58;
+// PO-wise outstanding (ledger-view.js poSummary()): one row per PO
+const PO_H = 62;
+function poRow(r, x, y, w, zebra) {
+  const name = r.kind === 'opening' ? 'Opening balance' : r.kind === 'none' ? 'Without a PO' : `PO ${r.po}`;
+  const sub = [r.unitLabel || '', r.bills ? `${r.bills} bill${r.bills === 1 ? '' : 's'}` : '', r.bills ? (r.from === r.to ? dMon(r.from) : `${dMon(r.from)} – ${dMon(r.to)}`) : ''].filter(Boolean).join(' · ');
+  return `${zebra ? R(x, y + 2, w, PO_H - 4, { rx: 12, opacity: 0.03 }) : ''}
+<circle cx="${x + 24}" cy="${y + 26}" r="6" fill="${r.kind === 'po' ? C.HSD : r.kind === 'opening' ? C.faint : C.OTHER}"/>
+${T(x + 44, y + 32, name, { size: 19, weight: 700, max: w - 44 - 330 })}
+${sub ? T(x + 44, y + 53, sub, { size: 14, fill: C.muted, max: w - 44 - 330 }) : ''}
+${T(x + w - 140, y + 36, rupees(r.pending), { size: 20, weight: 800, anchor: 'end' })}
+${r.oldestDays != null && r.bills ? T(x + w - 18, y + 36, `oldest ${r.oldestDays} d`, { size: 15, weight: 700, anchor: 'end', fill: r.oldestDays > 30 ? C.bad : r.oldestDays > 15 ? C.warn : C.muted }) : ''}`;
+}
+function poHead(x, y, w, total, count) {
+  return `${T(x, y + 30, 'PO-WISE OUTSTANDING', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
+${T(x + w, y + 30, `${count ? `${count} PO${count === 1 ? '' : 's'} · ` : ''}${rupees(total)}`, { size: 17, weight: 700, anchor: 'end', fill: C.amber })}
+${R(x, y + 46, w, 1.5, { opacity: 0.1 })}`;
+}
+function poBlock(x, y, w, summary) {
+  let out = poHead(x, y, w, summary.total, summary.rows.filter((r) => r.kind === 'po').length);
+  let yy = y + 54;
+  summary.rows.forEach((r, i) => { out += poRow(r, x, yy, w, i % 2 === 1); yy += PO_H; });
+  return { svg: out, height: yy - y + 14 };
+}
+
 function pendingHead(x, y, w, total, count) {
   return `${T(x, y + 30, 'PENDING BILLS · OLDEST PAID FIRST (FIFO)', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
 ${T(x + w, y + 30, `${count} bill${count === 1 ? '' : 's'} · ${rupees(total)}`, { size: 17, weight: 700, anchor: 'end', fill: C.amber })}
@@ -254,6 +278,8 @@ function line(l, x, y, w, col) {
 ${T(col.date, y + 37, m.title.toUpperCase(), { size: 17, weight: 800, fill: C.amber, spacing: 2 })}
 ${T(col.bal, y + 37, `billed ${rupees(m.billed)}  ·  received ${rupees(m.received)}${m.deductions ? `  ·  TDS/short ${rupees(m.deductions)}` : ''}`, { size: 15, fill: C.muted, anchor: 'end' })}`;
   }
+  if (l.t === 'pohead') return poHead(x, y + 24, w, l.total, l.count);
+  if (l.t === 'po') return poRow(l.r, x, y, w, l.zebra);
   if (l.t === 'pendhead') return pendingHead(x, y + 24, w, l.total, l.count);
   if (l.t === 'pend') return pendingRow(l.d, x, y, w, l.zebra);
   if (l.t === 'pendnote') {
@@ -286,7 +312,7 @@ ${bal(e.balance, 18)}`;
 // st: ledger-view.js bulkStatement() / retailStatement() (optionally cut to a
 // month: {..., entries, months, opening, closing, from, to} of that month)
 // opts: { asOn, images: {logo}, fontCss, title }
-export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title = 'Statement of account', tag = '', pending = null, advance = 0 } = {}) {
+export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title = 'Statement of account', tag = '', pending = null, advance = 0, pos = null } = {}) {
   const { width: w, height: h } = SHARE_PAGE;
   const pad = 56;
   const col = COL(w, pad);
@@ -299,7 +325,11 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
   }
   const t = st.totals;
   lines.push({ t: 'total', label: 'Closing balance', qty: t.qty, debit: t.billed, credit: t.received + t.tds + t.shortage, balance: st.closing, h: H.total });
-  // what makes up the closing: the unpaid bills, oldest paid first
+  // what makes up the closing: per PO, then the unpaid bills, oldest paid first
+  if (pos && pos.rows.length) {
+    lines.push({ t: 'pohead', total: pos.total, count: pos.rows.filter((r) => r.kind === 'po').length, h: 84 });
+    pos.rows.forEach((r, i) => lines.push({ t: 'po', r, zebra: i % 2 === 1, h: PO_H }));
+  }
   if (pending && pending.length) {
     const { rows, more } = pendingList(pending);
     lines.push({ t: 'pendhead', total: pending.reduce((a, d) => a + d.pending, 0), count: pending.length, h: 84 });
@@ -363,7 +393,7 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
   let y = first;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
-    const needs = l.h + ((l.t === 'month' || l.t === 'pendhead') && lines[i + 1] ? lines[i + 1].h : 0);
+    const needs = l.h + ((l.t === 'month' || l.t === 'pendhead' || l.t === 'pohead') && lines[i + 1] ? lines[i + 1].h : 0);
     if (y + needs > bottom && cur.length) {
       pagesLines.push(cur);
       cur = [];
@@ -379,7 +409,7 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
     const head = i === 0 ? head1(1, pages) : headN(i + 1, pages);
     let yy = head.y;
     let body = '';
-    if (pl.some((l) => !l.t.startsWith('pend'))) {          // a page of pending bills only has no statement header
+    if (pl.some((l) => !l.t.startsWith('pend') && !l.t.startsWith('po'))) {   // a page of PO / pending rows only has no statement header
       body += tableHead(pad, yy, w - 2 * pad, col);
       yy += H.head;
     }
@@ -438,6 +468,11 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
     const cb = companiesBlock(pad, y, w - 2 * pad, card.units);
     out += cb.svg;
     y += cb.height + 20;
+  }
+  if (card.pos && card.pos.rows.length) {
+    const pb = poBlock(pad, y, w - 2 * pad, card.pos);
+    out += pb.svg;
+    y += pb.height + 10;
   }
   if (card.pending && card.pending.length) {
     const pb = pendingBlock(pad, y, w - 2 * pad, card.pending, card.advance || 0);

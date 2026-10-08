@@ -92,7 +92,7 @@ export function bulkStatement(res, data, { name = '' } = {}) {
     else title = `${PRODUCT_LABEL[code]}${r.bill ? ` · Bill ${r.bill}` : ''}`;
     return {
       date: r.date, type: code === 'PAY' ? 'pay' : 'bill', product: code, title, detail: detail.join(' · '),
-      company: r.name || '', unit: String(r.unit || '').trim().toUpperCase(), bill: r.bill || '', id: r.id,
+      company: r.name || '', unit: String(r.unit || '').trim().toUpperCase(), bill: r.bill || '', po: r.po || '', id: r.id,
       qty: Number(r.qty) || 0, rate: Number(r.rate) || 0,
       debit: Number(r.amount) || 0, paid: Number(r.paid) || 0, tds, shortage,
       credit: round2((Number(r.paid) || 0) + tds + shortage), balance: r.balance,
@@ -252,7 +252,7 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
 
   entries.forEach((e, i) => {
     const key = keyOf(e) || '';
-    const item = { date: e.date, bill: e.bill || '', title: e.title, product: e.product, key, company: e.company || '', id: e.id };
+    const item = { date: e.date, bill: e.bill || '', title: e.title, product: e.product, key, company: e.company || '', po: e.po || '', id: e.id };
     if (e.debit > 0) debit({ ...item, amount: e.debit }, i);
     else if (e.debit < 0) credit(-e.debit, key, i);
     if (e.credit > 0) credit(e.credit, key, i);
@@ -270,6 +270,32 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
   }
   const total = round2(pending.reduce((a, d) => a + d.pending, 0) - [...advance.values()].reduce((a, v) => a + v, 0));
   return { pending, keys, moves, total, advance: round2([...advance.values()].reduce((a, v) => a + v, 0)) };
+}
+
+// PO-wise outstanding: the FIFO pending bills by PO number (unit by unit,
+// oldest PO first) — what the customer still owes against each PO. The opening
+// balance and bills without a PO (petrol, XtraGreen, others, a diesel bill
+// still waiting for a PO) get rows of their own. null when no pending bill has a PO.
+export function poSummary(pending) {
+  if (!pending || !pending.some((d) => d.po)) return null;
+  const map = new Map();
+  for (const d of pending) {
+    const kind = d.opening ? 'opening' : d.po ? 'po' : 'none';
+    const k = kind === 'po' ? `po|${d.key || ''}|${String(d.po).toUpperCase()}` : `${kind}|${d.key || ''}`;
+    if (!map.has(k)) map.set(k, { kind, po: kind === 'po' ? d.po : '', unit: d.key || '', bills: 0, pending: 0, billed: 0, from: d.date, to: d.date, oldestDays: d.days });
+    const x = map.get(k);
+    x.pending += d.pending;
+    x.billed += d.amount;
+    if (!d.opening) x.bills += 1;
+    if (d.date < x.from) { x.from = d.date; x.oldestDays = d.days; }
+    if (d.date > x.to) x.to = d.date;
+  }
+  const rank = { opening: 0, po: 1, none: 2 };
+  const rows = [...map.values()].map((x) => ({ ...x, pending: round2(x.pending), billed: round2(x.billed) }))
+    .sort((a, b) => (a.unit === '') - (b.unit === '') || a.unit.localeCompare(b.unit) || rank[a.kind] - rank[b.kind] || a.from.localeCompare(b.from) || String(a.po).localeCompare(String(b.po)));
+  // on a unit-wise account the rows without a unit say so
+  const units = rows.some((x) => x.unit);
+  return { rows: rows.map((x) => ({ ...x, unitLabel: x.unit ? unitLabel(x.unit) : units ? 'No unit' : '' })), total: round2(rows.reduce((a, x) => a + x.pending, 0)) };
 }
 
 // the key of a bulk entry on an SMC-style (unit-wise) sheet

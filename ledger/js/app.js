@@ -24,7 +24,8 @@ import {
   shareBatches,
 } from './statements.js';
 import {
-  bulkStatement, fifoPending, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, fifoPending, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
+  unitStatement,
 } from './ledger-view.js';
 import {
   dMon, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
@@ -702,7 +703,8 @@ const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/
 async function ledgerFiles(st, base, fifo = null) {
   const { images, fontCss } = await shareImages();
   const svgs = ledgerPagesSvg(st, {
-    asOn: localToday() < st.to ? st.to : localToday(), images, fontCss, pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0,
+    asOn: localToday() < st.to ? st.to : localToday(), images, fontCss,
+    pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0, pos: fifo ? poSummary(fifo.pending) : null,
   });
   const files = [];
   for (let i = 0; i < svgs.length; i++) {
@@ -918,7 +920,7 @@ function cardOf(st, { asOn, name = st.name, kind = st.kind, note = '', fifo = nu
     name, kind, note, balance: st.closing, asOn, since: st.from, opening: st.opening,
     billed: t.billed, qty: t.qty, received: t.received, deductions: round2(t.tds + t.shortage),
     bills: t.bills, payments: t.payments, lastPayment: st.lastPayment, lastBill: st.lastBill, companies: st.companies,
-    pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0,
+    pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0, pos: fifo ? poSummary(fifo.pending) : null,
     units: units ? unitsBlock(units, st.closing) : null,
   };
 }
@@ -1025,7 +1027,19 @@ function pendingHtml(acct, { group = false } = {}) {
   const all = acct.fifo.pending;
   if (!all.length) return `<h3>Pending bills</h3><p class="muted">No bill is pending${acct.fifo.advance > 0.5 ? ` — ${esc(rupees(acct.fifo.advance))} paid in advance` : ''}. ✓</p>`;
   const total = all.reduce((a, d) => a + d.pending, 0);
-  return `<div class="row-between"><h3>Pending bills <span class="muted">· oldest paid first (FIFO)</span></h3><b class="total">${esc(rupees(total))}</b></div>
+  const pos = poSummary(all);
+  return `${pos ? `<div class="row-between"><h3>PO-wise outstanding</h3><b class="total">${esc(rupees(pos.total))}</b></div>
+    <div class="pend-list po-list">
+      <div class="pend-row head"><span>PO</span><span>Bills</span><span class="r">Billed</span><span class="r">Pending</span><span class="r">Oldest</span></div>
+      ${pos.rows.map((r) => `<div class="pend-row">
+        <span><b>${r.kind === 'opening' ? 'Opening balance' : r.kind === 'none' ? 'Without a PO' : esc(r.po)}</b>${r.unitLabel ? `<small>${esc(r.unitLabel)}</small>` : ''}</span>
+        <span>${r.bills ? `${plural(r.bills, 'bill')}<small>${esc(r.from === r.to ? dMon(r.from) : `${dMon(r.from)} – ${dMon(r.to)}`)}</small>` : ''}</span>
+        <span class="r">${esc(rupees(r.billed))}</span>
+        <span class="r"><b>${esc(rupees(r.pending))}</b></span>
+        <span class="r">${r.bills ? `<span class="age ${r.oldestDays > 30 ? 'old' : r.oldestDays > 15 ? 'mid' : ''}">${r.oldestDays} d</span>` : ''}</span></div>`).join('')}
+    </div>
+    <p class="small muted">What's still owed against each PO, from the pending bills below.</p>` : ''}
+    <div class="row-between${pos ? ' pend-gap' : ''}"><h3>Pending bills <span class="muted">· oldest paid first (FIFO)</span></h3><b class="total">${esc(rupees(total))}</b></div>
     <p class="small muted">Payments, TDS and shortage clear the oldest bills first${acct.units ? ' — a payment with a Unit on the sheet clears that unit\'s bills, one without a unit the oldest of either unit' : ''}. What's left is the balance.</p>
     ${parts.filter((p) => p.pending.length || p.advance > 0.5).map((p) => `
       ${p.label ? `<div class="pend-unit"><b>${esc(p.label)}</b><span>${plural(p.pending.length, 'bill')} · ${esc(rupees(p.pending.reduce((a, d) => a + d.pending, 0)))}</span></div>` : ''}
@@ -1033,7 +1047,7 @@ function pendingHtml(acct, { group = false } = {}) {
         <div class="pend-row head"><span>Date</span><span>Invoice</span><span class="r">Bill</span><span class="r">Pending</span><span class="r">Age</span></div>
         ${p.pending.map((d) => `<div class="pend-row">
           <span>${esc(fmtDate(d.date))}</span>
-          <span><b>${d.opening ? 'Opening balance' : esc(d.bill ? `Inv. ${d.bill}` : d.title)}</b>${group && d.company ? `<small>${esc(d.company)}</small>` : (d.bill ? `<small>${esc(d.title.split(' · ')[0])}</small>` : '')}</span>
+          <span><b>${d.opening ? 'Opening balance' : esc(d.bill ? `Inv. ${d.bill}` : d.title)}</b>${group && d.company ? `<small>${esc(d.company)}</small>` : (d.bill ? `<small>${esc([d.title.split(' · ')[0], d.po ? `PO ${d.po}` : ''].filter(Boolean).join(' · '))}</small>` : '')}</span>
           <span class="r">${esc(rupees(d.amount))}</span>
           <span class="r"><b>${esc(rupees(d.pending))}</b></span>
           <span class="r"><span class="age ${d.days > 30 ? 'old' : d.days > 15 ? 'mid' : ''}">${d.days} d</span></span></div>`).join('')}
@@ -1278,7 +1292,10 @@ async function outstandingOptionsFor(o) {
   const id = o.id.slice(2);
   if (o.id.startsWith('g:')) {
     const [data, pod] = await Promise.all([state.store.account(null, id, null, null), state.store.poData()]);
-    const res = bulkRows(data);
+    const poById = new Map();
+    const pg = poGroups(pod).find((x) => x.group.code === id);
+    if (pg) pg.rows.forEach((r) => poById.set(r.id, r.po));
+    const res = bulkRows(data, (sid) => poById.get(sid) || '');
     const last = res.rows.length ? res.rows[res.rows.length - 1].date : today;
     const asOn = last > today ? last : today;
     const acct = bulkAccount(data, res, o.name, (pod.groups.find((x) => x.code === id) || {}).opening_by_unit, asOn);

@@ -456,8 +456,13 @@ table.xl td.xl-head { font-weight: bold; text-align: center; border-bottom: 2px 
   .pend-row > span:nth-child(4) { grid-area: pend; }
   .pend-row > span:nth-child(5) { grid-area: age; }
   .pend-row.adv { grid-template-areas: "inv pend pend"; }
+  .po-list .pend-row > span:nth-child(1) { grid-area: inv; color: var(--ink); font-size: 14px; }
+  .po-list .pend-row > span:nth-child(2) { grid-area: date; color: var(--muted); font-size: 12.5px; }
+  .po-list .pend-row > span:nth-child(2) small { display: inline; margin-left: 6px; }
 }
 .unit-pick { margin: 0 0 10px; }
+.po-list .pend-row b { overflow-wrap: anywhere; }
+.pend-gap { margin-top: 18px; }
 .adv-head { margin-top: 18px; }
 .rank-row.adv { border-color: rgba(47,208,138,.22); }
 .mini.adv { background: var(--good); opacity: .75; margin-left: auto; }

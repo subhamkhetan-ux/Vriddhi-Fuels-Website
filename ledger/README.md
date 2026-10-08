@@ -81,6 +81,12 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   left are the newest bills — each with its date, invoice no., the bill's
   amount, what's still pending on it and how many days old it is (amber after
   15 days, red after 30). An advance not yet set against a bill is shown below.
+- **PO-wise outstanding** for customers with PO lists: the pending bills
+  grouped by PO number (unit by unit on an SMC-style sheet) — how much is
+  still owed against each PO, how many bills and which dates, and how old the
+  oldest one is. The opening balance and bills without a PO (petrol,
+  XtraGreen, others, a diesel bill waiting for a PO) get rows of their own.
+  The PO is the one the POs tab gives the bill.
 - **Unit-wise (SMC-style sheets with a PO list per unit)**: a card per unit
   with its own outstanding and pending bills, and the statement of the whole
   account or of one unit. A payment counts for the unit typed in its **Unit**
@@ -95,13 +101,14 @@ customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
 - **Share ledger**: the statement as A4-shaped pictures (as many pages as it
   needs; on a bulk ledger pick the whole ledger or one month), or **PDF**.
 - **Share outstanding**: one card with the balance as on today, the period,
-  billed, received, last payment, the **pending bills (FIFO)** of a bulk
-  customer — and, for a group, every company.
+  billed, received, last payment, the **PO-wise outstanding** and the
+  **pending bills (FIFO)** of a bulk customer — and, for a group, every company.
 - **SMC-style sheets** share **unit-wise** by default: one set of pictures per
   unit (its ledger, or its outstanding card with its pending bills), each with
   its own **Share** button so each unit gets only its own; **Both units
   together** in the share sheet sends the whole account in one set, as before.
-  Ledger pictures of the whole ledger end with the pending bills.
+  Ledger pictures of the whole ledger end with the PO-wise outstanding and
+  the pending bills.
 - the share button on each **company card** sends that company's own card.
 - on Home, the share button beside each customer under *Outstanding today*
   sends their card (unit-wise for SMC-style sheets); **Share list** sends the

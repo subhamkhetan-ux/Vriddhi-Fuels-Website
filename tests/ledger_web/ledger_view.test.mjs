@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { bulkRows } from '../../ledger/js/account.js';
 import {
-  bulkStatement, companyWise, fifoPending, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, companyWise, fifoPending, poSummary, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
 } from '../../ledger/js/ledger-view.js';
 import { demoSeed } from '../../ledger/js/demo.js';
 import { memoryStore } from '../../ledger/js/store.js';
@@ -253,4 +253,42 @@ test('pictures: the pending bills (FIFO) on the card and after the closing', () 
   const lastPage = pages[pages.length - 1];
   assert.ok(lastPage.includes('PENDING BILLS') && lastPage.includes('Inv. 1490'));
   assert.ok(lastPage.indexOf('Closing balance') < lastPage.indexOf('PENDING BILLS'));
+});
+
+test('PO-wise outstanding: the FIFO pending bills by PO, unit by unit', () => {
+  const entries = [
+    e('2026-09-01', '1', 1000, 0, { unit: 'UNIT 1', po: 'PO-A' }), e('2026-09-02', '2', 1000, 0, { unit: 'UNIT 1', po: 'PO-A' }),
+    e('2026-09-03', '3', 1000, 0, { unit: 'UNIT 1', po: 'PO-B' }), e('2026-09-04', '4', 500, 0, { unit: 'UNIT 2', po: 'PO-Z' }),
+    e('2026-09-05', '5', 300, 0, { unit: 'UNIT 1', product: 'MS' }),                 // petrol: no PO
+    e('2026-09-06', '', 0, 1500, { unit: 'UNIT 1' }),
+  ];
+  const f = fifoPending(entries, { opening: 200, openingByKey: { 'UNIT 1': 200 }, keyOf: unitKey, from: '2026-09-01', asOn: '2026-09-10' });
+  assert.ok(f.pending.every((d) => 'po' in d));
+  const pos = poSummary(f.pending);
+  // Unit 1's 1,500 cleared its opening (200) and 1,300 of PO-A
+  assert.deepEqual(pos.rows.map((r) => [r.unit, r.kind, r.po, r.bills, r.pending, r.from, r.oldestDays]), [
+    ['UNIT 1', 'po', 'PO-A', 1, 700, '2026-09-02', 8],
+    ['UNIT 1', 'po', 'PO-B', 1, 1000, '2026-09-03', 7],
+    ['UNIT 1', 'none', '', 1, 300, '2026-09-05', 5],
+    ['UNIT 2', 'po', 'PO-Z', 1, 500, '2026-09-04', 6],
+  ]);
+  assert.equal(pos.total, f.total);
+  assert.deepEqual(pos.rows.map((r) => r.unitLabel), ['Unit 1', 'Unit 1', 'Unit 1', 'Unit 2']);
+  // a bill with no unit yet: last, as "No unit"
+  const mixed = poSummary([{ date: '2026-09-01', bill: '9', key: '', po: '', amount: 5, pending: 5, days: 1 }, ...f.pending]);
+  assert.deepEqual(mixed.rows.map((r) => r.unitLabel).slice(-1), ['No unit']);
+  // no PO anywhere: no summary
+  assert.equal(poSummary(fifoPending([e('2026-09-01', '1', 100)]).pending), null);
+  // an unpaid opening is a row of its own, first in its unit
+  const open = poSummary(fifoPending([e('2026-09-01', '1', 100, 0, { po: 'P' })], { opening: 50, from: '2026-08-31' }).pending);
+  assert.deepEqual(open.rows.map((r) => [r.kind, r.pending]), [['opening', 50], ['po', 100]]);
+
+  const card = outstandingCardSvg({ name: 'SMC — Unit 1', kind: 'bulk', balance: 2000, asOn: '2026-09-10', pending: f.pending, pos });
+  for (const t of ['PO-WISE OUTSTANDING', 'PO PO-A', '₹700', 'Without a PO', '3 POs', 'oldest 8 d', 'PO PO-B']) assert.ok(card.svg.includes(t), t);
+  assert.ok(card.svg.indexOf('PO-WISE OUTSTANDING') < card.svg.indexOf('PENDING BILLS'));
+  const data = groupData();
+  const st = bulkStatement(bulkRows(data), data, { name: 'X' });
+  const pages = ledgerPagesSvg(st, { asOn: '2026-09-10', pending: f.pending, pos });
+  const last = pages.join('');
+  assert.ok(last.indexOf('Closing balance') < last.indexOf('PO-WISE OUTSTANDING') && last.indexOf('PO-WISE OUTSTANDING') < last.indexOf('PENDING BILLS'));
 });
