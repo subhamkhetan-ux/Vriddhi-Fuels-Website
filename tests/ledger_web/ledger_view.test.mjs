@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { bulkRows } from '../../ledger/js/account.js';
 import {
-  bulkStatement, companyWise, fifoPending, matchBills, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, companyWise, fifoPending, matchBills, pendingFromBalance, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
 } from '../../ledger/js/ledger-view.js';
 import { demoSeed } from '../../ledger/js/demo.js';
 import { memoryStore } from '../../ledger/js/store.js';
@@ -266,17 +266,17 @@ test('PO-wise outstanding: the FIFO pending bills by PO, unit by unit', () => {
   const f = fifoPending(entries, { opening: 200, openingByKey: { 'UNIT 1': 200 }, keyOf: unitKey, from: '2026-09-01', asOn: '2026-09-10' });
   assert.ok(f.pending.every((d) => 'po' in d));
   const pos = poSummary(f.pending);
-  // Unit 1's 1,500 cleared its opening (200) and 1,300 of PO-A
+  // Unit 1 owes 2,000 — exactly its two newest diesel bills (the petrol bill and opening paid)
   assert.deepEqual(pos.rows.map((r) => [r.unit, r.kind, r.po, r.bills, r.pending, r.from, r.oldestDays]), [
-    ['UNIT 1', 'po', 'PO-A', 1, 700, '2026-09-02', 8],
+    ['UNIT 1', 'po', 'PO-A', 1, 1000, '2026-09-02', 8],
     ['UNIT 1', 'po', 'PO-B', 1, 1000, '2026-09-03', 7],
-    ['UNIT 1', 'none', '', 1, 300, '2026-09-05', 5],
     ['UNIT 2', 'po', 'PO-Z', 1, 500, '2026-09-04', 6],
   ]);
   assert.equal(pos.total, f.total);
-  assert.deepEqual(pos.rows.map((r) => r.unitLabel), ['Unit 1', 'Unit 1', 'Unit 1', 'Unit 2']);
+  assert.deepEqual(pos.rows.map((r) => r.unitLabel), ['Unit 1', 'Unit 1', 'Unit 2']);
   // bills without a PO are named by product
-  assert.deepEqual(pos.rows.map(poRowName), ['PO PO-A', 'PO PO-B', 'Petrol', 'PO PO-Z']);
+  const petrol = poSummary(fifoPending([...entries.slice(0, 5)], { keyOf: unitKey, asOn: '2026-09-10' }).pending);
+  assert.deepEqual(petrol.rows.map(poRowName), ['PO PO-A', 'PO PO-B', 'Petrol', 'PO PO-Z']);
   assert.equal(poRowName({ kind: 'none', product: 'HSD' }), 'Diesel · no PO yet');
   // a bill with no unit yet: last, as "No unit"
   const mixed = poSummary([{ date: '2026-09-01', bill: '9', key: '', po: '', amount: 5, pending: 5, days: 1 }, ...f.pending]);
@@ -288,7 +288,7 @@ test('PO-wise outstanding: the FIFO pending bills by PO, unit by unit', () => {
   assert.deepEqual(open.rows.map((r) => [r.kind, r.pending]), [['opening', 50], ['po', 100]]);
 
   const card = outstandingCardSvg({ name: 'SMC — Unit 1', kind: 'bulk', balance: 2000, asOn: '2026-09-10', pending: f.pending, pos });
-  for (const t of ['PO-WISE OUTSTANDING', 'PO PO-A', '₹700', 'Petrol', '3 POs', 'oldest 8 d', 'PO PO-B']) assert.ok(card.svg.includes(t), t);
+  for (const t of ['PO-WISE OUTSTANDING', 'PO PO-A', '₹1,000', '3 POs', 'oldest 8 d', 'PO PO-B']) assert.ok(card.svg.includes(t), t);
   assert.ok(card.svg.indexOf('PO-WISE OUTSTANDING') < card.svg.indexOf('PENDING BILLS'));
   const data = groupData();
   const st = bulkStatement(bulkRows(data), data, { name: 'X' });
@@ -349,4 +349,48 @@ test('matching keeps unit-wise accounts whole', () => {
   assert.deepEqual(f.pending.map((d) => [d.bill, d.key, d.pending]), [['M1', 'UNIT 1', 300]]);
   const parts = ['UNIT 1', 'UNIT 2'].map((u) => unitStatement(st, f, u));
   assert.deepEqual(parts.map((p) => p.closing), [300, 0]);
+});
+
+// ---- small bills of other products wait; payments are mostly for the main product ----
+const lube = (date, bill, debit, extra = {}) => e(date, bill, debit, 0, { product: 'OTHER', title: `Engine oil · Bill ${bill}`, ...extra });
+
+test('SMC Unit 2: an old lube bill stays pending, not a slice of a diesel bill', () => {
+  const U2 = { unit: 'UNIT 2' };
+  const entries = [
+    e('2026-04-05', 'D1', 150000, 0, U2), lube('2026-04-11', 'L1', 5330, U2), e('2026-04-20', 'D2', 199000, 0, U2),
+    pay('2026-05-01', 248000, U2),                                            // adds up to nothing
+    e('2026-09-30', '3533', 199000, 0, U2), e('2026-09-30', '3534', 995000, 0, U2),
+    pay('2026-10-01', 200000, U2), e('2026-10-05', '3646', 1791000, 0, U2),
+  ];
+  const f = fifoPending(entries, { opening: -100000, openingByKey: { 'UNIT 2': -100000 }, keyOf: unitKey, from: '2026-04-01', asOn: '2026-10-08' });
+  // oldest-first across products showed "3533: ₹5,330 of ₹1,99,000"
+  assert.deepEqual(f.pending.map((d) => [d.bill, d.pending]), [['L1', 5330], ['3534', 995000], ['3646', 1791000]]);
+  assert.equal(f.total, 2791330);
+});
+
+test('OMPL: petrol bills stay pending, not a slice of a diesel bill', () => {
+  const entries = [
+    e('2026-09-05', 'D0', 1194000), ms('2026-09-10', 'MS1', 21804), ms('2026-09-20', 'MS2', 21804),
+    pay('2026-09-25', 1150000),                                               // part of D0
+    e('2026-09-28', '3428', 1194000), ms('2026-10-04', 'MS609', 21802),
+    pay('2026-10-05', 1238000),                                               // the rest of D0 + 3428
+    e('2026-10-06', '3697', 1194000), e('2026-10-07', '3742', 1194000),
+  ];
+  const f = fifoPending(entries, { asOn: '2026-10-08' });
+  assert.deepEqual(f.pending.map((d) => [d.bill, d.pending]), [['MS1', 21804], ['MS2', 21804], ['MS609', 21802], ['3697', 1194000], ['3742', 1194000]]);
+  // not even exact: the diesel bill takes the shortfall, the petrol bills stay whole
+  const short = fifoPending([...entries.slice(0, 6), pay('2026-10-05', 1237500), ...entries.slice(7)], { asOn: '2026-10-08' });
+  assert.deepEqual(short.pending.map((d) => [d.bill, d.pending]), [['MS1', 21804], ['MS2', 21804], ['3428', 500], ['MS609', 21802], ['3697', 1194000], ['3742', 1194000]]);
+});
+
+test('pendingFromBalance: each product\'s newest bills that add up exactly; null otherwise', () => {
+  const bills = [
+    { date: '2026-09-01', bill: '1', product: 'HSD', amount: 1000 }, { date: '2026-09-02', bill: 'L', product: 'OTHER', amount: 300 },
+    { date: '2026-09-03', bill: '2', product: 'HSD', amount: 1000 }, { date: '2026-09-04', bill: '3', product: 'HSD', amount: 1000 },
+  ];
+  const pick = (owed) => pendingFromBalance(bills, owed)?.map((x) => x.d).sort((a, b) => a.date.localeCompare(b.date)).map((d) => d.bill);
+  assert.deepEqual(pick(2300), ['L', '2', '3']);
+  assert.deepEqual(pick(2000), ['2', '3']);
+  assert.deepEqual(pick(1300), ['L', '3']);
+  assert.equal(pick(1500), undefined);
 });

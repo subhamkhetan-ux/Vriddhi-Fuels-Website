@@ -1041,7 +1041,7 @@ function pendingHtml(acct, { group = false } = {}) {
     </div>
     <p class="small muted">What's still owed against each PO, from the pending bills below.</p>` : ''}
     <div class="row-between${pos ? ' pend-gap' : ''}"><h3>Pending bills <span class="muted">· payments matched to bills</span></h3><b class="total">${esc(rupees(total))}</b></div>
-    <p class="small muted">Each payment (with its TDS and shortage) clears the bills it adds up to — one bill, or whole runs of one or two products' bills (all the diesel bills, say), or all but one held-back bill; a remark naming a product tries that product first. Otherwise the oldest bills first${acct.units ? '. A payment with a Unit on the sheet pays only that unit\'s bills; one without a unit, either unit\'s' : ''}. What's left is the balance.</p>
+    <p class="small muted">Each payment (with its TDS and shortage) clears the bills it adds up to — one bill, or whole runs of one or two products' bills (all the diesel bills, say), or all but one held-back bill; a remark naming a product tries that product first. Otherwise the opening, then the main product's bills (usually diesel) oldest first; small bills of other products wait${acct.units ? '. A payment with a Unit on the sheet pays only that unit\'s bills; one without a unit, either unit\'s' : ''}. What's left is the balance.</p>
     ${parts.filter((p) => p.pending.length || p.advance > 0.5).map((p) => `
       ${p.label ? `<div class="pend-unit"><b>${esc(p.label)}</b><span>${plural(p.pending.length, 'bill')} · ${esc(rupees(p.pending.reduce((a, d) => a + d.pending, 0)))}</span></div>` : ''}
       <div class="pend-list">

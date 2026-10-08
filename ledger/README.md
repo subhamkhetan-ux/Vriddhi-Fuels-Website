@@ -89,8 +89,13 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
      e.g. all the diesel bills up to a date, leaving the petrol bills pending;
   3. one product's oldest bills with a single bill held back.
   A remark on the payment row naming a product (MS / petrol, HSD / diesel, XG)
-  tries that product first. When nothing adds up — or oldest-first adds up
-  anyway — the oldest bills are paid first (the opening balance before them).
+  tries that product first. When nothing adds up, the payment clears the
+  opening balance, then the bills of the product billed most (usually diesel)
+  oldest first — a petrol or lube bill only once no bill of a bigger product
+  is open, since those small bills often wait.
+  Finally, if a bill would be left part paid but each product's **newest
+  bills add up exactly** to what's owed, those whole bills are the pending
+  ones (e.g. two diesel bills + the April lube bill).
 - **PO-wise outstanding** for customers with PO lists: the pending bills
   grouped by PO number (unit by unit on an SMC-style sheet) — how much is
   still owed against each PO, how many bills and which dates, and how old the
