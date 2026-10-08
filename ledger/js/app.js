@@ -852,6 +852,7 @@ function companiesHtml(cw) {
           <dt>Last payment</dt><dd>${c.lastPayment ? `${esc(rupees(c.lastPayment.amount))} <small>${esc(dMon(c.lastPayment.date))}</small>` : '—'}</dd>
         </dl>
       </div>`).join('')}</div>
+    ${cw.settled ? `<p class="small muted">+ ${plural(cw.settled, 'company', 'companies')} with a nil balance, not shown.</p>` : ''}
     ${Math.round(cw.opening) ? `<p class="small muted">The sheet's opening balance of ${esc(drCr(cw.opening))} is for the group as a whole: opening + every company = the group's balance of <b>${esc(drCr(cw.total))}</b>.</p>` : ''}`;
 }
 

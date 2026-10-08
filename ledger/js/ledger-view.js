@@ -112,7 +112,8 @@ export function bulkStatement(res, data, { name = '' } = {}) {
 // Company-wise outstanding of a group sheet (one *_Bulk sheet, several billing
 // names): each company's bills − payments − TDS − shortage since the sheet's
 // period from. The sheet's opening balance belongs to the group as a whole,
-// so opening + every company = the group's balance. null for a one-company sheet.
+// so opening + every company = the group's balance. Companies at nil are only
+// counted (settled). null for a one-company sheet.
 export function companyWise(entries, members, opening, closing) {
   const map = new Map();
   const add = (name) => {
@@ -134,11 +135,13 @@ export function companyWise(entries, members, opening, closing) {
     }
   }
   if (map.size < 2) return null;
-  const list = [...map.values()].map((c) => ({
+  const all = [...map.values()].map((c) => ({
     ...c, billed: round2(c.billed), qty: round2(c.qty), received: round2(c.received), deductions: round2(c.deductions),
     outstanding: round2(c.billed - c.received - c.deductions),
   })).sort((a, b) => b.outstanding - a.outstanding || a.name.localeCompare(b.name));
-  return { list, opening: round2(opening || 0), total: round2(closing) };
+  // companies with a nil balance are left out (only counted)
+  const list = all.filter((c) => Math.abs(c.outstanding) >= 1);
+  return { list, settled: all.length - list.length, opening: round2(opening || 0), total: round2(closing) };
 }
 
 // ---- a ledger sheet (one month) -----------------------------------------------------

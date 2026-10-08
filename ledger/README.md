@@ -70,8 +70,10 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   Sale) with Unit, PO No., Billing Name and Remarks under each entry. A
   **group** sheet (several billing names) also gets **Company-wise
   outstanding**: a card per company — billed, received, TDS & shortage,
-  last payment and what it owes; the sheet's opening balance belongs to the
-  group as a whole, so opening + every company = the group's balance.
+  last payment and what it owes; companies at a nil balance are left out
+  (on screen and in the pictures) with one line saying how many. The sheet's
+  opening balance belongs to the group as a whole, so opening + every company
+  = the group's balance.
 - **Retail** — the ledger sheet's rows for a month, with ‹ › to move between
   months.
 - every entry by month (newest first, or oldest first), each month with its
