@@ -78,16 +78,24 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   months.
 - every entry by month (newest first, or oldest first), each month with its
   billed / received / closing; *All / Bills / Payments* filters.
-- **Pending bills (FIFO)** on every bulk ledger: payments, TDS and shortage
-  clear the oldest bills first (the opening balance before them), so what's
-  left are the newest bills — each with its date, invoice no., the bill's
-  amount, what's still pending on it and how many days old it is (amber after
-  15 days, red after 30). An advance not yet set against a bill is shown below.
+- **Pending bills** on every bulk ledger — each with its date, invoice no.,
+  the bill's amount, what's still pending on it and how many days old it is
+  (amber after 15 days, red after 30); an advance not yet set against a bill
+  is shown below. Each payment (with its TDS and shortage) is **matched to the
+  bills it adds up to**, to the rupee, because customers who lift several
+  products often pay product by product:
+  1. one bill of exactly that amount (the oldest such);
+  2. whole runs of bills of one or two products, each product's oldest first —
+     e.g. all the diesel bills up to a date, leaving the petrol bills pending;
+  3. one product's oldest bills with a single bill held back.
+  A remark on the payment row naming a product (MS / petrol, HSD / diesel, XG)
+  tries that product first. When nothing adds up — or oldest-first adds up
+  anyway — the oldest bills are paid first (the opening balance before them).
 - **PO-wise outstanding** for customers with PO lists: the pending bills
   grouped by PO number (unit by unit on an SMC-style sheet) — how much is
   still owed against each PO, how many bills and which dates, and how old the
-  oldest one is. The opening balance and bills without a PO (petrol,
-  XtraGreen, others, a diesel bill waiting for a PO) get rows of their own.
+  oldest one is. The opening balance and bills without a PO get rows of their
+  own, by product: *Petrol*, *XtraGreen*, *Other items*, *Diesel · no PO yet*.
   The PO is the one the POs tab gives the bill.
 - **Unit-wise (SMC-style sheets with a PO list per unit)**: a card per unit
   with its own outstanding and pending bills, and the statement of the whole
@@ -104,7 +112,7 @@ customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
   needs; on a bulk ledger pick the whole ledger or one month), or **PDF**.
 - **Share outstanding**: one card with the balance as on today, the period,
   billed, received, last payment, the **PO-wise outstanding** and the
-  **pending bills (FIFO)** of a bulk customer — and, for a group, every company.
+  **pending bills** of a bulk customer — and, for a group, every company.
 - **SMC-style sheets** share **unit-wise** by default: one set of pictures per
   unit (its ledger, or its outstanding card with its pending bills), each with
   its own **Share** button so each unit gets only its own; **Both units

@@ -10,6 +10,8 @@
 // Pure: returns SVG strings (images as data: URLs, fonts as @font-face CSS
 // passed in). render.js jpegFromSvg / pdfFromSvgs turn them into files.
 
+import { poRowName } from './ledger-view.js';
+
 export const SHARE_PAGE = { width: 1280, height: 1810 };          // px; A4's shape
 export const SHARE_PAGE_PT = { width: 595.28, height: 841.89 };
 export const CARD_WIDTH = 1080;
@@ -212,10 +214,10 @@ const PEND_H = 58;
 // PO-wise outstanding (ledger-view.js poSummary()): one row per PO
 const PO_H = 62;
 function poRow(r, x, y, w, zebra) {
-  const name = r.kind === 'opening' ? 'Opening balance' : r.kind === 'none' ? 'Without a PO' : `PO ${r.po}`;
+  const name = poRowName(r);
   const sub = [r.unitLabel || '', r.bills ? `${r.bills} bill${r.bills === 1 ? '' : 's'}` : '', r.bills ? (r.from === r.to ? dMon(r.from) : `${dMon(r.from)} – ${dMon(r.to)}`) : ''].filter(Boolean).join(' · ');
   return `${zebra ? R(x, y + 2, w, PO_H - 4, { rx: 12, opacity: 0.03 }) : ''}
-<circle cx="${x + 24}" cy="${y + 26}" r="6" fill="${r.kind === 'po' ? C.HSD : r.kind === 'opening' ? C.faint : C.OTHER}"/>
+<circle cx="${x + 24}" cy="${y + 26}" r="6" fill="${r.kind === 'po' ? C.HSD : r.kind === 'opening' ? C.faint : C[r.product] || C.OTHER}"/>
 ${T(x + 44, y + 32, name, { size: 19, weight: 700, max: w - 44 - 330 })}
 ${sub ? T(x + 44, y + 53, sub, { size: 14, fill: C.muted, max: w - 44 - 330 }) : ''}
 ${T(x + w - 140, y + 36, rupees(r.pending), { size: 20, weight: 800, anchor: 'end' })}
@@ -234,7 +236,7 @@ function poBlock(x, y, w, summary) {
 }
 
 function pendingHead(x, y, w, total, count) {
-  return `${T(x, y + 30, 'PENDING BILLS · OLDEST PAID FIRST (FIFO)', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
+  return `${T(x, y + 30, 'PENDING BILLS', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
 ${T(x + w, y + 30, `${count} bill${count === 1 ? '' : 's'} · ${rupees(total)}`, { size: 17, weight: 700, anchor: 'end', fill: C.amber })}
 ${R(x, y + 46, w, 1.5, { opacity: 0.1 })}`;
 }
@@ -329,7 +331,7 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
   }
   const t = st.totals;
   lines.push({ t: 'total', label: 'Closing balance', qty: t.qty, debit: t.billed, credit: t.received + t.tds + t.shortage, balance: st.closing, h: H.total });
-  // what makes up the closing: per PO, then the unpaid bills, oldest paid first
+  // what makes up the closing: per PO, then the unpaid bills
   if (pos && pos.rows.length) {
     lines.push({ t: 'pohead', total: pos.total, count: pos.rows.filter((r) => r.kind === 'po').length, h: 84 });
     pos.rows.forEach((r, i) => lines.push({ t: 'po', r, zebra: i % 2 === 1, h: PO_H }));
