@@ -266,6 +266,75 @@ export function matchBills(cands, amount, { whole = true } = {}) {
   return null;
 }
 
+// ---- which bills make up a balance ------------------------------------------------
+// Within each product a customer pays oldest first, but products are paid
+// separately (diesel bills promptly; a lube or petrol bill can wait months),
+// so what's pending is each product's NEWEST bills. Given what is owed, pick
+// for each product (the opening balance and refunds count as their own) how
+// many of its newest bills are pending so that they add up to it exactly —
+// fewest bills, then the newest, win. null when no choice adds up.
+// bills: every debit of the account (or unit), oldest first
+const SOLVE_TRIES = 300000;
+export function pendingFromBalance(bills, owed) {
+  if (!(owed >= MATCH_TOL) || !bills.length) return null;
+  const groups = [];
+  const byName = new Map();
+  for (const b of bills) {
+    if (!(b.amount > 0)) continue;
+    const g = groupOf(b);
+    if (!byName.has(g)) { byName.set(g, { name: g, list: [], billed: 0 }); groups.push(byName.get(g)); }
+    const x = byName.get(g);
+    x.list.push(b);
+    x.billed += b.amount;
+  }
+  for (const g of groups) {
+    g.suffix = [0];                                   // suffix[k] = the newest k bills
+    for (let i = g.list.length - 1; i >= 0; i--) g.suffix.push(round2(g.suffix[g.suffix.length - 1] + g.list[i].amount));
+  }
+  let best = null;
+  let tries = 0;
+  const better = (a, b) => {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] < b[i]) return true;
+      if (a[i] > b[i]) return false;
+    }
+    return false;
+  };
+  const oldestOf = (ks) => {
+    let m = '9999-12-31';
+    ks.forEach((k, gi) => { if (k && groups[gi].list[groups[gi].list.length - k].date < m) m = groups[gi].list[groups[gi].list.length - k].date; });
+    return m;
+  };
+  const leaf = (ks, sum) => {
+    const r = round2(owed - sum);
+    const count = ks.reduce((a, k) => a + k, 0);
+    if (Math.abs(r) < MATCH_TOL) {
+      // exact: fewest bills, then the newest (an older oldest bill ranks lower)
+      const score = [count, -Date.parse(oldestOf(ks))];
+      if (!best || better(score, best.score)) best = { score, ks };
+      return;
+    }
+  };
+  const walk = (gi, sum, ks) => {
+    if (++tries > SOLVE_TRIES) return;
+    if (gi === groups.length) { leaf(ks, sum); return; }
+    const g = groups[gi];
+    for (let k = 0; k < g.suffix.length; k++) {
+      const v = round2(sum + g.suffix[k]);
+      if (v > owed + MATCH_TOL) break;
+      walk(gi + 1, v, [...ks, k]);
+    }
+  };
+  walk(0, 0, []);
+  if (!best) return null;
+  const out = [];
+  best.ks.forEach((k, gi) => {
+    const list = groups[gi].list;
+    for (let i = list.length - k; i < list.length; i++) out.push({ d: list[i], pending: list[i].amount });
+  });
+  return out;
+}
+
 export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = () => '', from = '', asOn = '' } = {}) {
   const queues = new Map();          // key -> open debits, oldest first
   const advance = new Map();         // key -> credit not yet used
@@ -277,8 +346,17 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
   };
   const q = (k) => { if (!queues.has(k)) queues.set(k, []); return queues.get(k); };
   const adv = (k) => advance.get(k) || 0;
+  // products ranked by what was billed: the opening first, then the biggest product
+  const share = {};
+  for (const e of entries) if (e.debit > 0) share[e.product] = (share[e.product] || 0) + e.debit;
+  const productRank = Object.fromEntries(Object.keys(share).sort((a, b) => share[b] - share[a]).map((p, i) => [p, i + 1]));
+  const rankOf = (d) => (d.opening ? 0 : productRank[d.product] ?? 99);
   let seq = 0;
+  const billed = new Map();          // key -> every debit, oldest first (for pendingFromBalance)
   const debit = (item, at) => {
+    const sq = seq++;
+    if (!billed.has(item.key)) billed.set(item.key, []);
+    billed.get(item.key).push({ ...item, seq: sq });
     let left = round2(item.amount);
     for (const k of item.key ? [item.key, ''] : ['']) {   // unused credit of the same key first, then credit with no key
       const a = adv(k);
@@ -288,7 +366,7 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
       left = round2(left - take);
       if (k !== item.key) move(at, item.key, take, 'advance');
     }
-    if (left > 0) q(item.key).push({ ...item, pending: left, seq: seq++ });
+    if (left > 0) q(item.key).push({ ...item, pending: left, seq: sq });
   };
   const credit = (amount, key, at, hint = '') => {
     let left = round2(amount);
@@ -311,36 +389,30 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
       for (const [k, list] of queues) queues.set(k, list.filter((d) => d.pending > 0));
       if (left <= 0) return;
     }
-    const take = (list, onTake) => {
-      while (left > 0 && list.length) {
-        const d = list[0];
-        const t = Math.min(d.pending, left);
-        d.pending = round2(d.pending - t);
+    // Nothing adds up: the opening first, then the product billed most (usually
+    // diesel — what such payments are mostly for), oldest first; a petrol or
+    // lube bill only once no bill of a bigger product is open.
+    const order = (a, b) => rankOf(a) - rankOf(b) || a.date.localeCompare(b.date) || a.seq - b.seq;
+    const take = (keysToUse, onTake) => {
+      while (left > 0) {
+        let best = null;
+        for (const k of keysToUse) for (const d of q(k)) if (!best || order(d, best.d) < 0) best = { k, d };
+        if (!best) break;
+        const t = Math.min(best.d.pending, left);
+        best.d.pending = round2(best.d.pending - t);
         left = round2(left - t);
-        onTake(d, t);
-        if (d.pending <= 0) list.shift();
+        onTake(best.k, t);
+        if (best.d.pending <= 0) queues.set(best.k, queues.get(best.k).filter((d) => d !== best.d));
       }
     };
     if (key) {
-      take(q(key), () => {});
-      take(q(''), (d, t) => move(at, key, t, 'spill'));
+      take([key], () => {});
+      take([''], (k, t) => move(at, key, t, 'spill'));
       if (left > 0) advance.set(key, round2(adv(key) + left));
       return;
     }
-    // no key: the oldest open debit of any key, one at a time
-    while (left > 0) {
-      let best = null;
-      for (const [k, list] of queues) {
-        const d = list[0];
-        if (d && (!best || d.date < best.d.date || (d.date === best.d.date && d.seq < best.d.seq))) best = { k, d };
-      }
-      if (!best) break;
-      const t = Math.min(best.d.pending, left);
-      best.d.pending = round2(best.d.pending - t);
-      left = round2(left - t);
-      if (best.k) move(at, best.k, t, 'alloc');
-      if (best.d.pending <= 0) queues.get(best.k).shift();
-    }
+    // no key: the open debits of every key
+    take([...queues.keys()], (k, t) => { if (k) move(at, k, t, 'alloc'); });
     if (left > 0) advance.set('', round2(adv('') + left));
   };
   // opening balances: per key where the sheet splits them, the rest without a key
@@ -367,16 +439,32 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
   });
 
   const days = (d) => (asOn && d ? Math.max(0, Math.round((Date.parse(`${asOn}T00:00:00Z`) - Date.parse(`${d}T00:00:00Z`)) / 86400000)) : null);
-  const all = [...queues.values()].flat().filter((d) => d.pending > 0)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq)
-    .map(({ seq: _s, ...d }) => ({ ...d, amount: round2(d.amount), pending: round2(d.pending), days: days(d.date) }));
-  // under a rupee left on a bill (a payment matched to it, rounded) isn't a pending bill — but still counts
-  const pending = all.filter((d) => d.pending >= MATCH_TOL);
+  const all = [...queues.values()].flat().filter((d) => d.pending > 0);
   const keys = {};
   for (const k of new Set([...queues.keys(), ...advance.keys()])) {
     const p = round2(all.filter((d) => d.key === k).reduce((a, d) => a + d.pending, 0));
     keys[k] = { pending: p, advance: adv(k), balance: round2(p - adv(k)) };
   }
+  // Which bills make up what each key still owes. When the payments above
+  // leave only whole bills pending (each matched to what it paid), that
+  // stands. When they leave a bill part paid and each product's newest bills
+  // add up to what's owed exactly (see pendingFromBalance), those are the
+  // pending bills; otherwise as worked out above.
+  let chosen = [];
+  for (const [k, list] of billed) {
+    const owed = keys[k] ? keys[k].pending : 0;
+    const sim = all.filter((d) => d.key === k);
+    const whole = sim.every((d) => d.pending < MATCH_TOL || Math.abs(d.pending - d.amount) < MATCH_TOL);
+    if (owed < MATCH_TOL || whole) { chosen = chosen.concat(sim); continue; }
+    const fit = pendingFromBalance(list, owed);
+    chosen = chosen.concat(fit
+      ? fit.map(({ d, pending: p }) => ({ ...d, pending: p }))
+      : all.filter((d) => d.key === k));
+  }
+  // under a rupee left on a bill (rounding) isn't a pending bill — but still counts
+  const pending = chosen.filter((d) => d.pending >= MATCH_TOL)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq)
+    .map(({ seq: _s, ...d }) => ({ ...d, amount: round2(d.amount), pending: round2(d.pending), days: d.days ?? days(d.date) }));
   const total = round2(all.reduce((a, d) => a + d.pending, 0) - [...advance.values()].reduce((a, v) => a + v, 0));
   return { pending, keys, moves, total, advance: round2([...advance.values()].reduce((a, v) => a + v, 0)) };
 }
