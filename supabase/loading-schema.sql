@@ -813,6 +813,9 @@ end $$;
 --  In tank now: from the last point — its stock + every litre filled since −
 --  the distance since ÷ mileage − the trips sold since the last entry
 --  (customer RTD km ÷ mileage; OD15AF5510: litres sold ÷ dispensed-per-litre).
+--  Until the mileage has settled, the tank estimate goes by a first figure
+--  (a refill without its dip counted as run dry, no minimum span), else the
+--  other odometer tankers' median — so it shows from the first refill on.
 -- Staff can't read the fuel log; these functions return only the answers.
 -- OD15AF5510 is named here as in the app (METER_VEHICLES) — keep them in step.
 -- ---------------------------------------------------------------------
@@ -872,24 +875,36 @@ language sql stable security definer set search_path = public as $$
     from _loading_fuel_rows(p_vehicle, p_meter, p_al) where is_point
 $$;
 
-create or replace function public._loading_fuel_state(p_vehicle text) returns jsonb
+-- Loose points (app: loosePoints) — only for the tanker's own diesel before it
+-- has a settled mileage: a refill saved without its dip counts as run dry
+-- (stock 0), as in the calculator. Never used for the mileage itself.
+create or replace function public._loading_fuel_loose_points(p_vehicle text, p_meter boolean, p_al numeric)
+returns table (odo numeric, c numeric, stk numeric, reading_at timestamptz, created_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select odo, fb - coalesce(stk, 0), coalesce(stk, 0), reading_at, created_at
+    from _loading_fuel_rows(p_vehicle, p_meter, p_al)
+   where is_point
+      or (stk is null and litres > 0 and litres <= case when p_meter then 50 * 1.1 + 18 else 365 * 1.1 + 2 * p_al end)
+$$;
+
+-- A tanker's mileage (app: robustMileage) over its newest 12 points: the
+-- distance-weighted median of every sound pair; none until the longest sound
+-- pair spans 100 km (3,000 L) and 25 L. p_loose: over the loose points (the
+-- first figure for the tank estimate only), and only from 300 km and 100 L —
+-- a refill without its dip counted as dry leaves out what was really left.
+create or replace function public._loading_fuel_mileage(p_vehicle text, p_meter boolean, p_al numeric, p_loose boolean)
+returns table (mpl numeric, q1 numeric, q3 numeric, span numeric, maxu numeric, n int)
 language plpgsql stable security definer set search_path = public as $$
 declare
-  al numeric; res numeric;
-  meter boolean := upper(regexp_replace(coalesce(p_vehicle,''), '[^A-Za-z0-9]', '', 'g')) = 'OD15AF5510';
-  lo numeric; hi numeric; minspan numeric;
-  mpl numeric; q1 numeric; q3 numeric; span numeric; maxu numeric; n int;
-  k record; l record; filled numeric; after_last numeric; after_fill numeric;
-  km numeric := 0; lit numeric := 0; trips int := 0; unknown int := 0; burnt numeric; stock numeric; cap numeric;
+  lo numeric := case when p_meter then 2 else 0.5 end;
+  hi numeric := case when p_meter then 2000 else 10 end;
+  minspan numeric := case when p_meter then 3000 when p_loose then 300 else 100 end;
+  minused numeric := case when p_loose and not p_meter then 100 else 25 end;
 begin
-  select (value #>> '{}')::numeric into al  from loading_settings where key = 'angul_l';
-  select (value #>> '{}')::numeric into res from loading_settings
-   where key = case when meter then 'reserve_meter_l' else 'reserve_l' end;
-  al := coalesce(al, 16); res := coalesce(res, case when meter then 10 else 40 end);
-  lo := case when meter then 2 else 0.5 end;  hi := case when meter then 2000 else 10 end;
-  minspan := case when meter then 3000 else 100 end;
-
-  with p as (select * from _loading_fuel_points(p_vehicle, meter, al) order by reading_at desc, created_at desc limit 12),
+  with p0 as (select * from _loading_fuel_points(p_vehicle, p_meter, p_al) where not p_loose
+              union all
+              select * from _loading_fuel_loose_points(p_vehicle, p_meter, p_al) where p_loose),
+  p as (select * from p0 order by reading_at desc, created_at desc limit 12),
   pr as (select b.odo - a.odo as d, b.c - a.c as u
            from p a join p b on (a.reading_at, a.created_at) < (b.reading_at, b.created_at)),
   ok as (select d, u, d / u as r from pr where d > 0 and u > 0 and d / u between lo and hi),
@@ -898,9 +913,53 @@ begin
   select (select r from ord where cw >= ag.tw * 0.5  order by r limit 1),
          (select r from ord where cw >= ag.tw * 0.25 order by r limit 1),
          (select r from ord where cw >= ag.tw * 0.75 order by r limit 1),
-         ag.span, ag.maxu, (select count(*) from p)
+         ag.span, ag.maxu, (select count(*) from p)::int
     into mpl, q1, q3, span, maxu, n from ag;
-  if mpl is not null and (span < minspan or maxu < 25) then mpl := null; end if;   -- not enough data yet
+  if mpl is not null and (span < minspan or maxu < minused) then mpl := null; end if;   -- not enough data yet
+  return next;
+end $$;
+
+-- The mileage the tank estimate goes by (app: tankMileage): the settled one
+-- ('own'); until there is one, for an odometer tanker the median settled
+-- mileage of the other odometer tankers ('fleet') — a tanker's own first figure
+-- is far less sure (a short stretch, or a refill without its dip counted as dry
+-- when it wasn't, reads far too high); with no fleet figure, its own first
+-- figure over the loose points ('recent'). With no mileage at all the tank is
+-- still known while nothing has been burnt since the last entry (no distance,
+-- no trip sold) — so the own diesel shows from the first refill on.
+create or replace function public._loading_fuel_state(p_vehicle text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  al numeric; res numeric;
+  meter boolean := upper(regexp_replace(coalesce(p_vehicle,''), '[^A-Za-z0-9]', '', 'g')) = 'OD15AF5510';
+  mpl numeric; q1 numeric; q3 numeric; span numeric; maxu numeric; n int; src text;
+  k record; l record; filled numeric; after_last numeric; after_fill numeric;
+  km numeric := 0; lit numeric := 0; trips int := 0; unknown int := 0; burnt numeric; stock numeric; cap numeric;
+begin
+  select (value #>> '{}')::numeric into al  from loading_settings where key = 'angul_l';
+  select (value #>> '{}')::numeric into res from loading_settings
+   where key = case when meter then 'reserve_meter_l' else 'reserve_l' end;
+  al := coalesce(al, 16); res := coalesce(res, case when meter then 10 else 40 end);
+
+  select m.mpl, m.q1, m.q3, m.span, m.maxu, m.n into mpl, q1, q3, span, maxu, n
+    from _loading_fuel_mileage(p_vehicle, meter, al, false) m;
+  if mpl > 0 then src := 'own';
+  else
+    mpl := null;
+    if not meter then
+      select percentile_cont(0.5) within group (order by m.mpl) into mpl
+        from (select distinct f.vehicle from loading_fuel_logs f
+               where f.vehicle <> p_vehicle
+                 and upper(regexp_replace(f.vehicle, '[^A-Za-z0-9]', '', 'g')) <> 'OD15AF5510') v
+        cross join lateral _loading_fuel_mileage(v.vehicle, false, al, false) m
+       where m.mpl > 0;
+      if mpl > 0 then src := 'fleet'; end if;
+    end if;
+    if src is null then
+      select m.mpl into mpl from _loading_fuel_mileage(p_vehicle, meter, al, true) m;
+      if mpl > 0 then src := 'recent'; else mpl := null; end if;
+    end if;
+  end if;
 
   -- the last entry (duplicates screened out, so a re-save doesn't move "since")
   select r.odo as odometer, r.reading_at into l from _loading_fuel_rows(p_vehicle, meter, al) r
@@ -912,19 +971,26 @@ begin
       left join loading_destinations d on lower(trim(d.name)) = lower(trim(t.dest))
      where t.vehicle = p_vehicle and t.created_at > l.reading_at;
     select * into k from _loading_fuel_points(p_vehicle, meter, al) order by reading_at desc, created_at desc limit 1;
-    if found and mpl > 0 then                -- no point with a known dip yet, or no mileage: unknown
+    if not found then                        -- no dipped entry yet: from the last refill, counted as run dry
+      select * into k from _loading_fuel_loose_points(p_vehicle, meter, al) order by reading_at desc, created_at desc limit 1;
+    end if;
+    if found then                            -- no entry to start from: unknown
       select coalesce(sum(r.litres), 0) into filled from _loading_fuel_rows(p_vehicle, meter, al) r
        where (r.reading_at, r.created_at) >= (k.reading_at, k.created_at);   -- duplicates excluded
-      after_last := k.stk + filled - greatest(0, l.odometer - k.odo) / mpl;
       cap := least(k.stk + filled, case when meter then 50 else 365 end);  -- never more than the tank holds
+    end if;
+    if found and coalesce(mpl, 0) <= 0 and trips = 0 and l.odometer <= k.odo then  -- no mileage, nothing burnt since
+      after_fill := round(cap, 1); burnt := 0; stock := round(cap, 1);
+    elsif found and mpl > 0 then             -- otherwise no mileage: unknown
+      after_last := k.stk + filled - greatest(0, l.odometer - k.odo) / mpl;
       after_fill := round(least(greatest(0, after_last), cap), 1);
       burnt := round((case when meter then lit else km end) / mpl, 1);
       stock := round(least(greatest(0, after_last - burnt), cap), 1);
     end if;
   end if;
   return jsonb_build_object(
-    'vehicle', p_vehicle, 'meter', meter, 'mileage', round(mpl::numeric, 3), 'stretches', coalesce(n, 0),
-    'spread', case when mpl > 0 then round(((q3 - q1) / mpl)::numeric, 3) end, 'span', round(span, 1),
+    'vehicle', p_vehicle, 'meter', meter, 'mileage', round(mpl::numeric, 3), 'mileage_src', src, 'stretches', coalesce(n, 0),
+    'spread', case when src = 'own' then round(((q3 - q1) / mpl)::numeric, 3) end, 'span', round(span, 1),
     'last_at', l.reading_at, 'after_fill', after_fill, 'trips_since', trips, 'km_since', km,
     'unknown_trips', unknown, 'burnt', burnt, 'stock_now', stock, 'reserve', res);
 end $$;

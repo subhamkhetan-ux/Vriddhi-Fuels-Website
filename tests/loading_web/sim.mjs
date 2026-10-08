@@ -25,10 +25,12 @@ export function loadModel(rows, trips = [], src = SRC) {
     const fuelRows = (p) => rows.filter((r) => r.plate === p).sort((a, b) => a.ts - b.ts || (a.cts || 0) - (b.cts || 0));
     const tripsIn = (p, a, b) => trips.filter((t) => t.plate === p && t.ts > a && t.ts <= b);
     const destOf = (n) => DESTS.find((d) => d.name === n);
+    const median = (a) => { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
     const tripKm = (t) => { const d = destOf(t.dest); return d ? d.rtd : 0; };
     const ratioTxt = (v, m) => v == null ? '—' : v.toFixed(2) + (m ? ' L/L' : ' km/L');
     ${src}
-    return { analyse, mileagePoints, robustMileage, fuelNow };`);
+    return { analyse, mileagePoints, robustMileage, fuelNow, loosePoints, tankMileage,
+      fuelState: (p) => fuelEstimate(p, rows, trips) };`);
   return f(rows, trips, DESTS);
 }
 

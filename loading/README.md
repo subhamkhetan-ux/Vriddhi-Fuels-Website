@@ -620,11 +620,42 @@ sales, as a full 15,000 L load would need several of its 50 L tanks):
 - nothing extra — enough diesel for the next trip
 
 Staff see both the card line and the sale sheet (never the mileage data
-behind them). The line needs a dipped entry on record and enough data for a
-mileage (≥ 100 km). Sales whose customer isn't in the list
-count 0 km (the forecast says so).
+behind them). The line shows **from the tanker's first refill on** — it
+doesn't wait for a settled mileage:
+
+- with a settled mileage (two dipped entries ≥ 100 km apart) it goes by that;
+- until then, by the **fleet's mileage** — the median of the other big tankers'
+  settled mileage (never for OD15AF5510). A tanker's own first figure is far
+  less sure: over a short stretch one Angul of dip error moves it a lot, and a
+  refill saved without its dip counts as dry, so whatever was really left
+  makes it read too high (= "enough diesel" when it isn't);
+- with no fleet figure either, by its own **first figure** — as the calculator
+  works it out (a refill without its dip counted as dry) — once it spans
+  300 km and 100 L;
+- with no mileage at all, the tank is still shown while nothing has been burnt
+  since the last entry (dip + litres, no km on the odometer, no trip sold);
+- with no dipped entry yet, the tank is counted from the last refill as run
+  dry (its litres).
+
+An estimate without the tanker's own settled mileage says **· rough** on the
+card (and on the sale sheet / Mileage screen), until the tanker's own mileage
+settles. The settled mileage itself, the drops and the checks are unchanged.
+Saving, correcting or deleting a refill / stock check updates the home cards at
+once. Sales whose customer isn't in the list count 0 km (the forecast says so).
+
+> **Cloud mode:** re-run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
+> once for the early estimate (the home cards come from the database).
 
 ## Look
+
+**Light or dark.** The ◐ button in the header and **⚙ Manage tankers & data →
+Look on this phone** (Auto / Light / Dark) pick the look. **Auto**, the default,
+follows the phone's own light / dark setting and switches live when it changes
+(e.g. at sunset). A tap on the header button always changes what's on screen:
+Auto → the other look → the phone's look → Auto. The choice is this phone's own
+(not shared), and is set before the first paint, so there's no flash. The
+orange header, the tanker livery and the number plates are the same in both;
+the charts redraw in the dark palette.
 
 **Tankers** are drawn in the Decanting app's livery — navy band with
 *VRIDDHI FUELS · capacity*, white body, orange band with a yellow pinstripe and
