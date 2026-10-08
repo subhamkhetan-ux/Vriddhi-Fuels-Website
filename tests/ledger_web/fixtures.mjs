@@ -36,7 +36,8 @@ export function demoWorkbook() {
   const other = sheet({}, {
     start: 1,
     rows: [['Date', 'Bill No.', 'Product Name', 'Amount', 'Company'],
-      [d('2026-04-03'), 'LUBE/001', 'Engine oil', 700, 'Retail Roadways']],
+      [d('2026-04-03'), 'LUBE/001', 'Engine oil', 700, 'Retail Roadways'],
+      [d('2026-04-02'), 'LUBE/002', 'Lubricant', 5330, 'Twin Steel Ltd']],
   });
   const paid = sheet({}, {
     start: 1,
@@ -102,6 +103,7 @@ export function demoWorkbook() {
     rows: [
       twinHead,
       [d('2026-04-01'), '2', 400, 90, 36000, '', '', '', 36300, 'UNIT 1', 'DIESEL', formula('T1-A', 'LET(1)'), ''],
+      [d('2026-04-02'), '', '', '', 5330, '', '', '', 41630, 'Unit 2', 'Lubricant', '', 'drum'],   // Other Sale: no bill no. here
       [d('2026-04-03'), '7', 300, 90, 27000, '', '', '', 63300, 'UNIT 2', 'DIESEL', formula('T2-B', 'LET(1)'), ''],
       [d('2026-04-04'), '8', 250, 90, 22500, '', '', '', 85800, '', 'DIESEL', formula('', 'LET(1)'), ''],
       [d('2026-04-06'), '', '', '', '', 20000, '', 50, 65750, 'Unit 2', 'Payment', formula('', 'LET(1)'), ''],
