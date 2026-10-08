@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { bulkRows } from '../../ledger/js/account.js';
 import {
-  bulkStatement, companyWise, fifoPending, poSummary, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, companyWise, fifoPending, matchBills, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
 } from '../../ledger/js/ledger-view.js';
 import { demoSeed } from '../../ledger/js/demo.js';
 import { memoryStore } from '../../ledger/js/store.js';
@@ -216,7 +216,7 @@ test('FIFO by unit: a payment with a unit clears that unit, one without a unit t
   assert.deepEqual(parts.map((p) => p.closing), [800, 900, 0]);
   assert.equal(parts.reduce((a, p) => a + p.closing, 0), closing);
   assert.deepEqual(parts.map((p) => p.opening), [600, 400, 300]);
-  assert.ok(parts[0].entries.some((x) => x.title === 'Payment received' && x.credit === 900 && /FIFO/.test(x.detail)));
+  assert.ok(parts[0].entries.some((x) => x.title === 'Payment received' && x.credit === 900 && /No unit on the sheet/.test(x.detail)));
   // the part without a unit keeps only the 300 of that payment it used
   assert.deepEqual(parts[2].entries.map((x) => [x.credit, x.balance]), [[300, 0]]);
   assert.equal(parts[0].name, 'SMC — Unit 1');
@@ -275,6 +275,9 @@ test('PO-wise outstanding: the FIFO pending bills by PO, unit by unit', () => {
   ]);
   assert.equal(pos.total, f.total);
   assert.deepEqual(pos.rows.map((r) => r.unitLabel), ['Unit 1', 'Unit 1', 'Unit 1', 'Unit 2']);
+  // bills without a PO are named by product
+  assert.deepEqual(pos.rows.map(poRowName), ['PO PO-A', 'PO PO-B', 'Petrol', 'PO PO-Z']);
+  assert.equal(poRowName({ kind: 'none', product: 'HSD' }), 'Diesel · no PO yet');
   // a bill with no unit yet: last, as "No unit"
   const mixed = poSummary([{ date: '2026-09-01', bill: '9', key: '', po: '', amount: 5, pending: 5, days: 1 }, ...f.pending]);
   assert.deepEqual(mixed.rows.map((r) => r.unitLabel).slice(-1), ['No unit']);
@@ -285,11 +288,65 @@ test('PO-wise outstanding: the FIFO pending bills by PO, unit by unit', () => {
   assert.deepEqual(open.rows.map((r) => [r.kind, r.pending]), [['opening', 50], ['po', 100]]);
 
   const card = outstandingCardSvg({ name: 'SMC — Unit 1', kind: 'bulk', balance: 2000, asOn: '2026-09-10', pending: f.pending, pos });
-  for (const t of ['PO-WISE OUTSTANDING', 'PO PO-A', '₹700', 'Without a PO', '3 POs', 'oldest 8 d', 'PO PO-B']) assert.ok(card.svg.includes(t), t);
+  for (const t of ['PO-WISE OUTSTANDING', 'PO PO-A', '₹700', 'Petrol', '3 POs', 'oldest 8 d', 'PO PO-B']) assert.ok(card.svg.includes(t), t);
   assert.ok(card.svg.indexOf('PO-WISE OUTSTANDING') < card.svg.indexOf('PENDING BILLS'));
   const data = groupData();
   const st = bulkStatement(bulkRows(data), data, { name: 'X' });
   const pages = ledgerPagesSvg(st, { asOn: '2026-09-10', pending: f.pending, pos });
   const last = pages.join('');
   assert.ok(last.indexOf('Closing balance') < last.indexOf('PO-WISE OUTSTANDING') && last.indexOf('PO-WISE OUTSTANDING') < last.indexOf('PENDING BILLS'));
+});
+
+// ---- matching payments to the bills they pay ------------------------------------------
+const ms = (date, bill, debit, extra = {}) => e(date, bill, debit, 0, { product: 'MS', title: `Petrol · Bill ${bill}`, ...extra });
+const pay = (date, credit, extra = {}) => e(date, '', 0, credit, extra);
+const left = (entries, opts) => fifoPending(entries, { asOn: '2026-10-08', ...opts }).pending.map((d) => [d.bill, d.pending]);
+
+test('payments that add up to the diesel bills clear the diesel bills; the petrol bill stays pending (OMPL)', () => {
+  const entries = [
+    e('2026-09-30', '3532', 1194000), ms('2026-10-01', 'MS609', 21802), pay('2026-10-02', 1194000),   // 11,92,806 + TDS 1,194
+    e('2026-10-03', '3697', 1194000), pay('2026-10-05', 1194000),
+  ];
+  assert.deepEqual(left(entries), [['MS609', 21802]]);
+  // oldest-first alone would have left part of a diesel bill
+  assert.notDeepEqual(left(entries), [['3697', 21802]]);
+  // one payment for two diesel bills, a petrol bill between them
+  assert.deepEqual(left([e('2026-09-01', '1', 1000), ms('2026-09-02', 'M1', 300), e('2026-09-03', '2', 1200), pay('2026-09-05', 2200)]), [['M1', 300]]);
+});
+
+test('matching: diesel and petrol together, a bill held back, a remark naming the product, else oldest first', () => {
+  // two products: both diesel bills + the older petrol bill
+  assert.deepEqual(left([e('2026-09-01', '1', 1000), ms('2026-09-02', 'M1', 300), ms('2026-09-03', 'M2', 300), e('2026-09-04', '2', 1000), pay('2026-09-05', 2300)]), [['M2', 300]]);
+  // one bill held back (disputed): the others are paid
+  assert.deepEqual(left([e('2026-09-01', '1', 1000), e('2026-09-02', '2', 1200), e('2026-09-03', '3', 1000), pay('2026-09-05', 2000)]), [['2', 1200]]);
+  // a remark says petrol: the petrol bill, not the older diesel bill of the same amount
+  assert.deepEqual(left([e('2026-09-01', '1', 300), ms('2026-09-02', 'M1', 300), pay('2026-09-05', 300, { remarks: 'MS bill payment' })]), [['1', 300]]);
+  assert.deepEqual(left([e('2026-09-01', '1', 300), ms('2026-09-02', 'M1', 300), pay('2026-09-05', 300)]), [['M1', 300]]);
+  // nothing adds up: oldest first
+  assert.deepEqual(left([e('2026-09-01', '1', 1000), ms('2026-09-02', 'M1', 300), pay('2026-09-05', 500)]), [['1', 500], ['M1', 300]]);
+  // oldest first adds up exactly: kept as is
+  assert.deepEqual(left([e('2026-09-01', '1', 1000), ms('2026-09-02', 'M1', 300), e('2026-09-03', '2', 1000), pay('2026-09-05', 1300)]), [['2', 1000]]);
+  // within a rupee (rounding) counts as exact, and the balance stays exact
+  const f = fifoPending([e('2026-09-01', '1', 1000), ms('2026-09-02', 'M1', 300.4), pay('2026-09-05', 300)], { asOn: '2026-10-08' });
+  assert.deepEqual(f.pending.map((d) => d.bill), ['1']);
+  assert.equal(f.total, 1000.4);
+  assert.equal(productHint('neft for HSD bills'), 'HSD');
+  assert.equal(productHint('XtraGreen'), 'XG');
+  assert.equal(productHint('Refund in SMEL bank'), '');
+  assert.equal(matchBills([], 100), null);
+});
+
+test('matching keeps unit-wise accounts whole', () => {
+  const U1 = { unit: 'UNIT 1' };
+  const U2 = { unit: 'UNIT 2' };
+  const entries = [
+    e('2026-09-01', '1', 1000, 0, U1), ms('2026-09-02', 'M1', 300, U1), e('2026-09-03', '2', 800, 0, U2),
+    pay('2026-09-04', 800),                         // no unit: exactly Unit 2's bill
+    e('2026-09-05', '3', 1000, 0, U1), pay('2026-09-06', 2000, U1),   // Unit 1's two diesel bills
+  ];
+  const st = { name: 'S', kind: 'bulk', from: '2026-09-01', to: '2026-09-06', opening: 0, entries, months: [], totals: {} };
+  const f = fifoPending(entries, { keyOf: unitKey, from: st.from, asOn: '2026-09-10' });
+  assert.deepEqual(f.pending.map((d) => [d.bill, d.key, d.pending]), [['M1', 'UNIT 1', 300]]);
+  const parts = ['UNIT 1', 'UNIT 2'].map((u) => unitStatement(st, f, u));
+  assert.deepEqual(parts.map((p) => p.closing), [300, 0]);
 });

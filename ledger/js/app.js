@@ -24,7 +24,7 @@ import {
   shareBatches,
 } from './statements.js';
 import {
-  bulkStatement, fifoPending, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
+  bulkStatement, fifoPending, poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
   unitStatement,
 } from './ledger-view.js';
 import {
@@ -1033,15 +1033,15 @@ function pendingHtml(acct, { group = false } = {}) {
     <div class="pend-list po-list">
       <div class="pend-row head"><span>PO</span><span>Bills</span><span class="r">Billed</span><span class="r">Pending</span><span class="r">Oldest</span></div>
       ${pos.rows.map((r) => `<div class="pend-row">
-        <span><b>${r.kind === 'opening' ? 'Opening balance' : r.kind === 'none' ? 'Without a PO' : esc(r.po)}</b>${r.unitLabel ? `<small>${esc(r.unitLabel)}</small>` : ''}</span>
+        <span><b>${esc(r.kind === 'po' ? r.po : poRowName(r))}</b>${r.unitLabel ? `<small>${esc(r.unitLabel)}</small>` : ''}</span>
         <span>${r.bills ? `${plural(r.bills, 'bill')}<small>${esc(r.from === r.to ? dMon(r.from) : `${dMon(r.from)} – ${dMon(r.to)}`)}</small>` : ''}</span>
         <span class="r">${esc(rupees(r.billed))}</span>
         <span class="r"><b>${esc(rupees(r.pending))}</b></span>
         <span class="r">${r.bills ? `<span class="age ${r.oldestDays > 30 ? 'old' : r.oldestDays > 15 ? 'mid' : ''}">${r.oldestDays} d</span>` : ''}</span></div>`).join('')}
     </div>
     <p class="small muted">What's still owed against each PO, from the pending bills below.</p>` : ''}
-    <div class="row-between${pos ? ' pend-gap' : ''}"><h3>Pending bills <span class="muted">· oldest paid first (FIFO)</span></h3><b class="total">${esc(rupees(total))}</b></div>
-    <p class="small muted">Payments, TDS and shortage clear the oldest bills first${acct.units ? ' — a payment with a Unit on the sheet clears that unit\'s bills, one without a unit the oldest of either unit' : ''}. What's left is the balance.</p>
+    <div class="row-between${pos ? ' pend-gap' : ''}"><h3>Pending bills <span class="muted">· payments matched to bills</span></h3><b class="total">${esc(rupees(total))}</b></div>
+    <p class="small muted">Each payment (with its TDS and shortage) clears the bills it adds up to — one bill, or whole runs of one or two products' bills (all the diesel bills, say), or all but one held-back bill; a remark naming a product tries that product first. Otherwise the oldest bills first${acct.units ? '. A payment with a Unit on the sheet pays only that unit\'s bills; one without a unit, either unit\'s' : ''}. What's left is the balance.</p>
     ${parts.filter((p) => p.pending.length || p.advance > 0.5).map((p) => `
       ${p.label ? `<div class="pend-unit"><b>${esc(p.label)}</b><span>${plural(p.pending.length, 'bill')} · ${esc(rupees(p.pending.reduce((a, d) => a + d.pending, 0)))}</span></div>` : ''}
       <div class="pend-list">

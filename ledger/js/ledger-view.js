@@ -92,7 +92,7 @@ export function bulkStatement(res, data, { name = '' } = {}) {
     else title = `${PRODUCT_LABEL[code]}${r.bill ? ` · Bill ${r.bill}` : ''}`;
     return {
       date: r.date, type: code === 'PAY' ? 'pay' : 'bill', product: code, title, detail: detail.join(' · '),
-      company: r.name || '', unit: String(r.unit || '').trim().toUpperCase(), bill: r.bill || '', po: r.po || '', id: r.id,
+      company: r.name || '', unit: String(r.unit || '').trim().toUpperCase(), bill: r.bill || '', po: r.po || '', id: r.id, remarks: r.remarks || '',
       qty: Number(r.qty) || 0, rate: Number(r.rate) || 0,
       debit: Number(r.amount) || 0, paid: Number(r.paid) || 0, tds, shortage,
       credit: round2((Number(r.paid) || 0) + tds + shortage), balance: r.balance,
@@ -181,6 +181,91 @@ export function retailStatement(led, { name = '', from = '', to = '' } = {}) {
 // Returns { pending: [...newest last], keys: {key: {pending, advance, balance}},
 // moves: [{at, key, amount, kind}] (how credits crossed keys — for the
 // per-unit statements), total }.
+// ---- matching a payment to the bills it pays ----------------------------------
+// Customers who lift several products often pay product by product (all the
+// diesel bills in one payment, the petrol bills later). Before falling back to
+// oldest-first, a credit (payment + its TDS + shortage) is matched to the open
+// bills it adds up to exactly (to the rupee):
+//   1. one bill of exactly that amount (the oldest such);
+//   2. whole runs of bills product by product — each product's oldest bills
+//      first (all diesel up to a date; diesel and petrol together): one or two
+//      products, fewest first, then the oldest;
+//   3. one product's oldest bills with a single bill left out (one held back);
+// A remark on the payment naming a product (MS / petrol, HSD / diesel, XG)
+// tries that product's bills first. If oldest-first itself adds up exactly,
+// or nothing matches, it's oldest-first.
+// cands: open debits [{d, k}] oldest first -> the ones to clear, or null.
+const MATCH_TOL = 1;
+const MAX_TRIES = 200000;
+const groupOf = (d) => (d.opening ? 'OPENING' : d.title === 'Refund' ? 'REFUND' : (d.product || 'OTHER'));
+export function productHint(remarks) {
+  const t = String(remarks || '');
+  if (/\b(ms|petrol|motor spirit)\b/i.test(t)) return 'MS';
+  if (/\b(xg|xtra\s*green|xtragreen)\b/i.test(t)) return 'XG';
+  if (/\b(hsd|diesel)\b/i.test(t)) return 'HSD';
+  return '';
+}
+// whole: cands are all the open bills (an exact oldest-first run is then left
+// to oldest-first) rather than one product's (where it is the match)
+export function matchBills(cands, amount, { whole = true } = {}) {
+  const near = (v) => Math.abs(v - amount) < MATCH_TOL;
+  if (!cands.length || amount <= 0) return null;
+  // oldest-first already adds up
+  let run = 0;
+  for (let i = 0; i < cands.length; i++) {
+    run += cands[i].d.pending;
+    if (near(run)) return whole ? null : cands.slice(0, i + 1);
+    if (run > amount + MATCH_TOL) break;
+  }
+  // 1. a single bill
+  const one = cands.find((c) => near(c.d.pending));
+  if (one) return [one];
+  // 2. whole runs, product by product
+  const groups = [];
+  const byName = new Map();
+  for (const c of cands) {
+    const g = groupOf(c.d);
+    if (!byName.has(g)) { byName.set(g, { name: g, list: [] }); groups.push(byName.get(g)); }
+    byName.get(g).list.push(c);
+  }
+  for (const g of groups) {
+    g.prefix = [0];
+    for (const c of g.list) g.prefix.push(round2(g.prefix[g.prefix.length - 1] + c.d.pending));
+  }
+  let best = null;
+  let tries = 0;
+  const dateOf = (pick) => pick.reduce((m, [gi, n]) => (n && groups[gi].list[n - 1].d.date > m ? groups[gi].list[n - 1].d.date : m), '');
+  const consider = (pick) => {
+    const used = pick.filter(([, n]) => n > 0);
+    const score = [used.length, dateOf(used)];
+    if (!best || score[0] < best.score[0] || (score[0] === best.score[0] && score[1] < best.score[1])) best = { pick: used, score };
+  };
+  // at most two products in one payment: a sum across more is more likely chance
+  const walk = (gi, sum, pick, used) => {
+    if (++tries > MAX_TRIES) return;
+    if (gi === groups.length) { if (used && near(sum)) consider(pick); return; }
+    const g = groups[gi];
+    for (let n = 0; n < g.prefix.length; n++) {
+      if (n && used >= 2) break;
+      const v = sum + g.prefix[n];
+      if (v > amount + MATCH_TOL) break;
+      walk(gi + 1, v, [...pick, [gi, n]], used + (n ? 1 : 0));
+    }
+  };
+  walk(0, 0, [], 0);
+  if (best) return best.pick.flatMap(([gi, n]) => groups[gi].list.slice(0, n));
+  // 3. one product's oldest bills, one of them held back
+  for (const g of groups) {
+    for (let n = 2; n < g.prefix.length; n++) {
+      const extra = g.prefix[n] - amount;
+      if (extra < -MATCH_TOL) continue;
+      const skip = g.list.slice(0, n).findIndex((c) => Math.abs(c.d.pending - extra) < MATCH_TOL);
+      if (skip >= 0) return g.list.slice(0, n).filter((_, i) => i !== skip);
+    }
+  }
+  return null;
+}
+
 export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = () => '', from = '', asOn = '' } = {}) {
   const queues = new Map();          // key -> open debits, oldest first
   const advance = new Map();         // key -> credit not yet used
@@ -205,8 +290,27 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
     }
     if (left > 0) q(item.key).push({ ...item, pending: left, seq: seq++ });
   };
-  const credit = (amount, key, at) => {
+  const credit = (amount, key, at, hint = '') => {
     let left = round2(amount);
+    // the bills this credit adds up to (a remark naming a product: that product first)
+    const open = [];
+    for (const [k, list] of queues) {
+      if (key && k !== key && k !== '') continue;
+      for (const d of list) open.push({ d, k });
+    }
+    open.sort((a, b) => a.d.date.localeCompare(b.d.date) || a.d.seq - b.d.seq);
+    const hinted = hint ? open.filter((c) => c.d.product === hint) : [];
+    const picked = (hinted.length && matchBills(hinted, left, { whole: false })) || matchBills(open, left);
+    if (picked) {
+      for (const { d, k } of picked) {
+        const t = Math.min(d.pending, left);
+        d.pending = round2(d.pending - t);
+        left = round2(left - t);
+        if (k !== key) move(at, k || key, t, key ? 'spill' : 'alloc');
+      }
+      for (const [k, list] of queues) queues.set(k, list.filter((d) => d.pending > 0));
+      if (left <= 0) return;
+    }
     const take = (list, onTake) => {
       while (left > 0 && list.length) {
         const d = list[0];
@@ -258,20 +362,22 @@ export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = (
     const item = { date: e.date, bill: e.bill || '', title: e.title, product: e.product, key, company: e.company || '', po: e.po || '', id: e.id };
     if (e.debit > 0) debit({ ...item, amount: e.debit }, i);
     else if (e.debit < 0) credit(-e.debit, key, i);
-    if (e.credit > 0) credit(e.credit, key, i);
+    if (e.credit > 0) credit(e.credit, key, i, e.type === 'pay' ? productHint(e.remarks) : '');
     else if (e.credit < 0) debit({ ...item, title: 'Refund', amount: -e.credit }, i);   // money paid back
   });
 
   const days = (d) => (asOn && d ? Math.max(0, Math.round((Date.parse(`${asOn}T00:00:00Z`) - Date.parse(`${d}T00:00:00Z`)) / 86400000)) : null);
-  const pending = [...queues.values()].flat().filter((d) => d.pending > 0)
+  const all = [...queues.values()].flat().filter((d) => d.pending > 0)
     .sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq)
     .map(({ seq: _s, ...d }) => ({ ...d, amount: round2(d.amount), pending: round2(d.pending), days: days(d.date) }));
+  // under a rupee left on a bill (a payment matched to it, rounded) isn't a pending bill — but still counts
+  const pending = all.filter((d) => d.pending >= MATCH_TOL);
   const keys = {};
   for (const k of new Set([...queues.keys(), ...advance.keys()])) {
-    const p = round2(pending.filter((d) => d.key === k).reduce((a, d) => a + d.pending, 0));
+    const p = round2(all.filter((d) => d.key === k).reduce((a, d) => a + d.pending, 0));
     keys[k] = { pending: p, advance: adv(k), balance: round2(p - adv(k)) };
   }
-  const total = round2(pending.reduce((a, d) => a + d.pending, 0) - [...advance.values()].reduce((a, v) => a + v, 0));
+  const total = round2(all.reduce((a, d) => a + d.pending, 0) - [...advance.values()].reduce((a, v) => a + v, 0));
   return { pending, keys, moves, total, advance: round2([...advance.values()].reduce((a, v) => a + v, 0)) };
 }
 
@@ -284,8 +390,9 @@ export function poSummary(pending) {
   const map = new Map();
   for (const d of pending) {
     const kind = d.opening ? 'opening' : d.po ? 'po' : 'none';
-    const k = kind === 'po' ? `po|${d.key || ''}|${String(d.po).toUpperCase()}` : `${kind}|${d.key || ''}`;
-    if (!map.has(k)) map.set(k, { kind, po: kind === 'po' ? d.po : '', unit: d.key || '', bills: 0, pending: 0, billed: 0, from: d.date, to: d.date, oldestDays: d.days });
+    const product = kind === 'none' ? (['HSD', 'MS', 'XG'].includes(d.product) ? d.product : 'OTHER') : '';
+    const k = kind === 'po' ? `po|${d.key || ''}|${String(d.po).toUpperCase()}` : `${kind}|${d.key || ''}|${product}`;
+    if (!map.has(k)) map.set(k, { kind, po: kind === 'po' ? d.po : '', product, unit: d.key || '', bills: 0, pending: 0, billed: 0, from: d.date, to: d.date, oldestDays: d.days });
     const x = map.get(k);
     x.pending += d.pending;
     x.billed += d.amount;
@@ -294,11 +401,19 @@ export function poSummary(pending) {
     if (d.date > x.to) x.to = d.date;
   }
   const rank = { opening: 0, po: 1, none: 2 };
+  const pRank = { HSD: 0, MS: 1, XG: 2, OTHER: 3, '': 4 };
   const rows = [...map.values()].map((x) => ({ ...x, pending: round2(x.pending), billed: round2(x.billed) }))
-    .sort((a, b) => (a.unit === '') - (b.unit === '') || a.unit.localeCompare(b.unit) || rank[a.kind] - rank[b.kind] || a.from.localeCompare(b.from) || String(a.po).localeCompare(String(b.po)));
+    .sort((a, b) => (a.unit === '') - (b.unit === '') || a.unit.localeCompare(b.unit) || rank[a.kind] - rank[b.kind] || pRank[a.product] - pRank[b.product] || a.from.localeCompare(b.from) || String(a.po).localeCompare(String(b.po)));
   // on a unit-wise account the rows without a unit say so
   const units = rows.some((x) => x.unit);
   return { rows: rows.map((x) => ({ ...x, unitLabel: x.unit ? unitLabel(x.unit) : units ? 'No unit' : '' })), total: round2(rows.reduce((a, x) => a + x.pending, 0)) };
+}
+
+// a PO-wise row's name: the PO, or what the bills without a PO are
+export function poRowName(r) {
+  if (r.kind === 'opening') return 'Opening balance';
+  if (r.kind === 'po') return `PO ${r.po}`;
+  return { HSD: 'Diesel · no PO yet', MS: 'Petrol', XG: 'XtraGreen', OTHER: 'Other items' }[r.product] || 'Without a PO';
 }
 
 // the key of a bulk entry on an SMC-style (unit-wise) sheet
@@ -324,15 +439,15 @@ export function unitStatement(st, fifo, unit, { openingByUnit = {}, asOn = '' } 
   const addMoves = (i, date) => {
     for (const m of movesAt.get(i) || []) {
       if (key && m.key === key && m.kind === 'alloc') {
-        list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Payment received', detail: 'No unit on the sheet — set against this unit\'s oldest bills (FIFO)', paid: m.amount, credit: m.amount });
+        list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Payment received', detail: 'No unit on the sheet — set against this unit\'s bills', paid: m.amount, credit: m.amount });
       } else if (key && m.key === key && m.kind === 'advance') {
         list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Advance set against this bill', detail: 'Paid earlier without a unit', paid: m.amount, credit: m.amount });
       } else if (key && m.key === key && m.kind === 'spill') {
-        list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Set against the opening balance', detail: 'The rest of this payment cleared the account\'s opening (FIFO)', paid: -m.amount, credit: -m.amount });
+        list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Set against the opening balance', detail: 'The rest of this payment cleared the account\'s opening', paid: -m.amount, credit: -m.amount });
       } else if (!key && m.kind === 'spill') {
-        list.push({ ...blank, unit: '', date, type: 'pay', product: 'PAY', title: `Payment from ${unitLabel(m.key)}`, detail: 'Cleared this opening balance (FIFO)', paid: m.amount, credit: m.amount });
+        list.push({ ...blank, unit: '', date, type: 'pay', product: 'PAY', title: `Payment from ${unitLabel(m.key)}`, detail: 'Cleared this opening balance', paid: m.amount, credit: m.amount });
       } else if (!key && m.kind === 'advance') {
-        list.push({ ...blank, unit: '', date, type: 'pay', product: 'PAY', title: `Set against ${unitLabel(m.key)}'s bills`, detail: 'A payment with no unit, used for a unit (FIFO)', paid: -m.amount, credit: -m.amount });
+        list.push({ ...blank, unit: '', date, type: 'pay', product: 'PAY', title: `Set against ${unitLabel(m.key)}'s bills`, detail: 'A payment with no unit, used for this unit', paid: -m.amount, credit: -m.amount });
       }
     }
   };
@@ -352,7 +467,7 @@ export function unitStatement(st, fifo, unit, { openingByUnit = {}, asOn = '' } 
         const shortage = cut(e.shortage);
         const credit = round2(paid + tds + shortage);
         if (credit || e.type !== 'pay') {
-          list.push({ ...e, paid, tds, shortage, credit, detail: [e.detail, `₹${used.toLocaleString('en-IN')} of it set against unit bills (FIFO)`].filter(Boolean).join(' · ') });
+          list.push({ ...e, paid, tds, shortage, credit, detail: [e.detail, `₹${used.toLocaleString('en-IN')} of it set against unit bills`].filter(Boolean).join(' · ') });
         }
       }
     }
