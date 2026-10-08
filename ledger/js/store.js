@@ -257,7 +257,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         db.payments.push({
           id: nextId('payments'), pay_date: x.pay_date, customer: trim(x.customer), customer_key: normKey(x.customer),
           amount: x.amount, mode: trim(x.mode), source: 'master_ledger', seq: x.seq || 0, tds: x.tds ?? null,
-          shortage: x.shortage ?? null, remarks: x.remarks || '', import_id: imp.id,
+          shortage: x.shortage ?? null, remarks: x.remarks || '', unit: trim(x.unit).toUpperCase(), import_id: imp.id,
         });
         pays += 1;
       }
@@ -643,7 +643,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
             .map((x) => ({ id: x.id, product: x.product, bill_no: x.bill_no, sale_date: x.sale_date, qty: x.qty, rate: x.rate, amount: x.amount,
               customer: x.customer, item: x.item, seq: x.seq, unit: x.unit || '', tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '' })),
           payments: db.payments.filter((x) => keys.has(x.customer_key) && x.pay_date >= since && x.pay_date <= until).sort(byPayOrder)
-            .map((x) => ({ id: x.id, pay_date: x.pay_date, customer: x.customer, amount: x.amount, tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '', seq: x.seq })),
+            .map((x) => ({ id: x.id, pay_date: x.pay_date, customer: x.customer, amount: x.amount, tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '', unit: x.unit || '', seq: x.seq })),
         });
       }
       const c = db.customers.find((x) => x.customer_key === key);

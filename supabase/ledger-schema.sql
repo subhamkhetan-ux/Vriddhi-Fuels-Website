@@ -196,6 +196,7 @@ alter table public.ledger_customers add column if not exists bill_address text n
 -- ... and the sheet's column widths / row heights, so statements print the same size.
 alter table public.ledger_customers add column if not exists layout jsonb;
 alter table public.ledger_bulk_groups add column if not exists layout jsonb;       -- *_Bulk sheet column widths
+alter table public.ledger_payments add column if not exists unit text not null default '';  -- *_Bulk payment row's Unit (SMC)
 
 -- Tanker Master (the workbook's Customers table): who gets a Daily Tanker
 -- Bill, and the address / payment lines printed on it. Replaced by every
@@ -243,6 +244,7 @@ language plpgsql as $$
 begin
   new.customer := btrim(new.customer);
   new.customer_key := public.ledger_norm(new.customer);
+  new.unit := upper(btrim(coalesce(new.unit, '')));
   return new;
 end $$;
 drop trigger if exists ledger_payments_derive on public.ledger_payments;
@@ -595,12 +597,12 @@ begin
   -- 4) Payments copied from Master Paid are replaced as a whole.
   delete from ledger_payments where source = 'master_ledger';
   insert into ledger_payments (pay_date, customer, customer_key, amount, mode, source, seq,
-                               tds, shortage, remarks, import_id)
+                               tds, shortage, remarks, unit, import_id)
   select x.pay_date, btrim(x.customer), ledger_norm(x.customer), x.amount, btrim(coalesce(x.mode, '')),
-         'master_ledger', coalesce(x.seq, 0), x.tds, x.shortage, coalesce(x.remarks, ''), v_import
+         'master_ledger', coalesce(x.seq, 0), x.tds, x.shortage, coalesce(x.remarks, ''), coalesce(x.unit, ''), v_import
   from jsonb_to_recordset(coalesce(p_payload -> 'payments', '[]'::jsonb))
        as x(pay_date date, customer text, amount numeric, mode text, seq bigint,
-            tds numeric, shortage numeric, remarks text)
+            tds numeric, shortage numeric, remarks text, unit text)
   where x.pay_date is not null and x.amount is not null and btrim(coalesce(x.customer, '')) <> '';
   get diagnostics v_pay = row_count;
 
@@ -1188,7 +1190,7 @@ begin
                 where m.bulk_group = g.code and s.sale_date between v_from and v_to), '[]'::jsonb),
       'payments', coalesce((select jsonb_agg(jsonb_build_object(
                   'id', p.id, 'pay_date', p.pay_date, 'customer', p.customer, 'amount', p.amount,
-                  'tds', p.tds, 'shortage', p.shortage, 'remarks', p.remarks, 'seq', p.seq)
+                  'tds', p.tds, 'shortage', p.shortage, 'remarks', p.remarks, 'unit', p.unit, 'seq', p.seq)
                   order by p.pay_date, p.seq, p.id)
                 from ledger_payments p join ledger_customers m on m.customer_key = p.customer_key
                 where m.bulk_group = g.code and p.pay_date between v_from and v_to), '[]'::jsonb));

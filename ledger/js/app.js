@@ -23,7 +23,9 @@ import {
   addDays, buildStatements, ddmmyy, defaultMonth, firstWord, indAuto, ledgerRows, monthEnd, monthLabel, monthStart, rupeeAuto,
   shareBatches,
 } from './statements.js';
-import { bulkStatement, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement } from './ledger-view.js';
+import {
+  bulkStatement, fifoPending, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel, unitStatement,
+} from './ledger-view.js';
 import {
   dMon, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
 } from './share-svg.js';
@@ -473,11 +475,17 @@ function customersHtml(a, sort, seg, all) {
     ${list.length > 10 ? `<p><button class="btn ghost small" data-call>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}`;
 }
 
+const advanceList = (a, seg) => a.advance.filter((o) => seg === 'all' || o.kind === seg).sort((x, y) => x.balance - y.balance);
+
 // '#/account/g/SMC_Bulk' or '#/account/c/<customer key>'
 const acctHref = (e) => `#/account/${e.id.slice(0, 1)}/${encodeURIComponent(e.id.slice(2))}`;
 
 function outstandingHtml(a, seg, all) {
   const list = a.due.filter((o) => seg === 'all' || o.kind === seg);
+  // customers who paid ahead: listed in full, largest advance first
+  const adv = advanceList(a, seg);
+  const advTotal = adv.reduce((x, o) => x + o.balance, 0);
+  const advMax = Math.min(-1, ...adv.map((o) => o.balance));
   const shown = all ? list : list.slice(0, 10);
   const total = list.reduce((s, o) => s + o.balance, 0);
   const max = Math.max(1, ...list.map((o) => o.balance));
@@ -490,8 +498,12 @@ function outstandingHtml(a, seg, all) {
         <span class="amt"><b>${money(o.balance, { exact: true })}</b><small>${Math.round((o.balance / (total || 1)) * 100)}% of the total ›</small></span></a>
         <button class="icon share-ic" data-oshare="${i}" title="Share ${esc(o.name)}'s outstanding as a picture" aria-label="Share ${esc(o.name)}'s outstanding as a picture">${SHARE_ICON}</button></li>`).join('')}</ol>` : '<p class="muted">Nobody owes anything. ✓</p>'}
     ${list.length > 10 ? `<p><button class="btn ghost small" data-oall>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}
-    ${a.advance.length ? `<details><summary class="small">${plural(a.advance.length, 'customer')} paid in advance · ${money(-a.advance.reduce((s, o) => s + o.balance, 0), { exact: true })}</summary>
-      <ul class="small">${a.advance.map((o) => `<li><a href="${acctHref(o)}">${esc(o.name)}</a> — ${money(-o.balance, { exact: true })}</li>`).join('')}</ul></details>` : ''}
+    ${adv.length ? `<div class="row-between adv-head"><h3>Paid in advance</h3><b class="total good-text">${money(-advTotal, { exact: true })}</b></div>
+      <ol class="rank">${adv.map((o, i) => `
+      <li class="with-share"><a class="rank-row adv" href="${acctHref(o)}" title="Open the ledger"><span class="n">${i + 1}</span>
+        <span class="who"><b>${esc(o.name)}</b> ${TAG[o.kind]}<span class="mini-track"><span class="mini adv" style="width:${Math.max(2, (o.balance / (advMax || -1)) * 100)}%"></span></span></span>
+        <span class="amt"><b class="good-text">${money(-o.balance, { exact: true })}</b><small>advance ›</small></span></a>
+        <button class="icon share-ic" data-ashare="${i}" title="Share ${esc(o.name)}'s balance as a picture" aria-label="Share ${esc(o.name)}'s balance as a picture">${SHARE_ICON}</button></li>`).join('')}</ol>` : ''}
     <p class="small muted">Ledger customers as on their sheet; bulk groups as on their *_Bulk sheet (opening + sales − paid − TDS − shortage).</p>`;
 }
 
@@ -540,7 +552,12 @@ async function renderDashboard(box) {
     const list = a.due.filter((o) => ui.oseg === 'all' || o.kind === ui.oseg);
     out.querySelectorAll('[data-oshare]').forEach((b) => b.addEventListener('click', () => {
       const o = list[Number(b.dataset.oshare)];
-      sharePictures(`${o.name} — outstanding`, async () => [await cardFile(await outstandingCardFor(o), safeName(`${o.name} Outstanding ${dmyDash(localToday())}`))]);
+      sharePictures(`${o.name} — outstanding`, outstandingOptionsFor(o));
+    }));
+    const adv = advanceList(a, ui.oseg);
+    out.querySelectorAll('[data-ashare]').forEach((b) => b.addEventListener('click', () => {
+      const o = adv[Number(b.dataset.ashare)];
+      sharePictures(`${o.name} — balance`, outstandingOptionsFor(o));
     }));
     out.querySelector('[data-olist]')?.addEventListener('click', () => {
       const label = { all: '', retail: 'Retail', bulk: 'Bulk' }[ui.oseg];
@@ -682,9 +699,11 @@ async function shareImages() {
 
 const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-async function ledgerFiles(st, base) {
+async function ledgerFiles(st, base, fifo = null) {
   const { images, fontCss } = await shareImages();
-  const svgs = ledgerPagesSvg(st, { asOn: localToday() < st.to ? st.to : localToday(), images, fontCss });
+  const svgs = ledgerPagesSvg(st, {
+    asOn: localToday() < st.to ? st.to : localToday(), images, fontCss, pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0,
+  });
   const files = [];
   for (let i = 0; i < svgs.length; i++) {
     const blob = await jpegFromSvg(svgs[i], SHARE_PAGE);
@@ -701,54 +720,93 @@ async function cardFile(card, base) {
 
 // A sheet that makes the pictures, shows them and hands them over. Sharing
 // needs the files ready before the tap (the Web Share API), so the pictures
-// are made first and the Share button only passes them on.
-async function sharePictures(title, make, { pdf = null } = {}) {
+// are made first and the Share buttons only pass them on.
+//   options: [{ label, make }] — e.g. Unit-wise / Both units together; the
+//            first is shown first. make() -> [{ label?, files, pdf? }]: one
+//            set per recipient (each unit gets its own Share button).
+//   or simply make() -> files (one set); options may also be a Promise
+//   (worked out while the sheet already shows "Drawing…").
+async function sharePictures(title, options, { pdf = null } = {}) {
+  if (typeof options === 'function') {
+    const make = options;
+    options = [{ label: '', make: async () => [{ files: await make(), pdf }] }];
+  }
   document.querySelector('.share-sheet')?.remove();
   const sheet = document.createElement('div');
   sheet.className = 'share-sheet';
   sheet.innerHTML = `<div class="share-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="row-between"><h3>${esc(title)}</h3><button class="icon" data-close aria-label="Close">✕</button></div>
-      <div class="share-body">${loadingHtml('Drawing the picture…')}</div>
+      <div class="share-variants"></div>
+      <div class="share-body">${loadingHtml('Drawing the pictures…')}</div>
     </div>`;
   document.body.append(sheet);
-  const urls = [];
-  const close = () => { sheet.remove(); urls.forEach((u) => URL.revokeObjectURL(u)); document.removeEventListener('keydown', onKey); };
+  let urls = [];
+  const freeUrls = () => { urls.forEach((u) => URL.revokeObjectURL(u)); urls = []; };
+  const close = () => { sheet.remove(); freeUrls(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   sheet.addEventListener('click', (e) => { if (e.target === sheet || e.target.closest('[data-close]')) close(); });
   const body = sheet.querySelector('.share-body');
-  let files;
+  const made = new Map();                                    // each option drawn once
+  let showing = 0;
+  const show = async (i) => {
+    showing = i;
+    sheet.querySelectorAll('[data-variant]').forEach((b) => b.classList.toggle('on', Number(b.dataset.variant) === i));
+    body.innerHTML = loadingHtml('Drawing the pictures…');
+    let sets;
+    try {
+      if (!made.has(i)) made.set(i, options[i].make());
+      sets = await made.get(i);
+    } catch (err) {
+      console.error(err);
+      made.delete(i);
+      if (showing === i) body.innerHTML = errorHtml(err);
+      return;
+    }
+    if (!sheet.isConnected || showing !== i) return;
+    freeUrls();
+    body.innerHTML = sets.map((set, k) => {
+      const shots = set.files.map((f) => { const u = URL.createObjectURL(f); urls.push(u); return u; });
+      const share = canShareFiles(set.files);
+      return `<div class="share-set">
+        ${set.label ? `<h4>${esc(set.label)}</h4>` : ''}
+        <div class="share-shots${set.files.length === 1 ? ' one' : ''}">${shots.map((u, j) => `<img src="${u}" alt="${esc(set.files[j].name)}">`).join('')}</div>
+        <p class="muted small">${set.files.length === 1 ? esc(set.files[0].name) : `${set.files.length} pictures`}</p>
+        <div class="actions">${share ? `<button class="btn" data-share="${k}">Share${set.label ? ` ${esc(set.label)}` : ''}</button>` : ''}
+          <button class="btn ${share ? 'ghost' : ''}" data-save="${k}">Download${set.files.length > 1 ? ' all' : ''}</button>
+          ${set.pdf ? `<button class="btn ghost" data-pdf="${k}">PDF</button>` : ''}</div></div>`;
+    }).join('');
+    body.querySelectorAll('[data-share]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+      try {
+        await navigator.share({ files: sets[Number(b.dataset.share)].files });   // pictures only: extra text can make apps drop them
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        throw err;
+      }
+    })));
+    body.querySelectorAll('[data-save]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+      const { files } = sets[Number(b.dataset.save)];
+      if (files.length === 1) download(files[0], files[0].name);
+      else download(await zipBlob(files), `${files[0].name.replace(/ \(1 of \d+\)\.jpeg$/, '')}.zip`);
+    })));
+    body.querySelectorAll('[data-pdf]').forEach((b) => b.addEventListener('click', () => guard(async () => {
+      b.disabled = true;
+      try { await sets[Number(b.dataset.pdf)].pdf(); } finally { b.disabled = false; }
+    })));
+  };
   try {
-    files = await make();
+    options = await options;
   } catch (err) {
     console.error(err);
     body.innerHTML = errorHtml(err);
     return;
   }
   if (!sheet.isConnected) return;
-  const shots = files.map((f) => { const u = URL.createObjectURL(f); urls.push(u); return u; });
-  const share = canShareFiles(files);
-  body.innerHTML = `<div class="share-shots${files.length === 1 ? ' one' : ''}">${shots.map((u, i) => `<img src="${u}" alt="${esc(files[i].name)}">`).join('')}</div>
-    <p class="muted small">${files.length === 1 ? esc(files[0].name) : `${files.length} pictures`}</p>
-    <div class="actions">${share ? '<button class="btn" data-share>Share</button>' : ''}
-      <button class="btn ${share ? 'ghost' : ''}" data-save>Download${files.length > 1 ? ' all' : ''}</button>
-      ${pdf ? '<button class="btn ghost" data-pdf>PDF</button>' : ''}</div>`;
-  body.querySelector('[data-share]')?.addEventListener('click', () => guard(async () => {
-    try {
-      await navigator.share({ files });            // pictures only: extra text can make apps drop them
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-      throw err;
-    }
-  }));
-  body.querySelector('[data-save]').addEventListener('click', () => guard(async () => {
-    if (files.length === 1) download(files[0], files[0].name);
-    else download(await zipBlob(files), `${files[0].name.replace(/ \(1 of \d+\)\.jpeg$/, '')}.zip`);
-  }));
-  body.querySelector('[data-pdf]')?.addEventListener('click', (e) => guard(async () => {
-    e.target.disabled = true;
-    try { await pdf(); } finally { e.target.disabled = false; }
-  }));
+  if (options.length > 1) {
+    sheet.querySelector('.share-variants').innerHTML = `<div class="chips small-chips">${options.map((o, i) => `<button class="chip" data-variant="${i}">${esc(o.label)}</button>`).join('')}</div>`;
+  }
+  sheet.querySelectorAll('[data-variant]').forEach((b) => b.addEventListener('click', () => show(Number(b.dataset.variant))));
+  await show(0);
 }
 
 // ---- the statement on screen -------------------------------------------------------
@@ -853,24 +911,154 @@ function bindViewToggle(rerender) {
   }));
 }
 
-// the card a customer gets for their outstanding
-function cardOf(st, { asOn, name = st.name, kind = st.kind, note = '' } = {}) {
+// the card a customer gets for their outstanding (pending: the FIFO bills)
+function cardOf(st, { asOn, name = st.name, kind = st.kind, note = '', fifo = null, units = null } = {}) {
   const t = st.totals;
   return {
     name, kind, note, balance: st.closing, asOn, since: st.from, opening: st.opening,
     billed: t.billed, qty: t.qty, received: t.received, deductions: round2(t.tds + t.shortage),
     bills: t.bills, payments: t.payments, lastPayment: st.lastPayment, lastBill: st.lastBill, companies: st.companies,
+    pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0,
+    units: units ? unitsBlock(units, st.closing) : null,
   };
 }
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// SMC-style sheets: each unit's figures for the combined card / page
+const unitsBlock = (units, total) => ({
+  title: 'UNIT-WISE OUTSTANDING', totalLabel: 'Account balance', opening: 0, total,
+  list: units.map((u) => ({
+    name: unitLabel(u.unit), bills: u.st.totals.bills, billed: u.st.totals.billed, received: u.st.totals.received,
+    deductions: round2(u.st.totals.tds + u.st.totals.shortage), outstanding: u.st.closing, qty: u.st.totals.qty, lastPayment: u.st.lastPayment,
+  })),
+});
+
+// A bulk account with its FIFO pending bills; on an SMC-style (unit-wise)
+// sheet also each unit's own statement and pending bills.
+// openingByUnit: the sheet's opening split by unit (ledger_po_data groups)
+function bulkAccount(data, res, name, openingByUnit, asOn) {
+  const st = bulkStatement(res, data, { name });
+  const unitWise = res.kind === 'po_units';
+  const obu = unitWise ? (openingByUnit || {}) : {};
+  const fifo = fifoPending(st.entries, { opening: st.opening, openingByKey: obu, keyOf: unitWise ? unitKey : () => '', from: st.from, asOn });
+  if (res.kind === 'group') fifo.pending.forEach((d) => { d.showCompany = true; });
+  let units = null;
+  if (unitWise) {
+    const keys = (data.group.units || []).map((u) => String(u).trim().toUpperCase()).filter(Boolean);
+    for (const k of Object.keys(fifo.keys)) if (k && !keys.includes(k)) keys.push(k);
+    const none = unitStatement(st, fifo, '', { openingByUnit: obu });
+    units = keys.map((k) => ({ unit: k, st: unitStatement(st, fifo, k, { openingByUnit: obu }) }));
+    // bills with no unit yet (or an opening the units don't split): their own part
+    if (none.entries.some((e) => e.type !== 'pay') || Math.round(none.closing)) units.push({ unit: '', st: none });
+    for (const u of units) {
+      u.fifo = { pending: fifo.pending.filter((d) => d.key === u.unit), advance: fifo.keys[u.unit]?.advance || 0 };
+    }
+  }
+  return { st, fifo, units };
+}
+
+// FIFO of one company of a group sheet (its own bills and payments)
+const companyFifo = (st, c, asOn) => fifoPending(st.entries.filter((e) => normKey(e.company) === normKey(c.name)), { asOn });
+
 // one company of a group, as its own card
 function companyCard(c, st, asOn) {
+  const f = companyFifo(st, c, asOn);
   return {
     name: c.name, kind: 'bulk', note: `Part of the ${st.name} account`, balance: c.outstanding, asOn, since: st.from,
     billed: c.billed, qty: c.qty, received: c.received, deductions: c.deductions, bills: c.bills, payments: c.payments,
-    lastPayment: c.lastPayment, lastBill: c.lastBill, companies: null,
+    lastPayment: c.lastPayment, lastBill: c.lastBill, companies: null, pending: f.pending, advance: f.advance,
   };
+}
+
+// Share options for a bulk account's outstanding card: unit-wise first on an
+// SMC-style sheet (one card per unit, each with its own Share), then together.
+function cardOptions(acct, name, asOn) {
+  const together = {
+    label: acct.units ? 'Both units together' : '',
+    make: async () => [{ files: [await cardFile(cardOf(acct.st, { asOn, fifo: acct.fifo, units: acct.units }), safeName(`${name} Outstanding ${dmyDash(asOn)}`))] }],
+  };
+  if (!acct.units) return [together];
+  const unitWise = {
+    label: 'Unit-wise',
+    make: async () => {
+      const out = [];                                         // one at a time: pictures drawn together can lose their font
+      for (const u of acct.units) {
+        out.push({
+          label: unitLabel(u.unit),
+          files: [await cardFile(cardOf(u.st, { asOn, note: `Part of the ${name} account`, fifo: u.fifo }), safeName(`${name} ${unitLabel(u.unit)} Outstanding ${dmyDash(asOn)}`))],
+        });
+      }
+      return out;
+    },
+  };
+  return [unitWise, together];
+}
+
+// Share options for a bulk account's ledger pictures (the whole ledger or one
+// month): unit-wise first on an SMC-style sheet, then together.
+function ledgerOptions(acct, name, asOn, ym) {
+  const set = async (st, fifo, base, label = '') => {
+    const part = ym ? monthSlice(st, ym) : st;
+    const fileBase = safeName(ym ? `${base} ${monthLabel(`${ym}-01`)}` : `${base} ${dmyDash(asOn)}`);
+    const made = await ledgerFiles(part, fileBase, ym ? null : fifo);   // pending bills with the whole ledger
+    return {
+      label, files: made.files,
+      pdf: async () => download(await pdfFromSvgs(made.svgs, SHARE_PAGE_PT, { scale: SHARE_PAGE.width / SHARE_PAGE_PT.width }), `${fileBase}.pdf`),
+    };
+  };
+  const together = { label: acct.units ? 'Both units together' : '', make: async () => [await set(acct.st, acct.fifo, `${name} Ledger`)] };
+  if (!acct.units) return [together];
+  const unitWise = {
+    label: 'Unit-wise',
+    make: async () => {
+      const out = [];
+      for (const u of acct.units) out.push(await set(u.st, u.fifo, `${name} ${unitLabel(u.unit)} Ledger`, unitLabel(u.unit)));
+      return out;
+    },
+  };
+  return [unitWise, together];
+}
+
+// the FIFO pending bills on screen (grouped by unit on an SMC-style sheet)
+function pendingHtml(acct, { group = false } = {}) {
+  const parts = acct.units ? acct.units.map((u) => ({ label: unitLabel(u.unit), ...u.fifo })) : [{ label: '', ...acct.fifo }];
+  const all = acct.fifo.pending;
+  if (!all.length) return `<h3>Pending bills</h3><p class="muted">No bill is pending${acct.fifo.advance > 0.5 ? ` — ${esc(rupees(acct.fifo.advance))} paid in advance` : ''}. ✓</p>`;
+  const total = all.reduce((a, d) => a + d.pending, 0);
+  return `<div class="row-between"><h3>Pending bills <span class="muted">· oldest paid first (FIFO)</span></h3><b class="total">${esc(rupees(total))}</b></div>
+    <p class="small muted">Payments, TDS and shortage clear the oldest bills first${acct.units ? ' — a payment with a Unit on the sheet clears that unit\'s bills, one without a unit the oldest of either unit' : ''}. What's left is the balance.</p>
+    ${parts.filter((p) => p.pending.length || p.advance > 0.5).map((p) => `
+      ${p.label ? `<div class="pend-unit"><b>${esc(p.label)}</b><span>${plural(p.pending.length, 'bill')} · ${esc(rupees(p.pending.reduce((a, d) => a + d.pending, 0)))}</span></div>` : ''}
+      <div class="pend-list">
+        <div class="pend-row head"><span>Date</span><span>Invoice</span><span class="r">Bill</span><span class="r">Pending</span><span class="r">Age</span></div>
+        ${p.pending.map((d) => `<div class="pend-row">
+          <span>${esc(fmtDate(d.date))}</span>
+          <span><b>${d.opening ? 'Opening balance' : esc(d.bill ? `Inv. ${d.bill}` : d.title)}</b>${group && d.company ? `<small>${esc(d.company)}</small>` : (d.bill ? `<small>${esc(d.title.split(' · ')[0])}</small>` : '')}</span>
+          <span class="r">${esc(rupees(d.amount))}</span>
+          <span class="r"><b>${esc(rupees(d.pending))}</b></span>
+          <span class="r"><span class="age ${d.days > 30 ? 'old' : d.days > 15 ? 'mid' : ''}">${d.days} d</span></span></div>`).join('')}
+        ${p.advance > 0.5 ? `<div class="pend-row adv"><span></span><span>Less: advance not yet set against a bill</span><span></span><span class="r good-text"><b>${esc(rupees(-p.advance))}</b></span><span></span></div>` : ''}
+      </div>`).join('')}`;
+}
+
+// SMC-style sheets: a card per unit (like the company cards of a group)
+function unitsHtml(acct) {
+  const ub = unitsBlock(acct.units, acct.st.closing);
+  const max = Math.max(1, ...ub.list.map((c) => Math.abs(c.outstanding)));
+  return `<div class="row-between"><h3>Unit-wise outstanding</h3><b class="total">${balHtml(acct.st.closing)}</b></div>
+    <div class="co-grid">${ub.list.map((c, i) => `
+      <div class="co-card${c.outstanding < 0 ? ' adv' : ''}">
+        <div class="co-head"><span class="avatar sm">${esc(c.name.replace(/\D/g, '') || '•')}</span><b>${esc(c.name)}</b>
+          <button class="icon share-ic" data-unit="${i}" title="Share ${esc(c.name)}'s outstanding as a picture" aria-label="Share as picture">${SHARE_ICON}</button></div>
+        <span class="co-val">${balHtml(c.outstanding)}</span>
+        <span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (Math.abs(c.outstanding) / max) * 100)}%"></span></span>
+        <dl class="co-facts">
+          <dt>Billed</dt><dd>${esc(rupees(c.billed))}${c.qty ? ` <small>${esc(litres(c.qty))}</small>` : ''}</dd>
+          <dt>Received</dt><dd>${esc(rupees(c.received))}</dd>
+          ${c.deductions ? `<dt>TDS &amp; shortage</dt><dd>${esc(rupees(c.deductions))}</dd>` : ''}
+          <dt>Pending bills</dt><dd>${acct.units[i].fifo.pending.length}</dd>
+        </dl>
+      </div>`).join('')}</div>`;
 }
 
 async function viewBulkAccount(code) {
@@ -881,19 +1069,24 @@ async function viewBulkAccount(code) {
   const res = bulkRows(data, (sid) => poById.get(sid) || '');
   const g = data.group;
   const name = shortGroup(g.code, g.title);
-  const st = bulkStatement(res, data, { name });
   const today = localToday();
-  const asOn = st.to > today ? st.to : today;
+  const last = res.rows.length ? res.rows[res.rows.length - 1].date : today;
+  const asOn = last > today ? last : today;
+  const acct = bulkAccount(data, res, name, (pod.groups.find((x) => x.code === code) || {}).opening_by_unit, asOn);
+  const { st } = acct;
   const render = () => {
     const view = acctView();
     const months = [...st.months].reverse();
+    // the statement of the whole account, or of one unit
+    const unitSt = acct.units && state.acctUnit && state.acctUnit.code === code ? acct.units.find((u) => u.unit === state.acctUnit.unit) : null;
+    const shown = unitSt ? unitSt.st : st;
     setMain(`
     <section class="card acct-card">
       <p class="muted small"><a href="#/">← Home</a></p>
       <div class="acct-top">
         <div class="acct-id"><span class="avatar">${esc(initials(name))}</span>
           <div><h2>${esc(name)} <span class="tag bulk">Bulk</span></h2>
-            <p class="muted small">The <b>${esc(g.code)}</b> sheet · since ${esc(fmtDate(st.from))} · ${data.members.length > 1 ? `${data.members.length} companies` : esc(data.members[0]?.name || '—')}</p></div></div>
+            <p class="muted small">The <b>${esc(g.code)}</b> sheet · since ${esc(fmtDate(st.from))} · ${data.members.length > 1 ? `${data.members.length} companies` : esc(data.members[0]?.name || '—')}${acct.units ? ` · ${acct.units.filter((u) => u.unit).length} units` : ''}</p></div></div>
         ${viewToggle(view)}
       </div>
       ${view === 'statement' ? `${acctHeroHtml(st, { asOn, label: 'today' })}
@@ -903,26 +1096,34 @@ async function viewBulkAccount(code) {
           ${months.map((m) => `<option value="${m.month}">${esc(m.title)}</option>`).join('')}</select></label>
         <button class="btn small" data-acct="share">${SHARE_ICON} Share ledger</button>
         <button class="btn ghost small" data-acct="card">${SHARE_ICON} Share outstanding</button>
-      </div>` : ''}
+      </div>
+      ${acct.units ? '<p class="small muted">Shares one set of pictures per unit — or switch to <b>Both units together</b> in the share sheet.</p>' : ''}` : ''}
     </section>
-    ${view === 'statement' ? `${st.companies ? `<section class="card">${companiesHtml(st.companies)}</section>` : ''}${statementCard(st)}`
+    ${view === 'statement' ? `${acct.units ? `<section class="card">${unitsHtml(acct)}</section>` : ''}
+      ${st.companies ? `<section class="card">${companiesHtml(st.companies)}</section>` : ''}
+      <section class="card" id="pending-card">${pendingHtml(acct, { group: res.kind === 'group' })}</section>
+      ${acct.units ? `<div class="chips small-chips unit-pick">${[{ unit: null, label: 'Whole account' }, ...acct.units.map((u) => ({ unit: u.unit, label: unitLabel(u.unit) }))].map((u) => `<button class="chip ${(unitSt ? unitSt.unit : null) === u.unit ? 'on' : ''}" data-ustmt="${u.unit ?? '*'}">${esc(u.label)}</button>`).join('')}</div>` : ''}
+      ${statementCard(shown)}`
     : `<section class="card">${bulkSheet(res, data, name)}</section>`}`);
     bindViewToggle(render);
     if (view === 'sheet') { bindSheet(main()); return; }
-    bindStatement(main().querySelector('#stmt-card'), st);
-    const base = safeName(`${name} Ledger`);
+    bindStatement(main().querySelector('#stmt-card'), shown);
+    main().querySelectorAll('[data-ustmt]').forEach((b) => b.addEventListener('click', () => {
+      state.acctUnit = b.dataset.ustmt === '*' ? null : { code, unit: b.dataset.ustmt };
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+    }));
     main().querySelector('[data-acct="share"]').addEventListener('click', () => {
-      const ym = main().querySelector('#share-range').value;
-      const part = ym ? monthSlice(st, ym) : st;
-      const fileBase = ym ? `${base} ${monthLabel(`${ym}-01`)}` : `${base} ${dmyDash(asOn)}`;
-      let made = null;
-      sharePictures(`${name} — ledger`, async () => { made = await ledgerFiles(part, fileBase); return made.files; }, {
-        pdf: async () => download(await pdfFromSvgs(made.svgs, SHARE_PAGE_PT, { scale: SHARE_PAGE.width / SHARE_PAGE_PT.width }), `${fileBase}.pdf`),
-      });
+      sharePictures(`${name} — ledger`, ledgerOptions(acct, name, asOn, main().querySelector('#share-range').value));
     });
     main().querySelector('[data-acct="card"]').addEventListener('click', () => {
-      sharePictures(`${name} — outstanding`, async () => [await cardFile(cardOf(st, { asOn }), safeName(`${name} Outstanding ${dmyDash(asOn)}`))]);
+      sharePictures(`${name} — outstanding`, cardOptions(acct, name, asOn));
     });
+    main().querySelectorAll('[data-unit]').forEach((b) => b.addEventListener('click', () => {
+      const u = acct.units[Number(b.dataset.unit)];
+      sharePictures(`${name} ${unitLabel(u.unit)} — outstanding`, async () => [await cardFile(cardOf(u.st, { asOn, note: `Part of the ${name} account`, fifo: u.fifo }), safeName(`${name} ${unitLabel(u.unit)} Outstanding ${dmyDash(asOn)}`))]);
+    }));
     main().querySelectorAll('[data-co]').forEach((b) => b.addEventListener('click', () => {
       const c = st.companies.list[Number(b.dataset.co)];
       sharePictures(`${c.name} — outstanding`, async () => [await cardFile(companyCard(c, st, asOn), safeName(`${c.name} Outstanding ${dmyDash(asOn)}`))]);
@@ -1071,18 +1272,23 @@ function retailSheet(led, c, { from, period, title, L }) {
 }
 
 // the outstanding card of anyone on Home's list (o: analyse().due row)
-async function outstandingCardFor(o) {
+// -> share options (unit-wise / together for an SMC-style sheet)
+async function outstandingOptionsFor(o) {
   const today = localToday();
   const id = o.id.slice(2);
   if (o.id.startsWith('g:')) {
-    const data = await state.store.account(null, id, null, null);
-    const st = bulkStatement(bulkRows(data), data, { name: o.name });
-    return cardOf(st, { asOn: st.to > today ? st.to : today });
+    const [data, pod] = await Promise.all([state.store.account(null, id, null, null), state.store.poData()]);
+    const res = bulkRows(data);
+    const last = res.rows.length ? res.rows[res.rows.length - 1].date : today;
+    const asOn = last > today ? last : today;
+    const acct = bulkAccount(data, res, o.name, (pod.groups.find((x) => x.code === id) || {}).opening_by_unit, asOn);
+    return cardOptions(acct, o.name, asOn);
   }
   const from = `${today.slice(0, 7)}-01`;
   const data = await state.store.account(id, null, from, monthEnd(from));
   const led = ledgerRows({ opening: data.customer.opening, from, sales: data.sales, payments: data.payments });
-  return cardOf(retailStatement(led, { name: o.name, from, to: today }), { asOn: today });
+  const card = cardOf(retailStatement(led, { name: o.name, from, to: today }), { asOn: today });
+  return [{ label: '', make: async () => [{ files: [await cardFile(card, safeName(`${o.name} Outstanding ${dmyDash(today)}`))] }] }];
 }
 
 function poCard(g) {

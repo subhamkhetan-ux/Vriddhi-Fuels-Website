@@ -420,7 +420,9 @@ function readBulk(ws, code, gst, date1904, warn) {
       remarks: hdr.remarks != null ? text(ws, r, hdr.remarks) : '',
     };
     if (prod === 'PAYMENT') {
-      payments.push({ customer: who, date, ...extras });
+      // SMC-style sheets: the unit the payment was for (blank = not said)
+      const unit = hdr.unit != null ? poKey(text(ws, r, hdr.unit)) : '';
+      payments.push({ customer: who, date, ...extras, ...(unit ? { unit } : {}) });
       continue;
     }
     const product = PRODUCT_OF[prod];
@@ -551,7 +553,7 @@ export function extractMaster(wb) {
       const k = normKey(row.customer) + '|' + row.date;
       const n = seen.get(k) || 0;
       seen.set(k, n + 1);
-      if (row.tds == null && row.shortage == null && !row.remarks) continue;
+      if (row.tds == null && row.shortage == null && !row.remarks && !row.unit) continue;
       const target = (payIndex.get(k) || [])[n];
       if (!target) {
         unmatchedPayExtras += 1;
@@ -560,9 +562,10 @@ export function extractMaster(wb) {
       if (row.tds != null) target.tds = row.tds;
       if (row.shortage != null) target.shortage = row.shortage;
       if (row.remarks) target.remarks = row.remarks;
+      if (row.unit) target.unit = row.unit;
     }
   }
-  if (unmatchedPayExtras) warn(`${unmatchedPayExtras} TDS / shortage entr(ies) on Bulk payment rows had no matching Master Paid entry.`);
+  if (unmatchedPayExtras) warn(`${unmatchedPayExtras} TDS / shortage / unit entr(ies) on Bulk payment rows had no matching Master Paid entry.`);
 
   // Customers
   const customers = new Map();
@@ -620,7 +623,7 @@ export function extractMaster(wb) {
     })),
     payments: payments.map((p) => ({
       pay_date: p.pay_date, customer: p.customer, amount: p.amount, mode: p.mode, seq: p.seq,
-      tds: p.tds ?? null, shortage: p.shortage ?? null, remarks: p.remarks || '',
+      tds: p.tds ?? null, shortage: p.shortage ?? null, remarks: p.remarks || '', ...(p.unit ? { unit: p.unit } : {}),
     })),
     pos: bulk.flatMap((b) => b.pos),
     opening,

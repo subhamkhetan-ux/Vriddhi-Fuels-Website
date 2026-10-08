@@ -34,7 +34,7 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   assert.deepEqual(payload.payments, [
     { pay_date: '2026-04-05', customer: 'Demo Power Ltd', amount: 50000, mode: 'HDFC 1010', seq: 2, tds: 1000, shortage: null, remarks: '' },
     { pay_date: '2026-04-05', customer: 'Demo Power Ltd', amount: 10000, mode: 'Cash', seq: 3, tds: null, shortage: null, remarks: 'cash' },
-    { pay_date: '2026-04-06', customer: 'Twin Steel Ltd', amount: 20000, mode: '', seq: 4, tds: null, shortage: 50, remarks: '' },
+    { pay_date: '2026-04-06', customer: 'Twin Steel Ltd', amount: 20000, mode: '', seq: 4, tds: null, shortage: 50, remarks: '', unit: 'UNIT 2' },   // the Unit typed on the payment row
   ]);
 
   const groups = Object.fromEntries(payload.groups.map((g) => [g.code, g]));

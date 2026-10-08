@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { bulkRows } from '../../ledger/js/account.js';
-import { bulkStatement, companyWise, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement } from '../../ledger/js/ledger-view.js';
+import {
+  bulkStatement, companyWise, fifoPending, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
+} from '../../ledger/js/ledger-view.js';
+import { demoSeed } from '../../ledger/js/demo.js';
+import { memoryStore } from '../../ledger/js/store.js';
 import {
   drCr, fit, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, rupees, textWidth,
 } from '../../ledger/js/share-svg.js';
@@ -158,4 +162,95 @@ test('outstanding card and list pictures', () => {
   assert.ok(adv.svg.includes('ADVANCE WITH US') && adv.svg.includes('₹2,500'));
   const list = outstandingListSvg({ list: [{ name: 'A', kind: 'bulk', balance: 100 }, { name: 'B', kind: 'retail', balance: 50 }], total: 150, asOn: '2026-10-08' });
   assert.ok(list.svg.includes('₹150') && list.svg.includes('2 CUSTOMERS'));
+});
+
+// ---- FIFO ---------------------------------------------------------------------------
+const e = (date, bill, debit, credit = 0, extra = {}) => ({
+  date, bill, title: bill ? `Diesel · Bill ${bill}` : 'Payment received', product: bill ? 'HSD' : 'PAY', type: bill ? 'bill' : 'pay',
+  debit, credit, paid: credit, tds: 0, shortage: 0, unit: '', company: '', ...extra,
+});
+
+test('FIFO: payments clear the opening, then the oldest bills; the newest stay pending', () => {
+  const entries = [e('2026-04-02', '10', 1000), e('2026-04-03', '11', 2000), e('2026-04-04', '', 0, 1800), e('2026-04-06', '12', 500)];
+  const f = fifoPending(entries, { opening: 400, from: '2026-04-01', asOn: '2026-04-10' });
+  assert.deepEqual(f.pending.map((d) => [d.date, d.bill, d.amount, d.pending, d.days]), [
+    ['2026-04-03', '11', 2000, 1600, 7],
+    ['2026-04-06', '12', 500, 500, 4],
+  ]);
+  assert.equal(f.total, 400 + 3500 - 1800);
+  assert.equal(f.advance, 0);
+  // more paid than owed: nothing pending, the rest is an advance
+  const over = fifoPending([e('2026-04-02', '10', 1000), e('2026-04-03', '', 0, 1500), e('2026-04-05', '11', 200)], { asOn: '2026-04-05' });
+  assert.deepEqual(over.pending, []);
+  assert.equal(over.advance, 300);
+  assert.equal(over.total, -300);
+  // an advance opening is used by the first bills; a refund is owed back like a bill
+  const adv = fifoPending([e('2026-04-02', '10', 1000), e('2026-04-03', '', 0, -200)], { opening: -700, from: '2026-04-01' });
+  assert.deepEqual(adv.pending.map((d) => [d.bill, d.title, d.pending]), [['10', 'Diesel · Bill 10', 300], ['', 'Refund', 200]]);
+  assert.equal(adv.total, -700 + 1000 + 200);
+});
+
+test('FIFO by unit: a payment with a unit clears that unit, one without a unit the oldest of either', () => {
+  const U1 = { unit: 'UNIT 1' };
+  const U2 = { unit: 'UNIT 2' };
+  const entries = [
+    e('2026-04-02', '101', 1000, 0, U1), e('2026-04-03', '102', 2000, 0, U2),
+    e('2026-04-04', '', 0, 1500, U2),                    // Unit 2's payment
+    e('2026-04-05', '103', 1000, 0, U1),
+    e('2026-04-06', '', 0, 1200),                        // no unit
+    e('2026-04-07', '', 0, 900, U1),                     // Unit 1: its bills, then the opening without a unit
+  ];
+  const st = { name: 'SMC', kind: 'bulk', from: '2026-04-01', to: '2026-04-07', opening: 1300, entries };
+  const obu = { 'UNIT 1': 600, 'UNIT 2': 400 };          // 300 of the opening isn't split
+  const f = fifoPending(entries, { opening: 1300, openingByKey: obu, keyOf: unitKey, from: st.from, asOn: '2026-04-10' });
+  const closing = 1300 + 4000 - 3600;
+  assert.equal(f.total, closing);
+  // the no-unit 1,200 cleared the oldest debts of any unit: Unit 1's opening (600),
+  // the unsplit opening (300), then 300 of bill 101; Unit 1's own 900 then cleared
+  // the rest of 101 (700) and 200 of 103
+  assert.deepEqual(f.pending.map((d) => [d.bill, d.key, d.pending]), [['102', 'UNIT 2', 900], ['103', 'UNIT 1', 800]]);
+  assert.deepEqual(f.keys['UNIT 1'], { pending: 800, advance: 0, balance: 800 });
+  // each unit's own statement closes on what the FIFO says it owes, and the parts add up
+  const parts = ['UNIT 1', 'UNIT 2', ''].map((u) => unitStatement({ ...st, months: [], totals: {} }, f, u, { openingByUnit: obu }));
+  assert.deepEqual(parts.map((p) => p.closing), [800, 900, 0]);
+  assert.equal(parts.reduce((a, p) => a + p.closing, 0), closing);
+  assert.deepEqual(parts.map((p) => p.opening), [600, 400, 300]);
+  assert.ok(parts[0].entries.some((x) => x.title === 'Payment received' && x.credit === 900 && /FIFO/.test(x.detail)));
+  // the part without a unit keeps only the 300 of that payment it used
+  assert.deepEqual(parts[2].entries.map((x) => [x.credit, x.balance]), [[300, 0]]);
+  assert.equal(parts[0].name, 'SMC — Unit 1');
+  assert.equal(unitLabel(''), 'No unit');
+  // a unit's payment beyond its bills spills into the unsplit opening first
+  const spill = fifoPending([e('2026-04-02', '', 0, 900, U1)], { opening: 1000, openingByKey: { 'UNIT 1': 600 }, keyOf: unitKey, from: '2026-04-01' });
+  assert.deepEqual(spill.pending.map((d) => [d.key, d.pending]), [['', 100]]);
+  assert.deepEqual(spill.moves, [{ at: 0, key: 'UNIT 1', amount: 300, kind: 'spill' }]);
+  const u1 = unitStatement({ name: 'S', kind: 'bulk', from: '2026-04-01', to: '2026-04-02', opening: 1000, entries: [e('2026-04-02', '', 0, 900, U1)] }, spill, 'UNIT 1', { openingByUnit: { 'UNIT 1': 600 } });
+  assert.equal(u1.closing, 0);
+});
+
+test('demo: the unit typed on a payment reaches the bulk ledger', async () => {
+  const store = memoryStore(demoSeed(new Date('2026-10-08T12:00:00')));
+  const data = await store.account(null, 'Twin Steel_Bulk', null, null);
+  const units = data.payments.map((p) => p.unit);
+  assert.ok(units.includes('UNIT 1') && units.includes(''));
+  const res = bulkRows(data);
+  assert.ok(res.rows.some((r) => r.payment && r.unit === 'UNIT 1'));
+});
+
+test('pictures: the pending bills (FIFO) on the card and after the closing', () => {
+  const pending = [
+    { date: '2026-09-22', bill: '1437', title: 'Diesel · Bill 1437', key: 'UNIT 1', amount: 225050, pending: 1214, days: 16 },
+    { date: '2026-10-04', bill: '1490', title: 'Diesel · Bill 1490', key: 'UNIT 1', amount: 144032, pending: 144032, days: 4 },
+  ];
+  const card = outstandingCardSvg({ name: 'SMC — Unit 1', kind: 'bulk', balance: 145246, asOn: '2026-10-08', pending });
+  for (const t of ['PENDING BILLS', 'Inv. 1437', 'of ₹2,25,050', '₹1,214', '16 days', 'Inv. 1490', '22 Sep 2026', 'Unit 1']) assert.ok(card.svg.includes(t), t);
+  const many = Array.from({ length: 50 }, (_, i) => ({ ...pending[1], bill: String(2000 + i), pending: 100 }));
+  const big = outstandingCardSvg({ name: 'X', kind: 'bulk', balance: 5000, asOn: '2026-10-08', pending: many });
+  assert.ok(big.svg.includes('+ 11 more bills'));
+  const data = groupData();
+  const st = bulkStatement(bulkRows(data), data, { name: 'Crew' });
+  const pages = ledgerPagesSvg(st, { asOn: '2026-10-08', pending, advance: 0 });
+  const lastPage = pages[pages.length - 1];
+  assert.ok(lastPage.includes('PENDING BILLS') && lastPage.includes('Inv. 1490'));
+  assert.ok(lastPage.indexOf('Closing balance') < lastPage.indexOf('PENDING BILLS'));
 });

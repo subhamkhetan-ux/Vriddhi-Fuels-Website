@@ -76,17 +76,39 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   months.
 - every entry by month (newest first, or oldest first), each month with its
   billed / received / closing; *All / Bills / Payments* filters.
+- **Pending bills (FIFO)** on every bulk ledger: payments, TDS and shortage
+  clear the oldest bills first (the opening balance before them), so what's
+  left are the newest bills — each with its date, invoice no., the bill's
+  amount, what's still pending on it and how many days old it is (amber after
+  15 days, red after 30). An advance not yet set against a bill is shown below.
+- **Unit-wise (SMC-style sheets with a PO list per unit)**: a card per unit
+  with its own outstanding and pending bills, and the statement of the whole
+  account or of one unit. A payment counts for the unit typed in its **Unit**
+  cell on the *_Bulk sheet's payment row and clears that unit's bills (then any
+  opening the sheet doesn't split by unit); a payment with no unit clears the
+  oldest bills of either unit. Each unit opens with its own opening balance
+  from the sheet. Bills with no unit yet show as their own *No unit* part, so
+  the parts always add up to the account's balance.
 
 **Share as picture** — everything is drawn the same way for sending to a
 customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
 - **Share ledger**: the statement as A4-shaped pictures (as many pages as it
   needs; on a bulk ledger pick the whole ledger or one month), or **PDF**.
 - **Share outstanding**: one card with the balance as on today, the period,
-  billed, received, last payment — and, for a group, every company.
+  billed, received, last payment, the **pending bills (FIFO)** of a bulk
+  customer — and, for a group, every company.
+- **SMC-style sheets** share **unit-wise** by default: one set of pictures per
+  unit (its ledger, or its outstanding card with its pending bills), each with
+  its own **Share** button so each unit gets only its own; **Both units
+  together** in the share sheet sends the whole account in one set, as before.
+  Ledger pictures of the whole ledger end with the pending bills.
 - the share button on each **company card** sends that company's own card.
 - on Home, the share button beside each customer under *Outstanding today*
-  sends their card; **Share list** sends the whole list (All / Retail / Bulk
-  as chosen).
+  sends their card (unit-wise for SMC-style sheets); **Share list** sends the
+  whole list (All / Retail / Bulk as chosen).
+- **Paid in advance**: everyone with an advance is listed right under
+  *Outstanding today* (largest first, tap to open the ledger), each with a
+  share button for their balance card.
 The pictures open in a preview: **Share** hands them to WhatsApp & co. through
 the phone's share sheet, **Download** saves them (a zip for several).
 
@@ -170,6 +192,13 @@ In **its own Supabase project** — not the project `/payments`, `/app`,
 
 Until step 5 the page shows these steps and a **Try the demo** button
 (`/ledger/?demo`): made-up data, kept only in that browser tab.
+
+### After updating to unit-wise payments
+
+Run [`supabase/ledger-schema.sql`](../supabase/ledger-schema.sql) again in the
+SQL Editor (it adds a `unit` to payments and is safe to re-run), then **Upload
+Master Ledger** once so the Unit typed on the SMC sheet's payment rows comes
+in. Until then every SMC payment counts as "no unit" (oldest bill first).
 
 ## Day to day
 

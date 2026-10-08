@@ -66,6 +66,7 @@ export function demoSeed(today = new Date()) {
     if (i % 2 === 0) rows.push(sale('MS', date, 'Example Infra', between(20, 45, 1)));
     if (i % 5 === 0) rows.push(sale('XG', date, 'Sample Roadlines', between(60, 140, 5)));
     if (i === 6) rows.push(sale('HSD', date, 'Test Carriers', 180));
+    if (i === 10) rows.push(sale('HSD', date, 'Advance Movers', 200));
     if (i % 7 === 3) rows.push(sale('XG', date, 'Demo Power Ltd', 600, { po_mode: 'fixed', po_fixed: 'DP/26/XG-07' }));
     if (i === 4) rows.push({ product: 'OTHER', bill_no: 'LUBE/017', sale_date: date, vehicle: '', qty: 1, rate: 450, amount: 450, customer: 'Sample Roadlines', item: 'Engine oil 1L' });
   }
@@ -77,7 +78,9 @@ export function demoSeed(today = new Date()) {
     payments.push({ pay_date: isoDay(today, -i), customer: 'Demo Power Ltd', amount: between(250000, 400000, 1000), mode: 'HDFC 1010' });
     payments.push({ pay_date: isoDay(today, -i + 1), customer: 'Sample Roadlines', amount: between(20000, 40000, 500), mode: 'ICICI 2020' });
   }
-  payments.push({ pay_date: isoDay(today, -9), customer: 'Twin Steel Ltd', amount: 1200000, mode: 'HDFC 1010', tds: 12000 });
+  payments.push({ pay_date: isoDay(today, -9), customer: 'Twin Steel Ltd', amount: 1200000, mode: 'HDFC 1010', tds: 12000, unit: 'UNIT 1' });
+  payments.push({ pay_date: isoDay(today, -4), customer: 'Twin Steel Ltd', amount: 600000, mode: 'HDFC 1010' });   // no unit: FIFO
+  payments.push({ pay_date: isoDay(today, -12), customer: 'Advance Movers', amount: 40000, mode: 'UPI' });   // paid ahead
   payments.forEach((p, i) => { p.seq = i + 2; });
 
   const monthStart = `${isoDay(today, -days).slice(0, 7)}-01`;
@@ -94,6 +97,7 @@ export function demoSeed(today = new Date()) {
       { name: 'Crew Two Movers', bulk_group: 'Crew Group_Bulk' },
       { name: 'Sample Roadlines', ledger: 'Sample', gstin: '21AAACS0000C1Z3', title: 'Sample Roadlines', bill_address: 'Testpur.', layout: SHEET },
       { name: 'Example Infra', ledger: 'Example', title: 'Example Infra Pvt Ltd', bill_address: 'Demo Nagar.', layout: SHEET },
+      { name: 'Advance Movers', ledger: 'Advance', title: 'Advance Movers', bill_address: 'Sample Road.', layout: SHEET },
     ],
     sales: masterSales,
     payments,
