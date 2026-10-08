@@ -21,6 +21,7 @@ import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
 import { decantScene, runScenes } from './scene.js';
 import { clearShots, keepShot, tidyShots } from './shots.js';
+import { THEMES, initTheme, nextTheme, onTheme, setTheme, themeChoice, themeIcon, themeLabel } from './theme.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -877,6 +878,9 @@ function settingsSheet() {
     const issues = chartIssues(c);
     body.innerHTML = `
       <label class="f">Your name on this phone (saved with each decantation)<input type="text" id="stOp" value="${esc(state.device.operator || '')}" placeholder="optional"></label>
+      <div class="f" style="margin-top:12px">Look on this phone
+        <div class="seg" id="stTheme" role="group" aria-label="Look">${THEMES.map((k) => `<button type="button" data-theme-pick="${k}" class="${themeChoice() === k ? 'on' : ''}" aria-pressed="${themeChoice() === k}" style="display:inline-flex;align-items:center;gap:6px">${themeIcon(k)}${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[k]}</button>`).join('')}</div>
+        <span class="hint" id="stThemeHint">${esc(themeChoice() === 'auto' ? themeLabel() : 'Changes at once — Auto follows the phone\'s light / dark setting.')}</span></div>
       <div class="sect-title" style="margin-top:16px">Tanks</div>
       ${s.tanks.map((t, i) => `<div class="pt-name" style="margin-top:6px">Tank ${t.no}</div>
         <div class="grid3" style="margin-bottom:8px;align-items:end">
@@ -981,6 +985,16 @@ function settingsSheet() {
       closeSheet();
       toast('Settings saved.');
     };
+    body.querySelector('#stTheme').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-theme-pick]');
+      if (!b) return;
+      setTheme(b.dataset.themePick);
+      body.querySelectorAll('[data-theme-pick]').forEach((x) => {
+        x.classList.toggle('on', x === b);
+        x.setAttribute('aria-pressed', String(x === b));
+      });
+      body.querySelector('#stThemeHint').textContent = themeChoice() === 'auto' ? themeLabel() : 'Changes at once — Auto follows the phone\'s light / dark setting.';
+    });
     body.querySelector('#stCalc').onclick = () => dipCalculator();
     body.querySelector('#stChart').onclick = () => uploadChart();
     body.querySelector('#stChartReset')?.addEventListener('click', async () => { await saveConfig({ chart: null }); closeSheet(); toast('Using the built-in dip chart.'); });
@@ -1035,7 +1049,23 @@ async function uploadChart() {
 // Boot
 // ---------------------------------------------------------------------------
 
+// The header's ◐ / ☀ / ☾ button shows this phone's look choice.
+function showThemeButton() {
+  const b = document.getElementById('btnTheme');
+  if (!b) return;
+  b.innerHTML = themeIcon();
+  b.title = `Look: ${themeLabel()} — tap to change`;
+  b.setAttribute('aria-label', `Look: ${themeLabel()}. Tap to change.`);
+}
+
 function boot() {
+  initTheme();
+  showThemeButton();
+  onTheme(showThemeButton);
+  document.getElementById('btnTheme').onclick = () => {
+    nextTheme();
+    toast(`Look: ${themeLabel()}`);
+  };
   document.getElementById('tabbar').addEventListener('click', (e) => {
     const b = e.target.closest('[data-tab]');
     if (b) setTab(b.dataset.tab);
