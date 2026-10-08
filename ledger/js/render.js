@@ -237,6 +237,30 @@ export function statementFontCss() {
   return fontCssPromise;
 }
 
+// The shared ledger / outstanding pictures (share-svg.js) use the app's font,
+// Sora. A picture made from an SVG can't fetch anything, so the font goes in
+// as data: URLs. '' when offline: the phone's own sans-serif font.
+const SORA_CSS = 'https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=block';
+let brandFontPromise = null;
+export function brandFontCss() {
+  if (!brandFontPromise) {
+    brandFontPromise = (async () => {
+      try {
+        const css = await (await fetch(SORA_CSS)).text();
+        const blocks = css.split('/*').filter((b) => /^\s*latin(-ext)?\s*\*\//.test(b)).map((b) => b.slice(b.indexOf('*/') + 2));
+        let out = blocks.join('\n');
+        for (const url of new Set([...out.matchAll(/url\((https:[^)]+)\)/g)].map((m) => m[1]))) {
+          out = out.split(url).join(await toDataUrl(url));
+        }
+        return out;
+      } catch {
+        return '';
+      }
+    })();
+  }
+  return brandFontPromise;
+}
+
 // Where the stamp's ink sits inside the picture, as fractions [x0, y0, x1, y1]
 // (the drawing places the ink where Excel's footer stamp is).
 export async function inkBox(url) {

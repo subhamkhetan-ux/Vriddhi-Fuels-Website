@@ -13,7 +13,7 @@ import { analyse, daysBetween, FUELS, periods, PRODUCT_NAME, shortGroup } from '
 import { extractMaster, readWorkbook } from './master.js';
 import { allocate, billOrder, poKey } from './po.js';
 import {
-  A4, A5, download, inkBox, jpegFromSvg, pdfFromSvgs, slipSvg, statementFontCss, tankerBillSvg, toDataUrl, zipBlob,
+  A4, A5, brandFontCss, download, inkBox, jpegFromSvg, pdfFromSvgs, slipSvg, statementFontCss, tankerBillSvg, toDataUrl, zipBlob,
 } from './render.js';
 import { billStatementSvgs, dailySummarySvg, DEFAULT_LAYOUT, ledgerSvg, PAGE, PAGE_PT } from './statement-svg.js';
 import {
@@ -23,6 +23,10 @@ import {
   addDays, buildStatements, ddmmyy, defaultMonth, firstWord, indAuto, ledgerRows, monthEnd, monthLabel, monthStart, rupeeAuto,
   shareBatches,
 } from './statements.js';
+import { bulkStatement, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement } from './ledger-view.js';
+import {
+  dMon, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
+} from './share-svg.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
 
@@ -60,6 +64,7 @@ const setMain = (html) => { main().innerHTML = html; };
 const loadingHtml = (text = 'Loading…') => `<div class="loading"><span class="spinner"></span>${esc(text)}</div>`;
 const errorHtml = (err) => `<div class="card bad-card"><b>Something went wrong.</b><p>${esc(err && err.message ? err.message : err)}</p></div>`;
 const paint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+const SHARE_ICON = '<svg class="ic" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 async function guard(fn) {
   try {
@@ -435,6 +440,11 @@ function dashboardHtml(a, per, key) {
       <p class="small muted">The highest price billed each day — what the margin is worked from.</p>
       ${legend(FUELS.filter((x) => rspDays[x].some((d) => d.rsp != null)))}
       ${rspChart(rspDays)}
+      <form class="custom-range rate-form" id="rate-chart">
+        <label>From <input type="date" name="from" value="${a.from}" max="${per.month.to}" required></label>
+        <label>To <input type="date" name="to" value="${a.to}" max="${per.month.to}" required></label>
+        <button class="btn small" type="submit">Download rate chart (Excel)</button></form>
+      <p class="small muted">Each product's rate per day for any dates, with the change from the day before.</p>
     </section>`;
 }
 
@@ -472,12 +482,13 @@ function outstandingHtml(a, seg, all) {
   const total = list.reduce((s, o) => s + o.balance, 0);
   const max = Math.max(1, ...list.map((o) => o.balance));
   return `
-    <div class="row-between"><h3>Outstanding today</h3><b class="total">${money(total, { exact: true })}</b></div>
+    <div class="row-between"><h3>Outstanding today</h3><span class="row-end"><b class="total">${money(total, { exact: true })}</b>${list.length ? `<button class="btn ghost small" data-olist>${SHARE_ICON} Share list</button>` : ''}</span></div>
     <div class="chips small-chips">${[['all', 'All'], ['retail', 'Retail'], ['bulk', 'Bulk']].map(([x, n]) => `<button class="chip ${x === seg ? 'on' : ''}" data-oseg="${x}">${n}</button>`).join('')}</div>
     ${shown.length ? `<ol class="rank">${shown.map((o, i) => `
-      <li><a class="rank-row" href="${acctHref(o)}" title="Open the ledger"><span class="n">${i + 1}</span>
+      <li class="with-share"><a class="rank-row" href="${acctHref(o)}" title="Open the ledger"><span class="n">${i + 1}</span>
         <span class="who"><b>${esc(o.name)}</b> ${TAG[o.kind]}<span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (o.balance / max) * 100)}%"></span></span></span>
-        <span class="amt"><b>${money(o.balance, { exact: true })}</b><small>${Math.round((o.balance / (total || 1)) * 100)}% of the total ›</small></span></a></li>`).join('')}</ol>` : '<p class="muted">Nobody owes anything. ✓</p>'}
+        <span class="amt"><b>${money(o.balance, { exact: true })}</b><small>${Math.round((o.balance / (total || 1)) * 100)}% of the total ›</small></span></a>
+        <button class="icon share-ic" data-oshare="${i}" title="Share ${esc(o.name)}'s outstanding as a picture" aria-label="Share ${esc(o.name)}'s outstanding as a picture">${SHARE_ICON}</button></li>`).join('')}</ol>` : '<p class="muted">Nobody owes anything. ✓</p>'}
     ${list.length > 10 ? `<p><button class="btn ghost small" data-oall>${all ? 'Show top 10' : `Show all ${list.length}`}</button></p>` : ''}
     ${a.advance.length ? `<details><summary class="small">${plural(a.advance.length, 'customer')} paid in advance · ${money(-a.advance.reduce((s, o) => s + o.balance, 0), { exact: true })}</summary>
       <ul class="small">${a.advance.map((o) => `<li><a href="${acctHref(o)}">${esc(o.name)}</a> — ${money(-o.balance, { exact: true })}</li>`).join('')}</ul></details>` : ''}
@@ -526,6 +537,19 @@ async function renderDashboard(box) {
     out.innerHTML = outstandingHtml(a, ui.oseg, ui.oall);
     out.querySelectorAll('[data-oseg]').forEach((b) => b.addEventListener('click', () => { ui.oseg = b.dataset.oseg; paintOutstanding(); }));
     out.querySelector('[data-oall]')?.addEventListener('click', () => { ui.oall = !ui.oall; paintOutstanding(); });
+    const list = a.due.filter((o) => ui.oseg === 'all' || o.kind === ui.oseg);
+    out.querySelectorAll('[data-oshare]').forEach((b) => b.addEventListener('click', () => {
+      const o = list[Number(b.dataset.oshare)];
+      sharePictures(`${o.name} — outstanding`, async () => [await cardFile(await outstandingCardFor(o), safeName(`${o.name} Outstanding ${dmyDash(localToday())}`))]);
+    }));
+    out.querySelector('[data-olist]')?.addEventListener('click', () => {
+      const label = { all: '', retail: 'Retail', bulk: 'Bulk' }[ui.oseg];
+      sharePictures('Outstanding today', async () => {
+        const { images, fontCss } = await shareImages();
+        const { svg, size } = outstandingListSvg({ list, total: list.reduce((x, o) => x + o.balance, 0), asOn: localToday(), label }, { images, fontCss });
+        return [new File([await jpegFromSvg(svg, size)], `Outstanding${label ? ` ${label}` : ''} ${dmyDash(localToday())}.jpeg`, { type: 'image/jpeg' })];
+      });
+    });
   };
   paintCustomers();
   paintOutstanding();
@@ -543,6 +567,16 @@ async function renderDashboard(box) {
     state.dashCustom = { from, to };
     guard(() => renderDashboard(box));
   });
+  box.querySelector('#rate-chart')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const from = e.target.from.value;
+    const to = e.target.to.value;
+    if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    if (daysBetween(from, to) > 730) { toast('Pick at most two years at a time.', 'bad'); return; }
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+    guard(() => downloadRateChart(from, to)).finally(() => { btn.disabled = false; });
+  });
   bindCharts(box);
   // redraw at the new width after a rotate / resize
   if (!state.dashResize) {
@@ -559,8 +593,37 @@ async function renderDashboard(box) {
   }
 }
 
+// The rate chart: each product's day's rate (the RSP the dashboard uses) for
+// from..to as an Excel file
+async function downloadRateChart(from, to) {
+  const [XLSX, data] = await Promise.all([loadSheetJS(), customData(from, to)]);
+  const chart = rateChart(analyse(data, { from, to }).rspSeries);
+  if (!chart.products.length) { toast('No rates billed in those dates.', 'bad'); return; }
+  const aoa = rateChartSheet(chart, { from, to });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const n = chart.products.length;
+  const last = 1 + 2 * n;                                      // Date, Day, rates, changes
+  for (let r = RATE_HEAD_ROWS; r < aoa.length; r++) {
+    const d = ws[XLSX.utils.encode_cell({ r, c: 0 })];
+    if (d) d.z = 'dd-mm-yyyy';
+    for (let c = 2; c <= last; c++) {
+      const x = ws[XLSX.utils.encode_cell({ r, c })];
+      if (x) x.z = c < 2 + n ? '0.00' : '+0.00;-0.00;0.00';
+    }
+  }
+  ws['!cols'] = [{ wch: 12 }, { wch: 6 }, ...chart.products.map(() => ({ wch: 12 })), ...chart.products.map(() => ({ wch: 17 }))];
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: last } }, { s: { r: 1, c: 0 }, e: { r: 1, c: last } }];
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: RATE_HEAD_ROWS - 1, c: 0 }, e: { r: aoa.length - 1, c: last } }) };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Rate chart');
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  download(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Rate Chart ${rangeName(from, to)}.xlsx`);
+}
+
 // ---------------------------------------------------------------------------
-// A customer's ledger, laid out like their sheet in the Master Ledger
+// A customer's ledger: a statement in the app's look (summary, company-wise
+// outstanding for a group, every entry by month) — the same figures as their
+// sheet in the Master Ledger, which is one tap away ("Excel sheet")
 // ---------------------------------------------------------------------------
 const colLetter = (i) => (i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26)));
 const xlPx = (w) => Math.round(Number(w) * 8);                 // Excel width units -> screen px (Times New Roman 12)
@@ -593,9 +656,221 @@ function bindSheet(root) {
 
 const cell = (text, cls = '', attrs = '') => `<td${cls ? ` class="${cls}"` : ''}${attrs ? ` ${attrs}` : ''}>${esc(text)}</td>`;
 
+// Statement (default) or Excel sheet — remembered on this device
+const ACCT_VIEW_KEY = 'vriddhi-ledger-acct-view';
+function acctView() {
+  try { return localStorage.getItem(ACCT_VIEW_KEY) === 'sheet' ? 'sheet' : 'statement'; } catch { return 'statement'; }
+}
+function setAcctView(v) {
+  try { localStorage.setItem(ACCT_VIEW_KEY, v); } catch { /* private window: just this time */ }
+}
+
 async function viewAccount(type, id, month) {
   if (type === 'g') return viewBulkAccount(id);
   return viewRetailAccount(id, month);
+}
+
+// ---- the pictures ------------------------------------------------------------
+let shareAssets = null;
+async function shareImages() {
+  if (!shareAssets) {
+    shareAssets = Promise.all([toDataUrl(LOGO).catch(() => ''), brandFontCss()])
+      .then(([logo, fontCss]) => ({ images: { logo }, fontCss }));
+  }
+  return shareAssets;
+}
+
+const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+async function ledgerFiles(st, base) {
+  const { images, fontCss } = await shareImages();
+  const svgs = ledgerPagesSvg(st, { asOn: localToday() < st.to ? st.to : localToday(), images, fontCss });
+  const files = [];
+  for (let i = 0; i < svgs.length; i++) {
+    const blob = await jpegFromSvg(svgs[i], SHARE_PAGE);
+    files.push(new File([blob], `${base}${svgs.length > 1 ? ` (${i + 1} of ${svgs.length})` : ''}.jpeg`, { type: 'image/jpeg' }));
+  }
+  return { files, svgs };
+}
+
+async function cardFile(card, base) {
+  const { images, fontCss } = await shareImages();
+  const { svg, size } = outstandingCardSvg(card, { images, fontCss });
+  return new File([await jpegFromSvg(svg, size)], `${base}.jpeg`, { type: 'image/jpeg' });
+}
+
+// A sheet that makes the pictures, shows them and hands them over. Sharing
+// needs the files ready before the tap (the Web Share API), so the pictures
+// are made first and the Share button only passes them on.
+async function sharePictures(title, make, { pdf = null } = {}) {
+  document.querySelector('.share-sheet')?.remove();
+  const sheet = document.createElement('div');
+  sheet.className = 'share-sheet';
+  sheet.innerHTML = `<div class="share-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+      <div class="row-between"><h3>${esc(title)}</h3><button class="icon" data-close aria-label="Close">✕</button></div>
+      <div class="share-body">${loadingHtml('Drawing the picture…')}</div>
+    </div>`;
+  document.body.append(sheet);
+  const urls = [];
+  const close = () => { sheet.remove(); urls.forEach((u) => URL.revokeObjectURL(u)); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  sheet.addEventListener('click', (e) => { if (e.target === sheet || e.target.closest('[data-close]')) close(); });
+  const body = sheet.querySelector('.share-body');
+  let files;
+  try {
+    files = await make();
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = errorHtml(err);
+    return;
+  }
+  if (!sheet.isConnected) return;
+  const shots = files.map((f) => { const u = URL.createObjectURL(f); urls.push(u); return u; });
+  const share = canShareFiles(files);
+  body.innerHTML = `<div class="share-shots${files.length === 1 ? ' one' : ''}">${shots.map((u, i) => `<img src="${u}" alt="${esc(files[i].name)}">`).join('')}</div>
+    <p class="muted small">${files.length === 1 ? esc(files[0].name) : `${files.length} pictures`}</p>
+    <div class="actions">${share ? '<button class="btn" data-share>Share</button>' : ''}
+      <button class="btn ${share ? 'ghost' : ''}" data-save>Download${files.length > 1 ? ' all' : ''}</button>
+      ${pdf ? '<button class="btn ghost" data-pdf>PDF</button>' : ''}</div>`;
+  body.querySelector('[data-share]')?.addEventListener('click', () => guard(async () => {
+    try {
+      await navigator.share({ files });            // pictures only: extra text can make apps drop them
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      throw err;
+    }
+  }));
+  body.querySelector('[data-save]').addEventListener('click', () => guard(async () => {
+    if (files.length === 1) download(files[0], files[0].name);
+    else download(await zipBlob(files), `${files[0].name.replace(/ \(1 of \d+\)\.jpeg$/, '')}.zip`);
+  }));
+  body.querySelector('[data-pdf]')?.addEventListener('click', (e) => guard(async () => {
+    e.target.disabled = true;
+    try { await pdf(); } finally { e.target.disabled = false; }
+  }));
+}
+
+// ---- the statement on screen -------------------------------------------------------
+const PRODUCT_COLOR = { HSD: 'var(--s-hsd)', MS: 'var(--s-ms)', XG: 'var(--s-xg)', OTHER: 'var(--s-sales)', PAY: 'var(--good)' };
+const balHtml = (v) => `<span class="${Math.round(v) < 0 ? 'good-text' : ''}">${esc(drCr(v))}</span>`;
+const initials = (name) => String(name || '').replace(/\b(ltd|pvt|private|limited|and|&|the)\b/gi, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '•';
+
+function acctHeroHtml(st, { asOn, label = 'Balance' }) {
+  const v = Math.round(st.closing);
+  const what = v > 0 ? 'Outstanding' : v < 0 ? 'Advance with us' : 'All settled';
+  const t = st.totals;
+  const deductions = t.tds + t.shortage;
+  return `<div class="acct-hero">
+      <div><span class="lbl">${what} · ${esc(label)}</span><span class="val">${esc(rupees(Math.abs(v)))}</span>
+        <span class="sub">${esc(drCr(st.closing))} · as on ${esc(fmtDate(asOn))}</span></div>
+      <div class="side"><span class="lbl">Last payment</span><b>${st.lastPayment ? `${esc(rupees(st.lastPayment.amount))}` : '—'}</b>
+        <span class="sub">${st.lastPayment ? esc(fmtDate(st.lastPayment.date)) : 'none in this period'}</span></div>
+    </div>
+    <div class="kpis acct-kpis">
+      <div class="kpi"><span class="lbl">Opening</span><span class="val">${balHtml(st.opening)}</span><span class="sub">on ${esc(fmtDate(st.from))}</span></div>
+      <div class="kpi"><span class="lbl">Billed</span><span class="val">${esc(rupees(t.billed))}</span><span class="sub">${t.qty ? `${esc(litres(t.qty))} · ` : ''}${plural(t.bills, 'bill')}</span></div>
+      <div class="kpi"><span class="lbl">Received</span><span class="val good-text">${esc(rupees(t.received))}</span><span class="sub">${plural(t.payments, 'payment')}</span></div>
+      ${deductions ? `<div class="kpi"><span class="lbl">TDS &amp; shortage</span><span class="val">${esc(rupees(deductions))}</span><span class="sub">TDS ${esc(rupees(t.tds))} · short ${esc(rupees(t.shortage))}</span></div>` : ''}
+    </div>
+    <div class="prod-chips">${['HSD', 'MS', 'XG', 'OTHER'].filter((p) => st.products[p].amount).map((p) => `<span class="prod-chip"><i style="background:${PRODUCT_COLOR[p]}"></i><b>${PRODUCT_LABEL[p]}</b>${p !== 'OTHER' ? ` ${esc(litres(st.products[p].qty))} ·` : ''} ${esc(rupees(st.products[p].amount))}</span>`).join('')}</div>`;
+}
+
+function companiesHtml(cw) {
+  const max = Math.max(1, ...cw.list.map((c) => Math.abs(c.outstanding)));
+  return `<div class="row-between"><h3>Company-wise outstanding</h3><b class="total">${balHtml(cw.total)}</b></div>
+    <div class="co-grid">${cw.list.map((c, i) => `
+      <div class="co-card${c.outstanding < 0 ? ' adv' : ''}">
+        <div class="co-head"><span class="avatar sm">${esc(initials(c.name))}</span><b>${esc(c.name)}</b>
+          <button class="icon share-ic" data-co="${i}" title="Share ${esc(c.name)}'s outstanding as a picture" aria-label="Share as picture">${SHARE_ICON}</button></div>
+        <span class="co-val">${balHtml(c.outstanding)}</span>
+        <span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (Math.abs(c.outstanding) / max) * 100)}%"></span></span>
+        <dl class="co-facts">
+          <dt>Billed</dt><dd>${esc(rupees(c.billed))}${c.qty ? ` <small>${esc(litres(c.qty))}</small>` : ''}</dd>
+          <dt>Received</dt><dd>${esc(rupees(c.received))}</dd>
+          ${c.deductions ? `<dt>TDS &amp; shortage</dt><dd>${esc(rupees(c.deductions))}</dd>` : ''}
+          <dt>Last payment</dt><dd>${c.lastPayment ? `${esc(rupees(c.lastPayment.amount))} <small>${esc(dMon(c.lastPayment.date))}</small>` : '—'}</dd>
+        </dl>
+      </div>`).join('')}</div>
+    ${Math.round(cw.opening) ? `<p class="small muted">The sheet's opening balance of ${esc(drCr(cw.opening))} is for the group as a whole: opening + every company = the group's balance of <b>${esc(drCr(cw.total))}</b>.</p>` : ''}`;
+}
+
+function stmtRowHtml(e) {
+  const deduct = [e.tds ? `TDS ${rupees(e.tds)}` : '', e.shortage ? `short ${rupees(e.shortage)}` : ''].filter(Boolean).join(' + ');
+  return `<div class="stmt-row ${e.type}">
+    <span class="s-date"><b>${esc(e.date.slice(8, 10))}</b><small>${esc(dMon(e.date).slice(3))}</small></span>
+    <span class="s-part"><i style="background:${PRODUCT_COLOR[e.product] || PRODUCT_COLOR.OTHER}"></i><b>${esc(e.title)}</b>${e.detail ? `<small>${esc(e.detail)}</small>` : ''}</span>
+    <span class="s-qty r">${e.qty ? esc(qtyText(e.qty)) : ''}${e.rate ? `<small>@ ₹${e.rate.toFixed(2)}</small>` : ''}</span>
+    <span class="s-dr r">${e.debit ? esc(rupees(e.debit)) : ''}</span>
+    <span class="s-cr r">${e.credit ? `<span class="${e.credit < 0 ? 'bad-text' : 'good-text'}">${esc(rupees(e.credit))}</span>` : ''}${deduct ? `<small>incl. ${esc(deduct)}</small>` : ''}</span>
+    <span class="s-bal r">${balHtml(e.balance)}</span>
+  </div>`;
+}
+
+function statementHtml(st, { filter = 'all', newest = true } = {}) {
+  const months = newest ? [...st.months].reverse() : st.months;
+  const keep = (e) => filter === 'all' || (filter === 'pay' ? e.type === 'pay' : e.type !== 'pay');
+  const head = '<div class="stmt-row head"><span>Date</span><span>Particulars</span><span class="r">Litres</span><span class="r">Debit</span><span class="r">Credit</span><span class="r">Balance</span></div>';
+  const blocks = months.map((m) => {
+    const list = (newest ? [...m.entries].reverse() : m.entries).filter(keep);
+    if (!list.length) return '';
+    return `<div class="stmt-month">
+      <div class="stmt-mhead"><b>${esc(m.title)}</b><span>billed ${esc(rupees(m.billed))} · received ${esc(rupees(m.received))}${m.deductions ? ` · TDS/short ${esc(rupees(m.deductions))}` : ''} · closing ${balHtml(m.closing)}</span></div>
+      ${head}${list.map(stmtRowHtml).join('')}</div>`;
+  }).join('');
+  const open = `<div class="stmt-open"><span>Opening balance on ${esc(fmtDate(st.from))}</span>${balHtml(st.opening)}</div>`;
+  return blocks ? (newest ? `${blocks}${open}` : `${open}${blocks}`) : `<p class="muted">Nothing here for this period.</p>${open}`;
+}
+
+function bindStatement(box, st) {
+  const ui = state.stmtUi || (state.stmtUi = { filter: 'all', newest: true });
+  const list = box.querySelector('.stmt');
+  const paint = () => {
+    list.innerHTML = statementHtml(st, ui);
+    box.querySelectorAll('[data-sfilter]').forEach((b) => b.classList.toggle('on', b.dataset.sfilter === ui.filter));
+    box.querySelector('[data-sorder]').textContent = ui.newest ? 'Newest first' : 'Oldest first';
+  };
+  box.querySelectorAll('[data-sfilter]').forEach((b) => b.addEventListener('click', () => { ui.filter = b.dataset.sfilter; paint(); }));
+  box.querySelector('[data-sorder]').addEventListener('click', () => { ui.newest = !ui.newest; paint(); });
+  paint();
+}
+
+const statementCard = (st) => `<section class="card" id="stmt-card">
+    <div class="row-between"><h3>Statement</h3>
+      <div class="chips small-chips">${[['all', 'All'], ['bill', 'Bills'], ['pay', 'Payments']].map(([x, n]) => `<button class="chip" data-sfilter="${x}">${n}</button>`).join('')}
+        <button class="chip" data-sorder>Newest first</button></div></div>
+    <div class="stmt">${statementHtml(st)}</div>
+  </section>`;
+
+const viewToggle = (view) => `<div class="chips small-chips view-toggle" role="tablist">
+    <button class="chip ${view === 'statement' ? 'on' : ''}" data-view="statement" role="tab" aria-selected="${view === 'statement'}">Statement</button>
+    <button class="chip ${view === 'sheet' ? 'on' : ''}" data-view="sheet" role="tab" aria-selected="${view === 'sheet'}">Excel sheet</button></div>`;
+
+function bindViewToggle(rerender) {
+  main().querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    setAcctView(b.dataset.view);
+    rerender();
+  }));
+}
+
+// the card a customer gets for their outstanding
+function cardOf(st, { asOn, name = st.name, kind = st.kind, note = '' } = {}) {
+  const t = st.totals;
+  return {
+    name, kind, note, balance: st.closing, asOn, since: st.from, opening: st.opening,
+    billed: t.billed, qty: t.qty, received: t.received, deductions: round2(t.tds + t.shortage),
+    bills: t.bills, payments: t.payments, lastPayment: st.lastPayment, lastBill: st.lastBill, companies: st.companies,
+  };
+}
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// one company of a group, as its own card
+function companyCard(c, st, asOn) {
+  return {
+    name: c.name, kind: 'bulk', note: `Part of the ${st.name} account`, balance: c.outstanding, asOn, since: st.from,
+    billed: c.billed, qty: c.qty, received: c.received, deductions: c.deductions, bills: c.bills, payments: c.payments,
+    lastPayment: c.lastPayment, lastBill: c.lastBill, companies: null,
+  };
 }
 
 async function viewBulkAccount(code) {
@@ -605,11 +880,64 @@ async function viewBulkAccount(code) {
   if (pg) pg.rows.forEach((r) => poById.set(r.id, r.po));
   const res = bulkRows(data, (sid) => poById.get(sid) || '');
   const g = data.group;
+  const name = shortGroup(g.code, g.title);
+  const st = bulkStatement(res, data, { name });
+  const today = localToday();
+  const asOn = st.to > today ? st.to : today;
+  const render = () => {
+    const view = acctView();
+    const months = [...st.months].reverse();
+    setMain(`
+    <section class="card acct-card">
+      <p class="muted small"><a href="#/">← Home</a></p>
+      <div class="acct-top">
+        <div class="acct-id"><span class="avatar">${esc(initials(name))}</span>
+          <div><h2>${esc(name)} <span class="tag bulk">Bulk</span></h2>
+            <p class="muted small">The <b>${esc(g.code)}</b> sheet · since ${esc(fmtDate(st.from))} · ${data.members.length > 1 ? `${data.members.length} companies` : esc(data.members[0]?.name || '—')}</p></div></div>
+        ${viewToggle(view)}
+      </div>
+      ${view === 'statement' ? `${acctHeroHtml(st, { asOn, label: 'today' })}
+      <div class="share-row">
+        <label class="inline-label small">Picture of <select id="share-range">
+          <option value="">The whole ledger (since ${esc(fmtDate(st.from))})</option>
+          ${months.map((m) => `<option value="${m.month}">${esc(m.title)}</option>`).join('')}</select></label>
+        <button class="btn small" data-acct="share">${SHARE_ICON} Share ledger</button>
+        <button class="btn ghost small" data-acct="card">${SHARE_ICON} Share outstanding</button>
+      </div>` : ''}
+    </section>
+    ${view === 'statement' ? `${st.companies ? `<section class="card">${companiesHtml(st.companies)}</section>` : ''}${statementCard(st)}`
+    : `<section class="card">${bulkSheet(res, data, name)}</section>`}`);
+    bindViewToggle(render);
+    if (view === 'sheet') { bindSheet(main()); return; }
+    bindStatement(main().querySelector('#stmt-card'), st);
+    const base = safeName(`${name} Ledger`);
+    main().querySelector('[data-acct="share"]').addEventListener('click', () => {
+      const ym = main().querySelector('#share-range').value;
+      const part = ym ? monthSlice(st, ym) : st;
+      const fileBase = ym ? `${base} ${monthLabel(`${ym}-01`)}` : `${base} ${dmyDash(asOn)}`;
+      let made = null;
+      sharePictures(`${name} — ledger`, async () => { made = await ledgerFiles(part, fileBase); return made.files; }, {
+        pdf: async () => download(await pdfFromSvgs(made.svgs, SHARE_PAGE_PT, { scale: SHARE_PAGE.width / SHARE_PAGE_PT.width }), `${fileBase}.pdf`),
+      });
+    });
+    main().querySelector('[data-acct="card"]').addEventListener('click', () => {
+      sharePictures(`${name} — outstanding`, async () => [await cardFile(cardOf(st, { asOn }), safeName(`${name} Outstanding ${dmyDash(asOn)}`))]);
+    });
+    main().querySelectorAll('[data-co]').forEach((b) => b.addEventListener('click', () => {
+      const c = st.companies.list[Number(b.dataset.co)];
+      sharePictures(`${c.name} — outstanding`, async () => [await cardFile(companyCard(c, st, asOn), safeName(`${c.name} Outstanding ${dmyDash(asOn)}`))]);
+    }));
+  };
+  render();
+}
+
+// the *_Bulk sheet as in Excel (column letters, widths, number formats)
+function bulkSheet(res, data, name) {
+  const g = data.group;
   const n = res.columns.length;
   const widths = (res.widths || DEFAULT_BULK_WIDTHS[res.kind]).slice(0, n).map(xlPx);
   const spacer = res.widths && res.widths[n] ? xlPx(res.widths[n]) : 60;
   const all = [...widths, spacer, xlPx(18), xlPx(18)];
-  const name = shortGroup(g.code, g.title);
   const who = g.kind === 'group' ? 'Group:' : 'Customer:';
   const whoValue = g.kind === 'group' ? name : (data.members[0] ? data.members[0].name : name);
   const info = (label, value) => `<td></td>${cell(label, 'b')}${cell(value, 'b')}`;
@@ -627,15 +955,8 @@ async function viewBulkAccount(code) {
       }).join('')}${blankRow(3)}`,
     })),
   ];
-  setMain(`
-    <section class="card">
-      <p class="muted small"><a href="#/">← Home</a></p>
-      <div class="row-between"><h2>${esc(name)} <span class="tag bulk">Bulk</span></h2>
-        <div class="acct-bal"><span class="muted small">Balance</span><b class="${res.closing < 0 ? 'good-text' : ''}">${esc(money(res.closing, { exact: true }))}</b></div></div>
-      <p class="muted small">The <b>${esc(g.code)}</b> sheet: ${plural(res.rows.filter((r) => !r.payment).length, 'bill')} and ${plural(res.rows.filter((r) => r.payment).length, 'payment')} since ${fmtDate(g.period_from || res.rows[0]?.date || '')} · members: ${data.members.map((m) => esc(m.name)).join(', ') || '—'}${res.widths ? '' : ' · <span class="warn-text">column widths come with the next Master Ledger upload</span>'}</p>
-      ${sheetHtml(all, rows)}
-    </section>`);
-  bindSheet(main());
+  return `<p class="muted small">The <b>${esc(g.code)}</b> sheet as in the Master Ledger: ${plural(res.rows.filter((r) => !r.payment).length, 'bill')} and ${plural(res.rows.filter((r) => r.payment).length, 'payment')} since ${fmtDate(g.period_from || res.rows[0]?.date || '')} · members: ${data.members.map((m) => esc(m.name)).join(', ') || '—'}${res.widths ? '' : ' · <span class="warn-text">column widths come with the next Master Ledger upload</span>'}</p>
+    ${sheetHtml(all, rows)}`;
 }
 
 function monthShift(ym, n) {
@@ -651,12 +972,80 @@ async function viewRetailAccount(key, month) {
   const data = await state.store.account(key, null, from, to);
   const c = data.customer;
   const led = ledgerRows({ opening: c.opening, from, sales: data.sales, payments: data.payments });
+  const current = ym === today.slice(0, 7);
+  const asOn = current ? today : to;
+  const st = retailStatement(led, { name: c.name, from, to: asOn });
+  const first = data.first ? data.first.slice(0, 7) : ym;
+  const prev = monthShift(ym, -1);
+  const next = monthShift(ym, 1);
+  const period = `for The Month of  ${monthLabel(from)}`;
+  const title = String(c.title || '').trim() || c.name;
   const L = c.layout && Array.isArray(c.layout.cols) && c.layout.cols.length === 7 ? c.layout : DEFAULT_LAYOUT;
+  const render = () => {
+    const view = acctView();
+    setMain(`
+    <section class="card acct-card">
+      <p class="muted small"><a href="#/">← Home</a></p>
+      <div class="acct-top">
+        <div class="acct-id"><span class="avatar">${esc(initials(c.name))}</span>
+          <div><h2>${esc(c.name)} <span class="tag">Retail</span></h2>
+            <p class="muted small">The <b>${esc(c.ledger || c.name)}</b> sheet${view === 'sheet' && L === DEFAULT_LAYOUT ? ' · <span class="warn-text">column widths come with the next Master Ledger upload</span>' : ''}</p></div></div>
+        ${viewToggle(view)}
+      </div>
+      <div class="month-nav">
+        ${prev >= first ? `<a class="btn ghost small" href="#/account/c/${encodeURIComponent(key)}?m=${prev}">‹ ${monthLabel(`${prev}-01`)}</a>` : '<span></span>'}
+        <b>${monthLabel(from)}</b>
+        ${next <= today.slice(0, 7) ? `<a class="btn ghost small" href="#/account/c/${encodeURIComponent(key)}?m=${next}">${monthLabel(`${next}-01`)} ›</a>` : '<span></span>'}
+      </div>
+      ${view === 'statement' ? `${acctHeroHtml(st, { asOn, label: current ? 'today' : `end of ${monthLabel(from)}` })}
+      <div class="share-row">
+        <button class="btn small" data-acct="share">${SHARE_ICON} Share ledger</button>
+        <button class="btn ghost small" data-acct="card">${SHARE_ICON} Share outstanding</button>
+      </div>` : `<div class="xl-retail">${retailSheet(led, c, { from, period, title, L })}</div>
+      <p class="actions"><button class="btn small" data-xl="share">Share as picture</button><button class="btn ghost small" data-xl="pdf">PDF</button></p>`}
+    </section>
+    ${view === 'statement' ? statementCard(st) : ''}`);
+    bindViewToggle(render);
+    const base = safeName(`${c.name} Ledger ${monthLabel(from)}`);
+    if (view === 'statement') {
+      bindStatement(main().querySelector('#stmt-card'), st);
+      main().querySelector('[data-acct="share"]').addEventListener('click', () => {
+        let made = null;
+        sharePictures(`${c.name} — ledger`, async () => { made = await ledgerFiles(st, base); return made.files; }, {
+          pdf: async () => download(await pdfFromSvgs(made.svgs, SHARE_PAGE_PT, { scale: SHARE_PAGE.width / SHARE_PAGE_PT.width }), `${base}.pdf`),
+        });
+      });
+      main().querySelector('[data-acct="card"]').addEventListener('click', () => {
+        sharePictures(`${c.name} — outstanding`, async () => [await cardFile(cardOf(st, { asOn }), safeName(`${c.name} Outstanding ${dmyDash(asOn)}`))]);
+      });
+      return;
+    }
+    // the Excel-style picture / PDF (the same page as the Statements tab)
+    bindSheet(main());
+    const svgOf = async () => ledgerSvg({
+      title, subtitle: 'Ledger Account for Diesel', period, ...led, total: false, layout: c.layout,
+    }, await statementImages());
+    const xlBase = `${firstWord(c.name)} Ledger ${monthLabel(from)}`;
+    main().querySelector('[data-xl="share"]').addEventListener('click', (e) => guard(async () => {
+      e.target.disabled = true;
+      try {
+        const blob = await jpegFromSvg(await svgOf(), PAGE);
+        await shareOrSave([new File([blob], `${xlBase}.jpeg`, { type: 'image/jpeg' })], `${xlBase}.zip`);
+      } finally { e.target.disabled = false; }
+    }));
+    main().querySelector('[data-xl="pdf"]').addEventListener('click', (e) => guard(async () => {
+      e.target.disabled = true;
+      try { download(await pdfFromSvgs([await svgOf()], PAGE_PT, { scale: 2.5 }), `${xlBase}.pdf`); } finally { e.target.disabled = false; }
+    }));
+  };
+  render();
+}
+
+// the ledger sheet (A:G) for the month, as in Excel
+function retailSheet(led, c, { from, period, title, L }) {
   const widths = L.cols.map(xlPx);
   const rowH = ptPx(Number(L.row) > 5 ? Number(L.row) : DEFAULT_LAYOUT.row);
   const headH = ptPx(Number(L.head) > 5 ? Number(L.head) : DEFAULT_LAYOUT.head);
-  const period = `for The Month of  ${monthLabel(from)}`;
-  const title = String(c.title || '').trim() || c.name;
   // every column but the date is right-aligned on the sheet
   const r = (vals) => vals.map((v, i) => cell(v.t ?? v, `${i ? 'num' : ''} ${v.c || ''}`.trim())).join('');
   const rows = [
@@ -678,39 +1067,22 @@ async function viewRetailAccount(key, month) {
       ]),
     })),
   ];
-  const first = data.first ? data.first.slice(0, 7) : ym;
-  const prev = monthShift(ym, -1);
-  const next = monthShift(ym, 1);
-  setMain(`
-    <section class="card">
-      <p class="muted small"><a href="#/">← Home</a></p>
-      <div class="row-between"><h2>${esc(c.name)} <span class="tag">Retail</span></h2>
-        <div class="acct-bal"><span class="muted small">Balance ${ym === today.slice(0, 7) ? 'today' : `end of ${monthLabel(from)}`}</span><b>${esc(money(led.closing, { exact: true }))}</b></div></div>
-      <div class="row-between month-nav">
-        ${prev >= first ? `<a class="btn ghost small" href="#/account/c/${encodeURIComponent(key)}?m=${prev}">‹ ${monthLabel(`${prev}-01`)}</a>` : '<span></span>'}
-        <b>${monthLabel(from)}</b>
-        ${next <= today.slice(0, 7) ? `<a class="btn ghost small" href="#/account/c/${encodeURIComponent(key)}?m=${next}">${monthLabel(`${next}-01`)} ›</a>` : '<span></span>'}
-      </div>
-      <p class="muted small">The <b>${esc(c.ledger || c.name)}</b> sheet${L === DEFAULT_LAYOUT ? ' · <span class="warn-text">column widths come with the next Master Ledger upload</span>' : ''}</p>
-      <div class="xl-retail">${sheetHtml(widths, rows)}</div>
-      <p class="actions"><button class="btn small" data-acct="share">Share as picture</button><button class="btn ghost small" data-acct="pdf">PDF</button></p>
-    </section>`);
-  bindSheet(main());
-  const svgOf = async () => ledgerSvg({
-    title, subtitle: 'Ledger Account for Diesel', period, ...led, total: false, layout: c.layout,
-  }, await statementImages());
-  const base = `${firstWord(c.name)} Ledger ${monthLabel(from)}`;
-  main().querySelector('[data-acct="share"]').addEventListener('click', (e) => guard(async () => {
-    e.target.disabled = true;
-    try {
-      const blob = await jpegFromSvg(await svgOf(), PAGE);
-      await shareOrSave([new File([blob], `${base}.jpeg`, { type: 'image/jpeg' })], `${base}.zip`);
-    } finally { e.target.disabled = false; }
-  }));
-  main().querySelector('[data-acct="pdf"]').addEventListener('click', (e) => guard(async () => {
-    e.target.disabled = true;
-    try { download(await pdfFromSvgs([await svgOf()], PAGE_PT, { scale: 2.5 }), `${base}.pdf`); } finally { e.target.disabled = false; }
-  }));
+  return sheetHtml(widths, rows);
+}
+
+// the outstanding card of anyone on Home's list (o: analyse().due row)
+async function outstandingCardFor(o) {
+  const today = localToday();
+  const id = o.id.slice(2);
+  if (o.id.startsWith('g:')) {
+    const data = await state.store.account(null, id, null, null);
+    const st = bulkStatement(bulkRows(data), data, { name: o.name });
+    return cardOf(st, { asOn: st.to > today ? st.to : today });
+  }
+  const from = `${today.slice(0, 7)}-01`;
+  const data = await state.store.account(id, null, from, monthEnd(from));
+  const led = ledgerRows({ opening: data.customer.opening, from, sales: data.sales, payments: data.payments });
+  return cardOf(retailStatement(led, { name: o.name, from, to: today }), { asOn: today });
 }
 
 function poCard(g) {
