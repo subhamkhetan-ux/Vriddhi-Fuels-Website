@@ -67,9 +67,84 @@ function card(ctx, y, h) {
   ctx.stroke();
 }
 
+async function decode(blob) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { /* fall through */ }
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// The stock screenshots under the figures: one across the width, or two side
+// by side (several rows if needed), each fitted whole into its cell.
+const PROOF_MAX = 6;
+async function proofLayout(proofs) {
+  const shots = [];
+  for (const p of (proofs || []).slice(0, PROOF_MAX)) {
+    try { shots.push({ ...p, img: await decode(p.blob) }); } catch { /* unreadable: left out */ }
+  }
+  if (!shots.length) return null;
+  const wide = shots.every((p) => p.img.width >= p.img.height);
+  const cols = shots.length === 1 || wide ? 1 : 2;
+  const gap = 24;
+  const cellW = (W - 2 * PAD - (cols - 1) * gap) / cols;
+  const inner = cellW - 32;
+  const maxH = cols === 1 ? 1400 : 1000;
+  const font = `700 ${cols === 1 ? 28 : 24}px ${SANS}`;
+  const ctx = document.createElement('canvas').getContext('2d');
+  for (const p of shots) p.lines = wrap(ctx, p.label || 'Screenshot', font, cellW - 32).slice(0, 2);
+  const head = 58 + Math.max(...shots.map((p) => p.lines.length)) * 34;   // label + screen time above the picture
+  for (const p of shots) {
+    const k = Math.min(inner / p.img.width, maxH / p.img.height);
+    p.w = Math.round(p.img.width * k);
+    p.h = Math.round(p.img.height * k);
+  }
+  const rows = [];
+  for (let i = 0; i < shots.length; i += cols) rows.push(shots.slice(i, i + cols));
+  const rowH = rows.map((r) => head + Math.max(...r.map((p) => p.h)) + 20);
+  const height = 56 + rowH.reduce((a, h) => a + h + gap, 0);
+  return { shots, rows, rowH, cols, cellW, gap, head, height, font };
+}
+
+function drawProofs(ctx, L, y0) {
+  text(ctx, 'STOCK PROOF · AUTOMATION SCREENSHOTS', PAD, y0 + 34, { font: `700 22px ${SANS}`, color: C.faint });
+  let y = y0 + 56;
+  L.rows.forEach((row, ri) => {
+    const left = PAD + (L.cols - row.length) * (L.cellW + L.gap) / 2;   // a lone last one sits in the middle
+    row.forEach((p, ci) => {
+      const x = left + ci * (L.cellW + L.gap);
+      roundRect(ctx, x, y, L.cellW, L.rowH[ri], 24);
+      ctx.fillStyle = C.card;
+      ctx.fill();
+      ctx.strokeStyle = C.line;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      p.lines.forEach((l, i) => text(ctx, l, x + 16, y + 40 + i * 34, { font: L.font }));
+      text(ctx, p.sub || '', x + 16, y + 40 + p.lines.length * 34, { font: `500 22px ${SANS}`, color: C.muted });
+      const ix = x + (L.cellW - p.w) / 2;
+      const iy = y + L.head;
+      ctx.save();
+      roundRect(ctx, ix, iy, p.w, p.h, 12);
+      ctx.clip();
+      ctx.drawImage(p.img, ix, iy, p.w, p.h);
+      ctx.restore();
+    });
+    y += L.rowH[ri] + L.gap;
+  });
+}
+
 // m: {title, sub, when, total, variation, direction, summary,
 //     tanks: [{name, product, color, band, bandLabel, direction, variation, pctLine, meta, rows: [[label, litres, extra, bold, direction]]}],
-//     notes, footer, audit: {ok, text} | null, made}
+//     notes, footer, audit: {ok, text} | null, made,
+//     proofs: [{blob, label, sub}] — stock screenshots to show under the figures (optional)}
+// The canvas returned carries proofCount: how many screenshots made it in.
 export async function resultImage(m) {
   try { await Promise.all(['800 64px Sora', '700 34px Sora'].map((f) => document.fonts.load(f))); } catch { /* system fonts */ }
   const canvas = document.createElement('canvas');
@@ -160,13 +235,27 @@ export async function resultImage(m) {
     y += 36;
     text(ctx, l, PAD, y, { font: `500 26px ${SANS}`, color: C.muted });
   }
-  y += 44;
-  text(ctx, m.made, PAD, y, { font: `500 22px ${SANS}`, color: C.faint });
-  y += PAD;
+  const proofs = await proofLayout(m.proofs);
+  const top = Math.ceil(y);
+  const height = top + (proofs ? 24 + proofs.height : 0) + 44 + PAD;
 
   const out = document.createElement('canvas');
   out.width = W;
-  out.height = Math.ceil(y);
-  out.getContext('2d').drawImage(canvas, 0, 0);
+  out.height = height;
+  const octx = out.getContext('2d');
+  octx.textBaseline = 'alphabetic';
+  octx.fillStyle = C.bg;
+  octx.fillRect(0, 0, W, height);
+  const keep = proofs ? top : Math.min(height, canvas.height);      // no screenshots: the picture as it always was
+  octx.drawImage(canvas, 0, 0, W, keep, 0, 0, W, keep);
+  y = top;
+  if (proofs) {
+    drawProofs(octx, proofs, y + 24);
+    y += 24 + proofs.height;
+    for (const p of proofs.shots) p.img.close?.();
+  }
+  y += 44;
+  text(octx, m.made, PAD, y, { font: `500 22px ${SANS}`, color: C.faint });
+  out.proofCount = proofs ? proofs.shots.length : 0;
   return out;
 }

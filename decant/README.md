@@ -252,7 +252,11 @@ Tap **Start decanting** on the truck's card:
    (▲ *Excess*, ▲ *High excess*). The value at the invoice price is shown too.
    **📤 Share as picture** makes a PNG of the result (the truck, each tank's
    before / after / gain / chambers / variation, and the ₹ value) to send on
-   WhatsApp or save.
+   WhatsApp or save. The **first** picture after the decanting also shows the
+   automation screenshots behind the stock before / after (read on this phone
+   since it was opened), under the figures and labelled with their tanks; it
+   is then a JPEG. The screenshots are held in memory only and dropped once
+   that picture is made, so later pictures are the figures alone.
 
 **Chambers in the wrong tank?** If one tank came out well over and another
 of the same product well under, the app works out which chambers most
@@ -448,7 +452,8 @@ each tank so the loads I've placed an indent for fit?*
   message: the app's look (glass cards, colours, type, charts) for Excel for
   Mac.
 - **Screenshots are never kept**: they're read on the phone and only the
-  figures are saved.
+  figures are saved (a screenshot waits in memory, until the first result
+  picture uses it or the app is closed).
 
 ### Supabase's free plan
 

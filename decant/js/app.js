@@ -96,8 +96,52 @@ export function pickFile(accept) {
   });
 }
 
+// The screenshots behind this visit's readings, held in memory only (never
+// saved or sent anywhere) so the first result picture can show the stock
+// proof under the figures. Gone on a reload; dropped once a picture has used them.
+const proofShots = [];
+const PROOF_KEEP = 12;
+const PROOF_HOURS = 24;
+
+function keepProof(blob, readings) {
+  const marks = Object.fromEntries(Object.entries(readings).map(([id, r]) => [id, { readingAt: r.readingAt, volume: r.volume }]));
+  if (!Object.keys(marks).length) return;
+  const old = Date.now() - PROOF_HOURS * 3600000;
+  for (let i = proofShots.length - 1; i >= 0; i -= 1) if (proofShots[i].at < old) proofShots.splice(i, 1);
+  proofShots.push({ blob, at: Date.now(), readings: marks });
+  if (proofShots.length > PROOF_KEEP) proofShots.splice(0, proofShots.length - PROOF_KEEP);
+}
+
+// The held screenshots behind these tank rows' before / after readings:
+// [{shot, uses: [{tank, which, readingAt}]}], oldest first.
+export function proofShotsFor(rows) {
+  const out = [];
+  for (const shot of proofShots) {
+    const uses = [];
+    for (const t of rows || []) {
+      for (const which of ['before', 'after']) {
+        const r = t[which];
+        const m = shot.readings[t.tank];
+        if (r && m && /^photo/.test(r.source || '') && r.readingAt === m.readingAt && Math.abs((r.volume ?? NaN) - m.volume) < 0.005) {
+          uses.push({ tank: t.tank, which, readingAt: r.readingAt });
+        }
+      }
+    }
+    if (uses.length) out.push({ shot, uses });
+  }
+  return out.sort((a, b) => a.shot.at - b.shot.at);
+}
+
+export function dropProofShots(list) {
+  for (const { shot } of list) {
+    const i = proofShots.indexOf(shot);
+    if (i >= 0) proofShots.splice(i, 1);
+  }
+}
+
 // Pick a screenshot, read it and let the user check what was found. Only the
-// figures are kept — the picture itself is never stored or uploaded.
+// figures are kept — the picture itself is never stored or uploaded (it stays
+// in memory for this visit only, for the first result picture).
 // Resolves {readings: {tankId: reading}} or null.
 export async function readScreenshot({ want = null } = {}) {
   const file = await pickFile('image/*');
@@ -191,6 +235,7 @@ export async function readScreenshot({ want = null } = {}) {
             readings[id] = makeReading(id, r, src, extra);
           });
           for (const [id, r] of Object.entries(readings)) saveTankReading(id, r);
+          keepProof(file, readings);
           result = { readings };
           closeSheet();
         });
