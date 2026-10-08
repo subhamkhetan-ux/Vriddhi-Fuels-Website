@@ -102,20 +102,8 @@
 </header>
 
 <main>
-  <section id="login" hidden>
-    <div class="card">
-      <form id="loginForm">
-        <p class="note">Enter the PIN you set on the Mac.</p>
-        <label class="field">PIN
-          <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
-        </label>
-        <div id="loginErr" class="formerr" role="alert"></div>
-        <button class="primary" type="submit">Unlock</button>
-      </form>
-    </div>
-  </section>
 
-  <section id="app" hidden>
+  <section id="app">
     <div class="bar">
       <h2>Accounts</h2>
       <button id="addBtn" class="primary" type="button">Add account</button>
@@ -142,19 +130,9 @@
       </form>
     </div>
 
-    <div id="pinCard" class="card" hidden>
-      <form id="pinForm" autocomplete="off">
-        <p class="note" id="pinNote"></p>
-        <label class="field">New PIN (at least 6 characters)
-          <input id="newPin" type="password" inputmode="numeric" autocomplete="new-password">
-        </label>
-        <div id="pinErr" class="formerr" role="alert"></div>
-        <button class="primary" type="submit">Save PIN</button>
-      </form>
-    </div>
 
-    <p class="note">Changes reach the monitor on its next check (about 2 minutes). No restart needed.</p>
-    <p><button id="logoutBtn" type="button" hidden>Lock</button></p>
+    <p class="note">Changes reach the monitor on its next check (about 2 minutes). No restart needed.
+      To check on the monitor from your phone, send <b>/status</b> or <b>/logs</b> to your Telegram bot.</p>
   </section>
 </main>
 

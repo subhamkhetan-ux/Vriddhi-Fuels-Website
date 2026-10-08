@@ -31,7 +31,6 @@
     });
     let data = {};
     try { data = await res.json(); } catch (e) { /* no body */ }
-    if (res.status === 401 && path !== "/api/login") showLogin();
     if (!res.ok) throw new Error(data.error || `Something went wrong (${res.status}).`);
     return data;
   }
@@ -67,14 +66,6 @@
     return new Date(t).toLocaleString();
   }
 
-  function showLogin() {
-    $("app").hidden = true;
-    $("login").hidden = false;
-    $("monitor").textContent = "Locked";
-    $("monitor").classList.remove("on");
-    $("pin").focus();
-  }
-
   function render(s) {
     state = s;
     const mon = $("monitor");
@@ -96,13 +87,6 @@
       $("sChat").value = s.settings.chat_id;
       $("sPoll").value = s.settings.poll_seconds;
     }
-    $("pinCard").hidden = !s.is_local;
-    $("pinNote").textContent = s.settings.pin_set
-      ? "A phone PIN is set. Saving a new one changes it and signs out any phone."
-      : "Set a PIN to use this page from your phone over Tailscale.";
-    $("logoutBtn").hidden = s.is_local;
-    $("login").hidden = true;
-    $("app").hidden = false;
   }
 
   function card(a) {
@@ -237,44 +221,20 @@
     } catch (e) { $("settingsErr").textContent = e.message; } finally { btn.disabled = false; }
   });
 
-  $("pinForm").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    try {
-      render(await api("POST", "/api/pin", { pin: $("newPin").value }));
-      $("newPin").value = "";
-      $("pinErr").textContent = "";
-      toast("PIN saved");
-    } catch (e) { $("pinErr").textContent = e.message; }
-  });
-
-  $("loginForm").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    try {
-      await api("POST", "/api/login", { pin: $("pin").value });
-      $("pin").value = "";
-      $("loginErr").textContent = "";
-      await refresh();
-    } catch (e) { $("loginErr").textContent = e.message; }
-  });
-  $("logoutBtn").addEventListener("click", async () => {
-    try { await api("POST", "/api/logout"); } catch (e) { /* signed out anyway */ }
-    showLogin();
-  });
-
   async function refresh() {
     try {
       render(await api("GET", "/api/state"));
     } catch (e) {
-      if ($("login").hidden) toast(e.message);
+      toast(e.message);
     }
   }
 
   // Keep balances and the monitor status fresh while the page is open.
   setInterval(() => {
-    if (!document.hidden && !$("editor").open && $("login").hidden) refresh();
+    if (!document.hidden && !$("editor").open) refresh();
   }, 30000);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && $("login").hidden) refresh();
+    if (!document.hidden) refresh();
   });
   refresh();
 })();

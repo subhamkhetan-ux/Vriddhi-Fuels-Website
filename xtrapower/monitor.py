@@ -25,11 +25,12 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
 
-from . import browser, configfile, parse, state
+from . import browser, configfile, parse, state, telegram_bot
 from .notify import Telegram
 
 log = logging.getLogger("xtrapower.monitor")
@@ -389,7 +390,8 @@ def reload_config(
     return new, tg, None
 
 
-async def main_async(args: argparse.Namespace) -> None:
+async def main_async(args: argparse.Namespace,
+                     logs: telegram_bot.LogBuffer | None = None) -> None:
     cfg = load_config(args.config)
     state_path = args.state or os.path.join(os.path.dirname(os.path.abspath(args.config)), "state.json")
     tg = Telegram(cfg.get("telegram", {}).get("token"), cfg.get("telegram", {}).get("chat_id"))
@@ -405,15 +407,33 @@ async def main_async(args: argparse.Namespace) -> None:
     # quiet until you hand it over, then confirms with a ✅ (see check_account).
     ready: dict[str, bool] = {}
 
+    # For /status from Telegram (telegram_bot.py): read from its own thread.
+    health: dict[str, Any] = {"started": time.time(), "last_end": None}
+
+    def status_snapshot() -> dict[str, Any]:
+        return {
+            "started": health["started"],
+            "last_end": health["last_end"],
+            "poll": poll,
+            "accounts": [{"label": a.get("label"), "key": _acct_key(a), "watch": a.get("watch", True)}
+                         for a in cfg["accounts"]],
+            "ready": dict(ready),
+            "state": state.load(state_path),
+        }
+
     async with browser.BrowserPool() as pool:
         if args.once:
             await run_cycle(pool, cfg, state_path, tg, ready)
             return
+        if logs is not None:
+            listener = telegram_bot.CommandListener(lambda: tg, status_snapshot, logs, health["started"])
+            threading.Thread(target=listener.run_forever, name="telegram-commands", daemon=True).start()
         if args.announce and tg.configured:
             tg.send(
                 f"▶️ XtraPower monitor started — waiting for you to log in to "
                 f"{len(watched)} account(s). You'll get a ✅ as each is handed "
-                f"over, then a 🟢 on every credit (checking every {poll//60}m)."
+                f"over, then a 🟢 on every credit (checking every {poll//60}m). "
+                f"Send /status any time to check on me."
             )
         bad_config: str | None = None
         while True:
@@ -427,6 +447,7 @@ async def main_async(args: argparse.Namespace) -> None:
             bad_config = err
             poll = int(cfg["poll_seconds"])
             await run_cycle(pool, cfg, state_path, tg, ready)
+            health["last_end"] = time.time()
             elapsed = time.time() - started
             await asyncio.sleep(max(1.0, poll - elapsed))
 
@@ -444,8 +465,10 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    logs = telegram_bot.LogBuffer()       # recent lines for /logs from Telegram
+    logging.getLogger().addHandler(logs)
     try:
-        asyncio.run(main_async(args))
+        asyncio.run(main_async(args, logs))
     except configfile.ConfigError as exc:
         raise SystemExit(f"\n{exc}\n")
     except KeyboardInterrupt:

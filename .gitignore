@@ -52,8 +52,6 @@ xtrapower/profiles/
 xtrapower/state.json
 xtrapower/*.log
 xtrapower/monitor.pid
-# Account manager: the previous config kept on every save (holds passwords),
-# and its pid file.
+# Account manager: the previous config kept on every save (holds passwords).
 xtrapower/config.json.bak
-xtrapower/manage.pid
 xtrapower/debug/

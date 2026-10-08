@@ -112,66 +112,36 @@ def test_next_free_port_skips_used_ones():
     assert manage.next_free_port([]) == 9222
 
 
-def test_pin_hash_roundtrip():
-    ui = manage.hash_pin("482913")
-    assert manage.verify_pin("482913", ui)
-    assert not manage.verify_pin("482914", ui)
-    assert "482913" not in json.dumps(ui)
-    assert not manage.verify_pin("482913", {})
-
-
 # ---- who may connect ----------------------------------------------------------
 
-def test_client_kind():
-    assert manage.client_kind("127.0.0.1") == "local"
-    assert manage.client_kind("::1") == "local"
-    assert manage.client_kind("100.101.102.103") == "tailnet"
-    assert manage.client_kind("::ffff:100.64.0.1") == "tailnet"
-    assert manage.client_kind("fd7a:115c:a1e0::1") == "tailnet"
-    assert manage.client_kind("192.168.1.20") == "other"     # office Wi-Fi: never allowed
-    assert manage.client_kind("8.8.8.8") == "other"
+def test_only_this_mac_is_allowed():
+    assert manage.is_loopback("127.0.0.1")
+    assert manage.is_loopback("::1")
+    assert manage.is_loopback("::ffff:127.0.0.1")
+    assert not manage.is_loopback("100.101.102.103")       # Tailscale phone: not any more
+    assert not manage.is_loopback("192.168.1.20")          # office Wi-Fi
+    assert not manage.is_loopback("not-an-ip")
 
 
 def test_access_rules():
     port = 8780
-    # This Mac, addressed as itself: fine, no PIN.
-    assert manage.access_error("local", "127.0.0.1:8780", port, True, False) is None
+    assert manage.access_error("127.0.0.1", "127.0.0.1:8780", port) is None
+    assert manage.access_error("127.0.0.1", "localhost:8780", port) is None
+    assert manage.access_error("::1", "[::1]:8780", port) is None
     # This Mac, but under another host name: DNS rebinding — refused.
-    assert manage.access_error("local", "evil.example:8780", port, True, False)[0] == 403
-    # A phone on the tailnet without a session: needs the PIN...
-    assert manage.access_error("tailnet", "100.1.2.3:8780", port, True, False)[0] == 401
-    # ...but may load the page itself and the login endpoint.
-    assert manage.access_error("tailnet", "100.1.2.3:8780", port, False, False) is None
-    assert manage.access_error("tailnet", "100.1.2.3:8780", port, True, True) is None
-    # Anything else is refused outright.
-    assert manage.access_error("other", "x", port, False, True)[0] == 403
+    assert manage.access_error("127.0.0.1", "evil.example:8780", port)[0] == 403
+    # Any other machine is refused, whatever Host it claims.
+    assert manage.access_error("100.1.2.3", "127.0.0.1:8780", port)[0] == 403
+    assert manage.access_error("192.168.1.20", "127.0.0.1:8780", port)[0] == 403
 
 
-def test_login_locks_out_after_repeated_wrong_pins(tmp_path):
-    app = manage.App(str(_write_cfg(tmp_path)), 8780)
-    assert app.login("123456")[0] == 409                    # no PIN set yet
-    app.set_pin("482913")
-    for left in (4, 3, 2, 1):
-        status, msg, token = app.login("000000")
-        assert status == 401 and f"{left} tr" in msg and token is None
-    status, msg, _ = app.login("000000")
-    assert status == 429 and "Locked" in msg
-    assert app.login("482913")[0] == 429                    # right PIN still waits out the lock
-
-
-def test_login_success_gives_a_session_and_a_new_pin_ends_it(tmp_path):
-    app = manage.App(str(_write_cfg(tmp_path)), 8780)
-    app.set_pin("482913")
-    status, _, token = app.login("482913")
-    assert status == 200 and app.session_valid(token)
-    app.set_pin("775533")
-    assert not app.session_valid(token)
-
-
-def test_pin_must_be_long_enough(tmp_path):
-    app = manage.App(str(_write_cfg(tmp_path)), 8780)
-    with pytest.raises(manage.ValidationError, match="at least"):
-        app.set_pin("123")
+def test_server_binds_to_this_mac_only(tmp_path):
+    app = manage.App(str(_write_cfg(tmp_path)), 0)
+    srv = manage.make_server(app, 0)
+    try:
+        assert srv.server_address[0] == "127.0.0.1"
+    finally:
+        srv.server_close()
 
 
 # ---- the HTTP API --------------------------------------------------------------
@@ -180,7 +150,7 @@ def test_pin_must_be_long_enough(tmp_path):
 def server(tmp_path):
     path = _write_cfg(tmp_path)
     app = manage.App(str(path), 0)
-    srv = manage.make_server(app, "127.0.0.1", 0)
+    srv = manage.make_server(app, 0)
     app.port = srv.server_port
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
@@ -226,7 +196,6 @@ def test_state_never_sends_passwords_or_the_token(server):
     assert status == 200
     assert PASSWORD.encode() not in raw and TOKEN.encode() not in raw
     data = json.loads(raw)
-    assert data["is_local"] is True
     assert data["accounts"][0]["has_password"] is True
     assert data["next_port"] == 9223
 
@@ -243,6 +212,13 @@ def test_wrong_host_header_is_refused(server):
     srv, _ = server
     status, _, _ = _call(srv, "GET", "/api/state", host=f"attacker.example:{srv.server_port}")
     assert status == 403
+
+
+def test_old_pin_endpoints_are_gone(server):
+    srv, _ = server
+    for path in ("/api/login", "/api/pin", "/api/logout"):
+        status, _, _ = _call(srv, "POST", path, {"pin": "482913"})
+        assert status == 404
 
 
 def test_add_edit_toggle_delete_roundtrip(server):
@@ -297,14 +273,6 @@ def test_saved_config_is_private_and_backed_up(server):
     backup = str(path) + ".bak"
     assert os.path.exists(backup) and stat.S_IMODE(os.stat(backup).st_mode) == 0o600
     assert json.loads(open(backup, encoding="utf-8").read())["accounts"][0]["watch"] is True
-
-
-def test_pin_can_be_set_from_the_mac_and_is_stored_hashed(server):
-    srv, path = server
-    status, raw, _ = _call(srv, "POST", "/api/pin", {"pin": "482913"})
-    assert status == 200 and json.loads(raw)["settings"]["pin_set"] is True
-    ui = json.loads(path.read_text())["ui"]
-    assert "482913" not in json.dumps(ui) and manage.verify_pin("482913", ui)
 
 
 def test_saving_drops_hand_written_comments_but_keeps_values(tmp_path):
