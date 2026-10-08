@@ -59,8 +59,8 @@ test('company-wise outstanding: each billing name, opening kept for the group', 
   assert.deepEqual(cw.list.map((c) => [c.name, c.billed, c.received, c.deductions, c.outstanding]), [
     ['Crew One', 9450, -500, 0, 9950],                     // "crew  one" is Crew One
     ['Crew Two', 18000, 10000, 150, 7850],
-    ['Crew Three', 0, 0, 0, 0],
   ]);
+  assert.equal(cw.settled, 1);                             // Crew Three, at nil: counted, not listed
   assert.equal(cw.opening, 5000);
   assert.equal(round(cw.opening + cw.list.reduce((a, c) => a + c.outstanding, 0)), cw.total);
   assert.equal(cw.total, st.closing);
@@ -158,6 +158,7 @@ test('outstanding card and list pictures', () => {
   assert.equal(card.size.width, 1080);
   assert.ok(card.size.height > 900);
   assert.ok(card.svg.includes('Crew Two') && card.svg.includes('Group balance') && card.svg.includes(drCr(st.closing)));
+  assert.ok(!card.svg.includes('Crew Three') && card.svg.includes('+ 1 company with a nil balance'));
   const adv = outstandingCardSvg({ name: 'Paid Ahead', kind: 'retail', balance: -2500, asOn: '2026-10-08' });
   assert.ok(adv.svg.includes('ADVANCE WITH US') && adv.svg.includes('₹2,500'));
   const list = outstandingListSvg({ list: [{ name: 'A', kind: 'bulk', balance: 100 }, { name: 'B', kind: 'retail', balance: 50 }], total: 150, asOn: '2026-10-08' });
