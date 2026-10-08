@@ -185,6 +185,9 @@ async function svgToJpeg(svg, size, scale) {
   const img = new Image();
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   await img.decode();
+  // an embedded font can finish loading just after decode(): give it a
+  // moment, or the first picture can come out without its text
+  if (svg.includes('@font-face')) await new Promise((r) => setTimeout(r, 150));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(size.width * scale);
   canvas.height = Math.round(size.height * scale);

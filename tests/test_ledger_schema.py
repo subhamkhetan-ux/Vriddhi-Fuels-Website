@@ -174,7 +174,7 @@ def payload(**over):
         ],
         "payments": [
             {"pay_date": "2026-04-05", "customer": "Demo Power Ltd", "amount": 50000,
-             "mode": "HDFC 1010", "seq": 2},
+             "mode": "HDFC 1010", "seq": 2, "unit": " unit 1 "},
             {"pay_date": "2026-04-06", "customer": "Payment Only Person", "amount": 300, "seq": 3},
         ],
         "pos": [
@@ -634,6 +634,8 @@ def test_customer_ledgers(pg):
     g = pg.owner(call("ledger_account", None, "Demo_Bulk", None, None))
     assert g["kind"] == "bulk" and g["group"]["layout"] == {"cols": [12.16, 12.16, 11.5]}
     assert g["group"]["kind"] == "po" and float(g["group"]["opening"]) == 1000
+    # the Unit typed on a *_Bulk payment row comes back with the payment (trimmed, upper case)
+    assert [p["unit"] for p in g["payments"]] == ["UNIT 1"]
     assert [m["name"] for m in g["members"]] == ["Demo Power Ltd"]
     want = pg.ok("select count(*) from ledger_sales s join ledger_customers c using (customer_key)"
                  " where c.bulk_group = 'Demo_Bulk' and s.sale_date >= '2026-04-01';", **as_owner)

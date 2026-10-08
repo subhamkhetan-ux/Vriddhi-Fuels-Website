@@ -162,7 +162,7 @@ function productLine(x, y, products) {
 // company-wise outstanding of a group: one row per company, then the group's opening and total
 function companiesBlock(x, y, w, cw) {
   const max = Math.max(1, ...cw.list.map((c) => Math.abs(c.outstanding)));
-  let out = T(x, y + 24, 'COMPANY-WISE OUTSTANDING', { size: 16, weight: 700, fill: C.muted, spacing: 2 });
+  let out = T(x, y + 24, cw.title || 'COMPANY-WISE OUTSTANDING', { size: 16, weight: 700, fill: C.muted, spacing: 2 });
   let yy = y + 44;
   for (const c of cw.list) {
     out += `${R(x, yy, w, 74, { rx: 18, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.09 })}
@@ -176,10 +176,82 @@ ${T(x + w - 24, yy + 34, drCr(c.outstanding), { size: 23, weight: 800, anchor: '
     out += `${T(x + 24, yy + 22, 'Opening balance of the group', { size: 17, fill: C.muted })}${T(x + w - 24, yy + 22, drCr(cw.opening), { size: 19, weight: 700, anchor: 'end', fill: cw.opening < 0 ? C.good : C.ink })}`;
     yy += 36;
   }
-  out += `${R(x, yy, w, 1.5, { opacity: 0.12 })}${T(x + 24, yy + 34, 'Group balance', { size: 19, weight: 700 })}${T(x + w - 24, yy + 34, drCr(cw.total), { size: 23, weight: 800, anchor: 'end', fill: cw.total < 0 ? C.good : C.amber })}`;
+  out += `${R(x, yy, w, 1.5, { opacity: 0.12 })}${T(x + 24, yy + 34, cw.totalLabel || 'Group balance', { size: 19, weight: 700 })}${T(x + w - 24, yy + 34, drCr(cw.total), { size: 23, weight: 800, anchor: 'end', fill: cw.total < 0 ? C.good : C.amber })}`;
   return { svg: out, height: yy + 50 - y };
 }
-const companiesHeight = (cw) => 44 + cw.list.length * 84 + (Math.round(cw.opening) ? 36 : 0) + 50;
+
+// ---- FIFO: the bills that make up the balance -------------------------------------------
+// pending: ledger-view.js fifoPending().pending — [{date, bill, title, key, company, amount, pending, days}]
+const MAX_PENDING = 40;
+const pendingWho = (d) => [d.key ? unitName(d.key) : '', d.po ? `PO ${d.po}` : '', d.company && d.showCompany ? d.company : ''].filter(Boolean).join(' · ');
+const unitName = (u) => String(u).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+function pendingList(pending) {
+  if (pending.length <= MAX_PENDING) return { rows: pending, more: null };
+  const rows = pending.slice(0, MAX_PENDING - 1);
+  const rest = pending.slice(MAX_PENDING - 1);
+  return { rows, more: { n: rest.length, amount: rest.reduce((a, d) => a + d.pending, 0), from: rest[0].date, to: rest[rest.length - 1].date } };
+}
+// one row: date | invoice no. (and unit / company) | bill amount | pending | days
+function pendingRow(d, x, y, w, zebra) {
+  const inv = d.opening ? 'Opening balance' : (d.bill ? `Inv. ${d.bill}` : d.title);
+  const who = pendingWho(d);
+  const max = w - 190 - 470;
+  return `${zebra ? R(x, y + 2, w, PEND_H - 4, { rx: 12, opacity: 0.03 }) : ''}
+${T(x + 18, y + 36, dMonY(d.date), { size: 18, weight: 600 })}
+${T(x + 190, y + (who ? 28 : 36), inv, { size: 18, weight: 700, max })}
+${who ? T(x + 190, y + 50, who, { size: 14, fill: C.muted, max }) : ''}
+${T(x + w - 300, y + 36, d.pending < d.amount ? `of ${rupees(d.amount)}` : '', { size: 15, fill: C.muted, anchor: 'end' })}
+${T(x + w - 120, y + 36, rupees(d.pending), { size: 19, weight: 800, anchor: 'end', fill: C.ink })}
+${d.days != null ? T(x + w - 18, y + 36, `${d.days} day${d.days === 1 ? '' : 's'}`, { size: 15, weight: 700, anchor: 'end', fill: d.days > 30 ? C.bad : d.days > 15 ? C.warn : C.muted }) : ''}`;
+}
+const PEND_H = 58;
+// PO-wise outstanding (ledger-view.js poSummary()): one row per PO
+const PO_H = 62;
+function poRow(r, x, y, w, zebra) {
+  const name = r.kind === 'opening' ? 'Opening balance' : r.kind === 'none' ? 'Without a PO' : `PO ${r.po}`;
+  const sub = [r.unitLabel || '', r.bills ? `${r.bills} bill${r.bills === 1 ? '' : 's'}` : '', r.bills ? (r.from === r.to ? dMon(r.from) : `${dMon(r.from)} – ${dMon(r.to)}`) : ''].filter(Boolean).join(' · ');
+  return `${zebra ? R(x, y + 2, w, PO_H - 4, { rx: 12, opacity: 0.03 }) : ''}
+<circle cx="${x + 24}" cy="${y + 26}" r="6" fill="${r.kind === 'po' ? C.HSD : r.kind === 'opening' ? C.faint : C.OTHER}"/>
+${T(x + 44, y + 32, name, { size: 19, weight: 700, max: w - 44 - 330 })}
+${sub ? T(x + 44, y + 53, sub, { size: 14, fill: C.muted, max: w - 44 - 330 }) : ''}
+${T(x + w - 140, y + 36, rupees(r.pending), { size: 20, weight: 800, anchor: 'end' })}
+${r.oldestDays != null && r.bills ? T(x + w - 18, y + 36, `oldest ${r.oldestDays} d`, { size: 15, weight: 700, anchor: 'end', fill: r.oldestDays > 30 ? C.bad : r.oldestDays > 15 ? C.warn : C.muted }) : ''}`;
+}
+function poHead(x, y, w, total, count) {
+  return `${T(x, y + 30, 'PO-WISE OUTSTANDING', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
+${T(x + w, y + 30, `${count ? `${count} PO${count === 1 ? '' : 's'} · ` : ''}${rupees(total)}`, { size: 17, weight: 700, anchor: 'end', fill: C.amber })}
+${R(x, y + 46, w, 1.5, { opacity: 0.1 })}`;
+}
+function poBlock(x, y, w, summary) {
+  let out = poHead(x, y, w, summary.total, summary.rows.filter((r) => r.kind === 'po').length);
+  let yy = y + 54;
+  summary.rows.forEach((r, i) => { out += poRow(r, x, yy, w, i % 2 === 1); yy += PO_H; });
+  return { svg: out, height: yy - y + 14 };
+}
+
+function pendingHead(x, y, w, total, count) {
+  return `${T(x, y + 30, 'PENDING BILLS · OLDEST PAID FIRST (FIFO)', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
+${T(x + w, y + 30, `${count} bill${count === 1 ? '' : 's'} · ${rupees(total)}`, { size: 17, weight: 700, anchor: 'end', fill: C.amber })}
+${R(x, y + 46, w, 1.5, { opacity: 0.1 })}`;
+}
+function pendingBlock(x, y, w, pending, advance = 0) {
+  const { rows, more } = pendingList(pending);
+  const total = pending.reduce((a, d) => a + d.pending, 0);
+  let out = pendingHead(x, y, w, total, pending.length);
+  let yy = y + 54;
+  rows.forEach((d, i) => { out += pendingRow(d, x, yy, w, i % 2 === 1); yy += PEND_H; });
+  if (more) {
+    out += T(x + 18, yy + 32, `+ ${more.n} more bills, ${dMon(more.from)} – ${dMon(more.to)}`, { size: 17, fill: C.muted });
+    out += T(x + w - 120, yy + 32, rupees(more.amount), { size: 18, weight: 700, anchor: 'end' });
+    yy += 52;
+  }
+  if (advance > 0.5) {
+    out += T(x + 18, yy + 32, 'Less: advance not yet set against a bill', { size: 17, fill: C.muted });
+    out += T(x + w - 120, yy + 32, rupees(-advance), { size: 18, weight: 700, anchor: 'end', fill: C.good });
+    yy += 52;
+  }
+  return { svg: out, height: yy - y + 10 };
+}
 
 // ---- the statement ---------------------------------------------------------------------
 const COL = (w, pad) => ({
@@ -205,6 +277,13 @@ function line(l, x, y, w, col) {
     return `${R(x, y + 8, w, H.month - 12, { rx: 14, fill: 'url(#brand)', opacity: 0.13 })}
 ${T(col.date, y + 37, m.title.toUpperCase(), { size: 17, weight: 800, fill: C.amber, spacing: 2 })}
 ${T(col.bal, y + 37, `billed ${rupees(m.billed)}  ·  received ${rupees(m.received)}${m.deductions ? `  ·  TDS/short ${rupees(m.deductions)}` : ''}`, { size: 15, fill: C.muted, anchor: 'end' })}`;
+  }
+  if (l.t === 'pohead') return poHead(x, y + 24, w, l.total, l.count);
+  if (l.t === 'po') return poRow(l.r, x, y, w, l.zebra);
+  if (l.t === 'pendhead') return pendingHead(x, y + 24, w, l.total, l.count);
+  if (l.t === 'pend') return pendingRow(l.d, x, y, w, l.zebra);
+  if (l.t === 'pendnote') {
+    return `${T(x + 18, y + 32, l.label, { size: 17, fill: C.muted })}${T(x + w - 120, y + 32, rupees(l.amount), { size: 18, weight: 700, anchor: 'end', fill: l.amount < 0 ? C.good : C.ink })}`;
   }
   if (l.t === 'total') {
     return `${R(x, y + 6, w, H.total - 8, { rx: 16, opacity: 0.07, stroke: '#fff', strokeOpacity: 0.14 })}
@@ -233,7 +312,7 @@ ${bal(e.balance, 18)}`;
 // st: ledger-view.js bulkStatement() / retailStatement() (optionally cut to a
 // month: {..., entries, months, opening, closing, from, to} of that month)
 // opts: { asOn, images: {logo}, fontCss, title }
-export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title = 'Statement of account', tag = '' } = {}) {
+export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title = 'Statement of account', tag = '', pending = null, advance = 0, pos = null } = {}) {
   const { width: w, height: h } = SHARE_PAGE;
   const pad = 56;
   const col = COL(w, pad);
@@ -246,6 +325,18 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
   }
   const t = st.totals;
   lines.push({ t: 'total', label: 'Closing balance', qty: t.qty, debit: t.billed, credit: t.received + t.tds + t.shortage, balance: st.closing, h: H.total });
+  // what makes up the closing: per PO, then the unpaid bills, oldest paid first
+  if (pos && pos.rows.length) {
+    lines.push({ t: 'pohead', total: pos.total, count: pos.rows.filter((r) => r.kind === 'po').length, h: 84 });
+    pos.rows.forEach((r, i) => lines.push({ t: 'po', r, zebra: i % 2 === 1, h: PO_H }));
+  }
+  if (pending && pending.length) {
+    const { rows, more } = pendingList(pending);
+    lines.push({ t: 'pendhead', total: pending.reduce((a, d) => a + d.pending, 0), count: pending.length, h: 84 });
+    rows.forEach((d, i) => lines.push({ t: 'pend', d, zebra: i % 2 === 1, h: PEND_H }));
+    if (more) lines.push({ t: 'pendnote', label: `+ ${more.n} more bills, ${dMon(more.from)} – ${dMon(more.to)}`, amount: more.amount, h: 52 });
+    if (advance > 0.5) lines.push({ t: 'pendnote', label: 'Less: advance not yet set against a bill', amount: -advance, h: 52 });
+  }
 
   // page 1's head: brand, name, balance, tiles, products, companies
   const bl = balanceLabel(st.closing);
@@ -302,7 +393,7 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
   let y = first;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
-    const needs = l.h + (l.t === 'month' && lines[i + 1] ? lines[i + 1].h : 0);
+    const needs = l.h + ((l.t === 'month' || l.t === 'pendhead' || l.t === 'pohead') && lines[i + 1] ? lines[i + 1].h : 0);
     if (y + needs > bottom && cur.length) {
       pagesLines.push(cur);
       cur = [];
@@ -317,8 +408,11 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
   return pagesLines.map((pl, i) => {
     const head = i === 0 ? head1(1, pages) : headN(i + 1, pages);
     let yy = head.y;
-    let body = tableHead(pad, yy, w - 2 * pad, col);
-    yy += H.head;
+    let body = '';
+    if (pl.some((l) => !l.t.startsWith('pend') && !l.t.startsWith('po'))) {   // a page of PO / pending rows only has no statement header
+      body += tableHead(pad, yy, w - 2 * pad, col);
+      yy += H.head;
+    }
     for (const l of pl) { body += line(l, pad, yy, w - 2 * pad, col); yy += l.h; }
     const foot = `${R(pad, h - 78, w - 2 * pad, 1.5, { opacity: 0.1 })}
 ${T(pad, h - 40, 'Vriddhi Fuels  ·  computer-generated statement  ·  balances: Dr = due from you, Cr = advance', { size: 15, fill: C.faint, max: w - 2 * pad - 180 })}
@@ -369,6 +463,21 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
     const cb = companiesBlock(pad, y, w - 2 * pad, card.companies);
     out += cb.svg;
     y += cb.height + 20;
+  }
+  if (card.units) {
+    const cb = companiesBlock(pad, y, w - 2 * pad, card.units);
+    out += cb.svg;
+    y += cb.height + 20;
+  }
+  if (card.pos && card.pos.rows.length) {
+    const pb = poBlock(pad, y, w - 2 * pad, card.pos);
+    out += pb.svg;
+    y += pb.height + 10;
+  }
+  if (card.pending && card.pending.length) {
+    const pb = pendingBlock(pad, y, w - 2 * pad, card.pending, card.advance || 0);
+    out += pb.svg;
+    y += pb.height + 10;
   }
   y += 16;
   out += `${R(pad, y, w - 2 * pad, 1.5, { opacity: 0.1 })}${T(pad, y + 40, 'Vriddhi Fuels  ·  thank you for your business', { size: 16, fill: C.faint })}${T(w - pad, y + 40, 'Dr = due  ·  Cr = advance', { size: 16, fill: C.faint, anchor: 'end' })}`;

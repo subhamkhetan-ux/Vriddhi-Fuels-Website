@@ -92,7 +92,8 @@ export function bulkStatement(res, data, { name = '' } = {}) {
     else title = `${PRODUCT_LABEL[code]}${r.bill ? ` · Bill ${r.bill}` : ''}`;
     return {
       date: r.date, type: code === 'PAY' ? 'pay' : 'bill', product: code, title, detail: detail.join(' · '),
-      company: r.name || '', qty: Number(r.qty) || 0, rate: Number(r.rate) || 0,
+      company: r.name || '', unit: String(r.unit || '').trim().toUpperCase(), bill: r.bill || '', po: r.po || '', id: r.id,
+      qty: Number(r.qty) || 0, rate: Number(r.rate) || 0,
       debit: Number(r.amount) || 0, paid: Number(r.paid) || 0, tds, shortage,
       credit: round2((Number(r.paid) || 0) + tds + shortage), balance: r.balance,
     };
@@ -162,6 +163,208 @@ export function retailStatement(led, { name = '', from = '', to = '' } = {}) {
     kind: 'retail', name, from: from || led.from, to: to || (entries.length ? entries[entries.length - 1].date : led.from),
     opening: led.opening, closing: led.closing, entries, months: byMonth(entries, led.opening), ...sum,
     members: [name], companies: null,
+  };
+}
+
+// ---- FIFO: the bills that make up the balance ------------------------------------
+// Every credit (payment, TDS, shortage) clears the oldest open bill first, so
+// what is still pending is the newest bills: their date and invoice number,
+// what is left on each and how many days old it is.
+// keyOf(entry) names the account an entry belongs to — the Unit on an SMC-style
+// sheet ('UNIT 1' / 'UNIT 2'), '' otherwise. A credit with a key clears that
+// key's bills, then bills with no key (an opening the units don't split, a
+// bill with no unit yet); what's left is that key's advance. A credit with no
+// key clears the oldest bills of every key. Opening balances go first.
+// Returns { pending: [...newest last], keys: {key: {pending, advance, balance}},
+// moves: [{at, key, amount, kind}] (how credits crossed keys — for the
+// per-unit statements), total }.
+export function fifoPending(entries, { opening = 0, openingByKey = {}, keyOf = () => '', from = '', asOn = '' } = {}) {
+  const queues = new Map();          // key -> open debits, oldest first
+  const advance = new Map();         // key -> credit not yet used
+  const moves = [];
+  const move = (at, key, amount, kind) => {
+    const last = moves[moves.length - 1];
+    if (last && last.at === at && last.key === key && last.kind === kind) last.amount = round2(last.amount + amount);
+    else moves.push({ at, key, amount: round2(amount), kind });
+  };
+  const q = (k) => { if (!queues.has(k)) queues.set(k, []); return queues.get(k); };
+  const adv = (k) => advance.get(k) || 0;
+  let seq = 0;
+  const debit = (item, at) => {
+    let left = round2(item.amount);
+    for (const k of item.key ? [item.key, ''] : ['']) {   // unused credit of the same key first, then credit with no key
+      const a = adv(k);
+      if (left <= 0 || a <= 0) continue;
+      const take = Math.min(a, left);
+      advance.set(k, round2(a - take));
+      left = round2(left - take);
+      if (k !== item.key) move(at, item.key, take, 'advance');
+    }
+    if (left > 0) q(item.key).push({ ...item, pending: left, seq: seq++ });
+  };
+  const credit = (amount, key, at) => {
+    let left = round2(amount);
+    const take = (list, onTake) => {
+      while (left > 0 && list.length) {
+        const d = list[0];
+        const t = Math.min(d.pending, left);
+        d.pending = round2(d.pending - t);
+        left = round2(left - t);
+        onTake(d, t);
+        if (d.pending <= 0) list.shift();
+      }
+    };
+    if (key) {
+      take(q(key), () => {});
+      take(q(''), (d, t) => move(at, key, t, 'spill'));
+      if (left > 0) advance.set(key, round2(adv(key) + left));
+      return;
+    }
+    // no key: the oldest open debit of any key, one at a time
+    while (left > 0) {
+      let best = null;
+      for (const [k, list] of queues) {
+        const d = list[0];
+        if (d && (!best || d.date < best.d.date || (d.date === best.d.date && d.seq < best.d.seq))) best = { k, d };
+      }
+      if (!best) break;
+      const t = Math.min(best.d.pending, left);
+      best.d.pending = round2(best.d.pending - t);
+      left = round2(left - t);
+      if (best.k) move(at, best.k, t, 'alloc');
+      if (best.d.pending <= 0) queues.get(best.k).shift();
+    }
+    if (left > 0) advance.set('', round2(adv('') + left));
+  };
+  // opening balances: per key where the sheet splits them, the rest without a key
+  let rest = Number(opening) || 0;
+  for (const [k, v0] of Object.entries(openingByKey || {})) {
+    const v = Number(v0) || 0;
+    if (!v) continue;
+    rest -= v;
+    const key = String(k).trim().toUpperCase();
+    if (v > 0) debit({ date: from, bill: '', title: 'Opening balance', product: '', key, amount: v, opening: true }, -1);
+    else credit(-v, key, -1);
+  }
+  rest = round2(rest);
+  if (rest > 0) debit({ date: from, bill: '', title: 'Opening balance', product: '', key: '', amount: rest, opening: true }, -1);
+  else if (rest < 0) credit(-rest, '', -1);
+
+  entries.forEach((e, i) => {
+    const key = keyOf(e) || '';
+    const item = { date: e.date, bill: e.bill || '', title: e.title, product: e.product, key, company: e.company || '', po: e.po || '', id: e.id };
+    if (e.debit > 0) debit({ ...item, amount: e.debit }, i);
+    else if (e.debit < 0) credit(-e.debit, key, i);
+    if (e.credit > 0) credit(e.credit, key, i);
+    else if (e.credit < 0) debit({ ...item, title: 'Refund', amount: -e.credit }, i);   // money paid back
+  });
+
+  const days = (d) => (asOn && d ? Math.max(0, Math.round((Date.parse(`${asOn}T00:00:00Z`) - Date.parse(`${d}T00:00:00Z`)) / 86400000)) : null);
+  const pending = [...queues.values()].flat().filter((d) => d.pending > 0)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq)
+    .map(({ seq: _s, ...d }) => ({ ...d, amount: round2(d.amount), pending: round2(d.pending), days: days(d.date) }));
+  const keys = {};
+  for (const k of new Set([...queues.keys(), ...advance.keys()])) {
+    const p = round2(pending.filter((d) => d.key === k).reduce((a, d) => a + d.pending, 0));
+    keys[k] = { pending: p, advance: adv(k), balance: round2(p - adv(k)) };
+  }
+  const total = round2(pending.reduce((a, d) => a + d.pending, 0) - [...advance.values()].reduce((a, v) => a + v, 0));
+  return { pending, keys, moves, total, advance: round2([...advance.values()].reduce((a, v) => a + v, 0)) };
+}
+
+// PO-wise outstanding: the FIFO pending bills by PO number (unit by unit,
+// oldest PO first) — what the customer still owes against each PO. The opening
+// balance and bills without a PO (petrol, XtraGreen, others, a diesel bill
+// still waiting for a PO) get rows of their own. null when no pending bill has a PO.
+export function poSummary(pending) {
+  if (!pending || !pending.some((d) => d.po)) return null;
+  const map = new Map();
+  for (const d of pending) {
+    const kind = d.opening ? 'opening' : d.po ? 'po' : 'none';
+    const k = kind === 'po' ? `po|${d.key || ''}|${String(d.po).toUpperCase()}` : `${kind}|${d.key || ''}`;
+    if (!map.has(k)) map.set(k, { kind, po: kind === 'po' ? d.po : '', unit: d.key || '', bills: 0, pending: 0, billed: 0, from: d.date, to: d.date, oldestDays: d.days });
+    const x = map.get(k);
+    x.pending += d.pending;
+    x.billed += d.amount;
+    if (!d.opening) x.bills += 1;
+    if (d.date < x.from) { x.from = d.date; x.oldestDays = d.days; }
+    if (d.date > x.to) x.to = d.date;
+  }
+  const rank = { opening: 0, po: 1, none: 2 };
+  const rows = [...map.values()].map((x) => ({ ...x, pending: round2(x.pending), billed: round2(x.billed) }))
+    .sort((a, b) => (a.unit === '') - (b.unit === '') || a.unit.localeCompare(b.unit) || rank[a.kind] - rank[b.kind] || a.from.localeCompare(b.from) || String(a.po).localeCompare(String(b.po)));
+  // on a unit-wise account the rows without a unit say so
+  const units = rows.some((x) => x.unit);
+  return { rows: rows.map((x) => ({ ...x, unitLabel: x.unit ? unitLabel(x.unit) : units ? 'No unit' : '' })), total: round2(rows.reduce((a, x) => a + x.pending, 0)) };
+}
+
+// the key of a bulk entry on an SMC-style (unit-wise) sheet
+export const unitKey = (e) => String(e.unit || '').trim().toUpperCase();
+// 'UNIT 1' -> 'Unit 1'; '' -> 'No unit'
+export const unitLabel = (u) => (u ? String(u).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : 'No unit');
+
+// A unit's own statement on an SMC-style sheet: its opening, its bills and the
+// payments typed against it, plus its share (by FIFO) of payments that say no
+// unit, and what its payments cleared outside it — so its closing is what the
+// FIFO says the unit owes. The other figures (totals, months) as for the account.
+export function unitStatement(st, fifo, unit, { openingByUnit = {}, asOn = '' } = {}) {
+  const key = String(unit || '').toUpperCase();
+  const keyed = Object.fromEntries(Object.entries(openingByUnit || {}).map(([k, v]) => [String(k).trim().toUpperCase(), Number(v) || 0]));
+  const opening = key ? (keyed[key] || 0) : round2((st.opening || 0) - Object.values(keyed).reduce((a, v) => a + v, 0));
+  const movesAt = new Map();
+  for (const m of fifo.moves) {
+    if (!movesAt.has(m.at)) movesAt.set(m.at, []);
+    movesAt.get(m.at).push(m);
+  }
+  const blank = { qty: 0, rate: 0, debit: 0, tds: 0, shortage: 0, bill: '', unit: key, company: '' };
+  const list = [];
+  const addMoves = (i, date) => {
+    for (const m of movesAt.get(i) || []) {
+      if (key && m.key === key && m.kind === 'alloc') {
+        list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Payment received', detail: 'No unit on the sheet — set against this unit\'s oldest bills (FIFO)', paid: m.amount, credit: m.amount });
+      } else if (key && m.key === key && m.kind === 'advance') {
+        list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Advance set against this bill', detail: 'Paid earlier without a unit', paid: m.amount, credit: m.amount });
+      } else if (key && m.key === key && m.kind === 'spill') {
+        list.push({ ...blank, date, type: 'pay', product: 'PAY', title: 'Set against the opening balance', detail: 'The rest of this payment cleared the account\'s opening (FIFO)', paid: -m.amount, credit: -m.amount });
+      } else if (!key && m.kind === 'spill') {
+        list.push({ ...blank, unit: '', date, type: 'pay', product: 'PAY', title: `Payment from ${unitLabel(m.key)}`, detail: 'Cleared this opening balance (FIFO)', paid: m.amount, credit: m.amount });
+      } else if (!key && m.kind === 'advance') {
+        list.push({ ...blank, unit: '', date, type: 'pay', product: 'PAY', title: `Set against ${unitLabel(m.key)}'s bills`, detail: 'A payment with no unit, used for a unit (FIFO)', paid: -m.amount, credit: -m.amount });
+      }
+    }
+  };
+  // the part without a unit keeps only what its payments didn't clear for a unit
+  const usedAt = new Map();
+  if (!key) for (const m of fifo.moves) if (m.kind === 'alloc') usedAt.set(m.at, round2((usedAt.get(m.at) || 0) + m.amount));
+  addMoves(-1, st.from);
+  st.entries.forEach((e, i) => {
+    if (unitKey(e) === key) {
+      const used = usedAt.get(i) || 0;
+      if (!used) list.push(e);
+      else {
+        let left = used;
+        const cut = (v) => { const t = Math.min(Math.max(v, 0), left); left = round2(left - t); return round2(v - t); };
+        const paid = cut(e.paid);
+        const tds = cut(e.tds);
+        const shortage = cut(e.shortage);
+        const credit = round2(paid + tds + shortage);
+        if (credit || e.type !== 'pay') {
+          list.push({ ...e, paid, tds, shortage, credit, detail: [e.detail, `₹${used.toLocaleString('en-IN')} of it set against unit bills (FIFO)`].filter(Boolean).join(' · ') });
+        }
+      }
+    }
+    addMoves(i, e.date);
+  });
+  let bal = round2(opening);
+  const entries = list.map((e) => {
+    bal = round2(bal + e.debit - e.credit);
+    return { ...e, balance: bal };
+  });
+  const sum = summarise(entries);
+  return {
+    ...st, unit: key, name: `${st.name} — ${unitLabel(key)}`, opening: round2(opening), closing: bal, entries,
+    months: byMonth(entries, round2(opening)), ...sum, companies: null,
+    to: st.to, asOn,
   };
 }
 

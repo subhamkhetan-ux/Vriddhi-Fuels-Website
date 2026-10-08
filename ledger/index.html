@@ -433,7 +433,43 @@ table.xl td.xl-head { font-weight: bold; text-align: center; border-bottom: 2px 
 .rank li.with-share { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
 .rank li.with-share .share-ic { width: 36px; height: 36px; border-radius: 11px; }
 
+/* FIFO pending bills */
+.pend-unit { display: flex; justify-content: space-between; gap: 10px; margin: 14px 0 6px; font-variant-numeric: tabular-nums; }
+.pend-unit b { font-family: var(--display); color: var(--amber); }
+.pend-unit span { color: var(--muted); font-size: 13px; }
+.pend-list { border: 1px solid var(--glass-line-soft); border-radius: 14px; overflow: hidden; background: rgba(0,0,0,.18); margin-top: 8px; }
+.pend-row { display: grid; grid-template-columns: 112px minmax(0, 1fr) 112px 112px 64px; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--glass-line-soft); font-size: 14px; font-variant-numeric: tabular-nums; }
+.pend-row:last-child { border-bottom: none; }
+.pend-row.head { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.pend-row small { display: block; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.pend-row.adv { background: rgba(47,208,138,.05); color: var(--muted); }
+.age { display: inline-block; min-width: 42px; text-align: center; font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 999px; color: var(--muted); background: var(--glass-2); }
+.age.mid { color: var(--warn); background: var(--warn-bg); }
+.age.old { color: var(--bad); background: var(--bad-bg); }
+@media (max-width: 640px) {
+  .pend-row.head { display: none; }
+  .pend-row { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "inv pend age" "date bill bill"; gap: 2px 10px; }
+  .pend-row > span:nth-child(1) { grid-area: date; color: var(--muted); font-size: 12.5px; }
+  .pend-row > span:nth-child(2) { grid-area: inv; }
+  .pend-row > span:nth-child(3) { grid-area: bill; color: var(--muted); font-size: 12.5px; }
+  .pend-row > span:nth-child(3)::before { content: "of "; }
+  .pend-row > span:nth-child(4) { grid-area: pend; }
+  .pend-row > span:nth-child(5) { grid-area: age; }
+  .pend-row.adv { grid-template-areas: "inv pend pend"; }
+  .po-list .pend-row > span:nth-child(1) { grid-area: inv; color: var(--ink); font-size: 14px; }
+  .po-list .pend-row > span:nth-child(2) { grid-area: date; color: var(--muted); font-size: 12.5px; }
+  .po-list .pend-row > span:nth-child(2) small { display: inline; margin-left: 6px; }
+}
+.unit-pick { margin: 0 0 10px; }
+.po-list .pend-row b { overflow-wrap: anywhere; }
+.pend-gap { margin-top: 18px; }
+.adv-head { margin-top: 18px; }
+.rank-row.adv { border-color: rgba(47,208,138,.22); }
+.mini.adv { background: var(--good); opacity: .75; margin-left: auto; }
+
 /* share sheet: the pictures, then Share / Download / PDF */
+.share-set + .share-set { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--glass-line-soft); }
+.share-set h4 { margin: 0; font-family: var(--display); color: var(--amber); }
 .share-sheet { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; background: rgba(5,3,2,.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: fade .18s ease both; }
 .share-box { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: rgba(24,19,17,.96); border: 1px solid var(--glass-line); border-radius: 20px; padding: 18px; box-shadow: 0 30px 60px -20px #000; }
 .share-box h3 { margin: 0; }

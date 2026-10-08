@@ -51,7 +51,7 @@ export function bulkRows(data, poOf = () => '') {
     items.push({
       stack: STACK.PAY, order: Number(p.seq) || 0, id: p.id, date: p.pay_date, name: p.customer, bill: '',
       qty: 0, rate: 0, amount: 0, paid: num(p.amount) || 0, tds: num(p.tds), shortage: num(p.shortage),
-      product: 'Payment', unit: '', po: '', remarks: p.remarks || '', petrol: false, payment: true,
+      product: 'Payment', unit: p.unit || '', po: '', remarks: p.remarks || '', petrol: false, payment: true,
     });
   }
   items.sort((a, b) => a.date.localeCompare(b.date) || a.stack - b.stack || a.order - b.order || a.id - b.id);
