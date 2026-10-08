@@ -624,15 +624,20 @@ behind them). The line shows **from the tanker's first refill on** — it
 doesn't wait for a settled mileage:
 
 - with a settled mileage (two dipped entries ≥ 100 km apart) it goes by that;
-- until then, by a **first figure** — the same one the calculator shows: a
-  refill saved without its dip counts as run dry, and there's no minimum
-  distance;
-- a tanker with only its first refill goes by the **fleet's mileage** (the
-  median of the other big tankers' settled mileage; never for OD15AF5510);
+- until then, by the **fleet's mileage** — the median of the other big tankers'
+  settled mileage (never for OD15AF5510). A tanker's own first figure is far
+  less sure: over a short stretch one Angul of dip error moves it a lot, and a
+  refill saved without its dip counts as dry, so whatever was really left
+  makes it read too high (= "enough diesel" when it isn't);
+- with no fleet figure either, by its own **first figure** — as the calculator
+  works it out (a refill without its dip counted as dry) — once it spans
+  300 km and 100 L;
+- with no mileage at all, the tank is still shown while nothing has been burnt
+  since the last entry (dip + litres, no km on the odometer, no trip sold);
 - with no dipped entry yet, the tank is counted from the last refill as run
   dry (its litres).
 
-An estimate from a first figure or the fleet's mileage says **· rough** on the
+An estimate without the tanker's own settled mileage says **· rough** on the
 card (and on the sale sheet / Mileage screen), until the tanker's own mileage
 settles. The settled mileage itself, the drops and the checks are unchanged.
 Saving, correcting or deleting a refill / stock check updates the home cards at

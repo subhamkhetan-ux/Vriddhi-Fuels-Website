@@ -888,15 +888,18 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- A tanker's mileage (app: robustMileage) over its newest 12 points: the
--- distance-weighted median of every sound pair. p_loose: over the loose points
--- and with no minimum span (the first figure for the tank estimate only).
+-- distance-weighted median of every sound pair; none until the longest sound
+-- pair spans 100 km (3,000 L) and 25 L. p_loose: over the loose points (the
+-- first figure for the tank estimate only), and only from 300 km and 100 L —
+-- a refill without its dip counted as dry leaves out what was really left.
 create or replace function public._loading_fuel_mileage(p_vehicle text, p_meter boolean, p_al numeric, p_loose boolean)
 returns table (mpl numeric, q1 numeric, q3 numeric, span numeric, maxu numeric, n int)
 language plpgsql stable security definer set search_path = public as $$
 declare
   lo numeric := case when p_meter then 2 else 0.5 end;
   hi numeric := case when p_meter then 2000 else 10 end;
-  minspan numeric := case when p_meter then 3000 else 100 end;
+  minspan numeric := case when p_meter then 3000 when p_loose then 300 else 100 end;
+  minused numeric := case when p_loose and not p_meter then 100 else 25 end;
 begin
   with p0 as (select * from _loading_fuel_points(p_vehicle, p_meter, p_al) where not p_loose
               union all
@@ -912,14 +915,18 @@ begin
          (select r from ord where cw >= ag.tw * 0.75 order by r limit 1),
          ag.span, ag.maxu, (select count(*) from p)::int
     into mpl, q1, q3, span, maxu, n from ag;
-  if mpl is not null and not p_loose and (span < minspan or maxu < 25) then mpl := null; end if;   -- not enough data yet
+  if mpl is not null and (span < minspan or maxu < minused) then mpl := null; end if;   -- not enough data yet
   return next;
 end $$;
 
 -- The mileage the tank estimate goes by (app: tankMileage): the settled one
--- ('own'); until there is one, the first figure from the loose points
--- ('recent'); else, for an odometer tanker, the median settled mileage of the
--- other odometer tankers ('fleet') — so the own diesel shows from the first refill.
+-- ('own'); until there is one, for an odometer tanker the median settled
+-- mileage of the other odometer tankers ('fleet') — a tanker's own first figure
+-- is far less sure (a short stretch, or a refill without its dip counted as dry
+-- when it wasn't, reads far too high); with no fleet figure, its own first
+-- figure over the loose points ('recent'). With no mileage at all the tank is
+-- still known while nothing has been burnt since the last entry (no distance,
+-- no trip sold) — so the own diesel shows from the first refill on.
 create or replace function public._loading_fuel_state(p_vehicle text) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
@@ -938,9 +945,8 @@ begin
     from _loading_fuel_mileage(p_vehicle, meter, al, false) m;
   if mpl > 0 then src := 'own';
   else
-    select m.mpl into mpl from _loading_fuel_mileage(p_vehicle, meter, al, true) m;
-    if mpl > 0 then src := 'recent';
-    elsif not meter then
+    mpl := null;
+    if not meter then
       select percentile_cont(0.5) within group (order by m.mpl) into mpl
         from (select distinct f.vehicle from loading_fuel_logs f
                where f.vehicle <> p_vehicle
@@ -948,6 +954,10 @@ begin
         cross join lateral _loading_fuel_mileage(v.vehicle, false, al, false) m
        where m.mpl > 0;
       if mpl > 0 then src := 'fleet'; end if;
+    end if;
+    if src is null then
+      select m.mpl into mpl from _loading_fuel_mileage(p_vehicle, meter, al, true) m;
+      if mpl > 0 then src := 'recent'; else mpl := null; end if;
     end if;
   end if;
 
@@ -964,11 +974,15 @@ begin
     if not found then                        -- no dipped entry yet: from the last refill, counted as run dry
       select * into k from _loading_fuel_loose_points(p_vehicle, meter, al) order by reading_at desc, created_at desc limit 1;
     end if;
-    if found and mpl > 0 then                -- no entry to start from, or no mileage at all: unknown
+    if found then                            -- no entry to start from: unknown
       select coalesce(sum(r.litres), 0) into filled from _loading_fuel_rows(p_vehicle, meter, al) r
        where (r.reading_at, r.created_at) >= (k.reading_at, k.created_at);   -- duplicates excluded
-      after_last := k.stk + filled - greatest(0, l.odometer - k.odo) / mpl;
       cap := least(k.stk + filled, case when meter then 50 else 365 end);  -- never more than the tank holds
+    end if;
+    if found and coalesce(mpl, 0) <= 0 and trips = 0 and l.odometer <= k.odo then  -- no mileage, nothing burnt since
+      after_fill := round(cap, 1); burnt := 0; stock := round(cap, 1);
+    elsif found and mpl > 0 then             -- otherwise no mileage: unknown
+      after_last := k.stk + filled - greatest(0, l.odometer - k.odo) / mpl;
       after_fill := round(least(greatest(0, after_last), cap), 1);
       burnt := round((case when meter then lit else km end) / mpl, 1);
       stock := round(least(greatest(0, after_last - burnt), cap), 1);

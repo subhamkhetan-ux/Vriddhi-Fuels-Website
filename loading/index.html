@@ -14,11 +14,15 @@
 <script>
 // The look before the first paint: this phone's choice (☀ / ☾), else Auto —
 // dark if the phone is dark, light otherwise. setTheme() keeps it up to date.
+// A browser too old for :where() (Chrome < 88, Safari < 14) would drop the dark
+// rules and show light text on white cards: it always gets the light look.
 (function () {
-  var c = 'auto';
+  var html = document.documentElement, c = 'auto', ok = true;
+  try { document.querySelector(':where(html)'); } catch (e) { ok = false; }
+  if (!ok) { html.setAttribute('data-nodark', ''); html.setAttribute('data-theme', 'light'); return; }
   try { c = localStorage.getItem('vriddhi-loading-theme') || 'auto'; } catch (e) {}
   var dark = c === 'dark' || (c !== 'light' && !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches));
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  html.setAttribute('data-theme', dark ? 'dark' : 'light');
 })();
 </script>
 <style>
@@ -796,7 +800,14 @@
   .themebtn svg{display:block}
   .rpresets button svg{display:inline-block;vertical-align:-2px;margin-right:5px}
   /* narrow phones: a tighter header so the title keeps its room */
-  @media (max-width:379px){header{gap:8px;padding-left:12px;padding-right:12px} header img{width:34px;height:34px} .themebtn{width:32px;height:32px}}
+  @media (max-width:379px){
+    header{gap:8px;padding-left:12px;padding-right:12px} header img{width:34px;height:34px} .themebtn{width:32px;height:32px}
+    header > div{min-width:0} header .t{font-size:17.5px} header .s{font-size:11.5px}
+    .back{width:38px;height:38px;font-size:22px;border-radius:12px}
+    /* on a sub-screen (back button showing) the logo gives up its room */
+    .back:not([style*="none"]) + img{display:none}
+    .installbtn{padding:6px 8px}
+  }
 </style>
 </head>
 <body>
@@ -1074,9 +1085,11 @@
     <!-- SETTINGS / MANAGE -->
     <section class="screen" id="scSettings">
       <div class="ltitle" id="setTitle">Manage tankers &amp; data</div>
-      <div class="sectitle">Look on this phone</div>
-      <div class="rpresets" id="themePick" role="group" aria-label="Look" style="margin-bottom:6px"></div>
-      <div class="note" id="themeHint" style="text-align:left;margin:0 6px 4px"></div>
+      <div id="themeSect">
+        <div class="sectitle">Look on this phone</div>
+        <div class="rpresets" id="themePick" role="group" aria-label="Look" style="margin-bottom:6px"></div>
+        <div class="note" id="themeHint" style="text-align:left;margin:0 6px 4px"></div>
+      </div>
       <div id="pushWrap" style="display:none">
         <div class="sectitle">Notifications</div>
         <div id="pushBox"></div>
@@ -1695,19 +1708,8 @@ function farDest(){ let far=null; DESTS.forEach(d=>{ if(!far || d.rtd>far.rtd) f
 let FUELSTAT={};
 function reserveL(meter){ const k=meter?"reserve_meter_l":"reserve_l", v=SETTINGS[k]; return v!=null && +v>=0 ? +v : DEFAULT_SETTINGS[k]; }
 function fuelStateJS(plate, fuel, trips){
-  const meter=isMeter(plate), res=reserveL(meter);
-  const rows=fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0));
-  const kept=screenRows(rows, meter).kept, last=kept.length?kept[kept.length-1].row:null;   // a later duplicate doesn't move "since"
-  const tm=tankMileage(plate, fuel), m=tm.m, mpl=tm.mpl;
-  const o={ vehicle:plate, meter:meter, mileage:mpl, mileage_src:tm.src, stretches:m.n, spread:m.spread, reserve:res, stock_now:null, trips_since:0, unknown_trips:0 };
-  if(last){
-    const since=trips.filter(t=>t.plate===plate && t.ts>last.ts);
-    let km=0, lit=0; since.forEach(t=>{ const d=destOf(t.dest); if(d) km+=d.rtd; else if(!meter) o.unknown_trips++; lit+=t.total; });
-    o.trips_since=since.length; o.km_since=km;
-    const f=fuelNow(rows, meter, mpl, meter?lit:km);
-    if(f) Object.assign(o, f);
-  }
-  return o;
+  const meter=isMeter(plate);
+  return Object.assign({ vehicle:plate, meter:meter, reserve:reserveL(meter) }, fuelEstimate(plate, fuel, trips));
 }
 function forecastJS(o, dest, total){
   const d=destOf(dest), f=Object.assign({}, o, { dest:dest, rtd:d?d.rtd:null, need:null, after:null, advice:"unknown", trips_left:null });
@@ -2998,6 +3000,10 @@ const MILEAGE = {
   points: 12,
   bounds: { odo:[0.5, 10], meter:[2, 2000] },   // km/L · litres dispensed per litre
   minSpan: { odo:100, meter:3000, litres:25 },
+  // a tanker's own first figure for its tank estimate (loose points): a refill
+  // without its dip is counted as dry, and the litres really left in it are a
+  // big share of a short stretch — so it waits for a longer one
+  firstSpan: { odo:300, meter:3000, litres:100 },
   judge:   { odo:150, meter:5000, litres:25 },
   // litres a stretch can be off by from the readings alone: [⚠ drop, ⛔ sharp]
   // OD15AF5510 is a Bolero with a ~50 L tank, refilled near dry (≤ ~10 L left, counted as 0)
@@ -3065,27 +3071,34 @@ function loosePoints(rows, meter){
   });
   return pts;
 }
-/* The mileage the tank estimate goes by: the settled one (src "own"); until
-   there is one, a first figure from the loose points (src "recent" — the
-   calculator's figure, no minimum span); else, for an odometer tanker, the
-   median settled mileage of the other odometer tankers (src "fleet"). */
+/* The mileage the tank estimate goes by:
+    · the tanker's settled one (src "own");
+    · until there is one, an odometer tanker goes by the median settled
+      mileage of the other odometer tankers (src "fleet") — a tanker's own
+      first figure is far less sure: over a short stretch one Angul of dip
+      error moves it a lot, and a refill without its dip, counted as dry when
+      it wasn't, makes it read far too high (= "enough diesel" when it isn't);
+    · with no fleet figure either, its own first figure over the loose points
+      (src "recent"), once they span MILEAGE.firstSpan (300 km and 100 L).
+   OD15AF5510 (by fuel dispensed) never goes by the big tankers. */
+function sortedRows(fuel, plate){ return fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0)); }
 function tankMileage(plate, fuel){
-  const meter=isMeter(plate), rows=fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0));
+  const meter=isMeter(plate), rows=sortedRows(fuel, plate);
   const m=robustMileage(mileagePoints(rows, meter), meter);
   if(m.ratio) return { m:m, mpl:m.ratio, src:"own" };
-  const l=robustMileage(loosePoints(rows, meter), meter, true).ratio;
-  if(l) return { m:m, mpl:l, src:"recent" };
   if(!meter){
     const others=[]; fuel.forEach(r=>{ if(r.plate!==plate && !isMeter(r.plate) && others.indexOf(r.plate)<0) others.push(r.plate); });
-    const v=others.map(p=>robustMileage(mileagePoints(fuel.filter(r=>r.plate===p).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0)), false), false).ratio).filter(x=>x>0).sort((a,b)=>a-b);
-    if(v.length) return { m:m, mpl:v.length%2 ? v[v.length>>1] : (v[v.length/2-1]+v[v.length/2])/2, src:"fleet" };
+    const v=others.map(p=>robustMileage(mileagePoints(sortedRows(fuel, p), false), false).ratio).filter(x=>x>0);
+    if(v.length) return { m:m, mpl:median(v), src:"fleet" };
   }
+  const l=robustMileage(loosePoints(rows, meter), meter, MILEAGE.firstSpan).ratio;
+  if(l) return { m:m, mpl:l, src:"recent" };
   return { m:m, mpl:null, src:"" };
 }
 function inBounds(ratio, meter){ const b=meter?MILEAGE.bounds.meter:MILEAGE.bounds.odo; return ratio>=b[0] && ratio<=b[1]; }
 // distance-weighted median (and quartiles) of the pairwise mileages among `pts`
-// (anyspan: no minimum span — the first figure for the tank estimate only)
-function robustMileage(pts, meter, anyspan){
+// (none until the longest sound pair spans `need`, MILEAGE.minSpan by default)
+function robustMileage(pts, meter, need){
   const P=pts.slice(-MILEAGE.points), pairs=[]; let dropped=0;
   for(let i=0;i<P.length;i++) for(let j=i+1;j<P.length;j++){
     const d=P[j].odo-P[i].odo, u=P[j].C-P[i].C;
@@ -3094,8 +3107,8 @@ function robustMileage(pts, meter, anyspan){
   const out={ ratio:null, n:P.length, pairs:pairs.length, dropped:dropped, span:0, used:0, spread:null };
   if(!pairs.length) return out;
   out.span=r2(Math.max.apply(null, pairs.map(p=>p.d))); out.used=r2(Math.max.apply(null, pairs.map(p=>p.u)));
-  const ms=meter?MILEAGE.minSpan.meter:MILEAGE.minSpan.odo;
-  if(!anyspan && (out.span<ms || out.used<MILEAGE.minSpan.litres)) return out;   // not enough data yet
+  const N=need||MILEAGE.minSpan, ms=meter?N.meter:N.odo;
+  if(out.span<ms || out.used<N.litres) return out;                         // not enough data yet
   pairs.sort((a,b)=>a.r-b.r);
   const tw=pairs.reduce((s,p)=>s+p.w,0);
   const q=f=>{ let c=0; for(const p of pairs){ c+=p.w; if(c>=tw*f) return p.r; } return pairs[pairs.length-1].r; };
@@ -3179,15 +3192,41 @@ function analyse(plate){
 // Diesel in the tank now: from the last point with a known stock, plus every
 // litre filled since, minus what the distance since then and the trips sold
 // since the last entry burn at the current mileage. With no dipped entry yet,
-// from the last refill counted as run dry (loosePoints).
-function fuelNow(rows, meter, mpl, tripsSince){
+// from the last refill counted as run dry (loosePoints). With no mileage at
+// all it is known only while nothing has been burnt since that entry: no
+// distance on the reading and no trip sold since (nTrips = how many; leave it
+// out and a missing mileage is simply unknown).
+function fuelNow(rows, meter, mpl, tripsSince, nTrips){
   let pts=mileagePoints(rows, meter); if(!pts.length) pts=loosePoints(rows, meter);
-  if(!pts.length || !(mpl>0)) return null;
+  if(!pts.length) return null;
   const kept=screenRows(rows, meter).kept.map(x=>x.row), k=pts[pts.length-1], last=kept[kept.length-1];
   let filled=0, on=false; kept.forEach(r=>{ if(r===k.row) on=true; if(on) filled+=(+r.litres||0); });
+  if(!(mpl>0)){
+    if(nTrips!==0 || +last.odo>+k.odo) return null;
+    const v=r1(Math.min(k.stock+filled, tankL(meter)));
+    return { after_fill:v, burnt:0, stock_now:v };
+  }
   const afterLast=k.stock+filled-Math.max(0,last.odo-k.odo)/mpl;     // right after the last entry
   const burnt=tripsSince/mpl, cap=Math.min(k.stock+filled, tankL(meter));   // never more than the tank holds
   return { after_fill:r1(Math.min(Math.max(0,afterLast), cap)), burnt:r1(burnt), stock_now:r1(Math.min(Math.max(0, afterLast-burnt), cap)) };
+}
+// A tanker's own diesel now (the home card, the sale forecast): the mileage
+// it goes by (tankMileage) and the tank from its entries and the trips sold
+// since the last one. The database's _loading_fuel_state works the same out.
+function fuelEstimate(plate, fuel, trips){
+  const meter=isMeter(plate);
+  const rows=sortedRows(fuel, plate);
+  const kept=screenRows(rows, meter).kept, last=kept.length?kept[kept.length-1].row:null;   // a later duplicate doesn't move "since"
+  const tm=tankMileage(plate, fuel), m=tm.m, mpl=tm.mpl;
+  const o={ mileage:mpl, mileage_src:tm.src, stretches:m.n, spread:m.spread, stock_now:null, trips_since:0, unknown_trips:0 };
+  if(last){
+    const since=trips.filter(t=>t.plate===plate && t.ts>last.ts);
+    let km=0, lit=0; since.forEach(t=>{ const d=destOf(t.dest); if(d) km+=d.rtd; else if(!meter) o.unknown_trips++; lit+=(+t.total||0); });
+    o.trips_since=since.length; o.km_since=km;
+    const f=fuelNow(rows, meter, mpl, meter?lit:km, since.length);
+    if(f) Object.assign(o, f);
+  }
+  return o;
 }
 function stretchTxt(o){ return dmy(dayKey(o.prev.ts)).slice(0,5)+" → "+dmy(dayKey(o.cur.ts)); }
 function ratioTxt(v, meter){ return v==null ? "—" : (Math.round(v*100)/100).toFixed(2)+(meter?" L / L":" km/L"); }
@@ -4624,7 +4663,8 @@ const themeMedia = window.matchMedia ? window.matchMedia("(prefers-color-scheme:
 let themeHeld="auto";                      // the phone's storage blocked: this visit only
 function themeChoice(){ try{ const v=localStorage.getItem(THEME_KEY); return THEMES.indexOf(v)>=0 ? v : "auto"; }catch(e){ return themeHeld; } }
 function systemLook(){ return themeMedia && themeMedia.matches ? "dark" : "light"; }   // no answer: the app's own light look
-function currentLook(){ const c=themeChoice(); return c==="auto" ? systemLook() : c; }
+const DARK_OK=!document.documentElement.hasAttribute("data-nodark");   // see the script in <head>
+function currentLook(){ if(!DARK_OK) return "light"; const c=themeChoice(); return c==="auto" ? systemLook() : c; }
 function themeLabel(c){ c=c||themeChoice(); return c==="auto" ? "Auto — follows the phone ("+systemLook()+" now)" : c==="light" ? "Light" : "Dark"; }
 // drawn, not font symbols (◐ ☀ ☾ differ from phone to phone, or are missing)
 const THEME_ICONS={
@@ -4637,6 +4677,7 @@ function applyTheme(){
   document.documentElement.dataset.theme=look;
   Object.assign(VZ, look==="dark" ? VZ_DARK : VZ_LIGHT);
   const b=$("#themeBtn");
+  if(!DARK_OK){ if(b) b.hidden=true; $("#themeSect").hidden=true; return; }
   if(b){ b.innerHTML=themeIcon(); b.title="Look: "+themeLabel()+" — tap to change"; b.setAttribute("aria-label", "Look: "+themeLabel()+". Tap to change."); }
   paintThemePick();
   // the charts carry their colours in the SVG: draw them again in the new look

@@ -25,17 +25,42 @@ test('first refill after a previous one typed without its dip: own diesel shows 
   assert.ok(near(f.stock_now - g.stock_now, 140 / 4.5, 0.15));
 });
 
-test('two dipped refills too close for a settled mileage still give a first figure', () => {
+test('two dipped refills too close for any mileage: the tank right after the refill still shows', () => {
   const rows = [
     { id: 'a', plate: P, ts: T, cts: 1, odo: 1000, litres: 300, anguls: 2, stock_l: 32 },
     { id: 'b', plate: P, ts: T + 5 * H, cts: 2, odo: 1080, litres: 20, anguls: 19, stock_l: 304 },   // 80 km on 28 L
   ];
   const m = loadModel(rows, []);
-  assert.equal(m.analyse(P).current.ratio, null);
   const tm = m.tankMileage(P, rows);
-  assert.equal(tm.src, 'recent');
-  assert.ok(near(tm.mpl, 80 / 28), `got ${tm.mpl}`);
-  assert.ok(near(m.fuelNow(rows, false, tm.mpl, 0).stock_now, 324, 0.11));
+  assert.equal(tm.mpl, null, 'an 80 km hop is too short to trust');
+  const st = m.fuelState(P);
+  assert.equal(st.mileage, null);
+  assert.ok(near(st.stock_now, 324, 0.11), 'dip + litres, nothing burnt since');
+  // once a trip is sold (or the odometer moves on) without a mileage, it is unknown
+  const m2 = loadModel(rows, [{ plate: P, ts: T + 6 * H, dest: 'Shyam Metalics', total: 12000 }]);
+  assert.equal(m2.fuelState(P).stock_now, null);
+});
+
+test('the fleet mileage comes before a tanker\'s own first figure', () => {
+  // the reported case, but with a settled tanker in the fleet: its own 4.5 km/L
+  // rests on a refill without its dip counted as dry, so the fleet's goes first
+  const s = simulate({ plate: Q, seed: 3, stockCheckEvery: 2 });
+  const rows = s.rows.concat([
+    { id: 'a', plate: P, ts: T, cts: 1, odo: 1000, litres: 300, anguls: null, stock_l: null },
+    { id: 'b', plate: P, ts: T + 30 * H, cts: 2, odo: 1450, litres: 150, anguls: 12.5, stock_l: 200 },
+  ]);
+  const m = loadModel(rows, s.trips), tm = m.tankMileage(P, rows);
+  assert.equal(tm.src, 'fleet');
+  assert.ok(near(tm.mpl, m.analyse(Q).current.ratio, 1e-9));
+  assert.ok(near(m.fuelState(P).stock_now, 350, 0.11));
+});
+
+test('a first figure over a short hop is not used', () => {
+  const rows = [
+    { id: 'a', plate: P, ts: T, cts: 1, odo: 1000, litres: 300, anguls: null, stock_l: null },
+    { id: 'b', plate: P, ts: T + 9 * H, cts: 2, odo: 1060, litres: 250, anguls: 15, stock_l: 240 },   // 60 km
+  ];
+  assert.equal(loadModel(rows, []).tankMileage(P, rows).mpl, null);
 });
 
 test('a tanker with only its first refill goes by the fleet mileage', () => {
