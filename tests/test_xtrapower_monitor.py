@@ -535,3 +535,53 @@ def test_deep_link_waits_for_form_then_skips_menu_walk(monkeypatch):
     asyncio.run(monitor.check_account(_FakePool(_Pg()), acct_cfg, {"accounts": {}}, tg, {}))
     assert called["wait"] == 1       # waited for the form after the deep link
     assert called["nav"] == 0        # never walked the menu
+
+
+# ---- config hot-reload (edits from the account manager apply live) ---------
+
+def _cfg_file(tmp_path, accounts, token="111:aaa"):
+    import json as _json
+    path = tmp_path / "config.json"
+    path.write_text(_json.dumps({"poll_seconds": 120, "telegram": {"token": token, "chat_id": "1"},
+                                 "accounts": accounts}), encoding="utf-8")
+    return str(path)
+
+
+def test_reload_picks_up_edits_and_resets_unwatched_handover(tmp_path):
+    from xtrapower.notify import Telegram
+    a = {"label": "A", "customer_id": "1", "cdp_port": 9222, "watch": True}
+    b = {"label": "B", "customer_id": "2", "cdp_port": 9223, "watch": True}
+    path = _cfg_file(tmp_path, [a, b])
+    cfg = monitor.load_config(path)
+    tg = Telegram("111:aaa", "1")
+    ready = {"1": True, "2": True}
+
+    path = _cfg_file(tmp_path, [a, {**b, "watch": False}])          # B switched off
+    cfg, tg2, err = monitor.reload_config(path, cfg, tg, ready)
+    assert err is None
+    assert [x["watch"] for x in cfg["accounts"]] == [True, False]
+    assert ready == {"1": True}                 # B goes back through the quiet hand-over
+    assert tg2 is tg                            # telegram unchanged -> same client
+
+
+def test_reload_keeps_running_on_a_broken_file(tmp_path):
+    from xtrapower.notify import Telegram
+    path = _cfg_file(tmp_path, [{"label": "A", "customer_id": "1", "cdp_port": 9222}])
+    cfg = monitor.load_config(path)
+    tg = Telegram("111:aaa", "1")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write('{ "accounts": [ broken')
+    same, tg2, err = monitor.reload_config(path, cfg, tg, {"1": True})
+    assert same is cfg and tg2 is tg
+    assert err and "not valid JSON" in err
+
+
+def test_reload_rebuilds_telegram_when_the_token_changes(tmp_path):
+    from xtrapower.notify import Telegram
+    acct = [{"label": "A", "customer_id": "1", "cdp_port": 9222}]
+    path = _cfg_file(tmp_path, acct)
+    cfg = monitor.load_config(path)
+    tg = Telegram("111:aaa", "1")
+    path = _cfg_file(tmp_path, acct, token="222:bbb")
+    cfg, tg2, _ = monitor.reload_config(path, cfg, tg, {})
+    assert tg2 is not tg and tg2.token == "222:bbb"

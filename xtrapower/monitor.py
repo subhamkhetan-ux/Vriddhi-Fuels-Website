@@ -355,6 +355,40 @@ async def run_cycle(
     state.save(state_path, st)
 
 
+def _acct_key(acct: dict[str, Any]) -> str:
+    """Same key check_account uses for an account (customer id, else label)."""
+    return str(acct.get("customer_id") or acct.get("label") or "account")
+
+
+def reload_config(
+    path: str,
+    cfg: dict[str, Any],
+    tg: Telegram,
+    ready: dict[str, bool],
+) -> tuple[dict[str, Any], Telegram, str | None]:
+    """Re-read config.json between cycles so edits apply without a restart.
+
+    Edits come from the account manager (xtrapower/manage.py) or by hand.
+    Returns ``(cfg, tg, error)``. A file that won't parse keeps the previous
+    config running and reports why, rather than stopping the monitor. Accounts
+    that are no longer watched drop their hand-over state, so switching one
+    back on goes through the quiet hand-over (and its ✅) again instead of
+    alerting on a window that was closed meanwhile.
+    """
+    try:
+        new = load_config(path)
+    except configfile.ConfigError as exc:
+        return cfg, tg, str(exc)
+    watched = {_acct_key(a) for a in new["accounts"] if a.get("watch", True)}
+    for key in list(ready):
+        if key not in watched:
+            ready.pop(key)
+    old_t, new_t = cfg.get("telegram") or {}, new.get("telegram") or {}
+    if (old_t.get("token"), old_t.get("chat_id")) != (new_t.get("token"), new_t.get("chat_id")):
+        tg = Telegram(new_t.get("token"), new_t.get("chat_id"))
+    return new, tg, None
+
+
 async def main_async(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     state_path = args.state or os.path.join(os.path.dirname(os.path.abspath(args.config)), "state.json")
@@ -381,8 +415,17 @@ async def main_async(args: argparse.Namespace) -> None:
                 f"{len(watched)} account(s). You'll get a ✅ as each is handed "
                 f"over, then a 🟢 on every credit (checking every {poll//60}m)."
             )
+        bad_config: str | None = None
         while True:
             started = time.time()
+            cfg, tg, err = reload_config(args.config, cfg, tg, ready)
+            if err and err != bad_config:
+                log.warning("config.json didn't load; still using the previous settings.\n%s", err)
+                tg.send("⚠️ <b>XtraPower</b>: config.json couldn't be read, so I'm still using "
+                        "the previous settings. Fix it (or use the account manager) and I'll "
+                        "pick it up on the next check.")
+            bad_config = err
+            poll = int(cfg["poll_seconds"])
             await run_cycle(pool, cfg, state_path, tg, ready)
             elapsed = time.time() - started
             await asyncio.sleep(max(1.0, poll - elapsed))

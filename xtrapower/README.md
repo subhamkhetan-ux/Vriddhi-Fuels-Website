@@ -106,6 +106,59 @@ Notes for the daily rhythm:
   stops on Ctrl-C) — handy for a quick `--once` test; `monitor-mac.sh start` is
   the set-and-forget one.
 
+## Account manager — edit accounts from your phone
+
+A small web page for everything in `config.json`, so you never hand-edit it in
+TextEdit again:
+
+- **Accounts:** add, edit, delete; switch **Watching** on/off; change the User
+  ID or password; pick the Chrome port (the next free one is suggested).
+- **Open window on Mac:** opens that account's Chrome window on the Mac (with
+  a saved password the monitor then logs it in by itself).
+- **Settings:** Telegram bot token, chat ID, check interval, and a *Send test
+  message* button.
+- **Status:** whether the monitor is running, plus each account's last CCMS,
+  when it was read, and its latest problem.
+
+Changes reach the monitor on its **next check** (about 2 minutes) — it re-reads
+`config.json` every cycle, so there's nothing to restart. If the file is ever
+unreadable (say, a bad hand edit), the monitor keeps running on the last good
+settings and sends one ⚠️ on Telegram.
+
+### Using it on the Mac
+```bash
+./xtrapower/manage-mac.sh start     # runs in the background
+./xtrapower/manage-mac.sh open      # opens http://127.0.0.1:8780/
+```
+
+### Using it from your phone, anywhere (one-time setup)
+1. Install **Tailscale** (free) on the Mac and on your phone, and sign in to
+   the **same** account on both.
+2. On the Mac: `./xtrapower/manage-mac.sh stop && ./xtrapower/manage-mac.sh start`.
+   It prints the phone address, e.g. `http://100.101.102.103:8780/`.
+3. Open the Mac page (`./xtrapower/manage-mac.sh open`), and under Settings
+   **set a PIN** (6+ characters). The PIN can only be set from the Mac.
+4. On the phone, open the phone address and enter the PIN. Tip: *Share → Add to
+   Home Screen* makes it an app icon.
+
+`./xtrapower/manage-mac.sh status` shows ON/OFF and both addresses;
+`stop` turns it off.
+
+### How it's protected
+- **Not on the internet or the office Wi-Fi.** It listens only on the Mac
+  itself and on the Mac's Tailscale address, which only devices signed in to
+  your Tailscale account can reach (Tailscale encrypts that traffic).
+- **PIN from the phone.** 5 wrong tries lock it for 15 minutes; a phone stays
+  signed in for 12 hours; setting a new PIN signs every phone out. On the Mac
+  itself no PIN is asked, like your other local apps.
+- **Saved passwords and the bot token never leave the Mac.** The page only
+  shows whether one is saved (and the token's last 4 characters). To change
+  one, type the new value; leave the box blank to keep it.
+- **Each save** writes `config.json` atomically, owner-readable only, and keeps
+  the previous version as `config.json.bak` (also git-ignored).
+- One trade-off: saving from the page rewrites `config.json` as plain JSON, so
+  any `//` comments you typed by hand are dropped (every value is kept).
+
 ## Running unattended for hours (auto re-login)
 
 The portal ends every session on a **fixed ~30–45 min timer**, no matter how
@@ -289,15 +342,21 @@ server and risks drawing a firewall block — 2 minutes is already brisk.
 | `launch-mac.sh` | Mac wrapper: activates `.venv` and opens the login windows |
 | `monitor-mac.sh` | On/off switch: `start` / `stop` / `status` / `logs` (background, keeps Mac awake) |
 | `run-mac.sh` | Mac wrapper: run the monitor in the foreground (good for `--once` tests) |
+| `manage-mac.sh` | On/off switch for the account manager: `start` / `stop` / `status` / `open` |
+| `manage.py` | Account manager server (stdlib only): accounts, settings, PIN, Tailscale |
+| `manage.html`, `manage.js` | The account manager page (phone-friendly) |
 | `launch.py` | Opens one Chrome window per account with a debug port + saved profile |
 | `monitor.py` | The 2-minute loop: attach → click Search → read CCMS → compare → alert |
 | `browser.py` | CDP attach, Search-button click, and CCMS table scrape (Playwright) |
 | `parse.py` | Pure logic: amount parsing, CCMS extraction, change/logout/WAF detection |
 | `state.py` | Last-known balances + error de-dup, saved atomically to `state.json` |
 | `notify.py` | Best-effort Telegram push |
+| `configfile.py` | Forgiving `config.json` loader (comments, smart quotes, readable errors) |
 | `config.example.json` | Copy to `config.json` and fill in |
 
-Tests: `tests/test_xtrapower.py` (`python -m pytest tests/test_xtrapower.py`).
+Tests: `python -m pytest tests/test_xtrapower*.py`. The account-manager tests
+(`tests/test_xtrapower_manage.py`) need only the standard library; the
+browser-driven ones skip themselves when Playwright isn't installed.
 
 ## When the portal changes (it will)
 

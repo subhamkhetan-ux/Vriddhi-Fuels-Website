@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="xp-csrf" content="__CSRF__">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="XtraPower">
+<title>XtraPower accounts</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f5f5f2; --card: #ffffff; --ink: #1c1c1a; --muted: #6b6b66;
+    --line: #e2e1dc; --accent: #c4561a; --accent-ink: #ffffff;
+    --ok: #1f7a3d; --warn: #a3330f; --warn-bg: #fdeee8; --ok-bg: #e7f4ec;
+    --field: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --card: #21211e; --ink: #ecebe6; --muted: #9c9b95;
+      --line: #34332f; --accent: #e07a3f; --accent-ink: #161614;
+      --ok: #5fc483; --warn: #f0906a; --warn-bg: #3a221a; --ok-bg: #1b3325;
+      --field: #1a1a18;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* Our display rules (e.g. .check's flex) must not un-hide [hidden] elements. */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header, main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: 8px;
+  }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 28px 0 10px; color: var(--muted); font-weight: 600;
+       text-transform: uppercase; letter-spacing: .04em; }
+  .pill { font-size: 13px; padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+          background: var(--warn-bg); color: var(--warn); }
+  .pill.on { background: var(--ok-bg); color: var(--ok); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 14px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .name { font-weight: 600; font-size: 17px; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .bal { margin-top: 10px; font-size: 15px; }
+  .err { margin-top: 8px; font-size: 14px; color: var(--warn); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button {
+    font: inherit; font-size: 15px; border-radius: 8px; padding: 8px 14px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    min-height: 40px;
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.danger { color: var(--warn); }
+  button:disabled { opacity: .5; cursor: default; }
+  .bar { display: flex; align-items: center; justify-content: space-between; margin: 20px 0 10px; }
+  .bar h2 { margin: 0; }
+  label.field { display: block; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
+  label.field input { margin-top: 4px; }
+  input[type=text], input[type=password], input[type=number], input[type=tel] {
+    display: block; width: 100%; font: inherit; font-size: 16px; color: var(--ink);
+    background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px;
+  }
+  .check { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--ink); }
+  .check input { width: 20px; height: 20px; }
+  /* watching switch */
+  .switch { position: relative; display: inline-flex; align-items: center; gap: 8px;
+            font-size: 14px; color: var(--muted); cursor: pointer; }
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .track { width: 46px; height: 28px; border-radius: 999px; background: var(--line);
+           position: relative; transition: background .15s; flex: none; }
+  .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
+                  border-radius: 50%; background: #fff; transition: transform .15s;
+                  box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .switch input:checked + .track { background: var(--ok); }
+  .switch input:checked + .track::after { transform: translateX(18px); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .note { color: var(--muted); font-size: 14px; }
+  dialog { border: none; border-radius: 14px; padding: 18px; width: min(560px, calc(100vw - 32px));
+           background: var(--card); color: var(--ink); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h3 { margin: 0 0 14px; font-size: 18px; }
+  .formerr { color: var(--warn); font-size: 14px; min-height: 1.2em; margin: 4px 0 8px; }
+  #toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom));
+           transform: translateX(-50%); background: var(--ink); color: var(--bg);
+           padding: 10px 16px; border-radius: 10px; font-size: 15px; max-width: calc(100vw - 32px);
+           opacity: 0; pointer-events: none; transition: opacity .2s; }
+  #toast.show { opacity: 1; }
+  .empty { text-align: center; color: var(--muted); padding: 24px 8px; }
+  footer { max-width: 640px; margin: 24px auto 40px; padding: 0 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>XtraPower accounts</h1>
+  <span id="monitor" class="pill">Checking…</span>
+</header>
+
+<main>
+  <section id="login" hidden>
+    <div class="card">
+      <form id="loginForm">
+        <p class="note">Enter the PIN you set on the Mac.</p>
+        <label class="field">PIN
+          <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+        </label>
+        <div id="loginErr" class="formerr" role="alert"></div>
+        <button class="primary" type="submit">Unlock</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="app" hidden>
+    <div class="bar">
+      <h2>Accounts</h2>
+      <button id="addBtn" class="primary" type="button">Add account</button>
+    </div>
+    <div id="list"></div>
+
+    <h2>Settings</h2>
+    <div class="card">
+      <form id="settingsForm" autocomplete="off">
+        <label class="field">Telegram bot token
+          <input id="sToken" type="password" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">Telegram chat ID
+          <input id="sChat" type="text" inputmode="numeric" spellcheck="false">
+        </label>
+        <label class="field">Check every (seconds)
+          <input id="sPoll" type="number" min="60" max="3600" step="10">
+        </label>
+        <div id="settingsErr" class="formerr" role="alert"></div>
+        <div class="actions">
+          <button class="primary" type="submit">Save settings</button>
+          <button id="testBtn" type="button">Send test message</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="pinCard" class="card" hidden>
+      <form id="pinForm" autocomplete="off">
+        <p class="note" id="pinNote"></p>
+        <label class="field">New PIN (at least 6 characters)
+          <input id="newPin" type="password" inputmode="numeric" autocomplete="new-password">
+        </label>
+        <div id="pinErr" class="formerr" role="alert"></div>
+        <button class="primary" type="submit">Save PIN</button>
+      </form>
+    </div>
+
+    <p class="note">Changes reach the monitor on its next check (about 2 minutes). No restart needed.</p>
+    <p><button id="logoutBtn" type="button" hidden>Lock</button></p>
+  </section>
+</main>
+
+<dialog id="editor">
+  <form id="editForm" method="dialog" autocomplete="off">
+    <h3 id="editTitle">Add account</h3>
+    <label class="field">Name
+      <input id="fLabel" type="text" required>
+    </label>
+    <label class="field">Customer ID
+      <input id="fCid" type="text" inputmode="numeric" required spellcheck="false">
+    </label>
+    <label class="field">User ID (for auto-login)
+      <input id="fUser" type="text" inputmode="numeric" spellcheck="false" autocomplete="off">
+    </label>
+    <label class="field">Password (for auto-login)
+      <input id="fPass" type="password" autocomplete="new-password">
+    </label>
+    <label class="check" id="fClearWrap" hidden>
+      <input id="fClear" type="checkbox"> Remove the saved password (go back to manual login)
+    </label>
+    <label class="field">Chrome port
+      <input id="fPort" type="number" min="1024" max="65535" required>
+    </label>
+    <label class="check"><input id="fWatch" type="checkbox"> Watching</label>
+    <div id="editErr" class="formerr" role="alert"></div>
+    <div class="actions">
+      <button class="primary" type="submit" value="save">Save</button>
+      <button type="button" id="cancelBtn">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/manage.js"></script>
+</body>
+</html>
