@@ -72,24 +72,29 @@ export async function keepShot(blob, readings) {
 // Today's screenshots behind these tank rows' before / after readings:
 // [{shot, uses: [{tank, which, readingAt}]}], in the rows' order, each tank's
 // before ahead of its after (so a two-wide picture pairs them on one line).
+// One screenshot per tank's before and one per its after: the last one read
+// that gave the reading kept (the same screen read twice shows once); one
+// screenshot that holds several tanks' readings shows once for all of them.
 export async function shotsFor(rows) {
-  const out = [];
-  for (const shot of await todays()) {
-    const uses = [];
-    let key = Infinity;
-    for (const [ti, t] of (rows || []).entries()) {
-      for (const which of ['before', 'after']) {
-        const r = t[which];
+  const shots = await todays();                      // oldest first
+  const picked = new Map();                          // shot -> {shot, uses, key}
+  for (const [ti, t] of (rows || []).entries()) {
+    for (const which of ['before', 'after']) {
+      const r = t[which];
+      if (!r || !/^photo/.test(r.source || '')) continue;
+      let last = null;
+      for (const shot of shots) {
         const m = shot.readings[t.tank];
-        if (r && m && /^photo/.test(r.source || '') && r.readingAt === m.readingAt && Math.abs((r.volume ?? NaN) - m.volume) < 0.005) {
-          uses.push({ tank: t.tank, which, readingAt: r.readingAt });
-          key = Math.min(key, ti * 2 + (which === 'after' ? 1 : 0));
-        }
+        if (m && r.readingAt === m.readingAt && Math.abs((r.volume ?? NaN) - m.volume) < 0.005) last = shot;
       }
+      if (!last) continue;
+      const e = picked.get(last) || { shot: last, uses: [], key: Infinity };
+      e.uses.push({ tank: t.tank, which, readingAt: r.readingAt });
+      e.key = Math.min(e.key, ti * 2 + (which === 'after' ? 1 : 0));
+      picked.set(last, e);
     }
-    if (uses.length) out.push({ shot, uses, key });
   }
-  return out.sort((a, b) => a.key - b.key || a.shot.at - b.shot.at);
+  return [...picked.values()].sort((a, b) => a.key - b.key || a.shot.at - b.shot.at);
 }
 
 // On opening the app: clear earlier days' screenshots.

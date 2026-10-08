@@ -255,7 +255,8 @@ Tap **Start decanting** on the truck's card:
    WhatsApp or save. Made on the phone that read the automation screenshots,
    **the same day**, the picture also shows the screenshots behind the stock
    before / after under the figures — each tank's before beside its after,
-   labelled — and is then a JPEG. The screenshots stay on that phone only
+   labelled; just one each, the last screenshot read that gave the reading
+   used (the same screen read twice shows once) — and is then a JPEG. The screenshots stay on that phone only
    (never uploaded) and are cleared the next day, so from then on — or on any
    other phone — the picture is the figures alone.
 
