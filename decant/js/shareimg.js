@@ -82,8 +82,9 @@ async function decode(blob) {
   }
 }
 
-// The stock screenshots under the figures: one across the width, or two side
-// by side (several rows if needed), each fitted whole into its cell.
+// The stock screenshots under the figures: one across the width (a single one,
+// or wide landscape ones), else two side by side — a tank's before and after
+// on one row — each fitted whole into its cell.
 const PROOF_MAX = 6;
 async function proofLayout(proofs) {
   const shots = [];
@@ -91,7 +92,7 @@ async function proofLayout(proofs) {
     try { shots.push({ ...p, img: await decode(p.blob) }); } catch { /* unreadable: left out */ }
   }
   if (!shots.length) return null;
-  const wide = shots.every((p) => p.img.width >= p.img.height);
+  const wide = shots.every((p) => p.img.width >= 1.4 * p.img.height);   // true landscape only; a tank card crop pairs up
   const cols = shots.length === 1 || wide ? 1 : 2;
   const gap = 24;
   const cellW = (W - 2 * PAD - (cols - 1) * gap) / cols;

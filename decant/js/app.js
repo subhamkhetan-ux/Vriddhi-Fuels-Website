@@ -113,23 +113,26 @@ function keepProof(blob, readings) {
 }
 
 // The held screenshots behind these tank rows' before / after readings:
-// [{shot, uses: [{tank, which, readingAt}]}], oldest first.
+// [{shot, uses: [{tank, which, readingAt}]}], in the rows' order, each tank's
+// before ahead of its after (so a two-wide picture pairs them on one line).
 export function proofShotsFor(rows) {
   const out = [];
   for (const shot of proofShots) {
     const uses = [];
-    for (const t of rows || []) {
+    let key = Infinity;
+    for (const [ti, t] of (rows || []).entries()) {
       for (const which of ['before', 'after']) {
         const r = t[which];
         const m = shot.readings[t.tank];
         if (r && m && /^photo/.test(r.source || '') && r.readingAt === m.readingAt && Math.abs((r.volume ?? NaN) - m.volume) < 0.005) {
           uses.push({ tank: t.tank, which, readingAt: r.readingAt });
+          key = Math.min(key, ti * 2 + (which === 'after' ? 1 : 0));
         }
       }
     }
-    if (uses.length) out.push({ shot, uses });
+    if (uses.length) out.push({ shot, uses, key });
   }
-  return out.sort((a, b) => a.shot.at - b.shot.at);
+  return out.sort((a, b) => a.key - b.key || a.shot.at - b.shot.at);
 }
 
 export function dropProofShots(list) {
