@@ -12,6 +12,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script src="config.js"></script>
+<script>
+// The look before the first paint: the phone's choice (☀ / ☾), else Auto —
+// light if the phone is light, dark otherwise. js/theme.js keeps it up to date.
+(function () {
+  var c = 'auto';
+  try { c = localStorage.getItem('vriddhi-decant-theme') || 'auto'; } catch (e) {}
+  var light = c === 'light' || (c !== 'dark' && !!(window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches));
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+})();
+</script>
 <style>
 :root{
   /* Same glassmorphism as the payments app: translucent white films over a
@@ -65,8 +75,8 @@ header h1 span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:no
 header > *{flex-shrink:0}
 header > h1{flex-shrink:1}
 /* narrow phones (and Android's text scaling / page zoom, which narrows the page): a tighter header */
-@media (max-width:419px){header{gap:6px;padding-left:12px;padding-right:12px} #btnStock .lbl{display:none} .pill{padding:4px 8px}}
-@media (max-width:339px){header h1::before{display:none}}
+@media (max-width:419px){header{gap:4px;padding-left:12px;padding-right:12px} #btnStock .lbl{display:none} .pill{padding:4px 8px} header .btn.sm{padding:6px 7px}}
+@media (max-width:339px){header h1::before{display:none} header .pill{padding:4px 6px}}
 header h1::before{content:"⛽";font-size:16px}
 header .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;font-weight:700}
 .pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.38);
@@ -512,6 +522,66 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .ask-text ul{padding-left:18px;margin:8px 0}
 .sheet-body img.full{width:100%;border-radius:12px;background:#fff}
 .hr{height:1px;background:var(--glass-line-soft);margin:14px 0}
+
+/* ---- light look (js/theme.js sets data-theme on <html>: the phone's choice, or Auto) ----
+   The same warm, orange-lit glass on a paper-white base. The orange header, the
+   product colours and the decanting picture (a night stage) stay as they are. */
+:root[data-theme="light"]{
+  color-scheme: light;
+  --bg:#f6f1ec;
+  --panel:#ffffff; --panel2:#ece5de; --line:#d9cfc5;
+  --glass:rgba(255,255,255,.74); --glass-2:rgba(70,45,25,.055);
+  --glass-line:rgba(70,45,25,.16); --glass-line-soft:rgba(70,45,25,.09);
+  --glass-shadow:0 14px 34px -24px rgba(90,45,10,.38),0 1px 0 rgba(255,255,255,.9) inset;
+  --ink:#1f1915; --muted:#584e46; --faint:#776c63;
+  --accent:#d9560f; --accent-soft:#ff7a1a1f; --amber:#b86200;
+  --good:#0f7f52; --good-bg:#12875a1c;
+  --warn:#9a5a00; --warn-bg:#ffb23e2e;
+  --bad:#cc2f25; --bad-bg:#ff6b5e21;
+  --viz-grid:#e6dfd8; --viz-base:#b1a79e; --viz-tick:#6c6259;
+  --viz-short:#d64545; --viz-excess:#178a5b;
+}
+[data-theme="light"] body{background:
+    radial-gradient(1100px 560px at 82% -60px, rgba(244,81,30,.16) 0%, rgba(244,81,30,0) 60%),
+    radial-gradient(880px 600px at 4% 6%, rgba(255,158,66,.14) 0%, rgba(255,158,66,0) 55%),
+    radial-gradient(1000px 700px at 50% 116%, rgba(40,90,180,.07) 0%, rgba(40,90,180,0) 60%),
+    var(--bg);
+  background-attachment:fixed}
+[data-theme="light"] .tabbar{background:rgba(255,250,246,.78)}
+[data-theme="light"] .tab.active{color:#b8430b;background:linear-gradient(150deg,rgba(255,122,26,.2),rgba(255,122,26,.06));box-shadow:0 4px 14px -9px rgba(244,81,30,.7)}
+[data-theme="light"] .step.on{color:var(--ink)}
+[data-theme="light"] .seg button.on{color:#b8430b}
+[data-theme="light"] .banner code{background:rgba(70,45,25,.08)}
+[data-theme="light"] input[type=text],[data-theme="light"] input[type=number],[data-theme="light"] input[type=date],[data-theme="light"] input[type=time],
+[data-theme="light"] input[type=datetime-local],[data-theme="light"] input[type=password],[data-theme="light"] input[type=search],
+[data-theme="light"] select,[data-theme="light"] textarea{background:#fff}
+[data-theme="light"] .cta:not(:disabled){box-shadow:0 10px 22px -12px rgba(244,81,30,.75),0 1px 0 rgba(255,255,255,.25) inset}
+[data-theme="light"] .toast{background:rgba(255,255,255,.96);box-shadow:0 10px 30px -14px rgba(60,30,10,.45)}
+[data-theme="light"] .gauge-empty{fill:rgba(70,45,25,.06)}
+[data-theme="light"] .gauge-rim{stroke:rgba(70,45,25,.42)}
+[data-theme="light"] .gauge-leg{fill:rgba(70,45,25,.32)}
+[data-theme="light"] .gauge-pct{fill:#1f1915;stroke:rgba(255,255,255,.75)}
+[data-theme="light"] .tank .t-busy{background:#fff0d9;border-color:rgba(184,98,0,.35);box-shadow:0 2px 8px rgba(90,45,10,.18)}
+[data-theme="light"] .truck-cab{background:linear-gradient(160deg,rgba(70,45,25,.16),rgba(70,45,25,.05))}
+[data-theme="light"] .truck-cab::after{background:rgba(60,120,200,.3)}
+[data-theme="light"] .truck-body{background:rgba(70,45,25,.05)}
+[data-theme="light"] .ch{background:rgba(70,45,25,.09)}
+[data-theme="light"] .ch.done .ch-lab,[data-theme="light"] .ch.empty .ch-lab{color:var(--muted)}
+[data-theme="light"] .msgs li.block{border-color:rgba(204,47,37,.4);color:#8e1d15}
+[data-theme="light"] .msgs li.warn{border-color:rgba(184,98,0,.4);color:#6e4100}
+[data-theme="light"] .result .var.short{color:var(--bad)}
+[data-theme="light"] .progress{background:rgba(70,45,25,.1)}
+[data-theme="light"] .tk-bar{background:rgba(70,45,25,.08)}
+[data-theme="light"] .tk-sw::before{background:rgba(70,45,25,.14)}
+[data-theme="light"] .minibar{background:rgba(70,45,25,.07)}
+[data-theme="light"] .legend i.band{background:rgba(70,45,25,.07);border-color:rgba(70,45,25,.14)}
+[data-theme="light"] .dscene{background:linear-gradient(180deg,#2a2320,#15110f 70%)}
+[data-theme="light"] .viz-tolband{fill:rgba(70,45,25,.06)}
+[data-theme="light"] .viz-dot{stroke:#fff}
+[data-theme="light"] .viz-mark.hot .viz-dot,[data-theme="light"] .viz-mark:focus-visible .viz-dot{stroke:#1f1915}
+[data-theme="light"] .viz-tip{background:rgba(255,255,255,.97);box-shadow:0 10px 24px -12px rgba(60,30,10,.4)}
+[data-theme="light"] .sheet-back{background:rgba(40,25,15,.32)}
+[data-theme="light"] .sheet-card{background:rgba(252,249,246,.97);box-shadow:0 -20px 50px -24px rgba(60,30,10,.45)}
 </style>
 </head>
 <body>
@@ -519,6 +589,7 @@ input[type=number]{font-variant-numeric:tabular-nums}
   <h1 id="appTitle"><span>Decanting</span></h1>
   <button class="btn sm" id="btnStock" title="Read tank stock from an automation screenshot" aria-label="Read tank stock from a screenshot">📷<span class="lbl"> Stock</span></button>
   <button class="btn sm ghost" id="btnRefresh" title="Refresh" aria-label="Refresh">↻</button>
+  <button class="btn sm ghost" id="btnTheme" title="Light / dark" aria-label="Light or dark look"></button>
   <button class="btn sm ghost" id="btnSettings" title="Settings" aria-label="Settings">⚙</button>
   <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">…</span></span>
 </header>

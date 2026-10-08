@@ -492,6 +492,16 @@ Everything is saved on the phone first. With no signal the pill says
 *offline · n to send*; the changes go to the cloud when the connection is
 back, and other phones see them live.
 
+## Light or dark
+
+The **◐ / ☀ / ☾** button in the header picks the look on this phone. **Auto**
+(the default) follows the phone's own light / dark setting and switches with
+it as it changes (e.g. a phone that goes dark at sunset). A tap always
+changes what you see: from Auto to the other look, then to the phone's look,
+then back to Auto. The same choice is in Settings (*Look on this phone*). It
+is this phone's own — not shared with other phones. The decanting picture
+keeps its night scene and the shared result picture stays dark in both looks.
+
 ## Settings (⚙)
 
 Tank products, capacities and how full each may be filled (20,500 L for our
@@ -522,6 +532,7 @@ default), the dip chart, and:
 | `js/wizard.js` | The decanting steps, tank by tank |
 | `js/shareimg.js` | The result as a picture (PNG) to share |
 | `js/shots.js` | Today's stock screenshots, kept on this phone for the result picture |
+| `js/theme.js` | Light / dark look: Auto (follows the phone), Light or Dark |
 | `js/scene.js` | The decanting picture: truck, hoses and underground tanks (animated) |
 | `js/worker.js` | The attendant who moves the pipe between chambers, in the decanting picture |
 | `js/views.js` | Log and reports |
