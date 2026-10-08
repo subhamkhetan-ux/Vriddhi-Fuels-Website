@@ -407,6 +407,7 @@ function readBulk(ws, code, gst, date1904, warn) {
   })();
   const bills = [];
   const payments = [];
+  const others = [];
   let otherWithTds = 0;
   for (let r = 5; r < rows; r++) {
     const date = cellDate(ws[addr(r, hdr.date)], date1904);
@@ -427,7 +428,18 @@ function readBulk(ws, code, gst, date1904, warn) {
     }
     const product = PRODUCT_OF[prod];
     const bill = hdr['bill no'] != null ? text(ws, r, hdr['bill no']) : '';
-    if (!product || !bill) {
+    if (!product) {
+      // Other Sale (lubricant, AdBlue …): its Unit / TDS / shortage / remarks,
+      // matched to the Other Sale bill later (often no bill no. on this sheet)
+      const item = text(ws, r, hdr.product);
+      const amount = hdr.amount != null ? cellNumber(ws[addr(r, hdr.amount)]) : null;
+      if (item && amount) {
+        others.push({ item, amount, sale_date: date, customer: who, bill_no: bill, row: r + 1, ...extras,
+          ...(hdr.unit != null && poKey(text(ws, r, hdr.unit)) ? { unit: poKey(text(ws, r, hdr.unit)) } : {}) });
+      } else if (extras.tds || extras.shortage) otherWithTds += 1;
+      continue;
+    }
+    if (!bill) {
       if (extras.tds || extras.shortage) otherWithTds += 1;
       continue;
     }
@@ -465,6 +477,7 @@ function readBulk(ws, code, gst, date1904, warn) {
     pos: registers.flatMap((g) => g.pos),
     bills,
     payments,
+    others,
   };
 }
 
@@ -537,6 +550,38 @@ export function extractMaster(wb) {
     }
   }
   if (notOnSaleSheets) warn(`${notOnSaleSheets} row(s) on the Bulk sheets have no matching bill on the sale sheets.`);
+
+  // Other Sale rows of the bulk sheets: the Other Sale bill of that customer,
+  // date and amount (by bill no. when the row has one; the item name breaks
+  // a tie), each bill once.
+  const otherIndex = new Map();
+  for (const s of sales) {
+    if (s.product !== 'OTHER') continue;
+    const k = `${normKey(s.customer)}|${s.sale_date}`;
+    if (!otherIndex.has(k)) otherIndex.set(k, []);
+    otherIndex.get(k).push(s);
+  }
+  const usedOther = new Set();
+  let otherUnmatched = 0;
+  for (const b of bulk) {
+    for (const row of b.others || []) {
+      if (!row.unit && row.tds == null && row.shortage == null && !row.remarks) continue;
+      const list = (otherIndex.get(`${normKey(row.customer)}|${row.sale_date}`) || []).filter((s) => !usedOther.has(s));
+      const byBill = row.bill_no ? list.find((s) => String(s.bill_no).trim() === row.bill_no) : null;
+      const sameAmount = list.filter((s) => Math.abs((Number(s.amount) || 0) - row.amount) < 1);
+      const s = byBill || sameAmount.find((x) => normKey(x.item) === normKey(row.item)) || sameAmount[0];
+      if (!s) {
+        otherUnmatched += 1;
+        continue;
+      }
+      usedOther.add(s);
+      if (row.unit) s.unit = row.unit;
+      if (row.tds != null) s.tds = row.tds;
+      if (row.shortage != null) s.shortage = row.shortage;
+      if (row.remarks) s.remarks = row.remarks;
+    }
+  }
+  if (otherUnmatched) warn(`${otherUnmatched} Other Sale row(s) on the Bulk sheets (lubricant, AdBlue …) have no matching bill on the Other Sale sheet, so their Unit / TDS / remarks weren't copied.`);
 
   // Payment rows of the bulk sheets: the n-th payment of a customer on a
   // day is that day's n-th Master Paid entry for the customer.

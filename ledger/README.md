@@ -108,8 +108,12 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   cell on the *_Bulk sheet's payment row and clears that unit's bills (then any
   opening the sheet doesn't split by unit); a payment with no unit clears the
   oldest bills of either unit. Each unit opens with its own opening balance
-  from the sheet. Bills with no unit yet show as their own *No unit* part, so
-  the parts always add up to the account's balance.
+  from the sheet. Bills with no unit yet show as their own *No unit* part
+  while anything there is owed, so the parts always add up to the account's
+  balance. The Unit typed on a Bulk sheet's **Other Sale** rows (lubricant,
+  AdBlue …) comes in too — matched to the Other Sale bill by customer, date
+  and amount (and the item), as those rows usually have no bill no. — along
+  with their TDS, shortage and remarks.
 
 **Share as picture** — everything is drawn the same way for sending to a
 customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
