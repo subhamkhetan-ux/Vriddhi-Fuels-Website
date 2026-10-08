@@ -106,6 +106,67 @@ Notes for the daily rhythm:
   stops on Ctrl-C) — handy for a quick `--once` test; `monitor-mac.sh start` is
   the set-and-forget one.
 
+## Check on it from your phone (Telegram)
+
+Send your XtraPower bot a message — the monitor itself answers:
+
+| Send | You get |
+|---|---|
+| `/status` | 🟢 running, how long it's been up, when it last checked, and each account: ✅ watching / ⏳ waiting for login / ⚪ off, its last CCMS and when it was read, and any ⚠️ problem |
+| `/logs` | the monitor's last 15 log lines (`/logs 40` for more, up to 50) |
+| `/help` | this list |
+
+- **A reply means it's alive.** No reply within a minute or so means the
+  monitor isn't running, or the Mac is off or asleep — check the Mac
+  (`./xtrapower/monitor-mac.sh status`).
+- 🟡 means the first check after start-up is still going. 🟠 means it's running
+  but hasn't finished a check for a while (it may be stuck) — on the Mac run
+  `./xtrapower/monitor-mac.sh stop`, then `start`.
+- It answers only your `chat_id` from `config.json`; anyone else is ignored.
+  Commands sent while the monitor was off are skipped, not answered late.
+- Nothing to set up and nothing opened to the network: the monitor asks
+  Telegram for new messages, the same outbound kind of request as an alert.
+- Only one program can read a bot's messages. If something else also reads
+  this bot (say an old copy of the monitor on another computer), `/status`
+  won't be answered and the log says *409 Conflict* once — stop the other
+  program or give the monitor its own bot. Alerts keep working either way.
+
+## Account manager — edit accounts on the Mac
+
+A small web page for everything in `config.json`, so you never hand-edit it in
+TextEdit again. Like the Tally apps, it runs **only on this Mac**
+(`http://127.0.0.1:8780`) — nothing else on the network can reach it.
+
+```bash
+./xtrapower/manage-mac.sh          # opens the page in your browser; Ctrl-C to stop
+```
+
+- **Accounts:** add, edit, delete; switch **Watching** on/off; change the User
+  ID or password; pick the Chrome port (the next free one is suggested).
+- **Open window on Mac:** opens that account's Chrome window (with a saved
+  password the monitor then logs it in by itself).
+- **Settings:** Telegram bot token, chat ID, check interval, and a *Send test
+  message* button.
+- **Status:** whether the monitor is running, plus each account's last CCMS,
+  when it was read, and its latest problem.
+
+Changes reach the monitor on its **next check** (about 2 minutes) — it re-reads
+`config.json` every cycle, so there's nothing to restart, and you can close the
+page (Ctrl-C) once you're done. If the file is ever unreadable (say, a bad hand
+edit), the monitor keeps running on the last good settings and sends one ⚠️ on
+Telegram.
+
+How it's protected:
+- **This Mac only.** It listens on 127.0.0.1, refuses any other address, and
+  checks every request is addressed to the Mac itself.
+- **Saved passwords and the bot token never reach the page.** It only shows
+  whether one is saved (and the token's last 4 characters). To change one,
+  type the new value; leave the box blank to keep it.
+- **Each save** writes `config.json` atomically, owner-readable only, and keeps
+  the previous version as `config.json.bak` (also git-ignored).
+- One trade-off: saving from the page rewrites `config.json` as plain JSON, so
+  any `//` comments you typed by hand are dropped (every value is kept).
+
 ## Running unattended for hours (auto re-login)
 
 The portal ends every session on a **fixed ~30–45 min timer**, no matter how
@@ -289,15 +350,23 @@ server and risks drawing a firewall block — 2 minutes is already brisk.
 | `launch-mac.sh` | Mac wrapper: activates `.venv` and opens the login windows |
 | `monitor-mac.sh` | On/off switch: `start` / `stop` / `status` / `logs` (background, keeps Mac awake) |
 | `run-mac.sh` | Mac wrapper: run the monitor in the foreground (good for `--once` tests) |
+| `manage-mac.sh` | Opens the account manager page on this Mac (Ctrl-C to stop) |
+| `manage.py` | Account manager server (stdlib only, 127.0.0.1): accounts and settings |
+| `manage.html`, `manage.js` | The account manager page |
+| `telegram_bot.py` | Answers `/status`, `/logs` and `/help` from Telegram (runs inside the monitor) |
 | `launch.py` | Opens one Chrome window per account with a debug port + saved profile |
 | `monitor.py` | The 2-minute loop: attach → click Search → read CCMS → compare → alert |
 | `browser.py` | CDP attach, Search-button click, and CCMS table scrape (Playwright) |
 | `parse.py` | Pure logic: amount parsing, CCMS extraction, change/logout/WAF detection |
 | `state.py` | Last-known balances + error de-dup, saved atomically to `state.json` |
 | `notify.py` | Best-effort Telegram push |
+| `configfile.py` | Forgiving `config.json` loader (comments, smart quotes, readable errors) |
 | `config.example.json` | Copy to `config.json` and fill in |
 
-Tests: `tests/test_xtrapower.py` (`python -m pytest tests/test_xtrapower.py`).
+Tests: `python -m pytest tests/test_xtrapower*.py`. The account-manager and
+Telegram tests (`tests/test_xtrapower_manage.py`, `tests/test_xtrapower_telegram.py`)
+need only the standard library; the
+browser-driven ones skip themselves when Playwright isn't installed.
 
 ## When the portal changes (it will)
 
