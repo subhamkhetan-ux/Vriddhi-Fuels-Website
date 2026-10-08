@@ -252,7 +252,12 @@ Tap **Start decanting** on the truck's card:
    (▲ *Excess*, ▲ *High excess*). The value at the invoice price is shown too.
    **📤 Share as picture** makes a PNG of the result (the truck, each tank's
    before / after / gain / chambers / variation, and the ₹ value) to send on
-   WhatsApp or save.
+   WhatsApp or save. Made on the phone that read the automation screenshots,
+   **the same day**, the picture also shows the screenshots behind the stock
+   before / after under the figures — each tank's before beside its after,
+   labelled — and is then a JPEG. The screenshots stay on that phone only
+   (never uploaded) and are cleared the next day, so from then on — or on any
+   other phone — the picture is the figures alone.
 
 **Chambers in the wrong tank?** If one tank came out well over and another
 of the same product well under, the app works out which chambers most
@@ -448,7 +453,9 @@ each tank so the loads I've placed an indent for fit?*
   message: the app's look (glass cards, colours, type, charts) for Excel for
   Mac.
 - **Screenshots are never kept**: they're read on the phone and only the
-  figures are saved.
+  figures are saved. The picture itself stays on the phone that read it
+  (IndexedDB) till the day ends, for that day's result pictures, then it's
+  cleared.
 
 ### Supabase's free plan
 
@@ -514,6 +521,7 @@ default), the dip chart, and:
 | `js/app.js` | Home screen, stock screenshots, invoices, settings |
 | `js/wizard.js` | The decanting steps, tank by tank |
 | `js/shareimg.js` | The result as a picture (PNG) to share |
+| `js/shots.js` | Today's stock screenshots, kept on this phone for the result picture |
 | `js/scene.js` | The decanting picture: truck, hoses and underground tanks (animated) |
 | `js/worker.js` | The attendant who moves the pipe between chambers, in the decanting picture |
 | `js/views.js` | Log and reports |

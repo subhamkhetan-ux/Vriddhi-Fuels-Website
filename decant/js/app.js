@@ -20,6 +20,7 @@ import { openWizard, renderWizard, startSession, wizardActive } from './wizard.j
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
 import { decantScene, runScenes } from './scene.js';
+import { clearShots, keepShot, tidyShots } from './shots.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -96,8 +97,9 @@ export function pickFile(accept) {
   });
 }
 
-// Pick a screenshot, read it and let the user check what was found. Only the
-// figures are kept — the picture itself is never stored or uploaded.
+// Pick a screenshot, read it and let the user check what was found. The
+// figures are saved; the picture itself is never uploaded — it stays on this
+// phone till the day ends, for the day's result pictures (shots.js).
 // Resolves {readings: {tankId: reading}} or null.
 export async function readScreenshot({ want = null } = {}) {
   const file = await pickFile('image/*');
@@ -191,6 +193,7 @@ export async function readScreenshot({ want = null } = {}) {
             readings[id] = makeReading(id, r, src, extra);
           });
           for (const [id, r] of Object.entries(readings)) saveTankReading(id, r);
+          keepShot(file, readings).catch(() => {});
           result = { readings };
           closeSheet();
         });
@@ -907,7 +910,7 @@ function settingsSheet() {
         <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
       <label class="f" style="margin-top:10px">The cloud keeps
         <select id="stKeep">${KEEP_OPTIONS.map(([k, l]) => `<option value="${k}" ${s.keep === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are only read — never stored.</div>
+      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are never uploaded — each stays on the phone that read it till the day ends, for that day's result pictures.</div>
       <div class="hint" id="stUse" style="margin-top:4px">${cloudUse()}</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
         <select id="stDate"><option value="MDY" ${s.dateOrder === 'MDY' ? 'selected' : ''}>MM/DD/YYYY (09/26/2026)</option><option value="DMY" ${s.dateOrder === 'DMY' ? 'selected' : ''}>DD/MM/YYYY (26/09/2026)</option></select></label>
@@ -985,6 +988,7 @@ function settingsSheet() {
     body.querySelector('#stClear').onclick = async () => {
       if (!(await ask('Clear this phone\'s copy?', `Everything synced to the cloud stays there and comes back on refresh.${state.outbox.length ? ` <b>${state.outbox.length} change(s) not yet sent will be lost.</b>` : ''}`, { ok: 'Clear', danger: true }))) return;
       await clearDevice();
+      await clearShots();
       location.reload();
     };
   });
@@ -1052,6 +1056,7 @@ function boot() {
   } catch { /* ignore */ }
   onChange(render);
   initStore().then(render);
+  tidyShots();
   render();
   // A redraw held back while typing happens once the field lets go — but not
   // in the middle of a tap (a redraw between touch-down and click would swallow
