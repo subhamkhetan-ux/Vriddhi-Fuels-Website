@@ -67,7 +67,8 @@ export function findHeaders(words) {
   for (const line of lines) {
     const ws = line.words;
     for (let i = 0; i < ws.length; i++) {
-      const t = ws[i].text;
+      // a photo's speck or the card's border glued on: "(Tank", "[Tank", "“Tank"
+      const t = ws[i].text.replace(/^[^A-Za-z0-9]+/, '');
       let no = null;
       let next = i + 1;
       const glued = /^t[ae]n[kx]([1-9])[:;.]?$/i.exec(t);
@@ -380,10 +381,18 @@ export function readCard(card, opts = {}) {
     let value = null;
     let span = 1;
     for (let i = 0; i < ws.length; i++) {
-      let v = readNumber(ws[i].text);
-      // "2546 04", "809 30": the decimal point read as a gap (a photo)
       const nx = ws[i + 1];
-      if (v === null && nx && /^(\d{3,}|\d{1,3}(,\d{3})+)$/.test(ws[i].text) && /^\d{2}$/.test(nx.text) && nx.x0 - ws[i].x1 < 0.8 * hgt(ws[i])) {
+      const close = nx && nx.x0 - ws[i].x1 < 0.8 * hgt(ws[i]);
+      let v = null;
+      // "20.000 00", "18.488 93": a blurred photo's thousands comma read as a
+      // point and the decimal point as a gap (not "20.00" with a speck)
+      if (close && /^\d{1,3}\.\d{3}$/.test(ws[i].text) && /^\d{2}$/.test(nx.text)) {
+        v = readNumber(`${ws[i].text.replace('.', ',')}.${nx.text}`);
+        if (v !== null) span = 2;
+      }
+      if (v === null) v = readNumber(ws[i].text);
+      // "2546 04", "809 30": the decimal point read as a gap (a photo)
+      if (v === null && close && /^(\d{3,}|\d{1,3}(,\d{3})+)$/.test(ws[i].text) && /^\d{2}$/.test(nx.text)) {
         v = readNumber(`${ws[i].text}.${nx.text}`);
         if (v !== null) span = 2;
       }
@@ -535,9 +544,13 @@ export function settleReading(cands, { capacity, chart }) {
     chart: Number.isFinite(chartAt) ? { ok: near(chartAt, reading.volume, chartTol(reading.volume)), litres: chartAt, diff: round2(reading.volume - chartAt) } : { ok: null },
     corrected,
   };
+  // a figure only the dip chart backs, while another height read on the card
+  // points elsewhere: the rows may have slipped (a blurred photo's "20.000"
+  // taken for the volume and "18.488" for the height agree with the chart too)
+  const disputed = !checks.sum.ok && chartVols.some((c) => !near(c.v, reading.volume, chartTol(reading.volume)) && c.v > 2 * Math.max(reading.volume, 100));
   let confidence = 'low';
   if (best && checks.sum.ok && checks.chart.ok) confidence = corrected.includes('volume') ? 'medium' : 'high';
-  else if (best && (checks.sum.ok || checks.chart.ok) && best.screen) confidence = 'medium';
+  else if (best && (checks.sum.ok || checks.chart.ok) && best.screen && !disputed) confidence = 'medium';
   return { reading, checks, confidence };
 }
 
@@ -603,11 +616,20 @@ export function pickTimes(cards, now = null) {
 //   card's index in the layout and its words in the zoomed picture's pixels.
 //   ocr.lines (optional): cards' "Last Updated" lines read on their own —
 //   [{card, text}].
+//   ocr.heads (optional): the headings of cards found without one, read on
+//   their own — [{card, words}], the words in the picture's pixels.
 export function parseAutomation(ocr, { tanks = [], chart = null, dateOrder = 'MDY', now = null } = {}) {
   const byNo = new Map();
   const warnings = [];
   const passes = (ocr?.passes || []).filter((p) => p.words?.length);
   const layout = cardLayout(passes.map((p) => p.words), ocr?.width, ocr?.height, tanks);
+  // a card left without a number: its heading, read on its own (ocr.heads)
+  for (const hb of ocr?.heads || []) {
+    const frame = layout[hb.card];
+    if (!frame || frame.no !== null) continue;
+    const head = findHeaders(hb.words || []).find((h) => !layout.some((c) => c.no === h.no));
+    if (head) Object.assign(frame, { no: head.no, by: 3, productText: frame.productText || head.productText });
+  }
   const entry = (frame, ci) => {
     const key = frame.no ?? `?${ci}`;
     if (!byNo.has(key)) byNo.set(key, { no: frame.no, productText: frame.productText || '', cands: [], times: [], status: null, region: null, frame: null });

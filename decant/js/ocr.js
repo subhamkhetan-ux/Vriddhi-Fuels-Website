@@ -8,11 +8,12 @@
 //            green ONLINE, at the cost of a few misread digits.
 // automation.js then combines both readings and checks them against each other
 // and the dip chart. A photo of the screen (glare, blur, a tilt) that doesn't
-// check out gets a closer look, card by card, and any "Last Updated" line not
-// read gets one on its own (readAutomationPhoto). Everything runs on the phone;
-// nothing is uploaded.
+// check out gets a third pass with the light evened out and a closer look, card
+// by card; any "Last Updated" line or "Tank N" heading not read gets one on its
+// own, and a picture held the wrong way up is turned (readAutomationPhoto).
+// Everything runs on the phone; nothing is uploaded.
 
-import { parseAutomation, readTime } from './automation.js';
+import { findHeaders, parseAutomation, readTime } from './automation.js';
 
 const TESSERACT = {
   script: 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js',
@@ -179,19 +180,39 @@ export async function readImage(file, onProgress) {
   const worker = await ocrWorker();
   const passes = [];
   for (const mode of ['values', 'labels']) {
-    const canvas = drawScaled(img, scale);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const px = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    cleanPixels(px.data, mode);
-    ctx.putImageData(px, 0, 0);
-    await worker.setParameters({ tessedit_pageseg_mode: '3', preserve_interword_spaces: '1' });
-    const { data } = await worker.recognize(canvas, {}, { text: true, tsv: true });
-    passes.push({ mode, text: data.text, words: wordsFromTsv(data.tsv, scale) });
+    passes.push(await fullPass(worker, img, scale, mode));
     stage += 1;
   }
   progressFn = null;
   onProgress?.(1, 'Done');
   return { width: img.width, height: img.height, passes, ms: Date.now() - started };
+}
+
+// One pass over the whole picture, cleaned up `mode`'s way: 'values' and
+// 'labels' (cleanPixels), or 'even' — the light evened out over `win` px (a
+// photo: glare, blur, the screen's moiré), which also reads the big headings
+// the other two can skip.
+async function fullPass(worker, img, scale, mode, win = 0) {
+  const canvas = drawScaled(img, scale);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const px = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  if (mode === 'even') evenLight(px.data, canvas.width, canvas.height, win * scale);
+  else cleanPixels(px.data, mode);
+  ctx.putImageData(px, 0, 0);
+  await worker.setParameters({ tessedit_pageseg_mode: '3', preserve_interword_spaces: '1' });
+  const { data } = await worker.recognize(canvas, {}, { text: true, tsv: true });
+  return { mode, text: data.text, words: wordsFromTsv(data.tsv, scale) };
+}
+
+// The evened-light pass, added to a reading the first two passes left unsure.
+// The window: a little over two rows of figures where cards were found (as
+// for the closer looks), else a ninth of the picture's width.
+export async function readEven(file, ocr, pitch = null) {
+  const img = await loadImage(file);
+  const worker = await ocrWorker();
+  const win = pitch ? 2.4 * pitch : Math.min(img.width, img.height) / 9;
+  ocr.passes.push(await fullPass(worker, img, ocrScale(img.width, img.height), 'even', win));
+  return ocr;
 }
 
 // The text of a few bands of the picture — the "Last Updated" lines the two
@@ -307,19 +328,107 @@ export async function readCards(file, frames, how = 'even', onProgress) {
   return out;
 }
 
+// The headings of cards found without one ("Tank 2 : High Speed Diesel" — big
+// print a whole-picture pass can skip on a photo): the band above each card's
+// tank drawing, cut out, enlarged and read as sparse text, cleaned up one way
+// after another until a heading reads.
+// frames: [{ci, x0, x1, figTop, pitch}]. Returns [{card, words}] in the
+// picture's pixels, for parseAutomation's `ocr.heads`.
+export async function readHeads(file, frames) {
+  const out = [];
+  if (!frames.length) return out;
+  const img = await loadImage(file);
+  const worker = await ocrWorker();
+  await worker.setParameters({ tessedit_pageseg_mode: '11' });
+  for (const f of frames) {
+    const x0 = Math.max(0, f.x0 - 0.04 * img.width);
+    const x1 = Math.min(img.width, f.x1);
+    const y0 = Math.max(0, f.figTop - 9 * f.pitch);
+    const y1 = Math.max(y0, f.figTop - 2.2 * f.pitch);
+    const w = x1 - x0;
+    const h = y1 - y0;
+    if (!(w > 20 && h > 20)) continue;
+    const scale = Math.min(4, Math.max(1, 1400 / w));
+    for (const how of ['stretch', 'even', false]) {
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * scale);
+      c.height = Math.round(h * scale);
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, x0, y0, w, h, 0, 0, c.width, c.height);
+      if (how) {
+        const px = ctx.getImageData(0, 0, c.width, c.height);
+        if (how === 'even') evenLight(px.data, c.width, c.height, 2.4 * f.pitch * scale);
+        else stretchBand(px.data);
+        ctx.putImageData(px, 0, 0);
+      }
+      const { data } = await worker.recognize(c, {}, { tsv: true });
+      const words = wordsFromTsv(data.tsv, scale).map((wd) => ({ ...wd, x0: wd.x0 + x0, x1: wd.x1 + x0, y0: wd.y0 + y0, y1: wd.y1 + y0 }));
+      if (findHeaders(words).length) { out.push({ card: f.ci, words }); break; }
+    }
+  }
+  return out;
+}
+
+// The picture turned deg (90, 180 or 270) clockwise.
+async function turned(file, deg) {
+  const img = await loadImage(file);
+  const c = document.createElement('canvas');
+  const quarter = deg % 180 !== 0;
+  c.width = quarter ? img.height : img.width;
+  c.height = quarter ? img.width : img.height;
+  const ctx = c.getContext('2d');
+  ctx.translate(c.width / 2, c.height / 2);
+  ctx.rotate((deg * Math.PI) / 180);
+  ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('Couldn\'t turn the picture.'))), 'image/png'));
+}
+
 // A card to look at closer: its stock not checked every way, its product
 // height missing, or its time (or the time's date) not read. Density and
 // temperature don't count.
 const unsure = (t) => t.confidence !== 'high' || !t.timeFrom || t.timeFrom === 'clock' || !Number.isFinite(t.reading.height);
 
-// The whole job for one screenshot: read it and find the tank cards; any card
-// whose "Last Updated" time the two passes missed gets a closer look at that
-// line, and — if a card is still unsure (the picture is a photo, not a clean
-// screenshot) — every card a closer look.
+// A reading not to stop at: no card found, a card without its tank number, or
+// one whose figures didn't check out.
+const weak = (parsed) => !parsed.tanks.length || parsed.tanks.some((t) => t.no === null || t.confidence === 'low');
+
+// The whole job for one screenshot: read it and find the tank cards; a reading
+// left weak (a photo of the screen) gets a third pass with the light evened
+// out; any card whose "Last Updated" time the passes missed gets a closer look
+// at that line, and — if a card is still unsure — every card a closer look;
+// a card still without its number, its heading read on its own. A picture in
+// which no card's figures check out is tried turned — a quarter each way, then
+// upside down (a phone that didn't record which way up it was held).
 // opts: {tanks, chart, dateOrder, now, onProgress}
 export async function readAutomationPhoto(file, opts = {}) {
-  const ocr = await readImage(file, (f, label) => opts.onProgress?.(f * 0.75, label));
+  const first = await readOnce(file, opts);
+  const sure = (res) => res.tanks.some((t) => t.confidence !== 'low');
+  if (sure(first)) return first;
+  for (const deg of [90, 270, 180]) {
+    try {
+      opts.onProgress?.(0.5, 'Turning the picture…');
+      const res = await readOnce(await turned(file, deg), { ...opts, onProgress: (f, label) => opts.onProgress?.(0.5 + 0.5 * f, label) });
+      if (sure(res)) return { ...res, turned: deg };
+    } catch { /* the first reading stands */ }
+  }
+  return first;
+}
+
+async function readOnce(file, opts) {
+  const ocr = await readImage(file, (f, label) => opts.onProgress?.(f * 0.65, label));
   let parsed = parseAutomation(ocr, opts);
+  if (weak(parsed)) {
+    try {
+      opts.onProgress?.(0.66, 'Looking at the photo again…');
+      const pitches = parsed.tanks.map((t) => t.frame?.pitch).filter(Boolean).sort((a, b) => a - b);
+      await readEven(file, ocr, pitches[Math.floor(pitches.length / 2)] || null);
+      parsed = parseAutomation(ocr, opts);
+    } catch { /* the first two passes stand */ }
+  }
   // a time the whole picture's passes didn't read: its line on its own,
   // cleaned up one way after another until it reads with its date (each
   // reading joins the card's others — automation.js picks)
@@ -350,6 +459,15 @@ export async function readAutomationPhoto(file, opts = {}) {
         parsed = parseAutomation(ocr, opts);
       }
     } catch { /* the reading so far stands */ }
+  }
+  // a card still without its tank number: its heading on its own
+  const nameless = parsed.tanks.filter((t) => t.no === null && t.frame).map((t) => t.frame);
+  if (nameless.length) {
+    try {
+      opts.onProgress?.(0.95, 'Reading the tank number…');
+      ocr.heads = await readHeads(file, nameless);
+      if (ocr.heads.length) parsed = parseAutomation(ocr, opts);
+    } catch { /* the user picks the tank */ }
   }
   opts.onProgress?.(1, 'Done');
   return { ...parsed, ms: ocr.ms, width: ocr.width, height: ocr.height, ...(opts.keepOcr ? { ocr } : {}) };
