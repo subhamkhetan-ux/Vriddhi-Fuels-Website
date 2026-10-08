@@ -20,6 +20,7 @@ import { openWizard, renderWizard, startSession, wizardActive } from './wizard.j
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
 import { decantScene, runScenes } from './scene.js';
+import { clearShots, keepShot, tidyShots } from './shots.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -96,55 +97,9 @@ export function pickFile(accept) {
   });
 }
 
-// The screenshots behind this visit's readings, held in memory only (never
-// saved or sent anywhere) so the first result picture can show the stock
-// proof under the figures. Gone on a reload; dropped once a picture has used them.
-const proofShots = [];
-const PROOF_KEEP = 12;
-const PROOF_HOURS = 24;
-
-function keepProof(blob, readings) {
-  const marks = Object.fromEntries(Object.entries(readings).map(([id, r]) => [id, { readingAt: r.readingAt, volume: r.volume }]));
-  if (!Object.keys(marks).length) return;
-  const old = Date.now() - PROOF_HOURS * 3600000;
-  for (let i = proofShots.length - 1; i >= 0; i -= 1) if (proofShots[i].at < old) proofShots.splice(i, 1);
-  proofShots.push({ blob, at: Date.now(), readings: marks });
-  if (proofShots.length > PROOF_KEEP) proofShots.splice(0, proofShots.length - PROOF_KEEP);
-}
-
-// The held screenshots behind these tank rows' before / after readings:
-// [{shot, uses: [{tank, which, readingAt}]}], in the rows' order, each tank's
-// before ahead of its after (so a two-wide picture pairs them on one line).
-export function proofShotsFor(rows) {
-  const out = [];
-  for (const shot of proofShots) {
-    const uses = [];
-    let key = Infinity;
-    for (const [ti, t] of (rows || []).entries()) {
-      for (const which of ['before', 'after']) {
-        const r = t[which];
-        const m = shot.readings[t.tank];
-        if (r && m && /^photo/.test(r.source || '') && r.readingAt === m.readingAt && Math.abs((r.volume ?? NaN) - m.volume) < 0.005) {
-          uses.push({ tank: t.tank, which, readingAt: r.readingAt });
-          key = Math.min(key, ti * 2 + (which === 'after' ? 1 : 0));
-        }
-      }
-    }
-    if (uses.length) out.push({ shot, uses, key });
-  }
-  return out.sort((a, b) => a.key - b.key || a.shot.at - b.shot.at);
-}
-
-export function dropProofShots(list) {
-  for (const { shot } of list) {
-    const i = proofShots.indexOf(shot);
-    if (i >= 0) proofShots.splice(i, 1);
-  }
-}
-
-// Pick a screenshot, read it and let the user check what was found. Only the
-// figures are kept — the picture itself is never stored or uploaded (it stays
-// in memory for this visit only, for the first result picture).
+// Pick a screenshot, read it and let the user check what was found. The
+// figures are saved; the picture itself is never uploaded — it stays on this
+// phone till the day ends, for the day's result pictures (shots.js).
 // Resolves {readings: {tankId: reading}} or null.
 export async function readScreenshot({ want = null } = {}) {
   const file = await pickFile('image/*');
@@ -238,7 +193,7 @@ export async function readScreenshot({ want = null } = {}) {
             readings[id] = makeReading(id, r, src, extra);
           });
           for (const [id, r] of Object.entries(readings)) saveTankReading(id, r);
-          keepProof(file, readings);
+          keepShot(file, readings).catch(() => {});
           result = { readings };
           closeSheet();
         });
@@ -955,7 +910,7 @@ function settingsSheet() {
         <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
       <label class="f" style="margin-top:10px">The cloud keeps
         <select id="stKeep">${KEEP_OPTIONS.map(([k, l]) => `<option value="${k}" ${s.keep === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are only read — never stored.</div>
+      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are never uploaded — each stays on the phone that read it till the day ends, for that day's result pictures.</div>
       <div class="hint" id="stUse" style="margin-top:4px">${cloudUse()}</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
         <select id="stDate"><option value="MDY" ${s.dateOrder === 'MDY' ? 'selected' : ''}>MM/DD/YYYY (09/26/2026)</option><option value="DMY" ${s.dateOrder === 'DMY' ? 'selected' : ''}>DD/MM/YYYY (26/09/2026)</option></select></label>
@@ -1033,6 +988,7 @@ function settingsSheet() {
     body.querySelector('#stClear').onclick = async () => {
       if (!(await ask('Clear this phone\'s copy?', `Everything synced to the cloud stays there and comes back on refresh.${state.outbox.length ? ` <b>${state.outbox.length} change(s) not yet sent will be lost.</b>` : ''}`, { ok: 'Clear', danger: true }))) return;
       await clearDevice();
+      await clearShots();
       location.reload();
     };
   });
@@ -1100,6 +1056,7 @@ function boot() {
   } catch { /* ignore */ }
   onChange(render);
   initStore().then(render);
+  tidyShots();
   render();
   // A redraw held back while typing happens once the field lets go — but not
   // in the middle of a tap (a redraw between touch-down and click would swallow

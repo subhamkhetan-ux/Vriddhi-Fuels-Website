@@ -21,9 +21,9 @@ import {
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
 import {
-  busyTanks, compactNos, dropProofShots, enter, invoiceForm, isStale, layoutFor, proofLine, proofShotsFor, readScreenshot, render, tankById, tankName, tanks,
-  typedReading,
+  busyTanks, compactNos, enter, invoiceForm, isStale, layoutFor, proofLine, readScreenshot, render, tankById, tankName, tanks, typedReading,
 } from './app.js';
+import { shotsFor } from './shots.js';
 
 let currentId = null;
 let shown = '';            // session:step last drawn (a new step's cards rise in)
@@ -1248,11 +1248,12 @@ function resultModel(s) {
   };
 }
 
-// The screenshots still held for this result, labelled for the picture:
-// [{blob, label, sub}] plus the held entries (to drop once used).
-function resultProofs(s) {
-  const held = proofShotsFor(s.data.tanks);
-  const proofs = held.map(({ shot, uses }) => {
+// Today's screenshots on this phone behind this result, labelled for the
+// picture: [{blob, label, sub}].
+async function resultProofs(s) {
+  let held = [];
+  try { held = await shotsFor(s.data.tanks); } catch { /* none */ }
+  return held.map(({ shot, uses }) => {
     const part = (which) => {
       const nos = [...new Set(uses.filter((u) => u.which === which).map((u) => tankName(u.tank)))];
       return nos.length ? `${which === 'before' ? 'Before' : 'After'} · ${nos.join(', ')}` : '';
@@ -1260,33 +1261,30 @@ function resultProofs(s) {
     const times = [...new Set(uses.map((u) => fmtTime(u.readingAt)))];
     return { blob: shot.blob, label: [part('before'), part('after')].filter(Boolean).join('  ·  '), sub: `Screen time ${times.join(', ')}` };
   });
-  return { held, proofs };
 }
 
-// Share the result as a picture: shown first, then shared (or saved). The
-// first picture after the decanting also shows the stock screenshots read on
-// this phone (held in memory only); later pictures are the figures alone.
+// Share the result as a picture: shown first, then shared (or saved). Made on
+// the phone that read the stock screenshots, the same day, it shows them too
+// (they're kept on that phone till the day ends); otherwise the figures alone.
 function share(s) {
-  const { held, proofs } = resultProofs(s);
   let url = null;
   openSheet('Share the result', (body) => {
     body.innerHTML = '<div class="hint">Making the picture…</div>';
     (async () => {
       try {
         const { resultImage } = await import('./shareimg.js');
-        const canvas = await resultImage({ ...resultModel(s), proofs });
+        const canvas = await resultImage({ ...resultModel(s), proofs: await resultProofs(s) });
         const nProof = canvas.proofCount || 0;
         // with screenshots a JPEG keeps the file small enough for WhatsApp
         const type = nProof ? 'image/jpeg' : 'image/png';
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.9));
         if (!blob) throw new Error('the picture came out empty');
-        if (held.length) dropProofShots(held);                     // used once: later pictures are as before
         const name = `Decanting ${s.tt_no || ''} ${(s.data.decantedAt || s.created_at || '').slice(0, 10)}.${nProof ? 'jpg' : 'png'}`.replace(/\s+/g, ' ');
         const file = new File([blob], name, { type });
         url = URL.createObjectURL(blob);
         const canShare = Boolean(navigator.canShare?.({ files: [file] }));
         body.innerHTML = `<img class="full" src="${url}" alt="The decanting result as a picture" style="background:#0f0c0b">
-          ${nProof ? `<div class="hint">With the stock screenshot${nProof > 1 ? 's' : ''} as proof — only in this picture; ${nProof > 1 ? 'they are' : 'it is'} not kept.</div>` : ''}
+          ${nProof ? `<div class="hint">With the stock screenshot${nProof > 1 ? 's' : ''} as proof — kept on this phone only, till the day ends.</div>` : ''}
           <div class="row-actions"><button class="btn" data-save>⬇ Save picture</button>
             ${canShare ? '<button class="cta" data-send>📤 Share picture</button>' : ''}</div>
           ${canShare ? '' : '<div class="hint">This browser can\'t share pictures directly — save it, then send it from the gallery.</div>'}`;
