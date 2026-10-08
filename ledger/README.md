@@ -61,18 +61,45 @@ shortage); bulk vs retail; the FY month by month (sales vs collections); and
 the day's RSP per product. Tap or hover any chart for its numbers.
 
 **Customer ledgers**: tap anyone under *Outstanding today* (or *Open ledger*
-on a best customer) to see their ledger laid out like their sheet in the
-Master Ledger, with the sheet's column letters, row numbers and column widths:
-- **Bulk** — the *_Bulk sheet: title, Customer / Group, Opening Balance and
-  Period From, then every member's bill (diesel, petrol, XtraGreen, then
-  payments, then Other Sale, by date) with Unit, PO No., TDS, Shortage and
-  Remarks, and the running Balance (opening + amount − paid − TDS −
-  shortage), in the sheet's number formats (negatives in red). Group sheets
-  show the Billing Name; SMC-style sheets the Unit.
-- **Retail** — the ledger sheet (A:G) for a month, with ‹ › to move between
-  months, and *Share as picture* / *PDF* of the same page.
-**Fit / − / + / 100%** zoom the sheet (on a phone it scrolls sideways like
-Excel). The widths come with the Master Ledger upload.
+on a best customer) to see their ledger as a **statement**, in the app's look:
+- the balance (Dr = due, Cr = advance) and the last payment, then tiles for the
+  opening, billed (litres, bills), received (payments) and TDS & shortage,
+  and each product's litres and amount;
+- **Bulk** — the *_Bulk sheet's figures (opening + amount − paid − TDS −
+  shortage, every member's diesel, petrol, XtraGreen, payments and Other
+  Sale) with Unit, PO No., Billing Name and Remarks under each entry. A
+  **group** sheet (several billing names) also gets **Company-wise
+  outstanding**: a card per company — billed, received, TDS & shortage,
+  last payment and what it owes; the sheet's opening balance belongs to the
+  group as a whole, so opening + every company = the group's balance.
+- **Retail** — the ledger sheet's rows for a month, with ‹ › to move between
+  months.
+- every entry by month (newest first, or oldest first), each month with its
+  billed / received / closing; *All / Bills / Payments* filters.
+
+**Share as picture** — everything is drawn the same way for sending to a
+customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
+- **Share ledger**: the statement as A4-shaped pictures (as many pages as it
+  needs; on a bulk ledger pick the whole ledger or one month), or **PDF**.
+- **Share outstanding**: one card with the balance as on today, the period,
+  billed, received, last payment — and, for a group, every company.
+- the share button on each **company card** sends that company's own card.
+- on Home, the share button beside each customer under *Outstanding today*
+  sends their card; **Share list** sends the whole list (All / Retail / Bulk
+  as chosen).
+The pictures open in a preview: **Share** hands them to WhatsApp & co. through
+the phone's share sheet, **Download** saves them (a zip for several).
+
+**Excel sheet** (the chip beside *Statement*; the app remembers the choice)
+still shows the ledger laid out like the sheet in the Master Ledger — column
+letters, row numbers, widths, number formats, **Fit / − / + / 100%** zoom —
+and, for retail, *Share as picture* / *PDF* of the Excel-style page (the same
+page as the Statements tab).
+
+**Rate chart (Excel)**: on Home, under *Day's RSP*, pick From..To (up to two
+years) and **Download rate chart** — one row per day (date, weekday), each
+product's rate (the day's RSP, as the dashboard uses it) and its change from
+the day before, with a filter on the header row.
 
 Earnings follow Module14: a bill earns *amount − litres × (day's RSP −
 margin)*, margin ₹2.58/L diesel and XtraGreen, ₹4/L petrol, the day's RSP
@@ -181,6 +208,8 @@ Until step 5 the page shows these steps and a **Try the demo** button
 | `js/dash.js` | Home dashboard figures (earnings, customers, outstanding, months) |
 | `js/charts.js` | The dashboard's SVG charts and their tooltips |
 | `js/account.js` | A customer's ledger as on their sheet (bulk layouts, formats) |
+| `js/ledger-view.js` | The ledger as a statement (summary, months, company-wise outstanding) and the rate chart sheet |
+| `js/share-svg.js` | Draws the shared pictures: ledger pages, outstanding cards, the outstanding list |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |
@@ -192,7 +221,7 @@ JSZip (cdnjs) for the bill and statement PDFs.
 ## Tests
 
 ```bash
-node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, demo store
+node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, ledger view + pictures, demo store
 python -m pytest tests/test_ledger_web.py tests/test_ledger_schema.py -q
 ```
 
