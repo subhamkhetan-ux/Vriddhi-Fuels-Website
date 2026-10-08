@@ -28,7 +28,7 @@ export function loadModel(rows, trips = [], src = SRC) {
     const tripKm = (t) => { const d = destOf(t.dest); return d ? d.rtd : 0; };
     const ratioTxt = (v, m) => v == null ? '—' : v.toFixed(2) + (m ? ' L/L' : ' km/L');
     ${src}
-    return { analyse, mileagePoints, robustMileage, fuelNow };`);
+    return { analyse, mileagePoints, robustMileage, fuelNow, loosePoints, tankMileage };`);
   return f(rows, trips, DESTS);
 }
 

@@ -11,10 +11,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
 <script src="./config.js"></script>
+<script>
+// The look before the first paint: this phone's choice (☀ / ☾), else Auto —
+// dark if the phone is dark, light otherwise. setTheme() keeps it up to date.
+(function () {
+  var c = 'auto';
+  try { c = localStorage.getItem('vriddhi-loading-theme') || 'auto'; } catch (e) {}
+  var dark = c === 'dark' || (c !== 'light' && !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches));
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
 <style>
   /* ===== Light glassmorphism — the Decanting app's frosted-glass language
      (orange-lit gradient header, translucent films) on a light, warm base,
-     with iOS layout patterns. Light mode only. ===== */
+     with iOS layout patterns. The dark look is one override block at the end. ===== */
   :root{
     color-scheme: light;
     --bg:#f3eee8;
@@ -709,6 +719,84 @@
     .tanksvg .nz.on .pourg,.tanksvg.pouring .pourin{animation:none}
     /* the nozzles still show which chambers are filling — they just hold still */
   }
+
+  /* ===== Dark look — data-theme on <html>: this phone's choice, or Auto (the
+     phone's own light / dark setting). The orange glass header, the tanker
+     livery and the number plates stay as they are; the white films become warm
+     charcoal ones. Every rule is prefixed with :where(...) so it keeps the
+     specificity of the light rule it replaces and wins by coming last. ===== */
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg:#14100d;
+    --glass:rgba(38,32,28,.80); --glass-2:rgba(44,38,33,.92); --glass-3:#2a2420;
+    --glass-line:rgba(255,255,255,.08); --edge:rgba(255,255,255,.08);
+    --shadow:0 14px 34px -18px rgba(0,0,0,.7),0 1px 0 rgba(255,255,255,.04) inset;
+    --ink:#f2ede8; --muted:#b5aca3; --faint:#8c837a; --line:rgba(255,255,255,.14);
+    --accent:#ff7a3d; --accent-soft:rgba(255,122,61,.16);
+    --grad-ink:linear-gradient(140deg,#2c3652 0%,#46536f 100%);
+    --good:#5ad49a; --good-bg:rgba(90,212,154,.14);
+    --warn:#ffc35a; --warn-bg:rgba(255,178,62,.16);
+    --bad:#ff8072; --bad-bg:rgba(255,110,96,.16);
+    --navy2:#a9bbe6; --amber-d:#ff9a4d; --green-d:#5ad49a; --red-d:#ff8072;
+  }
+  :where([data-theme="dark"]) body::before{background:
+      radial-gradient(900px 520px at 88% -80px, rgba(255,122,26,.17) 0%, rgba(255,122,26,0) 62%),
+      radial-gradient(760px 520px at -6% 8%, rgba(255,150,60,.10) 0%, rgba(255,150,60,0) 58%),
+      radial-gradient(900px 640px at 50% 110%, rgba(70,130,220,.12) 0%, rgba(70,130,220,0) 62%),
+      var(--bg);}
+  :where([data-theme="dark"]) .stat,:where([data-theme="dark"]) .tcard,:where([data-theme="dark"]) .entry,:where([data-theme="dark"]) .cham,:where([data-theme="dark"]) .confbox,:where([data-theme="dark"]) .card-add,:where([data-theme="dark"]) .trcard,:where([data-theme="dark"]) .mlrow,:where([data-theme="dark"]) .logrow,:where([data-theme="dark"]) .mini,:where([data-theme="dark"]) .tile,:where([data-theme="dark"]) .vizcard,:where([data-theme="dark"]) .flag,:where([data-theme="dark"]) .glist{
+    background:rgba(36,31,27,.90);border-color:rgba(255,255,255,.07);
+    box-shadow:0 1px 2px rgba(0,0,0,.35),0 12px 30px -16px rgba(0,0,0,.75)}
+  :where([data-theme="dark"]) .glist>*+*::before{background:rgba(255,255,255,.14)}
+  :where([data-theme="dark"]) .empty{border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.03)}
+  :where([data-theme="dark"]) .bar{background:rgba(255,255,255,.09)}
+  :where([data-theme="dark"]) .qbtn.clr{background:rgba(255,255,255,.16)}
+  :where([data-theme="dark"]) .tcard .tap:active{background:rgba(255,255,255,.05)}
+  :where([data-theme="dark"]) .tcard .badge2{background:rgba(255,255,255,.08);color:var(--muted);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+  :where([data-theme="dark"]) .tcard .tsub{color:var(--muted)}
+  :where([data-theme="dark"]) .tcard .tsub b{color:var(--ink)}
+  :where([data-theme="dark"]) .dispatch{border-top-color:rgba(255,138,43,.18);background:linear-gradient(180deg,rgba(255,138,43,.11),rgba(255,138,43,.05));color:#ff9a4d}
+  :where([data-theme="dark"]) .runtot{background:linear-gradient(rgba(20,16,13,0),rgba(20,16,13,.92) 30%)}
+  :where([data-theme="dark"]) .stat .label,:where([data-theme="dark"]) .entry .ch,:where([data-theme="dark"]) .sectitle{color:var(--muted)}
+  :where([data-theme="dark"]) .stat .num{color:var(--ink)}
+  :where([data-theme="dark"]) .big.glass{background:rgba(44,38,33,.94)}
+  :where([data-theme="dark"]) .big.glass .em{background:linear-gradient(140deg,rgba(255,138,43,.24),rgba(255,138,43,.10));box-shadow:inset 0 0 0 1px rgba(255,138,43,.22)}
+  :where([data-theme="dark"]) .modal{background:rgba(0,0,0,.5)}
+  :where([data-theme="dark"]) .modalbox{background:rgba(33,28,25,.95);box-shadow:0 30px 60px -20px rgba(0,0,0,.75)}
+  :where([data-theme="dark"]) .modalbox::before{background:rgba(255,255,255,.24)}
+  :where([data-theme="dark"]) .mbtn.ghost{background:rgba(255,255,255,.08)}
+  :where([data-theme="dark"]) .card-add input:disabled{background:rgba(255,255,255,.04)}
+  :where([data-theme="dark"]) .rpresets{background:rgba(255,255,255,.08)}
+  :where([data-theme="dark"]) .rpresets button.on{background:#4b433d;color:var(--ink);box-shadow:0 3px 8px rgba(0,0,0,.4)}
+  :where([data-theme="dark"]) .calcbox{background:rgba(255,255,255,.04)}
+  :where([data-theme="dark"]) .ins .in{background:rgba(255,255,255,.05)}
+  :where([data-theme="dark"]) .fr{background:rgba(255,255,255,.04)}
+  :where([data-theme="dark"]) .fr.on{background:linear-gradient(140deg,rgba(255,138,43,.16),rgba(255,255,255,.03) 65%)}
+  :where([data-theme="dark"]) .tbar{background:rgba(255,255,255,.10)}
+  :where([data-theme="dark"]) .fold .fe{background:rgba(255,138,43,.16)}
+  :where([data-theme="dark"]) .fold .card-add{background:rgba(255,255,255,.04)}
+  :where([data-theme="dark"]) .mltrips .tr{border-top-color:rgba(255,255,255,.08)}
+  :where([data-theme="dark"]) .badge.info,:where([data-theme="dark"]) .rolebadge.staff{background:rgba(255,255,255,.08)}
+  :where([data-theme="dark"]) .stkrow{background:rgba(255,255,255,.04)}
+  :where([data-theme="dark"]) .trd .tl,:where([data-theme="dark"]) .trrow{border-bottom-color:rgba(255,255,255,.07)}
+  :where([data-theme="dark"]) .mtab th,:where([data-theme="dark"]) .mtab td{border-bottom-color:rgba(255,255,255,.08)}
+  :where([data-theme="dark"]) .vsvg .vt{fill:#a39a91}
+  :where([data-theme="dark"]) .vsvg .vt.val{fill:#f2ede8}
+  :where([data-theme="dark"]) .vsvg .vt.name,:where([data-theme="dark"]) .vsvg .vt.lab{fill:#c9c0b7}
+  :where([data-theme="dark"]) .vizfoot i.dash{border-top-color:#c9c0b7}
+  :where([data-theme="dark"]) .viz-tip{background:rgba(40,34,30,.97);border-color:rgba(255,255,255,.12);color:#c9c0b7;box-shadow:0 12px 28px -10px rgba(0,0,0,.6)}
+  :where([data-theme="dark"]) .viz-tip-head,:where([data-theme="dark"]) .viz-tip-row b{color:#f2ede8}
+  :where([data-theme="dark"]) .fcast{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.10)}
+  :where([data-theme="dark"]) .diesel .dz{background:rgba(90,212,154,.16)}
+  :where([data-theme="dark"]) .toast{background:rgba(60,53,48,.96);border-color:rgba(255,255,255,.14);box-shadow:0 14px 30px -10px rgba(0,0,0,.6)}
+  /* header ◐ / ☀ / ☾ button: picks the look on this phone */
+  .themebtn{flex:none;width:36px;height:36px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;
+    background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.45);color:#fff}
+  .themebtn:active{transform:scale(.94)}
+  .themebtn svg{display:block}
+  .rpresets button svg{display:inline-block;vertical-align:-2px;margin-right:5px}
+  /* narrow phones: a tighter header so the title keeps its room */
+  @media (max-width:379px){header{gap:8px;padding-left:12px;padding-right:12px} header img{width:34px;height:34px} .themebtn{width:32px;height:32px}}
 </style>
 </head>
 <body>
@@ -721,6 +809,7 @@
       <div class="s" id="subT">Diesel loading record</div>
     </div>
     <span class="pill" id="livePill" hidden><i></i><span>Live</span></span>
+    <button class="themebtn" id="themeBtn" type="button" title="Light / dark" aria-label="Light or dark look"></button>
     <button class="installbtn" id="installBtn" style="display:none">Install</button>
   </header>
 
@@ -985,6 +1074,9 @@
     <!-- SETTINGS / MANAGE -->
     <section class="screen" id="scSettings">
       <div class="ltitle" id="setTitle">Manage tankers &amp; data</div>
+      <div class="sectitle">Look on this phone</div>
+      <div class="rpresets" id="themePick" role="group" aria-label="Look" style="margin-bottom:6px"></div>
+      <div class="note" id="themeHint" style="text-align:left;margin:0 6px 4px"></div>
       <div id="pushWrap" style="display:none">
         <div class="sectitle">Notifications</div>
         <div id="pushBox"></div>
@@ -1224,7 +1316,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v38 · 2026-10-05";
+const APP_BUILD = "v39 · 2026-10-08";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1571,13 +1663,21 @@ function refresh(){
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
     DESTS_FALLBACK = r[3]==null;
     DESTS = r[3]==null ? DEFAULT_DESTS.map(dNorm) : r[3];
-    // each tanker's own diesel (home cards) — fetched after, never holds up the screen
-    Backend.fuelStatus().then(list=>{
-      FUELSTAT={}; (list||[]).forEach(x=>{ if(x && x.vehicle) FUELSTAT[x.vehicle]=x; });
-      if(stack[stack.length-1]==="scHome") paintDiesel();
-    }).catch(()=>{});
+    loadDiesel();   // each tanker's own diesel (home cards) — fetched after, never holds up the screen
   });
 }
+let dieselSeq=0;
+function loadDiesel(){
+  const seq=++dieselSeq;
+  return Backend.fuelStatus().then(list=>{
+    if(seq!==dieselSeq) return;
+    FUELSTAT={}; (list||[]).forEach(x=>{ if(x && x.vehicle) FUELSTAT[x.vehicle]=x; });
+    if(stack[stack.length-1]==="scHome") paintDiesel();
+  }).catch(()=>{});
+}
+// a refill / stock check saved, corrected or deleted: the Mileage screen and
+// the home cards' own diesel both follow at once
+function fuelChanged(){ loadDiesel(); return loadMileage(); }
 /* ---------- Diesel forecast (each tanker's OWN tank) ----------
    Same rules as _loading_fuel_state / loading_fuel_forecast in the schema:
    mileage = the robust mileage above; in tank now = from the last dipped entry
@@ -1598,8 +1698,8 @@ function fuelStateJS(plate, fuel, trips){
   const meter=isMeter(plate), res=reserveL(meter);
   const rows=fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0));
   const kept=screenRows(rows, meter).kept, last=kept.length?kept[kept.length-1].row:null;   // a later duplicate doesn't move "since"
-  const m=robustMileage(mileagePoints(rows, meter), meter), mpl=m.ratio;
-  const o={ vehicle:plate, meter:meter, mileage:mpl, stretches:m.n, spread:m.spread, reserve:res, stock_now:null, trips_since:0, unknown_trips:0 };
+  const tm=tankMileage(plate, fuel), m=tm.m, mpl=tm.mpl;
+  const o={ vehicle:plate, meter:meter, mileage:mpl, mileage_src:tm.src, stretches:m.n, spread:m.spread, reserve:res, stock_now:null, trips_since:0, unknown_trips:0 };
   if(last){
     const since=trips.filter(t=>t.plate===plate && t.ts>last.ts);
     let km=0, lit=0; since.forEach(t=>{ const d=destOf(t.dest); if(d) km+=d.rtd; else if(!meter) o.unknown_trips++; lit+=t.total; });
@@ -1633,6 +1733,7 @@ function paintDiesel(){
     else if(x.advice!=="ok" && +x.stock_now < +x.reserve){ cls=" low"; say=' · <b>refill soon</b>'; }
     el.className="diesel"+cls;
     el.innerHTML='<span class="dz">⛽</span>Own diesel ≈ <b>'+fmt(x.stock_now)+' L</b>'+say
+      +(x.mileage_src && x.mileage_src!=="own"?' <span class="muted">· rough</span>':'')
       +(x.unknown_trips?' <span class="muted">· '+x.unknown_trips+' trip'+(x.unknown_trips===1?'':'s')+' without customer</span>':'');
   });
 }
@@ -2006,7 +2107,8 @@ function showForecast(){
     if(f.need!=null) rows.push(["This trip will burn", "≈ "+L(f.need)+(f.meter?" ("+fmt(total)+" L sold)":(f.rtd!=null?" ("+fmt(f.rtd)+" km)":""))]);
     if(f.stock_now!=null) rows.push(["In its tank now", "≈ "+L(f.stock_now)]);
     if(f.after!=null) rows.push(["Left after the trip", "≈ "+L(Math.max(0,f.after))]);
-    if(f.mileage) rows.push(["Recent mileage", (+f.mileage).toFixed(2)+(f.meter?" L dispensed / L":" km/L")]);
+    if(f.mileage) rows.push([f.mileage_src==="fleet" ? "Mileage (fleet average for now)" : f.mileage_src==="recent" ? "Mileage (first figure)" : "Recent mileage",
+      (+f.mileage).toFixed(2)+(f.meter?" L dispensed / L":" km/L")]);
     let note="";
     if(f.stock_now==null) note=f.mileage ? "Fuel in its tank is unknown — "+(isAdmin()?"do a 🛢️ stock check (Mileage screen).":"ask the admin for a 🛢️ stock check.") : "Mileage appears after a few refills are recorded.";
     else if(f.unknown_trips) note=f.unknown_trips+" earlier trip"+(f.unknown_trips===1?" has":"s have")+" no customer, so the tank may hold less.";
@@ -2950,9 +3052,40 @@ function mileagePoints(rows, meter){
   });
   return pts;
 }
+/* Loose points — only for the tanker's own diesel before it has a settled
+   mileage, so the home card shows it from the first refill on: as the
+   calculator does, a refill saved without its dip counts as run dry (stock 0).
+   Never used for the mileage itself, the drops or the checks. */
+function loosePoints(rows, meter){
+  let filled=0; const pts=[];
+  screenRows(rows, meter).kept.forEach(k=>{
+    const r=k.row;
+    if((stockKnown(r, meter) || r.litres>0) && !k.over && !k.incl) pts.push({ row:r, ts:r.ts, odo:+r.odo, stock:stockOf(r), C:filled-stockOf(r) });
+    filled+=(+r.litres||0);
+  });
+  return pts;
+}
+/* The mileage the tank estimate goes by: the settled one (src "own"); until
+   there is one, a first figure from the loose points (src "recent" — the
+   calculator's figure, no minimum span); else, for an odometer tanker, the
+   median settled mileage of the other odometer tankers (src "fleet"). */
+function tankMileage(plate, fuel){
+  const meter=isMeter(plate), rows=fuel.filter(r=>r.plate===plate).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0));
+  const m=robustMileage(mileagePoints(rows, meter), meter);
+  if(m.ratio) return { m:m, mpl:m.ratio, src:"own" };
+  const l=robustMileage(loosePoints(rows, meter), meter, true).ratio;
+  if(l) return { m:m, mpl:l, src:"recent" };
+  if(!meter){
+    const others=[]; fuel.forEach(r=>{ if(r.plate!==plate && !isMeter(r.plate) && others.indexOf(r.plate)<0) others.push(r.plate); });
+    const v=others.map(p=>robustMileage(mileagePoints(fuel.filter(r=>r.plate===p).sort((a,b)=>a.ts-b.ts || (a.cts||0)-(b.cts||0)), false), false).ratio).filter(x=>x>0).sort((a,b)=>a-b);
+    if(v.length) return { m:m, mpl:v.length%2 ? v[v.length>>1] : (v[v.length/2-1]+v[v.length/2])/2, src:"fleet" };
+  }
+  return { m:m, mpl:null, src:"" };
+}
 function inBounds(ratio, meter){ const b=meter?MILEAGE.bounds.meter:MILEAGE.bounds.odo; return ratio>=b[0] && ratio<=b[1]; }
 // distance-weighted median (and quartiles) of the pairwise mileages among `pts`
-function robustMileage(pts, meter){
+// (anyspan: no minimum span — the first figure for the tank estimate only)
+function robustMileage(pts, meter, anyspan){
   const P=pts.slice(-MILEAGE.points), pairs=[]; let dropped=0;
   for(let i=0;i<P.length;i++) for(let j=i+1;j<P.length;j++){
     const d=P[j].odo-P[i].odo, u=P[j].C-P[i].C;
@@ -2962,7 +3095,7 @@ function robustMileage(pts, meter){
   if(!pairs.length) return out;
   out.span=r2(Math.max.apply(null, pairs.map(p=>p.d))); out.used=r2(Math.max.apply(null, pairs.map(p=>p.u)));
   const ms=meter?MILEAGE.minSpan.meter:MILEAGE.minSpan.odo;
-  if(out.span<ms || out.used<MILEAGE.minSpan.litres) return out;          // not enough data yet
+  if(!anyspan && (out.span<ms || out.used<MILEAGE.minSpan.litres)) return out;   // not enough data yet
   pairs.sort((a,b)=>a.r-b.r);
   const tw=pairs.reduce((s,p)=>s+p.w,0);
   const q=f=>{ let c=0; for(const p of pairs){ c+=p.w; if(c>=tw*f) return p.r; } return pairs[pairs.length-1].r; };
@@ -3045,9 +3178,11 @@ function analyse(plate){
 }
 // Diesel in the tank now: from the last point with a known stock, plus every
 // litre filled since, minus what the distance since then and the trips sold
-// since the last entry burn at the current mileage.
+// since the last entry burn at the current mileage. With no dipped entry yet,
+// from the last refill counted as run dry (loosePoints).
 function fuelNow(rows, meter, mpl, tripsSince){
-  const pts=mileagePoints(rows, meter); if(!pts.length || !(mpl>0)) return null;
+  let pts=mileagePoints(rows, meter); if(!pts.length) pts=loosePoints(rows, meter);
+  if(!pts.length || !(mpl>0)) return null;
   const kept=screenRows(rows, meter).kept.map(x=>x.row), k=pts[pts.length-1], last=kept[kept.length-1];
   let filled=0, on=false; kept.forEach(r=>{ if(r===k.row) on=true; if(on) filled+=(+r.litres||0); });
   const afterLast=k.stock+filled-Math.max(0,last.odo-k.odo)/mpl;     // right after the last entry
@@ -3153,7 +3288,7 @@ $("#mlPSave").onclick=async()=>{
     if(fix) await Backend.removeFuel(fix.id);
     await Backend.addFuel({ plate:mlPlate, ts:p.ts, odo:p.odo, litres:p.litres, anguls:p.anguls, stock_l:p.stock_l, note:"refill (entered)", by:ME });
     toast(fix ? "✓ Previous refill corrected" : "✓ Previous refill saved — the next refill measures from it");
-    await loadMileage(); fillPrevFromSaved(false);
+    await fuelChanged(); fillPrevFromSaved(false);
   }catch(e){ toast(dbHint(e)); }
   btn.disabled=false;
 };
@@ -3282,7 +3417,7 @@ function renderMlDetail(rows){
     + '<div class="tiles">'
     + tile("Mileage now", cur.ratio ? cur.ratio.toFixed(2)+' <small>'+unit+'</small>' : '—', cur.ratio ? mileageQuality(cur)+' · '+cur.n+' entries · '+fmt(cur.span)+(m?' L dispensed':' km') : 'appears after '+(m?fmt(MILEAGE.minSpan.meter)+' L dispensed':MILEAGE.minSpan.odo+' km')+' between two dipped entries', '')
     + tile("Last stretch", o ? o.ratio.toFixed(2)+' <small>'+unit+'</small>' : '—', o ? stretchTxt(o).slice(0,13)+(dPct?' · '+dPct:'') : 'needs '+(m?fmt(MILEAGE.judge.meter)+' L':MILEAGE.judge.odo+' km')+' between dips', o&&o.sev===2?'bad':o&&o.sev?'warn':'')
-    + tile("Own diesel now", x.st.stock_now!=null ? '≈ '+fmt(Math.round(x.st.stock_now))+' <small>L</small>' : '—', x.st.stock_now!=null ? 'of '+cap+' L'+(fcTxt?' · '+fcTxt:'') : 'needs a dip and a mileage', x.fc.advice==="refill_before"?'bad':x.fc.advice==="refill_after"?'warn':'')
+    + tile("Own diesel now", x.st.stock_now!=null ? '≈ '+fmt(Math.round(x.st.stock_now))+' <small>L</small>' : '—', x.st.stock_now!=null ? 'of '+cap+' L'+(fcTxt?' · '+fcTxt:'')+({ recent:' · rough: by its first mileage', fleet:' · rough: by the fleet\'s mileage' }[x.st.mileage_src]||'') : 'needs a refill or a dip', x.fc.advice==="refill_before"?'bad':x.fc.advice==="refill_after"?'warn':'')
     + tile("Last entry", x.last ? dmy(dayKey(x.last.ts)).slice(0,5) : '—', x.last ? (x.last.litres>0?'refill':'stock check')+' · '+agoTxt(x.last.ts)+(x.st.trips_since?' · '+x.st.trips_since+' trip'+(x.st.trips_since===1?'':'s')+' since':'') : 'add the first one below', x.stale&&x.last?'warn':'')
     + '</div>'
     + '<div class="vizcard"><div class="vizh">'+(m?'Fuel dispensed per litre':'Mileage')+' per stretch</div>'
@@ -3449,7 +3584,7 @@ $("#mlSave").onclick=async()=>{
     await Backend.addFuel({ plate:mlPlate, ts:c.ts, odo:c.odo, litres:check?0:c.litres, anguls:c.anguls, stock_l:c.stock_l,
       note:$("#mlNote").value.trim() || (check?"stock check":""), by:ME });
     toast(check ? "✓ Stock check saved" : "✓ Refill saved");
-    await loadMileage();
+    await fuelChanged();
     fillPrevFromSaved(true);
   }catch(e){ toast(dbHint(e)); }
   btn.disabled=false;
@@ -3533,7 +3668,7 @@ function renderMileageList(rows){
   box.querySelectorAll("[data-rmfuel]").forEach(b=>{ b.onclick=()=>{
     const r=FUEL.find(x=>String(x.id)===b.getAttribute("data-rmfuel")); if(!r) return;
     if(!confirm("Delete this refill?\n"+r.plate+" — "+fmt(r.odo)+", "+fmt(r.litres)+" L")) return;
-    Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return loadMileage(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
+    Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return fuelChanged(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
   }; });
 }
 
@@ -3590,7 +3725,7 @@ $("#feDel").onclick=()=>{
   const r=feRow; if(!r) return;
   if(!confirm("Delete this "+(r.litres>0?"refill":"stock check")+"?\n"+entryTxt(r))) return;
   closeFuelEdit();
-  Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return loadMileage(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
+  Backend.removeFuel(r.id).then(()=>{ toast("Deleted"); return fuelChanged(); }).then(()=>fillPrevFromSaved(false)).catch(e=>toast(dbHint(e)));
 };
 $("#feCancel").onclick=closeFuelEdit;
 $("#feModal").addEventListener("click",e=>{ if(e.target===$("#feModal")) closeFuelEdit(); });
@@ -3622,7 +3757,7 @@ $("#feOk").onclick=async()=>{
   try{
     await Backend.updateFuel(e);
     closeFuelEdit(); toast("✓ Entry corrected");
-    await loadMileage(); fillPrevFromSaved(false);
+    await fuelChanged(); fillPrevFromSaved(false);
   }catch(x){ err.textContent=dbHint(x); }
   btn.disabled=false;
 };
@@ -3652,18 +3787,22 @@ $("#stkOk").onclick=async()=>{
   try{
     for(const r of todo) await Backend.addFuel(r);
     closeStock(); toast("✓ Stock saved for "+todo.length+" tanker"+(todo.length===1?"":"s"));
-    await loadMileage(); fillPrevFromSaved(true);
+    await fuelChanged(); fillPrevFromSaved(true);
   }catch(e){ err.textContent=dbHint(e); }
   btn.disabled=false;
 };
 
 /* ---------- Charts (small, dependency-free SVG) ----------
-   Drawn at the card's real width and redrawn on resize. Light surface only.
+   Drawn at the card's real width and redrawn on resize, and on a change of
+   look (VZ holds the light or the dark palette — see setTheme).
    Series: one hue per chart (blue); blue/red only for the above/below-normal
    diverging bars; orange is the second series of the km split. Status colours
    (red / amber) only on mileage-drop points, always with the ⚠ list beside them. */
-const VZ={ s1:"#2a78d6", s2:"#eb6834", pos:"#d03b3b", neg:"#2a78d6", crit:"#d03b3b", warn:"#fab219",
+const VZ_LIGHT={ s1:"#2a78d6", s2:"#eb6834", pos:"#d03b3b", neg:"#2a78d6", crit:"#d03b3b", warn:"#fab219",
   grid:"#e1e0d9", axis:"#c3c2b7", tick:"#898781", ink:"#0b0b0b", ink2:"#52514e", surf:"#fcfcfb", band:"rgba(42,120,214,.11)" };
+const VZ_DARK={ s1:"#5b9ff0", s2:"#ff8a50", pos:"#ff6b6b", neg:"#5b9ff0", crit:"#ff6b6b", warn:"#ffc35a",
+  grid:"#3a332e", axis:"#5c544d", tick:"#a39a91", ink:"#f2ede8", ink2:"#c9c0b7", surf:"#241f1b", band:"rgba(91,159,240,.16)" };
+const VZ=Object.assign({}, document.documentElement.dataset.theme==="dark" ? VZ_DARK : VZ_LIGHT);
 const SVGNS="http://www.w3.org/2000/svg";
 function sv(tag, at, parent){ const e=document.createElementNS(SVGNS, tag); for(const k in at) e.setAttribute(k, at[k]); if(parent) parent.appendChild(e); return e; }
 function niceTicks(lo, hi, n){
@@ -4473,6 +4612,62 @@ $("#loginPass").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#btnLogin
 let deferredPrompt=null;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("#installBtn").style.display=""; });
 $("#installBtn").onclick=async()=>{ if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("#installBtn").style.display="none"; };
+
+/* ---------- Light / dark look ----------
+   "Auto" (the default) follows the phone's own light / dark setting and
+   switches with it live — e.g. when the phone goes dark at sunset. The choice
+   is this phone's own (localStorage), not a shared setting. The first paint's
+   look is set by the little script in <head>, so there's no flash. Same
+   behaviour as the Decanting app's ◐ / ☀ / ☾ button. */
+const THEME_KEY="vriddhi-loading-theme", THEMES=["auto","light","dark"];
+const themeMedia = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+let themeHeld="auto";                      // the phone's storage blocked: this visit only
+function themeChoice(){ try{ const v=localStorage.getItem(THEME_KEY); return THEMES.indexOf(v)>=0 ? v : "auto"; }catch(e){ return themeHeld; } }
+function systemLook(){ return themeMedia && themeMedia.matches ? "dark" : "light"; }   // no answer: the app's own light look
+function currentLook(){ const c=themeChoice(); return c==="auto" ? systemLook() : c; }
+function themeLabel(c){ c=c||themeChoice(); return c==="auto" ? "Auto — follows the phone ("+systemLook()+" now)" : c==="light" ? "Light" : "Dark"; }
+// drawn, not font symbols (◐ ☀ ☾ differ from phone to phone, or are missing)
+const THEME_ICONS={
+  auto:'<circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/>',
+  light:'<circle cx="8" cy="8" r="2.9" fill="currentColor"/><path d="M8 1.2v1.9M8 12.9v1.9M1.2 8h1.9M12.9 8h1.9M3.2 3.2l1.35 1.35M11.45 11.45l1.35 1.35M3.2 12.8l1.35-1.35M11.45 4.55l1.35-1.35" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  dark:'<path d="M13.4 10.1A5.9 5.9 0 0 1 5.9 2.6a5.9 5.9 0 1 0 7.5 7.5z" fill="currentColor"/>' };
+function themeIcon(c, px){ return '<svg viewBox="0 0 16 16" width="'+(px||16)+'" height="'+(px||16)+'" aria-hidden="true">'+THEME_ICONS[c||themeChoice()]+'</svg>'; }
+function applyTheme(){
+  const look=currentLook(), was=document.documentElement.dataset.theme;
+  document.documentElement.dataset.theme=look;
+  Object.assign(VZ, look==="dark" ? VZ_DARK : VZ_LIGHT);
+  const b=$("#themeBtn");
+  if(b){ b.innerHTML=themeIcon(); b.title="Look: "+themeLabel()+" — tap to change"; b.setAttribute("aria-label", "Look: "+themeLabel()+". Tap to change."); }
+  paintThemePick();
+  // the charts carry their colours in the SVG: draw them again in the new look
+  if(was!==look){ const cur=stack[stack.length-1]; if(cur==="scMileage" || cur==="scTrend"){ renderMileage(); renderTrend(); } }
+}
+function setTheme(c){
+  if(THEMES.indexOf(c)<0) c="auto";
+  themeHeld=c;
+  try{ if(c==="auto") localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, c); }catch(e){}
+  applyTheme();
+}
+// Settings → "Look on this phone": Auto / Light / Dark
+function paintThemePick(){
+  const box=$("#themePick"); if(!box) return;
+  const c=themeChoice();
+  box.innerHTML=THEMES.map(k=>'<button type="button" data-theme-pick="'+k+'" class="'+(k===c?'on':'')+'" aria-pressed="'+(k===c)+'">'
+    +themeIcon(k, 14)+{ auto:"Auto", light:"Light", dark:"Dark" }[k]+'</button>').join("");
+  $("#themeHint").textContent = c==="auto" ? themeLabel() : "Changes at once — Auto follows the phone's light / dark setting.";
+}
+$("#themePick").addEventListener("click",e=>{ const b=e.target.closest("[data-theme-pick]"); if(b) setTheme(b.getAttribute("data-theme-pick")); });
+// the header button: every tap visibly changes the look — from Auto to the
+// other look, then to the one the phone is in, then back to Auto
+$("#themeBtn").onclick=()=>{
+  const c=themeChoice(), sys=systemLook(), other=sys==="dark"?"light":"dark";
+  setTheme(c==="auto" ? other : c===other ? sys : "auto");
+  toast("Look: "+themeLabel());
+};
+if(themeMedia){ const onSys=()=>{ if(themeChoice()==="auto") applyTheme(); };
+  if(themeMedia.addEventListener) themeMedia.addEventListener("change", onSys); else if(themeMedia.addListener) themeMedia.addListener(onSys); }
+window.addEventListener("storage",e=>{ if(e.key===THEME_KEY || e.key===null) applyTheme(); });   // another tab changed it
+applyTheme();
 
 /* ---------- Boot ---------- */
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
