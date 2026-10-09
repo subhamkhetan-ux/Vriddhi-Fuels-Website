@@ -381,3 +381,27 @@ test('a bill dated days away from its trip is flagged — it is probably on the 
   const ok = bill(3577, '2026-10-10', 17950, S, D);
   assert.equal(INV.reconcile([oct7], [ok], [tagOf(ok, oct7)], ctx({ plates: [A, B, C, D] }), { from: '2026-10-01', to: '2026-10-31' }).rows[0].issues.length, 0);
 });
+
+test('a trip marked as checked by hand is no longer flagged, anywhere', () => {
+  const links = [{ ckey: 'shyam metalics and energy ltd', dest: 'Shyam Metalics', customer: 'Shyam Metalics and Energy Ltd' }];
+  const t1 = trip('OR15R9360', '2026-10-07', 17932, 'Shyam Metalics'), t2 = trip(A, '2026-10-07', 11955, 'Shyam Metalics', { h: 1 });
+  const b = bill(3800, '2026-10-07', 17990, 'Shyam Metalics and Energy Ltd', 'OR15R9360');
+  const base = { plates: [A, B, C, 'OR15R9360'], links };
+  const before = INV.reconcile([t1, t2], [b], [], ctx(base), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(before.alerts.filter((a) => a.kind === 'none').length, 2);
+  const c = ctx({ ...base, checked: [{ trip_id: t2.id, note: 'Settled outside the ledger', by: 'boss' }] });
+  const r = INV.reconcile([t1, t2], [b], [], c, { from: '2026-10-01', to: '2026-10-31' });
+  const row = Object.fromEntries(r.rows.map((x) => [x.trip.id, x]));
+  assert.equal(row[t2.id].status, 'checked');
+  assert.equal(row[t2.id].checked.note, 'Settled outside the ledger');
+  assert.equal(row[t2.id].sug, null, 'no suggestion for it');
+  assert.deepEqual(r.alerts.filter((a) => a.row).map((a) => a.row.trip.id), [t1.id], 'only the other trip is still to fix');
+  assert.equal(r.perTanker[A].checked, 1);
+  assert.equal(r.perTanker[A].bad, 0);
+  assert.equal(r.perTanker[A].diff, 0, 'not counted as short');
+  const acc = r.perCust.find((a) => a.dests.includes('Shyam Metalics'));
+  assert.equal(acc.delivered, 17932, 'the checked trip adds nothing to sent-vs-invoiced');
+  // a trip whose bills already add up stays "ok" even if marked
+  const ok = INV.reconcile([t1], [b], [tagOf(b, t1)], ctx({ ...base, checked: [{ trip_id: t1.id, note: 'x' }] }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(ok.rows[0].status, 'ok');
+});

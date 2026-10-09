@@ -420,6 +420,15 @@ tanker (with a count of trips to fix); *Only trips that need work* hides the
 rest. A trip's sure suggestion has **Tag these**; **＋ Tag bills** opens its
 bills sheet. Bills on no trip are listed last. The Home card opens here.
 
+**Mark as checked** (on a trip that needs work, in Mapping or at the bottom
+of its bills sheet): for a trip you can't sort out against the ledger — billed
+on a manual invoice, settled with the customer… Type the reason; the trip
+turns blue (*✓ Checked by hand: “reason” · who · date*) and is no longer
+flagged anywhere (Alerts, the Home card, *To fix*, per tanker / customer).
+**Undo** puts it back in the check. Its bills, if any, still show and can
+still be changed. Kept with the trip (`loading_trip_checks`, admin-only).
+**Cloud mode:** re-run `supabase/loading-schema.sql` once for it.
+
 **Tap any bill** (in Mapping, or **Move** in a trip's sheet) for its own
 sheet: the bill, the trip it is **now on** (sent, billed, difference) with
 **Take off this trip**, and the trips it could **move to** — the ones with
@@ -463,6 +472,7 @@ what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check
 | ◐ Short / ▲ Over | its bills are more than 10 L less / 80 L more than sent |
 | ✕ Not invoiced | no bill tagged, and the ledger already has the next day's bills |
 | ⏳ Waiting for bills | no bill tagged yet, but the ledger has no bills after the trip's day (the DayBook isn't imported yet) |
+| ✓ Checked by hand | marked by an admin with a reason — not flagged |
 | ⚠ under a trip | a tagged bill is in another tanker's name, to a customer billed for someone else, or was changed / deleted in the ledger after tagging |
 
 **Three views**:

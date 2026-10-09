@@ -178,6 +178,17 @@ create table if not exists public.loading_invoice_tags (
 );
 create index if not exists loading_invoice_tags_trip_idx on public.loading_invoice_tags(trip_id);
 
+-- Trips an admin marked as checked by hand ("Mark as checked"): settled
+-- outside the ledger, or sorted out some other way. The note says why. The
+-- invoice check then stops flagging the trip. Goes with its trip.
+create table if not exists public.loading_trip_checks (
+  trip_id    uuid primary key references public.loading_trips(id) on delete cascade,
+  note       text not null,
+  by_name    text not null default '',
+  created_by uuid,
+  created_at timestamptz not null default now()
+);
+
 -- Which ledger customers each "Sold to" customer is billed as. One sold-to
 -- customer can be billed to several ledger names (group companies) and one
 -- ledger name can cover several sold-to customers (SMC Unit 1 / Unit 2);
@@ -378,6 +389,7 @@ alter table public.loading_roles enable row level security;
 alter table public.loading_auth_state enable row level security;
 alter table public.loading_invoice_tags enable row level security;
 alter table public.loading_dest_links enable row level security;
+alter table public.loading_trip_checks enable row level security;
 
 -- A phone may only ever see or touch its own owner's subscriptions. The edge
 -- function reads every row with the service-role key, which bypasses RLS.
@@ -438,6 +450,10 @@ create policy loading_fuel_logs_read on public.loading_fuel_logs
 -- invoice tags and customer links are ADMIN-only, like the trips
 drop policy if exists loading_invoice_tags_read on public.loading_invoice_tags;
 create policy loading_invoice_tags_read on public.loading_invoice_tags
+  for select to authenticated using (public._loading_is_admin());
+
+drop policy if exists loading_trip_checks_read on public.loading_trip_checks;
+create policy loading_trip_checks_read on public.loading_trip_checks
   for select to authenticated using (public._loading_is_admin());
 
 drop policy if exists loading_dest_links_read on public.loading_dest_links;
@@ -794,6 +810,27 @@ begin
   perform _loading_admin();
   delete from loading_invoice_tags where bill_key = p_bill_key;
   if not found then raise exception 'That bill is not tagged'; end if;
+end $$;
+
+-- "Mark as checked": a trip settled by hand, with the reason. Marking again
+-- updates the reason; unmark puts it back in the check.
+create or replace function public.loading_trip_check(p_trip uuid, p_note text, p_by text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  if not exists (select 1 from loading_trips where id = p_trip) then raise exception 'Trip not found — it may have been deleted'; end if;
+  if btrim(coalesce(p_note,'')) = '' then raise exception 'Say why this trip is all right'; end if;
+  insert into loading_trip_checks (trip_id, note, by_name, created_by)
+    values (p_trip, left(btrim(p_note), 300), coalesce(p_by,''), auth.uid())
+  on conflict (trip_id) do update set note = excluded.note, by_name = excluded.by_name,
+    created_by = excluded.created_by, created_at = now();
+end $$;
+
+create or replace function public.loading_trip_uncheck(p_trip uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  delete from loading_trip_checks where trip_id = p_trip;
 end $$;
 
 -- Link a ledger customer to a "Sold to" customer (made when tagging; ⚙ lists them).
@@ -1257,6 +1294,8 @@ begin
       public.loading_invoice_untag(text),
       public.loading_dest_link_set(text, text, text),
       public.loading_dest_link_remove(text, text),
+      public.loading_trip_check(uuid, text, text),
+      public.loading_trip_uncheck(uuid),
       public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, numeric, text, text),
       public.loading_setting_set(text, jsonb),
       public.loading_whoami(),
@@ -1313,6 +1352,10 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.loading_dest_links;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_trip_checks;
   exception when others then null;
   end;
 end $$;
