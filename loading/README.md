@@ -448,7 +448,15 @@ what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check
 - **By tanker** — per tanker: litres sold, litres tagged, and litres **billed
   in its name** (every diesel bill typed with its number), plus any **extra
   bill**: a bill in the tanker's name that no trip of it can account for.
-- **By customer** — litres sent for sale against litres invoiced, per
+- **By customer** — the easiest place to tag. Each card opens (*Show trips
+  & bills*) to its trips, each with **Tag ›** like on the vehicle screen, and
+  its **bills on no trip**, each with a **→ tanker date** button for the
+  trips it could go on (tapping one ticks the rest of that trip's suggested
+  bills too). **💡 Tag N sure matches** tags all of a customer's sure trips
+  after one look at the list. A ledger name not linked to a *Sold to*
+  customer yet has its own card at the top with a **Billed for … · Link**
+  picker, the look-alike already picked.
+  It also compares litres sent for sale against litres invoiced, per
   customer: *Sold to* customers and the ledger names they're billed as are
   added up together (group companies, SMC units). Bills on no trip count as
   invoiced; a bill tagged to the wrong customer's trip shows as under on one

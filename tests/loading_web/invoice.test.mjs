@@ -244,3 +244,20 @@ test('an untagged sale says whether its bills are already in the ledger', () => 
   assert.match(a[A].text, /bills 1501 = 12040 L/);
   assert.equal(a[B].title, 'Sale not invoiced');
 });
+
+test('per customer: each account lists its trips, its bills on no trip, its ledger names and its sure suggestions', () => {
+  const links = [{ ckey: 'shyam metaliks and energy ltd', dest: 'Shyam Metalics', customer: 'Shyam Metaliks and Energy Ltd' }];
+  const t1 = trip(A, '2026-10-02', 12000, 'Shyam Metalics'), t2 = trip(B, '2026-10-03', 12000, 'Shyam Metalics');
+  const b1 = [1601, 1602, 1603].map((k) => bill(k, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', A));
+  const stray = bill(1604, '2026-10-05', 3000, 'Unknown Buyer Pvt Ltd', C);              // C has no trip: on no trip, not linked
+  const r = INV.reconcile([t1, t2], b1.concat([stray]), [], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  const shyam = r.perCust.find((a) => a.dests.includes('Shyam Metalics'));
+  assert.deepEqual(shyam.tripIds.sort(), [t1.id, t2.id].sort());
+  assert.deepEqual(shyam.sure, [t1.id], 'only the trip whose bills are sure');
+  assert.deepEqual(shyam.loose.map((x) => x.bill.bill_no), ['1601', '1602', '1603']);
+  assert.deepEqual(Object.keys(shyam.ckeys), ['shyam metaliks and energy ltd']);
+  const other = r.perCust.find((a) => !a.dests.length);
+  assert.deepEqual(other.custs, ['Unknown Buyer Pvt Ltd']);
+  assert.deepEqual(other.ckeys, { 'unknown buyer pvt ltd': 'Unknown Buyer Pvt Ltd' });
+  assert.equal(other.status, 'over');
+});
