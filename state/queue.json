@@ -3848,6 +3848,27 @@
       },
       "queued_at": "2026-10-09T07:00:22.379482+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "0fc8899380cfe9c0",
+      "gmail_msg_id": "1878556479797695041",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "09/10/2026",
+      "date_serial": 46304,
+      "amount": 397600.0,
+      "raw_payer": "MAA MEDHAPAT FIRM",
+      "customer": "Maa Medhapat Firm",
+      "candidates": [
+        "Maa Medhapat Firm"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-09T07:45:22.305236+00:00",
+      "status": "matched"
     }
   ]
 }
