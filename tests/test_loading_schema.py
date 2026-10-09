@@ -219,7 +219,7 @@ def _tag(pg, trip, bills, mode="manual"):
 def trips(pg):
     pg.ok("insert into loading_roles (email, role) values ('boss@vriddhi.local', 'admin') on conflict (email) do update set role = 'admin';"
           "insert into loading_roles (email, role) values ('ramesh@vriddhi.local', 'staff') on conflict (email) do update set role = 'staff';"
-          "delete from loading_invoice_tags; delete from loading_dest_links; delete from loading_trips;"
+          "delete from loading_invoice_tags; delete from loading_dest_links; delete from loading_trip_checks; delete from loading_trips;"
           f"insert into loading_trips (id, vehicle, total, dest, created_at) values "
           f"('{TRIP1}', 'OD23A3710', 12000, 'Shyam Metalics', {T0}),"
           f"('{TRIP2}', 'OR15R1110', 11955, 'Orissa Metaliks', {T0} + interval '2 hours');")
@@ -295,3 +295,22 @@ def test_invoice_check_settings(pg, trips):
     assert "Tolerance" in pg.fails("select loading_setting_set('tag_tol_l', '-1'::jsonb)", **admin)
     assert "Tolerance" in pg.fails("select loading_setting_set('tag_over_l', '5000'::jsonb)", **admin)
     assert "Auto-tag" in pg.fails("select loading_setting_set('tag_auto', '2'::jsonb)", **admin)
+
+
+def test_mark_a_trip_as_checked(pg, trips):
+    _admin(pg, f"select loading_trip_check('{TRIP1}', 'Settled outside the ledger', 'boss')")
+    assert pg.json("select jsonb_agg(jsonb_build_array(note, by_name)) from loading_trip_checks") == [["Settled outside the ledger", "boss"]]
+    _admin(pg, f"select loading_trip_check('{TRIP1}', 'Billed on a manual invoice', 'boss')")     # marking again updates the reason
+    assert pg.ok("select note from loading_trip_checks") == "Billed on a manual invoice"
+    admin = dict(user=ADMIN, email="boss@vriddhi.local")
+    assert "why" in pg.fails(f"select loading_trip_check('{TRIP2}', '  ', 'boss')", **admin)
+    assert "Trip not found" in pg.fails("select loading_trip_check(gen_random_uuid(), 'x', 'boss')", **admin)
+    staff = dict(user=STAFF, email="ramesh@vriddhi.local")
+    assert pg.ok("select count(*) from loading_trip_checks", **staff) == "0"
+    assert "Admin only" in pg.fails(f"select loading_trip_check('{TRIP2}', 'x', '')", **staff)
+    assert "Admin only" in pg.fails(f"select loading_trip_uncheck('{TRIP1}')", **staff)
+    _admin(pg, f"select loading_trip_uncheck('{TRIP1}')")
+    assert pg.ok("select count(*) from loading_trip_checks") == "0"
+    _admin(pg, f"select loading_trip_check('{TRIP2}', 'ok', 'boss')")
+    pg.ok(f"delete from loading_trips where id = '{TRIP2}'")                                  # goes with its trip
+    assert pg.ok("select count(*) from loading_trip_checks") == "0"

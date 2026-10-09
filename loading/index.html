@@ -418,7 +418,14 @@
   .mapt{font-size:13px;font-weight:700;color:var(--muted)}
   .mapst{margin-left:auto;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
   .mapst.st-ok{background:var(--good-bg);color:var(--good)} .mapst.st-bad{background:var(--bad-bg);color:var(--bad)}
-  .mapst.st-wait{background:var(--warn-bg);color:var(--warn)} .mapst.st-off{background:rgba(27,33,48,.07);color:var(--muted)}
+  .mapst.st-wait{background:var(--warn-bg);color:var(--warn)} .mapst.st-chk{background:rgba(70,110,200,.12);color:#3c64b4}
+  .mapcard.st-chk{border-left-color:#5b84d6}
+  .mapchk{font-size:12.5px;font-weight:600;color:#3c64b4;margin-top:8px;line-height:1.45}
+  .mapchk .lnk{font-size:12.5px;padding:0 0 0 4px}
+  .tagbtn.ghost{background:none;border:1px solid var(--line);color:var(--muted)}
+  .mapfoot{gap:8px}
+  .tagmark{margin:6px 0 0;text-align:center}
+  .tagmark .lnk{font-size:13px} .mapst.st-off{background:rgba(27,33,48,.07);color:var(--muted)}
   .mapdest{font-weight:700;color:var(--ink);font-size:14px;margin:6px 0 2px}
   .mapflow{display:flex;align-items:center;gap:10px;margin:6px 0 4px}
   .mapflow span{display:flex;flex-direction:column}
@@ -1323,6 +1330,7 @@
     <div class="taglist" id="tagList"></div>
     <div class="tagsum" id="tagSum"></div>
     <div class="caperr" id="tagErr"></div>
+    <div id="tagMark" class="tagmark"></div>
     <div class="mbtns">
       <button class="mbtn ghost" id="tagCancel">Close</button>
       <button class="mbtn go" id="tagOk">Tag</button>
@@ -1522,7 +1530,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v45 · 2026-10-09";
+const APP_BUILD = "v46 · 2026-10-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1643,6 +1651,7 @@ const FLS_KEY = "vf_loading_fuel_v1";
 const SLS_KEY = "vf_loading_settings_v1";
 const TLS_KEY = "vf_loading_inv_tags_v1";    // invoice tags (single-device mode)
 const LLS_KEY = "vf_loading_dest_links_v1";  // ledger customer ↔ "Sold to" links
+const KLS_KEY = "vf_loading_trip_checks_v1"; // trips marked as checked by hand
 function lsGet(k,d){ try{ const v=JSON.parse(localStorage.getItem(k)); return Array.isArray(v)?v:d; }catch(e){ return d; } }
 function lsPut(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function dNorm(d){ return { name:String(d.name||""), rtd:+d.rtd||0, grp:String(d.grp||"") }; }
@@ -1694,6 +1703,7 @@ const LocalBackend = {
     }
     lsSave(lsLoad().filter(x=>x.id!==id));
     lsPut(TLS_KEY, lsGet(TLS_KEY, []).filter(t=>t.trip_id!==id));   // an undone sale is not a trip: its bills come off
+    lsPut(KLS_KEY, lsGet(KLS_KEY, []).filter(x=>x.trip_id!==id));
     return Promise.resolve();
   },
   addVehicle(v){ const l=lsVehicles(); l.push(vNorm(v)); lsVehiclesSave(l); return Promise.resolve(); },
@@ -1704,7 +1714,7 @@ const LocalBackend = {
     v.caps=caps.slice(); lsVehiclesSave(l); return Promise.resolve();
   },
   removeVehicle(plate){ lsVehiclesSave(lsVehicles().filter(v=>v.plate!==plate)); return Promise.resolve(); },
-  clearAll(){ lsSave([]); lsPut(TLS_KEY, []); const vs=lsVehicles(); vs.forEach(v=>{ v.fill={}; v.total_loaded=0; v.total_sold=0; }); lsVehiclesSave(vs); return Promise.resolve(); },
+  clearAll(){ lsSave([]); lsPut(TLS_KEY, []); lsPut(KLS_KEY, []); const vs=lsVehicles(); vs.forEach(v=>{ v.fill={}; v.total_loaded=0; v.total_sold=0; }); lsVehiclesSave(vs); return Promise.resolve(); },
   endDay(){
     const cd=prevDateStr();
     if(lsCloses().some(c=>c.date===cd)) return Promise.reject(new Error("This day has already been ended"));
@@ -1753,6 +1763,14 @@ const LocalBackend = {
     l.push({ ckey:ckey, customer:customer, dest:dest }); lsPut(LLS_KEY, l); return Promise.resolve();
   },
   removeLink(ckey, dest){ lsPut(LLS_KEY, lsGet(LLS_KEY, []).filter(x=>!(x.ckey===ckey && x.dest===dest))); return Promise.resolve(); },
+  loadChecks(){ return Promise.resolve(lsGet(KLS_KEY, []).slice()); },
+  checkTrip(id, note){
+    if(!lsLoad().some(x=>x.id===id && x.kind==="dispatch")) return Promise.reject(new Error("Trip not found — it may have been deleted"));
+    if(!String(note||"").trim()) return Promise.reject(new Error("Say why this trip is all right"));
+    lsPut(KLS_KEY, lsGet(KLS_KEY, []).filter(x=>x.trip_id!==id).concat([{ trip_id:id, note:String(note).trim().slice(0,300), by:ME, ts:Date.now() }]));
+    return Promise.resolve();
+  },
+  uncheckTrip(id){ lsPut(KLS_KEY, lsGet(KLS_KEY, []).filter(x=>x.trip_id!==id)); return Promise.resolve(); },
   loadFuel(){ return Promise.resolve(lsGet(FLS_KEY, []).slice()); },
   loadSettings(){ try{ return Promise.resolve(JSON.parse(localStorage.getItem(SLS_KEY))||{}); }catch(e){ return Promise.resolve({}); } },
   saveSetting(k, v){ let o={}; try{ o=JSON.parse(localStorage.getItem(SLS_KEY))||{}; }catch(e){} o[k]=v; localStorage.setItem(SLS_KEY, JSON.stringify(o)); return Promise.resolve(); },
@@ -1874,6 +1892,12 @@ const CloudBackend = {
   },
   saveLink(ckey, customer, dest){ return this.rpc("loading_dest_link_set",{ p_customer_key:ckey, p_customer:customer, p_dest:dest }); },
   removeLink(ckey, dest){ return this.rpc("loading_dest_link_remove",{ p_customer_key:ckey, p_dest:dest }); },
+  loadChecks(){
+    return this.all(()=>this.client.from("loading_trip_checks").select("*").order("created_at",{ascending:true}))
+      .then(rows=>rows.map(r=>({ trip_id:r.trip_id, note:r.note||"", by:r.by_name||"", ts:Date.parse(r.created_at) })));
+  },
+  checkTrip(id, note){ return this.rpc("loading_trip_check",{ p_trip:id, p_note:note, p_by:ME }); },
+  uncheckTrip(id){ return this.rpc("loading_trip_uncheck",{ p_trip:id }); },
   loadFuel(){
     return this.all(()=>this.client.from("loading_fuel_logs").select("*").order("reading_at",{ascending:true}))
       .then(rows=>rows.map(row=>({ id:row.id, plate:row.vehicle, ts:Date.parse(row.reading_at), odo:+row.odometer||0,
@@ -3112,7 +3136,9 @@ const INV = (function(){
       over: o.over!=null && +o.over>=0 ? +o.over : 80,
       from:o.from||"", until:o.until==null?null:String(o.until||""), linkBy:linkBy, destCk:destCk, bulk:bulk,
       bulkKnown:Object.keys(bulk).length>0,
-      billsFrom:o.billsFrom||"", billsTo:o.billsTo||"", links:o.links||[] };
+      billsFrom:o.billsFrom||"", billsTo:o.billsTo||"", links:o.links||[],
+      // trips an admin marked as checked by hand: { trip_id: { note, by, ts } }
+      checked:(o.checked||[]).reduce((m,c)=>{ m[c.trip_id]=c; return m; }, {}) };
   }
   function alnum(s){ return normName(s).replace(/[^a-z0-9]/g,""); }
   // left out entirely: OD15AF5510's bills (accounted for elsewhere) and our own refills
@@ -3239,7 +3265,7 @@ const INV = (function(){
     let free=bills.filter(b=>!tagged[b.key] && b.product==="HSD" && b.qty>0);
     const need=t=>r2(t.total-(done[t.id]||0));
     const early=t=>ctx.from && t.day<ctx.from;
-    const open=trips.filter(t=>(!ctx.from || t.day>=dayAdd(ctx.from, -WIN_HI)) && need(t)>ctx.tol)
+    const open=trips.filter(t=>(!ctx.from || t.day>=dayAdd(ctx.from, -WIN_HI)) && need(t)>ctx.tol && !ctx.checked[t.id])
       .sort((a,b)=>(early(a)?1:0)-(early(b)?1:0) || a.ts-b.ts);
     const out={};
     [true,false].forEach(sureOnly=>{
@@ -3274,6 +3300,9 @@ const INV = (function(){
       else if(sum<t.total-tol) status="under";
       else if(sum>t.total+over) status="over";
       else status="ok";
+      // marked as checked by hand: no longer flagged (its bills still show)
+      const mark=ctx.checked[t.id]||null;
+      if(mark && status!=="ok" && status!=="before") status="checked";
       const issues=[];
       tg.forEach(x=>{
         const v=vehFit(t, x, ctx), c=custFit(t, x, ctx), now=billBy[x.key];
@@ -3292,7 +3321,7 @@ const INV = (function(){
                 vehKey(now.vehicle)!==vehKey(x.vehicle)?(x.vehicle||"no vehicle")+" → "+(now.vehicle||"no vehicle"):""].filter(Boolean).join(", ")+") — tag it again" });
         }
       });
-      return { trip:t, tags:tg, sum:sum, diff:r2(sum-t.total), status:status, issues:issues, sug:sug[t.id]||null, inRange:inR(t.day) };
+      return { trip:t, tags:tg, sum:sum, diff:r2(sum-t.total), status:status, issues:issues, sug:sug[t.id]||null, inRange:inR(t.day), checked:mark };
     });
     const rowBy={}; rows.forEach(r=>{ rowBy[r.trip.id]=r; });
 
@@ -3316,10 +3345,10 @@ const INV = (function(){
       const named=bills.filter(b=>inR(b.date) && checked(b.date) && b.product==="HSD" && !skipped(b, ctx) && billPlate(b, ctx)===p);
       const o={ plate:p, trips:rs.length, sent:r2(rs.reduce((s,r)=>s+r.trip.total,0)), tagged:r2(rs.reduce((s,r)=>s+r.sum,0)),
         named:r2(named.reduce((s,b)=>s+b.qty,0)), namedN:named.length, waiting:r2(rs.filter(r=>r.status==="await").reduce((s,r)=>s+r.trip.total,0)),
-        none:0, under:0, over:0, ok:0, await:0, extra:loose.filter(x=>x.plate===p && x.kind==="extra" && inR(x.bill.date)).length };
+        none:0, under:0, over:0, ok:0, await:0, checked:0, extra:loose.filter(x=>x.plate===p && x.kind==="extra" && inR(x.bill.date)).length };
       rs.forEach(r=>{ o[r.status]++; });
-      o.diff=r2(o.tagged-o.sent);
-      o.bad=o.none+o.under+o.over+o.extra+rs.reduce((s,r)=>s+r.issues.length,0);
+      o.diff=r2(rs.filter(r=>!r.checked).reduce((s,r)=>s+r.sum-r.trip.total,0));   // trips checked by hand don't count as short
+      o.bad=o.none+o.under+o.over+o.extra+rs.reduce((s,r)=>s+(r.checked?0:r.issues.length),0);
       perTanker[p]=o;
     });
 
@@ -3342,7 +3371,9 @@ const INV = (function(){
     ctx.links.forEach(l=>{ if(l.dest) accOf("d:"+String(l.dest).trim().toLowerCase(), l.dest, true); });
     rows.filter(r=>r.inRange && r.status!=="before").forEach(r=>{
       const a=accOf("d:"+(String(r.trip.dest||"").trim().toLowerCase()||"(none)"), r.trip.dest||"(no customer)", true);
-      a.trips++; a.delivered=r2(a.delivered+r.trip.total); a.tripIds.push(r.trip.id);
+      // a trip checked by hand counts as delivered only as far as its bills go
+      a.trips++; a.delivered=r2(a.delivered+(r.checked ? r.sum : r.trip.total)); a.tripIds.push(r.trip.id);
+      if(r.checked) a.checkedN=(a.checkedN||0)+1;
       if(r.status==="await") a.waiting=r2(a.waiting+r.trip.total);
       r.tags.forEach(x=>{ const b=accOf("c:"+(x.ckey||normName(x.customer)), x.customer, false); b.invoiced=r2(b.invoiced+x.qty); b.bills++; });
     });
@@ -3361,7 +3392,7 @@ const INV = (function(){
 
     // the list to act on, worst first
     const alerts=[];
-    rows.filter(r=>r.inRange).forEach(r=>{
+    rows.filter(r=>r.inRange && !r.checked).forEach(r=>{
       const t=r.trip;
       if(r.status==="over") alerts.push({ lvl:"high", kind:"over", row:r, plate:t.plate, title:"Over-invoiced by "+r2(r.sum-t.total)+" L", text:r.tags.length+" bill"+(r.tags.length===1?"":"s")+" for "+r.sum+" L on a "+t.total+" L trip" });
       if(r.status==="none") alerts.push({ lvl:"high", kind:"none", row:r, plate:t.plate,
@@ -3507,14 +3538,15 @@ function loadInvoiceData(from, to){
         .then(r=>({ bills:r[0], bulk:r[1].concat(r[2].filter(c=>c.bulk).map(c=>c.name)) })).catch(e=>({ err:(e && e.message) || "Ledger error" }))
     : Promise.resolve(null);
   return Promise.all([Backend.loadTrips(bizStartMs(tf), bizEndMs(tt)), Backend.loadTags().catch(e=>({ err:dbHint(e) })),
-                      Backend.loadLinks().catch(()=>[]), led]).then(r=>{
+                      Backend.loadLinks().catch(()=>[]), led,
+                      Backend.loadChecks().catch(()=>[])]).then(r=>{
     const trips=r[0].filter(x=>!isExcluded(x.plate)).map(x=>Object.assign({}, x, { day:shiftDate(x.ts) }));
     const tagErr=r[1] && r[1].err ? r[1].err : "", tags=tagErr ? [] : r[1], L=r[3];
     const bills=L && L.bills ? L.bills : null;
     // the ledger has bills up to the latest one seen (null = no ledger, can't tell)
     const until=bills ? bills.reduce((m,b)=>b.date>m?b.date:m, "") : null;
     const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), skip:TRIP_EXCLUDE, ignore:OWN_CUSTOMERS, dests:DESTS.map(d=>d.name), tol:TAGSET.tol, over:TAGSET.over,
-      from:tagStart(), until:until, links:r[2], bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
+      from:tagStart(), until:until, links:r[2], checked:r[4], bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
     return { from:from, to:to, trips:trips, tags:tags, links:r[2], bills:bills, ctx:ctx, until:until,
       rec:INV.reconcile(trips, bills||[], tags, ctx, { from:from, to:to }),
       tagErr:tagErr, ledErr:(L && L.err) || "", tooLong:Ledger.on() && !fits };
@@ -3590,6 +3622,7 @@ const INV_STATUS={
   over: r=>'<span class="badge high">▲ Over '+fmt(r.diff)+' L</span><span>billed '+fmt(r.sum)+' L</span>',
   none: ()=>'<span class="badge high">✕ Not invoiced</span>',
   await:()=>'<span class="badge watch">⏳ Waiting for bills</span><span>ledger has bills up to '+(INVD && INVD.until ? dmy(INVD.until) : '—')+'</span>',
+  checked:r=>'<span class="badge info">✓ Checked by hand</span><span>“'+esc(r.checked.note)+'”</span>',
   before:r=>'<span class="badge info">Not checked</span><span>before '+dmy(tagStart())
     +(r.tags.length?' · '+r.tags.length+' bill'+(r.tags.length===1?'':'s')+' · '+fmt(r.sum)+' L':'')+'</span>',
 };
@@ -3631,7 +3664,7 @@ function renderTrips(){
   if($("#trLedRe")) $("#trLedRe").onclick=()=>{ Ledger._bulk=null; loadTripReport(); };
   // invoice tiles
   const rs=INVD ? INVD.rec.rows.filter(r=>r.inRange && r.status!=="before") : [];
-  const nOk=rs.filter(r=>r.status==="ok").length, nWait=rs.filter(r=>r.status==="await").length, high=INVD ? INVD.rec.high : 0;
+  const nOk=rs.filter(r=>r.status==="ok" || r.status==="checked").length, nWait=rs.filter(r=>r.status==="await").length, high=INVD ? INVD.rec.high : 0;
   $("#trInvOk").textContent=nOk+" / "+rs.length;
   $("#trInvBad").textContent=high;
   $("#trInvBad").parentNode.classList.toggle("bad", high>0);
@@ -3666,6 +3699,8 @@ function renderTrips(){
     const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
   box.querySelectorAll("[data-tag]").forEach(b=>{ b.onclick=()=>openTag(b.getAttribute("data-tag"), b.getAttribute("data-bill")); });
   box.querySelectorAll("[data-billsheet]").forEach(b=>{ b.onclick=()=>openBill(b.getAttribute("data-billsheet")); });
+  box.querySelectorAll("[data-check]").forEach(b=>{ b.onclick=()=>markCheckedUI(b.getAttribute("data-check")); });
+  box.querySelectorAll("[data-uncheck]").forEach(b=>{ b.onclick=()=>uncheckUI(b.getAttribute("data-uncheck")); });
   box.querySelectorAll("[data-tagsug]").forEach(b=>{ b.onclick=()=>tagSugUI(b.getAttribute("data-tagsug")); });
   box.querySelectorAll("[data-map-plate]").forEach(b=>{ b.onclick=()=>{ mapPlate=b.getAttribute("data-map-plate"); renderTrips(); }; });
   if($("#mapTodo")) $("#mapTodo").onchange=()=>{ mapTodo=$("#mapTodo").checked; renderTrips(); };
@@ -3794,9 +3829,31 @@ function looseTrips(b){
    it right under it (sent vs billed), then the bills on no trip. Tap a bill
    to move it to another trip or take it off; tap a trip's Tag › to add. */
 let mapPlate="", mapTodo=false;
-const MAP_ST={ ok:["ok","✓ Invoiced"], under:["bad","◐ Short"], over:["bad","▲ Over"], none:["bad","✕ Not invoiced"],
+const MAP_ST={ checked:["chk","✓ Checked by hand"], ok:["ok","✓ Invoiced"], under:["bad","◐ Short"], over:["bad","▲ Over"], none:["bad","✕ Not invoiced"],
   await:["wait","⏳ Waiting for bills"], before:["off","Not checked"] };
-function needsWork(r){ return r.status==="none" || r.status==="under" || r.status==="over" || r.issues.length>0; }
+function needsWork(r){ return !r.checked && (r.status==="none" || r.status==="under" || r.status==="over" || r.issues.length>0); }
+// the "checked by hand" line with its reason, and Undo
+function checkedLineHTML(r){
+  const c=r.checked; if(!c) return "";
+  return '<div class="mapchk">✓ Checked by hand: “'+esc(c.note)+'”'+(c.by?' · '+esc(c.by):'')+(c.ts?' · '+dmy(dayKey(c.ts)).slice(0,5):'')
+    +' <button class="lnk" data-uncheck="'+esc(r.trip.id)+'">Undo</button></div>';
+}
+// mark a trip as checked by hand, with the reason (kept with the trip)
+function markCheckedUI(id){
+  const r=recRow(id); if(!r) return;
+  const t=r.trip;
+  const note=prompt("Mark "+t.plate+" "+dmy(t.day).slice(0,5)+" ("+fmt(t.total)+" L → "+(t.dest||"no customer")+") as checked by hand.\n\n"
+    +"It will no longer be flagged. Why is it all right?\n(e.g. billed on a manual invoice, settled with the customer)", r.checked ? r.checked.note : "");
+  if(note==null) return;
+  if(!note.trim()){ toast("Write why it is all right"); return; }
+  Backend.checkTrip(id, note.trim()).then(()=>{ toast("✓ "+t.plate+" "+dmy(t.day).slice(0,5)+" marked as checked"); INV_WATCH.at=0; closeTag(); return loadTripReport(); })
+    .catch(e=>toast(dbHint(e)));
+}
+function uncheckUI(id){
+  const r=recRow(id); if(!r) return;
+  if(!confirm("Undo “checked by hand” on "+r.trip.plate+" "+dmy(r.trip.day).slice(0,5)+"?\nIt will be checked against its bills again.")) return;
+  Backend.uncheckTrip(id).then(()=>{ toast("Back in the check"); INV_WATCH.at=0; closeTag(); return loadTripReport(); }).catch(e=>toast(dbHint(e)));
+}
 function billChipHTML(x, issueKeys){
   return '<button class="mapbill'+(issueKeys[x.key]?' warn':'')+'" data-billsheet="'+esc(x.key)+'">'
     +'<span class="mb1"><b>#'+esc(x.bill_no)+'</b> · '+dmy(x.date).slice(0,5)+(issueKeys[x.key]?' · ⚠':'')+'</span>'
@@ -3821,7 +3878,7 @@ function mapViewHTML(){
   // day by day, newest first
   let day="";
   rows.forEach(r=>{
-    const t=r.trip, st=r.issues.length && r.status==="ok" ? ["bad","⚠ Check bills"] : MAP_ST[r.status];
+    const t=r.trip, st=r.issues.length && r.status==="ok" && !r.checked ? ["bad","⚠ Check bills"] : MAP_ST[r.status];
     if(t.day!==day){ day=t.day;
       const ds=rows.filter(x=>x.trip.day===day), bad=ds.filter(needsWork).length;
       h+='<div class="mapday">'+new Date(day+"T00:00:00").toLocaleDateString("en-IN",{ weekday:"short", day:"2-digit", month:"2-digit" })
@@ -3838,9 +3895,11 @@ function mapViewHTML(){
       +'<div class="mapflow"><span><small>Sent</small><b>'+fmt(t.total)+' L</b></span><span class="arr">→</span>'
         +'<span><small>Billed</small><b>'+fmt(r.sum)+' L</b></span>'+diff+'</div>'
       +(r.tags.length ? '<div class="mapbills">'+r.tags.map(x=>billChipHTML(x, issueKeys)).join("")+'</div>' : '')
-      +r.issues.map(i=>'<div class="trissue">⚠ '+esc(i.text)+'</div>').join("")
+      +(r.checked ? '' : r.issues.map(i=>'<div class="trissue">⚠ '+esc(i.text)+'</div>').join(""))
+      +checkedLineHTML(r)
       +sug
-      +'<div class="mapfoot"><button class="tagbtn" data-tag="'+esc(t.id)+'">'+(r.tags.length?'＋ Add / change bills':'＋ Tag bills')+'</button></div>'
+      +'<div class="mapfoot">'+(needsWork(r)?'<button class="tagbtn ghost" data-check="'+esc(t.id)+'">Mark as checked</button>':'')
+        +'<button class="tagbtn" data-tag="'+esc(t.id)+'">'+(r.tags.length?'＋ Add / change bills':'＋ Tag bills')+'</button></div>'
       +'</div>';
   });
   if(loose.length && !mapTodo || loose.some(x=>x.kind==="extra")){
@@ -3960,6 +4019,10 @@ function renderTagSheet(){
   const r=tagCtx.row, t=r.trip, ctx=INVD.ctx;
   $("#tagTitle").textContent=t.plate+" · "+fmt(t.total)+" L";
   $("#tagSub").textContent=dmy(t.day)+" "+timeLabel(t.ts)+" · "+(t.dest||"no customer");
+  $("#tagMark").innerHTML = r.checked ? checkedLineHTML(r)
+    : needsWork(r) ? '<button class="lnk" data-check="'+esc(t.id)+'">Can\'t sort it out? Mark this trip as checked…</button>' : '';
+  $("#tagMark").querySelectorAll("[data-check]").forEach(b=>{ b.onclick=()=>markCheckedUI(b.getAttribute("data-check")); });
+  $("#tagMark").querySelectorAll("[data-uncheck]").forEach(b=>{ b.onclick=()=>uncheckUI(b.getAttribute("data-uncheck")); });
   $("#tagHave").innerHTML = r.tags.length
     ? '<div class="mlab">Tagged to this trip</div>'+r.tags.map(x=>'<div class="tagrow have"><div class="tb">'+billLineHTML(x)
         +(x.mode==="auto"?'<div class="t2">auto-tagged</div>':'')+'</div><div class="tq">'+fmt(x.qty)+' L</div>'
@@ -4094,11 +4157,11 @@ $("#trExcel").onclick=async()=>{
   const byT=[head].concat(sum.map(x=>[x.plate, x.n, x.km, x.litres].concat(names.map(n=>{ const r=x.rows.find(rr=>rr.name===n); return r?r.n:0; }))));
   byT.push(["Total", TRIPS.length, r2(sum.reduce((s,x)=>s+x.km,0)), r2(sum.reduce((s,x)=>s+x.litres,0))]
     .concat(names.map(n=>sum.reduce((s,x)=>{ const r=x.rows.find(rr=>rr.name===n); return s+(r?r.n:0); },0))));
-  const ST={ ok:"Invoiced", under:"Under-invoiced", over:"Over-invoiced", none:"Not invoiced", await:"Waiting for bills", before:"Not checked" };
+  const ST={ checked:"Checked by hand", ok:"Invoiced", under:"Under-invoiced", over:"Over-invoiced", none:"Not invoiced", await:"Waiting for bills", before:"Not checked" };
   const list=TRIPS.map(x=>{ const d=destOf(x.dest), rr=recRow(x.id); return { "Business date":shiftDate(x.ts), "Time":timeLabel(x.ts), "Vehicle":x.plate,
     "Customer":x.dest||"", "RTD km":d?d.rtd:0, "In customer list?":d?"Yes":"No", "Litres":x.total, "By":x.by||"",
     "Bills":rr?rr.tags.map(g=>g.bill_no).join(", "):"", "Billed to":rr?Array.from(new Set(rr.tags.map(g=>g.customer))).join(", "):"",
-    "Invoiced L":rr?rr.sum:"", "Invoiced − sent L":rr&&rr.tags.length?rr.diff:"", "Invoice status":rr?ST[rr.status]:"",
+    "Invoiced L":rr?rr.sum:"", "Invoiced − sent L":rr&&rr.tags.length?rr.diff:"", "Invoice status":rr?ST[rr.status]:"", "Checked note":rr && rr.checked ? rr.checked.note : "",
     "Problems":rr?rr.issues.map(i=>i.text).join(" | "):"" }; });
   const cust=DESTS.map(d=>({ "Customer":d.name, "RTD km / trip":d.rtd, "Group":d.grp||"" }));
   const fname="Vriddhi_Trips_per_Tanker_"+f+"_to_"+t;
@@ -5773,6 +5836,7 @@ function subscribeRealtime(){
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_settings"},poke2)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_invoice_tags"},poke2)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_dest_links"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_trip_checks"},poke2)
     .subscribe();
 }
 
