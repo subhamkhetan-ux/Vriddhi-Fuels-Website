@@ -279,3 +279,40 @@ test('retail bills (cash, UPI, fleet card) are never offered for a tanker, unles
   // without the ledger's customer list nothing is filtered (better too much than missing a bill)
   assert.equal(INV.candidates(t, bills, [], ctx()).length, 5);
 });
+
+test('bills of OD15AF5510 are left out everywhere — they are accounted for elsewhere', () => {
+  const D = 'OR15R9360';
+  const t = trip(D, '2026-10-07', 17932, 'Shyam Metalics');
+  const c = ctx({ plates: [A, B, C, D], skip: ['OD15AF5510'], bulk: ['Aryan Ispat & Power Private Ltd.'] });
+  const od15 = bill(3740, '2026-10-07', 3000, 'Aryan Ispat & Power Private Ltd.', 'OD15AF5510');
+  assert.equal(INV.candidates(t, [od15], [], c).length, 0);
+  assert.equal(INV.candidates(t, [od15], [], c, true).length, 0, 'not even under Show all');
+  assert.equal(INV.isPool(od15, c), false, 'never an extra sale or a bill on no trip');
+  const r = INV.reconcile([t], [od15], [], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(r.loose.length, 0);
+  assert.equal(r.rows[0].sug, null);
+});
+
+test('a bill to a name like a "Sold to" customer counts as bulk even if the ledger has not marked it', () => {
+  const D = 'OR15R9360';
+  const t = trip(D, '2026-10-07', 17932, 'Shyam Metalics');
+  const c = ctx({ plates: [A, B, C, D], bulk: ['Some Other Bulk Ltd'], dests: ['Shyam Metalics', 'SMC Unit 1'] });
+  const b = bill(3741, '2026-10-07', 17990, 'Shyam Metaliks and Energy Limited', '');
+  assert.ok(INV.isBulk(b, c));
+  assert.deepEqual(keys(INV.suggest([t], [b], [], c)[t.id].bills), ['3741']);
+  assert.ok(!INV.isBulk(bill(3742, '2026-10-07', 50, 'EzyPay UPI ICICI', ''), c));
+});
+
+test('why a bill is not offered for a trip, for a bill found by its number', () => {
+  const D = 'OR15R9360';
+  const t = trip(D, '2026-10-07', 17932, 'Shyam Metalics'), u = trip(B, '2026-10-07', 12000, 'Orissa Metaliks');
+  const c = ctx({ plates: [A, B, C, D], bulk: ['Shyam Metaliks and Energy Ltd'] });
+  const S = 'Shyam Metaliks and Energy Ltd';
+  assert.equal(INV.whyNot(t, bill(1, '2026-10-07', 17932, S, 'OR15R1110'), [], c), 'in the name of OR15R1110, not OR15R9360');
+  assert.equal(INV.whyNot(t, bill(2, '2026-10-12', 17932, S, ''), [], c), 'dated 5 days after the trip');
+  assert.equal(INV.whyNot(t, bill(3, '2026-10-07', 20, 'Walk-in', ''), [], c), 'retail customer');
+  assert.equal(INV.whyNot(t, bill(4, '2026-10-07', 20, S, '', 'MS'), [], c), 'petrol bill');
+  const b5 = bill(5, '2026-10-07', 17932, S, '');
+  assert.equal(INV.whyNot(t, b5, [tagOf(b5, u)], c), 'already on another trip');
+  assert.equal(INV.whyNot(t, b5, [], c), '', 'offered');
+});

@@ -402,6 +402,7 @@
   .taglist .tagrow{margin-bottom:0}
   .tagrow.have{cursor:default;border-color:rgba(18,128,74,.35)}
   .tagrow.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .tagrow.locked{opacity:.6;cursor:default}
   .modalbox .tagrow input[type=checkbox],.modalbox .chk input,.card-add .chk input{width:20px;height:20px;flex:none;margin:2px 0 0;padding:0;accent-color:var(--accent)}
   .tagrow .tb{flex:1;min-width:0}
   .tagrow .t1{font-weight:700;color:var(--ink);font-size:14px}
@@ -1278,7 +1279,7 @@
     <div id="tagHave"></div>
     <div id="tagPick">
       <div class="mlab" style="margin-top:10px">Tick the bills of this trip</div>
-      <input id="tagSearch" type="search" placeholder="Search bill no., customer or vehicle" autocomplete="off" />
+      <input id="tagSearch" type="search" placeholder="Bill no., customer or vehicle — finds any bill" autocomplete="off" />
       <label class="chk"><input type="checkbox" id="tagWide" /><span>Show all — other vehicles, retail customers &amp; up to a week either side</span></label>
     </div>
     <div class="taglist" id="tagList"></div>
@@ -1467,7 +1468,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v42 · 2026-10-09";
+const APP_BUILD = "v43 · 2026-10-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3050,11 +3051,14 @@ const INV = (function(){
     // bulk customers: billed through a *_Bulk ledger, or in the Tanker Master
     const bulk={}; (o.bulk||[]).forEach(n=>{ bulk[normName(n)]=1; });
     return { plates:(o.plates||[]).map(vehKey).filter(Boolean), tol: o.tol!=null && +o.tol>=0 ? +o.tol : 10,
+      // vehicles whose bills are accounted for elsewhere (OD15AF5510): left out entirely
+      skip:(o.skip||[]).map(vehKey).filter(Boolean), dests:(o.dests||[]).filter(Boolean),
       over: o.over!=null && +o.over>=0 ? +o.over : 80,
       from:o.from||"", until:o.until==null?null:String(o.until||""), linkBy:linkBy, destCk:destCk, bulk:bulk,
       bulkKnown:Object.keys(bulk).length>0,
       billsFrom:o.billsFrom||"", billsTo:o.billsTo||"", links:o.links||[] };
   }
+  function skipped(b, ctx){ const k=vehKey(b.vehicle); return !!k && ctx.skip.some(x=>k===x || k.indexOf(x)>=0); }
   // the tanker a bill is typed with: "" = no vehicle, null = some other vehicle
   function billPlate(b, ctx){
     const k=vehKey(b.vehicle); if(!k) return "";
@@ -3074,9 +3078,13 @@ const INV = (function(){
   }
   // tankers only go to bulk customers: a retail bill (cash, UPI, fleet card…)
   // is never a tanker's, unless it is typed with one of our tankers' numbers
-  function isBulk(b, ctx){ const ck=b.ckey||normName(b.customer); return !ctx.bulkKnown || !!(ctx.bulk[ck] || ctx.linkBy[ck]); }
+  // (a name like a "Sold to" customer's counts too, in case the ledger hasn't marked it bulk)
+  function isBulk(b, ctx){
+    const ck=b.ckey||normName(b.customer);
+    return !ctx.bulkKnown || !!(ctx.bulk[ck] || ctx.linkBy[ck]) || ctx.dests.some(d=>nameSim(d, b.customer)>=0.5);
+  }
   function isPool(b, ctx){
-    if(b.product!=="HSD" || !(b.qty>0) || (ctx.from && b.date<ctx.from)) return false;
+    if(b.product!=="HSD" || !(b.qty>0) || (ctx.from && b.date<ctx.from) || skipped(b, ctx)) return false;
     const p=billPlate(b, ctx), ck=b.ckey||normName(b.customer);
     return !!p || (p==="" && !!(ctx.linkBy[ck] || ctx.bulk[ck]));
   }
@@ -3085,7 +3093,7 @@ const INV = (function(){
   const V_PTS={ match:60, blank:0, other:-30 }, C_PTS={ linked:40, similar:25, bulk:5, unknown:0, other:-40 }, D_PTS=[5,15,10,5,0];
   function rate(trip, b, ctx){
     const dd=dayNum(b.date)-dayNum(trip.day);
-    if(dd<WIN_LO || dd>WIN_HI) return null;
+    if(dd<WIN_LO || dd>WIN_HI || skipped(b, ctx)) return null;
     const v=vehFit(trip, b, ctx); if(v==="tanker") return null;   // another of our tankers' bill
     if(v!=="match" && !isBulk(b, ctx)) return null;                // a retail customer's bill
     const c=custFit(trip, b, ctx);
@@ -3122,13 +3130,26 @@ const INV = (function(){
   // the bills a trip could be billed in (best first), excluding bills already tagged
   function candidates(trip, bills, tags, ctx, wide){
     const tagged={}; tags.forEach(t=>{ tagged[t.key]=1; });
-    return bills.filter(b=>!tagged[b.key] && (wide ? b.product!=="MS" && b.product!=="OTHER" : b.product==="HSD") && b.qty>0)
+    return bills.filter(b=>!tagged[b.key] && (wide ? b.product!=="MS" && b.product!=="OTHER" : b.product==="HSD") && b.qty>0 && !skipped(b, ctx))
       .map(b=>{
         const r=rate(trip, b, ctx); if(r) return r;
         if(!wide || Math.abs(dayNum(b.date)-dayNum(trip.day))>7) return null;
         return { bill:b, v:vehFit(trip, b, ctx), c:custFit(trip, b, ctx), dd:dayNum(b.date)-dayNum(trip.day), s:isBulk(b, ctx)?-100:-200, retail:!isBulk(b, ctx) };
       }).filter(Boolean)
       .sort((a,b)=>b.s-a.s || billCmp(a.bill,b.bill));
+  }
+
+  // why a bill is not offered for a trip ("" = it is) — for a bill found by searching its number
+  function whyNot(trip, b, tags, ctx){
+    const tg=tags.find(t=>t.key===b.key);
+    if(tg) return tg.trip_id===trip.id ? "on this trip" : "already on another trip";
+    if(b.product!=="HSD") return b.product==="MS" ? "petrol bill" : b.product==="XG" ? "XtraGreen bill" : "not a diesel bill";
+    const v=vehFit(trip, b, ctx);
+    if(v==="tanker") return "in the name of "+billPlate(b, ctx)+", not "+trip.plate;
+    const dd=dayNum(b.date)-dayNum(trip.day);
+    if(dd<WIN_LO || dd>WIN_HI) return "dated "+Math.abs(dd)+" day"+(Math.abs(dd)===1?"":"s")+(dd<0?" before":" after")+" the trip";
+    if(v!=="match" && !isBulk(b, ctx)) return "retail customer";
+    return "";
   }
 
   /* Suggested bills for every trip still short of its invoices. Sure ones
@@ -3277,7 +3298,7 @@ const INV = (function(){
   }
 
   return { vehKey:vehKey, normName:normName, dayAdd:dayAdd, fyOf:fyOf, billKey:billKey, nameSim:nameSim, context:context,
-    billPlate:billPlate, vehFit:vehFit, custFit:custFit, isPool:isPool, isBulk:isBulk, candidates:candidates, bestSet:bestSet,
+    billPlate:billPlate, vehFit:vehFit, custFit:custFit, isPool:isPool, isBulk:isBulk, skipped:skipped, whyNot:whyNot, candidates:candidates, bestSet:bestSet,
     suggest:suggest, reconcile:reconcile, billCmp:billCmp };
 })();
 /* ===================== END INVOICE TAGGING MODEL ===================== */
@@ -3407,7 +3428,7 @@ function loadInvoiceData(from, to){
     const bills=L && L.bills ? L.bills : null;
     // the ledger has bills up to the latest one seen (null = no ledger, can't tell)
     const until=bills ? bills.reduce((m,b)=>b.date>m?b.date:m, "") : null;
-    const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), tol:TAGSET.tol, over:TAGSET.over,
+    const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), skip:TRIP_EXCLUDE, dests:DESTS.map(d=>d.name), tol:TAGSET.tol, over:TAGSET.over,
       from:tagStart(), until:until, links:r[2], bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
     return { from:from, to:to, trips:trips, tags:tags, links:r[2], bills:bills, ctx:ctx, until:until,
       rec:INV.reconcile(trips, bills||[], tags, ctx, { from:from, to:to }),
@@ -3730,15 +3751,26 @@ function renderTagSheet(){
   Object.keys(tagCtx.picked).forEach(k=>{ if(!list.some(c=>c.bill.key===k)){ const b=INVD.bills.find(x=>x.key===k);
     if(b && !INVD.tags.some(g=>g.key===k)) list.unshift({ bill:b, v:INV.vehFit(t,b,ctx), c:INV.custFit(t,b,ctx), s:-100 }); } });
   const q=tagCtx.q;
-  if(q) list=list.filter(c=>(c.bill.bill_no+" "+c.bill.customer+" "+c.bill.vehicle).toLowerCase().indexOf(q)>=0 || INV.vehKey(c.bill.vehicle).indexOf(INV.vehKey(q))>=0);
+  const hit=b=>(b.bill_no+" "+b.customer+" "+b.vehicle).toLowerCase().indexOf(q)>=0 || (INV.vehKey(q).length>=3 && INV.vehKey(b.vehicle).indexOf(INV.vehKey(q))>=0);
+  if(q){
+    // searching finds ANY bill of the loaded days (e.g. a bill no. you know), with the reason it wasn't offered
+    list=list.filter(c=>hit(c.bill));
+    INVD.bills.filter(b=>hit(b) && !INV.skipped(b, ctx) && !list.some(c=>c.bill.key===b.key)).sort(INV.billCmp).forEach(b=>{
+      const g=INVD.tags.find(x=>x.key===b.key), on=g && INVD.trips.find(x=>x.id===g.trip_id);
+      list.push({ bill:b, v:INV.vehFit(t,b,ctx), c:INV.custFit(t,b,ctx), s:-300, locked:!!g || b.product==="MS" || b.product==="OTHER",
+        why: g ? (g.trip_id===t.id ? "on this trip" : "already on "+(on ? on.plate+" "+dmy(on.day).slice(0,5) : "another trip")+" — untag it there first")
+               : INV.whyNot(t, b, INVD.tags, ctx) });
+    });
+  }
   const sugKeys={}; if(r.sug) r.sug.bills.forEach(b=>{ sugKeys[b.key]=1; });
   box.innerHTML = list.length ? list.slice(0,60).map(c=>{
     const b=c.bill, on=!!tagCtx.picked[b.key], o=elsewhere[b.key];
-    return '<label class="tagrow'+(on?' on':'')+'"><input type="checkbox" data-pick="'+esc(b.key)+'"'+(on?' checked':'')+'>'
-      +'<div class="tb">'+billLineHTML(b)+'<div class="t2">'+(c.retail?'<span class="fit-bad">retail customer</span> · ':'')+fitHTML(c)+(sugKeys[b.key]?' · <b>💡 suggested</b>':'')
+    return '<label class="tagrow'+(on?' on':'')+(c.locked?' locked':'')+'"><input type="checkbox" data-pick="'+esc(b.key)+'"'+(on?' checked':'')+(c.locked?' disabled':'')+'>'
+      +'<div class="tb">'+billLineHTML(b)+'<div class="t2">'+(c.why?'<span class="fit-warn">not offered: '+esc(c.why)+'</span> · ':'')
+      +(c.retail?'<span class="fit-bad">retail customer</span> · ':'')+fitHTML(c)+(sugKeys[b.key]?' · <b>💡 suggested</b>':'')
       +(o?' · <span class="fit-warn">suggested for '+esc(o.plate)+' '+dmy(o.day).slice(0,5)+'</span>':'')+'</div></div>'
       +'<div class="tq">'+fmt(b.qty)+' L</div></label>';
-  }).join("") : '<div class="empty">No bills '+(tagCtx.wide?'within a week of this trip':'to bulk customers from the day before to 3 days after this trip')+(q?' match “'+esc(q)+'”':'')+'.'+(tagCtx.wide?'':' Tick “Show all” to look wider.')+'</div>';
+  }).join("") : '<div class="empty">No bills '+(tagCtx.wide?'within a week of this trip':'to bulk customers from the day before to 3 days after this trip')+(q?' match “'+esc(q)+'”':'')+'.'+(tagCtx.wide?'':' Tick “Show all” to look wider.')+(q?'':' Know the bill no.? Type it above.')+'</div>';
   box.querySelectorAll("[data-pick]").forEach(cb=>{ cb.onchange=()=>{ const k=cb.getAttribute("data-pick");
     if(cb.checked) tagCtx.picked[k]=1; else delete tagCtx.picked[k]; renderTagSheet(); }; });
   // the running total: tagged + ticked against the trip, with the buffer

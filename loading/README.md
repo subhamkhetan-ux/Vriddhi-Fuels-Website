@@ -420,9 +420,13 @@ app too, so connect it on admin phones only.
   bill** (this tanker ✓ · none · another tanker ✗), the **customer** (linked
   to the trip's *Sold to*, or a close name) and the date, and picks up to 4
   bills that add up to the trip;
-- tick / untick, search by bill no., customer or vehicle, or **Show all**
-  (other vehicles, a week either side); the sheet adds up *tagged + ticked*
-  against the trip as you go;
+- tick / untick, or **Show all** (other vehicles, retail customers, a week
+  either side); the sheet adds up *tagged + ticked* against the trip as you go;
+- **search** by bill no., customer or vehicle finds **any** bill of those
+  days, with the reason it wasn't offered (*in the name of OR15R5510*,
+  *dated 5 days after the trip*, *retail customer*, *already on OR15R1110
+  08/10*…) — so a bill you know the number of can always be tagged (one
+  already on another trip has to be untagged there first);
 - **Tag** saves them; **✕** takes a bill off again. A bill sits on **one trip
   only** — the database refuses it on a second trip.
 - Tagging a bill to a customer for the first time **links** that ledger name
@@ -465,9 +469,14 @@ what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check
   tanker's name, not invoiced, under-invoiced, wrong customer / tanker, changed
   in the ledger; then bills still to tag (with the trip they'd go on).
 
+**OD15AF5510's bills are left out entirely** — not offered, not under Show
+all, never an extra sale — as its sales are accounted for elsewhere
+(`TRIP_EXCLUDE`); only the big tankers are checked.
+
 **Retail bills are left out**: tankers only go to bulk customers, so only
-bills to a customer billed through a `*_Bulk` ledger, in the Tanker Master, or
-linked to a *Sold to* customer are offered — not cash, UPI, fleet-card or other
+bills to a customer billed through a `*_Bulk` ledger, in the Tanker Master,
+linked to a *Sold to* customer, or with a name like a *Sold to* customer's
+(e.g. *Shyam Metaliks and Energy Ltd* for *Shyam Metalics*) are offered — not cash, UPI, fleet-card or other
 retail bills — unless the bill is typed with one of our tankers' numbers (that
 would be an extra sale to report). *Show all* in the bills sheet still lists
 them last, marked *retail customer*, just in case.
