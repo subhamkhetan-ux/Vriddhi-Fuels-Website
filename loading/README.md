@@ -412,8 +412,26 @@ key are in [`config.js`](./config.js) (`LEDGER_SUPABASE_*`, the same values as
 `ledger/config.js`). Anyone holding that login on the phone can use the ledger
 app too, so connect it on admin phones only.
 
-**Tagging.** Each trip (*Show trips & bills*) shows its bills and a status;
-**Tag ›** opens its bills sheet:
+**Mapping (the first tab) — the place to tag and fix.** Day by day, newest
+first, every trip as a card: tanker, time, *Sold to*, **Sent → Billed** and
+the difference, a coloured strip (green ✓, red to fix, amber waiting, grey
+not checked), and **its bills right under it**. Chips at the top filter by
+tanker (with a count of trips to fix); *Only trips that need work* hides the
+rest. A trip's sure suggestion has **Tag these**; **＋ Tag bills** opens its
+bills sheet. Bills on no trip are listed last. The Home card opens here.
+
+**Tap any bill** (in Mapping, or **Move** in a trip's sheet) for its own
+sheet: the bill, the trip it is **now on** (sent, billed, difference) with
+**Take off this trip**, and the trips it could **move to** — the ones with
+room first, each showing whether it fits (*fits (+68 L)* / *would be over by
+…*), vehicle and customer — with **Move here**. A move takes it off the old
+trip and puts it on the new one (back where it was if saving fails). In a
+trip's sheet, a bill found by its number that is on another trip has **Move
+here** too. A bill dated more than a day before or 3 days after its trip is
+flagged (*is it on the right trip?*) even when the litres add up.
+
+**Tagging.** Each trip (also under *Tanker* → *Show trips & bills*) shows its
+bills and a status; **Tag ›** opens its bills sheet:
 
 - the **suggested** bills are already ticked — the app looks at bills from the
   day before the trip to 3 days after it, scores each by the **vehicle on the

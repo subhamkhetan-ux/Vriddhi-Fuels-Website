@@ -346,3 +346,38 @@ test('bills to our own tanker ledger (own tank refills) are dropped', () => {
   assert.equal(r.perCust.length, 1, 'no "not linked" card for it');
   assert.equal(INV.candidates(t, own, [], c, true).length, 0);
 });
+
+test('moving a wrongly tagged bill: the trips it fits, best first, without the one it is on', () => {
+  const D = 'OR15R9360', S = 'Shyam Metalics and Energy Ltd';
+  const oct2 = trip(D, '2026-10-02', 17932, 'Shyam Metalics'), oct7 = trip(D, '2026-10-07', 17932, 'Shyam Metalics', { h: 2 });
+  const other = trip(B, '2026-10-02', 12000, 'Orissa Metaliks');
+  const b3576 = bill(3576, '2026-10-02', 18000, S, D);
+  const c = ctx({ plates: [A, B, C, D], links: [{ ckey: INV.normName(S), dest: 'Shyam Metalics', customer: S }] });
+  // tagged by mistake to the 07/10 trip (5 days after the bill)
+  const r = INV.reconcile([oct2, oct7, other], [b3576], [tagOf(b3576, oct7)], c, { from: '2026-10-01', to: '2026-10-31' });
+  const list = INV.tripsFor(b3576, r.rows, c);
+  assert.equal(list[0].trip.id, oct2.id, 'the 02/10 trip of the same tanker comes first');
+  assert.ok(list[0].fits && list[0].v === 'match' && list[0].c === 'linked');
+  assert.ok(!list.some((x) => x.trip.id === oct7.id), 'not the trip it is on');
+  assert.ok(!list.some((x) => x.trip.id === other.id), "not another tanker's trip");
+  // a bill on no trip: same list, and a full trip is listed after the ones with room
+  const r2 = INV.reconcile([oct2, oct7], [b3576, bill(3577, '2026-10-02', 17950, S, D)], [tagOf(bill(3577, '2026-10-02', 17950, S, D), oct2)], c,
+    { from: '2026-10-01', to: '2026-10-31' });
+  const l2 = INV.tripsFor(b3576, r2.rows, c);
+  assert.deepEqual(l2.map((x) => [x.trip.id, x.fits]), [[oct7.id, true], [oct2.id, false]]);
+  assert.ok(l2[0].far, '5 days away: listed as a fallback of the same tanker');
+});
+
+test('a bill dated days away from its trip is flagged — it is probably on the wrong trip', () => {
+  const D = 'OR15R9360', S = 'Shyam Metalics and Energy Ltd';
+  const oct7 = trip(D, '2026-10-07', 17932, 'Shyam Metalics');
+  const b = bill(3576, '2026-10-02', 18000, S, D);
+  const r = INV.reconcile([oct7], [b], [tagOf(b, oct7)], ctx({ plates: [A, B, C, D] }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(r.rows[0].status, 'ok', 'the litres add up…');
+  assert.deepEqual(r.rows[0].issues.map((i) => i.kind), ['date'], '…but the date does not');
+  assert.match(r.rows[0].issues[0].text, /02\/10\/2026 — 5 days before this trip/);
+  assert.equal(r.alerts[0].kind, 'date');
+  // the day after (or 3 days after) is normal
+  const ok = bill(3577, '2026-10-10', 17950, S, D);
+  assert.equal(INV.reconcile([oct7], [ok], [tagOf(ok, oct7)], ctx({ plates: [A, B, C, D] }), { from: '2026-10-01', to: '2026-10-31' }).rows[0].issues.length, 0);
+});
