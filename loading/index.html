@@ -402,7 +402,45 @@
   .taglist .tagrow{margin-bottom:0}
   .tagrow.have{cursor:default;border-color:rgba(18,128,74,.35)}
   .tagrow.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
-  .tagrow.locked{opacity:.6;cursor:default}
+  .tagrow.locked{opacity:.75;cursor:default}
+  .tagrow .tagbtn{align-self:center;flex:none}
+  /* mapping: trip → its bills */
+  .mapchips{display:flex;gap:6px;overflow-x:auto;margin:0 0 8px;padding:2px 2px 4px;scrollbar-width:none}
+  .mapchips button{flex:none;border:1px solid var(--glass-line);background:var(--glass-2);color:var(--ink);font-family:var(--mono);font-weight:600;font-size:12.5px;border-radius:999px;padding:7px 11px;cursor:pointer}
+  .mapchips button.on{background:var(--grad-ink);border-color:transparent;color:#fff}
+  .mapchips .cnt{display:inline-block;min-width:17px;margin-left:5px;padding:0 4px;border-radius:999px;background:var(--grad-bad);color:#fff;font-family:var(--display);font-size:10.5px;line-height:17px;text-align:center}
+  .mapday{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--display);font-weight:700;font-size:14px;color:var(--ink);margin:16px 4px 6px}
+  .mapday span{font-family:var(--text);font-size:12px;font-weight:600;color:var(--muted)}
+  .mapday span b{color:var(--bad)}
+  .mapcard{background:var(--glass);border:1px solid var(--glass-line);border-left:5px solid var(--good);border-radius:16px;box-shadow:var(--shadow);padding:11px 12px;margin-bottom:9px}
+  .mapcard.st-bad{border-left-color:var(--bad)} .mapcard.st-wait{border-left-color:#fab219} .mapcard.st-off{border-left-color:var(--faint)}
+  .maph{display:flex;align-items:center;gap:8px}
+  .mapt{font-size:13px;font-weight:700;color:var(--muted)}
+  .mapst{margin-left:auto;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+  .mapst.st-ok{background:var(--good-bg);color:var(--good)} .mapst.st-bad{background:var(--bad-bg);color:var(--bad)}
+  .mapst.st-wait{background:var(--warn-bg);color:var(--warn)} .mapst.st-off{background:rgba(27,33,48,.07);color:var(--muted)}
+  .mapdest{font-weight:700;color:var(--ink);font-size:14px;margin:6px 0 2px}
+  .mapflow{display:flex;align-items:center;gap:10px;margin:6px 0 4px}
+  .mapflow span{display:flex;flex-direction:column}
+  .mapflow small{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .mapflow b{font-family:var(--display);font-size:16px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .mapflow .arr{color:var(--faint);font-size:18px}
+  .mapdiff{margin-left:auto;font-family:var(--display);font-weight:700;font-size:14px;padding:3px 9px;border-radius:10px}
+  .mapdiff.ok{color:var(--good);background:var(--good-bg)} .mapdiff.bad{color:var(--bad);background:var(--bad-bg)}
+  .mapbills{display:flex;flex-direction:column;gap:5px;margin-top:6px}
+  .mapbill{display:grid;grid-template-columns:1fr auto auto;grid-template-areas:"a q g" "b q g";gap:1px 10px;align-items:center;width:100%;text-align:left;border:1px solid var(--line);background:var(--glass-2);border-radius:11px;padding:7px 10px;cursor:pointer;font:inherit;color:var(--ink)}
+  .mapbill.warn{border-color:rgba(208,59,59,.45);background:var(--bad-bg)}
+  .mapbill .mb1{grid-area:a;font-size:13px} .mapbill .mb2{grid-area:b;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .mapbill .mbq{grid-area:q;font-family:var(--display);font-weight:700;font-size:14px;white-space:nowrap}
+  .mapbill .mbgo{grid-area:g;color:var(--faint);font-size:18px}
+  .mapsug{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;font-weight:600;color:var(--ink);margin-top:8px}
+  .mapsug .tagbtn{margin-left:auto}
+  .mapfoot{display:flex;justify-content:flex-end;margin-top:8px}
+  .billon{background:var(--glass-2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-weight:700;color:var(--ink);font-size:14px;margin-bottom:6px;position:relative}
+  .billon .sub{font-size:12px;color:var(--muted);font-weight:600}
+  .billon.none{color:var(--warn)}
+  .billon .lnk{display:block;margin-top:6px;padding:0}
+  .lnk.danger{color:var(--bad)!important}
   .modalbox .tagrow input[type=checkbox],.modalbox .chk input,.card-add .chk input{width:20px;height:20px;flex:none;margin:2px 0 0;padding:0;accent-color:var(--accent)}
   .tagrow .tb{flex:1;min-width:0}
   .tagrow .t1{font-weight:700;color:var(--ink);font-size:14px}
@@ -1292,6 +1330,19 @@
   </div>
 </div>
 
+<!-- One bill: which trip it is on, move it to another, take it off -->
+<div class="modal" id="billModal">
+  <div class="modalbox wide">
+    <div class="mh">Bill</div>
+    <div class="mp" id="billTitle">—</div>
+    <div class="note" id="billSub" style="margin:-8px 0 10px">—</div>
+    <div id="billOn"></div>
+    <div class="taglist" id="billList"></div>
+    <div class="caperr" id="billErr"></div>
+    <div class="mbtns"><button class="mbtn ghost" id="billCancel">Close</button></div>
+  </div>
+</div>
+
 <!-- Dispatch modal: choose the customer it was sold to (also used to correct a trip) -->
 <div class="modal" id="dispModal">
   <div class="modalbox wide">
@@ -1471,7 +1522,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v44 · 2026-10-09";
+const APP_BUILD = "v45 · 2026-10-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3162,6 +3213,24 @@ const INV = (function(){
     return "";
   }
 
+  /* The trips a bill can go on (to tag it, or move it off a wrong trip), best
+     first: those with room for it, then by how well it fits (vehicle,
+     customer, date). rows = reconcile()'s rows. Trips of the bill's own
+     tanker within a week are listed too, last, so a late bill can still go. */
+  function tripsFor(b, rows, ctx){
+    const on=rows.find(r=>r.tags.some(x=>x.key===b.key));
+    const p=billPlate(b, ctx);
+    return rows.filter(r=>r!==on).map(r=>{
+      const room=r2(r.trip.total-r.sum), fits=b.qty<=room+ctx.over;
+      const x=rate(r.trip, b, ctx);
+      if(x) return { row:r, trip:r.trip, s:x.s, v:x.v, c:x.c, dd:x.dd, room:room, fits:fits };
+      const dd=dayNum(b.date)-dayNum(r.trip.day);
+      if(p && p===vehKey(r.trip.plate) && Math.abs(dd)<=7 && !skipped(b, ctx))
+        return { row:r, trip:r.trip, s:-100, v:"match", c:custFit(r.trip, b, ctx), dd:dd, room:room, fits:fits, far:true };
+      return null;
+    }).filter(Boolean).sort((a,b2)=>(b2.fits?1:0)-(a.fits?1:0) || b2.s-a.s || Math.abs(a.dd)-Math.abs(b2.dd) || a.trip.ts-b2.trip.ts);
+  }
+
   /* Suggested bills for every trip still short of its invoices. Sure ones
      first (bills in this tanker's name to its customer, adding up), oldest
      trip first, each bill offered to one trip only. */
@@ -3209,6 +3278,10 @@ const INV = (function(){
       tg.forEach(x=>{
         const v=vehFit(t, x, ctx), c=custFit(t, x, ctx), now=billBy[x.key];
         if(v==="tanker") issues.push({ kind:"veh", tag:x, text:"Bill "+x.bill_no+" is in the name of "+billPlate(x, ctx)+", not "+t.plate });
+        // a bill dated well away from its trip is most likely on the wrong trip
+        const dd=dayNum(x.date)-dayNum(t.day);
+        if(dd<WIN_LO || dd>WIN_HI) issues.push({ kind:"date", tag:x, text:"Bill "+x.bill_no+" is dated "+x.date.split("-").reverse().join("/")+" — "
+          +Math.abs(dd)+" day"+(Math.abs(dd)===1?"":"s")+(dd<0?" before":" after")+" this trip; is it on the right trip?" });
         if(c==="other") issues.push({ kind:"cust", tag:x, text:"Bill "+x.bill_no+" is to "+x.customer+" — billed for "
           +Object.keys(ctx.linkBy[x.ckey]).map(k=>ctx.linkBy[x.ckey][k]).join(" / ")+", but this trip went to "+(t.dest||"no customer") });
         if(ctx.until!=null && ctx.billsFrom && x.date>=ctx.billsFrom && x.date<=ctx.billsTo){
@@ -3295,7 +3368,7 @@ const INV = (function(){
         title: r.sug ? "Sale not tagged yet — bills found" : "Sale not invoiced",
         text:t.total+" L to "+(t.dest||"no customer")+(r.sug ? " — bills "+r.sug.bills.map(b=>b.bill_no).join(", ")+" = "+r.sug.sum+" L" : " — no bill found for it") });
       if(r.status==="under") alerts.push({ lvl:"high", kind:"under", row:r, plate:t.plate, title:"Under-invoiced by "+r2(t.total-r.sum)+" L", text:"Bills for "+r.sum+" L on a "+t.total+" L trip" });
-      r.issues.forEach(i=>{ alerts.push({ lvl:"high", kind:i.kind, row:r, plate:t.plate, title:{ veh:"Bill in another tanker's name", cust:"Billed to a different customer", gone:"Bill deleted in the ledger", changed:"Bill changed in the ledger" }[i.kind], text:i.text }); });
+      r.issues.forEach(i=>{ alerts.push({ lvl:"high", kind:i.kind, row:r, plate:t.plate, title:{ veh:"Bill in another tanker's name", date:"Bill far from its trip's date", cust:"Billed to a different customer", gone:"Bill deleted in the ledger", changed:"Bill changed in the ledger" }[i.kind], text:i.text }); });
     });
     loose.filter(x=>inR(x.bill.date)).forEach(x=>{
       const b=x.bill, what="Bill "+b.bill_no+" · "+b.qty+" L to "+b.customer;
@@ -3303,7 +3376,7 @@ const INV = (function(){
       else if(x.kind==="untagged") alerts.push({ lvl:"watch", kind:"untagged", loose:x, plate:x.plate, title:"Invoice not tagged yet", text:what });
       else alerts.push({ lvl:"watch", kind:"loose", loose:x, plate:"", title:"Bulk invoice on no trip", text:what+" (no vehicle on the bill)" });
     });
-    const order={ over:0, extra:1, none:2, under:3, cust:4, veh:5, changed:6, gone:7, untagged:8, loose:9 };
+    const order={ over:0, extra:1, none:2, under:3, cust:4, veh:5, date:6, changed:7, gone:8, untagged:9, loose:10 };
     alerts.sort((a,b)=>order[a.kind]-order[b.kind]);
     return { rows:rows, loose:loose, perTanker:perTanker, perCust:perCust, alerts:alerts,
       high:alerts.filter(a=>a.lvl==="high").length };
@@ -3311,7 +3384,7 @@ const INV = (function(){
 
   return { vehKey:vehKey, normName:normName, dayAdd:dayAdd, fyOf:fyOf, billKey:billKey, nameSim:nameSim, context:context,
     billPlate:billPlate, vehFit:vehFit, custFit:custFit, isPool:isPool, isBulk:isBulk, skipped:skipped, whyNot:whyNot, candidates:candidates, bestSet:bestSet,
-    suggest:suggest, reconcile:reconcile, billCmp:billCmp };
+    suggest:suggest, reconcile:reconcile, billCmp:billCmp, tripsFor:tripsFor };
 })();
 /* ===================== END INVOICE TAGGING MODEL ===================== */
 
@@ -3407,7 +3480,7 @@ function ledgerSignOut(after){
    tanker and per customer — and which bills in a tanker's name are on no trip. */
 let TRIPS=[], TRIPS_ERR="", tripOpen=new Set(), tripSeq=0;
 let INVD=null;            // the invoice check of the period on screen
-let trView="tanker";      // tanker | customer | alerts
+let trView="map";         // map | tanker | customer | alerts
 function plateKey(p){ return String(p||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
 function isExcluded(p){ const k=plateKey(p); return TRIP_EXCLUDE.some(x=>plateKey(x)===k); }
 function destOf(name){ const n=String(name||"").trim().toLowerCase(); return n ? DESTS.find(d=>d.name.trim().toLowerCase()===n) : null; }
@@ -3415,7 +3488,7 @@ function tripKm(t){ const d=destOf(t.dest); return d ? d.rtd : 0; }
 const tripRange = makeRange({ prev:"#trPrev", next:"#trNext", label:"#trMonth", from:"#trFrom", to:"#trTo" }, ()=>loadTripReport());
 // range: {from, to} business dates (the Home card's own window); default this month
 function openTrips(view, range){
-  if(!adminOnly()) return; tripOpen=new Set(); trView=typeof view==="string"?view:"tanker"; show("scTrips");
+  if(!adminOnly()) return; tripOpen=new Set(); trView=typeof view==="string"?view:"map"; show("scTrips");
   if(range && range.from){ $("#trFrom").value=range.from; $("#trTo").value=range.to; $("#trMonth").textContent="Since "+dmy(range.from).slice(0,5); loadTripReport(); }
   else tripRange.thisMonth();
 }
@@ -3563,11 +3636,12 @@ function renderTrips(){
   $("#trInvBad").textContent=high;
   $("#trInvBad").parentNode.classList.toggle("bad", high>0);
   $("#trInvWait").textContent=nWait;
-  const tabs=[["tanker","By tanker"],["customer","By customer"],["alerts","Alerts"+(INVD && INVD.rec.alerts.length?" ("+INVD.rec.alerts.length+")":"")]];
+  const tabs=[["map","Mapping"],["tanker","Tanker"],["customer","Customer"],["alerts","Alerts"+(INVD && INVD.rec.alerts.length?" ("+INVD.rec.alerts.length+")":"")]];
   $("#trView").innerHTML=tabs.map(t=>'<button type="button" data-trview="'+t[0]+'" class="'+(t[0]===trView?'on':'')+'">'+esc(t[1])+'</button>').join("");
   $("#trView").querySelectorAll("[data-trview]").forEach(b=>{ b.onclick=()=>{ trView=b.getAttribute("data-trview"); renderTrips(); }; });
   const box=$("#trList");
   if(TRIPS_ERR){ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(TRIPS_ERR)+'</div>'; }
+  else if(trView==="map") box.innerHTML=mapViewHTML();
   else if(trView==="customer") box.innerHTML=custViewHTML();
   else if(trView==="alerts") box.innerHTML=alertsViewHTML();
   else if(!sum.length){ box.innerHTML='<div class="empty">No tankers.</div>'; }
@@ -3591,6 +3665,10 @@ function renderTrips(){
   box.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{
     const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
   box.querySelectorAll("[data-tag]").forEach(b=>{ b.onclick=()=>openTag(b.getAttribute("data-tag"), b.getAttribute("data-bill")); });
+  box.querySelectorAll("[data-billsheet]").forEach(b=>{ b.onclick=()=>openBill(b.getAttribute("data-billsheet")); });
+  box.querySelectorAll("[data-tagsug]").forEach(b=>{ b.onclick=()=>tagSugUI(b.getAttribute("data-tagsug")); });
+  box.querySelectorAll("[data-map-plate]").forEach(b=>{ b.onclick=()=>{ mapPlate=b.getAttribute("data-map-plate"); renderTrips(); }; });
+  if($("#mapTodo")) $("#mapTodo").onchange=()=>{ mapTodo=$("#mapTodo").checked; renderTrips(); };
   box.querySelectorAll("[data-custshow]").forEach(b=>{ b.onclick=()=>{
     const k=b.getAttribute("data-custshow"); if(custOpen.has(k)) custOpen.delete(k); else custOpen.add(k); renderTrips(); }; });
   box.querySelectorAll("[data-linkacc]").forEach(b=>{ b.onclick=()=>linkAccUI(b.getAttribute("data-linkacc"), b.closest(".linkacc").querySelector("select").value); });
@@ -3711,6 +3789,146 @@ function looseTrips(b){
     && INV.candidates(r.trip, [b], INVD.tags, INVD.ctx).some(c=>c.c!=="other")).map(r=>r.trip);
 }
 
+/* ---------- MAPPING: trip → its bills, day by day ----------
+   The one place to see and fix the tagging: every trip with the bills on
+   it right under it (sent vs billed), then the bills on no trip. Tap a bill
+   to move it to another trip or take it off; tap a trip's Tag › to add. */
+let mapPlate="", mapTodo=false;
+const MAP_ST={ ok:["ok","✓ Invoiced"], under:["bad","◐ Short"], over:["bad","▲ Over"], none:["bad","✕ Not invoiced"],
+  await:["wait","⏳ Waiting for bills"], before:["off","Not checked"] };
+function needsWork(r){ return r.status==="none" || r.status==="under" || r.status==="over" || r.issues.length>0; }
+function billChipHTML(x, issueKeys){
+  return '<button class="mapbill'+(issueKeys[x.key]?' warn':'')+'" data-billsheet="'+esc(x.key)+'">'
+    +'<span class="mb1"><b>#'+esc(x.bill_no)+'</b> · '+dmy(x.date).slice(0,5)+(issueKeys[x.key]?' · ⚠':'')+'</span>'
+    +'<span class="mb2">'+esc(x.customer)+' · '+esc(x.vehicle||"no vehicle")+'</span>'
+    +'<span class="mbq">'+fmt(x.qty)+' L</span><span class="mbgo">›</span></button>';
+}
+function mapViewHTML(){
+  if(!INVD) return '<div class="empty">—</div>';
+  const inR=k=>k>=INVD.from && k<=INVD.to;
+  const plates=tripPlates().filter(p=>INVD.rec.rows.some(r=>r.inRange && r.trip.plate===p));
+  const all=INVD.rec.rows.filter(r=>r.inRange && (!mapPlate || r.trip.plate===mapPlate));
+  const rows=all.filter(r=>!mapTodo || needsWork(r)).sort((a,b)=>b.trip.ts-a.trip.ts);
+  const loose=INVD.rec.loose.filter(x=>inR(x.bill.date) && (!mapPlate || x.plate===INV.vehKey(mapPlate)));
+  const todoN=all.filter(needsWork).length;
+  let h='<div class="mapchips">'+[''].concat(plates).map(p=>{
+      const n=INVD.rec.rows.filter(r=>r.inRange && (!p || r.trip.plate===p) && needsWork(r)).length;
+      return '<button data-map-plate="'+esc(p)+'" class="'+(p===mapPlate?'on':'')+'">'+(p?esc(p):'All tankers')+(n?'<span class="cnt">'+n+'</span>':'')+'</button>';
+    }).join("")+'</div>'
+    +'<label class="chk" style="margin:0 2px 12px"><input type="checkbox" id="mapTodo"'+(mapTodo?' checked':'')+'><span>Only trips that need work ('+todoN+')</span></label>';
+  if(!INVD.bills) h+='<div class="endednote warnnote">Connect the ledger to see and tag the bills.</div>';
+  if(!rows.length) h+='<div class="empty">'+(mapTodo?'✓ Nothing to fix here.':'No trips in this period.')+'</div>';
+  // day by day, newest first
+  let day="";
+  rows.forEach(r=>{
+    const t=r.trip, st=r.issues.length && r.status==="ok" ? ["bad","⚠ Check bills"] : MAP_ST[r.status];
+    if(t.day!==day){ day=t.day;
+      const ds=rows.filter(x=>x.trip.day===day), bad=ds.filter(needsWork).length;
+      h+='<div class="mapday">'+new Date(day+"T00:00:00").toLocaleDateString("en-IN",{ weekday:"short", day:"2-digit", month:"2-digit" })
+        +'<span>'+ds.length+' trip'+(ds.length===1?'':'s')+(bad?' · <b>'+bad+' to fix</b>':'')+'</span></div>'; }
+    const issueKeys={}; r.issues.forEach(i=>{ if(i.tag) issueKeys[i.tag.key]=1; });
+    const diff = r.tags.length ? '<span class="mapdiff '+(r.status==="ok"?'ok':'bad')+'">'+signL(r.diff)+'</span>' : '';
+    const sug = r.sug && r.status!=="ok" && r.status!=="over"
+      ? '<div class="mapsug">💡 '+esc(billNos(r.sug.bills))+' = '+fmt(r.sug.sum)+' L'+(r.sug.sure?' · sure':'')
+        +'<button class="tagbtn" data-tagsug="'+esc(t.id)+'">Tag these</button></div>' : '';
+    h+='<div class="mapcard st-'+st[0]+'">'
+      +'<div class="maph"><span class="plate sm">'+esc(t.plate)+'</span><span class="mapt">'+timeLabel(t.ts)+'</span>'
+        +'<span class="mapst st-'+st[0]+'">'+st[1]+'</span></div>'
+      +'<div class="mapdest">→ '+esc(t.dest||"(no customer)")+'</div>'
+      +'<div class="mapflow"><span><small>Sent</small><b>'+fmt(t.total)+' L</b></span><span class="arr">→</span>'
+        +'<span><small>Billed</small><b>'+fmt(r.sum)+' L</b></span>'+diff+'</div>'
+      +(r.tags.length ? '<div class="mapbills">'+r.tags.map(x=>billChipHTML(x, issueKeys)).join("")+'</div>' : '')
+      +r.issues.map(i=>'<div class="trissue">⚠ '+esc(i.text)+'</div>').join("")
+      +sug
+      +'<div class="mapfoot"><button class="tagbtn" data-tag="'+esc(t.id)+'">'+(r.tags.length?'＋ Add / change bills':'＋ Tag bills')+'</button></div>'
+      +'</div>';
+  });
+  if(loose.length && !mapTodo || loose.some(x=>x.kind==="extra")){
+    const ls=mapTodo ? loose.filter(x=>x.kind==="extra") : loose;
+    if(ls.length) h+='<div class="mapday">Bills on no trip<span>'+ls.length+'</span></div>'
+      +'<div class="mapcard st-'+(ls.some(x=>x.kind==="extra")?'bad':'wait')+'"><div class="mapbills">'
+      +ls.map(x=>billChipHTML(x.bill, {})).join("")+'</div>'
+      +'<div class="note" style="text-align:left;margin:6px 0 0">Tap a bill to put it on its trip.</div></div>';
+  }
+  return h;
+}
+
+/* ---------- BILL SHEET: one bill — where it is, move it, take it off ---------- */
+let billCtx=null;   // { bill, on (row it is tagged to, or null) }
+function billByKey(key){
+  const tag=INVD.tags.find(x=>x.key===key), now=INVD.bills && INVD.bills.find(x=>x.key===key);
+  return { bill: now || tag, tag: tag };
+}
+function openBill(key){
+  if(!INVD) return;
+  const f=billByKey(key); if(!f.bill) return;
+  // a bill on a trip outside the loaded days still has to come off that trip to move
+  const on=f.tag ? (recRow(f.tag.trip_id) || { trip:{ id:f.tag.trip_id, plate:f.tag.plate, day:f.tag.date, ts:Date.parse(f.tag.date), total:0, dest:"(a trip outside these dates)" }, sum:f.tag.qty, diff:0, outside:true }) : null;
+  billCtx={ bill:f.bill, on:on };
+  $("#billErr").textContent=""; renderBillSheet(); $("#billModal").classList.add("on");
+}
+function closeBill(){ $("#billModal").classList.remove("on"); billCtx=null; }
+$("#billCancel").onclick=closeBill;
+$("#billModal").addEventListener("click",e=>{ if(e.target===$("#billModal")) closeBill(); });
+function tripLineHTML(t){ return '<span class="plate sm">'+esc(t.plate)+'</span> '+dmy(t.day).slice(0,5)+' · '+timeLabel(t.ts)+' → '+esc(t.dest||"no customer"); }
+function renderBillSheet(){
+  const b=billCtx.bill, on=billCtx.on, ctx=INVD.ctx;
+  $("#billTitle").textContent="#"+b.bill_no+" · "+fmt(b.qty)+" L";
+  $("#billSub").textContent=dmy(b.date)+" · "+b.customer+" · "+(b.vehicle||"no vehicle");
+  $("#billOn").innerHTML = on
+    ? '<div class="mlab">Now on</div><div class="billon">'+(on.outside ? '<span class="plate sm">'+esc(on.trip.plate)+'</span> a trip outside these dates'
+        : tripLineHTML(on.trip)+'<br><span class="sub">'+fmt(on.trip.total)+' L sent · billed '+fmt(on.sum)+' L ('+signL(on.diff)+')</span>')
+      +'<button class="lnk danger" id="billOff">Take off this trip</button></div>'
+    : '<div class="billon none">On no trip yet</div>';
+  if($("#billOff")) $("#billOff").onclick=()=>untagBillUI(b, on);
+  const list=INV.tripsFor(b, INVD.rec.rows, ctx).slice(0,12);
+  $("#billList").innerHTML = '<div class="mlab">'+(on?'Move it to':'Put it on')+'</div>'
+    + (list.length ? list.map(x=>{
+        const after=r2(x.row.sum+b.qty-x.trip.total);
+        return '<div class="tagrow"><div class="tb"><div class="t1">'+tripLineHTML(x.trip)+'</div>'
+          +'<div class="t2">'+fmt(x.trip.total)+' L sent · '+(x.row.sum?fmt(x.row.sum)+' L billed · ':'')
+          +(x.fits?'<span class="fit-ok">fits ('+signL(after)+')</span>':'<span class="fit-bad">would be over by '+fmt(after)+' L</span>')
+          +' · '+fitHTML(x)+(x.far?' · <span class="fit-warn">'+Math.abs(x.dd)+' days apart</span>':'')+'</div></div>'
+          +'<button class="tagbtn" data-moveto="'+esc(x.trip.id)+'">'+(on?'Move here':'Tag here')+'</button></div>';
+      }).join("") : '<div class="empty">No trip of these days fits this bill.</div>');
+  $("#billList").querySelectorAll("[data-moveto]").forEach(btn=>{ btn.onclick=()=>moveBillUI(b, on, recRow(btn.getAttribute("data-moveto"))); });
+}
+// put a bill on a trip — off the trip it's on first; if that fails it goes back where it was
+function moveBill(b, from, to){
+  const put=()=>Backend.tagBills(to.trip.id, [b], "manual");
+  if(!from) return put();
+  return Backend.untagBill(b.key).then(()=>put().catch(e=>Backend.tagBills(from.trip.id, [b], "manual").catch(()=>{}).then(()=>{ throw e; })));
+}
+function moveBillUI(b, from, to){
+  if(!to) return;
+  const ctx=INVD.ctx, t=to.trip, warn=[];
+  const v=INV.vehFit(t,b,ctx), c=INV.custFit(t,b,ctx), d=r2(to.sum+b.qty-t.total);
+  if(v==="tanker") warn.push("#"+b.bill_no+" is in the name of "+INV.billPlate(b,ctx)+", not "+t.plate);
+  if(c==="other") warn.push(b.customer+" is billed for "+Object.keys(ctx.linkBy[b.ckey]).map(k=>ctx.linkBy[b.ckey][k]).join(" / ")+" — this trip went to "+(t.dest||"no customer"));
+  if(d>TAGSET.over) warn.push("That trip would be billed "+fmt(r2(to.sum+b.qty))+" L for "+fmt(t.total)+" L sent — over by "+fmt(d)+" L");
+  const what=(from?"Move":"Tag")+" #"+b.bill_no+" ("+fmt(b.qty)+" L) "+(from?"from "+from.trip.plate+" "+dmy(from.trip.day).slice(0,5)+" ":"")
+    +"to "+t.plate+" "+dmy(t.day).slice(0,5)+" → "+(t.dest||"no customer")+"?";
+  if(!confirm(what+(warn.length?"\n\nCheck first:\n• "+warn.join("\n• ")+"\n\nIt will stay flagged.":""))) return;
+  $("#billErr").textContent="Saving…";
+  moveBill(b, from, to).then(()=>linkAfterTag(t, [b], false)).then(()=>{
+    toast("✓ #"+b.bill_no+" "+(from?"moved":"tagged")+" to "+t.plate+" "+dmy(t.day).slice(0,5));
+    INV_WATCH.at=0; closeBill(); closeTag(); return loadTripReport();
+  }).catch(e=>{ $("#billErr").textContent=dbHint(e); });
+}
+function untagBillUI(b, on){
+  if(!confirm("Take bill #"+b.bill_no+" ("+fmt(b.qty)+" L, "+b.customer+") off "+on.trip.plate+(on.outside?"'s trip":" "+dmy(on.trip.day).slice(0,5))+"?")) return;
+  Backend.untagBill(b.key).then(()=>{ toast("#"+b.bill_no+" taken off the trip"); INV_WATCH.at=0; closeBill(); return loadTripReport(); })
+    .catch(e=>{ $("#billErr").textContent=dbHint(e); });
+}
+function tagSugUI(tripId){
+  const r=recRow(tripId); if(!r || !r.sug) return;
+  const bills=r.sug.bills, t=r.trip;
+  if(!confirm("Tag "+billNos(bills)+" ("+fmt(r.sug.sum)+" L) to "+t.plate+" "+dmy(t.day).slice(0,5)+" → "+(t.dest||"no customer")+"?")) return;
+  Backend.tagBills(t.id, bills, "manual").then(()=>linkAfterTag(t, bills, false)).then(()=>{
+    toast("✓ Tagged "+bills.length+" bill"+(bills.length===1?"":"s")+" to "+t.plate); INV_WATCH.at=0; return loadTripReport();
+  }).catch(e=>toast(dbHint(e)));
+}
+
 /* ---------- TAG SHEET: the bills of one trip ---------- */
 let tagCtx=null;    // { row, picked:{key:1}, wide, q }
 function openTag(tripId, preKey){
@@ -3745,10 +3963,12 @@ function renderTagSheet(){
   $("#tagHave").innerHTML = r.tags.length
     ? '<div class="mlab">Tagged to this trip</div>'+r.tags.map(x=>'<div class="tagrow have"><div class="tb">'+billLineHTML(x)
         +(x.mode==="auto"?'<div class="t2">auto-tagged</div>':'')+'</div><div class="tq">'+fmt(x.qty)+' L</div>'
+        +'<button class="tagbtn" data-movebill="'+esc(x.key)+'">Move</button>'
         +'<button class="del" data-untag="'+esc(x.key)+'" aria-label="Untag">✕</button></div>').join("")
       +r.issues.map(i=>'<div class="trissue">⚠ '+esc(i.text)+'</div>').join("")
     : '';
   $("#tagHave").querySelectorAll("[data-untag]").forEach(b=>{ b.onclick=()=>untagUI(b.getAttribute("data-untag")); });
+  $("#tagHave").querySelectorAll("[data-movebill]").forEach(b=>{ b.onclick=()=>openBill(b.getAttribute("data-movebill")); });
   const box=$("#tagList");
   if(!INVD.bills){
     $("#tagPick").hidden=true;
@@ -3771,7 +3991,8 @@ function renderTagSheet(){
     INVD.bills.filter(b=>hit(b) && !INV.skipped(b, ctx) && !list.some(c=>c.bill.key===b.key)).sort(INV.billCmp).forEach(b=>{
       const g=INVD.tags.find(x=>x.key===b.key), on=g && INVD.trips.find(x=>x.id===g.trip_id);
       list.push({ bill:b, v:INV.vehFit(t,b,ctx), c:INV.custFit(t,b,ctx), s:-300, locked:!!g || b.product==="MS" || b.product==="OTHER",
-        why: g ? (g.trip_id===t.id ? "on this trip" : "already on "+(on ? on.plate+" "+dmy(on.day).slice(0,5) : "another trip")+" — untag it there first")
+        moveFrom: g && g.trip_id!==t.id ? g.trip_id : "",
+        why: g ? (g.trip_id===t.id ? "on this trip" : "on "+(on ? on.plate+" "+dmy(on.day).slice(0,5) : "another trip"))
                : INV.whyNot(t, b, INVD.tags, ctx) });
     });
   }
@@ -3782,8 +4003,12 @@ function renderTagSheet(){
       +'<div class="tb">'+billLineHTML(b)+'<div class="t2">'+(c.why?'<span class="fit-warn">not offered: '+esc(c.why)+'</span> · ':'')
       +(c.retail?'<span class="fit-bad">retail customer</span> · ':'')+fitHTML(c)+(sugKeys[b.key]?' · <b>💡 suggested</b>':'')
       +(o?' · <span class="fit-warn">suggested for '+esc(o.plate)+' '+dmy(o.day).slice(0,5)+'</span>':'')+'</div></div>'
-      +'<div class="tq">'+fmt(b.qty)+' L</div></label>';
+      +'<div class="tq">'+fmt(b.qty)+' L</div>'
+      +(c.moveFrom?'<button class="tagbtn" data-movehere="'+esc(b.key)+'" data-from="'+esc(c.moveFrom)+'">Move here</button>':'')+'</label>';
   }).join("") : '<div class="empty">No bills '+(tagCtx.wide?'within a week of this trip':'to bulk customers from the day before to 3 days after this trip')+(q?' match “'+esc(q)+'”':'')+'.'+(tagCtx.wide?'':' Tick “Show all” to look wider.')+(q?'':' Know the bill no.? Type it above.')+'</div>';
+  box.querySelectorAll("[data-movehere]").forEach(btn=>{ btn.onclick=e=>{ e.preventDefault();
+    const b=INVD.bills.find(x=>x.key===btn.getAttribute("data-movehere"));
+    if(b) moveBillUI(b, recRow(btn.getAttribute("data-from")) || { trip:{ id:btn.getAttribute("data-from"), plate:"another trip", day:b.date }, sum:0 }, tagCtx.row); }; });
   box.querySelectorAll("[data-pick]").forEach(cb=>{ cb.onchange=()=>{ const k=cb.getAttribute("data-pick");
     if(cb.checked) tagCtx.picked[k]=1; else delete tagCtx.picked[k]; renderTagSheet(); }; });
   // the running total: tagged + ticked against the trip, with the buffer
@@ -3848,6 +4073,7 @@ function paintInvBanner(){
   const lab={ none:["sale not invoiced","sales not invoiced"], extra:["extra bill in a tanker's name","extra bills in a tanker's name"],
     over:["trip over-invoiced","trips over-invoiced"], under:["trip under-invoiced","trips under-invoiced"],
     cust:["bill to another customer","bills to another customer"], veh:["bill in another tanker's name","bills in another tanker's name"],
+    date:["bill far from its trip's date","bills far from their trip's date"],
     changed:["bill changed in the ledger","bills changed in the ledger"], gone:["bill deleted in the ledger","bills deleted in the ledger"] };
   if(!hi.length){
     box.innerHTML='<button class="invban ok" id="invGo"><span class="em">🧾</span><span><b>Invoices check out</b><span class="hi">Every sale since '+dmy(d.from)+' is invoiced'
@@ -3856,7 +4082,7 @@ function paintInvBanner(){
     box.innerHTML='<button class="invban" id="invGo"><span class="em">⚠</span><span><b>Invoice check: '+hi.length+' to fix</b><span class="hi">'
       +Object.keys(cnt).map(k=>cnt[k]+" "+lab[k][cnt[k]===1?0:1]).join(" · ")+'</span></span><span class="chev">›</span></button>';
   }
-  $("#invGo").onclick=()=>openTrips(hi.length?"alerts":"tanker", { from:d.from, to:d.to });
+  $("#invGo").onclick=()=>{ mapTodo=hi.length>0; openTrips("map", { from:d.from, to:d.to }); };
 }
 
 $("#trExcel").onclick=async()=>{
