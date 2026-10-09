@@ -4260,6 +4260,27 @@
       },
       "queued_at": "2026-10-09T15:15:24.644724+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "3cccc1a3dec378b0",
+      "gmail_msg_id": "1878590611221577112",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "09/10/2026",
+      "date_serial": 46304,
+      "amount": 43560.0,
+      "raw_payer": "ORISSA METALIKS PVT LIMITED",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-09T16:44:19.518174+00:00",
+      "status": "matched"
     }
   ]
 }
