@@ -1,0 +1,246 @@
+// Tanker Loading — invoice tagging: which ledger bills a trip was billed in,
+// suggestions, and the per-trip / per-tanker / per-customer checks.
+// The model is cut from loading/index.html as shipped.
+// Run: node --test tests/loading_web/*.test.mjs
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+
+const HTML = fs.readFileSync(new URL('../../loading/index.html', import.meta.url), 'utf8');
+const START = HTML.indexOf('/* ===================== INVOICE TAGGING MODEL');
+const END = HTML.indexOf('/* ===================== END INVOICE TAGGING MODEL');
+if (START < 0 || END < START) throw new Error('invoice model markers not found in loading/index.html');
+const INV = new Function(HTML.slice(START, END) + '\nreturn INV;')();
+
+// All names, plates and numbers are made up.
+const A = 'OD23A3710', B = 'OR15R1110', C = 'OR15R5510';
+const H = 3600e3, T0 = Date.UTC(2026, 9, 2, 4);              // 2 Oct 2026, 9:30 AM IST
+let n = 0;
+const trip = (plate, day, total, dest, extra = {}) => ({ id: 't' + (++n), plate, ts: T0 + (Date.parse(day) - Date.UTC(2026, 9, 2)) + (extra.h || 0) * H, day, total, dest, ...extra });
+const bill = (no, date, qty, customer, vehicle, product = 'HSD') => ({
+  key: INV.billKey(product, date, no), product, fy: INV.fyOf(date), bill_no: String(no), date, vehicle, qty, amount: qty * 99.5,
+  customer, ckey: INV.normName(customer) });
+const tagOf = (b, t, extra = {}) => ({ ...b, trip_id: t.id, plate: t.plate, mode: 'manual', ...extra });
+const ctx = (o = {}) => INV.context({ plates: [A, B, C], tol: 10, over: 80, from: '2026-10-01', until: '2026-10-09',
+  billsFrom: '2026-09-28', billsTo: '2026-10-12', links: [], bulk: [], ...o });
+const keys = (bs) => bs.map((b) => b.bill_no);
+
+test('ledger keys and names', () => {
+  assert.equal(INV.fyOf('2026-04-01'), '2026-27');
+  assert.equal(INV.fyOf('2027-03-31'), '2026-27');
+  assert.equal(INV.billKey('HSD', '2026-10-02', ' 1234 '), 'HSD|2026-27|1234');
+  assert.equal(INV.normName('  Shyam   Metaliks & Energy '), 'shyam metaliks & energy');
+  assert.ok(INV.nameSim('Shyam Metalics', 'SHYAM METALIKS AND ENERGY LIMITED') >= 0.99, 'one letter apart, Ltd ignored');
+  assert.ok(INV.nameSim('Aryan Ispat & Power Private Ltd.', 'Aryan Ispat and Power Pvt Ltd') >= 0.99);
+  assert.equal(INV.nameSim('Orissa Metaliks', 'Demo Roadlines'), 0);
+  const c = ctx();
+  assert.equal(INV.billPlate({ vehicle: 'od-23-a-3710' }, c), A, 'dashes and case do not matter');
+  assert.equal(INV.billPlate({ vehicle: 'OD 23 A 3710 (tanker)' }, c), A);
+  assert.equal(INV.billPlate({ vehicle: '' }, c), '');
+  assert.equal(INV.billPlate({ vehicle: 'OR09X4455' }, c), null, "a customer's own truck");
+});
+
+test('a 12 KL tanker billed in 3 × 4 KL is suggested as one sure set', () => {
+  const t = trip(A, '2026-10-02', 12000, 'Shyam Metalics');
+  const bills = [bill(101, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', 'OD23A3710'),
+    bill(102, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', 'OD23A3710'),
+    bill(103, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', 'OD-23-A-3710'),
+    bill(104, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', 'OR15R1110'),     // the other tanker's
+    bill(105, '2026-10-02', 300, 'Shyam Metaliks and Energy Ltd', 'OR09X4455')];     // their own truck
+  const s = INV.suggest([t], bills, [], ctx())[t.id];
+  assert.deepEqual(keys(s.bills), ['101', '102', '103']);
+  assert.equal(s.sum, 12000);
+  assert.ok(s.sure && s.exact);
+});
+
+test('a linked customer and the vehicle win over a bill of the right size elsewhere', () => {
+  const t = trip(A, '2026-10-02', 11955, 'DBL - Siarmal');
+  const links = [{ ckey: 'demo buildcon ltd', dest: 'DBL - Siarmal', customer: 'Demo Buildcon Ltd' }];
+  const bills = [bill(201, '2026-10-02', 11955, 'Other Power Ltd', ''),              // right size, wrong customer, no vehicle
+    bill(202, '2026-10-03', 11950, 'Demo Buildcon Ltd', 'OD23A3710')];                // next day, 5 L off, ours
+  const s = INV.suggest([t], bills, [], ctx({ links }))[t.id];
+  assert.deepEqual(keys(s.bills), ['202']);
+  assert.ok(s.sure, 'vehicle matches, customer linked, 5 L under the trip is within the 10 L allowed');
+  assert.ok(!s.exact);
+});
+
+test('two trips of one tanker on two days each get their own day\'s bills', () => {
+  const t1 = trip(B, '2026-10-02', 12000, 'Orissa Metaliks'), t2 = trip(B, '2026-10-03', 12000, 'Orissa Metaliks');
+  const bills = [301, 302, 303].map((k) => bill(k, '2026-10-02', 4000, 'Orissa Metaliks Pvt Ltd', B))
+    .concat([304, 305, 306].map((k) => bill(k, '2026-10-03', 4000, 'Orissa Metaliks Pvt Ltd', B)));
+  const s = INV.suggest([t2, t1], bills, [], ctx());
+  assert.deepEqual(keys(s[t1.id].bills), ['301', '302', '303']);
+  assert.deepEqual(keys(s[t2.id].bills), ['304', '305', '306']);
+});
+
+test('a part-tagged trip is offered only what is still missing', () => {
+  const t = trip(A, '2026-10-02', 12000, 'Shyam Metalics');
+  const b = [401, 402, 403].map((k) => bill(k, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', A));
+  const tags = [tagOf(b[0], t), tagOf(b[1], t)];
+  const s = INV.suggest([t], b, tags, ctx())[t.id];
+  assert.deepEqual(keys(s.bills), ['403']);
+  const r = INV.reconcile([t], b, tags, ctx(), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(r.rows[0].status, 'under');
+  assert.equal(r.rows[0].diff, -4000);
+  assert.equal(r.alerts[0].kind, 'under');
+});
+
+test('trip statuses: ok within tolerance, over, not invoiced, waiting for the DayBook, before the start', () => {
+  const ok = trip(A, '2026-10-02', 12000, 'Shyam Metalics'), over = trip(B, '2026-10-02', 8000, 'Orissa Metaliks');
+  const none = trip(C, '2026-10-03', 9000, 'Shyam Metalics'), wait = trip(C, '2026-10-09', 9000, 'Shyam Metalics');
+  const old = trip(A, '2026-09-29', 9000, 'Shyam Metalics');
+  const b1 = bill(501, '2026-10-02', 11990, 'Shyam Metaliks and Energy Ltd', A), b2 = bill(502, '2026-10-02', 8600, 'Orissa Metaliks Pvt Ltd', B);
+  const tags = [tagOf(b1, ok), tagOf(b2, over)];
+  const r = INV.reconcile([ok, over, none, wait, old], [b1, b2], tags, ctx(), { from: '2026-09-01', to: '2026-10-31' });
+  const st = Object.fromEntries(r.rows.map((x) => [x.trip.id, x.status]));
+  assert.deepEqual([st[ok.id], st[over.id], st[none.id], st[wait.id], st[old.id]], ['ok', 'over', 'none', 'await', 'before']);
+  assert.deepEqual(r.alerts.map((a) => a.kind), ['over', 'none']);
+  // without the ledger there is no telling: an untagged trip is simply not invoiced
+  const r2 = INV.reconcile([wait], [], [], ctx({ until: null }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(r2.rows[0].status, 'none');
+});
+
+test('a bill in a tanker\'s name on no trip: extra sale when no trip has room, else waiting to be tagged', () => {
+  const t = trip(A, '2026-10-02', 12000, 'Shyam Metalics');
+  const b = [601, 602, 603].map((k) => bill(k, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', A));
+  const extra = bill(604, '2026-10-02', 4000, 'Demo Traders', A);                       // a 4th 4 KL bill on a 12 KL trip
+  const other = bill(605, '2026-10-04', 3000, 'Demo Traders', 'OR15R5510');            // C has no trip at all
+  const truck = bill(606, '2026-10-02', 200, 'Shyam Metaliks and Energy Ltd', 'OR09X4455');   // not ours: left alone
+  const tags = b.map((x) => tagOf(x, t));
+  const r = INV.reconcile([t], b.concat([extra, other, truck]), tags, ctx(), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(r.rows[0].status, 'ok');
+  assert.deepEqual(r.loose.map((x) => [x.bill.bill_no, x.kind]), [['604', 'extra'], ['605', 'extra']]);
+  assert.deepEqual(r.alerts.map((a) => [a.kind, a.plate]), [['extra', A], ['extra', C]]);
+  assert.equal(r.perTanker[A].named, 16000, 'litres billed in its name');
+  assert.equal(r.perTanker[A].sent, 12000);
+  assert.equal(r.perTanker[A].extra, 1);
+  // before tagging, the same bill can still go on the trip → not an extra sale yet
+  const r2 = INV.reconcile([t], b, [], ctx(), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r2.loose.map((x) => x.kind), ['untagged', 'untagged', 'untagged']);
+  assert.equal(r2.rows[0].status, 'none');
+});
+
+test('bills before the start date and petrol bills are not in the check', () => {
+  const r = INV.reconcile([], [bill(701, '2026-09-30', 4000, 'X Ltd', A), bill(702, '2026-10-02', 40, 'X Ltd', A, 'MS')], [], ctx(),
+    { from: '2026-09-01', to: '2026-10-31' });
+  assert.equal(r.loose.length, 0);
+});
+
+test('tag problems: another tanker\'s bill, a customer billed for someone else, a bill changed or deleted in the ledger', () => {
+  const links = [{ ckey: 'orissa metaliks pvt ltd', dest: 'Orissa Metaliks', customer: 'Orissa Metaliks Pvt Ltd' }];
+  const t = trip(A, '2026-10-02', 12000, 'Shyam Metalics');
+  const bB = bill(801, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', B);
+  const bO = bill(802, '2026-10-02', 4000, 'Orissa Metaliks Pvt Ltd', A);
+  const bC = bill(803, '2026-10-02', 2000, 'Shyam Metaliks and Energy Ltd', A);
+  const bG = bill(804, '2026-10-02', 2000, 'Shyam Metaliks and Energy Ltd', A);
+  const tags = [tagOf(bB, t), tagOf(bO, t), tagOf(bC, t), tagOf(bG, t)];
+  const now = [bB, bO, { ...bC, qty: 1500 }];                                           // 803 cut to 1,500 L, 804 deleted
+  const r = INV.reconcile([t], now, tags, ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r.rows[0].issues.map((i) => i.kind), ['veh', 'cust', 'changed', 'gone']);
+  assert.match(r.rows[0].issues[2].text, /2000 → 1500 L/);
+});
+
+test('per customer: SMC units share one ledger name, group companies add up, a wrong-customer tag shows on both', () => {
+  const links = [
+    { ckey: 'demo smc ltd', dest: 'SMC Unit 1', customer: 'Demo SMC Ltd' },
+    { ckey: 'demo smc ltd', dest: 'SMC Unit 2', customer: 'Demo SMC Ltd' },
+    { ckey: 'agrim demo (jv)', dest: 'Lakhanpur Group Companies', customer: 'Agrim Demo (Jv)' },
+    { ckey: 'babylon demo pvt ltd', dest: 'Lakhanpur Group Companies', customer: 'Babylon Demo PVT LTD' },
+    { ckey: 'orissa metaliks pvt ltd', dest: 'Orissa Metaliks', customer: 'Orissa Metaliks Pvt Ltd' },
+    { ckey: 'shyam metaliks and energy ltd', dest: 'Shyam Metalics', customer: 'Shyam Metaliks and Energy Ltd' }];
+  const u1 = trip(A, '2026-10-02', 12000, 'SMC Unit 1'), u2 = trip(B, '2026-10-02', 12000, 'SMC Unit 2');
+  const lk = trip(C, '2026-10-03', 12000, 'Lakhanpur Group Companies'), sh = trip(A, '2026-10-04', 12000, 'Shyam Metalics');
+  const bU1 = bill(901, '2026-10-02', 12000, 'Demo SMC Ltd', A), bU2 = bill(902, '2026-10-02', 11000, 'Demo SMC Ltd', B);
+  const bL1 = bill(903, '2026-10-03', 8000, 'Agrim Demo (Jv)', C), bL2 = bill(904, '2026-10-03', 4000, 'Babylon Demo PVT LTD', C);
+  const bS = bill(905, '2026-10-04', 12000, 'Orissa Metaliks Pvt Ltd', A);               // Shyam's trip billed to Orissa
+  const tags = [tagOf(bU1, u1), tagOf(bU2, u2), tagOf(bL1, lk), tagOf(bL2, lk), tagOf(bS, sh)];
+  const r = INV.reconcile([u1, u2, lk, sh], [bU1, bU2, bL1, bL2, bS], tags, ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  const by = Object.fromEntries(r.perCust.map((a) => [a.dests.concat(a.custs).sort().join(' + '), [a.delivered, a.invoiced, a.status]]));
+  assert.deepEqual(by['Demo SMC Ltd + SMC Unit 1 + SMC Unit 2'], [24000, 23000, 'under']);
+  assert.deepEqual(by['Agrim Demo (Jv) + Babylon Demo PVT LTD + Lakhanpur Group Companies'], [12000, 12000, 'ok']);
+  assert.deepEqual(by['Shyam Metalics + Shyam Metaliks and Energy Ltd'], [12000, 0, 'under']);
+  assert.deepEqual(by['Orissa Metaliks + Orissa Metaliks Pvt Ltd'], [0, 12000, 'over']);
+  assert.ok(r.rows.find((x) => x.trip.id === sh.id).issues.some((i) => i.kind === 'cust'));
+});
+
+test('per customer: bills not on a trip count as invoiced, trips waiting for the DayBook are not "under"', () => {
+  const links = [{ ckey: 'shyam metaliks and energy ltd', dest: 'Shyam Metalics', customer: 'Shyam Metaliks and Energy Ltd' }];
+  const t1 = trip(A, '2026-10-02', 12000, 'Shyam Metalics'), t2 = trip(B, '2026-10-09', 12000, 'Shyam Metalics');
+  const b1 = bill(1001, '2026-10-02', 12000, 'Shyam Metaliks and Energy Ltd', A);
+  const loose = bill(1002, '2026-10-03', 5000, 'Shyam Metaliks and Energy Ltd', '');     // no vehicle, linked customer
+  const r = INV.reconcile([t1, t2], [b1, loose], [tagOf(b1, t1)], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  const a = r.perCust.find((x) => x.dests.includes('Shyam Metalics'));
+  assert.deepEqual([a.delivered, a.invoiced, a.extraL, a.waiting], [24000, 17000, 5000, 12000]);
+  assert.equal(a.status, 'await');
+  assert.deepEqual(r.loose.map((x) => x.kind), ['loose']);
+});
+
+test('the period: a trip on the 30th billed on the 1st counts once, in the trip\'s month', () => {
+  const t = trip(A, '2026-10-31', 12000, 'Shyam Metalics');
+  const b = bill(1101, '2026-11-01', 12000, 'Shyam Metaliks and Energy Ltd', A);
+  const c = ctx({ until: '2026-11-03', billsTo: '2026-11-05' });
+  const oct = INV.reconcile([t], [b], [tagOf(b, t)], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(oct.perTanker[A].tagged, 12000);
+  assert.equal(oct.alerts.length, 0);
+  const nov = INV.reconcile([t], [b], [tagOf(b, t)], c, { from: '2026-11-01', to: '2026-11-30' });
+  assert.equal(nov.alerts.length, 0, 'the November bill is on an October trip — not an extra sale');
+  assert.equal(nov.perTanker[A].trips, 0);
+});
+
+test('candidates for the manual picker: best first, the wide list adds other vehicles and dates', () => {
+  const t = trip(A, '2026-10-02', 12000, 'Shyam Metalics');
+  const bills = [bill(1201, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', ''),
+    bill(1202, '2026-10-02', 4000, 'Shyam Metaliks and Energy Ltd', A),
+    bill(1203, '2026-10-02', 4000, 'Someone', 'OR15R1110'),
+    bill(1204, '2026-10-08', 4000, 'Shyam Metaliks and Energy Ltd', A)];
+  assert.deepEqual(INV.candidates(t, bills, [], ctx()).map((x) => x.bill.bill_no), ['1202', '1201']);
+  assert.deepEqual(INV.candidates(t, bills, [], ctx(), true).map((x) => x.bill.bill_no), ['1202', '1201', '1203', '1204']);
+  assert.deepEqual(INV.candidates(t, bills, [tagOf(bills[1], t)], ctx()).map((x) => x.bill.bill_no), ['1201'], 'tagged bills drop out');
+});
+
+test('the litres sent are a little less than the bill: up to 80 L more on the bill still matches', () => {
+  const links = [{ ckey: 'demo buildcon ltd', dest: 'DBL - Siarmal', customer: 'Demo Buildcon Ltd' }];
+  const t = trip(A, '2026-10-02', 11955, 'DBL - Siarmal');
+  const b75 = bill(1301, '2026-10-02', 12030, 'Demo Buildcon Ltd', A);            // 75 L more: the usual
+  const s = INV.suggest([t], [b75], [], ctx({ links }))[t.id];
+  assert.deepEqual(keys(s.bills), ['1301']);
+  assert.ok(s.sure, 'sure enough to tag by itself');
+  const ok = INV.reconcile([t], [b75], [tagOf(b75, t)], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(ok.rows[0].status, 'ok');
+  assert.equal(ok.rows[0].diff, 75);
+  assert.equal(ok.perCust[0].status, 'ok');
+  // 95 L more is past the buffer: not offered, and over-invoiced once tagged
+  const b95 = bill(1302, '2026-10-02', 12050, 'Demo Buildcon Ltd', A);
+  assert.equal(INV.suggest([t], [b95], [], ctx({ links }))[t.id], undefined);
+  const over = INV.reconcile([t], [b95], [tagOf(b95, t)], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(over.rows[0].status, 'over');
+  assert.equal(over.perCust[0].status, 'over');
+  // a bill LESS than what was sent gets only the small allowance (10 L)
+  const b15 = bill(1303, '2026-10-02', 11940, 'Demo Buildcon Ltd', A);
+  const under = INV.reconcile([t], [b15], [tagOf(b15, t)], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(under.rows[0].status, 'under');
+  // 3 × 4,000 L + a few litres on the last bill for a 11,955 L trip
+  const parts = [bill(1304, '2026-10-02', 4000, 'Demo Buildcon Ltd', A), bill(1305, '2026-10-02', 4000, 'Demo Buildcon Ltd', A),
+    bill(1306, '2026-10-02', 4020, 'Demo Buildcon Ltd', A)];
+  const s3 = INV.suggest([t], parts, [], ctx({ links }))[t.id];
+  assert.deepEqual(keys(s3.bills), ['1304', '1305', '1306']);
+  assert.equal(s3.sum, 12020);
+});
+
+test('a bill in a tanker\'s name that is just the buffer over a full trip is not an extra sale', () => {
+  const t = trip(B, '2026-10-02', 11955, 'Orissa Metaliks');
+  const b = bill(1401, '2026-10-02', 12000, 'Orissa Metaliks Pvt Ltd', B);
+  const r = INV.reconcile([t], [b], [], ctx(), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r.loose.map((x) => x.kind), ['untagged'], 'it can still go on the trip');
+  assert.deepEqual(keys(r.rows[0].sug.bills), ['1401']);
+});
+
+test('an untagged sale says whether its bills are already in the ledger', () => {
+  const t = trip(A, '2026-10-02', 12000, 'Shyam Metalics'), u = trip(B, '2026-10-02', 9000, 'Orissa Metaliks');
+  const b = bill(1501, '2026-10-02', 12040, 'Shyam Metaliks and Energy Ltd', A);
+  const r = INV.reconcile([t, u], [b], [], ctx(), { from: '2026-10-01', to: '2026-10-31' });
+  const a = Object.fromEntries(r.alerts.filter((x) => x.kind === 'none').map((x) => [x.plate, x]));
+  assert.equal(a[A].title, 'Sale not tagged yet — bills found');
+  assert.match(a[A].text, /bills 1501 = 12040 L/);
+  assert.equal(a[B].title, 'Sale not invoiced');
+});

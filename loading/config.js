@@ -25,4 +25,11 @@ window.VRIDDHI_LOADING_CONFIG = {
   // without notifications; everything else works exactly the same.
   // The matching PRIVATE key belongs in Supabase secrets, never in this file.
   VAPID_PUBLIC_KEY: "BEa1TUaLV4nk3xBR9VBMjrvGIS8uGwY8M5oiqHbKgnbYU4pc38VaaLx8g2i-QitrKZdPEDzHHwPHpRJ0dUBXook",
+
+  // Invoice check (Trips per tanker): the LEDGER app's Supabase project — the
+  // same public URL + publishable key as ledger/config.js. An admin signs in
+  // with a ledger login on their phone and the bills are only READ; nothing
+  // in the ledger is ever changed from here. Leave empty to hide the check.
+  LEDGER_SUPABASE_URL: "https://behousmsujnlspwdxyas.supabase.co",
+  LEDGER_SUPABASE_ANON_KEY: "sb_publishable_BeflN_phUuD6BT_ZmAdDsw_tou7vxUa",
 };

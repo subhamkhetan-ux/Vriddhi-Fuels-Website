@@ -139,6 +139,7 @@ phone can't get round it by any button or by calling the server directly.
 | End Day (5:30–7:30 AM) | ✓ | ✓ |
 | 🔔 Push notifications on their phone | — | ✓ |
 | Reports & Excel, chamber log, 🚚 Trips per tanker, ⛽ Mileage, 📈 Trends | — | ✓ |
+| 🧾 Invoice check: connect the ledger, tag bills to trips, alerts | — | ✓ |
 | Edit / delete anything: records, tankers, chambers, customers, settings, Clear all | — | ✓ |
 | Staff logins: change passwords, add logins, make admin, log out all staff | — | ✓ |
 
@@ -393,6 +394,90 @@ Dates are business days (7:30 AM → 7:30 AM), the same as everywhere else.
 Trips are stored for **6 months** in their own table (`loading_trips`), so the
 monthly report works even though the detailed loading history is trimmed to 7
 days. Deleting a sale from History (within those 7 days) removes its trip too.
+
+## Invoice check — tagging each trip's bills (🧾)
+
+Every **Sent for sale** should be billed to the customer in the **ledger app**
+(`/ledger/`), often in parts (a 12 KL tanker as 3 × 4 KL bills). Trips per
+tanker checks that, so a sale nobody billed, or a bill nobody delivered, is
+caught at once instead of at month end.
+
+**Connecting the ledger.** The ledger has its own Supabase project. On the
+Trips screen (or ⚙ → *Invoice check*) tap **Connect ledger** and sign in with
+a **ledger login** (one on the ledger's members list). It is kept on that phone
+only, apart from the app's own login, and the app only **reads** the ledger —
+`ledger_whoami`, `ledger_sales_range`, `ledger_tanker_list` and
+`ledger_customers_list`; nothing there is changed. The ledger's public URL and
+key are in [`config.js`](./config.js) (`LEDGER_SUPABASE_*`, the same values as
+`ledger/config.js`). Anyone holding that login on the phone can use the ledger
+app too, so connect it on admin phones only.
+
+**Tagging.** Each trip (*Show trips & bills*) shows its bills and a status;
+**Tag ›** opens its bills sheet:
+
+- the **suggested** bills are already ticked — the app looks at bills from the
+  day before the trip to 3 days after it, scores each by the **vehicle on the
+  bill** (this tanker ✓ · none · another tanker ✗), the **customer** (linked
+  to the trip's *Sold to*, or a close name) and the date, and picks up to 4
+  bills that add up to the trip;
+- tick / untick, search by bill no., customer or vehicle, or **Show all**
+  (other vehicles, a week either side); the sheet adds up *tagged + ticked*
+  against the trip as you go;
+- **Tag** saves them; **✕** takes a bill off again. A bill sits on **one trip
+  only** — the database refuses it on a second trip.
+- Tagging a bill to a customer for the first time **links** that ledger name
+  to the trip's *Sold to* customer (⚙ → *Billed as*). A customer billed for
+  someone else asks first (SMC Unit 1 and Unit 2 can share one ledger name).
+
+**The buffer.** The litres sent for sale are normally a little **less** than
+the bill, so a trip matches when its bills come to **up to 80 L more** than
+what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check*.
+
+**Statuses** (from the *check from* date in ⚙; unset = the 1st of the month):
+
+| On a trip | Means |
+|---|---|
+| ✓ Invoiced | its bills add up, within the buffer |
+| ◐ Short / ▲ Over | its bills are more than 10 L less / 80 L more than sent |
+| ✕ Not invoiced | no bill tagged, and the ledger already has the next day's bills |
+| ⏳ Waiting for bills | no bill tagged yet, but the ledger has no bills after the trip's day (the DayBook isn't imported yet) |
+| ⚠ under a trip | a tagged bill is in another tanker's name, to a customer billed for someone else, or was changed / deleted in the ledger after tagging |
+
+**Three views**:
+
+- **By tanker** — per tanker: litres sold, litres tagged, and litres **billed
+  in its name** (every diesel bill typed with its number), plus any **extra
+  bill**: a bill in the tanker's name that no trip of it can account for.
+- **By customer** — litres sent for sale against litres invoiced, per
+  customer: *Sold to* customers and the ledger names they're billed as are
+  added up together (group companies, SMC units). Bills on no trip count as
+  invoiced; a bill tagged to the wrong customer's trip shows as under on one
+  and over on the other. Bills count in the month of their trip.
+- **Alerts** — everything to fix, worst first: over-invoiced, extra sale in a
+  tanker's name, not invoiced, under-invoiced, wrong customer / tanker, changed
+  in the ledger; then bills still to tag (with the trip they'd go on).
+
+Bills typed with **another vehicle** (a customer's own truck filled at the
+pump) and petrol bills are not part of the check. Diesel bills with **no
+vehicle** count when they are to a linked customer or one in the ledger's
+Tanker Master.
+
+**On Home**, admins with the ledger connected see a red **Invoice check: N to
+fix** card (or a green *Invoices check out*) for the last 45 days — on open,
+every few minutes, and the moment a trip or tag changes.
+
+**Auto-tag** (⚙, off by default): sure matches — every bill in the tanker's
+name, to its customer, adding up within the buffer — are tagged without
+asking (shown as *auto-tagged*). Start with it off, tag by hand with the
+suggestions, and switch it on once the suggestions are always right.
+
+The trip report Excel gains the bills, invoiced litres and status of every
+trip, and *Invoice check · tankers / customers* and *Invoice alerts* sheets.
+
+Tags live in `loading_invoice_tags` and links in `loading_dest_links`
+(admin-only, like the trips); a trip that is deleted or ages out takes its
+tags with it. **Cloud mode:** re-run
+[`../supabase/loading-schema.sql`](../supabase/loading-schema.sql) once.
 
 ## Customers & RTD (⚙)
 
