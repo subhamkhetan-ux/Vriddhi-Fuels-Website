@@ -4218,6 +4218,48 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-10-09T14:15:23.790074+00:00"
+    },
+    {
+      "entry_id": "7c1be9b9398b26df",
+      "gmail_msg_id": "1878584959353335681",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "09/10/2026",
+      "date_serial": 46304,
+      "amount": 3980000.0,
+      "raw_payer": "DBL",
+      "customer": "Dbl-Siarmal Coal Mines Private Limited",
+      "candidates": [
+        "Dbl-Siarmal Coal Mines Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-09T15:15:24.644198+00:00",
+      "status": "review"
+    },
+    {
+      "entry_id": "9717e4d83a0e8aa2",
+      "gmail_msg_id": "1878584993293859781",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "09/10/2026",
+      "date_serial": 46304,
+      "amount": 60444.0,
+      "raw_payer": "ANIMESH BUILDERS",
+      "customer": "Animesh Builders",
+      "candidates": [
+        "Animesh Builders"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-09T15:15:24.644724+00:00",
+      "status": "matched"
     }
   ]
 }
