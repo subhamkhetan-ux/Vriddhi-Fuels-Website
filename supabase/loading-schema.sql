@@ -127,7 +127,7 @@ insert into public.loading_destinations (name, rtd_km, grp, sort) values
 on conflict (name) do nothing;
 
 -- ---------------------------------------------------------------------
--- Trips — one row per "Sent for sale", kept for 6 MONTHS (loading_events is
+-- Trips — one row per "Sent for sale", kept for GOOD (loading_events is
 -- trimmed to 7 days, which is too short for a monthly trip report). The id is
 -- the dispatch event's id, so deleting that event (while it is still within
 -- the 7-day window) removes its trip too. `dest` is the customer it went to;
@@ -590,10 +590,11 @@ end $$;
 -- day) has passed and that nobody ended manually. The close is timestamped at
 -- that exact 8:00 AM, so business dates come out identical no matter when this
 -- runs. No auth check (called by the auth wrapper below and by pg_cron).
--- Mileage & trip history is kept for 6 MONTHS — enough for the trends. Older
+-- Mileage history is kept for 6 MONTHS — enough for the trends. Older
 -- refills / stock checks are dropped, except each tanker's newest entry with a
 -- known stock and everything after it (the diesel-in-tank estimate counts from
--- there), and older trips, except those after the tanker's newest fuel entry.
+-- there). Trips — every sale's "Sold to" — are kept for good (a few hundred
+-- bytes each; ⚙ Trips per tanker → "Every sale" downloads them all).
 -- Run from _loading_close_due (every app open, and hourly with pg_cron).
 create or replace function public._loading_prune_history() returns void
 language plpgsql security definer set search_path = public as $$
@@ -604,9 +605,6 @@ begin
                   where g.vehicle = f.vehicle and g.reading_at > f.reading_at
                     and (g.stock_l is not null or g.anguls is not null
                          or (upper(regexp_replace(g.vehicle, '[^A-Za-z0-9]', '', 'g')) = 'OD15AF5510' and g.litres > 0)));
-  delete from loading_trips t
-   where t.created_at < now() - interval '6 months'
-     and t.created_at < coalesce((select max(l.reading_at) from loading_fuel_logs l where l.vehicle = t.vehicle), 'infinity');
 end $$;
 
 create or replace function public._loading_close_due(p_by uuid) returns int

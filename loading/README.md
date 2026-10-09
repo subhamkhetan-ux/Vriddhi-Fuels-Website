@@ -291,9 +291,11 @@ rows, and (if `pg_cron` is present) an hourly purge.
 So you keep the running fill and the lifetime totals forever, and only lose the
 line-by-line detail older than a week.
 
-**Kept for 6 months** — enough to see the trends: the **trips** (trip report)
-and the **refills / stock checks** (mileage, trends). Older ones are dropped
-automatically, except each tanker's newest entry with a known stock and
+**Kept for good:** the **trips** — every "Sent for sale" with its *Sold to*,
+litres and who (trip report, and **Every sale** below).
+
+**Kept for 6 months** — enough to see the trends: the **refills / stock
+checks** (mileage, trends). Older ones are dropped automatically, except each tanker's newest entry with a known stock and
 everything after it, so the *diesel in its tank* estimate never loses its
 starting point.
 
@@ -390,9 +392,17 @@ Dates are business days (7:30 AM → 7:30 AM), the same as everywhere else.
 - **Download trip report (Excel)** — sheets *Trips by tanker* (tanker ×
   customer matrix with totals), *Trip list* and *Customers (RTD)*.
 
-Trips are stored for **6 months** in their own table (`loading_trips`), so the
+Trips are stored **for good** in their own table (`loading_trips`), so the
 monthly report works even though the detailed loading history is trimmed to 7
 days. Deleting a sale from History (within those 7 days) removes its trip too.
+
+**🗂️ Every sale — all tankers, all dates** (under the trip report) downloads
+every sale on record as Excel — *All sales* (business date, time, vehicle,
+**Sold to**, RTD, litres, who) and *By tanker & customer* (trips and litres) —
+including OD15AF5510. The record starts when `loading_trips` was set up in
+Supabase (4 Oct 2026, back-filled with the 7 days before): earlier sales were
+only in the 7-day loading history and are gone, unless they are in an Excel
+report downloaded at the time (*Transactions* → *Remarks / Sold to*).
 
 ## Customers & RTD (⚙)
 
@@ -445,9 +455,9 @@ phones (`loading_destinations`).
   mileage is worked out again; 🗑 deletes one. Older entries are settled history
   and can't be changed or deleted (the database refuses it too). An edit can't
   turn an entry into a copy of another, and more than the tank holds asks first.
-- **How much is kept:** 6 months of refills / stock checks and trips. That is
-  well under 1 MB for the whole fleet (about 250 bytes per entry), far inside
-  Supabase's free 500 MB, and long enough for the 3- and 6-month trends.
+- **How much is kept:** 6 months of refills / stock checks, and every trip for
+  good. That is well under 1 MB a year for the whole fleet (about 250 bytes per
+  entry), far inside Supabase's free 500 MB.
 - 📈 Trends & alerts and 🛢️ Fuel in tank now sit side by side under the fleet card.
 
 **Start here — 🛢️ Fuel in tank now (all tankers).** Enter, for every tanker, its

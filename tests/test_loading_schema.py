@@ -186,3 +186,17 @@ def test_database_says_what_the_app_says_on_messy_logs(pg, seed):
                 bad.append((case["seed"], p, {k: a.get(k) for k in ("mileage", "mileage_src", "stock_now", "trips_since", "unknown_trips")},
                             {k: d.get(k) for k in ("mileage", "mileage_src", "stock_now", "trips_since", "unknown_trips")}))
     assert not bad, f"{len(bad)} differ, e.g. {bad[:3]}"
+
+
+def test_trips_are_kept_for_good(pg):
+    # every sale's "Sold to" stays, however old; old refills are still pruned
+    pg.ok("delete from loading_fuel_logs; delete from loading_trips;")
+    pg.ok("insert into loading_trips (id, vehicle, total, dest, created_at) values "
+          "(gen_random_uuid(), 'OD23A3710', 12000, 'Shyam Metalics', now() - interval '3 years'),"
+          "(gen_random_uuid(), 'OD15AF5510', 4000, 'SMC Unit 1', now() - interval '13 months')")
+    for v, months in (("OD23A3710", 9), ("OD23A3710", 1)):
+        pg.ok("insert into loading_fuel_logs (vehicle, reading_at, odometer, litres, anguls) values "
+              f"('{v}', now() - interval '{months} months', {1000 * months}, 300, 2)")
+    pg.ok("select _loading_prune_history();")
+    assert pg.ok("select count(*) from loading_trips") == "2"
+    assert pg.ok("select count(*) from loading_fuel_logs") == "1"

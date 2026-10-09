@@ -957,6 +957,7 @@
       </div>
       <div id="trList"></div>
       <button class="big green" id="trExcel"><span class="em">⬇</span><span>Download trip report (Excel)</span></button>
+      <button class="big glass" id="trAll"><span class="em">🗂️</span><span>Every sale — all tankers, all dates<span class="hi">Sold to, litres and who, for every “Sent for sale” on record (Excel)</span></span></button>
       <div class="note" id="trNote"></div>
     </section>
 
@@ -2909,6 +2910,40 @@ $("#trExcel").onclick=async()=>{
     dl(new Blob([csv],{type:"text/csv;charset=utf-8"}), fname+".csv");
     toast("Downloaded as CSV");
   }
+};
+
+/* Every sale on record, for every tanker (OD15AF5510 too) and every date the
+   database holds — the "Sold to" of each "Sent for sale". Sales are kept for
+   good (loading_trips); before that table existed (4 Oct 2026) they were only
+   in the 7-day loading history, so the record starts where it was set up. */
+$("#trAll").onclick=async()=>{
+  const btn=$("#trAll"); btn.disabled=true;
+  try{
+    const all=(await Backend.loadTrips(0, Date.now()+864e5)).slice().sort((a,b)=>a.ts-b.ts);
+    if(!all.length){ toast("No sales on record yet"); return; }
+    const first=shiftDate(all[0].ts), last=shiftDate(all[all.length-1].ts);
+    const rows=all.map(x=>{ const d=destOf(x.dest); return { "Business date":shiftDate(x.ts), "Time":timeLabel(x.ts), "Vehicle":x.plate,
+      "Sold to":x.dest||"", "In customer list?":d?"Yes":(x.dest?"No":"—"), "RTD km":d?d.rtd:"", "Litres":x.total, "By":x.by||"" }; });
+    // vehicle × customer: trips and litres
+    const by={}; all.forEach(x=>{ const k=x.plate+"\u0000"+(x.dest||"(no customer)"); const o=by[k]||(by[k]={ "Vehicle":x.plate, "Sold to":x.dest||"(no customer)", "Trips":0, "Litres":0 }); o.Trips++; o.Litres=r2(o.Litres+x.total); });
+    const sum=Object.keys(by).sort().map(k=>by[k]);
+    const fname="Vriddhi_All_Sales_"+first+"_to_"+last;
+    try{
+      const XLSX=await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+      const wb=XLSX.utils.book_new();
+      const wl=XLSX.utils.json_to_sheet(rows); wl["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:32},{wch:15},{wch:8},{wch:10},{wch:14}];
+      wl["!autofilter"]={ref:wl["!ref"]}; numfmt(XLSX,wl,1); XLSX.utils.book_append_sheet(wb,wl,"All sales");
+      const ws=XLSX.utils.json_to_sheet(sum); ws["!cols"]=[{wch:12},{wch:32},{wch:7},{wch:12}];
+      ws["!autofilter"]={ref:ws["!ref"]}; numfmt(XLSX,ws,1); XLSX.utils.book_append_sheet(wb,ws,"By tanker & customer");
+      const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+      dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
+    }catch(err){                                    // no Excel library (offline): the full list as CSV
+      const q=v=>{ v=String(v==null?"":v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }, h=Object.keys(rows[0]);
+      dl(new Blob(["\ufeff"+[h.map(q).join(",")].concat(rows.map(r=>h.map(k=>q(r[k])).join(","))).join("\r\n")],{type:"text/csv;charset=utf-8"}), fname+".csv");
+    }
+    toast("✓ "+all.length+" sales downloaded ("+dmy(first)+" to "+dmy(last)+")");
+  }catch(e){ toast(dbHint(e)); }
+  finally{ btn.disabled=false; }
 };
 
 /* ---------- MILEAGE CALCULATOR ----------
