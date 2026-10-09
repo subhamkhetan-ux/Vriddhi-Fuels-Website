@@ -465,6 +465,12 @@ what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check
   tanker's name, not invoiced, under-invoiced, wrong customer / tanker, changed
   in the ledger; then bills still to tag (with the trip they'd go on).
 
+**Retail bills are left out**: tankers only go to bulk customers, so only
+bills to a customer billed through a `*_Bulk` ledger, in the Tanker Master, or
+linked to a *Sold to* customer are offered — not cash, UPI, fleet-card or other
+retail bills — unless the bill is typed with one of our tankers' numbers (that
+would be an extra sale to report). *Show all* in the bills sheet still lists
+them last, marked *retail customer*, just in case.
 Bills typed with **another vehicle** (a customer's own truck filled at the
 pump) and petrol bills are not part of the check. Diesel bills with **no
 vehicle** count when they are to a linked customer or one in the ledger's

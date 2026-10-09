@@ -1279,7 +1279,7 @@
     <div id="tagPick">
       <div class="mlab" style="margin-top:10px">Tick the bills of this trip</div>
       <input id="tagSearch" type="search" placeholder="Search bill no., customer or vehicle" autocomplete="off" />
-      <label class="chk"><input type="checkbox" id="tagWide" /><span>Show all — other vehicles &amp; up to a week either side</span></label>
+      <label class="chk"><input type="checkbox" id="tagWide" /><span>Show all — other vehicles, retail customers &amp; up to a week either side</span></label>
     </div>
     <div class="taglist" id="tagList"></div>
     <div class="tagsum" id="tagSum"></div>
@@ -1467,7 +1467,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v41 · 2026-10-09";
+const APP_BUILD = "v42 · 2026-10-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3047,10 +3047,12 @@ const INV = (function(){
     const linkBy={}, destCk={};
     (o.links||[]).forEach(l=>{ const c=l.ckey||normName(l.customer), d=String(l.dest||"").trim().toLowerCase(); if(!c || !d) return;
       (linkBy[c]=linkBy[c]||{})[d]=l.dest; (destCk[d]=destCk[d]||{})[c]=l.customer||c; });
+    // bulk customers: billed through a *_Bulk ledger, or in the Tanker Master
     const bulk={}; (o.bulk||[]).forEach(n=>{ bulk[normName(n)]=1; });
     return { plates:(o.plates||[]).map(vehKey).filter(Boolean), tol: o.tol!=null && +o.tol>=0 ? +o.tol : 10,
       over: o.over!=null && +o.over>=0 ? +o.over : 80,
       from:o.from||"", until:o.until==null?null:String(o.until||""), linkBy:linkBy, destCk:destCk, bulk:bulk,
+      bulkKnown:Object.keys(bulk).length>0,
       billsFrom:o.billsFrom||"", billsTo:o.billsTo||"", links:o.links||[] };
   }
   // the tanker a bill is typed with: "" = no vehicle, null = some other vehicle
@@ -3070,6 +3072,9 @@ const INV = (function(){
     if(d && nameSim(trip.dest, b.customer)>=0.5) return "similar";
     return ctx.bulk[b.ckey||normName(b.customer)] ? "bulk" : "unknown";
   }
+  // tankers only go to bulk customers: a retail bill (cash, UPI, fleet card…)
+  // is never a tanker's, unless it is typed with one of our tankers' numbers
+  function isBulk(b, ctx){ const ck=b.ckey||normName(b.customer); return !ctx.bulkKnown || !!(ctx.bulk[ck] || ctx.linkBy[ck]); }
   function isPool(b, ctx){
     if(b.product!=="HSD" || !(b.qty>0) || (ctx.from && b.date<ctx.from)) return false;
     const p=billPlate(b, ctx), ck=b.ckey||normName(b.customer);
@@ -3082,6 +3087,7 @@ const INV = (function(){
     const dd=dayNum(b.date)-dayNum(trip.day);
     if(dd<WIN_LO || dd>WIN_HI) return null;
     const v=vehFit(trip, b, ctx); if(v==="tanker") return null;   // another of our tankers' bill
+    if(v!=="match" && !isBulk(b, ctx)) return null;                // a retail customer's bill
     const c=custFit(trip, b, ctx);
     return { bill:b, v:v, c:c, dd:dd, s:V_PTS[v]+C_PTS[c]+D_PTS[dd-WIN_LO] };
   }
@@ -3120,7 +3126,7 @@ const INV = (function(){
       .map(b=>{
         const r=rate(trip, b, ctx); if(r) return r;
         if(!wide || Math.abs(dayNum(b.date)-dayNum(trip.day))>7) return null;
-        return { bill:b, v:vehFit(trip, b, ctx), c:custFit(trip, b, ctx), dd:dayNum(b.date)-dayNum(trip.day), s:-100 };
+        return { bill:b, v:vehFit(trip, b, ctx), c:custFit(trip, b, ctx), dd:dayNum(b.date)-dayNum(trip.day), s:isBulk(b, ctx)?-100:-200, retail:!isBulk(b, ctx) };
       }).filter(Boolean)
       .sort((a,b)=>b.s-a.s || billCmp(a.bill,b.bill));
   }
@@ -3271,7 +3277,7 @@ const INV = (function(){
   }
 
   return { vehKey:vehKey, normName:normName, dayAdd:dayAdd, fyOf:fyOf, billKey:billKey, nameSim:nameSim, context:context,
-    billPlate:billPlate, vehFit:vehFit, custFit:custFit, isPool:isPool, candidates:candidates, bestSet:bestSet,
+    billPlate:billPlate, vehFit:vehFit, custFit:custFit, isPool:isPool, isBulk:isBulk, candidates:candidates, bestSet:bestSet,
     suggest:suggest, reconcile:reconcile, billCmp:billCmp };
 })();
 /* ===================== END INVOICE TAGGING MODEL ===================== */
@@ -3391,7 +3397,8 @@ function loadInvoiceData(from, to){
   const tf=addDays(from,-3), tt=addDays(to,1), bf=addDays(from,-3), bt=addDays(to,4);
   const fits=daysBetween(bf, bt)<=400;
   const led = Ledger.on() && fits
-    ? Promise.all([Ledger.bills(bf, bt), Ledger.bulk().catch(()=>[])]).then(r=>({ bills:r[0], bulk:r[1] })).catch(e=>({ err:(e && e.message) || "Ledger error" }))
+    ? Promise.all([Ledger.bills(bf, bt), Ledger.bulk().catch(()=>[]), Ledger.customers().catch(()=>[])])
+        .then(r=>({ bills:r[0], bulk:r[1].concat(r[2].filter(c=>c.bulk).map(c=>c.name)) })).catch(e=>({ err:(e && e.message) || "Ledger error" }))
     : Promise.resolve(null);
   return Promise.all([Backend.loadTrips(bizStartMs(tf), bizEndMs(tt)), Backend.loadTags().catch(e=>({ err:dbHint(e) })),
                       Backend.loadLinks().catch(()=>[]), led]).then(r=>{
@@ -3728,10 +3735,10 @@ function renderTagSheet(){
   box.innerHTML = list.length ? list.slice(0,60).map(c=>{
     const b=c.bill, on=!!tagCtx.picked[b.key], o=elsewhere[b.key];
     return '<label class="tagrow'+(on?' on':'')+'"><input type="checkbox" data-pick="'+esc(b.key)+'"'+(on?' checked':'')+'>'
-      +'<div class="tb">'+billLineHTML(b)+'<div class="t2">'+fitHTML(c)+(sugKeys[b.key]?' · <b>💡 suggested</b>':'')
+      +'<div class="tb">'+billLineHTML(b)+'<div class="t2">'+(c.retail?'<span class="fit-bad">retail customer</span> · ':'')+fitHTML(c)+(sugKeys[b.key]?' · <b>💡 suggested</b>':'')
       +(o?' · <span class="fit-warn">suggested for '+esc(o.plate)+' '+dmy(o.day).slice(0,5)+'</span>':'')+'</div></div>'
       +'<div class="tq">'+fmt(b.qty)+' L</div></label>';
-  }).join("") : '<div class="empty">No bills '+(tagCtx.wide?'within a week of this trip':'from the day before to 3 days after this trip')+(q?' match “'+esc(q)+'”':'')+'.'+(tagCtx.wide?'':' Tick “Show all” to look wider.')+'</div>';
+  }).join("") : '<div class="empty">No bills '+(tagCtx.wide?'within a week of this trip':'to bulk customers from the day before to 3 days after this trip')+(q?' match “'+esc(q)+'”':'')+'.'+(tagCtx.wide?'':' Tick “Show all” to look wider.')+'</div>';
   box.querySelectorAll("[data-pick]").forEach(cb=>{ cb.onchange=()=>{ const k=cb.getAttribute("data-pick");
     if(cb.checked) tagCtx.picked[k]=1; else delete tagCtx.picked[k]; renderTagSheet(); }; });
   // the running total: tagged + ticked against the trip, with the buffer
