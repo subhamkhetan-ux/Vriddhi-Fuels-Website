@@ -261,3 +261,21 @@ test('per customer: each account lists its trips, its bills on no trip, its ledg
   assert.deepEqual(other.ckeys, { 'unknown buyer pvt ltd': 'Unknown Buyer Pvt Ltd' });
   assert.equal(other.status, 'over');
 });
+
+test('retail bills (cash, UPI, fleet card) are never offered for a tanker, unless typed with our tanker\'s number', () => {
+  const t = trip(B, '2026-10-07', 11946, 'SMC Unit 1');
+  const bulk = ['Demo SMC Ltd'];
+  const bills = [bill(3766, '2026-10-07', 792.14, 'Sudarshan Minerals & Logistics', ''), bill(3769, '2026-10-07', 59.37, 'EzyPay UPI ICICI', ''),
+    bill(3780, '2026-10-08', 104.23, 'Fleet Card Posting', ''), bill(3790, '2026-10-07', 11980, 'Demo SMC Ltd', ''),
+    bill(3791, '2026-10-07', 4000, 'Cash Sale', B)];                                  // retail name, our tanker's number: still shown
+  const c = ctx({ bulk });
+  assert.deepEqual(INV.candidates(t, bills, [], c).map((x) => x.bill.bill_no), ['3791', '3790']);
+  const wide = INV.candidates(t, bills, [], c, true);
+  assert.deepEqual(wide.slice(-3).map((x) => [x.bill.bill_no, x.retail]), [['3766', true], ['3769', true], ['3780', true]], 'Show all lists them last, marked retail');
+  assert.deepEqual(keys(INV.suggest([t], bills, [], c)[t.id].bills), ['3790']);
+  // a linked ledger name counts as bulk even if the ledger has no bulk group for it
+  const c2 = ctx({ bulk, links: [{ ckey: 'sudarshan minerals & logistics', dest: 'SMC Unit 1', customer: 'Sudarshan Minerals & Logistics' }] });
+  assert.ok(INV.candidates(t, bills, [], c2).some((x) => x.bill.bill_no === '3766'));
+  // without the ledger's customer list nothing is filtered (better too much than missing a bill)
+  assert.equal(INV.candidates(t, bills, [], ctx()).length, 5);
+});
