@@ -469,6 +469,15 @@ what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check
   tanker's name, not invoiced, under-invoiced, wrong customer / tanker, changed
   in the ledger; then bills still to tag (with the trip they'd go on).
 
+**Own tank refills are dropped**: bills to our own ledger **VRIDDHI FUELS
+TANKER** (a tanker's own diesel tank refilled — `OWN_CUSTOMERS` in
+`index.html`) are not sales, so they are left out entirely, like OD15AF5510's.
+
+**Trips just before the start date** (up to 3 days, e.g. sold on 30/09 and
+billed on 01/10) can still be tagged — from the bill's **→ tanker date**
+button or by searching its number — so those bills are not reported as extra
+sales. Such a trip itself is not flagged ("Not checked").
+
 **OD15AF5510's bills are left out entirely** — not offered, not under Show
 all, never an extra sale — as its sales are accounted for elsewhere
 (`TRIP_EXCLUDE`); only the big tankers are checked.

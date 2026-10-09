@@ -316,3 +316,33 @@ test('why a bill is not offered for a trip, for a bill found by its number', () 
   assert.equal(INV.whyNot(t, b5, [tagOf(b5, u)], c), 'already on another trip');
   assert.equal(INV.whyNot(t, b5, [], c), '', 'offered');
 });
+
+test('a bill of the 1st can go on a tanker sold on the 30th, before the check starts', () => {
+  const sep30 = trip(A, '2026-09-30', 12000, 'Shyam Metalics'), oct1 = trip(A, '2026-10-01', 12000, 'Shyam Metalics', { h: 10 });
+  const S = 'Shyam Metalics and Energy Ltd';
+  const b1 = bill(3538, '2026-10-01', 12000, S, A), b2 = bill(3539, '2026-10-01', 12000, S, A);
+  const c = ctx({ from: '2026-10-01' });
+  const r = INV.reconcile([sep30, oct1], [b1, b2], [], c, { from: '2026-10-01', to: '2026-10-31' });
+  const row = Object.fromEntries(r.rows.map((x) => [x.trip.id, x]));
+  assert.equal(row[sep30.id].status, 'before', 'still not flagged');
+  assert.ok(row[sep30.id].sug && row[oct1.id].sug, 'both trips get a suggestion');
+  assert.deepEqual(r.loose.map((x) => x.kind), ['untagged', 'untagged'], 'neither bill is an extra sale');
+  // only one bill: the October trip is matched first, the 30th's bill is then extra no more once tagged
+  const one = INV.reconcile([sep30, oct1], [b1], [], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(keys(Object.fromEntries(one.rows.map((x) => [x.trip.id, x]))[oct1.id].sug.bills), ['3538']);
+  const tagged = INV.reconcile([sep30, oct1], [b1, b2], [tagOf(b1, sep30)], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(tagged.loose.map((x) => [x.bill.bill_no, x.kind]), [['3539', 'untagged']]);
+  assert.equal(tagged.alerts.filter((a) => a.kind === 'extra').length, 0);
+});
+
+test('bills to our own tanker ledger (own tank refills) are dropped', () => {
+  const t = trip(B, '2026-10-03', 12000, 'Orissa Metaliks');
+  const c = ctx({ ignore: ['VRIDDHI FUELS TANKER'] });
+  const own = [bill(3584, '2026-10-03', 349.74, 'VRIDDHI FUELS TANKER', B), bill(3786, '2026-10-08', 270, 'Vriddhi Fuels  Tanker', A)];
+  assert.ok(own.every((b) => INV.skipped(b, c)));
+  const r = INV.reconcile([t], own, [], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(r.loose.length, 0, 'not an extra sale');
+  assert.equal(r.perTanker[B].named, 0, 'not billed in its name either');
+  assert.equal(r.perCust.length, 1, 'no "not linked" card for it');
+  assert.equal(INV.candidates(t, own, [], c, true).length, 0);
+});

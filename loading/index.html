@@ -1437,8 +1437,11 @@ const DEFAULT_DESTS = [
 ];
 let DESTS = DEFAULT_DESTS.slice();
 let DESTS_FALLBACK = false;   // cloud list unreadable (schema not updated yet) → seed copy
-// Tankers left out of the trip report.
+// Tankers left out of the trip report (and their bills out of the invoice check).
 const TRIP_EXCLUDE = ["OD15AF5510"];
+// Our own ledgers in the ledger app: a tanker's own diesel tank refilled is
+// billed to these — not a sale, so the invoice check drops their bills.
+const OWN_CUSTOMERS = ["VRIDDHI FUELS TANKER"];
 /* Shared settings (⚙ / mileage screen): litres per Angul on the dip stick, and
    how far below a tanker's normal mileage a refill is flagged. */
 // reserve_l: big tankers (365 L tanks) · reserve_meter_l: OD15AF5510 (a Bolero, ~50 L tank)
@@ -1468,7 +1471,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v43 · 2026-10-09";
+const APP_BUILD = "v44 · 2026-10-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3053,12 +3056,19 @@ const INV = (function(){
     return { plates:(o.plates||[]).map(vehKey).filter(Boolean), tol: o.tol!=null && +o.tol>=0 ? +o.tol : 10,
       // vehicles whose bills are accounted for elsewhere (OD15AF5510): left out entirely
       skip:(o.skip||[]).map(vehKey).filter(Boolean), dests:(o.dests||[]).filter(Boolean),
+      // our own ledgers (VRIDDHI FUELS TANKER = a tanker's own tank refilled): their bills are dropped
+      ignore:(o.ignore||[]).map(alnum).filter(Boolean),
       over: o.over!=null && +o.over>=0 ? +o.over : 80,
       from:o.from||"", until:o.until==null?null:String(o.until||""), linkBy:linkBy, destCk:destCk, bulk:bulk,
       bulkKnown:Object.keys(bulk).length>0,
       billsFrom:o.billsFrom||"", billsTo:o.billsTo||"", links:o.links||[] };
   }
-  function skipped(b, ctx){ const k=vehKey(b.vehicle); return !!k && ctx.skip.some(x=>k===x || k.indexOf(x)>=0); }
+  function alnum(s){ return normName(s).replace(/[^a-z0-9]/g,""); }
+  // left out entirely: OD15AF5510's bills (accounted for elsewhere) and our own refills
+  function skipped(b, ctx){
+    const k=vehKey(b.vehicle);
+    return (!!k && ctx.skip.some(x=>k===x || k.indexOf(x)>=0)) || ctx.ignore.indexOf(alnum(b.customer))>=0;
+  }
   // the tanker a bill is typed with: "" = no vehicle, null = some other vehicle
   function billPlate(b, ctx){
     const k=vehKey(b.vehicle); if(!k) return "";
@@ -3159,7 +3169,9 @@ const INV = (function(){
     const done=tagSums(tags), tagged={}; tags.forEach(t=>{ tagged[t.key]=1; });
     let free=bills.filter(b=>!tagged[b.key] && b.product==="HSD" && b.qty>0);
     const need=t=>r2(t.total-(done[t.id]||0));
-    const open=trips.filter(t=>(!ctx.from || t.day>=ctx.from) && need(t)>ctx.tol).sort((a,b)=>a.ts-b.ts);
+    const early=t=>ctx.from && t.day<ctx.from;
+    const open=trips.filter(t=>(!ctx.from || t.day>=dayAdd(ctx.from, -WIN_HI)) && need(t)>ctx.tol)
+      .sort((a,b)=>(early(a)?1:0)-(early(b)?1:0) || a.ts-b.ts);
     const out={};
     [true,false].forEach(sureOnly=>{
       open.forEach(t=>{
@@ -3217,7 +3229,7 @@ const INV = (function(){
       const p=billPlate(b, ctx);
       if(!p) return { bill:b, plate:"", kind:"loose", trips:[] };
       // trips of this tanker it could belong to (room left on them)
-      const could=rows.filter(r=>vehKey(r.trip.plate)===p && r.status!=="before" && left[r.trip.id]>=b.qty-over
+      const could=rows.filter(r=>vehKey(r.trip.plate)===p && left[r.trip.id]>=b.qty-over
         && rate(r.trip, b, ctx)).map(r=>r.trip);
       return { bill:b, plate:p, kind: could.length ? "untagged" : "extra", trips:could };
     });
@@ -3228,7 +3240,7 @@ const INV = (function(){
     const perTanker={};
     plates.forEach(p=>{
       const rs=rows.filter(r=>r.inRange && vehKey(r.trip.plate)===p && r.status!=="before");
-      const named=bills.filter(b=>inR(b.date) && checked(b.date) && b.product==="HSD" && billPlate(b, ctx)===p);
+      const named=bills.filter(b=>inR(b.date) && checked(b.date) && b.product==="HSD" && !skipped(b, ctx) && billPlate(b, ctx)===p);
       const o={ plate:p, trips:rs.length, sent:r2(rs.reduce((s,r)=>s+r.trip.total,0)), tagged:r2(rs.reduce((s,r)=>s+r.sum,0)),
         named:r2(named.reduce((s,b)=>s+b.qty,0)), namedN:named.length, waiting:r2(rs.filter(r=>r.status==="await").reduce((s,r)=>s+r.trip.total,0)),
         none:0, under:0, over:0, ok:0, await:0, extra:loose.filter(x=>x.plate===p && x.kind==="extra" && inR(x.bill.date)).length };
@@ -3428,7 +3440,7 @@ function loadInvoiceData(from, to){
     const bills=L && L.bills ? L.bills : null;
     // the ledger has bills up to the latest one seen (null = no ledger, can't tell)
     const until=bills ? bills.reduce((m,b)=>b.date>m?b.date:m, "") : null;
-    const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), skip:TRIP_EXCLUDE, dests:DESTS.map(d=>d.name), tol:TAGSET.tol, over:TAGSET.over,
+    const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), skip:TRIP_EXCLUDE, ignore:OWN_CUSTOMERS, dests:DESTS.map(d=>d.name), tol:TAGSET.tol, over:TAGSET.over,
       from:tagStart(), until:until, links:r[2], bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
     return { from:from, to:to, trips:trips, tags:tags, links:r[2], bills:bills, ctx:ctx, until:until,
       rec:INV.reconcile(trips, bills||[], tags, ctx, { from:from, to:to }),
@@ -3505,14 +3517,15 @@ const INV_STATUS={
   over: r=>'<span class="badge high">▲ Over '+fmt(r.diff)+' L</span><span>billed '+fmt(r.sum)+' L</span>',
   none: ()=>'<span class="badge high">✕ Not invoiced</span>',
   await:()=>'<span class="badge watch">⏳ Waiting for bills</span><span>ledger has bills up to '+(INVD && INVD.until ? dmy(INVD.until) : '—')+'</span>',
-  before:()=>'<span class="badge info">Not checked</span><span>before '+dmy(tagStart())+'</span>',
+  before:r=>'<span class="badge info">Not checked</span><span>before '+dmy(tagStart())
+    +(r.tags.length?' · '+r.tags.length+' bill'+(r.tags.length===1?'':'s')+' · '+fmt(r.sum)+' L':'')+'</span>',
 };
 function tripInvHTML(r){
   if(!r) return "";
-  const sug = r.sug && r.status!=="ok" && r.status!=="over" && r.status!=="before"
+  const sug = r.sug && r.status!=="ok" && r.status!=="over"
     ? '<div class="trsug">💡 '+esc(billNos(r.sug.bills))+' = '+fmt(r.sug.sum)+' L'+(r.sug.sure?' · <b>sure match</b>':'')+'</div>' : '';
   return '<div class="trinv">'+INV_STATUS[r.status](r)
-    +(r.status!=="before"?'<button class="tagbtn" data-tag="'+esc(r.trip.id)+'">'+(r.tags.length?'Bills ›':'Tag ›')+'</button>':'')
+    +'<button class="tagbtn" data-tag="'+esc(r.trip.id)+'">'+(r.tags.length?'Bills ›':'Tag ›')+'</button>'
     +sug+r.issues.map(i=>'<div class="trissue">⚠ '+esc(i.text)+'</div>').join("")+'</div>';
 }
 function tankerCheckHTML(plate){
@@ -3694,7 +3707,7 @@ function tagSureUI(key){
 // trips a bill on no trip could go on (room left, the right days, not another tanker's)
 function looseTrips(b){
   if(!INVD) return [];
-  return INVD.rec.rows.filter(r=>r.status!=="before" && r.status!=="ok" && r.status!=="over"
+  return INVD.rec.rows.filter(r=>r.status!=="ok" && r.status!=="over" && r.sum<r.trip.total+INVD.ctx.over
     && INV.candidates(r.trip, [b], INVD.tags, INVD.ctx).some(c=>c.c!=="other")).map(r=>r.trip);
 }
 
