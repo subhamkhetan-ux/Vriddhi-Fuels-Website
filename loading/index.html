@@ -371,6 +371,16 @@
   .invsum .bad{color:var(--bad);font-weight:700}
   .trd .tl.warn .tn,.trd .tl.warn .tk{color:var(--bad)}
   .acn{font-family:var(--display);font-weight:700;font-size:15px;color:var(--ink);min-width:0}
+  .acn .acs{display:block;font-family:var(--text);font-size:11.5px;font-weight:600;color:var(--warn);margin-top:2px}
+  .plate.sm{font-size:11.5px;padding:2px 6px}
+  .linkacc{display:flex;gap:8px;align-items:center;margin-top:10px}
+  .linkacc select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--glass-3);color:var(--ink);font-weight:600}
+  .suretag{margin:10px 0 0}
+  .trinv.loose{padding-top:8px}
+  .trinv.loose .lb{flex:1;min-width:0;color:var(--ink)}
+  .trinv.loose .lc{color:var(--muted)}
+  .trinv.loose .tq{font-weight:700;color:var(--ink);white-space:nowrap}
+  .trinv.loose .fbtns{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px}
   .mini.invbad.bad .n{color:var(--bad)}
   .ledcard{display:flex;flex-direction:column;gap:10px;background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;padding:14px;box-shadow:var(--shadow);margin-bottom:12px}
   .ledcard .lt{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);line-height:1.4}
@@ -1457,7 +1467,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v40 · 2026-10-09";
+const APP_BUILD = "v41 · 2026-10-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3210,27 +3220,32 @@ const INV = (function(){
     const acc={};
     const accOf=(node, label, isDest)=>{
       if(parent[node]===undefined) parent[node]=node;
-      const k=find(node), a=acc[k]||(acc[k]={ key:k, dests:{}, custs:{}, trips:0, delivered:0, invoiced:0, bills:0, extraL:0, extraN:0, waiting:0 });
+      const k=find(node), a=acc[k]||(acc[k]={ key:k, dests:{}, custs:{}, ckeys:{}, trips:0, delivered:0, invoiced:0, bills:0, extraL:0, extraN:0, waiting:0,
+        tripIds:[], loose:[] });
       if(label) (isDest?a.dests:a.custs)[label]=1;
+      if(!isDest && node.slice(0,2)==="c:") a.ckeys[node.slice(2)]=label;
       return a;
     };
     Object.keys(ctx.destCk).forEach(d=>{ Object.keys(ctx.destCk[d]).forEach(c=>{ accOf("c:"+c, ctx.destCk[d][c], false); }); });
     ctx.links.forEach(l=>{ if(l.dest) accOf("d:"+String(l.dest).trim().toLowerCase(), l.dest, true); });
     rows.filter(r=>r.inRange && r.status!=="before").forEach(r=>{
       const a=accOf("d:"+(String(r.trip.dest||"").trim().toLowerCase()||"(none)"), r.trip.dest||"(no customer)", true);
-      a.trips++; a.delivered=r2(a.delivered+r.trip.total);
+      a.trips++; a.delivered=r2(a.delivered+r.trip.total); a.tripIds.push(r.trip.id);
       if(r.status==="await") a.waiting=r2(a.waiting+r.trip.total);
       r.tags.forEach(x=>{ const b=accOf("c:"+(x.ckey||normName(x.customer)), x.customer, false); b.invoiced=r2(b.invoiced+x.qty); b.bills++; });
     });
     loose.filter(x=>inR(x.bill.date)).forEach(x=>{
       const a=accOf("c:"+(x.bill.ckey||normName(x.bill.customer)), x.bill.customer, false);
-      a.invoiced=r2(a.invoiced+x.bill.qty); a.bills++; a.extraL=r2(a.extraL+x.bill.qty); a.extraN++;
+      a.invoiced=r2(a.invoiced+x.bill.qty); a.bills++; a.extraL=r2(a.extraL+x.bill.qty); a.extraN++; a.loose.push(x);
     });
     const perCust=Object.keys(acc).map(k=>acc[k]).filter(a=>a.trips || a.bills).map(a=>{
       const diff=r2(a.invoiced-a.delivered), k=Math.max(1, a.trips);   // each trip carries its own buffer
       const status = diff>over*k ? "over" : diff< -tol*k ? (a.delivered-a.waiting-a.invoiced<=tol*k ? "await" : "under") : "ok";
-      return Object.assign(a, { dests:Object.keys(a.dests), custs:Object.keys(a.custs), diff:diff, status:status });
-    }).sort((a,b)=>(a.dests[0]||"~"+a.custs[0]).localeCompare(b.dests[0]||"~"+b.custs[0]));
+      // its trips' sure suggestions, to tag in one go from the customer screen
+      const sure=a.tripIds.map(id=>rowBy[id]).filter(r=>r.sug && r.sug.sure && (r.status==="none" || r.status==="under")).map(r=>r.trip.id);
+      return Object.assign(a, { dests:Object.keys(a.dests), custs:Object.keys(a.custs), diff:diff, status:status, sure:sure });
+    // ledger names not linked to a "Sold to" customer yet come first (they need a tap), then by name
+    }).sort((a,b)=>(a.dests.length?1:0)-(b.dests.length?1:0) || (a.dests[0]||a.custs[0]||"").localeCompare(b.dests[0]||b.custs[0]||""));
 
     // the list to act on, worst first
     const alerts=[];
@@ -3519,14 +3534,7 @@ function renderTrips(){
     const open=tripOpen.has(x.plate);
     const lines=x.rows.map(r=>'<div class="tl'+(r.known?'':' warn')+'"><span class="tn">'+(r.known?'':'⚠ ')+esc(r.name)+'</span>'
       +'<span class="tc">'+r.n+' × '+(r.known?fmt(r.rtd)+' km':'? km')+'</span><span class="tk">'+fmt(r.known?r2(r.n*r.rtd):0)+' km</span></div>').join("");
-    const list=open ? '<div class="trtrips">'+x.trips.slice().reverse().map(t=>{
-      const d=destOf(t.dest);
-      return '<div class="trrow hasinv"><span class="tw">'+dmy(shiftDate(t.ts)).slice(0,5)+' · '+timeLabel(t.ts)+'</span>'
-        +'<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>'
-        +'<span class="tq">'+fmt(t.total)+' L</span>'
-        +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>'
-        +tripInvHTML(recRow(t.id));
-    }).join("")+'</div>' : '';
+    const list=open ? '<div class="trtrips">'+x.trips.slice().reverse().map(t=>tripRowHTML(t, false)).join("")+'</div>' : '';
     const pt=INVD && INVD.rec.perTanker[plateKey(x.plate)];
     return '<div class="trcard'+(pt && pt.bad?' bad':'')+'"><div class="trh"><span class="plate">'+esc(x.plate)+'</span>'
       +'<span class="trn"><b>'+x.n+'</b> trip'+(x.n===1?'':'s')+'<br>'+fmt(x.km)+' km RTD</span></div>'
@@ -3542,6 +3550,10 @@ function renderTrips(){
   box.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{
     const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
   box.querySelectorAll("[data-tag]").forEach(b=>{ b.onclick=()=>openTag(b.getAttribute("data-tag"), b.getAttribute("data-bill")); });
+  box.querySelectorAll("[data-custshow]").forEach(b=>{ b.onclick=()=>{
+    const k=b.getAttribute("data-custshow"); if(custOpen.has(k)) custOpen.delete(k); else custOpen.add(k); renderTrips(); }; });
+  box.querySelectorAll("[data-linkacc]").forEach(b=>{ b.onclick=()=>linkAccUI(b.getAttribute("data-linkacc"), b.closest(".linkacc").querySelector("select").value); });
+  box.querySelectorAll("[data-tagsure]").forEach(b=>{ b.onclick=()=>tagSureUI(b.getAttribute("data-tagsure")); });
   box.querySelectorAll("[data-goplate]").forEach(b=>{ b.onclick=()=>{ trView="tanker"; tripOpen.add(b.getAttribute("data-goplate")); renderTrips(); }; });
   $("#trExcel").disabled=!!TRIPS_ERR || !TRIPS.length;
   $("#trNote").innerHTML = TRIPS_ERR ? "" : "A trip = one “Sent for sale”. Dates are business days (7:30 AM to 7:30 AM). "
@@ -3549,8 +3561,38 @@ function renderTrips(){
     + (INVD && INVD.tagErr ? " ⚠ Invoice tags: "+esc(INVD.tagErr)+"." : "")
     + (DESTS_FALLBACK?" ⚠ Using the built-in customer list.":"");
 }
+// one trip with its bills: the vehicle screen names the customer, the customer screen the tanker
+function tripRowHTML(t, byCust){
+  const d=destOf(t.dest);
+  return '<div class="trrow hasinv"><span class="tw">'+dmy(shiftDate(t.ts)).slice(0,5)+' · '+timeLabel(t.ts)+'</span>'
+    +(byCust ? '<span class="td"><span class="plate sm">'+esc(t.plate)+'</span></span>'
+             : '<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>')
+    +'<span class="tq">'+fmt(t.total)+' L</span>'
+    +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>'
+    +tripInvHTML(recRow(t.id));
+}
+// a bill on no trip, with the trips it could go on
+function looseRowHTML(x){
+  const b=x.bill, cand=looseTrips(b);
+  return '<div class="trinv loose"><span class="lb"><b>#'+esc(b.bill_no)+'</b> · '+dmy(b.date).slice(0,5)+' · '+esc(b.vehicle||"no vehicle")
+    +(x.kind==="extra"?' · <span class="fit-bad">⛔ no trip of '+esc(x.plate)+' fits</span>':'')+'<br><span class="lc">'+esc(b.customer)+'</span></span>'
+    +'<span class="tq">'+fmt(b.qty)+' L</span>'
+    +(cand.length ? '<div class="fbtns">'+cand.slice(0,4).map(t=>'<button class="tagbtn" data-tag="'+esc(t.id)+'" data-bill="'+esc(b.key)+'">→ '
+        +esc(t.plate)+' '+dmy(t.day).slice(0,5)+(destOf(t.dest)?' · '+esc(t.dest):'')+'</button>').join("")+'</div>' : '')+'</div>';
+}
+let custOpen=new Set();
+// "Billed for …" picker of a ledger name on no "Sold to" customer, the look-alike picked
+function linkAccHTML(a){
+  let best="", bs=0;
+  DESTS.forEach(d=>{ a.custs.forEach(c=>{ const v=INV.nameSim(d.name, c); if(v>bs){ bs=v; best=d.name; } }); });
+  if(bs<0.5) best="";
+  return '<div class="linkacc"><select aria-label="Sold to customer"><option value="">Billed for…</option>'
+    +DESTS.map(d=>'<option'+(d.name===best?' selected':'')+'>'+esc(d.name)+'</option>').join("")+'</select>'
+    +'<button class="tagbtn" data-linkacc="'+esc(a.key)+'">Link</button></div>'
+    +(best?'<div class="note" style="text-align:left;margin:4px 0 0">Looks like '+esc(best)+' — tap Link if that\'s right.</div>':'');
+}
 // per customer: delivered (trips) against invoiced (bills), "Sold to" customers
-// joined with the ledger names they're billed as
+// joined with the ledger names they're billed as — and tag from here too
 function custViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';
   const list=INVD.rec.perCust;
@@ -3559,8 +3601,11 @@ function custViewHTML(){
     under:'<span class="badge high">◐ Under-invoiced</span>', await:'<span class="badge watch">⏳ Waiting for bills</span>' };
   return (INVD.bills?'':'<div class="endednote warnnote">Connect the ledger to count bills that are on no trip yet.</div>')
     +list.map(a=>{
-      const name=a.dests.length ? a.dests.join(" + ") : "Not linked to a “Sold to” customer";
-      return '<div class="trcard'+(a.status==="over"||a.status==="under"?' bad':'')+'"><div class="trh"><span class="acn">'+esc(name)+'</span>'+st[a.status]+'</div>'
+      const linked=a.dests.length>0, name=linked ? a.dests.join(" + ") : a.custs.join(" + ");
+      const open=custOpen.has(a.key), trips=a.tripIds.map(recRow).filter(Boolean).sort((x,y)=>y.trip.ts-x.trip.ts);
+      const what=[a.trips?a.trips+' trip'+(a.trips===1?'':'s'):'', a.extraN?a.extraN+' bill'+(a.extraN===1?'':'s')+' on no trip':''].filter(Boolean).join(' & ');
+      return '<div class="trcard'+(a.status==="over"||a.status==="under"?' bad':'')+'"><div class="trh"><span class="acn">'+esc(name)
+        +(linked?'':'<span class="acs">ledger name · not linked to a “Sold to” customer</span>')+'</span>'+st[a.status]+'</div>'
         +'<div class="trd">'
         +'<div class="tl"><span class="tn">Sent for sale</span><span class="tc">'+a.trips+' trip'+(a.trips===1?'':'s')+'</span><span class="tk">'+fmt(a.delivered)+' L</span></div>'
         +'<div class="tl"><span class="tn">Invoiced</span><span class="tc">'+a.bills+' bill'+(a.bills===1?'':'s')+'</span><span class="tk">'+fmt(a.invoiced)+' L</span></div>'
@@ -3568,7 +3613,14 @@ function custViewHTML(){
         +(a.waiting?'<div class="tl"><span class="tn">Trips waiting for bills</span><span class="tc"></span><span class="tk">'+fmt(a.waiting)+' L</span></div>':'')
         +'<div class="tl'+(a.status==="ok"||a.status==="await"?'':' warn')+'"><span class="tn">Invoiced − sent</span><span class="tc"></span><span class="tk">'+signL(a.diff)+'</span></div>'
         +'</div>'
-        +(a.custs.length?'<div class="note" style="text-align:left;margin:6px 0 0">Billed as: '+esc(a.custs.join(" · "))+'</div>':'')
+        +(linked && a.custs.length?'<div class="note" style="text-align:left;margin:6px 0 0">Billed as: '+esc(a.custs.join(" · "))+'</div>':'')
+        +(linked && !a.custs.length?'<div class="note" style="text-align:left;margin:6px 0 0">No ledger name linked yet — tag one trip (or link it in ⚙) and its bills count here.</div>':'')
+        +(!linked ? linkAccHTML(a) : '')
+        +(a.sure.length ? '<button class="big green sm suretag" data-tagsure="'+esc(a.key)+'"><span class="em">💡</span><span>Tag '+a.sure.length
+            +' sure match'+(a.sure.length===1?'':'es')+'</span></button>' : '')
+        +(what ? '<button class="trshow" data-custshow="'+esc(a.key)+'">'+(open?'Hide ▴':'Show '+what+' ▾')+'</button>' : '')
+        +(open ? '<div class="trtrips">'+trips.map(r=>tripRowHTML(r.trip, true)).join("")
+            +(a.loose.length ? '<div class="mlab" style="margin:12px 0 4px">Bills on no trip</div>'+a.loose.map(looseRowHTML).join("") : '')+'</div>' : '')
         +'</div>';
     }).join("")
     +'<div class="note" style="text-align:left">Each trip may be billed up to '+fmt(TAGSET.over)+' L more than sent (or '+fmt(TAGSET.tol)+' L less); a customer is flagged beyond that per trip. Bills count in the month of their trip.</div>';
@@ -3589,6 +3641,28 @@ function alertsViewHTML(){
       +(btn?'<div class="fbtns">'+btn+'</div>':'')+'</div>';
   }).join("");
 }
+// a ledger name on no "Sold to" customer yet: link it from the customer screen
+function linkAccUI(key, dest){
+  const a=INVD && INVD.rec.perCust.find(x=>x.key===key); if(!a) return;
+  if(!dest){ toast("Pick whom these bills are for"); return; }
+  const cks=Object.keys(a.ckeys);
+  cks.reduce((p,ck)=>p.then(()=>Backend.saveLink(ck, a.ckeys[ck], dest)), Promise.resolve()).then(()=>{
+    toast("✓ "+a.custs.join(", ")+" linked to "+dest); INV_WATCH.at=0; custOpen.add("d:"+dest.trim().toLowerCase()); return loadTripReport();
+  }).catch(e=>toast(dbHint(e)));
+}
+// tag every trip of a customer whose suggestion is sure, after one look at the list
+function tagSureUI(key){
+  const a=INVD && INVD.rec.perCust.find(x=>x.key===key); if(!a) return;
+  const rows=a.sure.map(recRow).filter(r=>r && r.sug);
+  if(!rows.length) return;
+  if(!confirm("Tag "+rows.length+" trip"+(rows.length===1?"":"s")+" with their suggested bills?\n\n"+rows.map(r=>r.trip.plate+" "+dmy(r.trip.day).slice(0,5)
+    +" · "+fmt(r.trip.total)+" L ← "+billNos(r.sug.bills)+" = "+fmt(r.sug.sum)+" L").join("\n"))) return;
+  let n=0, err="";
+  rows.reduce((p,r)=>p.then(()=>Backend.tagBills(r.trip.id, r.sug.bills, "manual").then(()=>{ n++; return linkAfterTag(r.trip, r.sug.bills, true); })
+    .catch(e=>{ err=err||dbHint(e); })), Promise.resolve()).then(()=>{
+    toast(err ? "Tagged "+n+" — "+err : "✓ Tagged "+n+" trip"+(n===1?"":"s")); INV_WATCH.at=0; return loadTripReport();
+  });
+}
 // trips a bill on no trip could go on (room left, the right days, not another tanker's)
 function looseTrips(b){
   if(!INVD) return [];
@@ -3602,8 +3676,10 @@ function openTag(tripId, preKey){
   if(!INVD) return;
   const r=recRow(tripId); if(!r) return;
   const picked={};
-  if(preKey) picked[preKey]=1;
-  else if(r.sug && r.status!=="ok" && r.status!=="over") r.sug.bills.forEach(b=>{ picked[b.key]=1; });
+  const sugOn = r.sug && r.status!=="ok" && r.status!=="over";
+  // from a bill's "→ trip" button: that bill, and the rest of the trip's suggestion when it is part of it
+  if(preKey){ picked[preKey]=1; if(sugOn && r.sug.bills.some(b=>b.key===preKey)) r.sug.bills.forEach(b=>{ picked[b.key]=1; }); }
+  else if(sugOn) r.sug.bills.forEach(b=>{ picked[b.key]=1; });
   tagCtx={ row:r, picked:picked, wide:false, q:"" };
   $("#tagSearch").value=""; $("#tagWide").checked=false; $("#tagErr").textContent="";
   renderTagSheet(); $("#tagModal").classList.add("on");
