@@ -149,6 +149,48 @@ insert into public.loading_trips (id, vehicle, total, dest, by_name, created_at)
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------
+-- Invoice tagging — which ledger bills (the /ledger/ app's own Supabase
+-- project, read with a ledger login on the phone) a trip was billed in.
+-- A tanker can be billed in several bills (e.g. 3 × 4,000 L), so one trip
+-- has many tags; a bill can be tagged to ONE trip only (bill_key is the
+-- ledger's own unique key: product | financial year | bill no.).
+-- The bill's figures are copied in when tagged, so the trip report still
+-- shows them without the ledger, and a bill later changed in the ledger is
+-- caught. Kept as long as the trip (deleting / ageing out a trip drops its
+-- tags; the bill then shows as not tagged). The ledger is never written to.
+-- ---------------------------------------------------------------------
+create table if not exists public.loading_invoice_tags (
+  bill_key     text primary key,                      -- 'HSD|2026-27|1234'
+  trip_id      uuid not null references public.loading_trips(id) on delete cascade,
+  vehicle      text not null,                         -- the trip's tanker
+  product      text not null default 'HSD',
+  bill_no      text not null,
+  sale_date    date not null,
+  bill_vehicle text not null default '',              -- the vehicle typed on the bill
+  customer     text not null default '',
+  customer_key text not null default '',              -- the ledger's key (lower case, single spaces)
+  qty          numeric(12,2) not null check (qty >= 0),
+  amount       numeric(14,2),
+  mode         text not null default 'manual' check (mode in ('manual','auto')),
+  by_name      text not null default '',
+  created_by   uuid,
+  created_at   timestamptz not null default now()
+);
+create index if not exists loading_invoice_tags_trip_idx on public.loading_invoice_tags(trip_id);
+
+-- Which ledger customers each "Sold to" customer is billed as. One sold-to
+-- customer can be billed to several ledger names (group companies) and one
+-- ledger name can cover several sold-to customers (SMC Unit 1 / Unit 2);
+-- the per-customer check adds them up together. Made when a bill is tagged.
+create table if not exists public.loading_dest_links (
+  customer_key text not null,
+  dest         text not null,                         -- loading_destinations.name
+  customer     text not null default '',              -- the ledger name, as billed
+  created_at   timestamptz not null default now(),
+  primary key (customer_key, dest)
+);
+
+-- ---------------------------------------------------------------------
 -- Tanker fuel log (mileage calculator) — kept for 6 months (_loading_prune_history).
 -- One row each time a tanker's own diesel tank is refilled (they are run to
 -- almost dry first): the reading at that moment, the litres put in and — for
@@ -334,6 +376,8 @@ alter table public.loading_fuel_logs enable row level security;
 alter table public.loading_settings enable row level security;
 alter table public.loading_roles enable row level security;
 alter table public.loading_auth_state enable row level security;
+alter table public.loading_invoice_tags enable row level security;
+alter table public.loading_dest_links enable row level security;
 
 -- A phone may only ever see or touch its own owner's subscriptions. The edge
 -- function reads every row with the service-role key, which bypasses RLS.
@@ -389,6 +433,15 @@ create policy loading_settings_read on public.loading_settings
 
 drop policy if exists loading_fuel_logs_read on public.loading_fuel_logs;
 create policy loading_fuel_logs_read on public.loading_fuel_logs
+  for select to authenticated using (public._loading_is_admin());
+
+-- invoice tags and customer links are ADMIN-only, like the trips
+drop policy if exists loading_invoice_tags_read on public.loading_invoice_tags;
+create policy loading_invoice_tags_read on public.loading_invoice_tags
+  for select to authenticated using (public._loading_is_admin());
+
+drop policy if exists loading_dest_links_read on public.loading_dest_links;
+create policy loading_dest_links_read on public.loading_dest_links
   for select to authenticated using (public._loading_is_admin());
 
 -- ---------------------------------------------------------------------
@@ -684,6 +737,86 @@ begin
   delete from loading_destinations where name = p_name;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Invoice tagging (admin). Tag ledger bills to a trip, all or nothing.
+-- p_bills: [{bill_key, product, bill_no, sale_date, bill_vehicle, customer,
+--            customer_key, qty, amount}] — the bill as the ledger has it.
+-- Tagging a bill again to the SAME trip refreshes its figures; a bill that
+-- is already on ANOTHER trip is refused (untag it there first), so a bill
+-- can never count twice.
+-- ---------------------------------------------------------------------
+create or replace function public.loading_invoice_tag(p_trip uuid, p_bills jsonb, p_mode text, p_by text)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare t loading_trips; b jsonb; k text; other uuid; ov text; n int := 0; c int;
+begin
+  perform _loading_admin();
+  select * into t from loading_trips where id = p_trip;
+  if not found then raise exception 'Trip not found — it may have been deleted'; end if;
+  if coalesce(p_mode,'manual') not in ('manual','auto') then raise exception 'Bad tag mode'; end if;
+  if p_bills is null or jsonb_typeof(p_bills) <> 'array' or jsonb_array_length(p_bills) = 0 then
+    raise exception 'Pick at least one bill';
+  end if;
+  for b in select * from jsonb_array_elements(p_bills) loop
+    k := btrim(coalesce(b->>'bill_key',''));
+    if k = '' or btrim(coalesce(b->>'bill_no','')) = '' or nullif(b->>'sale_date','') is null then
+      raise exception 'A bill is missing its number or date';
+    end if;
+    if (b->>'qty') is null or (b->>'qty')::numeric < 0 then
+      raise exception 'Bill % has no litres', b->>'bill_no';
+    end if;
+    insert into loading_invoice_tags as g (bill_key, trip_id, vehicle, product, bill_no, sale_date, bill_vehicle,
+                                           customer, customer_key, qty, amount, mode, by_name, created_by)
+    values (k, p_trip, t.vehicle, coalesce(nullif(b->>'product',''),'HSD'), btrim(b->>'bill_no'),
+            (b->>'sale_date')::date, btrim(coalesce(b->>'bill_vehicle','')), btrim(coalesce(b->>'customer','')),
+            btrim(coalesce(b->>'customer_key','')), round((b->>'qty')::numeric, 2),
+            round(nullif(b->>'amount','')::numeric, 2), coalesce(p_mode,'manual'), coalesce(p_by,''), auth.uid())
+    on conflict (bill_key) do update
+      set sale_date = excluded.sale_date, bill_vehicle = excluded.bill_vehicle, customer = excluded.customer,
+          customer_key = excluded.customer_key, qty = excluded.qty, amount = excluded.amount
+      where g.trip_id = excluded.trip_id;
+    get diagnostics c = row_count;
+    if c = 0 then                                   -- on another trip (also when two phones race)
+      select trip_id into other from loading_invoice_tags where bill_key = k;
+      select vehicle || ' · ' || to_char(created_at at time zone 'Asia/Kolkata', 'DD/MM HH12:MI AM')
+        into ov from loading_trips where id = other;
+      raise exception 'Bill % is already tagged to another trip (%) — untag it there first',
+        b->>'bill_no', coalesce(ov, '?');
+    end if;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+create or replace function public.loading_invoice_untag(p_bill_key text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  delete from loading_invoice_tags where bill_key = p_bill_key;
+  if not found then raise exception 'That bill is not tagged'; end if;
+end $$;
+
+-- Link a ledger customer to a "Sold to" customer (made when tagging; ⚙ lists them).
+create or replace function public.loading_dest_link_set(p_customer_key text, p_customer text, p_dest text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  if btrim(coalesce(p_customer_key,'')) = '' then raise exception 'Ledger customer required'; end if;
+  if not exists (select 1 from loading_destinations where name = p_dest) then
+    raise exception 'Pick a customer from the list';
+  end if;
+  insert into loading_dest_links (customer_key, dest, customer)
+    values (btrim(p_customer_key), p_dest, btrim(coalesce(p_customer,'')))
+  on conflict (customer_key, dest) do update set customer = excluded.customer;
+end $$;
+
+create or replace function public.loading_dest_link_remove(p_customer_key text, p_dest text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  delete from loading_dest_links where customer_key = p_customer_key and dest = p_dest;
+end $$;
+
 -- Mileage: record a refill of the tanker's own diesel tank with the reading.
 -- (Earlier drafts of this function had other arguments — drop them so there is
 -- exactly one.)
@@ -715,8 +848,21 @@ language plpgsql security definer set search_path = public as $$
 declare v numeric;
 begin
   perform _loading_admin();
-  if p_key not in ('angul_l','alert_pct','reserve_l','reserve_meter_l') then raise exception 'Unknown setting'; end if;
+  if p_key not in ('angul_l','alert_pct','reserve_l','reserve_meter_l','tag_tol_l','tag_over_l','tag_auto','tag_from') then
+    raise exception 'Unknown setting';
+  end if;
+  -- invoice checks start from this business date ('YYYY-MM-DD')
+  if p_key = 'tag_from' then
+    if coalesce(p_value #>> '{}','') !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'Pick a start date'; end if;
+    insert into loading_settings (key, value, updated_at) values (p_key, to_jsonb((p_value #>> '{}')::date::text), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+    return;
+  end if;
   v := (p_value #>> '{}')::numeric;
+  -- invoice check buffer: the litres sent are usually a little LESS than the
+  -- bill, so a bill may be up to tag_over_l more (80 L) but only tag_tol_l less (10 L)
+  if p_key in ('tag_tol_l','tag_over_l') and (v is null or v < 0 or v > 2000) then raise exception 'Tolerance must be between 0 and 2000 litres'; end if;
+  if p_key = 'tag_auto'  and (v is null or v not in (0,1)) then raise exception 'Auto-tag is on (1) or off (0)'; end if;
   if p_key = 'angul_l'   and (v is null or v <= 0 or v > 1000) then raise exception 'Litres per Angul must be between 0 and 1000'; end if;
   if p_key = 'alert_pct' and (v is null or v < 1 or v > 90)  then raise exception 'Alert percent must be between 1 and 90'; end if;
   if p_key in ('reserve_l','reserve_meter_l') and (v is null or v < 0 or v > 2000) then raise exception 'Reserve must be between 0 and 2000 litres'; end if;
@@ -1107,6 +1253,10 @@ begin
       public.loading_trip_set_dest(uuid, text),
       public.loading_dest_save(text, numeric, text),
       public.loading_dest_remove(text),
+      public.loading_invoice_tag(uuid, jsonb, text, text),
+      public.loading_invoice_untag(text),
+      public.loading_dest_link_set(text, text, text),
+      public.loading_dest_link_remove(text, text),
       public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, numeric, text, text),
       public.loading_setting_set(text, jsonb),
       public.loading_whoami(),
@@ -1155,6 +1305,14 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.loading_auth_state;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_invoice_tags;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_dest_links;
   exception when others then null;
   end;
 end $$;

@@ -186,3 +186,112 @@ def test_database_says_what_the_app_says_on_messy_logs(pg, seed):
                 bad.append((case["seed"], p, {k: a.get(k) for k in ("mileage", "mileage_src", "stock_now", "trips_since", "unknown_trips")},
                             {k: d.get(k) for k in ("mileage", "mileage_src", "stock_now", "trips_since", "unknown_trips")}))
     assert not bad, f"{len(bad)} differ, e.g. {bad[:3]}"
+
+
+# ---------------------------------------------------------------------------
+# Invoice tagging: ledger bills tagged to trips. A bill can sit on one trip
+# only, everything is admin-only, and a trip that goes takes its tags along.
+# ---------------------------------------------------------------------------
+ADMIN = "00000000-0000-0000-0000-00000000000a"
+STAFF = "00000000-0000-0000-0000-00000000000b"
+TRIP1 = "10000000-0000-0000-0000-000000000001"
+TRIP2 = "10000000-0000-0000-0000-000000000002"
+
+
+def _admin(pg, sql):
+    return pg.ok(sql, user=ADMIN, email="boss@vriddhi.local")
+
+
+def _bill(no, qty, **over):
+    b = {"bill_key": f"HSD|2026-27|{no}", "product": "HSD", "bill_no": str(no), "sale_date": "2026-10-02",
+         "bill_vehicle": "OD-23-A-3710", "customer": "Demo Metals Ltd", "customer_key": "demo metals ltd",
+         "qty": qty, "amount": None if qty is None else qty * 99.5}
+    b.update(over)
+    return b
+
+
+def _tag(pg, trip, bills, mode="manual"):
+    arg = json.dumps(bills).replace("'", "''")
+    return _admin(pg, f"select loading_invoice_tag('{trip}', '{arg}'::jsonb, '{mode}', 'boss')")
+
+
+@pytest.fixture
+def trips(pg):
+    pg.ok("insert into loading_roles (email, role) values ('boss@vriddhi.local', 'admin') on conflict (email) do update set role = 'admin';"
+          "insert into loading_roles (email, role) values ('ramesh@vriddhi.local', 'staff') on conflict (email) do update set role = 'staff';"
+          "delete from loading_invoice_tags; delete from loading_dest_links; delete from loading_trips;"
+          f"insert into loading_trips (id, vehicle, total, dest, created_at) values "
+          f"('{TRIP1}', 'OD23A3710', 12000, 'Shyam Metalics', {T0}),"
+          f"('{TRIP2}', 'OR15R1110', 11955, 'Orissa Metaliks', {T0} + interval '2 hours');")
+
+
+def test_a_trip_is_tagged_with_several_bills(pg, trips):
+    assert _tag(pg, TRIP1, [_bill(101, 4000), _bill(102, 4000), _bill(103, 4000)]) == "3"
+    rows = pg.json("select jsonb_agg(jsonb_build_array(bill_no, vehicle, qty, mode) order by bill_no) from loading_invoice_tags")
+    assert rows == [["101", "OD23A3710", 4000, "manual"], ["102", "OD23A3710", 4000, "manual"], ["103", "OD23A3710", 4000, "manual"]]
+    # the same bill on the same trip again only refreshes its figures
+    assert _tag(pg, TRIP1, [_bill(101, 3990)]) == "1"
+    assert pg.ok("select qty from loading_invoice_tags where bill_no = '101'") == "3990.00"
+
+
+def test_a_bill_cannot_be_on_two_trips(pg, trips):
+    _tag(pg, TRIP1, [_bill(201, 4000)])
+    err = pg.fails(f"select loading_invoice_tag('{TRIP2}', '{json.dumps([_bill(202, 4000), _bill(201, 4000)])}'::jsonb, 'manual', 'boss')",
+                   user=ADMIN, email="boss@vriddhi.local")
+    assert "already tagged to another trip" in err and "OD23A3710" in err
+    # all or nothing: 202 was not kept either
+    assert pg.ok("select count(*) from loading_invoice_tags") == "1"
+
+
+def test_untag_and_a_deleted_trip_takes_its_tags(pg, trips):
+    _tag(pg, TRIP1, [_bill(301, 6000), _bill(302, 6000)])
+    _admin(pg, "select loading_invoice_untag('HSD|2026-27|301')")
+    assert pg.ok("select count(*) from loading_invoice_tags") == "1"
+    assert "not tagged" in pg.fails("select loading_invoice_untag('HSD|2026-27|301')", user=ADMIN, email="boss@vriddhi.local")
+    pg.ok(f"delete from loading_trips where id = '{TRIP1}'")
+    assert pg.ok("select count(*) from loading_invoice_tags") == "0"
+
+
+def test_tagging_checks_its_input(pg, trips):
+    assert "Trip not found" in pg.fails(f"select loading_invoice_tag(gen_random_uuid(), '{json.dumps([_bill(1, 1)])}'::jsonb, 'manual', '')",
+                                        user=ADMIN, email="boss@vriddhi.local")
+    assert "at least one bill" in pg.fails(f"select loading_invoice_tag('{TRIP1}', '[]'::jsonb, 'manual', '')",
+                                           user=ADMIN, email="boss@vriddhi.local")
+    assert "no litres" in pg.fails(f"select loading_invoice_tag('{TRIP1}', '{json.dumps([_bill(1, None)])}'::jsonb, 'manual', '')",
+                                   user=ADMIN, email="boss@vriddhi.local")
+
+
+def test_tags_and_links_are_admin_only(pg, trips):
+    _tag(pg, TRIP1, [_bill(401, 12000)])
+    _admin(pg, "select loading_dest_link_set('demo metals ltd', 'Demo Metals Ltd', 'Shyam Metalics')")
+    staff = dict(user=STAFF, email="ramesh@vriddhi.local")
+    assert pg.ok("select count(*) from loading_invoice_tags", **staff) == "0"
+    assert pg.ok("select count(*) from loading_dest_links", **staff) == "0"
+    assert "Admin only" in pg.fails(f"select loading_invoice_tag('{TRIP2}', '{json.dumps([_bill(402, 1)])}'::jsonb, 'manual', '')", **staff)
+    assert "Admin only" in pg.fails("select loading_invoice_untag('HSD|2026-27|401')", **staff)
+    assert "Admin only" in pg.fails("select loading_dest_link_set('x', 'X', 'Shyam Metalics')", **staff)
+    assert _admin(pg, "select count(*) from loading_invoice_tags") == "1"
+    assert _admin(pg, "select count(*) from loading_dest_links") == "1"
+
+
+def test_links_need_a_customer_from_the_list(pg, trips):
+    _admin(pg, "select loading_dest_link_set('demo metals ltd', 'Demo Metals Ltd', 'SMC Unit 1');"
+               "select loading_dest_link_set('demo metals ltd', 'Demo Metals Ltd', 'SMC Unit 2');")
+    assert _admin(pg, "select count(*) from loading_dest_links where customer_key = 'demo metals ltd'") == "2"
+    assert "from the list" in pg.fails("select loading_dest_link_set('x', 'X', 'Nobody Ltd')", user=ADMIN, email="boss@vriddhi.local")
+    _admin(pg, "select loading_dest_link_remove('demo metals ltd', 'SMC Unit 2')")
+    assert _admin(pg, "select count(*) from loading_dest_links") == "1"
+
+
+def test_invoice_check_settings(pg, trips):
+    _admin(pg, "select loading_setting_set('tag_from', '\"2026-10-01\"'::jsonb);"
+               "select loading_setting_set('tag_tol_l', '30'::jsonb);"
+               "select loading_setting_set('tag_over_l', '80'::jsonb);"
+               "select loading_setting_set('tag_auto', '1'::jsonb);")
+    got = pg.json("select jsonb_object_agg(key, value) from loading_settings where key like 'tag_%'")
+    assert got == {"tag_from": "2026-10-01", "tag_tol_l": 30, "tag_over_l": 80, "tag_auto": 1}
+    admin = dict(user=ADMIN, email="boss@vriddhi.local")
+    assert "start date" in pg.fails("select loading_setting_set('tag_from', '\"soon\"'::jsonb)", **admin)
+    assert "Tolerance" in pg.fails("select loading_setting_set('tag_tol_l', '-1'::jsonb)", **admin)
+    assert "Tolerance" in pg.fails("select loading_setting_set('tag_over_l', '5000'::jsonb)", **admin)
+    assert "Auto-tag" in pg.fails("select loading_setting_set('tag_auto', '2'::jsonb)", **admin)

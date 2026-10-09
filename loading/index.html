@@ -358,6 +358,52 @@
   .trrow .td.warn{color:var(--bad)}
   .trrow .tq{white-space:nowrap;font-weight:700;color:var(--amber-d)}
   .trshow{display:block;margin:8px auto 0;background:none;border:0;color:var(--accent);font-weight:700;font-size:13px;cursor:pointer}
+  /* invoice check (Trips per tanker) */
+  .trcard.bad{border-left:4px solid var(--bad)}
+  .trrow.hasinv{border-bottom:0;padding-bottom:3px}
+  .trinv{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;padding:0 0 9px;border-bottom:1px solid rgba(27,33,48,.06);font-size:12.5px;color:var(--muted);font-weight:600}
+  .trinv .tagbtn{margin-left:auto}
+  .tagbtn{border:0;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:12.5px;border-radius:999px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+  .trsug{flex-basis:100%;color:var(--ink);font-weight:600}
+  .trissue{flex-basis:100%;color:var(--bad);font-weight:700;font-size:12.5px;margin-top:4px}
+  .invsum{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:12.5px;color:var(--muted);font-weight:600;margin-top:8px}
+  .invsum b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .invsum .bad{color:var(--bad);font-weight:700}
+  .trd .tl.warn .tn,.trd .tl.warn .tk{color:var(--bad)}
+  .acn{font-family:var(--display);font-weight:700;font-size:15px;color:var(--ink);min-width:0}
+  .mini.invbad.bad .n{color:var(--bad)}
+  .ledcard{display:flex;flex-direction:column;gap:10px;background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;padding:14px;box-shadow:var(--shadow);margin-bottom:12px}
+  .ledcard .lt{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);line-height:1.4}
+  .ledcard .lt b{font-family:var(--display);font-size:15px;color:var(--ink)}
+  .ledcard .big{margin:0}
+  .ledline{font-size:12.5px;color:var(--muted);margin:0 2px 12px;line-height:1.5}
+  .ledline b{color:var(--ink)}
+  .ledrow{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px;color:var(--ink)}
+  .ledrow .sub{font-size:12px;color:var(--muted)}
+  .invban{display:flex;width:100%;align-items:center;gap:12px;text-align:left;border:1px solid rgba(208,59,59,.35);background:var(--bad-bg);color:var(--bad);border-radius:16px;padding:12px 14px;margin:0 0 14px;cursor:pointer;font:inherit}
+  .invban .em{font-size:22px;flex:none}
+  .invban b{font-family:var(--display);font-size:15px}
+  .invban .hi{display:block;font-weight:600;font-size:12.5px;margin-top:2px;color:var(--ink)}
+  .invban .chev{margin-left:auto;font-size:22px;font-weight:700}
+  .invban.ok{border-color:rgba(18,128,74,.3);background:var(--good-bg);color:var(--good)}
+  .flag .fbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .taglist{display:flex;flex-direction:column;gap:6px;max-height:42vh;overflow-y:auto;margin:8px 0;padding:2px}
+  .tagrow{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--glass-2);cursor:pointer;text-align:left;margin-bottom:6px}
+  .taglist .tagrow{margin-bottom:0}
+  .tagrow.have{cursor:default;border-color:rgba(18,128,74,.35)}
+  .tagrow.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .modalbox .tagrow input[type=checkbox],.modalbox .chk input,.card-add .chk input{width:20px;height:20px;flex:none;margin:2px 0 0;padding:0;accent-color:var(--accent)}
+  .tagrow .tb{flex:1;min-width:0}
+  .tagrow .t1{font-weight:700;color:var(--ink);font-size:14px}
+  .tagrow .t2{font-size:12px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+  .tagrow .tq{font-family:var(--display);font-weight:700;color:var(--ink);white-space:nowrap}
+  .tagrow .del{background:none;border:0;color:var(--bad);font-size:18px;cursor:pointer;padding:0 2px;flex:none}
+  .fit-ok{color:var(--good);font-weight:700}
+  .fit-bad{color:var(--bad);font-weight:700}
+  .fit-warn{color:var(--warn);font-weight:700}
+  .tagsum{font-size:13.5px;font-weight:600;margin:6px 0 2px;color:var(--ink)}
+  .chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;font-weight:600;color:var(--ink);margin:10px 0 12px;cursor:pointer}
+  .chk .sub{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-top:2px}
 
   /* Mileage */
   .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
@@ -753,6 +799,8 @@
     box-shadow:0 1px 2px rgba(0,0,0,.35),0 12px 30px -16px rgba(0,0,0,.75)}
   :where([data-theme="dark"]) .glist>*+*::before{background:rgba(255,255,255,.14)}
   :where([data-theme="dark"]) .empty{border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.03)}
+  :where([data-theme="dark"]) .trinv{border-bottom-color:rgba(255,255,255,.08)}
+  :where([data-theme="dark"]) .ledcard{box-shadow:none}
   :where([data-theme="dark"]) .bar{background:rgba(255,255,255,.09)}
   :where([data-theme="dark"]) .qbtn.clr{background:rgba(255,255,255,.16)}
   :where([data-theme="dark"]) .tcard .tap:active{background:rgba(255,255,255,.05)}
@@ -833,6 +881,7 @@
         <div class="sub"><span id="todayCnt">0</span> loadings since last End Day</div>
       </div>
       <div id="endDayWrap"></div>
+      <div id="invBanner"></div>
 
       <div class="sectitle">Tap a tanker to load diesel</div>
       <div id="tankerList"></div>
@@ -950,11 +999,19 @@
         <label>From<input type="date" id="trFrom" /></label>
         <label>To<input type="date" id="trTo" /></label>
       </div>
-      <div class="row2" style="margin-bottom:14px">
+      <div id="trLedger"></div>
+      <div class="row2" style="margin-bottom:10px">
         <div class="mini"><div class="n" id="trTrips">0</div><div class="l">Trips</div></div>
         <div class="mini"><div class="n" id="trKm">0</div><div class="l">RTD km</div></div>
         <div class="mini"><div class="n sm" id="trLit">0</div><div class="l">Litres sold</div></div>
       </div>
+      <!-- invoice check: trips fully invoiced, things to fix, trips waiting for the DayBook -->
+      <div class="row2" style="margin-bottom:14px">
+        <div class="mini"><div class="n sm" id="trInvOk">0</div><div class="l">Invoiced</div></div>
+        <div class="mini invbad"><div class="n" id="trInvBad">0</div><div class="l">To fix</div></div>
+        <div class="mini"><div class="n" id="trInvWait">0</div><div class="l">Awaiting bills</div></div>
+      </div>
+      <div class="rpresets" id="trView" role="group" aria-label="View"></div>
       <div id="trList"></div>
       <button class="big green" id="trExcel"><span class="em">⬇</span><span>Download trip report (Excel)</span></button>
       <div class="note" id="trNote"></div>
@@ -1135,6 +1192,33 @@
         <button class="big green sm" id="addDestBtn" style="margin-bottom:0"><span class="em">＋</span><span>Add customer</span></button>
       </div>
 
+      <!-- Invoice check: the ledger login, when checks start, the buffer, auto-tag, customer links -->
+      <div id="invSet">
+        <div class="sectitle">Invoice check <span class="sub">· ledger bills on each trip</span></div>
+        <div class="card-add">
+          <div id="ledBox"></div>
+          <div class="ca-field" style="margin:12px 0 10px"><label>Check trips &amp; bills from (business date)</label><input type="date" id="tagFrom" /></div>
+          <div class="ca-row">
+            <div class="ca-field"><label>Bill may be MORE than sent by (L)</label><input id="tagOver" type="text" inputmode="decimal" /></div>
+            <div class="ca-field"><label>Bill may be LESS than sent by (L)</label><input id="tagTol" type="text" inputmode="decimal" /></div>
+          </div>
+          <div class="note" style="text-align:left;margin:0 0 10px">The litres sent for sale are usually a little less than the bill, so a trip still matches when its bills come to up to this much more.</div>
+          <label class="chk"><input type="checkbox" id="tagAuto" /><span>Tag sure matches by itself<span class="sub">The bill is in the tanker's name, to its customer, and adds up. Off = you tag each trip (with suggestions).</span></span></label>
+          <button class="big green sm" id="tagSave" style="margin-bottom:0"><span class="em">✓</span><span>Save</span></button>
+        </div>
+        <div class="sectitle">Billed as <span class="sub">· ledger customers of each “Sold to”</span></div>
+        <div class="note" style="text-align:left;margin:0 2px 8px">Made when you tag a bill. A “Sold to” customer can be billed as several ledger names (group companies), and one ledger name can cover several (SMC Unit 1 &amp; 2) — they are checked together.</div>
+        <div id="linkList"></div>
+        <div class="card-add">
+          <div class="ca-h">Link a ledger customer</div>
+          <div class="ca-field" style="margin-bottom:10px"><label>“Sold to” customer</label><select id="linkDest"></select></div>
+          <div class="ca-field" style="margin-bottom:10px"><label>Ledger customer (as billed)</label>
+            <input id="linkCust" list="linkCustList" placeholder="Start typing the name" autocomplete="off" />
+            <datalist id="linkCustList"></datalist></div>
+          <button class="big green sm" id="linkAdd" style="margin-bottom:0"><span class="em">＋</span><span>Link</span></button>
+        </div>
+      </div>
+
 
       <div class="card-add">
         <div class="ca-h">Add a new tanker</div>
@@ -1158,6 +1242,43 @@
       <div class="note" style="margin:18px 2px 0;opacity:.7">App build <b id="buildTag">—</b></div>
     </section>
   </main>
+</div>
+
+<!-- Connect the ledger (its own login; the bills are only read) -->
+<div class="modal" id="ledModal">
+  <div class="modalbox">
+    <div class="mh">Connect the ledger</div>
+    <div class="note" style="margin:6px 0 12px">Sign in with a <b>ledger app</b> login (the one used at /ledger/). This phone only <b>reads</b> the bills — nothing in the ledger is changed.</div>
+    <input id="ledEmail" type="email" placeholder="Ledger login email" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" style="margin-bottom:10px" />
+    <input id="ledPass" type="password" placeholder="Password" autocomplete="current-password" />
+    <div class="caperr" id="ledErr"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="ledCancel">Cancel</button>
+      <button class="mbtn go" id="ledOk">Sign in</button>
+    </div>
+  </div>
+</div>
+
+<!-- The bills of one trip: tagged ones, suggestions, pick more -->
+<div class="modal" id="tagModal">
+  <div class="modalbox wide">
+    <div class="mh">Bills of this trip</div>
+    <div class="mp" id="tagTitle">—</div>
+    <div class="note" id="tagSub" style="margin:-8px 0 10px">—</div>
+    <div id="tagHave"></div>
+    <div id="tagPick">
+      <div class="mlab" style="margin-top:10px">Tick the bills of this trip</div>
+      <input id="tagSearch" type="search" placeholder="Search bill no., customer or vehicle" autocomplete="off" />
+      <label class="chk"><input type="checkbox" id="tagWide" /><span>Show all — other vehicles &amp; up to a week either side</span></label>
+    </div>
+    <div class="taglist" id="tagList"></div>
+    <div class="tagsum" id="tagSum"></div>
+    <div class="caperr" id="tagErr"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="tagCancel">Close</button>
+      <button class="mbtn go" id="tagOk">Tag</button>
+    </div>
+  </div>
 </div>
 
 <!-- Dispatch modal: choose the customer it was sold to (also used to correct a trip) -->
@@ -1313,6 +1434,13 @@ const TRIP_EXCLUDE = ["OD15AF5510"];
 const DEFAULT_SETTINGS = { angul_l:16, alert_pct:15, reserve_l:40, reserve_meter_l:10 };
 let SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
 let SETTINGS_FALLBACK = false;
+/* Invoice check (Trips per tanker): from which business date trips and bills
+   are checked, how many litres a trip's bills may differ from it, and whether
+   sure matches are tagged without asking. Unset start = the 1st of this month. */
+// The litres sent are usually a little LESS than the bill: a bill may be up to
+// `over` litres more than the trip (80) but only `tol` litres less (10).
+const DEFAULT_TAGSET = { from:"", tol:10, over:80, auto:false };
+let TAGSET = Object.assign({}, DEFAULT_TAGSET);
 function maxChambers(){ return VEHICLES.length?Math.max.apply(null,VEHICLES.map(v=>v.caps.length)):4; }
 
 /* ---------- Mode & config ----------
@@ -1329,7 +1457,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v39 · 2026-10-08";
+const APP_BUILD = "v40 · 2026-10-09";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1448,9 +1576,14 @@ const CLS_KEY = "vf_loading_closes_v1";
 const DLS_KEY = "vf_loading_dests_v1";
 const FLS_KEY = "vf_loading_fuel_v1";
 const SLS_KEY = "vf_loading_settings_v1";
+const TLS_KEY = "vf_loading_inv_tags_v1";    // invoice tags (single-device mode)
+const LLS_KEY = "vf_loading_dest_links_v1";  // ledger customer ↔ "Sold to" links
 function lsGet(k,d){ try{ const v=JSON.parse(localStorage.getItem(k)); return Array.isArray(v)?v:d; }catch(e){ return d; } }
 function lsPut(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function dNorm(d){ return { name:String(d.name||""), rtd:+d.rtd||0, grp:String(d.grp||"") }; }
+// a ledger bill as it is kept on its tag
+function tagRow(b){ return { key:b.key, product:b.product||"HSD", bill_no:String(b.bill_no), fy:b.fy, date:b.date, vehicle:b.vehicle||"",
+  customer:b.customer||"", ckey:b.ckey||INV.normName(b.customer), qty:r2(b.qty), amount:b.amount==null?null:r2(b.amount) }; }
 // a 'dispatch' event as a trip row
 function evTrip(e){ return { id:e.id, ts:e.ts, plate:e.plate, total:+e.total||0, dest:e.remark||"", by:e.by||"" }; }
 function lsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
@@ -1494,7 +1627,9 @@ const LocalBackend = {
         lsVehiclesSave(vs);
       }
     }
-    lsSave(lsLoad().filter(x=>x.id!==id)); return Promise.resolve();
+    lsSave(lsLoad().filter(x=>x.id!==id));
+    lsPut(TLS_KEY, lsGet(TLS_KEY, []).filter(t=>t.trip_id!==id));   // an undone sale is not a trip: its bills come off
+    return Promise.resolve();
   },
   addVehicle(v){ const l=lsVehicles(); l.push(vNorm(v)); lsVehiclesSave(l); return Promise.resolve(); },
   // change chamber count / capacities only — fill, totals and history are kept
@@ -1504,7 +1639,7 @@ const LocalBackend = {
     v.caps=caps.slice(); lsVehiclesSave(l); return Promise.resolve();
   },
   removeVehicle(plate){ lsVehiclesSave(lsVehicles().filter(v=>v.plate!==plate)); return Promise.resolve(); },
-  clearAll(){ lsSave([]); const vs=lsVehicles(); vs.forEach(v=>{ v.fill={}; v.total_loaded=0; v.total_sold=0; }); lsVehiclesSave(vs); return Promise.resolve(); },
+  clearAll(){ lsSave([]); lsPut(TLS_KEY, []); const vs=lsVehicles(); vs.forEach(v=>{ v.fill={}; v.total_loaded=0; v.total_sold=0; }); lsVehiclesSave(vs); return Promise.resolve(); },
   endDay(){
     const cd=prevDateStr();
     if(lsCloses().some(c=>c.date===cd)) return Promise.reject(new Error("This day has already been ended"));
@@ -1532,6 +1667,27 @@ const LocalBackend = {
     if(!e) return Promise.reject(new Error("Trip not found"));
     e.remark=dest; lsSave(l); return Promise.resolve();
   },
+  // ---- invoice tags (same rules as loading_invoice_tag in the database) ----
+  loadTags(){ return Promise.resolve(lsGet(TLS_KEY, []).slice()); },
+  tagBills(tripId, bills, mode){
+    const trip=lsLoad().find(x=>x.id===tripId && x.kind==="dispatch");
+    if(!trip) return Promise.reject(new Error("Trip not found — it may have been deleted"));
+    const l=lsGet(TLS_KEY, []);
+    const clash=bills.find(b=>l.some(t=>t.key===b.key && t.trip_id!==tripId));
+    if(clash) return Promise.reject(new Error("Bill "+clash.bill_no+" is already tagged to another trip — untag it there first"));
+    bills.forEach(b=>{
+      const row=Object.assign(tagRow(b), { trip_id:tripId, plate:trip.plate, mode:mode||"manual", by:ME, ts:Date.now() });
+      const i=l.findIndex(t=>t.key===b.key); if(i>=0) l[i]=Object.assign(l[i], row, { ts:l[i].ts }); else l.push(row);
+    });
+    lsPut(TLS_KEY, l); return Promise.resolve(bills.length);
+  },
+  untagBill(key){ lsPut(TLS_KEY, lsGet(TLS_KEY, []).filter(t=>t.key!==key)); return Promise.resolve(); },
+  loadLinks(){ return Promise.resolve(lsGet(LLS_KEY, []).slice()); },
+  saveLink(ckey, customer, dest){
+    const l=lsGet(LLS_KEY, []).filter(x=>!(x.ckey===ckey && x.dest===dest));
+    l.push({ ckey:ckey, customer:customer, dest:dest }); lsPut(LLS_KEY, l); return Promise.resolve();
+  },
+  removeLink(ckey, dest){ lsPut(LLS_KEY, lsGet(LLS_KEY, []).filter(x=>!(x.ckey===ckey && x.dest===dest))); return Promise.resolve(); },
   loadFuel(){ return Promise.resolve(lsGet(FLS_KEY, []).slice()); },
   loadSettings(){ try{ return Promise.resolve(JSON.parse(localStorage.getItem(SLS_KEY))||{}); }catch(e){ return Promise.resolve({}); } },
   saveSetting(k, v){ let o={}; try{ o=JSON.parse(localStorage.getItem(SLS_KEY))||{}; }catch(e){} o[k]=v; localStorage.setItem(SLS_KEY, JSON.stringify(o)); return Promise.resolve(); },
@@ -1633,6 +1789,26 @@ const CloudBackend = {
         total:+row.total||0, dest:row.dest||"", by:row.by_name||"" })));
   },
   setTripDest(id, dest){ return this.rpc("loading_trip_set_dest",{ p_id:id, p_dest:dest }); },
+  // ---- invoice tags & customer links (admin) ----
+  loadTags(){
+    return this.all(()=>this.client.from("loading_invoice_tags").select("*").order("created_at",{ascending:true}))
+      .then(rows=>rows.map(r=>({ key:r.bill_key, trip_id:r.trip_id, plate:r.vehicle, product:r.product, bill_no:r.bill_no,
+        fy:INV.fyOf(r.sale_date), date:String(r.sale_date).slice(0,10), vehicle:r.bill_vehicle||"", customer:r.customer||"",
+        ckey:r.customer_key||INV.normName(r.customer), qty:+r.qty||0, amount:r.amount==null?null:+r.amount,
+        mode:r.mode||"manual", by:r.by_name||"", ts:Date.parse(r.created_at) })));
+  },
+  tagBills(tripId, bills, mode){
+    return this.rpc("loading_invoice_tag",{ p_trip:tripId, p_mode:mode||"manual", p_by:ME, p_bills:bills.map(b=>{ const t=tagRow(b);
+      return { bill_key:t.key, product:t.product, bill_no:t.bill_no, sale_date:t.date, bill_vehicle:t.vehicle,
+        customer:t.customer, customer_key:t.ckey, qty:t.qty, amount:t.amount }; }) });
+  },
+  untagBill(key){ return this.rpc("loading_invoice_untag",{ p_bill_key:key }); },
+  loadLinks(){
+    return this.all(()=>this.client.from("loading_dest_links").select("*").order("dest",{ascending:true}))
+      .then(rows=>rows.map(r=>({ ckey:r.customer_key, customer:r.customer||r.customer_key, dest:r.dest })));
+  },
+  saveLink(ckey, customer, dest){ return this.rpc("loading_dest_link_set",{ p_customer_key:ckey, p_customer:customer, p_dest:dest }); },
+  removeLink(ckey, dest){ return this.rpc("loading_dest_link_remove",{ p_customer_key:ckey, p_dest:dest }); },
   loadFuel(){
     return this.all(()=>this.client.from("loading_fuel_logs").select("*").order("reading_at",{ascending:true}))
       .then(rows=>rows.map(row=>({ id:row.id, plate:row.vehicle, ts:Date.parse(row.reading_at), odo:+row.odometer||0,
@@ -1673,6 +1849,13 @@ function refresh(){
     SETTINGS_FALLBACK = r[4]==null;
     SETTINGS = Object.assign({}, DEFAULT_SETTINGS);
     if(r[4]) Object.keys(DEFAULT_SETTINGS).forEach(k=>{ const v=+r[4][k]; if(v>0 || (/^reserve/.test(k) && v===0 && r[4][k]!=null)) SETTINGS[k]=v; });
+    TAGSET = Object.assign({}, DEFAULT_TAGSET);
+    if(r[4]){
+      if(/^\d{4}-\d{2}-\d{2}$/.test(String(r[4].tag_from||""))) TAGSET.from=String(r[4].tag_from);
+      if(r[4].tag_tol_l!=null && +r[4].tag_tol_l>=0) TAGSET.tol=+r[4].tag_tol_l;
+      if(r[4].tag_over_l!=null && +r[4].tag_over_l>=0) TAGSET.over=+r[4].tag_over_l;
+      TAGSET.auto = +r[4].tag_auto===1;
+    }
     LOG=r[0]; applyVehicles(r[1]); CLOSES=(r[2]||[]).slice().sort((a,b)=>a.ts-b.ts);
     DESTS_FALLBACK = r[3]==null;
     DESTS = r[3]==null ? DEFAULT_DESTS.map(dNorm) : r[3];
@@ -1977,6 +2160,7 @@ function renderHome(){
   $("#curDayLabel").textContent="Current business day — "+keyLabel(currentOpenDate());
   renderEndDay();
   renderTankers();
+  invoiceWatch(false);   // admins: what needs fixing in the invoices, at the top
   const recent=[...LOG].slice(-6).reverse();
   const box=$("#recentList");
   if(!recent.length){ box.innerHTML='<div class="empty">No loadings yet.<br>Tap a tanker above to start.</div>'; }
@@ -2547,7 +2731,7 @@ function renderSettings(){
   box.querySelectorAll("[data-edveh]").forEach(b=>{ b.onclick=()=>openCapEdit(b.getAttribute("data-edveh")); });
   box.querySelectorAll("[data-rmveh]").forEach(b=>{ b.onclick=()=>removeVehicleUI(b.getAttribute("data-rmveh")); });
   const bt=$("#buildTag"); if(bt) bt.textContent=APP_BUILD;
-  if(isAdmin()){ renderDests(); renderStaff(); }
+  if(isAdmin()){ renderDests(); renderStaff(); renderInvSettings(); }
   renderPushBox();
 }
 
@@ -2797,26 +2981,455 @@ function makeRange(ids, onChange){
 function bizStartMs(key){ return dayStartMs(key)+HANDOVER_MIN*60000; }
 function bizEndMs(key){ return bizStartMs(addDays(key,1)); }
 
+/* ===================== INVOICE TAGGING MODEL =====================
+   Which ledger bills a trip was billed in, and what doesn't add up.
+   Pure functions — no screen, no network — so tests/loading_web/invoice.test.mjs
+   runs exactly this code.
+     trip : { id, plate, ts, day (business date), total (litres sold), dest }
+     bill : { key ('HSD|2026-27|1234'), product, fy, bill_no, date, vehicle, qty, amount, customer, ckey }
+     tag  : a bill as it was when tagged + { trip_id, plate (the trip's tanker), mode }
+     link : { ckey, dest, customer } — a ledger customer billed for a "Sold to" customer
+   The litres sent for sale are usually a little LESS than the bill (up to
+   ~80 L), so the buffer is lopsided: a trip's bills may add up to `over`
+   litres more than it (80 by default) but only `tol` litres less (10).
+   A tanker can be billed in several bills (e.g. 3 × 4,000 L) and a bill sits on
+   one trip only. The bills that should all be on a trip (the "pool"): diesel
+   bills from the start date typed with one of our tankers' numbers, or with
+   no vehicle to a customer we bill tankers to. Bills typed with some other
+   vehicle (a customer's own truck filled at the pump) are left alone. */
+const INV = (function(){
+  const DAY = 864e5;
+  function vehKey(s){ return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
+  // the ledger's customer key (ledger_norm): lower case, runs of spaces as one
+  function normName(s){ return String(s||"").replace(/[\t\n\v\f\r  ]+/g," ").trim().toLowerCase(); }
+  function dayNum(k){ const p=String(k||"").slice(0,10).split("-").map(Number); return Math.round(Date.UTC(p[0],p[1]-1,p[2])/DAY); }
+  function dayAdd(k,n){ return new Date((dayNum(k)+n)*DAY).toISOString().slice(0,10); }
+  // Indian financial year, as the ledger keys bills: 2026-04-01..2027-03-31 → '2026-27'
+  function fyOf(k){ const p=String(k).split("-").map(Number), y=p[1]>=4?p[0]:p[0]-1; return y+"-"+String((y+1)%100).padStart(2,"0"); }
+  function billKey(product, date, billNo){ return product+"|"+fyOf(date)+"|"+String(billNo==null?"":billNo).trim(); }
+  function r2(n){ return Math.round((+n||0)*100)/100; }
+  // bill numbers sort as numbers when they are numbers
+  function billCmp(a,b){ return a.date<b.date?-1:a.date>b.date?1:String(a.bill_no).localeCompare(String(b.bill_no), "en", { numeric:true }); }
+
+  /* -- names: "Shyam Metalics" ~ "SHYAM METALIKS AND ENERGY LTD" -- */
+  const STOP = { pvt:1, private:1, ltd:1, limited:1, the:1, and:1, co:1, company:1, companies:1, ms:1, llp:1, inc:1, of:1, group:1, unit:1, plant:1, india:1, corp:1, corporation:1 };
+  function words(s){ return normName(s).replace(/[^a-z0-9]+/g," ").split(" ").filter(w=>w && !STOP[w] && !/^\d+$/.test(w)); }
+  function near(a,b){        // one letter apart (Metalics / Metaliks)
+    if(Math.abs(a.length-b.length)>1) return false;
+    let i=0, j=0, d=0;
+    while(i<a.length && j<b.length){
+      if(a[i]===b[j]){ i++; j++; continue; }
+      if(++d>1) return false;
+      if(a.length>b.length) i++; else if(b.length>a.length) j++; else { i++; j++; }
+    }
+    return d + (a.length-i) + (b.length-j) <= 1;
+  }
+  function sameWord(a,b){ return a===b || (a.length>=5 && b.length>=5 && near(a,b)); }
+  function nameSim(a,b){
+    const A=words(a), B=words(b); if(!A.length || !B.length) return 0;
+    return A.filter(x=>B.some(y=>sameWord(x,y))).length / Math.min(A.length, B.length);
+  }
+
+  /* o: { plates, tol (bills may be this much less), over (… this much more), from, until (latest bill date in the ledger; null = no ledger),
+          links, bulk (Tanker Master names), billsFrom, billsTo (the bills loaded) } */
+  function context(o){
+    o=o||{};
+    const linkBy={}, destCk={};
+    (o.links||[]).forEach(l=>{ const c=l.ckey||normName(l.customer), d=String(l.dest||"").trim().toLowerCase(); if(!c || !d) return;
+      (linkBy[c]=linkBy[c]||{})[d]=l.dest; (destCk[d]=destCk[d]||{})[c]=l.customer||c; });
+    const bulk={}; (o.bulk||[]).forEach(n=>{ bulk[normName(n)]=1; });
+    return { plates:(o.plates||[]).map(vehKey).filter(Boolean), tol: o.tol!=null && +o.tol>=0 ? +o.tol : 10,
+      over: o.over!=null && +o.over>=0 ? +o.over : 80,
+      from:o.from||"", until:o.until==null?null:String(o.until||""), linkBy:linkBy, destCk:destCk, bulk:bulk,
+      billsFrom:o.billsFrom||"", billsTo:o.billsTo||"", links:o.links||[] };
+  }
+  // the tanker a bill is typed with: "" = no vehicle, null = some other vehicle
+  function billPlate(b, ctx){
+    const k=vehKey(b.vehicle); if(!k) return "";
+    const p=ctx.plates.find(x=>k===x) || ctx.plates.find(x=>k.indexOf(x)>=0);
+    return p || null;
+  }
+  function vehFit(trip, b, ctx){
+    const p=billPlate(b, ctx);
+    return p==="" ? "blank" : p===null ? "other" : p===vehKey(trip.plate) ? "match" : "tanker";
+  }
+  function custFit(trip, b, ctx){
+    const d=String(trip.dest||"").trim().toLowerCase(), l=ctx.linkBy[b.ckey||normName(b.customer)];
+    if(l && d && l[d]) return "linked";
+    if(l) return "other";                                   // billed for another customer
+    if(d && nameSim(trip.dest, b.customer)>=0.5) return "similar";
+    return ctx.bulk[b.ckey||normName(b.customer)] ? "bulk" : "unknown";
+  }
+  function isPool(b, ctx){
+    if(b.product!=="HSD" || !(b.qty>0) || (ctx.from && b.date<ctx.from)) return false;
+    const p=billPlate(b, ctx), ck=b.ckey||normName(b.customer);
+    return !!p || (p==="" && !!(ctx.linkBy[ck] || ctx.bulk[ck]));
+  }
+  // a bill dated from the day before the trip to 3 days after it can be its bill
+  const WIN_LO=-1, WIN_HI=3;
+  const V_PTS={ match:60, blank:0, other:-30 }, C_PTS={ linked:40, similar:25, bulk:5, unknown:0, other:-40 }, D_PTS=[5,15,10,5,0];
+  function rate(trip, b, ctx){
+    const dd=dayNum(b.date)-dayNum(trip.day);
+    if(dd<WIN_LO || dd>WIN_HI) return null;
+    const v=vehFit(trip, b, ctx); if(v==="tanker") return null;   // another of our tankers' bill
+    const c=custFit(trip, b, ctx);
+    return { bill:b, v:v, c:c, dd:dd, s:V_PTS[v]+C_PTS[c]+D_PTS[dd-WIN_LO] };
+  }
+  function tagSums(tags){ const o={}; tags.forEach(t=>{ o[t.trip_id]=r2((o[t.trip_id]||0)+(+t.qty||0)); }); return o; }
+
+  // the bills (up to 4) that make up `need` litres — from `lo` litres less to
+  // `hi` litres more: every bill as likely as possible (the weakest one
+  // decides), then the closest total, then the earliest
+  function bestSet(cands, need, lo, hi){
+    if(hi==null) hi=lo;
+    const c=cands.filter(x=>x.bill.qty>0 && x.bill.qty<=need+hi)
+      .sort((a,b)=>b.s-a.s || billCmp(a.bill,b.bill)).slice(0,14);
+    let best=null;
+    (function walk(i, pick, sum, min){
+      if(pick.length && sum>=need-lo-1e-9 && sum<=need+hi+1e-9){
+        const off=Math.abs(sum-need), first=pick.map(x=>x.bill).sort(billCmp)[0];
+        if(!best || min>best.min || (min===best.min && (off<best.off-1e-9
+            || (Math.abs(off-best.off)<1e-9 && billCmp(first, best.first)<0)))) best={ pick:pick.slice(), sum:r2(sum), min:min, off:off, first:first };
+      }
+      if(pick.length===4) return;
+      for(let k=i;k<c.length;k++){
+        const s=sum+c[k].bill.qty; if(s>need+hi+1e-9) continue;
+        pick.push(c[k]); walk(k+1, pick, s, Math.min(min, c[k].s)); pick.pop();
+      }
+    })(0, [], 0, Infinity);
+    if(!best) return null;
+    const bills=best.pick.map(x=>x.bill).sort(billCmp);
+    return { bills:bills, sum:best.sum, score:best.min, exact:best.off<0.005,
+      sure: best.pick.every(x=>x.v==="match" && (x.c==="linked" || x.c==="similar")) };
+  }
+
+  // the bills a trip could be billed in (best first), excluding bills already tagged
+  function candidates(trip, bills, tags, ctx, wide){
+    const tagged={}; tags.forEach(t=>{ tagged[t.key]=1; });
+    return bills.filter(b=>!tagged[b.key] && (wide ? b.product!=="MS" && b.product!=="OTHER" : b.product==="HSD") && b.qty>0)
+      .map(b=>{
+        const r=rate(trip, b, ctx); if(r) return r;
+        if(!wide || Math.abs(dayNum(b.date)-dayNum(trip.day))>7) return null;
+        return { bill:b, v:vehFit(trip, b, ctx), c:custFit(trip, b, ctx), dd:dayNum(b.date)-dayNum(trip.day), s:-100 };
+      }).filter(Boolean)
+      .sort((a,b)=>b.s-a.s || billCmp(a.bill,b.bill));
+  }
+
+  /* Suggested bills for every trip still short of its invoices. Sure ones
+     first (bills in this tanker's name to its customer, adding up), oldest
+     trip first, each bill offered to one trip only. */
+  function suggest(trips, bills, tags, ctx){
+    const done=tagSums(tags), tagged={}; tags.forEach(t=>{ tagged[t.key]=1; });
+    let free=bills.filter(b=>!tagged[b.key] && b.product==="HSD" && b.qty>0);
+    const need=t=>r2(t.total-(done[t.id]||0));
+    const open=trips.filter(t=>(!ctx.from || t.day>=ctx.from) && need(t)>ctx.tol).sort((a,b)=>a.ts-b.ts);
+    const out={};
+    [true,false].forEach(sureOnly=>{
+      open.forEach(t=>{
+        if(out[t.id]) return;
+        const c=free.map(b=>rate(t, b, ctx)).filter(x=>x && x.s>=15 && x.v!=="other" && x.c!=="other");
+        const set=bestSet(c, need(t), ctx.tol, ctx.over);
+        if(!set || (sureOnly && !set.sure)) return;
+        out[t.id]=set;
+        const used={}; set.bills.forEach(b=>{ used[b.key]=1; });
+        free=free.filter(b=>!used[b.key]);
+      });
+    });
+    return out;
+  }
+
+  /* The check. trips/bills may reach a few days past the period on either side
+     (a trip on the 30th billed on the 1st); the period is range {from, to}. */
+  function reconcile(trips, bills, tags, ctx, range){
+    range=range||{ from:"", to:"9999" };
+    const inR=k=>k>=range.from && k<=range.to, checked=k=>!ctx.from || k>=ctx.from;
+    const byTrip={}; tags.forEach(t=>{ (byTrip[t.trip_id]=byTrip[t.trip_id]||[]).push(t); });
+    const billBy={}; bills.forEach(b=>{ billBy[b.key]=b; });
+    const tagged={}; tags.forEach(t=>{ tagged[t.key]=1; });
+    const tol=ctx.tol, over=ctx.over, sug=suggest(trips, bills, tags, ctx);
+
+    const rows=trips.map(t=>{
+      const tg=(byTrip[t.id]||[]).slice().sort(billCmp), sum=r2(tg.reduce((s,x)=>s+(+x.qty||0),0));
+      let status;
+      if(!checked(t.day)) status="before";
+      else if(!tg.length) status = ctx.until!=null && !(ctx.until>t.day) ? "await" : "none";
+      else if(sum<t.total-tol) status="under";
+      else if(sum>t.total+over) status="over";
+      else status="ok";
+      const issues=[];
+      tg.forEach(x=>{
+        const v=vehFit(t, x, ctx), c=custFit(t, x, ctx), now=billBy[x.key];
+        if(v==="tanker") issues.push({ kind:"veh", tag:x, text:"Bill "+x.bill_no+" is in the name of "+billPlate(x, ctx)+", not "+t.plate });
+        if(c==="other") issues.push({ kind:"cust", tag:x, text:"Bill "+x.bill_no+" is to "+x.customer+" — billed for "
+          +Object.keys(ctx.linkBy[x.ckey]).map(k=>ctx.linkBy[x.ckey][k]).join(" / ")+", but this trip went to "+(t.dest||"no customer") });
+        if(ctx.until!=null && ctx.billsFrom && x.date>=ctx.billsFrom && x.date<=ctx.billsTo){
+          if(!now) issues.push({ kind:"gone", tag:x, text:"Bill "+x.bill_no+" ("+x.date+") is no longer in the ledger" });
+          else if(Math.abs(now.qty-x.qty)>0.005 || now.ckey!==x.ckey || vehKey(now.vehicle)!==vehKey(x.vehicle))
+            issues.push({ kind:"changed", tag:x, now:now, text:"Bill "+x.bill_no+" was changed in the ledger after tagging ("
+              +[Math.abs(now.qty-x.qty)>0.005?x.qty+" → "+now.qty+" L":"", now.ckey!==x.ckey?x.customer+" → "+now.customer:"",
+                vehKey(now.vehicle)!==vehKey(x.vehicle)?(x.vehicle||"no vehicle")+" → "+(now.vehicle||"no vehicle"):""].filter(Boolean).join(", ")+") — tag it again" });
+        }
+      });
+      return { trip:t, tags:tg, sum:sum, diff:r2(sum-t.total), status:status, issues:issues, sug:sug[t.id]||null, inRange:inR(t.day) };
+    });
+    const rowBy={}; rows.forEach(r=>{ rowBy[r.trip.id]=r; });
+
+    // bills in the pool on no trip
+    const left={}; rows.forEach(r=>{ left[r.trip.id]=r2(r.trip.total-r.sum); });
+    const loose=bills.filter(b=>isPool(b, ctx) && !tagged[b.key]).sort(billCmp).map(b=>{
+      const p=billPlate(b, ctx);
+      if(!p) return { bill:b, plate:"", kind:"loose", trips:[] };
+      // trips of this tanker it could belong to (room left on them)
+      const could=rows.filter(r=>vehKey(r.trip.plate)===p && r.status!=="before" && left[r.trip.id]>=b.qty-over
+        && rate(r.trip, b, ctx)).map(r=>r.trip);
+      return { bill:b, plate:p, kind: could.length ? "untagged" : "extra", trips:could };
+    });
+
+    // per tanker, over the period
+    const plates=[]; ctx.plates.forEach(p=>plates.push(p));
+    rows.forEach(r=>{ const k=vehKey(r.trip.plate); if(plates.indexOf(k)<0) plates.push(k); });
+    const perTanker={};
+    plates.forEach(p=>{
+      const rs=rows.filter(r=>r.inRange && vehKey(r.trip.plate)===p && r.status!=="before");
+      const named=bills.filter(b=>inR(b.date) && checked(b.date) && b.product==="HSD" && billPlate(b, ctx)===p);
+      const o={ plate:p, trips:rs.length, sent:r2(rs.reduce((s,r)=>s+r.trip.total,0)), tagged:r2(rs.reduce((s,r)=>s+r.sum,0)),
+        named:r2(named.reduce((s,b)=>s+b.qty,0)), namedN:named.length, waiting:r2(rs.filter(r=>r.status==="await").reduce((s,r)=>s+r.trip.total,0)),
+        none:0, under:0, over:0, ok:0, await:0, extra:loose.filter(x=>x.plate===p && x.kind==="extra" && inR(x.bill.date)).length };
+      rs.forEach(r=>{ o[r.status]++; });
+      o.diff=r2(o.tagged-o.sent);
+      o.bad=o.none+o.under+o.over+o.extra+rs.reduce((s,r)=>s+r.issues.length,0);
+      perTanker[p]=o;
+    });
+
+    // per customer: sold-to customers and the ledger names they're billed as,
+    // joined through the links into accounts (SMC Unit 1 + 2 = one ledger name)
+    const parent={};
+    const find=x=>{ while(parent[x]!==undefined && parent[x]!==x) x=parent[x]; return x; };
+    const join=(a,b)=>{ if(parent[a]===undefined) parent[a]=a; if(parent[b]===undefined) parent[b]=b; const ra=find(a), rb=find(b); if(ra!==rb) parent[rb]=ra; };
+    ctx.links.forEach(l=>{ const c=l.ckey||normName(l.customer), d=String(l.dest||"").trim().toLowerCase(); if(c && d) join("d:"+d, "c:"+c); });
+    const acc={};
+    const accOf=(node, label, isDest)=>{
+      if(parent[node]===undefined) parent[node]=node;
+      const k=find(node), a=acc[k]||(acc[k]={ key:k, dests:{}, custs:{}, trips:0, delivered:0, invoiced:0, bills:0, extraL:0, extraN:0, waiting:0 });
+      if(label) (isDest?a.dests:a.custs)[label]=1;
+      return a;
+    };
+    Object.keys(ctx.destCk).forEach(d=>{ Object.keys(ctx.destCk[d]).forEach(c=>{ accOf("c:"+c, ctx.destCk[d][c], false); }); });
+    ctx.links.forEach(l=>{ if(l.dest) accOf("d:"+String(l.dest).trim().toLowerCase(), l.dest, true); });
+    rows.filter(r=>r.inRange && r.status!=="before").forEach(r=>{
+      const a=accOf("d:"+(String(r.trip.dest||"").trim().toLowerCase()||"(none)"), r.trip.dest||"(no customer)", true);
+      a.trips++; a.delivered=r2(a.delivered+r.trip.total);
+      if(r.status==="await") a.waiting=r2(a.waiting+r.trip.total);
+      r.tags.forEach(x=>{ const b=accOf("c:"+(x.ckey||normName(x.customer)), x.customer, false); b.invoiced=r2(b.invoiced+x.qty); b.bills++; });
+    });
+    loose.filter(x=>inR(x.bill.date)).forEach(x=>{
+      const a=accOf("c:"+(x.bill.ckey||normName(x.bill.customer)), x.bill.customer, false);
+      a.invoiced=r2(a.invoiced+x.bill.qty); a.bills++; a.extraL=r2(a.extraL+x.bill.qty); a.extraN++;
+    });
+    const perCust=Object.keys(acc).map(k=>acc[k]).filter(a=>a.trips || a.bills).map(a=>{
+      const diff=r2(a.invoiced-a.delivered), k=Math.max(1, a.trips);   // each trip carries its own buffer
+      const status = diff>over*k ? "over" : diff< -tol*k ? (a.delivered-a.waiting-a.invoiced<=tol*k ? "await" : "under") : "ok";
+      return Object.assign(a, { dests:Object.keys(a.dests), custs:Object.keys(a.custs), diff:diff, status:status });
+    }).sort((a,b)=>(a.dests[0]||"~"+a.custs[0]).localeCompare(b.dests[0]||"~"+b.custs[0]));
+
+    // the list to act on, worst first
+    const alerts=[];
+    rows.filter(r=>r.inRange).forEach(r=>{
+      const t=r.trip;
+      if(r.status==="over") alerts.push({ lvl:"high", kind:"over", row:r, plate:t.plate, title:"Over-invoiced by "+r2(r.sum-t.total)+" L", text:r.tags.length+" bill"+(r.tags.length===1?"":"s")+" for "+r.sum+" L on a "+t.total+" L trip" });
+      if(r.status==="none") alerts.push({ lvl:"high", kind:"none", row:r, plate:t.plate,
+        title: r.sug ? "Sale not tagged yet — bills found" : "Sale not invoiced",
+        text:t.total+" L to "+(t.dest||"no customer")+(r.sug ? " — bills "+r.sug.bills.map(b=>b.bill_no).join(", ")+" = "+r.sug.sum+" L" : " — no bill found for it") });
+      if(r.status==="under") alerts.push({ lvl:"high", kind:"under", row:r, plate:t.plate, title:"Under-invoiced by "+r2(t.total-r.sum)+" L", text:"Bills for "+r.sum+" L on a "+t.total+" L trip" });
+      r.issues.forEach(i=>{ alerts.push({ lvl:"high", kind:i.kind, row:r, plate:t.plate, title:{ veh:"Bill in another tanker's name", cust:"Billed to a different customer", gone:"Bill deleted in the ledger", changed:"Bill changed in the ledger" }[i.kind], text:i.text }); });
+    });
+    loose.filter(x=>inR(x.bill.date)).forEach(x=>{
+      const b=x.bill, what="Bill "+b.bill_no+" · "+b.qty+" L to "+b.customer;
+      if(x.kind==="extra") alerts.push({ lvl:"high", kind:"extra", loose:x, plate:x.plate, title:"Extra sale in the name of "+x.plate, text:what+" — no trip of this tanker can account for it" });
+      else if(x.kind==="untagged") alerts.push({ lvl:"watch", kind:"untagged", loose:x, plate:x.plate, title:"Invoice not tagged yet", text:what });
+      else alerts.push({ lvl:"watch", kind:"loose", loose:x, plate:"", title:"Bulk invoice on no trip", text:what+" (no vehicle on the bill)" });
+    });
+    const order={ over:0, extra:1, none:2, under:3, cust:4, veh:5, changed:6, gone:7, untagged:8, loose:9 };
+    alerts.sort((a,b)=>order[a.kind]-order[b.kind]);
+    return { rows:rows, loose:loose, perTanker:perTanker, perCust:perCust, alerts:alerts,
+      high:alerts.filter(a=>a.lvl==="high").length };
+  }
+
+  return { vehKey:vehKey, normName:normName, dayAdd:dayAdd, fyOf:fyOf, billKey:billKey, nameSim:nameSim, context:context,
+    billPlate:billPlate, vehFit:vehFit, custFit:custFit, isPool:isPool, candidates:candidates, bestSet:bestSet,
+    suggest:suggest, reconcile:reconcile, billCmp:billCmp };
+})();
+/* ===================== END INVOICE TAGGING MODEL ===================== */
+
+/* ---------- LEDGER LINK (bills, read-only) ----------
+   The ledger app (/ledger/) has its own Supabase project. An admin signs in
+   here with a LEDGER login — kept on this phone apart from the app's own
+   login — and only the ledger's read functions are called (ledger_whoami,
+   ledger_sales_range, ledger_tanker_list, ledger_customers_list). Nothing in
+   the ledger is ever changed from this app. */
+const LEDGER_URL=String(CFG.LEDGER_SUPABASE_URL||""), LEDGER_KEY=String(CFG.LEDGER_SUPABASE_ANON_KEY||"");
+const LEDGER_ON=/^https:\/\//.test(LEDGER_URL) && LEDGER_URL.indexOf("PASTE")===-1 && !!LEDGER_KEY && LEDGER_KEY.indexOf("PASTE")===-1;
+const Ledger={
+  client:null, email:"", _init:null, _bulk:null, _custs:null,
+  init(){
+    if(!LEDGER_ON) return Promise.resolve("");
+    if(!this._init) this._init=supaFactory().then(cc=>{
+      this.client=cc(LEDGER_URL, LEDGER_KEY, { auth:{ storageKey:"vf-loading-ledger-auth", persistSession:true, autoRefreshToken:true, detectSessionInUrl:false } });
+      this.client.auth.onAuthStateChange((ev, se)=>{ this.email = se && se.user ? se.user.email||"" : ""; });
+      return this.client.auth.getSession();
+    }).then(r=>{ const se=r && r.data && r.data.session; this.email = se && se.user ? se.user.email||"" : ""; return this.email; })
+      .catch(e=>{ this._init=null; throw e; });
+    return this._init;
+  },
+  on(){ return !!this.email; },
+  rpc(name, args){
+    return this.client.rpc(name, args||{}).then(r=>{
+      if(r.error){
+        const m=r.error.message||"Ledger error";
+        // taken off the ledger's member list (or the login is gone): drop it here too
+        if(/members list|42501|JWT|invalid claim/i.test(m+" "+(r.error.code||""))) this.signOut();
+        throw new Error("Ledger: "+m);
+      }
+      return r.data;
+    });
+  },
+  signIn(email, pw){
+    return this.init().then(()=>this.client.auth.signInWithPassword({ email:email, password:pw })).then(r=>{
+      if(r.error) throw new Error(/invalid/i.test(r.error.message||"") ? "Wrong email or password" : r.error.message);
+      return this.client.rpc("ledger_whoami");
+    }).then(r=>{
+      if(r.error) throw new Error(r.error.message);
+      if(!r.data || !r.data.member) return this.client.auth.signOut().then(()=>{ this.email=""; throw new Error("This login isn't on the ledger's members list"); });
+      this.email=r.data.email||email; this._bulk=null; this._custs=null; return this.email;
+    });
+  },
+  signOut(){ this._bulk=null; this._custs=null; const done=()=>{ this.email=""; };
+    return this.client ? this.client.auth.signOut().then(done, done) : Promise.resolve(done()); },
+  // every bill of a date range (the ledger allows 400 days at a time)
+  bills(from, to){ return this.rpc("ledger_sales_range",{ p_from:from, p_to:to }).then(rows=>(rows||[]).map(ledgerBill)); },
+  // the Tanker Master: customers who get a Daily Tanker Bill
+  bulk(){ if(!this._bulk) this._bulk=this.rpc("ledger_tanker_list").then(l=>(l||[]).map(x=>x.company)).catch(e=>{ this._bulk=null; throw e; }); return this._bulk; },
+  customers(){ if(!this._custs) this._custs=this.rpc("ledger_customers_list").then(l=>(l||[]).filter(c=>!c.archived)
+    .map(c=>({ name:c.name, ckey:c.key||INV.normName(c.name), bulk:c.bulk_group||"" }))).catch(e=>{ this._custs=null; throw e; }); return this._custs; },
+};
+function ledgerBill(s){
+  const date=String(s.sale_date||"").slice(0,10), no=String(s.bill_no==null?"":s.bill_no).trim();
+  return { key:INV.billKey(s.product, date, no), id:s.id, product:s.product, fy:INV.fyOf(date), bill_no:no, date:date,
+    vehicle:String(s.vehicle||"").trim(), qty:+s.qty||0, amount:s.amount==null?null:+s.amount,
+    customer:String(s.customer||"").trim(), ckey:INV.normName(s.customer), seq:+s.seq||0 };
+}
+
+/* ledger sign-in sheet */
+let ledAfter=null;
+function openLedgerLogin(after){
+  ledAfter=after||null; $("#ledErr").textContent=""; $("#ledPass").value="";
+  $("#ledModal").classList.add("on"); setTimeout(()=>$("#ledEmail").focus(), 50);
+}
+function closeLedgerLogin(){ $("#ledModal").classList.remove("on"); ledAfter=null; }
+$("#ledCancel").onclick=closeLedgerLogin;
+$("#ledModal").addEventListener("click",e=>{ if(e.target===$("#ledModal")) closeLedgerLogin(); });
+$("#ledOk").onclick=()=>{
+  const em=$("#ledEmail").value.trim(), pw=$("#ledPass").value;
+  if(!em || !pw){ $("#ledErr").textContent="Enter the ledger login's email and password"; return; }
+  const btn=$("#ledOk"); btn.disabled=true; $("#ledErr").textContent="Signing in…";
+  Ledger.signIn(em, pw).then(()=>{
+    btn.disabled=false; const f=ledAfter; closeLedgerLogin(); toast("✓ Ledger connected");
+    INV_WATCH.at=0; if(f) f(); invoiceWatch(true);
+  }).catch(e=>{ btn.disabled=false; $("#ledErr").textContent=(e && e.message) || "Could not sign in"; });
+};
+function ledgerSignOut(after){
+  if(!confirm("Disconnect the ledger on this phone?\nTags already made stay; new bills can't be checked until you sign in again.")) return;
+  Ledger.signOut().then(()=>{ INV_WATCH.d=null; paintInvBanner(); toast("Ledger disconnected"); if(after) after(); });
+}
+
 /* ---------- TRIPS PER TANKER ----------
    One trip = one "Sent for sale". Trips are permanent (not trimmed to 7 days).
    A trip's date is its business day (7:30 AM → 7:30 AM). Each trip's km comes
    from its customer's RTD; trips to a name not in the customer list count 0 km
-   and are flagged so they can be corrected with ✎. */
+   and are flagged so they can be corrected with ✎.
+   Invoice check: each trip is tagged with the ledger bills it was billed in
+   (a tanker is often billed in parts, e.g. 3 × 4,000 L); the INVOICE TAGGING
+   MODEL above suggests them and says what doesn't add up — per trip, per
+   tanker and per customer — and which bills in a tanker's name are on no trip. */
 let TRIPS=[], TRIPS_ERR="", tripOpen=new Set(), tripSeq=0;
+let INVD=null;            // the invoice check of the period on screen
+let trView="tanker";      // tanker | customer | alerts
 function plateKey(p){ return String(p||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
 function isExcluded(p){ const k=plateKey(p); return TRIP_EXCLUDE.some(x=>plateKey(x)===k); }
 function destOf(name){ const n=String(name||"").trim().toLowerCase(); return n ? DESTS.find(d=>d.name.trim().toLowerCase()===n) : null; }
 function tripKm(t){ const d=destOf(t.dest); return d ? d.rtd : 0; }
 const tripRange = makeRange({ prev:"#trPrev", next:"#trNext", label:"#trMonth", from:"#trFrom", to:"#trTo" }, ()=>loadTripReport());
-function openTrips(){ if(!adminOnly()) return; tripOpen=new Set(); show("scTrips"); tripRange.thisMonth(); }
+// range: {from, to} business dates (the Home card's own window); default this month
+function openTrips(view, range){
+  if(!adminOnly()) return; tripOpen=new Set(); trView=typeof view==="string"?view:"tanker"; show("scTrips");
+  if(range && range.from){ $("#trFrom").value=range.from; $("#trTo").value=range.to; $("#trMonth").textContent="Since "+dmy(range.from).slice(0,5); loadTripReport(); }
+  else tripRange.thisMonth();
+}
+
+// invoice checks start here (⚙); unset = the 1st of the current month
+function tagStart(){ return TAGSET.from || shiftDate(Date.now()).slice(0,8)+"01"; }
+function daysBetween(a,b){ return Math.round((Date.parse(b)-Date.parse(a))/864e5); }
+// Everything the check needs for business dates from..to: the trips (and a few
+// days either side — a trip on the 30th is billed on the 1st), the tags, the
+// customer links and, with the ledger connected, its bills.
+function loadInvoiceData(from, to){
+  const tf=addDays(from,-3), tt=addDays(to,1), bf=addDays(from,-3), bt=addDays(to,4);
+  const fits=daysBetween(bf, bt)<=400;
+  const led = Ledger.on() && fits
+    ? Promise.all([Ledger.bills(bf, bt), Ledger.bulk().catch(()=>[])]).then(r=>({ bills:r[0], bulk:r[1] })).catch(e=>({ err:(e && e.message) || "Ledger error" }))
+    : Promise.resolve(null);
+  return Promise.all([Backend.loadTrips(bizStartMs(tf), bizEndMs(tt)), Backend.loadTags().catch(e=>({ err:dbHint(e) })),
+                      Backend.loadLinks().catch(()=>[]), led]).then(r=>{
+    const trips=r[0].filter(x=>!isExcluded(x.plate)).map(x=>Object.assign({}, x, { day:shiftDate(x.ts) }));
+    const tagErr=r[1] && r[1].err ? r[1].err : "", tags=tagErr ? [] : r[1], L=r[3];
+    const bills=L && L.bills ? L.bills : null;
+    // the ledger has bills up to the latest one seen (null = no ledger, can't tell)
+    const until=bills ? bills.reduce((m,b)=>b.date>m?b.date:m, "") : null;
+    const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), tol:TAGSET.tol, over:TAGSET.over,
+      from:tagStart(), until:until, links:r[2], bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
+    return { from:from, to:to, trips:trips, tags:tags, links:r[2], bills:bills, ctx:ctx, until:until,
+      rec:INV.reconcile(trips, bills||[], tags, ctx, { from:from, to:to }),
+      tagErr:tagErr, ledErr:(L && L.err) || "", tooLong:Ledger.on() && !fits };
+  });
+}
+// A ledger customer seen for the first time on a trip is linked to that trip's
+// customer, so later bills to it are suggested for it and add up per customer.
+// One already billed for another customer is linked only if you say so.
+function linkAfterTag(trip, bills, silent){
+  const d=destOf(trip.dest); if(!d || !INVD) return Promise.resolve(0);
+  const seen={}, jobs=[];
+  bills.forEach(b=>{
+    if(seen[b.ckey]) return; seen[b.ckey]=1;
+    const l=INVD.ctx.linkBy[b.ckey];
+    if(l && l[d.name.trim().toLowerCase()]) return;
+    if(l && (silent || !confirm(b.customer+" is billed for "+Object.keys(l).map(k=>l[k]).join(" / ")+".\n\nIs it also billed for "+d.name
+      +" (e.g. one company with two units)?\n\nOK = yes, link it to "+d.name+" too\nCancel = no — keep this trip flagged as billed to another customer"))) return;
+    jobs.push(()=>Backend.saveLink(b.ckey, b.customer, d.name));
+  });
+  return jobs.reduce((p,j)=>p.then(j), Promise.resolve()).then(()=>jobs.length);
+}
+// Setting on: sure matches (bills in the tanker's name, to its customer,
+// adding up within the buffer) are tagged without asking.
+function autoTag(d){
+  if(!TAGSET.auto || !d.bills || !isAdmin()) return Promise.resolve(0);
+  const todo=d.rec.rows.filter(r=>r.sug && r.sug.sure && (r.status==="none" || r.status==="under"));
+  let n=0;
+  return todo.reduce((p,r)=>p.then(()=>Backend.tagBills(r.trip.id, r.sug.bills, "auto")
+    .then(()=>{ n++; return linkAfterTag(r.trip, r.sug.bills, true); }).catch(()=>{})), Promise.resolve()).then(()=>n);
+}
 function loadTripReport(){
-  const f=$("#trFrom").value, t=$("#trTo").value; if(!f || !t) return;
+  const f=$("#trFrom").value, t=$("#trTo").value; if(!f || !t) return Promise.resolve();
   const seq=++tripSeq;
   $("#trNote").textContent="Loading…";
-  return Backend.loadTrips(bizStartMs(f), bizEndMs(t)).then(list=>{
-    if(seq!==tripSeq) return;           // a newer range was asked for meanwhile
-    TRIPS=list.filter(x=>!isExcluded(x.plate)); TRIPS_ERR=""; renderTrips();
-  }).catch(e=>{ if(seq!==tripSeq) return; TRIPS=[]; TRIPS_ERR=dbHint(e); renderTrips(); });
+  return Ledger.init().catch(()=>"").then(()=>loadInvoiceData(f, t)).then(d=>{
+    if(seq!==tripSeq) return null;
+    INVD=d;   // linkAfterTag (auto) reads the links of this load
+    return autoTag(d).then(n=>{ if(!n) return d; toast("✓ Auto-tagged "+n+" trip"+(n===1?"":"s")); INV_WATCH.at=0; return loadInvoiceData(f, t); });
+  }).then(d=>{
+    if(!d || seq!==tripSeq) return;          // a newer range was asked for meanwhile
+    INVD=d; TRIPS=d.trips.filter(x=>x.day>=f && x.day<=t); TRIPS_ERR=""; renderTrips();
+    if(tagCtx){ const r=d.rec.rows.find(x=>x.trip.id===tagCtx.row.trip.id); if(r){ tagCtx.row=r; renderTagSheet(); } else closeTag(); }
+  }).catch(e=>{ if(seq!==tripSeq) return; TRIPS=[]; INVD=null; TRIPS_ERR=dbHint(e); renderTrips(); });
 }
 function tripPlates(){
   const out=[];
@@ -2840,13 +3453,67 @@ function tripSummary(){
       unknown:ts.filter(t=>!destOf(t.dest)).length };
   });
 }
+function recRow(id){ return INVD ? INVD.rec.rows.find(r=>r.trip.id===id) : null; }
+function billNos(bs){ return bs.map(b=>"#"+b.bill_no).join(" + "); }
+function signL(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+" L"; }
+const INV_STATUS={
+  ok:   r=>'<span class="badge ok">✓ Invoiced</span><span>'+r.tags.length+' bill'+(r.tags.length===1?'':'s')+' · '+fmt(r.sum)+' L'+(r.diff?' ('+signL(r.diff)+')':'')+'</span>',
+  under:r=>'<span class="badge high">◐ Short '+fmt(-r.diff)+' L</span><span>billed '+fmt(r.sum)+' L</span>',
+  over: r=>'<span class="badge high">▲ Over '+fmt(r.diff)+' L</span><span>billed '+fmt(r.sum)+' L</span>',
+  none: ()=>'<span class="badge high">✕ Not invoiced</span>',
+  await:()=>'<span class="badge watch">⏳ Waiting for bills</span><span>ledger has bills up to '+(INVD && INVD.until ? dmy(INVD.until) : '—')+'</span>',
+  before:()=>'<span class="badge info">Not checked</span><span>before '+dmy(tagStart())+'</span>',
+};
+function tripInvHTML(r){
+  if(!r) return "";
+  const sug = r.sug && r.status!=="ok" && r.status!=="over" && r.status!=="before"
+    ? '<div class="trsug">💡 '+esc(billNos(r.sug.bills))+' = '+fmt(r.sug.sum)+' L'+(r.sug.sure?' · <b>sure match</b>':'')+'</div>' : '';
+  return '<div class="trinv">'+INV_STATUS[r.status](r)
+    +(r.status!=="before"?'<button class="tagbtn" data-tag="'+esc(r.trip.id)+'">'+(r.tags.length?'Bills ›':'Tag ›')+'</button>':'')
+    +sug+r.issues.map(i=>'<div class="trissue">⚠ '+esc(i.text)+'</div>').join("")+'</div>';
+}
+function tankerCheckHTML(plate){
+  const pt=INVD && INVD.rec.perTanker[plateKey(plate)];
+  if(!pt || !pt.trips && !pt.namedN) return "";
+  const led=!!INVD.bills;
+  const badge = pt.bad ? '<span class="badge high">⚠ '+pt.bad+' to check</span>'
+    : pt.await ? '<span class="badge watch">⏳ waiting for bills</span>' : '<span class="badge ok">✓ all invoiced</span>';
+  return '<div class="invsum">'+badge+'<span>Sold <b>'+fmt(pt.sent)+' L</b></span><span>Tagged <b>'+fmt(pt.tagged)+' L</b>'
+    +(pt.trips && pt.diff ? ' ('+signL(pt.diff)+')' : '')+'</span>'
+    +(led?'<span>Billed in its name <b>'+fmt(pt.named)+' L</b> · '+pt.namedN+' bill'+(pt.namedN===1?'':'s')+'</span>':'')
+    +(pt.extra?'<span class="bad">⛔ '+pt.extra+' extra bill'+(pt.extra===1?'':'s')+'</span>':'')+'</div>';
+}
+function ledgerStripHTML(){
+  if(!LEDGER_ON) return "";
+  if(!Ledger.on()) return '<div class="ledcard"><div class="lt"><b>🧾 Check the invoices</b><span>Connect the ledger to see each trip\'s bills, get suggestions and catch sales that were not invoiced, or invoiced twice. The ledger is only read.</span></div>'
+    +'<button class="big green sm" id="trLedIn"><span class="em">🔗</span><span>Connect ledger</span></button></div>';
+  return '<div class="ledline">🧾 Ledger <b>'+esc(Ledger.email)+'</b> · bills up to '+(INVD && INVD.until ? dmy(INVD.until) : '—')
+    +' · checks from '+dmy(tagStart())+' · bills may be '+fmt(TAGSET.over)+' L more / '+fmt(TAGSET.tol)+' L less <button class="lnk" id="trLedRe">↻ Refresh</button></div>'
+    +(INVD && INVD.ledErr ? '<div class="endednote warnnote">'+esc(INVD.ledErr)+'</div>' : '')
+    +(INVD && INVD.tooLong ? '<div class="endednote warnnote">Pick at most about a year to check the bills.</div>' : '');
+}
 function renderTrips(){
   const sum=tripSummary();
   $("#trTrips").textContent=TRIPS.length;
   $("#trKm").textContent=fmt(sum.reduce((s,x)=>s+x.km,0));
   $("#trLit").textContent=fmt(sum.reduce((s,x)=>s+x.litres,0));
+  $("#trLedger").innerHTML=ledgerStripHTML();
+  if($("#trLedIn")) $("#trLedIn").onclick=()=>openLedgerLogin(loadTripReport);
+  if($("#trLedRe")) $("#trLedRe").onclick=()=>{ Ledger._bulk=null; loadTripReport(); };
+  // invoice tiles
+  const rs=INVD ? INVD.rec.rows.filter(r=>r.inRange && r.status!=="before") : [];
+  const nOk=rs.filter(r=>r.status==="ok").length, nWait=rs.filter(r=>r.status==="await").length, high=INVD ? INVD.rec.high : 0;
+  $("#trInvOk").textContent=nOk+" / "+rs.length;
+  $("#trInvBad").textContent=high;
+  $("#trInvBad").parentNode.classList.toggle("bad", high>0);
+  $("#trInvWait").textContent=nWait;
+  const tabs=[["tanker","By tanker"],["customer","By customer"],["alerts","Alerts"+(INVD && INVD.rec.alerts.length?" ("+INVD.rec.alerts.length+")":"")]];
+  $("#trView").innerHTML=tabs.map(t=>'<button type="button" data-trview="'+t[0]+'" class="'+(t[0]===trView?'on':'')+'">'+esc(t[1])+'</button>').join("");
+  $("#trView").querySelectorAll("[data-trview]").forEach(b=>{ b.onclick=()=>{ trView=b.getAttribute("data-trview"); renderTrips(); }; });
   const box=$("#trList");
   if(TRIPS_ERR){ box.innerHTML='<div class="empty" style="color:var(--red-d)">'+esc(TRIPS_ERR)+'</div>'; }
+  else if(trView==="customer") box.innerHTML=custViewHTML();
+  else if(trView==="alerts") box.innerHTML=alertsViewHTML();
   else if(!sum.length){ box.innerHTML='<div class="empty">No tankers.</div>'; }
   else box.innerHTML=sum.map(x=>{
     const open=tripOpen.has(x.plate);
@@ -2854,16 +3521,19 @@ function renderTrips(){
       +'<span class="tc">'+r.n+' × '+(r.known?fmt(r.rtd)+' km':'? km')+'</span><span class="tk">'+fmt(r.known?r2(r.n*r.rtd):0)+' km</span></div>').join("");
     const list=open ? '<div class="trtrips">'+x.trips.slice().reverse().map(t=>{
       const d=destOf(t.dest);
-      return '<div class="trrow"><span class="tw">'+dmy(shiftDate(t.ts)).slice(0,5)+' · '+timeLabel(t.ts)+'</span>'
+      return '<div class="trrow hasinv"><span class="tw">'+dmy(shiftDate(t.ts)).slice(0,5)+' · '+timeLabel(t.ts)+'</span>'
         +'<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>'
         +'<span class="tq">'+fmt(t.total)+' L</span>'
-        +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>';
+        +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>'
+        +tripInvHTML(recRow(t.id));
     }).join("")+'</div>' : '';
-    return '<div class="trcard"><div class="trh"><span class="plate">'+esc(x.plate)+'</span>'
+    const pt=INVD && INVD.rec.perTanker[plateKey(x.plate)];
+    return '<div class="trcard'+(pt && pt.bad?' bad':'')+'"><div class="trh"><span class="plate">'+esc(x.plate)+'</span>'
       +'<span class="trn"><b>'+x.n+'</b> trip'+(x.n===1?'':'s')+'<br>'+fmt(x.km)+' km RTD</span></div>'
+      +tankerCheckHTML(x.plate)
       +(x.n ? '<div class="trd">'+lines+'</div>'
             +(x.unknown?'<div class="note" style="color:var(--red-d);text-align:left;margin:6px 0 0">⚠ '+x.unknown+' trip'+(x.unknown===1?'':'s')+' to a customer not in the list (0 km) — tap ✎ on the trip to pick the customer.</div>':'')
-            +'<button class="trshow" data-trshow="'+esc(x.plate)+'">'+(open?'Hide trips ▴':'Show '+x.n+' trip'+(x.n===1?'':'s')+' ▾')+'</button>'+list
+            +'<button class="trshow" data-trshow="'+esc(x.plate)+'">'+(open?'Hide trips ▴':'Show '+x.n+' trip'+(x.n===1?'':'s')+' & bills ▾')+'</button>'+list
           : '<div class="tm" style="margin-top:6px;color:var(--muted);font-size:13px">No trips in this period.</div>')
       +'</div>';
   }).join("");
@@ -2871,11 +3541,196 @@ function renderTrips(){
     const p=b.getAttribute("data-trshow"); if(tripOpen.has(p)) tripOpen.delete(p); else tripOpen.add(p); renderTrips(); }; });
   box.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{
     const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
+  box.querySelectorAll("[data-tag]").forEach(b=>{ b.onclick=()=>openTag(b.getAttribute("data-tag"), b.getAttribute("data-bill")); });
+  box.querySelectorAll("[data-goplate]").forEach(b=>{ b.onclick=()=>{ trView="tanker"; tripOpen.add(b.getAttribute("data-goplate")); renderTrips(); }; });
   $("#trExcel").disabled=!!TRIPS_ERR || !TRIPS.length;
   $("#trNote").innerHTML = TRIPS_ERR ? "" : "A trip = one “Sent for sale”. Dates are business days (7:30 AM to 7:30 AM). "
     + esc(TRIP_EXCLUDE.join(", "))+" is not counted in this report."
+    + (INVD && INVD.tagErr ? " ⚠ Invoice tags: "+esc(INVD.tagErr)+"." : "")
     + (DESTS_FALLBACK?" ⚠ Using the built-in customer list.":"");
 }
+// per customer: delivered (trips) against invoiced (bills), "Sold to" customers
+// joined with the ledger names they're billed as
+function custViewHTML(){
+  if(!INVD) return '<div class="empty">—</div>';
+  const list=INVD.rec.perCust;
+  if(!list.length) return '<div class="empty">No trips or tanker bills in this period.</div>';
+  const st={ ok:'<span class="badge ok">✓ Matches</span>', over:'<span class="badge high">▲ Over-invoiced</span>',
+    under:'<span class="badge high">◐ Under-invoiced</span>', await:'<span class="badge watch">⏳ Waiting for bills</span>' };
+  return (INVD.bills?'':'<div class="endednote warnnote">Connect the ledger to count bills that are on no trip yet.</div>')
+    +list.map(a=>{
+      const name=a.dests.length ? a.dests.join(" + ") : "Not linked to a “Sold to” customer";
+      return '<div class="trcard'+(a.status==="over"||a.status==="under"?' bad':'')+'"><div class="trh"><span class="acn">'+esc(name)+'</span>'+st[a.status]+'</div>'
+        +'<div class="trd">'
+        +'<div class="tl"><span class="tn">Sent for sale</span><span class="tc">'+a.trips+' trip'+(a.trips===1?'':'s')+'</span><span class="tk">'+fmt(a.delivered)+' L</span></div>'
+        +'<div class="tl"><span class="tn">Invoiced</span><span class="tc">'+a.bills+' bill'+(a.bills===1?'':'s')+'</span><span class="tk">'+fmt(a.invoiced)+' L</span></div>'
+        +(a.extraN?'<div class="tl warn"><span class="tn">… on no trip</span><span class="tc">'+a.extraN+' bill'+(a.extraN===1?'':'s')+'</span><span class="tk">'+fmt(a.extraL)+' L</span></div>':'')
+        +(a.waiting?'<div class="tl"><span class="tn">Trips waiting for bills</span><span class="tc"></span><span class="tk">'+fmt(a.waiting)+' L</span></div>':'')
+        +'<div class="tl'+(a.status==="ok"||a.status==="await"?'':' warn')+'"><span class="tn">Invoiced − sent</span><span class="tc"></span><span class="tk">'+signL(a.diff)+'</span></div>'
+        +'</div>'
+        +(a.custs.length?'<div class="note" style="text-align:left;margin:6px 0 0">Billed as: '+esc(a.custs.join(" · "))+'</div>':'')
+        +'</div>';
+    }).join("")
+    +'<div class="note" style="text-align:left">Each trip may be billed up to '+fmt(TAGSET.over)+' L more than sent (or '+fmt(TAGSET.tol)+' L less); a customer is flagged beyond that per trip. Bills count in the month of their trip.</div>';
+}
+function alertsViewHTML(){
+  if(!INVD) return '<div class="empty">—</div>';
+  const al=INVD.rec.alerts;
+  if(!al.length) return '<div class="endednote">✓ Nothing to fix — every sale since '+dmy(tagStart())+' in this period is invoiced'+(INVD.bills?'':' (connect the ledger to check for extra bills)')+'.</div>';
+  return al.map(a=>{
+    let when="", btn="";
+    if(a.row){ when=dmy(a.row.trip.day).slice(0,5)+' · '+timeLabel(a.row.trip.ts); btn='<button class="tagbtn" data-tag="'+esc(a.row.trip.id)+'">Bills ›</button>'; }
+    else if(a.loose){ when=dmy(a.loose.bill.date).slice(0,5);
+      const cand=looseTrips(a.loose.bill);
+      btn = cand.length ? cand.slice(0,3).map(t=>'<button class="tagbtn" data-tag="'+esc(t.id)+'" data-bill="'+esc(a.loose.bill.key)+'">→ '+esc(t.plate)+' '+dmy(t.day).slice(0,5)+'</button>').join("")
+        : a.plate ? '<button class="tagbtn" data-goplate="'+esc(a.plate)+'">Trips of '+esc(a.plate)+' ›</button>' : ''; }
+    return '<div class="flag'+(a.lvl==="high"?' high':'')+'"><div class="fh">'+(a.plate?'<span class="plate">'+esc(a.plate)+'</span>':'')
+      +'<b>'+esc(a.title)+'</b><span class="fd">'+when+'</span></div><div class="fm">'+esc(a.text)+'</div>'
+      +(btn?'<div class="fbtns">'+btn+'</div>':'')+'</div>';
+  }).join("");
+}
+// trips a bill on no trip could go on (room left, the right days, not another tanker's)
+function looseTrips(b){
+  if(!INVD) return [];
+  return INVD.rec.rows.filter(r=>r.status!=="before" && r.status!=="ok" && r.status!=="over"
+    && INV.candidates(r.trip, [b], INVD.tags, INVD.ctx).some(c=>c.c!=="other")).map(r=>r.trip);
+}
+
+/* ---------- TAG SHEET: the bills of one trip ---------- */
+let tagCtx=null;    // { row, picked:{key:1}, wide, q }
+function openTag(tripId, preKey){
+  if(!INVD) return;
+  const r=recRow(tripId); if(!r) return;
+  const picked={};
+  if(preKey) picked[preKey]=1;
+  else if(r.sug && r.status!=="ok" && r.status!=="over") r.sug.bills.forEach(b=>{ picked[b.key]=1; });
+  tagCtx={ row:r, picked:picked, wide:false, q:"" };
+  $("#tagSearch").value=""; $("#tagWide").checked=false; $("#tagErr").textContent="";
+  renderTagSheet(); $("#tagModal").classList.add("on");
+}
+function closeTag(){ $("#tagModal").classList.remove("on"); tagCtx=null; }
+$("#tagCancel").onclick=closeTag;
+$("#tagModal").addEventListener("click",e=>{ if(e.target===$("#tagModal")) closeTag(); });
+$("#tagSearch").addEventListener("input",()=>{ if(tagCtx){ tagCtx.q=$("#tagSearch").value.trim().toLowerCase(); renderTagSheet(); } });
+$("#tagWide").addEventListener("change",()=>{ if(tagCtx){ tagCtx.wide=$("#tagWide").checked; renderTagSheet(); } });
+function fitHTML(c){
+  const v={ match:'<span class="fit-ok">✓ this tanker</span>', blank:'<span class="fit-warn">no vehicle</span>',
+    other:'<span class="fit-bad">other vehicle</span>', tanker:'<span class="fit-bad">⚠ another tanker</span>' }[c.v];
+  const k={ linked:'<span class="fit-ok">✓ customer</span>', similar:'<span class="fit-ok">≈ customer</span>', bulk:'',
+    unknown:'', other:'<span class="fit-bad">⚠ billed for another customer</span>' }[c.c];
+  return [v,k].filter(Boolean).join(" · ");
+}
+function billLineHTML(b){ return '<div class="t1">#'+esc(b.bill_no)+' · '+dmy(b.date)+'</div><div class="t2">'+esc(b.customer)+' · '+esc(b.vehicle||"no vehicle")+'</div>'; }
+function renderTagSheet(){
+  const r=tagCtx.row, t=r.trip, ctx=INVD.ctx;
+  $("#tagTitle").textContent=t.plate+" · "+fmt(t.total)+" L";
+  $("#tagSub").textContent=dmy(t.day)+" "+timeLabel(t.ts)+" · "+(t.dest||"no customer");
+  $("#tagHave").innerHTML = r.tags.length
+    ? '<div class="mlab">Tagged to this trip</div>'+r.tags.map(x=>'<div class="tagrow have"><div class="tb">'+billLineHTML(x)
+        +(x.mode==="auto"?'<div class="t2">auto-tagged</div>':'')+'</div><div class="tq">'+fmt(x.qty)+' L</div>'
+        +'<button class="del" data-untag="'+esc(x.key)+'" aria-label="Untag">✕</button></div>').join("")
+      +r.issues.map(i=>'<div class="trissue">⚠ '+esc(i.text)+'</div>').join("")
+    : '';
+  $("#tagHave").querySelectorAll("[data-untag]").forEach(b=>{ b.onclick=()=>untagUI(b.getAttribute("data-untag")); });
+  const box=$("#tagList");
+  if(!INVD.bills){
+    $("#tagPick").hidden=true;
+    box.innerHTML='<div class="empty">'+(LEDGER_ON?'Connect the ledger to pick this trip\'s bills.<br><button class="big green sm" id="tagLedIn" style="margin:10px 0 0"><span class="em">🔗</span><span>Connect ledger</span></button>':'The ledger is not set up in config.js.')+'</div>';
+    if($("#tagLedIn")) $("#tagLedIn").onclick=()=>openLedgerLogin(loadTripReport);
+    $("#tagSum").textContent=""; $("#tagOk").disabled=true; return;
+  }
+  $("#tagPick").hidden=false;
+  // bills suggested for OTHER trips are marked, so one isn't taken by mistake
+  const elsewhere={};
+  INVD.rec.rows.forEach(x=>{ if(x.sug && x.trip.id!==t.id) x.sug.bills.forEach(b=>{ elsewhere[b.key]=x.trip; }); });
+  let list=INV.candidates(t, INVD.bills, INVD.tags, ctx, tagCtx.wide);
+  Object.keys(tagCtx.picked).forEach(k=>{ if(!list.some(c=>c.bill.key===k)){ const b=INVD.bills.find(x=>x.key===k);
+    if(b && !INVD.tags.some(g=>g.key===k)) list.unshift({ bill:b, v:INV.vehFit(t,b,ctx), c:INV.custFit(t,b,ctx), s:-100 }); } });
+  const q=tagCtx.q;
+  if(q) list=list.filter(c=>(c.bill.bill_no+" "+c.bill.customer+" "+c.bill.vehicle).toLowerCase().indexOf(q)>=0 || INV.vehKey(c.bill.vehicle).indexOf(INV.vehKey(q))>=0);
+  const sugKeys={}; if(r.sug) r.sug.bills.forEach(b=>{ sugKeys[b.key]=1; });
+  box.innerHTML = list.length ? list.slice(0,60).map(c=>{
+    const b=c.bill, on=!!tagCtx.picked[b.key], o=elsewhere[b.key];
+    return '<label class="tagrow'+(on?' on':'')+'"><input type="checkbox" data-pick="'+esc(b.key)+'"'+(on?' checked':'')+'>'
+      +'<div class="tb">'+billLineHTML(b)+'<div class="t2">'+fitHTML(c)+(sugKeys[b.key]?' · <b>💡 suggested</b>':'')
+      +(o?' · <span class="fit-warn">suggested for '+esc(o.plate)+' '+dmy(o.day).slice(0,5)+'</span>':'')+'</div></div>'
+      +'<div class="tq">'+fmt(b.qty)+' L</div></label>';
+  }).join("") : '<div class="empty">No bills '+(tagCtx.wide?'within a week of this trip':'from the day before to 3 days after this trip')+(q?' match “'+esc(q)+'”':'')+'.'+(tagCtx.wide?'':' Tick “Show all” to look wider.')+'</div>';
+  box.querySelectorAll("[data-pick]").forEach(cb=>{ cb.onchange=()=>{ const k=cb.getAttribute("data-pick");
+    if(cb.checked) tagCtx.picked[k]=1; else delete tagCtx.picked[k]; renderTagSheet(); }; });
+  // the running total: tagged + ticked against the trip, with the buffer
+  const pick=pickedBills(), add=r2(pick.reduce((s,b)=>s+b.qty,0)), tot=r2(r.sum+add), d=r2(tot-t.total);
+  const verdict = !pick.length && !r.tags.length ? "" : d>TAGSET.over ? '<span class="fit-bad">▲ over by '+fmt(d)+' L</span>'
+    : d< -TAGSET.tol ? '<span class="fit-warn">short by '+fmt(-d)+' L</span>' : '<span class="fit-ok">✓ adds up ('+signL(d)+')</span>';
+  $("#tagSum").innerHTML=(r.tags.length?fmt(r.sum)+' L tagged + ':'')+fmt(add)+' L ticked = <b>'+fmt(tot)+' L</b> of '+fmt(t.total)+' L · '+verdict;
+  $("#tagOk").disabled=!pick.length;
+  $("#tagOk").textContent=pick.length ? "Tag "+pick.length+" bill"+(pick.length===1?"":"s") : "Tag";
+}
+function pickedBills(){ return INVD && INVD.bills ? INVD.bills.filter(b=>tagCtx.picked[b.key]).sort(INV.billCmp) : []; }
+$("#tagOk").onclick=()=>{
+  if(!tagCtx) return;
+  const r=tagCtx.row, t=r.trip, ctx=INVD.ctx, pick=pickedBills();
+  if(!pick.length) return;
+  const warn=[];
+  pick.forEach(b=>{
+    const v=INV.vehFit(t,b,ctx), c=INV.custFit(t,b,ctx);
+    if(v==="tanker") warn.push("#"+b.bill_no+" is in the name of "+INV.billPlate(b,ctx)+", not "+t.plate);
+    if(c==="other") warn.push("#"+b.bill_no+" is to "+b.customer+", billed for "+Object.keys(ctx.linkBy[b.ckey]).map(k=>ctx.linkBy[b.ckey][k]).join(" / ")+" — this trip went to "+(t.dest||"no customer"));
+  });
+  const tot=r2(r.sum+pick.reduce((s,b)=>s+b.qty,0)), d=r2(tot-t.total);
+  if(d>TAGSET.over) warn.push("The bills would come to "+fmt(tot)+" L on a "+fmt(t.total)+" L trip — over-invoiced by "+fmt(d)+" L");
+  if(warn.length && !confirm("Check before tagging:\n\n• "+warn.join("\n• ")+"\n\nTag anyway? It will stay flagged.")) return;
+  const btn=$("#tagOk"); btn.disabled=true; $("#tagErr").textContent="Saving…";
+  Backend.tagBills(t.id, pick, "manual").then(()=>linkAfterTag(t, pick, false)).then(n=>{
+    $("#tagErr").textContent=""; tagCtx.picked={};
+    toast("✓ Tagged "+pick.length+" bill"+(pick.length===1?"":"s")+" to "+t.plate+(n?" · customer linked":""));
+    INV_WATCH.at=0; closeTag(); return loadTripReport();
+  }).catch(e=>{ btn.disabled=false; $("#tagErr").textContent=dbHint(e); });
+};
+function untagUI(key){
+  const x=tagCtx && tagCtx.row.tags.find(g=>g.key===key); if(!x) return;
+  if(!confirm("Take bill #"+x.bill_no+" ("+fmt(x.qty)+" L, "+x.customer+") off this trip?")) return;
+  Backend.untagBill(key).then(()=>{ toast("Bill #"+x.bill_no+" untagged"); INV_WATCH.at=0; return loadTripReport(); })
+    .catch(e=>{ $("#tagErr").textContent=dbHint(e); });
+}
+
+/* ---------- Invoice check on the home screen (admins) ----------
+   What needs fixing — a sale not invoiced, a bill in a tanker's name on no
+   trip, over / under-invoicing — shows at the top of Home as soon as the
+   app sees it (on open, every few minutes, and the moment a trip or tag
+   changes). Last 45 days, from the check's start date. */
+const INV_WATCH={ at:0, busy:false, d:null };
+function invoiceWatch(force){
+  if(!isAdmin() || !LEDGER_ON || INV_WATCH.busy) { paintInvBanner(); return; }
+  if(!force && Date.now()-INV_WATCH.at<3*60e3){ paintInvBanner(); return; }
+  INV_WATCH.busy=true;
+  Ledger.init().then(()=>{
+    if(!Ledger.on()){ INV_WATCH.d=null; return; }
+    const to=shiftDate(Date.now()), f45=addDays(to,-45), st=tagStart(), from=st>f45?st:f45;
+    if(from>to){ INV_WATCH.d=null; return; }
+    return loadInvoiceData(from, to).then(d=>{ INV_WATCH.d=d; });
+  }).catch(()=>{}).then(()=>{ INV_WATCH.busy=false; INV_WATCH.at=Date.now(); paintInvBanner(); });
+}
+function paintInvBanner(){
+  const box=$("#invBanner"); if(!box) return;
+  const d=INV_WATCH.d;
+  if(!isAdmin() || !LEDGER_ON || !Ledger.on() || !d){ box.innerHTML=""; return; }
+  const hi=d.rec.alerts.filter(a=>a.lvl==="high"), cnt={};
+  hi.forEach(a=>{ cnt[a.kind]=(cnt[a.kind]||0)+1; });
+  const lab={ none:["sale not invoiced","sales not invoiced"], extra:["extra bill in a tanker's name","extra bills in a tanker's name"],
+    over:["trip over-invoiced","trips over-invoiced"], under:["trip under-invoiced","trips under-invoiced"],
+    cust:["bill to another customer","bills to another customer"], veh:["bill in another tanker's name","bills in another tanker's name"],
+    changed:["bill changed in the ledger","bills changed in the ledger"], gone:["bill deleted in the ledger","bills deleted in the ledger"] };
+  if(!hi.length){
+    box.innerHTML='<button class="invban ok" id="invGo"><span class="em">🧾</span><span><b>Invoices check out</b><span class="hi">Every sale since '+dmy(d.from)+' is invoiced'
+      +(d.rec.alerts.length?' · '+d.rec.alerts.length+' bill'+(d.rec.alerts.length===1?'':'s')+' still to tag':'')+'</span></span><span class="chev">›</span></button>';
+  } else {
+    box.innerHTML='<button class="invban" id="invGo"><span class="em">⚠</span><span><b>Invoice check: '+hi.length+' to fix</b><span class="hi">'
+      +Object.keys(cnt).map(k=>cnt[k]+" "+lab[k][cnt[k]===1?0:1]).join(" · ")+'</span></span><span class="chev">›</span></button>';
+  }
+  $("#invGo").onclick=()=>openTrips(hi.length?"alerts":"tanker", { from:d.from, to:d.to });
+}
+
 $("#trExcel").onclick=async()=>{
   if(!TRIPS.length){ toast("No trips in this period"); return; }
   const sum=tripSummary(), f=$("#trFrom").value, t=$("#trTo").value;
@@ -2885,8 +3740,12 @@ $("#trExcel").onclick=async()=>{
   const byT=[head].concat(sum.map(x=>[x.plate, x.n, x.km, x.litres].concat(names.map(n=>{ const r=x.rows.find(rr=>rr.name===n); return r?r.n:0; }))));
   byT.push(["Total", TRIPS.length, r2(sum.reduce((s,x)=>s+x.km,0)), r2(sum.reduce((s,x)=>s+x.litres,0))]
     .concat(names.map(n=>sum.reduce((s,x)=>{ const r=x.rows.find(rr=>rr.name===n); return s+(r?r.n:0); },0))));
-  const list=TRIPS.map(x=>{ const d=destOf(x.dest); return { "Business date":shiftDate(x.ts), "Time":timeLabel(x.ts), "Vehicle":x.plate,
-    "Customer":x.dest||"", "RTD km":d?d.rtd:0, "In customer list?":d?"Yes":"No", "Litres":x.total, "By":x.by||"" }; });
+  const ST={ ok:"Invoiced", under:"Under-invoiced", over:"Over-invoiced", none:"Not invoiced", await:"Waiting for bills", before:"Not checked" };
+  const list=TRIPS.map(x=>{ const d=destOf(x.dest), rr=recRow(x.id); return { "Business date":shiftDate(x.ts), "Time":timeLabel(x.ts), "Vehicle":x.plate,
+    "Customer":x.dest||"", "RTD km":d?d.rtd:0, "In customer list?":d?"Yes":"No", "Litres":x.total, "By":x.by||"",
+    "Bills":rr?rr.tags.map(g=>g.bill_no).join(", "):"", "Billed to":rr?Array.from(new Set(rr.tags.map(g=>g.customer))).join(", "):"",
+    "Invoiced L":rr?rr.sum:"", "Invoiced − sent L":rr&&rr.tags.length?rr.diff:"", "Invoice status":rr?ST[rr.status]:"",
+    "Problems":rr?rr.issues.map(i=>i.text).join(" | "):"" }; });
   const cust=DESTS.map(d=>({ "Customer":d.name, "RTD km / trip":d.rtd, "Group":d.grp||"" }));
   const fname="Vriddhi_Trips_per_Tanker_"+f+"_to_"+t;
   try{
@@ -2897,8 +3756,21 @@ $("#trExcel").onclick=async()=>{
     const ws=XLSX.utils.aoa_to_sheet(top.concat(byT));
     ws["!cols"]=[{wch:14},{wch:7},{wch:9},{wch:12}].concat(names.map(()=>({wch:16})));
     numfmt(XLSX,ws,top.length+1); XLSX.utils.book_append_sheet(wb,ws,"Trips by tanker");
-    const wl=XLSX.utils.json_to_sheet(list); wl["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:30},{wch:8},{wch:15},{wch:10},{wch:12}];
+    const wl=XLSX.utils.json_to_sheet(list); wl["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:30},{wch:8},{wch:15},{wch:10},{wch:12},{wch:22},{wch:30},{wch:11},{wch:14},{wch:18},{wch:50}];
     wl["!autofilter"]={ref:wl["!ref"]}; numfmt(XLSX,wl,1); XLSX.utils.book_append_sheet(wb,wl,"Trip list");
+    if(INVD){
+      const PT=Object.keys(INVD.rec.perTanker).map(k=>INVD.rec.perTanker[k]).filter(p=>p.trips || p.namedN).map(p=>({ "Vehicle":p.plate,
+        "Trips":p.trips, "Litres sold":p.sent, "Litres tagged":p.tagged, "Tagged − sold":p.diff, "Billed in its name (L)":INVD.bills?p.named:"",
+        "Bills in its name":INVD.bills?p.namedN:"", "Not invoiced":p.none, "Under":p.under, "Over":p.over, "Extra bills":p.extra, "Waiting":p.await }));
+      if(PT.length){ const w=XLSX.utils.json_to_sheet(PT); numfmt(XLSX,w,1); XLSX.utils.book_append_sheet(wb,w,"Invoice check · tankers"); }
+      const PC=INVD.rec.perCust.map(a=>({ "Sold to":a.dests.join(" + "), "Billed as":a.custs.join(" + "), "Trips":a.trips, "Litres sent":a.delivered,
+        "Bills":a.bills, "Litres invoiced":a.invoiced, "… on no trip":a.extraL, "Invoiced − sent":a.diff,
+        "Status":{ ok:"Matches", over:"Over-invoiced", under:"Under-invoiced", await:"Waiting for bills" }[a.status] }));
+      if(PC.length){ const w=XLSX.utils.json_to_sheet(PC); w["!cols"]=[{wch:30},{wch:40}]; numfmt(XLSX,w,1); XLSX.utils.book_append_sheet(wb,w,"Invoice check · customers"); }
+      const AL=INVD.rec.alerts.map(a=>({ "Level":a.lvl==="high"?"Fix":"Check", "Problem":a.title, "Vehicle":a.plate||"",
+        "Date":a.row?a.row.trip.day:a.loose.bill.date, "Details":a.text }));
+      if(AL.length){ const w=XLSX.utils.json_to_sheet(AL); w["!cols"]=[{wch:7},{wch:34},{wch:12},{wch:12},{wch:80}]; XLSX.utils.book_append_sheet(wb,w,"Invoice alerts"); }
+    }
     const wc=XLSX.utils.json_to_sheet(cust); wc["!cols"]=[{wch:32},{wch:13},{wch:18}]; XLSX.utils.book_append_sheet(wb,wc,"Customers (RTD)");
     const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
     dl(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), fname+".xlsx");
@@ -2909,6 +3781,58 @@ $("#trExcel").onclick=async()=>{
     dl(new Blob([csv],{type:"text/csv;charset=utf-8"}), fname+".csv");
     toast("Downloaded as CSV");
   }
+};
+
+/* ---------- ⚙ Invoice check settings ---------- */
+let LINKS=[];
+function renderInvSettings(){
+  const wrap=$("#invSet"); if(!wrap) return;
+  const lb=$("#ledBox");
+  if(!LEDGER_ON) lb.innerHTML='<div class="note" style="text-align:left;margin:0">The ledger is not set up — add its URL and key in loading/config.js.</div>';
+  else Ledger.init().catch(()=>"").then(()=>{
+    lb.innerHTML = Ledger.on()
+      ? '<div class="ledrow"><span>🧾 Ledger: <b>'+esc(Ledger.email)+'</b><br><span class="sub">bills are only read</span></span><button class="lnk" id="ledOut">Disconnect</button></div>'
+      : '<div class="ledrow"><span>🧾 Ledger not connected on this phone</span><button class="big green sm" id="ledIn" style="margin:0;width:auto;padding:10px 14px"><span>Connect</span></button></div>';
+    if($("#ledOut")) $("#ledOut").onclick=()=>ledgerSignOut(renderInvSettings);
+    if($("#ledIn")) $("#ledIn").onclick=()=>openLedgerLogin(renderInvSettings);
+    if(Ledger.on()) Ledger.customers().then(cs=>{
+      $("#linkCustList").innerHTML=cs.map(c=>'<option value="'+esc(c.name)+'">'+esc(c.bulk||"")+'</option>').join("");
+    }).catch(()=>{});
+  });
+  $("#tagFrom").value=tagStart();
+  $("#tagOver").value=TAGSET.over; $("#tagTol").value=TAGSET.tol; $("#tagAuto").checked=TAGSET.auto;
+  $("#linkDest").innerHTML=DESTS.map(d=>'<option>'+esc(d.name)+'</option>').join("");
+  Backend.loadLinks().then(l=>{ LINKS=l; paintLinks(); }).catch(e=>{ $("#linkList").innerHTML='<div class="empty">'+esc(dbHint(e))+'</div>'; });
+}
+function paintLinks(){
+  const box=$("#linkList");
+  if(!LINKS.length){ box.innerHTML='<div class="empty">None yet — made as you tag bills.</div>'; return; }
+  const by={}; LINKS.forEach(l=>{ (by[l.dest]=by[l.dest]||[]).push(l); });
+  box.innerHTML='<div class="glist">'+Object.keys(by).sort().map(d=>by[d].map(l=>'<div class="entry"><div class="mid"><div class="ch">'+esc(l.customer)+'</div>'
+    +'<div class="tm">billed for '+esc(d)+(destOf(d)?'':' · ⚠ not in the customer list')+'</div></div>'
+    +'<button class="del" data-unlink="'+esc(l.ckey)+'" data-dest="'+esc(l.dest)+'" aria-label="Remove link">🗑</button></div>').join("")).join("")+'</div>';
+  box.querySelectorAll("[data-unlink]").forEach(b=>{ b.onclick=()=>{
+    const ck=b.getAttribute("data-unlink"), d=b.getAttribute("data-dest");
+    if(!confirm("Remove this link?\nBills to it will no longer be suggested for "+d+" (tags already made stay).")) return;
+    Backend.removeLink(ck, d).then(()=>{ INV_WATCH.at=0; toast("Link removed"); renderInvSettings(); }).catch(e=>toast(dbHint(e)));
+  }; });
+}
+$("#tagSave").onclick=()=>{
+  const f=$("#tagFrom").value, ov=$("#tagOver").value.trim(), tl=$("#tagTol").value.trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(f)){ toast("Pick the date checks start from"); return; }
+  const o=num(ov), t=num(tl);
+  if(ov==="" || o<0 || o>2000 || tl==="" || t<0 || t>2000){ toast("Litres must be between 0 and 2,000"); return; }
+  const btn=$("#tagSave"); btn.disabled=true;
+  Backend.saveSetting("tag_from", f).then(()=>Backend.saveSetting("tag_over_l", r2(o))).then(()=>Backend.saveSetting("tag_tol_l", r2(t)))
+    .then(()=>Backend.saveSetting("tag_auto", $("#tagAuto").checked?1:0)).then(refresh).then(()=>{
+      btn.disabled=false; INV_WATCH.at=0; toast("✓ Invoice check saved"); renderInvSettings();
+    }).catch(e=>{ btn.disabled=false; toast(dbHint(e)); });
+};
+$("#linkAdd").onclick=()=>{
+  const d=$("#linkDest").value, name=$("#linkCust").value.trim();
+  if(!d || !name){ toast("Pick the customer and type the ledger name"); return; }
+  Backend.saveLink(INV.normName(name), name, d).then(()=>{ $("#linkCust").value=""; INV_WATCH.at=0; toast("✓ "+name+" linked to "+d); renderInvSettings(); })
+    .catch(e=>toast(dbHint(e)));
 };
 
 /* ---------- MILEAGE CALCULATOR ----------
@@ -4480,8 +5404,9 @@ function subscribeRealtime(){
   let t2;
   const poke2=()=>{ clearTimeout(t2); t2=setTimeout(()=>{ refresh().then(()=>{
     const cur=stack[stack.length-1];
+    invoiceWatch(true);   // a trip or a tag changed: the home banner follows at once
     if(cur==="scTrips") loadTripReport(); else if(cur==="scMileage" || cur==="scTrend") loadMileage();
-    else if(cur==="scSettings") renderDests();
+    else if(cur==="scSettings"){ renderDests(); renderInvSettings(); }
   }).catch(()=>{}); }, 350); };
   // the admin's "log out all staff" lands here instantly on every phone
   CloudBackend.client.channel("loading-live-auth")
@@ -4492,6 +5417,8 @@ function subscribeRealtime(){
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_destinations"},poke2)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_fuel_logs"},poke2)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_settings"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_invoice_tags"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_dest_links"},poke2)
     .subscribe();
 }
 
@@ -4711,6 +5638,14 @@ window.addEventListener("storage",e=>{ if(e.key===THEME_KEY || e.key===null) app
 applyTheme();
 
 /* ---------- Boot ---------- */
+// the Supabase library, loaded once (the app's own login and the ledger link share it)
+let _supa=null;
+function supaFactory(){
+  if(!_supa) _supa = window.__VF_TEST_SUPABASE_FACTORY
+    ? Promise.resolve(window.__VF_TEST_SUPABASE_FACTORY)
+    : import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
+  return _supa;
+}
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
 
 function boot(){
@@ -4720,10 +5655,7 @@ function boot(){
     LocalBackend.closeDue().then(refresh).then(()=>{ renderHome(); }).catch(oops);
     return;
   }
-  const factory = window.__VF_TEST_SUPABASE_FACTORY
-    ? Promise.resolve(window.__VF_TEST_SUPABASE_FACTORY)
-    : import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
-  factory.then(createClient=>{
+  supaFactory().then(createClient=>{
     CloudBackend.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
     CloudBackend.client.auth.onAuthStateChange((event)=>{ if(event==="SIGNED_OUT"){ LOG=[]; ME=""; showLogin(); } });
     return CloudBackend.client.auth.getSession().then(res=>{
