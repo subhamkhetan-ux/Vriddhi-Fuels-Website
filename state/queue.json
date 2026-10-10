@@ -4281,6 +4281,27 @@
       },
       "queued_at": "2026-10-09T16:44:19.518174+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "b7530019c0456e83",
+      "gmail_msg_id": "1878624491702391438",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "10/10/2026",
+      "date_serial": 46305,
+      "amount": 36382.88,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-10T01:45:17.764070+00:00",
+      "status": "matched"
     }
   ]
 }
