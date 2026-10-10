@@ -438,6 +438,7 @@
   .trd .tl.muted .tn,.trd .tl.muted .tk{color:var(--muted);font-weight:600}
   .trd .tl.muted small{font-weight:500}
   .trd .tl.wait .tn,.trd .tl.wait .tk{color:var(--warn)}
+  .totag{font-size:12px;font-weight:600;color:var(--warn);padding:2px 0 7px;border-bottom:1px solid rgba(27,33,48,.06);line-height:1.5}
   .mapbills{display:flex;flex-direction:column;gap:5px;margin-top:6px}
   .mapbill{display:grid;grid-template-columns:1fr auto auto;grid-template-areas:"a q g" "b q g";gap:1px 10px;align-items:center;width:100%;text-align:left;border:1px solid var(--line);background:var(--glass-2);border-radius:11px;padding:7px 10px;cursor:pointer;font:inherit;color:var(--ink)}
   .mapbill.warn{border-color:rgba(208,59,59,.45);background:var(--bad-bg)}
@@ -1534,7 +1535,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v48 · 2026-10-10";
+const APP_BUILD = "v49 · 2026-10-10";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3337,8 +3338,9 @@ const INV = (function(){
     const loose=bills.filter(b=>isPool(b, ctx) && !tagged[b.key]).sort(billCmp).map(b=>{
       const p=billPlate(b, ctx);
       // trips it could belong to (room left): this tanker's, or for a bill with no vehicle its customer's
+      // (never a trip of a customer the bill's customer is not billed for)
       const could=rows.filter(r=>left[r.trip.id]>=b.qty-over && rate(r.trip, b, ctx)
-        && (p ? vehKey(r.trip.plate)===p : ["linked","similar"].indexOf(custFit(r.trip, b, ctx))>=0));
+        && (p ? vehKey(r.trip.plate)===p && custFit(r.trip, b, ctx)!=="other" : ["linked","similar"].indexOf(custFit(r.trip, b, ctx))>=0));
       const open=could.filter(r=>!r.checked).map(r=>r.trip);
       // only trips marked "checked by hand" could take it: it is taken as theirs (covered), not to tag
       const kind = open.length ? (p ? "untagged" : "loose") : could.length ? "covered" : (p ? "extra" : "loose");
@@ -3790,6 +3792,9 @@ function custViewHTML(){
         +'<div class="tl"><span class="tn">Sent for sale</span><span class="tc">'+a.trips+' trip'+(a.trips===1?'':'s')+'</span><span class="tk">'+fmt(a.delivered)+' L</span></div>'
         +'<div class="tl"><span class="tn">Invoiced</span><span class="tc">'+a.bills+' bill'+(a.bills===1?'':'s')+'</span><span class="tk">'+fmt(a.invoiced)+' L</span></div>'
         +(a.extraN-a.coveredN?'<div class="tl'+(a.extraHard?' warn':' wait')+'"><span class="tn">… on no trip'+(a.extraHard?'':' — to tag')+'</span><span class="tc">'+(a.extraN-a.coveredN)+' bill'+(a.extraN-a.coveredN===1?'':'s')+'</span><span class="tk">'+fmt(r2(a.extraL-a.coveredL))+' L</span></div>':'')
+        +(a.toTagN ? '<div class="totag">'+a.loose.filter(x=>x.kind!=="covered" && x.kind!=="extra").map(x=>'#'+esc(x.bill.bill_no)+' · '+dmy(x.bill.date).slice(0,5)
+            +' · '+fmt(x.bill.qty)+' L → '+(x.trips.length ? x.trips.slice(0,2).map(t=>esc(t.plate)+' '+dmy(t.day).slice(0,5)
+              +(INVD && INVD.ctx.from && t.day<INVD.ctx.from?' (before checks start)':'')+(destOf(t.dest)&&t.dest!==a.dests[0]?' · '+esc(t.dest):'')).join(' or ') : 'a trip of its customer')).join('<br>')+'</div>' : '')
         +(a.coveredN?'<div class="tl muted"><span class="tn">… covered by trips checked by hand</span><span class="tc">'+a.coveredN+' bill'+(a.coveredN===1?'':'s')+'</span><span class="tk">'+fmt(a.coveredL)+' L</span></div>':'')
         +(a.checkedN?'<div class="tl muted"><span class="tn">Settled by hand</span><span class="tc">'+a.checkedN+' trip'+(a.checkedN===1?'':'s')+'</span><span class="tk">'+fmt(a.handL)+' L</span></div>':'')
         +(a.short?'<div class="tl muted"><span class="tn">Short supply <small>(≤ '+fmt(TAGSET.over)+' L a trip)</small></span><span class="tc"></span><span class="tk">'+fmt(a.short)+' L</span></div>':'')
