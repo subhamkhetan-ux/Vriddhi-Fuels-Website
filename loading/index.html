@@ -1075,6 +1075,7 @@
       <div class="rpresets" id="trView" role="group" aria-label="View"></div>
       <div id="trList"></div>
       <button class="big green" id="trExcel"><span class="em">⬇</span><span>Download trip report (Excel)</span></button>
+      <button class="linkbtn" id="trData">⬇ Download check data (for support)</button>
       <div class="note" id="trNote"></div>
     </section>
 
@@ -1535,7 +1536,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v49 · 2026-10-10";
+const APP_BUILD = "v50 · 2026-10-10";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3571,7 +3572,7 @@ function loadInvoiceData(from, to){
     const until=bills ? bills.reduce((m,b)=>b.date>m?b.date:m, "") : null;
     const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), skip:TRIP_EXCLUDE, ignore:OWN_CUSTOMERS, dests:DESTS.map(d=>d.name), tol:TAGSET.tol, over:TAGSET.over,
       from:tagStart(), until:until, links:r[2], checked:r[4], bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
-    return { from:from, to:to, trips:trips, tags:tags, links:r[2], bills:bills, ctx:ctx, until:until,
+    return { from:from, to:to, trips:trips, tags:tags, links:r[2], checks:r[4]||[], bills:bills, ctx:ctx, until:until,
       rec:INV.reconcile(trips, bills||[], tags, ctx, { from:from, to:to }),
       tagErr:tagErr, ledErr:(L && L.err) || "", tooLong:Ledger.on() && !fits };
   });
@@ -3737,6 +3738,7 @@ function renderTrips(){
   box.querySelectorAll("[data-tagsure]").forEach(b=>{ b.onclick=()=>tagSureUI(b.getAttribute("data-tagsure")); });
   box.querySelectorAll("[data-goplate]").forEach(b=>{ b.onclick=()=>{ trView="tanker"; tripOpen.add(b.getAttribute("data-goplate")); renderTrips(); }; });
   $("#trExcel").disabled=!!TRIPS_ERR || !TRIPS.length;
+  $("#trData").hidden=!INVD;
   $("#trNote").innerHTML = TRIPS_ERR ? "" : "A trip = one “Sent for sale”. Dates are business days (7:30 AM to 7:30 AM). "
     + esc(TRIP_EXCLUDE.join(", "))+" is not counted in this report."
     + (INVD && INVD.tagErr ? " ⚠ Invoice tags: "+esc(INVD.tagErr)+"." : "")
@@ -4188,6 +4190,31 @@ function paintInvBanner(){
   $("#invGo").onclick=()=>{ mapTodo=hi.length>0; openTrips("map", { from:d.from, to:d.to }); };
 }
 
+/* Everything the invoice check worked from, as one file — to send for support
+   so the same screen can be rebuilt exactly. Read-only; nothing is changed. */
+$("#trData").onclick=()=>{
+  if(!INVD){ toast("Open a period first"); return; }
+  const d=INVD, c=d.ctx, row=r=>({ trip_id:r.trip.id, status:r.status, billed:r.sum, diff:r.diff, short:r.short, in_period:r.inRange,
+    bills:r.tags.map(x=>x.bill_no), issues:r.issues.map(i=>i.kind+": "+i.text), suggested:r.sug?r.sug.bills.map(b=>b.bill_no):[], checked:r.checked?r.checked.note:"" });
+  const out={
+    what:"Vriddhi Fuels — tanker invoice check data", app_build:APP_BUILD, exported_at:new Date().toISOString(), by:ME||"",
+    period:{ from:d.from, to:d.to }, settings:{ check_from:c.from, bill_may_be_more_l:c.over, bill_may_be_less_l:c.tol, auto_tag:TAGSET.auto },
+    ledger:{ connected:!!d.bills, bills_up_to:d.until, bills_loaded_from:c.billsFrom, bills_loaded_to:c.billsTo, error:d.ledErr||"" },
+    tankers:VEHICLES.map(v=>v.plate), left_out_vehicles:TRIP_EXCLUDE, own_customers:OWN_CUSTOMERS,
+    sold_to_customers:DESTS.map(x=>({ name:x.name, rtd_km:x.rtd, group:x.grp })), bulk_customers:Object.keys(c.bulk),
+    trips:d.trips.map(t=>({ id:t.id, day:t.day, time:new Date(t.ts).toISOString(), vehicle:t.plate, litres:t.total, sold_to:t.dest, by:t.by||"" })),
+    tags:d.tags, links:d.links, checked_by_hand:d.checks, bills:d.bills||[],
+    result:{ trips:d.rec.rows.map(row),
+      bills_on_no_trip:d.rec.loose.map(x=>({ bill_no:x.bill.bill_no, date:x.bill.date, vehicle:x.bill.vehicle, litres:x.bill.qty, customer:x.bill.customer,
+        kind:x.kind, could_go_on:x.trips.map(t=>t.plate+" "+t.day+" → "+(t.dest||"")) })),
+      per_tanker:d.rec.perTanker, per_customer:d.rec.perCust.map(a=>({ sold_to:a.dests, billed_as:a.custs, status:a.status, trips:a.trips,
+        sent:a.delivered, tagged:a.tagged, to_tag:a.toTag, extra:a.extraHard, covered:a.coveredL, settled_by_hand:a.handL, short_supply:a.short,
+        waiting:a.waiting, over_under:a.diff, trip_ids:a.tripIds })),
+      alerts:d.rec.alerts.map(a=>({ level:a.lvl, kind:a.kind, title:a.title, text:a.text })) }
+  };
+  dl(new Blob([JSON.stringify(out, null, 1)], { type:"application/json" }), "Vriddhi_Invoice_Check_"+d.from+"_to_"+d.to+".json");
+  toast("Check data downloaded — attach the file in the chat");
+};
 $("#trExcel").onclick=async()=>{
   if(!TRIPS.length){ toast("No trips in this period"); return; }
   const sum=tripSummary(), f=$("#trFrom").value, t=$("#trTo").value;

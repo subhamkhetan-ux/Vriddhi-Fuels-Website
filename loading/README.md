@@ -543,6 +543,13 @@ name, to its customer, adding up within the buffer — are tagged without
 asking (shown as *auto-tagged*). Start with it off, tag by hand with the
 suggestions, and switch it on once the suggestions are always right.
 
+**Download check data (for support)** (under the Excel button) saves one
+.json file with everything the check worked from for the period on screen —
+trips, tags, customer links, trips checked by hand, settings and the ledger
+bills of those days — and what it concluded. Send it to whoever looks into
+the check; `node tests/loading_web/replay.mjs <file>` rebuilds the same
+result. It holds customer names, bill numbers, litres and amounts.
+
 The trip report Excel gains the bills, invoiced litres and status of every
 trip, and *Invoice check · tankers / customers* and *Invoice alerts* sheets.
 
