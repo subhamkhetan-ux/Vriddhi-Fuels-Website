@@ -405,3 +405,36 @@ test('a trip marked as checked by hand is no longer flagged, anywhere', () => {
   const ok = INV.reconcile([t1], [b], [tagOf(b, t1)], ctx({ ...base, checked: [{ trip_id: t1.id, note: 'x' }] }), { from: '2026-10-01', to: '2026-10-31' });
   assert.equal(ok.rows[0].status, 'ok');
 });
+
+test('short supply (billed up to 80 L more than sent) is kept apart from over-invoicing', () => {
+  const S = 'Shyam Metalics and Energy Ltd';
+  const links = [{ ckey: INV.normName(S), dest: 'Shyam Metalics', customer: S }];
+  const ts = [trip(A, '2026-10-02', 11950, 'Shyam Metalics'), trip(B, '2026-10-03', 11940, 'Shyam Metalics'), trip(C, '2026-10-04', 11930, 'Shyam Metalics')];
+  const bs = [bill(1701, '2026-10-02', 12000, S, A), bill(1702, '2026-10-03', 12000, S, B), bill(1703, '2026-10-04', 12000, S, C)];
+  const tags = bs.map((b, i) => tagOf(b, ts[i]));
+  const c = ctx({ links });
+  const r = INV.reconcile(ts, bs, tags, c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r.rows.map((x) => [x.status, x.short]), [['ok', 50], ['ok', 60], ['ok', 70]]);
+  const a = r.perCust[0];
+  assert.deepEqual([a.short, a.diff, a.status], [180, 0, 'ok'], 'all of it is short supply — nothing over-invoiced');
+  assert.equal(r.perTanker[A].short, 50);
+  assert.equal(r.perTanker[A].diff, 0);
+  assert.equal(r.alerts.length, 0);
+
+  // + a 12,000 L bill on no trip that a 4th (untagged) trip can take: "to tag", not over-invoiced
+  const t4 = trip(A, '2026-10-05', 11960, 'Shyam Metalics'), b4 = bill(1704, '2026-10-05', 12000, S, A);
+  const r2 = INV.reconcile(ts.concat([t4]), bs.concat([b4]), tags, c, { from: '2026-10-01', to: '2026-10-31' });
+  const a2 = r2.perCust[0];
+  assert.equal(a2.status, 'totag');
+  assert.deepEqual([a2.toTag, a2.extraHard, a2.short], [12000, 0, 180]);
+
+  // the same bill when no trip of that tanker can take it: over-invoiced
+  const r3 = INV.reconcile(ts, bs.concat([b4]), tags, c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(r3.perCust[0].status, 'over');
+  assert.equal(r3.perCust[0].diff, 12000);
+
+  // a trip billed more than 80 L over is over-invoiced — short supply covers only the buffer
+  const big = bill(1705, '2026-10-02', 12100, S, A);
+  const r4 = INV.reconcile([ts[0]], [big], [tagOf(big, ts[0])], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual([r4.rows[0].status, r4.rows[0].short, r4.perCust[0].status, r4.perCust[0].diff], ['over', 0, 'over', 150]);
+});

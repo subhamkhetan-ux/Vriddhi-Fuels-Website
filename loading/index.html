@@ -434,6 +434,10 @@
   .mapflow .arr{color:var(--faint);font-size:18px}
   .mapdiff{margin-left:auto;font-family:var(--display);font-weight:700;font-size:14px;padding:3px 9px;border-radius:10px}
   .mapdiff.ok{color:var(--good);background:var(--good-bg)} .mapdiff.bad{color:var(--bad);background:var(--bad-bg)}
+  .mapdiff.ss{color:var(--muted);background:rgba(27,33,48,.06);font-size:12px}
+  .trd .tl.muted .tn,.trd .tl.muted .tk{color:var(--muted);font-weight:600}
+  .trd .tl.muted small{font-weight:500}
+  .trd .tl.wait .tn,.trd .tl.wait .tk{color:var(--warn)}
   .mapbills{display:flex;flex-direction:column;gap:5px;margin-top:6px}
   .mapbill{display:grid;grid-template-columns:1fr auto auto;grid-template-areas:"a q g" "b q g";gap:1px 10px;align-items:center;width:100%;text-align:left;border:1px solid var(--line);background:var(--glass-2);border-radius:11px;padding:7px 10px;cursor:pointer;font:inherit;color:var(--ink)}
   .mapbill.warn{border-color:rgba(208,59,59,.45);background:var(--bad-bg)}
@@ -1530,7 +1534,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v46 · 2026-10-09";
+const APP_BUILD = "v47 · 2026-10-10";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3321,7 +3325,10 @@ const INV = (function(){
                 vehKey(now.vehicle)!==vehKey(x.vehicle)?(x.vehicle||"no vehicle")+" → "+(now.vehicle||"no vehicle"):""].filter(Boolean).join(", ")+") — tag it again" });
         }
       });
-      return { trip:t, tags:tg, sum:sum, diff:r2(sum-t.total), status:status, issues:issues, sug:sug[t.id]||null, inRange:inR(t.day), checked:mark };
+      // short supply: the litres sent are a little less than billed (up to `over` a trip) — normal,
+      // kept apart from over-invoicing
+      const short = status==="ok" && sum>t.total ? r2(sum-t.total) : 0;
+      return { trip:t, tags:tg, sum:sum, diff:r2(sum-t.total), short:short, status:status, issues:issues, sug:sug[t.id]||null, inRange:inR(t.day), checked:mark };
     });
     const rowBy={}; rows.forEach(r=>{ rowBy[r.trip.id]=r; });
 
@@ -3347,7 +3354,9 @@ const INV = (function(){
         named:r2(named.reduce((s,b)=>s+b.qty,0)), namedN:named.length, waiting:r2(rs.filter(r=>r.status==="await").reduce((s,r)=>s+r.trip.total,0)),
         none:0, under:0, over:0, ok:0, await:0, checked:0, extra:loose.filter(x=>x.plate===p && x.kind==="extra" && inR(x.bill.date)).length };
       rs.forEach(r=>{ o[r.status]++; });
-      o.diff=r2(rs.filter(r=>!r.checked).reduce((s,r)=>s+r.sum-r.trip.total,0));   // trips checked by hand don't count as short
+      // short supply apart; trips checked by hand don't count as short
+      o.short=r2(rs.filter(r=>!r.checked).reduce((s,r)=>s+r.short,0));
+      o.diff=r2(rs.filter(r=>!r.checked).reduce((s,r)=>s+r.sum-r.trip.total-r.short,0));
       o.bad=o.none+o.under+o.over+o.extra+rs.reduce((s,r)=>s+(r.checked?0:r.issues.length),0);
       perTanker[p]=o;
     });
@@ -3362,7 +3371,7 @@ const INV = (function(){
     const accOf=(node, label, isDest)=>{
       if(parent[node]===undefined) parent[node]=node;
       const k=find(node), a=acc[k]||(acc[k]={ key:k, dests:{}, custs:{}, ckeys:{}, trips:0, delivered:0, invoiced:0, bills:0, extraL:0, extraN:0, waiting:0,
-        tripIds:[], loose:[] });
+        tripIds:[], loose:[], tagged:0, short:0, extraHard:0, toTag:0, toTagN:0 });
       if(label) (isDest?a.dests:a.custs)[label]=1;
       if(!isDest && node.slice(0,2)==="c:") a.ckeys[node.slice(2)]=label;
       return a;
@@ -3373,17 +3382,24 @@ const INV = (function(){
       const a=accOf("d:"+(String(r.trip.dest||"").trim().toLowerCase()||"(none)"), r.trip.dest||"(no customer)", true);
       // a trip checked by hand counts as delivered only as far as its bills go
       a.trips++; a.delivered=r2(a.delivered+(r.checked ? r.sum : r.trip.total)); a.tripIds.push(r.trip.id);
+      a.short=r2(a.short+(r.checked ? 0 : r.short));
       if(r.checked) a.checkedN=(a.checkedN||0)+1;
       if(r.status==="await") a.waiting=r2(a.waiting+r.trip.total);
-      r.tags.forEach(x=>{ const b=accOf("c:"+(x.ckey||normName(x.customer)), x.customer, false); b.invoiced=r2(b.invoiced+x.qty); b.bills++; });
+      r.tags.forEach(x=>{ const b=accOf("c:"+(x.ckey||normName(x.customer)), x.customer, false); b.invoiced=r2(b.invoiced+x.qty); b.tagged=r2(b.tagged+x.qty); b.bills++; });
     });
     loose.filter(x=>inR(x.bill.date)).forEach(x=>{
       const a=accOf("c:"+(x.bill.ckey||normName(x.bill.customer)), x.bill.customer, false);
       a.invoiced=r2(a.invoiced+x.bill.qty); a.bills++; a.extraL=r2(a.extraL+x.bill.qty); a.extraN++; a.loose.push(x);
+      // a bill no trip can account for is over-invoicing; one that can still go on a trip is just to tag
+      if(x.kind==="extra") a.extraHard=r2(a.extraHard+x.bill.qty); else { a.toTag=r2(a.toTag+x.bill.qty); a.toTagN++; }
     });
     const perCust=Object.keys(acc).map(k=>acc[k]).filter(a=>a.trips || a.bills).map(a=>{
-      const diff=r2(a.invoiced-a.delivered), k=Math.max(1, a.trips);   // each trip carries its own buffer
-      const status = diff>over*k ? "over" : diff< -tol*k ? (a.delivered-a.waiting-a.invoiced<=tol*k ? "await" : "under") : "ok";
+      // over / under-invoiced: bills on its trips + bills no trip can take − sent, leaving out the
+      // short supply (≤ `over` a trip, normal) and the bills still to tag (shown on their own)
+      const k=Math.max(1, a.trips), diff=r2(a.tagged+a.extraHard-a.delivered-a.short), gap=-diff-a.waiting;
+      const status = diff>tol ? "over"
+        : diff< -tol*k ? (gap<=tol*k ? "await" : a.toTag>=gap-tol*k ? "totag" : "under")
+        : a.toTag>0 ? "totag" : "ok";
       // its trips' sure suggestions, to tag in one go from the customer screen
       const sure=a.tripIds.map(id=>rowBy[id]).filter(r=>r.sug && r.sug.sure && (r.status==="none" || r.status==="under")).map(r=>r.trip.id);
       return Object.assign(a, { dests:Object.keys(a.dests), custs:Object.keys(a.custs), diff:diff, status:status, sure:sure });
@@ -3394,7 +3410,7 @@ const INV = (function(){
     const alerts=[];
     rows.filter(r=>r.inRange && !r.checked).forEach(r=>{
       const t=r.trip;
-      if(r.status==="over") alerts.push({ lvl:"high", kind:"over", row:r, plate:t.plate, title:"Over-invoiced by "+r2(r.sum-t.total)+" L", text:r.tags.length+" bill"+(r.tags.length===1?"":"s")+" for "+r.sum+" L on a "+t.total+" L trip" });
+      if(r.status==="over") alerts.push({ lvl:"high", kind:"over", row:r, plate:t.plate, title:"Over-invoiced by "+r2(r.sum-t.total)+" L", text:r.tags.length+" bill"+(r.tags.length===1?"":"s")+" for "+r.sum+" L on a "+t.total+" L trip — more than the "+over+" L short supply allowed" });
       if(r.status==="none") alerts.push({ lvl:"high", kind:"none", row:r, plate:t.plate,
         title: r.sug ? "Sale not tagged yet — bills found" : "Sale not invoiced",
         text:t.total+" L to "+(t.dest||"no customer")+(r.sug ? " — bills "+r.sug.bills.map(b=>b.bill_no).join(", ")+" = "+r.sug.sum+" L" : " — no bill found for it") });
@@ -3615,9 +3631,11 @@ function tripSummary(){
 }
 function recRow(id){ return INVD ? INVD.rec.rows.find(r=>r.trip.id===id) : null; }
 function billNos(bs){ return bs.map(b=>"#"+b.bill_no).join(" + "); }
+// a trip's billed − sent: within the buffer above sent it is "short supply" (normal), not over-invoicing
+function diffTxt(r){ return r.short>0 ? 'short supply '+fmt(r.short)+' L' : r.diff ? signL(r.diff) : ''; }
 function signL(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+" L"; }
 const INV_STATUS={
-  ok:   r=>'<span class="badge ok">✓ Invoiced</span><span>'+r.tags.length+' bill'+(r.tags.length===1?'':'s')+' · '+fmt(r.sum)+' L'+(r.diff?' ('+signL(r.diff)+')':'')+'</span>',
+  ok:   r=>'<span class="badge ok">✓ Invoiced</span><span>'+r.tags.length+' bill'+(r.tags.length===1?'':'s')+' · '+fmt(r.sum)+' L'+(r.diff?' · '+diffTxt(r):'')+'</span>',
   under:r=>'<span class="badge high">◐ Short '+fmt(-r.diff)+' L</span><span>billed '+fmt(r.sum)+' L</span>',
   over: r=>'<span class="badge high">▲ Over '+fmt(r.diff)+' L</span><span>billed '+fmt(r.sum)+' L</span>',
   none: ()=>'<span class="badge high">✕ Not invoiced</span>',
@@ -3642,6 +3660,7 @@ function tankerCheckHTML(plate){
     : pt.await ? '<span class="badge watch">⏳ waiting for bills</span>' : '<span class="badge ok">✓ all invoiced</span>';
   return '<div class="invsum">'+badge+'<span>Sold <b>'+fmt(pt.sent)+' L</b></span><span>Tagged <b>'+fmt(pt.tagged)+' L</b>'
     +(pt.trips && pt.diff ? ' ('+signL(pt.diff)+')' : '')+'</span>'
+    +(pt.short?'<span>Short supply <b>'+fmt(pt.short)+' L</b></span>':'')
     +(led?'<span>Billed in its name <b>'+fmt(pt.named)+' L</b> · '+pt.namedN+' bill'+(pt.namedN===1?'':'s')+'</span>':'')
     +(pt.extra?'<span class="bad">⛔ '+pt.extra+' extra bill'+(pt.extra===1?'':'s')+'</span>':'')+'</div>';
 }
@@ -3751,7 +3770,7 @@ function custViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';
   const list=INVD.rec.perCust;
   if(!list.length) return '<div class="empty">No trips or tanker bills in this period.</div>';
-  const st={ ok:'<span class="badge ok">✓ Matches</span>', over:'<span class="badge high">▲ Over-invoiced</span>',
+  const st={ ok:'<span class="badge ok">✓ Matches</span>', over:'<span class="badge high">▲ Over-invoiced</span>', totag:'<span class="badge watch">Bills to tag</span>',
     under:'<span class="badge high">◐ Under-invoiced</span>', await:'<span class="badge watch">⏳ Waiting for bills</span>' };
   return (INVD.bills?'':'<div class="endednote warnnote">Connect the ledger to count bills that are on no trip yet.</div>')
     +list.map(a=>{
@@ -3763,9 +3782,10 @@ function custViewHTML(){
         +'<div class="trd">'
         +'<div class="tl"><span class="tn">Sent for sale</span><span class="tc">'+a.trips+' trip'+(a.trips===1?'':'s')+'</span><span class="tk">'+fmt(a.delivered)+' L</span></div>'
         +'<div class="tl"><span class="tn">Invoiced</span><span class="tc">'+a.bills+' bill'+(a.bills===1?'':'s')+'</span><span class="tk">'+fmt(a.invoiced)+' L</span></div>'
-        +(a.extraN?'<div class="tl warn"><span class="tn">… on no trip</span><span class="tc">'+a.extraN+' bill'+(a.extraN===1?'':'s')+'</span><span class="tk">'+fmt(a.extraL)+' L</span></div>':'')
+        +(a.extraN?'<div class="tl'+(a.extraHard?' warn':' wait')+'"><span class="tn">… on no trip'+(a.extraHard?'':' — to tag')+'</span><span class="tc">'+a.extraN+' bill'+(a.extraN===1?'':'s')+'</span><span class="tk">'+fmt(a.extraL)+' L</span></div>':'')
+        +(a.short?'<div class="tl muted"><span class="tn">Short supply <small>(≤ '+fmt(TAGSET.over)+' L a trip)</small></span><span class="tc"></span><span class="tk">'+fmt(a.short)+' L</span></div>':'')
         +(a.waiting?'<div class="tl"><span class="tn">Trips waiting for bills</span><span class="tc"></span><span class="tk">'+fmt(a.waiting)+' L</span></div>':'')
-        +'<div class="tl'+(a.status==="ok"||a.status==="await"?'':' warn')+'"><span class="tn">Invoiced − sent</span><span class="tc"></span><span class="tk">'+signL(a.diff)+'</span></div>'
+        +'<div class="tl'+(a.status==="over"||a.status==="under"?' warn':'')+'"><span class="tn">Over / under-invoiced</span><span class="tc"></span><span class="tk">'+(a.diff?signL(a.diff):'0 L')+'</span></div>'
         +'</div>'
         +(linked && a.custs.length?'<div class="note" style="text-align:left;margin:6px 0 0">Billed as: '+esc(a.custs.join(" · "))+'</div>':'')
         +(linked && !a.custs.length?'<div class="note" style="text-align:left;margin:6px 0 0">No ledger name linked yet — tag one trip (or link it in ⚙) and its bills count here.</div>':'')
@@ -3777,7 +3797,7 @@ function custViewHTML(){
             +(a.loose.length ? '<div class="mlab" style="margin:12px 0 4px">Bills on no trip</div>'+a.loose.map(looseRowHTML).join("") : '')+'</div>' : '')
         +'</div>';
     }).join("")
-    +'<div class="note" style="text-align:left">Each trip may be billed up to '+fmt(TAGSET.over)+' L more than sent (or '+fmt(TAGSET.tol)+' L less); a customer is flagged beyond that per trip. Bills count in the month of their trip.</div>';
+    +'<div class="note" style="text-align:left">The litres sent are normally a little less than billed: up to '+fmt(TAGSET.over)+' L a trip is <b>short supply</b>, shown on its own and never counted as over-invoicing. <b>Over / under-invoiced</b> leaves it out, and bills still to tag are shown apart. Bills count in the month of their trip.</div>';
 }
 function alertsViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';
@@ -3884,7 +3904,8 @@ function mapViewHTML(){
       h+='<div class="mapday">'+new Date(day+"T00:00:00").toLocaleDateString("en-IN",{ weekday:"short", day:"2-digit", month:"2-digit" })
         +'<span>'+ds.length+' trip'+(ds.length===1?'':'s')+(bad?' · <b>'+bad+' to fix</b>':'')+'</span></div>'; }
     const issueKeys={}; r.issues.forEach(i=>{ if(i.tag) issueKeys[i.tag.key]=1; });
-    const diff = r.tags.length ? '<span class="mapdiff '+(r.status==="ok"?'ok':'bad')+'">'+signL(r.diff)+'</span>' : '';
+    const diff = !r.tags.length || !r.diff ? '' : r.short>0 ? '<span class="mapdiff ss">Short supply '+fmt(r.short)+' L</span>'
+      : '<span class="mapdiff '+(r.status==="ok"?'ok':'bad')+'">'+signL(r.diff)+'</span>';
     const sug = r.sug && r.status!=="ok" && r.status!=="over"
       ? '<div class="mapsug">💡 '+esc(billNos(r.sug.bills))+' = '+fmt(r.sug.sum)+' L'+(r.sug.sure?' · sure':'')
         +'<button class="tagbtn" data-tagsug="'+esc(t.id)+'">Tag these</button></div>' : '';
@@ -3946,7 +3967,7 @@ function renderBillSheet(){
         const after=r2(x.row.sum+b.qty-x.trip.total);
         return '<div class="tagrow"><div class="tb"><div class="t1">'+tripLineHTML(x.trip)+'</div>'
           +'<div class="t2">'+fmt(x.trip.total)+' L sent · '+(x.row.sum?fmt(x.row.sum)+' L billed · ':'')
-          +(x.fits?'<span class="fit-ok">fits ('+signL(after)+')</span>':'<span class="fit-bad">would be over by '+fmt(after)+' L</span>')
+          +(x.fits?'<span class="fit-ok">fits'+(after>0?' · short supply '+fmt(after)+' L':after<0?' ('+signL(after)+')':'')+'</span>':'<span class="fit-bad">would be over by '+fmt(after)+' L</span>')
           +' · '+fitHTML(x)+(x.far?' · <span class="fit-warn">'+Math.abs(x.dd)+' days apart</span>':'')+'</div></div>'
           +'<button class="tagbtn" data-moveto="'+esc(x.trip.id)+'">'+(on?'Move here':'Tag here')+'</button></div>';
       }).join("") : '<div class="empty">No trip of these days fits this bill.</div>');
@@ -4077,7 +4098,8 @@ function renderTagSheet(){
   // the running total: tagged + ticked against the trip, with the buffer
   const pick=pickedBills(), add=r2(pick.reduce((s,b)=>s+b.qty,0)), tot=r2(r.sum+add), d=r2(tot-t.total);
   const verdict = !pick.length && !r.tags.length ? "" : d>TAGSET.over ? '<span class="fit-bad">▲ over by '+fmt(d)+' L</span>'
-    : d< -TAGSET.tol ? '<span class="fit-warn">short by '+fmt(-d)+' L</span>' : '<span class="fit-ok">✓ adds up ('+signL(d)+')</span>';
+    : d< -TAGSET.tol ? '<span class="fit-warn">short by '+fmt(-d)+' L</span>'
+    : '<span class="fit-ok">✓ adds up'+(d>0?' · short supply '+fmt(d)+' L':d<0?' ('+signL(d)+')':'')+'</span>';
   $("#tagSum").innerHTML=(r.tags.length?fmt(r.sum)+' L tagged + ':'')+fmt(add)+' L ticked = <b>'+fmt(tot)+' L</b> of '+fmt(t.total)+' L · '+verdict;
   $("#tagOk").disabled=!pick.length;
   $("#tagOk").textContent=pick.length ? "Tag "+pick.length+" bill"+(pick.length===1?"":"s") : "Tag";
@@ -4161,7 +4183,7 @@ $("#trExcel").onclick=async()=>{
   const list=TRIPS.map(x=>{ const d=destOf(x.dest), rr=recRow(x.id); return { "Business date":shiftDate(x.ts), "Time":timeLabel(x.ts), "Vehicle":x.plate,
     "Customer":x.dest||"", "RTD km":d?d.rtd:0, "In customer list?":d?"Yes":"No", "Litres":x.total, "By":x.by||"",
     "Bills":rr?rr.tags.map(g=>g.bill_no).join(", "):"", "Billed to":rr?Array.from(new Set(rr.tags.map(g=>g.customer))).join(", "):"",
-    "Invoiced L":rr?rr.sum:"", "Invoiced − sent L":rr&&rr.tags.length?rr.diff:"", "Invoice status":rr?ST[rr.status]:"", "Checked note":rr && rr.checked ? rr.checked.note : "",
+    "Invoiced L":rr?rr.sum:"", "Invoiced − sent L":rr&&rr.tags.length?rr.diff:"", "Short supply L":rr&&rr.short?rr.short:"", "Invoice status":rr?ST[rr.status]:"", "Checked note":rr && rr.checked ? rr.checked.note : "",
     "Problems":rr?rr.issues.map(i=>i.text).join(" | "):"" }; });
   const cust=DESTS.map(d=>({ "Customer":d.name, "RTD km / trip":d.rtd, "Group":d.grp||"" }));
   const fname="Vriddhi_Trips_per_Tanker_"+f+"_to_"+t;
@@ -4177,12 +4199,12 @@ $("#trExcel").onclick=async()=>{
     wl["!autofilter"]={ref:wl["!ref"]}; numfmt(XLSX,wl,1); XLSX.utils.book_append_sheet(wb,wl,"Trip list");
     if(INVD){
       const PT=Object.keys(INVD.rec.perTanker).map(k=>INVD.rec.perTanker[k]).filter(p=>p.trips || p.namedN).map(p=>({ "Vehicle":p.plate,
-        "Trips":p.trips, "Litres sold":p.sent, "Litres tagged":p.tagged, "Tagged − sold":p.diff, "Billed in its name (L)":INVD.bills?p.named:"",
+        "Trips":p.trips, "Litres sold":p.sent, "Litres tagged":p.tagged, "Short supply (L)":p.short, "Tagged − sold, without short supply":p.diff, "Billed in its name (L)":INVD.bills?p.named:"",
         "Bills in its name":INVD.bills?p.namedN:"", "Not invoiced":p.none, "Under":p.under, "Over":p.over, "Extra bills":p.extra, "Waiting":p.await }));
       if(PT.length){ const w=XLSX.utils.json_to_sheet(PT); numfmt(XLSX,w,1); XLSX.utils.book_append_sheet(wb,w,"Invoice check · tankers"); }
       const PC=INVD.rec.perCust.map(a=>({ "Sold to":a.dests.join(" + "), "Billed as":a.custs.join(" + "), "Trips":a.trips, "Litres sent":a.delivered,
-        "Bills":a.bills, "Litres invoiced":a.invoiced, "… on no trip":a.extraL, "Invoiced − sent":a.diff,
-        "Status":{ ok:"Matches", over:"Over-invoiced", under:"Under-invoiced", await:"Waiting for bills" }[a.status] }));
+        "Bills":a.bills, "Litres invoiced":a.invoiced, "… on no trip":a.extraL, "Short supply":a.short, "Bills to tag (L)":a.toTag, "Over / under-invoiced":a.diff,
+        "Status":{ ok:"Matches", over:"Over-invoiced", under:"Under-invoiced", await:"Waiting for bills", totag:"Bills to tag" }[a.status] }));
       if(PC.length){ const w=XLSX.utils.json_to_sheet(PC); w["!cols"]=[{wch:30},{wch:40}]; numfmt(XLSX,w,1); XLSX.utils.book_append_sheet(wb,w,"Invoice check · customers"); }
       const AL=INVD.rec.alerts.map(a=>({ "Level":a.lvl==="high"?"Fix":"Check", "Problem":a.title, "Vehicle":a.plate||"",
         "Date":a.row?a.row.trip.day:a.loose.bill.date, "Details":a.text }));
