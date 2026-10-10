@@ -459,3 +459,17 @@ test('a bill on no trip that only a trip checked by hand could take is covered b
   const r3 = INV.reconcile([t1, t2], [b1, b2], [tagOf(b2, t2)], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
   assert.deepEqual(r3.loose.map((x) => x.kind), ['untagged']);
 });
+
+test('a trip of another customer cannot take a bill: the checked trip of its own customer covers it', () => {
+  const S = 'Shyam Metalics and Energy Ltd', O = 'Orissa Metaliks Pvt Ltd';
+  const links = [{ ckey: INV.normName(S), dest: 'Shyam Metalics', customer: S }, { ckey: INV.normName(O), dest: 'Orissa Metaliks', customer: O }];
+  const mine = trip(A, '2026-10-07', 11955, 'Shyam Metalics'), theirs = trip(A, '2026-10-08', 11955, 'Orissa Metaliks');
+  const b = bill(1901, '2026-10-07', 12000, S, A);
+  const c = ctx({ links, checked: [{ trip_id: mine.id, note: 'manually done' }] });
+  const r = INV.reconcile([mine, theirs], [b], [], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r.loose.map((x) => x.kind), ['covered'], "the Orissa trip of the same tanker doesn't count");
+  assert.equal(r.perCust.find((a) => a.dests.includes('Shyam Metalics')).status, 'ok');
+  // the "to tag" list names the trip it would go on
+  const r2 = INV.reconcile([mine, theirs], [b], [], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r2.loose[0].trips.map((t) => t.id), [mine.id]);
+});
