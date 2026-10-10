@@ -97,6 +97,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
   const n = Math.max(1, tanks.length);
   const tx = (i) => 20 + ((W - 40) / n) * (i + 0.5);
   const tankX = new Map(tanks.map((t, i) => [t.id, tx(i)]));
+  const half = Math.min(TANK.half, (W - 40) / n / 2 - 3);   // narrower when more than four tanks share the ground
 
   const defs = [];
   const clip = (name, shape) => { defs.push(`<clipPath id="${id}${name}">${shape}</clipPath>`); return `url(#${id}${name})`; };
@@ -204,8 +205,8 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     const st = row ? stageOf(row) : null;
     const cap = t.capacity || 20000;
     const col = colorOf(t.product);
-    const x0 = xc - TANK.half;
-    const x1 = xc + TANK.half;
+    const x0 = xc - half;
+    const x1 = xc + half;
     const th = TANK.bottom - TANK.top;
     const cp = clip(`t${t.id}`, `<rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}"/>`);
     let inside = '';

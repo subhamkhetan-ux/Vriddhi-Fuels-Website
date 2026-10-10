@@ -4,7 +4,7 @@
 
 import {
   PRODUCTS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, fmtMinSec, invoiceStatus, istDate, layoutsText,
-  litresAtDip, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, stockProof, tankStage, transportOptions, usedChambers,
+  litresAtDip, newTankId, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, stockProof, tankProblems, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
@@ -25,13 +25,22 @@ import { THEMES, initTheme, nextTheme, onTheme, setTheme, themeChoice, themeIcon
 
 export const APP = { tab: 'home', showOlder: false };
 
+// what a tank added in Settings starts from when there's no other to copy
+const DEFAULT_TANK = { product: 'HSD', capacity: 20000, fillTo: 20500 };
+
 // ---------------------------------------------------------------------------
 // Shared lookups
 // ---------------------------------------------------------------------------
 
 export const tanks = () => state.settings.tanks;
 export const tankById = (id) => tanks().find((t) => t.id === id);
-export const tankName = (id) => { const t = tankById(id); return t ? `Tank ${t.no}` : id; };
+// A tank removed in Settings still names its old decantations.
+export const tankName = (id) => {
+  const t = tankById(id);
+  if (t) return `Tank ${t.no}`;
+  const gone = (state.settings.retiredTanks || []).find((x) => x.id === id);
+  return gone?.no ? `Tank ${gone.no} (removed)` : id;
+};
 
 // An invoice's chambers: from the invoice, else — for one of our own TTs — from
 // our list. Transport TTs' chambers aren't kept (they follow a standard layout).
@@ -889,13 +898,11 @@ function settingsSheet() {
       <div class="f" style="margin-top:12px">Look on this phone
         <div class="seg" id="stTheme" role="group" aria-label="Look">${THEMES.map((k) => `<button type="button" data-theme-pick="${k}" class="${themeChoice() === k ? 'on' : ''}" aria-pressed="${themeChoice() === k}" style="display:inline-flex;align-items:center;gap:6px">${themeIcon(k)}${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[k]}</button>`).join('')}</div>
         <span class="hint" id="stThemeHint">${esc(themeChoice() === 'auto' ? themeLabel() : 'Changes at once — Auto follows the phone\'s light / dark setting.')}</span></div>
-      <div class="sect-title" style="margin-top:16px">Tanks</div>
-      ${s.tanks.map((t, i) => `<div class="pt-name" style="margin-top:6px">Tank ${t.no}</div>
-        <div class="grid3" style="margin-bottom:8px;align-items:end">
-        <label class="f">Product<select data-tp="${i}">${Object.values(PRODUCTS).map((p) => `<option value="${p.key}" ${t.product === p.key ? 'selected' : ''}>${p.name}</option>`).join('')}</select></label>
-        <label class="f">Capacity (L)<input type="number" data-tc="${i}" value="${t.capacity}" inputmode="numeric"></label>
-        <label class="f">Fill up to (L)<input type="number" data-tf="${i}" value="${fillLimit(t)}" inputmode="numeric"></label></div>`).join('')}
-      <div class="hint">Room is counted up to "fill up to" — our 20 KL tanks take 20,500 L (they hold about 21,000 L); the automation's ullage is to 20,000 L.</div>
+      <div class="sect-title" style="margin-top:16px">Tanks <span class="hint">underground tanks — add, change or remove</span></div>
+      <div id="stTanks"></div>
+      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm" id="stTankAdd">＋ Add a tank</button></div>
+      <div class="hint">Room is counted up to "fill up to" — our 20 KL tanks take 20,500 L (they hold about 21,000 L); the automation's ullage is to 20,000 L.
+        The tank number is the automation's "Tank N", so screenshots are read into the right tank. Every tank uses the one dip chart below.</div>
       <div class="sect-title" style="margin-top:16px">Checks</div>
       <div class="grid2">
         <label class="f">Variation is OK within (%)<input type="number" id="stTol" step="0.05" value="${s.tolerancePct}"></label>
@@ -965,17 +972,93 @@ function settingsSheet() {
     };
     emptyHint();
     body.querySelectorAll('.minsec input').forEach((i) => { i.oninput = emptyHint; });
+
+    // The tanks, edited here and saved with the rest. A removed tank is only
+    // marked till Save (↺ Undo puts it back); a tank being decanted can't be
+    // removed or change its product.
+    const busy = busyTanks();
+    const saved = new Map(s.tanks.map((t) => [t.id, t]));
+    const work = s.tanks.map((t) => ({ ...t, fillTo: fillLimit(t), removed: false }));
+    const boxes = body.querySelector('#stTanks');
+    const intOr = (v, dflt) => (v.trim() === '' ? dflt : Number(v));
+    const readTanks = () => work.forEach((t, i) => {
+      if (t.removed) return;
+      const q = (k) => boxes.querySelector(`[data-${k}="${i}"]`);
+      t.no = intOr(q('tn').value, NaN);
+      t.product = q('tp').value;
+      t.capacity = intOr(q('tc').value, NaN);
+      t.fillTo = intOr(q('tf').value, NaN);
+    });
+    const drawTanks = () => {
+      boxes.innerHTML = work.map((t, i) => {
+        const old = t.id ? saved.get(t.id) : null;
+        const head = old ? `Tank ${old.no}` : 'New tank';
+        if (t.removed) {
+          const left = work.some((x) => !x.removed && x.product === old.product);
+          return `<div class="pt-name" style="margin-top:6px;display:flex;align-items:center;gap:8px"><s>${head}</s>
+            <button type="button" class="btn sm ghost" data-tundo="${i}" style="margin-left:auto">↺ Undo</button></div>
+            <div class="hint" style="margin-bottom:8px">${esc(PRODUCTS[old.product]?.name || old.product)} — removed when you save. Its decantations stay in the Log and reports as "Tank ${old.no} (removed)".${left ? '' : ` <b>No tank will be left for ${esc(productShort(old.product))}</b> — its loads can't be decanted in the app.`}</div>`;
+        }
+        const busyNow = t.id && busy.has(t.id);
+        return `<div class="pt-name" style="margin-top:6px;display:flex;align-items:center;gap:8px">${head}${busyNow ? ' <span class="hint">being decanted</span>' : ''}
+            <button type="button" class="btn sm ghost danger" data-trm="${i}" style="margin-left:auto" ${busyNow ? 'disabled' : ''}>✕ Remove</button></div>
+          <div class="grid2" style="margin-bottom:8px;align-items:end">
+          <label class="f">Tank no.<input type="number" data-tn="${i}" value="${Number.isFinite(t.no) ? t.no : ''}" min="1" max="99" step="1" inputmode="numeric"></label>
+          <label class="f">Product<select data-tp="${i}" ${busyNow ? 'disabled' : ''}>${Object.values(PRODUCTS).map((p) => `<option value="${p.key}" ${t.product === p.key ? 'selected' : ''}>${p.name}</option>`).join('')}</select></label>
+          <label class="f">Capacity (L)<input type="number" data-tc="${i}" value="${Number.isFinite(t.capacity) ? t.capacity : ''}" inputmode="numeric"></label>
+          <label class="f">Fill up to (L)<input type="number" data-tf="${i}" value="${Number.isFinite(t.fillTo) ? t.fillTo : ''}" inputmode="numeric"></label></div>`;
+      }).join('');
+    };
+    drawTanks();
+    boxes.addEventListener('click', (e) => {
+      const rm = e.target.closest('[data-trm]');
+      const undo = e.target.closest('[data-tundo]');
+      if (!rm && !undo) return;
+      readTanks();
+      if (rm) {
+        const i = Number(rm.dataset.trm);
+        const t = work[i];
+        if (t.id && busy.has(t.id)) { toast(`${tankName(t.id)} is being decanted — finish that first.`, 4000); return; }
+        if (t.id) t.removed = true;
+        else work.splice(i, 1);                // a tank added just now: gone at once
+      } else work[Number(undo.dataset.tundo)].removed = false;
+      drawTanks();
+    });
+    body.querySelector('#stTankAdd').onclick = () => {
+      readTanks();
+      const live = work.filter((t) => !t.removed);
+      const last = live[live.length - 1] || DEFAULT_TANK;
+      const nos = live.map((t) => t.no).filter(Number.isFinite);
+      work.push({ id: null, no: (nos.length ? Math.max(...nos) : 0) + 1, product: last.product, capacity: last.capacity, fillTo: fillLimit(last), removed: false });
+      drawTanks();
+      boxes.querySelector(`[data-tn="${work.length - 1}"]`)?.focus();
+    };
     body.querySelector('#stSave').onclick = async () => {
       const num = (id, lo, hi, dflt) => { const v = Number(body.querySelector(id).value); return Number.isFinite(v) && v >= lo && v <= hi ? v : dflt; };
-      const tanksNew = s.tanks.map((t, i) => {
-        const capacity = num(`[data-tc="${i}"]`, 1000, 100000, t.capacity);
-        // how full it may be filled: from 90 % to 105 % of its capacity
-        return { ...t, product: body.querySelector(`[data-tp="${i}"]`).value, capacity, fillTo: num(`[data-tf="${i}"]`, capacity * 0.9, capacity * 1.05, fillLimit(t)) };
-      });
+      readTanks();
+      const keep = work.filter((t) => !t.removed);
+      const problems = tankProblems(keep);
+      if (problems.length) { toast(problems[0], 5000); return; }
+      // a tank another phone has started decanting into since this sheet opened
+      const busyNow = busyTanks();
+      const clash = work.find((t) => t.id && busyNow.has(t.id) && (t.removed || saved.get(t.id).product !== t.product));
+      if (clash) { toast(`${tankName(clash.id)} is being decanted — it can't be ${clash.removed ? 'removed' : 'given another product'} now.`, 5000); return; }
+      // new tanks get an id no tank has had: not one in use, removed, or with a stock reading
+      const taken = new Set([...keep.map((t) => t.id).filter(Boolean), ...(s.retiredTanks || []).map((t) => t.id), ...work.map((t) => t.id).filter(Boolean), ...Object.keys(state.tankState)]);
+      const tanksNew = keep.map((t) => {
+        const id = t.id || newTankId(t.no, taken);
+        taken.add(id);
+        return { id, no: t.no, product: t.product, capacity: t.capacity, fillTo: t.fillTo };
+      }).sort((a, b) => a.no - b.no);
+      const now = new Date().toISOString();
+      const retiredTanks = [
+        ...(s.retiredTanks || []),
+        ...work.filter((t) => t.removed).map((t) => ({ id: t.id, no: saved.get(t.id).no, product: saved.get(t.id).product, capacity: saved.get(t.id).capacity, removedAt: now })),
+      ];
       saveDevice({ operator: body.querySelector('#stOp').value.trim() });
       await saveConfig({
         settings: {
-          ...(state.config.settings || {}), tanks: tanksNew,
+          ...(state.config.settings || {}), tanks: tanksNew, retiredTanks,
           tolerancePct: num('#stTol', 0, 5, s.tolerancePct), toleranceMinL: num('#stTolL', 0, 1000, s.toleranceMinL),
           warnRoomL: num('#stWarn', 0, 5000, s.warnRoomL), staleMinutes: num('#stStale', 1, 1440, s.staleMinutes),
           settleMinutes: num('#stSettle', 0, 120, s.settleMinutes), densityLimit: num('#stDens', 0, 20, s.densityLimit),
