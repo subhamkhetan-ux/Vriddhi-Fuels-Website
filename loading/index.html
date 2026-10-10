@@ -200,6 +200,11 @@
   .tcard .tsub{font-size:13px;color:var(--muted);margin-top:2px;font-weight:600}
   .tcard .tsub b{font-family:var(--display);color:var(--ink);font-size:15px}
   .tcard .tsub2{font-size:12px;color:var(--faint);margin-top:3px;font-weight:600}
+  .prebill{margin:0 14px 10px;padding:9px 11px;border-radius:12px;background:var(--warn-bg);border:1px solid rgba(250,178,25,.45);color:var(--warn);font-size:13px;line-height:1.45}
+  .prebill b{font-family:var(--display)}
+  .prebill .pbn{font-weight:700;font-size:12px}
+  .prebill .pbs{color:var(--ink);font-size:12.5px}
+  .prenote{background:var(--warn-bg);border:1px solid rgba(250,178,25,.45);color:var(--warn);border-radius:12px;padding:9px 11px;font-size:13px;line-height:1.45;margin:0 0 10px}
   .dispatch{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-top:1px solid rgba(27,33,48,.08);background:rgba(255,255,255,.35);color:var(--amber-d);font-size:14px;font-weight:700;padding:12px;cursor:pointer}
   .tcard.full .dispatch{background:var(--grad-good);color:#fff;font-family:var(--display);font-size:16px;font-weight:700;padding:14px}
   .dispatch:active{transform:translateY(1px)}
@@ -1363,6 +1368,7 @@
   <div class="modalbox wide">
     <div class="mh" id="dispHead">Send for sale</div>
     <div class="mp" id="dispTitle">—</div>
+    <div class="prenote" id="dispPre" hidden></div>
     <label class="mlab" id="dispLab">Sold to — choose the customer</label>
     <div class="destlist" id="dispDests"></div>
     <div class="fcast" id="dispFc" hidden></div>
@@ -1537,7 +1543,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v51 · 2026-10-10";
+const APP_BUILD = "v52 · 2026-10-10";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -2330,6 +2336,7 @@ function renderTankers(){
       +'<div class="tsub">'+sub+'</div>'
       +(st.full?'':'<div class="tsub2">Left per chamber — '+perCh+' L</div>')
       +'<div class="diesel"></div></button>'
+      +'<div class="prebill" data-pb="'+esc(v.plate)+'" hidden></div>'
       +(st.total>0?'<button class="dispatch" data-disp="'+v.plate+'">🚚 Sent for sale — empty tanker</button>':'')
       +'</div>';
   }).join("");
@@ -2344,6 +2351,7 @@ function renderTankers(){
     paintDiesel();
     applyPourAll();
   });
+  paintPrebills();
 }
 function entryHTML(e){
   const who=(CLOUD&&e.by)?' · '+e.by:'';
@@ -2422,11 +2430,17 @@ function dispatchTanker(plate){
   $("#dispTitle").textContent=plate+" — "+fmt(st.total)+" L";
   $("#dispLab").textContent = isMeter(plate) ? "Sold to — optional for "+plate+" (its mileage goes by the dispenser meter)" : "Sold to — choose the customer";
   $("#dispOk").textContent="🚚 Confirm sale";
-  renderDestPicker("");   // also starts the forecast (OD15AF5510 needs no customer)
+  // billed before loading? pick the customer it was billed for and say so
+  const pb=prebilled(plate);
+  renderDestPicker(pb && pb.dests.length===1 ? pb.dests[0] : "");   // also starts the forecast (OD15AF5510 needs no customer)
+  $("#dispPre").hidden=!pb;
+  if(pb) $("#dispPre").innerHTML='🧾 Pre-billed '+(pb.dests.length?'to <b>'+esc(pb.dests.join(" / "))+'</b>':'to <b>'+esc(pb.custs.join(", "))+'</b>')
+    +' — '+esc(pb.nos)+' = '+fmt(pb.total)+' L'+(pb.dests.length===1?'. Picked for you — change it if it went elsewhere.':'. Pick where it went.');
   $("#dispModal").classList.add("on");
 }
 function editTripDest(trip){
   pendingDispatch={ mode:"trip", id:trip.id, plate:trip.plate };
+  $("#dispPre").hidden=true;
   $("#dispHead").textContent="Change customer";
   $("#dispTitle").textContent=trip.plate+" · "+dmy(shiftDate(trip.ts))+" "+timeLabel(trip.ts);
   $("#dispLab").textContent = isMeter(trip.plate) ? "This trip went to — optional for "+trip.plate : "This trip went to — choose the customer";
@@ -2455,6 +2469,7 @@ $("#dispOk").onclick=()=>{
   if(st.total<=0){ btn.disabled=false; closeDisp(); return; }
   Backend.dispatch(plate, remark).then(()=>{
     notifyStaff("sold", plate, remark);   // fire first; don't wait on the reload
+    INV_WATCH.at=0;                       // a new trip: the invoice check (and pre-billed notes) at once
     return refresh();
   }).then(()=>{
     const fc=lastFc;
@@ -4227,7 +4242,33 @@ function invoiceWatch(force){
     const to=shiftDate(Date.now()), f45=addDays(to,-45), st=tagStart(), from=st>f45?st:f45;
     if(from>to){ INV_WATCH.d=null; return; }
     return loadInvoiceData(from, to).then(d=>{ INV_WATCH.d=d; });
-  }).catch(()=>{}).then(()=>{ INV_WATCH.busy=false; INV_WATCH.at=Date.now(); paintInvBanner(); });
+  }).catch(()=>{}).then(()=>{ INV_WATCH.busy=false; INV_WATCH.at=Date.now(); paintInvBanner(); paintPrebills(); });
+}
+/* Billed before loading: bills in a tanker's name raised before it is sent
+   (the "pending" bills of the invoice check). Shown on the tanker's Home
+   card, and its customer is picked in the Sent-for-sale sheet. Admin phones
+   with the ledger connected (that is where the check runs). */
+function prebilled(plate){
+  const d=INV_WATCH.d; if(!d || !isAdmin()) return null;
+  const k=plateKey(plate), xs=d.rec.loose.filter(x=>x.kind==="pending" && x.plate===k);
+  if(!xs.length) return null;
+  const dests={}, custs={};
+  xs.forEach(x=>{
+    const b=x.bill; custs[b.customer]=1;
+    const l=d.ctx.linkBy[b.ckey];
+    if(l) Object.keys(l).forEach(n=>{ if(destOf(l[n])) dests[destOf(l[n]).name]=1; });
+    else { let best="", bs=0; DESTS.forEach(o=>{ const v=INV.nameSim(o.name, b.customer); if(v>bs){ bs=v; best=o.name; } }); if(bs>=0.5) dests[best]=1; }
+  });
+  return { bills:xs.map(x=>x.bill), total:r2(xs.reduce((s,x)=>s+x.bill.qty,0)), nos:xs.map(x=>"#"+x.bill.bill_no).join(" + "),
+    dests:Object.keys(dests), custs:Object.keys(custs) };
+}
+function paintPrebills(){
+  document.querySelectorAll("#tankerList .prebill").forEach(el=>{
+    const pb=prebilled(el.getAttribute("data-pb"));
+    el.hidden=!pb; if(!pb){ el.innerHTML=""; return; }
+    el.innerHTML='<b>🧾 Pre-billed '+fmt(pb.total)+' L</b> to '+esc(pb.dests.length ? pb.dests.join(" / ") : pb.custs.join(", "))
+      +' <span class="pbn">'+esc(pb.nos)+'</span><br><span class="pbs">Load and send it '+(pb.dests.length===1?'to '+esc(pb.dests[0]):'there')+' — the bills go on the trip when it is sent for sale.</span>';
+  });
 }
 function paintInvBanner(){
   const box=$("#invBanner"); if(!box) return;
