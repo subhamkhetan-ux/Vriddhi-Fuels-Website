@@ -500,3 +500,19 @@ test('a bill raised before its tanker is sent waits for the trip; a bill marked 
   const a = r4.perCust.find((x) => x.custs.includes(S) || x.dests.includes('Shyam Metalics'));
   assert.deepEqual([a.status, a.settledL, a.diff], ['ok', 12000, 0]);
 });
+
+test('SMC: the Unit on the ledger bill says which Sold-to unit it is for', () => {
+  const P = 'M/s Smc Power Generation Ltd.';
+  const links = [{ ckey: INV.normName(P), dest: 'SMC Unit 1', customer: P }, { ckey: INV.normName(P), dest: 'SMC Unit 2', customer: P }];
+  const c = ctx({ links, plates: [A, B, 'OR15R5510'] });
+  const u1 = { ...bill(3813, '2026-10-09', 2000, P, 'OR15R5510'), unit: 'UNIT 1' }, u2 = { ...bill(3814, '2026-10-09', 10000, P, 'OR15R5510'), unit: 'UNIT 2' };
+  const none = bill(3815, '2026-10-09', 12000, P, 'OR15R5510');
+  assert.equal(INV.unitNo('UNIT 1'), '1'); assert.equal(INV.unitNo('SMC Unit-2'), '2'); assert.equal(INV.unitNo('Shyam Metalics'), '');
+  assert.deepEqual(INV.billDests(u1, c), ['SMC Unit 1']);
+  assert.deepEqual(INV.billDests(u2, c), ['SMC Unit 2']);
+  assert.deepEqual(INV.billDests(none, c).sort(), ['SMC Unit 1', 'SMC Unit 2'], 'no unit on the bill yet: either');
+  // a tanker can be split between the units: both bills still go on the one trip
+  const t1 = trip('OR15R5510', '2026-10-10', 11946, 'SMC Unit 1');
+  assert.equal(INV.custFit(t1, u2, c), 'linked');
+  assert.deepEqual(keys(INV.suggest([t1], [u1, u2], [], c)[t1.id].bills), ['3813', '3814']);
+});

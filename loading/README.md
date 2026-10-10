@@ -446,9 +446,11 @@ extra sale) and is suggested for the tanker's trip once it is sent for sale.
 If no trip comes by the day after, it becomes an extra sale. On Home (admin phones with the
 ledger connected) the tanker's card says so — *🧾 Pre-billed 12,000 L to SMC
 Unit 1 · #3813 + #3814 — load and send it there* — and **🚚 Sent for sale**
-picks that customer for you (with a note; when the bill's customer covers
-several *Sold to* customers, e.g. SMC Unit 1 / 2, you pick). The note goes
-once the tanker is sent.
+picks that customer for you (with a note). For a customer with units (SMC
+Unit 1 / 2) the **Unit on the ledger bill** (set in the ledger's bill list)
+says which unit — a load split between units shows each unit's litres, and
+the unit with most of it is picked. A bill with no Unit yet shows both. The
+note goes once the tanker is sent.
 
 **Tap any bill** (in Mapping, or **Move** in a trip's sheet) for its own
 sheet: the bill, the trip it is **now on** (sent, billed, difference) with

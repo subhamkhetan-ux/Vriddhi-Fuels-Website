@@ -1543,7 +1543,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v52 · 2026-10-10";
+const APP_BUILD = "v53 · 2026-10-10";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -2432,10 +2432,10 @@ function dispatchTanker(plate){
   $("#dispOk").textContent="🚚 Confirm sale";
   // billed before loading? pick the customer it was billed for and say so
   const pb=prebilled(plate);
-  renderDestPicker(pb && pb.dests.length===1 ? pb.dests[0] : "");   // also starts the forecast (OD15AF5510 needs no customer)
+  renderDestPicker(pb ? pb.main : "");   // also starts the forecast (OD15AF5510 needs no customer)
   $("#dispPre").hidden=!pb;
-  if(pb) $("#dispPre").innerHTML='🧾 Pre-billed '+(pb.dests.length?'to <b>'+esc(pb.dests.join(" / "))+'</b>':'to <b>'+esc(pb.custs.join(", "))+'</b>')
-    +' — '+esc(pb.nos)+' = '+fmt(pb.total)+' L'+(pb.dests.length===1?'. Picked for you — change it if it went elsewhere.':'. Pick where it went.');
+  if(pb) $("#dispPre").innerHTML='🧾 Pre-billed '+pb.parts.map(p=>fmt(p.qty)+' L to <b>'+esc(p.to)+'</b> ('+esc(p.nos.join(" + "))+')').join(' + ')
+    +(pb.main ? '. <b>'+esc(pb.main)+'</b> picked for you — change it if it went elsewhere.' : '. Pick where it went.');
   $("#dispModal").classList.add("on");
 }
 function editTripDest(trip){
@@ -3196,8 +3196,18 @@ const INV = (function(){
     const p=billPlate(b, ctx);
     return p==="" ? "blank" : p===null ? "other" : p===vehKey(trip.plate) ? "match" : "tanker";
   }
+  // "UNIT 1", "Unit-2", "SMC Unit 1" → "1" / "2" ("" = none)
+  function unitNo(s){ const m=String(s||"").match(/unit\s*[-#:]?\s*(\d+)/i); return m ? m[1] : ""; }
+  // the Sold-to customers a bill can be for: its ledger name's links, narrowed by the bill's unit (SMC Unit 1 / 2)
+  function billDests(b, ctx){
+    const l=ctx.linkBy[b.ckey||normName(b.customer)]; if(!l) return [];
+    const all=Object.keys(l).map(k=>l[k]), u=unitNo(b.unit);
+    const same=u ? all.filter(n=>unitNo(n)===u) : [];
+    return same.length ? same : all;
+  }
   function custFit(trip, b, ctx){
     const d=String(trip.dest||"").trim().toLowerCase(), l=ctx.linkBy[b.ckey||normName(b.customer)];
+    // (the Unit on a bill only says which unit it's for — a tanker can be split between units, so it isn't checked here)
     if(l && d && l[d]) return "linked";
     if(l) return "other";                                   // billed for another customer
     if(d && nameSim(trip.dest, b.customer)>=0.5) return "similar";
@@ -3482,7 +3492,7 @@ const INV = (function(){
   }
 
   return { vehKey:vehKey, normName:normName, dayAdd:dayAdd, fyOf:fyOf, billKey:billKey, nameSim:nameSim, context:context,
-    billPlate:billPlate, vehFit:vehFit, custFit:custFit, isPool:isPool, isBulk:isBulk, skipped:skipped, whyNot:whyNot, candidates:candidates, bestSet:bestSet,
+    billPlate:billPlate, vehFit:vehFit, custFit:custFit, unitNo:unitNo, billDests:billDests, isPool:isPool, isBulk:isBulk, skipped:skipped, whyNot:whyNot, candidates:candidates, bestSet:bestSet,
     suggest:suggest, reconcile:reconcile, billCmp:billCmp, tripsFor:tripsFor };
 })();
 /* ===================== END INVOICE TAGGING MODEL ===================== */
@@ -3542,7 +3552,7 @@ function ledgerBill(s){
   const date=String(s.sale_date||"").slice(0,10), no=String(s.bill_no==null?"":s.bill_no).trim();
   return { key:INV.billKey(s.product, date, no), id:s.id, product:s.product, fy:INV.fyOf(date), bill_no:no, date:date,
     vehicle:String(s.vehicle||"").trim(), qty:+s.qty||0, amount:s.amount==null?null:+s.amount,
-    customer:String(s.customer||"").trim(), ckey:INV.normName(s.customer), seq:+s.seq||0 };
+    customer:String(s.customer||"").trim(), ckey:INV.normName(s.customer), seq:+s.seq||0, unit:String(s.unit||"").trim() };
 }
 
 /* ledger sign-in sheet */
@@ -4252,22 +4262,30 @@ function prebilled(plate){
   const d=INV_WATCH.d; if(!d || !isAdmin()) return null;
   const k=plateKey(plate), xs=d.rec.loose.filter(x=>x.kind==="pending" && x.plate===k);
   if(!xs.length) return null;
-  const dests={}, custs={};
+  const dests={}, custs={}, by={};
   xs.forEach(x=>{
     const b=x.bill; custs[b.customer]=1;
-    const l=d.ctx.linkBy[b.ckey];
-    if(l) Object.keys(l).forEach(n=>{ if(destOf(l[n])) dests[destOf(l[n]).name]=1; });
-    else { let best="", bs=0; DESTS.forEach(o=>{ const v=INV.nameSim(o.name, b.customer); if(v>bs){ bs=v; best=o.name; } }); if(bs>=0.5) dests[best]=1; }
+    let bd=INV.billDests(b, d.ctx).filter(n=>destOf(n)).map(n=>destOf(n).name);
+    if(!bd.length){ let best="", bs=0; DESTS.forEach(o=>{ const v=INV.nameSim(o.name, b.customer); if(v>bs){ bs=v; best=o.name; } }); if(bs>=0.5) bd=[best]; }
+    bd.forEach(n=>{ dests[n]=1; });
+    // one Sold-to customer for the bill (its unit says which): litres and bill nos per customer
+    const k=bd.length===1 ? bd[0] : bd.length ? bd.join(" / ") : b.customer;
+    (by[k]=by[k]||{ to:k, qty:0, nos:[] }); by[k].qty=r2(by[k].qty+b.qty); by[k].nos.push("#"+b.bill_no);
   });
+  const parts=Object.keys(by).map(k=>by[k]);
   return { bills:xs.map(x=>x.bill), total:r2(xs.reduce((s,x)=>s+x.bill.qty,0)), nos:xs.map(x=>"#"+x.bill.bill_no).join(" + "),
-    dests:Object.keys(dests), custs:Object.keys(custs) };
+    dests:Object.keys(dests), custs:Object.keys(custs), parts:parts,
+    // the customer to pick at sale: the one most of it is billed to, when that is one Sold-to customer
+    main: parts.length && destOf(parts.slice().sort((a,b2)=>b2.qty-a.qty)[0].to) ? parts.slice().sort((a,b2)=>b2.qty-a.qty)[0].to : "" };
 }
 function paintPrebills(){
   document.querySelectorAll("#tankerList .prebill").forEach(el=>{
     const pb=prebilled(el.getAttribute("data-pb"));
     el.hidden=!pb; if(!pb){ el.innerHTML=""; return; }
-    el.innerHTML='<b>🧾 Pre-billed '+fmt(pb.total)+' L</b> to '+esc(pb.dests.length ? pb.dests.join(" / ") : pb.custs.join(", "))
-      +' <span class="pbn">'+esc(pb.nos)+'</span><br><span class="pbs">Load and send it '+(pb.dests.length===1?'to '+esc(pb.dests[0]):'there')+' — the bills go on the trip when it is sent for sale.</span>';
+    el.innerHTML='<b>🧾 Pre-billed '+fmt(pb.total)+' L</b>'
+      +(pb.parts.length===1 ? ' to '+esc(pb.parts[0].to)+' <span class="pbn">'+esc(pb.parts[0].nos.join(" + "))+'</span>'
+        : pb.parts.map(p=>'<br>· '+fmt(p.qty)+' L to '+esc(p.to)+' <span class="pbn">'+esc(p.nos.join(" + "))+'</span>').join(""))
+      +'<br><span class="pbs">Load and send it '+(pb.parts.length===1 && destOf(pb.parts[0].to)?'to '+esc(pb.parts[0].to):'there')+' — the bills go on the trip when it is sent for sale.</span>';
   });
 }
 function paintInvBanner(){
