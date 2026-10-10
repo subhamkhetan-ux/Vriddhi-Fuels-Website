@@ -189,6 +189,19 @@ create table if not exists public.loading_trip_checks (
   created_at timestamptz not null default now()
 );
 
+-- Bills an admin marked as checked by hand ("Mark bill as checked"): a bill on
+-- no trip that was settled some other way. The invoice check then stops
+-- flagging it. Keyed like the tags (product | financial year | bill no.).
+create table if not exists public.loading_bill_checks (
+  bill_key   text primary key,
+  bill_no    text not null default '',
+  sale_date  date,
+  note       text not null,
+  by_name    text not null default '',
+  created_by uuid,
+  created_at timestamptz not null default now()
+);
+
 -- Which ledger customers each "Sold to" customer is billed as. One sold-to
 -- customer can be billed to several ledger names (group companies) and one
 -- ledger name can cover several sold-to customers (SMC Unit 1 / Unit 2);
@@ -390,6 +403,7 @@ alter table public.loading_auth_state enable row level security;
 alter table public.loading_invoice_tags enable row level security;
 alter table public.loading_dest_links enable row level security;
 alter table public.loading_trip_checks enable row level security;
+alter table public.loading_bill_checks enable row level security;
 
 -- A phone may only ever see or touch its own owner's subscriptions. The edge
 -- function reads every row with the service-role key, which bypasses RLS.
@@ -450,6 +464,10 @@ create policy loading_fuel_logs_read on public.loading_fuel_logs
 -- invoice tags and customer links are ADMIN-only, like the trips
 drop policy if exists loading_invoice_tags_read on public.loading_invoice_tags;
 create policy loading_invoice_tags_read on public.loading_invoice_tags
+  for select to authenticated using (public._loading_is_admin());
+
+drop policy if exists loading_bill_checks_read on public.loading_bill_checks;
+create policy loading_bill_checks_read on public.loading_bill_checks
   for select to authenticated using (public._loading_is_admin());
 
 drop policy if exists loading_trip_checks_read on public.loading_trip_checks;
@@ -824,6 +842,29 @@ begin
     values (p_trip, left(btrim(p_note), 300), coalesce(p_by,''), auth.uid())
   on conflict (trip_id) do update set note = excluded.note, by_name = excluded.by_name,
     created_by = excluded.created_by, created_at = now();
+end $$;
+
+-- "Mark bill as checked": a bill on no trip, settled by hand, with the reason.
+create or replace function public.loading_bill_check(p_bill_key text, p_bill_no text, p_sale_date date, p_note text, p_by text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  if btrim(coalesce(p_bill_key,'')) = '' then raise exception 'Bill required'; end if;
+  if btrim(coalesce(p_note,'')) = '' then raise exception 'Say why this bill is all right'; end if;
+  if exists (select 1 from loading_invoice_tags where bill_key = p_bill_key) then
+    raise exception 'This bill is on a trip — take it off the trip first';
+  end if;
+  insert into loading_bill_checks (bill_key, bill_no, sale_date, note, by_name, created_by)
+    values (btrim(p_bill_key), btrim(coalesce(p_bill_no,'')), p_sale_date, left(btrim(p_note), 300), coalesce(p_by,''), auth.uid())
+  on conflict (bill_key) do update set note = excluded.note, by_name = excluded.by_name,
+    created_by = excluded.created_by, created_at = now();
+end $$;
+
+create or replace function public.loading_bill_uncheck(p_bill_key text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _loading_admin();
+  delete from loading_bill_checks where bill_key = p_bill_key;
 end $$;
 
 create or replace function public.loading_trip_uncheck(p_trip uuid) returns void
@@ -1296,6 +1337,8 @@ begin
       public.loading_dest_link_remove(text, text),
       public.loading_trip_check(uuid, text, text),
       public.loading_trip_uncheck(uuid),
+      public.loading_bill_check(text, text, date, text, text),
+      public.loading_bill_uncheck(text),
       public.loading_fuel_add(text, timestamptz, numeric, numeric, numeric, numeric, text, text),
       public.loading_setting_set(text, jsonb),
       public.loading_whoami(),
@@ -1356,6 +1399,10 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.loading_trip_checks;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.loading_bill_checks;
   exception when others then null;
   end;
 end $$;

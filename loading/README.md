@@ -433,6 +433,18 @@ figures still add up. **Undo** puts it back in the check. Its bills, if any, sti
 still be changed. Kept with the trip (`loading_trip_checks`, admin-only).
 **Cloud mode:** re-run `supabase/loading-schema.sql` once for it.
 
+**Mark bill as checked** (in the sheet of a bill on no trip): for a bill
+settled some other way. Type the reason; the bill is no longer flagged (not
+an extra sale, not to tag), is listed under *Bills checked by hand*, and
+**Undo** puts it back. Kept in `loading_bill_checks` (admin-only).
+**Cloud mode:** re-run `supabase/loading-schema.sql` once for it.
+
+**Billed before loading.** An invoice is sometimes raised before the tanker
+is loaded and sent. A bill in a tanker's name dated today or yesterday with
+no trip yet shows as **⏳ Billed before loading** (amber, a note — not an
+extra sale) and is suggested for the tanker's trip once it is sent for sale.
+If no trip comes by the day after, it becomes an extra sale.
+
 **Tap any bill** (in Mapping, or **Move** in a trip's sheet) for its own
 sheet: the bill, the trip it is **now on** (sent, billed, difference) with
 **Take off this trip**, and the trips it could **move to** — the ones with
