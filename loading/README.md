@@ -464,6 +464,14 @@ bills and a status; **Tag ›** opens its bills sheet:
 the bill, so a trip matches when its bills come to **up to 80 L more** than
 what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check*.
 
+**Short supply ≠ over-invoicing.** Those up-to-80 L a trip are **short
+supply** — normal — and are shown on their own (grey, *Short supply 68 L* on
+the trip, a *Short supply* line per tanker and per customer), never counted
+as over-invoicing. **Over-invoiced** is only a trip billed more than 80 L
+over what was sent, or a bill in a tanker's name that no trip can take. A
+customer's **Over / under-invoiced** line leaves short supply out; bills on
+no trip that a trip can still take show as **Bills to tag** (amber), not red.
+
 **Statuses** (from the *check from* date in ⚙; unset = the 1st of the month):
 
 | On a trip | Means |
