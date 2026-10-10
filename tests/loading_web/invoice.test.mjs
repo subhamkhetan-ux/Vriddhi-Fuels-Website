@@ -400,7 +400,8 @@ test('a trip marked as checked by hand is no longer flagged, anywhere', () => {
   assert.equal(r.perTanker[A].bad, 0);
   assert.equal(r.perTanker[A].diff, 0, 'not counted as short');
   const acc = r.perCust.find((a) => a.dests.includes('Shyam Metalics'));
-  assert.equal(acc.delivered, 17932, 'the checked trip adds nothing to sent-vs-invoiced');
+  assert.deepEqual([acc.delivered, acc.handL], [29887, 11955], 'sent is every trip; the checked one is settled by hand');
+  assert.equal(acc.diff, -17932, 'only the unchecked trip is short');
   // a trip whose bills already add up stays "ok" even if marked
   const ok = INV.reconcile([t1], [b], [tagOf(b, t1)], ctx({ ...base, checked: [{ trip_id: t1.id, note: 'x' }] }), { from: '2026-10-01', to: '2026-10-31' });
   assert.equal(ok.rows[0].status, 'ok');
@@ -437,4 +438,24 @@ test('short supply (billed up to 80 L more than sent) is kept apart from over-in
   const big = bill(1705, '2026-10-02', 12100, S, A);
   const r4 = INV.reconcile([ts[0]], [big], [tagOf(big, ts[0])], c, { from: '2026-10-01', to: '2026-10-31' });
   assert.deepEqual([r4.rows[0].status, r4.rows[0].short, r4.perCust[0].status, r4.perCust[0].diff], ['over', 0, 'over', 150]);
+});
+
+test('a bill on no trip that only a trip checked by hand could take is covered by it — not "to tag"', () => {
+  const S = 'Shyam Metalics and Energy Ltd';
+  const links = [{ ckey: INV.normName(S), dest: 'Shyam Metalics', customer: S }];
+  const t1 = trip(A, '2026-10-07', 11955, 'Shyam Metalics'), t2 = trip(B, '2026-10-08', 11940, 'Shyam Metalics');
+  const b1 = bill(1801, '2026-10-07', 12000, S, A), b2 = bill(1802, '2026-10-08', 12000, S, B);
+  const c = ctx({ links, checked: [{ trip_id: t1.id, note: 'manually done' }] });
+  const r = INV.reconcile([t1, t2], [b1, b2], [tagOf(b2, t2)], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r.loose.map((x) => [x.bill.bill_no, x.kind]), [['1801', 'covered']]);
+  assert.equal(r.alerts.length, 0, 'no alert for it');
+  const a = r.perCust[0];
+  assert.deepEqual([a.status, a.toTag, a.coveredL, a.handL, a.short, a.diff], ['ok', 0, 12000, 11955, 60, 0]);
+  // a bill with no vehicle to the customer, only a checked trip has room: covered too
+  const nb = bill(1803, '2026-10-07', 12000, S, '');
+  const r2 = INV.reconcile([t1, t2], [nb, b2], [tagOf(b2, t2)], c, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r2.loose.map((x) => x.kind), ['covered']);
+  // once the trip is no longer checked, the bill is to tag again
+  const r3 = INV.reconcile([t1, t2], [b1, b2], [tagOf(b2, t2)], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r3.loose.map((x) => x.kind), ['untagged']);
 });

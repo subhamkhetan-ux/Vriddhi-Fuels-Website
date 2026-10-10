@@ -1534,7 +1534,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v47 · 2026-10-10";
+const APP_BUILD = "v48 · 2026-10-10";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3336,11 +3336,13 @@ const INV = (function(){
     const left={}; rows.forEach(r=>{ left[r.trip.id]=r2(r.trip.total-r.sum); });
     const loose=bills.filter(b=>isPool(b, ctx) && !tagged[b.key]).sort(billCmp).map(b=>{
       const p=billPlate(b, ctx);
-      if(!p) return { bill:b, plate:"", kind:"loose", trips:[] };
-      // trips of this tanker it could belong to (room left on them)
-      const could=rows.filter(r=>vehKey(r.trip.plate)===p && left[r.trip.id]>=b.qty-over
-        && rate(r.trip, b, ctx)).map(r=>r.trip);
-      return { bill:b, plate:p, kind: could.length ? "untagged" : "extra", trips:could };
+      // trips it could belong to (room left): this tanker's, or for a bill with no vehicle its customer's
+      const could=rows.filter(r=>left[r.trip.id]>=b.qty-over && rate(r.trip, b, ctx)
+        && (p ? vehKey(r.trip.plate)===p : ["linked","similar"].indexOf(custFit(r.trip, b, ctx))>=0));
+      const open=could.filter(r=>!r.checked).map(r=>r.trip);
+      // only trips marked "checked by hand" could take it: it is taken as theirs (covered), not to tag
+      const kind = open.length ? (p ? "untagged" : "loose") : could.length ? "covered" : (p ? "extra" : "loose");
+      return { bill:b, plate:p||"", kind:kind, trips: kind==="covered" ? could.map(r=>r.trip) : open };
     });
 
     // per tanker, over the period
@@ -3371,7 +3373,7 @@ const INV = (function(){
     const accOf=(node, label, isDest)=>{
       if(parent[node]===undefined) parent[node]=node;
       const k=find(node), a=acc[k]||(acc[k]={ key:k, dests:{}, custs:{}, ckeys:{}, trips:0, delivered:0, invoiced:0, bills:0, extraL:0, extraN:0, waiting:0,
-        tripIds:[], loose:[], tagged:0, short:0, extraHard:0, toTag:0, toTagN:0 });
+        tripIds:[], loose:[], tagged:0, short:0, extraHard:0, toTag:0, toTagN:0, handL:0, coveredL:0, coveredN:0 });
       if(label) (isDest?a.dests:a.custs)[label]=1;
       if(!isDest && node.slice(0,2)==="c:") a.ckeys[node.slice(2)]=label;
       return a;
@@ -3381,7 +3383,9 @@ const INV = (function(){
     rows.filter(r=>r.inRange && r.status!=="before").forEach(r=>{
       const a=accOf("d:"+(String(r.trip.dest||"").trim().toLowerCase()||"(none)"), r.trip.dest||"(no customer)", true);
       // a trip checked by hand counts as delivered only as far as its bills go
-      a.trips++; a.delivered=r2(a.delivered+(r.checked ? r.sum : r.trip.total)); a.tripIds.push(r.trip.id);
+      // sent = every trip; what a trip checked by hand is short of its bills is "settled by hand"
+      a.trips++; a.delivered=r2(a.delivered+r.trip.total); a.tripIds.push(r.trip.id);
+      if(r.checked) a.handL=r2(a.handL+r.trip.total-r.sum);
       a.short=r2(a.short+(r.checked ? 0 : r.short));
       if(r.checked) a.checkedN=(a.checkedN||0)+1;
       if(r.status==="await") a.waiting=r2(a.waiting+r.trip.total);
@@ -3391,12 +3395,14 @@ const INV = (function(){
       const a=accOf("c:"+(x.bill.ckey||normName(x.bill.customer)), x.bill.customer, false);
       a.invoiced=r2(a.invoiced+x.bill.qty); a.bills++; a.extraL=r2(a.extraL+x.bill.qty); a.extraN++; a.loose.push(x);
       // a bill no trip can account for is over-invoicing; one that can still go on a trip is just to tag
-      if(x.kind==="extra") a.extraHard=r2(a.extraHard+x.bill.qty); else { a.toTag=r2(a.toTag+x.bill.qty); a.toTagN++; }
+      if(x.kind==="extra") a.extraHard=r2(a.extraHard+x.bill.qty);
+      else if(x.kind==="covered"){ a.coveredL=r2(a.coveredL+x.bill.qty); a.coveredN++; }
+      else { a.toTag=r2(a.toTag+x.bill.qty); a.toTagN++; }
     });
     const perCust=Object.keys(acc).map(k=>acc[k]).filter(a=>a.trips || a.bills).map(a=>{
       // over / under-invoiced: bills on its trips + bills no trip can take − sent, leaving out the
       // short supply (≤ `over` a trip, normal) and the bills still to tag (shown on their own)
-      const k=Math.max(1, a.trips), diff=r2(a.tagged+a.extraHard-a.delivered-a.short), gap=-diff-a.waiting;
+      const k=Math.max(1, a.trips), diff=r2(a.tagged+a.extraHard-a.delivered+a.handL-a.short), gap=-diff-a.waiting;
       const status = diff>tol ? "over"
         : diff< -tol*k ? (gap<=tol*k ? "await" : a.toTag>=gap-tol*k ? "totag" : "under")
         : a.toTag>0 ? "totag" : "ok";
@@ -3417,7 +3423,7 @@ const INV = (function(){
       if(r.status==="under") alerts.push({ lvl:"high", kind:"under", row:r, plate:t.plate, title:"Under-invoiced by "+r2(t.total-r.sum)+" L", text:"Bills for "+r.sum+" L on a "+t.total+" L trip" });
       r.issues.forEach(i=>{ alerts.push({ lvl:"high", kind:i.kind, row:r, plate:t.plate, title:{ veh:"Bill in another tanker's name", date:"Bill far from its trip's date", cust:"Billed to a different customer", gone:"Bill deleted in the ledger", changed:"Bill changed in the ledger" }[i.kind], text:i.text }); });
     });
-    loose.filter(x=>inR(x.bill.date)).forEach(x=>{
+    loose.filter(x=>inR(x.bill.date) && x.kind!=="covered").forEach(x=>{
       const b=x.bill, what="Bill "+b.bill_no+" · "+b.qty+" L to "+b.customer;
       if(x.kind==="extra") alerts.push({ lvl:"high", kind:"extra", loose:x, plate:x.plate, title:"Extra sale in the name of "+x.plate, text:what+" — no trip of this tanker can account for it" });
       else if(x.kind==="untagged") alerts.push({ lvl:"watch", kind:"untagged", loose:x, plate:x.plate, title:"Invoice not tagged yet", text:what });
@@ -3748,7 +3754,8 @@ function tripRowHTML(t, byCust){
 function looseRowHTML(x){
   const b=x.bill, cand=looseTrips(b);
   return '<div class="trinv loose"><span class="lb"><b>#'+esc(b.bill_no)+'</b> · '+dmy(b.date).slice(0,5)+' · '+esc(b.vehicle||"no vehicle")
-    +(x.kind==="extra"?' · <span class="fit-bad">⛔ no trip of '+esc(x.plate)+' fits</span>':'')+'<br><span class="lc">'+esc(b.customer)+'</span></span>'
+    +(x.kind==="extra"?' · <span class="fit-bad">⛔ no trip of '+esc(x.plate)+' fits</span>':'')
+    +(x.kind==="covered"?' · <span class="fit-ok">covered by a trip checked by hand</span>':'')+'<br><span class="lc">'+esc(b.customer)+'</span></span>'
     +'<span class="tq">'+fmt(b.qty)+' L</span>'
     +(cand.length ? '<div class="fbtns">'+cand.slice(0,4).map(t=>'<button class="tagbtn" data-tag="'+esc(t.id)+'" data-bill="'+esc(b.key)+'">→ '
         +esc(t.plate)+' '+dmy(t.day).slice(0,5)+(destOf(t.dest)?' · '+esc(t.dest):'')+'</button>').join("")+'</div>' : '')+'</div>';
@@ -3782,7 +3789,9 @@ function custViewHTML(){
         +'<div class="trd">'
         +'<div class="tl"><span class="tn">Sent for sale</span><span class="tc">'+a.trips+' trip'+(a.trips===1?'':'s')+'</span><span class="tk">'+fmt(a.delivered)+' L</span></div>'
         +'<div class="tl"><span class="tn">Invoiced</span><span class="tc">'+a.bills+' bill'+(a.bills===1?'':'s')+'</span><span class="tk">'+fmt(a.invoiced)+' L</span></div>'
-        +(a.extraN?'<div class="tl'+(a.extraHard?' warn':' wait')+'"><span class="tn">… on no trip'+(a.extraHard?'':' — to tag')+'</span><span class="tc">'+a.extraN+' bill'+(a.extraN===1?'':'s')+'</span><span class="tk">'+fmt(a.extraL)+' L</span></div>':'')
+        +(a.extraN-a.coveredN?'<div class="tl'+(a.extraHard?' warn':' wait')+'"><span class="tn">… on no trip'+(a.extraHard?'':' — to tag')+'</span><span class="tc">'+(a.extraN-a.coveredN)+' bill'+(a.extraN-a.coveredN===1?'':'s')+'</span><span class="tk">'+fmt(r2(a.extraL-a.coveredL))+' L</span></div>':'')
+        +(a.coveredN?'<div class="tl muted"><span class="tn">… covered by trips checked by hand</span><span class="tc">'+a.coveredN+' bill'+(a.coveredN===1?'':'s')+'</span><span class="tk">'+fmt(a.coveredL)+' L</span></div>':'')
+        +(a.checkedN?'<div class="tl muted"><span class="tn">Settled by hand</span><span class="tc">'+a.checkedN+' trip'+(a.checkedN===1?'':'s')+'</span><span class="tk">'+fmt(a.handL)+' L</span></div>':'')
         +(a.short?'<div class="tl muted"><span class="tn">Short supply <small>(≤ '+fmt(TAGSET.over)+' L a trip)</small></span><span class="tc"></span><span class="tk">'+fmt(a.short)+' L</span></div>':'')
         +(a.waiting?'<div class="tl"><span class="tn">Trips waiting for bills</span><span class="tc"></span><span class="tk">'+fmt(a.waiting)+' L</span></div>':'')
         +'<div class="tl'+(a.status==="over"||a.status==="under"?' warn':'')+'"><span class="tn">Over / under-invoiced</span><span class="tc"></span><span class="tk">'+(a.diff?signL(a.diff):'0 L')+'</span></div>'
@@ -3924,7 +3933,11 @@ function mapViewHTML(){
       +'</div>';
   });
   if(loose.length && !mapTodo || loose.some(x=>x.kind==="extra")){
-    const ls=mapTodo ? loose.filter(x=>x.kind==="extra") : loose;
+    const ls=(mapTodo ? loose.filter(x=>x.kind==="extra") : loose).filter(x=>x.kind!=="covered");
+    const cov=mapTodo ? [] : loose.filter(x=>x.kind==="covered");
+    if(cov.length) h+='<div class="mapday">Covered by trips checked by hand<span>'+cov.length+'</span></div>'
+      +'<div class="mapcard st-chk"><div class="mapbills">'+cov.map(x=>billChipHTML(x.bill, {})).join("")+'</div>'
+      +'<div class="note" style="text-align:left;margin:6px 0 0">On no trip, but only a trip you marked as checked could take them — taken as theirs. Tap one to tag it properly.</div></div>';
     if(ls.length) h+='<div class="mapday">Bills on no trip<span>'+ls.length+'</span></div>'
       +'<div class="mapcard st-'+(ls.some(x=>x.kind==="extra")?'bad':'wait')+'"><div class="mapbills">'
       +ls.map(x=>billChipHTML(x.bill, {})).join("")+'</div>'

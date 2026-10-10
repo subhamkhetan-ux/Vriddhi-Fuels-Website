@@ -425,7 +425,11 @@ of its bills sheet): for a trip you can't sort out against the ledger — billed
 on a manual invoice, settled with the customer… Type the reason; the trip
 turns blue (*✓ Checked by hand: “reason” · who · date*) and is no longer
 flagged anywhere (Alerts, the Home card, *To fix*, per tanker / customer).
-**Undo** puts it back in the check. Its bills, if any, still show and can
+A trip checked by hand counts as tagged by hand: a bill on no trip that
+only such a trip could take is **covered** by it (grey, *covered by a trip
+checked by hand*) — not "to tag", not an extra sale — and the customer card
+shows its trips in *Sent for sale* with a *Settled by hand* line, so the
+figures still add up. **Undo** puts it back in the check. Its bills, if any, still show and can
 still be changed. Kept with the trip (`loading_trip_checks`, admin-only).
 **Cloud mode:** re-run `supabase/loading-schema.sql` once for it.
 
