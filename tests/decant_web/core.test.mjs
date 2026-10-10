@@ -91,6 +91,34 @@ test('settings fill in defaults and tidy tank rows', () => {
   assert.deepEqual(old.tanks.map((t) => t.fillTo), [20500, 15000, 20300]);
 });
 
+test('tanks added, changed and removed: new ids never reuse an old one, the list is checked before saving', async () => {
+  const { newTankId, tankProblems } = await import('../../decant/js/core.js');
+  // a new tank takes T<no> when free, else the next free id
+  assert.equal(newTankId(5, ['T1', 'T2', 'T3', 'T4']), 'T5');
+  assert.equal(newTankId(4, ['T1', 'T2', 'T3', 'T4']), 'T5');       // Tank 4 removed and added again: a new id
+  assert.equal(newTankId(2, new Set(['T1', 'T3'])), 'T2');
+  assert.equal(newTankId(NaN, ['T1', 'T2']), 'T3');
+  // removed tanks are kept by id (not one in use), so their decantations still name them
+  const s = settingsWith({
+    tanks: DEFAULT_TANKS.slice(0, 3),
+    retiredTanks: [{ id: 'T4', no: 4, product: 'XG', capacity: 20000, removedAt: '2026-10-10T05:00:00Z' }, { id: 'T1', no: 1 }, null],
+  });
+  assert.deepEqual(s.retiredTanks, [{ id: 'T4', no: 4, product: 'XG', capacity: 20000, removedAt: '2026-10-10T05:00:00Z' }]);
+  assert.deepEqual(settingsWith(null).retiredTanks, []);
+  assert.deepEqual(settingsWith({ retiredTanks: 'x' }).retiredTanks, []);
+  // checks
+  assert.deepEqual(tankProblems(DEFAULT_TANKS), []);
+  assert.deepEqual(tankProblems([]), ['Keep at least one tank.']);
+  const t = (o) => ({ id: 'T9', no: 9, product: 'HSD', capacity: 20000, fillTo: 20500, ...o });
+  assert.match(tankProblems([t({}), t({ id: 'T8' })])[0], /Two tanks are numbered 9/);
+  assert.match(tankProblems([t({ no: 0 })])[0], /whole number from 1 to 99/);
+  assert.match(tankProblems([t({ no: 2.5 })])[0], /whole number/);
+  assert.match(tankProblems([t({ product: 'LSHF' })])[0], /pick its product/);
+  assert.match(tankProblems([t({ capacity: 500 })])[0], /capacity/);
+  assert.match(tankProblems([t({ capacity: 15000, fillTo: 20500 })])[0], /90 % to 105 %/);
+  assert.deepEqual(tankProblems([t({ capacity: 15000, fillTo: 15000 })]), []);
+});
+
 test('fill limit: our 20 KL tanks take up to 20,500 L', async () => {
   const { fillLimit, planIndents, roomOf } = await import('../../decant/js/core.js');
   const T2 = DEFAULT_TANKS[1];

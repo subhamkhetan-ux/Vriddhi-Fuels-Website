@@ -512,6 +512,15 @@ of undecanted invoices to list, our delivery tankers to leave out on the Plan
 tab (OD15AF5510 by default), the automation's date format (MM/DD/YYYY by
 default), the dip chart, and:
 
+- **Tanks** — the underground tanks: **＋ Add a tank**, change any tank's
+  number, product, capacity and *fill up to*, or **✕ Remove** one. The tank
+  number is the automation's "Tank N", so each needs its own (1–99); there must
+  be at least one tank. A removed tank is only marked (↺ *Undo*) until *Save
+  settings*. Its decantations stay in the Log and reports as
+  *Tank N (removed)*, and a new tank never takes its id, so old figures are
+  never put on the new tank — even if it gets the same number. A tank being
+  decanted can't be removed or given another product until its stock after is
+  read. Every tank uses the one dip chart.
 - **Decanting time** — how long a 5 KL and a 4 KL chamber take to empty
   through the pipe (minutes and seconds; 8:15 and 7:00 by default), and how
   long moving the pipe to the tank's next chamber takes (0:45 by default;

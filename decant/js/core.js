@@ -18,6 +18,9 @@ export const DEFAULT_TANKS = [
 
 export const DEFAULT_SETTINGS = {
   tanks: DEFAULT_TANKS,
+  // Tanks removed in Settings, kept by id: their decantations still name them,
+  // and a new tank never takes an old one's id.
+  retiredTanks: [],
   tolerancePct: 0.25,   // a variation within max(tolerancePct % of the load, toleranceMinL) is "OK"
   toleranceMinL: 25,
   warnRoomL: 150,       // warn when a tank would be left with less room than this
@@ -99,7 +102,46 @@ export function settingsWith(saved) {
       fillTo: Number(t.fillTo) > 0 ? Number(t.fillTo) : (capacity === 20000 ? 20500 : capacity),
     };
   });
+  const active = new Set(s.tanks.map((t) => t.id));
+  s.retiredTanks = (Array.isArray(s.retiredTanks) ? s.retiredTanks : [])
+    .filter((t) => t && t.id && !active.has(String(t.id)))
+    .map((t) => ({
+      id: String(t.id), no: Number(t.no) || null, product: PRODUCTS[t.product] ? t.product : null,
+      capacity: Number(t.capacity) > 0 ? Number(t.capacity) : null, removedAt: t.removedAt || null,
+    }));
   return s;
+}
+
+// A new tank's id: T<no> when it's free, else the next free T<n> — never the
+// id of a tank in use or one removed (its decantations and stock still point
+// at it).
+export function newTankId(no, taken) {
+  const used = new Set([...(taken || [])].map(String));
+  if (Number.isInteger(no) && no > 0 && !used.has(`T${no}`)) return `T${no}`;
+  let n = 1;
+  while (used.has(`T${n}`)) n++;
+  return `T${n}`;
+}
+
+// What's wrong with a tank list before it's saved: [] when it's fine. Each
+// tank needs a number of its own (the automation's "Tank N" is matched by it),
+// a product, a capacity and how full it may be filled.
+export function tankProblems(list) {
+  const out = [];
+  if (!Array.isArray(list) || !list.length) return ['Keep at least one tank.'];
+  const seen = new Set();
+  for (const t of list) {
+    const name = Number.isInteger(t.no) && t.no > 0 ? `Tank ${t.no}` : 'A tank';
+    if (!Number.isInteger(t.no) || t.no < 1 || t.no > 99) out.push(`${name}: its number must be a whole number from 1 to 99.`);
+    else if (seen.has(t.no)) out.push(`Two tanks are numbered ${t.no} — each needs its own number.`);
+    seen.add(t.no);
+    if (!PRODUCTS[t.product]) out.push(`${name}: pick its product.`);
+    if (!(Number(t.capacity) >= 1000 && Number(t.capacity) <= 100000)) out.push(`${name}: capacity must be from 1,000 to 1,00,000 L.`);
+    else if (!(Number(t.fillTo) >= t.capacity * 0.9 && Number(t.fillTo) <= t.capacity * 1.05)) {
+      out.push(`${name}: fill up to must be from 90 % to 105 % of its capacity (${Math.ceil(t.capacity * 0.9).toLocaleString('en-IN')}–${Math.floor(t.capacity * 1.05).toLocaleString('en-IN')} L).`);
+    }
+  }
+  return out;
 }
 
 // How full a tank may be filled (litres).
