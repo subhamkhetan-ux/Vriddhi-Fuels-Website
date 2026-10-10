@@ -473,3 +473,30 @@ test('a trip of another customer cannot take a bill: the checked trip of its own
   const r2 = INV.reconcile([mine, theirs], [b], [], ctx({ links }), { from: '2026-10-01', to: '2026-10-31' });
   assert.deepEqual(r2.loose[0].trips.map((t) => t.id), [mine.id]);
 });
+
+test('a bill raised before its tanker is sent waits for the trip; a bill marked as checked by hand is settled', () => {
+  const P = 'M/s Smc Power Generation Ltd.', S = 'Shyam Metalics and Energy Ltd';
+  const links = [{ ckey: INV.normName(P), dest: 'SMC Unit 1', customer: P }, { ckey: INV.normName(S), dest: 'Shyam Metalics', customer: S }];
+  const b1 = bill(3813, '2026-10-09', 2000, P, 'OR15R5510'), b2 = bill(3814, '2026-10-09', 10000, P, 'OR15R5510');
+  const old = bill(3538, '2026-10-01', 12000, S, A);
+  const base = { plates: [A, B, 'OR15R5510'], links, until: '2026-10-09' };
+  // today 10/10: no trip yet — billed before loading, not an extra sale
+  const r = INV.reconcile([], [b1, b2, old], [], ctx({ ...base, today: '2026-10-10' }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r.loose.map((x) => [x.bill.bill_no, x.kind]), [['3538', 'extra'], ['3813', 'pending'], ['3814', 'pending']]);
+  assert.deepEqual(r.alerts.map((a) => [a.lvl, a.kind]), [['high', 'extra'], ['watch', 'pending'], ['watch', 'pending']]);
+  assert.equal(r.perCust.find((a) => a.custs.includes(P) || a.dests.includes('SMC Unit 1')).status, 'pending');
+  // a day later, still no trip: now it is an extra sale
+  const r2 = INV.reconcile([], [b1, b2], [], ctx({ ...base, today: '2026-10-11' }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r2.loose.map((x) => x.kind), ['extra', 'extra']);
+  // the tanker is sent today: the two bills are suggested for it (12,000 on 11,946 = 54 L short supply)
+  const t = trip('OR15R5510', '2026-10-10', 11946, 'SMC Unit 1');
+  const r3 = INV.reconcile([t], [b1, b2], [], ctx({ ...base, today: '2026-10-10' }), { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(keys(r3.rows[0].sug.bills), ['3813', '3814']);
+  // #3538 marked as checked by hand: settled, no alert, the customer is not over-invoiced
+  const r4 = INV.reconcile([], [old], [], ctx({ ...base, today: '2026-10-10', billChecked: [{ bill_key: old.key, note: 'Settled manually' }] }),
+    { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(r4.loose.map((x) => x.kind), ['settled']);
+  assert.equal(r4.alerts.length, 0);
+  const a = r4.perCust.find((x) => x.custs.includes(S) || x.dests.includes('Shyam Metalics'));
+  assert.deepEqual([a.status, a.settledL, a.diff], ['ok', 12000, 0]);
+});

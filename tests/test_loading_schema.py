@@ -219,7 +219,7 @@ def _tag(pg, trip, bills, mode="manual"):
 def trips(pg):
     pg.ok("insert into loading_roles (email, role) values ('boss@vriddhi.local', 'admin') on conflict (email) do update set role = 'admin';"
           "insert into loading_roles (email, role) values ('ramesh@vriddhi.local', 'staff') on conflict (email) do update set role = 'staff';"
-          "delete from loading_invoice_tags; delete from loading_dest_links; delete from loading_trip_checks; delete from loading_trips;"
+          "delete from loading_invoice_tags; delete from loading_dest_links; delete from loading_trip_checks; delete from loading_bill_checks; delete from loading_trips;"
           f"insert into loading_trips (id, vehicle, total, dest, created_at) values "
           f"('{TRIP1}', 'OD23A3710', 12000, 'Shyam Metalics', {T0}),"
           f"('{TRIP2}', 'OR15R1110', 11955, 'Orissa Metaliks', {T0} + interval '2 hours');")
@@ -314,3 +314,20 @@ def test_mark_a_trip_as_checked(pg, trips):
     _admin(pg, f"select loading_trip_check('{TRIP2}', 'ok', 'boss')")
     pg.ok(f"delete from loading_trips where id = '{TRIP2}'")                                  # goes with its trip
     assert pg.ok("select count(*) from loading_trip_checks") == "0"
+
+
+def test_mark_a_bill_as_checked(pg, trips):
+    admin = dict(user=ADMIN, email="boss@vriddhi.local")
+    _admin(pg, "select loading_bill_check('HSD|2026-27|3538', '3538', '2026-10-01', 'Settled manually', 'boss')")
+    assert pg.json("select jsonb_agg(jsonb_build_array(bill_no, sale_date, note)) from loading_bill_checks") == [["3538", "2026-10-01", "Settled manually"]]
+    _admin(pg, "select loading_bill_check('HSD|2026-27|3538', '3538', '2026-10-01', 'Settled with Shyam', 'boss')")   # again: new reason
+    assert pg.ok("select note from loading_bill_checks") == "Settled with Shyam"
+    assert "why" in pg.fails("select loading_bill_check('HSD|2026-27|1', '1', null, ' ', 'boss')", **admin)
+    _tag(pg, TRIP1, [_bill(501, 12000)])                                     # a bill on a trip can't be marked
+    assert "on a trip" in pg.fails("select loading_bill_check('HSD|2026-27|501', '501', '2026-10-02', 'x', 'boss')", **admin)
+    staff = dict(user=STAFF, email="ramesh@vriddhi.local")
+    assert pg.ok("select count(*) from loading_bill_checks", **staff) == "0"
+    assert "Admin only" in pg.fails("select loading_bill_check('HSD|2026-27|9', '9', null, 'x', '')", **staff)
+    assert "Admin only" in pg.fails("select loading_bill_uncheck('HSD|2026-27|3538')", **staff)
+    _admin(pg, "select loading_bill_uncheck('HSD|2026-27|3538')")
+    assert pg.ok("select count(*) from loading_bill_checks") == "0"

@@ -449,6 +449,7 @@
   .mapsug .tagbtn{margin-left:auto}
   .mapfoot{display:flex;justify-content:flex-end;margin-top:8px}
   .billon{background:var(--glass-2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-weight:700;color:var(--ink);font-size:14px;margin-bottom:6px;position:relative}
+  .billon.chk{color:#3c64b4}
   .billon .sub{font-size:12px;color:var(--muted);font-weight:600}
   .billon.none{color:var(--warn)}
   .billon .lnk{display:block;margin-top:6px;padding:0}
@@ -1536,7 +1537,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v50 · 2026-10-10";
+const APP_BUILD = "v51 · 2026-10-10";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -1658,6 +1659,7 @@ const SLS_KEY = "vf_loading_settings_v1";
 const TLS_KEY = "vf_loading_inv_tags_v1";    // invoice tags (single-device mode)
 const LLS_KEY = "vf_loading_dest_links_v1";  // ledger customer ↔ "Sold to" links
 const KLS_KEY = "vf_loading_trip_checks_v1"; // trips marked as checked by hand
+const BLS_KEY = "vf_loading_bill_checks_v1"; // bills on no trip marked as checked by hand
 function lsGet(k,d){ try{ const v=JSON.parse(localStorage.getItem(k)); return Array.isArray(v)?v:d; }catch(e){ return d; } }
 function lsPut(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function dNorm(d){ return { name:String(d.name||""), rtd:+d.rtd||0, grp:String(d.grp||"") }; }
@@ -1777,6 +1779,14 @@ const LocalBackend = {
     return Promise.resolve();
   },
   uncheckTrip(id){ lsPut(KLS_KEY, lsGet(KLS_KEY, []).filter(x=>x.trip_id!==id)); return Promise.resolve(); },
+  loadBillChecks(){ return Promise.resolve(lsGet(BLS_KEY, []).slice()); },
+  checkBill(b, note){
+    if(!String(note||"").trim()) return Promise.reject(new Error("Say why this bill is all right"));
+    if(lsGet(TLS_KEY, []).some(t=>t.key===b.key)) return Promise.reject(new Error("This bill is on a trip — take it off the trip first"));
+    lsPut(BLS_KEY, lsGet(BLS_KEY, []).filter(x=>x.bill_key!==b.key).concat([{ bill_key:b.key, bill_no:b.bill_no, sale_date:b.date, note:String(note).trim().slice(0,300), by:ME, ts:Date.now() }]));
+    return Promise.resolve();
+  },
+  uncheckBill(key){ lsPut(BLS_KEY, lsGet(BLS_KEY, []).filter(x=>x.bill_key!==key)); return Promise.resolve(); },
   loadFuel(){ return Promise.resolve(lsGet(FLS_KEY, []).slice()); },
   loadSettings(){ try{ return Promise.resolve(JSON.parse(localStorage.getItem(SLS_KEY))||{}); }catch(e){ return Promise.resolve({}); } },
   saveSetting(k, v){ let o={}; try{ o=JSON.parse(localStorage.getItem(SLS_KEY))||{}; }catch(e){} o[k]=v; localStorage.setItem(SLS_KEY, JSON.stringify(o)); return Promise.resolve(); },
@@ -1904,6 +1914,12 @@ const CloudBackend = {
   },
   checkTrip(id, note){ return this.rpc("loading_trip_check",{ p_trip:id, p_note:note, p_by:ME }); },
   uncheckTrip(id){ return this.rpc("loading_trip_uncheck",{ p_trip:id }); },
+  loadBillChecks(){
+    return this.all(()=>this.client.from("loading_bill_checks").select("*").order("created_at",{ascending:true}))
+      .then(rows=>rows.map(r=>({ bill_key:r.bill_key, bill_no:r.bill_no||"", sale_date:r.sale_date||"", note:r.note||"", by:r.by_name||"", ts:Date.parse(r.created_at) })));
+  },
+  checkBill(b, note){ return this.rpc("loading_bill_check",{ p_bill_key:b.key, p_bill_no:b.bill_no, p_sale_date:b.date||null, p_note:note, p_by:ME }); },
+  uncheckBill(key){ return this.rpc("loading_bill_uncheck",{ p_bill_key:key }); },
   loadFuel(){
     return this.all(()=>this.client.from("loading_fuel_logs").select("*").order("reading_at",{ascending:true}))
       .then(rows=>rows.map(row=>({ id:row.id, plate:row.vehicle, ts:Date.parse(row.reading_at), odo:+row.odometer||0,
@@ -3144,7 +3160,10 @@ const INV = (function(){
       bulkKnown:Object.keys(bulk).length>0,
       billsFrom:o.billsFrom||"", billsTo:o.billsTo||"", links:o.links||[],
       // trips an admin marked as checked by hand: { trip_id: { note, by, ts } }
-      checked:(o.checked||[]).reduce((m,c)=>{ m[c.trip_id]=c; return m; }, {}) };
+      checked:(o.checked||[]).reduce((m,c)=>{ m[c.trip_id]=c; return m; }, {}),
+      // bills on no trip an admin marked as checked by hand: { bill_key: { note, by, ts } }
+      billChecked:(o.billChecked||[]).reduce((m,c)=>{ m[c.bill_key]=c; return m; }, {}),
+      today:o.today||"" };
   }
   function alnum(s){ return normName(s).replace(/[^a-z0-9]/g,""); }
   // left out entirely: OD15AF5510's bills (accounted for elsewhere) and our own refills
@@ -3344,7 +3363,11 @@ const INV = (function(){
         && (p ? vehKey(r.trip.plate)===p && custFit(r.trip, b, ctx)!=="other" : ["linked","similar"].indexOf(custFit(r.trip, b, ctx))>=0));
       const open=could.filter(r=>!r.checked).map(r=>r.trip);
       // only trips marked "checked by hand" could take it: it is taken as theirs (covered), not to tag
-      const kind = open.length ? (p ? "untagged" : "loose") : could.length ? "covered" : (p ? "extra" : "loose");
+      // a bill may be raised up to a day before its tanker is sent: dated today or yesterday,
+      // its trip can still come — "pending", not an extra sale (yet)
+      const pending = p && ctx.today && dayNum(ctx.today)-dayNum(b.date) <= -WIN_LO;
+      const kind = ctx.billChecked[b.key] ? "settled"
+        : open.length ? (p ? "untagged" : "loose") : could.length ? "covered" : p ? (pending ? "pending" : "extra") : "loose";
       return { bill:b, plate:p||"", kind:kind, trips: kind==="covered" ? could.map(r=>r.trip) : open };
     });
 
@@ -3376,7 +3399,8 @@ const INV = (function(){
     const accOf=(node, label, isDest)=>{
       if(parent[node]===undefined) parent[node]=node;
       const k=find(node), a=acc[k]||(acc[k]={ key:k, dests:{}, custs:{}, ckeys:{}, trips:0, delivered:0, invoiced:0, bills:0, extraL:0, extraN:0, waiting:0,
-        tripIds:[], loose:[], tagged:0, short:0, extraHard:0, toTag:0, toTagN:0, handL:0, coveredL:0, coveredN:0 });
+        tripIds:[], loose:[], tagged:0, short:0, extraHard:0, toTag:0, toTagN:0, handL:0, coveredL:0, coveredN:0,
+        settledL:0, settledN:0, pendingL:0, pendingN:0 });
       if(label) (isDest?a.dests:a.custs)[label]=1;
       if(!isDest && node.slice(0,2)==="c:") a.ckeys[node.slice(2)]=label;
       return a;
@@ -3400,6 +3424,8 @@ const INV = (function(){
       // a bill no trip can account for is over-invoicing; one that can still go on a trip is just to tag
       if(x.kind==="extra") a.extraHard=r2(a.extraHard+x.bill.qty);
       else if(x.kind==="covered"){ a.coveredL=r2(a.coveredL+x.bill.qty); a.coveredN++; }
+      else if(x.kind==="settled"){ a.settledL=r2(a.settledL+x.bill.qty); a.settledN++; }
+      else if(x.kind==="pending"){ a.pendingL=r2(a.pendingL+x.bill.qty); a.pendingN++; }
       else { a.toTag=r2(a.toTag+x.bill.qty); a.toTagN++; }
     });
     const perCust=Object.keys(acc).map(k=>acc[k]).filter(a=>a.trips || a.bills).map(a=>{
@@ -3408,7 +3434,7 @@ const INV = (function(){
       const k=Math.max(1, a.trips), diff=r2(a.tagged+a.extraHard-a.delivered+a.handL-a.short), gap=-diff-a.waiting;
       const status = diff>tol ? "over"
         : diff< -tol*k ? (gap<=tol*k ? "await" : a.toTag>=gap-tol*k ? "totag" : "under")
-        : a.toTag>0 ? "totag" : "ok";
+        : a.toTag>0 ? "totag" : a.pendingN ? "pending" : "ok";
       // its trips' sure suggestions, to tag in one go from the customer screen
       const sure=a.tripIds.map(id=>rowBy[id]).filter(r=>r.sug && r.sug.sure && (r.status==="none" || r.status==="under")).map(r=>r.trip.id);
       return Object.assign(a, { dests:Object.keys(a.dests), custs:Object.keys(a.custs), diff:diff, status:status, sure:sure });
@@ -3426,13 +3452,15 @@ const INV = (function(){
       if(r.status==="under") alerts.push({ lvl:"high", kind:"under", row:r, plate:t.plate, title:"Under-invoiced by "+r2(t.total-r.sum)+" L", text:"Bills for "+r.sum+" L on a "+t.total+" L trip" });
       r.issues.forEach(i=>{ alerts.push({ lvl:"high", kind:i.kind, row:r, plate:t.plate, title:{ veh:"Bill in another tanker's name", date:"Bill far from its trip's date", cust:"Billed to a different customer", gone:"Bill deleted in the ledger", changed:"Bill changed in the ledger" }[i.kind], text:i.text }); });
     });
-    loose.filter(x=>inR(x.bill.date) && x.kind!=="covered").forEach(x=>{
+    loose.filter(x=>inR(x.bill.date) && x.kind!=="covered" && x.kind!=="settled").forEach(x=>{
       const b=x.bill, what="Bill "+b.bill_no+" · "+b.qty+" L to "+b.customer;
       if(x.kind==="extra") alerts.push({ lvl:"high", kind:"extra", loose:x, plate:x.plate, title:"Extra sale in the name of "+x.plate, text:what+" — no trip of this tanker can account for it" });
+      else if(x.kind==="pending") alerts.push({ lvl:"watch", kind:"pending", loose:x, plate:x.plate, title:"Billed before its trip",
+        text:what+" — waiting for "+x.plate+" to be sent for sale" });
       else if(x.kind==="untagged") alerts.push({ lvl:"watch", kind:"untagged", loose:x, plate:x.plate, title:"Invoice not tagged yet", text:what });
       else alerts.push({ lvl:"watch", kind:"loose", loose:x, plate:"", title:"Bulk invoice on no trip", text:what+" (no vehicle on the bill)" });
     });
-    const order={ over:0, extra:1, none:2, under:3, cust:4, veh:5, date:6, changed:7, gone:8, untagged:9, loose:10 };
+    const order={ over:0, extra:1, none:2, under:3, cust:4, veh:5, date:6, changed:7, gone:8, untagged:9, loose:10, pending:11 };
     alerts.sort((a,b)=>order[a.kind]-order[b.kind]);
     return { rows:rows, loose:loose, perTanker:perTanker, perCust:perCust, alerts:alerts,
       high:alerts.filter(a=>a.lvl==="high").length };
@@ -3564,15 +3592,15 @@ function loadInvoiceData(from, to){
     : Promise.resolve(null);
   return Promise.all([Backend.loadTrips(bizStartMs(tf), bizEndMs(tt)), Backend.loadTags().catch(e=>({ err:dbHint(e) })),
                       Backend.loadLinks().catch(()=>[]), led,
-                      Backend.loadChecks().catch(()=>[])]).then(r=>{
+                      Backend.loadChecks().catch(()=>[]), Backend.loadBillChecks().catch(()=>[])]).then(r=>{
     const trips=r[0].filter(x=>!isExcluded(x.plate)).map(x=>Object.assign({}, x, { day:shiftDate(x.ts) }));
     const tagErr=r[1] && r[1].err ? r[1].err : "", tags=tagErr ? [] : r[1], L=r[3];
     const bills=L && L.bills ? L.bills : null;
     // the ledger has bills up to the latest one seen (null = no ledger, can't tell)
     const until=bills ? bills.reduce((m,b)=>b.date>m?b.date:m, "") : null;
     const ctx=INV.context({ plates:VEHICLES.filter(v=>!isExcluded(v.plate)).map(v=>v.plate), skip:TRIP_EXCLUDE, ignore:OWN_CUSTOMERS, dests:DESTS.map(d=>d.name), tol:TAGSET.tol, over:TAGSET.over,
-      from:tagStart(), until:until, links:r[2], checked:r[4], bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
-    return { from:from, to:to, trips:trips, tags:tags, links:r[2], checks:r[4]||[], bills:bills, ctx:ctx, until:until,
+      from:tagStart(), until:until, links:r[2], checked:r[4], billChecked:r[5], today:shiftDate(Date.now()), bulk:(L && L.bulk) || [], billsFrom:bills?bf:"", billsTo:bills?bt:"" });
+    return { from:from, to:to, trips:trips, tags:tags, links:r[2], checks:r[4]||[], billChecks:r[5]||[], bills:bills, ctx:ctx, until:until,
       rec:INV.reconcile(trips, bills||[], tags, ctx, { from:from, to:to }),
       tagErr:tagErr, ledErr:(L && L.err) || "", tooLong:Ledger.on() && !fits };
   });
@@ -3759,7 +3787,9 @@ function looseRowHTML(x){
   const b=x.bill, cand=looseTrips(b);
   return '<div class="trinv loose"><span class="lb"><b>#'+esc(b.bill_no)+'</b> · '+dmy(b.date).slice(0,5)+' · '+esc(b.vehicle||"no vehicle")
     +(x.kind==="extra"?' · <span class="fit-bad">⛔ no trip of '+esc(x.plate)+' fits</span>':'')
-    +(x.kind==="covered"?' · <span class="fit-ok">covered by a trip checked by hand</span>':'')+'<br><span class="lc">'+esc(b.customer)+'</span></span>'
+    +(x.kind==="covered"?' · <span class="fit-ok">covered by a trip checked by hand</span>':'')
+    +(x.kind==="settled"?' · <span class="fit-ok">checked by hand</span>':'')
+    +(x.kind==="pending"?' · <span class="fit-warn">⏳ waiting for '+esc(x.plate)+' to be sent</span>':'')+'<br><span class="lc">'+esc(b.customer)+'</span></span>'
     +'<span class="tq">'+fmt(b.qty)+' L</span>'
     +(cand.length ? '<div class="fbtns">'+cand.slice(0,4).map(t=>'<button class="tagbtn" data-tag="'+esc(t.id)+'" data-bill="'+esc(b.key)+'">→ '
         +esc(t.plate)+' '+dmy(t.day).slice(0,5)+(destOf(t.dest)?' · '+esc(t.dest):'')+'</button>').join("")+'</div>' : '')+'</div>';
@@ -3781,7 +3811,7 @@ function custViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';
   const list=INVD.rec.perCust;
   if(!list.length) return '<div class="empty">No trips or tanker bills in this period.</div>';
-  const st={ ok:'<span class="badge ok">✓ Matches</span>', over:'<span class="badge high">▲ Over-invoiced</span>', totag:'<span class="badge watch">Bills to tag</span>',
+  const st={ ok:'<span class="badge ok">✓ Matches</span>', over:'<span class="badge high">▲ Over-invoiced</span>', totag:'<span class="badge watch">Bills to tag</span>', pending:'<span class="badge watch">⏳ Billed before loading</span>',
     under:'<span class="badge high">◐ Under-invoiced</span>', await:'<span class="badge watch">⏳ Waiting for bills</span>' };
   return (INVD.bills?'':'<div class="endednote warnnote">Connect the ledger to count bills that are on no trip yet.</div>')
     +list.map(a=>{
@@ -3793,8 +3823,10 @@ function custViewHTML(){
         +'<div class="trd">'
         +'<div class="tl"><span class="tn">Sent for sale</span><span class="tc">'+a.trips+' trip'+(a.trips===1?'':'s')+'</span><span class="tk">'+fmt(a.delivered)+' L</span></div>'
         +'<div class="tl"><span class="tn">Invoiced</span><span class="tc">'+a.bills+' bill'+(a.bills===1?'':'s')+'</span><span class="tk">'+fmt(a.invoiced)+' L</span></div>'
-        +(a.extraN-a.coveredN?'<div class="tl'+(a.extraHard?' warn':' wait')+'"><span class="tn">… on no trip'+(a.extraHard?'':' — to tag')+'</span><span class="tc">'+(a.extraN-a.coveredN)+' bill'+(a.extraN-a.coveredN===1?'':'s')+'</span><span class="tk">'+fmt(r2(a.extraL-a.coveredL))+' L</span></div>':'')
-        +(a.toTagN ? '<div class="totag">'+a.loose.filter(x=>x.kind!=="covered" && x.kind!=="extra").map(x=>'#'+esc(x.bill.bill_no)+' · '+dmy(x.bill.date).slice(0,5)
+        +(a.toTagN || a.extraHard ?'<div class="tl'+(a.extraHard?' warn':' wait')+'"><span class="tn">… on no trip'+(a.extraHard?'':' — to tag')+'</span><span class="tc">'+(a.extraN-a.coveredN-a.settledN-a.pendingN)+' bill'+(a.extraN-a.coveredN-a.settledN-a.pendingN===1?'':'s')+'</span><span class="tk">'+fmt(r2(a.extraL-a.coveredL-a.settledL-a.pendingL))+' L</span></div>':'')
+        +(a.pendingN?'<div class="tl wait"><span class="tn">… billed before loading</span><span class="tc">'+a.pendingN+' bill'+(a.pendingN===1?'':'s')+'</span><span class="tk">'+fmt(a.pendingL)+' L</span></div>':'')
+        +(a.settledN?'<div class="tl muted"><span class="tn">… bills checked by hand</span><span class="tc">'+a.settledN+' bill'+(a.settledN===1?'':'s')+'</span><span class="tk">'+fmt(a.settledL)+' L</span></div>':'')
+        +(a.toTagN ? '<div class="totag">'+a.loose.filter(x=>x.kind==="untagged" || x.kind==="loose").map(x=>'#'+esc(x.bill.bill_no)+' · '+dmy(x.bill.date).slice(0,5)
             +' · '+fmt(x.bill.qty)+' L → '+(x.trips.length ? x.trips.slice(0,2).map(t=>esc(t.plate)+' '+dmy(t.day).slice(0,5)
               +(INVD && INVD.ctx.from && t.day<INVD.ctx.from?' (before checks start)':'')+(destOf(t.dest)&&t.dest!==a.dests[0]?' · '+esc(t.dest):'')).join(' or ') : 'a trip of its customer')).join('<br>')+'</div>' : '')
         +(a.coveredN?'<div class="tl muted"><span class="tn">… covered by trips checked by hand</span><span class="tc">'+a.coveredN+' bill'+(a.coveredN===1?'':'s')+'</span><span class="tk">'+fmt(a.coveredL)+' L</span></div>':'')
@@ -3940,7 +3972,14 @@ function mapViewHTML(){
       +'</div>';
   });
   if(loose.length && !mapTodo || loose.some(x=>x.kind==="extra")){
-    const ls=(mapTodo ? loose.filter(x=>x.kind==="extra") : loose).filter(x=>x.kind!=="covered");
+    const ls=(mapTodo ? loose.filter(x=>x.kind==="extra") : loose).filter(x=>["covered","settled","pending"].indexOf(x.kind)<0);
+    const pend=mapTodo ? [] : loose.filter(x=>x.kind==="pending"), sett=mapTodo ? [] : loose.filter(x=>x.kind==="settled");
+    if(pend.length) h+='<div class="mapday">Billed before loading<span>'+pend.length+'</span></div>'
+      +'<div class="mapcard st-wait"><div class="mapbills">'+pend.map(x=>billChipHTML(x.bill, {})).join("")+'</div>'
+      +'<div class="note" style="text-align:left;margin:6px 0 0">Bills raised before the tanker is sent — they go on its trip once it is sent for sale.</div></div>';
+    if(sett.length) h+='<div class="mapday">Bills checked by hand<span>'+sett.length+'</span></div>'
+      +'<div class="mapcard st-chk"><div class="mapbills">'+sett.map(x=>billChipHTML(x.bill, {})).join("")+'</div>'
+      +sett.map(x=>'<div class="mapchk">#'+esc(x.bill.bill_no)+': “'+esc(INVD.ctx.billChecked[x.bill.key].note)+'”</div>').join("")+'</div>';
     const cov=mapTodo ? [] : loose.filter(x=>x.kind==="covered");
     if(cov.length) h+='<div class="mapday">Covered by trips checked by hand<span>'+cov.length+'</span></div>'
       +'<div class="mapcard st-chk"><div class="mapbills">'+cov.map(x=>billChipHTML(x.bill, {})).join("")+'</div>'
@@ -3967,6 +4006,25 @@ function openBill(key){
   billCtx={ bill:f.bill, on:on };
   $("#billErr").textContent=""; renderBillSheet(); $("#billModal").classList.add("on");
 }
+// a bill on no trip: settled by hand (with Undo), or the button to settle it
+function billNoTripHTML(b){
+  const c=INVD.ctx.billChecked[b.key];
+  if(c) return '<div class="billon chk">✓ Checked by hand: “'+esc(c.note)+'”'+(c.by?' · '+esc(c.by):'')+(c.ts?' · '+dmy(dayKey(c.ts)).slice(0,5):'')
+    +'<button class="lnk" id="billUnmark">Undo</button></div>';
+  return '<div class="billon none">On no trip yet<button class="lnk" id="billMark">Settled some other way? Mark bill as checked…</button></div>';
+}
+function markBillUI(b){
+  const note=prompt("Mark bill #"+b.bill_no+" ("+fmt(b.qty)+" L, "+b.customer+") as checked by hand.\n\nIt will no longer be flagged. Why is it all right?\n(e.g. settled manually with the customer)", "");
+  if(note==null) return;
+  if(!note.trim()){ toast("Write why it is all right"); return; }
+  Backend.checkBill(b, note.trim()).then(()=>{ toast("✓ #"+b.bill_no+" marked as checked"); INV_WATCH.at=0; closeBill(); return loadTripReport(); })
+    .catch(e=>{ $("#billErr").textContent=dbHint(e); });
+}
+function unmarkBillUI(b){
+  if(!confirm("Undo “checked by hand” on bill #"+b.bill_no+"?\nIt will be checked again.")) return;
+  Backend.uncheckBill(b.key).then(()=>{ toast("#"+b.bill_no+" back in the check"); INV_WATCH.at=0; closeBill(); return loadTripReport(); })
+    .catch(e=>{ $("#billErr").textContent=dbHint(e); });
+}
 function closeBill(){ $("#billModal").classList.remove("on"); billCtx=null; }
 $("#billCancel").onclick=closeBill;
 $("#billModal").addEventListener("click",e=>{ if(e.target===$("#billModal")) closeBill(); });
@@ -3979,7 +4037,9 @@ function renderBillSheet(){
     ? '<div class="mlab">Now on</div><div class="billon">'+(on.outside ? '<span class="plate sm">'+esc(on.trip.plate)+'</span> a trip outside these dates'
         : tripLineHTML(on.trip)+'<br><span class="sub">'+fmt(on.trip.total)+' L sent · billed '+fmt(on.sum)+' L ('+signL(on.diff)+')</span>')
       +'<button class="lnk danger" id="billOff">Take off this trip</button></div>'
-    : '<div class="billon none">On no trip yet</div>';
+    : billNoTripHTML(b);
+  if($("#billMark")) $("#billMark").onclick=()=>markBillUI(b);
+  if($("#billUnmark")) $("#billUnmark").onclick=()=>unmarkBillUI(b);
   if($("#billOff")) $("#billOff").onclick=()=>untagBillUI(b, on);
   const list=INV.tripsFor(b, INVD.rec.rows, ctx).slice(0,12);
   $("#billList").innerHTML = '<div class="mlab">'+(on?'Move it to':'Put it on')+'</div>'
@@ -4203,7 +4263,7 @@ $("#trData").onclick=()=>{
     tankers:VEHICLES.map(v=>v.plate), left_out_vehicles:TRIP_EXCLUDE, own_customers:OWN_CUSTOMERS,
     sold_to_customers:DESTS.map(x=>({ name:x.name, rtd_km:x.rtd, group:x.grp })), bulk_customers:Object.keys(c.bulk),
     trips:d.trips.map(t=>({ id:t.id, day:t.day, time:new Date(t.ts).toISOString(), vehicle:t.plate, litres:t.total, sold_to:t.dest, by:t.by||"" })),
-    tags:d.tags, links:d.links, checked_by_hand:d.checks, bills:d.bills||[],
+    tags:d.tags, links:d.links, checked_by_hand:d.checks, bills_checked_by_hand:d.billChecks||[], today:d.ctx.today, bills:d.bills||[],
     result:{ trips:d.rec.rows.map(row),
       bills_on_no_trip:d.rec.loose.map(x=>({ bill_no:x.bill.bill_no, date:x.bill.date, vehicle:x.bill.vehicle, litres:x.bill.qty, customer:x.bill.customer,
         kind:x.kind, could_go_on:x.trips.map(t=>t.plate+" "+t.day+" → "+(t.dest||"")) })),
@@ -5904,6 +5964,7 @@ function subscribeRealtime(){
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_invoice_tags"},poke2)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_dest_links"},poke2)
     .on("postgres_changes",{event:"*",schema:"public",table:"loading_trip_checks"},poke2)
+    .on("postgres_changes",{event:"*",schema:"public",table:"loading_bill_checks"},poke2)
     .subscribe();
 }
 
