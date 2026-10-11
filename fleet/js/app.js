@@ -17,7 +17,9 @@ import { memoryStore, supabaseStore } from './store.js';
 import { bulkerSvg, lanesLegend, lanesSvg, RTO_GROSS, TAGLINE } from './bulker.js';
 import { byDriver, liveBehind, performance, SLOW_DAYS, STAGES } from './perf.js';
 import { liveTrips } from './live.js';
-import { sameDriver, tripDrivers } from './drivers.js';
+import { sameDriver } from './drivers.js';
+import { dataChecks } from './checks.js';
+import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
   addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
@@ -290,6 +292,7 @@ function demoSettings() {
 }
 
 function startApp() {
+  watchUploads();
   renderShell();
   if (!state.routing) {
     window.addEventListener('hashchange', route);
@@ -324,9 +327,57 @@ function renderShell() {
     <nav class="tabs" aria-label="Sections">
       ${TABS.map(([href, name, short]) => `<a href="${href}" data-tab="${href}">${short ? `<span class="hide-sm">${name}</span><span class="show-sm">${short}</span>` : name}</a>`).join('')}
     </nav>
+    <div id="newer"></div>
     <main id="main"></main>`;
   document.getElementById('signout').addEventListener('click', signOut);
+  paintNewer();
   bindTheme();
+}
+
+// Another device saved a newer upload: load it when this tab comes back into
+// view (unless an upload or Setup is open here); while the tab stays open,
+// say so rather than redraw the page under the reader.
+function watchUploads() {
+  if (state.watching) return;
+  state.watching = true;
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkNewer(true); });
+  setInterval(() => checkNewer(false), 5 * 60 * 1000);
+}
+async function checkNewer(load) {
+  if (!state.store || state.demo || state.localOnly || state.preview || !state.meta || state.meta.id == null || document.hidden) return;
+  let top;
+  try {
+    [top] = await state.store.uploads(1);
+  } catch {
+    return;
+  }
+  if (!top || top.id === state.meta.id) return;
+  state.newer = top;
+  const busy = /^#\/(upload|setup)/.test(location.hash);
+  if (load && !busy) await loadNewer();
+  else paintNewer();
+}
+function paintNewer() {
+  const el = document.getElementById('newer');
+  if (!el) return;
+  const n = state.newer;
+  el.innerHTML = n ? `<div class="newer-bar" role="status">Newer data was saved — ${esc(n.file_name)}, ${new Date(n.created_at).toLocaleString('en-IN')}${n.by_email ? ` by ${esc(n.by_email)}` : ''}. <button class="btn small" id="load-newer">Load it</button></div>` : '';
+  document.getElementById('load-newer')?.addEventListener('click', () => guard(loadNewer));
+}
+async function loadNewer() {
+  const latest = await state.store.latest();
+  if (!latest) return;
+  const m = location.hash.match(/^#\/trip\/(\d+)$/);
+  const was = m && state.data ? state.data.trips.find((t) => t.row === Number(m[1])) : null;
+  state.data = latest.payload;
+  state.meta = latest.meta;
+  state.newer = null;
+  renderShell();
+  // a trip page follows its trip (rows move when rows are added or deleted in Excel)
+  const now = was ? state.data.trips.find((t) => t.veh === was.veh && t.trip === was.trip) : null;
+  if (now && now.row !== was.row) location.hash = `#/trip/${now.row}`;
+  else route();
+  toast(`Updated to the latest upload — ${latest.meta.file_name}, ${new Date(latest.meta.created_at).toLocaleString('en-IN')}.`);
 }
 
 const ROUTES = [
@@ -1196,28 +1247,92 @@ async function uploadSection(box) {
       preview.innerHTML = errorHtml(err);
       return;
     }
-    preview.innerHTML = previewHtml(data);
-    document.getElementById('save')?.addEventListener('click', (e) => guard(async () => {
-      e.target.disabled = true;
-      e.target.textContent = 'Saving…';
-      const meta = await state.store.save(file.name, data);
-      state.data = data;
-      state.meta = meta;
-      if (state.preview) { state.preview = false; renderShell(); }
-      toast(`Saved — ${plural(data.trips.length, 'trip')} up to ${fmtDate(data.latest)}.`);
-      location.hash = '#/';
-    }).finally(() => { e.target.disabled = false; }));
-    document.getElementById('view-only')?.addEventListener('click', () => {
-      state.data = data;
-      state.meta = { file_name: file.name, created_at: new Date().toISOString(), by_email: '' };
-      if (!state.localOnly) state.preview = true;
-      renderShell();
-      if (location.hash === '#/') route(); else location.hash = '#/';
-    });
+    await showPreview(preview, file, data);
   }));
 }
 
-function previewHtml(data) {
+// the file against what's saved right now (fetched fresh, so another
+// device's upload since this page opened is what it's compared with)
+async function showPreview(preview, file, data, note = '') {
+  let base = null;
+  if (state.store && !state.localOnly) {
+    preview.innerHTML = logoLoader('Comparing with the saved data…');
+    try {
+      base = await state.store.latest();
+    } catch (err) {
+      preview.innerHTML = errorHtml(err);
+      return;
+    }
+  } else if (state.data && state.data !== data) {
+    base = { meta: state.meta, payload: state.data };
+  }
+  const cmp = base && base.payload ? compareUploads(base.payload, data) : null;
+  preview.innerHTML = (note ? `<div class="todo warn">${note}</div>` : '') + previewHtml(data, cmp, base && base.meta);
+  const save = document.getElementById('save');
+  const override = document.getElementById('override');
+  override?.addEventListener('change', () => { save.disabled = !override.checked; });
+  save?.addEventListener('click', (e) => guard(async () => {
+    e.target.disabled = true;
+    e.target.textContent = 'Saving…';
+    // saved by someone else since the comparison? compare again first
+    const [top] = (await state.store.uploads(1)) || [];
+    const baseId = base && base.meta ? base.meta.id : null;
+    if ((top ? top.id : null) !== baseId) {
+      await showPreview(preview, file, data, `The saved data changed while you were looking${top ? ` — ${esc(top.file_name)} was saved ${new Date(top.created_at).toLocaleString('en-IN')}${top.by_email ? ` by ${esc(top.by_email)}` : ''}` : ''}. Nothing was saved: the changes below are against what's saved now — check them and save again.`);
+      return;
+    }
+    const meta = await state.store.save(file.name, data);
+    state.data = data;
+    state.meta = meta;
+    state.newer = null;
+    if (state.preview) state.preview = false;
+    renderShell();
+    toast(`Saved — ${plural(data.trips.length, 'trip')} up to ${fmtDate(data.latest)}.`);
+    if (location.hash === '#/') route(); else location.hash = '#/';
+  }).finally(() => { if (document.body.contains(e.target)) { e.target.disabled = !!(override && !override.checked); e.target.textContent = 'Save — replace the app\'s data'; } }));
+  document.getElementById('view-only')?.addEventListener('click', () => {
+    state.data = data;
+    state.meta = { file_name: file.name, created_at: new Date().toISOString(), by_email: '' };
+    if (!state.localOnly) state.preview = true;
+    renderShell();
+    if (location.hash === '#/') route(); else location.hash = '#/';
+  });
+}
+
+// what this file changes against the saved upload
+function fieldVal(f, v) {
+  if (v == null || v === '') return '<span class="muted">blank</span>';
+  if (f.date) return fmtDate(v);
+  if (typeof v === 'number') return indian(v, Number.isInteger(v) ? 0 : 2);
+  return `“${esc(v)}”`;
+}
+function changesHtml(c, meta) {
+  const when = meta && meta.created_at ? `${new Date(meta.created_at).toLocaleString('en-IN')}${meta.by_email ? ` by ${esc(meta.by_email)}` : ''}` : '';
+  const tripName = (t) => `${esc(t.trip)} <small class="muted">${esc(shortVeh(t.veh))} · row ${t.row}</small>`;
+  const many = (xs, n, f) => `${xs.slice(0, n).map(f).join('')}${xs.length > n ? `<li class="muted">…and ${xs.length - n} more</li>` : ''}`;
+  const T = c.trips;
+  const counts = [
+    T.added.length && `+${plural(T.added.length, 'trip')}`, T.changed.length && `${plural(T.changed.length, 'trip')} edited`, T.removed.length && `${plural(T.removed.length, 'trip')} deleted`,
+    (c.pay.added.length || c.pay.removed.length) && `advances +${c.pay.added.length}${c.pay.removed.length ? ` −${c.pay.removed.length}` : ''}`,
+    (c.hsd.added.length || c.hsd.removed.length) && `HSD fills +${c.hsd.added.length}${c.hsd.removed.length ? ` −${c.hsd.removed.length}` : ''}`,
+    (c.urea.added.length || c.urea.removed.length) && `urea +${c.urea.added.length}${c.urea.removed.length ? ` −${c.urea.removed.length}` : ''}`,
+    (c.ledger.added.length || c.ledger.removed.length) && `Ledger rows changed ${Math.max(c.ledger.added.length, c.ledger.removed.length)}`,
+    (c.roster.added.length || c.roster.removed.length) && 'drivers list changed',
+  ].filter(Boolean);
+  const pay = (p) => `<li>${fmtDate(p.date)} · ${esc(shortVeh(p.veh))} · ${rupees(p.amount)} · ${esc(p.name)}${p.note ? ` <small class="muted">${esc(p.note)}</small>` : ''}</li>`;
+  return `<div class="changes">
+    <h4>Changes against the saved data${when ? ` <small class="muted">(uploaded ${when})</small>` : ''}</h4>
+    ${c.risks.length ? `<ul class="checks">${c.risks.map((r) => `<li class="${r.level === 'stop' ? 'bad-text' : 'warn-text'}">${r.level === 'stop' ? '⛔' : '!'} ${esc(r.text)}</li>`).join('')}</ul>` : ''}
+    ${c.none ? '<p class="good-text">✓ Nothing has changed since then.</p>' : `<p class="chg-sum">${counts.map((x) => `<span>${x}</span>`).join('')}</p>
+    ${T.added.length ? `<details><summary>New trips (${T.added.length})</summary><ul class="chg-list">${many(T.added, 40, (t) => `<li>${tripName(t)} · ${esc(routeOf(t))} · started ${t.start ? fmtDate(t.start) : '—'}</li>`)}</ul></details>` : ''}
+    ${T.changed.length ? `<details${T.changed.length <= 8 ? ' open' : ''}><summary>Edited trips (${T.changed.length})</summary><ul class="chg-list">${many(T.changed, 60, (x) => `<li>${tripName(x.t)}: ${x.fields.map((f) => `${esc(f.name)} ${fieldVal(f, f.from)} → <b>${fieldVal(f, f.to)}</b>`).join(' · ')}</li>`)}</ul></details>` : ''}
+    ${T.removed.length ? `<details open><summary class="warn-text">Trips not in this file (${T.removed.length})</summary><ul class="chg-list">${many(T.removed, 40, (t) => `<li>${tripName(t)} · ${esc(routeOf(t))}</li>`)}</ul></details>` : ''}
+    ${c.pay.added.length || c.pay.removed.length ? `<details><summary>Driver advances (+${c.pay.added.length} −${c.pay.removed.length})</summary>${c.pay.added.length ? `<p class="small">New:</p><ul class="chg-list">${many(c.pay.added, 30, pay)}</ul>` : ''}${c.pay.removed.length ? `<p class="small warn-text">Not in this file any more:</p><ul class="chg-list">${many(c.pay.removed, 30, pay)}</ul>` : ''}</details>` : ''}
+    ${c.roster.added.length || c.roster.removed.length ? `<details><summary>Drivers list</summary><ul class="chg-list">${c.roster.removed.map((r) => `<li>${esc(shortVeh(r.veh))}: <s>${esc(r.name)}</s></li>`).join('')}${c.roster.added.map((r) => `<li>${esc(shortVeh(r.veh))}: <b>${esc(r.name)}</b></li>`).join('')}</ul></details>` : ''}`}
+  </div>`;
+}
+
+function previewHtml(data, cmp = null, baseMeta = null) {
   const acc = ssfcAccount(data.ssfc, today());
   const rec = dieselRecon(data);
   const odd = dateIssues(data, today());
@@ -1227,13 +1342,15 @@ function previewHtml(data) {
   if (acc && data.checks.ssfcTotal != null) checks.push(ok(Math.abs(acc.total - data.checks.ssfcTotal) < 1, `SSFC outstanding ${rupees(acc.total)} ${Math.abs(acc.total - data.checks.ssfcTotal) < 1 ? 'matches the Ledger sheet' : `— the Ledger sheet shows ${rupees(data.checks.ssfcTotal)}`}`));
   if (data.checks.reconTotal != null) checks.push(ok(Math.abs(rec.total - data.checks.reconTotal) < 0.05, `Diesel recon ${indian(rec.total, 2)} L ${Math.abs(rec.total - data.checks.reconTotal) < 0.05 ? 'matches the Diesel Recon sheet' : `— the sheet shows ${indian(data.checks.reconTotal, 2)} L`}`));
   if (odd.length) checks.push(ok(false, `${plural(odd.length, 'trip')} with dates that look mistyped: ${odd.slice(0, 4).map((x) => `${esc(x.t.trip)} ${esc(shortVeh(x.t.veh))}`).join(', ')}${odd.length > 4 ? '…' : ''} (shown under Trips → Dates to check)`));
+  const found = dataChecks(data, today());
   if ((data.driverPay || []).length) {
-    const inTrips = [...tripDrivers(data).values()].reduce((a, x) => a + x.paid.reduce((b, p) => b + p.amount, 0), 0);
-    const col = data.trips.reduce((a, t) => a + (t.drvTrip || 0), 0);
-    const same = Math.abs(inTrips - col) < 1;
-    checks.push(ok(same, `Driver advances ${rupees(inTrips)} ${same ? 'match the Trip Register\'s Trip Driver Payment' : `— the Trip Register's Trip Driver Payment adds up to ${rupees(col)}`} · ${plural((data.roster || []).length, 'driver')} on the drivers list`));
+    const total = data.driverPay.reduce((a, x) => a + x.amount, 0);
+    const good = !found.some((x) => /Trip Driver Payment doesn't match|Driver Payment rows? \d/.test(x.text));
+    checks.push(ok(good, `Driver advances ${rupees(total)} in ${plural(data.driverPay.length, 'payment')}${good ? ' — each trip\'s Trip Driver Payment matches them' : ''} · ${plural((data.roster || []).length, 'driver')} on the drivers list`));
   }
+  if (!found.some((x) => /don't add up/.test(x.text))) checks.push(ok(true, 'Gross Weight, Excess/Short, Trip Bhada, SSFC Net Amount and Income/Trip add up on every trip'));
   for (const w of data.warnings) checks.push(ok(false, esc(w)));
+  for (const x of found) checks.push(x.level === 'warn' ? ok(false, esc(x.text)) : `<li class="muted">ⓘ ${esc(x.text)}</li>`);
   const canSave = state.store && !state.localOnly;
   return `<div class="card good-card">
     <b>${esc(data.fileName)}</b>
@@ -1246,8 +1363,10 @@ function previewHtml(data) {
       <div><span class="num">${data.ssfc ? data.ssfc.rows.length : 0}</span><span class="lbl">SSFC ledger rows</span></div>
     </div>
     ${checks.length ? `<ul class="checks">${checks.join('')}</ul>` : ''}
+    ${cmp ? changesHtml(cmp, baseMeta) : ''}
+    ${canSave && cmp && blocking(cmp) ? '<label class="override"><input type="checkbox" id="override"> I\'ve checked the above — save this file anyway</label>' : ''}
     <div class="actions">
-      ${canSave ? '<button class="btn" id="save">Save — replace the app\'s data</button>' : ''}
+      ${canSave ? `<button class="btn" id="save"${cmp && blocking(cmp) ? ' disabled' : ''}>Save — replace the app's data</button>` : ''}
       <button class="btn ghost" id="view-only">${canSave ? 'Just look, don\'t save' : 'Open'}</button>
     </div></div>`;
 }
@@ -1576,9 +1695,25 @@ async function viewSetup() {
       clean.routes = clean.routes.filter((r) => r.port && r.dest && (r.km !== '' || r.salary !== '' || r.diesel !== ''))
         .map((r) => ({ port: r.port, dest: r.dest, from: r.from || '', km: r.km === '' ? null : r.km, salary: r.salary === '' ? null : r.salary, diesel: r.diesel === '' ? null : r.diesel }));
       e.target.disabled = true;
+      const shared = !state.settingsMissing && state.store && state.store.saveSettings && !state.localOnly;
+      // changed on another device since this page loaded it? don't overwrite it unasked
+      if (shared) {
+        const cur = await state.store.settings().catch(() => null);
+        const mine = state.settingsMeta ? state.settingsMeta.updated_at : null;
+        if (cur && cur.updated_at && cur.updated_at !== mine
+          && !window.confirm(`Setup was changed${cur.by_email ? ` by ${cur.by_email}` : ''} on ${new Date(cur.updated_at).toLocaleString('en-IN')}, after this page loaded it.\n\nOK = save yours over it.\nCancel = keep theirs (your edits here are dropped).`)) {
+          state.settings = withDefaults(cur.value);
+          state.settingsMeta = cur;
+          state.rev += 1;
+          state.ui.setupDraft = null;
+          toast('Kept the other change — Setup reloaded.');
+          viewSetup();
+          return;
+        }
+      }
       state.settings = clean;
       state.rev += 1;
-      if (!state.settingsMissing && state.store && state.store.saveSettings && !state.localOnly) {
+      if (shared) {
         try {
           state.settingsMeta = await state.store.saveSettings(clean);
           toast('Setup saved.');

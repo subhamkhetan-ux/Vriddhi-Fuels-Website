@@ -15,7 +15,8 @@
 // within two months before and after) — typed against the wrong vehicle, or
 // handed over for someone else.
 //
-// Names are typed by hand, so they're matched loosely: Rafiq / Rafik,
+// Names are typed by hand, so they're matched loosely (and a one-letter slip
+// in the surname is forgiven): Rafiq / Rafik,
 // Ramesh / Ramesh Kumar, M D Anwar / MD Anwar are one person. The drivers
 // list (who drives each truck now) gives the spelling shown. Pure functions.
 
@@ -44,7 +45,19 @@ export function sameDriver(a, b) {
   if (!x.length || !y.length) return false;
   if (x.join('') === y.join('')) return true;
   const [short, long] = x.length <= y.length ? [x, y] : [y, x];
-  return short[0] === long[0] && short.every((t) => long.includes(t));   // "Ramesh" ⊂ "Ramesh Kumar"
+  if (short[0] === long[0] && short.every((t) => long.includes(t))) return true;   // "Ramesh" ⊂ "Ramesh Kumar"
+  // a slip in the surname: "Ramesh Yadv" / "Ramesh Yadav"
+  return x.length === y.length && x.length > 1 && x[0] === y[0] && x.every((t, i) => t === y[i] || (t.length >= 4 && y[i].length >= 4 && edits(t, y[i]) <= 1));
+}
+
+function edits(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return 2;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
 }
 
 export const isSettlement = (p) => SETTLEMENT.test(p.note || '');

@@ -183,9 +183,48 @@ made-up data) and *open a Trip Register just on this device* (nothing saved).
 
 ## Day to day
 
-Keep entering trips, HSD, urea and the SSFC ledger in Excel. Save the workbook,
-then upload it here (from the phone too). The app always shows the latest
-upload.
+Keep entering, editing and deleting trips, advances, HSD, urea and the SSFC
+ledger in Excel. Save the workbook, then upload it here (from the phone too).
+
+- **Each upload replaces the saved data as a whole**: the app shows exactly
+  what the file has, so an edit or a deleted row in Excel is reflected as it
+  is. Nothing is merged, so nothing goes stale. The newest 10 uploads are kept
+  in the database.
+- **Before saving, the preview checks the file:**
+  - Excel error values (#N/A, #VALUE! …) in a column the app reads;
+  - half-filled rows: a trip without a vehicle, or an advance without a date
+    or vehicle;
+  - the same trip twice;
+  - a trip without a start date;
+  - Gross Weight, Excess/Short, Trip Bhada, SSFC Net Amount, Income/Trip and
+    Trip Driver Payment that don't match their formulas (Excel not
+    recalculated, or a formula typed over);
+  - advances on a vehicle with no trips, dated before its first trip or after
+    today;
+  - recent one-off driver names (a possible misspelling);
+  - the drivers list naming two drivers for one truck.
+- **It also shows what the file changes against what's saved right now**
+  (fetched at that moment, so another device's upload counts):
+  - trips added, edited (field by field, old → new) and deleted; trips are
+    matched by vehicle and trip number, so inserting or deleting rows doesn't
+    confuse it;
+  - advances, HSD fills, urea, Ledger and drivers-list entries added and
+    removed.
+- **Saving is stopped until you tick "save anyway"** when the file looks like
+  an old copy or is missing data:
+  - a sheet that's saved now is empty;
+  - its newest trip is older than the saved one;
+  - 3+ saved trips are missing;
+  - 3+ trips lost a loading / unloading date or weight;
+  - 5+ fills, urea entries or advances are gone.
+- **Two people saving at once:** if someone saved while you were looking at
+  the preview, your save is stopped and the file is compared again with what
+  they saved.
+- **Another device uploads:** a tab left open loads the newer data when it
+  comes back into view (or shows a notice with *Load it* while an upload or
+  Setup is open). It checks every 5 minutes while open.
+- **Setup changed on another device** since this page loaded it: you're asked
+  before your save replaces it.
 
 ## Files
 
@@ -199,6 +238,8 @@ upload.
 | `js/live.js` | A vehicle on the road: its stage from the fills, pace against the best, projected income |
 | `js/perf.js` | Who's slow: trip stages, the same-route-same-time groups, vehicle scores, behind on the road |
 | `js/bulker.js` | The bulker drawing and the side-by-side trip lanes |
+| `js/checks.js` | Checks on a freshly read workbook (formulas, duplicates, advances, names) |
+| `js/changes.js` | What an upload changes against the saved one; when to stop and ask |
 | `js/drivers.js` | Who drove which trip (Driver Payment sheet), names matched loosely, the driver now |
 | `js/rules.js` | Setup's rules: route values, km per trip, driver pay check, tyre / fastag trend |
 | `assets/` | The logo: the mark, and the wordmark for dark (light letters) and light (navy) |

@@ -102,9 +102,14 @@ const isBlank = (v) => v == null || (typeof v === 'string' && !v.trim());
 function table(book, names, must, spec) {
   const name = findSheet(book, names, must);
   if (!name) return { name: null, records: [] };
-  const { rows, r0 = 1 } = book.sheets[name];
+  const { rows, r0 = 1, errors = [] } = book.sheets[name];
   const h = findHeader(rows, must);
   const cols = mapColumns(rows[h], spec);
+  // Excel error values (#N/A, #VALUE! …) in a column the app reads: they'd read as blank
+  const read = new Set(Object.values(cols));
+  for (const [r, c, w] of errors) {
+    if (r > h && read.has(c)) (book.cellErrors ||= []).push({ sheet: name, row: r0 + r, col: text(rows[h][c]), value: w });
+  }
   const records = [];
   for (let i = h + 1; i < rows.length; i++) {
     const row = rows[i] || [];
@@ -132,7 +137,10 @@ function readTrips(book, warn) {
   for (const r of records) {
     const trip = text(r.trip);
     const veh = text(r.veh).toUpperCase().replace(/\s+/g, '');
-    if (!trip || !veh) continue;
+    if (!trip || !veh) {
+      if (trip || veh) warn.push(`Trip Register row ${r.row}: ${trip ? `trip ${trip} has no vehicle` : `vehicle ${veh} has no trip number`} — left out.`);
+      continue;
+    }
     const t = {
       row: r.row, sno: typeof r.sno === 'number' ? r.sno : null, trip, veh,
       start: toIso(r.start), loadDate: toIso(r.loadDate), unloadDate: toIso(r.unloadDate),
@@ -271,7 +279,7 @@ function readReconTotal(book) {
 // Only names are kept from the drivers list (no licence or bank details).
 const PAY_COLS = { date: ['date'], veh: ['vehicleno'], amount: ['amountpaid', 'amount'], name: ['drivername'] };
 const plate = (v) => text(v).toUpperCase().replace(/\s+/g, '');
-function readDriverPay(book) {
+function readDriverPay(book, warn = []) {
   const out = { payments: [], roster: [] };
   const { name, records, cols } = table(book, ['Driver Payment'], ['date', 'vehicleno', 'amountpaid', 'drivername'], PAY_COLS);
   if (!name) return out;
@@ -288,7 +296,14 @@ function readDriverPay(book) {
     const veh = plate(r.veh);
     const amount = num(r.amount);
     const who = text(r.name);
-    if (!date || !veh || !amount) continue;
+    if (!date || !veh || !amount || !who) {
+      const typed = [r.date, r.veh, r.amount, r.name].filter((v) => !isBlank(v)).length;
+      if (typed) {
+        const miss = [!date && (isBlank(r.date) ? 'no date' : `a date it can't read (“${text(r.date)}”)`), !veh && 'no vehicle', !amount && 'no amount', !who && 'no driver name'].filter(Boolean);
+        warn.push(`Driver Payment row ${r.row}: ${miss.join(', ')} — ${!date || !veh || !amount ? 'left out' : 'counted, but no driver for it'}.`);
+      }
+      if (!date || !veh || !amount) continue;
+    }
     const row = rows[r.row - r0] || [];
     const note = row.slice(last + 1, noteEnd).map(text).filter((x) => x && !/^[\d.,₹\s-]+$/.test(x)).join(' · ');
     out.payments.push({ row: r.row, date, veh, amount, name: who, note });
@@ -307,6 +322,7 @@ function readDriverPay(book) {
 // ---- everything ---------------------------------------------------------------------------
 export function extractFleet(book, { fileName = '' } = {}) {
   const warnings = [];
+  book.cellErrors = [];
   const trips = readTrips(book, warnings);
   const ssfc = readSsfc(book);
   if (!ssfc) warnings.push('No Ledger sheet (SSFC account) — the SSFC tab will be empty.');
@@ -314,7 +330,9 @@ export function extractFleet(book, { fileName = '' } = {}) {
   const urea = readUrea(book);
   const rates = readRates(book);
   const recon = readReconRules(book);
-  const { payments: driverPay, roster } = readDriverPay(book);
+  const { payments: driverPay, roster } = readDriverPay(book, warnings);
+  for (const e of (book.cellErrors || []).slice(0, 12)) warnings.push(`${e.sheet} row ${e.row}, ${e.col}: ${e.value} in Excel — read as blank. Fix the formula and upload again.`);
+  if ((book.cellErrors || []).length > 12) warnings.push(`…and ${book.cellErrors.length - 12} more cells with Excel errors.`);
   const dated = trips.map((t) => t.loadDate || t.start).filter(Boolean).sort();
   return {
     version: 1,
@@ -335,7 +353,13 @@ export function bookFromSheetJS(XLSX, wb) {
     const ws = wb.Sheets[name];
     if (!ws || !ws['!ref']) { sheets[name] = { rows: [], r0: 1 }; continue; }
     const range = XLSX.utils.decode_range(ws['!ref']);
-    sheets[name] = { rows: XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: true }), r0: range.s.r + 1 };
+    const errors = [];                                          // [row index, col index, '#N/A']
+    for (const k of Object.keys(ws)) {
+      if (k[0] === '!' || !ws[k] || ws[k].t !== 'e') continue;
+      const at = XLSX.utils.decode_cell(k);
+      errors.push([at.r - range.s.r, at.c - range.s.c, ws[k].w || '#ERROR']);
+    }
+    sheets[name] = { rows: XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: true }), r0: range.s.r + 1, errors };
     if (/recon\s*engine/i.test(name)) {                         // the newest underload rule
       for (let r = range.e.r; r > range.s.r; r--) {
         const c = ws[XLSX.utils.encode_cell({ r, c: 9 })];
