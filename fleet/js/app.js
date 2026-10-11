@@ -145,9 +145,8 @@ async function boot() {
   } catch {
     return renderCentered(`${logoHead()}<p>Couldn't load the sign-in library. Check the internet connection and reload.</p>`);
   }
-  // same storage key as the ledger app: signed in there = signed in here
   state.client = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, storageKey: 'vriddhi-ledger-auth' },
+    auth: { persistSession: true, autoRefreshToken: true, storageKey: 'shree-shyam-fleet-auth' },
   });
   state.store = supabaseStore(state.client);
   state.client.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') renderLogin(); });
@@ -164,7 +163,13 @@ function renderCentered(inner) {
 function renderSetup() {
   renderCentered(`
     ${logoHead()}
-    <p>This app isn't connected to its database yet. It uses the ledger app's Supabase project — put that project's URL and publishable key in <code>fleet/config.js</code> (the same two values as <code>ledger/config.js</code>), then run <code>supabase/fleet-schema.sql</code> once in its SQL Editor.</p>
+    <p>This app isn't connected to its database yet. One-time setup (the steps are in <code>fleet/README.md</code>):</p>
+    <ol class="steps">
+      <li>Create a Supabase project for the fleet app.</li>
+      <li>Run <code>supabase/fleet-schema.sql</code> in its SQL Editor.</li>
+      <li>Add your login under Authentication → Users, then run <code>select fleet_add_member('you@example.com');</code></li>
+      <li>Put the project's URL and publishable key in <code>fleet/config.js</code>.</li>
+    </ol>
     <p><a class="btn" href="?demo">Try the demo</a> <span class="muted">— made-up data, nothing is saved.</span></p>
     ${localPickerHtml()}`);
   bindLocalPicker();
@@ -173,7 +178,7 @@ function renderSetup() {
 function renderLogin(message = '') {
   renderCentered(`
     ${logoHead()}
-    <p class="muted small">Sign in with your ledger login.</p>
+    <p class="muted small">Sign in with your fleet login.</p>
     <form id="login" class="stack" autocomplete="on">
       <label>Email <input name="email" type="email" required autocomplete="username"></label>
       <label>Password <input name="password" type="password" required autocomplete="current-password"></label>
@@ -223,7 +228,7 @@ async function enter() {
   } catch (err) {
     if (err.code === 'NO_SCHEMA') {
       renderCentered(`${logoHead()}
-        <p>You're signed in, but the fleet tables aren't in the database yet. One-time setup: open the ledger's Supabase project → <b>SQL Editor</b>, paste all of <code>supabase/fleet-schema.sql</code> and press <b>Run</b>. Then reload this page.</p>
+        <p>You're signed in, but the fleet tables aren't in the database yet. One-time setup: open the fleet's Supabase project → <b>SQL Editor</b>, paste all of <code>supabase/fleet-schema.sql</code> and press <b>Run</b>. Then reload this page.</p>
         ${localPickerHtml()}
         <p><button class="btn ghost" id="out">Sign out</button></p>`);
       bindLocalPicker();
@@ -236,9 +241,9 @@ async function enter() {
   state.me = me;
   if (!me.member) {
     renderCentered(`${logoHead()}
-      <p>You're signed in as <b>${esc(me.email)}</b>, but this login isn't on the ledger members list.</p>
+      <p>You're signed in as <b>${esc(me.email)}</b>, but this login isn't on the fleet members list.</p>
       <p>The owner can allow it by running this once in the Supabase SQL Editor:</p>
-      <pre class="code">select ledger_add_member('${esc(String(me.email).replace(/'/g, "''"))}');</pre>
+      <pre class="code">select fleet_add_member('${esc(String(me.email).replace(/'/g, "''"))}');</pre>
       <p><button class="btn ghost" id="out">Sign out</button></p>`);
     document.getElementById('out').addEventListener('click', signOut);
     return;
@@ -1161,7 +1166,7 @@ async function uploadSection(box) {
   if (!state.localOnly && state.store) history = (await guard(() => state.store.uploads(10))) || [];
   box.innerHTML = `<section class="card" id="upload">
     <h2>Upload Trip Register</h2>
-    <p class="muted">Choose the workbook you keep in Excel (<code>Trip_Register.xlsm</code>). Save it in Excel first so its formulas are up to date. It's read in this browser; ${state.localOnly ? 'nothing is saved (this device only).' : 'only the figures the app needs are saved, for your ledger logins only.'}</p>
+    <p class="muted">Choose the workbook you keep in Excel (<code>Trip_Register.xlsm</code>). Save it in Excel first so its formulas are up to date. It's read in this browser; ${state.localOnly ? 'nothing is saved (this device only).' : 'only the figures the app needs are saved, for your fleet logins only.'}</p>
     <label class="file"><input type="file" id="file" accept=".xlsm,.xlsx,.xls"><span class="btn">Choose Trip Register…</span></label>
     <div id="preview" class="preview"></div>
   </section>
@@ -1253,7 +1258,7 @@ async function viewDrivers() {
   const opt = state.settings.driver;
   setMain(`<section class="card">
     <div class="row-between"><h2>Drivers</h2><span class="muted small">${esc(periodRange(p))}</span></div>
-    <p class="muted small">Each trip's driver salary (Setup → Routes) is paid partly by you — <b>Trip Driver Payment</b>${opt.extraIsAdvance ? ' and <b>Extra Own Driver Pay</b>' : ''} — and the rest by SSFC (<b>Driver SSFC Payment</b>). SSFC should pay <b>salary − your advances</b>; more than that is an overpayment.${opt.debitCounts ? ' <b>Driver Debit</b> (damage, fines…) is money the driver owes back.' : ''}</p>
+    <p class="muted small">Each trip's driver salary (Setup → Routes) is paid partly by you — <b>Trip Driver Payment</b>${opt.extraIsAdvance ? ' and <b>Extra Own Driver Pay</b>' : ''} — and the rest by SSFC (<b>Driver SSFC Payment</b>). SSFC should pay <b>salary − your advances</b>; more than that is an overpayment.${opt.extraIsAdvance ? '' : ' <b>Extra Own Driver Pay</b> is the extra promised for those trips — on top of the salary and settled, so it\'s left out of the check.'}${opt.debitCounts ? ' <b>Driver Debit</b> (damage, fines…) is money the driver owes back.' : ''}</p>
     ${salaryNote(dc)}
     ${fromRates.length ? `<p class="small warn-text">Using the Rates sheet's Driver Payment for ${esc(fromRates.join(', '))} until you set the salary in <a href="#/setup">Setup</a>.</p>` : ''}
     ${periodHtml()}
@@ -1441,7 +1446,7 @@ async function viewSetup() {
 
     <section class="card">
       <h2>Driver pay</h2>
-      <label class="radio"><input type="checkbox" id="opt-extra"${draft.driver.extraIsAdvance ? ' checked' : ''}> “Extra Own Driver Pay” is an advance out of the salary (untick if it's paid on top of the salary)</label>
+      <label class="radio"><input type="checkbox" id="opt-extra"${draft.driver.extraIsAdvance ? ' checked' : ''}> Count “Extra Own Driver Pay” as an advance out of the salary (leave unticked: it's the extra promised for those trips, paid on top and settled)</label>
       <label class="radio"><input type="checkbox" id="opt-debit"${draft.driver.debitCounts ? ' checked' : ''}> “Driver Debit” is money the driver owes back (counts against him)</label>
       <div class="row-form"><label>Ignore differences up to (₹ a trip) <input id="opt-tol" inputmode="decimal" value="${esc(draft.driver.tolerance)}"></label></div>
     </section>

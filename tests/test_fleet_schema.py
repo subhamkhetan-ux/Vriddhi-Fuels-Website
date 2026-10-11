@@ -1,10 +1,9 @@
 """Tests for supabase/fleet-schema.sql on a throwaway local Postgres.
 
-The fleet app lives in the ledger's Supabase project and uses its member
-list, so the ledger schema runs first. Checks: the public key gets nothing,
-a login that isn't a ledger member gets nothing, a member can save and read
-back, only the newest 10 uploads are kept. All data is made up. Skipped when
-Postgres isn't installed.
+The fleet app has its own Supabase project and members list. Checks: the
+public key gets nothing, a login that isn't a member gets nothing (and can't
+add itself), a member can save and read back, only the newest 10 uploads are
+kept. All data is made up. Skipped when Postgres isn't installed.
 """
 import json
 import os
@@ -17,7 +16,6 @@ import pytest
 from tests.test_ledger_schema import OWNER, STRANGER, SUPABASE_STUB, Pg, _free_port, _pg_bin
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LEDGER = os.path.join(ROOT, "supabase", "ledger-schema.sql")
 FLEET = os.path.join(ROOT, "supabase", "fleet-schema.sql")
 
 
@@ -49,16 +47,12 @@ def pg():
     db = Pg(sock, port)
     try:
         db.ok(SUPABASE_STUB)
-        # the fleet schema needs the ledger's member list first
-        err = db.fails(open(FLEET, encoding="utf-8").read())
-        assert "ledger-schema.sql" in err
-        db.ok(open(LEDGER, encoding="utf-8").read())
         fleet = open(FLEET, encoding="utf-8").read()
         db.ok(fleet)
         db.ok(fleet)                           # safe to run twice
         db.ok("insert into auth.users values "
               f"('{OWNER}', 'owner@example.com'), ('{STRANGER}', 'stranger@example.com');")
-        db.ok("select ledger_add_member('owner@example.com');")
+        db.ok("select fleet_add_member('owner@example.com');")
         yield db
     finally:
         subprocess.run(as_pg + [pg_ctl, "-D", data, "-m", "fast", "stop"], capture_output=True)
@@ -81,11 +75,18 @@ def test_public_key_and_strangers_get_nothing(pg):
     assert "permission denied" in pg.fails("select fleet_latest();", anon=True)
     who = pg.json("select fleet_whoami();", user=STRANGER, email="stranger@example.com")
     assert who["member"] is False
-    assert "not on the ledger members list" in pg.fails("select fleet_latest();", user=STRANGER, email="stranger@example.com")
-    assert "not on the ledger members list" in pg.fails(
+    assert "not on the fleet members list" in pg.fails("select fleet_latest();", user=STRANGER, email="stranger@example.com")
+    assert "not on the fleet members list" in pg.fails(
         "select fleet_save('x', '{\"trips\":[{\"row\":1}]}'::jsonb);", user=STRANGER, email="stranger@example.com")
     # even a direct insert is refused by row-level security
     assert pg.fails("insert into fleet_uploads (payload) values ('{}');", user=STRANGER, email="stranger@example.com")
+
+
+def test_strangers_cant_add_themselves(pg):
+    assert "permission denied" in pg.fails("select fleet_add_member('stranger@example.com');", user=STRANGER, email="stranger@example.com")
+    assert "permission denied" in pg.fails("select fleet_add_member('stranger@example.com');", anon=True)
+    assert "permission denied" in pg.fails("insert into fleet_members values ('%s', 'x');" % STRANGER, user=STRANGER, email="stranger@example.com")
+    assert pg.json("select fleet_whoami();", user=STRANGER, email="stranger@example.com")["member"] is False
 
 
 def test_member_saves_and_reads_back(pg):
@@ -125,6 +126,6 @@ def test_settings_members_only_one_row(pg):
     assert pg.ok("select count(*) from fleet_settings;") == "1"
     assert pg.owner("select fleet_settings_get();")["value"] == {"routes": []}
     assert "must be an object" in pg.fails("select fleet_settings_save('[1]'::jsonb);", user=OWNER, email="owner@example.com")
-    assert "not on the ledger members list" in pg.fails("select fleet_settings_get();", user=STRANGER, email="stranger@example.com")
+    assert "not on the fleet members list" in pg.fails("select fleet_settings_get();", user=STRANGER, email="stranger@example.com")
     assert "permission denied" in pg.fails("select * from fleet_settings;", anon=True)
     assert pg.ok("select count(*) from fleet_settings;", user=STRANGER, email="stranger@example.com") == "0"

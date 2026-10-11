@@ -14,7 +14,7 @@ Excel as before; upload it here (from any phone or computer) and the app shows:
 | **Tyre & Fastag** | SSFC's monthly charges per vehicle: fleet total per month, a vehicle × month grid, and every month **out of the usual trend** (well above / below the fleet that month *and* the vehicle's own last six months, or booked twice). Tyre is compared month to month, fastag per trip — both per km once distances are set. Each vehicle's first two months aren't judged. Vehicles can be switched out of either analysis in Setup (tyre is off for 4010, 7010, 9010 to start with). | Trip Register |
 | **SSFC** | What SSFC owes (with and without GST), how much should come in the SSL account vs be settled in cash, every invoice cleared oldest first with its age, earned vs received by month, payments received, the Bridgestone notes. | Ledger sheet |
 | **Diesel** | Litres and ₹ by pump (SSFC / Vriddhi Fuels / SSL Own Filling / Extra / Other), per month and per place; the diesel recon per vehicle and trip by trip; urea by vendor. | HSD Data, Diesel Recon / Recon Engine, Rates, Urea DEF |
-| **Setup** | **Upload** the workbook (preview with checks → Save). **Routes**: for every loading port × destination, the distance (km), the driver salary per trip and the diesel allotted — with an optional *From month* for a change, and *Paste from Excel*. **Vehicles in the analysis** (tyre / fastag switches). **Driver pay** options (is Extra Own Driver Pay an advance; does Driver Debit count). **Diesel recon**: the workbook's Recon Engine (default) or the diesel set here for every trip. | the database |
+| **Setup** | **Upload** the workbook (preview with checks → Save). **Routes**: for every loading port × destination, the distance (km), the driver salary per trip and the diesel allotted — with an optional *From month* for a change, and *Paste from Excel*. **Vehicles in the analysis** (tyre / fastag switches). **Driver pay** options (Extra Own Driver Pay settled by default; does Driver Debit count). **Diesel recon**: the workbook's Recon Engine (default) or the diesel set here for every trip. | the database |
 
 Our **bulkers are drawn** the way the Loading and Decanting apps draw our
 diesel tankers: a navy livery band on top (the logo, SHREE SHYAM LOGISTICS and
@@ -87,7 +87,10 @@ the button in the header goes *Auto* (follows the phone / computer) → *Light*
   counts both ways). Mileage = that km ÷ the trip's diesel.
 - **Driver pay** (Setup → Routes sets the salary; until then the Rates sheet's
   *Driver Payment* is used where it has one): SSFC should pay salary − Trip
-  Driver Payment − Extra Own Driver Pay (when that's an advance). A driver is
+  Driver Payment (your advance). *Extra Own Driver Pay* is the extra promised
+  for those trips — on top of the salary and settled — so it's left out of the
+  check (Setup can count it as an advance instead); it still counts as a cost
+  in a trip's projected income. A driver is
   *overpaid* when, over his spell on the vehicle, SSFC + your advances + Driver
   Debit is more than the salaries earned (₹500 slack); differences up to ₹100 a
   trip are ignored (both in Setup).
@@ -104,30 +107,45 @@ the button in the header goes *Auto* (follows the phone / computer) → *Light*
 
 ## Where the data lives
 
-In the **ledger's Supabase project** (same URL and key as `ledger/config.js`),
-in its own `fleet_uploads` table (the uploads) and `fleet_settings` (Setup). Only logins on the ledger's member list can
-read or write it; the public key gets nothing. You sign in with your ledger
-login (if you're signed in to the ledger in the same browser, you're already
-signed in here). The newest 10 uploads are kept.
+In **its own Supabase project** — not the ledger's or any other app's — in
+`fleet_uploads` (the uploads; the newest 10 are kept) and `fleet_settings`
+(Setup). Nothing is readable with the public key, and a login must also be on
+the `fleet_members` list, which only the SQL Editor can change.
 
 No trip data is ever written to this repository: the workbook is read in the
 browser and only the figures the app needs are saved to the database.
 
 ## One-time setup
 
-1. In the ledger's Supabase project: **SQL Editor** → paste all of
-   [`supabase/fleet-schema.sql`](../supabase/fleet-schema.sql) → **Run**.
-   (Safe to run again — run it again after updates.)
-2. Open **`/fleet/`**, sign in with your ledger login, **Setup** → upload the
-   Trip Register and **Save**.
-3. **Setup → Routes**: enter each route's distance, driver salary and diesel
-   (or paste them from Excel) → **Save setup**.
+1. **Create a Supabase account and project** (supabase.com → *Start your
+   project* → *New project*), e.g. `shree-shyam-fleet`, region **Mumbai
+   (ap-south-1)**. Keep the database password somewhere safe (the app never
+   needs it).
+2. **Create the tables:** in that project, **SQL Editor** → *New query* →
+   paste all of [`supabase/fleet-schema.sql`](../supabase/fleet-schema.sql) →
+   **Run**. (Safe to run again; updates to this file are applied the same way.)
+3. **Turn off public sign-ups:** Authentication → Sign In / Providers →
+   switch off **Allow new users to sign up**.
+4. **Add your login:** Authentication → Users → **Add user** → *Create new
+   user* (email + password, tick *Auto Confirm User*). Then in the SQL Editor:
 
-Anyone else who should see it needs a ledger login
-(`select ledger_add_member('them@example.com');`).
+   ```sql
+   select fleet_add_member('you@example.com');
+   ```
 
-Before step 1, the app still opens a Trip Register **just on this device**
-(nothing saved), and **`/fleet/?demo`** shows made-up data.
+   Repeat for anyone else who should use the app; `fleet_remove_member`
+   takes a login away.
+5. **Connect the page:** the project's **Connect** button (or Project
+   Settings → API Keys) shows the **Project URL** and the **publishable**
+   (anon) key — put both in [`config.js`](./config.js), or send them to Claude
+   to do it. Both are meant to be public. **Never** use the `service_role` /
+   secret key.
+6. Open **`/fleet/`**, sign in, **Setup** → upload the Trip Register →
+   **Save**; then **Setup → Routes**: each route's distance, driver salary and
+   diesel → **Save setup**.
+
+Until step 5 the page shows these steps, **Try the demo** (`/fleet/?demo`,
+made-up data) and *open a Trip Register just on this device* (nothing saved).
 
 ## Day to day
 
@@ -140,7 +158,7 @@ upload.
 | File | What |
 |---|---|
 | `index.html` | The page (the ledger's styles + the fleet's) |
-| `config.js` | Supabase URL + publishable key (the ledger project's) |
+| `config.js` | Supabase URL + publishable key of the fleet's own project |
 | `js/app.js` | The screens |
 | `js/parse.js` | Reads the workbook: every sheet by its headings, every column by its name |
 | `js/analyse.js` | The figures: periods, totals, costs, routes, live status, diesel recon, SSFC clearance, fuel, alerts |
@@ -153,7 +171,7 @@ upload.
 | `js/store.js` | Talks to the database (`fleet_*` functions); in-memory demo store |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
-| `../supabase/fleet-schema.sql` | The table, row-level security and `fleet_*` functions |
+| `../supabase/fleet-schema.sql` | Members, the tables, row-level security and the `fleet_*` functions |
 
 ## Tests
 

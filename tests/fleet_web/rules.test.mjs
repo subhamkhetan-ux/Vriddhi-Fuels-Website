@@ -42,12 +42,12 @@ test('km per trip: loaded leg + empty leg from the last unloading point (either 
   assert.deepEqual(k.get(5), { loaded: 800, empty: 700, km: 1500, complete: true });         // Vedanta → Kakinada empty
 });
 
-test('driver pay: SSFC should pay salary − your advances; overpaid drivers by spell', () => {
+test('driver pay: SSFC should pay salary − your advances (the promised extra is settled); overpaid drivers by spell', () => {
   row = 3;
   const data = { trips: [
     trip({ veh: 'A', month: '2026-01', drvSsfc: 11000 }),                          // salary 11000: exact
     trip({ veh: 'A', month: '2026-02', drvSsfc: 9000, drvTrip: 3000 }),           // 9000 + 3000 = 1000 over
-    trip({ veh: 'A', month: '2026-03', drvSsfc: 11000, drvExtra: 1600 }),         // extra is an advance: 1600 over
+    trip({ veh: 'A', month: '2026-03', drvSsfc: 11000, drvExtra: 1600 }),        // extra promised for the trip: settled
     trip({ veh: 'A', month: '2026-04', drvSsfc: 5000, drvDebit: 6000, remarks: 'New Driver Ram Kumar' }),
     trip({ veh: 'A', month: '2026-05', status: 'loaded', unloadDate: undefined }), // not settled: skipped
     trip({ veh: 'B', month: '2026-01', drvSsfc: 6000, port: 'Gopalpur', dest: 'Vedanta' }), // no salary set
@@ -55,18 +55,18 @@ test('driver pay: SSFC should pay salary − your advances; overpaid drivers by 
   const set = withDefaults({ routes: [{ port: 'Kakinada', dest: 'BALCO', salary: 11000 }] });
   const dc = driverCheck(data, set);
   const a = dc.rows.filter((r) => r.veh === 'A');
-  assert.deepEqual(a.map((r) => [r.expected, r.over]), [[11000, 0], [8000, 1000], [9400, 1600], [11000, -6000]]);
+  assert.deepEqual(a.map((r) => [r.expected, r.over]), [[11000, 0], [8000, 1000], [11000, 0], [11000, -6000]]);
   const spells = dc.spells.filter((s) => s.veh === 'A');
   assert.equal(spells.length, 2);
-  assert.equal(spells[0].balance, 2600);
-  assert.equal(spells[0].overTrips, 2);
+  assert.equal(spells[0].balance, 1000);
+  assert.equal(spells[0].overTrips, 1);
   assert.equal(spells[1].name, 'Ram Kumar');
   assert.equal(spells[1].balance, 0);                                            // 6000 less paid recovers the 6000 debit
   assert.equal(spells[1].current, true);
   assert.deepEqual(dc.missing, [{ route: 'Gopalpur → Vedanta', trips: 1 }]);
-  // extra pay on top of the salary instead of an advance
-  const dc2 = driverCheck(data, withDefaults({ ...set, driver: { extraIsAdvance: false } }));
-  assert.equal(dc2.rows.filter((r) => r.veh === 'A')[2].over, 0);
+  // if Extra Own Driver Pay were an advance out of the salary instead
+  const dc2 = driverCheck(data, withDefaults({ ...set, driver: { extraIsAdvance: true } }));
+  assert.equal(dc2.rows.filter((r) => r.veh === 'A')[2].over, 1600);
 });
 
 test('driver names from the remarks', () => {

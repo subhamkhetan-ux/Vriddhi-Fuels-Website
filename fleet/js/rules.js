@@ -22,7 +22,8 @@ export function defaultSettings() {
   return {
     routes: [],                       // [{ port, dest, from: 'yyyy-mm' | '', km, salary, diesel }]
     vehicles: {},                     // { 'XX01AB1001': { tyre: false, fastag: true } }
-    driver: { extraIsAdvance: true, debitCounts: true, tolerance: 100 },
+    // Extra Own Driver Pay is the extra promised for those trips — on top of the salary, settled
+    driver: { extraIsAdvance: false, debitCounts: true, tolerance: 100 },
     recon: { useApp: false },
   };
 }

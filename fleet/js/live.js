@@ -166,7 +166,8 @@ export function liveTrip(data, settings, today, t) {
   const dieselLeft = round2(litresLeft * price);
   const r = routeFor(data, settings, t.port, t.dest, t.month || monthOf(today));
   const advances = (t.drvTrip || 0) + (t.drvExtra || 0);
-  const driver = r.salary ?? (t.drvSsfc != null ? (t.drvSsfc || 0) + advances : prof.driver || 0);
+  const extra = settings && settings.driver && settings.driver.extraIsAdvance ? 0 : t.drvExtra || 0;   // promised on top of the salary
+  const driver = (r.salary ?? (t.drvSsfc != null ? (t.drvSsfc || 0) + (t.drvTrip || 0) : prof.driver || 0)) + extra;
   const urea = t.urea ?? u.urea;
   const ownOther = (t.ownMisc || t.docOwn) ? (t.ownMisc || 0) + (t.docOwn || 0) : u.ownOther;
   const before = round2(freight - dieselSoFar - dieselLeft - driver - u.ssfcOther - urea - ownOther);

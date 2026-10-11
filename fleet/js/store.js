@@ -1,6 +1,6 @@
 // Where the fleet data lives. Both stores answer the same calls:
 //   supabaseStore(client) — the fleet_* functions in supabase/fleet-schema.sql,
-//                           in the ledger's Supabase project (same logins)
+//                           in the fleet app's own Supabase project
 //   memoryStore(seed)     — the demo: made-up data in this browser tab only
 
 export function supabaseStore(client) {
