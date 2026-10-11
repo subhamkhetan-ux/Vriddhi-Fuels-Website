@@ -11,7 +11,9 @@
 --
 -- What is stored: the figures the app reads from the Trip Register
 -- workbook (trips, SSFC ledger rows, HSD fills, urea, rates), one row per
--- upload. The newest 10 uploads are kept.
+-- upload — the newest 10 are kept; and the app's Setup (each route's
+-- distance, driver salary and diesel, which vehicles count in the tyre /
+-- fastag analysis), one row.
 -- =====================================================================
 
 do $$
@@ -37,6 +39,20 @@ revoke all on public.fleet_uploads from public, anon;
 grant select, insert, delete on public.fleet_uploads to authenticated;
 drop policy if exists fleet_uploads_members on public.fleet_uploads;
 create policy fleet_uploads_members on public.fleet_uploads for all to authenticated
+  using ((select public.ledger_is_member())) with check ((select public.ledger_is_member()));
+
+-- The Setup tab: one row of settings (routes, vehicles, options)
+create table if not exists public.fleet_settings (
+  id          int primary key default 1 check (id = 1),
+  value       jsonb not null default '{}'::jsonb,
+  by_email    text not null default '',
+  updated_at  timestamptz not null default now()
+);
+alter table public.fleet_settings enable row level security;
+revoke all on public.fleet_settings from public, anon;
+grant select, insert, update on public.fleet_settings to authenticated;
+drop policy if exists fleet_settings_members on public.fleet_settings;
+create policy fleet_settings_members on public.fleet_settings for all to authenticated
   using ((select public.ledger_is_member())) with check ((select public.ledger_is_member()));
 
 -- ---------------------------------------------------------------------
@@ -100,6 +116,31 @@ begin
                      order by u.created_at desc, u.id desc)
       from (select * from public.fleet_uploads order by created_at desc, id desc limit greatest(1, least(p_limit, 50))) u), '[]'::jsonb);
 end $$;
+
+create or replace function public.fleet_settings_get()
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform public.ledger_assert_member();
+  return coalesce((select jsonb_build_object('value', value, 'by_email', by_email, 'updated_at', updated_at)
+                     from public.fleet_settings where id = 1),
+                  jsonb_build_object('value', '{}'::jsonb));
+end $$;
+
+create or replace function public.fleet_settings_save(p_value jsonb)
+returns jsonb language plpgsql set search_path = public as $$
+begin
+  perform public.ledger_assert_member();
+  if p_value is null or jsonb_typeof(p_value) <> 'object' then
+    raise exception 'Settings must be an object.';
+  end if;
+  insert into public.fleet_settings (id, value, by_email, updated_at)
+  values (1, p_value, coalesce(auth.jwt() ->> 'email', ''), now())
+  on conflict (id) do update set value = excluded.value, by_email = excluded.by_email, updated_at = now();
+  return public.fleet_settings_get();
+end $$;
+
+revoke all on function public.fleet_settings_get(), public.fleet_settings_save(jsonb) from public, anon;
+grant execute on function public.fleet_settings_get(), public.fleet_settings_save(jsonb) to authenticated;
 
 revoke all on function public.fleet_whoami(), public.fleet_latest(), public.fleet_save(text, jsonb), public.fleet_uploads_list(int) from public, anon;
 grant execute on function public.fleet_whoami(), public.fleet_latest(), public.fleet_save(text, jsonb), public.fleet_uploads_list(int) to authenticated;

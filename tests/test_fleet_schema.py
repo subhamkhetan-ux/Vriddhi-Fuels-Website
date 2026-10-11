@@ -112,3 +112,19 @@ def test_keeps_the_newest_ten(pg):
     assert len(rows) == 10
     assert rows[0]["counts"]["trips"] == 12
     assert pg.owner("select fleet_latest();")["payload"]["trips"][-1]["trip"] == "T011/DEMO"
+
+
+def test_settings_members_only_one_row(pg):
+    assert pg.owner("select fleet_settings_get();") == {"value": {}}
+    value = {"routes": [{"port": "Demo Port", "dest": "Demo Plant", "km": 500, "salary": 9000, "diesel": 400}],
+             "vehicles": {"XX01A1001": {"tyre": False}}}
+    body = json.dumps(value).replace("'", "''")
+    got = pg.owner(f"select fleet_settings_save('{body}'::jsonb);")
+    assert got["value"] == value and got["by_email"] == "owner@example.com"
+    pg.owner("select fleet_settings_save('{\"routes\": []}'::jsonb);")
+    assert pg.ok("select count(*) from fleet_settings;") == "1"
+    assert pg.owner("select fleet_settings_get();")["value"] == {"routes": []}
+    assert "must be an object" in pg.fails("select fleet_settings_save('[1]'::jsonb);", user=OWNER, email="owner@example.com")
+    assert "not on the ledger members list" in pg.fails("select fleet_settings_get();", user=STRANGER, email="stranger@example.com")
+    assert "permission denied" in pg.fails("select * from fleet_settings;", anon=True)
+    assert pg.ok("select count(*) from fleet_settings;", user=STRANGER, email="stranger@example.com") == "0"

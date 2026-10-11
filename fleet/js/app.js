@@ -7,6 +7,9 @@ import {
   inPeriod, monthly, ownExpenses, periods, routeOf, sourceOf, SOURCES, ssfcAccount, ssfcDeductions, totals, tripDays, urea, vehiclesOf,
 } from './analyse.js';
 import { bindCharts, groupedBars, legend, setChartWidth, signedBars, stackedBars } from './charts.js';
+import {
+  CHARGE_RULES, defaultSettings, driverCheck, monthlyCharges, routeFor, routePairs, tripKms, vehicleFlags, withDefaults,
+} from './rules.js';
 import { demoData } from './demo.js';
 import { bookFromSheetJS, extractFleet } from './parse.js';
 import { memoryStore, supabaseStore } from './store.js';
@@ -17,12 +20,13 @@ import {
 
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 const SHEETJS = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
-const BRAND = 'Shree Shyam <b>Fleet</b>';
+const BRAND = '<img class="brand-mark" src="assets/logo-mark.png" alt=""><span>Shree Shyam <b>Fleet</b></span>';
 
 const root = document.getElementById('app');
 const state = {
   store: null, client: null, me: null, demo: false, data: null, meta: null, localOnly: false,
   period: 'fy', custom: null, ui: {},
+  settings: withDefaults(null), settingsMeta: null, settingsMissing: false, rev: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -56,6 +60,55 @@ async function guard(fn) {
     return undefined;
   }
 }
+// ---- light / dark: Auto follows the system; the choice is kept on this device ----
+const THEMES = ['auto', 'light', 'dark'];
+const sysLight = () => !!(window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+function themeMode() {
+  try { return localStorage.getItem('fleet-theme') || 'auto'; } catch { return 'auto'; }
+}
+function applyTheme(mode = themeMode()) {
+  const light = mode === 'light' || (mode === 'auto' && sysLight());
+  document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
+  document.documentElement.setAttribute('data-theme-mode', mode);
+  document.querySelectorAll('[data-theme-btn]').forEach((b) => { b.outerHTML = themeButton(b.classList.contains('theme-float')); });
+  bindTheme();
+}
+const THEME_ICON = {
+  auto: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>',
+  light: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="currentColor"/></svg>',
+};
+const THEME_NAME = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+function themeButton(float = false) {
+  const m = themeMode();
+  const next = THEMES[(THEMES.indexOf(m) + 1) % THEMES.length];
+  const tip = m === 'auto' ? `Theme: Auto (following the system — ${sysLight() ? 'light' : 'dark'} now). Tap for ${THEME_NAME[next]}.` : `Theme: ${THEME_NAME[m]}. Tap for ${THEME_NAME[next]}.`;
+  return `<button type="button" class="theme-btn${float ? ' theme-float' : ''}" data-theme-btn title="${esc(tip)}" aria-label="${esc(tip)}">${THEME_ICON[m]}<span class="t-lbl">${THEME_NAME[m]}</span></button>`;
+}
+function bindTheme() {
+  document.querySelectorAll('[data-theme-btn]').forEach((b) => {
+    if (b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.addEventListener('click', () => {
+      const m = themeMode();
+      const next = THEMES[(THEMES.indexOf(m) + 1) % THEMES.length];
+      try { localStorage.setItem('fleet-theme', next); } catch { /* private mode: this visit only */ }
+      applyTheme(next);
+      if (main()) rerender();                                    // charts pick up the new colours
+    });
+  });
+}
+if (window.matchMedia) {
+  matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', () => {
+    if (themeMode() === 'auto') { applyTheme('auto'); if (main()) rerender(); }
+  });
+}
+
+// ---- the company logo ----
+const logoMark = () => '<div class="logo-stage"><span class="logo-halo"></span><img src="assets/logo-mark.png" alt=""><span class="logo-shine" aria-hidden="true"></span></div>';
+const logoLoader = (text = 'Loading…') => `<div class="logo-loader" role="status">${logoMark()}<span>${esc(text)}</span></div>`;
+const logoHead = (sub = 'Fleet') => `<div class="logo-head">${logoMark()}<span class="logo-word" role="img" aria-label="Shree Shyam Logistics"></span>${sub ? `<p>${esc(sub)}</p>` : ''}</div>`;
+
 let sheetjs = null;
 async function loadSheetJS() {
   if (sheetjs) return sheetjs;
@@ -78,7 +131,7 @@ async function boot() {
   const cfg = window.FLEET_CONFIG || {};
   if (params.has('demo')) {
     state.demo = true;
-    state.store = memoryStore(demoData(today()));
+    state.store = memoryStore(demoData(today()), { settings: demoSettings() });
     return enter();
   }
   if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return renderSetup();
@@ -86,7 +139,7 @@ async function boot() {
   try {
     ({ createClient } = await import(SUPABASE_JS));
   } catch {
-    return renderCentered(`<h1>${BRAND}</h1><p>Couldn't load the sign-in library. Check the internet connection and reload.</p>`);
+    return renderCentered(`${logoHead()}<p>Couldn't load the sign-in library. Check the internet connection and reload.</p>`);
   }
   // same storage key as the ledger app: signed in there = signed in here
   state.client = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
@@ -100,12 +153,13 @@ async function boot() {
 }
 
 function renderCentered(inner) {
-  root.innerHTML = `<div class="center"><div class="card center-card">${inner}</div></div>`;
+  root.innerHTML = `${themeButton(true)}<div class="center"><div class="card center-card">${inner}</div></div>`;
+  bindTheme();
 }
 
 function renderSetup() {
   renderCentered(`
-    <h1>${BRAND}</h1>
+    ${logoHead()}
     <p>This app isn't connected to its database yet. It uses the ledger app's Supabase project — put that project's URL and publishable key in <code>fleet/config.js</code> (the same two values as <code>ledger/config.js</code>), then run <code>supabase/fleet-schema.sql</code> once in its SQL Editor.</p>
     <p><a class="btn" href="?demo">Try the demo</a> <span class="muted">— made-up data, nothing is saved.</span></p>
     ${localPickerHtml()}`);
@@ -114,7 +168,7 @@ function renderSetup() {
 
 function renderLogin(message = '') {
   renderCentered(`
-    <h1>${BRAND}</h1>
+    ${logoHead()}
     <p class="muted small">Sign in with your ledger login.</p>
     <form id="login" class="stack" autocomplete="on">
       <label>Email <input name="email" type="email" required autocomplete="username"></label>
@@ -153,6 +207,7 @@ function bindLocalPicker() {
     state.meta = { file_name: file.name, created_at: new Date().toISOString(), by_email: '' };
     state.localOnly = true;
     state.me = state.me || { email: 'this device' };
+    if (state.store && state.store.settings) await loadSettings();
     startApp();
   }));
 }
@@ -163,20 +218,20 @@ async function enter() {
     me = await state.store.whoami();
   } catch (err) {
     if (err.code === 'NO_SCHEMA') {
-      renderCentered(`<h1>${BRAND}</h1>
+      renderCentered(`${logoHead()}
         <p>You're signed in, but the fleet tables aren't in the database yet. One-time setup: open the ledger's Supabase project → <b>SQL Editor</b>, paste all of <code>supabase/fleet-schema.sql</code> and press <b>Run</b>. Then reload this page.</p>
         ${localPickerHtml()}
         <p><button class="btn ghost" id="out">Sign out</button></p>`);
       bindLocalPicker();
     } else {
-      renderCentered(`<h1>${BRAND}</h1>${errorHtml(err)}<p><button class="btn ghost" id="out">Sign out</button></p>`);
+      renderCentered(`${logoHead()}${errorHtml(err)}<p><button class="btn ghost" id="out">Sign out</button></p>`);
     }
     document.getElementById('out').addEventListener('click', signOut);
     return;
   }
   state.me = me;
   if (!me.member) {
-    renderCentered(`<h1>${BRAND}</h1>
+    renderCentered(`${logoHead()}
       <p>You're signed in as <b>${esc(me.email)}</b>, but this login isn't on the ledger members list.</p>
       <p>The owner can allow it by running this once in the Supabase SQL Editor:</p>
       <pre class="code">select ledger_add_member('${esc(String(me.email).replace(/'/g, "''"))}');</pre>
@@ -184,16 +239,43 @@ async function enter() {
     document.getElementById('out').addEventListener('click', signOut);
     return;
   }
-  renderCentered(loadingHtml('Loading the Trip Register…'));
+  root.innerHTML = `${themeButton(true)}<div class="center">${logoLoader('Loading the Trip Register…')}</div>`;
+  bindTheme();
   try {
-    const latest = await state.store.latest();
+    const [latest] = await Promise.all([state.store.latest(), loadSettings()]);
     if (latest) { state.data = latest.payload; state.meta = latest.meta; }
   } catch (err) {
-    renderCentered(`<h1>${BRAND}</h1>${errorHtml(err)}<p><button class="btn ghost" id="out">Sign out</button></p>`);
+    renderCentered(`${logoHead()}${errorHtml(err)}<p><button class="btn ghost" id="out">Sign out</button></p>`);
     document.getElementById('out').addEventListener('click', signOut);
     return;
   }
   startApp();
+}
+
+// Setup (routes, vehicles, options): from the database; defaults if the
+// fleet_settings table isn't there yet (fleet-schema.sql not re-run)
+async function loadSettings() {
+  try {
+    const got = await state.store.settings();
+    state.settings = withDefaults(got && got.value);
+    state.settingsMeta = got && got.updated_at ? got : null;
+    state.settingsMissing = false;
+  } catch (err) {
+    console.warn(err);
+    state.settings = withDefaults(state.demo ? demoSettings() : null);
+    state.settingsMissing = !state.demo;
+  }
+  state.rev += 1;
+}
+function demoSettings() {
+  return { routes: [
+    { port: 'Kakinada', dest: 'BALCO', km: 820, salary: 11000, diesel: 630 },
+    { port: 'Gangavaram', dest: 'BALCO', km: 780, salary: 10000, diesel: 530 },
+    { port: 'Gopalpur', dest: 'Vedanta', km: 450, salary: 7000, diesel: 310 },
+    { port: 'Kakinada', dest: 'Vedanta', km: 700, salary: 10000, diesel: 580 },
+    { port: 'Gangavaram', dest: 'Vedanta', km: 640, salary: 9500, diesel: 460 },
+    { port: 'Gopalpur', dest: 'BALCO', km: 610 },
+  ] };
 }
 
 function startApp() {
@@ -213,7 +295,7 @@ async function signOut() {
 // ---------------------------------------------------------------------------
 // shell + routing
 // ---------------------------------------------------------------------------
-const TABS = [['#/', 'Home'], ['#/trips', 'Trips'], ['#/vehicles', 'Vehicles'], ['#/ssfc', 'SSFC'], ['#/diesel', 'Diesel'], ['#/upload', 'Upload']];
+const TABS = [['#/', 'Home'], ['#/trips', 'Trips'], ['#/vehicles', 'Vehicles', 'Trucks'], ['#/drivers', 'Drivers'], ['#/costs', 'Tyre & Fastag', 'Tyres'], ['#/ssfc', 'SSFC'], ['#/diesel', 'Diesel'], ['#/setup', 'Setup']];
 
 function renderShell() {
   root.innerHTML = `
@@ -224,14 +306,16 @@ function renderShell() {
       ${state.preview ? '<span class="pill info-pill" title="This file was opened but not saved">Preview · not saved</span>' : ''}
       <span class="spacer"></span>
       <a class="btn ghost small hide-sm" href="../ledger/">Ledger ↗</a>
+      ${themeButton()}
       <span class="who">${esc(state.me ? state.me.email : '')}</span>
       <button class="btn ghost small" id="signout">${state.demo ? 'Leave demo' : state.client ? 'Sign out' : 'Close'}</button>
     </header>
     <nav class="tabs" aria-label="Sections">
-      ${TABS.map(([href, name]) => `<a href="${href}" data-tab="${href}">${name}</a>`).join('')}
+      ${TABS.map(([href, name, short]) => `<a href="${href}" data-tab="${href}">${short ? `<span class="hide-sm">${name}</span><span class="show-sm">${short}</span>` : name}</a>`).join('')}
     </nav>
     <main id="main"></main>`;
   document.getElementById('signout').addEventListener('click', signOut);
+  bindTheme();
 }
 
 const ROUTES = [
@@ -243,7 +327,11 @@ const ROUTES = [
   [/^#\/ssfc$/, () => viewSsfc()],
   [/^#\/diesel$/, () => viewDiesel()],
   [/^#\/diesel\/([^/?]+)$/, (m) => viewDieselVehicle(decodeURIComponent(m[1]))],
-  [/^#\/upload$/, () => viewUpload()],
+  [/^#\/drivers$/, () => viewDrivers()],
+  [/^#\/drivers\/([^/?]+)$/, (m) => viewDriverVehicle(decodeURIComponent(m[1]))],
+  [/^#\/costs(?:\/(fastag|tyre))?$/, (m) => viewCharges(m[1] || null)],
+  [/^#\/setup$/, () => viewSetup()],
+  [/^#\/upload$/, () => viewSetup()],
 ];
 
 async function route() {
@@ -253,6 +341,9 @@ async function route() {
     if (h.startsWith('#/trip')) return '#/trips';
     if (h.startsWith('#/vehicle')) return '#/vehicles';
     if (h.startsWith('#/diesel')) return '#/diesel';
+    if (h.startsWith('#/drivers')) return '#/drivers';
+    if (h.startsWith('#/costs')) return '#/costs';
+    if (h.startsWith('#/upload')) return '#/setup';
     return h.split('?')[0];
   };
   const cur = tabOf(hash);
@@ -264,7 +355,7 @@ async function route() {
   const hit = ROUTES.map(([re, fn]) => [hash.match(re), fn]).find(([m]) => m);
   setMain(loadingHtml());
   try {
-    if (!state.data && !hash.startsWith('#/upload')) viewWelcome();
+    if (!state.data && !hash.startsWith('#/upload') && !hash.startsWith('#/setup')) viewWelcome();
     else await (hit ? hit[1](hit[0]) : viewHome());
   } catch (err) {
     console.error(err);
@@ -279,7 +370,7 @@ function viewWelcome() {
   setMain(`<section class="hero card">
     <h2>Welcome</h2>
     <p>Upload your <b>Trip Register</b> (the .xlsm you keep in Excel): the app reads every trip, the SSFC ledger, HSD and urea fills and the diesel recon from it, and shows them here on any phone.</p>
-    <p><a class="btn" href="#/upload">Upload Trip Register</a></p></section>`);
+    <p><a class="btn" href="#/setup">Upload Trip Register</a></p></section>`);
 }
 
 // ---------------------------------------------------------------------------
@@ -323,16 +414,28 @@ function bindPeriod(box) {
 }
 const periodRange = (p) => (p.key === 'all' ? 'all trips' : p.from === p.to ? monthLong(p.from) : `${monthName(p.from)} – ${monthName(p.to)}`);
 
-const cache = new WeakMap();
+let cache = null;
 function derived() {
   const d = state.data;
-  let x = cache.get(d);
-  if (!x) {
-    x = { recon: dieselRecon(d), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d), issues: dateIssues(d, today()) };
-    cache.set(d, x);
+  if (!cache || cache.data !== d || cache.rev !== state.rev) {
+    const set = state.settings;
+    const kms = tripKms(d, set);
+    const x = {
+      recon: dieselRecon(d, set), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d),
+      issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set),
+      charges: { fastag: monthlyCharges(d, set, 'fastag', kms), tyre: monthlyCharges(d, set, 'tyre', kms) },
+    };
+    cache = { data: d, rev: state.rev, x };
   }
-  return x;
+  return cache.x;
 }
+// km of a set of trips (only trips whose distance is known)
+function kmOf(trips) {
+  const { kms } = derived();
+  const known = trips.filter((t) => kms.get(t.row) && kms.get(t.row).complete && kms.get(t.row).km);
+  return { km: known.reduce((a, t) => a + kms.get(t.row).km, 0), trips: known.length, litres: known.reduce((a, t) => a + dieselLitres(t), 0) };
+}
+const OVERPAID = 500;                                            // a driver is flagged above this
 // months to chart for a period: the period itself, or the last 12 months when it's short
 function chartMonths(p) {
   const months = state.data.trips.map((t) => t.month).filter(Boolean).sort();
@@ -366,13 +469,31 @@ async function viewHome() {
   const play = !state.greeted;
   state.greeted = true;
   const todo = attention(d, today(), { recon, account });
+  const { drivers, charges, kms } = derived();
+  // only once salaries are set in Setup (the Rates sheet's Driver Payment is a placeholder)
+  const confirmed = (sp) => sp.trips.length && drivers.rows.filter((r) => r.spell === sp && r.salary != null).every((r) => r.salaryFrom === 'app');
+  const overpaid = drivers.spells.filter((x) => x.balance > OVERPAID && confirmed(x));
+  if (overpaid.length > 2) {
+    todo.unshift({ kind: 'warn', href: '#/drivers', text: `${plural(overpaid.length, 'driver')} overpaid — ${rupees(overpaid.reduce((a, x) => a + x.balance, 0))} more than salary − your advances` });
+  } else {
+    for (const sp of overpaid) todo.unshift({ kind: 'warn', href: `#/drivers/${encodeURIComponent(sp.veh)}`, text: `${shortVeh(sp.veh)}: ${sp.name ? `driver ${sp.name}` : 'driver'} overpaid ${rupees(sp.balance)} (salary − your advances vs what SSFC paid)` });
+  }
+  const placeholder = [...new Set(drivers.rows.filter((r) => r.salaryFrom === 'rates').map((r) => routeOf(r.t)))];
+  if (placeholder.length) todo.push({ kind: 'info', href: '#/setup', text: `Confirm the driver salary for ${placeholder.join(', ')} in Setup (now taken from the Rates sheet's Driver Payment)` });
+  const since = addMonths(monthOf(today()), -3);
+  for (const key of ['tyre', 'fastag']) {
+    const recent = charges[key].flags.filter((f) => f.month >= since && f.kind !== 'low');
+    if (recent.length) todo.push({ kind: 'warn', href: `#/costs/${key}`, text: `${CHARGE_RULES[key].name}: ${plural(recent.length, 'charge')} out of the usual trend in the last 3 months` });
+  }
+  if (drivers.missing.length) todo.push({ kind: 'info', href: '#/setup', text: `Driver salary not set for ${drivers.missing.map((m) => m.route).join(', ')} — set it in Setup to check driver pay` });
+  if (![...kms.values()].some((k) => k.km)) todo.push({ kind: 'info', href: '#/setup', text: 'Add the distance of each route in Setup to see km, mileage and cost per km' });
   const onTrip = status.filter((s) => s.state !== 'idle');
   const loaded = status.filter((s) => s.state === 'loaded');
   const empty = status.filter((s) => s.state === 'empty');
   const avgDays = onTrip.length ? onTrip.reduce((a, s) => a + s.days, 0) / onTrip.length : 0;
   setMain(`
-    <section class="card greet">
-      <h1 class="jsk${play ? ' play' : ''}"><span class="jsk-text">Jai Shree Krishna</span><img class="jsk-feather" src="assets/morpankh.png" alt=""></h1>
+    <section class="card greet logo-hero${play ? ' play' : ''}">
+      ${logoMark()}<h1 class="logo-word" aria-label="Shree Shyam Logistics"></h1>
       <p class="greet-dates"><span>Today is <b>${esc(longDate(today()))}</b></span>
       <span>Trip Register updated until <b>${esc(d.latest ? dateYear(d.latest) : '—')}</b></span></p>
     </section>
@@ -437,6 +558,8 @@ function renderDashboard(box) {
   const routes = byRoute(trips);
   const ui = state.ui.home || (state.ui.home = { sort: 'income', table: false });
   const beforeEmi = T.income + T.emi;
+  const K = kmOf(trips);
+  const sumBhada = () => { const { kms } = derived(); return trips.filter((t) => kms.get(t.row) && kms.get(t.row).complete && kms.get(t.row).km).reduce((a, t) => a + (t.bhada || 0), 0); };
   box.innerHTML = `
   <section class="card dash">
     <div class="row-between"><h2>Business</h2><span class="muted small">${esc(periodRange(p))}</span></div>
@@ -451,6 +574,8 @@ function renderDashboard(box) {
       <div class="kpi ${T.income < 0 ? 'warn' : ''}"><span class="lbl">Net after EMI</span><span class="val ${signed(T.income)}" ${exact(T.income)}>${money(T.income)}</span><span class="sub">Income/Trip total · ${Math.round(T.margin * 100)}% of freight</span></div>
       <div class="kpi"><span class="lbl">Diesel</span><span class="val">${litres(T.dieselL)}</span><span class="sub">${money(T.dieselAmt)} · ${T.trips ? Math.round(T.dieselL / T.trips) : 0} L a trip</span></div>
       <div class="kpi"><span class="lbl">Weight short</span><span class="val">${tonnes(-T.short)}</span><span class="sub">${plural(T.shortTrips, 'trip')} short · avg ${T.days.toFixed(1)} days a trip</span></div>
+      ${K.km ? `<div class="kpi"><span class="lbl">Distance</span><span class="val">${indian(K.km)} km</span><span class="sub">₹${(sumBhada(K) / K.km).toFixed(1)} freight a km${K.trips < T.trips ? ` · ${K.trips} of ${T.trips} trips` : ''}</span></div>
+      <div class="kpi"><span class="lbl">Mileage</span><span class="val">${K.litres ? (K.km / K.litres).toFixed(2) : '—'} km/L</span><span class="sub">diesel issued on those trips</span></div>` : ''}
     </div>
 
     <h3 class="sub-h">Where every ₹100 of freight goes</h3>
@@ -590,6 +715,17 @@ function tripRow(t, why) {
     <span class="r t-inc ${signed(t.income)}">${t.income != null ? rupees(t.income) : '—'}${t.emi ? '<small>incl. EMI</small>' : ''}</span></a>`;
 }
 
+function driverLine(t) {
+  const { drivers: dc, kms } = derived();
+  const r = dc.rows.find((x) => x.t === t);
+  const k = kms.get(t.row);
+  const km = k && k.complete && k.km ? `<p class="small muted">Distance ${indian(k.km)} km (${k.empty ? `${indian(k.empty)} empty + ` : ''}${indian(k.loaded)} loaded)${dieselLitres(t) ? ` · ${(k.km / dieselLitres(t)).toFixed(2)} km/L` : ''}</p>` : '';
+  if (!r) return km;
+  if (r.salary == null) return `${km}<p class="small muted">Driver salary for ${esc(routeOf(t))} isn't set — <a href="#/setup">Setup</a>.</p>`;
+  return `${km}<div class="drv-line ${r.over > dc.tolerance ? 'bad' : ''}"><span>Driver salary <b>${rupees(r.salary)}</b></span><span>− your advance <b>${rupees(r.advance)}</b></span><span>= SSFC should pay <b>${rupees(r.expected)}</b></span><span>SSFC paid <b>${rupees(r.ssfc)}</b></span>
+    <span class="${r.over > dc.tolerance ? 'bad-text' : r.over < -dc.tolerance ? '' : 'good-text'}"><b>${r.over > dc.tolerance ? `Overpaid ${rupees(r.over)}` : r.over < -dc.tolerance ? `${rupees(-r.over)} less` : '✓ matches'}</b></span></div>`;
+}
+
 async function viewTrip(row) {
   const d = state.data;
   const t = d.trips.find((x) => x.row === row);
@@ -634,6 +770,7 @@ async function viewTrip(row) {
       <div class="ln total"><span>Income from the trip</span><b class="${signed(t.income)}">${rupees(t.income)}</b></div>
       ${t.drvDebit ? `<div class="ln muted"><span>Driver debit (not in income)</span><b>${rupees(t.drvDebit)}</b></div>` : ''}
     </div>
+    ${driverLine(t)}
     ${t.remarks ? `<p class="remark">“${esc(t.remarks)}”</p>` : ''}
   </section>` : t.remarks ? `<section class="card"><p class="remark">“${esc(t.remarks)}”</p></section>` : ''}
   <section class="card"><h3>Diesel</h3>
@@ -694,6 +831,7 @@ async function viewVehicle(veh) {
   const months = cm ? monthly(mine, cm.from, cm.to) : [];
   setChartWidth(main().clientWidth - 70);
   const recent = [...inP].sort((a, b) => b.row - a.row);
+  const KV = kmOf(inP);
   setMain(`<section class="card">
     <a class="muted small" href="#/vehicles">← Vehicles</a>
     <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)}</h2><p class="muted">${plural(mine.length, 'trip')} in the register${emiNow ? ` · EMI ${rupees(emiNow)} a month` : ''}</p></div></div></div>
@@ -709,6 +847,7 @@ async function viewVehicle(veh) {
       <div class="kpi"><span class="lbl">Diesel</span><span class="val">${litres(T.dieselL)}</span><span class="sub">${T.trips ? Math.round(T.dieselL / T.trips) : 0} L a trip</span></div>
       <a class="kpi ${dl && dl.balance < 0 ? 'warn' : ''}" href="#/diesel/${encodeURIComponent(veh)}"><span class="lbl">Diesel recon</span><span class="val ${dl && dl.balance < 0 ? 'bad-text' : ''}">${dl ? `${dl.balance > 0 ? '+' : ''}${litres(dl.balance)}` : '—'}</span><span class="sub">running balance ›</span></a>
       <div class="kpi"><span class="lbl">Avg trip</span><span class="val">${T.days ? `${T.days.toFixed(1)} d` : '—'}</span><span class="sub">start to unloading</span></div>
+      ${KV.km ? `<div class="kpi"><span class="lbl">Distance</span><span class="val">${indian(KV.km)} km</span><span class="sub">${KV.litres ? `${(KV.km / KV.litres).toFixed(2)} km/L mileage` : ''}</span></div>` : ''}
       <div class="kpi"><span class="lbl">Weight short</span><span class="val">${tonnes(-T.short)}</span><span class="sub">${plural(T.shortTrips, 'trip')}</span></div>
     </div>
     ${cm ? `<h3 class="sub-h">Month by month <span class="muted">${esc(cm.note)}</span></h3>
@@ -830,6 +969,7 @@ async function viewDiesel() {
       ${F.places.slice(0, 12).map((x) => `<tr><td>${esc(x.place)}</td><td class="r">${x.fills}</td><td class="r">${indian(x.litres)}</td><td class="r">${rupees(x.amount)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No HSD fills in this period.</p>'}
   </section>
 
+  ${mileageHtml(p)}
   <section class="card">
     <div class="row-between"><h3>Diesel recon · allotted vs issued</h3><span class="muted small">since ${recon.since ? dateYear(recon.since) : '—'}</span></div>
     <p class="muted small">Each trip is allotted its route's diesel (Rates sheet) + ${recon.rules.perTonne} L a tonne over ${recon.rules.overloadOver} T gross − underload; issued = SSFC litres + own trip litres. Below zero = more diesel went in than allotted.</p>
@@ -847,6 +987,18 @@ async function viewDiesel() {
   </section>`);
   bindPeriod(main());
   bindCharts(main());
+}
+
+function mileageHtml(p) {
+  const { vehicles } = derived();
+  const rows = vehicles.map((v) => ({ v, ...kmOf(state.data.trips.filter((t) => t.veh === v && inPeriod(t, p))) })).filter((r) => r.km && r.litres);
+  if (!rows.length) return '<section class="card"><h3>Mileage</h3><p class="muted small">Set each route\'s distance in <a href="#/setup">Setup</a> to see km run and km per litre for every vehicle.</p></section>';
+  const avg = rows.reduce((a, r) => a + r.km, 0) / rows.reduce((a, r) => a + r.litres, 0);
+  return `<section class="card"><h3>Mileage · ${esc(periodRange(p))}</h3>
+    <p class="muted small">km = loaded leg + empty leg from the last unloading point; litres = SSFC + own + extra diesel on those trips. Fleet: <b>${avg.toFixed(2)} km/L</b>.</p>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th class="r">Trips</th><th class="r">Km</th><th class="r">Litres</th><th class="r">km/L</th><th class="r">vs fleet</th></tr></thead><tbody>
+    ${rows.sort((a, b) => a.km / a.litres - b.km / b.litres).map((r) => { const kpl = r.km / r.litres; const d = (kpl / avg - 1) * 100; return `<tr><td><a href="#/vehicle/${encodeURIComponent(r.v)}">${esc(r.v)}</a></td><td class="r">${r.trips}</td><td class="r">${indian(r.km)}</td><td class="r">${indian(r.litres)}</td><td class="r"><b>${kpl.toFixed(2)}</b></td><td class="r ${d < -5 ? 'bad-text' : ''}">${d > 0 ? '+' : ''}${d.toFixed(1)}%</td></tr>`; }).join('')}
+    </tbody></table></div></section>`;
 }
 
 async function viewDieselVehicle(veh) {
@@ -883,10 +1035,10 @@ async function readFile(file) {
   return extractFleet(bookFromSheetJS(XLSX, wb), { fileName: file.name });
 }
 
-async function viewUpload() {
+async function uploadSection(box) {
   let history = [];
   if (!state.localOnly && state.store) history = (await guard(() => state.store.uploads(10))) || [];
-  setMain(`<section class="card">
+  box.innerHTML = `<section class="card" id="upload">
     <h2>Upload Trip Register</h2>
     <p class="muted">Choose the workbook you keep in Excel (<code>Trip_Register.xlsm</code>). Save it in Excel first so its formulas are up to date. It's read in this browser; ${state.localOnly ? 'nothing is saved (this device only).' : 'only the figures the app needs are saved, for your ledger logins only.'}</p>
     <label class="file"><input type="file" id="file" accept=".xlsm,.xlsx,.xls"><span class="btn">Choose Trip Register…</span></label>
@@ -894,21 +1046,21 @@ async function viewUpload() {
   </section>
   ${history.length ? `<section class="card"><h3>Earlier uploads</h3><div class="table-wrap"><table class="compact"><thead><tr><th>When</th><th>File</th><th class="r">Trips</th><th>Up to</th><th>By</th></tr></thead><tbody>
     ${history.map((h) => `<tr><td>${new Date(h.created_at).toLocaleString('en-IN')}</td><td>${esc(h.file_name)}</td><td class="r">${h.counts && h.counts.trips || ''}</td><td>${h.latest_trip ? fmtDate(h.latest_trip) : ''}</td><td class="small">${esc(h.by_email)}</td></tr>`).join('')}
-  </tbody></table></div></section>` : ''}`);
+  </tbody></table></div></section>` : ''}`;
   const input = document.getElementById('file');
   input.addEventListener('change', () => guard(async () => {
     const file = input.files[0];
     if (!file) return;
-    const box = document.getElementById('preview');
-    box.innerHTML = loadingHtml('Reading the workbook…');
+    const preview = document.getElementById('preview');
+    preview.innerHTML = logoLoader('Reading the workbook…');
     let data;
     try {
       data = await readFile(file);
     } catch (err) {
-      box.innerHTML = errorHtml(err);
+      preview.innerHTML = errorHtml(err);
       return;
     }
-    box.innerHTML = previewHtml(data);
+    preview.innerHTML = previewHtml(data);
     document.getElementById('save')?.addEventListener('click', (e) => guard(async () => {
       e.target.disabled = true;
       e.target.textContent = 'Saving…';
@@ -957,7 +1109,295 @@ function previewHtml(data) {
     </div></div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Drivers: salary − your advances = what SSFC should pay the driver
+// ---------------------------------------------------------------------------
+const owes = (bal) => (bal > OVERPAID ? `<span class="pill bad-pill">Overpaid ${rupees(bal)}</span>`
+  : bal < -OVERPAID ? `<span class="pill info-pill">You owe ${rupees(-bal)}</span>` : '<span class="pill good-pill">Square</span>');
+
+function salaryNote(dc) {
+  if (!dc.missing.length) return '';
+  return `<div class="todo info" style="margin:10px 0">Driver salary isn't set for <b>${dc.missing.map((m) => `${esc(m.route)} (${plural(m.trips, 'trip')})`).join(', ')}</b> — those trips aren't checked. <a href="#/setup">Set it in Setup →</a></div>`;
+}
+
+async function viewDrivers() {
+  const p = currentPeriod();
+  const { drivers: dc, vehicles } = derived();
+  const tol = dc.tolerance;
+  const rows = dc.rows.filter((r) => inPeriod(r.t, p) && r.salary != null);
+  const sum = (f) => rows.reduce((a, r) => a + (f(r) || 0), 0);
+  const over = rows.filter((r) => r.over > tol).sort((a, b) => b.over - a.over);
+  const overpaid = dc.spells.filter((x) => x.balance > OVERPAID && x.trips.length).sort((a, b) => b.balance - a.balance);
+  const fromRates = [...new Set(dc.rows.filter((r) => r.salaryFrom === 'rates').map((r) => routeOf(r.t)))];
+  const opt = state.settings.driver;
+  setMain(`<section class="card">
+    <div class="row-between"><h2>Drivers</h2><span class="muted small">${esc(periodRange(p))}</span></div>
+    <p class="muted small">Each trip's driver salary (Setup → Routes) is paid partly by you — <b>Trip Driver Payment</b>${opt.extraIsAdvance ? ' and <b>Extra Own Driver Pay</b>' : ''} — and the rest by SSFC (<b>Driver SSFC Payment</b>). SSFC should pay <b>salary − your advances</b>; more than that is an overpayment.${opt.debitCounts ? ' <b>Driver Debit</b> (damage, fines…) is money the driver owes back.' : ''}</p>
+    ${salaryNote(dc)}
+    ${fromRates.length ? `<p class="small warn-text">Using the Rates sheet's Driver Payment for ${esc(fromRates.join(', '))} until you set the salary in <a href="#/setup">Setup</a>.</p>` : ''}
+    ${periodHtml()}
+    <div class="kpis">
+      <div class="kpi"><span class="lbl">Salary earned</span><span class="val" ${exact(sum((r) => r.salary))}>${money(sum((r) => r.salary))}</span><span class="sub">${plural(rows.length, 'trip')} checked</span></div>
+      <div class="kpi"><span class="lbl">Your advances</span><span class="val" ${exact(sum((r) => r.advance))}>${money(sum((r) => r.advance))}</span><span class="sub">paid by you</span></div>
+      <div class="kpi"><span class="lbl">Paid by SSFC</span><span class="val" ${exact(sum((r) => r.ssfc))}>${money(sum((r) => r.ssfc))}</span><span class="sub">should be ${money(sum((r) => r.expected))}</span></div>
+      <div class="kpi ${sum((r) => r.over) > OVERPAID ? 'warn' : ''}"><span class="lbl">Paid over salary</span><span class="val ${sum((r) => r.over) > OVERPAID ? 'bad-text' : ''}" ${exact(sum((r) => r.over))}>${money(sum((r) => r.over))}</span><span class="sub">${plural(over.length, 'trip')} paid more</span></div>
+      <div class="kpi"><span class="lbl">Driver debits</span><span class="val">${money(sum((r) => r.t.drvDebit))}</span><span class="sub">to recover from drivers</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Overpaid drivers</h3>
+    <p class="muted small">Each driver's spell on a vehicle (a new spell starts at a trip whose remarks say “New Driver” / “Driver Changed”), all trips: what reached him (SSFC + your advances) + debits − salary earned.</p>
+    ${overpaid.length ? `<div class="co-grid">${overpaid.map((x) => `<a class="co-card driver-card" href="#/drivers/${encodeURIComponent(x.veh)}">
+      <div class="co-head"><span class="avatar sm">${esc(shortVeh(x.veh))}</span><b>${esc(x.label)}</b>${x.current ? '<span class="pill fuel-pill">Now</span>' : ''}</div>
+      <span class="co-val bad-text">${rupees(x.balance)}</span>
+      <dl class="co-facts"><dt>Since</dt><dd>${x.from ? dateYear(x.from) : '—'}</dd><dt>Trips</dt><dd>${x.trips.length} <small>${x.overTrips} paid over</small></dd>
+      <dt>Salary</dt><dd>${money(x.salary)}</dd><dt>SSFC + you</dt><dd>${money(x.ssfc + x.advance)}</dd>${x.debit ? `<dt>Debits</dt><dd>${money(x.debit)}</dd>` : ''}</dl></a>`).join('')}</div>`
+    : '<p class="good-text">✓ No driver has been paid more than his salary.</p>'}
+  </section>
+
+  <section class="card">
+    <h3>Each vehicle's driver now</h3>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th>Driver</th><th>Since</th><th class="r">Trips</th><th class="r">Salary</th><th class="r">SSFC + you</th><th class="r">Debits</th><th class="r">Balance</th></tr></thead><tbody>
+      ${vehicles.map((v) => { const x = [...dc.spells].reverse().find((y) => y.veh === v); return x ? `<tr><td><a href="#/drivers/${encodeURIComponent(v)}">${esc(v)}</a></td><td>${esc(x.label)}</td><td>${x.from ? fmtDate(x.from) : '—'}</td><td class="r">${x.trips.length}</td><td class="r">${rupees(x.salary)}</td><td class="r">${rupees(x.ssfc + x.advance)}</td><td class="r">${x.debit ? rupees(x.debit) : '—'}</td><td class="r">${owes(x.balance)}</td></tr>` : ''; }).join('')}
+    </tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h3>Trips where SSFC paid the driver more than salary − advances <span class="muted">${esc(periodRange(p))}</span></h3>
+    ${over.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Loaded</th><th>Trip</th><th>Vehicle</th><th>Route</th><th class="r">Salary</th><th class="r">Your advance</th><th class="r">SSFC should pay</th><th class="r">SSFC paid</th><th class="r">Over</th></tr></thead><tbody>
+      ${over.slice(0, state.ui.allOver ? 999 : 40).map((r) => `<tr><td>${fmtDate(r.t.loadDate)}</td><td><a href="#/trip/${r.t.row}">${esc(r.t.trip)}</a></td><td>${esc(shortVeh(r.veh))}</td><td class="small">${esc(routeOf(r.t))}</td><td class="r">${rupees(r.salary)}</td><td class="r">${r.advance ? rupees(r.advance) : '—'}</td><td class="r">${rupees(r.expected)}</td><td class="r">${rupees(r.ssfc)}</td><td class="r bad-text"><b>+${rupees(r.over)}</b></td></tr>`).join('')}
+    </tbody></table></div>${over.length > 40 && !state.ui.allOver ? `<button class="btn ghost small" id="all-over">Show all ${over.length}</button>` : ''}` : '<p class="good-text">✓ None in this period.</p>'}
+  </section>`);
+  bindPeriod(main());
+  document.getElementById('all-over')?.addEventListener('click', () => { state.ui.allOver = true; rerender(); });
+}
+
+async function viewDriverVehicle(veh) {
+  const { drivers: dc } = derived();
+  const spells = dc.spells.filter((x) => x.veh === veh);
+  if (!spells.length) { setMain('<section class="card"><p>No such vehicle.</p><a class="btn ghost" href="#/drivers">Drivers</a></section>'); return; }
+  const rowsOf = (sp) => dc.rows.filter((r) => r.spell === sp);
+  setMain(`<section class="card">
+    <a class="muted small" href="#/drivers">← Drivers</a>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)} · drivers</h2><p class="muted">${plural(spells.length, 'driver spell')}</p></div></div></div>
+    ${salaryNote(dc)}
+  </section>
+  ${[...spells].reverse().map((sp) => `<section class="card">
+    <div class="row-between"><h3>${esc(sp.label)} ${sp.current ? '<span class="pill fuel-pill">Now</span>' : ''}</h3>${owes(sp.balance)}</div>
+    <p class="muted small">From ${sp.from ? dateYear(sp.from) : '—'} (${esc(sp.fromTrip.trip)})${sp.remark ? ` · “${esc(sp.remark)}”` : ''} · ${plural(sp.trips.length, 'trip')} checked · salary ${rupees(sp.salary)} · SSFC ${rupees(sp.ssfc)} + you ${rupees(sp.advance)}${sp.debit ? ` · debits ${rupees(sp.debit)}` : ''}</p>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Loaded</th><th>Trip</th><th>Route</th><th class="r">Salary</th><th class="r">Your advance</th><th class="r">SSFC paid</th><th class="r">Debit</th><th class="r">Trip ±</th><th class="r">Running</th></tr></thead><tbody>
+      ${rowsOf(sp).reverse().map((r) => `<tr><td>${fmtDate(r.t.loadDate || r.t.start)}</td><td><a href="#/trip/${r.t.row}">${esc(r.t.trip)}</a>${r.t.remarks ? `<small class="muted block">${esc(r.t.remarks)}</small>` : ''}</td><td class="small">${esc(routeOf(r.t))}</td>
+        <td class="r">${r.salary != null ? rupees(r.salary) : '<span class="muted">not set</span>'}</td><td class="r">${r.advance ? rupees(r.advance) : '—'}</td><td class="r">${r.ssfc ? rupees(r.ssfc) : '—'}</td><td class="r">${r.debit ? rupees(r.debit) : ''}</td>
+        <td class="r ${r.over > dc.tolerance ? 'bad-text' : ''}">${r.over == null ? '' : `${r.over > 0 ? '+' : ''}${rupees(r.over)}`}</td><td class="r"><b class="${r.running > OVERPAID ? 'bad-text' : ''}">${r.running == null ? '' : rupees(r.running)}</b></td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="muted small">Trip ± = SSFC paid − (salary − your advance); + means paid more. Running = the spell so far, with debits (+ = the driver has more than he earned).</p>
+  </section>`).join('')}`);
+}
+
+// ---------------------------------------------------------------------------
+// Tyre & Fastag: SSFC's monthly charges, against the fleet and each vehicle's trend
+// ---------------------------------------------------------------------------
+async function viewCharges(key) {
+  key = key || state.ui.chargeKey || 'tyre';
+  state.ui.chargeKey = key;
+  const p = currentPeriod();
+  const c = derived().charges[key];
+  const other = key === 'tyre' ? 'fastag' : 'tyre';
+  let months = c.months.filter((m) => m >= p.from && m <= p.to);
+  let note = '';
+  if (months.length < 3) { months = c.months.slice(-12); note = ' · last 12 months'; }
+  if (months.length > 18) { months = months.slice(-18); note = ' · last 18 months'; }
+  const basis = { trips: 'per trip', month: 'per month', km: 'per km' }[c.basis];
+  const cells = c.included.flatMap((v) => months.map((m) => c.cell[v][m]));
+  const total = cells.reduce((a, x) => a + x.amount, 0);
+  const trips = cells.reduce((a, x) => a + x.trips, 0);
+  const vm = cells.filter((x) => x.amount > 0).length;
+  const kmCells = cells.filter((x) => x.km);
+  const km = kmCells.reduce((a, x) => a + x.km, 0);
+  const max = Math.max(1, ...cells.map((x) => x.amount));
+  const flags = c.flags.filter((f) => months.includes(f.month)).sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0));
+  const monthTotals = months.map((m) => ({ month: m, value: c.included.reduce((a, v) => a + c.cell[v][m].amount, 0) }));
+  setChartWidth(main().clientWidth - 38);
+  const icon = { high: '▲', low: '▼', twice: '×2' };
+  const flagText = (f) => {
+    const x = f.cell;
+    if (f.kind === 'twice') return `booked ${x.entries.length} times (${x.entries.map((t) => rupees(t[key])).join(' + ')})`;
+    return `${rupees(x.amount)} — the fleet's rate that month gives about ${rupees(x.expected)}${x.trend != null ? `, its own trend about ${rupees(x.trend)}` : ' (no history of its own yet)'}${f.kind === 'low' ? ' · not booked yet?' : ''}`;
+  };
+  setMain(`<section class="card">
+    <div class="row-between"><h2>Tyre &amp; Fastag</h2>
+      <div class="chips small-chips" role="group" aria-label="Charge"><a class="chip${key === 'tyre' ? ' on' : ''}" href="#/costs/tyre">Tyre</a><a class="chip${key === 'fastag' ? ' on' : ''}" href="#/costs/fastag">Fastag</a></div></div>
+    <p class="muted small">SSFC charges ${key === 'tyre' ? 'tyres' : 'fastag'} once a month per vehicle (on one of its trips). Each month is compared ${basis} with the rest of the fleet that month and with the vehicle's own last six months; each vehicle's first two months aren't judged.${c.basis !== 'km' ? ' Once every route\'s distance is set in Setup, the comparison goes per km.' : ''}</p>
+    ${periodHtml()}
+    <div class="kpis">
+      <div class="kpi hero"><span class="lbl">${CHARGE_RULES[key].name} charged</span><span class="val" ${exact(total)}>${money(total)}</span><span class="sub">${esc(months.length ? `${monthName(months[0])} – ${monthName(months[months.length - 1])}` : '')}${note}</span></div>
+      <div class="kpi"><span class="lbl">A vehicle-month</span><span class="val">${money(vm ? total / vm : 0)}</span><span class="sub">average, ${c.included.length} vehicles</span></div>
+      <div class="kpi"><span class="lbl">A trip</span><span class="val">${money(trips ? total / trips : 0)}</span><span class="sub">${plural(trips, 'trip')}</span></div>
+      ${km ? `<div class="kpi"><span class="lbl">A km</span><span class="val">₹${(kmCells.reduce((a, x) => a + x.amount, 0) / km).toFixed(2)}</span><span class="sub">${indian(km)} km</span></div>` : ''}
+      <div class="kpi ${flags.length ? 'warn' : ''}"><span class="lbl">Out of trend</span><span class="val">${flags.length}</span><span class="sub">${flags.filter((f) => f.kind === 'high').length} high · ${flags.filter((f) => f.kind === 'low').length} low · ${flags.filter((f) => f.kind === 'twice').length} twice</span></div>
+    </div>
+    ${c.excluded.length ? `<p class="small muted">Not in this analysis: <b>${c.excluded.map((v) => esc(shortVeh(v))).join(', ')}</b>${c.excluded.some((v) => months.some((m) => c.cell[v][m].amount)) ? ` (charged ${rupees(c.excluded.reduce((a, v) => a + months.reduce((b, m) => b + c.cell[v][m].amount, 0), 0))} in these months)` : ''} · <a href="#/setup">change in Setup</a></p>` : ''}
+
+    <h3 class="sub-h">Out of the usual trend</h3>
+    ${flags.length ? `<div class="todos">${flags.map((f) => `<a class="todo ${f.kind === 'low' ? 'info' : 'warn'}" href="${f.cell.entries[0] ? `#/trip/${f.cell.entries[0].row}` : `#/vehicle/${encodeURIComponent(f.veh)}`}">
+      <b>${icon[f.kind]} ${esc(f.veh)} · ${monthLong(f.month)}</b> — ${flagText(f)} <small class="muted">${plural(f.cell.trips, 'trip')}${f.cell.km ? ` · ${indian(f.cell.km)} km` : ''}</small></a>`).join('')}</div>`
+    : '<p class="good-text">✓ Nothing out of the usual trend in these months.</p>'}
+
+    <h3 class="sub-h">Fleet total per month</h3>
+    ${groupedBars(monthTotals.map((m) => ({ ...m, total: m.value })), [{ key: 'total', name: CHARGE_RULES[key].name, color: 'var(--s-1)' }], {
+    label: `${CHARGE_RULES[key].name} charged per month, all vehicles in the analysis`,
+    tip: (m) => `<b>${monthLong(m.month)}</b><br>${CHARGE_RULES[key].name} ${rupees(m.value)}<br>Fleet rate ${c.peer[m.month] != null ? `${rupees(c.peer[m.month])} ${basis}` : '—'}`,
+  })}
+
+    <h3 class="sub-h">Vehicle by month</h3>
+    <div class="table-wrap"><table class="compact heat"><thead><tr><th>Vehicle</th>${months.map((m) => `<th class="r">${monthName(m)}</th>`).join('')}<th class="r">Total</th></tr></thead><tbody>
+      ${c.included.map((v) => `<tr><td><a href="#/vehicle/${encodeURIComponent(v)}"><b>${esc(shortVeh(v))}</b></a></td>${months.map((m) => {
+    const x = c.cell[v][m];
+    const pct = Math.round((x.amount / max) * 55);
+    const tip = `${v} · ${monthLong(m)}: ${rupees(x.amount)} · ${plural(x.trips, 'trip')}${x.expected != null ? ` · fleet rate gives ${rupees(x.expected)}` : ''}${x.trend != null ? ` · own trend ${rupees(x.trend)}` : ''}${x.settling ? ' · first months, not judged' : ''}`;
+    return `<td class="r h-cell${x.flag ? ` f-${x.flag}` : ''}${x.settling ? ' settling' : ''}" style="--h:${pct}%" title="${esc(tip)}">${x.amount ? `${x.flag ? `<i>${icon[x.flag]}</i>` : ''}${(x.amount / 1000).toFixed(1)}K` : x.trips ? '<span class="muted">—</span>' : ''}</td>`;
+  }).join('')}<td class="r"><b>${money(months.reduce((a, m) => a + c.cell[v][m].amount, 0))}</b></td></tr>`).join('')}
+      <tr class="foot"><td>Fleet rate</td>${months.map((m) => `<td class="r small">${c.peer[m] != null ? money(c.peer[m]) : '—'}</td>`).join('')}<td class="r small">${basis}</td></tr>
+    </tbody></table></div>
+    <p class="muted small">Darker = more. ▲ well above both the fleet and the vehicle's trend · ▼ well below (often not booked yet) · ×2 booked twice in the month · faded = a vehicle's first two months.</p>
+    <p><a class="btn ghost small" href="#/costs/${other}">See ${CHARGE_RULES[other].name} →</a></p>
+  </section>`);
+  bindPeriod(main());
+  bindCharts(main());
+}
+
+// ---------------------------------------------------------------------------
+// Setup: upload, routes (distance, driver salary, diesel), vehicles, options
+// ---------------------------------------------------------------------------
+async function viewSetup() {
+  setMain(`<div id="upload-box"></div>${state.data ? '<div id="setup-box"></div>' : ''}`);
+  await uploadSection(document.getElementById('upload-box'));
+  const box = document.getElementById('setup-box');
+  if (!box) return;
+  const d = state.data;
+  // working copy, edited in place until Save
+  const draft = state.ui.setupDraft || (state.ui.setupDraft = JSON.parse(JSON.stringify(state.settings)));
+  if (!draft.routes.length) draft.routes = routePairs(d, draft).map((r) => ({ port: r.port, dest: r.dest, from: '', km: '', salary: '', diesel: '' }));
+  const vehicles = vehiclesOf(d);
+  const ratesOf = (r) => (d.rates || []).find((x) => x.port.toLowerCase() === String(r.port).toLowerCase() && x.dest.toLowerCase() === String(r.dest).toLowerCase());
+  const tripsOn = (r) => d.trips.filter((t) => t.port.toLowerCase() === String(r.port).toLowerCase() && t.dest.toLowerCase() === String(r.dest).toLowerCase()).length;
+  const paint = () => {
+    box.innerHTML = `
+    ${state.settingsMissing ? '<div class="card bad-card"><b>Setup can\'t be saved yet.</b> Re-run <code>supabase/fleet-schema.sql</code> in the Supabase SQL Editor (it adds the settings table), then reload. Changes below still apply until you close the app.</div>' : ''}
+    <section class="card">
+      <div class="row-between"><h2>Routes</h2><span class="muted small">every loading port × destination</span></div>
+      <p class="muted small">Distance is used both ways — loaded from the port to the destination, and empty from where a vehicle unloaded to its next port — so each pair once is enough. Driver salary is per trip, the whole salary (your advances + SSFC's payment). Diesel is the litres allotted for the trip. Leave a box empty to use the Rates sheet (shown greyed). For a change from a month on, add a row with <b>From month</b>.</p>
+      <div class="table-wrap"><table class="compact routes-edit"><thead><tr><th>Loading port</th><th>Destination</th><th>From month</th><th class="r">Distance (km)</th><th class="r">Driver salary / trip</th><th class="r">Diesel (L)</th><th class="r">Trips</th><th></th></tr></thead><tbody>
+        ${draft.routes.map((r, i) => { const rt = ratesOf(r); return `<tr data-i="${i}">
+          <td><input data-k="port" value="${esc(r.port)}" list="ports" aria-label="Loading port"></td>
+          <td><input data-k="dest" value="${esc(r.dest)}" list="dests" aria-label="Destination"></td>
+          <td><input data-k="from" type="month" value="${esc(r.from || '')}" aria-label="From month"></td>
+          <td class="r"><input data-k="km" inputmode="decimal" value="${esc(r.km ?? '')}" placeholder="km" aria-label="Distance in km"></td>
+          <td class="r"><input data-k="salary" inputmode="decimal" value="${esc(r.salary ?? '')}" placeholder="${rt && rt.driver ? rt.driver : '₹'}" aria-label="Driver salary per trip"></td>
+          <td class="r"><input data-k="diesel" inputmode="decimal" value="${esc(r.diesel ?? '')}" placeholder="${rt && rt.diesel ? rt.diesel : 'L'}" aria-label="Diesel litres"></td>
+          <td class="r muted">${tripsOn(r) || ''}</td>
+          <td><button class="icon" data-del="${i}" title="Remove row" aria-label="Remove row">✕</button></td></tr>`; }).join('')}
+      </tbody></table></div>
+      <datalist id="ports">${[...new Set(d.trips.map((t) => t.port))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+      <datalist id="dests">${[...new Set(d.trips.map((t) => t.dest))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+      <div class="actions"><button class="btn ghost small" id="add-route">Add a row</button><button class="btn ghost small" id="add-missing">Add missing pairs</button></div>
+      <details><summary>Paste from Excel</summary>
+        <p class="small muted">One route a line: <code>Loading port, Destination, Distance km, Driver salary, Diesel L</code> (optionally a 6th column <code>From month</code> like 2026-04). Copied Excel cells (tab-separated) work too. Matching rows are updated, new ones added.</p>
+        <textarea id="paste" rows="5" placeholder="Kakinada	BALCO	820	11000	630"></textarea>
+        <button class="btn ghost small" id="paste-go">Fill in</button></details>
+    </section>
+
+    <section class="card">
+      <h2>Vehicles in the analysis</h2>
+      <p class="muted small">Switch a vehicle off to leave it out of the tyre or fastag analysis for now (its trips stay everywhere else).</p>
+      <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th class="c">Tyre analysis</th><th class="c">Fastag analysis</th></tr></thead><tbody>
+        ${vehicles.map((v) => { const f = vehicleFlags(draft, v); return `<tr><td><b>${esc(v)}</b></td>
+          <td class="c"><label class="switch"><input type="checkbox" data-veh="${esc(v)}" data-f="tyre"${f.tyre ? ' checked' : ''}><span></span><em class="sr">Tyre analysis for ${esc(v)}</em></label></td>
+          <td class="c"><label class="switch"><input type="checkbox" data-veh="${esc(v)}" data-f="fastag"${f.fastag ? ' checked' : ''}><span></span><em class="sr">Fastag analysis for ${esc(v)}</em></label></td></tr>`; }).join('')}
+      </tbody></table></div>
+    </section>
+
+    <section class="card">
+      <h2>Driver pay</h2>
+      <label class="radio"><input type="checkbox" id="opt-extra"${draft.driver.extraIsAdvance ? ' checked' : ''}> “Extra Own Driver Pay” is an advance out of the salary (untick if it's paid on top of the salary)</label>
+      <label class="radio"><input type="checkbox" id="opt-debit"${draft.driver.debitCounts ? ' checked' : ''}> “Driver Debit” is money the driver owes back (counts against him)</label>
+      <div class="row-form"><label>Ignore differences up to (₹ a trip) <input id="opt-tol" inputmode="decimal" value="${esc(draft.driver.tolerance)}"></label></div>
+    </section>
+
+    <section class="card">
+      <h2>Diesel recon</h2>
+      <label class="radio"><input type="radio" name="recon" value="excel"${!draft.recon.useApp ? ' checked' : ''}> Use the workbook's Recon Engine (matches Excel); routes' diesel here only for trips after it</label>
+      <label class="radio"><input type="radio" name="recon" value="app"${draft.recon.useApp ? ' checked' : ''}> Use the diesel set here for every trip (+ overload / − underload as in Excel)</label>
+    </section>
+
+    <div class="save-bar"><span class="muted small">${state.settingsMeta ? `Saved ${new Date(state.settingsMeta.updated_at).toLocaleString('en-IN')}${state.settingsMeta.by_email ? ` · ${esc(state.settingsMeta.by_email)}` : ''}` : 'Not saved yet'}</span>
+      <button class="btn ghost" id="setup-reset">Undo changes</button><button class="btn" id="setup-save">Save setup</button></div>`;
+    bind();
+  };
+  const num = (v) => { const n = Number(String(v).replace(/[,₹\s]/g, '')); return String(v).trim() === '' || !Number.isFinite(n) ? '' : n; };
+  const bind = () => {
+    box.querySelectorAll('.routes-edit input').forEach((inp) => inp.addEventListener('change', () => {
+      const r = draft.routes[Number(inp.closest('tr').dataset.i)];
+      const k = inp.dataset.k;
+      r[k] = ['km', 'salary', 'diesel'].includes(k) ? num(inp.value) : inp.value.trim();
+    }));
+    box.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => { draft.routes.splice(Number(b.dataset.del), 1); paint(); }));
+    box.querySelector('#add-route').addEventListener('click', () => { draft.routes.push({ port: '', dest: '', from: '', km: '', salary: '', diesel: '' }); paint(); });
+    box.querySelector('#add-missing').addEventListener('click', () => {
+      const have = new Set(draft.routes.map((r) => `${r.port}|${r.dest}`.toLowerCase()));
+      routePairs(d, draft).forEach((r) => { if (!have.has(`${r.port}|${r.dest}`.toLowerCase())) draft.routes.push({ port: r.port, dest: r.dest, from: '', km: '', salary: '', diesel: '' }); });
+      paint();
+    });
+    box.querySelector('#paste-go').addEventListener('click', () => {
+      let n = 0;
+      for (const line of box.querySelector('#paste').value.split(/\r?\n/)) {
+        const c = line.split(/\t|,|;/).map((x) => x.trim());
+        if (c.length < 3 || !c[0] || !c[1] || /port|location/i.test(c[0])) continue;
+        const from = /^\d{4}-\d{2}$/.test(c[5] || '') ? c[5] : '';
+        let r = draft.routes.find((x) => x.port.toLowerCase() === c[0].toLowerCase() && x.dest.toLowerCase() === c[1].toLowerCase() && (x.from || '') === from);
+        if (!r) { r = { port: c[0], dest: c[1], from }; draft.routes.push(r); }
+        r.km = num(c[2] ?? ''); r.salary = num(c[3] ?? ''); r.diesel = num(c[4] ?? '');
+        n += 1;
+      }
+      toast(n ? `Filled in ${plural(n, 'route')} — Save setup to keep them.` : 'Nothing to fill in: one route a line, port, destination, km, salary, diesel.', n ? 'ok' : 'bad');
+      paint();
+    });
+    box.querySelectorAll('[data-veh]').forEach((c) => c.addEventListener('change', () => {
+      draft.vehicles[c.dataset.veh] = { ...vehicleFlags(draft, c.dataset.veh), [c.dataset.f]: c.checked };
+    }));
+    box.querySelector('#opt-extra').addEventListener('change', (e) => { draft.driver.extraIsAdvance = e.target.checked; });
+    box.querySelector('#opt-debit').addEventListener('change', (e) => { draft.driver.debitCounts = e.target.checked; });
+    box.querySelector('#opt-tol').addEventListener('change', (e) => { draft.driver.tolerance = Number(num(e.target.value) || 0); });
+    box.querySelectorAll('[name=recon]').forEach((r) => r.addEventListener('change', () => { draft.recon.useApp = r.value === 'app' && r.checked; }));
+    box.querySelector('#setup-reset').addEventListener('click', () => { state.ui.setupDraft = null; viewSetup(); });
+    box.querySelector('#setup-save').addEventListener('click', (e) => guard(async () => {
+      const clean = withDefaults(JSON.parse(JSON.stringify(draft)));
+      clean.routes = clean.routes.filter((r) => r.port && r.dest && (r.km !== '' || r.salary !== '' || r.diesel !== ''))
+        .map((r) => ({ port: r.port, dest: r.dest, from: r.from || '', km: r.km === '' ? null : r.km, salary: r.salary === '' ? null : r.salary, diesel: r.diesel === '' ? null : r.diesel }));
+      e.target.disabled = true;
+      state.settings = clean;
+      state.rev += 1;
+      if (!state.settingsMissing && state.store && state.store.saveSettings && !state.localOnly) {
+        try {
+          state.settingsMeta = await state.store.saveSettings(clean);
+          toast('Setup saved.');
+        } catch (err) {
+          state.settingsMissing = /fleet_settings|schema cache|does not exist/i.test(err.message);
+          toast(state.settingsMissing ? 'Applied for now — run the updated fleet-schema.sql to save it.' : err.message, 'bad');
+        }
+      } else {
+        toast('Applied on this device (not saved).');
+      }
+      state.ui.setupDraft = null;
+      e.target.disabled = false;
+      viewSetup();
+    }));
+  };
+  paint();
+}
+
 boot().catch((err) => {
   console.error(err);
-  renderCentered(`<h1>${BRAND}</h1>${errorHtml(err)}`);
+  renderCentered(`${logoHead()}${errorHtml(err)}`);
 });

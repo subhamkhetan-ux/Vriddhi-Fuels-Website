@@ -14,6 +14,7 @@
 //     not-invoiced months first, then each invoice oldest first.
 
 import { SSFC_DEDUCTIONS, OWN_EXPENSES } from './parse.js';
+import { routeFor, withDefaults } from './rules.js';
 import { addMonths, daysBetween, fyStart, monthEnd, monthOf, round2 } from './util.js';
 
 const sum = (list, f) => list.reduce((a, x) => a + (Number(f(x)) || 0), 0);
@@ -162,14 +163,18 @@ export function fleetStatus(data, today) {
 }
 
 // ---- Diesel Recon -----------------------------------------------------------------------------
-export function dieselRecon(data) {
+// settings (Setup tab): a route's diesel set in the app is used for trips the
+// Recon Engine doesn't cover; with recon.useApp, for every trip instead of
+// Excel's figures.
+export function dieselRecon(data, settings = null) {
   const r = data.recon || {};
+  const set = withDefaults(settings);
   const rules = {
     fromRow: r.fromRow ?? 0, underloadFromRow: r.underloadFromRow ?? r.fromRow ?? 0, overloadOver: r.overloadOver ?? 58,
     underloadBelow: r.underloadBelow ?? 58, perTonne: r.perTonne ?? 5, noUnderloadPorts: r.noUnderloadPorts || ['Gangavaram'],
   };
   const rate = (t) => (data.rates || []).find((x) => x.port.toLowerCase() === (t.port || '').toLowerCase() && x.dest.toLowerCase() === (t.dest || '').toLowerCase());
-  const typed = r.rows || {};
+  const typed = set.recon.useApp ? {} : r.rows || {};
   const rows = data.trips.filter((t) => t.row >= rules.fromRow).sort((a, b) => a.row - b.row).map((t) => {
     const issued = (t.ssfcLtr || 0) + (t.ownLtr || 0);
     if (!t.gross) return { t, base: null, over: 0, under: 0, allotted: null, issued, balance: 0 };
@@ -178,7 +183,8 @@ export function dieselRecon(data) {
       const [base, over, under, allotted] = x;
       return { t, base, over, under, allotted, issued, balance: allotted - issued, excel: true };
     }
-    const base = rate(t) ? rate(t).diesel : 0;
+    const app = routeFor(data, set, t.port, t.dest, t.month);
+    const base = app.diesel ?? (rate(t) ? rate(t).diesel : 0);
     const over = t.gross > rules.overloadOver ? (t.gross - rules.overloadOver) * rules.perTonne : 0;
     const g = Math.round(t.gross);
     const under = t.row >= rules.underloadFromRow && g < rules.underloadBelow
@@ -193,7 +199,7 @@ export function dieselRecon(data) {
     return { veh, balance: round2(run), list, allotted: sum(list, (x) => x.allotted), issued: sum(list, (x) => x.issued) };
   });
   const since = rows.length ? rows[0].t.loadDate || rows[0].t.start : null;
-  return { rules, since, vehicles, total: round2(sum(vehicles, (v) => v.balance)) };
+  return { rules, since, vehicles, total: round2(sum(vehicles, (v) => v.balance)), useApp: set.recon.useApp };
 }
 
 // ---- SSFC account (the Ledger sheet) -------------------------------------------------------------

@@ -22,10 +22,12 @@ export function supabaseStore(client) {
     latest: () => rpc('fleet_latest'),
     save: (fileName, payload) => rpc('fleet_save', { p_file_name: fileName, p_payload: payload }),
     uploads: (limit = 10) => rpc('fleet_uploads_list', { p_limit: limit }),
+    settings: () => rpc('fleet_settings_get'),
+    saveSettings: (value) => rpc('fleet_settings_save', { p_value: value }),
   };
 }
 
-export function memoryStore(seed = null, { email = 'demo@example.com' } = {}) {
+export function memoryStore(seed = null, { email = 'demo@example.com', settings: seedSettings = null } = {}) {
   const uploads = [];
   const add = (fileName, payload) => {
     const row = {
@@ -36,6 +38,7 @@ export function memoryStore(seed = null, { email = 'demo@example.com' } = {}) {
     return row;
   };
   if (seed) add(seed.fileName || 'Demo Trip Register.xlsm', seed);
+  let settings = { value: seedSettings || {} };
   return {
     kind: 'memory',
     whoami: async () => ({ email, member: true }),
@@ -46,5 +49,10 @@ export function memoryStore(seed = null, { email = 'demo@example.com' } = {}) {
     },
     save: async (fileName, payload) => add(fileName, payload),
     uploads: async (limit = 10) => uploads.slice(0, limit).map(({ payload, ...meta }) => meta),
+    settings: async () => JSON.parse(JSON.stringify(settings)),
+    saveSettings: async (value) => {
+      settings = { value: JSON.parse(JSON.stringify(value)), by_email: email, updated_at: new Date().toISOString() };
+      return JSON.parse(JSON.stringify(settings));
+    },
   };
 }
