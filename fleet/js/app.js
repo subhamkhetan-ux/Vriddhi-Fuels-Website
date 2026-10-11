@@ -22,6 +22,10 @@ import { dataChecks } from './checks.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
+  driverPagesSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+} from './share-svg.js';
+import { brandFontCss, bulkerCss, canShareFiles, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
+import {
   addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
   plural, rupees, shortDate, shortVeh, tonnes,
 } from './util.js';
@@ -614,7 +618,7 @@ async function viewHome() {
     </section>
 
     <section class="card">
-      <div class="row-between"><h3>On the road now</h3><span class="muted small">${plural(status.length, 'vehicle')}</span></div>
+      <div class="row-between"><h3>On the road now</h3><span class="row-gap"><span class="muted small">${plural(status.length, 'vehicle')}</span>${shareBtn('share-road')}</span></div>
       <div class="kpis live-kpis">
         <div class="kpi hero"><span class="lbl">On a trip</span><span class="val">${onTrip.length}<small> / ${status.length}</small></span><span class="sub">avg ${avgDays.toFixed(1)} days since start</span></div>
         <div class="kpi"><span class="lbl">Loaded · en route</span><span class="val">${loaded.length}</span><span class="sub">${esc(summarisePlaces(loaded.map((s) => s.trip.dest)))}</span></div>
@@ -633,6 +637,7 @@ async function viewHome() {
     <div id="dash"></div>
     ${state.meta ? `<p class="muted small">From “${esc(state.meta.file_name)}”${state.meta.created_at ? ` · uploaded ${new Date(state.meta.created_at).toLocaleString('en-IN')}` : ''}${state.meta.by_email ? ` · ${esc(state.meta.by_email)}` : ''}</p>` : ''}`);
   renderDashboard(document.getElementById('dash'));
+  document.getElementById('share-road')?.addEventListener('click', () => sharePictures('Share the fleet', [roadOption(), fleetOption()]));
 }
 
 function summarisePlaces(list) {
@@ -731,7 +736,7 @@ function renderDashboard(box) {
   const sumBhada = () => { const { kms } = derived(); return trips.filter((t) => kms.get(t.row) && kms.get(t.row).complete && kms.get(t.row).km).reduce((a, t) => a + (t.bhada || 0), 0); };
   box.innerHTML = `
   <section class="card dash">
-    <div class="row-between"><h2>Business</h2><span class="muted small">${esc(periodRange(p))}</span></div>
+    <div class="row-between"><h2>Business</h2><span class="row-gap"><span class="muted small">${esc(periodRange(p))}</span>${shareBtn('share-fleet', 'Share report')}</span></div>
     ${periodHtml()}
     ${trips.length ? `
     <div class="kpis">
@@ -770,6 +775,7 @@ function renderDashboard(box) {
     ${routesHtml(routes)}` : '<p class="muted">No trips loaded in this period.</p>'}
   </section>`;
   bindPeriod(box);
+  box.querySelector('#share-fleet')?.addEventListener('click', () => sharePictures('Share the fleet', [fleetOption(), roadOption()]));
   box.querySelectorAll('[data-vsort]').forEach((b) => b.addEventListener('click', () => { ui.sort = b.dataset.vsort; renderDashboard(box); }));
   box.querySelector('#month-table')?.addEventListener('click', () => { ui.table = !ui.table; renderDashboard(box); });
   bindCharts(box);
@@ -911,7 +917,7 @@ async function viewTrip(row) {
   const days = tripDays(t);
   setMain(`<section class="card">
     <a class="muted small" href="#/trips">← Trips</a>
-    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(t.veh))}</span><div><h2>${esc(t.trip)}</h2><p class="muted">${vehLink(t.veh)} · ${esc(routeOf(t))}${derived().drivers.tripDriver(t) ? ` · driver <b>${esc(derived().drivers.tripDriver(t))}</b>` : ''}</p></div></div>${statusPill(t)}</div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(t.veh))}</span><div><h2>${esc(t.trip)}</h2><p class="muted">${vehLink(t.veh)} · ${esc(routeOf(t))}${derived().drivers.tripDriver(t) ? ` · driver <b>${esc(derived().drivers.tripDriver(t))}</b>` : ''}</p></div></div><span class="row-gap">${statusPill(t)}${shareBtn('share-trip')}</span></div>
     ${why ? `<div class="todo warn" style="margin-top:12px">Check this trip in Excel: ${esc(why)}.</div>` : ''}
     <div class="bulker-hero">${bulkerFor(t.loadWt ? t : null, { animate: true })}
       <p class="bk-cap">${t.loadWt ? `<b>${t.loadWt.toFixed(2)} T</b> of alumina · tare ${t.tare ? t.tare.toFixed(2) : '—'} T · gross <b>${t.gross ? t.gross.toFixed(2) : '—'} T</b> ${weightLine(t)}` : 'Not loaded yet'}</p></div>
@@ -959,6 +965,7 @@ async function viewTrip(row) {
     ${ureas.length ? `<p class="small muted">Urea: ${ureas.map((u) => `${fmtDate(u.date)} ${indian(u.qty, 1)} L from ${esc(u.from)} (${rupees(u.amount)})`).join(' · ')}</p>` : ''}
   </section>`);
   bindCharts(main());
+  document.getElementById('share-trip').addEventListener('click', () => shareTrip(t));
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,7 +1021,7 @@ async function viewVehicle(veh) {
   const liveNow = derived().liveTrips.find((x) => x.veh === veh);
   setMain(`<section class="card">
     <a class="muted small" href="#/vehicles">← Vehicles</a>
-    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)}</h2><p class="muted">${plural(mine.length, 'trip')} in the register${emiNow ? ` · EMI ${rupees(emiNow)} a month` : ''}</p></div></div></div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)}</h2><p class="muted">${plural(mine.length, 'trip')} in the register${emiNow ? ` · EMI ${rupees(emiNow)} a month` : ''}</p></div></div>${shareBtn('share-veh')}</div>
     <div class="live-line ${s.state}"><span class="veh-state"><i></i>${esc(s.long)}</span>${s.trip ? ` · <a href="#/trip/${s.trip.row}">${esc(s.trip.trip)}</a> · ${s.state === 'idle' ? '' : `day ${s.days}`}${s.trip.loadWt ? ` · ${s.trip.loadWt.toFixed(2)} T` : ''}` : s.days != null ? ` · ${s.days} days` : ''}</div>
     <div class="bulker-hero">${bulkerFor(heroTrip, { animate: true, veh })}
       <p class="bk-cap">${heroTrip ? `${s.state === 'loaded' ? 'Now carrying' : 'Last load'} <b>${heroTrip.loadWt.toFixed(2)} T</b> of alumina (${esc(heroTrip.trip)}, ${esc(routeOf(heroTrip))}) · gross <b>${heroTrip.gross ? heroTrip.gross.toFixed(2) : '—'} T</b> ${weightLine(heroTrip)}` : 'Empty'}${driverNow(veh) ? ` · driver <b>${esc(driverNow(veh))}</b>` : ''}</p></div>
@@ -1050,6 +1057,7 @@ async function viewVehicle(veh) {
   </section>`);
   bindPeriod(main());
   bindCharts(main());
+  document.getElementById('share-veh').addEventListener('click', () => shareVehicle(veh));
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,7 +1073,7 @@ async function viewSsfc() {
   setChartWidth(main().clientWidth - 38);
   const shownInv = ui.all ? [...list].reverse() : [...list].reverse().filter((b) => b.pending > 0.005 || b === list[list.length - 1]);
   setMain(`<section class="card">
-    <div class="acct-top"><div class="acct-id"><span class="avatar">SS</span><div><h2>${esc(a.party.name)}</h2><p class="muted">${a.party.gstin ? `GSTIN ${esc(a.party.gstin)} · ` : ''}bulker hiring account</p></div></div></div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">SS</span><div><h2>${esc(a.party.name)}</h2><p class="muted">${a.party.gstin ? `GSTIN ${esc(a.party.gstin)} · ` : ''}bulker hiring account</p></div></div>${shareBtn('share-ssfc')}</div>
     <div class="acct-hero">
       <div><span class="lbl">SSFC owes you</span><span class="val" ${exact(a.total)}>${money(a.total)}</span><span class="sub">${rupees(a.total)} incl. GST ${money(a.igst)}</span></div>
       <div class="side"><span class="lbl">Without GST</span><b ${exact(a.exGst)}>${money(a.exGst)}</b><span class="sub">${lastPay ? `last payment ${money(lastPay.account + lastPay.other)}${lastPay.date ? ` on ${dateYear(lastPay.date)}` : ` (${monthName(lastPay.month)})`}` : ''}</span></div>
@@ -1115,6 +1123,7 @@ async function viewSsfc() {
     </tbody></table></div></section>`);
   main().querySelectorAll('[data-gst]').forEach((b) => b.addEventListener('click', () => { ui.gst = b.dataset.gst === '1'; rerender(); }));
   document.getElementById('inv-all').addEventListener('click', () => { ui.all = !ui.all; rerender(); });
+  document.getElementById('share-ssfc').addEventListener('click', shareSsfc);
   bindCharts(main());
 }
 
@@ -1196,7 +1205,7 @@ async function viewDieselVehicle(veh) {
   const list = v.list.filter((x) => x.allotted != null);
   setMain(`<section class="card">
     <a class="muted small" href="#/diesel">← Diesel</a>
-    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)} · diesel recon</h2><p class="muted">${plural(list.length, 'trip')} since ${recon.since ? dateYear(recon.since) : '—'}</p></div></div></div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)} · diesel recon</h2><p class="muted">${plural(list.length, 'trip')} since ${recon.since ? dateYear(recon.since) : '—'}</p></div></div>${shareBtn('share-recon')}</div>
     <div class="acct-hero"><div><span class="lbl">Running balance</span><span class="val">${v.balance > 0 ? '+' : ''}${indian(v.balance, 2)} L</span><span class="sub">${v.balance < 0 ? 'more issued than allotted (short)' : v.balance > 0 ? 'less issued than allotted (surplus)' : 'nil'}</span></div>
       <div class="side"><span class="lbl">Allotted / issued</span><b>${litres(v.allotted)}</b><span class="sub">issued ${litres(v.issued)}</span></div></div>
     <h3 class="sub-h">Each trip's balance</h3>
@@ -1210,6 +1219,188 @@ async function viewDieselVehicle(veh) {
     </tbody></table></div>
   </section>`);
   bindCharts(main());
+  document.getElementById('share-recon').addEventListener('click', () => shareRecon(veh));
+}
+
+// ---------------------------------------------------------------------------
+// Sharing: data-rich pictures of the screens (share-svg.js), like the Ledger
+// app's — Share (WhatsApp etc.), Download, or a PDF of the pages
+// ---------------------------------------------------------------------------
+let shareAssets = null;
+function shareKit() {
+  if (!shareAssets) {
+    shareAssets = Promise.all([toDataUrl('assets/logo-mark.png').catch(() => ''), toDataUrl('assets/logo-word-light.png').catch(() => ''), brandFontCss()])
+      .then(([mark, word, fontCss]) => ({ images: { mark, word }, fontCss, asOn: today() }));
+  }
+  return shareAssets.then((k) => ({ ...k, asOn: today() }));
+}
+const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+// the bulker drawing for a picture: its logo as a data: URL
+const pictureBulker = (svg, mark) => svg.replace(/href="assets\/logo-mark\.png"/g, mark ? `href="${mark}"` : '');
+
+async function pageFiles(svgs, base) {
+  base = safeName(base);
+  const files = [];
+  for (let i = 0; i < svgs.length; i++) {
+    files.push(new File([await jpegFromSvg(svgs[i], PAGE)], `${base}${svgs.length > 1 ? ` (${i + 1} of ${svgs.length})` : ''}.jpeg`, { type: 'image/jpeg' }));
+  }
+  return { files, pdf: async () => download(await pdfFromSvgs(svgs, PAGE, PAGE_PT), `${base}.pdf`) };
+}
+async function cardFiles({ svg, size }, base) {
+  return { files: [new File([await jpegFromSvg(svg, size)], `${safeName(base)}.jpeg`, { type: 'image/jpeg' })] };
+}
+
+// A sheet that draws the pictures, shows them and hands them over. Sharing
+// needs the files ready before the tap, so they're drawn first and the Share
+// button only passes them on. options: [{ label, make: async () => { files, pdf? } }]
+async function sharePictures(title, options) {
+  document.querySelector('.share-sheet')?.remove();
+  const sheet = document.createElement('div');
+  sheet.className = 'share-sheet';
+  sheet.innerHTML = `<div class="share-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+      <div class="row-between"><h3>${esc(title)}</h3><button class="icon" data-close aria-label="Close">✕</button></div>
+      ${options.length > 1 ? `<div class="chips small-chips share-variants">${options.map((o, i) => `<button class="chip" data-variant="${i}">${esc(o.label)}</button>`).join('')}</div>` : ''}
+      <div class="share-body">${loadingHtml('Drawing the pictures…')}</div>
+    </div>`;
+  document.body.append(sheet);
+  let urls = [];
+  const freeUrls = () => { urls.forEach((u) => URL.revokeObjectURL(u)); urls = []; };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => { sheet.remove(); freeUrls(); document.removeEventListener('keydown', onKey); };
+  document.addEventListener('keydown', onKey);
+  sheet.addEventListener('click', (e) => { if (e.target === sheet || e.target.closest('[data-close]')) close(); });
+  const body = sheet.querySelector('.share-body');
+  const made = new Map();
+  let showing = 0;
+  const show = async (i) => {
+    showing = i;
+    sheet.querySelectorAll('[data-variant]').forEach((b) => { b.classList.toggle('on', Number(b.dataset.variant) === i); b.setAttribute('aria-pressed', String(Number(b.dataset.variant) === i)); });
+    body.innerHTML = loadingHtml('Drawing the pictures…');
+    let set;
+    try {
+      if (!made.has(i)) made.set(i, options[i].make());
+      set = await made.get(i);
+    } catch (err) {
+      console.error(err);
+      made.delete(i);
+      if (showing === i) body.innerHTML = errorHtml(err);
+      return;
+    }
+    if (!sheet.isConnected || showing !== i) return;
+    freeUrls();
+    const shots = set.files.map((f) => { const u = URL.createObjectURL(f); urls.push(u); return u; });
+    const share = canShareFiles(set.files);
+    body.innerHTML = `<div class="share-shots${set.files.length === 1 ? ' one' : ''}">${shots.map((u, j) => `<img src="${u}" alt="${esc(set.files[j].name)}">`).join('')}</div>
+      <p class="muted small">${set.files.length === 1 ? esc(set.files[0].name) : `${set.files.length} pages — swipe to see them all`}</p>
+      <div class="actions">${share ? '<button class="btn" data-share>Share</button>' : ''}
+        <button class="btn ${share ? 'ghost' : ''}" data-save>Download${set.files.length > 1 ? ' all' : ''}</button>
+        ${set.pdf ? '<button class="btn ghost" data-pdf>PDF</button>' : ''}</div>`;
+    body.querySelector('[data-share]')?.addEventListener('click', () => guard(async () => {
+      try {
+        await navigator.share({ files: set.files });              // pictures only: extra text can make apps drop them
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        throw err;
+      }
+    }));
+    body.querySelector('[data-save]').addEventListener('click', () => guard(async () => {
+      if (set.files.length === 1) download(set.files[0], set.files[0].name);
+      else download(await zipBlob(set.files), `${set.files[0].name.replace(/ \(1 of \d+\)\.jpeg$/, '')}.zip`);
+    }));
+    body.querySelector('[data-pdf]')?.addEventListener('click', (e) => guard(async () => {
+      e.target.disabled = true;
+      try { await set.pdf(); } finally { e.target.disabled = false; }
+    }));
+  };
+  sheet.querySelectorAll('[data-variant]').forEach((b) => b.addEventListener('click', () => show(Number(b.dataset.variant))));
+  await show(0);
+}
+const shareBtn = (id, label = 'Share') => `<button class="btn small share-btn" id="${id}" type="button"><span aria-hidden="true">⇪</span> ${esc(label)}</button>`;
+
+// what each screen shares
+function shareSsfc() {
+  const { account: a } = derived();
+  const make = (gst) => async () => {
+    const kit = await shareKit();
+    return pageFiles(ssfcPagesSvg(a, { gst, ...kit, checks: state.data.checks }), `SSFC account ${fmtDate(today())}${gst ? '' : ' without GST'}`);
+  };
+  sharePictures('SSFC account', [{ label: 'With GST', make: make(true) }, { label: 'Without GST', make: make(false) }]);
+}
+function shareVehicle(veh) {
+  const p = currentPeriod();
+  const d = state.data;
+  const { recon, drivers: dc } = derived();
+  const rv = recon.vehicles.find((x) => x.veh === veh);
+  const mine = d.trips.filter((t) => t.veh === veh);
+  const emi = [...mine].reverse().find((t) => t.emi)?.emi || 0;
+  const opts = [{ label: `Statement · ${periodRange(p)}`, make: async () => {
+    const kit = await shareKit();
+    return pageFiles(vehiclePagesSvg(veh, mine.filter((t) => inPeriod(t, p)), { ...kit, period: periodRange(p), recon: rv, driver: driverNow(veh), driverOf: dc.byPayments ? dc.tripDriver : null, emi }),
+      `${veh} statement ${periodRange(p)}`);
+  } }];
+  if (rv && rv.list.length) opts.push({ label: 'Diesel recon', make: async () => pageFiles(reconPagesSvg(rv, { ...(await shareKit()), since: recon.since }), `${veh} diesel recon ${fmtDate(today())}`) });
+  sharePictures(`${veh}`, opts);
+}
+function shareRecon(veh) {
+  const { recon } = derived();
+  const rv = recon.vehicles.find((x) => x.veh === veh);
+  sharePictures(`${veh} · diesel recon`, [{ label: 'Diesel recon', make: async () => pageFiles(reconPagesSvg(rv, { ...(await shareKit()), since: recon.since }), `${veh} diesel recon ${fmtDate(today())}`) }]);
+}
+function shareTrip(t) {
+  const d = state.data;
+  const { recon, drivers: dc } = derived();
+  const rec = recon.vehicles.find((v) => v.veh === t.veh)?.list.find((x) => x.t.row === t.row);
+  const info = dc.tripInfo(t);
+  sharePictures(`${t.trip} · ${shortVeh(t.veh)}`, [{ label: 'Trip', make: async () => {
+    const kit = await shareKit();
+    const card = tripCardSvg(t, {
+      ...kit, bulker: pictureBulker(bulkerFor(t.loadWt ? t : null, { veh: t.veh, routeTrip: t }), kit.images.mark), bulkerCss: bulkerCss(),
+      fills: d.hsd.filter((h) => h.veh === t.veh && h.trip === t.trip).sort((a, b) => (a.date < b.date ? -1 : 1)),
+      recon: rec, driver: dc.tripDriver(t), paid: info ? info.paid : [], check: dc.rows.find((r) => r.t === t) || null,
+    });
+    return cardFiles(card, `${t.trip.replace('/', '-')} ${t.veh}`);
+  } }]);
+}
+function shareDriver(veh, i) {
+  const { drivers: dc } = derived();
+  const sp = dc.spells.filter((x) => x.veh === veh)[i];
+  if (!sp) return;
+  const rows = dc.rows.filter((r) => r.spell === sp);
+  sharePictures(`${sp.label} · ${shortVeh(veh)}`, [{ label: 'Driver statement', make: async () => pageFiles(driverPagesSvg(sp, rows, { ...(await shareKit()), now: sp.current }), `${sp.label} ${veh} ${fmtDate(today())}`) }]);
+}
+function fleetOption() {
+  const p = currentPeriod();
+  const d = state.data;
+  const { account, status } = derived();
+  return { label: `Fleet report · ${periodRange(p)}`, make: async () => {
+    const trips = d.trips.filter((t) => inPeriod(t, p));
+    const ms = trips.map((t) => t.month).filter(Boolean).sort();
+    return pageFiles(fleetPagesSvg(trips, {
+      ...(await shareKit()), period: periodRange(p), vehicles: byVehicle(trips, vehiclesOf(d)), routes: byRoute(trips),
+      months: ms.length ? monthly(trips, ms[0], ms[ms.length - 1]) : [], driverOf: (v) => driverNow(v), account, onRoad: status.filter((s) => s.state !== 'idle').length,
+    }), `Fleet report ${periodRange(p)}`);
+  } };
+}
+function roadOption() {
+  const { status, liveTrips: lts } = derived();
+  return { label: 'On the road now', make: async () => {
+    const kit = await shareKit();
+    const css = bulkerCss();
+    const rows = status.map((s) => {
+      const lt = lts.find((x) => x.veh === s.veh);
+      const t = s.trip;
+      const pace = lt ? paceText(lt) : null;
+      const showLoad = lt ? !(lt.stage === 'start' || lt.stage === 'out') : s.state === 'loaded';
+      return {
+        veh: s.veh, driver: driverNow(s.veh), state: s.state,
+        title: t ? `${t.port} → ${t.dest}` : s.text, phase: t ? (lt ? lt.phase.title : s.long) : '',
+        sub: t ? `${t.trip} · started ${dm(t.start)} · day ${lt ? lt.el : s.days}${t.loadWt ? ` · ${t.loadWt.toFixed(2)} T` : ''}${lt && lt.etaTypical ? ` · at ${t.dest} ~${dm(lt.etaTypical)}` : ''}` : s.last ? `last unloaded ${dm(s.last.unloadDate)}${s.days != null ? ` · ${s.days} days ago` : ''}` : '',
+        pace: pace ? pace.text : '', paceColor: pace ? { good: 'good', behind: 'warn', late: 'bad' }[pace.cls] : '',
+        bulker: pictureBulker(t ? bulkerFor(showLoad ? t : null, { veh: s.veh, routeTrip: t, compact: true }) : bulkerFor(null, { veh: s.veh, compact: true }), kit.images.mark),
+      };
+    }).sort((a, b) => ['loaded', 'empty', 'idle'].indexOf(a.state) - ['loaded', 'empty', 'idle'].indexOf(b.state));
+    return cardFiles(roadCardSvg(rows, { ...kit, bulkerCss: css }), `On the road ${fmtDate(today())}`);
+  } };
 }
 
 // ---------------------------------------------------------------------------
@@ -1497,7 +1688,7 @@ async function viewDriverVehicle(veh) {
     ${salaryNote(dc)}
   </section>
   ${[...spells].reverse().map((sp) => `<section class="card">
-    <div class="row-between"><h3>${esc(sp.label)} ${sp.current ? '<span class="pill fuel-pill">Now</span>' : ''}</h3>${owes(sp.balance)}</div>
+    <div class="row-between"><h3>${esc(sp.label)} ${sp.current ? '<span class="pill fuel-pill">Now</span>' : ''}</h3><span class="row-gap">${owes(sp.balance)}<button class="btn small share-btn" type="button" data-share-spell="${spells.indexOf(sp)}"><span aria-hidden="true">⇪</span> Share</button></span></div>
     <p class="muted small">${sp.from ? dateYear(sp.from) : '—'} (${esc(sp.fromTrip.trip)}) → ${sp.current ? 'now' : `${sp.to ? dateYear(sp.to) : '—'} (${esc(sp.all[sp.all.length - 1].trip)})`} · ${plural(sp.all.length, 'trip')} driven${sp.remark ? ` · “${esc(sp.remark)}”` : ''} · ${plural(sp.trips.length, 'trip')} checked · salary ${rupees(sp.salary)} · SSFC ${rupees(sp.ssfc)} + you ${rupees(sp.advance)}${sp.debit ? ` · debits ${rupees(sp.debit)}` : ''}</p>
     ${sp.payments.length ? `<details class="pay-list"><summary>${plural(sp.payments.length, 'advance')} paid in his trips · ${rupees(sp.payments.reduce((a, x) => a + x.amount, 0))}</summary><div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Paid to</th><th class="r">Amount</th><th>Note</th></tr></thead><tbody>
       ${[...sp.payments].reverse().map((x) => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.name)}</td><td class="r">${rupees(x.amount)}</td><td class="small muted">${esc(x.note || '')}</td></tr>`).join('')}
@@ -1509,6 +1700,7 @@ async function viewDriverVehicle(veh) {
     </tbody></table></div>
     <p class="muted small">Trip ± = SSFC paid − (salary − your advance); + means paid more. Running = the spell so far, with debits (+ = the driver has more than he earned).</p>
   </section>`).join('')}`);
+  main().querySelectorAll('[data-share-spell]').forEach((b) => b.addEventListener('click', () => shareDriver(veh, Number(b.dataset.shareSpell))));
 }
 
 // ---------------------------------------------------------------------------

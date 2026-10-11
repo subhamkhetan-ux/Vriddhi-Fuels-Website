@@ -569,6 +569,12 @@ a.kpi { color: var(--ink); } a.kpi:hover { text-decoration: none; border-color: 
 .chg-sum { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
 .chg-sum span { padding: 3px 9px; border-radius: 999px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); font-size: 12.5px; }
 .chg-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
+/* share buttons (the sheet's own styles are above, as in the Ledger app) */
+.row-gap { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.share-btn span { font-size: 15px; line-height: 1; }
+.share-variants { margin-top: 12px; }
+:root[data-theme="light"] .share-box { background: rgba(255,255,255,.97); box-shadow: 0 30px 60px -24px rgba(90,45,15,.45); }
+:root[data-theme="light"] .share-sheet { background: rgba(40,25,15,.45); }
 label.override { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--bad); }
 label.override input { display: inline-block; width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
 .newer-bar { max-width: 1100px; margin: 0 auto 10px; padding: 10px 14px; border-radius: 12px; background: var(--info-bg); border: 1px solid var(--glass-line-soft); color: var(--ink); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
