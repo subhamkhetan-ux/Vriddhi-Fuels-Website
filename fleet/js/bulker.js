@@ -6,8 +6,9 @@
 // along the belly; a white Tata Signa tractor and a grey tri-axle under-frame.
 // The glass reads gross weight like a gauge: its bottom is 40 T (every load is
 // well over that), its top the highest gross in the register; the RTO passing
-// weight (56 T) is a dashed line with any weight over it hatched amber, and
-// 62 T rated is marked. Plain SVG strings.
+// weight (56 T) is a dashed line, and 62 T rated is marked. Its overload fee
+// is already paid, so weight over it is good: hatched green, the line turns
+// green; a load that stays under it leaves the line red. Plain SVG strings.
 
 import { esc } from './util.js';
 
@@ -67,7 +68,7 @@ export function bulkerSvg(opts = {}) {
     <linearGradient id="${id}gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1419"/><stop offset="1" stop-color="#28313b"/></linearGradient>
     <linearGradient id="${id}p" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eeede6"/><stop offset="1" stop-color="#d6d2c4"/></linearGradient>
     <pattern id="${id}s" width="9" height="7" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".55" fill="#c9c5b8"/><circle cx="6.5" cy="5" r=".45" fill="#cfcbbf"/><circle cx="5" cy="1.5" r=".35" fill="#fff"/></pattern>
-    <pattern id="${id}h" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(255,178,62,.22)"/><rect width="2.2" height="6" fill="rgba(232,120,20,.6)"/></pattern>
+    <pattern id="${id}h" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(47,208,138,.2)"/><rect width="2.2" height="6" fill="rgba(16,150,90,.62)"/></pattern>
     <linearGradient id="${id}sh" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".35" stop-color="#fff" stop-opacity="0"/></linearGradient>
     <linearGradient id="${id}cab" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#e3e6ea"/><stop offset=".35" stop-color="#ffffff"/><stop offset="1" stop-color="#edf0f2"/></linearGradient>
     <linearGradient id="${id}win" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5d7690"/><stop offset=".5" stop-color="#253545"/><stop offset="1" stop-color="#131c25"/></linearGradient>

@@ -106,6 +106,29 @@ export function brandFontCss() {
   return fontPromise;
 }
 
+// Hindi (the drivers' instructions): Noto Sans Devanagari's Devanagari
+// letters as data: URLs; the Latin ones come from Sora. '' when offline: the
+// phone's own Hindi font.
+const DEVANAGARI_CSS = 'https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700;800&display=block';
+let hindiPromise = null;
+export function hindiFontCss() {
+  if (!hindiPromise) {
+    hindiPromise = (async () => {
+      try {
+        const css = await (await fetch(DEVANAGARI_CSS)).text();
+        let out = css.split('/*').filter((b) => /^\s*devanagari\s*\*\//.test(b)).map((b) => b.slice(b.indexOf('*/') + 2)).join('\n');
+        for (const url of new Set([...out.matchAll(/url\((https:[^)]+)\)/g)].map((m) => m[1]))) {
+          out = out.split(url).join(await toDataUrl(url));
+        }
+        return out;
+      } catch {
+        return '';
+      }
+    })();
+  }
+  return hindiPromise;
+}
+
 // The bulker drawing's look lives in the page's stylesheet (.bk-…); a picture
 // needs it inside. Its variables are given their dark-theme values (the
 // pictures are always dark).

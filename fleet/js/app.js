@@ -19,13 +19,15 @@ import { byDriver, liveBehind, performance, SLOW_DAYS, STAGES } from './perf.js'
 import { liveTrips } from './live.js';
 import { sameDriver } from './drivers.js';
 import { dataChecks } from './checks.js';
+import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
+import { driverBrief, ownerBrief } from './brief.js';
 import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
-  daybookPagesSvg, driverPagesSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+  daybookPagesSvg, driverBriefSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
 } from './share-svg.js';
-import { brandFontCss, bulkerCss, canShareFiles, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
+import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
 import {
   addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
   plural, rupees, shortDate, shortVeh, tonnes,
@@ -496,7 +498,7 @@ function derived() {
     const kms = tripKms(d, set);
     const x = {
       recon: dieselRecon(d, set), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d),
-      issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set, today()),
+      issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set, today()), loads: loadBench(d),
       maxGross: Math.max(0, ...d.trips.map((t) => t.gross || 0)),
       perfRecent: performance(d, today(), { from: addMonths(monthOf(today()), -2), to: monthOf(today()) }),
       perfAll: performance(d, today()),
@@ -518,10 +520,17 @@ function bulkerFor(t, { compact = false, animate = false, empty = false, veh = n
   return bulkerSvg({ state: 'loaded', load: t.loadWt, tare: t.tare, gross: t.gross, max: maxGross, compact, animate, plate: v, ...extra,
     title: `${v} · ${t.trip} · ${t.loadWt.toFixed(2)} T alumina · gross ${t.gross ? t.gross.toFixed(2) : '—'} T (RTO ${RTO_GROSS} T)` });
 }
+// how full the trip went: over the RTO 56 T is good (its fee is paid), and
+// against the best load on the route around the same time
 const weightLine = (t) => {
   if (!t || !t.gross) return '';
+  const b = derived().loads.get(t.row);
   const d = t.gross - RTO_GROSS;
-  return d > 0.05 ? `<span class="pill warn-pill">${d.toFixed(2)} T over the RTO ${RTO_GROSS} T</span>` : `<span class="pill good-pill">${(-d).toFixed(2)} T under the RTO ${RTO_GROSS} T</span>`;
+  const rto = d > 0.05 ? `<span class="pill good-pill">+${d.toFixed(2)} T overload · RTO paid ✓</span>` : `<span class="pill bad-pill">${(-d).toFixed(2)} T under the RTO ${RTO_GROSS} T</span>`;
+  if (!b) return rto;
+  const vs = b.grade === 'top' ? `<span class="pill good-pill">★ Full load — best on the route then ${b.near.toFixed(2)} T</span>`
+    : `<span class="pill ${b.grade === 'poor' ? 'bad-pill' : b.grade === 'low' ? 'warn-pill' : 'info-pill'}">${b.gapNear.toFixed(2)} T below the best then (${b.near.toFixed(2)} T) · ${money(b.lostRs)} freight</span>`;
+  return `${rto} ${vs}`;
 };
 // how a vehicle has been doing lately against the others on the same route
 function perfBadge(veh, perf = derived().perfRecent) {
@@ -859,6 +868,7 @@ async function viewTrips(q) {
   if (f === 'road') list = list.filter((t) => t.status !== 'done');
   if (f === 'done') list = list.filter((t) => t.status === 'done');
   if (f === 'short') list = list.filter((t) => (t.diff || 0) < -0.1);
+  if (f === 'under') { const L = derived().loads; list = list.filter((t) => { const b = L.get(t.row); return b && (b.grade === 'low' || b.grade === 'poor'); }); }
   if (f === 'loss') list = list.filter((t) => t.status === 'done' && (t.income || 0) + (t.emi || 0) < 0);
   if (f === 'check') list = list.filter((t) => odd.has(t.row));
   if (veh) list = list.filter((t) => t.veh === veh);
@@ -879,7 +889,7 @@ async function viewTrips(q) {
   setMain(`<section class="card">
     <div class="row-between"><h2>Trips</h2><span class="muted small">${plural(list.length, 'trip')}</span></div>
     <div class="chips" role="group" aria-label="Show">
-      ${[['all', 'All'], ['road', 'On the road'], ['done', 'Unloaded'], ['short', 'Short weight'], ['loss', 'Loss before EMI'], ['check', `Dates to check${issues.length ? ` (${issues.length})` : ''}`]].map(([k, n]) => `<a class="chip${f === k ? ' on' : ''}" href="${link({ f: k })}">${n}</a>`).join('')}
+      ${[['all', 'All'], ['road', 'On the road'], ['done', 'Unloaded'], ['short', 'Short weight'], ['under', 'Under-loaded'], ['loss', 'Loss before EMI'], ['check', `Dates to check${issues.length ? ` (${issues.length})` : ''}`]].map(([k, n]) => `<a class="chip${f === k ? ' on' : ''}" href="${link({ f: k })}">${n}</a>`).join('')}
     </div>
     <form class="row-form" id="trip-filter">
       <label>Vehicle <select name="v"><option value="">All vehicles</option>${vehicles.map((v) => `<option${v === veh ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
@@ -888,6 +898,7 @@ async function viewTrips(q) {
       <label>Search <input name="q" type="search" value="${esc(q.get('q') || '')}" placeholder="Trip no, remarks…"></label>
     </form>
     <div class="sumline"><span><b>${tonnes(T.tonnes, 1)}</b> loaded</span><span><b>${money(T.bhada)}</b> freight</span><span><b>${money(T.ssfcNet)}</b> SSFC net</span><span><b class="${signed(T.income + T.emi)}">${money(T.income + T.emi)}</b> before EMI</span><span><b class="${signed(T.income)}">${money(T.income)}</b> net</span></div>
+    ${loadLegend(list)}
     <div class="trips">
       <div class="trow head"><span>Loaded</span><span>Trip</span><span class="r">Tonnes</span><span class="r">Freight</span><span class="r">SSFC net</span><span class="r">Net</span></div>
       ${shown.map((t) => tripRow(t, odd.get(t.row))).join('') || '<p class="muted">No trips match.</p>'}
@@ -904,6 +915,16 @@ async function viewTrips(q) {
   document.getElementById('all-trips')?.addEventListener('click', () => { state.ui.allTrips = true; rerender(); });
 }
 
+const loadCls = (t) => { const b = derived().loads.get(t.row); return b ? LOAD_GRADES[b.grade].cls : ''; };
+const loadTitle = (t) => { const b = derived().loads.get(t.row); return b ? `${LOAD_GRADES[b.grade].name}: ${b.gapNear ? `${b.gapNear.toFixed(2)} T below ` : ''}the best on the route then (${b.near.toFixed(2)} T)` : ''; };
+// what the load colours mean, and what under-loading cost on these trips
+function loadLegend(trips) {
+  const L = loadSummary(trips, derived().loads);
+  if (!L.trips) return '';
+  return `<p class="load-legend small"><span class="muted">Load vs the best on the same route then (overload is paid for — fuller is better):</span>
+    <span class="load-top">● full ${L.top}</span><span class="load-ok">● near full ${L.ok}</span><span class="load-low">● under ${L.low}</span><span class="load-poor">● well under ${L.poor}</span>
+    <span class="muted">· ${tonnes(L.lostT, 1)} short of the best · <b class="${L.lostRs > 0 ? 'warn-text' : ''}">${money(L.lostRs)}</b> freight missed</span></p>`;
+}
 function tripRow(t, why) {
   const day = t.loadDate || t.start;
   const diff = t.diff ? `<span class="pill ${t.diff < -0.1 ? 'bad-pill' : t.diff < 0 ? 'warn-pill' : 'good-pill'}">${t.diff > 0 ? '+' : '−'}${Math.abs(t.diff).toFixed(2)}</span>` : '';
@@ -911,7 +932,7 @@ function tripRow(t, why) {
     <span class="s-date">${day ? `<b>${Number(day.slice(8))}</b><small>${shortDate(day).split(' ')[1]} ${day.slice(2, 4)}</small>` : '—'}</span>
     <span class="t-main"><b>${esc(t.trip)}</b> <span class="b-veh">${esc(t.veh)}</span>${t.status !== 'done' ? ` ${statusPill(t)}` : ''}${why ? ' <span class="pill bad-pill">check date</span>' : ''}
       <small>${esc(routeOf(t))}${t.remarks ? ` · ${esc(t.remarks)}` : ''}</small></span>
-    <span class="r t-ton">${t.loadWt ? `${t.loadWt.toFixed(2)} T` : '—'} ${diff}</span>
+    <span class="r t-ton ${t.loadWt ? loadCls(t) : ''}" title="${t.loadWt ? esc(loadTitle(t)) : ''}">${t.loadWt ? `${t.loadWt.toFixed(2)} T` : '—'} ${diff}</span>
     <span class="r t-fr">${t.bhada ? rupees(t.bhada) : '—'}</span>
     <span class="r t-net">${t.ssfcNet != null ? rupees(t.ssfcNet) : '—'}</span>
     <span class="r t-inc ${signed(t.income)}">${t.income != null ? rupees(t.income) : '—'}${t.emi ? '<small>incl. EMI</small>' : ''}</span></a>`;
@@ -933,6 +954,10 @@ function driverLine(t) {
 // ---------------------------------------------------------------------------
 // Day book: every dated entry in the workbook, day by day
 // ---------------------------------------------------------------------------
+function briefCtx() {
+  const x = derived();
+  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow };
+}
 const DAY_LINK = (e) => (e.t ? `#/trip/${e.t.row}` : e.kind === 'advance' ? `#/drivers/${encodeURIComponent(e.veh)}` : e.kind === 'ssfc' ? '#/ssfc' : `#/vehicle/${encodeURIComponent(e.veh)}`);
 function dayState() {
   const ui = state.ui.day || (state.ui.day = { r: 'today', from: null, to: null, kinds: [], veh: '', days: 31 });
@@ -958,7 +983,10 @@ function daySumText(s) {
   ].filter(Boolean).join('  ·  ');
 }
 function dayRight(e) {
-  if (e.kind === 'load') return `<b>${rupees(e.amount)}</b><small>freight</small>`;
+  if (e.kind === 'load') {
+    const b = e.t && derived().loads.get(e.t.row);
+    return `<b>${rupees(e.amount)}</b>${b ? `<small class="${LOAD_GRADES[b.grade].cls}">${b.grade === 'top' ? '★ full load' : `−${b.gapNear.toFixed(2)} T vs best`}</small>` : '<small>freight</small>'}`;
+  }
   if (e.kind === 'unload') return `<b>${e.tonnes ? tonnes(e.tonnes) : '—'}</b>${e.short < 0 ? `<small class="bad-text">${tonnes(-e.short)} short</small>` : '<small>delivered</small>'}`;
   if (e.kind === 'diesel') return `<b>${rupees(e.amount)}</b><small>${litres(e.litres)}</small>`;
   if (e.kind === 'urea') return `<b>${rupees(e.amount)}</b><small>${e.litres ? `${indian(e.litres, 1)} L` : 'urea'}</small>`;
@@ -979,7 +1007,15 @@ async function viewDaybook() {
   const latest = all.find((e) => e.date <= today());
   const shown = book.days.slice(0, ui.days);
   const tile = (lbl, val, sub, cls = '') => `<div class="kpi ${cls}"><span class="lbl">${lbl}</span><span class="val">${val}</span><span class="sub">${sub}</span></div>`;
-  setMain(`<section class="card">
+  const ob = ownerBrief(state.data, briefCtx(), today());
+  const TONE_CLS = { good: 'good-text', warn: 'warn-text', bad: 'bad-text', info: '' };
+  setMain(`<section class="card brief-card">
+    <div class="row-between"><h2>Today's brief <span class="muted small">${esc(longDate(today()))}</span></h2>
+      <span class="row-gap">${shareBtn('share-drivers', 'Drivers (हिंदी)')}${shareBtn('share-owner', 'Owner')}</span></div>
+    <p class="muted small">For you below; for the drivers' WhatsApp group, a picture in Hindi — each truck's next stop with the date to reach it by, its pace and load.</p>
+    ${ob.sections.map((sec) => `<h3 class="sub-h">${esc(sec.title)}</h3><ul class="brief">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>${it.href ? '</a>' : ''}</li>`).join('')}</ul>`).join('')}
+  </section>
+  <section class="card">
     <div class="row-between"><h2>Day book</h2><span class="row-gap"><span class="muted small">${esc(dayRangeText(ui.from, ui.to))}</span>${book.list.length ? shareBtn('share-day') : ''}</span></div>
     <p class="muted small">Everything in the workbook with a date: trips started, loaded and unloaded, diesel fills, urea, driver advances and SSFC payments. A trip's other costs (fastag, tyre, maintenance…) have no date of their own — they're on each trip.</p>
     <div class="chips period" role="group" aria-label="Dates">
@@ -1038,10 +1074,16 @@ async function viewDaybook() {
   m.querySelector('#day-veh').addEventListener('change', (e) => { ui.veh = e.target.value; rerender(); });
   m.querySelector('#day-more')?.addEventListener('click', () => { ui.days += 31; rerender(); });
   m.querySelector('#day-latest')?.addEventListener('click', () => { ui.r = 'custom'; ui.from = latest.date; ui.to = latest.date; rerender(); });
+  m.querySelector('#share-drivers').addEventListener('click', () => sharePictures("Drivers' instructions (Hindi)", [{ label: 'हिंदी', make: async () => {
+    const kit = await shareKit();
+    const hi = await hindiFontCss();
+    return cardFiles(driverBriefSvg(driverBrief(state.data, briefCtx(), today()), { ...kit, fontCss: `${kit.fontCss}\n${hi}` }), `Driver instructions ${fmtDate(today())}`);
+  } }]));
+  m.querySelector('#share-owner').addEventListener('click', () => sharePictures("Owner's insight", [{ label: 'Insight', make: async () => cardFiles(ownerBriefSvg(ownerBrief(state.data, briefCtx(), today()), await shareKit()), `Daily insight ${fmtDate(today())}`) }]));
   m.querySelector('#share-day')?.addEventListener('click', () => {
     const label = dayRangeText(ui.from, ui.to);
     const what = [kinds ? DAY_KINDS.filter((k) => kinds.has(k.key)).map((k) => k.name).join(', ') : '', ui.veh].filter(Boolean).join(' · ');
-    sharePictures('Day book', [{ label: 'Day book', make: async () => pageFiles(daybookPagesSvg(book, { ...(await shareKit()), label, what, driverOf: (v) => driverNow(v) }), `Day book ${ui.from === ui.to ? fmtDate(ui.from) : `${fmtDate(ui.from)} to ${fmtDate(ui.to)}`}${ui.veh ? ` ${ui.veh}` : ''}`) }]);
+    sharePictures('Day book', [{ label: 'Day book', make: async () => pageFiles(daybookPagesSvg(book, { ...(await shareKit()), label, what, driverOf: (v) => driverNow(v), loads: derived().loads }), `Day book ${ui.from === ui.to ? fmtDate(ui.from) : `${fmtDate(ui.from)} to ${fmtDate(ui.to)}`}${ui.veh ? ` ${ui.veh}` : ''}`) }]);
   });
 }
 
@@ -1184,6 +1226,7 @@ async function viewVehicle(veh) {
       <div class="kpi"><span class="lbl">Avg trip</span><span class="val">${T.days ? `${T.days.toFixed(1)} d` : '—'}</span><span class="sub">start to unloading</span></div>
       ${KV.km ? `<div class="kpi"><span class="lbl">Distance</span><span class="val">${indian(KV.km)} km</span><span class="sub">${KV.litres ? `${(KV.km / KV.litres).toFixed(2)} km/L mileage` : ''}</span></div>` : ''}
       <div class="kpi"><span class="lbl">Weight short</span><span class="val">${tonnes(-T.short)}</span><span class="sub">${plural(T.shortTrips, 'trip')}</span></div>
+      ${(() => { const L = loadSummary(inP, derived().loads); return L.trips ? `<div class="kpi ${L.avgGap > 1.5 ? 'warn' : ''}"><span class="lbl">Load vs the best</span><span class="val ${L.avgGap <= 0.5 ? 'good-text' : L.avgGap <= 1.5 ? '' : L.avgGap <= 3 ? 'warn-text' : 'bad-text'}">−${L.avgGap.toFixed(2)} T</span><span class="sub">avg ${L.avgLoad.toFixed(2)} T · ${money(L.lostRs)} freight missed</span></div>` : ''; })()}
     </div>
     ${cm ? `<h3 class="sub-h">Month by month <span class="muted">${esc(cm.note)}</span></h3>
       ${legend([{ name: 'Profit before EMI', color: S3 }, { name: 'Net after EMI', color: S2 }])}
@@ -1476,7 +1519,7 @@ function shareVehicle(veh) {
   const emi = [...mine].reverse().find((t) => t.emi)?.emi || 0;
   const opts = [{ label: `Statement · ${periodRange(p)}`, make: async () => {
     const kit = await shareKit();
-    return pageFiles(vehiclePagesSvg(veh, mine.filter((t) => inPeriod(t, p)), { ...kit, period: periodRange(p), recon: rv, driver: driverNow(veh), driverOf: dc.byPayments ? dc.tripDriver : null, emi }),
+    return pageFiles(vehiclePagesSvg(veh, mine.filter((t) => inPeriod(t, p)), { ...kit, period: periodRange(p), recon: rv, driver: driverNow(veh), driverOf: dc.byPayments ? dc.tripDriver : null, emi, loads: derived().loads }),
       `${veh} statement ${periodRange(p)}`);
   } }];
   if (rv && rv.list.length) opts.push({ label: 'Diesel recon', make: async () => pageFiles(reconPagesSvg(rv, { ...(await shareKit()), since: recon.since }), `${veh} diesel recon ${fmtDate(today())}`) });
@@ -1497,7 +1540,7 @@ function shareTrip(t) {
     const card = tripCardSvg(t, {
       ...kit, bulker: pictureBulker(bulkerFor(t.loadWt ? t : null, { veh: t.veh, routeTrip: t }), kit.images.mark), bulkerCss: bulkerCss(),
       fills: d.hsd.filter((h) => h.veh === t.veh && h.trip === t.trip).sort((a, b) => (a.date < b.date ? -1 : 1)),
-      recon: rec, driver: dc.tripDriver(t), paid: info ? info.paid : [], check: dc.rows.find((r) => r.t === t) || null,
+      recon: rec, driver: dc.tripDriver(t), paid: info ? info.paid : [], check: dc.rows.find((r) => r.t === t) || null, load: derived().loads.get(t.row) || null,
     });
     return cardFiles(card, `${t.trip.replace('/', '-')} ${t.veh}`);
   } }]);

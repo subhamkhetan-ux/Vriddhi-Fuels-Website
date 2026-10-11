@@ -601,6 +601,19 @@ a.kpi { color: var(--ink); } a.kpi:hover { text-decoration: none; border-color: 
   .vs-card { flex: 0 0 148px; scroll-snap-align: start; }
 }
 
+/* loads: fuller is better (the RTO overload fee is paid) */
+.load-top { color: var(--good); } .load-ok { color: var(--ink); } .load-low { color: var(--warn); } .load-poor { color: var(--bad); }
+.t-ton.load-top, .t-ton.load-low, .t-ton.load-poor { font-weight: 700; }
+.load-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 6px 0 10px; }
+.load-legend > span:not(.muted) { font-weight: 700; white-space: nowrap; }
+/* today's brief */
+ul.brief { list-style: none; margin: 6px 0 4px; padding: 0; display: grid; gap: 6px; }
+ul.brief li { position: relative; padding-left: 18px; font-size: 14px; line-height: 1.45; }
+ul.brief li::before { content: ""; position: absolute; left: 2px; top: .5em; width: 8px; height: 8px; border-radius: 50%; background: var(--s-1); }
+ul.brief li.tone-good::before { background: var(--good); } ul.brief li.tone-warn::before { background: var(--warn); } ul.brief li.tone-bad::before { background: var(--bad); }
+ul.brief a { color: inherit; } ul.brief a:hover { text-decoration: underline; }
+ul.brief li.tone-info span { color: var(--ink); }
+.brief-card h2 .small { font-weight: 500; margin-left: 6px; }
 /* day book */
 .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--well); }
 .day-nav b { font-family: var(--display); text-align: center; font-size: 14.5px; }
@@ -784,6 +797,8 @@ label.radio { margin: 8px 0; align-items: flex-start; } label.radio input { marg
 .bk-rated { stroke: rgba(150,150,150,.6); stroke-width: .9; stroke-dasharray: 2 3; }
 .bk-t { font: 800 8px var(--display); }
 .bk-rto-t { fill: #ff4d2e; paint-order: stroke; stroke: rgba(255,255,255,.8); stroke-width: 2px; }
+.bulker.is-over .bk-rto { stroke: #19b46e; }
+.bulker.is-over .bk-rto-t { fill: #0f9d5c; }
 .bk-rated-t { fill: rgba(255,255,255,.6); font-size: 6px; }
 .bulker.is-loaded .bk-rated-t { fill: #6d685b; }
 .bk-plate-t { font: 800 7px var(--mono), monospace; fill: #111; letter-spacing: .02em; }

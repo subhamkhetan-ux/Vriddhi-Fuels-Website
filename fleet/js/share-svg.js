@@ -25,8 +25,10 @@ const C = {
   bg: '#0b0807', ink: '#f5f0eb', muted: '#b4aba2', faint: '#7c746c', good: '#2fd08a', bad: '#ff6b5e', warn: '#ffb23e',
   amber: '#ff9e42', s1: '#3987e5', s2: '#d95926', s3: '#199e70', s4: '#c98500', s5: '#d55181', s6: '#9085e9', s7: '#e66767', s8: '#008300',
 };
+const LOAD_COLOR = { top: C.good, ok: C.ink, low: C.warn, poor: C.bad };
+const loadNote = (b) => (!b ? '' : b.grade === 'top' ? '★ full load' : `−${b.gapNear.toFixed(2)} T vs best`);
 const SERIES = [C.s1, C.s2, C.s3, C.s4, C.s5, C.s6, C.s7, C.s8, C.faint];
-const SANS = 'Sora, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
+const SANS = 'Sora, "Noto Sans Devanagari", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const FULLMON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -56,7 +58,9 @@ const shortVeh = (v) => String(v || '').slice(-4);
 export function textWidth(text, size, weight = 400) {
   let w = 0;
   for (const ch of String(text)) {
-    if (ch === ' ') w += 0.28;
+    if (/[\u0900-\u0903\u093a-\u094f\u0951-\u0957\u0962\u0963]/.test(ch)) w += 0.06;      // Devanagari vowel signs: no width of their own
+    else if (/[\u0900-\u097f]/.test(ch)) w += 0.66;
+    else if (ch === ' ') w += 0.28;
     else if (/[0-9]/.test(ch)) w += 0.62;
     else if (/[A-Z]/.test(ch)) w += 0.7;
     else if (/[a-z]/.test(ch)) w += 0.57;
@@ -64,6 +68,17 @@ export function textWidth(text, size, weight = 400) {
     else w += 0.62;
   }
   return w * size * (weight >= 700 ? 1.07 : weight >= 600 ? 1.04 : 1);
+}
+// words into lines no wider than max
+export function wrap(text, max, size, weight = 400) {
+  const lines = [];
+  let cur = '';
+  for (const word of String(text ?? '').split(/\s+/).filter(Boolean)) {
+    const next = cur ? `${cur} ${word}` : word;
+    if (cur && textWidth(next, size, weight) > max) { lines.push(cur); cur = word; } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 export function fit(text, max, size, weight = 400) {
   const s = String(text ?? '');
@@ -392,7 +407,7 @@ export function ssfcPagesSvg(a, { gst = true, asOn = '', images = {}, fontCss = 
 
 // ---- a vehicle's statement for a period -----------------------------------------------------
 // trips: the vehicle's trips in the period; opts.recon: dieselRecon().vehicles entry; opts.driverOf(t)
-export function vehiclePagesSvg(veh, trips, { period = '', asOn = '', images = {}, fontCss = '', recon = null, driver = '', driverOf = null, emi = 0 } = {}) {
+export function vehiclePagesSvg(veh, trips, { period = '', asOn = '', images = {}, fontCss = '', recon = null, driver = '', driverOf = null, emi = 0, loads = null } = {}) {
   const T0 = totals(trips);
   const list = [...trips].sort((a, b) => ((a.loadDate || a.start || '') < (b.loadDate || b.start || '') ? -1 : 1) || a.row - b.row);
   const months = [...new Set(list.map((t) => t.month || (t.start || '').slice(0, 7)))];
@@ -406,8 +421,8 @@ export function vehiclePagesSvg(veh, trips, { period = '', asOn = '', images = {
       const who = driverOf ? driverOf(t) : '';
       rows.push({ cells: [
         { text: dMon(t.loadDate || t.start), weight: 700, sub: t.unloadDate ? `→ ${dMon(t.unloadDate)}` : 'on the way' },
-        { text: `${t.trip} · ${routeOf(t)}`, weight: 700, sub: [t.loadWt ? `${t.loadWt.toFixed(2)} T` : '', t.diff && Math.abs(t.diff) >= 0.01 ? `${t.diff < 0 ? 'short' : 'excess'} ${Math.abs(t.diff).toFixed(2)}` : '', d != null ? `${d} d` : '', dieselLitres(t) ? `${Math.round(dieselLitres(t))} L` : '', who].filter(Boolean).join(' · ') },
-        t.bhada ? rupees(t.bhada) : '—',
+        { text: `${t.trip} · ${routeOf(t)}`, weight: 700, sub: [t.diff && Math.abs(t.diff) >= 0.01 ? `${t.diff < 0 ? 'short' : 'excess'} ${Math.abs(t.diff).toFixed(2)}` : '', d != null ? `${d} d` : '', dieselLitres(t) ? `${Math.round(dieselLitres(t))} L` : '', who].filter(Boolean).join(' · ') },
+        (() => { const b = loads && loads.get(t.row); return { text: t.bhada ? rupees(t.bhada) : '—', sub: t.loadWt ? `${t.loadWt.toFixed(2)} T${b ? ` · ${loadNote(b)}` : ''}` : '', subColor: b ? LOAD_COLOR[b.grade] : C.muted }; })(),
         { text: ssfcDeductions(t) ? rupees(ssfcDeductions(t)) : '—', color: C.muted },
         { text: ownExpenses(t) ? rupees(ownExpenses(t)) : '—', color: C.muted, sub: t.emi ? `incl. EMI ${rupees(t.emi)}` : '' },
         { text: t.income != null ? rupees(t.income) : '—', weight: 800, color: t.income < 0 ? C.bad : C.ink },
@@ -418,7 +433,7 @@ export function vehiclePagesSvg(veh, trips, { period = '', asOn = '', images = {
   if (trips.length) blocks.push(freightSplit(trips));
   blocks.push(section('Trips', `${plural(T0.trips, 'trip')} · ${tonnes(T0.tonnes, 1)}`));
   blocks.push(...table([
-    { label: 'Loaded', at: 18 }, { label: 'Trip · route', at: 140, max: 390 }, { label: 'Freight', at: -500, align: 'end' }, { label: 'SSFC cut', at: -350, align: 'end' }, { label: 'Own costs', at: -185, align: 'end' }, { label: 'Net', at: -18, align: 'end' },
+    { label: 'Loaded', at: 18 }, { label: 'Trip · route', at: 140, max: 360 }, { label: 'Freight · load', at: -500, align: 'end' }, { label: 'SSFC cut', at: -350, align: 'end' }, { label: 'Own costs', at: -185, align: 'end' }, { label: 'Net', at: -18, align: 'end' },
   ], rows, { total: ['Total', `${plural(T0.trips, 'trip')} · ${tonnes(T0.tonnes, 1)}`, rupees(T0.bhada), rupees(T0.ssfcDed), rupees(T0.own), { text: rupees(T0.income), color: T0.income < 0 ? C.bad : C.amber }] }));
   if (recon && recon.list.length) {
     blocks.push(gap());
@@ -465,10 +480,10 @@ export function reconPagesSvg(v, { asOn = '', images = {}, fontCss = '', since =
 
 // ---- one trip ----------------------------------------------------------------------------------
 // opts: bulker (bulker.js SVG), bulkerCss, fills (HSD rows), recon row, driver, paid (advances), salary check row
-export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = '', bulkerCss = '', fills = [], recon = null, driver = '', paid = [], check = null } = {}) {
+export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = '', bulkerCss = '', fills = [], recon = null, driver = '', paid = [], check = null, load = null } = {}) {
   const blocks = [];
   if (bulker) {
-    const cap = t.loadWt ? `${t.loadWt.toFixed(2)} T alumina  ·  tare ${t.tare ? t.tare.toFixed(2) : '—'} T  ·  gross ${t.gross ? t.gross.toFixed(2) : '—'} T${t.gross ? `  ·  ${t.gross > RTO_GROSS ? `${(t.gross - RTO_GROSS).toFixed(2)} T over` : `${(RTO_GROSS - t.gross).toFixed(2)} T under`} the RTO ${RTO_GROSS} T` : ''}` : 'Not loaded yet';
+    const cap = t.loadWt ? `${t.loadWt.toFixed(2)} T alumina  ·  tare ${t.tare ? t.tare.toFixed(2) : '—'} T  ·  gross ${t.gross ? t.gross.toFixed(2) : '—'} T${t.gross ? `  ·  ${t.gross > RTO_GROSS ? `+${(t.gross - RTO_GROSS).toFixed(2)} T overload, RTO paid ✓` : `${(RTO_GROSS - t.gross).toFixed(2)} T under the RTO ${RTO_GROSS} T`}` : ''}` : 'Not loaded yet';
     blocks.push(bulkerBlock(bulker, 300, cap));
   }
   const d = tripDays(t) ?? (t.start && asOn ? Math.round((Date.parse(asOn) - Date.parse(t.start)) / 86400000) : null);
@@ -477,6 +492,8 @@ export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = 
     [`Loaded at ${t.port}`, t.loadDate ? `${dMonY(t.loadDate)}${t.loadWt ? `  ·  ${tonnes(t.loadWt)}` : ''}` : '—'],
     [`Unloaded at ${t.dest}`, t.unloadDate ? `${dMonY(t.unloadDate)}${t.unloadWt ? `  ·  ${tonnes(t.unloadWt)}` : ''}` : 'on the way'],
     t.diff ? [t.diff < 0 ? 'Short' : 'Excess', tonnes(Math.abs(t.diff)), { color: t.diff < 0 ? C.bad : C.good }] : null,
+    load ? ['Load vs the best on the route then', load.grade === 'top' ? `★ full load (best ${tonnes(load.near)})` : `${tonnes(load.gapNear)} below ${tonnes(load.near)} · ${rupees(load.lostRs)} freight`, { color: LOAD_COLOR[load.grade] }] : null,
+    t.gross ? ['Gross against the RTO 56 T', t.gross > RTO_GROSS ? `+${tonnes(t.gross - RTO_GROSS)} overload · RTO paid` : `${tonnes(RTO_GROSS - t.gross)} under`, { color: t.gross > RTO_GROSS ? C.good : C.bad }] : null,
     [t.unloadDate ? 'Trip took' : 'On the road', d != null ? `${d} days` : '—', { strong: true }],
   ], { title: 'The trip' }));
   if (t.bhada) {
@@ -654,11 +671,11 @@ const longDay = (iso) => {
   const d = new Date(`${iso}T00:00:00Z`);
   return `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()]}, ${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 };
-export function daybookPagesSvg(book, { label = '', what = '', asOn = '', images = {}, fontCss = '', driverOf = null } = {}) {
+export function daybookPagesSvg(book, { label = '', what = '', asOn = '', images = {}, fontCss = '', driverOf = null, loads = null } = {}) {
   const S = book.sums;
   const dayLine = (s) => [s.loads ? `${s.loads} loaded ${ind(s.tonnes, 1)} T` : '', s.unloads ? `${s.unloads} unloaded` : '', s.fills ? `diesel ${litres(s.litres)}` : '', s.advances ? `advances ${rupees(s.advances)}` : '', s.received ? `SSFC ${rupees(s.received)}` : ''].filter(Boolean).join(' · ');
   const amt = (e) => {
-    if (e.kind === 'load') return { text: rupees(e.amount), weight: 800, sub: 'freight' };
+    if (e.kind === 'load') { const b = loads && e.t && loads.get(e.t.row); return { text: rupees(e.amount), weight: 800, sub: b ? loadNote(b) : 'freight', subColor: b ? LOAD_COLOR[b.grade] : C.muted }; }
     if (e.kind === 'unload') return { text: e.tonnes ? tonnes(e.tonnes) : '—', weight: 800, sub: e.short < 0 ? `${tonnes(-e.short)} short` : 'delivered', subColor: e.short < 0 ? C.bad : C.muted };
     if (e.kind === 'diesel') return { text: rupees(e.amount), weight: 800, sub: litres(e.litres) };
     if (e.kind === 'urea') return { text: rupees(e.amount), weight: 800, sub: e.litres ? `${ind(e.litres, 1)} L` : '' };
@@ -693,4 +710,73 @@ export function daybookPagesSvg(book, { label = '', what = '', asOn = '', images
     ],
     blocks, footNote: 'every dated entry in the Trip Register workbook',
   });
+}
+
+// ---- the daily brief -------------------------------------------------------------------------------
+const TONE = { good: C.good, warn: C.warn, bad: C.bad, info: C.ink };
+// lines of text that wrap: [{ text, size, weight, color, gap }]
+function textLines(x, y, w, lines) {
+  let out = '';
+  let yy = y;
+  for (const l of lines) {
+    if (!l || !l.text) continue;
+    const size = l.size || 20;
+    yy += l.gap || 0;
+    for (const part of wrap(l.text, w, size, l.weight || 400)) {
+      yy += size * 1.45;
+      out += T(x, yy, part, { size, weight: l.weight || 400, fill: l.color || C.ink });
+    }
+  }
+  return { svg: out, h: yy - y };
+}
+const linesHeight = (w, lines) => textLines(0, 0, w, lines).h;
+
+// the drivers' instructions, in Hindi (brief.js driverBrief())
+export function driverBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {}) {
+  const W = CARD_WIDTH - 112;
+  const blocks = [];
+  // the standing rules
+  const rules = b.rules.map((r, i) => ({ text: `${i + 1}. ${r}`, size: 25, weight: 700, gap: i ? 8 : 0 }));
+  const rh = linesHeight(W - 56, rules);
+  blocks.push(block(rh + 70, (x, y, w) => `${R(x, y, w, rh + 50, { rx: 22, fill: C.warn, opacity: 0.1, stroke: C.warn, strokeOpacity: 0.45 })}${textLines(x + 28, y + 14, w - 56, rules).svg}`));
+  const top = [{ text: b.yesterday, size: 24, color: C.muted }, b.shout ? { text: `★ ${b.shout}`, size: 24, weight: 700, color: C.good, gap: 6 } : null].filter(Boolean);
+  const th = linesHeight(W, top);
+  blocks.push(block(th + 26, (x, y, w) => textLines(x, y, w, top).svg));
+  for (const r of b.rows) {
+    const lines = [
+      { text: `अभी: ${r.now}`, size: 24 },
+      r.next ? { text: `अगला: ${r.next}${r.by ? ` — ${hiDate(r.by)} तक (${r.byRel})` : ''}`, size: 26, weight: 800, color: r.urgent ? C.bad : C.amber, gap: 6 } : null,
+      r.pace ? { text: r.pace, size: 24, weight: 700, color: TONE[r.paceTone], gap: 6 } : null,
+      r.load ? { text: r.load, size: 24, weight: 600, color: TONE[r.loadTone], gap: 6 } : null,
+    ].filter(Boolean);
+    const lh = linesHeight(W - 56, lines);
+    const accent = r.state === 'idle' ? C.faint : TONE[r.paceTone] === C.ink ? C.s1 : TONE[r.paceTone];
+    blocks.push(block(lh + 108, (x, y, w) => `${R(x, y, w, lh + 90, { rx: 22, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.1 })}${R(x, y + 18, 6, lh + 54, { rx: 3, fill: accent })}
+${T(x + 28, y + 50, plateText(r.veh), { size: 32, weight: 800 })}${T(x + w - 28, y + 50, r.driver || '', { size: 23, weight: 700, fill: C.muted, anchor: 'end', max: w * 0.42 })}
+${r.day != null ? T(x + 28 + textWidth(plateText(r.veh), 32, 800) + 18, y + 49, r.day ? `${r.day}वाँ दिन` : 'आज निकली', { size: 20, fill: C.faint }) : ''}
+${textLines(x + 28, y + 60, w - 56, lines).svg}`));
+  }
+  return cardSvg({
+    what: 'ड्राइवरों के लिए आज के निर्देश', tag: 'आज के निर्देश', name: hiLongDate(b.date), sub: 'सभी ड्राइवर ध्यान से पढ़ें और समय पर पहुँचें', asOn, images, fontCss,
+    blocks, footNote: 'Trip Register से',
+  });
+}
+const HMON = ['जनवरी', 'फ़रवरी', 'मार्च', 'अप्रैल', 'मई', 'जून', 'जुलाई', 'अगस्त', 'सितंबर', 'अक्टूबर', 'नवंबर', 'दिसंबर'];
+const hiDate = (iso) => `${Number(iso.slice(8, 10))} ${HMON[Number(iso.slice(5, 7)) - 1]}`;
+const hiLongDate = (iso) => `${['रविवार', 'सोमवार', 'मंगलवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार'][new Date(`${iso}T00:00:00Z`).getUTCDay()]}, ${hiDate(iso)} ${iso.slice(0, 4)}`;
+
+// the owner's insight (brief.js ownerBrief())
+export function ownerBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {}) {
+  const W = CARD_WIDTH - 112;
+  const blocks = [];
+  for (const sec of b.sections) {
+    blocks.push(section(sec.title));
+    for (const it of sec.items) {
+      const lines = [{ text: it.text, size: 19, weight: it.tone === 'info' ? 400 : 600, color: it.tone === 'info' ? C.ink : TONE[it.tone] }];
+      const h = linesHeight(W - 40, lines);
+      blocks.push(block(h + 18, (x, y, w) => `<circle cx="${x + 10}" cy="${y + 21}" r="6" fill="${it.tone === 'info' ? C.s1 : TONE[it.tone]}"/>${textLines(x + 32, y - 4, w - 40, lines).svg}`));
+    }
+    blocks.push(gap(10));
+  }
+  return cardSvg({ what: "Owner's daily insight", tag: 'DAILY INSIGHT', name: dMonY(b.date), sub: 'what moved yesterday, what needs you today', asOn, images, fontCss, blocks });
 }
