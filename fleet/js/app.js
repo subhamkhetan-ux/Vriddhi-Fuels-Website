@@ -627,7 +627,6 @@ async function viewHome() {
   const empty = status.filter((s) => s.state === 'empty');
   const avgDays = onTrip.length ? onTrip.reduce((a, s) => a + s.days, 0) / onTrip.length : 0;
   setMain(`
-    ${vehStripHtml()}
     <section class="card greet logo-hero${play ? ' play' : ''}">
       ${logoMark()}<h1 class="logo-word" aria-label="Shree Shyam Logistics"></h1>
       <p class="greet-dates"><span>Today is <b>${esc(longDate(today()))}</b></span>
@@ -713,26 +712,6 @@ function roadCard(lt) {
     ${(() => { const z = derived().tripDiesel.get(t.row); return z && z.allotted != null ? `<div class="rc-diesel ${dieselTone(z)}"><b>Diesel</b> ${esc(dieselLine(z))}</div>` : ''; })()}
     ${projHtml(lt.projection)}
   </a>`;
-}
-
-// a small card per vehicle, at the top of Home: tap for its page
-function vehStripHtml() {
-  const { status } = derived();
-  const m = monthOf(today());
-  return `<nav class="veh-strip" aria-label="Vehicles">${status.map((s) => {
-    const mine = state.data.trips.filter((t) => t.veh === s.veh && t.month === m);
-    const freight = mine.reduce((a, t) => a + (t.bhada || 0), 0);
-    const t = s.trip;
-    const where = s.state === 'loaded' ? `Loaded → ${t.dest}` : s.state === 'empty' ? `Empty → ${t.port}` : s.last ? `Idle · ${s.last.dest}` : 'Idle';
-    const who = driverNow(s.veh);
-    const behind = derived().live.some((x) => x.veh === s.veh);
-    return `<a class="vs-card ${s.state}${behind ? ' behind' : ''}" href="#/vehicle/${encodeURIComponent(s.veh)}" aria-label="${esc(`${s.veh}: ${where}${who ? `, driver ${who}` : ''}`)}">
-      <span class="vs-top"><b>${esc(shortVeh(s.veh))}</b><span class="vs-day">${s.days == null ? '' : s.state === 'idle' ? `${s.days}d idle` : `day ${s.days}`}</span></span>
-      <span class="vs-state"><i></i>${esc(where)}</span>
-      <small class="vs-who">${esc(who || '—')}</small>
-      <small class="vs-month">${mine.length ? `${plural(mine.length, 'trip')} · ${money(freight)}` : 'no trip'} <em>this month</em></small>
-    </a>`;
-  }).join('')}</nav>`;
 }
 
 function vehTile(s) {

@@ -575,68 +575,6 @@ a.kpi { color: var(--ink); } a.kpi:hover { text-decoration: none; border-color: 
 .share-variants { margin-top: 12px; }
 :root[data-theme="light"] .share-box { background: rgba(255,255,255,.97); box-shadow: 0 30px 60px -24px rgba(90,45,15,.45); }
 :root[data-theme="light"] .share-sheet { background: rgba(40,25,15,.45); }
-/* vehicle strip at the top of Home: a small card per vehicle → its page */
-.veh-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 0 0 14px; }
-.vs-card { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 12px 10px 15px; color: var(--ink); background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 14px; transition: border-color .15s, transform .15s; }
-.vs-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--faint); }
-.vs-card.loaded::before { background: var(--grad-cta); }
-.vs-card.empty::before { background: var(--info); }
-.vs-card.behind { border-color: var(--warn); }
-.vs-card:hover { text-decoration: none; border-color: var(--accent); transform: translateY(-1px); }
-.vs-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-.vs-top b { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
-.vs-day { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
-.vs-card.behind .vs-day { color: var(--warn); font-weight: 700; }
-.vs-state { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; min-width: 0; }
-.vs-state, .vs-who, .vs-month { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.vs-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
-.vs-card.loaded .vs-state i { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.vs-card.empty .vs-state i { background: var(--info); box-shadow: 0 0 0 3px var(--info-bg); }
-.vs-who { color: var(--muted); font-size: 12px; }
-.vs-month { font-size: 11.5px; color: var(--ink); }
-.vs-month em { font-style: normal; color: var(--faint); }
-@media (max-width: 760px) {
-  .veh-strip { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; margin: 0 -16px 14px; padding: 2px 16px 8px; scrollbar-width: none; }
-  .veh-strip::-webkit-scrollbar { display: none; }
-  .vs-card { flex: 0 0 148px; scroll-snap-align: start; }
-}
-
-/* loads: fuller is better (the RTO overload fee is paid) */
-.load-top { color: var(--good); } .load-ok { color: var(--ink); } .load-low { color: var(--warn); } .load-poor { color: var(--bad); }
-.t-ton.load-top, .t-ton.load-low, .t-ton.load-poor { font-weight: 700; }
-.load-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 6px 0 10px; }
-.load-legend > span:not(.muted) { font-weight: 700; white-space: nowrap; }
-/* today's brief */
-ul.brief { list-style: none; margin: 6px 0 4px; padding: 0; display: grid; gap: 6px; }
-ul.brief li { position: relative; padding-left: 18px; font-size: 14px; line-height: 1.45; }
-ul.brief li::before { content: ""; position: absolute; left: 2px; top: .5em; width: 8px; height: 8px; border-radius: 50%; background: var(--s-1); }
-ul.brief li.tone-good::before { background: var(--good); } ul.brief li.tone-warn::before { background: var(--warn); } ul.brief li.tone-bad::before { background: var(--bad); }
-ul.brief a { color: inherit; } ul.brief a:hover { text-decoration: underline; }
-ul.brief li.tone-info span { color: var(--ink); }
-.brief-card h2 .small { font-weight: 500; margin-left: 6px; }
-/* diesel against the allotment */
-.dz-panel { margin: 10px 0 14px; padding: 14px; border-radius: 16px; background: var(--well); border: 1px solid var(--glass-line-soft); }
-.dz-panel.bad { border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
-.dz-panel.warn { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
-.dz-bar { position: relative; height: 16px; border-radius: 8px; background: var(--track); overflow: hidden; }
-.dz-bar span { position: absolute; top: 0; bottom: 0; left: 0; }
-.dz-taken { background: var(--s-1); border-radius: 8px 0 0 8px; }
-.dz-extra { background: var(--bad); }
-.dz-mark.dz-limit { background: var(--warn); width: 3px; }
-.dz-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
-.dz-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
-.k-taken { background: var(--s-1); } .k-extra { background: var(--bad); } .k-mark { background: var(--ink); width: 3px !important; } .k-limit { background: var(--warn); width: 3px !important; }
-.dz-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink); }
-.dz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 8px; margin-top: 12px; }
-.dz-cell { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 12px; background: var(--glass); }
-.dz-cell .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
-.dz-cell b { font-family: var(--display); font-size: 19px; font-variant-numeric: tabular-nums; }
-.dz-cell small { color: var(--muted); font-size: 11.5px; }
-.dz-cell.bad b { color: var(--bad); } .dz-cell.warn b { color: var(--warn); } .dz-cell.good b { color: var(--good); }
-.rc-diesel { font-size: 12.5px; padding: 6px 10px; border-radius: 10px; background: var(--well); margin-top: 8px; }
-.rc-diesel b { margin-right: 4px; }
-.rc-diesel.bad { color: var(--bad); } .rc-diesel.warn { color: var(--warn); } .rc-diesel.good { color: var(--good); }
-.dz-table td small.block { font-size: 11px; }
 /* day book */
 .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--well); }
 .day-nav b { font-family: var(--display); text-align: center; font-size: 14.5px; }
