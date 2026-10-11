@@ -16,17 +16,20 @@ Excel as before; upload it here (from any phone or computer) and the app shows:
 | **Diesel** | Litres and ₹ by pump (SSFC / Vriddhi Fuels / SSL Own Filling / Extra / Other), per month and per place; the diesel recon per vehicle and trip by trip; urea by vendor. | HSD Data, Diesel Recon / Recon Engine, Rates, Urea DEF |
 | **Setup** | **Upload** the workbook (preview with checks → Save). **Routes**: for every loading port × destination, the distance (km), the driver salary per trip and the diesel allotted — with an optional *From month* for a change, and *Paste from Excel*. **Vehicles in the analysis** (tyre / fastag switches). **Driver pay** options (is Extra Own Driver Pay an advance; does Driver Debit count). **Diesel recon**: the workbook's Recon Engine (default) or the diesel set here for every trip. | the database |
 
-Our **bulkers are drawn** as in the walk-around video — white Tata Signa
-tractor, mustard V-belly pneumatic tank with the twin navy stripes, top
-handrail, tri-axle — in Shree Shyam Logistics' livery (logo, name and the
-tagline *Driving Your Progress*). The tank is see-through: the alumina (white
-powder) is drawn up to the trip's load, the **RTO passing weight (56 T gross)**
-is a dashed red line with any weight over it hatched amber, *62 T rated* is
-marked, and the top of the tank is the highest gross in the register. They're
-on every vehicle tile on Home, the vehicle cards, each vehicle (now carrying /
-last load, poured in) and each trip. A trip's page also lays it **side by side
-with the others that started with it** — start, every diesel fill, loading,
-unloading — the quickest highlighted.
+Our **bulkers are drawn** the way the Loading and Decanting apps draw our
+diesel tankers: a navy livery band on top (the logo, SHREE SHYAM LOGISTICS and
+*Driving Your Progress*), then one big **sight glass** over most of the mustard
+V-belly tank, filled from the bottom with the alumina (white powder, heaped
+under the three hatches) up to the trip's weight, with the tonnes written on
+it; the twin navy stripes run along the belly, with a white Tata Signa tractor
+and a tri-axle under-frame. The glass reads gross weight like a gauge — 40 T at
+the bottom (every load is well over that), the register's highest gross at the
+top — with the **RTO passing weight (56 T)** as a dashed red line, any weight
+over it hatched amber, and *62 T rated* marked. They're on every vehicle tile
+on Home, the vehicle cards, each vehicle (now carrying / last load, poured in)
+and each trip. A trip's page also lays it **side by side with the others that
+started with it** — start, every diesel fill, loading, unloading — the
+quickest highlighted.
 
 Everywhere: the **Shree Shyam Logistics logo** (a glowing animation on Home and
 while loading, the header, sign-in, the app icon), and **light and dark** —

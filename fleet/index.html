@@ -693,23 +693,28 @@ label.radio { margin: 8px 0; align-items: flex-start; } label.radio input { marg
   .veh small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
-/* ===================== the bulker graphic ===================== */
+/* ===================== the bulker graphic (as the tanker in Loading / Decanting) ===================== */
 .bulker { display: block; width: 100%; height: auto; overflow: visible; }
-.bk-ground { stroke: var(--grid-zero); stroke-width: 1.5; stroke-dasharray: 2 5; }
-.bk-rto { stroke: #ff5a3c; stroke-width: 1.3; stroke-dasharray: 5 3; }
-.bk-rated { stroke: rgba(255,255,255,.55); stroke-width: 1; stroke-dasharray: 2 3; }
-.bk-t { font: 700 9px var(--display); fill: var(--muted); }
-.bk-rto-t { fill: #ff5a3c; paint-order: stroke; stroke: rgba(255,255,255,.75); stroke-width: 2px; }
-.bk-load-t { fill: #3b3a35; font-size: 9.5px; }
-.bulker .bk-t:not(.bk-rto-t):not(.bk-load-t) { fill: #f1e7d6; }
-.bk-door { font: 800 10.5px var(--display); fill: #1d3577; letter-spacing: .02em; }
-.bk-name { font: 800 9.6px var(--display); fill: #1d3577; letter-spacing: .04em; paint-order: stroke; stroke: rgba(255,255,255,.55); stroke-width: 1.6px; }
-.bk-sub { font: 700 5.6px var(--display); fill: #1d3577; letter-spacing: .42em; paint-order: stroke; stroke: rgba(255,255,255,.5); stroke-width: 1.2px; }
-.bk-tag { font: italic 600 4.6px var(--display); fill: #1d3577; letter-spacing: .03em; paint-order: stroke; stroke: rgba(255,255,255,.5); stroke-width: 1px; }
+.bk-ground { stroke: var(--grid-zero); stroke-width: 1.4; stroke-dasharray: 2 5; }
+.bk-glass { fill: #20262c; }
+.bk-glass-rim { fill: none; stroke: #8d969e; stroke-width: 1.2; }
+.bk-livery { font: 800 7px var(--display); fill: #fff; letter-spacing: .14em; }
+.bk-tag { font: italic 600 5.6px var(--display); letter-spacing: .04em; fill: #f5c02a; }
+.bk-big { font: 800 15px var(--display); fill: rgba(255,255,255,.55); letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.bk-big.on-powder { fill: #2f2c25; }
+.bk-small { font: 600 6.4px var(--display); fill: rgba(255,255,255,.55); }
+.bk-small.on-powder { fill: #5d584b; }
+.bk-rto { stroke: #ff4d2e; stroke-width: 1.3; stroke-dasharray: 5 3; }
+.bk-rated { stroke: rgba(150,150,150,.6); stroke-width: .9; stroke-dasharray: 2 3; }
+.bk-t { font: 800 7px var(--display); }
+.bk-rto-t { fill: #ff4d2e; paint-order: stroke; stroke: rgba(255,255,255,.8); stroke-width: 2px; }
+.bk-rated-t { fill: rgba(255,255,255,.6); font-size: 6px; }
+.bulker.is-loaded .bk-rated-t { fill: #6d685b; }
+.bk-door { font: 800 10px var(--display); fill: #1e3a8a; letter-spacing: .02em; }
 .bulker.compact .bk-tag { display: none; }
+.bulker.compact .bk-big { font-size: 22px; }
 .bk-fill.pour { animation: bk-pour 1.6s cubic-bezier(.3,.7,.3,1) .2s both; }
 @keyframes bk-pour { from { transform: translateY(var(--from)); } to { transform: none; } }
-.bulker.is-over .bk-rto { stroke-width: 1.6; }
 @media (prefers-reduced-motion: reduce) { .bk-fill.pour { animation: none; } }
 /* trips side by side */
 .lanes { display: block; width: 100%; height: auto; }
