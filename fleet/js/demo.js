@@ -110,10 +110,25 @@ export function demoData(today) {
       pay.paidDate = `${addMonths(m, 2)}-12`;
     }
   });
+  // advances (Driver Payment sheet): the driver on the truck at the time; two
+  // trucks change driver halfway, at the first trip with an advance
+  const NAMES = ['Ramesh', 'Dinesh', 'Suresh', 'Mahesh', 'Naresh', 'Rajesh', 'Mukesh', 'Ganesh'];
+  const NEW = { XX01AB1002: 'Umesh', XX01AB1006: 'Kamlesh' };
+  const driverPay = [];
+  const mid = addDays(start0, 200);
+  vehicles.forEach((veh, i) => {
+    let name = NAMES[i];
+    for (const t of trips.filter((x) => x.veh === veh && x.drvTrip)) {
+      if (NEW[veh] && t.start >= mid) name = NEW[veh];
+      driverPay.push({ row: driverPay.length + 2, date: t.start, veh, amount: t.drvTrip, name, note: '' });
+    }
+  });
+  driverPay.sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((x, i) => { x.row = i + 2; });
+  const roster = vehicles.map((veh, i) => ({ veh, name: NEW[veh] || NAMES[i] }));
   return {
     version: 1, fileName: 'Demo Trip Register.xlsm', readAt: new Date().toISOString(),
     latest: trips.map((t) => t.loadDate || t.start).sort().pop(), demo: true,
-    trips, hsd, urea, rates: RATES,
+    trips, hsd, urea, rates: RATES, driverPay, roster,
     ssfc: { party: { name: 'DEMO FREIGHT CARRIER', gstin: '' }, rows, memos: [{ label: 'Security deposit (made up)', amount: 500000 }], workbook: {} },
     recon: { fromRow: 3, underloadFromRow: 3, overloadOver: 58, underloadBelow: 58, perTonne: 5, noUnderloadPorts: ['Gangavaram'], rows: {} },
     checks: {}, warnings: [],

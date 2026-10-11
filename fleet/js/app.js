@@ -15,8 +15,11 @@ import { demoData } from './demo.js';
 import { bookFromSheetJS, extractFleet } from './parse.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { bulkerSvg, lanesLegend, lanesSvg, RTO_GROSS, TAGLINE } from './bulker.js';
-import { liveBehind, performance, SLOW_DAYS, STAGES } from './perf.js';
+import { byDriver, liveBehind, performance, SLOW_DAYS, STAGES } from './perf.js';
 import { liveTrips } from './live.js';
+import { sameDriver } from './drivers.js';
+import { dataChecks } from './checks.js';
+import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
   addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
@@ -289,6 +292,7 @@ function demoSettings() {
 }
 
 function startApp() {
+  watchUploads();
   renderShell();
   if (!state.routing) {
     window.addEventListener('hashchange', route);
@@ -323,9 +327,57 @@ function renderShell() {
     <nav class="tabs" aria-label="Sections">
       ${TABS.map(([href, name, short]) => `<a href="${href}" data-tab="${href}">${short ? `<span class="hide-sm">${name}</span><span class="show-sm">${short}</span>` : name}</a>`).join('')}
     </nav>
+    <div id="newer"></div>
     <main id="main"></main>`;
   document.getElementById('signout').addEventListener('click', signOut);
+  paintNewer();
   bindTheme();
+}
+
+// Another device saved a newer upload: load it when this tab comes back into
+// view (unless an upload or Setup is open here); while the tab stays open,
+// say so rather than redraw the page under the reader.
+function watchUploads() {
+  if (state.watching) return;
+  state.watching = true;
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkNewer(true); });
+  setInterval(() => checkNewer(false), 5 * 60 * 1000);
+}
+async function checkNewer(load) {
+  if (!state.store || state.demo || state.localOnly || state.preview || !state.meta || state.meta.id == null || document.hidden) return;
+  let top;
+  try {
+    [top] = await state.store.uploads(1);
+  } catch {
+    return;
+  }
+  if (!top || top.id === state.meta.id) return;
+  state.newer = top;
+  const busy = /^#\/(upload|setup)/.test(location.hash);
+  if (load && !busy) await loadNewer();
+  else paintNewer();
+}
+function paintNewer() {
+  const el = document.getElementById('newer');
+  if (!el) return;
+  const n = state.newer;
+  el.innerHTML = n ? `<div class="newer-bar" role="status">Newer data was saved — ${esc(n.file_name)}, ${new Date(n.created_at).toLocaleString('en-IN')}${n.by_email ? ` by ${esc(n.by_email)}` : ''}. <button class="btn small" id="load-newer">Load it</button></div>` : '';
+  document.getElementById('load-newer')?.addEventListener('click', () => guard(loadNewer));
+}
+async function loadNewer() {
+  const latest = await state.store.latest();
+  if (!latest) return;
+  const m = location.hash.match(/^#\/trip\/(\d+)$/);
+  const was = m && state.data ? state.data.trips.find((t) => t.row === Number(m[1])) : null;
+  state.data = latest.payload;
+  state.meta = latest.meta;
+  state.newer = null;
+  renderShell();
+  // a trip page follows its trip (rows move when rows are added or deleted in Excel)
+  const now = was ? state.data.trips.find((t) => t.veh === was.veh && t.trip === was.trip) : null;
+  if (now && now.row !== was.row) location.hash = `#/trip/${now.row}`;
+  else route();
+  toast(`Updated to the latest upload — ${latest.meta.file_name}, ${new Date(latest.meta.created_at).toLocaleString('en-IN')}.`);
 }
 
 const ROUTES = [
@@ -488,7 +540,10 @@ function liveText(x) {
   return `${shortVeh(x.veh)}${who ? ` (${who})` : ''}: ${what}${bench}${ahead}`;
 }
 function driverNow(veh) {
-  const sp = [...derived().drivers.spells].reverse().find((x) => x.veh === veh);
+  const dc = derived().drivers;
+  const now = dc.now.get(veh);
+  if (now) return now.name;
+  const sp = [...dc.spells].reverse().find((x) => x.veh === veh);
   return sp && sp.name ? sp.name : '';
 }                                            // a driver is flagged above this
 // months to chart for a period: the period itself, or the last 12 months when it's short
@@ -835,10 +890,12 @@ function driverLine(t) {
   const r = dc.rows.find((x) => x.t === t);
   const k = kms.get(t.row);
   const km = k && k.complete && k.km ? `<p class="small muted">Distance ${indian(k.km)} km (${k.empty ? `${indian(k.empty)} empty + ` : ''}${indian(k.loaded)} loaded)${dieselLitres(t) ? ` · ${(k.km / dieselLitres(t)).toFixed(2)} km/L` : ''}</p>` : '';
-  if (!r) return km;
-  if (r.salary == null) return `${km}<p class="small muted">Driver salary for ${esc(routeOf(t))} isn't set — <a href="#/setup">Setup</a>.</p>`;
+  const info = dc.tripInfo(t);
+  const paid = info && info.paid.length ? `<p class="small muted">Advances in this trip (Driver Payment): ${info.paid.map((x) => `${fmtDate(x.date)} ${rupees(x.amount)} to ${esc(x.name)}${x.note ? ` (${esc(x.note)})` : ''}`).join(' · ')}</p>` : '';
+  if (!r) return km + paid;
+  if (r.salary == null) return `${km}${paid}<p class="small muted">Driver salary for ${esc(routeOf(t))} isn't set — <a href="#/setup">Setup</a>.</p>`;
   return `${km}<div class="drv-line ${r.over > dc.tolerance ? 'bad' : ''}"><span>Driver salary <b>${rupees(r.salary)}</b></span><span>− your advance <b>${rupees(r.advance)}</b></span><span>= SSFC should pay <b>${rupees(r.expected)}</b></span><span>SSFC paid <b>${rupees(r.ssfc)}</b></span>
-    <span class="${r.over > dc.tolerance ? 'bad-text' : r.over < -dc.tolerance ? '' : 'good-text'}"><b>${r.over > dc.tolerance ? `Overpaid ${rupees(r.over)}` : r.over < -dc.tolerance ? `${rupees(-r.over)} less` : '✓ matches'}</b></span></div>`;
+    <span class="${r.over > dc.tolerance ? 'bad-text' : r.over < -dc.tolerance ? '' : 'good-text'}"><b>${r.over > dc.tolerance ? `Overpaid ${rupees(r.over)}` : r.over < -dc.tolerance ? `${rupees(-r.over)} less` : '✓ matches'}</b></span></div>${paid}`;
 }
 
 async function viewTrip(row) {
@@ -854,7 +911,7 @@ async function viewTrip(row) {
   const days = tripDays(t);
   setMain(`<section class="card">
     <a class="muted small" href="#/trips">← Trips</a>
-    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(t.veh))}</span><div><h2>${esc(t.trip)}</h2><p class="muted">${vehLink(t.veh)} · ${esc(routeOf(t))}</p></div></div>${statusPill(t)}</div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(t.veh))}</span><div><h2>${esc(t.trip)}</h2><p class="muted">${vehLink(t.veh)} · ${esc(routeOf(t))}${derived().drivers.tripDriver(t) ? ` · driver <b>${esc(derived().drivers.tripDriver(t))}</b>` : ''}</p></div></div>${statusPill(t)}</div>
     ${why ? `<div class="todo warn" style="margin-top:12px">Check this trip in Excel: ${esc(why)}.</div>` : ''}
     <div class="bulker-hero">${bulkerFor(t.loadWt ? t : null, { animate: true })}
       <p class="bk-cap">${t.loadWt ? `<b>${t.loadWt.toFixed(2)} T</b> of alumina · tare ${t.tare ? t.tare.toFixed(2) : '—'} T · gross <b>${t.gross ? t.gross.toFixed(2) : '—'} T</b> ${weightLine(t)}` : 'Not loaded yet'}</p></div>
@@ -1190,28 +1247,92 @@ async function uploadSection(box) {
       preview.innerHTML = errorHtml(err);
       return;
     }
-    preview.innerHTML = previewHtml(data);
-    document.getElementById('save')?.addEventListener('click', (e) => guard(async () => {
-      e.target.disabled = true;
-      e.target.textContent = 'Saving…';
-      const meta = await state.store.save(file.name, data);
-      state.data = data;
-      state.meta = meta;
-      if (state.preview) { state.preview = false; renderShell(); }
-      toast(`Saved — ${plural(data.trips.length, 'trip')} up to ${fmtDate(data.latest)}.`);
-      location.hash = '#/';
-    }).finally(() => { e.target.disabled = false; }));
-    document.getElementById('view-only')?.addEventListener('click', () => {
-      state.data = data;
-      state.meta = { file_name: file.name, created_at: new Date().toISOString(), by_email: '' };
-      if (!state.localOnly) state.preview = true;
-      renderShell();
-      if (location.hash === '#/') route(); else location.hash = '#/';
-    });
+    await showPreview(preview, file, data);
   }));
 }
 
-function previewHtml(data) {
+// the file against what's saved right now (fetched fresh, so another
+// device's upload since this page opened is what it's compared with)
+async function showPreview(preview, file, data, note = '') {
+  let base = null;
+  if (state.store && !state.localOnly) {
+    preview.innerHTML = logoLoader('Comparing with the saved data…');
+    try {
+      base = await state.store.latest();
+    } catch (err) {
+      preview.innerHTML = errorHtml(err);
+      return;
+    }
+  } else if (state.data && state.data !== data) {
+    base = { meta: state.meta, payload: state.data };
+  }
+  const cmp = base && base.payload ? compareUploads(base.payload, data) : null;
+  preview.innerHTML = (note ? `<div class="todo warn">${note}</div>` : '') + previewHtml(data, cmp, base && base.meta);
+  const save = document.getElementById('save');
+  const override = document.getElementById('override');
+  override?.addEventListener('change', () => { save.disabled = !override.checked; });
+  save?.addEventListener('click', (e) => guard(async () => {
+    e.target.disabled = true;
+    e.target.textContent = 'Saving…';
+    // saved by someone else since the comparison? compare again first
+    const [top] = (await state.store.uploads(1)) || [];
+    const baseId = base && base.meta ? base.meta.id : null;
+    if ((top ? top.id : null) !== baseId) {
+      await showPreview(preview, file, data, `The saved data changed while you were looking${top ? ` — ${esc(top.file_name)} was saved ${new Date(top.created_at).toLocaleString('en-IN')}${top.by_email ? ` by ${esc(top.by_email)}` : ''}` : ''}. Nothing was saved: the changes below are against what's saved now — check them and save again.`);
+      return;
+    }
+    const meta = await state.store.save(file.name, data);
+    state.data = data;
+    state.meta = meta;
+    state.newer = null;
+    if (state.preview) state.preview = false;
+    renderShell();
+    toast(`Saved — ${plural(data.trips.length, 'trip')} up to ${fmtDate(data.latest)}.`);
+    if (location.hash === '#/') route(); else location.hash = '#/';
+  }).finally(() => { if (document.body.contains(e.target)) { e.target.disabled = !!(override && !override.checked); e.target.textContent = 'Save — replace the app\'s data'; } }));
+  document.getElementById('view-only')?.addEventListener('click', () => {
+    state.data = data;
+    state.meta = { file_name: file.name, created_at: new Date().toISOString(), by_email: '' };
+    if (!state.localOnly) state.preview = true;
+    renderShell();
+    if (location.hash === '#/') route(); else location.hash = '#/';
+  });
+}
+
+// what this file changes against the saved upload
+function fieldVal(f, v) {
+  if (v == null || v === '') return '<span class="muted">blank</span>';
+  if (f.date) return fmtDate(v);
+  if (typeof v === 'number') return indian(v, Number.isInteger(v) ? 0 : 2);
+  return `“${esc(v)}”`;
+}
+function changesHtml(c, meta) {
+  const when = meta && meta.created_at ? `${new Date(meta.created_at).toLocaleString('en-IN')}${meta.by_email ? ` by ${esc(meta.by_email)}` : ''}` : '';
+  const tripName = (t) => `${esc(t.trip)} <small class="muted">${esc(shortVeh(t.veh))} · row ${t.row}</small>`;
+  const many = (xs, n, f) => `${xs.slice(0, n).map(f).join('')}${xs.length > n ? `<li class="muted">…and ${xs.length - n} more</li>` : ''}`;
+  const T = c.trips;
+  const counts = [
+    T.added.length && `+${plural(T.added.length, 'trip')}`, T.changed.length && `${plural(T.changed.length, 'trip')} edited`, T.removed.length && `${plural(T.removed.length, 'trip')} deleted`,
+    (c.pay.added.length || c.pay.removed.length) && `advances +${c.pay.added.length}${c.pay.removed.length ? ` −${c.pay.removed.length}` : ''}`,
+    (c.hsd.added.length || c.hsd.removed.length) && `HSD fills +${c.hsd.added.length}${c.hsd.removed.length ? ` −${c.hsd.removed.length}` : ''}`,
+    (c.urea.added.length || c.urea.removed.length) && `urea +${c.urea.added.length}${c.urea.removed.length ? ` −${c.urea.removed.length}` : ''}`,
+    (c.ledger.added.length || c.ledger.removed.length) && `Ledger rows changed ${Math.max(c.ledger.added.length, c.ledger.removed.length)}`,
+    (c.roster.added.length || c.roster.removed.length) && 'drivers list changed',
+  ].filter(Boolean);
+  const pay = (p) => `<li>${fmtDate(p.date)} · ${esc(shortVeh(p.veh))} · ${rupees(p.amount)} · ${esc(p.name)}${p.note ? ` <small class="muted">${esc(p.note)}</small>` : ''}</li>`;
+  return `<div class="changes">
+    <h4>Changes against the saved data${when ? ` <small class="muted">(uploaded ${when})</small>` : ''}</h4>
+    ${c.risks.length ? `<ul class="checks">${c.risks.map((r) => `<li class="${r.level === 'stop' ? 'bad-text' : 'warn-text'}">${r.level === 'stop' ? '⛔' : '!'} ${esc(r.text)}</li>`).join('')}</ul>` : ''}
+    ${c.none ? '<p class="good-text">✓ Nothing has changed since then.</p>' : `<p class="chg-sum">${counts.map((x) => `<span>${x}</span>`).join('')}</p>
+    ${T.added.length ? `<details><summary>New trips (${T.added.length})</summary><ul class="chg-list">${many(T.added, 40, (t) => `<li>${tripName(t)} · ${esc(routeOf(t))} · started ${t.start ? fmtDate(t.start) : '—'}</li>`)}</ul></details>` : ''}
+    ${T.changed.length ? `<details${T.changed.length <= 8 ? ' open' : ''}><summary>Edited trips (${T.changed.length})</summary><ul class="chg-list">${many(T.changed, 60, (x) => `<li>${tripName(x.t)}: ${x.fields.map((f) => `${esc(f.name)} ${fieldVal(f, f.from)} → <b>${fieldVal(f, f.to)}</b>`).join(' · ')}</li>`)}</ul></details>` : ''}
+    ${T.removed.length ? `<details open><summary class="warn-text">Trips not in this file (${T.removed.length})</summary><ul class="chg-list">${many(T.removed, 40, (t) => `<li>${tripName(t)} · ${esc(routeOf(t))}</li>`)}</ul></details>` : ''}
+    ${c.pay.added.length || c.pay.removed.length ? `<details><summary>Driver advances (+${c.pay.added.length} −${c.pay.removed.length})</summary>${c.pay.added.length ? `<p class="small">New:</p><ul class="chg-list">${many(c.pay.added, 30, pay)}</ul>` : ''}${c.pay.removed.length ? `<p class="small warn-text">Not in this file any more:</p><ul class="chg-list">${many(c.pay.removed, 30, pay)}</ul>` : ''}</details>` : ''}
+    ${c.roster.added.length || c.roster.removed.length ? `<details><summary>Drivers list</summary><ul class="chg-list">${c.roster.removed.map((r) => `<li>${esc(shortVeh(r.veh))}: <s>${esc(r.name)}</s></li>`).join('')}${c.roster.added.map((r) => `<li>${esc(shortVeh(r.veh))}: <b>${esc(r.name)}</b></li>`).join('')}</ul></details>` : ''}`}
+  </div>`;
+}
+
+function previewHtml(data, cmp = null, baseMeta = null) {
   const acc = ssfcAccount(data.ssfc, today());
   const rec = dieselRecon(data);
   const odd = dateIssues(data, today());
@@ -1221,7 +1342,15 @@ function previewHtml(data) {
   if (acc && data.checks.ssfcTotal != null) checks.push(ok(Math.abs(acc.total - data.checks.ssfcTotal) < 1, `SSFC outstanding ${rupees(acc.total)} ${Math.abs(acc.total - data.checks.ssfcTotal) < 1 ? 'matches the Ledger sheet' : `— the Ledger sheet shows ${rupees(data.checks.ssfcTotal)}`}`));
   if (data.checks.reconTotal != null) checks.push(ok(Math.abs(rec.total - data.checks.reconTotal) < 0.05, `Diesel recon ${indian(rec.total, 2)} L ${Math.abs(rec.total - data.checks.reconTotal) < 0.05 ? 'matches the Diesel Recon sheet' : `— the sheet shows ${indian(data.checks.reconTotal, 2)} L`}`));
   if (odd.length) checks.push(ok(false, `${plural(odd.length, 'trip')} with dates that look mistyped: ${odd.slice(0, 4).map((x) => `${esc(x.t.trip)} ${esc(shortVeh(x.t.veh))}`).join(', ')}${odd.length > 4 ? '…' : ''} (shown under Trips → Dates to check)`));
+  const found = dataChecks(data, today());
+  if ((data.driverPay || []).length) {
+    const total = data.driverPay.reduce((a, x) => a + x.amount, 0);
+    const good = !found.some((x) => /Trip Driver Payment doesn't match|Driver Payment rows? \d/.test(x.text));
+    checks.push(ok(good, `Driver advances ${rupees(total)} in ${plural(data.driverPay.length, 'payment')}${good ? ' — each trip\'s Trip Driver Payment matches them' : ''} · ${plural((data.roster || []).length, 'driver')} on the drivers list`));
+  }
+  if (!found.some((x) => /don't add up/.test(x.text))) checks.push(ok(true, 'Gross Weight, Excess/Short, Trip Bhada, SSFC Net Amount and Income/Trip add up on every trip'));
   for (const w of data.warnings) checks.push(ok(false, esc(w)));
+  for (const x of found) checks.push(x.level === 'warn' ? ok(false, esc(x.text)) : `<li class="muted">ⓘ ${esc(x.text)}</li>`);
   const canSave = state.store && !state.localOnly;
   return `<div class="card good-card">
     <b>${esc(data.fileName)}</b>
@@ -1230,11 +1359,14 @@ function previewHtml(data) {
       <div><span class="num">${fmtDate(data.latest)}</span><span class="lbl">latest trip</span></div>
       <div><span class="num">${data.hsd.length}</span><span class="lbl">HSD fills</span></div>
       <div><span class="num">${data.urea.length}</span><span class="lbl">urea entries</span></div>
+      ${(data.driverPay || []).length ? `<div><span class="num">${data.driverPay.length}</span><span class="lbl">driver advances</span></div>` : ''}
       <div><span class="num">${data.ssfc ? data.ssfc.rows.length : 0}</span><span class="lbl">SSFC ledger rows</span></div>
     </div>
     ${checks.length ? `<ul class="checks">${checks.join('')}</ul>` : ''}
+    ${cmp ? changesHtml(cmp, baseMeta) : ''}
+    ${canSave && cmp && blocking(cmp) ? '<label class="override"><input type="checkbox" id="override"> I\'ve checked the above — save this file anyway</label>' : ''}
     <div class="actions">
-      ${canSave ? '<button class="btn" id="save">Save — replace the app\'s data</button>' : ''}
+      ${canSave ? `<button class="btn" id="save"${cmp && blocking(cmp) ? ' disabled' : ''}>Save — replace the app's data</button>` : ''}
       <button class="btn ghost" id="view-only">${canSave ? 'Just look, don\'t save' : 'Open'}</button>
     </div></div>`;
 }
@@ -1278,7 +1410,7 @@ async function viewDrivers() {
 
   <section class="card">
     <h3>Overpaid drivers</h3>
-    <p class="muted small">Each driver's spell on a vehicle (a new spell starts at a trip whose remarks say “New Driver” / “Driver Changed”), all trips: what reached him (SSFC + your advances) + debits − salary earned.</p>
+    <p class="muted small">Each driver's spell on a vehicle (${dc.byPayments ? 'who drove which trip comes from the advances in the Driver Payment sheet' : 'a new spell starts at a trip whose remarks say “New Driver” / “Driver Changed”'}), all trips: what reached him (SSFC + your advances) + debits − salary earned.</p>
     ${overpaid.length ? `<div class="co-grid">${overpaid.map((x) => `<a class="co-card driver-card" href="#/drivers/${encodeURIComponent(x.veh)}">
       <div class="co-head"><span class="avatar sm">${esc(shortVeh(x.veh))}</span><b>${esc(x.label)}</b>${x.current ? '<span class="pill fuel-pill">Now</span>' : ''}</div>
       <span class="co-val bad-text">${rupees(x.balance)}</span>
@@ -1289,10 +1421,19 @@ async function viewDrivers() {
 
   <section class="card">
     <h3>Each vehicle's driver now</h3>
+    ${dc.now.size && [...dc.now.values()].some((n) => n.from === 'list') ? '<p class="muted small">From the drivers list in the Driver Payment sheet; “since” is his first trip on the truck by the advances paid.</p>' : ''}
     <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th>Driver</th><th>Since</th><th class="r">Trips</th><th class="r">Salary</th><th class="r">SSFC + you</th><th class="r">Debits</th><th class="r">Balance</th></tr></thead><tbody>
-      ${vehicles.map((v) => { const x = [...dc.spells].reverse().find((y) => y.veh === v); return x ? `<tr><td><a href="#/drivers/${encodeURIComponent(v)}">${esc(v)}</a></td><td>${esc(x.label)}</td><td>${x.from ? fmtDate(x.from) : '—'}</td><td class="r">${x.trips.length}</td><td class="r">${rupees(x.salary)}</td><td class="r">${rupees(x.ssfc + x.advance)}</td><td class="r">${x.debit ? rupees(x.debit) : '—'}</td><td class="r">${owes(x.balance)}</td></tr>` : ''; }).join('')}
+      ${vehicles.map((v) => {
+        const x = [...dc.spells].reverse().find((y) => y.veh === v);
+        const now = dc.now.get(v);
+        if (!x) return '';
+        const differs = now && x.name && !now.matches;
+        return `<tr><td><a href="#/drivers/${encodeURIComponent(v)}">${esc(v)}</a></td><td>${esc(now ? now.name : x.label)}${differs ? `<small class="warn-text block">last advance was to ${esc(x.name)} — no advance to ${esc(now.name)} yet</small>` : ''}</td><td>${differs ? '—' : x.from ? fmtDate(x.from) : '—'}</td><td class="r">${x.all.length}</td><td class="r">${rupees(x.salary)}</td><td class="r">${rupees(x.ssfc + x.advance)}</td><td class="r">${x.debit ? rupees(x.debit) : '—'}</td><td class="r">${owes(x.balance)}</td></tr>`;
+      }).join('')}
     </tbody></table></div>
+    <p class="muted small">Trips = trips he has driven on it; salary, SSFC and balance count only the trips checked (from ${monthLong(dc.checkFrom)}).</p>
   </section>
+  ${dc.byPayments ? driverChangesHtml(dc) + advancesHtml(dc, p) : ''}
 
   <section class="card">
     <h3>Trips where SSFC paid the driver more than salary − advances <span class="muted">${esc(periodRange(p))}</span></h3>
@@ -1302,6 +1443,47 @@ async function viewDrivers() {
   </section>`);
   bindPeriod(main());
   document.getElementById('all-over')?.addEventListener('click', () => { state.ui.allOver = true; rerender(); });
+  document.getElementById('all-changes')?.addEventListener('click', () => { state.ui.allChanges = true; rerender(); });
+}
+
+// who took over which truck, newest first
+function driverChangesHtml(dc) {
+  const changes = dc.spells.filter((x) => !x.first).sort((a, b) => (a.from < b.from ? 1 : -1));
+  if (!changes.length) return '';
+  const prevOf = (x) => { const mine = dc.spells.filter((y) => y.veh === x.veh); return mine[mine.indexOf(x) - 1]; };
+  const show = state.ui.allChanges ? changes : changes.slice(0, 12);
+  return `<section class="card">
+    <h3>Driver changes</h3>
+    <p class="muted small">A new driver's first advance (Driver Payment sheet) falls in the trip he took over. A settlement to the driver who left (security, balance, last trip …) doesn't count as driving.</p>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>From</th><th>Vehicle</th><th>Took over</th><th>From driver</th><th>First trip</th><th class="r">Trips driven</th></tr></thead><tbody>
+      ${show.map((x) => { const pv = prevOf(x); return `<tr><td>${fmtDate(x.from)}</td><td><a href="#/drivers/${encodeURIComponent(x.veh)}">${esc(shortVeh(x.veh))}</a></td><td><b>${esc(x.label)}</b>${x.current ? ' <span class="pill fuel-pill">Now</span>' : ''}</td><td>${pv ? esc(pv.label) : '—'}${pv ? `<small class="muted block">${plural(pv.all.length, 'trip')}</small>` : ''}</td><td><a href="#/trip/${x.fromTrip.row}">${esc(x.fromTrip.trip)}</a><small class="muted block">${esc(routeOf(x.fromTrip))}</small></td><td class="r">${x.all.length}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    ${changes.length > show.length ? `<button class="btn ghost small" id="all-changes">Show all ${changes.length}</button>` : ''}
+  </section>`;
+}
+
+// advances paid in the period, by driver (one person across trucks)
+function advancesHtml(dc, p) {
+  const pays = (state.data.driverPay || []).filter((x) => x.date.slice(0, 7) >= p.from && x.date.slice(0, 7) <= p.to);
+  if (!pays.length) return '';
+  const canon = (n) => { const sp = dc.spells.find((x) => x.name && sameDriver(x.name, n)); return sp ? sp.name : n; };
+  const by = new Map();
+  for (const x of pays) {
+    const k = canon(x.name);
+    if (!by.has(k)) by.set(k, { name: k, total: 0, n: 0, vehs: new Set(), last: '', notes: [] });
+    const g = by.get(k);
+    g.total += x.amount; g.n += 1; g.vehs.add(shortVeh(x.veh));
+    if (x.date > g.last) g.last = x.date;
+    if (x.note) g.notes.push(`${fmtDate(x.date)}: ${x.note}`);
+  }
+  const list = [...by.values()].sort((a, b) => b.total - a.total);
+  const total = pays.reduce((a, x) => a + x.amount, 0);
+  return `<section class="card">
+    <div class="row-between"><h3>Advances paid by driver</h3><span class="muted small">${esc(periodRange(p))} · ${rupees(total)} in ${plural(pays.length, 'payment')}</span></div>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Driver</th><th>Trucks</th><th class="r">Payments</th><th class="r">Paid</th><th>Last paid</th><th>Notes</th></tr></thead><tbody>
+      ${list.map((g) => `<tr><td><b>${esc(g.name)}</b></td><td>${esc([...g.vehs].join(', '))}</td><td class="r">${g.n}</td><td class="r">${rupees(g.total)}</td><td>${fmtDate(g.last)}</td><td class="small muted">${esc(g.notes.join(' · '))}</td></tr>`).join('')}
+    </tbody></table></div>
+  </section>`;
 }
 
 async function viewDriverVehicle(veh) {
@@ -1316,7 +1498,10 @@ async function viewDriverVehicle(veh) {
   </section>
   ${[...spells].reverse().map((sp) => `<section class="card">
     <div class="row-between"><h3>${esc(sp.label)} ${sp.current ? '<span class="pill fuel-pill">Now</span>' : ''}</h3>${owes(sp.balance)}</div>
-    <p class="muted small">From ${sp.from ? dateYear(sp.from) : '—'} (${esc(sp.fromTrip.trip)})${sp.remark ? ` · “${esc(sp.remark)}”` : ''} · ${plural(sp.trips.length, 'trip')} checked · salary ${rupees(sp.salary)} · SSFC ${rupees(sp.ssfc)} + you ${rupees(sp.advance)}${sp.debit ? ` · debits ${rupees(sp.debit)}` : ''}</p>
+    <p class="muted small">${sp.from ? dateYear(sp.from) : '—'} (${esc(sp.fromTrip.trip)}) → ${sp.current ? 'now' : `${sp.to ? dateYear(sp.to) : '—'} (${esc(sp.all[sp.all.length - 1].trip)})`} · ${plural(sp.all.length, 'trip')} driven${sp.remark ? ` · “${esc(sp.remark)}”` : ''} · ${plural(sp.trips.length, 'trip')} checked · salary ${rupees(sp.salary)} · SSFC ${rupees(sp.ssfc)} + you ${rupees(sp.advance)}${sp.debit ? ` · debits ${rupees(sp.debit)}` : ''}</p>
+    ${sp.payments.length ? `<details class="pay-list"><summary>${plural(sp.payments.length, 'advance')} paid in his trips · ${rupees(sp.payments.reduce((a, x) => a + x.amount, 0))}</summary><div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Paid to</th><th class="r">Amount</th><th>Note</th></tr></thead><tbody>
+      ${[...sp.payments].reverse().map((x) => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.name)}</td><td class="r">${rupees(x.amount)}</td><td class="small muted">${esc(x.note || '')}</td></tr>`).join('')}
+    </tbody></table></div></details>` : ''}
     <div class="table-wrap"><table class="compact"><thead><tr><th>Loaded</th><th>Trip</th><th>Route</th><th class="r">Salary</th><th class="r">Your advance</th><th class="r">SSFC paid</th><th class="r">Debit</th><th class="r">Trip ±</th><th class="r">Running</th></tr></thead><tbody>
       ${rowsOf(sp).reverse().map((r) => `<tr><td>${fmtDate(r.t.loadDate || r.t.start)}</td><td><a href="#/trip/${r.t.row}">${esc(r.t.trip)}</a>${r.t.remarks ? `<small class="muted block">${esc(r.t.remarks)}</small>` : ''}</td><td class="small">${esc(routeOf(r.t))}</td>
         <td class="r">${r.salary != null ? rupees(r.salary) : '<span class="muted">not set</span>'}</td><td class="r">${r.advance ? rupees(r.advance) : '—'}</td><td class="r">${r.ssfc ? rupees(r.ssfc) : '—'}</td><td class="r">${r.debit ? rupees(r.debit) : ''}</td>
@@ -1510,9 +1695,25 @@ async function viewSetup() {
       clean.routes = clean.routes.filter((r) => r.port && r.dest && (r.km !== '' || r.salary !== '' || r.diesel !== ''))
         .map((r) => ({ port: r.port, dest: r.dest, from: r.from || '', km: r.km === '' ? null : r.km, salary: r.salary === '' ? null : r.salary, diesel: r.diesel === '' ? null : r.diesel }));
       e.target.disabled = true;
+      const shared = !state.settingsMissing && state.store && state.store.saveSettings && !state.localOnly;
+      // changed on another device since this page loaded it? don't overwrite it unasked
+      if (shared) {
+        const cur = await state.store.settings().catch(() => null);
+        const mine = state.settingsMeta ? state.settingsMeta.updated_at : null;
+        if (cur && cur.updated_at && cur.updated_at !== mine
+          && !window.confirm(`Setup was changed${cur.by_email ? ` by ${cur.by_email}` : ''} on ${new Date(cur.updated_at).toLocaleString('en-IN')}, after this page loaded it.\n\nOK = save yours over it.\nCancel = keep theirs (your edits here are dropped).`)) {
+          state.settings = withDefaults(cur.value);
+          state.settingsMeta = cur;
+          state.rev += 1;
+          state.ui.setupDraft = null;
+          toast('Kept the other change — Setup reloaded.');
+          viewSetup();
+          return;
+        }
+      }
       state.settings = clean;
       state.rev += 1;
-      if (!state.settingsMissing && state.store && state.store.saveSettings && !state.localOnly) {
+      if (shared) {
         try {
           state.settingsMeta = await state.store.saveSettings(clean);
           toast('Setup saved.');
@@ -1598,6 +1799,11 @@ async function viewPerformance(route) {
   const slowTrips = [...perf.compared].filter((c) => c.slow).sort((a, b) => b.vsUsual.trip - a.vsUsual.trip);
   const cyc = perf.cycle || 9;
   const avgFreight = (() => { const xs = d.trips.filter((t) => inPeriod(t, p) && t.bhada); return xs.length ? xs.reduce((a, t) => a + t.bhada, 0) / xs.length : 0; })();
+  const dc = derived().drivers;
+  const drv = dc.byPayments ? byDriver(perf, dc.tripDriver).sort((a, b) => b.slowerPerTrip - a.slowerPerTrip) : [];
+  const drvMax = Math.max(1, ...drv.map((x) => Math.abs(x.slowerPerTrip)));
+  // who drove the vehicle's compared trips (oldest first)
+  const driversOf = (v) => { const out = []; for (const c of [...v.list].sort((a, b) => (a.t.start < b.t.start ? -1 : 1))) { const n = dc.tripDriver(c.t); if (n && out[out.length - 1] !== n) out.push(n); } return out.length ? out.join(' → ') : driverNow(v.veh); };
   setChartWidth(main().clientWidth - 38);
   setMain(`<section class="card">
     <div class="row-between"><h2>Performance</h2><span class="muted small">${esc(periodRange(p))}</span></div>
@@ -1616,10 +1822,17 @@ async function viewPerformance(route) {
     <h3>Days a trip vs the others on the same route</h3>
     ${under.length ? `<div class="todo warn">⚠ <b>${under.map((v) => esc(shortVeh(v.veh))).join(', ')}</b> ${under.length === 1 ? 'is' : 'are'} underperforming — about ${under.reduce((a, v) => a + v.daysSlower, 0).toFixed(0)} days lost against typical peers, ≈ ${(under.reduce((a, v) => a + v.daysSlower, 0) / cyc).toFixed(1)} trips (~${money((under.reduce((a, v) => a + v.daysSlower, 0) / cyc) * avgFreight)} freight) in this period.</div>` : perf.compared.length ? '<p class="good-text">✓ No vehicle is consistently slower than the others in this period.</p>' : '<p class="muted">Not enough unloaded trips in this period to compare.</p>'}
     <div class="perf-rank">${vs.map((v) => `<a class="perf-row${v.under ? ' under' : v.top ? ' top' : ''}" href="#/vehicle/${encodeURIComponent(v.veh)}">
-      <span class="pr-name"><b>${esc(shortVeh(v.veh))}</b>${v.under ? '<span class="pill bad-pill">⚠ Underperforming</span>' : v.watch ? '<span class="pill warn-pill">Slipping</span>' : v.top ? '<span class="pill good-pill">★ Top</span>' : ''}<small>${plural(v.trips, 'trip')} · ${v.slowTrips} slow · best ${v.wins}×${driverNow(v.veh) ? ` · ${esc(driverNow(v.veh))}` : ''}</small></span>
+      <span class="pr-name"><b>${esc(shortVeh(v.veh))}</b>${v.under ? '<span class="pill bad-pill">⚠ Underperforming</span>' : v.watch ? '<span class="pill warn-pill">Slipping</span>' : v.top ? '<span class="pill good-pill">★ Top</span>' : ''}<small>${plural(v.trips, 'trip')} · ${v.slowTrips} slow · best ${v.wins}×${driversOf(v) ? ` · ${esc(driversOf(v))}` : ''}</small></span>
       <span class="div-bar"><span class="neg">${v.slowerPerTrip < 0 ? `<i style="width:${((-v.slowerPerTrip / max) * 100).toFixed(1)}%"></i>` : ''}</span><span class="pos">${v.slowerPerTrip > 0 ? `<i style="width:${((v.slowerPerTrip / max) * 100).toFixed(1)}%"></i>` : ''}</span></span>
       <span class="r pr-val"><b class="${v.slowerPerTrip >= 1 ? 'bad-text' : v.slowerPerTrip <= -0.5 ? 'good-text' : ''}">${dd(v.slowerPerTrip)}</b><small>${v.worstStage && v.slowerPerTrip > 0 ? `mostly ${STAGE_NAME[v.worstStage]}` : 'a trip'}</small></span></a>`).join('')}</div>
     <p class="muted small">Left (blue) = faster than its peers, right (red) = slower; days a trip from start to unloading.</p>
+    ${drv.length ? `<h3 class="sub-h">By driver <span class="muted">the trips each one drove, on whichever truck</span></h3>
+    ${drv.some((x) => x.under) ? `<div class="todo warn">⚠ <b>${drv.filter((x) => x.under).map((x) => esc(x.name)).join(', ')}</b> — slower than the others on the same route at the same time. ${drv.filter((x) => x.under && x.worstStage).map((x) => `${esc(x.name)}: mostly ${STAGE_NAME[x.worstStage]} (${dd(x.worstStage === 'toLoad' ? x.usualToLoad : x.usualLoaded)} a trip)`).join('; ')}</div>` : ''}
+    <div class="perf-rank">${drv.map((x) => `<div class="perf-row${x.under ? ' under' : x.top ? ' top' : ''}">
+      <span class="pr-name"><b>${esc(x.name)}</b>${x.under ? '<span class="pill bad-pill">⚠ Underperforming</span>' : x.watch ? '<span class="pill warn-pill">Slipping</span>' : x.top ? '<span class="pill good-pill">★ Top</span>' : ''}<small>${plural(x.trips, 'trip')} · ${x.slowTrips} slow · ${esc(x.vehs.map(shortVeh).join(', '))}${x.vehs.every((v) => (dc.now.get(v) || {}).name !== x.name) ? ' · left' : ''}</small></span>
+      <span class="div-bar"><span class="neg">${x.slowerPerTrip < 0 ? `<i style="width:${((-x.slowerPerTrip / drvMax) * 100).toFixed(1)}%"></i>` : ''}</span><span class="pos">${x.slowerPerTrip > 0 ? `<i style="width:${((x.slowerPerTrip / drvMax) * 100).toFixed(1)}%"></i>` : ''}</span></span>
+      <span class="r pr-val"><b class="${x.slowerPerTrip >= 1 ? 'bad-text' : x.slowerPerTrip <= -0.5 ? 'good-text' : ''}">${dd(x.slowerPerTrip)}</b><small>${x.worstStage && x.slowerPerTrip > 0 ? `mostly ${STAGE_NAME[x.worstStage]}` : 'a trip'}</small></span></div>`).join('')}</div>
+    <p class="muted small">Who drove each trip comes from the advances in the Driver Payment sheet. Fewer than 3 trips in the period: shown, not judged.</p>` : ''}
 
     <h3 class="sub-h">Stage by stage <span class="muted">average days, and vs the group's typical</span></h3>
     <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th class="r">Trips</th>${STAGES.map((s) => `<th class="r" title="${esc(s.note)}">${esc(s.name)}</th>`).join('')}<th class="r">Whole trip</th><th class="r">vs best</th><th class="r">Fills / trip</th><th class="r">Diesel / trip</th></tr></thead><tbody>
@@ -1631,7 +1844,7 @@ async function viewPerformance(route) {
 
   <section class="card"><h3>Slowest trips <span class="muted">${plural(slowTrips.length, 'trip')} ${SLOW_DAYS}+ days slower than their group</span></h3>
     ${slowTrips.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Started</th><th>Vehicle</th><th>Trip</th><th>Route</th><th class="r">Took</th><th class="r">Typical</th><th class="r">Best</th><th>Lost in</th></tr></thead><tbody>
-      ${slowTrips.slice(0, state.ui.allSlow ? 999 : 30).map((c) => { const worst = ['toLoad', 'loaded'].sort((a, b) => (c.vsUsual[b] || 0) - (c.vsUsual[a] || 0))[0]; return `<tr><td>${fmtDate(c.t.start)}</td><td><b>${esc(shortVeh(c.t.veh))}</b></td><td><a href="#/trip/${c.t.row}">${esc(c.t.trip)}</a></td><td class="small">${esc(routeOf(c.t))}</td><td class="r bad-text"><b>${c.trip} d</b></td><td class="r">${c.usual.trip} d</td><td class="r">${c.best.trip} d <small class="muted">${esc(shortVeh(c.bestBy.trip.veh))}</small></td><td class="small">${worst === 'toLoad' ? `getting loaded +${c.vsUsual.toLoad} d` : `loaded run +${c.vsUsual.loaded} d`}${c.t.remarks ? ` · <span class="muted">${esc(c.t.remarks)}</span>` : ''}</td></tr>`; }).join('')}
+      ${slowTrips.slice(0, state.ui.allSlow ? 999 : 30).map((c) => { const worst = ['toLoad', 'loaded'].sort((a, b) => (c.vsUsual[b] || 0) - (c.vsUsual[a] || 0))[0]; return `<tr><td>${fmtDate(c.t.start)}</td><td><b>${esc(shortVeh(c.t.veh))}</b>${dc.tripDriver(c.t) ? `<small class="muted block">${esc(dc.tripDriver(c.t))}</small>` : ''}</td><td><a href="#/trip/${c.t.row}">${esc(c.t.trip)}</a></td><td class="small">${esc(routeOf(c.t))}</td><td class="r bad-text"><b>${c.trip} d</b></td><td class="r">${c.usual.trip} d</td><td class="r">${c.best.trip} d <small class="muted">${esc(shortVeh(c.bestBy.trip.veh))}</small></td><td class="small">${worst === 'toLoad' ? `getting loaded +${c.vsUsual.toLoad} d` : `loaded run +${c.vsUsual.loaded} d`}${c.t.remarks ? ` · <span class="muted">${esc(c.t.remarks)}</span>` : ''}</td></tr>`; }).join('')}
     </tbody></table></div>${slowTrips.length > 30 && !state.ui.allSlow ? `<button class="btn ghost small" id="all-slow">Show all ${slowTrips.length}</button>` : ''}` : '<p class="good-text">✓ None.</p>'}
     <p class="muted small">Tap a trip to see it side by side with the others that started with it (with each diesel fill).</p>
   </section>`);

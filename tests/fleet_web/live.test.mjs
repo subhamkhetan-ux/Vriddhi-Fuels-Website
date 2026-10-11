@@ -69,9 +69,9 @@ test('stages from the fills logged so far, the pace and the projection', () => {
 });
 
 test('the bulker shows the full number on its plate, and the route', () => {
-  assert.equal(plateText('OD23T2010'), 'OD 23 T 2010');
-  const svg = bulkerSvg({ state: 'loaded', load: 40, gross: 57, plate: 'OD23T2010', route: 'Kakinada → BALCO', trip: 'T055/BALCO' });
-  assert.match(svg, /OD 23 T 2010/);
+  assert.equal(plateText('XX01T1001'), 'XX 01 T 1001');
+  const svg = bulkerSvg({ state: 'loaded', load: 40, gross: 57, plate: 'XX01T1001', route: 'Kakinada → BALCO', trip: 'T055/BALCO' });
+  assert.match(svg, /XX 01 T 1001/);
   assert.match(svg, /Kakinada → BALCO/);
   assert.match(svg, /T055\/BALCO/);
 });

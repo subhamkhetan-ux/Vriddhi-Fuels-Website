@@ -31,7 +31,7 @@ const G_LOW = 94;
 const wheel = (id, cx, cy = 114, r = 12) => `<g><circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${id}ty)"/><circle cx="${cx}" cy="${cy}" r="${r * 0.62}" fill="url(#${id}rim)" stroke="#6d757d" stroke-width=".6"/>
   <circle cx="${cx}" cy="${cy}" r="${r * 0.24}" fill="#59616a"/>${[0, 72, 144, 216, 288].map((a) => { const rad = (a * Math.PI) / 180; return `<circle cx="${r1(cx + Math.cos(rad) * r * 0.42)}" cy="${r1(cy + Math.sin(rad) * r * 0.42)}" r=".9" fill="#6d757d"/>`; }).join('')}</g>`;
 
-// OD23T2010 → OD 23 T 2010 (as on the plate)
+// XX01T1001 → XX 01 T 1001 (as on the plate)
 export const plateText = (v) => {
   const m = String(v || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{1,4})$/);
   return m ? [m[1], m[2], m[3], m[4]].filter(Boolean).join(' ') : String(v || '');

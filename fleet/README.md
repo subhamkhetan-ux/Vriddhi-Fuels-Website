@@ -10,8 +10,8 @@ Excel as before; upload it here (from any phone or computer) and the app shows:
 | **Home → Rates, costs & income** | For every route (or all): **when the rate changed** — ₹ old → new a ton, and the last 40 trips at the old rate against the first 40 at the new one: load, freight, diesel (litres and ₹ a litre), driver, fastag, tyre & maintenance, RTO & documents, other, what's kept — in one sentence and a table. **Where the bhada goes**: the % of freight to each cost and what's kept — overall, by route, by rate period and by month. **Month by month**: rate a ton, pump price, diesel ₹ and litres a trip, driver a trip, kept a trip and as % of freight, load — small charts and a table. | Trip Register, HSD Data |
 | **Trips** | Every trip, newest first: filter by on the road / unloaded / short weight / loss before EMI / dates to check, by vehicle, month, route, or search trip no. & remarks. Tap a trip for its timeline, weights, the full bhada → SSFC net → income working, diesel issued vs allotted, its HSD fills and urea. | Trip Register, HSD Data, Urea DEF |
 | **Vehicles** | A card per vehicle (status, net, freight, before EMI, diesel recon); tap for its month-by-month, EMI, km and mileage, trips. | Trip Register |
-| **Vehicles → Performance** | Every trip against the trips on the **same route that started within ±10 days** (±21 when few): days to get loaded, the loaded run, idle after unloading, diesel fills. **Behind on the road now** (a vehicle past the route's recent best, or others that started with it already further on — with the driver's name, to call him). Vehicles ranked by days a trip faster / slower than their peers, **⚠ Underperforming** (≥ 1 day a trip slower than the typical peer, or 40%+ slow trips), *Slipping* (≥ ½ day), *★ Top*; days and freight lost; stage by stage; the slowest trips with the stage that lost the time. | Trip Register, HSD Data |
-| **Drivers** | Each trip: driver salary − your advances = what SSFC should pay; trips SSFC paid more; **overpaid drivers** (each driver's spell on a vehicle, from the "New Driver" / "Driver Changed" remarks, with Driver Debit as money owed back); each vehicle's driver now. | Trip Register + Setup → Routes |
+| **Vehicles → Performance** | Every trip against the trips on the **same route that started within ±10 days** (±21 when few): days to get loaded, the loaded run, idle after unloading, diesel fills. **Behind on the road now** (a vehicle past the route's recent best, or others that started with it already further on — with the driver's name, to call him). Vehicles ranked by days a trip faster / slower than their peers, **⚠ Underperforming** (≥ 1 day a trip slower than the typical peer, or 40%+ slow trips), *Slipping* (≥ ½ day), *★ Top*; days and freight lost; stage by stage; **by driver** — the trips each driver drove, on whichever truck, ranked the same way; the slowest trips with the stage that lost the time and who drove. | Trip Register, HSD Data, Driver Payment |
+| **Drivers** | Each trip: driver salary − your advances = what SSFC should pay; trips SSFC paid more; **overpaid drivers** (each driver's spell on a vehicle, with Driver Debit as money owed back); **each vehicle's driver now** (the drivers list); **driver changes** — who took over which truck on which trip; **advances paid by driver** with the notes typed beside them. A vehicle's drivers page lists every spell with its trips and advances; a trip shows its driver and the advances paid during it. | Trip Register, Driver Payment + Setup → Routes |
 | **Tyre & Fastag** | SSFC's monthly charges per vehicle: fleet total per month, a vehicle × month grid, and every month **out of the usual trend** (well above / below the fleet that month *and* the vehicle's own last six months, or booked twice). Tyre is compared month to month, fastag per trip — both per km once distances are set. Each vehicle's first two months aren't judged. Vehicles can be switched out of either analysis in Setup (tyre is off for 4010, 7010, 9010 to start with). | Trip Register |
 | **SSFC** | What SSFC owes (with and without GST), how much should come in the SSL account vs be settled in cash, every invoice cleared oldest first with its age, earned vs received by month, payments received, the Bridgestone notes. | Ledger sheet |
 | **Diesel** | Litres and ₹ by pump (SSFC / Vriddhi Fuels / SSL Own Filling / Extra / Other), per month and per place; the diesel recon per vehicle and trip by trip; urea by vendor. | HSD Data, Diesel Recon / Recon Engine, Rates, Urea DEF |
@@ -113,6 +113,21 @@ it's complete.
   *overpaid* when, over his spell on the vehicle, SSFC + your advances + Driver
   Debit is more than the salaries earned (₹500 slack); differences up to ₹100 a
   trip are ignored (both in Setup).
+- **Who drove which trip** (Driver Payment sheet): the Trip Register's Trip
+  Driver Payment adds up the advances paid on a vehicle between a trip's start
+  and the vehicle's next trip start, so the drivers paid in that window drove
+  it — the last one, when there are two (a new driver takes his first advance
+  on his first trip). A trip without an advance keeps the driver before it;
+  trips before a vehicle's first advance get its first driver. A payment noted
+  as a settlement (security, bonus, balance, voucher clear, last trip …), a
+  former driver paid once more while the new one carries on, and a payment to
+  someone driving another truck at the time don't change who's driving.
+  Names are matched loosely (Rafiq / Rafik, Ramesh / Ramesh Kumar) and
+  shown as the drivers list spells them; the drivers list is who drives each
+  truck now. Only names are read from it, not licence or bank details. The
+  upload preview checks the advances add up to the Trip Driver Payment
+  column. A workbook without the sheet falls back to remarks saying "New
+  Driver" / "Driver Changed".
 - **Tyre / fastag trend**: a month is flagged when its charge is over 1.3× the
   fleet's rate that month *and* over 1.3× the vehicle's own trend (its last six
   judged months), by at least ₹5,000 (tyre) / ₹2,500 (fastag); or under 0.6×
@@ -168,9 +183,48 @@ made-up data) and *open a Trip Register just on this device* (nothing saved).
 
 ## Day to day
 
-Keep entering trips, HSD, urea and the SSFC ledger in Excel. Save the workbook,
-then upload it here (from the phone too). The app always shows the latest
-upload.
+Keep entering, editing and deleting trips, advances, HSD, urea and the SSFC
+ledger in Excel. Save the workbook, then upload it here (from the phone too).
+
+- **Each upload replaces the saved data as a whole**: the app shows exactly
+  what the file has, so an edit or a deleted row in Excel is reflected as it
+  is. Nothing is merged, so nothing goes stale. The newest 10 uploads are kept
+  in the database.
+- **Before saving, the preview checks the file:**
+  - Excel error values (#N/A, #VALUE! …) in a column the app reads;
+  - half-filled rows: a trip without a vehicle, or an advance without a date
+    or vehicle;
+  - the same trip twice;
+  - a trip without a start date;
+  - Gross Weight, Excess/Short, Trip Bhada, SSFC Net Amount, Income/Trip and
+    Trip Driver Payment that don't match their formulas (Excel not
+    recalculated, or a formula typed over);
+  - advances on a vehicle with no trips, dated before its first trip or after
+    today;
+  - recent one-off driver names (a possible misspelling);
+  - the drivers list naming two drivers for one truck.
+- **It also shows what the file changes against what's saved right now**
+  (fetched at that moment, so another device's upload counts):
+  - trips added, edited (field by field, old → new) and deleted; trips are
+    matched by vehicle and trip number, so inserting or deleting rows doesn't
+    confuse it;
+  - advances, HSD fills, urea, Ledger and drivers-list entries added and
+    removed.
+- **Saving is stopped until you tick "save anyway"** when the file looks like
+  an old copy or is missing data:
+  - a sheet that's saved now is empty;
+  - its newest trip is older than the saved one;
+  - 3+ saved trips are missing;
+  - 3+ trips lost a loading / unloading date or weight;
+  - 5+ fills, urea entries or advances are gone.
+- **Two people saving at once:** if someone saved while you were looking at
+  the preview, your save is stopped and the file is compared again with what
+  they saved.
+- **Another device uploads:** a tab left open loads the newer data when it
+  comes back into view (or shows a notice with *Load it* while an upload or
+  Setup is open). It checks every 5 minutes while open.
+- **Setup changed on another device** since this page loaded it: you're asked
+  before your save replaces it.
 
 ## Files
 
@@ -184,6 +238,9 @@ upload.
 | `js/live.js` | A vehicle on the road: its stage from the fills, pace against the best, projected income |
 | `js/perf.js` | Who's slow: trip stages, the same-route-same-time groups, vehicle scores, behind on the road |
 | `js/bulker.js` | The bulker drawing and the side-by-side trip lanes |
+| `js/checks.js` | Checks on a freshly read workbook (formulas, duplicates, advances, names) |
+| `js/changes.js` | What an upload changes against the saved one; when to stop and ask |
+| `js/drivers.js` | Who drove which trip (Driver Payment sheet), names matched loosely, the driver now |
 | `js/rules.js` | Setup's rules: route values, km per trip, driver pay check, tyre / fastag trend |
 | `assets/` | The logo: the mark, and the wordmark for dark (light letters) and light (navy) |
 | `js/charts.js` | SVG charts and their tooltips |

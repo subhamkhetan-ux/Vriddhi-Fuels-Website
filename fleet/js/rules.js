@@ -5,6 +5,7 @@
 // the fastag / tyre trend check. Pure functions (the tests import them).
 
 import { daysBetween, monthOf } from './util.js';
+import { tripDrivers, currentDrivers } from './drivers.js';
 
 // Tyres on these vehicles aren't charged by SSFC month by month, so they're
 // left out of the tyre analysis until switched on in Setup.
@@ -106,6 +107,9 @@ export function tripKms(data, settings) {
 // overpayment. Driver Debit (damage, fines…) is money the driver owes back,
 // usually recovered by paying less on later trips — so it's tracked in the
 // running balance of each driver's spell on the vehicle, not trip by trip.
+// Who drove each trip comes from the Driver Payment sheet (drivers.js); a
+// workbook without it falls back to remarks saying “New Driver” / “Driver
+// Changed”.
 const NEW_DRIVER = /new\s+driver|driver\s+chang/i;
 export function driverName(remark) {
   const r = String(remark || '');
@@ -126,14 +130,21 @@ export function driverCheck(data, settings, today = null) {
   const missing = new Map();
   const rows = [];
   const spells = [];
+  const who = tripDrivers(data);
+  const byPay = who.size > 0;
   for (const veh of vehicles) {
     const trips = data.trips.filter((t) => t.veh === veh).sort((a, b) => a.row - b.row);
     let spell = null;
     for (const t of trips) {
-      if (!spell || NEW_DRIVER.test(t.remarks)) {
-        spell = { veh, name: spell ? driverName(t.remarks) : '', from: t.loadDate || t.start, fromTrip: t, remark: spell ? t.remarks : '', trips: [], salary: 0, ssfc: 0, advance: 0, debit: 0, balance: 0, overTrips: 0, first: !spell };
+      const d = who.get(t.row);
+      const change = byPay ? d && d.name && (!spell || d.name !== spell.name) : !spell || NEW_DRIVER.test(t.remarks);
+      if (!spell || change) {
+        const name = byPay ? (d && d.name) || '' : spell ? driverName(t.remarks) : '';
+        spell = { veh, name, from: t.loadDate || t.start, fromTrip: t, remark: !byPay && spell ? t.remarks : '', trips: [], all: [], payments: [], salary: 0, ssfc: 0, advance: 0, debit: 0, balance: 0, overTrips: 0, first: !spell };
         spells.push(spell);
       }
+      spell.all.push(t);
+      if (d) spell.payments.push(...d.paid);
       // not paid yet (no SSFC payment, no advance logged): wait for it
       const settled = t.drvSsfc != null || t.drvTrip != null || (opt.extraIsAdvance && t.drvExtra != null);
       if (!settled) continue;
@@ -145,7 +156,7 @@ export function driverCheck(data, settings, today = null) {
       if (r.salary == null) {
         const k = `${t.port} → ${t.dest}`;
         missing.set(k, (missing.get(k) || 0) + 1);
-        rows.push({ t, veh, spell, salary: null, advance, ssfc, debit, expected: null, over: null });
+        rows.push({ t, veh, spell, paid: d ? d.paid : [], salary: null, advance, ssfc, debit, expected: null, over: null });
         continue;
       }
       const expected = r.salary - advance;                         // what SSFC should pay
@@ -157,12 +168,12 @@ export function driverCheck(data, settings, today = null) {
       spell.debit += debit;
       spell.balance += over + debit;                               // + = driver has more than he earned
       if (over > tol) spell.overTrips += 1;
-      rows.push({ t, veh, spell, salary: r.salary, salaryFrom: r.salaryFrom, advance, ssfc, debit, expected, over, running: spell.balance });
+      rows.push({ t, veh, spell, paid: d ? d.paid : [], salary: r.salary, salaryFrom: r.salaryFrom, advance, ssfc, debit, expected, over, running: spell.balance });
     }
   }
-  spells.forEach((s) => { s.label = s.name || (s.first ? 'Driver from the start' : `Driver from ${s.fromTrip.trip}`); s.current = false; });
+  spells.forEach((s) => { s.label = s.name || (s.first ? 'Driver from the start' : `Driver from ${s.fromTrip.trip}`); s.current = false; s.to = s.all[s.all.length - 1].unloadDate || s.all[s.all.length - 1].loadDate || s.all[s.all.length - 1].start; });
   for (const veh of vehicles) { const mine = spells.filter((s) => s.veh === veh); if (mine.length) mine[mine.length - 1].current = true; }
-  return { rows, spells, missing: [...missing.entries()].map(([route, trips]) => ({ route, trips })), tolerance: tol, checkFrom };
+  return { rows, spells, byPayments: byPay, now: currentDrivers(data, who), tripDriver: (t) => (who.get(t.row) || {}).name || '', tripInfo: (t) => who.get(t.row) || null, missing: [...missing.entries()].map(([route, trips]) => ({ route, trips })), tolerance: tol, checkFrom };
 }
 
 // ---- fastag / tyre: the monthly SSFC charges ---------------------------------------------
