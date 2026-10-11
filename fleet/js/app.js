@@ -6,7 +6,8 @@ import {
   attention, byRoute, byVehicle, costBreakdown, dateIssues, dieselAmount, dieselLitres, dieselRecon, fleetStatus, fuel,
   inPeriod, monthly, ownExpenses, periods, routeOf, sourceOf, SOURCES, ssfcAccount, ssfcDeductions, totals, tripDays, urea, vehiclesOf,
 } from './analyse.js';
-import { bindCharts, groupedBars, legend, setChartWidth, signedBars, stackedBars } from './charts.js';
+import { bindCharts, groupedBars, legend, lineChart, setChartWidth, signedBars, stackedBars } from './charts.js';
+import { monthlyTrend, PARTS, rateChanges, rateEras, routes as trendRoutes, summary as trendSummary } from './trends.js';
 import {
   CHARGE_RULES, defaultSettings, driverCheck, monthlyCharges, routeFor, routePairs, tripKms, vehicleFlags, withDefaults,
 } from './rules.js';
@@ -335,6 +336,7 @@ const ROUTES = [
   [/^#\/performance(?:\?r=(.*))?$/, (m) => viewPerformance(m[1] ? decodeURIComponent(m[1]) : '')],
   [/^#\/vehicle\/([^/?]+)$/, (m) => viewVehicle(decodeURIComponent(m[1]))],
   [/^#\/ssfc$/, () => viewSsfc()],
+  [/^#\/trends(?:\?r=(.*))?$/, (m) => viewTrends(m[1] ? decodeURIComponent(m[1]) : '')],
   [/^#\/diesel$/, () => viewDiesel()],
   [/^#\/diesel\/([^/?]+)$/, (m) => viewDieselVehicle(decodeURIComponent(m[1]))],
   [/^#\/drivers$/, () => viewDrivers()],
@@ -354,6 +356,7 @@ async function route() {
     if (h.startsWith('#/drivers')) return '#/drivers';
     if (h.startsWith('#/costs')) return '#/costs';
     if (h.startsWith('#/upload')) return '#/setup';
+    if (h.startsWith('#/trends')) return '#/';
     return h.split('?')[0];
   };
   const cur = tabOf(hash);
@@ -432,7 +435,7 @@ function derived() {
     const kms = tripKms(d, set);
     const x = {
       recon: dieselRecon(d, set), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d),
-      issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set),
+      issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set, today()),
       maxGross: Math.max(0, ...d.trips.map((t) => t.gross || 0)),
       perfRecent: performance(d, today(), { from: addMonths(monthOf(today()), -2), to: monthOf(today()) }),
       perfAll: performance(d, today()),
@@ -691,6 +694,7 @@ function renderDashboard(box) {
 
     <h3 class="sub-h">Where every ₹100 of freight goes</h3>
     ${flowHtml(cost)}
+    <a class="btn ghost small trend-link" href="#/trends">Rates, costs &amp; income over time — what changed when the rate changed →</a>
 
     ${cm ? `<h3 class="sub-h">Month by month <span class="muted">${esc(cm.note)}</span></h3>
     ${legend([{ name: 'Freight', color: S1 }, { name: 'Profit before EMI', color: S3 }, { name: 'Net after EMI', color: S2 }])}
@@ -1260,13 +1264,14 @@ async function viewDrivers() {
     <div class="row-between"><h2>Drivers</h2><span class="muted small">${esc(periodRange(p))}</span></div>
     <p class="muted small">Each trip's driver salary (Setup → Routes) is paid partly by you — <b>Trip Driver Payment</b>${opt.extraIsAdvance ? ' and <b>Extra Own Driver Pay</b>' : ''} — and the rest by SSFC (<b>Driver SSFC Payment</b>). SSFC should pay <b>salary − your advances</b>; more than that is an overpayment.${opt.extraIsAdvance ? '' : ' <b>Extra Own Driver Pay</b> is the extra promised for those trips — on top of the salary and settled, so it\'s left out of the check.'}${opt.debitCounts ? ' <b>Driver Debit</b> (damage, fines…) is money the driver owes back.' : ''}</p>
     ${salaryNote(dc)}
+    <p class="small">Checked from <b>${monthLong(dc.checkFrom)}</b> on; trips before that are as the Trip Register has them (settled). <a href="#/setup">Change in Setup</a></p>
     ${fromRates.length ? `<p class="small warn-text">Using the Rates sheet's Driver Payment for ${esc(fromRates.join(', '))} until you set the salary in <a href="#/setup">Setup</a>.</p>` : ''}
     ${periodHtml()}
     <div class="kpis">
       <div class="kpi"><span class="lbl">Salary earned</span><span class="val" ${exact(sum((r) => r.salary))}>${money(sum((r) => r.salary))}</span><span class="sub">${plural(rows.length, 'trip')} checked</span></div>
       <div class="kpi"><span class="lbl">Your advances</span><span class="val" ${exact(sum((r) => r.advance))}>${money(sum((r) => r.advance))}</span><span class="sub">paid by you</span></div>
       <div class="kpi"><span class="lbl">Paid by SSFC</span><span class="val" ${exact(sum((r) => r.ssfc))}>${money(sum((r) => r.ssfc))}</span><span class="sub">should be ${money(sum((r) => r.expected))}</span></div>
-      <div class="kpi ${sum((r) => r.over) > OVERPAID ? 'warn' : ''}"><span class="lbl">Paid over salary</span><span class="val ${sum((r) => r.over) > OVERPAID ? 'bad-text' : ''}" ${exact(sum((r) => r.over))}>${money(sum((r) => r.over))}</span><span class="sub">${plural(over.length, 'trip')} paid more</span></div>
+      <div class="kpi ${sum((r) => Math.max(0, r.over)) > OVERPAID ? 'warn' : ''}"><span class="lbl">Paid over salary</span><span class="val ${sum((r) => Math.max(0, r.over)) > OVERPAID ? 'bad-text' : ''}" ${exact(sum((r) => Math.max(0, r.over)))}>${money(sum((r) => Math.max(0, r.over)))}</span><span class="sub">${plural(over.length, 'trip')} paid more</span></div>
       <div class="kpi"><span class="lbl">Driver debits</span><span class="val">${money(sum((r) => r.t.drvDebit))}</span><span class="sub">to recover from drivers</span></div>
     </div>
   </section>
@@ -1448,7 +1453,9 @@ async function viewSetup() {
       <h2>Driver pay</h2>
       <label class="radio"><input type="checkbox" id="opt-extra"${draft.driver.extraIsAdvance ? ' checked' : ''}> Count “Extra Own Driver Pay” as an advance out of the salary (leave unticked: it's the extra promised for those trips, paid on top and settled)</label>
       <label class="radio"><input type="checkbox" id="opt-debit"${draft.driver.debitCounts ? ' checked' : ''}> “Driver Debit” is money the driver owes back (counts against him)</label>
-      <div class="row-form"><label>Ignore differences up to (₹ a trip) <input id="opt-tol" inputmode="decimal" value="${esc(draft.driver.tolerance)}"></label></div>
+      <div class="row-form"><label>Check driver pay from <input id="opt-from" type="month" value="${esc(draft.driver.checkFrom || monthOf(today()))}"></label>
+        <label>Ignore differences up to (₹ a trip) <input id="opt-tol" inputmode="decimal" value="${esc(draft.driver.tolerance)}"></label></div>
+      <p class="muted small">Trips loaded before this month are as the Trip Register has them — salaries changed over time and those were settled — so they aren't checked. Set it to the month your salaries in Routes start from.</p>
     </section>
 
     <section class="card">
@@ -1495,6 +1502,7 @@ async function viewSetup() {
     box.querySelector('#opt-extra').addEventListener('change', (e) => { draft.driver.extraIsAdvance = e.target.checked; });
     box.querySelector('#opt-debit').addEventListener('change', (e) => { draft.driver.debitCounts = e.target.checked; });
     box.querySelector('#opt-tol').addEventListener('change', (e) => { draft.driver.tolerance = Number(num(e.target.value) || 0); });
+    box.querySelector('#opt-from').addEventListener('change', (e) => { draft.driver.checkFrom = e.target.value || ''; });
     box.querySelectorAll('[name=recon]').forEach((r) => r.addEventListener('change', () => { draft.recon.useApp = r.value === 'app' && r.checked; }));
     box.querySelector('#setup-reset').addEventListener('click', () => { state.ui.setupDraft = null; viewSetup(); });
     box.querySelector('#setup-save').addEventListener('click', (e) => guard(async () => {
@@ -1629,6 +1637,124 @@ async function viewPerformance(route) {
   </section>`);
   bindPeriod(main());
   document.getElementById('all-slow')?.addEventListener('click', () => { state.ui.allSlow = true; rerender(); });
+}
+
+// ---------------------------------------------------------------------------
+// Trends: rate per ton, the costs and what's kept, over time — as recorded in
+// the Trip Register (the truth for every past trip)
+// ---------------------------------------------------------------------------
+const pct1 = (x) => `${(x * 100).toFixed(1)}%`;
+function splitBar(sum, label, sub) {
+  const segs = PARTS.map((p) => ({ p, v: Math.max(0, sum.share[p.key] || 0) })).filter((x) => x.v > 0);
+  const tot = segs.reduce((a, x) => a + x.v, 0) || 1;
+  const tip = PARTS.map((p) => `${p.name} ${pct1(sum.share[p.key] || 0)} · ${money(sum[p.key] || 0)} a trip`).join('\n');
+  return `<div class="split-row"><span><b>${esc(label)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+    <span class="split-bar" title="${esc(tip)}">${segs.map((x) => `<i style="flex:${x.v / tot};background:${x.p.color}">${x.v >= 0.06 ? pct1(x.v).replace('.0%', '%') : ''}</i>`).join('')}</span></div>`;
+}
+
+function cmpTable(c) {
+  const b = c.before;
+  const a = c.after;
+  const row = (name, kb, ka, { f = money, good = 'down', note = '' } = {}) => {
+    const vb = typeof kb === 'function' ? kb(b) : b[kb];
+    const va = typeof ka === 'function' ? ka(a) : a[ka];
+    const dlt = va - vb;
+    const better = good === 'up' ? dlt > 0 : dlt < 0;
+    const cls = Math.abs(dlt) < 1e-9 ? '' : better ? 'good-text' : 'bad-text';
+    return `<tr><td>${esc(name)}${note ? `<small class="muted block">${esc(note)}</small>` : ''}</td><td class="r">${f(vb)}</td><td class="r">${f(va)}</td><td class="r ${cls}">${dlt > 0 ? '+' : dlt < 0 ? '−' : ''}${f(Math.abs(dlt))}</td></tr>`;
+  };
+  const tonnesF = (v) => `${v.toFixed(2)} T`;
+  return `<div class="table-wrap"><table class="compact cmp"><thead><tr><th>A trip, on average</th><th class="r">Before · ${b.trips}</th><th class="r">After · ${a.trips}</th><th class="r">Change</th></tr></thead><tbody>
+    ${row('Rate per ton', 'rate', 'rate', { f: (v) => `₹${indian(v)}`, good: 'up' })}
+    ${row('Load', 'loadWt', 'loadWt', { f: tonnesF, good: 'up' })}
+    ${row('Freight (bhada)', 'bhada', 'bhada', { good: 'up' })}
+    ${row('Diesel', 'diesel', 'diesel', { note: `${Math.round(b.litres)} → ${Math.round(a.litres)} L · ₹${b.perL.toFixed(2)} → ₹${a.perL.toFixed(2)} a litre` })}
+    ${row('Driver', 'driver', 'driver')}
+    ${row('Fastag & tolls', 'fastag', 'fastag')}
+    ${row('Tyre & maintenance', 'tyreMaint', 'tyreMaint')}
+    ${row('RTO & documents', 'rtoDocs', 'rtoDocs')}
+    ${row('Urea, misc & shortage', 'other', 'other')}
+    <tr class="sum">${row('Kept before yearly costs & EMI', 'keptRun', 'keptRun', { good: 'up' }).slice(4)}
+    ${row('…as a share of freight', 'marginRun', 'marginRun', { f: pct1, good: 'up' })}
+    ${row('Insurance, permit & road tax (yearly)', 'yearly', 'yearly', { note: 'booked on one trip a year' })}
+    ${row('Kept before EMI', 'kept', 'kept', { good: 'up' })}
+    ${row('EMI booked', 'emi', 'emi')}
+  </tbody></table></div>`;
+}
+
+function verdict(c) {
+  const b = c.before;
+  const a = c.after;
+  const fr = a.bhada - b.bhada;
+  const di = a.diesel - b.diesel;
+  const kr = a.keptRun - b.keptRun;
+  const sgn = (v) => `${v >= 0 ? '+' : '−'}${money(Math.abs(v))}`;
+  const loadNote = Math.abs(a.loadWt - b.loadWt) >= 0.3 ? ` (loads ${a.loadWt > b.loadWt ? 'up' : 'down'} ${Math.abs(a.loadWt - b.loadWt).toFixed(1)} T)` : '';
+  return `<p class="verdict">The rate went ${c.by > 0 ? 'up' : 'down'} <b>₹${indian(Math.abs(c.by))} a ton (${c.pct > 0 ? '+' : ''}${(c.pct * 100).toFixed(1)}%)</b>: freight a trip <b>${sgn(fr)}</b>${loadNote}; diesel <b>${sgn(di)}</b> (₹${b.perL.toFixed(2)} → ₹${a.perL.toFixed(2)} a litre); what's kept before yearly costs and EMI <b class="${kr >= 0 ? 'good-text' : 'bad-text'}">${sgn(kr)}</b> a trip — ${pct1(b.marginRun)} → ${pct1(a.marginRun)} of freight.</p>`;
+}
+
+async function viewTrends(route) {
+  const d = state.data;
+  const rs = trendRoutes(d);
+  const changes = rateChanges(d).filter((c) => !route || c.route === route);
+  const trend = monthlyTrend(d, route);
+  // the running month isn't complete (few trips unloaded, SSFC's monthly charges not booked yet)
+  const thisMonth = monthOf(today());
+  const recent = trend.filter((m) => m.month < thisMonth).slice(-18);
+  // the small charts: as wide as their box (the grid fits boxes of 300px+)
+  const inner = main().clientWidth - 38;
+  const cols = Math.max(1, Math.floor((inner + 12) / 312));
+  setChartWidth((inner - (cols - 1) * 12) / cols - 26);
+  const fleetAll = trendSummary(d.trips.filter((t) => t.status === 'done' && t.bhada && (!route || `${t.port} → ${t.dest}` === route)), d);
+  const eras = route ? rateEras(d, route) : [];
+  const tipOf = (m, line) => `<b>${monthLong(m.month)}</b> · ${plural(m.trips, 'trip')}<br>${line}`;
+  const small = (title, sub, key, fmt, color) => `<div class="sm-card"><h4>${esc(title)}</h4><p>${esc(sub)}</p>${lineChart(recent.map((m) => ({ label: monthName(m.month), value: typeof key === 'function' ? key(m) : m[key], tip: tipOf(m, `${title}: ${fmt(typeof key === 'function' ? key(m) : m[key])}`) })), { fmt, label: title, color, h: 140 })}</div>`;
+  setMain(`<section class="card">
+    <a class="muted small" href="#/">← Home</a>
+    <div class="row-between"><h2>Rates, costs &amp; income</h2><span class="muted small">from the Trip Register</span></div>
+    <p class="muted small">Every past trip as it is in the Trip Register — its rate per ton, diesel, what the driver was paid. Monthly SSFC charges (fastag, tyre, maintenance, RTO entry) are spread over each vehicle's trips that month; the yearly insurance / permit / road tax and the EMI are shown apart, so trips compare like for like.</p>
+    <div class="chips small-chips" role="group" aria-label="Route"><a class="chip${!route ? ' on' : ''}" href="#/trends">All routes</a>${rs.map((r) => `<a class="chip${route === r.route ? ' on' : ''}" href="#/trends?r=${encodeURIComponent(r.route)}">${esc(r.route)} <small>${r.trips}</small></a>`).join('')}</div>
+  </section>
+
+  <section class="card"><h3>When the rate changed</h3>
+    ${changes.length ? `<div class="chg-grid">${changes.map((c) => `<div class="chg-card">
+      <div class="chg-head"><b>${esc(c.route)}</b><span class="muted">from ${dateYear(c.at)}</span><span class="chg-rate">₹${indian(c.from)} → ₹${indian(c.to)}<small> a ton · ${c.pct > 0 ? '+' : ''}${(c.pct * 100).toFixed(1)}%</small></span></div>
+      ${verdict(c)}
+      <p class="muted small">Before: the last ${c.before.trips} trips at ₹${indian(c.from)} · after: the first ${c.after.trips} at ₹${indian(c.to)}.</p>
+      ${cmpTable(c)}</div>`).join('')}</div>` : `<p class="muted">The rate${route ? ' on this route' : ''} hasn't changed in the register.</p>`}
+  </section>
+
+  <section class="card"><h3>Where the bhada goes</h3>
+    ${legend(PARTS.map((p) => ({ name: p.name, color: p.color })))}
+    <div class="split100">
+      ${splitBar(fleetAll, route ? 'All trips' : 'All routes, all trips', `${plural(fleetAll.trips, 'trip')} · ${money(fleetAll.bhada)} a trip`)}
+      ${eras.length > 1 ? eras.map((e) => splitBar(e, `₹${indian(e.rate)} a ton`, `${dm(e.from)} ${e.from.slice(2, 4)} – ${dm(e.to)} ${e.to.slice(2, 4)} · ${plural(e.trips, 'trip')}`)).join('') : ''}
+      ${!route ? rs.map((r) => splitBar(trendSummary(d.trips.filter((t) => t.status === 'done' && t.bhada && `${t.port} → ${t.dest}` === r.route), d), r.route, plural(r.trips, 'trip'))).join('') : ''}
+      ${recent.slice(-6).map((m) => splitBar(m, monthLong(m.month), `${plural(m.trips, 'trip')} · ${money(m.bhada)} a trip`)).join('')}
+    </div>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Share of freight</th>${PARTS.map((p) => `<th class="r">${esc(p.short || p.name)}</th>`).join('')}</tr></thead><tbody>
+      <tr><td><b>${route ? 'All trips' : 'All routes'}</b></td>${PARTS.map((p) => `<td class="r">${pct1(fleetAll.share[p.key] || 0)}</td>`).join('')}</tr>
+      ${[...recent].reverse().map((m) => `<tr><td>${monthName(m.month)}</td>${PARTS.map((p) => `<td class="r">${pct1(m.share[p.key] || 0)}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div>
+  </section>
+
+  <section class="card"><h3>Month by month <span class="muted">${esc(route || 'all routes')} · a trip, on average</span></h3>
+    <div class="small-multiples">
+      ${route ? small('Rate per ton', 'as billed', 'rate', (v) => `₹${indian(v)}`, 'var(--s-1)') : small('Freight a trip', 'all routes', 'bhada', money, 'var(--s-1)')}
+      ${small('Diesel price', 'what the pumps charged (HSD Data)', 'pumpPerL', (v) => `₹${v.toFixed(2)}`, 'var(--s-1)')}
+      ${small('Diesel a trip', 'rupees', 'diesel', money, 'var(--s-1)')}
+      ${small('Diesel litres a trip', 'litres', 'litres', (v) => `${Math.round(v)} L`, 'var(--s-1)')}
+      ${small('Driver a trip', 'SSFC + your payments', 'driver', money, 'var(--s-2)')}
+      ${small('Kept a trip', 'before yearly costs & EMI', 'keptRun', money, 'var(--s-8)')}
+      ${small('Kept, share of freight', 'before yearly costs & EMI', 'marginRun', pct1, 'var(--s-8)')}
+      ${small('Load a trip', 'tonnes', 'loadWt', (v) => `${v.toFixed(2)} T`, 'var(--s-1)')}
+    </div>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Month</th><th class="r">Trips</th>${route ? '<th class="r">Rate</th>' : ''}<th class="r">Load</th><th class="r">Freight</th><th class="r">Diesel</th><th class="r">₹/L</th><th class="r">Driver</th><th class="r">Fastag</th><th class="r">Tyre & maint</th><th class="r">RTO & docs</th><th class="r">Other</th><th class="r">Yearly</th><th class="r">Kept*</th><th class="r">Kept*%</th></tr></thead><tbody>
+      ${[...trend].reverse().map((m) => `<tr><td>${monthName(m.month)}${m.month >= thisMonth ? ' <small class="muted">so far</small>' : ''}</td><td class="r">${m.trips}</td>${route ? `<td class="r">₹${m.rates.map((r) => indian(r)).join(' / ')}</td>` : ''}<td class="r">${m.loadWt.toFixed(1)}</td><td class="r">${rupees(m.bhada)}</td><td class="r">${rupees(m.diesel)}</td><td class="r">${m.perL ? m.perL.toFixed(1) : '—'}</td><td class="r">${rupees(m.driver)}</td><td class="r">${rupees(m.fastag)}</td><td class="r">${rupees(m.tyreMaint)}</td><td class="r">${rupees(m.rtoDocs)}</td><td class="r">${rupees(m.other)}</td><td class="r">${m.yearly ? rupees(m.yearly) : '—'}</td><td class="r ${signed(m.keptRun)}"><b>${rupees(m.keptRun)}</b></td><td class="r">${pct1(m.marginRun)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="muted small">Averages a trip of the trips loaded that month (unloaded trips only; this month's monthly SSFC charges may not be booked yet). *Kept = freight − diesel − driver − fastag − tyre & maintenance − RTO & documents − other, before the yearly costs and the EMI.</p>
+  </section>`);
+  bindCharts(main());
 }
 boot().catch((err) => {
   console.error(err);

@@ -23,7 +23,8 @@ export function defaultSettings() {
     routes: [],                       // [{ port, dest, from: 'yyyy-mm' | '', km, salary, diesel }]
     vehicles: {},                     // { 'XX01AB1001': { tyre: false, fastag: true } }
     // Extra Own Driver Pay is the extra promised for those trips — on top of the salary, settled
-    driver: { extraIsAdvance: false, debitCounts: true, tolerance: 100 },
+    // trips before checkFrom ('' = this month) are as the Trip Register has them: settled
+    driver: { extraIsAdvance: false, debitCounts: true, tolerance: 100, checkFrom: '' },
     recon: { useApp: false },
   };
 }
@@ -117,8 +118,9 @@ export function driverName(remark) {
   return '';
 }
 
-export function driverCheck(data, settings) {
+export function driverCheck(data, settings, today = null) {
   const opt = settings.driver || {};
+  const checkFrom = opt.checkFrom || (today ? monthOf(today) : '0000-00');
   const tol = Number(opt.tolerance ?? 100);
   const vehicles = [...new Set(data.trips.map((t) => t.veh))].sort();
   const missing = new Map();
@@ -132,8 +134,10 @@ export function driverCheck(data, settings) {
         spell = { veh, name: spell ? driverName(t.remarks) : '', from: t.loadDate || t.start, fromTrip: t, remark: spell ? t.remarks : '', trips: [], salary: 0, ssfc: 0, advance: 0, debit: 0, balance: 0, overTrips: 0, first: !spell };
         spells.push(spell);
       }
-      const settled = t.drvSsfc != null || t.status === 'done';
+      // not paid yet (no SSFC payment, no advance logged): wait for it
+      const settled = t.drvSsfc != null || t.drvTrip != null || (opt.extraIsAdvance && t.drvExtra != null);
       if (!settled) continue;
+      if ((t.month || monthOf(t.start)) < checkFrom) continue;      // before the check: the register is the truth
       const r = routeFor(data, settings, t.port, t.dest, t.month);
       const advance = (t.drvTrip || 0) + (opt.extraIsAdvance ? t.drvExtra || 0 : 0);
       const ssfc = t.drvSsfc || 0;
@@ -158,7 +162,7 @@ export function driverCheck(data, settings) {
   }
   spells.forEach((s) => { s.label = s.name || (s.first ? 'Driver from the start' : `Driver from ${s.fromTrip.trip}`); s.current = false; });
   for (const veh of vehicles) { const mine = spells.filter((s) => s.veh === veh); if (mine.length) mine[mine.length - 1].current = true; }
-  return { rows, spells, missing: [...missing.entries()].map(([route, trips]) => ({ route, trips })), tolerance: tol };
+  return { rows, spells, missing: [...missing.entries()].map(([route, trips]) => ({ route, trips })), tolerance: tol, checkFrom };
 }
 
 // ---- fastag / tyre: the monthly SSFC charges ---------------------------------------------

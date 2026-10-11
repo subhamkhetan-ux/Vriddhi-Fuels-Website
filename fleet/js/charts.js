@@ -106,6 +106,34 @@ export function signedBars(items, { h = 180, fmt = money, label = 'Chart', label
   return `${f.open}${f.grid}${out.join('')}${xLabels(items, x, h, labelOf)}</svg>`;
 }
 
+// One measure over time as a line (its own axis, not from zero — a rate or a
+// price), with a dot per point and a crosshair tooltip. items: [{label, value, tip}]
+export function lineChart(items, { h = 150, fmt = money, label = 'Chart', color = 'var(--s-1)' } = {}) {
+  const pts = items.filter((d) => d.value != null && Number.isFinite(d.value));
+  if (!pts.length) return '<p class="muted small">No data.</p>';
+  const vals = pts.map((d) => d.value);
+  let lo = Math.min(...vals);
+  let hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.15 || Math.abs(hi) * 0.05 || 1;
+  lo -= pad; hi += pad;
+  const y = (v) => PAD.t + (h - PAD.t - PAD.b) * (1 - (v - lo) / (hi - lo));
+  const step = (W - PAD.l - PAD.r) / Math.max(1, items.length - 1 || 1);
+  const x = (i) => PAD.l + (items.length > 1 ? step * i : (W - PAD.l - PAD.r) / 2);
+  const grid = [lo + pad, (lo + hi) / 2, hi - pad].map((v) => `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${r1(y(v))}" y2="${r1(y(v))}" class="gl"/>
+    <text x="${PAD.l - 6}" y="${r1(y(v) + 4)}" class="tick" text-anchor="end">${esc(fmt(v))}</text>`).join('');
+  let d = '';
+  let pen = false;
+  items.forEach((it, i) => {
+    if (it.value == null || !Number.isFinite(it.value)) { pen = false; return; }
+    d += `${pen ? 'L' : 'M'}${r1(x(i))},${r1(y(it.value))}`;
+    pen = true;
+  });
+  const dots = items.map((it, i) => (it.value == null ? '' : `<circle cx="${r1(x(i))}" cy="${r1(y(it.value))}" r="3" fill="${color}" stroke="var(--bg)" stroke-width="1.5"/>`)).join('');
+  const w = items.length > 1 ? step : W - PAD.l - PAD.r;
+  const hits = items.map((it, i) => `<rect x="${r1(x(i) - w / 2)}" y="${PAD.t}" width="${r1(w)}" height="${r1(h - PAD.t - PAD.b)}" class="hit" data-x="${r1(x(i))}" data-tip="${esc(it.tip || `${it.label}: ${fmt(it.value)}`)}"/>`).join('');
+  return `<svg viewBox="0 0 ${W} ${h}" class="chart" role="img" aria-label="${esc(label)}">${grid}<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}<line class="xhair" x1="0" x2="0" y1="${PAD.t}" y2="${h - PAD.b}" visibility="hidden"/>${hits}${xLabels(items, x, h, (it) => it.label)}</svg>`;
+}
+
 export function legend(series) {
   return `<div class="legend">${series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('')}</div>`;
 }
@@ -128,6 +156,8 @@ export function bindCharts(root) {
     el.classList.add('on');
     tip.innerHTML = el.dataset.tip;
     tip.classList.add('on');
+    const line = el.ownerSVGElement && el.ownerSVGElement.querySelector('.xhair');
+    if (line) { line.setAttribute('x1', el.dataset.x); line.setAttribute('x2', el.dataset.x); line.setAttribute('visibility', 'visible'); }
     const rect = el.getBoundingClientRect();
     const px = ev && ev.clientX != null ? ev.clientX : rect.left + rect.width / 2;
     const py = ev && ev.clientY != null ? ev.clientY : rect.top;

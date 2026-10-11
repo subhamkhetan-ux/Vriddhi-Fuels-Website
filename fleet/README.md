@@ -7,6 +7,7 @@ Excel as before; upload it here (from any phone or computer) and the app shows:
 | Tab | What it shows | From the workbook |
 |---|---|---|
 | **Home** | *On the road now*: a card for **every vehicle on a trip** — the full number plate, **loading port → destination** in large type, the bulker with its load, the **stage it's in** (departed → diesel at Muniguda → loaded at the port → refill → unloaded, each with its date, or the best date for the steps still to come), its **pace** (on the best pace / behind the best / late against the usual — and against its own best) with the expected unloading date, and the trip's **projected income** (before and after the EMI share). *Needs a look*: vehicles behind on the road, underperformers, trips loaded > 7 days, short weight, diesel over allowance, SSFC invoices > 90 days, mistyped dates. The SSFC balance. *Business* for any period. | Trip Register, HSD Data, On-Trip Dashboard rules |
+| **Home → Rates, costs & income** | For every route (or all): **when the rate changed** — ₹ old → new a ton, and the last 40 trips at the old rate against the first 40 at the new one: load, freight, diesel (litres and ₹ a litre), driver, fastag, tyre & maintenance, RTO & documents, other, what's kept — in one sentence and a table. **Where the bhada goes**: the % of freight to each cost and what's kept — overall, by route, by rate period and by month. **Month by month**: rate a ton, pump price, diesel ₹ and litres a trip, driver a trip, kept a trip and as % of freight, load — small charts and a table. | Trip Register, HSD Data |
 | **Trips** | Every trip, newest first: filter by on the road / unloaded / short weight / loss before EMI / dates to check, by vehicle, month, route, or search trip no. & remarks. Tap a trip for its timeline, weights, the full bhada → SSFC net → income working, diesel issued vs allotted, its HSD fills and urea. | Trip Register, HSD Data, Urea DEF |
 | **Vehicles** | A card per vehicle (status, net, freight, before EMI, diesel recon); tap for its month-by-month, EMI, km and mileage, trips. | Trip Register |
 | **Vehicles → Performance** | Every trip against the trips on the **same route that started within ±10 days** (±21 when few): days to get loaded, the loaded run, idle after unloading, diesel fills. **Behind on the road now** (a vehicle past the route's recent best, or others that started with it already further on — with the driver's name, to call him). Vehicles ranked by days a trip faster / slower than their peers, **⚠ Underperforming** (≥ 1 day a trip slower than the typical peer, or 40%+ slow trips), *Slipping* (≥ ½ day), *★ Top*; days and freight lost; stage by stage; the slowest trips with the stage that lost the time. | Trip Register, HSD Data |
@@ -35,6 +36,21 @@ Everywhere: the **Shree Shyam Logistics logo** (a glowing animation on Home and
 while loading, the header, sign-in, the app icon), and **light and dark** —
 the button in the header goes *Auto* (follows the phone / computer) → *Light*
 → *Dark*, remembered on that device.
+
+## Rates, costs & income over time
+
+The Trip Register is the truth for every past trip: its own rate per ton,
+diesel and driver pay as recorded (rates, diesel prices and salaries changed
+over time). For comparisons each trip's freight is split into diesel, driver,
+fastag, tyre & maintenance, RTO & documents, other (urea, misc, shortage),
+**yearly** (insurance, permit, road tax, Fleet Edge — an own misc / document
+entry whose remarks say so) and what's **kept**. SSFC books fastag, tyre,
+maintenance and RTO entry once a month per vehicle on whichever trip was
+running, so each vehicle's month of those is spread evenly over its trips that
+month (totals unchanged). Own misc entries go by their remarks: a tyre buy to
+tyre & maintenance, a repair to maintenance. *Kept before yearly costs & EMI* is
+the like-for-like figure. The running month is left out of the charts until
+it's complete.
 
 ## A vehicle on the road
 
@@ -90,7 +106,10 @@ the button in the header goes *Auto* (follows the phone / computer) → *Light*
   Driver Payment (your advance). *Extra Own Driver Pay* is the extra promised
   for those trips — on top of the salary and settled — so it's left out of the
   check (Setup can count it as an advance instead); it still counts as a cost
-  in a trip's projected income. A driver is
+  in a trip's projected income. Only trips from the month set in Setup
+  (*Check driver pay from*, this month by default) are checked: older ones are
+  as the Trip Register has them, settled. A trip with no driver payment logged
+  yet waits until there is one. A driver is
   *overpaid* when, over his spell on the vehicle, SSFC + your advances + Driver
   Debit is more than the salaries earned (₹500 slack); differences up to ₹100 a
   trip are ignored (both in Setup).
