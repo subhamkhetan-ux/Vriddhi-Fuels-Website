@@ -559,7 +559,9 @@ every few minutes, and the moment a trip or tag changes.
 
 **Auto-tag** (⚙, off by default): sure matches — every bill in the tanker's
 name, to its customer, adding up within the buffer — are tagged without
-asking (shown as *auto-tagged*). Start with it off, tag by hand with the
+asking (shown as *auto-tagged*), also on trips still *waiting for bills*,
+whenever an admin phone with the ledger connected opens Home or Trips per
+tanker. Start with it off, tag by hand with the
 suggestions, and switch it on once the suggestions are always right.
 
 **Download check data (for support)** (under the Excel button) saves one

@@ -1543,7 +1543,7 @@ const RETAIN_DAYS = 7;
 // Shown at the bottom of the ⚙ screen. This app is cached by a service worker,
 // so when a phone seems to be missing a change, this says plainly whether it is
 // running the current build or a stale copy. Bump it with each release.
-const APP_BUILD = "v53 · 2026-10-10";
+const APP_BUILD = "v54 · 2026-10-11";
 
 /* ---------- Helpers ---------- */
 const $ = s=>document.querySelector(s);
@@ -3633,12 +3633,12 @@ function loadInvoiceData(from, to){
 // A ledger customer seen for the first time on a trip is linked to that trip's
 // customer, so later bills to it are suggested for it and add up per customer.
 // One already billed for another customer is linked only if you say so.
-function linkAfterTag(trip, bills, silent){
-  const d=destOf(trip.dest); if(!d || !INVD) return Promise.resolve(0);
+function linkAfterTag(trip, bills, silent, data){
+  const D=data||INVD, d=destOf(trip.dest); if(!d || !D) return Promise.resolve(0);
   const seen={}, jobs=[];
   bills.forEach(b=>{
     if(seen[b.ckey]) return; seen[b.ckey]=1;
-    const l=INVD.ctx.linkBy[b.ckey];
+    const l=D.ctx.linkBy[b.ckey];
     if(l && l[d.name.trim().toLowerCase()]) return;
     if(l && (silent || !confirm(b.customer+" is billed for "+Object.keys(l).map(k=>l[k]).join(" / ")+".\n\nIs it also billed for "+d.name
       +" (e.g. one company with two units)?\n\nOK = yes, link it to "+d.name+" too\nCancel = no — keep this trip flagged as billed to another customer"))) return;
@@ -3648,12 +3648,14 @@ function linkAfterTag(trip, bills, silent){
 }
 // Setting on: sure matches (bills in the tanker's name, to its customer,
 // adding up within the buffer) are tagged without asking.
+// (also trips "waiting for bills": the ledger has nothing dated after them yet,
+// but their sure bills are already there)
 function autoTag(d){
-  if(!TAGSET.auto || !d.bills || !isAdmin()) return Promise.resolve(0);
-  const todo=d.rec.rows.filter(r=>r.sug && r.sug.sure && (r.status==="none" || r.status==="under"));
+  if(!TAGSET.auto || !d || !d.bills || !isAdmin()) return Promise.resolve(0);
+  const todo=d.rec.rows.filter(r=>r.sug && r.sug.sure && !r.checked && (r.status==="none" || r.status==="under" || r.status==="await"));
   let n=0;
   return todo.reduce((p,r)=>p.then(()=>Backend.tagBills(r.trip.id, r.sug.bills, "auto")
-    .then(()=>{ n++; return linkAfterTag(r.trip, r.sug.bills, true); }).catch(()=>{})), Promise.resolve()).then(()=>n);
+    .then(()=>{ n++; return linkAfterTag(r.trip, r.sug.bills, true, d); }).catch(()=>{})), Promise.resolve()).then(()=>n);
 }
 function loadTripReport(){
   const f=$("#trFrom").value, t=$("#trTo").value; if(!f || !t) return Promise.resolve();
@@ -4251,7 +4253,11 @@ function invoiceWatch(force){
     if(!Ledger.on()){ INV_WATCH.d=null; return; }
     const to=shiftDate(Date.now()), f45=addDays(to,-45), st=tagStart(), from=st>f45?st:f45;
     if(from>to){ INV_WATCH.d=null; return; }
-    return loadInvoiceData(from, to).then(d=>{ INV_WATCH.d=d; });
+    return loadInvoiceData(from, to).then(d=>autoTag(d).then(n=>{
+      if(!n){ INV_WATCH.d=d; return; }
+      toast("✓ Auto-tagged "+n+" trip"+(n===1?"":"s"));
+      return loadInvoiceData(from, to).then(d2=>{ INV_WATCH.d=d2; });
+    }));
   }).catch(()=>{}).then(()=>{ INV_WATCH.busy=false; INV_WATCH.at=Date.now(); paintInvBanner(); paintPrebills(); });
 }
 /* Billed before loading: bills in a tanker's name raised before it is sent
