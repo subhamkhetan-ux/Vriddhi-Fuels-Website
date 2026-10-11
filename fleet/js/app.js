@@ -943,14 +943,15 @@ function dieselPanelHtml(z) {
     <p class="dz-key"><span><i class="k-taken"></i>taken</span>${z.extra > 0.5 ? '<span><i class="k-extra"></i>extra</span>' : ''}<span><i class="k-mark"></i>allotment ${L1(z.allotted)}</span>${z.carryIn < -0.5 ? `<span><i class="k-limit"></i>limit after what's owed ${L1(Math.max(0, limit))}</span>` : ''}</p>
     <div class="dz-grid">
       ${cell('Allotted', L1(z.allotted), z.est ? 'route diesel — over/underload once loaded' : `${z.base ?? '—'} base${z.over ? ` + ${z.over.toFixed(1)} overload` : ''}${z.under ? ` − ${z.under} underload` : ''}`)}
-      ${cell('Taken', L1(z.taken), `${plural(z.fills.length, 'fill')}${z.fills.length ? ` · last ${shortDate(z.fills[z.fills.length - 1].date)}` : ''}`)}
+      ${cell('Taken', L1(z.taken), z.ownL ? `SSFC ${L1(z.ssfcL)} + own ${L1(z.ownL)}` : `${plural(z.fills.length, 'fill')}${z.fills.length ? ` · last ${shortDate(z.fills[z.fills.length - 1].date)}` : ''}`)}
       ${z.live ? cell('To take', L1(z.toTake), 'left of this trip\'s allotment') : ''}
       ${cell('Extra this trip', z.extra > 0.5 ? `+${L1(z.extra)}` : '—', z.extra > 0.5 ? 'over the allotment — to be cut from the next trips' : 'within the allotment', z.extra > 0.5 ? 'bad' : '')}
       ${cell('Carried in', z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—', z.carryIn < -0.5 ? 'extra from earlier trips, owed' : z.carryIn > 0.5 ? 'saved on earlier trips' : 'nothing owed from before', z.carryIn < -0.5 ? 'warn' : '')}
       ${z.live ? cell('May still take', L1(z.mayTake), z.carryIn < -0.5 ? 'after cutting what\'s owed' : 'for the rest of the trip', z.mayTake < 0.5 ? 'bad' : 'good') : ''}
       ${cell(z.live ? 'Balance if no more' : 'Balance after', `${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}`, z.after < -0.5 ? 'owed — comes off the next trips' : z.after > 0.5 ? 'saved' : 'square', z.after < -0.5 ? 'bad' : 'good')}
     </div>
-    ${z.extraHsd ? `<p class="small muted">Plus ${L1(z.extraHsd)} extra HSD bought on the trip (own, outside the recon).</p>` : ''}
+    ${z.ownL ? `<p class="small">Own diesel <b>${L1(z.ownL)}</b>${z.ownRs ? ` (${rupees(z.ownRs)})` : ''} bought by us for this trip where SSFC couldn't supply — counted in what's taken.</p>` : ''}
+    ${z.incentive ? `<p class="small muted">Plus ${L1(z.incentive)} Own Diesel Extra — incentive diesel for the driver, settled; not counted against the allotment.</p>` : ''}
   </div>`;
 }
 function tripRow(t, why) {
@@ -1380,7 +1381,7 @@ async function viewDiesel() {
   ${mileageHtml(p)}
   <section class="card">
     <div class="row-between"><h3>Diesel recon · allotted vs issued</h3><span class="muted small">since ${recon.since ? dateYear(recon.since) : '—'}</span></div>
-    <p class="muted small">Each trip is allotted its route's diesel (Rates sheet) + ${recon.rules.perTonne} L a tonne over ${recon.rules.overloadOver} T gross − underload; issued = SSFC litres + own trip litres. Below zero = more diesel went in than allotted.</p>
+    <p class="muted small">Each trip is allotted its route's diesel (Rates sheet) + ${recon.rules.perTonne} L a tonne over ${recon.rules.overloadOver} T gross − underload; issued = SSFC litres + our own diesel bought for the trip (OWN DIESEL for Trip, when SSFC can't supply). Own Diesel Extra is the drivers' incentive diesel, settled, and isn't counted. Below zero = more diesel went in than allotted.</p>
     ${check != null ? `<p class="small ${check ? 'good-text' : 'warn-text'}">${check ? '✓ Same as the Diesel Recon sheet' : `Diesel Recon sheet shows ${litres(d.checks.reconTotal)}`}</p>` : ''}
     <div class="recon">${[...recon.vehicles].sort((a, b) => a.balance - b.balance).map((v) => `<a class="recon-row" href="#/diesel/${encodeURIComponent(v.veh)}">
       <b>${esc(v.veh)}</b>
@@ -1436,7 +1437,7 @@ function dieselNowHtml() {
     </div>
     ${live.length ? `<div class="table-wrap"><table class="compact dz-table"><thead><tr><th>Vehicle</th><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">To take</th><th class="r">Extra</th><th class="r">Carried in</th><th class="r">May still take</th><th class="r">Balance</th></tr></thead><tbody>
       ${live.map((z) => `<tr class="${dieselTone(z) === 'bad' ? 'row-under' : ''}"><td><a href="#/vehicle/${encodeURIComponent(z.t.veh)}"><b>${esc(shortVeh(z.t.veh))}</b></a><small class="muted block">${esc(driverNow(z.t.veh) || '')}</small></td><td><a href="#/trip/${z.t.row}">${esc(z.t.trip)}</a><small class="muted block">${z.t.loadDate ? 'loaded' : 'to load'}${z.est ? ' · est.' : ''}</small></td>
-        <td class="r">${L1(z.allotted)}</td><td class="r">${L1(z.taken)}</td><td class="r">${z.toTake > 0.5 ? L1(z.toTake) : '—'}</td><td class="r ${z.extra > 0.5 ? 'bad-text' : ''}">${z.extra > 0.5 ? `+${L1(z.extra)}` : '—'}</td>
+        <td class="r">${L1(z.allotted)}</td><td class="r">${L1(z.taken)}${z.ownL ? `<small class="muted block">own ${L1(z.ownL)}</small>` : ''}</td><td class="r">${z.toTake > 0.5 ? L1(z.toTake) : '—'}</td><td class="r ${z.extra > 0.5 ? 'bad-text' : ''}">${z.extra > 0.5 ? `+${L1(z.extra)}` : '—'}</td>
         <td class="r ${z.carryIn < -0.5 ? 'warn-text' : ''}">${z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—'}</td><td class="r"><b class="${z.mayTake < 0.5 ? 'bad-text' : 'good-text'}">${L1(z.mayTake)}</b></td>
         <td class="r"><b class="${z.after < -0.5 ? 'bad-text' : 'good-text'}">${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}</b></td></tr>`).join('')}
     </tbody></table></div>` : '<p class="muted">No trip on the road.</p>'}

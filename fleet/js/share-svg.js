@@ -523,12 +523,14 @@ export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = 
       const sl = (n) => `${n > 0.5 ? '+' : n < -0.5 ? '−' : ''}${litres(Math.abs(n))}`;
       blocks.push(facts([
         ['Allotted', `${litres(z.allotted)}${z.est ? ' (route diesel, until loaded)' : `${Math.round(z.over) ? `  (incl. +${Math.round(z.over)} L overload)` : ''}${Math.round(z.under) ? `  (incl. −${Math.round(z.under)} L underload)` : ''}`}`],
-        ['Taken (SSFC + own pump)', litres(z.taken)],
+        ['Taken', z.ownL ? `${litres(z.taken)}  (SSFC ${litres(z.ssfcL)} + own ${litres(z.ownL)})` : litres(z.taken)],
+        z.ownL ? ['Own diesel bought for the trip (SSFC couldn\'t supply)', `${litres(z.ownL)}${z.ownRs ? ` · ${rupees(z.ownRs)}` : ''}`] : null,
         z.live ? ['To take (left of this trip\'s allotment)', litres(z.toTake)] : null,
         ['Extra this trip', z.extra > 0.5 ? `+${litres(z.extra)}` : '—', { color: z.extra > 0.5 ? C.bad : C.good }],
         ['Carried in from earlier trips', z.carryIn < -0.5 ? `${sl(z.carryIn)} owed` : z.carryIn > 0.5 ? `${sl(z.carryIn)} saved` : '—', { color: z.carryIn < -0.5 ? C.warn : C.ink }],
         z.live ? ['May still take', litres(z.mayTake), { strong: true, color: z.mayTake < 0.5 ? C.bad : C.good, rule: true }] : null,
         [z.live ? 'Balance if no more is taken' : 'Balance after the trip', `${sl(z.after)}${z.after < -0.5 ? ' — comes off the next trips' : ''}`, { strong: true, color: z.after < -0.5 ? C.bad : C.good, rule: !z.live }],
+        z.incentive ? ['Own Diesel Extra (driver incentive, settled)', `${litres(z.incentive)} — not counted`, { color: C.muted }] : null,
       ], { title: 'Diesel against the allotment' }));
     }
   }
