@@ -6,7 +6,7 @@ Excel as before; upload it here (from any phone or computer) and the app shows:
 
 | Tab | What it shows | From the workbook |
 |---|---|---|
-| **Home** | *On the road now*: every vehicle loaded → destination / empty → loading port / idle, with its trip and days on the road. *Needs a look*: trips loaded > 7 days and not unloaded, short weight in the last 45 days, vehicles > 300 L over their diesel allowance, SSFC invoices pending > 90 days, dates that look mistyped. The SSFC balance. *Business* for any period (this month, last month, last 3 months, this / last FY, all time, custom months): freight, trips, SSFC net, profit before EMI, EMI, net after EMI, diesel, weight short; **where every ₹100 of freight goes**; month by month (chart + table); vehicles ranked; routes (avg load, ₹/T, diesel a trip, days, profit a trip). | Trip Register, On-Trip Dashboard rules |
+| **Home** | *On the road now*: a card for **every vehicle on a trip** — the full number plate, **loading port → destination** in large type, the bulker with its load, the **stage it's in** (departed → diesel at Muniguda → loaded at the port → refill → unloaded, each with its date, or the best date for the steps still to come), its **pace** (on the best pace / behind the best / late against the usual — and against its own best) with the expected unloading date, and the trip's **projected income** (before and after the EMI share). *Needs a look*: vehicles behind on the road, underperformers, trips loaded > 7 days, short weight, diesel over allowance, SSFC invoices > 90 days, mistyped dates. The SSFC balance. *Business* for any period. | Trip Register, HSD Data, On-Trip Dashboard rules |
 | **Trips** | Every trip, newest first: filter by on the road / unloaded / short weight / loss before EMI / dates to check, by vehicle, month, route, or search trip no. & remarks. Tap a trip for its timeline, weights, the full bhada → SSFC net → income working, diesel issued vs allotted, its HSD fills and urea. | Trip Register, HSD Data, Urea DEF |
 | **Vehicles** | A card per vehicle (status, net, freight, before EMI, diesel recon); tap for its month-by-month, EMI, km and mileage, trips. | Trip Register |
 | **Vehicles → Performance** | Every trip against the trips on the **same route that started within ±10 days** (±21 when few): days to get loaded, the loaded run, idle after unloading, diesel fills. **Behind on the road now** (a vehicle past the route's recent best, or others that started with it already further on — with the driver's name, to call him). Vehicles ranked by days a trip faster / slower than their peers, **⚠ Underperforming** (≥ 1 day a trip slower than the typical peer, or 40%+ slow trips), *Slipping* (≥ ½ day), *★ Top*; days and freight lost; stage by stage; the slowest trips with the stage that lost the time. | Trip Register, HSD Data |
@@ -35,6 +35,29 @@ Everywhere: the **Shree Shyam Logistics logo** (a glowing animation on Home and
 while loading, the header, sign-in, the app icon), and **light and dark** —
 the button in the header goes *Auto* (follows the phone / computer) → *Light*
 → *Dark*, remembered on that device.
+
+## A vehicle on the road
+
+- **Stages** come from the diesel fills logged in HSD Data. Every route runs
+  the same way — departure (often a small top-up), the outbound fill (Muniguda
+  on our routes), loading at the port, the return refill, unloading — so for
+  each route the app learns from the last 150 days where the outbound and
+  return fills happen and on which day of the trip each step comes: the
+  **best** (the quickest tenth of trips), the **usual** (the median) and each
+  vehicle's **own best**. A fill of under 100 L is a top-up, not the outbound
+  fill; a vehicle past the usual loading day without a loading date is
+  *waiting to load*.
+- **Pace**: the steps done so far, and the next one if it's overdue, against
+  those days — *on the best pace*, *N d behind the best* (amber), or *late* —
+  a day or more behind the usual (red).
+- **Projected income** of the trip: freight (loaded × rate, or before loading
+  the vehicle's usual load × the route's rate) − diesel (every fill logged for
+  the trip + what the route usually still needs, at the last price) − the
+  driver's salary (Setup, else the Rates sheet, else what the route usually
+  costs) − SSFC's other deductions (fastag, tyre, maintenance, RTO … — the
+  vehicle's average a trip over the last 90 days) − urea and own misc (as
+  logged, or the average); then the EMI's share a trip (the monthly EMI ÷ its
+  trips a month).
 
 ## The rules (the workbook's own)
 
@@ -121,6 +144,7 @@ upload.
 | `js/app.js` | The screens |
 | `js/parse.js` | Reads the workbook: every sheet by its headings, every column by its name |
 | `js/analyse.js` | The figures: periods, totals, costs, routes, live status, diesel recon, SSFC clearance, fuel, alerts |
+| `js/live.js` | A vehicle on the road: its stage from the fills, pace against the best, projected income |
 | `js/perf.js` | Who's slow: trip stages, the same-route-same-time groups, vehicle scores, behind on the road |
 | `js/bulker.js` | The bulker drawing and the side-by-side trip lanes |
 | `js/rules.js` | Setup's rules: route values, km per trip, driver pay check, tyre / fastag trend |

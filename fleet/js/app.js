@@ -15,6 +15,8 @@ import { bookFromSheetJS, extractFleet } from './parse.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { bulkerSvg, lanesLegend, lanesSvg, RTO_GROSS, TAGLINE } from './bulker.js';
 import { liveBehind, performance, SLOW_DAYS, STAGES } from './perf.js';
+import { liveTrips } from './live.js';
+import { plateText } from './bulker.js';
 import {
   addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
   plural, rupees, shortDate, shortVeh, tonnes,
@@ -429,6 +431,7 @@ function derived() {
       maxGross: Math.max(0, ...d.trips.map((t) => t.gross || 0)),
       perfRecent: performance(d, today(), { from: addMonths(monthOf(today()), -2), to: monthOf(today()) }),
       perfAll: performance(d, today()),
+      liveTrips: liveTrips(d, set, today()),
       charges: { fastag: monthlyCharges(d, set, 'fastag', kms), tyre: monthlyCharges(d, set, 'tyre', kms) },
     };
     cache = { data: d, rev: state.rev, x };
@@ -437,11 +440,13 @@ function derived() {
   return cache.x;
 }
 // the bulker for a trip: loaded with what it carried, or empty
-function bulkerFor(t, { compact = false, animate = false, empty = false, veh = null } = {}) {
+function bulkerFor(t, { compact = false, animate = false, empty = false, veh = null, routeTrip = null } = {}) {
   const { maxGross } = derived();
   const v = veh || (t && t.veh);
-  if (!t || empty || !t.loadWt) return bulkerSvg({ state: 'empty', compact, label: shortVeh(v), title: `${v} · empty` });
-  return bulkerSvg({ state: 'loaded', load: t.loadWt, tare: t.tare, gross: t.gross, max: maxGross, compact, animate, label: shortVeh(v),
+  const rt = routeTrip || t;
+  const extra = rt ? { route: `${rt.port} → ${rt.dest}`, trip: rt.trip } : {};
+  if (!t || empty || !t.loadWt) return bulkerSvg({ state: 'empty', compact, plate: v, title: `${v} · empty`, ...extra });
+  return bulkerSvg({ state: 'loaded', load: t.loadWt, tare: t.tare, gross: t.gross, max: maxGross, compact, animate, plate: v, ...extra,
     title: `${v} · ${t.trip} · ${t.loadWt.toFixed(2)} T alumina · gross ${t.gross ? t.gross.toFixed(2) : '—'} T (RTO ${RTO_GROSS} T)` });
 }
 const weightLine = (t) => {
@@ -553,7 +558,8 @@ async function viewHome() {
         <div class="kpi"><span class="lbl">Empty · going to load</span><span class="val">${empty.length}</span><span class="sub">${esc(summarisePlaces(empty.map((s) => s.trip.port)))}</span></div>
         <div class="kpi"><span class="lbl">Idle</span><span class="val">${status.length - onTrip.length}</span><span class="sub">${esc(summarisePlaces(status.filter((s) => s.state === 'idle' && s.last).map((s) => s.last.dest)) || '—')}</span></div>
       </div>
-      <div class="veh-grid">${status.map(vehTile).join('')}</div>
+      <div class="road-grid">${derived().liveTrips.map(roadCard).join('')}</div>
+      ${status.some((s) => s.state === 'idle') ? `<div class="veh-grid idle-grid">${status.filter((s) => s.state === 'idle').map(vehTile).join('')}</div>` : ''}
     </section>
 
     ${todo.length ? `<section class="card"><h3>Needs a look</h3><div class="todos">${todo.slice(0, 8).map((t) => `<a class="todo ${t.kind}" href="${t.href}">${esc(t.text)}</a>`).join('')}
@@ -570,6 +576,57 @@ function summarisePlaces(list) {
   const m = new Map();
   list.forEach((p) => m.set(p, (m.get(p) || 0) + 1));
   return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p, n]) => `${n} → ${p}`).join(' · ');
+}
+
+// ---- a vehicle on a trip: route, where it is, its pace, what the trip should earn ----
+const dm = (iso) => (iso ? `${Number(iso.slice(8, 10))} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(iso.slice(5, 7)) - 1]}` : '');
+function paceText(lt) {
+  const p = lt.pace;
+  if (p.best == null) return { cls: 'good', text: 'Just started', sub: '' };
+  const own = p.own != null ? (p.own > 0 ? ` · ${p.own} d behind its own best` : p.own < 0 ? ` · ${-p.own} d ahead of its own best` : ' · matching its own best') : '';
+  if (lt.status === 'late') return { cls: 'late', text: `Late — ${p.typical} d behind the usual`, sub: `${p.best} d behind the best${own}` };
+  if (lt.status === 'behind') return { cls: 'behind', text: `${p.best} d behind the best`, sub: `on the usual pace${own}` };
+  return { cls: 'good', text: p.best < 0 ? `Ahead of the best by ${-p.best} d` : 'On the best pace', sub: own.replace(/^ · /, '') };
+}
+function stepsHtml(lt) {
+  const lastDone = lt.steps.map((x) => x.done).lastIndexOf(true);
+  return `<ol class="steps5">${lt.steps.map((x, i) => {
+    const cls = x.done ? (i === lastDone ? 'st-done st-last' : 'st-done') : i === lastDone + 1 ? 'st-next' : 'st-later';
+    const when = x.done ? dm(x.date) : x.best ? `best ${dm(x.best)}` : '';
+    return `<li class="${cls}"><i></i><b>${esc(x.name)}</b><small>${esc(x.place || '')}</small><em>${esc(when)}</em></li>`;
+  }).join('')}</ol>`;
+}
+function projHtml(pr, { full = false } = {}) {
+  const parts = [['Freight', pr.freight, pr.loaded ? `${pr.loadWt.toFixed(2)} T × ₹${indian(pr.rate)}` : `about ${pr.loadWt.toFixed(1)} T × ₹${indian(pr.rate)} (not loaded yet)`],
+    ['Diesel filled', -pr.dieselSoFar, `${indian(pr.litresSoFar)} L logged`], ['Diesel still to fill', -pr.dieselLeft, pr.litresLeft ? `~${indian(pr.litresLeft)} L at ₹${pr.price.toFixed(2)}` : 'none expected'],
+    ['Driver', -pr.driver, `${pr.driverFrom === 'setup' ? 'salary (Setup)' : pr.driverFrom === 'rates' ? 'Rates sheet driver payment' : 'what the route usually costs'}${pr.advances ? `, ${rupees(pr.advances)} advanced` : ''}`],
+    ['SSFC other deductions', -pr.ssfcOther, 'fastag, tyre, maintenance, RTO… — its average a trip, last 90 days'],
+    ['Urea & own misc', -(pr.urea + pr.ownOther), '']];
+  if (!full) {
+    return `<div class="rc-money"><span><small>Projected income</small><b class="${signed(pr.before)}">${money(pr.before)}</b><small>before EMI${pr.usual != null ? ` · usual ${money(pr.usual)}` : ''}</small></span>
+      <span><small>After EMI share</small><b class="${signed(pr.after)}">${money(pr.after)}</b><small>EMI ${money(pr.emiShare)} a trip</small></span>
+      <span><small>Diesel so far</small><b>${money(pr.dieselSoFar)}</b><small>${indian(pr.litresSoFar)} L${pr.litresLeft ? ` · ~${indian(pr.litresLeft)} L to go` : ''}</small></span></div>`;
+  }
+  return `<div class="ledger-lines proj-lines">${parts.map(([n, v, note]) => `<div class="ln${v < 0 ? ' minus' : ''}"><span>${esc(n)}${note ? `<small class="muted block">${esc(note)}</small>` : ''}</span><b>${v < 0 ? '− ' : ''}${rupees(Math.abs(v))}</b></div>`).join('')}
+    <div class="ln total"><span>Projected income (before EMI)</span><b class="${signed(pr.before)}">${rupees(pr.before)}</b></div>
+    <div class="ln minus"><span>EMI share a trip</span><b>− ${rupees(pr.emiShare)}</b></div>
+    <div class="ln total"><span>After EMI</span><b class="${signed(pr.after)}">${rupees(pr.after)}</b></div></div>
+    <p class="muted small">Freight, the diesel logged in HSD Data and any driver advance are actual; the rest is what this vehicle / route usually costs${pr.usual != null ? ` (the route usually earns ${rupees(pr.usual)} a trip before EMI)` : ''}.</p>`;
+}
+function roadCard(lt) {
+  const t = lt.t;
+  const pace = paceText(lt);
+  const who = driverNow(lt.veh);
+  return `<a class="road-card ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}">
+    <div class="rc-head"><span class="hsrp">${esc(plateText(lt.veh))}</span>${perfBadge(lt.veh)}<span class="rc-day">Day ${lt.el}</span></div>
+    <div class="rc-route"><span class="rc-place"><small>Loading port</small><b>${esc(t.port)}</b></span><span class="rc-arrow" aria-hidden="true"></span><span class="rc-place to"><small>Destination</small><b>${esc(t.dest)}</b></span></div>
+    <div class="rc-sub"><span>${esc(t.trip)}</span>${who ? `<span>Driver ${esc(who)}</span>` : ''}<span>Started ${dm(t.start)}</span></div>
+    ${bulkerFor(lt.stage === 'start' || lt.stage === 'out' ? null : t, { veh: lt.veh, routeTrip: t })}
+    <div class="rc-phase"><b>${esc(lt.phase.title)}</b></div>
+    ${stepsHtml(lt)}
+    <div class="rc-pace ${pace.cls}"><b>${esc(pace.text)}</b>${pace.sub ? `<small>${esc(pace.sub)}</small>` : ''}${lt.etaTypical ? `<small>At ${esc(t.dest)} ~${dm(lt.etaTypical)}${lt.etaBest && lt.etaBest !== lt.etaTypical ? ` (best ${dm(lt.etaBest)})` : ''}</small>` : ''}</div>
+    ${projHtml(lt.projection)}
+  </a>`;
 }
 
 function vehTile(s) {
@@ -888,12 +945,17 @@ async function viewVehicle(veh) {
   const recent = [...inP].sort((a, b) => b.row - a.row);
   const KV = kmOf(inP);
   const heroTrip = s.state === 'loaded' ? s.trip : [...mine].reverse().find((t) => t.loadWt && t.status === 'done');
+  const liveNow = derived().liveTrips.find((x) => x.veh === veh);
   setMain(`<section class="card">
     <a class="muted small" href="#/vehicles">← Vehicles</a>
     <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)}</h2><p class="muted">${plural(mine.length, 'trip')} in the register${emiNow ? ` · EMI ${rupees(emiNow)} a month` : ''}</p></div></div></div>
     <div class="live-line ${s.state}"><span class="veh-state"><i></i>${esc(s.long)}</span>${s.trip ? ` · <a href="#/trip/${s.trip.row}">${esc(s.trip.trip)}</a> · ${s.state === 'idle' ? '' : `day ${s.days}`}${s.trip.loadWt ? ` · ${s.trip.loadWt.toFixed(2)} T` : ''}` : s.days != null ? ` · ${s.days} days` : ''}</div>
     <div class="bulker-hero">${bulkerFor(heroTrip, { animate: true, veh })}
       <p class="bk-cap">${heroTrip ? `${s.state === 'loaded' ? 'Now carrying' : 'Last load'} <b>${heroTrip.loadWt.toFixed(2)} T</b> of alumina (${esc(heroTrip.trip)}, ${esc(routeOf(heroTrip))}) · gross <b>${heroTrip.gross ? heroTrip.gross.toFixed(2) : '—'} T</b> ${weightLine(heroTrip)}` : 'Empty'}${driverNow(veh) ? ` · driver <b>${esc(driverNow(veh))}</b>` : ''}</p></div>
+    ${liveNow ? `<div class="road-card in-page ${paceText(liveNow).cls}"><div class="rc-route"><span class="rc-place"><small>Loading port</small><b>${esc(liveNow.t.port)}</b></span><span class="rc-arrow" aria-hidden="true"></span><span class="rc-place to"><small>Destination</small><b>${esc(liveNow.t.dest)}</b></span></div>
+      <div class="rc-phase"><b>${esc(liveNow.phase.title)}</b> <span class="muted">· day ${liveNow.el}</span></div>${stepsHtml(liveNow)}
+      <div class="rc-pace ${paceText(liveNow).cls}"><b>${esc(paceText(liveNow).text)}</b>${paceText(liveNow).sub ? `<small>${esc(paceText(liveNow).sub)}</small>` : ''}${liveNow.etaTypical ? `<small>At ${esc(liveNow.t.dest)} ~${dm(liveNow.etaTypical)}${liveNow.etaBest && liveNow.etaBest !== liveNow.etaTypical ? ` (best ${dm(liveNow.etaBest)})` : ''}</small>` : ''}</div>
+      <h3 class="sub-h">This trip's projected income</h3>${projHtml(liveNow.projection, { full: true })}</div>` : ''}
     ${periodHtml()}
     ${vehPerfHtml(veh, p)}
     <div class="acct-hero">

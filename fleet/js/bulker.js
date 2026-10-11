@@ -20,22 +20,30 @@ let seq = 0;
 const r1 = (v) => Math.round(v * 10) / 10;
 
 // the tank: flat top, round ends, a V belly down to the discharge
-const BODY = 'M46,24 H300 Q322,24 322,46 Q322,64 305,70 L176,99 L45,70 Q20,64 20,46 Q20,24 46,24 Z';
-const BAND = 35;                                   // bottom of the navy livery band
+const BODY = 'M42,10 H302 Q326,10 326,34 V76 Q326,87 311,90 L176,101 L33,90 Q16,87 16,76 V34 Q16,10 42,10 Z';
+const BAND = 24;                                   // bottom of the navy livery band
 // the sight glass: the same shape, inside the body under the band
-const GLASS = 'M50,39 H296 Q311,39 311,50 Q311,59 297,63 L176,90 L54,63 Q31,59 31,50 Q31,39 50,39 Z';
-const G_TOP = 39;
-const G_LOW = 90;
+const GLASS = 'M44,28 H298 Q314,28 314,40 V73 Q314,80 300,83 L176,94 L42,83 Q28,80 28,73 V40 Q28,28 44,28 Z';
+const G_TOP = 28;
+const G_LOW = 94;
 
-const wheel = (cx, cy = 114, r = 12) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#1b1b1b"/><circle cx="${cx}" cy="${cy}" r="${r * 0.42}" fill="#b9bfc6"/>`;
+// a tyre with a rim, hub and nuts
+const wheel = (id, cx, cy = 114, r = 12) => `<g><circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${id}ty)"/><circle cx="${cx}" cy="${cy}" r="${r * 0.62}" fill="url(#${id}rim)" stroke="#6d757d" stroke-width=".6"/>
+  <circle cx="${cx}" cy="${cy}" r="${r * 0.24}" fill="#59616a"/>${[0, 72, 144, 216, 288].map((a) => { const rad = (a * Math.PI) / 180; return `<circle cx="${r1(cx + Math.cos(rad) * r * 0.42)}" cy="${r1(cy + Math.sin(rad) * r * 0.42)}" r=".9" fill="#6d757d"/>`; }).join('')}</g>`;
 
-// opts: { load, tare, gross, max, state: 'loaded'|'empty'|'idle', label, compact, animate, title }
+// OD23T2010 → OD 23 T 2010 (as on the plate)
+export const plateText = (v) => {
+  const m = String(v || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{1,4})$/);
+  return m ? [m[1], m[2], m[3], m[4]].filter(Boolean).join(' ') : String(v || '');
+};
+
+// opts: { load, tare, gross, max, state: 'loaded'|'empty'|'idle', plate, label, compact, animate, title }
 export function bulkerSvg(opts = {}) {
   const id = `bk${++seq}`;
-  const tare = opts.tare || 17;
   const max = Math.max(RATED_GROSS, opts.max || 0);
   const loaded = opts.state === 'loaded' || (!!opts.load && opts.state !== 'empty' && opts.state !== 'idle');
   const load = loaded ? Math.max(0, opts.load || 0) : 0;
+  const tare = opts.tare || 17;
   const gross = loaded ? (opts.gross || load + tare) : 0;
   const yOf = (g) => r1(G_LOW - Math.min(1, Math.max(0, (g - GAUGE_FROM) / (max - GAUGE_FROM))) * (G_LOW - G_TOP));
   const level = loaded && load ? yOf(gross) : G_LOW + 2;
@@ -43,74 +51,96 @@ export function bulkerSvg(opts = {}) {
   const rated = yOf(RATED_GROSS);
   const over = loaded && gross > RTO_GROSS;
   const compact = !!opts.compact;
-  const title = opts.title || (loaded ? `Loaded ${load.toFixed(2)} T alumina · gross ${gross.toFixed(2)} T (RTO ${RTO_GROSS} T)` : 'Empty');
+  const plate = plateText(opts.plate || opts.label || '');
+  const title = opts.title || `${plate ? `${plate} · ` : ''}${loaded ? `loaded ${load.toFixed(2)} T alumina · gross ${gross.toFixed(2)} T (RTO ${RTO_GROSS} T)` : 'empty'}`;
   // the powder's top: small heaps under the three hatches it's blown in through
-  const heap = (y) => `M28,${y} ${[104, 176, 248].map((x) => `Q${x - 26},${y} ${x},${r1(y - 3.2)} Q${x + 26},${y} ${x + 36},${y}`).join(' ')} H316 V96 H28 Z`;
+  const heap = (y) => `M24,${y} ${[104, 176, 248].map((x) => `Q${x - 26},${y} ${x},${r1(y - 3.2)} Q${x + 26},${y} ${x + 36},${y}`).join(' ')} H318 V98 H24 Z`;
   const big = loaded && load ? `${load.toFixed(2)} T` : 'EMPTY';
-  // the big figure sits low in the V, in the powder whenever there's a load
-  const textOnPowder = loaded && load && level < 64;
-  return `<svg class="bulker${compact ? ' compact' : ''}${loaded ? ' is-loaded' : ' is-empty'}${over ? ' is-over' : ''}" viewBox="0 0 424 134" role="img" aria-label="${esc(title)}">
+  const textOnPowder = loaded && load && level < 66;
+  return `<svg class="bulker${compact ? ' compact' : ''}${loaded ? ' is-loaded' : ' is-empty'}${over ? ' is-over' : ''}" viewBox="0 -3 424 139" role="img" aria-label="${esc(title)}">
   <title>${esc(title)}</title>
   <defs>
     <clipPath id="${id}b"><path d="${BODY}"/></clipPath>
     <clipPath id="${id}g"><path d="${GLASS}"/></clipPath>
-    <linearGradient id="${id}m" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eba63a"/><stop offset="1" stop-color="#c98317"/></linearGradient>
-    <linearGradient id="${id}p" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fdfcf8"/><stop offset=".6" stop-color="#ecebe4"/><stop offset="1" stop-color="#d9d6cb"/></linearGradient>
-    <pattern id="${id}s" width="9" height="7" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".55" fill="#c9c5b8"/><circle cx="6.5" cy="5" r=".45" fill="#cfcbbf"/></pattern>
-    <pattern id="${id}h" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(255,178,62,.22)"/><rect width="2.2" height="6" fill="rgba(232,120,20,.55)"/></pattern>
-    <linearGradient id="${id}sh" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="${id}m" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffc561"/><stop offset=".18" stop-color="#f0a636"/><stop offset=".7" stop-color="#d48716"/><stop offset="1" stop-color="#a9650a"/></linearGradient>
+    <linearGradient id="${id}n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b4fb0"/><stop offset="1" stop-color="#162c6e"/></linearGradient>
+    <linearGradient id="${id}gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1419"/><stop offset="1" stop-color="#28313b"/></linearGradient>
+    <linearGradient id="${id}p" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eeede6"/><stop offset="1" stop-color="#d6d2c4"/></linearGradient>
+    <pattern id="${id}s" width="9" height="7" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".55" fill="#c9c5b8"/><circle cx="6.5" cy="5" r=".45" fill="#cfcbbf"/><circle cx="5" cy="1.5" r=".35" fill="#fff"/></pattern>
+    <pattern id="${id}h" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(255,178,62,.22)"/><rect width="2.2" height="6" fill="rgba(232,120,20,.6)"/></pattern>
+    <linearGradient id="${id}sh" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".35" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="${id}cab" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#e3e6ea"/><stop offset=".35" stop-color="#ffffff"/><stop offset="1" stop-color="#edf0f2"/></linearGradient>
+    <linearGradient id="${id}win" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5d7690"/><stop offset=".5" stop-color="#253545"/><stop offset="1" stop-color="#131c25"/></linearGradient>
+    <radialGradient id="${id}ty" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#3a3d42"/><stop offset="1" stop-color="#101114"/></radialGradient>
+    <radialGradient id="${id}rim" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#f4f6f8"/><stop offset="1" stop-color="#9aa3ad"/></radialGradient>
+    <radialGradient id="${id}sha" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000" stop-opacity=".45"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <linearGradient id="${id}chr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2f4f6"/><stop offset=".5" stop-color="#9aa3ad"/><stop offset="1" stop-color="#d9dde1"/></linearGradient>
   </defs>
-  <line x1="4" x2="420" y1="127" y2="127" class="bk-ground"/>
-  <!-- under-frame, landing legs, tri-axle -->
-  <rect x="26" y="98" width="296" height="5" rx="2" fill="#86c5de" class="bk-chassis"/>
-  <rect x="40" y="101" width="96" height="6" rx="2" fill="#a8b0b8" stroke="#6d757d" stroke-width=".8"/>
-  <rect x="223" y="101" width="4" height="15" fill="#6d757d"/><rect x="218" y="115" width="14" height="3" rx="1" fill="#6d757d"/>
-  ${wheel(58)}${wheel(88)}${wheel(118)}
+  <ellipse cx="214" cy="127" rx="206" ry="6" fill="url(#${id}sha)"/>
+  <!-- under-frame, landing legs, air tanks, tri-axle -->
+  <rect x="22" y="99" width="300" height="5" rx="2" fill="#3c4148"/>
+  <rect x="40" y="100.5" width="96" height="7" rx="2.5" fill="#545b63"/>
+  <rect x="150" y="101" width="36" height="7" rx="3.5" fill="url(#${id}chr)"/>
+  <rect x="223" y="101" width="4" height="15" fill="#4b5158"/><rect x="218" y="115" width="14" height="3" rx="1" fill="#4b5158"/>
+  <path d="M44,104 q14,-12 28,0 M74,104 q14,-12 28,0 M104,104 q14,-12 28,0" fill="#2b2f34"/>
+  ${wheel(id, 58)}${wheel(id, 88)}${wheel(id, 118)}
   <!-- the tractor: a white Tata Signa -->
-  <rect x="300" y="100" width="104" height="6" rx="2" fill="#86c5de" class="bk-chassis"/>
-  ${wheel(322)}${wheel(350)}${wheel(396)}
-  <path d="M350,103 V48 Q350,38 360,38 H401 Q409,38 410,47 L415,90 Q416,103 405,103 Z" fill="#f4f4f2" stroke="#c9ccd0" stroke-width="1"/>
-  <rect x="352" y="35" width="42" height="4" rx="2" fill="#e6e6e2"/>
-  <path d="M393,44 H404 Q407,44 407.6,48 L410.5,70 H393 Z" fill="#9fb3c8" opacity=".9"/>
-  <rect x="365" y="44" width="22" height="22" rx="3" fill="#9fb3c8" opacity=".9"/>
-  <rect x="351" y="76" width="64" height="3.2" fill="#f5c02a"/><rect x="351" y="79.2" width="64" height="1.6" fill="#ef6a28"/>
-  <rect x="403" y="96" width="14" height="8" rx="2" fill="#2a2d31"/>
-  <rect x="360" y="103" width="22" height="8" rx="3" fill="#a8b0b8" stroke="#6d757d" stroke-width=".8"/>
-  <path d="M413,48 l5,-1.5 v13" fill="none" stroke="#3a3f45" stroke-width="1.5"/>
-  ${opts.label ? `<text x="378" y="94" class="bk-door" text-anchor="middle">${esc(opts.label)}</text>` : ''}
+  <rect x="300" y="100" width="104" height="6" rx="2" fill="#3c4148"/>
+  <path d="M308,104 q14,-12 28,0 M336,104 q14,-12 28,0 M382,104 q14,-12 28,0" fill="#2b2f34"/>
+  ${wheel(id, 322)}${wheel(id, 350)}${wheel(id, 396)}
+  <rect x="358" y="102" width="24" height="9" rx="4.5" fill="url(#${id}chr)"/>
+  <path d="M350,103 V48 Q350,37 361,37 H401 Q409.5,37 410.5,46 L415.5,89 Q416.5,103 405,103 Z" fill="url(#${id}cab)" stroke="#b9c0c7" stroke-width="1"/>
+  <path d="M352,36.5 Q356,30.5 366,30.5 H392 Q398,30.5 400,36.5 Z" fill="#e9ecef" stroke="#c9ced3" stroke-width=".8"/>
+  <path d="M392.5,43 H404 Q407.5,43 408.2,47 L411.4,71 H392.5 Z" fill="url(#${id}win)"/>
+  <path d="M395,44.5 l5,0 l-6,22 h-2 z" fill="#fff" opacity=".18"/>
+  <rect x="364" y="43" width="23" height="22" rx="3" fill="url(#${id}win)"/>
+  <path d="M367,45 h5 l-6,16 h-2 z" fill="#fff" opacity=".16"/>
+  <rect x="351" y="74" width="65" height="3.4" fill="#f5c02a"/><rect x="351" y="77.4" width="65" height="1.8" fill="#ef6a28"/>
+  <line x1="389" x2="389" y1="42" y2="99" stroke="#c3c9cf" stroke-width=".8"/>
+  <rect x="383" y="66" width="4" height="1.6" rx=".8" fill="#9aa3ad"/>
+  <rect x="402" y="94" width="16" height="9" rx="2.4" fill="#1d2024"/><rect x="402" y="94" width="16" height="1.6" fill="url(#${id}chr)"/>
+  <rect x="409.5" y="83" width="7" height="5" rx="1.4" fill="#fff6d8"/><circle cx="414" cy="85.5" r="5" fill="#ffd36b" opacity=".18"/>
+  <path d="M413,47 l6,-1.5 v15 h-2.4" fill="none" stroke="#2c3036" stroke-width="1.6"/><rect x="416.5" y="51" width="3.4" height="9" rx="1.2" fill="#2c3036"/>
+  ${plate ? `<g class="bk-plate"><rect x="${compact ? 352 : 354}" y="${compact ? 81 : 82}" width="${compact ? 50 : 46}" height="${compact ? 14 : 11.5}" rx="2" fill="#ffcf1a" stroke="#1d2024" stroke-width="1"/><text x="${compact ? 377 : 377}" y="${compact ? 91.6 : 90.4}" text-anchor="middle" class="bk-plate-t${compact ? ' big' : ''}" textLength="${compact ? 44 : 40}" lengthAdjust="spacingAndGlyphs">${esc(plate)}</text></g>` : ''}
   <!-- the tank: mustard body, navy livery band, the sight glass, the belly stripes -->
   <path d="${BODY}" fill="url(#${id}m)"/>
   <g clip-path="url(#${id}b)">
-    <rect x="18" y="20" width="308" height="${BAND - 20}" fill="#1e3a8a"/>
-    <rect x="18" y="${BAND}" width="308" height="1.4" fill="#f5c02a"/>
-    <polyline points="18,68 176,${95.5} 326,66" fill="none" stroke="#1e3a8a" stroke-width="3.4"/>
-    <polyline points="18,72.5 176,${100} 326,70.5" fill="none" stroke="#f5c02a" stroke-width="1.3"/>
+    <rect x="14" y="8" width="314" height="${BAND - 8}" fill="url(#${id}n)"/>
+    <rect x="14" y="${BAND}" width="314" height="1.6" fill="#f5c02a"/>
+    <rect x="14" y="8" width="314" height="3" fill="#fff" opacity=".16"/>
+    <polyline points="14,86 176,97.5 328,86" fill="none" stroke="url(#${id}n)" stroke-width="3.6"/>
+    <polyline points="14,90 176,101.5 328,90" fill="none" stroke="#f5c02a" stroke-width="1.3"/>
+    <path d="M30,27 Q176,22 312,27" fill="none" stroke="#fff" stroke-width="2" opacity=".12"/>
   </g>
-  <rect x="58" y="${(20 + BAND) / 2 + 2 - 5.5}" width="11" height="11" rx="2.4" fill="#fff"/>
-  <image href="assets/logo-mark.png" x="59.3" y="${(20 + BAND) / 2 + 2 - 4.3}" width="8.4" height="9"/>
-  <text x="74" y="${(20 + BAND) / 2 + 4.6}" class="bk-livery">SHREE SHYAM LOGISTICS<tspan class="bk-tag" dx="6">${esc(TAGLINE)}</tspan></text>
-  <path d="${GLASS}" class="bk-glass"/>
+  <rect x="40" y="9.5" width="13" height="13" rx="3.2" fill="#fff"/>
+  <image href="assets/logo-mark.png" x="41.5" y="10.8" width="10" height="10.6"/>
+  <text x="58" y="19.6" class="bk-livery">SHREE SHYAM LOGISTICS<tspan class="bk-tag" dx="6">${esc(TAGLINE)}</tspan></text>
+  <path d="${GLASS}" fill="url(#${id}gl)"/>
   <g clip-path="url(#${id}g)">
     <g class="bk-fill${opts.animate ? ' pour' : ''}" style="--from:${r1(G_LOW - level + 6)}px">
-      ${loaded && load ? `<path d="${heap(level)}" fill="url(#${id}p)"/><path d="${heap(level)}" fill="url(#${id}s)"/>` : ''}
-      ${over ? `<rect x="28" y="${r1(level - 4)}" width="290" height="${r1(Math.max(0, rto - level + 4))}" fill="url(#${id}h)"/>` : ''}
+      ${loaded && load ? `<path d="${heap(level)}" fill="url(#${id}p)"/><path d="${heap(level)}" fill="url(#${id}s)"/><path d="${heap(level).replace(/ H316 V96 H28 Z$/, '')}" fill="none" stroke="#fff" stroke-width="1.2" opacity=".9"/>` : ''}
+      ${over ? `<rect x="24" y="${r1(level - 4)}" width="296" height="${r1(Math.max(0, rto - level + 4))}" fill="url(#${id}h)"/>` : ''}
     </g>
-    <line x1="28" x2="316" y1="${rto}" y2="${rto}" class="bk-rto"/>
-    ${rated > G_TOP + 2 ? `<line x1="28" x2="316" y1="${rated}" y2="${rated}" class="bk-rated"/>` : ''}
+    <line x1="24" x2="318" y1="${rto}" y2="${rto}" class="bk-rto"/>
+    ${rated > G_TOP + 2 ? `<line x1="24" x2="318" y1="${rated}" y2="${rated}" class="bk-rated"/>` : ''}
     <path d="${GLASS}" fill="url(#${id}sh)"/>
+    <path d="M56,30 L90,30 L66,92 L32,92 Z" fill="#fff" opacity=".05"/>
   </g>
   <path d="${GLASS}" class="bk-glass-rim"/>
-  <text x="176" y="${compact ? 78 : 75}" class="bk-big${textOnPowder ? ' on-powder' : ''}" text-anchor="middle">${big}</text>
+  <text x="176" y="${compact ? 80 : 74}" class="bk-big${textOnPowder ? ' on-powder' : ''}" text-anchor="middle">${big}</text>
   ${!compact && loaded && load ? `<text x="176" y="84" class="bk-small${textOnPowder ? ' on-powder' : ''}" text-anchor="middle">alumina · gross ${gross.toFixed(2)} T</text>` : ''}
-  ${compact ? '' : `<text x="300" y="${r1(rto - 2.2)}" class="bk-t bk-rto-t" text-anchor="end">RTO ${RTO_GROSS} T</text>
-  ${rated > G_TOP + 6 ? `<text x="300" y="${r1(rated - 2.2)}" class="bk-t bk-rated-t" text-anchor="end">${RATED_GROSS} T rated</text>` : ''}`}
-  <path d="${BODY}" fill="none" stroke="#9a5f0c" stroke-width="1.1"/>
-  <!-- top: hatches and handrail; rear ladder and lamp -->
-  ${[104, 176, 248].map((x) => `<rect x="${x - 9}" y="19.5" width="18" height="5" rx="2" fill="#59616a"/>`).join('')}
-  <path d="M66,15 H286" stroke="#8d969e" stroke-width="1.3"/>
-  ${[66, 128, 220, 286].map((x) => `<line x1="${x}" x2="${x}" y1="15" y2="24" stroke="#8d969e" stroke-width="1.1"/>`).join('')}
-  <path d="M25,28 v64 M31,28 v64" stroke="#8d969e" stroke-width="1"/>${[38, 50, 62, 74, 86].map((y) => `<line x1="25" x2="31" y1="${y}" y2="${y}" stroke="#8d969e" stroke-width=".9"/>`).join('')}
-  <rect x="12" y="90" width="9" height="6" rx="1" fill="#ef6a28"/>
+  ${opts.route ? `<text x="${compact ? 176 : 36}" y="${compact ? 40 : 38}" class="bk-route${compact ? ' c' : ''}${textOnPowder && level < 41 ? ' on-powder' : ''}" text-anchor="${compact ? 'middle' : 'start'}">${esc(opts.route)}</text>` : ''}
+  ${opts.trip && !compact ? `<text x="36" y="47" class="bk-trip${textOnPowder && level < 50 ? ' on-powder' : ''}">${esc(opts.trip)}</text>` : ''}
+  ${compact ? '' : `<text x="306" y="${r1(rto - 2.2)}" class="bk-t bk-rto-t" text-anchor="end">RTO ${RTO_GROSS} T</text>
+  ${rated > G_TOP + 6 ? `<text x="306" y="${r1(rated - 2.2)}" class="bk-t bk-rated-t" text-anchor="end">${RATED_GROSS} T rated</text>` : ''}`}
+  <path d="${BODY}" fill="none" stroke="#8a530a" stroke-width="1.1"/>
+  ${[56, 116, 236, 296].map((x) => `<circle cx="${x}" cy="${x < 176 ? r1(90 + ((x - 33) / 143) * 11 - 3) : r1(90 + ((311 - x) / 135) * 11 - 3)}" r="1.5" fill="#ffb21a"/>`).join('')}
+  <!-- top: hatches, handrail; rear ladder and lamps -->
+  ${[104, 176, 248].map((x) => `<rect x="${x - 10}" y="5" width="20" height="5.5" rx="2.4" fill="url(#${id}chr)" stroke="#6d757d" stroke-width=".6"/>`).join('')}
+  <path d="M62,1 H290" stroke="url(#${id}chr)" stroke-width="1.8"/>
+  ${[62, 128, 220, 290].map((x) => `<line x1="${x}" x2="${x}" y1="1" y2="10" stroke="#9aa3ad" stroke-width="1.2"/>`).join('')}
+  <path d="M21,14 v80 M27,14 v80" stroke="#9aa3ad" stroke-width="1.1"/>${[24, 36, 48, 60, 72, 84].map((y) => `<line x1="21" x2="27" y1="${y}" y2="${y}" stroke="#9aa3ad" stroke-width=".9"/>`).join('')}
+  <rect x="7" y="86" width="9" height="7" rx="1.5" fill="#e0402e"/><rect x="7" y="86" width="9" height="2.4" rx="1" fill="#ff8a6e"/>
 </svg>`;
 }
 
