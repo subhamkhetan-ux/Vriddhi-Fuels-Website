@@ -132,89 +132,34 @@ export function ownerBrief(data, ctx, today) {
   const look = [];
   if (ctx.issues && ctx.issues.length) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel`, href: '#/trips?f=check' });
   if (look.length) sections.push({ title: 'To check', items: look });
-  sections.push({ title: 'Each vehicle', items: vehicleItems(data, ctx, today) });
+  sections.push({ title: 'Each vehicle', items: vehicleItems(data, ctx) });
   return { date: today, sections };
 }
 
-// every truck, one item each: where it is, what it did yesterday and today,
-// its trip's diesel against the allotment, its load, and its month so far.
-// → [{ tone, head, text, more: [..], href }]  (the worst first)
-const GRADE = { top: 'full load', ok: 'near full', low: 'underloaded', poor: 'badly underloaded' };
-export function vehicleItems(data, ctx, today) {
-  const yday = addDays(today, -1);
-  const m = monthOf(today);
+// every truck, one item each: its trip's loading and the diesel slips
+// tagged to it — the trip on the road, else the last one.
+// → [{ tone, head, text, more: [..], href }]
+export function vehicleItems(data, ctx) {
   const items = [];
   for (const s of ctx.status) {
     const veh = s.veh;
     const lt = ctx.live.find((x) => x.veh === veh);
+    const t = lt ? lt.t : s.last;
     const driver = ctx.driverNow ? ctx.driverNow(veh) : '';
-    let tone = 'good';
-    const worse = (to) => { const o = { good: 0, info: 1, warn: 2, bad: 3 }; if (o[to] > o[tone]) tone = to; };
-    let head;
-    let text;
-    const t = lt ? lt.t : null;
-    if (lt) {
-      head = `${short(veh)}${driver ? ` · ${driver}` : ''} — ${lt.phase.title}`;
-      const bits = [`${t.trip || 'trip'} ${t.port || '?'} → ${t.dest || '?'}`, `day ${lt.el}${t.start ? ` (left ${dm(t.start)})` : ''}`];
-      if (lt.etaTypical) bits.push(`unload by ${dm(lt.etaTypical)}`);
-      if (lt.status === 'late') { bits.push(`${lt.pace.typical} d late`); worse('bad'); }
-      else if (lt.status === 'behind') { bits.push(`${lt.pace.best} d behind the best`); worse('warn'); }
-      text = bits.join(' · ');
-    } else {
-      head = `${short(veh)}${driver ? ` · ${driver}` : ''} — idle${s.last ? ` at ${s.last.dest}` : ''}`;
-      text = s.last ? `unloaded ${dm(s.last.unloadDate)}${s.days != null ? ` — ${plural(s.days, 'day')} idle` : ''}` : 'no trip yet';
-      if (s.days != null && s.days >= 2) worse('warn');
-    }
-    const more = [];
-    // yesterday's and today's entries for this truck
-    for (const [day, label] of [[yday, 'Yesterday'], [today, 'Today']]) {
-      const bits = [];
-      for (const x of data.trips.filter((y) => y.veh === veh)) {
-        if (x.start === day) bits.push(`started ${x.trip || 'a trip'}`);
-        if (x.loadDate === day && x.loadWt) bits.push(`loaded ${x.loadWt.toFixed(2)} T at ${x.port}${x.bhada ? ` (${lakh(x.bhada)})` : ''}`);
-        if (x.unloadDate === day) bits.push(`unloaded at ${x.dest}${(x.diff || 0) < -0.05 ? `, ${(-x.diff).toFixed(2)} T short` : ''}`);
-      }
-      const fills = (data.hsd || []).filter((h) => h.veh === veh && h.date === day);
-      for (const h of fills) bits.push(`${/^extra filling$/i.test(String(h.source || '').trim()) ? 'incentive diesel' : 'diesel'} ${ind(h.qty)} L${h.location ? ` at ${h.location}` : ''}`);
-      const urea = (data.urea || []).filter((u) => u.veh === veh && u.date === day);
-      if (urea.length) bits.push(`urea ${ind(urea.reduce((a, u) => a + (u.qty || 0), 0))} L`);
-      const adv = (data.driverPay || []).filter((p) => p.veh === veh && p.date === day);
-      if (adv.length) bits.push(`advance ${rs(adv.reduce((a, p) => a + p.amount, 0))}`);
-      if (bits.length) more.push(`${label}: ${bits.join(' · ')}`);
-    }
-    if (lt && !more.some((x) => x.startsWith('Yesterday')) && !more.some((x) => x.startsWith('Today'))) more.push('Nothing entered yesterday or today');
-    // the trip's diesel
-    const z = t && ctx.tripDiesel ? ctx.tripDiesel.get(t.row) : null;
-    if (z && z.allotted != null) {
-      let d = `Diesel: ${ind(z.taken)} of ${ind(z.allotted)} L${z.est ? ' (est.)' : ''} taken`;
-      if (z.extra > 0.5) { d += ` — ${ind(z.extra)} L over`; worse('bad'); }
-      else if (z.toTake > 0.5) d += `, ${ind(z.toTake)} L to take`;
-      if (z.carryIn < -0.5) { d += ` · ${ind(-z.carryIn)} L owed from before${z.mayTake < 0.5 ? ' — no more this trip' : `, so ${ind(z.mayTake)} L more at most`}`; worse('warn'); }
-      if (z.ownL) d += ` · own diesel ${ind(z.ownL)} L`;
-      more.push(d);
-    } else if (!lt && ctx.recon) {
-      const v = ctx.recon.vehicles.find((x) => x.veh === veh);
-      if (v && v.balance < -0.5) { more.push(`Diesel: ${ind(-v.balance)} L extra owed — to come off the next trip`); worse('warn'); }
-    }
-    const miss = t && ctx.missingFills ? ctx.missingFills.get(t.row) : null;
-    if (miss) { more.push(miss.text); worse('warn'); }
-    // the load
-    const b = t && t.loadWt && ctx.loads ? ctx.loads.get(t.row) : null;
-    if (b) {
-      more.push(`Load ${t.loadWt.toFixed(2)} T — ${GRADE[b.grade]}${b.gapNear > 0.05 ? `, ${b.gapNear.toFixed(2)} T below the best then (${rs(b.lostRs)} left behind)` : ''}`);
-      if (b.grade === 'poor') worse('bad'); else if (b.grade === 'low') worse('warn');
-    }
-    // the month so far
-    const mine = data.trips.filter((x) => x.veh === veh && x.month === m && x.loadDate);
-    const ML = mine.length && ctx.loads ? loadSummary(mine, ctx.loads) : null;
-    more.push(mine.length
-      ? `${MON[Number(m.slice(5, 7)) - 1]}: ${plural(mine.length, 'trip')}, ${ind(mine.reduce((a, x) => a + (x.loadWt || 0), 0), 1)} T, ${lakh(mine.reduce((a, x) => a + (x.bhada || 0), 0))} freight${ML && ML.trips ? ` · avg load ${ML.avgLoad.toFixed(2)} T` : ''}`
-      : `${MON[Number(m.slice(5, 7)) - 1]}: no trip loaded yet`);
-    if (tone === 'good' && !lt) tone = 'info';
-    items.push({ tone, head, text, more, href: `#/vehicle/${encodeURIComponent(veh)}` });
+    const head = `${short(veh)}${driver ? ` · ${driver}` : ''}${t ? ` — ${t.trip || 'trip'} ${t.port || '?'} → ${t.dest || '?'}` : ''}`;
+    if (!t) { items.push({ tone: 'info', head, text: 'No trip yet', more: [], href: `#/vehicle/${encodeURIComponent(veh)}` }); continue; }
+    const text = t.loadDate && t.loadWt
+      ? `Loaded ${dm(t.loadDate)} at ${t.port}: ${t.loadWt.toFixed(2)} T${t.gross ? ` · gross ${t.gross.toFixed(2)} T` : ''}${t.rate ? ` · ₹${ind(t.rate)}/T` : ''}${t.bhada ? ` · ${rs(t.bhada)}` : ''}`
+      : `Not loaded yet${t.start ? ` (left ${dm(t.start)})` : ''}`;
+    const slips = (data.hsd || []).filter((h) => h.veh === veh && h.trip === t.trip && (!t.start || h.date >= t.start)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const more = slips.map((h) => [
+      `${dm(h.date)} · ${/^extra filling$/i.test(String(h.source || '').trim()) ? 'Incentive' : h.source || 'pump'}${h.bill ? ` slip ${h.bill}` : ''}`,
+      h.location, `${ind(h.qty, h.qty % 1 ? 2 : 0)} L`, h.rsp ? `₹${h.rsp.toFixed(2)}/L` : '', h.amount ? rs(h.amount) : '',
+    ].filter(Boolean).join(' · '));
+    if (!slips.length) more.push('No diesel slip entered for this trip');
+    items.push({ tone: 'info', head, text, more, href: t.row ? `#/trip/${t.row}` : `#/vehicle/${encodeURIComponent(veh)}` });
   }
-  const order = { bad: 0, warn: 1, info: 2, good: 3 };
-  return items.sort((a, b) => order[a.tone] - order[b.tone] || a.head.localeCompare(b.head));
+  return items.sort((a, b) => a.head.localeCompare(b.head));
 }
 
 // ---- for the drivers' group (Hindi) ---------------------------------------------------------------

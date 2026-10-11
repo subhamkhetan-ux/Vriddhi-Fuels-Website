@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gradeOf, loadBench, loadSummary, loadTarget } from '../../fleet/js/load.js';
-import { driverBrief, ownerBrief } from '../../fleet/js/brief.js';
+import { driverBrief, ownerBrief, vehicleItems } from '../../fleet/js/brief.js';
 import { driverBriefSvg, ownerBriefSvg, wrap } from '../../fleet/js/share-svg.js';
 
 let row = 3;
@@ -52,20 +52,22 @@ test('the daily brief: the owner\'s insight and the drivers\' instructions in Hi
   assert.match(all, /5\.00 T below the best then \(42\.00 T\): ₹15,000 freight left behind/);
   assert.match(all, /Behind the best pace: XX01 \(\+1 d\)/);
   assert.match(all, /Idle 2\+ days: XX02/);
-  // each vehicle: where it is, yesterday's work, its load and its month
-  const veh = o.sections.find((s) => s.title === 'Each vehicle').items;
-  assert.equal(veh.length, 2);
+  // each vehicle: the trip's loading and its diesel slips — that's all
+  assert.equal(o.sections.find((s) => s.title === 'Each vehicle').items.length, 2);
+  const slips = [
+    { veh: 'XX01', trip: loadedY.trip, date: '2026-10-10', source: 'SSFC', bill: 'S/1', location: 'Halfway', qty: 350, rsp: 100, amount: 35000 },
+    { veh: 'XX01', trip: loadedY.trip, date: '2026-10-11', source: 'Extra Filling', location: 'Halfway', qty: 20, rsp: 100, amount: 2000 },
+    { veh: 'XX01', trip: 'OTHER', date: '2026-10-10', source: 'SSFC', qty: 99, amount: 9900 },
+  ];
+  const veh = vehicleItems({ ...data, hsd: slips }, ctx);
   const v1 = veh.find((i) => i.head.startsWith('XX01'));
-  assert.match(v1.head, /XX01 · Ramesh — Loaded/);
-  assert.match(v1.text, /day 3 .*unload by 13 Oct .*1 d behind the best/);
-  assert.ok(v1.more.some((x) => /^Yesterday: started T4\/DEMO · loaded 37\.00 T at Demo Port/.test(x)));
-  assert.ok(v1.more.some((x) => /^Load 37\.00 T — badly underloaded, 5\.00 T below/.test(x)));
-  assert.ok(v1.more.some((x) => /^Oct: 1 trip, 37\.0 T/.test(x)));
-  assert.equal(v1.tone, 'bad');
-  assert.equal(v1.href, '#/vehicle/XX01');
+  assert.equal(v1.head, `XX01 · Ramesh — ${loadedY.trip} Demo Port → Demo Plant`);
+  assert.equal(v1.text, 'Loaded 10 Oct at Demo Port: 37.00 T · gross 54.00 T · ₹3,000/T · ₹1,11,000');
+  assert.deepEqual(v1.more, ['10 Oct · SSFC slip S/1 · Halfway · 350 L · ₹100.00/L · ₹35,000', '11 Oct · Incentive · Halfway · 20 L · ₹100.00/L · ₹2,000']);
+  assert.equal(v1.href, `#/trip/${loadedY.row}`);
   const v2 = veh.find((i) => i.head.startsWith('XX02'));
-  assert.match(v2.head, /idle at Demo Plant/);
-  assert.equal(v2.tone, 'warn');                             // 3 days idle
+  assert.match(v2.text, /^Loaded 8 Oct at Demo Port: 42\.00 T/);  // idle: its last trip
+  assert.deepEqual(v2.more, ['No diesel slip entered for this trip']);
   const d =driverBrief(data, ctx, today);
   const r = d.rows[0];
   assert.equal(r.veh, 'XX01');
