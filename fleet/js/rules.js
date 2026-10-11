@@ -62,7 +62,8 @@ export function routePairs(data, settings) {
 }
 
 // The route's values for a month: the newest entry from on or before it.
-// Salary and diesel fall back to the Rates sheet's Driver Payment / Diesel.
+// Salary and diesel fall back to the Rates sheet's Driver Payment / Diesel, and
+// km to its RTD/Trip in Km (the round trip a trip).
 export function routeFor(data, settings, port, dest, month = null) {
   const list = (settings.routes || []).filter((r) => lc(r.port) === lc(port) && lc(r.dest) === lc(dest))
     .filter((r) => !r.from || !month || r.from <= month)
@@ -73,6 +74,7 @@ export function routeFor(data, settings, port, dest, month = null) {
   const diesel = pick('diesel');
   return {
     km: pick('km'),
+    rtd: rate && rate.rtd > 0 ? rate.rtd : null,                     // the Rates sheet's round trip a trip (RTD/Trip in Km)
     salary: salary ?? (rate && rate.driver > 0 ? rate.driver : null),
     salaryFrom: salary != null ? 'app' : rate && rate.driver > 0 ? 'rates' : null,
     diesel: diesel ?? (rate && rate.diesel > 0 ? rate.diesel : null),
@@ -94,7 +96,9 @@ export function tripKms(data, settings) {
     const prev = byVeh.get(t.veh);
     const loaded = distance(data, settings, t.port, t.dest, t.month);
     const empty = prev ? (lc(prev.dest) === lc(t.port) ? 0 : distance(data, settings, prev.dest, t.port, t.month)) : null;
-    out.set(t.row, { loaded, empty, km: (loaded || 0) + (empty || 0), complete: loaded != null && (empty != null || !prev) });
+    const rtd = routeFor(data, settings, t.port, t.dest, t.month).rtd;
+    if (loaded == null && rtd) out.set(t.row, { loaded: rtd / 2, empty: rtd / 2, km: rtd, complete: true, from: 'rates' });   // the Rates sheet's round trip
+    else out.set(t.row, { loaded, empty, km: (loaded || 0) + (empty || 0), complete: loaded != null && (empty != null || !prev) });
     byVeh.set(t.veh, t);
   }
   return out;

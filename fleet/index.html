@@ -611,7 +611,80 @@ ul.brief li.tone-info span { color: var(--ink); }
 .rc-diesel b { margin-right: 4px; }
 .rc-diesel.bad { color: var(--bad); } .rc-diesel.warn { color: var(--warn); } .rc-diesel.good { color: var(--good); }
 .dz-table td small.block { font-size: 11px; }
+/* trip counter on Home */
+.tc-totals { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.tc-totals > div { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 12px; background: var(--well); }
+.tc-totals b { font-family: var(--display); font-size: 20px; font-variant-numeric: tabular-nums; }
+.tc-totals span { font-size: 11.5px; color: var(--muted); }
+.tc-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.tc-veh { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); color: var(--ink); min-width: 0; }
+.tc-veh:hover { text-decoration: none; border-color: var(--accent); }
+.tc-head { display: flex; justify-content: space-between; align-items: baseline; }
+.tc-head b { font-family: var(--display); font-size: 17px; font-weight: 800; }
+.tc-n { font-family: var(--display); font-weight: 800; font-size: 20px; font-variant-numeric: tabular-nums; }
+.tc-n small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.tc-bar { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.tc-bar i { display: block; height: 100%; background: var(--grad-cta); border-radius: 3px; }
+.tc-dots { display: flex; flex-wrap: wrap; gap: 3px; min-height: 9px; }
+.tc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex: none; }
+.tc-dot.load-none { color: var(--faint); background: transparent; border: 1.5px solid var(--faint); }
+.tc-veh small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.tc-key { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 10px 0 0; }
+.tc-key span { display: inline-flex; align-items: center; gap: 5px; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+@media (max-width: 760px) { .tc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tc-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* the vehicle sheet (tap a truck on Home) */
+.veh-sheet { width: min(760px, 100%); }
+.vsh-sub { margin: 6px 0 0; }
+.vsh-actions { margin-top: 10px; }
+.vsh-h { margin: 16px 0 6px; font-family: var(--display); font-size: 15px; }
+.veh-sheet tr.muted td { color: var(--muted); }
+.road-card, a.veh { cursor: pointer; }
+@media (max-width: 640px) {
+  .veh-sheet-wrap { place-items: end stretch; padding: 0; }
+  .veh-sheet { width: 100%; max-height: 88vh; border-radius: 20px 20px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); animation: sheet-up .2s ease both; }
+}
+@keyframes sheet-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .veh-sheet { animation: none; } }
+/* each vehicle: the loading and the diesel slips */
+.vx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; margin-top: 10px; }
+.vx { background: var(--glass-2); border: 1px solid var(--glass-line); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; }
+.vx-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; color: var(--ink); border-bottom: 1px solid var(--glass-line); }
+a.vx-head:hover { text-decoration: none; background: var(--glass); }
+.vx-who { display: grid; min-width: 0; flex: 1; line-height: 1.3; }
+.vx-who b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-who small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-load { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--glass-line); background: var(--glass); }
+.vx-cell { display: grid; align-content: start; gap: 2px; padding: 10px 12px; border-left: 1px solid var(--glass-line); min-width: 0; }
+.vx-cell:first-child { border-left: 0; }
+.vx-cell span, .vx-none span { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.vx-cell b { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-cell b small { font-size: 11px; color: var(--muted); font-weight: 600; }
+.vx-cell > small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-none { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; }
+.vx-none b { font-size: 14px; color: var(--warn); } .vx-none small { color: var(--muted); font-size: 12px; }
+table.vx-slips { width: 100%; margin: 0; }
+table.vx-slips th { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 9px 14px 6px; }
+table.vx-slips td { padding: 8px 14px; vertical-align: top; font-variant-numeric: tabular-nums; }
+table.vx-slips td:first-child, table.vx-slips td.r { white-space: nowrap; }
+table.vx-slips td small { font-size: 11.5px; margin-top: 1px; }
+table.vx-slips tbody tr + tr td { border-top: 1px solid var(--glass-line); }
+table.vx-slips tr.vx-inc td { opacity: .6; }
+table.vx-slips tfoot td { font-weight: 800; border-top: 1.5px solid var(--glass-line); background: var(--glass); }
+.vx-noslip { margin: 0; padding: 12px 14px; color: var(--warn); font-size: 13px; font-weight: 600; }
+@media (max-width: 760px) {
+  .vx-grid { grid-template-columns: 1fr; }
+  .vx-head { flex-wrap: wrap; row-gap: 8px; }
+  .vx-head .pill { margin-left: auto; }
+  .vx-who { order: 3; flex-basis: 100%; }
+  .vx-load { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vx-cell:nth-child(3) { border-left: 0; }
+  .vx-cell:nth-child(n+3) { border-top: 1px solid var(--glass-line); }
+  table.vx-slips th, table.vx-slips td { padding-left: 10px; padding-right: 10px; }
+}
 /* day book */
+.day-veh-table tbody tr { cursor: pointer; } .day-veh-table tbody tr:hover td, .day-veh-table tbody tr:focus td { background: var(--panel2); }
+
 .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--well); }
 .day-nav b { font-family: var(--display); text-align: center; font-size: 14.5px; }
 .day-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; margin-top: 12px; }

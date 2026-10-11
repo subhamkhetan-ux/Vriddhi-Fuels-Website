@@ -39,7 +39,7 @@ function dayFacts(data, ctx, day) {
 }
 
 // ---- for the owner ----------------------------------------------------------------------------
-// → { date, sections: [{ title, items: [{ tone: 'good'|'warn'|'bad'|'info', text, href }] }] }
+// → { date, sections: [{ title, items: [{ tone: 'good'|'warn'|'bad'|'info', text, href }] }], vehicles: vehicleTrips() }
 export function ownerBrief(data, ctx, today) {
   const yday = addDays(today, -1);
   const Y = dayFacts(data, ctx, yday);
@@ -132,7 +132,34 @@ export function ownerBrief(data, ctx, today) {
   const look = [];
   if (ctx.issues && ctx.issues.length) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel`, href: '#/trips?f=check' });
   if (look.length) sections.push({ title: 'To check', items: look });
-  return { date: today, sections };
+  return { date: today, sections, vehicles: vehicleTrips(data, ctx) };
+}
+
+// every truck: its trip on the road (else its last one) — the loading and
+// the diesel slips tagged to the trip.
+// → [{ veh, driver, onTrip, trip, row, port, dest, start, load: { date, port, net, gross, rate, freight } | null,
+//      slips: [{ date, pump, incentive, bill, place, litres, rsp, amount }], litres, amount (incentive not counted) }]
+export function vehicleTrips(data, ctx) {
+  const out = [];
+  for (const s of ctx.status) {
+    const veh = s.veh;
+    const lt = ctx.live.find((x) => x.veh === veh);
+    const t = lt ? lt.t : s.trip || s.last || null;
+    const v = { veh, driver: ctx.driverNow ? ctx.driverNow(veh) : '', onTrip: !!(lt || s.trip), trip: '', row: null, port: '', dest: '', start: null, load: null, slips: [], litres: 0, amount: 0 };
+    if (t) {
+      Object.assign(v, { trip: t.trip || '', row: t.row ?? null, port: t.port || '', dest: t.dest || '', start: t.start || null });
+      if (t.loadDate && t.loadWt) v.load = { date: t.loadDate, port: t.port || '', net: t.loadWt, gross: t.gross || null, rate: t.rate || null, freight: t.bhada || null };
+      v.slips = (data.hsd || [])
+        .filter((h) => h.veh === veh && h.trip === t.trip && (!t.start || h.date >= t.start))
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+        .map((h) => ({ date: h.date, pump: h.source || '', incentive: /^extra filling$/i.test(String(h.source || '').trim()), bill: h.bill || '', place: h.location || '', litres: h.qty || 0, rsp: h.rsp || null, amount: h.amount || 0 }));
+      const counted = v.slips.filter((x) => !x.incentive);
+      v.litres = counted.reduce((a, x) => a + x.litres, 0);
+      v.amount = counted.reduce((a, x) => a + x.amount, 0);
+    }
+    out.push(v);
+  }
+  return out.sort((a, b) => String(a.veh).localeCompare(String(b.veh)));
 }
 
 // ---- for the drivers' group (Hindi) ---------------------------------------------------------------

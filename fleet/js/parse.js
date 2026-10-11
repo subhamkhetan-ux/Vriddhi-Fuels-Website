@@ -54,6 +54,7 @@ const UREA_COLS = {
 };
 const RATE_COLS = {
   port: ['location'], dest: ['company'], rate: ['rate'], diesel: ['diesel'], driver: ['driverpayment'], driverExtra: ['driverextrapay'],
+  rtd: ['rtdtripinkm', 'rtdtrip', 'rtd', 'roundtrip', 'tripinkm', 'km', 'distance'],
 };
 
 // Column index for each spec key. Only the first block of headers counts (the
@@ -226,7 +227,7 @@ function readUrea(book) {
 function readRates(book) {
   const { records } = table(book, ['Rates'], ['location', 'company', 'diesel'], RATE_COLS);
   return records.filter((r) => text(r.port) && text(r.dest)).map((r) => ({
-    port: text(r.port), dest: text(r.dest), rate: num(r.rate), diesel: num(r.diesel), driver: num(r.driver), driverExtra: num(r.driverExtra),
+    port: text(r.port), dest: text(r.dest), rate: num(r.rate), diesel: num(r.diesel), driver: num(r.driver), driverExtra: num(r.driverExtra), rtd: num(r.rtd),
   }));
 }
 

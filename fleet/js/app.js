@@ -22,11 +22,11 @@ import { dataChecks } from './checks.js';
 import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
 import { fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
-import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange } from './daybook.js';
+import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange, sums as daySums } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
-  daybookPagesSvg, driverBriefSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+  daybookPagesSvg, driverBriefSvg, vehicleTripsPagesSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
 } from './share-svg.js';
 import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
 import {
@@ -44,6 +44,18 @@ const state = {
   period: 'fy', custom: null, ui: {},
   settings: withDefaults(null), settingsMeta: null, settingsMissing: false, rev: 0,
 };
+// the period and the day book's dates last picked, kept in this browser (it's only a convenience)
+const PREFS = 'fleet-view';
+try {
+  const p = JSON.parse(localStorage.getItem(PREFS) || '{}');
+  if (typeof p.period === 'string') state.period = p.period;
+  if (p.custom && p.custom.from && p.custom.to) state.custom = { from: String(p.custom.from), to: String(p.custom.to) };
+  if (p.day && typeof p.day.r === 'string') state.ui.day = { r: p.day.r, from: p.day.r === 'custom' ? p.day.from || null : null, to: p.day.r === 'custom' ? p.day.to || null : null, kinds: [], veh: '', days: 31 };
+} catch { /* private mode or nothing kept: the defaults */ }
+function savePrefs() {
+  const d = state.ui.day;
+  try { localStorage.setItem(PREFS, JSON.stringify({ period: state.period, custom: state.custom, day: d ? { r: d.r, from: d.from, to: d.to } : null })); } catch { /* this visit only */ }
+}
 
 // ---------------------------------------------------------------------------
 // small UI helpers
@@ -441,7 +453,7 @@ async function route() {
   if (!state.keepScroll) window.scrollTo(0, 0);
   state.keepScroll = false;
 }
-const rerender = () => { state.keepScroll = true; route(); };
+const rerender = () => { state.keepScroll = true; savePrefs(); route(); };
 
 function viewWelcome() {
   setMain(`<section class="hero card">
@@ -607,22 +619,20 @@ async function viewHome() {
   const slow = perfRecent.vehicles.filter((v) => v.under);
   if (slow.length) todo.push({ kind: 'warn', href: '#/performance', text: `Underperforming lately: ${slow.map((v) => `${shortVeh(v.veh)} (${v.slowerPerTrip.toFixed(1)} days a trip slower${v.worstStage ? `, mostly ${STAGE_NAME[v.worstStage]}` : ''})`).join(', ')}` });
   // only once salaries are set in Setup (the Rates sheet's Driver Payment is a placeholder)
-  const confirmed = (sp) => sp.trips.length && drivers.rows.filter((r) => r.spell === sp && r.salary != null).every((r) => r.salaryFrom === 'app');
+  const confirmed = (sp) => sp.trips.length && drivers.rows.filter((r) => r.spell === sp && r.salary != null).every((r) => r.salaryFrom === 'app' || r.salaryFrom === 'rates');
   const overpaid = drivers.spells.filter((x) => x.balance > OVERPAID && confirmed(x));
   if (overpaid.length > 2) {
     todo.unshift({ kind: 'warn', href: '#/drivers', text: `${plural(overpaid.length, 'driver')} overpaid — ${rupees(overpaid.reduce((a, x) => a + x.balance, 0))} more than salary − your advances` });
   } else {
     for (const sp of overpaid) todo.unshift({ kind: 'warn', href: `#/drivers/${encodeURIComponent(sp.veh)}`, text: `${shortVeh(sp.veh)}: ${sp.name ? `driver ${sp.name}` : 'driver'} overpaid ${rupees(sp.balance)} (salary − your advances vs what SSFC paid)` });
   }
-  const placeholder = [...new Set(drivers.rows.filter((r) => r.salaryFrom === 'rates').map((r) => routeOf(r.t)))];
-  if (placeholder.length) todo.push({ kind: 'info', href: '#/setup', text: `Confirm the driver salary for ${placeholder.join(', ')} in Setup (now taken from the Rates sheet's Driver Payment)` });
   const since = addMonths(monthOf(today()), -3);
   for (const key of ['tyre', 'fastag']) {
     const recent = charges[key].flags.filter((f) => f.month >= since && f.kind !== 'low');
     if (recent.length) todo.push({ kind: 'warn', href: `#/costs/${key}`, text: `${CHARGE_RULES[key].name}: ${plural(recent.length, 'charge')} out of the usual trend in the last 3 months` });
   }
   if (drivers.missing.length) todo.push({ kind: 'info', href: '#/setup', text: `Driver salary not set for ${drivers.missing.map((m) => m.route).join(', ')} — set it in Setup to check driver pay` });
-  if (![...kms.values()].some((k) => k.km)) todo.push({ kind: 'info', href: '#/setup', text: 'Add the distance of each route in Setup to see km, mileage and cost per km' });
+  if (![...kms.values()].some((k) => k.km)) todo.push({ kind: 'info', href: '#/setup', text: 'Add each route\'s round trip (RTD/Trip in Km) to the Rates sheet, or its distance in Setup, to see km, mileage and cost per km' });
   const onTrip = status.filter((s) => s.state !== 'idle');
   const loaded = status.filter((s) => s.state === 'loaded');
   const empty = status.filter((s) => s.state === 'empty');
@@ -633,6 +643,8 @@ async function viewHome() {
       <p class="greet-dates"><span>Today is <b>${esc(longDate(today()))}</b></span>
       <span>Trip Register updated until <b>${esc(d.latest ? dateYear(d.latest) : '—')}</b></span></p>
     </section>
+
+    ${tripCounterHtml()}
 
     <section class="card">
       <div class="row-between"><h3>On the road now</h3><span class="row-gap"><span class="muted small">${plural(status.length, 'vehicle')}</span>${shareBtn('share-road')}</span></div>
@@ -654,6 +666,13 @@ async function viewHome() {
     <div id="dash"></div>
     ${state.meta ? `<p class="muted small">From “${esc(state.meta.file_name)}”${state.meta.created_at ? ` · uploaded ${new Date(state.meta.created_at).toLocaleString('en-IN')}` : ''}${state.meta.by_email ? ` · ${esc(state.meta.by_email)}` : ''}</p>` : ''}`);
   renderDashboard(document.getElementById('dash'));
+  bindPeriod(document.getElementById('trip-counter'));
+  main().querySelectorAll('[data-sheet]').forEach((a) => a.addEventListener('click', (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;        // a new tab: the vehicle's page
+    e.preventDefault();
+    vehicleSheet(a.dataset.sheet);
+  }));
+  main().querySelectorAll('[data-scroll]').forEach((b) => b.addEventListener('click', () => document.getElementById(b.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' })));
   document.getElementById('share-road')?.addEventListener('click', () => sharePictures('Share the fleet', [roadOption(), fleetOption()]));
 }
 
@@ -681,28 +700,27 @@ function stepsHtml(lt) {
     return `<li class="${cls}"><i></i><b>${esc(x.name)}</b><small>${esc(x.place || '')}</small><em>${esc(when)}</em></li>`;
   }).join('')}</ol>`;
 }
+// a trip's own projected result; SSFC's monthly charges and the EMI are the vehicle's month, shown apart
 function projHtml(pr, { full = false } = {}) {
   const parts = [['Freight', pr.freight, pr.loaded ? `${pr.loadWt.toFixed(2)} T × ₹${indian(pr.rate)}` : `about ${pr.loadWt.toFixed(1)} T × ₹${indian(pr.rate)} (not loaded yet)`],
     ['Diesel filled', -pr.dieselSoFar, `${indian(pr.litresSoFar)} L logged`], ['Diesel still to fill', -pr.dieselLeft, pr.litresLeft ? `~${indian(pr.litresLeft)} L at ₹${pr.price.toFixed(2)}` : 'none expected'],
-    ['Driver', -pr.driver, `${pr.driverFrom === 'setup' ? 'salary (Setup)' : pr.driverFrom === 'rates' ? 'Rates sheet driver payment' : 'what the route usually costs'}${pr.advances ? `, ${rupees(pr.advances)} advanced` : ''}`],
-    ['SSFC other deductions', -pr.ssfcOther, 'fastag, tyre, maintenance, RTO… — its average a trip, last 90 days'],
-    ['Urea & own misc', -(pr.urea + pr.ownOther), '']];
+    ['Driver', -pr.driver, `${pr.driverFrom === 'setup' ? 'salary (Setup)' : pr.driverFrom === 'rates' ? 'salary (Rates sheet)' : 'what the route usually costs'}${pr.advances ? `, ${rupees(pr.advances)} advanced` : ''}`],
+    ['Urea', -pr.urea, pr.ureaLogged ? 'logged on the trip' : 'its usual a trip'],
+    ...(pr.ownOther ? [['Own misc logged on the trip', -pr.ownOther, '']] : [])];
+  const month = `Not in a trip: SSFC's fastag, tyre, maintenance and RTO come once a month${pr.monthly ? ` (≈ ${money(pr.monthly)} a month for this vehicle lately)` : ''}, and the EMI${pr.emi ? ` (${money(pr.emi)} a month)` : ''}${pr.yearly ? `; nor the yearly ${rupees(pr.yearly)} (“${pr.yearlyWhat}”) booked on this trip` : ''}.`;
   if (!full) {
-    return `<div class="rc-money"><span><small>Projected income</small><b class="${signed(pr.before)}">${money(pr.before)}</b><small>before EMI${pr.usual != null ? ` · usual ${money(pr.usual)}` : ''}</small></span>
-      <span><small>After EMI share</small><b class="${signed(pr.after)}">${money(pr.after)}</b><small>EMI ${money(pr.emiShare)} a trip</small></span>
+    return `<div class="rc-money"><span><small>Trip income</small><b class="${signed(pr.before)}">${money(pr.before)}</b><small>projected${pr.usual != null ? ` · usual ${money(pr.usual)}` : ''}</small></span>
       <span><small>Diesel so far</small><b>${money(pr.dieselSoFar)}</b><small>${indian(pr.litresSoFar)} L${pr.litresLeft ? ` · ~${indian(pr.litresLeft)} L to go` : ''}</small></span></div>`;
   }
   return `<div class="ledger-lines proj-lines">${parts.map(([n, v, note]) => `<div class="ln${v < 0 ? ' minus' : ''}"><span>${esc(n)}${note ? `<small class="muted block">${esc(note)}</small>` : ''}</span><b>${v < 0 ? '− ' : ''}${rupees(Math.abs(v))}</b></div>`).join('')}
-    <div class="ln total"><span>Projected income (before EMI)</span><b class="${signed(pr.before)}">${rupees(pr.before)}</b></div>
-    <div class="ln minus"><span>EMI share a trip</span><b>− ${rupees(pr.emiShare)}</b></div>
-    <div class="ln total"><span>After EMI</span><b class="${signed(pr.after)}">${rupees(pr.after)}</b></div></div>
-    <p class="muted small">Freight, the diesel logged in HSD Data and any driver advance are actual; the rest is what this vehicle / route usually costs${pr.usual != null ? ` (the route usually earns ${rupees(pr.usual)} a trip before EMI)` : ''}.</p>`;
+    <div class="ln total"><span>Projected trip income</span><b class="${signed(pr.before)}">${rupees(pr.before)}</b></div></div>
+    <p class="muted small">Freight, the diesel logged in HSD Data and any driver advance are actual; the rest is what this vehicle / route usually costs${pr.usual != null ? ` (trips on the route usually make ${rupees(pr.usual)} on the same basis)` : ''}. ${esc(month)}</p>`;
 }
 function roadCard(lt) {
   const t = lt.t;
   const pace = paceText(lt);
   const who = driverNow(lt.veh);
-  return `<a class="road-card ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}">
+  return `<a class="road-card ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}" data-sheet="${esc(lt.veh)}">
     <div class="rc-head"><span class="hsrp">${esc(plateText(lt.veh))}</span>${perfBadge(lt.veh)}<span class="rc-day">Day ${lt.el}</span></div>
     <div class="rc-route"><span class="rc-place"><small>Loading port</small><b>${esc(t.port)}</b></span><span class="rc-arrow" aria-hidden="true"></span><span class="rc-place to"><small>Destination</small><b>${esc(t.dest)}</b></span></div>
     <div class="rc-sub"><span>${esc(t.trip)}</span>${who ? `<span>Driver ${esc(who)}</span>` : ''}<span>Started ${dm(t.start)}</span></div>
@@ -715,11 +733,92 @@ function roadCard(lt) {
   </a>`;
 }
 
+// the trip counter, under the logo: trips in the period — the fleet and each vehicle, a dot a trip coloured by its load
+function tripCounterHtml() {
+  const d = state.data;
+  const p = currentPeriod();
+  const { status, loads } = derived();
+  const inP = d.trips.filter((t) => inPeriod(t, p));
+  const T = totals(inP);
+  const onRoad = status.filter((s) => s.state !== 'idle').length;
+  const rows = vehiclesOf(d).map((veh) => {
+    const mine = inP.filter((t) => t.veh === veh).sort((a, b) => (a.loadDate < b.loadDate ? -1 : 1));
+    return { veh, mine, T: totals(mine) };
+  });
+  const max = Math.max(1, ...rows.map((r) => r.mine.length));
+  const avg = rows.length ? inP.length / rows.length : 0;
+  const dot = (t) => { const b = loads.get(t.row); return `<i class="tc-dot ${b ? LOAD_GRADES[b.grade].cls : 'load-none'}" title="${esc(`${t.trip} · ${t.loadWt ? `${t.loadWt.toFixed(2)} T` : 'not loaded'}${b ? ` · ${LOAD_GRADES[b.grade].name}` : ''}${t.unloadDate ? '' : ' · on the way'}`)}"></i>`; };
+  return `<section class="card trip-counter" id="trip-counter">
+    <div class="row-between"><h3>Trips · ${esc(periodRange(p))}</h3><a class="small" href="#/trips">All trips ›</a></div>
+    ${periodHtml()}
+    <div class="tc-totals">
+      <div><b>${T.trips}</b><span>trips loaded</span></div>
+      <div><b>${T.done}</b><span>unloaded</span></div>
+      <div><b>${tonnes(T.tonnes, 0)}</b><span>carried</span></div>
+      <div><b>${money(T.bhada)}</b><span>freight</span></div>
+      <div><b>${onRoad}</b><span>on the road now</span></div>
+    </div>
+    <div class="tc-grid">${rows.map((r) => `<a class="tc-veh" href="#/vehicle/${encodeURIComponent(r.veh)}">
+      <span class="tc-head"><b>${esc(shortVeh(r.veh))}</b><span class="tc-n ${r.mine.length < avg - 1 ? 'warn-text' : ''}">${r.mine.length}<small> trip${r.mine.length === 1 ? '' : 's'}</small></span></span>
+      <span class="tc-bar"><i style="width:${((r.mine.length / max) * 100).toFixed(0)}%"></i></span>
+      <span class="tc-dots">${r.mine.slice(0, 24).map(dot).join('')}${r.mine.length > 24 ? '<small>…</small>' : ''}</span>
+      <small class="muted">${r.mine.length ? `${tonnes(r.T.tonnes, 0)} · ${money(r.T.bhada)}` : 'no trip'}${driverNow(r.veh) ? ` · ${esc(driverNow(r.veh))}` : ''}</small>
+    </a>`).join('')}</div>
+    <p class="tc-key small muted"><span><i class="tc-dot load-top"></i>full</span><span><i class="tc-dot load-ok"></i>near full</span><span><i class="tc-dot load-low"></i>under</span><span><i class="tc-dot load-poor"></i>well under</span><span><i class="tc-dot load-none"></i>not loaded</span> · a dot a trip</p>
+  </section>`;
+}
+
+// tap a vehicle on Home: its trip's diesel — the allotment, every fill tagged to it, the trips before — and where to go next
+function vehicleSheet(veh) {
+  const d = state.data;
+  const x = derived();
+  const s = x.status.find((v) => v.veh === veh);
+  if (!s) return;
+  const lt = x.liveTrips.find((v) => v.veh === veh);
+  const trip = s.trip || s.last;
+  const z = trip ? x.tripDiesel.get(trip.row) : null;
+  const mf = trip ? x.missingFills.get(trip.row) : null;
+  const fills = trip ? d.hsd.filter((h) => h.veh === veh && h.trip === trip.trip).sort((a, b) => (a.date < b.date ? -1 : 1)) : [];
+  const isInc = (h) => /^extra filling$/i.test(String(h.source || '').trim());
+  const mine = d.trips.filter((t) => t.veh === veh).sort((a, b) => a.row - b.row);
+  const earlier = trip ? mine.filter((t) => t.row < trip.row).slice(-4).reverse().map((t) => x.tripDiesel.get(t.row)).filter(Boolean) : [];
+  const info = trip ? x.drivers.tripInfo(trip) : null;
+  const who = driverNow(veh);
+  const sum = (xs, f) => xs.reduce((a, h) => a + (f(h) || 0), 0);
+  const sl = (n) => `${n > 0.5 ? '+' : n < -0.5 ? '−' : ''}${L1(n)}`;
+  document.querySelector('.veh-sheet-wrap')?.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'share-sheet veh-sheet-wrap';
+  wrap.innerHTML = `<div class="share-box veh-sheet" role="dialog" aria-modal="true" aria-label="${esc(veh)}">
+    <div class="row-between"><span class="row-gap"><span class="hsrp">${esc(plateText(veh))}</span>${who ? `<b>${esc(who)}</b>` : ''}</span><button class="icon" data-close aria-label="Close">✕</button></div>
+    <p class="muted small vsh-sub">${esc(lt ? lt.phase.title : s.long)}${trip ? ` · ${esc(trip.trip)} · ${esc(routeOf(trip))}` : ''}${lt ? ` · day ${lt.el}` : s.days != null ? ` · ${s.days} d` : ''}</p>
+    <div class="actions vsh-actions">${trip ? `<a class="btn small" href="#/trip/${trip.row}">Trip</a>` : ''}<a class="btn ghost small" href="#/vehicle/${encodeURIComponent(veh)}">Vehicle</a><a class="btn ghost small" href="#/diesel/${encodeURIComponent(veh)}">Diesel recon</a><a class="btn ghost small" href="#/drivers/${encodeURIComponent(veh)}">Driver</a></div>
+    ${trip ? `<h4 class="vsh-h">Diesel · ${esc(trip.trip)}${s.trip ? '' : ' <span class="muted small">(last trip)</span>'}</h4>
+    ${mf ? `<div class="todo warn">⛽ ${esc(mf.text)}.</div>` : ''}
+    ${z ? dieselPanelHtml(z) : '<p class="muted small">This trip is before the diesel recon starts.</p>'}
+    ${fills.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Pump</th><th>Where</th><th class="r">Litres</th><th class="r">₹/L</th><th class="r">Amount</th></tr></thead><tbody>
+      ${fills.map((h) => `<tr class="${isInc(h) ? 'muted' : ''}"><td>${fmtDate(h.date)}</td><td>${esc(h.source || '—')}${isInc(h) ? '<small class="block">incentive, settled — not counted</small>' : h.bill ? `<small class="muted block">${esc(h.bill)}</small>` : ''}</td><td>${esc(h.location || '')}</td><td class="r">${indian(h.qty, h.qty % 1 ? 2 : 0)}</td><td class="r">${h.rsp ? h.rsp.toFixed(2) : '—'}</td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}
+      <tr class="sum"><td colspan="3"><b>${plural(fills.filter((h) => !isInc(h)).length, 'fill')} counted</b></td><td class="r"><b>${indian(sum(fills.filter((h) => !isInc(h)), (h) => h.qty))}</b></td><td></td><td class="r"><b>${rupees(sum(fills.filter((h) => !isInc(h)), (h) => h.amount))}</b></td></tr>
+    </tbody></table></div>` : '<p class="muted small">No fill tagged to this trip in HSD Data yet.</p>'}` : '<p class="muted">No trip yet.</p>'}
+    ${earlier.length ? `<h4 class="vsh-h">Trips before</h4><div class="table-wrap"><table class="compact"><thead><tr><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">Trip ±</th><th class="r">Balance</th></tr></thead><tbody>
+      ${earlier.map((e) => `<tr><td><a href="#/trip/${e.t.row}">${esc(e.t.trip)}</a><small class="muted block">${fmtDate(e.t.loadDate || e.t.start)} · ${plural(e.fills.length, 'fill')}</small></td><td class="r">${e.allotted != null ? L1(e.allotted) : '—'}</td><td class="r">${L1(e.taken)}</td><td class="r ${e.allotted != null && e.taken - e.allotted > 0.5 ? 'bad-text' : 'good-text'}">${e.allotted != null ? sl(e.allotted - e.taken) : '—'}</td><td class="r"><b class="${e.after < -0.5 ? 'bad-text' : ''}">${sl(e.after)}</b></td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+    ${info && info.paid.length ? `<h4 class="vsh-h">Advances this trip</h4><ul class="brief">${info.paid.map((p) => `<li>${fmtDate(p.date)} · ${rupees(p.amount)} to ${esc(p.name)}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</li>`).join('')}</ul>` : ''}
+  </div>`;
+  document.body.append(wrap);
+  const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', close); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('hashchange', close);                          // a link in the sheet goes to its page
+  wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+  wrap.querySelector('[data-close]').focus();
+}
+
 function vehTile(s) {
   const t = s.trip;
   const late = s.state !== 'idle' && s.days > 9;
   const behind = derived().live.find((x) => x.veh === s.veh);
-  return `<a class="veh ${s.state}${behind ? ' behind' : ''}" href="#/vehicle/${encodeURIComponent(s.veh)}">
+  return `<a class="veh ${s.state}${behind ? ' behind' : ''}" href="#/vehicle/${encodeURIComponent(s.veh)}" data-sheet="${esc(s.veh)}">
     ${bulkerFor(s.state === 'loaded' ? t : null, { compact: true, veh: s.veh })}
     <span class="veh-top"><b>${esc(shortVeh(s.veh))} ${perfBadge(s.veh)}</b><span class="veh-days${late || behind ? ' late' : ''}">${s.days == null ? '' : s.state === 'idle' ? `${s.days}d idle` : `day ${s.days}`}</span></span>
     <span class="veh-state"><i></i>${esc(s.text)}</span>
@@ -754,8 +853,7 @@ function renderDashboard(box) {
   const sumBhada = () => { const { kms } = derived(); return trips.filter((t) => kms.get(t.row) && kms.get(t.row).complete && kms.get(t.row).km).reduce((a, t) => a + (t.bhada || 0), 0); };
   box.innerHTML = `
   <section class="card dash">
-    <div class="row-between"><h2>Business</h2><span class="row-gap"><span class="muted small">${esc(periodRange(p))}</span>${shareBtn('share-fleet', 'Share report')}</span></div>
-    ${periodHtml()}
+    <div class="row-between"><h2>Business</h2><span class="row-gap"><span class="muted small">${esc(periodRange(p))} · <button class="linkish" type="button" data-scroll="trip-counter">change</button></span>${shareBtn('share-fleet', 'Share report')}</span></div>
     ${trips.length ? `
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">Freight (bhada)</span><span class="val" ${exact(T.bhada)}>${money(T.bhada)}</span><span class="sub">${tonnes(T.tonnes, 1)} · ₹${indian(T.perTonne)}/T</span></div>
@@ -1025,6 +1123,24 @@ function dayRight(e) {
   return '';
 }
 
+// a truck's trip in the day book: the loading and the diesel slips (brief.js vehicleTrips())
+function vxCardHtml(v) {
+  const head = `<span class="hsrp">${esc(plateText(v.veh))}</span>
+    <span class="vx-who"><b>${esc(v.driver || 'No driver set')}</b><small>${v.trip ? `${esc(v.trip)} · ${esc(v.port || '?')} → ${esc(v.dest || '?')}` : 'No trip yet'}</small></span>
+    <span class="pill ${v.onTrip ? 'fuel-pill' : 'muted-pill'}">${v.onTrip ? 'On the road' : 'Last trip'}</span>`;
+  const cell = (k, val, sub = '') => `<div class="vx-cell"><span>${k}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const L = v.load;
+  const load = !v.trip ? '' : L
+    ? `<div class="vx-load">${cell('Loaded', esc(dm(L.date)), esc(L.port))}${cell('Net weight', esc(tonnes(L.net)), L.gross ? `gross ${esc(tonnes(L.gross))}` : '')}${cell('Rate', L.rate ? `₹${indian(L.rate)}<small>/T</small>` : '—')}${cell('Freight', L.freight ? rupees(L.freight) : '—')}</div>`
+    : `<div class="vx-load vx-none"><span>Loading</span><b>Not loaded yet</b>${v.start ? `<small>left ${esc(dm(v.start))}</small>` : ''}</div>`;
+  const slips = !v.trip ? '' : v.slips.length
+    ? `<table class="compact vx-slips"><thead><tr><th>Date</th><th>Diesel slip</th><th class="r">Litres</th><th class="r">Amount</th></tr></thead><tbody>
+      ${v.slips.map((x) => `<tr${x.incentive ? ' class="vx-inc"' : ''}><td>${esc(dm(x.date))}</td><td><b>${esc(x.incentive ? 'Incentive' : x.pump || 'Pump')}</b>${x.bill ? ` <span class="muted">${esc(x.bill)}</span>` : ''}<small class="block muted">${esc([x.place, x.rsp ? `₹${x.rsp.toFixed(2)}/L` : '', x.incentive ? 'not counted' : ''].filter(Boolean).join(' · '))}</small></td><td class="r">${indian(x.litres, x.litres % 1 ? 2 : 0)}</td><td class="r">${rupees(x.amount)}</td></tr>`).join('')}
+      </tbody><tfoot><tr><td colspan="2">${plural(v.slips.filter((x) => !x.incentive).length, 'slip')}</td><td class="r">${indian(v.litres, v.litres % 1 ? 2 : 0)}</td><td class="r">${rupees(v.amount)}</td></tr></tfoot></table>`
+    : '<p class="vx-noslip">No diesel slip entered for this trip</p>';
+  return `<article class="vx">${v.row != null ? `<a class="vx-head" href="#/trip/${v.row}">${head}</a>` : `<div class="vx-head">${head}</div>`}${load}${slips}</article>`;
+}
+
 async function viewDaybook() {
   const { ui, R } = dayState();
   const all = dayAll();
@@ -1034,6 +1150,7 @@ async function viewDaybook() {
   const inRange = dayBook(all, { from: ui.from, to: ui.to, veh: ui.veh });            // for the counts on the type chips
   const count = (k) => inRange.list.filter((e) => e.kind === k).length;
   const S = book.sums;
+  const byVeh = ui.veh ? [] : vehiclesOf(state.data).map((v) => ({ v, s: daySums(inRange.list.filter((e) => e.veh === v && e.kind !== 'ssfc')) })).filter((x) => x.s.entries);
   const latest = all.find((e) => e.date <= today());
   const shown = book.days.slice(0, ui.days);
   const tile = (lbl, val, sub, cls = '') => `<div class="kpi ${cls}"><span class="lbl">${lbl}</span><span class="val">${val}</span><span class="sub">${sub}</span></div>`;
@@ -1044,6 +1161,11 @@ async function viewDaybook() {
       <span class="row-gap">${shareBtn('share-drivers', 'Drivers (हिंदी)')}${shareBtn('share-owner', 'Owner')}</span></div>
     <p class="muted small">For you below; for the drivers' WhatsApp group, a picture in Hindi — each truck's next stop with the date to reach it by, its pace and load.</p>
     ${ob.sections.map((sec) => `<h3 class="sub-h">${esc(sec.title)}</h3><ul class="brief">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>${it.href ? '</a>' : ''}</li>`).join('')}</ul>`).join('')}
+  </section>
+  <section class="card">
+    <div class="row-between"><h2>Each vehicle <span class="muted small">loading &amp; diesel slips</span></h2>${shareBtn('share-veh')}</div>
+    <p class="muted small">The trip on the road — else the last one. Tap a truck for its trip.</p>
+    <div class="vx-grid">${ob.vehicles.map(vxCardHtml).join('')}</div>
   </section>
   <section class="card">
     <div class="row-between"><h2>Day book</h2><span class="row-gap"><span class="muted small">${esc(dayRangeText(ui.from, ui.to))}</span>${book.list.length ? shareBtn('share-day') : ''}</span></div>
@@ -1069,6 +1191,12 @@ async function viewDaybook() {
       ${tile('Driver advances', S.advances ? money(S.advances) : '—', S.advanceN ? plural(S.advanceN, 'payment') : 'none')}
       ${tile('SSFC received', S.received ? money(S.received) : '—', S.receivedN ? plural(S.receivedN, 'payment') : 'none', S.received ? 'good' : '')}
     </div>
+    ${byVeh.length > 1 ? `<h3 class="sub-h">By vehicle <span class="muted small">— tap one to see only its entries</span></h3><div class="table-wrap"><table class="compact day-veh-table"><thead><tr><th>Vehicle</th><th class="r">Started</th><th class="r">Loaded</th><th class="r">Freight</th><th class="r">Unloaded</th><th class="r">Diesel</th><th class="r">Urea</th><th class="r">Advances</th></tr></thead><tbody>
+      ${byVeh.map(({ v, s: x }) => `<tr data-day-veh="${esc(v)}" tabindex="0"><td><b>${esc(shortVeh(v))}</b>${driverNow(v) ? ` <span class="muted small">${esc(driverNow(v))}</span>` : ''}</td>
+        <td class="r">${x.starts || '—'}</td><td class="r">${x.loads ? `${x.loads} · ${tonnes(x.tonnes, 1)}` : '—'}</td><td class="r">${x.freight ? money(x.freight) : '—'}</td>
+        <td class="r">${x.unloads ? `${x.unloads}${x.short < -0.05 ? ` <span class="warn-text small">${tonnes(-x.short)} short</span>` : ''}` : '—'}</td>
+        <td class="r">${x.fills ? `${litres(x.litres)} <span class="muted small">${money(x.diesel)}</span>` : '—'}</td><td class="r">${x.urea ? money(x.urea) : '—'}</td><td class="r">${x.advances ? money(x.advances) : '—'}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
   </section>
   ${shown.map((day) => `<section class="card day-card">
     <div class="day-head"><h3>${esc(longDate(day.date))}${day.date === today() ? ' <span class="pill fuel-pill">Today</span>' : ''}</h3><span class="muted small">${esc(daySumText(day.sums))}</span></div>
@@ -1102,6 +1230,11 @@ async function viewDaybook() {
     rerender();
   }));
   m.querySelector('#day-veh').addEventListener('change', (e) => { ui.veh = e.target.value; rerender(); });
+  m.querySelectorAll('[data-day-veh]').forEach((r) => {
+    const go = () => { ui.veh = r.dataset.dayVeh; rerender(); m.querySelector('#day-veh')?.scrollIntoView({ block: 'center' }); };
+    r.addEventListener('click', go);
+    r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
   m.querySelector('#day-more')?.addEventListener('click', () => { ui.days += 31; rerender(); });
   m.querySelector('#day-latest')?.addEventListener('click', () => { ui.r = 'custom'; ui.from = latest.date; ui.to = latest.date; rerender(); });
   m.querySelector('#share-drivers').addEventListener('click', () => sharePictures("Drivers' instructions (Hindi)", [{ label: 'हिंदी', make: async () => {
@@ -1109,6 +1242,7 @@ async function viewDaybook() {
     const hi = await hindiFontCss();
     return cardFiles(driverBriefSvg(driverBrief(state.data, briefCtx(), today()), { ...kit, fontCss: `${kit.fontCss}\n${hi}` }), `Driver instructions ${fmtDate(today())}`);
   } }]));
+  m.querySelector('#share-veh').addEventListener('click', () => sharePictures('Each vehicle', [{ label: 'Each vehicle', make: async () => pageFiles(vehicleTripsPagesSvg(ob.vehicles, { ...(await shareKit()), date: today() }), `Vehicles loading and diesel ${fmtDate(today())}`) }]));
   m.querySelector('#share-owner').addEventListener('click', () => sharePictures("Owner's insight", [{ label: 'Insight', make: async () => cardFiles(ownerBriefSvg(ownerBrief(state.data, briefCtx(), today()), await shareKit()), `Daily insight ${fmtDate(today())}`) }]));
   m.querySelector('#share-day')?.addEventListener('click', () => {
     const label = dayRangeText(ui.from, ui.to);
@@ -1849,7 +1983,7 @@ async function viewDrivers() {
     <p class="muted small">Each trip's driver salary (Setup → Routes) is paid partly by you — <b>Trip Driver Payment</b>${opt.extraIsAdvance ? ' and <b>Extra Own Driver Pay</b>' : ''} — and the rest by SSFC (<b>Driver SSFC Payment</b>). SSFC should pay <b>salary − your advances</b>; more than that is an overpayment.${opt.extraIsAdvance ? '' : ' <b>Extra Own Driver Pay</b> is the extra promised for those trips — on top of the salary and settled, so it\'s left out of the check.'}${opt.debitCounts ? ' <b>Driver Debit</b> (damage, fines…) is money the driver owes back.' : ''}</p>
     ${salaryNote(dc)}
     <p class="small">Checked from <b>${monthLong(dc.checkFrom)}</b> on; trips before that are as the Trip Register has them (settled). <a href="#/setup">Change in Setup</a></p>
-    ${fromRates.length ? `<p class="small warn-text">Using the Rates sheet's Driver Payment for ${esc(fromRates.join(', '))} until you set the salary in <a href="#/setup">Setup</a>.</p>` : ''}
+    ${fromRates.length ? `<p class="small muted">Salary from the Rates sheet's Driver Payment for ${esc(fromRates.join(', '))}; a salary set in <a href="#/setup">Setup</a> (with a From month) takes over from it.</p>` : ''}
     ${periodHtml()}
     <div class="kpis">
       <div class="kpi"><span class="lbl">Salary earned</span><span class="val" ${exact(sum((r) => r.salary))}>${money(sum((r) => r.salary))}</span><span class="sub">${plural(rows.length, 'trip')} checked</span></div>

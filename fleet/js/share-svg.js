@@ -163,6 +163,11 @@ function note(text, color = C.muted, size = 16) {
   return block(36, (x, y, w) => T(x + 4, y + 24, text, { size, fill: color, max: w - 8 }));
 }
 const gap = (h = 18) => block(h, () => '');
+// several blocks drawn as one, so a page break never falls between them
+const together = (list) => block(list.reduce((a, b) => a + b.h, 0), (x, y, w) => {
+  let yy = y;
+  return list.map((b) => { const out = b.draw(x, yy, w); yy += b.h; return out; }).join('');
+});
 
 // a table: cols [{ label, at, align: 'end' | 'start', max }]: at < 0 = from the right edge
 function colX(c, x, w) { return c.at < 0 ? x + w + c.at : x + c.at; }
@@ -789,4 +794,72 @@ export function ownerBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {}) 
     blocks.push(gap(10));
   }
   return cardSvg({ what: "Owner's daily insight", tag: 'DAILY INSIGHT', name: dMonY(b.date), sub: 'what moved yesterday, what needs you today', asOn, images, fontCss, blocks });
+}
+
+// each vehicle's trip: the loading and the diesel slips (brief.js vehicleTrips())
+export function vehicleTripsPagesSvg(list, { date = '', asOn = '', images = {}, fontCss = '' } = {}) {
+  const blocks = [];
+  for (const v of list) {
+    const vb = [];                                          // a truck's blocks: kept together on one page
+    // the truck: plate, driver, trip and route, on the road or its last trip
+    vb.push(block(92, (x, y, w) => {
+      const plate = plateText(v.veh);
+      const pw = textWidth(plate, 21, 800) + 34;
+      const status = v.onTrip ? 'ON THE ROAD' : 'LAST TRIP';
+      const sw = textWidth(status, 14, 700) + 28;
+      return `${R(x, y + 8, w, 76, { rx: 18, opacity: 0.06, stroke: '#fff', strokeOpacity: 0.12 })}
+${R(x + 18, y + 26, pw, 40, { rx: 7, fill: '#ffcf1a', stroke: '#111' })}${T(x + 18 + pw / 2, y + 54, plate, { size: 21, weight: 800, fill: '#111', anchor: 'middle', spacing: 1.5 })}
+${T(x + pw + 40, y + 42, v.driver || 'No driver set', { size: 21, weight: 800, max: w - pw - sw - 90 })}
+${T(x + pw + 40, y + 68, v.trip ? `${v.trip}  ·  ${v.port || '?'} → ${v.dest || '?'}` : 'No trip yet', { size: 16, fill: C.muted, max: w - pw - sw - 90 })}
+${R(x + w - 18 - sw, y + 30, sw, 32, { rx: 16, fill: v.onTrip ? C.amber : '#fff', opacity: 0.14, stroke: v.onTrip ? C.amber : '#fff', strokeOpacity: 0.4 })}${T(x + w - 18 - sw / 2, y + 51, status, { size: 14, weight: 700, fill: v.onTrip ? C.amber : C.muted, anchor: 'middle', spacing: 1.2 })}`;
+    }, { keep: true }));
+    if (!v.trip) { vb.push(gap(22)); blocks.push(together(vb)); continue; }
+    // the loading, in five cells
+    const L = v.load;
+    vb.push(block(100, (x, y, w) => {
+      let out = R(x, y + 8, w, 82, { rx: 16, opacity: 0.035 });
+      if (!L) return `${out}${T(x + 22, y + 40, 'LOADING', { size: 13, weight: 700, fill: C.faint, spacing: 1.5 })}${T(x + 22, y + 72, `Not loaded yet${v.start ? `  ·  left ${dMon(v.start)}` : ''}`, { size: 20, weight: 700, fill: C.warn })}`;
+      const cells = [['LOADED', `${dMon(L.date)}`, L.port], ['NET', tonnes(L.net), ''], ['GROSS', L.gross ? tonnes(L.gross) : '—', ''], ['RATE', L.rate ? `₹${ind(L.rate)}/T` : '—', ''], ['FREIGHT', L.freight ? rupees(L.freight) : '—', '']];
+      const cw = w / cells.length;
+      cells.forEach(([k, val, sub], i) => {
+        const cx = x + i * cw + 22;
+        if (i) out += R(x + i * cw, y + 22, 1.5, 54, { opacity: 0.1 });
+        out += `${T(cx, y + 36, k, { size: 13, weight: 700, fill: C.faint, spacing: 1.5 })}${T(cx, y + 66, val, { size: 22, weight: 800, max: cw - 30 })}${sub ? T(cx + textWidth(val, 22, 800) + 10, y + 66, sub, { size: 15, fill: C.muted, max: cw - 40 - textWidth(val, 22, 800) }) : ''}`;
+      });
+      return out;
+    }, { keep: true }));
+    // the diesel slips
+    if (v.slips.length) {
+      const counted = v.slips.filter((s) => !s.incentive).length;
+      vb.push(...table(
+        [{ label: 'Date', at: 18 }, { label: 'Pump', at: 140, max: 150 }, { label: 'Slip no.', at: 310, max: 170 }, { label: 'Place', at: 500, max: 210 }, { label: 'Litres', at: -420, align: 'end' }, { label: '₹ / L', at: -230, align: 'end' }, { label: 'Amount', at: -18, align: 'end' }],
+        v.slips.map((s) => ({ cells: [
+          { text: dMon(s.date), color: s.incentive ? C.muted : C.ink },
+          { text: s.incentive ? 'Incentive' : s.pump || 'Pump', weight: 700, color: s.incentive ? C.muted : C.ink },
+          { text: s.incentive ? 'not counted' : s.bill || '—', weight: 400, color: s.incentive ? C.muted : C.ink },
+          { text: s.place || '—', weight: 400, color: s.incentive ? C.muted : C.ink },
+          { text: ind(s.litres, s.litres % 1 ? 2 : 0), color: s.incentive ? C.muted : C.ink },
+          { text: s.rsp ? s.rsp.toFixed(2) : '—', weight: 400, color: s.incentive ? C.muted : C.ink },
+          { text: rupees(s.amount), weight: 800, color: s.incentive ? C.muted : C.ink },
+        ] })),
+        { total: [plural(counted, 'slip'), '', '', '', ind(v.litres, v.litres % 1 ? 2 : 0), '', rupees(v.amount)] },
+      ));
+    } else {
+      vb.push(note('No diesel slip entered for this trip', C.warn, 18));
+    }
+    vb.push(gap(30));
+    blocks.push(together(vb));
+  }
+  const loaded = list.filter((v) => v.load);
+  const L = list.reduce((a, v) => a + v.litres, 0);
+  return pagesSvg({
+    what: 'Each vehicle · loading & diesel slips', tag: 'EACH VEHICLE', name: dMonY(date || asOn), asOn, images, fontCss,
+    sub: 'the trip on the road — else the last one',
+    tiles: [
+      { label: 'Vehicles', value: String(list.length), sub: `${list.filter((v) => v.onTrip).length} on the road`, color: C.s1 },
+      { label: 'Loaded', value: loaded.length ? `${loaded.length} · ${ind(loaded.reduce((a, v) => a + v.load.net, 0), 1)} T` : '—', sub: loaded.length ? `freight ${rupees(loaded.reduce((a, v) => a + (v.load.freight || 0), 0))}` : 'none loaded', color: C.s3 },
+      { label: 'Diesel slips', value: String(list.reduce((a, v) => a + v.slips.filter((s) => !s.incentive).length, 0)), sub: `${ind(L)} L · ${rupees(list.reduce((a, v) => a + v.amount, 0))}`, color: C.s4 },
+    ],
+    blocks, footNote: 'Trip Register and HSD Data',
+  });
 }

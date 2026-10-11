@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gradeOf, loadBench, loadSummary, loadTarget } from '../../fleet/js/load.js';
-import { driverBrief, ownerBrief } from '../../fleet/js/brief.js';
-import { driverBriefSvg, ownerBriefSvg, wrap } from '../../fleet/js/share-svg.js';
+import { driverBrief, ownerBrief, vehicleTrips } from '../../fleet/js/brief.js';
+import { driverBriefSvg, ownerBriefSvg, vehicleTripsPagesSvg, wrap } from '../../fleet/js/share-svg.js';
 
 let row = 3;
 const trip = (veh, loadDate, loadWt, o = {}) => ({ row: row++, veh, trip: `T${row}/DEMO`, start: loadDate, loadDate, loadWt, tare: 17, gross: loadWt + 17, rate: 3000, bhada: loadWt * 3000, port: 'Demo Port', dest: 'Demo Plant', month: loadDate.slice(0, 7), ...o });
@@ -52,7 +52,32 @@ test('the daily brief: the owner\'s insight and the drivers\' instructions in Hi
   assert.match(all, /5\.00 T below the best then \(42\.00 T\): ₹15,000 freight left behind/);
   assert.match(all, /Behind the best pace: XX01 \(\+1 d\)/);
   assert.match(all, /Idle 2\+ days: XX02/);
-  const d = driverBrief(data, ctx, today);
+  // each vehicle: the trip's loading and its diesel slips
+  assert.equal(o.vehicles.length, 2);
+  const slips = [
+    { veh: 'XX01', trip: loadedY.trip, date: '2026-10-10', source: 'SSFC', bill: 'S/1', location: 'Halfway', qty: 350, rsp: 100, amount: 35000 },
+    { veh: 'XX01', trip: loadedY.trip, date: '2026-10-11', source: 'Extra Filling', location: 'Halfway', qty: 20, rsp: 100, amount: 2000 },
+    { veh: 'XX01', trip: 'OTHER', date: '2026-10-10', source: 'SSFC', qty: 99, amount: 9900 },
+  ];
+  const vt = vehicleTrips({ ...data, hsd: slips }, ctx);
+  const v1 = vt.find((v) => v.veh === 'XX01');
+  assert.equal(v1.driver, 'Ramesh');
+  assert.equal(v1.onTrip, true);
+  assert.equal(v1.trip, loadedY.trip);
+  assert.deepEqual(v1.load, { date: '2026-10-10', port: 'Demo Port', net: 37, gross: 54, rate: 3000, freight: 111000 });
+  assert.deepEqual(v1.slips.map((x) => [x.date, x.pump, x.incentive, x.bill, x.litres]), [['2026-10-10', 'SSFC', false, 'S/1', 350], ['2026-10-11', 'Extra Filling', true, '', 20]]);
+  assert.equal(v1.litres, 350);                              // the incentive slip isn't counted
+  assert.equal(v1.amount, 35000);
+  const v2 = vt.find((v) => v.veh === 'XX02');
+  assert.equal(v2.onTrip, false);                            // idle: its last trip
+  assert.equal(v2.load.net, 42);
+  assert.deepEqual(v2.slips, []);
+  const pages = vehicleTripsPagesSvg(vt, { date: today, asOn: today });
+  assert.ok(pages.length >= 1);
+  for (const svg of pages) assert.doesNotMatch(svg, /undefined|NaN/);
+  assert.match(pages.join(''), /S\/1/);
+  assert.match(pages.join(''), /No diesel slip entered/);
+  const d =driverBrief(data, ctx, today);
   const r = d.rows[0];
   assert.equal(r.veh, 'XX01');
   assert.equal(r.next, 'Halfway पर डीज़ल भरवाना');
