@@ -587,18 +587,6 @@ ul.brief li::before { content: ""; position: absolute; left: 2px; top: .5em; wid
 ul.brief li.tone-good::before { background: var(--good); } ul.brief li.tone-warn::before { background: var(--warn); } ul.brief li.tone-bad::before { background: var(--bad); }
 ul.brief a { color: inherit; } ul.brief a:hover { text-decoration: underline; }
 ul.brief li.tone-info span { color: var(--ink); }
-.brief-veh-box > summary { cursor: pointer; list-style: none; } .brief-veh-box > summary::-webkit-details-marker { display: none; }
-.brief-veh-box > summary h3::after { content: " ▾"; color: var(--faint); } .brief-veh-box:not([open]) > summary h3::after { content: " ▸"; }
-.brief-veh-box > summary h3 { display: inline-block; }
-ul.brief-veh { gap: 10px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
-ul.brief-veh li { padding: 10px 12px 10px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel2); }
-ul.brief-veh li::before { left: 10px; top: 16px; }
-ul.brief-veh a { display: grid; gap: 2px; text-decoration: none; }
-ul.brief-veh a:hover { text-decoration: none; } ul.brief-veh li:hover { border-color: var(--s-1); }
-.brief-main { font-size: 13px; font-weight: 600; }
-.brief-more { display: grid; gap: 2px; margin-top: 4px; font-size: 13px; }
-ul.brief-veh li.tone-info .brief-more span, .brief-more span { color: var(--ink); }
-@media (max-width: 760px) { ul.brief-veh { grid-template-columns: 1fr; } }
 .brief-card h2 .small { font-weight: 500; margin-left: 6px; }
 /* diesel against the allotment */
 .dz-panel { margin: 10px 0 14px; padding: 14px; border-radius: 16px; background: var(--well); border: 1px solid var(--glass-line-soft); }
@@ -658,6 +646,42 @@ ul.brief-veh li.tone-info .brief-more span, .brief-more span { color: var(--ink)
 }
 @keyframes sheet-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .veh-sheet { animation: none; } }
+/* each vehicle: the loading and the diesel slips */
+.vx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; margin-top: 10px; }
+.vx { background: var(--glass-2); border: 1px solid var(--glass-line); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; }
+.vx-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; color: var(--ink); border-bottom: 1px solid var(--glass-line); }
+a.vx-head:hover { text-decoration: none; background: var(--glass); }
+.vx-who { display: grid; min-width: 0; flex: 1; line-height: 1.3; }
+.vx-who b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-who small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-load { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--glass-line); background: var(--glass); }
+.vx-cell { display: grid; align-content: start; gap: 2px; padding: 10px 12px; border-left: 1px solid var(--glass-line); min-width: 0; }
+.vx-cell:first-child { border-left: 0; }
+.vx-cell span, .vx-none span { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.vx-cell b { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-cell b small { font-size: 11px; color: var(--muted); font-weight: 600; }
+.vx-cell > small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vx-none { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; }
+.vx-none b { font-size: 14px; color: var(--warn); } .vx-none small { color: var(--muted); font-size: 12px; }
+table.vx-slips { width: 100%; margin: 0; }
+table.vx-slips th { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 9px 14px 6px; }
+table.vx-slips td { padding: 8px 14px; vertical-align: top; font-variant-numeric: tabular-nums; }
+table.vx-slips td:first-child, table.vx-slips td.r { white-space: nowrap; }
+table.vx-slips td small { font-size: 11.5px; margin-top: 1px; }
+table.vx-slips tbody tr + tr td { border-top: 1px solid var(--glass-line); }
+table.vx-slips tr.vx-inc td { opacity: .6; }
+table.vx-slips tfoot td { font-weight: 800; border-top: 1.5px solid var(--glass-line); background: var(--glass); }
+.vx-noslip { margin: 0; padding: 12px 14px; color: var(--warn); font-size: 13px; font-weight: 600; }
+@media (max-width: 760px) {
+  .vx-grid { grid-template-columns: 1fr; }
+  .vx-head { flex-wrap: wrap; row-gap: 8px; }
+  .vx-head .pill { margin-left: auto; }
+  .vx-who { order: 3; flex-basis: 100%; }
+  .vx-load { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vx-cell:nth-child(3) { border-left: 0; }
+  .vx-cell:nth-child(n+3) { border-top: 1px solid var(--glass-line); }
+  table.vx-slips th, table.vx-slips td { padding-left: 10px; padding-right: 10px; }
+}
 /* day book */
 .day-veh-table tbody tr { cursor: pointer; } .day-veh-table tbody tr:hover td, .day-veh-table tbody tr:focus td { background: var(--panel2); }
 

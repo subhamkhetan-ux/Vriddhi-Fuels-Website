@@ -39,7 +39,7 @@ function dayFacts(data, ctx, day) {
 }
 
 // ---- for the owner ----------------------------------------------------------------------------
-// → { date, sections: [{ title, items: [{ tone: 'good'|'warn'|'bad'|'info', text, href }] }] }
+// → { date, sections: [{ title, items: [{ tone: 'good'|'warn'|'bad'|'info', text, href }] }], vehicles: vehicleTrips() }
 export function ownerBrief(data, ctx, today) {
   const yday = addDays(today, -1);
   const Y = dayFacts(data, ctx, yday);
@@ -132,34 +132,34 @@ export function ownerBrief(data, ctx, today) {
   const look = [];
   if (ctx.issues && ctx.issues.length) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel`, href: '#/trips?f=check' });
   if (look.length) sections.push({ title: 'To check', items: look });
-  sections.push({ title: 'Each vehicle', items: vehicleItems(data, ctx) });
-  return { date: today, sections };
+  return { date: today, sections, vehicles: vehicleTrips(data, ctx) };
 }
 
-// every truck, one item each: its trip's loading and the diesel slips
-// tagged to it — the trip on the road, else the last one.
-// → [{ tone, head, text, more: [..], href }]
-export function vehicleItems(data, ctx) {
-  const items = [];
+// every truck: its trip on the road (else its last one) — the loading and
+// the diesel slips tagged to the trip.
+// → [{ veh, driver, onTrip, trip, row, port, dest, start, load: { date, port, net, gross, rate, freight } | null,
+//      slips: [{ date, pump, incentive, bill, place, litres, rsp, amount }], litres, amount (incentive not counted) }]
+export function vehicleTrips(data, ctx) {
+  const out = [];
   for (const s of ctx.status) {
     const veh = s.veh;
     const lt = ctx.live.find((x) => x.veh === veh);
-    const t = lt ? lt.t : s.last;
-    const driver = ctx.driverNow ? ctx.driverNow(veh) : '';
-    const head = `${short(veh)}${driver ? ` · ${driver}` : ''}${t ? ` — ${t.trip || 'trip'} ${t.port || '?'} → ${t.dest || '?'}` : ''}`;
-    if (!t) { items.push({ tone: 'info', head, text: 'No trip yet', more: [], href: `#/vehicle/${encodeURIComponent(veh)}` }); continue; }
-    const text = t.loadDate && t.loadWt
-      ? `Loaded ${dm(t.loadDate)} at ${t.port}: ${t.loadWt.toFixed(2)} T${t.gross ? ` · gross ${t.gross.toFixed(2)} T` : ''}${t.rate ? ` · ₹${ind(t.rate)}/T` : ''}${t.bhada ? ` · ${rs(t.bhada)}` : ''}`
-      : `Not loaded yet${t.start ? ` (left ${dm(t.start)})` : ''}`;
-    const slips = (data.hsd || []).filter((h) => h.veh === veh && h.trip === t.trip && (!t.start || h.date >= t.start)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-    const more = slips.map((h) => [
-      `${dm(h.date)} · ${/^extra filling$/i.test(String(h.source || '').trim()) ? 'Incentive' : h.source || 'pump'}${h.bill ? ` slip ${h.bill}` : ''}`,
-      h.location, `${ind(h.qty, h.qty % 1 ? 2 : 0)} L`, h.rsp ? `₹${h.rsp.toFixed(2)}/L` : '', h.amount ? rs(h.amount) : '',
-    ].filter(Boolean).join(' · '));
-    if (!slips.length) more.push('No diesel slip entered for this trip');
-    items.push({ tone: 'info', head, text, more, href: t.row ? `#/trip/${t.row}` : `#/vehicle/${encodeURIComponent(veh)}` });
+    const t = lt ? lt.t : s.trip || s.last || null;
+    const v = { veh, driver: ctx.driverNow ? ctx.driverNow(veh) : '', onTrip: !!(lt || s.trip), trip: '', row: null, port: '', dest: '', start: null, load: null, slips: [], litres: 0, amount: 0 };
+    if (t) {
+      Object.assign(v, { trip: t.trip || '', row: t.row ?? null, port: t.port || '', dest: t.dest || '', start: t.start || null });
+      if (t.loadDate && t.loadWt) v.load = { date: t.loadDate, port: t.port || '', net: t.loadWt, gross: t.gross || null, rate: t.rate || null, freight: t.bhada || null };
+      v.slips = (data.hsd || [])
+        .filter((h) => h.veh === veh && h.trip === t.trip && (!t.start || h.date >= t.start))
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+        .map((h) => ({ date: h.date, pump: h.source || '', incentive: /^extra filling$/i.test(String(h.source || '').trim()), bill: h.bill || '', place: h.location || '', litres: h.qty || 0, rsp: h.rsp || null, amount: h.amount || 0 }));
+      const counted = v.slips.filter((x) => !x.incentive);
+      v.litres = counted.reduce((a, x) => a + x.litres, 0);
+      v.amount = counted.reduce((a, x) => a + x.amount, 0);
+    }
+    out.push(v);
   }
-  return items.sort((a, b) => a.head.localeCompare(b.head));
+  return out.sort((a, b) => String(a.veh).localeCompare(String(b.veh)));
 }
 
 // ---- for the drivers' group (Hindi) ---------------------------------------------------------------

@@ -26,7 +26,7 @@ import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
-  daybookPagesSvg, driverBriefSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+  daybookPagesSvg, driverBriefSvg, vehicleTripsPagesSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
 } from './share-svg.js';
 import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
 import {
@@ -1123,6 +1123,24 @@ function dayRight(e) {
   return '';
 }
 
+// a truck's trip in the day book: the loading and the diesel slips (brief.js vehicleTrips())
+function vxCardHtml(v) {
+  const head = `<span class="hsrp">${esc(plateText(v.veh))}</span>
+    <span class="vx-who"><b>${esc(v.driver || 'No driver set')}</b><small>${v.trip ? `${esc(v.trip)} · ${esc(v.port || '?')} → ${esc(v.dest || '?')}` : 'No trip yet'}</small></span>
+    <span class="pill ${v.onTrip ? 'fuel-pill' : 'muted-pill'}">${v.onTrip ? 'On the road' : 'Last trip'}</span>`;
+  const cell = (k, val, sub = '') => `<div class="vx-cell"><span>${k}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const L = v.load;
+  const load = !v.trip ? '' : L
+    ? `<div class="vx-load">${cell('Loaded', esc(dm(L.date)), esc(L.port))}${cell('Net weight', esc(tonnes(L.net)), L.gross ? `gross ${esc(tonnes(L.gross))}` : '')}${cell('Rate', L.rate ? `₹${indian(L.rate)}<small>/T</small>` : '—')}${cell('Freight', L.freight ? rupees(L.freight) : '—')}</div>`
+    : `<div class="vx-load vx-none"><span>Loading</span><b>Not loaded yet</b>${v.start ? `<small>left ${esc(dm(v.start))}</small>` : ''}</div>`;
+  const slips = !v.trip ? '' : v.slips.length
+    ? `<table class="compact vx-slips"><thead><tr><th>Date</th><th>Diesel slip</th><th class="r">Litres</th><th class="r">Amount</th></tr></thead><tbody>
+      ${v.slips.map((x) => `<tr${x.incentive ? ' class="vx-inc"' : ''}><td>${esc(dm(x.date))}</td><td><b>${esc(x.incentive ? 'Incentive' : x.pump || 'Pump')}</b>${x.bill ? ` <span class="muted">${esc(x.bill)}</span>` : ''}<small class="block muted">${esc([x.place, x.rsp ? `₹${x.rsp.toFixed(2)}/L` : '', x.incentive ? 'not counted' : ''].filter(Boolean).join(' · '))}</small></td><td class="r">${indian(x.litres, x.litres % 1 ? 2 : 0)}</td><td class="r">${rupees(x.amount)}</td></tr>`).join('')}
+      </tbody><tfoot><tr><td colspan="2">${plural(v.slips.filter((x) => !x.incentive).length, 'slip')}</td><td class="r">${indian(v.litres, v.litres % 1 ? 2 : 0)}</td><td class="r">${rupees(v.amount)}</td></tr></tfoot></table>`
+    : '<p class="vx-noslip">No diesel slip entered for this trip</p>';
+  return `<article class="vx">${v.row != null ? `<a class="vx-head" href="#/trip/${v.row}">${head}</a>` : `<div class="vx-head">${head}</div>`}${load}${slips}</article>`;
+}
+
 async function viewDaybook() {
   const { ui, R } = dayState();
   const all = dayAll();
@@ -1142,7 +1160,12 @@ async function viewDaybook() {
     <div class="row-between"><h2>Today's brief <span class="muted small">${esc(longDate(today()))}</span></h2>
       <span class="row-gap">${shareBtn('share-drivers', 'Drivers (हिंदी)')}${shareBtn('share-owner', 'Owner')}</span></div>
     <p class="muted small">For you below; for the drivers' WhatsApp group, a picture in Hindi — each truck's next stop with the date to reach it by, its pace and load.</p>
-    ${ob.sections.map((sec) => { const veh = sec.items.some((it) => it.head); const need = sec.items.filter((it) => it.tone === 'bad' || it.tone === 'warn').length; return `${veh ? `<details class="brief-veh-box" open><summary><h3 class="sub-h">${esc(sec.title)} <span class="muted small">${plural(sec.items.length, 'truck')}${need ? ` · ${need} need a look` : ''}</span></h3></summary>` : `<h3 class="sub-h">${esc(sec.title)}</h3>`}<ul class="brief${veh ? ' brief-veh' : ''}">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}${it.head ? `<b class="${TONE_CLS[it.tone]}">${esc(it.head)}</b><span class="brief-main">${esc(it.text)}</span>${(it.more || []).length ? `<span class="brief-more">${it.more.map((x) => `<span>${esc(x)}</span>`).join('')}</span>` : ''}` : `<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>`}${it.href ? '</a>' : ''}</li>`).join('')}</ul>${veh ? '</details>' : ''}`; }).join('')}
+    ${ob.sections.map((sec) => `<h3 class="sub-h">${esc(sec.title)}</h3><ul class="brief">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>${it.href ? '</a>' : ''}</li>`).join('')}</ul>`).join('')}
+  </section>
+  <section class="card">
+    <div class="row-between"><h2>Each vehicle <span class="muted small">loading &amp; diesel slips</span></h2>${shareBtn('share-veh')}</div>
+    <p class="muted small">The trip on the road — else the last one. Tap a truck for its trip.</p>
+    <div class="vx-grid">${ob.vehicles.map(vxCardHtml).join('')}</div>
   </section>
   <section class="card">
     <div class="row-between"><h2>Day book</h2><span class="row-gap"><span class="muted small">${esc(dayRangeText(ui.from, ui.to))}</span>${book.list.length ? shareBtn('share-day') : ''}</span></div>
@@ -1219,6 +1242,7 @@ async function viewDaybook() {
     const hi = await hindiFontCss();
     return cardFiles(driverBriefSvg(driverBrief(state.data, briefCtx(), today()), { ...kit, fontCss: `${kit.fontCss}\n${hi}` }), `Driver instructions ${fmtDate(today())}`);
   } }]));
+  m.querySelector('#share-veh').addEventListener('click', () => sharePictures('Each vehicle', [{ label: 'Each vehicle', make: async () => pageFiles(vehicleTripsPagesSvg(ob.vehicles, { ...(await shareKit()), date: today() }), `Vehicles loading and diesel ${fmtDate(today())}`) }]));
   m.querySelector('#share-owner').addEventListener('click', () => sharePictures("Owner's insight", [{ label: 'Insight', make: async () => cardFiles(ownerBriefSvg(ownerBrief(state.data, briefCtx(), today()), await shareKit()), `Daily insight ${fmtDate(today())}`) }]));
   m.querySelector('#share-day')?.addEventListener('click', () => {
     const label = dayRangeText(ui.from, ui.to);
