@@ -19,7 +19,7 @@ Excel as before; upload it here (from any phone or computer) and the app shows:
 Our **bulkers are drawn** as in the walk-around video — white Tata Signa
 tractor, mustard V-belly pneumatic tank with the twin navy stripes, top
 handrail, tri-axle — in Shree Shyam Logistics' livery (logo, name and the
-tagline *Every tonne, on time*). The tank is see-through: the alumina (white
+tagline *Driving Your Progress*). The tank is see-through: the alumina (white
 powder) is drawn up to the trip's load, the **RTO passing weight (56 T gross)**
 is a dashed red line with any weight over it hatched amber, *62 T rated* is
 marked, and the top of the tank is the highest gross in the register. They're

@@ -63,7 +63,7 @@ test('on the road: behind the route\'s usual best, or others that started with i
 test('the bulker: alumina up to the load, the RTO line, over-weight shown', () => {
   const under = bulkerSvg({ state: 'loaded', load: 38, tare: 17, gross: 55, max: 65, label: '2010' });
   assert.match(under, /SHREE SHYAM/);
-  assert.match(under, /Every tonne, on time/);
+  assert.match(under, /Driving Your Progress/);
   assert.match(under, new RegExp(`RTO ${RTO_GROSS} T`));
   assert.doesNotMatch(under, /is-over/);
   assert.match(bulkerSvg({ state: 'loaded', load: 43, tare: 17, gross: 60, max: 65 }), /is-over/);

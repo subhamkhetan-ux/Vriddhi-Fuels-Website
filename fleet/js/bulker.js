@@ -10,7 +10,7 @@ import { esc } from './util.js';
 
 export const RTO_GROSS = 56;
 export const RATED_GROSS = 62;
-export const TAGLINE = 'Every tonne, on time';
+export const TAGLINE = 'Driving Your Progress';
 
 let seq = 0;
 const r1 = (v) => Math.round(v * 10) / 10;
