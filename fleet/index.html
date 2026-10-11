@@ -587,6 +587,18 @@ ul.brief li::before { content: ""; position: absolute; left: 2px; top: .5em; wid
 ul.brief li.tone-good::before { background: var(--good); } ul.brief li.tone-warn::before { background: var(--warn); } ul.brief li.tone-bad::before { background: var(--bad); }
 ul.brief a { color: inherit; } ul.brief a:hover { text-decoration: underline; }
 ul.brief li.tone-info span { color: var(--ink); }
+.brief-veh-box > summary { cursor: pointer; list-style: none; } .brief-veh-box > summary::-webkit-details-marker { display: none; }
+.brief-veh-box > summary h3::after { content: " ▾"; color: var(--faint); } .brief-veh-box:not([open]) > summary h3::after { content: " ▸"; }
+.brief-veh-box > summary h3 { display: inline-block; }
+ul.brief-veh { gap: 10px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+ul.brief-veh li { padding: 10px 12px 10px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel2); }
+ul.brief-veh li::before { left: 10px; top: 16px; }
+ul.brief-veh a { display: grid; gap: 2px; text-decoration: none; }
+ul.brief-veh a:hover { text-decoration: none; } ul.brief-veh li:hover { border-color: var(--s-1); }
+ul.brief-veh li > a > .muted, ul.brief-veh li.tone-info > a > .muted { color: var(--muted); }
+.brief-more { display: grid; gap: 2px; margin-top: 4px; font-size: 13px; }
+ul.brief-veh li.tone-info .brief-more span, .brief-more span { color: var(--ink); }
+@media (max-width: 760px) { ul.brief-veh { grid-template-columns: 1fr; } }
 .brief-card h2 .small { font-weight: 500; margin-left: 6px; }
 /* diesel against the allotment */
 .dz-panel { margin: 10px 0 14px; padding: 14px; border-radius: 16px; background: var(--well); border: 1px solid var(--glass-line-soft); }
@@ -611,7 +623,44 @@ ul.brief li.tone-info span { color: var(--ink); }
 .rc-diesel b { margin-right: 4px; }
 .rc-diesel.bad { color: var(--bad); } .rc-diesel.warn { color: var(--warn); } .rc-diesel.good { color: var(--good); }
 .dz-table td small.block { font-size: 11px; }
+/* trip counter on Home */
+.tc-totals { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.tc-totals > div { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 12px; background: var(--well); }
+.tc-totals b { font-family: var(--display); font-size: 20px; font-variant-numeric: tabular-nums; }
+.tc-totals span { font-size: 11.5px; color: var(--muted); }
+.tc-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.tc-veh { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); color: var(--ink); min-width: 0; }
+.tc-veh:hover { text-decoration: none; border-color: var(--accent); }
+.tc-head { display: flex; justify-content: space-between; align-items: baseline; }
+.tc-head b { font-family: var(--display); font-size: 17px; font-weight: 800; }
+.tc-n { font-family: var(--display); font-weight: 800; font-size: 20px; font-variant-numeric: tabular-nums; }
+.tc-n small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.tc-bar { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.tc-bar i { display: block; height: 100%; background: var(--grad-cta); border-radius: 3px; }
+.tc-dots { display: flex; flex-wrap: wrap; gap: 3px; min-height: 9px; }
+.tc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex: none; }
+.tc-dot.load-none { color: var(--faint); background: transparent; border: 1.5px solid var(--faint); }
+.tc-veh small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.tc-key { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 10px 0 0; }
+.tc-key span { display: inline-flex; align-items: center; gap: 5px; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+@media (max-width: 760px) { .tc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tc-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* the vehicle sheet (tap a truck on Home) */
+.veh-sheet { width: min(760px, 100%); }
+.vsh-sub { margin: 6px 0 0; }
+.vsh-actions { margin-top: 10px; }
+.vsh-h { margin: 16px 0 6px; font-family: var(--display); font-size: 15px; }
+.veh-sheet tr.muted td { color: var(--muted); }
+.road-card, a.veh { cursor: pointer; }
+@media (max-width: 640px) {
+  .veh-sheet-wrap { place-items: end stretch; padding: 0; }
+  .veh-sheet { width: 100%; max-height: 88vh; border-radius: 20px 20px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); animation: sheet-up .2s ease both; }
+}
+@keyframes sheet-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .veh-sheet { animation: none; } }
 /* day book */
+.day-veh-table tbody tr { cursor: pointer; } .day-veh-table tbody tr:hover td, .day-veh-table tbody tr:focus td { background: var(--panel2); }
+
 .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--well); }
 .day-nav b { font-family: var(--display); text-align: center; font-size: 14.5px; }
 .day-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; margin-top: 12px; }

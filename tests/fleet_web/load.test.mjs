@@ -52,7 +52,21 @@ test('the daily brief: the owner\'s insight and the drivers\' instructions in Hi
   assert.match(all, /5\.00 T below the best then \(42\.00 T\): ₹15,000 freight left behind/);
   assert.match(all, /Behind the best pace: XX01 \(\+1 d\)/);
   assert.match(all, /Idle 2\+ days: XX02/);
-  const d = driverBrief(data, ctx, today);
+  // each vehicle: where it is, yesterday's work, its load and its month
+  const veh = o.sections.find((s) => s.title === 'Each vehicle').items;
+  assert.equal(veh.length, 2);
+  const v1 = veh.find((i) => i.head.startsWith('XX01'));
+  assert.match(v1.head, /XX01 · Ramesh — Loaded/);
+  assert.match(v1.text, /day 3 .*unload by 13 Oct .*1 d behind the best/);
+  assert.ok(v1.more.some((x) => /^Yesterday: started T4\/DEMO · loaded 37\.00 T at Demo Port/.test(x)));
+  assert.ok(v1.more.some((x) => /^Load 37\.00 T — badly underloaded, 5\.00 T below/.test(x)));
+  assert.ok(v1.more.some((x) => /^Oct: 1 trip, 37\.0 T/.test(x)));
+  assert.equal(v1.tone, 'bad');
+  assert.equal(v1.href, '#/vehicle/XX01');
+  const v2 = veh.find((i) => i.head.startsWith('XX02'));
+  assert.match(v2.head, /idle at Demo Plant/);
+  assert.equal(v2.tone, 'warn');                             // 3 days idle
+  const d =driverBrief(data, ctx, today);
   const r = d.rows[0];
   assert.equal(r.veh, 'XX01');
   assert.equal(r.next, 'Halfway पर डीज़ल भरवाना');

@@ -782,7 +782,9 @@ export function ownerBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {}) 
   for (const sec of b.sections) {
     blocks.push(section(sec.title));
     for (const it of sec.items) {
-      const lines = [{ text: it.text, size: 19, weight: it.tone === 'info' ? 400 : 600, color: it.tone === 'info' ? C.ink : TONE[it.tone] }];
+      const lines = it.head
+        ? [{ text: it.head, size: 19, weight: 700, color: it.tone === 'info' || it.tone === 'good' ? C.ink : TONE[it.tone] }, { text: it.text, size: 16, color: C.muted }, ...(it.more || []).map((x) => ({ text: x, size: 16, color: C.ink }))]
+        : [{ text: it.text, size: 19, weight: it.tone === 'info' ? 400 : 600, color: it.tone === 'info' ? C.ink : TONE[it.tone] }];
       const h = linesHeight(W - 40, lines);
       blocks.push(block(h + 18, (x, y, w) => `<circle cx="${x + 10}" cy="${y + 21}" r="6" fill="${it.tone === 'info' ? C.s1 : TONE[it.tone]}"/>${textLines(x + 32, y - 4, w - 40, lines).svg}`));
     }

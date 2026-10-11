@@ -22,7 +22,7 @@ import { dataChecks } from './checks.js';
 import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
 import { fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
-import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange } from './daybook.js';
+import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange, sums as daySums } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
@@ -44,6 +44,18 @@ const state = {
   period: 'fy', custom: null, ui: {},
   settings: withDefaults(null), settingsMeta: null, settingsMissing: false, rev: 0,
 };
+// the period and the day book's dates last picked, kept in this browser (it's only a convenience)
+const PREFS = 'fleet-view';
+try {
+  const p = JSON.parse(localStorage.getItem(PREFS) || '{}');
+  if (typeof p.period === 'string') state.period = p.period;
+  if (p.custom && p.custom.from && p.custom.to) state.custom = { from: String(p.custom.from), to: String(p.custom.to) };
+  if (p.day && typeof p.day.r === 'string') state.ui.day = { r: p.day.r, from: p.day.r === 'custom' ? p.day.from || null : null, to: p.day.r === 'custom' ? p.day.to || null : null, kinds: [], veh: '', days: 31 };
+} catch { /* private mode or nothing kept: the defaults */ }
+function savePrefs() {
+  const d = state.ui.day;
+  try { localStorage.setItem(PREFS, JSON.stringify({ period: state.period, custom: state.custom, day: d ? { r: d.r, from: d.from, to: d.to } : null })); } catch { /* this visit only */ }
+}
 
 // ---------------------------------------------------------------------------
 // small UI helpers
@@ -441,7 +453,7 @@ async function route() {
   if (!state.keepScroll) window.scrollTo(0, 0);
   state.keepScroll = false;
 }
-const rerender = () => { state.keepScroll = true; route(); };
+const rerender = () => { state.keepScroll = true; savePrefs(); route(); };
 
 function viewWelcome() {
   setMain(`<section class="hero card">
@@ -632,6 +644,8 @@ async function viewHome() {
       <span>Trip Register updated until <b>${esc(d.latest ? dateYear(d.latest) : '—')}</b></span></p>
     </section>
 
+    ${tripCounterHtml()}
+
     <section class="card">
       <div class="row-between"><h3>On the road now</h3><span class="row-gap"><span class="muted small">${plural(status.length, 'vehicle')}</span>${shareBtn('share-road')}</span></div>
       <div class="kpis live-kpis">
@@ -652,6 +666,13 @@ async function viewHome() {
     <div id="dash"></div>
     ${state.meta ? `<p class="muted small">From “${esc(state.meta.file_name)}”${state.meta.created_at ? ` · uploaded ${new Date(state.meta.created_at).toLocaleString('en-IN')}` : ''}${state.meta.by_email ? ` · ${esc(state.meta.by_email)}` : ''}</p>` : ''}`);
   renderDashboard(document.getElementById('dash'));
+  bindPeriod(document.getElementById('trip-counter'));
+  main().querySelectorAll('[data-sheet]').forEach((a) => a.addEventListener('click', (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;        // a new tab: the vehicle's page
+    e.preventDefault();
+    vehicleSheet(a.dataset.sheet);
+  }));
+  main().querySelectorAll('[data-scroll]').forEach((b) => b.addEventListener('click', () => document.getElementById(b.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' })));
   document.getElementById('share-road')?.addEventListener('click', () => sharePictures('Share the fleet', [roadOption(), fleetOption()]));
 }
 
@@ -699,7 +720,7 @@ function roadCard(lt) {
   const t = lt.t;
   const pace = paceText(lt);
   const who = driverNow(lt.veh);
-  return `<a class="road-card ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}">
+  return `<a class="road-card ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}" data-sheet="${esc(lt.veh)}">
     <div class="rc-head"><span class="hsrp">${esc(plateText(lt.veh))}</span>${perfBadge(lt.veh)}<span class="rc-day">Day ${lt.el}</span></div>
     <div class="rc-route"><span class="rc-place"><small>Loading port</small><b>${esc(t.port)}</b></span><span class="rc-arrow" aria-hidden="true"></span><span class="rc-place to"><small>Destination</small><b>${esc(t.dest)}</b></span></div>
     <div class="rc-sub"><span>${esc(t.trip)}</span>${who ? `<span>Driver ${esc(who)}</span>` : ''}<span>Started ${dm(t.start)}</span></div>
@@ -712,11 +733,92 @@ function roadCard(lt) {
   </a>`;
 }
 
+// the trip counter, under the logo: trips in the period — the fleet and each vehicle, a dot a trip coloured by its load
+function tripCounterHtml() {
+  const d = state.data;
+  const p = currentPeriod();
+  const { status, loads } = derived();
+  const inP = d.trips.filter((t) => inPeriod(t, p));
+  const T = totals(inP);
+  const onRoad = status.filter((s) => s.state !== 'idle').length;
+  const rows = vehiclesOf(d).map((veh) => {
+    const mine = inP.filter((t) => t.veh === veh).sort((a, b) => (a.loadDate < b.loadDate ? -1 : 1));
+    return { veh, mine, T: totals(mine) };
+  });
+  const max = Math.max(1, ...rows.map((r) => r.mine.length));
+  const avg = rows.length ? inP.length / rows.length : 0;
+  const dot = (t) => { const b = loads.get(t.row); return `<i class="tc-dot ${b ? LOAD_GRADES[b.grade].cls : 'load-none'}" title="${esc(`${t.trip} · ${t.loadWt ? `${t.loadWt.toFixed(2)} T` : 'not loaded'}${b ? ` · ${LOAD_GRADES[b.grade].name}` : ''}${t.unloadDate ? '' : ' · on the way'}`)}"></i>`; };
+  return `<section class="card trip-counter" id="trip-counter">
+    <div class="row-between"><h3>Trips · ${esc(periodRange(p))}</h3><a class="small" href="#/trips">All trips ›</a></div>
+    ${periodHtml()}
+    <div class="tc-totals">
+      <div><b>${T.trips}</b><span>trips loaded</span></div>
+      <div><b>${T.done}</b><span>unloaded</span></div>
+      <div><b>${tonnes(T.tonnes, 0)}</b><span>carried</span></div>
+      <div><b>${money(T.bhada)}</b><span>freight</span></div>
+      <div><b>${onRoad}</b><span>on the road now</span></div>
+    </div>
+    <div class="tc-grid">${rows.map((r) => `<a class="tc-veh" href="#/vehicle/${encodeURIComponent(r.veh)}">
+      <span class="tc-head"><b>${esc(shortVeh(r.veh))}</b><span class="tc-n ${r.mine.length < avg - 1 ? 'warn-text' : ''}">${r.mine.length}<small> trip${r.mine.length === 1 ? '' : 's'}</small></span></span>
+      <span class="tc-bar"><i style="width:${((r.mine.length / max) * 100).toFixed(0)}%"></i></span>
+      <span class="tc-dots">${r.mine.slice(0, 24).map(dot).join('')}${r.mine.length > 24 ? '<small>…</small>' : ''}</span>
+      <small class="muted">${r.mine.length ? `${tonnes(r.T.tonnes, 0)} · ${money(r.T.bhada)}` : 'no trip'}${driverNow(r.veh) ? ` · ${esc(driverNow(r.veh))}` : ''}</small>
+    </a>`).join('')}</div>
+    <p class="tc-key small muted"><span><i class="tc-dot load-top"></i>full</span><span><i class="tc-dot load-ok"></i>near full</span><span><i class="tc-dot load-low"></i>under</span><span><i class="tc-dot load-poor"></i>well under</span><span><i class="tc-dot load-none"></i>not loaded</span> · a dot a trip</p>
+  </section>`;
+}
+
+// tap a vehicle on Home: its trip's diesel — the allotment, every fill tagged to it, the trips before — and where to go next
+function vehicleSheet(veh) {
+  const d = state.data;
+  const x = derived();
+  const s = x.status.find((v) => v.veh === veh);
+  if (!s) return;
+  const lt = x.liveTrips.find((v) => v.veh === veh);
+  const trip = s.trip || s.last;
+  const z = trip ? x.tripDiesel.get(trip.row) : null;
+  const mf = trip ? x.missingFills.get(trip.row) : null;
+  const fills = trip ? d.hsd.filter((h) => h.veh === veh && h.trip === trip.trip).sort((a, b) => (a.date < b.date ? -1 : 1)) : [];
+  const isInc = (h) => /^extra filling$/i.test(String(h.source || '').trim());
+  const mine = d.trips.filter((t) => t.veh === veh).sort((a, b) => a.row - b.row);
+  const earlier = trip ? mine.filter((t) => t.row < trip.row).slice(-4).reverse().map((t) => x.tripDiesel.get(t.row)).filter(Boolean) : [];
+  const info = trip ? x.drivers.tripInfo(trip) : null;
+  const who = driverNow(veh);
+  const sum = (xs, f) => xs.reduce((a, h) => a + (f(h) || 0), 0);
+  const sl = (n) => `${n > 0.5 ? '+' : n < -0.5 ? '−' : ''}${L1(n)}`;
+  document.querySelector('.veh-sheet-wrap')?.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'share-sheet veh-sheet-wrap';
+  wrap.innerHTML = `<div class="share-box veh-sheet" role="dialog" aria-modal="true" aria-label="${esc(veh)}">
+    <div class="row-between"><span class="row-gap"><span class="hsrp">${esc(plateText(veh))}</span>${who ? `<b>${esc(who)}</b>` : ''}</span><button class="icon" data-close aria-label="Close">✕</button></div>
+    <p class="muted small vsh-sub">${esc(lt ? lt.phase.title : s.long)}${trip ? ` · ${esc(trip.trip)} · ${esc(routeOf(trip))}` : ''}${lt ? ` · day ${lt.el}` : s.days != null ? ` · ${s.days} d` : ''}</p>
+    <div class="actions vsh-actions">${trip ? `<a class="btn small" href="#/trip/${trip.row}">Trip</a>` : ''}<a class="btn ghost small" href="#/vehicle/${encodeURIComponent(veh)}">Vehicle</a><a class="btn ghost small" href="#/diesel/${encodeURIComponent(veh)}">Diesel recon</a><a class="btn ghost small" href="#/drivers/${encodeURIComponent(veh)}">Driver</a></div>
+    ${trip ? `<h4 class="vsh-h">Diesel · ${esc(trip.trip)}${s.trip ? '' : ' <span class="muted small">(last trip)</span>'}</h4>
+    ${mf ? `<div class="todo warn">⛽ ${esc(mf.text)}.</div>` : ''}
+    ${z ? dieselPanelHtml(z) : '<p class="muted small">This trip is before the diesel recon starts.</p>'}
+    ${fills.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Pump</th><th>Where</th><th class="r">Litres</th><th class="r">₹/L</th><th class="r">Amount</th></tr></thead><tbody>
+      ${fills.map((h) => `<tr class="${isInc(h) ? 'muted' : ''}"><td>${fmtDate(h.date)}</td><td>${esc(h.source || '—')}${isInc(h) ? '<small class="block">incentive, settled — not counted</small>' : h.bill ? `<small class="muted block">${esc(h.bill)}</small>` : ''}</td><td>${esc(h.location || '')}</td><td class="r">${indian(h.qty, h.qty % 1 ? 2 : 0)}</td><td class="r">${h.rsp ? h.rsp.toFixed(2) : '—'}</td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}
+      <tr class="sum"><td colspan="3"><b>${plural(fills.filter((h) => !isInc(h)).length, 'fill')} counted</b></td><td class="r"><b>${indian(sum(fills.filter((h) => !isInc(h)), (h) => h.qty))}</b></td><td></td><td class="r"><b>${rupees(sum(fills.filter((h) => !isInc(h)), (h) => h.amount))}</b></td></tr>
+    </tbody></table></div>` : '<p class="muted small">No fill tagged to this trip in HSD Data yet.</p>'}` : '<p class="muted">No trip yet.</p>'}
+    ${earlier.length ? `<h4 class="vsh-h">Trips before</h4><div class="table-wrap"><table class="compact"><thead><tr><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">Trip ±</th><th class="r">Balance</th></tr></thead><tbody>
+      ${earlier.map((e) => `<tr><td><a href="#/trip/${e.t.row}">${esc(e.t.trip)}</a><small class="muted block">${fmtDate(e.t.loadDate || e.t.start)} · ${plural(e.fills.length, 'fill')}</small></td><td class="r">${e.allotted != null ? L1(e.allotted) : '—'}</td><td class="r">${L1(e.taken)}</td><td class="r ${e.allotted != null && e.taken - e.allotted > 0.5 ? 'bad-text' : 'good-text'}">${e.allotted != null ? sl(e.allotted - e.taken) : '—'}</td><td class="r"><b class="${e.after < -0.5 ? 'bad-text' : ''}">${sl(e.after)}</b></td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+    ${info && info.paid.length ? `<h4 class="vsh-h">Advances this trip</h4><ul class="brief">${info.paid.map((p) => `<li>${fmtDate(p.date)} · ${rupees(p.amount)} to ${esc(p.name)}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</li>`).join('')}</ul>` : ''}
+  </div>`;
+  document.body.append(wrap);
+  const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', close); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('hashchange', close);                          // a link in the sheet goes to its page
+  wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+  wrap.querySelector('[data-close]').focus();
+}
+
 function vehTile(s) {
   const t = s.trip;
   const late = s.state !== 'idle' && s.days > 9;
   const behind = derived().live.find((x) => x.veh === s.veh);
-  return `<a class="veh ${s.state}${behind ? ' behind' : ''}" href="#/vehicle/${encodeURIComponent(s.veh)}">
+  return `<a class="veh ${s.state}${behind ? ' behind' : ''}" href="#/vehicle/${encodeURIComponent(s.veh)}" data-sheet="${esc(s.veh)}">
     ${bulkerFor(s.state === 'loaded' ? t : null, { compact: true, veh: s.veh })}
     <span class="veh-top"><b>${esc(shortVeh(s.veh))} ${perfBadge(s.veh)}</b><span class="veh-days${late || behind ? ' late' : ''}">${s.days == null ? '' : s.state === 'idle' ? `${s.days}d idle` : `day ${s.days}`}</span></span>
     <span class="veh-state"><i></i>${esc(s.text)}</span>
@@ -751,8 +853,7 @@ function renderDashboard(box) {
   const sumBhada = () => { const { kms } = derived(); return trips.filter((t) => kms.get(t.row) && kms.get(t.row).complete && kms.get(t.row).km).reduce((a, t) => a + (t.bhada || 0), 0); };
   box.innerHTML = `
   <section class="card dash">
-    <div class="row-between"><h2>Business</h2><span class="row-gap"><span class="muted small">${esc(periodRange(p))}</span>${shareBtn('share-fleet', 'Share report')}</span></div>
-    ${periodHtml()}
+    <div class="row-between"><h2>Business</h2><span class="row-gap"><span class="muted small">${esc(periodRange(p))} · <button class="linkish" type="button" data-scroll="trip-counter">change</button></span>${shareBtn('share-fleet', 'Share report')}</span></div>
     ${trips.length ? `
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">Freight (bhada)</span><span class="val" ${exact(T.bhada)}>${money(T.bhada)}</span><span class="sub">${tonnes(T.tonnes, 1)} · ₹${indian(T.perTonne)}/T</span></div>
@@ -1031,6 +1132,7 @@ async function viewDaybook() {
   const inRange = dayBook(all, { from: ui.from, to: ui.to, veh: ui.veh });            // for the counts on the type chips
   const count = (k) => inRange.list.filter((e) => e.kind === k).length;
   const S = book.sums;
+  const byVeh = ui.veh ? [] : vehiclesOf(state.data).map((v) => ({ v, s: daySums(inRange.list.filter((e) => e.veh === v && e.kind !== 'ssfc')) })).filter((x) => x.s.entries);
   const latest = all.find((e) => e.date <= today());
   const shown = book.days.slice(0, ui.days);
   const tile = (lbl, val, sub, cls = '') => `<div class="kpi ${cls}"><span class="lbl">${lbl}</span><span class="val">${val}</span><span class="sub">${sub}</span></div>`;
@@ -1040,7 +1142,7 @@ async function viewDaybook() {
     <div class="row-between"><h2>Today's brief <span class="muted small">${esc(longDate(today()))}</span></h2>
       <span class="row-gap">${shareBtn('share-drivers', 'Drivers (हिंदी)')}${shareBtn('share-owner', 'Owner')}</span></div>
     <p class="muted small">For you below; for the drivers' WhatsApp group, a picture in Hindi — each truck's next stop with the date to reach it by, its pace and load.</p>
-    ${ob.sections.map((sec) => `<h3 class="sub-h">${esc(sec.title)}</h3><ul class="brief">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>${it.href ? '</a>' : ''}</li>`).join('')}</ul>`).join('')}
+    ${ob.sections.map((sec) => { const veh = sec.items.some((it) => it.head); const need = sec.items.filter((it) => it.tone === 'bad' || it.tone === 'warn').length; return `${veh ? `<details class="brief-veh-box" open><summary><h3 class="sub-h">${esc(sec.title)} <span class="muted small">${plural(sec.items.length, 'truck')}${need ? ` · ${need} need a look` : ''}</span></h3></summary>` : `<h3 class="sub-h">${esc(sec.title)}</h3>`}<ul class="brief${veh ? ' brief-veh' : ''}">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}${it.head ? `<b class="${TONE_CLS[it.tone]}">${esc(it.head)}</b><span class="muted small">${esc(it.text)}</span>${(it.more || []).length ? `<span class="brief-more">${it.more.map((x) => `<span>${esc(x)}</span>`).join('')}</span>` : ''}` : `<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>`}${it.href ? '</a>' : ''}</li>`).join('')}</ul>${veh ? '</details>' : ''}`; }).join('')}
   </section>
   <section class="card">
     <div class="row-between"><h2>Day book</h2><span class="row-gap"><span class="muted small">${esc(dayRangeText(ui.from, ui.to))}</span>${book.list.length ? shareBtn('share-day') : ''}</span></div>
@@ -1066,6 +1168,12 @@ async function viewDaybook() {
       ${tile('Driver advances', S.advances ? money(S.advances) : '—', S.advanceN ? plural(S.advanceN, 'payment') : 'none')}
       ${tile('SSFC received', S.received ? money(S.received) : '—', S.receivedN ? plural(S.receivedN, 'payment') : 'none', S.received ? 'good' : '')}
     </div>
+    ${byVeh.length > 1 ? `<h3 class="sub-h">By vehicle <span class="muted small">— tap one to see only its entries</span></h3><div class="table-wrap"><table class="compact day-veh-table"><thead><tr><th>Vehicle</th><th class="r">Started</th><th class="r">Loaded</th><th class="r">Freight</th><th class="r">Unloaded</th><th class="r">Diesel</th><th class="r">Urea</th><th class="r">Advances</th></tr></thead><tbody>
+      ${byVeh.map(({ v, s: x }) => `<tr data-day-veh="${esc(v)}" tabindex="0"><td><b>${esc(shortVeh(v))}</b>${driverNow(v) ? ` <span class="muted small">${esc(driverNow(v))}</span>` : ''}</td>
+        <td class="r">${x.starts || '—'}</td><td class="r">${x.loads ? `${x.loads} · ${tonnes(x.tonnes, 1)}` : '—'}</td><td class="r">${x.freight ? money(x.freight) : '—'}</td>
+        <td class="r">${x.unloads ? `${x.unloads}${x.short < -0.05 ? ` <span class="warn-text small">${tonnes(-x.short)} short</span>` : ''}` : '—'}</td>
+        <td class="r">${x.fills ? `${litres(x.litres)} <span class="muted small">${money(x.diesel)}</span>` : '—'}</td><td class="r">${x.urea ? money(x.urea) : '—'}</td><td class="r">${x.advances ? money(x.advances) : '—'}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
   </section>
   ${shown.map((day) => `<section class="card day-card">
     <div class="day-head"><h3>${esc(longDate(day.date))}${day.date === today() ? ' <span class="pill fuel-pill">Today</span>' : ''}</h3><span class="muted small">${esc(daySumText(day.sums))}</span></div>
@@ -1099,6 +1207,11 @@ async function viewDaybook() {
     rerender();
   }));
   m.querySelector('#day-veh').addEventListener('change', (e) => { ui.veh = e.target.value; rerender(); });
+  m.querySelectorAll('[data-day-veh]').forEach((r) => {
+    const go = () => { ui.veh = r.dataset.dayVeh; rerender(); m.querySelector('#day-veh')?.scrollIntoView({ block: 'center' }); };
+    r.addEventListener('click', go);
+    r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
   m.querySelector('#day-more')?.addEventListener('click', () => { ui.days += 31; rerender(); });
   m.querySelector('#day-latest')?.addEventListener('click', () => { ui.r = 'custom'; ui.from = latest.date; ui.to = latest.date; rerender(); });
   m.querySelector('#share-drivers').addEventListener('click', () => sharePictures("Drivers' instructions (Hindi)", [{ label: 'हिंदी', make: async () => {
