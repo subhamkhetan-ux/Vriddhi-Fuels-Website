@@ -692,6 +692,87 @@ label.radio { margin: 8px 0; align-items: flex-start; } label.radio input { marg
   .tabs a { padding: 9px 0; font-size: 11.5px; letter-spacing: -.01em; min-width: 0; }
   .veh small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* ===================== the bulker graphic ===================== */
+.bulker { display: block; width: 100%; height: auto; overflow: visible; }
+.bk-ground { stroke: var(--grid-zero); stroke-width: 1.5; stroke-dasharray: 2 5; }
+.bk-rto { stroke: #ff5a3c; stroke-width: 1.3; stroke-dasharray: 5 3; }
+.bk-rated { stroke: rgba(255,255,255,.55); stroke-width: 1; stroke-dasharray: 2 3; }
+.bk-t { font: 700 9px var(--display); fill: var(--muted); }
+.bk-rto-t { fill: #ff5a3c; paint-order: stroke; stroke: rgba(255,255,255,.75); stroke-width: 2px; }
+.bk-load-t { fill: #3b3a35; font-size: 9.5px; }
+.bulker .bk-t:not(.bk-rto-t):not(.bk-load-t) { fill: #f1e7d6; }
+.bk-door { font: 800 10.5px var(--display); fill: #1d3577; letter-spacing: .02em; }
+.bk-name { font: 800 9.6px var(--display); fill: #1d3577; letter-spacing: .04em; paint-order: stroke; stroke: rgba(255,255,255,.55); stroke-width: 1.6px; }
+.bk-sub { font: 700 5.6px var(--display); fill: #1d3577; letter-spacing: .42em; paint-order: stroke; stroke: rgba(255,255,255,.5); stroke-width: 1.2px; }
+.bk-tag { font: italic 600 4.6px var(--display); fill: #1d3577; letter-spacing: .03em; paint-order: stroke; stroke: rgba(255,255,255,.5); stroke-width: 1px; }
+.bulker.compact .bk-tag { display: none; }
+.bk-fill.pour { animation: bk-pour 1.6s cubic-bezier(.3,.7,.3,1) .2s both; }
+@keyframes bk-pour { from { transform: translateY(var(--from)); } to { transform: none; } }
+.bulker.is-over .bk-rto { stroke-width: 1.6; }
+@media (prefers-reduced-motion: reduce) { .bk-fill.pour { animation: none; } }
+/* trips side by side */
+.lanes { display: block; width: 100%; height: auto; }
+.lanes .ln-grid { stroke: var(--grid); }
+.lanes .ln-tick { font-size: 10px; fill: var(--faint); }
+.lanes .ln-bg { fill: transparent; }
+.lanes .ln-row.best .ln-bg { fill: color-mix(in srgb, var(--good) 12%, transparent); }
+.lanes .ln-row.mark .ln-bg { fill: color-mix(in srgb, var(--warn) 14%, transparent); }
+.lanes .ln-name { font: 700 11.5px var(--display); fill: var(--ink); }
+.lanes .ln-sub { font-size: 9.5px; fill: var(--muted); }
+.ln-empty { stroke: var(--info); stroke-width: 2.5; stroke-dasharray: 4 3; stroke-linecap: round; }
+.ln-loaded { stroke: #e9e6dc; stroke-width: 5; stroke-linecap: round; }
+:root[data-theme="light"] .ln-loaded { stroke: #b9b3a3; }
+.ln-start { fill: var(--info); }
+.ln-load { fill: #f1f0ea; stroke: #8f8a7c; stroke-width: 1.2; }
+.ln-unload { fill: var(--accent); }
+.ln-now { fill: var(--accent); stroke: #fff; stroke-width: 2; }
+.ln-fill path { fill: var(--s-4); stroke: rgba(0,0,0,.25); stroke-width: .6; }
+.lanes .hit { fill: transparent; cursor: pointer; }
+.lanes .hit.on { fill: var(--hover); }
+.lanes-legend svg { overflow: visible; }
+
+/* bulkers on the screens */
+.bulker-hero { margin: 14px 0 4px; padding: 14px 14px 8px; border-radius: 18px; background: radial-gradient(120% 90% at 50% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%), var(--well); border: 1px solid var(--glass-line-soft); }
+.bulker-hero .bulker { max-width: 640px; margin: 0 auto; }
+.bk-cap { margin: 8px 0 0; text-align: center; color: var(--muted); font-size: 13.5px; line-height: 1.7; }
+.bk-cap b { color: var(--ink); }
+.veh .bulker { margin: -2px -4px 4px; width: calc(100% + 8px); }
+.veh.behind { border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+.veh-top b .pill { font-size: 10px; vertical-align: 3px; margin-left: 2px; }
+.veh-card .bulker { margin: -4px 0 2px; }
+.veh-card .co-head .pill { margin-left: auto; }
+.sub-nav { margin: 4px 0 2px; }
+/* performance */
+.perf-strip { margin: 14px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); display: grid; gap: 8px; }
+.perf-strip.bad-card { border-color: rgba(255,107,94,.5); } .perf-strip.good-card { border-color: rgba(47,208,138,.45); }
+.perf-nums { display: flex; flex-wrap: wrap; gap: 8px 18px; font-variant-numeric: tabular-nums; }
+.perf-nums span { display: flex; flex-direction: column; }
+.perf-nums small { color: var(--muted); font-size: 11.5px; }
+.perf-nums b { font-family: var(--display); font-size: 16px; }
+.behind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.behind-card { display: flex; flex-direction: column; gap: 4px; color: var(--ink); background: var(--glass-2); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 14px; padding: 10px 12px; }
+.behind-card:hover { text-decoration: none; border-color: var(--accent); }
+.behind-card b { font-family: var(--display); font-size: 18px; }
+.behind-card small { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.perf-rank { display: grid; gap: 6px; margin-top: 10px; }
+.perf-row { display: grid; grid-template-columns: minmax(170px, 1.2fr) 2fr 120px; gap: 12px; align-items: center; color: var(--ink); background: var(--glass-2); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 9px 12px; font-variant-numeric: tabular-nums; }
+.perf-row:hover { text-decoration: none; border-color: var(--accent); }
+.perf-row.under { border-color: rgba(255,107,94,.5); box-shadow: 0 0 0 1px var(--bad-bg); }
+.perf-row.top { border-color: rgba(47,208,138,.4); }
+.pr-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.pr-name b { font-family: var(--display); font-size: 17px; }
+.pr-name small { flex-basis: 100%; color: var(--muted); font-size: 11.5px; }
+.pr-val { display: flex; flex-direction: column; }
+.pr-val small { color: var(--muted); font-size: 11.5px; }
+.perf-row .div-bar .pos i { background: var(--s-neg); }
+.perf-row .div-bar .neg i { background: var(--s-1); }
+tr.row-under td { background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.lanes-wrap { overflow-x: auto; margin-top: 6px; }
+@media (max-width: 640px) {
+  .perf-row { grid-template-columns: 1fr auto; grid-template-areas: "name val" "bar bar"; }
+  .pr-name { grid-area: name; } .perf-row .div-bar { grid-area: bar; } .pr-val { grid-area: val; text-align: right; }
+}
 </style>
 </head>
 <body>

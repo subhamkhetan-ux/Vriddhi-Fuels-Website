@@ -13,6 +13,8 @@ import {
 import { demoData } from './demo.js';
 import { bookFromSheetJS, extractFleet } from './parse.js';
 import { memoryStore, supabaseStore } from './store.js';
+import { bulkerSvg, lanesLegend, lanesSvg, RTO_GROSS, TAGLINE } from './bulker.js';
+import { liveBehind, performance, SLOW_DAYS, STAGES } from './perf.js';
 import {
   addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
   plural, rupees, shortDate, shortVeh, tonnes,
@@ -323,6 +325,7 @@ const ROUTES = [
   [/^#\/trips(?:\?(.*))?$/, (m) => viewTrips(new URLSearchParams(m[1] || ''))],
   [/^#\/trip\/(\d+)$/, (m) => viewTrip(Number(m[1]))],
   [/^#\/vehicles$/, () => viewVehicles()],
+  [/^#\/performance(?:\?r=(.*))?$/, (m) => viewPerformance(m[1] ? decodeURIComponent(m[1]) : '')],
   [/^#\/vehicle\/([^/?]+)$/, (m) => viewVehicle(decodeURIComponent(m[1]))],
   [/^#\/ssfc$/, () => viewSsfc()],
   [/^#\/diesel$/, () => viewDiesel()],
@@ -339,7 +342,7 @@ async function route() {
   const hash = location.hash || '#/';
   const tabOf = (h) => {
     if (h.startsWith('#/trip')) return '#/trips';
-    if (h.startsWith('#/vehicle')) return '#/vehicles';
+    if (h.startsWith('#/vehicle') || h.startsWith('#/performance')) return '#/vehicles';
     if (h.startsWith('#/diesel')) return '#/diesel';
     if (h.startsWith('#/drivers')) return '#/drivers';
     if (h.startsWith('#/costs')) return '#/costs';
@@ -423,19 +426,58 @@ function derived() {
     const x = {
       recon: dieselRecon(d, set), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d),
       issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set),
+      maxGross: Math.max(0, ...d.trips.map((t) => t.gross || 0)),
+      perfRecent: performance(d, today(), { from: addMonths(monthOf(today()), -2), to: monthOf(today()) }),
+      perfAll: performance(d, today()),
       charges: { fastag: monthlyCharges(d, set, 'fastag', kms), tyre: monthlyCharges(d, set, 'tyre', kms) },
     };
     cache = { data: d, rev: state.rev, x };
   }
+  if (!cache.x.live) cache.x.live = liveBehind(d, today(), cache.x.perfAll);
   return cache.x;
 }
+// the bulker for a trip: loaded with what it carried, or empty
+function bulkerFor(t, { compact = false, animate = false, empty = false, veh = null } = {}) {
+  const { maxGross } = derived();
+  const v = veh || (t && t.veh);
+  if (!t || empty || !t.loadWt) return bulkerSvg({ state: 'empty', compact, label: shortVeh(v), title: `${v} · empty` });
+  return bulkerSvg({ state: 'loaded', load: t.loadWt, tare: t.tare, gross: t.gross, max: maxGross, compact, animate, label: shortVeh(v),
+    title: `${v} · ${t.trip} · ${t.loadWt.toFixed(2)} T alumina · gross ${t.gross ? t.gross.toFixed(2) : '—'} T (RTO ${RTO_GROSS} T)` });
+}
+const weightLine = (t) => {
+  if (!t || !t.gross) return '';
+  const d = t.gross - RTO_GROSS;
+  return d > 0.05 ? `<span class="pill warn-pill">${d.toFixed(2)} T over the RTO ${RTO_GROSS} T</span>` : `<span class="pill good-pill">${(-d).toFixed(2)} T under the RTO ${RTO_GROSS} T</span>`;
+};
+// how a vehicle has been doing lately against the others on the same route
+function perfBadge(veh, perf = derived().perfRecent) {
+  const v = perf.vehicles.find((x) => x.veh === veh);
+  if (!v || v.trips < 3) return '';
+  if (v.under) return `<span class="pill bad-pill" title="${esc(`${v.slowerPerTrip.toFixed(1)} days a trip slower than the others on the same route`)}">⚠ Slow</span>`;
+  if (v.slowerPerTrip >= 0.5) return `<span class="pill warn-pill" title="${esc(`${v.slowerPerTrip.toFixed(1)} days a trip slower`)}">Slipping</span>`;
+  if (v.top) return `<span class="pill good-pill" title="${esc(`${(-v.slowerPerTrip).toFixed(1)} days a trip faster`)}">★ Top</span>`;
+  return '';
+}
+const subNav = (on) => `<div class="chips small-chips sub-nav" role="group" aria-label="Vehicles"><a class="chip${on === 'cards' ? ' on' : ''}" href="#/vehicles">Vehicles</a><a class="chip${on === 'perf' ? ' on' : ''}" href="#/performance">Performance</a></div>`;
 // km of a set of trips (only trips whose distance is known)
 function kmOf(trips) {
   const { kms } = derived();
   const known = trips.filter((t) => kms.get(t.row) && kms.get(t.row).complete && kms.get(t.row).km);
   return { km: known.reduce((a, t) => a + kms.get(t.row).km, 0), trips: known.length, litres: known.reduce((a, t) => a + dieselLitres(t), 0) };
 }
-const OVERPAID = 500;                                            // a driver is flagged above this
+const OVERPAID = 500;
+const STAGE_NAME = { toLoad: 'getting loaded', loaded: 'the loaded run', idle: 'idle after unloading' };
+function liveText(x) {
+  const who = driverNow(x.veh);
+  const what = x.stage === 'loaded' ? `loaded ${x.sofar} days ago at ${x.t.port}, not unloaded at ${x.t.dest} yet` : `started ${x.sofar} days ago, not loaded at ${x.t.port} yet`;
+  const bench = x.bench != null ? ` — the best on this route lately ${x.stage === 'loaded' ? 'unload' : 'load'} in ${x.bench} day${x.bench === 1 ? '' : 's'}` : '';
+  const ahead = x.ahead.length ? `; ${x.ahead.map((t) => shortVeh(t.veh)).join(', ')} started with it and ${x.stage === 'loaded' ? 'have unloaded' : 'are loaded'}` : '';
+  return `${shortVeh(x.veh)}${who ? ` (${who})` : ''}: ${what}${bench}${ahead}`;
+}
+function driverNow(veh) {
+  const sp = [...derived().drivers.spells].reverse().find((x) => x.veh === veh);
+  return sp && sp.name ? sp.name : '';
+}                                            // a driver is flagged above this
 // months to chart for a period: the period itself, or the last 12 months when it's short
 function chartMonths(p) {
   const months = state.data.trips.map((t) => t.month).filter(Boolean).sort();
@@ -469,7 +511,12 @@ async function viewHome() {
   const play = !state.greeted;
   state.greeted = true;
   const todo = attention(d, today(), { recon, account });
-  const { drivers, charges, kms } = derived();
+  const { drivers, charges, kms, live, perfRecent } = derived();
+  for (const x of live.slice().sort((a, b) => b.sofar - a.sofar).slice(0, 4)) {
+    todo.unshift({ kind: 'warn', href: `#/vehicle/${encodeURIComponent(x.veh)}`, text: liveText(x) });
+  }
+  const slow = perfRecent.vehicles.filter((v) => v.under);
+  if (slow.length) todo.push({ kind: 'warn', href: '#/performance', text: `Underperforming lately: ${slow.map((v) => `${shortVeh(v.veh)} (${v.slowerPerTrip.toFixed(1)} days a trip slower${v.worstStage ? `, mostly ${STAGE_NAME[v.worstStage]}` : ''})`).join(', ')}` });
   // only once salaries are set in Setup (the Rates sheet's Driver Payment is a placeholder)
   const confirmed = (sp) => sp.trips.length && drivers.rows.filter((r) => r.spell === sp && r.salary != null).every((r) => r.salaryFrom === 'app');
   const overpaid = drivers.spells.filter((x) => x.balance > OVERPAID && confirmed(x));
@@ -528,8 +575,10 @@ function summarisePlaces(list) {
 function vehTile(s) {
   const t = s.trip;
   const late = s.state !== 'idle' && s.days > 9;
-  return `<a class="veh ${s.state}" href="#/vehicle/${encodeURIComponent(s.veh)}">
-    <span class="veh-top"><b>${esc(shortVeh(s.veh))}</b><span class="veh-days${late ? ' late' : ''}">${s.days == null ? '' : s.state === 'idle' ? `${s.days}d idle` : `day ${s.days}`}</span></span>
+  const behind = derived().live.find((x) => x.veh === s.veh);
+  return `<a class="veh ${s.state}${behind ? ' behind' : ''}" href="#/vehicle/${encodeURIComponent(s.veh)}">
+    ${bulkerFor(s.state === 'loaded' ? t : null, { compact: true, veh: s.veh })}
+    <span class="veh-top"><b>${esc(shortVeh(s.veh))} ${perfBadge(s.veh)}</b><span class="veh-days${late || behind ? ' late' : ''}">${s.days == null ? '' : s.state === 'idle' ? `${s.days}d idle` : `day ${s.days}`}</span></span>
     <span class="veh-state"><i></i>${esc(s.text)}</span>
     <small>${t ? `${esc(t.trip)}${t.loadWt ? ` · ${t.loadWt.toFixed(2)} T` : ''}` : s.last ? `last: ${esc(s.last.trip)}, unloaded ${esc(shortDate(s.last.unloadDate))}` : ''}</small>
   </a>`;
@@ -741,6 +790,8 @@ async function viewTrip(row) {
     <a class="muted small" href="#/trips">← Trips</a>
     <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(t.veh))}</span><div><h2>${esc(t.trip)}</h2><p class="muted">${vehLink(t.veh)} · ${esc(routeOf(t))}</p></div></div>${statusPill(t)}</div>
     ${why ? `<div class="todo warn" style="margin-top:12px">Check this trip in Excel: ${esc(why)}.</div>` : ''}
+    <div class="bulker-hero">${bulkerFor(t.loadWt ? t : null, { animate: true })}
+      <p class="bk-cap">${t.loadWt ? `<b>${t.loadWt.toFixed(2)} T</b> of alumina · tare ${t.tare ? t.tare.toFixed(2) : '—'} T · gross <b>${t.gross ? t.gross.toFixed(2) : '—'} T</b> ${weightLine(t)}` : 'Not loaded yet'}</p></div>
     <div class="timeline">
       <div class="${t.start ? 'on' : ''}"><small>Trip start</small><b>${t.start ? dateYear(t.start) : '—'}</b></div>
       <div class="${t.loadDate ? 'on' : ''}"><small>Loaded at ${esc(t.port)}</small><b>${t.loadDate ? dateYear(t.loadDate) : '—'}</b></div>
@@ -773,6 +824,7 @@ async function viewTrip(row) {
     ${driverLine(t)}
     ${t.remarks ? `<p class="remark">“${esc(t.remarks)}”</p>` : ''}
   </section>` : t.remarks ? `<section class="card"><p class="remark">“${esc(t.remarks)}”</p></section>` : ''}
+  ${sameTimeHtml(t)}
   <section class="card"><h3>Diesel</h3>
     <div class="kpis">
       <div class="kpi"><span class="lbl">Issued</span><span class="val">${litres(dieselLitres(t))}</span><span class="sub">${money(dieselAmount(t))}</span></div>
@@ -783,6 +835,7 @@ async function viewTrip(row) {
       ${fills.map((h) => `<tr><td>${fmtDate(h.date)}</td><td>${esc(h.source)}</td><td>${esc(h.location)}</td><td class="r">${indian(h.qty, 2)}</td><td class="r">${h.rsp.toFixed(2)}</td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">No HSD fills tagged to this trip in HSD Data.</p>'}
     ${ureas.length ? `<p class="small muted">Urea: ${ureas.map((u) => `${fmtDate(u.date)} ${indian(u.qty, 1)} L from ${esc(u.from)} (${rupees(u.amount)})`).join(' · ')}</p>` : ''}
   </section>`);
+  bindCharts(main());
 }
 
 // ---------------------------------------------------------------------------
@@ -794,13 +847,15 @@ async function viewVehicles() {
   const rows = byVehicle(state.data.trips.filter((t) => inPeriod(t, p)), vehicles);
   setMain(`<section class="card">
     <div class="row-between"><h2>Vehicles</h2><span class="muted small">${esc(periodRange(p))}</span></div>
+    ${subNav('cards')}
     ${periodHtml()}
     <div class="co-grid">
       ${rows.map((r) => {
     const s = status.find((x) => x.veh === r.veh);
     const dl = recon.vehicles.find((x) => x.veh === r.veh);
     return `<a class="co-card veh-card ${s.state}" href="#/vehicle/${encodeURIComponent(r.veh)}">
-        <div class="co-head"><span class="avatar sm">${esc(shortVeh(r.veh))}</span><b>${esc(r.veh)}</b></div>
+        ${bulkerFor(s.state === 'loaded' ? s.trip : null, { compact: true, veh: r.veh })}
+        <div class="co-head"><span class="avatar sm">${esc(shortVeh(r.veh))}</span><b>${esc(r.veh)}</b>${perfBadge(r.veh)}</div>
         <span class="veh-state"><i></i>${esc(s.text)}${s.days != null && s.state !== 'idle' ? ` · day ${s.days}` : ''}</span>
         <span class="co-val ${signed(r.income)}" ${exact(r.income)}>${money(r.income)}</span>
         <dl class="co-facts">
@@ -832,11 +887,15 @@ async function viewVehicle(veh) {
   setChartWidth(main().clientWidth - 70);
   const recent = [...inP].sort((a, b) => b.row - a.row);
   const KV = kmOf(inP);
+  const heroTrip = s.state === 'loaded' ? s.trip : [...mine].reverse().find((t) => t.loadWt && t.status === 'done');
   setMain(`<section class="card">
     <a class="muted small" href="#/vehicles">← Vehicles</a>
     <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)}</h2><p class="muted">${plural(mine.length, 'trip')} in the register${emiNow ? ` · EMI ${rupees(emiNow)} a month` : ''}</p></div></div></div>
     <div class="live-line ${s.state}"><span class="veh-state"><i></i>${esc(s.long)}</span>${s.trip ? ` · <a href="#/trip/${s.trip.row}">${esc(s.trip.trip)}</a> · ${s.state === 'idle' ? '' : `day ${s.days}`}${s.trip.loadWt ? ` · ${s.trip.loadWt.toFixed(2)} T` : ''}` : s.days != null ? ` · ${s.days} days` : ''}</div>
+    <div class="bulker-hero">${bulkerFor(heroTrip, { animate: true, veh })}
+      <p class="bk-cap">${heroTrip ? `${s.state === 'loaded' ? 'Now carrying' : 'Last load'} <b>${heroTrip.loadWt.toFixed(2)} T</b> of alumina (${esc(heroTrip.trip)}, ${esc(routeOf(heroTrip))}) · gross <b>${heroTrip.gross ? heroTrip.gross.toFixed(2) : '—'} T</b> ${weightLine(heroTrip)}` : 'Empty'}${driverNow(veh) ? ` · driver <b>${esc(driverNow(veh))}</b>` : ''}</p></div>
     ${periodHtml()}
+    ${vehPerfHtml(veh, p)}
     <div class="acct-hero">
       <div><span class="lbl">Net after EMI · ${esc(periodRange(p))}</span><span class="val">${money(T.income)}</span><span class="sub">before EMI ${money(T.income + T.emi)} · EMI ${money(T.emi)}</span></div>
       <div class="side"><span class="lbl">Freight</span><b>${money(T.bhada)}</b><span class="sub">${plural(T.trips, 'trip')} · ${tonnes(T.tonnes, 1)}</span></div>
@@ -1397,6 +1456,113 @@ async function viewSetup() {
   paint();
 }
 
+
+// ---------------------------------------------------------------------------
+// Performance: each vehicle against the others on the same route at the same time
+// ---------------------------------------------------------------------------
+const dd = (n, plus = true) => (n == null ? '—' : `${plus && n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(1)} d`);
+
+function vehPerfHtml(veh, p) {
+  const perf = performance(state.data, today(), { from: p.from, to: p.to });
+  const v = perf.vehicles.find((x) => x.veh === veh);
+  if (!v || !v.trips) return '';
+  const fleetAvg = (k) => { const xs = perf.vehicles.filter((x) => x.trips && x[k] != null).map((x) => x[k]); return xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : null; };
+  const cls = v.under ? 'bad-card' : v.top ? 'good-card' : '';
+  return `<div class="perf-strip ${cls}">
+    <div><b>${v.under ? '⚠ Underperforming' : v.watch ? 'Slipping' : v.top ? '★ Among the best' : 'On par'}</b> <span class="muted">vs the others on the same route at the same time · ${plural(v.trips, 'trip')}</span></div>
+    <div class="perf-nums">
+      <span><small>A trip vs peers</small><b class="${v.slowerPerTrip >= 1 ? 'bad-text' : v.slowerPerTrip <= -0.5 ? 'good-text' : ''}">${dd(v.slowerPerTrip)}</b></span>
+      <span><small>To load</small><b>${dd(v.usualToLoad)}</b></span>
+      <span><small>Loaded run</small><b>${dd(v.usualLoaded)}</b></span>
+      <span><small>Idle after</small><b>${dd(v.usualIdle)}</b></span>
+      <span><small>Trip (avg)</small><b>${v.avgTrip != null ? `${v.avgTrip.toFixed(1)} d` : '—'}</b><small>fleet ${fleetAvg('avgTrip') != null ? fleetAvg('avgTrip').toFixed(1) : '—'} d</small></span>
+      <span><small>Best of its group</small><b>${v.wins}×</b></span>
+      <span><small>Diesel fills / trip</small><b>${v.fillsPerTrip != null ? v.fillsPerTrip.toFixed(1) : '—'}</b><small>fleet ${fleetAvg('fillsPerTrip') != null ? fleetAvg('fillsPerTrip').toFixed(1) : '—'}</small></span>
+    </div>
+    <a class="small" href="#/performance">All vehicles' performance →</a></div>`;
+}
+
+// the trips on the same route that started within ±10 days, side by side
+function sameTimeHtml(t) {
+  const d = state.data;
+  const { perfAll } = derived();
+  const group = sameTimeTrips(t).sort((a, b) => (a.start < b.start ? -1 : 1));
+  if (group.length < 2) return '';
+  const st = perfAll.stages;
+  const done = group.filter((x) => st.get(x.row) && st.get(x.row).valid);
+  const best = done.length ? done.reduce((m, x) => (st.get(x.row).trip < st.get(m.row).trip ? x : m)) : null;
+  const fillDates = (x) => (st.get(x.row) ? st.get(x.row).fills.map((h) => h.date) : []);
+  const rows = group.map((x) => ({
+    label: shortVeh(x.veh), sub: `${x.trip}${st.get(x.row) && st.get(x.row).trip != null ? ` · ${st.get(x.row).trip} d` : ''}`,
+    start: x.start, load: x.loadDate, unload: x.unloadDate && x.unloadDate <= today() ? x.unloadDate : null, live: !x.unloadDate,
+    fills: fillDates(x), best: best && x === best, mark: x === t,
+  }));
+  setChartWidth(main().clientWidth - 38);
+  const c = perfAll.compared.find((x) => x.t === t);
+  return `<section class="card">
+    <h3>Same route, same time <span class="muted">${esc(routeOf(t))} · started ±10 days</span></h3>
+    ${c ? `<p class="small">This trip: <b>${c.trip} days</b> (to load ${c.toLoad} d, loaded run ${c.loaded} d${c.idle != null ? `, then ${c.idle} d idle` : ''}). Best of the group: <b>${c.best.trip} days</b> by ${esc(shortVeh(c.bestBy.trip.veh))}; typical ${c.usual.trip} d. ${c.slow ? `<span class="pill bad-pill">${c.vsUsual.trip} days slower than typical</span>` : c.behind.trip === 0 ? '<span class="pill good-pill">★ Best of the group</span>' : ''}</p>` : ''}
+    ${lanesLegend()}
+    <div class="lanes-wrap" data-lanes>${lanesSvg(rows, { today: today(), width: Math.max(520, main().clientWidth - 38) })}</div>
+    <p class="muted small">Green row = the quickest of the group; amber = this trip. Tap a row for its dates.</p>
+  </section>`;
+}
+function sameTimeTrips(t) {
+  return state.data.trips.filter((x) => x.port === t.port && x.dest === t.dest && x.start && t.start && Math.abs(daysBetween(x.start, t.start)) <= 10);
+}
+
+async function viewPerformance(route) {
+  const d = state.data;
+  const p = currentPeriod();
+  const perf = performance(d, today(), { from: p.from, to: p.to, route });
+  const { live } = derived();
+  const routes = [...new Set(d.trips.map(routeOf))].sort();
+  const vs = perf.vehicles.filter((v) => v.trips).sort((a, b) => b.slowerPerTrip - a.slowerPerTrip);
+  const max = Math.max(1, ...vs.map((v) => Math.abs(v.slowerPerTrip)));
+  const under = vs.filter((v) => v.under);
+  const slowTrips = [...perf.compared].filter((c) => c.slow).sort((a, b) => b.vsUsual.trip - a.vsUsual.trip);
+  const cyc = perf.cycle || 9;
+  const avgFreight = (() => { const xs = d.trips.filter((t) => inPeriod(t, p) && t.bhada); return xs.length ? xs.reduce((a, t) => a + t.bhada, 0) / xs.length : 0; })();
+  setChartWidth(main().clientWidth - 38);
+  setMain(`<section class="card">
+    <div class="row-between"><h2>Performance</h2><span class="muted small">${esc(periodRange(p))}</span></div>
+    ${subNav('perf')}
+    <p class="muted small">Each trip is compared with the other trips on the <b>same route</b> that <b>started within ±10 days</b> (±21 when there are few): days to get loaded (empty run + port) and the loaded run; idle days after unloading are shown too but not counted against the driver (the next loading is mostly up to dispatch). A trip ${SLOW_DAYS}+ days slower than its group's typical is <b>slow</b>; a vehicle averaging a day or more a trip slower than its peers — or with 40%+ slow trips — is <b>underperforming</b>. Dates are whole days.</p>
+    ${periodHtml()}
+    <div class="chips small-chips" role="group" aria-label="Route"><a class="chip${!route ? ' on' : ''}" href="#/performance">All routes</a>${routes.map((r) => `<a class="chip${route === r ? ' on' : ''}" href="#/performance?r=${encodeURIComponent(r)}">${esc(r)}</a>`).join('')}</div>
+  </section>
+
+  ${live.length ? `<section class="card"><h3>Behind on the road now</h3>
+    <div class="behind-grid">${live.map((x) => `<a class="behind-card" href="#/vehicle/${encodeURIComponent(x.veh)}">${bulkerFor(x.stage === 'loaded' ? x.t : null, { compact: true, veh: x.veh })}
+      <span><b>${esc(shortVeh(x.veh))}</b> ${x.late ? `<span class="pill bad-pill">+${x.sofar - x.bench} d</span>` : '<span class="pill warn-pill">others ahead</span>'}</span>
+      <small>${esc(liveText(x))}</small></a>`).join('')}</div></section>` : ''}
+
+  <section class="card">
+    <h3>Days a trip vs the others on the same route</h3>
+    ${under.length ? `<div class="todo warn">⚠ <b>${under.map((v) => esc(shortVeh(v.veh))).join(', ')}</b> ${under.length === 1 ? 'is' : 'are'} underperforming — about ${under.reduce((a, v) => a + v.daysSlower, 0).toFixed(0)} days lost against typical peers, ≈ ${(under.reduce((a, v) => a + v.daysSlower, 0) / cyc).toFixed(1)} trips (~${money((under.reduce((a, v) => a + v.daysSlower, 0) / cyc) * avgFreight)} freight) in this period.</div>` : perf.compared.length ? '<p class="good-text">✓ No vehicle is consistently slower than the others in this period.</p>' : '<p class="muted">Not enough unloaded trips in this period to compare.</p>'}
+    <div class="perf-rank">${vs.map((v) => `<a class="perf-row${v.under ? ' under' : v.top ? ' top' : ''}" href="#/vehicle/${encodeURIComponent(v.veh)}">
+      <span class="pr-name"><b>${esc(shortVeh(v.veh))}</b>${v.under ? '<span class="pill bad-pill">⚠ Underperforming</span>' : v.watch ? '<span class="pill warn-pill">Slipping</span>' : v.top ? '<span class="pill good-pill">★ Top</span>' : ''}<small>${plural(v.trips, 'trip')} · ${v.slowTrips} slow · best ${v.wins}×${driverNow(v.veh) ? ` · ${esc(driverNow(v.veh))}` : ''}</small></span>
+      <span class="div-bar"><span class="neg">${v.slowerPerTrip < 0 ? `<i style="width:${((-v.slowerPerTrip / max) * 100).toFixed(1)}%"></i>` : ''}</span><span class="pos">${v.slowerPerTrip > 0 ? `<i style="width:${((v.slowerPerTrip / max) * 100).toFixed(1)}%"></i>` : ''}</span></span>
+      <span class="r pr-val"><b class="${v.slowerPerTrip >= 1 ? 'bad-text' : v.slowerPerTrip <= -0.5 ? 'good-text' : ''}">${dd(v.slowerPerTrip)}</b><small>${v.worstStage && v.slowerPerTrip > 0 ? `mostly ${STAGE_NAME[v.worstStage]}` : 'a trip'}</small></span></a>`).join('')}</div>
+    <p class="muted small">Left (blue) = faster than its peers, right (red) = slower; days a trip from start to unloading.</p>
+
+    <h3 class="sub-h">Stage by stage <span class="muted">average days, and vs the group's typical</span></h3>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Vehicle</th><th class="r">Trips</th>${STAGES.map((s) => `<th class="r" title="${esc(s.note)}">${esc(s.name)}</th>`).join('')}<th class="r">Whole trip</th><th class="r">vs best</th><th class="r">Fills / trip</th><th class="r">Diesel / trip</th></tr></thead><tbody>
+      ${vs.map((v) => `<tr class="${v.under ? 'row-under' : ''}"><td><a href="#/vehicle/${encodeURIComponent(v.veh)}"><b>${esc(shortVeh(v.veh))}</b></a></td><td class="r">${v.trips}</td>
+        ${[['avgToLoad', 'usualToLoad'], ['avgLoaded', 'usualLoaded'], ['avgIdle', 'usualIdle']].map(([a, u]) => `<td class="r">${v[a] != null ? v[a].toFixed(1) : '—'} <small class="${v[u] >= 0.75 ? 'bad-text' : v[u] <= -0.5 ? 'good-text' : 'muted'}">${dd(v[u])}</small></td>`).join('')}
+        <td class="r"><b>${v.avgTrip != null ? v.avgTrip.toFixed(1) : '—'}</b></td><td class="r muted">${dd(v.lostPerTrip)}</td><td class="r">${v.fillsPerTrip != null ? v.fillsPerTrip.toFixed(1) : '—'}</td><td class="r">${v.litresPerTrip != null ? `${Math.round(v.litresPerTrip)} L` : '—'}</td></tr>`).join('')}
+    </tbody></table></div>
+  </section>
+
+  <section class="card"><h3>Slowest trips <span class="muted">${plural(slowTrips.length, 'trip')} ${SLOW_DAYS}+ days slower than their group</span></h3>
+    ${slowTrips.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Started</th><th>Vehicle</th><th>Trip</th><th>Route</th><th class="r">Took</th><th class="r">Typical</th><th class="r">Best</th><th>Lost in</th></tr></thead><tbody>
+      ${slowTrips.slice(0, state.ui.allSlow ? 999 : 30).map((c) => { const worst = ['toLoad', 'loaded'].sort((a, b) => (c.vsUsual[b] || 0) - (c.vsUsual[a] || 0))[0]; return `<tr><td>${fmtDate(c.t.start)}</td><td><b>${esc(shortVeh(c.t.veh))}</b></td><td><a href="#/trip/${c.t.row}">${esc(c.t.trip)}</a></td><td class="small">${esc(routeOf(c.t))}</td><td class="r bad-text"><b>${c.trip} d</b></td><td class="r">${c.usual.trip} d</td><td class="r">${c.best.trip} d <small class="muted">${esc(shortVeh(c.bestBy.trip.veh))}</small></td><td class="small">${worst === 'toLoad' ? `getting loaded +${c.vsUsual.toLoad} d` : `loaded run +${c.vsUsual.loaded} d`}${c.t.remarks ? ` · <span class="muted">${esc(c.t.remarks)}</span>` : ''}</td></tr>`; }).join('')}
+    </tbody></table></div>${slowTrips.length > 30 && !state.ui.allSlow ? `<button class="btn ghost small" id="all-slow">Show all ${slowTrips.length}</button>` : ''}` : '<p class="good-text">✓ None.</p>'}
+    <p class="muted small">Tap a trip to see it side by side with the others that started with it (with each diesel fill).</p>
+  </section>`);
+  bindPeriod(main());
+  document.getElementById('all-slow')?.addEventListener('click', () => { state.ui.allSlow = true; rerender(); });
+}
 boot().catch((err) => {
   console.error(err);
   renderCentered(`${logoHead()}${errorHtml(err)}`);
