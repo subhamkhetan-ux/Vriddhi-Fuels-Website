@@ -4379,6 +4379,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-10-11T03:15:16.502433+00:00"
+    },
+    {
+      "entry_id": "00eb610b749fad77",
+      "gmail_msg_id": "1878723486929093381",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "11/10/26",
+      "date_serial": 46306,
+      "amount": 398000.0,
+      "raw_payer": "S K TRADING",
+      "customer": "S K Trading",
+      "candidates": [
+        "S K Trading"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-11T04:00:20.179368+00:00",
+      "status": "matched"
     }
   ]
 }
