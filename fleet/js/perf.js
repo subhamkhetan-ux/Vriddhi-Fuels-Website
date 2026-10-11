@@ -79,6 +79,51 @@ function group(stages, s, days) {
   return out;
 }
 
+// one vehicle's (or one driver's) trips against their groups
+function summarise(mine) {
+  const lost = mine.map((c) => c.behind.trip || 0);
+  const slower = mine.map((c) => c.vsUsual.trip || 0);
+  const v = {
+    trips: mine.length, list: mine,
+    avgTrip: avg(mine.map((c) => c.trip).filter((x) => x != null)),
+    avgToLoad: avg(mine.map((c) => c.toLoad).filter((x) => x != null)),
+    avgLoaded: avg(mine.map((c) => c.loaded).filter((x) => x != null)),
+    avgIdle: avg(mine.map((c) => c.idle).filter((x) => x != null)),
+    behindToLoad: avg(mine.map((c) => c.behind.toLoad).filter((x) => x != null)) || 0,
+    behindLoaded: avg(mine.map((c) => c.behind.loaded).filter((x) => x != null)) || 0,
+    behindIdle: avg(mine.map((c) => c.behind.idle).filter((x) => x != null)) || 0,
+    lostPerTrip: avg(lost) || 0,                                 // vs the best
+    daysLost: lost.reduce((a, x) => a + x, 0),
+    slowerPerTrip: avg(slower) || 0,                             // vs the typical peer
+    daysSlower: slower.reduce((a, x) => a + Math.max(0, x), 0),
+    usualToLoad: avg(mine.map((c) => c.vsUsual.toLoad).filter((x) => x != null)) || 0,
+    usualLoaded: avg(mine.map((c) => c.vsUsual.loaded).filter((x) => x != null)) || 0,
+    usualIdle: avg(mine.map((c) => c.vsUsual.idle).filter((x) => x != null)) || 0,
+    slowTrips: mine.filter((c) => c.slow).length,
+    wins: mine.filter((c) => c.behind.trip === 0).length,
+    fillsPerTrip: avg(mine.map((c) => c.fills.length)),
+    litresPerTrip: avg(mine.map((c) => c.litres)),
+  };
+  v.under = v.trips >= 3 && (v.slowerPerTrip >= 1 || v.slowTrips / v.trips >= 0.4);
+  v.watch = v.trips >= 3 && !v.under && v.slowerPerTrip >= 0.5;
+  v.top = v.trips >= 3 && !v.under && v.slowerPerTrip <= -0.75;
+  const worst = [['toLoad', v.usualToLoad], ['loaded', v.usualLoaded]].sort((a, b) => b[1] - a[1])[0];
+  v.worstStage = worst[1] >= 0.5 ? worst[0] : null;
+  return v;
+}
+
+// the same, by who drove (driverOf: trip → name), one driver across trucks
+export function byDriver(perf, driverOf) {
+  const names = new Map();
+  for (const c of perf.compared) {
+    const n = driverOf(c.t);
+    if (!n) continue;
+    if (!names.has(n)) names.set(n, []);
+    names.get(n).push(c);
+  }
+  return [...names.entries()].map(([name, list]) => ({ name, vehs: [...new Set(list.map((c) => c.t.veh))], ...summarise(list) }));
+}
+
 export function performance(data, today, { from = '0000-00', to = '9999-99', route = '' } = {}) {
   const stages = tripStages(data, today);
   const compared = [];
@@ -111,41 +156,8 @@ export function performance(data, today, { from = '0000-00', to = '9999-99', rou
   }
 
   // per vehicle
-  const vehicles = [...new Set(data.trips.map((t) => t.veh))].sort().map((veh) => {
-    const mine = compared.filter((c) => c.t.veh === veh);
-    const lost = mine.map((c) => c.behind.trip || 0);
-    const slower = mine.map((c) => c.vsUsual.trip || 0);
-    const wins = mine.filter((c) => c.behind.trip === 0).length;
-    return {
-      veh, trips: mine.length, list: mine,
-      avgTrip: avg(mine.map((c) => c.trip).filter((x) => x != null)),
-      avgToLoad: avg(mine.map((c) => c.toLoad).filter((x) => x != null)),
-      avgLoaded: avg(mine.map((c) => c.loaded).filter((x) => x != null)),
-      avgIdle: avg(mine.map((c) => c.idle).filter((x) => x != null)),
-      behindToLoad: avg(mine.map((c) => c.behind.toLoad).filter((x) => x != null)) || 0,
-      behindLoaded: avg(mine.map((c) => c.behind.loaded).filter((x) => x != null)) || 0,
-      behindIdle: avg(mine.map((c) => c.behind.idle).filter((x) => x != null)) || 0,
-      lostPerTrip: avg(lost) || 0,                               // vs the best
-      daysLost: lost.reduce((a, x) => a + x, 0),
-      slowerPerTrip: avg(slower) || 0,                           // vs the typical peer
-      daysSlower: slower.reduce((a, x) => a + Math.max(0, x), 0),
-      usualToLoad: avg(mine.map((c) => c.vsUsual.toLoad).filter((x) => x != null)) || 0,
-      usualLoaded: avg(mine.map((c) => c.vsUsual.loaded).filter((x) => x != null)) || 0,
-      usualIdle: avg(mine.map((c) => c.vsUsual.idle).filter((x) => x != null)) || 0,
-      slowTrips: mine.filter((c) => c.slow).length,
-      wins,
-      fillsPerTrip: avg(mine.map((c) => c.fills.length)),
-      litresPerTrip: avg(mine.map((c) => c.litres)),
-    };
-  });
+  const vehicles = [...new Set(data.trips.map((t) => t.veh))].sort().map((veh) => ({ veh, ...summarise(compared.filter((c) => c.t.veh === veh)) }));
   const usual = median(vehicles.filter((v) => v.trips >= 3).map((v) => v.lostPerTrip)) || 0;
-  for (const v of vehicles) {
-    v.under = v.trips >= 3 && (v.slowerPerTrip >= 1 || v.slowTrips / v.trips >= 0.4);
-    v.watch = v.trips >= 3 && !v.under && v.slowerPerTrip >= 0.5;
-    v.top = v.trips >= 3 && !v.under && v.slowerPerTrip <= -0.75;
-    const worst = [['toLoad', v.usualToLoad], ['loaded', v.usualLoaded]].sort((a, b) => b[1] - a[1])[0];
-    v.worstStage = worst[1] >= 0.5 ? worst[0] : null;
-  }
   // a cycle's worth of days, to put days lost into trips
   const cycle = median(compared.map((c) => (c.trip != null ? c.trip + (c.idle || 0) : null)));
   return { compared, vehicles, usual, cycle, stages };

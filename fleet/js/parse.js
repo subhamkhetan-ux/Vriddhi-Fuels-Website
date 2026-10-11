@@ -263,6 +263,47 @@ function readReconTotal(book) {
   return null;
 }
 
+// The Driver Payment sheet: every advance the firm paid a driver (date,
+// vehicle, amount, driver, and a note typed beside it), and next to it the
+// drivers list — who drives each truck now. The Trip Register's Trip Driver
+// Payment adds up these payments between a trip's start and the vehicle's
+// next trip start, so the payee names say who was driving which trip.
+// Only names are kept from the drivers list (no licence or bank details).
+const PAY_COLS = { date: ['date'], veh: ['vehicleno'], amount: ['amountpaid', 'amount'], name: ['drivername'] };
+const plate = (v) => text(v).toUpperCase().replace(/\s+/g, '');
+function readDriverPay(book) {
+  const out = { payments: [], roster: [] };
+  const { name, records, cols } = table(book, ['Driver Payment'], ['date', 'vehicleno', 'amountpaid', 'drivername'], PAY_COLS);
+  if (!name) return out;
+  const { rows, r0 = 1 } = book.sheets[name];
+  const h = findHeader(rows, ['date', 'vehicleno', 'amountpaid', 'drivername']);
+  const keys = (rows[h] || []).map(key);
+  const last = Math.max(...Object.values(cols));
+  // the drivers list: a Driver Name column with Vehicle Number right of it, past the payments
+  const rv = keys.findIndex((k, i) => i > last && k === 'vehiclenumber');
+  const rn = rv < 0 ? -1 : keys.lastIndexOf('drivername', rv);
+  const noteEnd = rn > last ? rn : last + 4;
+  for (const r of records) {
+    const date = toIso(r.date);
+    const veh = plate(r.veh);
+    const amount = num(r.amount);
+    const who = text(r.name);
+    if (!date || !veh || !amount) continue;
+    const row = rows[r.row - r0] || [];
+    const note = row.slice(last + 1, noteEnd).map(text).filter((x) => x && !/^[\d.,₹\s-]+$/.test(x)).join(' · ');
+    out.payments.push({ row: r.row, date, veh, amount, name: who, note });
+  }
+  if (rn > last) {
+    for (let i = h + 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      const who = text(row[rn]);
+      const veh = plate(row[rv]);
+      if (who && /^[A-Z]{2}\d/.test(veh)) out.roster.push({ veh, name: who });
+    }
+  }
+  return out;
+}
+
 // ---- everything ---------------------------------------------------------------------------
 export function extractFleet(book, { fileName = '' } = {}) {
   const warnings = [];
@@ -273,13 +314,14 @@ export function extractFleet(book, { fileName = '' } = {}) {
   const urea = readUrea(book);
   const rates = readRates(book);
   const recon = readReconRules(book);
+  const { payments: driverPay, roster } = readDriverPay(book);
   const dated = trips.map((t) => t.loadDate || t.start).filter(Boolean).sort();
   return {
     version: 1,
     fileName,
     readAt: new Date().toISOString(),
     latest: dated[dated.length - 1] || null,
-    trips, ssfc, hsd, urea, rates, recon,
+    trips, ssfc, hsd, urea, rates, recon, driverPay, roster,
     checks: { ssfcTotal: ssfc ? ssfc.workbook.total ?? null : null, ssfcExGst: ssfc ? ssfc.workbook.exGst ?? null : null, reconTotal: readReconTotal(book) },
     warnings,
   };
