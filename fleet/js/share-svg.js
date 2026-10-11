@@ -645,3 +645,52 @@ ${T(tx, y + 152, r.pace || '', { size: 15, weight: 700, fill: tone[r.paceColor] 
     blocks, extraCss: bulkerCss,
   });
 }
+
+// ---- the day book -----------------------------------------------------------------------------------
+// book: daybook.js dayBook(); label: the dates; what: the filter (types / vehicle)
+const DAY_COLOR = { load: C.s1, unload: C.s3, start: C.s6, diesel: C.s4, urea: C.s5, advance: C.s2, ssfc: C.s8 };
+const DAY_NAME = { load: 'Loading', unload: 'Unloading', start: 'Trip start', diesel: 'Diesel', urea: 'Urea', advance: 'Advance', ssfc: 'SSFC paid' };
+const longDay = (iso) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()]}, ${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+};
+export function daybookPagesSvg(book, { label = '', what = '', asOn = '', images = {}, fontCss = '', driverOf = null } = {}) {
+  const S = book.sums;
+  const dayLine = (s) => [s.loads ? `${s.loads} loaded ${ind(s.tonnes, 1)} T` : '', s.unloads ? `${s.unloads} unloaded` : '', s.fills ? `diesel ${litres(s.litres)}` : '', s.advances ? `advances ${rupees(s.advances)}` : '', s.received ? `SSFC ${rupees(s.received)}` : ''].filter(Boolean).join(' · ');
+  const amt = (e) => {
+    if (e.kind === 'load') return { text: rupees(e.amount), weight: 800, sub: 'freight' };
+    if (e.kind === 'unload') return { text: e.tonnes ? tonnes(e.tonnes) : '—', weight: 800, sub: e.short < 0 ? `${tonnes(-e.short)} short` : 'delivered', subColor: e.short < 0 ? C.bad : C.muted };
+    if (e.kind === 'diesel') return { text: rupees(e.amount), weight: 800, sub: litres(e.litres) };
+    if (e.kind === 'urea') return { text: rupees(e.amount), weight: 800, sub: e.litres ? `${ind(e.litres, 1)} L` : '' };
+    if (e.kind === 'advance') return { text: rupees(e.amount), weight: 800, color: C.warn, sub: 'paid out' };
+    if (e.kind === 'ssfc') return { text: rupees(e.amount), weight: 800, color: C.good, sub: 'received' };
+    return '';
+  };
+  const rows = [];
+  for (const day of book.days) {
+    rows.push({ band: longDay(day.date), right: dayLine(day.sums) });
+    for (const e of day.entries) {
+      rows.push({ cells: [
+        { text: shortVeh(e.veh), weight: 800, dot: DAY_COLOR[e.kind], sub: DAY_NAME[e.kind], subColor: DAY_COLOR[e.kind] },
+        { text: e.title, weight: 700, sub: e.detail || (driverOf && e.veh ? driverOf(e.veh) : '') },
+        amt(e),
+      ] });
+    }
+  }
+  const blocks = book.list.length
+    ? table([{ label: 'Vehicle', at: 34 }, { label: 'Entry', at: 170, max: 760 }, { label: 'Amount', at: -18, align: 'end' }], rows)
+    : [note('Nothing on these days.')];
+  return pagesSvg({
+    what: `Day book · ${label}`, tag: 'DAY BOOK', name: label, asOn, images, fontCss,
+    sub: [plural(book.list.length, 'entry', 'entries'), plural(book.days.length, 'day'), what].filter(Boolean).join('  ·  '),
+    hero: { label: 'FREIGHT LOADED', amount: rupees(S.freight), right: [['DIESEL', S.fills ? `${litres(S.litres)} · ${rupees(S.diesel)}` : '—'], [S.received ? 'SSFC RECEIVED' : 'ADVANCES PAID', S.received ? rupees(S.received) : rupees(S.advances)]] },
+    tiles: [
+      { label: 'Loaded', value: S.loads ? `${S.loads} · ${ind(S.tonnes, 1)} T` : '—', sub: S.loads ? `freight ${rupees(S.freight)}` : 'no loading', color: C.s1 },
+      { label: 'Unloaded', value: S.unloads ? `${S.unloads} · ${ind(S.delivered, 1)} T` : '—', sub: S.short < 0 ? `${tonnes(-S.short)} short` : S.unloads ? 'no shortage' : 'no unloading', color: C.s3 },
+      { label: 'Diesel', value: S.fills ? litres(S.litres) : '—', sub: S.fills ? `${rupees(S.diesel)} · ${plural(S.fills, 'fill')}` : 'no fill', color: C.s4 },
+      { label: 'Urea', value: S.urea ? rupees(S.urea) : '—', sub: S.ureaL ? `${ind(S.ureaL, 1)} L` : 'none', color: C.s5 },
+      { label: 'Advances', value: S.advances ? rupees(S.advances) : '—', sub: S.advanceN ? plural(S.advanceN, 'payment') : 'none', color: C.s2 },
+    ],
+    blocks, footNote: 'every dated entry in the Trip Register workbook',
+  });
+}
