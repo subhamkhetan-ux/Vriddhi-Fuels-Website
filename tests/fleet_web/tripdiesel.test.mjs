@@ -45,3 +45,18 @@ test('extra on the road shows at once, and what is owed eats what is left', () =
   assert.deepEqual([y.toTake, y.mayTake], [30, 0]);                    // 30 L left of the trip's own, but 50 L owed from before
   assert.equal(fleetDiesel(dieselRecon(d2), tripDiesel(d2, dieselRecon(d2))).overNow.length, 1);
 });
+
+test('a trip with far less diesel tagged than allotted is flagged — normal savings aren\'t', async () => {
+  const { missingFills } = await import('../../fleet/js/tripdiesel.js');
+  const mk = (row, taken, o = {}) => [row, { t: { row, veh: 'XX01', trip: `T${row}`, port: 'P', dest: 'D', loadDate: '2026-10-01', ...o.t }, allotted: 630, taken, live: !!o.live, est: false, fills: o.fills || [] }];
+  const trips = new Map([mk(1, 620), mk(2, 610), mk(3, 600), mk(4, 510), mk(5, 350), mk(6, 0)]);
+  const M = missingFills(trips);
+  assert.deepEqual([...M.keys()], [5, 6]);                              // 510 of 630 (81%) is a normal saving
+  assert.equal(M.get(5).short, 205);                                    // the route usually takes 555 (the median)
+  assert.match(M.get(5).text, /Only 350 L tagged against 630 L allotted \(the route usually takes 555 L\)/);
+  // on the road: loaded, past the usual refill day, nothing after loading
+  const road = new Map([...trips, mk(7, 350, { live: true, t: { loadDate: '2026-10-05' }, fills: [{ date: '2026-10-03', qty: 350 }] })]);
+  const lt = { t: road.get(7).t, stage: 'load', steps: [{ key: 'back', typical: '2026-10-07', place: 'Halfway' }] };
+  assert.equal(missingFills(road, { live: [lt], today: '2026-10-09' }).get(7).kind, 'refill');
+  assert.equal(missingFills(road, { live: [lt], today: '2026-10-07' }).has(7), false);
+});

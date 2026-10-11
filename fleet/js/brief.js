@@ -119,6 +119,10 @@ export function ownerBrief(data, ctx, today) {
     if (F.overNow.length) dz.push({ tone: 'bad', text: `Over this trip's allotment now: ${F.overNow.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ')}`, href: '#/diesel' });
     const stop = F.live.filter((z) => z.allotted != null && z.toTake > 0.5 && z.mayTake < 0.5);
     if (stop.length) dz.push({ tone: 'warn', text: `Should take no more diesel this trip (what's owed eats the rest): ${stop.map((z) => short(z.t.veh)).join(', ')}` });
+    if (ctx.missingFills && ctx.missingFills.size) {
+      const M = [...ctx.missingFills.entries()].map(([row, m]) => ({ m, z: ctx.tripDiesel.get(row) })).filter((x) => x.z);
+      dz.push({ tone: 'warn', text: `Diesel fill may be missing on ${plural(M.length, 'trip')}: ${M.slice(0, 4).map(({ m, z }) => `${short(z.t.veh)} ${z.t.trip}${m.short != null ? ` (~${ind(m.short)} L)` : ' (refill not entered)'}`).join(', ')}${M.length > 4 ? '…' : ''} — check HSD Data / ask for the slips`, href: '#/trips?f=fill' });
+    }
     dz.push({ tone: 'info', text: `Still to fill on the road: ${ind(F.mayTake)} L (${ind(F.toTake)} L left of the allotments, less what's owed)`, href: '#/diesel' });
     sections.push({ title: 'Diesel', items: dz });
   }
@@ -214,7 +218,8 @@ export function driverBrief(data, ctx, today) {
       const tg = loadTarget(data, t, today);
       if (tg) { load = `लोडिंग में कम से कम ${hT(tg.load)} भरवाएँ — ओवरलोड का RTO भरा हुआ है`; loadTone = 'warn'; }
     }
-    const { diesel, dieselTone } = hDiesel(ctx.tripDiesel && ctx.tripDiesel.get(t.row));
+    let { diesel, dieselTone } = hDiesel(ctx.tripDiesel && ctx.tripDiesel.get(t.row));
+    if (ctx.missingFills && ctx.missingFills.get(t.row)?.kind === 'refill') { diesel = `⚠ रिफ़िल की एंट्री नहीं मिली — डीज़ल भरवाया है तो पर्ची और लीटर तुरंत ऑफिस को भेजें। ${diesel}`; dieselTone = 'warn'; }
     rows.push({ veh: s.veh, driver, state: s.state, now, next, by, byRel: by ? hRel(by, today) : '', urgent: by === today, pace, paceTone, load, loadTone, diesel, dieselTone, day: lt.el });
   }
   const order = { bad: 0, warn: 1, info: 2, good: 3 };

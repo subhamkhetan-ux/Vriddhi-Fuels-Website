@@ -77,3 +77,44 @@ export function fleetDiesel(recon, trips, price = 0) {
     toTake: live.reduce((a, d) => a + d.toTake, 0), mayTake: live.reduce((a, d) => a + d.mayTake, 0),
   };
 }
+
+// Fills that may be missing: a trip with far less diesel tagged than its
+// allotment — less than 75% of it, and 100 L+ under what the route usually
+// takes — most likely has a fill that was never reported or entered (in HSD
+// Data, against this trip). Normal savings run to about 20% under, so they
+// aren't flagged. A trip on the road is flagged once it's loaded and past
+// the usual day of its return refill with no fill after loading.
+// live: live.js liveTrips() (optional); → Map(trip row → { kind, short, typical, text })
+export function missingFills(trips, { live = [], today = null } = {}) {
+  const out = new Map();
+  const done = [...trips.values()].filter((z) => !z.live && z.allotted && !z.est);
+  const key = (t) => `${lc(t.port)}|${lc(t.dest)}`;
+  const typical = new Map();
+  for (const z of done) {
+    const k = key(z.t);
+    if (!typical.has(k)) typical.set(k, []);
+    typical.get(k).push(z.taken);
+  }
+  const median = (xs) => { const v = [...xs].sort((a, b) => a - b); return v.length ? (v.length % 2 ? v[v.length >> 1] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
+  for (const [k, xs] of typical) typical.set(k, median(xs));
+  for (const z of done) {
+    const usual = typical.get(key(z.t));
+    if (z.taken < 0.75 * z.allotted && (usual == null || z.taken < usual - 100)) {
+      const short = r1((usual != null ? Math.min(usual, z.allotted) : z.allotted) - z.taken);
+      out.set(z.t.row, {
+        kind: 'low', short, typical: usual,
+        text: `Only ${Math.round(z.taken)} L tagged against ${Math.round(z.allotted)} L allotted${usual != null ? ` (the route usually takes ${Math.round(usual)} L)` : ''} — a fill of about ${Math.round(short)} L may not have been reported or entered`,
+      });
+    }
+  }
+  for (const lt of live) {
+    const z = trips.get(lt.t.row);
+    if (!z || lt.stage !== 'load' || !today) continue;
+    const back = lt.steps.find((s) => s.key === 'back');
+    if (back && back.typical && today > back.typical) {
+      const after = z.fills.filter((h) => lt.t.loadDate && h.date > lt.t.loadDate);
+      if (!after.length) out.set(lt.t.row, { kind: 'refill', short: null, typical: null, text: `Loaded on ${lt.t.loadDate.slice(8, 10)}/${lt.t.loadDate.slice(5, 7)} and past the usual day of the refill at ${back.place || 'the return pump'} — no refill entered yet` });
+    }
+  }
+  return out;
+}

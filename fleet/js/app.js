@@ -21,7 +21,7 @@ import { sameDriver } from './drivers.js';
 import { dataChecks } from './checks.js';
 import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
-import { fleetDiesel, tripDiesel } from './tripdiesel.js';
+import { fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
 import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
@@ -501,6 +501,7 @@ function derived() {
       recon: dieselRecon(d, set), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d),
       issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set, today()), loads: loadBench(d),
       get tripDiesel() { return this._td || (this._td = tripDiesel(d, this.recon, set)); },
+      get missingFills() { return this._mf || (this._mf = missingFills(this.tripDiesel, { live: this.liveTrips, today: today() })); },
       maxGross: Math.max(0, ...d.trips.map((t) => t.gross || 0)),
       perfRecent: performance(d, today(), { from: addMonths(monthOf(today()), -2), to: monthOf(today()) }),
       perfAll: performance(d, today()),
@@ -709,7 +710,7 @@ function roadCard(lt) {
     <div class="rc-phase"><b>${esc(lt.phase.title)}</b></div>
     ${stepsHtml(lt)}
     <div class="rc-pace ${pace.cls}"><b>${esc(pace.text)}</b>${pace.sub ? `<small>${esc(pace.sub)}</small>` : ''}${lt.etaTypical ? `<small>At ${esc(t.dest)} ~${dm(lt.etaTypical)}${lt.etaBest && lt.etaBest !== lt.etaTypical ? ` (best ${dm(lt.etaBest)})` : ''}</small>` : ''}</div>
-    ${(() => { const z = derived().tripDiesel.get(t.row); return z && z.allotted != null ? `<div class="rc-diesel ${dieselTone(z)}"><b>Diesel</b> ${esc(dieselLine(z))}</div>` : ''; })()}
+    ${(() => { const z = derived().tripDiesel.get(t.row); const mf = derived().missingFills.get(t.row); return z && z.allotted != null ? `<div class="rc-diesel ${mf ? 'warn' : dieselTone(z)}"><b>Diesel</b> ${esc(dieselLine(z))}${mf ? ` · ⛽ refill not entered yet?` : ''}</div>` : ''; })()}
     ${projHtml(lt.projection)}
   </a>`;
 }
@@ -850,6 +851,7 @@ async function viewTrips(q) {
   if (f === 'road') list = list.filter((t) => t.status !== 'done');
   if (f === 'done') list = list.filter((t) => t.status === 'done');
   if (f === 'short') list = list.filter((t) => (t.diff || 0) < -0.1);
+  if (f === 'fill') { const M = derived().missingFills; list = list.filter((t) => M.has(t.row)); }
   if (f === 'under') { const L = derived().loads; list = list.filter((t) => { const b = L.get(t.row); return b && (b.grade === 'low' || b.grade === 'poor'); }); }
   if (f === 'loss') list = list.filter((t) => t.status === 'done' && (t.income || 0) + (t.emi || 0) < 0);
   if (f === 'check') list = list.filter((t) => odd.has(t.row));
@@ -871,7 +873,7 @@ async function viewTrips(q) {
   setMain(`<section class="card">
     <div class="row-between"><h2>Trips</h2><span class="muted small">${plural(list.length, 'trip')}</span></div>
     <div class="chips" role="group" aria-label="Show">
-      ${[['all', 'All'], ['road', 'On the road'], ['done', 'Unloaded'], ['short', 'Short weight'], ['under', 'Under-loaded'], ['loss', 'Loss before EMI'], ['check', `Dates to check${issues.length ? ` (${issues.length})` : ''}`]].map(([k, n]) => `<a class="chip${f === k ? ' on' : ''}" href="${link({ f: k })}">${n}</a>`).join('')}
+      ${[['all', 'All'], ['road', 'On the road'], ['done', 'Unloaded'], ['short', 'Short weight'], ['under', 'Under-loaded'], ['fill', `Diesel fill missing?${derived().missingFills.size ? ` (${derived().missingFills.size})` : ''}`], ['loss', 'Loss before EMI'], ['check', `Dates to check${issues.length ? ` (${issues.length})` : ''}`]].map(([k, n]) => `<a class="chip${f === k ? ' on' : ''}" href="${link({ f: k })}">${n}</a>`).join('')}
     </div>
     <form class="row-form" id="trip-filter">
       <label>Vehicle <select name="v"><option value="">All vehicles</option>${vehicles.map((v) => `<option${v === veh ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
@@ -956,7 +958,7 @@ function tripRow(t, why) {
   const diff = t.diff ? `<span class="pill ${t.diff < -0.1 ? 'bad-pill' : t.diff < 0 ? 'warn-pill' : 'good-pill'}">${t.diff > 0 ? '+' : '−'}${Math.abs(t.diff).toFixed(2)}</span>` : '';
   return `<a class="trow${t.status !== 'done' ? ' open' : ''}" href="#/trip/${t.row}">
     <span class="s-date">${day ? `<b>${Number(day.slice(8))}</b><small>${shortDate(day).split(' ')[1]} ${day.slice(2, 4)}</small>` : '—'}</span>
-    <span class="t-main"><b>${esc(t.trip)}</b> <span class="b-veh">${esc(t.veh)}</span>${t.status !== 'done' ? ` ${statusPill(t)}` : ''}${why ? ' <span class="pill bad-pill">check date</span>' : ''}
+    <span class="t-main"><b>${esc(t.trip)}</b> <span class="b-veh">${esc(t.veh)}</span>${t.status !== 'done' ? ` ${statusPill(t)}` : ''}${why ? ' <span class="pill bad-pill">check date</span>' : ''}${derived().missingFills.has(t.row) ? ` <span class="pill warn-pill" title="${esc(derived().missingFills.get(t.row).text)}">⛽ fill missing?</span>` : ''}
       <small>${esc(routeOf(t))}${t.remarks ? ` · ${esc(t.remarks)}` : ''}</small></span>
     <span class="r t-ton ${t.loadWt ? loadCls(t) : ''}" title="${t.loadWt ? esc(loadTitle(t)) : ''}">${t.loadWt ? `${t.loadWt.toFixed(2)} T` : '—'} ${diff}</span>
     <span class="r t-fr">${t.bhada ? rupees(t.bhada) : '—'}</span>
@@ -983,7 +985,7 @@ function driverLine(t) {
 function briefCtx() {
   const x = derived();
   const lastFill = [...state.data.hsd].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow, tripDiesel: x.tripDiesel, dieselPrice: lastFill ? lastFill.rsp : 0 };
+  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow, tripDiesel: x.tripDiesel, missingFills: x.missingFills, dieselPrice: lastFill ? lastFill.rsp : 0 };
 }
 const DAY_LINK = (e) => (e.t ? `#/trip/${e.t.row}` : e.kind === 'advance' ? `#/drivers/${encodeURIComponent(e.veh)}` : e.kind === 'ssfc' ? '#/ssfc' : `#/vehicle/${encodeURIComponent(e.veh)}`);
 function dayState() {
@@ -1165,6 +1167,7 @@ async function viewTrip(row) {
   </section>` : t.remarks ? `<section class="card"><p class="remark">“${esc(t.remarks)}”</p></section>` : ''}
   ${sameTimeHtml(t)}
   <section class="card"><div class="row-between"><h3>Diesel</h3><span class="muted small">${litres(dieselLitres(t))} filled · ${money(dieselAmount(t))}</span></div>
+    ${derived().missingFills.has(t.row) ? `<div class="todo warn">⛽ ${esc(derived().missingFills.get(t.row).text)}. Check HSD Data for this trip, or ask the driver for the slip.</div>` : ''}
     ${dieselPanelHtml(derived().tripDiesel.get(t.row))}
     ${fills.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Pump</th><th>Where</th><th class="r">Litres</th><th class="r">₹/L</th><th class="r">Amount</th></tr></thead><tbody>
       ${fills.map((h) => `<tr><td>${fmtDate(h.date)}</td><td>${esc(h.source)}</td><td>${esc(h.location)}</td><td class="r">${indian(h.qty, 2)}</td><td class="r">${h.rsp.toFixed(2)}</td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">No HSD fills tagged to this trip in HSD Data.</p>'}
@@ -1350,6 +1353,7 @@ async function viewDiesel() {
   const keys = [...SOURCES, 'Other'].filter((s) => F.sources.some((x) => x.name === s)).map((s) => ({ key: s, name: s, color: SRC_COLORS[s] }));
   const check = d.checks && d.checks.reconTotal != null ? Math.abs(d.checks.reconTotal - recon.total) < 0.05 : null;
   setMain(`${dieselNowHtml()}
+  ${missingFillsHtml()}
   <section class="card">
     <div class="row-between"><h2>Diesel</h2><span class="muted small">${esc(periodRange(p))}</span></div>
     ${periodHtml()}
@@ -1391,6 +1395,26 @@ async function viewDiesel() {
   </section>`);
   bindPeriod(main());
   bindCharts(main());
+}
+
+// trips with far less diesel tagged than allotted: a fill not reported or not entered
+function missingFillsHtml() {
+  const M = derived().missingFills;
+  const td = derived().tripDiesel;
+  const rows = [...M.entries()].map(([row, m]) => ({ m, z: td.get(row) })).filter((x) => x.z)
+    .sort((a, b) => ((a.z.t.loadDate || a.z.t.start) < (b.z.t.loadDate || b.z.t.start) ? 1 : -1));
+  const months = new Map();
+  for (const x of rows) { const k = monthOf(x.z.t.loadDate || x.z.t.start); months.set(k, (months.get(k) || 0) + 1); }
+  return `<section class="card">
+    <div class="row-between"><h3>Diesel fills that may be missing</h3><span class="muted small">${rows.length ? plural(rows.length, 'trip') : 'none'}</span></div>
+    <p class="muted small">A trip with far less diesel tagged than its allotment — under 75% of it and 100 L+ under what the route usually takes — most likely has a fill the driver didn't report or that wasn't entered in HSD Data. Normal savings (up to ~20% under) aren't listed. A truck on the road is listed once it's past the usual day of its return refill with none entered.</p>
+    ${rows.length ? `${months.size > 1 ? `<p class="small">${[...months.entries()].map(([m, n]) => `<b>${esc(monthLong(m))}</b> ${n}`).join(' · ')}</p>` : ''}
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Loaded</th><th>Vehicle</th><th>Trip</th><th class="r">Allotted</th><th class="r">Tagged</th><th class="r">Route usually</th><th class="r">Short by</th><th>Fills tagged</th></tr></thead><tbody>
+      ${rows.map(({ m, z }) => `<tr><td>${fmtDate(z.t.loadDate || z.t.start)}</td><td><a href="#/vehicle/${encodeURIComponent(z.t.veh)}"><b>${esc(shortVeh(z.t.veh))}</b></a></td><td><a href="#/trip/${z.t.row}">${esc(z.t.trip)}</a><small class="muted block">${esc(routeOf(z.t))}${m.kind === 'refill' ? ' · on the road' : ''}</small></td>
+        <td class="r">${L1(z.allotted)}</td><td class="r"><b class="warn-text">${L1(z.taken)}</b></td><td class="r">${m.typical != null ? L1(m.typical) : '—'}</td><td class="r">${m.short != null ? L1(m.short) : 'refill'}</td>
+        <td class="small muted">${z.fills.map((h) => `${shortDate(h.date)} ${indian(h.qty)} L ${esc(h.location || h.source || '')}`).join(' · ') || 'none'}</td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="good-text">✓ None — every trip\'s diesel is in line with its allotment.</p>'}
+  </section>`;
 }
 
 // the trips on the road: how much of each allotment is taken, what's left, what's owed
