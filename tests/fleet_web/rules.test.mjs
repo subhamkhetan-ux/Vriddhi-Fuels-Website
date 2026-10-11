@@ -16,7 +16,7 @@ test('route values: newest entry from that month on, Rates sheet as the fallback
     { port: 'Kakinada', dest: 'BALCO', from: '', km: 820, salary: 11000 },
     { port: 'kakinada', dest: 'balco', from: '2026-05', salary: 11300 },
   ] });
-  assert.deepEqual(routeFor(data, set, 'Kakinada', 'BALCO', '2026-04'), { km: 820, salary: 11000, salaryFrom: 'app', diesel: 630, dieselFrom: 'rates' });
+  assert.deepEqual(routeFor(data, set, 'Kakinada', 'BALCO', '2026-04'), { km: 820, rtd: null, salary: 11000, salaryFrom: 'app', diesel: 630, dieselFrom: 'rates' });
   assert.equal(routeFor(data, set, 'Kakinada', 'BALCO', '2026-06').salary, 11300);
   assert.equal(routeFor(data, set, 'Kakinada', 'BALCO', '2026-06').km, 820);          // km from the older row
   assert.equal(routeFor(data, withDefaults({}), 'Kakinada', 'BALCO').salaryFrom, 'rates');
@@ -115,4 +115,13 @@ test('diesel recon takes a route\'s diesel set in the app', () => {
   assert.equal(dieselRecon(data).vehicles[0].list[0].allotted, 625);                    // Excel's row
   const set = { routes: [{ port: 'Kakinada', dest: 'BALCO', diesel: 650 }], recon: { useApp: true } };
   assert.equal(dieselRecon(data, set).vehicles[0].list[0].allotted, 645);              // 650 − 5 underload
+});
+
+test('the Rates sheet\'s round trip (RTD/Trip in Km) gives each trip its km unless Setup has the route\'s distance', () => {
+  row = 3;
+  const data = { trips: [trip({ veh: 'A', month: '2026-01' }), trip({ veh: 'A', month: '2026-02' })], rates: [{ ...rates[0], rtd: 1800 }] };
+  const k = tripKms(data, withDefaults({}));
+  assert.deepEqual(k.get(3), { loaded: 900, empty: 900, km: 1800, complete: true, from: 'rates' });
+  assert.equal(tripKms(data, withDefaults({ routes: [{ port: 'Kakinada', dest: 'BALCO', km: 800 }] })).get(4).km, 1600);  // Setup's one-way 800 loaded + 800 empty back to the port
+  assert.equal(routeFor(data, withDefaults({}), 'Kakinada', 'BALCO').rtd, 1800);
 });

@@ -8,12 +8,14 @@
 // happen, and on which day of the trip each step comes — the best (the
 // quickest tenth), the typical (the median), and each vehicle's own best.
 //
-// The projection: freight (loaded × rate, or the vehicle's usual load × rate
-// before loading) − diesel (what's been filled for the trip so far + what the
-// route usually still needs) − the driver's salary (Setup, or what the route
-// usually costs) − SSFC's other deductions (fastag, maintenance, tyre, RTO …,
-// the vehicle's average a trip over the last 90 days) − urea and own misc
-// (logged, or the average) — and the EMI's share a trip.
+// The projection is the trip's own: freight (loaded × rate, or the vehicle's
+// usual load × rate before loading) − diesel (what's been filled for the trip
+// so far + what the route usually still needs) − the driver's salary (Setup /
+// the Rates sheet, or what the route usually costs) − urea (logged, or the
+// usual) − own misc logged on the trip. SSFC's fastag, tyre, maintenance and
+// RTO are booked once a month (after a number of trips), and the EMI is
+// monthly too: neither belongs to one trip, so they're shown apart, as the
+// vehicle's month.
 
 import { routeFor } from './rules.js';
 import { addDays, daysBetween, monthOf, round2 } from './util.js';
@@ -36,7 +38,8 @@ const mode = (xs) => {
   xs.filter(Boolean).forEach((x) => m.set(x, (m.get(x) || 0) + 1));
   return [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 };
-const MAIN_FILL = 100;                                           // litres: smaller is a top-up
+const MAIN_FILL = 100;
+const YEARLY = /insurance|permit|road\s*tax|fitness|fleet\s*edge|registration|\bpuc\b|\btax\b/i;   // as trends.js                                           // litres: smaller is a top-up
 
 export const STEPS = ['start', 'out', 'load', 'back', 'unload'];
 
@@ -71,7 +74,9 @@ export function routeProfile(data, t, today, veh = null) {
       back: sp.back ? daysBetween(x.start, sp.back.date) : null, backPlace: sp.back?.location,
       unload: daysBetween(x.start, x.unloadDate),
       litres: f.reduce((a, h) => a + h.qty, 0), price: f.length ? f[f.length - 1].rsp : null, loadWt: x.loadWt,
-      driver: (x.drvSsfc || 0) + (x.drvTrip || 0) + (x.drvExtra || 0) || null, rate: x.rate, before: x.income != null ? x.income + (x.emi || 0) : null,
+      driver: (x.drvSsfc || 0) + (x.drvTrip || 0) + (x.drvExtra || 0) || null, rate: x.rate,
+      // the trip's own result: freight − diesel − driver − urea (no monthly charges, no EMI)
+      before: x.bhada ? x.bhada - (x.ssfcAmt || 0) - (x.ownAmt || 0) - (x.drvSsfc || 0) - (x.drvTrip || 0) - (x.drvExtra || 0) - (x.urea || 0) : null,
     };
   });
   const prof = { trips: rows.length, outPlace: mode(rows.map((r) => r.outPlace)), backPlace: mode(rows.map((r) => r.backPlace)) };
@@ -87,19 +92,21 @@ export function routeProfile(data, t, today, veh = null) {
   return prof;
 }
 
-// SSFC's other deductions and own costs a trip, from the vehicle's last 90 days
+// the vehicle's last 90 days: urea a trip and its usual load; SSFC's monthly
+// charges and the EMI a month (they're booked once a month, not per trip)
 function usualCosts(data, veh, today) {
   const recent = data.trips.filter((x) => x.veh === veh && x.status === 'done' && x.loadDate && daysBetween(x.loadDate, today) <= 90);
   const n = recent.length || 1;
-  const s = (f) => recent.reduce((a, x) => a + (f(x) || 0), 0) / n;
+  const s = (f) => recent.reduce((a, x) => a + (f(x) || 0), 0);
   const months = new Set(recent.map((x) => monthOf(x.loadDate))).size || 1;
   const emis = recent.filter((x) => x.emi).map((x) => x.emi);
   return {
     trips: recent.length,
-    ssfcOther: s((x) => (x.fastag || 0) + (x.maint || 0) + (x.tyre || 0) + (x.rtoEntry || 0) + (x.rtoChallan || 0) + (x.docExp || 0) + (x.lessOver || 0) + (x.shortage || 0) + (x.ssfcMisc || 0)),
-    urea: s((x) => x.urea), ownOther: s((x) => (x.ownMisc || 0) + (x.docOwn || 0)),
+    monthly: s((x) => (x.fastag || 0) + (x.maint || 0) + (x.tyre || 0) + (x.rtoEntry || 0) + (x.rtoChallan || 0) + (x.docExp || 0) + (x.ssfcMisc || 0)) / months,
+    tripsAMonth: recent.length / months,
+    urea: s((x) => x.urea) / n,
     loadWt: median(recent.map((x) => x.loadWt)),
-    emiShare: emis.length ? median(emis) / (recent.length / months || 1) : 0,
+    emi: emis.length ? median(emis) : 0,
   };
 }
 
@@ -169,11 +176,14 @@ export function liveTrip(data, settings, today, t) {
   const extra = settings && settings.driver && settings.driver.extraIsAdvance ? 0 : t.drvExtra || 0;   // promised on top of the salary
   const driver = (r.salary ?? (t.drvSsfc != null ? (t.drvSsfc || 0) + (t.drvTrip || 0) : prof.driver || 0)) + extra;
   const urea = t.urea ?? u.urea;
-  const ownOther = (t.ownMisc || t.docOwn) ? (t.ownMisc || 0) + (t.docOwn || 0) : u.ownOther;
-  const before = round2(freight - dieselSoFar - dieselLeft - driver - u.ssfcOther - urea - ownOther);
+  // own misc / documents logged on this trip — unless it's a yearly cost (road tax, insurance, permit …) booked on it
+  const yearlyCost = YEARLY.test(t.remarks || '') ? (t.ownMisc || 0) + (t.docOwn || 0) : 0;
+  const ownOther = yearlyCost ? 0 : (t.ownMisc || 0) + (t.docOwn || 0);
+  const before = round2(freight - dieselSoFar - dieselLeft - driver - urea - ownOther);
   const projection = {
     freight, loaded: !!t.bhada, loadWt, rate, dieselSoFar, litresSoFar, litresLeft, dieselLeft, price, driver, driverFrom: r.salaryFrom === 'app' ? 'setup' : r.salaryFrom === 'rates' ? 'rates' : 'usual', advances,
-    ssfcOther: round2(u.ssfcOther), urea: round2(urea), ownOther: round2(ownOther), before, emiShare: round2(u.emiShare), after: round2(before - u.emiShare),
+    urea: round2(urea), ureaLogged: t.urea != null, ownOther: round2(ownOther), yearly: round2(yearlyCost), yearlyWhat: yearlyCost ? t.remarks : '', before,
+    monthly: round2(u.monthly), emi: round2(u.emi), tripsAMonth: u.tripsAMonth,
     usual: prof.before, basis: u.trips,
   };
   return { veh: t.veh, t, prof, stage, next, phase, steps, at, el, pace, status, etaTypical, etaBest, fills, projection };

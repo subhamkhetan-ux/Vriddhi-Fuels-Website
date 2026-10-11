@@ -607,22 +607,20 @@ async function viewHome() {
   const slow = perfRecent.vehicles.filter((v) => v.under);
   if (slow.length) todo.push({ kind: 'warn', href: '#/performance', text: `Underperforming lately: ${slow.map((v) => `${shortVeh(v.veh)} (${v.slowerPerTrip.toFixed(1)} days a trip slower${v.worstStage ? `, mostly ${STAGE_NAME[v.worstStage]}` : ''})`).join(', ')}` });
   // only once salaries are set in Setup (the Rates sheet's Driver Payment is a placeholder)
-  const confirmed = (sp) => sp.trips.length && drivers.rows.filter((r) => r.spell === sp && r.salary != null).every((r) => r.salaryFrom === 'app');
+  const confirmed = (sp) => sp.trips.length && drivers.rows.filter((r) => r.spell === sp && r.salary != null).every((r) => r.salaryFrom === 'app' || r.salaryFrom === 'rates');
   const overpaid = drivers.spells.filter((x) => x.balance > OVERPAID && confirmed(x));
   if (overpaid.length > 2) {
     todo.unshift({ kind: 'warn', href: '#/drivers', text: `${plural(overpaid.length, 'driver')} overpaid — ${rupees(overpaid.reduce((a, x) => a + x.balance, 0))} more than salary − your advances` });
   } else {
     for (const sp of overpaid) todo.unshift({ kind: 'warn', href: `#/drivers/${encodeURIComponent(sp.veh)}`, text: `${shortVeh(sp.veh)}: ${sp.name ? `driver ${sp.name}` : 'driver'} overpaid ${rupees(sp.balance)} (salary − your advances vs what SSFC paid)` });
   }
-  const placeholder = [...new Set(drivers.rows.filter((r) => r.salaryFrom === 'rates').map((r) => routeOf(r.t)))];
-  if (placeholder.length) todo.push({ kind: 'info', href: '#/setup', text: `Confirm the driver salary for ${placeholder.join(', ')} in Setup (now taken from the Rates sheet's Driver Payment)` });
   const since = addMonths(monthOf(today()), -3);
   for (const key of ['tyre', 'fastag']) {
     const recent = charges[key].flags.filter((f) => f.month >= since && f.kind !== 'low');
     if (recent.length) todo.push({ kind: 'warn', href: `#/costs/${key}`, text: `${CHARGE_RULES[key].name}: ${plural(recent.length, 'charge')} out of the usual trend in the last 3 months` });
   }
   if (drivers.missing.length) todo.push({ kind: 'info', href: '#/setup', text: `Driver salary not set for ${drivers.missing.map((m) => m.route).join(', ')} — set it in Setup to check driver pay` });
-  if (![...kms.values()].some((k) => k.km)) todo.push({ kind: 'info', href: '#/setup', text: 'Add the distance of each route in Setup to see km, mileage and cost per km' });
+  if (![...kms.values()].some((k) => k.km)) todo.push({ kind: 'info', href: '#/setup', text: 'Add each route\'s round trip (RTD/Trip in Km) to the Rates sheet, or its distance in Setup, to see km, mileage and cost per km' });
   const onTrip = status.filter((s) => s.state !== 'idle');
   const loaded = status.filter((s) => s.state === 'loaded');
   const empty = status.filter((s) => s.state === 'empty');
@@ -681,22 +679,21 @@ function stepsHtml(lt) {
     return `<li class="${cls}"><i></i><b>${esc(x.name)}</b><small>${esc(x.place || '')}</small><em>${esc(when)}</em></li>`;
   }).join('')}</ol>`;
 }
+// a trip's own projected result; SSFC's monthly charges and the EMI are the vehicle's month, shown apart
 function projHtml(pr, { full = false } = {}) {
   const parts = [['Freight', pr.freight, pr.loaded ? `${pr.loadWt.toFixed(2)} T × ₹${indian(pr.rate)}` : `about ${pr.loadWt.toFixed(1)} T × ₹${indian(pr.rate)} (not loaded yet)`],
     ['Diesel filled', -pr.dieselSoFar, `${indian(pr.litresSoFar)} L logged`], ['Diesel still to fill', -pr.dieselLeft, pr.litresLeft ? `~${indian(pr.litresLeft)} L at ₹${pr.price.toFixed(2)}` : 'none expected'],
-    ['Driver', -pr.driver, `${pr.driverFrom === 'setup' ? 'salary (Setup)' : pr.driverFrom === 'rates' ? 'Rates sheet driver payment' : 'what the route usually costs'}${pr.advances ? `, ${rupees(pr.advances)} advanced` : ''}`],
-    ['SSFC other deductions', -pr.ssfcOther, 'fastag, tyre, maintenance, RTO… — its average a trip, last 90 days'],
-    ['Urea & own misc', -(pr.urea + pr.ownOther), '']];
+    ['Driver', -pr.driver, `${pr.driverFrom === 'setup' ? 'salary (Setup)' : pr.driverFrom === 'rates' ? 'salary (Rates sheet)' : 'what the route usually costs'}${pr.advances ? `, ${rupees(pr.advances)} advanced` : ''}`],
+    ['Urea', -pr.urea, pr.ureaLogged ? 'logged on the trip' : 'its usual a trip'],
+    ...(pr.ownOther ? [['Own misc logged on the trip', -pr.ownOther, '']] : [])];
+  const month = `Not in a trip: SSFC's fastag, tyre, maintenance and RTO come once a month${pr.monthly ? ` (≈ ${money(pr.monthly)} a month for this vehicle lately)` : ''}, and the EMI${pr.emi ? ` (${money(pr.emi)} a month)` : ''}${pr.yearly ? `; nor the yearly ${rupees(pr.yearly)} (“${pr.yearlyWhat}”) booked on this trip` : ''}.`;
   if (!full) {
-    return `<div class="rc-money"><span><small>Projected income</small><b class="${signed(pr.before)}">${money(pr.before)}</b><small>before EMI${pr.usual != null ? ` · usual ${money(pr.usual)}` : ''}</small></span>
-      <span><small>After EMI share</small><b class="${signed(pr.after)}">${money(pr.after)}</b><small>EMI ${money(pr.emiShare)} a trip</small></span>
+    return `<div class="rc-money"><span><small>Trip income</small><b class="${signed(pr.before)}">${money(pr.before)}</b><small>projected${pr.usual != null ? ` · usual ${money(pr.usual)}` : ''}</small></span>
       <span><small>Diesel so far</small><b>${money(pr.dieselSoFar)}</b><small>${indian(pr.litresSoFar)} L${pr.litresLeft ? ` · ~${indian(pr.litresLeft)} L to go` : ''}</small></span></div>`;
   }
   return `<div class="ledger-lines proj-lines">${parts.map(([n, v, note]) => `<div class="ln${v < 0 ? ' minus' : ''}"><span>${esc(n)}${note ? `<small class="muted block">${esc(note)}</small>` : ''}</span><b>${v < 0 ? '− ' : ''}${rupees(Math.abs(v))}</b></div>`).join('')}
-    <div class="ln total"><span>Projected income (before EMI)</span><b class="${signed(pr.before)}">${rupees(pr.before)}</b></div>
-    <div class="ln minus"><span>EMI share a trip</span><b>− ${rupees(pr.emiShare)}</b></div>
-    <div class="ln total"><span>After EMI</span><b class="${signed(pr.after)}">${rupees(pr.after)}</b></div></div>
-    <p class="muted small">Freight, the diesel logged in HSD Data and any driver advance are actual; the rest is what this vehicle / route usually costs${pr.usual != null ? ` (the route usually earns ${rupees(pr.usual)} a trip before EMI)` : ''}.</p>`;
+    <div class="ln total"><span>Projected trip income</span><b class="${signed(pr.before)}">${rupees(pr.before)}</b></div></div>
+    <p class="muted small">Freight, the diesel logged in HSD Data and any driver advance are actual; the rest is what this vehicle / route usually costs${pr.usual != null ? ` (trips on the route usually make ${rupees(pr.usual)} on the same basis)` : ''}. ${esc(month)}</p>`;
 }
 function roadCard(lt) {
   const t = lt.t;
@@ -1849,7 +1846,7 @@ async function viewDrivers() {
     <p class="muted small">Each trip's driver salary (Setup → Routes) is paid partly by you — <b>Trip Driver Payment</b>${opt.extraIsAdvance ? ' and <b>Extra Own Driver Pay</b>' : ''} — and the rest by SSFC (<b>Driver SSFC Payment</b>). SSFC should pay <b>salary − your advances</b>; more than that is an overpayment.${opt.extraIsAdvance ? '' : ' <b>Extra Own Driver Pay</b> is the extra promised for those trips — on top of the salary and settled, so it\'s left out of the check.'}${opt.debitCounts ? ' <b>Driver Debit</b> (damage, fines…) is money the driver owes back.' : ''}</p>
     ${salaryNote(dc)}
     <p class="small">Checked from <b>${monthLong(dc.checkFrom)}</b> on; trips before that are as the Trip Register has them (settled). <a href="#/setup">Change in Setup</a></p>
-    ${fromRates.length ? `<p class="small warn-text">Using the Rates sheet's Driver Payment for ${esc(fromRates.join(', '))} until you set the salary in <a href="#/setup">Setup</a>.</p>` : ''}
+    ${fromRates.length ? `<p class="small muted">Salary from the Rates sheet's Driver Payment for ${esc(fromRates.join(', '))}; a salary set in <a href="#/setup">Setup</a> (with a From month) takes over from it.</p>` : ''}
     ${periodHtml()}
     <div class="kpis">
       <div class="kpi"><span class="lbl">Salary earned</span><span class="val" ${exact(sum((r) => r.salary))}>${money(sum((r) => r.salary))}</span><span class="sub">${plural(rows.length, 'trip')} checked</span></div>

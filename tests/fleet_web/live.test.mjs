@@ -57,8 +57,11 @@ test('stages from the fills logged so far, the pace and the projection', () => {
   assert.equal(pr.litresLeft, 310);                               // the route uses 660 L
   assert.equal(pr.driver, 11000);                                 // the Rates sheet's driver payment
   assert.equal(pr.driverFrom, 'rates');
-  assert.equal(pr.ssfcOther, 15000);                              // fastag + tyre a trip
-  assert.equal(pr.before, 123000 - 35000 - 31000 - 11000 - 15000);
+  // SSFC's fastag / tyre are booked once a month: not in a trip, shown as the vehicle's month
+  assert.equal(pr.before, 123000 - 35000 - 31000 - 11000);
+  assert.equal(pr.ssfcOther, undefined);
+  assert.equal(Math.round(pr.monthly), Math.round(15000 * pr.tripsAMonth));
+  assert.equal(pr.usual, 120000 - 10300);                        // the route's trips on the same basis (no diesel amounts in these made-up rows)
   // still going to load: phase and an estimated freight
   const e = { row: 100, veh: 'A', trip: 'T100', port: 'Kakinada', dest: 'BALCO', start: '2026-10-10', status: 'empty' };
   d.trips.push(e);
