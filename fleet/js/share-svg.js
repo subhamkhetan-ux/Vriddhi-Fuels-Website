@@ -480,7 +480,7 @@ export function reconPagesSvg(v, { asOn = '', images = {}, fontCss = '', since =
 
 // ---- one trip ----------------------------------------------------------------------------------
 // opts: bulker (bulker.js SVG), bulkerCss, fills (HSD rows), recon row, driver, paid (advances), salary check row
-export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = '', bulkerCss = '', fills = [], recon = null, driver = '', paid = [], check = null, load = null } = {}) {
+export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = '', bulkerCss = '', fills = [], recon = null, driver = '', paid = [], check = null, load = null, diesel = null } = {}) {
   const blocks = [];
   if (bulker) {
     const cap = t.loadWt ? `${t.loadWt.toFixed(2)} T alumina  ·  tare ${t.tare ? t.tare.toFixed(2) : '—'} T  ·  gross ${t.gross ? t.gross.toFixed(2) : '—'} T${t.gross ? `  ·  ${t.gross > RTO_GROSS ? `+${(t.gross - RTO_GROSS).toFixed(2)} T overload, RTO paid ✓` : `${(RTO_GROSS - t.gross).toFixed(2)} T under the RTO ${RTO_GROSS} T`}` : ''}` : 'Not loaded yet';
@@ -512,18 +512,24 @@ export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = 
       t.drvDebit ? ['Driver debit (not in income)', rupees(t.drvDebit)] : null,
     ].filter((r) => r && (r[0] || r[1])), { title: 'The money' }));
   }
-  if (fills.length || recon) {
+  if (fills.length || diesel) {
     blocks.push(section('Diesel', `${litres(dieselLitres(t))} · ${rupees(dieselAmount(t))}`));
     if (fills.length) {
       blocks.push(...table([{ label: 'Date', at: 18 }, { label: 'Where', at: 170, max: 420 }, { label: 'Litres', at: -200, align: 'end' }, { label: 'Amount', at: -18, align: 'end' }],
         fills.map((h) => ({ cells: [{ text: dMon(h.date), weight: 700 }, { text: h.source || '—', sub: h.location || '' }, litres(h.qty), rupees(h.amount)] }))));
     }
-    if (recon && recon.allotted != null) {
+    const z = diesel;
+    if (z && z.allotted != null) {
+      const sl = (n) => `${n > 0.5 ? '+' : n < -0.5 ? '−' : ''}${litres(Math.abs(n))}`;
       blocks.push(facts([
-        ['Allotted', `${litres(recon.allotted)}${Math.round(recon.over) ? `  (incl. +${Math.round(recon.over)} L overload)` : ''}${Math.round(recon.under) ? `  (incl. −${Math.round(recon.under)} L underload)` : ''}`],
-        ['Issued (SSFC + own pump)', litres(recon.issued)],
-        ['This trip', signedLitres(recon.balance), { strong: true, color: recon.balance < -0.5 ? C.bad : C.good }],
-      ]));
+        ['Allotted', `${litres(z.allotted)}${z.est ? ' (route diesel, until loaded)' : `${Math.round(z.over) ? `  (incl. +${Math.round(z.over)} L overload)` : ''}${Math.round(z.under) ? `  (incl. −${Math.round(z.under)} L underload)` : ''}`}`],
+        ['Taken (SSFC + own pump)', litres(z.taken)],
+        z.live ? ['To take (left of this trip\'s allotment)', litres(z.toTake)] : null,
+        ['Extra this trip', z.extra > 0.5 ? `+${litres(z.extra)}` : '—', { color: z.extra > 0.5 ? C.bad : C.good }],
+        ['Carried in from earlier trips', z.carryIn < -0.5 ? `${sl(z.carryIn)} owed` : z.carryIn > 0.5 ? `${sl(z.carryIn)} saved` : '—', { color: z.carryIn < -0.5 ? C.warn : C.ink }],
+        z.live ? ['May still take', litres(z.mayTake), { strong: true, color: z.mayTake < 0.5 ? C.bad : C.good, rule: true }] : null,
+        [z.live ? 'Balance if no more is taken' : 'Balance after the trip', `${sl(z.after)}${z.after < -0.5 ? ' — comes off the next trips' : ''}`, { strong: true, color: z.after < -0.5 ? C.bad : C.good, rule: !z.live }],
+      ], { title: 'Diesel against the allotment' }));
     }
   }
   if (paid.length || check) {
@@ -642,19 +648,20 @@ export function roadCardSvg(rows, { asOn = '', images = {}, fontCss = '', bulker
   const empty = rows.filter((r) => r.state === 'empty').length;
   const idle = rows.filter((r) => r.state === 'idle').length;
   const tone = { good: C.good, warn: C.warn, bad: C.bad };
-  const blocks = rows.map((r) => block(176, (x, y, w) => {
+  const blocks = rows.map((r) => block(r.diesel ? 200 : 176, (x, y, w) => {
     const bw = 300;
     const bh = (bw * 139) / 424;
     const inner = r.bulker ? placeBulker(r.bulker, x + 10, y + 26, bw, bh) : '';
     const tx = x + bw + 36;
     const tw = w - bw - 56;
     const st = r.state === 'loaded' ? C.amber : r.state === 'empty' ? C.s1 : C.faint;
-    return `${R(x, y + 4, w, 164, { rx: 22, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.1 })}${R(x, y + 30, 5, 112, { rx: 2.5, fill: st })}${inner}
+    return `${R(x, y + 4, w, r.diesel ? 188 : 164, { rx: 22, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.1 })}${R(x, y + 30, 5, 112, { rx: 2.5, fill: st })}${inner}
 ${T(tx, y + 42, plateText(r.veh), { size: 24, weight: 800, max: tw * 0.6 })}${T(x + w - 22, y + 42, r.driver || '', { size: 17, fill: C.muted, anchor: 'end', max: tw * 0.4 })}
 ${T(tx, y + 74, r.title, { size: 20, weight: 800, fill: st, max: tw })}
 ${T(tx, y + 101, r.phase || '', { size: 17, weight: 600, max: tw })}
 ${T(tx, y + 127, r.sub || '', { size: 15, fill: C.muted, max: tw })}
-${T(tx, y + 152, r.pace || '', { size: 15, weight: 700, fill: tone[r.paceColor] || C.muted, max: tw })}`;
+${T(tx, y + 152, r.pace || '', { size: 15, weight: 700, fill: tone[r.paceColor] || C.muted, max: tw })}
+${r.diesel ? T(tx, y + 177, `Diesel ${r.diesel}`, { size: 15, weight: 600, fill: tone[r.dieselColor] || C.muted, max: tw }) : ''}`;
   }));
   return cardSvg({
     what: 'On the road now', tag: 'FLEET NOW', name: `${rows.length - idle} of ${plural(rows.length, 'bulker')} on a trip`, asOn, images, fontCss,
@@ -748,6 +755,7 @@ export function driverBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {})
       r.next ? { text: `अगला: ${r.next}${r.by ? ` — ${hiDate(r.by)} तक (${r.byRel})` : ''}`, size: 26, weight: 800, color: r.urgent ? C.bad : C.amber, gap: 6 } : null,
       r.pace ? { text: r.pace, size: 24, weight: 700, color: TONE[r.paceTone], gap: 6 } : null,
       r.load ? { text: r.load, size: 24, weight: 600, color: TONE[r.loadTone], gap: 6 } : null,
+      r.diesel ? { text: r.diesel, size: 24, weight: 600, color: TONE[r.dieselTone], gap: 6 } : null,
     ].filter(Boolean);
     const lh = linesHeight(W - 56, lines);
     const accent = r.state === 'idle' ? C.faint : TONE[r.paceTone] === C.ink ? C.s1 : TONE[r.paceTone];

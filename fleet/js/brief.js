@@ -12,6 +12,7 @@
 import { addDays, daysBetween, monthOf } from './util.js';
 import { loadSummary, loadTarget } from './load.js';
 import { totals } from './analyse.js';
+import { fleetDiesel } from './tripdiesel.js';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dm = (iso) => (iso ? `${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]}` : '');
@@ -107,11 +108,20 @@ export function ownerBrief(data, ctx, today) {
     const last = [...ctx.account.payments].filter((p) => p.date).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     money.push({ tone: oldest && oldest.age > 90 ? 'bad' : 'warn', text: `SSFC owes ${lakh(ctx.account.total)} (${plural(pend.length, 'invoice')} pending${oldest ? `, oldest ${oldest.no || 'not invoiced'} ${oldest.age} days` : ''})${last ? ` · last payment ${lakh(last.account + last.other)} ${daysBetween(last.date, today)} days ago` : ''}`, href: '#/ssfc' });
   }
-  if (ctx.recon) {
-    const worst = [...ctx.recon.vehicles].sort((a, b) => a.balance - b.balance)[0];
-    if (worst && worst.balance < -100) money.push({ tone: 'warn', text: `Diesel recon: ${short(worst.veh)} has used ${ind(-worst.balance)} L more than allotted — fleet ${ind(ctx.recon.total)} L net`, href: `#/diesel/${encodeURIComponent(worst.veh)}` });
-  }
   sections.push({ title: 'Money', items: money });
+
+  // diesel against the allotments
+  if (ctx.recon && ctx.tripDiesel) {
+    const F = fleetDiesel(ctx.recon, ctx.tripDiesel, ctx.dieselPrice || 0);
+    const dz = [];
+    if (F.owedL > 0.5) dz.push({ tone: 'bad', text: `Extra diesel taken and owed: ${ind(F.owedL)} L across ${plural(F.owed.length, 'truck')}${ctx.dieselPrice ? ` (≈ ${lakh(F.owedRs)})` : ''} — to come off their next trips. Most: ${F.owed.slice(0, 3).map((v) => `${short(v.veh)} ${ind(-v.balance)} L`).join(', ')}`, href: '#/diesel' });
+    else dz.push({ tone: 'good', text: 'No truck owes diesel — every one is within its allotments', href: '#/diesel' });
+    if (F.overNow.length) dz.push({ tone: 'bad', text: `Over this trip's allotment now: ${F.overNow.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ')}`, href: '#/diesel' });
+    const stop = F.live.filter((z) => z.allotted != null && z.toTake > 0.5 && z.mayTake < 0.5);
+    if (stop.length) dz.push({ tone: 'warn', text: `Should take no more diesel this trip (what's owed eats the rest): ${stop.map((z) => short(z.t.veh)).join(', ')}` });
+    dz.push({ tone: 'info', text: `Still to fill on the road: ${ind(F.mayTake)} L (${ind(F.toTake)} L left of the allotments, less what's owed)`, href: '#/diesel' });
+    sections.push({ title: 'Diesel', items: dz });
+  }
 
   const look = [];
   if (ctx.issues && ctx.issues.length) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel`, href: '#/trips?f=check' });
@@ -130,6 +140,27 @@ const hRel = (iso, today) => {
 };
 const hT = (n) => `${Number(n).toFixed(2)} टन`;
 
+// a trip's diesel, in Hindi (tripdiesel.js)
+const hL = (n) => `${ind(Math.abs(n), Math.abs(n) % 1 && Math.abs(n) < 100 ? 1 : 0)} लीटर`;
+function hDiesel(z) {
+  if (!z || z.allotted == null) return { diesel: '', dieselTone: 'info' };
+  const owedBefore = z.carryIn < -0.5 ? -z.carryIn : 0;
+  if (z.extra > 0.5) return { diesel: `⚠ डीज़ल: इस ट्रिप का ${hL(z.allotted)} तय था, ${hL(z.taken)} लिया — ${hL(z.extra)} ज़्यादा। कुल ${hL(Math.max(0, -z.after))} अगली ट्रिप में कटेगा`, dieselTone: 'bad' };
+  if (z.mayTake < 0.5) {
+    return z.after < -0.5
+      ? { diesel: `⚠ डीज़ल: ${hL(z.allotted)} में से ${hL(z.taken)} लिया — अब और डीज़ल न लें। पिछली ट्रिपों का ${hL(-z.after)} ज़्यादा लिया हुआ अगली ट्रिप में कटेगा`, dieselTone: 'warn' }
+      : { diesel: `✓ डीज़ल: इस ट्रिप का पूरा ${hL(z.allotted)} लिया — अब और न लें`, dieselTone: 'good' };
+  }
+  return {
+    diesel: `डीज़ल: ${hL(z.allotted)}${z.est ? ' (अनुमान)' : ''} में से ${hL(z.taken)} लिया — अब ${hL(z.mayTake)} और ले सकते हैं${owedBefore ? ` (पिछला ${hL(owedBefore)} काटकर)` : ''}`,
+    dieselTone: owedBefore ? 'warn' : 'good',
+  };
+}
+function idleDiesel(v) {
+  if (!v || v.balance > -0.5) return { diesel: '', dieselTone: 'info' };
+  return { diesel: `⚠ पिछली ट्रिपों का ${hL(-v.balance)} डीज़ल ज़्यादा लिया हुआ है — अगली ट्रिप के डीज़ल में से कटेगा`, dieselTone: 'warn' };
+}
+
 // → { date, rules: [..], yesterday, shout, rows: [{ veh, driver, state, now, next, by, byRel, urgent, pace, paceTone, load, loadTone }] }
 export function driverBrief(data, ctx, today) {
   const rows = [];
@@ -142,6 +173,7 @@ export function driverBrief(data, ctx, today) {
         veh: s.veh, driver, state: 'idle',
         now: t ? `${t.dest} पर खाली खड़ी${s.days != null ? ` — ${s.days} दिन से` : ''}` : 'खाली खड़ी',
         next: 'अगली ट्रिप के लिए तैयार रहें — ऑफिस के निर्देश पर तुरंत निकलें', by: null, pace: '', paceTone: 'info', load: '', loadTone: 'info',
+        ...idleDiesel(ctx.recon && ctx.recon.vehicles.find((v) => v.veh === s.veh)),
       });
       continue;
     }
@@ -182,7 +214,8 @@ export function driverBrief(data, ctx, today) {
       const tg = loadTarget(data, t, today);
       if (tg) { load = `लोडिंग में कम से कम ${hT(tg.load)} भरवाएँ — ओवरलोड का RTO भरा हुआ है`; loadTone = 'warn'; }
     }
-    rows.push({ veh: s.veh, driver, state: s.state, now, next, by, byRel: by ? hRel(by, today) : '', urgent: by === today, pace, paceTone, load, loadTone, day: lt.el });
+    const { diesel, dieselTone } = hDiesel(ctx.tripDiesel && ctx.tripDiesel.get(t.row));
+    rows.push({ veh: s.veh, driver, state: s.state, now, next, by, byRel: by ? hRel(by, today) : '', urgent: by === today, pace, paceTone, load, loadTone, diesel, dieselTone, day: lt.el });
   }
   const order = { bad: 0, warn: 1, info: 2, good: 3 };
   rows.sort((a, b) => (a.state === 'idle') - (b.state === 'idle') || order[a.paceTone] - order[b.paceTone] || String(a.veh).localeCompare(String(b.veh)));
@@ -204,6 +237,7 @@ export function driverBrief(data, ctx, today) {
     rules: [
       'ओवरलोड का RTO पहले से भरा हुआ है — हर ट्रिप में पूरा माल भरवाएँ। कम लोड = कंपनी का नुकसान।',
       'नीचे दी गई तारीख तक अगला पड़ाव पूरा करें। देर हो तो तुरंत ऑफिस को फ़ोन करें।',
+      'तय डीज़ल से ज़्यादा न लें — ज़्यादा लिया डीज़ल अगली ट्रिप के डीज़ल में से कटेगा।',
     ],
     yesterday,
     shout: stars.length ? `शाबाश: ${stars.join(', ')} — सबसे अच्छी रफ़्तार पर` : '',

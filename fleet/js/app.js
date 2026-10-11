@@ -21,6 +21,7 @@ import { sameDriver } from './drivers.js';
 import { dataChecks } from './checks.js';
 import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
+import { fleetDiesel, tripDiesel } from './tripdiesel.js';
 import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
@@ -499,6 +500,7 @@ function derived() {
     const x = {
       recon: dieselRecon(d, set), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d),
       issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set, today()), loads: loadBench(d),
+      get tripDiesel() { return this._td || (this._td = tripDiesel(d, this.recon, set)); },
       maxGross: Math.max(0, ...d.trips.map((t) => t.gross || 0)),
       perfRecent: performance(d, today(), { from: addMonths(monthOf(today()), -2), to: monthOf(today()) }),
       perfAll: performance(d, today()),
@@ -708,6 +710,7 @@ function roadCard(lt) {
     <div class="rc-phase"><b>${esc(lt.phase.title)}</b></div>
     ${stepsHtml(lt)}
     <div class="rc-pace ${pace.cls}"><b>${esc(pace.text)}</b>${pace.sub ? `<small>${esc(pace.sub)}</small>` : ''}${lt.etaTypical ? `<small>At ${esc(t.dest)} ~${dm(lt.etaTypical)}${lt.etaBest && lt.etaBest !== lt.etaTypical ? ` (best ${dm(lt.etaBest)})` : ''}</small>` : ''}</div>
+    ${(() => { const z = derived().tripDiesel.get(t.row); return z && z.allotted != null ? `<div class="rc-diesel ${dieselTone(z)}"><b>Diesel</b> ${esc(dieselLine(z))}</div>` : ''; })()}
     ${projHtml(lt.projection)}
   </a>`;
 }
@@ -925,6 +928,50 @@ function loadLegend(trips) {
     <span class="load-top">● full ${L.top}</span><span class="load-ok">● near full ${L.ok}</span><span class="load-low">● under ${L.low}</span><span class="load-poor">● well under ${L.poor}</span>
     <span class="muted">· ${tonnes(L.lostT, 1)} short of the best · <b class="${L.lostRs > 0 ? 'warn-text' : ''}">${money(L.lostRs)}</b> freight missed</span></p>`;
 }
+// a trip's diesel against its allotment, with what it carries in from the trips before
+const L1 = (n) => `${indian(Math.abs(n), Math.abs(n) % 1 && Math.abs(n) < 100 ? 1 : 0)} L`;
+function dieselTone(z) {
+  if (!z || z.allotted == null) return '';
+  if (z.extra > 0.5 || z.after < -100) return 'bad';
+  if (z.after < -0.5) return 'warn';
+  return 'good';
+}
+function dieselLine(z) {
+  if (!z || z.allotted == null) return '';
+  if (z.live) {
+    if (z.extra > 0.5) return `${L1(z.taken)} of ${L1(z.allotted)} — ${L1(z.extra)} extra${z.carryIn < -0.5 ? `, ${L1(-z.after)} owed in all` : ''}`;
+    return `${L1(z.taken)} of ${L1(z.allotted)}${z.est ? ' (est.)' : ''} taken · ${L1(z.mayTake)} more may be taken${z.carryIn < -0.5 ? ` (${L1(-z.carryIn)} owed from before)` : ''}`;
+  }
+  return `${L1(z.taken)} of ${L1(z.allotted)}${z.extra > 0.5 ? ` — ${L1(z.extra)} extra` : ''} · balance after ${z.after > 0 ? '+' : z.after < 0 ? '−' : ''}${L1(z.after)}`;
+}
+function dieselPanelHtml(z) {
+  if (!z) return '<p class="muted small">This trip is before the diesel recon starts.</p>';
+  if (z.allotted == null) return `<p class="muted small">No diesel set for ${esc(routeOf(z.t))} — set it in <a href="#/setup">Setup</a> or the Rates sheet.</p>`;
+  const tone = dieselTone(z);
+  const scale = Math.max(z.allotted, z.taken, z.allotted + Math.max(0, z.carryIn), 1);
+  const pct = (v) => `${Math.max(0, Math.min(100, (v / scale) * 100)).toFixed(1)}%`;
+  const within = Math.min(z.taken, z.allotted);
+  const limit = z.allotted + Math.min(0, z.carryIn);                           // what may be taken in all, after what's owed
+  const cell = (lbl, val, sub, cls = '') => `<div class="dz-cell ${cls}"><span class="lbl">${lbl}</span><b>${val}</b><small>${sub}</small></div>`;
+  return `<div class="dz-panel ${tone}">
+    <div class="dz-bar" role="img" aria-label="${esc(dieselLine(z))}">
+      <span class="dz-taken" style="width:${pct(within)}"></span>${z.extra > 0.5 ? `<span class="dz-extra" style="left:${pct(z.allotted)};width:${pct(z.extra)}"></span>` : ''}
+      <i class="dz-mark" style="left:${pct(z.allotted)}" title="the allotment"></i>
+      ${z.carryIn < -0.5 ? `<i class="dz-mark dz-limit" style="left:${pct(Math.max(0, limit))}" title="the limit after what's owed"></i>` : ''}
+    </div>
+    <p class="dz-key"><span><i class="k-taken"></i>taken</span>${z.extra > 0.5 ? '<span><i class="k-extra"></i>extra</span>' : ''}<span><i class="k-mark"></i>allotment ${L1(z.allotted)}</span>${z.carryIn < -0.5 ? `<span><i class="k-limit"></i>limit after what's owed ${L1(Math.max(0, limit))}</span>` : ''}</p>
+    <div class="dz-grid">
+      ${cell('Allotted', L1(z.allotted), z.est ? 'route diesel — over/underload once loaded' : `${z.base ?? '—'} base${z.over ? ` + ${z.over.toFixed(1)} overload` : ''}${z.under ? ` − ${z.under} underload` : ''}`)}
+      ${cell('Taken', L1(z.taken), `${plural(z.fills.length, 'fill')}${z.fills.length ? ` · last ${shortDate(z.fills[z.fills.length - 1].date)}` : ''}`)}
+      ${z.live ? cell('To take', L1(z.toTake), 'left of this trip\'s allotment') : ''}
+      ${cell('Extra this trip', z.extra > 0.5 ? `+${L1(z.extra)}` : '—', z.extra > 0.5 ? 'over the allotment — to be cut from the next trips' : 'within the allotment', z.extra > 0.5 ? 'bad' : '')}
+      ${cell('Carried in', z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—', z.carryIn < -0.5 ? 'extra from earlier trips, owed' : z.carryIn > 0.5 ? 'saved on earlier trips' : 'nothing owed from before', z.carryIn < -0.5 ? 'warn' : '')}
+      ${z.live ? cell('May still take', L1(z.mayTake), z.carryIn < -0.5 ? 'after cutting what\'s owed' : 'for the rest of the trip', z.mayTake < 0.5 ? 'bad' : 'good') : ''}
+      ${cell(z.live ? 'Balance if no more' : 'Balance after', `${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}`, z.after < -0.5 ? 'owed — comes off the next trips' : z.after > 0.5 ? 'saved' : 'square', z.after < -0.5 ? 'bad' : 'good')}
+    </div>
+    ${z.extraHsd ? `<p class="small muted">Plus ${L1(z.extraHsd)} extra HSD bought on the trip (own, outside the recon).</p>` : ''}
+  </div>`;
+}
 function tripRow(t, why) {
   const day = t.loadDate || t.start;
   const diff = t.diff ? `<span class="pill ${t.diff < -0.1 ? 'bad-pill' : t.diff < 0 ? 'warn-pill' : 'good-pill'}">${t.diff > 0 ? '+' : '−'}${Math.abs(t.diff).toFixed(2)}</span>` : '';
@@ -956,7 +1003,8 @@ function driverLine(t) {
 // ---------------------------------------------------------------------------
 function briefCtx() {
   const x = derived();
-  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow };
+  const lastFill = [...state.data.hsd].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow, tripDiesel: x.tripDiesel, dieselPrice: lastFill ? lastFill.rsp : 0 };
 }
 const DAY_LINK = (e) => (e.t ? `#/trip/${e.t.row}` : e.kind === 'advance' ? `#/drivers/${encodeURIComponent(e.veh)}` : e.kind === 'ssfc' ? '#/ssfc' : `#/vehicle/${encodeURIComponent(e.veh)}`);
 function dayState() {
@@ -1137,12 +1185,8 @@ async function viewTrip(row) {
     ${t.remarks ? `<p class="remark">“${esc(t.remarks)}”</p>` : ''}
   </section>` : t.remarks ? `<section class="card"><p class="remark">“${esc(t.remarks)}”</p></section>` : ''}
   ${sameTimeHtml(t)}
-  <section class="card"><h3>Diesel</h3>
-    <div class="kpis">
-      <div class="kpi"><span class="lbl">Issued</span><span class="val">${litres(dieselLitres(t))}</span><span class="sub">${money(dieselAmount(t))}</span></div>
-      ${rec && rec.allotted != null ? `<div class="kpi"><span class="lbl">Allotted</span><span class="val">${litres(rec.allotted)}</span><span class="sub">${rec.base} base${rec.over ? ` + ${rec.over.toFixed(1)} overload` : ''}${rec.under ? ` − ${rec.under} underload` : ''}</span></div>
-      <div class="kpi ${rec.balance < 0 ? 'warn' : ''}"><span class="lbl">This trip</span><span class="val ${signed(rec.balance)}">${rec.balance > 0 ? '+' : ''}${litres(rec.balance)}</span><span class="sub">${rec.balance < 0 ? 'more issued than allotted' : rec.balance > 0 ? 'less issued than allotted' : 'exactly as allotted'}</span></div>` : ''}
-    </div>
+  <section class="card"><div class="row-between"><h3>Diesel</h3><span class="muted small">${litres(dieselLitres(t))} filled · ${money(dieselAmount(t))}</span></div>
+    ${dieselPanelHtml(derived().tripDiesel.get(t.row))}
     ${fills.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Pump</th><th>Where</th><th class="r">Litres</th><th class="r">₹/L</th><th class="r">Amount</th></tr></thead><tbody>
       ${fills.map((h) => `<tr><td>${fmtDate(h.date)}</td><td>${esc(h.source)}</td><td>${esc(h.location)}</td><td class="r">${indian(h.qty, 2)}</td><td class="r">${h.rsp.toFixed(2)}</td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">No HSD fills tagged to this trip in HSD Data.</p>'}
     ${ureas.length ? `<p class="small muted">Urea: ${ureas.map((u) => `${fmtDate(u.date)} ${indian(u.qty, 1)} L from ${esc(u.from)} (${rupees(u.amount)})`).join(' · ')}</p>` : ''}
@@ -1326,7 +1370,8 @@ async function viewDiesel() {
   const maxAbs = Math.max(1, ...recon.vehicles.map((v) => Math.abs(v.balance)));
   const keys = [...SOURCES, 'Other'].filter((s) => F.sources.some((x) => x.name === s)).map((s) => ({ key: s, name: s, color: SRC_COLORS[s] }));
   const check = d.checks && d.checks.reconTotal != null ? Math.abs(d.checks.reconTotal - recon.total) < 0.05 : null;
-  setMain(`<section class="card">
+  setMain(`${dieselNowHtml()}
+  <section class="card">
     <div class="row-between"><h2>Diesel</h2><span class="muted small">${esc(periodRange(p))}</span></div>
     ${periodHtml()}
     <div class="kpis">
@@ -1357,7 +1402,7 @@ async function viewDiesel() {
     <div class="recon">${[...recon.vehicles].sort((a, b) => a.balance - b.balance).map((v) => `<a class="recon-row" href="#/diesel/${encodeURIComponent(v.veh)}">
       <b>${esc(v.veh)}</b>
       <span class="div-bar"><span class="neg">${v.balance < 0 ? `<i style="width:${((-v.balance / maxAbs) * 100).toFixed(1)}%"></i>` : ''}</span><span class="pos">${v.balance > 0 ? `<i style="width:${((v.balance / maxAbs) * 100).toFixed(1)}%"></i>` : ''}</span></span>
-      <span class="r"><b class="${signed(v.balance)}">${v.balance > 0 ? '+' : ''}${indian(v.balance, 1)} L</b><small>${v.balance < 0 ? 'short' : v.balance > 0 ? 'surplus' : 'nil'}</small></span></a>`).join('')}</div>
+      <span class="r"><b class="${signed(v.balance)}">${v.balance > 0 ? '+' : ''}${indian(v.balance, 1)} L</b><small>${v.balance < 0 ? 'extra taken — owed' : v.balance > 0 ? 'saved' : 'square'}</small></span></a>`).join('')}</div>
   </section>
 
   <section class="card"><h3>Urea (DEF) · ${esc(periodRange(p))}</h3>
@@ -1367,6 +1412,32 @@ async function viewDiesel() {
   </section>`);
   bindPeriod(main());
   bindCharts(main());
+}
+
+// the trips on the road: how much of each allotment is taken, what's left, what's owed
+function dieselNowHtml() {
+  const d = state.data;
+  const { recon, tripDiesel: td } = derived();
+  const lastFill = [...d.hsd].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  const price = lastFill ? lastFill.rsp : 0;
+  const F = fleetDiesel(recon, td, price);
+  const live = F.live.filter((z) => z.allotted != null).sort((a, b) => a.after - b.after);
+  return `<section class="card">
+    <div class="row-between"><h3>Diesel on the road now</h3><span class="muted small">${plural(live.length, 'trip')}</span></div>
+    <p class="muted small">Each trip may take its allotment (route diesel + overload − underload); diesel taken over it is owed and comes off the next trips. <b>May still take</b> = the allotment − what's taken − what the truck still owes from before.</p>
+    <div class="kpis">
+      <div class="kpi ${F.owedL > 0.5 ? 'warn' : ''}"><span class="lbl">Extra taken, owed</span><span class="val ${F.owedL > 0.5 ? 'bad-text' : ''}">${F.owedL > 0.5 ? litres(F.owedL) : '—'}</span><span class="sub">${F.owed.length ? `${plural(F.owed.length, 'truck')}${price ? ` · ≈ ${money(F.owedRs)} at ₹${price.toFixed(2)}/L` : ''}` : 'no truck owes diesel'}</span></div>
+      <div class="kpi"><span class="lbl">Saved</span><span class="val ${F.savedL > 0.5 ? 'good-text' : ''}">${F.savedL > 0.5 ? litres(F.savedL) : '—'}</span><span class="sub">${plural(F.saved.length, 'truck')} under their allotments</span></div>
+      <div class="kpi ${F.overNow.length ? 'warn' : ''}"><span class="lbl">Over the allotment now</span><span class="val ${F.overNow.length ? 'bad-text' : ''}">${F.overNow.length || '—'}</span><span class="sub">${F.overNow.length ? F.overNow.map((z) => `${shortVeh(z.t.veh)} +${L1(z.extra)}`).join(', ') : 'trips on the road'}</span></div>
+      <div class="kpi"><span class="lbl">Still to fill</span><span class="val">${litres(F.mayTake)}</span><span class="sub">${litres(F.toTake)} left of the allotments, less what's owed</span></div>
+    </div>
+    ${live.length ? `<div class="table-wrap"><table class="compact dz-table"><thead><tr><th>Vehicle</th><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">To take</th><th class="r">Extra</th><th class="r">Carried in</th><th class="r">May still take</th><th class="r">Balance</th></tr></thead><tbody>
+      ${live.map((z) => `<tr class="${dieselTone(z) === 'bad' ? 'row-under' : ''}"><td><a href="#/vehicle/${encodeURIComponent(z.t.veh)}"><b>${esc(shortVeh(z.t.veh))}</b></a><small class="muted block">${esc(driverNow(z.t.veh) || '')}</small></td><td><a href="#/trip/${z.t.row}">${esc(z.t.trip)}</a><small class="muted block">${z.t.loadDate ? 'loaded' : 'to load'}${z.est ? ' · est.' : ''}</small></td>
+        <td class="r">${L1(z.allotted)}</td><td class="r">${L1(z.taken)}</td><td class="r">${z.toTake > 0.5 ? L1(z.toTake) : '—'}</td><td class="r ${z.extra > 0.5 ? 'bad-text' : ''}">${z.extra > 0.5 ? `+${L1(z.extra)}` : '—'}</td>
+        <td class="r ${z.carryIn < -0.5 ? 'warn-text' : ''}">${z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—'}</td><td class="r"><b class="${z.mayTake < 0.5 ? 'bad-text' : 'good-text'}">${L1(z.mayTake)}</b></td>
+        <td class="r"><b class="${z.after < -0.5 ? 'bad-text' : 'good-text'}">${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}</b></td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="muted">No trip on the road.</p>'}
+  </section>`;
 }
 
 function mileageHtml(p) {
@@ -1390,6 +1461,7 @@ async function viewDieselVehicle(veh) {
   setMain(`<section class="card">
     <a class="muted small" href="#/diesel">← Diesel</a>
     <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)} · diesel recon</h2><p class="muted">${plural(list.length, 'trip')} since ${recon.since ? dateYear(recon.since) : '—'}</p></div></div>${shareBtn('share-recon')}</div>
+    ${(() => { const live = v.list.map((x) => derived().tripDiesel.get(x.t.row)).filter((z) => z && z.live && z.t.start).pop(); return live ? `<h3 class="sub-h">On the road now · <a href="#/trip/${live.t.row}">${esc(live.t.trip)}</a></h3>${dieselPanelHtml(live)}` : ''; })()}
     <div class="acct-hero"><div><span class="lbl">Running balance</span><span class="val">${v.balance > 0 ? '+' : ''}${indian(v.balance, 2)} L</span><span class="sub">${v.balance < 0 ? 'more issued than allotted (short)' : v.balance > 0 ? 'less issued than allotted (surplus)' : 'nil'}</span></div>
       <div class="side"><span class="lbl">Allotted / issued</span><b>${litres(v.allotted)}</b><span class="sub">issued ${litres(v.issued)}</span></div></div>
     <h3 class="sub-h">Each trip's balance</h3>
@@ -1540,7 +1612,7 @@ function shareTrip(t) {
     const card = tripCardSvg(t, {
       ...kit, bulker: pictureBulker(bulkerFor(t.loadWt ? t : null, { veh: t.veh, routeTrip: t }), kit.images.mark), bulkerCss: bulkerCss(),
       fills: d.hsd.filter((h) => h.veh === t.veh && h.trip === t.trip).sort((a, b) => (a.date < b.date ? -1 : 1)),
-      recon: rec, driver: dc.tripDriver(t), paid: info ? info.paid : [], check: dc.rows.find((r) => r.t === t) || null, load: derived().loads.get(t.row) || null,
+      recon: rec, driver: dc.tripDriver(t), paid: info ? info.paid : [], check: dc.rows.find((r) => r.t === t) || null, load: derived().loads.get(t.row) || null, diesel: derived().tripDiesel.get(t.row) || null,
     });
     return cardFiles(card, `${t.trip.replace('/', '-')} ${t.veh}`);
   } }]);
@@ -1580,6 +1652,7 @@ function roadOption() {
         title: t ? `${t.port} → ${t.dest}` : s.text, phase: t ? (lt ? lt.phase.title : s.long) : '',
         sub: t ? `${t.trip} · started ${dm(t.start)} · day ${lt ? lt.el : s.days}${t.loadWt ? ` · ${t.loadWt.toFixed(2)} T` : ''}${lt && lt.etaTypical ? ` · at ${t.dest} ~${dm(lt.etaTypical)}` : ''}` : s.last ? `last unloaded ${dm(s.last.unloadDate)}${s.days != null ? ` · ${s.days} days ago` : ''}` : '',
         pace: pace ? pace.text : '', paceColor: pace ? { good: 'good', behind: 'warn', late: 'bad' }[pace.cls] : '',
+        ...(() => { const z = t && derived().tripDiesel.get(t.row); return z && z.allotted != null ? { diesel: dieselLine(z), dieselColor: dieselTone(z) } : {}; })(),
         bulker: pictureBulker(t ? bulkerFor(showLoad ? t : null, { veh: s.veh, routeTrip: t, compact: true }) : bulkerFor(null, { veh: s.veh, compact: true }), kit.images.mark),
       };
     }).sort((a, b) => ['loaded', 'empty', 'idle'].indexOf(a.state) - ['loaded', 'empty', 'idle'].indexOf(b.state));

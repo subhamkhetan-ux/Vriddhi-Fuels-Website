@@ -614,6 +614,29 @@ ul.brief li.tone-good::before { background: var(--good); } ul.brief li.tone-warn
 ul.brief a { color: inherit; } ul.brief a:hover { text-decoration: underline; }
 ul.brief li.tone-info span { color: var(--ink); }
 .brief-card h2 .small { font-weight: 500; margin-left: 6px; }
+/* diesel against the allotment */
+.dz-panel { margin: 10px 0 14px; padding: 14px; border-radius: 16px; background: var(--well); border: 1px solid var(--glass-line-soft); }
+.dz-panel.bad { border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
+.dz-panel.warn { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.dz-bar { position: relative; height: 16px; border-radius: 8px; background: var(--track); overflow: hidden; }
+.dz-bar span { position: absolute; top: 0; bottom: 0; left: 0; }
+.dz-taken { background: var(--s-1); border-radius: 8px 0 0 8px; }
+.dz-extra { background: var(--bad); }
+.dz-mark.dz-limit { background: var(--warn); width: 3px; }
+.dz-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
+.dz-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.k-taken { background: var(--s-1); } .k-extra { background: var(--bad); } .k-mark { background: var(--ink); width: 3px !important; } .k-limit { background: var(--warn); width: 3px !important; }
+.dz-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink); }
+.dz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 8px; margin-top: 12px; }
+.dz-cell { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 12px; background: var(--glass); }
+.dz-cell .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.dz-cell b { font-family: var(--display); font-size: 19px; font-variant-numeric: tabular-nums; }
+.dz-cell small { color: var(--muted); font-size: 11.5px; }
+.dz-cell.bad b { color: var(--bad); } .dz-cell.warn b { color: var(--warn); } .dz-cell.good b { color: var(--good); }
+.rc-diesel { font-size: 12.5px; padding: 6px 10px; border-radius: 10px; background: var(--well); margin-top: 8px; }
+.rc-diesel b { margin-right: 4px; }
+.rc-diesel.bad { color: var(--bad); } .rc-diesel.warn { color: var(--warn); } .rc-diesel.good { color: var(--good); }
+.dz-table td small.block { font-size: 11px; }
 /* day book */
 .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--well); }
 .day-nav b { font-family: var(--display); text-align: center; font-size: 14.5px; }
