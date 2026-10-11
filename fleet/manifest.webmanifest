@@ -1,0 +1,13 @@
+{
+  "name": "Shree Shyam Fleet",
+  "short_name": "Fleet",
+  "description": "Shree Shyam Logistics trips, vehicles, SSFC account and diesel from the Trip Register.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0706",
+  "theme_color": "#F4511E",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
