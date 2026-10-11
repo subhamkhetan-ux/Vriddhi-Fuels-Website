@@ -176,6 +176,7 @@ export function dieselRecon(data, settings = null) {
   const rate = (t) => (data.rates || []).find((x) => x.port.toLowerCase() === (t.port || '').toLowerCase() && x.dest.toLowerCase() === (t.dest || '').toLowerCase());
   const typed = set.recon.useApp ? {} : r.rows || {};
   const rows = data.trips.filter((t) => t.row >= rules.fromRow).sort((a, b) => a.row - b.row).map((t) => {
+    // SSFC's diesel + our own bought for the trip; Own Diesel Extra is the driver's incentive (settled), not counted
     const issued = (t.ssfcLtr || 0) + (t.ownLtr || 0);
     if (!t.gross) return { t, base: null, over: 0, under: 0, allotted: null, issued, balance: 0 };
     const x = typed[t.row];

@@ -43,6 +43,13 @@ export function entries(data, { driverOf = null, payments = [] } = {}) {
     }
   }
   for (const h of data.hsd || []) {
+    if (/^extra filling$/i.test(String(h.source || '').trim())) {     // Own Diesel Extra: the driver's incentive, settled
+      out.push({
+        date: h.date, kind: 'diesel', veh: h.veh, t: tripOf.get(`${h.veh}|${h.trip}`) || null, litres: h.qty || 0, amount: h.amount || 0, source: 'Incentive',
+        title: `Incentive diesel ${h.qty ? `${Math.round(h.qty * 100) / 100} L` : ''} · Extra Filling`, detail: [h.location, h.trip, 'driver incentive, settled — not counted against the allotment'].filter(Boolean).join(' · '),
+      });
+      continue;
+    }
     out.push({
       date: h.date, kind: 'diesel', veh: h.veh, t: tripOf.get(`${h.veh}|${h.trip}`) || null, litres: h.qty || 0, amount: h.amount || 0, source: sourceOf(h.source),
       title: `Diesel ${h.qty ? `${Math.round(h.qty * 100) / 100} L` : ''} · ${h.source || 'pump'}`, detail: [h.location, h.trip, h.bill ? `bill ${h.bill}` : '', h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '),

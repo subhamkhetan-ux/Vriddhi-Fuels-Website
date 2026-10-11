@@ -92,6 +92,23 @@ export function dataChecks(data, today = null) {
     if (missing.length) info(`On a trip now but not on the drivers list: ${list(missing)}.`);
   }
 
+  // own diesel: the fills tagged to a trip in HSD Data against what's typed in the Trip Register
+  // (OWN DIESEL for Trip; Extra Filling = Own Diesel Extra), from where the diesel recon starts
+  const from = (data.recon && data.recon.fromRow) || Infinity;
+  const tagged = new Map();
+  for (const h of data.hsd || []) {
+    const k = `${h.veh}|${h.trip}`;
+    if (!tagged.has(k)) tagged.set(k, { own: 0, extra: 0 });
+    const src = String(h.source || '').trim().toLowerCase();
+    if (!src || src === 'ssfc') continue;                                 // no pump name: can't tell
+    tagged.get(k)[src === 'extra filling' ? 'extra' : 'own'] += h.qty || 0;
+  }
+  const ownOff = trips.filter((t) => t.row >= from).filter((t) => {
+    const g = tagged.get(`${t.veh}|${t.trip}`) || { own: 0, extra: 0 };
+    return off(g.own, t.ownLtr, 0.5) || off(g.extra, t.extraLtr, 0.5);
+  });
+  if (ownOff.length) warn(`Own diesel in HSD Data doesn't match the Trip Register's OWN DIESEL columns on ${list(ownOff.map((t) => `row ${t.row} (${t.trip} ${t.veh.slice(-4)})`), 6)} — the diesel recon counts what's typed in the Trip Register.`);
+
   const fills = new Map();
   for (const h of data.hsd || []) {
     if (!h.bill) continue;

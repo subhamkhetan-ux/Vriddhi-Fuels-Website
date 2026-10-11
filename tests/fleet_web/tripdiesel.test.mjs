@@ -60,3 +60,21 @@ test('a trip with far less diesel tagged than allotted is flagged — normal sav
   assert.equal(missingFills(road, { live: [lt], today: '2026-10-09' }).get(7).kind, 'refill');
   assert.equal(missingFills(road, { live: [lt], today: '2026-10-07' }).has(7), false);
 });
+
+test('own diesel bought for the trip counts; Own Diesel Extra (driver incentive, settled) does not', async () => {
+  const { dataChecks } = await import('../../fleet/js/checks.js');
+  const d4 = {
+    ...data,
+    trips: data.trips.map((t) => (t.row === 3 ? { ...t, ssfcLtr: 350, ownLtr: 250, ownAmt: 23000, extraLtr: 40 } : t)),
+    hsd: [{ date: '2026-10-02', veh: 'XX01', trip: 'T3/DEMO', qty: 350, source: 'SSFC' }, { date: '2026-10-03', veh: 'XX01', trip: 'T3/DEMO', qty: 250, source: 'Vriddhi Fuels' },
+      { date: '2026-10-04', veh: 'XX01', trip: 'T3/DEMO', qty: 40, source: 'Extra Filling' }, ...data.hsd.filter((h) => h.trip !== 'T3/DEMO')],
+  };
+  const recon = dieselRecon(d4);
+  const z = tripDiesel(d4, recon, withDefaults({})).get(3);
+  assert.deepEqual([z.taken, z.ssfcL, z.ownL, z.ownRs, z.incentive, z.extra], [600, 350, 250, 23000, 40, 0]);
+  assert.equal(z.fills.length, 2);                                     // the incentive fill is kept apart
+  assert.equal(z.incentiveFills.length, 1);
+  assert.equal(dataChecks(d4).filter((x) => /OWN DIESEL/.test(x.text)).length, 0);
+  const off = { ...d4, trips: d4.trips.map((t) => (t.row === 3 ? { ...t, ownLtr: 0 } : t)) };   // own fill in HSD Data, not typed in the register
+  assert.match(dataChecks(off).map((x) => x.text).join('\n'), /Own diesel in HSD Data doesn't match .* row 3 \(T3\/DEMO XX01\)/);
+});

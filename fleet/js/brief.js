@@ -123,6 +123,8 @@ export function ownerBrief(data, ctx, today) {
       const M = [...ctx.missingFills.entries()].map(([row, m]) => ({ m, z: ctx.tripDiesel.get(row) })).filter((x) => x.z);
       dz.push({ tone: 'warn', text: `Diesel fill may be missing on ${plural(M.length, 'trip')}: ${M.slice(0, 4).map(({ m, z }) => `${short(z.t.veh)} ${z.t.trip}${m.short != null ? ` (~${ind(m.short)} L)` : ' (refill not entered)'}`).join(', ')}${M.length > 4 ? '…' : ''} — check HSD Data / ask for the slips`, href: '#/trips?f=fill' });
     }
+    const mOwn = data.trips.filter((t) => t.month === monthOf(today) && t.ownLtr);
+    if (mOwn.length) dz.push({ tone: 'info', text: `Own diesel bought this month where SSFC couldn't supply: ${ind(mOwn.reduce((a, t) => a + t.ownLtr, 0))} L (${lakh(mOwn.reduce((a, t) => a + (t.ownAmt || 0), 0))}) on ${plural(mOwn.length, 'trip')}` });
     dz.push({ tone: 'info', text: `Still to fill on the road: ${ind(F.mayTake)} L (${ind(F.toTake)} L left of the allotments, less what's owed)`, href: '#/diesel' });
     sections.push({ title: 'Diesel', items: dz });
   }

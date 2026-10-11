@@ -3,7 +3,9 @@
 //
 // Each trip is allotted its route's diesel + overload − underload (the Recon
 // Engine's figures, analyse.js dieselRecon()). Taken = the fills tagged to
-// the trip (SSFC + own pump; the Trip Register's litres are those fills).
+// the trip: SSFC's diesel + our own (the Trip Register's OWN DIESEL for Trip,
+// bought when SSFC can't supply). Own Diesel Extra is incentive diesel for
+// the driver, already settled — it isn't counted against the allotment.
 // Diesel a driver takes over the allotment isn't lost: it's owed back, out of
 // the next trips' allotments — so every trip starts with the balance the
 // vehicle carries in from the trips before it:
@@ -34,7 +36,9 @@ export function tripDiesel(data, recon, settings = null) {
     let run = 0;
     for (const x of v.list) {
       const t = x.t;
-      const fills = (fillsOf.get(`${t.veh}|${t.trip}`) || []).filter((h) => !t.start || h.date >= t.start).sort((a, b) => (a.date < b.date ? -1 : 1));
+      const tagged = (fillsOf.get(`${t.veh}|${t.trip}`) || []).filter((h) => !t.start || h.date >= t.start).sort((a, b) => (a.date < b.date ? -1 : 1));
+      const fills = tagged.filter((h) => lc(h.source) !== 'extra filling');             // incentive diesel: not part of the trip's
+      const incentiveFills = tagged.filter((h) => lc(h.source) === 'extra filling');
       let { allotted, base } = x;
       let est = false;
       if (allotted == null) {
@@ -47,7 +51,8 @@ export function tripDiesel(data, recon, settings = null) {
       const carryIn = r1(run);
       const live = !t.unloadDate;
       const d = {
-        t, allotted, base, over: x.over || 0, under: x.under || 0, est, taken, fills, extraHsd: t.extraLtr || 0, carryIn, live,
+        t, allotted, base, over: x.over || 0, under: x.under || 0, est, taken, fills, incentiveFills, carryIn, live,
+        ssfcL: t.ssfcLtr || 0, ownL: t.ownLtr || 0, ownRs: t.ownAmt || 0, incentive: t.extraLtr || 0,
         extra: allotted != null ? r1(Math.max(0, taken - allotted)) : 0,
         toTake: allotted != null && live ? r1(Math.max(0, allotted - taken)) : 0,
         mayTake: allotted != null && live ? r1(Math.max(0, allotted + carryIn - taken)) : 0,
