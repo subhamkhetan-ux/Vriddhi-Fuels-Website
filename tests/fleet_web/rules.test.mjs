@@ -70,9 +70,9 @@ test('driver pay: SSFC should pay salary − your advances (the promised extra i
 });
 
 test('driver names from the remarks', () => {
-  assert.equal(driverName('New Driver MD Nazir'), 'MD Nazir');
-  assert.equal(driverName('Raza Khan New Driver'), 'Raza Khan');
-  assert.equal(driverName('Driver Changed from Salim to Khrushid'), 'Khrushid');
+  assert.equal(driverName('New Driver MD Anwar'), 'MD Anwar');
+  assert.equal(driverName('Ravi Kumar New Driver'), 'Ravi Kumar');
+  assert.equal(driverName('Driver Changed from Mohan to Sohan'), 'Sohan');
   assert.equal(driverName('New Driver, 200 Ltr Theft'), '');
 });
 

@@ -19,8 +19,16 @@ import { byDriver, liveBehind, performance, SLOW_DAYS, STAGES } from './perf.js'
 import { liveTrips } from './live.js';
 import { sameDriver } from './drivers.js';
 import { dataChecks } from './checks.js';
+import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
+import { driverBrief, ownerBrief } from './brief.js';
+import { fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
+import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
+import {
+  daybookPagesSvg, driverBriefSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+} from './share-svg.js';
+import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
 import {
   addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
   plural, rupees, shortDate, shortVeh, tonnes,
@@ -309,7 +317,7 @@ async function signOut() {
 // ---------------------------------------------------------------------------
 // shell + routing
 // ---------------------------------------------------------------------------
-const TABS = [['#/', 'Home'], ['#/trips', 'Trips'], ['#/vehicles', 'Vehicles', 'Trucks'], ['#/drivers', 'Drivers'], ['#/costs', 'Tyre & Fastag', 'Tyres'], ['#/ssfc', 'SSFC'], ['#/diesel', 'Diesel'], ['#/setup', 'Setup']];
+const TABS = [['#/', 'Home'], ['#/daybook', 'Day book', 'Days'], ['#/trips', 'Trips'], ['#/vehicles', 'Vehicles', 'Trucks'], ['#/drivers', 'Drivers'], ['#/costs', 'Tyre & Fastag', 'Tyres'], ['#/ssfc', 'SSFC'], ['#/diesel', 'Diesel'], ['#/setup', 'Setup']];
 
 function renderShell() {
   root.innerHTML = `
@@ -383,6 +391,7 @@ async function loadNewer() {
 const ROUTES = [
   [/^#?\/?$/, () => viewHome()],
   [/^#\/trips(?:\?(.*))?$/, (m) => viewTrips(new URLSearchParams(m[1] || ''))],
+  [/^#\/daybook$/, () => viewDaybook()],
   [/^#\/trip\/(\d+)$/, (m) => viewTrip(Number(m[1]))],
   [/^#\/vehicles$/, () => viewVehicles()],
   [/^#\/performance(?:\?r=(.*))?$/, (m) => viewPerformance(m[1] ? decodeURIComponent(m[1]) : '')],
@@ -416,6 +425,9 @@ async function route() {
     const on = a.dataset.tab === '#/' ? cur === '#/' || cur === '' : cur === a.dataset.tab;
     a.classList.toggle('on', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    // a phone's tab bar scrolls when the tabs don't fit: keep this one in view
+    const bar = a.parentElement;
+    if (on && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = Math.max(0, a.offsetLeft - (bar.clientWidth - a.offsetWidth) / 2);
   });
   const hit = ROUTES.map(([re, fn]) => [hash.match(re), fn]).find(([m]) => m);
   setMain(loadingHtml());
@@ -487,7 +499,9 @@ function derived() {
     const kms = tripKms(d, set);
     const x = {
       recon: dieselRecon(d, set), account: ssfcAccount(d.ssfc, today()), status: fleetStatus(d, today()), vehicles: vehiclesOf(d),
-      issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set, today()),
+      issues: dateIssues(d, today()), kms, drivers: driverCheck(d, set, today()), loads: loadBench(d),
+      get tripDiesel() { return this._td || (this._td = tripDiesel(d, this.recon, set)); },
+      get missingFills() { return this._mf || (this._mf = missingFills(this.tripDiesel, { live: this.liveTrips, today: today() })); },
       maxGross: Math.max(0, ...d.trips.map((t) => t.gross || 0)),
       perfRecent: performance(d, today(), { from: addMonths(monthOf(today()), -2), to: monthOf(today()) }),
       perfAll: performance(d, today()),
@@ -509,10 +523,17 @@ function bulkerFor(t, { compact = false, animate = false, empty = false, veh = n
   return bulkerSvg({ state: 'loaded', load: t.loadWt, tare: t.tare, gross: t.gross, max: maxGross, compact, animate, plate: v, ...extra,
     title: `${v} · ${t.trip} · ${t.loadWt.toFixed(2)} T alumina · gross ${t.gross ? t.gross.toFixed(2) : '—'} T (RTO ${RTO_GROSS} T)` });
 }
+// how full the trip went: over the RTO 56 T is good (its fee is paid), and
+// against the best load on the route around the same time
 const weightLine = (t) => {
   if (!t || !t.gross) return '';
+  const b = derived().loads.get(t.row);
   const d = t.gross - RTO_GROSS;
-  return d > 0.05 ? `<span class="pill warn-pill">${d.toFixed(2)} T over the RTO ${RTO_GROSS} T</span>` : `<span class="pill good-pill">${(-d).toFixed(2)} T under the RTO ${RTO_GROSS} T</span>`;
+  const rto = d > 0.05 ? `<span class="pill good-pill">+${d.toFixed(2)} T overload · RTO paid ✓</span>` : `<span class="pill bad-pill">${(-d).toFixed(2)} T under the RTO ${RTO_GROSS} T</span>`;
+  if (!b) return rto;
+  const vs = b.grade === 'top' ? `<span class="pill good-pill">★ Full load — best on the route then ${b.near.toFixed(2)} T</span>`
+    : `<span class="pill ${b.grade === 'poor' ? 'bad-pill' : b.grade === 'low' ? 'warn-pill' : 'info-pill'}">${b.gapNear.toFixed(2)} T below the best then (${b.near.toFixed(2)} T) · ${money(b.lostRs)} freight</span>`;
+  return `${rto} ${vs}`;
 };
 // how a vehicle has been doing lately against the others on the same route
 function perfBadge(veh, perf = derived().perfRecent) {
@@ -614,7 +635,7 @@ async function viewHome() {
     </section>
 
     <section class="card">
-      <div class="row-between"><h3>On the road now</h3><span class="muted small">${plural(status.length, 'vehicle')}</span></div>
+      <div class="row-between"><h3>On the road now</h3><span class="row-gap"><span class="muted small">${plural(status.length, 'vehicle')}</span>${shareBtn('share-road')}</span></div>
       <div class="kpis live-kpis">
         <div class="kpi hero"><span class="lbl">On a trip</span><span class="val">${onTrip.length}<small> / ${status.length}</small></span><span class="sub">avg ${avgDays.toFixed(1)} days since start</span></div>
         <div class="kpi"><span class="lbl">Loaded · en route</span><span class="val">${loaded.length}</span><span class="sub">${esc(summarisePlaces(loaded.map((s) => s.trip.dest)))}</span></div>
@@ -633,6 +654,7 @@ async function viewHome() {
     <div id="dash"></div>
     ${state.meta ? `<p class="muted small">From “${esc(state.meta.file_name)}”${state.meta.created_at ? ` · uploaded ${new Date(state.meta.created_at).toLocaleString('en-IN')}` : ''}${state.meta.by_email ? ` · ${esc(state.meta.by_email)}` : ''}</p>` : ''}`);
   renderDashboard(document.getElementById('dash'));
+  document.getElementById('share-road')?.addEventListener('click', () => sharePictures('Share the fleet', [roadOption(), fleetOption()]));
 }
 
 function summarisePlaces(list) {
@@ -688,6 +710,7 @@ function roadCard(lt) {
     <div class="rc-phase"><b>${esc(lt.phase.title)}</b></div>
     ${stepsHtml(lt)}
     <div class="rc-pace ${pace.cls}"><b>${esc(pace.text)}</b>${pace.sub ? `<small>${esc(pace.sub)}</small>` : ''}${lt.etaTypical ? `<small>At ${esc(t.dest)} ~${dm(lt.etaTypical)}${lt.etaBest && lt.etaBest !== lt.etaTypical ? ` (best ${dm(lt.etaBest)})` : ''}</small>` : ''}</div>
+    ${(() => { const z = derived().tripDiesel.get(t.row); const mf = derived().missingFills.get(t.row); return z && z.allotted != null ? `<div class="rc-diesel ${mf ? 'warn' : dieselTone(z)}"><b>Diesel</b> ${esc(dieselLine(z))}${mf ? ` · ⛽ refill not entered yet?` : ''}</div>` : ''; })()}
     ${projHtml(lt.projection)}
   </a>`;
 }
@@ -731,7 +754,7 @@ function renderDashboard(box) {
   const sumBhada = () => { const { kms } = derived(); return trips.filter((t) => kms.get(t.row) && kms.get(t.row).complete && kms.get(t.row).km).reduce((a, t) => a + (t.bhada || 0), 0); };
   box.innerHTML = `
   <section class="card dash">
-    <div class="row-between"><h2>Business</h2><span class="muted small">${esc(periodRange(p))}</span></div>
+    <div class="row-between"><h2>Business</h2><span class="row-gap"><span class="muted small">${esc(periodRange(p))}</span>${shareBtn('share-fleet', 'Share report')}</span></div>
     ${periodHtml()}
     ${trips.length ? `
     <div class="kpis">
@@ -770,6 +793,7 @@ function renderDashboard(box) {
     ${routesHtml(routes)}` : '<p class="muted">No trips loaded in this period.</p>'}
   </section>`;
   bindPeriod(box);
+  box.querySelector('#share-fleet')?.addEventListener('click', () => sharePictures('Share the fleet', [fleetOption(), roadOption()]));
   box.querySelectorAll('[data-vsort]').forEach((b) => b.addEventListener('click', () => { ui.sort = b.dataset.vsort; renderDashboard(box); }));
   box.querySelector('#month-table')?.addEventListener('click', () => { ui.table = !ui.table; renderDashboard(box); });
   bindCharts(box);
@@ -827,6 +851,8 @@ async function viewTrips(q) {
   if (f === 'road') list = list.filter((t) => t.status !== 'done');
   if (f === 'done') list = list.filter((t) => t.status === 'done');
   if (f === 'short') list = list.filter((t) => (t.diff || 0) < -0.1);
+  if (f === 'fill') { const M = derived().missingFills; list = list.filter((t) => M.has(t.row)); }
+  if (f === 'under') { const L = derived().loads; list = list.filter((t) => { const b = L.get(t.row); return b && (b.grade === 'low' || b.grade === 'poor'); }); }
   if (f === 'loss') list = list.filter((t) => t.status === 'done' && (t.income || 0) + (t.emi || 0) < 0);
   if (f === 'check') list = list.filter((t) => odd.has(t.row));
   if (veh) list = list.filter((t) => t.veh === veh);
@@ -847,7 +873,7 @@ async function viewTrips(q) {
   setMain(`<section class="card">
     <div class="row-between"><h2>Trips</h2><span class="muted small">${plural(list.length, 'trip')}</span></div>
     <div class="chips" role="group" aria-label="Show">
-      ${[['all', 'All'], ['road', 'On the road'], ['done', 'Unloaded'], ['short', 'Short weight'], ['loss', 'Loss before EMI'], ['check', `Dates to check${issues.length ? ` (${issues.length})` : ''}`]].map(([k, n]) => `<a class="chip${f === k ? ' on' : ''}" href="${link({ f: k })}">${n}</a>`).join('')}
+      ${[['all', 'All'], ['road', 'On the road'], ['done', 'Unloaded'], ['short', 'Short weight'], ['under', 'Under-loaded'], ['fill', `Diesel fill missing?${derived().missingFills.size ? ` (${derived().missingFills.size})` : ''}`], ['loss', 'Loss before EMI'], ['check', `Dates to check${issues.length ? ` (${issues.length})` : ''}`]].map(([k, n]) => `<a class="chip${f === k ? ' on' : ''}" href="${link({ f: k })}">${n}</a>`).join('')}
     </div>
     <form class="row-form" id="trip-filter">
       <label>Vehicle <select name="v"><option value="">All vehicles</option>${vehicles.map((v) => `<option${v === veh ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
@@ -856,6 +882,7 @@ async function viewTrips(q) {
       <label>Search <input name="q" type="search" value="${esc(q.get('q') || '')}" placeholder="Trip no, remarks…"></label>
     </form>
     <div class="sumline"><span><b>${tonnes(T.tonnes, 1)}</b> loaded</span><span><b>${money(T.bhada)}</b> freight</span><span><b>${money(T.ssfcNet)}</b> SSFC net</span><span><b class="${signed(T.income + T.emi)}">${money(T.income + T.emi)}</b> before EMI</span><span><b class="${signed(T.income)}">${money(T.income)}</b> net</span></div>
+    ${loadLegend(list)}
     <div class="trips">
       <div class="trow head"><span>Loaded</span><span>Trip</span><span class="r">Tonnes</span><span class="r">Freight</span><span class="r">SSFC net</span><span class="r">Net</span></div>
       ${shown.map((t) => tripRow(t, odd.get(t.row))).join('') || '<p class="muted">No trips match.</p>'}
@@ -872,14 +899,68 @@ async function viewTrips(q) {
   document.getElementById('all-trips')?.addEventListener('click', () => { state.ui.allTrips = true; rerender(); });
 }
 
+const loadCls = (t) => { const b = derived().loads.get(t.row); return b ? LOAD_GRADES[b.grade].cls : ''; };
+const loadTitle = (t) => { const b = derived().loads.get(t.row); return b ? `${LOAD_GRADES[b.grade].name}: ${b.gapNear ? `${b.gapNear.toFixed(2)} T below ` : ''}the best on the route then (${b.near.toFixed(2)} T)` : ''; };
+// what the load colours mean, and what under-loading cost on these trips
+function loadLegend(trips) {
+  const L = loadSummary(trips, derived().loads);
+  if (!L.trips) return '';
+  return `<p class="load-legend small"><span class="muted">Load vs the best on the same route then (overload is paid for — fuller is better):</span>
+    <span class="load-top">● full ${L.top}</span><span class="load-ok">● near full ${L.ok}</span><span class="load-low">● under ${L.low}</span><span class="load-poor">● well under ${L.poor}</span>
+    <span class="muted">· ${tonnes(L.lostT, 1)} short of the best · <b class="${L.lostRs > 0 ? 'warn-text' : ''}">${money(L.lostRs)}</b> freight missed</span></p>`;
+}
+// a trip's diesel against its allotment, with what it carries in from the trips before
+const L1 = (n) => `${indian(Math.abs(n), Math.abs(n) % 1 && Math.abs(n) < 100 ? 1 : 0)} L`;
+function dieselTone(z) {
+  if (!z || z.allotted == null) return '';
+  if (z.extra > 0.5 || z.after < -100) return 'bad';
+  if (z.after < -0.5) return 'warn';
+  return 'good';
+}
+function dieselLine(z) {
+  if (!z || z.allotted == null) return '';
+  if (z.live) {
+    if (z.extra > 0.5) return `${L1(z.taken)} of ${L1(z.allotted)} — ${L1(z.extra)} extra${z.carryIn < -0.5 ? `, ${L1(-z.after)} owed in all` : ''}`;
+    return `${L1(z.taken)} of ${L1(z.allotted)}${z.est ? ' (est.)' : ''} taken · ${L1(z.mayTake)} more may be taken${z.carryIn < -0.5 ? ` (${L1(-z.carryIn)} owed from before)` : ''}`;
+  }
+  return `${L1(z.taken)} of ${L1(z.allotted)}${z.extra > 0.5 ? ` — ${L1(z.extra)} extra` : ''} · balance after ${z.after > 0 ? '+' : z.after < 0 ? '−' : ''}${L1(z.after)}`;
+}
+function dieselPanelHtml(z) {
+  if (!z) return '<p class="muted small">This trip is before the diesel recon starts.</p>';
+  if (z.allotted == null) return `<p class="muted small">No diesel set for ${esc(routeOf(z.t))} — set it in <a href="#/setup">Setup</a> or the Rates sheet.</p>`;
+  const tone = dieselTone(z);
+  const scale = Math.max(z.allotted, z.taken, z.allotted + Math.max(0, z.carryIn), 1);
+  const pct = (v) => `${Math.max(0, Math.min(100, (v / scale) * 100)).toFixed(1)}%`;
+  const within = Math.min(z.taken, z.allotted);
+  const limit = z.allotted + Math.min(0, z.carryIn);                           // what may be taken in all, after what's owed
+  const cell = (lbl, val, sub, cls = '') => `<div class="dz-cell ${cls}"><span class="lbl">${lbl}</span><b>${val}</b><small>${sub}</small></div>`;
+  return `<div class="dz-panel ${tone}">
+    <div class="dz-bar" role="img" aria-label="${esc(dieselLine(z))}">
+      <span class="dz-taken" style="width:${pct(within)}"></span>${z.extra > 0.5 ? `<span class="dz-extra" style="left:${pct(z.allotted)};width:${pct(z.extra)}"></span>` : ''}
+      <i class="dz-mark" style="left:${pct(z.allotted)}" title="the allotment"></i>
+      ${z.carryIn < -0.5 ? `<i class="dz-mark dz-limit" style="left:${pct(Math.max(0, limit))}" title="the limit after what's owed"></i>` : ''}
+    </div>
+    <p class="dz-key"><span><i class="k-taken"></i>taken</span>${z.extra > 0.5 ? '<span><i class="k-extra"></i>extra</span>' : ''}<span><i class="k-mark"></i>allotment ${L1(z.allotted)}</span>${z.carryIn < -0.5 ? `<span><i class="k-limit"></i>limit after what's owed ${L1(Math.max(0, limit))}</span>` : ''}</p>
+    <div class="dz-grid">
+      ${cell('Allotted', L1(z.allotted), z.est ? 'route diesel — over/underload once loaded' : `${z.base ?? '—'} base${z.over ? ` + ${z.over.toFixed(1)} overload` : ''}${z.under ? ` − ${z.under} underload` : ''}`)}
+      ${cell('Taken', L1(z.taken), `${plural(z.fills.length, 'fill')}${z.fills.length ? ` · last ${shortDate(z.fills[z.fills.length - 1].date)}` : ''}`)}
+      ${z.live ? cell('To take', L1(z.toTake), 'left of this trip\'s allotment') : ''}
+      ${cell('Extra this trip', z.extra > 0.5 ? `+${L1(z.extra)}` : '—', z.extra > 0.5 ? 'over the allotment — to be cut from the next trips' : 'within the allotment', z.extra > 0.5 ? 'bad' : '')}
+      ${cell('Carried in', z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—', z.carryIn < -0.5 ? 'extra from earlier trips, owed' : z.carryIn > 0.5 ? 'saved on earlier trips' : 'nothing owed from before', z.carryIn < -0.5 ? 'warn' : '')}
+      ${z.live ? cell('May still take', L1(z.mayTake), z.carryIn < -0.5 ? 'after cutting what\'s owed' : 'for the rest of the trip', z.mayTake < 0.5 ? 'bad' : 'good') : ''}
+      ${cell(z.live ? 'Balance if no more' : 'Balance after', `${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}`, z.after < -0.5 ? 'owed — comes off the next trips' : z.after > 0.5 ? 'saved' : 'square', z.after < -0.5 ? 'bad' : 'good')}
+    </div>
+    ${z.extraHsd ? `<p class="small muted">Plus ${L1(z.extraHsd)} extra HSD bought on the trip (own, outside the recon).</p>` : ''}
+  </div>`;
+}
 function tripRow(t, why) {
   const day = t.loadDate || t.start;
   const diff = t.diff ? `<span class="pill ${t.diff < -0.1 ? 'bad-pill' : t.diff < 0 ? 'warn-pill' : 'good-pill'}">${t.diff > 0 ? '+' : '−'}${Math.abs(t.diff).toFixed(2)}</span>` : '';
   return `<a class="trow${t.status !== 'done' ? ' open' : ''}" href="#/trip/${t.row}">
     <span class="s-date">${day ? `<b>${Number(day.slice(8))}</b><small>${shortDate(day).split(' ')[1]} ${day.slice(2, 4)}</small>` : '—'}</span>
-    <span class="t-main"><b>${esc(t.trip)}</b> <span class="b-veh">${esc(t.veh)}</span>${t.status !== 'done' ? ` ${statusPill(t)}` : ''}${why ? ' <span class="pill bad-pill">check date</span>' : ''}
+    <span class="t-main"><b>${esc(t.trip)}</b> <span class="b-veh">${esc(t.veh)}</span>${t.status !== 'done' ? ` ${statusPill(t)}` : ''}${why ? ' <span class="pill bad-pill">check date</span>' : ''}${derived().missingFills.has(t.row) ? ` <span class="pill warn-pill" title="${esc(derived().missingFills.get(t.row).text)}">⛽ fill missing?</span>` : ''}
       <small>${esc(routeOf(t))}${t.remarks ? ` · ${esc(t.remarks)}` : ''}</small></span>
-    <span class="r t-ton">${t.loadWt ? `${t.loadWt.toFixed(2)} T` : '—'} ${diff}</span>
+    <span class="r t-ton ${t.loadWt ? loadCls(t) : ''}" title="${t.loadWt ? esc(loadTitle(t)) : ''}">${t.loadWt ? `${t.loadWt.toFixed(2)} T` : '—'} ${diff}</span>
     <span class="r t-fr">${t.bhada ? rupees(t.bhada) : '—'}</span>
     <span class="r t-net">${t.ssfcNet != null ? rupees(t.ssfcNet) : '—'}</span>
     <span class="r t-inc ${signed(t.income)}">${t.income != null ? rupees(t.income) : '—'}${t.emi ? '<small>incl. EMI</small>' : ''}</span></a>`;
@@ -898,6 +979,143 @@ function driverLine(t) {
     <span class="${r.over > dc.tolerance ? 'bad-text' : r.over < -dc.tolerance ? '' : 'good-text'}"><b>${r.over > dc.tolerance ? `Overpaid ${rupees(r.over)}` : r.over < -dc.tolerance ? `${rupees(-r.over)} less` : '✓ matches'}</b></span></div>${paid}`;
 }
 
+// ---------------------------------------------------------------------------
+// Day book: every dated entry in the workbook, day by day
+// ---------------------------------------------------------------------------
+function briefCtx() {
+  const x = derived();
+  const lastFill = [...state.data.hsd].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow, tripDiesel: x.tripDiesel, missingFills: x.missingFills, dieselPrice: lastFill ? lastFill.rsp : 0 };
+}
+const DAY_LINK = (e) => (e.t ? `#/trip/${e.t.row}` : e.kind === 'advance' ? `#/drivers/${encodeURIComponent(e.veh)}` : e.kind === 'ssfc' ? '#/ssfc' : `#/vehicle/${encodeURIComponent(e.veh)}`);
+function dayState() {
+  const ui = state.ui.day || (state.ui.day = { r: 'today', from: null, to: null, kinds: [], veh: '', days: 31 });
+  const R = dayRanges(today());
+  if (ui.r !== 'custom' && R[ui.r]) { ui.from = R[ui.r].from; ui.to = R[ui.r].to; }
+  if (!ui.from) { ui.from = today(); ui.to = today(); }
+  return { ui, R };
+}
+function dayAll() {
+  const x = derived();
+  if (!x.dayAll) x.dayAll = dayEntries(state.data, { driverOf: x.drivers.byPayments ? x.drivers.tripDriver : null, payments: x.account ? x.account.payments : [] });
+  return x.dayAll;
+}
+const dayRangeText = (from, to) => (from === to ? longDate(from) : `${dateYear(from)} – ${dateYear(to)}`);
+function daySumText(s) {
+  return [
+    s.loads ? `${plural(s.loads, 'loading')} · ${tonnes(s.tonnes, 1)} · ${money(s.freight)}` : '',
+    s.unloads ? `${plural(s.unloads, 'unloading')}${s.short < 0 ? ` · ${tonnes(-s.short)} short` : ''}` : '',
+    s.fills ? `diesel ${litres(s.litres)} · ${money(s.diesel)}` : '',
+    s.urea ? `urea ${money(s.urea)}` : '',
+    s.advances ? `advances ${money(s.advances)}` : '',
+    s.received ? `SSFC paid ${money(s.received)}` : '',
+  ].filter(Boolean).join('  ·  ');
+}
+function dayRight(e) {
+  if (e.kind === 'load') {
+    const b = e.t && derived().loads.get(e.t.row);
+    return `<b>${rupees(e.amount)}</b>${b ? `<small class="${LOAD_GRADES[b.grade].cls}">${b.grade === 'top' ? '★ full load' : `−${b.gapNear.toFixed(2)} T vs best`}</small>` : '<small>freight</small>'}`;
+  }
+  if (e.kind === 'unload') return `<b>${e.tonnes ? tonnes(e.tonnes) : '—'}</b>${e.short < 0 ? `<small class="bad-text">${tonnes(-e.short)} short</small>` : '<small>delivered</small>'}`;
+  if (e.kind === 'diesel') return `<b>${rupees(e.amount)}</b><small>${litres(e.litres)}</small>`;
+  if (e.kind === 'urea') return `<b>${rupees(e.amount)}</b><small>${e.litres ? `${indian(e.litres, 1)} L` : 'urea'}</small>`;
+  if (e.kind === 'advance') return `<b class="warn-text">${rupees(e.amount)}</b><small>paid out</small>`;
+  if (e.kind === 'ssfc') return `<b class="good-text">${rupees(e.amount)}</b><small>received</small>`;
+  return '';
+}
+
+async function viewDaybook() {
+  const { ui, R } = dayState();
+  const all = dayAll();
+  const issues = new Set(derived().issues.map((x) => x.t.row));
+  const kinds = ui.kinds.length ? new Set(ui.kinds) : null;
+  const book = dayBook(all, { from: ui.from, to: ui.to, kinds, veh: ui.veh });
+  const inRange = dayBook(all, { from: ui.from, to: ui.to, veh: ui.veh });            // for the counts on the type chips
+  const count = (k) => inRange.list.filter((e) => e.kind === k).length;
+  const S = book.sums;
+  const latest = all.find((e) => e.date <= today());
+  const shown = book.days.slice(0, ui.days);
+  const tile = (lbl, val, sub, cls = '') => `<div class="kpi ${cls}"><span class="lbl">${lbl}</span><span class="val">${val}</span><span class="sub">${sub}</span></div>`;
+  const ob = ownerBrief(state.data, briefCtx(), today());
+  const TONE_CLS = { good: 'good-text', warn: 'warn-text', bad: 'bad-text', info: '' };
+  setMain(`<section class="card brief-card">
+    <div class="row-between"><h2>Today's brief <span class="muted small">${esc(longDate(today()))}</span></h2>
+      <span class="row-gap">${shareBtn('share-drivers', 'Drivers (हिंदी)')}${shareBtn('share-owner', 'Owner')}</span></div>
+    <p class="muted small">For you below; for the drivers' WhatsApp group, a picture in Hindi — each truck's next stop with the date to reach it by, its pace and load.</p>
+    ${ob.sections.map((sec) => `<h3 class="sub-h">${esc(sec.title)}</h3><ul class="brief">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>${it.href ? '</a>' : ''}</li>`).join('')}</ul>`).join('')}
+  </section>
+  <section class="card">
+    <div class="row-between"><h2>Day book</h2><span class="row-gap"><span class="muted small">${esc(dayRangeText(ui.from, ui.to))}</span>${book.list.length ? shareBtn('share-day') : ''}</span></div>
+    <p class="muted small">Everything in the workbook with a date: trips started, loaded and unloaded, diesel fills, urea, driver advances and SSFC payments. A trip's other costs (fastag, tyre, maintenance…) have no date of their own — they're on each trip.</p>
+    <div class="chips period" role="group" aria-label="Dates">
+      ${Object.entries(R).map(([k, r]) => `<button class="chip${ui.r === k ? ' on' : ''}" data-dr="${k}" aria-pressed="${ui.r === k}">${esc(r.label)}</button>`).join('')}
+      <button class="chip${ui.r === 'custom' ? ' on' : ''}" data-dr="custom" aria-pressed="${ui.r === 'custom'}">Custom</button>
+    </div>
+    ${ui.r === 'custom' ? `<form class="custom-range" id="day-range"><label>From <input type="date" name="from" value="${ui.from}"></label><label>To <input type="date" name="to" value="${ui.to}"></label><button class="btn small" type="submit">Show</button></form>` : ''}
+    <div class="day-nav"><button class="btn ghost small" data-shift="-1" type="button">‹ Earlier</button><b>${esc(dayRangeText(ui.from, ui.to))}</b><button class="btn ghost small" data-shift="1" type="button"${ui.to >= today() ? ' disabled' : ''}>Later ›</button></div>
+    <div class="day-filters">
+      <div class="chips small-chips" role="group" aria-label="What">
+        <button class="chip${!kinds ? ' on' : ''}" data-dk="" aria-pressed="${!kinds}">All · ${inRange.list.length}</button>
+        ${DAY_KINDS.map((k) => `<button class="chip${kinds && kinds.has(k.key) ? ' on' : ''}" data-dk="${k.key}" aria-pressed="${!!(kinds && kinds.has(k.key))}"><i class="dot" style="background:${k.color}"></i>${esc(k.name)} · ${count(k.key)}</button>`).join('')}
+      </div>
+      <label class="inline-label">Vehicle <select id="day-veh"><option value="">All vehicles</option>${vehiclesOf(state.data).map((v) => `<option value="${esc(v)}"${ui.veh === v ? ' selected' : ''}>${esc(v)}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select></label>
+    </div>
+    <div class="kpis">
+      ${tile('Loaded', S.loads ? `${S.loads} · ${tonnes(S.tonnes, 1)}` : '—', S.loads ? `freight ${money(S.freight)}` : 'no loading')}
+      ${tile('Unloaded', S.unloads ? `${S.unloads} · ${tonnes(S.delivered, 1)}` : '—', S.short < 0 ? `${tonnes(-S.short)} short` : S.unloads ? 'no shortage' : 'no unloading', S.short < -0.5 ? 'warn' : '')}
+      ${tile('Diesel', S.fills ? litres(S.litres) : '—', S.fills ? `${money(S.diesel)} · ${plural(S.fills, 'fill')}${S.ssfcLitres ? (Math.abs(S.ssfcLitres - S.litres) < 0.5 ? ' · all at SSFC pumps' : ` · ${Math.round((S.ssfcLitres / S.litres) * 100)}% at SSFC pumps`) : ''}` : 'no fill')}
+      ${tile('Urea', S.urea ? money(S.urea) : '—', S.ureaL ? `${indian(S.ureaL, 1)} L` : 'none')}
+      ${tile('Driver advances', S.advances ? money(S.advances) : '—', S.advanceN ? plural(S.advanceN, 'payment') : 'none')}
+      ${tile('SSFC received', S.received ? money(S.received) : '—', S.receivedN ? plural(S.receivedN, 'payment') : 'none', S.received ? 'good' : '')}
+    </div>
+  </section>
+  ${shown.map((day) => `<section class="card day-card">
+    <div class="day-head"><h3>${esc(longDate(day.date))}${day.date === today() ? ' <span class="pill fuel-pill">Today</span>' : ''}</h3><span class="muted small">${esc(daySumText(day.sums))}</span></div>
+    <div class="day-list">${day.entries.map((e) => { const k = DAY_KINDS.find((x) => x.key === e.kind); const odd = e.t && issues.has(e.t.row) && (e.kind === 'unload' || e.kind === 'load'); return `<a class="day-row" href="${DAY_LINK(e)}">
+      <span class="day-kind" style="--k:${k.color}"><i></i>${esc(k.name)}</span>
+      <span class="day-veh">${esc(shortVeh(e.veh))}</span>
+      <span class="day-what"><b>${esc(e.title)}</b><small>${esc(e.detail)}${odd ? ' <span class="pill warn-pill">date to check</span>' : ''}</small></span>
+      <span class="day-amt">${dayRight(e)}</span></a>`; }).join('')}</div>
+  </section>`).join('')}
+  ${book.days.length > shown.length ? `<p class="center-p"><button class="btn ghost" id="day-more">${plural(book.days.length - shown.length, 'more day')}</button></p>` : ''}
+  ${!book.list.length ? `<section class="card"><p class="muted">Nothing ${kinds || ui.veh ? 'of this kind ' : ''}on ${ui.from === ui.to ? 'this day' : 'these days'}.</p>${latest && latest.date < ui.from ? `<button class="btn small" id="day-latest">Go to ${esc(longDate(latest.date))}, the latest day with entries</button>` : ''}</section>` : ''}`);
+  const m = main();
+  m.querySelectorAll('[data-dr]').forEach((b) => b.addEventListener('click', () => { ui.r = b.dataset.dr; ui.days = 31; rerender(); }));
+  m.querySelector('#day-range')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const from = e.target.from.value;
+    const to = e.target.to.value;
+    if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    ui.from = from; ui.to = to; ui.days = 31;
+    rerender();
+  });
+  m.querySelectorAll('[data-shift]').forEach((b) => b.addEventListener('click', () => {
+    const r = shiftRange(ui.from, ui.to, Number(b.dataset.shift));
+    ui.r = 'custom'; ui.from = r.from; ui.to = r.to; ui.days = 31;
+    rerender();
+  }));
+  m.querySelectorAll('[data-dk]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.dk;
+    if (!k) ui.kinds = [];
+    else ui.kinds = ui.kinds.includes(k) ? ui.kinds.filter((x) => x !== k) : [...ui.kinds, k];
+    rerender();
+  }));
+  m.querySelector('#day-veh').addEventListener('change', (e) => { ui.veh = e.target.value; rerender(); });
+  m.querySelector('#day-more')?.addEventListener('click', () => { ui.days += 31; rerender(); });
+  m.querySelector('#day-latest')?.addEventListener('click', () => { ui.r = 'custom'; ui.from = latest.date; ui.to = latest.date; rerender(); });
+  m.querySelector('#share-drivers').addEventListener('click', () => sharePictures("Drivers' instructions (Hindi)", [{ label: 'हिंदी', make: async () => {
+    const kit = await shareKit();
+    const hi = await hindiFontCss();
+    return cardFiles(driverBriefSvg(driverBrief(state.data, briefCtx(), today()), { ...kit, fontCss: `${kit.fontCss}\n${hi}` }), `Driver instructions ${fmtDate(today())}`);
+  } }]));
+  m.querySelector('#share-owner').addEventListener('click', () => sharePictures("Owner's insight", [{ label: 'Insight', make: async () => cardFiles(ownerBriefSvg(ownerBrief(state.data, briefCtx(), today()), await shareKit()), `Daily insight ${fmtDate(today())}`) }]));
+  m.querySelector('#share-day')?.addEventListener('click', () => {
+    const label = dayRangeText(ui.from, ui.to);
+    const what = [kinds ? DAY_KINDS.filter((k) => kinds.has(k.key)).map((k) => k.name).join(', ') : '', ui.veh].filter(Boolean).join(' · ');
+    sharePictures('Day book', [{ label: 'Day book', make: async () => pageFiles(daybookPagesSvg(book, { ...(await shareKit()), label, what, driverOf: (v) => driverNow(v), loads: derived().loads }), `Day book ${ui.from === ui.to ? fmtDate(ui.from) : `${fmtDate(ui.from)} to ${fmtDate(ui.to)}`}${ui.veh ? ` ${ui.veh}` : ''}`) }]);
+  });
+}
+
 async function viewTrip(row) {
   const d = state.data;
   const t = d.trips.find((x) => x.row === row);
@@ -911,7 +1129,7 @@ async function viewTrip(row) {
   const days = tripDays(t);
   setMain(`<section class="card">
     <a class="muted small" href="#/trips">← Trips</a>
-    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(t.veh))}</span><div><h2>${esc(t.trip)}</h2><p class="muted">${vehLink(t.veh)} · ${esc(routeOf(t))}${derived().drivers.tripDriver(t) ? ` · driver <b>${esc(derived().drivers.tripDriver(t))}</b>` : ''}</p></div></div>${statusPill(t)}</div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(t.veh))}</span><div><h2>${esc(t.trip)}</h2><p class="muted">${vehLink(t.veh)} · ${esc(routeOf(t))}${derived().drivers.tripDriver(t) ? ` · driver <b>${esc(derived().drivers.tripDriver(t))}</b>` : ''}</p></div></div><span class="row-gap">${statusPill(t)}${shareBtn('share-trip')}</span></div>
     ${why ? `<div class="todo warn" style="margin-top:12px">Check this trip in Excel: ${esc(why)}.</div>` : ''}
     <div class="bulker-hero">${bulkerFor(t.loadWt ? t : null, { animate: true })}
       <p class="bk-cap">${t.loadWt ? `<b>${t.loadWt.toFixed(2)} T</b> of alumina · tare ${t.tare ? t.tare.toFixed(2) : '—'} T · gross <b>${t.gross ? t.gross.toFixed(2) : '—'} T</b> ${weightLine(t)}` : 'Not loaded yet'}</p></div>
@@ -948,17 +1166,15 @@ async function viewTrip(row) {
     ${t.remarks ? `<p class="remark">“${esc(t.remarks)}”</p>` : ''}
   </section>` : t.remarks ? `<section class="card"><p class="remark">“${esc(t.remarks)}”</p></section>` : ''}
   ${sameTimeHtml(t)}
-  <section class="card"><h3>Diesel</h3>
-    <div class="kpis">
-      <div class="kpi"><span class="lbl">Issued</span><span class="val">${litres(dieselLitres(t))}</span><span class="sub">${money(dieselAmount(t))}</span></div>
-      ${rec && rec.allotted != null ? `<div class="kpi"><span class="lbl">Allotted</span><span class="val">${litres(rec.allotted)}</span><span class="sub">${rec.base} base${rec.over ? ` + ${rec.over.toFixed(1)} overload` : ''}${rec.under ? ` − ${rec.under} underload` : ''}</span></div>
-      <div class="kpi ${rec.balance < 0 ? 'warn' : ''}"><span class="lbl">This trip</span><span class="val ${signed(rec.balance)}">${rec.balance > 0 ? '+' : ''}${litres(rec.balance)}</span><span class="sub">${rec.balance < 0 ? 'more issued than allotted' : rec.balance > 0 ? 'less issued than allotted' : 'exactly as allotted'}</span></div>` : ''}
-    </div>
+  <section class="card"><div class="row-between"><h3>Diesel</h3><span class="muted small">${litres(dieselLitres(t))} filled · ${money(dieselAmount(t))}</span></div>
+    ${derived().missingFills.has(t.row) ? `<div class="todo warn">⛽ ${esc(derived().missingFills.get(t.row).text)}. Check HSD Data for this trip, or ask the driver for the slip.</div>` : ''}
+    ${dieselPanelHtml(derived().tripDiesel.get(t.row))}
     ${fills.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Pump</th><th>Where</th><th class="r">Litres</th><th class="r">₹/L</th><th class="r">Amount</th></tr></thead><tbody>
       ${fills.map((h) => `<tr><td>${fmtDate(h.date)}</td><td>${esc(h.source)}</td><td>${esc(h.location)}</td><td class="r">${indian(h.qty, 2)}</td><td class="r">${h.rsp.toFixed(2)}</td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">No HSD fills tagged to this trip in HSD Data.</p>'}
     ${ureas.length ? `<p class="small muted">Urea: ${ureas.map((u) => `${fmtDate(u.date)} ${indian(u.qty, 1)} L from ${esc(u.from)} (${rupees(u.amount)})`).join(' · ')}</p>` : ''}
   </section>`);
   bindCharts(main());
+  document.getElementById('share-trip').addEventListener('click', () => shareTrip(t));
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,7 +1230,7 @@ async function viewVehicle(veh) {
   const liveNow = derived().liveTrips.find((x) => x.veh === veh);
   setMain(`<section class="card">
     <a class="muted small" href="#/vehicles">← Vehicles</a>
-    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)}</h2><p class="muted">${plural(mine.length, 'trip')} in the register${emiNow ? ` · EMI ${rupees(emiNow)} a month` : ''}</p></div></div></div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)}</h2><p class="muted">${plural(mine.length, 'trip')} in the register${emiNow ? ` · EMI ${rupees(emiNow)} a month` : ''}</p></div></div>${shareBtn('share-veh')}</div>
     <div class="live-line ${s.state}"><span class="veh-state"><i></i>${esc(s.long)}</span>${s.trip ? ` · <a href="#/trip/${s.trip.row}">${esc(s.trip.trip)}</a> · ${s.state === 'idle' ? '' : `day ${s.days}`}${s.trip.loadWt ? ` · ${s.trip.loadWt.toFixed(2)} T` : ''}` : s.days != null ? ` · ${s.days} days` : ''}</div>
     <div class="bulker-hero">${bulkerFor(heroTrip, { animate: true, veh })}
       <p class="bk-cap">${heroTrip ? `${s.state === 'loaded' ? 'Now carrying' : 'Last load'} <b>${heroTrip.loadWt.toFixed(2)} T</b> of alumina (${esc(heroTrip.trip)}, ${esc(routeOf(heroTrip))}) · gross <b>${heroTrip.gross ? heroTrip.gross.toFixed(2) : '—'} T</b> ${weightLine(heroTrip)}` : 'Empty'}${driverNow(veh) ? ` · driver <b>${esc(driverNow(veh))}</b>` : ''}</p></div>
@@ -1036,6 +1252,7 @@ async function viewVehicle(veh) {
       <div class="kpi"><span class="lbl">Avg trip</span><span class="val">${T.days ? `${T.days.toFixed(1)} d` : '—'}</span><span class="sub">start to unloading</span></div>
       ${KV.km ? `<div class="kpi"><span class="lbl">Distance</span><span class="val">${indian(KV.km)} km</span><span class="sub">${KV.litres ? `${(KV.km / KV.litres).toFixed(2)} km/L mileage` : ''}</span></div>` : ''}
       <div class="kpi"><span class="lbl">Weight short</span><span class="val">${tonnes(-T.short)}</span><span class="sub">${plural(T.shortTrips, 'trip')}</span></div>
+      ${(() => { const L = loadSummary(inP, derived().loads); return L.trips ? `<div class="kpi ${L.avgGap > 1.5 ? 'warn' : ''}"><span class="lbl">Load vs the best</span><span class="val ${L.avgGap <= 0.5 ? 'good-text' : L.avgGap <= 1.5 ? '' : L.avgGap <= 3 ? 'warn-text' : 'bad-text'}">−${L.avgGap.toFixed(2)} T</span><span class="sub">avg ${L.avgLoad.toFixed(2)} T · ${money(L.lostRs)} freight missed</span></div>` : ''; })()}
     </div>
     ${cm ? `<h3 class="sub-h">Month by month <span class="muted">${esc(cm.note)}</span></h3>
       ${legend([{ name: 'Profit before EMI', color: S3 }, { name: 'Net after EMI', color: S2 }])}
@@ -1050,6 +1267,7 @@ async function viewVehicle(veh) {
   </section>`);
   bindPeriod(main());
   bindCharts(main());
+  document.getElementById('share-veh').addEventListener('click', () => shareVehicle(veh));
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,7 +1283,7 @@ async function viewSsfc() {
   setChartWidth(main().clientWidth - 38);
   const shownInv = ui.all ? [...list].reverse() : [...list].reverse().filter((b) => b.pending > 0.005 || b === list[list.length - 1]);
   setMain(`<section class="card">
-    <div class="acct-top"><div class="acct-id"><span class="avatar">SS</span><div><h2>${esc(a.party.name)}</h2><p class="muted">${a.party.gstin ? `GSTIN ${esc(a.party.gstin)} · ` : ''}bulker hiring account</p></div></div></div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">SS</span><div><h2>${esc(a.party.name)}</h2><p class="muted">${a.party.gstin ? `GSTIN ${esc(a.party.gstin)} · ` : ''}bulker hiring account</p></div></div>${shareBtn('share-ssfc')}</div>
     <div class="acct-hero">
       <div><span class="lbl">SSFC owes you</span><span class="val" ${exact(a.total)}>${money(a.total)}</span><span class="sub">${rupees(a.total)} incl. GST ${money(a.igst)}</span></div>
       <div class="side"><span class="lbl">Without GST</span><b ${exact(a.exGst)}>${money(a.exGst)}</b><span class="sub">${lastPay ? `last payment ${money(lastPay.account + lastPay.other)}${lastPay.date ? ` on ${dateYear(lastPay.date)}` : ` (${monthName(lastPay.month)})`}` : ''}</span></div>
@@ -1115,6 +1333,7 @@ async function viewSsfc() {
     </tbody></table></div></section>`);
   main().querySelectorAll('[data-gst]').forEach((b) => b.addEventListener('click', () => { ui.gst = b.dataset.gst === '1'; rerender(); }));
   document.getElementById('inv-all').addEventListener('click', () => { ui.all = !ui.all; rerender(); });
+  document.getElementById('share-ssfc').addEventListener('click', shareSsfc);
   bindCharts(main());
 }
 
@@ -1133,7 +1352,9 @@ async function viewDiesel() {
   const maxAbs = Math.max(1, ...recon.vehicles.map((v) => Math.abs(v.balance)));
   const keys = [...SOURCES, 'Other'].filter((s) => F.sources.some((x) => x.name === s)).map((s) => ({ key: s, name: s, color: SRC_COLORS[s] }));
   const check = d.checks && d.checks.reconTotal != null ? Math.abs(d.checks.reconTotal - recon.total) < 0.05 : null;
-  setMain(`<section class="card">
+  setMain(`${dieselNowHtml()}
+  ${missingFillsHtml()}
+  <section class="card">
     <div class="row-between"><h2>Diesel</h2><span class="muted small">${esc(periodRange(p))}</span></div>
     ${periodHtml()}
     <div class="kpis">
@@ -1164,7 +1385,7 @@ async function viewDiesel() {
     <div class="recon">${[...recon.vehicles].sort((a, b) => a.balance - b.balance).map((v) => `<a class="recon-row" href="#/diesel/${encodeURIComponent(v.veh)}">
       <b>${esc(v.veh)}</b>
       <span class="div-bar"><span class="neg">${v.balance < 0 ? `<i style="width:${((-v.balance / maxAbs) * 100).toFixed(1)}%"></i>` : ''}</span><span class="pos">${v.balance > 0 ? `<i style="width:${((v.balance / maxAbs) * 100).toFixed(1)}%"></i>` : ''}</span></span>
-      <span class="r"><b class="${signed(v.balance)}">${v.balance > 0 ? '+' : ''}${indian(v.balance, 1)} L</b><small>${v.balance < 0 ? 'short' : v.balance > 0 ? 'surplus' : 'nil'}</small></span></a>`).join('')}</div>
+      <span class="r"><b class="${signed(v.balance)}">${v.balance > 0 ? '+' : ''}${indian(v.balance, 1)} L</b><small>${v.balance < 0 ? 'extra taken — owed' : v.balance > 0 ? 'saved' : 'square'}</small></span></a>`).join('')}</div>
   </section>
 
   <section class="card"><h3>Urea (DEF) · ${esc(periodRange(p))}</h3>
@@ -1174,6 +1395,52 @@ async function viewDiesel() {
   </section>`);
   bindPeriod(main());
   bindCharts(main());
+}
+
+// trips with far less diesel tagged than allotted: a fill not reported or not entered
+function missingFillsHtml() {
+  const M = derived().missingFills;
+  const td = derived().tripDiesel;
+  const rows = [...M.entries()].map(([row, m]) => ({ m, z: td.get(row) })).filter((x) => x.z)
+    .sort((a, b) => ((a.z.t.loadDate || a.z.t.start) < (b.z.t.loadDate || b.z.t.start) ? 1 : -1));
+  const months = new Map();
+  for (const x of rows) { const k = monthOf(x.z.t.loadDate || x.z.t.start); months.set(k, (months.get(k) || 0) + 1); }
+  return `<section class="card">
+    <div class="row-between"><h3>Diesel fills that may be missing</h3><span class="muted small">${rows.length ? plural(rows.length, 'trip') : 'none'}</span></div>
+    <p class="muted small">A trip with far less diesel tagged than its allotment — under 75% of it and 100 L+ under what the route usually takes — most likely has a fill the driver didn't report or that wasn't entered in HSD Data. Normal savings (up to ~20% under) aren't listed. A truck on the road is listed once it's past the usual day of its return refill with none entered.</p>
+    ${rows.length ? `${months.size > 1 ? `<p class="small">${[...months.entries()].map(([m, n]) => `<b>${esc(monthLong(m))}</b> ${n}`).join(' · ')}</p>` : ''}
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Loaded</th><th>Vehicle</th><th>Trip</th><th class="r">Allotted</th><th class="r">Tagged</th><th class="r">Route usually</th><th class="r">Short by</th><th>Fills tagged</th></tr></thead><tbody>
+      ${rows.map(({ m, z }) => `<tr><td>${fmtDate(z.t.loadDate || z.t.start)}</td><td><a href="#/vehicle/${encodeURIComponent(z.t.veh)}"><b>${esc(shortVeh(z.t.veh))}</b></a></td><td><a href="#/trip/${z.t.row}">${esc(z.t.trip)}</a><small class="muted block">${esc(routeOf(z.t))}${m.kind === 'refill' ? ' · on the road' : ''}</small></td>
+        <td class="r">${L1(z.allotted)}</td><td class="r"><b class="warn-text">${L1(z.taken)}</b></td><td class="r">${m.typical != null ? L1(m.typical) : '—'}</td><td class="r">${m.short != null ? L1(m.short) : 'refill'}</td>
+        <td class="small muted">${z.fills.map((h) => `${shortDate(h.date)} ${indian(h.qty)} L ${esc(h.location || h.source || '')}`).join(' · ') || 'none'}</td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="good-text">✓ None — every trip\'s diesel is in line with its allotment.</p>'}
+  </section>`;
+}
+
+// the trips on the road: how much of each allotment is taken, what's left, what's owed
+function dieselNowHtml() {
+  const d = state.data;
+  const { recon, tripDiesel: td } = derived();
+  const lastFill = [...d.hsd].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  const price = lastFill ? lastFill.rsp : 0;
+  const F = fleetDiesel(recon, td, price);
+  const live = F.live.filter((z) => z.allotted != null).sort((a, b) => a.after - b.after);
+  return `<section class="card">
+    <div class="row-between"><h3>Diesel on the road now</h3><span class="muted small">${plural(live.length, 'trip')}</span></div>
+    <p class="muted small">Each trip may take its allotment (route diesel + overload − underload); diesel taken over it is owed and comes off the next trips. <b>May still take</b> = the allotment − what's taken − what the truck still owes from before.</p>
+    <div class="kpis">
+      <div class="kpi ${F.owedL > 0.5 ? 'warn' : ''}"><span class="lbl">Extra taken, owed</span><span class="val ${F.owedL > 0.5 ? 'bad-text' : ''}">${F.owedL > 0.5 ? litres(F.owedL) : '—'}</span><span class="sub">${F.owed.length ? `${plural(F.owed.length, 'truck')}${price ? ` · ≈ ${money(F.owedRs)} at ₹${price.toFixed(2)}/L` : ''}` : 'no truck owes diesel'}</span></div>
+      <div class="kpi"><span class="lbl">Saved</span><span class="val ${F.savedL > 0.5 ? 'good-text' : ''}">${F.savedL > 0.5 ? litres(F.savedL) : '—'}</span><span class="sub">${plural(F.saved.length, 'truck')} under their allotments</span></div>
+      <div class="kpi ${F.overNow.length ? 'warn' : ''}"><span class="lbl">Over the allotment now</span><span class="val ${F.overNow.length ? 'bad-text' : ''}">${F.overNow.length || '—'}</span><span class="sub">${F.overNow.length ? F.overNow.map((z) => `${shortVeh(z.t.veh)} +${L1(z.extra)}`).join(', ') : 'trips on the road'}</span></div>
+      <div class="kpi"><span class="lbl">Still to fill</span><span class="val">${litres(F.mayTake)}</span><span class="sub">${litres(F.toTake)} left of the allotments, less what's owed</span></div>
+    </div>
+    ${live.length ? `<div class="table-wrap"><table class="compact dz-table"><thead><tr><th>Vehicle</th><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">To take</th><th class="r">Extra</th><th class="r">Carried in</th><th class="r">May still take</th><th class="r">Balance</th></tr></thead><tbody>
+      ${live.map((z) => `<tr class="${dieselTone(z) === 'bad' ? 'row-under' : ''}"><td><a href="#/vehicle/${encodeURIComponent(z.t.veh)}"><b>${esc(shortVeh(z.t.veh))}</b></a><small class="muted block">${esc(driverNow(z.t.veh) || '')}</small></td><td><a href="#/trip/${z.t.row}">${esc(z.t.trip)}</a><small class="muted block">${z.t.loadDate ? 'loaded' : 'to load'}${z.est ? ' · est.' : ''}</small></td>
+        <td class="r">${L1(z.allotted)}</td><td class="r">${L1(z.taken)}</td><td class="r">${z.toTake > 0.5 ? L1(z.toTake) : '—'}</td><td class="r ${z.extra > 0.5 ? 'bad-text' : ''}">${z.extra > 0.5 ? `+${L1(z.extra)}` : '—'}</td>
+        <td class="r ${z.carryIn < -0.5 ? 'warn-text' : ''}">${z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—'}</td><td class="r"><b class="${z.mayTake < 0.5 ? 'bad-text' : 'good-text'}">${L1(z.mayTake)}</b></td>
+        <td class="r"><b class="${z.after < -0.5 ? 'bad-text' : 'good-text'}">${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}</b></td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="muted">No trip on the road.</p>'}
+  </section>`;
 }
 
 function mileageHtml(p) {
@@ -1196,7 +1463,8 @@ async function viewDieselVehicle(veh) {
   const list = v.list.filter((x) => x.allotted != null);
   setMain(`<section class="card">
     <a class="muted small" href="#/diesel">← Diesel</a>
-    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)} · diesel recon</h2><p class="muted">${plural(list.length, 'trip')} since ${recon.since ? dateYear(recon.since) : '—'}</p></div></div></div>
+    <div class="acct-top"><div class="acct-id"><span class="avatar">${esc(shortVeh(veh))}</span><div><h2>${esc(veh)} · diesel recon</h2><p class="muted">${plural(list.length, 'trip')} since ${recon.since ? dateYear(recon.since) : '—'}</p></div></div>${shareBtn('share-recon')}</div>
+    ${(() => { const live = v.list.map((x) => derived().tripDiesel.get(x.t.row)).filter((z) => z && z.live && z.t.start).pop(); return live ? `<h3 class="sub-h">On the road now · <a href="#/trip/${live.t.row}">${esc(live.t.trip)}</a></h3>${dieselPanelHtml(live)}` : ''; })()}
     <div class="acct-hero"><div><span class="lbl">Running balance</span><span class="val">${v.balance > 0 ? '+' : ''}${indian(v.balance, 2)} L</span><span class="sub">${v.balance < 0 ? 'more issued than allotted (short)' : v.balance > 0 ? 'less issued than allotted (surplus)' : 'nil'}</span></div>
       <div class="side"><span class="lbl">Allotted / issued</span><b>${litres(v.allotted)}</b><span class="sub">issued ${litres(v.issued)}</span></div></div>
     <h3 class="sub-h">Each trip's balance</h3>
@@ -1210,6 +1478,189 @@ async function viewDieselVehicle(veh) {
     </tbody></table></div>
   </section>`);
   bindCharts(main());
+  document.getElementById('share-recon').addEventListener('click', () => shareRecon(veh));
+}
+
+// ---------------------------------------------------------------------------
+// Sharing: data-rich pictures of the screens (share-svg.js), like the Ledger
+// app's — Share (WhatsApp etc.), Download, or a PDF of the pages
+// ---------------------------------------------------------------------------
+let shareAssets = null;
+function shareKit() {
+  if (!shareAssets) {
+    shareAssets = Promise.all([toDataUrl('assets/logo-mark.png').catch(() => ''), toDataUrl('assets/logo-word-light.png').catch(() => ''), brandFontCss()])
+      .then(([mark, word, fontCss]) => ({ images: { mark, word }, fontCss, asOn: today() }));
+  }
+  return shareAssets.then((k) => ({ ...k, asOn: today() }));
+}
+const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+// the bulker drawing for a picture: its logo as a data: URL
+const pictureBulker = (svg, mark) => svg.replace(/href="assets\/logo-mark\.png"/g, mark ? `href="${mark}"` : '');
+
+async function pageFiles(svgs, base) {
+  base = safeName(base);
+  const files = [];
+  for (let i = 0; i < svgs.length; i++) {
+    files.push(new File([await jpegFromSvg(svgs[i], PAGE)], `${base}${svgs.length > 1 ? ` (${i + 1} of ${svgs.length})` : ''}.jpeg`, { type: 'image/jpeg' }));
+  }
+  return { files, pdf: async () => download(await pdfFromSvgs(svgs, PAGE, PAGE_PT), `${base}.pdf`) };
+}
+async function cardFiles({ svg, size }, base) {
+  return { files: [new File([await jpegFromSvg(svg, size)], `${safeName(base)}.jpeg`, { type: 'image/jpeg' })] };
+}
+
+// A sheet that draws the pictures, shows them and hands them over. Sharing
+// needs the files ready before the tap, so they're drawn first and the Share
+// button only passes them on. options: [{ label, make: async () => { files, pdf? } }]
+async function sharePictures(title, options) {
+  document.querySelector('.share-sheet')?.remove();
+  const sheet = document.createElement('div');
+  sheet.className = 'share-sheet';
+  sheet.innerHTML = `<div class="share-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+      <div class="row-between"><h3>${esc(title)}</h3><button class="icon" data-close aria-label="Close">✕</button></div>
+      ${options.length > 1 ? `<div class="chips small-chips share-variants">${options.map((o, i) => `<button class="chip" data-variant="${i}">${esc(o.label)}</button>`).join('')}</div>` : ''}
+      <div class="share-body">${loadingHtml('Drawing the pictures…')}</div>
+    </div>`;
+  document.body.append(sheet);
+  let urls = [];
+  const freeUrls = () => { urls.forEach((u) => URL.revokeObjectURL(u)); urls = []; };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => { sheet.remove(); freeUrls(); document.removeEventListener('keydown', onKey); };
+  document.addEventListener('keydown', onKey);
+  sheet.addEventListener('click', (e) => { if (e.target === sheet || e.target.closest('[data-close]')) close(); });
+  const body = sheet.querySelector('.share-body');
+  const made = new Map();
+  let showing = 0;
+  const show = async (i) => {
+    showing = i;
+    sheet.querySelectorAll('[data-variant]').forEach((b) => { b.classList.toggle('on', Number(b.dataset.variant) === i); b.setAttribute('aria-pressed', String(Number(b.dataset.variant) === i)); });
+    body.innerHTML = loadingHtml('Drawing the pictures…');
+    let set;
+    try {
+      if (!made.has(i)) made.set(i, options[i].make());
+      set = await made.get(i);
+    } catch (err) {
+      console.error(err);
+      made.delete(i);
+      if (showing === i) body.innerHTML = errorHtml(err);
+      return;
+    }
+    if (!sheet.isConnected || showing !== i) return;
+    freeUrls();
+    const shots = set.files.map((f) => { const u = URL.createObjectURL(f); urls.push(u); return u; });
+    const share = canShareFiles(set.files);
+    body.innerHTML = `<div class="share-shots${set.files.length === 1 ? ' one' : ''}">${shots.map((u, j) => `<img src="${u}" alt="${esc(set.files[j].name)}">`).join('')}</div>
+      <p class="muted small">${set.files.length === 1 ? esc(set.files[0].name) : `${set.files.length} pages — swipe to see them all`}</p>
+      <div class="actions">${share ? '<button class="btn" data-share>Share</button>' : ''}
+        <button class="btn ${share ? 'ghost' : ''}" data-save>Download${set.files.length > 1 ? ' all' : ''}</button>
+        ${set.pdf ? '<button class="btn ghost" data-pdf>PDF</button>' : ''}</div>`;
+    body.querySelector('[data-share]')?.addEventListener('click', () => guard(async () => {
+      try {
+        await navigator.share({ files: set.files });              // pictures only: extra text can make apps drop them
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        throw err;
+      }
+    }));
+    body.querySelector('[data-save]').addEventListener('click', () => guard(async () => {
+      if (set.files.length === 1) download(set.files[0], set.files[0].name);
+      else download(await zipBlob(set.files), `${set.files[0].name.replace(/ \(1 of \d+\)\.jpeg$/, '')}.zip`);
+    }));
+    body.querySelector('[data-pdf]')?.addEventListener('click', (e) => guard(async () => {
+      e.target.disabled = true;
+      try { await set.pdf(); } finally { e.target.disabled = false; }
+    }));
+  };
+  sheet.querySelectorAll('[data-variant]').forEach((b) => b.addEventListener('click', () => show(Number(b.dataset.variant))));
+  await show(0);
+}
+const shareBtn = (id, label = 'Share') => `<button class="btn small share-btn" id="${id}" type="button"><span aria-hidden="true">⇪</span> ${esc(label)}</button>`;
+
+// what each screen shares
+function shareSsfc() {
+  const { account: a } = derived();
+  const make = (gst) => async () => {
+    const kit = await shareKit();
+    return pageFiles(ssfcPagesSvg(a, { gst, ...kit, checks: state.data.checks }), `SSFC account ${fmtDate(today())}${gst ? '' : ' without GST'}`);
+  };
+  sharePictures('SSFC account', [{ label: 'With GST', make: make(true) }, { label: 'Without GST', make: make(false) }]);
+}
+function shareVehicle(veh) {
+  const p = currentPeriod();
+  const d = state.data;
+  const { recon, drivers: dc } = derived();
+  const rv = recon.vehicles.find((x) => x.veh === veh);
+  const mine = d.trips.filter((t) => t.veh === veh);
+  const emi = [...mine].reverse().find((t) => t.emi)?.emi || 0;
+  const opts = [{ label: `Statement · ${periodRange(p)}`, make: async () => {
+    const kit = await shareKit();
+    return pageFiles(vehiclePagesSvg(veh, mine.filter((t) => inPeriod(t, p)), { ...kit, period: periodRange(p), recon: rv, driver: driverNow(veh), driverOf: dc.byPayments ? dc.tripDriver : null, emi, loads: derived().loads }),
+      `${veh} statement ${periodRange(p)}`);
+  } }];
+  if (rv && rv.list.length) opts.push({ label: 'Diesel recon', make: async () => pageFiles(reconPagesSvg(rv, { ...(await shareKit()), since: recon.since }), `${veh} diesel recon ${fmtDate(today())}`) });
+  sharePictures(`${veh}`, opts);
+}
+function shareRecon(veh) {
+  const { recon } = derived();
+  const rv = recon.vehicles.find((x) => x.veh === veh);
+  sharePictures(`${veh} · diesel recon`, [{ label: 'Diesel recon', make: async () => pageFiles(reconPagesSvg(rv, { ...(await shareKit()), since: recon.since }), `${veh} diesel recon ${fmtDate(today())}`) }]);
+}
+function shareTrip(t) {
+  const d = state.data;
+  const { recon, drivers: dc } = derived();
+  const rec = recon.vehicles.find((v) => v.veh === t.veh)?.list.find((x) => x.t.row === t.row);
+  const info = dc.tripInfo(t);
+  sharePictures(`${t.trip} · ${shortVeh(t.veh)}`, [{ label: 'Trip', make: async () => {
+    const kit = await shareKit();
+    const card = tripCardSvg(t, {
+      ...kit, bulker: pictureBulker(bulkerFor(t.loadWt ? t : null, { veh: t.veh, routeTrip: t }), kit.images.mark), bulkerCss: bulkerCss(),
+      fills: d.hsd.filter((h) => h.veh === t.veh && h.trip === t.trip).sort((a, b) => (a.date < b.date ? -1 : 1)),
+      recon: rec, driver: dc.tripDriver(t), paid: info ? info.paid : [], check: dc.rows.find((r) => r.t === t) || null, load: derived().loads.get(t.row) || null, diesel: derived().tripDiesel.get(t.row) || null,
+    });
+    return cardFiles(card, `${t.trip.replace('/', '-')} ${t.veh}`);
+  } }]);
+}
+function shareDriver(veh, i) {
+  const { drivers: dc } = derived();
+  const sp = dc.spells.filter((x) => x.veh === veh)[i];
+  if (!sp) return;
+  const rows = dc.rows.filter((r) => r.spell === sp);
+  sharePictures(`${sp.label} · ${shortVeh(veh)}`, [{ label: 'Driver statement', make: async () => pageFiles(driverPagesSvg(sp, rows, { ...(await shareKit()), now: sp.current }), `${sp.label} ${veh} ${fmtDate(today())}`) }]);
+}
+function fleetOption() {
+  const p = currentPeriod();
+  const d = state.data;
+  const { account, status } = derived();
+  return { label: `Fleet report · ${periodRange(p)}`, make: async () => {
+    const trips = d.trips.filter((t) => inPeriod(t, p));
+    const ms = trips.map((t) => t.month).filter(Boolean).sort();
+    return pageFiles(fleetPagesSvg(trips, {
+      ...(await shareKit()), period: periodRange(p), vehicles: byVehicle(trips, vehiclesOf(d)), routes: byRoute(trips),
+      months: ms.length ? monthly(trips, ms[0], ms[ms.length - 1]) : [], driverOf: (v) => driverNow(v), account, onRoad: status.filter((s) => s.state !== 'idle').length,
+    }), `Fleet report ${periodRange(p)}`);
+  } };
+}
+function roadOption() {
+  const { status, liveTrips: lts } = derived();
+  return { label: 'On the road now', make: async () => {
+    const kit = await shareKit();
+    const css = bulkerCss();
+    const rows = status.map((s) => {
+      const lt = lts.find((x) => x.veh === s.veh);
+      const t = s.trip;
+      const pace = lt ? paceText(lt) : null;
+      const showLoad = lt ? !(lt.stage === 'start' || lt.stage === 'out') : s.state === 'loaded';
+      return {
+        veh: s.veh, driver: driverNow(s.veh), state: s.state,
+        title: t ? `${t.port} → ${t.dest}` : s.text, phase: t ? (lt ? lt.phase.title : s.long) : '',
+        sub: t ? `${t.trip} · started ${dm(t.start)} · day ${lt ? lt.el : s.days}${t.loadWt ? ` · ${t.loadWt.toFixed(2)} T` : ''}${lt && lt.etaTypical ? ` · at ${t.dest} ~${dm(lt.etaTypical)}` : ''}` : s.last ? `last unloaded ${dm(s.last.unloadDate)}${s.days != null ? ` · ${s.days} days ago` : ''}` : '',
+        pace: pace ? pace.text : '', paceColor: pace ? { good: 'good', behind: 'warn', late: 'bad' }[pace.cls] : '',
+        ...(() => { const z = t && derived().tripDiesel.get(t.row); return z && z.allotted != null ? { diesel: dieselLine(z), dieselColor: dieselTone(z) } : {}; })(),
+        bulker: pictureBulker(t ? bulkerFor(showLoad ? t : null, { veh: s.veh, routeTrip: t, compact: true }) : bulkerFor(null, { veh: s.veh, compact: true }), kit.images.mark),
+      };
+    }).sort((a, b) => ['loaded', 'empty', 'idle'].indexOf(a.state) - ['loaded', 'empty', 'idle'].indexOf(b.state));
+    return cardFiles(roadCardSvg(rows, { ...kit, bulkerCss: css }), `On the road ${fmtDate(today())}`);
+  } };
 }
 
 // ---------------------------------------------------------------------------
@@ -1497,7 +1948,7 @@ async function viewDriverVehicle(veh) {
     ${salaryNote(dc)}
   </section>
   ${[...spells].reverse().map((sp) => `<section class="card">
-    <div class="row-between"><h3>${esc(sp.label)} ${sp.current ? '<span class="pill fuel-pill">Now</span>' : ''}</h3>${owes(sp.balance)}</div>
+    <div class="row-between"><h3>${esc(sp.label)} ${sp.current ? '<span class="pill fuel-pill">Now</span>' : ''}</h3><span class="row-gap">${owes(sp.balance)}<button class="btn small share-btn" type="button" data-share-spell="${spells.indexOf(sp)}"><span aria-hidden="true">⇪</span> Share</button></span></div>
     <p class="muted small">${sp.from ? dateYear(sp.from) : '—'} (${esc(sp.fromTrip.trip)}) → ${sp.current ? 'now' : `${sp.to ? dateYear(sp.to) : '—'} (${esc(sp.all[sp.all.length - 1].trip)})`} · ${plural(sp.all.length, 'trip')} driven${sp.remark ? ` · “${esc(sp.remark)}”` : ''} · ${plural(sp.trips.length, 'trip')} checked · salary ${rupees(sp.salary)} · SSFC ${rupees(sp.ssfc)} + you ${rupees(sp.advance)}${sp.debit ? ` · debits ${rupees(sp.debit)}` : ''}</p>
     ${sp.payments.length ? `<details class="pay-list"><summary>${plural(sp.payments.length, 'advance')} paid in his trips · ${rupees(sp.payments.reduce((a, x) => a + x.amount, 0))}</summary><div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Paid to</th><th class="r">Amount</th><th>Note</th></tr></thead><tbody>
       ${[...sp.payments].reverse().map((x) => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.name)}</td><td class="r">${rupees(x.amount)}</td><td class="small muted">${esc(x.note || '')}</td></tr>`).join('')}
@@ -1509,6 +1960,7 @@ async function viewDriverVehicle(veh) {
     </tbody></table></div>
     <p class="muted small">Trip ± = SSFC paid − (salary − your advance); + means paid more. Running = the spell so far, with debits (+ = the driver has more than he earned).</p>
   </section>`).join('')}`);
+  main().querySelectorAll('[data-share-spell]').forEach((b) => b.addEventListener('click', () => shareDriver(veh, Number(b.dataset.shareSpell))));
 }
 
 // ---------------------------------------------------------------------------

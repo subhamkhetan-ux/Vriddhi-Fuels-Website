@@ -569,6 +569,40 @@ a.kpi { color: var(--ink); } a.kpi:hover { text-decoration: none; border-color: 
 .chg-sum { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
 .chg-sum span { padding: 3px 9px; border-radius: 999px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); font-size: 12.5px; }
 .chg-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
+/* share buttons (the sheet's own styles are above, as in the Ledger app) */
+.row-gap { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.share-btn span { font-size: 15px; line-height: 1; }
+.share-variants { margin-top: 12px; }
+:root[data-theme="light"] .share-box { background: rgba(255,255,255,.97); box-shadow: 0 30px 60px -24px rgba(90,45,15,.45); }
+:root[data-theme="light"] .share-sheet { background: rgba(40,25,15,.45); }
+/* day book */
+.day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: var(--well); }
+.day-nav b { font-family: var(--display); text-align: center; font-size: 14.5px; }
+.day-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; margin-top: 12px; }
+.day-filters .chips { margin: 0; }
+.day-filters .inline-label { display: flex; align-items: center; gap: 8px; }
+.day-filters select { width: auto; min-width: 0; margin: 0; max-width: 100%; }
+.chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.day-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 14px; }
+.day-head h3 { margin: 0; }
+.day-list { display: grid; gap: 2px; margin-top: 10px; }
+.day-row { display: grid; grid-template-columns: 116px 52px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 10px; border-radius: 12px; color: var(--ink); }
+.day-row:nth-child(even) { background: var(--hover); }
+.day-row:hover { text-decoration: none; background: var(--glass-2); }
+.day-kind { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.day-kind i { width: 9px; height: 9px; border-radius: 50%; background: var(--k); flex: none; }
+.day-veh { font-family: var(--display); font-weight: 800; font-size: 15px; }
+.day-what { display: flex; flex-direction: column; min-width: 0; }
+.day-what b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-what small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.day-amt { display: flex; flex-direction: column; align-items: flex-end; text-align: right; font-variant-numeric: tabular-nums; }
+.day-amt small { color: var(--muted); font-size: 11.5px; }
+.center-p { text-align: center; }
+@media (max-width: 640px) {
+  .day-row { grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "veh what amt" "veh kind amt"; row-gap: 2px; }
+  .day-veh { grid-area: veh; } .day-what { grid-area: what; } .day-amt { grid-area: amt; }
+  .day-kind { grid-area: kind; font-size: 11px; }
+}
 label.override { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--bad); }
 label.override input { display: inline-block; width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
 .newer-bar { max-width: 1100px; margin: 0 auto 10px; padding: 10px 14px; border-radius: 12px; background: var(--info-bg); border: 1px solid var(--glass-line-soft); color: var(--ink); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
@@ -699,8 +733,9 @@ label.radio { margin: 8px 0; align-items: flex-start; } label.radio input { marg
 #opt-tol { max-width: 160px; }
 .rank-row .who { display: flex !important; color: var(--ink); max-width: none; overflow: visible; white-space: normal; font-size: 14px; }
 @media (max-width: 640px) {
-  .tabs { left: 6px; right: 6px; padding: 4px; gap: 2px; overflow-x: visible; }
-  .tabs a { padding: 9px 0; font-size: 11.5px; letter-spacing: -.01em; min-width: 0; }
+  .tabs { left: 6px; right: 6px; padding: 4px; gap: 2px; overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a { padding: 9px 7px; font-size: 11.5px; letter-spacing: -.01em; flex: 1 0 auto; }
   .veh small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
@@ -723,6 +758,8 @@ label.radio { margin: 8px 0; align-items: flex-start; } label.radio input { marg
 .bk-rated { stroke: rgba(150,150,150,.6); stroke-width: .9; stroke-dasharray: 2 3; }
 .bk-t { font: 800 8px var(--display); }
 .bk-rto-t { fill: #ff4d2e; paint-order: stroke; stroke: rgba(255,255,255,.8); stroke-width: 2px; }
+.bulker.is-over .bk-rto { stroke: #19b46e; }
+.bulker.is-over .bk-rto-t { fill: #0f9d5c; }
 .bk-rated-t { fill: rgba(255,255,255,.6); font-size: 6px; }
 .bulker.is-loaded .bk-rated-t { fill: #6d685b; }
 .bk-plate-t { font: 800 7px var(--mono), monospace; fill: #111; letter-spacing: .02em; }
