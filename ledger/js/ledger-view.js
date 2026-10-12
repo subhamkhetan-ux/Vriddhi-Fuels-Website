@@ -74,7 +74,9 @@ function summarise(entries) {
 
 // ---- a *_Bulk sheet ---------------------------------------------------------------
 // res: bulkRows(data, poOf); data: store.account(null, code)
-export function bulkStatement(res, data, { name = '' } = {}) {
+// openingByCompany: a group's opening per billing name (Customer GST; the
+// group's opening_by_unit) — {name: amount}
+export function bulkStatement(res, data, { name = '', openingByCompany = {} } = {}) {
   const g = data.group || {};
   const group = res.kind === 'group';
   const entries = res.rows.map((r) => {
@@ -100,28 +102,48 @@ export function bulkStatement(res, data, { name = '' } = {}) {
   });
   const sum = summarise(entries);
   const members = data.members || [];
+  const openings = group ? companyOpenings(openingByCompany) : {};
   return {
-    kind: 'bulk', layout: res.kind, code: g.code, name: name || g.title || g.code,
+    kind: 'bulk', layout: res.kind, code: g.code, name: name || g.title || g.code, openings,
     from: g.period_from || entries[0]?.date || '', to: entries.length ? entries[entries.length - 1].date : (g.period_from || ''),
     opening: res.opening, closing: res.closing, entries, months: byMonth(entries, res.opening), ...sum,
     members: members.map((m) => m.name),
-    companies: companyWise(entries, members, res.opening, res.closing),
+    companies: companyWise(entries, members, res.opening, res.closing, openings),
   };
 }
 
+// {name: amount} -> {normKey(name): {name, amount}}, nil amounts left out
+function companyOpenings(byName) {
+  const out = {};
+  for (const [n, v0] of Object.entries(byName || {})) {
+    const v = round2(Number(v0) || 0);
+    const k = normKey(n);
+    if (!k || !v) continue;
+    out[k] = { name: out[k] ? out[k].name : String(n).trim(), amount: round2((out[k] ? out[k].amount : 0) + v) };
+  }
+  return out;
+}
+
 // Company-wise outstanding of a group sheet (one *_Bulk sheet, several billing
-// names): each company's bills − payments − TDS − shortage since the sheet's
-// period from. The sheet's opening balance belongs to the group as a whole,
-// so opening + every company = the group's balance. Companies at nil are only
+// names): each company's opening (Customer GST) + bills − payments − TDS −
+// shortage since the sheet's period from. Whatever of the sheet's opening
+// balance isn't split by company belongs to the group as a whole, so that
+// part + every company = the group's balance. Companies at nil are only
 // counted (settled). null for a one-company sheet.
-export function companyWise(entries, members, opening, closing) {
+// openings: {normKey(name): {name, amount}}
+export function companyWise(entries, members, opening, closing, openings = {}) {
   const map = new Map();
   const add = (name) => {
     const k = normKey(name);
-    if (!map.has(k)) map.set(k, { name: String(name || '').trim() || 'Unnamed', billed: 0, qty: 0, received: 0, deductions: 0, bills: 0, payments: 0, lastBill: '', lastPayment: null });
+    if (!map.has(k)) map.set(k, { name: String(name || '').trim() || 'Unnamed', opening: 0, billed: 0, qty: 0, received: 0, deductions: 0, bills: 0, payments: 0, lastBill: '', lastPayment: null });
     return map.get(k);
   };
   for (const m of members || []) add(m.name);
+  let split = 0;
+  for (const o of Object.values(openings || {})) {
+    add(o.name).opening = o.amount;
+    split = round2(split + o.amount);
+  }
   for (const e of entries) {
     const c = add(e.company || (members && members.length === 1 ? members[0].name : ''));
     c.billed += e.debit; c.qty += e.qty; c.received += e.paid; c.deductions += e.tds + e.shortage;
@@ -137,11 +159,12 @@ export function companyWise(entries, members, opening, closing) {
   if (map.size < 2) return null;
   const all = [...map.values()].map((c) => ({
     ...c, billed: round2(c.billed), qty: round2(c.qty), received: round2(c.received), deductions: round2(c.deductions),
-    outstanding: round2(c.billed - c.received - c.deductions),
+    outstanding: round2(c.opening + c.billed - c.received - c.deductions),
   })).sort((a, b) => b.outstanding - a.outstanding || a.name.localeCompare(b.name));
   // companies with a nil balance are left out (only counted)
   const list = all.filter((c) => Math.abs(c.outstanding) >= 1);
-  return { list, settled: all.length - list.length, opening: round2(opening || 0), total: round2(closing) };
+  // opening: the part of the sheet's opening not split by company
+  return { list, settled: all.length - list.length, opening: round2((opening || 0) - split), split: !!split, total: round2(closing) };
 }
 
 // ---- a ledger sheet (one month) -----------------------------------------------------
@@ -508,23 +531,32 @@ export function poRowName(r) {
 // clear that company's own bills — never another company's — then the group's
 // opening; what a company pays beyond that is its advance, kept for its own
 // later bills. A row with no billing name clears any company's bills, oldest
-// first. The keys are only for matching: the bills come back without one (no
-// unit), each naming its company.
-export const companyKey = (e) => normKey(e.company);
+// first. Each company's opening (Customer GST) is its own first bill; the
+// rest of the sheet's opening the group's. The keys are only for matching:
+// the bills come back without one (no unit), each naming its company.
+export const companyKey = (e) => normKey(e.company).toUpperCase();
 export function groupPending(st, { asOn = '' } = {}) {
-  const f = fifoPending(st.entries, { opening: st.opening, keyOf: companyKey, from: st.from, asOn });
-  return { ...f, pending: f.pending.map((d) => ({ ...d, key: '', showCompany: true })) };
+  const openings = Object.values(st.openings || {});
+  const openingByKey = Object.fromEntries(openings.map((o) => [companyKey({ company: o.name }), o.amount]));
+  const nameOf = Object.fromEntries(openings.map((o) => [companyKey({ company: o.name }), o.name]));
+  const f = fifoPending(st.entries, { opening: st.opening, openingByKey, keyOf: companyKey, from: st.from, asOn });
+  return {
+    ...f,
+    pending: f.pending.map((d) => ({ ...d, key: '', showCompany: true, company: d.company || nameOf[d.key] || '' })),
+  };
 }
 
 // ---- a group company's own statement of account (as Tally's, party by party) ------
-// One company of a group sheet: only its bills and payments, from a nil opening
-// (the sheet's opening belongs to the group as a whole), with its own running
+// One company of a group sheet: only its bills and payments, from its own
+// opening (Customer GST; nil when none is given), with its own running
 // balance — so its closing is its company-wise outstanding. Its pending bills:
-// fifoPending() of these entries (its payments clear only its bills).
+// fifoPending() of these entries from that opening (its payments clear only
+// its bills).
 export function companyStatement(st, name) {
   const key = normKey(name);
   const entries = [];
-  let bal = 0;
+  const opening = (st.openings && st.openings[key] && st.openings[key].amount) || 0;
+  let bal = opening;
   for (const e of st.entries) {
     if (normKey(e.company) !== key) continue;
     bal = round2(bal + e.debit - e.credit);
@@ -534,15 +566,20 @@ export function companyStatement(st, name) {
   }
   return {
     ...st, name: String(name || '').trim() || 'Without a billing name', group: st.name, company: name,
-    opening: 0, closing: bal, entries, months: byMonth(entries, 0), ...summarise(entries), companies: null,
+    opening, closing: bal, entries, months: byMonth(entries, opening), ...summarise(entries), companies: null, openings: {},
   };
 }
-// every company of a group sheet with an entry since its period from: those
-// that owe first (most first), then advances, then the settled ones (by name)
+// every company of a group sheet with an opening or an entry since its period
+// from: those that owe first (most first), then advances, then the settled
+// ones (by name)
 export function companyStatements(st) {
   const names = new Map();
   for (const m of st.members || []) if (normKey(m)) names.set(normKey(m), m);
   const seen = [];
+  for (const [k, o] of Object.entries(st.openings || {})) {
+    seen.push(k);
+    if (!names.has(k)) names.set(k, o.name);
+  }
   for (const e of st.entries) {
     const k = normKey(e.company);
     if (seen.includes(k)) continue;

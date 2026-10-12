@@ -50,6 +50,8 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   assert.deepEqual([groups.Twin_Bulk.kind, groups.Twin_Bulk.units, groups.Twin_Bulk.opening,
     groups.Twin_Bulk.opening_by_unit], ['po_units', ['UNIT 1', 'UNIT 2'], 300, { 'UNIT 1': 100, 'UNIT 2': 200 }]);
   assert.deepEqual([groups.Crew_Bulk.kind, groups.Crew_Bulk.period_from], ['group', '2026-04-01']);
+  // a group's opening per company: the amounts column its opening sums, names on its left
+  assert.deepEqual([groups.Crew_Bulk.opening, groups.Crew_Bulk.opening_by_unit], [1500, { 'Crew One Logistics': 1500 }]);
 
   assert.deepEqual(payload.pos, [
     { group_code: 'Demo_Bulk', unit: '', po_no: 'PO-A', allotted: 700, seq: 1 },
@@ -71,6 +73,7 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   assert.equal(customers['Crew Two Movers'].bulk_group, 'Crew_Bulk');    // from Customer GST column G
   assert.equal(customers['Crew One Logistics'].bulk_group, 'Crew_Bulk');
   assert.equal(customers['Twin Steel Ltd'].bulk_group, 'Twin_Bulk');
+  assert.ok(!customers['1500'] && !customers['0']);                         // the amounts aren't names
 
   assert.deepEqual(payload.opening, [
     { customer: 'Retail Roadways', month: '2026-04-01', amount: 2500 },

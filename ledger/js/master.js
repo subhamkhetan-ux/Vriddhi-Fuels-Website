@@ -15,7 +15,7 @@
 
 import { allocate, billOrder, poKey } from './po.js';
 import {
-  addr, billKey, cellDate, cellNumber, cellText, normKey, sheetBounds,
+  addr, billKey, cellDate, cellNumber, cellText, colIndex, normKey, sheetBounds,
 } from './util.js';
 
 const SALE_SHEETS = [
@@ -380,20 +380,42 @@ function readBulk(ws, code, gst, date1904, warn) {
   }
 
   // Group ledgers take their members from a Customer GST column named in
-  // the sheet's formulas, e.g. 'Customer GST'!$G$1:$G$50.
+  // the sheet's formulas, e.g. 'Customer GST'!$G$1:$G$50. A column of amounts
+  // named there (the opening, =SUM('Customer GST'!$H$1:$H$50)) is each
+  // company's opening balance, its name in the column to the left.
   const members = new Map();
+  const openingByCompany = {};
   if (customer) members.set(normKey(customer), customer);
   if (groupAt || !customer) {
-    const ref = /'?Customer GST'?!\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)/i;
+    const ref = /'?Customer GST'?!\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)/gi;
+    const seen = new Set();
     for (let r = 0; r < Math.min(rows, 12); r++) {
       for (let c = 0; c < width; c++) {
         const f = ws[addr(r, c)] && ws[addr(r, c)].f;
-        const m = f && f.match(ref);
-        if (!m || !gst) continue;
-        const col = m[1].toUpperCase();
-        for (let k = Number(m[2]); k <= Number(m[4]); k++) {
-          const name = cellText(gst[col + k]);
-          if (name) members.set(normKey(name), name);
+        if (!f || !gst) continue;
+        for (const m of f.matchAll(ref)) {
+          const col = m[1].toUpperCase();
+          const from = Number(m[2]);
+          const to = Number(m[4]);
+          if (seen.has(`${col}${from}:${to}`)) continue;
+          seen.add(`${col}${from}:${to}`);
+          const cells = [];
+          for (let k = from; k <= to; k++) cells.push({ k, cell: gst[col + k] });
+          const names = cells.some(({ cell }) => cell && cell.t === 's' && cellText(cell));
+          if (names) {
+            for (const { cell } of cells) {
+              const name = cellText(cell);
+              if (name) members.set(normKey(name), name);
+            }
+            continue;
+          }
+          const left = colIndex(col) - 1;
+          if (left < 0) continue;
+          for (const { k, cell } of cells) {
+            const name = cellText(gst[addr(k - 1, left)]);
+            const v = cellNumber(cell);
+            if (name && v) openingByCompany[name] = v;
+          }
         }
       }
     }
@@ -471,7 +493,8 @@ function readBulk(ws, code, gst, date1904, warn) {
   return {
     group: {
       code, title: text(ws, 0, 0), kind, units, period_from: periodFrom, opening,
-      opening_by_unit: openingByUnit, layout: bulkLayout(ws),
+      // a group: the opening per billing name (as on Customer GST)
+      opening_by_unit: kind === 'group' ? openingByCompany : openingByUnit, layout: bulkLayout(ws),
     },
     members: [...members.values()],
     pos: registers.flatMap((g) => g.pos),

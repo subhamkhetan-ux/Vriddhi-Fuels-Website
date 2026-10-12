@@ -7,11 +7,10 @@
 
 import { bulkRows } from './account.js';
 import {
-  bulkStatement, companyStatements, fifoPending, groupPending, poSummary, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, companyStatement, companyStatements, fifoPending, groupPending, poSummary, retailStatement, unitKey, unitLabel, unitStatement,
 } from './ledger-view.js';
 import { allocate, billOrder } from './po.js';
 import { ledgerRows, monthEnd } from './statements.js';
-import { normKey } from './util.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 export const dmyDash = (iso) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
@@ -61,9 +60,10 @@ export const unitsBlock = (units, total) => ({
 
 // A bulk account with its FIFO pending bills; on an SMC-style (unit-wise)
 // sheet also each unit's own statement and pending bills.
-// openingByUnit: the sheet's opening split by unit (ledger_po_data groups)
+// openingByUnit: the sheet's opening split by unit (ledger_po_data groups) —
+// on a group, by company (Customer GST)
 export function bulkAccount(data, res, name, openingByUnit, asOn) {
-  const st = bulkStatement(res, data, { name });
+  const st = bulkStatement(res, data, { name, openingByCompany: res.kind === 'group' ? openingByUnit : {} });
   const unitWise = res.kind === 'po_units';
   const obu = unitWise ? (openingByUnit || {}) : {};
   // a group: each company's payments clear its own bills
@@ -84,7 +84,7 @@ export function bulkAccount(data, res, name, openingByUnit, asOn) {
   }
   // a group: each company's own statement of account and pending bills
   const companies = res.kind === 'group'
-    ? companyStatements(st).map((cst) => ({ name: cst.name, st: cst, fifo: fifoPending(cst.entries, { asOn }) }))
+    ? companyStatements(st).map((cst) => ({ name: cst.name, st: cst, fifo: companyPending(cst, asOn) }))
     : null;
   return { st, fifo, units, companies };
 }
@@ -103,8 +103,9 @@ export async function loadBulkAccount(store, code, name, today) {
   return { acct, data, asOn };
 }
 
-// FIFO of one company of a group sheet (its own bills and payments)
-const companyFifo = (st, c, asOn) => fifoPending(st.entries.filter((e) => normKey(e.company) === normKey(c.name)), { asOn });
+// FIFO of one company of a group sheet (its own opening, bills and payments)
+const companyPending = (cst, asOn) => fifoPending(cst.entries, { opening: cst.opening, from: cst.from, asOn });
+const companyFifo = (st, c, asOn) => companyPending(companyStatement(st, c.name), asOn);
 
 // one company of a group, as its own card
 export function companyCard(c, st, asOn) {

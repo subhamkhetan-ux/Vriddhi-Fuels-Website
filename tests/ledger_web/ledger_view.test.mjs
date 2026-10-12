@@ -15,6 +15,7 @@ import {
 import { ledgerRows } from '../../ledger/js/statements.js';
 import { isoToSerial } from '../../ledger/js/util.js';
 
+const round2 = (n) => Math.round(n * 100) / 100;
 const groupData = () => ({
   group: { code: 'Crew_Bulk', title: 'Crew Group — Bulk Ledger — Diesel', kind: 'group', units: [], period_from: '2026-04-01', opening: 5000, layout: null },
   members: [{ key: 'crew one', name: 'Crew One' }, { key: 'crew two', name: 'Crew Two' }, { key: 'crew three', name: 'Crew Three' }],
@@ -287,6 +288,31 @@ test('group: each company\'s own statement of account', () => {
   // the pictures of one company's statement
   const pages = ledgerPagesSvg(two, { asOn: '2026-10-08', pending: fifoPending(two.entries).pending });
   assert.ok(pages[0].includes('Crew Two') && pages[0].includes('PENDING BILLS') && !pages[0].includes('COMPANY-WISE'));
+});
+
+test('group: each company\'s opening (Customer GST) in its outstanding, statement and pending bills', () => {
+  const data = { ...groupData(), group: { ...groupData().group, opening: 5000 } };
+  const st = bulkStatement(bulkRows(data), data, { name: 'Crew Group', openingByCompany: { 'CREW TWO': 3000, 'Crew Three': 1200, 'crew one': 0 } });
+  const cw = st.companies;
+  // Crew Two 3,000 + its 7,850; Crew Three only its opening; 800 of the 5,000 not split
+  assert.deepEqual(cw.list.map((c) => [c.name, c.opening, c.outstanding]), [['Crew Two', 3000, 10850], ['Crew One', 0, 9950], ['Crew Three', 1200, 1200]]);
+  assert.deepEqual([cw.opening, cw.split, cw.total], [800, true, st.closing]);
+  assert.equal(round2(cw.opening + cw.list.reduce((a, c) => a + c.outstanding, 0)), st.closing);
+  // the statements: each from its own opening; a company with only an opening still gets one
+  const all = companyStatements(st);
+  assert.deepEqual(all.map((c) => [c.name, c.opening, c.closing]), [['Crew Two', 3000, 10850], ['Crew One', 0, 9950], ['Crew Three', 1200, 1200]]);
+  assert.deepEqual(all[0].months.map((m) => [m.opening, m.closing]), [[3000, 10850]]);
+  assert.deepEqual(all[0].entries.map((e) => e.balance), [21000, 10850]);
+  // its pending bills: its payment (10,150) clears its opening first, then part of bill 11
+  const two = fifoPending(all[0].entries, { opening: all[0].opening, from: all[0].from });
+  assert.deepEqual(two.pending.map((d) => [d.opening ? 'opening' : d.bill, d.pending]), [['11', 10850]]);
+  // the group's pending bills: each company's opening is its own; the rest the group's
+  const g = groupPending(st, { asOn: '2026-05-10' });
+  assert.deepEqual(g.pending.map((d) => [d.opening ? 'opening' : d.bill || d.title, d.company, d.pending]), [
+    ['opening', 'Crew Three', 1200], ['opening', '', 800], ['10', 'Crew One', 9000], ['11', 'Crew Two', 10850],
+    ['AdBlue', 'crew  one', 450], ['Refund', 'Crew One', 500],
+  ]);
+  assert.equal(g.total, st.closing);
 });
 
 test('pictures: the pending bills (FIFO) on the card and after the closing', () => {

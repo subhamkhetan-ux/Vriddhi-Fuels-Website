@@ -833,6 +833,7 @@ function companiesHtml(cw) {
         <span class="co-val">${balHtml(c.outstanding)}</span>
         <span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (Math.abs(c.outstanding) / max) * 100)}%"></span></span>
         <dl class="co-facts">
+          ${c.opening ? `<dt>Opening</dt><dd>${esc(drCr(c.opening))}</dd>` : ''}
           <dt>Billed</dt><dd>${esc(rupees(c.billed))}${c.qty ? ` <small>${esc(litres(c.qty))}</small>` : ''}</dd>
           <dt>Received</dt><dd>${esc(rupees(c.received))}</dd>
           ${c.deductions ? `<dt>TDS &amp; shortage</dt><dd>${esc(rupees(c.deductions))}</dd>` : ''}
@@ -840,7 +841,7 @@ function companiesHtml(cw) {
         </dl>
       </div>`).join('')}</div>
     ${cw.settled ? `<p class="small muted">+ ${plural(cw.settled, 'company', 'companies')} with a nil balance, not shown.</p>` : ''}
-    ${Math.round(cw.opening) ? `<p class="small muted">The sheet's opening balance of ${esc(drCr(cw.opening))} is for the group as a whole: opening + every company = the group's balance of <b>${esc(drCr(cw.total))}</b>.</p>` : ''}`;
+    ${Math.round(cw.opening) ? `<p class="small muted">${cw.split ? `${esc(drCr(cw.opening))} of the sheet's opening balance isn't split by company on Customer GST` : `The sheet's opening balance of ${esc(drCr(cw.opening))} is for the group as a whole`}: that + every company = the group's balance of <b>${esc(drCr(cw.total))}</b>.</p>` : ''}`;
 }
 
 function stmtRowHtml(e) {
@@ -1021,6 +1022,7 @@ function unitsHtml(acct) {
         <span class="co-val">${balHtml(c.outstanding)}</span>
         <span class="mini-track"><span class="mini owe" style="width:${Math.max(2, (Math.abs(c.outstanding) / max) * 100)}%"></span></span>
         <dl class="co-facts">
+          ${c.opening ? `<dt>Opening</dt><dd>${esc(drCr(c.opening))}</dd>` : ''}
           <dt>Billed</dt><dd>${esc(rupees(c.billed))}${c.qty ? ` <small>${esc(litres(c.qty))}</small>` : ''}</dd>
           <dt>Received</dt><dd>${esc(rupees(c.received))}</dd>
           ${c.deductions ? `<dt>TDS &amp; shortage</dt><dd>${esc(rupees(c.deductions))}</dd>` : ''}
