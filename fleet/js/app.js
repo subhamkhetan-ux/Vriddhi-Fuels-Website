@@ -748,16 +748,20 @@ function roadRow(lt) {
   const done = lt.steps.filter((x) => x.done).length;
   return `<a class="road-row ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}" data-sheet="${esc(lt.veh)}">
     <span class="rr-top"><b class="rr-veh">${esc(shortVeh(lt.veh))}</b><span class="rr-route">${esc(t.port || '?')} → ${esc(t.dest || '?')}</span><span class="rr-pace ${pace.cls}">${esc(pace.text)}</span></span>
-    <span class="rr-steps" aria-label="${done} of ${lt.steps.length} steps done">${lt.steps.map((x, i) => `<i class="${x.done ? 'done' : i === done ? 'next' : ''}"></i>`).join('')}</span>
-    <span class="rr-now">${esc(lt.phase.title)}</span>
-    <span class="rr-meta">Day ${lt.el}${lt.etaTypical ? ` · at ${esc(t.dest)} ~${dm(lt.etaTypical)}` : ''}${who ? ` · ${esc(who)}` : ''}</span>
-    ${dieselBarHtml(z, mf)}
+    <span class="rr-pic">${bulkerFor(lt.stage === 'start' || lt.stage === 'out' ? null : t, { compact: true, veh: lt.veh, routeTrip: t })}</span>
+    <span class="rr-info">
+      <span class="rr-steps" aria-label="${done} of ${lt.steps.length} steps done">${lt.steps.map((x, i) => `<i class="${x.done ? 'done' : i === done ? 'next' : ''}"></i>`).join('')}</span>
+      <span class="rr-now">${esc(lt.phase.title)}</span>
+      <span class="rr-meta">Day ${lt.el}${lt.etaTypical ? ` · at ${esc(t.dest)} ~${dm(lt.etaTypical)}` : ''}${who ? ` · ${esc(who)}` : ''}</span>
+      ${dieselBarHtml(z, mf)}
+    </span>
   </a>`;
 }
 function idleRow(s) {
   return `<a class="road-row idle" href="#/vehicle/${encodeURIComponent(s.veh)}" data-sheet="${esc(s.veh)}">
     <span class="rr-top"><b class="rr-veh">${esc(shortVeh(s.veh))}</b><span class="rr-route">${s.last ? `Idle at ${esc(s.last.dest)}` : 'Idle'}</span><span class="rr-pace idle">${s.days != null ? `${s.days} d idle` : 'Idle'}</span></span>
-    <span class="rr-meta">${s.last ? `Last trip ${esc(s.last.trip)}, unloaded ${dm(s.last.unloadDate)}` : 'No trip yet'}${driverNow(s.veh) ? ` · ${esc(driverNow(s.veh))}` : ''}</span>
+    <span class="rr-pic">${bulkerFor(null, { compact: true, veh: s.veh, routeTrip: s.last })}</span>
+    <span class="rr-info rr-meta">${s.last ? `Last trip ${esc(s.last.trip)}, unloaded ${dm(s.last.unloadDate)}` : 'No trip yet'}${driverNow(s.veh) ? ` · ${esc(driverNow(s.veh))}` : ''}</span>
   </a>`;
 }
 
