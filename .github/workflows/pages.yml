@@ -22,6 +22,8 @@ on:
       - "tally/billing.js"
       - "tally/config.js"
       - "tally/sw.js"
+      - "tally/theme.css"
+      - "tally/theme.js"
       - "tally/manifest.webmanifest"
       - "state/tanker_billing.json"
       # In-browser Tally import tools (tally-tools/): the three apps' code + data.
@@ -64,6 +66,7 @@ jobs:
           # Tally voucher app. Its billing module reuses /tanker/'s docx
           # builder, fonts and letterhead, and reads the same data file.
           cp tally/index.html tally/billing.js tally/config.js tally/sw.js \
+             tally/theme.css tally/theme.js \
              tally/manifest.webmanifest _site/tally/
           cp "Vriddhi Fuels Logo.png" _site/               # app icon
           cp state/tanker_billing.json _site/state/tanker_billing.json
