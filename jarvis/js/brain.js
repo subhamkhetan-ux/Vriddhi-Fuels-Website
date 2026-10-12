@@ -5,8 +5,8 @@
 // logins and the apps' code are), and the results go back until Claude has
 // the answer.
 //
-// The key: either the jarvis-brain Edge Function in the ledger project (the
-// API key stays in Supabase; only ledger members get through) or the owner's
+// The key: either the jarvis-brain Edge Function in Jarvis's own project (the
+// API key stays in Supabase; only Jarvis members get through) or the owner's
 // own API key kept on this device.
 
 import { apiTools, byName, runTool } from './tools.js';

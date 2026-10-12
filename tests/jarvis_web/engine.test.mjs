@@ -140,3 +140,9 @@ test('nothing fits: say so, with help', () => {
   assert.equal(understand('what is the weather in delhi today', { today: TODAY }).calls, undefined);
   assert.deepEqual(understand('help', { today: TODAY }), { help: true });
 });
+
+test('the Mac side switched off: say so instead of guessing', () => {
+  const off = new Set(['xtrapower_watch', 'xtrapower_status', 'xtrapower_monitor', 'xtrapower_logs', 'xtrapower_open_window', 'mac_scripts', 'mac_run_script']);
+  assert.match(one('Monitor XtraPower account Ember Coal', { off }).note, /switched off/);
+  assert.equal(one('tank stock', { off }).calls[0].tool, 'decant_tank_stock');
+});

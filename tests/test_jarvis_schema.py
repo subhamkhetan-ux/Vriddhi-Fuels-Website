@@ -1,7 +1,8 @@
-"""Tests for supabase/jarvis-schema.sql (the Jarvis → Mac command queue), run
-on a throwaway local Postgres after ledger-schema.sql, with Supabase's auth
-stubbed as in test_ledger_schema.py. Only ledger members can send or pick up
-commands; the public key and other logins get nothing.
+"""Tests for supabase/jarvis-schema.sql (Jarvis's own project: members, the
+state that syncs across devices) and jarvis-mac-schema.sql (the optional Mac
+command queue), on a throwaway local Postgres with Supabase's auth stubbed as
+in test_ledger_schema.py. Only Jarvis members get anything; the public key and
+other logins get nothing.
 
 Skipped when Postgres isn't installed.
 """
@@ -15,8 +16,8 @@ import pytest
 from tests.test_ledger_schema import OWNER, STRANGER, SUPABASE_STUB, Pg, _free_port, _pg_bin
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LEDGER = os.path.join(ROOT, "supabase", "ledger-schema.sql")
 JARVIS = os.path.join(ROOT, "supabase", "jarvis-schema.sql")
+MAC = os.path.join(ROOT, "supabase", "jarvis-mac-schema.sql")
 
 
 @pytest.fixture(scope="module")
@@ -47,13 +48,14 @@ def db():
     pg = Pg(sock, port)
     try:
         pg.ok(SUPABASE_STUB)
-        pg.ok(open(LEDGER, encoding="utf-8").read())
-        jarvis = open(JARVIS, encoding="utf-8").read()
-        pg.ok(jarvis)
-        pg.ok(jarvis)                          # safe to run twice
+        for f in (JARVIS, MAC):
+            sql = open(f, encoding="utf-8").read()
+            pg.ok(sql)
+            pg.ok(sql)                         # safe to run twice
         pg.ok("insert into auth.users values "
               f"('{OWNER}', 'owner@example.com'), ('{STRANGER}', 'stranger@example.com');")
-        pg.ok("select ledger_add_member('owner@example.com');")
+        # the first login to claim Jarvis becomes its owner
+        assert pg.json("select jarvis_claim_owner();", user=OWNER, email="owner@example.com")["member"] is True
         yield pg
     finally:
         subprocess.run(as_pg + [pg_ctl, "-D", data, "-m", "fast", "stop"], capture_output=True)
@@ -68,9 +70,9 @@ def test_public_key_and_strangers_get_nothing(db):
     assert "permission denied" in db.fails("select jarvis_send('xtrapower.status');", anon=True)
     assert "permission denied" in db.fails("select * from jarvis_commands;", anon=True)
     err = db.fails("select jarvis_send('xtrapower.status');", user=STRANGER, email="stranger@example.com")
-    assert "ledger members" in err
+    assert "Jarvis members" in err
     err = db.fails("select jarvis_bridge_poll('mac');", user=STRANGER, email="stranger@example.com")
-    assert "ledger members" in err
+    assert "Jarvis members" in err
     # members only reach the tables through the functions
     assert "permission denied" in db.fails("select * from jarvis_commands;", user=OWNER, email="owner@example.com")
 
@@ -117,3 +119,32 @@ def test_bad_action_names_are_refused(db):
     assert "jarvis_commands_action" in err
     err = db.fails("select jarvis_send('x', '[1,2]');", user=OWNER, email="owner@example.com")
     assert "jarvis_commands_args" in err
+
+
+def test_only_the_first_login_can_claim_jarvis(db):
+    err = db.fails("select jarvis_claim_owner();", user=STRANGER, email="stranger@example.com")
+    assert "already has an owner" in err
+    me = db.json("select jarvis_whoami();", user=STRANGER, email="stranger@example.com")
+    assert me["member"] is False and me["has_owner"] is True
+    assert "permission denied" in db.fails("select jarvis_add_member('stranger@example.com');",
+                                           user=OWNER, email="owner@example.com")      # SQL Editor only
+    assert "permission denied" in db.fails("select jarvis_claim_owner();", anon=True)
+
+
+def test_state_follows_the_owner(db):
+    empty = owner(db, "select jarvis_state_get();")
+    assert empty["settings"] == {} and empty["history"] == []
+    db.ok("""select jarvis_state_save('{"settings": {"lang": "hi-IN", "speak": true},
+             "history": [{"role": "me", "text": "tank stock"}], "memory": {"customer": "Keshav"}}'::jsonb);""",
+          user=OWNER, email="owner@example.com")
+    db.ok("""select jarvis_state_save('{"history": [{"role": "me", "text": "sales today"}]}'::jsonb);""",
+          user=OWNER, email="owner@example.com")                     # only the history changes
+    st = owner(db, "select jarvis_state_get();")
+    assert st["settings"] == {"lang": "hi-IN", "speak": True}
+    assert st["history"] == [{"role": "me", "text": "sales today"}]
+    assert st["memory"] == {"customer": "Keshav"}
+    err = db.fails("select jarvis_state_get();", user=STRANGER, email="stranger@example.com")
+    assert "Jarvis members" in err
+    err = db.fails("""select jarvis_state_save('{"history": {"x": 1}}'::jsonb);""", user=OWNER, email="owner@example.com")
+    assert "history must be a list" in err
+    assert "permission denied" in db.fails("select * from jarvis_state;", user=OWNER, email="owner@example.com")

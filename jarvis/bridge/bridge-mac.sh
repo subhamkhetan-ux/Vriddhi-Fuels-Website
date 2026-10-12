@@ -46,7 +46,7 @@ case "${1:-}" in
       chmod 600 "$CONFIG"
       echo "✓ Created $CONFIG"
     fi
-    echo "  Put the bridge's login (a ledger member's email + password) in it:"
+    echo "  Put the bridge's login (a Jarvis member's email + password) in it:"
     echo "    open -e $CONFIG"
     echo "  Then: ./jarvis/bridge/bridge-mac.sh test"
     ;;

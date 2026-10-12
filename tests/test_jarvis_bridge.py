@@ -167,6 +167,6 @@ def test_step_runs_a_command_and_posts_the_result(root):
     assert b.step() is False
 
 
-def test_reads_the_ledger_projects_public_config():
-    cfg = read_js_config(os.path.join(actions.ROOT, "ledger", "config.js"))
+def test_reads_the_jarvis_projects_public_config():
+    cfg = read_js_config(os.path.join(actions.ROOT, "jarvis", "config.js"))
     assert cfg["SUPABASE_URL"].startswith("https://") and cfg["SUPABASE_ANON_KEY"].startswith("sb_publishable_")

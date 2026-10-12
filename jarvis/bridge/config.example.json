@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to jarvis/bridge/config.json (git-ignored) and fill in email + password: a login on the ledger members list (best: its own, e.g. jarvis-mac@yourdomain). The Supabase URL and public key are read from ledger/config.js. 'scripts' are the ONLY extra commands Jarvis can run on this Mac — each 'run' is a list (program + arguments) run from the repo folder; 'background': true starts it and returns at once (for apps that keep running).",
+  "_comment": "Copy to jarvis/bridge/config.json (git-ignored) and fill in email + password: a Jarvis member's login (best: its own — add it with jarvis_add_member). The Supabase URL and public key are read from jarvis/config.js. Only needed when the Mac side is switched on (JARVIS_CONFIG.MAC). 'scripts' are the ONLY extra commands Jarvis can run on this Mac — each 'run' is a list (program + arguments) run from the repo folder; 'background': true starts it and returns at once (for apps that keep running).",
   "name": "mac",
   "email": "",
   "password": "",

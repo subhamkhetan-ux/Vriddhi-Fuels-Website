@@ -20,10 +20,16 @@ import { tools as more } from './conn/more.js';
 
 export const TOOLS = [...ledger, ...ledgerOps, ...decant, ...mac, ...fleet, ...loading, ...indents, ...money, ...more, ...cross];
 export const byName = new Map(TOOLS.map((t) => [t.name, t]));
-useRegistry(byName);
+
+// The Mac side (XtraPower, Mac scripts) is switched off unless JARVIS_CONFIG.MAC
+export const MAC_TOOLS = new Set(mac.map((t) => t.name));
+export const macOn = () => globalThis.JARVIS_CONFIG?.MAC === true;
+export const isOn = (name) => macOn() || !MAC_TOOLS.has(name);
+export const offTools = () => (macOn() ? new Set() : MAC_TOOLS);
+useRegistry(byName, isOn);
 
 // the definitions sent to Claude (same order every time, so they cache)
-export const apiTools = () => TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+export const apiTools = () => TOOLS.filter((t) => isOn(t.name)).map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 
 // what the input must have (the schema's required fields, of the right kind)
 export function checkInput(tool, input) {

@@ -1,6 +1,6 @@
 """A tiny Supabase client for the bridge (standard library only).
 
-Signs in with an email + password (a ledger member's login) and calls the
+Signs in with an email + password (a Jarvis member's login) and calls the
 jarvis_* SQL functions over the REST API with the project's PUBLIC key, the
 same way the Jarvis page does. No secret / service_role key is ever needed.
 """
@@ -21,7 +21,7 @@ class SupaError(Exception):
 
 def read_js_config(path: str) -> dict:
     """SUPABASE_URL / SUPABASE_ANON_KEY out of an app's config.js
-    (e.g. ledger/config.js), so the bridge never needs them typed twice."""
+    (jarvis/config.js), so the bridge never needs them typed twice."""
     try:
         text = open(path, encoding="utf-8").read()
     except OSError:
@@ -37,9 +37,9 @@ def read_js_config(path: str) -> dict:
 class Supabase:
     def __init__(self, url: str, anon_key: str, email: str, password: str, timeout: float = 20.0):
         if not url or not anon_key:
-            raise SupaError("The Supabase URL / public key are missing (ledger/config.js).")
+            raise SupaError("The Supabase URL / public key are missing (jarvis/config.js).")
         if not email or not password:
-            raise SupaError("Set the bridge's login (email + password of a ledger member) in jarvis/bridge/config.json.")
+            raise SupaError("Set the bridge's login (email + password of a Jarvis member) in jarvis/bridge/config.json.")
         self.url = url.rstrip("/")
         self.key = anon_key
         self.email = email

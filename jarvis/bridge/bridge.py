@@ -1,7 +1,7 @@
 """The Jarvis bridge — runs on the Mac and does what Jarvis asks there.
 
-Every few seconds it checks in with the ledger Supabase project
-(jarvis_bridge_poll, supabase/jarvis-schema.sql), takes the next command
+Every few seconds it checks in with Jarvis's Supabase project
+(jarvis_bridge_poll, supabase/jarvis-mac-schema.sql), takes the next command
 queued for it, runs it if it is one of the actions in actions.py, and posts
 the result (jarvis_bridge_finish). Jarvis — on a phone anywhere — reads the
 result and tells the owner.
@@ -40,10 +40,10 @@ def load_config(path: str) -> dict:
         sys.exit(f"No {path} yet. Copy jarvis/bridge/config.example.json to config.json and fill in the login.")
     except json.JSONDecodeError as exc:
         sys.exit(f"{path} is not valid JSON (line {exc.lineno}): {exc.msg}")
-    ledger = read_js_config(os.path.join(actions.ROOT, "ledger", "config.js"))
+    jarvis = read_js_config(os.path.join(actions.ROOT, "jarvis", "config.js"))
     cfg.setdefault("name", "mac")
-    cfg["supabase_url"] = cfg.get("supabase_url") or ledger.get("SUPABASE_URL", "")
-    cfg["anon_key"] = cfg.get("anon_key") or ledger.get("SUPABASE_ANON_KEY", "")
+    cfg["supabase_url"] = cfg.get("supabase_url") or jarvis.get("SUPABASE_URL", "")
+    cfg["anon_key"] = cfg.get("anon_key") or jarvis.get("SUPABASE_ANON_KEY", "")
     cfg.setdefault("poll_seconds", 3)
     cfg.setdefault("scripts", {})
     return cfg

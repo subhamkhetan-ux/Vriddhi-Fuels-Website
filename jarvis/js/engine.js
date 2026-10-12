@@ -183,7 +183,7 @@ export function understand(text, opts = {}) {
   return (second.calls && !second.guess) || second.ask ? { ...second, corrected: fixed } : first;
 }
 
-function understandAs(text, { attachments = [], memory = newMemory(), choices = null, lexicon = {}, today } = {}) {
+function understandAs(text, { attachments = [], memory = newMemory(), choices = null, lexicon = {}, today, off = null } = {}) {
   const t = clean(text);
   const ropts = { lexicon, today };
   const atts = attachments.map((a) => (typeof a === 'string' ? { id: a, kind: 'image' } : a));
@@ -192,8 +192,13 @@ function understandAs(text, { attachments = [], memory = newMemory(), choices = 
     if (c) return { calls: [{ tool: c.tool, input: c.input }] };
   }
   const nl = read(t, ropts);
-  const cands = match(nl, { attachments: atts });
+  const all = match(nl, { attachments: atts });
+  const cands = all.filter((c) => !off || !off.has(c.tool));
   const top = cands[0];
+  // asked for something that is switched off (the Mac side)
+  if (all[0] && off?.has(all[0].tool) && all[0].score >= 80 && !(top && top.score >= all[0].score)) {
+    return { note: 'The Mac side (XtraPower monitoring and Mac scripts) is switched off in Jarvis. It can be switched back on in jarvis/config.js (MAC: true).' };
+  }
 
   // an answer to the question asked last
   if (memory.pending && t && !(top && top.score >= 85 && top.tool !== memory.pending.tool && !top.missing?.length)) {
@@ -225,7 +230,8 @@ function understandAs(text, { attachments = [], memory = newMemory(), choices = 
   if (co) return { calls: [co] };
 
   // the phrase parser, for anything the scorer missed
-  const q = parse(t, { attachments: atts.filter((a) => a.kind === 'image').map((a) => a.id) });
+  let q = parse(t, { attachments: atts.filter((a) => a.kind === 'image').map((a) => a.id) });
+  if (q && off?.has(q.tool)) q = null;
   if (q?.help) return { help: true };
   if (q) return { calls: [withMemory({ tool: q.tool, input: q.input }, nl, memory)].map(({ tool, input }) => ({ tool, input })) };
 

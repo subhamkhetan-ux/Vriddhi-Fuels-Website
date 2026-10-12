@@ -19,7 +19,8 @@ const DEMO_ACCOUNTS = ['Shyam Metalics', 'Ember Coal', 'SSL XP'];
 export async function buildLexicon(ctx) {
   const lex = { apps: APPS.map((a) => ({ name: a.name, names: [a.name, a.key, ...a.aka] })) };
   const s = saved();
-  lex.accounts = (ctx.demo ? DEMO_ACCOUNTS : s.accounts || []).map((name) => ({ name }));
+  const mac = globalThis.JARVIS_CONFIG?.MAC === true;
+  lex.accounts = mac ? (ctx.demo ? DEMO_ACCOUNTS : s.accounts || []).map((name) => ({ name })) : [];
   lex.scripts = (s.scripts || []).map((x) => ({ name: x.label || x.name, names: [x.label, x.name].filter(Boolean) }));
   const [customers, tankers, fleet] = await Promise.all([
     import('./conn/ledger.js').then((m) => m.book(ctx)).then((b) => b.people.map((p) => ({ name: p.name, names: p.names }))).catch(() => []),

@@ -1,112 +1,119 @@
 # Jarvis — one assistant for every Vriddhi app (`/jarvis/`)
 
-Talk or type to Jarvis and it works the other apps for you. You can ask for:
+Talk or type to Jarvis, in English or Hinglish, and it reads and works every app for you. Your settings and recent conversation follow your Jarvis login to every device.
 
-| Say (or type) | Jarvis does |
-|---|---|
-| *Outstanding list* / *get me the outstanding balance for all* | Everyone who owes, largest first. You get the **Ledger app's own picture**, with Share (WhatsApp) and Download buttons. |
-| *Outstanding of SMC* / *SMC ka baki kitna hai* | That customer's outstanding card (the same picture as the Ledger's *Share outstanding*): balance, pending bills, PO-wise |
-| *Statement of Keshav* / then *his statement*, *and Demo Power?* | Their ledger as A4 pictures |
-| *Sales today*, then *and yesterday?*, *last month* | Sales, litres, earnings, collections |
-| 📎 a screenshot of the tank screen + *update stock* | Reads it with **the Decant app's own screenshot reader**, shows you each tank's stock, and saves it in Decant **after you tap Save** |
-| *Tank 2 stock 11630* / *tank 3 dip 120 cm* | Saves one tank's stock in Decant (after you confirm) |
-| *Tank stock* · *trucks to decant* · *decant report* | From the Decant app |
-| *Monitor XtraPower account Ember Coal* / *stop it* | On the Mac: switches that account on (or off) in the XtraPower monitor, opens its Chrome window if it's closed, and starts the monitor (or stops it once no account is watched) |
-| *XtraPower status* · *stop XtraPower monitoring* · *XtraPower logs* | The monitor on the Mac |
-| *Fleet status* · *tankers* · *payments* | Fleet, Loading and Payments apps |
-| *Open decant app* | A button to open any app |
+**No AI service is needed.** Jarvis's built-in brain understands complex questions on its own, with no subscription, no API key and no cost. A Claude brain is an optional extra that is off by default (see [the end of this file](#optional-the-claude-ai-brain)).
 
-You can also ask for several things at once (*tank stock and sales today*). When a name could mean more than one customer or account, Jarvis asks which one; tap it or say *the second one*. It understands English and Hinglish, and spelling slips in command words (*tankk stok*).
+## What you can ask and do
 
-**Voice:** tap the 🎤 to speak, and Jarvis reads its answers aloud. Turn on *Hands-free* in ⚙ Settings and it listens again after each answer. This uses the phone's own speech features (Chrome or Safari) and needs no other service.
+| App | Ask / say | Does |
+|---|---|---|
+| **Across apps** | *Good morning* / *how's business* | Brief from every app: yesterday's sales, outstanding, tank stock, trucks, payments, credits to review, indents, fleet, tankers |
+| | *Tell me everything about SMC* (or just *SMC*) | The customer in every app: outstanding card, this month's business, POs, payments, indents |
+| **Ledger** | *Outstanding list* · *outstanding of SMC* | The Ledger app's own pictures, with Share (WhatsApp) / Download |
+| | *Which bulk customers owe more than 5 lakh and haven't paid in 30 days?* | Filter and rank every customer: outstanding, sales, litres, earnings, payments; retail / bulk; above / below; no payment for N days; bulk bills older than N days; *who hasn't bought this month* |
+| | *Top 5 customers by diesel litres this FY*, then *top 10*, *retail only* | Rankings (and changes to the last one) |
+| | *Compare diesel sales this month vs last month* | Any two periods, with the split by product |
+| | *How much petrol did SMC take in September?*, then *and diesel?* | One customer's business in a period |
+| | *Statement of Keshav*, *his statement* | Their ledger as pictures |
+| | *Pending bills older than 30 days* (or *… for SMC*) | Bulk pending bills, matched the Ledger app's way, with ageing |
+| | *POs running low* · *add PO 4500/12 for SMC 20 KL* | PO litres left; add a PO (asks for anything missing) |
+| | *Sales yesterday* · *bills on 5 Oct* · *rates this month* | Day / period sales, each bill, RSP changes |
+| | *Daily screenshots* | Yesterday's ledger and bill pictures and the daily summaries, ready for WhatsApp |
+| | 📎 the Tally DayBook (.xlsx) | Imports it like the Import tab |
+| | *Payments not in the ledger* → *log them* | The Payments tab's "Log payments" |
+| | *Which customers need a ledger name* · *ledger name for X is Y* · *is the ledger updated* | Customers and import status |
+| **Decant** | *Tank stock* · *can I order 12 KL diesel?* · *trucks to decant* · *decant report* | Stock, room (and what to sell first), trucks waiting, variation |
+| | 📎 the tank screen + *update stock* · *tank 2 stock 11630* · *tank 3 dip 120 cm* | Saved to Decant with **the Decant app's own reader**, after you confirm |
+| | 📎 an IndianOil invoice PDF · *hide OD23U8210, not ours* | Adds the truck / hides an invoice |
+| **Indents** | *Pending indents* · *place an indent for Keshav, diesel 500 litres* · *deliver IND-0012* · *cancel IND-0013* | The board; place on a customer's behalf; deliver (full or partial); cancel |
+| | *Today's prices* · *set diesel price to 89.62* | Prices |
+| **Payments** | *Payments* · *payments that need review* → *800 is from Keshav* | Recent credits; review and match a credit |
+| | *Record payment 25000 from Keshav by cheque* · *log payments to Excel* | A manual entry; "Log to Excel" |
+| **Fleet** | *Fleet status* · *how is 1003 doing* · *diesel recon* · *trips last month* · *SSFC balance* | Bulkers, one bulker, diesel allotted vs taken, trips, the SSFC account |
+| **Loading** | *Tanker status* · *add 2000 L to OR15R1110* · *3710 sent for sale to Keshav* · *tanker trips* | Fill levels, record a loading, sent for sale |
+| **Tally** | *Tally vouchers today* | Vouchers by series, not exported yet |
+| **Any app** | *Open decant app* | A button to open it |
 
-## No AI needed
+**Talking naturally:**
+- **Follow-ups:** *and diesel?*, *last month*, *and Keshav?*, *top 10*, *his statement*, *stop it*.
+- **Several things at once:** *tank stock and sales today*.
+- **Missing details:** when something is missing, Jarvis asks for it.
+- **Choosing:** when a name fits several customers, Jarvis asks which one; say *the second one* or the name.
+- **Spelling slips:** *tankk stok* is understood.
+- **Confirmations:** every change is shown first and saved only after you tap to confirm.
 
-Jarvis's **built-in brain** (`js/engine.js`) runs it all on its own. It is the default. It needs no AI service, no subscription and no API key. It costs nothing, and nothing leaves your own apps' databases.
+**Voice:** tap 🎤, and Jarvis reads its answers aloud. Turn on *Hands-free* in ⚙ Settings and it listens again after each answer. This uses the phone's own speech features.
 
-A Claude AI brain (`js/brain.js`) is an **optional extra** for free-form questions. It is **off** unless you switch it on in ⚙ Settings → Brain. It uses the Anthropic API, which is pay-per-use and separate from any Claude plan. If it is ever unavailable (no credit, no internet, not set up), Jarvis answers with the built-in brain instead and says so. Setup is at the end of this file.
+## Setup
+
+1. **Open Jarvis:** `https://subhamkhetan-ux.github.io/Vriddhi-Fuels-Website/jarvis/` → *Add to Home Screen*. To look around first, use `…/jarvis/?demo` (made-up data, nothing real changes).
+2. **Create your Jarvis login:** ⚙ Settings → *Your Jarvis login* → email + password → **Create my Jarvis login**.
+   - Supabase emails you a confirmation link. Tap it, then sign in.
+   - **The first login becomes Jarvis's owner,** so do this first.
+   - On every other device, just sign in with the same login. Your settings and conversation come along.
+3. **Sign in to the apps** you want Jarvis to use (⚙ Settings → *The apps' logins*): Ledger, Fleet, Loading, Indents, Tally. These are the same logins as the apps. If you're already signed in to an app on that phone, Jarvis is too.
+4. Recommended, after step 2: in the **vriddhi-jarvis** Supabase project, go to Authentication → Sign In / Providers and switch off **Allow new users to sign up**.
+   - Other logins can't see anything anyway: only members get in, and you are the only member.
+   - To add someone: create their login under Authentication → Users, then in the SQL Editor run `select jarvis_add_member('their email');`.
+
+### Where things live
+
+- **The apps' data stays in each app's own Supabase project.** Jarvis reads and writes it directly, through each app's own code and logins. Anything done in Jarvis shows in the app on every device, and the other way round.
+- **Jarvis's own project, vriddhi-jarvis** (in the Shree Shyam Logistics organisation; schema in [`supabase/jarvis-schema.sql`](../supabase/jarvis-schema.sql)), holds only Jarvis's own things:
+  - the members list
+  - per login: settings (never an API key), the last 40 lines of conversation, and the built-in brain's memory of it
+
+  Tables are closed. Everything goes through `jarvis_*` functions that check membership.
+
+## The Mac side (switched off)
+
+XtraPower monitoring and Mac scripts are **off**. Those commands and the "Mac" status are hidden, and if you ask, Jarvis says the Mac side is off. The code stays (`bridge/`, `js/conn/mac.js`, [`supabase/jarvis-mac-schema.sql`](../supabase/jarvis-mac-schema.sql)).
+
+To switch it back on:
+1. Run `jarvis-mac-schema.sql` in the vriddhi-jarvis project.
+2. Set `MAC: true` in [`config.js`](./config.js).
+3. On the Mac, run `./jarvis/bridge/bridge-mac.sh setup`, put a Jarvis member's login in `jarvis/bridge/config.json`, then run `./jarvis/bridge/bridge-mac.sh test` and `./jarvis/bridge/bridge-mac.sh autostart on`.
+
+The bridge runs only its own XtraPower actions and the scripts you list in that file.
 
 ## How it works
 
 ```
- Phone / computer (/jarvis/)                       Mac (jarvis/bridge/)
- ───────────────────────────                       ────────────────────
- chat + voice                                      bridge-mac.sh start
-   │                                                 │  every 3 s: anything for me?
- built-in brain (or Claude, if on)                   │
-   │ picks a tool                                    │
-   ├─ Ledger  ─ ledger/js/* (its own rules + pictures) ─▶ ledger Supabase
-   ├─ Decant  ─ decant/js/* (its store, its reader)    ─▶ decant Supabase
-   ├─ Fleet / Loading / Payments ─ their own code      ─▶ their Supabase
-   └─ XtraPower / Mac scripts ─▶ jarvis_commands (ledger Supabase) ─▶ bridge runs
-                                    ▲                    xtrapower.manage + monitor-mac.sh
-                                    └──── result ◀───────┘
+ sentence ─▶ nlu.js (amounts, dates, products, your names…) ─▶ intents.js (which operation, with what)
+          ─▶ engine.js (asks / carries over / pronouns / several at once) ─▶ tools.js ─▶ conn/*.js
+                                                                                     (each app's own code)
 ```
 
-- **Same code as the apps.** Jarvis imports each app's own modules, so its figures and pictures always match the app. Two pieces were moved so they could be shared: `ledger/js/outstanding.js` (the outstanding cards) and `readingFrom()` in `decant/js/core.js` (a tank reading).
-- **Same logins.** Jarvis is on the same website as the other apps, so signing in to the Ledger (or Fleet) app on a phone also signs you in to Jarvis there, and the other way round. Your Jarvis login is your **Ledger login**.
-- **Writes are confirmed.** Before anything is saved (tank stock) or run on the Mac (a script), Jarvis shows what it will do and waits for your tap.
-- **The Mac runs only what it knows.** Jarvis queues a request; the bridge runs it only if it is one of its actions (XtraPower) or a script **you** listed in `jarvis/bridge/config.json` on the Mac. Nothing sent from the cloud is ever run as a command.
-
-## One-time setup
-
-1. **Open Jarvis:** `https://subhamkhetan-ux.github.io/Vriddhi-Fuels-Website/jarvis/` → *Add to Home Screen*. If you want to look around first, open `…/jarvis/?demo`: made-up data, nothing real is changed.
-2. **Sign in** with your Ledger login (⚙ Settings → Logins). Sign in to Fleet and Loading there too if you want their answers.
-
-That is enough for the Ledger, Decant, Fleet, Loading and Payments commands. For the Mac (XtraPower):
-
-3. **The command queue:** in the **ledger** Supabase project, open SQL Editor, paste [`supabase/jarvis-schema.sql`](../supabase/jarvis-schema.sql) and Run. It is safe to run again, and only ledger members can use it.
-4. **The Mac bridge:** in Terminal on the Mac:
-   ```bash
-   cd ~/Vriddhi-Fuels-Website
-   git pull
-   ./jarvis/bridge/bridge-mac.sh setup        # makes jarvis/bridge/config.json
-   open -e jarvis/bridge/config.json          # put in a ledger member's email + password
-   ./jarvis/bridge/bridge-mac.sh test         # ✓ Connected.
-   ./jarvis/bridge/bridge-mac.sh autostart on # runs at every login, restarts if it stops
-   ```
-   - Best practice: give the bridge its **own** login. Add a user in the ledger project (Authentication → Users), then `select ledger_add_member('that email');`.
-   - `config.json` is git-ignored and readable only by you. It also lists the **scripts** Jarvis may run on the Mac (payment agent status, Tally apps, …). Add or remove entries there; only these can ever run.
-   - XtraPower itself must be set up as before (`./xtrapower/setup-mac.sh`, `xtrapower/config.json`).
-   - The other commands: `start`, `stop`, `status`, `logs`, `autostart off`.
-
-Jarvis's header shows **Mac online / offline**. If the Mac is off or asleep, Jarvis says so instead of waiting.
+- **Two shared pieces.** Jarvis imports each app's own modules, so its figures and pictures match the apps. Two pieces were made shareable for this: `ledger/js/outstanding.js` and `readingFrom()` in `decant/js/core.js`.
+- **Logins.** The apps' logins are shared with the apps on the same website (`js/session.js`).
 
 ## Optional: the Claude AI brain
 
-Only if you want free-form questions answered by AI. You need an Anthropic API key from console.anthropic.com. It is billed per use and is not part of a Claude Pro plan.
+Use this only if you also want free-form questions answered by AI. It needs an Anthropic API key, which is pay-per-use and separate from any Claude plan. If it is ever unavailable, the built-in brain answers.
 
-- **Simplest:** ⚙ Settings → Brain → *Claude AI — key on this device*, then paste the key. It is kept only in that browser.
-- **Key kept in Supabase:** this works on every phone without pasting the key into each one. Deploy the Edge Function to the ledger project:
+- **Key on one device:** ⚙ Settings → Brain → *key on this device*.
+- **Key kept in Supabase:** deploy the function, set the secret, then choose *cloud key*:
   ```bash
-  supabase functions deploy jarvis-brain --project-ref <ledger project ref>
-  supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref <ledger project ref>
+  supabase functions deploy jarvis-brain --project-ref otazjsvffvfortrmdred
+  supabase secrets set ANTHROPIC_API_KEY=sk-ant-… --project-ref otazjsvffvfortrmdred
   ```
-  Then choose *Claude AI — cloud key*. Only signed-in ledger members can use it (`supabase/functions/jarvis-brain/index.ts`).
-
-It uses Claude Opus 5.5, with Anthropic's automatic fallback model turned on (`fallbacks: "default"`) if a request is declined. *How hard to think* in Settings trades speed for depth.
 
 ## Files
 
 | File | What |
 |---|---|
-| `index.html`, `config.js`, `manifest.webmanifest`, `icon.png` | The page. It loads the other apps' `config.js` files. |
-| `js/app.js` | The screens: chat, pictures, confirmations, settings |
-| `js/engine.js` | **The built-in brain:** follow-ups, choices, several requests, spelling |
-| `js/quick.js` | Phrases → tools (English / Hinglish) |
-| `js/match.js` | Finding the customer / account / app that was meant |
-| `js/tools.js` | Every tool in one list |
-| `js/conn/ledger.js` · `decant.js` · `mac.js` · `more.js` | The tools, using each app's own code |
-| `js/brain.js` | The optional Claude brain (manual tool loop) |
-| `js/voice.js` | Speech in and out |
-| `js/session.js` | Logins shared with the apps |
-| `bridge/` | The Mac bridge: `bridge.py` (loop), `actions.py` (the only things it runs), `supa.py`, `bridge-mac.sh` |
-| `../supabase/jarvis-schema.sql` | The command queue (ledger project) |
-| `../supabase/functions/jarvis-brain/` | The optional Claude proxy |
+| `index.html`, `config.js`, `manifest.webmanifest`, `icon.png` | The page; loads every app's `config.js` |
+| `js/app.js` | Screens: chat, tables, pictures, confirmations, settings, sync |
+| `js/nlu.js` · `js/intents.js` · `js/engine.js` · `js/quick.js` · `js/match.js` | The built-in brain |
+| `js/tools.js` · `js/conn/*.js` | The operations: ledger, ledger-ops, decant, fleet, loading, indents, money (payments + Tally), more, cross, mac |
+| `js/sync.js` · `js/session.js` · `js/lexicon.js` | Cross-device state, logins, your names |
+| `js/brain.js` · `js/voice.js` | Optional Claude brain; speech in and out |
+| `bridge/` | The Mac bridge (off) |
 
 ## Tests
 
 ```bash
-node --test 'tests/jarvis_web/*.test.mjs'                 # brain, phrases, names, every tool on demo data, the Claude loop (faked)
-python -m pytest tests/test_jarvis_bridge.py tests/test_jarvis_schema.py -q   # Mac bridge; queue on a local Postgres
+node --test 'tests/jarvis_web/*.test.mjs'                                   # brain + every operation on demo data
+python -m pytest tests/test_jarvis_schema.py tests/test_jarvis_bridge.py -q # schemas on a local Postgres; the bridge
 ```

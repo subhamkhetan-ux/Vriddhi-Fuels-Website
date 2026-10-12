@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { Brain, systemPrompt } from '../../jarvis/js/brain.js';
 import { TOOL_NAMES } from '../../jarvis/js/intents.js';
-import { apiTools, checkInput, runTool, TOOLS } from '../../jarvis/js/tools.js';
+import { apiTools, checkInput, MAC_TOOLS, runTool, TOOLS } from '../../jarvis/js/tools.js';
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const TODAY = iso(new Date());
@@ -37,7 +37,8 @@ test('every operation is defined, and reachable by words or a file', () => {
     assert.equal(typeof t.label({}), 'string');
   }
   assert.ok(TOOLS.length >= 55);
-  assert.equal(apiTools().length, TOOLS.length);
+  assert.equal(apiTools().length, TOOLS.length - MAC_TOOLS.size);            // the Mac side is off
+  assert.ok(!apiTools().some((t) => MAC_TOOLS.has(t.name)));
   const byFile = ['ledger_import_daybook', 'decant_update_stock_from_photo', 'decant_add_invoice'];
   assert.deepEqual([...names].filter((n) => !TOOL_NAMES.includes(n) && !byFile.includes(n)), []);
   assert.deepEqual(TOOL_NAMES.filter((n) => !names.has(n)), []);
@@ -236,7 +237,7 @@ test('Claude loop: runs the tools, returns all results together, keeps history w
   assert.equal(reply, 'Tank 2 has 11,630 L.');
   const second = client.calls[1];
   assert.equal(second.model, 'claude-opus-5-5');
-  assert.equal(second.tools.length, TOOLS.length);
+  assert.equal(second.tools.length, TOOLS.length - MAC_TOOLS.size);
   assert.equal(second.messages[1].content[0].type, 'thinking');
   assert.deepEqual(second.messages[2].content.map((r) => r.tool_use_id), ['tu1', 'tu2']);
   assert.equal(brain.history.length, 4);

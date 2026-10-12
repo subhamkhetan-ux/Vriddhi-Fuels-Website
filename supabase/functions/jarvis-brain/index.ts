@@ -1,16 +1,16 @@
 // =====================================================================
 // Edge Function: jarvis-brain
 // ---------------------------------------------------------------------
-// Jarvis's link to Claude, so the Anthropic API key never reaches a phone.
-// Deploy it in the LEDGER Supabase project (the one Jarvis signs in to):
+// The OPTIONAL Claude brain's link to Claude, so the Anthropic API key never
+// reaches a phone. Deploy it in Jarvis's own project (vriddhi-jarvis):
 //
-//   supabase functions deploy jarvis-brain --project-ref <ledger project ref>
-//   supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref <ref>
+//   supabase functions deploy jarvis-brain --project-ref otazjsvffvfortrmdred
+//   supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref otazjsvffvfortrmdred
 //
 // Jarvis's page uses the Anthropic SDK with this function as its base URL:
 // the SDK's POST /v1/messages arrives here as .../jarvis-brain/v1/messages
-// with the caller's Supabase login token. Only ledger members get through
-// (ledger_whoami); the request is checked (model, size, no streaming) and
+// with the caller's Supabase login token. Only Jarvis members get through
+// (jarvis_whoami); the request is checked (model, size, no streaming) and
 // sent on to Claude with the key from the function's secrets.
 // =====================================================================
 
@@ -50,8 +50,8 @@ Deno.serve(async (req) => {
     global: { headers: { Authorization: auth } },
     auth: { persistSession: false },
   });
-  const { data: me, error: meErr } = await caller.rpc("ledger_whoami");
-  if (meErr || !me?.member) return fail(403, "This login is not on the ledger members list.");
+  const { data: me, error: meErr } = await caller.rpc("jarvis_whoami");
+  if (meErr || !me?.member) return fail(403, "This login is not on the Jarvis members list.");
 
   // 2. The request, checked
   const raw = await req.text();

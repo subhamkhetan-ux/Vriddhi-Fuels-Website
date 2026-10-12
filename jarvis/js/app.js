@@ -9,8 +9,9 @@ import { newMemory, remember, understand } from './engine.js';
 import { HELP } from './quick.js';
 import { APPS } from './conn/more.js';
 import { buildLexicon, noteNames } from './lexicon.js';
-import { PROJECTS, configured, session, signIn, signOut } from './session.js';
-import { runTool } from './tools.js';
+import { PROJECTS, configured, session, signIn, signOut, signUp } from './session.js';
+import { claimOwner, flush, loadState, portable, saveState, synced, trimHistory, whoami } from './sync.js';
+import { macOn, offTools, runTool } from './tools.js';
 import { canListen, canSpeak, listen, speak, stopSpeaking } from './voice.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
@@ -35,6 +36,7 @@ function loadSettings() {
 const settings = loadSettings();
 function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* private window: this visit only */ }
+  if (state.member) saveState({ settings: portable(settings) });          // and to every device
 }
 
 const state = {
@@ -42,7 +44,10 @@ const state = {
   pending: [],                // attachment ids waiting to be sent
   attSeq: 0,
   busy: false,
-  ledger: null,               // ledger session
+  me: null,                   // the Jarvis login (its own project)
+  member: false,              // on the Jarvis members list
+  hasOwner: true,
+  history: [],                // [{role, text, at}] — synced across devices
   mac: null,                  // {online, seen_at}
   brainNote: '',
   memory: newMemory(),        // the built-in brain's thread of the conversation
@@ -62,13 +67,13 @@ const kindOf = (f) => (f.type.startsWith('image/') ? 'image' : /pdf/.test(f.type
   : /sheet|excel/.test(f.type) || /\.xls[xm]?$/i.test(f.name) ? 'excel' : null);
 
 // ---- the brain ------------------------------------------------------------------------
-const brainUrl = () => (window.JARVIS_CONFIG?.BRAIN_URL || `${(window.LEDGER_CONFIG?.SUPABASE_URL || '').replace(/\/$/, '')}/functions/v1/jarvis-brain`);
+const brainUrl = () => (window.JARVIS_CONFIG?.BRAIN_URL || `${(window.JARVIS_CONFIG?.SUPABASE_URL || '').replace(/\/$/, '')}/functions/v1/jarvis-brain`);
 
 // Claude only when the owner switched it on and it can work: 'key' | 'cloud';
 // otherwise null = the built-in brain (the default)
 function brainMode() {
   if (settings.brain === 'key' && settings.key) return 'key';
-  if (settings.brain === 'cloud' && state.ledger && !DEMO && !state.cloudMissing) return 'cloud';
+  if (settings.brain === 'cloud' && state.member && !DEMO && !state.cloudMissing) return 'cloud';
   return null;
 }
 
@@ -77,9 +82,9 @@ const brain = new Brain({
   getClient: async () => {
     const mode = brainMode();
     if (mode === 'key') return makeClient({ key: settings.key });
-    const s = await session('ledger');
+    const s = await session('jarvis');
     if (!s) throw new Error('Sign in (⚙ Settings) to use the cloud brain.');
-    return makeClient({ cloud: { url: brainUrl(), token: s.access_token, anonKey: window.LEDGER_CONFIG.SUPABASE_ANON_KEY } });
+    return makeClient({ cloud: { url: brainUrl(), token: s.access_token, anonKey: window.JARVIS_CONFIG.SUPABASE_ANON_KEY } });
   },
 });
 
@@ -117,7 +122,11 @@ function shell() {
       <input type="file" id="file" accept="image/*,.pdf,.xlsx,.xls,.xlsm" multiple hidden>
     </footer>`;
   $('#open-settings').onclick = () => openSettings();
-  $('#new-chat').onclick = () => { brain.reset(); state.memory = newMemory(); state.choices = null; stopSpeaking(); welcome(); };
+  $('#new-chat').onclick = () => {
+    brain.reset(); state.memory = newMemory(); state.choices = null; state.history = []; stopSpeaking();
+    if (state.member) saveState({ history: [], memory: {} });
+    welcome();
+  };
   $('#attach').onclick = () => $('#file').click();
   $('#file').onchange = (e) => { addFiles([...e.target.files]); e.target.value = ''; };
   const input = $('#input');
@@ -162,9 +171,9 @@ function renderPills() {
   if (!el) return;
   const mode = brainMode();
   const pills = [];
-  pills.push(DEMO ? '<span class="pill wait">Demo</span>' : state.ledger ? `<span class="pill ok">${esc(state.ledger.user?.email || 'Signed in')}</span>` : '<span class="pill off">Not signed in</span>');
+  pills.push(DEMO ? '<span class="pill wait">Demo</span>' : state.member ? `<span class="pill ok" title="${esc(synced.error ? `Sync: ${synced.error}` : 'Settings and chat sync to your other devices')}">${esc(state.me.user?.email || 'Signed in')}${synced.error ? ' ⚠' : ''}</span>` : '<span class="pill off">Not signed in</span>');
   pills.push(`<span class="pill ${mode ? 'ok' : 'wait'}" title="${esc(state.brainNote)}">${mode ? 'Claude AI' : 'Built-in brain'}</span>`);
-  if (state.mac) pills.push(`<span class="pill ${state.mac.online ? 'ok' : 'off'}">Mac ${state.mac.online ? 'online' : 'offline'}</span>`);
+  if (macOn() && state.mac) pills.push(`<span class="pill ${state.mac.online ? 'ok' : 'off'}">Mac ${state.mac.online ? 'online' : 'offline'}</span>`);
   el.innerHTML = pills.join('');
 }
 
@@ -172,7 +181,8 @@ function renderPills() {
 const STARTERS = [
   'Good morning', 'Outstanding list', 'Which customers owe more than 5 lakh?', 'Compare diesel sales this month vs last month',
   'Top 5 customers by litres this FY', 'Tank stock', 'Can I order 12 KL diesel?', 'XtraPower status', 'Pending indents', 'POs running low',
-];
+].filter((x) => macOn() || !/xtrapower/i.test(x));
+const helpList = () => HELP.filter(([p, what]) => macOn() || !/xtrapower|mac/i.test(`${p} ${what}`));
 function welcome() {
   const h = new Date().getHours();
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
@@ -182,12 +192,25 @@ function welcome() {
       <h1>${greet}. I'm <b>Jarvis</b>.</h1>
       <p>Ask anything about any app, or tell me what to do — by typing or tapping the mic. 📎 a tank-screen picture, an invoice PDF or the DayBook Excel and I'll put it in the right app.</p>
       <div class="chips">${STARTERS.map((s) => `<button class="chip" data-say="${esc(s)}">${esc(s)}</button>`).join('')}</div>
-      ${!DEMO && !state.ledger ? `<div class="row" style="justify-content:center;margin-top:14px"><button class="btn cta" data-signin>Sign in (your Ledger login)</button><a class="btn" href="?demo">Try the demo</a></div>` : ''}
+      ${!DEMO && !state.me ? `<div class="row" style="justify-content:center;margin-top:14px"><button class="btn cta" data-signin>Sign in to Jarvis</button><a class="btn" href="?demo">Try the demo</a></div>`
+    : !DEMO && !state.member ? '<p class="warn-text" style="margin-top:12px">This login isn\'t on the Jarvis members list yet — ask the owner to add it.</p>' : ''}
       <p class="section-title">All apps</p>
       <div class="apps">${APPS.map((a) => `<a class="app-tile" href="${a.href}"><b>${a.icon} ${esc(a.name)}</b><span>${esc(a.what)}</span></a>`).join('')}</div>
     </section>`;
   chat.querySelectorAll('[data-say]').forEach((b) => { b.onclick = () => submit(b.dataset.say); });
   chat.querySelector('[data-signin]')?.addEventListener('click', () => openSettings('logins'));
+  if (state.history.length) showEarlier();
+}
+
+// the conversation so far (from any device), above the welcome
+function showEarlier() {
+  const chat = $('#chat');
+  const box = document.createElement('section');
+  box.className = 'earlier';
+  box.innerHTML = `<p class="section-title">Earlier · on any of your devices</p>${state.history.slice(-20).map((l) => `
+    <div class="msg ${l.role === 'me' ? 'me' : 'jarvis'}"><div class="bubble">${l.role === 'me' ? esc(l.text) : md(l.text)}</div></div>`).join('')}`;
+  chat.prepend(box);
+  chat.scrollTop = chat.scrollHeight;
 }
 
 // ---- attachments -------------------------------------------------------------------
@@ -418,6 +441,11 @@ async function submit(preset) {
     state.busy = false;
     document.body.classList.remove('thinking');
   }
+  if (state.member) {
+    state.history = trimHistory([...state.history, { role: 'me', text: text || '(file)', at: new Date().toISOString() }, { role: 'jarvis', text: reply || bub.text.textContent || '', at: new Date().toISOString() }]);
+    const { pending: _p, ...mem } = state.memory;
+    saveState({ history: state.history, memory: { ...mem, last: mem.last ? { tool: mem.last.tool, input: mem.last.input } : null } });
+  }
   if (reply) {
     bub.text.innerHTML = md(reply);
     if (settings.speak) speak(reply, { lang: settings.lang, onEnd: () => { if (settings.handsFree && canListen) toggleListen(true); } });
@@ -457,7 +485,7 @@ async function askBrain(text, ids, bub) {
 }
 
 function helpChips(bub, phrases = null) {
-  const items = phrases ? phrases.map((p) => [p, '']) : HELP;
+  const items = phrases ? phrases.map((p) => [p, '']) : helpList();
   const box = document.createElement('div');
   box.className = 'chips';
   box.style.cssText = 'justify-content:flex-start;margin-top:6px';
@@ -473,9 +501,10 @@ async function askBuiltin(text, ids, bub) {
   await refreshLexicon();
   const u = understand(text, {
     attachments: ids.map((id) => ({ id, kind: state.attachments.get(id).kind })),
-    memory: state.memory, choices: state.choices, lexicon: state.lexicon, today: localToday(),
+    memory: state.memory, choices: state.choices, lexicon: state.lexicon, today: localToday(), off: offTools(),
   });
   state.choices = null;
+  if (u.note) return u.note;
   if (u.ask) {                                       // a detail is missing: ask, and remember what for
     state.memory = { ...state.memory, pending: u.pending };
     return u.ask;
@@ -544,24 +573,26 @@ async function openSettings(focus = '') {
   sheet.onclick = (e) => { if (e.target === sheet) close(); };
   const others = [];
   for (const [name, p] of Object.entries(PROJECTS)) {
-    if (name === 'ledger' || p.anon) continue;
+    if (name === 'jarvis' || p.anon) continue;
     const ses = configured(name) ? await session(name).catch(() => null) : null;
     others.push({ name, p, ses });
   }
-  const ICONS = { fleet: '🚛', loading: '🛢️', indents: '🧾', tally: '📑' };
+  const ICONS = { ledger: '📒', fleet: '🚛', loading: '🛢️', indents: '🧾', tally: '📑' };
   sheet.innerHTML = `<div class="panel" role="dialog" aria-label="Settings">
     <div style="display:flex;justify-content:space-between;align-items:center"><h2>Settings</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
 
-    <h3 id="logins">Logins</h3>
-    <p class="muted" style="font-size:13px;margin:0 0 6px">The same logins as each app — signed in there on this phone means signed in here too.</p>
-    <div class="login" data-login="ledger">
-      <div class="head"><div><b>📒 Ledger</b> — your Jarvis login <span class="muted">(also the Mac link)</span></div>
-        ${state.ledger ? '<button class="btn small" data-out="ledger">Sign out</button>' : ''}</div>
-      ${state.ledger ? `<div class="ok-text">Signed in as ${esc(state.ledger.user?.email)}</div>`
+    <h3 id="logins">Your Jarvis login</h3>
+    <div class="login" data-login="jarvis">
+      <div class="head"><div><b>🟠 Jarvis</b> <span class="muted">— your settings and conversation follow this login to every device</span></div>
+        ${state.me ? '<button class="btn small" data-out="jarvis">Sign out</button>' : ''}</div>
+      ${state.me ? `<div class="${state.member ? 'ok-text' : 'warn-text'}">Signed in as ${esc(state.me.user?.email)}${state.member ? ` · synced${synced.at ? ` ${esc(new Date(synced.at).toLocaleString('en-IN'))}` : ''}` : ' — not on the Jarvis members list yet; ask the owner to add it'}</div>`
     : `<div class="field"><input type="email" placeholder="Email" autocomplete="username" data-email></div>
-         <div class="field"><input type="password" placeholder="Password" autocomplete="current-password" data-pass></div>
-         <button class="btn cta" data-in="ledger">Sign in</button> <span class="muted" data-msg></span>`}
+         <div class="field"><input type="password" placeholder="Password (6+ characters)" autocomplete="current-password" data-pass></div>
+         <button class="btn cta" data-in="jarvis">Sign in</button> <button class="btn" data-up="jarvis">Create my Jarvis login</button> <span class="muted" data-msg></span>
+         <div class="muted" style="font-size:12.5px;margin-top:6px">First time? Type your email and a password, tap <b>Create my Jarvis login</b> — the first login becomes Jarvis's owner.</div>`}
     </div>
+    <h3>The apps' logins</h3>
+    <p class="muted" style="font-size:13px;margin:0 0 6px">The same logins as each app — signed in there on this phone means signed in here too.</p>
     ${others.map(({ name, p, ses }) => `<div class="login" data-login="${name}">
       <div class="head"><div><b>${ICONS[name] || '•'} ${esc(p.label)}</b> <span class="muted">(${p.user === 'username' ? `${esc(p.label)}-app username` : 'email'})</span></div>${ses ? `<button class="btn small" data-out="${name}">Sign out</button>` : ''}</div>
       ${ses ? `<div class="ok-text">Signed in as ${esc(String(ses.user?.email || '').replace('@vriddhi.local', ''))}</div>`
@@ -585,8 +616,8 @@ async function openSettings(focus = '') {
     <label class="opt"><input type="checkbox" data-hands ${settings.handsFree ? 'checked' : ''} ${canListen ? '' : 'disabled'}><div><b>Hands-free</b><span>After answering, Jarvis listens again — talk back without touching the phone.</span></div></label>
     <div class="field">Language<select data-lang>${[['en-IN', 'English (India)'], ['hi-IN', 'हिन्दी / Hinglish'], ['en-US', 'English (US)']].map(([v, t]) => `<option value="${v}" ${settings.lang === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
 
-    <h3>Mac</h3>
-    <div class="muted" style="font-size:13px">${state.mac ? (state.mac.online ? '<span class="ok-text">● The Mac bridge is online.</span>' : `<span class="bad-text">● Offline</span> — last seen ${esc(new Date(state.mac.seen_at).toLocaleString('en-IN'))}. On the Mac: <code>./jarvis/bridge/bridge-mac.sh start</code>`) : 'Sign in to see the Mac. Setup: jarvis/README.md → "The Mac bridge".'}</div>
+    ${macOn() ? `<h3>Mac</h3>
+    <div class="muted" style="font-size:13px">${state.mac ? (state.mac.online ? '<span class="ok-text">● The Mac bridge is online.</span>' : `<span class="bad-text">● Offline</span> — last seen ${esc(new Date(state.mac.seen_at).toLocaleString('en-IN'))}. On the Mac: <code>./jarvis/bridge/bridge-mac.sh start</code>`) : 'Sign in to see the Mac. Setup: jarvis/README.md → "The Mac bridge".'}</div>` : ''}
     <div class="row" style="margin-top:18px"><button class="btn cta" data-close>Done</button></div>
   </div>`;
   document.body.append(sheet);
@@ -602,16 +633,32 @@ async function openSettings(focus = '') {
         const email = box.querySelector('[data-email]').value;
         const pass = box.querySelector('[data-pass]').value;
         await signIn(b.dataset.in, email, pass);
+        if (b.dataset.in === 'jarvis') await afterJarvisLogin();
         refreshLexicon(true);
         sheet.remove();
         await refreshStatus();
         openSettings('logins');
-        if (b.dataset.in === 'ledger') welcome();
+        welcome();
       } catch (err) { msg.textContent = err.message; msg.className = 'bad-text'; }
     };
   });
+  sheet.querySelector('[data-up]')?.addEventListener('click', async () => {
+    const box = sheet.querySelector('[data-login="jarvis"]');
+    const msg = box.querySelector('[data-msg]');
+    msg.textContent = 'Creating…';
+    try {
+      const ses = await signUp('jarvis', box.querySelector('[data-email]').value, box.querySelector('[data-pass]').value);
+      if (!ses) { msg.textContent = 'Check your email and tap the confirmation link, then sign in here.'; msg.className = 'warn-text'; return; }
+      await afterJarvisLogin();
+      sheet.remove();
+      await refreshStatus();
+      openSettings('logins');
+      welcome();
+    } catch (err) { msg.textContent = err.message; msg.className = 'bad-text'; }
+  });
   sheet.querySelectorAll('[data-out]').forEach((b) => {
     b.onclick = async () => {
+      if (b.dataset.out === 'jarvis') { await flush(); state.member = false; state.history = []; }
       await signOut(b.dataset.out);
       sheet.remove();
       await refreshStatus();
@@ -629,26 +676,68 @@ async function openSettings(focus = '') {
 // ---- status ---------------------------------------------------------------------------
 async function refreshStatus() {
   if (!DEMO) {
-    state.ledger = configured('ledger') ? await session('ledger').catch(() => null) : null;
-    if (state.ledger) {
+    state.me = configured('jarvis') ? await session('jarvis').catch(() => null) : null;
+    if (state.me) {
       try {
-        const c = await (await import('./session.js')).client('ledger');
+        const w = await whoami();
+        state.member = Boolean(w.member);
+        state.hasOwner = Boolean(w.has_owner);
+      } catch { /* offline: keep what we had */ }
+    } else {
+      state.member = false;
+      try { state.hasOwner = true; } catch { /* */ }
+    }
+    if (macOn() && state.member) {
+      try {
+        const c = await (await import('./session.js')).client('jarvis');
         const { data, error } = await c.rpc('jarvis_bridges_list');
-        state.mac = error ? null : (data || []).find((b) => b.name === 'mac') || { online: false, seen_at: null, never: true };
-        if (state.mac?.never) state.mac = null;
+        state.mac = error ? null : (data || []).find((b) => b.name === 'mac') || null;
       } catch { state.mac = null; }
     } else state.mac = null;
-  } else state.mac = { online: true };
+  } else state.mac = macOn() ? { online: true } : null;
+  renderPills();
+}
+
+// right after signing in: the first login claims Jarvis; then bring this
+// login's settings and conversation to this device
+async function afterJarvisLogin() {
+  let w = await whoami();
+  if (!w.has_owner) w = await claimOwner();
+  state.member = Boolean(w.member);
+  state.hasOwner = true;
+  if (state.member) await pullState(true);
+}
+
+// the synced state -> this device (settings, conversation, memory)
+async function pullState(force = false) {
+  if (DEMO || !state.member) return;
+  const before = synced.at;
+  const st = await loadState().catch(() => null);
+  if (!st) return;
+  if (!force && st.updated_at === before) return;
+  Object.assign(settings, st.settings || {}, { key: settings.key });
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* */ }
+  brain.effort = settings.effort;
+  state.history = Array.isArray(st.history) ? st.history : [];
+  if (st.memory && typeof st.memory === 'object') state.memory = { ...newMemory(), ...st.memory, pending: null };
+  if (!state.busy && $('.hello')) welcome();
   renderPills();
 }
 
 // ---- start ----------------------------------------------------------------------------
 shell();
 welcome();
-refreshStatus().then(() => {
+refreshStatus().then(async () => {
+  if (!DEMO && state.me && !state.hasOwner) await afterJarvisLogin().catch(() => {});
+  await pullState(true);
   if ($('.hello')) welcome();                     // now with the right sign-in buttons
   refreshLexicon(true);
   const q = new URLSearchParams(location.search).get('q');   // e.g. a home-screen shortcut: ?q=tank stock
   if (q) submit(q);
 });
 setInterval(() => { if (!state.busy) refreshStatus(); }, 60000);
+// coming back to Jarvis (another device may have talked to it meanwhile)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !state.busy) pullState();
+  if (document.visibilityState === 'hidden') flush();
+});

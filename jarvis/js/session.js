@@ -9,7 +9,8 @@ export const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 // storageKey: the app's own (undefined = supabase-js's default, which the
 // Loading, Indents and Tally apps use) — so a login is shared with that app
 export const PROJECTS = {
-  // Jarvis's own login = the ledger login (also the Mac bridge and the brain)
+  // Jarvis's own project: its login, and the settings / conversation that sync across devices
+  jarvis: { cfg: () => window.JARVIS_CONFIG, storageKey: 'vriddhi-jarvis-auth', label: 'Jarvis', user: 'email' },
   ledger: { cfg: () => window.LEDGER_CONFIG, storageKey: 'vriddhi-ledger-auth', label: 'Ledger', user: 'email' },
   fleet: { cfg: () => window.FLEET_CONFIG, storageKey: 'shree-shyam-fleet-auth', label: 'Fleet', user: 'email' },
   loading: { cfg: () => window.VRIDDHI_LOADING_CONFIG, label: 'Loading', user: 'username' },
@@ -58,6 +59,15 @@ export async function signIn(name, email, password) {
   const { data, error } = await c.auth.signInWithPassword({ email: login, password });
   if (error) throw new Error(error.message === 'Invalid login credentials' ? 'Wrong email or password.' : error.message);
   return data.session;
+}
+
+// a new login (Jarvis's own project only). Returns the session, or null when
+// the project wants the email confirmed first.
+export async function signUp(name, email, password) {
+  const c = await client(name);
+  const { data, error } = await c.auth.signUp({ email: String(email || '').trim().toLowerCase(), password });
+  if (error) throw new Error(error.message);
+  return data.session || null;
 }
 
 export async function signOut(name) {

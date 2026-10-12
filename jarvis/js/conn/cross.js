@@ -9,8 +9,10 @@
 import { addDays } from '../nlu.js';
 
 let registry = null;                         // set by tools.js (avoids a circular import)
-export const useRegistry = (map) => { registry = map; };
+let isOn = () => true;
+export const useRegistry = (map, on) => { registry = map; if (on) isOn = on; };
 const call = async (name, input, ctx) => {
+  if (!isOn(name)) return { ok: false, off: true };
   const t = registry.get(name);
   const quiet = { ...ctx, progress: () => {}, confirm: async () => false };
   try { return { ok: true, r: await t.run(input, quiet) }; } catch (e) { return { ok: false, error: e.message, needsLogin: e.needsLogin }; }
@@ -34,7 +36,7 @@ async function brief(input, ctx) {
   const [sales, out, stock, trucks, pays, review, indents, fleet, tankers, xp] = parts;
   const lines = [];
   const skipped = [];
-  const add = (p, name, text) => { if (p.ok && text) lines.push(text); else if (!p.ok) skipped.push(`${name} (${p.needsLogin ? 'not signed in' : p.error})`); };
+  const add = (p, name, text) => { if (p.ok && text) lines.push(text); else if (!p.ok && !p.off) skipped.push(`${name} (${p.needsLogin ? 'not signed in' : p.error})`); };
   add(sales, 'Ledger sales', sales.ok && sales.r.say);
   add(out, 'Outstanding', out.ok && `Outstanding: ${out.r.say}`);
   add(stock, 'Tank stock', stock.ok && `Tanks — ${stock.r.say}`);

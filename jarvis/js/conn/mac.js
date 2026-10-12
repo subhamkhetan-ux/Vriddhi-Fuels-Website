@@ -12,7 +12,7 @@ async function rpc(c, fn, args) {
   const { data, error } = await c.rpc(fn, args);
   if (error) {
     if (/jarvis_/.test(error.message) && /(does not exist|Could not find)/i.test(error.message)) {
-      throw new Error('The Mac link isn\'t set up yet: run supabase/jarvis-schema.sql in the ledger project (see jarvis/README.md).');
+      throw new Error('The Mac link isn\'t set up yet: run supabase/jarvis-mac-schema.sql in the Jarvis project (see jarvis/README.md).');
     }
     throw new Error(error.message);
   }
@@ -22,7 +22,7 @@ async function rpc(c, fn, args) {
 // one command, start to finish -> the bridge's result ({text, ...})
 async function send(ctx, action, args = {}) {
   if (ctx.demo) return demoRun(action, args);
-  const c = await signedIn('ledger', 'the Ledger');
+  const c = await signedIn('jarvis', 'Jarvis');
   const bridges = await rpc(c, 'jarvis_bridges_list', {});
   const mac = (bridges || []).find((b) => b.name === 'mac');
   if (!mac || !mac.online) {
