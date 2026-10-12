@@ -74,6 +74,14 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   (on screen and in the pictures) with one line saying how many. The sheet's
   opening balance belongs to the group as a whole, so opening + every company
   = the group's balance.
+  **Statement of account per company** (as Tally's, party by party): pick a
+  company under *Statement of* to see only its bills and payments from a nil
+  opening, with its own running balance (its closing = its company-wise
+  outstanding), its balance and its own pending bills. *Share ledger* then
+  offers that company, the **Whole group** or **Company-wise** (one set of
+  pictures + PDF per company, each with its own Share); **Company statements
+  (PDFs)** downloads one PDF per company in a .zip — the whole ledger with its
+  pending bills, or the month picked.
 - **Retail** — the ledger sheet's rows for a month, with ‹ › to move between
   months.
 - every entry by month (newest first, or oldest first), each month with its

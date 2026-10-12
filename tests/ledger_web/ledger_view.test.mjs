@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { bulkRows } from '../../ledger/js/account.js';
 import {
-  bulkStatement, companyWise, fifoPending, groupPending, matchBills, pendingFromBalance, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, companyStatement, companyStatements, companyWise, fifoPending, groupPending, matchBills, pendingFromBalance, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
 } from '../../ledger/js/ledger-view.js';
 import { demoSeed } from '../../ledger/js/demo.js';
 import { memoryStore } from '../../ledger/js/store.js';
@@ -261,6 +261,32 @@ test('group: each company\'s payments clear its own bills, not another company\'
   // an opening for the group as a whole: a company's extra pays it; a payment with no company, any bill
   const g = groupPending({ entries: [e('2026-09-29', '1', 1000, 0, M), e('2026-09-30', '', 0, 1500, M), e('2026-10-01', '2', 700, 0, S), e('2026-10-02', '', 0, 700)], opening: 600, from: '2026-09-01' });
   assert.deepEqual(g.pending.map((d) => [d.opening ? 'opening' : d.bill, d.pending]), [['opening', 100]]);
+});
+
+test('group: each company\'s own statement of account', () => {
+  const data = groupData();
+  const st = bulkStatement(bulkRows(data), data, { name: 'Crew Group' });
+  const all = companyStatements(st);
+  // the ones that owe first (most first); Crew Three has no entry: no statement
+  assert.deepEqual(all.map((c) => [c.name, c.opening, c.closing]), [['Crew One', 0, 9950], ['Crew Two', 0, 7850]]);
+  // each closing is its company-wise outstanding
+  for (const c of all) assert.equal(c.closing, st.companies.list.find((x) => x.name === c.name).outstanding);
+  const one = companyStatement(st, 'crew one');
+  assert.deepEqual(one.entries.map((e) => [e.title, e.debit, e.credit, e.balance]), [
+    ['Diesel · Bill 10', 9000, 0, 9000], ['AdBlue', 450, 0, 9450], ['Refund', 0, -500, 9950],
+  ]);
+  assert.equal(one.entries[2].detail, 'refund');                       // the billing name isn't repeated
+  assert.deepEqual(one.totals, { billed: 9450, qty: 101, received: -500, tds: 0, shortage: 0, bills: 2, payments: 1 });
+  assert.equal(one.group, 'Crew Group');
+  assert.equal(one.companies, null);
+  const two = all[1];
+  assert.equal(two.entries[1].detail, 'NEFT');
+  assert.deepEqual(two.months.map((m) => [m.month, m.opening, m.closing]), [['2026-04', 0, 7850]]);
+  // its pending bills: its own payments against its own bills
+  assert.deepEqual(fifoPending(two.entries).pending.map((d) => [d.bill, d.pending]), [['11', 7850]]);
+  // the pictures of one company's statement
+  const pages = ledgerPagesSvg(two, { asOn: '2026-10-08', pending: fifoPending(two.entries).pending });
+  assert.ok(pages[0].includes('Crew Two') && pages[0].includes('PENDING BILLS') && !pages[0].includes('COMPANY-WISE'));
 });
 
 test('pictures: the pending bills (FIFO) on the card and after the closing', () => {
