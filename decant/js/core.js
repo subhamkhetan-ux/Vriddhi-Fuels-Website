@@ -466,8 +466,7 @@ export function suggestPlan({ layout, tanks, readings, exclude = new Set(), requ
 // tanks) — so more than the automation's ullage, which is measured to 20,000 L.
 // A stored tank reading from what an automation screenshot showed (or what
 // was typed): r = {volume, ullage?, capacity?, height? (mm), dip? (cm), water?,
-// density?, densityTc?, temp?, status?, readingAt?}. Used by the app and by
-// Jarvis (/jarvis/), so both save the same record.
+// density?, densityTc?, temp?, status?, readingAt?}.
 export function readingFrom(tank, r, source, chart, extra = {}) {
   const capacity = r.capacity || tank?.capacity || 20000;
   const volume = round2(r.volume);

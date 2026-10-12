@@ -1,6 +1,6 @@
 // A customer's outstanding: the account behind it and the card that is shared
-// as a picture. Pure functions over the store — no DOM — so the ledger's
-// screens and Jarvis (/jarvis/) draw exactly the same cards.
+// as a picture. Pure functions over the store — no DOM — so every ledger
+// screen draws exactly the same cards.
 //   accountFor(store, o, today) -> the account of anyone on Home's
 //                                 outstanding list (o: analyse().due row)
 //   cardSets(...)               -> which cards to draw (unit-wise / together)
