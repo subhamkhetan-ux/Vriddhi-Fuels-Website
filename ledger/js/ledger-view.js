@@ -516,6 +516,44 @@ export function groupPending(st, { asOn = '' } = {}) {
   return { ...f, pending: f.pending.map((d) => ({ ...d, key: '', showCompany: true })) };
 }
 
+// ---- a group company's own statement of account (as Tally's, party by party) ------
+// One company of a group sheet: only its bills and payments, from a nil opening
+// (the sheet's opening belongs to the group as a whole), with its own running
+// balance — so its closing is its company-wise outstanding. Its pending bills:
+// fifoPending() of these entries (its payments clear only its bills).
+export function companyStatement(st, name) {
+  const key = normKey(name);
+  const entries = [];
+  let bal = 0;
+  for (const e of st.entries) {
+    if (normKey(e.company) !== key) continue;
+    bal = round2(bal + e.debit - e.credit);
+    // the billing name is the statement's own: not repeated on each entry
+    const detail = String(e.detail || '').split(' · ').filter((x, i) => i || normKey(x) !== key).join(' · ');
+    entries.push({ ...e, detail, balance: bal });
+  }
+  return {
+    ...st, name: String(name || '').trim() || 'Without a billing name', group: st.name, company: name,
+    opening: 0, closing: bal, entries, months: byMonth(entries, 0), ...summarise(entries), companies: null,
+  };
+}
+// every company of a group sheet with an entry since its period from: those
+// that owe first (most first), then advances, then the settled ones (by name)
+export function companyStatements(st) {
+  const names = new Map();
+  for (const m of st.members || []) if (normKey(m)) names.set(normKey(m), m);
+  const seen = [];
+  for (const e of st.entries) {
+    const k = normKey(e.company);
+    if (seen.includes(k)) continue;
+    seen.push(k);
+    if (!names.has(k)) names.set(k, String(e.company || '').trim());
+  }
+  const rank = (v) => (Math.round(v) > 0 ? 0 : Math.round(v) < 0 ? 1 : 2);
+  return seen.map((k) => companyStatement(st, names.get(k)))
+    .sort((a, b) => rank(a.closing) - rank(b.closing) || Math.abs(b.closing) - Math.abs(a.closing) || a.name.localeCompare(b.name));
+}
+
 // the key of a bulk entry on an SMC-style (unit-wise) sheet
 export const unitKey = (e) => String(e.unit || '').trim().toUpperCase();
 // 'UNIT 1' -> 'Unit 1'; '' -> 'No unit'

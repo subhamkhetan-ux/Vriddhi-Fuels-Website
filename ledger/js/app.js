@@ -24,7 +24,7 @@ import {
   shareBatches,
 } from './statements.js';
 import {
-  bulkStatement, fifoPending, groupPending, poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
+  bulkStatement, companyStatements, fifoPending, groupPending, poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
   unitStatement,
 } from './ledger-view.js';
 import {
@@ -700,12 +700,17 @@ async function shareImages() {
 
 const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-async function ledgerFiles(st, base, fifo = null) {
+async function ledgerSvgs(st, fifo = null) {
   const { images, fontCss } = await shareImages();
-  const svgs = ledgerPagesSvg(st, {
+  return ledgerPagesSvg(st, {
     asOn: localToday() < st.to ? st.to : localToday(), images, fontCss,
     pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0, pos: fifo ? poSummary(fifo.pending) : null,
   });
+}
+const ledgerPdf = (svgs) => pdfFromSvgs(svgs, SHARE_PAGE_PT, { scale: SHARE_PAGE.width / SHARE_PAGE_PT.width });
+
+async function ledgerFiles(st, base, fifo = null) {
+  const svgs = await ledgerSvgs(st, fifo);
   const files = [];
   for (let i = 0; i < svgs.length; i++) {
     const blob = await jpegFromSvg(svgs[i], SHARE_PAGE);
@@ -959,7 +964,32 @@ function bulkAccount(data, res, name, openingByUnit, asOn) {
       u.fifo = { pending: fifo.pending.filter((d) => d.key === u.unit), advance: fifo.keys[u.unit]?.advance || 0 };
     }
   }
-  return { st, fifo, units };
+  // a group: each company's own statement of account and pending bills
+  const companies = res.kind === 'group'
+    ? companyStatements(st).map((cst) => ({ name: cst.name, st: cst, fifo: fifoPending(cst.entries, { asOn }) }))
+    : null;
+  return { st, fifo, units, companies };
+}
+
+// the companies of a group with a statement for the picture's range (the
+// whole ledger, or those with an entry in the month)
+const companiesFor = (acct, ym) => (acct.companies || []).filter((c) => !ym || c.st.months.some((m) => m.month === ym));
+
+// Every company's statement of account as its own PDF, in one .zip (as Tally
+// exports them party by party); the whole ledger (with its pending bills) or one month.
+async function companyPdfs(acct, name, asOn, ym, progress = () => {}) {
+  const list = companiesFor(acct, ym);
+  if (!list.length) throw new Error('No company has an entry in this month.');
+  const when = ym ? monthLabel(`${ym}-01`) : dmyDash(asOn);
+  const files = [];
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    progress(i, list.length);
+    const svgs = await ledgerSvgs(ym ? monthSlice(c.st, ym) : c.st, ym ? null : c.fifo);
+    files.push({ name: `${safeName(`${c.name} Statement ${when}`)}.pdf`, blob: await ledgerPdf(svgs) });
+  }
+  const folder = safeName(`${name} Company Statements ${when}`);
+  download(await zipBlob(files, folder), `${folder}.zip`);
 }
 
 // FIFO of one company of a group sheet (its own bills and payments)
@@ -1000,18 +1030,34 @@ function cardOptions(acct, name, asOn) {
 }
 
 // Share options for a bulk account's ledger pictures (the whole ledger or one
-// month): unit-wise first on an SMC-style sheet, then together.
-function ledgerOptions(acct, name, asOn, ym) {
+// month): unit-wise first on an SMC-style sheet, then together; on a group the
+// whole group, then company-wise (the company picked on screen before both).
+function ledgerOptions(acct, name, asOn, ym, picked = null) {
   const set = async (st, fifo, base, label = '') => {
     const part = ym ? monthSlice(st, ym) : st;
     const fileBase = safeName(ym ? `${base} ${monthLabel(`${ym}-01`)}` : `${base} ${dmyDash(asOn)}`);
     const made = await ledgerFiles(part, fileBase, ym ? null : fifo);   // pending bills with the whole ledger
     return {
       label, files: made.files,
-      pdf: async () => download(await pdfFromSvgs(made.svgs, SHARE_PAGE_PT, { scale: SHARE_PAGE.width / SHARE_PAGE_PT.width }), `${fileBase}.pdf`),
+      pdf: async () => download(await ledgerPdf(made.svgs), `${fileBase}.pdf`),
     };
   };
-  const together = { label: acct.units ? 'Both units together' : '', make: async () => [await set(acct.st, acct.fifo, `${name} Ledger`)] };
+  const together = { label: acct.units ? 'Both units together' : acct.companies ? 'Whole group' : '', make: async () => [await set(acct.st, acct.fifo, `${name} Ledger`)] };
+  if (acct.companies) {
+    // a group: the whole group, or each company's own statement of account
+    // (one set each, with its own Share) — the company picked on screen first
+    const one = (c) => ({ label: c.name, make: async () => [await set(c.st, c.fifo, `${c.name} Statement`)] });
+    const companyWise = {
+      label: 'Company-wise',
+      make: async () => {
+        const out = [];                                       // one at a time: pictures drawn together can lose their font
+        for (const c of companiesFor(acct, ym)) out.push(await set(c.st, c.fifo, `${c.name} Statement`, c.name));
+        if (!out.length) throw new Error('No company has an entry in this month.');
+        return out;
+      },
+    };
+    return picked && companiesFor(acct, ym).includes(picked) ? [one(picked), together, companyWise] : [together, companyWise];
+  }
   if (!acct.units) return [together];
   const unitWise = {
     label: 'Unit-wise',
@@ -1096,7 +1142,9 @@ async function viewBulkAccount(code) {
     const months = [...st.months].reverse();
     // the statement of the whole account, or of one unit
     const unitSt = acct.units && state.acctUnit && state.acctUnit.code === code ? acct.units.find((u) => u.unit === state.acctUnit.unit) : null;
-    const shown = unitSt ? unitSt.st : st;
+    // a group: the whole group's statement, or one company's
+    const coSt = acct.companies && state.acctCompany && state.acctCompany.code === code ? acct.companies.find((c) => c.name === state.acctCompany.name) : null;
+    const shown = unitSt ? unitSt.st : coSt ? coSt.st : st;
     setMain(`
     <section class="card acct-card">
       <p class="muted small"><a href="#/">← Home</a></p>
@@ -1113,13 +1161,20 @@ async function viewBulkAccount(code) {
           ${months.map((m) => `<option value="${m.month}">${esc(m.title)}</option>`).join('')}</select></label>
         <button class="btn small" data-acct="share">${SHARE_ICON} Share ledger</button>
         <button class="btn ghost small" data-acct="card">${SHARE_ICON} Share outstanding</button>
+        ${acct.companies ? '<button class="btn ghost small" data-acct="copdf">Company statements (PDFs)</button>' : ''}
       </div>
-      ${acct.units ? '<p class="small muted">Shares one set of pictures per unit — or switch to <b>Both units together</b> in the share sheet.</p>' : ''}` : ''}
+      ${acct.units ? '<p class="small muted">Shares one set of pictures per unit — or switch to <b>Both units together</b> in the share sheet.</p>' : ''}
+      ${acct.companies ? `<p class="small muted">A statement of account for each of the ${acct.companies.length} companies — its own bills, payments, running balance and pending bills: <b>Company-wise</b> in the share sheet, or <b>Company statements</b> for one PDF per company in a .zip.</p>` : ''}` : ''}
     </section>
     ${view === 'statement' ? `${acct.units ? `<section class="card">${unitsHtml(acct)}</section>` : ''}
       ${st.companies ? `<section class="card">${companiesHtml(st.companies)}</section>` : ''}
       <section class="card" id="pending-card">${pendingHtml(acct, { group: res.kind === 'group' })}</section>
       ${acct.units ? `<div class="chips small-chips unit-pick">${[{ unit: null, label: 'Whole account' }, ...acct.units.map((u) => ({ unit: u.unit, label: unitLabel(u.unit) }))].map((u) => `<button class="chip ${(unitSt ? unitSt.unit : null) === u.unit ? 'on' : ''}" data-ustmt="${u.unit ?? '*'}">${esc(u.label)}</button>`).join('')}</div>` : ''}
+      ${acct.companies ? `<div class="share-row co-pick"><label class="inline-label small">Statement of <select id="co-pick">
+        <option value="">The whole group</option>
+        ${acct.companies.map((c) => `<option value="${esc(c.name)}"${coSt === c ? ' selected' : ''}>${esc(c.name)} · ${esc(drCr(c.st.closing))}</option>`).join('')}</select></label></div>
+        ${coSt ? `<section class="card"><h3>${esc(coSt.name)} <span class="muted">· part of ${esc(name)}</span></h3>${acctHeroHtml(coSt.st, { asOn, label: 'today' })}</section>
+          <section class="card">${pendingHtml({ fifo: coSt.fifo, units: null })}</section>` : ''}` : ''}
       ${statementCard(shown)}`
     : `<section class="card">${bulkSheet(res, data, name)}</section>`}`);
     bindViewToggle(render);
@@ -1131,9 +1186,23 @@ async function viewBulkAccount(code) {
       render();
       window.scrollTo(0, y);
     }));
-    main().querySelector('[data-acct="share"]').addEventListener('click', () => {
-      sharePictures(`${name} — ledger`, ledgerOptions(acct, name, asOn, main().querySelector('#share-range').value));
+    main().querySelector('#co-pick')?.addEventListener('change', (ev) => {
+      state.acctCompany = ev.target.value ? { code, name: ev.target.value } : null;
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
     });
+    main().querySelector('[data-acct="share"]').addEventListener('click', () => {
+      sharePictures(`${coSt ? coSt.name : name} — ledger`, ledgerOptions(acct, name, asOn, main().querySelector('#share-range').value, coSt));
+    });
+    const coPdf = main().querySelector('[data-acct="copdf"]');
+    coPdf?.addEventListener('click', () => guard(async () => {
+      const old = coPdf.textContent;
+      coPdf.disabled = true;
+      try {
+        await companyPdfs(acct, name, asOn, main().querySelector('#share-range').value, (i, n) => { coPdf.textContent = `Making PDF ${i + 1} of ${n}…`; });
+      } finally { coPdf.disabled = false; coPdf.textContent = old; }
+    }));
     main().querySelector('[data-acct="card"]').addEventListener('click', () => {
       sharePictures(`${name} — outstanding`, cardOptions(acct, name, asOn));
     });
