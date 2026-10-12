@@ -90,7 +90,11 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
 - **Retail** — the ledger sheet's rows for a month, with ‹ › to move between
   months.
 - every entry by month (newest first, or oldest first), each month with its
-  billed / received / closing; *All / Bills / Payments* filters.
+  billed / received / closing; *All / Bills / Payments* filters. **TDS** and a
+  **shortage** typed with a payment are transactions of their own on the
+  payment's date (*TDS deducted*, *Shortage* — "On the payment of ₹…"), each
+  with the balance after it; the payment shows only what was paid. Same in the
+  ledger pictures and PDFs.
 - **Pending bills** on every bulk ledger — each with its date, invoice no.,
   the bill's amount, what's still pending on it and how many days old it is
   (amber after 15 days, red after 30); an advance not yet set against a bill

@@ -72,6 +72,38 @@ function summarise(entries) {
   return { totals: t, products, lastPayment, lastBill };
 }
 
+// ---- the statement's lines ------------------------------------------------------------
+// As Tally shows them: TDS and a shortage set against a payment (or typed on a
+// bill's row) are lines of their own — "TDS deducted", "Shortage" — right
+// after it, each with the balance after it; the payment shows only what was
+// paid. The entries themselves stay whole (a payment is matched to bills with
+// its TDS and shortage). A row with only TDS / shortage is just those lines.
+export function statementLines(entries) {
+  const out = [];
+  for (const e of entries) {
+    const tds = round2(Number(e.tds) || 0);
+    const shortage = round2(Number(e.shortage) || 0);
+    if (!tds && !shortage) { out.push(e); continue; }
+    let bal = round2(e.balance + tds + shortage);
+    const paid = round2(Number(e.paid) || 0);
+    if (e.type !== 'pay' || paid) out.push({ ...e, tds: 0, shortage: 0, credit: paid, balance: bal });
+    // what it was deducted from: the payment (same date), or the bill
+    const on = e.type === 'pay'
+      ? [paid ? `On the payment of ₹${paid.toLocaleString('en-IN')}` : '', e.detail].filter(Boolean).join(' · ')
+      : [e.bill ? `Bill ${e.bill}` : e.title, e.detail].filter(Boolean).join(' · ');
+    const line = (title, amount) => {
+      bal = round2(bal - amount);
+      return {
+        ...e, type: 'pay', deduction: true, product: 'DEDUCT', title, detail: on, bill: '', qty: 0, rate: 0,
+        debit: 0, paid: 0, tds: title === 'TDS deducted' ? amount : 0, shortage: title === 'Shortage' ? amount : 0, credit: amount, balance: bal,
+      };
+    };
+    if (tds) out.push(line('TDS deducted', tds));
+    if (shortage) out.push(line('Shortage', shortage));
+  }
+  return out;
+}
+
 // ---- a *_Bulk sheet ---------------------------------------------------------------
 // res: bulkRows(data, poOf); data: store.account(null, code)
 // openingByCompany: a group's opening per billing name (Customer GST; the

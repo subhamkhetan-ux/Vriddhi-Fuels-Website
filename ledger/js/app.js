@@ -24,7 +24,7 @@ import {
   shareBatches,
 } from './statements.js';
 import {
-  poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitLabel,
+  poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, statementLines, unitLabel,
 } from './ledger-view.js';
 import {
   dMon, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
@@ -845,13 +845,12 @@ function companiesHtml(cw) {
 }
 
 function stmtRowHtml(e) {
-  const deduct = [e.tds ? `TDS ${rupees(e.tds)}` : '', e.shortage ? `short ${rupees(e.shortage)}` : ''].filter(Boolean).join(' + ');
   return `<div class="stmt-row ${e.type}">
     <span class="s-date"><b>${esc(e.date.slice(8, 10))}</b><small>${esc(dMon(e.date).slice(3))}</small></span>
-    <span class="s-part"><i style="background:${PRODUCT_COLOR[e.product] || PRODUCT_COLOR.OTHER}"></i><b>${esc(e.title)}</b>${e.detail ? `<small>${esc(e.detail)}</small>` : ''}</span>
+    <span class="s-part"><i style="background:${e.deduction ? 'var(--warn)' : PRODUCT_COLOR[e.product] || PRODUCT_COLOR.OTHER}"></i><b>${esc(e.title)}</b>${e.detail ? `<small>${esc(e.detail)}</small>` : ''}</span>
     <span class="s-qty r">${e.qty ? esc(qtyText(e.qty)) : ''}${e.rate ? `<small>@ ₹${e.rate.toFixed(2)}</small>` : ''}</span>
     <span class="s-dr r">${e.debit ? esc(rupees(e.debit)) : ''}</span>
-    <span class="s-cr r">${e.credit ? `<span class="${e.credit < 0 ? 'bad-text' : 'good-text'}">${esc(rupees(e.credit))}</span>` : ''}${deduct ? `<small>incl. ${esc(deduct)}</small>` : ''}</span>
+    <span class="s-cr r">${e.credit ? `<span class="${e.credit < 0 ? 'bad-text' : 'good-text'}">${esc(rupees(e.credit))}</span>` : ''}</span>
     <span class="s-bal r">${balHtml(e.balance)}</span>
   </div>`;
 }
@@ -861,7 +860,9 @@ function statementHtml(st, { filter = 'all', newest = true } = {}) {
   const keep = (e) => filter === 'all' || (filter === 'pay' ? e.type === 'pay' : e.type !== 'pay');
   const head = '<div class="stmt-row head"><span>Date</span><span>Particulars</span><span class="r">Litres</span><span class="r">Debit</span><span class="r">Credit</span><span class="r">Balance</span></div>';
   const blocks = months.map((m) => {
-    const list = (newest ? [...m.entries].reverse() : m.entries).filter(keep);
+    // TDS and shortage: lines of their own (statementLines)
+    const lines = statementLines(m.entries);
+    const list = (newest ? lines.reverse() : lines).filter(keep);
     if (!list.length) return '';
     return `<div class="stmt-month">
       <div class="stmt-mhead"><b>${esc(m.title)}</b><span>billed ${esc(rupees(m.billed))} · received ${esc(rupees(m.received))}${m.deductions ? ` · TDS/short ${esc(rupees(m.deductions))}` : ''} · closing ${balHtml(m.closing)}</span></div>
