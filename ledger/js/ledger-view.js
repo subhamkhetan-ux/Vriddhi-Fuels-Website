@@ -504,6 +504,18 @@ export function poRowName(r) {
   return { HSD: 'Diesel · no PO yet', MS: 'Petrol', XG: 'XtraGreen', OTHER: 'Other items' }[r.product] || 'Without a PO';
 }
 
+// A group sheet's pending bills: each company's payments (and TDS, shortage)
+// clear that company's own bills — never another company's — then the group's
+// opening; what a company pays beyond that is its advance, kept for its own
+// later bills. A row with no billing name clears any company's bills, oldest
+// first. The keys are only for matching: the bills come back without one (no
+// unit), each naming its company.
+export const companyKey = (e) => normKey(e.company);
+export function groupPending(st, { asOn = '' } = {}) {
+  const f = fifoPending(st.entries, { opening: st.opening, keyOf: companyKey, from: st.from, asOn });
+  return { ...f, pending: f.pending.map((d) => ({ ...d, key: '', showCompany: true })) };
+}
+
 // the key of a bulk entry on an SMC-style (unit-wise) sheet
 export const unitKey = (e) => String(e.unit || '').trim().toUpperCase();
 // 'UNIT 1' -> 'Unit 1'; '' -> 'No unit'

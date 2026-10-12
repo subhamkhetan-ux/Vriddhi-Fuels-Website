@@ -96,6 +96,11 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   Finally, if a bill would be left part paid but each product's **newest
   bills add up exactly** to what's owed, those whole bills are the pending
   ones (e.g. two diesel bills + the April lube bill).
+  On a **group** sheet (several billing names) each company's payment clears
+  **only that company's bills** (then the group's opening) — never an older
+  bill of another company — and what a company pays beyond that is its own
+  advance, kept for its later bills. A payment with no billing name clears
+  any company's bills. So a company that is clear has no pending bill.
 - **PO-wise outstanding** for customers with PO lists: the pending bills
   grouped by PO number (unit by unit on an SMC-style sheet) — how much is
   still owed against each PO, how many bills and which dates, and how old the

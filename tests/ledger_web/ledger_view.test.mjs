@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { bulkRows } from '../../ledger/js/account.js';
 import {
-  bulkStatement, companyWise, fifoPending, matchBills, pendingFromBalance, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, companyWise, fifoPending, groupPending, matchBills, pendingFromBalance, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
 } from '../../ledger/js/ledger-view.js';
 import { demoSeed } from '../../ledger/js/demo.js';
 import { memoryStore } from '../../ledger/js/store.js';
@@ -236,6 +236,31 @@ test('demo: the unit typed on a payment reaches the bulk ledger', async () => {
   assert.ok(units.includes('UNIT 1') && units.includes(''));
   const res = bulkRows(data);
   assert.ok(res.rows.some((r) => r.payment && r.unit === 'UNIT 1'));
+});
+
+test('group: each company\'s payments clear its own bills, not another company\'s', () => {
+  const M = { company: 'Maa Medhapat Firm' };
+  const S = { company: 'Samarpan Logistics' };
+  const G = { company: 'Grk Logistics' };
+  const entries = [
+    e('2026-09-29', '3474', 398000, 0, M), e('2026-09-30', '3530', 398000, 0, S),
+    e('2026-10-01', '3600', 398000, 0, G), e('2026-10-02', '3601', 100000, 0, G),
+    e('2026-10-05', '', 0, 398000, { company: 'MAA  medhapat firm' }),   // Medhapat pays its bill
+    e('2026-10-06', '', 0, 500000, G),                                    // Grk pays a bit extra
+    e('2026-10-08', '3777', 398000, 0, G),
+  ];
+  const st = { entries, opening: 0, from: '2026-09-01' };
+  const f = groupPending(st, { asOn: '2026-10-12' });
+  // Medhapat's 3474 is paid; Grk's extra 2,000 goes to its own later bill 3777, not Samarpan's
+  assert.deepEqual(f.pending.map((d) => [d.bill, d.company, d.pending]), [
+    ['3530', 'Samarpan Logistics', 398000],
+    ['3777', 'Grk Logistics', 396000],
+  ]);
+  assert.ok(f.pending.every((d) => d.key === '' && d.showCompany));
+  assert.equal(f.total, 398000 + 398000 + 100000 - 500000 + 398000);
+  // an opening for the group as a whole: a company's extra pays it; a payment with no company, any bill
+  const g = groupPending({ entries: [e('2026-09-29', '1', 1000, 0, M), e('2026-09-30', '', 0, 1500, M), e('2026-10-01', '2', 700, 0, S), e('2026-10-02', '', 0, 700)], opening: 600, from: '2026-09-01' });
+  assert.deepEqual(g.pending.map((d) => [d.opening ? 'opening' : d.bill, d.pending]), [['opening', 100]]);
 });
 
 test('pictures: the pending bills (FIFO) on the card and after the closing', () => {
