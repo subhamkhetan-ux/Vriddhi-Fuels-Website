@@ -11,7 +11,7 @@ const fill = (veh, n, date, qty, o = {}) => ({ veh, trip: `T0${n}/DEMO`, date, q
 // a trip's diesel as tripdiesel.js has it
 const zOf = (t, allotted, fills) => ({ t, allotted, est: false, live: !t.unloadDate, fills, taken: fills.reduce((a, h) => a + h.qty, 0) });
 
-test('far more diesel than the trip and the route take; the fill that belongs to the trip before', () => {
+test('more diesel than the allotment and the 200 L mid-way buffer; the fill that belongs to the trip before', () => {
   row = 3;
   const trips = [];
   const hsd = [];
@@ -22,11 +22,15 @@ test('far more diesel than the trip and the route take; the fill that belongs to
     const fs = [fill(t.veh, 1, t.start, 350, { bill: `S/${i}a` }), fill(t.veh, 1, t.unloadDate, 280, { bill: `S/${i}b` })];
     trips.push(t); hsd.push(...fs); td.set(t.row, zOf(t, 630, fs));
   }
-  // XX09: trip 1 is 120 L under, trip 2 has a 120 L fill on its first day
+  // XX09: trip 1 is 250 L under, trip 2 has a 250 L fill on its first day
   const t1 = trip('XX09', 1, '2026-09-10', { loadDate: '2026-09-12', unloadDate: '2026-09-18' });
   const t2 = trip('XX09', 2, '2026-09-19', { loadDate: '2026-09-22', unloadDate: '2026-09-28' });
-  const f1 = [fill('XX09', 1, '2026-09-11', 350, { bill: 'S/91' }), fill('XX09', 1, '2026-09-16', 160, { bill: 'S/92' })];
-  const f2 = [fill('XX09', 2, '2026-09-19', 120, { location: 'Plant town', bill: 'S/93' }), fill('XX09', 2, '2026-09-20', 350, { bill: 'S/94' }), fill('XX09', 2, '2026-09-25', 280, { bill: 'S/95' })];
+  const f1 = [fill('XX09', 1, '2026-09-11', 350, { bill: 'S/91' }), fill('XX09', 1, '2026-09-16', 30, { bill: 'S/92' })];
+  const f2 = [fill('XX09', 2, '2026-09-19', 250, { location: 'Plant town', bill: 'S/93' }), fill('XX09', 2, '2026-09-20', 350, { bill: 'S/94' }), fill('XX09', 2, '2026-09-25', 280, { bill: 'S/95' })];
+  // XX08: 130 L over at mid-way — within the buffer, planned: not flagged
+  const t3 = trip('XX08', 1, '2026-09-10', { loadDate: '2026-09-12', unloadDate: '2026-09-18' });
+  const f3 = [fill('XX08', 1, '2026-09-11', 480, { bill: 'S/81' }), fill('XX08', 1, '2026-09-16', 280, { bill: 'S/82' })];
+  trips.push(t3); hsd.push(...f3); td.set(t3.row, zOf(t3, 630, f3));
   trips.push(t1, t2); hsd.push(...f1, ...f2);
   td.set(t1.row, zOf(t1, 630, f1)); td.set(t2.row, zOf(t2, 630, f2));
   const L = irregulars({ trips, hsd }, { tripDiesel: td, today });
@@ -35,11 +39,11 @@ test('far more diesel than the trip and the route take; the fill that belongs to
   assert.equal(o[0].row, t2.row);
   assert.equal(o[0].level, 'bad');
   assert.equal(o[0].src, f2[0]);                                         // the fill to move
-  assert.match(o[0].text, /750 L of diesel tagged against 630 L allotted \(\+120 L\) — trucks on this route usually take 630 L\. The 120 L fill on 19 Sep at Plant town \(S\/93\) probably belongs to T01\/DEMO, which is 120 L under/);
+  assert.match(o[0].text, /880 L of diesel tagged against 630 L allotted \(\+250 L, 50 L past the 200 L mid-way buffer\) — trucks on this route usually take 630 L\. The 250 L fill on 19 Sep at Plant town \(S\/93\) probably belongs to T01\/DEMO, which is 250 L under/);
   // each fill's place in the trip
   const p = fillProgress(td);
-  assert.deepEqual([p.get(f2[0]).before, p.get(f2[0]).after], [0, 120]);
-  assert.deepEqual([p.get(f2[2]).before, p.get(f2[2]).after, p.get(f2[2]).allotted], [470, 750, 630]);
+  assert.deepEqual([p.get(f2[0]).before, p.get(f2[0]).after], [0, 250]);
+  assert.deepEqual([p.get(f2[2]).before, p.get(f2[2]).after, p.get(f2[2]).allotted], [600, 880, 630]);
 });
 
 test('fills entered twice, a slip no. used twice, fills on the wrong trip or none, amounts off', () => {
