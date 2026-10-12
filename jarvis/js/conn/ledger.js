@@ -63,6 +63,13 @@ async function find(ctx, query) {
   };
 }
 
+// "which one?" — the candidates as choices the owner taps or names
+const asked = (ask, tool, input) => ({
+  summary: ask,
+  say: ask.message,
+  choices: (ask.candidates || []).map((c) => ({ label: c.name, tool, input: { ...input, customer: c.name } })),
+});
+
 // ---- pictures (exactly the ledger app's) -------------------------------------------
 let assets = null;
 const shareKit = () => (assets || (assets = Promise.all([toDataUrl(LOGO).catch(() => ''), brandFontCss()])
@@ -115,7 +122,7 @@ async function outstanding(input, ctx) {
     };
   }
   const { person, ask } = await find(ctx, input.customer);
-  if (ask) return { summary: ask, say: ask.message };
+  if (ask) return asked(ask, 'ledger_outstanding', input);
   ctx.progress(`Drawing ${person.name}'s outstanding…`);
   const res = await outstandingFor(b.store, person, ctx.today);
   const [first, ...others] = res.options;
@@ -145,7 +152,7 @@ async function outstanding(input, ctx) {
 
 async function statement(input, ctx) {
   const { person, ask, b } = await find(ctx, input.customer || '');
-  if (ask) return { summary: ask, say: ask.message };
+  if (ask) return asked(ask, 'ledger_statement', input);
   const ym = /^\d{4}-\d{2}$/.test(input.month || '') ? input.month : null;
   const { images: im, fontCss } = await shareKit();
   ctx.progress(`Drawing ${person.name}'s ledger…`);

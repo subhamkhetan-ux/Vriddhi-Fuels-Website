@@ -1,9 +1,12 @@
 // Jarvis — the screens: chat, voice, pictures, confirmations, settings.
-// The work is done by the tools (tools.js → conn/*), chosen by the brain
-// (brain.js, Claude) or, without it, by quick commands (quick.js).
+// The work is done by the tools (tools.js → conn/*), chosen by the built-in
+// brain (engine.js — no AI service, the default) or, if the owner switches it
+// on, by Claude (brain.js). Jarvis never depends on the AI: when it is off or
+// unreachable, the built-in brain answers.
 
 import { Brain, makeClient, toolLabel } from './brain.js';
-import { HELP, parse } from './quick.js';
+import { newMemory, remember, understand } from './engine.js';
+import { HELP } from './quick.js';
 import { APPS } from './conn/more.js';
 import { configured, session, signIn, signOut } from './session.js';
 import { runTool } from './tools.js';
@@ -21,9 +24,12 @@ function localToday() {
 
 // ---- settings (this device only) ---------------------------------------------------
 const SETTINGS_KEY = 'jarvis-settings';
-const DEFAULTS = { brain: 'auto', key: '', effort: 'medium', speak: true, handsFree: false, lang: 'en-IN' };
+const DEFAULTS = { brain: 'builtin', key: '', effort: 'medium', speak: true, handsFree: false, lang: 'en-IN' };
 function loadSettings() {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { ...DEFAULTS }; }
+  let s;
+  try { s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { s = { ...DEFAULTS }; }
+  if (!['builtin', 'cloud', 'key'].includes(s.brain)) s.brain = 'builtin';
+  return s;
 }
 const settings = loadSettings();
 function saveSettings() {
@@ -38,18 +44,19 @@ const state = {
   ledger: null,               // ledger session
   mac: null,                  // {online, seen_at}
   brainNote: '',
+  memory: newMemory(),        // the built-in brain's thread of the conversation
+  choices: null,              // "which one?" offered last time
 };
 
 // ---- the brain ------------------------------------------------------------------------
 const brainUrl = () => (window.JARVIS_CONFIG?.BRAIN_URL || `${(window.LEDGER_CONFIG?.SUPABASE_URL || '').replace(/\/$/, '')}/functions/v1/jarvis-brain`);
 
-// which brain answers now: 'key' | 'cloud' | null (quick commands)
+// Claude only when the owner switched it on and it can work: 'key' | 'cloud';
+// otherwise null = the built-in brain (the default)
 function brainMode() {
-  if (settings.brain === 'quick') return null;
-  if (settings.brain === 'key') return settings.key ? 'key' : null;
-  if (settings.brain === 'cloud') return state.ledger && !DEMO ? 'cloud' : null;
-  if (settings.key) return 'key';
-  return state.ledger && !DEMO && !state.cloudMissing ? 'cloud' : null;
+  if (settings.brain === 'key' && settings.key) return 'key';
+  if (settings.brain === 'cloud' && state.ledger && !DEMO && !state.cloudMissing) return 'cloud';
+  return null;
 }
 
 const brain = new Brain({
@@ -97,7 +104,7 @@ function shell() {
       <input type="file" id="file" accept="image/*" multiple hidden>
     </footer>`;
   $('#open-settings').onclick = () => openSettings();
-  $('#new-chat').onclick = () => { brain.reset(); stopSpeaking(); welcome(); };
+  $('#new-chat').onclick = () => { brain.reset(); state.memory = newMemory(); state.choices = null; stopSpeaking(); welcome(); };
   $('#attach').onclick = () => $('#file').click();
   $('#file').onchange = (e) => { addFiles([...e.target.files]); e.target.value = ''; };
   const input = $('#input');
@@ -143,7 +150,7 @@ function renderPills() {
   const mode = brainMode();
   const pills = [];
   pills.push(DEMO ? '<span class="pill wait">Demo</span>' : state.ledger ? `<span class="pill ok">${esc(state.ledger.user?.email || 'Signed in')}</span>` : '<span class="pill off">Not signed in</span>');
-  pills.push(`<span class="pill ${mode ? 'ok' : 'wait'}" title="${esc(state.brainNote)}">${mode ? 'AI brain' : 'Quick commands'}</span>`);
+  pills.push(`<span class="pill ${mode ? 'ok' : 'wait'}" title="${esc(state.brainNote)}">${mode ? 'Claude AI' : 'Built-in brain'}</span>`);
   if (state.mac) pills.push(`<span class="pill ${state.mac.online ? 'ok' : 'off'}">Mac ${state.mac.online ? 'online' : 'offline'}</span>`);
   el.innerHTML = pills.join('');
 }
@@ -228,7 +235,7 @@ function jarvisBubble() {
 
 // a little markdown: **bold**, lists, paragraphs, links
 function md(text) {
-  const blocks = esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[(.+?)\]\((https?:[^)\s]+|\.\.?\/[^)\s]*)\)/g, '<a href="$2">$1</a>').split(/\n{2,}/);
+  const blocks = esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\s)_(.+?)_(?=\s|$)/g, '$1<em class="muted">$2</em>').replace(/\[(.+?)\]\((https?:[^)\s]+|\.\.?\/[^)\s]*)\)/g, '<a href="$2">$1</a>').split(/\n{2,}/);
   return blocks.map((b) => {
     const lines = b.split('\n');
     if (lines.every((l) => /^\s*([-•*]|\d+\.)\s+/.test(l))) return `<ul>${lines.map((l) => `<li>${l.replace(/^\s*([-•*]|\d+\.)\s+/, '')}</li>`).join('')}</ul>`;
@@ -267,6 +274,15 @@ function download(file) {
 
 function showResultExtras(bub, result, tool) {
   if (!result) return;
+  if (result.choices?.length) {
+    state.choices = result.choices;               // "the second one" / a name works next time too
+    const box = document.createElement('div');
+    box.className = 'chips';
+    box.style.cssText = 'justify-content:flex-start;margin-top:8px';
+    box.innerHTML = result.choices.map((c, i) => `<button class="chip" data-choice="${i}">${esc(c.label)}</button>`).join('');
+    box.querySelectorAll('[data-choice]').forEach((b) => { b.onclick = () => submit(result.choices[Number(b.dataset.choice)].label); });
+    bub.extras.append(box);
+  }
   if (result.images?.length) {
     const box = document.createElement('div');
     box.className = 'pics';
@@ -365,7 +381,7 @@ async function submit(preset) {
   const bub = jarvisBubble();
   let reply = '';
   try {
-    reply = brainMode() ? await askBrain(text, ids, bub) : await askQuick(text, ids, bub);
+    reply = brainMode() ? await askBrain(text, ids, bub) : await askBuiltin(text, ids, bub);
   } catch (err) {
     reply = '';
     bub.text.innerHTML = `<p class="err">${esc(err.message || err)}</p>`;
@@ -401,39 +417,62 @@ async function askBrain(text, ids, bub) {
       },
     });
   } catch (err) {
-    // the cloud brain isn't deployed: say so once and carry on with quick commands
-    if (brainMode() === 'cloud' && (err.status === 404 || /ANTHROPIC_API_KEY/.test(err.message))) {
-      state.cloudMissing = true;
-      state.brainNote = err.message;
-      renderPills();
-      bub.steps.innerHTML = '';
-      const r = await askQuick(text, ids, bub);
-      return `${r}\n\n(${err.message} Using quick commands meanwhile.)`;
-    }
-    throw err;
+    // Claude unavailable (no credit, offline, not set up…): the built-in brain answers
+    if (brainMode() === 'cloud' && (err.status === 404 || /ANTHROPIC_API_KEY/.test(err.message))) state.cloudMissing = true;
+    state.brainNote = err.message;
+    renderPills();
+    bub.steps.innerHTML = '';
+    bub.extras.innerHTML = '';
+    const r = await askBuiltin(text, ids, bub);
+    return `${r}\n\n_(Claude isn't available — ${err.message} The built-in brain answered.)_`;
   }
 }
 
-async function askQuick(text, ids, bub) {
-  const q = parse(text, { attachments: ids });
-  if (q?.help || !q) {
-    bub.extras.innerHTML = `<div class="chips" style="justify-content:flex-start;margin-top:6px">${HELP.map(([s, what]) => (s.startsWith('📎')
-      ? `<span class="chip" title="${esc(what)}">${esc(s)}</span>`
-      : `<button class="chip" data-say="${esc(s.split(' / ')[0])}" title="${esc(what)}">${esc(s)}</button>`)).join('')}</div>`;
-    bub.extras.querySelectorAll('[data-say]').forEach((b) => { b.onclick = () => submit(b.dataset.say); });
-    return q?.help ? 'Here\'s what I can do. Tap one, or say it.'
-      : 'I didn\'t catch that as a quick command. Try one of these — or set up the AI brain (⚙ Settings) and ask anything.';
+function helpChips(bub, phrases = null) {
+  const items = phrases ? phrases.map((p) => [p, '']) : HELP;
+  const box = document.createElement('div');
+  box.className = 'chips';
+  box.style.cssText = 'justify-content:flex-start;margin-top:6px';
+  box.innerHTML = items.map(([s, what]) => (s.startsWith('📎')
+    ? `<span class="chip" title="${esc(what)}">${esc(s)}</span>`
+    : `<button class="chip" data-say="${esc(s.split(' / ')[0])}" title="${esc(what)}">${esc(s)}</button>`)).join('');
+  box.querySelectorAll('[data-say]').forEach((b) => { b.onclick = () => submit(b.dataset.say); });
+  bub.extras.append(box);
+}
+
+// the built-in brain: understand → run the tools → answer from their results
+async function askBuiltin(text, ids, bub) {
+  const u = understand(text, { attachments: ids, memory: state.memory, choices: state.choices });
+  state.choices = null;
+  if (u.help) { helpChips(bub); return 'Here\'s what I can do. Tap one, or just say it — in English or Hinglish.'; }
+  if (!u.calls) {
+    if (u.suggest?.length) { helpChips(bub, u.suggest); return 'Did you mean one of these?'; }
+    helpChips(bub);
+    return 'I didn\'t understand that. Here\'s what I can do — tap one or say it.';
   }
-  stepLine(bub, 's1', toolLabel(q.tool, q.input), 'running');
-  const out = await runTool(q.tool, q.input, ctxFor(bub));
-  stepLine(bub, 's1', toolLabel(q.tool, q.input), out.ok ? 'done' : 'failed');
-  if (!out.ok) {
-    showNeedsLogin(bub, out);
-    const e = new Error(out.error);
-    throw e;
+  const said = [];
+  for (let k = 0; k < u.calls.length; k++) {
+    const call = u.calls[k];
+    const key = `b${k}`;
+    stepLine(bub, key, toolLabel(call.tool, call.input), 'running');
+    const out = await runTool(call.tool, call.input, ctxFor(bub));
+    stepLine(bub, key, toolLabel(call.tool, call.input), out.ok ? 'done' : 'failed', out.ok ? '' : out.error);
+    if (u.guess && (!out.ok || out.result?.summary?.found === false)) {    // the bare words weren't a customer
+      bub.steps.innerHTML = '';
+      helpChips(bub, u.suggest?.length ? u.suggest : null);
+      return u.suggest?.length ? 'Did you mean one of these?' : 'I didn\'t understand that. Here\'s what I can do — tap one or say it.';
+    }
+    if (!out.ok) {
+      showNeedsLogin(bub, out);
+      if (u.calls.length === 1) throw new Error(out.error);
+      said.push(`${toolLabel(call.tool, call.input)}: ${out.error}`);
+      continue;
+    }
+    state.memory = remember(state.memory, call, out.result);
+    showResultExtras(bub, out.result, call.tool);
+    said.push(out.result.say || 'Done.');
   }
-  showResultExtras(bub, out.result, q.tool);
-  return out.result.say || 'Done.';
+  return (u.corrected ? `_(I read that as “${u.corrected}”.)_\n\n` : '') + said.join('\n\n');
 }
 
 // ---- voice --------------------------------------------------------------------------
@@ -474,7 +513,7 @@ async function openSettings(focus = '') {
 
     <h3 id="logins">Logins</h3>
     <div class="login" data-login="ledger">
-      <div class="head"><div><b>📒 Ledger</b> — your Jarvis login <span class="muted">(also the Mac link and the cloud brain)</span></div>
+      <div class="head"><div><b>📒 Ledger</b> — your Jarvis login <span class="muted">(also the Mac link)</span></div>
         ${state.ledger ? '<button class="btn small" data-out="ledger">Sign out</button>' : ''}</div>
       ${state.ledger ? `<div class="ok-text">Signed in as ${esc(state.ledger.user?.email)}</div>`
     : `<div class="field"><input type="email" placeholder="Email" autocomplete="username" data-email></div>
@@ -498,12 +537,11 @@ async function openSettings(focus = '') {
 
     <h3>Brain</h3>
     ${[
-    ['auto', 'Automatic', 'Your own key if set, else the cloud brain when signed in, else quick commands.'],
-    ['cloud', 'Cloud brain', 'Claude through the jarvis-brain function in the ledger project — the API key stays in Supabase. Needs one-time setup (jarvis/README.md).'],
-    ['key', 'My API key on this device', 'Paste an Anthropic API key; it is kept only in this browser.'],
-    ['quick', 'Quick commands only', 'No AI: fixed phrases like "outstanding of SMC", "tank stock", "start monitoring Ember". Free and instant.'],
+    ['builtin', 'Built-in (recommended)', 'Works on its own — no AI service, no subscription, no cost, nothing sent outside your apps. Understands everyday phrases in English or Hinglish, follow-ups ("his statement", "and yesterday?"), several requests at once, and spelling slips.'],
+    ['cloud', 'Claude AI — cloud key (optional)', 'For free-form questions. Uses an Anthropic API key (pay-per-use, separate from any Claude plan) kept in the ledger project\'s jarvis-brain function (jarvis/README.md). If it is ever unavailable, the built-in brain answers.'],
+    ['key', 'Claude AI — key on this device (optional)', 'Same, with an Anthropic API key kept only in this browser. Falls back to the built-in brain if it fails.'],
   ].map(([v, t, d]) => `<label class="opt"><input type="radio" name="brain" value="${v}" ${settings.brain === v ? 'checked' : ''}><div><b>${t}</b><span>${d}</span></div></label>`).join('')}
-    <div class="field">Anthropic API key (only for "My API key")<input type="password" data-key placeholder="sk-ant-…" value="${esc(settings.key)}" autocomplete="off"></div>
+    <div class="field">Anthropic API key (only for "key on this device")<input type="password" data-key placeholder="sk-ant-…" value="${esc(settings.key)}" autocomplete="off"></div>
     <div class="field">How hard to think<select data-effort>${[['low', 'Fast'], ['medium', 'Balanced (default)'], ['high', 'Thorough']].map(([v, t]) => `<option value="${v}" ${settings.effort === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
     ${state.brainNote ? `<div class="warn-text" style="font-size:13px">${esc(state.brainNote)}</div>` : ''}
 

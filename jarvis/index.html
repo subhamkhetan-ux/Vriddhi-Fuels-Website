@@ -132,6 +132,7 @@ body.thinking .orb::after { border-color: transparent; border-top-color: var(--a
 .box { display: flex; align-items: flex-end; gap: 8px; border: 1px solid var(--line); background: rgba(20,14,12,.82); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border-radius: 22px; padding: 6px; }
 .box textarea { flex: 1; resize: none; border: none; outline: none; background: transparent; padding: 9px 4px; max-height: 140px; min-height: 40px; font-size: 16px; }
 .round { width: 42px; height: 42px; border-radius: 50%; border: none; cursor: pointer; display: grid; place-items: center; flex: none; background: var(--glass-2); }
+.round[hidden] { display: none; }
 .round.mic { background: var(--grad); color: #fff; box-shadow: 0 6px 18px -6px rgba(244,81,30,.8); }
 body.listening .round.mic { background: var(--bad); animation: pulse 1.1s ease-in-out infinite; }
 .round.send { background: var(--ink); color: #120a06; }

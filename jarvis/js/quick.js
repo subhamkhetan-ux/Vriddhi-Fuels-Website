@@ -1,7 +1,6 @@
-// Quick commands: Jarvis without the AI brain. Plain sentences (typed or
-// spoken, English or Hinglish) mapped straight to one tool — so the common
-// jobs work before an API key is set up, offline from the AI, and at no
-// cost. The brain (brain.js) handles everything else.
+// The phrase parser of the built-in brain (engine.js): one plain sentence,
+// typed or spoken, English or Hinglish, mapped to one tool — no AI service.
+// engine.js adds the conversation (follow-ups, choices, several requests).
 // parse(text, {attachments}) -> {tool, input} | {help: true} | null
 // Pure (tests/jarvis_web/quick.test.mjs).
 
@@ -11,7 +10,7 @@ const clean = (s) => String(s ?? '').trim().replace(/\s+/g, ' ');
 function subject(text, ...cut) {
   let s = ` ${text.toLowerCase()} `;
   for (const re of cut) s = s.replace(re, ' ');
-  s = s.replace(/\b(please|pls|plz|jarvis|hey|ok|okay|me|my|the|show|tell|give|get|send|what is|what's|whats|how much|is|for|of|from|to|batao|bata|dikhao|do|kitna|kya|hai|ka|ki|ke)\b/g, ' ')
+  s = s.replace(/\b(please|pls|plz|jarvis|hey|ok|okay|me|my|the|show|tell|give|get|send|what is|what's|whats|how much|is|for|of|from|to|batao|bata|dikhao|do|does|did|can|could|you|i|we|now|right now|currently|current|today's|kitna|kya|hai|ka|ki|ke)\b/g, ' ')
     .replace(/[?.!,]/g, ' ');
   return clean(s);
 }

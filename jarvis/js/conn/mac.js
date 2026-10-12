@@ -48,7 +48,19 @@ async function send(ctx, action, args = {}) {
 }
 
 const wrap = (action, argsOf = (i) => i) => async (input, ctx) => {
-  const res = await send(ctx, action, argsOf(input));
+  let res;
+  try {
+    res = await send(ctx, action, argsOf(input));
+  } catch (err) {
+    // "ember" matching two accounts: offer them as choices
+    const several = String(err.message).match(/matches several accounts: (.+)\. Which one\?/);
+    if (!several) throw err;
+    const tool = { 'xtrapower.watch': 'xtrapower_watch', 'xtrapower.open_window': 'xtrapower_open_window' }[action];
+    return {
+      summary: { ambiguous: true, message: err.message }, say: err.message,
+      choices: tool ? several[1].split(', ').map((label) => ({ label, tool, input: { ...input, account: label } })) : [],
+    };
+  }
   const { text, ...rest } = res || {};
   return { summary: { result: text, ...rest }, say: text, app: 'xtrapower' };
 };
@@ -79,8 +91,8 @@ async function demoRun(action, args) {
       const notes = [];
       if (a.watch && !a.chrome_open) { a.chrome_open = true; notes.push('opened its Chrome window — log in there and leave it on Balance Info'); }
       if (a.watch && !m.running) { m.running = true; notes.push('started the monitor'); }
-      if (!a.watch && !m.accounts.some((x) => x.watch)) { m.running = false; return { text: `Stopped watching ${a.label}. No account is left, so I turned the monitor off.` }; }
-      return { text: a.watch ? `Now watching ${a.label}${notes.length ? ` — ${notes.join(', ')}.` : '.'}` : `Stopped watching ${a.label}.` };
+      if (!a.watch && !m.accounts.some((x) => x.watch)) { m.running = false; return { text: `Stopped watching ${a.label}. No account is left, so I turned the monitor off.`, account: a.label, watch: false }; }
+      return { text: a.watch ? `Now watching ${a.label}${notes.length ? ` — ${notes.join(', ')}.` : '.'}` : `Stopped watching ${a.label}.`, account: a.label, watch: a.watch };
     }
     case 'xtrapower.open_window': return { text: `Opened the Chrome window for ${pick(args.account)?.label || args.account}.` };
     case 'script.list': return { text: 'Scripts I can run: Payment agent status, Bank to Tally app.', scripts: [{ name: 'payment_agent_status', label: 'Payment agent status' }, { name: 'bank_tally_app', label: 'Bank to Tally app' }] };

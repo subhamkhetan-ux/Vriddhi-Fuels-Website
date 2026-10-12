@@ -1,4 +1,6 @@
-// The brain: Claude with Jarvis's tools. The owner's words (and pictures) go
+// The OPTIONAL AI brain: Claude with Jarvis's tools. Off by default — the
+// built-in brain (engine.js) runs Jarvis with no AI service, and takes over
+// whenever this one is unavailable. The owner's words (and pictures) go
 // in; Claude picks the tools, Jarvis runs them here in the browser (where the
 // logins and the apps' code are), and the results go back until Claude has
 // the answer.
