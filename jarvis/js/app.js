@@ -12,6 +12,7 @@ import { buildLexicon, noteNames } from './lexicon.js';
 import { PROJECTS, configured, session, signIn, signOut, signUp } from './session.js';
 import { claimOwner, flush, loadState, portable, saveState, synced, trimHistory, whoami } from './sync.js';
 import { macOn, offTools, runTool } from './tools.js';
+import { dashboard } from './dashboard.js';
 import { britishVoice, canListen, canSpeak, listen, onVoices, speak, stopSpeaking, voiceList } from './voice.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
@@ -184,33 +185,41 @@ const STARTERS = [
 ].filter((x) => macOn() || !/xtrapower/i.test(x));
 const helpList = () => HELP.filter(([p, what]) => macOn() || !/xtrapower|mac/i.test(`${p} ${what}`));
 function welcome() {
-  const h = new Date().getHours();
+  const now = new Date();
+  const h = now.getHours();
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const chat = $('#chat');
   chat.innerHTML = `<section class="hello">
-      <div class="orb" aria-hidden="true"></div>
-      <h1>${greet}. I'm <b>Jarvis</b>.</h1>
-      <p>Ask anything about any app, or tell me what to do — by typing or tapping the mic. 📎 a tank-screen picture, an invoice PDF or the DayBook Excel and I'll put it in the right app.</p>
-      <div class="chips">${STARTERS.map((s) => `<button class="chip" data-say="${esc(s)}">${esc(s)}</button>`).join('')}</div>
-      ${!DEMO && !state.me ? `<div class="row" style="justify-content:center;margin-top:14px"><button class="btn cta" data-signin>Sign in to Jarvis</button><a class="btn" href="?demo">Try the demo</a></div>`
+      <div class="hello-top"><div class="orb" aria-hidden="true"></div><div>
+        <h1>${greet}. I'm <b>Jarvis</b>.</h1>
+        <p>${esc(now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' }))} · here's the business at a glance. Tap a card for the detail, or just ask.</p>
+      </div></div>
+      ${!DEMO && !state.me ? `<div class="row" style="justify-content:center;margin:4px 0 10px"><button class="btn cta" data-signin>Sign in to Jarvis</button><a class="btn" href="?demo">Try the demo</a></div>`
     : !DEMO && !state.member ? '<p class="warn-text" style="margin-top:12px">This login isn\'t on the Jarvis members list yet — ask the owner to add it.</p>' : ''}
+      <div id="dash"></div>
+      <p class="section-title">Try asking</p>
+      <div class="chips">${STARTERS.map((s) => `<button class="chip" data-say="${esc(s)}">${esc(s)}</button>`).join('')}</div>
       <p class="section-title">All apps</p>
       <div class="apps">${APPS.map((a) => `<a class="app-tile" href="${a.href}"><b>${a.icon} ${esc(a.name)}</b><span>${esc(a.what)}</span></a>`).join('')}</div>
     </section>`;
   chat.querySelectorAll('[data-say]').forEach((b) => { b.onclick = () => submit(b.dataset.say); });
   chat.querySelector('[data-signin]')?.addEventListener('click', () => openSettings('logins'));
+  dashboard($('#dash'), {
+    ctx: { demo: DEMO, today: localToday(), attachments: new Map() },
+    isOff: (name) => offTools().has(name),
+    onAsk: (text) => submit(text),
+    onLogin: () => openSettings('logins'),
+  });
   if (state.history.length) showEarlier();
 }
 
-// the conversation so far (from any device), above the welcome
+// the conversation so far (from any device), folded under the dashboard
 function showEarlier() {
-  const chat = $('#chat');
-  const box = document.createElement('section');
+  const box = document.createElement('details');
   box.className = 'earlier';
-  box.innerHTML = `<p class="section-title">Earlier · on any of your devices</p>${state.history.slice(-20).map((l) => `
+  box.innerHTML = `<summary class="section-title">Earlier conversation · ${Math.min(20, state.history.length)} messages ▾</summary>${state.history.slice(-20).map((l) => `
     <div class="msg ${l.role === 'me' ? 'me' : 'jarvis'}"><div class="bubble">${l.role === 'me' ? esc(l.text) : md(l.text)}</div></div>`).join('')}`;
-  chat.prepend(box);
-  chat.scrollTop = chat.scrollHeight;
+  $('#chat .hello')?.after(box);
 }
 
 // ---- attachments -------------------------------------------------------------------

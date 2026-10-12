@@ -4,6 +4,20 @@ Talk or type to Jarvis, in English or Hinglish, and it reads and works every app
 
 **No AI service is needed.** Jarvis's built-in brain understands complex questions on its own, with no subscription, no API key and no cost. A Claude brain is an optional extra that is off by default (see [the end of this file](#optional-the-claude-ai-brain)).
 
+## The home screen
+
+A dashboard of the whole business, with each card filled by its app:
+- **Sales:** yesterday and this month
+- **Outstanding**
+- **Payments:** today's, plus credits to review
+- **Decant:** tank stock with gauges, trucks to decant
+- **Indents** and **POs running low**
+- **Fleet** and **delivery tankers**
+- **Today's prices**
+- **Ledger:** how far it has been updated
+
+Tap a card to get the full answer in the chat. Cards that need attention are outlined in amber. The figures refresh every few minutes, or when you tap ↻. The last ones stay on the device, so the dashboard opens instantly. If an app isn't signed in, its card says so.
+
 ## What you can ask and do
 
 | App | Ask / say | Does |
@@ -106,7 +120,7 @@ Use this only if you also want free-form questions answered by AI. It needs an A
 | File | What |
 |---|---|
 | `index.html`, `config.js`, `manifest.webmanifest`, `icon.png` | The page; loads every app's `config.js` |
-| `js/app.js` | Screens: chat, tables, pictures, confirmations, settings, sync |
+| `js/app.js` · `js/dashboard.js` | Screens: the home dashboard, chat, tables, pictures, confirmations, settings, sync |
 | `js/nlu.js` · `js/intents.js` · `js/engine.js` · `js/quick.js` · `js/match.js` | The built-in brain |
 | `js/tools.js` · `js/conn/*.js` | The operations: ledger, ledger-ops, decant, fleet, loading, indents, money (payments + Tally), more, cross, mac |
 | `js/sync.js` · `js/session.js` · `js/lexicon.js` | Cross-device state, logins, your names |
