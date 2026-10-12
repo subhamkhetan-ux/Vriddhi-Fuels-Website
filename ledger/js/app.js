@@ -11,7 +11,7 @@ import {
 } from './charts.js';
 import { analyse, daysBetween, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
 import { extractMaster, readWorkbook } from './master.js';
-import { allocate, billOrder, poKey } from './po.js';
+import { poKey } from './po.js';
 import {
   A4, A5, brandFontCss, download, inkBox, jpegFromSvg, pdfFromSvgs, slipSvg, statementFontCss, tankerBillSvg, toDataUrl, zipBlob,
 } from './render.js';
@@ -24,12 +24,14 @@ import {
   shareBatches,
 } from './statements.js';
 import {
-  bulkStatement, companyStatements, fifoPending, groupPending, poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
-  unitStatement,
+  poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitLabel,
 } from './ledger-view.js';
 import {
   dMon, drCr, ledgerPagesSvg, monthSlice, outstandingCardSvg, outstandingListSvg, qtyText, rupees, SHARE_PAGE, SHARE_PAGE_PT,
 } from './share-svg.js';
+import {
+  bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
+} from './outstanding.js';
 import { memoryStore, supabaseStore } from './store.js';
 import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
 
@@ -255,26 +257,6 @@ async function route() {
 // ---------------------------------------------------------------------------
 // PO bookkeeping shared by Home and the PO screens
 // ---------------------------------------------------------------------------
-function poGroups(data) {
-  return data.groups.filter((g) => g.kind !== 'group').map((g) => {
-    const bills = data.bills.filter((b) => b.group === g.code).sort(billOrder);
-    const pos = data.pos.filter((p) => p.group_code === g.code);
-    const res = allocate({ kind: g.kind, units: g.units, pos, bills });
-    const rows = bills.map((b, i) => ({ ...b, po: res.bills[i].po, how: res.bills[i].how }));
-    return {
-      group: g,
-      members: data.members.filter((m) => m.group === g.code),
-      pos,
-      rows,
-      registers: res.registers,
-      noPo: rows.filter((r) => r.how === 'no-po').length,
-      needsUnit: rows.filter((r) => r.how === 'needs-unit').length,
-    };
-  });
-}
-
-const groupName = (g, members) => (members.length === 1 ? members[0].name : (g.title || g.code).split(' — ')[0]);
-
 // ---------------------------------------------------------------------------
 // Home
 // ---------------------------------------------------------------------------
@@ -919,58 +901,6 @@ function bindViewToggle(rerender) {
   }));
 }
 
-// the card a customer gets for their outstanding (pending: the FIFO bills)
-function cardOf(st, { asOn, name = st.name, kind = st.kind, note = '', fifo = null, units = null } = {}) {
-  const t = st.totals;
-  return {
-    name, kind, note, balance: st.closing, asOn, since: st.from, opening: st.opening,
-    billed: t.billed, qty: t.qty, received: t.received, deductions: round2(t.tds + t.shortage),
-    bills: t.bills, payments: t.payments, lastPayment: st.lastPayment, lastBill: st.lastBill, companies: st.companies,
-    pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0, pos: fifo ? poSummary(fifo.pending) : null,
-    units: units ? unitsBlock(units, st.closing) : null,
-  };
-}
-const round2 = (n) => Math.round(n * 100) / 100;
-
-// SMC-style sheets: each unit's figures for the combined card / page
-const unitsBlock = (units, total) => ({
-  title: 'UNIT-WISE OUTSTANDING', totalLabel: 'Account balance', opening: 0, total,
-  list: units.map((u) => ({
-    name: unitLabel(u.unit), bills: u.st.totals.bills, billed: u.st.totals.billed, received: u.st.totals.received,
-    deductions: round2(u.st.totals.tds + u.st.totals.shortage), outstanding: u.st.closing, qty: u.st.totals.qty, lastPayment: u.st.lastPayment,
-  })),
-});
-
-// A bulk account with its FIFO pending bills; on an SMC-style (unit-wise)
-// sheet also each unit's own statement and pending bills.
-// openingByUnit: the sheet's opening split by unit (ledger_po_data groups)
-function bulkAccount(data, res, name, openingByUnit, asOn) {
-  const st = bulkStatement(res, data, { name });
-  const unitWise = res.kind === 'po_units';
-  const obu = unitWise ? (openingByUnit || {}) : {};
-  // a group: each company's payments clear its own bills
-  const fifo = res.kind === 'group' ? groupPending(st, { asOn })
-    : fifoPending(st.entries, { opening: st.opening, openingByKey: obu, keyOf: unitWise ? unitKey : () => '', from: st.from, asOn });
-  let units = null;
-  if (unitWise) {
-    const keys = (data.group.units || []).map((u) => String(u).trim().toUpperCase()).filter(Boolean);
-    for (const k of Object.keys(fifo.keys)) if (k && !keys.includes(k)) keys.push(k);
-    const none = unitStatement(st, fifo, '', { openingByUnit: obu });
-    units = keys.map((k) => ({ unit: k, st: unitStatement(st, fifo, k, { openingByUnit: obu }) }));
-    // bills with no unit yet (or an opening the units don't split): their own
-    // part — only while something there is owed (or in advance)
-    if (Math.round(none.closing)) units.push({ unit: '', st: none });
-    for (const u of units) {
-      u.fifo = { pending: fifo.pending.filter((d) => d.key === u.unit), advance: fifo.keys[u.unit]?.advance || 0 };
-    }
-  }
-  // a group: each company's own statement of account and pending bills
-  const companies = res.kind === 'group'
-    ? companyStatements(st).map((cst) => ({ name: cst.name, st: cst, fifo: fifoPending(cst.entries, { asOn }) }))
-    : null;
-  return { st, fifo, units, companies };
-}
-
 // the companies of a group with a statement for the picture's range (the
 // whole ledger, or those with an entry in the month)
 const companiesFor = (acct, ym) => (acct.companies || []).filter((c) => !ym || c.st.months.some((m) => m.month === ym));
@@ -992,42 +922,17 @@ async function companyPdfs(acct, name, asOn, ym, progress = () => {}) {
   download(await zipBlob(files, folder), `${folder}.zip`);
 }
 
-// FIFO of one company of a group sheet (its own bills and payments)
-const companyFifo = (st, c, asOn) => fifoPending(st.entries.filter((e) => normKey(e.company) === normKey(c.name)), { asOn });
-
-// one company of a group, as its own card
-function companyCard(c, st, asOn) {
-  const f = companyFifo(st, c, asOn);
-  return {
-    name: c.name, kind: 'bulk', note: `Part of the ${st.name} account`, balance: c.outstanding, asOn, since: st.from,
-    billed: c.billed, qty: c.qty, received: c.received, deductions: c.deductions, bills: c.bills, payments: c.payments,
-    lastPayment: c.lastPayment, lastBill: c.lastBill, companies: null, pending: f.pending, advance: f.advance,
-  };
-}
-
-// Share options for a bulk account's outstanding card: unit-wise first on an
-// SMC-style sheet (one card per unit, each with its own Share), then together.
-function cardOptions(acct, name, asOn) {
-  const together = {
-    label: acct.units ? 'Both units together' : '',
-    make: async () => [{ files: [await cardFile(cardOf(acct.st, { asOn, fifo: acct.fifo, units: acct.units }), safeName(`${name} Outstanding ${dmyDash(asOn)}`))] }],
-  };
-  if (!acct.units) return [together];
-  const unitWise = {
-    label: 'Unit-wise',
-    make: async () => {
-      const out = [];                                         // one at a time: pictures drawn together can lose their font
-      for (const u of acct.units) {
-        out.push({
-          label: unitLabel(u.unit),
-          files: [await cardFile(cardOf(u.st, { asOn, note: `Part of the ${name} account`, fifo: u.fifo }), safeName(`${name} ${unitLabel(u.unit)} Outstanding ${dmyDash(asOn)}`))],
-        });
-      }
-      return out;
-    },
-  };
-  return [unitWise, together];
-}
+// Share options for a bulk account's outstanding card (outstanding.js picks
+// the cards: unit-wise first on an SMC-style sheet, then together).
+const cardMakers = (options) => options.map((o) => ({
+  label: o.label,
+  make: async () => {
+    const out = [];                                           // one at a time: pictures drawn together can lose their font
+    for (const s of o.sets) out.push({ label: s.label, files: [await cardFile(s.card, s.base)] });
+    return out;
+  },
+}));
+const cardOptions = (acct, name, asOn) => cardMakers(cardSets(acct, name, asOn));
 
 // Share options for a bulk account's ledger pictures (the whole ledger or one
 // month): unit-wise first on an SMC-style sheet, then together; on a group the
@@ -1360,24 +1265,7 @@ function retailSheet(led, c, { from, period, title, L }) {
 // the outstanding card of anyone on Home's list (o: analyse().due row)
 // -> share options (unit-wise / together for an SMC-style sheet)
 async function outstandingOptionsFor(o) {
-  const today = localToday();
-  const id = o.id.slice(2);
-  if (o.id.startsWith('g:')) {
-    const [data, pod] = await Promise.all([state.store.account(null, id, null, null), state.store.poData()]);
-    const poById = new Map();
-    const pg = poGroups(pod).find((x) => x.group.code === id);
-    if (pg) pg.rows.forEach((r) => poById.set(r.id, r.po));
-    const res = bulkRows(data, (sid) => poById.get(sid) || '');
-    const last = res.rows.length ? res.rows[res.rows.length - 1].date : today;
-    const asOn = last > today ? last : today;
-    const acct = bulkAccount(data, res, o.name, (pod.groups.find((x) => x.code === id) || {}).opening_by_unit, asOn);
-    return cardOptions(acct, o.name, asOn);
-  }
-  const from = `${today.slice(0, 7)}-01`;
-  const data = await state.store.account(id, null, from, monthEnd(from));
-  const led = ledgerRows({ opening: data.customer.opening, from, sales: data.sales, payments: data.payments });
-  const card = cardOf(retailStatement(led, { name: o.name, from, to: today }), { asOn: today });
-  return [{ label: '', make: async () => [{ files: [await cardFile(card, safeName(`${o.name} Outstanding ${dmyDash(today)}`))] }] }];
+  return cardMakers((await outstandingFor(state.store, o, localToday())).options);
 }
 
 function poCard(g) {
