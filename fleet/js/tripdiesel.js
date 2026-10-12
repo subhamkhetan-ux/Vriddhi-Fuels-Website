@@ -14,6 +14,10 @@
 //   to take     what's left of this trip's own allotment
 //   extra       taken over this trip's allotment
 //   after       the balance this trip leaves
+// Up to `buffer` litres over (settings.recon.buffer, 200 L) is planned: filled
+// mid-way so the truck can unload and get back mid-way without refilling at
+// the congested pumps near the plant — it comes off the next trip. Only past
+// it is a trip over its allotment in earnest.
 // A trip not loaded yet has no gross weight: its allotment is the route's
 // base diesel until it's loaded (marked as an estimate). Pure functions.
 
@@ -25,6 +29,8 @@ const lc = (s) => String(s || '').trim().toLowerCase();
 // recon: analyse.js dieselRecon(); → Map(trip row → the trip's diesel)
 export function tripDiesel(data, recon, settings = null) {
   const out = new Map();
+  const b = settings && settings.recon ? Number(settings.recon.buffer) : NaN;
+  const buffer = Number.isFinite(b) && b >= 0 ? b : 200;
   const rateOf = (t) => (data.rates || []).find((x) => lc(x.port) === lc(t.port) && lc(x.dest) === lc(t.dest));
   const fillsOf = new Map();
   for (const h of data.hsd || []) {
@@ -53,15 +59,31 @@ export function tripDiesel(data, recon, settings = null) {
       const d = {
         t, allotted, base, over: x.over || 0, under: x.under || 0, est, taken, fills, incentiveFills, carryIn, live,
         ssfcL: t.ssfcLtr || 0, ownL: t.ownLtr || 0, ownRs: t.ownAmt || 0, incentive: t.extraLtr || 0,
-        extra: allotted != null ? r1(Math.max(0, taken - allotted)) : 0,
+        extra: allotted != null ? r1(Math.max(0, taken - allotted)) : 0, buffer,
         toTake: allotted != null && live ? r1(Math.max(0, allotted - taken)) : 0,
         mayTake: allotted != null && live ? r1(Math.max(0, allotted + carryIn - taken)) : 0,
         after: allotted != null ? r1(carryIn + allotted - taken) : r1(carryIn - taken),
       };
       d.owed = r1(Math.max(0, -d.after));                     // extra still to come out of the next trips
+      d.beyond = r1(Math.max(0, d.extra - buffer));            // over even the mid-way buffer
       out.set(t.row, d);
       // the running balance moves as the recon's does (a trip without an allotment yet doesn't count)
       if (x.allotted != null) run += x.balance;
+    }
+  }
+  return out;
+}
+
+// each counted fill's place in its trip's allotment: what the trip had before it and after it
+// trips: tripDiesel(); → Map(the HSD Data row → { before, after, allotted, est, trip })
+export function fillProgress(trips) {
+  const out = new Map();
+  for (const z of trips.values()) {
+    let run = 0;
+    for (const h of z.fills) {
+      const before = run;
+      run = r1(run + (h.qty || 0));
+      out.set(h, { before: r1(before), after: run, allotted: z.allotted, est: z.est, trip: z.t, buffer: z.buffer });
     }
   }
   return out;
@@ -78,7 +100,7 @@ export function fleetDiesel(recon, trips, price = 0) {
     owedL: owed.reduce((a, v) => a - v.balance, 0), owed: owed.sort((a, b) => a.balance - b.balance),
     savedL: saved.reduce((a, v) => a + v.balance, 0), saved,
     owedRs: Math.round(owed.reduce((a, v) => a - v.balance, 0) * price),
-    live, overNow: live.filter((d) => d.extra > 0.5),
+    live, overNow: live.filter((d) => d.beyond > 0.5), bufferNow: live.filter((d) => d.extra > 0.5 && d.beyond <= 0.5),
     toTake: live.reduce((a, d) => a + d.toTake, 0), mayTake: live.reduce((a, d) => a + d.mayTake, 0),
   };
 }

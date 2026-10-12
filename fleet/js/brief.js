@@ -22,7 +22,7 @@ const rs = (n) => `₹${ind(Math.round(n || 0))}`;
 const lakh = (n) => (Math.abs(n) >= 1e7 ? `₹${(n / 1e7).toFixed(2)} Cr` : Math.abs(n) >= 100000 ? `₹${(n / 100000).toFixed(2)} L` : rs(n));
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-// ctx: { status (fleetStatus), live (liveTrips), loads (loadBench), account (ssfcAccount), recon (dieselRecon), drivers (driverCheck), issues (dateIssues), driverNow(veh) }
+// ctx: { status (fleetStatus), live (liveTrips), loads (loadBench), account (ssfcAccount), recon (dieselRecon), drivers (driverCheck), issues (dateIssues), driverNow(veh), irregular (irregular.js) }
 function dayFacts(data, ctx, day) {
   const loadsOn = data.trips.filter((t) => t.loadDate === day && t.loadWt);
   const unloadsOn = data.trips.filter((t) => t.unloadDate === day);
@@ -39,7 +39,7 @@ function dayFacts(data, ctx, day) {
 }
 
 // ---- for the owner ----------------------------------------------------------------------------
-// → { date, sections: [{ title, items: [{ tone: 'good'|'warn'|'bad'|'info', text, href }] }], vehicles: vehicleTrips() }
+// → { date, sections: [{ title, items: [{ tone: 'good'|'warn'|'bad'|'info', text, href }] }] }
 export function ownerBrief(data, ctx, today) {
   const yday = addDays(today, -1);
   const Y = dayFacts(data, ctx, yday);
@@ -63,6 +63,15 @@ export function ownerBrief(data, ctx, today) {
     }
   }
   sections.push({ title: 'Work', items: work });
+
+  // entries that look wrong in the workbook (irregular.js)
+  if (ctx.irregular && ctx.irregular.length) {
+    const L = ctx.irregular;
+    const bad = L.filter((x) => x.level === 'bad').length;
+    // all of them on the screen; the picture keeps the first `cap` and says how many more
+    sections.push({ title: `Entries that look wrong (${L.length})`, cap: 12, capNote: `…and ${L.length - 12} more (${bad} serious in all) — each is marked in the app's day book`,
+      items: L.map((x) => ({ tone: x.level, text: x.text, href: x.href })) });
+  }
 
   // on the road
   const road = [];
@@ -116,7 +125,8 @@ export function ownerBrief(data, ctx, today) {
     const dz = [];
     if (F.owedL > 0.5) dz.push({ tone: 'bad', text: `Extra diesel taken and owed: ${ind(F.owedL)} L across ${plural(F.owed.length, 'truck')}${ctx.dieselPrice ? ` (≈ ${lakh(F.owedRs)})` : ''} — to come off their next trips. Most: ${F.owed.slice(0, 3).map((v) => `${short(v.veh)} ${ind(-v.balance)} L`).join(', ')}`, href: '#/diesel' });
     else dz.push({ tone: 'good', text: 'No truck owes diesel — every one is within its allotments', href: '#/diesel' });
-    if (F.overNow.length) dz.push({ tone: 'bad', text: `Over this trip's allotment now: ${F.overNow.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ')}`, href: '#/diesel' });
+    if (F.overNow.length) dz.push({ tone: 'bad', text: `Over this trip's allotment and the ${ind(F.overNow[0].buffer)} L mid-way buffer now: ${F.overNow.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ')}`, href: '#/diesel' });
+    if (F.bufferNow.length) dz.push({ tone: 'info', text: `Carrying the mid-way buffer (comes off the next trip): ${F.bufferNow.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ')}` });
     const stop = F.live.filter((z) => z.allotted != null && z.toTake > 0.5 && z.mayTake < 0.5);
     if (stop.length) dz.push({ tone: 'warn', text: `Should take no more diesel this trip (what's owed eats the rest): ${stop.map((z) => short(z.t.veh)).join(', ')}` });
     if (ctx.missingFills && ctx.missingFills.size) {
@@ -130,36 +140,10 @@ export function ownerBrief(data, ctx, today) {
   }
 
   const look = [];
-  if (ctx.issues && ctx.issues.length) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel`, href: '#/trips?f=check' });
+  const datesListed = (ctx.irregular || []).filter((x) => x.kind === 'dates').length;
+  if (ctx.issues && ctx.issues.length > datesListed) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel${datesListed ? ` (${datesListed} listed above)` : ''}`, href: '#/trips?f=check' });
   if (look.length) sections.push({ title: 'To check', items: look });
-  return { date: today, sections, vehicles: vehicleTrips(data, ctx) };
-}
-
-// every truck: its trip on the road (else its last one) — the loading and
-// the diesel slips tagged to the trip.
-// → [{ veh, driver, onTrip, trip, row, port, dest, start, load: { date, port, net, gross, rate, freight } | null,
-//      slips: [{ date, pump, incentive, bill, place, litres, rsp, amount }], litres, amount (incentive not counted) }]
-export function vehicleTrips(data, ctx) {
-  const out = [];
-  for (const s of ctx.status) {
-    const veh = s.veh;
-    const lt = ctx.live.find((x) => x.veh === veh);
-    const t = lt ? lt.t : s.trip || s.last || null;
-    const v = { veh, driver: ctx.driverNow ? ctx.driverNow(veh) : '', onTrip: !!(lt || s.trip), trip: '', row: null, port: '', dest: '', start: null, load: null, slips: [], litres: 0, amount: 0 };
-    if (t) {
-      Object.assign(v, { trip: t.trip || '', row: t.row ?? null, port: t.port || '', dest: t.dest || '', start: t.start || null });
-      if (t.loadDate && t.loadWt) v.load = { date: t.loadDate, port: t.port || '', net: t.loadWt, gross: t.gross || null, rate: t.rate || null, freight: t.bhada || null };
-      v.slips = (data.hsd || [])
-        .filter((h) => h.veh === veh && h.trip === t.trip && (!t.start || h.date >= t.start))
-        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-        .map((h) => ({ date: h.date, pump: h.source || '', incentive: /^extra filling$/i.test(String(h.source || '').trim()), bill: h.bill || '', place: h.location || '', litres: h.qty || 0, rsp: h.rsp || null, amount: h.amount || 0 }));
-      const counted = v.slips.filter((x) => !x.incentive);
-      v.litres = counted.reduce((a, x) => a + x.litres, 0);
-      v.amount = counted.reduce((a, x) => a + x.amount, 0);
-    }
-    out.push(v);
-  }
-  return out.sort((a, b) => String(a.veh).localeCompare(String(b.veh)));
+  return { date: today, sections };
 }
 
 // ---- for the drivers' group (Hindi) ---------------------------------------------------------------
@@ -178,7 +162,9 @@ const hL = (n) => `${ind(Math.abs(n), Math.abs(n) % 1 && Math.abs(n) < 100 ? 1 :
 function hDiesel(z) {
   if (!z || z.allotted == null) return { diesel: '', dieselTone: 'info' };
   const owedBefore = z.carryIn < -0.5 ? -z.carryIn : 0;
-  if (z.extra > 0.5) return { diesel: `⚠ डीज़ल: इस ट्रिप का ${hL(z.allotted)} तय था, ${hL(z.taken)} लिया — ${hL(z.extra)} ज़्यादा। कुल ${hL(Math.max(0, -z.after))} अगली ट्रिप में कटेगा`, dieselTone: 'bad' };
+  const buffer = Number.isFinite(z.buffer) ? z.buffer : 200;
+  if (z.extra > buffer + 0.5) return { diesel: `⚠ डीज़ल: इस ट्रिप का ${hL(z.allotted)} तय था, ${hL(z.taken)} लिया — ${hL(z.extra)} ज़्यादा (बफ़र ${hL(buffer)} से भी ${hL(z.extra - buffer)} ऊपर)। कुल ${hL(Math.max(0, -z.after))} अगली ट्रिप में कटेगा`, dieselTone: 'bad' };
+  if (z.extra > 0.5) return { diesel: `डीज़ल: ${hL(z.allotted)} तय, ${hL(z.taken)} लिया — ${hL(z.extra)} बीच रास्ते का बफ़र, अगली ट्रिप में कटेगा। अब और डीज़ल न लें`, dieselTone: 'warn' };
   if (z.mayTake < 0.5) {
     return z.after < -0.5
       ? { diesel: `⚠ डीज़ल: ${hL(z.allotted)} में से ${hL(z.taken)} लिया — अब और डीज़ल न लें। पिछली ट्रिपों का ${hL(-z.after)} ज़्यादा लिया हुआ अगली ट्रिप में कटेगा`, dieselTone: 'warn' }

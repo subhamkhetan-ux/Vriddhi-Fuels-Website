@@ -26,7 +26,12 @@ export function defaultSettings() {
     // Extra Own Driver Pay is the extra promised for those trips — on top of the salary, settled
     // trips before checkFrom ('' = this month) are as the Trip Register has them: settled
     driver: { extraIsAdvance: false, debitCounts: true, tolerance: 100, checkFrom: '' },
-    recon: { useApp: false },
+    // buffer: the litres a trip may run over its allotment — filled mid-way (Muniguda) so the truck unloads at
+    // BALCO and gets back mid-way without refilling at congested Korba; it comes off the next trip
+    recon: { useApp: false, buffer: 200 },
+    // SSFC bills tyres at a rate per tyre per km run, plus GST; a bill more than `tolerance` % off is flagged
+    // (a month's bill can run ±10% off the km of the trips loaded that month: SSFC's month and km aren't quite the trips')
+    tyreBill: { rate: 0.26, gst: 18, tyres: 18, tolerance: 10 },
   };
 }
 export function withDefaults(s) {
@@ -37,6 +42,7 @@ export function withDefaults(s) {
     vehicles: x.vehicles && typeof x.vehicles === 'object' ? x.vehicles : d.vehicles,
     driver: { ...d.driver, ...(x.driver || {}) },
     recon: { ...d.recon, ...(x.recon || {}) },
+    tyreBill: { ...d.tyreBill, ...(x.tyreBill || {}) },
   };
 }
 
@@ -182,8 +188,8 @@ export function driverCheck(data, settings, today = null) {
 
 // ---- fastag / tyre: the monthly SSFC charges ---------------------------------------------
 // Each vehicle is charged once a month (on one of its trips). A month is out
-// of trend when its charge, per trip run that month (per km once distances are
-// set), is well above the fleet's that month AND above the vehicle's own last
+// of trend when its charge, per km run that month (its trips' round trips —
+// RTD — added up; per trip until distances are set), is well above the fleet's that month AND above the vehicle's own last
 // six months; or well below both (often a charge not booked yet); or booked
 // twice in a month.
 // basis: what the charge grows with when distances aren't set — fastag with
@@ -212,7 +218,10 @@ export function monthlyCharges(data, settings, key, kms = null) {
       cell[v][m] = { veh: v, month: m, amount: entries.reduce((a, t) => a + t[key], 0), entries, trips: trips.length, km };
     }
   }
-  const useKm = months.every((m) => included.every((v) => !cell[v][m].trips || cell[v][m].km != null)) && included.some((v) => months.some((m) => cell[v][m].km));
+  // per km once nearly every vehicle-month's km is known (its trips' round trips added up); a month
+  // with a trip of unknown distance then isn't judged
+  const run = included.flatMap((v) => months.map((m) => cell[v][m])).filter((c) => c.trips);
+  const useKm = run.length > 0 && run.filter((c) => c.km != null).length >= 0.9 * run.length;
   const basis = useKm ? 'km' : rule.basis;
   const units = (c) => (basis === 'km' ? c.km : basis === 'trips' ? c.trips : c.trips || c.amount ? 1 : 0);
   const peer = {};
@@ -253,6 +262,48 @@ export function monthlyCharges(data, settings, key, kms = null) {
     });
   }
   return { key, rule, months, latest, vehicles: all, included, excluded: all.filter((v) => !included.includes(v)), cell, peer, flags, basis };
+}
+
+// ---- the tyre bill, checked ----------------------------------------------------------------------
+// SSFC bills each vehicle's tyres monthly: rate × tyres × km run + GST. The km
+// here is the vehicle's month of trips (loading month), each trip's round trip
+// (RTD) — SSFC's own km may differ a little, so a bill within the tolerance is
+// right. A month with trips but no bill (before the latest month) is flagged
+// as not billed; one with a trip of unknown distance can't be checked.
+// c: monthlyCharges(…, 'tyre', kms); → { perKm, cells: [{ veh, month, km, expected, charged, diff, pct, ssfcKm, status }], byVeh, byMonth, total }
+export function tyreBill(c, settings) {
+  const b = withDefaults(settings).tyreBill;
+  const perKm = (Number(b.rate) || 0) * (Number(b.tyres) || 0) * (1 + (Number(b.gst) || 0) / 100);
+  const tol = (Number(b.tolerance) || 0) / 100;
+  const cells = [];
+  for (const v of c.included) {
+    for (const m of c.months) {
+      const x = c.cell[v][m];
+      if (!x.trips && !x.amount) continue;
+      const out = { veh: v, month: m, km: x.km, trips: x.trips, charged: x.amount, entries: x.entries, expected: null, diff: null, pct: null, ssfcKm: null, status: 'unknown' };
+      if (perKm && x.amount) out.ssfcKm = x.amount / perKm;                    // the km the bill pays for
+      if (x.km != null && perKm) {
+        out.expected = x.km * perKm;
+        out.diff = x.amount - out.expected;
+        out.pct = out.expected ? out.diff / out.expected : null;
+        if (!x.amount) out.status = m === c.latest ? 'pending' : 'unbilled';
+        else if (x.entries.length > 1) out.status = 'twice';
+        else if (out.pct > tol) out.status = 'over';
+        else if (out.pct < -tol) out.status = 'under';
+        else out.status = 'ok';
+      }
+      cells.push(out);
+    }
+  }
+  const sum = (list) => {
+    const known = list.filter((x) => x.expected != null && x.status !== 'pending');            // the month not billed yet doesn't count
+    const charged = known.reduce((a, x) => a + x.charged, 0);
+    const expected = known.reduce((a, x) => a + x.expected, 0);
+    return { charged, expected, diff: charged - expected, pct: expected ? (charged - expected) / expected : null, km: known.reduce((a, x) => a + x.km, 0), n: known.length };
+  };
+  const byVeh = Object.fromEntries(c.included.map((v) => [v, sum(cells.filter((x) => x.veh === v))]));
+  const byMonth = Object.fromEntries(c.months.map((m) => [m, sum(cells.filter((x) => x.month === m))]));
+  return { perKm, rate: b.rate, gst: b.gst, tyres: b.tyres, tolerance: b.tolerance, cells, byVeh, byMonth, total: sum(cells), sum };
 }
 
 // ---- small helpers for the screens ---------------------------------------------------------

@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const HOOKS = new Set(['day-card', 'share-body', 'pay-list', 'tone-', 'trip-counter']);
+const HOOKS = new Set(['day-card', 'share-body', 'pay-list', 'tone-', 'tb-', 'trip-counter']);
 
 test('each class in app.js has a CSS rule', () => {
   const js = fs.readFileSync(new URL('../../fleet/js/app.js', import.meta.url), 'utf8');

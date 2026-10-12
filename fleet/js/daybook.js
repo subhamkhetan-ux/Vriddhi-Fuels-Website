@@ -8,35 +8,36 @@
 import { addDays, daysBetween, monthEnd, monthOf } from './util.js';
 import { sourceOf } from './analyse.js';
 
+// the kinds of entry, in the order a day shows them: name (short), title (a day's table), icon
 export const KINDS = [
-  { key: 'load', name: 'Loading', color: 'var(--s-1)' },
-  { key: 'unload', name: 'Unloading', color: 'var(--s-3)' },
-  { key: 'start', name: 'Trip start', color: 'var(--s-6)' },
-  { key: 'diesel', name: 'Diesel', color: 'var(--s-4)' },
-  { key: 'urea', name: 'Urea', color: 'var(--s-5)' },
-  { key: 'advance', name: 'Driver advance', color: 'var(--s-2)' },
-  { key: 'ssfc', name: 'SSFC payment', color: 'var(--s-8)' },
+  { key: 'load', name: 'Loading', title: 'Loading', icon: '📦', color: 'var(--s-1)' },
+  { key: 'unload', name: 'Unloading', title: 'Unloading', icon: '🏭', color: 'var(--s-3)' },
+  { key: 'diesel', name: 'Diesel', title: 'Diesel', icon: '⛽', color: 'var(--s-4)' },
+  { key: 'urea', name: 'Urea', title: 'Urea (DEF)', icon: '💧', color: 'var(--s-5)' },
+  { key: 'advance', name: 'Driver advance', title: 'Driver advances', icon: '💵', color: 'var(--s-2)' },
+  { key: 'ssfc', name: 'SSFC payment', title: 'SSFC payments received', icon: '🏦', color: 'var(--s-8)' },
+  { key: 'start', name: 'Trip start', title: 'Trips started', icon: '🚚', color: 'var(--s-6)' },
 ];
 const ORDER = Object.fromEntries(KINDS.map((k, i) => [k.key, i]));
 
-// every dated entry: { date, kind, veh, t (the trip, when there's one), title, detail, amount, litres, tonnes }
+// every dated entry: { date, kind, veh, t (the trip, when there's one), src (its row: HSD Data / Urea DEF / Driver Payment), title, detail, amount, litres, tonnes }
 export function entries(data, { driverOf = null, payments = [] } = {}) {
   const out = [];
   const tripOf = new Map(data.trips.map((t) => [`${t.veh}|${t.trip}`, t]));
   for (const t of data.trips) {
     const who = driverOf ? driverOf(t) : '';
     const route = `${t.port || '?'} → ${t.dest || '?'}`;
-    if (t.start) out.push({ date: t.start, kind: 'start', veh: t.veh, t, title: `${t.trip} started`, detail: [route, who].filter(Boolean).join(' · ') });
+    if (t.start) out.push({ date: t.start, kind: 'start', veh: t.veh, t, driver: who, title: `${t.trip} started`, detail: [route, who].filter(Boolean).join(' · ') });
     if (t.loadDate) {
       out.push({
-        date: t.loadDate, kind: 'load', veh: t.veh, t, tonnes: t.loadWt || 0, amount: t.bhada || 0,
+        date: t.loadDate, kind: 'load', veh: t.veh, t, tonnes: t.loadWt || 0, amount: t.bhada || 0, driver: who,
         title: `Loaded ${t.loadWt ? `${t.loadWt.toFixed(2)} T` : ''} at ${t.port || '?'}`.replace('  ', ' '),
         detail: [`${t.trip} → ${t.dest || '?'}`, t.rate ? `₹${t.rate}/T` : '', t.gross ? `gross ${t.gross.toFixed(2)} T` : '', who].filter(Boolean).join(' · '),
       });
     }
     if (t.unloadDate) {
       out.push({
-        date: t.unloadDate, kind: 'unload', veh: t.veh, t, tonnes: t.unloadWt || 0, short: t.diff || 0,
+        date: t.unloadDate, kind: 'unload', veh: t.veh, t, tonnes: t.unloadWt || 0, short: t.diff || 0, days: t.start ? daysBetween(t.start, t.unloadDate) : null,
         title: `Unloaded ${t.unloadWt ? `${t.unloadWt.toFixed(2)} T` : ''} at ${t.dest || '?'}`.replace('  ', ' '),
         detail: [t.trip, t.diff ? `${t.diff < 0 ? 'short' : 'excess'} ${Math.abs(t.diff).toFixed(2)} T` : 'no shortage', t.start ? `${daysBetween(t.start, t.unloadDate)} days` : '', who].filter(Boolean).join(' · '),
       });
@@ -46,27 +47,30 @@ export function entries(data, { driverOf = null, payments = [] } = {}) {
     if (/^extra filling$/i.test(String(h.source || '').trim())) {     // Own Diesel Extra: the driver's incentive, settled
       out.push({
         date: h.date, kind: 'diesel', veh: h.veh, t: tripOf.get(`${h.veh}|${h.trip}`) || null, litres: h.qty || 0, amount: h.amount || 0, source: 'Incentive',
+        src: h, incentive: true, pump: h.source || '', bill: h.bill || '', place: h.location || '', rsp: h.rsp || null, trip: h.trip || '',
         title: `Incentive diesel ${h.qty ? `${Math.round(h.qty * 100) / 100} L` : ''} · Extra Filling`, detail: [h.location, h.trip, 'driver incentive, settled — not counted against the allotment'].filter(Boolean).join(' · '),
       });
       continue;
     }
     out.push({
       date: h.date, kind: 'diesel', veh: h.veh, t: tripOf.get(`${h.veh}|${h.trip}`) || null, litres: h.qty || 0, amount: h.amount || 0, source: sourceOf(h.source),
+      src: h, incentive: false, pump: h.source || '', bill: h.bill || '', place: h.location || '', rsp: h.rsp || null, trip: h.trip || '',
       title: `Diesel ${h.qty ? `${Math.round(h.qty * 100) / 100} L` : ''} · ${h.source || 'pump'}`, detail: [h.location, h.trip, h.bill ? `bill ${h.bill}` : '', h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '),
     });
   }
   for (const u of data.urea || []) {
     out.push({
       date: u.date, kind: 'urea', veh: u.veh, t: tripOf.get(`${u.veh}|${u.trip}`) || null, litres: u.qty || 0, amount: u.amount || 0,
+      src: u, from: u.from || '', place: u.location || '', trip: u.trip || '',
       title: `Urea ${u.qty ? `${u.qty} L` : ''}${u.from ? ` · ${u.from}` : ''}`, detail: [u.location, u.trip].filter(Boolean).join(' · '),
     });
   }
   for (const p of data.driverPay || []) {
-    out.push({ date: p.date, kind: 'advance', veh: p.veh, t: null, amount: p.amount, title: `Advance to ${p.name || 'driver'}`, detail: p.note || '' });
+    out.push({ date: p.date, kind: 'advance', veh: p.veh, t: null, src: p, amount: p.amount, name: p.name || '', note: p.note || '', title: `Advance to ${p.name || 'driver'}`, detail: p.note || '' });
   }
   for (const p of payments) {
     if (!p.date) continue;
-    out.push({ date: p.date, kind: 'ssfc', veh: p.veh, t: null, amount: (p.account || 0) + (p.other || 0), title: `SSFC paid · ${p.how}`, detail: [`for ${p.month}`, p.invoice, p.remarks].filter(Boolean).join(' · ') });
+    out.push({ date: p.date, kind: 'ssfc', veh: p.veh, t: null, amount: (p.account || 0) + (p.other || 0), how: p.how || '', month: p.month || '', invoice: p.invoice || '', remarks: p.remarks || '', title: `SSFC paid · ${p.how}`, detail: [`for ${p.month}`, p.invoice, p.remarks].filter(Boolean).join(' · ') });
   }
   return out.filter((e) => e.date).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : ORDER[a.kind] - ORDER[b.kind] || String(a.veh).localeCompare(String(b.veh))));
 }
@@ -94,8 +98,16 @@ export function dayBook(all, { from, to, kinds = null, veh = '' } = {}) {
     if (!days.length || days[days.length - 1].date !== e.date) days.push({ date: e.date, entries: [] });
     days[days.length - 1].entries.push(e);
   }
-  for (const d of days) d.sums = sums(d.entries);
-  return { from, to, list, days, sums: sums(list) };
+  for (const d of days) { d.sums = sums(d.entries); d.groups = byKind(d.entries); }
+  return { from, to, list, days, sums: sums(list), groups: byKind(list) };
+}
+
+// a set of entries split by kind, in KINDS order: [{ kind, entries, sums }] (kinds with none left out)
+export function byKind(list) {
+  return KINDS.map((k) => {
+    const entries = list.filter((e) => e.kind === k.key).sort((a, b) => String(a.veh).localeCompare(String(b.veh)) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    return { kind: k, entries, sums: sums(entries) };
+  }).filter((g) => g.entries.length);
 }
 
 // the standard ranges, as of today (weeks start on Monday)
@@ -105,6 +117,7 @@ export function ranges(today) {
   const lastM = monthOf(addDays(`${m}-01`, -1));
   const fyStart = Number(m.slice(5, 7)) >= 4 ? `${m.slice(0, 4)}-04-01` : `${Number(m.slice(0, 4)) - 1}-04-01`;
   return {
+    recent: { label: 'Yesterday & today', from: addDays(today, -1), to: today },
     today: { label: 'Today', from: today, to: today },
     yesterday: { label: 'Yesterday', from: addDays(today, -1), to: addDays(today, -1) },
     week: { label: 'This week', from: addDays(today, -dow), to: today },

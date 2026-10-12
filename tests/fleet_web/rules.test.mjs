@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  driverCheck, driverName, monthlyCharges, routeFor, routePairs, tripKms, vehicleFlags, withDefaults,
+  driverCheck, driverName, monthlyCharges, tyreBill, routeFor, routePairs, tripKms, vehicleFlags, withDefaults,
 } from '../../fleet/js/rules.js';
 import { dieselRecon } from '../../fleet/js/analyse.js';
 
@@ -124,4 +124,50 @@ test('the Rates sheet\'s round trip (RTD/Trip in Km) gives each trip its km unle
   assert.deepEqual(k.get(3), { loaded: 900, empty: 900, km: 1800, complete: true, from: 'rates' });
   assert.equal(tripKms(data, withDefaults({ routes: [{ port: 'Kakinada', dest: 'BALCO', km: 800 }] })).get(4).km, 1600);  // Setup's one-way 800 loaded + 800 empty back to the port
   assert.equal(routeFor(data, withDefaults({}), 'Kakinada', 'BALCO').rtd, 1800);
+});
+
+test('tyre and fastag go by the km each vehicle runs a month: its trips\' RTD added up', () => {
+  row = 3;
+  const months = ['2025-06', '2025-07', '2025-08', '2025-09', '2025-10', '2025-11'];
+  const trips = [];
+  for (const veh of ['XX1001', 'XX1002', 'XX1003']) {
+    months.forEach((m) => {
+      const n = veh === 'XX1003' && m === '2025-11' ? 1 : 3;              // ran a third as much that month
+      for (let i = 0; i < n; i++) trips.push(trip({ veh, month: m, tyre: i === 0 ? (n === 1 ? 9000 : 27000) : undefined }));
+    });
+  }
+  const data = { trips, rates: [{ ...rates[0], rtd: 1800 }] };
+  const c = monthlyCharges(data, withDefaults({}), 'tyre', tripKms(data, withDefaults({})));
+  assert.equal(c.basis, 'km');
+  assert.equal(c.cell.XX1001['2025-08'].km, 5400);                         // 3 trips × 1,800 km
+  assert.equal(c.cell.XX1001['2025-08'].rate, 5);                          // ₹27,000 ÷ 5,400 km
+  assert.equal(c.cell.XX1003['2025-11'].km, 1800);
+  assert.equal(c.cell.XX1003['2025-11'].rate, 5);                          // a third the charge on a third the running: in trend
+  assert.ok(!c.flags.some((f) => f.veh === 'XX1003'));
+});
+
+test('the tyre bill checked: rate a tyre a km × tyres × km run + GST', () => {
+  row = 3;
+  const trips = [];
+  // each month 3 trips of 1,800 km = 5,400 km → 0.26 × 18 × 5,400 × 1.18 = ₹29,820.96
+  for (const [veh, month, bill] of [['XX1001', '2026-07', 29822], ['XX1001', '2026-08', 33500], ['XX1002', '2026-07', 0], ['XX1002', '2026-08', 24000], ['XX1001', '2026-09', 0]]) {
+    for (let i = 0; i < 3; i++) trips.push(trip({ veh, month, tyre: i === 0 && bill ? bill : undefined }));
+  }
+  const data = { trips, rates: [{ ...rates[0], rtd: 1800 }] };
+  const set = withDefaults({});
+  const B = tyreBill(monthlyCharges(data, set, 'tyre', tripKms(data, set)), set);
+  assert.equal(B.perKm.toFixed(4), '5.5224');
+  const at = (v, m) => B.cells.find((x) => x.veh === v && x.month === m);
+  assert.equal(at('XX1001', '2026-07').status, 'ok');
+  assert.equal(Math.round(at('XX1001', '2026-07').expected), 29821);
+  assert.equal(at('XX1001', '2026-08').status, 'over');                 // ₹3,679 (12%) over
+  assert.equal(Math.round(at('XX1001', '2026-08').ssfcKm), 6066);       // the km that bill pays for
+  assert.equal(at('XX1002', '2026-07').status, 'unbilled');
+  assert.equal(at('XX1002', '2026-08').status, 'under');
+  assert.equal(at('XX1001', '2026-09').status, 'pending');              // the latest month: not billed yet
+  // the rate is the owner's to change
+  const B2 = tyreBill(monthlyCharges(data, set, 'tyre', tripKms(data, set)), withDefaults({ tyreBill: { rate: 0.3, gst: 18, tyres: 18 } }));
+  assert.equal(B2.perKm.toFixed(3), '6.372');
+  assert.equal(B2.tolerance, 10);
+  assert.equal(B.sum(B.cells.filter((x) => x.month === '2026-09')).n, 0);   // the month not billed yet isn't a shortfall
 });

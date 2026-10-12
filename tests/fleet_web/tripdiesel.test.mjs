@@ -43,7 +43,14 @@ test('extra on the road shows at once, and what is owed eats what is left', () =
   const d3 = { ...data, trips: data.trips.map((t) => (t.row === 4 ? { ...t, ssfcLtr: 570 } : t)) };
   const y = tripDiesel(d3, dieselRecon(d3), withDefaults({})).get(4);
   assert.deepEqual([y.toTake, y.mayTake], [30, 0]);                    // 30 L left of the trip's own, but 50 L owed from before
-  assert.equal(fleetDiesel(dieselRecon(d2), tripDiesel(d2, dieselRecon(d2))).overNow.length, 1);
+  // 20 L over is within the mid-way buffer (200 L): carried to the next trip, not over in earnest
+  const F = fleetDiesel(dieselRecon(d2), tripDiesel(d2, dieselRecon(d2)));
+  assert.deepEqual([F.overNow.length, F.bufferNow.length], [0, 1]);
+  assert.equal(z.buffer, 200);
+  assert.equal(z.beyond, 0);
+  const tight = tripDiesel(d2, recon, withDefaults({ recon: { buffer: 10 } })).get(4);
+  assert.equal(tight.beyond, 10);
+  assert.equal(fleetDiesel(recon, new Map([[4, tight]])).overNow.length, 1);
 });
 
 test('a trip with far less diesel tagged than allotted is flagged — normal savings aren\'t', async () => {
