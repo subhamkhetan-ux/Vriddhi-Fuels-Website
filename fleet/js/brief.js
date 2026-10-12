@@ -125,8 +125,11 @@ export function ownerBrief(data, ctx, today) {
     const dz = [];
     if (F.owedL > 0.5) dz.push({ tone: 'bad', text: `Extra diesel taken and owed: ${ind(F.owedL)} L across ${plural(F.owed.length, 'truck')}${ctx.dieselPrice ? ` (≈ ${lakh(F.owedRs)})` : ''} — to come off their next trips. Most: ${F.owed.slice(0, 3).map((v) => `${short(v.veh)} ${ind(-v.balance)} L`).join(', ')}`, href: '#/diesel' });
     else dz.push({ tone: 'good', text: 'No truck owes diesel — every one is within its allotments', href: '#/diesel' });
-    if (F.overNow.length) dz.push({ tone: 'bad', text: `Over this trip's allotment and the ${ind(F.overNow[0].buffer)} L mid-way buffer now: ${F.overNow.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ')}`, href: '#/diesel' });
-    if (F.bufferNow.length) dz.push({ tone: 'info', text: `Carrying the mid-way buffer (comes off the next trip): ${F.bufferNow.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ')}` });
+    const list = (zs) => zs.sort((a, b) => b.extra - a.extra).map((z) => `${short(z.t.veh)} +${ind(z.extra)} L`).join(', ');
+    const B = (F.live[0] && F.live[0].buffer) || { min: 120, max: 140 };
+    if (F.overNow.length) dz.push({ tone: 'bad', text: `More over the allotment than the ${B.min}–${B.max} L mid-way buffer — check the entries: ${list(F.overNow)}`, href: '#/diesel' });
+    if (F.driverNow.length) dz.push({ tone: 'bad', text: `Took extra diesel (over the allotment, less than the ${B.min}–${B.max} L mid-way buffer) — deduct in the next trips: ${list(F.driverNow)}`, href: '#/diesel' });
+    if (F.bufferNow.length) dz.push({ tone: 'info', text: `Carrying the mid-way buffer (comes off the next trip): ${list(F.bufferNow)}` });
     const stop = F.live.filter((z) => z.allotted != null && z.toTake > 0.5 && z.mayTake < 0.5);
     if (stop.length) dz.push({ tone: 'warn', text: `Should take no more diesel this trip (what's owed eats the rest): ${stop.map((z) => short(z.t.veh)).join(', ')}` });
     if (ctx.missingFills && ctx.missingFills.size) {
@@ -162,9 +165,10 @@ const hL = (n) => `${ind(Math.abs(n), Math.abs(n) % 1 && Math.abs(n) < 100 ? 1 :
 function hDiesel(z) {
   if (!z || z.allotted == null) return { diesel: '', dieselTone: 'info' };
   const owedBefore = z.carryIn < -0.5 ? -z.carryIn : 0;
-  const buffer = Number.isFinite(z.buffer) ? z.buffer : 200;
-  if (z.extra > buffer + 0.5) return { diesel: `⚠ डीज़ल: इस ट्रिप का ${hL(z.allotted)} तय था, ${hL(z.taken)} लिया — ${hL(z.extra)} ज़्यादा (बफ़र ${hL(buffer)} से भी ${hL(z.extra - buffer)} ऊपर)। कुल ${hL(Math.max(0, -z.after))} अगली ट्रिप में कटेगा`, dieselTone: 'bad' };
-  if (z.extra > 0.5) return { diesel: `डीज़ल: ${hL(z.allotted)} तय, ${hL(z.taken)} लिया — ${hL(z.extra)} बीच रास्ते का बफ़र, अगली ट्रिप में कटेगा। अब और डीज़ल न लें`, dieselTone: 'warn' };
+  // over the allotment: the planned mid-way buffer; less is the driver's extra; more is an entry the office checks
+  if (z.extraKind === 'wrong') return { diesel: `डीज़ल: ${hL(z.allotted)} तय, ${hL(z.taken)} दर्ज — ऑफिस एंट्री जाँच रहा है। पर्ची संभाल कर रखें`, dieselTone: 'warn' };
+  if (z.extraKind === 'buffer') return { diesel: `डीज़ल: ${hL(z.allotted)} तय, ${hL(z.taken)} लिया — ${hL(z.extra)} बीच रास्ते का बफ़र, अगली ट्रिप में कटेगा। अब और डीज़ल न लें`, dieselTone: 'warn' };
+  if (z.extra > 0.5) return { diesel: `⚠ डीज़ल: इस ट्रिप का ${hL(z.allotted)} तय था, ${hL(z.taken)} लिया — ${hL(z.extra)} ज़्यादा। कुल ${hL(Math.max(0, -z.after))} अगली ट्रिप में कटेगा`, dieselTone: 'bad' };
   if (z.mayTake < 0.5) {
     return z.after < -0.5
       ? { diesel: `⚠ डीज़ल: ${hL(z.allotted)} में से ${hL(z.taken)} लिया — अब और डीज़ल न लें। पिछली ट्रिपों का ${hL(-z.after)} ज़्यादा लिया हुआ अगली ट्रिप में कटेगा`, dieselTone: 'warn' }

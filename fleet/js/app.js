@@ -21,7 +21,7 @@ import { sameDriver } from './drivers.js';
 import { dataChecks } from './checks.js';
 import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
-import { fillProgress, fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
+import { bufferOf, extraKind, fillProgress, fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
 import { irregularIndex, irregulars } from './irregular.js';
 import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange, sums as daySums } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
@@ -1060,15 +1060,22 @@ function loadLegend(trips) {
 }
 // a trip's diesel against its allotment, with what it carries in from the trips before
 const L1 = (n) => `${indian(Math.abs(n), Math.abs(n) % 1 && Math.abs(n) < 100 ? 1 : 0)} L`;
-// within the mid-way buffer (z.buffer, Setup → Diesel recon) a trip over its allotment is planned: amber, not red
-const BUF = (z) => (z && Number.isFinite(z.buffer) ? z.buffer : 200);
+// over the allotment (tripdiesel.js extraKind()): the planned mid-way buffer (120–140 L) amber; less is the
+// driver's extra (deduct), more an entry to check — both red
+const BUFR = (z) => (z && z.buffer && Number.isFinite(z.buffer.min) ? z.buffer : bufferOf(null));
+const XK = (z) => (z.extraKind || extraKind(z.extra, BUFR(z)));
+const bufText = (b) => `${indian(b.min)}–${indian(b.max)} L`;
 function dieselTone(z) {
   if (!z || z.allotted == null) return '';
-  if (z.extra > BUF(z) + 0.5 || z.after < -BUF(z) - 0.5) return 'bad';
-  if (z.extra > 0.5 || z.after < -0.5) return 'warn';
+  if (XK(z) === 'wrong' || XK(z) === 'driver' || z.after < -BUFR(z).max - 0.5) return 'bad';
+  if (XK(z) === 'buffer' || z.after < -0.5) return 'warn';
   return 'good';
 }
-const extraText = (z) => (z.extra > BUF(z) + 0.5 ? `${L1(z.extra)} over the allotment — ${L1(z.extra - BUF(z))} past the ${L1(BUF(z))} mid-way buffer` : `${L1(z.extra)} mid-way buffer — comes off the next trip`);
+const extraText = (z) => ({
+  driver: `${L1(z.extra)} over — driver's extra (under the ${bufText(BUFR(z))} buffer): deduct`,
+  buffer: `${L1(z.extra)} mid-way buffer — comes off the next trip`,
+  wrong: `${L1(z.extra)} over — more than the ${bufText(BUFR(z))} buffer: check the entries`,
+}[XK(z)] || '');
 function dieselLine(z) {
   if (!z || z.allotted == null) return '';
   if (z.live) {
@@ -1091,9 +1098,9 @@ function dieselBarHtml(z, mf = null) {
     : z.live ? (z.mayTake > 0.5 ? `${L1(z.mayTake)} more may be filled` : `stop — no more this trip${owedAll ? ` (${owedAll})` : ''}`)
       : `balance c/f ${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}`;
   return `<span class="dbar ${tone}">
-    <span class="dbar-top"><span>⛽ <b>${L1(z.taken)}</b> of ${L1(A)} allotted${z.est ? ' (est.)' : ''}</span><span class="dbar-bal ${bf < -BUF(z) - 0.5 ? 'bad-text' : bf < -0.5 ? 'warn-text' : bf > 0.5 ? 'good-text' : 'muted'}">Balance b/f ${bf > 0.5 ? '+' : bf < -0.5 ? '−' : ''}${L1(bf)}</span></span>
+    <span class="dbar-top"><span>⛽ <b>${L1(z.taken)}</b> of ${L1(A)} allotted${z.est ? ' (est.)' : ''}</span><span class="dbar-bal ${bf < -BUFR(z).max - 0.5 ? 'bad-text' : bf < -0.5 ? 'warn-text' : bf > 0.5 ? 'good-text' : 'muted'}">Balance b/f ${bf > 0.5 ? '+' : bf < -0.5 ? '−' : ''}${L1(bf)}</span></span>
     <span class="dbar-track" role="img" aria-label="${esc(`${L1(z.taken)} of ${L1(A)} allotted`)}">
-      <i class="dbar-fill" style="width:${pct(Math.min(z.taken, limit ?? A))}"></i>${limit != null && z.taken > limit ? `<i class="dbar-owed" style="left:${pct(limit)};width:${pct(Math.min(z.taken, A) - limit)}"></i>` : ''}${z.taken > A + 0.5 ? `<i class="dbar-over${z.extra > BUF(z) + 0.5 ? '' : ' buf'}"></i>` : ''}${limit != null ? `<i class="dbar-limit" style="left:${pct(limit)}"></i>` : ''}
+      <i class="dbar-fill" style="width:${pct(Math.min(z.taken, limit ?? A))}"></i>${limit != null && z.taken > limit ? `<i class="dbar-owed" style="left:${pct(limit)};width:${pct(Math.min(z.taken, A) - limit)}"></i>` : ''}${z.taken > A + 0.5 ? `<i class="dbar-over${XK(z) === 'buffer' ? ' buf' : ''}"></i>` : ''}${limit != null ? `<i class="dbar-limit" style="left:${pct(limit)}"></i>` : ''}
     </span>
     <small>${esc(note)}${mf ? ' · refill not entered?' : ''}</small>
   </span>`;
@@ -1109,19 +1116,19 @@ function dieselPanelHtml(z) {
   const cell = (lbl, val, sub, cls = '') => `<div class="dz-cell ${cls}"><span class="lbl">${lbl}</span><b>${val}</b><small>${sub}</small></div>`;
   return `<div class="dz-panel ${tone}">
     <div class="dz-bar" role="img" aria-label="${esc(dieselLine(z))}">
-      <span class="dz-taken" style="width:${pct(within)}"></span>${z.extra > 0.5 ? `<span class="dz-extra${z.extra > BUF(z) + 0.5 ? '' : ' buf'}" style="left:${pct(z.allotted)};width:${pct(z.extra)}"></span>` : ''}
+      <span class="dz-taken" style="width:${pct(within)}"></span>${z.extra > 0.5 ? `<span class="dz-extra${XK(z) === 'buffer' ? ' buf' : ''}" style="left:${pct(z.allotted)};width:${pct(z.extra)}"></span>` : ''}
       <i class="dz-mark" style="left:${pct(z.allotted)}" title="the allotment"></i>
       ${z.carryIn < -0.5 ? `<i class="dz-mark dz-limit" style="left:${pct(Math.max(0, limit))}" title="the limit after what's owed"></i>` : ''}
     </div>
-    <p class="dz-key"><span><i class="k-taken"></i>taken</span>${z.extra > 0.5 ? `<span><i class="k-extra${z.extra > BUF(z) + 0.5 ? '' : ' buf'}"></i>${z.extra > BUF(z) + 0.5 ? 'extra' : 'mid-way buffer'}</span>` : ''}<span><i class="k-mark"></i>allotment ${L1(z.allotted)}</span>${z.carryIn < -0.5 ? `<span><i class="k-limit"></i>limit after what's owed ${L1(Math.max(0, limit))}</span>` : ''}</p>
+    <p class="dz-key"><span><i class="k-taken"></i>taken</span>${z.extra > 0.5 ? `<span><i class="k-extra${XK(z) === 'buffer' ? ' buf' : ''}"></i>${{ buffer: 'mid-way buffer', driver: 'driver\'s extra', wrong: 'extra — check' }[XK(z)]}</span>` : ''}<span><i class="k-mark"></i>allotment ${L1(z.allotted)}</span>${z.carryIn < -0.5 ? `<span><i class="k-limit"></i>limit after what's owed ${L1(Math.max(0, limit))}</span>` : ''}</p>
     <div class="dz-grid">
       ${cell('Allotted', L1(z.allotted), z.est ? 'route diesel — over/underload once loaded' : `${z.base ?? '—'} base${z.over ? ` + ${z.over.toFixed(1)} overload` : ''}${z.under ? ` − ${z.under} underload` : ''}`)}
       ${cell('Taken', L1(z.taken), z.ownL ? `SSFC ${L1(z.ssfcL)} + own ${L1(z.ownL)}` : `${plural(z.fills.length, 'fill')}${z.fills.length ? ` · last ${shortDate(z.fills[z.fills.length - 1].date)}` : ''}`)}
       ${z.live ? cell('To take', L1(z.toTake), 'left of this trip\'s allotment') : ''}
-      ${cell('Extra this trip', z.extra > 0.5 ? `+${L1(z.extra)}` : '—', z.extra > BUF(z) + 0.5 ? `over the allotment and the ${L1(BUF(z))} mid-way buffer — to be cut from the next trips` : z.extra > 0.5 ? `within the ${L1(BUF(z))} mid-way buffer — comes off the next trip` : 'within the allotment', z.extra > BUF(z) + 0.5 ? 'bad' : z.extra > 0.5 ? 'warn' : '')}
+      ${cell('Extra this trip', z.extra > 0.5 ? `+${L1(z.extra)}` : '—', { driver: `less than the ${bufText(BUFR(z))} mid-way buffer — the driver's extra, deduct in the next trips`, buffer: `the ${bufText(BUFR(z))} mid-way buffer — comes off the next trip`, wrong: `more than the ${bufText(BUFR(z))} mid-way buffer — check the entries` }[XK(z)] || 'within the allotment', XK(z) === 'buffer' ? 'warn' : XK(z) === 'none' ? '' : 'bad')}
       ${cell('Carried in', z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—', z.carryIn < -0.5 ? 'extra from earlier trips, owed' : z.carryIn > 0.5 ? 'saved on earlier trips' : 'nothing owed from before', z.carryIn < -0.5 ? 'warn' : '')}
       ${z.live ? cell('May still take', L1(z.mayTake), z.carryIn < -0.5 ? 'after cutting what\'s owed' : 'for the rest of the trip', z.mayTake < 0.5 ? 'bad' : 'good') : ''}
-      ${cell(z.live ? 'Balance if no more' : 'Balance after', `${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}`, z.after < -0.5 ? 'owed — comes off the next trips' : z.after > 0.5 ? 'saved' : 'square', z.after < -BUF(z) - 0.5 ? 'bad' : z.after < -0.5 ? 'warn' : 'good')}
+      ${cell(z.live ? 'Balance if no more' : 'Balance after', `${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}`, z.after < -0.5 ? 'owed — comes off the next trips' : z.after > 0.5 ? 'saved' : 'square', z.after < -BUFR(z).max - 0.5 ? 'bad' : z.after < -0.5 ? 'warn' : 'good')}
     </div>
     ${z.ownL ? `<p class="small">Own diesel <b>${L1(z.ownL)}</b>${z.ownRs ? ` (${rupees(z.ownRs)})` : ''} bought by us for this trip where SSFC couldn't supply — counted in what's taken.</p>` : ''}
     ${z.incentive ? `<p class="small muted">Plus ${L1(z.incentive)} Own Diesel Extra — incentive diesel for the driver, settled; not counted against the allotment.</p>` : ''}
@@ -1192,10 +1199,10 @@ function fillBarHtml(p, qty) {
   const max = Math.max(A, p.after);
   const pc = (n) => `${((n / max) * 100).toFixed(1)}%`;
   const over = p.after - A;
-  const buf = Number.isFinite(p.buffer) ? p.buffer : 200;
+  const kind = extraKind(over, p.buffer && Number.isFinite(p.buffer.min) ? p.buffer : bufferOf(null));
   return `<span class="fbar" title="${esc(`${p.trip.trip}: ${L1(p.before)} before this fill, ${L1(p.after)} after, of ${L1(A)} allotted${p.est ? ' (est.)' : ''}`)}">
-    <span class="fbar-track"><i class="fb-before" style="width:${pc(Math.min(p.before, A))}"></i><i class="fb-this" style="left:${pc(Math.min(p.before, A))};width:${pc(Math.max(0, Math.min(p.after, A) - Math.min(p.before, A)))}"></i>${over > 0.5 ? `<i class="fb-over${over > buf + 0.5 ? '' : ' buf'}" style="left:${pc(Math.max(A, p.before))};width:${pc(p.after - Math.max(A, p.before))}"></i>` : ''}<i class="fb-mark" style="left:${pc(A)}"></i></span>
-    <small class="${over > buf + 0.5 ? 'bad-text' : over > 0.5 ? 'warn-text' : ''}">${indian(p.after)}/${indian(A)}</small></span>`;
+    <span class="fbar-track"><i class="fb-before" style="width:${pc(Math.min(p.before, A))}"></i><i class="fb-this" style="left:${pc(Math.min(p.before, A))};width:${pc(Math.max(0, Math.min(p.after, A) - Math.min(p.before, A)))}"></i>${over > 0.5 ? `<i class="fb-over${kind === 'buffer' ? ' buf' : ''}" style="left:${pc(Math.max(A, p.before))};width:${pc(p.after - Math.max(A, p.before))}"></i>` : ''}<i class="fb-mark" style="left:${pc(A)}"></i></span>
+    <small class="${kind === 'buffer' ? 'warn-text' : kind === 'none' ? '' : 'bad-text'}">${indian(p.after)}/${indian(A)}</small></span>`;
 }
 
 // one kind of entry on a day (or a range): its own table, with the columns that kind needs
@@ -1678,12 +1685,12 @@ function dieselNowHtml() {
     <div class="kpis">
       <div class="kpi ${F.owedL > 0.5 ? 'warn' : ''}"><span class="lbl">Extra taken, owed</span><span class="val ${F.owedL > 0.5 ? 'bad-text' : ''}">${F.owedL > 0.5 ? litres(F.owedL) : '—'}</span><span class="sub">${F.owed.length ? `${plural(F.owed.length, 'truck')}${price ? ` · ≈ ${money(F.owedRs)} at ₹${price.toFixed(2)}/L` : ''}` : 'no truck owes diesel'}</span></div>
       <div class="kpi"><span class="lbl">Saved</span><span class="val ${F.savedL > 0.5 ? 'good-text' : ''}">${F.savedL > 0.5 ? litres(F.savedL) : '—'}</span><span class="sub">${plural(F.saved.length, 'truck')} under their allotments</span></div>
-      <div class="kpi ${F.overNow.length ? 'warn' : ''}"><span class="lbl">Over the allotment + buffer now</span><span class="val ${F.overNow.length ? 'bad-text' : ''}">${F.overNow.length || '—'}</span><span class="sub">${F.overNow.length ? F.overNow.map((z) => `${shortVeh(z.t.veh)} +${L1(z.extra)}`).join(', ') : F.bufferNow.length ? `${F.bufferNow.length} in the mid-way buffer: ${F.bufferNow.map((z) => `${shortVeh(z.t.veh)} +${L1(z.extra)}`).join(', ')}` : 'trips on the road'}</span></div>
+      <div class="kpi ${F.overNow.length + F.driverNow.length ? 'warn' : ''}"><span class="lbl">Over the allotment now</span><span class="val ${F.overNow.length + F.driverNow.length ? 'bad-text' : ''}">${F.overNow.length + F.driverNow.length || '—'}</span><span class="sub">${[F.overNow.length ? `check the entries: ${F.overNow.map((z) => `${shortVeh(z.t.veh)} +${L1(z.extra)}`).join(', ')}` : '', F.driverNow.length ? `driver's extra: ${F.driverNow.map((z) => `${shortVeh(z.t.veh)} +${L1(z.extra)}`).join(', ')}` : '', F.bufferNow.length ? `${F.bufferNow.length} carrying the mid-way buffer` : ''].filter(Boolean).join(' · ') || 'trips on the road'}</span></div>
       <div class="kpi"><span class="lbl">Still to fill</span><span class="val">${litres(F.mayTake)}</span><span class="sub">${litres(F.toTake)} left of the allotments, less what's owed</span></div>
     </div>
     ${live.length ? `<div class="table-wrap"><table class="compact dz-table"><thead><tr><th>Vehicle</th><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">To take</th><th class="r">Extra</th><th class="r">Carried in</th><th class="r">May still take</th><th class="r">Balance</th></tr></thead><tbody>
       ${live.map((z) => `<tr class="${dieselTone(z) === 'bad' ? 'row-under' : ''}"><td><a href="#/vehicle/${encodeURIComponent(z.t.veh)}"><b>${esc(shortVeh(z.t.veh))}</b></a><small class="muted block">${esc(driverNow(z.t.veh) || '')}</small></td><td><a href="#/trip/${z.t.row}">${esc(z.t.trip)}</a><small class="muted block">${z.t.loadDate ? 'loaded' : 'to load'}${z.est ? ' · est.' : ''}</small></td>
-        <td class="r">${L1(z.allotted)}</td><td class="r">${L1(z.taken)}${z.ownL ? `<small class="muted block">own ${L1(z.ownL)}</small>` : ''}</td><td class="r">${z.toTake > 0.5 ? L1(z.toTake) : '—'}</td><td class="r ${z.extra > BUF(z) + 0.5 ? 'bad-text' : z.extra > 0.5 ? 'warn-text' : ''}">${z.extra > 0.5 ? `+${L1(z.extra)}` : '—'}</td>
+        <td class="r">${L1(z.allotted)}</td><td class="r">${L1(z.taken)}${z.ownL ? `<small class="muted block">own ${L1(z.ownL)}</small>` : ''}</td><td class="r">${z.toTake > 0.5 ? L1(z.toTake) : '—'}</td><td class="r ${XK(z) === 'buffer' ? 'warn-text' : XK(z) === 'none' ? '' : 'bad-text'}">${z.extra > 0.5 ? `+${L1(z.extra)}` : '—'}</td>
         <td class="r ${z.carryIn < -0.5 ? 'warn-text' : ''}">${z.carryIn < -0.5 ? `−${L1(-z.carryIn)}` : z.carryIn > 0.5 ? `+${L1(z.carryIn)}` : '—'}</td><td class="r"><b class="${z.mayTake < 0.5 ? 'bad-text' : 'good-text'}">${L1(z.mayTake)}</b></td>
         <td class="r"><b class="${z.after < -0.5 ? 'bad-text' : 'good-text'}">${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}</b></td></tr>`).join('')}
     </tbody></table></div>` : '<p class="muted">No trip on the road.</p>'}
@@ -2416,8 +2423,8 @@ async function viewSetup() {
       <h2>Diesel recon</h2>
       <label class="radio"><input type="radio" name="recon" value="excel"${!draft.recon.useApp ? ' checked' : ''}> Use the workbook's Recon Engine (matches Excel); routes' diesel here only for trips after it</label>
       <label class="radio"><input type="radio" name="recon" value="app"${draft.recon.useApp ? ' checked' : ''}> Use the diesel set here for every trip (+ overload / − underload as in Excel)</label>
-      <div class="row-form"><label>Mid-way buffer (L) <input id="opt-buffer" inputmode="numeric" value="${esc(draft.recon.buffer ?? 200)}"></label></div>
-      <p class="muted small">Diesel filled mid-way (Muniguda) over a trip's allotment so the truck unloads and gets back mid-way without refilling at the congested pumps near the plant. Up to this much over is planned — shown amber and carried to the next trip, not flagged; only past it is a trip marked over.</p>
+      <div class="row-form"><label>Mid-way buffer from (L) <input id="opt-bufmin" inputmode="numeric" value="${esc(draft.recon.bufferMin ?? 120)}"></label><label>to (L) <input id="opt-bufmax" inputmode="numeric" value="${esc(draft.recon.bufferMax ?? 140)}"></label></div>
+      <p class="muted small">Diesel filled mid-way (Muniguda) over a trip's allotment so the truck unloads and gets back mid-way without refilling at the congested pumps near the plant. Over the allotment by this much is planned — amber, carried to the next trip. Less over is extra the driver took (deduct in the next trips); more is flagged as an entry to check.</p>
     </section>
 
     <div class="save-bar"><span class="muted small">${state.settingsMeta ? `Saved ${new Date(state.settingsMeta.updated_at).toLocaleString('en-IN')}${state.settingsMeta.by_email ? ` · ${esc(state.settingsMeta.by_email)}` : ''}` : 'Not saved yet'}</span>
@@ -2466,7 +2473,8 @@ async function viewSetup() {
     box.querySelector('#opt-tol').addEventListener('change', (e) => { draft.driver.tolerance = Number(num(e.target.value) || 0); });
     box.querySelector('#opt-from').addEventListener('change', (e) => { draft.driver.checkFrom = e.target.value || ''; });
     box.querySelectorAll('[name=recon]').forEach((r) => r.addEventListener('change', () => { draft.recon.useApp = r.value === 'app' && r.checked; }));
-    box.querySelector('#opt-buffer').addEventListener('change', (e) => { const v = num(e.target.value); draft.recon.buffer = v === '' ? 200 : Math.max(0, v); });
+    box.querySelector('#opt-bufmin').addEventListener('change', (e) => { const v = num(e.target.value); draft.recon.bufferMin = v === '' ? 120 : Math.max(0, v); });
+    box.querySelector('#opt-bufmax').addEventListener('change', (e) => { const v = num(e.target.value); draft.recon.bufferMax = v === '' ? 140 : Math.max(0, v); });
     box.querySelector('#setup-reset').addEventListener('click', () => { state.ui.setupDraft = null; viewSetup(); });
     box.querySelector('#setup-save').addEventListener('click', (e) => guard(async () => {
       const clean = withDefaults(JSON.parse(JSON.stringify(draft)));

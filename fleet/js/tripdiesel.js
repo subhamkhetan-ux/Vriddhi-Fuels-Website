@@ -14,10 +14,11 @@
 //   to take     what's left of this trip's own allotment
 //   extra       taken over this trip's allotment
 //   after       the balance this trip leaves
-// Up to `buffer` litres over (settings.recon.buffer, 200 L) is planned: filled
-// mid-way so the truck can unload and get back mid-way without refilling at
-// the congested pumps near the plant — it comes off the next trip. Only past
-// it is a trip over its allotment in earnest.
+// Over the allotment, the mid-way buffer is planned: filled at Muniguda so the
+// truck can unload and get back there without refilling at the congested
+// pumps near the plant — always 120–140 L (settings.recon.bufferMin/Max); it
+// comes off the next trip. Less over than that is extra the driver took (to
+// deduct); more is a wrong entry to check (extraKind()).
 // A trip not loaded yet has no gross weight: its allotment is the route's
 // base diesel until it's loaded (marked as an estimate). Pure functions.
 
@@ -26,11 +27,27 @@ import { routeFor } from './rules.js';
 const r1 = (n) => Math.round(n * 10) / 10;
 const lc = (s) => String(s || '').trim().toLowerCase();
 
+// the mid-way buffer's range, L
+export function bufferOf(settings) {
+  const r = (settings && settings.recon) || {};
+  const min = Number.isFinite(Number(r.bufferMin)) && r.bufferMin !== '' && r.bufferMin != null ? Number(r.bufferMin) : 120;
+  const max = Number.isFinite(Number(r.bufferMax)) && r.bufferMax !== '' && r.bufferMax != null ? Number(r.bufferMax) : 140;
+  return { min: Math.max(0, Math.min(min, max)), max: Math.max(min, max) };
+}
+// what a trip's diesel over its allotment is: 'none'; 'driver' — less than the mid-way buffer, extra the
+// driver took (to deduct in the next trips); 'buffer' — the planned mid-way buffer; 'wrong' — more than
+// the buffer, an entry to check. 2 L either side is rounding (allotments carry the overload's decimals).
+export function extraKind(extra, buffer = { min: 120, max: 140 }) {
+  if (!(extra > 0.5)) return 'none';
+  if (extra < buffer.min - 2) return 'driver';
+  if (extra <= buffer.max + 2) return 'buffer';
+  return 'wrong';
+}
+
 // recon: analyse.js dieselRecon(); → Map(trip row → the trip's diesel)
 export function tripDiesel(data, recon, settings = null) {
   const out = new Map();
-  const b = settings && settings.recon ? Number(settings.recon.buffer) : NaN;
-  const buffer = Number.isFinite(b) && b >= 0 ? b : 200;
+  const buffer = bufferOf(settings);
   const rateOf = (t) => (data.rates || []).find((x) => lc(x.port) === lc(t.port) && lc(x.dest) === lc(t.dest));
   const fillsOf = new Map();
   for (const h of data.hsd || []) {
@@ -65,7 +82,8 @@ export function tripDiesel(data, recon, settings = null) {
         after: allotted != null ? r1(carryIn + allotted - taken) : r1(carryIn - taken),
       };
       d.owed = r1(Math.max(0, -d.after));                     // extra still to come out of the next trips
-      d.beyond = r1(Math.max(0, d.extra - buffer));            // over even the mid-way buffer
+      d.extraKind = extraKind(d.extra, buffer);
+      d.beyond = r1(Math.max(0, d.extra - buffer.max));        // over even the mid-way buffer
       out.set(t.row, d);
       // the running balance moves as the recon's does (a trip without an allotment yet doesn't count)
       if (x.allotted != null) run += x.balance;
@@ -100,7 +118,7 @@ export function fleetDiesel(recon, trips, price = 0) {
     owedL: owed.reduce((a, v) => a - v.balance, 0), owed: owed.sort((a, b) => a.balance - b.balance),
     savedL: saved.reduce((a, v) => a + v.balance, 0), saved,
     owedRs: Math.round(owed.reduce((a, v) => a - v.balance, 0) * price),
-    live, overNow: live.filter((d) => d.beyond > 0.5), bufferNow: live.filter((d) => d.extra > 0.5 && d.beyond <= 0.5),
+    live, overNow: live.filter((d) => d.extraKind === 'wrong'), bufferNow: live.filter((d) => d.extraKind === 'buffer'), driverNow: live.filter((d) => d.extraKind === 'driver'),
     toTake: live.reduce((a, d) => a + d.toTake, 0), mayTake: live.reduce((a, d) => a + d.mayTake, 0),
   };
 }

@@ -15,6 +15,7 @@
 // passed in. app.js turns them into JPEGs (and a PDF) to share.
 
 import { costBreakdown, dieselAmount, dieselLitres, ownExpenses, routeOf, ssfcDeductions, totals, tripDays } from './analyse.js';
+import { extraKind } from './tripdiesel.js';
 import { plateText, RTO_GROSS } from './bulker.js';
 
 export const PAGE = { width: 1280, height: 1810 };                 // px; A4's shape
@@ -169,12 +170,14 @@ const together = (list) => block(list.reduce((a, b) => a + b.h, 0), (x, y, w) =>
   return list.map((b) => { const out = b.draw(x, yy, w); yy += b.h; return out; }).join('');
 });
 
+// over the allotment after a fill: the mid-way buffer, the driver's extra or an entry to check (tripdiesel.js)
+const overKind = (p) => extraKind(p.after - p.allotted, p.buffer && Number.isFinite(p.buffer.min) ? p.buffer : undefined);
 // a fill's place in its trip's allotment (tripdiesel.js fillProgress()): before it, this fill, over the allotment
 function fillBar(x, y, w, p) {
   const max = Math.max(p.allotted, p.after);
   const at = (n) => x + (Math.max(0, n) / max) * w;
   const A = p.allotted;
-  return `${R(x, y, w, 6, { rx: 3, opacity: 0.12 })}${R(x, y, at(Math.min(p.before, A)) - x, 6, { rx: 3, fill: C.s4, opacity: 0.45 })}${R(at(Math.min(p.before, A)), y, at(Math.min(p.after, A)) - at(Math.min(p.before, A)), 6, { fill: C.s4 })}${p.after > A + 0.5 ? R(at(Math.max(A, p.before)), y, at(p.after) - at(Math.max(A, p.before)), 6, { fill: p.after - A > (p.buffer ?? 200) + 0.5 ? C.bad : C.warn }) : ''}${R(at(A) - 1, y - 2, 2, 10, { fill: C.ink, opacity: 0.7 })}`;
+  return `${R(x, y, w, 6, { rx: 3, opacity: 0.12 })}${R(x, y, at(Math.min(p.before, A)) - x, 6, { rx: 3, fill: C.s4, opacity: 0.45 })}${R(at(Math.min(p.before, A)), y, at(Math.min(p.after, A)) - at(Math.min(p.before, A)), 6, { fill: C.s4 })}${p.after > A + 0.5 ? R(at(Math.max(A, p.before)), y, at(p.after) - at(Math.max(A, p.before)), 6, { fill: overKind(p) === 'buffer' ? C.warn : C.bad }) : ''}${R(at(A) - 1, y - 2, 2, 10, { fill: C.ink, opacity: 0.7 })}`;
 }
 
 // a table: cols [{ label, at, align: 'end' | 'start', max }]: at < 0 = from the right edge
@@ -539,7 +542,7 @@ export function tripCardSvg(t, { asOn = '', images = {}, fontCss = '', bulker = 
         ['Taken', z.ownL ? `${litres(z.taken)}  (SSFC ${litres(z.ssfcL)} + own ${litres(z.ownL)})` : litres(z.taken)],
         z.ownL ? ['Own diesel bought for the trip (SSFC couldn\'t supply)', `${litres(z.ownL)}${z.ownRs ? ` · ${rupees(z.ownRs)}` : ''}`] : null,
         z.live ? ['To take (left of this trip\'s allotment)', litres(z.toTake)] : null,
-        ['Extra this trip', z.extra > 0.5 ? `+${litres(z.extra)}${z.extra > (z.buffer ?? 200) + 0.5 ? '' : ' (mid-way buffer)'}` : '—', { color: z.extra > (z.buffer ?? 200) + 0.5 ? C.bad : z.extra > 0.5 ? C.warn : C.good }],
+        ['Extra this trip', z.extra > 0.5 ? `+${litres(z.extra)} (${{ buffer: 'mid-way buffer', driver: 'driver\'s extra — deduct', wrong: 'check the entries' }[z.extraKind || extraKind(z.extra)]})` : '—', { color: z.extra > 0.5 ? ((z.extraKind || extraKind(z.extra)) === 'buffer' ? C.warn : C.bad) : C.good }],
         ['Carried in from earlier trips', z.carryIn < -0.5 ? `${sl(z.carryIn)} owed` : z.carryIn > 0.5 ? `${sl(z.carryIn)} saved` : '—', { color: z.carryIn < -0.5 ? C.warn : C.ink }],
         z.live ? ['May still take', litres(z.mayTake), { strong: true, color: z.mayTake < 0.5 ? C.bad : C.good, rule: true }] : null,
         [z.live ? 'Balance if no more is taken' : 'Balance after the trip', `${sl(z.after)}${z.after < -0.5 ? ' — comes off the next trips' : ''}`, { strong: true, color: z.after < -0.5 ? C.bad : C.good, rule: !z.live }],
@@ -723,7 +726,7 @@ ${T(x + 24, y + 42, g.kind.title, { size: 20, weight: 800 })}${T(x + w - 18, y +
         const p = !e.incentive && fills && e.src ? fills.get(e.src) : null;
         const f = flags && e.src ? flags.get(e.src) || [] : [];
         return [dim(e, veh(e)), dim(e, e.incentive ? { text: 'Incentive', weight: 700, sub: 'not counted' } : { text: e.bill || e.pump || 'Pump', weight: 700, sub: f.length ? '⚠ check' : e.bill && e.pump && !e.bill.toLowerCase().includes(e.pump.toLowerCase()) ? e.pump : '', subColor: f.length ? C.bad : C.muted }),
-          dim(e, { text: e.place || '—', weight: 400 }), dim(e, { text: ind(e.litres, e.litres % 1 ? 2 : 0), weight: 800, bar: p && p.allotted ? p : null, sub: p && p.allotted ? `${ind(p.after)}/${ind(p.allotted)} trip` : '', subColor: p && p.after - p.allotted > (p.buffer ?? 200) + 0.5 ? C.bad : p && p.after > p.allotted + 0.5 ? C.warn : C.muted }),
+          dim(e, { text: e.place || '—', weight: 400 }), dim(e, { text: ind(e.litres, e.litres % 1 ? 2 : 0), weight: 800, bar: p && p.allotted ? p : null, sub: p && p.allotted ? `${ind(p.after)}/${ind(p.allotted)} trip` : '', subColor: !p || overKind(p) === 'none' ? C.muted : overKind(p) === 'buffer' ? C.warn : C.bad }),
           dim(e, { text: e.rsp ? e.rsp.toFixed(2) : '—', weight: 400 }), dim(e, { text: rupees(e.amount), weight: 800 })];
       });
       if (n > 1) total = ['Total', '', '', ind(S.litres, S.litres % 1 ? 2 : 0), '', rupees(S.diesel)];
