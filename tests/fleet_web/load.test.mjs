@@ -65,3 +65,20 @@ test('the daily brief: the owner\'s insight and the drivers\' instructions in Hi
   for (const svg of [driverBriefSvg(d, { asOn: today }).svg, ownerBriefSvg(o, { asOn: today }).svg]) assert.doesNotMatch(svg, /undefined|NaN/);
   assert.ok(wrap('एक दो तीन चार पाँच छह सात आठ नौ दस', 120, 20).length > 1);
 });
+
+test('the owner\'s insight lists every entry that looks wrong; its picture the first 12', () => {
+  row = 3;
+  const today = '2026-10-11';
+  const data = { trips: [trip('XX01', '2026-10-10', 40)], hsd: [], driverPay: [] };
+  const irregular = Array.from({ length: 15 }, (_, i) => ({ level: i < 4 ? 'bad' : 'warn', kind: 'dup-fill', veh: 'XX01', date: today, text: `odd entry ${i + 1}`, href: '#/' }));
+  const ctx = { status: [{ veh: 'XX01', state: 'idle', days: 1, last: null }], live: [], loads: loadBench(data), account: null, recon: null, drivers: null, issues: [], driverNow: () => '', irregular };
+  const o = ownerBrief(data, ctx, today);
+  const sec = o.sections.find((s) => s.title.startsWith('Entries that look wrong'));
+  assert.equal(sec.title, 'Entries that look wrong (15)');
+  assert.equal(sec.items.length, 15);
+  assert.equal(sec.items[0].tone, 'bad');
+  const svg = ownerBriefSvg(o, { asOn: today }).svg;
+  assert.match(svg, /odd entry 12/);
+  assert.doesNotMatch(svg, /odd entry 13/);
+  assert.match(svg, /…and 3 more \(4 serious in all\)/);
+});

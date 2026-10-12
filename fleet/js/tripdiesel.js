@@ -67,6 +67,21 @@ export function tripDiesel(data, recon, settings = null) {
   return out;
 }
 
+// each counted fill's place in its trip's allotment: what the trip had before it and after it
+// trips: tripDiesel(); → Map(the HSD Data row → { before, after, allotted, est, trip })
+export function fillProgress(trips) {
+  const out = new Map();
+  for (const z of trips.values()) {
+    let run = 0;
+    for (const h of z.fills) {
+      const before = run;
+      run = r1(run + (h.qty || 0));
+      out.set(h, { before: r1(before), after: run, allotted: z.allotted, est: z.est, trip: z.t });
+    }
+  }
+  return out;
+}
+
 // the fleet: who owes diesel back, who's saved, what the trips on the road may still take
 export function fleetDiesel(recon, trips, price = 0) {
   const vehicles = recon.vehicles.map((v) => ({ veh: v.veh, balance: v.balance }));

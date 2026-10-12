@@ -22,7 +22,7 @@ const rs = (n) => `₹${ind(Math.round(n || 0))}`;
 const lakh = (n) => (Math.abs(n) >= 1e7 ? `₹${(n / 1e7).toFixed(2)} Cr` : Math.abs(n) >= 100000 ? `₹${(n / 100000).toFixed(2)} L` : rs(n));
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-// ctx: { status (fleetStatus), live (liveTrips), loads (loadBench), account (ssfcAccount), recon (dieselRecon), drivers (driverCheck), issues (dateIssues), driverNow(veh) }
+// ctx: { status (fleetStatus), live (liveTrips), loads (loadBench), account (ssfcAccount), recon (dieselRecon), drivers (driverCheck), issues (dateIssues), driverNow(veh), irregular (irregular.js) }
 function dayFacts(data, ctx, day) {
   const loadsOn = data.trips.filter((t) => t.loadDate === day && t.loadWt);
   const unloadsOn = data.trips.filter((t) => t.unloadDate === day);
@@ -63,6 +63,15 @@ export function ownerBrief(data, ctx, today) {
     }
   }
   sections.push({ title: 'Work', items: work });
+
+  // entries that look wrong in the workbook (irregular.js)
+  if (ctx.irregular && ctx.irregular.length) {
+    const L = ctx.irregular;
+    const bad = L.filter((x) => x.level === 'bad').length;
+    // all of them on the screen; the picture keeps the first `cap` and says how many more
+    sections.push({ title: `Entries that look wrong (${L.length})`, cap: 12, capNote: `…and ${L.length - 12} more (${bad} serious in all) — each is marked in the app's day book`,
+      items: L.map((x) => ({ tone: x.level, text: x.text, href: x.href })) });
+  }
 
   // on the road
   const road = [];
@@ -130,7 +139,8 @@ export function ownerBrief(data, ctx, today) {
   }
 
   const look = [];
-  if (ctx.issues && ctx.issues.length) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel`, href: '#/trips?f=check' });
+  const datesListed = (ctx.irregular || []).filter((x) => x.kind === 'dates').length;
+  if (ctx.issues && ctx.issues.length > datesListed) look.push({ tone: 'warn', text: `${plural(ctx.issues.length, 'trip')} with dates to check in Excel${datesListed ? ` (${datesListed} listed above)` : ''}`, href: '#/trips?f=check' });
   if (look.length) sections.push({ title: 'To check', items: look });
   return { date: today, sections };
 }

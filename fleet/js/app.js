@@ -21,7 +21,8 @@ import { sameDriver } from './drivers.js';
 import { dataChecks } from './checks.js';
 import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
-import { fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
+import { fillProgress, fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
+import { irregularIndex, irregulars } from './irregular.js';
 import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange, sums as daySums } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
@@ -542,6 +543,9 @@ function derived() {
       liveTrips: liveTrips(d, set, today()),
       charges: { fastag: monthlyCharges(d, set, 'fastag', kms), tyre: monthlyCharges(d, set, 'tyre', kms) },
       get tyreBill() { return this._tb || (this._tb = tyreBill(this.charges.tyre, set)); },
+      get fills() { return this._fp || (this._fp = fillProgress(this.tripDiesel)); },
+      get irregular() { return this._ir || (this._ir = irregulars(d, { tripDiesel: this.tripDiesel, today: today() })); },
+      get irr() { return this._ix || (this._ix = irregularIndex(this.irregular)); },
     };
     cache = { data: d, rev: state.rev, x };
   }
@@ -650,6 +654,8 @@ async function viewHome() {
     for (const sp of overpaid) todo.unshift({ kind: 'warn', href: `#/drivers/${encodeURIComponent(sp.veh)}`, text: `${shortVeh(sp.veh)}: ${sp.name ? `driver ${sp.name}` : 'driver'} overpaid ${rupees(sp.balance)} (salary − your advances vs what SSFC paid)` });
   }
   const since = addMonths(monthOf(today()), -3);
+  const irr = derived().irregular;
+  if (irr.length) todo.unshift({ kind: irr.some((x) => x.level === 'bad') ? 'bad' : 'warn', href: '#/daybook', text: `${plural(irr.length, 'entry', 'entries')} in the workbook look wrong (diesel on the wrong trip, entered twice, dates…) — listed in the Day book's brief` });
   const tb = derived().tyreBill;
   const offBill = tb.cells.filter((x) => x.month >= since && (x.status === 'over' || x.status === 'twice' || x.status === 'unbilled'));
   if (offBill.length) todo.push({ kind: 'warn', href: '#/costs/tyre', text: `Tyre bill: ${plural(offBill.length, 'month')} in the last 3 months off ₹${tb.perKm.toFixed(2)} a km (${offBill.map((x) => `${shortVeh(x.veh)} ${monthName(x.month)} ${x.status === 'unbilled' ? 'not billed' : x.status === 'twice' ? 'billed twice' : `+${rupees(x.diff)}`}`).slice(0, 4).join(', ')})` });
@@ -824,7 +830,7 @@ function vehicleSheet(veh) {
   const slipTable = (list) => {
     const counted = list.filter((h) => !isInc(h));
     return `<div class="dk vsh-slips" style="--k:var(--s-4)"><div class="table-wrap"><table class="compact dk-table"><thead><tr><th>Date</th><th>Slip</th><th class="r">Litres</th><th class="r">Amount</th></tr></thead><tbody>
-      ${list.map((h) => `<tr${isInc(h) ? ' class="dk-muted"' : ''}><td>${dm(h.date)}</td><td>${isInc(h) ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(h.bill || h.source || 'Pump')}</b>`}<small class="block muted">${esc([h.bill && h.source && !h.bill.toLowerCase().includes(String(h.source).toLowerCase()) && !isInc(h) ? h.source : '', h.location, h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}</small></td><td class="r"><b>${indian(h.qty, h.qty % 1 ? 2 : 0)}</b></td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}
+      ${list.map((h) => { const f = x.irr.bySrc.get(h) || []; return `<tr class="${[isInc(h) ? 'dk-muted' : '', f.length ? 'dk-flag' : ''].join(' ').trim()}"><td>${dm(h.date)}</td><td>${isInc(h) ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(h.bill || h.source || 'Pump')}</b>`}${f.length ? ` <span class="pill ${f.some((y) => y.level === 'bad') ? 'bad-pill' : 'warn-pill'}" title="${esc(f.map((y) => y.text).join('\n'))}">⚠ ${esc(flagWord(f[0], { kind: 'diesel' }))}</span>` : ''}<small class="block muted">${esc([h.bill && h.source && !h.bill.toLowerCase().includes(String(h.source).toLowerCase()) && !isInc(h) ? h.source : '', h.location, h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}</small></td><td class="r"><b>${indian(h.qty, h.qty % 1 ? 2 : 0)}</b>${isInc(h) ? '' : fillBarHtml(x.fills.get(h), h.qty)}</td><td class="r">${rupees(h.amount)}</td></tr>`; }).join('')}
     </tbody><tfoot><tr><td colspan="2">${plural(counted.length, 'slip')}</td><td class="r">${indian(sum(counted, (h) => h.qty))}</td><td class="r">${rupees(sum(counted, (h) => h.amount))}</td></tr></tfoot></table></div></div>`;
   };
   const bySlipDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
@@ -1150,7 +1156,7 @@ function driverLine(t) {
 function briefCtx() {
   const x = derived();
   const lastFill = [...state.data.hsd].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow, tripDiesel: x.tripDiesel, missingFills: x.missingFills, dieselPrice: lastFill ? lastFill.rsp : 0 };
+  return { status: x.status, live: x.liveTrips, loads: x.loads, account: x.account, recon: x.recon, drivers: x.drivers, issues: x.issues, driverNow, tripDiesel: x.tripDiesel, missingFills: x.missingFills, dieselPrice: lastFill ? lastFill.rsp : 0, irregular: x.irregular };
 }
 const DAY_LINK = (e) => (e.t ? `#/trip/${e.t.row}` : e.kind === 'advance' ? `#/drivers/${encodeURIComponent(e.veh)}` : e.kind === 'ssfc' ? '#/ssfc' : `#/vehicle/${encodeURIComponent(e.veh)}`);
 function dayState() {
@@ -1171,6 +1177,23 @@ const DAY_RANGES = ['recent', 'today', 'yesterday', 'last7', 'month', 'lastMonth
 const KIND = Object.fromEntries(DAY_KINDS.map((k) => [k.key, k]));
 const L0 = (n) => indian(n, n % 1 ? 2 : 0);
 
+// a word for what looks wrong (irregular.js), on the entry's marker; the full reason is in the owner's insight
+function flagWord(x, e) {
+  if (x.kind === 'overdraw') return e && e.kind === 'diesel' ? 'other trip?' : 'too much diesel';
+  return { 'dup-fill': 'entered twice?', 'wrong-trip': 'wrong trip?', 'fill-math': 'amount?', 'slow-unload': 'days?', dates: 'date wrong?', weight: 'weight?', rate: 'rate?', 'dup-urea': 'twice?', 'dup-advance': 'twice?' }[x.kind] || 'check';
+}
+// a fill's place in its trip's allotment: what the trip had before it, this fill, any over the allotment
+function fillBarHtml(p, qty) {
+  if (!p || !p.allotted) return '';
+  const A = p.allotted;
+  const max = Math.max(A, p.after);
+  const pc = (n) => `${((n / max) * 100).toFixed(1)}%`;
+  const over = p.after - A;
+  return `<span class="fbar" title="${esc(`${p.trip.trip}: ${L1(p.before)} before this fill, ${L1(p.after)} after, of ${L1(A)} allotted${p.est ? ' (est.)' : ''}`)}">
+    <span class="fbar-track"><i class="fb-before" style="width:${pc(Math.min(p.before, A))}"></i><i class="fb-this" style="left:${pc(Math.min(p.before, A))};width:${pc(Math.max(0, Math.min(p.after, A) - Math.min(p.before, A)))}"></i>${over > 0.5 ? `<i class="fb-over" style="left:${pc(Math.max(A, p.before))};width:${pc(p.after - Math.max(A, p.before))}"></i>` : ''}<i class="fb-mark" style="left:${pc(A)}"></i></span>
+    <small class="${over > 0.5 ? 'bad-text' : ''}">${indian(p.after)}/${indian(A)}</small></span>`;
+}
+
 // one kind of entry on a day (or a range): its own table, with the columns that kind needs
 function kindTableHtml(g, { issues = new Set(), showDate = false } = {}) {
   const k = g.kind;
@@ -1178,7 +1201,16 @@ function kindTableHtml(g, { issues = new Set(), showDate = false } = {}) {
   const n = g.entries.length;
   const truck = (e) => `<a class="dk-veh" href="${DAY_LINK(e)}">${esc(shortVeh(e.veh))}</a>${showDate ? `<small class="block muted">${esc(dm(e.date))}</small>` : ''}`;
   const sub = (x) => (x ? `<small class="block muted">${x}</small>` : '');
-  const odd = (e) => (e.t && issues.has(e.t.row) ? ' <span class="pill warn-pill">date to check</span>' : '');
+  // what looks wrong about an entry (irregular.js): a marker, and the row tinted
+  const irr = derived().irr;
+  const TRIP_KINDS = { load: ['overdraw', 'weight', 'rate'], unload: ['dates', 'slow-unload', 'weight'] };
+  const flagsOf = (e) => (e.src ? irr.bySrc.get(e.src) || [] : e.t && TRIP_KINDS[e.kind] ? (irr.byRow.get(e.t.row) || []).filter((x) => TRIP_KINDS[e.kind].includes(x.kind)) : []);
+  const odd = (e) => {
+    const f = flagsOf(e);
+    if (f.length) return ` <span class="pill ${f.some((x) => x.level === 'bad') ? 'bad-pill' : 'warn-pill'}" title="${esc(f.map((x) => x.text).join('\n'))}">⚠ ${esc(flagWord(f[0], e))}</span>`;
+    return e.t && issues.has(e.t.row) && (e.kind === 'load' || e.kind === 'unload') ? ' <span class="pill warn-pill">date to check</span>' : '';
+  };
+  const rowCls = (e, extra = '') => { const c = [extra, flagsOf(e).length ? 'dk-flag' : ''].filter(Boolean).join(' '); return c ? ` class="${c}"` : ''; };
   let head = '';
   let rows = '';
   let foot = '';
@@ -1187,7 +1219,7 @@ function kindTableHtml(g, { issues = new Set(), showDate = false } = {}) {
     head = '<th>Truck</th><th>Trip</th><th class="r">Loaded</th><th class="r">Freight</th>';
     rows = g.entries.map((e) => {
       const b = e.t && derived().loads.get(e.t.row);
-      return `<tr><td>${truck(e)}</td><td>${esc(e.t.trip)}${odd(e)}${sub(esc(`${e.t.port || '?'} → ${e.t.dest || '?'}${e.driver ? ` · ${e.driver}` : ''}`))}</td>
+      return `<tr${rowCls(e)}><td>${truck(e)}</td><td>${esc(e.t.trip)}${odd(e)}${sub(esc(`${e.t.port || '?'} → ${e.t.dest || '?'}${e.driver ? ` · ${e.driver}` : ''}`))}</td>
         <td class="r"><b>${tonnes(e.tonnes)}</b>${sub(e.t.gross ? `gross ${tonnes(e.t.gross)}` : '')}</td>
         <td class="r"><b>${rupees(e.amount)}</b>${b ? `<small class="block ${LOAD_GRADES[b.grade].cls}">${b.grade === 'top' ? '★ full load' : `${b.gapNear.toFixed(2)} T under best`}</small>` : sub(e.t.rate ? `₹${indian(e.t.rate)}/T` : '')}</td></tr>`;
     }).join('');
@@ -1195,27 +1227,27 @@ function kindTableHtml(g, { issues = new Set(), showDate = false } = {}) {
     if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${tonnes(S.tonnes, 1)}</td><td class="r">${rupees(S.freight)}</td>`;
   } else if (k.key === 'unload') {
     head = '<th>Truck</th><th>Trip</th><th class="r">Delivered</th><th class="r">Short</th>';
-    rows = g.entries.map((e) => `<tr><td>${truck(e)}</td><td>${esc(e.t.trip)}${odd(e)}${sub(esc(`at ${e.t.dest || '?'}${e.days != null ? ` · ${e.days} d` : ''}`))}</td>
+    rows = g.entries.map((e) => `<tr${rowCls(e)}><td>${truck(e)}</td><td>${esc(e.t.trip)}${odd(e)}${sub(esc(`at ${e.t.dest || '?'}${e.days != null ? ` · ${e.days} d` : ''}`))}</td>
       <td class="r"><b>${e.tonnes ? tonnes(e.tonnes) : '—'}</b></td><td class="r">${e.short < -0.005 ? `<b class="bad-text">${tonnes(-e.short)}</b>` : '<span class="good-text">none</span>'}</td></tr>`).join('');
     total = `${plural(n, 'truck')} · ${tonnes(S.delivered, 1)}${S.short < -0.005 ? ` · ${tonnes(-S.short)} short` : ''}`;
     if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${tonnes(S.delivered, 1)}</td><td class="r">${S.short < -0.005 ? tonnes(-S.short) : '—'}</td>`;
   } else if (k.key === 'diesel') {
     head = '<th>Truck</th><th>Slip</th><th class="r">Litres</th><th class="r">Amount</th>';
     const pumpIn = (e) => e.bill && e.pump && e.bill.toLowerCase().includes(e.pump.toLowerCase());
-    rows = g.entries.map((e) => `<tr${e.incentive ? ' class="dk-muted"' : ''}><td>${truck(e)}</td>
-      <td>${e.incentive ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(e.bill || e.pump || 'Pump')}</b>`}${sub(`${esc([e.bill && !pumpIn(e) && !e.incentive ? e.pump : '', e.place, e.rsp ? `₹${e.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}${e.trip ? `<span class="hide-sm"> · ${esc(e.trip)}</span>` : ''}`)}</td>
-      <td class="r"><b>${L0(e.litres)}</b></td><td class="r">${rupees(e.amount)}</td></tr>`).join('');
+    rows = g.entries.map((e) => `<tr${rowCls(e, e.incentive ? 'dk-muted' : '')}><td>${truck(e)}</td>
+      <td>${e.incentive ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(e.bill || e.pump || 'Pump')}</b>`}${odd(e)}${sub(`${esc([e.bill && !pumpIn(e) && !e.incentive ? e.pump : '', e.place, e.rsp ? `₹${e.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}${e.trip ? `<span class="hide-sm"> · ${esc(e.trip)}</span>` : ''}`)}</td>
+      <td class="r"><b>${L0(e.litres)}</b>${e.incentive ? '' : fillBarHtml(derived().fills.get(e.src), e.litres)}</td><td class="r">${rupees(e.amount)}</td></tr>`).join('');
     total = `${plural(S.fills, 'fill')} · ${litres(S.litres)} · ${money(S.diesel)}`;
     if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${L0(S.litres)}</td><td class="r">${rupees(S.diesel)}</td>`;
   } else if (k.key === 'urea') {
     head = '<th>Truck</th><th>Bought from</th><th class="r">Litres</th><th class="r">Amount</th>';
-    rows = g.entries.map((e) => `<tr><td>${truck(e)}</td><td>${esc(e.from || '—')}${sub(`${esc(e.place)}${e.trip ? `<span class="hide-sm">${e.place ? ' · ' : ''}${esc(e.trip)}</span>` : ''}`)}</td>
+    rows = g.entries.map((e) => `<tr${rowCls(e)}><td>${truck(e)}</td><td>${esc(e.from || '—')}${odd(e)}${sub(`${esc(e.place)}${e.trip ? `<span class="hide-sm">${e.place ? ' · ' : ''}${esc(e.trip)}</span>` : ''}`)}</td>
       <td class="r"><b>${L0(e.litres)}</b></td><td class="r">${rupees(e.amount)}</td></tr>`).join('');
     total = `${plural(n, 'truck')} · ${indian(S.ureaL, S.ureaL % 1 ? 1 : 0)} L · ${money(S.urea)}`;
     if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${L0(S.ureaL)}</td><td class="r">${rupees(S.urea)}</td>`;
   } else if (k.key === 'advance') {
     head = '<th>Truck</th><th>Paid to</th><th class="r">Amount</th>';
-    rows = g.entries.map((e) => `<tr><td>${truck(e)}</td><td>${esc(e.name || 'Driver')}${sub(esc(e.note))}</td><td class="r"><b>${rupees(e.amount)}</b></td></tr>`).join('');
+    rows = g.entries.map((e) => `<tr${rowCls(e)}><td>${truck(e)}</td><td>${esc(e.name || 'Driver')}${odd(e)}${sub(esc(e.note))}</td><td class="r"><b>${rupees(e.amount)}</b></td></tr>`).join('');
     total = `${plural(n, 'payment')} · ${money(S.advances)}`;
     if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${rupees(S.advances)}</td>`;
   } else if (k.key === 'ssfc') {
@@ -1269,6 +1301,7 @@ async function viewDaybook() {
     </div>
     ${ui.r === 'custom' ? `<form class="custom-range" id="day-range"><label>From <input type="date" name="from" value="${ui.from}"></label><label>To <input type="date" name="to" value="${ui.to}"></label><button class="btn small" type="submit">Show</button></form>` : ''}
     <div class="day-nav"><button class="btn ghost small" data-shift="-1" type="button" aria-label="Earlier">‹</button><b>${esc(dayRangeText(ui.from, ui.to))}</b><button class="btn ghost small" data-shift="1" type="button" aria-label="Later"${ui.to >= today() ? ' disabled' : ''}>›</button></div>
+    ${derived().irregular.length ? `<button class="todo ${derived().irregular.some((x) => x.level === 'bad') ? 'bad' : 'warn'} day-irr" type="button" id="day-irr">⚠ ${plural(derived().irregular.length, 'entry', 'entries')} in the last 60 days look wrong — see them in Today's brief</button>` : ''}
     <label class="inline-label day-truck">Truck <select id="day-veh"><option value="">All trucks</option>${vehiclesOf(state.data).map((v) => `<option value="${esc(v)}"${ui.veh === v ? ' selected' : ''}>${esc(shortVeh(v))}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select></label>
     ${book.days.length > 1 ? `<h3 class="sub-h">Total for these days</h3><div class="dk-tiles">${book.groups.map(kindTileHtml).join('')}</div>` : ''}
   </section>
@@ -1291,6 +1324,7 @@ async function viewDaybook() {
   </details>`);
   const m = main();
   m.querySelector('#brief').addEventListener('toggle', (e) => { ui.brief = e.target.open; });
+  m.querySelector('#day-irr')?.addEventListener('click', () => { const b = m.querySelector('#brief'); b.open = true; ui.brief = true; b.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   m.querySelectorAll('[data-dr]').forEach((b) => b.addEventListener('click', () => { ui.r = b.dataset.dr; ui.days = 31; rerender(); }));
   m.querySelector('#day-range')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1321,7 +1355,7 @@ async function viewDaybook() {
   m.querySelector('#share-owner').addEventListener('click', () => sharePictures("Owner's insight", [{ label: 'Insight', make: async () => cardFiles(ownerBriefSvg(ownerBrief(state.data, briefCtx(), today()), await shareKit()), `Daily insight ${fmtDate(today())}`) }]));
   m.querySelector('#share-day')?.addEventListener('click', () => {
     const label = dayRangeText(ui.from, ui.to);
-    sharePictures('Day book', [{ label: 'Day book', make: async () => pageFiles(daybookPagesSvg(book, { ...(await shareKit()), label, what: ui.veh ? shortVeh(ui.veh) : '', driverOf: (v) => driverNow(v), loads: derived().loads }), `Day book ${ui.from === ui.to ? fmtDate(ui.from) : `${fmtDate(ui.from)} to ${fmtDate(ui.to)}`}${ui.veh ? ` ${ui.veh}` : ''}`) }]);
+    sharePictures('Day book', [{ label: 'Day book', make: async () => pageFiles(daybookPagesSvg(book, { ...(await shareKit()), label, what: ui.veh ? shortVeh(ui.veh) : '', driverOf: (v) => driverNow(v), loads: derived().loads, fills: derived().fills, flags: derived().irr.bySrc }), `Day book ${ui.from === ui.to ? fmtDate(ui.from) : `${fmtDate(ui.from)} to ${fmtDate(ui.to)}`}${ui.veh ? ` ${ui.veh}` : ''}`) }]);
   });
 }
 

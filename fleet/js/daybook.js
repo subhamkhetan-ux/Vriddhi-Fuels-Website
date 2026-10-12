@@ -20,7 +20,7 @@ export const KINDS = [
 ];
 const ORDER = Object.fromEntries(KINDS.map((k, i) => [k.key, i]));
 
-// every dated entry: { date, kind, veh, t (the trip, when there's one), title, detail, amount, litres, tonnes }
+// every dated entry: { date, kind, veh, t (the trip, when there's one), src (its row: HSD Data / Urea DEF / Driver Payment), title, detail, amount, litres, tonnes }
 export function entries(data, { driverOf = null, payments = [] } = {}) {
   const out = [];
   const tripOf = new Map(data.trips.map((t) => [`${t.veh}|${t.trip}`, t]));
@@ -47,26 +47,26 @@ export function entries(data, { driverOf = null, payments = [] } = {}) {
     if (/^extra filling$/i.test(String(h.source || '').trim())) {     // Own Diesel Extra: the driver's incentive, settled
       out.push({
         date: h.date, kind: 'diesel', veh: h.veh, t: tripOf.get(`${h.veh}|${h.trip}`) || null, litres: h.qty || 0, amount: h.amount || 0, source: 'Incentive',
-        incentive: true, pump: h.source || '', bill: h.bill || '', place: h.location || '', rsp: h.rsp || null, trip: h.trip || '',
+        src: h, incentive: true, pump: h.source || '', bill: h.bill || '', place: h.location || '', rsp: h.rsp || null, trip: h.trip || '',
         title: `Incentive diesel ${h.qty ? `${Math.round(h.qty * 100) / 100} L` : ''} · Extra Filling`, detail: [h.location, h.trip, 'driver incentive, settled — not counted against the allotment'].filter(Boolean).join(' · '),
       });
       continue;
     }
     out.push({
       date: h.date, kind: 'diesel', veh: h.veh, t: tripOf.get(`${h.veh}|${h.trip}`) || null, litres: h.qty || 0, amount: h.amount || 0, source: sourceOf(h.source),
-      incentive: false, pump: h.source || '', bill: h.bill || '', place: h.location || '', rsp: h.rsp || null, trip: h.trip || '',
+      src: h, incentive: false, pump: h.source || '', bill: h.bill || '', place: h.location || '', rsp: h.rsp || null, trip: h.trip || '',
       title: `Diesel ${h.qty ? `${Math.round(h.qty * 100) / 100} L` : ''} · ${h.source || 'pump'}`, detail: [h.location, h.trip, h.bill ? `bill ${h.bill}` : '', h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '),
     });
   }
   for (const u of data.urea || []) {
     out.push({
       date: u.date, kind: 'urea', veh: u.veh, t: tripOf.get(`${u.veh}|${u.trip}`) || null, litres: u.qty || 0, amount: u.amount || 0,
-      from: u.from || '', place: u.location || '', trip: u.trip || '',
+      src: u, from: u.from || '', place: u.location || '', trip: u.trip || '',
       title: `Urea ${u.qty ? `${u.qty} L` : ''}${u.from ? ` · ${u.from}` : ''}`, detail: [u.location, u.trip].filter(Boolean).join(' · '),
     });
   }
   for (const p of data.driverPay || []) {
-    out.push({ date: p.date, kind: 'advance', veh: p.veh, t: null, amount: p.amount, name: p.name || '', note: p.note || '', title: `Advance to ${p.name || 'driver'}`, detail: p.note || '' });
+    out.push({ date: p.date, kind: 'advance', veh: p.veh, t: null, src: p, amount: p.amount, name: p.name || '', note: p.note || '', title: `Advance to ${p.name || 'driver'}`, detail: p.note || '' });
   }
   for (const p of payments) {
     if (!p.date) continue;

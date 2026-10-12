@@ -195,6 +195,7 @@ label.radio input[name=po] { display: inline-block; width: auto; flex: 1 1 140px
 .todo { position: relative; overflow: hidden; display: block; color: var(--ink); background: var(--glass-2); border: 1px solid var(--glass-line); border-radius: 12px; padding: 12px 14px 12px 18px; }
 .todo::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--info); }
 .todo.warn::before { background: linear-gradient(var(--warn), #e08a20); }
+.todo.bad::before { background: var(--bad); }
 .todo:hover { text-decoration: none; border-color: var(--accent); }
 .po-card { position: relative; overflow: hidden; display: block; color: var(--ink); background: var(--glass-2); border: 1px solid var(--glass-line); border-radius: 16px; padding: 14px 14px 14px 18px; transition: border-color .15s, transform .15s; }
 .po-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--grad-cta); }
@@ -750,6 +751,15 @@ table.dk-table td.r, table.dk-table th.r, table.dk-table td:first-child { white-
 table.dk-table tbody tr + tr td { border-top: 1px solid var(--glass-line-soft); }
 table.dk-table tfoot td { font-weight: 800; border-top: 1.5px solid var(--glass-line); background: var(--glass); }
 table.dk-table tr.dk-muted td { opacity: .6; }
+table.dk-table tr.dk-flag td { background: color-mix(in srgb, var(--bad) 9%, transparent); }
+.fbar { display: grid; gap: 1px; justify-items: end; margin-top: 3px; }
+.fbar-track { position: relative; display: block; width: 76px; height: 6px; border-radius: 3px; background: var(--glass-line); overflow: hidden; }
+.fbar-track i { position: absolute; top: 0; bottom: 0; }
+.fb-before { left: 0; background: color-mix(in srgb, var(--s-4) 45%, transparent); }
+.fb-this { background: var(--s-4); }
+.fb-over { background: var(--bad); }
+.fb-mark { width: 1.5px; margin-left: -1px; background: var(--ink); opacity: .7; }
+.fbar small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .dk-veh { font-family: var(--display); font-weight: 800; font-size: 15px; color: var(--ink); }
 .day-trucks > summary, .brief-card > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; list-style: none; }
 .day-trucks > summary::-webkit-details-marker, .brief-card > summary::-webkit-details-marker { display: none; }
@@ -757,6 +767,7 @@ table.dk-table tr.dk-muted td { opacity: .6; }
 .day-trucks[open] > summary h3::after, .brief-card[open] > summary h3::after { content: " ▾"; }
 .day-trucks > summary h3, .brief-card > summary h3 { margin: 0; color: var(--ink); }
 .brief-share { margin-top: 10px; }
+.day-irr { width: 100%; margin-top: 12px; text-align: left; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .vsh-slips { margin-top: 12px; }
 .vsh-prev { border: 1px solid var(--glass-line-soft); border-radius: 14px; overflow: hidden; }
 .vp-row { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; padding: 9px 12px; font-variant-numeric: tabular-nums; }
@@ -774,7 +785,8 @@ table.dk-table tr.dk-muted td { opacity: .6; }
 .day-veh-table tbody tr { cursor: pointer; } .day-veh-table tbody tr:hover td, .day-veh-table tbody tr:focus td { background: var(--panel2); }
 .center-p { text-align: center; }
 @media (max-width: 640px) {
-  table.dk-table th, table.dk-table td { padding-left: 9px; padding-right: 9px; }
+  table.dk-table th, table.dk-table td { padding-left: 8px; padding-right: 8px; }
+  .fbar-track { width: 58px; }
   .dk-tiles { grid-template-columns: 1fr 1fr; }
 }
 label.override { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--bad); }

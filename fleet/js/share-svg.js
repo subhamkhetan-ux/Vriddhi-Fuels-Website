@@ -169,6 +169,14 @@ const together = (list) => block(list.reduce((a, b) => a + b.h, 0), (x, y, w) =>
   return list.map((b) => { const out = b.draw(x, yy, w); yy += b.h; return out; }).join('');
 });
 
+// a fill's place in its trip's allotment (tripdiesel.js fillProgress()): before it, this fill, over the allotment
+function fillBar(x, y, w, p) {
+  const max = Math.max(p.allotted, p.after);
+  const at = (n) => x + (Math.max(0, n) / max) * w;
+  const A = p.allotted;
+  return `${R(x, y, w, 6, { rx: 3, opacity: 0.12 })}${R(x, y, at(Math.min(p.before, A)) - x, 6, { rx: 3, fill: C.s4, opacity: 0.45 })}${R(at(Math.min(p.before, A)), y, at(Math.min(p.after, A)) - at(Math.min(p.before, A)), 6, { fill: C.s4 })}${p.after > A + 0.5 ? R(at(Math.max(A, p.before)), y, at(p.after) - at(Math.max(A, p.before)), 6, { fill: C.bad }) : ''}${R(at(A) - 1, y - 2, 2, 10, { fill: C.ink, opacity: 0.7 })}`;
+}
+
 // a table: cols [{ label, at, align: 'end' | 'start', max }]: at < 0 = from the right edge
 function colX(c, x, w) { return c.at < 0 ? x + w + c.at : x + c.at; }
 function table(cols, rows, { total = null, zebra = true } = {}) {
@@ -178,13 +186,13 @@ function table(cols, rows, { total = null, zebra = true } = {}) {
     const o = typeof v === 'object' ? v : { text: v };
     const ax = colX(c, x, w);
     const anchor = c.align === 'end' ? 'end' : 'start';
-    return `${o.dot ? `<circle cx="${ax - 14}" cy="${y + 24}" r="6" fill="${o.dot}"/>` : ''}${T(ax, y + (sub ? 30 : 33), o.text, { size: o.size || 18, weight: o.weight || 600, fill: o.color || C.ink, anchor, max: c.max })}
+    return `${o.dot ? `<circle cx="${ax - 14}" cy="${y + 24}" r="6" fill="${o.dot}"/>` : ''}${T(ax, y + (sub ? 30 : 33), o.text, { size: o.size || 18, weight: o.weight || 600, fill: o.color || C.ink, anchor, max: c.max })}${o.bar ? fillBar(anchor === 'end' ? ax - 120 : ax, y + 37, 120, o.bar) : ''}
 ${o.sub ? T(ax, y + 54, o.sub, { size: 14, fill: o.subColor || C.muted, anchor, max: c.max }) : ''}`;
   };
   const out = [head];
   rows.forEach((r, i) => {
     if (r.band) { out.push(band(r.band, r.right || '')); return; }
-    const sub = r.cells.some((v) => v && typeof v === 'object' && v.sub);
+    const sub = r.cells.some((v) => v && typeof v === 'object' && (v.sub || v.bar));
     const h = sub ? 66 : 50;
     out.push(block(h, (x, y, w) => `${zebra && i % 2 ? R(x, y + 2, w, h - 4, { rx: 12, opacity: 0.03 }) : ''}${r.tint ? R(x, y + 2, w, h - 4, { rx: 12, fill: r.tint, opacity: 0.08 }) : ''}${cols.map((c, k) => cell(c, r.cells[k], x, y, w, sub)).join('')}`, { under: head }));
   });
@@ -684,7 +692,7 @@ const longDay = (iso) => {
   const d = new Date(`${iso}T00:00:00Z`);
   return `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()]}, ${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 };
-export function daybookPagesSvg(book, { label = '', what = '', asOn = '', images = {}, fontCss = '', driverOf = null, loads = null } = {}) {
+export function daybookPagesSvg(book, { label = '', what = '', asOn = '', images = {}, fontCss = '', driverOf = null, loads = null, fills = null, flags = null } = {}) {
   const dim = (e, o) => (e.incentive ? { ...o, color: C.muted } : o);
   // one kind on a day: a coloured heading and its own table
   const kindHead = (g, total) => block(64, (x, y, w) => `${R(x, y + 10, w, 48, { rx: 14, fill: DAY_COLOR[g.kind.key], opacity: 0.16 })}${R(x, y + 10, 6, 48, { rx: 3, fill: DAY_COLOR[g.kind.key] })}
@@ -710,8 +718,14 @@ ${T(x + 24, y + 42, g.kind.title, { size: 20, weight: 800 })}${T(x + w - 18, y +
       if (n > 1) total = ['Total', '', tonnes(S.delivered, 1), S.short < -0.005 ? tonnes(-S.short) : '—'];
     } else if (g.kind.key === 'diesel') {
       head = `${plural(S.fills, 'fill')}  ·  ${litres(S.litres)}  ·  ${rupees(S.diesel)}`;
-      cols = [{ label: 'Truck', at: 18 }, { label: 'Slip', at: 130, max: 270 }, { label: 'Place', at: 420, max: 220 }, { label: 'Litres', at: -420, align: 'end' }, { label: '₹ / L', at: -230, align: 'end' }, { label: 'Amount', at: -18, align: 'end' }];
-      rows = E.map((e) => [dim(e, veh(e)), dim(e, e.incentive ? { text: 'Incentive', weight: 700, sub: 'not counted' } : { text: e.bill || e.pump || 'Pump', weight: 700, sub: e.bill && e.pump && !e.bill.toLowerCase().includes(e.pump.toLowerCase()) ? e.pump : '' }), dim(e, { text: e.place || '—', weight: 400 }), dim(e, { text: ind(e.litres, e.litres % 1 ? 2 : 0), weight: 800 }), dim(e, { text: e.rsp ? e.rsp.toFixed(2) : '—', weight: 400 }), dim(e, { text: rupees(e.amount), weight: 800 })]);
+      cols = [{ label: 'Truck', at: 18 }, { label: 'Slip', at: 130, max: 270 }, { label: 'Place', at: 420, max: 190 }, { label: 'Litres', at: -420, align: 'end' }, { label: '₹ / L', at: -230, align: 'end' }, { label: 'Amount', at: -18, align: 'end' }];
+      rows = E.map((e) => {
+        const p = !e.incentive && fills && e.src ? fills.get(e.src) : null;
+        const f = flags && e.src ? flags.get(e.src) || [] : [];
+        return [dim(e, veh(e)), dim(e, e.incentive ? { text: 'Incentive', weight: 700, sub: 'not counted' } : { text: e.bill || e.pump || 'Pump', weight: 700, sub: f.length ? '⚠ check' : e.bill && e.pump && !e.bill.toLowerCase().includes(e.pump.toLowerCase()) ? e.pump : '', subColor: f.length ? C.bad : C.muted }),
+          dim(e, { text: e.place || '—', weight: 400 }), dim(e, { text: ind(e.litres, e.litres % 1 ? 2 : 0), weight: 800, bar: p && p.allotted ? p : null, sub: p && p.allotted ? `${ind(p.after)}/${ind(p.allotted)} trip` : '', subColor: p && p.after > p.allotted + 0.5 ? C.bad : C.muted }),
+          dim(e, { text: e.rsp ? e.rsp.toFixed(2) : '—', weight: 400 }), dim(e, { text: rupees(e.amount), weight: 800 })];
+      });
       if (n > 1) total = ['Total', '', '', ind(S.litres, S.litres % 1 ? 2 : 0), '', rupees(S.diesel)];
     } else if (g.kind.key === 'urea') {
       head = `${plural(n, 'truck')}  ·  ${ind(S.ureaL, S.ureaL % 1 ? 1 : 0)} L  ·  ${rupees(S.urea)}`;
@@ -828,7 +842,8 @@ export function ownerBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {}) 
   const blocks = [];
   for (const sec of b.sections) {
     blocks.push(section(sec.title));
-    for (const it of sec.items) {
+    const items = sec.cap && sec.items.length > sec.cap ? [...sec.items.slice(0, sec.cap), { tone: 'info', text: sec.capNote }] : sec.items;
+    for (const it of items) {
       const lines = [{ text: it.text, size: 19, weight: it.tone === 'info' ? 400 : 600, color: it.tone === 'info' ? C.ink : TONE[it.tone] }];
       const h = linesHeight(W - 40, lines);
       blocks.push(block(h + 18, (x, y, w) => `<circle cx="${x + 10}" cy="${y + 21}" r="6" fill="${it.tone === 'info' ? C.s1 : TONE[it.tone]}"/>${textLines(x + 32, y - 4, w - 40, lines).svg}`));
