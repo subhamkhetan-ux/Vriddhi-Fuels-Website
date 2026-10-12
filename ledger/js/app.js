@@ -24,7 +24,7 @@ import {
   shareBatches,
 } from './statements.js';
 import {
-  bulkStatement, fifoPending, poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
+  bulkStatement, fifoPending, groupPending, poRowName, poSummary, PRODUCT_LABEL, RATE_HEAD_ROWS, rateChart, rateChartSheet, retailStatement, unitKey, unitLabel,
   unitStatement,
 } from './ledger-view.js';
 import {
@@ -943,8 +943,9 @@ function bulkAccount(data, res, name, openingByUnit, asOn) {
   const st = bulkStatement(res, data, { name });
   const unitWise = res.kind === 'po_units';
   const obu = unitWise ? (openingByUnit || {}) : {};
-  const fifo = fifoPending(st.entries, { opening: st.opening, openingByKey: obu, keyOf: unitWise ? unitKey : () => '', from: st.from, asOn });
-  if (res.kind === 'group') fifo.pending.forEach((d) => { d.showCompany = true; });
+  // a group: each company's payments clear its own bills
+  const fifo = res.kind === 'group' ? groupPending(st, { asOn })
+    : fifoPending(st.entries, { opening: st.opening, openingByKey: obu, keyOf: unitWise ? unitKey : () => '', from: st.from, asOn });
   let units = null;
   if (unitWise) {
     const keys = (data.group.units || []).map((u) => String(u).trim().toUpperCase()).filter(Boolean);
@@ -1042,7 +1043,7 @@ function pendingHtml(acct, { group = false } = {}) {
     </div>
     <p class="small muted">What's still owed against each PO, from the pending bills below.</p>` : ''}
     <div class="row-between${pos ? ' pend-gap' : ''}"><h3>Pending bills <span class="muted">· payments matched to bills</span></h3><b class="total">${esc(rupees(total))}</b></div>
-    <p class="small muted">Each payment (with its TDS and shortage) clears the bills it adds up to — one bill, or whole runs of one or two products' bills (all the diesel bills, say), or all but one held-back bill; a remark naming a product tries that product first. Otherwise the opening, then the main product's bills (usually diesel) oldest first; small bills of other products wait${acct.units ? '. A payment with a Unit on the sheet pays only that unit\'s bills; one without a unit, either unit\'s' : ''}. What's left is the balance.</p>
+    <p class="small muted">Each payment (with its TDS and shortage) clears the bills it adds up to — one bill, or whole runs of one or two products' bills (all the diesel bills, say), or all but one held-back bill; a remark naming a product tries that product first. Otherwise the opening, then the main product's bills (usually diesel) oldest first; small bills of other products wait${acct.units ? '. A payment with a Unit on the sheet pays only that unit\'s bills; one without a unit, either unit\'s' : ''}${group ? '. On a group, each company\'s payment pays only that company\'s bills (then the opening); a payment with no company, any company\'s' : ''}. What's left is the balance.</p>
     ${parts.filter((p) => p.pending.length || p.advance > 0.5).map((p) => `
       ${p.label ? `<div class="pend-unit"><b>${esc(p.label)}</b><span>${plural(p.pending.length, 'bill')} · ${esc(rupees(p.pending.reduce((a, d) => a + d.pending, 0)))}</span></div>` : ''}
       <div class="pend-list">
