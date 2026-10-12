@@ -171,7 +171,7 @@ function renderPills() {
   if (!el) return;
   const mode = brainMode();
   const pills = [];
-  pills.push(DEMO ? '<span class="pill wait">Demo</span>' : state.member ? `<span class="pill ok" title="${esc(synced.error ? `Sync: ${synced.error}` : 'Settings and chat sync to your other devices')}">${esc(state.me.user?.email || 'Signed in')}${synced.error ? ' ⚠' : ''}</span>` : '<span class="pill off">Not signed in</span>');
+  pills.push(DEMO ? '<span class="pill wait">Demo</span>' : state.member ? `<span class="pill ok" title="${esc(synced.error ? `Sync: ${synced.error}` : 'Settings and chat sync to your other devices')}">${esc(state.me?.user?.email || 'Signed in')}${synced.error ? ' ⚠' : ''}</span>` : '<span class="pill off">Not signed in</span>');
   pills.push(`<span class="pill ${mode ? 'ok' : 'wait'}" title="${esc(state.brainNote)}">${mode ? 'Claude AI' : 'Built-in brain'}</span>`);
   if (macOn() && state.mac) pills.push(`<span class="pill ${state.mac.online ? 'ok' : 'off'}">Mac ${state.mac.online ? 'online' : 'offline'}</span>`);
   el.innerHTML = pills.join('');
@@ -701,6 +701,7 @@ async function refreshStatus() {
 // right after signing in: the first login claims Jarvis; then bring this
 // login's settings and conversation to this device
 async function afterJarvisLogin() {
+  state.me = await session('jarvis').catch(() => null);
   let w = await whoami();
   if (!w.has_owner) w = await claimOwner();
   state.member = Boolean(w.member);
