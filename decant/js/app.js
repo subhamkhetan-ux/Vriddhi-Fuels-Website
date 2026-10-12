@@ -4,7 +4,7 @@
 
 import {
   PRODUCTS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, fmtMinSec, invoiceStatus, istDate, layoutsText,
-  litresAtDip, newTankId, normTT, ownTT, parseLayouts, planIndents, productKey, roomOf, round2, stockProof, tankProblems, tankStage, transportOptions, usedChambers,
+  litresAtDip, newTankId, normTT, ownTT, parseLayouts, planIndents, productKey, readingFrom, roomOf, round2, stockProof, tankProblems, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
@@ -68,26 +68,7 @@ export function isStale(reading) {
 
 // A stored reading from what the screenshot showed (or what was typed).
 export function makeReading(tankId, r, source, extra = {}) {
-  const t = tankById(tankId);
-  const capacity = r.capacity || t?.capacity || 20000;
-  const volume = round2(r.volume);
-  const dip = Number.isFinite(r.height) ? round2(r.height / 10) : (Number.isFinite(r.dip) ? r.dip : dipAtLitres(state.chart, volume));
-  return {
-    volume,
-    ullage: Number.isFinite(r.ullage) ? round2(r.ullage) : round2(capacity - volume),
-    capacity,
-    height: Number.isFinite(r.height) ? r.height : null,
-    dip: Number.isFinite(dip) ? round2(dip) : null,
-    water: Number.isFinite(r.water) ? r.water : null,
-    density: r.density ?? null,
-    densityTc: r.densityTc ?? null,
-    temp: r.temp ?? null,
-    status: r.status || null,
-    readingAt: r.readingAt || new Date().toISOString(),
-    timeRead: Boolean(r.readingAt),
-    source,
-    ...extra,
-  };
+  return readingFrom(tankById(tankId), r, source, state.chart, extra);
 }
 
 // ---------------------------------------------------------------------------

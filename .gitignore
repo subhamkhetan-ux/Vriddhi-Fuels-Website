@@ -55,3 +55,9 @@ xtrapower/monitor.pid
 # Account manager: the previous config kept on every save (holds passwords).
 xtrapower/config.json.bak
 xtrapower/debug/
+
+# Jarvis bridge (Mac) — its login, runtime files and script logs. Never committed.
+jarvis/bridge/config.json
+jarvis/bridge/bridge.pid
+jarvis/bridge/*.log
+jarvis/bridge/logs/

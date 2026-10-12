@@ -464,6 +464,32 @@ export function suggestPlan({ layout, tanks, readings, exclude = new Set(), requ
 
 // Litres a tank can still take: up to its fill limit (20,500 L for our 20 KL
 // tanks) — so more than the automation's ullage, which is measured to 20,000 L.
+// A stored tank reading from what an automation screenshot showed (or what
+// was typed): r = {volume, ullage?, capacity?, height? (mm), dip? (cm), water?,
+// density?, densityTc?, temp?, status?, readingAt?}. Used by the app and by
+// Jarvis (/jarvis/), so both save the same record.
+export function readingFrom(tank, r, source, chart, extra = {}) {
+  const capacity = r.capacity || tank?.capacity || 20000;
+  const volume = round2(r.volume);
+  const dip = Number.isFinite(r.height) ? round2(r.height / 10) : (Number.isFinite(r.dip) ? r.dip : dipAtLitres(chart, volume));
+  return {
+    volume,
+    ullage: Number.isFinite(r.ullage) ? round2(r.ullage) : round2(capacity - volume),
+    capacity,
+    height: Number.isFinite(r.height) ? r.height : null,
+    dip: Number.isFinite(dip) ? round2(dip) : null,
+    water: Number.isFinite(r.water) ? r.water : null,
+    density: r.density ?? null,
+    densityTc: r.densityTc ?? null,
+    temp: r.temp ?? null,
+    status: r.status || null,
+    readingAt: r.readingAt || new Date().toISOString(),
+    timeRead: Boolean(r.readingAt),
+    source,
+    ...extra,
+  };
+}
+
 export function roomOf(reading, tank) {
   if (!reading || !Number.isFinite(reading.volume)) return NaN;
   return round2((tank ? fillLimit(tank) : reading.capacity || 20000) - reading.volume);
