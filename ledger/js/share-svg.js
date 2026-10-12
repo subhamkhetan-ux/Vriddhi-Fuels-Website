@@ -10,7 +10,7 @@
 // Pure: returns SVG strings (images as data: URLs, fonts as @font-face CSS
 // passed in). render.js jpegFromSvg / pdfFromSvgs turn them into files.
 
-import { poRowName } from './ledger-view.js';
+import { poRowName, statementLines } from './ledger-view.js';
 
 export const SHARE_PAGE = { width: 1280, height: 1810 };          // px; A4's shape
 export const SHARE_PAGE_PT = { width: 595.28, height: 841.89 };
@@ -300,18 +300,16 @@ ${T(col.credit, y + 49, rupees(l.credit), { size: 18, weight: 700, anchor: 'end'
 ${T(col.bal, y + 49, drCr(l.balance), { size: 21, weight: 800, anchor: 'end', fill: l.balance < -0.5 ? C.good : C.amber })}`;
   }
   const e = l.e;
-  const pay = e.type === 'pay';
-  const deduct = [e.tds ? `TDS ${rupees(e.tds)}` : '', e.shortage ? `short ${rupees(e.shortage)}` : ''].filter(Boolean).join(' + ');
+  const pay = e.type === 'pay' && !e.deduction;
   return `${l.zebra ? R(x, y + 2, w, H.row - 4, { rx: 12, opacity: 0.028 }) : ''}
 ${T(col.date, y + 30, dMon(e.date), { size: 18, weight: 600 })}
-<circle cx="${col.part - 16}" cy="${y + 24}" r="6" fill="${C[e.product] || C.OTHER}"/>
+<circle cx="${col.part - 16}" cy="${y + 24}" r="6" fill="${e.deduction ? C.warn : C[e.product] || C.OTHER}"/>
 ${T(col.part, y + 30, e.title, { size: 19, weight: 600, max: col.partMax, fill: pay ? C.good : C.ink })}
 ${T(col.part, y + 54, e.detail, { size: 15, fill: C.muted, max: col.partMax })}
 ${T(col.qty, y + 30, qtyText(e.qty).replace(' L', ''), { size: 18, anchor: 'end' })}
 ${T(col.rate, y + 30, e.rate ? e.rate.toFixed(2) : '', { size: 18, anchor: 'end', fill: C.muted })}
 ${T(col.debit, y + 30, e.debit ? rupees(e.debit) : '', { size: 18, weight: 600, anchor: 'end' })}
 ${T(col.credit, y + 30, e.credit ? rupees(e.credit) : '', { size: 18, weight: 600, anchor: 'end', fill: e.credit < 0 ? C.bad : C.good })}
-${deduct ? T(col.credit, y + 54, `incl. ${deduct}`, { size: 13, fill: C.muted, anchor: 'end' }) : ''}
 ${bal(e.balance, 18)}`;
 }
 
@@ -327,7 +325,7 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
   let z = 0;
   for (const m of st.months) {
     lines.push({ t: 'month', m, h: H.month });
-    for (const e of m.entries) lines.push({ t: 'row', e, zebra: z++ % 2 === 1, h: H.row });
+    for (const e of statementLines(m.entries)) lines.push({ t: 'row', e, zebra: z++ % 2 === 1, h: H.row });
   }
   const t = st.totals;
   lines.push({ t: 'total', label: 'Closing balance', qty: t.qty, debit: t.billed, credit: t.received + t.tds + t.shortage, balance: st.closing, h: H.total });

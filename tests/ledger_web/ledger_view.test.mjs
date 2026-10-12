@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { bulkRows } from '../../ledger/js/account.js';
 import {
-  bulkStatement, companyStatement, companyStatements, companyWise, fifoPending, groupPending, matchBills, pendingFromBalance, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, unitKey, unitLabel, unitStatement,
+  bulkStatement, companyStatement, companyStatements, companyWise, fifoPending, groupPending, matchBills, pendingFromBalance, poRowName, poSummary, productHint, rateChart, rateChartSheet, RATE_HEAD_ROWS, retailStatement, statementLines, unitKey, unitLabel, unitStatement,
 } from '../../ledger/js/ledger-view.js';
 import { demoSeed } from '../../ledger/js/demo.js';
 import { memoryStore } from '../../ledger/js/store.js';
@@ -313,6 +313,34 @@ test('group: each company\'s opening (Customer GST) in its outstanding, statemen
     ['AdBlue', 'crew  one', 450], ['Refund', 'Crew One', 500],
   ]);
   assert.equal(g.total, st.closing);
+});
+
+test('statement lines: TDS and shortage as their own transactions, on the payment\'s date', () => {
+  const data = groupData();
+  const st = bulkStatement(bulkRows(data), data, { name: 'Crew Group' });
+  const lines = statementLines(st.entries);
+  assert.deepEqual(lines.map((l) => [l.date, l.title, l.debit, l.credit, l.balance]), [
+    ['2026-04-02', 'Diesel · Bill 10', 9000, 0, 14000],
+    ['2026-04-03', 'Diesel · Bill 11', 18000, 0, 32000],
+    ['2026-04-20', 'Payment received', 0, 10000, 22000],               // only what was paid
+    ['2026-04-20', 'TDS deducted', 0, 100, 21900],
+    ['2026-04-20', 'Shortage', 0, 50, 21850],                           // = the sheet's balance after the payment
+    ['2026-05-01', 'AdBlue', 450, 0, 22300],
+    ['2026-05-02', 'Refund', 0, -500, 22800],
+  ]);
+  assert.equal(lines[3].detail, 'On the payment of ₹10,000 · Crew Two · NEFT');
+  assert.ok(lines[3].deduction && lines[3].type === 'pay' && !lines[2].deduction);
+  // the entries themselves stay whole (payments are matched to bills with their TDS)
+  assert.equal(st.entries[2].credit, 10150);
+  // TDS typed on a bill's row; a row with only TDS
+  const bill = { date: '2026-06-01', type: 'bill', product: 'HSD', title: 'Diesel · Bill 7', bill: '7', detail: '', qty: 10, rate: 90, debit: 900, paid: 0, tds: 9, shortage: 0, credit: 9, balance: 891 };
+  const only = { date: '2026-06-02', type: 'pay', product: 'PAY', title: 'Payment received', bill: '', detail: '', qty: 0, rate: 0, debit: 0, paid: 0, tds: 20, shortage: 0, credit: 20, balance: 871 };
+  assert.deepEqual(statementLines([bill, only]).map((l) => [l.title, l.debit, l.credit, l.balance, l.detail]), [
+    ['Diesel · Bill 7', 900, 0, 900, ''], ['TDS deducted', 0, 9, 891, 'Bill 7'], ['TDS deducted', 0, 20, 871, ''],
+  ]);
+  // the pictures: a line of its own, not "incl. TDS" under the payment
+  const pages = ledgerPagesSvg(st, { asOn: '2026-10-08' }).join('');
+  assert.ok(pages.includes('TDS deducted') && pages.includes('Shortage') && !pages.includes('incl. TDS'));
 });
 
 test('pictures: the pending bills (FIFO) on the card and after the closing', () => {
