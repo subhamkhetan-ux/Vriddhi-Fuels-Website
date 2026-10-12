@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy to jarvis/bridge/config.json (git-ignored) and fill in email + password: a login on the ledger members list (best: its own, e.g. jarvis-mac@yourdomain). The Supabase URL and public key are read from ledger/config.js. 'scripts' are the ONLY extra commands Jarvis can run on this Mac — each 'run' is a list (program + arguments) run from the repo folder; 'background': true starts it and returns at once (for apps that keep running).",
+  "name": "mac",
+  "email": "",
+  "password": "",
+  "poll_seconds": 3,
+  "scripts": {
+    "payment_agent_status": { "label": "Payment agent status", "run": ["bash", "local_agent/agentctl.sh", "status"], "timeout": 60 },
+    "payment_agent_restart": { "label": "Restart the payment agent", "run": ["bash", "local_agent/agentctl.sh", "restart"], "timeout": 60 },
+    "bank_tally_app": { "label": "Bank to Tally app", "run": ["bash", "bank_tally/run_app.sh"], "background": true },
+    "fleet_tally_app": { "label": "Fleet card to Tally app", "run": ["bash", "fleet_tally/run_app.sh"], "background": true },
+    "xtrapower_manager": { "label": "XtraPower account manager", "run": ["bash", "xtrapower/manage-mac.sh"], "background": true }
+  }
+}
