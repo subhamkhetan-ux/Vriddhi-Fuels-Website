@@ -39,6 +39,11 @@ nothing.
 
 ## What it does
 
+- **Ledger / Decant glass theme** — warm orange accents, frosted panels and
+  product-coloured voucher cards. The header theme button cycles **Dark → Light
+  → Auto** and remembers the choice on that device. Desktop shows the products
+  side by side; phones keep a single-column layout. Printed bills stay on white
+  A4 pages.
 - **Voucher entry flow** (customer-first, minimal taps): initiate a voucher
   from the home screen → search & pick the **customer** → optional **vehicle
   number** → **product** (Diesel/Petrol) → **quantity** → **price** (preset
