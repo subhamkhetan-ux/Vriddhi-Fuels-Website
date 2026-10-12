@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dieselRecon } from '../../fleet/js/analyse.js';
-import { fleetDiesel, tripDiesel } from '../../fleet/js/tripdiesel.js';
+import { extraKind, fleetDiesel, tripDiesel } from '../../fleet/js/tripdiesel.js';
 import { withDefaults } from '../../fleet/js/rules.js';
 
 const trip = (row, o) => ({ row, veh: 'XX01', trip: `T${row}/DEMO`, port: 'Demo Port', dest: 'Demo Plant', month: '2026-10', ...o });
@@ -43,14 +43,18 @@ test('extra on the road shows at once, and what is owed eats what is left', () =
   const d3 = { ...data, trips: data.trips.map((t) => (t.row === 4 ? { ...t, ssfcLtr: 570 } : t)) };
   const y = tripDiesel(d3, dieselRecon(d3), withDefaults({})).get(4);
   assert.deepEqual([y.toTake, y.mayTake], [30, 0]);                    // 30 L left of the trip's own, but 50 L owed from before
-  // 20 L over is within the mid-way buffer (200 L): carried to the next trip, not over in earnest
+  // over the allotment: under the 120–140 L mid-way buffer is the driver's extra (deduct), in it the planned
+  // buffer, over it an entry to check
   const F = fleetDiesel(dieselRecon(d2), tripDiesel(d2, dieselRecon(d2)));
-  assert.deepEqual([F.overNow.length, F.bufferNow.length], [0, 1]);
-  assert.equal(z.buffer, 200);
-  assert.equal(z.beyond, 0);
-  const tight = tripDiesel(d2, recon, withDefaults({ recon: { buffer: 10 } })).get(4);
-  assert.equal(tight.beyond, 10);
+  assert.deepEqual([F.driverNow.length, F.bufferNow.length, F.overNow.length], [1, 0, 0]);
+  assert.deepEqual(z.buffer, { min: 120, max: 140 });
+  assert.equal(z.extraKind, 'driver');
+  assert.deepEqual([0, 20, 117.9, 118.8, 130, 141.5, 142.1, 365].map((x) => extraKind(x)), ['none', 'driver', 'driver', 'buffer', 'buffer', 'buffer', 'wrong', 'wrong']);   // 2 L rounding either side
+  const tight = tripDiesel(d2, recon, withDefaults({ recon: { bufferMin: 10, bufferMax: 15 } })).get(4);
+  assert.equal(tight.extraKind, 'wrong');
+  assert.equal(tight.beyond, 5);
   assert.equal(fleetDiesel(recon, new Map([[4, tight]])).overNow.length, 1);
+  assert.equal(tripDiesel(d2, recon, withDefaults({ recon: { bufferMin: 15, bufferMax: 25 } })).get(4).extraKind, 'buffer');
 });
 
 test('a trip with far less diesel tagged than allotted is flagged — normal savings aren\'t', async () => {

@@ -11,7 +11,7 @@ const fill = (veh, n, date, qty, o = {}) => ({ veh, trip: `T0${n}/DEMO`, date, q
 // a trip's diesel as tripdiesel.js has it
 const zOf = (t, allotted, fills) => ({ t, allotted, est: false, live: !t.unloadDate, fills, taken: fills.reduce((a, h) => a + h.qty, 0) });
 
-test('more diesel than the allotment and the 200 L mid-way buffer; the fill that belongs to the trip before', () => {
+test('more diesel than the allotment and the 120–140 L mid-way buffer: an entry to check; the fill that belongs to the trip before', () => {
   row = 3;
   const trips = [];
   const hsd = [];
@@ -27,7 +27,11 @@ test('more diesel than the allotment and the 200 L mid-way buffer; the fill that
   const t2 = trip('XX09', 2, '2026-09-19', { loadDate: '2026-09-22', unloadDate: '2026-09-28' });
   const f1 = [fill('XX09', 1, '2026-09-11', 350, { bill: 'S/91' }), fill('XX09', 1, '2026-09-16', 30, { bill: 'S/92' })];
   const f2 = [fill('XX09', 2, '2026-09-19', 250, { location: 'Plant town', bill: 'S/93' }), fill('XX09', 2, '2026-09-20', 350, { bill: 'S/94' }), fill('XX09', 2, '2026-09-25', 280, { bill: 'S/95' })];
-  // XX08: 130 L over at mid-way — within the buffer, planned: not flagged
+  // XX08: 130 L over at mid-way — the buffer, planned: not flagged; XX07: 60 L over — the driver's extra
+  // (the recon deducts it), not a wrong entry: not flagged either
+  const t4 = trip('XX07', 1, '2026-09-10', { loadDate: '2026-09-12', unloadDate: '2026-09-18' });
+  const f4 = [fill('XX07', 1, '2026-09-11', 410, { bill: 'S/71' }), fill('XX07', 1, '2026-09-16', 280, { bill: 'S/72' })];
+  trips.push(t4); hsd.push(...f4); td.set(t4.row, zOf(t4, 630, f4));
   const t3 = trip('XX08', 1, '2026-09-10', { loadDate: '2026-09-12', unloadDate: '2026-09-18' });
   const f3 = [fill('XX08', 1, '2026-09-11', 480, { bill: 'S/81' }), fill('XX08', 1, '2026-09-16', 280, { bill: 'S/82' })];
   trips.push(t3); hsd.push(...f3); td.set(t3.row, zOf(t3, 630, f3));
@@ -39,7 +43,7 @@ test('more diesel than the allotment and the 200 L mid-way buffer; the fill that
   assert.equal(o[0].row, t2.row);
   assert.equal(o[0].level, 'bad');
   assert.equal(o[0].src, f2[0]);                                         // the fill to move
-  assert.match(o[0].text, /880 L of diesel tagged against 630 L allotted \(\+250 L, 50 L past the 200 L mid-way buffer\) — trucks on this route usually take 630 L\. The 250 L fill on 19 Sep at Plant town \(S\/93\) probably belongs to T01\/DEMO, which is 250 L under/);
+  assert.match(o[0].text, /880 L of diesel tagged against 630 L allotted \(\+250 L — more than the 120–140 L mid-way buffer\) — trucks on this route usually take 630 L\. The 250 L fill on 19 Sep at Plant town \(S\/93\) probably belongs to T01\/DEMO, which is 250 L under/);
   // each fill's place in the trip
   const p = fillProgress(td);
   assert.deepEqual([p.get(f2[0]).before, p.get(f2[0]).after], [0, 250]);

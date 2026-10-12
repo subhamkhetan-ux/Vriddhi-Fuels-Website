@@ -26,9 +26,9 @@ export function defaultSettings() {
     // Extra Own Driver Pay is the extra promised for those trips — on top of the salary, settled
     // trips before checkFrom ('' = this month) are as the Trip Register has them: settled
     driver: { extraIsAdvance: false, debitCounts: true, tolerance: 100, checkFrom: '' },
-    // buffer: the litres a trip may run over its allotment — filled mid-way (Muniguda) so the truck unloads at
-    // BALCO and gets back mid-way without refilling at congested Korba; it comes off the next trip
-    recon: { useApp: false, buffer: 200 },
+    // the mid-way buffer: filled at Muniguda over the trip's allotment so the truck unloads at BALCO and gets
+    // back to Muniguda without refilling at congested Korba — always bufferMin–bufferMax L; it comes off the next trip
+    recon: { useApp: false, bufferMin: 120, bufferMax: 140 },
     // SSFC bills tyres at a rate per tyre per km run, plus GST; a bill more than `tolerance` % off is flagged
     // (a month's bill can run ±10% off the km of the trips loaded that month: SSFC's month and km aren't quite the trips')
     tyreBill: { rate: 0.26, gst: 18, tyres: 18, tolerance: 10 },

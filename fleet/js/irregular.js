@@ -1,8 +1,9 @@
 // Entries that look wrong — what to check in the workbook before the month is
 // closed. Each is { level: 'bad' | 'warn', kind, veh, date, text, href, src
 // (the HSD Data / Urea DEF / Driver Payment row) | row (the trip's row) }:
-//   overdraw    more diesel tagged to a trip than its allotment + the mid-way buffer (200 L,
-//               Setup) — and than the route's trucks usually take
+//   overdraw    more diesel tagged to a trip than its allotment + the mid-way buffer (always
+//               120–140 L, Setup): an entry to check (less over is the driver's extra — the
+//               diesel recon deducts it — not an entry gone wrong)
 //   dup-fill    the same fill twice (same truck, litres, within a day) or a slip no. used twice
 //   wrong-trip  a fill dated outside its trip (it falls in another trip of the truck), or tagged
 //               to a trip the truck doesn't have, or to no trip
@@ -44,8 +45,8 @@ export function irregulars(data, { tripDiesel = null, today, since = null } = {}
   const end = (t) => (t.unloadDate ? addDays(t.unloadDate, 1) : today);
 
   // more diesel tagged to a trip than its allotment and the mid-way buffer (filled at Muniguda so the
-  // truck unloads and gets back there without refilling at Korba — planned, carried to the next trip),
-  // and more than trucks on the route usually take by as much
+  // truck unloads and gets back there without refilling at Korba: always 120–140 L, carried to the next
+  // trip) — an entry to check
   if (tripDiesel) {
     const zs = [...tripDiesel.values()].filter((z) => z.allotted != null);
     const rkey = (t) => `${lc(t.port)}|${lc(t.dest)}`;
@@ -61,16 +62,15 @@ export function irregulars(data, { tripDiesel = null, today, since = null } = {}
       const over = z.taken - z.allotted;
       const xs = usualOf.get(rkey(t)) || [];
       const usual = xs.length >= 5 ? median(xs) : null;
-      const past = usual != null ? z.taken - usual : over;
-      const buffer = Number.isFinite(z.buffer) ? z.buffer : 200;                  // up to this over is the planned mid-way buffer
-      if (over > buffer + 0.5 && past > buffer + 0.5) {
+      const buffer = z.buffer && Number.isFinite(z.buffer.max) ? z.buffer : { min: 120, max: 140 };   // the planned mid-way buffer
+      if (over > buffer.max + 2) {
         // a trip next to it that's as far under: the first / last fill probably belongs there
         const mine = (byVeh.get(t.veh) || []).slice().sort((x, y) => x.row - y.row);
         const k = mine.indexOf(t);
         const near = [[mine[k - 1], z.fills[0]], [mine[k + 1], z.fills[z.fills.length - 1]]]
           .map(([n, h]) => ({ n, h, nz: n && tripDiesel.get(n.row) }))
           .find(({ nz, h }) => nz && h && nz.allotted != null && nz.allotted - nz.taken >= 0.6 * Math.min(over, h.qty) && Math.abs(h.qty - (nz.allotted - nz.taken)) <= Math.max(40, 0.4 * h.qty));
-        const lead = `${short(t.veh)} ${t.trip}: ${L(z.taken)} of diesel tagged against ${L(z.allotted)} allotted (+${L(over)}, ${L(over - buffer)} past the ${L(buffer)} mid-way buffer)${usual != null ? ` — trucks on this route usually take ${L(usual)}` : ''}.`;
+        const lead = `${short(t.veh)} ${t.trip}: ${L(z.taken)} of diesel tagged against ${L(z.allotted)} allotted (+${L(over)} — more than the ${buffer.min}–${buffer.max} L mid-way buffer)${usual != null ? ` — trucks on this route usually take ${L(usual)}` : ''}.`;
         add({ level: 'bad', kind: 'overdraw', veh: t.veh, date: t.loadDate || t.start, row: t.row, href: tripUrl(t), src: near ? near.h : undefined,
           text: near
             ? `${lead} The ${L(near.h.qty)} fill on ${dm(near.h.date)}${near.h.location ? ` at ${near.h.location}` : ''}${slip(near.h) ? ` (${slip(near.h)})` : ''} probably belongs to ${near.n.trip}, which is ${L(near.nz.allotted - near.nz.taken)} under its allotment — tagged to the wrong trip?`
