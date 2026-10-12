@@ -26,11 +26,11 @@ import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
-  daybookPagesSvg, driverBriefSvg, vehicleTripsPagesSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+  daybookPagesSvg, driverBriefSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
 } from './share-svg.js';
 import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
 import {
-  addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
+  addDays, addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
   plural, rupees, shortDate, shortVeh, tonnes,
 } from './util.js';
 
@@ -44,17 +44,15 @@ const state = {
   period: 'fy', custom: null, ui: {},
   settings: withDefaults(null), settingsMeta: null, settingsMissing: false, rev: 0,
 };
-// the period and the day book's dates last picked, kept in this browser (it's only a convenience)
+// the Home period last picked, kept in this browser (it's only a convenience); the day book always opens on yesterday & today
 const PREFS = 'fleet-view';
 try {
   const p = JSON.parse(localStorage.getItem(PREFS) || '{}');
   if (typeof p.period === 'string') state.period = p.period;
   if (p.custom && p.custom.from && p.custom.to) state.custom = { from: String(p.custom.from), to: String(p.custom.to) };
-  if (p.day && typeof p.day.r === 'string') state.ui.day = { r: p.day.r, from: p.day.r === 'custom' ? p.day.from || null : null, to: p.day.r === 'custom' ? p.day.to || null : null, kinds: [], veh: '', days: 31 };
 } catch { /* private mode or nothing kept: the defaults */ }
 function savePrefs() {
-  const d = state.ui.day;
-  try { localStorage.setItem(PREFS, JSON.stringify({ period: state.period, custom: state.custom, day: d ? { r: d.r, from: d.from, to: d.to } : null })); } catch { /* this visit only */ }
+  try { localStorage.setItem(PREFS, JSON.stringify({ period: state.period, custom: state.custom })); } catch { /* this visit only */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -329,7 +327,9 @@ async function signOut() {
 // ---------------------------------------------------------------------------
 // shell + routing
 // ---------------------------------------------------------------------------
-const TABS = [['#/', 'Home'], ['#/daybook', 'Day book', 'Days'], ['#/trips', 'Trips'], ['#/vehicles', 'Vehicles', 'Trucks'], ['#/drivers', 'Drivers'], ['#/costs', 'Tyre & Fastag', 'Tyres'], ['#/ssfc', 'SSFC'], ['#/diesel', 'Diesel'], ['#/setup', 'Setup']];
+// [href, name, name on a phone, icon, on a phone it's under More]
+const TABS = [['#/', 'Home', '', '🏠'], ['#/daybook', 'Day book', '', '📒'], ['#/trips', 'Trips', '', '🧾'], ['#/vehicles', 'Vehicles', 'Trucks', '🚛', true], ['#/drivers', 'Drivers', '', '👤', true],
+  ['#/costs', 'Tyre & Fastag', 'Tyres & Fastag', '🛞', true], ['#/ssfc', 'SSFC', 'SSFC account', '🏦', true], ['#/diesel', 'Diesel', '', '⛽'], ['#/setup', 'Setup', '', '⚙️', true]];
 
 function renderShell() {
   root.innerHTML = `
@@ -345,13 +345,34 @@ function renderShell() {
       <button class="btn ghost small" id="signout">${state.demo ? 'Leave demo' : state.client ? 'Sign out' : 'Close'}</button>
     </header>
     <nav class="tabs" aria-label="Sections">
-      ${TABS.map(([href, name, short]) => `<a href="${href}" data-tab="${href}">${short ? `<span class="hide-sm">${name}</span><span class="show-sm">${short}</span>` : name}</a>`).join('')}
+      ${TABS.map(([href, name, , icon, more]) => `<a href="${href}" data-tab="${href}"${more ? ' class="in-more"' : ''}><i class="tab-ic" aria-hidden="true">${icon}</i>${name}</a>`).join('')}
+      <button class="more-tab" type="button" id="more-tab" aria-haspopup="dialog"><i class="tab-ic" aria-hidden="true">☰</i>More</button>
     </nav>
     <div id="newer"></div>
     <main id="main"></main>`;
   document.getElementById('signout').addEventListener('click', signOut);
+  document.getElementById('more-tab').addEventListener('click', moreSheet);
   paintNewer();
   bindTheme();
+}
+
+// a phone's More: the sections that don't fit in the tab bar, big and plain
+function moreSheet() {
+  document.querySelector('.more-sheet')?.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'share-sheet more-sheet';
+  wrap.innerHTML = `<div class="share-box more-box" role="dialog" aria-modal="true" aria-label="More">
+    <div class="row-between"><h3>More</h3><button class="icon" data-close aria-label="Close">✕</button></div>
+    <nav class="more-list">${TABS.filter((x) => x[4]).map(([href, name, short, icon]) => `<a href="${href}"><i aria-hidden="true">${icon}</i>${esc(short || name)}</a>`).join('')}
+      <a href="../ledger/"><i aria-hidden="true">📗</i>Ledger app ↗</a></nav>
+  </div>`;
+  document.body.append(wrap);
+  const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', close); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('hashchange', close);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+  wrap.querySelector('.more-list a').focus();
 }
 
 // Another device saved a newer upload: load it when this tab comes back into
@@ -433,6 +454,7 @@ async function route() {
     return h.split('?')[0];
   };
   const cur = tabOf(hash);
+  document.getElementById('more-tab')?.classList.toggle('on', TABS.some(([href, , , , more]) => more && href === cur));
   document.querySelectorAll('.tabs a').forEach((a) => {
     const on = a.dataset.tab === '#/' ? cur === '#/' || cur === '' : cur === a.dataset.tab;
     a.classList.toggle('on', on);
@@ -636,35 +658,34 @@ async function viewHome() {
   const onTrip = status.filter((s) => s.state !== 'idle');
   const loaded = status.filter((s) => s.state === 'loaded');
   const empty = status.filter((s) => s.state === 'empty');
-  const avgDays = onTrip.length ? onTrip.reduce((a, s) => a + s.days, 0) / onTrip.length : 0;
+  const idle = status.filter((s) => s.state === 'idle');
+  const hu = state.ui.home || (state.ui.home = { sort: 'income', table: false });
+  const roadLine = [loaded.length ? `${loaded.length} loaded → ${summarisePlaces(loaded.map((s) => s.trip.dest)).replace(/^\d+ → /, '')}` : '', empty.length ? `${empty.length} going to load` : '', `${idle.length} idle`].filter(Boolean).join(' · ');
+  const TODO_N = 3;
   setMain(`
-    <section class="card greet logo-hero${play ? ' play' : ''}">
-      ${logoMark()}<h1 class="logo-word" aria-label="Shree Shyam Logistics"></h1>
-      <p class="greet-dates"><span>Today is <b>${esc(longDate(today()))}</b></span>
-      <span>Trip Register updated until <b>${esc(d.latest ? dateYear(d.latest) : '—')}</b></span></p>
+    <section class="card greet greet-row logo-hero${play ? ' play' : ''}">
+      ${logoMark()}<div><h1 class="logo-word" aria-label="Shree Shyam Logistics"></h1>
+      <p class="greet-dates"><span><b>${esc(longDate(today()))}</b></span>
+      <span>Trip Register updated until <b>${esc(d.latest ? dateYear(d.latest) : '—')}</b></span></p></div>
     </section>
 
     ${tripCounterHtml()}
 
     <section class="card">
-      <div class="row-between"><h3>On the road now</h3><span class="row-gap"><span class="muted small">${plural(status.length, 'vehicle')}</span>${shareBtn('share-road')}</span></div>
-      <div class="kpis live-kpis">
-        <div class="kpi hero"><span class="lbl">On a trip</span><span class="val">${onTrip.length}<small> / ${status.length}</small></span><span class="sub">avg ${avgDays.toFixed(1)} days since start</span></div>
-        <div class="kpi"><span class="lbl">Loaded · en route</span><span class="val">${loaded.length}</span><span class="sub">${esc(summarisePlaces(loaded.map((s) => s.trip.dest)))}</span></div>
-        <div class="kpi"><span class="lbl">Empty · going to load</span><span class="val">${empty.length}</span><span class="sub">${esc(summarisePlaces(empty.map((s) => s.trip.port)))}</span></div>
-        <div class="kpi"><span class="lbl">Idle</span><span class="val">${status.length - onTrip.length}</span><span class="sub">${esc(summarisePlaces(status.filter((s) => s.state === 'idle' && s.last).map((s) => s.last.dest)) || '—')}</span></div>
-      </div>
-      <div class="road-grid">${derived().liveTrips.map(roadCard).join('')}</div>
-      ${status.some((s) => s.state === 'idle') ? `<div class="veh-grid idle-grid">${status.filter((s) => s.state === 'idle').map(vehTile).join('')}</div>` : ''}
+      <div class="row-between"><h3>On the road now</h3>${shareBtn('share-road')}</div>
+      <p class="road-line">${esc(roadLine)}</p>
+      <div class="road-list">${derived().liveTrips.map(roadRow).join('')}${idle.map(idleRow).join('')}</div>
+      <p class="muted small">Tap a truck for its diesel slips and trip.</p>
     </section>
 
-    ${todo.length ? `<section class="card"><h3>Needs a look</h3><div class="todos">${todo.slice(0, 8).map((t) => `<a class="todo ${t.kind}" href="${t.href}">${esc(t.text)}</a>`).join('')}
-      ${todo.length > 8 ? `<p class="muted small">…and ${todo.length - 8} more.</p>` : ''}</div></section>` : ''}
+    ${todo.length ? `<section class="card"><h3>Needs a look <span class="muted small">${todo.length}</span></h3><div class="todos">${todo.slice(0, hu.allTodo ? 12 : TODO_N).map((t) => `<a class="todo ${t.kind}" href="${t.href}">${esc(t.text)}</a>`).join('')}</div>
+      ${todo.length > TODO_N ? `<button class="btn ghost small todo-more" id="todo-more" type="button">${hu.allTodo ? 'Show fewer' : `Show ${Math.min(12, todo.length) - TODO_N} more`}</button>` : ''}</section>` : ''}
 
     ${account ? ssfcMiniHtml(account) : ''}
 
     <div id="dash"></div>
     ${state.meta ? `<p class="muted small">From “${esc(state.meta.file_name)}”${state.meta.created_at ? ` · uploaded ${new Date(state.meta.created_at).toLocaleString('en-IN')}` : ''}${state.meta.by_email ? ` · ${esc(state.meta.by_email)}` : ''}</p>` : ''}`);
+  document.getElementById('todo-more')?.addEventListener('click', () => { hu.allTodo = !hu.allTodo; rerender(); });
   renderDashboard(document.getElementById('dash'));
   bindPeriod(document.getElementById('trip-counter'));
   main().querySelectorAll('[data-sheet]').forEach((a) => a.addEventListener('click', (e) => {
@@ -716,20 +737,27 @@ function projHtml(pr, { full = false } = {}) {
     <div class="ln total"><span>Projected trip income</span><b class="${signed(pr.before)}">${rupees(pr.before)}</b></div></div>
     <p class="muted small">Freight, the diesel logged in HSD Data and any driver advance are actual; the rest is what this vehicle / route usually costs${pr.usual != null ? ` (trips on the route usually make ${rupees(pr.usual)} on the same basis)` : ''}. ${esc(month)}</p>`;
 }
-function roadCard(lt) {
+// a truck on the road, in one compact row: where it is, how far along, on pace or not, its diesel
+function roadRow(lt) {
   const t = lt.t;
-  const pace = paceText(lt);
+  const p = lt.pace;
   const who = driverNow(lt.veh);
-  return `<a class="road-card ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}" data-sheet="${esc(lt.veh)}">
-    <div class="rc-head"><span class="hsrp">${esc(plateText(lt.veh))}</span>${perfBadge(lt.veh)}<span class="rc-day">Day ${lt.el}</span></div>
-    <div class="rc-route"><span class="rc-place"><small>Loading port</small><b>${esc(t.port)}</b></span><span class="rc-arrow" aria-hidden="true"></span><span class="rc-place to"><small>Destination</small><b>${esc(t.dest)}</b></span></div>
-    <div class="rc-sub"><span>${esc(t.trip)}</span>${who ? `<span>Driver ${esc(who)}</span>` : ''}<span>Started ${dm(t.start)}</span></div>
-    ${bulkerFor(lt.stage === 'start' || lt.stage === 'out' ? null : t, { veh: lt.veh, routeTrip: t })}
-    <div class="rc-phase"><b>${esc(lt.phase.title)}</b></div>
-    ${stepsHtml(lt)}
-    <div class="rc-pace ${pace.cls}"><b>${esc(pace.text)}</b>${pace.sub ? `<small>${esc(pace.sub)}</small>` : ''}${lt.etaTypical ? `<small>At ${esc(t.dest)} ~${dm(lt.etaTypical)}${lt.etaBest && lt.etaBest !== lt.etaTypical ? ` (best ${dm(lt.etaBest)})` : ''}</small>` : ''}</div>
-    ${(() => { const z = derived().tripDiesel.get(t.row); const mf = derived().missingFills.get(t.row); return z && z.allotted != null ? `<div class="rc-diesel ${mf ? 'warn' : dieselTone(z)}"><b>Diesel</b> ${esc(dieselLine(z))}${mf ? ` · ⛽ refill not entered yet?` : ''}</div>` : ''; })()}
-    ${projHtml(lt.projection)}
+  const pace = p.best == null ? { cls: 'good', text: 'Just started' } : lt.status === 'late' ? { cls: 'late', text: `Late ${p.typical} d` } : lt.status === 'behind' ? { cls: 'behind', text: `Slow ${p.best} d` } : { cls: 'good', text: 'On time' };
+  const z = derived().tripDiesel.get(t.row);
+  const mf = derived().missingFills.get(t.row);
+  const done = lt.steps.filter((x) => x.done).length;
+  return `<a class="road-row ${pace.cls}" href="#/vehicle/${encodeURIComponent(lt.veh)}" data-sheet="${esc(lt.veh)}">
+    <span class="rr-top"><b class="rr-veh">${esc(shortVeh(lt.veh))}</b><span class="rr-route">${esc(t.port || '?')} → ${esc(t.dest || '?')}</span><span class="rr-pace ${pace.cls}">${esc(pace.text)}</span></span>
+    <span class="rr-steps" aria-label="${done} of ${lt.steps.length} steps done">${lt.steps.map((x, i) => `<i class="${x.done ? 'done' : i === done ? 'next' : ''}"></i>`).join('')}</span>
+    <span class="rr-now">${esc(lt.phase.title)}</span>
+    <span class="rr-meta">Day ${lt.el}${lt.etaTypical ? ` · at ${esc(t.dest)} ~${dm(lt.etaTypical)}` : ''}${who ? ` · ${esc(who)}` : ''}</span>
+    ${dieselBarHtml(z, mf)}
+  </a>`;
+}
+function idleRow(s) {
+  return `<a class="road-row idle" href="#/vehicle/${encodeURIComponent(s.veh)}" data-sheet="${esc(s.veh)}">
+    <span class="rr-top"><b class="rr-veh">${esc(shortVeh(s.veh))}</b><span class="rr-route">${s.last ? `Idle at ${esc(s.last.dest)}` : 'Idle'}</span><span class="rr-pace idle">${s.days != null ? `${s.days} d idle` : 'Idle'}</span></span>
+    <span class="rr-meta">${s.last ? `Last trip ${esc(s.last.trip)}, unloaded ${dm(s.last.unloadDate)}` : 'No trip yet'}${driverNow(s.veh) ? ` · ${esc(driverNow(s.veh))}` : ''}</span>
   </a>`;
 }
 
@@ -795,13 +823,12 @@ function vehicleSheet(veh) {
     <div class="actions vsh-actions">${trip ? `<a class="btn small" href="#/trip/${trip.row}">Trip</a>` : ''}<a class="btn ghost small" href="#/vehicle/${encodeURIComponent(veh)}">Vehicle</a><a class="btn ghost small" href="#/diesel/${encodeURIComponent(veh)}">Diesel recon</a><a class="btn ghost small" href="#/drivers/${encodeURIComponent(veh)}">Driver</a></div>
     ${trip ? `<h4 class="vsh-h">Diesel · ${esc(trip.trip)}${s.trip ? '' : ' <span class="muted small">(last trip)</span>'}</h4>
     ${mf ? `<div class="todo warn">⛽ ${esc(mf.text)}.</div>` : ''}
-    ${z ? dieselPanelHtml(z) : '<p class="muted small">This trip is before the diesel recon starts.</p>'}
-    ${fills.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Date</th><th>Pump</th><th>Where</th><th class="r">Litres</th><th class="r">₹/L</th><th class="r">Amount</th></tr></thead><tbody>
-      ${fills.map((h) => `<tr class="${isInc(h) ? 'muted' : ''}"><td>${fmtDate(h.date)}</td><td>${esc(h.source || '—')}${isInc(h) ? '<small class="block">incentive, settled — not counted</small>' : h.bill ? `<small class="muted block">${esc(h.bill)}</small>` : ''}</td><td>${esc(h.location || '')}</td><td class="r">${indian(h.qty, h.qty % 1 ? 2 : 0)}</td><td class="r">${h.rsp ? h.rsp.toFixed(2) : '—'}</td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}
-      <tr class="sum"><td colspan="3"><b>${plural(fills.filter((h) => !isInc(h)).length, 'fill')} counted</b></td><td class="r"><b>${indian(sum(fills.filter((h) => !isInc(h)), (h) => h.qty))}</b></td><td></td><td class="r"><b>${rupees(sum(fills.filter((h) => !isInc(h)), (h) => h.amount))}</b></td></tr>
-    </tbody></table></div>` : '<p class="muted small">No fill tagged to this trip in HSD Data yet.</p>'}` : '<p class="muted">No trip yet.</p>'}
-    ${earlier.length ? `<h4 class="vsh-h">Trips before</h4><div class="table-wrap"><table class="compact"><thead><tr><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">Trip ±</th><th class="r">Balance</th></tr></thead><tbody>
-      ${earlier.map((e) => `<tr><td><a href="#/trip/${e.t.row}">${esc(e.t.trip)}</a><small class="muted block">${fmtDate(e.t.loadDate || e.t.start)} · ${plural(e.fills.length, 'fill')}</small></td><td class="r">${e.allotted != null ? L1(e.allotted) : '—'}</td><td class="r">${L1(e.taken)}</td><td class="r ${e.allotted != null && e.taken - e.allotted > 0.5 ? 'bad-text' : 'good-text'}">${e.allotted != null ? sl(e.allotted - e.taken) : '—'}</td><td class="r"><b class="${e.after < -0.5 ? 'bad-text' : ''}">${sl(e.after)}</b></td></tr>`).join('')}
+    ${z && z.allotted != null ? dieselBarHtml(z) : z ? dieselPanelHtml(z) : '<p class="muted small">This trip is before the diesel recon starts.</p>'}
+    ${fills.length ? `<div class="dk vsh-slips" style="--k:var(--s-4)"><div class="table-wrap"><table class="compact dk-table"><thead><tr><th>Date</th><th>Slip</th><th class="r">Litres</th><th class="r">Amount</th></tr></thead><tbody>
+      ${fills.map((h) => `<tr${isInc(h) ? ' class="dk-muted"' : ''}><td>${dm(h.date)}</td><td>${isInc(h) ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(h.bill || h.source || 'Pump')}</b>`}<small class="block muted">${esc([h.bill && h.source && !h.bill.toLowerCase().includes(String(h.source).toLowerCase()) && !isInc(h) ? h.source : '', h.location, h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}</small></td><td class="r"><b>${indian(h.qty, h.qty % 1 ? 2 : 0)}</b></td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="2">${plural(fills.filter((h) => !isInc(h)).length, 'slip')}</td><td class="r">${indian(sum(fills.filter((h) => !isInc(h)), (h) => h.qty))}</td><td class="r">${rupees(sum(fills.filter((h) => !isInc(h)), (h) => h.amount))}</td></tr></tfoot></table></div></div>` : '<p class="muted small">No diesel slip tagged to this trip in HSD Data yet.</p>'}` : '<p class="muted">No trip yet.</p>'}
+    ${earlier.length ? `<h4 class="vsh-h">Trips before</h4><div class="table-wrap"><table class="compact"><thead><tr><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">Balance</th></tr></thead><tbody>
+      ${earlier.map((e) => `<tr><td><a href="#/trip/${e.t.row}">${esc(e.t.trip)}</a><small class="muted block">${dm(e.t.loadDate || e.t.start)} · ${plural(e.fills.length, 'slip')}</small></td><td class="r">${e.allotted != null ? L1(e.allotted) : '—'}</td><td class="r ${e.allotted != null && e.taken - e.allotted > 0.5 ? 'bad-text' : ''}">${L1(e.taken)}</td><td class="r"><b class="${e.after < -0.5 ? 'bad-text' : ''}">${sl(e.after)}</b></td></tr>`).join('')}
     </tbody></table></div>` : ''}
     ${info && info.paid.length ? `<h4 class="vsh-h">Advances this trip</h4><ul class="brief">${info.paid.map((p) => `<li>${fmtDate(p.date)} · ${rupees(p.amount)} to ${esc(p.name)}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</li>`).join('')}</ul>` : ''}
   </div>`;
@@ -812,18 +839,6 @@ function vehicleSheet(veh) {
   window.addEventListener('hashchange', close);                          // a link in the sheet goes to its page
   wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
   wrap.querySelector('[data-close]').focus();
-}
-
-function vehTile(s) {
-  const t = s.trip;
-  const late = s.state !== 'idle' && s.days > 9;
-  const behind = derived().live.find((x) => x.veh === s.veh);
-  return `<a class="veh ${s.state}${behind ? ' behind' : ''}" href="#/vehicle/${encodeURIComponent(s.veh)}" data-sheet="${esc(s.veh)}">
-    ${bulkerFor(s.state === 'loaded' ? t : null, { compact: true, veh: s.veh })}
-    <span class="veh-top"><b>${esc(shortVeh(s.veh))} ${perfBadge(s.veh)}</b><span class="veh-days${late || behind ? ' late' : ''}">${s.days == null ? '' : s.state === 'idle' ? `${s.days}d idle` : `day ${s.days}`}</span></span>
-    <span class="veh-state"><i></i>${esc(s.text)}</span>
-    <small>${t ? `${esc(t.trip)}${t.loadWt ? ` · ${t.loadWt.toFixed(2)} T` : ''}` : s.last ? `last: ${esc(s.last.trip)}, unloaded ${esc(shortDate(s.last.unloadDate))}` : ''}</small>
-  </a>`;
 }
 
 function ssfcMiniHtml(a) {
@@ -858,10 +873,14 @@ function renderDashboard(box) {
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">Freight (bhada)</span><span class="val" ${exact(T.bhada)}>${money(T.bhada)}</span><span class="sub">${tonnes(T.tonnes, 1)} · ₹${indian(T.perTonne)}/T</span></div>
       <div class="kpi"><span class="lbl">Trips</span><span class="val">${T.trips}</span><span class="sub">${T.done} unloaded${T.open ? ` · ${T.open} on the way` : ''}</span></div>
-      <div class="kpi"><span class="lbl">SSFC net</span><span class="val" ${exact(T.ssfcNet)}>${money(T.ssfcNet)}</span><span class="sub">after ${money(T.ssfcDed)} SSFC deductions</span></div>
       <div class="kpi"><span class="lbl">Profit before EMI</span><span class="val ${signed(beforeEmi)}" ${exact(beforeEmi)}>${money(beforeEmi)}</span><span class="sub">${T.trips ? `${money(beforeEmi / T.trips)} a trip` : ''}</span></div>
+      <div class="kpi ${T.income < 0 ? 'warn' : ''}"><span class="lbl">Net after EMI</span><span class="val ${signed(T.income)}" ${exact(T.income)}>${money(T.income)}</span><span class="sub">after ${money(T.emi)} EMI · ${Math.round(T.margin * 100)}% of freight</span></div>
+    </div>
+
+    <details class="more-figs"${ui.more ? ' open' : ''} id="more-figs"><summary>More numbers — SSFC deductions, diesel, distance, where the money goes, months, vehicles, routes</summary>
+    <div class="kpis">
+      <div class="kpi"><span class="lbl">SSFC net</span><span class="val" ${exact(T.ssfcNet)}>${money(T.ssfcNet)}</span><span class="sub">after ${money(T.ssfcDed)} SSFC deductions</span></div>
       <div class="kpi"><span class="lbl">EMI</span><span class="val" ${exact(T.emi)}>${money(T.emi)}</span><span class="sub">installments charged</span></div>
-      <div class="kpi ${T.income < 0 ? 'warn' : ''}"><span class="lbl">Net after EMI</span><span class="val ${signed(T.income)}" ${exact(T.income)}>${money(T.income)}</span><span class="sub">Income/Trip total · ${Math.round(T.margin * 100)}% of freight</span></div>
       <div class="kpi"><span class="lbl">Diesel</span><span class="val">${litres(T.dieselL)}</span><span class="sub">${money(T.dieselAmt)} · ${T.trips ? Math.round(T.dieselL / T.trips) : 0} L a trip</span></div>
       <div class="kpi"><span class="lbl">Weight short</span><span class="val">${tonnes(-T.short)}</span><span class="sub">${plural(T.shortTrips, 'trip')} short · avg ${T.days.toFixed(1)} days a trip</span></div>
       ${K.km ? `<div class="kpi"><span class="lbl">Distance</span><span class="val">${indian(K.km)} km</span><span class="sub">₹${(sumBhada(K) / K.km).toFixed(1)} freight a km${K.trips < T.trips ? ` · ${K.trips} of ${T.trips} trips` : ''}</span></div>
@@ -888,12 +907,18 @@ function renderDashboard(box) {
     ${vehicleRankHtml(vrows, ui.sort)}
 
     <h3 class="sub-h">Routes</h3>
-    ${routesHtml(routes)}` : '<p class="muted">No trips loaded in this period.</p>'}
+    ${routesHtml(routes)}
+    </details>` : '<p class="muted">No trips loaded in this period.</p>'}
   </section>`;
   bindPeriod(box);
   box.querySelector('#share-fleet')?.addEventListener('click', () => sharePictures('Share the fleet', [fleetOption(), roadOption()]));
   box.querySelectorAll('[data-vsort]').forEach((b) => b.addEventListener('click', () => { ui.sort = b.dataset.vsort; renderDashboard(box); }));
   box.querySelector('#month-table')?.addEventListener('click', () => { ui.table = !ui.table; renderDashboard(box); });
+  box.querySelector('#more-figs')?.addEventListener('toggle', (e) => {
+    if (e.target.open === !!ui.more) return;
+    ui.more = e.target.open;
+    if (ui.more) renderDashboard(box);                 // the charts are sized for the open box
+  });
   bindCharts(box);
 }
 
@@ -970,14 +995,17 @@ async function viewTrips(q) {
   };
   setMain(`<section class="card">
     <div class="row-between"><h2>Trips</h2><span class="muted small">${plural(list.length, 'trip')}</span></div>
-    <div class="chips" role="group" aria-label="Show">
+    <div class="chips scroll-sm" role="group" aria-label="Show">
       ${[['all', 'All'], ['road', 'On the road'], ['done', 'Unloaded'], ['short', 'Short weight'], ['under', 'Under-loaded'], ['fill', `Diesel fill missing?${derived().missingFills.size ? ` (${derived().missingFills.size})` : ''}`], ['loss', 'Loss before EMI'], ['check', `Dates to check${issues.length ? ` (${issues.length})` : ''}`]].map(([k, n]) => `<a class="chip${f === k ? ' on' : ''}" href="${link({ f: k })}">${n}</a>`).join('')}
     </div>
-    <form class="row-form" id="trip-filter">
-      <label>Vehicle <select name="v"><option value="">All vehicles</option>${vehicles.map((v) => `<option${v === veh ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+    <form class="trip-filter" id="trip-filter">
+      <label class="trip-search"><input name="q" type="search" value="${esc(q.get('q') || '')}" placeholder="Search trip no, truck, remarks…" aria-label="Search"></label>
+      <details class="filters"${veh || mon || rt ? ' open' : ''}><summary>Filter by truck, month or route${[veh && shortVeh(veh), mon && monthName(mon), rt].filter(Boolean).length ? ` · <b>${esc([veh && shortVeh(veh), mon && monthName(mon), rt].filter(Boolean).join(', '))}</b>` : ''}</summary>
+      <div class="row-form">
+      <label>Truck <select name="v"><option value="">All trucks</option>${vehicles.map((v) => `<option value="${esc(v)}"${v === veh ? ' selected' : ''}>${esc(shortVeh(v))}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select></label>
       <label>Month loaded <select name="m"><option value="">All months</option>${months.map((m) => `<option value="${m}"${m === mon ? ' selected' : ''}>${monthLong(m)}</option>`).join('')}</select></label>
       <label>Route <select name="r"><option value="">All routes</option>${routes.map((r) => `<option${r === rt ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
-      <label>Search <input name="q" type="search" value="${esc(q.get('q') || '')}" placeholder="Trip no, remarks…"></label>
+      </div></details>
     </form>
     <div class="sumline"><span><b>${tonnes(T.tonnes, 1)}</b> loaded</span><span><b>${money(T.bhada)}</b> freight</span><span><b>${money(T.ssfcNet)}</b> SSFC net</span><span><b class="${signed(T.income + T.emi)}">${money(T.income + T.emi)}</b> before EMI</span><span><b class="${signed(T.income)}">${money(T.income)}</b> net</span></div>
     ${loadLegend(list)}
@@ -1022,6 +1050,27 @@ function dieselLine(z) {
     return `${L1(z.taken)} of ${L1(z.allotted)}${z.est ? ' (est.)' : ''} taken · ${L1(z.mayTake)} more may be taken${z.carryIn < -0.5 ? ` (${L1(-z.carryIn)} owed from before)` : ''}`;
   }
   return `${L1(z.taken)} of ${L1(z.allotted)}${z.extra > 0.5 ? ` — ${L1(z.extra)} extra` : ''} · balance after ${z.after > 0 ? '+' : z.after < 0 ? '−' : ''}${L1(z.after)}`;
+}
+// a trip's diesel as a bar: full = the trip's allotment; the fill = taken (red past the allotment); a mark where
+// the trip has to stop when diesel is owed from before; and the balance it leaves
+function dieselBarHtml(z, mf = null) {
+  if (!z || z.allotted == null || !z.allotted) return '';
+  const A = z.allotted;
+  const pct = (n) => `${Math.max(0, Math.min(100, (n / A) * 100)).toFixed(1)}%`;
+  const limit = z.carryIn < -0.5 ? Math.max(0, A + z.carryIn) : null;           // what this trip may take after what's owed
+  const tone = mf ? 'warn' : dieselTone(z);
+  const bf = z.carryIn;                                                       // brought forward from the trips before
+  const owedAll = z.after < -0.5 ? `${L1(-z.after)} owed in all` : '';
+  const note = z.extra > 0.5 ? [`${L1(z.extra)} over the allotment`, owedAll].filter(Boolean).join(' · ')
+    : z.live ? (z.mayTake > 0.5 ? `${L1(z.mayTake)} more may be filled` : `stop — no more this trip${owedAll ? ` (${owedAll})` : ''}`)
+      : `balance c/f ${z.after > 0.5 ? '+' : z.after < -0.5 ? '−' : ''}${L1(z.after)}`;
+  return `<span class="dbar ${tone}">
+    <span class="dbar-top"><span>⛽ <b>${L1(z.taken)}</b> of ${L1(A)} allotted${z.est ? ' (est.)' : ''}</span><span class="dbar-bal ${bf < -0.5 ? 'bad-text' : bf > 0.5 ? 'good-text' : 'muted'}">Balance b/f ${bf > 0.5 ? '+' : bf < -0.5 ? '−' : ''}${L1(bf)}</span></span>
+    <span class="dbar-track" role="img" aria-label="${esc(`${L1(z.taken)} of ${L1(A)} allotted`)}">
+      <i class="dbar-fill" style="width:${pct(Math.min(z.taken, limit ?? A))}"></i>${limit != null && z.taken > limit ? `<i class="dbar-owed" style="left:${pct(limit)};width:${pct(Math.min(z.taken, A) - limit)}"></i>` : ''}${z.taken > A + 0.5 ? '<i class="dbar-over"></i>' : ''}${limit != null ? `<i class="dbar-limit" style="left:${pct(limit)}"></i>` : ''}
+    </span>
+    <small>${esc(note)}${mf ? ' · refill not entered?' : ''}</small>
+  </span>`;
 }
 function dieselPanelHtml(z) {
   if (!z) return '<p class="muted small">This trip is before the diesel recon starts.</p>';
@@ -1088,7 +1137,7 @@ function briefCtx() {
 }
 const DAY_LINK = (e) => (e.t ? `#/trip/${e.t.row}` : e.kind === 'advance' ? `#/drivers/${encodeURIComponent(e.veh)}` : e.kind === 'ssfc' ? '#/ssfc' : `#/vehicle/${encodeURIComponent(e.veh)}`);
 function dayState() {
-  const ui = state.ui.day || (state.ui.day = { r: 'today', from: null, to: null, kinds: [], veh: '', days: 31 });
+  const ui = state.ui.day || (state.ui.day = { r: 'recent', from: null, to: null, veh: '', days: 31, brief: false });
   const R = dayRanges(today());
   if (ui.r !== 'custom' && R[ui.r]) { ui.from = R[ui.r].from; ui.to = R[ui.r].to; }
   if (!ui.from) { ui.from = today(); ui.to = today(); }
@@ -1100,115 +1149,131 @@ function dayAll() {
   return x.dayAll;
 }
 const dayRangeText = (from, to) => (from === to ? longDate(from) : `${dateYear(from)} – ${dateYear(to)}`);
-function daySumText(s) {
-  return [
-    s.loads ? `${plural(s.loads, 'loading')} · ${tonnes(s.tonnes, 1)} · ${money(s.freight)}` : '',
-    s.unloads ? `${plural(s.unloads, 'unloading')}${s.short < 0 ? ` · ${tonnes(-s.short)} short` : ''}` : '',
-    s.fills ? `diesel ${litres(s.litres)} · ${money(s.diesel)}` : '',
-    s.urea ? `urea ${money(s.urea)}` : '',
-    s.advances ? `advances ${money(s.advances)}` : '',
-    s.received ? `SSFC paid ${money(s.received)}` : '',
-  ].filter(Boolean).join('  ·  ');
-}
-function dayRight(e) {
-  if (e.kind === 'load') {
-    const b = e.t && derived().loads.get(e.t.row);
-    return `<b>${rupees(e.amount)}</b>${b ? `<small class="${LOAD_GRADES[b.grade].cls}">${b.grade === 'top' ? '★ full load' : `−${b.gapNear.toFixed(2)} T vs best`}</small>` : '<small>freight</small>'}`;
-  }
-  if (e.kind === 'unload') return `<b>${e.tonnes ? tonnes(e.tonnes) : '—'}</b>${e.short < 0 ? `<small class="bad-text">${tonnes(-e.short)} short</small>` : '<small>delivered</small>'}`;
-  if (e.kind === 'diesel') return `<b>${rupees(e.amount)}</b><small>${litres(e.litres)}</small>`;
-  if (e.kind === 'urea') return `<b>${rupees(e.amount)}</b><small>${e.litres ? `${indian(e.litres, 1)} L` : 'urea'}</small>`;
-  if (e.kind === 'advance') return `<b class="warn-text">${rupees(e.amount)}</b><small>paid out</small>`;
-  if (e.kind === 'ssfc') return `<b class="good-text">${rupees(e.amount)}</b><small>received</small>`;
-  return '';
-}
+// the day book's dates: the ranges offered, in order (daybook.js ranges())
+const DAY_RANGES = ['recent', 'today', 'yesterday', 'last7', 'month', 'lastMonth'];
+const KIND = Object.fromEntries(DAY_KINDS.map((k) => [k.key, k]));
+const L0 = (n) => indian(n, n % 1 ? 2 : 0);
 
-// a truck's trip in the day book: the loading and the diesel slips (brief.js vehicleTrips())
-function vxCardHtml(v) {
-  const head = `<span class="hsrp">${esc(plateText(v.veh))}</span>
-    <span class="vx-who"><b>${esc(v.driver || 'No driver set')}</b><small>${v.trip ? `${esc(v.trip)} · ${esc(v.port || '?')} → ${esc(v.dest || '?')}` : 'No trip yet'}</small></span>
-    <span class="pill ${v.onTrip ? 'fuel-pill' : 'muted-pill'}">${v.onTrip ? 'On the road' : 'Last trip'}</span>`;
-  const cell = (k, val, sub = '') => `<div class="vx-cell"><span>${k}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
-  const L = v.load;
-  const load = !v.trip ? '' : L
-    ? `<div class="vx-load">${cell('Loaded', esc(dm(L.date)), esc(L.port))}${cell('Net weight', esc(tonnes(L.net)), L.gross ? `gross ${esc(tonnes(L.gross))}` : '')}${cell('Rate', L.rate ? `₹${indian(L.rate)}<small>/T</small>` : '—')}${cell('Freight', L.freight ? rupees(L.freight) : '—')}</div>`
-    : `<div class="vx-load vx-none"><span>Loading</span><b>Not loaded yet</b>${v.start ? `<small>left ${esc(dm(v.start))}</small>` : ''}</div>`;
-  const slips = !v.trip ? '' : v.slips.length
-    ? `<table class="compact vx-slips"><thead><tr><th>Date</th><th>Diesel slip</th><th class="r">Litres</th><th class="r">Amount</th></tr></thead><tbody>
-      ${v.slips.map((x) => `<tr${x.incentive ? ' class="vx-inc"' : ''}><td>${esc(dm(x.date))}</td><td><b>${esc(x.incentive ? 'Incentive' : x.pump || 'Pump')}</b>${x.bill ? ` <span class="muted">${esc(x.bill)}</span>` : ''}<small class="block muted">${esc([x.place, x.rsp ? `₹${x.rsp.toFixed(2)}/L` : '', x.incentive ? 'not counted' : ''].filter(Boolean).join(' · '))}</small></td><td class="r">${indian(x.litres, x.litres % 1 ? 2 : 0)}</td><td class="r">${rupees(x.amount)}</td></tr>`).join('')}
-      </tbody><tfoot><tr><td colspan="2">${plural(v.slips.filter((x) => !x.incentive).length, 'slip')}</td><td class="r">${indian(v.litres, v.litres % 1 ? 2 : 0)}</td><td class="r">${rupees(v.amount)}</td></tr></tfoot></table>`
-    : '<p class="vx-noslip">No diesel slip entered for this trip</p>';
-  return `<article class="vx">${v.row != null ? `<a class="vx-head" href="#/trip/${v.row}">${head}</a>` : `<div class="vx-head">${head}</div>`}${load}${slips}</article>`;
+// one kind of entry on a day (or a range): its own table, with the columns that kind needs
+function kindTableHtml(g, { issues = new Set(), showDate = false } = {}) {
+  const k = g.kind;
+  const S = g.sums;
+  const n = g.entries.length;
+  const truck = (e) => `<a class="dk-veh" href="${DAY_LINK(e)}">${esc(shortVeh(e.veh))}</a>${showDate ? `<small class="block muted">${esc(dm(e.date))}</small>` : ''}`;
+  const sub = (x) => (x ? `<small class="block muted">${x}</small>` : '');
+  const odd = (e) => (e.t && issues.has(e.t.row) ? ' <span class="pill warn-pill">date to check</span>' : '');
+  let head = '';
+  let rows = '';
+  let foot = '';
+  let total = '';
+  if (k.key === 'load') {
+    head = '<th>Truck</th><th>Trip</th><th class="r">Loaded</th><th class="r">Freight</th>';
+    rows = g.entries.map((e) => {
+      const b = e.t && derived().loads.get(e.t.row);
+      return `<tr><td>${truck(e)}</td><td>${esc(e.t.trip)}${odd(e)}${sub(esc(`${e.t.port || '?'} → ${e.t.dest || '?'}${e.driver ? ` · ${e.driver}` : ''}`))}</td>
+        <td class="r"><b>${tonnes(e.tonnes)}</b>${sub(e.t.gross ? `gross ${tonnes(e.t.gross)}` : '')}</td>
+        <td class="r"><b>${rupees(e.amount)}</b>${b ? `<small class="block ${LOAD_GRADES[b.grade].cls}">${b.grade === 'top' ? '★ full load' : `${b.gapNear.toFixed(2)} T under best`}</small>` : sub(e.t.rate ? `₹${indian(e.t.rate)}/T` : '')}</td></tr>`;
+    }).join('');
+    total = `${plural(n, 'truck')} · ${tonnes(S.tonnes, 1)} · ${money(S.freight)}`;
+    if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${tonnes(S.tonnes, 1)}</td><td class="r">${rupees(S.freight)}</td>`;
+  } else if (k.key === 'unload') {
+    head = '<th>Truck</th><th>Trip</th><th class="r">Delivered</th><th class="r">Short</th>';
+    rows = g.entries.map((e) => `<tr><td>${truck(e)}</td><td>${esc(e.t.trip)}${odd(e)}${sub(esc(`at ${e.t.dest || '?'}${e.days != null ? ` · ${e.days} d` : ''}`))}</td>
+      <td class="r"><b>${e.tonnes ? tonnes(e.tonnes) : '—'}</b></td><td class="r">${e.short < -0.005 ? `<b class="bad-text">${tonnes(-e.short)}</b>` : '<span class="good-text">none</span>'}</td></tr>`).join('');
+    total = `${plural(n, 'truck')} · ${tonnes(S.delivered, 1)}${S.short < -0.005 ? ` · ${tonnes(-S.short)} short` : ''}`;
+    if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${tonnes(S.delivered, 1)}</td><td class="r">${S.short < -0.005 ? tonnes(-S.short) : '—'}</td>`;
+  } else if (k.key === 'diesel') {
+    head = '<th>Truck</th><th>Slip</th><th class="r">Litres</th><th class="r">Amount</th>';
+    const pumpIn = (e) => e.bill && e.pump && e.bill.toLowerCase().includes(e.pump.toLowerCase());
+    rows = g.entries.map((e) => `<tr${e.incentive ? ' class="dk-muted"' : ''}><td>${truck(e)}</td>
+      <td>${e.incentive ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(e.bill || e.pump || 'Pump')}</b>`}${sub(`${esc([e.bill && !pumpIn(e) && !e.incentive ? e.pump : '', e.place, e.rsp ? `₹${e.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}${e.trip ? `<span class="hide-sm"> · ${esc(e.trip)}</span>` : ''}`)}</td>
+      <td class="r"><b>${L0(e.litres)}</b></td><td class="r">${rupees(e.amount)}</td></tr>`).join('');
+    total = `${plural(S.fills, 'fill')} · ${litres(S.litres)} · ${money(S.diesel)}`;
+    if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${L0(S.litres)}</td><td class="r">${rupees(S.diesel)}</td>`;
+  } else if (k.key === 'urea') {
+    head = '<th>Truck</th><th>Bought from</th><th class="r">Litres</th><th class="r">Amount</th>';
+    rows = g.entries.map((e) => `<tr><td>${truck(e)}</td><td>${esc(e.from || '—')}${sub(`${esc(e.place)}${e.trip ? `<span class="hide-sm">${e.place ? ' · ' : ''}${esc(e.trip)}</span>` : ''}`)}</td>
+      <td class="r"><b>${L0(e.litres)}</b></td><td class="r">${rupees(e.amount)}</td></tr>`).join('');
+    total = `${plural(n, 'truck')} · ${indian(S.ureaL, S.ureaL % 1 ? 1 : 0)} L · ${money(S.urea)}`;
+    if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${L0(S.ureaL)}</td><td class="r">${rupees(S.urea)}</td>`;
+  } else if (k.key === 'advance') {
+    head = '<th>Truck</th><th>Paid to</th><th class="r">Amount</th>';
+    rows = g.entries.map((e) => `<tr><td>${truck(e)}</td><td>${esc(e.name || 'Driver')}${sub(esc(e.note))}</td><td class="r"><b>${rupees(e.amount)}</b></td></tr>`).join('');
+    total = `${plural(n, 'payment')} · ${money(S.advances)}`;
+    if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${rupees(S.advances)}</td>`;
+  } else if (k.key === 'ssfc') {
+    head = '<th>Paid by</th><th>For</th><th class="r">Amount</th>';
+    rows = g.entries.map((e) => `<tr><td><a href="#/ssfc">${esc(e.how || 'SSFC')}</a>${showDate ? sub(esc(dm(e.date))) : ''}</td><td>${esc(e.month ? monthName(e.month) : '—')}${sub(esc([e.invoice, e.remarks].filter(Boolean).join(' · ')))}</td><td class="r"><b class="good-text">${rupees(e.amount)}</b></td></tr>`).join('');
+    total = `${plural(n, 'payment')} · ${money(S.received)}`;
+    if (n > 1) foot = `<td colspan="2">Total</td><td class="r">${rupees(S.received)}</td>`;
+  } else {
+    head = '<th>Truck</th><th>Trip</th><th>Route</th>';
+    rows = g.entries.map((e) => `<tr><td>${truck(e)}</td><td>${esc(e.t.trip)}</td><td>${esc(`${e.t.port || '?'} → ${e.t.dest || '?'}`)}${sub(esc(e.driver ? `driver ${e.driver}` : ''))}</td></tr>`).join('');
+    total = plural(n, 'trip');
+  }
+  return `<div class="dk" style="--k:${k.color}">
+    <div class="dk-head"><span class="dk-icon" aria-hidden="true">${k.icon}</span><b>${esc(k.title)}</b><span class="dk-total">${esc(total)}</span></div>
+    <div class="table-wrap"><table class="compact dk-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody>${foot ? `<tfoot><tr>${foot}</tr></tfoot>` : ''}</table></div>
+  </div>`;
+}
+// the totals of a range, a tile for each kind there is
+function kindTileHtml(g) {
+  const S = g.sums;
+  const n = g.entries.length;
+  const [val, sub] = {
+    load: [`${tonnes(S.tonnes, 1)}`, `${plural(n, 'loading')} · ${money(S.freight)}`],
+    unload: [`${tonnes(S.delivered, 1)}`, `${plural(n, 'unloading')}${S.short < -0.005 ? ` · ${tonnes(-S.short)} short` : ''}`],
+    diesel: [litres(S.litres), `${plural(S.fills, 'fill')} · ${money(S.diesel)}`],
+    urea: [money(S.urea), `${indian(S.ureaL, S.ureaL % 1 ? 1 : 0)} L`],
+    advance: [money(S.advances), plural(n, 'payment')],
+    ssfc: [money(S.received), plural(n, 'payment')],
+    start: [String(n), n === 1 ? 'trip started' : 'trips started'],
+  }[g.kind.key];
+  return `<div class="dk-tile" style="--k:${g.kind.color}"><span class="dk-tl"><i aria-hidden="true">${g.kind.icon}</i>${esc(g.kind.title)}</span><b>${esc(val)}</b><small>${esc(sub)}</small></div>`;
 }
 
 async function viewDaybook() {
   const { ui, R } = dayState();
   const all = dayAll();
   const issues = new Set(derived().issues.map((x) => x.t.row));
-  const kinds = ui.kinds.length ? new Set(ui.kinds) : null;
-  const book = dayBook(all, { from: ui.from, to: ui.to, kinds, veh: ui.veh });
-  const inRange = dayBook(all, { from: ui.from, to: ui.to, veh: ui.veh });            // for the counts on the type chips
-  const count = (k) => inRange.list.filter((e) => e.kind === k).length;
-  const S = book.sums;
-  const byVeh = ui.veh ? [] : vehiclesOf(state.data).map((v) => ({ v, s: daySums(inRange.list.filter((e) => e.veh === v && e.kind !== 'ssfc')) })).filter((x) => x.s.entries);
+  const book = dayBook(all, { from: ui.from, to: ui.to, veh: ui.veh });
+  const byVeh = ui.veh ? [] : vehiclesOf(state.data).map((v) => ({ v, s: daySums(book.list.filter((e) => e.veh === v && e.kind !== 'ssfc')) })).filter((x) => x.s.entries);
   const latest = all.find((e) => e.date <= today());
   const shown = book.days.slice(0, ui.days);
-  const tile = (lbl, val, sub, cls = '') => `<div class="kpi ${cls}"><span class="lbl">${lbl}</span><span class="val">${val}</span><span class="sub">${sub}</span></div>`;
   const ob = ownerBrief(state.data, briefCtx(), today());
+  const look = ob.sections.reduce((a, sec) => a + sec.items.filter((it) => it.tone === 'bad' || it.tone === 'warn').length, 0);
   const TONE_CLS = { good: 'good-text', warn: 'warn-text', bad: 'bad-text', info: '' };
-  setMain(`<section class="card brief-card">
-    <div class="row-between"><h2>Today's brief <span class="muted small">${esc(longDate(today()))}</span></h2>
-      <span class="row-gap">${shareBtn('share-drivers', 'Drivers (हिंदी)')}${shareBtn('share-owner', 'Owner')}</span></div>
-    <p class="muted small">For you below; for the drivers' WhatsApp group, a picture in Hindi — each truck's next stop with the date to reach it by, its pace and load.</p>
-    ${ob.sections.map((sec) => `<h3 class="sub-h">${esc(sec.title)}</h3><ul class="brief">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>${it.href ? '</a>' : ''}</li>`).join('')}</ul>`).join('')}
-  </section>
-  <section class="card">
-    <div class="row-between"><h2>Each vehicle <span class="muted small">loading &amp; diesel slips</span></h2>${shareBtn('share-veh')}</div>
-    <p class="muted small">The trip on the road — else the last one. Tap a truck for its trip.</p>
-    <div class="vx-grid">${ob.vehicles.map(vxCardHtml).join('')}</div>
-  </section>
-  <section class="card">
-    <div class="row-between"><h2>Day book</h2><span class="row-gap"><span class="muted small">${esc(dayRangeText(ui.from, ui.to))}</span>${book.list.length ? shareBtn('share-day') : ''}</span></div>
-    <p class="muted small">Everything in the workbook with a date: trips started, loaded and unloaded, diesel fills, urea, driver advances and SSFC payments. A trip's other costs (fastag, tyre, maintenance…) have no date of their own — they're on each trip.</p>
+  const dayName = (iso) => (iso === today() ? 'Today' : iso === addDays(today(), -1) ? 'Yesterday' : '');
+  setMain(`<section class="card day-top">
+    <div class="row-between"><h2>Day book</h2>${book.list.length ? shareBtn('share-day') : ''}</div>
     <div class="chips period" role="group" aria-label="Dates">
-      ${Object.entries(R).map(([k, r]) => `<button class="chip${ui.r === k ? ' on' : ''}" data-dr="${k}" aria-pressed="${ui.r === k}">${esc(r.label)}</button>`).join('')}
-      <button class="chip${ui.r === 'custom' ? ' on' : ''}" data-dr="custom" aria-pressed="${ui.r === 'custom'}">Custom</button>
+      ${DAY_RANGES.map((k) => `<button class="chip${ui.r === k ? ' on' : ''}" data-dr="${k}" aria-pressed="${ui.r === k}">${esc(R[k].label)}</button>`).join('')}
+      <button class="chip${ui.r === 'custom' ? ' on' : ''}" data-dr="custom" aria-pressed="${ui.r === 'custom'}">Pick dates</button>
     </div>
     ${ui.r === 'custom' ? `<form class="custom-range" id="day-range"><label>From <input type="date" name="from" value="${ui.from}"></label><label>To <input type="date" name="to" value="${ui.to}"></label><button class="btn small" type="submit">Show</button></form>` : ''}
-    <div class="day-nav"><button class="btn ghost small" data-shift="-1" type="button">‹ Earlier</button><b>${esc(dayRangeText(ui.from, ui.to))}</b><button class="btn ghost small" data-shift="1" type="button"${ui.to >= today() ? ' disabled' : ''}>Later ›</button></div>
-    <div class="day-filters">
-      <div class="chips small-chips" role="group" aria-label="What">
-        <button class="chip${!kinds ? ' on' : ''}" data-dk="" aria-pressed="${!kinds}">All · ${inRange.list.length}</button>
-        ${DAY_KINDS.map((k) => `<button class="chip${kinds && kinds.has(k.key) ? ' on' : ''}" data-dk="${k.key}" aria-pressed="${!!(kinds && kinds.has(k.key))}"><i class="dot" style="background:${k.color}"></i>${esc(k.name)} · ${count(k.key)}</button>`).join('')}
-      </div>
-      <label class="inline-label">Vehicle <select id="day-veh"><option value="">All vehicles</option>${vehiclesOf(state.data).map((v) => `<option value="${esc(v)}"${ui.veh === v ? ' selected' : ''}>${esc(v)}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select></label>
-    </div>
-    <div class="kpis">
-      ${tile('Loaded', S.loads ? `${S.loads} · ${tonnes(S.tonnes, 1)}` : '—', S.loads ? `freight ${money(S.freight)}` : 'no loading')}
-      ${tile('Unloaded', S.unloads ? `${S.unloads} · ${tonnes(S.delivered, 1)}` : '—', S.short < 0 ? `${tonnes(-S.short)} short` : S.unloads ? 'no shortage' : 'no unloading', S.short < -0.5 ? 'warn' : '')}
-      ${tile('Diesel', S.fills ? litres(S.litres) : '—', S.fills ? `${money(S.diesel)} · ${plural(S.fills, 'fill')}${S.ssfcLitres ? (Math.abs(S.ssfcLitres - S.litres) < 0.5 ? ' · all at SSFC pumps' : ` · ${Math.round((S.ssfcLitres / S.litres) * 100)}% at SSFC pumps`) : ''}` : 'no fill')}
-      ${tile('Urea', S.urea ? money(S.urea) : '—', S.ureaL ? `${indian(S.ureaL, 1)} L` : 'none')}
-      ${tile('Driver advances', S.advances ? money(S.advances) : '—', S.advanceN ? plural(S.advanceN, 'payment') : 'none')}
-      ${tile('SSFC received', S.received ? money(S.received) : '—', S.receivedN ? plural(S.receivedN, 'payment') : 'none', S.received ? 'good' : '')}
-    </div>
-    ${byVeh.length > 1 ? `<h3 class="sub-h">By vehicle <span class="muted small">— tap one to see only its entries</span></h3><div class="table-wrap"><table class="compact day-veh-table"><thead><tr><th>Vehicle</th><th class="r">Started</th><th class="r">Loaded</th><th class="r">Freight</th><th class="r">Unloaded</th><th class="r">Diesel</th><th class="r">Urea</th><th class="r">Advances</th></tr></thead><tbody>
-      ${byVeh.map(({ v, s: x }) => `<tr data-day-veh="${esc(v)}" tabindex="0"><td><b>${esc(shortVeh(v))}</b>${driverNow(v) ? ` <span class="muted small">${esc(driverNow(v))}</span>` : ''}</td>
-        <td class="r">${x.starts || '—'}</td><td class="r">${x.loads ? `${x.loads} · ${tonnes(x.tonnes, 1)}` : '—'}</td><td class="r">${x.freight ? money(x.freight) : '—'}</td>
-        <td class="r">${x.unloads ? `${x.unloads}${x.short < -0.05 ? ` <span class="warn-text small">${tonnes(-x.short)} short</span>` : ''}` : '—'}</td>
-        <td class="r">${x.fills ? `${litres(x.litres)} <span class="muted small">${money(x.diesel)}</span>` : '—'}</td><td class="r">${x.urea ? money(x.urea) : '—'}</td><td class="r">${x.advances ? money(x.advances) : '—'}</td></tr>`).join('')}
-    </tbody></table></div>` : ''}
+    <div class="day-nav"><button class="btn ghost small" data-shift="-1" type="button" aria-label="Earlier">‹</button><b>${esc(dayRangeText(ui.from, ui.to))}</b><button class="btn ghost small" data-shift="1" type="button" aria-label="Later"${ui.to >= today() ? ' disabled' : ''}>›</button></div>
+    <label class="inline-label day-truck">Truck <select id="day-veh"><option value="">All trucks</option>${vehiclesOf(state.data).map((v) => `<option value="${esc(v)}"${ui.veh === v ? ' selected' : ''}>${esc(shortVeh(v))}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select></label>
+    ${book.days.length > 1 ? `<h3 class="sub-h">Total for these days</h3><div class="dk-tiles">${book.groups.map(kindTileHtml).join('')}</div>` : ''}
   </section>
   ${shown.map((day) => `<section class="card day-card">
-    <div class="day-head"><h3>${esc(longDate(day.date))}${day.date === today() ? ' <span class="pill fuel-pill">Today</span>' : ''}</h3><span class="muted small">${esc(daySumText(day.sums))}</span></div>
-    <div class="day-list">${day.entries.map((e) => { const k = DAY_KINDS.find((x) => x.key === e.kind); const odd = e.t && issues.has(e.t.row) && (e.kind === 'unload' || e.kind === 'load'); return `<a class="day-row" href="${DAY_LINK(e)}">
-      <span class="day-kind" style="--k:${k.color}"><i></i>${esc(k.name)}</span>
-      <span class="day-veh">${esc(shortVeh(e.veh))}</span>
-      <span class="day-what"><b>${esc(e.title)}</b><small>${esc(e.detail)}${odd ? ' <span class="pill warn-pill">date to check</span>' : ''}</small></span>
-      <span class="day-amt">${dayRight(e)}</span></a>`; }).join('')}</div>
+    <div class="day-head"><h3>${dayName(day.date) ? `${dayName(day.date)} <span class="muted">· ${esc(longDate(day.date))}</span>` : esc(longDate(day.date))}</h3><span class="muted small">${plural(day.entries.length, 'entry', 'entries')}</span></div>
+    ${day.groups.map((g) => kindTableHtml(g, { issues })).join('')}
   </section>`).join('')}
   ${book.days.length > shown.length ? `<p class="center-p"><button class="btn ghost" id="day-more">${plural(book.days.length - shown.length, 'more day')}</button></p>` : ''}
-  ${!book.list.length ? `<section class="card"><p class="muted">Nothing ${kinds || ui.veh ? 'of this kind ' : ''}on ${ui.from === ui.to ? 'this day' : 'these days'}.</p>${latest && latest.date < ui.from ? `<button class="btn small" id="day-latest">Go to ${esc(longDate(latest.date))}, the latest day with entries</button>` : ''}</section>` : ''}`);
+  ${!book.list.length ? `<section class="card"><p class="muted">Nothing entered ${ui.veh ? `for ${esc(shortVeh(ui.veh))} ` : ''}on ${ui.from === ui.to ? 'this day' : 'these days'}.</p>${latest && latest.date < ui.from ? `<button class="btn small" id="day-latest">Show ${esc(longDate(latest.date))}, the latest day with entries</button>` : ''}</section>` : ''}
+  ${byVeh.length > 1 ? `<details class="card day-trucks"><summary><h3>Each truck for these days</h3><span class="muted small">tap a truck to see only its entries</span></summary><div class="table-wrap"><table class="compact day-veh-table"><thead><tr><th>Truck</th><th class="r">Loaded</th><th class="r">Unloaded</th><th class="r">Diesel</th><th class="r">Urea</th><th class="r">Advances</th></tr></thead><tbody>
+      ${byVeh.map(({ v, s: x }) => `<tr data-day-veh="${esc(v)}" tabindex="0"><td><b>${esc(shortVeh(v))}</b>${driverNow(v) ? `<small class="block muted">${esc(driverNow(v))}</small>` : ''}</td>
+        <td class="r">${x.loads ? `${tonnes(x.tonnes, 1)}<small class="block muted">${money(x.freight)}</small>` : '—'}</td>
+        <td class="r">${x.unloads ? `${x.unloads}${x.short < -0.05 ? `<small class="block warn-text">${tonnes(-x.short)} short</small>` : ''}` : '—'}</td>
+        <td class="r">${x.fills ? `${litres(x.litres)}<small class="block muted">${money(x.diesel)}</small>` : '—'}</td><td class="r">${x.urea ? money(x.urea) : '—'}</td><td class="r">${x.advances ? money(x.advances) : '—'}</td></tr>`).join('')}
+    </tbody></table></div></details>` : ''}
+  <details class="card brief-card"${ui.brief ? ' open' : ''} id="brief">
+    <summary><h3>Today's brief</h3><span class="muted small">${look ? `${plural(look, 'thing')} to look at` : 'nothing needs you'} · tap to ${ui.brief ? 'close' : 'open'}</span></summary>
+    <div class="row-gap brief-share">${shareBtn('share-owner', 'Owner')}${shareBtn('share-drivers', 'Drivers (हिंदी)')}</div>
+    ${ob.sections.map((sec) => `<h3 class="sub-h">${esc(sec.title)}</h3><ul class="brief">${sec.items.map((it) => `<li class="tone-${it.tone}">${it.href ? `<a href="${it.href}">` : ''}<span class="${TONE_CLS[it.tone]}">${esc(it.text)}</span>${it.href ? '</a>' : ''}</li>`).join('')}</ul>`).join('')}
+  </details>`);
   const m = main();
+  m.querySelector('#brief').addEventListener('toggle', (e) => { ui.brief = e.target.open; });
   m.querySelectorAll('[data-dr]').forEach((b) => b.addEventListener('click', () => { ui.r = b.dataset.dr; ui.days = 31; rerender(); }));
   m.querySelector('#day-range')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1223,15 +1288,9 @@ async function viewDaybook() {
     ui.r = 'custom'; ui.from = r.from; ui.to = r.to; ui.days = 31;
     rerender();
   }));
-  m.querySelectorAll('[data-dk]').forEach((b) => b.addEventListener('click', () => {
-    const k = b.dataset.dk;
-    if (!k) ui.kinds = [];
-    else ui.kinds = ui.kinds.includes(k) ? ui.kinds.filter((x) => x !== k) : [...ui.kinds, k];
-    rerender();
-  }));
   m.querySelector('#day-veh').addEventListener('change', (e) => { ui.veh = e.target.value; rerender(); });
   m.querySelectorAll('[data-day-veh]').forEach((r) => {
-    const go = () => { ui.veh = r.dataset.dayVeh; rerender(); m.querySelector('#day-veh')?.scrollIntoView({ block: 'center' }); };
+    const go = () => { ui.veh = r.dataset.dayVeh; window.scrollTo({ top: 0 }); rerender(); };
     r.addEventListener('click', go);
     r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
   });
@@ -1242,12 +1301,10 @@ async function viewDaybook() {
     const hi = await hindiFontCss();
     return cardFiles(driverBriefSvg(driverBrief(state.data, briefCtx(), today()), { ...kit, fontCss: `${kit.fontCss}\n${hi}` }), `Driver instructions ${fmtDate(today())}`);
   } }]));
-  m.querySelector('#share-veh').addEventListener('click', () => sharePictures('Each vehicle', [{ label: 'Each vehicle', make: async () => pageFiles(vehicleTripsPagesSvg(ob.vehicles, { ...(await shareKit()), date: today() }), `Vehicles loading and diesel ${fmtDate(today())}`) }]));
   m.querySelector('#share-owner').addEventListener('click', () => sharePictures("Owner's insight", [{ label: 'Insight', make: async () => cardFiles(ownerBriefSvg(ownerBrief(state.data, briefCtx(), today()), await shareKit()), `Daily insight ${fmtDate(today())}`) }]));
   m.querySelector('#share-day')?.addEventListener('click', () => {
     const label = dayRangeText(ui.from, ui.to);
-    const what = [kinds ? DAY_KINDS.filter((k) => kinds.has(k.key)).map((k) => k.name).join(', ') : '', ui.veh].filter(Boolean).join(' · ');
-    sharePictures('Day book', [{ label: 'Day book', make: async () => pageFiles(daybookPagesSvg(book, { ...(await shareKit()), label, what, driverOf: (v) => driverNow(v), loads: derived().loads }), `Day book ${ui.from === ui.to ? fmtDate(ui.from) : `${fmtDate(ui.from)} to ${fmtDate(ui.to)}`}${ui.veh ? ` ${ui.veh}` : ''}`) }]);
+    sharePictures('Day book', [{ label: 'Day book', make: async () => pageFiles(daybookPagesSvg(book, { ...(await shareKit()), label, what: ui.veh ? shortVeh(ui.veh) : '', driverOf: (v) => driverNow(v), loads: derived().loads }), `Day book ${ui.from === ui.to ? fmtDate(ui.from) : `${fmtDate(ui.from)} to ${fmtDate(ui.to)}`}${ui.veh ? ` ${ui.veh}` : ''}`) }]);
   });
 }
 
@@ -2123,21 +2180,35 @@ async function viewCharges(key) {
   const monthTotals = months.map((m) => ({ month: m, value: c.included.reduce((a, v) => a + c.cell[v][m].amount, 0) }));
   setChartWidth(main().clientWidth - 38);
   const icon = { high: '▲', low: '▼', twice: '×2' };
+  const K = c.basis === 'km';                       // the charge per km run: each vehicle-month's km = its trips' RTD added up
+  const perKm = (amount, kms) => (kms ? `₹${(amount / kms).toFixed(2)}` : '—');
   const flagText = (f) => {
     const x = f.cell;
     if (f.kind === 'twice') return `booked ${x.entries.length} times (${x.entries.map((t) => rupees(t[key])).join(' + ')})`;
+    if (K && x.km) {
+      const fleetRate = x.expected != null ? x.expected / x.km : null;
+      const ownRate = x.trend != null ? x.trend / x.km : null;
+      return `${perKm(x.amount, x.km)} a km (${rupees(x.amount)} on ${indian(x.km)} km run) — the fleet's ${fleetRate != null ? `₹${fleetRate.toFixed(2)}` : '—'} a km that month would be about ${rupees(x.expected)}${ownRate != null ? `; its own ₹${ownRate.toFixed(2)} a km, about ${rupees(x.trend)}` : ' (no history of its own yet)'}${f.kind === 'low' ? ' · not booked yet?' : ''}`;
+    }
     return `${rupees(x.amount)} — the fleet's rate that month gives about ${rupees(x.expected)}${x.trend != null ? `, its own trend about ${rupees(x.trend)}` : ' (no history of its own yet)'}${f.kind === 'low' ? ' · not booked yet?' : ''}`;
   };
+  const rateOf = (x) => (x.km && x.amount ? x.amount / x.km : 0);
+  const maxRate = Math.max(0.01, ...cells.map(rateOf));
+  const kmMonth = (m) => c.included.reduce((a, v) => a + (c.cell[v][m].km || 0), 0);
   setMain(`<section class="card">
     <div class="row-between"><h2>Tyre &amp; Fastag</h2>
       <div class="chips small-chips" role="group" aria-label="Charge"><a class="chip${key === 'tyre' ? ' on' : ''}" href="#/costs/tyre">Tyre</a><a class="chip${key === 'fastag' ? ' on' : ''}" href="#/costs/fastag">Fastag</a></div></div>
-    <p class="muted small">SSFC charges ${key === 'tyre' ? 'tyres' : 'fastag'} once a month per vehicle (on one of its trips). Each month is compared ${basis} with the rest of the fleet that month and with the vehicle's own last six months; each vehicle's first two months aren't judged.${c.basis !== 'km' ? ' Once every route\'s distance is set in Setup, the comparison goes per km.' : ''}</p>
+    <p class="muted small">SSFC charges ${key === 'tyre' ? 'tyres' : 'fastag'} once a month per vehicle (on one of its trips). ${K
+    ? 'A vehicle\'s month is measured by how much it ran: the round trip (RTD — up and down km, from the Rates sheet or Setup) of every trip it loaded that month, added up. The charge ÷ those km is its ₹ a km, compared with the rest of the fleet that month and with the vehicle\'s own last six months'
+    : `Each month is compared ${basis} with the rest of the fleet that month and with the vehicle's own last six months. Once every route has its round trip (RTD/Trip in Km in the Rates sheet, or the distance in Setup), it goes by the km each vehicle runs a month`}; each vehicle's first two months aren't judged.</p>
     ${periodHtml()}
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">${CHARGE_RULES[key].name} charged</span><span class="val" ${exact(total)}>${money(total)}</span><span class="sub">${esc(months.length ? `${monthName(months[0])} – ${monthName(months[months.length - 1])}` : '')}${note}</span></div>
-      <div class="kpi"><span class="lbl">A vehicle-month</span><span class="val">${money(vm ? total / vm : 0)}</span><span class="sub">average, ${c.included.length} vehicles</span></div>
+      ${K ? `<div class="kpi"><span class="lbl">Km run (RTD)</span><span class="val">${indian(km)} km</span><span class="sub">${plural(trips, 'trip')} · ${indian(vm ? km / vm : 0)} km a vehicle-month</span></div>
+      <div class="kpi"><span class="lbl">A km</span><span class="val">₹${(kmCells.reduce((a, x) => a + x.amount, 0) / Math.max(1, km)).toFixed(2)}</span><span class="sub">the fleet, these months</span></div>
+      <div class="kpi"><span class="lbl">A vehicle-month</span><span class="val">${money(vm ? total / vm : 0)}</span><span class="sub">average, ${c.included.length} vehicles</span></div>` : `<div class="kpi"><span class="lbl">A vehicle-month</span><span class="val">${money(vm ? total / vm : 0)}</span><span class="sub">average, ${c.included.length} vehicles</span></div>
       <div class="kpi"><span class="lbl">A trip</span><span class="val">${money(trips ? total / trips : 0)}</span><span class="sub">${plural(trips, 'trip')}</span></div>
-      ${km ? `<div class="kpi"><span class="lbl">A km</span><span class="val">₹${(kmCells.reduce((a, x) => a + x.amount, 0) / km).toFixed(2)}</span><span class="sub">${indian(km)} km</span></div>` : ''}
+      ${km ? `<div class="kpi"><span class="lbl">A km</span><span class="val">₹${(kmCells.reduce((a, x) => a + x.amount, 0) / km).toFixed(2)}</span><span class="sub">${indian(km)} km</span></div>` : ''}`}
       <div class="kpi ${flags.length ? 'warn' : ''}"><span class="lbl">Out of trend</span><span class="val">${flags.length}</span><span class="sub">${flags.filter((f) => f.kind === 'high').length} high · ${flags.filter((f) => f.kind === 'low').length} low · ${flags.filter((f) => f.kind === 'twice').length} twice</span></div>
     </div>
     ${c.excluded.length ? `<p class="small muted">Not in this analysis: <b>${c.excluded.map((v) => esc(shortVeh(v))).join(', ')}</b>${c.excluded.some((v) => months.some((m) => c.cell[v][m].amount)) ? ` (charged ${rupees(c.excluded.reduce((a, v) => a + months.reduce((b, m) => b + c.cell[v][m].amount, 0), 0))} in these months)` : ''} · <a href="#/setup">change in Setup</a></p>` : ''}
@@ -2150,20 +2221,24 @@ async function viewCharges(key) {
     <h3 class="sub-h">Fleet total per month</h3>
     ${groupedBars(monthTotals.map((m) => ({ ...m, total: m.value })), [{ key: 'total', name: CHARGE_RULES[key].name, color: 'var(--s-1)' }], {
     label: `${CHARGE_RULES[key].name} charged per month, all vehicles in the analysis`,
-    tip: (m) => `<b>${monthLong(m.month)}</b><br>${CHARGE_RULES[key].name} ${rupees(m.value)}<br>Fleet rate ${c.peer[m.month] != null ? `${rupees(c.peer[m.month])} ${basis}` : '—'}`,
+    tip: (m) => `<b>${monthLong(m.month)}</b><br>${CHARGE_RULES[key].name} ${rupees(m.value)}${K ? `<br>${indian(kmMonth(m.month))} km run` : ''}<br>Fleet rate ${c.peer[m.month] != null ? `${K ? `₹${c.peer[m.month].toFixed(2)}` : rupees(c.peer[m.month])} ${basis}` : '—'}`,
   })}
 
-    <h3 class="sub-h">Vehicle by month</h3>
+    <h3 class="sub-h">Vehicle by month${K ? ' <span class="muted small">₹ a km · the charge and the km run below</span>' : ''}</h3>
     <div class="table-wrap"><table class="compact heat"><thead><tr><th>Vehicle</th>${months.map((m) => `<th class="r">${monthName(m)}</th>`).join('')}<th class="r">Total</th></tr></thead><tbody>
       ${c.included.map((v) => `<tr><td><a href="#/vehicle/${encodeURIComponent(v)}"><b>${esc(shortVeh(v))}</b></a></td>${months.map((m) => {
     const x = c.cell[v][m];
-    const pct = Math.round((x.amount / max) * 55);
-    const tip = `${v} · ${monthLong(m)}: ${rupees(x.amount)} · ${plural(x.trips, 'trip')}${x.expected != null ? ` · fleet rate gives ${rupees(x.expected)}` : ''}${x.trend != null ? ` · own trend ${rupees(x.trend)}` : ''}${x.settling ? ' · first months, not judged' : ''}`;
-    return `<td class="r h-cell${x.flag ? ` f-${x.flag}` : ''}${x.settling ? ' settling' : ''}" style="--h:${pct}%" title="${esc(tip)}">${x.amount ? `${x.flag ? `<i>${icon[x.flag]}</i>` : ''}${(x.amount / 1000).toFixed(1)}K` : x.trips ? '<span class="muted">—</span>' : ''}</td>`;
-  }).join('')}<td class="r"><b>${money(months.reduce((a, m) => a + c.cell[v][m].amount, 0))}</b></td></tr>`).join('')}
-      <tr class="foot"><td>Fleet rate</td>${months.map((m) => `<td class="r small">${c.peer[m] != null ? money(c.peer[m]) : '—'}</td>`).join('')}<td class="r small">${basis}</td></tr>
+    const pct = Math.round((K ? rateOf(x) / maxRate : x.amount / max) * 55);
+    const tip = `${v} · ${monthLong(m)}: ${rupees(x.amount)} · ${plural(x.trips, 'trip')}${x.km ? ` · ${indian(x.km)} km run · ${perKm(x.amount, x.km)} a km` : ''}${x.expected != null ? ` · fleet rate gives ${rupees(x.expected)}` : ''}${x.trend != null ? ` · own trend ${rupees(x.trend)}` : ''}${x.settling ? ' · first months, not judged' : ''}`;
+    const body = K
+      ? (x.amount ? `${x.flag ? `<i>${icon[x.flag]}</i>` : ''}<b>${perKm(x.amount, x.km)}</b><small class="block">${(x.amount / 1000).toFixed(1)}K · ${indian(x.km || 0)} km</small>` : x.trips ? `<span class="muted">—</span><small class="block">${indian(x.km || 0)} km</small>` : '')
+      : (x.amount ? `${x.flag ? `<i>${icon[x.flag]}</i>` : ''}${(x.amount / 1000).toFixed(1)}K` : x.trips ? '<span class="muted">—</span>' : '');
+    return `<td class="r h-cell${x.flag ? ` f-${x.flag}` : ''}${x.settling ? ' settling' : ''}" style="--h:${pct}%" title="${esc(tip)}">${body}</td>`;
+  }).join('')}<td class="r">${(() => { const a = months.reduce((t, m) => t + c.cell[v][m].amount, 0); const k = months.reduce((t, m) => t + (c.cell[v][m].km || 0), 0); return `<b>${money(a)}</b>${K ? `<small class="block muted">${indian(k)} km · ${perKm(a, k)}/km</small>` : ''}`; })()}</td></tr>`).join('')}
+      ${K ? `<tr class="foot"><td>Km run</td>${months.map((m) => `<td class="r small">${indian(kmMonth(m))}</td>`).join('')}<td class="r small">${indian(km)}</td></tr>` : ''}
+      <tr class="foot"><td>Fleet rate</td>${months.map((m) => `<td class="r small">${c.peer[m] != null ? (K ? `₹${c.peer[m].toFixed(2)}` : money(c.peer[m])) : '—'}</td>`).join('')}<td class="r small">${basis}</td></tr>
     </tbody></table></div>
-    <p class="muted small">Darker = more. ▲ well above both the fleet and the vehicle's trend · ▼ well below (often not booked yet) · ×2 booked twice in the month · faded = a vehicle's first two months.</p>
+    <p class="muted small">${K ? 'Darker = more a km.' : 'Darker = more.'} ▲ well above both the fleet and the vehicle's trend · ▼ well below (often not booked yet) · ×2 booked twice in the month · faded = a vehicle's first two months.</p>
     <p><a class="btn ghost small" href="#/costs/${other}">See ${CHARGE_RULES[other].name} →</a></p>
   </section>`);
   bindPeriod(main());

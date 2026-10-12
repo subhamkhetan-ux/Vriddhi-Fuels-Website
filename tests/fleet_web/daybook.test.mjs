@@ -1,7 +1,7 @@
 // The day book: every dated entry, day by day, with the standard ranges. Made-up data.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayBook, entries, ranges, shiftRange, sums } from '../../fleet/js/daybook.js';
+import { dayBook, entries, KINDS, ranges, shiftRange, sums } from '../../fleet/js/daybook.js';
 import { daybookPagesSvg } from '../../fleet/js/share-svg.js';
 
 const data = {
@@ -45,7 +45,12 @@ test('a range, filtered by type and vehicle, grouped by day with sums', () => {
   assert.equal(s.short, -0.2);
   const pages = daybookPagesSvg(b, { label: '3 – 5 Oct' });
   assert.doesNotMatch(pages.join(''), /undefined|NaN/);
-  assert.ok(pages[0].includes('FREIGHT LOADED'));
+  // each day split by kind, in order, each kind a table of its own
+  assert.deepEqual(b.days[0].groups.map((g) => g.kind.key), [...new Set(b.days[0].entries.map((e) => e.kind))].sort((x, y) => KINDS.findIndex((k) => k.key === x) - KINDS.findIndex((k) => k.key === y)));
+  assert.equal(b.groups.find((g) => g.kind.key === 'diesel').sums.litres, 500);
+  const diesel = b.days.flatMap((d) => d.groups).filter((g) => g.kind.key === 'diesel').flatMap((g) => g.entries);
+  assert.ok(diesel.every((e) => 'bill' in e && 'place' in e && 'pump' in e));
+  for (const g of b.groups) assert.ok(pages.join('').includes(g.kind.title));
 });
 
 test('standard ranges (weeks start Monday) and moving a range by its length', () => {
@@ -53,6 +58,8 @@ test('standard ranges (weeks start Monday) and moving a range by its length', ()
   assert.deepEqual(r.week, { label: 'This week', from: '2026-10-05', to: '2026-10-11' });
   assert.deepEqual(r.lastMonth, { label: 'Last month', from: '2026-09-01', to: '2026-09-30' });
   assert.equal(r.yesterday.from, '2026-10-10');
+  assert.deepEqual(r.recent, { label: 'Yesterday & today', from: '2026-10-10', to: '2026-10-11' });
+  assert.equal(Object.keys(r)[0], 'recent');
   assert.equal(r.fy.from, '2026-04-01');
   assert.equal(ranges('2027-02-15').fy.from, '2026-04-01');
   assert.equal(ranges('2026-10-05').week.from, '2026-10-05');          // Monday

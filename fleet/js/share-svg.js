@@ -680,48 +680,90 @@ ${r.diesel ? T(tx, y + 177, `Diesel ${r.diesel}`, { size: 15, weight: 600, fill:
 // ---- the day book -----------------------------------------------------------------------------------
 // book: daybook.js dayBook(); label: the dates; what: the filter (types / vehicle)
 const DAY_COLOR = { load: C.s1, unload: C.s3, start: C.s6, diesel: C.s4, urea: C.s5, advance: C.s2, ssfc: C.s8 };
-const DAY_NAME = { load: 'Loading', unload: 'Unloading', start: 'Trip start', diesel: 'Diesel', urea: 'Urea', advance: 'Advance', ssfc: 'SSFC paid' };
 const longDay = (iso) => {
   const d = new Date(`${iso}T00:00:00Z`);
   return `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()]}, ${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 };
 export function daybookPagesSvg(book, { label = '', what = '', asOn = '', images = {}, fontCss = '', driverOf = null, loads = null } = {}) {
-  const S = book.sums;
-  const dayLine = (s) => [s.loads ? `${s.loads} loaded ${ind(s.tonnes, 1)} T` : '', s.unloads ? `${s.unloads} unloaded` : '', s.fills ? `diesel ${litres(s.litres)}` : '', s.advances ? `advances ${rupees(s.advances)}` : '', s.received ? `SSFC ${rupees(s.received)}` : ''].filter(Boolean).join(' · ');
-  const amt = (e) => {
-    if (e.kind === 'load') { const b = loads && e.t && loads.get(e.t.row); return { text: rupees(e.amount), weight: 800, sub: b ? loadNote(b) : 'freight', subColor: b ? LOAD_COLOR[b.grade] : C.muted }; }
-    if (e.kind === 'unload') return { text: e.tonnes ? tonnes(e.tonnes) : '—', weight: 800, sub: e.short < 0 ? `${tonnes(-e.short)} short` : 'delivered', subColor: e.short < 0 ? C.bad : C.muted };
-    if (e.kind === 'diesel') return { text: rupees(e.amount), weight: 800, sub: litres(e.litres) };
-    if (e.kind === 'urea') return { text: rupees(e.amount), weight: 800, sub: e.litres ? `${ind(e.litres, 1)} L` : '' };
-    if (e.kind === 'advance') return { text: rupees(e.amount), weight: 800, color: C.warn, sub: 'paid out' };
-    if (e.kind === 'ssfc') return { text: rupees(e.amount), weight: 800, color: C.good, sub: 'received' };
-    return '';
-  };
-  const rows = [];
-  for (const day of book.days) {
-    rows.push({ band: longDay(day.date), right: dayLine(day.sums) });
-    for (const e of day.entries) {
-      rows.push({ cells: [
-        { text: shortVeh(e.veh), weight: 800, dot: DAY_COLOR[e.kind], sub: DAY_NAME[e.kind], subColor: DAY_COLOR[e.kind] },
-        { text: e.title, weight: 700, sub: e.detail || (driverOf && e.veh ? driverOf(e.veh) : '') },
-        amt(e),
-      ] });
+  const dim = (e, o) => (e.incentive ? { ...o, color: C.muted } : o);
+  // one kind on a day: a coloured heading and its own table
+  const kindHead = (g, total) => block(64, (x, y, w) => `${R(x, y + 10, w, 48, { rx: 14, fill: DAY_COLOR[g.kind.key], opacity: 0.16 })}${R(x, y + 10, 6, 48, { rx: 3, fill: DAY_COLOR[g.kind.key] })}
+${T(x + 24, y + 42, g.kind.title, { size: 20, weight: 800 })}${T(x + w - 18, y + 42, total, { size: 17, weight: 700, anchor: 'end', max: w * 0.6 })}`, { keep: true });
+  const veh = (e) => ({ text: shortVeh(e.veh), weight: 800 });
+  const kindBlocks = (g) => {
+    const S = g.sums;
+    const n = g.entries.length;
+    const E = g.entries;
+    let cols;
+    let rows;
+    let total = null;
+    let head;
+    if (g.kind.key === 'load') {
+      head = `${plural(n, 'truck')}  ·  ${tonnes(S.tonnes, 1)}  ·  ${rupees(S.freight)}`;
+      cols = [{ label: 'Truck', at: 18 }, { label: 'Trip', at: 130, max: 420 }, { label: 'Net', at: -560, align: 'end' }, { label: 'Rate', at: -330, align: 'end' }, { label: 'Freight', at: -18, align: 'end' }];
+      rows = E.map((e) => { const b = loads && e.t && loads.get(e.t.row); return [veh(e), { text: e.t.trip, sub: `${e.t.port || '?'} → ${e.t.dest || '?'}${e.driver ? `  ·  ${e.driver}` : ''}` }, { text: tonnes(e.tonnes), weight: 800, sub: e.t.gross ? `gross ${tonnes(e.t.gross)}` : '' }, e.t.rate ? `₹${ind(e.t.rate)}/T` : '—', { text: rupees(e.amount), weight: 800, sub: b ? loadNote(b) : '', subColor: b ? LOAD_COLOR[b.grade] : C.muted }]; });
+      if (n > 1) total = ['Total', '', tonnes(S.tonnes, 1), '', rupees(S.freight)];
+    } else if (g.kind.key === 'unload') {
+      head = `${plural(n, 'truck')}  ·  ${tonnes(S.delivered, 1)}${S.short < -0.005 ? `  ·  ${tonnes(-S.short)} short` : ''}`;
+      cols = [{ label: 'Truck', at: 18 }, { label: 'Trip', at: 130, max: 520 }, { label: 'Delivered', at: -260, align: 'end' }, { label: 'Short', at: -18, align: 'end' }];
+      rows = E.map((e) => [veh(e), { text: e.t.trip, sub: `at ${e.t.dest || '?'}${e.days != null ? `  ·  ${e.days} days` : ''}` }, { text: e.tonnes ? tonnes(e.tonnes) : '—', weight: 800 }, e.short < -0.005 ? { text: tonnes(-e.short), weight: 800, color: C.bad } : { text: 'none', color: C.good, weight: 600 }]);
+      if (n > 1) total = ['Total', '', tonnes(S.delivered, 1), S.short < -0.005 ? tonnes(-S.short) : '—'];
+    } else if (g.kind.key === 'diesel') {
+      head = `${plural(S.fills, 'fill')}  ·  ${litres(S.litres)}  ·  ${rupees(S.diesel)}`;
+      cols = [{ label: 'Truck', at: 18 }, { label: 'Slip', at: 130, max: 270 }, { label: 'Place', at: 420, max: 220 }, { label: 'Litres', at: -420, align: 'end' }, { label: '₹ / L', at: -230, align: 'end' }, { label: 'Amount', at: -18, align: 'end' }];
+      rows = E.map((e) => [dim(e, veh(e)), dim(e, e.incentive ? { text: 'Incentive', weight: 700, sub: 'not counted' } : { text: e.bill || e.pump || 'Pump', weight: 700, sub: e.bill && e.pump && !e.bill.toLowerCase().includes(e.pump.toLowerCase()) ? e.pump : '' }), dim(e, { text: e.place || '—', weight: 400 }), dim(e, { text: ind(e.litres, e.litres % 1 ? 2 : 0), weight: 800 }), dim(e, { text: e.rsp ? e.rsp.toFixed(2) : '—', weight: 400 }), dim(e, { text: rupees(e.amount), weight: 800 })]);
+      if (n > 1) total = ['Total', '', '', ind(S.litres, S.litres % 1 ? 2 : 0), '', rupees(S.diesel)];
+    } else if (g.kind.key === 'urea') {
+      head = `${plural(n, 'truck')}  ·  ${ind(S.ureaL, S.ureaL % 1 ? 1 : 0)} L  ·  ${rupees(S.urea)}`;
+      cols = [{ label: 'Truck', at: 18 }, { label: 'Bought from', at: 130, max: 340 }, { label: 'Place', at: 500, max: 240 }, { label: 'Litres', at: -260, align: 'end' }, { label: 'Amount', at: -18, align: 'end' }];
+      rows = E.map((e) => [veh(e), { text: e.from || '—', weight: 700 }, { text: e.place || '—', weight: 400 }, { text: ind(e.litres, e.litres % 1 ? 1 : 0), weight: 800 }, { text: rupees(e.amount), weight: 800 }]);
+      if (n > 1) total = ['Total', '', '', ind(S.ureaL, S.ureaL % 1 ? 1 : 0), rupees(S.urea)];
+    } else if (g.kind.key === 'advance') {
+      head = `${plural(n, 'payment')}  ·  ${rupees(S.advances)}`;
+      cols = [{ label: 'Truck', at: 18 }, { label: 'Paid to', at: 130, max: 300 }, { label: 'Note', at: 460, max: 440 }, { label: 'Amount', at: -18, align: 'end' }];
+      rows = E.map((e) => [veh(e), { text: e.name || 'Driver', weight: 700 }, { text: e.note || '', weight: 400, color: C.muted }, { text: rupees(e.amount), weight: 800, color: C.warn }]);
+      if (n > 1) total = ['Total', '', '', rupees(S.advances)];
+    } else if (g.kind.key === 'ssfc') {
+      head = `${plural(n, 'payment')}  ·  ${rupees(S.received)}`;
+      cols = [{ label: 'Paid by', at: 18, max: 260 }, { label: 'For', at: 300, max: 200 }, { label: 'Invoice', at: 520, max: 380 }, { label: 'Amount', at: -18, align: 'end' }];
+      rows = E.map((e) => [{ text: e.how || 'SSFC', weight: 700 }, e.month ? monY(e.month) : '—', { text: [e.invoice, e.remarks].filter(Boolean).join('  ·  '), weight: 400 }, { text: rupees(e.amount), weight: 800, color: C.good }]);
+      if (n > 1) total = ['Total', '', '', rupees(S.received)];
+    } else {
+      head = plural(n, 'trip');
+      cols = [{ label: 'Truck', at: 18 }, { label: 'Trip', at: 130, max: 260 }, { label: 'Route', at: 420, max: 380 }, { label: 'Driver', at: 830, max: 320 }];
+      rows = E.map((e) => [veh(e), e.t.trip, `${e.t.port || '?'} → ${e.t.dest || '?'}`, { text: e.driver || (driverOf ? driverOf(e.veh) : '') || '—', weight: 400 }]);
     }
+    // the kind's heading goes with its table's head, so a table carried on to the next page says what it is
+    const [th, ...body] = table(cols, rows.map((cells) => ({ cells })), { total });
+    const top = together([kindHead(g, head), th]);
+    Object.assign(top, { keep: true, isHead: true });
+    return [top, ...body.map((b) => (b.under === th ? { ...b, under: top } : b))];
+  };
+  const blocks = [];
+  for (const day of book.days) {
+    blocks.push(band(longDay(day.date), plural(day.entries.length, 'entry', 'entries')));
+    for (const g of day.groups) { blocks.push(...kindBlocks(g)); blocks.push(gap(8)); }
+    blocks.push(gap(18));
   }
-  const blocks = book.list.length
-    ? table([{ label: 'Vehicle', at: 34 }, { label: 'Entry', at: 170, max: 760 }, { label: 'Amount', at: -18, align: 'end' }], rows)
-    : [note('Nothing on these days.')];
+  if (!book.list.length) blocks.push(note('Nothing on these days.'));
+  const tileOf = (g) => {
+    const S = g.sums;
+    const n = g.entries.length;
+    const [value, sub] = {
+      load: [tonnes(S.tonnes, 1), `${plural(n, 'loading')} · ${rupees(S.freight)}`],
+      unload: [tonnes(S.delivered, 1), `${plural(n, 'unloading')}${S.short < -0.005 ? ` · ${tonnes(-S.short)} short` : ''}`],
+      diesel: [litres(S.litres), `${plural(S.fills, 'fill')} · ${rupees(S.diesel)}`],
+      urea: [rupees(S.urea), `${ind(S.ureaL, S.ureaL % 1 ? 1 : 0)} L`],
+      advance: [rupees(S.advances), plural(n, 'payment')],
+      ssfc: [rupees(S.received), plural(n, 'payment')],
+      start: [String(n), n === 1 ? 'trip started' : 'trips started'],
+    }[g.kind.key];
+    return { label: g.kind.name, value, sub, color: DAY_COLOR[g.kind.key] };
+  };
   return pagesSvg({
     what: `Day book · ${label}`, tag: 'DAY BOOK', name: label, asOn, images, fontCss,
     sub: [plural(book.list.length, 'entry', 'entries'), plural(book.days.length, 'day'), what].filter(Boolean).join('  ·  '),
-    hero: { label: 'FREIGHT LOADED', amount: rupees(S.freight), right: [['DIESEL', S.fills ? `${litres(S.litres)} · ${rupees(S.diesel)}` : '—'], [S.received ? 'SSFC RECEIVED' : 'ADVANCES PAID', S.received ? rupees(S.received) : rupees(S.advances)]] },
-    tiles: [
-      { label: 'Loaded', value: S.loads ? `${S.loads} · ${ind(S.tonnes, 1)} T` : '—', sub: S.loads ? `freight ${rupees(S.freight)}` : 'no loading', color: C.s1 },
-      { label: 'Unloaded', value: S.unloads ? `${S.unloads} · ${ind(S.delivered, 1)} T` : '—', sub: S.short < 0 ? `${tonnes(-S.short)} short` : S.unloads ? 'no shortage' : 'no unloading', color: C.s3 },
-      { label: 'Diesel', value: S.fills ? litres(S.litres) : '—', sub: S.fills ? `${rupees(S.diesel)} · ${plural(S.fills, 'fill')}` : 'no fill', color: C.s4 },
-      { label: 'Urea', value: S.urea ? rupees(S.urea) : '—', sub: S.ureaL ? `${ind(S.ureaL, 1)} L` : 'none', color: C.s5 },
-      { label: 'Advances', value: S.advances ? rupees(S.advances) : '—', sub: S.advanceN ? plural(S.advanceN, 'payment') : 'none', color: C.s2 },
-    ],
+    tiles: (book.groups || []).slice(0, 5).map(tileOf),
     blocks, footNote: 'every dated entry in the Trip Register workbook',
   });
 }
@@ -796,70 +838,3 @@ export function ownerBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {}) 
   return cardSvg({ what: "Owner's daily insight", tag: 'DAILY INSIGHT', name: dMonY(b.date), sub: 'what moved yesterday, what needs you today', asOn, images, fontCss, blocks });
 }
 
-// each vehicle's trip: the loading and the diesel slips (brief.js vehicleTrips())
-export function vehicleTripsPagesSvg(list, { date = '', asOn = '', images = {}, fontCss = '' } = {}) {
-  const blocks = [];
-  for (const v of list) {
-    const vb = [];                                          // a truck's blocks: kept together on one page
-    // the truck: plate, driver, trip and route, on the road or its last trip
-    vb.push(block(92, (x, y, w) => {
-      const plate = plateText(v.veh);
-      const pw = textWidth(plate, 21, 800) + 34;
-      const status = v.onTrip ? 'ON THE ROAD' : 'LAST TRIP';
-      const sw = textWidth(status, 14, 700) + 28;
-      return `${R(x, y + 8, w, 76, { rx: 18, opacity: 0.06, stroke: '#fff', strokeOpacity: 0.12 })}
-${R(x + 18, y + 26, pw, 40, { rx: 7, fill: '#ffcf1a', stroke: '#111' })}${T(x + 18 + pw / 2, y + 54, plate, { size: 21, weight: 800, fill: '#111', anchor: 'middle', spacing: 1.5 })}
-${T(x + pw + 40, y + 42, v.driver || 'No driver set', { size: 21, weight: 800, max: w - pw - sw - 90 })}
-${T(x + pw + 40, y + 68, v.trip ? `${v.trip}  ·  ${v.port || '?'} → ${v.dest || '?'}` : 'No trip yet', { size: 16, fill: C.muted, max: w - pw - sw - 90 })}
-${R(x + w - 18 - sw, y + 30, sw, 32, { rx: 16, fill: v.onTrip ? C.amber : '#fff', opacity: 0.14, stroke: v.onTrip ? C.amber : '#fff', strokeOpacity: 0.4 })}${T(x + w - 18 - sw / 2, y + 51, status, { size: 14, weight: 700, fill: v.onTrip ? C.amber : C.muted, anchor: 'middle', spacing: 1.2 })}`;
-    }, { keep: true }));
-    if (!v.trip) { vb.push(gap(22)); blocks.push(together(vb)); continue; }
-    // the loading, in five cells
-    const L = v.load;
-    vb.push(block(100, (x, y, w) => {
-      let out = R(x, y + 8, w, 82, { rx: 16, opacity: 0.035 });
-      if (!L) return `${out}${T(x + 22, y + 40, 'LOADING', { size: 13, weight: 700, fill: C.faint, spacing: 1.5 })}${T(x + 22, y + 72, `Not loaded yet${v.start ? `  ·  left ${dMon(v.start)}` : ''}`, { size: 20, weight: 700, fill: C.warn })}`;
-      const cells = [['LOADED', `${dMon(L.date)}`, L.port], ['NET', tonnes(L.net), ''], ['GROSS', L.gross ? tonnes(L.gross) : '—', ''], ['RATE', L.rate ? `₹${ind(L.rate)}/T` : '—', ''], ['FREIGHT', L.freight ? rupees(L.freight) : '—', '']];
-      const cw = w / cells.length;
-      cells.forEach(([k, val, sub], i) => {
-        const cx = x + i * cw + 22;
-        if (i) out += R(x + i * cw, y + 22, 1.5, 54, { opacity: 0.1 });
-        out += `${T(cx, y + 36, k, { size: 13, weight: 700, fill: C.faint, spacing: 1.5 })}${T(cx, y + 66, val, { size: 22, weight: 800, max: cw - 30 })}${sub ? T(cx + textWidth(val, 22, 800) + 10, y + 66, sub, { size: 15, fill: C.muted, max: cw - 40 - textWidth(val, 22, 800) }) : ''}`;
-      });
-      return out;
-    }, { keep: true }));
-    // the diesel slips
-    if (v.slips.length) {
-      const counted = v.slips.filter((s) => !s.incentive).length;
-      vb.push(...table(
-        [{ label: 'Date', at: 18 }, { label: 'Pump', at: 140, max: 150 }, { label: 'Slip no.', at: 310, max: 170 }, { label: 'Place', at: 500, max: 210 }, { label: 'Litres', at: -420, align: 'end' }, { label: '₹ / L', at: -230, align: 'end' }, { label: 'Amount', at: -18, align: 'end' }],
-        v.slips.map((s) => ({ cells: [
-          { text: dMon(s.date), color: s.incentive ? C.muted : C.ink },
-          { text: s.incentive ? 'Incentive' : s.pump || 'Pump', weight: 700, color: s.incentive ? C.muted : C.ink },
-          { text: s.incentive ? 'not counted' : s.bill || '—', weight: 400, color: s.incentive ? C.muted : C.ink },
-          { text: s.place || '—', weight: 400, color: s.incentive ? C.muted : C.ink },
-          { text: ind(s.litres, s.litres % 1 ? 2 : 0), color: s.incentive ? C.muted : C.ink },
-          { text: s.rsp ? s.rsp.toFixed(2) : '—', weight: 400, color: s.incentive ? C.muted : C.ink },
-          { text: rupees(s.amount), weight: 800, color: s.incentive ? C.muted : C.ink },
-        ] })),
-        { total: [plural(counted, 'slip'), '', '', '', ind(v.litres, v.litres % 1 ? 2 : 0), '', rupees(v.amount)] },
-      ));
-    } else {
-      vb.push(note('No diesel slip entered for this trip', C.warn, 18));
-    }
-    vb.push(gap(30));
-    blocks.push(together(vb));
-  }
-  const loaded = list.filter((v) => v.load);
-  const L = list.reduce((a, v) => a + v.litres, 0);
-  return pagesSvg({
-    what: 'Each vehicle · loading & diesel slips', tag: 'EACH VEHICLE', name: dMonY(date || asOn), asOn, images, fontCss,
-    sub: 'the trip on the road — else the last one',
-    tiles: [
-      { label: 'Vehicles', value: String(list.length), sub: `${list.filter((v) => v.onTrip).length} on the road`, color: C.s1 },
-      { label: 'Loaded', value: loaded.length ? `${loaded.length} · ${ind(loaded.reduce((a, v) => a + v.load.net, 0), 1)} T` : '—', sub: loaded.length ? `freight ${rupees(loaded.reduce((a, v) => a + (v.load.freight || 0), 0))}` : 'none loaded', color: C.s3 },
-      { label: 'Diesel slips', value: String(list.reduce((a, v) => a + v.slips.filter((s) => !s.incentive).length, 0)), sub: `${ind(L)} L · ${rupees(list.reduce((a, v) => a + v.amount, 0))}`, color: C.s4 },
-    ],
-    blocks, footNote: 'Trip Register and HSD Data',
-  });
-}

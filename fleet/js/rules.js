@@ -182,8 +182,8 @@ export function driverCheck(data, settings, today = null) {
 
 // ---- fastag / tyre: the monthly SSFC charges ---------------------------------------------
 // Each vehicle is charged once a month (on one of its trips). A month is out
-// of trend when its charge, per trip run that month (per km once distances are
-// set), is well above the fleet's that month AND above the vehicle's own last
+// of trend when its charge, per km run that month (its trips' round trips —
+// RTD — added up; per trip until distances are set), is well above the fleet's that month AND above the vehicle's own last
 // six months; or well below both (often a charge not booked yet); or booked
 // twice in a month.
 // basis: what the charge grows with when distances aren't set — fastag with
@@ -212,7 +212,10 @@ export function monthlyCharges(data, settings, key, kms = null) {
       cell[v][m] = { veh: v, month: m, amount: entries.reduce((a, t) => a + t[key], 0), entries, trips: trips.length, km };
     }
   }
-  const useKm = months.every((m) => included.every((v) => !cell[v][m].trips || cell[v][m].km != null)) && included.some((v) => months.some((m) => cell[v][m].km));
+  // per km once nearly every vehicle-month's km is known (its trips' round trips added up); a month
+  // with a trip of unknown distance then isn't judged
+  const run = included.flatMap((v) => months.map((m) => cell[v][m])).filter((c) => c.trips);
+  const useKm = run.length > 0 && run.filter((c) => c.km != null).length >= 0.9 * run.length;
   const basis = useKm ? 'km' : rule.basis;
   const units = (c) => (basis === 'km' ? c.km : basis === 'trips' ? c.trips : c.trips || c.amount ? 1 : 0);
   const peer = {};

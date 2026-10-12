@@ -125,3 +125,23 @@ test('the Rates sheet\'s round trip (RTD/Trip in Km) gives each trip its km unle
   assert.equal(tripKms(data, withDefaults({ routes: [{ port: 'Kakinada', dest: 'BALCO', km: 800 }] })).get(4).km, 1600);  // Setup's one-way 800 loaded + 800 empty back to the port
   assert.equal(routeFor(data, withDefaults({}), 'Kakinada', 'BALCO').rtd, 1800);
 });
+
+test('tyre and fastag go by the km each vehicle runs a month: its trips\' RTD added up', () => {
+  row = 3;
+  const months = ['2025-06', '2025-07', '2025-08', '2025-09', '2025-10', '2025-11'];
+  const trips = [];
+  for (const veh of ['XX1001', 'XX1002', 'XX1003']) {
+    months.forEach((m) => {
+      const n = veh === 'XX1003' && m === '2025-11' ? 1 : 3;              // ran a third as much that month
+      for (let i = 0; i < n; i++) trips.push(trip({ veh, month: m, tyre: i === 0 ? (n === 1 ? 9000 : 27000) : undefined }));
+    });
+  }
+  const data = { trips, rates: [{ ...rates[0], rtd: 1800 }] };
+  const c = monthlyCharges(data, withDefaults({}), 'tyre', tripKms(data, withDefaults({})));
+  assert.equal(c.basis, 'km');
+  assert.equal(c.cell.XX1001['2025-08'].km, 5400);                         // 3 trips × 1,800 km
+  assert.equal(c.cell.XX1001['2025-08'].rate, 5);                          // ₹27,000 ÷ 5,400 km
+  assert.equal(c.cell.XX1003['2025-11'].km, 1800);
+  assert.equal(c.cell.XX1003['2025-11'].rate, 5);                          // a third the charge on a third the running: in trend
+  assert.ok(!c.flags.some((f) => f.veh === 'XX1003'));
+});
