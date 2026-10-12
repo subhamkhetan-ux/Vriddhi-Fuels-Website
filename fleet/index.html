@@ -663,7 +663,7 @@ ul.brief li.tone-info span { color: var(--ink); }
 .greet-row .greet-dates { margin-top: 6px; font-size: 13.5px; }
 .road-line { margin: 4px 0 10px; font-weight: 600; color: var(--muted); }
 .road-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 8px; }
-.road-row { display: grid; gap: 5px; padding: 11px 13px 11px 16px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); color: var(--ink); position: relative; overflow: hidden; }
+.road-row { display: grid; gap: 4px; padding: 10px 12px 10px 15px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); color: var(--ink); position: relative; overflow: hidden; }
 .road-row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--good); }
 .road-row.behind::before { background: var(--warn); } .road-row.late::before { background: var(--bad); } .road-row.idle::before { background: var(--faint); }
 .road-row:hover { text-decoration: none; border-color: var(--accent); }
@@ -730,7 +730,7 @@ table.dk-table { margin: 0; width: 100%; }
 table.dk-table th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); padding: 8px 12px 6px; }
 table.dk-table td { padding: 8px 12px; vertical-align: top; font-variant-numeric: tabular-nums; }
 table.dk-table td small { font-size: 12px; }
-table.dk-table td.r, table.dk-table th.r { white-space: nowrap; }
+table.dk-table td.r, table.dk-table th.r, table.dk-table td:first-child { white-space: nowrap; }
 table.dk-table tbody tr + tr td { border-top: 1px solid var(--glass-line-soft); }
 table.dk-table tfoot td { font-weight: 800; border-top: 1.5px solid var(--glass-line); background: var(--glass); }
 table.dk-table tr.dk-muted td { opacity: .6; }
@@ -742,6 +742,19 @@ table.dk-table tr.dk-muted td { opacity: .6; }
 .day-trucks > summary h3, .brief-card > summary h3 { margin: 0; color: var(--ink); }
 .brief-share { margin-top: 10px; }
 .vsh-slips { margin-top: 12px; }
+.vsh-prev { border: 1px solid var(--glass-line-soft); border-radius: 14px; overflow: hidden; }
+.vp-row { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; padding: 9px 12px; font-variant-numeric: tabular-nums; }
+.vp-row > span:not(:first-child) { text-align: right; }
+.vp-row small { display: block; font-size: 11.5px; color: var(--muted); }
+.vp-head { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); background: var(--glass); }
+.vp + .vp, .vp-head + .vp { border-top: 1px solid var(--glass-line-soft); }
+.vp > summary { cursor: pointer; list-style: none; color: var(--ink); font-size: 14px; }
+.vp > summary::-webkit-details-marker { display: none; }
+.vp > summary > span:first-child b::after { content: " ▸"; color: var(--faint); font-weight: 400; }
+.vp[open] > summary > span:first-child b::after { content: " ▾"; }
+.vp[open] > summary { background: var(--glass); }
+.vp .vsh-slips { margin: 0 10px 6px; }
+.vp-link { margin: 4px 12px 10px; font-size: 13px; }
 .day-veh-table tbody tr { cursor: pointer; } .day-veh-table tbody tr:hover td, .day-veh-table tbody tr:focus td { background: var(--panel2); }
 .center-p { text-align: center; }
 @media (max-width: 640px) {

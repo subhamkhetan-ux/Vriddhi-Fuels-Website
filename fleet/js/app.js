@@ -809,11 +809,19 @@ function vehicleSheet(veh) {
   const fills = trip ? d.hsd.filter((h) => h.veh === veh && h.trip === trip.trip).sort((a, b) => (a.date < b.date ? -1 : 1)) : [];
   const isInc = (h) => /^extra filling$/i.test(String(h.source || '').trim());
   const mine = d.trips.filter((t) => t.veh === veh).sort((a, b) => a.row - b.row);
-  const earlier = trip ? mine.filter((t) => t.row < trip.row).slice(-4).reverse().map((t) => x.tripDiesel.get(t.row)).filter(Boolean) : [];
+  const earlier = trip ? mine.filter((t) => t.row < trip.row).slice(-8).reverse().map((t) => x.tripDiesel.get(t.row)).filter(Boolean) : [];
   const info = trip ? x.drivers.tripInfo(trip) : null;
   const who = driverNow(veh);
   const sum = (xs, f) => xs.reduce((a, h) => a + (f(h) || 0), 0);
   const sl = (n) => `${n > 0.5 ? '+' : n < -0.5 ? '−' : ''}${L1(n)}`;
+  // a trip's diesel slips: date, slip no. (place, ₹/L), litres, amount — incentive greyed and not counted
+  const slipTable = (list) => {
+    const counted = list.filter((h) => !isInc(h));
+    return `<div class="dk vsh-slips" style="--k:var(--s-4)"><div class="table-wrap"><table class="compact dk-table"><thead><tr><th>Date</th><th>Slip</th><th class="r">Litres</th><th class="r">Amount</th></tr></thead><tbody>
+      ${list.map((h) => `<tr${isInc(h) ? ' class="dk-muted"' : ''}><td>${dm(h.date)}</td><td>${isInc(h) ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(h.bill || h.source || 'Pump')}</b>`}<small class="block muted">${esc([h.bill && h.source && !h.bill.toLowerCase().includes(String(h.source).toLowerCase()) && !isInc(h) ? h.source : '', h.location, h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}</small></td><td class="r"><b>${indian(h.qty, h.qty % 1 ? 2 : 0)}</b></td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="2">${plural(counted.length, 'slip')}</td><td class="r">${indian(sum(counted, (h) => h.qty))}</td><td class="r">${rupees(sum(counted, (h) => h.amount))}</td></tr></tfoot></table></div></div>`;
+  };
+  const bySlipDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   document.querySelector('.veh-sheet-wrap')?.remove();
   const wrap = document.createElement('div');
   wrap.className = 'share-sheet veh-sheet-wrap';
@@ -824,12 +832,15 @@ function vehicleSheet(veh) {
     ${trip ? `<h4 class="vsh-h">Diesel · ${esc(trip.trip)}${s.trip ? '' : ' <span class="muted small">(last trip)</span>'}</h4>
     ${mf ? `<div class="todo warn">⛽ ${esc(mf.text)}.</div>` : ''}
     ${z && z.allotted != null ? dieselBarHtml(z) : z ? dieselPanelHtml(z) : '<p class="muted small">This trip is before the diesel recon starts.</p>'}
-    ${fills.length ? `<div class="dk vsh-slips" style="--k:var(--s-4)"><div class="table-wrap"><table class="compact dk-table"><thead><tr><th>Date</th><th>Slip</th><th class="r">Litres</th><th class="r">Amount</th></tr></thead><tbody>
-      ${fills.map((h) => `<tr${isInc(h) ? ' class="dk-muted"' : ''}><td>${dm(h.date)}</td><td>${isInc(h) ? '<b>Incentive</b> <span class="muted">· not counted</span>' : `<b>${esc(h.bill || h.source || 'Pump')}</b>`}<small class="block muted">${esc([h.bill && h.source && !h.bill.toLowerCase().includes(String(h.source).toLowerCase()) && !isInc(h) ? h.source : '', h.location, h.rsp ? `₹${h.rsp.toFixed(2)}/L` : ''].filter(Boolean).join(' · '))}</small></td><td class="r"><b>${indian(h.qty, h.qty % 1 ? 2 : 0)}</b></td><td class="r">${rupees(h.amount)}</td></tr>`).join('')}
-    </tbody><tfoot><tr><td colspan="2">${plural(fills.filter((h) => !isInc(h)).length, 'slip')}</td><td class="r">${indian(sum(fills.filter((h) => !isInc(h)), (h) => h.qty))}</td><td class="r">${rupees(sum(fills.filter((h) => !isInc(h)), (h) => h.amount))}</td></tr></tfoot></table></div></div>` : '<p class="muted small">No diesel slip tagged to this trip in HSD Data yet.</p>'}` : '<p class="muted">No trip yet.</p>'}
-    ${earlier.length ? `<h4 class="vsh-h">Trips before</h4><div class="table-wrap"><table class="compact"><thead><tr><th>Trip</th><th class="r">Allotted</th><th class="r">Taken</th><th class="r">Balance</th></tr></thead><tbody>
-      ${earlier.map((e) => `<tr><td><a href="#/trip/${e.t.row}">${esc(e.t.trip)}</a><small class="muted block">${dm(e.t.loadDate || e.t.start)} · ${plural(e.fills.length, 'slip')}</small></td><td class="r">${e.allotted != null ? L1(e.allotted) : '—'}</td><td class="r ${e.allotted != null && e.taken - e.allotted > 0.5 ? 'bad-text' : ''}">${L1(e.taken)}</td><td class="r"><b class="${e.after < -0.5 ? 'bad-text' : ''}">${sl(e.after)}</b></td></tr>`).join('')}
-    </tbody></table></div>` : ''}
+    ${fills.length ? slipTable(fills) : '<p class="muted small">No diesel slip tagged to this trip in HSD Data yet.</p>'}` : '<p class="muted">No trip yet.</p>'}
+    ${earlier.length ? `<h4 class="vsh-h">Trips before <span class="muted small">tap a trip for its diesel slips</span></h4>
+    <div class="vsh-prev"><div class="vp-row vp-head"><span>Trip</span><span>Allotted</span><span>Taken</span><span>Balance</span></div>
+      ${earlier.map((e) => { const slips = [...e.fills, ...e.incentiveFills].sort(bySlipDate); const over = e.allotted != null && e.taken - e.allotted > 0.5; return `<details class="vp">
+        <summary class="vp-row"><span><b>${esc(e.t.trip)}</b><small>${dm(e.t.loadDate || e.t.start)} · ${plural(e.fills.length, 'slip')}</small></span><span>${e.allotted != null ? L1(e.allotted) : '—'}</span><span class="${over ? 'bad-text' : ''}">${L1(e.taken)}${e.allotted != null ? `<small class="${over ? 'bad-text' : 'good-text'}">${sl(e.allotted - e.taken)}</small>` : ''}</span><span><b class="${e.after < -0.5 ? 'bad-text' : e.after > 0.5 ? 'good-text' : ''}">${sl(e.after)}</b></span></summary>
+        ${slips.length ? slipTable(slips) : '<p class="muted small">No diesel slip tagged to this trip.</p>'}
+        <p class="vp-link"><a href="#/trip/${e.t.row}">Open ${esc(e.t.trip)} →</a></p>
+      </details>`; }).join('')}
+    </div>` : ''}
     ${info && info.paid.length ? `<h4 class="vsh-h">Advances this trip</h4><ul class="brief">${info.paid.map((p) => `<li>${fmtDate(p.date)} · ${rupees(p.amount)} to ${esc(p.name)}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</li>`).join('')}</ul>` : ''}
   </div>`;
   document.body.append(wrap);
