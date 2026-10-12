@@ -9,7 +9,7 @@ import {
 import { bindCharts, groupedBars, legend, lineChart, setChartWidth, signedBars, stackedBars } from './charts.js';
 import { monthlyTrend, PARTS, rateChanges, rateEras, routes as trendRoutes, summary as trendSummary } from './trends.js';
 import {
-  CHARGE_RULES, defaultSettings, driverCheck, monthlyCharges, routeFor, routePairs, tripKms, vehicleFlags, withDefaults,
+  CHARGE_RULES, defaultSettings, driverCheck, monthlyCharges, tyreBill, routeFor, routePairs, tripKms, vehicleFlags, withDefaults,
 } from './rules.js';
 import { demoData } from './demo.js';
 import { bookFromSheetJS, extractFleet } from './parse.js';
@@ -541,6 +541,7 @@ function derived() {
       perfAll: performance(d, today()),
       liveTrips: liveTrips(d, set, today()),
       charges: { fastag: monthlyCharges(d, set, 'fastag', kms), tyre: monthlyCharges(d, set, 'tyre', kms) },
+      get tyreBill() { return this._tb || (this._tb = tyreBill(this.charges.tyre, set)); },
     };
     cache = { data: d, rev: state.rev, x };
   }
@@ -649,10 +650,11 @@ async function viewHome() {
     for (const sp of overpaid) todo.unshift({ kind: 'warn', href: `#/drivers/${encodeURIComponent(sp.veh)}`, text: `${shortVeh(sp.veh)}: ${sp.name ? `driver ${sp.name}` : 'driver'} overpaid ${rupees(sp.balance)} (salary − your advances vs what SSFC paid)` });
   }
   const since = addMonths(monthOf(today()), -3);
-  for (const key of ['tyre', 'fastag']) {
-    const recent = charges[key].flags.filter((f) => f.month >= since && f.kind !== 'low');
-    if (recent.length) todo.push({ kind: 'warn', href: `#/costs/${key}`, text: `${CHARGE_RULES[key].name}: ${plural(recent.length, 'charge')} out of the usual trend in the last 3 months` });
-  }
+  const tb = derived().tyreBill;
+  const offBill = tb.cells.filter((x) => x.month >= since && (x.status === 'over' || x.status === 'twice' || x.status === 'unbilled'));
+  if (offBill.length) todo.push({ kind: 'warn', href: '#/costs/tyre', text: `Tyre bill: ${plural(offBill.length, 'month')} in the last 3 months off ₹${tb.perKm.toFixed(2)} a km (${offBill.map((x) => `${shortVeh(x.veh)} ${monthName(x.month)} ${x.status === 'unbilled' ? 'not billed' : x.status === 'twice' ? 'billed twice' : `+${rupees(x.diff)}`}`).slice(0, 4).join(', ')})` });
+  const recentFastag = charges.fastag.flags.filter((f) => f.month >= since && f.kind !== 'low');
+  if (recentFastag.length) todo.push({ kind: 'warn', href: '#/costs/fastag', text: `Fastag: ${plural(recentFastag.length, 'charge')} out of the usual trend in the last 3 months` });
   if (drivers.missing.length) todo.push({ kind: 'info', href: '#/setup', text: `Driver salary not set for ${drivers.missing.map((m) => m.route).join(', ')} — set it in Setup to check driver pay` });
   if (![...kms.values()].some((k) => k.km)) todo.push({ kind: 'info', href: '#/setup', text: 'Add each route\'s round trip (RTD/Trip in Km) to the Rates sheet, or its distance in Setup, to see km, mileage and cost per km' });
   const onTrip = status.filter((s) => s.state !== 'idle');
@@ -2228,6 +2230,8 @@ async function viewCharges(key) {
     </div>
     ${c.excluded.length ? `<p class="small muted">Not in this analysis: <b>${c.excluded.map((v) => esc(shortVeh(v))).join(', ')}</b>${c.excluded.some((v) => months.some((m) => c.cell[v][m].amount)) ? ` (charged ${rupees(c.excluded.reduce((a, v) => a + months.reduce((b, m) => b + c.cell[v][m].amount, 0), 0))} in these months)` : ''} · <a href="#/setup">change in Setup</a></p>` : ''}
 
+    ${key === 'tyre' ? tyreBillHtml(months) : ''}
+
     <h3 class="sub-h">Out of the usual trend</h3>
     ${flags.length ? `<div class="todos">${flags.map((f) => `<a class="todo ${f.kind === 'low' ? 'info' : 'warn'}" href="${f.cell.entries[0] ? `#/trip/${f.cell.entries[0].row}` : `#/vehicle/${encodeURIComponent(f.veh)}`}">
       <b>${icon[f.kind]} ${esc(f.veh)} · ${monthLong(f.month)}</b> — ${flagText(f)} <small class="muted">${plural(f.cell.trips, 'trip')}${f.cell.km ? ` · ${indian(f.cell.km)} km` : ''}</small></a>`).join('')}</div>`
@@ -2258,6 +2262,44 @@ async function viewCharges(key) {
   </section>`);
   bindPeriod(main());
   bindCharts(main());
+}
+
+// SSFC's tyre bill against rate × tyres × km run + GST, for the months shown
+function tyreBillHtml(months) {
+  const B = derived().tyreBill;
+  if (!B.perKm) return `<p class="muted small">Set the tyre rate, GST and tyres per vehicle in <a href="#/setup">Setup</a> to check SSFC's tyre bills.</p>`;
+  const inM = B.cells.filter((x) => months.includes(x.month));
+  const T = B.sum(inM);
+  const off = inM.filter((x) => ['over', 'under', 'unbilled', 'twice'].includes(x.status)).sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0) || String(a.veh).localeCompare(String(b.veh)));
+  const n = (st) => inM.filter((x) => x.status === st).length;
+  const sgn = (v) => `${v > 0.5 ? '+' : v < -0.5 ? '−' : ''}${rupees(Math.abs(v))}`;
+  const pc = (p) => (p == null ? '' : `${p > 0 ? '+' : p < 0 ? '−' : ''}${Math.abs(p * 100).toFixed(1)}%`);
+  const cellOf = (v, m) => inM.find((x) => x.veh === v && x.month === m);
+  const why = (x) => (x.status === 'unbilled' ? `no tyre charge booked for ${indian(x.km)} km run — should be about ${rupees(x.expected)}`
+    : x.status === 'twice' ? `booked ${x.entries.length} times (${x.entries.map((t) => rupees(t.tyre)).join(' + ')}) = ${rupees(x.charged)} for ${indian(x.km)} km — should be ${rupees(x.expected)}`
+      : `charged ${rupees(x.charged)} for ${indian(x.km)} km run — should be ${rupees(x.expected)} (₹${B.perKm.toFixed(2)} × ${indian(x.km)} km): ${sgn(x.diff)} (${pc(x.pct)}). The bill pays for ${indian(x.ssfcKm)} km`);
+  return `<div class="tb-box">
+    <h3 class="sub-h">Bill check <span class="muted small">₹${esc(B.rate)} a tyre a km × ${esc(B.tyres)} tyres + ${esc(B.gst)}% GST = <b>₹${B.perKm.toFixed(2)} a km</b> run · <a href="#/setup">change</a></span></h3>
+    <div class="kpis">
+      <div class="kpi"><span class="lbl">Should be</span><span class="val">${money(T.expected)}</span><span class="sub">${indian(T.km)} km run (RTD) · ${plural(T.n, 'vehicle-month')}</span></div>
+      <div class="kpi"><span class="lbl">Charged</span><span class="val">${money(T.charged)}</span><span class="sub">on those months</span></div>
+      <div class="kpi ${T.diff > 0.5 ? 'warn' : ''}"><span class="lbl">Difference</span><span class="val ${T.diff > 0.5 ? 'bad-text' : 'good-text'}">${sgn(T.diff)}</span><span class="sub">${pc(T.pct)} ${T.diff > 0.5 ? 'more than the rate' : 'under the rate'}</span></div>
+      <div class="kpi ${n('over') + n('twice') ? 'warn' : ''}"><span class="lbl">Months to check</span><span class="val">${off.length}</span><span class="sub">${n('over')} over · ${n('under')} under · ${n('unbilled')} not billed${n('twice') ? ` · ${n('twice')} twice` : ''}</span></div>
+    </div>
+    <div class="table-wrap"><table class="compact tb-grid"><thead><tr><th>Truck</th>${months.map((m) => `<th class="r">${monthName(m)}</th>`).join('')}<th class="r">Total</th></tr></thead><tbody>
+      ${derived().charges.tyre.included.map((v) => `<tr><td><a href="#/vehicle/${encodeURIComponent(v)}"><b>${esc(shortVeh(v))}</b></a></td>${months.map((m) => {
+    const x = cellOf(v, m);
+    if (!x) return '<td></td>';
+    if (x.status === 'unknown') return `<td class="r muted small" title="a trip without its distance">${x.charged ? rupees(x.charged) : '—'}<small class="block">km?</small></td>`;
+    if (x.status === 'pending') return `<td class="r muted small" title="this month isn't billed yet">—<small class="block">${indian(x.km)} km</small></td>`;
+    const tip = `${v} · ${monthLong(m)}: ${x.charged ? `charged ${rupees(x.charged)}` : 'not billed'} · should be ${rupees(x.expected)} for ${indian(x.km)} km${x.ssfcKm ? ` · the bill pays for ${indian(x.ssfcKm)} km` : ''}`;
+    return `<td class="r tb-${x.status}" title="${esc(tip)}"><b>${x.status === 'unbilled' ? 'not billed' : sgn(x.diff)}</b><small class="block">${x.status === 'unbilled' ? `${indian(x.km)} km` : `${pc(x.pct)} · ${indian(x.km)} km`}</small></td>`;
+  }).join('')}<td class="r">${(() => { const t = B.sum(inM.filter((x) => x.veh === v)); const lim = (Number(B.tolerance) || 0) / 100; return `<b class="${t.pct > lim ? 'bad-text' : t.pct < -lim ? 'info-text' : ''}">${sgn(t.diff)}</b><small class="block muted">${pc(t.pct)}</small>`; })()}</td></tr>`).join('')}
+      <tr class="foot"><td>Fleet</td>${months.map((m) => { const t = B.sum(inM.filter((x) => x.month === m)); return `<td class="r small">${t.n ? sgn(t.diff) : '—'}</td>`; }).join('')}<td class="r small">${sgn(T.diff)}</td></tr>
+    </tbody></table></div>
+    <p class="muted small">Each box: what SSFC charged minus what ₹${B.perKm.toFixed(2)} a km gives for the km the truck ran that month (its trips' round trips). <span class="tb-key tb-over">over by more than ${esc(B.tolerance)}%</span> <span class="tb-key tb-under">under by more than ${esc(B.tolerance)}%</span> <span class="tb-key tb-ok">within ${esc(B.tolerance)}%</span>. SSFC's own km can differ a little from the round trips — “the bill pays for” shows the km a bill works out to.</p>
+    ${off.length ? `<h3 class="sub-h">Months to check</h3><div class="todos">${off.slice(0, 12).map((x) => `<a class="todo ${x.status === 'under' ? 'info' : 'warn'}" href="${x.entries[0] ? `#/trip/${x.entries[0].row}` : `#/vehicle/${encodeURIComponent(x.veh)}`}"><b>${esc(shortVeh(x.veh))} · ${monthLong(x.month)}</b> — ${esc(why(x))}</a>`).join('')}</div>${off.length > 12 ? `<p class="muted small">…and ${off.length - 12} more.</p>` : ''}` : '<p class="good-text">✓ Every tyre bill in these months is within the rate.</p>'}
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2312,6 +2354,18 @@ async function viewSetup() {
     </section>
 
     <section class="card">
+      <h2>Tyre bill</h2>
+      <p class="muted small">SSFC charges tyres per tyre per km run, plus GST. The Tyre tab checks each month's bill against this for every vehicle in the tyre analysis.</p>
+      <div class="row-form">
+        <label>Rate (₹ a tyre a km) <input id="tb-rate" inputmode="decimal" value="${esc(draft.tyreBill.rate)}"></label>
+        <label>GST % <input id="tb-gst" inputmode="decimal" value="${esc(draft.tyreBill.gst)}"></label>
+        <label>Tyres per vehicle <input id="tb-tyres" inputmode="numeric" value="${esc(draft.tyreBill.tyres)}"></label>
+        <label>Flag a bill off by more than (%) <input id="tb-tol" inputmode="decimal" value="${esc(draft.tyreBill.tolerance)}"></label>
+      </div>
+      <p class="muted small">= ₹<span id="tb-per">${((Number(draft.tyreBill.rate) || 0) * (Number(draft.tyreBill.tyres) || 0) * (1 + (Number(draft.tyreBill.gst) || 0) / 100)).toFixed(2)}</span> a km run.</p>
+    </section>
+
+    <section class="card">
       <h2>Driver pay</h2>
       <label class="radio"><input type="checkbox" id="opt-extra"${draft.driver.extraIsAdvance ? ' checked' : ''}> Count “Extra Own Driver Pay” as an advance out of the salary (leave unticked: it's the extra promised for those trips, paid on top and settled)</label>
       <label class="radio"><input type="checkbox" id="opt-debit"${draft.driver.debitCounts ? ' checked' : ''}> “Driver Debit” is money the driver owes back (counts against him)</label>
@@ -2360,6 +2414,12 @@ async function viewSetup() {
     });
     box.querySelectorAll('[data-veh]').forEach((c) => c.addEventListener('change', () => {
       draft.vehicles[c.dataset.veh] = { ...vehicleFlags(draft, c.dataset.veh), [c.dataset.f]: c.checked };
+    }));
+    [['tb-rate', 'rate'], ['tb-gst', 'gst'], ['tb-tyres', 'tyres'], ['tb-tol', 'tolerance']].forEach(([id, k]) => box.querySelector(`#${id}`).addEventListener('input', (e) => {
+      const v = num(e.target.value);
+      draft.tyreBill[k] = v === '' ? 0 : v;
+      const T = draft.tyreBill;
+      box.querySelector('#tb-per').textContent = ((Number(T.rate) || 0) * (Number(T.tyres) || 0) * (1 + (Number(T.gst) || 0) / 100)).toFixed(2);
     }));
     box.querySelector('#opt-extra').addEventListener('change', (e) => { draft.driver.extraIsAdvance = e.target.checked; });
     box.querySelector('#opt-debit').addEventListener('change', (e) => { draft.driver.debitCounts = e.target.checked; });

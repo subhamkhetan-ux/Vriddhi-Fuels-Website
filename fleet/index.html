@@ -73,7 +73,7 @@ code, pre { font-family: var(--mono); font-size: 13px; }
 code { background: var(--glass-2); border: 1px solid var(--glass-line-soft); padding: 1px 6px; border-radius: 6px; }
 pre.code { background: rgba(0,0,0,.35); border: 1px solid var(--glass-line); padding: 12px 14px; border-radius: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
 .muted { color: var(--muted); } .faint { color: var(--faint); } .small { font-size: 13px; }
-.good-text { color: var(--good); } .warn-text { color: var(--warn); } .bad-text { color: var(--bad); }
+.good-text { color: var(--good); } .warn-text { color: var(--warn); } .bad-text { color: var(--bad); } .info-text { color: var(--info); }
 .nowrap { white-space: nowrap; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
@@ -710,6 +710,17 @@ ul.brief li.tone-info span { color: var(--ink); }
   .chips.scroll-sm::-webkit-scrollbar { display: none; }
   .chips.scroll-sm .chip { flex: none; }
 }
+/* tyre bill check */
+.tb-box { margin: 6px 0 14px; padding: 4px 0 2px; }
+table.tb-grid td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.tb-grid td small { font-size: 11px; color: var(--muted); }
+td.tb-over { background: var(--bad-bg); } td.tb-over b { color: var(--bad); }
+td.tb-twice { background: var(--bad-bg); } td.tb-twice b { color: var(--bad); }
+td.tb-unbilled { background: var(--warn-bg); } td.tb-unbilled b { color: var(--warn); }
+td.tb-under { background: var(--info-bg); } td.tb-under b { color: var(--info); }
+td.tb-ok b { color: var(--good); }
+.tb-key { display: inline-block; padding: 1px 7px; border-radius: 6px; margin: 0 2px; }
+.tb-key.tb-over { background: var(--bad-bg); color: var(--bad); } .tb-key.tb-under { background: var(--info-bg); color: var(--info); } .tb-key.tb-ok { color: var(--good); }
 /* day book */
 .day-top .chips.period { margin-top: 10px; }
 .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 6px; border-radius: 12px; background: var(--well); }
