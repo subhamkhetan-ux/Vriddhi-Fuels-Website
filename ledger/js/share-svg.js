@@ -169,7 +169,7 @@ function companiesBlock(x, y, w, cw) {
   for (const c of cw.list) {
     out += `${R(x, yy, w, 74, { rx: 18, opacity: 0.05, stroke: '#fff', strokeOpacity: 0.09 })}
 ${T(x + 24, yy + 32, c.name, { size: 21, weight: 700, max: w * 0.55 })}
-${T(x + 24, yy + 58, `${c.bills} bill${c.bills === 1 ? '' : 's'} · billed ${rupees(c.billed)} · received ${rupees(c.received)}${c.deductions ? ` · TDS/short ${rupees(c.deductions)}` : ''}`, { size: 15, fill: C.muted, max: w * 0.62 })}
+${T(x + 24, yy + 58, `${c.opening ? `opening ${drCr(c.opening)} · ` : ''}${c.bills} bill${c.bills === 1 ? '' : 's'} · billed ${rupees(c.billed)} · received ${rupees(c.received)}${c.deductions ? ` · TDS/short ${rupees(c.deductions)}` : ''}`, { size: 15, fill: C.muted, max: w * 0.62 })}
 ${R(x + w * 0.66, yy + 47, w * 0.34 - 24, 6, { rx: 3, opacity: 0.08 })}${R(x + w * 0.66, yy + 47, Math.max(4, (w * 0.34 - 24) * (Math.abs(c.outstanding) / max)), 6, { rx: 3, fill: c.outstanding >= 0 ? C.warn : C.good, opacity: 0.85 })}
 ${T(x + w - 24, yy + 34, drCr(c.outstanding), { size: 23, weight: 800, anchor: 'end', fill: c.outstanding < 0 ? C.good : C.ink })}`;
     yy += 84;
@@ -179,7 +179,7 @@ ${T(x + w - 24, yy + 34, drCr(c.outstanding), { size: 23, weight: 800, anchor: '
     yy += 36;
   }
   if (Math.round(cw.opening)) {
-    out += `${T(x + 24, yy + 22, 'Opening balance of the group', { size: 17, fill: C.muted })}${T(x + w - 24, yy + 22, drCr(cw.opening), { size: 19, weight: 700, anchor: 'end', fill: cw.opening < 0 ? C.good : C.ink })}`;
+    out += `${T(x + 24, yy + 22, cw.split ? 'Opening not split by company' : 'Opening balance of the group', { size: 17, fill: C.muted })}${T(x + w - 24, yy + 22, drCr(cw.opening), { size: 19, weight: 700, anchor: 'end', fill: cw.opening < 0 ? C.good : C.ink })}`;
     yy += 36;
   }
   out += `${R(x, yy, w, 1.5, { opacity: 0.12 })}${T(x + 24, yy + 34, cw.totalLabel || 'Group balance', { size: 19, weight: 700 })}${T(x + w - 24, yy + 34, drCr(cw.total), { size: 23, weight: 800, anchor: 'end', fill: cw.total < 0 ? C.good : C.amber })}`;

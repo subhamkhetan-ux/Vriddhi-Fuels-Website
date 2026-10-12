@@ -69,13 +69,18 @@ on a best customer) to see their ledger as a **statement**, in the app's look:
   shortage, every member's diesel, petrol, XtraGreen, payments and Other
   Sale) with Unit, PO No., Billing Name and Remarks under each entry. A
   **group** sheet (several billing names) also gets **Company-wise
-  outstanding**: a card per company — billed, received, TDS & shortage,
-  last payment and what it owes; companies at a nil balance are left out
-  (on screen and in the pictures) with one line saying how many. The sheet's
-  opening balance belongs to the group as a whole, so opening + every company
-  = the group's balance.
+  outstanding**: a card per company — its opening, billed, received, TDS &
+  shortage, last payment and what it owes; companies at a nil balance are
+  left out (on screen and in the pictures) with one line saying how many.
+  **Each company's opening balance** comes from the **Customer GST** sheet:
+  the column of amounts the group sheet's *Opening Balance* adds up
+  (`=SUM('Customer GST'!$H$1:$H$50)` on Lakhanpur RCP, `$M$1:$M$50` on Ankita
+  Air), each amount beside the company's name in the column to its left. It
+  starts that company's statement and is its first pending bill. Any part of
+  the sheet's opening not split that way belongs to the group as a whole, so
+  that part + every company = the group's balance.
   **Statement of account per company** (as Tally's, party by party): pick a
-  company under *Statement of* to see only its bills and payments from a nil
+  company under *Statement of* to see only its bills and payments from its
   opening, with its own running balance (its closing = its company-wise
   outstanding), its balance and its own pending bills. *Share ledger* then
   offers that company, the **Whole group** or **Company-wise** (one set of

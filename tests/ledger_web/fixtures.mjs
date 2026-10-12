@@ -58,7 +58,7 @@ export function demoWorkbook() {
     M5: 'Old Customer', N5: 100,
   });
   const gst = sheet({
-    A1: 'Customer Name', B1: 'GSTIN', G1: 'Crew One Logistics', G2: 'Crew  Two Movers',
+    A1: 'Customer Name', B1: 'GSTIN', G1: 'Crew One Logistics', G2: 'Crew  Two Movers', H1: 1500, H2: 0,
     A2: 'Demo Power Ltd', B2: 'GSTIN:22AAAAA0000A1Z5',
     A3: 'Retail Roadways', B3: 'GSTIN: 21BBBBB1111B1Z6',
   });
@@ -112,7 +112,7 @@ export function demoWorkbook() {
 
   const crew = sheet({
     A1: 'Crew Group — Bulk Ledger — Diesel (FY 2026-27)',
-    N3: 'Group:', O3: 'Crew Group', N4: 'Opening Balance:', O4: 0,
+    N3: 'Group:', O3: 'Crew Group', N4: 'Opening Balance:', O4: formula(1500, "SUM('Customer GST'!$H$1:$H$50)"),
     N5: 'Period From:', O5: date('2026-04-01'),
     Q6: formula(serial('2026-04-02'), "LET(_xlpm.cut,$O$5,_xlpm.grp,'Customer GST'!$G$1:$G$50,1)"),
   }, {
