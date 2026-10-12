@@ -12,7 +12,7 @@ import { buildLexicon, noteNames } from './lexicon.js';
 import { PROJECTS, configured, session, signIn, signOut, signUp } from './session.js';
 import { claimOwner, flush, loadState, portable, saveState, synced, trimHistory, whoami } from './sync.js';
 import { macOn, offTools, runTool } from './tools.js';
-import { canListen, canSpeak, listen, speak, stopSpeaking } from './voice.js';
+import { britishVoice, canListen, canSpeak, listen, onVoices, speak, stopSpeaking, voiceList } from './voice.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const root = document.getElementById('app');
@@ -26,7 +26,7 @@ function localToday() {
 
 // ---- settings (this device only) ---------------------------------------------------
 const SETTINGS_KEY = 'jarvis-settings';
-const DEFAULTS = { brain: 'builtin', key: '', effort: 'medium', speak: true, handsFree: false, lang: 'en-IN' };
+const DEFAULTS = { brain: 'builtin', key: '', effort: 'medium', speak: true, handsFree: false, lang: 'en-IN', voice: '' };
 function loadSettings() {
   let s;
   try { s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { s = { ...DEFAULTS }; }
@@ -402,7 +402,7 @@ function confirmIn(bub) {
     box.querySelector('[data-no]').onclick = () => done(false);
     bub.extras.append(box);
     scrollDown();
-    if (settings.speak) speak(`${card.title} Please confirm on the screen.`, { lang: settings.lang });
+    if (settings.speak) speak(`${card.title} Please confirm on the screen.`, { voice: settings.voice });
   });
 }
 
@@ -448,7 +448,7 @@ async function submit(preset) {
   }
   if (reply) {
     bub.text.innerHTML = md(reply);
-    if (settings.speak) speak(reply, { lang: settings.lang, onEnd: () => { if (settings.handsFree && canListen) toggleListen(true); } });
+    if (settings.speak) speak(reply, { voice: settings.voice, onEnd: () => { if (settings.handsFree && canListen) toggleListen(true); } });
     else if (settings.handsFree && canListen) toggleListen(true);
   } else if (bub.text.textContent === 'Thinking…') bub.text.innerHTML = '<span class="muted">Done.</span>';
   scrollDown();
@@ -614,7 +614,9 @@ async function openSettings(focus = '') {
     <h3>Voice</h3>
     <label class="opt"><input type="checkbox" data-speak ${settings.speak ? 'checked' : ''} ${canSpeak ? '' : 'disabled'}><div><b>Speak the answers</b><span>${canSpeak ? 'Jarvis reads each reply aloud.' : 'Not supported in this browser.'}</span></div></label>
     <label class="opt"><input type="checkbox" data-hands ${settings.handsFree ? 'checked' : ''} ${canListen ? '' : 'disabled'}><div><b>Hands-free</b><span>After answering, Jarvis listens again — talk back without touching the phone.</span></div></label>
-    <div class="field">Language<select data-lang>${[['en-IN', 'English (India)'], ['hi-IN', 'हिन्दी / Hinglish'], ['en-US', 'English (US)']].map(([v, t]) => `<option value="${v}" ${settings.lang === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    <div class="field">Jarvis's voice<div class="row"><select data-voice style="flex:1">${voiceOptions()}</select><button class="btn small" data-test-voice ${canSpeak ? '' : 'disabled'}>Test</button></div></div>
+    <div class="muted" style="font-size:12.5px;margin-top:-4px">A calm British voice is chosen by default. For the most natural one: on iPhone / Mac download <b>Daniel (Premium)</b> in Settings → Accessibility → Spoken Content → Voices → English (UK); on Windows / Android open Jarvis in <b>Edge</b> for <b>Ryan (Natural)</b>.</div>
+    <div class="field">Language you speak in<select data-lang>${[['en-IN', 'English (India)'], ['hi-IN', 'हिन्दी / Hinglish'], ['en-US', 'English (US)']].map(([v, t]) => `<option value="${v}" ${settings.lang === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
 
     ${macOn() ? `<h3>Mac</h3>
     <div class="muted" style="font-size:13px">${state.mac ? (state.mac.online ? '<span class="ok-text">● The Mac bridge is online.</span>' : `<span class="bad-text">● Offline</span> — last seen ${esc(new Date(state.mac.seen_at).toLocaleString('en-IN'))}. On the Mac: <code>./jarvis/bridge/bridge-mac.sh start</code>`) : 'Sign in to see the Mac. Setup: jarvis/README.md → "The Mac bridge".'}</div>` : ''}
@@ -671,6 +673,20 @@ async function openSettings(focus = '') {
   sheet.querySelector('[data-speak]').onchange = (e) => { settings.speak = e.target.checked; if (!settings.speak) stopSpeaking(); saveSettings(); };
   sheet.querySelector('[data-hands]').onchange = (e) => { settings.handsFree = e.target.checked; saveSettings(); };
   sheet.querySelector('[data-lang]').onchange = (e) => { settings.lang = e.target.value; saveSettings(); };
+  const pick = sheet.querySelector('[data-voice]');
+  pick.onchange = () => { settings.voice = pick.value; saveSettings(); speak(VOICE_TEST, { voice: settings.voice }); };
+  sheet.querySelector('[data-test-voice]').onclick = () => speak(VOICE_TEST, { voice: settings.voice });
+  onVoices(() => { if (pick.isConnected) pick.innerHTML = voiceOptions(); });   // the list arrives late in some browsers
+}
+
+// ---- voice choices ------------------------------------------------------------------------
+const VOICE_TEST = 'Good morning, sir. All your apps are online, and I am at your service.';
+function voiceOptions() {
+  const auto = britishVoice();
+  const list = voiceList();
+  return [`<option value="">Jarvis — British${auto ? ` (${esc(auto.name)})` : ''}</option>`,
+    ...list.map((v) => `<option value="${esc(v.name)}" ${settings.voice === v.name ? 'selected' : ''}>${esc(v.name)} · ${esc(v.lang)}</option>`),
+    ...(settings.voice && !list.some((v) => v.name === settings.voice) ? [`<option value="${esc(settings.voice)}" selected>${esc(settings.voice)} (not on this device — British used)</option>`] : [])].join('');
 }
 
 // ---- status ---------------------------------------------------------------------------

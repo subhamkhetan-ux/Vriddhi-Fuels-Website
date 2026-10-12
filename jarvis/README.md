@@ -43,7 +43,9 @@ Talk or type to Jarvis, in English or Hinglish, and it reads and works every app
 - **Spelling slips:** *tankk stok* is understood.
 - **Confirmations:** every change is shown first and saved only after you tap to confirm.
 
-**Voice:** tap 🎤, and Jarvis reads its answers aloud. Turn on *Hands-free* in ⚙ Settings and it listens again after each answer. This uses the phone's own speech features.
+**Voice:** tap 🎤, and Jarvis reads its answers aloud in a calm British man's voice: the best one the device has, picked automatically. Turn on *Hands-free* in ⚙ Settings and it listens again after each answer. This uses the device's own voices, so it's free and needs no internet service.
+- **Best voice:** on iPhone / Mac, download **Daniel (Premium)** under Settings → Accessibility → Spoken Content → Voices → English (UK). On Windows / Android, open Jarvis in **Edge** for **Ryan (Natural)**.
+- **Another voice:** ⚙ Settings → *Jarvis's voice*. Tap **Test** to hear it.
 
 ## Setup
 
