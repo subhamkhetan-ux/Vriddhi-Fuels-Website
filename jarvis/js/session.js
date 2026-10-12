@@ -6,10 +6,16 @@
 
 export const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 
-const PROJECTS = {
+// storageKey: the app's own (undefined = supabase-js's default, which the
+// Loading, Indents and Tally apps use) — so a login is shared with that app
+export const PROJECTS = {
   // Jarvis's own login = the ledger login (also the Mac bridge and the brain)
-  ledger: { cfg: () => window.LEDGER_CONFIG, storageKey: 'vriddhi-ledger-auth' },
-  fleet: { cfg: () => window.FLEET_CONFIG, storageKey: 'shree-shyam-fleet-auth' },
+  ledger: { cfg: () => window.LEDGER_CONFIG, storageKey: 'vriddhi-ledger-auth', label: 'Ledger', user: 'email' },
+  fleet: { cfg: () => window.FLEET_CONFIG, storageKey: 'shree-shyam-fleet-auth', label: 'Fleet', user: 'email' },
+  loading: { cfg: () => window.VRIDDHI_LOADING_CONFIG, label: 'Loading', user: 'username' },
+  indents: { cfg: () => window.VRIDDHI_CONFIG, label: 'Indents', user: 'username' },
+  tally: { cfg: () => window.VRIDDHI_TALLY_CONFIG, label: 'Tally', user: 'username' },
+  pay: { cfg: () => window.VRIDDHI_PAY_CONFIG, label: 'Payment entry', anon: true },
 };
 
 const clients = {};
@@ -31,7 +37,8 @@ export async function client(name) {
     const { createClient } = await supabaseLib();
     const c = p.cfg();
     clients[name] = createClient(c.SUPABASE_URL, c.SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true, storageKey: p.storageKey },
+      auth: p.anon ? { persistSession: false, autoRefreshToken: false, storageKey: `jarvis-${name}-anon` }
+        : { persistSession: true, autoRefreshToken: true, ...(p.storageKey ? { storageKey: p.storageKey } : {}) },
     });
   }
   return clients[name];
@@ -45,7 +52,10 @@ export async function session(name) {
 
 export async function signIn(name, email, password) {
   const c = await client(name);
-  const { data, error } = await c.auth.signInWithPassword({ email: String(email || '').trim(), password });
+  const u = String(email || '').trim().toLowerCase();
+  // the staff apps log in with a username (stored as <username>@vriddhi.local)
+  const login = u.includes('@') ? u : `${u.replace(/[^a-z0-9._-]/g, '')}@vriddhi.local`;
+  const { data, error } = await c.auth.signInWithPassword({ email: login, password });
   if (error) throw new Error(error.message === 'Invalid login credentials' ? 'Wrong email or password.' : error.message);
   return data.session;
 }
@@ -55,10 +65,11 @@ export async function signOut(name) {
 }
 
 // a signed-in client or a clear "sign in first" error (shown to the owner)
-export async function signedIn(name, label) {
+export async function signedIn(name, label = PROJECTS[name]?.label || name) {
+  if (PROJECTS[name]?.anon) return client(name);
   const s = await session(name);
   if (!s) {
-    const err = new Error(`Not signed in to ${label}. Open ⚙ Settings → Logins and sign in (same login as the ${label} app).`);
+    const err = new Error(`Not signed in to ${label}. Open ⚙ Settings → Logins and sign in (the same login as the ${label} app).`);
     err.needsLogin = name;
     throw err;
   }

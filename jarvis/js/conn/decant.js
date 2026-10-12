@@ -23,6 +23,7 @@ async function data(ctx) {
       return {
         get state() { return store.state; },
         save: (id, r) => store.saveTankReading(id, r),
+        saveInvoice: (inv) => store.saveInvoice(inv),
         cloud: () => store.state.cloud,
         keepShot: async (file, readings) => (await import('../../../decant/js/shots.js')).keepShot(file, readings),
       };
@@ -48,7 +49,10 @@ function demoStore() {
     ],
     sessions: [],
   };
-  demo = { state, save: async (id, r) => { state.tankState[id] = r; return true; }, cloud: () => 'demo', keepShot: async () => {} };
+  demo = {
+    state, save: async (id, r) => { state.tankState[id] = r; return true; }, cloud: () => 'demo', keepShot: async () => {},
+    saveInvoice: async (inv) => { const i = state.invoices.findIndex((x) => x.invoice_no === inv.invoice_no); if (i >= 0) state.invoices[i] = inv; else state.invoices.unshift(inv); return true; },
+  };
   return demo;
 }
 
@@ -168,12 +172,12 @@ async function trucks(input, ctx) {
 async function report(input, ctx) {
   const d = await data(ctx);
   const key = { today: 'today', this_week: 'week', this_month: 'month', last_month: 'lastmonth', this_fy: 'fy' }[input.period] || 'month';
-  const [from, to] = periodRange(key, ctx.today);
+  const [from, to] = input.from ? [input.from, input.to || ctx.today] : periodRange(key, ctx.today);
   const entries = filterEntries(entriesFrom(d.state.sessions, d.state.settings), { from, to });
   const s = summarize(entries);
   return {
     summary: {
-      period: input.period || 'this_month', from, to, tanks_decanted: s.count, trucks: s.trips, litres: Math.round(s.litres),
+      period: input.period_label || input.period || 'this_month', from, to, tanks_decanted: s.count, trucks: s.trips, litres: Math.round(s.litres),
       net_variation_litres: s.variation, variation_pct: s.pct, short_litres: s.short, excess_litres: s.excess, flagged: s.flagged,
       worst: s.worst ? { tt: s.worst.tt, tank: s.worst.tankNo, variation: s.worst.variation, pct: s.worst.pct, day: s.worst.day } : null,
       note: 'Negative variation = the tank got less than the chambers held (short). This phone keeps this month and last.',
@@ -181,6 +185,80 @@ async function report(input, ctx) {
     say: s.count ? `${s.trips} trucks, ${fmtL(s.litres)} decanted, net variation ${Math.round(s.variation)} L (${s.pct}%), ${s.flagged} flagged.` : 'No decantation in that period.',
     app: 'decant',
   };
+}
+
+async function room(input, ctx) {
+  const d = await data(ctx);
+  const st = d.state;
+  const margin = st.settings.warnRoomL || 150;
+  const products = input.product ? [input.product] : [...new Set(tanksOf(st).map((t) => t.product))];
+  const out = products.map((p) => {
+    const tanks = tanksOf(st).filter((t) => t.product === p).map((t) => {
+      const r = st.tankState[t.id];
+      return { tank: t.no, stock: r ? Math.round(r.volume) : null, room: r ? Math.max(0, Math.round(fillLimit(t) - r.volume)) : null, stale: !r || ageMin(r.readingAt) > st.settings.staleMinutes };
+    });
+    const total = tanks.reduce((a, t) => a + (t.room || 0), 0);
+    const usable = Math.max(0, total - margin * tanks.length);
+    return { product: productName(p), key: p, tanks, room: total, usable };
+  });
+  const want = Number(input.litres) || 0;
+  const one = input.product && out[0];
+  const trucks = st.invoices.filter((inv) => !inv.dismissed && invoiceStatus(inv, st.sessions, chamberLayout(inv, null)) !== 'done')
+    .map((inv) => ({ tt: inv.tt_no, needs: (inv.lines || []).map((l) => ({ key: (l.column_key || l.product || '').toUpperCase(), litres: Math.round((Number(l.qty_kl) || 0) * 1000) })) }))
+    .map((t) => ({ ...t, fits: t.needs.every((n) => { const r = out.find((o) => o.key === n.key); return !r || r.room >= n.litres; }) }));
+  let say;
+  if (one && want) {
+    say = one.room >= want
+      ? `Yes — ${one.product} tanks have room for ${fmtL(one.room)}, so ${fmtL(want)} fits (${fmtL(one.room - want)} to spare).`
+      : `Not yet — ${one.product} tanks have room for ${fmtL(one.room)}. Sell about ${fmtL(want - one.room + margin)} first to fit ${fmtL(want)}.`;
+  } else {
+    say = out.map((o) => `${o.product}: room ${fmtL(o.room)}${o.tanks.some((t) => t.stale) ? ' (some readings old)' : ''}`).join('. ') + '.';
+  }
+  if (trucks.length) say += ` Waiting trucks: ${trucks.map((t) => `${t.tt} ${t.fits ? 'fits' : "doesn't fit yet"}`).join(', ')}.`;
+  return {
+    summary: { products: out, asked_litres: want || undefined, trucks_waiting: trucks, note: 'Room = up to each tank\'s fill limit on its latest reading.' },
+    say,
+    table: { columns: ['Tank', 'Product', 'Stock', 'Room'], rows: out.flatMap((o) => o.tanks.map((t) => [`Tank ${t.tank}`, o.product, t.stock == null ? '—' : fmtL(t.stock), t.room == null ? '—' : `${fmtL(t.room)}${t.stale ? ' (old)' : ''}`])) },
+    app: 'decant',
+  };
+}
+
+async function addInvoice(input, ctx) {
+  const att = ctx.attachments.get(input.attachment_id);
+  if (!att) return { summary: { error: 'Attach the IndianOil invoice PDF first.' }, say: 'Attach the IndianOil invoice PDF first (📎).' };
+  const d = await data(ctx);
+  ctx.progress('Reading the invoice (Decant\'s reader)…');
+  const { readInvoicePdf } = await import('../../../decant/js/invoice.js');
+  const inv = await readInvoicePdf(att.file);
+  const existing = d.state.invoices.find((x) => x.invoice_no === inv.invoice_no);
+  const ok = await ctx.confirm({
+    title: existing ? `This invoice is already in Decant${existing.dismissed ? ' (hidden) — show it again' : ''}?` : 'Add this invoice to Decant\'s trucks to decant?',
+    rows: [[inv.tt_no, inv.invoice_no, (inv.lines || []).map((l) => `${productName(l.column_key || l.product)} ${l.qty_kl} KL`).join(' + ')]],
+    ok: existing ? 'Show it again' : 'Add invoice',
+  });
+  if (!ok) return { summary: { saved: false, declined_by_owner: true }, say: 'Not added.' };
+  const row = existing ? { ...existing, dismissed: false, dismiss_reason: null } : {
+    invoice_no: inv.invoice_no, invoice_date: inv.invoice_date, invoice_time: inv.invoice_time, tt_no: inv.tt_no,
+    lines: inv.lines, chambers: inv.chambers, density15: inv.density15, seals: inv.seals, origin: null,
+    amount: inv.amount, gmail_msg_id: null, source: 'pdf', dismissed: false, note: null,
+  };
+  await d.saveInvoice(row);
+  return { summary: { saved: true, tt: inv.tt_no, invoice: inv.invoice_no }, say: `${inv.tt_no} (invoice ${inv.invoice_no}) is in Decant's trucks to decant.`, app: 'decant' };
+}
+
+async function dismissInvoice(input, ctx) {
+  const d = await data(ctx);
+  const open = d.state.invoices.filter((inv) => !inv.dismissed);
+  const key = String(input.invoice_no || input.truck || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const hits = open.filter((inv) => inv.invoice_no === key || String(inv.tt_no || '').toUpperCase().replace(/[^A-Z0-9]/g, '').endsWith(key));
+  if (!hits.length) return { summary: { error: `No open invoice for ${input.invoice_no || input.truck}.` } };
+  if (hits.length > 1) return { summary: { ambiguous: true }, say: `Which invoice: ${hits.map((h) => `${h.tt_no} ${h.invoice_no}`).join(', ')}?`, choices: hits.map((h) => ({ label: `${h.tt_no} · ${h.invoice_no}`, tool: 'decant_dismiss_invoice', input: { invoice_no: h.invoice_no, reason: input.reason } })) };
+  const inv = hits[0];
+  const reason = ['outside', 'not_ours'].includes(input.reason) ? input.reason : 'outside';
+  const ok = await ctx.confirm({ title: `Hide ${inv.tt_no}'s invoice ${inv.invoice_no}?`, rows: [[reason === 'not_ours' ? 'Not for our tanks (not a purchase)' : 'Already decanted outside the app (still a purchase)']], ok: 'Hide it' });
+  if (!ok) return { summary: { saved: false, declined_by_owner: true }, say: 'Not changed.' };
+  await d.saveInvoice({ ...inv, dismissed: true, dismiss_reason: reason, note: reason === 'not_ours' ? 'Not for our tanks' : 'Decanted outside the app' });
+  return { summary: { saved: true, tt: inv.tt_no, invoice: inv.invoice_no, reason }, say: `Hid ${inv.tt_no}'s invoice ${inv.invoice_no}.`, app: 'decant' };
 }
 
 export const tools = [
@@ -226,7 +304,25 @@ export const tools = [
     app: 'decant',
     label: (i) => `Decant report · ${(i.period || 'this month').replace(/_/g, ' ')}`,
     description: 'The decanting variation report: litres decanted, net variation (short/excess) and flagged decantations for a period.',
-    input_schema: { type: 'object', properties: { period: { type: 'string', enum: ['today', 'this_week', 'this_month', 'last_month', 'this_fy'] } } },
+    input_schema: { type: 'object', properties: { period: { type: 'string', enum: ['today', 'this_week', 'this_month', 'last_month', 'this_fy'] }, from: { type: 'string' }, to: { type: 'string' }, period_label: { type: 'string' } } },
     run: report,
+  },
+  {
+    name: 'decant_room', app: 'decant', label: (i) => `Room${i.product ? ` · ${productName(i.product)}` : ''}`,
+    description: 'How much each product\'s underground tanks can still take (up to their fill limit, on the latest readings), whether a load of N litres fits (or how much to sell first), and whether each waiting truck fits.',
+    input_schema: { type: 'object', properties: { product: { type: 'string', enum: ['HSD', 'MS', 'XG'] }, litres: { type: 'number' } } },
+    run: room,
+  },
+  {
+    name: 'decant_add_invoice', app: 'decant', label: () => 'Add invoice (PDF)',
+    description: 'Read an attached IndianOil tax invoice PDF with Decant\'s own reader and add the truck to Decant\'s "to decant" list (as its ⬆ PDF button does). The owner confirms first.',
+    input_schema: { type: 'object', properties: { attachment_id: { type: 'string' } }, required: ['attachment_id'] },
+    run: addInvoice,
+  },
+  {
+    name: 'decant_dismiss_invoice', app: 'decant', label: (i) => `Hide invoice ${i.truck || i.invoice_no || ''}`,
+    description: 'Hide a truck\'s invoice from "to decant": already decanted outside the app (still counted as a purchase) or not for our tanks (not counted). Found by truck number (or its last digits) or invoice number. The owner confirms first.',
+    input_schema: { type: 'object', properties: { truck: { type: 'string' }, invoice_no: { type: 'string' }, reason: { type: 'string', enum: ['outside', 'not_ours'] } } },
+    run: dismissInvoice,
   },
 ];

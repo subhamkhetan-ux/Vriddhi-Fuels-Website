@@ -16,17 +16,17 @@ import { bestMatch } from '../match.js';
 import { signedIn } from '../session.js';
 
 const LOGO = '../ledger/assets/logo.png';
-const round = (n) => Math.round(Number(n) || 0);
+export const round = (n) => Math.round(Number(n) || 0);
 
 let demo = null;
-async function store(ctx) {
+export async function store(ctx) {
   if (ctx.demo) return demo || (demo = memoryStore(demoSeed()));
   return supabaseStore(await signedIn('ledger', 'the Ledger'));
 }
 
 // ---- the people: every customer and bulk sheet, with today's balance ------------
 let cache = null;
-async function book(ctx) {
+export async function book(ctx) {
   const today = ctx.today;
   if (cache && cache.today === today && cache.demo === ctx.demo && Date.now() - cache.at < 3 * 60000) return cache;
   const s = await store(ctx);
@@ -43,12 +43,15 @@ async function book(ctx) {
     people.set(`c:${k}`, { id: `c:${k}`, name, kind: 'retail', names: [name, ledger].filter(Boolean) });
   }
   for (const p of people.values()) p.balance = bal.get(p.id) ?? 0;
-  cache = { today, demo: ctx.demo, at: Date.now(), data, a, per, people: [...people.values()], store: s };
+  // customer key -> the account it belongs to (a bulk sheet, or its own ledger)
+  const groupOf = new Map((data.customers || []).map(([k, , , group]) => [k, group && people.has(`g:${group}`) ? `g:${group}` : `c:${k}`]));
+  const idOf = (k) => groupOf.get(k) || `c:${k}`;
+  cache = { today, demo: ctx.demo, at: Date.now(), data, a, per, people: [...people.values()], store: s, idOf };
   return cache;
 }
 
 // who is meant -> the person, or an answer asking which one
-async function find(ctx, query) {
+export async function find(ctx, query) {
   const b = await book(ctx);
   const { best, candidates } = bestMatch(query, b.people, (p) => p.names);
   if (best) return { person: best, b };
@@ -64,7 +67,7 @@ async function find(ctx, query) {
 }
 
 // "which one?" — the candidates as choices the owner taps or names
-const asked = (ask, tool, input) => ({
+export const asked = (ask, tool, input) => ({
   summary: ask,
   say: ask.message,
   choices: (ask.candidates || []).map((c) => ({ label: c.name, tool, input: { ...input, customer: c.name } })),
@@ -72,7 +75,7 @@ const asked = (ask, tool, input) => ({
 
 // ---- pictures (exactly the ledger app's) -------------------------------------------
 let assets = null;
-const shareKit = () => (assets || (assets = Promise.all([toDataUrl(LOGO).catch(() => ''), brandFontCss()])
+export const shareKit = () => (assets || (assets = Promise.all([toDataUrl(LOGO).catch(() => ''), brandFontCss()])
   .then(([logo, fontCss]) => ({ images: { logo }, fontCss }))));
 
 async function cardImage(card, base) {
@@ -81,7 +84,7 @@ async function cardImage(card, base) {
   return { file: new File([await jpegFromSvg(svg, size)], `${base}.jpeg`, { type: 'image/jpeg' }), title: base };
 }
 
-const pendingSummary = (pending) => {
+export const pendingSummary = (pending) => {
   if (!pending || !pending.length) return null;
   const oldest = pending[0];
   return {
@@ -194,7 +197,7 @@ async function statement(input, ctx) {
 }
 
 function rangeOf(input, today, per) {
-  if (input.from && /^\d{4}-\d{2}-\d{2}$/.test(input.from)) return { from: input.from, to: /^\d{4}-\d{2}-\d{2}$/.test(input.to || '') ? input.to : today, label: `${input.from} to ${input.to || today}` };
+  if (input.from && /^\d{4}-\d{2}-\d{2}$/.test(input.from)) return { from: input.from, to: /^\d{4}-\d{2}-\d{2}$/.test(input.to || '') ? input.to : today, label: input.period_label || `${input.from} to ${input.to || today}` };
   const y = new Date(`${today}T00:00:00Z`);
   y.setUTCDate(y.getUTCDate() - 1);
   const yesterday = y.toISOString().slice(0, 10);
@@ -223,7 +226,10 @@ async function sales(input, ctx) {
       note: a.kpi.noRsp ? `${a.kpi.noRsp} bills had no day's rate, so their earnings aren't counted.` : undefined,
       data_until: b.data.last_sale_date || undefined,
     },
-    say: `${r.label}: sales ${rupees(a.kpi.amount)}, ${Math.round(a.kpi.qty).toLocaleString('en-IN')} L, earnings ${rupees(a.kpi.earning)}, collections ${rupees(a.kpi.collections)}.`,
+    say: input.product
+      ? `${r.label}: ${PRODUCT_NAME[input.product]} ${Math.round(a.products[input.product].qty).toLocaleString('en-IN')} L, ${rupees(a.products[input.product].amount)}, earnings ${rupees(a.products[input.product].earning)} (${a.products[input.product].bills} bills).`
+      : `${r.label}: sales ${rupees(a.kpi.amount)}, ${Math.round(a.kpi.qty).toLocaleString('en-IN')} L, earnings ${rupees(a.kpi.earning)}, collections ${rupees(a.kpi.collections)}.`,
+    table: products.length ? { columns: ['Product', 'Litres', 'Sales', 'Earnings'], rows: products.map((p) => [p.product, `${p.litres.toLocaleString('en-IN')} L`, rupees(p.amount), rupees(p.earning)]) } : null,
     app: 'ledger',
   };
 }
@@ -263,7 +269,7 @@ export const tools = [
   {
     name: 'ledger_sales',
     app: 'ledger',
-    label: (i) => `Sales · ${(i.period || 'today').replace(/_/g, ' ')}`,
+    label: (i) => `Sales · ${i.period_label || (i.period || 'today').replace(/_/g, ' ')}`,
     description: 'Sales from the Ledger app for a period: amount, litres per product (Diesel/HSD, Petrol/MS, XtraGreen), earnings (margin), collections and the top customers. Sales come in when the Tally DayBook is imported, so today may be empty until then — data_until says the last sale date.',
     input_schema: {
       type: 'object',
@@ -271,6 +277,8 @@ export const tools = [
         period: { type: 'string', enum: ['today', 'yesterday', 'this_month', 'last_month', 'last_30_days', 'this_fy'] },
         from: { type: 'string', description: 'YYYY-MM-DD, instead of period' },
         to: { type: 'string', description: 'YYYY-MM-DD' },
+        period_label: { type: 'string' },
+        product: { type: 'string', enum: ['HSD', 'MS', 'XG', 'OTHER'] },
       },
     },
     run: sales,

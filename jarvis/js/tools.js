@@ -7,13 +7,20 @@
 // ctx: {demo, today, attachments: Map(id -> {file, name}), confirm(card) ->
 // Promise<boolean>, progress(text)}.
 
+import { tools as cross, useRegistry } from './conn/cross.js';
 import { tools as decant } from './conn/decant.js';
+import { tools as fleet } from './conn/fleet.js';
+import { tools as indents } from './conn/indents.js';
+import { tools as ledgerOps } from './conn/ledger-ops.js';
 import { tools as ledger } from './conn/ledger.js';
+import { tools as loading } from './conn/loading.js';
 import { tools as mac } from './conn/mac.js';
+import { tools as money } from './conn/money.js';
 import { tools as more } from './conn/more.js';
 
-export const TOOLS = [...ledger, ...decant, ...mac, ...more];
+export const TOOLS = [...ledger, ...ledgerOps, ...decant, ...mac, ...fleet, ...loading, ...indents, ...money, ...more, ...cross];
 export const byName = new Map(TOOLS.map((t) => [t.name, t]));
+useRegistry(byName);
 
 // the definitions sent to Claude (same order every time, so they cache)
 export const apiTools = () => TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));

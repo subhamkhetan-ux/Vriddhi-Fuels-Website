@@ -8,7 +8,8 @@ import { Brain, makeClient, toolLabel } from './brain.js';
 import { newMemory, remember, understand } from './engine.js';
 import { HELP } from './quick.js';
 import { APPS } from './conn/more.js';
-import { configured, session, signIn, signOut } from './session.js';
+import { buildLexicon, noteNames } from './lexicon.js';
+import { PROJECTS, configured, session, signIn, signOut } from './session.js';
 import { runTool } from './tools.js';
 import { canListen, canSpeak, listen, speak, stopSpeaking } from './voice.js';
 
@@ -46,7 +47,19 @@ const state = {
   brainNote: '',
   memory: newMemory(),        // the built-in brain's thread of the conversation
   choices: null,              // "which one?" offered last time
+  lexicon: {},                // the owner's names (lexicon.js)
 };
+
+let lexAt = 0;
+async function refreshLexicon(force = false) {
+  if (!force && Date.now() - lexAt < 10 * 60000) return;
+  lexAt = Date.now();
+  try { state.lexicon = await buildLexicon({ demo: DEMO, today: localToday() }); } catch { /* names come later */ }
+}
+
+// what a file is for: a picture (tank screen), an invoice PDF, a DayBook Excel
+const kindOf = (f) => (f.type.startsWith('image/') ? 'image' : /pdf/.test(f.type) || /\.pdf$/i.test(f.name) ? 'pdf'
+  : /sheet|excel/.test(f.type) || /\.xls[xm]?$/i.test(f.name) ? 'excel' : null);
 
 // ---- the brain ------------------------------------------------------------------------
 const brainUrl = () => (window.JARVIS_CONFIG?.BRAIN_URL || `${(window.LEDGER_CONFIG?.SUPABASE_URL || '').replace(/\/$/, '')}/functions/v1/jarvis-brain`);
@@ -95,13 +108,13 @@ function shell() {
     <footer class="composer">
       <div class="pending" id="pending"></div>
       <div class="box">
-        <button class="round" id="attach" title="Attach a picture (e.g. the tank screen)" aria-label="Attach a picture">${ICON.clip}</button>
+        <button class="round" id="attach" title="Attach a tank-screen picture, an invoice PDF or a DayBook Excel" aria-label="Attach a file">${ICON.clip}</button>
         <textarea id="input" rows="1" placeholder="Ask Jarvis…" aria-label="Message"></textarea>
         <button class="round send" id="send" title="Send" aria-label="Send" hidden>${ICON.send}</button>
         <button class="round mic" id="mic" title="Speak" aria-label="Speak">${ICON.mic}</button>
       </div>
       <div class="hint" id="hint"></div>
-      <input type="file" id="file" accept="image/*" multiple hidden>
+      <input type="file" id="file" accept="image/*,.pdf,.xlsx,.xls,.xlsm" multiple hidden>
     </footer>`;
   $('#open-settings').onclick = () => openSettings();
   $('#new-chat').onclick = () => { brain.reset(); state.memory = newMemory(); state.choices = null; stopSpeaking(); welcome(); };
@@ -125,13 +138,13 @@ function shell() {
   sync();
   // paste / drop a screenshot
   input.addEventListener('paste', (e) => {
-    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+    const files = [...(e.clipboardData?.files || [])].filter(kindOf);
     if (files.length) { e.preventDefault(); addFiles(files); }
   });
   root.addEventListener('dragover', (e) => e.preventDefault());
   root.addEventListener('drop', (e) => {
     e.preventDefault();
-    addFiles([...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/')));
+    addFiles([...(e.dataTransfer?.files || [])].filter(kindOf));
   });
 }
 
@@ -157,7 +170,8 @@ function renderPills() {
 
 // ---- welcome ------------------------------------------------------------------------
 const STARTERS = [
-  'Outstanding list', 'Tank stock', 'XtraPower status', 'Sales yesterday', 'Trucks to decant', 'Fleet status', 'Payments',
+  'Good morning', 'Outstanding list', 'Which customers owe more than 5 lakh?', 'Compare diesel sales this month vs last month',
+  'Top 5 customers by litres this FY', 'Tank stock', 'Can I order 12 KL diesel?', 'XtraPower status', 'Pending indents', 'POs running low',
 ];
 function welcome() {
   const h = new Date().getHours();
@@ -166,7 +180,7 @@ function welcome() {
   chat.innerHTML = `<section class="hello">
       <div class="orb" aria-hidden="true"></div>
       <h1>${greet}. I'm <b>Jarvis</b>.</h1>
-      <p>Ask about any app — by typing or tapping the mic. Send a screenshot of the tank screen and I'll update Decant.</p>
+      <p>Ask anything about any app, or tell me what to do — by typing or tapping the mic. 📎 a tank-screen picture, an invoice PDF or the DayBook Excel and I'll put it in the right app.</p>
       <div class="chips">${STARTERS.map((s) => `<button class="chip" data-say="${esc(s)}">${esc(s)}</button>`).join('')}</div>
       ${!DEMO && !state.ledger ? `<div class="row" style="justify-content:center;margin-top:14px"><button class="btn cta" data-signin>Sign in (your Ledger login)</button><a class="btn" href="?demo">Try the demo</a></div>` : ''}
       <p class="section-title">All apps</p>
@@ -179,16 +193,19 @@ function welcome() {
 // ---- attachments -------------------------------------------------------------------
 function addFiles(files) {
   for (const file of files) {
-    if (!file.type.startsWith('image/')) continue;
+    const kind = kindOf(file);
+    if (!kind) { toast(`${file.name}: attach a picture, a PDF or an Excel file.`); continue; }
     const id = `att${++state.attSeq}`;
-    state.attachments.set(id, { file, name: file.name || `${id}.jpg`, url: URL.createObjectURL(file) });
+    state.attachments.set(id, { file, kind, name: file.name || `${id}.jpg`, url: kind === 'image' ? URL.createObjectURL(file) : '' });
     state.pending.push(id);
   }
   renderPending();
 }
+const fileThumb = (a, cls = '') => (a.kind === 'image' ? `<img src="${a.url}" alt="attached picture"${cls}>`
+  : `<span class="file-chip">${a.kind === 'pdf' ? '📄' : '📊'} ${esc(a.name)}</span>`);
 function renderPending() {
   const el = $('#pending');
-  el.innerHTML = state.pending.map((id) => `<div class="att"><img src="${state.attachments.get(id).url}" alt=""><button data-rm="${id}" aria-label="Remove">✕</button></div>`).join('');
+  el.innerHTML = state.pending.map((id) => `<div class="att">${fileThumb(state.attachments.get(id))}<button data-rm="${id}" aria-label="Remove">✕</button></div>`).join('');
   el.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => { state.pending = state.pending.filter((x) => x !== b.dataset.rm); renderPending(); }; });
   state.syncComposer?.();
 }
@@ -212,7 +229,7 @@ function userBubble(text, ids) {
   $('.hello')?.remove();
   const m = document.createElement('div');
   m.className = 'msg me';
-  m.innerHTML = `<div class="bubble">${ids.length ? `<div class="thumbs">${ids.map((id) => `<img src="${state.attachments.get(id).url}" alt="attached picture">`).join('')}</div>` : ''}${esc(text)}</div>`;
+  m.innerHTML = `<div class="bubble">${ids.length ? `<div class="thumbs">${ids.map((id) => fileThumb(state.attachments.get(id))).join('')}</div>` : ''}${esc(text)}</div>`;
   $('#chat').append(m);
   scrollDown();
 }
@@ -274,6 +291,17 @@ function download(file) {
 
 function showResultExtras(bub, result, tool) {
   if (!result) return;
+  if (result.summary?.accounts?.length && tool.startsWith('xtrapower')) noteNames('accounts', result.summary.accounts.map((a) => a.label));
+  if (result.summary?.scripts?.length) noteNames('scripts', result.summary.scripts);
+  if (result.table?.rows?.length) {
+    const t = result.table;
+    const box = document.createElement('div');
+    box.className = 'tbl';
+    box.innerHTML = `<table><thead><tr>${t.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+      <tbody>${t.rows.slice(0, 100).map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      ${t.rows.length > 100 ? `<div class="muted">…and ${t.rows.length - 100} more</div>` : ''}`;
+    bub.extras.append(box);
+  }
   if (result.choices?.length) {
     state.choices = result.choices;               // "the second one" / a name works next time too
     const box = document.createElement('div');
@@ -400,8 +428,8 @@ async function submit(preset) {
 
 async function askBrain(text, ids, bub) {
   const content = [];
-  for (const id of ids) content.push(await imageBlock(state.attachments.get(id).file));
-  const tag = ids.length ? `[Attached: ${ids.map((id) => `${id} (${state.attachments.get(id).name})`).join(', ')}]\n` : '';
+  for (const id of ids) if (state.attachments.get(id).kind === 'image') content.push(await imageBlock(state.attachments.get(id).file));
+  const tag = ids.length ? `[Attached: ${ids.map((id) => `${id} (${state.attachments.get(id).kind}: ${state.attachments.get(id).name})`).join(', ')}]\n` : '';
   content.push({ type: 'text', text: `${tag}${text || (ids.length ? '(picture only)' : '')}` });
   let n = 0;
   const keys = new Map();
@@ -442,8 +470,17 @@ function helpChips(bub, phrases = null) {
 
 // the built-in brain: understand → run the tools → answer from their results
 async function askBuiltin(text, ids, bub) {
-  const u = understand(text, { attachments: ids, memory: state.memory, choices: state.choices });
+  await refreshLexicon();
+  const u = understand(text, {
+    attachments: ids.map((id) => ({ id, kind: state.attachments.get(id).kind })),
+    memory: state.memory, choices: state.choices, lexicon: state.lexicon, today: localToday(),
+  });
   state.choices = null;
+  if (u.ask) {                                       // a detail is missing: ask, and remember what for
+    state.memory = { ...state.memory, pending: u.pending };
+    return u.ask;
+  }
+  state.memory = { ...state.memory, pending: null };
   if (u.help) { helpChips(bub); return 'Here\'s what I can do. Tap one, or just say it — in English or Hinglish.'; }
   if (!u.calls) {
     if (u.suggest?.length) { helpChips(bub, u.suggest); return 'Did you mean one of these?'; }
@@ -505,13 +542,18 @@ async function openSettings(focus = '') {
   sheet.className = 'sheet';
   const close = () => { sheet.remove(); refreshStatus(); };
   sheet.onclick = (e) => { if (e.target === sheet) close(); };
-  const fleetS = configured('fleet') ? await session('fleet').catch(() => null) : null;
-  let loadingUser = '';
-  try { loadingUser = (await import('../../decant/js/tankers.js')).tankers.user; } catch { /* not loaded */ }
+  const others = [];
+  for (const [name, p] of Object.entries(PROJECTS)) {
+    if (name === 'ledger' || p.anon) continue;
+    const ses = configured(name) ? await session(name).catch(() => null) : null;
+    others.push({ name, p, ses });
+  }
+  const ICONS = { fleet: '🚛', loading: '🛢️', indents: '🧾', tally: '📑' };
   sheet.innerHTML = `<div class="panel" role="dialog" aria-label="Settings">
     <div style="display:flex;justify-content:space-between;align-items:center"><h2>Settings</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
 
     <h3 id="logins">Logins</h3>
+    <p class="muted" style="font-size:13px;margin:0 0 6px">The same logins as each app — signed in there on this phone means signed in here too.</p>
     <div class="login" data-login="ledger">
       <div class="head"><div><b>📒 Ledger</b> — your Jarvis login <span class="muted">(also the Mac link)</span></div>
         ${state.ledger ? '<button class="btn small" data-out="ledger">Sign out</button>' : ''}</div>
@@ -520,20 +562,13 @@ async function openSettings(focus = '') {
          <div class="field"><input type="password" placeholder="Password" autocomplete="current-password" data-pass></div>
          <button class="btn cta" data-in="ledger">Sign in</button> <span class="muted" data-msg></span>`}
     </div>
-    <div class="login" data-login="fleet">
-      <div class="head"><div><b>🚛 Fleet</b></div>${fleetS ? '<button class="btn small" data-out="fleet">Sign out</button>' : ''}</div>
-      ${fleetS ? `<div class="ok-text">Signed in as ${esc(fleetS.user?.email)}</div>`
-    : configured('fleet') ? `<div class="field"><input type="email" placeholder="Email" data-email></div>
+    ${others.map(({ name, p, ses }) => `<div class="login" data-login="${name}">
+      <div class="head"><div><b>${ICONS[name] || '•'} ${esc(p.label)}</b> <span class="muted">(${p.user === 'username' ? `${esc(p.label)}-app username` : 'email'})</span></div>${ses ? `<button class="btn small" data-out="${name}">Sign out</button>` : ''}</div>
+      ${ses ? `<div class="ok-text">Signed in as ${esc(String(ses.user?.email || '').replace('@vriddhi.local', ''))}</div>`
+    : configured(name) ? `<div class="field"><input placeholder="${p.user === 'username' ? 'Username' : 'Email'}" data-email></div>
          <div class="field"><input type="password" placeholder="Password" data-pass></div>
-         <button class="btn" data-in="fleet">Sign in</button> <span class="muted" data-msg></span>` : '<div class="muted">The Fleet app isn\'t connected to its database.</div>'}
-    </div>
-    <div class="login" data-login="loading">
-      <div class="head"><div><b>🛢️ Loading</b> <span class="muted">(Loading-app username)</span></div>${loadingUser ? '<button class="btn small" data-out="loading">Sign out</button>' : ''}</div>
-      ${loadingUser ? `<div class="ok-text">Signed in as ${esc(loadingUser)}</div>`
-    : `<div class="field"><input placeholder="Username" data-email></div>
-         <div class="field"><input type="password" placeholder="Password" data-pass></div>
-         <button class="btn" data-in="loading">Sign in</button> <span class="muted" data-msg></span>`}
-    </div>
+         <button class="btn" data-in="${name}">Sign in</button> <span class="muted" data-msg></span>` : `<div class="muted">The ${esc(p.label)} app isn't connected to its database.</div>`}
+    </div>`).join('')}
 
     <h3>Brain</h3>
     ${[
@@ -566,8 +601,8 @@ async function openSettings(focus = '') {
       try {
         const email = box.querySelector('[data-email]').value;
         const pass = box.querySelector('[data-pass]').value;
-        if (b.dataset.in === 'loading') await (await import('../../decant/js/tankers.js')).tankersSignIn(email, pass);
-        else await signIn(b.dataset.in, email, pass);
+        await signIn(b.dataset.in, email, pass);
+        refreshLexicon(true);
         sheet.remove();
         await refreshStatus();
         openSettings('logins');
@@ -577,8 +612,7 @@ async function openSettings(focus = '') {
   });
   sheet.querySelectorAll('[data-out]').forEach((b) => {
     b.onclick = async () => {
-      if (b.dataset.out === 'loading') await (await import('../../decant/js/tankers.js')).tankersSignOut();
-      else await signOut(b.dataset.out);
+      await signOut(b.dataset.out);
       sheet.remove();
       await refreshStatus();
       openSettings('logins');
@@ -613,6 +647,7 @@ shell();
 welcome();
 refreshStatus().then(() => {
   if ($('.hello')) welcome();                     // now with the right sign-in buttons
+  refreshLexicon(true);
   const q = new URLSearchParams(location.search).get('q');   // e.g. a home-screen shortcut: ?q=tank stock
   if (q) submit(q);
 });
