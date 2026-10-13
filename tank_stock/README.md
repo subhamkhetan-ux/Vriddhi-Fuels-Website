@@ -8,9 +8,13 @@ screenshot. It works like you opening AnyDesk on your phone. The client
 draws on a private virtual display, and the password reaches AnyDesk on stdin
 (its documented `--with-password` mode).
 
-**Stage 1 (now):** the screenshot goes **privately to Telegram** (the
-payment agent's `TELEGRAM_TOKEN` / `TELEGRAM_CHAT`). This repo's job logs are
-public, so pictures and window titles are never logged there.
+**Stage 1 (now):** the screenshot goes **privately to Telegram**: to
+`TANK_TELEGRAM_TOKEN` / `TANK_TELEGRAM_CHAT` when both secrets are set (for
+example the XtraPower monitor's bot token and chat id), otherwise to the
+payment agent's `TELEGRAM_TOKEN` / `TELEGRAM_CHAT`. The job log names the bot
+and chat it delivered to, masked (`@Vr…ot`, `private chat 'Su…am'`), or
+Telegram's reason for refusing. This repo's job logs are public, so pictures
+and window titles are never logged there.
 
 **Stage 2 (next):** hand the screenshot to the decant app's **📷 Stock**
 reader and press *Use these readings* only when every tank card passes the

@@ -35,4 +35,7 @@ jobs:
           ANYDESK_PASSWORD: ${{ secrets.ANYDESK_PASSWORD }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+          # Optional: a bot/chat of your own for tank stock (used when both set).
+          TANK_TELEGRAM_TOKEN: ${{ secrets.TANK_TELEGRAM_TOKEN }}
+          TANK_TELEGRAM_CHAT: ${{ secrets.TANK_TELEGRAM_CHAT }}
         run: /opt/agents/venv/bin/python -m tank_stock.run --capture

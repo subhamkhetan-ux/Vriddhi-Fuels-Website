@@ -1,15 +1,63 @@
 """Private delivery of the screenshot and results (this repo's job logs are
-public, so pictures of the automation screen go to Telegram, never the log)."""
+public, so pictures of the automation screen go to Telegram, never the log).
+
+``TANK_TELEGRAM_TOKEN`` / ``TANK_TELEGRAM_CHAT`` (optional) send to a bot and
+chat of your choice; otherwise the payment agent's ``TELEGRAM_TOKEN`` /
+``TELEGRAM_CHAT`` are used.
+"""
 from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 import uuid
 
+_reported = False
+
+
+def _config() -> tuple[str, str, str]:
+    """(token, chat, which secrets)"""
+    if os.environ.get("TANK_TELEGRAM_TOKEN") and os.environ.get("TANK_TELEGRAM_CHAT"):
+        return os.environ["TANK_TELEGRAM_TOKEN"], os.environ["TANK_TELEGRAM_CHAT"], "TANK_TELEGRAM_*"
+    return os.environ.get("TELEGRAM_TOKEN", ""), os.environ.get("TELEGRAM_CHAT", ""), "TELEGRAM_*"
+
+
+def _mask(name: str) -> str:
+    return name if len(name) <= 4 else f"{name[:2]}…{name[-2:]}"
+
+
+def _call(token: str, method: str, body: bytes, ctype: str, timeout: int) -> dict:
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=body,
+                                 headers={"Content-Type": ctype})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as exc:   # Telegram explains 4xx in the body
+        try:
+            return json.loads(exc.read() or b"{}")
+        except ValueError:
+            return {"ok": False, "description": f"HTTP {exc.code}"}
+
+
+def _report(token: str, chat: dict, which: str) -> None:
+    """Once per run, where messages went, masked for the public log, so a
+    message that "never arrived" can be traced to the bot and chat."""
+    global _reported
+    if _reported:
+        return
+    _reported = True
+    try:
+        me = _call(token, "getMe", b"", "application/x-www-form-urlencoded", 20).get("result") or {}
+    except Exception:  # noqa: BLE001
+        me = {}
+    who = chat.get("title") or chat.get("first_name") or ""
+    print(f"Telegram ({which}): delivered by bot @{_mask(me.get('username', '?'))} "
+          f"to a {chat.get('type', '?')} chat '{_mask(who)}'.")
+
 
 def _post(method: str, fields: dict, files: dict | None = None, timeout: int = 60) -> bool:
-    token, chat = os.environ.get("TELEGRAM_TOKEN"), os.environ.get("TELEGRAM_CHAT")
+    token, chat, which = _config()
     if not token or not chat:
         print("Telegram is not configured (TELEGRAM_TOKEN / TELEGRAM_CHAT); nothing sent.")
         return False
@@ -23,14 +71,17 @@ def _post(method: str, fields: dict, files: dict | None = None, timeout: int = 6
                  f"filename=\"{filename}\"\r\nContent-Type: {ctype}\r\n\r\n").encode()
         body += data + b"\r\n"
     body += f"--{boundary}--\r\n".encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=bytes(body),
-                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return bool(json.loads(resp.read() or b"{}").get("ok"))
+        result = _call(token, method, bytes(body), f"multipart/form-data; boundary={boundary}", timeout)
     except Exception as exc:  # noqa: BLE001 - delivery is best-effort
         print(f"Telegram {method} failed: {type(exc).__name__}")
         return False
+    if not result.get("ok"):
+        # e.g. "Bad Request: chat not found", "Forbidden: bot was blocked by the user"
+        print(f"Telegram {method} refused ({which}): {str(result.get('description', 'no reason'))[:120]}")
+        return False
+    _report(token, (result.get("result") or {}).get("chat") or {}, which)
+    return True
 
 
 def send_text(text: str) -> bool:

@@ -36,6 +36,42 @@ def test_without_telegram_nothing_is_sent(monkeypatch, capsys):
     assert "not configured" in capsys.readouterr().out
 
 
+def test_telegram_refusal_is_explained_in_the_log(monkeypatch, capsys):
+    import io, urllib.error
+    monkeypatch.setenv("TELEGRAM_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT", "42")
+    body = io.BytesIO(json.dumps({"ok": False, "description": "Bad Request: chat not found"}).encode())
+
+    def refuse(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, body)
+    monkeypatch.setattr(telegram.urllib.request, "urlopen", refuse)
+    assert telegram.send_text("x") is False
+    out = capsys.readouterr().out
+    assert "chat not found" in out and "123:abc" not in out
+
+
+def test_tank_specific_telegram_secrets_win_and_delivery_is_reported_masked(monkeypatch, capsys):
+    sent = []
+    monkeypatch.setenv("TELEGRAM_TOKEN", "1:payment")
+    monkeypatch.setenv("TELEGRAM_CHAT", "1")
+    monkeypatch.setenv("TANK_TELEGRAM_TOKEN", "9:tank")
+    monkeypatch.setenv("TANK_TELEGRAM_CHAT", "99")
+    monkeypatch.setattr(telegram, "_reported", False)
+
+    class Resp(FakeResponse):
+        def __init__(self, url):
+            result = ({"username": "VriddhiStockBot"} if url.endswith("getMe")
+                      else {"chat": {"type": "private", "first_name": "Subham"}})
+            self.body = json.dumps({"ok": True, "result": result}).encode()
+    monkeypatch.setattr(telegram.urllib.request, "urlopen",
+                        lambda req, timeout: sent.append(req.full_url) or Resp(req.full_url))
+    assert telegram.send_text("x")
+    assert sent[0] == "https://api.telegram.org/bot9:tank/sendMessage"
+    out = capsys.readouterr().out
+    assert "TANK_TELEGRAM_*" in out and "@Vr…ot" in out and "private" in out and "'Su…am'" in out
+    assert "VriddhiStockBot" not in out and "Subham" not in out
+
+
 @pytest.mark.parametrize(("raw", "message"), [
     ("", "ANYDESK_IDS"), ("12; rm -rf /", "AnyDesk number or alias"),
 ])
@@ -113,6 +149,7 @@ def test_failed_attempts_go_to_telegram_not_the_log(monkeypatch, capsys):
     assert run.main(["--capture"]) == 1
     assert "ID #1 (123456789)" in photos[0] and "license prompt" in photos[0]
     out = capsys.readouterr()
+    assert "1 of 1 attempt report(s) delivered" in out.out
     assert "123456789" not in out.out + out.err and "license prompt" not in out.out + out.err
 
 
