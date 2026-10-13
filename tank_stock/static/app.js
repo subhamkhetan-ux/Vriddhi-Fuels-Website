@@ -218,7 +218,6 @@
     }
     setStatus("liveState", text, err);
     renderLiveFigures(live);
-    renderLog(live ? live.log : prev.log, Boolean(live || prev.ended));
     if (["Starting…", "Stopping…"].includes($("mStatus").textContent) && (live ? isLive() : true)) setStatus("mStatus", "");
     $("sub").textContent = live ? (isLive() ? "Live monitoring is on." : "Connecting for live monitoring…")
       : "On demand: nothing connects until you ask.";
@@ -263,21 +262,6 @@
     }
   }
 
-  // The log: newest first, each tank's product volume at every change.
-  function renderLog(log, show) {
-    $("liveLog").hidden = !show || !(log || []).length;
-    if ($("liveLog").hidden) return;
-    const nos = Object.keys(log[log.length - 1]).filter((k) => k !== "at").sort();
-    const t = $("logTable");
-    t.textContent = "";
-    const head = t.insertRow();
-    for (const h of ["Time", ...nos.map((n) => `Tank ${n} (L)`)]) head.appendChild(el("th", "", h));
-    for (const row of [...log].reverse().slice(0, 12)) {
-      const tr = t.insertRow();
-      tr.insertCell().textContent = clock(row.at);
-      for (const n of nos) tr.insertCell().textContent = row[n]?.volume == null ? "–" : fmt(row[n].volume, 2);
-    }
-  }
 
 
   // ---- automatic decantation ---------------------------------------------

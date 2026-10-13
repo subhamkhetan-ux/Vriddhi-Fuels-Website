@@ -22,9 +22,8 @@ your own Tailscale network, like the XtraPower one). Pick the tanks (any of
 - **Live monitoring**: connect once and keep that AnyDesk session open. Every
   10 seconds (5-3600, set on the page) the watched tanks' **product volume**
   is read again, without reconnecting and without pictures: the page shows
-  each one as it comes, a log keeps a line per change (**Download log
-  (CSV)**), and with "Send the volume to the decant app as it changes" decant
-  gets the volume alone (it works the ullage and dip out itself, as for typed
+  each one as it comes, and with "Send the volume to the decant app as it
+  changes" decant gets the volume alone (it works the ullage and dip out itself, as for typed
   litres). Each read covers a card from its Last Updated time to its ullage:
   the height and ullage are read only to check the volume (volume + ullage =
   capacity, and the dip chart at that height), so a misread digit never goes

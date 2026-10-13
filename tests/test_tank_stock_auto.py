@@ -181,7 +181,7 @@ def rig(tmp_path, monkeypatch):
         s = self.settings
         self.live = {"state": "live", "since": service.now_iso(), "tanks": s["tanks"], "by_auto": auto,
                      "interval_s": s["interval_s"], "auto_upload": s["auto_upload"], "reads": 0, "failed": 0,
-                     "figures": {}, "uploads": {}, "log": [], "stop": threading.Event(), "wake": threading.Event(),
+                     "figures": {}, "uploads": {}, "stop": threading.Event(), "wake": threading.Event(),
                      "session": Session([], "")}
         return self.live_view()
     monkeypatch.setattr(service.Station, "start_live", start_live)

@@ -56,12 +56,6 @@
   .fig .value { font-variant-numeric: tabular-nums; font-weight: 600; }
   #figures { margin-top: 6px; }
   #liveFigures .tank:first-child { border-top: 1px solid var(--line); }
-  .logwrap { overflow-x: auto; margin-top: 6px; }
-  #logTable { border-collapse: collapse; font-size: 12px; width: 100%; }
-  #logTable td, #logTable th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  #logTable th { color: var(--muted); font-weight: 600; }
-  #logTable td:first-child, #logTable th:first-child { text-align: left; }
-  #logCsv { color: var(--accent); margin-left: 8px; }
   .badge { display: inline-block; border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 600; }
   .high { background: var(--ok-bg); color: var(--ok); }
   .medium { background: var(--mid-bg); color: var(--mid); }
@@ -136,10 +130,6 @@
     <div class="note">Keeps one AnyDesk session open and reads the watched tanks' product volume again every few seconds (no pictures), until AnyDesk ends the session or you stop it. Then the last screen shows above, with its pictures to save or upload.</div>
     <div class="status" id="liveState"></div>
     <div id="liveFigures"></div>
-    <div id="liveLog" hidden>
-      <div class="note" style="margin-top:10px">Log: every change <a id="logCsv" href="/api/live/log.csv" download>Download log (CSV)</a></div>
-      <div class="logwrap"><table id="logTable"></table></div>
-    </div>
     <label class="line">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
     <label class="line">Send the volume to the decant app as it changes <input type="checkbox" id="mUp"></label>
     <div class="note" style="margin-top:8px">Tanks to watch</div>
