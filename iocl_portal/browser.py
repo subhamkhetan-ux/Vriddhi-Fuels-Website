@@ -18,6 +18,15 @@ from .statement import IST, PortalError, parse_statement
 
 PORTAL_ORIGIN = "https://utkarsh.indianoil.co.in"
 LOGIN_URL = PORTAL_ORIGIN + "/ioconline/iocExStart.jsp"
+# Yes/no markers for report_diagnostics(); never the matched text itself.
+REPORT_FLAGS = (
+    ("CL.BAL", r"CL\.?\s*BAL"), ("CompCode", r"Comp(any)?\.?\s+Code"),
+    ("OpenDelivery", r"Open\s+Delivery"), ("Closing", r"Closing\s+balance"),
+    ("PADtitle", r"Customer\s+PAD\s+Balance"), ("Generated", r"Report\s+Generated"),
+    ("FromTo", r"\bFrom\b.*\bTo\b"), ("Balance(Rs)", r"Balance\s*\(?\s*Rs"),
+    ("NoData", r"no\s+(data|record|transaction)s?\s+(found|available)"),
+    ("Error", r"\b(error|exception|session\s+expired)\b"),
+)
 OVERRIDE_KEYS = {"username", "password", "captcha_image", "captcha_input", "login",
                  "account_menu", "pad_menu", "from_date", "to_date", "view"}
 
@@ -196,8 +205,14 @@ class PortalBrowser:
         view = self.locate("view", [lambda f: f.get_by_role("button", name=re.compile(r"^\s*View\s*$", re.I)),
             self._css("input[type=submit][value='View' i]"),
             lambda f: f.get_by_role("link", name=re.compile(r"^\s*View\s*$", re.I))])
+        downloads = []
+        def saw_download(download):
+            downloads.append(download)
+        self.page.context.on("page", lambda p: p.on("download", saw_download))
+        self.page.on("download", saw_download)
         self.follow_click(view)
-        end = time.monotonic() + self.timeout
+        # Reports can be slow: three times the control timeout (60 s live).
+        end = time.monotonic() + 3 * self.timeout
         last_error = "The PAD report did not appear."
         while time.monotonic() < end:
             for frame in self.frames():
@@ -219,4 +234,30 @@ class PortalBrowser:
                 except Exception:
                     continue
             self.page.wait_for_timeout(250)
+        if last_error == "The PAD report did not appear.":
+            last_error += " Seen: " + self.report_diagnostics(downloads)
         raise PortalError(last_error)
+
+    def report_diagnostics(self, downloads=()) -> str:
+        """Where the report might have gone, without any account data: page
+        and frame addresses (no query, long numbers masked), table and row
+        counts, and yes/no keyword flags. Safe for a public job log."""
+        parts = []
+        for page in self.page.context.pages:
+            for frame in page.frames:
+                u = urlsplit(frame.url or "")
+                path = re.sub(r"\d{5,}", "#", u.path.split(";")[0])
+                try:
+                    text = frame.locator("body").inner_text(timeout=2000)
+                    tables, rows = frame.locator("table").count(), frame.locator("tr").count()
+                except Exception:
+                    text, tables, rows = "", -1, -1
+                flags = [name for name, pattern in REPORT_FLAGS if re.search(pattern, text, re.I)]
+                kind = "page" if frame == page.main_frame else "frame"
+                parts.append(f"{kind} {u.scheme}://{u.netloc}{path} text={len(text)} "
+                             f"tables={tables} rows={rows} has={'+'.join(flags) or 'none'}")
+        if downloads:
+            names = ["*" + (os.path.splitext(d.suggested_filename or "")[1][:6] or "(no extension)")
+                     for d in downloads]
+            parts.append(f"downloads={len(downloads)} ({', '.join(names)})")
+        return "; ".join(parts) or "no pages"

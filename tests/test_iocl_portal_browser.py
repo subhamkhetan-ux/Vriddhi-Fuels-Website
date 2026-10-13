@@ -159,3 +159,14 @@ def test_captcha_sampling_saves_images_and_reads_without_typing(page, tmp_path, 
     # Nothing was typed or submitted.
     assert page.evaluate("window.loginCount || 0") == 0
     assert page.locator("input[name=username]").input_value() == ""
+
+
+def test_report_diagnostics_describe_pages_without_account_data(page):
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=lambda *a, **k: "ABCDEF", timeout=1)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    portal.navigate_pad()
+    seen = portal.report_diagnostics()
+    assert seen.startswith("page https://portal.example/ioconline/iocExStart.jsp text=")
+    assert "has=" in seen and "PADtitle" in seen
+    assert "999999" not in seen and "fixture-only" not in seen
