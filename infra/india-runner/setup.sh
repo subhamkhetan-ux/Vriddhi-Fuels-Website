@@ -107,10 +107,20 @@ if [ ! -f "$RUNNER_DIR/.runner" ]; then
     echo "Copy only the token after --token in the 'Configure' box (valid for 1 hour)."
     read -rsp "Paste the registration token (input hidden): " RUNNER_TOKEN; echo
   fi
-  [ -n "$RUNNER_TOKEN" ] || die "No registration token given."
-  sudo -u "$RUNNER_USER" -H bash -c 'cd "$1" && ./config.sh --unattended --replace \
+  # Forgive a pasted "--token" prefix, quotes, spaces or terminal paste markers.
+  RUNNER_TOKEN="$(printf '%s' "$RUNNER_TOKEN" | sed -e 's/\x1b\[20[01]~//g' -e 's/--token//' | tr -d "[:space:]'\"")"
+  case "$RUNNER_TOKEN" in
+    *[!A-Za-z0-9]*|"") die "That doesn't look like a registration token (expected only letters and digits).
+Copy just the code after --token and re-run:  RUNNER_TOKEN='CODE' bash infra/india-runner/setup.sh" ;;
+  esac
+  echo "Using token ${RUNNER_TOKEN:0:2}…${RUNNER_TOKEN: -2} (${#RUNNER_TOKEN} characters)."
+  if ! sudo -u "$RUNNER_USER" -H bash -c 'cd "$1" && ./config.sh --unattended --replace \
       --url "$2" --token "$3" --name "$4" --labels "$5" --work _work' \
-    _ "$RUNNER_DIR" "$REPO_URL" "$RUNNER_TOKEN" "$RUNNER_NAME" "$RUNNER_LABELS"
+    _ "$RUNNER_DIR" "$REPO_URL" "$RUNNER_TOKEN" "$RUNNER_NAME" "$RUNNER_LABELS"; then
+    die "GitHub rejected the registration (a 404 means the token is expired, already used or incomplete).
+Refresh the GitHub 'New self-hosted runner' page for a new token and re-run:
+  RUNNER_TOKEN='CODE' bash infra/india-runner/setup.sh"
+  fi
   unset RUNNER_TOKEN
   (cd "$RUNNER_DIR" && sudo ./svc.sh install "$RUNNER_USER" && sudo ./svc.sh start)
 else
