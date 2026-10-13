@@ -1,0 +1,25 @@
+name: TEMP IOCL network check
+on:
+  push:
+    branches: [claude/github-action-iocl-agent-8t2ars]
+    paths: [.github/workflows/iocl-network-check.yml]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          set +e
+          host=utkarsh.indianoil.co.in
+          echo "Runner egress location:"; curl -sS -m 10 https://ipinfo.io/json | grep -E '"(country|region|org)"'
+          echo "DNS:"; getent ahosts "$host" | head -3
+          for port in 443 80; do
+            timeout 15 bash -c "</dev/tcp/$host/$port" && echo "TCP $port: open" || echo "TCP $port: no connection"
+          done
+          echo "HTTPS entry page:"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' "https://$host/ioconline/iocExStart.jsp"
+          echo "HTTP entry page:"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' "http://$host/ioconline/iocExStart.jsp"
+          echo "Control iocl.com:"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' https://iocl.com/
+          echo "Control sdms.indianoil.in:"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' https://sdms.indianoil.in/
+          exit 0

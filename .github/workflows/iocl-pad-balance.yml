@@ -1,0 +1,94 @@
+name: IOCL e-Mitra PAD balance -> Payments
+
+on:
+  schedule:
+    # Every three hours. All cron expressions are UTC.
+    - cron: "7 */3 * * *"
+    # 19:00 UTC = 00:30 Asia/Kolkata on the NEXT local calendar day.
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Probe login page, validate without writing, or sync Payments"
+        type: choice
+        options: [network, probe, dry-run, sync, opening]
+        default: dry-run
+  workflow_call:
+    inputs:
+      mode:
+        type: string
+        default: sync
+    secrets:
+      IOCL_EMITRA_USERNAME:
+        required: false
+      IOCL_EMITRA_PASSWORD:
+        required: false
+      SUPABASE_URL:
+        required: false
+      SUPABASE_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iocl-pad-balance
+  cancel-in-progress: false
+
+jobs:
+  balance:
+    # Enable after a real dry-run succeeds; no repeated logins with unverified
+    # credentials/selectors. workflow_dispatch can always run a probe/dry-run.
+    if: github.event_name == 'workflow_dispatch' || vars.IOCL_PAD_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Network reachability from this runner
+        if: inputs.mode == 'network'
+        run: |
+          set +e
+          host=utkarsh.indianoil.co.in
+          echo "Runner egress location:"; curl -sS -m 10 https://ipinfo.io/json | grep -E '"(country|region|org)"'
+          echo "DNS:"; getent ahosts "$host" | head -3
+          for port in 443 80; do
+            timeout 15 bash -c "</dev/tcp/$host/$port" && echo "TCP $port: open" || echo "TCP $port: no connection"
+          done
+          echo "HTTPS entry page:"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' "https://$host/ioconline/iocExStart.jsp"
+          echo "Control (IOCL main site):"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' https://iocl.com/
+          exit 0
+      - uses: actions/setup-python@v5
+        if: inputs.mode != 'network'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: iocl_portal/requirements.txt
+      - name: Install browser and local text recognition
+        if: inputs.mode != 'network'
+        run: |
+          python -m pip install -r iocl_portal/requirements.txt
+          python -m playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr
+      - name: Read company-code balance excluding open deliveries
+        if: inputs.mode != 'network'
+        env:
+          IOCL_MODE: ${{ inputs.mode || (github.event.schedule == '0 19 * * *' && 'opening' || 'sync') }}
+          IOCL_EMITRA_USERNAME: ${{ secrets.IOCL_EMITRA_USERNAME }}
+          IOCL_EMITRA_PASSWORD: ${{ secrets.IOCL_EMITRA_PASSWORD }}
+          IOCL_CUSTOMER_CODE: ${{ vars.IOCL_CUSTOMER_CODE }}
+          IOCL_CAPTCHA_LENGTH: ${{ vars.IOCL_CAPTCHA_LENGTH || '6' }}
+          IOCL_SELECTORS_JSON: ${{ vars.IOCL_SELECTORS_JSON }}
+          # Reuse the existing payment-agent bindings. If both are absent,
+          # the runner uses the same published public config as /payments.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          case "$IOCL_MODE" in
+            probe|dry-run|sync|opening) python -m iocl_portal.run "--$IOCL_MODE" ;;
+            *) exit 2 ;;
+          esac
+      - name: Report failed observation
+        if: failure()
+        run: |
+          echo 'IOCL PAD sync failed. No successful observation was confirmed. Check the failing step; any earlier balance remains timestamped in Payments.' >> "$GITHUB_STEP_SUMMARY"
