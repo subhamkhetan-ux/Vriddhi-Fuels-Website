@@ -1,1 +1,3 @@
 playwright==1.63.0
+# CAPTCHA cleanup before local Tesseract OCR (iocl_portal/captcha.py)
+pillow==12.2.0

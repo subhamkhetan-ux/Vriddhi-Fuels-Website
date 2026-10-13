@@ -2,6 +2,7 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
+import io
 from types import SimpleNamespace
 
 import pytest
@@ -224,15 +225,50 @@ def test_ocr_rejects_uncertain_or_malformed_reads(answer, confidence):
     assert captcha.ocr_candidate(tsv(answer, confidence)) is None
 
 
-def test_ocr_requires_agreement_without_sending_images_away(monkeypatch):
+def _png(width=150, height=40):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), "white").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_ocr_votes_on_cleaned_images_locally(monkeypatch):
+    """Every read uses a cleaned copy of the image and local Tesseract only."""
     monkeypatch.setattr(captcha.shutil, "which", lambda _: "/usr/bin/tesseract")
-    outputs = iter(["ABCDEF", "ABCDEF", "ABCDEX"])
+    reads = iter(["ABCDEF\n"] * 7 + ["ABCDEX", "ABC", "abcdef"])
     def run(command, **kwargs):
         assert command[:3] == ["/usr/bin/tesseract", "stdin", "stdout"]
-        assert kwargs["input"] == b"synthetic-image"
-        return SimpleNamespace(returncode=0, stdout=tsv(next(outputs)).encode())
+        assert kwargs["input"].startswith(b"\x89PNG") and kwargs["input"] != original
+        return SimpleNamespace(returncode=0, stdout=next(reads).encode())
+    original = _png()
     monkeypatch.setattr(captcha.subprocess, "run", run)
-    assert captcha.solve_text_captcha(b"synthetic-image") == "ABCDEF"
-    outputs = iter(["ABCDEF", "ABCDEX", "ABCDEY"])
+    votes = captcha.captcha_votes(original)
+    assert len(votes) == 8 and votes.count("ABCDEF") == 7   # malformed reads are dropped
+    reads = iter(["ABCDEF"] * 7 + ["ABCDEX"] * 3)
+    assert captcha.solve_text_captcha(original) == "ABCDEF"
+
+
+@pytest.mark.parametrize(("votes", "answer"), [
+    (["ABCDEF"] * 4, "ABCDEF"),
+    (["ABCDEF"] * 6 + ["ABCDEX"] * 3, "ABCDEF"),
+    (["ABCDEF"] * 3, None),                      # too few agreeing reads
+    (["ABCDEF"] * 5 + ["ABCDEX"] * 3, None),     # not a clear winner
+    ([], None),
+])
+def test_an_answer_needs_a_clear_majority(votes, answer):
+    assert captcha.pick_answer(votes) == answer
+
+
+def test_unclear_captcha_stops_before_login(monkeypatch):
+    monkeypatch.setattr(captcha, "captcha_votes", lambda png, length: ["ABCDEF"] * 3 + ["ABCDEX"] * 3)
     with pytest.raises(PortalError, match="No login was submitted"):
-        captcha.solve_text_captcha(b"synthetic-image")
+        captcha.solve_text_captcha(_png())
+
+
+def test_cleaning_keeps_a_valid_enlarged_png():
+    from PIL import Image
+    out = captcha.clean_captcha(_png(), 4, 200, 7, -0.15)
+    image = Image.open(io.BytesIO(out))
+    assert image.mode == "L" and image.height == 40 * 4 + 40 and image.width > 150 * 4
+    with pytest.raises(PortalError, match="decoded"):
+        captcha.clean_captcha(b"not-an-image", 4, 200, 7, 0)
