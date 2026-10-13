@@ -194,10 +194,11 @@ def wait_for(cond, timeout=5):
 def test_settings_are_checked(station):
     assert station.settings == service.DEFAULTS                 # 10 s, all tanks, figures to decant
     assert station.save_settings({"interval_s": "30", "tanks": [3, 1]})["tanks"] == [1, 3]
-    for bad in ({"interval_s": 9}, {"interval_s": 3601}, {"tanks": []}, {"tanks": [5]}, {"interval_s": "x"}):
+    for bad in ({"interval_s": 4}, {"interval_s": 3601}, {"tanks": []}, {"tanks": [5]}, {"interval_s": "x"}):
         with pytest.raises(ValueError):
             station.save_settings(bad)
     assert station.settings["interval_s"] == 30
+    assert station.save_settings({"interval_s": 5})["interval_s"] == 5           # as often as every 5 s
 
 
 def test_capture_connects_reads_and_disconnects_without_uploading(station):

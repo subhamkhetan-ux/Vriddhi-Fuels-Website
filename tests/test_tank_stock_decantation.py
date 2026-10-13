@@ -334,3 +334,13 @@ def test_a_gap_in_the_readings_while_it_flows_loses_nothing():
         secs += 10
     assert run.s["status"] == "done" and row(run, "T2")["chambers"] == [2, 3]
     assert not run.state["questions"]
+
+
+def test_reading_every_5_seconds_gives_the_same_result():
+    run = start({1: "T1", 2: "T2", 3: "T2"})
+    truck = Truck([("T1", 60, 4990, 495), ("T2", 100, 4985, 495), ("T2", 640, 3992, 420)])
+    out = run_for(run, truck, 4000, step=5)
+    assert run.s["status"] == "done" and not out["asked"]
+    t2 = row(run, "T2")
+    assert t2["chambers"] == [2, 3] and t2["result"]["variation"] == -23.0
+    assert sum(" is in " in e for e in out["events"]) == 3

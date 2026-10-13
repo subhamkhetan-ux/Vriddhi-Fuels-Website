@@ -12,7 +12,7 @@ http://127.0.0.1:8790, published to your own Tailscale devices (setup.sh).
 - Send for decantation: capture, upload, and end the live session if one is
   open.
 - Live monitoring: connect once and keep that AnyDesk session open; every
-  ``interval_s`` seconds (10 at least) read the watched tanks' product
+  ``interval_s`` seconds (5 at least) read the watched tanks' product
   volume again (no reconnecting, no pictures), show it on the page, log each
   change and, with ``auto_upload``, send the volume alone to the decant app. It runs until
   AnyDesk ends the session (e.g. a free licence's time limit) or you press
@@ -61,7 +61,7 @@ PORT = 8790
 IST = timezone(timedelta(hours=5, minutes=30))
 TANKS = (1, 2, 3, 4)
 DEFAULTS = {"interval_s": 10, "tanks": list(TANKS), "auto_upload": True}   # live monitoring
-INTERVAL = (10, 3600)            # seconds between live reads (no reconnecting)
+INTERVAL = (5, 3600)             # seconds between live reads (no reconnecting)
 CHECK_EVERY = 5                  # seconds: is the live session still open?
 MAX_FAILED_READS = 5             # live reads that may fail in a row
 SETTINGS_EVERY = 600             # seconds: re-read the decant app's settings while live

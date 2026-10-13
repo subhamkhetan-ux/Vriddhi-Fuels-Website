@@ -20,7 +20,7 @@ your own Tailscale network, like the XtraPower one). Pick the tanks (any of
   of just those tanks' cards, their figures and the decant app's check badge;
   **Upload** (per tank, or all shown) saves them afterwards.
 - **Live monitoring**: connect once and keep that AnyDesk session open. Every
-  10 seconds (10-3600, set on the page) the watched tanks' **product volume**
+  10 seconds (5-3600, set on the page) the watched tanks' **product volume**
   is read again, without reconnecting and without pictures: the page shows
   each one as it comes, a log keeps a line per change (**Download log
   (CSV)**), and with "Send the volume to the decant app as it changes" decant
