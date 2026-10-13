@@ -133,12 +133,8 @@ class PortalBrowser:
             self._css("input[name*=user i], input[id*=user i]"),
             self._css("input[name*=dealer i], input[id*=dealer i]"),
             self._css("input[type=text]:not([id*=captcha i]):not([name*=captcha i]):not([id*=captext i])")])
-        captcha = self.locate("captcha_image", [self._css("img[src*=captcha i]"),
-            self._css("img[id*=captcha i], img[alt*=captcha i]"),
-            self._css("canvas[id*=captcha i]")])
-        field = self.locate("captcha_input", [self._label(r"captcha|verification\s*code"),
-            self._css("input[name*=captcha i], input[id*=captcha i]"),
-            self._css("input[name*=captext i], input[id*=captext i]")])
+        captcha = self.captcha_image()
+        field = self.captcha_input()
         # Read the displayed challenge before entering credentials; do not save
         # a browser profile, screenshot, trace or password to any artifact.
         answer = self.solve_captcha(captcha.screenshot(), length=captcha_length)
@@ -153,6 +149,16 @@ class PortalBrowser:
             self.account_menu()
         except PortalError:
             raise PortalError("Login was not confirmed (credentials, CAPTCHA or portal challenge). Only one login was submitted; nothing was saved.") from None
+
+    def captcha_image(self):
+        return self.locate("captcha_image", [self._css("img[src*=captcha i]"),
+            self._css("img[id*=captcha i], img[alt*=captcha i]"),
+            self._css("canvas[id*=captcha i]")])
+
+    def captcha_input(self):
+        return self.locate("captcha_input", [self._label(r"captcha|verification\s*code"),
+            self._css("input[name*=captcha i], input[id*=captcha i]"),
+            self._css("input[name*=captext i], input[id*=captext i]")])
 
     def account_menu(self, *, timeout=None):
         return self.text_control("account_menu", r"^[\s▾▸+*^»\-]*Account\s+Information\s*$", timeout=timeout)

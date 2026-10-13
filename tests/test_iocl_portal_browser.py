@@ -134,3 +134,28 @@ def test_blank_statement_keeps_yesterday_to_today_dates_at_boundaries(page, now,
     with pytest.raises(PortalError, match="report did not appear"):
         portal.read_balance(customer="999999", now=now)
     assert page.evaluate("window.requestedDates") == [expected_from, expected_to]
+
+
+def test_captcha_sampling_saves_images_and_reads_without_typing(page, tmp_path, monkeypatch):
+    from iocl_portal import run
+    reads = []
+
+    def fake_reads(png, *, length):
+        assert png.startswith(b"\x89PNG") and length == 6
+        reads.append(1)
+        return [{"psm": 7, "answer": None,
+                 "tsv": "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth"
+                        "\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t31.5\tAB3DEF\n"}]
+
+    monkeypatch.setattr(run, "ocr_reads", fake_reads)
+    portal = PortalBrowser(page, origin=ORIGIN, timeout=1)
+    portal.open()
+    assert run.sample_captchas(portal, tmp_path, length=6, count=3) == 3
+    report = __import__("json").loads((tmp_path / "report.json").read_text())
+    assert [s["file"] for s in report["samples"]] == ["captcha-1.png", "captcha-2.png", "captcha-3.png"]
+    assert report["samples"][0]["reads"][0]["words"] == [{"conf": "31.5", "text": "AB3DEF"}]
+    assert report["captcha_image"]["id"] == "captcha_image" and report["captcha_input"]["name"] == "captcha"
+    assert (tmp_path / "login-page.png").read_bytes().startswith(b"\x89PNG") and len(reads) == 3
+    # Nothing was typed or submitted.
+    assert page.evaluate("window.loginCount || 0") == 0
+    assert page.locator("input[name=username]").input_value() == ""

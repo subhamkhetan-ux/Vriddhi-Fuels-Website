@@ -27,8 +27,12 @@ def ocr_candidate(tsv: str, length: int = 6) -> str | None:
     return answer if re.fullmatch(r"[A-Z0-9]{" + str(length) + r"}", answer) else None
 
 
-def solve_text_captcha(png: bytes, *, length: int = 6) -> str:
-    """Require two OCR layouts to agree. Never cycle guesses against the site."""
+OCR_MODES = (7, 8, 13)
+
+
+def ocr_reads(png: bytes, *, length: int = 6) -> list[dict]:
+    """One Tesseract read per page-segmentation mode: the raw TSV and the
+    accepted answer (or None). Also used by ``--captcha-sample`` diagnostics."""
     if not 4 <= length <= 10:
         raise PortalError("IOCL_CAPTCHA_LENGTH must be between 4 and 10.")
     binary = shutil.which("tesseract")
@@ -36,8 +40,8 @@ def solve_text_captcha(png: bytes, *, length: int = 6) -> str:
         raise PortalError("Install Tesseract OCR to read the portal's text CAPTCHA.")
     if len(png) > 2_000_000:
         raise PortalError("The CAPTCHA image is unexpectedly large.")
-    candidates = []
-    for mode in (7, 8, 13):
+    reads = []
+    for mode in OCR_MODES:
         try:
             result = subprocess.run(
                 [binary, "stdin", "stdout", "--psm", str(mode),
@@ -45,10 +49,15 @@ def solve_text_captcha(png: bytes, *, length: int = 6) -> str:
                 input=png, capture_output=True, timeout=15, check=False)
         except (subprocess.TimeoutExpired, OSError):
             raise PortalError("Local CAPTCHA recognition did not complete.") from None
-        if result.returncode == 0:
-            answer = ocr_candidate(result.stdout.decode("utf-8", "replace"), length)
-            if answer:
-                candidates.append(answer)
+        tsv = result.stdout.decode("utf-8", "replace") if result.returncode == 0 else ""
+        reads.append({"psm": mode, "tsv": tsv,
+                      "answer": ocr_candidate(tsv, length) if tsv else None})
+    return reads
+
+
+def solve_text_captcha(png: bytes, *, length: int = 6) -> str:
+    """Require two OCR layouts to agree. Never cycle guesses against the site."""
+    candidates = [r["answer"] for r in ocr_reads(png, length=length) if r["answer"]]
     counts = Counter(candidates)
     if not counts or counts.most_common(1)[0][1] < 2:
         raise PortalError("CAPTCHA needs a person: local OCR could not read it confidently. No login was submitted.")

@@ -15,7 +15,7 @@ on:
       mode:
         description: "Probe login page, validate without writing, or sync Payments"
         type: choice
-        options: [network, probe, dry-run, sync, opening]
+        options: [network, probe, captcha-sample, dry-run, sync, opening]
         default: dry-run
   workflow_call:
     inputs:
@@ -85,9 +85,19 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           case "$IOCL_MODE" in
-            probe|dry-run|sync|opening) "$AGENT_PY" -m iocl_portal.run "--$IOCL_MODE" ;;
+            probe|captcha-sample|dry-run|sync|opening) "$AGENT_PY" -m iocl_portal.run "--$IOCL_MODE" ;;
             *) exit 2 ;;
           esac
+      - name: Keep CAPTCHA samples for OCR tuning
+        # Only the CAPTCHA pictures, the empty login page and OCR guesses:
+        # nothing was typed, so no credentials or account data are inside.
+        if: always() && inputs.mode == 'captcha-sample'
+        uses: actions/upload-artifact@v4
+        with:
+          name: captcha-samples
+          path: captcha-samples/
+          retention-days: 3
+          if-no-files-found: error
       - name: Report failed observation
         if: failure()
         run: |
