@@ -18,6 +18,7 @@ connection request.
 """
 from __future__ import annotations
 
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -231,6 +232,18 @@ def capture(ids: list[str], password: str, *, connect_wait: int = 35,
     if not password:
         raise CaptureError("ANYDESK_PASSWORD (the unattended-access password) is not set.")
     env = {**os.environ, "DISPLAY": DISPLAY}
+    # One capture at a time on this display: the monitor, the phone page and
+    # the GitHub job may all ask at once.
+    LAST_ID.parent.mkdir(parents=True, exist_ok=True)
+    lock = open(LAST_ID.parent / "capture.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _capture(ids, password, env, connect_wait, settle)
+    finally:
+        lock.close()
+
+
+def _capture(ids, password, env, connect_wait, settle):
     xvfb = subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     client, frontend, bus, attempts = None, None, None, []

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# One-time: install the AnyDesk client on the India server so the tank-stock
-# job (tank_stock/, .github/workflows/tank-stock.yml) can open the IOCL
-# automation PC with its unattended-access password and take a screenshot.
-# Nothing is installed on the IOCL PC.
+# Install (or update) the tank stock monitor on the India server: the AnyDesk
+# client, a console login session it runs in, the monitor and its phone page
+# (tank_stock/), published to your own Tailscale devices. It opens the IOCL
+# automation PC with its unattended-access password and reads the tank stock
+# screen. Nothing is installed on the IOCL PC. Re-running it is safe, and is
+# how the monitor is updated after a change in the repo.
 #
 #   cd ~/Vriddhi-Fuels-Website && git pull && bash infra/anydesk/setup.sh
 #
@@ -15,13 +17,13 @@ die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -ne 0 ] || die "Run as the ubuntu user, not root (the script uses sudo where needed)."
 
-say "1/4 Adding AnyDesk's official package source"
+say "1/6 Adding AnyDesk's official package source"
 curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | sudo gpg --dearmor --yes -o /usr/share/keyrings/anydesk.gpg
 echo "deb [signed-by=/usr/share/keyrings/anydesk.gpg] https://deb.anydesk.com all main" \
   | sudo tee /etc/apt/sources.list.d/anydesk-stable.list >/dev/null
 sudo apt-get update -q
 
-say "2/4 Installing AnyDesk, the virtual display and screenshot tools"
+say "2/6 Installing AnyDesk, the virtual display and screenshot tools"
 # AnyDesk's post-install script ends by adding a desktop menu entry with
 # xdg-desktop-menu; without it (a bare server) the script exits 1 and dpkg
 # marks AnyDesk broken, although the service runs. Install those tools first.
@@ -30,31 +32,72 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q anydesk xvfb xdotool i
   || { sudo dpkg --configure -a || true
        die "AnyDesk did not install cleanly on this $(uname -m) server. Send the lines above."; }
 
-say "3/4 Giving the runner user a login session (AnyDesk won't start without one)"
+say "3/6 Installing the monitor's code"
 here="$(cd "$(dirname "$0")" && pwd)"
+repo="$(cd "$here/../.." && pwd)"
+APP=/opt/agents/tank-stock/app
+PORT=8790
 id runner >/dev/null 2>&1 || die "No 'runner' user; run infra/india-runner/setup.sh first."
-sudo install -m 644 "$here/tank-stock-session.pam" /etc/pam.d/tank-stock-session
-sudo install -m 755 "$here/tank-stock-session.sh" /opt/agents/tank-stock-session.sh
-sudo install -m 644 "$here/tank-stock-session.service" /etc/systemd/system/tank-stock-session.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now tank-stock-session.service
-sudo systemctl restart tank-stock-session.service
+sudo install -d -o runner -g runner -m 750 /opt/agents/tank-stock
+url="$(git -C "$repo" remote get-url origin)"
+if sudo test -d "$APP/.git"; then
+  sudo -u runner git -C "$APP" fetch -q origin main
+  sudo -u runner git -C "$APP" reset -q --hard origin/main
+else
+  sudo -u runner git clone -q "$url" "$APP"
+fi
+echo "Code: $(sudo -u runner git -C "$APP" log -1 --format='%h %s')"
 
-say "4/4 Checking"
+say "4/6 Starting the monitor in a console login session (AnyDesk won't start without one)"
+sudo install -m 644 "$here/tank-stock-session.pam" /etc/pam.d/tank-stock-session
+sudo install -m 644 "$here/tank-stock-session.service" /etc/systemd/system/tank-stock-session.service
+sudo rm -f /opt/agents/tank-stock-session.sh          # replaced by tank_stock.service
+TS_NAME="" TS_LOGIN=""
+if command -v tailscale >/dev/null 2>&1; then
+  ts() { sudo tailscale status --json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)" 2>/dev/null || true; }
+  TS_NAME="$(ts 'd["Self"]["DNSName"].rstrip(".")')"
+  TS_LOGIN="$(ts 'd["User"][str(d["Self"]["UserID"])]["LoginName"]')"
+fi
+printf 'TANK_STOCK_HOSTS=%s\nTANK_STOCK_USERS=%s\n' "$TS_NAME" "$TS_LOGIN" \
+  | sudo install -m 644 /dev/stdin /opt/agents/tank-stock/page.env
+sudo systemctl daemon-reload
+sudo systemctl enable -q tank-stock-session.service
+sudo systemctl restart tank-stock-session.service
+for _ in $(seq 1 30); do
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/state" || true)"
+  [ "$code" = "200" ] && break
+  sleep 1
+done
+[ "$code" = "200" ] || die "The monitor didn't start. Send: journalctl -u tank-stock-session -n 40"
+
+say "5/6 Publishing the phone page to your Tailscale devices (not the internet)"
+if [ -n "$TS_NAME" ]; then
+  sudo tailscale serve --bg --https=8443 "http://127.0.0.1:$PORT" >/dev/null
+  PAGE="https://$TS_NAME:8443/"
+  echo "Published: $PAGE (only for ${TS_LOGIN:-your Tailscale account})"
+else
+  PAGE=""
+  echo "Tailscale isn't set up on this server: run infra/xtrapower/phone-setup.sh first, then this again."
+fi
+
+say "6/6 Checking"
 anydesk --version || true
 systemctl is-active --quiet anydesk && echo "AnyDesk service is running." || echo "Note: the AnyDesk service is not running."
-sleep 2
 sid=$(loginctl list-sessions --no-legend | awk '$3 == "runner" {print $1; exit}')
 if [ -n "$sid" ]; then
   echo "The runner user has a login session:"
   loginctl show-session "$sid" -p Seat -p VTNr -p Type -p Active -p State
   echo "Seat's active session: $(loginctl show-seat seat0 -p ActiveSession --value 2>/dev/null) (should be $sid)"
-  systemctl is-active --quiet tank-stock-session && echo "The capture runner is waiting in it."
 else
   echo "Note: no login session for runner yet. Send: systemctl status tank-stock-session"
 fi
+login=$(curl -s "http://127.0.0.1:$PORT/api/state" | python3 -c "import json,sys; print(json.load(sys.stdin)['login_saved'])" 2>/dev/null || true)
+echo "The monitor is running. AnyDesk login saved for it: ${login:-unknown}."
 echo
-echo "Done. Next, run: bash infra/anydesk/use-xtrapower-bot.sh"
-echo "(reports go to the XtraPower bot). Then in GitHub add the secrets ANYDESK_IDS (both of the IOCL PC's"
-echo "AnyDesk numbers, comma separated) and ANYDESK_PASSWORD (its unattended-access"
-echo "password), then run the 'Tank stock (AnyDesk -> decant)' workflow."
+if [ "$login" != "True" ]; then
+  echo "Next: in GitHub, Actions > 'Tank stock (AnyDesk -> decant)' > Run workflow,"
+  echo "mode save-login (it copies ANYDESK_IDS and ANYDESK_PASSWORD to the monitor)."
+fi
+if [ -n "$PAGE" ]; then
+  echo "On your phone (with Tailscale on), open $PAGE and add it to the home screen."
+fi

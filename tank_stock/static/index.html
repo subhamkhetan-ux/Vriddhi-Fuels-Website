@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="ts-csrf" content="__CSRF__">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tank stock">
+<meta name="theme-color" content="#0b3b66">
+<title>Tank stock</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --ink: #17202a; --muted: #5f6b77; --line: #dde3e9;
+    --accent: #0b3b66; --accent-ink: #ffffff; --chip: #e8eef4;
+    --ok: #1f7a3d; --ok-bg: #e7f4ec; --warn: #a3330f; --warn-bg: #fdeee8; --mid: #8a5a00; --mid-bg: #fff4dc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11161b; --card: #1a2128; --ink: #e8edf2; --muted: #9aa6b2; --line: #2c3640;
+      --accent: #6fb1ef; --accent-ink: #0d1318; --chip: #24303b;
+      --ok: #5fc483; --ok-bg: #18301f; --warn: #f0906a; --warn-bg: #3a221a; --mid: #e6b450; --mid-bg: #33290f;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         padding: env(safe-area-inset-top) 0 calc(24px + env(safe-area-inset-bottom)); }
+  header { padding: 14px 16px 6px; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  main { padding: 0 16px; max-width: 760px; margin: 0 auto; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 12px 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 999px;
+          padding: 8px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  button.main, button.alt { font: inherit; font-weight: 600; border-radius: 10px; padding: 10px 14px; cursor: pointer; border: 1px solid var(--accent); }
+  button.main { background: var(--accent); color: var(--accent-ink); }
+  button.alt { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { margin-top: 10px; font-size: 14px; color: var(--muted); }
+  .status.err { color: var(--warn); }
+  .shot { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #fff; display: block; margin-top: 10px; }
+  .tank { border-top: 1px solid var(--line); padding: 10px 0; }
+  .tank:first-child { border-top: 0; }
+  .tank-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tank-head .up { margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin-top: 8px; }
+  .fig .label { display: block; font-size: 12px; color: var(--muted); }
+  .fig .value { font-variant-numeric: tabular-nums; font-weight: 600; }
+  #figures { margin-top: 6px; }
+  .badge { display: inline-block; border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 600; }
+  .high { background: var(--ok-bg); color: var(--ok); }
+  .medium { background: var(--mid-bg); color: var(--mid); }
+  .low { background: var(--warn-bg); color: var(--warn); }
+  .note { font-size: 12px; color: var(--muted); }
+  .note.err { color: var(--warn); }
+  .up { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--accent);
+        background: transparent; color: var(--accent); cursor: pointer; }
+  label.line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  label.line:last-of-type { border-bottom: 0; }
+  input[type=number] { width: 90px; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  input[type=checkbox] { width: 22px; height: 22px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tank stock</h1>
+  <div class="sub" id="sub">IOCL automation PC via AnyDesk → decant app</div>
+</header>
+<main>
+  <section>
+    <h2>Capture now</h2>
+    <div class="chips" id="pick" aria-label="Tanks"></div>
+    <div class="row">
+      <button class="main" id="go">Capture</button>
+      <button class="alt" id="goUp">Capture &amp; upload</button>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section id="result" hidden>
+    <h2 id="resultTitle">Last capture</h2>
+    <div class="note" id="resultNote"></div>
+    <img class="shot" id="shot" alt="The selected tanks on the automation screen">
+        <div id="figures"></div>
+    <div class="row">
+      <button class="main" id="upAll">Upload these to decant</button>
+    </div>
+    <div class="status" id="upStatus"></div>
+  </section>
+
+  <section>
+    <h2>Monitor</h2>
+    <label class="line">Run the monitor <input type="checkbox" id="mOn"></label>
+    <label class="line">Every (minutes) <input type="number" id="mEvery" min="5" max="1440" step="1"></label>
+    <label class="line">Upload to decant automatically <input type="checkbox" id="mUp"></label>
+    <div class="note" style="margin-top:8px">Tanks to watch</div>
+    <div class="chips" id="mTanks" style="margin-top:6px"></div>
+    <div class="row"><button class="main" id="mSave">Save</button></div>
+    <div class="status" id="mStatus"></div>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

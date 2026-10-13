@@ -6,7 +6,7 @@ Telegram. (Stage 2 will hand it to the decant app's Stock reader.)
 AnyDesk only starts inside the logged-in user's session, which a GitHub job
 is not part of. So when the server has the session's capture queue
 (infra/anydesk/setup.sh), the job leaves a request there and relays the
-result; tank-stock-session.sh runs ``--in-session`` with it.
+result; the monitor (tank_stock.service) runs ``--in-session`` with it.
 """
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def via_session(wait: int = SESSION_WAIT) -> int:
 
 
 def in_session(job: str) -> int:
-    """Run by tank-stock-session.sh, inside the session, for one request."""
+    """Run by the monitor (tank_stock.service), inside the session, for one request."""
     env_file = Path(f"{job}.env")
     env = json.loads(env_file.read_text(encoding="utf-8"))
     env_file.unlink()
@@ -68,7 +68,11 @@ def main(argv=None) -> int:
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--capture", action="store_true", help="connect, screenshot, send it to Telegram")
     mode.add_argument("--in-session", metavar="REQUEST", help=argparse.SUPPRESS)
+    mode.add_argument("--save-login", action="store_true",
+                      help="give the server's tank monitor the AnyDesk login (ANYDESK_IDS, ANYDESK_PASSWORD)")
     args = ap.parse_args(argv)
+    if args.save_login:
+        return save_login()
     if args.in_session:
         return in_session(args.in_session)
     if QUEUE.is_dir():
@@ -76,6 +80,25 @@ def main(argv=None) -> int:
     print("No login-session queue on this server (re-run infra/anydesk/setup.sh); "
           "capturing directly.", flush=True)
     return capture_and_report()
+
+
+def save_login() -> int:
+    """Store the AnyDesk IDs and password for the monitor (tank_stock.service),
+    owner-only, in its home folder."""
+    from .service import HOME, _write_json
+    try:
+        ids = parse_ids(os.environ.get("ANYDESK_IDS") or os.environ.get("ANYDESK_ID", ""))
+    except CaptureError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    password = os.environ.get("ANYDESK_PASSWORD", "")
+    if not password:
+        print("ANYDESK_PASSWORD is not set.", file=sys.stderr)
+        return 1
+    _write_json(HOME / "login.json", {"ids": ids, "password": password, "saved": datetime.now(IST).isoformat()},
+                private=True)
+    print(f"Saved the AnyDesk login ({len(ids)} IDs) for the tank monitor.")
+    return 0
 
 
 def capture_and_report() -> int:

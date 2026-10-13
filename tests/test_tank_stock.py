@@ -287,7 +287,7 @@ def test_capture_is_handed_to_the_login_session_and_relayed(monkeypatch, tmp_pat
     monkeypatch.setenv("ANYDESK_PASSWORD", "s3cret")
     seen = {}
 
-    def session():                      # what tank-stock-session.sh does
+    def session():                      # what the monitor's queue_loop does
         while not list(queue.glob("*.req")):
             pass
         req = next(queue.glob("*.req"))

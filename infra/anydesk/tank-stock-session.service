@@ -5,10 +5,11 @@
 # unless the user running it owns the machine's active graphical seat. A
 # server has no one at its seat, so this unit logs `runner` in on console
 # tty7 of seat0 through PAM and makes tty7 the active console, as a display
-# manager does, and runs tank-stock captures inside that session when the
-# job asks (tank-stock-session.sh). Installed by infra/anydesk/setup.sh.
+# manager does. Inside that session it runs the tank stock monitor and phone
+# page (python -m tank_stock.service), which also runs the GitHub job's
+# captures. Installed by infra/anydesk/setup.sh.
 [Unit]
-Description=Login session for the tank-stock AnyDesk client
+Description=Tank stock monitor and phone page (in a console login session, for AnyDesk)
 After=systemd-logind.service systemd-user-sessions.service getty@tty7.service
 Conflicts=getty@tty7.service
 
@@ -26,7 +27,12 @@ UtmpIdentifier=tty7
 UtmpMode=user
 # Bring tty7 to the front, so this is the seat's active session.
 ExecStartPre=-+/usr/bin/chvt 7
-ExecStart=/opt/agents/tank-stock-session.sh
+WorkingDirectory=/opt/agents/tank-stock/app
+# TANK_STOCK_HOSTS / TANK_STOCK_USERS: this server's Tailscale name and your
+# Tailscale login, written by setup.sh, for the phone page.
+EnvironmentFile=-/opt/agents/tank-stock/page.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/agents/venv/bin/python -m tank_stock.service
 Restart=always
 RestartSec=10
 
