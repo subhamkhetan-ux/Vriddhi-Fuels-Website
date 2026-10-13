@@ -23,6 +23,7 @@ gives the labels and the "Last Updated" time.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import subprocess
@@ -58,17 +59,36 @@ class Pixels:
         return max(r, g, b) - min(r, g, b) <= 10 and 195 <= (r + g + b) / 3 <= 240
 
 
+PRODUCT_WORD = re.compile(r"motor|spirit|high|speed|diesel|xtra|tra|green", re.I)
+
+
 def headings(words):
-    """{tank number: (x, y, w, h) of the word "Tank"} for "Tank N :" headings."""
-    found = {}
+    """{tank number: (x, y, w, h) of the word "Tank"} for the "Tank N : Product"
+    headings. OCR sometimes loses the number ("Tank (traGreen"); the cards
+    stand in one row in tank order, so such a heading takes its place in the
+    row, when the numbers that were read agree with that order."""
+    found = []
     for i, (text, x, y, w, h) in enumerate(words):
-        if re.sub(r"[^a-z]", "", text.lower()) != "tank":
+        if re.sub(r"[^a-z]", "", text.lower()) != "tank" or i + 1 >= len(words):
             continue
-        nxt = words[i + 1][0] if i + 1 < len(words) else ""
-        m = re.match(r"(\d)\s*:?$", nxt)
-        if m and words[i + 1][2] < y + h:            # same line
-            found.setdefault(int(m.group(1)), (x, y, w, h))
-    return found
+        nxt, ny = words[i + 1][0], words[i + 1][2]
+        if ny >= y + h:                                  # not on the same line
+            continue
+        m = re.match(r"(\d)\s*[:;.]?$", nxt)
+        if m or PRODUCT_WORD.search(nxt):
+            found.append((x, y, w, h, int(m.group(1)) if m else None))
+    if not found:
+        return {}
+    # the headings' row (the cards' own "Tank Status" labels sit lower)
+    row_y = sorted(y for _, y, _, _, _ in found)[0]
+    row = sorted((f for f in found if abs(f[1] - row_y) <= 12), key=lambda f: f[0])
+    in_order = all(num == i + 1 for i, (*_, num) in enumerate(row) if num is not None)
+    out = {}
+    for i, (x, y, w, h, num) in enumerate(row):
+        no = num if num is not None else (i + 1 if in_order else None)
+        if no is not None:
+            out.setdefault(no, (x, y, w, h))
+    return out
 
 
 def card_boxes(png: bytes, words) -> dict:
@@ -246,6 +266,36 @@ def ocr_text(png: bytes, region, threshold: bool = False) -> str:
                               env={"OMP_THREAD_LIMIT": "1", "PATH": "/usr/bin:/bin"}).stdout.decode(errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return ""
+
+
+# Where the parts of a card are, as a share of its height.
+FIGURES_FROM = 0.36    # the "Last Updated" line ...
+FIGURES_TO = 0.80      # ... to "Ullage Space": what a live read reads
+STEADY_FROM = 0.50     # "Tank Capacity" to "Ullage Space": the rows the volume is in
+
+
+def read_figures(png: bytes, box) -> dict:
+    """A live read: one thresholded pass from the Last Updated time down to
+    the ullage (volume, height and ullage, for the decant app's sum and
+    dip-chart checks of the volume; density and temperature aren't read)."""
+    left, top, right, bottom = box
+    y0 = top + int((bottom - top) * FIGURES_FROM)
+    y1 = top + int((bottom - top) * FIGURES_TO)
+    card = parse_labelled(ocr_text(png, (left, y0, right - left + 1, y1 - y0 + 1), threshold=True))
+    card["disagree"] = []
+    return card
+
+
+def fingerprint(px: Pixels, box) -> str:
+    """Changes when the rows the volume is in change on screen (not when the
+    "Last Updated" clock ticks or the temperature moves), so an unchanged
+    card needn't be read again."""
+    left, top, right, bottom = box
+    h = hashlib.sha1()
+    for y in range(top + int((bottom - top) * STEADY_FROM), top + int((bottom - top) * FIGURES_TO)):
+        i = (y * px.width + left) * 3
+        h.update(px.raw[i:i + (right - left) * 3])
+    return h.hexdigest()
 
 
 def read_all(png: bytes) -> tuple[dict, dict]:

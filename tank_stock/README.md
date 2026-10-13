@@ -20,13 +20,22 @@ your own Tailscale network, like the XtraPower one). Pick the tanks (any of
   of just those tanks' cards, their figures and the decant app's check badge;
   **Upload** (per tank, or all shown) saves them afterwards.
 - **Live monitoring**: connect once and keep that AnyDesk session open. Every
-  N minutes (1-240, default 15) the screen is read again, without
-  reconnecting, and with "Update the decant app each time" the watched tanks
-  are saved. It runs until AnyDesk ends the session (the free licence's time
-  limit, or the PC going offline) or you press Stop. When AnyDesk ends it, the
-  XtraPower Telegram bot gets a picture of what AnyDesk showed and how long it
-  lasted. Problems while live (a tank not saved, a tank not on the screen) are
-  sent once each.
+  10 seconds (10-3600, set on the page) the watched tanks' **product volume**
+  is read again, without reconnecting and without pictures: the page shows
+  each one as it comes, a log keeps a line per change (**Download log
+  (CSV)**), and with "Send the volume to the decant app as it changes" decant
+  gets the volume alone (it works the ullage and dip out itself, as for typed
+  litres). Each read covers a card from its Last Updated time to its ullage:
+  the height and ullage are read only to check the volume (volume + ullage =
+  capacity, and the dip chart at that height), so a misread digit never goes
+  to decant. A card whose volume rows haven't changed on screen isn't read
+  again, and reads never keep the server busy more than half the time (the
+  page says how long a read takes); the OCR runs at low priority so the
+  XtraPower monitor comes first. It runs until AnyDesk ends the session (the
+  free licence's time limit, or the PC going offline) or you press Stop; then
+  the last screen becomes an ordinary capture, with its pictures to save or
+  upload. When AnyDesk ends it, the XtraPower Telegram bot gets a picture of
+  what AnyDesk showed and how long it lasted.
 
 The GitHub job "Tank stock (AnyDesk -> decant)" still works: `capture` sends
 the whole screen to the XtraPower bot (from the open session when live

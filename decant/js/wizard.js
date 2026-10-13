@@ -11,7 +11,7 @@
 //   5 Result  — variation per tank; shared as a picture
 
 import {
-  PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, drainAt, drainTimeline, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
+  PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, drainAt, drainLive, drainTimeline, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
 import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
@@ -608,10 +608,14 @@ function stageCard(s, t) {
     </div>`;
 }
 
-// The pipe's round by the chambers' times (Settings): the chamber it's on,
-// what's next and about how long is left — or that all should be empty now —
-// then the litres: left in that chamber, and in the tank (≈, till it's read).
+// The pipe's round by the tank's real stock, when the tank stock agent (or
+// any reading) has read it since it started, else by the chambers' times
+// (Settings): the chamber it's on, what's next and about how long is left — or
+// that all are (should be) empty now — then the litres: left in that chamber,
+// and in the tank (≈, till it's read).
 function drainText(s, t, now) {
+  const live = drainLive(t, s.data.chambers, state.tankState[t.tank], state.settings);
+  if (live) return liveDrainText(s, t, live, now);
   const at = drainAt(drainTimeline(t, s.data.chambers, state.settings), now);
   if (!at) return '';
   const next = t.chambers.slice(t.chambers.indexOf(at.on) + 1);
@@ -625,6 +629,19 @@ function drainText(s, t, now) {
   }
   const left = (s.data.chambers.find((c) => c.no === at.on)?.litres || 0) * (1 - at.drained[at.on]);
   return `Pipe on C${at.on}${next.length ? `, then C${next.join(', C')}` : ''} · about ${elapsed(at.left)} to go\nC${at.on} ≈${fmtL(left)} left · ${inTank}`;
+}
+
+// By the stock read: "Read 10:42:05 (8 s ago): pipe on C2, then C3 · …".
+function liveDrainText(s, t, at, now) {
+  const before = Number(t.before?.volume) || 0;
+  const read = `Stock read ${fmtTime(at.readingAt)} (${elapsed(Math.max(0, now - Date.parse(at.readingAt)))} ago)`;
+  const inTank = `${tankName(t.tank)} ${fmtL(before + at.rise)} (+${fmtL(at.rise)})`;
+  if (at.done) {
+    return `${read}: the stock has risen by all of C${compactNos(t.chambers)} — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'} empty.\n${inTank}`;
+  }
+  const next = t.chambers.slice(t.chambers.indexOf(at.on) + 1);
+  const left = (s.data.chambers.find((c) => c.no === at.on)?.litres || 0) * (1 - at.drained[at.on]);
+  return `${read}: pipe on C${at.on}${next.length ? `, then C${next.join(', C')}` : ''} · about ${elapsed(at.left)} to go\nC${at.on} ≈${fmtL(left)} left · ${inTank}`;
 }
 
 function afterWarnings(s, t) {

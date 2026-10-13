@@ -20,7 +20,7 @@
 // animations on purpose: those redraw the whole picture 60 times a second
 // even where nothing needs it, which was most of what it cost.)
 
-import { drainAt, drainTimeline, tankStage } from './core.js';
+import { drainAt, drainLive, drainTimeline, stillTimeline, tankStage } from './core.js';
 import { PRODUCT_COLOR, elapsed, esc, fmtL } from './ui.js';
 import { GROUND, LEVER, OUTLET_Y, ZOOM, applyPose, moveScene, workerDefs, workerSvg } from './worker.js';
 
@@ -72,8 +72,12 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
   const chambers = (d.chambers || []).filter((c) => c.no > 0).sort((a, b) => a.no - b.no);
   const done = new Set(d.done || []);
   const rowOfChamber = new Map(rows.flatMap((r) => r.chambers.map((no) => [no, r])));
-  // each tank decanting: its pipe's round, and where it is now
+  // each tank decanting: its pipe's round, and where it is now — by the
+  // tank's real stock when it has been read since it started (the tank stock
+  // agent's live monitoring), else by the chambers' times
   const round = new Map(rows.filter((r) => stageOf(r) === 'decanting').map((r) => {
+    const live = drainLive(r, chambers, stock[r.tank], settings);
+    if (live) return [r, { tl: stillTimeline(live, r, chambers, now), at: live }];
     const tl = drainTimeline(r, chambers, settings);
     return [r, { tl, at: drainAt(tl, now) }];
   }));
@@ -183,7 +187,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       anim.p.push({
         k: `p${row.tank}`, t: row.tank, xi, sag, wins: rd.tl.map((w) => [w.from, w.to, outletX(w.no), w.no]),
         // the pipe's moves: [start, end, the valve it leaves, the valve it goes to, from C, to C]
-        moves: rd.tl.slice(1).map((w, i) => [w.moveAt, w.from, outletX(rd.tl[i].no), outletX(w.no), rd.tl[i].no, w.no]),
+        moves: rd.tl.slice(1).map((w, i) => [w.moveAt, w.from, outletX(rd.tl[i].no), outletX(w.no), rd.tl[i].no, w.no]).filter(([t0]) => Number.isFinite(t0)),
       });
       if (!compact && rd.tl.length > 1) workers.push(row.tank);
     }
@@ -229,13 +233,14 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
         const rd = round.get(row);
         flowing = rd?.at ? rd.at.flowing : true;
         const now1 = before + (rd?.at?.litres || 0);
-        if (rd?.tl.length) anim.t.push({ k: `${t.id}`, before, cap, wins: rd.tl.map((w) => [w.from, w.to, w.litres]) });
+        // read: the litres it has got, held till the next reading
+        if (rd?.tl.length) anim.t.push({ k: `${t.id}`, before, cap, wins: rd.tl.map((w) => [w.from, w.to, w.litres]), ...(rd.at?.live ? { got: rd.at.litres, flow: rd.at.flowing } : {}) });
         inside = `<g data-k="t${t.id}" transform="translate(0 ${tankY(now1, cap)})">${liquid(x0, x1, 0, th + 2, col, { wave: true })}</g>
           ${outline}
           ${[0, 350, 700].map((delay) => `<circle class="drop" cx="${xc}" cy="${TANK.top + 12}" r="1.7" fill="${col}" data-d="${delay}"/>`).join('')}`;
         tag = '<tspan class="ds-live">decanting</tspan>';
         // counting up: what's in it now, and what's gone in so far
-        nums = `${vol(now1, true, TANK.top + 21)}<text x="${xc}" y="${TANK.top + 31.5}" class="ds-add" data-k="a${t.id}">+${fmtL(now1 - before)}</text>`;
+        nums = `${vol(now1, !rd?.at?.live, TANK.top + 21)}<text x="${xc}" y="${TANK.top + 31.5}" class="ds-add" data-k="a${t.id}">+${fmtL(now1 - before)}</text>`;
       } else if (st === 'settling') {
         inside = liquid(x0, x1, tankY(target, cap), TANK.bottom, col, { wave: true, cls: 'slow' });
         tag = '<tspan class="ds-settle">settling</tspan>';
@@ -443,10 +448,11 @@ function tickOne(svg, now, full = true) {
     if (on) text(`n${g.k}`, fmtL(g.l * (1 - p)));
   }
   for (const t of full ? a.t : []) {
-    const litres = t.before + t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0);
+    const read = Number.isFinite(t.got);
+    const litres = t.before + (read ? t.got : t.wins.reduce((s, [from, to, l]) => s + l * part(now, from, to), 0));
     put(el(`t${t.k}`), 'transform', `translate(0 ${tankY(litres, t.cap)})`);
-    el(`d${t.k}`)?.classList.toggle('flowing', inWindow(t.wins, now));   // not while the pipe is moved
-    text(`v${t.k}`, `≈${fmtL(litres)}`);
+    el(`d${t.k}`)?.classList.toggle('flowing', read ? t.flow : inWindow(t.wins, now));   // not while the pipe is moved
+    text(`v${t.k}`, `${read ? '' : '≈'}${fmtL(litres)}`);
     text(`a${t.k}`, `+${fmtL(litres - t.before)}`);
   }
   let focus = null;                                      // the first pipe being moved: what the picture zooms onto

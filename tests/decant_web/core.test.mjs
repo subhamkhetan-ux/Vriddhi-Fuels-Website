@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, drainAt, drainTimeline,
+  DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, drainAt, drainLive, drainTimeline,
   fmtMinSec, invoiceStatus, istDate, litresAtDip, productKey, settingsWith, solvePlan, suggestPlan, tankResult, usedChambers,
 } from '../../decant/js/core.js';
 import { DIP_CHART } from '../../decant/js/dipchart.js';
@@ -361,6 +361,33 @@ test('the pipe\'s round: chambers one after another, 45 s to move the pipe betwe
   assert.deepEqual([end.on, end.flowing, end.done, end.left, end.litres, end.moving], [5, false, true, 0, 13000, null]);
   assert.deepEqual(drainTimeline({ chambers: [2] }, chambers), []);        // not started
   assert.equal(drainAt([], T0), null);
+});
+
+test('the pipe\'s round by the tank\'s real stock: what it has risen by since the stock before, chamber by chamber', () => {
+  const T0 = Date.parse('2026-09-28T11:45:00Z');
+  const at = (secs) => new Date(T0 + secs * 1000).toISOString();
+  const chambers = [[2, 5000], [3, 4000], [5, 4000]].map(([no, litres]) => ({ no, litres }));
+  const row = { startedAt: at(0), chambers: [2, 3, 5], before: { volume: 10000, readingAt: at(-60) } };
+  const read = (secs, volume) => ({ readingAt: at(secs), volume });
+  // up 6,000 L: C2 empty, C3 a quarter out
+  const now = drainLive(row, chambers, read(300, 16000), DEFAULT_SETTINGS);
+  assert.deepEqual([now.live, now.on, now.rise, now.litres, now.flowing, now.done], [true, 3, 6000, 6000, true, false]);
+  assert.deepEqual(now.drained, { 2: 1, 3: 0.25, 5: 0 });
+  // 7,000 L to go at a 5 KL chamber's 8:15, and one more move of the pipe (0:45)
+  assert.equal(Math.round(now.left / 1000), 693 + 45);
+  // within max(50 L, 2 %) of a chamber: it's empty (the tank's litres never match exactly)
+  assert.equal(drainLive(row, chambers, read(300, 14930), DEFAULT_SETTINGS).on, 3);
+  assert.equal(drainLive(row, chambers, read(300, 14930), DEFAULT_SETTINGS).drained[2], 1);
+  const end = drainLive(row, chambers, read(900, 22930), DEFAULT_SETTINGS);
+  assert.deepEqual([end.on, end.done, end.flowing, end.left, end.rise], [5, true, false, 0, 12930]);
+  // not risen yet: on the first chamber, all full
+  const first = drainLive(row, chambers, read(20, 9998), DEFAULT_SETTINGS);
+  assert.deepEqual([first.on, first.rise, first.drained[2]], [2, 0, 0]);
+  // no reading since it started: by the chambers' times instead
+  assert.equal(drainLive(row, chambers, read(-10, 16000), DEFAULT_SETTINGS), null);
+  assert.equal(drainLive(row, chambers, row.before, DEFAULT_SETTINGS), null);
+  assert.equal(drainLive(row, chambers, undefined, DEFAULT_SETTINGS), null);
+  assert.equal(drainLive({ ...row, startedAt: null }, chambers, read(300, 16000), DEFAULT_SETTINGS), null);
 });
 
 test('IST dates', () => {
