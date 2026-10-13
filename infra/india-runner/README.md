@@ -42,11 +42,12 @@ In the Oracle console, click the **Cloud Shell** icon (`>_`, top right). In the
 terminal that opens:
 
 ```sh
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/oracle_india
+ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/oracle_india
 cat ~/.ssh/oracle_india.pub
 ```
 
-Copy the line that starts with `ssh-ed25519`.
+Copy the whole line that starts with `ssh-rsa` (it wraps over several lines).
+Cloud Shell runs in FIPS mode, which rejects ED25519 keys.
 
 ## 3. Create the server
 
