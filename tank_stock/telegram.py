@@ -1,26 +1,33 @@
 """Private delivery of the screenshot and results (this repo's job logs are
 public, so pictures of the automation screen go to Telegram, never the log).
 
-``TANK_TELEGRAM_TOKEN`` / ``TANK_TELEGRAM_CHAT`` (optional) send to a bot and
-chat of your choice; otherwise the payment agent's ``TELEGRAM_TOKEN`` /
-``TELEGRAM_CHAT`` are used.
+Messages go to the XtraPower monitor's bot and chat: its token and chat id
+are copied for the runner by infra/anydesk/use-xtrapower-bot.sh into
+``TANK_TELEGRAM_FILE`` (default /opt/agents/tank-telegram.json).
+``TANK_TELEGRAM_TOKEN`` / ``TANK_TELEGRAM_CHAT`` override it when both are set.
 """
 from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import urllib.error
 import urllib.request
 import uuid
 
+BOT_FILE = Path(os.environ.get("TANK_TELEGRAM_FILE", "/opt/agents/tank-telegram.json"))
 _reported = False
 
 
 def _config() -> tuple[str, str, str]:
-    """(token, chat, which secrets)"""
+    """(token, chat, where they came from)"""
     if os.environ.get("TANK_TELEGRAM_TOKEN") and os.environ.get("TANK_TELEGRAM_CHAT"):
         return os.environ["TANK_TELEGRAM_TOKEN"], os.environ["TANK_TELEGRAM_CHAT"], "TANK_TELEGRAM_*"
-    return os.environ.get("TELEGRAM_TOKEN", ""), os.environ.get("TELEGRAM_CHAT", ""), "TELEGRAM_*"
+    try:
+        bot = json.loads(BOT_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "", "", ""
+    return str(bot.get("token") or ""), str(bot.get("chat_id") or ""), "XtraPower bot"
 
 
 def _mask(name: str) -> str:
@@ -59,7 +66,8 @@ def _report(token: str, chat: dict, which: str) -> None:
 def _post(method: str, fields: dict, files: dict | None = None, timeout: int = 60) -> bool:
     token, chat, which = _config()
     if not token or not chat:
-        print("Telegram is not configured (TELEGRAM_TOKEN / TELEGRAM_CHAT); nothing sent.")
+        print("Telegram is not configured; nothing sent. On the server run "
+              "bash infra/anydesk/use-xtrapower-bot.sh to use the XtraPower bot.")
         return False
     boundary = uuid.uuid4().hex
     body = bytearray()

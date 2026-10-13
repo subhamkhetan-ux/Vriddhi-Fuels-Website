@@ -8,13 +8,13 @@ screenshot. It works like you opening AnyDesk on your phone. The client
 draws on a private virtual display, and the password reaches AnyDesk on stdin
 (its documented `--with-password` mode).
 
-**Stage 1 (now):** the screenshot goes **privately to Telegram**: to
-`TANK_TELEGRAM_TOKEN` / `TANK_TELEGRAM_CHAT` when both secrets are set (for
-example the XtraPower monitor's bot token and chat id), otherwise to the
-payment agent's `TELEGRAM_TOKEN` / `TELEGRAM_CHAT`. The job log names the bot
-and chat it delivered to, masked (`@Vr…ot`, `private chat 'Su…am'`), or
-Telegram's reason for refusing. This repo's job logs are public, so pictures
-and window titles are never logged there.
+**Stage 1 (now):** the screenshot goes **privately to the XtraPower
+monitor's Telegram bot and chat**. `infra/anydesk/use-xtrapower-bot.sh` copies
+just that bot's token and chat id (not the portal logins) into
+`/opt/agents/tank-telegram.json`, readable only by the runner. The job log
+names the bot and chat it delivered to, masked (`@Xt…ot`, `private chat
+'Su…am'`), or Telegram's reason for refusing. This repo's job logs are public,
+so pictures and window titles are never logged there.
 
 **Stage 2 (next):** hand the screenshot to the decant app's **📷 Stock**
 reader and press *Use these readings* only when every tank card passes the
@@ -25,12 +25,14 @@ app's checks.
 1. On the server: `cd ~/Vriddhi-Fuels-Website && git pull && bash infra/anydesk/setup.sh`.
    This installs AnyDesk, a virtual display and screenshot tools. The server's
    own AnyDesk gets no unattended password, so no one can connect into it.
+   Then `bash infra/anydesk/use-xtrapower-bot.sh`, so reports go to the
+   XtraPower bot (re-run it if you change that bot or chat).
 2. In GitHub, **Settings → Secrets and variables → Actions → Secrets**:
    - `ANYDESK_IDS`: **both** of the IOCL PC's AnyDesk numbers, comma separated,
      for example `123 456 789, 987 654 321`;
    - `ANYDESK_PASSWORD`: its unattended-access password.
 3. **Actions → Tank stock (AnyDesk -> decant) → Run workflow**. The
-   screenshot arrives on Telegram within a minute or two.
+   screenshot arrives on the XtraPower bot within a minute or two.
 
 ## The PC's two AnyDesk IDs
 

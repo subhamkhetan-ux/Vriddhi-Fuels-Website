@@ -2,8 +2,9 @@ name: Tank stock (AnyDesk -> decant)
 
 # Opens the IOCL automation PC with AnyDesk's unattended access from the India
 # server and takes a screenshot of its tank stock screen. Stage 1: the picture
-# goes privately to Telegram (this repo's logs are public). Setup:
-# infra/anydesk/setup.sh, then secrets ANYDESK_IDS and ANYDESK_PASSWORD.
+# goes privately to the XtraPower monitor's Telegram bot (this repo's logs are
+# public). Setup: infra/anydesk/setup.sh and use-xtrapower-bot.sh on the
+# server, then secrets ANYDESK_IDS and ANYDESK_PASSWORD.
 
 on:
   workflow_dispatch:
@@ -33,9 +34,4 @@ jobs:
           # between them and the job uses whichever is online.
           ANYDESK_IDS: ${{ secrets.ANYDESK_IDS }}
           ANYDESK_PASSWORD: ${{ secrets.ANYDESK_PASSWORD }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
-          # Optional: a bot/chat of your own for tank stock (used when both set).
-          TANK_TELEGRAM_TOKEN: ${{ secrets.TANK_TELEGRAM_TOKEN }}
-          TANK_TELEGRAM_CHAT: ${{ secrets.TANK_TELEGRAM_CHAT }}
         run: /opt/agents/venv/bin/python -m tank_stock.run --capture

@@ -17,10 +17,19 @@ class FakeResponse:
         return self.body
 
 
-def test_screenshot_goes_to_telegram_as_a_document(monkeypatch):
+@pytest.fixture(autouse=True)
+def xtrapower_bot(monkeypatch, tmp_path):
+    """The XtraPower bot's token and chat id, as use-xtrapower-bot.sh copies them."""
+    bot = tmp_path / "tank-telegram.json"
+    bot.write_text(json.dumps({"token": "123:abc", "chat_id": "42"}))
+    monkeypatch.setattr(telegram, "BOT_FILE", bot)
+    for var in ("TANK_TELEGRAM_TOKEN", "TANK_TELEGRAM_CHAT"):
+        monkeypatch.delenv(var, raising=False)
+    return bot
+
+
+def test_screenshot_goes_to_the_xtrapower_bot_as_a_document(monkeypatch):
     sent = []
-    monkeypatch.setenv("TELEGRAM_TOKEN", "123:abc")
-    monkeypatch.setenv("TELEGRAM_CHAT", "42")
     monkeypatch.setattr(telegram.urllib.request, "urlopen",
                         lambda req, timeout: sent.append(req) or FakeResponse())
     assert telegram.send_photo(b"\x89PNGdata", "caption here")
@@ -30,16 +39,17 @@ def test_screenshot_goes_to_telegram_as_a_document(monkeypatch):
     assert b'filename="tank-stock.png"' in req.data and b"caption here" in req.data
 
 
-def test_without_telegram_nothing_is_sent(monkeypatch, capsys):
-    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+def test_without_the_bot_file_nothing_is_sent(monkeypatch, capsys, xtrapower_bot):
+    xtrapower_bot.unlink()
+    monkeypatch.setenv("TELEGRAM_TOKEN", "1:payment")   # the payment agent's bot is never used
+    monkeypatch.setenv("TELEGRAM_CHAT", "1")
+    monkeypatch.setattr(telegram.urllib.request, "urlopen", lambda *a, **k: pytest.fail("sent"))
     assert telegram.send_text("x") is False
-    assert "not configured" in capsys.readouterr().out
+    assert "use-xtrapower-bot.sh" in capsys.readouterr().out
 
 
 def test_telegram_refusal_is_explained_in_the_log(monkeypatch, capsys):
     import io, urllib.error
-    monkeypatch.setenv("TELEGRAM_TOKEN", "123:abc")
-    monkeypatch.setenv("TELEGRAM_CHAT", "42")
     body = io.BytesIO(json.dumps({"ok": False, "description": "Bad Request: chat not found"}).encode())
 
     def refuse(req, timeout):
@@ -50,10 +60,26 @@ def test_telegram_refusal_is_explained_in_the_log(monkeypatch, capsys):
     assert "chat not found" in out and "123:abc" not in out
 
 
-def test_tank_specific_telegram_secrets_win_and_delivery_is_reported_masked(monkeypatch, capsys):
+def test_delivery_is_reported_masked(monkeypatch, capsys):
     sent = []
-    monkeypatch.setenv("TELEGRAM_TOKEN", "1:payment")
-    monkeypatch.setenv("TELEGRAM_CHAT", "1")
+    monkeypatch.setattr(telegram, "_reported", False)
+
+    class Resp(FakeResponse):
+        def __init__(self, url):
+            result = ({"username": "XtraPowerAlertBot"} if url.endswith("getMe")
+                      else {"chat": {"type": "private", "first_name": "Subham"}})
+            self.body = json.dumps({"ok": True, "result": result}).encode()
+    monkeypatch.setattr(telegram.urllib.request, "urlopen",
+                        lambda req, timeout: sent.append(req.full_url) or Resp(req.full_url))
+    assert telegram.send_text("x")
+    assert sent[0] == "https://api.telegram.org/bot123:abc/sendMessage"
+    out = capsys.readouterr().out
+    assert "XtraPower bot" in out and "@Xt…ot" in out and "private" in out and "'Su…am'" in out
+    assert "XtraPowerAlertBot" not in out and "Subham" not in out and "123:abc" not in out
+
+
+def test_tank_specific_secrets_override_the_bot_file(monkeypatch, capsys):
+    sent = []
     monkeypatch.setenv("TANK_TELEGRAM_TOKEN", "9:tank")
     monkeypatch.setenv("TANK_TELEGRAM_CHAT", "99")
     monkeypatch.setattr(telegram, "_reported", False)
