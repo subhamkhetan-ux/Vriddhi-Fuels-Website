@@ -32,14 +32,20 @@ def main(argv=None) -> int:
         delivered = 0
         for a in exc.attempts:
             titles = "; ".join(f"{t or '(untitled)'} {w}x{h}" for _, t, w, h in a["windows"]) or "none"
-            note = (f"Attempt with ID #{a['position']} ({a['id']}): windows {titles}.\n"
+            code = a.get("exit")
+            note = (f"Attempt with ID #{a['position']} ({a['id']}): windows {titles}; connect command "
+                    f"{'still running' if code is None else f'exited with {code}'}.\n"
                     f"AnyDesk output: {a['output'].strip()[-600:] or '(none)'}")
             if a["png"]:
                 delivered += telegram.send_photo(a["png"], note)
             else:
                 delivered += telegram.send_text(note + "\n(no screenshot)")
+        if exc.trace:
+            sent_trace = telegram.send_file(exc.trace.encode(), "anydesk-trace.txt", "text/plain",
+                                            "AnyDesk's own logs from this run")
         print(f"Telegram: failure notice {'sent' if sent else 'NOT sent'}; "
-              f"{delivered} of {len(exc.attempts)} attempt report(s) delivered.")
+              f"{delivered} of {len(exc.attempts)} attempt report(s) delivered"
+              + (f"; AnyDesk trace {'sent' if sent_trace else 'NOT sent'}." if exc.trace else "."))
         return 1
     # Window titles can carry the PC's ID or name: Telegram only, not the log.
     titles = "; ".join(f"{t or '(untitled)'} {w}x{h}" for _, t, w, h in seen) or "none"

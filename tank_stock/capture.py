@@ -11,6 +11,10 @@ online (the green dot in the AnyDesk app). AnyDesk can't be asked whether a
 remote ID is online, so each ID is tried in turn: an offline one never opens
 a session window, only a small "not available" message. The ID that worked
 last is tried first.
+
+As on a desktop, AnyDesk's main window is started first (with a D-Bus session
+bus, which a bare server job lacks), and ``anydesk <ID>`` hands it the
+connection request.
 """
 from __future__ import annotations
 
@@ -25,6 +29,8 @@ import time
 DISPLAY = ":98"                  # XtraPower uses :99
 SCREEN = "1920x1080x24"
 LAST_ID = Path(os.environ.get("TANK_STOCK_STATE", Path.home() / ".cache" / "tank_stock")) / "last-id"
+# AnyDesk logs to these trace files, not to its console.
+TRACES = (Path.home() / ".anydesk" / "anydesk.trace", Path("/var/log/anydesk.trace"))
 
 
 class CaptureError(Exception):
@@ -32,9 +38,10 @@ class CaptureError(Exception):
     each failed connection showed (screenshots, windows, AnyDesk's output)
     for private delivery to Telegram only."""
 
-    def __init__(self, message, attempts=()):
+    def __init__(self, message, attempts=(), trace=""):
         super().__init__(message)
         self.attempts = list(attempts)
+        self.trace = trace
 
 
 def _run(cmd, env, timeout=15) -> str:
@@ -45,9 +52,11 @@ def _run(cmd, env, timeout=15) -> str:
 
 
 def windows(env) -> list[tuple[str, str, int, int]]:
-    """Visible windows on the virtual display: (id, title, width, height)."""
+    """Visible windows on the virtual display, untitled ones too: (id, title, width, height)."""
     found = []
-    for wid in _run(["xdotool", "search", "--onlyvisible", "--name", "."], env).split():
+    ids = (_run(["xdotool", "search", "--onlyvisible", "--name", "."], env).split()
+           + _run(["xdotool", "search", "--onlyvisible", "--class", "."], env).split())
+    for wid in dict.fromkeys(ids):
         title = _run(["xdotool", "getwindowname", wid], env).strip()
         geo = _run(["xdotool", "getwindowgeometry", "--shell", wid], env)
         size = dict(re.findall(r"(WIDTH|HEIGHT)=(\d+)", geo))
@@ -102,8 +111,61 @@ def _screenshot(env) -> bytes:
     return png if png.startswith(b"\x89PNG") else b""
 
 
+def _session_bus(env):
+    """A D-Bus session bus for AnyDesk's GTK window (desktops always have one)."""
+    if env.get("DBUS_SESSION_BUS_ADDRESS") or not shutil.which("dbus-daemon"):
+        return None
+    try:
+        bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
+                               start_new_session=True, text=True)
+        address = bus.stdout.readline().strip()
+    except OSError:
+        return None
+    if address:
+        env["DBUS_SESSION_BUS_ADDRESS"] = address
+    return bus
+
+
+def _frontend(env, log_path, wait: int = 30):
+    """AnyDesk's main window, which ``anydesk <ID>`` passes the request to."""
+    try:
+        out = open(log_path, "wb")
+        proc = subprocess.Popen(["anydesk"], stdin=subprocess.DEVNULL, stdout=out,
+                                stderr=subprocess.STDOUT, env=env, start_new_session=True)
+    except OSError:
+        return None
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline and proc.poll() is None and not windows(env):
+        time.sleep(2)
+    time.sleep(3)                      # let it reach the AnyDesk service
+    return proc
+
+
+def _read_tail(path, size: int) -> str:
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - size))
+            return f.read().decode(errors="replace")
+    except OSError:
+        return ""
+
+
+def _trace(frontend_log, frontend, bus) -> str:
+    """For the private Telegram report: AnyDesk's own logs from this run."""
+    rc = frontend.poll() if frontend else "not started"
+    parts = [f"main window process: {'running' if rc is None else f'exited with {rc}'}",
+             f"session bus: {'started' if bus else 'not started (dbus-daemon missing?)'}",
+             "--- main window console ---", _read_tail(frontend_log, 3000).strip() or "(none)"]
+    for path in TRACES:
+        parts += [f"--- {path} ---", _read_tail(path, 12000).strip() or "(missing or unreadable)"]
+    return "\n".join(parts)
+
+
 def _connect(anydesk_id: str, password: str, env, wait: int, log_path=None):
     """Start a session; returns (client process, session window) or (proc, None)."""
+    before = {w[0] for w in windows(env)}  # the main window is not a session
     out = open(log_path, "wb") if log_path else subprocess.DEVNULL
     client = subprocess.Popen(["anydesk", anydesk_id, "--with-password"],
                               stdin=subprocess.PIPE, stdout=out,
@@ -115,7 +177,7 @@ def _connect(anydesk_id: str, password: str, env, wait: int, log_path=None):
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
         time.sleep(2)
-        big = [w for w in windows(env) if w[2] >= 600 and w[3] >= 400]
+        big = [w for w in windows(env) if w[2] >= 600 and w[3] >= 400 and w[0] not in before]
         if big:
             return client, big[-1]
     return client, None
@@ -133,14 +195,17 @@ def capture(ids: list[str], password: str, *, connect_wait: int = 35,
     env = {**os.environ, "DISPLAY": DISPLAY}
     xvfb = subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    client, attempts = None, []
+    client, frontend, bus, attempts = None, None, None, []
     log_dir = LAST_ID.parent
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
+    frontend_log = log_dir / "anydesk-frontend.txt"
     try:
         time.sleep(2)
+        bus = _session_bus(env)
+        frontend = _frontend(env, frontend_log)
         for anydesk_id in ordered(ids):
             log_path = log_dir / "anydesk-output.txt"
             client, session = _connect(anydesk_id, password, env, connect_wait, log_path)
@@ -153,12 +218,14 @@ def capture(ids: list[str], password: str, *, connect_wait: int = 35,
             except OSError:
                 output = ""
             attempts.append({"position": ids.index(anydesk_id) + 1, "id": anydesk_id,
-                             "png": _screenshot(env), "windows": windows(env), "output": output})
+                             "png": _screenshot(env), "windows": windows(env), "output": output,
+                             "exit": client.poll()})
             _stop(client)
             client = None
         else:
             raise CaptureError(f"None of the {len(ids)} AnyDesk IDs opened a session (PC off, "
-                               "offline, or the password changed).", attempts)
+                               "offline, or the password changed).", attempts,
+                               _trace(frontend_log, frontend, bus))
         remember(anydesk_id)
         _run(["xdotool", "windowmove", session[0], "0", "0"], env)
         _run(["xdotool", "windowsize", session[0], "100%", "100%"], env)
@@ -169,4 +236,6 @@ def capture(ids: list[str], password: str, *, connect_wait: int = 35,
         return png, windows(env), ids.index(anydesk_id) + 1
     finally:
         _stop(client)
+        _stop(frontend)
+        _stop(bus)
         _stop(xvfb)

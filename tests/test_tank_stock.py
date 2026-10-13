@@ -140,6 +140,8 @@ def _fake_session(monkeypatch, tmp_path, online):
         tried.append(anydesk_id)
         return FakeProc(), (("7", "session", 1920, 1050) if anydesk_id == online else None)
     monkeypatch.setattr(cap, "_connect", connect)
+    monkeypatch.setattr(cap, "_session_bus", lambda env: None)
+    monkeypatch.setattr(cap, "_frontend", lambda env, log: FakeProc())
     monkeypatch.setattr(cap, "_run", lambda *a, **k: "")
     monkeypatch.setattr(cap, "windows", lambda env: [])
     monkeypatch.setattr(cap.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": b"\x89PNGx"})())
@@ -161,6 +163,31 @@ def test_no_online_id_is_a_clear_failure_with_what_each_attempt_showed(monkeypat
         cap.capture(["111111111", "222222222"], "pw")
     assert [a["position"] for a in err.value.attempts] == [1, 2]
     assert all(a["png"].startswith(b"\x89PNG") for a in err.value.attempts)
+    assert "main window process" in err.value.trace
+
+
+def test_anydesk_main_window_is_not_mistaken_for_a_session(monkeypatch):
+    main = ("5", "AnyDesk", 1000, 700)
+    seen = iter([[main], [main], [main, ("9", "Remote", 1920, 1050)]])
+    monkeypatch.setattr(cap, "windows", lambda env: next(seen))
+    monkeypatch.setattr(cap.time, "sleep", lambda s: None)
+
+    class Client(FakeProc):
+        stdin = type("In", (), {"write": lambda self, b: None, "close": lambda self: None})()
+    monkeypatch.setattr(cap.subprocess, "Popen", lambda *a, **k: Client())
+    _, session = cap._connect("123456789", "pw", {}, wait=60)
+    assert session[0] == "9"
+
+
+def test_trace_report_reads_anydesk_logs(monkeypatch, tmp_path):
+    trace = tmp_path / "anydesk.trace"
+    trace.write_text("info  frontend  Connecting to 123\nerror  license denied\n")
+    monkeypatch.setattr(cap, "TRACES", (trace,))
+    log = tmp_path / "front.txt"
+    log.write_text("Gtk-WARNING cannot open display")
+    report = cap._trace(log, FakeProc(), None)
+    assert "exited with 0" in report and "license denied" in report and "cannot open display" in report
+    assert "session bus: not started" in report
 
 
 def test_failed_attempts_go_to_telegram_not_the_log(monkeypatch, capsys):
@@ -168,14 +195,16 @@ def test_failed_attempts_go_to_telegram_not_the_log(monkeypatch, capsys):
     attempt = {"position": 1, "id": "123456789", "png": b"\x89PNG", "output": "license prompt",
                "windows": [("1", "AnyDesk 123456789", 400, 300)]}
     monkeypatch.setattr(run, "capture", lambda i, p: (_ for _ in ()).throw(
-        cap.CaptureError("None of the 1 AnyDesk IDs opened a session", [attempt])))
-    photos = []
+        cap.CaptureError("None of the 1 AnyDesk IDs opened a session", [attempt], "trace text")))
+    photos, files = [], []
+    monkeypatch.setattr(run.telegram, "send_file", lambda data, name, ctype, caption: files.append(name) or True)
     monkeypatch.setattr(run.telegram, "send_text", lambda t: True)
     monkeypatch.setattr(run.telegram, "send_photo", lambda png, caption: photos.append(caption) or True)
     assert run.main(["--capture"]) == 1
     assert "ID #1 (123456789)" in photos[0] and "license prompt" in photos[0]
     out = capsys.readouterr()
-    assert "1 of 1 attempt report(s) delivered" in out.out
+    assert "1 of 1 attempt report(s) delivered; AnyDesk trace sent" in out.out
+    assert files == ["anydesk-trace.txt"]
     assert "123456789" not in out.out + out.err and "license prompt" not in out.out + out.err
 
 
