@@ -158,7 +158,7 @@ def station(tmp_path, monkeypatch):
     db = FakeDB()
     monkeypatch.setattr(decant, "_rest", db)
     monkeypatch.setattr(decant, "_http", db.http)
-    monkeypatch.setattr(service.cards_mod, "picture", lambda png, boxes, tanks, stack=False: b"\x89PNG-cards")
+    monkeypatch.setattr(service.cards_mod, "picture", lambda png, boxes, tanks, **kw: b"\x89PNG-cards")
     monkeypatch.setattr(service.cards_mod, "to_jpeg", lambda png: b"\xff\xd8" + png)
     monkeypatch.setattr(service.cards_mod, "read_all",
                         lambda png: ({3: (959, 343, 1284, 677)}, {3: dict(CARD3)}))

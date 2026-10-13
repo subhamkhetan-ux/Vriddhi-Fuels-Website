@@ -120,10 +120,14 @@
       const name = el("strong", "", tankName(no));
       head.appendChild(name);
       if (info.confidence) head.appendChild(el("span", `badge ${info.confidence}`, BADGE[info.confidence]));
+      const save = el("button", "up save", "Save image");
+      save.addEventListener("click", () => saveImage([no]));
       const up = el("button", "up", "Upload");
       up.disabled = Boolean(state.busy) || info.confidence === "low";
       up.addEventListener("click", () => upload([no]));
-      head.appendChild(up);
+      const acts = el("span", "acts");
+      acts.append(save, up);
+      head.appendChild(acts);
       tank.appendChild(head);
       const grid = el("div", "grid");
       for (const [label, v, d, unit] of [["Stock", r.volume, 2, " L"], ["Ullage", r.ullage, 2, " L"], ["Dip", r.dip, 1, " cm"],
@@ -141,6 +145,50 @@
       box.appendChild(tank);
     }
     shownAt = last.at;
+    const all = allTanks();
+    $("saveAll").hidden = all.length < 2;
+    // Fetch the pictures now: a phone only opens its share sheet straight from a tap.
+    for (const tanks of [...all.map((n) => [n]), all]) image(tanks).catch(() => {});
+  }
+
+  // ---- pictures to save or send ----------------------------------------
+  const images = new Map();      // "at|tanks" -> Promise<Blob>
+  const allTanks = () => Object.keys(state?.last?.tanks || {}).map(Number).sort();
+  function image(tanks) {
+    const at = state.last.at;
+    const key = `${at}|${tanks.join(",")}`;
+    if (!images.has(key)) {
+      images.set(key, fetch(`/api/picture?tanks=${tanks.join(",")}&grid=1&v=${encodeURIComponent(at)}`, { credentials: "same-origin" })
+        .then((r) => { if (!r.ok) throw new Error("The picture isn't available."); return r.blob(); }));
+      images.get(key).catch(() => images.delete(key));
+    }
+    return images.get(key);
+  }
+  function fileName(tanks) {
+    const at = state.last.at || "";             // "2026-10-13T19:28:10+05:30", the PC's IST
+    const stamp = `${at.slice(0, 10)} ${at.slice(11, 16).replace(":", "-")}`;
+    const what = tanks.length === allTanks().length && tanks.length > 1 ? "all tanks"
+      : tanks.map((n) => tankName(n).replace(" · ", " ").replace(/[()]/g, "")).join(", ");
+    return `Tank stock ${what} ${stamp}.png`;
+  }
+  async function saveImage(tanks) {
+    try {
+      const blob = await image(tanks);
+      const name = fileName(tanks);
+      const file = new File([blob], name, { type: "image/png" });
+      if (navigator.canShare?.({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === "AbortError") return; }
+      }
+      const a = el("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch (e) {
+      setStatus("upStatus", e.message, true);
+    }
   }
 
   function renderLive() {
@@ -227,6 +275,7 @@
   $("go").addEventListener("click", () => start(false));
   $("goDec").addEventListener("click", () => start(true));
   $("upAll").addEventListener("click", () => upload([...picked].filter((n) => state?.last?.tanks?.[n])));
+  $("saveAll").addEventListener("click", () => saveImage(allTanks()));
   for (const id of ["mEvery", "mUp"]) $(id).addEventListener("input", () => { monitorDirty = true; });
   const liveSettings = () => ({ interval_min: Number($("mEvery").value), auto_upload: $("mUp").checked, tanks: [...watched] });
   async function send(path, body, done) {

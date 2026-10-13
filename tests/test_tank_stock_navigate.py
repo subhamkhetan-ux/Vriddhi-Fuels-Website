@@ -67,3 +67,14 @@ def test_already_on_tank_status_nothing_is_clicked(monkeypatch):
     clicks = []
     assert nav.ensure_tank_status(lambda: "tanks", lambda x, y: clicks.append((x, y)))[1] == "already on Tank Status"
     assert clicks == []
+
+
+@pytest.mark.skipif(not shutil.which("convert"), reason="needs ImageMagick")
+def test_a_picture_of_three_tanks_to_save_has_two_to_a_row():
+    from tank_stock import cards
+    png = png_with_bar(width=400, height=200, bar=(0, 0))
+    boxes = {1: (0, 0, 99, 99), 2: (110, 0, 209, 99), 4: (220, 0, 319, 99)}
+    w, h = nav._size(cards.picture(png, boxes, [1, 2, 4], grid=True))
+    row, one = nav._size(cards.picture(png, boxes, [1, 2])), nav._size(cards.crop(png, boxes[1]))
+    assert (w, h) == (row[0], 2 * one[1] + 16)                 # two cards, then one under them
+    assert nav._size(cards.picture(png, boxes, [1, 2], grid=True)) == row   # two: one row
