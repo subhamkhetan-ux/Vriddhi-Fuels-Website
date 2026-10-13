@@ -126,13 +126,69 @@ def dip_chart() -> dict:
 
 
 def settings() -> dict:
-    """{tanks, dateOrder, chart} from the app's saved settings, else defaults."""
+    """{tanks, dateOrder, chart, app} from the app's saved settings, else
+    defaults (app: what a decantation needs, decantation.settings_with)."""
+    from .decantation import settings_with
     rows = _rest("GET", "dec_config?id=eq.1&select=data") or []
     data = (rows[0].get("data") if rows else None) or {}
     s = data.get("settings") or {}
     chart = data.get("chart") if (data.get("chart") or {}).get("litres") else dip_chart()
     tanks = s.get("tanks") if isinstance(s.get("tanks"), list) and s.get("tanks") else DEFAULT_TANKS
-    return {"tanks": tanks, "dateOrder": s.get("dateOrder") or "MDY", "chart": chart}
+    return {"tanks": tanks, "dateOrder": s.get("dateOrder") or "MDY", "chart": chart,
+            "app": settings_with(s, tanks)}
+
+
+# ---- decantations (dec_invoices, dec_sessions) ------------------------------
+
+def _month_start_last(now=None) -> str:
+    """The start of last month, IST (the app keeps invoices from then)."""
+    ist = (now or datetime.now(timezone.utc)).astimezone(timezone(timedelta(hours=5, minutes=30)))
+    y, m = (ist.year, ist.month - 1) if ist.month > 1 else (ist.year - 1, 12)
+    return f"{y}-{m:02d}-01T00:00:00+05:30"
+
+
+def invoices_and_sessions(now=None) -> tuple[list, list]:
+    """The app's invoice list and the sessions that decide their status."""
+    since = urllib.parse.quote(_month_start_last(now))
+    invoices = _rest("GET", f"dec_invoices?created_at=gte.{since}&order=created_at.desc&limit=1000&select=*") or []
+    sessions = _rest("GET", "dec_sessions?select=id,invoice_no,tt_no,status,data,created_at,updated_at,completed_at"
+                            f"&or=(status.in.(draft,decanting,settling),created_at.gte.{since})&limit=1000") or []
+    return invoices, sessions
+
+
+def get_session(session_id: str) -> dict | None:
+    rows = _rest("GET", f"dec_sessions?id=eq.{urllib.parse.quote(session_id)}&select=*") or []
+    return rows[0] if rows else None
+
+
+def save_session(s: dict, now=None) -> dict:
+    """saveSession: the whole row, updated_at now (phones only take a row
+    whose updated_at is newer than their own)."""
+    from .decantation import iso
+    s["updated_at"] = iso(now.timestamp() if now else None)
+    s["created_at"] = s.get("created_at") or s["updated_at"]
+    row = {k: s.get(k) for k in ("id", "invoice_no", "tt_no", "status", "data", "created_at", "updated_at")}
+    row["completed_at"] = s.get("completed_at")
+    _rest("POST", "dec_sessions?on_conflict=id", [row], prefer="resolution=merge-duplicates,return=minimal")
+    return s
+
+
+def save_tank_reading(tank_id: str, reading: dict, now=None) -> bool:
+    """saveTankReading: the tank's latest stock, unless the app has a newer one."""
+    saved_at = (now or datetime.now(timezone.utc)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    r = {**reading, "savedAt": saved_at}
+    rows = _rest("GET", f"dec_tank_state?tank_id=eq.{urllib.parse.quote(tank_id)}&select=reading") or []
+    current = rows[0].get("reading") if rows else None
+    if current and _when(current) > _when(r):
+        return False
+    _rest("POST", "dec_tank_state?on_conflict=tank_id", [{"tank_id": tank_id, "reading": r, "updated_at": saved_at}],
+          prefer="resolution=merge-duplicates,return=minimal")
+    return True
+
+
+def tank_states() -> dict:
+    """{tank id: the app's latest reading}."""
+    return {r["tank_id"]: r.get("reading") for r in _rest("GET", "dec_tank_state?select=tank_id,reading") or []}
 
 
 def litres_at_dip(chart: dict, cm):
