@@ -34,6 +34,6 @@ say "3/3 Checking"
 anydesk --version || true
 systemctl is-active --quiet anydesk && echo "AnyDesk service is running." || echo "Note: the AnyDesk service is not running."
 echo
-echo "Done. Next, in GitHub add the secrets ANYDESK_ID and ANYDESK_PASSWORD"
-echo "(the IOCL PC's AnyDesk number and unattended-access password), then run"
-echo "the 'Tank stock (AnyDesk -> decant)' workflow."
+echo "Done. Next, in GitHub add the secrets ANYDESK_IDS (both of the IOCL PC's"
+echo "AnyDesk numbers, comma separated) and ANYDESK_PASSWORD (its unattended-access"
+echo "password), then run the 'Tank stock (AnyDesk -> decant)' workflow."
