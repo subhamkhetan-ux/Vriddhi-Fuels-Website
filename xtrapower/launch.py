@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,10 @@ _CANDIDATES = {
 
 
 def find_chrome() -> str | None:
+    # A server install (infra/xtrapower) points this at Playwright's Chromium.
+    override = os.environ.get("XTRAPOWER_CHROME")
+    if override:
+        return override if os.path.exists(override) else None
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"):
         found = shutil.which(name)
         if found:
@@ -69,6 +74,8 @@ def launch_account(chrome: str, acct: dict, profiles_dir: str) -> None:
         "--no-first-run",
         "--no-default-browser-check",
         "--new-window",
+        # Extra flags for headless servers, e.g. "--no-sandbox --password-store=basic".
+        *shlex.split(os.environ.get("XTRAPOWER_CHROME_FLAGS", "")),
         PORTAL_URL,
     ]
     # Detach so closing this script doesn't close the browsers.

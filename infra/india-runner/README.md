@@ -12,7 +12,9 @@ Any workflow can use it with:
 runs-on: [self-hosted, india]
 ```
 
-It runs one job at a time; others wait in the queue. Python agents can use
+It runs one job at a time; others wait in the queue. Long-running services can
+live on the same server too: the XtraPower balance monitor runs there as its
+own service ([`infra/xtrapower`](../xtrapower/README.md)). Python agents can use
 `/opt/agents/venv/bin/python` (Playwright Chromium and Tesseract preinstalled).
 
 Everything below is done in a web browser, including from a phone. No
@@ -42,11 +44,12 @@ In the Oracle console, click the **Cloud Shell** icon (`>_`, top right). In the
 terminal that opens:
 
 ```sh
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/oracle_india
+ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/oracle_india
 cat ~/.ssh/oracle_india.pub
 ```
 
-Copy the line that starts with `ssh-ed25519`.
+Copy the whole line that starts with `ssh-rsa` (it wraps over several lines).
+Cloud Shell runs in FIPS mode, which rejects ED25519 keys.
 
 ## 3. Create the server
 
@@ -66,8 +69,12 @@ Click **Create** and copy the **Public IP address** once the instance shows
 makes outbound connections to GitHub.
 
 *"Out of capacity for shape VM.Standard.A1.Flex"* means Oracle's free ARM pool
-is full. Retry later, or try 1 OCPU / 6 GB. Pay As You Go accounts usually get
-capacity more easily.
+is full (Hyderabad and Mumbai each have a single availability domain). Retry
+later, or try 1 OCPU / 6 GB. Pay As You Go accounts usually get capacity more
+easily. Meanwhile the AMD **VM.Standard.E2.1.Micro** (1 GB, also Always Free) is
+usually available: pick it, re-select Ubuntu 24.04, and the setup script adds a
+2 GB swap file so the browser fits. It is slower, but it is enough to verify
+e-Mitra access and run the agent until an A1 can be created.
 
 ## 4. Run the setup script on the server
 

@@ -40,6 +40,9 @@ YOU (once)                          THIS MONITOR (every 2 min, per account)
   hold one XtraPower session, so each account gets its **own** Chrome window
   (own `--user-data-dir`, own debug port). All are watched together.
 
+> **Without the Mac:** the same monitor can run around the clock on the India
+> cloud server, logging itself in. See [`infra/xtrapower`](../infra/xtrapower/README.md).
+
 ## Quick start on a Mac (the easy path)
 
 Open **Terminal** (⌘-Space, type "Terminal") and run these, one at a time. All

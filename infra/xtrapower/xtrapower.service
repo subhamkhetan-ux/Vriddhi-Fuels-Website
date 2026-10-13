@@ -1,0 +1,21 @@
+[Unit]
+Description=XtraPower CCMS balance monitor (Chromium on a virtual display)
+Documentation=file:///opt/xtrapower/app/infra/xtrapower/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=xtrapower
+Group=xtrapower
+Environment=XTRAPOWER_HOME=/opt/xtrapower
+# Only the xtrapower user may connect to the logged-in Chromium debug ports,
+# so GitHub Actions jobs (running as `runner`) cannot drive those sessions.
+ExecStartPre=+/bin/sh -c 'rule="OUTPUT -o lo -p tcp --dport 9222:9299 -m owner ! --uid-owner xtrapower -j REJECT"; iptables -C $$rule 2>/dev/null || iptables -I $$rule'
+ExecStart=/opt/xtrapower/app/infra/xtrapower/run.sh
+Restart=always
+RestartSec=30
+# Chromium windows are children of this service; stop them with it.
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

@@ -46,6 +46,18 @@ else
   echo "e-Mitra answered with HTTP $code. Good."
 fi
 
+# The 1 GB E2.1.Micro cannot hold Chromium and apt in memory; give small
+# servers a 2 GB swap file so they work (slowly) until an A1 is available.
+mem_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+if [ "$mem_kb" -lt 3000000 ] && [ -z "$(swapon --noheadings)" ]; then
+  say "Adding a 2 GB swap file (this server has under 3 GB of memory)"
+  sudo fallocate -l 2G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile >/dev/null
+  sudo swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
+
 say "2/6 Installing system packages (Python, Tesseract OCR)"
 sudo apt-get update -q
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
