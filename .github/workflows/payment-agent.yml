@@ -22,8 +22,6 @@ permissions:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    outputs:
-      iocl_invoices_detected: ${{ steps.ingest.outputs.iocl_invoices_detected }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,18 +75,3 @@ jobs:
       - name: Fail the job if ingest reported errors
         if: always() && steps.ingest.outcome == 'failure'
         run: exit 1
-
-  refresh-iocl-balance:
-    needs: ingest
-    # A different mailbox's error must not lose a detected IOCL invoice signal.
-    if: ${{ always() && !cancelled() && needs.ingest.outputs.iocl_invoices_detected == 'true' && vars.IOCL_PAD_SYNC_ENABLED == 'true' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/iocl-pad-balance.yml
-    with:
-      mode: sync
-    secrets:
-      IOCL_EMITRA_USERNAME: ${{ secrets.IOCL_EMITRA_USERNAME }}
-      IOCL_EMITRA_PASSWORD: ${{ secrets.IOCL_EMITRA_PASSWORD }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

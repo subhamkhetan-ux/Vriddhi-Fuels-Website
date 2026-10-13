@@ -206,14 +206,8 @@ def main() -> int:
     # Credit/dues: sum EVERY IOCL invoice (all trucks) into Supabase for the
     # /payments Credit section. Best-effort and isolated.
     from . import credit
-    cr_detected = False
-
-    def invoice_detected():
-        nonlocal cr_detected
-        cr_detected = True
-
     try:
-        cr_created, cr_errors = credit.run(seen, on_detected=invoice_detected)
+        cr_created, cr_errors = credit.run(seen)
         if cr_created:
             print(f"Credit: upserted {cr_created} fuel invoice(s).")
         errors.extend(cr_errors)
@@ -222,13 +216,6 @@ def main() -> int:
         print(msg)
         traceback.print_exc()
         errors.append(msg)
-
-    # The dependent PAD workflow checks the portal only after invoice mail was
-    # processed. Export a boolean, never invoice/customer data or credentials.
-    output_path = os.environ.get("GITHUB_OUTPUT")
-    if output_path:
-        with open(output_path, "a", encoding="utf-8") as output:
-            output.write(f"iocl_invoices_detected={'true' if cr_detected else 'false'}\n")
 
     # Persist whatever progress we made, even on partial failure.
     state_store.save_queue(queue)
