@@ -12,9 +12,9 @@ http://127.0.0.1:8790, published to your own Tailscale devices (setup.sh).
 - Send for decantation: capture, upload, and end the live session if one is
   open.
 - Live monitoring: connect once and keep that AnyDesk session open; every
-  ``interval_s`` seconds (10 at least) read the figures again (no
-  reconnecting, no pictures), show them on the page, log each change and,
-  with ``auto_upload``, send the figures to the decant app. It runs until
+  ``interval_s`` seconds (10 at least) read the watched tanks' product
+  volume again (no reconnecting, no pictures), show it on the page, log each
+  change and, with ``auto_upload``, send the volume alone to the decant app. It runs until
   AnyDesk ends the session (e.g. a free licence's time limit) or you press
   Stop; then the last screen becomes a capture with its pictures. The
   XtraPower Telegram bot is told when AnyDesk ends it, with what the screen
@@ -293,9 +293,9 @@ class Station:
     # ---- live monitoring ------------------------------------------------
     # One AnyDesk session stays open. The first read finds the cards; after
     # that a read is a screenshot, a fingerprint of each watched card, and a
-    # quick figures-only read of the cards whose figures changed. The page
-    # shows the figures as they come, a log keeps every change, and (with
-    # auto_upload) the decant app gets the figures alone. When it ends, the
+    # quick read of the cards whose volume rows changed. The page shows each
+    # tank's product volume as it comes, a log keeps every change, and (with
+    # auto_upload) the decant app gets the volume alone. When it ends, the
     # last screen becomes an ordinary capture: pictures to save or upload.
     def start_live(self, new_settings: dict | None = None) -> dict:
         """Connect and keep the session open, reading every interval_s."""
@@ -410,7 +410,8 @@ class Station:
                 built = self.decant.make_reading(card, tank, cfg) if tank else None
                 if not built or card.get("volume") is None:
                     continue
-                live["figures"][str(no)] = {"reading": built["reading"], "confidence": built["confidence"],
+                live["figures"][str(no)] = {"reading": {"volume": built["reading"]["volume"]},
+                                            "confidence": built["confidence"],
                                             "problems": built["problems"], "at": now_iso()}
                 if built["confidence"] != "low":
                     live["fp"][no] = fp               # read again next time otherwise
@@ -436,7 +437,7 @@ class Station:
     def _live_upload(self, live, changed, cfg) -> None:
         """The figures alone to the decant app (no pictures while live)."""
         try:
-            results = self.decant.upload(changed, sorted(changed), cfg)
+            results = self.decant.upload(changed, sorted(changed), cfg, only_volume=True)
         except self.decant.DecantError as exc:
             results = {n: {"ok": False, "message": str(exc)} for n in changed}
         stamp = now_iso()
@@ -447,10 +448,10 @@ class Station:
             self.notify(f"⚠️ Tank stock (live): {bad}")
         self.alerted = bad
 
-    LOG_FIELDS = (("volume", "stock L"), ("readingAt", "screen time"))
+    LOG_FIELDS = (("volume", "product volume L"),)
 
     def _live_log(self, live) -> None:
-        """One line per change: the time and every watched tank's stock."""
+        """One line per change: the time and every watched tank's product volume."""
         tanks = sorted(live["tanks"])
         row = {"at": now_iso()}
         for no in tanks:

@@ -269,27 +269,30 @@ def ocr_text(png: bytes, region, threshold: bool = False) -> str:
 
 
 # Where the parts of a card are, as a share of its height.
-FIGURES_FROM = 0.36    # from the "Last Updated" line down: what a live read reads
-STEADY_FROM = 0.50     # from "Tank Capacity" down: the figures, without the clock
+FIGURES_FROM = 0.36    # the "Last Updated" line ...
+FIGURES_TO = 0.80      # ... to "Ullage Space": what a live read reads
+STEADY_FROM = 0.50     # "Tank Capacity" to "Ullage Space": the rows the volume is in
 
 
 def read_figures(png: bytes, box) -> dict:
-    """A live read: one thresholded pass over the card's figures (labels,
-    figures and the Last Updated time; about a fifth of a full read). The
-    decant app's sum and dip-chart checks then vouch for it."""
+    """A live read: one thresholded pass from the Last Updated time down to
+    the ullage (volume, height and ullage, for the decant app's sum and
+    dip-chart checks of the volume; density and temperature aren't read)."""
     left, top, right, bottom = box
-    y = top + int((bottom - top) * FIGURES_FROM)
-    card = parse_labelled(ocr_text(png, (left, y, right - left + 1, bottom - y + 1), threshold=True))
+    y0 = top + int((bottom - top) * FIGURES_FROM)
+    y1 = top + int((bottom - top) * FIGURES_TO)
+    card = parse_labelled(ocr_text(png, (left, y0, right - left + 1, y1 - y0 + 1), threshold=True))
     card["disagree"] = []
     return card
 
 
 def fingerprint(px: Pixels, box) -> str:
-    """Changes when a card's figures change on screen (not when only its
-    "Last Updated" clock ticks), so an unchanged card needn't be read again."""
+    """Changes when the rows the volume is in change on screen (not when the
+    "Last Updated" clock ticks or the temperature moves), so an unchanged
+    card needn't be read again."""
     left, top, right, bottom = box
     h = hashlib.sha1()
-    for y in range(top + int((bottom - top) * STEADY_FROM), bottom - 2):
+    for y in range(top + int((bottom - top) * STEADY_FROM), top + int((bottom - top) * FIGURES_TO)):
         i = (y * px.width + left) * 3
         h.update(px.raw[i:i + (right - left) * 3])
     return h.hexdigest()

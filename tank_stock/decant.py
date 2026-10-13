@@ -240,7 +240,19 @@ def tank_for(no: int, cfg: dict):
     return next((t for t in cfg["tanks"] if t.get("no") == no), None)
 
 
-def upload(cards: dict, tanks, cfg=None, now=None) -> dict:
+VOLUME_ONLY_DROP = ("height", "dip", "water", "density", "densityTc", "temp")
+
+
+def volume_only(reading: dict) -> dict:
+    """Live monitoring sends the product volume alone: the app works the
+    ullage out from it, and the dip from its chart (as for typed litres)."""
+    out = {**reading, **{k: None for k in VOLUME_ONLY_DROP}}
+    if out.get("volume") is not None:
+        out["ullage"] = round((out.get("capacity") or 20000) - out["volume"], 2)
+    return out
+
+
+def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) -> dict:
     """Save the given tanks' readings. {tank no: {"ok", "message", "tank_id"}}.
     Only a card the app would call "Checked" (high) or "Fixed & checked"
     (medium) is saved; an older reading never replaces a newer one."""
@@ -260,7 +272,7 @@ def upload(cards: dict, tanks, cfg=None, now=None) -> dict:
             out[no] = {"ok": False, "tank_id": tank["id"],
                        "message": "not saved: " + "; ".join(built["problems"] or ["check failed"])}
             continue
-        reading = {**built["reading"], "savedAt": saved_at}
+        reading = {**(volume_only(built["reading"]) if only_volume else built["reading"]), "savedAt": saved_at}
         rows = _rest("GET", f"dec_tank_state?tank_id=eq.{urllib.parse.quote(tank['id'])}&select=reading") or []
         current = rows[0].get("reading") if rows else None
         if current and _when(current) > _when(reading):

@@ -204,7 +204,7 @@
       text = "Connecting… (about a minute)";
     } else if (live) {
       text = `Live since ${when(live.connected || live.since)}: Tank ${live.tanks.join(", ")}, every ${live.interval_s} s`
-        + `${live.auto_upload ? ", sending figures to decant" : ""}. ${live.reads} read${live.reads === 1 ? "" : "s"}`
+        + `${live.auto_upload ? ", sending the volume to decant" : ""}. ${live.reads} read${live.reads === 1 ? "" : "s"}`
         + `${live.last_read ? `, last ${clock(live.last_read)}` : ""}${live.read_s ? ` (a read takes ${live.read_s} s)` : ""}.`;
       if (live.last_error) { text += ` Last problem: ${live.last_error}`; err = true; }
     } else if (prev.ended) {
@@ -230,7 +230,7 @@
 
   const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }) : "");
 
-  // While live: each watched tank's latest stock (numbers only, no pictures).
+  // While live: each watched tank's latest product volume (no pictures).
   function renderLiveFigures(live) {
     const box = $("liveFigures");
     box.textContent = "";
@@ -245,13 +245,10 @@
       tank.appendChild(head);
       const r = f?.reading || {};
       const grid = el("div", "grid");
-      for (const [label, value] of [["Stock", r.volume == null ? "–" : fmt(r.volume, 2) + " L"],
-        ["Screen time", clock(r.readingAt) || "–"]]) {
-        const cell = el("div", "fig");
-        cell.appendChild(el("span", "label", label));
-        cell.appendChild(el("span", "value", value));
-        grid.appendChild(cell);
-      }
+      const cell = el("div", "fig");
+      cell.appendChild(el("span", "label", "Product volume"));
+      cell.appendChild(el("span", "value", r.volume == null ? "–" : fmt(r.volume, 2) + " L"));
+      grid.appendChild(cell);
       tank.appendChild(grid);
       const said = [...(f?.problems || [])];
       const u = live.uploads?.[no];
@@ -262,7 +259,7 @@
     }
   }
 
-  // The log: newest first, the stock of each tank at every change.
+  // The log: newest first, each tank's product volume at every change.
   function renderLog(log, show) {
     $("liveLog").hidden = !show || !(log || []).length;
     if ($("liveLog").hidden) return;
@@ -270,7 +267,7 @@
     const t = $("logTable");
     t.textContent = "";
     const head = t.insertRow();
-    for (const h of ["Time", ...nos.map((n) => `T${n} stock`)]) head.appendChild(el("th", "", h));
+    for (const h of ["Time", ...nos.map((n) => `Tank ${n} (L)`)]) head.appendChild(el("th", "", h));
     for (const row of [...log].reverse().slice(0, 12)) {
       const tr = t.insertRow();
       tr.insertCell().textContent = clock(row.at);

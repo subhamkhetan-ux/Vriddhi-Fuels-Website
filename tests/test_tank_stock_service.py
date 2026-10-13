@@ -239,7 +239,10 @@ def test_live_monitoring_keeps_one_session_until_anydesk_ends_it(station):
     assert wait_for(lambda: station.live and station.live["reads"] == 1)
     assert station.db.writes[-1]["tank_id"] == "T3"            # the figures, as they come
     assert station.db.shots == [] and station.db.files == {}   # no pictures while live
-    assert station.live["figures"]["3"]["reading"]["volume"] == 19552.05
+    assert station.live["figures"]["3"]["reading"] == {"volume": 19552.05}
+    sent = station.db.writes[-1]["reading"]                     # the volume alone to decant
+    assert sent["volume"] == 19552.05 and sent["ullage"] == 447.95
+    assert all(sent[k] is None for k in ("height", "dip", "temp", "density", "densityTc", "water"))
     session = FakeSession.opened[0]
     session.is_alive = False                                    # AnyDesk closes it
     assert wait_for(lambda: station.live is None) and session.closed
@@ -272,8 +275,7 @@ def test_an_unchanged_card_is_not_read_again_and_each_change_is_logged(station):
     assert station.screen["reads"] == 2 and live["figures"]["3"]["reading"]["volume"] == 19000.0
     assert [row["3"]["volume"] for row in live["log"]] == [19552.05, 19000.0]
     csv = station.live_log_csv().decode().splitlines()
-    assert csv[0] == "time,Tank 3 stock L,Tank 3 screen time" and csv[-1].split(",")[1:] == [
-        "19000.0", "2026-10-13T18:05:00+05:30"]
+    assert csv[0] == "time,Tank 3 product volume L" and csv[-1].split(",")[1:] == ["19000.0"]
     assert station.db.writes == []                              # figures to decant were off
     station.stop_live()
     assert wait_for(lambda: station.live is None)
