@@ -78,8 +78,12 @@ def main(argv=None) -> int:
                 except ValueError:
                     raise PortalError("IOCL_CAPTCHA_LENGTH must be a whole number.") from None
                 if args.captcha_sample:
+                    try:
+                        wanted = min(30, max(1, int(os.environ.get("IOCL_SAMPLE_COUNT") or 6)))
+                    except ValueError:
+                        raise PortalError("IOCL_SAMPLE_COUNT must be a whole number.") from None
                     count = sample_captchas(portal, Path(os.environ.get("IOCL_SAMPLE_DIR") or "captcha-samples"),
-                                            length=length)
+                                            length=length, count=wanted)
                     print(f"PASS: saved {count} CAPTCHA samples with OCR reads. No credentials were typed "
                           "and no login was submitted.")
                     return 0

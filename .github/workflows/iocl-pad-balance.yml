@@ -79,6 +79,7 @@ jobs:
           IOCL_CUSTOMER_CODE: ${{ vars.IOCL_CUSTOMER_CODE }}
           IOCL_CAPTCHA_LENGTH: ${{ vars.IOCL_CAPTCHA_LENGTH || '6' }}
           IOCL_SELECTORS_JSON: ${{ vars.IOCL_SELECTORS_JSON }}
+          IOCL_SAMPLE_COUNT: ${{ vars.IOCL_SAMPLE_COUNT || '24' }}
           # Reuse the existing payment-agent bindings. If both are absent,
           # the runner uses the same published public config as /payments.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -101,7 +102,7 @@ jobs:
       - name: Print CAPTCHA samples to the log (for remote tuning)
         if: always() && inputs.mode == 'captcha-sample'
         run: |
-          cat captcha-samples/report.json
+          cat captcha-samples/report.json; echo
           for f in captcha-samples/captcha-*.png; do
             echo "B64 $(basename "$f") $(base64 -w0 "$f")"
           done
