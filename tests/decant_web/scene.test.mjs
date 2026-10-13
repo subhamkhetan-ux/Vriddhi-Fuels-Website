@@ -147,3 +147,24 @@ test('a tank not in this decantation shows its stock, dimmed', () => {
   const svg = draw({ T1: 'waiting', T2: 'decanting', T3: 'waiting' }, 0);
   assert.match(svg, /data-k="dT4" opacity="\.42">[\s\S]*Tank 4/);
 });
+
+test('by the tank\'s real stock: once it has been read since it started, the chambers and the tank go by what it has risen', () => {
+  // by the clock (645 s) C3 would be a quarter out; the reading says Tank 2 has
+  // got only 2,500 L: C2 half out, the pipe still on it
+  const live = { T4: reading(2560), T2: { volume: 10755 + 2500, readingAt: iso(640) } };
+  const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645, { stock: live });
+  assert.match(svg, /class="coupling" cx="82.5"/);
+  assert.match(svg, /class="gl on" data-k="g2"/);
+  assert.match(svg, /class="gl" data-k="g3"/);
+  assert.equal(glassTop(svg, 3), 36.1);                                 // C3 still full
+  assert.ok(glassTop(svg, 2) > 36.1 && glassTop(svg, 2) < 63, 'C2 part out');
+  // the tank shows the litres read, not "≈"
+  assert.match(svg, /data-k="vT2">13,255\sL</);
+  assert.match(svg, /data-k="aT2">\+2,500\sL</);
+  const anim = JSON.parse(/data-anim="([^"]+)"/.exec(svg)[1].replace(/&quot;/g, '"'));
+  assert.deepEqual(anim.t.find((t) => t.k === 'T2').got, 2500);
+  assert.deepEqual(anim.p.find((p) => p.t === 'T2').moves, []);         // no pipe moves acted out by the clock
+  // a reading from before it started: by the clock as before
+  const old = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645, { stock: { T2: { volume: 10755, readingAt: iso(-30) } } });
+  assert.equal(glassTop(old, 3), 42.1);
+});

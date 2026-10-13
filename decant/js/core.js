@@ -679,6 +679,76 @@ export function drainAt(timeline, now) {
   };
 }
 
+// A chamber counts as empty once the tank has got all but max(50 L, 2 %) of
+// it: the tank's figure (at its temperature) never matches the chamber's
+// litres exactly. The tank stock agent (tank_stock/decantation.py) uses the same.
+export const ARRIVE_SLACK_L = 50;
+export const ARRIVE_SLACK_PCT = 2;
+const arriveSlack = (litres) => Math.max(ARRIVE_SLACK_L, (litres * ARRIVE_SLACK_PCT) / 100);
+
+// The pipe's round by the tank's real stock instead of the chambers' times:
+// when the tank stock agent's live monitoring (or any reading) has given the
+// tank's volume since it started decanting, what it has risen by since the
+// stock before is what has left the chambers, in the pipe's order. `latest`:
+// the tank's latest reading (state.tankState). -> null without such a
+// reading (then drainAt(drainTimeline()) estimates it), else what drainAt
+// gives, with live: true, the reading's time and the rise; and a still
+// timeline of those levels (the picture draws from one).
+export function drainLive(row, chambers, latest, settings) {
+  const start = Date.parse(row?.startedAt || '');
+  const at = Date.parse(latest?.readingAt || '');
+  const v = Number(latest?.volume);
+  const b = Number(row?.before?.volume);
+  if (!Number.isFinite(start) || !Number.isFinite(at) || !Number.isFinite(v) || !Number.isFinite(b)) return null;
+  if (at < start || at <= Date.parse(row.before.readingAt || '')) return null;   // not read since it started
+  if (latest.savedAt && row.before.savedAt && latest.savedAt === row.before.savedAt) return null;
+  const rise = Math.max(0, v - b);
+  const list = (row.chambers || []).map((no) => ({ no, litres: (chambers || []).find((c) => c.no === no)?.litres || 0 }));
+  if (!list.length) return null;
+  let cum = 0;
+  const drained = {};
+  for (const c of list) {
+    const got = Math.min(c.litres, Math.max(0, rise - cum));
+    cum += c.litres;
+    drained[c.no] = c.litres > 0 && c.litres - got > arriveSlack(c.litres) ? got / c.litres : 1;
+  }
+  const open = list.find((c) => drained[c.no] < 1);
+  const done = !open;
+  const total = list.reduce((a, c) => a + c.litres, 0);
+  // the time left at the Settings' rate for a 5 KL chamber, and the pipe's moves still to come
+  const s = settings || DEFAULT_SETTINGS;
+  const t5 = Number(s.emptySecs5) > 0 ? Number(s.emptySecs5) : DEFAULT_SETTINGS.emptySecs5;
+  const toMove = done ? 0 : list.slice(list.indexOf(open) + 1).length;
+  const left = done ? 0 : (Math.max(0, total - rise) * (t5 / 5000) + toMove * pipeMoveSeconds(s)) * 1000;
+  return {
+    on: (open || list[list.length - 1]).no,
+    drained,
+    litres: rise,
+    left,
+    flowing: !done,
+    done,
+    moving: null,
+    live: true,
+    readingAt: latest.readingAt,
+    rise,
+  };
+}
+
+// A timeline that holds each chamber at the level drainLive found (from/to
+// set so far around `now` that the levels don't move between two readings),
+// for the picture, which animates from a timeline.
+export function stillTimeline(live, row, chambers, now) {
+  const far = 1e12;
+  return (row.chambers || []).map((no) => {
+    const litres = (chambers || []).find((c) => c.no === no)?.litres || 0;
+    const f = live.drained[no] ?? 0;
+    if (f >= 1) return { no, litres, moveAt: null, from: now - 2000, to: now - 1000 };
+    if (f <= 0 && no !== live.on) return { no, litres, moveAt: null, from: now + far, to: now + far + 1 };
+    const from = now - f * far;
+    return { no, litres, moveAt: null, from, to: from + far };
+  });
+}
+
 // 495 -> "8:15"
 export function fmtMinSec(secs) {
   const r = Math.round(secs);
