@@ -153,6 +153,10 @@ TextEdit again. Like the Tally apps, it runs **only on this Mac**
 - **Status:** whether the monitor is running, plus each account's last CCMS,
   when it was read, and its latest problem.
 
+On the India server the same page also starts, stops and restarts the monitor
+and opens from your phone: see
+[Manage it from your phone](../infra/xtrapower/README.md#manage-it-from-your-phone).
+
 Changes reach the monitor on its **next check** (about 2 minutes) — it re-reads
 `config.json` every cycle, so there's nothing to restart, and you can close the
 page (Ctrl-C) once you're done. If the file is ever unreadable (say, a bad hand

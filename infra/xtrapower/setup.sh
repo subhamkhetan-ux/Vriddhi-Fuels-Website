@@ -88,4 +88,8 @@ if [ "$mem_kb" -lt 3000000 ]; then
   echo "NOTE: this server has under 3 GB of memory. Each account runs its own Chromium"
   echo "window, so start with one watched account and move to an A1 server for more."
 fi
+# The phone page (phone-setup.sh) runs the same code; pick up the update too.
+if systemctl is-enabled -q xtrapower-manage 2>/dev/null; then
+  sudo systemctl restart xtrapower-manage
+fi
 echo "Logs: journalctl -u xtrapower -f        Status: systemctl status xtrapower"

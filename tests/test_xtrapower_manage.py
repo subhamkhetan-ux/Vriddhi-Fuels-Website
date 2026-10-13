@@ -293,3 +293,122 @@ def test_unknown_get_is_a_plain_404_not_a_token_error(server):
     srv, _ = server
     status, raw, _ = _call(srv, "GET", "/favicon.ico", csrf=False)
     assert status == 404 and json.loads(raw)["error"] == "Not found."
+
+
+# ---- server mode (infra/xtrapower): Tailscale access, monitor controls --------
+
+TS_HOST = "oracle-india.tail1234.ts.net"
+
+
+def test_tailscale_name_is_accepted_only_for_the_allowed_login():
+    port, hosts, users = 8780, {TS_HOST}, {"me@example.com"}
+    ok = manage.access_error("127.0.0.1", TS_HOST, port, hosts, users, "Me@Example.com")
+    assert ok is None
+    assert manage.access_error("127.0.0.1", f"{TS_HOST}:443", port, hosts, users, "me@example.com") is None
+    assert manage.access_error("127.0.0.1", TS_HOST, port, hosts, users, "other@example.com")[0] == 403
+    assert manage.access_error("127.0.0.1", TS_HOST, port, hosts, users, None)[0] == 403
+    # Without a login list, the Tailscale name alone is enough (still loopback only).
+    assert manage.access_error("127.0.0.1", TS_HOST, port, hosts, (), None) is None
+    # The name doesn't let other machines in, and other names stay refused.
+    assert manage.access_error("100.64.0.9", TS_HOST, port, hosts, users, "me@example.com")[0] == 403
+    assert manage.access_error("127.0.0.1", "evil.example", port, hosts, users, "me@example.com")[0] == 403
+
+
+class FakeSystemd:
+    def __init__(self, active="active", fail=None):
+        self.active, self.fail, self.calls = active, fail, []
+
+    def __call__(self, cmd, timeout=60):
+        self.calls.append(cmd)
+        if cmd[:2] == ["systemctl", "is-active"]:
+            return (0 if self.active == "active" else 3), self.active + "\n"
+        if cmd[:2] == ["systemctl", "is-enabled"]:
+            return 0, "enabled\n"
+        if self.fail and self.fail in cmd:
+            return 1, "sudo: a password is required\n"
+        if cmd[:3] == ["sudo", "-n", "/usr/bin/journalctl"]:
+            return 0, "line one\nline two\n"
+        if cmd[:3] == ["sudo", "-n", "/usr/bin/systemctl"]:
+            self.active = "inactive" if "disable" in cmd else "active"
+            return 0, ""
+        return 1, "unexpected"
+
+
+def _server_app(tmp_path, systemd):
+    return manage.App(str(_write_cfg(tmp_path)), 8780, service="xtrapower",
+                      allowed_hosts=[TS_HOST], allowed_users=["me@example.com"], run=systemd)
+
+
+def test_server_mode_reports_and_controls_the_service(tmp_path):
+    systemd = FakeSystemd()
+    app = _server_app(tmp_path, systemd)
+    snap = app.snapshot()
+    assert snap["server"] is True and snap["monitor"]["running"] is True
+    assert snap["monitor"]["start_at_boot"] is True
+
+    app.control_monitor("stop")
+    assert ["sudo", "-n", "/usr/bin/systemctl", "disable", "--now", "xtrapower"] in systemd.calls
+    assert app.snapshot()["monitor"] == {"running": False, "pid": None, "state": "inactive",
+                                         "start_at_boot": True}
+    app.control_monitor("start")
+    assert ["sudo", "-n", "/usr/bin/systemctl", "enable", "--now", "xtrapower"] in systemd.calls
+    app.control_monitor("restart")
+    assert ["sudo", "-n", "/usr/bin/systemctl", "restart", "xtrapower"] in systemd.calls
+    with pytest.raises(LookupError):
+        app.control_monitor("reboot")
+    # Must match /etc/sudoers.d/xtrapower-manage exactly.
+    assert app.recent_logs() == ["line one", "line two"]
+    assert ["sudo", "-n", "/usr/bin/journalctl", "-u", "xtrapower", "-n", "80",
+            "--no-pager", "-o", "short-iso"] in systemd.calls
+
+
+def test_a_refused_control_is_shown_not_hidden(tmp_path):
+    app = _server_app(tmp_path, FakeSystemd(fail="restart"))
+    with pytest.raises(manage.ValidationError, match="password is required"):
+        app.control_monitor("restart")
+
+
+def test_mac_mode_has_no_service_controls_and_server_mode_no_open_window(tmp_path):
+    mac = manage.App(str(_write_cfg(tmp_path)), 8780)
+    assert mac.snapshot()["server"] is False
+    with pytest.raises(manage.ValidationError):
+        mac.control_monitor("stop")
+    with pytest.raises(manage.ValidationError):
+        mac.recent_logs()
+    with pytest.raises(manage.ValidationError, match="opens by itself"):
+        _server_app(tmp_path, FakeSystemd()).open_window("1001")
+
+
+@pytest.fixture
+def server_mode(tmp_path):
+    systemd = FakeSystemd()
+    app = _server_app(tmp_path, systemd)
+    srv = manage.make_server(app, 0)
+    app.port = srv.server_port
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    yield srv, systemd
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_monitor_buttons_need_the_page_token(server_mode):
+    srv, systemd = server_mode
+    status, _, _ = _call(srv, "POST", "/api/monitor/stop", {}, csrf=False)
+    assert status == 403 and not any("disable" in c for c in systemd.calls)
+    status, raw, _ = _call(srv, "POST", "/api/monitor/stop", {})
+    assert status == 200 and json.loads(raw)["monitor"]["running"] is False
+    status, raw, _ = _call(srv, "GET", "/api/logs")
+    assert status == 200 and json.loads(raw)["lines"] == ["line one", "line two"]
+
+
+def test_home_screen_files_are_served(server):
+    srv, _ = server
+    status, raw, headers = _call(srv, "GET", "/manifest.webmanifest", csrf=False)
+    assert status == 200 and headers["Content-Type"] == "application/manifest+json"
+    assert json.loads(raw)["display"] == "standalone"
+    for icon in ("/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"):
+        status, raw, headers = _call(srv, "GET", icon, csrf=False)
+        assert status == 200 and raw[:8] == b"\x89PNG\r\n\x1a\n" and headers["Content-Type"] == "image/png"
+    _, page, _ = _call(srv, "GET", "/")
+    assert b'rel="manifest"' in page and b"apple-touch-icon" in page

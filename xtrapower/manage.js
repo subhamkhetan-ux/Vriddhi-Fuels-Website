@@ -72,6 +72,18 @@
     mon.textContent = s.monitor.running ? "Monitor running" : "Monitor stopped";
     mon.classList.toggle("on", s.monitor.running);
 
+    // Server mode: start / stop / restart the monitor service from here.
+    $("monitorCard").hidden = !s.server;
+    if (s.server) {
+      const m = s.monitor;
+      $("monitorMeta").textContent = m.running
+        ? "Running. Checks each watched account and alerts on Telegram."
+        : `Stopped (${m.state}). No checks or alerts until you press Start.`;
+      $("startBtn").disabled = m.running;
+      $("stopBtn").disabled = !m.running;
+      $("restartBtn").disabled = !m.running;
+    }
+
     const list = $("list");
     list.replaceChildren();
     if (!s.accounts.length) {
@@ -122,7 +134,8 @@
 
     const actions = el("div", { class: "actions" },
       el("button", { type: "button", text: "Edit", onclick: () => openEditor(a) }),
-      el("button", {
+      // On the server the windows open by themselves; only the Mac needs this.
+      state.server ? null : el("button", {
         type: "button", text: "Open window on Mac", onclick: async (ev) => {
           ev.currentTarget.disabled = true;
           const btn = ev.currentTarget;
@@ -186,7 +199,10 @@
       $("fPass").value = "";
       $("editor").close();
       render(s);
-      toast(adding ? "Account added. Tap Open window on Mac to start it." : "Saved");
+      const started = state.server
+        ? "Account added. Its window opens within a minute."
+        : "Account added. Tap Open window on Mac to start it.";
+      toast(adding ? started : "Saved");
     } catch (e) {
       $("editErr").textContent = e.message;
     }
@@ -220,6 +236,35 @@
       toast("Test message sent. Check Telegram.");
     } catch (e) { $("settingsErr").textContent = e.message; } finally { btn.disabled = false; }
   });
+
+  async function control(action, btn) {
+    if (action === "stop" &&
+        !confirm("Stop the monitor? No checks or alerts until you press Start, even after a reboot.")) return;
+    btn.disabled = true;
+    toast(action === "stop" ? "Stopping…" : action === "start" ? "Starting…" : "Restarting…");
+    try {
+      render(await api("POST", `/api/monitor/${action}`));
+      toast(action === "stop" ? "Monitor stopped" : action === "start" ? "Monitor started" : "Monitor restarted");
+    } catch (e) {
+      toast(e.message);
+      btn.disabled = false;
+    }
+  }
+  $("startBtn").addEventListener("click", (ev) => control("start", ev.currentTarget));
+  $("stopBtn").addEventListener("click", (ev) => control("stop", ev.currentTarget));
+  $("restartBtn").addEventListener("click", (ev) => control("restart", ev.currentTarget));
+
+  async function showLog() {
+    const box = $("logBox");
+    try {
+      const data = await api("GET", "/api/logs");
+      box.textContent = data.lines.length ? data.lines.join("\n") : "(no log lines yet)";
+      box.hidden = false;
+      $("logBtn").textContent = "Refresh log";
+      box.scrollTop = box.scrollHeight;
+    } catch (e) { toast(e.message); }
+  }
+  $("logBtn").addEventListener("click", showLog);
 
   async function refresh() {
     try {

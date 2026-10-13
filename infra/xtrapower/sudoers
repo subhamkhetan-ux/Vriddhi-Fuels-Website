@@ -1,0 +1,4 @@
+# Installed as /etc/sudoers.d/xtrapower-manage by phone-setup.sh.
+# Lets the account manager page (user xtrapower) run exactly these commands:
+# the Start / Stop / Restart buttons and the Show log button. Nothing else.
+xtrapower ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now xtrapower, /usr/bin/systemctl disable --now xtrapower, /usr/bin/systemctl restart xtrapower, /usr/bin/journalctl -u xtrapower -n 80 --no-pager -o short-iso

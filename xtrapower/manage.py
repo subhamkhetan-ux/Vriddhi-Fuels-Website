@@ -11,6 +11,12 @@ local apps (bank_tally, iocl_tally, fleet_tally, consign). Nothing else can
 reach it. To check on the monitor from your phone, use the Telegram commands
 instead (/status, /logs — see telegram_bot.py).
 
+On the India server (infra/xtrapower) it runs with ``--service xtrapower``:
+the page also starts, stops and restarts that systemd service and shows its
+recent log, and ``tailscale serve`` makes it reachable from your own devices
+at the server's Tailscale name (``--allow-host``). Requests still arrive from
+127.0.0.1; with ``--allow-user`` only those Tailscale logins get in.
+
 It never sends a saved password or the Telegram token back to the browser: to
 change one, type the new value; leaving the box blank keeps the old one.
 
@@ -27,6 +33,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -44,6 +51,22 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG = os.path.join(HERE, "config.json")
 PAGE_PATH = os.path.join(HERE, "manage.html")
 JS_PATH = os.path.join(HERE, "manage.js")
+STATIC_DIR = os.path.join(HERE, "static")
+# Home-screen install (manifest + icons); served without the page token.
+STATIC_FILES = {
+    "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+    "/icon-192.png": ("icon-192.png", "image/png"),
+    "/icon-512.png": ("icon-512.png", "image/png"),
+    "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+}
+# Server mode: what each button runs (allowed by /etc/sudoers.d/xtrapower-manage).
+# Stop also disables start-at-boot, like monitor-mac.sh stop; Start re-enables it.
+SERVICE_ACTIONS = {
+    "start": ["enable", "--now"],
+    "stop": ["disable", "--now"],
+    "restart": ["restart"],
+}
+LOG_LINES = 80
 DEFAULT_PORT = 8780            # Tally apps use 8756 / 8760 / 8770 / 8771
 
 POLL_MIN, POLL_MAX = 60, 3600  # check interval bounds (be polite to the portal)
@@ -208,20 +231,55 @@ def host_ok(host: str, port: int) -> bool:
     return (host or "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
 
-def access_error(client_ip: str, host: str, port: int) -> Optional[tuple]:
-    """``None`` if the request may proceed, else ``(status, message)``."""
+def access_error(client_ip: str, host: str, port: int, allowed_hosts=(),
+                 allowed_users=(), user_login: Optional[str] = None) -> Optional[tuple]:
+    """``None`` if the request may proceed, else ``(status, message)``.
+
+    Every request must come from this machine. On the server that includes
+    ``tailscale serve``, which forwards your phone's request from 127.0.0.1
+    under the server's Tailscale name (an ``allowed_hosts`` entry) and adds
+    the signed-in ``Tailscale-User-Login``, checked against ``allowed_users``.
+    """
     if not is_loopback(client_ip):
         return 403, "This page only works on the Mac itself."
-    if not host_ok(host, port):
-        return 403, f"Open this page at http://127.0.0.1:{port}/ on the Mac."
-    return None
+    if host_ok(host, port):
+        return None
+    name = re.sub(r":\d+$", "", (host or "").lower())
+    if name and name in allowed_hosts:
+        if allowed_users and (user_login or "").lower() not in allowed_users:
+            return 403, "Your Tailscale account isn't allowed to open this page."
+        return None
+    return 403, f"Open this page at http://127.0.0.1:{port}/ on the Mac."
+
+
+def _run(cmd: list, timeout: int = 60) -> tuple:
+    """``(exit code, output)``; never raises, so the page can show the problem."""
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
+def service_status(service: str, run=_run) -> dict:
+    """The systemd monitor service's state (server mode). Needs no privileges."""
+    _, active = run(["systemctl", "is-active", service])
+    _, enabled = run(["systemctl", "is-enabled", service])
+    active = active.strip().splitlines()[0] if active.strip() else "unknown"
+    return {"running": active == "active", "pid": None, "state": active,
+            "start_at_boot": enabled.strip() == "enabled"}
 
 
 # ---- the app: config IO -----------------------------------------------------
 
 class App:
-    def __init__(self, config_path: str, port: int):
+    def __init__(self, config_path: str, port: int, service: Optional[str] = None,
+                 allowed_hosts=(), allowed_users=(), run=_run):
         self.config_path = config_path
+        self.service = service          # server mode: the systemd unit to control
+        self.allowed_hosts = {h.strip().lower() for h in allowed_hosts if h.strip()}
+        self.allowed_users = {u.strip().lower() for u in allowed_users if u.strip()}
+        self._run = run
         base = os.path.dirname(os.path.abspath(config_path))
         self.state_path = os.path.join(base, "state.json")
         self.pid_path = os.path.join(base, "monitor.pid")
@@ -258,8 +316,11 @@ class App:
     def snapshot(self) -> dict:
         cfg = self.read()
         st = state_mod.load(self.state_path)
+        monitor = (service_status(self.service, self._run) if self.service
+                   else monitor_status(self.pid_path))
         return {
-            "monitor": monitor_status(self.pid_path),
+            "monitor": monitor,
+            "server": bool(self.service),
             "settings": public_settings(cfg),
             "accounts": [public_account(a, st) for a in cfg["accounts"]],
             "next_port": next_free_port(cfg["accounts"]),
@@ -299,6 +360,9 @@ class App:
             self.write(cfg)
 
     def open_window(self, key: str) -> None:
+        if self.service:
+            raise ValidationError("On the server each watched account's window opens by itself "
+                                  "within a minute.")
         cfg = self.read()
         acct = cfg["accounts"][self._index(cfg, key)]
         chrome = launch_mod.find_chrome()
@@ -313,6 +377,28 @@ class App:
             cfg["telegram"] = new["telegram"]
             cfg["poll_seconds"] = new["poll_seconds"]
             self.write(cfg)
+
+    def control_monitor(self, action: str) -> None:
+        """Start / stop / restart the monitor service (server mode only)."""
+        if not self.service:
+            raise ValidationError("Start and stop the monitor on the Mac with monitor-mac.sh.")
+        if action not in SERVICE_ACTIONS:
+            raise LookupError(action)
+        code, out = self._run(["sudo", "-n", "/usr/bin/systemctl",
+                               *SERVICE_ACTIONS[action], self.service])
+        if code != 0:
+            detail = out.strip().splitlines()[-1] if out.strip() else "no details"
+            raise ValidationError(f"Couldn't {action} the monitor: {detail}")
+
+    def recent_logs(self) -> list:
+        if not self.service:
+            raise ValidationError("On the Mac the log is in xtrapower/monitor.log.")
+        code, out = self._run(["sudo", "-n", "/usr/bin/journalctl", "-u", self.service,
+                               "-n", str(LOG_LINES), "--no-pager", "-o", "short-iso"])
+        if code != 0:
+            detail = out.strip().splitlines()[-1] if out.strip() else "no details"
+            raise ValidationError(f"Couldn't read the log: {detail}")
+        return out.splitlines()[-LOG_LINES:]
 
     def test_telegram(self) -> None:
         tg = self.read().get("telegram") or {}
@@ -360,7 +446,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(data).encode(), "application/json; charset=utf-8")
 
     def _allowed(self) -> bool:
-        err = access_error(self.client_address[0], self.headers.get("Host", ""), self.app.port)
+        app = self.app
+        err = access_error(self.client_address[0], self.headers.get("Host", ""), app.port,
+                           app.allowed_hosts, app.allowed_users,
+                           self.headers.get("Tailscale-User-Login"))
         if err:
             self._json(err[0], {"error": err[1]})
             return False
@@ -411,8 +500,14 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/manage.js":
                     with open(JS_PATH, "rb") as f:
                         self._send(200, f.read(), "application/javascript; charset=utf-8")
+                elif path in STATIC_FILES:
+                    name, ctype = STATIC_FILES[path]
+                    with open(os.path.join(STATIC_DIR, name), "rb") as f:
+                        self._send(200, f.read(), ctype)
                 elif path == "/api/state":
                     self._json(200, self.app.snapshot())
+                elif path == "/api/logs":
+                    self._json(200, {"lines": self.app.recent_logs()})
                 else:                       # e.g. a browser's automatic /favicon.ico
                     self._json(404, {"error": "Not found."})
                 return
@@ -448,6 +543,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(200, app.snapshot())
             return
+        m = re.fullmatch(r"/api/monitor/(start|stop|restart)", path)
+        if m and method == "POST":
+            app.control_monitor(m.group(1))
+            self._json(200, app.snapshot())
+            return
         if method == "PUT" and path == "/api/settings":
             app.update_settings(self._body())
             self._json(200, app.snapshot())
@@ -471,9 +571,20 @@ def main(argv=None) -> None:
     ap.add_argument("--config", default=DEFAULT_CONFIG)
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--no-browser", action="store_true", help="don't open the page on start")
+    ap.add_argument("--service", default=None,
+                    help="server mode: the systemd monitor unit to start/stop (e.g. xtrapower)")
+    ap.add_argument("--allow-host", action="append", default=[],
+                    help="extra host name to accept, e.g. the server's Tailscale name "
+                         "(also XTRAPOWER_MANAGE_HOSTS, comma-separated)")
+    ap.add_argument("--allow-user", action="append", default=[],
+                    help="Tailscale login allowed through --allow-host "
+                         "(also XTRAPOWER_MANAGE_USERS, comma-separated)")
     args = ap.parse_args(argv)
 
-    app = App(args.config, args.port)
+    hosts = args.allow_host + os.environ.get("XTRAPOWER_MANAGE_HOSTS", "").split(",")
+    users = args.allow_user + os.environ.get("XTRAPOWER_MANAGE_USERS", "").split(",")
+    app = App(args.config, args.port, service=args.service, allowed_hosts=hosts,
+              allowed_users=users)
     try:
         app.read()
     except configfile.ConfigError as exc:
@@ -485,7 +596,8 @@ def main(argv=None) -> None:
                  "Is the account manager already open in another Terminal window?")
 
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"XtraPower account manager: {url}  (this Mac only; Ctrl-C to stop)", flush=True)
+    where = ", ".join(f"https://{h}/" for h in sorted(app.allowed_hosts)) or "this Mac only"
+    print(f"XtraPower account manager: {url}  ({where}; Ctrl-C to stop)", flush=True)
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
