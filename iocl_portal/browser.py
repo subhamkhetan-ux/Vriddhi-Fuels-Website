@@ -18,7 +18,7 @@ from .statement import IST, PortalError, parse_statement
 
 PORTAL_ORIGIN = "https://utkarsh.indianoil.co.in"
 LOGIN_URL = PORTAL_ORIGIN + "/ioconline/iocExStart.jsp"
-CAPTCHA_TRIES = 3
+CAPTCHA_TRIES = 5
 _DATE_LIKE = re.compile(r"\d{1,4}[-/.][A-Za-z0-9]{1,3}[-/.]\d{2,4}")
 
 

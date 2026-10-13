@@ -105,7 +105,7 @@ def test_uncertain_captcha_does_not_enter_credentials_or_submit(page):
     portal.open()
     with pytest.raises(PortalError, match="CAPTCHA needs a person"):
         portal.login("999999", "fixture-only")
-    assert len(calls) == 3                       # three fresh CAPTCHAs, then stop
+    assert len(calls) == 5                       # five fresh CAPTCHAs, then stop
     assert page.locator("input[name=password]").input_value() == ""
     assert not page.evaluate("window.loginCount")
 
