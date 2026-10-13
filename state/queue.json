@@ -4674,6 +4674,27 @@
       },
       "queued_at": "2026-10-13T07:30:23.085948+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "f91502fc3eb78d5b",
+      "gmail_msg_id": "1878919432039233660",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "13/10/2026",
+      "date_serial": 46308,
+      "amount": 206213.0,
+      "raw_payer": "SHYAM RESOURCES",
+      "customer": "Shyam Resources",
+      "candidates": [
+        "Shyam Resources"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-13T07:45:19.325855+00:00",
+      "status": "matched"
     }
   ]
 }
