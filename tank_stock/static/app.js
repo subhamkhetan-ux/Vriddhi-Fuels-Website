@@ -145,15 +145,17 @@
       box.appendChild(tank);
     }
     shownAt = last.at;
-    const all = allTanks();
-    $("saveAll").hidden = all.length < 2;
+    // One picture of the tanks picked above (as shown), and one per tank.
+    $("saveAll").hidden = sel.length < 2;
+    $("saveAll").textContent = sel.length === allTanks().length ? "Save image of all tanks" : "Save image of these tanks";
     // Fetch the pictures now: a phone only opens its share sheet straight from a tap.
-    for (const tanks of [...all.map((n) => [n]), all]) image(tanks).catch(() => {});
+    for (const tanks of [...sel.map((n) => [n]), ...(sel.length > 1 ? [sel] : [])]) image(tanks).catch(() => {});
   }
 
   // ---- pictures to save or send ----------------------------------------
   const images = new Map();      // "at|tanks" -> Promise<Blob>
   const allTanks = () => Object.keys(state?.last?.tanks || {}).map(Number).sort();
+  const shownTanks = () => [...picked].sort().filter((n) => state?.last?.tanks?.[n]);
   function image(tanks) {
     const at = state.last.at;
     const key = `${at}|${tanks.join(",")}`;
@@ -275,7 +277,7 @@
   $("go").addEventListener("click", () => start(false));
   $("goDec").addEventListener("click", () => start(true));
   $("upAll").addEventListener("click", () => upload([...picked].filter((n) => state?.last?.tanks?.[n])));
-  $("saveAll").addEventListener("click", () => saveImage(allTanks()));
+  $("saveAll").addEventListener("click", () => saveImage(shownTanks()));
   for (const id of ["mEvery", "mUp"]) $(id).addEventListener("input", () => { monitorDirty = true; });
   const liveSettings = () => ({ interval_min: Number($("mEvery").value), auto_upload: $("mUp").checked, tanks: [...watched] });
   async function send(path, body, done) {
