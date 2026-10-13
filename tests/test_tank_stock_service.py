@@ -64,12 +64,35 @@ def test_a_card_that_fails_a_check_is_not_saved(change, problem):
 
 
 class FakeDB:
+    """The decant project: dec_tank_state, dec_shots and the dec-shots bucket."""
+
     def __init__(self, rows=None):
         self.rows, self.writes = dict(rows or {}), []
+        self.shots, self.files = [], {}
+
+    def http(self, method, path, data, headers, timeout=30):
+        if path.startswith("rest/v1/"):
+            return self(method, path[len("rest/v1/"):], json.loads(data) if data else None,
+                        headers.get("Prefer", ""))
+        assert path.startswith("storage/v1/object/dec-shots")
+        if method == "POST":
+            self.files[path.split("dec-shots/", 1)[1]] = (data, headers["Content-Type"])
+        else:
+            for p in json.loads(data)["prefixes"]:
+                self.files.pop(p, None)
 
     def __call__(self, method, path, body=None, prefer="", timeout=30):
         if path.startswith("dec_config"):
             return []
+        if path.startswith("dec_shots"):
+            if method == "POST":
+                self.shots.extend(body)
+                return None
+            day = path.split("day=lt.")[1].split("&")[0]
+            old = [r for r in self.shots if r["day"] < day]
+            if method == "DELETE":
+                self.shots = [r for r in self.shots if r["day"] >= day]
+            return [{"id": r["id"], "path": r["path"]} for r in old]
         if method == "GET":
             tid = path.split("eq.")[1].split("&")[0]
             return [{"reading": self.rows[tid]}] if tid in self.rows else []
@@ -82,6 +105,7 @@ class FakeDB:
 def test_upload_saves_checked_tanks_and_never_replaces_a_newer_reading(monkeypatch):
     db = FakeDB({"T1": {"readingAt": "2026-10-13T19:00:00+05:30", "volume": 1}})
     monkeypatch.setattr(decant, "_rest", db)
+    monkeypatch.setattr(decant, "_http", db.http)
     card1 = {**CARD3, "no": 1, "product": "MS"}
     bad = {**CARD3, "no": 2, "volume": 1.0}
     out = decant.upload({1: card1, 2: bad, 3: CARD3}, [1, 2, 3, 4], CFG)
@@ -133,6 +157,9 @@ class FakeSession:
 def station(tmp_path, monkeypatch):
     db = FakeDB()
     monkeypatch.setattr(decant, "_rest", db)
+    monkeypatch.setattr(decant, "_http", db.http)
+    monkeypatch.setattr(service.cards_mod, "picture", lambda png, boxes, tanks, stack=False: b"\x89PNG-cards")
+    monkeypatch.setattr(service.cards_mod, "to_jpeg", lambda png: b"\xff\xd8" + png)
     monkeypatch.setattr(service.cards_mod, "read_all",
                         lambda png: ({3: (959, 343, 1284, 677)}, {3: dict(CARD3)}))
     monkeypatch.setattr(service, "CHECK_EVERY", 0.01)
@@ -169,7 +196,21 @@ def test_capture_connects_reads_and_disconnects_without_uploading(station):
     assert last["tanks"]["3"]["confidence"] == "high" and station.db.writes == []
     assert len(FakeSession.opened) == 1 and FakeSession.opened[0].closed
     assert station.upload_last([3])[3]["ok"] and station.db.writes[0]["tank_id"] == "T3"
-    assert station.last["uploads"]["3"]["ok"]
+    assert station.last["uploads"]["3"]["ok"] and "mark" not in station.last["uploads"]["3"]
+    # the zoomed card goes with it, for the app's result pictures on any phone
+    (shot,) = station.db.shots
+    assert shot["source"] == "agent" and shot["readings"] == {
+        "T3": {"readingAt": "2026-10-13T18:01:54+05:30", "volume": 19552.05}}
+    assert station.db.files[shot["path"]] == (b"\xff\xd8\x89PNG-cards", "image/jpeg")
+    assert shot["path"].startswith(shot["day"] + "/") and station.last["proof"]["ok"]
+
+
+def test_earlier_days_proof_pictures_are_dropped(station):
+    station.db.shots.append({"id": "old", "day": "2000-01-01", "path": "2000-01-01/old.jpg", "readings": {}})
+    station.db.files["2000-01-01/old.jpg"] = (b"x", "image/jpeg")
+    station.capture([3], upload=True)
+    assert "old" not in [s["id"] for s in station.db.shots]
+    assert "2000-01-01/old.jpg" not in station.db.files and len(station.db.files) == 1
 
 
 def test_send_for_decantation_uploads_and_ends_live_monitoring(station):

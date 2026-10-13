@@ -54,6 +54,13 @@ saved** and the page says why. As in the app, an older reading never replaces
 a newer one. Tanks, the date order and the dip chart come from the app's
 Settings (`dec_config`), else its defaults.
 
+With the readings it saves a **proof picture**: the zoomed cards of those
+tanks, as a JPEG in the app's private storage bucket `dec-shots` with a
+`dec_shots` row naming the readings (as the app's phones do, `decant/js/
+shots.js`). A result picture made on any phone that day shows it under the
+figures. Earlier days' are deleted (once a day, by the agent or the first
+phone that opens the app).
+
 Each card is read twice with Tesseract, enlarged (`cards.py`): as it is, which
 gives the figures cleanly, and thresholded, which also gives the grey labels
 and the "Last Updated" time. The figures of both reads must agree.

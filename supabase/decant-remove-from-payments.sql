@@ -9,4 +9,4 @@
 drop view if exists public.dec_history;
 drop function if exists public.dec_purge_old();
 drop table if exists public.dec_invoices, public.dec_sessions, public.dec_photos,
-  public.dec_tank_state, public.dec_vehicles, public.dec_config;
+  public.dec_tank_state, public.dec_vehicles, public.dec_config, public.dec_shots;

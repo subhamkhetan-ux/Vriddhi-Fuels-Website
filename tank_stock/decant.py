@@ -16,7 +16,7 @@ Tanks, the date order and the dip chart come from the app's settings
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
@@ -50,12 +50,18 @@ def cloud() -> tuple[str, str]:
 
 
 def _rest(method: str, path: str, body=None, prefer: str = "", timeout: int = 30):
-    url, key = cloud()
-    headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    """The app's tables (PostgREST)."""
+    headers = {"Content-Type": "application/json"}
     if prefer:
         headers["Prefer"] = prefer
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(f"{url}/rest/v1/{path}", data=data, method=method, headers=headers)
+    return _http(method, f"rest/v1/{path}", data, headers, timeout)
+
+
+def _http(method: str, path: str, data, headers: dict, timeout: int = 30):
+    url, key = cloud()
+    headers = {"apikey": key, "Authorization": f"Bearer {key}", **headers}
+    req = urllib.request.Request(f"{url}/{path}", data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
@@ -63,7 +69,49 @@ def _rest(method: str, path: str, body=None, prefer: str = "", timeout: int = 30
         raise DecantError(f"The decant database refused ({exc.code}).") from None
     except (urllib.error.URLError, OSError) as exc:
         raise DecantError(f"The decant database could not be reached ({type(exc).__name__}).") from None
-    return json.loads(raw) if raw else None
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
+
+
+# ---- the stock proof for the app's result pictures -------------------------
+# The app keeps the day's stock screenshots in its private storage bucket
+# `dec-shots` with a `dec_shots` row naming the readings each gave (decant/js/
+# shots.js); a result picture made on any phone that day shows the ones
+# behind its before / after stock. The agent adds its zoomed tank cards the
+# same way, and deletes earlier days' (as the phones do) once a day.
+BUCKET = "dec-shots"
+
+
+def ist_day(now=None) -> str:
+    return (now or datetime.now(timezone.utc)).astimezone(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
+
+
+def save_proof(jpeg: bytes, marks: dict, now=None) -> str:
+    """Store the picture behind these readings ({tank_id: {readingAt, volume}}).
+    Returns the file's path."""
+    now = now or datetime.now(timezone.utc)
+    day = ist_day(now)
+    shot_id = f"{int(now.timestamp() * 1000)}-agent"
+    path = f"{day}/{shot_id}.jpg"
+    _http("POST", f"storage/v1/object/{BUCKET}/{path}", jpeg,
+          {"Content-Type": "image/jpeg", "x-upsert": "true"}, timeout=60)
+    _rest("POST", "dec_shots?on_conflict=id",
+          [{"id": shot_id, "day": day, "at": now.isoformat(), "readings": marks, "path": path, "source": "agent"}],
+          prefer="resolution=merge-duplicates,return=minimal")
+    return path
+
+
+def drop_old_proofs(now=None) -> int:
+    """Delete earlier days' screenshots (rows and files). Returns how many."""
+    today = ist_day(now)
+    rows = _rest("GET", f"dec_shots?day=lt.{today}&select=id,path&limit=500") or []
+    if rows:
+        _http("DELETE", f"storage/v1/object/{BUCKET}", json.dumps({"prefixes": [r["path"] for r in rows]}).encode(),
+              {"Content-Type": "application/json"})
+        _rest("DELETE", f"dec_shots?day=lt.{today}")
+    return len(rows)
 
 
 def dip_chart() -> dict:
@@ -225,5 +273,6 @@ def upload(cards: dict, tanks, cfg=None, now=None) -> dict:
               [{"tank_id": tank["id"], "reading": reading, "updated_at": saved_at}],
               prefer="resolution=merge-duplicates,return=minimal")
         out[no] = {"ok": True, "tank_id": tank["id"],
+                   "mark": {"readingAt": reading["readingAt"], "volume": reading["volume"]},
                    "message": f"saved {reading['volume']:,.2f} L ({'Checked' if built['confidence'] == 'high' else 'Fixed & checked'})"}
     return out

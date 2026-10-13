@@ -97,6 +97,8 @@
     const sel = [...picked].sort().filter((n) => last.tanks?.[n]);
     $("resultTitle").textContent = `Capture of ${when(last.at)}`;
     const notes = [`${last.page || ""}`, last.settings_note || ""].filter(Boolean);
+    if (last.proof) notes.push(last.proof.ok ? `Proof picture of Tank ${last.proof.tanks.join(", ")} saved for today's result pictures.`
+      : `Proof picture not saved: ${last.proof.message}`);
     const missing = [...picked].filter((n) => !last.tanks?.[n]);
     if (missing.length) notes.push(`Not on that screen: Tank ${missing.join(", ")}.`);
     $("resultNote").textContent = notes.join(" ");

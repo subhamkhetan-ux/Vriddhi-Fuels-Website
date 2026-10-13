@@ -134,6 +134,16 @@ def picture(png: bytes, boxes: dict, tanks, stack: bool = False) -> bytes:
             return b""
 
 
+def to_jpeg(png: bytes, quality: int = 85) -> bytes:
+    """A smaller file for the decant app's proof pictures."""
+    try:
+        out = subprocess.run(["convert", "png:-", "-quality", str(quality), "jpg:-"], input=png,
+                             capture_output=True, timeout=60).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return b""
+    return out if out.startswith(b"\xff\xd8") else b""
+
+
 def _convert(png: bytes, ops) -> bytes:
     try:
         out = subprocess.run(["convert", "png:-", *ops, "png:-"], input=png,

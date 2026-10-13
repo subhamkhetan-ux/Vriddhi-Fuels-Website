@@ -126,6 +126,9 @@ export function saveDevice(patch) {
 // ---------------------------------------------------------------------------
 
 let client = null;
+// The Supabase client once connected (null before that, or with no cloud):
+// shots.js keeps the day's screenshots in its storage bucket.
+export const cloudClient = () => client;
 let adopted = false;               // this phone's copy has been moved into this project (adoptProject)
 const later = (a, b) => (Date.parse(a || 0) || 0) > (Date.parse(b || 0) || 0);
 

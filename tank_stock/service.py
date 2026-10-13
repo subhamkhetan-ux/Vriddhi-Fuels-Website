@@ -138,6 +138,7 @@ class Station:
         self.live = None                 # {state, session, since, tanks, ...} while live
         self.live_last = _read_json(home / "live.json", {})
         self.alerted = ""
+        self._dropped = ""               # the day earlier days' proof pictures were last cleared
         self.last = _read_json(home / "last.json", {})
 
     # ---- settings and login --------------------------------------------
@@ -234,8 +235,27 @@ class Station:
         stamp = now_iso()
         uploads = self.last.setdefault("uploads", {})
         for no, r in results.items():
-            uploads[str(no)] = {**r, "at": stamp}
+            uploads[str(no)] = {**{k: v for k, v in r.items() if k != "mark"}, "at": stamp}
+        self._save_proof(results)
         return results
+
+    def _save_proof(self, results) -> None:
+        """The zoomed cards of the tanks just saved, for the app's result
+        pictures on any phone today (decant.save_proof)."""
+        saved = {no: r for no, r in results.items() if r.get("ok") and r.get("mark")}
+        if not saved:
+            return
+        try:
+            if self._dropped != self.decant.ist_day():
+                self.decant.drop_old_proofs()
+                self._dropped = self.decant.ist_day()
+            jpeg = cards_mod.to_jpeg(self.picture(sorted(saved)))
+            if not jpeg:
+                raise ValueError("the picture of the cards could not be made")
+            self.decant.save_proof(jpeg, {r["tank_id"]: r["mark"] for r in saved.values()})
+            self.last["proof"] = {"ok": True, "tanks": sorted(saved), "at": now_iso()}
+        except (self.decant.DecantError, ValueError) as exc:
+            self.last["proof"] = {"ok": False, "message": str(exc), "at": now_iso()}
 
     def upload_last(self, tanks) -> dict:
         """The Upload buttons: save the last capture's readings."""

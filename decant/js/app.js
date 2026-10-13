@@ -89,8 +89,8 @@ export function pickFile(accept) {
 }
 
 // Pick a screenshot, read it and let the user check what was found. The
-// figures are saved; the picture itself is never uploaded — it stays on this
-// phone till the day ends, for the day's result pictures (shots.js).
+// figures are saved; the picture is kept for the day (on this phone and, shrunk,
+// in the cloud), so a result picture made on any phone that day shows it (shots.js).
 // Resolves {readings: {tankId: reading}} or null.
 export async function readScreenshot({ want = null } = {}) {
   const file = await pickFile('image/*');
@@ -910,7 +910,7 @@ function settingsSheet() {
         <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
       <label class="f" style="margin-top:10px">The cloud keeps
         <select id="stKeep">${KEEP_OPTIONS.map(([k, l]) => `<option value="${k}" ${s.keep === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are never uploaded — each stays on the phone that read it till the day ends, for that day's result pictures.</div>
+      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Stock screenshots are kept for the day they were read — on the phone and, shrunk, in the cloud — so any phone's result pictures that day can show them; they're deleted the next day.</div>
       <div class="hint" id="stUse" style="margin-top:4px">${cloudUse()}</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
         <select id="stDate"><option value="MDY" ${s.dateOrder === 'MDY' ? 'selected' : ''}>MM/DD/YYYY (09/26/2026)</option><option value="DMY" ${s.dateOrder === 'DMY' ? 'selected' : ''}>DD/MM/YYYY (26/09/2026)</option></select></label>
