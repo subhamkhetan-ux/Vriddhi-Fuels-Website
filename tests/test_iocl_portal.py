@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 import io
+import re
 from pathlib import Path
 import shutil
 from types import SimpleNamespace
@@ -291,3 +292,16 @@ def test_reader_on_hand_labelled_live_captchas():
     correct = sum(r == p.stem for r, p in zip(results, samples))
     wrong = [(p.stem, r) for r, p in zip(results, samples) if r and r != p.stem]
     assert correct >= 22 and len(wrong) <= 1, (correct, wrong)
+
+
+def test_report_check_failures_explain_what_was_seen_without_account_data():
+    from iocl_portal import statement
+    text = ("Customer PAD Balance Customer:- KHETAN FUELS (999999) Report Generated On : 13/10/2026 14:05:09 "
+            "From 12-Oct-2026 To 13-Oct-2026 Closing balance: Rs. -1,23,45,678.00")
+    hint = statement._timestamp_hint(re.sub(r"\s+", " ", text))
+    assert hint == "Generated On : 13/10/2026 14:05:09"
+    rows = [["Item Text", "Debit (Rs.)", "Credit (Rs.)", "Balance (Rs.)"], ["KHETAN FUELS"],
+            ["Invoice 9100012345", "1,00,000.00", "0", "-5,00,000.00"]]
+    table = statement._table_hint(rows)
+    assert "Balance (Rs.)" in table and "KHETAN" not in table and "9100012345" not in table
+    assert "row widths [1, 4]" in table

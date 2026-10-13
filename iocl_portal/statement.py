@@ -75,7 +75,8 @@ def parse_statement(text: str, *, table_rows: list[list[str]], customer: str, to
         r"((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM)?)",
         text, re.I)
     if len(set(timestamps)) != 1:
-        raise PortalError("The PAD report generation timestamp is missing or unfamiliar.")
+        raise PortalError("The PAD report generation timestamp is missing or unfamiliar (seen: "
+                          + _timestamp_hint(text) + ").")
     generated = None
     for fmt in ("%a %b %d %Y %I:%M:%S %p", "%a %b %d %Y %H:%M:%S"):
         try:
@@ -84,12 +85,13 @@ def parse_statement(text: str, *, table_rows: list[list[str]], customer: str, to
         except ValueError:
             pass
     if generated is None:
-        raise PortalError("The PAD report timestamp could not be parsed.")
+        raise PortalError("The PAD report timestamp could not be parsed (seen: " + _timestamp_hint(text) + ").")
     now = now or datetime.now(IST)
     if now.tzinfo is None:
         raise PortalError("The observation clock must include a time zone.")
     if generated.date() != today or not -120 <= (now - generated).total_seconds() <= 900:
-        raise PortalError("The PAD report is stale or its clock differs by too much. Nothing was saved.")
+        raise PortalError("The PAD report is stale or its clock differs by too much. Nothing was saved. "
+                          f"(report {generated.isoformat()}, agent clock {now.astimezone(IST).isoformat(timespec='seconds')})")
     if not isinstance(table_rows, list) or len(table_rows) > 5000:
         raise PortalError("The PAD table is missing or too large.")
     rows = [[re.sub(r"\s+", " ", str(cell)).strip() for cell in row]
@@ -97,18 +99,47 @@ def parse_statement(text: str, *, table_rows: list[list[str]], customer: str, to
     close_label = re.compile(r"^CL\.?\s*BAL\.?\s*in\s+Comp(?:any)?\.?\s+Code\s*:?$", re.I)
     closing_rows = [(i, row) for i, row in enumerate(rows) if any(close_label.fullmatch(cell) for cell in row)]
     if len(closing_rows) != 1:
-        raise PortalError("Expected exactly one CL.BAL.in Comp Code row. The final Closing balance is not used.")
+        raise PortalError("Expected exactly one CL.BAL.in Comp Code row. The final Closing balance is not used. "
+                          f"(Found {len(closing_rows)} in {len(rows)} rows; {_table_hint(rows)}.)")
     index, row = closing_rows[0]
     if len(row) < 3 or index + 1 >= len(rows) or not any(
             re.search(r"^Open\s+Delivery\s+value", cell, re.I) for cell in rows[index + 1]):
-        raise PortalError("The company balance is not directly above the Open Delivery value row. Verify the table layout.")
+        raise PortalError("The company balance is not directly above the Open Delivery value row. Verify the table layout. "
+                          f"({_table_hint(rows)}; balance row has {len(row)} cells.)")
     headers = [r for r in rows[:index] if r and re.fullmatch(r"Balance(?:\s*\(?\s*Rs\.?\s*\)?)?", r[-1], re.I)]
     if not headers:
-        raise PortalError("The last PAD table column could not be verified as Balance (Rs.).")
+        raise PortalError("The last PAD table column could not be verified as Balance (Rs.). "
+                          f"({_table_hint(rows)}.)")
     if len(row) != len(headers[-1]) or len(rows[index + 1]) != len(row):
-        raise PortalError("The PAD balance cells do not align with the table header. Nothing was saved.")
+        raise PortalError("The PAD balance cells do not align with the table header. Nothing was saved. "
+                          f"(header {len(headers[-1])} cells, balance row {len(row)}, next row {len(rows[index + 1])}; "
+                          f"{_table_hint(rows)}.)")
     value = signed_amount(row[-1])
     return Balance(customer, abs(value), "CR" if value < 0 else "DR", generated, from_day, to_day)
+
+
+_TIME = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?", re.I)
+
+
+def _timestamp_hint(text: str) -> str:
+    """The report's generation label up to its time, for fixing the format.
+    Dates and times only: it stops at the time and masks long numbers."""
+    m = re.search(r"generat\w*", text, re.I)
+    if not m:
+        return "no 'Generated' label; times " + (", ".join(_TIME.findall(text)[:3]) or "none")
+    tail = text[m.start(): m.start() + 80]
+    t = _TIME.search(tail)
+    return re.sub(r"\d{5,}", "#", tail[: t.end()] if t else tail[:40])
+
+
+def _table_hint(rows: list[list[str]]) -> str:
+    """Column headings (cells with no digits) and row widths; never amounts
+    or transaction text."""
+    header = re.compile(r"\b(debit|credit|balance|date|text|particulars?|amount|description|doc)", re.I)
+    headings = [r for r in rows if r and not any(re.search(r"\d", c) for c in r)
+                and sum(bool(header.search(c)) for c in r) >= 2][:2]
+    widths = sorted({len(r) for r in rows})
+    return f"headings {headings}, row widths {widths}"
 
 
 def signed_amount(raw: str) -> Decimal:
