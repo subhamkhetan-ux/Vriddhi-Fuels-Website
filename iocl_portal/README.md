@@ -42,11 +42,14 @@ frontend deployment change is needed. All PAD jobs share one concurrency group.
 
 ## Live setup
 
-**Live login is not verified yet.** The development cloud proxy currently blocks
-the IndianOil host. Browser navigation has been tested against a synthetic
-fixture, not the live site. The Actions workflow remains inactive automatically
-until `IOCL_PAD_SYNC_ENABLED=true`; manual probe/dry-run is available after the
-workflow reaches the default branch.
+The worker runs only in the cloud, on the **India self-hosted runner** (label
+`india`). GitHub's own runners are in the US/EU, and e-Mitra drops their
+connections, so set up the free Oracle Cloud server first:
+[`infra/india-runner/README.md`](../infra/india-runner/README.md).
+
+**Live login is not verified yet.** Browser navigation has been tested against a
+synthetic fixture, not the live site. Scheduled and invoice-triggered runs stay
+off until `IOCL_PAD_SYNC_ENABLED=true`; manual runs are always available.
 
 1. In repository **Settings → Secrets and variables → Actions**, add
    `IOCL_EMITRA_USERNAME` and `IOCL_EMITRA_PASSWORD` as **secrets**. Never place
@@ -55,10 +58,12 @@ workflow reaches the default branch.
    agent. When both are absent, the worker uses Payments' published public
    configuration. If exactly one is present, it stops. No additional
    service-role key is needed with the existing app schema.
-3. Run **IOCL e-Mitra PAD balance → Payments** manually in `probe` mode. This
-   only opens the login form. Then use `dry-run` to verify login, the menu,
-   yesterday/today dates, customer identity, fresh report timestamp, and the
-   company-code balance row. Neither mode writes a balance.
+3. In the **Actions** tab, enable **IOCL e-Mitra PAD balance → Payments** if it
+   shows as disabled. Run it manually in `network` mode: the log should show
+   country `IN` and `TCP 443: open`. Then run `probe`, which only opens the login
+   form, and `dry-run`, which verifies login, the menu, yesterday/today dates,
+   customer identity, fresh report timestamp and the company-code balance row.
+   None of these modes writes a balance.
 4. Once the live dry run succeeds, test `sync`, then set repository **variable**
    `IOCL_PAD_SYNC_ENABLED` to `true` to enable invoice-triggered and scheduled
    runs. `opening` is also available manually during its capture window.
@@ -83,29 +88,7 @@ unrecognized controls, stale/wrong-account reports, and uncertain amounts stop
 the job. No browser profile, password, statement screenshot, or trace is saved
 to Actions artifacts. Failed runs appear in GitHub Actions with a short summary.
 
-Cloud development permissions and GitHub Actions secrets are separate. To test
-from the managed cloud, apply the saved environment network draft for
-`utkarsh.indianoil.co.in`, the Payments Supabase host, and `api.github.com`, and
-provide the two IOCL credential environment bindings securely. Saving a draft
-does not apply its network policy to an already-running environment.
-
-## Local use and tests
-
-Install Python 3.12+, dependencies from `iocl_portal/requirements.txt`, Playwright
-Chromium (`python -m playwright install chromium`), and Tesseract (for example
-`brew install tesseract` on macOS). Supply credentials through the environment
-or a secret manager. `IOCL_CHROMIUM_EXECUTABLE` can select an installed Chromium.
-TLS verification remains enabled, and configured HTTPS proxies are respected.
-
-```sh
-python -m iocl_portal.run --probe
-python -m iocl_portal.run --dry-run
-python -m iocl_portal.run --sync
-```
-
-On a desktop, `--manual-login --dry-run` opens a visible browser and gives you
-three minutes to complete login yourself. Set `IOCL_CUSTOMER_CODE` for report
-verification; that mode does not need the username/password environment values.
+## Tests
 
 ```sh
 python -m pytest tests/test_iocl_portal.py tests/test_iocl_portal_browser.py tests/test_iocl_portal_trigger.py tests/test_credit.py -q

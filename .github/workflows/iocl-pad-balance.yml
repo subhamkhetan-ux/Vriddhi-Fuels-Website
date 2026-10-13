@@ -1,5 +1,9 @@
 name: IOCL e-Mitra PAD balance -> Payments
 
+# Runs on the self-hosted Oracle Cloud runner in India (label `india`): the
+# e-Mitra host drops connections from GitHub-hosted runners in the US/EU.
+# Server setup: infra/india-runner/README.md.
+
 on:
   schedule:
     # Every three hours. All cron expressions are UTC.
@@ -40,8 +44,11 @@ jobs:
     # Enable after a real dry-run succeeds; no repeated logins with unverified
     # credentials/selectors. workflow_dispatch can always run a probe/dry-run.
     if: github.event_name == 'workflow_dispatch' || vars.IOCL_PAD_SYNC_ENABLED == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, india]
     timeout-minutes: 8
+    env:
+      # Created by infra/india-runner/setup.sh, owned by the runner user.
+      AGENT_PY: /opt/agents/venv/bin/python
     steps:
       - uses: actions/checkout@v4
       - name: Network reachability from this runner
@@ -55,21 +62,14 @@ jobs:
             timeout 15 bash -c "</dev/tcp/$host/$port" && echo "TCP $port: open" || echo "TCP $port: no connection"
           done
           echo "HTTPS entry page:"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' "https://$host/ioconline/iocExStart.jsp"
-          echo "Control (IOCL main site):"; curl -sS -m 30 -o /dev/null -w '%{http_code} in %{time_total}s\n' https://iocl.com/
           exit 0
-      - uses: actions/setup-python@v5
+      - name: Sync Python packages and browser
         if: inputs.mode != 'network'
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: iocl_portal/requirements.txt
-      - name: Install browser and local text recognition
-        if: inputs.mode != 'network'
+        # System libraries and Tesseract are preinstalled by setup.sh; these are
+        # no-ops when already current, so requirement bumps apply automatically.
         run: |
-          python -m pip install -r iocl_portal/requirements.txt
-          python -m playwright install --with-deps chromium
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tesseract-ocr
+          "$AGENT_PY" -m pip install -q --disable-pip-version-check -r iocl_portal/requirements.txt
+          "$AGENT_PY" -m playwright install chromium
       - name: Read company-code balance excluding open deliveries
         if: inputs.mode != 'network'
         env:
@@ -85,7 +85,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           case "$IOCL_MODE" in
-            probe|dry-run|sync|opening) python -m iocl_portal.run "--$IOCL_MODE" ;;
+            probe|dry-run|sync|opening) "$AGENT_PY" -m iocl_portal.run "--$IOCL_MODE" ;;
             *) exit 2 ;;
           esac
       - name: Report failed observation
