@@ -26,6 +26,8 @@ import signal
 import subprocess
 import time
 
+from .navigate import ensure_tank_status
+
 DISPLAY = ":98"                  # XtraPower uses :99
 SCREEN = "1920x1080x24"
 LAST_ID = Path(os.environ.get("TANK_STOCK_STATE", Path.home() / ".cache" / "tank_stock")) / "last-id"
@@ -213,10 +215,16 @@ def _connect(anydesk_id: str, password: str, env, wait: int, log_path=None):
     return client, None
 
 
+def _click(env, x: int, y: int) -> None:
+    _run(["xdotool", "mousemove", "--sync", str(x), str(y), "click", "1"], env)
+    _run(["xdotool", "mousemove", "2", "2"], env)   # out of the way: no hover menus
+
+
 def capture(ids: list[str], password: str, *, connect_wait: int = 35,
-            settle: int = 12) -> tuple[bytes, list, int]:
-    """Screenshot via whichever ID is online. Returns (PNG, windows seen,
-    1-based position of the ID used in ``ids``)."""
+            settle: int = 12) -> tuple[bytes, list, int, str]:
+    """Screenshot of the Tank Status page via whichever ID is online.
+    Returns (PNG, windows seen, 1-based position of the ID used in ``ids``,
+    what was done to reach Tank Status)."""
     for tool in ("anydesk", "Xvfb", "xdotool", "import"):
         if not shutil.which(tool):
             raise CaptureError(f"{tool} is not installed; run infra/anydesk/setup.sh on the server.")
@@ -260,10 +268,10 @@ def capture(ids: list[str], password: str, *, connect_wait: int = 35,
         _run(["xdotool", "windowmove", session[0], "0", "0"], env)
         _run(["xdotool", "windowsize", session[0], "100%", "100%"], env)
         time.sleep(settle)             # let the remote screen finish drawing
-        png = _screenshot(env)
-        if not png:
+        if not _screenshot(env):
             raise CaptureError("The screenshot of the virtual display failed.")
-        return png, windows(env), ids.index(anydesk_id) + 1
+        png, page = ensure_tank_status(lambda: _screenshot(env), lambda x, y: _click(env, x, y))
+        return png, windows(env), ids.index(anydesk_id) + 1, page
     finally:
         _stop(client)
         _stop(frontend)

@@ -82,7 +82,7 @@ def capture_and_report() -> int:
     when = datetime.now(IST).strftime("%d %b %Y %I:%M %p IST")
     try:
         ids = parse_ids(os.environ.get("ANYDESK_IDS") or os.environ.get("ANYDESK_ID", ""))
-        png, seen, used = capture(ids, os.environ.get("ANYDESK_PASSWORD", ""))
+        png, seen, used, page = capture(ids, os.environ.get("ANYDESK_PASSWORD", ""))
     except CaptureError as exc:
         print(f"Tank stock capture stopped: {exc}", file=sys.stderr)
         if exc.trace:
@@ -110,10 +110,10 @@ def capture_and_report() -> int:
         return 1
     # Window titles can carry the PC's ID or name: Telegram only, not the log.
     titles = "; ".join(f"{t or '(untitled)'} {w}x{h}" for _, t, w, h in seen) or "none"
-    sent = telegram.send_photo(png, f"Tank stock screen via AnyDesk ID #{used} ({ids[used - 1]}), {when}.\n"
-                                    f"Windows: {titles}")
-    print(f"Captured the screen via ID #{used} of {len(ids)} ({len(png) // 1024} KB, {len(seen)} windows); "
-          f"{'sent to Telegram' if sent else 'Telegram delivery failed'}.")
+    sent = telegram.send_photo(png, f"Tank stock screen via AnyDesk ID #{used} ({ids[used - 1]}), {when}: "
+                                    f"{page}.\nWindows: {titles}")
+    print(f"Captured the screen via ID #{used} of {len(ids)} ({len(png) // 1024} KB, {len(seen)} windows; "
+          f"{page}); {'sent to Telegram' if sent else 'Telegram delivery failed'}.")
     return 0 if sent else 1
 
 
