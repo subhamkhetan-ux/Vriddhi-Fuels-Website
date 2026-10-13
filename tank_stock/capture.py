@@ -28,7 +28,13 @@ LAST_ID = Path(os.environ.get("TANK_STOCK_STATE", Path.home() / ".cache" / "tank
 
 
 class CaptureError(Exception):
-    """Credential-free, safe for the public job log."""
+    """Credential-free, safe for the public job log. ``attempts`` carries what
+    each failed connection showed (screenshots, windows, AnyDesk's output)
+    for private delivery to Telegram only."""
+
+    def __init__(self, message, attempts=()):
+        super().__init__(message)
+        self.attempts = list(attempts)
 
 
 def _run(cmd, env, timeout=15) -> str:
@@ -87,11 +93,21 @@ def _stop(proc) -> None:
             pass
 
 
-def _connect(anydesk_id: str, password: str, env, wait: int):
+def _screenshot(env) -> bytes:
+    try:
+        png = subprocess.run(["import", "-window", "root", "png:-"], env=env,
+                             capture_output=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return b""
+    return png if png.startswith(b"\x89PNG") else b""
+
+
+def _connect(anydesk_id: str, password: str, env, wait: int, log_path=None):
     """Start a session; returns (client process, session window) or (proc, None)."""
+    out = open(log_path, "wb") if log_path else subprocess.DEVNULL
     client = subprocess.Popen(["anydesk", anydesk_id, "--with-password"],
-                              stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+                              stdin=subprocess.PIPE, stdout=out,
+                              stderr=subprocess.STDOUT, env=env, start_new_session=True)
     client.stdin.write((password + "\n").encode())
     client.stdin.close()
     # The session window is the large one; AnyDesk's own small windows
@@ -117,25 +133,38 @@ def capture(ids: list[str], password: str, *, connect_wait: int = 35,
     env = {**os.environ, "DISPLAY": DISPLAY}
     xvfb = subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    client = None
+    client, attempts = None, []
+    log_dir = LAST_ID.parent
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     try:
         time.sleep(2)
         for anydesk_id in ordered(ids):
-            client, session = _connect(anydesk_id, password, env, connect_wait)
+            log_path = log_dir / "anydesk-output.txt"
+            client, session = _connect(anydesk_id, password, env, connect_wait, log_path)
             if session:
                 break
+            # What the virtual screen shows instead (a message, a prompt...),
+            # for the private Telegram report.
+            try:
+                output = log_path.read_text(errors="replace")[-1500:]
+            except OSError:
+                output = ""
+            attempts.append({"position": ids.index(anydesk_id) + 1, "id": anydesk_id,
+                             "png": _screenshot(env), "windows": windows(env), "output": output})
             _stop(client)
             client = None
         else:
             raise CaptureError(f"None of the {len(ids)} AnyDesk IDs opened a session (PC off, "
-                               "offline, or the password changed).")
+                               "offline, or the password changed).", attempts)
         remember(anydesk_id)
         _run(["xdotool", "windowmove", session[0], "0", "0"], env)
         _run(["xdotool", "windowsize", session[0], "100%", "100%"], env)
         time.sleep(settle)             # let the remote screen finish drawing
-        png = subprocess.run(["import", "-window", "root", "png:-"], env=env,
-                             capture_output=True, timeout=30).stdout
-        if not png.startswith(b"\x89PNG"):
+        png = _screenshot(env)
+        if not png:
             raise CaptureError("The screenshot of the virtual display failed.")
         return png, windows(env), ids.index(anydesk_id) + 1
     finally:

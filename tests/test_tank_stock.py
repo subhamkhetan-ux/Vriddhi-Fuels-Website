@@ -74,7 +74,7 @@ def _fake_session(monkeypatch, tmp_path, online):
     monkeypatch.setattr(cap.subprocess, "Popen", lambda *a, **k: FakeProc())
     monkeypatch.setattr(cap.time, "sleep", lambda s: None)
     tried = []
-    def connect(anydesk_id, password, env, wait):
+    def connect(anydesk_id, password, env, wait, log_path=None):
         tried.append(anydesk_id)
         return FakeProc(), (("7", "session", 1920, 1050) if anydesk_id == online else None)
     monkeypatch.setattr(cap, "_connect", connect)
@@ -93,10 +93,27 @@ def test_the_online_id_is_used_and_remembered_first_next_time(monkeypatch, tmp_p
     assert tried == ["222222222"]                       # last good ID first, no wasted wait
 
 
-def test_no_online_id_is_a_clear_failure(monkeypatch, tmp_path):
+def test_no_online_id_is_a_clear_failure_with_what_each_attempt_showed(monkeypatch, tmp_path):
     _fake_session(monkeypatch, tmp_path, online=None)
-    with pytest.raises(cap.CaptureError, match="None of the 2 AnyDesk IDs"):
+    with pytest.raises(cap.CaptureError, match="None of the 2 AnyDesk IDs") as err:
         cap.capture(["111111111", "222222222"], "pw")
+    assert [a["position"] for a in err.value.attempts] == [1, 2]
+    assert all(a["png"].startswith(b"\x89PNG") for a in err.value.attempts)
+
+
+def test_failed_attempts_go_to_telegram_not_the_log(monkeypatch, capsys):
+    monkeypatch.setenv("ANYDESK_IDS", "123456789")
+    attempt = {"position": 1, "id": "123456789", "png": b"\x89PNG", "output": "license prompt",
+               "windows": [("1", "AnyDesk 123456789", 400, 300)]}
+    monkeypatch.setattr(run, "capture", lambda i, p: (_ for _ in ()).throw(
+        cap.CaptureError("None of the 1 AnyDesk IDs opened a session", [attempt])))
+    photos = []
+    monkeypatch.setattr(run.telegram, "send_text", lambda t: True)
+    monkeypatch.setattr(run.telegram, "send_photo", lambda png, caption: photos.append(caption) or True)
+    assert run.main(["--capture"]) == 1
+    assert "ID #1 (123456789)" in photos[0] and "license prompt" in photos[0]
+    out = capsys.readouterr()
+    assert "123456789" not in out.out + out.err and "license prompt" not in out.out + out.err
 
 
 def test_run_keeps_titles_and_password_out_of_the_log(monkeypatch, capsys):
