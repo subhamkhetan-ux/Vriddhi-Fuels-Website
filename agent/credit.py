@@ -48,12 +48,14 @@ def _invoice_row(msg_id: str, fields: invoice_mod.InvoiceFields) -> dict:
     }
 
 
-def run(seen: dict) -> tuple[int, list[str]]:
+def run(seen: dict, *, on_detected=None) -> tuple[int, list[str]]:
     """Scan for IOCL invoice mail and upsert every invoice's total to Supabase.
 
     Returns ``(upserted, errors)``. Advances the high-water mark past every mail
     handled so we never re-scan it; the DB primary key on ``invoice_no`` makes a
-    re-processed invoice a no-op anyway."""
+    re-processed invoice a no-op anyway. ``on_detected`` signals new usable
+    invoice mail before the database write, so a write error cannot lose the
+    request to check the current PAD balance."""
     import os
 
     from . import supabase_sync
@@ -105,6 +107,8 @@ def run(seen: dict) -> tuple[int, list[str]]:
 
     upserted = 0
     if rows:
+        if on_detected:
+            on_detected()
         upserted = supabase_sync.upsert_fuel_invoices(rows)
     if prices:
         supabase_sync.upsert_fuel_prices(
