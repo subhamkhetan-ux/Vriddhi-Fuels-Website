@@ -96,7 +96,10 @@ def send_text(text: str) -> bool:
     return _post("sendMessage", {"text": text[:4000]})
 
 
+def send_file(data: bytes, filename: str, ctype: str, caption: str) -> bool:
+    return _post("sendDocument", {"caption": caption[:1000]}, {"document": (filename, data, ctype)})
+
+
 def send_photo(png: bytes, caption: str) -> bool:
     """As a document, so the screen stays sharp enough to read its figures."""
-    return _post("sendDocument", {"caption": caption[:1000]},
-                 {"document": ("tank-stock.png", png, "image/png")})
+    return send_file(png, "tank-stock.png", "image/png", caption)
