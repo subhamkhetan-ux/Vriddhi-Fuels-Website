@@ -19,6 +19,14 @@ from .statement import IST, PortalError, parse_statement
 PORTAL_ORIGIN = "https://utkarsh.indianoil.co.in"
 LOGIN_URL = PORTAL_ORIGIN + "/ioconline/iocExStart.jsp"
 CAPTCHA_TRIES = 3
+_DATE_LIKE = re.compile(r"\d{1,4}[-/.][A-Za-z0-9]{1,3}[-/.]\d{2,4}")
+
+
+def _safe(value, limit=80) -> str:
+    """Mask long numbers (account or customer codes) and cap the length."""
+    return re.sub(r"\d{5,}", "#", str(value or ""))[:limit]
+
+
 # Yes/no markers for report_diagnostics(); never the matched text itself.
 REPORT_FLAGS = (
     ("CL.BAL", r"CL\.?\s*BAL"), ("CompCode", r"Comp(any)?\.?\s+Code"),
@@ -68,6 +76,21 @@ class PortalBrowser:
         self.selectors = selectors or {}
         self.solve_captcha = captcha_solver
         self.timeout = timeout
+        # Structure-only notes for report_diagnostics(); never account data.
+        self.dialogs, self.date_fields, self.view_info = [], {}, ""
+        self._watch(page)
+        page.context.on("page", self._watch)
+
+    def _watch(self, page):
+        page.on("dialog", self._on_dialog)
+
+    def _on_dialog(self, dialog):
+        # Same outcome as Playwright's default (dismiss), but remember it.
+        self.dialogs.append(_safe(f"{dialog.type}: {dialog.message}"))
+        try:
+            dialog.dismiss()
+        except Exception:
+            pass
 
     def frames(self):
         expected = urlsplit(self.origin)
@@ -196,6 +219,12 @@ class PortalBrowser:
         control = self.locate(key, [self._label(r"^" + prefix + r"\s*date\s*:?$"),
             self._css(f"input[id*='{prefix}date' i],input[name*='{prefix}date' i]"),
             self._css(f"input[id*='{prefix}_date' i],input[name*='{prefix}_date' i]")])
+        before = control.input_value()
+        self.date_fields[key] = {
+            "type": control.get_attribute("type"), "readonly": control.get_attribute("readonly") is not None,
+            "maxlength": control.get_attribute("maxlength"), "placeholder": _safe(control.get_attribute("placeholder"), 30),
+            "class": _safe(control.get_attribute("class"), 40),
+            "initial": before if _DATE_LIKE.fullmatch(before or "") else ("<set>" if before else "<empty>")}
         value = day.isoformat() if control.get_attribute("type") == "date" else day.strftime("%d-%m-%Y")
         if control.get_attribute("readonly") is not None:
             # Datepickers often expose a readonly text field. Trigger the same
@@ -204,6 +233,7 @@ class PortalBrowser:
         else:
             control.fill(value)
             control.dispatch_event("change")
+        self.date_fields[key]["entered"] = control.input_value()
         if control.input_value() != value:
             raise PortalError("The portal did not accept the requested statement date.")
 
@@ -214,6 +244,13 @@ class PortalBrowser:
         view = self.locate("view", [lambda f: f.get_by_role("button", name=re.compile(r"^\s*View\s*$", re.I)),
             self._css("input[type=submit][value='View' i]"),
             lambda f: f.get_by_role("link", name=re.compile(r"^\s*View\s*$", re.I))])
+        try:
+            self.view_info = _safe(view.evaluate(
+                "el => [el.tagName, el.type || '', el.value || el.innerText || '', "
+                "(el.getAttribute('onclick') || '').slice(0, 80), el.form ? (el.form.getAttribute('action') || '') : 'no-form']"
+                ".join(' | ')"), 160)
+        except Exception:
+            self.view_info = "unreadable"
         downloads = []
         def saw_download(download):
             downloads.append(download)
@@ -265,6 +302,9 @@ class PortalBrowser:
                 kind = "page" if frame == page.main_frame else "frame"
                 parts.append(f"{kind} {u.scheme}://{u.netloc}{path} text={len(text)} "
                              f"tables={tables} rows={rows} has={'+'.join(flags) or 'none'}")
+        parts.append("dates=" + json.dumps(self.date_fields, separators=(",", ":")))
+        parts.append("view=" + (self.view_info or "-"))
+        parts.append("dialogs=" + (json.dumps(self.dialogs) if self.dialogs else "none"))
         if downloads:
             names = ["*" + (os.path.splitext(d.suggested_filename or "")[1][:6] or "(no extension)")
                      for d in downloads]

@@ -198,3 +198,20 @@ def test_report_diagnostics_describe_pages_without_account_data(page):
     assert seen.startswith("page https://portal.example/ioconline/iocExStart.jsp text=")
     assert "has=" in seen and "PADtitle" in seen
     assert "999999" not in seen and "fixture-only" not in seen
+
+
+def test_a_rejected_view_reports_dialogs_and_date_fields_safely(page):
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=lambda *a, **k: "ABCDEF", timeout=0.3)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    portal.navigate_pad()
+    page.evaluate("""() => {
+      document.querySelector('#view').onclick = () => { alert('Enter date as dd/mm/yyyy for 1005218882'); };
+    }""")
+    with pytest.raises(PortalError) as err:
+        portal.read_balance(customer="999999", now=NOW)
+    message = str(err.value)
+    assert "report did not appear" in message
+    assert 'dialogs=["alert: Enter date as dd/mm/yyyy for #"]' in message
+    assert '"entered":"12-10-2026"' in message and '"entered":"13-10-2026"' in message
+    assert "view=" in message and "1005218882" not in message
