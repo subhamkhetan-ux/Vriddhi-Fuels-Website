@@ -1,0 +1,22 @@
+[Unit]
+Description=XtraPower account manager page (opened from your phone over Tailscale)
+Documentation=file:///opt/xtrapower/app/infra/xtrapower/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=xtrapower
+Group=xtrapower
+WorkingDirectory=/opt/xtrapower/app
+# XTRAPOWER_MANAGE_HOSTS / XTRAPOWER_MANAGE_USERS: this server's Tailscale name
+# and your Tailscale login, written by phone-setup.sh.
+EnvironmentFile=-/opt/xtrapower/manage.env
+# GitHub Actions jobs (user `runner`) may not reach the page, either directly
+# (8780) or through this server's own Tailscale address (443).
+ExecStartPre=+/bin/sh -c 'id runner >/dev/null 2>&1 || exit 0; for port in 8780 443; do rule="OUTPUT -o lo -p tcp --dport $$port -m owner --uid-owner runner -j REJECT"; iptables -C $$rule 2>/dev/null || iptables -I $$rule; done'
+ExecStart=/opt/xtrapower/venv/bin/python -m xtrapower.manage --config /opt/xtrapower/config.json --no-browser --service xtrapower
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
