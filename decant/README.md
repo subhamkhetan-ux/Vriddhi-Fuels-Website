@@ -269,6 +269,21 @@ of the same product well under, the app works out which chambers most
 likely went where from the stock and offers to fix it in one tap (or set it
 yourself: *Which chamber went where?*).
 
+**The chambers by the real stock.** While a tank decants, once its stock
+has been read since it started (the tank stock agent's live monitoring sends
+it every 10 s), the picture and the tank's card go by what the tank has
+risen since its stock before: the chambers empty in the pipe's order by
+those litres, and the tank shows the litres read (no "≈"). Without such a
+reading they go by the chambers' times (Settings).
+
+**Run by the tank stock agent.** A decantation set up on the tank stock page
+(`tank_stock/README.md`, "Automatic decantation") is created here and run by
+the agent: each tank starts, is done, settles and gets its stock after by
+itself, and the result is saved. Its decanting screen says so, with any
+question the agent is waiting on. Anything done on a phone meanwhile counts
+(the agent takes it over), and "Hand over" on the tank stock page leaves the
+rest to this app.
+
 ## Reading the automation screenshots
 
 The screenshot is read on the phone (Tesseract.js, no server reads it) twice,

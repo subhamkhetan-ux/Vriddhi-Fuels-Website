@@ -56,12 +56,6 @@
   .fig .value { font-variant-numeric: tabular-nums; font-weight: 600; }
   #figures { margin-top: 6px; }
   #liveFigures .tank:first-child { border-top: 1px solid var(--line); }
-  .logwrap { overflow-x: auto; margin-top: 6px; }
-  #logTable { border-collapse: collapse; font-size: 12px; width: 100%; }
-  #logTable td, #logTable th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  #logTable th { color: var(--muted); font-weight: 600; }
-  #logTable td:first-child, #logTable th:first-child { text-align: left; }
-  #logCsv { color: var(--accent); margin-left: 8px; }
   .badge { display: inline-block; border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 600; }
   .high { background: var(--ok-bg); color: var(--ok); }
   .medium { background: var(--mid-bg); color: var(--mid); }
@@ -74,6 +68,26 @@
   label.line:last-of-type { border-bottom: 0; }
   input[type=number] { width: 90px; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
   input[type=checkbox] { width: 22px; height: 22px; }
+  select { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); width: 100%; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg button { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .plan-row { display: grid; grid-template-columns: 124px 1fr; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .plan-row:last-child { border-bottom: 0; }
+  .msgs { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+  .msgs .bad { color: var(--warn); } .msgs .warn { color: var(--mid); }
+  .stage { display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 600; background: var(--chip); }
+  .stage.decanting { background: var(--accent); color: var(--accent-ink); }
+  .stage.settling { background: var(--mid-bg); color: var(--mid); }
+  .stage.read { background: var(--ok-bg); color: var(--ok); }
+  .bar { height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; margin-top: 6px; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  .ch { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; margin: 2px 4px 0 0; font-size: 12px; }
+  .ch.in { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  .ask { border: 2px solid var(--warn); border-radius: 12px; padding: 10px; margin: 10px 0; background: var(--warn-bg); }
+  .ask label { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+  .log { font-size: 12px; color: var(--muted); margin: 8px 0 0; padding-left: 18px; }
+  .log .warn, .log .ask { color: var(--warn); } .log .done { color: var(--ok); }
 </style>
 </head>
 <body>
@@ -82,6 +96,12 @@
   <div class="sub" id="sub">IOCL automation PC via AnyDesk → decant app</div>
 </header>
 <main>
+  <section id="auto">
+    <h2>Automatic decantation</h2>
+    <div id="autoBody"></div>
+    <div class="status" id="autoStatus"></div>
+  </section>
+
   <section>
     <h2>Capture now</h2>
     <div class="chips" id="pick" aria-label="Tanks"></div>
@@ -110,11 +130,7 @@
     <div class="note">Keeps one AnyDesk session open and reads the watched tanks' product volume again every few seconds (no pictures), until AnyDesk ends the session or you stop it. Then the last screen shows above, with its pictures to save or upload.</div>
     <div class="status" id="liveState"></div>
     <div id="liveFigures"></div>
-    <div id="liveLog" hidden>
-      <div class="note" style="margin-top:10px">Log: every change <a id="logCsv" href="/api/live/log.csv" download>Download log (CSV)</a></div>
-      <div class="logwrap"><table id="logTable"></table></div>
-    </div>
-    <label class="line">Read every (seconds) <input type="number" id="mEvery" min="10" max="3600" step="1"></label>
+    <label class="line">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
     <label class="line">Send the volume to the decant app as it changes <input type="checkbox" id="mUp"></label>
     <div class="note" style="margin-top:8px">Tanks to watch</div>
     <div class="chips" id="mTanks" style="margin-top:6px"></div>

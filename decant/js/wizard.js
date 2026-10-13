@@ -415,7 +415,7 @@ function stepDecant(s) {
   const allRead = d.tanks.length > 0 && st.every((x) => x === 'read');
   const started = d.tanks.some((t) => startOf(s, t));
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
-  return `<div class="card accent">
+  return `${autoCard(s)}<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
       ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
@@ -431,6 +431,21 @@ function stepDecant(s) {
     <button class="cta block" data-wz="finish" ${allRead ? '' : 'disabled'}>Finish & save the result</button>
     ${allRead && leftInTruck(s).length ? `<div class="hint" style="margin-top:6px">C${compactNos(leftInTruck(s).map((c) => c.no))} ${leftInTruck(s).length > 1 ? 'stay' : 'stays'} in the truck — once this is saved, "Decant the rest" on the list decants ${leftInTruck(s).length > 1 ? 'them' : 'it'}.</div>` : ''}
     ${started ? '' : '<div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="backToPlan">◀ Plan</button></div>'}`;
+}
+
+// The tank stock agent runs this decantation (tank_stock/auto.py): it starts
+// each tank when its stock rises, marks it done when it stops, reads the stock
+// after once settled and finishes it. Anything done here still counts — the
+// agent takes this phone's changes over.
+function autoCard(s) {
+  const a = s.data.auto;
+  if (!a || a.released || !['draft', 'decanting', 'settling'].includes(s.status)) return '';
+  const qs = (a.questions || []).map((q) => `<li class="warn">❓ ${esc(q.text)}</li>`).join('');
+  return `<div class="card">
+      <div class="sect-title" style="margin:0">🤖 Run by the tank stock agent</div>
+      <div class="hint">It follows the tanks' real stock: each tank starts when its stock rises, is done when it stops, and its stock after is read once it has settled; then the result is saved here. Nothing to do on this phone — but anything you do here counts.</div>
+      ${qs ? `<ul class="msgs">${qs}</ul><div class="hint">Answer on the tank stock page, or tap ✓ done on the tank here.</div>` : ''}
+    </div>`;
 }
 
 // ---- chambers still in the truck ------------------------------------------------

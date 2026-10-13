@@ -20,11 +20,10 @@ your own Tailscale network, like the XtraPower one). Pick the tanks (any of
   of just those tanks' cards, their figures and the decant app's check badge;
   **Upload** (per tank, or all shown) saves them afterwards.
 - **Live monitoring**: connect once and keep that AnyDesk session open. Every
-  10 seconds (10-3600, set on the page) the watched tanks' **product volume**
+  10 seconds (5-3600, set on the page) the watched tanks' **product volume**
   is read again, without reconnecting and without pictures: the page shows
-  each one as it comes, a log keeps a line per change (**Download log
-  (CSV)**), and with "Send the volume to the decant app as it changes" decant
-  gets the volume alone (it works the ullage and dip out itself, as for typed
+  each one as it comes, and with "Send the volume to the decant app as it
+  changes" decant gets the volume alone (it works the ullage and dip out itself, as for typed
   litres). Each read covers a card from its Last Updated time to its ullage:
   the height and ullage are read only to check the volume (volume + ullage =
   capacity, and the dip chart at that height), so a misread digit never goes
@@ -36,6 +35,73 @@ your own Tailscale network, like the XtraPower one). Pick the tanks (any of
   the last screen becomes an ordinary capture, with its pictures to save or
   upload. When AnyDesk ends it, the XtraPower Telegram bot gets a picture of
   what AnyDesk showed and how long it lasted.
+
+- **Automatic decantation** (`auto.py`, `decantation.py`): one setup, then
+  nothing to do in the decant app. Pick the truck's invoice (from the decant
+  app's list: this and last month's, with chambers still in the truck) and a
+  tank, or "Keep in truck", for each chamber. The page checks the plan as the
+  app does (room, product, a tank already being decanted). Press **Start**:
+  1. live monitoring connects (or the open session is used), reading **all**
+     tanks every 10 s whatever its own setting, and sending the planned tanks'
+     volume to the decant app, whose decanting screen drains the chambers by
+     it;
+  2. a full read of the planned tanks is their **stock before**, saved to the
+     app with its proof picture, and the decantation is created in the app,
+     its tanks waiting (an open draft for that truck is taken over);
+  3. a tank is **decanting** once its stock rises 30 L, from the last reading
+     before the rise;
+  4. each pause of the flow (25 s or more: the pipe being moved) ends a run;
+     the run's litres say which chamber it was (or two together), within
+     max(50 L, 2 %). The tank's chambers are put in the order they came, which
+     is the order the decant app shows the pipe going round;
+  5. still for 90 s with all its chambers in (or the whole plan's litres), a
+     tank is **done**: settling from when it stopped rising;
+  6. steady (within 5 L, or 0.05 % of the stock) for the app's settle time, a
+     full read is its **stock after** (with proof picture). It reads anyway
+     after three settle times;
+  7. every tank read: **finished and saved** with the app's own result and
+     variation, the stock after saved as each tank's latest. Telegram (the
+     XtraPower bot) gets the result, and live monitoring ends if it was
+     started for this.
+
+  When the stock says something the plan didn't, it asks on the page and on
+  Telegram, and waits for your answer:
+  - **stopped short** for 5 min: which chambers were emptied? (the closest
+    ones ticked; the rest stay in the truck), or "Still decanting: wait";
+  - **more than planned** for 3 min: which chambers went into it? (its own,
+    another tank's not yet in, or ones kept in the truck): they move to it;
+  - **not started** after 30 min with nothing else decanting: leave it out,
+    or keep waiting.
+
+  The stock rising again withdraws a question. Other cases are handled
+  without asking:
+  - a reading that couldn't happen (faster than a pipe fills, or a fall in a
+    tank that isn't selling) counts only once a second reading agrees;
+  - a tank that **sells before it starts** gets its stock before read again
+    (the live figure just before the rise if that read fails);
+  - one that **sells again while settling** gets its stock after from the
+    screen before the fall;
+  - a tank outside the plan rising 60 L is a warning (a chamber going into
+    the wrong tank?);
+  - a stock after that can't be read in full three times is the live figure
+    (marked as such).
+
+  Each tank also has a button:
+  - waiting: "Leave out";
+  - decanting: "Done now…";
+  - settling: "Read the stock after now".
+
+  For the whole decantation:
+  - "Cancel" before any tank starts;
+  - "Hand over to the decant app" at any time, to finish it there.
+
+  A phone can still do anything in the app meanwhile: every 30 s (and before
+  each save) the agent checks the app's copy, and a newer one from a phone
+  is taken over: a tank marked done, a new reading, finished or cancelled
+  there. If AnyDesk ends the session it connects again (15 s, 30 s, 1, 2,
+  then every 5 min, for 3 hours, then it pauses with "Connect again"). If
+  the service restarts, it carries on from `decantation.json`. Live
+  monitoring's Stop is hidden while it runs.
 
 The GitHub job "Tank stock (AnyDesk -> decant)" still works: `capture` sends
 the whole screen to the XtraPower bot (from the open session when live

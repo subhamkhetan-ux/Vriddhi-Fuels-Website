@@ -194,10 +194,11 @@ def wait_for(cond, timeout=5):
 def test_settings_are_checked(station):
     assert station.settings == service.DEFAULTS                 # 10 s, all tanks, figures to decant
     assert station.save_settings({"interval_s": "30", "tanks": [3, 1]})["tanks"] == [1, 3]
-    for bad in ({"interval_s": 9}, {"interval_s": 3601}, {"tanks": []}, {"tanks": [5]}, {"interval_s": "x"}):
+    for bad in ({"interval_s": 4}, {"interval_s": 3601}, {"tanks": []}, {"tanks": [5]}, {"interval_s": "x"}):
         with pytest.raises(ValueError):
             station.save_settings(bad)
     assert station.settings["interval_s"] == 30
+    assert station.save_settings({"interval_s": 5})["interval_s"] == 5           # as often as every 5 s
 
 
 def test_capture_connects_reads_and_disconnects_without_uploading(station):
@@ -261,25 +262,22 @@ def decant_dip_at(litres):
     return chart["startCm"] + i * chart["stepCm"]
 
 
-def test_an_unchanged_card_is_not_read_again_and_each_change_is_logged(station):
+def test_an_unchanged_card_is_not_read_again_and_a_change_is_shown(station):
     station.start_live({"tanks": [3], "auto_upload": False})
     assert wait_for(lambda: station.live and station.live["reads"] == 1)
     live = station.live
     for _ in range(3):
         station._live_read(live)                                # the screen didn't change
-    assert station.screen["reads"] == 1 and live["reads"] == 4 and len(live["log"]) == 1
+    assert station.screen["reads"] == 1 and live["reads"] == 4
     height_cm = decant_dip_at(19000.0)
     station.screen.update(fp="b", card={**CARD3, "volume": 19000.0, "ullage": 1000.0, "height": round(height_cm * 10, 2),
                                         "time": ("10", "13", "2026", "18", "05", "00")})
     station._live_read(live)
     assert station.screen["reads"] == 2 and live["figures"]["3"]["reading"]["volume"] == 19000.0
-    assert [row["3"]["volume"] for row in live["log"]] == [19552.05, 19000.0]
-    csv = station.live_log_csv().decode().splitlines()
-    assert csv[0] == "time,Tank 3 product volume L" and csv[-1].split(",")[1:] == ["19000.0"]
     assert station.db.writes == []                              # figures to decant were off
     station.stop_live()
     assert wait_for(lambda: station.live is None)
-    assert station.live_last["log"][-1]["3"]["volume"] == 19000.0
+    assert "log" not in station.live_last and not (station.home / "live-log.csv").exists()   # no change log kept
 
 
 def test_a_live_read_that_fails_the_checks_is_shown_not_sent_and_read_again(station):

@@ -44,14 +44,32 @@ DEFAULT_SETTINGS = {
     "ownTTs": [{"tt": "OD23U8210", "chambers": [5, 5, 4, 4, 4]}],
 }
 
-# How the agent judges the stock (litres / seconds).
+# How the agent judges the stock (litres / seconds). It reads every ~10 s.
 START_RISE_L = 30          # above the stock before: decanting has started
 ARRIVE_SLACK = (50, 0.02)  # a chamber has arrived within max(50 L, 2 % of it)
-STILL_L = 3                # less than this in STOP_SECS: the stock stopped rising
-STOP_SECS = 90
-SHORT_WAIT_SECS = 300      # stopped short this long (the pipe moving takes less): ask
+STILL_L = 3                # within this the stock isn't moving
+PAUSE_SECS = 25            # still this long after flowing: the pipe is being moved (a chamber ended)
+STOP_SECS = 90             # still this long: the pipe has stopped
+EXTRA_WAIT_SECS = 180      # stopped with more than planned this long: ask which chambers came
+SHORT_WAIT_SECS = 300      # stopped short this long (moving the pipe takes less): ask
+NOT_STARTED_SECS = 1800    # a tank still waiting this long, nothing else decanting: ask
+MAX_FLOW_LPS = 40          # faster than this is a misread (a chamber takes minutes)
+MISREAD_L = 50             # ... give or take this
+FALL_L = 20                # a tank being decanted doesn't sell: a bigger fall needs a second reading
+SALE_L = 5                 # a waiting tank fell this much: it sold, so its stock before is read again
+BEFORE_EVERY = 60          # ... at most this often
 SETTLE_BAND_L = 5          # steady: within this for the settle time
-AFTER_TRIES = 3            # full reads for the stock after before settling for the best
+SETTLE_BAND_PCT = 0.05     # ... or this much of the stock, if more
+SETTLE_MAX = 3             # not steady after this many settle times: read it anyway
+SALES_BACK_L = 15          # settling and fell this much: sales are back on
+RISE_AGAIN_L = 30          # settling and rose this much: decanting again
+UNPLANNED_RISE_L = 60      # a tank outside the plan rose this much: warn
+AFTER_TRIES = 3            # full reads for the stock after before taking the live figure
+
+
+def slack(litres: float) -> float:
+    """How far a tank's gain may be from a chamber's litres and still be it."""
+    return max(ARRIVE_SLACK[0], ARRIVE_SLACK[1] * litres)
 
 
 def js_round(x: float) -> float:
@@ -340,26 +358,56 @@ def new_session(inv: dict, layout: dict, sessions: list, operator: str = "Tank s
 
 # ---- the run ----------------------------------------------------------------
 
+def _ts(value) -> float | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def best_subset(options: list, litres: float, prefer=()) -> list:
+    """The chambers ([(no, litres)]) whose litres come closest to ``litres``
+    (fewest left out of ``prefer`` on a tie). At most 8 options: 256 sums."""
+    best, best_key = [], None
+    opts = options[:8]
+    for mask in range(1, 1 << len(opts)):
+        pick = [opts[i] for i in range(len(opts)) if mask >> i & 1]
+        key = (abs(sum(c for _, c in pick) - litres), -sum(1 for no, _ in pick if no in prefer), len(pick))
+        if best_key is None or key < best_key:
+            best, best_key = [no for no, _ in pick], key
+    return best
+
+
+def _work() -> dict:
+    # save: write the session; before / after: [{"tank", "from"}] full reads to do;
+    # peak: tanks whose screen now shows their highest settling stock (kept for
+    # an after read if sales come back); finish; events: [{"at", "text", "level"}]
+    return {"save": False, "before": [], "after": [], "peak": [], "finish": False, "events": []}
+
+
 class Decantation:
     """One automatic decantation: the app's session plus what the agent
     follows for each tank. ``feed`` takes the latest stock and returns the
-    work to do: {"save": bool, "after": [tank ids to read fully],
-    "finish": bool, "events": [lines for the page and Telegram]}."""
+    work to do (see ``_work``)."""
 
     def __init__(self, session: dict, settings: dict, state: dict | None = None):
         self.s = session
         self.settings = settings
-        self.state = state or {"tanks": {}, "log": [], "question": None}
+        self.state = state or {"tanks": {}, "log": [], "questions": {}, "others": {}}
+        self.state.setdefault("questions", {})
+        self.state.setdefault("others", {})
 
     # -- setting it up --
     @classmethod
-    def plan(cls, session: dict, plan: list, before: dict, settings: dict, busy: set) -> "Decantation":
+    def plan(cls, session: dict, plan: list, before: dict, settings: dict, busy: set,
+             now: float | None = None) -> "Decantation":
         """prepare + "tank by tank": the plan becomes the tanks, waiting."""
+        now = now or time.time()
         d = session["data"]
         d["plan"] = sorted(({"no": p["no"], "product": p["product"], "litres": p["litres"], "tank": p.get("tank")}
                             for p in plan), key=lambda p: p["no"])
-        d["before"] = dict(before)
-        chk = check_plan(d["plan"], settings["tanks"], before, busy, settings)
+        d["before"] = {**(d.get("before") or {}), **before}
+        chk = check_plan(d["plan"], settings["tanks"], before, busy, settings, now)
         if chk["blocking"]:
             raise ValueError(chk["blocking"][0])
         d["tanks"] = [{"tank": r["tank"], "tankNo": r["no"], "product": r["product"], "litres": r["litres"],
@@ -367,117 +415,249 @@ class Decantation:
                        "pricePerL": (d.get("prices") or {}).get(r["product"]),
                        "stage": "waiting", "startedAt": None, "doneAt": None} for r in chk["perTank"]]
         d["step"] = "decant"
-        d["auto"] = {"by": "tank-stock agent", "arrived": {}}
+        d["auto"] = {"by": "tank stock agent", "arrived": {}, "questions": [], "released": False}
         sync_status(session)
         run = cls(session, settings)
         for t in d["tanks"]:
-            run.state["tanks"][t["tank"]] = {"history": [], "arrived": 0, "lastRiseAt": None, "peak": None,
-                                             "stillSince": None, "steadySince": None, "afterTries": 0}
+            run._st(t, now)
+        run.log("Set up: " + "; ".join(f"C{', C'.join(map(str, t['chambers']))} into Tank {t['tankNo']}"
+                                       for t in d["tanks"]) + ". Waiting for the stock to rise.", now)
         return run
 
-    # -- what happens --
-    def row(self, tank_id: str) -> dict:
-        return next(t for t in self.s["data"]["tanks"] if t["tank"] == tank_id)
+    # -- helpers --
+    def row(self, tank_id: str) -> dict | None:
+        return next((t for t in self.s["data"]["tanks"] if t["tank"] == tank_id), None)
 
-    def chamber_litres(self, no: int) -> int:
+    def chamber_litres(self, no: int) -> float:
         return next((c["litres"] for c in self.s["data"]["chambers"] if c["no"] == no), 0)
 
-    def log(self, text: str, t: float) -> str:
-        self.state["log"] = (self.state["log"] + [{"at": iso(t), "text": text}])[-50:]
-        return text
+    def tank_no(self, tank_id: str):
+        return next((t["no"] for t in self.settings["tanks"] if t["id"] == tank_id), tank_id)
 
+    def _st(self, t: dict, now: float) -> dict:
+        st = self.state["tanks"].get(t["tank"])
+        if st is None:
+            v = (t.get("before") or {}).get("volume")
+            st = self.state["tanks"][t["tank"]] = {
+                "history": [], "pending": None, "lastRiseAt": None, "lastRiseV": None, "flowing": False,
+                "arrived": [], "acc": 0.0, "segFrom": None, "low": [now, v] if v is not None else None,
+                "beforeAskedAt": 0, "waitSince": now, "peak": None, "afterTries": 0}
+        return st
+
+    def log(self, text: str, t: float, level: str = "info") -> dict:
+        ev = {"at": iso(t), "text": text, "level": level}
+        self.state["log"] = (self.state["log"] + [ev])[-80:]
+        return ev
+
+    def _say(self, work: dict, text: str, now: float, level: str = "info") -> None:
+        work["events"].append(self.log(text, now, level))
+
+    def _sync_auto(self) -> None:
+        """What the app's session row carries of the agent's view."""
+        a = self.s["data"].setdefault("auto", {"by": "tank stock agent", "released": False})
+        a["arrived"] = {k: list(v["arrived"]) for k, v in self.state["tanks"].items() if v.get("arrived")}
+        a["questions"] = [{"tank": q["tank"], "kind": q["kind"], "text": q["text"]}
+                          for q in self.state["questions"].values()]
+
+    def active(self) -> bool:
+        return self.s.get("status") in ("draft", "decanting", "settling") and \
+            not (self.s["data"].get("auto") or {}).get("released")
+
+    # -- what happens --
     def feed(self, volumes: dict, now: float | None = None) -> dict:
-        """The latest product volume of each tank ({tank id: litres})."""
+        """The latest product volume of the tanks read ({tank id: litres})."""
         now = now or time.time()
-        work = {"save": False, "after": [], "finish": False, "events": []}
-        for t in self.s["data"]["tanks"]:
-            v = volumes.get(t["tank"])
-            if v is None or t["stage"] == "read":
+        work = _work()
+        if not self.active():
+            return work
+        for tank_id, v in volumes.items():
+            if v is None:
                 continue
-            self._follow(t, float(v), now, work)
-        if self.s["data"]["tanks"] and all(t["stage"] == "read" and t.get("after") for t in self.s["data"]["tanks"]):
+            t = self.row(tank_id)
+            if t is None or t["stage"] == "read":
+                self._watch_other(tank_id, float(v), now, work, t)
+                continue
+            st = self._st(t, now)
+            v = self._accept(t, st, float(v), now)
+            if v is not None:
+                getattr(self, f"_{t['stage']}")(t, st, v, now, work)
+        self._waiting_long(now, work)
+        if self._all_read():
             work["finish"] = True
+        if work["save"]:
+            self._sync_auto()
         return work
 
-    def _follow(self, t: dict, v: float, now: float, work: dict) -> None:
-        st = self.state["tanks"][t["tank"]]
-        name = f"Tank {t['tankNo']}"
-        st["history"] = [h for h in st["history"] if now - h[0] <= max(STOP_SECS, self.settings["settleMinutes"] * 60) + 60]
-        st["history"].append((now, v))
-        before = t["before"]["volume"]
-        rise = v - before
-        st["peak"] = max(st["peak"] if st["peak"] is not None else v, v)
-        if st["lastRiseAt"] is None or v > (st.get("lastRiseV") or v) + STILL_L:
+    def _all_read(self) -> bool:
+        rows = self.s["data"]["tanks"]
+        return bool(rows) and all(t["stage"] == "read" and t.get("after") for t in rows)
+
+    def _accept(self, t: dict, st: dict, v: float, now: float) -> float | None:
+        """A reading that couldn't have happened (a jump faster than a pipe
+        fills, or a fall where nothing sells) counts only once a second
+        reading agrees with it."""
+        h = st["history"]
+        if h:
+            t0, v0 = h[-1]
+            dt = max(1.0, now - t0)
+            up = MAX_FLOW_LPS * dt + MISREAD_L
+            down = {"decanting": FALL_L, "settling": SALES_BACK_L}.get(t["stage"], up)
+            if not -down <= v - v0 <= up:
+                p = st.get("pending")
+                if not (p and abs(v - p[1]) <= MAX_FLOW_LPS * max(1.0, now - p[0]) + STILL_L):
+                    st["pending"] = [now, v]
+                    return None
+        st["pending"] = None
+        h.append([now, v])
+        keep = max(STOP_SECS, SHORT_WAIT_SECS, self.settings["settleMinutes"] * 60 * SETTLE_MAX) + 120
+        while h and now - h[0][0] > keep:
+            h.pop(0)
+        return v
+
+    def _rising(self, st: dict, v: float, now: float) -> bool:
+        if st["lastRiseV"] is None or v > st["lastRiseV"] + STILL_L:
             st["lastRiseAt"], st["lastRiseV"] = now, v
-        # waiting -> decanting
-        if t["stage"] == "waiting":
-            if rise >= START_RISE_L:
-                t["stage"], t["startedAt"] = "decanting", iso(self._rise_began(st, before, now))
-                sync_status(self.s)
-                work["save"] = True
-                work["events"].append(self.log(f"{name}: decanting started.", now))
-            return
-        if t["stage"] == "decanting":
-            # chambers in, in the plan's order
-            got, cum = 0, 0
-            for no in t["chambers"]:
-                c = self.chamber_litres(no)
-                cum += c
-                if rise >= cum - max(ARRIVE_SLACK[0], ARRIVE_SLACK[1] * c):
-                    got += 1
-                else:
-                    break
-            if got > st["arrived"]:
-                for no in t["chambers"][st["arrived"]:got]:
-                    work["events"].append(self.log(f"{name}: chamber {no} is in ({rise:,.0f} L so far).", now))
-                st["arrived"] = got
-                self.s["data"]["auto"]["arrived"][t["tank"]] = t["chambers"][:got]
-                work["save"] = True
-            if self.state.get("question", {}) and self.state["question"].get("tank") == t["tank"] \
-                    and now - st["lastRiseAt"] < STOP_SECS:
-                self.state["question"] = None             # rising again: the pipe went on
-                work["events"].append(self.log(f"{name}: rising again.", now))
-            stopped = now - st["lastRiseAt"] >= STOP_SECS
-            tol = max(self.settings["toleranceMinL"], t["litres"] * self.settings["tolerancePct"] / 100)
-            if stopped and st["arrived"] == len(t["chambers"]) and rise >= t["litres"] - 2 * tol - \
-                    max(ARRIVE_SLACK[0], ARRIVE_SLACK[1] * self.chamber_litres(t["chambers"][-1])):
-                self._done(t, st, t["chambers"], now, work)
-            elif stopped and now - st["lastRiseAt"] >= SHORT_WAIT_SECS and not self.state.get("question"):
-                self.state["question"] = {"tank": t["tank"], "since": iso(now), "rise": round2(rise),
-                                          "arrived": t["chambers"][:st["arrived"]], "chambers": t["chambers"],
-                                          "planned": t["litres"]}
-                work["save"] = True
-                work["events"].append(self.log(
-                    f"{name}: the stock stopped rising at +{rise:,.0f} L of {t['litres']:,.0f} L planned. "
-                    "Which chambers were emptied? (answer on the tank stock page)", now))
-            return
-        if t["stage"] == "settling":
-            window = [h for h in st["history"] if now - h[0] <= self.settings["settleMinutes"] * 60]
-            spread = max(x for _, x in window) - min(x for _, x in window)
-            if spread > SETTLE_BAND_L:
-                st["steadySince"] = None
-            elif st["steadySince"] is None:
-                st["steadySince"] = now
-            covered = window and now - window[0][0] >= self.settings["settleMinutes"] * 60 - 15
-            if st["steadySince"] is not None and covered and now - st["steadySince"] >= 0 \
-                    and now - (self._ts(t["doneAt"]) or now) >= self.settings["settleMinutes"] * 60:
-                work["after"].append(t["tank"])
+            return True
+        return False
 
-    def _rise_began(self, st, before, now) -> float:
-        """When the rise started: the last reading still at the stock before."""
-        at = now
-        for when, v in reversed(st["history"]):
-            if v - before < START_RISE_L / 3:
-                break
-            at = when
-        return at
+    def _waiting(self, t: dict, st: dict, v: float, now: float, work: dict) -> None:
+        name = f"Tank {t['tankNo']}"
+        before = t["before"]["volume"]
+        if st["low"] is None or v < st["low"][1]:
+            st["low"] = [now, v]
+        base = min(before, st["low"][1])
+        if before - v >= SALE_L and now - st["beforeAskedAt"] >= BEFORE_EVERY:
+            st["beforeAskedAt"] = now                    # it sold: read its stock before again
+            work["before"].append({"tank": t["tank"]})
+        if v - base < START_RISE_L:
+            return
+        # the rise began after the last reading still at the stock it rested at
+        began = st["low"][0]
+        for when, x in st["history"]:
+            if when >= st["low"][0] and x - base < START_RISE_L / 3:
+                began = when
+        if before - base > STILL_L:
+            # it sold since its stock before was read: that stock, from the live figure
+            t["before"] = {**t["before"], **{k: None for k in ("height", "dip", "water", "density", "densityTc", "temp")},
+                           "volume": round2(base), "ullage": round2((t["before"].get("capacity") or 20000) - base),
+                           "readingAt": iso(st["low"][0]), "timeRead": False, "confidence": "medium",
+                           "note": "the live product volume just before decanting (it sold after the full read)"}
+            self.s["data"]["before"][t["tank"]] = t["before"]
+            self._say(work, f"{name}: it sold {before - base:,.0f} L after its stock was read; "
+                            f"the stock before is now {base:,.2f} L.", now, "warn")
+        t["stage"], t["startedAt"] = "decanting", iso(began)
+        st.update(lastRiseAt=now, lastRiseV=v, flowing=True, segFrom=base, acc=0.0)
+        self.state["questions"].pop(t["tank"], None)
+        sync_status(self.s)
+        work["save"] = True
+        self._say(work, f"{name}: decanting started (+{v - base:,.0f} L).", now)
 
-    @staticmethod
-    def _ts(value) -> float | None:
-        try:
-            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-        except ValueError:
-            return None
+    def _decanting(self, t: dict, st: dict, v: float, now: float, work: dict) -> None:
+        name = f"Tank {t['tankNo']}"
+        rise = v - t["before"]["volume"]
+        rose = self._rising(st, v, now)
+        q = self.state["questions"].get(t["tank"])
+        if rose:
+            if not st["flowing"]:
+                st["flowing"] = True
+            if q and q["kind"] in ("short", "extra"):
+                self.state["questions"].pop(t["tank"])
+                work["save"] = True
+                self._say(work, f"{name}: rising again, so the question is withdrawn.", now)
+            return
+        still = now - st["lastRiseAt"]
+        if st["flowing"] and still >= PAUSE_SECS:
+            # a run of flow ended: the pipe is being moved, or has stopped
+            st["acc"] += st["lastRiseV"] - st["segFrom"]
+            st["segFrom"], st["flowing"] = st["lastRiseV"], False
+            self._match(t, st, now, work)
+        if still < STOP_SECS or q:
+            return
+        planned = t["litres"]
+        left = [no for no in t["chambers"] if no not in st["arrived"]]
+        extra = self._extra_options(t)
+        if rise > planned + slack(planned) and extra:
+            if still >= EXTRA_WAIT_SECS:
+                self._ask(t, "extra", rise, now, work)
+        elif not left or abs(rise - planned) <= slack(planned):
+            if rise > planned + slack(planned):
+                self._say(work, f"{name}: it got {rise - planned:,.0f} L more than planned "
+                                "and no other chamber of that product is left.", now, "warn")
+            self._done(t, st, t["chambers"], now, work)
+        elif still >= SHORT_WAIT_SECS:
+            self._ask(t, "short", rise, now, work)
+
+    def _match(self, t: dict, st: dict, now: float, work: dict) -> None:
+        """Which chamber(s) that run of flow emptied: the one whose litres it
+        matches (or two together, or the next few in the plan's order)."""
+        acc = st["acc"]
+        left = [no for no in t["chambers"] if no not in st["arrived"]]
+        if acc < START_RISE_L or not left:
+            return
+        size = {no: self.chamber_litres(no) for no in left}
+        pick = None
+        singles = sorted((abs(acc - size[no]), i, [no]) for i, no in enumerate(left) if abs(acc - size[no]) <= slack(size[no]))
+        if singles:
+            pick = singles[0][2]
+        else:
+            pairs = sorted((abs(acc - size[a] - size[b]), i, [a, b]) for i, a in enumerate(left) for b in left[i + 1:]
+                           if abs(acc - size[a] - size[b]) <= slack(size[a] + size[b]))
+            if pairs:
+                pick = pairs[0][2]
+            else:
+                total = 0
+                for i, no in enumerate(left):
+                    total += size[no]
+                    if abs(acc - total) <= slack(total):
+                        pick = left[:i + 1]
+                        break
+        if not pick:
+            return                                       # part of a chamber: wait for the rest
+        st["arrived"] += pick
+        st["acc"] = 0.0
+        t["chambers"] = st["arrived"] + [no for no in t["chambers"] if no not in st["arrived"]]
+        work["save"] = True
+        rise = st["lastRiseV"] - t["before"]["volume"]
+        self._say(work, f"Tank {t['tankNo']}: chamber {' + '.join(map(str, pick))} is in "
+                        f"(+{rise:,.0f} L of {t['litres']:,.0f} L).", now)
+
+    def _extra_options(self, t: dict) -> list:
+        """Chambers of t's product that may have gone into t instead: not yet in
+        any tank (another tank's not arrived, or left in the truck)."""
+        d = self.s["data"]
+        out = []
+        for r in d["tanks"]:
+            if r is t or r["product"] != t["product"] or r["stage"] not in ("waiting", "decanting"):
+                continue
+            got = set(self.state["tanks"].get(r["tank"], {}).get("arrived") or [])
+            out += [{"no": no, "litres": self.chamber_litres(no), "from": r["tank"]} for no in r["chambers"] if no not in got]
+        planned = {p["no"] for p in d["plan"] if p.get("tank")}
+        done = set(d.get("done") or [])
+        out += [{"no": c["no"], "litres": c["litres"], "from": None} for c in d["chambers"]
+                if c["product"] == t["product"] and c["litres"] > 0 and c["no"] not in planned and c["no"] not in done]
+        return out
+
+    def _ask(self, t: dict, kind: str, rise: float, now: float, work: dict) -> None:
+        name = f"Tank {t['tankNo']}"
+        own = [{"no": no, "litres": self.chamber_litres(no), "from": t["tank"]} for no in t["chambers"]]
+        if kind == "notstarted":
+            q = {"text": f"{name} hasn't started (C{', C'.join(map(str, t['chambers']))}). Leave its chambers in "
+                         "the truck, or keep waiting?", "options": own, "suggest": []}
+        else:
+            options = own + (self._extra_options(t) if kind == "extra" else [])
+            arrived = self.state["tanks"][t["tank"]]["arrived"]
+            suggest = best_subset([(o["no"], o["litres"]) for o in options], rise, prefer=set(arrived) | set(t["chambers"]))
+            if kind == "extra":
+                text = (f"{name} got +{rise:,.0f} L, {rise - t['litres']:,.0f} L more than planned "
+                        f"({t['litres']:,.0f} L). Which chambers went into it?")
+            else:
+                text = (f"{name}'s stock stopped rising at +{rise:,.0f} L of {t['litres']:,.0f} L planned. "
+                        "Which chambers were emptied into it?")
+            q = {"text": text, "options": options, "suggest": suggest}
+        q.update(kind=kind, tank=t["tank"], tankNo=t["tankNo"], since=iso(now), rise=round2(rise), planned=t["litres"])
+        self.state["questions"][t["tank"]] = q
+        work["save"] = True
+        self._say(work, q["text"] + " (answer on the tank stock page)", now, "ask")
 
     def _done(self, t: dict, st: dict, chambers: list, now: float, work: dict) -> None:
         """doneTanks: these chambers were emptied; the rest stay in the truck."""
@@ -488,49 +668,129 @@ class Decantation:
                 p["tank"] = None
         t["chambers"] = [no for no in t["chambers"] if no in keep]
         t["litres"] = sum(self.chamber_litres(no) for no in t["chambers"])
+        st["arrived"] = list(t["chambers"])
         t["stage"] = "settling"
         t["doneAt"] = iso(st["lastRiseAt"] or now)
+        st.update(peak=None, flowing=False, afterTries=0, settledFrom=st["lastRiseV"])
+        self.state["questions"].pop(t["tank"], None)
         if not t["chambers"]:
             d["tanks"] = [x for x in d["tanks"] if x is not t]
         sync_status(self.s)
         work["save"] = True
-        work["events"].append(self.log(
-            f"Tank {t['tankNo']}: decanting done (chamber {', '.join(map(str, t['chambers'])) or 'none'}); "
-            f"settling for {self.settings['settleMinutes']:g} min.", now))
+        if t["chambers"]:
+            self._say(work, f"Tank {t['tankNo']}: decanting done (C{', C'.join(map(str, sorted(t['chambers'])))}, "
+                            f"{t['litres']:,.0f} L); settling for {self.settings['settleMinutes']:g} min.", now)
+        else:
+            self._say(work, f"Tank {t['tankNo']}: nothing went in; its chambers stay in the truck.", now, "warn")
+        if not d["tanks"]:
+            self._end_empty(now, work)
 
-    def answer(self, tank_id: str, chambers: list | None, now: float | None = None) -> dict:
-        """The page's answer to "which chambers were emptied?" (None: still decanting)."""
+    def _end_empty(self, now: float, work: dict) -> None:
+        """Every tank left out: nothing to finish."""
+        self.s["status"] = "cancelled"
+        self.s["completed_at"] = iso(now)
+        self.s["data"]["cancelReason"] = "Nothing was decanted."
+        work["save"] = True
+        self._say(work, "Nothing was decanted: the decantation is cancelled and the chambers stay on the list.", now, "warn")
+
+    def _settling(self, t: dict, st: dict, v: float, now: float, work: dict) -> None:
+        name = f"Tank {t['tankNo']}"
+        level = st.get("settledFrom") if st.get("settledFrom") is not None else v
+        if v - level >= RISE_AGAIN_L:                     # the pipe went on again
+            t["stage"], t["doneAt"] = "decanting", None
+            st.update(lastRiseAt=now, lastRiseV=v, flowing=True, peak=None)
+            sync_status(self.s)
+            work["save"] = True
+            self._say(work, f"{name}: rising again (+{v - level:,.0f} L): decanting.", now, "warn")
+            return
+        if st["peak"] is None or v >= st["peak"][1]:
+            st["peak"] = [now, v]
+            work["peak"].append(t["tank"])
+        if st["peak"][1] - v >= SALES_BACK_L:
+            # it sells again: its stock after is the one just before that
+            work["after"].append({"tank": t["tank"], "from": "peak", "volume": st["peak"][1], "at": st["peak"][0]})
+            self._say(work, f"{name}: the stock fell {st['peak'][1] - v:,.0f} L, so it sells again; "
+                            "the stock after is taken from before the fall.", now, "warn")
+            return
+        settle = self.settings["settleMinutes"] * 60
+        since = now - (_ts(t.get("doneAt")) or now)
+        window = [x for when, x in st["history"] if now - when <= settle]
+        covered = any(now - when >= settle - 15 for when, _ in st["history"])
+        steady = covered and window and max(window) - min(window) <= max(SETTLE_BAND_L, SETTLE_BAND_PCT / 100 * v)
+        if since >= settle and steady:
+            work["after"].append({"tank": t["tank"], "from": "now"})
+        elif since >= settle * SETTLE_MAX:
+            work["after"].append({"tank": t["tank"], "from": "now", "unsteady": True})
+
+    def _watch_other(self, tank_id: str, v: float, now: float, work: dict, row: dict | None) -> None:
+        """A tank this truck isn't filling (or one already read) shouldn't rise."""
+        o = self.state["others"].setdefault(tank_id, {"low": v, "warned": False, "over": 0})
+        o["low"] = min(o["low"], v)
+        if o["warned"]:
+            return
+        if v - o["low"] >= UNPLANNED_RISE_L:
+            o["over"] += 1
+            if o["over"] >= 2:                            # two readings in a row: not a misread
+                o["warned"] = True
+                what = "after its stock after was taken" if row else "but it isn't in this decantation"
+                self._say(work, f"⚠ Tank {self.tank_no(tank_id)} is rising (+{v - o['low']:,.0f} L) {what}. "
+                                "Is a chamber going into the wrong tank?", now, "warn")
+        else:
+            o["over"] = 0
+
+    def _waiting_long(self, now: float, work: dict) -> None:
+        rows = self.s["data"]["tanks"]
+        if any(t["stage"] == "decanting" for t in rows):
+            return
+        for t in rows:
+            st = self._st(t, now)
+            if t["stage"] == "waiting" and t["tank"] not in self.state["questions"] \
+                    and now - st["waitSince"] >= NOT_STARTED_SECS:
+                self._ask(t, "notstarted", 0, now, work)
+
+    # -- the stock before / after, from full reads --
+    def set_before(self, tank_id: str, reading: dict, now: float | None = None) -> dict:
+        """A fresh full read of a tank still waiting (it sold since)."""
         now = now or time.time()
-        work = {"save": True, "after": [], "finish": False, "events": []}
-        q = self.state.get("question")
-        if not q or q["tank"] != tank_id:
-            raise ValueError("There is no question about that tank.")
-        self.state["question"] = None
-        t, st = self.row(tank_id), self.state["tanks"][tank_id]
-        if chambers is None:
-            st["lastRiseAt"] = now                        # wait again
-            work["events"].append(self.log(f"Tank {t['tankNo']}: still decanting, waiting on.", now))
+        work = _work()
+        t = self.row(tank_id)
+        if not t or t["stage"] != "waiting" or not reading or reading.get("volume") is None:
             return work
-        chambers = [no for no in t["chambers"] if no in set(chambers)]
-        if not chambers:
-            raise ValueError("Tick at least one chamber (use Cancel if nothing was decanted).")
-        self._done(t, st, chambers, now, work)
+        st = self._st(t, now)
+        if reading["volume"] - (st["low"][1] if st["low"] else reading["volume"]) >= START_RISE_L:
+            return work                                    # it has started meanwhile: the live figures decide
+        t["before"] = reading
+        self.s["data"]["before"][tank_id] = reading
+        st["low"] = [now, reading["volume"]]
+        work["save"] = True
+        self._sync_auto()
+        self._say(work, f"Tank {t['tankNo']}: it sold; stock before read again: {reading['volume']:,.2f} L.", now)
         return work
 
-    def read_after(self, tank_id: str, reading: dict | None, now: float | None = None) -> dict:
-        """setReading('after'): the stock after, from a full read."""
+    def read_after(self, tank_id: str, reading: dict | None, fallback: dict | None = None,
+                   note: str = "", now: float | None = None) -> dict:
+        """setReading('after'): the stock after, from a full read; after
+        AFTER_TRIES failed reads, the live figure (``fallback``)."""
         now = now or time.time()
-        work = {"save": False, "after": [], "finish": False, "events": []}
-        t, st = self.row(tank_id), self.state["tanks"][tank_id]
+        work = _work()
+        t = self.row(tank_id)
+        if not t or t["stage"] != "settling":
+            return work
+        st = self._st(t, now)
         st["afterTries"] += 1
-        if not reading or (reading.get("confidence") == "low" and st["afterTries"] < AFTER_TRIES):
-            return work                                    # try again on the next read
-        t["after"] = reading
+        if not reading or reading.get("confidence") == "low" or reading.get("volume") is None:
+            if st["afterTries"] < AFTER_TRIES or not fallback:
+                return work                                # again on the next read
+            reading, note = fallback, (note + "; " if note else "") + "from the live figure (the full read failed)"
+        t["after"] = {**reading, **({"note": note} if note else {})}
         t["stage"] = "read"
+        self.state["others"][tank_id] = {"low": reading["volume"], "warned": False, "over": 0}
         sync_status(self.s)
         work["save"] = True
-        work["events"].append(self.log(f"Tank {t['tankNo']}: stock after {reading['volume']:,.2f} L.", now))
-        if all(x["stage"] == "read" and x.get("after") for x in self.s["data"]["tanks"]):
+        self._sync_auto()
+        self._say(work, f"Tank {t['tankNo']}: stock after {reading['volume']:,.2f} L"
+                        f"{f' ({note})' if note else ''}.", now)
+        if self._all_read():
             work["finish"] = True
         return work
 
@@ -546,53 +806,201 @@ class Decantation:
         d["completedAt"] = iso(now)
         self.s["completed_at"] = d["completedAt"]
         self.s["status"] = "done"
+        self.state["questions"] = {}
+        self._sync_auto()
         lines = []
         for t in d["tanks"]:
             r = t["result"] or {}
             lines.append(f"Tank {t['tankNo']}: {t['litres']:,.0f} L decanted, gained {r.get('gain', 0):,.2f} L, "
                          f"variation {r.get('variation', 0):+,.2f} L ({r.get('band')})")
-        self.log("Finished and saved in the decant app. " + "; ".join(lines), now)
+        self.log("Finished and saved in the decant app. " + "; ".join(lines), now, "done")
         return lines
+
+    # -- what you tell it on the page --
+    def answer(self, tank_id: str, chambers: list | None, now: float | None = None) -> dict:
+        """The answer to the tank's question: the chambers that went into it
+        (short / extra), "drop" (not started: leave it out), or None (wait on)."""
+        now = now or time.time()
+        work = _work()
+        q = self.state["questions"].get(tank_id)
+        t = self.row(tank_id)
+        if not q or not t:
+            raise ValueError("That question has been answered or withdrawn.")
+        st = self._st(t, now)
+        if chambers is None:
+            self.state["questions"].pop(tank_id)
+            st["waitSince"] = now
+            if t["stage"] == "decanting":
+                st["lastRiseAt"] = now                     # wait the full time again
+            work["save"] = True
+            self._say(work, f"Tank {t['tankNo']}: waiting on, as you said.", now)
+        elif q["kind"] == "notstarted":
+            self.drop(tank_id, now, work)
+        else:
+            self.done_now(tank_id, chambers, now, work)
+        self._sync_auto()
+        return work
+
+    def done_now(self, tank_id: str, chambers: list, now: float | None = None, work: dict | None = None) -> dict:
+        """This tank is done with these chambers emptied into it (any of its
+        own, or ones planned for another tank or left in the truck)."""
+        now = now or time.time()
+        work = work if work is not None else _work()
+        t = self.row(tank_id)
+        if not t or t["stage"] != "decanting":
+            raise ValueError("That tank isn't decanting.")
+        allowed = {o["no"]: o for o in [{"no": no, "from": tank_id} for no in t["chambers"]] + self._extra_options(t)}
+        chosen = [int(no) for no in chambers if int(no) in allowed]
+        if not chosen:
+            raise ValueError("Tick at least one chamber (Cancel or Hand over if nothing was decanted).")
+        d = self.s["data"]
+        for no in chosen:
+            src = allowed[no]["from"]
+            if src == tank_id:
+                continue
+            if src:                                        # planned for another tank: it's this one's now
+                other = self.row(src)
+                other["chambers"] = [x for x in other["chambers"] if x != no]
+                other["litres"] = sum(self.chamber_litres(x) for x in other["chambers"])
+                self.state["questions"].pop(src, None)   # its question was about chambers it no longer has
+                if not other["chambers"]:
+                    d["tanks"] = [x for x in d["tanks"] if x is not other]
+            for p in d["plan"]:
+                if p["no"] == no:
+                    p["tank"] = tank_id
+            t["chambers"].append(no)
+        st = self._st(t, now)
+        st["arrived"] = [no for no in st["arrived"] if no in chosen] + [no for no in chosen if no not in st["arrived"]]
+        t["chambers"] = st["arrived"] + [no for no in t["chambers"] if no not in st["arrived"]]
+        self._done(t, st, chosen, now, work)
+        self._sync_auto()
+        return work
+
+    def drop(self, tank_id: str, now: float | None = None, work: dict | None = None) -> dict:
+        """dropTank: a tank not started is left out; its chambers stay in the truck."""
+        now = now or time.time()
+        work = work if work is not None else _work()
+        t = self.row(tank_id)
+        if not t or t["stage"] != "waiting":
+            raise ValueError("Only a tank that hasn't started can be left out.")
+        d = self.s["data"]
+        for p in d["plan"]:
+            if p.get("tank") == tank_id:
+                p["tank"] = None
+        d["tanks"] = [x for x in d["tanks"] if x is not t]
+        self.state["questions"].pop(tank_id, None)
+        sync_status(self.s)
+        work["save"] = True
+        self._say(work, f"Tank {t['tankNo']} left out: C{', C'.join(map(str, t['chambers']))} stay in the truck.", now)
+        if not d["tanks"]:
+            self._end_empty(now, work)
+        elif self._all_read():
+            work["finish"] = True
+        self._sync_auto()
+        return work
+
+    def after_now(self, tank_id: str) -> dict:
+        """Take this settling tank's stock after now, without waiting."""
+        t = self.row(tank_id)
+        if not t or t["stage"] != "settling":
+            raise ValueError("That tank isn't settling.")
+        work = _work()
+        work["after"].append({"tank": tank_id, "from": "now", "asked": True})
+        return work
+
+    def release(self, now: float | None = None) -> None:
+        """Hand it over to the decant app: the agent stops running it."""
+        now = now or time.time()
+        self.s["data"].setdefault("auto", {})["released"] = True
+        self.state["questions"] = {}
+        self._sync_auto()
+        self.log("Handed over to the decant app: finish it there.", now, "done")
 
     def cancel(self, now: float | None = None) -> None:
         """cancelSession: only while nothing is decanted."""
         if any(t.get("startedAt") for t in self.s["data"]["tanks"]):
-            raise ValueError("A tank has started: finish it, or leave it to the decant app.")
+            raise ValueError("A tank has started: finish it, or hand it over to the decant app.")
         now = now or time.time()
         self.s["status"] = "cancelled"
         self.s["completed_at"] = iso(now)
         self.s["data"]["cancelReason"] = "Cancelled before decanting."
         for p in self.s["data"]["plan"]:
             p["tank"] = None
+        self.state["questions"] = {}
+        self._sync_auto()
+        self.log("Cancelled before decanting.", now, "done")
 
-    def view(self) -> dict:
+    def adopt(self, remote: dict, now: float | None = None) -> list:
+        """A phone changed the session in the decant app: it's the truth now
+        (its stages, chambers and readings); the agent carries on from there."""
+        now = now or time.time()
+        old = {t["tank"]: t["stage"] for t in self.s["data"]["tanks"]}
+        self.s = remote
+        notes = []
+        for t in remote["data"].get("tanks") or []:
+            t["stage"] = tank_stage(remote, t)
+            st = self._st(t, now)
+            v = (t.get("before") or {}).get("volume")
+            if t["stage"] == "waiting" and v is not None and st["low"] and abs(st["low"][1] - v) > STILL_L \
+                    and (not st["history"] or abs(st["history"][-1][1] - v) <= SALE_L):
+                st["low"] = [now, v]                     # a new stock before from a phone
+            if old.get(t["tank"]) != t["stage"]:
+                notes.append(f"Tank {t.get('tankNo') or self.tank_no(t['tank'])}: {t['stage']} (from the decant app)")
+                if t["stage"] == "settling":
+                    st.update(peak=None, flowing=False, afterTries=0, settledFrom=st.get("lastRiseV"))
+                if t["stage"] == "decanting" and st["lastRiseV"] is None:
+                    st.update(lastRiseAt=now, lastRiseV=(t.get("before") or {}).get("volume"),
+                              segFrom=(t.get("before") or {}).get("volume"))
+            q = self.state["questions"].get(t["tank"])
+            if q and not (q["kind"] == "notstarted" and t["stage"] == "waiting"
+                          or q["kind"] != "notstarted" and t["stage"] == "decanting"):
+                self.state["questions"].pop(t["tank"])
+        rows = {t["tank"] for t in remote["data"].get("tanks") or []}
+        for k in list(self.state["questions"]):
+            if k not in rows:
+                self.state["questions"].pop(k)
+        for n in notes:
+            self.log(n, now)
+        if remote.get("status") == "done":
+            self.log("Finished in the decant app.", now, "done")
+        elif remote.get("status") == "cancelled":
+            self.log("Cancelled in the decant app.", now, "done")
+        elif (remote["data"].get("auto") or {}).get("released"):
+            self.log("Handed over in the decant app.", now, "done")
+        return notes
+
+    # -- the page --
+    def view(self, now: float | None = None) -> dict:
+        now = now or time.time()
         d = self.s["data"]
+        settle = self.settings["settleMinutes"] * 60
         out = []
         for t in d["tanks"]:
             st = self.state["tanks"].get(t["tank"], {})
-            last = st.get("history", [])[-1][1] if st.get("history") else None
-            steady = None
-            if t["stage"] == "settling" and st.get("steadySince"):
-                steady = round(time.time() - st["steadySince"])
-            out.append({"tank": t["tank"], "no": t["tankNo"], "product": t["product"], "stage": t["stage"],
-                        "chambers": t["chambers"], "arrived": t["chambers"][:st.get("arrived", 0)],
-                        "litres": t["litres"], "before": t["before"]["volume"], "now": last,
-                        "rise": round2(last - t["before"]["volume"]) if last is not None else None,
-                        "after": (t.get("after") or {}).get("volume"), "result": t.get("result"),
-                        "startedAt": t.get("startedAt"), "doneAt": t.get("doneAt"), "steadyFor": steady})
+            last = st["history"][-1][1] if st.get("history") else None
+            row = {"tank": t["tank"], "no": t.get("tankNo"), "product": t["product"], "stage": t["stage"],
+                   "chambers": t["chambers"], "arrived": [no for no in st.get("arrived", []) if no in t["chambers"]],
+                   "litres": t["litres"], "before": (t.get("before") or {}).get("volume"),
+                   "beforeAt": (t.get("before") or {}).get("readingAt"), "now": last,
+                   "rise": round2(last - t["before"]["volume"]) if last is not None and t.get("before") else None,
+                   "after": (t.get("after") or {}).get("volume"), "result": t.get("result"),
+                   "startedAt": t.get("startedAt"), "doneAt": t.get("doneAt")}
+            if t["stage"] == "settling" and t.get("doneAt"):
+                row["settleLeft"] = max(0, round(settle - (now - (_ts(t["doneAt"]) or now))))
+                window = [x for when, x in st.get("history", []) if now - when <= settle]
+                row["spread"] = round2(max(window) - min(window)) if window else None
+            out.append(row)
+        planned = {p["no"] for p in d.get("plan") or [] if p.get("tank")}
         return {"id": self.s["id"], "invoice_no": self.s["invoice_no"], "tt_no": self.s.get("tt_no"),
-                "status": self.s["status"], "tanks": out, "question": self.state.get("question"),
-                "log": self.state["log"][-20:], "settleMinutes": self.settings["settleMinutes"],
+                "status": self.s["status"], "released": bool((d.get("auto") or {}).get("released")),
+                "tanks": out, "questions": list(self.state["questions"].values()),
+                "log": self.state["log"][-30:], "settleMinutes": self.settings["settleMinutes"],
                 "left": [c["no"] for c in d["chambers"] if c["product"] and c["litres"] > 0
-                         and c["no"] not in set(d.get("done") or [])
-                         and not any(c["no"] in t["chambers"] for t in d["tanks"])]}
+                         and c["no"] not in set(d.get("done") or []) and c["no"] not in planned]}
 
     def to_json(self) -> dict:
         return {"session": self.s, "settings": self.settings, "state": self.state}
 
     @classmethod
     def from_json(cls, data: dict) -> "Decantation":
-        state = data["state"]
-        for st in state["tanks"].values():
-            st["history"] = [tuple(h) for h in st.get("history", [])]
-        return cls(data["session"], data["settings"], state)
+        return cls(data["session"], data["settings"], data["state"])

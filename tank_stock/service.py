@@ -12,13 +12,18 @@ http://127.0.0.1:8790, published to your own Tailscale devices (setup.sh).
 - Send for decantation: capture, upload, and end the live session if one is
   open.
 - Live monitoring: connect once and keep that AnyDesk session open; every
-  ``interval_s`` seconds (10 at least) read the watched tanks' product
-  volume again (no reconnecting, no pictures), show it on the page, log each
-  change and, with ``auto_upload``, send the volume alone to the decant app. It runs until
+  ``interval_s`` seconds (5 at least) read the watched tanks' product
+  volume again (no reconnecting, no pictures), show it on the page and, with
+  ``auto_upload``, send the volume alone to the decant app. It runs until
   AnyDesk ends the session (e.g. a free licence's time limit) or you press
   Stop; then the last screen becomes a capture with its pictures. The
   XtraPower Telegram bot is told when AnyDesk ends it, with what the screen
   showed.
+- Automatic decantation (auto.py): pick a truck's invoice and which chamber
+  goes into which tank, press Start; it reads the stock before, follows the
+  stock as the chambers go in, takes the stock after once it has settled and
+  finishes the decantation in the decant app, asking on the page when the
+  stock says something the plan didn't.
 - GitHub's "Tank stock" job: its queued requests run here, in the session
   (``python -m tank_stock.run --in-session``), or from the live session's
   screen while one is open.
@@ -45,6 +50,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import cards as cards_mod
 from . import decant, telegram
+from .auto import AutoDecant, AutoError
 from .capture import CaptureError, Session, parse_ids
 
 HOME = Path(os.environ.get("TANK_STOCK_HOME", "/opt/agents/tank-stock"))
@@ -55,12 +61,12 @@ PORT = 8790
 IST = timezone(timedelta(hours=5, minutes=30))
 TANKS = (1, 2, 3, 4)
 DEFAULTS = {"interval_s": 10, "tanks": list(TANKS), "auto_upload": True}   # live monitoring
-INTERVAL = (10, 3600)            # seconds between live reads (no reconnecting)
+INTERVAL = (5, 3600)             # seconds between live reads (no reconnecting)
 CHECK_EVERY = 5                  # seconds: is the live session still open?
 MAX_FAILED_READS = 5             # live reads that may fail in a row
 SETTINGS_EVERY = 600             # seconds: re-read the decant app's settings while live
-LOG_SHOWN = 30                   # live log lines the page shows
 MAX_BODY = 16_000
+AUTO_ACTIONS = ("answer", "done", "drop", "after", "release", "cancel", "clear", "reconnect")
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -93,7 +99,7 @@ def _read_json(path: Path, default):
 
 def _write_json(path: Path, data, private: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")   # one per thread
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o644)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1)
@@ -144,6 +150,7 @@ class Station:
         self.alerted = ""
         self._dropped = ""               # the day earlier days' proof pictures were last cleared
         self.last = _read_json(home / "last.json", {})
+        self.auto = AutoDecant(self)
 
     # ---- settings and login --------------------------------------------
     @property
@@ -201,8 +208,8 @@ class Station:
             last = self._record(png, page, used, tanks, upload, why)
         finally:
             self._release()
-        if decantation and self.live:
-            self.stop_live("sent for decantation")
+        if decantation and self.live and not self.auto.active():
+            self.stop_live("sent for decantation")   # (an automatic decantation needs it on)
         return last
 
     def _record(self, png, page, used, tanks, upload, why) -> dict:
@@ -290,30 +297,59 @@ class Station:
         boxes = {int(k): tuple(v["box"]) for k, v in (self.last.get("tanks") or {}).items()}
         return cards_mod.picture(png, boxes, clean_tanks(tanks), stack=stack, grid=grid)
 
+    def full_read(self, png: bytes | None, tanks, why: str) -> dict:
+        """A full read of a live session's screen, saved like a capture (the
+        page's pictures, the decant app's stock and proof picture).
+        -> {tank no: {"reading": the reading saved (or read) | None, "problem"}}"""
+        tanks = clean_tanks(tanks)
+        if not png:
+            return {n: {"reading": None, "problem": "no screen yet"} for n in tanks}
+        self._hold(why, wait=60)
+        try:
+            live = self.live or {}
+            last = self._record(png, live.get("page") or "the live session", 
+                                live["session"].position if live.get("session") else None, tanks, True, why)
+        finally:
+            self._release()
+        out = {}
+        for no in tanks:
+            f = (last.get("tanks") or {}).get(str(no)) or {}
+            u = (last.get("uploads") or {}).get(str(no)) or {}
+            reading = u.get("reading") if u.get("ok") else None
+            if reading is None and f.get("reading") and f.get("confidence") not in (None, "low"):
+                reading = f["reading"]                 # read fine; the app just has a newer one
+            out[no] = {"reading": reading,
+                       "problem": "" if reading else "; ".join(f.get("problems") or []) or u.get("message") or "not read"}
+        return out
+
     # ---- live monitoring ------------------------------------------------
     # One AnyDesk session stays open. The first read finds the cards; after
     # that a read is a screenshot, a fingerprint of each watched card, and a
     # quick read of the cards whose volume rows changed. The page shows each
-    # tank's product volume as it comes, a log keeps every change, and (with
-    # auto_upload) the decant app gets the volume alone. When it ends, the
+    # tank's product volume as it comes, and (with auto_upload) the decant
+    # app gets the volume alone. When it ends, the
     # last screen becomes an ordinary capture: pictures to save or upload.
-    def start_live(self, new_settings: dict | None = None) -> dict:
-        """Connect and keep the session open, reading every interval_s."""
+    def start_live(self, new_settings: dict | None = None, auto: bool = False) -> dict:
+        """Connect and keep the session open, reading every interval_s.
+        auto: for the automatic decantation (the saved settings stay)."""
         if self.live:
             raise RuntimeError("Live monitoring is already running.")
-        if self.busy.locked():
+        if self.busy.locked() and not auto:
             raise RuntimeError("The agent is busy with the PC right now; try again in a minute.")
-        s = self.save_settings(new_settings or {})
-        self.live = {"state": "connecting", "since": now_iso(), "tanks": s["tanks"],
+        s = self.settings if auto else self.save_settings(new_settings or {})
+        self.live = {"state": "connecting", "since": now_iso(), "tanks": s["tanks"], "by_auto": auto,
                      "interval_s": s["interval_s"], "auto_upload": s["auto_upload"],
-                     "reads": 0, "failed": 0, "figures": {}, "uploads": {}, "log": [],
+                     "reads": 0, "failed": 0, "figures": {}, "uploads": {},
                      "stop": threading.Event(), "wake": threading.Event()}
-        (self.home / "live-log.csv").unlink(missing_ok=True)
+        (self.home / "live-log.csv").unlink(missing_ok=True)       # (the change log of earlier versions)
         threading.Thread(target=self._live_run, args=(self.live,), daemon=True, name="live").start()
         return self.live_view()
 
-    def stop_live(self, why: str = "stopped by you") -> None:
+    def stop_live(self, why: str = "stopped by you", force: bool = False) -> None:
         live = self.live
+        if live and self.auto.active() and not force:
+            raise RuntimeError("An automatic decantation is running on it: hand it over to the decant app "
+                               "or cancel it first.")
         if live:
             live["stop_reason"] = why
             live["stop"].set()
@@ -335,11 +371,15 @@ class Station:
                 self._live_read(live)
                 took = time.time() - started
                 live["read_s"] = round(took, 1)
+                try:
+                    self.auto.on_read(live)            # an automatic decantation follows the stock
+                except Exception:  # noqa: BLE001 - the live session carries on
+                    traceback.print_exc()
                 if live["failed"] >= MAX_FAILED_READS:
                     reason = f"{MAX_FAILED_READS} reads in a row failed ({live.get('last_error', '')})"
                     break
                 # never busier than half the time, however slow the reads get
-                due = started + max(live["interval_s"], 2 * took)
+                due = started + max(self.auto.interval(live["interval_s"]), 2 * took)
                 live["next_read"] = datetime.fromtimestamp(due, IST).isoformat(timespec="seconds")
                 while time.time() < due and not live["stop"].is_set():
                     live["wake"].clear()
@@ -349,7 +389,7 @@ class Station:
                         final = session.screen()          # what AnyDesk shows now
                         break
                     if live["wake"].is_set() and not live["stop"].is_set():
-                        due = min(due, started + max(live["interval_s"], 2 * took))
+                        due = min(due, started + max(self.auto.interval(live["interval_s"]), 2 * took))
                 if reason:
                     break
             reason = reason or live.get("stop_reason") or "stopped"
@@ -396,7 +436,8 @@ class Station:
                 raise CaptureError("The screenshot of the live session failed.")
             cfg = self._live_cfg(live)
             changed, good = {}, 0
-            for no in live["tanks"]:
+            watched = sorted(set(live["tanks"]) | self.auto.watched())
+            for no in watched:
                 box = live["boxes"].get(no)
                 if not box:
                     continue
@@ -417,14 +458,15 @@ class Station:
                     live["fp"][no] = fp               # read again next time otherwise
                     changed[no] = card
                     good += 1
-            if not good and live["tanks"]:
+            if not good and watched:
                 # no watched card readable: the PC shows something else; find the cards again
                 live["boxes"] = None
                 raise CaptureError("The tank cards were not on the screen.")
             if changed:
-                self._live_log(live)
-                if live["auto_upload"]:
-                    self._live_upload(live, changed, cfg)
+                send = changed if live["auto_upload"] else \
+                    {no: c for no, c in changed.items() if no in self.auto.to_upload()}
+                if send:
+                    self._live_upload(live, send, cfg)
             live.pop("last_error", None)
             live.update(failed=0, last_read=now_iso(), last_png=png)
             live["reads"] += 1                        # counted once all of it is done
@@ -448,32 +490,12 @@ class Station:
             self.notify(f"⚠️ Tank stock (live): {bad}")
         self.alerted = bad
 
-    LOG_FIELDS = (("volume", "product volume L"),)
-
-    def _live_log(self, live) -> None:
-        """One line per change: the time and every watched tank's product volume."""
-        tanks = sorted(live["tanks"])
-        row = {"at": now_iso()}
-        for no in tanks:
-            r = (live["figures"].get(str(no)) or {}).get("reading") or {}
-            row[str(no)] = {k: r.get(k) for k, _ in self.LOG_FIELDS}
-        live["log"] = (live["log"] + [row])[-LOG_SHOWN:]
-        path = self.home / "live-log.csv"
-        head = not path.exists()
-        with open(path, "a", encoding="utf-8") as f:
-            if head:
-                cols = ["time"] + [f"Tank {n} {c}" for n in tanks for _, c in self.LOG_FIELDS]
-                f.write(",".join(cols) + "\n")
-            vals = [row["at"]] + ["" if row[str(n)][k] is None else str(row[str(n)][k])
-                                  for n in tanks for k, _ in self.LOG_FIELDS]
-            f.write(",".join(vals) + "\n")
-
     def _live_end(self, live, reason: str, final: bytes) -> None:
         ended = now_iso()
         minutes = int((datetime.fromisoformat(ended) - datetime.fromisoformat(live["since"])).total_seconds() // 60)
         took = f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
         self.live_last = {"since": live["since"], "ended": ended, "lasted": took, "reason": reason,
-                          "reads": live["reads"], "log": live["log"][-LOG_SHOWN:]}
+                          "reads": live["reads"]}
         # The last screen read becomes a capture: its pictures to save or upload.
         if live.get("last_png") and live.get("stop_reason") != "sent for decantation":
             try:
@@ -489,6 +511,10 @@ class Station:
         _write_json(self.home / "live.json", self.live_last)
         self.live = None
         self.alerted = ""
+        try:
+            self.auto.on_live_end(reason, by_you=bool(live.get("stop_reason")))
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
         if live.get("stop_reason"):
             return                          # you stopped it: no message needed
         reads = f"{live['reads']} read{'' if live['reads'] == 1 else 's'}"
@@ -503,13 +529,12 @@ class Station:
         if not live:
             return None
         hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes")
-        return {k: v for k, v in live.items() if k not in hidden}
-
-    def live_log_csv(self) -> bytes:
-        try:
-            return (self.home / "live-log.csv").read_bytes()
-        except OSError:
-            return b""
+        out = {k: v for k, v in live.items() if k not in hidden}
+        # what it really does while an automatic decantation runs on it
+        out["watched"] = sorted(set(live["tanks"]) | self.auto.watched())
+        out["every_s"] = self.auto.interval(live["interval_s"])
+        out["sending"] = sorted(out["watched"] if live["auto_upload"] else self.auto.to_upload())
+        return out
 
     # ---- GitHub job requests -------------------------------------------
     def queue_loop(self, stop: threading.Event) -> None:
@@ -565,6 +590,7 @@ class Station:
             "live": self.live_view(),
             "live_last": self.live_last,
             "last": self.last,
+            "auto": self.auto.view(),
         }
 
 
@@ -622,21 +648,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, body, ctype)
         if url.path == "/api/state":
             return self._json(200, self.station.view())
-        if url.path == "/api/live/log.csv":
-            data = self.station.live_log_csv()
-            if not data:
-                return self._json(404, {"error": "No live log yet."})
-            since = (self.station.live or self.station.live_last or {}).get("since", "")
-            name = f"Tank stock live log {since[:10]} {since[11:16].replace(':', '-')}.csv".replace("  ", " ")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/csv; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
-            self.send_header("Content-Length", str(len(data)))
-            for k, v in SECURITY_HEADERS:
-                self.send_header(k, v)
-            self.end_headers()
-            self.wfile.write(data)
-            return
+        if url.path == "/api/auto/options":
+            try:
+                return self._json(200, self.station.auto.options())
+            except AutoError as exc:
+                return self._json(502, {"error": str(exc)})
         if url.path == "/api/picture":
             try:
                 query = parse_qs(url.query)
@@ -678,7 +694,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"results": self.station.upload_last(body.get("tanks") or [])})
             if path == "/api/settings":
                 return self._json(200, {"settings": self.station.save_settings(body)})
-        except ValueError as exc:
+            if path == "/api/auto/check":
+                return self._json(200, self.station.auto.check(str(body.get("invoice_no") or ""), body.get("plan") or {}))
+            if path == "/api/auto/start":
+                return self._json(202, {"auto": self.station.auto.start(str(body.get("invoice_no") or ""),
+                                                                        body.get("plan") or {})})
+            if path.startswith("/api/auto/") and path[10:] in AUTO_ACTIONS:
+                return self._json(200, {"auto": self.station.auto.act(path[10:], body)})
+        except (ValueError, CaptureError) as exc:      # (AutoError is a ValueError)
             return self._json(400, {"error": str(exc)})
         except RuntimeError as exc:
             return self._json(409, {"error": str(exc)})
@@ -711,6 +734,7 @@ def main(argv=None) -> int:
     except OSError:
         pass
     station = Station()
+    station.auto.resume()      # an automatic decantation that was running carries on
     stop = threading.Event()
     threading.Thread(target=station.queue_loop, args=(stop,), daemon=True, name="queue").start()
     hosts = os.environ.get("TANK_STOCK_HOSTS", "").split(",")
