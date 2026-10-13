@@ -26,7 +26,7 @@ say "2/4 Installing AnyDesk, the virtual display and screenshot tools"
 # xdg-desktop-menu; without it (a bare server) the script exits 1 and dpkg
 # marks AnyDesk broken, although the service runs. Install those tools first.
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q xdg-utils desktop-file-utils
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q anydesk xvfb xdotool imagemagick \
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q anydesk xvfb xdotool imagemagick kbd \
   || { sudo dpkg --configure -a || true
        die "AnyDesk did not install cleanly on this $(uname -m) server. Send the lines above."; }
 
@@ -47,7 +47,8 @@ sleep 2
 sid=$(loginctl list-sessions --no-legend | awk '$3 == "runner" {print $1; exit}')
 if [ -n "$sid" ]; then
   echo "The runner user has a login session:"
-  loginctl show-session "$sid" -p Type -p Class -p Active -p State
+  loginctl show-session "$sid" -p Seat -p VTNr -p Type -p Active -p State
+  echo "Seat's active session: $(loginctl show-seat seat0 -p ActiveSession --value 2>/dev/null) (should be $sid)"
   systemctl is-active --quiet tank-stock-session && echo "The capture runner is waiting in it."
 else
   echo "Note: no login session for runner yet. Send: systemctl status tank-stock-session"

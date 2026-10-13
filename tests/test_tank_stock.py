@@ -195,7 +195,7 @@ def test_trace_report_reads_anydesk_logs(monkeypatch, tmp_path):
     log.write_text("Gtk-WARNING cannot open display")
     report = cap._trace(log, FakeProc(), None)
     assert "exited with 0" in report and "license denied" in report and "cannot open display" in report
-    assert "session bus: not started" in report
+    assert "session bus: none" in report
 
 
 def test_failed_attempts_go_to_telegram_not_the_log(monkeypatch, capsys):
@@ -254,12 +254,14 @@ def test_public_diagnosis_gives_the_reason_without_ids(monkeypatch):
             return "  c1 1002 runner seat0 tty7\n"
         if cmd[:2] == ["loginctl", "show-session"]:
             return "Name=runner\nSeat=seat0\nActive=yes\n"
+        if cmd[:2] == ["loginctl", "show-seat"]:
+            return "c1\n"
         return "runner   tty7  2026-10-13 12:00\n" if cmd == ["who"] else ""
     monkeypatch.setattr(cap, "_run", fake_run)
     lines = cap.diagnosis(TRACE)
     text = "\n".join(lines)
     assert "login session c1: Name=runner Seat=seat0 Active=yes" in text
-    assert "logged in (who): runner" in text
+    assert "logged in (who): runner" in text and "seat0 active session: c1" in text
     assert "The logged in user differs" in text and "libpipewire" in text
     assert "DNS" not in text and "834626021" not in text
 

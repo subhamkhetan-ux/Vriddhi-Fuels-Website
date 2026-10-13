@@ -1,20 +1,31 @@
-# A login session for the runner user, so AnyDesk agrees to start for it.
+# A desk login for the runner user, so AnyDesk agrees to start for it.
 #
 # AnyDesk's client refuses to run (it crashes with "The logged in user
 # differs from the (non-root) user this process runs as ... logged in UID: 0")
-# unless the user running it is the one logged in to the machine. A server
-# has no one logged in, so this unit opens a logind session for `runner`
-# through PAM, as a display manager would, and runs tank-stock captures
-# inside it when the job asks (tank-stock-session.sh). Installed by
-# infra/anydesk/setup.sh.
+# unless the user running it owns the machine's active graphical seat. A
+# server has no one at its seat, so this unit logs `runner` in on console
+# tty7 of seat0 through PAM and makes tty7 the active console, as a display
+# manager does, and runs tank-stock captures inside that session when the
+# job asks (tank-stock-session.sh). Installed by infra/anydesk/setup.sh.
 [Unit]
 Description=Login session for the tank-stock AnyDesk client
-After=systemd-logind.service systemd-user-sessions.service
+After=systemd-logind.service systemd-user-sessions.service getty@tty7.service
+Conflicts=getty@tty7.service
 
 [Service]
 User=runner
 PAMName=tank-stock-session
-Environment=XDG_SESSION_TYPE=x11 XDG_SESSION_CLASS=user DISPLAY=:98
+Environment=XDG_SESSION_TYPE=x11 XDG_SESSION_CLASS=user XDG_SEAT=seat0 XDG_VTNR=7 DISPLAY=:98
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty7
+UtmpMode=user
+# Bring tty7 to the front, so this is the seat's active session.
+ExecStartPre=-+/usr/bin/chvt 7
 ExecStart=/opt/agents/tank-stock-session.sh
 Restart=always
 RestartSec=10

@@ -168,6 +168,8 @@ def diagnosis(trace: str) -> list[str]:
         lines.append(f"login session {sid}: {' '.join(props) or row.strip()}")
     if not lines:
         lines.append("login sessions: none")
+    active = _run(["loginctl", "show-seat", "seat0", "-p", "ActiveSession", "--value"], env).strip()
+    lines.append(f"seat0 active session: {active or 'none'}")
     who = _run(["who"], env).split("\n")
     lines.append(f"logged in (who): {', '.join(w.split()[0] for w in who if w.split()) or 'nobody'}")
     # The client's ("ad") own errors; the service ("gsvc") logs harmless ones.
@@ -182,7 +184,7 @@ def _trace(frontend_log, frontend, bus) -> str:
     """For the private Telegram report: AnyDesk's own logs from this run."""
     rc = frontend.poll() if frontend else "not started"
     parts = [f"main window process: {'running' if rc is None else f'exited with {rc}'}",
-             f"session bus: {'started' if bus else 'not started (dbus-daemon missing?)'}",
+             f"session bus: {'started by job' if bus else "the session's own" if os.environ.get('DBUS_SESSION_BUS_ADDRESS') else 'none'}",
              "--- login sessions (loginctl) ---",
              _run(["loginctl", "list-sessions", "--no-legend"], dict(os.environ)).strip() or "(none)",
              "--- main window console ---", _read_tail(frontend_log, 3000).strip() or "(none)"]

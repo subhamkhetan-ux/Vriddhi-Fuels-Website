@@ -25,7 +25,8 @@ app's checks.
 1. On the server: `cd ~/Vriddhi-Fuels-Website && git pull && bash infra/anydesk/setup.sh`.
    This installs AnyDesk, a virtual display and screenshot tools. The server's
    own AnyDesk gets no unattended password, so no one can connect into it.
-   It also opens a login session for the runner user
+   It also logs the runner user in at the console (tty7 of seat0, made the
+   active one), like a desktop login
    (`tank-stock-session.service`). AnyDesk's client crashes at start ("The
    logged in user differs from the (non-root) user this process runs as")
    unless it runs inside the logged-in user's session, and a GitHub job
