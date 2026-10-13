@@ -46,7 +46,8 @@ fi
 sudo install -d -m 750 -o "$SVC_USER" -g "$SVC_USER" "$HOME_DIR"
 
 say "4/6 Fetching the monitor code ($REF)"
-if [ -d "$HOME_DIR/app/.git" ]; then
+# /opt/xtrapower is private to the xtrapower user, so look inside it with sudo.
+if sudo test -d "$HOME_DIR/app/.git"; then
   sudo -H -u "$SVC_USER" git -C "$HOME_DIR/app" fetch -q origin "$REF"
   sudo -H -u "$SVC_USER" git -C "$HOME_DIR/app" checkout -q -B "$REF" FETCH_HEAD
 else
