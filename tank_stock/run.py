@@ -27,18 +27,19 @@ def main(argv=None) -> int:
         png, seen, used = capture(ids, os.environ.get("ANYDESK_PASSWORD", ""))
     except CaptureError as exc:
         print(f"Tank stock capture stopped: {exc}", file=sys.stderr)
-        telegram.send_text(f"⚠️ Tank stock capture failed ({when}): {exc}")
+        sent = telegram.send_text(f"⚠️ Tank stock capture failed ({when}): {exc}")
         # Private only: what each attempt's virtual screen showed.
+        delivered = 0
         for a in exc.attempts:
             titles = "; ".join(f"{t or '(untitled)'} {w}x{h}" for _, t, w, h in a["windows"]) or "none"
             note = (f"Attempt with ID #{a['position']} ({a['id']}): windows {titles}.\n"
                     f"AnyDesk output: {a['output'].strip()[-600:] or '(none)'}")
             if a["png"]:
-                telegram.send_photo(a["png"], note)
+                delivered += telegram.send_photo(a["png"], note)
             else:
-                telegram.send_text(note + "\n(no screenshot)")
-        if exc.attempts:
-            print(f"Sent {len(exc.attempts)} attempt screenshot(s) to Telegram for diagnosis.")
+                delivered += telegram.send_text(note + "\n(no screenshot)")
+        print(f"Telegram: failure notice {'sent' if sent else 'NOT sent'}; "
+              f"{delivered} of {len(exc.attempts)} attempt report(s) delivered.")
         return 1
     # Window titles can carry the PC's ID or name: Telegram only, not the log.
     titles = "; ".join(f"{t or '(untitled)'} {w}x{h}" for _, t, w, h in seen) or "none"
