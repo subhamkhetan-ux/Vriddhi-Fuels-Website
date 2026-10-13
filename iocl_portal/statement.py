@@ -71,7 +71,8 @@ def parse_statement(text: str, *, table_rows: list[list[str]], customer: str, to
     if to_day != today or from_day != today - timedelta(days=1):
         raise PortalError("The PAD report is not for the requested current date. Nothing was saved.")
     timestamps = re.findall(
-        r"Report\s+Generated\s+Date\s*/\s*Time\s*:\s*"
+        # Live e-Mitra: "Report Generated Date/Time:-Tue Oct 13 2026 2:06:11 pm".
+        r"(?:Report\s+)?Generated\s+Date\s*/\s*Time\s*:?[\s\-]*"
         r"((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM)?)",
         text, re.I)
     if len(set(timestamps)) != 1:

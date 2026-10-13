@@ -305,3 +305,10 @@ def test_report_check_failures_explain_what_was_seen_without_account_data():
     table = statement._table_hint(rows)
     assert "Balance (Rs.)" in table and "KHETAN" not in table and "9100012345" not in table
     assert "row widths [1, 4]" in table
+
+
+def test_live_timestamp_format_is_read():
+    """e-Mitra prints "Report Generated Date/Time:-Tue Oct 13 2026 2:06:11 pm"."""
+    live = REPORT.replace("Report Generated Date/Time: Tue Oct 13 2026 6:59:04 AM",
+                          "Report Generated Date/Time:-Tue Oct 13 2026 6:59:04 am")
+    assert parse(live).generated_at == parse().generated_at
