@@ -335,12 +335,13 @@ def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) ->
             out[no] = {"ok": False, "tank_id": tank["id"], "message": "the app already has a newer reading"}
             continue
         if current and _when(current) == _when(reading) and current.get("volume") == reading["volume"]:
-            out[no] = {"ok": True, "tank_id": tank["id"], "message": "already in the app", "unchanged": True}
+            out[no] = {"ok": True, "tank_id": tank["id"], "message": "already in the app", "unchanged": True,
+                       "reading": current}
             continue
         _rest("POST", "dec_tank_state?on_conflict=tank_id",
               [{"tank_id": tank["id"], "reading": reading, "updated_at": saved_at}],
               prefer="resolution=merge-duplicates,return=minimal")
-        out[no] = {"ok": True, "tank_id": tank["id"],
+        out[no] = {"ok": True, "tank_id": tank["id"], "reading": reading,
                    "mark": {"readingAt": reading["readingAt"], "volume": reading["volume"]},
                    "message": f"saved {reading['volume']:,.2f} L ({'Checked' if built['confidence'] == 'high' else 'Fixed & checked'})"}
     return out

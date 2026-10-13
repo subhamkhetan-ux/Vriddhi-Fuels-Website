@@ -197,14 +197,18 @@
     const live = state.live;
     const prev = state.live_last || {};
     $("liveStart").hidden = Boolean(live);
-    $("liveStop").hidden = !live;
+    $("liveStop").hidden = !live || autoActive();       // the automatic decantation needs it
     $("liveStart").disabled = Boolean(state.busy);
     let text, err = false;
     if (live && !isLive()) {
       text = "Connecting… (about a minute)";
     } else if (live) {
-      text = `Live since ${when(live.connected || live.since)}: Tank ${live.tanks.join(", ")}, every ${live.interval_s} s`
-        + `${live.auto_upload ? ", sending the volume to decant" : ""}. ${live.reads} read${live.reads === 1 ? "" : "s"}`
+      const watch = live.watched || live.tanks;
+      const sending = live.sending || (live.auto_upload ? watch : []);
+      text = `Live since ${when(live.connected || live.since)}: Tank ${watch.join(", ")}, every ${live.every_s || live.interval_s} s`
+        + `${autoActive() ? " (for the automatic decantation)" : ""}`
+        + `${sending.length ? `, sending ${sending.length === watch.length ? "the" : `Tank ${sending.join(", ")}'s`} volume to decant` : ""}`
+        + `. ${live.reads} read${live.reads === 1 ? "" : "s"}`
         + `${live.last_read ? `, last ${clock(live.last_read)}` : ""}${live.read_s ? ` (a read takes ${live.read_s} s)` : ""}.`;
       if (live.last_error) { text += ` Last problem: ${live.last_error}`; err = true; }
     } else if (prev.ended) {
@@ -235,7 +239,7 @@
     const box = $("liveFigures");
     box.textContent = "";
     if (!live || !isLive()) return;
-    for (const no of live.tanks) {
+    for (const no of live.watched || live.tanks) {
       const f = live.figures?.[no];
       const tank = el("div", "tank");
       const head = el("div", "tank-head");
@@ -275,7 +279,297 @@
     }
   }
 
+
+  // ---- automatic decantation ---------------------------------------------
+  // Set up: an invoice, then a tank (or "keep in the truck") for each of its
+  // chambers; the server checks the plan as the decant app does. Running: each
+  // tank's stage and stock, the chambers in, questions to answer, the log.
+  const ACTIVE = ["starting", "running", "paused"];
+  const STAGE_NAME = { waiting: "waiting", decanting: "decanting", settling: "settling", read: "done ✓" };
+  const kl = (l) => `${(Math.round(l / 100) / 10).toLocaleString("en-IN")} KL`;
+  const litres = (v) => (v == null ? "–" : `${fmt(v, 0)} L`);
+  let setup = null;             // {options, invoice, plan: {chamber: tank|""}, check}
+  let ticks = {};               // a question's / a "done now" box's ticked chambers, kept across polls
+  let doneOpen = null;          // the tank whose "Done now" chambers are shown
+  const autoActive = () => ACTIVE.includes(state?.auto?.phase);
+
+  async function autoAct(action, body = {}) {
+    setStatus("autoStatus", "…");
+    try {
+      const r = await api("POST", `/api/auto/${action}`, body);
+      setStatus("autoStatus", "");
+      if (r.auto !== undefined) state.auto = r.auto;
+      renderAuto();
+      poll();
+    } catch (e) {
+      setStatus("autoStatus", e.message, true);
+    }
+  }
+
+  function renderAuto() {
+    const box = $("autoBody");
+    box.textContent = "";
+    const a = state?.auto;
+    if (a && (ACTIVE.includes(a.phase) || a.run || a.error)) {
+      renderRun(box, a);
+      if (ACTIVE.includes(a.phase)) return;
+    }
+    if (!setup) {
+      box.appendChild(el("div", "note", "Give the plan once — which chamber goes into which tank — and the agent does the rest: "
+        + "it reads each tank's stock before, follows the stock as the chambers go in, waits for it to settle, reads the stock "
+        + "after and finishes the decantation in the decant app. It asks here (and on Telegram) if the stock says something "
+        + "the plan didn't."));
+      const row = el("div", "row");
+      const b = el("button", "main", "Set up a decantation");
+      b.disabled = !state?.login_saved;
+      b.addEventListener("click", openSetup);
+      row.appendChild(b);
+      if (a && !ACTIVE.includes(a.phase)) {
+        const c = el("button", "alt", "Clear");
+        c.addEventListener("click", () => autoAct("clear"));
+        row.appendChild(c);
+      }
+      box.appendChild(row);
+      return;
+    }
+    renderSetup(box);
+  }
+
+  async function openSetup() {
+    setStatus("autoStatus", "Loading the decant app's invoices…");
+    try {
+      const options = await api("GET", "/api/auto/options");
+      setup = { options, invoice: options.invoices[0]?.invoice_no || "", plan: {}, check: null };
+      pickInvoice(setup.invoice);
+      setStatus("autoStatus", options.invoices.length ? "" : "No invoice with chambers still in the truck. Add the invoice's PDF in the decant app first.", !options.invoices.length);
+    } catch (e) {
+      setStatus("autoStatus", e.message, true);
+    }
+  }
+
+  function pickInvoice(no) {
+    setup.invoice = no;
+    const inv = setup.options.invoices.find((i) => i.invoice_no === no);
+    setup.plan = {};
+    for (const c of inv?.chambers || []) setup.plan[c.no] = inv.plan[c.no] || "";
+    checkPlan();
+  }
+
+  let checking = 0;
+  async function checkPlan() {
+    renderAuto();
+    if (!setup.invoice) return;
+    const mine = ++checking;
+    try {
+      const chk = await api("POST", "/api/auto/check", { invoice_no: setup.invoice, plan: setup.plan });
+      if (mine === checking && setup) { setup.check = chk; renderAuto(); }
+    } catch (e) {
+      if (mine === checking && setup) { setup.check = { blocking: [e.message], warnings: [], perTank: [] }; renderAuto(); }
+    }
+  }
+
+  function renderSetup(box) {
+    const { options } = setup;
+    const sel = el("select");
+    for (const i of options.invoices) {
+      const o = el("option", "", `${i.tt_no || "?"} · ${i.date || ""} ${i.time || ""} · ${i.invoice_no}${i.status === "partial" ? " (rest)" : ""}`);
+      o.value = i.invoice_no;
+      o.selected = i.invoice_no === setup.invoice;
+      sel.appendChild(o);
+    }
+    sel.addEventListener("change", () => pickInvoice(sel.value));
+    box.appendChild(sel);
+    const inv = options.invoices.find((i) => i.invoice_no === setup.invoice);
+    if (!inv) return;
+    const list = el("div");
+    for (const c of inv.chambers) {
+      const r = el("div", "plan-row");
+      r.appendChild(el("div", "", `C${c.no} · ${c.product} · ${kl(c.litres)}`));
+      const seg = el("div", "seg");
+      const choices = [...options.tanks.filter((t) => t.product === c.product).map((t) => [t.id, `Tank ${t.no}${t.busy ? " (busy)" : ""}`]), ["", "Keep in truck"]];
+      for (const [id, label] of choices) {
+        const b = el("button", "", label);
+        b.type = "button";
+        b.setAttribute("aria-pressed", (setup.plan[c.no] || "") === id ? "true" : "false");
+        b.addEventListener("click", () => { setup.plan[c.no] = id; checkPlan(); });
+        seg.appendChild(b);
+      }
+      r.appendChild(seg);
+      list.appendChild(r);
+    }
+    box.appendChild(list);
+    const chk = setup.check;
+    if (chk) {
+      const ul = el("ul", "msgs");
+      for (const t of chk.perTank || []) {
+        const tk = options.tanks.find((x) => x.id === t.tank);
+        ul.appendChild(el("li", "", t.before == null ? `Tank ${t.no}: + ${kl(t.litres)} (no stock in the app yet: it is read at the start)`
+          : `Tank ${t.no}: ${litres(t.before)} now (${ago(tk?.readingAt)}) + ${kl(t.litres)} → ${litres(t.after)}, ${litres(t.leftRoom)} room left`));
+      }
+      for (const b of chk.blocking || []) if (!/^Add Tank/.test(b)) ul.appendChild(el("li", "bad", b));
+      for (const w of chk.warnings || []) ul.appendChild(el("li", "warn", w));
+      box.appendChild(ul);
+    }
+    box.appendChild(el("div", "note", `Once a tank's stock stops rising it waits until it has been steady for ${options.settleMinutes} min, then reads the stock after. `
+      + "Live monitoring runs meanwhile (every 10 s, all tanks)."));
+    const row = el("div", "row");
+    const go = el("button", "main", "Start");
+    const blocking = (chk?.blocking || []).filter((b) => !/^Add Tank/.test(b));
+    go.disabled = !chk || blocking.length > 0 || !Object.values(setup.plan).some(Boolean);
+    go.addEventListener("click", async () => {
+      const body = { invoice_no: setup.invoice, plan: setup.plan };
+      setup = null;
+      await autoAct("start", body);
+    });
+    const back = el("button", "alt", "Close");
+    back.addEventListener("click", () => { setup = null; renderAuto(); });
+    row.append(go, back);
+    box.appendChild(row);
+  }
+
+  function renderRun(box, a) {
+    const run = a.run;
+    const title = el("div", "tank-head");
+    title.appendChild(el("strong", "", `${a.tt_no || ""} · invoice ${a.invoice_no || ""}`));
+    const phase = { starting: "starting", running: "running", paused: "paused", finished: "finished ✓", cancelled: "cancelled", released: "handed over", failed: "didn't start" }[a.phase] || a.phase;
+    title.appendChild(el("span", `stage ${a.phase === "finished" ? "read" : a.phase === "running" ? "decanting" : ""}`, phase));
+    box.appendChild(title);
+    const notes = [];
+    if (a.phase === "starting") notes.push(`${a.step ? a.step[0].toUpperCase() + a.step.slice(1) : "Starting"}…`);
+    if (a.reconnect) notes.push(`AnyDesk session lost (${a.lost?.reason || ""}): connecting again, try ${a.reconnect.tries}.`);
+    if (a.stale) notes.push(a.stale + ".");
+    if (a.cloud_error) notes.push(`Decant app: ${a.cloud_error} (saved when it's back).`);
+    if (a.error) notes.push(a.error);
+    if (notes.length) box.appendChild(el("div", "note" + (a.error || a.cloud_error || a.stale || a.reconnect ? " err" : ""), notes.join(" ")));
+    if (!run) { return actions(box, a, null); }
+    for (const q of run.questions || []) box.appendChild(question(q));
+    for (const t of run.tanks) box.appendChild(tankCard(t, run, a));
+    if (run.left?.length && ACTIVE.includes(a.phase)) box.appendChild(el("div", "note", `C${run.left.join(", C")} stay in the truck (decant them later from the decant app).`));
+    actions(box, a, run);
+    if (run.log?.length) {
+      const ul = el("ul", "log");
+      for (const e of [...run.log].reverse().slice(0, 10)) ul.appendChild(el("li", e.level, `${clock(e.at)} ${e.text}`));
+      box.appendChild(ul);
+    }
+  }
+
+  function tickBox(key, options, preset) {
+    if (!ticks[key]) ticks[key] = new Set(preset);
+    const set = ticks[key];
+    const wrap = el("div");
+    for (const o of options) {
+      const lab = el("label");
+      const cb = el("input");
+      cb.type = "checkbox";
+      cb.checked = set.has(o.no);
+      cb.addEventListener("change", () => { cb.checked ? set.add(o.no) : set.delete(o.no); });
+      lab.append(cb, el("span", "", `C${o.no} · ${kl(o.litres || 0)}${o.from && o.from !== o.tank ? ` (planned for Tank ${String(o.from).replace("T", "")})` : !o.from ? " (left in the truck)" : ""}`));
+      wrap.appendChild(lab);
+    }
+    return wrap;
+  }
+
+  function question(q) {
+    const box = el("div", "ask");
+    box.appendChild(el("strong", "", q.text));
+    const key = `${q.tank}|${q.since}`;
+    const row = el("div", "row");
+    if (q.kind === "notstarted") {
+      const drop = el("button", "main", "Leave it out");
+      drop.addEventListener("click", () => autoAct("answer", { tank: q.tank, chambers: "drop" }));
+      const wait = el("button", "alt", "Keep waiting");
+      wait.addEventListener("click", () => autoAct("answer", { tank: q.tank, chambers: null }));
+      row.append(drop, wait);
+    } else {
+      box.appendChild(tickBox(key, q.options.map((o) => ({ ...o, tank: q.tank })), q.suggest));
+      box.appendChild(el("div", "note", "Ticked: emptied into this tank. Unticked chambers stay in the truck (or with the tank they were planned for)."));
+      const ok = el("button", "main", "These went in: done");
+      ok.addEventListener("click", () => autoAct("answer", { tank: q.tank, chambers: [...ticks[key]] }));
+      const wait = el("button", "alt", "Still decanting: wait");
+      wait.addEventListener("click", () => autoAct("answer", { tank: q.tank, chambers: null }));
+      row.append(ok, wait);
+    }
+    box.appendChild(row);
+    return box;
+  }
+
+  function tankCard(t, run, a) {
+    const card = el("div", "tank");
+    const head = el("div", "tank-head");
+    head.appendChild(el("strong", "", `Tank ${t.no} · ${NAMES[t.product] || t.product}`));
+    head.appendChild(el("span", `stage ${t.stage}`, STAGE_NAME[t.stage] || t.stage));
+    card.appendChild(head);
+    const chs = el("div");
+    for (const no of t.chambers) chs.appendChild(el("span", `ch${t.arrived.includes(no) || t.stage === "settling" || t.stage === "read" ? " in" : ""}`, `C${no}`));
+    chs.appendChild(el("span", "note", ` ${kl(t.litres)}`));
+    card.appendChild(chs);
+    const lines = [];
+    if (t.before != null) lines.push(`Before ${litres(t.before)}`);
+    if (t.now != null && t.stage !== "read") lines.push(`now ${litres(t.now)} (${t.rise >= 0 ? "+" : ""}${fmt(t.rise, 0)} L)`);
+    if (t.after != null) lines.push(`after ${litres(t.after)}`);
+    if (t.result) lines.push(`variation ${t.result.variation > 0 ? "+" : ""}${fmt(t.result.variation, 2)} L (${t.result.band})`);
+    if (t.stage === "settling" && t.settleLeft != null) {
+      lines.push(t.settleLeft > 0 ? `settling: ${Math.ceil(t.settleLeft / 60)} min to go` : `settling: waiting for it to be steady (moved ${fmt(t.spread, 1)} L)`);
+    }
+    card.appendChild(el("div", "note", lines.join(" · ")));
+    if (["decanting", "settling", "read"].includes(t.stage) && t.litres && t.rise != null) {
+      const bar = el("div", "bar");
+      const fill = el("span");
+      fill.style.width = `${Math.max(0, Math.min(100, (100 * (t.stage === "read" && t.after != null ? t.after - t.before : t.rise)) / t.litres))}%`;
+      bar.appendChild(fill);
+      card.appendChild(bar);
+    }
+    if (a.phase !== "running") return card;
+    const row = el("div", "row");
+    if (t.stage === "waiting") {
+      const b = el("button", "up", "Leave out");
+      b.addEventListener("click", () => autoAct("drop", { tank: t.tank }));
+      row.appendChild(b);
+    } else if (t.stage === "decanting") {
+      const b = el("button", "up", doneOpen === t.tank ? "Close" : "Done now…");
+      b.addEventListener("click", () => { doneOpen = doneOpen === t.tank ? null : t.tank; renderAuto(); });
+      row.appendChild(b);
+    } else if (t.stage === "settling") {
+      const b = el("button", "up", "Read the stock after now");
+      b.addEventListener("click", () => autoAct("after", { tank: t.tank }));
+      row.appendChild(b);
+    }
+    if (row.childNodes.length) card.appendChild(row);
+    if (doneOpen === t.tank && t.stage === "decanting") {
+      const key = `done|${t.tank}`;
+      card.appendChild(tickBox(key, t.chambers.map((no) => ({ no, from: t.tank, tank: t.tank, litres: null })), t.arrived.length ? t.arrived : t.chambers));
+      const ok = el("button", "main", "These were emptied: done");
+      ok.addEventListener("click", () => { doneOpen = null; autoAct("done", { tank: t.tank, chambers: [...ticks[key]] }); delete ticks[key]; });
+      card.appendChild(ok);
+    }
+    return card;
+  }
+
+  function actions(box, a, run) {
+    const row = el("div", "row");
+    if (a.phase === "paused") {
+      const b = el("button", "main", "Connect again");
+      b.addEventListener("click", () => autoAct("reconnect"));
+      row.appendChild(b);
+    }
+    if (ACTIVE.includes(a.phase)) {
+      const started = (run?.tanks || []).some((t) => t.startedAt);
+      if (a.phase === "starting" || !started) {
+        const c = el("button", "alt", "Cancel");
+        c.addEventListener("click", () => { if (confirm("Cancel this decantation? (only if nothing was decanted)")) autoAct("cancel"); });
+        row.appendChild(c);
+      }
+      if (run && a.phase !== "starting") {
+        const h = el("button", "alt", "Hand over to the decant app");
+        h.addEventListener("click", () => { if (confirm("Stop running it here? The decantation stays in the decant app, to finish there.")) autoAct("release"); });
+        row.appendChild(h);
+      }
+    }
+    if (row.childNodes.length) box.appendChild(row);
+  }
+
   function render() {
+    if (!setup) renderAuto();
     chips($("pick"), picked, () => { keep("ts-picked", [...picked]); renderResult(); });
     renderStatus();
     renderResult();
@@ -296,7 +590,7 @@
     if (polling) return;
     polling = true;
     try { await refresh(); } finally { polling = false; }
-    if (state?.busy || waiting || state?.live) {          // live: the figures as they come
+    if (state?.busy || waiting || state?.live || autoActive()) {   // live: the figures as they come
       if (waiting && !state.busy) waiting = false;
       setTimeout(poll, state?.live && !state.busy ? 3000 : 2500);
     }
