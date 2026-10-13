@@ -203,9 +203,9 @@
     if (live && !isLive()) {
       text = "Connecting… (about a minute)";
     } else if (live) {
-      text = `Live since ${when(live.connected || live.since)}: Tank ${live.tanks.join(", ")}, every ${live.interval_min} min`
-        + `${live.auto_upload ? ", updating decant" : ""}. ${live.reads} read${live.reads === 1 ? "" : "s"}`
-        + `${live.last_read ? `, last ${when(live.last_read)}` : ""}${live.next_read ? `, next ${when(live.next_read)}` : ""}.`;
+      text = `Live since ${when(live.connected || live.since)}: Tank ${live.tanks.join(", ")}, every ${live.interval_s} s`
+        + `${live.auto_upload ? ", sending figures to decant" : ""}. ${live.reads} read${live.reads === 1 ? "" : "s"}`
+        + `${live.last_read ? `, last ${clock(live.last_read)}` : ""}${live.read_s ? ` (a read takes ${live.read_s} s)` : ""}.`;
       if (live.last_error) { text += ` Last problem: ${live.last_error}`; err = true; }
     } else if (prev.ended) {
       text = `Off. Last session ${when(prev.since)} → ${when(prev.ended)} (${prev.lasted}, ${prev.reads} read${prev.reads === 1 ? "" : "s"}): ${prev.reason}.`;
@@ -213,17 +213,69 @@
       text = "Off.";
     }
     setStatus("liveState", text, err);
+    renderLiveFigures(live);
+    renderLog(live ? live.log : prev.log, Boolean(live || prev.ended));
     if (["Starting…", "Stopping…"].includes($("mStatus").textContent) && (live ? isLive() : true)) setStatus("mStatus", "");
     $("sub").textContent = live ? (isLive() ? "Live monitoring is on." : "Connecting for live monitoring…")
       : "On demand: nothing connects until you ask.";
     if (monitorDirty) return;
     const s = state.settings;
-    $("mEvery").value = s.interval_min;
-    $("mEvery").min = state.limits.interval_min[0];
-    $("mEvery").max = state.limits.interval_min[1];
+    $("mEvery").value = s.interval_s;
+    $("mEvery").min = state.limits.interval_s[0];
+    $("mEvery").max = state.limits.interval_s[1];
     $("mUp").checked = s.auto_upload;
     watched = new Set(s.tanks);
     chips($("mTanks"), watched, () => { monitorDirty = true; });
+  }
+
+  const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }) : "");
+
+  // While live: each watched tank's latest stock (numbers only, no pictures).
+  function renderLiveFigures(live) {
+    const box = $("liveFigures");
+    box.textContent = "";
+    if (!live || !isLive()) return;
+    for (const no of live.tanks) {
+      const f = live.figures?.[no];
+      const tank = el("div", "tank");
+      const head = el("div", "tank-head");
+      head.appendChild(el("strong", "", tankName(no)));
+      if (f?.confidence) head.appendChild(el("span", `badge ${f.confidence}`, BADGE[f.confidence]));
+      if (f?.at) head.appendChild(el("span", "note", `read ${clock(f.at)}`));
+      tank.appendChild(head);
+      const r = f?.reading || {};
+      const grid = el("div", "grid");
+      for (const [label, value] of [["Stock", r.volume == null ? "–" : fmt(r.volume, 2) + " L"],
+        ["Screen time", clock(r.readingAt) || "–"]]) {
+        const cell = el("div", "fig");
+        cell.appendChild(el("span", "label", label));
+        cell.appendChild(el("span", "value", value));
+        grid.appendChild(cell);
+      }
+      tank.appendChild(grid);
+      const said = [...(f?.problems || [])];
+      const u = live.uploads?.[no];
+      if (u) said.push(`Decant (${clock(u.at)}): ${u.message}`);
+      if (!f) said.push("Not read yet.");
+      if (said.length) tank.appendChild(el("div", "note" + ((f?.problems || []).length || (u && !u.ok) ? " err" : ""), said.join(" · ")));
+      box.appendChild(tank);
+    }
+  }
+
+  // The log: newest first, the stock of each tank at every change.
+  function renderLog(log, show) {
+    $("liveLog").hidden = !show || !(log || []).length;
+    if ($("liveLog").hidden) return;
+    const nos = Object.keys(log[log.length - 1]).filter((k) => k !== "at").sort();
+    const t = $("logTable");
+    t.textContent = "";
+    const head = t.insertRow();
+    for (const h of ["Time", ...nos.map((n) => `T${n} stock`)]) head.appendChild(el("th", "", h));
+    for (const row of [...log].reverse().slice(0, 12)) {
+      const tr = t.insertRow();
+      tr.insertCell().textContent = clock(row.at);
+      for (const n of nos) tr.insertCell().textContent = row[n]?.volume == null ? "–" : fmt(row[n].volume, 2);
+    }
   }
 
   function render() {
@@ -242,11 +294,14 @@
     }
   }
 
+  let polling = false;
   async function poll() {
-    await refresh();
-    if (state?.busy || waiting || (state?.live && !isLive())) {
+    if (polling) return;
+    polling = true;
+    try { await refresh(); } finally { polling = false; }
+    if (state?.busy || waiting || state?.live) {          // live: the figures as they come
       if (waiting && !state.busy) waiting = false;
-      setTimeout(poll, 2500);
+      setTimeout(poll, state?.live && !state.busy ? 3000 : 2500);
     }
   }
 
@@ -279,7 +334,7 @@
   $("upAll").addEventListener("click", () => upload([...picked].filter((n) => state?.last?.tanks?.[n])));
   $("saveAll").addEventListener("click", () => saveImage(shownTanks()));
   for (const id of ["mEvery", "mUp"]) $(id).addEventListener("input", () => { monitorDirty = true; });
-  const liveSettings = () => ({ interval_min: Number($("mEvery").value), auto_upload: $("mUp").checked, tanks: [...watched] });
+  const liveSettings = () => ({ interval_s: Number($("mEvery").value), auto_upload: $("mUp").checked, tanks: [...watched] });
   async function send(path, body, done) {
     try {
       await api("POST", path, body);

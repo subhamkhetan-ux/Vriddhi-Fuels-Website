@@ -163,12 +163,21 @@ def station(tmp_path, monkeypatch):
     monkeypatch.setattr(service.cards_mod, "read_all",
                         lambda png: ({3: (959, 343, 1284, 677)}, {3: dict(CARD3)}))
     monkeypatch.setattr(service, "CHECK_EVERY", 0.01)
+    # live reads: the screen "changes" when screen["fp"] does; each quick read is counted
+    screen = {"fp": "a", "card": dict(CARD3), "reads": 0}
+    monkeypatch.setattr(service.cards_mod, "Pixels", lambda png: type("P", (), {"ok": True})())
+    monkeypatch.setattr(service.cards_mod, "fingerprint", lambda px, box: screen["fp"])
+
+    def read_figures(png, box):
+        screen["reads"] += 1
+        return dict(screen["card"])
+    monkeypatch.setattr(service.cards_mod, "read_figures", read_figures)
     FakeSession.opened, FakeSession.fail = [], False
     (tmp_path / "login.json").write_text(json.dumps({"ids": ["123456789"], "password": "pw"}))
     alerts, photos = [], []
     st = service.Station(home=tmp_path, session_cls=FakeSession, notify=alerts.append,
                          notify_photo=lambda png, caption: photos.append((png, caption)) or True)
-    st.db, st.alerts, st.photos = db, alerts, photos
+    st.db, st.alerts, st.photos, st.screen = db, alerts, photos, screen
     return st
 
 
@@ -183,12 +192,12 @@ def wait_for(cond, timeout=5):
 
 
 def test_settings_are_checked(station):
-    assert station.settings == service.DEFAULTS                 # 15 min, all tanks, upload on
-    assert station.save_settings({"interval_min": "30", "tanks": [3, 1]})["tanks"] == [1, 3]
-    for bad in ({"interval_min": 0}, {"interval_min": 241}, {"tanks": []}, {"tanks": [5]}, {"interval_min": "x"}):
+    assert station.settings == service.DEFAULTS                 # 10 s, all tanks, figures to decant
+    assert station.save_settings({"interval_s": "30", "tanks": [3, 1]})["tanks"] == [1, 3]
+    for bad in ({"interval_s": 9}, {"interval_s": 3601}, {"tanks": []}, {"tanks": [5]}, {"interval_s": "x"}):
         with pytest.raises(ValueError):
             station.save_settings(bad)
-    assert station.settings["interval_min"] == 30
+    assert station.settings["interval_s"] == 30
 
 
 def test_capture_connects_reads_and_disconnects_without_uploading(station):
@@ -226,9 +235,11 @@ def test_send_for_decantation_uploads_and_ends_live_monitoring(station):
 
 
 def test_live_monitoring_keeps_one_session_until_anydesk_ends_it(station):
-    station.start_live({"tanks": [3], "interval_min": 1})
+    station.start_live({"tanks": [3]})
     assert wait_for(lambda: station.live and station.live["reads"] == 1)
-    assert station.db.writes[-1]["tank_id"] == "T3"            # auto-upload on
+    assert station.db.writes[-1]["tank_id"] == "T3"            # the figures, as they come
+    assert station.db.shots == [] and station.db.files == {}   # no pictures while live
+    assert station.live["figures"]["3"]["reading"]["volume"] == 19552.05
     session = FakeSession.opened[0]
     session.is_alive = False                                    # AnyDesk closes it
     assert wait_for(lambda: station.live is None) and session.closed
@@ -236,14 +247,59 @@ def test_live_monitoring_keeps_one_session_until_anydesk_ends_it(station):
     assert station.live_last["reason"] == "AnyDesk ended the session"
     png, caption = station.photos[-1]
     assert png == b"\x89PNG-ended" and "ended after" in caption and "(1 read)" in caption
+    # the last screen read is now a capture, with its pictures to save or upload
+    assert station.last["why"] == "live" and station.last["tanks"]["3"]["confidence"] == "high"
 
 
-def test_stop_ends_live_monitoring_quietly(station):
+def decant_dip_at(litres):
+    """The dip (cm) where the app's chart reaches these litres."""
+    chart = decant.dip_chart()
+    i = next(i for i, v in enumerate(chart["litres"]) if v >= litres)
+    return chart["startCm"] + i * chart["stepCm"]
+
+
+def test_an_unchanged_card_is_not_read_again_and_each_change_is_logged(station):
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] == 1)
+    live = station.live
+    for _ in range(3):
+        station._live_read(live)                                # the screen didn't change
+    assert station.screen["reads"] == 1 and live["reads"] == 4 and len(live["log"]) == 1
+    height_cm = decant_dip_at(19000.0)
+    station.screen.update(fp="b", card={**CARD3, "volume": 19000.0, "ullage": 1000.0, "height": round(height_cm * 10, 2),
+                                        "time": ("10", "13", "2026", "18", "05", "00")})
+    station._live_read(live)
+    assert station.screen["reads"] == 2 and live["figures"]["3"]["reading"]["volume"] == 19000.0
+    assert [row["3"]["volume"] for row in live["log"]] == [19552.05, 19000.0]
+    csv = station.live_log_csv().decode().splitlines()
+    assert csv[0] == "time,Tank 3 stock L,Tank 3 screen time" and csv[-1].split(",")[1:] == [
+        "19000.0", "2026-10-13T18:05:00+05:30"]
+    assert station.db.writes == []                              # figures to decant were off
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+    assert station.live_last["log"][-1]["3"]["volume"] == 19000.0
+
+
+def test_a_live_read_that_fails_the_checks_is_shown_not_sent_and_read_again(station):
+    station.screen["card"] = {**CARD3, "volume": 19000.0}       # volume + ullage don't add up
+    station.start_live({"tanks": [3]})
+    assert wait_for(lambda: station.live and station.live["figures"].get("3"))
+    live = station.live
+    assert live["figures"]["3"]["confidence"] == "low" and station.db.writes == []
+    station._live_read(live)
+    assert station.screen["reads"] >= 2                         # not taken as read
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_stop_ends_live_monitoring_quietly_with_the_last_pictures(station):
     station.start_live({"tanks": [3]})
     assert wait_for(lambda: station.live and station.live["reads"] == 1)
     station.stop_live()
     assert wait_for(lambda: station.live is None)
     assert station.live_last["reason"] == "stopped by you" and station.photos == []
+    assert station.last["why"] == "live" and "3" in station.last["tanks"]
+    assert station.picture([3])                                  # the Save image button
     with pytest.raises(RuntimeError):
         station.start_live() if station.live else (station.start_live(), station.start_live())
     station.stop_live()
@@ -257,12 +313,11 @@ def test_live_monitoring_that_cannot_connect_says_so(station):
     assert "opened a session" in station.live_last["reason"] and "opened a session" in station.alerts[-1]
 
 
-def test_a_watched_tank_missing_from_the_live_screen_is_reported_once(station):
-    station.start_live({"tanks": [1, 3], "interval_min": 1})
-    assert wait_for(lambda: station.live and station.live["reads"] == 1)
-    station._live_read(station.live)                            # the next scheduled read
-    assert station.live["reads"] == 2
-    assert len([a for a in station.alerts if "Tank 1" in a]) == 1
+def test_reads_never_take_more_than_half_the_time(station, monkeypatch):
+    station.start_live({"tanks": [3], "interval_s": 10})
+    assert wait_for(lambda: station.live and station.live.get("next_read"))
+    live = station.live
+    assert live["read_s"] < 10
     station.stop_live()
     assert wait_for(lambda: station.live is None)
 
@@ -300,7 +355,7 @@ def test_the_page_api_needs_its_token_and_this_machine(station):
     base = f"http://127.0.0.1:{port}"
     try:
         state = json.loads(urllib.request.urlopen(f"{base}/api/state").read())
-        assert state["login_saved"] and state["settings"]["interval_min"] == 15
+        assert state["login_saved"] and state["settings"]["interval_s"] == 10
         page = urllib.request.urlopen(f"{base}/").read()
         assert srv.csrf.encode() in page and b"__CSRF__" not in page
 
@@ -311,9 +366,9 @@ def test_the_page_api_needs_its_token_and_this_machine(station):
                 return urllib.request.urlopen(req).status
             except urllib.error.HTTPError as exc:
                 return exc.code
-        assert post("/api/settings", {"interval_min": 20}, "wrong") == 403
-        assert post("/api/settings", {"interval_min": 20}, srv.csrf) == 200
-        assert post("/api/settings", {"interval_min": 0}, srv.csrf) == 400
+        assert post("/api/settings", {"interval_s": 20}, "wrong") == 403
+        assert post("/api/settings", {"interval_s": 20}, srv.csrf) == 200
+        assert post("/api/settings", {"interval_s": 0}, srv.csrf) == 400
         assert post("/api/live/stop", {}, srv.csrf) == 200
         req = urllib.request.Request(f"{base}/api/state", headers={"Host": "elsewhere.example"})
         with pytest.raises(urllib.error.HTTPError) as err:

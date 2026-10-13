@@ -78,3 +78,16 @@ def test_a_picture_of_three_tanks_to_save_has_two_to_a_row():
     row, one = nav._size(cards.picture(png, boxes, [1, 2])), nav._size(cards.crop(png, boxes[1]))
     assert (w, h) == (row[0], 2 * one[1] + 16)                 # two cards, then one under them
     assert nav._size(cards.picture(png, boxes, [1, 2], grid=True)) == row   # two: one row
+
+
+def test_a_heading_whose_number_ocr_lost_takes_its_place_in_the_row():
+    from tank_stock import cards
+    row = words(("Tank", 910, 324), ("Status", 950, 324),                  # the page title
+                ("Tank", 301, 350), ("1:", 340, 350), ("Tank", 640, 350), ("2", 680, 350),
+                ("Tank", 979, 350), ("3", 1019, 350), ("Tank", 1318, 350), ("(traGreen", 1360, 350),
+                ("Tank", 309, 480), ("Status", 350, 480))                  # a card's own label
+    assert sorted(cards.headings(row)) == [1, 2, 3, 4]
+    assert cards.headings(row)[4][0] == 1318
+    # numbers that don't follow the row's order: only the ones read count
+    odd = words(("Tank", 301, 350), ("2", 340, 350), ("Tank", 640, 350), ("(traGreen", 680, 350))
+    assert sorted(cards.headings(odd)) == [2]
