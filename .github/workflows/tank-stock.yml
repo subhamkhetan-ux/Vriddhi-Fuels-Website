@@ -1,0 +1,36 @@
+name: Tank stock (AnyDesk -> decant)
+
+# Opens the IOCL automation PC with AnyDesk's unattended access from the India
+# server and takes a screenshot of its tank stock screen. Stage 1: the picture
+# goes privately to Telegram (this repo's logs are public). Setup:
+# infra/anydesk/setup.sh, then secrets ANYDESK_ID and ANYDESK_PASSWORD.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "capture: screenshot to Telegram"
+        type: choice
+        options: [capture]
+        default: capture
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tank-stock
+  cancel-in-progress: false
+
+jobs:
+  stock:
+    runs-on: [self-hosted, india]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Screenshot the automation PC through AnyDesk
+        env:
+          ANYDESK_ID: ${{ secrets.ANYDESK_ID }}
+          ANYDESK_PASSWORD: ${{ secrets.ANYDESK_PASSWORD }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+        run: /opt/agents/venv/bin/python -m tank_stock.run --capture
