@@ -180,13 +180,31 @@ def test_single_config_row(pg):
     pg.fails("insert into dec_config (id) values (2);")
 
 
+def test_remove_from_payments_refuses_the_decant_project(pg):
+    _reset(pg)
+    pg.ok("insert into dec_tank_state (tank_id, reading) values ('T1', '{\"volume\": 1}') "
+          "on conflict (tank_id) do update set reading = excluded.reading;")
+    before = pg.ok("select count(*) from dec_tank_state;")
+    out = pg.fails(open(REMOVE, encoding="utf-8").read())
+    assert "decanting app's own project" in str(out)
+    assert pg.ok("select count(*) from dec_tank_state;") == before        # nothing removed
+    assert pg.ok("select to_regclass('public.dec_months') is not null;") == "t"
+
+
 def test_remove_from_payments_touches_only_the_dec_tables(pg):
+    _reset(pg)
+    pg.ok("delete from dec_tank_state;")
+    if pg.ok("select to_regclass('storage.objects') is not null;") == "t":   # only an empty bucket goes
+        pg.ok("delete from storage.objects where bucket_id = 'dec-shots';")
     # a stand-in for the payments project's own tables
     pg.ok("create table if not exists pay_rows (id int primary key); insert into pay_rows values (1) on conflict do nothing;")
     remove = open(REMOVE, encoding="utf-8").read()
     pg.ok(remove)
     pg.ok(remove)                                          # safe to run twice
-    assert pg.ok("select count(*) from pg_class where relname like 'dec\\_%';") == "0"
+    assert pg.ok("select coalesce(string_agg(relname, ','), '') from pg_class where relname like 'dec\\_%';") == ""
     assert pg.ok("select count(*) from pg_proc where proname = 'dec_purge_old';") == "0"
     assert pg.ok("select count(*) from pay_rows;") == "1"
+    if pg.ok("select to_regclass('storage.buckets') is not null;") == "t":   # the storage stub, if made
+        assert pg.ok("select count(*) from storage.buckets where id = 'dec-shots';") == "0"
+        assert pg.ok("select count(*) from pg_policies where policyname = 'dec_shots_files';") == "0"
     pg.ok(open(SCHEMA, encoding="utf-8").read())           # put the schema back for any later test
