@@ -22,6 +22,7 @@ from ``decantation.json``. "Hand over" leaves the decantation to the app.
 """
 from __future__ import annotations
 
+import copy
 import threading
 import time
 import traceback
@@ -54,6 +55,7 @@ class AutoDecant:
         self.screens = {}                     # tank id -> the screen at its settling peak
         self.abort = threading.Event()
         self.reconnecting = None              # the thread connecting again, while it runs
+        self._view = None                     # the page's last view
 
     # ---- state -----------------------------------------------------------
     @property
@@ -556,10 +558,19 @@ class AutoDecant:
             traceback.print_exc()
 
     def view(self) -> dict | None:
-        if not self.info:
-            return None
-        info = {k: v for k, v in self.info.items() if k not in ("fed", "synced", "runningSince")}
-        return {**info, "run": self.run.view(time.time()) if self.run else None}
+        """For the page. Under the lock (a live read changes the run), but a
+        full read can hold it for seconds: then the last view."""
+        if not self.lock.acquire(timeout=1):
+            return self._view
+        try:
+            if not self.info:
+                self._view = None
+            else:
+                info = {k: v for k, v in self.info.items() if k not in ("fed", "synced", "runningSince")}
+                self._view = copy.deepcopy({**info, "run": self.run.view(time.time()) if self.run else None})
+            return self._view
+        finally:
+            self.lock.release()
 
 
 def _now() -> str:
