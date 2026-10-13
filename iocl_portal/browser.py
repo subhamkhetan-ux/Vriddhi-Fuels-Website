@@ -78,6 +78,7 @@ class PortalBrowser:
         self.timeout = timeout
         # Structure-only notes for report_diagnostics(); never account data.
         self.dialogs, self.date_fields, self.view_info = [], {}, ""
+        self._dialog_text = []      # unmasked, only to find the matching script
         self._watch(page)
         page.context.on("page", self._watch)
 
@@ -87,6 +88,7 @@ class PortalBrowser:
     def _on_dialog(self, dialog):
         # Same outcome as Playwright's default (dismiss), but remember it.
         self.dialogs.append(_safe(f"{dialog.type}: {dialog.message}"))
+        self._dialog_text.append(dialog.message)
         try:
             dialog.dismiss()
         except Exception:
@@ -284,6 +286,34 @@ class PortalBrowser:
             last_error += " Seen: " + self.report_diagnostics(downloads)
         raise PortalError(last_error)
 
+    def script_near(self, message: str) -> str:
+        """The portal's own JavaScript around an alert's text (its form check),
+        from inline and same-origin scripts. Static site code, not account data."""
+        needle = re.sub(r"[.!]+$", "", message.strip())[:40]
+        if not needle:
+            return "-"
+        for frame in self.frames():
+            try:
+                found = frame.evaluate("""async (needle) => {
+                  const texts = Array.from(document.scripts).filter(s => !s.src).map(s => s.text);
+                  for (const s of Array.from(document.scripts).filter(s => s.src).slice(0, 8)) {
+                    try {
+                      const u = new URL(s.src, location.href);
+                      if (u.origin === location.origin) texts.push(await (await fetch(u)).text());
+                    } catch (e) {}
+                  }
+                  for (const t of texts) {
+                    const i = t.toLowerCase().indexOf(needle.toLowerCase());
+                    if (i >= 0) return t.slice(Math.max(0, i - 900), i + 300);
+                  }
+                  return null;
+                }""", needle)
+            except Exception:
+                found = None
+            if found:
+                return json.dumps(_safe(" ".join(found.split()), 1300))
+        return "not found"
+
     def report_diagnostics(self, downloads=()) -> str:
         """Where the report might have gone, without any account data: page
         and frame addresses (no query, long numbers masked), table and row
@@ -305,6 +335,8 @@ class PortalBrowser:
         parts.append("dates=" + json.dumps(self.date_fields, separators=(",", ":")))
         parts.append("view=" + (self.view_info or "-"))
         parts.append("dialogs=" + (json.dumps(self.dialogs) if self.dialogs else "none"))
+        for message in self._dialog_text[:1]:
+            parts.append("script=" + self.script_near(message))
         if downloads:
             names = ["*" + (os.path.splitext(d.suggested_filename or "")[1][:6] or "(no extension)")
                      for d in downloads]
