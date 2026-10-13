@@ -278,13 +278,13 @@ class Station:
             self._release()
         return results
 
-    def picture(self, tanks, stack: bool = False) -> bytes:
+    def picture(self, tanks, stack: bool = False, grid: bool = False) -> bytes:
         try:
             png = (self.home / "screen.png").read_bytes()
         except OSError:
             return b""
         boxes = {int(k): tuple(v["box"]) for k, v in (self.last.get("tanks") or {}).items()}
-        return cards_mod.picture(png, boxes, clean_tanks(tanks), stack=stack)
+        return cards_mod.picture(png, boxes, clean_tanks(tanks), stack=stack, grid=grid)
 
     # ---- live monitoring ------------------------------------------------
     def start_live(self, new_settings: dict | None = None) -> dict:
@@ -511,7 +511,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 query = parse_qs(url.query)
                 tanks = [t for t in query.get("tanks", [""])[0].split(",") if t]
-                png = self.station.picture(tanks, stack=query.get("stack", ["0"])[0] == "1")
+                png = self.station.picture(tanks, stack=query.get("stack", ["0"])[0] == "1",
+                                           grid=query.get("grid", ["0"])[0] == "1")
             except ValueError as exc:
                 return self._json(400, {"error": str(exc)})
             if not png:

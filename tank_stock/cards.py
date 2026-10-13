@@ -98,20 +98,21 @@ def card_boxes(png: bytes, words) -> dict:
         if bottom is None:
             bottom = min(px.height - 1, start + 12)
         # The run along the top stops where the rounded corners bend down.
-        boxes[no] = (max(0, left - 6), top, min(px.width - 1, right + 6), bottom)
+        boxes[no] = (max(0, left - 4), top, min(px.width - 1, right + 4), bottom)
     return boxes
 
 
-def crop(png: bytes, box, scale: int = 2, margin: int = 4) -> bytes:
+def crop(png: bytes, box, scale: int = 2, margin: int = 1) -> bytes:
     left, top, right, bottom = box
     left, top = max(0, left - margin), max(0, top - margin)
     w, h = right - left + 1 + 2 * margin, bottom - top + 1 + 2 * margin
     return _convert(png, ["-crop", f"{w}x{h}+{left}+{top}", "+repage", "-resize", f"{scale * 100}%"])
 
 
-def picture(png: bytes, boxes: dict, tanks, stack: bool = False) -> bytes:
-    """The asked-for tanks' cards zoomed in: side by side, or one under
-    another (``stack``, for a phone)."""
+def picture(png: bytes, boxes: dict, tanks, stack: bool = False, grid: bool = False) -> bytes:
+    """The asked-for tanks' cards zoomed in: side by side, one under another
+    (``stack``, for a phone screen) or two to a row (``grid``, for a picture
+    to save or send)."""
     parts = [crop(png, boxes[n]) for n in sorted(tanks) if n in boxes]
     parts = [p for p in parts if p]
     if not parts:
@@ -124,10 +125,26 @@ def picture(png: bytes, boxes: dict, tanks, stack: bool = False) -> bytes:
             files.append(os.path.join(tmp, f"{i}.png"))
             with open(files[-1], "wb") as f:
                 f.write(p)
-        # 16 px of white between cards: splice it before each, then trim the first.
-        gap = "0x16" if stack else "16x0"
+        if grid and len(files) > 2:
+            rows = [_join(files[i:i + 2], across=True) for i in range(0, len(files), 2)]
+            return _join(rows, across=False, data=True)
+        return _join(files, across=not stack)
+
+
+def _join(items, across: bool, data: bool = False) -> bytes:
+    """Pictures (paths, or PNG bytes with ``data``) joined with 16 px of white."""
+    with tempfile.TemporaryDirectory() as tmp:
+        files = items
+        if data:
+            files = []
+            for i, p in enumerate(items):
+                files.append(os.path.join(tmp, f"r{i}.png"))
+                with open(files[-1], "wb") as f:
+                    f.write(p)
+        # 16 px of white between pictures: splice it before each, then trim the first.
+        gap = "16x0" if across else "0x16"
         args = ["convert", *files, "-background", "white", "-splice", gap,
-                "-append" if stack else "+append", "-chop", gap, "png:-"]
+                "+append" if across else "-append", "-chop", gap, "png:-"]
         try:
             return subprocess.run(args, capture_output=True, timeout=60).stdout
         except (OSError, subprocess.TimeoutExpired):

@@ -50,7 +50,7 @@
   .tank { border-top: 1px solid var(--line); padding: 10px 0; }
   .tank:first-child { border-top: 0; }
   .tank-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .tank-head .up { margin-left: auto; }
+  .tank-head .acts { margin-left: auto; display: flex; gap: 6px; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin-top: 8px; }
   .fig .label { display: block; font-size: 12px; color: var(--muted); }
   .fig .value { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -93,6 +93,7 @@
     <div id="figures"></div>
     <div class="row">
       <button class="main" id="upAll">Upload these to decant</button>
+      <button class="alt" id="saveAll">Save image of all tanks</button>
     </div>
     <div class="status" id="upStatus"></div>
   </section>
