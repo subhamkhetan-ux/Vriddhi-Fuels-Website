@@ -22,10 +22,22 @@ app's checks.
    This installs AnyDesk, a virtual display and screenshot tools. The server's
    own AnyDesk gets no unattended password, so no one can connect into it.
 2. In GitHub, **Settings → Secrets and variables → Actions → Secrets**:
-   `ANYDESK_ID` (the IOCL PC's AnyDesk number) and `ANYDESK_PASSWORD` (its
-   unattended-access password).
+   - `ANYDESK_IDS`: **both** of the IOCL PC's AnyDesk numbers, comma separated,
+     for example `123 456 789, 987 654 321`;
+   - `ANYDESK_PASSWORD`: its unattended-access password.
 3. **Actions → Tank stock (AnyDesk -> decant) → Run workflow**. The
    screenshot arrives on Telegram within a minute or two.
+
+## The PC's two AnyDesk IDs
+
+The PC's AnyDesk switches between two IDs every few days, and only one is
+online (the green dot in the AnyDesk app). AnyDesk can't be asked whether a
+remote ID is online, so the job tries them. An offline ID never opens a
+session window, only a small "not available" message, so after about 35
+seconds the job moves on to the other. The ID that worked last is tried first
+(remembered on the server), so the extra wait only happens on the day the PC
+switches. Telegram says which ID was used; the public log says only "#1" or
+"#2".
 
 ## Caveats
 
