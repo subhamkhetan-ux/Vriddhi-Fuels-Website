@@ -4632,6 +4632,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-10-13T04:00:32.716765+00:00"
+    },
+    {
+      "entry_id": "dde85ab6a23881a3",
+      "gmail_msg_id": "1878912902569925337",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "13/10/26",
+      "date_serial": 46308,
+      "amount": 400052.46,
+      "raw_payer": "RADHE SHYAM MINING",
+      "customer": "Radhe Shyam Mining",
+      "candidates": [
+        "Radhe Shyam Mining"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-13T06:00:17.349321+00:00",
+      "status": "matched"
     }
   ]
 }
