@@ -4,8 +4,9 @@
 # differs from the (non-root) user this process runs as ... logged in UID: 0")
 # unless the user running it is the one logged in to the machine. A server
 # has no one logged in, so this unit opens a logind session for `runner`
-# through PAM, as a display manager would. It runs nothing but `sleep`;
-# installed by infra/anydesk/setup.sh.
+# through PAM, as a display manager would, and runs tank-stock captures
+# inside it when the job asks (tank-stock-session.sh). Installed by
+# infra/anydesk/setup.sh.
 [Unit]
 Description=Login session for the tank-stock AnyDesk client
 After=systemd-logind.service systemd-user-sessions.service
@@ -14,7 +15,7 @@ After=systemd-logind.service systemd-user-sessions.service
 User=runner
 PAMName=tank-stock-session
 Environment=XDG_SESSION_TYPE=x11 XDG_SESSION_CLASS=user DISPLAY=:98
-ExecStart=/bin/sleep infinity
+ExecStart=/opt/agents/tank-stock-session.sh
 Restart=always
 RestartSec=10
 

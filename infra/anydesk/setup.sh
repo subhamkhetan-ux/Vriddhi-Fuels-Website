@@ -34,6 +34,7 @@ say "3/4 Giving the runner user a login session (AnyDesk won't start without one
 here="$(cd "$(dirname "$0")" && pwd)"
 id runner >/dev/null 2>&1 || die "No 'runner' user; run infra/india-runner/setup.sh first."
 sudo install -m 644 "$here/tank-stock-session.pam" /etc/pam.d/tank-stock-session
+sudo install -m 755 "$here/tank-stock-session.sh" /opt/agents/tank-stock-session.sh
 sudo install -m 644 "$here/tank-stock-session.service" /etc/systemd/system/tank-stock-session.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now tank-stock-session.service
@@ -43,8 +44,11 @@ say "4/4 Checking"
 anydesk --version || true
 systemctl is-active --quiet anydesk && echo "AnyDesk service is running." || echo "Note: the AnyDesk service is not running."
 sleep 2
-if loginctl list-sessions --no-legend | grep -qw runner; then
-  echo "The runner user has a login session."
+sid=$(loginctl list-sessions --no-legend | awk '$3 == "runner" {print $1; exit}')
+if [ -n "$sid" ]; then
+  echo "The runner user has a login session:"
+  loginctl show-session "$sid" -p Type -p Class -p Active -p State
+  systemctl is-active --quiet tank-stock-session && echo "The capture runner is waiting in it."
 else
   echo "Note: no login session for runner yet. Send: systemctl status tank-stock-session"
 fi

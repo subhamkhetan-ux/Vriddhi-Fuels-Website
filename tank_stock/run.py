@@ -2,31 +2,92 @@
 
 Stage 1: AnyDesk screenshot of the IOCL automation PC, sent privately to
 Telegram. (Stage 2 will hand it to the decant app's Stock reader.)
+
+AnyDesk only starts inside the logged-in user's session, which a GitHub job
+is not part of. So when the server has the session's capture queue
+(infra/anydesk/setup.sh), the job leaves a request there and relays the
+result; tank-stock-session.sh runs ``--in-session`` with it.
 """
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta, timezone
+import json
 import os
+from pathlib import Path
 import sys
+import time
+import uuid
 
 from . import telegram
-from .capture import CaptureError, capture, parse_ids
+from .capture import CaptureError, capture, diagnosis, parse_ids
 
 IST = timezone(timedelta(hours=5, minutes=30))
+QUEUE = Path(os.environ.get("TANK_STOCK_QUEUE", "/opt/agents/tank-stock-queue"))
+# What the capture in the session needs from the job's environment.
+PASS_ENV = ("ANYDESK_IDS", "ANYDESK_ID", "ANYDESK_PASSWORD", "TANK_TELEGRAM_TOKEN", "TANK_TELEGRAM_CHAT")
+SESSION_WAIT = 400   # seconds; the job's timeout is 8 minutes
+
+
+def via_session(wait: int = SESSION_WAIT) -> int:
+    """Leave the capture to the login session and relay its output."""
+    job = QUEUE / uuid.uuid4().hex
+    env = {k: os.environ[k] for k in PASS_ENV if os.environ.get(k)}
+    fd = os.open(f"{job}.env", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(env, f)
+    Path(f"{job}.tmp").write_text(os.getcwd(), encoding="utf-8")
+    os.replace(f"{job}.tmp", f"{job}.req")
+    print("Capturing inside the runner's login session...", flush=True)
+    rc_file, deadline = Path(f"{job}.rc"), time.monotonic() + wait
+    while not rc_file.exists() and time.monotonic() < deadline:
+        time.sleep(2)
+    try:
+        if not rc_file.exists():
+            print("The login session never picked up the capture. On the server check: "
+                  "systemctl status tank-stock-session", file=sys.stderr)
+            return 1
+        print(Path(f"{job}.log").read_text(encoding="utf-8", errors="replace"), end="")
+        return int(rc_file.read_text().strip() or 1)
+    finally:
+        for ext in (".req", ".env", ".log", ".rc"):
+            Path(f"{job}{ext}").unlink(missing_ok=True)
+
+
+def in_session(job: str) -> int:
+    """Run by tank-stock-session.sh, inside the session, for one request."""
+    env_file = Path(f"{job}.env")
+    env = json.loads(env_file.read_text(encoding="utf-8"))
+    env_file.unlink()
+    os.environ.update(env)
+    return capture_and_report()
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Tank stock from the IOCL automation PC via AnyDesk")
-    ap.add_argument("--capture", action="store_true", required=True,
-                    help="connect, screenshot, send it to Telegram")
-    ap.parse_args(argv)
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--capture", action="store_true", help="connect, screenshot, send it to Telegram")
+    mode.add_argument("--in-session", metavar="REQUEST", help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
+    if args.in_session:
+        return in_session(args.in_session)
+    if QUEUE.is_dir():
+        return via_session()
+    print("No login-session queue on this server (re-run infra/anydesk/setup.sh); "
+          "capturing directly.", flush=True)
+    return capture_and_report()
+
+
+def capture_and_report() -> int:
     when = datetime.now(IST).strftime("%d %b %Y %I:%M %p IST")
     try:
         ids = parse_ids(os.environ.get("ANYDESK_IDS") or os.environ.get("ANYDESK_ID", ""))
         png, seen, used = capture(ids, os.environ.get("ANYDESK_PASSWORD", ""))
     except CaptureError as exc:
         print(f"Tank stock capture stopped: {exc}", file=sys.stderr)
+        if exc.trace:
+            for line in diagnosis(exc.trace):
+                print(f"  {line}")
         sent = telegram.send_text(f"⚠️ Tank stock capture failed ({when}): {exc}")
         # Private only: what each attempt's virtual screen showed.
         delivered = 0

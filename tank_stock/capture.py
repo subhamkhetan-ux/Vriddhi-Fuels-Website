@@ -152,6 +152,32 @@ def _read_tail(path, size: int) -> str:
         return ""
 
 
+def _mask(text: str) -> str:
+    return re.sub(r"\d{5,}", "…", text)
+
+
+def diagnosis(trace: str) -> list[str]:
+    """Safe for the public log (long numbers masked): who is logged in, and
+    why AnyDesk stopped, so a failure can be read without the private report."""
+    env = dict(os.environ)
+    lines = []
+    for row in _run(["loginctl", "list-sessions", "--no-legend"], env).splitlines():
+        sid = row.split()[0] if row.split() else ""
+        props = _run(["loginctl", "show-session", sid, "-p", "Name", "-p", "Seat", "-p", "VTNr",
+                      "-p", "Type", "-p", "Class", "-p", "Active", "-p", "State"], env).split()
+        lines.append(f"login session {sid}: {' '.join(props) or row.strip()}")
+    if not lines:
+        lines.append("login sessions: none")
+    who = _run(["who"], env).split("\n")
+    lines.append(f"logged in (who): {', '.join(w.split()[0] for w in who if w.split()) or 'nobody'}")
+    # The client's ("ad") own errors; the service ("gsvc") logs harmless ones.
+    reasons = [l.split(" - ", 1)[-1].strip() for l in trace.splitlines()
+               if re.match(r"\s*(explode|error)\s+\S+\s+\S+\s+ad\s", l)]
+    for reason in list(dict.fromkeys(reasons))[-4:]:
+        lines.append(f"AnyDesk: {reason[:200]}")
+    return [_mask(l) for l in lines]
+
+
 def _trace(frontend_log, frontend, bus) -> str:
     """For the private Telegram report: AnyDesk's own logs from this run."""
     rc = frontend.poll() if frontend else "not started"

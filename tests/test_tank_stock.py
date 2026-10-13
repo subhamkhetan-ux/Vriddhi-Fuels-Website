@@ -1,5 +1,8 @@
 """Tank stock stage 1: AnyDesk screenshot -> Telegram, with fakes only."""
 import json
+import os
+from pathlib import Path
+import threading
 
 import pytest
 
@@ -15,6 +18,11 @@ class FakeResponse:
         return False
     def read(self):
         return self.body
+
+
+@pytest.fixture(autouse=True)
+def no_session_queue(monkeypatch, tmp_path):
+    monkeypatch.setattr(run, "QUEUE", tmp_path / "no-queue")
 
 
 @pytest.fixture(autouse=True)
@@ -229,3 +237,82 @@ def test_a_failed_capture_is_reported_privately(monkeypatch):
     texts = []
     monkeypatch.setattr(run.telegram, "send_text", lambda t: texts.append(t) or True)
     assert run.main(["--capture"]) == 1 and "no session" in texts[0]
+
+
+TRACE = """\
+  error 2026-10-13 12:04:22.214         ad   main  24198  24198   base.dyn_library - Unable to load library libpipewire-0.3.so
+explode 2026-10-13 12:04:22.214         ad   main  24198  24198   app.common_path - The logged in user differs from the (non-root) user this process runs as. Process UID: 1002 , logged in UID: 0
+  crash 2026-10-13 12:04:22.214         ad   main  24198  24198   backtrace - Process crashed
+  error 2026-10-13 11:21:23.301       gsvc    dns  20349  20477   anynet.dns_resolver - DNS name couldn't be resolved
+   info 2026-10-13 12:04:22.199         ad   main  24198  24198   main - Command Line params: '834626021 --with-password'
+"""
+
+
+def test_public_diagnosis_gives_the_reason_without_ids(monkeypatch):
+    def fake_run(cmd, env, timeout=15):
+        if cmd[:2] == ["loginctl", "list-sessions"]:
+            return "  c1 1002 runner seat0 tty7\n"
+        if cmd[:2] == ["loginctl", "show-session"]:
+            return "Name=runner\nSeat=seat0\nActive=yes\n"
+        return "runner   tty7  2026-10-13 12:00\n" if cmd == ["who"] else ""
+    monkeypatch.setattr(cap, "_run", fake_run)
+    lines = cap.diagnosis(TRACE)
+    text = "\n".join(lines)
+    assert "login session c1: Name=runner Seat=seat0 Active=yes" in text
+    assert "logged in (who): runner" in text
+    assert "The logged in user differs" in text and "libpipewire" in text
+    assert "DNS" not in text and "834626021" not in text
+
+
+def test_failure_log_prints_the_diagnosis(monkeypatch, capsys):
+    monkeypatch.setenv("ANYDESK_IDS", "123456789")
+    monkeypatch.setattr(run, "capture", lambda i, p: (_ for _ in ()).throw(
+        cap.CaptureError("None of the 1 AnyDesk IDs opened a session", [], TRACE)))
+    monkeypatch.setattr(run, "diagnosis", lambda trace: ["AnyDesk: masked reason"])
+    for name in ("send_text", "send_file"):
+        monkeypatch.setattr(run.telegram, name, lambda *a: True)
+    assert run.main(["--capture"]) == 1
+    assert "  AnyDesk: masked reason" in capsys.readouterr().out
+
+
+def test_capture_is_handed_to_the_login_session_and_relayed(monkeypatch, tmp_path, capsys):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    monkeypatch.setattr(run, "QUEUE", queue)
+    monkeypatch.setenv("ANYDESK_IDS", "123456789")
+    monkeypatch.setenv("ANYDESK_PASSWORD", "s3cret")
+    seen = {}
+
+    def session():                      # what tank-stock-session.sh does
+        while not list(queue.glob("*.req")):
+            pass
+        req = next(queue.glob("*.req"))
+        job = str(req)[:-4]
+        seen["workdir"] = req.read_text()
+        seen["mode"] = oct(Path(job + ".env").stat().st_mode & 0o777)
+        req.unlink()
+        monkeypatch.setattr(run, "capture_and_report", lambda: print("Captured via ID #1") or 0)
+        seen["env"] = run.main(["--in-session", job]) == 0 and dict(ids=os.environ["ANYDESK_IDS"])
+        Path(job + ".log").write_text("Captured via ID #1\n")
+        Path(job + ".rc.tmp").write_text("0\n")
+        os.replace(job + ".rc.tmp", job + ".rc")      # atomic, as the script's mv
+
+    worker = threading.Thread(target=session)
+    worker.start()
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    assert run.main(["--capture"]) == 0
+    worker.join()
+    out = capsys.readouterr().out
+    assert "Captured via ID #1" in out and "s3cret" not in out
+    assert seen["mode"] == "0o600" and seen["workdir"] == os.getcwd() and seen["env"]["ids"] == "123456789"
+    assert list(queue.iterdir()) == []               # secrets file and request cleaned up
+
+
+def test_a_session_that_never_answers_fails_clearly(monkeypatch, tmp_path, capsys):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    monkeypatch.setattr(run, "QUEUE", queue)
+    monkeypatch.setenv("ANYDESK_PASSWORD", "s3cret")
+    assert run.via_session(wait=0) == 1
+    assert "systemctl status tank-stock-session" in capsys.readouterr().err
+    assert list(queue.iterdir()) == []
