@@ -15,7 +15,7 @@ on:
       mode:
         description: "Probe login page, validate without writing, or sync Payments"
         type: choice
-        options: [network, probe, dry-run, sync, opening]
+        options: [network, probe, captcha-sample, dry-run, sync, opening]
         default: dry-run
   workflow_call:
     inputs:
@@ -79,15 +79,33 @@ jobs:
           IOCL_CUSTOMER_CODE: ${{ vars.IOCL_CUSTOMER_CODE }}
           IOCL_CAPTCHA_LENGTH: ${{ vars.IOCL_CAPTCHA_LENGTH || '6' }}
           IOCL_SELECTORS_JSON: ${{ vars.IOCL_SELECTORS_JSON }}
+          IOCL_SAMPLE_COUNT: ${{ vars.IOCL_SAMPLE_COUNT || '24' }}
           # Reuse the existing payment-agent bindings. If both are absent,
           # the runner uses the same published public config as /payments.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           case "$IOCL_MODE" in
-            probe|dry-run|sync|opening) "$AGENT_PY" -m iocl_portal.run "--$IOCL_MODE" ;;
+            probe|captcha-sample|dry-run|sync|opening) "$AGENT_PY" -m iocl_portal.run "--$IOCL_MODE" ;;
             *) exit 2 ;;
           esac
+      - name: Keep CAPTCHA samples for OCR tuning
+        # Only the CAPTCHA pictures, the empty login page and OCR guesses:
+        # nothing was typed, so no credentials or account data are inside.
+        if: always() && inputs.mode == 'captcha-sample'
+        uses: actions/upload-artifact@v4
+        with:
+          name: captcha-samples
+          path: captcha-samples/
+          retention-days: 3
+          if-no-files-found: error
+      - name: Print CAPTCHA samples to the log (for remote tuning)
+        if: always() && inputs.mode == 'captcha-sample'
+        run: |
+          cat captcha-samples/report.json; echo
+          for f in captcha-samples/captcha-*.png; do
+            echo "B64 $(basename "$f") $(base64 -w0 "$f")"
+          done
       - name: Report failed observation
         if: failure()
         run: |

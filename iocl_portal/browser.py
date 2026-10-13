@@ -18,6 +18,24 @@ from .statement import IST, PortalError, parse_statement
 
 PORTAL_ORIGIN = "https://utkarsh.indianoil.co.in"
 LOGIN_URL = PORTAL_ORIGIN + "/ioconline/iocExStart.jsp"
+CAPTCHA_TRIES = 5
+_DATE_LIKE = re.compile(r"\d{1,4}[-/.][A-Za-z0-9]{1,3}[-/.]\d{2,4}")
+
+
+def _safe(value, limit=80) -> str:
+    """Mask long numbers (account or customer codes) and cap the length."""
+    return re.sub(r"\d{5,}", "#", str(value or ""))[:limit]
+
+
+# Yes/no markers for report_diagnostics(); never the matched text itself.
+REPORT_FLAGS = (
+    ("CL.BAL", r"CL\.?\s*BAL"), ("CompCode", r"Comp(any)?\.?\s+Code"),
+    ("OpenDelivery", r"Open\s+Delivery"), ("Closing", r"Closing\s+balance"),
+    ("PADtitle", r"Customer\s+PAD\s+Balance"), ("Generated", r"Report\s+Generated"),
+    ("FromTo", r"\bFrom\b.*\bTo\b"), ("Balance(Rs)", r"Balance\s*\(?\s*Rs"),
+    ("NoData", r"no\s+(data|record|transaction)s?\s+(found|available)"),
+    ("Error", r"\b(error|exception|session\s+expired)\b"),
+)
 OVERRIDE_KEYS = {"username", "password", "captcha_image", "captcha_input", "login",
                  "account_menu", "pad_menu", "from_date", "to_date", "view"}
 
@@ -58,6 +76,23 @@ class PortalBrowser:
         self.selectors = selectors or {}
         self.solve_captcha = captcha_solver
         self.timeout = timeout
+        # Structure-only notes for report_diagnostics(); never account data.
+        self.dialogs, self.date_fields, self.view_info = [], {}, ""
+        self._dialog_text = []      # unmasked, only to find the matching script
+        self._watch(page)
+        page.context.on("page", self._watch)
+
+    def _watch(self, page):
+        page.on("dialog", self._on_dialog)
+
+    def _on_dialog(self, dialog):
+        # Same outcome as Playwright's default (dismiss), but remember it.
+        self.dialogs.append(_safe(f"{dialog.type}: {dialog.message}"))
+        self._dialog_text.append(dialog.message)
+        try:
+            dialog.dismiss()
+        except Exception:
+            pass
 
     def frames(self):
         expected = urlsplit(self.origin)
@@ -127,21 +162,25 @@ class PortalBrowser:
         return self.locate("password", [self._css("input[type=password]")])
 
     def login(self, username: str, password: str, *, captcha_length=6):
+        # Read the displayed challenge before entering credentials; do not save
+        # a browser profile, screenshot, trace or password to any artifact.
+        # An unclear CAPTCHA costs nothing (nothing is submitted), so reload
+        # for a fresh one a few times before giving up.
+        for attempt in range(1, CAPTCHA_TRIES + 1):
+            try:
+                answer = self.solve_captcha(self.captcha_image().screenshot(), length=captcha_length)
+                break
+            except PortalError as exc:
+                if "needs a person" not in str(exc) or attempt == CAPTCHA_TRIES:
+                    raise
+                self.page.reload(wait_until="domcontentloaded", timeout=45000)
         password_field = self.locate("password", [self._css("input[type=password]")])
         username_field = self.locate("username", [self._label(r"^(user(?:name|\s*id)?|dealer\s*(?:code|id)|customer\s*(?:code|id))\s*:?$"),
             self._css("input[autocomplete=username]"),
             self._css("input[name*=user i], input[id*=user i]"),
             self._css("input[name*=dealer i], input[id*=dealer i]"),
             self._css("input[type=text]:not([id*=captcha i]):not([name*=captcha i]):not([id*=captext i])")])
-        captcha = self.locate("captcha_image", [self._css("img[src*=captcha i]"),
-            self._css("img[id*=captcha i], img[alt*=captcha i]"),
-            self._css("canvas[id*=captcha i]")])
-        field = self.locate("captcha_input", [self._label(r"captcha|verification\s*code"),
-            self._css("input[name*=captcha i], input[id*=captcha i]"),
-            self._css("input[name*=captext i], input[id*=captext i]")])
-        # Read the displayed challenge before entering credentials; do not save
-        # a browser profile, screenshot, trace or password to any artifact.
-        answer = self.solve_captcha(captcha.screenshot(), length=captcha_length)
+        field = self.captcha_input()
         username_field.fill(username)
         password_field.fill(password)
         field.fill(answer)
@@ -153,6 +192,16 @@ class PortalBrowser:
             self.account_menu()
         except PortalError:
             raise PortalError("Login was not confirmed (credentials, CAPTCHA or portal challenge). Only one login was submitted; nothing was saved.") from None
+
+    def captcha_image(self):
+        return self.locate("captcha_image", [self._css("img[src*=captcha i]"),
+            self._css("img[id*=captcha i], img[alt*=captcha i]"),
+            self._css("canvas[id*=captcha i]")])
+
+    def captcha_input(self):
+        return self.locate("captcha_input", [self._label(r"captcha|verification\s*code"),
+            self._css("input[name*=captcha i], input[id*=captcha i]"),
+            self._css("input[name*=captext i], input[id*=captext i]")])
 
     def account_menu(self, *, timeout=None):
         return self.text_control("account_menu", r"^[\s▾▸+*^»\-]*Account\s+Information\s*$", timeout=timeout)
@@ -172,6 +221,12 @@ class PortalBrowser:
         control = self.locate(key, [self._label(r"^" + prefix + r"\s*date\s*:?$"),
             self._css(f"input[id*='{prefix}date' i],input[name*='{prefix}date' i]"),
             self._css(f"input[id*='{prefix}_date' i],input[name*='{prefix}_date' i]")])
+        before = control.input_value()
+        self.date_fields[key] = {
+            "type": control.get_attribute("type"), "readonly": control.get_attribute("readonly") is not None,
+            "maxlength": control.get_attribute("maxlength"), "placeholder": _safe(control.get_attribute("placeholder"), 30),
+            "class": _safe(control.get_attribute("class"), 40),
+            "initial": before if _DATE_LIKE.fullmatch(before or "") else ("<set>" if before else "<empty>")}
         value = day.isoformat() if control.get_attribute("type") == "date" else day.strftime("%d-%m-%Y")
         if control.get_attribute("readonly") is not None:
             # Datepickers often expose a readonly text field. Trigger the same
@@ -180,18 +235,73 @@ class PortalBrowser:
         else:
             control.fill(value)
             control.dispatch_event("change")
+        self.date_fields[key]["entered"] = control.input_value()
         if control.input_value() != value:
             raise PortalError("The portal did not accept the requested statement date.")
+
+    def sync_dates(self, from_day: date, to_day: date):
+        """e-Mitra's View check reads $('#fromdate') / $('#todate') (bootstrap
+        datepicker, dd-mm-yyyy). Put the dates exactly there, through the
+        picker when present, after focus has left the fields, and verify what
+        that check will see. Pages without those ids are left as typed."""
+        wanted = {"fromdate": from_day.strftime("%d-%m-%Y"), "todate": to_day.strftime("%d-%m-%Y")}
+        script = """(wanted) => {
+          if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+          const $ = window.jQuery, seen = {};
+          for (const [id, value] of Object.entries(wanted)) {
+            const els = Array.from(document.querySelectorAll('[id="' + id + '"]'));
+            if (!els.length) continue;
+            for (const el of els) {
+              el.value = value;
+              if ($) {
+                const host = $(el).closest('[id^="datepicker"], .date');
+                for (const target of [host, $(el)]) {
+                  try { if (target.length && target.data('datepicker')) target.datepicker('update', value); } catch (e) {}
+                }
+                $(el).val(value).trigger('change');
+              } else {
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+              }
+            }
+            seen[id] = {count: els.length, reads: $ ? $('#' + id).val() : document.getElementById(id).value};
+          }
+          return seen;
+        }"""
+        for frame in self.frames():
+            try:
+                seen = frame.evaluate(script, wanted)
+            except Exception:
+                continue
+            if seen:
+                self.date_fields["sync"] = seen
+                if any(seen.get(i, {}).get("reads") != v for i, v in wanted.items() if i in seen):
+                    raise PortalError("The portal did not keep the requested statement dates: "
+                                      + json.dumps(seen, separators=(",", ":")))
+                return
 
     def read_balance(self, *, customer: str, now=None):
         now = now or datetime.now(IST)
         self.set_date("from_date", now.date() - timedelta(days=1))
         self.set_date("to_date", now.date())
+        self.sync_dates(now.date() - timedelta(days=1), now.date())
         view = self.locate("view", [lambda f: f.get_by_role("button", name=re.compile(r"^\s*View\s*$", re.I)),
             self._css("input[type=submit][value='View' i]"),
             lambda f: f.get_by_role("link", name=re.compile(r"^\s*View\s*$", re.I))])
+        try:
+            self.view_info = _safe(view.evaluate(
+                "el => [el.tagName, el.type || '', el.value || el.innerText || '', "
+                "(el.getAttribute('onclick') || '').slice(0, 80), el.form ? (el.form.getAttribute('action') || '') : 'no-form']"
+                ".join(' | ')"), 160)
+        except Exception:
+            self.view_info = "unreadable"
+        downloads = []
+        def saw_download(download):
+            downloads.append(download)
+        self.page.context.on("page", lambda p: p.on("download", saw_download))
+        self.page.on("download", saw_download)
         self.follow_click(view)
-        end = time.monotonic() + self.timeout
+        # Reports can be slow: three times the control timeout (60 s live).
+        end = time.monotonic() + 3 * self.timeout
         last_error = "The PAD report did not appear."
         while time.monotonic() < end:
             for frame in self.frames():
@@ -213,4 +323,63 @@ class PortalBrowser:
                 except Exception:
                     continue
             self.page.wait_for_timeout(250)
+        if last_error == "The PAD report did not appear.":
+            last_error += " Seen: " + self.report_diagnostics(downloads)
         raise PortalError(last_error)
+
+    def script_near(self, message: str) -> str:
+        """The portal's own JavaScript around an alert's text (its form check),
+        from inline and same-origin scripts. Static site code, not account data."""
+        needle = re.sub(r"[.!]+$", "", message.strip())[:40]
+        if not needle:
+            return "-"
+        for frame in self.frames():
+            try:
+                found = frame.evaluate("""async (needle) => {
+                  const texts = Array.from(document.scripts).filter(s => !s.src).map(s => s.text);
+                  for (const s of Array.from(document.scripts).filter(s => s.src).slice(0, 8)) {
+                    try {
+                      const u = new URL(s.src, location.href);
+                      if (u.origin === location.origin) texts.push(await (await fetch(u)).text());
+                    } catch (e) {}
+                  }
+                  for (const t of texts) {
+                    const i = t.toLowerCase().indexOf(needle.toLowerCase());
+                    if (i >= 0) return t.slice(Math.max(0, i - 900), i + 300);
+                  }
+                  return null;
+                }""", needle)
+            except Exception:
+                found = None
+            if found:
+                return json.dumps(_safe(" ".join(found.split()), 1300))
+        return "not found"
+
+    def report_diagnostics(self, downloads=()) -> str:
+        """Where the report might have gone, without any account data: page
+        and frame addresses (no query, long numbers masked), table and row
+        counts, and yes/no keyword flags. Safe for a public job log."""
+        parts = []
+        for page in self.page.context.pages:
+            for frame in page.frames:
+                u = urlsplit(frame.url or "")
+                path = re.sub(r"\d{5,}", "#", u.path.split(";")[0])
+                try:
+                    text = frame.locator("body").inner_text(timeout=2000)
+                    tables, rows = frame.locator("table").count(), frame.locator("tr").count()
+                except Exception:
+                    text, tables, rows = "", -1, -1
+                flags = [name for name, pattern in REPORT_FLAGS if re.search(pattern, text, re.I)]
+                kind = "page" if frame == page.main_frame else "frame"
+                parts.append(f"{kind} {u.scheme}://{u.netloc}{path} text={len(text)} "
+                             f"tables={tables} rows={rows} has={'+'.join(flags) or 'none'}")
+        parts.append("dates=" + json.dumps(self.date_fields, separators=(",", ":")))
+        parts.append("view=" + (self.view_info or "-"))
+        parts.append("dialogs=" + (json.dumps(self.dialogs) if self.dialogs else "none"))
+        for message in self._dialog_text[:1]:
+            parts.append("script=" + self.script_near(message))
+        if downloads:
+            names = ["*" + (os.path.splitext(d.suggested_filename or "")[1][:6] or "(no extension)")
+                     for d in downloads]
+            parts.append(f"downloads={len(downloads)} ({', '.join(names)})")
+        return "; ".join(parts) or "no pages"

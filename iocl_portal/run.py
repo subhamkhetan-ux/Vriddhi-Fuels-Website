@@ -1,20 +1,51 @@
-"""python -m iocl_portal.run --probe | --dry-run | --sync | --opening"""
+"""python -m iocl_portal.run --probe | --captcha-sample | --dry-run | --sync | --opening"""
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
 
 from .browser import PortalBrowser, launch_options, selectors_from_env
+from .captcha import ocr_reads
 from .statement import PortalError
 from .sync import payments_config, save_balance, save_opening
+
+
+def sample_captchas(portal, out: Path, *, length: int, count: int = 6) -> int:
+    """Diagnostics: the login page once, then ``count`` fresh CAPTCHAs (page
+    reloads) with every OCR read. The page is captured before anything is typed."""
+    out.mkdir(parents=True, exist_ok=True)
+    portal.page.screenshot(path=str(out / "login-page.png"), full_page=True)
+    describe = """el => Object.fromEntries(['tagName','id','name','alt','type','maxLength','placeholder',
+        'width','height','naturalWidth','naturalHeight','autocomplete']
+        .filter(k => el[k] !== undefined && el[k] !== '').map(k => [k, String(el[k])])
+        .concat([['src', (el.getAttribute('src') || '').slice(0, 120)]]))"""
+    report = {"captcha_image": portal.captcha_image().evaluate(describe),
+              "captcha_input": portal.captcha_input().evaluate(describe), "samples": []}
+    for i in range(1, count + 1):
+        if i > 1:
+            portal.page.reload(wait_until="domcontentloaded", timeout=45000)
+        png = portal.captcha_image().screenshot()
+        (out / f"captcha-{i}.png").write_bytes(png)
+        reads = []
+        for r in ocr_reads(png, length=length):
+            words = [line.split("\t")[-2:] for line in r["tsv"].splitlines()[1:]
+                     if line.count("\t") >= 11 and line.split("\t")[-1].strip()]
+            reads.append({"psm": r["psm"], "answer": r["answer"],
+                          "words": [{"conf": c, "text": t} for c, t in words]})
+        report["samples"].append({"file": f"captcha-{i}.png", "reads": reads})
+    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return count
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Read IOCL e-Mitra PAD and update Payments.")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--probe", action="store_true", help="Only open the login page; no credentials needed.")
+    mode.add_argument("--captcha-sample", action="store_true",
+                      help="Save a few CAPTCHA images and OCR reads for tuning; never types or submits anything.")
     mode.add_argument("--dry-run", action="store_true", help="Log in and validate the report; never write to Payments.")
     mode.add_argument("--sync", action="store_true", help="Save the verified company-code balance, excluding open deliveries, to Payments.")
     mode.add_argument("--opening", action="store_true", help="At 00:30 IST, record today's opening and sync any changed balance.")
@@ -23,9 +54,10 @@ def main(argv=None) -> int:
         username = os.environ.get("IOCL_EMITRA_USERNAME", "").strip()
         password = os.environ.get("IOCL_EMITRA_PASSWORD", "")
         customer = os.environ.get("IOCL_CUSTOMER_CODE", "").strip() or username
-        if not args.probe and (not username or not password):
+        sampling = args.probe or args.captcha_sample
+        if not sampling and (not username or not password):
             raise PortalError("Set IOCL_EMITRA_USERNAME and IOCL_EMITRA_PASSWORD securely; no login was attempted.")
-        if not args.probe and not customer:
+        if not sampling and not customer:
             raise PortalError("IOCL_CUSTOMER_CODE is required to verify the statement belongs to your account.")
         cfg = payments_config() if args.sync or args.opening else None
         options = launch_options()
@@ -45,6 +77,16 @@ def main(argv=None) -> int:
                     length = int(os.environ.get("IOCL_CAPTCHA_LENGTH", "6"))
                 except ValueError:
                     raise PortalError("IOCL_CAPTCHA_LENGTH must be a whole number.") from None
+                if args.captcha_sample:
+                    try:
+                        wanted = min(30, max(1, int(os.environ.get("IOCL_SAMPLE_COUNT") or 6)))
+                    except ValueError:
+                        raise PortalError("IOCL_SAMPLE_COUNT must be a whole number.") from None
+                    count = sample_captchas(portal, Path(os.environ.get("IOCL_SAMPLE_DIR") or "captcha-samples"),
+                                            length=length, count=wanted)
+                    print(f"PASS: saved {count} CAPTCHA samples with OCR reads. No credentials were typed "
+                          "and no login was submitted.")
+                    return 0
                 portal.login(username, password, captcha_length=length)
                 portal.navigate_pad()
                 balance = portal.read_balance(customer=customer)

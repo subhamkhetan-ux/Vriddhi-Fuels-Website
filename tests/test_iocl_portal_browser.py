@@ -97,14 +97,42 @@ def test_login_menus_dates_and_company_balance(page):
 
 
 def test_uncertain_captcha_does_not_enter_credentials_or_submit(page):
+    calls = []
     def solver(*args, **kwargs):
+        calls.append(1)
         raise PortalError("CAPTCHA needs a person")
     portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=solver, timeout=1)
     portal.open()
     with pytest.raises(PortalError, match="CAPTCHA needs a person"):
         portal.login("999999", "fixture-only")
+    assert len(calls) == 5                       # five fresh CAPTCHAs, then stop
     assert page.locator("input[name=password]").input_value() == ""
-    assert page.evaluate("window.loginCount") == 0
+    assert not page.evaluate("window.loginCount")
+
+
+def test_an_unclear_captcha_is_swapped_for_a_fresh_one_before_login(page):
+    answers = iter([PortalError("CAPTCHA needs a person"), "ABCDEF"])
+    def solver(*args, **kwargs):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=solver, timeout=1)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    assert page.evaluate("window.loginCount") == 1
+
+
+def test_other_captcha_errors_are_not_retried(page):
+    calls = []
+    def solver(*args, **kwargs):
+        calls.append(1)
+        raise PortalError("Install Tesseract OCR to read the portal's text CAPTCHA.")
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=solver, timeout=1)
+    portal.open()
+    with pytest.raises(PortalError, match="Install Tesseract"):
+        portal.login("999999", "fixture-only")
+    assert len(calls) == 1
 
 
 def test_rejected_login_is_not_retried(page):
@@ -134,3 +162,85 @@ def test_blank_statement_keeps_yesterday_to_today_dates_at_boundaries(page, now,
     with pytest.raises(PortalError, match="report did not appear"):
         portal.read_balance(customer="999999", now=now)
     assert page.evaluate("window.requestedDates") == [expected_from, expected_to]
+
+
+def test_captcha_sampling_saves_images_and_reads_without_typing(page, tmp_path, monkeypatch):
+    from iocl_portal import run
+    reads = []
+
+    def fake_reads(png, *, length):
+        assert png.startswith(b"\x89PNG") and length == 6
+        reads.append(1)
+        return [{"psm": 7, "answer": None,
+                 "tsv": "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth"
+                        "\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t31.5\tAB3DEF\n"}]
+
+    monkeypatch.setattr(run, "ocr_reads", fake_reads)
+    portal = PortalBrowser(page, origin=ORIGIN, timeout=1)
+    portal.open()
+    assert run.sample_captchas(portal, tmp_path, length=6, count=3) == 3
+    report = __import__("json").loads((tmp_path / "report.json").read_text())
+    assert [s["file"] for s in report["samples"]] == ["captcha-1.png", "captcha-2.png", "captcha-3.png"]
+    assert report["samples"][0]["reads"][0]["words"] == [{"conf": "31.5", "text": "AB3DEF"}]
+    assert report["captcha_image"]["id"] == "captcha_image" and report["captcha_input"]["name"] == "captcha"
+    assert (tmp_path / "login-page.png").read_bytes().startswith(b"\x89PNG") and len(reads) == 3
+    # Nothing was typed or submitted.
+    assert page.evaluate("window.loginCount || 0") == 0
+    assert page.locator("input[name=username]").input_value() == ""
+
+
+def test_report_diagnostics_describe_pages_without_account_data(page):
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=lambda *a, **k: "ABCDEF", timeout=1)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    portal.navigate_pad()
+    seen = portal.report_diagnostics()
+    assert seen.startswith("page https://portal.example/ioconline/iocExStart.jsp text=")
+    assert "has=" in seen and "PADtitle" in seen
+    assert "999999" not in seen and "fixture-only" not in seen
+
+
+def test_a_rejected_view_reports_dialogs_and_date_fields_safely(page):
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=lambda *a, **k: "ABCDEF", timeout=0.3)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    portal.navigate_pad()
+    page.evaluate("""() => {
+      const s = document.createElement('script');
+      s.text = "function checkDates(){ if(!window.picked){ alert('Enter date as dd/mm/yyyy for 1005218882'); return false; } }";
+      document.body.appendChild(s);
+      document.querySelector('#view').onclick = () => checkDates();
+    }""")
+    with pytest.raises(PortalError) as err:
+        portal.read_balance(customer="999999", now=NOW)
+    message = str(err.value)
+    assert "report did not appear" in message
+    assert 'dialogs=["alert: Enter date as dd/mm/yyyy for #"]' in message
+    assert '"entered":"12-10-2026"' in message and '"entered":"13-10-2026"' in message
+    assert "view=" in message and "1005218882" not in message
+    assert "script=" in message and "window.picked" in message
+
+
+def test_dates_reach_the_fields_the_portal_check_reads(page):
+    """Like e-Mitra: the View check reads #fromdate/#todate, and the first
+    element with that id is not the visible box the user types in."""
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=lambda *a, **k: "ABCDEF", timeout=1)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    portal.navigate_pad()
+    page.evaluate("""() => {
+      document.querySelector('#report').insertAdjacentHTML('afterbegin',
+        '<input type="hidden" id="fromdate"><input type="hidden" id="todate">');
+      const view = document.querySelector('#view'), show = view.onclick;
+      view.onclick = () => {
+        if (document.getElementById('fromdate').value == '') { alert('Please select FROM date.'); return; }
+        if (document.getElementById('todate').value == '') { alert('Please select TO date.'); return; }
+        window.checked = [document.getElementById('fromdate').value, document.getElementById('todate').value];
+        show();
+      };
+    }""")
+    balance = portal.read_balance(customer="999999", now=NOW)
+    assert (balance.amount, balance.sign) == (Decimal("15000.00"), "CR")
+    assert page.evaluate("window.checked") == ["12-10-2026", "13-10-2026"]
+    assert portal.date_fields["sync"]["fromdate"] == {"count": 1, "reads": "12-10-2026"}
+    assert portal.dialogs == []

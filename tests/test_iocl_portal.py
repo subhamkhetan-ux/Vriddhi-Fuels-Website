@@ -2,6 +2,10 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
+import io
+import re
+from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -224,15 +228,87 @@ def test_ocr_rejects_uncertain_or_malformed_reads(answer, confidence):
     assert captcha.ocr_candidate(tsv(answer, confidence)) is None
 
 
-def test_ocr_requires_agreement_without_sending_images_away(monkeypatch):
+def _png(width=150, height=40):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), "white").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_ocr_votes_on_cleaned_images_locally(monkeypatch):
+    """Every read uses a cleaned copy of the image and local Tesseract only."""
     monkeypatch.setattr(captcha.shutil, "which", lambda _: "/usr/bin/tesseract")
-    outputs = iter(["ABCDEF", "ABCDEF", "ABCDEX"])
+    assert len(captcha.CLEAN_READS) == 4
+    reads = iter(["ABCDEF\n", "ABCDEF", "ABC", "abcdef"])
     def run(command, **kwargs):
         assert command[:3] == ["/usr/bin/tesseract", "stdin", "stdout"]
-        assert kwargs["input"] == b"synthetic-image"
-        return SimpleNamespace(returncode=0, stdout=tsv(next(outputs)).encode())
+        assert kwargs["input"].startswith(b"\x89PNG") and kwargs["input"] != original
+        assert kwargs["env"]["OMP_THREAD_LIMIT"] == "1"
+        return SimpleNamespace(returncode=0, stdout=next(reads).encode())
+    original = _png()
     monkeypatch.setattr(captcha.subprocess, "run", run)
-    assert captcha.solve_text_captcha(b"synthetic-image") == "ABCDEF"
-    outputs = iter(["ABCDEF", "ABCDEX", "ABCDEY"])
+    assert captcha.captcha_votes(original) == ["ABCDEF", "ABCDEF"]   # malformed reads dropped
+    reads = iter(["ABCDEF"] * 4)
+    assert captcha.solve_text_captcha(original) == "ABCDEF"
+    reads = iter(["ABCDEF"] * 3 + ["ABCDEX"])
     with pytest.raises(PortalError, match="No login was submitted"):
-        captcha.solve_text_captcha(b"synthetic-image")
+        captcha.solve_text_captcha(original)
+
+
+@pytest.mark.parametrize(("votes", "answer"), [
+    (["ABCDEF"] * 4, "ABCDEF"),                  # all four reads agree
+    (["ABCDEF"] * 3, None),                      # one read failed
+    (["ABCDEF"] * 3 + ["ABCDEX"], None),         # one read disagrees
+    ([], None),
+])
+def test_an_answer_needs_every_read_to_agree(votes, answer):
+    assert captcha.pick_answer(votes) == answer
+
+
+def test_unclear_captcha_stops_before_login(monkeypatch):
+    monkeypatch.setattr(captcha, "captcha_votes", lambda png, length: ["ABCDEF"] * 3 + ["ABCDEX"] * 3)
+    with pytest.raises(PortalError, match="No login was submitted"):
+        captcha.solve_text_captcha(_png())
+
+
+def test_cleaning_keeps_a_valid_enlarged_png():
+    from PIL import Image
+    out = captcha.clean_captcha(_png(), 4, 240, 13, -0.15)
+    image = Image.open(io.BytesIO(out))
+    assert image.mode == "L" and image.height == 40 * 4 + 40 and image.width > 150 * 4
+    with pytest.raises(PortalError, match="decoded"):
+        captcha.clean_captcha(b"not-an-image", 4, 200, 7, 0)
+
+FIXTURES = Path(__file__).parent / "fixtures" / "iocl_captcha"
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="needs local Tesseract")
+def test_reader_on_hand_labelled_live_captchas():
+    """29 real e-Mitra CAPTCHAs, named by their answer. Guards future tuning:
+    as tuned, 22 are read, 6 declined (safe) and 1 misread (italic J as I)."""
+    samples = sorted(FIXTURES.glob("*.png"))
+    assert len(samples) == 29
+    results = [captcha.pick_answer(captcha.captcha_votes(p.read_bytes())) for p in samples]
+    correct = sum(r == p.stem for r, p in zip(results, samples))
+    wrong = [(p.stem, r) for r, p in zip(results, samples) if r and r != p.stem]
+    assert correct >= 22 and len(wrong) <= 1, (correct, wrong)
+
+
+def test_report_check_failures_explain_what_was_seen_without_account_data():
+    from iocl_portal import statement
+    text = ("Customer PAD Balance Customer:- KHETAN FUELS (999999) Report Generated On : 13/10/2026 14:05:09 "
+            "From 12-Oct-2026 To 13-Oct-2026 Closing balance: Rs. -1,23,45,678.00")
+    hint = statement._timestamp_hint(re.sub(r"\s+", " ", text))
+    assert hint == "Generated On : 13/10/2026 14:05:09"
+    rows = [["Item Text", "Debit (Rs.)", "Credit (Rs.)", "Balance (Rs.)"], ["KHETAN FUELS"],
+            ["Invoice 9100012345", "1,00,000.00", "0", "-5,00,000.00"]]
+    table = statement._table_hint(rows)
+    assert "Balance (Rs.)" in table and "KHETAN" not in table and "9100012345" not in table
+    assert "row widths [1, 4]" in table
+
+
+def test_live_timestamp_format_is_read():
+    """e-Mitra prints "Report Generated Date/Time:-Tue Oct 13 2026 2:06:11 pm"."""
+    live = REPORT.replace("Report Generated Date/Time: Tue Oct 13 2026 6:59:04 AM",
+                          "Report Generated Date/Time:-Tue Oct 13 2026 6:59:04 am")
+    assert parse(live).generated_at == parse().generated_at
