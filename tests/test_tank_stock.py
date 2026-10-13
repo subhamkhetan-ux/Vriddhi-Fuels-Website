@@ -150,6 +150,7 @@ def _fake_session(monkeypatch, tmp_path, online):
     monkeypatch.setattr(cap, "_connect", connect)
     monkeypatch.setattr(cap, "_session_bus", lambda env: None)
     monkeypatch.setattr(cap, "_frontend", lambda env, log: FakeProc())
+    monkeypatch.setattr(cap, "ensure_tank_status", lambda shoot, click: (shoot(), "already on Tank Status"))
     monkeypatch.setattr(cap, "_run", lambda *a, **k: "")
     monkeypatch.setattr(cap, "windows", lambda env: [])
     monkeypatch.setattr(cap.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": b"\x89PNGx"})())
@@ -158,7 +159,7 @@ def _fake_session(monkeypatch, tmp_path, online):
 
 def test_the_online_id_is_used_and_remembered_first_next_time(monkeypatch, tmp_path):
     tried = _fake_session(monkeypatch, tmp_path, online="222222222")
-    png, _, used = cap.capture(["111111111", "222222222"], "pw")
+    png, _, used, page = cap.capture(["111111111", "222222222"], "pw")
     assert png.startswith(b"\x89PNG") and used == 2 and tried == ["111111111", "222222222"]
     tried.clear()
     cap.capture(["111111111", "222222222"], "pw")
@@ -221,13 +222,14 @@ def test_run_keeps_titles_and_password_out_of_the_log(monkeypatch, capsys):
     monkeypatch.setenv("ANYDESK_PASSWORD", "s3cret")
     seen = {}
     monkeypatch.setattr(run, "capture", lambda ids, pw: (seen.update(ids=ids, pw=pw) or b"\x89PNG",
-                                                         [("1", "IOCL-PC 123456789", 1920, 1050)], 2))
+                                                         [("1", "IOCL-PC 123456789", 1920, 1050)], 2,
+                                                         "already on Tank Status"))
     monkeypatch.setattr(run.telegram, "send_photo", lambda png, caption: seen.update(caption=caption) or True)
     assert run.main(["--capture"]) == 0
     out = capsys.readouterr()
     assert seen["ids"] == ["111111111", "123456789"] and seen["pw"] == "s3cret"
     assert "ID #2 (123456789)" in seen["caption"]                   # private Telegram caption
-    assert "via ID #2 of 2" in out.out
+    assert "via ID #2 of 2" in out.out and "already on Tank Status" in seen["caption"]
     assert "123456789" not in out.out + out.err and "s3cret" not in out.out + out.err
 
 
@@ -285,7 +287,7 @@ def test_capture_is_handed_to_the_login_session_and_relayed(monkeypatch, tmp_pat
     monkeypatch.setenv("ANYDESK_PASSWORD", "s3cret")
     seen = {}
 
-    def session():                      # what tank-stock-session.sh does
+    def session():                      # what the monitor's queue_loop does
         while not list(queue.glob("*.req")):
             pass
         req = next(queue.glob("*.req"))

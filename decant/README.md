@@ -252,13 +252,17 @@ Tap **Start decanting** on the truck's card:
    (▲ *Excess*, ▲ *High excess*). The value at the invoice price is shown too.
    **📤 Share as picture** makes a PNG of the result (the truck, each tank's
    before / after / gain / chambers / variation, and the ₹ value) to send on
-   WhatsApp or save. Made on the phone that read the automation screenshots,
-   **the same day**, the picture also shows the screenshots behind the stock
-   before / after under the figures — each tank's before beside its after,
-   labelled; just one each, the last screenshot read that gave the reading
-   used (the same screen read twice shows once) — and is then a JPEG. The screenshots stay on that phone only
-   (never uploaded) and are cleared the next day, so from then on — or on any
-   other phone — the picture is the figures alone.
+   WhatsApp or save. Made **the same day**, on any phone, the picture also
+   shows the screenshots behind the stock before / after under the figures —
+   each tank's before beside its after, labelled; just one each, the last
+   screenshot read that gave the reading used (the same screen read twice
+   shows once) — and is then a JPEG. Each screenshot read is kept for its day
+   on the phone and, shrunk to 1600 px, in the cloud (the private storage
+   bucket `dec-shots` and the `dec_shots` table), so another phone's result
+   picture finds it; the tank-stock agent (`tank_stock/`) adds its zoomed
+   tank cards there too. The next day they're deleted, here and in the cloud,
+   by the first phone that opens the app, and the picture is the figures
+   alone.
 
 **Chambers in the wrong tank?** If one tank came out well over and another
 of the same product well under, the app works out which chambers most
@@ -267,7 +271,7 @@ yourself: *Which chamber went where?*).
 
 ## Reading the automation screenshots
 
-The screenshot is read on the phone (Tesseract.js — nothing is uploaded) twice,
+The screenshot is read on the phone (Tesseract.js, no server reads it) twice,
 cleaned up two ways, and each tank card's figures are checked:
 
 - **volume + ullage = capacity** (20,000 L), and
@@ -453,10 +457,12 @@ each tank so the loads I've placed an indent for fit?*
   app's own rules. [`EXCEL-DESIGN.md`](EXCEL-DESIGN.md) is the second
   message: the app's look (glass cards, colours, type, charts) for Excel for
   Mac.
-- **Screenshots are never kept**: they're read on the phone and only the
-  figures are saved. The picture itself stays on the phone that read it
-  (IndexedDB) till the day ends, for that day's result pictures, then it's
-  cleared.
+- **Screenshots are kept for one day only**: they're read on the phone and
+  the figures are saved. The picture itself is kept on the phone that read
+  it (IndexedDB) and, shrunk, in the cloud (bucket `dec-shots`, private:
+  fetched with the app's key) for that day's result pictures on any phone,
+  then deleted the next day. Run the updated `supabase/decant-schema.sql`
+  once for the bucket and table.
 
 ### Supabase's free plan
 
@@ -544,7 +550,7 @@ default), the dip chart, and:
 | `js/app.js` | Home screen, stock screenshots, invoices, settings |
 | `js/wizard.js` | The decanting steps, tank by tank |
 | `js/shareimg.js` | The result as a picture (PNG) to share |
-| `js/shots.js` | Today's stock screenshots, kept on this phone for the result picture |
+| `js/shots.js` | Today's stock screenshots, kept for the day (phone + cloud) for any phone's result picture |
 | `js/theme.js` | Light / dark look: Auto (follows the phone), Light or Dark |
 | `js/scene.js` | The decanting picture: truck, hoses and underground tanks (animated) |
 | `js/worker.js` | The attendant who moves the pipe between chambers, in the decanting picture |

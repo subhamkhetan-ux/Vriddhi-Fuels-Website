@@ -1248,8 +1248,8 @@ function resultModel(s) {
   };
 }
 
-// Today's screenshots on this phone behind this result, labelled for the
-// picture: [{blob, label, sub}].
+// Today's screenshots behind this result (this phone's and the cloud's),
+// labelled for the picture: [{blob, label, sub}].
 async function resultProofs(s) {
   let held = [];
   try { held = await shotsFor(s.data.tanks); } catch { /* none */ }
@@ -1263,9 +1263,9 @@ async function resultProofs(s) {
   });
 }
 
-// Share the result as a picture: shown first, then shared (or saved). Made on
-// the phone that read the stock screenshots, the same day, it shows them too
-// (they're kept on that phone till the day ends); otherwise the figures alone.
+// Share the result as a picture: shown first, then shared (or saved). Made the
+// same day, on any phone, it shows the stock screenshots too (kept for the day
+// in the cloud, shots.js); after that, the figures alone.
 function share(s) {
   let url = null;
   openSheet('Share the result', (body) => {
@@ -1284,7 +1284,7 @@ function share(s) {
         url = URL.createObjectURL(blob);
         const canShare = Boolean(navigator.canShare?.({ files: [file] }));
         body.innerHTML = `<img class="full" src="${url}" alt="The decanting result as a picture" style="background:#0f0c0b">
-          ${nProof ? `<div class="hint">With the stock screenshot${nProof > 1 ? 's' : ''} as proof — kept on this phone only, till the day ends.</div>` : ''}
+          ${nProof ? `<div class="hint">With the stock screenshot${nProof > 1 ? 's' : ''} as proof — kept for today only, on any phone.</div>` : ''}
           <div class="row-actions"><button class="btn" data-save>⬇ Save picture</button>
             ${canShare ? '<button class="cta" data-send>📤 Share picture</button>' : ''}</div>
           ${canShare ? '' : '<div class="hint">This browser can\'t share pictures directly — save it, then send it from the gallery.</div>'}`;

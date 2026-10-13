@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "capture: screenshot to Telegram"
+        description: "capture: screenshot to Telegram; save-login: give the server's tank monitor the AnyDesk login"
         type: choice
-        options: [capture]
+        options: [capture, save-login]
         default: capture
 
 permissions:
@@ -28,10 +28,11 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Screenshot the automation PC through AnyDesk
+      - name: Capture the tank stock screen, or save the login for the monitor
         env:
           # Both of the PC's AnyDesk numbers, comma separated: it alternates
           # between them and the job uses whichever is online.
           ANYDESK_IDS: ${{ secrets.ANYDESK_IDS }}
           ANYDESK_PASSWORD: ${{ secrets.ANYDESK_PASSWORD }}
-        run: /opt/agents/venv/bin/python -m tank_stock.run --capture
+          MODE: ${{ inputs.mode }}
+        run: /opt/agents/venv/bin/python -m tank_stock.run --"$MODE"

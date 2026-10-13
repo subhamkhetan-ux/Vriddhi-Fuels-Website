@@ -19,6 +19,9 @@
 --   dec_vehicles    trucks' chamber layouts — no longer used by the app (our
 --                   own TTs are in Settings; transport TTs have standard
 --                   layouts). Left in place; nothing reads or writes it.
+--   dec_shots       today's stock screenshots (the files are in the private
+--                   storage bucket dec-shots), so any phone can put them under
+--                   a result picture; the app deletes a day's the next day.
 --   dec_config      shared settings (tanks, tolerance, dip chart, our own TTs,
 --                   the transport TT layouts) and the indents placed (for the
 --                   Plan tab).
@@ -32,8 +35,9 @@
 -- the last, or 12 / 6 / 3 months) is cleared by the app once its file has
 -- been downloaded — never before (dec_purge_old() no longer deletes). Only
 -- finished and cancelled decantations and their invoices go; one still open
--- stays. Screenshots are only read on the phone — never stored (the
--- dec_photos table of the first version is dropped). Personal-owner model:
+-- stays. Stock screenshots are kept for the day they were read only
+-- (dec_shots + the dec-shots bucket), for the result pictures; the first
+-- version's dec_photos table is dropped. Personal-owner model:
 -- the publishable (anon) key may read/write these tables (RLS policy below);
 -- the payments agent writes the invoices with it too.
 -- =====================================================================
@@ -75,8 +79,23 @@ create table if not exists public.dec_sessions (
 create index if not exists dec_sessions_created_idx on public.dec_sessions (created_at desc);
 create index if not exists dec_sessions_invoice_idx on public.dec_sessions (invoice_no);
 
--- screenshots aren't kept (the first version stored them here)
+-- the first version's screenshot store
 drop table if exists public.dec_photos;
+
+-- The day's stock screenshots, for the result pictures on any phone. The
+-- picture itself is in the storage bucket below (path), shrunk to ~1600 px;
+-- `readings` says which tank readings it gave, so a result can find the
+-- screenshots behind its before / after stock. A day's are deleted the next
+-- day by the first phone (or the tank-stock agent) that looks.
+create table if not exists public.dec_shots (
+  id        text primary key,
+  day       date not null,                  -- the IST date it was read
+  at        timestamptz not null default now(),
+  readings  jsonb not null default '{}'::jsonb,   -- {"T1": {"readingAt": …, "volume": …}}
+  path      text not null,                  -- the file in the dec-shots bucket
+  source    text                            -- 'phone' | 'agent'
+);
+create index if not exists dec_shots_day_idx on public.dec_shots (day);
 
 create table if not exists public.dec_tank_state (
   tank_id    text primary key,             -- 'T1' … 'T4'
@@ -158,7 +177,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config'] loop
+    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config','dec_shots'] loop
     execute format('alter table public.%I enable row level security', t);
     if not exists (select 1 from pg_policies where policyname = t || '_all') then
       execute format(
@@ -166,6 +185,23 @@ begin
         t || '_all', t);
     end if;
   end loop;
+end $$;
+
+-- ---- the screenshots' files: a private bucket the anon key may use ----
+-- (Supabase only: a plain Postgres has no storage schema.) Up to 3 MB each,
+-- pictures only; not public, so a file is fetched with the key, not by URL.
+do $$
+begin
+  if to_regclass('storage.buckets') is null then return; end if;
+  insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  values ('dec-shots', 'dec-shots', false, 3145728, array['image/jpeg', 'image/png', 'image/webp'])
+  on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit,
+                                 allowed_mime_types = excluded.allowed_mime_types;
+  if not exists (select 1 from pg_policies
+                  where schemaname = 'storage' and tablename = 'objects' and policyname = 'dec_shots_files') then
+    execute $p$create policy dec_shots_files on storage.objects for all to anon, authenticated
+               using (bucket_id = 'dec-shots') with check (bucket_id = 'dec-shots')$p$;
+  end if;
 end $$;
 
 -- ---- realtime ----

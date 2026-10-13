@@ -78,7 +78,7 @@ def test_realtime_publication_skips_photos(pg):
     tables = pg.ok("select string_agg(tablename, ',' order by tablename) from pg_publication_tables "
                    "where pubname = 'supabase_realtime';")
     assert tables.split(",") == ["dec_config", "dec_invoices", "dec_sessions", "dec_tank_state",
-                                 "dec_vehicles"]
+                                 "dec_vehicles"]                     # dec_shots too: no realtime
 
 
 def test_purge_keeps_two_fys(pg):
@@ -102,6 +102,39 @@ def test_purge_keeps_two_fys(pg):
 
 def test_screenshots_are_not_kept(pg):
     assert pg.ok("select to_regclass('public.dec_photos') is null;") == "t"
+
+
+def test_the_days_screenshots_any_phone_can_share(pg):
+    pg.ok("delete from dec_shots;")
+    pg.ok("insert into dec_shots (id, day, readings, path, source) values "
+          "('1-a', '2026-10-13', '{\"T2\": {\"readingAt\": \"2026-10-13T18:01:58+05:30\", \"volume\": 19143.31}}',"
+          " '2026-10-13/1-a.jpg', 'phone');", anon=True)
+    assert pg.ok("select readings->'T2'->>'volume' from dec_shots where day = '2026-10-13';", anon=True) == "19143.31"
+    pg.ok("delete from dec_shots where day < '2026-10-14';", anon=True)     # the next day's tidy
+    assert pg.ok("select count(*) from dec_shots;", anon=True) == "0"
+
+
+STORAGE_STUB = """
+create schema if not exists storage;
+create table if not exists storage.buckets (id text primary key, name text, public boolean,
+  file_size_limit bigint, allowed_mime_types text[]);
+create table if not exists storage.objects (id serial primary key, bucket_id text, name text);
+alter table storage.objects enable row level security;
+grant usage on schema storage to anon, authenticated;
+grant all on storage.objects to anon, authenticated;
+grant usage on all sequences in schema storage to anon, authenticated;
+"""
+
+
+def test_screenshot_files_go_in_a_private_bucket_where_supabase_has_storage(pg):
+    pg.ok(STORAGE_STUB)
+    schema = open(SCHEMA, encoding="utf-8").read()
+    pg.ok(schema)
+    pg.ok(schema)                              # still safe to run twice
+    assert pg.ok("select public::text || ',' || file_size_limit from storage.buckets where id = 'dec-shots';") == "false,3145728"
+    pg.ok("insert into storage.objects (bucket_id, name) values ('dec-shots', '2026-10-13/1-a.jpg');", anon=True)
+    assert pg.ok("select count(*) from storage.objects;", anon=True) == "1"
+    pg.fails("insert into storage.objects (bucket_id, name) values ('other', 'x.jpg');", anon=True)
 
 
 def test_dismiss_reason_column(pg):
