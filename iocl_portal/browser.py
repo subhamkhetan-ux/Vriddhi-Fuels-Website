@@ -239,10 +239,51 @@ class PortalBrowser:
         if control.input_value() != value:
             raise PortalError("The portal did not accept the requested statement date.")
 
+    def sync_dates(self, from_day: date, to_day: date):
+        """e-Mitra's View check reads $('#fromdate') / $('#todate') (bootstrap
+        datepicker, dd-mm-yyyy). Put the dates exactly there, through the
+        picker when present, after focus has left the fields, and verify what
+        that check will see. Pages without those ids are left as typed."""
+        wanted = {"fromdate": from_day.strftime("%d-%m-%Y"), "todate": to_day.strftime("%d-%m-%Y")}
+        script = """(wanted) => {
+          if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+          const $ = window.jQuery, seen = {};
+          for (const [id, value] of Object.entries(wanted)) {
+            const els = Array.from(document.querySelectorAll('[id="' + id + '"]'));
+            if (!els.length) continue;
+            for (const el of els) {
+              el.value = value;
+              if ($) {
+                const host = $(el).closest('[id^="datepicker"], .date');
+                for (const target of [host, $(el)]) {
+                  try { if (target.length && target.data('datepicker')) target.datepicker('update', value); } catch (e) {}
+                }
+                $(el).val(value).trigger('change');
+              } else {
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+              }
+            }
+            seen[id] = {count: els.length, reads: $ ? $('#' + id).val() : document.getElementById(id).value};
+          }
+          return seen;
+        }"""
+        for frame in self.frames():
+            try:
+                seen = frame.evaluate(script, wanted)
+            except Exception:
+                continue
+            if seen:
+                self.date_fields["sync"] = seen
+                if any(seen.get(i, {}).get("reads") != v for i, v in wanted.items() if i in seen):
+                    raise PortalError("The portal did not keep the requested statement dates: "
+                                      + json.dumps(seen, separators=(",", ":")))
+                return
+
     def read_balance(self, *, customer: str, now=None):
         now = now or datetime.now(IST)
         self.set_date("from_date", now.date() - timedelta(days=1))
         self.set_date("to_date", now.date())
+        self.sync_dates(now.date() - timedelta(days=1), now.date())
         view = self.locate("view", [lambda f: f.get_by_role("button", name=re.compile(r"^\s*View\s*$", re.I)),
             self._css("input[type=submit][value='View' i]"),
             lambda f: f.get_by_role("link", name=re.compile(r"^\s*View\s*$", re.I))])

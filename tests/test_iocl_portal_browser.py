@@ -219,3 +219,28 @@ def test_a_rejected_view_reports_dialogs_and_date_fields_safely(page):
     assert '"entered":"12-10-2026"' in message and '"entered":"13-10-2026"' in message
     assert "view=" in message and "1005218882" not in message
     assert "script=" in message and "window.picked" in message
+
+
+def test_dates_reach_the_fields_the_portal_check_reads(page):
+    """Like e-Mitra: the View check reads #fromdate/#todate, and the first
+    element with that id is not the visible box the user types in."""
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=lambda *a, **k: "ABCDEF", timeout=1)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    portal.navigate_pad()
+    page.evaluate("""() => {
+      document.querySelector('#report').insertAdjacentHTML('afterbegin',
+        '<input type="hidden" id="fromdate"><input type="hidden" id="todate">');
+      const view = document.querySelector('#view'), show = view.onclick;
+      view.onclick = () => {
+        if (document.getElementById('fromdate').value == '') { alert('Please select FROM date.'); return; }
+        if (document.getElementById('todate').value == '') { alert('Please select TO date.'); return; }
+        window.checked = [document.getElementById('fromdate').value, document.getElementById('todate').value];
+        show();
+      };
+    }""")
+    balance = portal.read_balance(customer="999999", now=NOW)
+    assert (balance.amount, balance.sign) == (Decimal("15000.00"), "CR")
+    assert page.evaluate("window.checked") == ["12-10-2026", "13-10-2026"]
+    assert portal.date_fields["sync"]["fromdate"] == {"count": 1, "reads": "12-10-2026"}
+    assert portal.dialogs == []
