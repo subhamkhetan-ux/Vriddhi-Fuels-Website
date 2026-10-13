@@ -67,8 +67,12 @@ Click **Create** and copy the **Public IP address** once the instance shows
 makes outbound connections to GitHub.
 
 *"Out of capacity for shape VM.Standard.A1.Flex"* means Oracle's free ARM pool
-is full. Retry later, or try 1 OCPU / 6 GB. Pay As You Go accounts usually get
-capacity more easily.
+is full (Hyderabad and Mumbai each have a single availability domain). Retry
+later, or try 1 OCPU / 6 GB. Pay As You Go accounts usually get capacity more
+easily. Meanwhile the AMD **VM.Standard.E2.1.Micro** (1 GB, also Always Free) is
+usually available: pick it, re-select Ubuntu 24.04, and the setup script adds a
+2 GB swap file so the browser fits. It is slower, but it is enough to verify
+e-Mitra access and run the agent until an A1 can be created.
 
 ## 4. Run the setup script on the server
 
