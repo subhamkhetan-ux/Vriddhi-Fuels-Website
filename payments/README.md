@@ -67,11 +67,6 @@ fill-in fields as `{{TOKENS}}`; the app never alters anything else.
 The **Credit** tab tracks the IOCL credit facility and when each day's invoices
 must be repaid.
 
-The optional [e-Mitra PAD worker](../iocl_portal/README.md), once configured and
-enabled, checks after invoice detection and every three hours. It saves changed
-balances excluding open deliveries and captures each day's opening at 00:30 IST.
-It always requests yesterday through today to avoid empty same-day statements.
-
 - **Limit + repayment window** at the top are editable (default **₹85,00,000**
   and **T+2 working days**). Change them any time. **0 working days** means each
   day's invoices must be cleared the **same day, before midnight**.
@@ -109,9 +104,8 @@ It always requests yesterday through today to avoid empty same-day statements.
   the moment you update the balance.
 
 All of this is stored in Supabase (re-run `supabase/payments-schema.sql` once to
-add the new tables/columns). The mail agent writes invoices; the optional PAD
-worker writes balances and daily openings. App edits sync across your devices.
-The **Credit** tab sits right after
+add the new tables/columns). The agent only writes the invoices; everything else
+you set in the app syncs across your devices. The **Credit** tab sits right after
 **Payments**.
 
 ## How it connects
