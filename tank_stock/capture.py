@@ -221,45 +221,60 @@ def _click(env, x: int, y: int) -> None:
     _run(["xdotool", "mousemove", "2", "2"], env)   # out of the way: no hover menus
 
 
-def capture(ids: list[str], password: str, *, connect_wait: int = 35,
-            settle: int = 12) -> tuple[bytes, list, int, str]:
-    """Screenshot of the Tank Status page via whichever ID is online.
-    Returns (PNG, windows seen, 1-based position of the ID used in ``ids``,
-    what was done to reach Tank Status)."""
-    for tool in ("anydesk", "Xvfb", "xdotool", "import"):
-        if not shutil.which(tool):
-            raise CaptureError(f"{tool} is not installed; run infra/anydesk/setup.sh on the server.")
-    if not password:
-        raise CaptureError("ANYDESK_PASSWORD (the unattended-access password) is not set.")
-    env = {**os.environ, "DISPLAY": DISPLAY}
-    # One capture at a time on this display: the monitor, the phone page and
-    # the GitHub job may all ask at once.
-    LAST_ID.parent.mkdir(parents=True, exist_ok=True)
-    lock = open(LAST_ID.parent / "capture.lock", "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        return _capture(ids, password, env, connect_wait, settle)
-    finally:
-        lock.close()
+class Session:
+    """An AnyDesk session to the PC, open on the virtual display.
 
+    ``open()`` connects through whichever ID is online; ``shot()`` takes a
+    screenshot of the Tank Status page (opening it first if need be) as
+    often as wanted, without reconnecting; ``alive()`` says whether AnyDesk
+    still shows the session; ``close()`` ends it. One session at a time on
+    this display: the phone page and the GitHub job may both ask, so it
+    holds a lock from open to close."""
 
-def _capture(ids, password, env, connect_wait, settle):
-    xvfb = subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-nolisten", "tcp"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    client, frontend, bus, attempts = None, None, None, []
-    log_dir = LAST_ID.parent
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
-    frontend_log = log_dir / "anydesk-frontend.txt"
-    try:
+    def __init__(self, ids: list[str], password: str, *, connect_wait: int = 35, settle: int = 12):
+        self.ids, self.password = ids, password
+        self.connect_wait, self.settle = connect_wait, settle
+        self.env = {**os.environ, "DISPLAY": DISPLAY}
+        self.lock = self.xvfb = self.bus = self.frontend = self.client = None
+        self.window = None              # the session window's id
+        self.position = None            # 1-based, of the ID that connected
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def open(self) -> int:
+        for tool in ("anydesk", "Xvfb", "xdotool", "import"):
+            if not shutil.which(tool):
+                raise CaptureError(f"{tool} is not installed; run infra/anydesk/setup.sh on the server.")
+        if not self.password:
+            raise CaptureError("ANYDESK_PASSWORD (the unattended-access password) is not set.")
+        LAST_ID.parent.mkdir(parents=True, exist_ok=True)
+        self.lock = open(LAST_ID.parent / "capture.lock", "w")
+        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        try:
+            self._connect_any()
+        except BaseException:
+            self.close()
+            raise
+        return self.position
+
+    def _connect_any(self) -> None:
+        env, ids, attempts = self.env, self.ids, []
+        log_dir = LAST_ID.parent
+        frontend_log = log_dir / "anydesk-frontend.txt"
+        self.xvfb = subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-nolisten", "tcp"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)
         time.sleep(2)
-        bus = _session_bus(env)
-        frontend = _frontend(env, frontend_log)
+        self.bus = _session_bus(env)
+        self.frontend = _frontend(env, frontend_log)
         for anydesk_id in ordered(ids):
             log_path = log_dir / "anydesk-output.txt"
-            client, session = _connect(anydesk_id, password, env, connect_wait, log_path)
+            self.client, session = _connect(anydesk_id, self.password, env, self.connect_wait, log_path)
             if session:
                 break
             # What the virtual screen shows instead (a message, a prompt...),
@@ -270,23 +285,51 @@ def _capture(ids, password, env, connect_wait, settle):
                 output = ""
             attempts.append({"position": ids.index(anydesk_id) + 1, "id": anydesk_id,
                              "png": _screenshot(env), "windows": windows(env), "output": output,
-                             "exit": client.poll()})
-            _stop(client)
-            client = None
+                             "exit": self.client.poll()})
+            _stop(self.client)
+            self.client = None
         else:
             raise CaptureError(f"None of the {len(ids)} AnyDesk IDs opened a session (PC off, "
                                "offline, or the password changed).", attempts,
-                               _trace(frontend_log, frontend, bus))
+                               _trace(frontend_log, self.frontend, self.bus))
         remember(anydesk_id)
-        _run(["xdotool", "windowmove", session[0], "0", "0"], env)
-        _run(["xdotool", "windowsize", session[0], "100%", "100%"], env)
-        time.sleep(settle)             # let the remote screen finish drawing
+        self.window, self.position = session[0], ids.index(anydesk_id) + 1
+        _run(["xdotool", "windowmove", self.window, "0", "0"], env)
+        _run(["xdotool", "windowsize", self.window, "100%", "100%"], env)
+        time.sleep(self.settle)        # let the remote screen finish drawing
         if not _screenshot(env):
             raise CaptureError("The screenshot of the virtual display failed.")
-        png, page = ensure_tank_status(lambda: _screenshot(env), lambda x, y: _click(env, x, y))
-        return png, windows(env), ids.index(anydesk_id) + 1, page
-    finally:
-        _stop(client)
-        _stop(frontend)
-        _stop(bus)
-        _stop(xvfb)
+
+    def alive(self) -> bool:
+        """AnyDesk still shows the session (it closes the window when the
+        session ends, e.g. a free licence's time limit)."""
+        return bool(self.window) and any(w[0] == self.window and w[2] >= 600 and w[3] >= 400
+                                         for w in windows(self.env))
+
+    def screen(self) -> bytes:
+        return _screenshot(self.env)
+
+    def shot(self) -> tuple[bytes, str]:
+        """(PNG of Tank Status, what was done to reach it)."""
+        return ensure_tank_status(self.screen, lambda x, y: _click(self.env, x, y))
+
+    def windows(self) -> list:
+        return windows(self.env)
+
+    def close(self) -> None:
+        for proc in (self.client, self.frontend, self.bus, self.xvfb):
+            _stop(proc)
+        self.client = self.frontend = self.bus = self.xvfb = self.window = None
+        if self.lock:
+            self.lock.close()
+            self.lock = None
+
+
+def capture(ids: list[str], password: str, *, connect_wait: int = 35,
+            settle: int = 12) -> tuple[bytes, list, int, str]:
+    """Connect, take one screenshot of the Tank Status page, disconnect.
+    Returns (PNG, windows seen, 1-based position of the ID used in ``ids``,
+    what was done to reach Tank Status)."""
+    with Session(ids, password, connect_wait=connect_wait, settle=settle) as s:
+        png, page = s.shot()
+        return png, s.windows(), s.position, page

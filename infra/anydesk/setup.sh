@@ -32,7 +32,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q anydesk xvfb xdotool i
   || { sudo dpkg --configure -a || true
        die "AnyDesk did not install cleanly on this $(uname -m) server. Send the lines above."; }
 
-say "3/6 Installing the monitor's code"
+say "3/6 Installing the tank stock page's code"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 APP=/opt/agents/tank-stock/app
@@ -48,7 +48,7 @@ else
 fi
 echo "Code: $(sudo -u runner git -C "$APP" log -1 --format='%h %s')"
 
-say "4/6 Starting the monitor in a console login session (AnyDesk won't start without one)"
+say "4/6 Starting the page in a console login session (AnyDesk won't start without one)"
 sudo install -m 644 "$here/tank-stock-session.pam" /etc/pam.d/tank-stock-session
 sudo install -m 644 "$here/tank-stock-session.service" /etc/systemd/system/tank-stock-session.service
 sudo rm -f /opt/agents/tank-stock-session.sh          # replaced by tank_stock.service
@@ -68,7 +68,7 @@ for _ in $(seq 1 30); do
   [ "$code" = "200" ] && break
   sleep 1
 done
-[ "$code" = "200" ] || die "The monitor didn't start. Send: journalctl -u tank-stock-session -n 40"
+[ "$code" = "200" ] || die "The page didn't start. Send: journalctl -u tank-stock-session -n 40"
 
 say "5/6 Publishing the phone page to your Tailscale devices (not the internet)"
 if [ -n "$TS_NAME" ]; then
@@ -92,11 +92,11 @@ else
   echo "Note: no login session for runner yet. Send: systemctl status tank-stock-session"
 fi
 login=$(curl -s "http://127.0.0.1:$PORT/api/state" | python3 -c "import json,sys; print(json.load(sys.stdin)['login_saved'])" 2>/dev/null || true)
-echo "The monitor is running. AnyDesk login saved for it: ${login:-unknown}."
+echo "The page is running (nothing connects until you ask). AnyDesk login saved for it: ${login:-unknown}."
 echo
 if [ "$login" != "True" ]; then
   echo "Next: in GitHub, Actions > 'Tank stock (AnyDesk -> decant)' > Run workflow,"
-  echo "mode save-login (it copies ANYDESK_IDS and ANYDESK_PASSWORD to the monitor)."
+  echo "mode save-login (it copies ANYDESK_IDS and ANYDESK_PASSWORD to the page)."
 fi
 if [ -n "$PAGE" ]; then
   echo "On your phone (with Tailscale on), open $PAGE and add it to the home screen."

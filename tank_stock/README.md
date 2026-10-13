@@ -10,19 +10,28 @@ documented `--with-password` mode).
 
 ## What it does
 
-- **Phone page** (over your own Tailscale network, like the XtraPower one):
-  - pick the tanks (any of 1-4);
-  - **Capture** shows a zoomed picture of just those tanks' cards and their
-    figures with the decant app's check badge;
-  - **Upload** (per tank, or all shown) saves the stock to the decant app;
-  - **Capture & upload** does both.
-- **Monitor**: every 15 minutes by default it captures the watched tanks and,
-  with auto-upload on, saves them to the decant app. The interval (5-1440
-  minutes), the tanks and auto-upload are set on the page. When something goes
-  wrong it tells the XtraPower Telegram bot once, and again when it's fine.
-- **GitHub job** "Tank stock (AnyDesk -> decant)": `capture` sends the whole
-  screen to the XtraPower bot; `save-login` gives the monitor the AnyDesk
-  login from the repo's secrets.
+Nothing connects on its own: everything starts from the **phone page** (over
+your own Tailscale network, like the XtraPower one). Pick the tanks (any of
+1-4), then:
+
+- **Send for decantation**: connect, read those tanks, save them to the
+  decant app, disconnect. If live monitoring is on, it ends too.
+- **Capture only**: the same without saving. The page shows a zoomed picture
+  of just those tanks' cards, their figures and the decant app's check badge;
+  **Upload** (per tank, or all shown) saves them afterwards.
+- **Live monitoring**: connect once and keep that AnyDesk session open. Every
+  N minutes (1-240, default 15) the screen is read again, without
+  reconnecting, and with "Update the decant app each time" the watched tanks
+  are saved. It runs until AnyDesk ends the session (the free licence's time
+  limit, or the PC going offline) or you press Stop. When AnyDesk ends it, the
+  XtraPower Telegram bot gets a picture of what AnyDesk showed and how long it
+  lasted. Problems while live (a tank not saved, a tank not on the screen) are
+  sent once each.
+
+The GitHub job "Tank stock (AnyDesk -> decant)" still works: `capture` sends
+the whole screen to the XtraPower bot (from the open session when live
+monitoring is on); `save-login` gives the page the AnyDesk login from the
+repo's secrets.
 
 If the PC isn't on Tank Status, the agent opens it the way a person would:
 **Monitoring** in FuelTrans' blue menu bar, then **Tank Status** (`navigate.py`).
@@ -60,8 +69,8 @@ and the "Last Updated" time. The figures of both reads must agree.
    in `/opt/agents/tank-stock/app`). It:
    - installs AnyDesk, a virtual display, screenshot tools;
    - logs the runner user in at the console (tty7 of seat0, made the active
-     one) with `tank-stock-session.service`, and runs the monitor
-     (`python -m tank_stock.service`) inside that session. AnyDesk's client
+     one) with `tank-stock-session.service`, and runs the page and live
+     monitor (`python -m tank_stock.service`) inside that session. AnyDesk's client
      crashes at start ("The logged in user differs from the (non-root) user
      this process runs as") unless it runs inside the session of the user at
      the machine's active console, and on a server nobody is;
@@ -74,14 +83,15 @@ and the "Last Updated" time. The figures of both reads must agree.
 3. `bash infra/anydesk/use-xtrapower-bot.sh` on the server, so reports go to
    the XtraPower bot.
 4. **Actions → Tank stock (AnyDesk -> decant) → Run workflow**, mode
-   **save-login**. This copies the AnyDesk login to the monitor
+   **save-login**. This copies the AnyDesk login to the page
    (`/opt/agents/tank-stock/login.json`, owner-only). Do it again if the
    password changes.
 
 The GitHub job can't start AnyDesk itself (it's not in the console session),
-so it leaves its request in `/opt/agents/tank-stock-queue` and the monitor
+so it leaves its request in `/opt/agents/tank-stock-queue` and the service
 runs it in the session with the job's checkout and secrets (same user, same
-rights). One capture runs at a time.
+rights), or answers it from the open live session. One use of the PC runs at
+a time.
 
 ## The PC's two AnyDesk IDs
 
@@ -94,12 +104,12 @@ the PC switches.
 
 ## Caveats
 
-- **AnyDesk licence:** free AnyDesk is for personal use. The monitor connects
-  every 15 minutes (96 times a day), which may trigger AnyDesk's "commercial
-  use detected" limits. A longer interval makes that less likely; a paid
+- **AnyDesk licence:** free AnyDesk is for personal use, and limits how long a
+  session may stay open; live monitoring simply runs until it does. Many
+  sessions a day may trigger its "commercial use detected" limits; a paid
   licence lifts them.
-- **The PC's screen:** each connection shows on the PC like any AnyDesk
-  session, and if it isn't on Tank Status the agent clicks Monitoring → Tank
-  Status, which moves whoever is using it off their page.
+- **The PC's screen:** a connection shows on the PC like any AnyDesk session,
+  and if the screen isn't on Tank Status when a read is due, the agent clicks
+  Monitoring → Tank Status, which moves whoever is using it off their page.
 - This repo's job logs are public, so pictures, figures, IDs and window titles
   never go there; they go to the page and the XtraPower bot.

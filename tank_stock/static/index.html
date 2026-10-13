@@ -79,9 +79,10 @@
     <h2>Capture now</h2>
     <div class="chips" id="pick" aria-label="Tanks"></div>
     <div class="row">
-      <button class="main" id="go">Capture</button>
-      <button class="alt" id="goUp">Capture &amp; upload</button>
+      <button class="main" id="goDec">Send for decantation</button>
+      <button class="alt" id="go">Capture only</button>
     </div>
+    <div class="note" style="margin-top:8px">Send for decantation reads these tanks, saves them to the decant app and disconnects (it also ends live monitoring).</div>
     <div class="status" id="status"></div>
   </section>
 
@@ -89,7 +90,7 @@
     <h2 id="resultTitle">Last capture</h2>
     <div class="note" id="resultNote"></div>
     <img class="shot" id="shot" alt="The selected tanks on the automation screen">
-        <div id="figures"></div>
+    <div id="figures"></div>
     <div class="row">
       <button class="main" id="upAll">Upload these to decant</button>
     </div>
@@ -97,13 +98,18 @@
   </section>
 
   <section>
-    <h2>Monitor</h2>
-    <label class="line">Run the monitor <input type="checkbox" id="mOn"></label>
-    <label class="line">Every (minutes) <input type="number" id="mEvery" min="5" max="1440" step="1"></label>
-    <label class="line">Upload to decant automatically <input type="checkbox" id="mUp"></label>
+    <h2>Live monitoring</h2>
+    <div class="note">Keeps one AnyDesk session open and reads the screen again every few minutes, until AnyDesk ends the session or you stop it.</div>
+    <div class="status" id="liveState"></div>
+    <label class="line">Read every (minutes) <input type="number" id="mEvery" min="1" max="240" step="1"></label>
+    <label class="line">Update the decant app each time <input type="checkbox" id="mUp"></label>
     <div class="note" style="margin-top:8px">Tanks to watch</div>
     <div class="chips" id="mTanks" style="margin-top:6px"></div>
-    <div class="row"><button class="main" id="mSave">Save</button></div>
+    <div class="row">
+      <button class="main" id="liveStart">Start live monitoring</button>
+      <button class="alt" id="liveStop" hidden>Stop</button>
+      <button class="alt" id="mSave">Save settings</button>
+    </div>
     <div class="status" id="mStatus"></div>
   </section>
 </main>

@@ -10,7 +10,7 @@
   let state = null;
   let shownAt = null;           // the capture on screen
   let waiting = false;          // a capture this page started
-  let monitorDirty = false;     // don't overwrite settings being edited
+  let monitorDirty = false;     // don't overwrite live settings being edited
 
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
@@ -69,13 +69,18 @@
     $(id).className = "status" + (err ? " err" : "");
   }
 
+  const isLive = () => state?.live?.state === "live";
+
   function renderStatus() {
     const busy = state.busy;
-    $("go").disabled = $("goUp").disabled = Boolean(busy);
+    const connecting = state.live && !isLive();
+    $("go").disabled = $("goDec").disabled = Boolean(busy) || Boolean(connecting);
     $("upAll").disabled = Boolean(busy);
     const last = state.last || {};
     if (busy) {
-      setStatus("status", `Connecting to the automation PC… (${busy.what === "monitor" ? "the monitor's run" : "started " + ago(busy.since)}). This takes about a minute.`);
+      const what = { "live read": "Reading the live session", "connecting for live monitoring": "Connecting for live monitoring",
+        decantation: "Reading the tanks for decantation", upload: "Uploading" }[busy.what] || "Connecting to the automation PC";
+      setStatus("status", `${what}… (started ${ago(busy.since)}). ${isLive() ? "" : "Connecting takes about a minute."}`);
     } else if (last.error && (!last.at || last.error_at > last.at)) {
       setStatus("status", `Last try (${when(last.error_at)}) failed: ${last.error}`, true);
     } else if (!state.login_saved) {
@@ -136,32 +141,44 @@
     shownAt = last.at;
   }
 
-  function renderMonitor() {
+  function renderLive() {
+    const live = state.live;
+    const prev = state.live_last || {};
+    $("liveStart").hidden = Boolean(live);
+    $("liveStop").hidden = !live;
+    $("liveStart").disabled = Boolean(state.busy);
+    let text, err = false;
+    if (live && !isLive()) {
+      text = "Connecting… (about a minute)";
+    } else if (live) {
+      text = `Live since ${when(live.connected || live.since)}: Tank ${live.tanks.join(", ")}, every ${live.interval_min} min`
+        + `${live.auto_upload ? ", updating decant" : ""}. ${live.reads} read${live.reads === 1 ? "" : "s"}`
+        + `${live.last_read ? `, last ${when(live.last_read)}` : ""}${live.next_read ? `, next ${when(live.next_read)}` : ""}.`;
+      if (live.last_error) { text += ` Last problem: ${live.last_error}`; err = true; }
+    } else if (prev.ended) {
+      text = `Off. Last session ${when(prev.since)} → ${when(prev.ended)} (${prev.lasted}, ${prev.reads} read${prev.reads === 1 ? "" : "s"}): ${prev.reason}.`;
+    } else {
+      text = "Off.";
+    }
+    setStatus("liveState", text, err);
+    if (["Starting…", "Stopping…"].includes($("mStatus").textContent) && (live ? isLive() : true)) setStatus("mStatus", "");
+    $("sub").textContent = live ? (isLive() ? "Live monitoring is on." : "Connecting for live monitoring…")
+      : "On demand: nothing connects until you ask.";
     if (monitorDirty) return;
     const s = state.settings;
-    $("mOn").checked = s.monitor;
     $("mEvery").value = s.interval_min;
     $("mEvery").min = state.limits.interval_min[0];
     $("mEvery").max = state.limits.interval_min[1];
     $("mUp").checked = s.auto_upload;
     watched = new Set(s.tanks);
     chips($("mTanks"), watched, () => { monitorDirty = true; });
-    const m = state.monitor || {};
-    const parts = [];
-    if (!s.monitor) parts.push("The monitor is off.");
-    else if (m.next_run) parts.push(`Next run ${when(m.next_run)}.`);
-    if (m.last_run) parts.push(`Last run ${when(m.last_run)}${m.last_error ? ": " + m.last_error : ", fine."}`);
-    setStatus("mStatus", parts.join(" "), Boolean(m.last_error));
-    $("sub").textContent = s.monitor
-      ? `Monitor on: every ${s.interval_min} min, Tank ${s.tanks.join(", ")}${s.auto_upload ? ", uploading to decant" : ""}.`
-      : "Monitor off. Capture on demand below.";
   }
 
   function render() {
     chips($("pick"), picked, () => { keep("ts-picked", [...picked]); renderResult(); });
     renderStatus();
     renderResult();
-    renderMonitor();
+    renderLive();
   }
 
   async function refresh() {
@@ -175,18 +192,18 @@
 
   async function poll() {
     await refresh();
-    if (state?.busy || waiting) {
+    if (state?.busy || waiting || (state?.live && !isLive())) {
       if (waiting && !state.busy) waiting = false;
       setTimeout(poll, 2500);
     }
   }
 
-  async function start(upload) {
+  async function start(decantation) {
     try {
-      await api("POST", "/api/capture", { tanks: [...picked], upload });
+      await api("POST", "/api/capture", { tanks: [...picked], decantation });
       waiting = true;
-      setStatus("status", "Connecting to the automation PC… This takes about a minute.");
-      $("go").disabled = $("goUp").disabled = true;
+      setStatus("status", isLive() ? "Reading the live session…" : "Connecting to the automation PC… This takes about a minute.");
+      $("go").disabled = $("goDec").disabled = true;
       setTimeout(poll, 1500);
     } catch (e) {
       setStatus("status", e.message, true);
@@ -206,22 +223,23 @@
   }
 
   $("go").addEventListener("click", () => start(false));
-  $("goUp").addEventListener("click", () => start(true));
+  $("goDec").addEventListener("click", () => start(true));
   $("upAll").addEventListener("click", () => upload([...picked].filter((n) => state?.last?.tanks?.[n])));
-  for (const id of ["mOn", "mEvery", "mUp"]) $(id).addEventListener("input", () => { monitorDirty = true; });
-  $("mSave").addEventListener("click", async () => {
+  for (const id of ["mEvery", "mUp"]) $(id).addEventListener("input", () => { monitorDirty = true; });
+  const liveSettings = () => ({ interval_min: Number($("mEvery").value), auto_upload: $("mUp").checked, tanks: [...watched] });
+  async function send(path, body, done) {
     try {
-      await api("POST", "/api/settings", {
-        monitor: $("mOn").checked, interval_min: Number($("mEvery").value),
-        auto_upload: $("mUp").checked, tanks: [...watched],
-      });
+      await api("POST", path, body);
       monitorDirty = false;
-      setStatus("mStatus", "Saved.");
-      await refresh();
+      setStatus("mStatus", done);
+      await poll();
     } catch (e) {
       setStatus("mStatus", e.message, true);
     }
-  });
+  }
+  $("mSave").addEventListener("click", () => send("/api/settings", liveSettings(), "Saved."));
+  $("liveStart").addEventListener("click", () => send("/api/live/start", liveSettings(), "Starting…"));
+  $("liveStop").addEventListener("click", () => send("/api/live/stop", {}, "Stopping…"));
 
   poll();
   setInterval(() => { if (!waiting && !document.hidden) refresh(); }, 30000);

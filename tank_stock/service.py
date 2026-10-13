@@ -1,25 +1,28 @@
-"""Tank stock monitor and phone page (runs on the India server).
+"""Tank stock page and live monitor (runs on the India server).
 
 python -m tank_stock.service      (tank-stock-session.service runs it)
 
 It runs inside the runner user's console login session, because that is the
 only place AnyDesk agrees to start (see infra/anydesk/tank-stock-session.service).
-It does three things:
+Nothing connects on its own: everything starts from the phone page at
+http://127.0.0.1:8790, published to your own Tailscale devices (setup.sh).
 
-- the monitor: every ``interval_min`` minutes (default 15) it connects to the
-  IOCL PC, reads the Tank Status cards and, with ``auto_upload`` on, saves the
-  watched tanks' stock to the decant app (only cards that pass the app's
-  checks; see decant.py). Failures go to the XtraPower Telegram bot once,
-  and so does the recovery;
-- the phone page at http://127.0.0.1:8790, published to your own Tailscale
-  devices (infra/anydesk/phone-setup.sh): pick tanks, capture now, see the
-  zoomed cards and their figures, upload to decant, change the monitor;
-- GitHub's "Tank stock" job: requests it leaves in the queue are run here
-  (``python -m tank_stock.run --in-session``), in the session.
+- Capture: connect, read the chosen tanks' cards (a zoomed picture and the
+  figures), disconnect. Upload sends them to the decant app (decant.py).
+- Send for decantation: capture, upload, and end the live session if one is
+  open.
+- Live monitoring: connect once and keep that AnyDesk session open; every
+  ``interval_min`` minutes read the screen again (no reconnecting) and, with
+  ``auto_upload``, update the decant app. It runs until AnyDesk ends the
+  session (e.g. a free licence's time limit) or you press Stop; the
+  XtraPower Telegram bot is told when AnyDesk ends it, with what the screen
+  showed.
+- GitHub's "Tank stock" job: its queued requests run here, in the session
+  (``python -m tank_stock.run --in-session``), or from the live session's
+  screen while one is open.
 
 Settings live in /opt/agents/tank-stock/settings.json and the AnyDesk login
-in login.json (owner-only; saved by the workflow's save-login mode). One
-capture runs at a time (capture.py holds a lock).
+in login.json (owner-only; saved by the workflow's save-login mode).
 """
 from __future__ import annotations
 
@@ -40,7 +43,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import cards as cards_mod
 from . import decant, telegram
-from .capture import CaptureError, capture, parse_ids
+from .capture import CaptureError, Session, parse_ids
 
 HOME = Path(os.environ.get("TANK_STOCK_HOME", "/opt/agents/tank-stock"))
 QUEUE = Path(os.environ.get("TANK_STOCK_QUEUE", "/opt/agents/tank-stock-queue"))
@@ -49,8 +52,10 @@ STATIC = Path(__file__).resolve().parent / "static"
 PORT = 8790
 IST = timezone(timedelta(hours=5, minutes=30))
 TANKS = (1, 2, 3, 4)
-DEFAULTS = {"monitor": True, "interval_min": 15, "tanks": list(TANKS), "auto_upload": True}
-INTERVAL = (5, 1440)             # minutes; a capture takes about a minute
+DEFAULTS = {"interval_min": 15, "tanks": list(TANKS), "auto_upload": True}   # live monitoring
+INTERVAL = (1, 240)              # minutes between live reads (no reconnecting)
+CHECK_EVERY = 15                 # seconds: is the live session still open?
+MAX_FAILED_READS = 3             # live reads that may fail in a row
 MAX_BODY = 16_000
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -102,9 +107,7 @@ def clean_tanks(value) -> list[int]:
 
 
 def clean_settings(new: dict, old: dict) -> dict:
-    out = {**DEFAULTS, **old}
-    if "monitor" in new:
-        out["monitor"] = bool(new["monitor"])
+    out = {**DEFAULTS, **{k: v for k, v in old.items() if k in DEFAULTS}}
     if "auto_upload" in new:
         out["auto_upload"] = bool(new["auto_upload"])
     if "interval_min" in new:
@@ -121,30 +124,33 @@ def clean_settings(new: dict, old: dict) -> dict:
 
 
 class Station:
-    """Settings, the last capture, and running captures one at a time."""
+    """Settings, the last capture, the live session; one AnyDesk use at a time."""
 
-    def __init__(self, home: Path = HOME, capture_fn=capture, decant_mod=decant, notify=telegram.send_text):
+    def __init__(self, home: Path = HOME, session_cls=Session, decant_mod=decant,
+                 notify=telegram.send_text, notify_photo=telegram.send_photo):
         self.home = home
-        self.capture_fn = capture_fn
+        self.session_cls = session_cls
         self.decant = decant_mod
-        self.notify = notify
-        self.busy = threading.Lock()
+        self.notify, self.notify_photo = notify, notify_photo
+        self.busy = threading.Lock()     # one capture / live read at a time
         self.busy_since = None
         self.busy_what = ""
-        self.wake = threading.Event()
-        self.alerted = ""               # the failure Telegram was last told about
+        self.live = None                 # {state, session, since, tanks, ...} while live
+        self.live_last = _read_json(home / "live.json", {})
+        self.alerted = ""
         self.last = _read_json(home / "last.json", {})
-        self.monitor_state = _read_json(home / "monitor.json", {})
 
     # ---- settings and login --------------------------------------------
     @property
     def settings(self) -> dict:
-        return {**DEFAULTS, **_read_json(self.home / "settings.json", {})}
+        return clean_settings({}, _read_json(self.home / "settings.json", {}))
 
     def save_settings(self, new: dict) -> dict:
         s = clean_settings(new, self.settings)
         _write_json(self.home / "settings.json", s)
-        self.wake.set()                 # the monitor re-plans its next run
+        if self.live:                    # a running live session picks them up
+            self.live.update(tanks=s["tanks"], interval_min=s["interval_min"], auto_upload=s["auto_upload"])
+            self.live["wake"].set()
         return s
 
     def login(self) -> tuple[list[str], str]:
@@ -154,27 +160,48 @@ class Station:
                                "workflow once in save-login mode.")
         return parse_ids(",".join(data["ids"])), data["password"]
 
-    # ---- one capture ----------------------------------------------------
-    def run(self, tanks, upload: bool, why: str) -> dict:
-        """Connect, read the cards, maybe upload. Returns the new ``last``."""
-        if not self.busy.acquire(blocking=False):
-            raise RuntimeError("A capture is already running; wait for it to finish.")
-        self.busy_since, self.busy_what = now_iso(), why
-        try:
-            return self._run(clean_tanks(tanks), upload, why)
-        finally:
-            self.busy_since, self.busy_what = None, ""
-            self.busy.release()
+    def _hold(self, what: str, wait: float = 0) -> None:
+        """Take the PC for ``what``, waiting up to ``wait`` seconds."""
+        got = self.busy.acquire(timeout=wait) if wait else self.busy.acquire(blocking=False)
+        if not got:
+            raise RuntimeError("The agent is busy with the PC right now; try again in a minute.")
+        self.busy_since, self.busy_what = now_iso(), what
 
-    def _run(self, tanks, upload, why):
-        started = now_iso()
+    def _release(self) -> None:
+        self.busy_since, self.busy_what = None, ""
+        self.busy.release()
+
+    # ---- capture --------------------------------------------------------
+    def capture(self, tanks, upload: bool = False, decantation: bool = False, why: str = "phone") -> dict:
+        """Read the tanks: from the open live session, else connect for this
+        one capture. ``decantation``: upload, then end the live session."""
+        tanks = clean_tanks(tanks)
+        upload = upload or decantation
+        live = self.live if self.live and self.live.get("state") == "live" else None
+        self._hold("decantation" if decantation else "capture", wait=90 if live else 0)
         try:
-            ids, password = self.login()
-            png, _windows, used, page = self.capture_fn(ids, password)
-        except CaptureError as exc:
-            self.last = {**self.last, "error": str(exc), "error_at": started, "why": why}
-            _write_json(self.home / "last.json", self.last)
-            raise
+            try:
+                if live:
+                    png, page = live["session"].shot()
+                    used = live["session"].position
+                else:
+                    ids, password = self.login()
+                    with self.session_cls(ids, password) as session:
+                        png, page = session.shot()
+                        used = session.position
+            except CaptureError as exc:
+                self.last = {**self.last, "error": str(exc), "error_at": now_iso(), "why": why}
+                _write_json(self.home / "last.json", self.last)
+                raise
+            last = self._record(png, page, used, tanks, upload, why)
+        finally:
+            self._release()
+        if decantation and self.live:
+            self.stop_live("sent for decantation")
+        return last
+
+    def _record(self, png, page, used, tanks, upload, why) -> dict:
+        started = now_iso()
         (self.home / "screen.png").write_bytes(png)
         boxes, read = cards_mod.read_all(png)
         try:
@@ -193,10 +220,10 @@ class Station:
             }
         self.last = {"at": started, "why": why, "page": page, "id_no": used, "tanks": found,
                      "asked": tanks, "settings_note": cfg_error, "uploads": {}}
+        (self.home / "cards.json").write_text(json.dumps({str(k): v for k, v in read.items()}))
         if upload:
             self._upload(tanks, read, cfg)
         _write_json(self.home / "last.json", self.last)
-        (self.home / "cards.json").write_text(json.dumps({str(k): v for k, v in read.items()}))
         return self.last
 
     def _upload(self, tanks, read, cfg) -> dict:
@@ -216,8 +243,10 @@ class Station:
         read = {int(k): v for k, v in _read_json(self.home / "cards.json", {}).items()}
         if not read:
             raise ValueError("Capture the tanks first.")
-        if not self.busy.acquire(timeout=5):
-            raise ValueError("A capture is running; upload when it has finished.")
+        try:
+            self._hold("upload", wait=5)
+        except RuntimeError:
+            raise ValueError("The agent is reading the PC; upload when it has finished.") from None
         try:
             try:
                 cfg = self.decant.settings()
@@ -226,7 +255,7 @@ class Station:
             results = self._upload(tanks, read, cfg)
             _write_json(self.home / "last.json", self.last)
         finally:
-            self.busy.release()
+            self._release()
         return results
 
     def picture(self, tanks, stack: bool = False) -> bytes:
@@ -237,46 +266,115 @@ class Station:
         boxes = {int(k): tuple(v["box"]) for k, v in (self.last.get("tanks") or {}).items()}
         return cards_mod.picture(png, boxes, clean_tanks(tanks), stack=stack)
 
-    # ---- the monitor ----------------------------------------------------
-    def next_due(self) -> float:
-        last = self.monitor_state.get("last_run_ts", 0)
-        return last + self.settings["interval_min"] * 60
+    # ---- live monitoring ------------------------------------------------
+    def start_live(self, new_settings: dict | None = None) -> dict:
+        """Connect and keep the session open, reading every interval_min."""
+        if self.live:
+            raise RuntimeError("Live monitoring is already running.")
+        if self.busy.locked():
+            raise RuntimeError("The agent is busy with the PC right now; try again in a minute.")
+        s = self.save_settings(new_settings or {})
+        self.live = {"state": "connecting", "since": now_iso(), "tanks": s["tanks"],
+                     "interval_min": s["interval_min"], "auto_upload": s["auto_upload"],
+                     "reads": 0, "failed": 0, "stop": threading.Event(), "wake": threading.Event()}
+        threading.Thread(target=self._live_run, args=(self.live,), daemon=True, name="live").start()
+        return self.live_view()
 
-    def monitor_once(self) -> None:
-        s = self.settings
-        if self.busy.locked():                  # a capture from the page: try again in a minute
-            self.monitor_state["last_run_ts"] = time.time() - s["interval_min"] * 60 + 60
-            return
-        self.monitor_state["last_run_ts"] = time.time()
-        self.monitor_state["last_run"] = now_iso()
+    def stop_live(self, why: str = "stopped by you") -> None:
+        live = self.live
+        if live:
+            live["stop_reason"] = why
+            live["stop"].set()
+            live["wake"].set()
+
+    def _live_run(self, live) -> None:
+        session, reason, final = None, "", b""
         try:
-            last = self.run(s["tanks"], s["auto_upload"], "monitor")
-            bad = {n: u["message"] for n, u in last.get("uploads", {}).items() if not u.get("ok")}
-            problem = "; ".join(f"Tank {n}: {m}" for n, m in sorted(bad.items()))
-            self.monitor_state["last_error"] = problem
+            self._hold("connecting for live monitoring", wait=90)
+            try:
+                ids, password = self.login()
+                session = self.session_cls(ids, password)
+                session.open()
+            finally:
+                self._release()
+            live.update(state="live", session=session, connected=now_iso())
+            while not live["stop"].is_set():
+                self._live_read(live)
+                if live["failed"] >= MAX_FAILED_READS:
+                    reason = f"{MAX_FAILED_READS} reads in a row failed"
+                    break
+                due = time.time() + live["interval_min"] * 60
+                live["next_read"] = datetime.fromtimestamp(due, IST).isoformat(timespec="seconds")
+                while time.time() < due and not live["stop"].is_set():
+                    live["wake"].clear()
+                    live["wake"].wait(timeout=min(CHECK_EVERY, max(0.1, due - time.time())))
+                    if not session.alive():
+                        reason = "AnyDesk ended the session"
+                        final = session.screen()          # what AnyDesk shows now
+                        break
+                    if live["wake"].is_set() and not live["stop"].is_set():
+                        due = min(due, time.time() + live["interval_min"] * 60)
+                if reason:
+                    break
+            reason = reason or live.get("stop_reason") or "stopped"
         except (CaptureError, RuntimeError) as exc:
-            problem = str(exc)
-            self.monitor_state["last_error"] = problem
-        except Exception as exc:  # noqa: BLE001 - keep the monitor alive
-            problem = f"{type(exc).__name__}: {exc}"
-            self.monitor_state["last_error"] = problem
+            reason = str(exc)
+        except Exception as exc:  # noqa: BLE001 - always close the session
+            reason = f"{type(exc).__name__}: {exc}"
             traceback.print_exc()
-        _write_json(self.home / "monitor.json", self.monitor_state)
-        # Tell Telegram when something goes wrong, and when it's fine again.
-        if problem and problem != self.alerted:
-            self.notify(f"⚠️ Tank stock monitor: {problem}")
-        elif not problem and self.alerted:
-            self.notify("✅ Tank stock monitor is uploading again.")
-        self.alerted = problem
+        finally:
+            if session:
+                session.close()
+            self._live_end(live, reason, final)
 
-    def monitor_loop(self, stop: threading.Event) -> None:
-        while not stop.is_set():
-            wait = self.next_due() - time.time()
-            if self.settings["monitor"] and wait <= 0:
-                self.monitor_once()
-                continue
-            self.wake.clear()
-            self.wake.wait(timeout=min(max(wait, 5), 60) if self.settings["monitor"] else 60)
+    def _live_read(self, live) -> None:
+        try:
+            self._hold("live read", wait=120)
+        except RuntimeError:
+            live["failed"] += 1
+            return
+        try:
+            png, page = live["session"].shot()
+            last = self._record(png, page, live["session"].position, live["tanks"],
+                                live["auto_upload"], "live")
+            live.update(reads=live["reads"] + 1, failed=0, last_read=last["at"])
+            bad = {n: u["message"] for n, u in last.get("uploads", {}).items() if not u.get("ok")}
+            missing = [n for n in live["tanks"] if str(n) not in last["tanks"]]
+            problem = "; ".join([f"Tank {n}: {m}" for n, m in sorted(bad.items())]
+                                + ([f"not on the screen: Tank {', '.join(map(str, missing))} ({page})"]
+                                   if missing and not bad else []))
+            if problem and problem != self.alerted:
+                self.notify(f"⚠️ Tank stock (live): {problem}")
+            self.alerted = problem
+        except Exception as exc:  # noqa: BLE001 - count it, keep the session
+            live["failed"] += 1
+            live["last_error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            self._release()
+
+    def _live_end(self, live, reason: str, final: bytes) -> None:
+        ended = now_iso()
+        minutes = int((datetime.fromisoformat(ended) - datetime.fromisoformat(live["since"])).total_seconds() // 60)
+        took = f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
+        self.live_last = {"since": live["since"], "ended": ended, "lasted": took, "reason": reason,
+                          "reads": live["reads"]}
+        _write_json(self.home / "live.json", self.live_last)
+        self.live = None
+        self.alerted = ""
+        if live.get("stop_reason"):
+            return                          # you stopped it: no message needed
+        reads = f"{live['reads']} read{'' if live['reads'] == 1 else 's'}"
+        text = f"Tank stock live monitoring ended after {took} ({reads}): {reason}."
+        if final:
+            self.notify_photo(final, text + "\nThis is what the server's AnyDesk showed.")
+        else:
+            self.notify(text)
+
+    def live_view(self) -> dict | None:
+        live = self.live
+        if not live:
+            return None
+        return {k: v for k, v in live.items() if k not in ("session", "stop", "wake")}
 
     # ---- GitHub job requests -------------------------------------------
     def queue_loop(self, stop: threading.Event) -> None:
@@ -289,30 +387,48 @@ class Station:
                     req.unlink()
                 except OSError:
                     continue
-                with open(f"{job}.log", "wb") as log:
-                    try:
-                        rc = subprocess.run([PYTHON, "-m", "tank_stock.run", "--in-session", job],
-                                            cwd=workdir, stdout=log, stderr=subprocess.STDOUT,
-                                            timeout=600).returncode
-                    except (OSError, subprocess.TimeoutExpired) as exc:
-                        log.write(f"The capture could not run: {type(exc).__name__}\n".encode())
-                        rc = 1
+                if self.live and self.live.get("state") == "live":
+                    rc, out = self._job_from_live(job)
+                    Path(f"{job}.log").write_text(out)
+                else:
+                    with open(f"{job}.log", "wb") as log:
+                        try:
+                            rc = subprocess.run([PYTHON, "-m", "tank_stock.run", "--in-session", job],
+                                                cwd=workdir, stdout=log, stderr=subprocess.STDOUT,
+                                                timeout=600).returncode
+                        except (OSError, subprocess.TimeoutExpired) as exc:
+                            log.write(f"The capture could not run: {type(exc).__name__}\n".encode())
+                            rc = 1
                 Path(f"{job}.rc.tmp").write_text(f"{rc}\n")
                 os.replace(f"{job}.rc.tmp", f"{job}.rc")
 
+    def _job_from_live(self, job: str) -> tuple[int, str]:
+        """The GitHub job asked while the live session is open: answer from it."""
+        Path(f"{job}.env").unlink(missing_ok=True)
+        try:
+            self._hold("GitHub job", wait=120)
+        except RuntimeError as exc:
+            return 1, f"{exc}\n"
+        try:
+            png, page = self.live["session"].shot()
+        except Exception as exc:  # noqa: BLE001
+            return 1, f"The live session's screen could not be read ({type(exc).__name__}).\n"
+        finally:
+            self._release()
+        sent = self.notify_photo(png, f"Tank stock screen from the live session, {now_iso()}: {page}.")
+        return (0 if sent else 1), (f"Captured from the open live session ({page}); "
+                                    f"{'sent to Telegram' if sent else 'Telegram delivery failed'}.\n")
+
     # ---- the page's view ------------------------------------------------
     def view(self) -> dict:
-        s = self.settings
         login = _read_json(self.home / "login.json", {})
-        due = self.next_due()
         return {
-            "settings": s,
+            "settings": self.settings,
             "limits": {"interval_min": INTERVAL},
             "login_saved": bool(login.get("password") and login.get("ids")),
             "busy": {"since": self.busy_since, "what": self.busy_what} if self.busy_since else None,
-            "monitor": {**{k: v for k, v in self.monitor_state.items() if k != "last_run_ts"},
-                        "next_run": datetime.fromtimestamp(max(due, time.time()), IST).isoformat(timespec="seconds")
-                        if s["monitor"] else None},
+            "live": self.live_view(),
+            "live_last": self.live_last,
             "last": self.last,
         }
 
@@ -396,22 +512,30 @@ class Handler(BaseHTTPRequestHandler):
             path = urlparse(self.path).path
             if path == "/api/capture":
                 tanks = clean_tanks(body.get("tanks") or [])
-                if self.station.busy.locked():
-                    return self._json(409, {"error": "A capture is already running; wait for it to finish."})
-                threading.Thread(target=self._capture, args=(tanks, bool(body.get("upload"))),
-                                 daemon=True).start()
+                st = self.station
+                if st.busy.locked() or (st.live and st.live.get("state") != "live"):
+                    return self._json(409, {"error": "The agent is busy with the PC; wait for it to finish."})
+                threading.Thread(target=self._capture, daemon=True,
+                                 args=(tanks, bool(body.get("upload")), bool(body.get("decantation")))).start()
                 return self._json(202, {"started": True})
+            if path == "/api/live/start":
+                return self._json(202, {"live": self.station.start_live(body)})
+            if path == "/api/live/stop":
+                self.station.stop_live()
+                return self._json(200, {"stopping": True})
             if path == "/api/upload":
                 return self._json(200, {"results": self.station.upload_last(body.get("tanks") or [])})
             if path == "/api/settings":
                 return self._json(200, {"settings": self.station.save_settings(body)})
         except ValueError as exc:
             return self._json(400, {"error": str(exc)})
+        except RuntimeError as exc:
+            return self._json(409, {"error": str(exc)})
         self._json(404, {"error": "Not found."})
 
-    def _capture(self, tanks, upload):
+    def _capture(self, tanks, upload, decantation):
         try:
-            self.station.run(tanks, upload, "phone")
+            self.station.capture(tanks, upload=upload, decantation=decantation)
         except (CaptureError, RuntimeError):
             pass                              # recorded in last.json for the page
         except Exception:  # noqa: BLE001
@@ -427,20 +551,19 @@ def make_server(station: Station, port: int = PORT, hosts=(), users=()) -> Threa
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Tank stock monitor and phone page")
+    ap = argparse.ArgumentParser(description="Tank stock page and live monitor")
     ap.add_argument("--port", type=int, default=PORT)
     args = ap.parse_args(argv)
     HOME.mkdir(parents=True, exist_ok=True)
     station = Station()
     stop = threading.Event()
     threading.Thread(target=station.queue_loop, args=(stop,), daemon=True, name="queue").start()
-    threading.Thread(target=station.monitor_loop, args=(stop,), daemon=True, name="monitor").start()
     hosts = os.environ.get("TANK_STOCK_HOSTS", "").split(",")
     users = os.environ.get("TANK_STOCK_USERS", "").split(",")
     httpd = make_server(station, args.port, hosts, users)
     print(f"Tank stock page on http://127.0.0.1:{args.port}/ "
-          f"({', '.join(sorted(httpd.hosts)) or 'this server only'}); monitor "  # type: ignore[attr-defined]
-          f"{'on' if station.settings['monitor'] else 'off'}.", flush=True)
+          f"({', '.join(sorted(httpd.hosts)) or 'this server only'}); "  # type: ignore[attr-defined]
+          "nothing connects until asked from the page.", flush=True)
     try:
         httpd.serve_forever()
     finally:
