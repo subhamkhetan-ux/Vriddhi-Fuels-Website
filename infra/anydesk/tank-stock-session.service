@@ -1,0 +1,22 @@
+# A login session for the runner user, so AnyDesk agrees to start for it.
+#
+# AnyDesk's client refuses to run (it crashes with "The logged in user
+# differs from the (non-root) user this process runs as ... logged in UID: 0")
+# unless the user running it is the one logged in to the machine. A server
+# has no one logged in, so this unit opens a logind session for `runner`
+# through PAM, as a display manager would. It runs nothing but `sleep`;
+# installed by infra/anydesk/setup.sh.
+[Unit]
+Description=Login session for the tank-stock AnyDesk client
+After=systemd-logind.service systemd-user-sessions.service
+
+[Service]
+User=runner
+PAMName=tank-stock-session
+Environment=XDG_SESSION_TYPE=x11 XDG_SESSION_CLASS=user DISPLAY=:98
+ExecStart=/bin/sleep infinity
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

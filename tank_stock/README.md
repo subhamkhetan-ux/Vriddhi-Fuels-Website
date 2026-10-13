@@ -25,6 +25,10 @@ app's checks.
 1. On the server: `cd ~/Vriddhi-Fuels-Website && git pull && bash infra/anydesk/setup.sh`.
    This installs AnyDesk, a virtual display and screenshot tools. The server's
    own AnyDesk gets no unattended password, so no one can connect into it.
+   It also opens a login session for the runner user
+   (`tank-stock-session.service`): AnyDesk's client crashes at start ("The
+   logged in user differs from the (non-root) user this process runs as")
+   unless its user is logged in, and on a server no one is.
    Then `bash infra/anydesk/use-xtrapower-bot.sh`, so reports go to the
    XtraPower bot (re-run it if you change that bot or chat).
 2. In GitHub, **Settings → Secrets and variables → Actions → Secrets**:

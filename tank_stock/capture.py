@@ -157,6 +157,8 @@ def _trace(frontend_log, frontend, bus) -> str:
     rc = frontend.poll() if frontend else "not started"
     parts = [f"main window process: {'running' if rc is None else f'exited with {rc}'}",
              f"session bus: {'started' if bus else 'not started (dbus-daemon missing?)'}",
+             "--- login sessions (loginctl) ---",
+             _run(["loginctl", "list-sessions", "--no-legend"], dict(os.environ)).strip() or "(none)",
              "--- main window console ---", _read_tail(frontend_log, 3000).strip() or "(none)"]
     for path in TRACES:
         parts += [f"--- {path} ---", _read_tail(path, 12000).strip() or "(missing or unreadable)"]

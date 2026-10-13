@@ -1,0 +1,6 @@
+# PAM for tank-stock-session.service: account checks, then a logind session
+# (pam_loginuid here, pam_systemd in Ubuntu's common-session). No
+# authentication step: systemd starts the unit, no one types a password.
+@include common-account
+session required pam_loginuid.so
+@include common-session
