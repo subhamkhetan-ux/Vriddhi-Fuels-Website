@@ -22,6 +22,11 @@
 --   dec_config      shared settings (tanks, tolerance, dip chart, our own TTs,
 --                   the transport TT layouts) and the indents placed (for the
 --                   Plan tab).
+--   dec_inbox       automation screenshots shared from an iPhone's share
+--                   sheet (the "Decant" shortcut posts the picture here; iOS
+--                   can't share straight into a web app). The app takes each
+--                   one as soon as it opens, reads it on the phone and deletes
+--                   the row; anything left is dropped after 10 minutes.
 --   dec_history     (a view) finished decantations, compact — what the FY
 --                   reports read for the months the phone doesn't keep.
 --   dec_months      (a view) records per month — how the app knows which
@@ -33,7 +38,8 @@
 -- been downloaded — never before (dec_purge_old() no longer deletes). Only
 -- finished and cancelled decantations and their invoices go; one still open
 -- stays. Screenshots are only read on the phone — never stored (the
--- dec_photos table of the first version is dropped). Personal-owner model:
+-- dec_photos table of the first version is dropped); a picture shared from
+-- an iPhone waits in dec_inbox only until the app picks it up. Personal-owner model:
 -- the publishable (anon) key may read/write these tables (RLS policy below);
 -- the payments agent writes the invoices with it too.
 -- =====================================================================
@@ -99,6 +105,19 @@ create table if not exists public.dec_config (
 );
 insert into public.dec_config (id) values (1) on conflict (id) do nothing;
 
+-- A screenshot shared from an iPhone, base64, until the app takes it (a few
+-- seconds). Not in realtime — the app looks when it opens or comes to the
+-- front, and the pictures are too big for realtime messages anyway.
+create table if not exists public.dec_inbox (
+  id         bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  mime       text default 'image/jpeg',
+  image      text not null,                -- base64 (line breaks allowed)
+  constraint dec_inbox_size check (length(image) < 15000000)
+);
+grant select, insert, delete on public.dec_inbox to anon, authenticated;
+grant usage on sequence public.dec_inbox_id_seq to anon, authenticated;
+
 -- ---- old months: cleared by the app once their log file is saved ----
 -- This used to delete everything older than the last financial year, unseen.
 -- Now the app clears a month itself, only after its Excel log file has been
@@ -158,7 +177,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config'] loop
+    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config','dec_inbox'] loop
     execute format('alter table public.%I enable row level security', t);
     if not exists (select 1 from pg_policies where policyname = t || '_all') then
       execute format(

@@ -9,7 +9,7 @@ import {
 import { DIP_CHART } from './dipchart.js';
 import {
   cloudEnabled, cloudMonths, clearDevice, initStore, loadMonths, meterNow, monthFiles, onChange, refreshNow, saveConfig, saveDevice, saveInvoice,
-  saveTankReading, state,
+  saveTankReading, state, takeInbox,
 } from './store.js';
 import { KEEP_OPTIONS } from './archive.js';
 import {
@@ -91,9 +91,10 @@ export function pickFile(accept) {
 // Pick a screenshot, read it and let the user check what was found. The
 // figures are saved; the picture itself is never uploaded — it stays on this
 // phone till the day ends, for the day's result pictures (shots.js).
-// Resolves {readings: {tankId: reading}} or null.
-export async function readScreenshot({ want = null } = {}) {
-  const file = await pickFile('image/*');
+// Resolves {readings: {tankId: reading}} or null. A picture shared to the app
+// comes as `file` (no picker).
+export async function readScreenshot({ want = null, file: given = null } = {}) {
+  const file = given || await pickFile('image/*');
   if (!file) return null;
   return new Promise((resolve) => {
     let result = null;
@@ -586,6 +587,57 @@ async function stockFlow() {
   if (res && Object.keys(res.readings).length) toast(`Stock updated: ${Object.keys(res.readings).map(tankName).join(', ')}.`);
 }
 
+// A screenshot shared to the app — from Android's share sheet (the service
+// worker keeps it: sw.js) or an iPhone's "Decant" shortcut (dec_inbox) — is
+// read as a stock update once the app has synced, so the readings land on the
+// latest stock.
+let storeReady = Promise.resolve();
+let sharing = false;
+
+async function takeShared() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('shared')) return null;
+  q.delete('shared');
+  history.replaceState(null, '', `${location.pathname}${q.toString() ? `?${q}` : ''}${location.hash}`);
+  try {
+    const c = await caches.open('vriddhi-decant-share');
+    const res = await c.match('./shared-shot');
+    if (!res) return null;
+    await c.delete('./shared-shot');
+    const blob = await res.blob();
+    const modified = Number(res.headers.get('X-Modified'));
+    return new File([blob], decodeURIComponent(res.headers.get('X-Name') || 'screenshot'), {
+      type: blob.type || res.headers.get('Content-Type') || 'image/png',
+      lastModified: modified > 0 ? modified : Date.now(),
+    });
+  } catch { return null; }
+}
+
+async function sharedFlow(from) {
+  if (sharing) return;
+  sharing = true;
+  try {
+    const file = from === 'share' ? await takeShared() : null;
+    if (from === 'share' && !file) { toast('The shared picture didn\'t come through — use 📷 Update.', 5000); return; }
+    const waiting = file && state.cloud === 'connecting';
+    if (waiting) {
+      openSheet('Screenshot received', (body) => {
+        body.innerHTML = '<div class="hint">Syncing with the other phones first, so the stock is updated on the latest figures…</div><div class="progress"><i style="width:60%"></i></div>';
+      });
+    }
+    // wait for the sync (but not for ever on a weak signal)
+    await Promise.race([storeReady, new Promise((r) => { setTimeout(r, 20000); })]);
+    const shot = file || (cloudEnabled ? await takeInbox().catch(() => null) : null);
+    if (waiting) closeSheet();
+    if (!shot) return;
+    if (APP.tab !== 'home' && !wizardActive()) setTab('home');
+    const res = await readScreenshot({ file: shot });
+    if (res && Object.keys(res.readings).length) toast(`Stock updated: ${Object.keys(res.readings).map(tankName).join(', ')}.`);
+  } finally {
+    sharing = false;
+  }
+}
+
 function tankSheet(id) {
   const t = tankById(id);
   const r = state.tankState[id];
@@ -869,6 +921,40 @@ async function appVersion() {
   } catch { return ''; }
 }
 
+// Settings → how to send an automation screenshot straight from the phone's
+// share sheet: Android shares into the installed app (manifest share_target);
+// an iPhone can't share into a web app, so a "Decant" shortcut posts the
+// picture to dec_inbox and opens the app, which takes it from there.
+function shareHelp() {
+  const cfg = window.VRIDDHI_DECANT_CONFIG || {};
+  const page = new URL('./', location.href).href;
+  const inbox = `${String(cfg.SUPABASE_URL || '').replace(/\/+$/, '')}/rest/v1/dec_inbox`;
+  const copy = (v) => `<code style="word-break:break-all">${esc(v)}</code> <button class="btn sm" type="button" data-copy="${esc(v)}">Copy</button>`;
+  return `<div class="sect-title">Share a screenshot to this app</div>
+    <div class="hint">Take the screenshot of the automation (e.g. in AnyDesk), tap <b>Share</b> and pick <b>Decanting</b> (on an iPhone, the <b>Decant</b> shortcut) — the app opens, syncs, reads it and
+      updates the tank stock. No saving to Photos and picking it again.</div>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer"><b>Android</b> — set up once</summary>
+      <div class="hint" style="margin-top:6px">Install the app from Chrome: ⋮ → <b>Install app</b> (or <i>Add to Home screen</i> → Install). <b>Decanting</b> then shows in the share sheet.
+        Installed before this was added? Remove it from the home screen and install it again once, so Android learns it can take pictures.</div>
+    </details>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer"><b>iPhone</b> — set up once (a Shortcut)</summary>
+      <div class="hint" style="margin-top:6px">An iPhone can't share into a web app, so a shortcut named <b>Decant</b> sends the picture to the app's cloud and opens the app,
+        which takes it at once (the picture is deleted from the cloud as soon as it's read, and after 10 minutes anyway). In the <b>Shortcuts</b> app → <b>＋</b>:</div>
+      <ol class="hint" style="margin:6px 0 0 18px;padding:0;line-height:1.6">
+        <li>Name it <b>Decant</b>. Tap ⓘ (or the name ▾ → Details) → turn on <b>Show in Share Sheet</b>. At the top it now says
+          <i>Receive … from Share Sheet</i> — tap the types and leave only <b>Images</b>.</li>
+        <li>Add <b>Convert Image</b>: Convert <i>Shortcut Input</i> to <b>JPEG</b>.</li>
+        <li>Add <b>Base64 Encode</b>: Encode <i>Converted Image</i>. Tap ▸ and set <b>Line Breaks: None</b>.</li>
+        <li>Add <b>Get Contents of URL</b>. URL: ${copy(inbox)}<br>
+          Tap ▸: <b>Method POST</b>. <b>Headers</b> ＋ key <code>apikey</code>, value ${copy(cfg.SUPABASE_ANON_KEY || '')}<br>
+          <b>Request Body: JSON</b> ＋ <b>Text</b>, key <code>image</code>, value: the <i>Base64 Encoded</i> variable.</li>
+        <li>Add <b>Open URLs</b>: ${copy(page)}</li>
+      </ol>
+      <div class="hint" style="margin-top:6px">Then: screenshot → Share → <b>Decant</b> (the first time, allow it to connect). The app opens in Safari and reads the picture;
+        if you'd rather use the home-screen app, leave out the last step and open the app yourself — it takes the picture when it opens (within 10 minutes).</div>
+    </details>`;
+}
+
 function settingsSheet() {
   openSheet('Settings', (body) => {
     const s = state.settings;
@@ -910,7 +996,7 @@ function settingsSheet() {
         <input type="text" id="stExTk" autocapitalize="characters" value="${esc((s.excludeTankers || []).join(', '))}" placeholder="OD15AF5510"></label>
       <label class="f" style="margin-top:10px">The cloud keeps
         <select id="stKeep">${KEEP_OPTIONS.map(([k, l]) => `<option value="${k}" ${s.keep === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are never uploaded — each stays on the phone that read it till the day ends, for that day's result pictures.</div>
+      <div class="hint" style="margin-top:4px">Each finished month is also an Excel log file (Log tab). An older month is cleared from the cloud once its file is downloaded — never before. Screenshots are read on the phone and stay on the phone that read it till the day ends, for that day's result pictures (one shared from an iPhone passes through the cloud for a few seconds).</div>
       <div class="hint" id="stUse" style="margin-top:4px">${cloudUse()}</div>
       <label class="f" style="margin-top:10px">The automation writes dates as
         <select id="stDate"><option value="MDY" ${s.dateOrder === 'MDY' ? 'selected' : ''}>MM/DD/YYYY (09/26/2026)</option><option value="DMY" ${s.dateOrder === 'DMY' ? 'selected' : ''}>DD/MM/YYYY (26/09/2026)</option></select></label>
@@ -925,6 +1011,8 @@ function settingsSheet() {
         <button class="btn" id="stChart">⬆ Upload a chart (.xlsx / .csv)</button>
         ${c !== DIP_CHART ? '<button class="btn" id="stChartReset">Use the built-in chart</button>' : ''}
       </div>
+      <div class="hr"></div>
+      ${shareHelp()}
       <div class="hr"></div>
       <div class="sect-title">This phone</div>
       <div class="hint">${cloudEnabled ? `Cloud: ${esc(state.cloud)}${state.outbox.length ? ` · ${state.outbox.length} change(s) waiting to be sent` : ''}.` : 'Cloud not set up — everything stays on this phone.'}</div>
@@ -1075,6 +1163,11 @@ function settingsSheet() {
       const el = body.querySelector('#stVersion');
       if (el && v) el.textContent = `App version ${v} — an update arrives the next time the app is opened with a signal.`;
     });
+    body.querySelectorAll('[data-copy]').forEach((b) => {
+      b.onclick = async () => {
+        try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied.'); } catch { toast('Couldn\'t copy — press and hold the text instead.'); }
+      };
+    });
     body.querySelector('#stRefresh').onclick = () => { refreshNow(); toast('Refreshing…'); };
     body.querySelector('#stClear').onclick = async () => {
       if (!(await ask('Clear this phone\'s copy?', `Everything synced to the cloud stays there and comes back on refresh.${state.outbox.length ? ` <b>${state.outbox.length} change(s) not yet sent will be lost.</b>` : ''}`, { ok: 'Clear', danger: true }))) return;
@@ -1162,7 +1255,13 @@ function boot() {
     document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === APP.tab));
   } catch { /* ignore */ }
   onChange(render);
-  initStore().then(render);
+  storeReady = initStore().then(render);
+  // a screenshot shared to the app (Android share sheet, or the iPhone shortcut)
+  if (new URLSearchParams(location.search).has('shared')) sharedFlow('share');
+  else if (cloudEnabled) sharedFlow('inbox');
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && cloudEnabled) setTimeout(() => sharedFlow('inbox'), 600);
+  });
   tidyShots();
   render();
   // A redraw held back while typing happens once the field lets go — but not

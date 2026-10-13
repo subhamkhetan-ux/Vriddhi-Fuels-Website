@@ -267,7 +267,7 @@ yourself: *Which chamber went where?*).
 
 ## Reading the automation screenshots
 
-The screenshot is read on the phone (Tesseract.js — nothing is uploaded) twice,
+The screenshot is read on the phone (Tesseract.js — nothing is uploaded; one shared from an iPhone passes through `dec_inbox` for a few seconds) twice,
 cleaned up two ways, and each tank card's figures are checked:
 
 - **volume + ullage = capacity** (20,000 L), and
@@ -305,6 +305,27 @@ water was read right. 14 of the 16 times read, one of them 33 seconds off; for
 the one that didn't, the upload time is used, as the sheet says. Density and
 temperature are read as well as the photo allows. They aren't checked against
 anything, so look at them before relying on them.
+
+## Sharing a screenshot straight to the app
+
+Take the screenshot of the automation (e.g. in AnyDesk on the phone), crop it
+if you like, tap **Share** and pick **Decanting** — no saving it to Photos and
+picking it again. The app opens, **syncs first** (so the stock lands on the
+latest figures from every phone), reads the picture and shows the tanks found;
+**Use these readings** updates the Tank stock, as **📷 Update** does.
+
+- **Android** — install the app from Chrome (⋮ → *Install app*). It then shows
+  in the share sheet (the manifest's `share_target`; the service worker keeps
+  the picture till the app takes it — it never leaves the phone). Installed
+  before this was added? Remove it from the home screen and install it again
+  once.
+- **iPhone** — iOS can't share into a web app, so a **Decant** shortcut does
+  it: it sends the picture to the app's cloud (`dec_inbox`) and opens the app,
+  which takes the newest picture from the last 10 minutes as soon as it opens
+  or comes to the front, and deletes it (only one phone gets it; anything left
+  is dropped after 10 minutes). The steps, with the URL and key to copy, are in
+  **Settings → Share a screenshot to this app**. Needs
+  `supabase/decant-schema.sql` re-run once (it adds `dec_inbox`).
 
 ## Dip chart
 

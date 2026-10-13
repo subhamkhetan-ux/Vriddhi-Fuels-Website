@@ -476,6 +476,32 @@ export async function initStore() {
   window.addEventListener('focus', refresh);
 }
 
+// A screenshot shared from an iPhone (the "Decant" shortcut posts it to
+// dec_inbox — iOS can't share into a web app): the newest from the last 10
+// minutes, taken by deleting it, so only one phone gets it. Older ones are
+// dropped. Resolves a File, or null.
+const INBOX_MINUTES = 10;
+export async function takeInbox() {
+  if (!client) return null;
+  const since = new Date(Date.now() - INBOX_MINUTES * 60000).toISOString();
+  client.from('dec_inbox').delete().lt('created_at', since).then(() => {}, () => {});
+  const { data: ids, error } = await client.from('dec_inbox').select('id').gte('created_at', since)
+    .order('created_at', { ascending: false }).limit(5);
+  if (error || !ids?.length) return null;
+  for (const { id } of ids) {
+    const { data } = await client.from('dec_inbox').delete().eq('id', id).select('id,created_at,mime,image');
+    const row = data?.[0];
+    if (!row?.image) continue;                           // another phone took it first
+    meter(row);
+    const bin = atob(row.image.replace(/^data:[^,]*,/, '').replace(/\s+/g, ''));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    const type = /^image\//.test(row.mime || '') ? row.mime : 'image/jpeg';
+    return new File([bytes], `shared-${id}.${type.split('/')[1]}`, { type, lastModified: Date.parse(row.created_at) || Date.now() });
+  }
+  return null;
+}
+
 export function refreshNow() {
   cloudHistory.at = 0;                          // older months are fetched again when next needed
   if (cloudHistory.status === 'error') cloudHistory.status = 'idle';

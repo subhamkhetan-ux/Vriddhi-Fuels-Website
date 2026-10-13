@@ -104,6 +104,15 @@ def test_screenshots_are_not_kept(pg):
     assert pg.ok("select to_regclass('public.dec_photos') is null;") == "t"
 
 
+def test_inbox_takes_a_shared_screenshot_once(pg):
+    # what the iPhone shortcut posts with the publishable key, and the app's take (delete … returning)
+    pg.ok("delete from dec_inbox;")
+    pg.ok("insert into dec_inbox (image) values ('iVBORw0KGgo=');", anon=True)
+    assert pg.ok("select mime from dec_inbox;", anon=True) == "image/jpeg"
+    assert pg.ok("delete from dec_inbox returning image;", anon=True).startswith("iVBORw0KGgo=")
+    assert pg.ok("select count(*) from dec_inbox;", anon=True) == "0"
+
+
 def test_dismiss_reason_column(pg):
     _reset(pg)
     pg.ok("insert into dec_invoices (invoice_no, dismissed, dismiss_reason) values ('Z', true, 'outside');", anon=True)
