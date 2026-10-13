@@ -26,11 +26,13 @@ app's checks.
    This installs AnyDesk, a virtual display and screenshot tools. The server's
    own AnyDesk gets no unattended password, so no one can connect into it.
    It also opens a login session for the runner user
-   (`tank-stock-session.service`): AnyDesk's client crashes at start ("The
+   (`tank-stock-session.service`). AnyDesk's client crashes at start ("The
    logged in user differs from the (non-root) user this process runs as")
-   unless its user is logged in, and on a server no one is.
-   Then `bash infra/anydesk/use-xtrapower-bot.sh`, so reports go to the
-   XtraPower bot (re-run it if you change that bot or chat).
+   unless it runs inside the logged-in user's session, and a GitHub job
+   doesn't. So the job leaves its request in `/opt/agents/tank-stock-queue`
+   and the session runs the capture (`tank-stock-session.sh`) with the job's
+   checkout and secrets (same user, same rights), and the job prints the
+   result.
 2. In GitHub, **Settings → Secrets and variables → Actions → Secrets**:
    - `ANYDESK_IDS`: **both** of the IOCL PC's AnyDesk numbers, comma separated,
      for example `123 456 789, 987 654 321`;
