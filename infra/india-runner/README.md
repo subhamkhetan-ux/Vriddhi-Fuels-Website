@@ -12,7 +12,9 @@ Any workflow can use it with:
 runs-on: [self-hosted, india]
 ```
 
-It runs one job at a time; others wait in the queue. Python agents can use
+It runs one job at a time; others wait in the queue. Long-running services can
+live on the same server too: the XtraPower balance monitor runs there as its
+own service ([`infra/xtrapower`](../xtrapower/README.md)). Python agents can use
 `/opt/agents/venv/bin/python` (Playwright Chromium and Tesseract preinstalled).
 
 Everything below is done in a web browser, including from a phone. No
