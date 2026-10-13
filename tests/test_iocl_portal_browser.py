@@ -97,14 +97,42 @@ def test_login_menus_dates_and_company_balance(page):
 
 
 def test_uncertain_captcha_does_not_enter_credentials_or_submit(page):
+    calls = []
     def solver(*args, **kwargs):
+        calls.append(1)
         raise PortalError("CAPTCHA needs a person")
     portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=solver, timeout=1)
     portal.open()
     with pytest.raises(PortalError, match="CAPTCHA needs a person"):
         portal.login("999999", "fixture-only")
+    assert len(calls) == 3                       # three fresh CAPTCHAs, then stop
     assert page.locator("input[name=password]").input_value() == ""
-    assert page.evaluate("window.loginCount") == 0
+    assert not page.evaluate("window.loginCount")
+
+
+def test_an_unclear_captcha_is_swapped_for_a_fresh_one_before_login(page):
+    answers = iter([PortalError("CAPTCHA needs a person"), "ABCDEF"])
+    def solver(*args, **kwargs):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=solver, timeout=1)
+    portal.open()
+    portal.login("999999", "fixture-only")
+    assert page.evaluate("window.loginCount") == 1
+
+
+def test_other_captcha_errors_are_not_retried(page):
+    calls = []
+    def solver(*args, **kwargs):
+        calls.append(1)
+        raise PortalError("Install Tesseract OCR to read the portal's text CAPTCHA.")
+    portal = PortalBrowser(page, origin=ORIGIN, captcha_solver=solver, timeout=1)
+    portal.open()
+    with pytest.raises(PortalError, match="Install Tesseract"):
+        portal.login("999999", "fixture-only")
+    assert len(calls) == 1
 
 
 def test_rejected_login_is_not_retried(page):

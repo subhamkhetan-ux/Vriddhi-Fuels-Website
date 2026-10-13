@@ -18,6 +18,7 @@ from .statement import IST, PortalError, parse_statement
 
 PORTAL_ORIGIN = "https://utkarsh.indianoil.co.in"
 LOGIN_URL = PORTAL_ORIGIN + "/ioconline/iocExStart.jsp"
+CAPTCHA_TRIES = 3
 # Yes/no markers for report_diagnostics(); never the matched text itself.
 REPORT_FLAGS = (
     ("CL.BAL", r"CL\.?\s*BAL"), ("CompCode", r"Comp(any)?\.?\s+Code"),
@@ -136,17 +137,25 @@ class PortalBrowser:
         return self.locate("password", [self._css("input[type=password]")])
 
     def login(self, username: str, password: str, *, captcha_length=6):
+        # Read the displayed challenge before entering credentials; do not save
+        # a browser profile, screenshot, trace or password to any artifact.
+        # An unclear CAPTCHA costs nothing (nothing is submitted), so reload
+        # for a fresh one a few times before giving up.
+        for attempt in range(1, CAPTCHA_TRIES + 1):
+            try:
+                answer = self.solve_captcha(self.captcha_image().screenshot(), length=captcha_length)
+                break
+            except PortalError as exc:
+                if "needs a person" not in str(exc) or attempt == CAPTCHA_TRIES:
+                    raise
+                self.page.reload(wait_until="domcontentloaded", timeout=45000)
         password_field = self.locate("password", [self._css("input[type=password]")])
         username_field = self.locate("username", [self._label(r"^(user(?:name|\s*id)?|dealer\s*(?:code|id)|customer\s*(?:code|id))\s*:?$"),
             self._css("input[autocomplete=username]"),
             self._css("input[name*=user i], input[id*=user i]"),
             self._css("input[name*=dealer i], input[id*=dealer i]"),
             self._css("input[type=text]:not([id*=captcha i]):not([name*=captcha i]):not([id*=captext i])")])
-        captcha = self.captcha_image()
         field = self.captcha_input()
-        # Read the displayed challenge before entering credentials; do not save
-        # a browser profile, screenshot, trace or password to any artifact.
-        answer = self.solve_captcha(captcha.screenshot(), length=captcha_length)
         username_field.fill(username)
         password_field.fill(password)
         field.fill(answer)
