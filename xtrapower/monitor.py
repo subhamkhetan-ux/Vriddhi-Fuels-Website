@@ -39,6 +39,8 @@ log = logging.getLogger("xtrapower.monitor")
 # closed browser or an expired session doesn't spam the phone every cycle.
 ERROR_COOLDOWN_SECONDS = 30 * 60
 CHECK_TIMEOUT_SECONDS = 180      # one account's check (a login takes ~30-60 s)
+SLOW_CHECK_SECONDS = 60          # a check slower than this is logged
+PARALLEL_CHECKS = 2              # accounts checked at once (each has its own Chrome)
 
 
 def _debug_prefix(label: str) -> str:
@@ -346,29 +348,60 @@ async def run_cycle(
     tg: Telegram,
     ready: dict[str, bool],
 ) -> None:
+    """One check of every watched account. Accounts are checked side by side
+    (each has its own Chrome), at most PARALLEL_CHECKS at once on this small
+    server, so one slow login doesn't hold the others up."""
     st = state.load(state_path)
     watched = [a for a in cfg["accounts"] if a.get("watch", True)]
-    for acct_cfg in watched:
-        try:
-            # A check that hangs (a page that stops answering mid-login) must
-            # not stop the monitor: give it up and start fresh next cycle.
-            await asyncio.wait_for(check_account(pool, acct_cfg, st, tg, ready), CHECK_TIMEOUT_SECONDS)
-        except (asyncio.TimeoutError, TimeoutError):
-            label, cid = acct_cfg.get("label") or "account", _acct_key(acct_cfg)
-            log.warning("[%s] the check took over %ds and was stopped; trying again next cycle",
-                        label, CHECK_TIMEOUT_SECONDS)
-            pool.drop(int(acct_cfg["cdp_port"]))
-            ready[cid] = False
-            acct_state, now = state.account(st, cid), time.time()
-            if state.should_alert_error(acct_state, "check-timeout", now, ERROR_COOLDOWN_SECONDS):
-                tg.send(f"⚠️ <b>{label}</b> ({cid})\nThe check got stuck (over {CHECK_TIMEOUT_SECONDS // 60} min, "
-                        "usually during the portal login) and was stopped. I'll try again on the next check; "
-                        "send /logs to see the last step.")
-            state.record_error(acct_state, "check-timeout", now, _now_iso())
-        except Exception as exc:  # noqa: BLE001 — never let one account kill the cycle
-            log.exception("unexpected error for %s", acct_cfg.get("label"))
-            tg.send(f"⚠️ <b>{acct_cfg.get('label')}</b> unexpected error: <code>{exc}</code>")
+    gate = asyncio.Semaphore(PARALLEL_CHECKS)
+
+    async def one(acct_cfg: dict[str, Any]) -> None:
+        async with gate:
+            await _check_bounded(pool, acct_cfg, st, tg, ready)
+
+    await asyncio.gather(*(one(a) for a in watched))
     state.save(state_path, st)
+
+
+async def _check_bounded(pool, acct_cfg, st, tg, ready) -> None:
+    """check_account, never longer than CHECK_TIMEOUT_SECONDS: a check that
+    hangs (a page that stops answering mid-login) is stopped and the account
+    tried fresh next cycle. Two in a row: its portal tab is replaced."""
+    label, cid = acct_cfg.get("label") or "account", _acct_key(acct_cfg)
+    acct_state = state.account(st, cid)
+    started = time.monotonic()
+    try:
+        await asyncio.wait_for(check_account(pool, acct_cfg, st, tg, ready), CHECK_TIMEOUT_SECONDS)
+        acct_state.pop("stuck", None)
+        log.debug("[%s] checked in %.1f s", label, time.monotonic() - started)
+        if time.monotonic() - started > SLOW_CHECK_SECONDS:
+            log.info("[%s] the check took %.0f s", label, time.monotonic() - started)
+    except (asyncio.TimeoutError, TimeoutError):
+        port = int(acct_cfg["cdp_port"])
+        log.warning("[%s] the check took over %ds and was stopped; trying again next cycle",
+                    label, CHECK_TIMEOUT_SECONDS)
+        pool.drop(port)
+        ready[cid] = False
+        acct_state["stuck"] = acct_state.get("stuck", 0) + 1
+        now = time.time()
+        if state.should_alert_error(acct_state, "check-timeout", now, ERROR_COOLDOWN_SECONDS):
+            tg.send(f"⚠️ <b>{label}</b> ({cid})\nThe check got stuck (over {CHECK_TIMEOUT_SECONDS // 60} min, "
+                    "usually during the portal login) and was stopped. I'll try again on the next check; "
+                    "send /logs to see the last step.")
+        state.record_error(acct_state, "check-timeout", now, _now_iso())
+        if acct_state["stuck"] >= 2:
+            # the same tab hung twice: a new one (its old portal tabs closed)
+            url = acct_state.get("balance_url") or acct_cfg.get("balance_url") or browser.PORTAL_URL
+            try:
+                await asyncio.wait_for(pool.fresh_page(port, url), 90)
+                log.info("[%s] opened a fresh portal tab after %d stuck checks", label, acct_state["stuck"])
+                acct_state["stuck"] = 0
+            except Exception as exc:  # noqa: BLE001 — Chrome itself is stuck: run.sh relaunches it
+                pool.drop(port)
+                log.warning("[%s] couldn't open a fresh tab (%s)", label, type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 — never let one account kill the cycle
+        log.exception("unexpected error for %s", label)
+        tg.send(f"⚠️ <b>{label}</b> unexpected error: <code>{exc}</code>")
 
 
 def _acct_key(acct: dict[str, Any]) -> str:

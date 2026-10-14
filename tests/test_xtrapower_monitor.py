@@ -634,3 +634,52 @@ def test_portal_dialogs_are_dismissed_so_the_page_never_freezes():
         await asyncio.sleep(0)
     asyncio.run(go())
     assert Dialog.dismissed
+
+
+def test_a_tab_that_hangs_twice_is_replaced_with_a_fresh_one(monkeypatch, tmp_path):
+    monkeypatch.setattr(monitor, "CHECK_TIMEOUT_SECONDS", 0.1)
+
+    async def stuck(pool, acct_cfg, st, tg, ready):
+        await asyncio.sleep(60)
+    monkeypatch.setattr(monitor, "check_account", stuck)
+    fresh = []
+
+    class Pool(_FakePool):
+        async def fresh_page(self, port, url):
+            fresh.append((port, url))
+
+    pool, tg, path = Pool(None), _CapturingTelegram(), str(tmp_path / "state.json")
+    cfg = {"accounts": [{"label": "Stuck", "customer_id": "1", "cdp_port": 9222}]}
+    asyncio.run(monitor.run_cycle(pool, cfg, path, tg, {}))
+    assert fresh == []                                    # once: just tried again
+    asyncio.run(monitor.run_cycle(pool, cfg, path, tg, {}))
+    assert fresh == [(9222, browser_mod.PORTAL_URL)]       # twice: a new tab
+
+
+def test_accounts_are_checked_side_by_side(monkeypatch, tmp_path):
+    import time as _time
+
+    async def slow(pool, acct_cfg, st, tg, ready):
+        await asyncio.sleep(0.3)
+    monkeypatch.setattr(monitor, "check_account", slow)
+    cfg = {"accounts": [{"label": n, "customer_id": n, "cdp_port": 9222 + i} for i, n in enumerate("AB")]}
+    t0 = _time.monotonic()
+    asyncio.run(monitor.run_cycle(_FakePool(None), cfg, str(tmp_path / "s.json"), _CapturingTelegram(), {}))
+    assert _time.monotonic() - t0 < 0.55                  # not 0.6 s one after the other
+
+
+def test_a_page_script_that_never_returns_is_given_up(monkeypatch):
+    monkeypatch.setattr(browser_mod, "EVAL_TIMEOUT_S", 0.05)
+    class Frame:
+        def evaluate(self, js, arg=None):
+            return asyncio.sleep(60)
+
+    async def go():
+        try:
+            await browser_mod._eval(Frame(), "() => 1", timeout=0.05)
+        except (asyncio.TimeoutError, TimeoutError):
+            return "gave up"
+    assert asyncio.run(go()) == "gave up"
+    # and every helper that runs a script carries on rather than hanging
+    assert asyncio.run(asyncio.wait_for(browser_mod.click_text(type("P", (), {
+        "main_frame": Frame(), "frames": []})(), ["Search"]), 30)) is False
