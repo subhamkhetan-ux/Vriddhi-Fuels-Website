@@ -139,3 +139,8 @@ the memory the other tasks need:
 ```sh
 bash infra/mac/use-mac-tank-stock.sh --back && bash infra/anydesk/setup.sh
 ```
+
+## Removing the VM
+
+To remove the VM from the Mac completely, with nothing left behind, see
+[UNINSTALL-VM.md](UNINSTALL-VM.md).

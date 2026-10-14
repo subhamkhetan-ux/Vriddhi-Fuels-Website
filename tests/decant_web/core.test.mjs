@@ -574,6 +574,17 @@ test('internal audit: a screenshot (even corrected) or a dip is proof; typed lit
   const fixed = stockProof({ source: 'photo-edited', volume: 12019.45, screenVolume: 12519.45 });
   assert.equal(fixed.proof, true);
   assert.match(fixed.text, /corrected by hand \(the screen said 12,519\.45 L\)/);
+  // read by the tank stock server straight off the IOCL automation screen: its own kind of proof
+  const server = stockProof({ source: 'photo', via: 'anydesk', volume: 7141.44 });
+  assert.equal(server.proof, true);
+  assert.equal(server.server, true);
+  assert.equal(server.short, 'automation screen (server)');
+  assert.match(server.text, /directly from the IOCL automation screen by the tank stock server/);
+  assert.equal(stockProof({ source: 'photo' }).server, undefined);        // a phone's screenshot stays a screenshot
+  const { fromServer } = await import('../../decant/js/core.js');
+  assert.deepEqual([fromServer({ via: 'anydesk' }), fromServer({ source: 'photo' }), fromServer(null)], [true, false, false]);
+  // corrected by hand in the app: it's the corrected kind, as for any screenshot
+  assert.equal(stockProof({ source: 'photo-edited', via: 'anydesk', volume: 1, screenVolume: 2 }).short, 'screenshot, corrected');
   assert.equal(stockProof({ volume: 1000 }), null);                     // an old reading with no source: nothing claimed
   assert.equal(stockProof(null), null);
   const tanks = [

@@ -10,7 +10,7 @@
 //               no tank waits for another to finish.
 //   5 Result  — variation per tank; shared as a picture
 
-import {
+import { fromServer,
   PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, drainAt, drainLive, drainTimeline, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
@@ -320,7 +320,7 @@ function readingInner(t, r, phase) {
         <div><div class="k">Temp</div><div class="v">${r.temp ?? '—'}${r.temp != null ? ' °C' : ''}</div></div>
         <div><div class="k">Density (tc)</div><div class="v">${r.densityTc ?? '—'}</div></div>
       </div>
-      <div class="rd-src">${{ photo: 'Screenshot', 'photo-edited': 'Screenshot, corrected', litres: 'Typed in', dip: 'From the dip' }[r.source] || ''} · ${['litres', 'dip'].includes(r.source) ? fmtWhen(r.readingAt) : r.timeRead === false ? `taken ${fmtWhen(r.readingAt)} (time not on the picture)` : `automation time ${fmtWhen(r.readingAt)}`} · ${ago(r.readingAt)}</div>
+      <div class="rd-src">${fromServer(r) && r.source === 'photo' ? 'Automation screen (server)' : { photo: 'Screenshot', 'photo-edited': 'Screenshot, corrected', litres: 'Typed in', dip: 'From the dip' }[r.source] || ''} · ${['litres', 'dip'].includes(r.source) ? fmtWhen(r.readingAt) : r.timeRead === false ? `taken ${fmtWhen(r.readingAt)} (time not on the picture)` : `automation time ${fmtWhen(r.readingAt)}`} · ${ago(r.readingAt)}</div>
       ${proofLine(r)}`
     : '<div class="hint" style="margin-top:6px">No reading yet.</div>'}
     <div class="rd-actions">

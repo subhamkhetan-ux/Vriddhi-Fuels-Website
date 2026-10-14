@@ -10,7 +10,7 @@
 //   4. Our delivery tankers — how much diesel they can take (Loading app).
 //   5. Arrived — indents whose invoice has come in (off the plan), last.
 
-import {
+import { fromServer,
   PRODUCTS, dipAtLitres, indentKL, loadChambers, matchIndents, normTT, ownTT, planIndents, roomOf, round2, smallestTransport,
   tankerSpace, transportOptions,
 } from './core.js';
@@ -139,6 +139,7 @@ function stockHint() {
 }
 
 function srcText(r) {
+  if (fromServer(r) && r.source === 'photo') return 'automation screen (server)';
   return { photo: 'screenshot', 'photo-edited': 'screenshot (corrected)', litres: 'typed in, no proof', dip: 'from a dip' }[r.source] || 'reading';
 }
 

@@ -494,6 +494,11 @@ export function roomOf(reading, tank) {
   return round2((tank ? fillLimit(tank) : reading.capacity || 20000) - reading.volume);
 }
 
+// A stock reading the tank stock server took itself (tank_stock/decant.py
+// marks it via: 'anydesk'): read straight off the IOCL automation PC's screen
+// over AnyDesk, with no phone or person in between.
+export const fromServer = (r) => r?.via === 'anydesk';
+
 // For the internal audit: what's behind a stock reading. An automation
 // screenshot (also when a misread figure was corrected by hand — the
 // automation has its data errors; the screen's figure is kept) or a physical
@@ -503,6 +508,10 @@ export function stockProof(r) {
   const litres = (v) => `${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L`;
   switch (r?.source) {
     case 'photo':
+      if (fromServer(r)) {
+        return { proof: true, server: true, short: 'automation screen (server)', label: 'IOCL automation screen, read by the server',
+          text: 'read directly from the IOCL automation screen by the tank stock server' };
+      }
       return { proof: true, short: 'screenshot', label: 'Screenshot', text: 'read from the automation screenshot' };
     case 'photo-edited': {
       const was = Number.isFinite(r.screenVolume) ? ` (the screen said ${litres(r.screenVolume)})` : '';
