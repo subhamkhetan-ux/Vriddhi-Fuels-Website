@@ -71,7 +71,10 @@ LOG_LINES = 80
 DEFAULT_PORT = 8780            # Tally apps use 8756 / 8760 / 8770 / 8771
 # The tank stock page (tank_stock/service.py), shown in this app's Tank stock
 # tab: everything under /ts/ is passed to it as it is (its own access check and
-# CSRF token apply), so its page is always the one its service runs.
+# CSRF token apply), so its page is always the one its service runs. It runs
+# on this server ("127.0.0.1:8790"), or on another of your Tailscale machines,
+# e.g. a Mac at home: "https://<its Tailscale name>:8443" (that machine's
+# tailscale serve then vouches for this server's Tailscale login itself).
 TANK_STOCK = os.environ.get("XTRAPOWER_TANK_STOCK", "127.0.0.1:8790")
 TS_PREFIX = "/ts/"
 TS_PASS_HEADERS = ("Content-Type", "X-TS-CSRF", "Tailscale-User-Login", "Tailscale-User-Name")
@@ -552,15 +555,25 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(size) if size else None
         headers = {k: self.headers[k] for k in TS_PASS_HEADERS if self.headers.get(k)}
         headers["Host"] = self.headers.get("Host", "")
-        host, _, port = TANK_STOCK.partition(":")
-        conn = http.client.HTTPConnection(host, int(port or 80), timeout=60)
+        if TANK_STOCK.startswith("https://"):
+            # Another machine: by its own name, and only its tailscale serve
+            # says who is asking (a login header from here would be ignored).
+            target = urlparse(TANK_STOCK)
+            for k in ("Tailscale-User-Login", "Tailscale-User-Name"):
+                headers.pop(k, None)
+            headers["Host"] = target.netloc
+            conn = http.client.HTTPSConnection(target.hostname, target.port or 443, timeout=60)
+        else:
+            host, _, port = TANK_STOCK.partition(":")
+            conn = http.client.HTTPConnection(host, int(port or 80), timeout=60)
         try:
             conn.request(method, "/" + self.path[len(TS_PREFIX):], body=body, headers=headers)
             resp = conn.getresponse()
             data = resp.read()
         except OSError:
-            self._json(502, {"error": "The tank stock service isn't running on this server "
-                                     "(see infra/anydesk/setup.sh)."})
+            where = (f"at {TANK_STOCK} (is that machine on and in Tailscale?)"
+                     if TANK_STOCK.startswith("https://") else "on this server (see infra/anydesk/setup.sh)")
+            self._json(502, {"error": f"The tank stock service isn't answering {where}."})
             return
         finally:
             conn.close()

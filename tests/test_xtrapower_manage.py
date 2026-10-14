@@ -478,4 +478,36 @@ def test_the_tank_stock_tab_says_when_its_service_is_down(server_mode, monkeypat
     srv, _ = server_mode
     monkeypatch.setattr(manage, "TANK_STOCK", "127.0.0.1:9")                # nothing listens there
     status, raw, _ = _ts_call(srv, "GET", "/ts/api/state")
-    assert status == 502 and "tank stock service isn't running" in json.loads(raw)["error"]
+    assert status == 502 and "tank stock service isn't answering on this server" in json.loads(raw)["error"]
+
+
+def test_the_tank_stock_tab_can_be_another_tailscale_machine(server_mode, monkeypatch):
+    srv, _ = server_mode
+    seen = {}
+
+    class FakeHTTPS:
+        def __init__(self, host, port, timeout):
+            seen["at"] = (host, port)
+
+        def request(self, method, path, body=None, headers=None):
+            seen.update(method=method, path=path, headers=headers)
+
+        def getresponse(self):
+            class R:
+                status = 200
+                def read(self):
+                    return b'{"ok": true}'
+                def getheader(self, k):
+                    return "application/json" if k == "Content-Type" else None
+            return R()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(manage, "TANK_STOCK", "https://mac-tank.example.ts.net:8443")
+    monkeypatch.setattr(manage.http.client, "HTTPSConnection", FakeHTTPS)
+    status, raw, _ = _ts_call(srv, "GET", "/ts/api/state")
+    assert status == 200 and json.loads(raw) == {"ok": True}
+    assert seen["at"] == ("mac-tank.example.ts.net", 8443) and seen["path"] == "/api/state"
+    assert seen["headers"]["Host"] == "mac-tank.example.ts.net:8443"
+    assert "Tailscale-User-Login" not in seen["headers"]          # that machine's tailscale serve says who asks
