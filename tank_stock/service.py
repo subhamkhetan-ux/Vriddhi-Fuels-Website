@@ -427,6 +427,9 @@ class Station:
                         due = min(due, started + max(self.auto.interval(live["interval_s"]), 2 * took))
                 if reason:
                     break
+            if not reason and live.get("anydesk_said"):
+                reason = f"AnyDesk ended the session (it shows \u201c{live['anydesk_said']}\u201d)"
+                final = live["anydesk_png"]
             reason = reason or live.get("stop_reason") or "stopped"
         except (CaptureError, RuntimeError) as exc:
             reason = str(exc)
@@ -494,6 +497,13 @@ class Station:
                     changed[no] = card
                     good += 1
             if not good and watched:
+                # AnyDesk dropped the session but kept its window ("Client Offline")?
+                said = live["session"].ended(png) if hasattr(live["session"], "ended") else ""
+                if said:
+                    live["anydesk_said"], live["anydesk_png"] = said, png
+                    live["stop"].set()
+                    live["wake"].set()
+                    return
                 # no watched card readable: the PC shows something else; find the cards again
                 live["boxes"] = None
                 raise CaptureError("The tank cards were not on the screen.")
@@ -574,7 +584,7 @@ class Station:
             lasted = int((datetime.fromisoformat(ended) - datetime.fromisoformat(connected)).total_seconds())
         by = ("you" if live.get("stop_reason") == "stopped by you" else
               "agent" if live.get("stop_reason") else
-              "anydesk" if reason == "AnyDesk ended the session" else "problem")
+              "anydesk" if reason.startswith("AnyDesk ended the session") else "problem")
         row = {"since": live["since"], "connected": connected, "ended": ended, "lasted_s": lasted,
                "by": by, "reason": reason, "reads": live.get("reads", 0),
                "id": live["session"].position if live.get("session") else None}

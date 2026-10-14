@@ -27,7 +27,7 @@ import signal
 import subprocess
 import time
 
-from .navigate import ensure_tank_status
+from .navigate import ensure_tank_status, find, menu_bar, ocr
 
 DISPLAY = ":98"                  # XtraPower uses :99
 SCREEN = "1920x1080x24"
@@ -196,23 +196,78 @@ def _trace(frontend_log, frontend, bus) -> str:
     return "\n".join(parts)
 
 
-def _connect(anydesk_id: str, password: str, env, wait: int, log_path=None):
-    """Start a session; returns (client process, session window) or (proc, None)."""
-    before = {w[0] for w in windows(env)}  # the main window is not a session
+# What AnyDesk itself says in a session window instead of the PC's screen.
+# An offline ID still opens one: a tab with "Client Offline - This desk is
+# not available". Those mean try the other ID; the "wait" ones mean it is
+# still connecting.
+# (AnyDesk's own wording only: FuelTrans may well show "disconnected" or
+# "not available" for a nozzle, and its screen always counts as connected.)
+ANYDESK_FAILED = ("client offline", "desk is not available", "session ended", "session has ended",
+                  "remote side closed", "connection closed", "access denied", "wrong password")
+ANYDESK_WAITING = ("waiting for image", "please wait")
+
+
+def anydesk_says(png: bytes) -> tuple[str, str]:
+    """("failed" | "waiting" | "", the words) for what AnyDesk shows on screen."""
+    if not png:
+        return "", ""
+    try:
+        if menu_bar(png):
+            return "", ""                       # FuelTrans is on screen: connected
+        words = ocr(png)
+    except Exception:  # noqa: BLE001 - no OCR: judge by the window alone, as before
+        return "", ""
+    for kind, phrases in (("failed", ANYDESK_FAILED), ("waiting", ANYDESK_WAITING)):
+        for phrase in phrases:
+            if find(words, phrase):
+                return kind, phrase
+    return "", ""
+
+
+def _dismiss_session(env, window: str, png: bytes) -> None:
+    """Close AnyDesk's message and its tab, so the next ID starts clean."""
+    try:
+        hits = find(ocr(png), "cancel")
+    except Exception:  # noqa: BLE001
+        hits = []
+    if hits:
+        x, y, w, h = hits[-1]
+        _click(env, x + w // 2, y + h // 2)
+        time.sleep(1)
+    _run(["xdotool", "windowclose", window], env)
+    time.sleep(2)
+
+
+def _connect(anydesk_id: str, password: str, env, wait: int, log_path=None, before=None):
+    """Start a session; returns (client process, session window) or (proc, None).
+    ``client.said``: what AnyDesk showed when it didn't connect (e.g. "client offline")."""
+    if before is None:
+        before = {w[0] for w in windows(env)}  # the main window is not a session
     out = open(log_path, "wb") if log_path else subprocess.DEVNULL
     client = subprocess.Popen(["anydesk", anydesk_id, "--with-password"],
                               stdin=subprocess.PIPE, stdout=out,
                               stderr=subprocess.STDOUT, env=env, start_new_session=True)
     client.stdin.write((password + "\n").encode())
     client.stdin.close()
+    client.said = ""
     # The session window is the large one; AnyDesk's own small windows
-    # (main window, "not available" and other messages) don't count.
+    # (main window, "not available" and other messages) don't count. A large
+    # one connected only once it shows the PC, not an AnyDesk message.
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
         time.sleep(2)
         big = [w for w in windows(env) if w[2] >= 600 and w[3] >= 400 and w[0] not in before]
-        if big:
-            return client, big[-1]
+        if not big:
+            continue
+        png = _screenshot(env)
+        kind, phrase = anydesk_says(png)
+        if kind == "failed":
+            client.said = phrase
+            _dismiss_session(env, big[-1][0], png)
+            return client, None
+        if kind == "waiting":
+            continue
+        return client, big[-1]
     return client, None
 
 
@@ -281,9 +336,10 @@ class Session:
         time.sleep(2)
         self.bus = _session_bus(env)
         self.frontend = _frontend(env, frontend_log)
+        main = {w[0] for w in windows(env)}       # AnyDesk's own window: never a session
         for anydesk_id in ordered(ids):
             log_path = log_dir / "anydesk-output.txt"
-            self.client, session = _connect(anydesk_id, self.password, env, self.connect_wait, log_path)
+            self.client, session = _connect(anydesk_id, self.password, env, self.connect_wait, log_path, main)
             if session:
                 break
             # What the virtual screen shows instead (a message, a prompt...),
@@ -294,12 +350,13 @@ class Session:
                 output = ""
             attempts.append({"position": ids.index(anydesk_id) + 1, "id": anydesk_id,
                              "png": _screenshot(env), "windows": windows(env), "output": output,
-                             "exit": self.client.poll()})
+                             "exit": self.client.poll(), "said": getattr(self.client, "said", "")})
             _stop(self.client)
             self.client = None
         else:
+            said = "; ".join(f"ID {a['position']}: AnyDesk said \u201c{a['said']}\u201d" for a in attempts if a.get("said"))
             raise CaptureError(f"None of the {len(ids)} AnyDesk IDs opened a session (PC off, "
-                               "offline, or the password changed).", attempts,
+                               f"offline, or the password changed){f' ({said})' if said else ''}.", attempts,
                                _trace(frontend_log, self.frontend, self.bus))
         remember(anydesk_id)
         self.window, self.position = session[0], ids.index(anydesk_id) + 1
@@ -317,6 +374,12 @@ class Session:
 
     def screen(self) -> bytes:
         return _screenshot(self.env)
+
+    def ended(self, png: bytes) -> str:
+        """What AnyDesk shows if it has dropped the session but kept its
+        window (e.g. "client offline"), else ""."""
+        kind, phrase = anydesk_says(png)
+        return phrase if kind == "failed" else ""
 
     def shot(self) -> tuple[bytes, str]:
         """(PNG of Tank Status, what was done to reach it)."""
