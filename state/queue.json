@@ -4793,6 +4793,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-10-14T03:15:18.024591+00:00"
+    },
+    {
+      "entry_id": "73897a7592c23b7d",
+      "gmail_msg_id": "1879023068363847991",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "14/10/2026",
+      "date_serial": 46309,
+      "amount": 795204.0,
+      "raw_payer": "HARNOOR LOGISTICS PRIVATE LIMITED",
+      "customer": "Harnoor Logistics Private Limited",
+      "candidates": [
+        "Harnoor Logistics Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-14T11:15:20.325156+00:00",
+      "status": "matched"
     }
   ]
 }
