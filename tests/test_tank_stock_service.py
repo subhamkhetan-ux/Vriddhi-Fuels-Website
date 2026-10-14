@@ -422,3 +422,13 @@ def test_reconnecting_stops_after_many_short_sessions_in_a_row(station, monkeypa
     assert "stopped connecting again" in station.alerts[-1] and len(started) == 2
     assert station._reconnect_later({"by": "anydesk", "lasted_s": 3600})   # a long one starts the count again
     assert not station._reconnect_later({"by": "you", "lasted_s": 3600})   # never after you stopped it
+
+
+def test_no_tank_cards_shows_the_whole_screen_and_tells_the_bot_once(station, monkeypatch):
+    monkeypatch.setattr(service.cards_mod, "read_all", lambda png: ({}, {}))
+    station.capture([1, 2])
+    assert station.last["tanks"] == {}
+    assert station.photos and "no tank cards" in station.photos[-1][1]
+    assert station.picture([], full=True) == b"\x89PNG"                    # the whole screen, as taken
+    station.capture([1])
+    assert len(station.photos) == 1                                        # not again within 10 min

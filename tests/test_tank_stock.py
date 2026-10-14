@@ -150,7 +150,7 @@ def _fake_session(monkeypatch, tmp_path, online):
     monkeypatch.setattr(cap, "_connect", connect)
     monkeypatch.setattr(cap, "_session_bus", lambda env: None)
     monkeypatch.setattr(cap, "_frontend", lambda env, log: FakeProc())
-    monkeypatch.setattr(cap, "ensure_tank_status", lambda shoot, click: (shoot(), "already on Tank Status"))
+    monkeypatch.setattr(cap, "ensure_tank_status", lambda shoot, click, **kw: (shoot(), "already on Tank Status"))
     monkeypatch.setattr(cap, "_run", lambda *a, **k: "")
     monkeypatch.setattr(cap, "windows", lambda env: [])
     monkeypatch.setattr(cap.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": b"\x89PNGx"})())

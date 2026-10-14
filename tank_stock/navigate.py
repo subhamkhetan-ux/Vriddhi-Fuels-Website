@@ -123,15 +123,53 @@ def _center(box) -> tuple[int, int]:
     return x + w // 2, y + h // 2
 
 
-def ensure_tank_status(shoot, click, pause=time.sleep) -> tuple[bytes, str]:
+def taskbar_button(words, height: int):
+    """The FuelTrans button in the PC's taskbar (the bottom of the screen), or None."""
+    hits = []
+    for i, (text, x, y, w, h) in enumerate(words):
+        t, nxt = _norm(text), _norm(words[i + 1][0]) if i + 1 < len(words) else ""
+        if "fueltrans" in t or (t.endswith("fuel") and nxt.startswith("trans")):
+            hits.append((x, y, w, h))
+    low = [b for b in hits if b[1] > height * 0.85]
+    return (low or hits or [None])[0]
+
+
+def _bring_up(png, shoot, click, wake, pause):
+    """FuelTrans' menu bar isn't on screen: wake the PC's screen (a
+    screensaver, a dimmed or locked display), then bring FuelTrans to the
+    front from the taskbar. -> (png, what was done)."""
+    done = []
+    if wake:
+        wake()                                   # the mouse moved and Shift: harmless
+        pause(2)
+        png = shoot()
+        done.append("woke the screen")
+        if on_tank_status(ocr(png)) or menu_bar(png):
+            return png, done
+    button = taskbar_button(ocr(png), _size(png)[1])
+    if button:
+        click(*_center(button))
+        pause(3)
+        png = shoot()
+        done.append("brought FuelTrans to the front")
+    return png, done
+
+
+def ensure_tank_status(shoot, click, pause=time.sleep, wake=None) -> tuple[bytes, str]:
     """(screenshot, what happened). ``shoot()`` returns a PNG of the screen,
-    ``click(x, y)`` clicks there."""
+    ``click(x, y)`` clicks there, ``wake()`` wakes the PC's screen."""
     png = shoot()
     if on_tank_status(ocr(png)):
         return png, "already on Tank Status"
     bar = menu_bar(png)
     if not bar:
-        return png, "not on Tank Status, and FuelTrans' menu bar is not visible"
+        png, done = _bring_up(png, shoot, click, wake, pause)
+        how = f" ({', then '.join(done)})" if done else ""
+        if on_tank_status(ocr(png)):
+            return png, f"on Tank Status{how}"
+        bar = menu_bar(png)
+        if not bar:
+            return png, f"not on Tank Status, and FuelTrans' menu bar is not visible{how}"
     left, top, right, bottom = bar
     crop = (left, max(0, top - 3), right - left, bottom - top + 6)
     mon = find(ocr(png, crop, scale=4, psm=6), "monitoring")

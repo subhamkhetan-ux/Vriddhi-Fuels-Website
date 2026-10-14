@@ -101,17 +101,24 @@
     const notes = [`${last.page || ""}`, last.settings_note || ""].filter(Boolean);
     if (last.proof) notes.push(last.proof.ok ? `Proof picture of Tank ${last.proof.tanks.join(", ")} saved for today's result pictures.`
       : `Proof picture not saved: ${last.proof.message}`);
+    const none = !Object.keys(last.tanks || {}).length;
     const missing = [...picked].filter((n) => !last.tanks?.[n]);
-    if (missing.length) notes.push(`Not on that screen: Tank ${missing.join(", ")}.`);
+    if (none) notes.push("No tank cards on that screen: this is what the IOCL PC showed (also sent to the XtraPower bot).");
+    else if (missing.length) notes.push(`Not on that screen: Tank ${missing.join(", ")}.`);
     $("resultNote").textContent = notes.join(" ");
+    $("upAll").hidden = none;
     // On a phone the cards go one under another, so each stays big enough to read.
     const stack = window.innerWidth < 700 ? 1 : 0;
     const key = `${last.at}|${sel.join(",")}|${stack}`;
-    if (sel.length && $("shot").dataset.key !== key) {
+    if (none && $("shot").dataset.key !== `${last.at}|full`) {
+      // nothing to crop: the whole screen, so you can see what's wrong on the PC
+      $("shot").src = `api/picture?full=1&v=${encodeURIComponent(last.at)}`;
+      $("shot").dataset.key = `${last.at}|full`;
+    } else if (sel.length && $("shot").dataset.key !== key) {
       $("shot").src = `api/picture?tanks=${sel.join(",")}&stack=${stack}&v=${encodeURIComponent(last.at)}`;
       $("shot").dataset.key = key;
     }
-    $("shot").hidden = !sel.length;
+    $("shot").hidden = !sel.length && !none;
     const box = $("figures");
     box.textContent = "";
     for (const no of sel) {

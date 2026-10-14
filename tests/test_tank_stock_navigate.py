@@ -91,3 +91,38 @@ def test_a_heading_whose_number_ocr_lost_takes_its_place_in_the_row():
     # numbers that don't follow the row's order: only the ones read count
     odd = words(("Tank", 301, 350), ("2", 340, 350), ("Tank", 640, 350), ("(traGreen", 680, 350))
     assert sorted(cards.headings(odd)) == [2]
+
+
+TANKS_PAGE = words(("Tank", 910, 324), ("Status", 950, 324), ("Product", 985, 522), ("Volume", 1025, 522))
+
+
+def test_a_sleeping_screen_is_woken_first(monkeypatch):
+    screens = iter(["dark", "tanks"])
+    monkeypatch.setattr(nav, "menu_bar", lambda png: None)
+    monkeypatch.setattr(nav, "_size", lambda png: (1920, 1080))
+    monkeypatch.setattr(nav, "ocr", lambda png, *a, **k: TANKS_PAGE if png == "tanks" else [])
+    woke, clicks = [], []
+    png, note = nav.ensure_tank_status(lambda: next(screens), lambda x, y: clicks.append((x, y)),
+                                       pause=lambda s: None, wake=lambda: woke.append(1))
+    assert png == "tanks" and note == "on Tank Status (woke the screen)" and woke == [1] and clicks == []
+
+
+def test_fueltrans_behind_another_window_is_brought_up_from_the_taskbar(monkeypatch):
+    screens = iter(["desktop", "desktop", "tanks"])
+    reads = {"desktop": words(("Files", 40, 1050), ("FuelTrans", 300, 1052), ("Chromium", 360, 1052)), "tanks": TANKS_PAGE}
+    monkeypatch.setattr(nav, "menu_bar", lambda png: None)
+    monkeypatch.setattr(nav, "_size", lambda png: (1920, 1080))
+    monkeypatch.setattr(nav, "ocr", lambda png, *a, **k: reads[png])
+    clicks = []
+    png, note = nav.ensure_tank_status(lambda: next(screens), lambda x, y: clicks.append((x, y)),
+                                       pause=lambda s: None, wake=lambda: None)
+    assert png == "tanks" and clicks == [(320, 1057)]
+    assert note == "on Tank Status (woke the screen, then brought FuelTrans to the front)"
+
+
+def test_when_nothing_helps_it_says_what_it_tried(monkeypatch):
+    monkeypatch.setattr(nav, "menu_bar", lambda png: None)
+    monkeypatch.setattr(nav, "_size", lambda png: (1920, 1080))
+    monkeypatch.setattr(nav, "ocr", lambda png, *a, **k: words(("Locked", 900, 500)))
+    png, note = nav.ensure_tank_status(lambda: "lock", lambda x, y: None, pause=lambda s: None, wake=lambda: None)
+    assert note == "not on Tank Status, and FuelTrans' menu bar is not visible (woke the screen)"
