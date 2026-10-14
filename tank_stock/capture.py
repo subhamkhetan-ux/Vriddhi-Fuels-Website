@@ -216,6 +216,15 @@ def _connect(anydesk_id: str, password: str, env, wait: int, log_path=None):
     return client, None
 
 
+def _wake(env) -> None:
+    """Wake the PC's screen: move the mouse over the session and press Shift
+    (it types nothing, closes nothing)."""
+    _run(["xdotool", "mousemove", "--sync", "960", "540"], env)
+    _run(["xdotool", "mousemove_relative", "--sync", "25", "25"], env)
+    _run(["xdotool", "key", "shift"], env)
+    _run(["xdotool", "mousemove", "2", "2"], env)
+
+
 def _click(env, x: int, y: int) -> None:
     _run(["xdotool", "mousemove", "--sync", str(x), str(y), "click", "1"], env)
     _run(["xdotool", "mousemove", "2", "2"], env)   # out of the way: no hover menus
@@ -311,7 +320,7 @@ class Session:
 
     def shot(self) -> tuple[bytes, str]:
         """(PNG of Tank Status, what was done to reach it)."""
-        return ensure_tank_status(self.screen, lambda x, y: _click(self.env, x, y))
+        return ensure_tank_status(self.screen, lambda x, y: _click(self.env, x, y), wake=lambda: _wake(self.env))
 
     def windows(self) -> list:
         return windows(self.env)

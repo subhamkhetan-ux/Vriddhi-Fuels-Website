@@ -177,6 +177,35 @@ runs it in the session with the job's checkout and secrets (same user, same
 rights), or answers it from the open live session. One use of the PC runs at
 a time.
 
+## How long AnyDesk keeps a session open
+
+Every live session is kept in `/opt/agents/tank-stock/sessions.jsonl`: when it
+connected, how long the AnyDesk session itself lasted, and who ended it (you,
+the agent, AnyDesk, or a problem). The page's **AnyDesk sessions** box shows
+the recent ones and, from those AnyDesk ended by itself, how long it typically
+allows (shortest, longest). The XtraPower bot gets a picture of what AnyDesk
+showed when it ended a session, with how long it lasted.
+
+To measure it on purpose, run this on the server (ssh in from Oracle Cloud
+Shell). It starts live monitoring and reports when AnyDesk ends it:
+
+```sh
+cd ~/Vriddhi-Fuels-Website && git pull
+nohup bash infra/anydesk/session-test.sh > ~/anydesk-session-test.log 2>&1 &
+tail -f ~/anydesk-session-test.log     # Ctrl+C stops watching, not the test
+```
+
+(`nohup … &` because Cloud Shell closes after about 20 minutes without typing,
+and a session may last hours.)
+
+**Connect again when AnyDesk ends the session** (live monitoring setting):
+
+- **On:** live monitoring connects again 15 s after AnyDesk ends a session.
+  It stops trying after 12 sessions in a row that each lasted under 10
+  minutes, and says so.
+- **Never:** it doesn't connect again after you press Stop.
+- **Automatic decantation:** it always reconnects on its own.
+
 ## The PC's two AnyDesk IDs
 
 The PC's AnyDesk switches between two IDs every few days, and only one is

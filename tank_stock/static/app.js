@@ -101,17 +101,24 @@
     const notes = [`${last.page || ""}`, last.settings_note || ""].filter(Boolean);
     if (last.proof) notes.push(last.proof.ok ? `Proof picture of Tank ${last.proof.tanks.join(", ")} saved for today's result pictures.`
       : `Proof picture not saved: ${last.proof.message}`);
+    const none = !Object.keys(last.tanks || {}).length;
     const missing = [...picked].filter((n) => !last.tanks?.[n]);
-    if (missing.length) notes.push(`Not on that screen: Tank ${missing.join(", ")}.`);
+    if (none) notes.push("No tank cards on that screen: this is what the IOCL PC showed (also sent to the XtraPower bot).");
+    else if (missing.length) notes.push(`Not on that screen: Tank ${missing.join(", ")}.`);
     $("resultNote").textContent = notes.join(" ");
+    $("upAll").hidden = none;
     // On a phone the cards go one under another, so each stays big enough to read.
     const stack = window.innerWidth < 700 ? 1 : 0;
     const key = `${last.at}|${sel.join(",")}|${stack}`;
-    if (sel.length && $("shot").dataset.key !== key) {
+    if (none && $("shot").dataset.key !== `${last.at}|full`) {
+      // nothing to crop: the whole screen, so you can see what's wrong on the PC
+      $("shot").src = `api/picture?full=1&v=${encodeURIComponent(last.at)}`;
+      $("shot").dataset.key = `${last.at}|full`;
+    } else if (sel.length && $("shot").dataset.key !== key) {
       $("shot").src = `api/picture?tanks=${sel.join(",")}&stack=${stack}&v=${encodeURIComponent(last.at)}`;
       $("shot").dataset.key = key;
     }
-    $("shot").hidden = !sel.length;
+    $("shot").hidden = !sel.length && !none;
     const box = $("figures");
     box.textContent = "";
     for (const no of sel) {
@@ -219,6 +226,7 @@
       text = "Off.";
     }
     setStatus("liveState", text, err);
+    renderSessions(state.sessions);
     renderLiveFigures(live);
     if (["Starting…", "Stopping…"].includes($("mStatus").textContent) && (live ? isLive() : true)) setStatus("mStatus", "");
     $("sub").textContent = autoActive() ? "Automatic decantation running"
@@ -230,8 +238,35 @@
     $("mEvery").min = state.limits.interval_s[0];
     $("mEvery").max = state.limits.interval_s[1];
     $("mUp").checked = s.auto_upload;
+    $("mRe").checked = Boolean(s.reconnect);
     watched = new Set(s.tanks);
     chips($("mTanks"), watched, () => { monitorDirty = true; });
+  }
+
+  // How long AnyDesk lets a session run: from the ones it ended itself.
+  const span = (s) => {
+    if (s == null) return "–";
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? `${h} h ${m} min` : m ? `${m} min ${s % 60} s` : `${s} s`;
+  };
+  const BY = { anydesk: "ended by AnyDesk", you: "stopped by you", agent: "ended by the agent", problem: "a problem" };
+  function renderSessions(sess) {
+    const recent = sess?.recent || [];
+    $("sessions").hidden = !recent.length;
+    if (!recent.length) return;
+    const a = sess.anydesk;
+    $("sessStats").textContent = a
+      ? `AnyDesk ended ${a.count} session${a.count === 1 ? "" : "s"} by itself: typically after ${span(a.typical_s)}`
+        + ` (shortest ${span(a.shortest_s)}, longest ${span(a.longest_s)}).`
+      : "AnyDesk hasn't ended a session by itself yet: leave one running to find out how long it allows.";
+    const ul = $("sessList");
+    ul.textContent = "";
+    for (const r of recent) {
+      const li = el("li", r.by === "anydesk" ? "warn" : r.by === "problem" ? "ask" : "",
+        `${when(r.connected || r.since)}: ${r.lasted_s == null ? "didn't connect" : span(r.lasted_s)} · ${BY[r.by] || r.by}`
+        + (r.by === "problem" ? ` (${r.reason})` : ""));
+      ul.appendChild(li);
+    }
   }
 
   const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }) : "");
@@ -611,8 +646,9 @@
   $("goDec").addEventListener("click", () => start(true));
   $("upAll").addEventListener("click", () => upload([...picked].filter((n) => state?.last?.tanks?.[n])));
   $("saveAll").addEventListener("click", () => saveImage(shownTanks()));
-  for (const id of ["mEvery", "mUp"]) $(id).addEventListener("input", () => { monitorDirty = true; });
-  const liveSettings = () => ({ interval_s: Number($("mEvery").value), auto_upload: $("mUp").checked, tanks: [...watched] });
+  for (const id of ["mEvery", "mUp", "mRe"]) $(id).addEventListener("input", () => { monitorDirty = true; });
+  const liveSettings = () => ({ interval_s: Number($("mEvery").value), auto_upload: $("mUp").checked,
+    reconnect: $("mRe").checked, tanks: [...watched] });
   async function send(path, body, done) {
     try {
       await api("POST", path, body);
