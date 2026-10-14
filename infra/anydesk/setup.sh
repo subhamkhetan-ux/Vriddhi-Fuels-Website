@@ -17,13 +17,13 @@ die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -ne 0 ] || die "Run as the ubuntu user, not root (the script uses sudo where needed)."
 
-say "1/6 Adding AnyDesk's official package source"
+say "1/7 Adding AnyDesk's official package source"
 curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | sudo gpg --dearmor --yes -o /usr/share/keyrings/anydesk.gpg
 echo "deb [signed-by=/usr/share/keyrings/anydesk.gpg] https://deb.anydesk.com all main" \
   | sudo tee /etc/apt/sources.list.d/anydesk-stable.list >/dev/null
 sudo apt-get update -q
 
-say "2/6 Installing AnyDesk, the virtual display and screenshot tools"
+say "2/7 Installing AnyDesk, the virtual display and screenshot tools"
 # AnyDesk's post-install script ends by adding a desktop menu entry with
 # xdg-desktop-menu; without it (a bare server) the script exits 1 and dpkg
 # marks AnyDesk broken, although the service runs. Install those tools first.
@@ -32,7 +32,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q anydesk xvfb xdotool i
   || { sudo dpkg --configure -a || true
        die "AnyDesk did not install cleanly on this $(uname -m) server. Send the lines above."; }
 
-say "3/6 Installing the tank stock page's code"
+say "3/7 Installing the tank stock page's code"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 APP=/opt/agents/tank-stock/app
@@ -48,7 +48,7 @@ else
 fi
 echo "Code: $(sudo -u runner git -C "$APP" log -1 --format='%h %s')"
 
-say "4/6 Starting the page in a console login session (AnyDesk won't start without one)"
+say "4/7 Starting the page in a console login session (AnyDesk won't start without one)"
 sudo install -m 644 "$here/tank-stock-session.pam" /etc/pam.d/tank-stock-session
 sudo install -m 644 "$here/tank-stock-session.service" /etc/systemd/system/tank-stock-session.service
 sudo rm -f /opt/agents/tank-stock-session.sh          # replaced by tank_stock.service
@@ -70,7 +70,7 @@ for _ in $(seq 1 30); do
 done
 [ "$code" = "200" ] || die "The page didn't start. Send: journalctl -u tank-stock-session -n 40"
 
-say "5/6 Publishing the phone page to your Tailscale devices (not the internet)"
+say "5/7 Publishing the phone page to your Tailscale devices (not the internet)"
 if [ -n "$TS_NAME" ]; then
   sudo tailscale serve --bg --https=8443 "http://127.0.0.1:$PORT" >/dev/null
   PAGE="https://$TS_NAME:8443/"
@@ -80,7 +80,29 @@ else
   echo "Tailscale isn't set up on this server: run infra/xtrapower/phone-setup.sh first, then this again."
 fi
 
-say "6/6 Checking"
+say "6/7 Updating the Vriddhi Fuels app (the XtraPower page, whose Tank stock tab is this page)"
+# The XtraPower page runs from its own copy (/opt/xtrapower/app, user
+# xtrapower). Update that copy too and restart the page only: the monitor and
+# its logged-in Chrome windows carry on (they pick the code up on their next
+# restart, e.g. infra/xtrapower/setup.sh).
+APP_URL=""
+if sudo test -d /opt/xtrapower/app/.git && systemctl is-enabled -q xtrapower-manage 2>/dev/null; then
+  sudo -H -u xtrapower git -C /opt/xtrapower/app fetch -q origin main
+  sudo -H -u xtrapower git -C /opt/xtrapower/app checkout -q -B main FETCH_HEAD
+  echo "Code: $(sudo -H -u xtrapower git -C /opt/xtrapower/app log -1 --format='%h %s')"
+  sudo systemctl restart xtrapower-manage
+  for _ in $(seq 1 20); do
+    title="$(curl -s http://127.0.0.1:8780/ | grep -o '<title>[^<]*' | sed 's/<title>//' || true)"
+    [ -n "$title" ] && break
+    sleep 1
+  done
+  echo "The app's page answers: ${title:-nothing yet (see journalctl -u xtrapower-manage -n 30)}"
+  [ -n "$TS_NAME" ] && APP_URL="https://$TS_NAME/"
+else
+  echo "The XtraPower page isn't installed here (infra/xtrapower/phone-setup.sh); skipped."
+fi
+
+say "7/7 Checking"
 anydesk --version || true
 systemctl is-active --quiet anydesk && echo "AnyDesk service is running." || echo "Note: the AnyDesk service is not running."
 sid=$(loginctl list-sessions --no-legend | awk '$3 == "runner" {print $1; exit}')
@@ -98,6 +120,9 @@ if [ "$login" != "True" ]; then
   echo "Next: in GitHub, Actions > 'Tank stock (AnyDesk -> decant)' > Run workflow,"
   echo "mode save-login (it copies ANYDESK_IDS and ANYDESK_PASSWORD to the page)."
 fi
-if [ -n "$PAGE" ]; then
+if [ -n "$APP_URL" ]; then
+  echo "On your phone (with Tailscale on), open $APP_URL (the Vriddhi Fuels app: XtraPower and"
+  echo "Tank stock tabs) and add it to the home screen. $PAGE still opens the tank stock page alone."
+elif [ -n "$PAGE" ]; then
   echo "On your phone (with Tailscale on), open $PAGE and add it to the home screen."
 fi
