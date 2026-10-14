@@ -683,3 +683,29 @@ def test_a_page_script_that_never_returns_is_given_up(monkeypatch):
     # and every helper that runs a script carries on rather than hanging
     assert asyncio.run(asyncio.wait_for(browser_mod.click_text(type("P", (), {
         "main_frame": Frame(), "frames": []})(), ["Search"]), 30)) is False
+
+
+def test_a_chrome_window_that_never_opens_is_told_once_with_the_reason(monkeypatch, tmp_path):
+    status = tmp_path / "launch-status.json"
+    status.write_text('{"999": {"ok": false, "message": "Chromium closed at once (exit code 21): Missing X server"}}')
+    monkeypatch.setattr(monitor, "LAUNCH_STATUS", str(status))
+    st = {"accounts": {}}
+    pool = _FakePool(None, raise_on_find=True)
+    for _ in range(monitor.UNREACHABLE_ALERT_AFTER - 1):
+        tg, st, ready = _run_check(monkeypatch, pool, [], st=st)
+        assert tg.messages == []                                   # quiet at first: you may be starting it
+    tg, st, ready = _run_check(monkeypatch, pool, [], st=st)
+    assert len(tg.messages) == 1 and "isn't running on the server" in tg.messages[0]
+    assert "Missing X server" in tg.messages[0]
+    tg, st, ready = _run_check(monkeypatch, pool, [], st=st)
+    assert tg.messages == []                                       # not again on every check
+
+
+def test_the_reason_is_only_given_for_a_launch_that_failed(monkeypatch, tmp_path):
+    status = tmp_path / "launch-status.json"
+    status.write_text('{"1": {"ok": true, "message": "open"}, "2": {"ok": false, "message": "no"}}')
+    monkeypatch.setattr(monitor, "LAUNCH_STATUS", str(status))
+    assert monitor.launch_problem("1") == "" and monitor.launch_problem("2") == "no"
+    assert monitor.launch_problem("3") == ""
+    monkeypatch.setattr(monitor, "LAUNCH_STATUS", str(tmp_path / "absent.json"))
+    assert monitor.launch_problem("2") == ""

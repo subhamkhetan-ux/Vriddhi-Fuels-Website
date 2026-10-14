@@ -22,10 +22,26 @@ CHROME_LOG="$HOME_DIR/chromium.log"
 : >"$CHROME_LOG"
 
 export DISPLAY=:99
-if [ ! -S /tmp/.X11-unix/X99 ]; then
+# The virtual display. A display that died without cleaning up (the server
+# was stopped hard) leaves its lock and socket behind; with those in place a
+# new Xvfb won't start and no Chromium window can open.
+display_up() {
+  local pid
+  pid="$({ tr -dc '0-9' </tmp/.X99-lock; } 2>/dev/null || true)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ -S /tmp/.X11-unix/X99 ]
+}
+start_display() {
+  display_up && return 0
+  if [ -e /tmp/.X99-lock ] || [ -e /tmp/.X11-unix/X99 ]; then
+    echo "The virtual display :99 had stopped; starting it again."
+    rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null || true
+  fi
   Xvfb :99 -screen 0 1440x1000x24 -nolisten tcp >>"$CHROME_LOG" 2>&1 &
-  for _ in $(seq 1 50); do [ -S /tmp/.X11-unix/X99 ] && break; sleep 0.2; done
-fi
+  for _ in $(seq 1 50); do display_up && return 0; sleep 0.2; done
+  echo "The virtual display :99 did not start; end of $CHROME_LOG:"; tail -n 5 "$CHROME_LOG"
+  return 1
+}
+start_display || true
 
 # Playwright's own Chromium (Google Chrome has no Linux ARM build).
 if [ -z "${XTRAPOWER_CHROME:-}" ]; then
@@ -54,18 +70,24 @@ EOF
 
 port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
+# Waits for each window's debug port; says why one didn't open (also kept in
+# launch-status.json, which the monitor reports on Telegram).
 launch() {
-  "$PY" -m xtrapower.launch --config "$CONFIG" "$@" >>"$CHROME_LOG" 2>&1 || {
-    echo "Launching Chromium failed; end of $CHROME_LOG:"; tail -n 5 "$CHROME_LOG"; return 1; }
+  local out
+  out="$("$PY" -m xtrapower.launch --config "$CONFIG" --wait 45 "$@" 2>&1)" && return 0
+  printf '%s\n' "$out" >>"$CHROME_LOG"
+  printf '%s\n' "$out" | grep -E "did not open|Could not|No matching|Error|error" || printf '%s\n' "$out" | tail -n 3
+  return 1
 }
 
-launch
+launch || true                 # (a window that didn't open is retried below every minute)
 "$PY" -m xtrapower.monitor --config "$CONFIG" --announce &
 MONITOR=$!
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 
 while kill -0 "$MONITOR" 2>/dev/null; do
   sleep 60
+  start_display || true
   # config.json may be edited while running (new accounts, ports, watch flags).
   watched | while read -r cid port; do
     if ! port_open "$port"; then

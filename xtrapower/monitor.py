@@ -40,6 +40,8 @@ log = logging.getLogger("xtrapower.monitor")
 ERROR_COOLDOWN_SECONDS = 30 * 60
 CHECK_TIMEOUT_SECONDS = 180      # one account's check (a login takes ~30-60 s)
 SLOW_CHECK_SECONDS = 60          # a check slower than this is logged
+UNREACHABLE_ALERT_AFTER = 3      # checks in a row with no Chrome window before Telegram is told
+LAUNCH_STATUS: str | None = None # launch-status.json (launch.py --wait): why a window didn't open
 PARALLEL_CHECKS = 2              # accounts checked at once (each has its own Chrome)
 
 
@@ -208,13 +210,27 @@ async def check_account(
         page = await pool.find_portal_page(port)
     except Exception as exc:  # noqa: BLE001 — Chrome closed / port not listening
         pool.drop(port)
+        why = launch_problem(cid)
+        acct_state["unreachable"] = acct_state.get("unreachable", 0) + 1
+        if not ready.get(cid) and acct_state["unreachable"] >= UNREACHABLE_ALERT_AFTER:
+            # Waiting quietly for a hand-over that can't happen: say so.
+            alert_error(
+                "chrome-not-opening",
+                f"This account's Chrome window isn't running on the server (port {port}), so "
+                "there's nothing to log in to or hand over."
+                + (f"\nWhy: <code>{_html(why)}</code>" if why else "")
+                + "\nIt's started again every minute. If this goes on, restart the monitor "
+                "in the Vriddhi Fuels app, or send /logs.",
+            )
+            return
         not_usable(
             "chrome-unreachable",
             f"Can't reach Chrome on debug port {port}. Is that window still "
             f"open? Re-run launch.py and log in again.\n<code>{exc}</code>",
-            f"Chrome window on port {port} not open yet",
+            f"Chrome window on port {port} not open yet" + (f" ({why})" if why else ""),
         )
         return
+    acct_state.pop("unreachable", None)
 
     if page is None:
         not_usable(
@@ -404,6 +420,22 @@ async def _check_bounded(pool, acct_cfg, st, tg, ready) -> None:
         tg.send(f"⚠️ <b>{label}</b> unexpected error: <code>{exc}</code>")
 
 
+def _html(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def launch_problem(cid: str) -> str:
+    """Why this account's Chrome window last failed to open (launch.py), or ""."""
+    if not LAUNCH_STATUS:
+        return ""
+    try:
+        with open(LAUNCH_STATUS) as f:
+            entry = json.load(f).get(cid) or {}
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return "" if entry.get("ok", True) else str(entry.get("message") or "")
+
+
 def _acct_key(acct: dict[str, Any]) -> str:
     """Same key check_account uses for an account (customer id, else label)."""
     return str(acct.get("customer_id") or acct.get("label") or "account")
@@ -441,7 +473,9 @@ def reload_config(
 async def main_async(args: argparse.Namespace,
                      logs: telegram_bot.LogBuffer | None = None) -> None:
     cfg = load_config(args.config)
+    global LAUNCH_STATUS
     state_path = args.state or os.path.join(os.path.dirname(os.path.abspath(args.config)), "state.json")
+    LAUNCH_STATUS = os.path.join(os.path.dirname(os.path.abspath(args.config)), "launch-status.json")
     tg = Telegram(cfg.get("telegram", {}).get("token"), cfg.get("telegram", {}).get("chat_id"))
     poll = int(cfg["poll_seconds"])
 
