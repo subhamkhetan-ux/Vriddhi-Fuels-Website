@@ -71,6 +71,14 @@
     const mon = $("monitor");
     mon.textContent = s.monitor.running ? "Monitor running" : "Monitor stopped";
     mon.classList.toggle("on", s.monitor.running);
+    // the Tank stock tab is the server's (the Mac has no tank stock service)
+    $("tabTs").hidden = !s.server;
+    if (!s.server && tab === "ts") show("xp");
+    $("nAccounts").textContent = s.accounts.length;
+    $("nWatching").textContent = s.accounts.filter((a) => a.watch).length;
+    const problems = s.accounts.filter((a) => a.watch && a.last_error).length;
+    $("nProblems").textContent = problems;
+    $("alertTile").classList.toggle("alert", problems > 0);
 
     // Server mode: start / stop / restart the monitor service from here.
     $("monitorCard").hidden = !s.server;
@@ -126,8 +134,9 @@
       : "Manual login (no password saved)";
     const meta = el("div", { class: "meta", text: `ID ${a.customer_id} · Chrome port ${a.cdp_port} · ${login}` });
     const bal = a.last_ccms
-      ? el("div", { class: "bal", text: `CCMS ${a.last_ccms} · ${ago(a.updated_at)}` })
-      : el("div", { class: "bal note", text: "No balance read yet" });
+      ? el("div", { class: "bal" }, el("span", { class: "k", text: "CCMS" }),
+        el("span", { class: "v", text: a.last_ccms }), el("span", { class: "t", text: ago(a.updated_at) }))
+      : el("div", { class: "bal none", text: "No balance read yet" });
     const err = a.last_error
       ? el("div", { class: "err", text: `⚠ ${ERRORS[a.last_error] || a.last_error} · ${ago(a.last_error_at)}` })
       : null;
@@ -274,9 +283,57 @@
     }
   }
 
+  // ---- tabs: XtraPower here; Tank stock is its own page (/ts/), framed ----
+  let tab = "xp";
+  let framed = false;
+  const remember = (t) => { try { localStorage.setItem("vf-tab", t); } catch (e) { /* private mode */ } };
+  function measure() {
+    document.documentElement.style.setProperty("--top", `${$("top").getBoundingClientRect().height}px`);
+  }
+  async function loadTank() {
+    $("tsDown").hidden = true;
+    try {
+      // reachable? (the tank stock service runs in its own login session)
+      const res = await fetch("ts/api/state", { credentials: "same-origin" });
+      if (!res.ok) {
+        let why = `It answered ${res.status}.`;
+        try { why = (await res.json()).error || why; } catch (e) { /* not JSON */ }
+        throw new Error(why);
+      }
+      $("tsFrame").hidden = false;
+      if (!framed) { $("tsFrame").src = "ts/"; framed = true; }
+    } catch (e) {
+      $("tsFrame").hidden = true;
+      $("tsDownWhy").textContent = e.message;
+      $("tsDown").hidden = false;
+    }
+  }
+  function show(t) {
+    tab = t;
+    for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.tab === t));
+    $("xpPane").hidden = t !== "xp";
+    $("tsPane").hidden = t !== "ts";
+    document.body.classList.toggle("framed", t === "ts");
+    $("where").textContent = t === "ts" ? "Tank stock · IOCL automation PC" : "XtraPower CCMS monitor";
+    $("monitor").hidden = t === "ts";            // (the XtraPower monitor's; the tank page shows its own)
+    if (location.hash !== `#${t}`) history.replaceState(null, "", `#${t}`);
+    remember(t);
+    measure();
+    if (t === "ts") loadTank();
+    window.scrollTo(0, 0);
+  }
+  for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => show(b.dataset.tab));
+  $("tsRetry").addEventListener("click", loadTank);
+  window.addEventListener("resize", measure);
+  let first = location.hash.slice(1);
+  if (!["xp", "ts"].includes(first)) {
+    try { first = localStorage.getItem("vf-tab") || "xp"; } catch (e) { first = "xp"; }
+  }
+  show(first === "ts" ? "ts" : "xp");
+
   // Keep balances and the monitor status fresh while the page is open.
   setInterval(() => {
-    if (!document.hidden && !$("editor").open) refresh();
+    if (!document.hidden && !$("editor").open && tab === "xp") refresh();
   }, 30000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refresh();

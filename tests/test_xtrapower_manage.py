@@ -412,3 +412,70 @@ def test_home_screen_files_are_served(server):
         assert status == 200 and raw[:8] == b"\x89PNG\r\n\x1a\n" and headers["Content-Type"] == "image/png"
     _, page, _ = _call(srv, "GET", "/")
     assert b'rel="manifest"' in page and b"apple-touch-icon" in page
+
+
+# ---- the Tank stock tab: /ts/ is the tank stock page, passed through ------------
+
+@pytest.fixture
+def with_tank_stock(server_mode, tmp_path, monkeypatch):
+    """The XtraPower server in server mode, and the real tank stock page server
+    (tank_stock/service.py) behind its /ts/."""
+    from tank_stock import service as ts
+    station = ts.Station(home=tmp_path / "tank")
+    tank = ts.make_server(station, 0, hosts=[TS_HOST], users=["me@example.com"])
+    threading.Thread(target=tank.serve_forever, daemon=True).start()
+    monkeypatch.setattr(manage, "TANK_STOCK", f"127.0.0.1:{tank.server_port}")
+    yield server_mode[0], tank
+    tank.shutdown()
+    tank.server_close()
+
+
+def _ts_call(srv, method, path, body=None, headers=None):
+    req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}{path}",
+                                 data=None if body is None else json.dumps(body).encode(), method=method)
+    req.add_header("Host", TS_HOST)
+    req.add_header("Tailscale-User-Login", "me@example.com")
+    req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with _OPENER.open(req, timeout=10) as r:
+            return r.status, r.read(), dict(r.headers)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), dict(e.headers)
+
+
+def test_the_tank_stock_tab_is_the_tank_stock_page_passed_through(with_tank_stock):
+    srv, tank = with_tank_stock
+    status, raw, headers = _ts_call(srv, "GET", "/ts/")
+    assert status == 200 and b"<title>Tank stock</title>" in raw
+    assert tank.csrf.encode() in raw and b"__CSRF__" not in raw              # its own CSRF token
+    assert headers["X-Frame-Options"] == "SAMEORIGIN" and "frame-ancestors 'self'" in headers["Content-Security-Policy"]
+    assert b'src="app.js"' in raw                                            # relative: works under /ts/
+    status, raw, _ = _ts_call(srv, "GET", "/ts/app.js")
+    assert status == 200 and b"api/state" in raw and b'"/api/' not in raw
+    status, raw, _ = _ts_call(srv, "GET", "/ts/api/state")
+    assert status == 200 and "settings" in json.loads(raw)
+    # a change needs the tank page's token, not the XtraPower one
+    status, raw, _ = _ts_call(srv, "POST", "/ts/api/settings", {"interval_s": 30})
+    assert status == 403
+    status, raw, _ = _ts_call(srv, "POST", "/ts/api/settings", {"interval_s": 30}, {"X-TS-CSRF": tank.csrf})
+    assert status == 200 and json.loads(raw)["settings"]["interval_s"] == 30
+    # the shell frames it (same origin only)
+    status, raw, headers = _ts_call(srv, "GET", "/")
+    assert "frame-src 'self'" in headers["Content-Security-Policy"] and b'id="tsFrame"' in raw
+
+
+def test_the_tank_stock_tab_is_only_for_the_allowed_tailscale_login(with_tank_stock):
+    srv, _ = with_tank_stock
+    status, raw, _ = _ts_call(srv, "GET", "/ts/api/state", headers={"Tailscale-User-Login": "someone@else.com"})
+    assert status == 403                                                     # refused before it is passed on
+    status, _, headers = _ts_call(srv, "GET", "/ts")
+    assert status in (200, 308)
+
+
+def test_the_tank_stock_tab_says_when_its_service_is_down(server_mode, monkeypatch):
+    srv, _ = server_mode
+    monkeypatch.setattr(manage, "TANK_STOCK", "127.0.0.1:9")                # nothing listens there
+    status, raw, _ = _ts_call(srv, "GET", "/ts/api/state")
+    assert status == 502 and "tank stock service isn't running" in json.loads(raw)["error"]

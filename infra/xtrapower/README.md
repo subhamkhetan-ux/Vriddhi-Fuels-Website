@@ -61,7 +61,16 @@ The [account manager page](../../xtrapower/README.md#account-manager--edit-accou
 runs on the server too, with a **Monitor** card on top: **Start**, **Stop**,
 **Restart** and **Show log**. Below it you can add, edit and delete accounts,
 switch watching on or off, and change the Telegram settings. It installs to
-your home screen like an app.
+your home screen like an app: **Vriddhi Fuels**, in the decant app's
+glass-and-orange look.
+
+It has two tabs: **XtraPower** (all of the above) and **Tank stock**. The Tank
+stock tab is the tank stock page (`tank_stock/`, set up by
+`infra/anydesk/setup.sh`) shown inside this app. This page passes everything
+under `/ts/` to that service on the same server, which keeps its own login
+check and CSRF token. If that service isn't running, the tab says so and the
+XtraPower tab works as usual. The tank page's own address (`:8443`) still
+works by itself.
 
 Your phone reaches it over [Tailscale](https://tailscale.com), a free private
 network between your own devices. The page is never on the public internet:
