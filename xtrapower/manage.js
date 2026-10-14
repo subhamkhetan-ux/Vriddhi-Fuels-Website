@@ -20,6 +20,7 @@
     "nav-failed": "Couldn't reach Balance Info",
     "no-search-button": "Search button not found",
     "no-ccms": "Couldn't read the CCMS value",
+    "check-timeout": "The check got stuck (stopped; retrying)",
   };
 
   async function api(method, path, body) {

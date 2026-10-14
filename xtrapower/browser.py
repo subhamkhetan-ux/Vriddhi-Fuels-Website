@@ -16,6 +16,7 @@ browser-free and unit-tested.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -24,6 +25,23 @@ from typing import Optional
 from playwright.async_api import Browser, Page, TimeoutError as PWTimeout, async_playwright
 
 log = logging.getLogger("xtrapower.browser")
+
+# Nothing the monitor asks of Chrome may wait for ever: a tab behind a pop-up
+# dialog, or one that stops answering, would otherwise hold the check (and so
+# every account) until a restart. Page actions and navigation get Playwright
+# defaults; scripts run in the page (evaluate, which has no limit of its own)
+# go through _eval.
+ACTION_TIMEOUT_MS = 15000
+NAVIGATION_TIMEOUT_MS = 30000
+EVAL_TIMEOUT_S = 15
+CONNECT_TIMEOUT_MS = 20000
+
+
+async def _eval(target, js: str, arg=None, timeout: float | None = None):
+    """``target.evaluate(js[, arg])``, given up after ``timeout`` seconds
+    (EVAL_TIMEOUT_S by default)."""
+    call = target.evaluate(js) if arg is None else target.evaluate(js, arg)
+    return await asyncio.wait_for(call, EVAL_TIMEOUT_S if timeout is None else timeout)
 
 # Substrings that identify a real portal tab among whatever else is open.
 PORTAL_HINT = "iocxtrapower"
@@ -183,6 +201,7 @@ class BrowserPool:
     def __init__(self) -> None:
         self._pw = None
         self._browsers: dict[int, Browser] = {}
+        self._watched: set[int] = set()      # pages whose pop-up dialogs we dismiss
 
     async def __aenter__(self) -> "BrowserPool":
         self._pw = await async_playwright().start()
@@ -202,7 +221,7 @@ class BrowserPool:
         if b is not None and b.is_connected():
             return b
         endpoint = f"http://127.0.0.1:{port}"
-        b = await self._pw.chromium.connect_over_cdp(endpoint)
+        b = await self._pw.chromium.connect_over_cdp(endpoint, timeout=CONNECT_TIMEOUT_MS)
         self._browsers[port] = b
         return b
 
@@ -213,15 +232,55 @@ class BrowserPool:
             for page in ctx.pages:
                 try:
                     if PORTAL_HINT in (page.url or "").lower():
-                        return page
+                        return self._watch(page)
                 except Exception:  # noqa: BLE001 — page may be mid-navigation
                     continue
         # No portal tab matched: fall back to the first visible page so the
         # caller can still read its text (e.g. a WAF block or a stray tab).
         for ctx in browser.contexts:
             if ctx.pages:
-                return ctx.pages[0]
+                return self._watch(ctx.pages[0])
         return None
+
+    def _watch(self, page: Page) -> Page:
+        """Dismiss the page's pop-up dialogs (alert / confirm). While one is
+        open the page's scripts are paused, and every evaluate() on it waits
+        with no time limit: the check would hang."""
+        if id(page) not in self._watched:
+            self._watched.add(id(page))
+            try:
+                page.set_default_timeout(ACTION_TIMEOUT_MS)
+                page.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
+            except Exception:  # noqa: BLE001
+                pass
+
+            def dismiss(dialog) -> None:
+                log.info("closed a portal pop-up (%s): %s", dialog.type, (dialog.message or "")[:80])
+                asyncio.ensure_future(dialog.dismiss())
+            try:
+                page.on("dialog", dismiss)
+            except Exception:  # noqa: BLE001
+                pass
+        return page
+
+    async def fresh_page(self, port: int, url: str) -> Page:
+        """A new tab on the portal for this Chrome, its old portal tabs closed:
+        for a tab that keeps hanging (a renderer stuck, a page that never
+        finishes loading). Every step has a time limit."""
+        browser = await self._browser_for(port)
+        ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+        old = [p for p in ctx.pages if PORTAL_HINT in (p.url or "").lower()]
+        page = self._watch(await asyncio.wait_for(ctx.new_page(), EVAL_TIMEOUT_S))
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
+        except Exception as exc:  # noqa: BLE001 — the next check carries on from here
+            log.info("fresh tab: %s didn't finish loading (%s)", url, type(exc).__name__)
+        for p in old:
+            try:
+                await asyncio.wait_for(p.close(), EVAL_TIMEOUT_S)
+            except Exception:  # noqa: BLE001
+                pass
+        return page
 
     def drop(self, port: int) -> None:
         """Forget a cached connection so the next cycle reconnects cleanly.
@@ -325,7 +384,7 @@ async def click_text(page: Page, texts) -> bool:
     """
     for fr in _app_frames(page):
         try:
-            if await fr.evaluate(_CLICK_TEXT_JS, {"texts": [t for t in texts]}):
+            if await _eval(fr, _CLICK_TEXT_JS, {"texts": [t for t in texts]}):
                 return True
         except Exception:  # noqa: BLE001
             continue
@@ -382,7 +441,7 @@ async def capture_debug(page: Page, prefix: str) -> Optional[str]:
         except Exception:  # noqa: BLE001
             png = None
         try:
-            info = await page.evaluate(_DEBUG_DUMP_JS)
+            info = await _eval(page, _DEBUG_DUMP_JS)
         except Exception as exc:  # noqa: BLE001
             info = {"error": str(exc)}
         with open(f"{prefix}.txt", "w", encoding="utf-8") as f:
@@ -428,11 +487,11 @@ async def read_page(page: Page, settle_ms: int = 1500) -> Reading:
         text = await page.inner_text("body")
     except Exception:  # noqa: BLE001
         try:
-            text = await page.content()
+            text = await asyncio.wait_for(page.content(), EVAL_TIMEOUT_S)
         except Exception:  # noqa: BLE001
             text = ""
     try:
-        table = await page.evaluate(_SCRAPE_TABLES_JS)
+        table = await _eval(page, _SCRAPE_TABLES_JS)
     except Exception as exc:  # noqa: BLE001
         log.debug("table scrape failed: %s", exc)
         table = {"headers": [], "rows": []}
@@ -492,7 +551,7 @@ async def _log_login_diagnostic(page: Page) -> None:
     """Log what Playwright actually sees, to pin down a stubborn login form."""
     try:
         log.info("login diagnostic: attached page url = %s", page.url)
-        data = await page.evaluate(
+        data = await _eval(page, 
             "() => Array.from(document.querySelectorAll('input,textarea')).map(e => ({"
             "id: e.id||null, name: e.getAttribute('name'), "
             "fcn: e.getAttribute('formcontrolname'), type: e.getAttribute('type'), "
@@ -502,7 +561,7 @@ async def _log_login_diagnostic(page: Page) -> None:
         log.info("login diagnostic: %d frame(s) total", len(page.frames))
         for i, fr in enumerate(page.frames):
             try:
-                n = await fr.evaluate("() => document.querySelectorAll('input,textarea').length")
+                n = await _eval(fr, "() => document.querySelectorAll('input,textarea').length")
                 log.info("  frame[%d] inputs=%s url=%s", i, n, (fr.url or "")[:70])
             except Exception:  # noqa: BLE001
                 pass
@@ -532,7 +591,7 @@ async def dismiss_popup(page: Page) -> None:
                 continue
         for fr in _app_frames(page):
             try:
-                acted += await fr.evaluate(
+                acted += await _eval(fr, 
                     _DISMISS_JS, {"yes": list(_DISMISS_TEXTS), "no": list(_AVOID_TEXTS)})
             except Exception:  # noqa: BLE001
                 continue
@@ -608,11 +667,21 @@ async def do_login(page: Page, username: str, password: str) -> str:
         pass
     await dismiss_popup(page)
     # Wait for the form to exist, then find the frame that actually holds it.
+    log.info("login: waiting for the login form")
+    # (not on the login route: the form is unlikely to come, so look briefly)
+    first_wait = 15000 if "login" in (page.url or "").lower() else 4000
     try:
-        await page.wait_for_selector("#email", state="attached", timeout=15000)
+        await page.wait_for_selector("#email", state="attached", timeout=first_wait)
     except Exception:  # noqa: BLE001
-        await _log_login_diagnostic(page)
-        return LOGIN_FORM
+        # e.g. a "session expired" screen with no form: open the login page once
+        log.info("login: no login form on this screen; opening the login page")
+        try:
+            await page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
+            await dismiss_popup(page)
+            await page.wait_for_selector("#email", state="attached", timeout=15000)
+        except Exception:  # noqa: BLE001
+            await _log_login_diagnostic(page)
+            return LOGIN_FORM
     frame = None
     for fr in page.frames:
         try:
@@ -628,7 +697,13 @@ async def do_login(page: Page, username: str, password: str) -> str:
     # Set the values via the native setter + input/change events. Playwright's
     # fill() stalls on these Angular reactive-form inputs, but driving the value
     # this way updates the FormControl reliably. Also ticks "remember me".
-    filled = await frame.evaluate(_FILL_LOGIN_JS, {"user": username, "pw": password})
+    log.info("login: filling in the User ID and password")
+    try:
+        # (evaluate has no time limit of its own)
+        filled = await asyncio.wait_for(frame.evaluate(_FILL_LOGIN_JS, {"user": username, "pw": password}), 15)
+    except (asyncio.TimeoutError, TimeoutError):
+        log.warning("login: the page didn't respond while filling in the form")
+        return LOGIN_FAILED
     if not filled:
         log.warning("login: could not set User ID / password fields")
         await _log_login_diagnostic(page)
@@ -643,7 +718,7 @@ async def do_login(page: Page, username: str, password: str) -> str:
     # Sign In button (id="normal").
     if not await _click_first(page, _SUBMIT_SELECTORS):
         try:
-            await frame.evaluate(
+            await _eval(frame, 
                 "() => { const b = document.querySelector('#normal') || "
                 "Array.from(document.querySelectorAll('button'))"
                 ".find(x => /sign ?in/i.test(x.innerText||'')); if (b) b.click(); }"
@@ -652,6 +727,7 @@ async def do_login(page: Page, username: str, password: str) -> str:
             log.warning("login: could not click Sign In")
             return LOGIN_FAILED
     # Poll for the navigation away from the login page (it takes a moment).
+    log.info("login: submitted, waiting for the portal")
     for _ in range(15):
         await page.wait_for_timeout(1000)
         if await is_logged_in(page):
