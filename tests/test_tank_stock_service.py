@@ -325,7 +325,7 @@ def test_reads_never_take_more_than_half_the_time(station, monkeypatch):
 
 def test_without_the_login_a_capture_says_how_to_add_it(station):
     (station.home / "login.json").unlink()
-    with pytest.raises(service.CaptureError, match="save-login"):
+    with pytest.raises(service.CaptureError, match="vm-setup.sh again with ASK_AGAIN=1"):
         station.capture([1])
 
 

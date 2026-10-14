@@ -511,3 +511,13 @@ def test_the_tank_stock_tab_can_be_another_tailscale_machine(server_mode, monkey
     assert seen["at"] == ("mac-tank.example.ts.net", 8443) and seen["path"] == "/api/state"
     assert seen["headers"]["Host"] == "mac-tank.example.ts.net:8443"
     assert "Tailscale-User-Login" not in seen["headers"]          # that machine's tailscale serve says who asks
+
+
+def test_the_tank_stock_tab_says_tank_stock_is_moving_when_it_is_off(server_mode, monkeypatch):
+    srv, _ = server_mode
+    monkeypatch.setattr(manage, "TANK_STOCK", "off")
+    status, raw, headers = _ts_call(srv, "GET", "/ts/")
+    assert status == 200 and b"Tank stock is moving to the Mac" in raw
+    assert "frame-ancestors 'self'" in headers["Content-Security-Policy"]
+    status, raw, _ = _ts_call(srv, "GET", "/ts/api/state")
+    assert status == 503 and "moving to the Mac" in json.loads(raw)["error"]

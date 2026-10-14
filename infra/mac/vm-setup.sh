@@ -61,8 +61,9 @@ else
   echo "The AnyDesk login is already saved (ASK_AGAIN=1 to change it)."
 fi
 if ! sudo test -f /opt/agents/tank-telegram.json || [ "${ASK_AGAIN:-}" = "1" ]; then
-  echo "The XtraPower bot, for the private screenshots. On the Oracle server it is in"
-  echo "/opt/agents/tank-telegram.json (sudo cat it there and copy the two values)."
+  echo "The XtraPower bot, for the private screenshots. On the Oracle server, show its"
+  echo "token and chat id with (infra/mac/README.md part C):"
+  echo "  sudo python3 -c \"import json; t=json.load(open('/opt/xtrapower/config.json'))['telegram']; print(t['token']); print(t['chat_id'])\""
   read -rsp "Bot token (input hidden): " token; echo
   read -rp "Chat id: " chat
   tmp="$(mktemp)"

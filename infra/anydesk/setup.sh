@@ -43,11 +43,11 @@ update_app() {
 }
 
 if [ -f /etc/systemd/system/xtrapower-manage.service.d/tank-stock-on-mac.conf ]; then
-  say "Tank stock runs on the Mac now (infra/mac/use-mac-tank-stock.sh): only updating the Vriddhi Fuels app"
+  say "Tank stock isn't on this server any more (it moves to the Mac): only updating the Vriddhi Fuels app"
   TS_NAME="$(sudo tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null || true)"
   update_app
-  [ -n "$APP_URL" ] && echo "The app: $APP_URL (its Tank stock tab is the Mac's page)"
-  echo "To bring tank stock back to this server: bash infra/mac/use-mac-tank-stock.sh --back"
+  [ -n "$APP_URL" ] && echo "The app: $APP_URL"
+  echo "To bring tank stock back to this server: bash infra/mac/use-mac-tank-stock.sh --back, then this again."
   exit 0
 fi
 

@@ -5,8 +5,8 @@
 #   bash infra/mac/use-mac-tank-stock.sh --back        # the Oracle server again
 #
 # The Vriddhi Fuels app keeps its address; its Tank stock tab shows the Mac's
-# page. The Oracle server's own tank stock page and AnyDesk are stopped, which
-# frees their memory for the XtraPower monitor and the e-Mitra jobs.
+# page. The Oracle server's own tank stock page and AnyDesk, if still
+# installed, are stopped (infra/anydesk/uninstall.sh removes them altogether).
 set -euo pipefail
 
 DROP_DIR=/etc/systemd/system/xtrapower-manage.service.d
@@ -21,10 +21,15 @@ if [ "$1" = "--back" ]; then
   say "Tank stock back on this server"
   sudo rm -f "$DROP"
   sudo systemctl daemon-reload
-  sudo systemctl enable -q --now anydesk 2>/dev/null || true
-  sudo systemctl enable -q --now tank-stock-session
   sudo systemctl restart xtrapower-manage
-  echo "Done. The app's Tank stock tab is this server's page again."
+  if systemctl list-unit-files tank-stock-session.service 2>/dev/null | grep -q tank-stock-session; then
+    sudo systemctl enable -q --now anydesk 2>/dev/null || true
+    sudo systemctl enable -q --now tank-stock-session
+    echo "Done. The app's Tank stock tab is this server's page again."
+  else
+    echo "Done. Tank stock was uninstalled here (infra/anydesk/uninstall.sh): install it again with"
+    echo "  bash infra/anydesk/setup.sh"
+  fi
   exit 0
 fi
 

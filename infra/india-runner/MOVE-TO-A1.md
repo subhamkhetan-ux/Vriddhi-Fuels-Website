@@ -1,5 +1,9 @@
 # Moving to an Ampere A1 server (with the current one kept on)
 
+> **Tank stock no longer runs on the Oracle server.** It moves to the Mac
+> ([infra/mac/README.md](../mac/README.md)). On an A1, skip steps B5–B7 and the
+> tank stock parts of part C.
+
 The current server is the 1 GB **E2.1.Micro**. Chromium, AnyDesk and the
 tank stock reader share that memory, so things start slowly and spill into
 swap. An **Ampere A1** with 2 OCPUs and 12 GB is also Always Free. This guide
