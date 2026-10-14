@@ -3,6 +3,8 @@
 "use strict";
 (() => {
   const CSRF = document.querySelector('meta[name="ts-csrf"]').content;
+  // shown inside the XtraPower app's Tank stock tab: that app has the title bar
+  if (window.self !== window.top) document.documentElement.classList.add("embedded");
   const $ = (id) => document.getElementById(id);
   const TANKS = [1, 2, 3, 4];
   const NAMES = { MS: "Petrol (MS)", HSD: "Diesel (HSD)", XG: "XtraGreen" };
@@ -106,7 +108,7 @@
     const stack = window.innerWidth < 700 ? 1 : 0;
     const key = `${last.at}|${sel.join(",")}|${stack}`;
     if (sel.length && $("shot").dataset.key !== key) {
-      $("shot").src = `/api/picture?tanks=${sel.join(",")}&stack=${stack}&v=${encodeURIComponent(last.at)}`;
+      $("shot").src = `api/picture?tanks=${sel.join(",")}&stack=${stack}&v=${encodeURIComponent(last.at)}`;
       $("shot").dataset.key = key;
     }
     $("shot").hidden = !sel.length;
@@ -160,7 +162,7 @@
     const at = state.last.at;
     const key = `${at}|${tanks.join(",")}`;
     if (!images.has(key)) {
-      images.set(key, fetch(`/api/picture?tanks=${tanks.join(",")}&grid=1&v=${encodeURIComponent(at)}`, { credentials: "same-origin" })
+      images.set(key, fetch(`api/picture?tanks=${tanks.join(",")}&grid=1&v=${encodeURIComponent(at)}`, { credentials: "same-origin" })
         .then((r) => { if (!r.ok) throw new Error("The picture isn't available."); return r.blob(); }));
       images.get(key).catch(() => images.delete(key));
     }
@@ -219,8 +221,9 @@
     setStatus("liveState", text, err);
     renderLiveFigures(live);
     if (["Starting…", "Stopping…"].includes($("mStatus").textContent) && (live ? isLive() : true)) setStatus("mStatus", "");
-    $("sub").textContent = live ? (isLive() ? "Live monitoring is on." : "Connecting for live monitoring…")
-      : "On demand: nothing connects until you ask.";
+    $("sub").textContent = autoActive() ? "Automatic decantation running"
+      : live ? (isLive() ? "Live monitoring on" : "Connecting…") : "On demand: nothing connects until you ask";
+    $("sub").classList.toggle("live", Boolean(live && isLive()));
     if (monitorDirty) return;
     const s = state.settings;
     $("mEvery").value = s.interval_s;
@@ -280,7 +283,7 @@
   async function autoAct(action, body = {}) {
     setStatus("autoStatus", "…");
     try {
-      const r = await api("POST", `/api/auto/${action}`, body);
+      const r = await api("POST", `api/auto/${action}`, body);
       setStatus("autoStatus", "");
       if (r.auto !== undefined) state.auto = r.auto;
       renderAuto();
@@ -322,7 +325,7 @@
   async function openSetup() {
     setStatus("autoStatus", "Loading the decant app's invoices…");
     try {
-      const options = await api("GET", "/api/auto/options");
+      const options = await api("GET", "api/auto/options");
       setup = { options, invoice: options.invoices[0]?.invoice_no || "", plan: {}, check: null };
       pickInvoice(setup.invoice);
       setStatus("autoStatus", options.invoices.length ? "" : "No invoice with chambers still in the truck. Add the invoice's PDF in the decant app first.", !options.invoices.length);
@@ -345,7 +348,7 @@
     if (!setup.invoice) return;
     const mine = ++checking;
     try {
-      const chk = await api("POST", "/api/auto/check", { invoice_no: setup.invoice, plan: setup.plan });
+      const chk = await api("POST", "api/auto/check", { invoice_no: setup.invoice, plan: setup.plan });
       if (mine === checking && setup) { setup.check = chk; renderAuto(); }
     } catch (e) {
       if (mine === checking && setup) { setup.check = { blocking: [e.message], warnings: [], perTank: [] }; renderAuto(); }
@@ -562,7 +565,7 @@
 
   async function refresh() {
     try {
-      state = await api("GET", "/api/state");
+      state = await api("GET", "api/state");
       render();
     } catch (e) {
       setStatus("status", e.message, true);
@@ -582,7 +585,7 @@
 
   async function start(decantation) {
     try {
-      await api("POST", "/api/capture", { tanks: [...picked], decantation });
+      await api("POST", "api/capture", { tanks: [...picked], decantation });
       waiting = true;
       setStatus("status", isLive() ? "Reading the live session…" : "Connecting to the automation PC… This takes about a minute.");
       $("go").disabled = $("goDec").disabled = true;
@@ -595,7 +598,7 @@
   async function upload(tanks) {
     setStatus("upStatus", "Uploading…");
     try {
-      const { results } = await api("POST", "/api/upload", { tanks });
+      const { results } = await api("POST", "api/upload", { tanks });
       const lines = Object.entries(results).map(([no, r]) => `Tank ${no}: ${r.message}`);
       setStatus("upStatus", lines.join(" · "), Object.values(results).some((r) => !r.ok));
       await refresh();
@@ -620,9 +623,9 @@
       setStatus("mStatus", e.message, true);
     }
   }
-  $("mSave").addEventListener("click", () => send("/api/settings", liveSettings(), "Saved."));
-  $("liveStart").addEventListener("click", () => send("/api/live/start", liveSettings(), "Starting…"));
-  $("liveStop").addEventListener("click", () => send("/api/live/stop", {}, "Stopping…"));
+  $("mSave").addEventListener("click", () => send("api/settings", liveSettings(), "Saved."));
+  $("liveStart").addEventListener("click", () => send("api/live/start", liveSettings(), "Starting…"));
+  $("liveStop").addEventListener("click", () => send("api/live/stop", {}, "Stopping…"));
 
   poll();
   setInterval(() => { if (!waiting && !document.hidden) refresh(); }, 30000);

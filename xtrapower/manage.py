@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import http.client
 import ipaddress
 import json
 import os
@@ -68,6 +69,15 @@ SERVICE_ACTIONS = {
 }
 LOG_LINES = 80
 DEFAULT_PORT = 8780            # Tally apps use 8756 / 8760 / 8770 / 8771
+# The tank stock page (tank_stock/service.py), shown in this app's Tank stock
+# tab: everything under /ts/ is passed to it as it is (its own access check and
+# CSRF token apply), so its page is always the one its service runs.
+TANK_STOCK = os.environ.get("XTRAPOWER_TANK_STOCK", "127.0.0.1:8790")
+TS_PREFIX = "/ts/"
+TS_PASS_HEADERS = ("Content-Type", "X-TS-CSRF", "Tailscale-User-Login", "Tailscale-User-Name")
+TS_BACK_HEADERS = ("Content-Type", "Content-Disposition", "Cache-Control", "Content-Security-Policy",
+                   "X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy")
+TS_MAX_BODY = 64_000
 
 POLL_MIN, POLL_MAX = 60, 3600  # check interval bounds (be polite to the portal)
 MAX_BODY = 64_000
@@ -416,10 +426,11 @@ _SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("X-Frame-Options", "DENY"),
     ("Referrer-Policy", "no-referrer"),
+    # frame-src: the Tank stock tab (/ts/, same origin); fonts: the decant app's
     ("Content-Security-Policy",
-     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-     "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
-     "base-uri 'none'; form-action 'self'"),
+     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+     "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src 'self'; "
+     "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"),
 )
 
 
@@ -492,6 +503,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not self._allowed():
                 return
+            if path == "/ts":
+                self.send_response(308)
+                self.send_header("Location", TS_PREFIX)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if path.startswith(TS_PREFIX) and method in ("GET", "POST"):
+                self._tank_stock(method)
+                return
             if method == "GET":
                 if path in ("/", "/index.html"):
                     with open(PAGE_PATH, encoding="utf-8") as f:
@@ -520,6 +540,37 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "That account no longer exists. Reload the page."})
         except configfile.ConfigError as exc:
             self._json(500, {"error": str(exc)})
+
+    def _tank_stock(self, method: str) -> None:
+        """Pass /ts/... to the tank stock service as /... (the Tank stock tab).
+        Only what it needs goes across: the body, its CSRF header, the Host and
+        Tailscale login tailscale serve gave us (it checks them itself)."""
+        size = int(self.headers.get("Content-Length") or 0)
+        if size > TS_MAX_BODY:
+            self._json(413, {"error": "Request too large."})
+            return
+        body = self.rfile.read(size) if size else None
+        headers = {k: self.headers[k] for k in TS_PASS_HEADERS if self.headers.get(k)}
+        headers["Host"] = self.headers.get("Host", "")
+        host, _, port = TANK_STOCK.partition(":")
+        conn = http.client.HTTPConnection(host, int(port or 80), timeout=60)
+        try:
+            conn.request(method, "/" + self.path[len(TS_PREFIX):], body=body, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+        except OSError:
+            self._json(502, {"error": "The tank stock service isn't running on this server "
+                                     "(see infra/anydesk/setup.sh)."})
+            return
+        finally:
+            conn.close()
+        self.send_response(resp.status)
+        for k in TS_BACK_HEADERS:
+            if resp.getheader(k):
+                self.send_header(k, resp.getheader(k))
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _mutate(self, method: str, path: str) -> None:
         app = self.app

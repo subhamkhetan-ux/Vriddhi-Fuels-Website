@@ -11,7 +11,9 @@ documented `--with-password` mode).
 ## What it does
 
 Nothing connects on its own: everything starts from the **phone page** (over
-your own Tailscale network, like the XtraPower one). Pick the tanks (any of
+your own Tailscale network). The page is the **Tank stock** tab of the
+XtraPower app (`https://<server's Tailscale name>/`, under `/ts/`), and it
+also has its own address on port 8443. Pick the tanks (any of
 1-4), then:
 
 - **Send for decantation**: connect, read those tanks, save them to the

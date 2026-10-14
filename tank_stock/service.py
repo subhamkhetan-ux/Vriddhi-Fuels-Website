@@ -78,11 +78,13 @@ STATIC_FILES = {
 SECURITY_HEADERS = (
     ("Cache-Control", "no-store"),
     ("X-Content-Type-Options", "nosniff"),
-    ("X-Frame-Options", "DENY"),
+    # framed only by the same origin: the XtraPower app's Tank stock tab (/ts/)
+    ("X-Frame-Options", "SAMEORIGIN"),
     ("Referrer-Policy", "no-referrer"),
     ("Content-Security-Policy",
-     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; "
-     "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"),
+     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+     "font-src https://fonts.gstatic.com; img-src 'self' blob:; "
+     "connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'"),
 )
 
 
