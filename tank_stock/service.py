@@ -60,11 +60,16 @@ STATIC = Path(__file__).resolve().parent / "static"
 PORT = 8790
 IST = timezone(timedelta(hours=5, minutes=30))
 TANKS = (1, 2, 3, 4)
-DEFAULTS = {"interval_s": 10, "tanks": list(TANKS), "auto_upload": True}   # live monitoring
+DEFAULTS = {"interval_s": 10, "tanks": list(TANKS), "auto_upload": True,    # live monitoring
+            "reconnect": False}  # connect again when AnyDesk ends the session
 INTERVAL = (5, 3600)             # seconds between live reads (no reconnecting)
 CHECK_EVERY = 5                  # seconds: is the live session still open?
 MAX_FAILED_READS = 5             # live reads that may fail in a row
 SETTINGS_EVERY = 600             # seconds: re-read the decant app's settings while live
+RECONNECT_AFTER = 15             # seconds before connecting again ("reconnect" on)
+RECONNECT_RUN = 12               # ... at most this many in a row of short sessions
+LONG_SESSION = 600               # a session this long resets that count
+SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
 MAX_BODY = 16_000
 AUTO_ACTIONS = ("answer", "done", "drop", "after", "release", "cancel", "clear", "reconnect")
 STATIC_FILES = {
@@ -86,6 +91,13 @@ SECURITY_HEADERS = (
      "font-src https://fonts.gstatic.com; img-src 'self' blob:; "
      "connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'"),
 )
+
+
+def _span(seconds) -> str:
+    """3725 -> "1 h 2 min"; 125 -> "2 min 5 s"."""
+    seconds = int(seconds or 0)
+    h, m, sec = seconds // 3600, seconds % 3600 // 60, seconds % 60
+    return f"{h} h {m} min" if h else f"{m} min {sec} s" if m else f"{sec} s"
 
 
 def now_iso() -> str:
@@ -122,6 +134,8 @@ def clean_settings(new: dict, old: dict) -> dict:
     out = {**DEFAULTS, **{k: v for k, v in old.items() if k in DEFAULTS}}
     if "auto_upload" in new:
         out["auto_upload"] = bool(new["auto_upload"])
+    if "reconnect" in new:
+        out["reconnect"] = bool(new["reconnect"])
     if "interval_s" in new:
         try:
             seconds = int(new["interval_s"])
@@ -151,6 +165,7 @@ class Station:
         self.live_last = _read_json(home / "live.json", {})
         self.alerted = ""
         self._dropped = ""               # the day earlier days' proof pictures were last cleared
+        self._short_runs = 0             # reconnects in a row after short sessions
         self.last = _read_json(home / "last.json", {})
         self.auto = AutoDecant(self)
 
@@ -498,6 +513,7 @@ class Station:
         took = f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
         self.live_last = {"since": live["since"], "ended": ended, "lasted": took, "reason": reason,
                           "reads": live["reads"]}
+        session = self._log_session(live, ended, reason)
         # The last screen read becomes a capture: its pictures to save or upload.
         if live.get("last_png") and live.get("stop_reason") != "sent for decantation":
             try:
@@ -519,12 +535,83 @@ class Station:
             traceback.print_exc()
         if live.get("stop_reason"):
             return                          # you stopped it: no message needed
+        again = self._reconnect_later(session)
         reads = f"{live['reads']} read{'' if live['reads'] == 1 else 's'}"
-        text = f"Tank stock live monitoring ended after {took} ({reads}): {reason}."
+        lasted = (f" The AnyDesk session lasted {_span(session['lasted_s'])}."
+                  if session.get("lasted_s") is not None else "")
+        text = (f"Tank stock live monitoring ended after {took} ({reads}): {reason}.{lasted}"
+                + (f" Connecting again in {RECONNECT_AFTER} s." if again else ""))
         if final:
             self.notify_photo(final, text + "\nThis is what the server's AnyDesk showed.")
         else:
             self.notify(text)
+
+    # ---- AnyDesk sessions: how long they last ---------------------------------
+    def _log_session(self, live, ended: str, reason: str) -> dict:
+        """One line in sessions.jsonl per live session: when it connected, how
+        long the AnyDesk session itself lasted and who ended it."""
+        connected = live.get("connected")
+        lasted = None
+        if connected:
+            lasted = int((datetime.fromisoformat(ended) - datetime.fromisoformat(connected)).total_seconds())
+        by = ("you" if live.get("stop_reason") == "stopped by you" else
+              "agent" if live.get("stop_reason") else
+              "anydesk" if reason == "AnyDesk ended the session" else "problem")
+        row = {"since": live["since"], "connected": connected, "ended": ended, "lasted_s": lasted,
+               "by": by, "reason": reason, "reads": live.get("reads", 0),
+               "id": live["session"].position if live.get("session") else None}
+        path = self.home / "sessions.jsonl"
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+            lines = (lines + [json.dumps(row)])[-SESSIONS_KEPT:]
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError:
+            traceback.print_exc()
+        return row
+
+    def sessions(self) -> dict:
+        """For the page: the recent sessions, and how long AnyDesk lets one
+        run (from the ones it ended itself)."""
+        rows = []
+        try:
+            for line in (self.home / "sessions.jsonl").read_text(encoding="utf-8").splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        except OSError:
+            pass
+        ended = sorted(r["lasted_s"] for r in rows if r.get("by") == "anydesk" and r.get("lasted_s") is not None)
+        stats = None
+        if ended:
+            stats = {"count": len(ended), "shortest_s": ended[0], "longest_s": ended[-1],
+                     "typical_s": ended[len(ended) // 2]}
+        return {"recent": rows[-8:][::-1], "anydesk": stats}
+
+    def _reconnect_later(self, session: dict) -> bool:
+        """With "reconnect" on: AnyDesk ended a session that had connected, so
+        connect again shortly (not while an automatic decantation, which has
+        its own reconnecting, runs). Short sessions over and over stop it."""
+        if not self.settings.get("reconnect") or session.get("by") != "anydesk" or self.auto.active():
+            return False
+        self._short_runs = 0 if (session.get("lasted_s") or 0) >= LONG_SESSION else self._short_runs + 1
+        if self._short_runs > RECONNECT_RUN:
+            self.notify(f"Tank stock: AnyDesk ended {RECONNECT_RUN} sessions in a row within "
+                        f"{LONG_SESSION // 60} min each, so I stopped connecting again. Start live monitoring "
+                        "from the page when you want it.")
+            self._short_runs = 0
+            return False
+
+        def again():
+            if self.live:
+                return
+            try:
+                self.start_live(auto=True)       # (the saved settings, unchanged)
+                self.live["by_auto"] = False     # it's still your live monitoring
+            except RuntimeError:
+                traceback.print_exc()
+        threading.Timer(RECONNECT_AFTER, again).start()
+        return True
 
     def live_view(self) -> dict | None:
         live = self.live
@@ -593,6 +680,7 @@ class Station:
             "live_last": self.live_last,
             "last": self.last,
             "auto": self.auto.view(),
+            "sessions": self.sessions(),
         }
 
 

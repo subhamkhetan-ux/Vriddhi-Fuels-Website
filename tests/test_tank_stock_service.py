@@ -377,3 +377,48 @@ def test_the_page_api_needs_its_token_and_this_machine(station):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_each_anydesk_session_is_kept_with_how_long_it_lasted(station):
+    station.start_live({"tanks": [3]})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    FakeSession.opened[0].is_alive = False                      # AnyDesk ends it
+    assert wait_for(lambda: station.live is None)
+    station.start_live({"tanks": [3]})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+    s = station.view()["sessions"]
+    assert [r["by"] for r in s["recent"]] == ["you", "anydesk"]           # newest first
+    assert all(r["lasted_s"] is not None and r["connected"] for r in s["recent"])
+    assert s["anydesk"]["count"] == 1                                     # only AnyDesk's own endings count
+    assert "The AnyDesk session lasted" in station.photos[-1][1]
+
+
+def test_with_reconnect_on_it_connects_again_when_anydesk_ends_the_session(station, monkeypatch):
+    monkeypatch.setattr(service, "RECONNECT_AFTER", 0.05)
+    station.start_live({"tanks": [3], "reconnect": True})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    first = station.live
+    FakeSession.opened[0].is_alive = False
+    assert wait_for(lambda: station.live is not None and station.live is not first and station.live.get("state") == "live")
+    assert len(FakeSession.opened) == 2 and "Connecting again" in station.photos[-1][1]
+    assert station.settings["reconnect"] is True and station.live["by_auto"] is False
+    station.stop_live()                                                    # you stop it: it stays stopped
+    assert wait_for(lambda: station.live is None)
+    import time as _t
+    _t.sleep(0.3)
+    assert station.live is None
+
+
+def test_reconnecting_stops_after_many_short_sessions_in_a_row(station, monkeypatch):
+    monkeypatch.setattr(service, "RECONNECT_RUN", 2)
+    station.save_settings({"reconnect": True})
+    started = []
+    monkeypatch.setattr(service.threading, "Timer", lambda secs, fn: type("T", (), {"start": lambda self: started.append(fn)})())
+    short = {"by": "anydesk", "lasted_s": 30}
+    assert station._reconnect_later(short) and station._reconnect_later(short)
+    assert not station._reconnect_later(short)                            # the third: it gives up and says so
+    assert "stopped connecting again" in station.alerts[-1] and len(started) == 2
+    assert station._reconnect_later({"by": "anydesk", "lasted_s": 3600})   # a long one starts the count again
+    assert not station._reconnect_later({"by": "you", "lasted_s": 3600})   # never after you stopped it

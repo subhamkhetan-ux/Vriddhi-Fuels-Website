@@ -146,6 +146,7 @@
   .ask { border: 1px solid rgba(255,178,62,.6); border-radius: 14px; padding: 12px; margin: 12px 0; background: var(--mid-bg);
          box-shadow: 0 0 0 1px rgba(255,178,62,.15); }
   .ask label { display: flex; gap: 9px; align-items: center; padding: 5px 0; }
+  h3.minor { font: 700 13px/1.3 var(--display); margin: 18px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
   .log { font-size: 12px; color: var(--faint); margin: 12px 0 0; padding-left: 18px; }
   .log .warn, .log .ask { color: var(--mid); } .log .done { color: var(--ok); }
 </style>
@@ -193,6 +194,7 @@
     <div id="liveFigures"></div>
     <label class="line">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
     <label class="line">Send the volume to the decant app as it changes <input type="checkbox" id="mUp"></label>
+    <label class="line">Connect again when AnyDesk ends the session <input type="checkbox" id="mRe"></label>
     <div class="note" style="margin-top:8px">Tanks to watch</div>
     <div class="chips" id="mTanks" style="margin-top:6px"></div>
     <div class="row">
@@ -201,6 +203,11 @@
       <button class="alt" id="mSave">Save settings</button>
     </div>
     <div class="status" id="mStatus"></div>
+    <div id="sessions" hidden>
+      <h3 class="minor">AnyDesk sessions</h3>
+      <div class="note" id="sessStats"></div>
+      <ul class="log" id="sessList"></ul>
+    </div>
   </section>
 </main>
 <script src="app.js"></script>
