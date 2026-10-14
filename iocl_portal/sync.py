@@ -1,7 +1,7 @@
 """Insert a verified PAD observation into the existing Payments balance table."""
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 import json
 import os
@@ -14,6 +14,23 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from .statement import Balance, IST, PortalError
 
 ROOT = Path(__file__).resolve().parents[1]
+OPENING_WINDOW = (time(0, 30), time(2))   # IST: a reading in it is the day's opening
+
+
+class OpeningMissed(PortalError):
+    """The opening run came too late for its reading to be the opening."""
+
+
+def in_opening_window(at: datetime) -> bool:
+    return OPENING_WINDOW[0] <= at.astimezone(IST).time() < OPENING_WINDOW[1]
+
+
+def opening_saved(day: date, *, config=None, transport=None) -> bool:
+    """Has this IST day's opening been saved (by an earlier try, or by hand)?"""
+    url, key = config or payments_config()
+    query = urlencode({"day": "eq." + day.isoformat(), "select": "day", "limit": "1"})
+    rows = _records((transport or request)("GET", url, key, "pay_credit_opening?" + query))
+    return bool(rows) and rows[0].get("day") == day.isoformat()
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -133,12 +150,21 @@ def save_balance(balance: Balance, *, config=None, transport=request) -> str:
 def save_opening(balance: Balance, *, config=None, transport=request) -> str:
     """Record one opening per IST day, even when the balance has not changed.
 
-    Existing openings (including manual corrections) survive reruns. A delayed
-    job after 02:00 IST must not label an intraday observation as the opening.
+    The opening is the statement's own (``Balance.opening``: the balance after
+    the last entry before today, proved by its running balance), whenever the
+    report is read. Without it, only a reading in 00:30–02:00 IST is the
+    opening: a delayed job must not label an intraday balance as the opening.
+    Existing openings (including manual corrections) survive reruns.
     """
     observed = balance.generated_at.astimezone(IST)
-    if not time(0, 30) <= observed.time() < time(2):
-        raise PortalError("The opening capture is outside 00:30–02:00 IST. No opening was saved; enter it manually if the scheduled run was missed.")
+    if balance.opening is not None:
+        amount, sign = abs(balance.opening), "CR" if balance.opening < 0 else "DR"
+    elif in_opening_window(observed):
+        amount, sign = balance.amount, balance.sign
+    else:
+        raise OpeningMissed("The opening capture is outside 00:30–02:00 IST and the statement couldn't give it ("
+                            + (balance.opening_why or "no reason") + "). No opening was saved; enter it manually "
+                            "if it isn't in Payments.")
     url, key = config or payments_config()
     day = observed.date().isoformat()
     query = urlencode({"day": "eq." + day, "select": "day,amount,sign,updated_at", "limit": "1"})
@@ -149,8 +175,7 @@ def save_opening(balance: Balance, *, config=None, transport=request) -> str:
             raise PortalError("Payments returned an opening for the wrong date.")
         _amount_sign(existing[0])
         return "opening_exists"
-    row = {"day": day, "amount": f"{balance.amount:.2f}", "sign": balance.sign,
-           "updated_at": observed.isoformat()}
+    row = {"day": day, "amount": f"{amount:.2f}", "sign": sign, "updated_at": observed.isoformat()}
     inserted = transport("POST", url, key, "pay_credit_opening?on_conflict=day", [row])
     check = _records(transport("GET", url, key, path))
     if not check or check[0].get("day") != day:
@@ -159,6 +184,6 @@ def save_opening(balance: Balance, *, config=None, transport=request) -> str:
     # A concurrent manual opening wins an insert-if-absent race; preserve it.
     if not inserted:
         return "opening_exists"
-    if actual != (balance.amount, balance.sign) or _timestamp(check[0].get("updated_at")) != observed:
+    if actual != (amount, sign) or _timestamp(check[0].get("updated_at")) != observed:
         raise PortalError("Payments returned a different opening after the write. Check the Credit tab.")
     return "opening_saved"

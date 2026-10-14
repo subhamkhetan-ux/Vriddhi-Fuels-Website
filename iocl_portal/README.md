@@ -15,8 +15,8 @@ an absolute amount with `CR`; a positive balance becomes `DR`.
 | Trigger | Result |
 | --- | --- |
 | Usable IndianOil invoice mail detected by the existing payment agent | Check PAD after ingest, including when another ingest task fails. |
-| Every 3 hours (`7 */3 * * *`, UTC) | Check PAD as a fallback, including changes from payments and other transactions. |
-| Daily at **00:30 IST** (`0 19 * * *`, UTC) | Save the new local day's opening in **Payments → Credit**, and save a changed current balance if needed. |
+| Every 3 hours (`7 */3 * * *`, UTC) | Check PAD as a fallback, including changes from payments and other transactions; fill in today's opening if it is missing. |
+| Daily, four tries from **00:33 IST** (`3 19`, `23 19`, `43 19`, `8 20` UTC) | Save the new local day's opening in **Payments → Credit**, and save a changed current balance if needed. A try that finds the opening already saved stops before logging in. |
 
 The existing Gmail agent checks mail every 20 minutes. The invoice trigger runs
 after that detection, not at the instant an email arrives. Multiple invoices
@@ -30,11 +30,28 @@ valid observation is saved when there is no prior balance.
 
 The opening is written to `pay_credit_opening` under its **IST calendar date**,
 even when unchanged from yesterday. Its `updated_at` records the actual report
-time. Existing openings, including manual corrections, survive reruns. To avoid
-mislabeling a late intraday observation, opening mode stops outside
-00:30–02:00 IST. Enter a missed opening manually through the existing Credit
-controls. GitHub schedules are best effort: 00:30 is the requested start time,
-not an exact capture-time guarantee.
+time. Existing openings, including manual corrections, survive reruns.
+
+**Where the opening comes from.** The statement runs from yesterday to today,
+so it carries today's opening itself: the running balance after **yesterday's
+last entry**. If yesterday had no entry, it is yesterday's OP.BAL. With no
+entry today yet, it is the CL.BAL.in Comp Code figure (open deliveries
+excluded). The agent uses it whenever it reads the report, at any hour. The
+nightly tries and **every** ordinary check (3-hourly, invoice-triggered) fill
+in today's opening if it is missing. The statement has to prove it first:
+- the Date, Debit and Credit columns are found by their headings;
+- every entry between OP.BAL and CL.BAL is dated yesterday or today, in that
+  order;
+- each Balance is the previous one plus the debit, minus the credit, ending
+  exactly on CL.BAL.
+
+If it doesn't prove it, the job log says why (no amounts). Then only a reading
+taken in 00:30–02:00 IST is used as the opening, so a late intraday balance is
+never mislabelled. A late opening run still saves the current balance, then
+fails so the miss shows; enter that day's opening manually through the
+existing Credit controls. GitHub schedules are best effort and start late when
+it is busy, worst on the hour: the single `0 19` run once started at 04:39
+IST. That is why there are four tries at quiet minutes.
 
 Both tables and realtime subscriptions already exist in
 [`supabase/payments-schema.sql`](../supabase/payments-schema.sql); no schema or

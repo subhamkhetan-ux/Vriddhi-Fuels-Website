@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -9,8 +10,8 @@ import sys
 
 from .browser import PortalBrowser, launch_options, selectors_from_env
 from .captcha import ocr_reads
-from .statement import PortalError
-from .sync import payments_config, save_balance, save_opening
+from .statement import IST, PortalError
+from .sync import OpeningMissed, in_opening_window, opening_saved, payments_config, save_balance, save_opening
 
 
 def sample_captchas(portal, out: Path, *, length: int, count: int = 6) -> int:
@@ -60,6 +61,12 @@ def main(argv=None) -> int:
         if not sampling and not customer:
             raise PortalError("IOCL_CUSTOMER_CODE is required to verify the statement belongs to your account.")
         cfg = payments_config() if args.sync or args.opening else None
+        if args.opening:
+            started = datetime.now(IST)
+            # The night's later tries: one that came first already saved it.
+            if in_opening_window(started) and opening_saved(started.date(), config=cfg):
+                print("PASS: today's opening is already saved (an earlier try, or by hand). No login needed.")
+                return 0
         options = launch_options()
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
@@ -94,10 +101,34 @@ def main(argv=None) -> int:
                     print("PASS: login, Account Information > PAD Statement, dates, account and CL.BAL.in Comp Code verified (open deliveries excluded). Dry run: nothing saved.")
                     result = "dry_run_verified"
                 else:
-                    opening = save_opening(balance, config=cfg) if args.opening else None
+                    # Every read fills in today's opening if it's missing: the
+                    # statement gives it whenever the run comes (save_opening).
+                    opening, missed = None, ""
+                    try:
+                        opening = save_opening(balance, config=cfg)
+                    except OpeningMissed as exc:
+                        day = balance.generated_at.astimezone(IST).date()
+                        if opening_saved(day, config=cfg):
+                            opening = "opening_exists"       # an earlier try (or a hand entry) has it
+                        elif args.opening:
+                            missed = str(exc)                # (an ordinary check just goes on)
+                    if args.sync and opening == "opening_exists":
+                        opening = None                       # (nothing to say: the usual case)
+                    if opening == "opening_saved":
+                        # where it came from (no amounts: the job log is public)
+                        opening += (" from the statement" if balance.opening is not None else
+                                    " from the 00:30-02:00 reading (the statement didn't prove it: "
+                                    + balance.opening_why + ")")
+                    # The balance is saved either way: a late opening run is still a fresh reading.
                     result = save_balance(balance, config=cfg)
                     if opening:
                         result = opening + "; balance_" + result
+                    if missed:
+                        print("IOCL PAD stopped: the opening run started at "
+                              f"{started.strftime('%H:%M')} IST, after the 00:30–02:00 window "
+                              "(GitHub started the scheduled run late). The current balance was still checked: "
+                              + result.replace("_", " ") + ". " + missed, file=sys.stderr)
+                        return 1
                     print("PASS: IOCL PAD check completed: " + result.replace("_", " ") + ".")
                 summary = os.environ.get("GITHUB_STEP_SUMMARY")
                 if summary:

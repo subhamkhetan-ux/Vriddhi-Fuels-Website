@@ -201,7 +201,9 @@ def test_daily_opening_is_saved_for_ist_day_once_and_manual_changes_survive():
 
 @pytest.mark.parametrize(("hour", "minute"), [(0, 0), (0, 29), (2, 0), (12, 30)])
 def test_opening_cannot_be_taken_at_wrong_time(hour, minute):
-    balance = replace(parse(), generated_at=NOW.replace(hour=hour, minute=minute))
+    # (only when the statement couldn't give the day's opening itself)
+    balance = replace(parse(), generated_at=NOW.replace(hour=hour, minute=minute), opening=None,
+                      opening_why="no single OP.BAL.in Comp Code row")
     def no_network(*args):
         pytest.fail("Out-of-window opening must stop before database calls")
     with pytest.raises(PortalError, match="outside 00:30"):
@@ -312,3 +314,203 @@ def test_live_timestamp_format_is_read():
     live = REPORT.replace("Report Generated Date/Time: Tue Oct 13 2026 6:59:04 AM",
                           "Report Generated Date/Time:-Tue Oct 13 2026 6:59:04 am")
     assert parse(live).generated_at == parse().generated_at
+
+
+class _Clock:
+    """datetime for iocl_portal.run: now() is fixed."""
+    def __init__(self, at):
+        self.at = at
+
+    def now(self, tz=None):
+        return self.at
+
+
+def _opening_run(monkeypatch, *, started, opening_rows, report_at=None, mode="--opening", **change):
+    """Run --opening with a stand-in browser and Payments; -> (exit code, writes, logged in?)."""
+    import sys as _sys
+    from iocl_portal import run as runmod, sync
+    monkeypatch.setenv("IOCL_EMITRA_USERNAME", "user")
+    monkeypatch.setenv("IOCL_EMITRA_PASSWORD", "pw")
+    monkeypatch.setenv("IOCL_CUSTOMER_CODE", "999999")
+    monkeypatch.setattr(runmod, "datetime", _Clock(started))
+    monkeypatch.setattr(runmod, "payments_config", lambda: ("https://payments.example", "key"))
+    monkeypatch.setattr(runmod, "launch_options", lambda: {})
+    balance = replace(parse(), generated_at=report_at or started, **change)
+    seen = {"login": False}
+
+    class Portal:
+        def __init__(self, page, selectors=None):
+            pass
+
+        def open(self):
+            pass
+
+        def login(self, *a, **k):
+            seen["login"] = True
+
+        def navigate_pad(self):
+            pass
+
+        def read_balance(self, customer):
+            return balance
+    monkeypatch.setattr(runmod, "PortalBrowser", Portal)
+    page = SimpleNamespace(new_page=lambda: None, close=lambda: None)
+    browser = SimpleNamespace(new_context=lambda **k: page, close=lambda: None)
+    pw = SimpleNamespace(chromium=SimpleNamespace(launch=lambda **k: browser))
+
+    class Ctx:
+        def __enter__(self):
+            return pw
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setitem(_sys.modules, "playwright.sync_api", SimpleNamespace(sync_playwright=Ctx))
+    writes, balances = [], {}
+
+    def transport(method, url, key, path, body=None):
+        if path.startswith("pay_credit_opening?"):
+            if method == "POST":
+                writes.append(("opening", body[0]))
+                opening_rows[:] = body
+            return list(opening_rows)
+        if method == "POST":
+            writes.append(("balance", body[0]))
+            balances[body[0]["id"]] = body[0]
+            return body
+        return [next(reversed(balances.values()))] if balances else []
+    # (their transport is bound when they're defined: hand it in)
+    monkeypatch.setattr(runmod, "save_balance", lambda b, config: sync.save_balance(b, config=config, transport=transport))
+    monkeypatch.setattr(runmod, "save_opening", lambda b, config: sync.save_opening(b, config=config, transport=transport))
+    monkeypatch.setattr(runmod, "opening_saved", lambda day, config: sync.opening_saved(day, config=config, transport=transport))
+    return runmod.main([mode]), writes, seen["login"]
+
+
+def test_a_late_opening_run_takes_the_opening_from_the_statement(monkeypatch, capsys):
+    late = NOW.replace(hour=4, minute=39)
+    code, writes, logged_in = _opening_run(monkeypatch, started=late, opening_rows=[])
+    assert code == 0 and logged_in
+    assert writes[0][0] == "opening" and writes[0][1]["day"] == "2026-10-13"
+    assert (writes[0][1]["amount"], writes[0][1]["sign"]) == ("15000.00", "CR")
+    assert "opening saved from the statement" in capsys.readouterr().out
+
+
+def test_a_late_opening_run_without_a_provable_opening_saves_the_balance_and_says_why(monkeypatch, capsys):
+    late = NOW.replace(hour=4, minute=39)
+    code, writes, logged_in = _opening_run(monkeypatch, started=late, opening_rows=[], opening=None,
+                                           opening_why="the running balance doesn't add up entry by entry")
+    assert code == 1 and logged_in
+    assert [w[0] for w in writes] == ["balance"]            # no opening, but the balance is saved
+    err = capsys.readouterr().err
+    assert "started at 04:39 IST, after the 00:30–02:00 window" in err and "GitHub started the scheduled run late" in err
+    assert "balance was still checked: saved" in err and "doesn't add up entry by entry" in err
+
+
+def test_an_ordinary_check_fills_in_a_missing_opening(monkeypatch, capsys):
+    midday = NOW.replace(hour=13, minute=7)
+    code, writes, _ = _opening_run(monkeypatch, started=midday, opening_rows=[], mode="--sync")
+    assert code == 0 and writes[0][0] == "opening"
+    # and says nothing about it when the opening is already there
+    saved = [dict(writes[0][1])]
+    code, writes, _ = _opening_run(monkeypatch, started=midday, opening_rows=saved, mode="--sync")
+    assert code == 0 and writes == []
+    assert capsys.readouterr().out.splitlines()[-1] == "PASS: IOCL PAD check completed: unchanged."
+    # without a provable opening, an ordinary check doesn't fail over it
+    code, writes, _ = _opening_run(monkeypatch, started=midday, opening_rows=[], mode="--sync", opening=None)
+    assert code == 0 and [w[0] for w in writes] == ["balance"]
+
+
+def test_a_later_try_finds_the_opening_saved_and_doesnt_log_in(monkeypatch, capsys):
+    on_time = NOW.replace(hour=1, minute=13)
+    saved = [{"day": "2026-10-13", "amount": "15000.00", "sign": "CR", "updated_at": "2026-10-13T00:33:10+05:30"}]
+    code, writes, logged_in = _opening_run(monkeypatch, started=on_time, opening_rows=saved)
+    assert code == 0 and not logged_in and writes == []
+    assert "already saved" in capsys.readouterr().out
+
+
+def test_an_opening_run_in_the_window_saves_both(monkeypatch, capsys):
+    on_time = NOW.replace(hour=0, minute=33)
+    code, writes, logged_in = _opening_run(monkeypatch, started=on_time, opening_rows=[])
+    assert code == 0 and logged_in and [w[0] for w in writes] == ["opening"]
+    # (the new opening is the latest balance the Credit tab shows: no snapshot needed)
+    assert "opening saved from the statement; balance unchanged" in capsys.readouterr().out
+
+
+def test_a_late_run_after_an_earlier_try_saved_the_opening_passes(monkeypatch):
+    late = NOW.replace(hour=1, minute=59, second=50)
+    saved = [{"day": "2026-10-13", "amount": "15000.00", "sign": "CR", "updated_at": "2026-10-13T00:33:10+05:30"}]
+    # started in the window, but the report came after 02:00
+    code, writes, _ = _opening_run(monkeypatch, started=late, opening_rows=[], opening=None,
+                                   report_at=NOW.replace(hour=2, minute=0, second=30))
+    assert code == 1                                         # nothing saved it: a real miss
+    code, writes, _ = _opening_run(monkeypatch, started=NOW.replace(hour=4), opening_rows=saved, opening=None)
+    assert code == 0 and writes == []                       # (the balance is the opening's: unchanged)
+
+
+def test_the_opening_is_tried_four_times_inside_its_window():
+    import yaml
+    wf = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github/workflows/iocl-pad-balance.yml").read_text())
+    crons = [c["cron"] for c in wf[True]["schedule"]]
+    opening = [c for c in crons if c != "7 */3 * * *"]
+    assert len(opening) == 4
+    for c in opening:
+        minute, hour = map(int, c.split()[:2])
+        ist = (hour * 60 + minute + 330) % 1440
+        assert 30 <= ist < 120 and minute != 0, c             # 00:30–02:00 IST, never on the hour
+    step = next(s for s in wf["jobs"]["balance"]["steps"] if s.get("name", "").startswith("Read company-code"))
+    assert "github.event.schedule != '7 */3 * * *' && 'opening'" in step["env"]["IOCL_MODE"]
+
+
+def statement(entries, closing):
+    """A yesterday (12.10) to today (13.10) table: OP.BAL 10,000 DR, the entries, CL.BAL."""
+    return ([["Plant", "Item Text", "Date", "Debit (Rs.)", "Credit (Rs.)", "Balance (Rs.)"],
+             ["", "OP.BAL.in Comp Code:", "12.10.26", "0", "0", "10000.00"]]
+            + [["", text, day, dr, cr, bal] for text, day, dr, cr, bal in entries]
+            + [["", "CL.BAL.in Comp Code:", "13.10.26", "0", "0", closing],
+               ["", "Open Delivery value in all CCA:", "", "0", "0", "500.00"]])
+
+
+@pytest.mark.parametrize(("entries", "closing", "opening"), [
+    # entries yesterday only: today's opening is the CL.BAL figure
+    ([("Customer collection", "12.10.26", "0", "25000.00", "-15000.00")], "-15000.00", Decimal("-15000.00")),
+    # entries today too: the balance after yesterday's last entry
+    ([("Customer collection", "12.10.26", "0", "25000.00", "-15000.00"),
+      ("Invoice", "13.10.26", "8000.00", "0", "-7000.00")], "-7000.00", Decimal("-15000.00")),
+    # nothing yesterday, entries today: yesterday's OP.BAL carried over
+    ([("Invoice", "13.10.26", "8000.00", "", "18000.00")], "18000.00", Decimal("10000.00")),
+    # nothing at all
+    ([], "10000.00", Decimal("10000.00")),
+])
+def test_todays_opening_is_the_balance_after_yesterdays_last_entry(entries, closing, opening):
+    b = parse(table_rows=statement(entries, closing))
+    assert b.opening == opening and b.opening_why == ""
+
+
+@pytest.mark.parametrize(("entries", "closing", "why"), [
+    ([("Customer collection", "12.10.26", "0", "25000.00", "-14000.00")], "-14000.00", "doesn't add up entry by entry"),
+    ([("Invoice", "13.10.26", "8000.00", "0", "18000.00"), ("Collection", "12.10.26", "0", "1000.00", "17000.00")],
+     "17000.00", "aren't in date order"),
+    ([("Invoice", "11.10.26", "8000.00", "0", "18000.00")], "18000.00", "isn't yesterday or today"),
+    ([("Invoice", "13.10.26", "8000.00", "0", "18000.00")], "18500.00", "don't add up to CL.BAL"),
+])
+def test_an_opening_the_statement_doesnt_prove_is_not_used(entries, closing, why):
+    b = parse(table_rows=statement(entries, closing))
+    assert b.opening is None and why in b.opening_why
+    assert b.amount == abs(Decimal(closing))                   # (the balance itself is still read)
+
+
+def test_without_its_columns_or_op_bal_row_the_statement_gives_no_opening():
+    no_op = [r for r in statement([], "10000.00") if not r[1].startswith("OP.BAL")]
+    no_op.insert(1, ["", "Something", "12.10.26", "0", "0", "10000.00"])
+    assert "OP.BAL" in parse(table_rows=no_op).opening_why
+    odd = statement([], "10000.00")
+    odd[0] = ["Plant", "Item Text", "When", "Amount 1", "Amount 2", "Balance (Rs.)"]
+    assert "columns weren't recognised" in parse(table_rows=odd).opening_why
+
+
+def test_an_opening_from_the_night_reading_says_why_the_statement_didnt_give_it(monkeypatch, capsys):
+    code, writes, _ = _opening_run(monkeypatch, started=NOW.replace(hour=0, minute=33), opening_rows=[],
+                                   opening=None, opening_why="no single OP.BAL.in Comp Code row")
+    assert code == 0 and writes[0][0] == "opening"
+    out = capsys.readouterr().out
+    assert "from the 00:30-02:00 reading (the statement didn't prove it: no single OP.BAL.in Comp Code row)" in out
+    assert "15000" not in out                                   # no amounts in the public log

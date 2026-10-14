@@ -8,8 +8,15 @@ on:
   schedule:
     # Every three hours. All cron expressions are UTC.
     - cron: "7 */3 * * *"
-    # 19:00 UTC = 00:30 Asia/Kolkata on the NEXT local calendar day.
-    - cron: "0 19 * * *"
+    # The day's opening: four tries inside 00:30–02:00 IST (the next local
+    # day), at quiet minutes. GitHub starts scheduled runs late when it is
+    # busy, worst on the hour: the old single 19:00 UTC run once started at
+    # 04:39 IST and could no longer save the opening. A later try that finds
+    # the opening saved stops before logging in.
+    - cron: "3 19 * * *"    # 00:33 IST
+    - cron: "23 19 * * *"   # 00:53 IST
+    - cron: "43 19 * * *"   # 01:13 IST
+    - cron: "8 20 * * *"    # 01:38 IST
   workflow_dispatch:
     inputs:
       mode:
@@ -73,7 +80,7 @@ jobs:
       - name: Read company-code balance excluding open deliveries
         if: inputs.mode != 'network'
         env:
-          IOCL_MODE: ${{ inputs.mode || (github.event.schedule == '0 19 * * *' && 'opening' || 'sync') }}
+          IOCL_MODE: ${{ inputs.mode || (github.event.schedule && github.event.schedule != '7 */3 * * *' && 'opening' || 'sync') }}
           IOCL_EMITRA_USERNAME: ${{ secrets.IOCL_EMITRA_USERNAME }}
           IOCL_EMITRA_PASSWORD: ${{ secrets.IOCL_EMITRA_PASSWORD }}
           IOCL_CUSTOMER_CODE: ${{ vars.IOCL_CUSTOMER_CODE }}
