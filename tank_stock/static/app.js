@@ -104,8 +104,10 @@
     const none = !Object.keys(last.tanks || {}).length;
     const missing = [...picked].filter((n) => !last.tanks?.[n]);
     if (none) notes.push("No tank cards on that screen: this is what the IOCL PC showed (also sent to the XtraPower bot).");
-    else if (missing.length) notes.push(`Not on that screen: Tank ${missing.join(", ")}.`);
+    else if (missing.length) notes.push(`Not found on that screen: Tank ${missing.join(", ")} (the whole screen was sent to the XtraPower bot).`);
     $("resultNote").textContent = notes.join(" ");
+    $("fullScreen").hidden = none || !missing.length;
+    $("fullScreen").href = `api/picture?full=1&v=${encodeURIComponent(last.at)}`;
     $("upAll").hidden = none;
     // On a phone the cards go one under another, so each stays big enough to read.
     const stack = window.innerWidth < 700 ? 1 : 0;

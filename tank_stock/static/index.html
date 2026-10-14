@@ -74,6 +74,7 @@
   section > h2::before { content: ""; width: 4px; height: 16px; border-radius: 2px; background: var(--grad-cta); flex: none; }
   .note { font-size: 12.5px; color: var(--faint); }
   .note.err { color: var(--warn); }
+  a.note { display: block; margin-top: 6px; color: var(--accent); }
   .status { margin-top: 10px; font-size: 13.5px; color: var(--muted); }
   .status.err { color: var(--warn); }
 
@@ -178,6 +179,7 @@
   <section id="result" hidden>
     <h2 id="resultTitle">Last capture</h2>
     <div class="note" id="resultNote"></div>
+    <a class="note" id="fullScreen" href="api/picture?full=1" target="_blank" rel="noopener" hidden>See the whole screen the agent saw</a>
     <img class="shot" id="shot" alt="The selected tanks on the automation screen">
     <div id="figures"></div>
     <div class="row">

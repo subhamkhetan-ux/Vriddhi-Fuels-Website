@@ -202,3 +202,44 @@ def test_an_open_menu_is_closed_with_escape(monkeypatch):
                                        pause=lambda s: None, escape=lambda: escapes.append(1))
     assert escapes == [1] and len(clicks) == 1                     # opened the menu; Escape closed it
     assert png == "after" and note == "opened Monitoring, but 'Tank Status' was not in its menu"
+
+
+def png_with_cards(lefts=(20, 260, 500, 740), width=220, top=60, bottom=290, size=(980, 340), gap_at=None):
+    """A white PNG with a row of cards' light grey borders (``gap_at``: a
+    stretch of one card's top line missing)."""
+    w, h = size
+    img = bytearray(b"\xff" * (w * h * 3))
+    def dot(x, y):
+        img[(y * w + x) * 3:(y * w + x) * 3 + 3] = b"\xdf\xdf\xdf"
+    for left in lefts:
+        for x in range(left, left + width + 1):
+            if not (gap_at and gap_at[0] <= x < gap_at[1]):
+                dot(x, top)
+            dot(x, bottom)
+        for y in range(top, bottom + 1):
+            dot(left, y), dot(left + width, y)
+    rows = b"".join(b"\x00" + bytes(img[y * w * 3:(y + 1) * w * 3]) for y in range(h))
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+@pytest.mark.skipif(not shutil.which("convert"), reason="needs ImageMagick")
+def test_every_card_in_the_row_is_found_even_when_headings_or_borders_dont_read():
+    from tank_stock import cards
+    heading = lambda no, x: [("Tank", x, 70, 30, 10), (f"{no}:", x + 34, 70, 10, 10), ("High", x + 50, 70, 30, 10)]
+    lefts = (20, 260, 500, 740)
+    every = sum((heading(n + 1, x + 15) for n, x in enumerate(lefts)), [])
+    boxes = cards.card_boxes(png_with_cards(), every)
+    assert sorted(boxes) == [1, 2, 3, 4]
+    assert all(boxes[n + 1] == (x - 4, 60, x + 224, 289) for n, x in enumerate(lefts))
+    # Only Tanks 3 and 4 read (as on the server): 1 and 2 are found in their place.
+    assert cards.card_boxes(png_with_cards(), heading(3, 515) + heading(4, 755)) == boxes
+    # Only one heading read: the others from its width and the gaps between the cards.
+    assert cards.card_boxes(png_with_cards(), heading(4, 755)) == boxes
+    # A gap in a card's top line: it still takes its place.
+    assert cards.card_boxes(png_with_cards(gap_at=(300, 330)), every)[2] == boxes[2]
+    # Only the cards that are there: not beyond the row.
+    two = cards.card_boxes(png_with_cards(lefts=(500, 740)), heading(3, 515) + heading(4, 755))
+    assert sorted(two) == [3, 4]
