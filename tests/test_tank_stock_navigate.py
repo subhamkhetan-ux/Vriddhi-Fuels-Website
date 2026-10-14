@@ -126,3 +126,28 @@ def test_when_nothing_helps_it_says_what_it_tried(monkeypatch):
     monkeypatch.setattr(nav, "ocr", lambda png, *a, **k: words(("Locked", 900, 500)))
     png, note = nav.ensure_tank_status(lambda: "lock", lambda x, y: None, pause=lambda s: None, wake=lambda: None)
     assert note == "not on Tank Status, and FuelTrans' menu bar is not visible (woke the screen)"
+
+
+def test_tank_status_is_recognised_by_its_card_headings_when_the_grey_labels_dont_read():
+    # The live screen at the server's scale: the title and the bold headings
+    # read, the light-grey "Product Volume" labels don't.
+    page = words(("Tank", 897, 326), ("Status", 950, 326), ("Tank", 108, 378), ("1", 150, 378), (":", 160, 378),
+                 ("Motor", 175, 378), ("Tank", 565, 378), ("2", 607, 378), (":", 617, 378), ("High", 630, 378),
+                 ("ONLINE", 250, 567))
+    assert nav.tank_headings(page) == 2 and nav.on_tank_status(page)
+    assert not nav.on_tank_status(words(("Tank", 897, 326), ("Status", 950, 326)))      # a menu item alone
+    assert not nav.on_tank_status(page[2:])                                               # cards, no title
+
+
+def test_a_menu_that_didnt_show_tank_status_is_closed_and_a_fresh_screen_taken(monkeypatch):
+    screens = iter(["other", "menu", "after"])
+    reads = {"other": words(("Daily", 700, 500)), "bar": words(("#Home", 300, 300), ("@Monitoring", 460, 300)),
+             "menu": words(("Nozzle", 465, 325), ("Status", 520, 325)), "after": words(("Daily", 700, 500))}
+    monkeypatch.setattr(nav, "menu_bar", lambda png: (280, 294, 1628, 316))
+    monkeypatch.setattr(nav, "_size", lambda png: (1920, 1080))
+    monkeypatch.setattr(nav, "ocr", lambda png, crop=None, scale=1, psm=11, negate=False:
+                        reads["bar" if crop and crop[1] < 300 else png])
+    clicks = []
+    png, note = nav.ensure_tank_status(lambda: next(screens), lambda x, y: clicks.append((x, y)), pause=lambda s: None)
+    assert png == "after" and note == "opened Monitoring, but 'Tank Status' was not in its menu"
+    assert len(clicks) == 2                                        # opened it, closed it again

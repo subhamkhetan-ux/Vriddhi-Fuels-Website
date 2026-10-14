@@ -214,6 +214,9 @@ def anydesk_says(png: bytes) -> tuple[str, str]:
     try:
         if menu_bar(png):
             return "", ""                       # FuelTrans is on screen: connected
+    except Exception:  # noqa: BLE001 - then the words decide
+        pass
+    try:
         words = ocr(png)
     except Exception:  # noqa: BLE001 - no OCR: judge by the window alone, as before
         return "", ""

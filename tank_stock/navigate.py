@@ -114,8 +114,27 @@ def find(words, phrase: str):
     return hits
 
 
+def tank_headings(words) -> int:
+    """How many "Tank N : ..." card headings are on screen. They are dark and
+    bold, so OCR reads them where it misses the light-grey labels."""
+    texts = [_norm(t) for t, *_ in words]
+    seen = set()
+    for i, t in enumerate(texts):
+        if t == "tank" and i + 1 < len(texts) and re.fullmatch(r"[1-9]", texts[i + 1] or ""):
+            if i + 2 < len(texts) and words[i + 2][0].strip().startswith(":"):
+                seen.add(texts[i + 1])
+        elif re.fullmatch(r"tank[1-9]", t) and i + 1 < len(texts) and words[i + 1][0].strip().startswith(":"):
+            seen.add(t[-1])
+    return len(seen)
+
+
 def on_tank_status(words) -> bool:
-    return bool(find(words, "tank status")) and bool(find(words, "product volume"))
+    """The Tank Status page: its title, and the tank cards (their figure labels,
+    or, as OCR often misses those light-grey labels on a scaled screen, at
+    least two of their "Tank N :" headings)."""
+    if not find(words, "tank status"):
+        return False
+    return bool(find(words, "product volume")) or tank_headings(words) >= 2
 
 
 def _center(box) -> tuple[int, int]:
@@ -188,7 +207,11 @@ def ensure_tank_status(shoot, click, pause=time.sleep, wake=None) -> tuple[bytes
             break
     if not items:
         click(*_center(mon[0]))                  # close the menu again
-        return menu_png, "opened Monitoring, but 'Tank Status' was not in its menu"
+        pause(1)
+        png = shoot()                            # (a screen with the menu open would hide cards)
+        if on_tank_status(ocr(png)):
+            return png, "on Tank Status"
+        return png, "opened Monitoring, but 'Tank Status' was not in its menu"
     click(*_center(min(items, key=lambda b: b[1])))
     pause(8)                                     # let the page load
     png = shoot()
