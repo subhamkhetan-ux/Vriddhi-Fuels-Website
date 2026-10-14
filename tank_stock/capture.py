@@ -386,7 +386,8 @@ class Session:
 
     def shot(self) -> tuple[bytes, str]:
         """(PNG of Tank Status, what was done to reach it)."""
-        return ensure_tank_status(self.screen, lambda x, y: _click(self.env, x, y), wake=lambda: _wake(self.env))
+        return ensure_tank_status(self.screen, lambda x, y: _click(self.env, x, y), wake=lambda: _wake(self.env),
+                                  escape=lambda: _run(["xdotool", "key", "Escape"], self.env))
 
     def windows(self) -> list:
         return windows(self.env)
