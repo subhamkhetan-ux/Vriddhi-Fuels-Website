@@ -25,10 +25,15 @@ case "${ID}-${VERSION_ID}" in
 esac
 echo "This VM: $(uname -m), $(awk '/MemTotal/ {printf "%.1f GB", $2/1048576}' /proc/meminfo) of memory."
 
-say "1/5 Python and Tesseract (the text reader)"
+say "1/5 Python, Tesseract (the text reader) and software graphics (Mesa)"
 sudo apt-get update -q
+# AnyDesk draws the remote screen with OpenGL. On the Oracle server the
+# graphics libraries came with Chromium's; without them the session's picture
+# stays black although AnyDesk connects. Mesa draws it in software on the
+# virtual screen.
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-  ca-certificates curl git python3 python3-venv tesseract-ocr
+  ca-certificates curl git python3 python3-venv tesseract-ocr \
+  libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libegl-mesa0 libgbm1 mesa-utils fonts-dejavu-core
 
 say "2/5 The 'runner' user the tank stock page runs as"
 id runner >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash runner
