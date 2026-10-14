@@ -602,7 +602,7 @@
 
   async function refresh() {
     try {
-      state = await api("GET", "api/state");
+      state = await api("GET", document.hidden ? "api/state" : "api/state?seen=1");
       render();
     } catch (e) {
       setStatus("status", e.message, true);
@@ -667,4 +667,5 @@
 
   poll();
   setInterval(() => { if (!waiting && !document.hidden) refresh(); }, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 })();

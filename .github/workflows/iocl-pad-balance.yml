@@ -24,6 +24,11 @@ on:
         type: choice
         options: [network, probe, captcha-sample, dry-run, sync, opening]
         default: dry-run
+      server:
+        description: "Which India server runs it (india-a1: the new A1 while it is being tried)"
+        type: choice
+        options: [india, india-a1]
+        default: india
   workflow_call:
     inputs:
       mode:
@@ -51,7 +56,7 @@ jobs:
     # Enable after a real dry-run succeeds; no repeated logins with unverified
     # credentials/selectors. workflow_dispatch can always run a probe/dry-run.
     if: github.event_name == 'workflow_dispatch' || vars.IOCL_PAD_SYNC_ENABLED == 'true'
-    runs-on: [self-hosted, india]
+    runs-on: [self-hosted, "${{ inputs.server || 'india' }}"]
     timeout-minutes: 8
     env:
       # Created by infra/india-runner/setup.sh, owned by the runner user.

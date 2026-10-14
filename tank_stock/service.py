@@ -70,6 +70,7 @@ RECONNECT_AFTER = 15             # seconds before connecting again ("reconnect" 
 NO_CARDS_ALERT_EVERY = 600       # seconds: "no tank cards on the PC's screen" to Telegram at most this often
 RECONNECT_RUN = 12               # ... at most this many in a row of short sessions
 LONG_SESSION = 600               # a session this long resets that count
+UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
 MAX_BODY = 16_000
 AUTO_ACTIONS = ("answer", "done", "drop", "after", "release", "cancel", "clear", "reconnect")
@@ -168,6 +169,7 @@ class Station:
         self._dropped = ""               # the day earlier days' proof pictures were last cleared
         self._short_runs = 0             # reconnects in a row after short sessions
         self._no_cards_told = 0.0        # when Telegram last got "no tank cards" with the screen
+        self.seen_at = time.time()       # when the page was last open in front of someone
         self.last = _read_json(home / "last.json", {})
         self.auto = AutoDecant(self)
 
@@ -416,6 +418,10 @@ class Station:
                     self.auto.on_read(live)            # an automatic decantation follows the stock
                 except Exception:  # noqa: BLE001 - the live session carries on
                     traceback.print_exc()
+                if self._unwatched(live):
+                    live["stop_reason"] = (f"nobody had the page open for {UNWATCHED_STOP // 60} min, "
+                                           "so the AnyDesk session was closed to free the server's memory")
+                    break
                 if live["failed"] >= MAX_FAILED_READS:
                     reason = f"{MAX_FAILED_READS} reads in a row failed ({live.get('last_error', '')})"
                     break
@@ -446,6 +452,15 @@ class Station:
             if session:
                 session.close()
             self._live_end(live, reason, final)
+
+    def _unwatched(self, live) -> bool:
+        """Live monitoring that nobody watches and that does nothing on its
+        own (no sending to the decant app, no automatic decantation) only
+        holds AnyDesk, its screen and memory: it ends."""
+        if live.get("by_auto") or live.get("auto_upload") or self.auto.active():
+            return False
+        since = max(self.seen_at, datetime.fromisoformat(live["since"]).timestamp())
+        return time.time() - since > UNWATCHED_STOP
 
     def _live_cfg(self, live) -> dict:
         if not live.get("cfg") or time.time() - live.get("cfg_at", 0) > SETTINGS_EVERY:
@@ -771,6 +786,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = body.replace(b"__CSRF__", self.server.csrf.encode())  # type: ignore[attr-defined]
             return self._send(200, body, ctype)
         if url.path == "/api/state":
+            if parse_qs(url.query).get("seen") == ["1"]:          # the page is in front of someone
+                self.station.seen_at = time.time()
             return self._json(200, self.station.view())
         if url.path == "/api/auto/options":
             try:

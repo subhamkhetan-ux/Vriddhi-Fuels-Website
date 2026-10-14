@@ -1,5 +1,6 @@
 """Tank stock monitor, phone page API, card parsing and the decant upload (fakes only)."""
 import json
+import time
 import threading
 import urllib.request
 
@@ -455,3 +456,29 @@ def test_tanks_missing_from_the_screen_are_told_to_the_bot_with_the_screen(stati
     station.capture([1, 3])
     assert "3" in station.last["tanks"] and "1" not in station.last["tanks"]
     assert station.photos and "Tank 1 not found" in station.photos[-1][1]
+
+
+def test_live_monitoring_nobody_watches_and_that_sends_nothing_ends_by_itself(station, monkeypatch):
+    monkeypatch.setattr(service, "UNWATCHED_STOP", 0)
+    station.seen_at = 0                                                     # the page has been closed
+    station.start_live({"tanks": [3], "auto_upload": True})                # sending to the decant app: kept
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    time.sleep(0.05)
+    assert station.live and not station._unwatched(station.live)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+    station.start_live({"tanks": [3], "auto_upload": False})               # nothing sent: it ends
+    assert wait_for(lambda: station.live is None)
+    assert FakeSession.opened[-1].closed
+    assert station.live_last["reason"].startswith("nobody had the page open")
+    assert station.view()["sessions"]["recent"][0]["by"] == "agent"
+
+
+def test_the_page_in_front_of_someone_keeps_live_monitoring_on(station, monkeypatch):
+    monkeypatch.setattr(service, "UNWATCHED_STOP", 60)
+    station.seen_at = time.time()
+    live = {"since": service.now_iso(), "auto_upload": False}
+    assert not station._unwatched(live)
+    station.seen_at = time.time() - 120
+    live["since"] = (service.datetime.now(service.IST) - service.timedelta(seconds=120)).isoformat()
+    assert station._unwatched(live)

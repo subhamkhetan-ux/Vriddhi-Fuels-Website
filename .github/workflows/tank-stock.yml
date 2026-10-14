@@ -14,6 +14,11 @@ on:
         type: choice
         options: [capture, save-login]
         default: capture
+      server:
+        description: "Which India server runs it (india-a1: the new A1 while it is being tried)"
+        type: choice
+        options: [india, india-a1]
+        default: india
 
 permissions:
   contents: read
@@ -24,7 +29,7 @@ concurrency:
 
 jobs:
   stock:
-    runs-on: [self-hosted, india]
+    runs-on: [self-hosted, "${{ inputs.server || 'india' }}"]
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
