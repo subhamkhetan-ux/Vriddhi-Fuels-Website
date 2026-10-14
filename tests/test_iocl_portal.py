@@ -312,3 +312,123 @@ def test_live_timestamp_format_is_read():
     live = REPORT.replace("Report Generated Date/Time: Tue Oct 13 2026 6:59:04 AM",
                           "Report Generated Date/Time:-Tue Oct 13 2026 6:59:04 am")
     assert parse(live).generated_at == parse().generated_at
+
+
+class _Clock:
+    """datetime for iocl_portal.run: now() is fixed."""
+    def __init__(self, at):
+        self.at = at
+
+    def now(self, tz=None):
+        return self.at
+
+
+def _opening_run(monkeypatch, *, started, opening_rows, report_at=None):
+    """Run --opening with a stand-in browser and Payments; -> (exit code, writes, logged in?)."""
+    import sys as _sys
+    from iocl_portal import run as runmod, sync
+    monkeypatch.setenv("IOCL_EMITRA_USERNAME", "user")
+    monkeypatch.setenv("IOCL_EMITRA_PASSWORD", "pw")
+    monkeypatch.setenv("IOCL_CUSTOMER_CODE", "999999")
+    monkeypatch.setattr(runmod, "datetime", _Clock(started))
+    monkeypatch.setattr(runmod, "payments_config", lambda: ("https://payments.example", "key"))
+    monkeypatch.setattr(runmod, "launch_options", lambda: {})
+    balance = replace(parse(), generated_at=report_at or started)
+    seen = {"login": False}
+
+    class Portal:
+        def __init__(self, page, selectors=None):
+            pass
+
+        def open(self):
+            pass
+
+        def login(self, *a, **k):
+            seen["login"] = True
+
+        def navigate_pad(self):
+            pass
+
+        def read_balance(self, customer):
+            return balance
+    monkeypatch.setattr(runmod, "PortalBrowser", Portal)
+    page = SimpleNamespace(new_page=lambda: None, close=lambda: None)
+    browser = SimpleNamespace(new_context=lambda **k: page, close=lambda: None)
+    pw = SimpleNamespace(chromium=SimpleNamespace(launch=lambda **k: browser))
+
+    class Ctx:
+        def __enter__(self):
+            return pw
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setitem(_sys.modules, "playwright.sync_api", SimpleNamespace(sync_playwright=Ctx))
+    writes, balances = [], {}
+
+    def transport(method, url, key, path, body=None):
+        if path.startswith("pay_credit_opening?"):
+            if method == "POST":
+                writes.append(("opening", body[0]))
+                opening_rows[:] = body
+            return list(opening_rows)
+        if method == "POST":
+            writes.append(("balance", body[0]))
+            balances[body[0]["id"]] = body[0]
+            return body
+        return [next(reversed(balances.values()))] if balances else []
+    # (their transport is bound when they're defined: hand it in)
+    monkeypatch.setattr(runmod, "save_balance", lambda b, config: sync.save_balance(b, config=config, transport=transport))
+    monkeypatch.setattr(runmod, "save_opening", lambda b, config: sync.save_opening(b, config=config, transport=transport))
+    monkeypatch.setattr(runmod, "opening_saved", lambda day, config: sync.opening_saved(day, config=config, transport=transport))
+    return runmod.main(["--opening"]), writes, seen["login"]
+
+
+def test_a_late_opening_run_still_saves_the_balance_and_says_why(monkeypatch, capsys):
+    late = NOW.replace(hour=4, minute=39)
+    code, writes, logged_in = _opening_run(monkeypatch, started=late, opening_rows=[])
+    assert code == 1 and logged_in
+    assert [w[0] for w in writes] == ["balance"]            # no opening, but the balance is saved
+    err = capsys.readouterr().err
+    assert "started at 04:39 IST, after the 00:30–02:00 window" in err and "GitHub started the scheduled run late" in err
+    assert "balance was still checked: saved" in err
+
+
+def test_a_later_try_finds_the_opening_saved_and_doesnt_log_in(monkeypatch, capsys):
+    on_time = NOW.replace(hour=1, minute=13)
+    saved = [{"day": "2026-10-13", "amount": "15000.00", "sign": "CR", "updated_at": "2026-10-13T00:33:10+05:30"}]
+    code, writes, logged_in = _opening_run(monkeypatch, started=on_time, opening_rows=saved)
+    assert code == 0 and not logged_in and writes == []
+    assert "already saved" in capsys.readouterr().out
+
+
+def test_an_opening_run_in_the_window_saves_both(monkeypatch, capsys):
+    on_time = NOW.replace(hour=0, minute=33)
+    code, writes, logged_in = _opening_run(monkeypatch, started=on_time, opening_rows=[])
+    assert code == 0 and logged_in and [w[0] for w in writes] == ["opening"]
+    # (the new opening is the latest balance the Credit tab shows: no snapshot needed)
+    assert "opening saved; balance unchanged" in capsys.readouterr().out
+
+
+def test_a_late_run_after_an_earlier_try_saved_the_opening_passes(monkeypatch):
+    late = NOW.replace(hour=1, minute=59, second=50)
+    saved = [{"day": "2026-10-13", "amount": "15000.00", "sign": "CR", "updated_at": "2026-10-13T00:33:10+05:30"}]
+    # started in the window, but the report came after 02:00
+    code, writes, _ = _opening_run(monkeypatch, started=late, opening_rows=[],
+                                   report_at=NOW.replace(hour=2, minute=0, second=30))
+    assert code == 1                                         # nothing saved it: a real miss
+    code, writes, _ = _opening_run(monkeypatch, started=NOW.replace(hour=4), opening_rows=saved)
+    assert code == 0 and writes == []                       # (the balance is the opening's: unchanged)
+
+
+def test_the_opening_is_tried_four_times_inside_its_window():
+    import yaml
+    wf = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github/workflows/iocl-pad-balance.yml").read_text())
+    crons = [c["cron"] for c in wf[True]["schedule"]]
+    opening = [c for c in crons if c != "7 */3 * * *"]
+    assert len(opening) == 4
+    for c in opening:
+        minute, hour = map(int, c.split()[:2])
+        ist = (hour * 60 + minute + 330) % 1440
+        assert 30 <= ist < 120 and minute != 0, c             # 00:30–02:00 IST, never on the hour
+    step = next(s for s in wf["jobs"]["balance"]["steps"] if s.get("name", "").startswith("Read company-code"))
+    assert "github.event.schedule != '7 */3 * * *' && 'opening'" in step["env"]["IOCL_MODE"]

@@ -1,7 +1,7 @@
 """Insert a verified PAD observation into the existing Payments balance table."""
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 import json
 import os
@@ -14,6 +14,23 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from .statement import Balance, IST, PortalError
 
 ROOT = Path(__file__).resolve().parents[1]
+OPENING_WINDOW = (time(0, 30), time(2))   # IST: a reading in it is the day's opening
+
+
+class OpeningMissed(PortalError):
+    """The opening run came too late for its reading to be the opening."""
+
+
+def in_opening_window(at: datetime) -> bool:
+    return OPENING_WINDOW[0] <= at.astimezone(IST).time() < OPENING_WINDOW[1]
+
+
+def opening_saved(day: date, *, config=None, transport=None) -> bool:
+    """Has this IST day's opening been saved (by an earlier try, or by hand)?"""
+    url, key = config or payments_config()
+    query = urlencode({"day": "eq." + day.isoformat(), "select": "day", "limit": "1"})
+    rows = _records((transport or request)("GET", url, key, "pay_credit_opening?" + query))
+    return bool(rows) and rows[0].get("day") == day.isoformat()
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -137,8 +154,8 @@ def save_opening(balance: Balance, *, config=None, transport=request) -> str:
     job after 02:00 IST must not label an intraday observation as the opening.
     """
     observed = balance.generated_at.astimezone(IST)
-    if not time(0, 30) <= observed.time() < time(2):
-        raise PortalError("The opening capture is outside 00:30–02:00 IST. No opening was saved; enter it manually if the scheduled run was missed.")
+    if not in_opening_window(observed):
+        raise OpeningMissed("The opening capture is outside 00:30–02:00 IST. No opening was saved; enter it manually if the scheduled run was missed.")
     url, key = config or payments_config()
     day = observed.date().isoformat()
     query = urlencode({"day": "eq." + day, "select": "day,amount,sign,updated_at", "limit": "1"})

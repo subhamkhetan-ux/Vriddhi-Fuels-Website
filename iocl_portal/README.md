@@ -16,7 +16,7 @@ an absolute amount with `CR`; a positive balance becomes `DR`.
 | --- | --- |
 | Usable IndianOil invoice mail detected by the existing payment agent | Check PAD after ingest, including when another ingest task fails. |
 | Every 3 hours (`7 */3 * * *`, UTC) | Check PAD as a fallback, including changes from payments and other transactions. |
-| Daily at **00:30 IST** (`0 19 * * *`, UTC) | Save the new local day's opening in **Payments → Credit**, and save a changed current balance if needed. |
+| Daily, four tries from **00:33 IST** (`3 19`, `23 19`, `43 19`, `8 20` UTC) | Save the new local day's opening in **Payments → Credit**, and save a changed current balance if needed. A try that finds the opening already saved stops before logging in. |
 
 The existing Gmail agent checks mail every 20 minutes. The invoice trigger runs
 after that detection, not at the instant an email arrives. Multiple invoices
@@ -31,10 +31,12 @@ valid observation is saved when there is no prior balance.
 The opening is written to `pay_credit_opening` under its **IST calendar date**,
 even when unchanged from yesterday. Its `updated_at` records the actual report
 time. Existing openings, including manual corrections, survive reruns. To avoid
-mislabeling a late intraday observation, opening mode stops outside
-00:30–02:00 IST. Enter a missed opening manually through the existing Credit
-controls. GitHub schedules are best effort: 00:30 is the requested start time,
-not an exact capture-time guarantee.
+mislabeling a late intraday observation, opening mode saves no opening
+outside 00:30–02:00 IST. It still saves the current balance, then fails so
+the miss shows. Enter a missed opening manually through the existing Credit
+controls. GitHub schedules are best effort and start late when GitHub is busy.
+On the hour is worst: the single `0 19` run once started at 04:39 IST. That
+is why there are four tries at quiet minutes across the window.
 
 Both tables and realtime subscriptions already exist in
 [`supabase/payments-schema.sql`](../supabase/payments-schema.sql); no schema or
