@@ -22,6 +22,10 @@ class Balance:
     generated_at: datetime
     from_date: date
     to_date: date
+    # Today's opening worked out from the statement (signed: CR negative), or
+    # None with why not (day_opening).
+    opening: Decimal | None = None
+    opening_why: str = ""
 
     def row(self) -> dict:
         at = self.generated_at.astimezone(timezone.utc).isoformat()
@@ -116,7 +120,81 @@ def parse_statement(text: str, *, table_rows: list[list[str]], customer: str, to
                           f"(header {len(headers[-1])} cells, balance row {len(row)}, next row {len(rows[index + 1])}; "
                           f"{_table_hint(rows)}.)")
     value = signed_amount(row[-1])
-    return Balance(customer, abs(value), "CR" if value < 0 else "DR", generated, from_day, to_day)
+    opening, why = day_opening(rows, headers[-1], index, value, today)
+    return Balance(customer, abs(value), "CR" if value < 0 else "DR", generated, from_day, to_day,
+                   opening, why)
+
+
+_OPEN_LABEL = re.compile(r"^OP\.?\s*BAL\.?\s*in\s+Comp(?:any)?\.?\s+Code\s*:?$", re.I)
+
+
+def _row_date(cell: str) -> date | None:
+    cell = cell.strip()
+    for fmt in ("%d.%m.%y", "%d.%m.%Y", "%d-%m-%Y", "%d-%m-%y", "%d/%m/%Y", "%d/%m/%y", "%d-%b-%Y", "%d-%b-%y",
+                "%Y-%m-%d"):
+        try:
+            return datetime.strptime(cell, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _cell_amount(cell: str) -> Decimal:
+    """A Debit / Credit cell: empty or a dash is nothing."""
+    cell = cell.strip()
+    return Decimal(0) if cell in ("", "-", "–") else abs(signed_amount(cell))
+
+
+def day_opening(rows: list[list[str]], header: list[str], close_index: int, closing: Decimal,
+                today: date) -> tuple[Decimal | None, str]:
+    """Today's opening from a yesterday-to-today statement: the running balance
+    after the last entry dated before today (yesterday's OP.BAL if there was
+    none). With nothing posted today it is the CL.BAL in Comp Code figure.
+
+    Used only when the statement proves itself: the Date, Debit and Credit
+    columns are found by their headings, every entry between OP.BAL and CL.BAL
+    has a date of yesterday or today (yesterday's first), and each balance is
+    the one before plus the debit, minus the credit, ending on CL.BAL.
+    -> (signed opening, "") or (None, why not)."""
+    names = [c.lower() for c in header]
+    def col(pattern):
+        hits = [i for i, n in enumerate(names) if re.search(pattern, n)]
+        return hits[0] if len(hits) == 1 else None
+    date_i = col(r"posting\s*date")
+    if date_i is None:
+        date_i = col(r"\bdate\b")
+    debit_i, credit_i = col(r"\bdebit\b|\bdr\b"), col(r"\bcredit\b|\bcr\b")
+    if None in (date_i, debit_i, credit_i):
+        return None, "the statement's Date / Debit / Credit columns weren't recognised"
+    opens = [i for i, r in enumerate(rows[:close_index]) if any(_OPEN_LABEL.fullmatch(c) for c in r)]
+    if len(opens) != 1:
+        return None, "no single OP.BAL.in Comp Code row"
+    width = len(header)
+    entries = [r for r in rows[opens[0] + 1:close_index] if len(r) == width]
+    if len(entries) != close_index - opens[0] - 1:
+        return None, "rows between OP.BAL and CL.BAL don't match the header"
+    try:
+        balance = signed_amount(rows[opens[0]][-1])
+        last_before = balance
+        dates = []
+        for r in entries:
+            day = _row_date(r[date_i])
+            if day is None or not today - timedelta(days=1) <= day <= today:
+                return None, "an entry's date isn't yesterday or today"
+            if dates and day < dates[-1]:
+                return None, "the entries aren't in date order"
+            dates.append(day)
+            running = signed_amount(r[-1])
+            if running != balance + _cell_amount(r[debit_i]) - _cell_amount(r[credit_i]):
+                return None, "the running balance doesn't add up entry by entry"
+            balance = running
+            if day < today:
+                last_before = running
+    except PortalError:
+        return None, "an entry's amount couldn't be read"
+    if balance != closing:
+        return None, "the entries don't add up to CL.BAL.in Comp Code"
+    return last_before, ""
 
 
 _TIME = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?", re.I)

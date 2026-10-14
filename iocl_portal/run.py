@@ -101,16 +101,24 @@ def main(argv=None) -> int:
                     print("PASS: login, Account Information > PAD Statement, dates, account and CL.BAL.in Comp Code verified (open deliveries excluded). Dry run: nothing saved.")
                     result = "dry_run_verified"
                 else:
+                    # Every read fills in today's opening if it's missing: the
+                    # statement gives it whenever the run comes (save_opening).
                     opening, missed = None, ""
-                    if args.opening:
-                        try:
-                            opening = save_opening(balance, config=cfg)
-                        except OpeningMissed as exc:
-                            day = balance.generated_at.astimezone(IST).date()
-                            if opening_saved(day, config=cfg):
-                                opening = "opening_exists"   # an earlier try (or a hand entry) has it
-                            else:
-                                missed = str(exc)
+                    try:
+                        opening = save_opening(balance, config=cfg)
+                    except OpeningMissed as exc:
+                        day = balance.generated_at.astimezone(IST).date()
+                        if opening_saved(day, config=cfg):
+                            opening = "opening_exists"       # an earlier try (or a hand entry) has it
+                        elif args.opening:
+                            missed = str(exc)                # (an ordinary check just goes on)
+                    if args.sync and opening == "opening_exists":
+                        opening = None                       # (nothing to say: the usual case)
+                    if opening == "opening_saved":
+                        # where it came from (no amounts: the job log is public)
+                        opening += (" from the statement" if balance.opening is not None else
+                                    " from the 00:30-02:00 reading (the statement didn't prove it: "
+                                    + balance.opening_why + ")")
                     # The balance is saved either way: a late opening run is still a fresh reading.
                     result = save_balance(balance, config=cfg)
                     if opening:
