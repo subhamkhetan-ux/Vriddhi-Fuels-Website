@@ -76,6 +76,10 @@ usually available: pick it, re-select Ubuntu 24.04, and the setup script adds a
 2 GB swap file so the browser fits. It is slower, but it is enough to verify
 e-Mitra access and run the agent until an A1 can be created.
 
+Already running on the E2.1.Micro and an A1 is now available? See
+[MOVE-TO-A1.md](MOVE-TO-A1.md): it sets the A1 up next to the current server
+and moves over only once everything works there.
+
 ## 4. Run the setup script on the server
 
 Back in Cloud Shell (replace `PUBLIC_IP`):

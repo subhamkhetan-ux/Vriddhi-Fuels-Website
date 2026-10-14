@@ -12,7 +12,10 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website}"
 RUNNER_NAME="${RUNNER_NAME:-oracle-india}"
-RUNNER_LABELS="india"
+# A second server (e.g. an A1 set up next to this one) needs its own name, and
+# its own label until it takes over: RUNNER_NAME=oracle-a1 RUNNER_LABELS=india-a1
+# (config.sh --replace would otherwise take over the first server's runner).
+RUNNER_LABELS="${RUNNER_LABELS:-india}"
 RUNNER_USER="runner"
 RUNNER_DIR="/opt/actions-runner"
 AGENTS_DIR="/opt/agents"
@@ -127,6 +130,8 @@ else
   echo "Runner already registered; making sure the service is running."
   (cd "$RUNNER_DIR" && sudo ./svc.sh start || true)
 fi
+
+bash "$HERE/night-updates.sh" || echo "(couldn't move the automatic updates to the night)"
 
 say "Done. In GitHub > Settings > Actions > Runners, '$RUNNER_NAME' should show Idle."
 echo "Next: run the 'IOCL e-Mitra PAD balance -> Payments' workflow in 'network', then 'probe' mode."

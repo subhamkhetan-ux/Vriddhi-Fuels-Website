@@ -103,6 +103,7 @@ else
 fi
 
 say "7/7 Checking"
+bash "$repo/infra/india-runner/night-updates.sh" || echo "(couldn't move the automatic updates to the night)"
 anydesk --version || true
 systemctl is-active --quiet anydesk && echo "AnyDesk service is running." || echo "Note: the AnyDesk service is not running."
 sid=$(loginctl list-sessions --no-legend | awk '$3 == "runner" {print $1; exit}')
