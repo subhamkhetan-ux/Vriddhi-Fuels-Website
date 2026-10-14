@@ -145,7 +145,7 @@ function auditText(s) {
   if (!rows.some((t) => stockProof(t.before) || stockProof(t.after))) return '';
   const typed = [];
   for (const t of rows) for (const w of ['before', 'after']) if (stockProof(t[w])?.proof === false) typed.push(`Tank ${t.tankNo || t.tank} stock ${w}`);
-  return typed.length ? `No proof: ${typed.join(', ')} typed in litres` : 'Proof held: every stock from a screenshot or a dip';
+  return typed.length ? `No proof: ${typed.join(', ')} typed in litres` : 'Proof held: every stock from the automation screen (server or screenshot) or a dip';
 }
 
 // Litres of each product decanted per invoice (finished decantations).

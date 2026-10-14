@@ -2,7 +2,7 @@
 // settings. The decanting wizard is in wizard.js, the log and reports in
 // views.js; the rules they all share are in core.js.
 
-import {
+import { fromServer,
   PRODUCTS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, fmtMinSec, invoiceStatus, istDate, layoutsText,
   litresAtDip, newTankId, normTT, ownTT, parseLayouts, planIndents, productKey, readingFrom, roomOf, round2, stockProof, tankProblems, tankStage, transportOptions, usedChambers,
 } from './core.js';
@@ -599,7 +599,7 @@ function tankSheet(id) {
         <div><div class="k">Water</div><div class="v">${r.water != null ? fmtL(r.water, 2) : '—'}</div></div>
         <div><div class="k">Density / (tc)</div><div class="v">${r.density ?? '—'} / ${r.densityTc ?? '—'}</div></div>
         <div><div class="k">Temp</div><div class="v">${r.temp ?? '—'}</div></div></div>
-        <div class="rd-src" style="margin-top:8px">${{ photo: 'From a screenshot', 'photo-edited': 'From a screenshot (corrected)', litres: 'Typed in', dip: 'From a dip' }[r.source] || ''} · ${fmtWhen(r.readingAt)} (${ago(r.readingAt)})</div>
+        <div class="rd-src" style="margin-top:8px">${fromServer(r) && r.source === 'photo' ? 'From the IOCL automation screen (server)' : { photo: 'From a screenshot', 'photo-edited': 'From a screenshot (corrected)', litres: 'Typed in', dip: 'From a dip' }[r.source] || ''} · ${fmtWhen(r.readingAt)} (${ago(r.readingAt)})</div>
         ${proofLine(r)}` : '<div class="empty">No reading yet.</div>'}
       <div class="hr"></div>
       <div class="sect-title">Type the stock</div>
