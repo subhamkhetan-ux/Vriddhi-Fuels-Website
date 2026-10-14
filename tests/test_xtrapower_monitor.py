@@ -585,3 +585,52 @@ def test_reload_rebuilds_telegram_when_the_token_changes(tmp_path):
     path = _cfg_file(tmp_path, acct, token="222:bbb")
     cfg, tg2, _ = monitor.reload_config(path, cfg, tg, {})
     assert tg2 is not tg and tg2.token == "222:bbb"
+
+
+def test_a_check_that_hangs_is_stopped_and_the_others_still_run(monkeypatch, tmp_path):
+    """A page that stops answering mid-login must not stop the monitor."""
+    monkeypatch.setattr(monitor, "CHECK_TIMEOUT_SECONDS", 0.2)
+    checked = []
+
+    async def check(pool, acct_cfg, st, tg, ready):
+        checked.append(acct_cfg["label"])
+        if acct_cfg["label"] == "Stuck":
+            await asyncio.sleep(60)                      # e.g. evaluate() behind a dialog
+
+    monkeypatch.setattr(monitor, "check_account", check)
+    tg, pool, ready = _CapturingTelegram(), _FakePool(None), {"1": True}
+    cfg = {"accounts": [{"label": "Stuck", "customer_id": "1", "cdp_port": 9222},
+                        {"label": "Fine", "customer_id": "2", "cdp_port": 9223}]}
+    asyncio.run(monitor.run_cycle(pool, cfg, str(tmp_path / "state.json"), tg, ready))
+    assert checked == ["Stuck", "Fine"]                  # the next account still ran
+    assert pool.dropped == [9222] and ready["1"] is False
+    assert len(tg.messages) == 1 and "The check got stuck" in tg.messages[0]
+    asyncio.run(monitor.run_cycle(pool, cfg, str(tmp_path / "state.json"), tg, ready))
+    assert len(tg.messages) == 1                         # (not again within the cooldown)
+
+
+def test_portal_dialogs_are_dismissed_so_the_page_never_freezes():
+    events = {}
+
+    class Page:
+        url = "https://beta.iocxtrapower.com/login"
+
+        def on(self, name, fn):
+            events[name] = fn
+
+    class Dialog:
+        type, message = "alert", "Session expired"
+        dismissed = False
+
+        async def dismiss(self):
+            Dialog.dismissed = True
+
+    pool = browser_mod.BrowserPool()
+    page = Page()
+    assert pool._watch(page) is page and pool._watch(page) is page and "dialog" in events
+
+    async def go():
+        events["dialog"](Dialog())
+        await asyncio.sleep(0)
+    asyncio.run(go())
+    assert Dialog.dismissed

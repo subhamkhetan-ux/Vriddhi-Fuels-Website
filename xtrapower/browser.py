@@ -16,6 +16,7 @@ browser-free and unit-tested.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -183,6 +184,7 @@ class BrowserPool:
     def __init__(self) -> None:
         self._pw = None
         self._browsers: dict[int, Browser] = {}
+        self._watched: set[int] = set()      # pages whose pop-up dialogs we dismiss
 
     async def __aenter__(self) -> "BrowserPool":
         self._pw = await async_playwright().start()
@@ -213,15 +215,31 @@ class BrowserPool:
             for page in ctx.pages:
                 try:
                     if PORTAL_HINT in (page.url or "").lower():
-                        return page
+                        return self._watch(page)
                 except Exception:  # noqa: BLE001 — page may be mid-navigation
                     continue
         # No portal tab matched: fall back to the first visible page so the
         # caller can still read its text (e.g. a WAF block or a stray tab).
         for ctx in browser.contexts:
             if ctx.pages:
-                return ctx.pages[0]
+                return self._watch(ctx.pages[0])
         return None
+
+    def _watch(self, page: Page) -> Page:
+        """Dismiss the page's pop-up dialogs (alert / confirm). While one is
+        open the page's scripts are paused, and every evaluate() on it waits
+        with no time limit: the check would hang."""
+        if id(page) not in self._watched:
+            self._watched.add(id(page))
+
+            def dismiss(dialog) -> None:
+                log.info("dismissed a %s dialog on the portal: %s", dialog.type, (dialog.message or "")[:80])
+                asyncio.ensure_future(dialog.dismiss())
+            try:
+                page.on("dialog", dismiss)
+            except Exception:  # noqa: BLE001
+                pass
+        return page
 
     def drop(self, port: int) -> None:
         """Forget a cached connection so the next cycle reconnects cleanly.
@@ -608,6 +626,7 @@ async def do_login(page: Page, username: str, password: str) -> str:
         pass
     await dismiss_popup(page)
     # Wait for the form to exist, then find the frame that actually holds it.
+    log.info("login: waiting for the login form")
     try:
         await page.wait_for_selector("#email", state="attached", timeout=15000)
     except Exception:  # noqa: BLE001
@@ -628,7 +647,13 @@ async def do_login(page: Page, username: str, password: str) -> str:
     # Set the values via the native setter + input/change events. Playwright's
     # fill() stalls on these Angular reactive-form inputs, but driving the value
     # this way updates the FormControl reliably. Also ticks "remember me".
-    filled = await frame.evaluate(_FILL_LOGIN_JS, {"user": username, "pw": password})
+    log.info("login: filling in the User ID and password")
+    try:
+        # (evaluate has no time limit of its own)
+        filled = await asyncio.wait_for(frame.evaluate(_FILL_LOGIN_JS, {"user": username, "pw": password}), 15)
+    except (asyncio.TimeoutError, TimeoutError):
+        log.warning("login: the page didn't respond while filling in the form")
+        return LOGIN_FAILED
     if not filled:
         log.warning("login: could not set User ID / password fields")
         await _log_login_diagnostic(page)
@@ -652,6 +677,7 @@ async def do_login(page: Page, username: str, password: str) -> str:
             log.warning("login: could not click Sign In")
             return LOGIN_FAILED
     # Poll for the navigation away from the login page (it takes a moment).
+    log.info("login: submitted, waiting for the portal")
     for _ in range(15):
         await page.wait_for_timeout(1000)
         if await is_logged_in(page):

@@ -38,6 +38,7 @@ log = logging.getLogger("xtrapower.monitor")
 # Re-alert the same persistent error at most this often (default 30 min), so a
 # closed browser or an expired session doesn't spam the phone every cycle.
 ERROR_COOLDOWN_SECONDS = 30 * 60
+CHECK_TIMEOUT_SECONDS = 180      # one account's check (a login takes ~30-60 s)
 
 
 def _debug_prefix(label: str) -> str:
@@ -349,7 +350,21 @@ async def run_cycle(
     watched = [a for a in cfg["accounts"] if a.get("watch", True)]
     for acct_cfg in watched:
         try:
-            await check_account(pool, acct_cfg, st, tg, ready)
+            # A check that hangs (a page that stops answering mid-login) must
+            # not stop the monitor: give it up and start fresh next cycle.
+            await asyncio.wait_for(check_account(pool, acct_cfg, st, tg, ready), CHECK_TIMEOUT_SECONDS)
+        except (asyncio.TimeoutError, TimeoutError):
+            label, cid = acct_cfg.get("label") or "account", _acct_key(acct_cfg)
+            log.warning("[%s] the check took over %ds and was stopped; trying again next cycle",
+                        label, CHECK_TIMEOUT_SECONDS)
+            pool.drop(int(acct_cfg["cdp_port"]))
+            ready[cid] = False
+            acct_state, now = state.account(st, cid), time.time()
+            if state.should_alert_error(acct_state, "check-timeout", now, ERROR_COOLDOWN_SECONDS):
+                tg.send(f"⚠️ <b>{label}</b> ({cid})\nThe check got stuck (over {CHECK_TIMEOUT_SECONDS // 60} min, "
+                        "usually during the portal login) and was stopped. I'll try again on the next check; "
+                        "send /logs to see the last step.")
+            state.record_error(acct_state, "check-timeout", now, _now_iso())
         except Exception as exc:  # noqa: BLE001 — never let one account kill the cycle
             log.exception("unexpected error for %s", acct_cfg.get("label"))
             tg.send(f"⚠️ <b>{acct_cfg.get('label')}</b> unexpected error: <code>{exc}</code>")
