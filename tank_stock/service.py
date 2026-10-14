@@ -29,7 +29,7 @@ http://127.0.0.1:8790, published to your own Tailscale devices (setup.sh).
   screen while one is open.
 
 Settings live in /opt/agents/tank-stock/settings.json and the AnyDesk login
-in login.json (owner-only; saved by the workflow's save-login mode).
+in login.json (owner-only; saved by infra/mac/vm-setup.sh, which asks for it).
 """
 from __future__ import annotations
 
@@ -189,8 +189,8 @@ class Station:
     def login(self) -> tuple[list[str], str]:
         data = _read_json(self.home / "login.json", {})
         if not data.get("password") or not data.get("ids"):
-            raise CaptureError("The AnyDesk login isn't on the server yet: run the 'Tank stock' "
-                               "workflow once in save-login mode.")
+            raise CaptureError("The AnyDesk login isn't saved here yet: run infra/mac/vm-setup.sh "
+                               "again with ASK_AGAIN=1 (it asks for the AnyDesk numbers and password).")
         return parse_ids(",".join(data["ids"])), data["password"]
 
     def _hold(self, what: str, wait: float = 0) -> None:

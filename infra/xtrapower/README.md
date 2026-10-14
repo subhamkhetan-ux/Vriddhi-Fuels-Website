@@ -68,7 +68,7 @@ switch watching on or off, and change the Telegram settings. It installs to
 your home screen like an app: **Vriddhi Fuels**, in the decant app's
 glass-and-orange look.
 
-It has two tabs: **XtraPower** (all of the above) and **Tank stock**. The Tank
+It has two tabs: **XtraPower** (all of the above) and **Tank stock** (now on the Mac at home: [infra/mac](../mac/README.md); until it is set up there the tab says so). The Tank
 stock tab is the tank stock page (`tank_stock/`, set up by
 `infra/anydesk/setup.sh`) shown inside this app. This page passes everything
 under `/ts/` to that service on the same server, which keeps its own login

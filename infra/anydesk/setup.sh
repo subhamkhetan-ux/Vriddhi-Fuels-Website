@@ -17,6 +17,40 @@ die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -ne 0 ] || die "Run as the ubuntu user, not root (the script uses sudo where needed)."
 
+# Step 6, also the whole run once the Mac does the tank stock work
+# (infra/mac/use-mac-tank-stock.sh): update the Vriddhi Fuels app's page.
+update_app() {
+  # The XtraPower page runs from its own copy (/opt/xtrapower/app, user
+  # xtrapower). Update that copy too and restart the page only: the monitor and
+  # its logged-in Chrome windows carry on (they pick the code up on their next
+  # restart, e.g. infra/xtrapower/setup.sh).
+  APP_URL=""
+  if sudo test -d /opt/xtrapower/app/.git && systemctl is-enabled -q xtrapower-manage 2>/dev/null; then
+    sudo -H -u xtrapower git -C /opt/xtrapower/app fetch -q origin main
+    sudo -H -u xtrapower git -C /opt/xtrapower/app checkout -q -B main FETCH_HEAD
+    echo "Code: $(sudo -H -u xtrapower git -C /opt/xtrapower/app log -1 --format='%h %s')"
+    sudo systemctl restart xtrapower-manage
+    for _ in $(seq 1 20); do
+      title="$(curl -s http://127.0.0.1:8780/ | grep -o '<title>[^<]*' | sed 's/<title>//' || true)"
+      [ -n "$title" ] && break
+      sleep 1
+    done
+    echo "The app's page answers: ${title:-nothing yet (see journalctl -u xtrapower-manage -n 30)}"
+    [ -n "$TS_NAME" ] && APP_URL="https://$TS_NAME/"
+  else
+    echo "The XtraPower page isn't installed here (infra/xtrapower/phone-setup.sh); skipped."
+  fi
+}
+
+if [ -f /etc/systemd/system/xtrapower-manage.service.d/tank-stock-on-mac.conf ]; then
+  say "Tank stock isn't on this server any more (it moves to the Mac): only updating the Vriddhi Fuels app"
+  TS_NAME="$(sudo tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null || true)"
+  update_app
+  [ -n "$APP_URL" ] && echo "The app: $APP_URL"
+  echo "To bring tank stock back to this server: bash infra/mac/use-mac-tank-stock.sh --back, then this again."
+  exit 0
+fi
+
 say "1/7 Adding AnyDesk's official package source"
 curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | sudo gpg --dearmor --yes -o /usr/share/keyrings/anydesk.gpg
 echo "deb [signed-by=/usr/share/keyrings/anydesk.gpg] https://deb.anydesk.com all main" \
@@ -81,26 +115,7 @@ else
 fi
 
 say "6/7 Updating the Vriddhi Fuels app (the XtraPower page, whose Tank stock tab is this page)"
-# The XtraPower page runs from its own copy (/opt/xtrapower/app, user
-# xtrapower). Update that copy too and restart the page only: the monitor and
-# its logged-in Chrome windows carry on (they pick the code up on their next
-# restart, e.g. infra/xtrapower/setup.sh).
-APP_URL=""
-if sudo test -d /opt/xtrapower/app/.git && systemctl is-enabled -q xtrapower-manage 2>/dev/null; then
-  sudo -H -u xtrapower git -C /opt/xtrapower/app fetch -q origin main
-  sudo -H -u xtrapower git -C /opt/xtrapower/app checkout -q -B main FETCH_HEAD
-  echo "Code: $(sudo -H -u xtrapower git -C /opt/xtrapower/app log -1 --format='%h %s')"
-  sudo systemctl restart xtrapower-manage
-  for _ in $(seq 1 20); do
-    title="$(curl -s http://127.0.0.1:8780/ | grep -o '<title>[^<]*' | sed 's/<title>//' || true)"
-    [ -n "$title" ] && break
-    sleep 1
-  done
-  echo "The app's page answers: ${title:-nothing yet (see journalctl -u xtrapower-manage -n 30)}"
-  [ -n "$TS_NAME" ] && APP_URL="https://$TS_NAME/"
-else
-  echo "The XtraPower page isn't installed here (infra/xtrapower/phone-setup.sh); skipped."
-fi
+update_app
 
 say "7/7 Checking"
 bash "$repo/infra/india-runner/night-updates.sh" || echo "(couldn't move the automatic updates to the night)"
