@@ -15,7 +15,11 @@ It is the same monitor code, set up the way the Mac runs it:
 | `config.json` in the repo folder | `/opt/xtrapower/config.json` (owner-only) |
 
 A Chromium window that dies is relaunched within a minute, and if the monitor
-itself stops, the whole service restarts after 30 seconds. Telegram alerts and
+itself stops, the whole service restarts after 30 seconds. Before a window is
+started, a profile lock left by a killed Chromium (or a hung Chromium on that
+profile) is cleared, and a virtual display that stopped is started again; a
+window that still doesn't open is reported on Telegram with Chromium's own
+reason (also in `/opt/xtrapower/launch-status.json`). Telegram alerts and
 `/status`, `/logs` and `/help` work exactly as before.
 
 **Isolation from GitHub Actions.** The monitor runs as its own `xtrapower` user.
