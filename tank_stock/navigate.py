@@ -116,25 +116,35 @@ def find(words, phrase: str):
 
 def tank_headings(words) -> int:
     """How many "Tank N : ..." card headings are on screen. They are dark and
-    bold, so OCR reads them where it misses the light-grey labels."""
-    texts = [_norm(t) for t, *_ in words]
-    seen = set()
-    for i, t in enumerate(texts):
-        if t == "tank" and i + 1 < len(texts) and re.fullmatch(r"[1-9]", texts[i + 1] or ""):
-            if i + 2 < len(texts) and words[i + 2][0].strip().startswith(":"):
-                seen.add(texts[i + 1])
-        elif re.fullmatch(r"tank[1-9]", t) and i + 1 < len(texts) and words[i + 1][0].strip().startswith(":"):
-            seen.add(t[-1])
-    return len(seen)
+    bold, so OCR reads them where it misses the light-grey labels; it often
+    glues the colon on ("1:") or misreads it ("2 sel")."""
+    from .cards import headings
+    return len(headings(words))
 
 
-def on_tank_status(words) -> bool:
-    """The Tank Status page: its title, and the tank cards (their figure labels,
-    or, as OCR often misses those light-grey labels on a scaled screen, at
-    least two of their "Tank N :" headings)."""
+def cards_on(png, words) -> int:
+    """How many tank cards (traced along their grey border) are on screen:
+    only the Tank Status page has them."""
+    try:
+        from .cards import card_boxes
+        return len(card_boxes(png, words))
+    except Exception:                            # (not a picture)
+        return 0
+
+
+def on_tank_status(words, png=None) -> bool:
+    """The Tank Status page: its tank cards, or its title with the cards'
+    figure labels or at least two of their "Tank N :" headings (OCR often
+    misses the light-grey labels on a scaled screen)."""
+    if png is not None and cards_on(png, words):
+        return True
     if not find(words, "tank status"):
         return False
     return bool(find(words, "product volume")) or tank_headings(words) >= 2
+
+
+def _here(png) -> bool:
+    return on_tank_status(ocr(png), png)
 
 
 def _center(box) -> tuple[int, int]:
@@ -163,7 +173,7 @@ def _bring_up(png, shoot, click, wake, pause):
         pause(2)
         png = shoot()
         done.append("woke the screen")
-        if on_tank_status(ocr(png)) or menu_bar(png):
+        if _here(png) or menu_bar(png):
             return png, done
     button = taskbar_button(ocr(png), _size(png)[1])
     if button:
@@ -174,17 +184,18 @@ def _bring_up(png, shoot, click, wake, pause):
     return png, done
 
 
-def ensure_tank_status(shoot, click, pause=time.sleep, wake=None) -> tuple[bytes, str]:
+def ensure_tank_status(shoot, click, pause=time.sleep, wake=None, escape=None) -> tuple[bytes, str]:
     """(screenshot, what happened). ``shoot()`` returns a PNG of the screen,
-    ``click(x, y)`` clicks there, ``wake()`` wakes the PC's screen."""
+    ``click(x, y)`` clicks there, ``wake()`` wakes the PC's screen and
+    ``escape()`` presses Escape (closes an open menu)."""
     png = shoot()
-    if on_tank_status(ocr(png)):
+    if _here(png):
         return png, "already on Tank Status"
     bar = menu_bar(png)
     if not bar:
         png, done = _bring_up(png, shoot, click, wake, pause)
         how = f" ({', then '.join(done)})" if done else ""
-        if on_tank_status(ocr(png)):
+        if _here(png):
             return png, f"on Tank Status{how}"
         bar = menu_bar(png)
         if not bar:
@@ -206,15 +217,19 @@ def ensure_tank_status(shoot, click, pause=time.sleep, wake=None) -> tuple[bytes
         if items:
             break
     if not items:
-        click(*_center(mon[0]))                  # close the menu again
+        # Close the menu again: an open menu would hide tank cards.
+        if escape:
+            escape()
+        else:
+            click(*_center(mon[0]))
         pause(1)
-        png = shoot()                            # (a screen with the menu open would hide cards)
-        if on_tank_status(ocr(png)):
+        png = shoot()
+        if _here(png):
             return png, "on Tank Status"
         return png, "opened Monitoring, but 'Tank Status' was not in its menu"
     click(*_center(min(items, key=lambda b: b[1])))
     pause(8)                                     # let the page load
     png = shoot()
-    if on_tank_status(ocr(png)):
+    if _here(png):
         return png, "opened Monitoring → Tank Status"
     return png, "clicked Monitoring → Tank Status, but the tank cards did not appear"
