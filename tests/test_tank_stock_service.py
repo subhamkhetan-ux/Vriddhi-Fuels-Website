@@ -432,3 +432,18 @@ def test_no_tank_cards_shows_the_whole_screen_and_tells_the_bot_once(station, mo
     assert station.picture([], full=True) == b"\x89PNG"                    # the whole screen, as taken
     station.capture([1])
     assert len(station.photos) == 1                                        # not again within 10 min
+
+
+def test_a_session_anydesk_dropped_but_kept_open_ends_live_monitoring(station, monkeypatch):
+    station.start_live({"tanks": [3]})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    FakeSession.ended = lambda self, png: "client offline"                 # the window shows AnyDesk's message
+    monkeypatch.setattr(service.cards_mod, "fingerprint", lambda px, box: "changed")
+    monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: {"no": 3})   # no card readable
+    try:
+        station._live_read(station.live)                                    # (the next read, now)
+        assert wait_for(lambda: station.live is None, timeout=10)
+    finally:
+        del FakeSession.ended
+    assert station.live_last["reason"] == "AnyDesk ended the session (it shows “client offline”)"
+    assert station.view()["sessions"]["recent"][0]["by"] == "anydesk"

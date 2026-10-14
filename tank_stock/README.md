@@ -210,10 +210,21 @@ and a session may last hours.)
 
 The PC's AnyDesk switches between two IDs every few days, and only one is
 online (the green dot in the AnyDesk app). AnyDesk can't be asked whether a
-remote ID is online, so the agent tries them. An offline ID never opens a
-session window, so after about 35 seconds the agent moves on to the other. The
-ID that worked last is tried first, so the extra wait only happens on the day
-the PC switches.
+remote ID is online, so the agent tries them in turn:
+- **An offline ID** may still open a session window, a tab showing "Client
+  Offline - This desk is not available". The agent reads AnyDesk's screen (by
+  OCR) before taking a session as connected. On such a message it presses
+  Cancel, closes the tab and tries the other ID at once.
+- **No window at all** within about 35 seconds also means the next ID.
+- **Still connecting** ("Waiting for image") means it waits.
+- **FuelTrans on screen** (its blue menu bar) always counts as connected,
+  whatever words FuelTrans shows.
+- **The ID that worked last** is tried first, so the extra wait only happens
+  on the day the PC switches.
+- **If neither connects**, the error says what AnyDesk showed for each ID.
+- **During live monitoring**, AnyDesk showing such a message instead of the
+  tank cards counts as AnyDesk ending the session, so reconnecting starts
+  straight away.
 
 ## Caveats
 

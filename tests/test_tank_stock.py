@@ -144,7 +144,7 @@ def _fake_session(monkeypatch, tmp_path, online):
     monkeypatch.setattr(cap.subprocess, "Popen", lambda *a, **k: FakeProc())
     monkeypatch.setattr(cap.time, "sleep", lambda s: None)
     tried = []
-    def connect(anydesk_id, password, env, wait, log_path=None):
+    def connect(anydesk_id, password, env, wait, log_path=None, before=None):
         tried.append(anydesk_id)
         return FakeProc(), (("7", "session", 1920, 1050) if anydesk_id == online else None)
     monkeypatch.setattr(cap, "_connect", connect)
@@ -184,6 +184,7 @@ def test_anydesk_main_window_is_not_mistaken_for_a_session(monkeypatch):
     class Client(FakeProc):
         stdin = type("In", (), {"write": lambda self, b: None, "close": lambda self: None})()
     monkeypatch.setattr(cap.subprocess, "Popen", lambda *a, **k: Client())
+    monkeypatch.setattr(cap, "_screenshot", lambda env: b"")       # (nothing for OCR: judged by the window)
     _, session = cap._connect("123456789", "pw", {}, wait=60)
     assert session[0] == "9"
 
@@ -320,3 +321,77 @@ def test_a_session_that_never_answers_fails_clearly(monkeypatch, tmp_path, capsy
     assert run.via_session(wait=0) == 1
     assert "systemctl status tank-stock-session" in capsys.readouterr().err
     assert list(queue.iterdir()) == []
+
+
+def _words(*texts):
+    return [(t, 100 * i, 500, 60, 12) for i, t in enumerate(texts)]
+
+
+def _connect_rig(monkeypatch, screens):
+    """_connect with a session window that shows, in turn, ``screens`` (OCR words)."""
+    main, sess = ("5", "AnyDesk", 1000, 700), ("9", "123 456 789", 1920, 1050)
+    monkeypatch.setattr(cap, "windows", lambda env: [main, sess])
+    monkeypatch.setattr(cap.time, "sleep", lambda s: None)
+    monkeypatch.setattr(cap, "_screenshot", lambda env: b"\x89PNG")
+    shown = iter(screens)
+    monkeypatch.setattr(cap, "ocr", lambda png, *a, **k: next(shown, screens[-1]))
+    runs = []
+    monkeypatch.setattr(cap, "_run", lambda cmd, env: runs.append(cmd) or "")
+
+    class Client(FakeProc):
+        stdin = type("In", (), {"write": lambda self, b: None, "close": lambda self: None})()
+    monkeypatch.setattr(cap.subprocess, "Popen", lambda *a, **k: Client())
+    return runs, {"5"}
+
+
+def test_an_offline_id_that_opens_a_session_window_is_not_taken_for_connected(monkeypatch):
+    offline = _words("Client", "Offline", "This", "desk", "is", "not", "available.", "Power", "on", "Retry", "Cancel")
+    runs, main = _connect_rig(monkeypatch, [offline, offline])
+    client, session = cap._connect("111111111", "pw", {}, wait=60, before=main)
+    assert session is None and client.said == "client offline"
+    assert any(c[:2] == ["xdotool", "mousemove"] and c[-2:] == ["click", "1"] for c in runs)   # Cancel
+    assert ["xdotool", "windowclose", "9"] in runs                                             # and its tab
+
+
+def test_while_anydesk_is_still_connecting_it_waits_for_the_pcs_screen(monkeypatch):
+    runs, main = _connect_rig(monkeypatch, [_words("Waiting", "for", "image"), _words("FuelTrans", "Monitoring")])
+    client, session = cap._connect("222222222", "pw", {}, wait=60, before=main)
+    assert session[0] == "9" and client.said == ""
+
+
+def test_the_other_id_is_tried_when_the_first_shows_client_offline(monkeypatch, tmp_path):
+    monkeypatch.setattr(cap, "LAST_ID", tmp_path / "last-id")
+    monkeypatch.setattr(cap.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(cap.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(cap.time, "sleep", lambda s: None)
+    monkeypatch.setattr(cap, "_session_bus", lambda env: None)
+    monkeypatch.setattr(cap, "_frontend", lambda env, log: FakeProc())
+    monkeypatch.setattr(cap, "ensure_tank_status", lambda shoot, click, **kw: (shoot(), "already on Tank Status"))
+    monkeypatch.setattr(cap, "_run", lambda *a, **k: "")
+    monkeypatch.setattr(cap, "windows", lambda env: [])
+    monkeypatch.setattr(cap.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": b"\x89PNGx"})())
+    tried = []
+
+    def connect(anydesk_id, password, env, wait, log_path=None, before=None):
+        tried.append(anydesk_id)
+        client = FakeProc()
+        client.said = "client offline" if anydesk_id == "111111111" else ""
+        return client, (None if client.said else ("7", "session", 1920, 1050))
+    monkeypatch.setattr(cap, "_connect", connect)
+    (tmp_path / "last-id").write_text("111111111")                  # the one that worked last, now offline
+    png, _, used, _ = cap.capture(["111111111", "222222222"], "pw")
+    assert tried == ["111111111", "222222222"] and used == 2
+    assert (tmp_path / "last-id").read_text().strip() == "222222222"
+
+
+def test_when_neither_id_connects_the_error_says_what_anydesk_showed(monkeypatch, tmp_path):
+    tried = _fake_session(monkeypatch, tmp_path, online=None)
+
+    def connect(anydesk_id, password, env, wait, log_path=None, before=None):
+        tried.append(anydesk_id)
+        client = FakeProc()
+        client.said = "client offline"
+        return client, None
+    monkeypatch.setattr(cap, "_connect", connect)
+    with pytest.raises(cap.CaptureError, match="ID 1: AnyDesk said “client offline”; ID 2"):
+        cap.capture(["111111111", "222222222"], "pw")
