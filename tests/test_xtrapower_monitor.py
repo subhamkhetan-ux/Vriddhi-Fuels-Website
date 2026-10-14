@@ -56,7 +56,7 @@ def _run_check(monkeypatch, pool, readings, click_ok=True, ready=None, st=None, 
     seq = list(readings)
 
     async def fake_read_page(page, settle_ms=1500):
-        return seq.pop(0)
+        return seq.pop(0) if len(seq) > 1 else seq[0]       # (the page stays as it last was)
 
     async def fake_click(page, timeout_ms=8000):
         return click_ok
@@ -191,13 +191,34 @@ def test_missing_search_alerts_when_ready(monkeypatch):
     assert "Search" in tg.messages[0]
 
 
-def test_unreadable_ccms_alerts_when_ready(monkeypatch):
+def test_unreadable_ccms_alerts_when_ready_only_after_two_checks(monkeypatch):
+    monkeypatch.setattr(monitor, "CCMS_WAIT_SECONDS", 0.2)
+    page, st, ready = object(), {"accounts": {}}, {"999": True}
+    other = [_reading(["Other"], [["x"]]), _reading(["Other"], [["x"]])]
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page), other, ready=ready, st=st)
+    assert tg.messages == [] and ready["999"] is True              # one slow refresh: nothing yet
+    tg, st, ready = _run_check(monkeypatch, _FakePool(page), other, ready=ready, st=st)
+    assert len(tg.messages) == 1 and "CCMS" in tg.messages[0] and "2 checks in a row" in tg.messages[0]
+
+
+def test_a_results_table_that_fills_in_late_is_read(monkeypatch):
+    monkeypatch.setattr(monitor, "CCMS_WAIT_SECONDS", 5)
     page = object()
+    empty = _reading(HDR, [])
     tg, st, ready = _run_check(monkeypatch, _FakePool(page),
-                               [_reading(["Other"], [["x"]]), _reading(["Other"], [["x"]])],
-                               ready={"999": True})
-    assert len(tg.messages) == 1
-    assert "CCMS" in tg.messages[0]
+                               [_reading(HDR, [["₹100.00"]]), empty, empty, _reading(HDR, [["₹100.00"]])],
+                               ready={"999": True}, st={"accounts": {"999": {"ccms": "₹100.00"}}})
+    assert tg.messages == [] and st["accounts"]["999"]["ccms"] == "₹100.00"
+
+
+def test_a_clean_read_starts_the_miss_count_again(monkeypatch):
+    monkeypatch.setattr(monitor, "CCMS_WAIT_SECONDS", 0.2)
+    page, st, ready = object(), {"accounts": {}}, {"999": True}
+    other = [_reading(["Other"], [["x"]]), _reading(["Other"], [["x"]])]
+    good = [_reading(HDR, [["₹100.00"]]), _reading(HDR, [["₹100.00"]])]
+    for readings in (other, good, other):
+        tg, st, ready = _run_check(monkeypatch, _FakePool(page), readings, ready=ready, st=st)
+        assert tg.messages == []
 
 
 # ---- auto re-login (credentials configured) -------------------------------

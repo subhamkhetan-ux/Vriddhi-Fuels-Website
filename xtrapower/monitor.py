@@ -41,6 +41,8 @@ ERROR_COOLDOWN_SECONDS = 30 * 60
 CHECK_TIMEOUT_SECONDS = 180      # one account's check (a login takes ~30-60 s)
 SLOW_CHECK_SECONDS = 60          # a check slower than this is logged
 UNREACHABLE_ALERT_AFTER = 3      # checks in a row with no Chrome window before Telegram is told
+CCMS_WAIT_SECONDS = 25           # how long a Search's results table may take to fill in
+CCMS_MISSES_ALERT_AFTER = 2      # checks in a row with no CCMS value before Telegram is told
 LAUNCH_STATUS: str | None = None # launch-status.json (launch.py --wait): why a window didn't open
 PARALLEL_CHECKS = 2              # accounts checked at once (each has its own Chrome)
 
@@ -316,16 +318,24 @@ async def check_account(
                 )
             return
 
-    ccms = parse.find_ccms(reading.headers, reading.rows)
+    reading, ccms = await _await_ccms(page, reading)
     if ccms is None:
-        await browser.capture_debug(page, _debug_prefix(label))
+        misses = acct_state["ccms_misses"] = acct_state.get("ccms_misses", 0) + 1
+        if ready.get(cid) and misses < CCMS_MISSES_ALERT_AFTER:
+            # One slow refresh (the portal, or this small server, under load)
+            # isn't a changed table: say nothing yet, look again next check.
+            log.info("[%s] the balance table didn't fill in this time; trying again next check", label)
+            return
+        shot = await browser.capture_debug(page, _debug_prefix(label))
+        where = f"\nSaved a screenshot + page dump: <code>{shot}</code>" if shot else ""
         not_usable(
             "no-ccms",
-            "Refreshed, but couldn't read a CCMS value from the results table. "
-            "The table layout may have changed.",
+            f"Refreshed {misses} checks in a row, but couldn't read a CCMS value from the "
+            f"results table. The table layout may have changed.{where}",
             "CCMS table not present yet (not on Balance Info?)",
         )
         return
+    acct_state.pop("ccms_misses", None)
 
     # Clean read. Clear any standing error, refresh the stored value.
     state.clear_error(acct_state)
@@ -418,6 +428,25 @@ async def _check_bounded(pool, acct_cfg, st, tg, ready) -> None:
     except Exception as exc:  # noqa: BLE001 — never let one account kill the cycle
         log.exception("unexpected error for %s", label)
         tg.send(f"⚠️ <b>{label}</b> unexpected error: <code>{exc}</code>")
+
+
+async def _await_ccms(page, reading):
+    """(reading, CCMS) once the results table has filled in. A Search's table
+    can take a while to appear on a busy portal or a small server: read again
+    every few seconds, press Search once more halfway, for up to
+    CCMS_WAIT_SECONDS. -> CCMS None if it never did."""
+    ccms = parse.find_ccms(reading.headers, reading.rows)
+    started = time.monotonic()
+    searched_again = False
+    while ccms is None and time.monotonic() - started < CCMS_WAIT_SECONDS:
+        if not searched_again and time.monotonic() - started >= CCMS_WAIT_SECONDS / 2:
+            searched_again = True
+            await browser.click_search(page)
+        reading = await browser.read_page(page, settle_ms=2000)
+        ccms = parse.find_ccms(reading.headers, reading.rows)
+    if ccms is not None and time.monotonic() - started > 1:
+        log.info("[balance] the results table filled in after %.0f s", time.monotonic() - started)
+    return reading, ccms
 
 
 def _html(text: str) -> str:
