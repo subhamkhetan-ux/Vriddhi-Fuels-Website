@@ -91,33 +91,143 @@ def headings(words):
     return out
 
 
+GAP = 6            # pixels of a border line that may be missing (compression, a cursor)
+CARD_HEIGHT = 1.05  # a card is about this much taller than it is wide
+
+
+def _run(px: Pixels, y: int, x: int) -> tuple[int, int]:
+    """(left, right) of the border line through (x, y), across small gaps."""
+    def on(x):
+        return any(px.border(x, y + d) for d in (-1, 0, 1))
+    left = right = x
+    while left > 0 and any(on(left - k) for k in range(1, GAP + 1)):
+        left -= next(k for k in range(1, GAP + 1) if on(left - k))
+    while right < px.width - 1 and any(on(right + k) for k in range(1, GAP + 1)):
+        right += next(k for k in range(1, GAP + 1) if on(right + k))
+    return left, right
+
+
+def _top(px: Pixels, hx: int, hy: int, hw: int):
+    """(left, top, right) of the card's top border above a heading: the
+    longest line in the 30 rows above it, or None."""
+    best = None
+    for y in range(hy - 1, max(0, hy - 30), -1):
+        col = next((c for c in range(hx, hx + hw) if px.border(c, y)), None)
+        if col is None:
+            continue
+        left, right = _run(px, y, col)
+        if best is None or right - left > best[2] - best[0]:
+            best = (left, y, right)
+    return best if best and best[2] - best[0] >= 100 else None
+
+
+def _share(px: Pixels, y: int, left: int, right: int) -> float:
+    """How much of a row, inside the card's sides, is border line."""
+    xs = range(left + (right - left) // 10, right - (right - left) // 10, 2)
+    return sum(any(px.border(x, y + d) for d in (-1, 0, 1)) for x in xs) / max(1, len(xs))
+
+
+def _bottom(px: Pixels, words, left: int, top: int, right: int):
+    """The card's bottom border, below its last row ("Temperature"), or None."""
+    temps = [y + h for t, x, y, w, h in words if t.lower().startswith("temper") and left <= x <= right and y > top]
+    start = max(temps) + 2 if temps else top + int((right - left) * 0.9)
+    for y in range(start, min(px.height - 1, start + (right - left) // 2)):
+        if _share(px, y, left, right) >= 0.5:
+            return y
+    return None
+
+
+def _snap(px: Pixels, top: int, left: int, width: int):
+    """The left end of a card's top line near ``left``, or None if no card's
+    top line is there."""
+    if left < -width * 0.1 or left + width > px.width * 1.1:
+        return None
+    for d in (0, -1, 1, -2, 2, -3, 3):
+        mid = min(px.width - 1, max(0, left + width // 2))
+        if not px.border(mid, top + d) and not any(px.border(mid + k, top + d) for k in range(-GAP, GAP + 1)):
+            continue
+        col = next(mid + k for k in sorted(range(-GAP, GAP + 1), key=abs) if px.border(mid + k, top + d))
+        l, r = _run(px, top + d, col)
+        if r - l >= width * 0.9 and abs(l - left) <= width * 0.12:
+            return l
+    return None
+
+
+def _median(values):
+    values = sorted(values)
+    return values[len(values) // 2]
+
+
 def card_boxes(png: bytes, words) -> dict:
-    """{tank number: (left, top, right, bottom)} of each card's border."""
+    """{tank number: (left, top, right, bottom)} of each card's border.
+
+    The cards stand in one row, all the same size and evenly spaced. Each
+    card's border is traced from its heading; a border that didn't trace
+    (a gap in the grey line, a heading OCR missed) takes the others' size and
+    place in the row."""
     px = Pixels(png)
-    if not px.ok:
+    heads = headings(words)
+    if not px.ok or not heads:
         return {}
+    nums = sorted(heads)
+    steps = [(heads[b][0] - heads[a][0]) / (b - a) for a, b in zip(nums, nums[1:])]
+    pitch = _median(steps) if steps else None
+    if pitch is not None and pitch < 100:
+        pitch = None
+    tops = {no: _top(px, hx, hy, hw) for no, (hx, hy, hw, hh) in heads.items()}
+    fits = {no: t for no, t in tops.items()
+            if t and (pitch is None or 0.7 * pitch <= t[2] - t[0] <= pitch)}
+    if fits:
+        ref = max(fits, key=lambda no: fits[no][2] - fits[no][0])
+        width = fits[ref][2] - fits[ref][0]
+        dx, dy = fits[ref][0] - heads[ref][0], fits[ref][1] - heads[ref][1]
+    elif pitch:
+        ref, width, dx, dy = nums[0], int(pitch * 0.94), -int(pitch * 0.04), -int(pitch * 0.03)
+    else:
+        return {}
+    if pitch is None:
+        pitch = width / 0.94            # (one heading read: the cards' spacing from its width)
+    # Cards whose heading OCR missed: a card's width along from its
+    # neighbour, if its top border is there (each found card is the next
+    # one's neighbour, so the spacing's error doesn't add up).
+    hy0, hw0, hh0 = heads[ref][1:]
+    top = hy0 + dy
+    for way in (-1, 1):
+        no, hx = ref + way, heads[ref][0]
+        while 1 <= no <= 9:
+            if no in heads:
+                hx = heads[no][0]
+            else:
+                hx = int(hx + way * pitch)
+                left = _snap(px, top, hx + dx, width)
+                if left is None:
+                    break
+                hx = left - dx
+                heads[no] = (hx, hy0, hw0, hh0)
+            no += way
+    # A trace cut short, or on another line, takes the row's size and place
+    # (the cards' tops are one line).
+    row_top = _median([t[1] for t in fits.values()]) if fits else None
+    found = {}
+    for no, (hx, hy, hw, hh) in heads.items():
+        t = fits.get(no)
+        top = row_top if row_top is not None else hy + dy
+        if t and t[2] - t[0] >= width * 0.97 and abs(t[1] - top) <= 3:
+            found[no] = t
+        else:
+            left = _snap(px, top, hx + dx, width)
+            left = hx + dx if left is None else left
+            left = min(max(0, left), px.width - 1 - width)
+            found[no] = (left, top, left + width)
+    bottoms = {no: _bottom(px, words, *found[no]) for no in found}
+    seen = [b - found[no][1] for no, b in bottoms.items() if b is not None]
+    height = _median(seen) if seen else int(width * CARD_HEIGHT)
     boxes = {}
-    for no, (hx, hy, hw, hh) in headings(words).items():
-        col = hx + hw // 2
-        top = next((y for y in range(hy - 1, max(0, hy - 30), -1) if px.border(col, y)), None)
-        if top is None:
-            continue
-        left = right = col
-        while left > 0 and any(px.border(left - 1, top + d) for d in (-1, 0, 1, 2)):
-            left -= 1
-        while right < px.width - 1 and any(px.border(right + 1, top + d) for d in (-1, 0, 1, 2)):
-            right += 1
-        if right - left < 100:
-            continue
-        # The bottom border, below the card's last row ("Temperature").
-        temps = [y + h for t, x, y, w, h in words
-                 if t.lower().startswith("temper") and left <= x <= right and y > top]
-        start = max(temps) + 2 if temps else top + int((right - left) * 0.9)
-        mid = (left + right) // 2
-        bottom = next((y for y in range(start, min(px.height, start + 200)) if px.border(mid, y)), None)
-        if bottom is None:
-            bottom = min(px.height - 1, start + 12)
-        # The run along the top stops where the rounded corners bend down.
+    for no, (left, top, right) in found.items():
+        bottom = bottoms[no]
+        if bottom is None or abs(bottom - top - height) > width * 0.05:
+            bottom = min(px.height - 1, top + height)
+        # The line along the top stops where the rounded corners bend down.
         boxes[no] = (max(0, left - 4), top, min(px.width - 1, right + 4), bottom)
     return boxes
 

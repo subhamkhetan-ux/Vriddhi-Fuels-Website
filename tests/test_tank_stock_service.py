@@ -447,3 +447,11 @@ def test_a_session_anydesk_dropped_but_kept_open_ends_live_monitoring(station, m
         del FakeSession.ended
     assert station.live_last["reason"] == "AnyDesk ended the session (it shows “client offline”)"
     assert station.view()["sessions"]["recent"][0]["by"] == "anydesk"
+
+
+def test_tanks_missing_from_the_screen_are_told_to_the_bot_with_the_screen(station, monkeypatch):
+    monkeypatch.setattr(service.cards_mod, "read_all",
+                        lambda png: ({3: (0, 0, 9, 9)}, {3: {"product": "HSD", "volume": 1.0}}))
+    station.capture([1, 3])
+    assert "3" in station.last["tanks"] and "1" not in station.last["tanks"]
+    assert station.photos and "Tank 1 not found" in station.photos[-1][1]

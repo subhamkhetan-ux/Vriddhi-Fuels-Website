@@ -251,8 +251,9 @@ class Station:
             }
         self.last = {"at": started, "why": why, "page": page, "id_no": used, "tanks": found,
                      "asked": tanks, "settings_note": cfg_error, "uploads": {}}
-        if not found:
-            self._no_cards(png, page)
+        missing = [n for n in tanks if str(n) not in found]
+        if missing:
+            self._no_cards(png, page, missing if found else None)
         (self.home / "cards.json").write_text(json.dumps({str(k): v for k, v in read.items()}))
         if upload:
             self._upload(tanks, read, cfg)
@@ -310,15 +311,20 @@ class Station:
             self._release()
         return results
 
-    def _no_cards(self, png: bytes, page: str) -> None:
-        """No tank card on the PC's screen: show the XtraPower bot what it
-        showed (privately; the page shows it too)."""
+    def _no_cards(self, png: bytes, page: str, missing=None) -> None:
+        """No tank card on the PC's screen (or not the ones asked for): show
+        the XtraPower bot what it showed (privately; the page shows it too)."""
         if time.time() - self._no_cards_told < NO_CARDS_ALERT_EVERY:
             return
         self._no_cards_told = time.time()
+        if missing:
+            text = (f"Tank stock: Tank {', '.join(map(str, missing))} not found on the IOCL PC's screen ({page}). "
+                    "This is what it showed.")
+        else:
+            text = (f"Tank stock: no tank cards on the IOCL PC's screen ({page}). "
+                    "This is what it showed. Put FuelTrans on Monitoring → Tank Status on the PC.")
         try:
-            self.notify_photo(png, f"Tank stock: no tank cards on the IOCL PC's screen ({page}). "
-                                   "This is what it showed. Put FuelTrans on Monitoring → Tank Status on the PC.")
+            self.notify_photo(png, text)
         except Exception:  # noqa: BLE001 - the page shows it either way
             traceback.print_exc()
 
