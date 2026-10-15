@@ -234,9 +234,14 @@ def test_capture_connects_reads_and_disconnects_without_uploading(station):
 def test_earlier_days_proof_pictures_are_dropped(station):
     station.db.shots.append({"id": "old", "day": "2000-01-01", "path": "2000-01-01/old.jpg", "readings": {}})
     station.db.files["2000-01-01/old.jpg"] = (b"x", "image/jpeg")
+    yesterday = decant.ist_day(service.datetime.now(service.timezone.utc) - service.timedelta(days=1))
+    station.db.shots.append({"id": "yday", "day": yesterday, "path": f"{yesterday}/yday.jpg", "readings": {}})
+    station.db.files[f"{yesterday}/yday.jpg"] = (b"y", "image/jpeg")
     station.capture([3], upload=True)
     assert "old" not in [s["id"] for s in station.db.shots]
-    assert "2000-01-01/old.jpg" not in station.db.files and len(station.db.files) == 1
+    assert "2000-01-01/old.jpg" not in station.db.files
+    # yesterday's stay: a decantation that ran past midnight still has its stock before's
+    assert "yday" in [s["id"] for s in station.db.shots] and len(station.db.files) == 2
 
 
 def test_send_for_decantation_uploads_and_ends_live_monitoring(station):
@@ -509,4 +514,29 @@ def test_stock_for_a_decantation_gets_its_picture_although_live_monitoring_sent_
     assert shot["readings"] == {"T3": {"readingAt": reading["readingAt"], "volume": reading["volume"]}}
     assert reading["height"] is not None                                     # its full figures too
     assert station.last["proof"]["ok"]
+    assert wait_for(lambda: station.live is None)
+
+
+def test_the_card_clock_print_follows_the_last_updated_row_not_the_volume():
+    from types import SimpleNamespace
+    w, h, box = 50, 100, (0, 0, 50, 100)
+    def px(time_px=0, volume_px=0):
+        raw = bytearray(w * h * 3)
+        raw[(40 * w + 5) * 3] = time_px              # row 40: "Last Updated" (36%..50% of the card)
+        raw[(60 * w + 5) * 3] = volume_px            # row 60: the volume rows
+        return SimpleNamespace(width=w, height=h, raw=bytes(raw))
+    base = cards.clock_print(px(), box)
+    assert cards.clock_print(px(time_px=9), box) != base             # the time ticked
+    assert cards.clock_print(px(volume_px=9), box) == base           # only the stock changed
+    assert cards.fingerprint(px(time_px=9), box) == cards.fingerprint(px(), box)   # (and the other way round)
+
+
+def test_the_live_view_says_which_cards_are_frozen(station, monkeypatch):
+    monkeypatch.setattr(service.cards_mod, "clock_print", lambda px, box: "same")
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    station.live["ticks"][3]["t"] -= service.PROBE_STALE_S + 1
+    view = station.live_view()
+    assert view["probes"]["3"]["frozen"] is True and "ticks" not in view
+    station.stop_live()
     assert wait_for(lambda: station.live is None)

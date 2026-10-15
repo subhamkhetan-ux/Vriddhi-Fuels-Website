@@ -105,6 +105,18 @@
   input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
 
   /* ---- captures and tanks ---- */
+  .proofs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+  .proof { background: rgba(0,0,0,.22); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 8px; min-width: 0; }
+  .proof .label { display: block; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+  .proof .value { font: 800 15px/1.3 var(--display); font-variant-numeric: tabular-nums; }
+  .proof img { width: 100%; border-radius: 8px; display: block; background: #fff; margin-top: 6px; }
+  .proof .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .proof .pf { font-size: 11.5px; font-weight: 700; margin-top: 4px; }
+  .proof .pf.ok { color: var(--ok); } .proof .pf.mid { color: var(--mid); } .proof .pf.no { color: var(--warn); }
+  .proof a.save { font-size: 12px; margin-left: 8px; }
+  .probe { font-size: 12px; margin-top: 6px; } .probe.ok { color: var(--ok); } .probe.no { color: var(--warn); font-weight: 700; }
+  .stocks { width: 100%; border-collapse: collapse; margin: 10px 0 4px; font-size: 13px; }
+  .stocks td { padding: 5px 4px; border-top: 1px solid var(--glass-line-soft); } .stocks td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .shot { width: 100%; border-radius: 14px; border: 1px solid var(--glass-line); background: #fff; display: block; margin-top: 12px; }
   .tank { border-top: 1px solid var(--glass-line-soft); padding: 12px 0; }
   .tank:first-child { border-top: 0; }
@@ -160,7 +172,7 @@
 </header>
 <main>
   <section id="auto">
-    <h2>Automatic decantation</h2>
+    <h2>Decantation</h2>
     <div id="autoBody"></div>
     <div class="status" id="autoStatus"></div>
   </section>

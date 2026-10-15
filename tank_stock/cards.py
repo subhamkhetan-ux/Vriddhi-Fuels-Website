@@ -396,6 +396,20 @@ def read_figures(png: bytes, box) -> dict:
     return card
 
 
+def clock_print(px: Pixels, box) -> str:
+    """Changes when the card's "Last Updated" time or its Tank Status changes.
+    The time ticks every few seconds while the tank's probe is online, steady
+    stock or not; a print that stops changing means the figures are frozen
+    (the probe, the ATG or FuelTrans' link to it is down), however steady
+    they look."""
+    left, top, right, bottom = box
+    h = hashlib.sha1()
+    for y in range(top + int((bottom - top) * FIGURES_FROM), top + int((bottom - top) * STEADY_FROM)):
+        i = (y * px.width + left) * 3
+        h.update(px.raw[i:i + (right - left) * 3])
+    return h.hexdigest()
+
+
 def fingerprint(px: Pixels, box) -> str:
     """Changes when the rows the volume is in change on screen (not when the
     "Last Updated" clock ticks or the temperature moves), so an unchanged

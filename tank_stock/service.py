@@ -70,6 +70,7 @@ RECONNECT_AFTER = 15             # seconds before connecting again ("reconnect" 
 NO_CARDS_ALERT_EVERY = 600       # seconds: "no tank cards on the PC's screen" to Telegram at most this often
 RECONNECT_RUN = 12               # ... at most this many in a row of short sessions
 LONG_SESSION = 600               # a session this long resets that count
+PROBE_STALE_S = 180              # a card whose "Last Updated" time hasn't moved this long: frozen figures
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
 MAX_BODY = 16_000
@@ -350,10 +351,19 @@ class Station:
         self._hold(why, wait=60)
         try:
             live = self.live or {}
-            last = self._record(png, live.get("page") or "the live session", 
+            last = self._record(png, live.get("page") or "the live session",
                                 live["session"].position if live.get("session") else None, tanks, True, why)
+            # each tank's own zoomed card, from this very screen (before another capture replaces it)
+            pics = {}
+            for no in tanks:
+                if str(no) in (last.get("tanks") or {}):
+                    try:
+                        pics[no] = cards_mod.to_jpeg(self.picture([no])) or b""
+                    except Exception:  # noqa: BLE001 - the reading counts without its picture
+                        pics[no] = b""
         finally:
             self._release()
+        proof = last.get("proof") or {}
         out = {}
         for no in tanks:
             f = (last.get("tanks") or {}).get(str(no)) or {}
@@ -361,7 +371,8 @@ class Station:
             reading = u.get("reading") if u.get("ok") else None
             if reading is None and f.get("reading") and f.get("confidence") not in (None, "low"):
                 reading = f["reading"]                 # read fine; the app just has a newer one
-            out[no] = {"reading": reading,
+            out[no] = {"reading": reading, "jpeg": pics.get(no, b""),
+                       "cloud": bool(proof.get("ok") and no in (proof.get("tanks") or [])),
                        "problem": "" if reading else "; ".join(f.get("problems") or []) or u.get("message") or "not read"}
         return out
 
@@ -500,6 +511,14 @@ class Station:
                 box = live["boxes"].get(no)
                 if not box:
                     continue
+                try:
+                    clock = cards_mod.clock_print(px, box)
+                except Exception:  # noqa: BLE001 - unknown: nothing is said about it
+                    clock = ""
+                if clock:
+                    tick = live.setdefault("ticks", {}).get(no)
+                    if not tick or tick["fp"] != clock:
+                        live["ticks"][no] = {"fp": clock, "since": now_iso(), "t": time.time()}
                 fp = cards_mod.fingerprint(px, box)
                 if fp == live["fp"].get(no):
                     good += 1                         # same figures as last time
@@ -666,8 +685,12 @@ class Station:
         live = self.live
         if not live:
             return None
-        hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes")
+        hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png")
         out = {k: v for k, v in live.items() if k not in hidden}
+        # each card's "Last Updated" clock: frozen means the figures are too
+        out["probes"] = {str(no): {"since": t["since"], "age_s": round(time.time() - t["t"]),
+                                   "frozen": time.time() - t["t"] >= PROBE_STALE_S}
+                         for no, t in (live.get("ticks") or {}).items()}
         # what it really does while an automatic decantation runs on it
         out["watched"] = sorted(set(live["tanks"]) | self.auto.watched())
         out["every_s"] = self.auto.interval(live["interval_s"])
@@ -794,6 +817,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, self.station.auto.options())
             except AutoError as exc:
                 return self._json(502, {"error": str(exc)})
+        if url.path == "/api/auto/proof":
+            query = parse_qs(url.query)
+            jpeg = self.station.auto.proof_picture(query.get("tank", [""])[0], query.get("which", [""])[0])
+            if not jpeg:
+                return self._json(404, {"error": "No picture for that."})
+            return self._send(200, jpeg, "image/jpeg")
         if url.path == "/api/picture":
             try:
                 query = parse_qs(url.query)

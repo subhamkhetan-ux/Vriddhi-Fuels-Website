@@ -215,7 +215,13 @@ def start(rig, plan):
     a.start(INVOICE["invoice_no"], plan)
     assert wait_for(lambda: rig.st.live is not None)
     read(rig)                                         # its first read (the live loop would do it)
-    assert wait_for(lambda: a.phase != "starting"), a.info
+    # the live loop goes on reading while it starts (a card's clock must be seen moving)
+    end = real_time.time() + 5
+    while a.phase == "starting" and real_time.time() < end:
+        real_time.sleep(0.02)
+        if a.phase == "starting" and rig.st.live:
+            read(rig)
+    assert a.phase != "starting", a.info
     assert a.phase == "running", a.info
     return a
 
@@ -385,3 +391,136 @@ def test_a_tank_failing_its_checks_at_the_start_is_named(rig, monkeypatch):
     a = rig.st.auto
     assert a.phase == "failed" and "stock before couldn't be read (Tank 2: volume + ullage" in a.info["error"]
     assert rig.cloud.sessions == {}
+
+
+# ---- frozen tank cards: the probe, the ATG or FuelTrans' link down ----------
+
+def _clocks(rig, monkeypatch, frozen):
+    """Each card's "Last Updated" clock ticks with the test's clock, except
+    the tanks in ``frozen`` (a set the test changes)."""
+    ticks = {"n": 0}
+
+    def clock_print(px, box):
+        no = box[0] // 100
+        ticks["n"] += 1
+        return f"{no}-frozen" if no in frozen else f"{no}-{rig.clock.t}-{ticks['n']}"
+    monkeypatch.setattr(service.cards_mod, "clock_print", clock_print)
+
+
+def test_a_tank_whose_card_isnt_updating_is_not_started(rig, monkeypatch):
+    monkeypatch.setattr(auto, "PROBE_START_WAIT", 0.3)
+    _clocks(rig, monkeypatch, {2})
+    a = rig.st.auto
+    a.start(INVOICE["invoice_no"], {"2": "T2"})
+    assert wait_for(lambda: rig.st.live is not None)
+    read(rig)
+    stop = threading.Event()
+
+    def reads():                                   # the live loop goes on reading meanwhile
+        while not stop.is_set() and rig.st.live:
+            read(rig)
+            real_time.sleep(0.02)
+    threading.Thread(target=reads, daemon=True).start()
+    try:
+        assert wait_for(lambda: a.phase != "starting"), a.info
+    finally:
+        stop.set()
+    assert a.phase == "failed" and "Tank 2: the card on the PC isn't updating" in a.info["error"]
+    assert "no stock is taken from frozen figures" in a.info["error"]
+    assert rig.cloud.sessions == {} and rig.cloud.shots == []          # nothing recorded from frozen figures
+    assert any("could not start" in m for m in rig.told)
+
+
+def test_cards_that_update_start_as_usual(rig, monkeypatch):
+    _clocks(rig, monkeypatch, set())
+    a = rig.st.auto
+    a.start(INVOICE["invoice_no"], {"2": "T2"})
+    assert wait_for(lambda: rig.st.live is not None)
+    stop = threading.Event()
+
+    def reads():
+        while not stop.is_set() and rig.st.live:
+            read(rig)
+            real_time.sleep(0.02)
+    threading.Thread(target=reads, daemon=True).start()
+    try:
+        assert wait_for(lambda: a.phase != "starting"), a.info
+    finally:
+        stop.set()
+    assert a.phase == "running", a.info
+
+
+def test_a_card_that_freezes_while_settling_never_gives_the_stock_after(rig, monkeypatch):
+    frozen = set()
+    _clocks(rig, monkeypatch, frozen)
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 600)                                       # in, now settling
+    frozen.add(2)                                         # the probe goes offline: the figures stop
+    drive(rig, 4000)
+    assert a.phase == "running" and a.run.row("T2")["stage"] != "read"     # no stock after from frozen figures
+    assert any("hasn't updated" in m and "Tank 2" in m for m in rig.told)
+    assert "frozen" in a.view()["frozen"]
+    frozen.discard(2)                                     # back online
+    drive(rig, 7000)
+    assert a.phase == "finished", a.info
+    assert any("updating again" in m for m in rig.told)
+
+
+# ---- the stock before / after pictures --------------------------------------
+
+def test_each_tank_keeps_its_before_and_after_picture_for_the_page_and_the_app(rig):
+    a = start(rig, {"2": "T2"})
+    p = a.view()["proofs"]["T2"]["before"]
+    assert p["picture"] and p["cloud"] and p["volume"] == 10755.0 and p["height"]
+    assert a.proof_picture("T2", "before").startswith(b"\xff\xd8")             # the zoomed card, for the page
+    assert a.proof_picture("T2", "after") == b"" and a.proof_picture("T9", "before") == b""
+    assert a.proof_picture("../T2", "before") == b"" and a.proof_picture("T2", "x") == b""
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 4000)
+    assert a.phase == "finished", a.info
+    after = a.view()["proofs"]["T2"]["after"]
+    assert after["picture"] and after["cloud"] and after["volume"] == rig.cloud.stock["T2"]["volume"]
+    # the decant app has a picture for exactly the stock before and the stock after it saved
+    marks = [m["T2"] for m in rig.cloud.shots if "T2" in m]
+    s = cloud_session(rig)
+    t2 = next(t for t in s["data"]["tanks"] if t["tank"] == "T2")
+    for which in ("before", "after"):
+        assert {"readingAt": t2[which]["readingAt"], "volume": t2[which]["volume"]} in marks
+
+
+def test_a_picture_the_decant_app_didnt_take_is_sent_again(rig, monkeypatch):
+    fails = {"n": 2}
+    real = rig.cloud.save_proof
+
+    def flaky(jpeg, marks):
+        if fails["n"] > 0:
+            fails["n"] -= 1
+            raise decant.DecantError("The decant database could not be reached (URLError).")
+        real(jpeg, marks)
+    monkeypatch.setattr(rig.cloud, "save_proof", flaky)
+    a = start(rig, {"2": "T2"})
+    p = a.view()["proofs"]["T2"]["before"]
+    assert p["picture"] and not p["cloud"]                                 # kept here, not in the app yet
+    drive(rig, 200)                                                         # a minute or two later
+    assert a.view()["proofs"]["T2"]["before"]["cloud"]
+    assert any(m.get("T2", {}).get("volume") == 10755.0 for m in rig.cloud.shots)
+
+
+def test_the_proof_api_serves_only_the_runs_pictures(rig):
+    import urllib.request
+    import urllib.error
+    a = start(rig, {"2": "T2"})
+    srv = service.make_server(rig.st, 0)
+    srv.port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        with urllib.request.urlopen(f"{base}/api/auto/proof?tank=T2&which=before", timeout=5) as r:
+            assert r.headers["Content-Type"] == "image/jpeg" and r.read().startswith(b"\xff\xd8")
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(f"{base}/api/auto/proof?tank=T2&which=after", timeout=5)
+        assert e.value.code == 404
+    finally:
+        srv.shutdown()
+        srv.server_close()

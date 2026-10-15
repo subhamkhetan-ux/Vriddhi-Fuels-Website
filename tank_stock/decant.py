@@ -104,13 +104,15 @@ def save_proof(jpeg: bytes, marks: dict, now=None) -> str:
 
 
 def drop_old_proofs(now=None) -> int:
-    """Delete earlier days' screenshots (rows and files). Returns how many."""
-    today = ist_day(now)
-    rows = _rest("GET", f"dec_shots?day=lt.{today}&select=id,path&limit=500") or []
+    """Delete the screenshots from before yesterday (rows and files): a
+    decantation that ran past midnight still finds its stock before's, as
+    the app does (decant/js/shots.js). Returns how many."""
+    keep_from = ist_day((now or datetime.now(timezone.utc)) - timedelta(days=1))
+    rows = _rest("GET", f"dec_shots?day=lt.{keep_from}&select=id,path&limit=500") or []
     if rows:
         _http("DELETE", f"storage/v1/object/{BUCKET}", json.dumps({"prefixes": [r["path"] for r in rows]}).encode(),
               {"Content-Type": "application/json"})
-        _rest("DELETE", f"dec_shots?day=lt.{today}")
+        _rest("DELETE", f"dec_shots?day=lt.{keep_from}")
     return len(rows)
 
 
