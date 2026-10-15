@@ -335,8 +335,17 @@ def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) ->
             out[no] = {"ok": False, "tank_id": tank["id"], "message": "the app already has a newer reading"}
             continue
         if current and _when(current) == _when(reading) and current.get("volume") == reading["volume"]:
+            # The same reading is already there (typically sent by live
+            # monitoring, which sends the volume alone). A full read still
+            # gives it its figures, and its proof picture (the mark).
+            if not only_volume and any(current.get(k) is None and reading.get(k) is not None
+                                       for k in VOLUME_ONLY_DROP):
+                current = {**current, **{k: reading[k] for k in VOLUME_ONLY_DROP if reading.get(k) is not None}}
+                _rest("POST", "dec_tank_state?on_conflict=tank_id",
+                      [{"tank_id": tank["id"], "reading": current, "updated_at": saved_at}],
+                      prefer="resolution=merge-duplicates,return=minimal")
             out[no] = {"ok": True, "tank_id": tank["id"], "message": "already in the app", "unchanged": True,
-                       "reading": current}
+                       "reading": current, "mark": {"readingAt": current["readingAt"], "volume": current["volume"]}}
             continue
         _rest("POST", "dec_tank_state?on_conflict=tank_id",
               [{"tank_id": tank["id"], "reading": reading, "updated_at": saved_at}],

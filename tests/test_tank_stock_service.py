@@ -118,6 +118,21 @@ def test_upload_saves_checked_tanks_and_never_replaces_a_newer_reading(monkeypat
     assert db.writes[0]["reading"]["savedAt"] == db.writes[0]["updated_at"]
     again = decant.upload({3: CARD3}, [3], CFG)
     assert again[3]["message"] == "already in the app" and len(db.writes) == 1
+    assert again[3]["mark"] == {"readingAt": "2026-10-13T18:01:54+05:30", "volume": 19552.05}   # its picture still goes
+
+
+def test_a_full_read_of_a_reading_live_monitoring_sent_fills_in_its_figures(monkeypatch):
+    db = FakeDB()
+    monkeypatch.setattr(decant, "_rest", db)
+    monkeypatch.setattr(decant, "_http", db.http)
+    decant.upload({3: CARD3}, [3], CFG, only_volume=True)                   # live monitoring: the volume alone
+    assert db.rows["T3"]["height"] is None
+    again = decant.upload({3: CARD3}, [3], CFG, only_volume=True)          # live again: nothing to do
+    assert again[3]["message"] == "already in the app" and len(db.writes) == 1
+    full = decant.upload({3: CARD3}, [3], CFG)                              # a full read (stock before / after)
+    assert full[3]["ok"] and full[3]["mark"]["volume"] == 19552.05
+    assert db.rows["T3"]["height"] == CARD3["height"] and db.rows["T3"]["volume"] == 19552.05
+    assert db.rows["T3"]["readingAt"] == full[3]["mark"]["readingAt"]      # the same reading, its picture matches
 
 
 class FakeSession:
@@ -482,3 +497,16 @@ def test_the_page_in_front_of_someone_keeps_live_monitoring_on(station, monkeypa
     station.seen_at = time.time() - 120
     live["since"] = (service.datetime.now(service.IST) - service.timedelta(seconds=120)).isoformat()
     assert station._unwatched(live)
+
+
+def test_stock_for_a_decantation_gets_its_picture_although_live_monitoring_sent_it(station):
+    station.start_live({"tanks": [3], "auto_upload": True})                  # live: sends the volume alone
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1 and station.db.writes)
+    assert station.db.shots == [] and station.db.files == {}                 # live monitoring: no pictures
+    station.capture([3], decantation=True)                                   # the stock for the decantation
+    (shot,) = station.db.shots
+    reading = station.db.rows["T3"]
+    assert shot["readings"] == {"T3": {"readingAt": reading["readingAt"], "volume": reading["volume"]}}
+    assert reading["height"] is not None                                     # its full figures too
+    assert station.last["proof"]["ok"]
+    assert wait_for(lambda: station.live is None)
