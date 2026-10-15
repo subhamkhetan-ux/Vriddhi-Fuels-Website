@@ -4925,6 +4925,27 @@
       },
       "queued_at": "2026-10-15T11:45:23.494310+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "ffd3637424664679",
+      "gmail_msg_id": "1879124831838927753",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "15/10/2026",
+      "date_serial": 46310,
+      "amount": 120888.0,
+      "raw_payer": "ANKITA AIR PRODUCTS P LTD",
+      "customer": "M/s  Ankita Air Products Private Limited",
+      "candidates": [
+        "M/s  Ankita Air Products Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-15T14:15:20.956133+00:00",
+      "status": "matched"
     }
   ]
 }
