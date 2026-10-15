@@ -524,3 +524,67 @@ def test_the_proof_api_serves_only_the_runs_pictures(rig):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+# ---- one tank after another --------------------------------------------------
+
+def test_tanks_decanted_one_after_another_finish_together_once_all_are_read(rig):
+    a = start(rig, {"1": "T1", "2": "T2"})
+    rig.world.flows = [(1, 60, 4990, 495), (2, 3000, 4985, 495)]        # Tank 2's turn comes much later
+    drive(rig, 2900)
+    t1, t2 = a.run.row("T1"), a.run.row("T2")
+    assert t1["stage"] == "read" and t1["after"]["volume"] == 12672.0   # its stock after, as soon as it settled
+    assert t2["stage"] == "waiting" and a.view()["run"]["questions"] == []   # waiting its turn: not asked about
+    assert cloud_session(rig)["status"] != "done" and a.phase == "running"   # not finished yet
+    assert a.view()["proofs"]["T1"]["after"]["picture"]
+    drive(rig, 6000)
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    assert s["status"] == "done" and all(t["after"] for t in s["data"]["tanks"])
+    assert sum("Decantation finished and saved" in m for m in rig.told) == 1
+
+
+def test_a_tank_that_waits_too_long_after_the_others_is_asked_about(rig):
+    a = start(rig, {"1": "T1", "2": "T2"})
+    rig.world.flows = [(1, 60, 4990, 495)]                               # Tank 2's chamber never comes
+    drive(rig, 1700)
+    assert a.run.row("T1")["stage"] == "read" and a.view()["run"]["questions"] == []
+    drive(rig, 1700 + 1800 + 60)                                         # 30 min with nothing going on
+    q = a.view()["run"]["questions"]
+    assert q and q[0]["tank"] == "T2" and q[0]["kind"] == "notstarted"
+
+
+def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig, monkeypatch):
+    # screens as taken: a kept screen shows the stock when it was taken
+    w = rig.world
+    monkeypatch.setattr(Session, "screen", lambda self: b"\x89PNG@" + str(rig.clock.t).encode())
+
+    def at(png):
+        try:
+            return float(png.split(b"@", 1)[1])
+        except (IndexError, ValueError):
+            return rig.clock.t
+
+    def card_at(png, no):
+        now = rig.clock.t
+        rig.clock.t = at(png)
+        try:
+            return w.card(no)
+        finally:
+            rig.clock.t = now
+    boxes = {no: (no * 100, 0, no * 100 + 90, 90) for no in (1, 2, 3, 4)}
+    monkeypatch.setattr(service.cards_mod, "read_all", lambda png: (dict(boxes), {no: card_at(png, no) for no in boxes}))
+    monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: card_at(png, box[0] // 100))
+    a = start(rig, {"2": "T2"})
+    w.sales = [(2, 300, 40), (2, 330, 60)]                    # two sales half a minute apart ...
+    w.flows = [(2, 345, 4990, 495)]                           # ... and the truck right after
+    drive(rig, 2600)
+    assert a.phase == "finished", a.info
+    t2 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T2")
+    assert t2["before"]["volume"] == 10755.0 - 100              # after both sales
+    assert t2["before"]["height"] is not None                    # read in full, not the live figure
+    assert any("read in full from the screen just before decanting" in e["text"] for e in a.run.state["log"])
+    p = a.view()["proofs"]["T2"]["before"]
+    assert p["picture"] and p["volume"] == t2["before"]["volume"]
+    assert {"readingAt": t2["before"]["readingAt"], "volume": t2["before"]["volume"]} in \
+        [m["T2"] for m in rig.cloud.shots if "T2" in m]           # its picture is in the app for the result

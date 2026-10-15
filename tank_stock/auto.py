@@ -65,6 +65,7 @@ class AutoDecant:
         self.run = dz.Decantation.from_json(data["run"]) if data.get("run") else None
         self.info = data.get("info") or {}
         self.screens = {}                     # tank id -> the screen at its settling peak
+        self.lows = {}                        # tank id -> the screen at its lowest stock while waiting
         self.abort = threading.Event()
         self.reconnecting = None              # the thread connecting again, while it runs
         self._view = None                     # the page's last view
@@ -86,7 +87,7 @@ class AutoDecant:
     def _set(self, phase: str, **info) -> None:
         self.info.update(phase=phase, at=_now(), **info)
         if phase not in ACTIVE:
-            self.screens = {}                    # (the screens kept for a stock after)
+            self.screens, self.lows = {}, {}     # (the screens kept for a stock before / after)
         self._persist()
 
     def watched(self) -> set:
@@ -174,7 +175,7 @@ class AutoDecant:
             blocking = [b for b in chk["blocking"] if not b.startswith("Add Tank")]
             if blocking:
                 raise AutoError(blocking[0])
-            self.run, self.screens, self.probes = None, {}, {}
+            self.run, self.screens, self.probes, self.lows = None, {}, {}, {}
             self.abort.clear()
             self.info = {"invoice_no": invoice_no, "tt_no": inv.get("tt_no"), "plan": {str(k): v for k, v in plan.items()},
                          "started": _now(), "error": "", "log": [], "proof_id": str(int(time.time() * 1000)),
@@ -360,13 +361,22 @@ class AutoDecant:
         for tank in work["peak"]:
             if live and live.get("last_png"):
                 self.screens[tank] = live["last_png"]
+        for tank in work.get("low", []):
+            if live and live.get("last_png"):
+                self.lows[tank] = live["last_png"]
         for b in work["before"]:
-            r = self.st.full_read(live.get("last_png"), [self._no(b["tank"])],
-                                  "automatic decantation: stock before (it sold)")
+            from_low = b.get("from") == "low"
+            png = self.lows.get(b["tank"]) if from_low else (live or {}).get("last_png")
+            if not png:
+                continue
+            r = self.st.full_read(png, [self._no(b["tank"])],
+                                  "automatic decantation: stock before" + (" (just before decanting)" if from_low else " (it sold)"))
             res = next(iter(r.values()), {})
             if res.get("reading"):
-                self._keep_proof(b["tank"], "before", res)
-                self._merge(work, self.run.set_before(b["tank"], res["reading"], now))
+                more = self.run.set_before(b["tank"], res["reading"], now, from_low=from_low)
+                if more["save"]:
+                    self._keep_proof(b["tank"], "before", res)
+                self._merge(work, more)
         for a in work["after"]:
             self._after(a, live, work, now)
         if work["save"]:
