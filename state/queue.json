@@ -4883,6 +4883,27 @@
       },
       "queued_at": "2026-10-15T04:30:44.581353+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "7f8dd7fc95deb788",
+      "gmail_msg_id": "1879088818991911055",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "15/10/2026",
+      "date_serial": 46310,
+      "amount": 100740.0,
+      "raw_payer": "ANIMESH BUILDERS",
+      "customer": "Animesh Builders",
+      "candidates": [
+        "Animesh Builders"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-15T04:45:21.539003+00:00",
+      "status": "matched"
     }
   ]
 }
