@@ -70,6 +70,8 @@ RECONNECT_AFTER = 15             # seconds before connecting again ("reconnect" 
 NO_CARDS_ALERT_EVERY = 600       # seconds: "no tank cards on the PC's screen" to Telegram at most this often
 RECONNECT_RUN = 12               # ... at most this many in a row of short sessions
 LONG_SESSION = 600               # a session this long resets that count
+LIVE_UPLOAD_TIMEOUT = 8          # seconds: a live upload gives up (the live read waits for it)
+LIVE_UPLOAD_BACKOFF = 30         # seconds: after the decant app couldn't be reached, before trying again
 PROBE_STALE_S = 180              # a card whose "Last Updated" time hasn't moved this long: frozen figures
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
@@ -547,11 +549,13 @@ class Station:
                 # no watched card readable: the PC shows something else; find the cards again
                 live["boxes"] = None
                 raise CaptureError("The tank cards were not on the screen.")
-            if changed:
-                send = changed if live["auto_upload"] else \
-                    {no: c for no, c in changed.items() if no in self.auto.to_upload()}
-                if send:
-                    self._live_upload(live, send, cfg)
+            # the changed figures, and those the decant app couldn't take before
+            wanted = lambda no: live["auto_upload"] or no in self.auto.to_upload()   # noqa: E731
+            pending = live.setdefault("pending", {})
+            send = {**{no: c for no, c in pending.items() if wanted(no)},
+                    **{no: c for no, c in changed.items() if wanted(no)}}
+            if send:
+                self._live_upload(live, send, cfg)
             live.pop("last_error", None)
             live.update(failed=0, last_read=now_iso(), last_png=png)
             live["reads"] += 1                        # counted once all of it is done
@@ -562,18 +566,40 @@ class Station:
             self._release()
 
     def _live_upload(self, live, changed, cfg) -> None:
-        """The figures alone to the decant app (no pictures while live)."""
+        """The figures alone to the decant app (no pictures while live). One the
+        app couldn't take (it couldn't be reached) is kept and sent again - a
+        steady tank's card isn't read again, so it would never go otherwise -
+        after a short pause, so a dead connection doesn't hold every read."""
+        pending = live.setdefault("pending", {})
+        if time.time() < live.get("upload_after", 0):
+            pending.update(changed)                    # (tried again after the pause)
+            return
         try:
-            results = self.decant.upload(changed, sorted(changed), cfg, only_volume=True)
+            results = self.decant.upload(changed, sorted(changed), cfg, only_volume=True,
+                                         timeout=LIVE_UPLOAD_TIMEOUT)
         except self.decant.DecantError as exc:
             results = {n: {"ok": False, "message": str(exc)} for n in changed}
         stamp = now_iso()
+        unreachable = False
         for no, r in results.items():
+            msg = r.get("message") or ""
+            retry = not r.get("ok") and ("could not be reached" in msg or "refused (5" in msg)
+            if retry:
+                pending[no] = changed[no]
+                unreachable = True
+                r = {**r, "message": f"{msg} (sent again when it answers)"}
+            else:
+                pending.pop(no, None)
             live["uploads"][str(no)] = {**{k: v for k, v in r.items() if k != "mark"}, "at": stamp}
+        live["upload_after"] = time.time() + LIVE_UPLOAD_BACKOFF if unreachable else 0
         bad = "; ".join(f"Tank {n}: {r['message']}" for n, r in sorted(results.items()) if not r.get("ok"))
-        if bad and bad != self.alerted:
-            self.notify(f"⚠️ Tank stock (live): {bad}")
-        self.alerted = bad
+        if bad and bad != self.alerted and not (unreachable and "could not be reached" in self.alerted):
+            self.notify(f"⚠️ Tank stock (live): {bad}" + (" The volumes are sent again when it answers."
+                                                         if unreachable else ""))
+        elif not bad and "could not be reached" in self.alerted:
+            self.notify("✅ Tank stock (live): the decant app answers again; the latest volumes are in it.")
+        if bad or not pending:
+            self.alerted = bad if bad else ""
 
     def _live_end(self, live, reason: str, final: bytes) -> None:
         ended = now_iso()

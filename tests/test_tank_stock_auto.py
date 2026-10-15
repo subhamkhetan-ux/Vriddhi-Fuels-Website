@@ -111,7 +111,7 @@ class Cloud:
         self.stock[tank_id] = dict(reading)
         return True
 
-    def upload(self, cards, tanks, cfg=None, now=None, only_volume=False):
+    def upload(self, cards, tanks, cfg=None, now=None, only_volume=False, timeout=30):
         self._up()
         cfg = cfg or self.settings()
         out = {}

@@ -540,3 +540,29 @@ def test_the_live_view_says_which_cards_are_frozen(station, monkeypatch):
     assert view["probes"]["3"]["frozen"] is True and "ticks" not in view
     station.stop_live()
     assert wait_for(lambda: station.live is None)
+
+
+def test_a_live_volume_the_decant_app_couldnt_take_is_sent_again_once_it_answers(station, monkeypatch):
+    monkeypatch.setattr(service, "LIVE_UPLOAD_BACKOFF", 0)
+    real, down = decant._rest, {"on": True}
+
+    def rest(method, path, body=None, prefer="", timeout=30):
+        if down["on"] and path.startswith("dec_tank_state"):
+            raise decant.DecantError("The decant database could not be reached (TimeoutError).")
+        return real(method, path, body, prefer, timeout)
+    monkeypatch.setattr(decant, "_rest", rest)
+    station.start_live({"tanks": [3], "auto_upload": True})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    live = station.live
+    assert "sent again when it answers" in live["uploads"]["3"]["message"] and 3 in live["pending"]
+    assert station.db.writes == []
+    warned = [m for m in station.alerts if "could not be reached" in m]
+    station._live_read(live)                                   # still down: the same card isn't read again ...
+    assert [m for m in station.alerts if "could not be reached" in m] == warned   # ... nor told again
+    down["on"] = False
+    station._live_read(live)                                   # the same screen: nothing changed on it
+    assert station.db.writes and station.db.writes[-1]["tank_id"] == "T3"        # but the volume went
+    assert live["pending"] == {} and live["uploads"]["3"]["ok"]
+    assert any("answers again" in m for m in station.alerts)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)

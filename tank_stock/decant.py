@@ -310,7 +310,7 @@ def volume_only(reading: dict) -> dict:
     return out
 
 
-def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) -> dict:
+def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False, timeout: int = 30) -> dict:
     """Save the given tanks' readings. {tank no: {"ok", "message", "tank_id"}}.
     Only a card the app would call "Checked" (high) or "Fixed & checked"
     (medium) is saved; an older reading never replaces a newer one."""
@@ -331,7 +331,8 @@ def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) ->
                        "message": "not saved: " + "; ".join(built["problems"] or ["check failed"])}
             continue
         reading = {**(volume_only(built["reading"]) if only_volume else built["reading"]), "savedAt": saved_at}
-        rows = _rest("GET", f"dec_tank_state?tank_id=eq.{urllib.parse.quote(tank['id'])}&select=reading") or []
+        rows = _rest("GET", f"dec_tank_state?tank_id=eq.{urllib.parse.quote(tank['id'])}&select=reading",
+                     timeout=timeout) or []
         current = rows[0].get("reading") if rows else None
         if current and _when(current) > _when(reading):
             out[no] = {"ok": False, "tank_id": tank["id"], "message": "the app already has a newer reading"}
@@ -345,13 +346,13 @@ def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) ->
                 current = {**current, **{k: reading[k] for k in VOLUME_ONLY_DROP if reading.get(k) is not None}}
                 _rest("POST", "dec_tank_state?on_conflict=tank_id",
                       [{"tank_id": tank["id"], "reading": current, "updated_at": saved_at}],
-                      prefer="resolution=merge-duplicates,return=minimal")
+                      prefer="resolution=merge-duplicates,return=minimal", timeout=timeout)
             out[no] = {"ok": True, "tank_id": tank["id"], "message": "already in the app", "unchanged": True,
                        "reading": current, "mark": {"readingAt": current["readingAt"], "volume": current["volume"]}}
             continue
         _rest("POST", "dec_tank_state?on_conflict=tank_id",
               [{"tank_id": tank["id"], "reading": reading, "updated_at": saved_at}],
-              prefer="resolution=merge-duplicates,return=minimal")
+              prefer="resolution=merge-duplicates,return=minimal", timeout=timeout)
         out[no] = {"ok": True, "tank_id": tank["id"], "reading": reading,
                    "mark": {"readingAt": reading["readingAt"], "volume": reading["volume"]},
                    "message": f"saved {reading['volume']:,.2f} L ({'Checked' if built['confidence'] == 'high' else 'Fixed & checked'})"}
