@@ -381,8 +381,10 @@ def best_subset(options: list, litres: float, prefer=()) -> list:
 def _work() -> dict:
     # save: write the session; before / after: [{"tank", "from"}] full reads to do;
     # peak: tanks whose screen now shows their highest settling stock (kept for
-    # an after read if sales come back); finish; events: [{"at", "text", "level"}]
-    return {"save": False, "before": [], "after": [], "peak": [], "finish": False, "events": []}
+    # an after read if sales come back); low: waiting tanks whose screen now shows
+    # their lowest stock (kept for a stock before if it sells just before
+    # decanting starts); finish; events: [{"at", "text", "level"}]
+    return {"save": False, "before": [], "after": [], "peak": [], "low": [], "finish": False, "events": []}
 
 
 class Decantation:
@@ -525,6 +527,7 @@ class Decantation:
         before = t["before"]["volume"]
         if st["low"] is None or v < st["low"][1]:
             st["low"] = [now, v]
+            work["low"].append(t["tank"])
         base = min(before, st["low"][1])
         if before - v >= SALE_L and now - st["beforeAskedAt"] >= BEFORE_EVERY:
             st["beforeAskedAt"] = now                    # it sold: read its stock before again
@@ -543,6 +546,8 @@ class Decantation:
                            "readingAt": iso(st["low"][0]), "timeRead": False, "confidence": "medium",
                            "note": "the live product volume just before decanting (it sold after the full read)"}
             self.s["data"]["before"][t["tank"]] = t["before"]
+            # and in full, with its picture, from the screen kept at that low
+            work["before"].append({"tank": t["tank"], "from": "low", "volume": round2(base)})
             self._say(work, f"{name}: it sold {before - base:,.0f} L after its stock was read; "
                             f"the stock before is now {base:,.2f} L.", now, "warn")
         t["stage"], t["startedAt"] = "decanting", iso(began)
@@ -740,7 +745,12 @@ class Decantation:
 
     def _waiting_long(self, now: float, work: dict) -> None:
         rows = self.s["data"]["tanks"]
-        if any(t["stage"] == "decanting" for t in rows):
+        if any(t["stage"] in ("decanting", "settling") for t in rows):
+            # one tank after another: a tank waits its turn while another
+            # decants or settles; its wait counts from when that is over
+            for t in rows:
+                if t["stage"] == "waiting":
+                    self._st(t, now)["waitSince"] = now
             return
         for t in rows:
             st = self._st(t, now)
@@ -749,12 +759,27 @@ class Decantation:
                 self._ask(t, "notstarted", 0, now, work)
 
     # -- the stock before / after, from full reads --
-    def set_before(self, tank_id: str, reading: dict, now: float | None = None) -> dict:
-        """A fresh full read of a tank still waiting (it sold since)."""
+    def set_before(self, tank_id: str, reading: dict, now: float | None = None, from_low: bool = False) -> dict:
+        """A fresh full read of a tank still waiting (it sold since); or, with
+        ``from_low``, the full read of the screen kept at its lowest stock just
+        before decanting began (its stock before, from the live figure until now)."""
         now = now or time.time()
         work = _work()
         t = self.row(tank_id)
-        if not t or t["stage"] != "waiting" or not reading or reading.get("volume") is None:
+        if not t or not reading or reading.get("volume") is None:
+            return work
+        if from_low:
+            if t["stage"] not in ("decanting", "settling") or not t.get("before") or \
+                    abs(reading["volume"] - t["before"]["volume"]) > STILL_L:
+                return work                                # not that screen's stock: the live figure stays
+            t["before"] = reading
+            self.s["data"]["before"][tank_id] = reading
+            work["save"] = True
+            self._sync_auto()
+            self._say(work, f"Tank {t['tankNo']}: stock before read in full from the screen just before "
+                            f"decanting: {reading['volume']:,.2f} L.", now)
+            return work
+        if t["stage"] != "waiting":
             return work
         st = self._st(t, now)
         if reading["volume"] - (st["low"][1] if st["low"] else reading["volume"]) >= START_RISE_L:

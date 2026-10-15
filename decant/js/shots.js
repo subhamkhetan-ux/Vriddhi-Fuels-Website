@@ -3,15 +3,16 @@
 // (IndexedDB) and also put in the cloud: the picture, shrunk, in the private
 // storage bucket `dec-shots`, and a `dec_shots` row with the readings it gave.
 // The tank-stock agent (tank_stock/ on the India server) adds its own the
-// same way. A result made on any phone that day finds them; a day's are
-// deleted the next day, here and in the cloud, by the first phone that looks.
+// same way. A result made on any phone that day finds them - or the next day,
+// for a decantation that ran past midnight; older ones are deleted, here and
+// in the cloud, by the first phone that looks.
 
 import { istDate } from './core.js';
 import { cloudClient } from './store.js';
 
 const DB = 'vriddhi-decant-shots';     // not 'vriddhi-decant': store.js clears that old one
 const STORE = 'shots';
-const KEEP = 40;                       // a day's most; the oldest go first
+const KEEP = 80;                       // today's and yesterday's most; the oldest go first
 const BUCKET = 'dec-shots';
 const MAX_SIDE = 1600;                 // px: the figures stay readable, the file small
 const mem = [];                        // without IndexedDB (a private tab): this visit only
@@ -43,18 +44,22 @@ function run(db, mode, fn) {
   });
 }
 
-// Today's screenshots on this phone, oldest first; earlier days' are deleted on the way.
+// The first day whose screenshots are kept: yesterday (a decantation that
+// ran past midnight still finds its stock before's).
+const keptFrom = () => istDate(Date.now() - 86400000);
+
+// Today's and yesterday's screenshots on this phone, oldest first; older ones are deleted on the way.
 async function todays() {
-  const today = istDate(Date.now());
-  for (let i = mem.length - 1; i >= 0; i -= 1) if (mem[i].day !== today) mem.splice(i, 1);
+  const from = keptFrom();
+  for (let i = mem.length - 1; i >= 0; i -= 1) if (mem[i].day < from) mem.splice(i, 1);
   const db = await openDb();
   let rows = [];
   if (db) {
     try { rows = (await run(db, 'readonly', (s) => s.getAll())) || []; } catch { rows = []; }
-    const old = rows.filter((r) => r.day !== today);
+    const old = rows.filter((r) => r.day < from);
     if (old.length) run(db, 'readwrite', (s) => { old.forEach((r) => s.delete(r.id)); }).catch(() => {});
   }
-  return [...rows.filter((r) => r.day === today), ...mem].sort((a, b) => a.at - b.at);
+  return [...rows.filter((r) => r.day >= from), ...mem].sort((a, b) => a.at - b.at);
 }
 
 // A JPEG no bigger than MAX_SIDE (the original if it can't be redrawn here).
@@ -127,7 +132,7 @@ async function cloudTodays() {
   if (!client) return [];
   try {
     const { data, error } = await client.from('dec_shots').select('id,day,at,readings,path')
-      .eq('day', istDate(Date.now())).order('at').limit(200);
+      .gte('day', keptFrom()).order('at').limit(400);
     if (error) return [];
     return (data || []).map((r) => ({ ...r, at: Date.parse(r.at), readings: r.readings || {}, cloud: true }));
   } catch {
@@ -193,18 +198,18 @@ export async function shotsFor(rows) {
 async function tidyCloud() {
   const client = cloudClient();
   if (!client) return;
-  const today = istDate(Date.now());
+  const from = keptFrom();
   const store = client.storage.from(BUCKET);
-  const { data: old } = await client.from('dec_shots').select('id,path').lt('day', today).limit(500);
+  const { data: old } = await client.from('dec_shots').select('id,path').lt('day', from).limit(500);
   const paths = new Set((old || []).map((r) => r.path));
   const { data: folders } = await store.list('', { limit: 100 });
   for (const f of folders || []) {
-    if (!/^\d{4}-\d\d-\d\d$/.test(f.name) || f.name >= today) continue;
+    if (!/^\d{4}-\d\d-\d\d$/.test(f.name) || f.name >= from) continue;
     const { data: files } = await store.list(f.name, { limit: 1000 });
     for (const x of files || []) paths.add(`${f.name}/${x.name}`);
   }
   if (paths.size) await store.remove([...paths]);
-  if (old?.length) await client.from('dec_shots').delete().lt('day', today);
+  if (old?.length) await client.from('dec_shots').delete().lt('day', from);
 }
 
 // On opening the app: clear earlier days' screenshots (here and in the

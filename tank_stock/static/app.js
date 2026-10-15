@@ -294,10 +294,12 @@
       grid.appendChild(cell);
       tank.appendChild(grid);
       const said = [...(f?.problems || [])];
+      const probe = live.probes?.[no];
+      if (probe?.frozen) said.unshift(`⚠ The card isn't updating on the PC (since ${clock(probe.since)}): its figures may be frozen (probe, ATG or FuelTrans offline?).`);
       const u = live.uploads?.[no];
       if (u) said.push(`Decant (${clock(u.at)}): ${u.message}`);
       if (!f) said.push("Not read yet.");
-      if (said.length) tank.appendChild(el("div", "note" + ((f?.problems || []).length || (u && !u.ok) ? " err" : ""), said.join(" · ")));
+      if (said.length) tank.appendChild(el("div", "note" + ((f?.problems || []).length || (u && !u.ok) || probe?.frozen ? " err" : ""), said.join(" · ")));
       box.appendChild(tank);
     }
   }
@@ -339,15 +341,19 @@
       if (ACTIVE.includes(a.phase)) return;
     }
     if (!setup) {
-      box.appendChild(el("div", "note", "Give the plan once — which chamber goes into which tank — and the agent does the rest: "
+      box.appendChild(el("div", "note", "Pick the truck's invoice and which chamber goes into which tank, and press Start: "
         + "it reads each tank's stock before, follows the stock as the chambers go in, waits for it to settle, reads the stock "
         + "after and finishes the decantation in the decant app. It asks here (and on Telegram) if the stock says something "
         + "the plan didn't."));
       const row = el("div", "row");
-      const b = el("button", "main", "Set up a decantation");
+      const b = el("button", "main", "Start a decantation");
       b.disabled = !state?.login_saved;
       b.addEventListener("click", openSetup);
       row.appendChild(b);
+      const img = el("button", "alt", "Tank stock image");
+      img.disabled = !state?.login_saved;
+      img.addEventListener("click", () => captureTanks([...picked]));
+      row.appendChild(img);
       if (a && !ACTIVE.includes(a.phase)) {
         const c = el("button", "alt", "Clear");
         c.addEventListener("click", () => autoAct("clear"));
@@ -405,6 +411,7 @@
     box.appendChild(sel);
     const inv = options.invoices.find((i) => i.invoice_no === setup.invoice);
     if (!inv) return;
+    box.appendChild(stockTable(options));
     const list = el("div");
     for (const c of inv.chambers) {
       const r = el("div", "plan-row");
@@ -447,7 +454,11 @@
     });
     const back = el("button", "alt", "Close");
     back.addEventListener("click", () => { setup = null; renderAuto(); });
-    row.append(go, back);
+    const planned = [...new Set(Object.values(setup.plan).filter(Boolean))]
+      .map((id) => options.tanks.find((t) => t.id === id)?.no).filter(Boolean);
+    const img = el("button", "alt", planned.length ? `Tank stock image (Tank ${planned.sort().join(", ")})` : "Tank stock image");
+    img.addEventListener("click", () => captureTanks(planned.length ? planned : [...picked]));
+    row.append(go, img, back);
     box.appendChild(row);
   }
 
@@ -462,9 +473,10 @@
     if (a.phase === "starting") notes.push(`${a.step ? a.step[0].toUpperCase() + a.step.slice(1) : "Starting"}…`);
     if (a.reconnect) notes.push(`AnyDesk session lost (${a.lost?.reason || ""}): connecting again, try ${a.reconnect.tries}.`);
     if (a.stale) notes.push(a.stale + ".");
+    if (a.frozen) notes.push(a.frozen);
     if (a.cloud_error) notes.push(`Decant app: ${a.cloud_error} (saved when it's back).`);
     if (a.error) notes.push(a.error);
-    if (notes.length) box.appendChild(el("div", "note" + (a.error || a.cloud_error || a.stale || a.reconnect ? " err" : ""), notes.join(" ")));
+    if (notes.length) box.appendChild(el("div", "note" + (a.error || a.cloud_error || a.stale || a.reconnect || a.frozen ? " err" : ""), notes.join(" ")));
     if (!run) { return actions(box, a, null); }
     for (const q of run.questions || []) box.appendChild(question(q));
     for (const t of run.tanks) box.appendChild(tankCard(t, run, a));
@@ -536,6 +548,13 @@
       lines.push(t.settleLeft > 0 ? `settling: ${Math.ceil(t.settleLeft / 60)} min to go` : `settling: waiting for it to be steady (moved ${fmt(t.spread, 1)} L)`);
     }
     card.appendChild(el("div", "note", lines.join(" · ")));
+    const probe = state?.live?.probes?.[t.no];
+    if (probe && ACTIVE.includes(a.phase) && t.stage !== "read") {
+      card.appendChild(el("div", `probe ${probe.frozen ? "no" : "ok"}`, probe.frozen
+        ? `⚠ Card frozen on the PC since ${clock(probe.since)}: nothing is taken from it until it updates.`
+        : "Card updating on the PC ✓"));
+    }
+    card.appendChild(proofs(t, a));
     if (["decanting", "settling", "read"].includes(t.stage) && t.litres && t.rise != null) {
       const bar = el("div", "bar");
       const fill = el("span");
@@ -569,8 +588,83 @@
     return card;
   }
 
+  // Each tank's stock before / after: the zoomed card the agent read it from,
+  // its figures, and whether the decant app has the picture for its result.
+  function proofs(t, a) {
+    const box = el("div", "proofs");
+    const pr = a.proofs?.[t.tank] || {};
+    for (const which of ["before", "after"]) {
+      const p = pr[which];
+      const cell = el("div", "proof");
+      cell.appendChild(el("span", "label", which === "before" ? "Stock before" : "Stock after"));
+      if (!p) {
+        cell.appendChild(el("div", "meta", which === "before" ? "read when it starts" : "read once it has settled"));
+        box.appendChild(cell);
+        continue;
+      }
+      cell.appendChild(el("div", "value", p.volume == null ? "–" : `${fmt(p.volume, 2)} L`));
+      const meta = [p.readingAt ? clock(p.readingAt) : "", p.height != null ? `${fmt(p.height / 10, 1)} cm` : "",
+        p.density ? `${fmt(p.density, 1)} kg/m³` : "", p.temp ? `${fmt(p.temp, 1)} °C` : ""].filter(Boolean);
+      if (meta.length) cell.appendChild(el("div", "meta", meta.join(" · ")));
+      if (p.picture) {
+        const src = `api/auto/proof?tank=${encodeURIComponent(t.tank)}&which=${which}&v=${encodeURIComponent(p.at || "")}`;
+        const link = el("a");
+        link.href = src;
+        link.target = "_blank";
+        link.rel = "noopener";
+        const img = el("img");
+        img.src = src;
+        img.alt = `Tank ${t.no} stock ${which} on the automation screen`;
+        img.loading = "lazy";
+        link.appendChild(img);
+        cell.appendChild(link);
+        const pf = el("div", `pf ${p.cloud ? "ok" : "mid"}`, p.cloud ? "✓ Proof in the decant app" : "Saving the proof to the decant app…");
+        const save = el("a", "save", "Save");
+        save.href = src;
+        save.download = `Tank ${t.no} stock ${which} ${(p.readingAt || "").slice(0, 16).replace("T", " ").replace(":", "-")}.jpg`;
+        pf.appendChild(save);
+        cell.appendChild(pf);
+      } else {
+        cell.appendChild(el("div", "pf no", `No picture: ${p.note || "the card couldn't be pictured"}`));
+      }
+      box.appendChild(cell);
+    }
+    return box;
+  }
+
+  // The tanks' latest stock in the decant app, for the plan.
+  function stockTable(options) {
+    const tbl = el("table", "stocks");
+    for (const tk of options.tanks) {
+      const tr = el("tr");
+      tr.appendChild(el("td", "", `Tank ${tk.no} · ${NAMES[tk.product] || tk.product}${tk.busy ? " (busy)" : ""}`));
+      tr.appendChild(el("td", "n", tk.volume == null ? "no stock yet" : `${fmt(tk.volume, 0)} L`));
+      const room = tk.volume == null ? null : (tk.fillTo || tk.capacity) - tk.volume;
+      tr.appendChild(el("td", "n", room == null ? "" : `${fmt(room, 0)} L room`));
+      tr.appendChild(el("td", "n note", tk.readingAt ? ago(tk.readingAt) : ""));
+      tbl.appendChild(tr);
+    }
+    return tbl;
+  }
+
+  // A fresh picture of these tanks (from the open live session if there is one).
+  async function captureTanks(nos) {
+    picked = new Set(nos);
+    keep("ts-picked", [...picked]);
+    chips($("pick"), picked, () => { keep("ts-picked", [...picked]); renderResult(); });
+    await start(false);
+    $("result").hidden = false;
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function actions(box, a, run) {
     const row = el("div", "row");
+    const nos = (run?.tanks || []).map((t) => t.no).filter(Boolean);
+    if (nos.length) {
+      const img = el("button", "alt", `Tank stock image (Tank ${nos.join(", ")})`);
+      img.addEventListener("click", () => captureTanks(nos));
+      row.appendChild(img);
+    }
     if (a.phase === "paused") {
       const b = el("button", "main", "Connect again");
       b.addEventListener("click", () => autoAct("reconnect"));

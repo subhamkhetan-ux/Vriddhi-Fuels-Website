@@ -19,6 +19,13 @@ and waits for the answer. A phone can still do anything in the decant app
 meanwhile: the agent takes the app's copy over when it is newer. If AnyDesk
 ends the session, it connects again; if the service restarts, it carries on
 from ``decantation.json``. "Hand over" leaves the decantation to the app.
+
+Fail-safes: a tank's card whose "Last Updated" time stops moving has frozen
+figures (probe, ATG or FuelTrans down) that look like a settled tank, so a
+run won't start on one and nothing is taken from one while it runs (the stock
+after waits until it updates). Each stock before / after keeps its tank's
+zoomed card here (the page shows it) and in the decant app (for the result
+picture), sent again until the app takes it.
 """
 from __future__ import annotations
 
@@ -39,6 +46,11 @@ RECONNECT = (15, 30, 60, 120, 300)   # seconds between tries to connect again
 RECONNECT_FOR = 3 * 3600   # then it pauses ("Connect again" on the page)
 STALE_S = 120              # a planned tank without a reading this long: say so
 TELEGRAM_LEVELS = ("ask", "warn", "done")
+PROBE_STALE_S = 180        # a planned tank whose card's clock hasn't moved this long: its figures are frozen
+PROBE_START_WAIT = 75      # seconds for each planned tank's clock to move before the stock before
+PROOF_DIR = "auto-proof"   # each run's stock before / after pictures, per tank
+PROOF_RUNS_KEPT = 10       # runs whose pictures stay on the server
+PROOF_RETRY_S = 60         # a picture the decant app didn't take: try again this often
 
 
 class AutoError(ValueError):
@@ -53,9 +65,11 @@ class AutoDecant:
         self.run = dz.Decantation.from_json(data["run"]) if data.get("run") else None
         self.info = data.get("info") or {}
         self.screens = {}                     # tank id -> the screen at its settling peak
+        self.lows = {}                        # tank id -> the screen at its lowest stock while waiting
         self.abort = threading.Event()
         self.reconnecting = None              # the thread connecting again, while it runs
         self._view = None                     # the page's last view
+        self.probes = {}                      # tank id -> {"fp", "at"}: when its card's clock last moved
 
     # ---- state -----------------------------------------------------------
     @property
@@ -73,7 +87,7 @@ class AutoDecant:
     def _set(self, phase: str, **info) -> None:
         self.info.update(phase=phase, at=_now(), **info)
         if phase not in ACTIVE:
-            self.screens = {}                    # (the screens kept for a stock after)
+            self.screens, self.lows = {}, {}     # (the screens kept for a stock before / after)
         self._persist()
 
     def watched(self) -> set:
@@ -161,10 +175,12 @@ class AutoDecant:
             blocking = [b for b in chk["blocking"] if not b.startswith("Add Tank")]
             if blocking:
                 raise AutoError(blocking[0])
-            self.run, self.screens = None, {}
+            self.run, self.screens, self.probes, self.lows = None, {}, {}, {}
             self.abort.clear()
             self.info = {"invoice_no": invoice_no, "tt_no": inv.get("tt_no"), "plan": {str(k): v for k, v in plan.items()},
-                         "started": _now(), "error": "", "log": []}
+                         "started": _now(), "error": "", "log": [], "proof_id": str(int(time.time() * 1000)),
+                         "proofs": {}}
+            self._prune_proofs()
             self._set("starting", step="connecting to the PC")
         threading.Thread(target=self._starting, args=(invoice_no, rows), daemon=True, name="auto-start").start()
         return self.view()
@@ -172,8 +188,10 @@ class AutoDecant:
     def _starting(self, invoice_no, rows) -> None:
         try:
             live = self._ensure_live()
-            self._step("reading the stock before")
             tanks = sorted({self._no(r["tank"]) for r in rows if r.get("tank")})
+            self._step("checking each tank's card is updating on the PC")
+            self._probes_alive(live, tanks)
+            self._step("reading the stock before")
             before = self._full_before(live, tanks)
             if self.abort.is_set():
                 raise AutoError("Cancelled.")
@@ -234,6 +252,40 @@ class AutoDecant:
         raise AutoError(f"The PC's tank screen wasn't read within {FIRST_READ_WAIT // 60} minutes "
                         f"({live.get('last_error') or 'still connecting'}).")
 
+    def _probes_alive(self, live, tanks) -> None:
+        """Each planned tank's card is live on the PC: its "Last Updated" time
+        moves. A frozen card (the probe, the ATG or FuelTrans' link down) would
+        give a stock before - and later a stock after - that isn't real."""
+        first = {no: ((live.get("ticks") or {}).get(no) or {}).get("fp") for no in tanks}
+        if not any(first.values()):
+            return                               # (no clock seen on the cards: nothing to tell)
+        until = time.monotonic() + PROBE_START_WAIT
+        while True:
+            ticks = live.get("ticks") or {}
+            still = [no for no in tanks if first.get(no) and (ticks.get(no) or {}).get("fp") == first[no]]
+            if not still:
+                return
+            if self.abort.is_set():
+                raise AutoError("Cancelled.")
+            if self.st.live is not live:
+                raise AutoError(f"Live monitoring ended: {(self.st.live_last or {}).get('reason') or 'it stopped'}.")
+            if time.monotonic() >= until:
+                names = " and ".join(f"Tank {n}" for n in still)
+                raise AutoError(f"{names}: the card on the PC isn't updating (its \u201cLast Updated\u201d time hasn't "
+                                f"moved for over {PROBE_START_WAIT} s), so its figures may be frozen: the probe, the ATG "
+                                "or FuelTrans may be offline. Not started, so no stock is taken from frozen figures.")
+            time.sleep(0.5)
+
+    def _frozen(self, tank_id: str, tick: dict | None, now: float) -> bool:
+        """Has this tank's card clock stopped for PROBE_STALE_S (by this run's clock)?"""
+        if not tick or not tick.get("fp"):
+            return False
+        p = self.probes.get(tank_id)
+        if not p or p["fp"] != tick["fp"]:
+            self.probes[tank_id] = {"fp": tick["fp"], "at": now}
+            return False
+        return now - p["at"] >= PROBE_STALE_S
+
     def _full_before(self, live, tanks) -> dict:
         """Each planned tank's stock before, read in full and saved to the app."""
         got, problems = {}, {}
@@ -243,6 +295,7 @@ class AutoDecant:
             for no, r in self.st.full_read(png, want, "automatic decantation: stock before").items():
                 if r["reading"]:
                     got[self._id(no)] = r["reading"]
+                    self._keep_proof(self._id(no), "before", r)
                 else:
                     problems[no] = r["problem"]
             if len(got) == len(tanks):
@@ -281,19 +334,26 @@ class AutoDecant:
                 if not self._sync(now):
                     return
             cfg = live.get("cfg") or {}
-            volumes = {}
+            volumes, frozen = {}, []
             fed = self.info.setdefault("fed", {})
+            ticks = live.get("ticks") or {}
+            open_ = {t["tank"] for t in self.run.s["data"]["tanks"] if t["stage"] != "read"}
             for no, f in (live.get("figures") or {}).items():
                 vol = (f.get("reading") or {}).get("volume")
                 if vol is None or f.get("confidence") == "low":
                     continue
                 tank = self.st.decant.tank_for(int(no), cfg) if cfg else None
                 tank_id = tank["id"] if tank else self._id(int(no))
-                volumes[tank_id] = vol
                 fed[tank_id] = now
+                if tank_id in open_ and self._frozen(tank_id, ticks.get(int(no)), now):
+                    frozen.append(int(no))             # frozen figures look steady: never feed them
+                    continue
+                volumes[tank_id] = vol
             work = self.run.feed(volumes, now)
             self._do(work, live, now)
             self._stale(now)
+            self._frozen_note(frozen, now)
+            self._retry_proofs(now)
             self._persist()
 
     def _do(self, work: dict, live, now: float) -> None:
@@ -301,12 +361,22 @@ class AutoDecant:
         for tank in work["peak"]:
             if live and live.get("last_png"):
                 self.screens[tank] = live["last_png"]
+        for tank in work.get("low", []):
+            if live and live.get("last_png"):
+                self.lows[tank] = live["last_png"]
         for b in work["before"]:
-            r = self.st.full_read(live.get("last_png"), [self._no(b["tank"])],
-                                  "automatic decantation: stock before (it sold)")
+            from_low = b.get("from") == "low"
+            png = self.lows.get(b["tank"]) if from_low else (live or {}).get("last_png")
+            if not png:
+                continue
+            r = self.st.full_read(png, [self._no(b["tank"])],
+                                  "automatic decantation: stock before" + (" (just before decanting)" if from_low else " (it sold)"))
             res = next(iter(r.values()), {})
             if res.get("reading"):
-                self._merge(work, self.run.set_before(b["tank"], res["reading"], now))
+                more = self.run.set_before(b["tank"], res["reading"], now, from_low=from_low)
+                if more["save"]:
+                    self._keep_proof(b["tank"], "before", res)
+                self._merge(work, more)
         for a in work["after"]:
             self._after(a, live, work, now)
         if work["save"]:
@@ -344,6 +414,13 @@ class AutoDecant:
         if png:
             r = self.st.full_read(png, [no], "automatic decantation: stock after").get(no) or {}
             reading = r.get("reading")
+            if reading:
+                self._keep_proof(tank, "after", r)
+        if not reading:
+            # the stock after from the live figures: no picture to prove it
+            self.info.setdefault("proofs", {}).setdefault(tank, {})["after"] = {
+                "picture": False, "cloud": False, "at": _now(),
+                "volume": (fallback or {}).get("volume"), "note": "from the live figures (the card couldn't be read in full)"}
         self._merge(work, self.run.read_after(tank, reading, fallback=fallback, note=note, now=now))
 
     def _live_reading(self, tank_id, volume, at) -> dict | None:
@@ -368,9 +445,11 @@ class AutoDecant:
     def _finished(self, now: float) -> None:
         if self._save(now, force=True):
             self.info["error"] = ""
+            self._retry_proofs(now, force=True)
             self._set("finished")
             self._tell(f"✅ Decantation finished and saved in the decant app: {self._title()}.\n"
                        + "\n".join(self.info.get("result") or []))
+            self._send_sheet()
             self._stop_live_if_ours()
         else:
             self.info["error"] = "Finished, but the decant app couldn't be reached: it is saved as soon as it can be."
@@ -387,6 +466,101 @@ class AutoDecant:
         if text and text != self.info.get("stale"):
             self._tell(f"⚠️ {self._title()}: {text} (the card isn't readable).")
         self.info["stale"] = text
+
+    def _frozen_note(self, frozen: list, now: float) -> None:
+        text = ""
+        if frozen:
+            names = " and ".join(f"Tank {n}" for n in sorted(frozen))
+            text = (f"{names}: the card on the PC hasn't updated for {PROBE_STALE_S // 60}+ min (probe, ATG or "
+                    "FuelTrans offline?). Its figures are frozen, so nothing is taken from them: the stock after waits "
+                    "until the card updates again.")
+        if text and text != self.info.get("frozen"):
+            self.run.log(text, now, "warn")
+            self._tell(f"⚠️ {self._title()}: {text}")
+        elif not text and self.info.get("frozen"):
+            self.run.log("The tank cards on the PC are updating again.", now, "info")
+            self._tell(f"🤖 {self._title()}: the tank cards on the PC are updating again.")
+        self.info["frozen"] = text
+
+    # ---- the stock before / after pictures --------------------------------------
+    def _proof_path(self, tank_id: str, which: str):
+        pid = "".join(ch for ch in str(self.info.get("proof_id") or "") if ch.isdigit())
+        tid = "".join(ch for ch in str(tank_id) if ch.isalnum())
+        if not pid or not tid or which not in ("before", "after"):
+            return None
+        return self.st.home / PROOF_DIR / pid / f"{tid}-{which}.jpg"
+
+    def _keep_proof(self, tank_id: str, which: str, res: dict) -> None:
+        """This tank's zoomed card for its stock before / after: kept here for
+        the page, and in the decant app for the result picture (tried again
+        until it takes it)."""
+        reading, jpeg = res.get("reading") or {}, res.get("jpeg") or b""
+        path = self._proof_path(tank_id, which)
+        if path and jpeg:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(jpeg)
+            except OSError:
+                traceback.print_exc()
+                jpeg = b""
+        self.info.setdefault("proofs", {}).setdefault(tank_id, {})[which] = {
+            "picture": bool(jpeg), "cloud": bool(res.get("cloud")), "at": _now(), "tried": time.time(),
+            "volume": reading.get("volume"), "readingAt": reading.get("readingAt"), "height": reading.get("height"),
+            "density": reading.get("density"), "temp": reading.get("temp")}
+
+    def _retry_proofs(self, now: float, force: bool = False) -> None:
+        for tank_id, both in (self.info.get("proofs") or {}).items():
+            for which, p in both.items():
+                if p.get("cloud") or not p.get("picture") or p.get("volume") is None or not p.get("readingAt"):
+                    continue
+                if not force and now - (p.get("tried") or 0) < PROOF_RETRY_S:
+                    continue
+                p["tried"] = now
+                path = self._proof_path(tank_id, which)
+                try:
+                    self.st.decant.save_proof(path.read_bytes(), {tank_id: {"readingAt": p["readingAt"],
+                                                                            "volume": p["volume"]}})
+                    p["cloud"] = True
+                except (OSError, AttributeError, self.st.decant.DecantError):
+                    pass
+
+    def proof_picture(self, tank_id: str, which: str) -> bytes:
+        """For the page: the run's picture of a tank's stock before / after."""
+        if not ((self.info.get("proofs") or {}).get(tank_id) or {}).get(which, {}).get("picture"):
+            return b""
+        path = self._proof_path(tank_id, which)
+        try:
+            return path.read_bytes() if path else b""
+        except OSError:
+            return b""
+
+    def _send_sheet(self) -> None:
+        """The stock before and after of every tank, one picture, to the bot (privately)."""
+        from .cards import _join
+        rows = []
+        for t in (self.run.s["data"]["tanks"] if self.run else []):
+            files = [str(p) for w in ("before", "after") if (p := self._proof_path(t["tank"], w)) and p.exists()]
+            if files:
+                row = _join(files, across=True)
+                if row:
+                    rows.append(row)
+        sheet = _join(rows, across=False, data=True) if len(rows) > 1 else (rows[0] if rows else b"")
+        if not sheet:
+            return
+        try:
+            self.st.notify_photo(sheet, f"Stock before | after: {self._title()}")
+        except Exception:  # noqa: BLE001 - a nice-to-have
+            traceback.print_exc()
+
+    def _prune_proofs(self) -> None:
+        import shutil
+        root = self.st.home / PROOF_DIR
+        try:
+            runs = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name)
+        except OSError:
+            return
+        for old in runs[:-PROOF_RUNS_KEPT]:
+            shutil.rmtree(old, ignore_errors=True)
 
     # ---- the decant app's copy ----------------------------------------------
     def _sync(self, now: float) -> bool:

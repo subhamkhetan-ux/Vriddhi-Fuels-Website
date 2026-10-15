@@ -118,6 +118,21 @@ def test_upload_saves_checked_tanks_and_never_replaces_a_newer_reading(monkeypat
     assert db.writes[0]["reading"]["savedAt"] == db.writes[0]["updated_at"]
     again = decant.upload({3: CARD3}, [3], CFG)
     assert again[3]["message"] == "already in the app" and len(db.writes) == 1
+    assert again[3]["mark"] == {"readingAt": "2026-10-13T18:01:54+05:30", "volume": 19552.05}   # its picture still goes
+
+
+def test_a_full_read_of_a_reading_live_monitoring_sent_fills_in_its_figures(monkeypatch):
+    db = FakeDB()
+    monkeypatch.setattr(decant, "_rest", db)
+    monkeypatch.setattr(decant, "_http", db.http)
+    decant.upload({3: CARD3}, [3], CFG, only_volume=True)                   # live monitoring: the volume alone
+    assert db.rows["T3"]["height"] is None
+    again = decant.upload({3: CARD3}, [3], CFG, only_volume=True)          # live again: nothing to do
+    assert again[3]["message"] == "already in the app" and len(db.writes) == 1
+    full = decant.upload({3: CARD3}, [3], CFG)                              # a full read (stock before / after)
+    assert full[3]["ok"] and full[3]["mark"]["volume"] == 19552.05
+    assert db.rows["T3"]["height"] == CARD3["height"] and db.rows["T3"]["volume"] == 19552.05
+    assert db.rows["T3"]["readingAt"] == full[3]["mark"]["readingAt"]      # the same reading, its picture matches
 
 
 class FakeSession:
@@ -219,9 +234,14 @@ def test_capture_connects_reads_and_disconnects_without_uploading(station):
 def test_earlier_days_proof_pictures_are_dropped(station):
     station.db.shots.append({"id": "old", "day": "2000-01-01", "path": "2000-01-01/old.jpg", "readings": {}})
     station.db.files["2000-01-01/old.jpg"] = (b"x", "image/jpeg")
+    yesterday = decant.ist_day(service.datetime.now(service.timezone.utc) - service.timedelta(days=1))
+    station.db.shots.append({"id": "yday", "day": yesterday, "path": f"{yesterday}/yday.jpg", "readings": {}})
+    station.db.files[f"{yesterday}/yday.jpg"] = (b"y", "image/jpeg")
     station.capture([3], upload=True)
     assert "old" not in [s["id"] for s in station.db.shots]
-    assert "2000-01-01/old.jpg" not in station.db.files and len(station.db.files) == 1
+    assert "2000-01-01/old.jpg" not in station.db.files
+    # yesterday's stay: a decantation that ran past midnight still has its stock before's
+    assert "yday" in [s["id"] for s in station.db.shots] and len(station.db.files) == 2
 
 
 def test_send_for_decantation_uploads_and_ends_live_monitoring(station):
@@ -482,3 +502,67 @@ def test_the_page_in_front_of_someone_keeps_live_monitoring_on(station, monkeypa
     station.seen_at = time.time() - 120
     live["since"] = (service.datetime.now(service.IST) - service.timedelta(seconds=120)).isoformat()
     assert station._unwatched(live)
+
+
+def test_stock_for_a_decantation_gets_its_picture_although_live_monitoring_sent_it(station):
+    station.start_live({"tanks": [3], "auto_upload": True})                  # live: sends the volume alone
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1 and station.db.writes)
+    assert station.db.shots == [] and station.db.files == {}                 # live monitoring: no pictures
+    station.capture([3], decantation=True)                                   # the stock for the decantation
+    (shot,) = station.db.shots
+    reading = station.db.rows["T3"]
+    assert shot["readings"] == {"T3": {"readingAt": reading["readingAt"], "volume": reading["volume"]}}
+    assert reading["height"] is not None                                     # its full figures too
+    assert station.last["proof"]["ok"]
+    assert wait_for(lambda: station.live is None)
+
+
+def test_the_card_clock_print_follows_the_last_updated_row_not_the_volume():
+    from types import SimpleNamespace
+    w, h, box = 50, 100, (0, 0, 50, 100)
+    def px(time_px=0, volume_px=0):
+        raw = bytearray(w * h * 3)
+        raw[(40 * w + 5) * 3] = time_px              # row 40: "Last Updated" (36%..50% of the card)
+        raw[(60 * w + 5) * 3] = volume_px            # row 60: the volume rows
+        return SimpleNamespace(width=w, height=h, raw=bytes(raw))
+    base = cards.clock_print(px(), box)
+    assert cards.clock_print(px(time_px=9), box) != base             # the time ticked
+    assert cards.clock_print(px(volume_px=9), box) == base           # only the stock changed
+    assert cards.fingerprint(px(time_px=9), box) == cards.fingerprint(px(), box)   # (and the other way round)
+
+
+def test_the_live_view_says_which_cards_are_frozen(station, monkeypatch):
+    monkeypatch.setattr(service.cards_mod, "clock_print", lambda px, box: "same")
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    station.live["ticks"][3]["t"] -= service.PROBE_STALE_S + 1
+    view = station.live_view()
+    assert view["probes"]["3"]["frozen"] is True and "ticks" not in view
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_a_live_volume_the_decant_app_couldnt_take_is_sent_again_once_it_answers(station, monkeypatch):
+    monkeypatch.setattr(service, "LIVE_UPLOAD_BACKOFF", 0)
+    real, down = decant._rest, {"on": True}
+
+    def rest(method, path, body=None, prefer="", timeout=30):
+        if down["on"] and path.startswith("dec_tank_state"):
+            raise decant.DecantError("The decant database could not be reached (TimeoutError).")
+        return real(method, path, body, prefer, timeout)
+    monkeypatch.setattr(decant, "_rest", rest)
+    station.start_live({"tanks": [3], "auto_upload": True})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    live = station.live
+    assert "sent again when it answers" in live["uploads"]["3"]["message"] and 3 in live["pending"]
+    assert station.db.writes == []
+    warned = [m for m in station.alerts if "could not be reached" in m]
+    station._live_read(live)                                   # still down: the same card isn't read again ...
+    assert [m for m in station.alerts if "could not be reached" in m] == warned   # ... nor told again
+    down["on"] = False
+    station._live_read(live)                                   # the same screen: nothing changed on it
+    assert station.db.writes and station.db.writes[-1]["tank_id"] == "T3"        # but the volume went
+    assert live["pending"] == {} and live["uploads"]["3"]["ok"]
+    assert any("answers again" in m for m in station.alerts)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)

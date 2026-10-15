@@ -104,13 +104,15 @@ def save_proof(jpeg: bytes, marks: dict, now=None) -> str:
 
 
 def drop_old_proofs(now=None) -> int:
-    """Delete earlier days' screenshots (rows and files). Returns how many."""
-    today = ist_day(now)
-    rows = _rest("GET", f"dec_shots?day=lt.{today}&select=id,path&limit=500") or []
+    """Delete the screenshots from before yesterday (rows and files): a
+    decantation that ran past midnight still finds its stock before's, as
+    the app does (decant/js/shots.js). Returns how many."""
+    keep_from = ist_day((now or datetime.now(timezone.utc)) - timedelta(days=1))
+    rows = _rest("GET", f"dec_shots?day=lt.{keep_from}&select=id,path&limit=500") or []
     if rows:
         _http("DELETE", f"storage/v1/object/{BUCKET}", json.dumps({"prefixes": [r["path"] for r in rows]}).encode(),
               {"Content-Type": "application/json"})
-        _rest("DELETE", f"dec_shots?day=lt.{today}")
+        _rest("DELETE", f"dec_shots?day=lt.{keep_from}")
     return len(rows)
 
 
@@ -308,7 +310,7 @@ def volume_only(reading: dict) -> dict:
     return out
 
 
-def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) -> dict:
+def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False, timeout: int = 30) -> dict:
     """Save the given tanks' readings. {tank no: {"ok", "message", "tank_id"}}.
     Only a card the app would call "Checked" (high) or "Fixed & checked"
     (medium) is saved; an older reading never replaces a newer one."""
@@ -329,18 +331,28 @@ def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False) ->
                        "message": "not saved: " + "; ".join(built["problems"] or ["check failed"])}
             continue
         reading = {**(volume_only(built["reading"]) if only_volume else built["reading"]), "savedAt": saved_at}
-        rows = _rest("GET", f"dec_tank_state?tank_id=eq.{urllib.parse.quote(tank['id'])}&select=reading") or []
+        rows = _rest("GET", f"dec_tank_state?tank_id=eq.{urllib.parse.quote(tank['id'])}&select=reading",
+                     timeout=timeout) or []
         current = rows[0].get("reading") if rows else None
         if current and _when(current) > _when(reading):
             out[no] = {"ok": False, "tank_id": tank["id"], "message": "the app already has a newer reading"}
             continue
         if current and _when(current) == _when(reading) and current.get("volume") == reading["volume"]:
+            # The same reading is already there (typically sent by live
+            # monitoring, which sends the volume alone). A full read still
+            # gives it its figures, and its proof picture (the mark).
+            if not only_volume and any(current.get(k) is None and reading.get(k) is not None
+                                       for k in VOLUME_ONLY_DROP):
+                current = {**current, **{k: reading[k] for k in VOLUME_ONLY_DROP if reading.get(k) is not None}}
+                _rest("POST", "dec_tank_state?on_conflict=tank_id",
+                      [{"tank_id": tank["id"], "reading": current, "updated_at": saved_at}],
+                      prefer="resolution=merge-duplicates,return=minimal", timeout=timeout)
             out[no] = {"ok": True, "tank_id": tank["id"], "message": "already in the app", "unchanged": True,
-                       "reading": current}
+                       "reading": current, "mark": {"readingAt": current["readingAt"], "volume": current["volume"]}}
             continue
         _rest("POST", "dec_tank_state?on_conflict=tank_id",
               [{"tank_id": tank["id"], "reading": reading, "updated_at": saved_at}],
-              prefer="resolution=merge-duplicates,return=minimal")
+              prefer="resolution=merge-duplicates,return=minimal", timeout=timeout)
         out[no] = {"ok": True, "tank_id": tank["id"], "reading": reading,
                    "mark": {"readingAt": reading["readingAt"], "volume": reading["volume"]},
                    "message": f"saved {reading['volume']:,.2f} L ({'Checked' if built['confidence'] == 'high' else 'Fixed & checked'})"}
