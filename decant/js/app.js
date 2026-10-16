@@ -4,19 +4,19 @@
 
 import { fromServer,
   PRODUCTS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, fmtMinSec, invoiceStatus, istDate, layoutsText,
-  litresAtDip, newTankId, normTT, ownTT, parseLayouts, planIndents, productKey, readingFrom, roomOf, round2, stockProof, tankProblems, tankStage, transportOptions, usedChambers,
+  litresAtDip, newTankId, normTT, ownTT, parseLayouts, planIndents, productKey, readingFrom, roomOf, round2, staleDraft, stockProof, tankProblems, tankStage, transportOptions, usedChambers,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
-  cloudEnabled, cloudMonths, clearDevice, initStore, loadMonths, meterNow, monthFiles, onChange, refreshNow, saveConfig, saveDevice, saveInvoice,
-  saveTankReading, state,
+  cloudEnabled, cloudMonths, clearDevice, dropDraft, initStore, loadMonths, meterNow, monthFiles, onChange, onSessionReplaced, refreshNow, saveConfig,
+  saveDevice, saveInvoice, saveTankReading, state,
 } from './store.js';
 import { KEEP_OPTIONS } from './archive.js';
 import {
   ago, ask, bandBadge, closeSheet, confBadge, esc, fmtDip, fmtKL, fmtL, fmtNum, fmtSigned, fmtTime, fmtWhen,
   openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
-import { openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
+import { forgetWizard, openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
 import { decantScene, runScenes } from './scene.js';
@@ -264,7 +264,23 @@ function viewHasFocus(id) {
   return has;
 }
 
+// A draft whose truck has nothing left for it — decanted meanwhile by the tank
+// stock server or on another phone (staleDraft) — goes, so the truck doesn't
+// show up again under "In progress" as "Getting ready".
+function tidyDrafts() {
+  const stale = state.sessions.filter((s) => {
+    if (s.status !== 'draft') return false;
+    const inv = state.invoices.find((x) => x.invoice_no === s.invoice_no);
+    return staleDraft(s, state.sessions, inv ? layoutFor(inv) : null);
+  });
+  for (const s of stale) {
+    if (forgetWizard(s.id)) toast(`${s.tt_no || 'This truck'} was decanted meanwhile (tank stock server or another phone) — nothing is left for this draft, so it was closed.`, 6000);
+    dropDraft(s.id);
+  }
+}
+
 export function render() {
+  tidyDrafts();
   renderStatus();
   renderBanner();
   const active = state.sessions.filter((s) => ['decanting', 'settling'].includes(s.status)).length;
@@ -1162,6 +1178,10 @@ function boot() {
     document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === APP.tab));
   } catch { /* ignore */ }
   onChange(render);
+  onSessionReplaced((id) => {
+    const s = state.sessions.find((x) => x.id === id);
+    toast(`${s?.tt_no || 'A decantation'} was moved on meanwhile (tank stock server or another phone) — showing that; the change made on this phone before it wasn't kept.`, 6000);
+  });
   initStore().then(render);
   tidyShots();
   render();

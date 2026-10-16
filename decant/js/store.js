@@ -8,7 +8,7 @@
 // cloud waits in an outbox and is sent when the connection is back.
 
 import { DIP_CHART } from './dipchart.js';
-import { istDate, settingsWith } from './core.js';
+import { istDate, keepLocalSession, settingsWith } from './core.js';
 import { localFrom, withOlder } from './report.js';
 import { logMonths, monthBounds, monthCounts } from './archive.js';
 
@@ -68,6 +68,18 @@ const listeners = new Set();
 export function onChange(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+// A change made on this phone that the cloud's newer copy replaced (another
+// phone or the tank stock server moved the decantation on meanwhile).
+const replacedFns = new Set();
+export function onSessionReplaced(fn) {
+  replacedFns.add(fn);
+  return () => replacedFns.delete(fn);
+}
+function replaced(id) {
+  for (const fn of replacedFns) {
+    try { fn(id); } catch { /* a listener's problem isn't the sync's */ }
+  }
 }
 let emitTimer = null;
 function emit() {
@@ -186,9 +198,29 @@ async function push(table, key) {
   let err;
   if (table === 'dec_sessions_delete') {
     err = await withRetry(() => client.from('dec_sessions').delete().eq('id', key));
+  } else if (table === 'dec_sessions_dropdraft') {
+    // only while it is still a draft: the tank stock server may have taken it over
+    err = await withRetry(() => client.from('dec_sessions').delete().eq('id', key).eq('status', 'draft'));
   } else {
     const row = rowFor(table, key);
     if (!row) return true;
+    if (table === 'dec_sessions') {
+      // A change made here (offline, or on a copy that missed an update) must
+      // never undo a newer one in the cloud: e.g. a draft the tank stock server
+      // took over and decanted while this phone still had it as a draft.
+      let cur = null;
+      err = await withRetry(async () => {
+        const r = await client.from('dec_sessions').select('updated_at,status').eq('id', key).maybeSingle();
+        cur = r.data;
+        return r;
+      });
+      if (!err && cur && !keepLocalSession(row, cur, true)) {
+        unqueue(table, key);
+        await pullRows('dec_sessions', [key]);
+        replaced(key);
+        return true;
+      }
+    }
     if (table === 'dec_invoices') for (const c of missingCols) delete row[c];
     err = await withRetry(() => client.from(table).upsert(row, { onConflict: TABLES[table].key }));
     // A column added in a later version of decant-schema.sql that this
@@ -231,14 +263,35 @@ function pending(table, key) {
   return state.outbox.some((o) => o.table === table && String(o.key) === String(key));
 }
 
+function unqueue(table, key) {
+  state.outbox = state.outbox.filter((o) => !(o.table === table && String(o.key) === String(key)));
+  saveLocal();
+}
+
+// The cloud's copy of a row this phone has too: is this phone's kept? A
+// decantation goes by keepLocalSession (the newer one stays, even over a
+// change not sent yet); the other tables keep a change not sent yet.
+function localWins(table, k, l, r) {
+  if (table === 'dec_sessions') {
+    const keep = keepLocalSession(l, r, pending(table, k));
+    if (!keep && r && pending(table, k)) {
+      unqueue(table, k);
+      replaced(k);
+    }
+    return keep;
+  }
+  return pending(table, k) || Boolean(r && l.updated_at && r.updated_at && Date.parse(l.updated_at) > Date.parse(r.updated_at));
+}
+
 // Cloud rows win, except ones this phone changed and hasn't sent yet (or has
-// changed more recently).
+// changed more recently) — for a decantation, only while the cloud's isn't
+// newer still (localWins).
 function mergeRows(table, local, remote, keyOf) {
   const byKey = new Map(remote.map((r) => [String(keyOf(r)), r]));
   for (const l of local) {
     const k = String(keyOf(l));
     const r = byKey.get(k);
-    if (pending(table, k) || (r && l.updated_at && r.updated_at && Date.parse(l.updated_at) > Date.parse(r.updated_at))) {
+    if (localWins(table, k, l, r)) {
       byKey.set(k, l);
     } else if (!r && l._local) {
       byKey.set(k, l);                                     // made offline, never sent
@@ -356,7 +409,7 @@ async function pullRows(table, keys) {
       const k = String(r[key]);
       const i = list.findIndex((x) => String(x[key]) === k);
       const l = i >= 0 ? list[i] : null;
-      if (l && (pending(table, k) || (l.updated_at && r.updated_at && Date.parse(l.updated_at) > Date.parse(r.updated_at)))) continue;
+      if (l && localWins(table, k, l, r)) continue;
       if (i >= 0) list[i] = r;
       else if (Date.parse(r.created_at || 0) >= since || (table === 'dec_sessions' && OPEN.includes(r.status))) list.unshift(r);
     }
@@ -691,6 +744,16 @@ export async function saveSession(s) {
   saveLocal();
   emit();
   return push('dec_sessions', s.id);
+}
+
+// A draft with nothing left to decant (staleDraft): gone from this phone, and
+// from the cloud only while it is still a draft there.
+export async function dropDraft(id) {
+  state.sessions = state.sessions.filter((x) => x.id !== id);
+  state.outbox = state.outbox.filter((o) => !(o.table === 'dec_sessions' && o.key === id));
+  saveLocal();
+  emit();
+  return push('dec_sessions_dropdraft', id);
 }
 
 export async function deleteSession(id) {

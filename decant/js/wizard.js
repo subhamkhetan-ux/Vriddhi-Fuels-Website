@@ -45,6 +45,16 @@ export function openWizard(id) {
   render();
 }
 
+// The wizard was on this decantation: forget it (it's gone). -> whether it was.
+export function forgetWizard(id) {
+  if (!currentId || currentId !== id) return false;
+  currentId = null;
+  typing = null;
+  clearInterval(timer);
+  timer = null;
+  return true;
+}
+
 function closeWizard() {
   currentId = null;
   typing = null;
@@ -130,6 +140,12 @@ function persist(s) {
 export function renderWizard(el) {
   const s = session();
   if (!s) { closeWizard(); return; }
+  if (s.status === 'draft') {
+    // chambers decanted meanwhile in another decantation of this truck (the
+    // tank stock server's, another phone's) aren't this draft's to plan
+    const taken = [...usedChambers(state.sessions, s.invoice_no, s.id)].filter((no) => !s.data.done.includes(no));
+    if (taken.length) s.data.done = [...s.data.done, ...taken].sort((a, b) => a - b);
+  }
   if (bound !== el) {
     el.addEventListener('click', (e) => onClick(e));
     el.addEventListener('change', (e) => onChange(e));
@@ -1014,7 +1030,7 @@ async function prepare(s) {
 // ▶ Start decanting: every tank at once.
 async function start(s) {
   if (!(await prepare(s))) return;
-  if (!(await startTanks(s, s.data.tanks.map((t) => t.tank)))) {
+  if (!(await startTanks(s, s.data.tanks.map((t) => t.tank))) && s.data.tanks.length) {
     s.data.step = 'decant';                // e.g. "take a new reading first": wait on the decanting screen
     await persist(s);
   }
@@ -1033,6 +1049,22 @@ async function startTanks(s, ids) {
   const d = s.data;
   const rows = d.tanks.filter((t) => ids.includes(t.tank) && stageOf(s, t) === 'waiting');
   if (!rows.length) return false;
+  if (s.status === 'draft') {
+    // set up tank by tank, and the tank stock server or another phone has
+    // decanted some of these chambers since: plan again without them
+    const taken = usedChambers(state.sessions, s.invoice_no, s.id);
+    const clash = d.tanks.flatMap((t) => t.chambers).filter((no) => taken.has(no));
+    if (clash.length) {
+      d.done = [...new Set([...d.done, ...taken])].sort((a, b) => a - b);
+      d.plan = [];
+      d.tanks = [];
+      d.step = 'plan';
+      syncStatus(s);
+      await persist(s);
+      toast(`Chamber ${compactNos(clash)} has been decanted meanwhile (tank stock server or another phone). The plan was redone without it.`, 5000);
+      return false;
+    }
+  }
   for (const t of rows) {                  // the latest stock, if one came in since (e.g. another phone)
     const latest = state.tankState[t.tank];
     if (latest && (!t.before || Date.parse(latest.readingAt || 0) > Date.parse(t.before.readingAt || 0))) t.before = { ...latest };

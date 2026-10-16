@@ -579,6 +579,14 @@ class AutoDecant:
                 return False
             return True
         if (dz._ts(remote.get("updated_at")) or 0) > (dz._ts(self.info.get("saved_at")) or 0) + 0.0005:
+            if remote.get("status") == "draft" and self.run.s.get("status") != "draft":
+                # A phone sent back its old draft of this truck (from before this
+                # run took it over): a decantation never goes back to a draft
+                # once a tank has started, so the run stays as it is.
+                self.run.log("A phone sent back its old draft of this truck; the decantation here carries on.",
+                             now, "warn")
+                self._save(now, force=True)
+                return True
             self.run.adopt(remote, now)
             self.info["saved_at"] = remote["updated_at"]
             ended = {"done": "finished", "cancelled": "cancelled"}.get(remote.get("status"))

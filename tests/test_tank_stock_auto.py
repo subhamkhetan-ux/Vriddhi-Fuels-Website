@@ -309,6 +309,26 @@ def test_a_phone_finishing_it_in_the_decant_app_ends_the_run(rig):
     assert a.phase == "cancelled" and "Cancelled in the decant app" in a.run.state["log"][-1]["text"]
 
 
+def test_a_phones_old_draft_sent_back_mid_run_doesnt_undo_it(rig):
+    # The phone had a draft of this truck, the run took it over (same id), and
+    # the phone, offline meanwhile, sends its old draft back once a tank is decanting.
+    a = start(rig, {"2": "T2", "3": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495), (2, 640, 3992, 420)]
+    drive(rig, 300)
+    assert cloud_session(rig)["status"] == "decanting"
+    sid = a.run.s["id"]
+    old = copy.deepcopy(rig.cloud.sessions[sid])
+    old["status"] = "draft"
+    old["data"].update(step="truck", plan=[], tanks=[])
+    old["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = old
+    drive(rig, 3000)
+    s = cloud_session(rig)
+    assert a.phase == "finished" and s["status"] == "done", a.info
+    assert [t["tank"] for t in s["data"]["tanks"]] == ["T2"] and s["data"]["tanks"][0]["result"]
+    assert any("sent back its old draft" in e["text"] for e in a.run.state["log"])
+
+
 def test_when_anydesk_ends_the_session_it_connects_again_and_carries_on(rig):
     a = start(rig, {"2": "T2"})
     rig.world.flows = [(2, 50, 4990, 495)]

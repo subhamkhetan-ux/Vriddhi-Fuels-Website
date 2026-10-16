@@ -327,6 +327,35 @@ export function chambersLeft(session) {
   return (d.chambers || []).filter((c) => c.product && c.litres > 0 && !done.has(c.no) && !inTank.has(c.no));
 }
 
+// A draft left with nothing to decant: every chamber it could take is
+// decanted, or being decanted, in another decantation — the tank stock
+// server's, or another phone's (e.g. a draft made on a phone that was offline,
+// or a second one started before the phones had synced). Nothing was decanted
+// in a draft, so it goes. layout: the invoice's (layoutFor), else the draft's
+// own chambers.
+export function staleDraft(session, sessions, layout = null) {
+  if (session?.status !== 'draft') return false;
+  const used = usedChambers(sessions, session.invoice_no, session.id);
+  if (!used.size) return false;
+  const loaded = ((layout || session.data)?.chambers || []).filter((c) => c.product && c.litres > 0 && tankProduct(c.product));
+  return loaded.length > 0 && loaded.every((c) => used.has(c.no));
+}
+
+// Which copy of a decantation a phone keeps when the cloud has one too: its
+// own while that is newer, or not sent yet — unless the cloud's is newer
+// still: another phone or the tank stock server moved it on after this
+// phone's change (e.g. took over its draft while it was offline). Its stale
+// change must not undo theirs. A decantation never goes back to a draft once
+// started, finished or cancelled, so a draft never replaces one, whatever the
+// phone's clock says.
+export function keepLocalSession(local, remote, pending = false) {
+  if (!remote) return Boolean(pending);
+  if (local?.status === 'draft' && remote.status && remote.status !== 'draft') return false;
+  const l = Date.parse(local?.updated_at || 0) || 0;
+  const r = Date.parse(remote.updated_at || 0) || 0;
+  return pending ? l >= r : l > r;
+}
+
 // 'new' | 'active' | 'partial' | 'done' | 'dismissed' for the "to decant" list.
 export function invoiceStatus(inv, sessions, layout) {
   if (inv.dismissed) return 'dismissed';
