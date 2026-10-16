@@ -241,6 +241,7 @@ async function push(table, key) {
   }
   state.outbox = state.outbox.filter((o) => !(o.table === table && String(o.key) === String(key)));
   saveLocal();
+  emit();                  // "sending N" counts down even when the cloud sends no change back
   return true;
 }
 
@@ -266,6 +267,7 @@ function pending(table, key) {
 function unqueue(table, key) {
   state.outbox = state.outbox.filter((o) => !(o.table === table && String(o.key) === String(key)));
   saveLocal();
+  emit();
 }
 
 // The cloud's copy of a row this phone has too: is this phone's kept? A
