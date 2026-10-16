@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import {
   DEFAULT_SETTINGS, DEFAULT_TANKS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, checkPlan, dipAtLitres, drainAt, drainLive, drainTimeline,
-  fmtMinSec, invoiceStatus, istDate, litresAtDip, productKey, settingsWith, solvePlan, suggestPlan, tankResult, usedChambers,
+  fmtMinSec, invoiceStatus, istDate, keepLocalSession, litresAtDip, productKey, settingsWith, solvePlan, staleDraft, suggestPlan, tankResult, usedChambers,
 } from '../../decant/js/core.js';
 import { DIP_CHART } from '../../decant/js/dipchart.js';
 
@@ -298,6 +298,50 @@ test('invoice status follows its decantations', () => {
   assert.equal(invoiceStatus(inv, [s('cancelled', [[1, 'T1']])], layout), 'new');
   assert.equal(invoiceStatus({ ...inv, dismissed: true }, [], layout), 'dismissed');
   assert.deepEqual([...usedChambers([s('done', [[1, 'T1'], [2, null]])], inv.invoice_no)], [1]);
+});
+
+test('a draft whose truck was decanted elsewhere has nothing left: it goes', () => {
+  // OD23U8210, 22 KL HSD: the tank stock server decanted C1,2 into Tank 2 and
+  // C3-5 into Tank 3, while a phone still had a draft of its own for the truck
+  const layout = chamberLayout(INV_HSD);
+  const draft = { id: 'S-phone', invoice_no: INV_HSD.invoice_no, status: 'draft', data: { chambers: layout.chambers, done: [], plan: [], tanks: [] } };
+  const run = (status, plan) => ({ id: `S-${status}`, invoice_no: INV_HSD.invoice_no, status, data: { plan: plan.map(([no, tank]) => ({ no, tank })) } });
+  const all = [[1, 'T2'], [2, 'T2'], [3, 'T3'], [4, 'T3'], [5, 'T3']];
+  assert.equal(staleDraft(draft, [draft, run('done', all)], layout), true);
+  assert.equal(staleDraft(draft, [draft, run('settling', all)], layout), true);       // still settling: nothing left either
+  assert.equal(staleDraft(draft, [draft, run('decanting', all)]), true);               // no invoice: the draft's own chambers
+  assert.equal(staleDraft(draft, [draft, run('done', all.slice(0, 2))], layout), false);  // C3-5 still in the truck
+  assert.equal(staleDraft(draft, [draft, run('cancelled', all)], layout), false);
+  assert.equal(staleDraft(draft, [draft], layout), false);
+  // another draft doesn't decant anything; only drafts go
+  assert.equal(staleDraft(draft, [draft, { ...run('draft', all), id: 'S-other' }], layout), false);
+  assert.equal(staleDraft(run('done', all), [run('done', all)], layout), false);
+  // a draft of another truck
+  assert.equal(staleDraft({ ...draft, invoice_no: 'X' }, [draft, run('done', all)], layout), false);
+});
+
+test("a phone's change never undoes a newer one from the cloud", () => {
+  const at = (iso) => ({ updated_at: iso });
+  const old = at('2026-10-15T13:50:00.000Z');
+  const newer = at('2026-10-15T14:25:00.000Z');
+  // not sent yet: kept, unless the cloud moved on after it (the server took the draft over)
+  assert.equal(keepLocalSession(old, newer, true), false);
+  assert.equal(keepLocalSession(newer, old, true), true);
+  assert.equal(keepLocalSession(old, old, true), true);
+  // sent: only a newer copy of this phone's is kept
+  assert.equal(keepLocalSession(newer, old, false), true);
+  assert.equal(keepLocalSession(old, old, false), false);
+  assert.equal(keepLocalSession(old, newer, false), false);
+  // a draft never replaces one started, finished or cancelled, even with a clock ahead
+  const draft = { status: 'draft', updated_at: '2026-10-15T15:00:00.000Z' };
+  for (const status of ['decanting', 'settling', 'done', 'cancelled']) {
+    assert.equal(keepLocalSession(draft, { ...old, status }, true), false);
+  }
+  assert.equal(keepLocalSession(draft, { ...old, status: 'draft' }, true), true);
+  assert.equal(keepLocalSession({ ...draft, status: 'done' }, { ...old, status: 'settling' }, true), true);
+  // not in the cloud: kept only while it still has to be sent
+  assert.equal(keepLocalSession(old, null, true), true);
+  assert.equal(keepLocalSession(old, null, false), false);
 });
 
 test('chambers still in the truck: in no tank of the decantation, not decanted before', () => {
