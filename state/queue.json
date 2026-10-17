@@ -5111,6 +5111,27 @@
       },
       "queued_at": "2026-10-17T05:45:23.554927+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "48e8847e7b982a10",
+      "gmail_msg_id": "1879281051386717886",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "17/10/26",
+      "date_serial": 46312,
+      "amount": 596400.0,
+      "raw_payer": "GRK LOGISTICS PVT LTD",
+      "customer": "Grk Logistics Private Limited",
+      "candidates": [
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-17T07:30:23.551959+00:00",
+      "status": "matched"
     }
   ]
 }
