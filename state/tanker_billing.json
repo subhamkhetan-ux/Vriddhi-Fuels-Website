@@ -398,7 +398,7 @@
         "Benerficiary Name- VRIDDHI FUELS"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "O326218729"
+      "po_no": "O326219928"
     },
     {
       "company": "Pentane Logistics PVT LTD",
@@ -550,7 +550,7 @@
         "Beneficiary Name – Indian Oil Corporation Limited"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "2110037106"
+      "po_no": "2110037329"
     },
     {
       "company": "SMC Power Generation LTD, UNIT I",
@@ -569,7 +569,7 @@
         "Beneficiary Name – Vriddhi Fuels"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "4500220856"
+      "po_no": ""
     },
     {
       "company": "SMC Power Generation LTD, UNIT II",
@@ -610,10 +610,10 @@
       "po_no": ""
     }
   ],
-  "generated_at": "2026-10-17T03:46:05+00:00",
+  "generated_at": "2026-10-17T08:24:25+00:00",
   "source": {
     "drive_file_id": "1xfU-xMgm9zllQCPZDOJ5e-6vCPIo3mOl",
     "file_name": "Tanker Billing.xlsm",
-    "modified_time": "2026-10-15T03:55:13.146Z"
+    "modified_time": "2026-10-17T04:56:47.249Z"
   }
 }
