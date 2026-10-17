@@ -1,0 +1,442 @@
+;; =============================================================================
+;;  Vriddhi Fuels — Fuel Slip (credit memo) for Tally
+;;
+;;  1. Voucher entry: a "Vehicle No :" field beside "Party A/c name" on the
+;;     slip voucher types below, saved in the company's existing Vehicle No
+;;     UDF (EiVehNo, index 120 — the same field the /tally/ app exports and
+;;     the DayBook import reads).
+;;  2. Printing (Alt+P) a voucher of those types prints the ledger app's fuel
+;;     slip instead of Tally's invoice: the HSD Bill sheet's A5 credit memo
+;;     (ledger/js/render.js slipSvg) — same blocks, columns and lines.
+;;
+;;  Load: F1 (Help) > TDLs & Add-Ons > F4 Manage Local TDLs >
+;;        Load TDL on Startup: Yes > List of TDL files: path of this file.
+;;  Choose the voucher types: edit VFSlipType1..3 just below.
+;; =============================================================================
+
+;; ---- settings -----------------------------------------------------------------
+
+[System: Formula]
+    ;; The sales voucher types that get the Vehicle No field and the slip
+    ;; print (any case). Leave a line as "" when it isn't needed.
+    VFSlipType1     : "HSD CREDIT"
+    VFSlipType2     : "MS CREDIT"
+    VFSlipType3     : "XG CREDIT"
+
+    ;; The black box at the top left (HSD Bill sheet A1)
+    VFSlipTitle     : "CREDIT MEMO"
+    ;; The number at the top right (D1). "" = the company's Phone No.
+    VFSlipMobileNo  : ""
+
+;; ---- which vouchers -------------------------------------------------------------
+
+[System: Formula]
+    VFIsSlipVoucher : $$IsSales:$VoucherTypeName AND (($VoucherTypeName = @@VFSlipType1) OR ($VoucherTypeName = @@VFSlipType2) OR ($VoucherTypeName = @@VFSlipType3))
+
+;; ---- Vehicle No (voucher entry) -------------------------------------------------
+
+[System: UDF]
+    EiVehNo : String : 120
+
+[#Line: EI Party]
+    Add : Right Fields : At Beginning : VF VehNo Prompt, VF VehNo
+
+[Field: VF VehNo Prompt]
+    Use       : Medium Prompt
+    Set As    : "Vehicle No :"
+    Invisible : NOT @@VFIsSlipVoucher
+
+[Field: VF VehNo]
+    Use       : Name Field
+    Storage   : EiVehNo
+    Width     : 16
+    Max       : 20
+    Invisible : NOT @@VFIsSlipVoucher
+
+;; ---- the slip (printing) --------------------------------------------------------
+
+[#Form: Comprehensive Invoice]
+    Add : Option : VF Slip Invoice : @@VFIsSlipVoucher
+
+[!Form: VF Slip Invoice]
+    Delete      : Top Parts
+    Delete      : Parts
+    Delete      : Bottom Parts
+    Delete      : Page Break
+    Add         : Parts : VF Slip Top, VF Slip Firm, VF Slip Info, VF Slip Box
+    Width       : 148 mms
+    Height      : 210 mms
+    Space Top   : 6 mms
+    Space Left  : 6.5 mms
+    Space Right : 0
+    Space Bottom: 0
+
+;; CREDIT MEMO (white on black) ............................ Mob : 00000 00000
+[Part: VF Slip Top]
+    Line  : VF Slip Top
+    Width : 133 mms
+
+[Line: VF Slip Top]
+    Fields       : VF Slip Title
+    Right Fields : VF Slip Mobile
+
+[Field: VF Slip Title]
+    Set As     : " " + @@VFSlipTitle
+    Width      : 39 mms
+    Style      : VF Slip Bold
+    Color      : VF White
+    Background : VF Black
+    Print FG   : VF White
+    Print BG   : VF Black
+
+[Field: VF Slip Mobile]
+    Set As    : "Mob : " + @@VFSlipMobile
+    Width     : 60 mms
+    Align     : Right
+    Style     : VF Slip Mobile
+    Invisible : $$IsEmpty:@@VFSlipMobile
+
+[System: Formula]
+    VFSlipMobile : if $$IsEmpty:@@VFSlipMobileNo then $PhoneNumber:Company:##SVCurrentCompany else @@VFSlipMobileNo
+
+;; The company block, centred (A2:A8): name, address, GSTIN, state, e-mail
+[Part: VF Slip Firm]
+    Lines  : VF Slip Firm Name, VF Slip Firm Addr, VF Slip Firm GSTIN, VF Slip Firm State, VF Slip Firm Mail
+    Repeat : VF Slip Firm Addr : VF Slip Cmp Address
+    Width  : 133 mms
+
+[Collection: VF Slip Cmp Address]
+    Type     : Address : Company
+    Child Of : ##SVCurrentCompany
+
+[System: Formula]
+    VFSlipGSTIN : if $$IsEmpty:$CMPGSTIN then $GSTRegistrationNumber:Company:##SVCurrentCompany else $CMPGSTIN
+    VFSlipState : if $$IsEmpty:$CMPGSTState then $StateName:Company:##SVCurrentCompany else $CMPGSTState
+    VFSlipEmail : $Email:Company:##SVCurrentCompany
+
+[Line: VF Slip Firm Name]
+    Field : VF Slip Firm Name
+
+[Field: VF Slip Firm Name]
+    Set As : ##SVCurrentCompany
+    Width  : 133 mms
+    Align  : Centre
+    Style  : VF Slip Firm
+
+[Line: VF Slip Firm Addr]
+    Field : VF Slip Firm Addr
+
+[Field: VF Slip Firm Addr]
+    Use    : VF Slip Firm Name
+    Set As : $Address
+    Style  : VF Slip Addr
+
+[Line: VF Slip Firm GSTIN]
+    Field     : VF Slip Firm GSTIN
+    Invisible : $$IsEmpty:@@VFSlipGSTIN
+
+[Field: VF Slip Firm GSTIN]
+    Use    : VF Slip Firm Addr
+    Set As : "GSTIN/UIN: " + @@VFSlipGSTIN
+
+[Line: VF Slip Firm State]
+    Field     : VF Slip Firm State
+    Invisible : $$IsEmpty:@@VFSlipState
+
+[Field: VF Slip Firm State]
+    Use    : VF Slip Firm Addr
+    Set As : if $$IsEmpty:@@VFSlipGSTIN then "State Name : " + @@VFSlipState else "State Name : " + @@VFSlipState + ", Code : " + $$StringPart:@@VFSlipGSTIN:0:2
+
+[Line: VF Slip Firm Mail]
+    Field     : VF Slip Firm Mail
+    Invisible : $$IsEmpty:@@VFSlipEmail
+
+[Field: VF Slip Firm Mail]
+    Use    : VF Slip Firm Addr
+    Set As : "E-Mail : " + @@VFSlipEmail
+
+;; No. : 1640        Date : 5-9-2026
+;; M/s : <party>
+;; Vehicle No. : <vehicle>
+[Part: VF Slip Info]
+    Lines : VF Slip No Date, VF Slip Party, VF Slip Vehicle
+    Width : 133 mms
+
+[System: Formula]
+    ;; d-m-yyyy, like the slip (5-9-2026)
+    VFSlipDate : $$String:($$DayOfDate:$Date) + "-" + $$String:($$MonthOfDate:$Date) + "-" + $$String:($$YearOfDate:$Date):"NoComma"
+
+[Line: VF Slip No Date]
+    Space Top : 3 mms
+    Fields    : VF Slip Label, VF Slip No, VF Slip Date Label, VF Slip Date
+
+[Field: VF Slip Label]
+    Set As : "No. :"
+    Width  : 38 mms
+    Style  : VF Slip Text
+
+[Field: VF Slip No]
+    Set As : $VoucherNumber
+    Width  : 47 mms
+    Style  : VF Slip Bold
+
+[Field: VF Slip Date Label]
+    Set As : "Date :"
+    Width  : 15 mms
+    Style  : VF Slip Text
+
+[Field: VF Slip Date]
+    Set As : @@VFSlipDate
+    Width  : 33 mms
+    Style  : VF Slip Bold
+
+[Line: VF Slip Party]
+    Space Top : 2 mms
+    Fields    : VF Slip Party Label, VF Slip Party
+
+[Field: VF Slip Party Label]
+    Use    : VF Slip Label
+    Set As : "M/s :"
+
+[Field: VF Slip Party]
+    Set As : $PartyLedgerName
+    Width  : 95 mms
+    Style  : VF Slip Value
+
+[Line: VF Slip Vehicle]
+    Space Top : 1.5 mms
+    Fields    : VF Slip Vehicle Label, VF Slip Vehicle
+
+[Field: VF Slip Vehicle Label]
+    Use    : VF Slip Label
+    Set As : "Vehicle No. :"
+
+[Field: VF Slip Vehicle]
+    Set As : $EiVehNo
+    Width  : 95 mms
+    Style  : VF Slip Bold
+
+;; The boxed table, then the signature box:
+;;   Particulars | Quantity | Rate | Amount
+;;   <item>      | 1000.00 LTR | 100.74 | 1,00,740.00
+;;   ...
+;;   Thank You             | Total | ₹ 1,00,740.00
+;;   (blank row)
+;;   (stamp space)  Customer's Sign. ............. Sign.of Salesman
+[Part: VF Slip Box]
+    Parts     : VF Slip Head, VF Slip Items, VF Slip Total, VF Slip Gap, VF Slip Sign
+    Vertical  : Yes
+    Border    : Thin Box
+    Space Top : 7 mms
+    Width     : 133 mms
+
+[Part: VF Slip Head]
+    Line   : VF Slip Head
+    Border : Thin Bottom
+
+[Line: VF Slip Head]
+    Fields : VF Slip Col1 Head, VF Slip Col2 Head, VF Slip Col3 Head, VF Slip Col4 Head
+
+[Field: VF Slip Col1 Head]
+    Set As : "Particulars"
+    Width  : 52 mms
+    Style  : VF Slip Text
+    Border : Thin Right
+
+[Field: VF Slip Col2 Head]
+    Set As : "Quantity"
+    Width  : 32 mms
+    Align  : Centre
+    Style  : VF Slip Text
+    Border : Thin Right
+
+[Field: VF Slip Col3 Head]
+    Set As : "Rate"
+    Width  : 16 mms
+    Align  : Centre
+    Style  : VF Slip Text
+    Border : Thin Right
+
+[Field: VF Slip Col4 Head]
+    Set As : "Amount"
+    Width  : 33 mms
+    Align  : Centre
+    Style  : VF Slip Text
+
+;; One line per item (the slip has one: the fuel), then any other ledger on
+;; the invoice (R/off) so the column adds up to the total. The column lines
+;; run to the bottom of the fixed-height band, as on the slip.
+[Part: VF Slip Items]
+    Lines         : VF Slip Item, VF Slip Other
+    Repeat        : VF Slip Item : Inventory Entries
+    Scroll        : Vertical
+    Common Border : Yes
+    Height        : 48 mms
+    Border        : Thin Bottom
+
+[Line: VF Slip Item]
+    Space Top : 1.5 mms
+    Fields    : VF Slip Item Name, VF Slip Item Qty, VF Slip Item Rate, VF Slip Item Amt
+
+[Field: VF Slip Item Name]
+    Set As : $StockItemName
+    Width  : 52 mms
+    Style  : VF Slip Bold
+    Border : Thin Right
+
+[Field: VF Slip Item Qty]
+    Type   : Quantity
+    Set As : $BilledQty
+    Format : "NoComma, Decimals:2"
+    Width  : 32 mms
+    Align  : Centre
+    Style  : VF Slip Value
+    Border : Thin Right
+
+[Field: VF Slip Item Rate]
+    Type   : Number
+    Set As : $$Number:$Rate
+    Format : "NoComma, Decimals:2"
+    Width  : 16 mms
+    Align  : Right
+    Style  : VF Slip Value
+    Border : Thin Right
+
+[Field: VF Slip Item Amt]
+    Type   : Amount
+    Set As : $Amount
+    Width  : 33 mms
+    Align  : Right
+    Style  : VF Slip Value
+
+[System: Formula]
+    VFSlipNonParty : NOT $IsPartyLedger
+    VFSlipOtherAmt : $$FilterAmtTotal:LedgerEntries:VFSlipNonParty:$Amount
+    VFSlipOtherName: $$FilterValue:$LedgerName:LedgerEntries:First:VFSlipNonParty
+
+[Line: VF Slip Other]
+    Fields    : VF Slip Other Name, VF Slip Blank Col2, VF Slip Blank Col3, VF Slip Other Amt
+    Invisible : $$IsEmpty:@@VFSlipOtherAmt
+
+[Field: VF Slip Other Name]
+    Use    : VF Slip Item Name
+    Set As : @@VFSlipOtherName
+    Style  : VF Slip Text
+
+[Field: VF Slip Blank Col2]
+    Set As : ""
+    Width  : 32 mms
+    Border : Thin Right
+
+[Field: VF Slip Blank Col3]
+    Set As : ""
+    Width  : 16 mms
+    Border : Thin Right
+
+[Field: VF Slip Other Amt]
+    Use    : VF Slip Item Amt
+    Set As : @@VFSlipOtherAmt
+
+[Part: VF Slip Total]
+    Line   : VF Slip Total
+    Border : Thin Bottom
+
+[Line: VF Slip Total]
+    Fields : VF Slip Thanks, VF Slip Total Label, VF Slip Rupee, VF Slip Total Amt
+
+[Field: VF Slip Thanks]
+    Set As : "Thank You"
+    Width  : 84 mms
+    Align  : Centre
+    Style  : VF Slip Bold
+    Border : Thin Right
+
+[Field: VF Slip Total Label]
+    Set As : "Total"
+    Width  : 16 mms
+    Align  : Right
+    Style  : VF Slip Bold
+    Border : Thin Right
+
+[Field: VF Slip Rupee]
+    Set As : "₹"
+    Width  : 6 mms
+    Align  : Right
+    Style  : VF Slip Value
+
+[Field: VF Slip Total Amt]
+    Type   : Amount
+    Set As : $$Abs:$Amount
+    Width  : 27 mms
+    Align  : Right
+    Style  : VF Slip Value
+
+[Part: VF Slip Gap]
+    Line   : VF Slip Gap
+    Border : Thin Bottom
+
+[Line: VF Slip Gap]
+    Field : VF Slip Gap
+
+[Field: VF Slip Gap]
+    Set As : " "
+    Width  : 133 mms
+    Style  : VF Slip Text
+
+;; space for the stamp, the two signatures at the bottom of the box
+[Part: VF Slip Sign]
+    Line   : VF Slip Sign
+    Height : 30 mms
+
+[Line: VF Slip Sign]
+    Space Top    : 23 mms
+    Fields       : VF Slip Cust Sign
+    Right Fields : VF Slip Man Sign
+
+[Field: VF Slip Cust Sign]
+    Set As : "Customer's Sign."
+    Width  : 60 mms
+    Style  : VF Slip Bold
+
+[Field: VF Slip Man Sign]
+    Set As : "Sign.of Salesman"
+    Width  : 60 mms
+    Align  : Right
+    Style  : VF Slip Bold
+
+;; ---- fonts and colours (as on the slip: Arial, the firm name and mobile in
+;; Times New Roman) -------------------------------------------------------------
+
+[Style: VF Slip Text]
+    Font   : "Arial"
+    Height : 14
+
+[Style: VF Slip Bold]
+    Font   : "Arial"
+    Height : 14
+    Bold   : Yes
+
+[Style: VF Slip Value]
+    Font   : "Arial"
+    Height : 13
+    Bold   : Yes
+
+[Style: VF Slip Addr]
+    Font   : "Arial"
+    Height : 13
+
+[Style: VF Slip Firm]
+    Font   : "Times New Roman"
+    Height : 16
+    Bold   : Yes
+
+[Style: VF Slip Mobile]
+    Font   : "Times New Roman"
+    Height : 14
+    Bold   : Yes
+
+[Color: VF Black]
+    RGB : 0, 0, 0
+
+[Color: VF White]
+    RGB : 255, 255, 255

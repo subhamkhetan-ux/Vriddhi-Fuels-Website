@@ -289,6 +289,7 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/share-svg.js` | Draws the shared pictures: ledger pages, outstanding cards, the outstanding list |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
+| `tdl/VriddhiFuelSlip.tdl` | Tally TDL: Vehicle No beside the party on the slip voucher types, and the fuel slip as their invoice print ([how to load it](tdl/README.md)) |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |
 
 Libraries load from CDNs when needed: `@supabase/supabase-js` (esm.sh, same as
