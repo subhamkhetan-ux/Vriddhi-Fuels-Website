@@ -1,0 +1,14 @@
+{
+  "name": "PDF Toolkit",
+  "short_name": "PDF Tools",
+  "description": "Merge, split, compress, convert, OCR, edit, sign and protect PDFs — on your device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#111E3E",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "../Vriddhi%20Fuels%20Logo.png", "sizes": "any", "type": "image/png", "purpose": "any" }
+  ]
+}
