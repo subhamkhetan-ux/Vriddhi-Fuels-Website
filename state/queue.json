@@ -5132,6 +5132,48 @@
       },
       "queued_at": "2026-10-17T07:30:23.551959+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "5bcf57947908ccd4",
+      "gmail_msg_id": "1879289868060914496",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "17/10/2026",
+      "date_serial": 46312,
+      "amount": 1192806.0,
+      "raw_payer": "ORISSA METALIKS PRIVATE LIMITED JHARSUGUDA UNIT",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-17T10:00:28.692192+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "3b0d0c50b27ecf3e",
+      "gmail_msg_id": "1879290286143250361",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "17/10/2026",
+      "date_serial": 46312,
+      "amount": 1201910.0,
+      "raw_payer": "ARYAN ISPAT AND POWER PRIVATE LI",
+      "customer": "Aryan Ispat & Power Private Ltd.",
+      "candidates": [
+        "Aryan Ispat & Power Private Ltd."
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-17T10:00:28.692858+00:00",
+      "status": "matched"
     }
   ]
 }
