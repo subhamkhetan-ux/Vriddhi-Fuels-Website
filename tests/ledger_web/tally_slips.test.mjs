@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 
-import { slipBundles } from '../../ledger/js/bills.js';
+import { slipBundles, slipHeaderFor, splitCompany } from '../../ledger/js/bills.js';
 import { slipSvg } from '../../ledger/js/render.js';
+import { fyOf } from '../../ledger/js/util.js';
 
 const require = createRequire(import.meta.url);
 const VFSlips = require('../../tally/slips.js');
@@ -65,4 +66,19 @@ test('slips are bundled into the same PDFs, with the same names', () => {
   ]);
   // diesel first, then petrol, for the same customer
   assert.deepEqual(r.bundles[1].bills.map((b) => b.bill_no), ['1641', 'MS320']);
+});
+
+test('the company name and its financial year work as in the Ledger app', () => {
+  for (const d of ['2026-03-31', '2026-04-01', '2027-01-15', '2099-12-31', '2100-02-01']) assert.equal(VFSlips.fyOf(d), fyOf(d));
+  for (const line of ['VRIDDHI FUELS (2026-27)', ' Demo ( 2027 - 28 ) ', 'DEMO FUELS', '', undefined, 'A (B)']) {
+    assert.deepEqual(VFSlips.splitCompany(line), splitCompany(line));
+  }
+  const header = { title: 'CREDIT MEMO', mobile: 'Mob : 1', lines: ['DEMO FUELS (2026-27)', 'AT- TESTPUR'] };
+  for (const co of [null, { name: '' }, { name: 'DEMO FUELS', fy: true }, { name: 'DEMO LLP', fy: false }]) {
+    for (const d of ['2027-03-31', '2027-04-01']) {
+      assert.deepEqual(VFSlips.slipHeaderFor(header, co, d), slipHeaderFor(header, co, d));
+    }
+  }
+  assert.deepEqual(VFSlips.slipHeaderFor({ title: 'X' }, { name: 'N', fy: true }, '2027-04-01'), slipHeaderFor({ title: 'X' }, { name: 'N', fy: true }, '2027-04-01'));
+  assert.equal(VFSlips.slipHeaderFor(header, { name: 'DEMO FUELS', fy: true }, '2027-04-01').lines[0], 'DEMO FUELS (2027-28)');
 });

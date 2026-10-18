@@ -35,6 +35,9 @@ alter table public.tally_settings add column if not exists auto_clear boolean no
 -- no signature.
 alter table public.tally_settings add column if not exists slip_header jsonb;
 alter table public.tally_settings add column if not exists slip_stamp  jsonb;
+-- When on, `company` is the name without a year and every XML export goes to
+-- "<company> (<financial year of the vouchers' date>)", e.g. (2027-28).
+alter table public.tally_settings add column if not exists company_fy boolean not null default false;
 
 create table if not exists public.tally_series (
   key      text primary key check (key in ('hsd','ms','xg')),
@@ -363,6 +366,13 @@ begin
   update tally_settings set auto_clear = coalesce(p_on, false) where id = 1;
 end $$;
 
+create or replace function public.tally_set_company_fy(p_on boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _tally_auth();
+  update tally_settings set company_fy = coalesce(p_on, false) where id = 1;
+end $$;
+
 -- Danger zone: clear ALL vouchers (numbering baselines are kept so the next
 -- number continues where Tally left off). The WHERE clause is required by
 -- Supabase's pg_safeupdate guard, which rejects unqualified DELETEs.
@@ -571,6 +581,7 @@ begin
       public.tally_move_day(date),
       public.tally_autoclear(date),
       public.tally_set_autoclear(boolean),
+      public.tally_set_company_fy(boolean),
       public.tally_reset_vouchers(),
       public.tally_reset_parties(),
       public.tally_import_daybook(jsonb),

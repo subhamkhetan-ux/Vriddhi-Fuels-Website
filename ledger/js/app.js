@@ -2,7 +2,7 @@
 // The logic lives in the other modules (daybook, master, po, store); this
 // file is the screens.
 
-import { normalizeCompany, slipBundles, tankerBundles } from './bills.js';
+import { normalizeCompany, slipBundles, slipHeaderFor, splitCompany, tankerBundles } from './bills.js';
 import { daybookPayload, parseDaybook, sheetRows } from './daybook.js';
 import { demoSeed } from './demo.js';
 import { fromQueue } from './payin.js';
@@ -33,7 +33,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { memoryStore, supabaseStore } from './store.js';
-import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
+import { billKey, fmtDate, fmtLitres, fmtMoney, fyOf, normKey, suggestLedgerName } from './util.js';
 
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 const SHEETJS = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
@@ -1835,7 +1835,8 @@ const rangeName = (from, to) => (from === to ? dmyDash(from) : `${dmyDash(from)}
 const dmyDash = (iso) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
 
 async function viewBills() {
-  const [tanker, customers, stamp] = await Promise.all([state.store.tankerList(), state.store.customers(), state.store.setting('slip_stamp')]);
+  const [tanker, customers, stamp, header, company] = await Promise.all([state.store.tankerList(), state.store.customers(),
+    state.store.setting('slip_stamp'), state.store.setting('slip_header'), state.store.setting('slip_company')]);
   const y = state.billDates || { from: yesterday(), to: yesterday() };
   const dates = (id) => `<label>From <input type="date" name="from" value="${y.from}" required></label>
     <label>To <input type="date" name="to" value="${y.to}" required></label>`;
@@ -1857,6 +1858,7 @@ async function viewBills() {
         <datalist id="slip-customers">${customers.filter((c) => !c.archived).map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist>
         <button class="btn" type="submit">Prepare slips</button></form>
       ${stampRow(stamp, 'stamp-file', 'stamp-remove', 'slips')}
+      ${companyForm(header, company)}
       <div id="slip-out"></div>
     </section>
     <section class="card">
@@ -1881,6 +1883,67 @@ async function viewBills() {
     guard(async () => prepareSlips(read(e.target)));
   });
   bindStamp('slip_stamp', 'stamp-file', 'stamp-remove', viewBills);
+  bindCompany(viewBills);
+}
+
+// The company name on the fuel slips. The HSD Bill sheet's heading starts
+// with the Tally company name, financial year and all ("VRIDDHI FUELS
+// (2026-27)"); a name saved here replaces it on every slip — kept across
+// Master Ledger uploads — with each bill's own financial year after it when
+// the box is ticked.
+function companyForm(header, company) {
+  const sheet = String((header && header.lines && header.lines[0]) || '').trim();
+  const now = company && company.name ? company : splitCompany(sheet || DEFAULT_SLIP_HEADER.lines[0]);
+  return `<form class="row-form company-form" id="company-form">
+      <label>Company name on the slips <input name="name" value="${esc(now.name)}" required autocomplete="off"></label>
+      <label class="radio"><input type="checkbox" name="fy" ${now.fy ? 'checked' : ''}> Add the bill's financial year</label>
+      <button class="btn ghost small" type="submit">Save name</button>
+      ${company ? '<button class="btn ghost small" type="button" id="company-reset">Use the Master Ledger\'s heading</button>' : ''}
+    </form>
+    <p class="muted small" id="company-preview">${companyPreview(now)}</p>
+    <p class="muted small">${company
+    ? 'Saved in the app — Master Ledger uploads don\'t change it.'
+    : `Now from the HSD Bill sheet${sheet ? ` (“${esc(sheet)}”)` : ''}. Save a name here to change it without re-uploading; it stays across uploads.`}</p>`;
+}
+
+function companyPreview({ name, fy }) {
+  name = String(name || '').trim();
+  if (!name) return 'Type the company name.';
+  if (!fy) return `Every slip prints “${esc(name)}”.`;
+  const today = todayIso();
+  const thisFy = fyOf(today);
+  const nextFy = fyOf(`${Number(thisFy.slice(0, 4)) + 1}-04-01`);
+  return `Slips print “${esc(name)} (${thisFy})” for this year's bills and “${esc(name)} (${nextFy})” from 1 April ${Number(thisFy.slice(0, 4)) + 1} — each bill's own financial year.`;
+}
+
+function bindCompany(reload) {
+  const form = document.getElementById('company-form');
+  const value = () => {
+    const fy = form.fy.checked;
+    // with the year added automatically, a year typed at the end is dropped
+    const name = fy ? splitCompany(form.name.value).name : form.name.value.trim();
+    return { name, fy };
+  };
+  form.addEventListener('input', () => { document.getElementById('company-preview').innerHTML = companyPreview(value()); });
+  const save = (v, msg) => guard(async () => {
+    try {
+      await state.store.setSetting('slip_company', v);
+    } catch (err) {
+      if (/unknown setting/i.test(err.message || '')) {
+        throw new Error('The database needs an update for this: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).');
+      }
+      throw err;
+    }
+    toast(msg);
+    await reload();
+  });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = value();
+    if (!v.name) { toast('Type the company name.', 'bad'); return; }
+    save(v, 'Company name saved — every slip uses it now.');
+  });
+  document.getElementById('company-reset')?.addEventListener('click', () => save(null, 'Slips use the Master Ledger\'s heading again.'));
 }
 
 // Stamp pictures (slip_stamp, statement_stamp) are kept in the database.
@@ -1954,7 +2017,8 @@ async function prepareTanker({ from, to, filter }, tanker) {
 async function prepareSlips({ from, to, filter }) {
   const out = document.getElementById('slip-out');
   out.innerHTML = loadingHtml('Finding bills…');
-  const [sales, header, stamp] = await Promise.all([state.store.salesRange(from, to), state.store.setting('slip_header'), state.store.setting('slip_stamp')]);
+  const [sales, header, stamp, company] = await Promise.all([state.store.salesRange(from, to), state.store.setting('slip_header'),
+    state.store.setting('slip_stamp'), state.store.setting('slip_company')]);
   const res = slipBundles({ sales, from, to, filter });
   const range = `${rangeName(from, to)}${filter ? ` · ${esc(filter)}` : ''}`;
   if (!res.bills) {
@@ -1962,10 +2026,10 @@ async function prepareSlips({ from, to, filter }) {
     return;
   }
   const h = header || DEFAULT_SLIP_HEADER;
-  const pages = (b) => b.bills.map((x) => slipSvg(x, h, stamp ? stamp.data_url : ''));
+  const pages = (b) => b.bills.map((x) => slipSvg(x, slipHeaderFor(h, company, x.sale_date), stamp ? stamp.data_url : ''));
   renderBundles(out, {
     summary: `<b>${plural(res.bills, 'bill')}</b> in <b>${plural(res.bundles.length, 'PDF')}</b> · ${range}`,
-    extra: header ? '' : '<p class="muted small">The slip heading comes from the HSD Bill sheet — upload the Master Ledger to bring in yours.</p>',
+    extra: header || company ? '' : '<p class="muted small">The slip heading comes from the HSD Bill sheet — upload the Master Ledger to bring in yours.</p>',
     bundles: res.bundles,
     size: A5,
     zipName: `${res.folder}.zip`,

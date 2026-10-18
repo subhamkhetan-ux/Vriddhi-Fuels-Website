@@ -168,7 +168,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
     <span id="dayCount"></span><b id="daySum"></b>
   </div>
   <button class="btn primary" id="btnExport" disabled>⬇ Download XML for Tally</button>
-  <div class="hint" style="text-align:center">The file contains <b>every voucher of the selected day</b> — you can download it again anytime.<br>Import in Tally Prime: Gateway of Tally → Import Data → Vouchers</div>
+  <div class="hint" style="text-align:center">The file contains <b>every voucher of the selected day</b> — you can download it again anytime.<br>Import in Tally Prime: Gateway of Tally → Import Data → Vouchers<br><span id="exportCompany"></span></div>
   <button class="btn ghost" id="btnDaySlips" disabled>🎫 Fuel slips — every voucher of this day</button>
   <button class="btn ghost" id="btnMoveDay" style="display:none">✓ Day imported in Tally — move to old vouchers</button>
 
@@ -474,6 +474,11 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
         <label for="slLines">Heading lines — one per line, up to 7 (the first is printed large)</label>
         <textarea id="slLines" rows="7"></textarea>
       </div>
+      <div class="chkrow">
+        <input type="checkbox" id="slFy">
+        <label for="slFy" style="margin:0;font-size:15px;color:var(--txt)">End the first line (the company name) with each bill's financial year</label>
+      </div>
+      <div class="hint" id="slFyHint"></div>
       <button class="btn ghost" id="slSaveHead">Save heading</button>
       <button class="btn ghost" id="slResetHead">Use the standard Vriddhi Fuels heading</button>
     </details>
@@ -490,6 +495,11 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
       <label>Tally company name (must match exactly)</label>
       <input type="text" id="setCompany">
     </div>
+    <div class="chkrow">
+      <input type="checkbox" id="setCompanyFy">
+      <label for="setCompanyFy" style="margin:0;font-size:15px;color:var(--txt)">Add the financial year automatically</label>
+    </div>
+    <div class="hint" id="setCompanyHint"></div>
   </div>
 
   <div class="card">
@@ -1009,6 +1019,7 @@ function defaultState(){
       xg:  { last: TALLY.series.xg.defLast,  rate: TALLY.series.xg.defRate }
     },
     parties: TALLY.defaultParties.slice(),
+    companyFy: false, // when true, `company` has no year: exports add the vouchers' financial year
     partyGst: {},     // { name: {gstin, regType, state, place, pincode, country} } from Master import
     autoClear: false, // when true, vouchers older than 2 days are cleared on open
     queue: [],   // {id, seriesKey, number, dateISO, party, vehicle, rate, qty, itemAmt, partyAmt, roff, exportedAt|null}
@@ -1100,6 +1111,7 @@ var LocalBackend = {
       if (!s.history) s.history = [];
       if (!s.partyGst) s.partyGst = {};
       if (typeof s.autoClear !== "boolean") s.autoClear = false;
+      if (typeof s.companyFy !== "boolean") s.companyFy = false;
       if (!s.series.xg) s.series.xg = { last: TALLY.series.xg.defLast, rate: TALLY.series.xg.defRate };
     } catch(e){ s = defaultState(); }
     return Promise.resolve(s);
@@ -1192,6 +1204,7 @@ var LocalBackend = {
     return Promise.resolve(before - (state.queue.length + state.history.length));
   },
   setAutoClear: function(on){ state.autoClear = !!on; this._save(); return Promise.resolve(); },
+  setCompanyFy: function(on){ state.companyFy = !!on; this._save(); return Promise.resolve(); },
   resetVouchers: function(){
     // keep the baselines so invoice numbering continues past what's in Tally
     state.queue.concat(state.history).forEach(function(v){ bumpBaseline(v.seriesKey, v.number); });
@@ -1316,6 +1329,8 @@ var CloudBackend = {
     var pSettings = c.from("tally_settings").select("company,auto_clear").eq("id", 1).single();
     var pSeries   = c.from("tally_series").select("*");
     var pParties  = c.from("tally_parties").select("name,gstin,reg_type,state,place_of_supply,pincode,country").order("name");
+    // separate so a database without the column (tally-schema.sql not re-run) still loads
+    var pCompanyFy = c.from("tally_settings").select("company_fy").eq("id", 1).single();
     function fetchVouchers(acc, from){
       return c.from("tally_vouchers").select("*").range(from, from + 999).then(function(page){
         if (page.error) throw new Error(page.error.message);
@@ -1324,13 +1339,16 @@ var CloudBackend = {
         return fetchVouchers(acc, from + 1000);
       });
     }
-    return Promise.all([pSettings, pSeries, pParties, fetchVouchers([], 0)]).then(function(r){
+    var self = this;
+    return Promise.all([pSettings, pSeries, pParties, fetchVouchers([], 0), pCompanyFy]).then(function(r){
       if (r[0].error) throw new Error(r[0].error.message);
       if (r[1].error) throw new Error(r[1].error.message);
       if (r[2].error) throw new Error(r[2].error.message);
       var s = defaultState();
       s.company = r[0].data.company;
       s.autoClear = !!r[0].data.auto_clear;
+      self.companyFyMissing = !!r[4].error;
+      s.companyFy = !r[4].error && !!(r[4].data && r[4].data.company_fy);
       (r[1].data || []).forEach(function(row){
         s.series[row.key] = { last: row.baseline, rate: parseFloat(row.rate) };
       });
@@ -1398,6 +1416,14 @@ var CloudBackend = {
   moveDay: function(day){ return this.rpc("tally_move_day", { p_date: day }); },
   autoClear: function(cutoff){ return this.rpc("tally_autoclear", { p_cutoff: cutoff }); },
   setAutoClear: function(on){ return this.rpc("tally_set_autoclear", { p_on: !!on }); },
+  companyFyMissing: false,
+  setCompanyFy: function(on){
+    if (this.companyFyMissing){
+      return on ? Promise.reject(new Error("Adding the financial year automatically needs a database update — "
+        + "re-run supabase/tally-schema.sql in the Supabase SQL Editor.")) : Promise.resolve();
+    }
+    return this.rpc("tally_set_company_fy", { p_on: !!on });
+  },
   resetVouchers: function(){ return this.rpc("tally_reset_vouchers", {}); },
   resetParties: function(){ return this.rpc("tally_reset_parties", {}); },
   importDaybook: function(vouchers){
@@ -1557,6 +1583,7 @@ function renderHome(){
     $("btnExport").textContent = "⬇ Download XML — " + dayLabel;
   }
   $("btnMoveDay").style.display = live.length ? "" : "none";
+  $("exportCompany").textContent = "Tally company: " + tallyCompany(day);
   // slips cover every voucher of the day, DayBook-imported ones included
   var nSlips = slipSales().filter(function(x){ return x.sale_date === day; }).length;
   $("btnDaySlips").disabled = !nSlips;
@@ -1646,8 +1673,16 @@ function renderDayList(el, live, moved){
   });
 }
 
+// The Tally company a day's vouchers go to. With "add the financial year"
+// on, the saved name has no year and the day's own year is added, so
+// vouchers from 1 April 2027 go to "VRIDDHI FUELS (2027-28)" by themselves.
+function tallyCompany(day){
+  if (!state.companyFy) return state.company;
+  return VFSlips.splitCompany(state.company).name + " (" + VFSlips.fyOf(day) + ")";
+}
+
 function downloadXml(vouchers, day){
-  var xml = buildEnvelope(state.company, vouchers);
+  var xml = buildEnvelope(tallyCompany(day), vouchers);
   var name = "Sales_" + day + "_" + vouchers.length + "vch.xml";
   var blob = new Blob([xml], {type: "text/xml;charset=utf-8"});
   var a = document.createElement("a");
@@ -2476,7 +2511,8 @@ var SLIP_PRODUCT = { hsd: "HSD", ms: "MS", xg: "XG" };
 var DEFAULT_SLIP_HEADER = {
   title: "CREDIT MEMO",
   mobile: "Mob : 9937344411",
-  lines: ["VRIDDHI FUELS (2026-27)", "AT-KHERWAL PO- BADMAL", "DIST- JHARSUGUDA, 768202", "ODISHA",
+  fy: true,   // the first line gets each bill's financial year: VRIDDHI FUELS (2026-27)
+  lines: ["VRIDDHI FUELS", "AT-KHERWAL PO- BADMAL", "DIST- JHARSUGUDA, 768202", "ODISHA",
     "GSTIN/UIN: 21AATFV8250A1Z8", "State Name : Odisha, Code : 21", "E-Mail : subhamkhetan@gmail.com"]
 };
 var LS_SLIP_USE = "vf_tally_slip_use_stamp";   // "Print the signature" — per device
@@ -2593,6 +2629,28 @@ function fillSlipHeadForm(){
   $("slTitle").value = h.title || "";
   $("slMobile").value = h.mobile || "";
   $("slLines").value = (h.lines || []).join("\n");
+  $("slFy").checked = !!h.fy;
+  renderSlipFyHint();
+}
+
+function renderSlipFyHint(){
+  var first = $("slLines").value.split("\n")[0].trim();
+  if (!$("slFy").checked){
+    $("slFyHint").textContent = "The first line prints exactly as typed. Tick the box to have the financial year added from each bill's date.";
+    return;
+  }
+  var base = VFSlips.splitCompany(first).name || "…";
+  var fy = VFSlips.fyOf(todayISO()), start = Number(fy.slice(0, 4)) + 1;
+  $("slFyHint").textContent = "Slips print “" + base + " (" + fy + ")” for this year's bills and “" + base + " ("
+    + VFSlips.fyOf(start + "-04-01") + ")” from 1 April " + start + ".";
+}
+$("slLines").addEventListener("input", renderSlipFyHint);
+$("slFy").addEventListener("change", renderSlipFyHint);
+
+// the heading for one bill, its financial year added when asked
+function slipHeaderOf(h, iso){
+  if (!h.fy || !(h.lines || []).length) return h;
+  return VFSlips.slipHeaderFor(h, { name: VFSlips.splitCompany(h.lines[0]).name, fy: true }, iso);
 }
 
 function slipStampUrl(){
@@ -2600,7 +2658,7 @@ function slipStampUrl(){
 }
 function slipPages(b){
   var h = slip.header || DEFAULT_SLIP_HEADER, st = slipStampUrl();
-  return b.bills.map(function(x){ return VFSlips.slipSvg(x, h, st); });
+  return b.bills.map(function(x){ return VFSlips.slipSvg(x, slipHeaderOf(h, x.sale_date), st); });
 }
 // redraw what is on screen (signature or heading changed)
 function redrawSlips(){
@@ -2784,7 +2842,9 @@ function removeSlipStamp(){
 $("slSaveHead").onclick = function(){
   var lines = $("slLines").value.split("\n").map(function(l){ return l.trim(); }).filter(Boolean);
   if (lines.length > 7){ toast("The slip has room for 7 heading lines — remove " + (lines.length - 7)); return; }
-  var h = { title: $("slTitle").value.trim() || "CREDIT MEMO", mobile: $("slMobile").value.trim(), lines: lines };
+  var fy = $("slFy").checked;
+  if (fy && lines.length) lines[0] = VFSlips.splitCompany(lines[0]).name;
+  var h = { title: $("slTitle").value.trim() || "CREDIT MEMO", mobile: $("slMobile").value.trim(), fy: fy, lines: lines };
   backend.saveSlipHeader(h).then(function(){
     slip.header = h;
     fillSlipHeadForm();
@@ -2803,7 +2863,9 @@ $("slResetHead").onclick = function(){
 
 /* ---------- settings ---------- */
 function renderSettings(){
-  $("setCompany").value = state.company;
+  $("setCompany").value = state.companyFy ? VFSlips.splitCompany(state.company).name : state.company;
+  $("setCompanyFy").checked = !!state.companyFy;
+  renderCompanyHint();
   $("setHsdLast").value = state.series.hsd.last;
   $("setHsdRate").value = fmtAmt(state.series.hsd.rate);
   $("setMsLast").value = state.series.ms.last;
@@ -2855,8 +2917,26 @@ $("setAutoClear").addEventListener("change", function(){
     .catch(function(e){ oops(e); renderSettings(); });
 });
 
+function renderCompanyHint(){
+  var name = $("setCompany").value.trim();
+  if (!$("setCompanyFy").checked){
+    $("setCompanyHint").textContent = "Every XML export goes to this company. Tick the box to have the financial year "
+      + "— (2026-27), (2027-28) … — added automatically from the vouchers' date.";
+    return;
+  }
+  var base = VFSlips.splitCompany(name).name || "…";
+  var fy = VFSlips.fyOf(todayISO()), start = Number(fy.slice(0, 4)) + 1;
+  $("setCompanyHint").textContent = "Exports go to “" + base + " (" + fy + ")” for this year's vouchers and to “"
+    + base + " (" + VFSlips.fyOf(start + "-04-01") + ")” for vouchers from 1 April " + start
+    + " — each day's own financial year, no change needed for a new year.";
+}
+$("setCompany").addEventListener("input", renderCompanyHint);
+$("setCompanyFy").addEventListener("change", renderCompanyHint);
+
 $("btnSaveSettings").onclick = function(){
-  var company = $("setCompany").value.trim();
+  var companyFy = $("setCompanyFy").checked;
+  // with the year added automatically, a year typed at the end is dropped
+  var company = companyFy ? VFSlips.splitCompany($("setCompany").value).name : $("setCompany").value.trim();
   var vals = {
     hsd: { last: $("setHsdLast").value.trim(), rate: parseFloat($("setHsdRate").value) },
     ms:  { last: $("setMsLast").value.trim(),  rate: parseFloat($("setMsRate").value) },
@@ -2868,7 +2948,10 @@ $("btnSaveSettings").onclick = function(){
     if (!vals[sk].last){ toast("Last invoice numbers are required"); return; }
     if (!(vals[sk].rate > 0)){ toast("Prices must be positive"); return; }
   }
-  backend.saveSettings(company, vals).then(function(){
+  // the switch first: if it can't be saved, the name is left as it was
+  (companyFy !== !!state.companyFy ? backend.setCompanyFy(companyFy) : Promise.resolve()).then(function(){
+    return backend.saveSettings(company, vals);
+  }).then(function(){
     toast("Settings saved");
     return refresh().then(function(){ show("home"); });
   }).catch(oops);

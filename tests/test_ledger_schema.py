@@ -464,6 +464,19 @@ def test_slip_stamp_setting(pg):
     assert "permission denied" in pg.fails("select ledger_setting_set('slip_stamp', null);", anon=True)
 
 
+def test_slip_company_setting_survives_uploads(pg):
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    pg.ok(call("ledger_setting_set", "slip_company", {"name": "DEMO FUELS", "fy": True}), **as_owner)
+    p = payload()
+    p["settings"] = {"slip_header": {"title": "CREDIT MEMO", "mobile": "", "lines": ["DEMO FUELS (2026-27)"]}}
+    pg.owner(call("ledger_import_master", "Master Ledger v5.xlsm", p))
+    assert pg.owner(call("ledger_setting_get", "slip_company")) == {"name": "DEMO FUELS", "fy": True}
+    assert pg.owner(call("ledger_setting_get", "slip_header"))["lines"] == ["DEMO FUELS (2026-27)"]
+    pg.ok("select ledger_setting_set('slip_company', null);", **as_owner)
+    assert pg.ok("select ledger_setting_get('slip_company') is null;", **as_owner) == "t"
+    assert "permission denied" in pg.fails("select ledger_setting_set('slip_company', null);", anon=True)
+
+
 def test_statements_balances_and_openings(pg):
     p = payload()
     p["customers"] = p["customers"] + [
