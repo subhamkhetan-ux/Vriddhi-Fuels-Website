@@ -5,7 +5,8 @@ name: Deploy tanker + tally apps to GitHub Pages
 # data file, plus the in-browser Tally import tools (tally-tools/), which bundle
 # the bank/IOCL/fleet app code with the three lists they read: state/
 # customers.json, bank_aliases.json and tally_ledgers.json. It does NOT publish
-# the rest of the repo — importantly not the other state/ files (payment-agent
+# the rest of the repo (beyond the static PDF Toolkit in pdf/) — importantly
+# not the other state/ files (payment-agent
 # queue / seen / bank data) or the Master Ledger.
 #
 # One-time: repo Settings -> Pages -> Build and deployment -> Source:
@@ -36,6 +37,8 @@ on:
       - "state/bank_aliases.json"
       - "state/customers.json"
       - "state/tally_ledgers.json"
+      # PDF Toolkit (static, self-contained)
+      - "pdf/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch: {}
 
@@ -76,8 +79,11 @@ jobs:
           <meta http-equiv="refresh" content="0; url=./tanker/">
           <title>Vriddhi Fuels — Tanker Billing</title>
           <a href="./tanker/">Open Tanker Billing</a> ·
-          <a href="./tally/">Open Tally Vouchers</a>
+          <a href="./tally/">Open Tally Vouchers</a> ·
+          <a href="./pdf/">Open PDF Toolkit</a>
           HTML
+          # PDF Toolkit: fully static and self-contained (vendored libraries)
+          cp -r pdf _site/pdf
           # don't let Pages run Jekyll over the files
           touch _site/.nojekyll
 
