@@ -185,6 +185,49 @@ The standalone app at `/tanker/` is unchanged and keeps working — both read
 the same data file, and this app reuses the tanker app's letterhead, stamp,
 fonts and `.docx` builder rather than keeping a second copy of them.
 
+## Fuel slips (Print Bills)
+
+The Ledger app's **Print Bills** — the HSD Bill sheet's A5 credit memo —
+for every voucher in this app: pending, exported and old, including the
+ones a **DayBook import** brought in.
+
+- **🎫 next to any voucher** (day list or old vouchers) makes that voucher's
+  slip and shows it straight away: **Download PDF** or **Print**.
+- **On the voucher screen** (a new voucher, or one opened by tapping it or
+  ✎ — old vouchers too) **🎫 Download fuel slip (PDF)** and **🖨 Print fuel
+  slip** give that one voucher's slip in one tap, from what is on the form.
+  For a new voucher, save it first so the slip carries its final number.
+- **🎫 Fuel slips — every voucher of <day>** (home, under the XML button)
+  makes the whole day's slips; **🎫 Fuel slips — any dates / customer**
+  (Records & imports) takes any From..To range and, optionally, one
+  customer (exact name, any case).
+- Exactly like the Ledger app: one A5 page per voucher, **one PDF per
+  customer** (`<Customer> Slips <date>.pdf`; diesel first, then petrol, then
+  XtraGreen), **Download all PDFs (.zip)** in a `Fuel Bills <from> to <to>`
+  folder, **Print all**, and a PDF / Print / Preview per customer.
+- The slip shows the voucher's number, date, customer, vehicle, product,
+  quantity, rate and **party total** (the amount the DayBook's Debit column
+  — and so the Ledger app's slip — carries).
+- **Signature:** *Choose signature* uploads the picture printed above
+  "Sign.of Salesman" (where the Ledger app puts its stamp; PNG/JPEG under
+  500 KB), *Change signature* replaces it and *Remove* deletes it. The
+  **Print the signature on the slips** tick box leaves it off without
+  removing it (remembered on that device).
+- **Slip heading:** the top of the slip (title, mobile, up to 7 lines) is
+  editable under *Slip heading*; until one is saved it prints the standard
+  Vriddhi Fuels heading.
+- In cloud mode the signature and heading are shared by every employee.
+  This needs the new `slip_header` / `slip_stamp` columns, so re-run
+  [`../supabase/tally-schema.sql`](../supabase/tally-schema.sql) in the
+  Supabase SQL Editor once (safe to re-run). Until then the screen says so
+  and keeps them on that device only — slips still work.
+
+The drawing and grouping are in [`slips.js`](./slips.js), a port of the
+Ledger app's own code (the Pages site serves only `/tanker/` and `/tally/`);
+`tests/ledger_web/tally_slips.test.mjs` checks that both produce exactly the
+same slips and PDFs. The PDF and zip libraries (jsPDF, JSZip) load from
+cdnjs the first time slips are downloaded, as in the Ledger app.
+
 ## Altering an old voucher
 
 Vouchers in **Old vouchers** — both the ones moved there after a Tally
