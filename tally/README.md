@@ -193,6 +193,10 @@ ones a **DayBook import** brought in.
 
 - **🎫 next to any voucher** (day list or old vouchers) makes that voucher's
   slip and shows it straight away: **Download PDF** or **Print**.
+- **On the voucher screen** (a new voucher, or one opened by tapping it or
+  ✎ — old vouchers too) **🎫 Download fuel slip (PDF)** and **🖨 Print fuel
+  slip** give that one voucher's slip in one tap, from what is on the form.
+  For a new voucher, save it first so the slip carries its final number.
 - **🎫 Fuel slips — every voucher of <day>** (home, under the XML button)
   makes the whole day's slips; **🎫 Fuel slips — any dates / customer**
   (Records & imports) takes any From..To range and, optionally, one

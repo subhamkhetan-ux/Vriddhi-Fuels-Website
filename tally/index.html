@@ -252,6 +252,11 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="hint" style="text-align:center">Opens the printable customer bill with every field already filled:
   date, vehicle, quantity, price and amount from this voucher, and the customer's address, GSTIN, P.O. no.
   and payment details from the Tanker Billing sheet.</div>
+  <div class="sl-actions">
+    <button class="btn ghost" id="btnSlipPdf">🎫 Download fuel slip (PDF)</button>
+    <button class="btn ghost" id="btnSlipPrint">🖨 Print fuel slip</button>
+  </div>
+  <div class="hint" style="text-align:center" id="slipFormHint"></div>
 </section>
 
 <!-- ======================= HISTORY ======================= -->
@@ -1489,6 +1494,8 @@ function show(screen){
     $("btnSave").textContent = draft.editHist
       ? "Save changes to old voucher"
       : (draft.editId ? "Save changes" : "Save voucher");
+    $("slipFormHint").textContent = "This voucher's A5 fuel slip, as in the Ledger app — with the signature set on the Fuel slips screen."
+      + (draft.editId || draft.editHist ? "" : " Save the voucher first so the slip carries its final invoice number.");
   } else if (screen === "bill"){
     $("scrBill").classList.add("on");
     $("hdrTitle").textContent = "Customer bill";
@@ -2537,11 +2544,7 @@ function openSlips(o){
   $("slOut").innerHTML = o.prepare ? '<div class="empty">Preparing slips…</div>' : "";
   show("slips");
   renderSlipStamp();
-  backend.loadSlip().then(function(r){
-    slip.header = r.header; slip.stamp = r.stamp; slip.where = r.where;
-  }).catch(function(e){
-    toast("Couldn't load the signature (" + ((e && e.message) || e) + ") — slips are made without it.");
-  }).then(function(){
+  loadSlipSettings().then(function(){
     renderSlipStamp();
     fillSlipHeadForm();
     if (o.prepare) prepareSlips();
@@ -2694,6 +2697,47 @@ function prepareSlips(){
 }
 
 $("slPrepare").onclick = function(){ slip.only = null; prepareSlips(); };
+
+// The voucher screen (new, edit or old voucher): this one voucher's slip,
+// straight to a PDF or the printer, from what is on the form right now.
+function draftSlipVoucher(){
+  if (!draft.party){ toast("Select a customer first"); return null; }
+  var c = currentCalc();
+  if (!c){ toast("Enter the price and the quantity or amount first"); return null; }
+  return { seriesKey: draft.seriesKey, number: displayNumber(draft.seriesKey),
+    dateISO: $("fDate").value || todayISO(), party: draft.party,
+    vehicle: $("fVehicle").value.trim().toUpperCase(),
+    qty: c.qty, rate: parseFloat($("fPrice").value) || 0, partyAmt: c.partyAmt };
+}
+// the signature and heading as last saved (shared in cloud mode)
+function loadSlipSettings(){
+  return backend.loadSlip().then(function(r){
+    slip.header = r.header; slip.stamp = r.stamp; slip.where = r.where;
+  }).catch(function(e){
+    toast("Couldn't load the signature (" + ((e && e.message) || e) + ") — the slip is made without it.");
+  });
+}
+function draftSlip(btn, busyText, fn){
+  var v = draftSlipVoucher();
+  if (!v) return;
+  var label = btn.textContent;
+  btn.disabled = true; btn.textContent = busyText;
+  loadSlipSettings().then(function(){
+    var b = VFSlips.slipBundles({ sales: [slipSale(v)], from: v.dateISO, to: v.dateISO }).bundles[0];
+    return fn(b);
+  }).catch(oops).then(function(){ btn.disabled = false; btn.textContent = label; });
+}
+$("btnSlipPdf").onclick = function(){
+  draftSlip(this, "Making PDF…", function(b){
+    return VFSlips.pdfFromSvgs(slipPages(b), VFSlips.A5).then(function(blob){
+      VFSlips.download(blob, b.fileName);
+      toast("Downloaded " + b.fileName);
+    });
+  });
+};
+$("btnSlipPrint").onclick = function(){
+  draftSlip(this, "Preparing…", function(b){ VFSlips.printSlips(slipPages(b)); });
+};
 $("btnDaySlips").onclick = function(){
   var day = selectedDay();
   openSlips({ from: day, to: day, prepare: true });
