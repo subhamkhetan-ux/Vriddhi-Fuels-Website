@@ -183,6 +183,40 @@ function slipBundles(o){
   return { folder: "Fuel Bills " + dmy(from) + " to " + dmy(to), bundles: bundles, bills: rows.length };
 }
 
+/* ---------------- the company name and its financial year ----------------
+   The HSD Bill sheet's first heading line — like the Tally company name —
+   carries the financial year: "VRIDDHI FUELS (2026-27)". */
+
+// Indian financial year of an ISO date: 2026-04-01 .. 2027-03-31 -> "2026-27"
+function fyOf(iso){
+  var y = Number(iso.slice(0, 4));
+  var m = Number(iso.slice(5, 7));
+  var start = m >= 4 ? y : y - 1;
+  return start + "-" + String((start + 1) % 100).padStart(2, "0");
+}
+
+var FY_END = /\s*\(\s*\d{4}\s*-\s*\d{2,4}\s*\)\s*$/;
+
+// "VRIDDHI FUELS (2026-27)" -> {name: "VRIDDHI FUELS", fy: true}
+function splitCompany(line){
+  var s = String(line == null ? "" : line).trim();
+  return FY_END.test(s) ? { name: s.replace(FY_END, "").trim(), fy: true } : { name: s, fy: false };
+}
+
+// The slip heading for one bill: company {name, fy} replaces the first
+// line — followed by the bill's own financial year when fy is set. No name:
+// the heading as it is.
+function slipHeaderFor(header, company, iso){
+  var name = String((company && company.name) == null ? "" : company.name).trim();
+  if (!name) return header;
+  var lines = (header.lines || []).slice();
+  lines[0] = company.fy && iso ? name + " (" + fyOf(iso) + ")" : name;
+  var out = {};
+  for (var k in header) out[k] = header[k];
+  out.lines = lines;
+  return out;
+}
+
 /* ---------------- browser only: PDF, zip, print ---------------- */
 
 var JSPDF = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
@@ -282,7 +316,10 @@ var api = {
   A5: A5,
   PRODUCT_NAME: PRODUCT_NAME,
   dmy: dmy,
+  fyOf: fyOf,
   inr2: inr2,
+  splitCompany: splitCompany,
+  slipHeaderFor: slipHeaderFor,
   safeName: safeName,
   slipSvg: slipSvg,
   slipBundles: slipBundles,

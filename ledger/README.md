@@ -19,7 +19,17 @@ being on. **Phase 1** (this folder) covers:
 | **Print Bills** (Module7 `ExportBillsPerCustomer`) | Every HSD, MS and XG bill in the range as an A5 credit memo, one PDF per customer named `<Customer> Slips <date>`, zipped in a `Fuel Bills <from> to <to>` folder. The heading is read from the HSD Bill sheet. |
 
 The Tanker Master and the slip heading come in with **Upload Master Ledger**
-(re-upload after changing them in Excel). Customers not in the Tanker Master
+(re-upload after changing them in Excel).
+
+**Company name on the slips.** The slip heading starts with the Tally
+company name, financial year and all (`VRIDDHI FUELS (2026-27)`). Under
+*Print Bills* you can change it in the app: type the name and tick **Add the
+bill's financial year**, and every slip prints its own bill's year —
+`(2026-27)` up to 31 March, `(2027-28)` from 1 April — with no new upload
+for a new year. Untick it to print the name exactly as typed. The name is
+kept across Master Ledger uploads; **Use the Master Ledger's heading** goes
+back to the sheet's line. (Needs [`supabase/ledger-schema.sql`](../supabase/ledger-schema.sql)
+run again once; the app says so until then.) Customers not in the Tanker Master
 are listed as skipped, like the macro.
 
 **Phase 3** (the **Statements** tab):

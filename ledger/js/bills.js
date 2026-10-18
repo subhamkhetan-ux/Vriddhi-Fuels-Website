@@ -3,7 +3,7 @@
 //   Print Bills        (Module7 ExportBillsPerCustomer).
 // Pure functions: no DOM, no network. Rendering is in render.js.
 
-import { normKey } from './util.js';
+import { fyOf, normKey } from './util.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
   'October', 'November', 'December'];
@@ -217,4 +217,28 @@ export function slipBundles({ sales, from, to, filter = '' }) {
     return { key: normKey(g.name), fileName: `${name}.pdf`, name: g.name, bills: g.bills };
   });
   return { folder: `Fuel Bills ${dmy(from)} to ${dmy(to)}`, bundles, bills: rows.length };
+}
+
+// ---- the company name on the slips ---------------------------------------------
+
+const FY_END = /\s*\(\s*\d{4}\s*-\s*\d{2,4}\s*\)\s*$/;
+
+// "VRIDDHI FUELS (2026-27)" -> { name: 'VRIDDHI FUELS', fy: true }
+export function splitCompany(line) {
+  const s = String(line ?? '').trim();
+  return FY_END.test(s) ? { name: s.replace(FY_END, '').trim(), fy: true } : { name: s, fy: false };
+}
+
+// The slip heading for one bill. The HSD Bill sheet's first heading line is
+// the company name, which in Tally carries the financial year
+// ("VRIDDHI FUELS (2026-27)"). When a name is saved in the app
+// (slip_company: {name, fy}) it replaces that line — followed by the bill's
+// own financial year when fy is set, so a 2027-28 bill says (2027-28)
+// without a new upload. No saved name: the sheet's heading as uploaded.
+export function slipHeaderFor(header, company, iso) {
+  const name = String(company?.name ?? '').trim();
+  if (!name) return header;
+  const lines = [...(header.lines || [])];
+  lines[0] = company.fy && iso ? `${name} (${fyOf(iso)})` : name;
+  return { ...header, lines };
 }

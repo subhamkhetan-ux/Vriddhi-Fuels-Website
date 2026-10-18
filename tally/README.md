@@ -122,6 +122,14 @@ nothing.
   Duplicate-import management in Tally is deliberately left to the operator.
   After a day is confirmed imported, an optional "move day to old vouchers"
   tidies the list; the day remains exportable afterwards.
+- **Tally company name and the financial year**: the XML's
+  `SVCURRENTCOMPANY` must match the Tally company, which carries the year
+  (`VRIDDHI FUELS (2026-27)`). Tick **Add the financial year automatically**
+  in Settings and keep just the name: each day's XML then goes to that day's
+  year — `VRIDDHI FUELS (2027-28)` from 1 April 2027 — and the home screen
+  shows the company under the download button. Untick it to use the name
+  exactly as typed. (Cloud mode: re-run `supabase/tally-schema.sql` once for
+  the `company_fy` switch; until then the app says so.)
 - **Settings**: company name, per-series last invoice no. + today's price
   (to fix counter drift if vouchers were entered directly in Tally), party
   management, and a read-only table of the fixed Tally names.
@@ -215,7 +223,11 @@ ones a **DayBook import** brought in.
   removing it (remembered on that device).
 - **Slip heading:** the top of the slip (title, mobile, up to 7 lines) is
   editable under *Slip heading*; until one is saved it prints the standard
-  Vriddhi Fuels heading.
+  Vriddhi Fuels heading. The first line is the company name: with **End the
+  first line with each bill's financial year** ticked (the standard heading
+  does) it prints `VRIDDHI FUELS (2026-27)` for bills up to 31 March and
+  `(2027-28)` from 1 April — nothing to change for a new year. Untick it to
+  print the line exactly as typed.
 - In cloud mode the signature and heading are shared by every employee.
   This needs the new `slip_header` / `slip_stamp` columns, so re-run
   [`../supabase/tally-schema.sql`](../supabase/tally-schema.sql) in the

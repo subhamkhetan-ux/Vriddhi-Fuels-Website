@@ -481,7 +481,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     },
 
     async setSetting(key, value) {
-      if (!['slip_stamp', 'statement_stamp'].includes(key)) fail(`Unknown setting ${key}.`);
+      if (!['slip_stamp', 'statement_stamp', 'slip_company'].includes(key)) fail(`Unknown setting ${key}.`);
       if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
     },
 
