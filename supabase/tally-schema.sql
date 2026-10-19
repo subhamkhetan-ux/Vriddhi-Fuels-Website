@@ -16,7 +16,7 @@
 --    SECURITY DEFINER function that validates and audits the change.
 -- =====================================================================
 
-create extension if not exists pgcrypto;
+-- gen_random_uuid() is built into PostgreSQL 13+ (including Supabase).
 
 -- ---------------------------------------------------------------------
 -- Tables
@@ -416,6 +416,11 @@ declare
   v_inserted boolean;
 begin
   perform _tally_auth();
+  if to_regclass('public.tally_bridge_config') is not null then
+    if exists(select 1 from public.tally_bridge_config where active) then
+      raise exception 'Manual DayBook import is disabled while paired. Refresh through the Tally bridge.';
+    end if;
+  end if;
 
   for r in select * from jsonb_array_elements(coalesce(p_vouchers,'[]'::jsonb)) loop
     sk := r->>'seriesKey';
@@ -570,9 +575,13 @@ end $$;
 -- ---------------------------------------------------------------------
 
 do $$
+declare f record;
 begin
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
-    revoke execute on all functions in schema public from public, anon;
+    for f in select oid::regprocedure as sig from pg_proc where pronamespace='public'::regnamespace
+      and (proname like 'tally_%' or left(proname,7)='_tally_') and proname not like 'tally_bridge_%' loop
+      execute format('revoke execute on function %s from public,anon',f.sig);
+    end loop;
     grant execute on function
       public.tally_save_voucher(uuid, text, date, text, text, numeric, numeric, numeric, numeric, numeric),
       public.tally_edit_history_voucher(uuid, date, text, text, numeric, numeric, numeric, numeric, numeric),

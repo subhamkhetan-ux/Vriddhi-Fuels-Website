@@ -1,3 +1,7 @@
+# Tally Prime connection
+
+The app now includes **Tally connection & reports**: a Windows bridge, durable voucher queue, Tally data explorer and cached native reports. Apply the separate bridge migration before pairing a PC. See [Windows setup and supported scope](../tally_bridge/README.md). The manual workflows below remain available for installations that have not paired a bridge.
+
 # Vriddhi Fuels — Tally Voucher App
 
 A mobile-first, installable PWA that lets a pump employee create sales vouchers

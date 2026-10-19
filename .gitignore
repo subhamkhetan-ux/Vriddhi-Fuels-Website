@@ -5,6 +5,10 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+bridge-dist/
+bridge-build/
+tally_bridge/*.sqlite3*
+tally_bridge/credential.*
 
 # Generated locally on the Mac by materialize.py — not committed
 PaymentEntries_*.xlsx

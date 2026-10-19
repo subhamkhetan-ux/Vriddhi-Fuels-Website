@@ -1,0 +1,119 @@
+name: Tally bridge — tests and Windows installer
+
+on:
+  push:
+    branches: [main, feat/tally-prime-bridge]
+    paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', '.github/workflows/tally-bridge.yml']
+  pull_request:
+    paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', '.github/workflows/tally-bridge.yml']
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the verified installer as a Windows preview release (main only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tally-bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r tally_bridge/requirements.txt pytest==9.1.1 playwright==1.58.0
+      - name: Install PostgreSQL and browser
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          python -m playwright install --with-deps chromium
+      - name: Verify recovery, real database permissions and browser flows
+        run: |
+          node --check tally/bridge.js
+          python -m pytest tests/test_tally_bridge.py tests/test_tally_bridge_schema.py tests/test_tally_bridge_browser.py -q
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tally-bridge-browser-previews
+          path: /tmp/tally-bridge-*.png
+          retention-days: 7
+
+  windows-installer:
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r tally_bridge/requirements.txt pytest==9.1.1 pyinstaller==6.16.0
+      - name: Run Windows recovery tests
+        run: python -m pytest tests/test_tally_bridge.py -q --junitxml=bridge-test-results.xml
+      - name: Annotate test failures
+        if: failure()
+        env:
+          PYTHONIOENCODING: utf-8
+        run: >-
+          python -c "import pathlib,xml.etree.ElementTree as E;
+          p=pathlib.Path('bridge-test-results.xml');
+          failures=E.parse(p).findall('.//failure')+E.parse(p).findall('.//error') if p.exists() else [];
+          [print('::error::'+(f.text or f.get('message','Test failed'))[-3500:].replace('%','%25').replace('\r','%0D').replace('\n','%0A')) for f in failures]"
+      - name: Package installer (Python is bundled)
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --name VriddhiTallyBridge --distpath bridge-dist --workpath bridge-build --specpath bridge-build tally_bridge/entry.py
+      - name: Verify packaged executable, DPAPI and installed startup registration
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path bridge-dist/VriddhiTallyBridge.exe
+          $test = Start-Process -FilePath $exe -ArgumentList '--self-test', '--install-smoke-test' -PassThru -Wait
+          if ($test.ExitCode -ne 0) { throw "Installer smoke test failed with exit $($test.ExitCode)" }
+          Copy-Item tally_bridge/README.md bridge-dist/SETUP.md
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  VriddhiTallyBridge.exe" | Out-File -Encoding ascii bridge-dist/SHA256SUMS.txt
+          "Built from $env:GITHUB_SHA" | Out-File -Encoding ascii bridge-dist/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vriddhi-Tally-Bridge-Windows
+          path: bridge-dist/
+          retention-days: 90
+
+  publish-release:
+    needs: windows-installer
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Vriddhi-Tally-Bridge-Windows
+          path: bridge-dist
+      - name: Verify published installer checksum
+        working-directory: bridge-dist
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish Windows preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create tally-bridge-v1.0.0
+          bridge-dist/VriddhiTallyBridge.exe bridge-dist/SHA256SUMS.txt
+          bridge-dist/SETUP.md bridge-dist/BUILD.txt
+          --target "$GITHUB_SHA" --title "Tally Prime bridge 1.0.0 — Windows preview"
+          --prerelease --notes-file tally_bridge/RELEASE.md

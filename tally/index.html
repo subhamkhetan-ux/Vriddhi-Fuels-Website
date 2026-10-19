@@ -15,6 +15,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="bridge.css">
 <script src="theme.js"></script>
 <style>
 /* ======================= Tanker bill (invoice) =======================
@@ -120,6 +121,8 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 
 <div class="wrap">
 
+<section class="screen" id="scrBridge" aria-label="Tally Prime connection"></section>
+
 <!-- ======================= HOME ======================= -->
 <section class="screen" id="scrHome">
   <div class="page-intro">
@@ -127,6 +130,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
     <h2>Every sale. <span>Ready for Tally.</span></h2>
     <p>Create a voucher, prepare a bill, and keep the day’s accounts together.</p>
   </div>
+  <button class="bridge-launch" id="btnBridge" hidden><span><strong>Tally connection &amp; reports</strong><small id="bridgeHomeStatus">Checking connection…</small></span><span class="bridge-dot" id="bridgeHomeDot" aria-hidden="true"></span></button>
   <div class="series-grid">
   <button class="series-card hsd" id="cardHSD">
     <div class="product-heading"><span class="product-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M2 21h14M5 7h8M14 10h2a2 2 0 0 1 2 2v4a2 2 0 0 0 4 0V8l-4-4"/></svg></span><div><div class="sname">Diesel</div><span class="product-series">HSD CREDIT</span></div></div>
@@ -626,6 +630,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
      builder is the /tanker/ app's file, reused as-is (no copy to drift). -->
 <script src="../tanker/docx-export.js"></script>
 <script src="billing.js"></script>
+<script src="bridge.js"></script>
 <!-- Fuel slips: the Ledger app's Print Bills (A5 credit memos). -->
 <script src="slips.js"></script>
 
@@ -1314,6 +1319,10 @@ var LocalBackend = {
   }
 };
 
+function bridgeActive(){ return !!(window.VFTallyBridge && VFTallyBridge.active()); }
+function bridgeLabel(v){ return window.VFTallyBridge ? VFTallyBridge.label(v.bridgeState) : ""; }
+function bridgeBlocked(v){ return ["deleted","unsupported","conflict","confirming","awaiting_tally"].indexOf(v.bridgeState) !== -1; }
+
 var CloudBackend = {
   cloud: true,
   client: null,
@@ -1365,14 +1374,14 @@ var CloudBackend = {
       r[3].forEach(function(row){
         if (row.status === "history"){
           s.history.push({ id: row.id, seriesKey: row.series, number: row.number,
-            dateISO: row.date,
+            dateISO: row.date, bridgeState: row.bridge_state,
             party: row.party, vehicle: row.vehicle || "", qty: parseFloat(row.qty),
             rate: parseFloat(row.rate), amount: parseFloat(row.item_amt),
             partyAmt: parseFloat(row.party_amt), roff: parseFloat(row.roff),
             source: row.source });
         } else {
           s.queue.push({ id: row.id, seriesKey: row.series, number: row.number,
-            dateISO: row.date, party: row.party, vehicle: row.vehicle || "",
+            dateISO: row.date, bridgeState: row.bridge_state, party: row.party, vehicle: row.vehicle || "",
             rate: parseFloat(row.rate), qty: parseFloat(row.qty),
             itemAmt: parseFloat(row.item_amt), partyAmt: parseFloat(row.party_amt),
             roff: parseFloat(row.roff),
@@ -1395,7 +1404,7 @@ var CloudBackend = {
       p_id: p.editId || null, p_series: p.seriesKey, p_date: p.dateISO,
       p_party: p.party, p_vehicle: p.vehicle, p_qty: p.qty, p_rate: p.rate,
       p_item_amt: p.itemAmt, p_party_amt: p.partyAmt, p_roff: p.roff
-    }).then(function(d){ return { number: d.number, wasExported: wasExported }; });
+    }).then(function(d){ return { id: d.id, number: d.number, wasExported: wasExported }; });
   },
   deleteVoucher: function(id){ return this.rpc("tally_delete_voucher", { p_id: id }); },
   editHistoryVoucher: function(p){
@@ -1505,13 +1514,17 @@ function rerender(){
 /* ---------- navigation ---------- */
 function show(screen){
   current = screen;
-  ["scrHome","scrNew","scrBill","scrSlips","scrHistory","scrSettings","scrLogin"].forEach(function(id){ $(id).classList.remove("on"); });
+  ["scrHome","scrNew","scrBill","scrSlips","scrHistory","scrSettings","scrLogin","scrBridge"].forEach(function(id){ $(id).classList.remove("on"); });
   $("btnBack").style.display = screen === "home" ? "none" : "";
   $("btnSettings").style.display = screen === "home" ? "" : "none";
   if (screen === "home"){
     $("scrHome").classList.add("on");
     $("hdrTitle").textContent = "Tally Vouchers";
     renderHome();
+  } else if (screen === "bridge"){
+    $("scrBridge").classList.add("on");
+    $("hdrTitle").textContent = "Tally connection";
+    VFTallyBridge.open();
   } else if (screen === "new"){
     $("scrNew").classList.add("on");
     $("hdrTitle").textContent = draft.editHist
@@ -1550,7 +1563,7 @@ function dayQueue(day){
   return state.queue.filter(function(v){ return v.dateISO === day; });
 }
 function dayMoved(day){
-  return state.history.filter(function(v){ return v.dateISO === day && v.source === "app"; });
+  return state.history.filter(function(v){ return v.dateISO === day && v.source === "app" && ["deleted","unsupported"].indexOf(v.bridgeState) === -1; });
 }
 
 function renderHome(){
@@ -1582,7 +1595,8 @@ function renderHome(){
     $("btnExport").disabled = true;
     $("btnExport").textContent = "⬇ Download XML — " + dayLabel;
   }
-  $("btnMoveDay").style.display = live.length ? "" : "none";
+  $("btnMoveDay").style.display = live.length && !bridgeActive() ? "" : "none";
+  if (bridgeActive()){ $("btnExport").disabled = true; $("btnExport").textContent = "Vouchers sync through the Tally bridge"; }
   $("exportCompany").textContent = "Tally company: " + tallyCompany(day);
   // slips cover every voucher of the day, DayBook-imported ones included
   var nSlips = slipSales().filter(function(x){ return x.sale_date === day; }).length;
@@ -1614,6 +1628,7 @@ function renderDayList(el, live, moved){
       + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate)
       + (v.exportedAt ? " · exported " + new Date(v.exportedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}) : "");
     main.appendChild(p); main.appendChild(sub);
+    if (bridgeLabel(v)){ var syncLabel = document.createElement("span"); syncLabel.className = "bridge-status"; syncLabel.textContent = bridgeLabel(v); main.appendChild(syncLabel); }
     var amt = document.createElement("div");
     amt.className = "vamt";
     amt.textContent = inr(v.partyAmt);
@@ -1664,6 +1679,7 @@ function renderDayList(el, live, moved){
     sub.textContent = (v.vehicle ? v.vehicle + " · " : "")
       + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate) + " · in old vouchers";
     main.appendChild(p); main.appendChild(sub);
+    if (bridgeLabel(v)){ var syncLabel = document.createElement("span"); syncLabel.className = "bridge-status"; syncLabel.textContent = bridgeLabel(v); main.appendChild(syncLabel); }
     var amt = document.createElement("div");
     amt.className = "vamt";
     amt.textContent = inr(v.partyAmt != null ? v.partyAmt : v.amount);
@@ -1697,6 +1713,7 @@ function downloadXml(vouchers, day){
 // Whole-day export, repeatable any number of times: the file always
 // contains every app voucher of the selected day (live + already moved).
 $("btnExport").onclick = function(){
+  if (bridgeActive()){ toast("Vouchers are handled by the Tally bridge. Check Sync activity."); return; }
   var day = selectedDay();
   var live = dayQueue(day);
   var moved = dayMoved(day).map(function(v){
@@ -1738,7 +1755,10 @@ $("btnMoveDay").onclick = function(){
 };
 
 /* ---------- Tally XML import (DayBook or Master, auto-detected) ---------- */
-$("btnImportDaybook").onclick = function(){ $("fileDaybook").click(); };
+$("btnImportDaybook").onclick = function(){
+  if (bridgeActive()){ toast("Tally data now arrives through the bridge. Use Tally connection to check progress."); return; }
+  $("fileDaybook").click();
+};
 
 $("fileDaybook").addEventListener("change", function(){
   var f = this.files && this.files[0];
@@ -1843,6 +1863,7 @@ function renderHistory(){
       + (v.vehicle ? " · " + v.vehicle : "")
       + " · " + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate);
     main.appendChild(p); main.appendChild(sub);
+    if (bridgeLabel(v)){ var syncLabel = document.createElement("span"); syncLabel.className = "bridge-status"; syncLabel.textContent = bridgeLabel(v); main.appendChild(syncLabel); }
     var amt = document.createElement("div");
     amt.className = "vamt";
     amt.textContent = inr(v.amount);
@@ -1895,6 +1916,7 @@ $("cardXG").onclick  = function(){ openNew("xg"); };
 
 // Reopen a saved (pending/exported) voucher in the form for correction.
 function openEdit(v){
+  if (bridgeBlocked(v)){ toast("Check this voucher in Tally connection → Sync activity."); return; }
   draft = { seriesKey: v.seriesKey, party: null, lastEdited: "qty",
             editId: v.id, editSeries: v.seriesKey, editNumber: v.number };
   $("fDate").value = v.dateISO;
@@ -1926,10 +1948,11 @@ function openEdit(v){
 // put the two out of step. Guarded by a confirmation because the change
 // does NOT travel to Tally — the operator has to make it there too.
 function openEditHistory(v){
+  if (bridgeBlocked(v)){ toast("Check this voucher in Tally connection → Sync activity."); return; }
   // A daybook-imported voucher can never be re-exported from here (the day
   // export only carries app-made vouchers), so the two warnings differ.
   var fromTally = v.source === "tally";
-  if (!confirm("Alter old voucher #" + v.number + " (" + v.party + ")?\n\n"
+  if (!bridgeActive() && !confirm("Alter old voucher #" + v.number + " (" + v.party + ")?\n\n"
       + "It is already in Tally. The app's record and any bill printed from "
       + "it are corrected here; Tally is not.\n\n"
       + (fromTally
@@ -2133,7 +2156,7 @@ $("btnSave").onclick = function(){
       rate: r2(price), qty: c.qty, itemAmt: c.itemAmt,
       partyAmt: c.partyAmt, roff: c.roff
     }).then(function(res){
-      toast("Old voucher #" + res.number + " updated — correct it in Tally too");
+      toast("Old voucher #" + res.number + (bridgeActive() ? " queued for Tally confirmation" : " updated — correct it in Tally too"));
       return refresh().then(function(){ $("histSearch").value = ""; show("history"); });
     }).catch(oops).then(function(){ btn.disabled = false; });
     return;
@@ -2151,7 +2174,7 @@ $("btnSave").onclick = function(){
     partyAmt: c.partyAmt,
     roff: c.roff
   }).then(function(res){
-    toast(draft.editId
+    toast(bridgeActive() ? "Voucher #" + res.number + " queued for Tally confirmation" : draft.editId
       ? (res.wasExported
           ? "Updated #" + res.number + " — download the day's XML again"
           : "Updated voucher #" + res.number)
@@ -2487,6 +2510,7 @@ $("btnBill").onclick = function(){
 
 // Entry point from a saved voucher (the day list).
 function openBillForVoucher(v){
+  if (bridgeBlocked(v)){ toast("This record needs review in Tally before creating a bill."); return; }
   openBill({
     from: current === "history" ? "history" : "home",
     party: v.party,
@@ -2542,6 +2566,7 @@ function slipSale(v){
 function slipSales(){
   var seen = {}, out = [];
   state.queue.concat(state.history).forEach(function(v){
+    if (bridgeBlocked(v)) return;
     var k = v.seriesKey + "|" + v.number;
     if (seen[k]) return;
     seen[k] = 1;
@@ -2565,6 +2590,7 @@ function slipButton(v){
 
 // o: {from, to, filter, only (one voucher), prepare}
 function openSlips(o){
+  if (o.only && bridgeBlocked(o.only)){ toast("Review this record in Tally connection before printing a slip."); return; }
   slip.back = current === "history" ? "history" : "home";
   slip.only = o.only || null;
   $("slFrom").value = o.from;
@@ -2981,6 +3007,9 @@ $("btnResetCustomers").onclick = function(){
 };
 
 /* ---------- header ---------- */
+$("btnBridge").onclick = function(){ show("bridge"); };
+window.addEventListener("tally-bridge-status", function(){ if(state && current === "home") renderHome(); });
+
 $("btnBack").onclick = function(){
   if (current === "slips"){ show(slip.back); return; }
   if (current === "bill" && (bill.from === "new" || bill.from === "history")){
@@ -3017,6 +3046,7 @@ function startApp(session){
     return maybeAutoClear();
   }).then(function(){
     subscribeRealtime();
+    if (window.VFTallyBridge) VFTallyBridge.init(CloudBackend.client, CFG, session);
     show("home");
   }).catch(function(e){
     loginError("Could not load data: " + e.message);
@@ -3081,7 +3111,7 @@ function boot(){
     CloudBackend.client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
     backend = CloudBackend;
     CloudBackend.client.auth.onAuthStateChange(function(event){
-      if (event === "SIGNED_OUT"){ state = null; showLogin(); }
+      if (event === "SIGNED_OUT"){ state = null; if(window.VFTallyBridge) VFTallyBridge.clear(); showLogin(); }
     });
     return CloudBackend.client.auth.getSession().then(function(res){
       var sess = res.data && res.data.session;
