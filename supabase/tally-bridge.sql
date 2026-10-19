@@ -174,7 +174,7 @@ begin
   if TG_OP='UPDATE' then changed := _tb_business(new) is distinct from _tb_business(old); end if;
   if active and changed then
     if TG_OP='UPDATE' then
-      if old.bridge_state in ('conflict','deleted','unsupported') then raise exception 'Resolve this voucher in Tally Prime before editing it here'; end if;
+      if old.bridge_state in ('conflict','deleted','unsupported','awaiting_tally') then raise exception 'Resolve this voucher in Tally Prime before editing it here'; end if;
       if exists(select 1 from tally_bridge_jobs where voucher_id=old.id and state='writing') then raise exception 'Tally is confirming this voucher. Try again after confirmation.'; end if;
       if old.bridge_guid is not null and (new.series,new.number) is distinct from (old.series,old.number) then raise exception 'A linked invoice cannot change series or number'; end if;
     end if;
@@ -442,6 +442,7 @@ returns jsonb language plpgsql security definer set search_path=public,pg_temp a
 declare params jsonb; k text; j tally_bridge_jobs; cached tally_bridge_reports;
 begin
   perform _tally_auth();
+  p_ledger := coalesce(p_ledger,'');
   if p_report not in ('daybook','ledger','trial_balance','balance_sheet','profit_loss','receivables','payables','stock','cash_bank')
     or p_from is null or p_to is null or p_to<p_from or p_to-p_from>3660 or length(p_ledger)>250
     or (p_report='ledger' and length(trim(p_ledger))=0) then raise exception 'Invalid report or period'; end if;

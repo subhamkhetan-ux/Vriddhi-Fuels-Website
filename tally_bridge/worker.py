@@ -20,6 +20,7 @@ class Worker:
         self.last_pulse = 0
         self.config = {}
         self.stop = None
+        self.initial_scan = True
         binding = {"company_guid": tally.guid, "cloud": cloud.url}
         if store.get("binding") not in (None, binding):
             raise TallyProblem("This recovery journal belongs to a different company or cloud project. Keep it for administrator review.")
@@ -45,17 +46,23 @@ class Worker:
             self.cloud.rpc("tally_bridge_ingest", p_objects=[json.loads(r["payload"]) for r in rows])
             self.store.uploaded(rows)
 
+    def validate_snapshot(self, kind, meta, full=False):
+        current = {identity(m)[0]: identity(m) for m in meta}
+        known = self.store.identities(kind)
+        if full and max([0] + [i[2] for i in current.values()]) < self.store.get("cursor:" + kind, 0):
+            raise TallyProblem("Tally's highest revision moved backwards or disappeared. Sync is paused for restore/deletion review.")
+        for guid, _, alter in current.values():
+            if guid in known and alter < known[guid]["alter_id"]:
+                raise TallyProblem("Tally was restored to an older revision; sync is paused for reconciliation")
+        return current, known
+
     def scan(self, kind, full=False, force_upload=False):
         cursor = 0 if full else self.store.get("cursor:" + kind, 0)
         meta = self.tally.metadata(kind, cursor)
         if not meta and not full:
             self.store.set("scan:" + kind, self.clock())
             return  # idle polls never load historical XML from SQLite
-        known = self.store.identities(kind)
-        current = {identity(m)[0]: identity(m) for m in meta}
-        for guid, _, alter in current.values():
-            if guid in known and alter < known[guid]["alter_id"]:
-                raise TallyProblem("Tally was restored to an older revision; sync is paused for reconciliation")
+        current, known = self.validate_snapshot(kind,meta,full)
         changed = [i for g, i in current.items() if g not in known or i[2] != known[g]["alter_id"] or known[g]["deleted"]]
         # Full reconciliation also refreshes unresolved conflicts after 'Use Tally version'.
         refresh = set(self.config.get("refresh_guids", [])) if kind == "Voucher" else set()
@@ -66,6 +73,8 @@ class Worker:
             nodes = self.tally.objects(kind, [i[1] for i in batch])
             if {identity(n)[0] for n in nodes} != {i[0] for i in batch}:
                 raise TallyProblem("Tally changed during the read. The incomplete batch will be retried.")
+            if any(identity(n)[2] < current[identity(n)[0]][2] for n in nodes):
+                raise TallyProblem("Tally returned an older object than its metadata. No checkpoint was advanced; review a possible restore.")
             self.tally.verify()
             objects = [object_data(kind, n) for n in nodes]
             if kind == "Ledger":
@@ -112,7 +121,8 @@ class Worker:
         previous = self.store.written(job["id"])
         recovering = job.get("recover_only") or previous and previous["phase"] in ("writing", "done")
         self.tally.verify()
-        found = self.tally.lookup(p)
+        validate = lambda entries: self.validate_snapshot("Voucher", entries, True)
+        found = self.tally.lookup(p, validate=validate)
         if found is not None:
             guid, _, alter = identity(found)
             if p.get("guid") and guid != p["guid"]:
@@ -144,7 +154,7 @@ class Worker:
         self.cloud.rpc("tally_bridge_begin_write", p_job=job["id"], p_lease=job["lease_token"])
         self.store.write(job["id"], "writing")
         self.tally.import_voucher(p, found)
-        readback = self.tally.lookup(p)
+        readback = self.tally.lookup(p, validate=validate)
         if readback is None or not business_equal(fuel_voucher(readback), p):
             raise TallyProblem("Tally read-back does not match the submitted voucher. Review in Tally Prime.")
         self.confirmed(job, readback)
@@ -158,10 +168,11 @@ class Worker:
         self.tally.verify()
         for kind in KINDS:
             bootstrap = cloud_ok and not self.config.get("ready")
-            full = bootstrap or self.clock() - self.store.get("full:" + kind, 0) >= 3600
+            full = self.initial_scan or bootstrap or self.clock() - self.store.get("full:" + kind, 0) >= 3600
             interval = 5 if kind == "Voucher" else 60
             if full or self.clock() - self.store.get("scan:" + kind, 0) >= interval:
                 self.scan(kind, full, force_upload=bootstrap)
+        self.initial_scan = False
         # A manual conflict resolution requires a fresh read, even when AlterID has not changed.
         if self.config.get("refresh_guids"):
             self.scan("Voucher", True)

@@ -109,6 +109,7 @@ def test_inbound_and_conflict_do_not_overwrite_pending_edit(db):
     v = db.json("select to_jsonb(v) from tally_vouchers v where bridge_guid='inbound-guid'")
     assert v["party"] == "Local edit" and v["bridge_state"] == "conflict"
     db.ok(f"select tally_bridge_control('use_tally','{v['id']}')", user=OWNER)
+    assert 'Resolve this voucher' in db.fails(f"select tally_edit_history_voucher('{v['id']}','2026-10-19','Racing edit','',10,100,1000,1000,0)",user=OWNER)
     ingest()
     v = db.json("select to_jsonb(v) from tally_vouchers v where bridge_guid='inbound-guid'")
     assert v["party"] == "Tally edit" and v["bridge_state"] == "synced"
@@ -145,6 +146,7 @@ def test_reports_deduplicate_and_retain_old_result_while_offline(db):
     r = db.json(sql, user=OWNER)
     assert r["state"] == "pending" and "Example" in r["content"] and r["fetched_at"]
     assert "Invalid report" in db.fails("select tally_bridge_report('arbitrary','2026-10-01','2026-10-19')", user=OWNER)
+    assert "Invalid report" in db.fails("select tally_bridge_report('ledger','2026-10-01','2026-10-19',null)", user=OWNER)
 
 
 def test_prewrite_failure_can_be_edited_and_renumbered_but_uncertain_write_cannot(db):
