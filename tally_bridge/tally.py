@@ -380,6 +380,11 @@ class Tally:
 
     def report(self, p):
         self.verify()
+        if p["report"] == "ledger":
+            # A renamed/deleted ledger must not silently fall back to Tally's selected ledger.
+            ledgers = self.collection("Ledger", "Name,GUID,MasterID,AlterID")
+            if not any(text(n,"NAME",n.get("NAME","")) == p["ledger"] for n in ledgers):
+                raise TallyProblem("The requested ledger is no longer available in this Tally company. Select its current name after sync.")
         report = REPORTS[p["report"]]
         start, end = dt.date.fromisoformat(p["from"]), dt.date.fromisoformat(p["to"])
         if end < start:
@@ -393,5 +398,6 @@ class Tally:
                        ("SVTODATE", end.strftime("%Y%m%d")), ("SVEXPORTFORMAT", "$$SysName:HTML")):
             tag(sv, k, val)
         if p["report"] == "ledger":
+            tag(sv, "LEDGERNAME", p["ledger"])
             tag(sv, "SVLEDGERNAME", p["ledger"])
         return sanitize_report(self.transport.post(ET.tostring(env, encoding="unicode")))

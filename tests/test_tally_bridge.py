@@ -327,6 +327,27 @@ def test_cloud_endpoint_rejects_cleartext_and_arbitrary_hosts():
         with pytest.raises(ValueError): Cloud(url,'public-test-key')
 
 
+def test_ledger_report_checks_live_name_and_scopes_native_request():
+    requests=[]
+    class HTTP:
+        def post(self,xml):
+            requests.append(parse(xml))
+            return b'<html><table><tr><td>Test ledger</td><td>1,000.00</td></tr></table></html>'
+    tally=Tally(HTTP(),'Test Company','test-company-guid')
+    tally.verify=lambda: None
+    ledger=parse('<LEDGER NAME="A &amp; B &lt;Ltd&gt;"/>').find('LEDGER')
+    tally.collection=lambda *args: [ledger]
+    args=dict(report='ledger',ledger='A & B <Ltd>',**{'from':'2026-10-01','to':'2026-10-19'})
+    assert '1,000.00' in tally.report(args)
+    sv=requests[0].find('.//STATICVARIABLES')
+    assert sv.findtext('LEDGERNAME')==sv.findtext('SVLEDGERNAME')=='A & B <Ltd>'
+    assert sv.findtext('SVCURRENTCOMPANY')=='Test Company'
+    assert sv.findtext('SVFROMDATE')=='20261001' and sv.findtext('SVTODATE')=='20261019'
+    tally.collection=lambda *args: []
+    with pytest.raises(TallyProblem,match='no longer available'):tally.report(args)
+    assert len(requests)==1
+
+
 def test_prime_dated_gst_uses_the_invoice_date():
     from tally_bridge.tally import ledger_gst
     ledger=parse('''<LEDGER><LEDGSTREGDETAILS.LIST><APPLICABLEFROM>20260401</APPLICABLEFROM><GSTIN>OLDGST</GSTIN><GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE></LEDGSTREGDETAILS.LIST>
