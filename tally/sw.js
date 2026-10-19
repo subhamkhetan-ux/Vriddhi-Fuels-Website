@@ -1,6 +1,7 @@
-/* Tally Vouchers — service worker (app-shell cache) */
-const CACHE = "vf-tally-v14";
-const SHELL = ["./", "./index.html", "./config.js", "./billing.js", "./theme.css", "./theme.js", "./manifest.webmanifest"];
+/* Only public shell files are cached; never cache financial/auth API responses. */
+const CACHE = "vf-tally-v15";
+const SHELL = ["./", "./index.html", "./config.js", "./billing.js", "./theme.css", "./theme.js", "./bridge.css", "./bridge.js", "./manifest.webmanifest"];
+const shellURLs = new Set(SHELL.map(path => new URL(path, self.registration.scope).href));
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
@@ -10,21 +11,23 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k.startsWith("vf-tally-") && k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
 
 // Network-first for the shell (so updates land), cache fallback for offline.
 self.addEventListener("fetch", (e) => {
-  if (e.request.method !== "GET") return;
+  if (e.request.method !== "GET" || !shellURLs.has(e.request.url)) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        if (res.ok && res.type !== "opaque") {
+          const copy = res.clone();
+          e.waitUntil(caches.open(CACHE).then((c) => c.put(e.request, copy)));
+        }
         return res;
       })
-      .catch(() => caches.match(e.request).then((m) => m || caches.match("./index.html")))
+      .catch(() => caches.match(e.request))
   );
 });
