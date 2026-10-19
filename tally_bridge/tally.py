@@ -297,7 +297,8 @@ class ReportSanitizer(HTMLParser):
 
 
 def sanitize_report(raw):
-    raw = raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig")
     if re.search(r"<LINEERROR|<STATUS>0|<RESPONSE>", raw, re.I) or not re.search(r"<(html|table)\b", raw, re.I):
         raise TallyProblem("This Tally report did not return HTML. Check its availability in Tally Prime.")
     parser = ReportSanitizer()

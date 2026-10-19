@@ -112,6 +112,19 @@ def test_inbound_and_conflict_do_not_overwrite_pending_edit(db):
     ingest()
     v = db.json("select to_jsonb(v) from tally_vouchers v where bridge_guid='inbound-guid'")
     assert v["party"] == "Tally edit" and v["bridge_state"] == "synced"
+    a['number']='MS10000'; o['alter_id']=3
+    ingest()
+    assert db.ok("select number from tally_vouchers where bridge_guid='inbound-guid'")=='MS10000'
+    other = dict(o,guid='another-inbound-guid',data={'app_voucher':dict(a,number='MS10001')})
+    db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([other]))})",anon=True)
+    a['number']='MS10001'; o['alter_id']=4
+    ingest()
+    v = db.json("select to_jsonb(v) from tally_vouchers v where bridge_guid='inbound-guid'")
+    assert v['number']=='MS10000' and v['bridge_state']=='unsupported'
+    assert db.ok("select number from tally_vouchers where bridge_guid='another-inbound-guid'")=='MS10001'
+    a['number']='MS10002'; o['alter_id']=5
+    ingest()
+    assert db.ok("select number from tally_vouchers where bridge_guid='inbound-guid'")=='MS10002'
     o["deleted"] = True
     ingest()
     assert db.ok("select bridge_state from tally_vouchers where bridge_guid='inbound-guid'") == "deleted"

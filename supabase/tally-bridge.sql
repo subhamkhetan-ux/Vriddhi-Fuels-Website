@@ -335,6 +335,12 @@ begin
         update tally_vouchers set bridge_state='unsupported',bridge_alter=incoming where id=v.id;
         continue;
       end if;
+      if exists(select 1 from tally_vouchers where id<>v.id and series=a->>'series' and number=a->>'number') then
+        -- Preserve both histories when Tally renumbers onto an already saved web invoice.
+        -- The current Tally version remains available in the data explorer and reports.
+        update tally_vouchers set bridge_state='unsupported',bridge_alter=incoming where id=v.id;
+        continue;
+      end if;
     end if;
     if a is null or a='null'::jsonb or coalesce((o->>'deleted')::boolean,false) then continue; end if;
     if a->>'series' not in ('hsd','ms','xg') or (a->>'qty')::numeric<=0
@@ -345,7 +351,7 @@ begin
           (a->>'qty')::numeric,(a->>'rate')::numeric,(a->>'item_amt')::numeric,(a->>'party_amt')::numeric,(a->>'roff')::numeric,
           'history','tally',g,incoming,'synced') returning * into v;
     else
-      update tally_vouchers set date=(a->>'date')::date,party=a->>'party',vehicle=coalesce(a->>'vehicle',''),
+      update tally_vouchers set series=a->>'series',number=a->>'number',date=(a->>'date')::date,party=a->>'party',vehicle=coalesce(a->>'vehicle',''),
         qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
         party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,bridge_guid=g,bridge_alter=incoming,
         bridge_state='synced',status='history',updated_at=now() where id=v.id;

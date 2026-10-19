@@ -249,6 +249,7 @@ def test_report_removes_executable_content_and_retains_accounting_table():
     result=sanitize_report(raw)
     assert '<script' not in result and 'onclick' not in result and 'https://' not in result
     assert '₹ 1,234 &amp; tax' in result and 'colspan="2"' in result
+    assert sanitize_report(raw.encode('utf-16')) == result
     with pytest.raises(TallyProblem): sanitize_report('<RESPONSE><LINEERROR>No report</LINEERROR></RESPONSE>')
 
 
