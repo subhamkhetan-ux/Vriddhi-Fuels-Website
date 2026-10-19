@@ -19,7 +19,9 @@ export function supabaseStore(client) {
     whoami: () => rpc('ledger_whoami'),
     summary: () => rpc('ledger_summary'),
     existingBills: (keys) => rpc('ledger_existing_bills', { p_keys: keys }),
-    importDaybook: (fileName, rows) => rpc('ledger_import_daybook', { p_file_name: fileName, p_rows: rows }),
+    daybookBills: (keys) => rpc('ledger_daybook_bills', { p_keys: keys }),
+    importDaybook: (fileName, rows, removeMissing = false) => rpc('ledger_import_daybook',
+      { p_file_name: fileName, p_rows: rows, p_remove_missing: removeMissing }),
     importMaster: (fileName, payload) => rpc('ledger_import_master', { p_file_name: fileName, p_payload: payload }),
     customers: () => rpc('ledger_customers_list'),
     updateCustomer: (id, patch) => rpc('ledger_customer_update', { p_id: id, p_patch: patch }),
@@ -131,24 +133,50 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       return [...out];
     },
 
-    async importDaybook(fileName, rows) {
+    async daybookBills(keys) {
+      const want = new Set((keys || []).map((k) => `${k.product}|${fyOf(k.sale_date)}|${trim(k.bill_no)}`));
+      return clone(db.sales.filter((s) => want.has(saleKey(s))).map((s) => ({
+        product: s.product, fy: s.fy, bill_no: s.bill_no, sale_date: s.sale_date, vehicle: s.vehicle,
+        qty: s.qty, rate: s.rate, amount: s.amount, customer: s.customer,
+      })));
+    },
+
+    // Tally is the source of truth: a bill already here takes the DayBook's
+    // figures (what was typed against it in the app stays); with
+    // removeMissing, bills in the DayBook's dates that it no longer has go.
+    async importDaybook(fileName, rows, removeMissing = false) {
       const imp = logImport('daybook', fileName);
-      const valid = (rows || []).filter((r) => ['HSD', 'MS', 'XG'].includes(r.product) && r.sale_date
-        && trim(r.bill_no) && trim(r.customer));
+      const once = new Set();
+      const valid = (rows || []).filter((r) => {
+        if (!(['HSD', 'MS', 'XG'].includes(r.product) && r.sale_date && trim(r.bill_no) && trim(r.customer))) return false;
+        const key = `${r.product}|${fyOf(r.sale_date)}|${trim(r.bill_no)}`;
+        if (once.has(key)) return false;                                 // listed twice: the first row
+        once.add(key);
+        return true;
+      });
       const newCustomers = [];
       for (const r of valid) {
         const res = addCustomer(r.customer);
         if (res && res.inserted) newCustomers.push(res.c.name);
       }
-      const have = new Set(db.sales.map(saleKey));
+      const have = new Map(db.sales.map((s) => [saleKey(s), s]));
       const base = {};
       for (const s of db.sales) base[s.product] = Math.max(base[s.product] || 0, s.seq);
       const position = new Map((rows || []).map((r, i) => [r, i + 1]));   // 1-based place in the file
       const inserted = {};
+      const updated = {};
       for (const r of valid) {
         const key = `${r.product}|${fyOf(r.sale_date)}|${trim(r.bill_no)}`;
-        if (have.has(key)) continue;
-        have.add(key);
+        const s = have.get(key);
+        if (s) {
+          const next = { sale_date: r.sale_date, vehicle: trim(r.vehicle), qty: r.qty ?? null, rate: r.rate ?? null,
+            amount: r.amount ?? null, customer: trim(r.customer) };
+          if (Object.keys(next).some((f) => (s[f] ?? null) !== next[f])) {
+            Object.assign(s, next, { customer_key: normKey(next.customer) });
+            updated[r.product] = (updated[r.product] || 0) + 1;
+          }
+          continue;
+        }
         db.sales.push({
           id: nextId('sales'), product: r.product, fy: fyOf(r.sale_date), bill_no: trim(r.bill_no),
           sale_date: r.sale_date, vehicle: trim(r.vehicle), qty: r.qty ?? null, rate: r.rate ?? null,
@@ -158,8 +186,19 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         });
         inserted[r.product] = (inserted[r.product] || 0) + 1;
       }
-      const total = Object.values(inserted).reduce((a, b) => a + b, 0);
-      imp.counts = { rows: valid.length, inserted, duplicates: valid.length - total, new_customers: newCustomers.sort() };
+      let removed = 0;
+      const dates = valid.map((r) => r.sale_date).sort();
+      if (removeMissing && dates.length) {
+        const from = dates[0];
+        const to = dates[dates.length - 1];
+        const keep = (s) => !(['HSD', 'MS', 'XG'].includes(s.product) && s.sale_date >= from && s.sale_date <= to && !once.has(saleKey(s)));
+        const before = db.sales.length;
+        db.sales = db.sales.filter(keep);
+        removed = before - db.sales.length;
+      }
+      const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+      imp.counts = { rows: valid.length, inserted, updated, unchanged: valid.length - sum(inserted) - sum(updated),
+        removed, new_customers: newCustomers.sort() };
       return { ...clone(imp.counts), import_id: imp.id };
     },
 
@@ -481,7 +520,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     },
 
     async setSetting(key, value) {
-      if (!['slip_stamp', 'statement_stamp'].includes(key)) fail(`Unknown setting ${key}.`);
+      if (!['slip_stamp', 'statement_stamp', 'slip_company'].includes(key)) fail(`Unknown setting ${key}.`);
       if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
     },
 

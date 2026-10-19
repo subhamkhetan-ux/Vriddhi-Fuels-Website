@@ -66,6 +66,18 @@ end $$;
 create or replace function public._tb_hash(p text) returns bytea
 language sql immutable set search_path=pg_catalog as $$ select sha256(convert_to(p,'UTF8')) $$;
 
+create or replace function public._tb_company_for_date(p_date date) returns text
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare s jsonb; y int;
+begin
+  select to_jsonb(t) into s from tally_settings t where id=1;
+  if coalesce((s->>'company_fy')::boolean,false) then
+    y:=extract(year from p_date)::int - case when extract(month from p_date)<4 then 1 else 0 end;
+    return trim(regexp_replace(s->>'company','\s*\(\d{4}-\d{2,4}\)\s*$','')) || ' (' || y || '-' || right((y+1)::text,2) || ')';
+  end if;
+  return s->>'company';
+end $$;
+
 create or replace function public._tb_device(p_token text, p_instance uuid default null)
 returns public.tally_bridge_devices language plpgsql security definer set search_path=public,pg_temp as $$
 declare d tally_bridge_devices;
@@ -90,7 +102,7 @@ begin
   update tally_bridge_config set active=true where id=1;
   update tally_settings set auto_clear=false where id=1;
   return jsonb_build_object('code',code,'expires_at',now()+interval '10 minutes',
-    'company',(select company from tally_settings where id=1));
+    'company',_tb_company_for_date((now() at time zone 'Asia/Kolkata')::date));
 end $$;
 
 create or replace function public.tally_bridge_pair(p_code text,p_token text,p_company text,p_guid text,p_label text)
@@ -103,7 +115,7 @@ begin
   select * into cfg from tally_bridge_config where id=1 for update;
   select * into pair from tally_bridge_pairings where code_hash=_tb_hash(p_code) for update;
   if pair.code_hash is null or pair.used_at is not null or pair.expires_at < now() then raise exception 'Pairing code expired or used'; end if;
-  if p_company is distinct from (select company from tally_settings where id=1) then raise exception 'Company name does not match app Settings'; end if;
+  if p_company is distinct from _tb_company_for_date((now() at time zone 'Asia/Kolkata')::date) then raise exception 'Company name does not match app Settings'; end if;
   if cfg.company_guid is not null and cfg.company_guid<>p_guid then raise exception 'Different company GUID: financial-year migration requires administrator review'; end if;
   update tally_bridge_devices set revoked=true where not revoked;
   insert into tally_bridge_devices(token_hash,label,company_guid) values(_tb_hash(p_token),left(p_label,100),p_guid) returning id into did;
@@ -139,7 +151,7 @@ begin
     where voucher_id=v.id and state in ('pending','leased','error','conflict');
   insert into tally_bridge_jobs(kind,voucher_id,revision,payload)
     values('voucher',v.id,v.bridge_revision,_tb_business(v) || jsonb_build_object(
-      'id',v.id,'guid',v.bridge_guid,'expected_alter',v.bridge_alter,
+      'id',v.id,'guid',v.bridge_guid,'expected_alter',v.bridge_alter,'company',_tb_company_for_date(v.date),
       'gst',coalesce((select to_jsonb(p)-'name' from tally_parties p where name=v.party),'{}'::jsonb)))
     on conflict(voucher_id,revision) do nothing;
 end $$;
@@ -190,6 +202,10 @@ begin
     if new.auto_clear then raise exception 'Auto-clear is unavailable while the Tally bridge retains sync history'; end if;
     if new.company<>old.company and exists(select 1 from tally_bridge_config where company_guid is not null) then
       raise exception 'Company is paired to Tally. Financial-year changes require administrator review.';
+    end if;
+    if to_jsonb(new)->>'company_fy' is distinct from to_jsonb(old)->>'company_fy'
+      and exists(select 1 from tally_bridge_config where company_guid is not null) then
+      raise exception 'Financial-year naming is locked while this company is paired.';
     end if;
   end if;
   return new;

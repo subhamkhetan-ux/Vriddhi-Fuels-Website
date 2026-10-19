@@ -104,6 +104,8 @@ class Worker:
 
     def voucher(self, job):
         p = job["payload"]
+        if p.get("company") and p["company"] != self.tally.company:
+            raise TallyProblem("This invoice belongs to a different financial-year company. Pairing needs accountant review before posting.")
         previous = self.store.written(job["id"])
         recovering = job.get("recover_only") or previous and previous["phase"] in ("writing", "done")
         self.tally.verify()

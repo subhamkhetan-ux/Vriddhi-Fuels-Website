@@ -5,11 +5,23 @@ being on. **Phase 1** (this folder) covers:
 
 | Master Ledger | In the app |
 |---|---|
-| **Import Sales** button (Module10 `ImportDayBook`) | **Import** → choose the Tally DayBook. HSD / MS / XG credit vouchers are added; bills already in the app are skipped. |
+| **Import Sales** button (Module10 `ImportDayBook`) | **Import** → choose the Tally DayBook. HSD / MS / XG credit vouchers are added, and **Tally is the source of truth**: a bill already in the app takes the DayBook's date, customer, vehicle, litres, rate and amount, so importing a corrected DayBook again corrects the app (see below). |
 | PO numbers typed into the `*_Bulk` sheets' PO TRACKER | **POs** → add a PO and its allotted litres. Each diesel bill gets the first PO in the list with enough litres left — the same rule as the sheets' `PO No.` formula — so bills that had no PO pick one up as soon as you add it. Unit-wise lists (SMC) and typed-in POs work as in Excel. |
 | **Yesterday New Ledger / Bulk Add / Bulk Delete Ledger** (Module3) | **Customers** → new names from a DayBook are listed for a short ledger name (or "No ledger needed"); **Archive** hides a customer without deleting any sales or payments. |
 | — | **Sales** → the bills of any day. |
 | — | **Upload Master Ledger** → copies sales, payments, customers, opening balances, the Bulk sheets' PO lists and the Unit / PO / TDS / Shortage / Remarks typed against each bulk bill. |
+
+**Re-importing a corrected DayBook.** The preview shows how many bills are
+new, how many will be **corrected** (each with what changes, e.g. *Litres
+2,800 → 2,810*) and how many already match. What you typed against a bill in
+the app — Unit, PO, TDS, shortage, remarks — is kept. Bills that are in the
+app for the DayBook's dates but no longer in it (deleted or renumbered in
+Tally) are listed with a tick box, **Also remove …**, off by default; ticking
+it removes them on import (DayBooks of up to 400 days). Importing the same
+DayBook again changes nothing. A later Master Ledger upload still copies
+Excel's figures, so import the corrected DayBook into Excel too. Needs
+[`supabase/ledger-schema.sql`](../supabase/ledger-schema.sql) run again once —
+the app says so until then.
 
 **Phase 2** (the **Bills** tab):
 
@@ -19,7 +31,17 @@ being on. **Phase 1** (this folder) covers:
 | **Print Bills** (Module7 `ExportBillsPerCustomer`) | Every HSD, MS and XG bill in the range as an A5 credit memo, one PDF per customer named `<Customer> Slips <date>`, zipped in a `Fuel Bills <from> to <to>` folder. The heading is read from the HSD Bill sheet. |
 
 The Tanker Master and the slip heading come in with **Upload Master Ledger**
-(re-upload after changing them in Excel). Customers not in the Tanker Master
+(re-upload after changing them in Excel).
+
+**Company name on the slips.** The slip heading starts with the Tally
+company name, financial year and all (`VRIDDHI FUELS (2026-27)`). Under
+*Print Bills* you can change it in the app: type the name and tick **Add the
+bill's financial year**, and every slip prints its own bill's year —
+`(2026-27)` up to 31 March, `(2027-28)` from 1 April — with no new upload
+for a new year. Untick it to print the name exactly as typed. The name is
+kept across Master Ledger uploads; **Use the Master Ledger's heading** goes
+back to the sheet's line. (Needs [`supabase/ledger-schema.sql`](../supabase/ledger-schema.sql)
+run again once; the app says so until then.) Customers not in the Tanker Master
 are listed as skipped, like the macro.
 
 **Phase 3** (the **Statements** tab):

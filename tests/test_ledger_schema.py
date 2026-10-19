@@ -346,11 +346,17 @@ def test_daybook_import(pg):
     ]
     before = pg.owner(call("ledger_existing_bills", rows))
     assert before == ["HSD|2026-27|3"]
+    now = pg.owner(call("ledger_daybook_bills", rows))
+    assert [(b["product"], b["bill_no"]) for b in now] == [("HSD", "3")]
     res = pg.owner(call("ledger_import_daybook", "DayBook 07-04-26.xlsx", rows))
-    assert res["rows"] == 6
+    assert res["rows"] == 5                       # bill 4 is in the file twice: counted once
     assert res["inserted"] == {"HSD": 3, "XG": 1}
-    assert res["duplicates"] == 2
+    assert res["updated"] == {"HSD": 1}           # bill 3 takes the DayBook's figures
+    assert res["unchanged"] == 0 and res["removed"] == 0
     assert res["new_customers"] == ["Brand New Movers"]
+    assert pg.ok("select vehicle || ' ' || qty || ' ' || amount from ledger_sales"
+                 " where product = 'HSD' and bill_no = '3';") == "X 5 5"
+    assert pg.ok("select vehicle from ledger_sales where product = 'HSD' and bill_no = '4';") == "OD02C4444"
 
     seqs = pg.ok("select string_agg(bill_no || ':' || seq, ',' order by seq) from ledger_sales"
                  " where product = 'HSD';")
@@ -360,7 +366,38 @@ def test_daybook_import(pg):
     day = pg.owner(call("ledger_sales_day", "2026-04-07"))
     assert [(b["product"], b["bill_no"]) for b in day["bills"]] == [("HSD", "4"), ("HSD", "5"), ("XG", "XG1")]
     imports = pg.owner(call("ledger_imports_list", 5))
-    assert imports[0]["kind"] == "daybook" and imports[0]["counts"]["duplicates"] == 2
+    assert imports[0]["kind"] == "daybook" and imports[0]["counts"]["updated"] == {"HSD": 1}
+
+    # the same DayBook again: nothing changes
+    res = pg.owner(call("ledger_import_daybook", "DayBook 07-04-26.xlsx", rows))
+    assert res["inserted"] == {} and res["updated"] == {} and res["unchanged"] == 5
+
+    # a corrected DayBook for 7 April: bill 4 fixed in Tally, bill 5 deleted there
+    pg.ok("update ledger_sales set remarks = 'typed in the app', tds = 12, unit = 'UNIT 1'"
+          " where product = 'HSD' and bill_no = '4';")
+    fixed = [
+        {"product": "HSD", "bill_no": "4", "sale_date": "2026-04-07", "vehicle": "OD02C4444",
+         "qty": 310, "rate": 91, "amount": 28210, "customer": "Demo Power Traders"},
+        {"product": "XG", "bill_no": "XG1", "sale_date": "2026-04-07", "vehicle": "",
+         "qty": 20, "rate": 95, "amount": 1900, "customer": "Brand New Movers"},
+    ]
+    res = pg.owner(call("ledger_import_daybook", "DayBook 07-04-26 fixed.xlsx", fixed))
+    assert res["updated"] == {"HSD": 1} and res["unchanged"] == 1 and res["removed"] == 0
+    row = pg.ok("select qty || '|' || amount || '|' || customer || '|' || customer_key || '|' || remarks"
+                " || '|' || tds || '|' || unit from ledger_sales where product = 'HSD' and bill_no = '4';")
+    assert row == "310|28210|Demo Power Traders|demo power traders|typed in the app|12|UNIT 1"
+    assert pg.ok("select count(*) from ledger_sales where product = 'HSD' and bill_no = '5';") == "1"
+
+    # ... and with "remove bills no longer in the DayBook": only that day's missing bill goes
+    res = pg.owner(call("ledger_import_daybook", "DayBook 07-04-26 fixed.xlsx", fixed, True))
+    assert res["removed"] == 1 and res["unchanged"] == 2
+    assert pg.ok("select count(*) from ledger_sales where product = 'HSD' and bill_no = '5';") == "0"
+    assert pg.ok("select count(*) from ledger_sales where sale_date = '2026-04-02';") != "0"
+
+    # put 7 April back as it was for the tests below
+    res = pg.owner(call("ledger_import_daybook", "DayBook 07-04-26.xlsx", rows))
+    assert res["inserted"] == {"HSD": 1} and res["updated"] == {"HSD": 1}
+    pg.ok("update ledger_sales set remarks = '', tds = null, unit = '' where product = 'HSD' and bill_no = '4';")
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +499,19 @@ def test_slip_stamp_setting(pg):
     pg.ok("select ledger_setting_set('slip_stamp', null);", user=OWNER, email="owner@example.com")
     assert pg.ok("select ledger_setting_get('slip_stamp') is null;", user=OWNER, email="owner@example.com") == "t"
     assert "permission denied" in pg.fails("select ledger_setting_set('slip_stamp', null);", anon=True)
+
+
+def test_slip_company_setting_survives_uploads(pg):
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    pg.ok(call("ledger_setting_set", "slip_company", {"name": "DEMO FUELS", "fy": True}), **as_owner)
+    p = payload()
+    p["settings"] = {"slip_header": {"title": "CREDIT MEMO", "mobile": "", "lines": ["DEMO FUELS (2026-27)"]}}
+    pg.owner(call("ledger_import_master", "Master Ledger v5.xlsm", p))
+    assert pg.owner(call("ledger_setting_get", "slip_company")) == {"name": "DEMO FUELS", "fy": True}
+    assert pg.owner(call("ledger_setting_get", "slip_header"))["lines"] == ["DEMO FUELS (2026-27)"]
+    pg.ok("select ledger_setting_set('slip_company', null);", **as_owner)
+    assert pg.ok("select ledger_setting_get('slip_company') is null;", **as_owner) == "t"
+    assert "permission denied" in pg.fails("select ledger_setting_set('slip_company', null);", anon=True)
 
 
 def test_statements_balances_and_openings(pg):

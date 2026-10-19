@@ -2,8 +2,8 @@
 // The logic lives in the other modules (daybook, master, po, store); this
 // file is the screens.
 
-import { normalizeCompany, slipBundles, tankerBundles } from './bills.js';
-import { daybookPayload, parseDaybook, sheetRows } from './daybook.js';
+import { normalizeCompany, slipBundles, slipHeaderFor, splitCompany, tankerBundles } from './bills.js';
+import { daybookChanges, daybookPayload, parseDaybook, sheetRows } from './daybook.js';
 import { demoSeed } from './demo.js';
 import { fromQueue } from './payin.js';
 import {
@@ -33,7 +33,7 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { memoryStore, supabaseStore } from './store.js';
-import { billKey, fmtDate, fmtLitres, fmtMoney, normKey, suggestLedgerName } from './util.js';
+import { fmtDate, fmtLitres, fmtMoney, fyOf, normKey, suggestLedgerName } from './util.js';
 
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 const SHEETJS = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
@@ -1319,7 +1319,7 @@ async function viewImport() {
     ${salesCard(sum)}
     <section class="card" id="daybook-card">
       <h2>Import sales — Tally DayBook</h2>
-      <p class="muted">Same as the <b>Import Sales</b> button in Excel: HSD, MS and XG credit vouchers are added; bills already in the app are skipped.</p>
+      <p class="muted">HSD, MS and XG credit vouchers are added, and <b>Tally is the source of truth</b>: a bill already in the app takes the DayBook's date, customer, vehicle, litres, rate and amount — so importing a corrected DayBook again corrects the app. What you typed against a bill here (unit, PO, TDS, shortage, remarks) stays.</p>
       <label class="file"><input type="file" id="daybook-file" accept=".xls,.xlsx,.xlsm,.csv"><span class="btn">Choose DayBook file</span></label>
       <div id="daybook-out"></div>
     </section>
@@ -1342,8 +1342,9 @@ async function viewImport() {
 
 function importRow(i) {
   const c = i.counts || {};
+  const byProduct = (o) => Object.entries(o || {}).map(([p, n]) => `${n} ${p}`).join(', ');
   const result = i.kind === 'daybook'
-    ? `${Object.entries(c.inserted || {}).map(([p, n]) => `${n} ${p}`).join(', ') || 'no new bills'}${c.duplicates ? ` · ${c.duplicates} already there` : ''}`
+    ? `${byProduct(c.inserted) || 'no new bills'}${byProduct(c.updated) ? ` · ${byProduct(c.updated)} updated` : ''}${c.unchanged ? ` · ${c.unchanged} unchanged` : ''}${c.removed ? ` · ${c.removed} removed` : ''}${c.duplicates ? ` · ${c.duplicates} already there` : ''}`
     : i.kind === 'payments_app' ? `${c.payments ?? 0} payments added`
       : `${c.sales_new ?? 0} new bills · ${c.sales_updated ?? 0} refreshed · ${c.payments ?? 0} payments · ${c.pos_new ?? 0} new POs`;
   const what = { daybook: 'DayBook', payments_app: 'Payments app', master_ledger: 'Master Ledger' }[i.kind] || i.kind;
@@ -1365,46 +1366,79 @@ async function daybookChosen(file, input) {
         ${parsed.otherTypes.length ? `<p>It has: ${parsed.otherTypes.map((t) => `${esc(t.type)} (${t.count})`).join(', ')}.</p>` : ''}</div>`;
       return;
     }
-    const existing = new Set(await state.store.existingBills(rows.map(({ product, bill_no, sale_date }) => ({ product, bill_no, sale_date }))));
-    const seen = new Set();
-    const fresh = rows.filter((r) => {
-      const k = billKey(r.product, r.sale_date, r.bill_no);
-      if (existing.has(k) || seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
+    const keys = rows.map(({ product, bill_no, sale_date }) => ({ product, bill_no, sale_date }));
+    // the app's bills in the DayBook's dates, to show the ones it no longer has
+    const span = parsed.from && parsed.to && daysBetween(parsed.from, parsed.to) <= 400;
+    let current;
+    let inApp;
+    try {
+      [current, inApp] = await Promise.all([state.store.daybookBills(keys), span ? state.store.salesRange(parsed.from, parsed.to) : []]);
+    } catch (err) {
+      if (/ledger_daybook_bills|schema cache|does not exist/i.test(err.message || '')) {
+        throw new Error('The database needs an update to replace bills from a DayBook: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run), then choose the file again.');
+      }
+      throw err;
+    }
+    const ch = daybookChanges(rows, current, inApp);
+    const { fresh, changed, same, missing } = ch;
     const known = new Set((await state.store.customers()).map((c) => c.key));
-    const newNames = [...new Map(fresh.filter((r) => !known.has(normKey(r.customer))).map((r) => [normKey(r.customer), r.customer])).values()];
+    const newNames = [...new Map([...fresh, ...changed.map((c) => c.row)].filter((r) => !known.has(normKey(r.customer))).map((r) => [normKey(r.customer), r.customer])).values()];
     const count = (list, p) => list.filter((r) => r.product === p).length;
+    const label = { date: 'Date', customer: 'Customer', vehicle: 'Vehicle', qty: 'Litres', rate: 'Rate', amount: 'Amount' };
+    const show = (f, v) => (v == null || v === '' ? '—' : f === 'date' ? fmtDate(v) : f === 'qty' ? fmtLitres(v) : f === 'amount' ? fmtMoney(v) : String(v));
+    const changeLine = (c) => `<li><b>${esc(c.row.product)} ${esc(c.row.bill_no)}</b> · ${fmtDate(c.row.sale_date)} · ${esc(c.row.customer)}: ${c.changes.map(([f, a, b]) => `${label[f]} ${esc(show(f, a))} → <b>${esc(show(f, b))}</b>`).join('; ')}</li>`;
     out.innerHTML = `
       <div class="preview">
         <p><b>${esc(file.name)}</b> · ${parsed.from === parsed.to ? fmtDate(parsed.from) : `${fmtDate(parsed.from)} – ${fmtDate(parsed.to)}`}</p>
         <div class="table-wrap"><table class="compact">
-          <thead><tr><th></th><th class="r">New</th><th class="r">Already in the app</th></tr></thead>
-          <tbody>${['HSD', 'MS', 'XG'].map((p) => `<tr><td>${PRODUCT[p]}</td><td class="r"><b>${count(fresh, p)}</b></td><td class="r">${count(rows, p) - count(fresh, p)}</td></tr>`).join('')}</tbody>
+          <thead><tr><th></th><th class="r">New</th><th class="r">Corrected</th><th class="r">Same as in the app</th></tr></thead>
+          <tbody>${['HSD', 'MS', 'XG'].map((p) => `<tr><td>${PRODUCT[p]}</td><td class="r"><b>${count(fresh, p)}</b></td><td class="r"><b>${count(changed.map((c) => c.row), p)}</b></td><td class="r">${count(same, p)}</td></tr>`).join('')}</tbody>
         </table></div>
+        ${changed.length ? `<details open><summary><b>${plural(changed.length, 'bill')} will be corrected</b> to the DayBook's figures</summary><ul class="small">${changed.slice(0, 200).map(changeLine).join('')}</ul>${changed.length > 200 ? `<p class="muted">…and ${changed.length - 200} more.</p>` : ''}</details>` : ''}
+        ${missing.length ? `<div class="warn-box">
+          <label class="radio"><input type="checkbox" id="daybook-remove"> Also remove ${plural(missing.length, 'bill')} that ${missing.length > 1 ? 'are' : 'is'} in the app for these dates but not in this DayBook (deleted or renumbered in Tally)</label>
+          <details><summary class="small">See ${missing.length > 1 ? 'them' : 'it'}</summary>${salesTable(missing.slice(0, 300))}</details></div>` : ''}
+        ${!span && parsed.from ? '<p class="muted small">This DayBook covers more than 400 days, so bills it no longer has can\'t be listed for removal — import a shorter period to do that.</p>' : ''}
         ${newNames.length ? `<p class="warn-text">New customer${newNames.length > 1 ? 's' : ''}: ${newNames.map(esc).join(', ')} — you'll be asked for ledger names after the import.</p>` : ''}
         ${parsed.problems.length ? `<details open><summary class="warn-text">${plural(parsed.problems.length, 'row')} to check</summary><ul>${parsed.problems.map((p) => `<li>Row ${p.row}, bill ${esc(p.bill_no)}: ${esc(p.problem)}</li>`).join('')}</ul></details>` : ''}
         ${parsed.otherTypes.length ? `<p class="muted small">Skipped other vouchers: ${parsed.otherTypes.map((t) => `${esc(t.type)} (${t.count})`).join(', ')}.</p>` : ''}
         ${fresh.length ? `<details><summary>See the ${plural(fresh.length, 'new bill')}</summary>${salesTable(fresh.slice(0, 300))}${fresh.length > 300 ? `<p class="muted">…and ${fresh.length - 300} more.</p>` : ''}</details>` : ''}
         <p class="actions">
-          <button class="btn" id="daybook-go" ${fresh.length ? '' : 'disabled'}>${fresh.length ? `Import ${plural(fresh.length, 'new bill')}` : 'Nothing new to import'}</button>
+          <button class="btn" id="daybook-go"></button>
           <button class="btn ghost" id="daybook-cancel">Cancel</button>
         </p>
       </div>`;
     document.getElementById('daybook-cancel').addEventListener('click', () => { out.innerHTML = ''; input.value = ''; });
     const go = document.getElementById('daybook-go');
+    const remove = document.getElementById('daybook-remove');
+    const setLabel = () => {
+      const parts = [];
+      if (fresh.length) parts.push(`add ${plural(fresh.length, 'new bill')}`);
+      if (changed.length) parts.push(`correct ${changed.length}`);
+      if (remove && remove.checked) parts.push(`remove ${missing.length}`);
+      go.disabled = !parts.length;
+      go.textContent = parts.length ? `Import: ${parts.join(', ')}` : 'Nothing to change — the app already matches this DayBook';
+    };
+    setLabel();
+    remove?.addEventListener('change', setLabel);
     go.addEventListener('click', () => guard(async () => {
+      const removeMissing = Boolean(remove && remove.checked);
+      if (removeMissing && !window.confirm(`Remove ${plural(missing.length, 'bill')} that ${missing.length > 1 ? 'are' : 'is'} not in this DayBook? Anything typed against ${missing.length > 1 ? 'them' : 'it'} in the app (PO, TDS, remarks) goes too.`)) return;
       go.disabled = true;
       go.textContent = 'Importing…';
-      const res = await state.store.importDaybook(file.name, rows);
-      const added = Object.entries(res.inserted || {}).map(([p, n]) => `${n} ${PRODUCT[p]}`).join(', ') || 'nothing new';
+      const res = await state.store.importDaybook(file.name, rows, removeMissing);
+      if (res.updated === undefined) {
+        throw new Error('The database still skips bills that are already there: run supabase/ledger-schema.sql again in the Supabase SQL Editor, then import the DayBook again.');
+      }
+      const byProduct = (o) => Object.entries(o || {}).map(([p, n]) => `${n} ${PRODUCT[p]}`).join(', ');
+      const done = [byProduct(res.inserted) && `added ${byProduct(res.inserted)}`, byProduct(res.updated) && `corrected ${byProduct(res.updated)}`,
+        res.removed && `removed ${plural(res.removed, 'bill')}`].filter(Boolean).join(' · ') || 'nothing changed';
       input.value = '';
-      out.innerHTML = `<div class="card good-card"><b>Imported:</b> ${esc(added)}.${res.duplicates ? ` Skipped ${plural(res.duplicates, 'bill')} already in the app.` : ''}
+      out.innerHTML = `<div class="card good-card"><b>Imported:</b> ${esc(done)}.${res.unchanged ? ` ${plural(res.unchanged, 'bill')} already matched.` : ''}
         ${res.new_customers && res.new_customers.length ? `<p>New customer${res.new_customers.length > 1 ? 's' : ''}: ${res.new_customers.map(esc).join(', ')}. <a href="#/customers">Give ${res.new_customers.length > 1 ? 'them' : 'it'} a ledger name →</a></p>` : ''}
         <p><a href="#/sales/${esc(parsed.to)}">See ${fmtDate(parsed.to)} →</a> · <a href="#/pos">PO lists →</a></p></div>`;
       toast('Sales imported.');
-    }).finally(() => { go.disabled = false; }));
+    }).finally(() => { if (document.body.contains(go)) setLabel(); }));
   } catch (err) {
     out.innerHTML = errorHtml(err);
   }
@@ -1835,7 +1869,8 @@ const rangeName = (from, to) => (from === to ? dmyDash(from) : `${dmyDash(from)}
 const dmyDash = (iso) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
 
 async function viewBills() {
-  const [tanker, customers, stamp] = await Promise.all([state.store.tankerList(), state.store.customers(), state.store.setting('slip_stamp')]);
+  const [tanker, customers, stamp, header, company] = await Promise.all([state.store.tankerList(), state.store.customers(),
+    state.store.setting('slip_stamp'), state.store.setting('slip_header'), state.store.setting('slip_company')]);
   const y = state.billDates || { from: yesterday(), to: yesterday() };
   const dates = (id) => `<label>From <input type="date" name="from" value="${y.from}" required></label>
     <label>To <input type="date" name="to" value="${y.to}" required></label>`;
@@ -1857,6 +1892,7 @@ async function viewBills() {
         <datalist id="slip-customers">${customers.filter((c) => !c.archived).map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist>
         <button class="btn" type="submit">Prepare slips</button></form>
       ${stampRow(stamp, 'stamp-file', 'stamp-remove', 'slips')}
+      ${companyForm(header, company)}
       <div id="slip-out"></div>
     </section>
     <section class="card">
@@ -1881,6 +1917,67 @@ async function viewBills() {
     guard(async () => prepareSlips(read(e.target)));
   });
   bindStamp('slip_stamp', 'stamp-file', 'stamp-remove', viewBills);
+  bindCompany(viewBills);
+}
+
+// The company name on the fuel slips. The HSD Bill sheet's heading starts
+// with the Tally company name, financial year and all ("VRIDDHI FUELS
+// (2026-27)"); a name saved here replaces it on every slip — kept across
+// Master Ledger uploads — with each bill's own financial year after it when
+// the box is ticked.
+function companyForm(header, company) {
+  const sheet = String((header && header.lines && header.lines[0]) || '').trim();
+  const now = company && company.name ? company : splitCompany(sheet || DEFAULT_SLIP_HEADER.lines[0]);
+  return `<form class="row-form company-form" id="company-form">
+      <label>Company name on the slips <input name="name" value="${esc(now.name)}" required autocomplete="off"></label>
+      <label class="radio"><input type="checkbox" name="fy" ${now.fy ? 'checked' : ''}> Add the bill's financial year</label>
+      <button class="btn ghost small" type="submit">Save name</button>
+      ${company ? '<button class="btn ghost small" type="button" id="company-reset">Use the Master Ledger\'s heading</button>' : ''}
+    </form>
+    <p class="muted small" id="company-preview">${companyPreview(now)}</p>
+    <p class="muted small">${company
+    ? 'Saved in the app — Master Ledger uploads don\'t change it.'
+    : `Now from the HSD Bill sheet${sheet ? ` (“${esc(sheet)}”)` : ''}. Save a name here to change it without re-uploading; it stays across uploads.`}</p>`;
+}
+
+function companyPreview({ name, fy }) {
+  name = String(name || '').trim();
+  if (!name) return 'Type the company name.';
+  if (!fy) return `Every slip prints “${esc(name)}”.`;
+  const today = todayIso();
+  const thisFy = fyOf(today);
+  const nextFy = fyOf(`${Number(thisFy.slice(0, 4)) + 1}-04-01`);
+  return `Slips print “${esc(name)} (${thisFy})” for this year's bills and “${esc(name)} (${nextFy})” from 1 April ${Number(thisFy.slice(0, 4)) + 1} — each bill's own financial year.`;
+}
+
+function bindCompany(reload) {
+  const form = document.getElementById('company-form');
+  const value = () => {
+    const fy = form.fy.checked;
+    // with the year added automatically, a year typed at the end is dropped
+    const name = fy ? splitCompany(form.name.value).name : form.name.value.trim();
+    return { name, fy };
+  };
+  form.addEventListener('input', () => { document.getElementById('company-preview').innerHTML = companyPreview(value()); });
+  const save = (v, msg) => guard(async () => {
+    try {
+      await state.store.setSetting('slip_company', v);
+    } catch (err) {
+      if (/unknown setting/i.test(err.message || '')) {
+        throw new Error('The database needs an update for this: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).');
+      }
+      throw err;
+    }
+    toast(msg);
+    await reload();
+  });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = value();
+    if (!v.name) { toast('Type the company name.', 'bad'); return; }
+    save(v, 'Company name saved — every slip uses it now.');
+  });
+  document.getElementById('company-reset')?.addEventListener('click', () => save(null, 'Slips use the Master Ledger\'s heading again.'));
 }
 
 // Stamp pictures (slip_stamp, statement_stamp) are kept in the database.
@@ -1954,7 +2051,8 @@ async function prepareTanker({ from, to, filter }, tanker) {
 async function prepareSlips({ from, to, filter }) {
   const out = document.getElementById('slip-out');
   out.innerHTML = loadingHtml('Finding bills…');
-  const [sales, header, stamp] = await Promise.all([state.store.salesRange(from, to), state.store.setting('slip_header'), state.store.setting('slip_stamp')]);
+  const [sales, header, stamp, company] = await Promise.all([state.store.salesRange(from, to), state.store.setting('slip_header'),
+    state.store.setting('slip_stamp'), state.store.setting('slip_company')]);
   const res = slipBundles({ sales, from, to, filter });
   const range = `${rangeName(from, to)}${filter ? ` · ${esc(filter)}` : ''}`;
   if (!res.bills) {
@@ -1962,10 +2060,10 @@ async function prepareSlips({ from, to, filter }) {
     return;
   }
   const h = header || DEFAULT_SLIP_HEADER;
-  const pages = (b) => b.bills.map((x) => slipSvg(x, h, stamp ? stamp.data_url : ''));
+  const pages = (b) => b.bills.map((x) => slipSvg(x, slipHeaderFor(h, company, x.sale_date), stamp ? stamp.data_url : ''));
   renderBundles(out, {
     summary: `<b>${plural(res.bills, 'bill')}</b> in <b>${plural(res.bundles.length, 'PDF')}</b> · ${range}`,
-    extra: header ? '' : '<p class="muted small">The slip heading comes from the HSD Bill sheet — upload the Master Ledger to bring in yours.</p>',
+    extra: header || company ? '' : '<p class="muted small">The slip heading comes from the HSD Bill sheet — upload the Master Ledger to bring in yours.</p>',
     bundles: res.bundles,
     size: A5,
     zipName: `${res.folder}.zip`,

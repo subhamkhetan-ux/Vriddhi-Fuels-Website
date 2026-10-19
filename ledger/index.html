@@ -58,6 +58,8 @@ code { background: var(--glass-2); border: 1px solid var(--glass-line-soft); pad
 pre.code { background: rgba(0,0,0,.35); border: 1px solid var(--glass-line); padding: 12px 14px; border-radius: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
 .muted { color: var(--muted); } .faint { color: var(--faint); } .small { font-size: 13px; }
 .good-text { color: var(--good); } .warn-text { color: var(--warn); } .bad-text { color: var(--bad); }
+.warn-box { border: 1px solid var(--warn); border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+.warn-box label.radio { color: var(--warn); font-weight: 600; }
 .nowrap { white-space: nowrap; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
@@ -146,6 +148,8 @@ label input, label select { display: block; margin-top: 5px; width: 100%; }
 .row-form.inline input { width: 150px; padding: 7px 10px; }
 label.radio { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 14px; flex-wrap: wrap; }
 label.radio input[type=radio] { width: auto; margin: 0; accent-color: var(--accent); }
+label.radio input[type=checkbox] { display: inline-block; width: auto; margin: 0; accent-color: var(--accent); }
+.company-form label.radio { flex: 0 1 auto; padding-bottom: 11px; }
 label.radio input[name=po] { display: inline-block; width: auto; flex: 1 1 140px; margin: 0; }
 .inline-label { display: flex; align-items: center; gap: 8px; }
 .inline-label select { margin: 0; width: auto; }

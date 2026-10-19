@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  bundleInfo, firstNWords, normalizeCompany, resolveCustomer, slipBundles, tankerBundles,
+  bundleInfo, firstNWords, normalizeCompany, resolveCustomer, slipBundles, slipHeaderFor, splitCompany, tankerBundles,
 } from '../../ledger/js/bills.js';
 import { inr, inr2, money2, slipSvg, tankerBillSvg } from '../../ledger/js/render.js';
 
@@ -109,4 +109,32 @@ test('bill drawings', () => {
     assert.ok(slip.includes(want), want);
   }
   assert.ok(!slipSvg(bill, {}).includes('<image'));
+});
+
+test('company name on the slips: as uploaded, as typed, or with the bill\'s financial year', () => {
+  assert.deepEqual(splitCompany('VRIDDHI FUELS (2026-27)'), { name: 'VRIDDHI FUELS', fy: true });
+  assert.deepEqual(splitCompany(' Demo Fuels ( 2027 - 28 ) '), { name: 'Demo Fuels', fy: true });
+  assert.deepEqual(splitCompany('DEMO FUELS'), { name: 'DEMO FUELS', fy: false });
+  assert.deepEqual(splitCompany(undefined), { name: '', fy: false });
+
+  const header = { title: 'CREDIT MEMO', mobile: 'Mob : 1', lines: ['DEMO FUELS (2026-27)', 'AT- TESTPUR'] };
+  // nothing saved: the sheet's heading, untouched
+  assert.equal(slipHeaderFor(header, null, '2027-04-01'), header);
+  assert.equal(slipHeaderFor(header, { name: '  ', fy: true }, '2027-04-01'), header);
+  // a fixed name
+  assert.deepEqual(slipHeaderFor(header, { name: 'DEMO FUELS LLP', fy: false }, '2027-04-01').lines, ['DEMO FUELS LLP', 'AT- TESTPUR']);
+  // each bill's own financial year (31 March is still the old year)
+  const co = { name: 'DEMO FUELS', fy: true };
+  assert.equal(slipHeaderFor(header, co, '2027-03-31').lines[0], 'DEMO FUELS (2026-27)');
+  assert.equal(slipHeaderFor(header, co, '2027-04-01').lines[0], 'DEMO FUELS (2027-28)');
+  assert.equal(slipHeaderFor(header, co, '2099-12-31').lines[0], 'DEMO FUELS (2099-00)');
+  // the uploaded heading itself is not changed, and the rest of it stays
+  assert.equal(header.lines[0], 'DEMO FUELS (2026-27)');
+  const h = slipHeaderFor(header, co, '2027-04-01');
+  assert.equal(h.title, 'CREDIT MEMO');
+  assert.equal(h.mobile, 'Mob : 1');
+  // no heading uploaded at all: the name is the only line
+  assert.deepEqual(slipHeaderFor({ title: 'CREDIT MEMO' }, co, '2027-04-01').lines, ['DEMO FUELS (2027-28)']);
+  assert.ok(slipSvg({ bill_no: '1', sale_date: '2027-04-01', customer: 'X', qty: 1, rate: 1, amount: 1 },
+    slipHeaderFor(header, co, '2027-04-01')).includes('DEMO FUELS (2027-28)'));
 });
