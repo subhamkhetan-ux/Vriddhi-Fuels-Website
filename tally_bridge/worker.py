@@ -46,9 +46,12 @@ class Worker:
             self.store.uploaded(rows)
 
     def scan(self, kind, full=False, force_upload=False):
-        known = self.store.known(kind)
         cursor = 0 if full else self.store.get("cursor:" + kind, 0)
         meta = self.tally.metadata(kind, cursor)
+        if not meta and not full:
+            self.store.set("scan:" + kind, self.clock())
+            return  # idle polls never load historical XML from SQLite
+        known = self.store.identities(kind)
         current = {identity(m)[0]: identity(m) for m in meta}
         for guid, _, alter in current.values():
             if guid in known and alter < known[guid]["alter_id"]:
@@ -78,12 +81,12 @@ class Worker:
         if force_upload:
             # Pairing a replacement PC/cloud bootstrap must republish unchanged cached objects too.
             self.tally.verify()
-            self.store.stage([dict(kind=kind,guid=g,master_id=i[1],alter_id=i[2],data=json.loads(known[g]["data"]))
+            self.store.stage([dict(kind=kind,guid=g,master_id=i[1],alter_id=i[2],data=self.store.object_payload(kind,g))
                               for g,i in current.items() if g in known and i not in changed])
         if full:
             self.tally.verify()
             removed = [dict(kind=kind, guid=g, alter_id=r["alter_id"], master_id=r["master_id"],
-                            data=json.loads(r["data"]), deleted=True)
+                            data=self.store.object_payload(kind,g), deleted=True)
                        for g, r in known.items() if g not in current and not r["deleted"]]
             self.store.stage(removed)
             self.store.set("full:" + kind, self.clock())

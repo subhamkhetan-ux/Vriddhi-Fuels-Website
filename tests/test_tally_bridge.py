@@ -46,6 +46,7 @@ class FakeCloud:
 
 class FakeTally:
     guid = 'test-company-guid'
+    company = 'Test Company'
     def __init__(self, found=None, lose_response=False):
         self.found, self.lose_response, self.imports = found, lose_response, 0
     def verify(self):
@@ -116,6 +117,13 @@ def test_conflicting_invoice_number_and_concurrent_tally_edit_block_posting(stor
     p = dict(PAYLOAD,guid=ID,expected_alter=4)
     with pytest.raises(TallyProblem,match="newer edit"):
         Worker(FakeCloud(),tally,store).voucher(job(p))
+    assert tally.imports == 0
+
+
+def test_invoice_for_another_financial_year_never_reaches_tally(store):
+    tally = FakeTally()
+    with pytest.raises(TallyProblem, match="different financial-year company"):
+        Worker(FakeCloud(), tally, store).voucher(job(dict(PAYLOAD, company="Test Company (2027-28)")))
     assert tally.imports == 0
 
 
@@ -214,7 +222,7 @@ def test_xml_escaping_amount_rounding_and_complex_vouchers():
 
 
 def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
-    html=(ROOT/'tally/index.html').read_text()
+    html=(ROOT/'tally/index.html').read_text(encoding='utf-8')
     pure=html.split('var TALLY = {',1)[1].split('// ---- Tally file parsers',1)[0]
     script='var TALLY = {'+pure+'\nconst p=JSON.parse(process.argv[1]);console.log(buildEnvelope("Test Company",[p]));'
     for series in ('hsd','ms','xg'):
@@ -223,7 +231,7 @@ def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
         web=dict(seriesKey=series,number=p['number'],dateISO=p['date'],party=p['party'],vehicle=p['vehicle'],qty=p['qty'],
                  rate=p['rate'],itemAmt=p['item_amt'],partyAmt=p['party_amt'],roff=p['roff'],
                  gst=dict(gstin='21TESTGSTIN',regType='Regular',state='Odisha',place='Odisha',country='India',pincode='768001'))
-        js=subprocess.run(['node','-e',script,json.dumps(web)],text=True,capture_output=True,check=True).stdout
+        js=subprocess.run(['node','-e',script,json.dumps(web)],encoding='utf-8',capture_output=True,check=True).stdout
         a=parse(js).find('.//VOUCHER'); b=parse(voucher_xml('Test Company',p)).find('.//VOUCHER')
         # Compare semantic leaf paths; GUID/REMOTEID are the deliberate bridge additions.
         def leaves(n,path=''):

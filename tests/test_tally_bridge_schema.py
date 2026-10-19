@@ -60,6 +60,17 @@ def test_capabilities_and_pairing(db):
     assert "Company is paired" in db.fails("update tally_settings set company='Other'", user=None)
 
 
+def test_financial_year_company_uses_indian_april_boundary(db):
+    # Transaction rollback retains the paired state for the following outbox tests.
+    result = db.ok("""begin;
+        update tally_bridge_config set active=false where id=1;
+        update tally_settings set company='VRIDDHI FUELS ( 2026 - 27 )',company_fy=true where id=1;
+        select jsonb_build_array(_tb_company_for_date('2026-03-31'),_tb_company_for_date('2026-04-01'));
+        rollback;""")
+    assert '["VRIDDHI FUELS (2025-26)", "VRIDDHI FUELS (2026-27)"]' in result
+    assert "Financial-year naming is locked" in db.fails("update tally_settings set company_fy=not company_fy where id=1")
+
+
 def test_outbox_is_atomic_and_edits_supersede_only_unwritten_jobs(db):
     v = create(db)
     j = device(db, "claim")

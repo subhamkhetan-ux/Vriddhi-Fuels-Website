@@ -73,7 +73,7 @@ begin
   select to_jsonb(t) into s from tally_settings t where id=1;
   if coalesce((s->>'company_fy')::boolean,false) then
     y:=extract(year from p_date)::int - case when extract(month from p_date)<4 then 1 else 0 end;
-    return trim(regexp_replace(s->>'company','\s*\(\d{4}-\d{2,4}\)\s*$','')) || ' (' || y || '-' || right((y+1)::text,2) || ')';
+    return trim(regexp_replace(s->>'company','\s*\(\s*\d{4}\s*-\s*\d{2,4}\s*\)\s*$','')) || ' (' || y || '-' || right((y+1)::text,2) || ')';
   end if;
   return s->>'company';
 end $$;

@@ -58,7 +58,16 @@ jobs:
           node-version: '22'
       - run: python -m pip install -r tally_bridge/requirements.txt pytest==9.1.1 pyinstaller==6.16.0
       - name: Run Windows recovery tests
-        run: python -m pytest tests/test_tally_bridge.py -q
+        run: python -m pytest tests/test_tally_bridge.py -q --junitxml=bridge-test-results.xml
+      - name: Annotate test failures
+        if: failure()
+        env:
+          PYTHONIOENCODING: utf-8
+        run: >-
+          python -c "import pathlib,xml.etree.ElementTree as E;
+          p=pathlib.Path('bridge-test-results.xml');
+          failures=E.parse(p).findall('.//failure')+E.parse(p).findall('.//error') if p.exists() else [];
+          [print('::error::'+(f.text or f.get('message','Test failed'))[-3500:].replace('%','%25').replace('\r','%0D').replace('\n','%0A')) for f in failures]"
       - name: Package installer (Python is bundled)
         run: python -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --name VriddhiTallyBridge --distpath bridge-dist --workpath bridge-build --specpath bridge-build tally_bridge/entry.py
       - name: Verify packaged executable, DPAPI and installed startup registration

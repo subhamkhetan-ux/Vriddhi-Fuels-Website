@@ -31,6 +31,14 @@ class Store:
     def known(self, kind):
         return {r["guid"]: dict(r) for r in self.db.execute("select * from objects where kind=?", (kind,))}
 
+    def identities(self, kind):
+        return {r["guid"]: dict(r) for r in self.db.execute(
+            "select guid,alter_id,master_id,deleted from objects where kind=?", (kind,))}
+
+    def object_payload(self, kind, guid):
+        row = self.db.execute("select data from objects where kind=? and guid=?", (kind,guid)).fetchone()
+        return json.loads(row[0]) if row else None
+
     def stage(self, objects):
         """Persist the object and its pending cloud upload in the SAME transaction."""
         with self.db:
