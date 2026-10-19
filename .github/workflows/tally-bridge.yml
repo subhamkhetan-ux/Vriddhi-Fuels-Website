@@ -6,7 +6,12 @@ on:
     paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', '.github/workflows/tally-bridge.yml']
   pull_request:
     paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', '.github/workflows/tally-bridge.yml']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the verified installer as a Windows preview release (main only)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -85,3 +90,30 @@ jobs:
           name: Vriddhi-Tally-Bridge-Windows
           path: bridge-dist/
           retention-days: 90
+
+  publish-release:
+    needs: windows-installer
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Vriddhi-Tally-Bridge-Windows
+          path: bridge-dist
+      - name: Verify published installer checksum
+        working-directory: bridge-dist
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish Windows preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create tally-bridge-v1.0.0
+          bridge-dist/VriddhiTallyBridge.exe bridge-dist/SHA256SUMS.txt
+          bridge-dist/SETUP.md bridge-dist/BUILD.txt
+          --target "$GITHUB_SHA" --title "Tally Prime bridge 1.0.0 — Windows preview"
+          --prerelease --notes-file tally_bridge/RELEASE.md

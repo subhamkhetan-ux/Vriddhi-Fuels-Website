@@ -7,7 +7,7 @@
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
   const LABELS = {queued:'Queued for Tally',confirming:'Confirming in Tally',synced:'Confirmed in Tally',conflict:'Needs review',
     needs_edit:'Not posted — correct details or retry',deleted:'Cancelled / deleted in Tally',unsupported:'Changed in Tally — view current report',awaiting_tally:'Fetching Tally version',unlinked:'Not linked'};
-  let client, cfg, user, timer, epoch = 0, tab = 'reports', report = null, busy = false, reportArgs = null, status = null, offset = 0;
+  let client, cfg, user, timer, pairingExpiry, epoch = 0, tab = 'reports', report = null, busy = false, reportArgs = null, status = null, offset = 0;
   const $ = id => document.getElementById(id);
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const date = value => value ? new Date(value).toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'}) : 'Not yet';
@@ -105,7 +105,8 @@
           $('bridgePairCode').value = pack;
           $('bridgeCopy').onclick = () => navigator.clipboard.writeText(pack).then(()=> { $('bridgeCopy').textContent = 'Copied'; }).catch(()=> $('bridgePairCode').select());
           const generation = epoch;
-          setTimeout(()=> { if (epoch===generation && $('bridgePairOutput')) $('bridgePairOutput').textContent = 'Pairing package expired. Create another if needed.'; }, 600000);
+          clearTimeout(pairingExpiry);
+          pairingExpiry = setTimeout(()=> { if (epoch===generation && $('bridgePairOutput')) $('bridgePairOutput').textContent = 'Pairing package expired. Create another if needed.'; }, 600000);
           refreshStatus();
         } catch(e) { error(e); }
       };
@@ -248,7 +249,7 @@
     active() { return !!(status && status.config.active); },
     label(value) { return value && value!=='unlinked' ? LABELS[value] || value : ''; },
     safeReport,
-    clear() { epoch++; clearInterval(timer); client=null; user=null; status=null; report=null; reportArgs=null; busy=false;
+    clear() { epoch++; clearInterval(timer); clearTimeout(pairingExpiry); client=null; user=null; status=null; report=null; reportArgs=null; busy=false;
       if($('scrBridge')) $('scrBridge').replaceChildren(); if($('btnBridge')) $('btnBridge').hidden=true; }
   };
 })(window);
