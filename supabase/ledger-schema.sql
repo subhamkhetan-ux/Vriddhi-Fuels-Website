@@ -400,16 +400,73 @@ begin
   ), '[]'::jsonb);
 end $$;
 
--- "Import Sales": the rows parsed from a Tally DayBook. Bills already in
--- the app are skipped, like the macro; new customer names are added to
--- the customer list (with no ledger name yet).
+-- The bills of a DayBook that are already in the app, as they are now (the
+-- import preview shows what a new DayBook changes). keys: [{product, bill_no, sale_date}]
+create or replace function public.ledger_daybook_bills(p_keys jsonb)
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return coalesce((
+    select jsonb_agg(distinct jsonb_build_object(
+             'product', s.product, 'fy', s.fy, 'bill_no', s.bill_no, 'sale_date', s.sale_date,
+             'vehicle', s.vehicle, 'qty', s.qty, 'rate', s.rate, 'amount', s.amount, 'customer', s.customer))
+    from jsonb_to_recordset(coalesce(p_keys, '[]'::jsonb)) as k(product text, bill_no text, sale_date date)
+    join ledger_sales s on s.product = k.product
+                       and s.fy = ledger_fy(k.sale_date)
+                       and s.bill_no = btrim(k.bill_no)
+  ), '[]'::jsonb);
+end $$;
+
+-- The sales rows of a DayBook payload: HSD / MS / XG with a date, bill no.
+-- and customer; a bill listed twice in one file counts once (its first row).
+create or replace function public.ledger_daybook_rows(p_rows jsonb)
+returns table (product text, fy text, bill_no text, sale_date date, vehicle text, qty numeric,
+               rate numeric, amount numeric, customer text, n bigint)
+language sql immutable set search_path = public as $$
+  select distinct on (v.product, ledger_fy(v.sale_date), v.bill_no)
+         v.product, ledger_fy(v.sale_date), v.bill_no, v.sale_date, v.vehicle, v.qty, v.rate,
+         v.amount, v.customer, v.n
+  from (
+    select t.v ->> 'product' as product,
+           btrim(coalesce(t.v ->> 'bill_no', '')) as bill_no,
+           (t.v ->> 'sale_date')::date as sale_date,
+           btrim(coalesce(t.v ->> 'vehicle', '')) as vehicle,
+           (t.v ->> 'qty')::numeric as qty,
+           (t.v ->> 'rate')::numeric as rate,
+           (t.v ->> 'amount')::numeric as amount,
+           btrim(coalesce(t.v ->> 'customer', '')) as customer,
+           t.n
+    from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) with ordinality as t(v, n)
+    where t.v ->> 'product' in ('HSD', 'MS', 'XG')
+      and nullif(t.v ->> 'sale_date', '') is not null
+      and btrim(coalesce(t.v ->> 'bill_no', '')) <> ''
+      and btrim(coalesce(t.v ->> 'customer', '')) <> ''
+  ) v
+  order by v.product, ledger_fy(v.sale_date), v.bill_no, v.n
+$$;
+
+-- "Import Sales": the rows parsed from a Tally DayBook. Tally is the source
+-- of truth: a bill already in the app (same product, financial year and
+-- bill no.) takes the DayBook's date, vehicle, quantity, rate, amount and
+-- customer, so re-importing a corrected DayBook corrects the app. What is
+-- typed in the app against a bill (unit, PO, TDS, shortage, remarks) stays.
+-- New customer names are added to the customer list (with no ledger name
+-- yet). With p_remove_missing, HSD / MS / XG bills dated within the
+-- DayBook's dates that it no longer has (deleted or renumbered in Tally)
+-- are removed.
 -- rows: [{product, bill_no, sale_date, vehicle, qty, rate, amount, customer}]
-create or replace function public.ledger_import_daybook(p_file_name text, p_rows jsonb)
+drop function if exists public.ledger_import_daybook(text, jsonb);
+create or replace function public.ledger_import_daybook(p_file_name text, p_rows jsonb,
+                                                        p_remove_missing boolean default false)
 returns jsonb language plpgsql set search_path = public as $$
 declare
   v_import    bigint;
   v_total     int;
   v_inserted  jsonb;
+  v_updated   jsonb;
+  v_removed   int := 0;
+  v_from      date;
+  v_to        date;
   v_customers jsonb;
   v_counts    jsonb;
 begin
@@ -434,45 +491,47 @@ begin
   )
   select coalesce(jsonb_agg(name order by name), '[]'::jsonb) into v_customers from ins;
 
-  with e as (
-    select t.v, t.n
-    from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) with ordinality as t(v, n)
-  ), valid as (
-    select e.v ->> 'product' as product,
-           btrim(coalesce(e.v ->> 'bill_no', '')) as bill_no,
-           (e.v ->> 'sale_date')::date as sale_date,
-           btrim(coalesce(e.v ->> 'vehicle', '')) as vehicle,
-           (e.v ->> 'qty')::numeric as qty,
-           (e.v ->> 'rate')::numeric as rate,
-           (e.v ->> 'amount')::numeric as amount,
-           btrim(coalesce(e.v ->> 'customer', '')) as customer,
-           e.n
-    from e
-    where e.v ->> 'product' in ('HSD', 'MS', 'XG')
-      and nullif(e.v ->> 'sale_date', '') is not null
-      and btrim(coalesce(e.v ->> 'bill_no', '')) <> ''
-      and btrim(coalesce(e.v ->> 'customer', '')) <> ''
-  ), base as (
+  select count(*), min(sale_date), max(sale_date) into v_total, v_from, v_to from ledger_daybook_rows(p_rows);
+
+  with base as (
     select product, max(seq) as m from ledger_sales group by product
-  ), ins as (
-    insert into ledger_sales (product, fy, bill_no, sale_date, vehicle, qty, rate, amount,
-                              customer, customer_key, seq, source, import_id)
-    select v.product, ledger_fy(v.sale_date), v.bill_no, v.sale_date, v.vehicle, v.qty, v.rate, v.amount,
+  ), up as (
+    insert into ledger_sales as s (product, fy, bill_no, sale_date, vehicle, qty, rate, amount,
+                                   customer, customer_key, seq, source, import_id)
+    select v.product, v.fy, v.bill_no, v.sale_date, v.vehicle, v.qty, v.rate, v.amount,
            v.customer, ledger_norm(v.customer), coalesce(b.m, 0) + v.n, 'daybook', v_import
-    from valid v left join base b on b.product = v.product
+    from ledger_daybook_rows(p_rows) v left join base b on b.product = v.product
     order by v.n
-    on conflict (product, fy, bill_no) do nothing
-    returning product
+    on conflict (product, fy, bill_no) do update set
+      sale_date = excluded.sale_date, vehicle = excluded.vehicle, qty = excluded.qty,
+      rate = excluded.rate, amount = excluded.amount, customer = excluded.customer,
+      updated_at = now()
+    where (s.sale_date, s.vehicle, s.qty, s.rate, s.amount, s.customer)
+          is distinct from (excluded.sale_date, excluded.vehicle, excluded.qty, excluded.rate, excluded.amount, excluded.customer)
+    returning product, (xmax = 0) as inserted
   )
-  select (select count(*) from valid),
-         coalesce((select jsonb_object_agg(product, n)
-                   from (select product, count(*) as n from ins group by product) t), '{}'::jsonb)
-  into v_total, v_inserted;
+  select coalesce((select jsonb_object_agg(product, n) from (
+            select product, count(*) as n from up where inserted group by product) t), '{}'::jsonb),
+         coalesce((select jsonb_object_agg(product, n) from (
+            select product, count(*) as n from up where not inserted group by product) t), '{}'::jsonb)
+  into v_inserted, v_updated;
+
+  if coalesce(p_remove_missing, false) and v_from is not null then
+    delete from ledger_sales s
+    where s.product in ('HSD', 'MS', 'XG')
+      and s.sale_date between v_from and v_to
+      and not exists (select 1 from ledger_daybook_rows(p_rows) v
+                      where v.product = s.product and v.fy = s.fy and v.bill_no = s.bill_no);
+    get diagnostics v_removed = row_count;
+  end if;
 
   v_counts := jsonb_build_object(
     'rows', v_total,
     'inserted', v_inserted,
-    'duplicates', v_total - coalesce((select sum(value::int) from jsonb_each_text(v_inserted)), 0),
+    'updated', v_updated,
+    'unchanged', v_total - coalesce((select sum(value::int) from jsonb_each_text(v_inserted)), 0)
+                         - coalesce((select sum(value::int) from jsonb_each_text(v_updated)), 0),
+    'removed', v_removed,
     'new_customers', v_customers);
   update ledger_imports set counts = v_counts where id = v_import;
   return v_counts || jsonb_build_object('import_id', v_import);

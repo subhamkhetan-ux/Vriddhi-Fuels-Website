@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { daybookPayload, parseDaybook, sheetRows } from '../../ledger/js/daybook.js';
+import { daybookChanges, daybookPayload, parseDaybook, sheetRows } from '../../ledger/js/daybook.js';
 import { allocate, billOrder } from '../../ledger/js/po.js';
 import {
   cellNumber, cellText, fyOf, isDateFormat, normKey, parseTextDate, serialToISO, suggestLedgerName,
@@ -135,4 +135,32 @@ test('PO: bills are taken by date, then sheet order', () => {
     { id: 2, date: '2026-04-01', seq: 7 }, { id: 4, date: '2026-04-01', seq: 2, product: 'XG' },
   ];
   assert.deepEqual(rows.sort(billOrder).map((r) => r.id), [2, 1, 4, 3]);   // diesel rows first each day
+});
+
+test('re-importing a DayBook: new, corrected, same and no-longer-there bills', () => {
+  const rows = [
+    { product: 'HSD', bill_no: '10', sale_date: '2026-10-01', vehicle: 'OD1', qty: 300, rate: 90, amount: 27000, customer: 'Demo Power Ltd' },
+    { product: 'HSD', bill_no: '11', sale_date: '2026-10-01', vehicle: 'OD2', qty: 310, rate: 90, amount: 27900, customer: 'Demo Power Ltd ' },
+    { product: 'MS', bill_no: 'MS5', sale_date: '2026-10-02', vehicle: '', qty: 20, rate: 101, amount: 2020, customer: 'Sample Roadlines' },
+    { product: 'HSD', bill_no: '11', sale_date: '2026-10-01', vehicle: 'dup', qty: 1, rate: 1, amount: 1, customer: 'X' },   // twice: first counts
+  ];
+  const current = [
+    { product: 'HSD', fy: '2026-27', bill_no: '11', sale_date: '2026-10-01', vehicle: 'OD2', qty: 300, rate: 90, amount: 27000, customer: 'Demo Power Ltd' },
+    { product: 'MS', fy: '2026-27', bill_no: 'MS5', sale_date: '2026-10-02', vehicle: null, qty: '20.000', rate: 101, amount: 2020, customer: 'Sample Roadlines' },
+  ];
+  const inApp = [
+    ...current,
+    { product: 'HSD', bill_no: '12', sale_date: '2026-10-02', customer: 'Gone Ltd', qty: 5, amount: 450 },
+    { product: 'OTHER', bill_no: 'O1', sale_date: '2026-10-02', customer: 'Lube Buyer', qty: 1, amount: 100 },
+  ];
+  const r = daybookChanges(rows, current, inApp);
+  assert.deepEqual(r.fresh.map((x) => x.bill_no), ['10']);
+  assert.deepEqual(r.changed.map((c) => [c.row.bill_no, c.changes]), [
+    ['11', [['qty', 300, 310], ['amount', 27000, 27900]]],     // a trailing space in a name is not a change
+  ]);
+  assert.deepEqual(r.same.map((x) => x.bill_no), ['MS5']);   // '20.000' = 20, no vehicle = ''
+  assert.deepEqual(r.missing.map((x) => x.bill_no), ['12']); // Other Sale bills are never DayBook bills
+  const moved = daybookChanges([{ ...rows[0], sale_date: '2026-10-03', customer: 'New Name' }],
+    [{ ...rows[0], fy: '2026-27' }]);
+  assert.deepEqual(moved.changed[0].changes, [['date', '2026-10-01', '2026-10-03'], ['customer', 'Demo Power Ltd', 'New Name']]);
 });
