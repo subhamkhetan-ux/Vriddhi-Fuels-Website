@@ -95,10 +95,29 @@ test('memory store follows the SQL rules', async () => {
     { product: 'BAD', bill_no: '9', sale_date: '2026-04-07', customer: 'x' },
   ];
   assert.deepEqual(await s.existingBills(rows), ['HSD|2026-27|3']);
+  assert.deepEqual((await s.daybookBills(rows)).map((b) => [b.product, b.fy, b.bill_no]), [['HSD', '2026-27', '3']]);
   res = await s.importDaybook('DayBook 07-04-26.xlsx', rows);
-  assert.deepEqual(res, {
-    rows: 6, inserted: { HSD: 3, XG: 1 }, duplicates: 2, new_customers: ['Brand New Movers'], import_id: 3,
+  assert.deepEqual(res, {   // bill 4 is in the file twice (first row counts); bill 3 takes the DayBook's figures
+    rows: 5, inserted: { HSD: 3, XG: 1 }, updated: { HSD: 1 }, unchanged: 0, removed: 0,
+    new_customers: ['Brand New Movers'], import_id: 3,
   });
+  const bill3 = (await s.daybookBills([rows[0]]))[0];
+  assert.deepEqual([bill3.vehicle, bill3.qty, bill3.amount, bill3.customer], ['X', 5, 5, 'Retail Roadways']);
+  // the same DayBook again changes nothing
+  res = await s.importDaybook('DayBook 07-04-26.xlsx', rows);
+  assert.deepEqual([res.inserted, res.updated, res.unchanged], [{}, {}, 5]);
+  // a corrected DayBook for 7 April (bill 4 fixed, bill 5 deleted in Tally), removing what it no longer has
+  const fixed = [
+    { ...rows[1], qty: 310, amount: 28210 },
+    rows[3],
+  ];
+  res = await s.importDaybook('DayBook 07-04-26 fixed.xlsx', fixed, true);
+  assert.deepEqual([res.updated, res.unchanged, res.removed], [{ HSD: 1 }, 1, 1]);
+  assert.deepEqual((await s.salesDay('2026-04-07')).bills.map((b) => [b.bill_no, b.qty]), [['4', 310], ['XG1', 20]]);
+  assert.equal((await s.salesDay('2026-04-02')).bills.length > 0, true);   // other days untouched
+  // ... and back as it was
+  res = await s.importDaybook('DayBook 07-04-26.xlsx', rows);
+  assert.deepEqual([res.inserted, res.updated], [{ HSD: 1 }, { HSD: 1 }]);
   const day = await s.salesDay('2026-04-07');
   assert.deepEqual(day.bills.map((b) => [b.product, b.bill_no]), [['HSD', '4'], ['HSD', '5'], ['XG', 'XG1']]);
   assert.equal((await s.salesDay()).date, '2027-04-01');
