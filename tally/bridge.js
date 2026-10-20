@@ -1,7 +1,7 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.0.1';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.0.2';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
@@ -26,6 +26,7 @@
     if (!status) return 'Connection not configured';
     if (!status.device) return 'Pair your Windows PC';
     if (!online()) return 'PC offline · cached data available';
+    if (status.device.health === 'starting_tally') return 'Starting Tally Prime…';
     if (status.device.health === 'needs_attention') return 'Connection needs attention';
     if (!status.config.ready) return 'First sync in progress';
     return status.config.push_enabled ? 'Connected to Tally Prime' : 'Voucher posting paused';
@@ -39,6 +40,10 @@
     $('bridgeAttention').textContent = status ? status.attention : '—';
     $('bridgeObjects').textContent = status ? status.objects.toLocaleString('en-IN') : '—';
     $('bridgeLastSeen').textContent = status && status.device ? 'Last contact: ' + date(status.device.last_seen) + ' · ' + status.device.label : 'Pair one Windows PC with your Vriddhi Fuels company.';
+    if ($('bridgeDeviceDetail')) {
+      $('bridgeDeviceDetail').textContent = status?.device?.detail || '';
+      $('bridgeDeviceDetail').hidden = !status?.device?.detail;
+    }
     if (tab === 'activity') paintActivity();
   }
   async function refreshStatus() {
@@ -62,7 +67,7 @@
       <div class="bridge-metrics"><div class="bridge-metric"><small>WAITING TO SYNC</small><strong id="bridgePending">—</strong></div>
       <div class="bridge-metric"><small>NEEDS REVIEW</small><strong id="bridgeAttention">—</strong></div>
       <div class="bridge-metric"><small>TALLY RECORDS</small><strong id="bridgeObjects">—</strong></div></div>
-      <p class="vsub" id="bridgeLastSeen"></p>
+      <p class="vsub" id="bridgeLastSeen"></p><p class="hint" id="bridgeDeviceDetail" hidden></p>
       <div class="bridge-tabs" role="tablist" aria-label="Tally connection"><button role="tab" data-tab="reports">Reports</button><button role="tab" data-tab="browse">Tally data</button><button role="tab" data-tab="activity">Sync activity</button><button role="tab" data-tab="setup">Connect PC</button></div>
       <p id="bridgeMessage" class="bridge-notice" role="status">Reports show their last refresh time. New requests wait safely when the PC is offline.</p><div id="bridgeContent" role="tabpanel" tabindex="0"></div>`;
     const tabs = Array.from(root.querySelectorAll('[data-tab]'));
@@ -119,10 +124,10 @@
         $('bridgeLedger').value = reportArgs.p_ledger; $('bridgeReport').onchange(); paintReport();
       }
     } else if (tab === 'setup') {
-      content.innerHTML = `<div class="bridge-panel"><h3>Connect your Windows PC</h3><p>Open Vriddhi Fuels in Tally Prime, enable its local XML server, and run the installer on that PC. Pairing locks the bridge to this company's identity.</p>
+      content.innerHTML = `<div class="bridge-panel"><h3>Connect your Windows PC</h3><p>Open Vriddhi Fuels in Tally Prime, enable its local XML server, and extract the Windows ZIP on that PC. Open Setup.cmd to install. Pairing locks the bridge to this company's identity.</p>
         <div class="bridge-actions"><a class="btn primary" href="${RELEASE}" target="_blank" rel="noopener">Windows installer</a><a class="btn ghost" href="${DOCS}" target="_blank" rel="noopener">Setup instructions</a></div>
         <div class="bridge-actions"><button class="btn primary" id="bridgePair">Create pairing package</button><button class="btn ghost" id="bridgePause">${status && status.config.push_enabled ? 'Pause posting' : 'Resume posting'}</button><button class="btn ghost" id="bridgeRevoke">Disconnect PC</button></div><div id="bridgePairOutput"></div>
-        <p>Starts after Windows sign-in. Keep Tally open. The bridge checks new web vouchers about every 5 seconds, masters every minute, and deletions every hour. Initial sync may take longer.</p></div>
+        <p>Starts after Windows sign-in. Enable automatic Tally recovery in Setup.cmd to reopen Tally minimized with your company loaded when employees close it. Keep Windows signed in; the screen may lock. The bridge checks new web vouchers about every 5 seconds, masters every minute, and deletions every hour. Initial sync may take longer.</p></div>
         <div class="bridge-panel"><h3>Existing vouchers</h3><p>Previously saved vouchers are not automatically reposted. Queue an unlinked voucher from Sync activity; the bridge first checks whether it already exists in Tally.</p><p>New vouchers and supported edits queue automatically after pairing. Resolve conflicting edits in Sync activity. Manual DayBook imports and history deletion are protected while connected.</p></div>`;
       $('bridgePair').onclick = async () => {
         try {

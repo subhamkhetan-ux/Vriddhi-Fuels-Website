@@ -371,3 +371,140 @@ def test_service_worker_never_caches_financial_api_or_other_apps():
       assert(intercepted);
     '''
     subprocess.run(['node','-e',script],cwd=ROOT,check=True,capture_output=True)
+
+
+def _recovery(tmp_path, store, tally=None, processes=lambda: [], clock=lambda: 1000):
+    from tally_bridge.recovery import Recovery
+    exe = tmp_path/'Tally Prime'/'Tally.exe';exe.parent.mkdir(exist_ok=True);exe.write_bytes(b'test-only')
+    launches=[]
+    if tally is None:
+        class Offline(FakeTally):
+            def verify(self):raise ConnectionProblem('Tally closed')
+        tally=Offline()
+    return Recovery(tally,{'enabled':True,'exe':str(exe.resolve()),'number':'10000'},store,processes,launches.append,clock=clock),launches
+
+
+def test_tally_recovery_starts_once_and_retains_backoff_across_restart(tmp_path,store):
+    from tally_bridge.recovery import TallyStarting
+    recovery,launches=_recovery(tmp_path,store)
+    with pytest.raises(TallyStarting,match='Starting Tally minimized'):recovery.ensure()
+    assert len(launches)==1 and launches[0]['number']=='10000'
+    assert store.get('tally_recovery_pending') is True
+    restarted,other=_recovery(tmp_path,store)
+    with pytest.raises(TallyStarting,match='Waiting before'):restarted.ensure()
+    assert not other
+    restarted.clock=lambda:2000
+    with pytest.raises(TallyStarting,match='Starting Tally minimized'):restarted.ensure()
+    assert len(other)==1
+
+
+def test_tally_recovery_never_launches_a_competing_process_or_overrides_identity(tmp_path,store):
+    from tally_bridge.recovery import TallyStarting
+    recovery,launches=_recovery(tmp_path,store,processes=lambda:[{'pid':1,'exe':'another/Tally.exe'}])
+    with pytest.raises(TallyStarting,match='No extra Tally instance'):recovery.ensure()
+    assert not launches
+    class WrongCompany(FakeTally):
+        def verify(self):raise TallyProblem('Company GUID changed')
+    recovery,launches=_recovery(tmp_path,store,tally=WrongCompany())
+    with pytest.raises(TallyProblem,match='GUID changed'):recovery.ensure()
+    assert not launches
+
+
+def test_tally_recovery_leaves_healthy_tally_untouched_and_requests_reconciliation(tmp_path,store):
+    def not_called():raise AssertionError('Healthy Tally must not be restarted or enumerated')
+    recovery,launches=_recovery(tmp_path,store,tally=FakeTally(),processes=not_called)
+    store.set('tally_recovery_pending',True);store.set('tally_launch_failures',3)
+    assert recovery.ensure() is True
+    assert recovery.ensure() is False
+    assert store.get('tally_launch_failures')==0 and not launches
+
+
+def test_tally_recovery_blocks_invalid_startup_number_and_missing_binary(tmp_path,store):
+    from tally_bridge.recovery import startup_settings
+    recovery,launches=_recovery(tmp_path,store)
+    for number in ('10000 /TDL:evil','../10000','0','-1','10000&echo',''):
+        with pytest.raises(RuntimeError):startup_settings(recovery.config['exe'],number)
+    Path(recovery.config['exe']).unlink()
+    with pytest.raises(TallyProblem,match='installed local Tally'):recovery.ensure()
+    assert not launches
+
+
+def test_worker_reconciles_before_claiming_after_tally_restart(tmp_path):
+    from tally_bridge.tally import KINDS
+    scanned=[]
+    class Empty(FakeTally):
+        def metadata(self,kind,after):scanned.append((kind,after));return []
+        def objects(self,*args):raise AssertionError('Empty company has no detailed reads')
+    class Restarted:
+        def ensure(self):return True
+    db=Store(tmp_path/'resumed.sqlite3');cloud=FakeCloud()
+    try:
+        for kind in KINDS:
+            db.set('full:'+kind,1000);db.set('scan:'+kind,1000)
+        worker=Worker(cloud,Empty(),db,clock=lambda:1001,recovery=Restarted());worker.initial_scan=False
+        worker.step()
+        assert [kind for kind,after in scanned]==list(KINDS)
+        assert all(after==0 for kind,after in scanned)
+        assert any(name=='tally_bridge_claim' for name,args in cloud.calls)
+    finally:db.close()
+
+
+def test_stop_during_heartbeat_does_not_reopen_tally_or_claim_work(tmp_path):
+    from tally_bridge.worker import Stopped
+    class Flag:
+        stopped=False
+        def is_set(self):return self.stopped
+    flag=Flag()
+    class StopCloud(FakeCloud):
+        def rpc(self,name,**args):
+            if name=='tally_bridge_heartbeat':flag.stopped=True
+            return super().rpc(name,**args)
+    class Never:
+        def ensure(self):raise AssertionError('Stopped bridge must not launch Tally')
+    db=Store(tmp_path/'stopped.sqlite3');cloud=StopCloud()
+    try:
+        w=Worker(cloud,FakeTally(),db,recovery=Never());w.stop=flag
+        with pytest.raises(Stopped):w.step()
+        assert not any(name=='tally_bridge_claim' for name,args in cloud.calls)
+    finally:db.close()
+
+
+def test_package_verification_detects_tampering_and_unlisted_files(tmp_path):
+    from tally_bridge import __version__
+    from tally_bridge.packaging import digest,verify_package
+    files=['runtime/python.exe','runtime/pythonw.exe','bridge.pyw','Setup.cmd']
+    for name in files:
+        p=tmp_path/name;p.parent.mkdir(exist_ok=True);p.write_bytes(b'public-test-fixture')
+    manifest={'format':1,'version':__version__,'files':{name:digest(tmp_path/name) for name in files}}
+    (tmp_path/'bridge-package.json').write_text(json.dumps(manifest))
+    verify_package(tmp_path)
+    (tmp_path/'bridge.pyw').write_text('modified')
+    with pytest.raises(RuntimeError,match='verification failed'):verify_package(tmp_path)
+    (tmp_path/'bridge.pyw').write_bytes(b'public-test-fixture')
+    (tmp_path/'unexpected.py').write_text('unlisted')
+    with pytest.raises(RuntimeError,match='verification failed'):verify_package(tmp_path)
+
+
+def test_startup_task_is_interactive_per_user_and_uses_readable_runtime():
+    import xml.etree.ElementTree as ET
+    from tally_bridge.windows import task_xml
+    root=ET.fromstring(task_xml(Path('C:/Business Apps/Vriddhi Bridge'),'S-1-5-21-test'))
+    ns={'t':'http://schemas.microsoft.com/windows/2004/02/mit/task'}
+    assert root.findtext('.//t:LogonType',namespaces=ns)=='InteractiveToken'
+    assert root.findtext('.//t:RunLevel',namespaces=ns)=='LeastPrivilege'
+    assert root.findtext('.//t:LogonTrigger/t:UserId',namespaces=ns)=='S-1-5-21-test'
+    assert root.findtext('.//t:Exec/t:Command',namespaces=ns).replace('\\','/').endswith('runtime/pythonw.exe')
+    args=root.findtext('.//t:Exec/t:Arguments',namespaces=ns)
+    assert '-I -B' in args and 'bridge.pyw" --supervise' in args
+    assert root.findtext('.//t:ExecutionTimeLimit',namespaces=ns)=='PT0S'
+
+
+def test_startup_number_discovery_is_scoped_to_verified_company():
+    class HTTP:
+        def post(self,xml):
+            assert 'VFBRIDGECOMPANYNUMBER:@@SetCmpNumStr' in xml
+            return '<ENVELOPE><COMPANY NAME="Test Company"><GUID>test-company-guid</GUID><VFBRIDGECOMPANYNUMBER>(10000)</VFBRIDGECOMPANYNUMBER></COMPANY></ENVELOPE>'
+    t=Tally(HTTP(),'Test Company','test-company-guid')
+    assert t.startup_number()=='10000'
+    t.guid='wrong'
+    assert t.startup_number() is None

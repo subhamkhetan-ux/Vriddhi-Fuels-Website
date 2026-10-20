@@ -7,17 +7,32 @@ The bridge connects **one Vriddhi Fuels company** on a Windows PC to the existin
 1. **Database, once:** open the **Tally project's** Supabase SQL editor. Existing installations already have `supabase/tally-schema.sql`; run [supabase/tally-bridge.sql](../supabase/tally-bridge.sql). For a new installation run `tally-schema.sql` first, then `tally-bridge.sql`. Both can be rerun. Do not run these in the Payments, Ledger or Fleet project's database. This repository does not contain a database administrator credential, so publishing the website does **not** apply this migration automatically.
 2. **Tally Prime:** back up the company, open it on the Windows PC, and enable its HTTP/XML server on port **9000** (or another local port). In Tally Prime's advanced connectivity settings, enable the server/HTTP interface; the exact menu label varies by Prime release. The XML interface, not merely an ODBC client connection, must respond. Keep port 9000 private; do not port-forward it or open it to the Internet. The bridge connects to `127.0.0.1` only.
 3. In the web app's **Settings**, confirm the exact company name shown in Tally. The current default is `VRIDDHI FUELS (2026-27)`. If automatic financial-year naming is enabled, pairing resolves the current Indian financial year. Each queued voucher also records its date's company name; a voucher for another year cannot post into the currently paired company. The installer verifies the name and Tally's company GUID. A different financial-year company is intentionally rejected after pairing.
-4. Download `VriddhiTallyBridge.exe` and `SHA256SUMS.txt` from the [Windows release](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.0.1). Python is bundled; no Python installation or administrator account is needed. The executable is not code-signed. Check the published SHA-256 if Windows displays an unknown-publisher prompt:
+4. Download `VriddhiTallyBridge-Windows.zip`, `SHA256SUMS.txt` and `SECURITY.json` from the [Windows release](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.0.2). Use **Extract all** first, then open **Setup.cmd** in the extracted folder. The package contains readable bridge source and an unmodified CPython runtime; no separate Python install or administrator account is needed. CI verifies the Python Software Foundation's Authenticode signatures on the core runtime binaries. The bridge scripts/ZIP are not Authenticode signed. Verify the ZIP with:
 
    ```powershell
-   Get-FileHash .\VriddhiTallyBridge.exe -Algorithm SHA256
+   Get-FileHash .\VriddhiTallyBridge-Windows.zip -Algorithm SHA256
    ```
 
-5. Open the installer. Click **Test Tally** and verify that your company appears. In the web app, open **Tally connection & reports → Connect PC → Create pairing package**. Paste the package into the installer and choose **Install & pair**. The package expires after ten minutes and can be used once. Pairing a replacement PC revokes the old PC's credential.
+5. Click **Test Tally**. Enable **Start Tally minimized and reopen it if employees close it**, confirm the installed `Tally.exe` path and the numeric **company folder number** (for example `10000`). Test tries to discover both; when the number is unavailable, copy it once from Tally's company-selection/data-folder listing. It is not the company name or GUID. The bridge uses Tally's documented `/NOINILOAD /LOAD:<number>` startup arguments, without editing `Tally.ini`. In the web app open **Tally connection & reports → Connect PC → Create pairing package**, paste the package in Setup, then choose **Install & pair**. Packages expire after ten minutes and can be used once. A replacement PC revokes the previous PC's credential. If this same Windows account already paired 1.0.1, use **Upgrade / save settings** instead; it retains the credential and recovery journal.
+
 6. Wait for **Connected to Tally Prime** in the web app. The initial company read must finish before automatic posting starts. New vouchers and supported edits now queue automatically. Existing unlinked invoices remain untouched until you select **Queue for Tally** in Sync activity.
 7. Verify the first test sales invoice and a day-book report against Tally Prime on this PC. Check voucher type/number, date, party, quantity, rate, round-off, GST classification, vehicle UDF and totals. This is the necessary live acceptance check: automated tests use synthetic Tally responses, not your licensed Tally installation.
 
-The installer starts the bridge after this Windows user signs in. Keep Tally Prime open and the user signed in. Locking the screen is fine; shutdown, sleep, sign-out or closing Tally pauses live sync. No Windows service runs before sign-in. Use Windows' own power settings if this PC should remain awake during office hours.
+The bridge runs in the background after this Windows user signs in. Closing Setup does not stop it. The screen can lock. A scheduled task runs with this user's interactive token, least privilege, no network requirement and no execution-time limit; it restarts a failed supervisor and checks for a stopped supervisor every five minutes. Sign-in registry startup provides a fallback if Windows policy prevents task registration; Setup explicitly reports that fallback. The supervisor restarts an unexpectedly exited worker. **Stop** is persistent until **Start** is selected, including across sign-in/task retries.
+
+## Automatic Tally recovery
+
+- **Employees close Tally:** with automatic recovery enabled, the bridge reopens the selected installation minimized with the configured company number. Normal online polling targets five seconds; Tally's loading time, connection timeouts and backoff add delay. Repeated failed starts are throttled from 30 seconds up to 15 minutes, persisted across bridge restarts.
+- **Tally is already running:** it is left alone. A busy/unresponsive XML server, another Tally installation, a company-selection prompt, a password/licence prompt or a repair dialog does not authorize killing it or opening competing instances. Setup/connection status explains the wait. This can still require attention; no automatic click-through, password storage or licence bypass is included.
+- **Company check:** the same exact name and paired company GUID are verified before work. A wrong startup number cannot post into another company's books. After an automatic restart, complete identity reconciliation runs before any cloud job is claimed; existing restore/conflict/write-recovery guards remain in force.
+- **Keep awake:** the optional Setup checkbox makes a Windows system-awake request only while the worker runs. The display may turn off and lock; global Windows power settings are not rewritten. Manual sleep, shutdown and Windows sign-out still pause sync. This is an interactive-user installation, not a service running before Windows sign-in.
+- **Intentional maintenance:** choose **Stop** in Setup before closing Tally for backup/repair or intentionally keeping it closed. Stop never force-terminates Tally. Choose **Start** when ready. An uncertain posting is reconciled rather than blindly retried after a restart.
+
+## Windows Security / Defender
+
+A Defender block was reported against the old 1.0.1 self-extracting executable. The downloaded release file matched GitHub's published asset digest, which establishes artifact identity, not malware clearance. Version 1.0.2 replaces that packaging with a readable ZIP, per-file integrity manifest and unmodified signed CPython core binaries. There is no self-extracting application executable, encoded PowerShell cleanup script, Defender exclusion or change to antivirus settings.
+
+`SECURITY.json` records the core runtime publisher signatures and the CI Defender scan result. `clean` means that runner's custom scan completed successfully with the recorded definitions; `unavailable` means no Defender clearance was obtained there. Neither result guarantees that every endpoint policy or future signature accepts the package. If Defender flags any file, **keep it quarantined**, record the exact threat name/path and submit the public package to [Microsoft's file-submission portal](https://www.microsoft.com/en-us/wdsi/filesubmission) for review. Do not disable Defender or add an exclusion to force installation. SmartScreen's unknown-publisher notice is different from a malware detection.
 
 ## What syncs
 
@@ -40,9 +55,9 @@ In **Tally connection & reports → Reports**, select **Ledger statement**, sear
 
 All conversion is local to the browser using vendored assets; no financial data is sent to a conversion service. Saved cloud reports can be exported while the office PC is offline, provided the browser has Internet access to Supabase and the public export assets. A downloaded file is a dated snapshot, never a live balance.
 
-## Upgrading from 1.0.0
+## Upgrading
 
-Re-run `supabase/tally-bridge.sql` in the dedicated Tally project to apply the additional server-side guards. Download the 1.0.1 installer, create a fresh pairing package, and use **Install & pair** on the same Windows account. The installer stops the old worker before pairing and preserves the recovery journal. Do not delete the journal or reset queued jobs. The previous installer does not contain the new restore checks.
+Extract the current official ZIP, open Setup.cmd on the **same Windows account**, click Test Tally, confirm automatic-start path/company number, and choose **Upgrade / save settings**. The existing worker is allowed to finish safely before replacement; the journal and encrypted credential remain in their original data directory. No re-pairing or new SQL migration is needed when upgrading an already working 1.0.1 bridge. If the credential was revoked, create a new pairing package instead. Do not delete the journal to bypass a restore or uncertain-write stop. An installation older than 1.0.1 still needs `supabase/tally-bridge.sql` rerun in the dedicated Tally project for the earlier server-side safety guards.
 
 Normal cadence is a five-second worker loop for cloud jobs and voucher changes, one minute for masters, and one hour for complete identity/deletion reconciliation. These are polling targets, not instantaneous delivery guarantees: large initial reads, report generation, Internet latency and Tally's response time add delay. Reports refresh on request. The web screen polls status every ten seconds while visible.
 
@@ -67,13 +82,13 @@ Tally's XML interface has no distributed transaction or documented compare-and-s
 - The existing app's signed-in employees retain their shared access rights. Any of those employees can pair, pause or revoke the one bridge. This is **not** a new owner-only role system.
 - Device RPCs expose only this company's queue, snapshots and report results; ordinary anonymous reads/writes are denied. The service-role key is never needed. All cloud traffic uses HTTPS with normal certificate validation.
 - Native report HTML is allowlisted on the worker, allowlisted again in the browser and displayed in a sandboxed iframe with a restrictive CSP. Scripts, remote images, links, forms and arbitrary styles do not survive. The service worker caches only public app-shell files, never authenticated financial/API responses.
-- Installation: `%LOCALAPPDATA%\Programs\VriddhiTallyBridge\1.0.1\VriddhiTallyBridge.exe`. Recovery data: `%LOCALAPPDATA%\VriddhiTallyBridge\journal.sqlite3`; encrypted configuration: `credential.dat`. The journal contains business data, so protect the Windows account and disk like Tally's own data. Back up the whole journal directory, including any SQLite WAL file, while the bridge is stopped.
-- Open the desktop shortcut for Status, Start and Stop. Uninstall through Windows Installed apps. Uninstall stops startup registration and removes program files; it retains the journal and encrypted credential for recovery. Select **Disconnect PC** in the web app to revoke access. Do not publish or email the journal/credential.
+- Installation: `%LOCALAPPDATA%\Programs\VriddhiTallyBridge\1.0.2\`, with `runtime\pythonw.exe` launching the readable `bridge.pyw`. Recovery data: `%LOCALAPPDATA%\VriddhiTallyBridge\journal.sqlite3`; encrypted configuration: `credential.dat`. The journal contains business data, so protect the Windows account and disk like Tally's own data. Back up the whole journal directory, including any SQLite WAL file, while the bridge is stopped.
+- Open the desktop shortcut for Status, Start and Stop. Uninstall through Windows Installed apps. Uninstall stops the bridge and removes task/registry/shortcut registration. After closing Setup you can delete its program folder; no delayed deletion script is run. The journal and encrypted credential are retained for recovery. Select **Disconnect PC** in the web app to revoke access. Do not publish or email the journal/credential.
 - No app-owned subscription fee is added. Tally licensing and Supabase storage/egress limits still apply. Historical full XML and durable job records consume storage; retention/archiving should preserve accounting audit history.
 
 ## Build and verify
 
-The `Tally bridge — tests and Windows installer` GitHub Actions workflow runs PostgreSQL permission/outbox tests, fake-Tally recovery tests, XML parity tests against the existing exporter, and desktop/mobile browser tests. It then builds on Windows, tests Windows DPAPI, the frozen executable, startup registration and the single-process guard, and uploads `Vriddhi-Tally-Bridge-Windows` with the executable, setup guide, commit id and SHA-256.
+The `Tally bridge — tests and Windows installer` workflow runs PostgreSQL permission/outbox tests, synthetic Tally recovery tests, XML parity tests and desktop/mobile browser tests. On Windows it builds a ZIP from a supported CPython release, checks the core runtime's Python Software Foundation Authenticode signatures, and tests the actual packaged runtime, Tk, DPAPI, cross-session mutex, native process discovery, keep-awake request and installed startup task. It attempts a Defender custom scan, records its actual result in `SECURITY.json`, and uploads the ZIP, setup guide, source commit and SHA-256. No claims about your licensed Tally installation or your endpoint's Defender verdict are implied by CI.
 
 ```bash
 python -m pip install -r tally_bridge/requirements.txt pytest playwright PyMuPDF==1.28.2
@@ -83,11 +98,11 @@ python -m pytest tests/test_tally_bridge.py tests/test_tally_bridge_schema.py te
 python -m tally_bridge.cli --self-test
 ```
 
-Windows package command:
+Build on Windows with the regular supported CPython installation (including Tcl/Tk):
 
 ```powershell
-python -m pip install pyinstaller==6.16.0
-python -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --name VriddhiTallyBridge tally_bridge/entry.py
+python -m pip install -r tally_bridge/requirements.txt
+.\tally_bridge\build_windows.ps1
 ```
 
 See [DESIGN.md](DESIGN.md) for the sync contract and [RESEARCH.md](RESEARCH.md) for BizAnalyst feature research and source limitations.

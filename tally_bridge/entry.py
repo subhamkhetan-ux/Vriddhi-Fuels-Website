@@ -1,24 +1,32 @@
-"""PyInstaller entry point (absolute import also works in a frozen bundle)."""
-from tally_bridge.cli import main
+"""Readable entry point used by the signed, bundled Python runtime."""
+import sys
+from .cli import main
 
-if __name__ == "__main__":
+
+def run():
     try:
         main()
-    except Exception:
-        # A windowed background worker must not open a blocking traceback dialog.
-        # Do not persist exception text: request/driver exceptions may contain business data.
-        import sys
+    except Exception as e:
+        from .windows import AlreadyRunning
+        if isinstance(e, AlreadyRunning):
+            return  # Registry/task recovery racing an existing supervisor is harmless.
+        if "--self-test" in sys.argv:
+            raise  # Offline CI diagnostics contain no live credentials or financial requests.
         try:
-            from tally_bridge.windows import data_dir
-            from tally_bridge.store import Store
+            from .windows import data_dir
+            from .store import Store
             import time
             db = Store(data_dir() / "journal.sqlite3")
-            db.set("status", {"health":"needs_attention", "at":time.time(),
-                              "detail":"Bridge could not start. Open the installer, check its configuration and pair again if necessary. The journal is retained."})
+            db.set("status", {"health": "needs_attention", "at": time.time(),
+                              "detail": "Bridge could not start. Check setup, package verification and Windows Security. The journal is retained."})
             db.close()
         except Exception:
             pass
-        if not any(arg in sys.argv for arg in ("--worker","--supervise","--self-test")):
+        if not any(arg in sys.argv for arg in ("--worker", "--supervise", "--self-test")):
             from tkinter import messagebox
-            messagebox.showerror("Vriddhi Tally Bridge", "Could not start the bridge. Check the Windows account and installer version; existing recovery data is retained.")
+            messagebox.showerror("Vriddhi Tally Bridge", "Could not start the bridge. Use a fresh official ZIP, check Windows Security and the Windows account. Do not disable Defender. Existing recovery data is retained.")
         raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    run()

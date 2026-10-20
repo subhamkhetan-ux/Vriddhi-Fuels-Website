@@ -45,3 +45,11 @@ Version 1.0.1 validates complete identity snapshots on restart and during outgoi
 - Ordinary job/audit history is retained. Large companies may need explicit archival/storage policy and larger bounded export pagination.
 - Journal/config backups and Tally company backups remain essential. Reinstalling must preserve the journal. A new company GUID requires a deliberate financial-year migration.
 - Test fixtures validate protocol shape, invariants and recovery. Real Tally Prime acceptance and company-specific report compatibility require the Windows PC.
+
+## Background recovery and package trust
+
+The signed-in Windows account owns a least-privilege interactive scheduled task, sign-in fallback and cross-session per-user mutexes. The task can recover a stopped supervisor; the supervisor can restart a failed worker. An explicit Stop marker persists and is honoured by both. The same user's DPAPI protection and journal binding remain unchanged; no Windows or Tally password is stored. The optional system-awake request ends with the worker and does not prevent display locking or rewrite global power settings.
+
+Before claiming jobs, the worker verifies Tally. If HTTP is unavailable and no Tally process exists in the current interactive session, it may start the configured local installation minimized using the numeric company argument. A running process is never killed or duplicated. Startup attempts have persistent bounded backoff. The exact name/GUID check and a full identity reconciliation gate resumed work, including all existing restore and uncertain-write safeguards. A prompt, hung process, missing installation or wrong company remains visible for review rather than being clicked through automatically.
+
+Distribution uses an unmodified CPython runtime and readable source in a ZIP, with per-file integrity checks before installation. Core CPython publisher signatures and the actual CI Defender scan status are published separately. Scripts/ZIP are not Authenticode signed, and checksum/signature checks are not a malware-clearance claim. Installation registers visible startup entries; uninstall unregisters them without encoded/delayed cleanup scripts. No antivirus settings or exclusions are changed. Old 1.0.1 local mutexes are checked during graceful upgrades before any replacement worker starts.
