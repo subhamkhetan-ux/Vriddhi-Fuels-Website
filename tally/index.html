@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Tally Vouchers">
-<meta name="theme-color" content="#F4511E">
+<meta name="theme-color" content="#1c1714">
 <title>Tally Vouchers — Vriddhi Fuels</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="../Vriddhi%20Fuels%20Logo.png">
@@ -86,7 +86,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 @media print{
   html,body{background:#fff!important;margin:0!important;padding:0!important;min-height:0}
   /* the toast is position:fixed — left in, it costs a blank third sheet */
-  header.top,.toast{display:none!important}
+  header.top,.toast,.skip-link{display:none!important}
   .wrap{max-width:none;margin:0;padding:0}
   /* inside the bill screen only the sheets print — form, buttons, hints out */
   #scrBill > *:not(.bl-stage){display:none!important}
@@ -110,16 +110,17 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#mainContent">Skip to content</a>
 
 <header class="top">
   <button class="hbtn" id="btnBack" style="display:none" aria-label="Back"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
   <img class="brandmark" src="../Vriddhi%20Fuels%20Logo.png" alt="">
-  <div class="header-brand"><small>VRIDDHI FUELS</small><h1 id="hdrTitle">Tally Vouchers</h1></div>
+  <div class="header-brand"><small>VRIDDHI FUELS</small><h1 id="hdrTitle" tabindex="-1">Tally Vouchers</h1></div>
   <button class="hbtn" id="btnTheme" aria-label="Change theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v16a8 8 0 0 0 0-16Z" fill="currentColor" stroke="none"/></svg><span id="themeLabel">Dark</span></button>
   <button class="hbtn" id="btnSettings" aria-label="Settings"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-1 3-3 1-2 5 2 5 3 1 1 3h6l1-3 3-1 2-5-2-5-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></svg></button>
 </header>
 
-<div class="wrap">
+<main class="wrap" id="mainContent" tabindex="-1">
 
 <section class="screen" id="scrBridge" aria-label="Tally Prime connection"></section>
 
@@ -127,16 +128,16 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 <section class="screen" id="scrHome">
   <div class="page-intro">
     <span class="eyebrow">SALES &amp; BILLING</span>
-    <h2>Every sale. <span>Ready for Tally.</span></h2>
-    <p>Create a voucher, prepare a bill, and keep the day’s accounts together.</p>
+    <h2>Your daily books, <span>in order.</span></h2>
+    <p>Create sales vouchers, prepare customer bills, and review your accounts.</p>
   </div>
-  <button class="bridge-launch" id="btnBridge" hidden><span><strong>Tally connection &amp; reports</strong><small id="bridgeHomeStatus">Checking connection…</small></span><span class="bridge-dot" id="bridgeHomeDot" aria-hidden="true"></span></button>
+  <button class="bridge-launch" id="btnBridge" hidden><span><strong>Tally connection &amp; reports</strong><small id="bridgeHomeStatus">Checking connection…</small></span><span class="bridge-launch-end"><span class="bridge-dot" id="bridgeHomeDot" aria-hidden="true"></span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></button>
   <div class="series-grid">
   <button class="series-card hsd" id="cardHSD">
     <div class="product-heading"><span class="product-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M2 21h14M5 7h8M14 10h2a2 2 0 0 1 2 2v4a2 2 0 0 0 4 0V8l-4-4"/></svg></span><div><div class="sname">Diesel</div><span class="product-series">HSD CREDIT</span></div></div>
     <div class="smeta">
-      <div>Next invoice no.<b id="hsdNext">—</b></div>
-      <div>Today's price ₹/LTR<b id="hsdRate">—</b></div>
+      <div>Next invoice<b id="hsdNext">—</b></div>
+      <div>Price ₹ / litre<b id="hsdRate">—</b></div>
     </div>
     <div class="cta"><span>+ New diesel voucher</span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></div>
   </button>
@@ -144,8 +145,8 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <button class="series-card ms" id="cardMS">
     <div class="product-heading"><span class="product-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M2 21h14M5 7h8M14 10h2a2 2 0 0 1 2 2v4a2 2 0 0 0 4 0V8l-4-4"/></svg></span><div><div class="sname">Petrol</div><span class="product-series">MS CREDIT</span></div></div>
     <div class="smeta">
-      <div>Next invoice no.<b id="msNext">—</b></div>
-      <div>Today's price ₹/LTR<b id="msRate">—</b></div>
+      <div>Next invoice<b id="msNext">—</b></div>
+      <div>Price ₹ / litre<b id="msRate">—</b></div>
     </div>
     <div class="cta"><span>+ New petrol voucher</span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></div>
   </button>
@@ -153,8 +154,8 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <button class="series-card xg" id="cardXG">
     <div class="product-heading"><span class="product-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M2 21h14M5 7h8M14 10h2a2 2 0 0 1 2 2v4a2 2 0 0 0 4 0V8l-4-4"/></svg></span><div><div class="sname">XtraGreen</div><span class="product-series">XG CREDIT</span></div></div>
     <div class="smeta">
-      <div>Next invoice no.<b id="xgNext">—</b></div>
-      <div>Today's price ₹/LTR<b id="xgRate">—</b></div>
+      <div>Next invoice<b id="xgNext">—</b></div>
+      <div>Price ₹ / litre<b id="xgRate">—</b></div>
     </div>
     <div class="cta"><span>+ New XtraGreen voucher</span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></div>
   </button>
@@ -171,20 +172,20 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="totalbar" id="dayTotal" style="display:none">
     <span id="dayCount"></span><b id="daySum"></b>
   </div>
-  <button class="btn primary" id="btnExport" disabled>⬇ Download XML for Tally</button>
-  <div class="hint" style="text-align:center">The file contains <b>every voucher of the selected day</b> — you can download it again anytime.<br>Import in Tally Prime: Gateway of Tally → Import Data → Vouchers<br><span id="exportCompany"></span></div>
-  <button class="btn ghost" id="btnDaySlips" disabled>🎫 Fuel slips — every voucher of this day</button>
+  <button class="btn primary" id="btnExport" disabled>Download XML for Tally</button>
+  <details class="help-details"><summary>About the XML download</summary><div class="hint">Includes every voucher for the selected day. Import in Tally Prime: Gateway of Tally → Import Data → Vouchers.<br><span id="exportCompany"></span></div></details>
+  <button class="btn ghost" id="btnDaySlips" disabled>Download the day’s fuel slips</button>
   <button class="btn ghost" id="btnMoveDay" style="display:none">✓ Day imported in Tally — move to old vouchers</button>
 
   </section>
   <section class="home-panel" aria-labelledby="recordsHeading">
   <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 3h8v13H4Z"/><path d="M8 12h8m-8 4h5"/></svg><h2 class="sec-title" id="recordsHeading">Records &amp; imports</h2></div>
   <p class="section-note">Your past vouchers and Tally exports, in one place.</p>
-  <button class="btn ghost" id="btnHistory">🕘 Old vouchers (<span id="histCount">0</span>)</button>
-  <button class="btn ghost" id="btnSlips">🎫 Fuel slips — any dates / customer</button>
-  <button class="btn ghost" id="btnImportDaybook">⬆ Import Tally XML (DayBook / Master)</button>
+  <button class="btn ghost record-action" id="btnHistory"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-7L3 8m0-5v5h5M12 7v5l3 2"/></svg><span>Old vouchers <span id="histCount">0</span><small>Browse and review past entries</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  <button class="btn ghost record-action" id="btnSlips"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h3"/></svg><span>Fuel slips<small>Choose dates and customer</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  <button class="btn ghost record-action" id="btnImportDaybook"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/></svg><span>Import from Tally<small>Day book or customer ledgers</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <input type="file" id="fileDaybook" accept=".xml,text/xml,application/xml" style="display:none">
-  <div class="hint" style="text-align:center">Upload a DayBook export to load old vouchers and sync invoice numbers &amp; prices, or a Master (ledgers) export to load the customer list (Sundry Debtors).</div>
+  <details class="help-details"><summary>Which Tally files can I import?</summary><div class="hint">A DayBook XML loads old vouchers and syncs invoice numbers and prices. A Master XML loads customer ledgers from Sundry Debtors.</div></details>
   </section>
   </div>
 </section>
@@ -194,17 +195,17 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="warnbox" id="fHistWarn" style="display:none"></div>
   <div class="card">
     <div class="field" style="margin-top:0">
-      <label>Customer</label>
+      <label for="fPartySearch">Customer</label>
       <div id="fPartySel" style="display:none;margin-bottom:8px">
         <span class="chip" id="fPartyChip"></span>
         <button style="color:var(--txt-3);font-size:13px;padding:4px 8px;font-weight:700" id="btnChangeParty">change</button>
       </div>
-      <input type="search" id="fPartySearch" placeholder="Search customer…" autocomplete="off">
+      <input type="search" id="fPartySearch" enterkeyhint="search" placeholder="Search customer…" autocomplete="off">
       <div class="plist" id="fPartyList"></div>
     </div>
     <div class="field">
-      <label>Vehicle number (optional)</label>
-      <input type="text" id="fVehicle" placeholder="e.g. OD23A1234" autocomplete="off" autocapitalize="characters">
+      <label for="fVehicle">Vehicle number (optional)</label>
+      <input type="text" id="fVehicle" spellcheck="false" placeholder="e.g. OD23A1234" autocomplete="off" autocapitalize="characters">
     </div>
   </div>
 
@@ -224,25 +225,25 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
         <div class="rofield"><span id="roNumber">—</span><small>auto</small></div>
       </div>
       <div class="field">
-        <label>Date</label>
+        <label for="fDate">Date</label>
         <input type="date" id="fDate">
       </div>
     </div>
     <div class="field bignum">
-      <label>Quantity (Litres)</label>
+      <label for="fQty">Quantity (Litres)</label>
       <input type="number" id="fQty" inputmode="decimal" step="any" min="0" placeholder="0.000">
     </div>
     <div class="field">
-      <label>Price (₹ per LTR)</label>
+      <label for="fPrice">Price (₹ per LTR)</label>
       <input type="number" id="fPrice" inputmode="decimal" step="0.01" min="0">
       <div class="hint" id="priceHint"></div>
     </div>
     <div class="field bignum">
-      <label>Amount (₹)</label>
+      <label for="fAmt">Amount (₹)</label>
       <input type="number" id="fAmt" inputmode="decimal" step="any" min="0" placeholder="0.00">
     </div>
     <div class="field">
-      <label>Round off (₹) — optional, + or −, goes to R/off</label>
+      <label for="fRoff">Round off (₹) — optional, + or −, goes to R/off</label>
       <input type="number" id="fRoff" inputmode="decimal" step="0.01" placeholder="e.g. 0.22 or -0.11">
     </div>
     <div class="summary" id="fSummary">
@@ -287,45 +288,45 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
     <h2 class="cardtitle">Bill details</h2>
     <div class="hint" id="blStatus" style="margin-top:2px">Loading customer data…</div>
     <div class="field">
-      <label>Customer (from the Tanker Billing sheet)</label>
+      <label for="blCustomer">Customer (from the Tanker Billing sheet)</label>
       <select id="blCustomer"></select>
     </div>
     <div class="field">
-      <label>Product</label>
+      <label for="blProduct">Product</label>
       <select id="blProduct"></select>
     </div>
     <div class="frow">
       <div class="field">
-        <label>Date</label>
+        <label for="blDate">Date</label>
         <input type="date" id="blDate">
       </div>
       <div class="field">
-        <label>Bill no.</label>
+        <label for="blNo">Bill no.</label>
         <input type="text" id="blNo" placeholder="—" autocomplete="off" autocapitalize="characters">
         <div class="hint" id="blNoHint"></div>
       </div>
     </div>
     <div class="field">
-      <label>Vehicle</label>
+      <label for="blVehicle">Vehicle</label>
       <input type="text" id="blVehicle" placeholder="e.g. OR15R9360" autocomplete="off" autocapitalize="characters">
     </div>
     <div class="field">
-      <label>P.O. No. — auto from the customer, editable</label>
+      <label for="blPo">P.O. No. — auto from the customer, editable</label>
       <input type="text" id="blPo" placeholder="—" autocomplete="off">
     </div>
     <div class="frow">
       <div class="field">
-        <label>Quantity (Ltr)</label>
+        <label for="blQty">Quantity (Ltr)</label>
         <input type="number" id="blQty" inputmode="decimal" step="any" min="0" placeholder="0">
       </div>
       <div class="field">
-        <label>Price / Ltr</label>
+        <label for="blPrice">Price / Ltr</label>
         <input type="number" id="blPrice" inputmode="decimal" step="0.01" min="0">
       </div>
     </div>
     <div class="hint" id="blRateHint"></div>
     <div class="field">
-      <label>Amount (₹) — printed on the bill</label>
+      <label for="blAmount">Amount (₹) — printed on the bill</label>
       <input type="number" id="blAmount" inputmode="decimal" step="1" min="0" placeholder="0">
       <div class="hint" id="blAmtHint"></div>
     </div>
@@ -496,7 +497,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="card">
     <h2 class="cardtitle">Company</h2>
     <div class="field">
-      <label>Tally company name (must match exactly)</label>
+      <label for="setCompany">Tally company name (must match exactly)</label>
       <input type="text" id="setCompany">
     </div>
     <div class="chkrow">
@@ -509,11 +510,11 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="card">
     <h2 class="cardtitle">Diesel series (HSD CREDIT)</h2>
     <div class="field">
-      <label>Last invoice number used</label>
+      <label for="setHsdLast">Last invoice number used</label>
       <input type="text" id="setHsdLast">
     </div>
     <div class="field">
-      <label>Today's price (₹/LTR)</label>
+      <label for="setHsdRate">Today's price (₹/LTR)</label>
       <input type="number" id="setHsdRate" inputmode="decimal" step="0.01">
       <div class="hint">This stays the price on the following days too, until you change it. Saving vouchers never changes it — even if a voucher's rate is edited.</div>
     </div>
@@ -522,11 +523,11 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="card">
     <h2 class="cardtitle">Petrol series (MS CREDIT)</h2>
     <div class="field">
-      <label>Last invoice number used</label>
+      <label for="setMsLast">Last invoice number used</label>
       <input type="text" id="setMsLast">
     </div>
     <div class="field">
-      <label>Today's price (₹/LTR)</label>
+      <label for="setMsRate">Today's price (₹/LTR)</label>
       <input type="number" id="setMsRate" inputmode="decimal" step="0.01">
     </div>
   </div>
@@ -534,11 +535,11 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="card">
     <h2 class="cardtitle">XtraGreen series (XG CREDIT)</h2>
     <div class="field">
-      <label>Last invoice number used</label>
+      <label for="setXgLast">Last invoice number used</label>
       <input type="text" id="setXgLast">
     </div>
     <div class="field">
-      <label>Today's price (₹/LTR)</label>
+      <label for="setXgRate">Today's price (₹/LTR)</label>
       <input type="number" id="setXgRate" inputmode="decimal" step="0.01">
     </div>
   </div>
@@ -548,7 +549,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
     <div class="hint" style="margin-top:0">Names must match the Tally ledger exactly (case, spacing, “&amp;”).</div>
     <div id="setPartyList"></div>
     <div class="field">
-      <label>Add party</label>
+      <label for="setPartyNew">Add party</label>
       <input type="text" id="setPartyNew" placeholder="Exact Tally ledger name">
     </div>
     <button class="btn ghost" id="btnAddParty">+ Add party</button>
@@ -621,7 +622,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   </div>
 </section>
 
-</div>
+</main>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -1590,11 +1591,11 @@ function renderHome(){
     $("dayCount").textContent = n + " voucher" + (n > 1 ? "s" : "") + " · " + dayLabel;
     $("daySum").textContent = inr(total);
     $("btnExport").disabled = false;
-    $("btnExport").textContent = "⬇ Download XML — " + dayLabel + " (" + n + ")";
+    $("btnExport").textContent = "Download XML — " + dayLabel + " (" + n + ")";
   } else {
     $("dayTotal").style.display = "none";
     $("btnExport").disabled = true;
-    $("btnExport").textContent = "⬇ Download XML — " + dayLabel;
+    $("btnExport").textContent = "Download XML — " + dayLabel;
   }
   $("btnMoveDay").style.display = live.length && !bridgeActive() ? "" : "none";
   if (bridgeActive()){ $("btnExport").disabled = true; $("btnExport").textContent = "Vouchers sync through the Tally bridge"; }
@@ -1602,7 +1603,7 @@ function renderHome(){
   // slips cover every voucher of the day, DayBook-imported ones included
   var nSlips = slipSales().filter(function(x){ return x.sale_date === day; }).length;
   $("btnDaySlips").disabled = !nSlips;
-  $("btnDaySlips").textContent = "🎫 Fuel slips — every voucher of " + dayLabel + (nSlips ? " (" + nSlips + ")" : "");
+  $("btnDaySlips").textContent = "Fuel slips — " + dayLabel + (nSlips ? " (" + nSlips + ")" : "");
 }
 $("dayPick").addEventListener("change", renderHome);
 
@@ -1770,10 +1771,10 @@ $("fileDaybook").addEventListener("change", function(){
   this.value = "";
   if (!f) return;
   var btn = $("btnImportDaybook");
-  var idle = "⬆ Import Tally XML (DayBook / Master)";
-  btn.textContent = "⏳ Reading " + f.name + "…";
+  var idle = Array.from(btn.childNodes);
+  btn.textContent = "Reading " + f.name + "…";
   btn.disabled = true;
-  function done(){ btn.textContent = idle; btn.disabled = false; }
+  function done(){ btn.replaceChildren.apply(btn, idle); btn.disabled = false; }
   var reader = new FileReader();
   reader.onload = function(){
     // let the "Reading…" label paint before the heavy parse

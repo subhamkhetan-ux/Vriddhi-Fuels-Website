@@ -176,3 +176,54 @@ def test_signout_during_export_cannot_download_previous_users_report(browser,ser
     page.wait_for_timeout(100)
     assert not downloads and page.locator('#scrBridge').inner_html()==''
     page.close()
+
+
+def test_report_tabs_keyboard_navigation_and_theme(browser,server):
+    page=browser.new_page(viewport={'width':320,'height':800},reduced_motion='reduce')
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.goto(server+'/tally/');page.locator('#btnBridge').click()
+    reports=page.get_by_role('tab',name='Reports',exact=True)
+    reports.focus();reports.press('ArrowLeft')
+    setup=page.get_by_role('tab',name='Connect PC',exact=True)
+    assert setup.evaluate('(el)=>el===document.activeElement')
+    assert page.get_by_role('tabpanel',name='Connect PC').is_visible()
+    assert page.locator('[role=tab][tabindex="0"]').count()==1
+    setup.press('Home')
+    assert page.get_by_role('tabpanel',name='Reports',exact=True).is_visible()
+    reports.press('ArrowRight')
+    assert page.get_by_role('tabpanel',name='Tally data',exact=True).is_visible()
+    assert page.get_by_label('Search',exact=True).is_visible()
+    page.locator('#btnTheme').click()
+    assert page.evaluate('document.documentElement.dataset.theme')=='light'
+    assert page.locator('meta[name="theme-color"]').get_attribute('content')=='#fffaf6'
+    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+    page.reload();page.locator('#btnBridge').wait_for()
+    assert page.evaluate('document.documentElement.dataset.theme')=='light'
+    page.locator('#cardHSD').click()
+    assert page.get_by_label('Quantity (Litres)',exact=True).is_visible()
+    assert page.get_by_label('Vehicle number (optional)',exact=True).is_visible()
+    page.close()
+
+
+def test_report_request_shows_progress_and_recovers_after_error(browser,server):
+    page=browser.new_page()
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK)
+    page.add_init_script("""const originalFactory=window.__VF_TEST_SUPABASE_FACTORY;
+      window.__VF_TEST_SUPABASE_FACTORY=()=>{
+        const client=originalFactory(),rpc=client.rpc;
+        client.rpc=(name,args)=>name==='tally_bridge_report'
+          ? new Promise(resolve=>window.finishRequest=()=>resolve({error:{message:'Please reconnect and try again.'}}))
+          : rpc(name,args);
+        return client;
+      };""")
+    page.goto(server+'/tally/');page.locator('#btnBridge').click();page.locator('#bridgeFetch').click()
+    assert page.get_by_role('button',name='Requesting…',exact=True).is_disabled()
+    assert page.locator('#bridgeCached').is_disabled()
+    assert page.get_by_role('tabpanel').get_attribute('aria-busy')=='true'
+    page.evaluate('window.finishRequest()')
+    page.locator('#bridgeMessage').filter(has_text='Please reconnect').wait_for()
+    assert page.get_by_role('button',name='Fetch from Tally',exact=True).is_enabled()
+    assert page.locator('#bridgeCached').is_enabled()
+    assert page.get_by_role('tabpanel').get_attribute('aria-busy') is None
+    page.close()

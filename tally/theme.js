@@ -7,7 +7,9 @@
   var system = window.matchMedia('(prefers-color-scheme: light)');
   try { var saved = localStorage.getItem(key); if (modes.indexOf(saved) !== -1) mode = saved; } catch (_) {}
   function apply() {
-    document.documentElement.dataset.theme = mode === 'auto' ? (system.matches ? 'light' : 'dark') : mode;
+    var resolved = mode === 'auto' ? (system.matches ? 'light' : 'dark') : mode;
+    document.documentElement.dataset.theme = resolved;
+    document.querySelector('meta[name="theme-color"]').content = resolved === 'light' ? '#fffaf6' : '#1c1714';
     var button = document.getElementById('btnTheme');
     if (!button) return;
     var label = mode.charAt(0).toUpperCase() + mode.slice(1);
