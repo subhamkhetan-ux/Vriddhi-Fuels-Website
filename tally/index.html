@@ -234,7 +234,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
     <div class="field">
       <label for="fPrice">Price (₹ per LTR)</label>
       <input type="number" id="fPrice" inputmode="decimal" step="0.01" min="0">
-      <div class="hint" id="priceHint"></div>
+      <div class="hint" id="priceHint" aria-live="polite"></div>
     </div>
     <div class="field bignum">
       <label for="fAmt">Amount (₹)</label>
@@ -1375,6 +1375,7 @@ var CloudBackend = {
         if (row.status === "history"){
           s.history.push({ id: row.id, seriesKey: row.series, number: row.number,
             dateISO: row.date, bridgeState: row.bridge_state,
+            createdAt: row.created_at ? Date.parse(row.created_at) : 0,
             party: row.party, vehicle: row.vehicle || "", qty: parseFloat(row.qty),
             rate: parseFloat(row.rate), amount: parseFloat(row.item_amt),
             partyAmt: parseFloat(row.party_amt), roff: parseFloat(row.roff),
@@ -2013,10 +2014,38 @@ function setProduct(seriesKey, fresh){
   $("prodMs").classList.toggle("on", seriesKey === "ms");
   $("prodXg").classList.toggle("on", seriesKey === "xg");
   $("roNumber").textContent = displayNumber(seriesKey);
-  $("fPrice").value = fmtAmt(state.series[seriesKey].rate);
+  if (draft.editId || draft.editHist){
+    $("fPrice").value = fmtAmt(state.series[seriesKey].rate);
+  } else {
+    suggestCustomerPrice();
+  }
   updatePriceHint();
   if (!fresh) syncQtyAmt();
   renderSummary();
+}
+
+// Saved vouchers are the shared price history; no device-only customer price cache.
+// Match exact ledger names and fuel series. A backdated invoice never borrows a future rate.
+function lastCustomerInvoice(party, seriesKey, throughDate){
+  if (!party || !throughDate) return null;
+  var latest = null;
+  state.queue.concat(state.history).forEach(function(v){
+    if (v.party !== party || v.seriesKey !== seriesKey || bridgeBlocked(v)
+        || !/^\d{4}-\d{2}-\d{2}$/.test(v.dateISO || "") || v.dateISO > throughDate
+        || !Number.isFinite(Number(v.rate)) || !(Number(v.rate) > 0)) return;
+    if (!latest || v.dateISO > latest.dateISO
+        || (v.dateISO === latest.dateISO && numPart(v.number) > numPart(latest.number))
+        || (v.dateISO === latest.dateISO && numPart(v.number) === numPart(latest.number)
+            && (v.createdAt || 0) > (latest.createdAt || 0))) latest = v;
+  });
+  return latest;
+}
+
+function suggestCustomerPrice(){
+  if (draft.editId || draft.editHist) return;
+  draft.priceManual = false;
+  draft.priceSource = lastCustomerInvoice(draft.party, draft.seriesKey, $("fDate").value);
+  $("fPrice").value = fmtAmt(draft.priceSource ? Number(draft.priceSource.rate) : state.series[draft.seriesKey].rate);
 }
 
 function updatePriceHint(){
@@ -2035,8 +2064,17 @@ function updatePriceHint(){
     h.textContent = "This voucher's saved rate — edit if needed.";
   } else if (draft.editId){
     h.textContent = "This voucher's saved rate — edit if needed.";
+  } else if (draft.priceManual){
+    h.textContent = "Your price for this voucher. Save it to use this price for the customer's next invoice.";
+  } else if (draft.priceSource){
+    var source = draft.priceSource;
+    h.textContent = "Last " + TALLY.series[draft.seriesKey].label.toLowerCase() + " price for this customer: ₹"
+      + fmtAmt(Number(source.rate)) + " / litre · invoice #" + source.number + " · "
+      + source.dateISO.split("-").reverse().join("/") + ". You can change it.";
   } else {
-    h.textContent = "Today's price (from Settings; carries forward until changed). Editable per voucher — changing it here does not change the day's price.";
+    h.textContent = draft.party
+      ? "No earlier " + TALLY.series[draft.seriesKey].label.toLowerCase() + " invoice for this customer. Using the default price from Settings. You can change it."
+      : "Select a customer to use their last billed price. Until then, the default price from Settings is shown.";
   }
 }
 $("prodHsd").onclick = function(){ setProduct("hsd"); };
@@ -2045,6 +2083,12 @@ $("prodXg").onclick  = function(){ setProduct("xg"); };
 
 function setParty(name){
   draft.party = name;
+  if (!draft.editId && !draft.editHist){
+    suggestCustomerPrice();
+    syncQtyAmt();
+    renderSummary();
+  }
+  updatePriceHint();
   if (name){
     $("fPartyChip").textContent = name;
     $("fPartySel").style.display = "";
@@ -2111,7 +2155,16 @@ function syncQtyAmt(){
 }
 $("fQty").addEventListener("input", function(){ draft.lastEdited = "qty"; syncQtyAmt(); renderSummary(); });
 $("fAmt").addEventListener("input", function(){ draft.lastEdited = "amount"; syncQtyAmt(); renderSummary(); });
-$("fPrice").addEventListener("input", function(){ syncQtyAmt(); renderSummary(); });
+$("fPrice").addEventListener("input", function(){
+  draft.priceManual = true;
+  updatePriceHint(); syncQtyAmt(); renderSummary();
+});
+$("fDate").addEventListener("change", function(){
+  if (!draft.editId && !draft.editHist && !draft.priceManual){
+    suggestCustomerPrice(); syncQtyAmt(); renderSummary();
+  }
+  updatePriceHint();
+});
 $("fRoff").addEventListener("input", renderSummary);
 
 function currentCalc(){
