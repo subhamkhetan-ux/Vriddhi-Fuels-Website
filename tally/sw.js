@@ -1,6 +1,6 @@
 /* Only public shell files are cached; never cache financial/auth API responses. */
-const CACHE = "vf-tally-v17";
-const SHELL = ["./", "./index.html", "./config.js", "./billing.js", "./slips.js", "./theme.css", "./theme.js", "./bridge.css", "./bridge.js", "./manifest.webmanifest"];
+const CACHE = "vf-tally-v18";
+const SHELL = ["./", "./index.html", "./config.js", "./billing.js", "./slips.js", "./theme.css", "./theme.js", "./bridge.css", "./bridge.js", "./report-export.js", "./manifest.webmanifest"];
 const shellURLs = new Set(SHELL.map(path => new URL(path, self.registration.scope).href));
 
 self.addEventListener("install", (e) => {

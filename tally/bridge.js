@@ -1,13 +1,13 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.0.0';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.0.1';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
   const LABELS = {queued:'Queued for Tally',confirming:'Confirming in Tally',synced:'Confirmed in Tally',conflict:'Needs review',
     needs_edit:'Not posted — correct details or retry',deleted:'Cancelled / deleted in Tally',unsupported:'Changed in Tally — view current report',awaiting_tally:'Fetching Tally version',unlinked:'Not linked'};
-  let client, cfg, user, timer, pairingExpiry, epoch = 0, tab = 'reports', report = null, busy = false, reportArgs = null, status = null, offset = 0;
+  let client, cfg, user, timer, pairingExpiry, ledgerTimer, epoch = 0, tab = 'reports', report = null, busy = false, exportBusy = false, reportArgs = null, status = null, offset = 0;
   const $ = id => document.getElementById(id);
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const date = value => value ? new Date(value).toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'}) : 'Not yet';
@@ -18,7 +18,7 @@
     if (!client || !user) throw new Error('Sign in to use the Tally connection.');
     const result = await client.rpc(name, args);
     if (generation !== epoch) throw new Error('Session changed.');
-    if (result.error) throw new Error(result.error.message || 'Could not connect.');
+    if (result.error) throw Object.assign(new Error(result.error.message || 'Could not connect.'),{code:result.error.code});
     return result.data;
   }
   function online() { return status && status.device && Date.now() - Date.parse(status.device.last_seen) < 95000; }
@@ -78,14 +78,20 @@
       content.innerHTML = `<div class="bridge-panel"><h3>Reports, straight from Tally</h3><p>Choose a report and period. Previously fetched reports remain available while the Windows PC is offline.</p>
         <div class="bridge-form"><div class="wide"><label for="bridgeReport">Report</label><select id="bridgeReport">${Object.entries(REPORTS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
         <div><label for="bridgeFrom">From</label><input type="date" id="bridgeFrom"></div><div><label for="bridgeTo">To</label><input type="date" id="bridgeTo"></div>
-        <div class="wide" id="bridgeLedgerField" hidden><label for="bridgeLedger">Exact Tally ledger name</label><input id="bridgeLedger" placeholder="Choose a name from Tally data" maxlength="250"></div></div>
-        <div class="bridge-actions"><button class="btn primary" id="bridgeFetch">Fetch from Tally</button><button class="btn ghost" id="bridgeCached">Open saved report</button><button class="btn ghost" id="bridgeDownload" disabled>Download report</button></div>
+        <div class="wide" id="bridgeLedgerField" hidden><label for="bridgeLedger">Ledger</label><input id="bridgeLedger" list="bridgeLedgerNames" placeholder="Search your synced Tally ledgers" maxlength="250" autocomplete="off"><datalist id="bridgeLedgerNames"></datalist></div></div>
+        <div class="bridge-actions"><button class="btn primary" id="bridgeFetch">Fetch from Tally</button><button class="btn ghost" id="bridgeCached">Open saved report</button></div>
+        <div class="bridge-actions"><button class="btn ghost" id="bridgePdf" disabled>Download PDF</button><button class="btn ghost" id="bridgeExcel" disabled>Download Excel</button><button class="btn ghost" id="bridgePrint" disabled>Print / Save PDF</button><button class="btn ghost" id="bridgeDownload" disabled>Save HTML</button></div>
         <p id="bridgeReportTime" class="vsub">No report selected.</p><div id="bridgeReportOutput" class="bridge-empty">Your Tally reports will appear here.<br>Start with the day book or an outstanding balance.</div></div>`;
       $('bridgeFrom').value = today.slice(0, 8) + '01'; $('bridgeTo').value = today;
-      $('bridgeReport').onchange = () => { $('bridgeLedgerField').hidden = $('bridgeReport').value !== 'ledger'; };
+      $('bridgeReport').onchange = () => { $('bridgeLedgerField').hidden = $('bridgeReport').value !== 'ledger'; syncExportButtons(); if($('bridgeReport').value==='ledger')suggestLedgers(); };
+      ['bridgeFrom','bridgeTo','bridgeLedger'].forEach(id=>$(id).addEventListener('input',syncExportButtons));
+      $('bridgeLedger').addEventListener('input',()=> {clearTimeout(ledgerTimer);ledgerTimer=setTimeout(suggestLedgers,250);});
       $('bridgeFetch').onclick = () => fetchReport(true).catch(error);
       $('bridgeCached').onclick = () => fetchReport(false).catch(error);
       $('bridgeDownload').onclick = downloadReport;
+      $('bridgePdf').onclick = () => exportReport('pdf').catch(error);
+      $('bridgeExcel').onclick = () => exportReport('xlsx').catch(error);
+      $('bridgePrint').onclick = printReport;
       if (reportArgs) {
         $('bridgeReport').value = reportArgs.p_report; $('bridgeFrom').value = reportArgs.p_from; $('bridgeTo').value = reportArgs.p_to;
         $('bridgeLedger').value = reportArgs.p_ledger; $('bridgeReport').onchange(); paintReport();
@@ -163,6 +169,7 @@
   }
   async function fetchReport(refresh, polling=false) {
     if (busy) return;
+    const generation=epoch;
     busy=true;
     try {
       const args = polling ? reportArgs : {p_report:$('bridgeReport').value,p_from:$('bridgeFrom').value,p_to:$('bridgeTo').value,p_ledger:$('bridgeLedger').value.trim()};
@@ -171,7 +178,56 @@
       reportArgs=args; report=result;
       if(tab==='reports') paintReport();
       if (refresh) await refreshStatus();
-    } finally { busy=false; }
+    } finally { if(epoch===generation)busy=false; }
+  }
+  function selectionMatches() {
+    return !!(reportArgs && $('bridgeReport') && reportArgs.p_report===$('bridgeReport').value && reportArgs.p_from===$('bridgeFrom').value && reportArgs.p_to===$('bridgeTo').value &&
+      (reportArgs.p_report!=='ledger' || reportArgs.p_ledger===$('bridgeLedger').value.trim()));
+  }
+  function syncExportButtons() {
+    ['bridgeDownload','bridgePdf','bridgeExcel','bridgePrint'].forEach(id=> {if($(id))$(id).disabled=exportBusy || !report?.content || !selectionMatches();});
+    if(report && !selectionMatches() && $('bridgeReportTime'))$('bridgeReportTime').textContent='Selection changed. Fetch or open the saved report for this ledger and period before exporting.';
+  }
+  async function suggestLedgers() {
+    if(!$('bridgeLedger') || $('bridgeReport').value!=='ledger')return;
+    const value=$('bridgeLedger').value.trim();
+    try {
+      const items=await rpc('tally_bridge_browse',{p_kind:'Ledger',p_search:value.slice(0,100),p_offset:0});
+      if(!$('bridgeLedgerNames') || $('bridgeLedger').value.trim()!==value)return;
+      $('bridgeLedgerNames').replaceChildren(...items.filter(o=>!o.deleted && o.data.name).map(o=> {const e=document.createElement('option');e.value=o.data.name;return e;}));
+    } catch(e) { /* Exact ledger entry remains usable if suggestions are unavailable. */ }
+  }
+  function exportMeta() {
+    return {title:REPORTS[reportArgs.p_report],ledger:reportArgs.p_report==='ledger'?reportArgs.p_ledger:'',from:reportArgs.p_from,to:reportArgs.p_to,
+      fetched:report.fetched_at || 'Unknown — verify in Tally',
+      notice:'Saved snapshot'+(!online()?' | Windows PC offline':'')+(['pending','leased'].includes(report.state)?' | Refresh pending':'')+'. This file is not a live balance.'};
+  }
+  function exportHTML() {
+    const meta=exportMeta();
+    const heading='<h1>'+esc(meta.title)+'</h1><p>'+esc(meta.ledger)+'</p><p>'+esc(meta.from+' to '+meta.to)+'</p><p>Fetched: '+esc(meta.fetched)+'</p><p>'+esc(meta.notice)+'</p>';
+    const body=new DOMParser().parseFromString(safeReport(report.content),'text/html').body.innerHTML;
+    return safeReport(heading+body);
+  }
+  async function exportReport(format) {
+    if(exportBusy || !report?.content || !selectionMatches())return;
+    const generation=epoch,snapshot=report,meta=exportMeta(),html=safeReport(report.content);
+    exportBusy=true;syncExportButtons();$('bridgeMessage').textContent='Preparing your '+(format==='pdf'?'PDF':'Excel')+' file…';
+    try {
+      const E=global.VFTallyExport;
+      const blob=await (format==='pdf'?E.pdf(html,meta):E.excel(html,meta));
+      if(epoch!==generation || report!==snapshot || !user || !selectionMatches())return;
+      E.download(blob,E.filename(meta,format));
+      $('bridgeMessage').textContent='Download prepared from the saved Tally snapshot. Its ledger, period and fetch time are included.';
+    } finally {if(epoch===generation){exportBusy=false;syncExportButtons();}}
+  }
+  function printReport() {
+    if(!report?.content || !selectionMatches())return;
+    const win=window.open('','_blank');
+    if(!win){error(new Error('Allow pop-ups to open the print view.'));return;}
+    let printed=false;const print=()=> {if(!printed){printed=true;win.print();}};
+    win.addEventListener('load',print,{once:true});
+    win.opener=null;win.document.write(exportHTML());win.document.close();
+    if(win.document.readyState==='complete')print();
   }
   // Defence in depth: allowlist again in the browser, even for a compromised device.
   function safeReport(content) {
@@ -195,15 +251,15 @@
     if(!report || !$('bridgeReportOutput')) return;
     const waiting=['pending','leased'].includes(report.state);
     $('bridgeReportTime').textContent=(report.fetched_at?'Saved from Tally: '+date(report.fetched_at):'No saved result yet')+(waiting?' · Refresh queued; keep working while the PC reconnects.':'')+(report.detail?' · '+report.detail:'');
-    $('bridgeDownload').disabled=!report.content;
+    syncExportButtons();
     const output=$('bridgeReportOutput'); output.replaceChildren();
     if(report.content) {
       const frame=document.createElement('iframe'); frame.className='bridge-report'; frame.title=REPORTS[reportArgs.p_report]; frame.setAttribute('sandbox',''); frame.referrerPolicy='no-referrer'; frame.srcdoc=safeReport(report.content); output.className=''; output.appendChild(frame);
     } else { output.className='bridge-empty'; output.textContent=waiting?'Your report is queued. It will appear here when Tally responds.':'No saved report for this period. Choose Fetch from Tally.'; }
   }
   function downloadReport() {
-    if(!report || !report.content) return;
-    const url=URL.createObjectURL(new Blob([safeReport(report.content)],{type:'text/html'}));
+    if(!report || !report.content || !selectionMatches()) return;
+    const url=URL.createObjectURL(new Blob([exportHTML()],{type:'text/html'}));
     const a=document.createElement('a'); a.href=url; a.download='Tally-'+reportArgs.p_report+'-'+reportArgs.p_from+'-'+reportArgs.p_to+'.html'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),10000);
   }
   async function browse() {
@@ -216,6 +272,9 @@
     data.forEach(o=> {const d=o.data,tr=document.createElement('tr');
       const record=node('td',d.number?'#'+d.number+' · '+d.voucher_type:d.name);
       const view=node('button','View details'); view.style.display='block'; view.onclick=()=>details(kind,o.guid).catch(error); record.appendChild(view); tr.appendChild(record);
+      if(kind==='Ledger' && !o.deleted && d.name) {
+        const ledger=node('button','Open ledger report');ledger.onclick=()=> {selectTab('reports');$('bridgeReport').value='ledger';$('bridgeLedger').value=d.name;$('bridgeReport').onchange();fetchReport(false).catch(error);};record.appendChild(ledger);
+      }
       const info=node('td',d.party||d.parent||d.unit||'');
       if(d.closing_balance) info.appendChild(node('small','Closing balance: '+d.closing_balance));
       if(o.deleted||d.cancelled) info.appendChild(node('small','Cancelled / deleted in Tally'));
@@ -243,13 +302,18 @@
     init(c,config,session) {
       this.clear(); client=c; cfg=config; user=session.user.id; $('btnBridge').hidden=false;
       refreshStatus();
-      timer=setInterval(()=> {if(document.hidden || !user) return; refreshStatus(); if(tab==='reports' && report && ['pending','leased'].includes(report.state)) fetchReport(false,true).catch(error);},10000);
+      timer=setInterval(()=> {if(document.hidden || !user) return; refreshStatus(); if(!exportBusy && tab==='reports' && report && selectionMatches() && ['pending','leased'].includes(report.state)) fetchReport(false,true).catch(error);},10000);
     },
     open() { mount(); refreshStatus(); },
     active() { return !!(status && status.config.active); },
+    async assertManual() {
+      try {status=await rpc('tally_bridge_status');}
+      catch(e) {if(['PGRST202','42883'].includes(e.code))return;throw new Error('Could not verify the Tally connection. Manual XML export is blocked until the connection can be checked.');}
+      if(!status || status.config.active)throw new Error('Automatic Tally sync is enabled. Manual XML export is blocked to avoid duplicate posting.');
+    },
     label(value) { return value && value!=='unlinked' ? LABELS[value] || value : ''; },
     safeReport,
-    clear() { epoch++; clearInterval(timer); clearTimeout(pairingExpiry); client=null; user=null; status=null; report=null; reportArgs=null; busy=false;
+    clear() { epoch++; clearInterval(timer); clearTimeout(pairingExpiry); clearTimeout(ledgerTimer); client=null; user=null; status=null; report=null; reportArgs=null; busy=false;exportBusy=false;
       if($('scrBridge')) $('scrBridge').replaceChildren(); if($('btnBridge')) $('btnBridge').hidden=true; }
   };
 })(window);

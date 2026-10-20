@@ -348,9 +348,11 @@ class Tally:
     def objects(self, kind, ids):
         return self.collection(kind, "*", " OR ".join("$MasterID = " + str(int(i)) for i in ids)) if ids else []
 
-    def lookup(self, p):
+    def lookup(self, p, validate=None):
         # A fresh identity read also catches invoices created manually with the same number.
         entries = self.metadata("Voucher")
+        if validate:
+            validate(entries)
         vt = SERIES[p["series"]][0]
         candidates = [v for v in entries if text(v, "GUID") == p.get("guid", p["id"])
                       or text(v, "REMOTEID", v.get("REMOTEID", "")) == p["id"]
@@ -362,6 +364,9 @@ class Tally:
         records = self.objects("Voucher", [identity(candidates[0])[1]])
         if len(records) != 1:
             raise TallyProblem("Invoice changed during lookup; try again after the next sync")
+        expected, actual = identity(candidates[0]), identity(records[0])
+        if actual[:2] != expected[:2] or actual[2] < expected[2]:
+            raise TallyProblem("Invoice identity or version changed during lookup; posting is blocked")
         return records[0]
 
     def import_voucher(self, p, existing=None):
@@ -375,6 +380,11 @@ class Tally:
 
     def report(self, p):
         self.verify()
+        if p["report"] == "ledger":
+            # A renamed/deleted ledger must not silently fall back to Tally's selected ledger.
+            ledgers = self.collection("Ledger", "Name,GUID,MasterID,AlterID")
+            if not any(text(n,"NAME",n.get("NAME","")) == p["ledger"] for n in ledgers):
+                raise TallyProblem("The requested ledger is no longer available in this Tally company. Select its current name after sync.")
         report = REPORTS[p["report"]]
         start, end = dt.date.fromisoformat(p["from"]), dt.date.fromisoformat(p["to"])
         if end < start:
@@ -388,5 +398,6 @@ class Tally:
                        ("SVTODATE", end.strftime("%Y%m%d")), ("SVEXPORTFORMAT", "$$SysName:HTML")):
             tag(sv, k, val)
         if p["report"] == "ledger":
+            tag(sv, "LEDGERNAME", p["ledger"])
             tag(sv, "SVLEDGERNAME", p["ledger"])
         return sanitize_report(self.transport.post(ET.tostring(env, encoding="unicode")))

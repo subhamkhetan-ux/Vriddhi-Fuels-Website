@@ -37,6 +37,8 @@ The report key includes report type, exact period and ledger. Duplicate requests
 
 ## Operational limits
 
+Version 1.0.1 validates complete identity snapshots on restart and during outgoing lookups; details must be at least as recent as their advertised metadata. A lower highest revision, including deletion of the highest-version object, fails closed for review. The server blocks web edits while a selected Tally version is still being fetched. Browser PDF/XLSX exports are bound to one selected report snapshot and authentication epoch; source times and offline/refresh status travel with the file. Excel preserves the displayed source alongside explicitly numeric amount columns and never emits formulas from report text.
+
 - No inbound firewall rule, arbitrary SQL, remote shell, payment action or Tally deletion capability exists in the device protocol.
 - SQL uses the app's existing equal-employee authorization model; pairing is not owner-only.
 - Worker polls with backoff/jitter; periodic deletes can take an hour to appear. Native reports refresh only when requested.

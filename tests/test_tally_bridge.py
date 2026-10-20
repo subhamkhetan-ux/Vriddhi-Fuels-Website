@@ -51,7 +51,8 @@ class FakeTally:
         self.found, self.lose_response, self.imports = found, lose_response, 0
     def verify(self):
         return {"name":"Test Company","guid":"test-company-guid"}
-    def lookup(self, p):
+    def lookup(self, p, validate=None):
+        if validate: validate([self.found] if self.found is not None else [])
         return self.found
     def import_voucher(self, p, existing=None):
         self.imports += 1
@@ -178,6 +179,55 @@ def test_metadata_watermark_does_not_skip_an_intervening_edit(store):
     assert store.known("Voucher")[ID]["alter_id"] == 12
 
 
+def test_older_detail_than_metadata_never_advances_checkpoint(store):
+    class RestoredDuringRead(FakeTally):
+        def metadata(self,kind,after): return [voucher(alter=12)]
+        def objects(self,kind,ids): return [voucher(alter=10)]
+    with pytest.raises(TallyProblem,match="older object"):
+        Worker(FakeCloud(),RestoredDuringRead(),store).scan("Voucher",True)
+    assert store.get("cursor:Voucher") is None
+    assert not store.known("Voucher")
+
+
+def test_restart_validates_recent_snapshot_before_any_cloud_claim(tmp_path):
+    from tally_bridge.tally import KINDS
+    s=Store(tmp_path/'restart.sqlite3')
+    s.stage([object_data('Voucher',voucher(alter=12))])
+    s.set('cursor:Voucher',12)
+    for kind in KINDS:
+        s.set('full:'+kind,1000); s.set('scan:'+kind,1000)
+    class Restored(FakeTally):
+        def metadata(self,kind,after): return [voucher(alter=10)] if kind=='Voucher' else []
+        def objects(self,kind,ids): raise AssertionError('Restore must be blocked before detailed reads')
+    cloud=FakeCloud()
+    try:
+        with pytest.raises(TallyProblem,match='highest revision'):
+            Worker(cloud,Restored(),s,clock=lambda:1001).step()
+        assert not any(name=='tally_bridge_claim' for name,args in cloud.calls)
+        assert s.known('Voucher')[ID]['alter_id']==12
+    finally: s.close()
+
+
+def test_restore_between_polls_blocks_outgoing_voucher(store):
+    store.set('cursor:Voucher',12)
+    tally=FakeTally(voucher(alter=10))
+    cloud=FakeCloud()
+    with pytest.raises(TallyProblem,match='highest revision'):
+        Worker(cloud,tally,store).voucher(job())
+    assert tally.imports==0
+    assert not any(name=='tally_bridge_begin_write' for name,args in cloud.calls)
+
+
+@pytest.mark.parametrize('wrong_identity',[False,True])
+def test_lookup_rejects_stale_detail_or_reused_master_id(wrong_identity):
+    tally=Tally(None,'Test Company')
+    tally.metadata=lambda kind: [voucher(alter=12)]
+    detail=voucher(dict(PAYLOAD,id='a26d607a-40ba-4524-8fa2-c8c340855cb5') if wrong_identity else PAYLOAD,alter=12 if wrong_identity else 10)
+    tally.objects=lambda kind,ids: [detail]
+    with pytest.raises(TallyProblem,match='identity or version changed'):
+        tally.lookup(PAYLOAD)
+
+
 def test_pairing_bootstrap_republishes_unchanged_data_and_binding_prevents_cross_company(store):
     store.stage([object_data("Voucher",voucher())]); store.uploaded(store.upload_batch())
     class Unchanged(FakeTally):
@@ -275,6 +325,27 @@ def test_http_reaches_local_tally_and_validates_company_guid():
 def test_cloud_endpoint_rejects_cleartext_and_arbitrary_hosts():
     for url in ('http://qlloauxmfenrrqvfqibp.supabase.co','https://evil.example','https://qlloauxmfenrrqvfqibp.supabase.co@evil.example'):
         with pytest.raises(ValueError): Cloud(url,'public-test-key')
+
+
+def test_ledger_report_checks_live_name_and_scopes_native_request():
+    requests=[]
+    class HTTP:
+        def post(self,xml):
+            requests.append(parse(xml))
+            return b'<html><table><tr><td>Test ledger</td><td>1,000.00</td></tr></table></html>'
+    tally=Tally(HTTP(),'Test Company','test-company-guid')
+    tally.verify=lambda: None
+    ledger=parse('<LEDGER NAME="A &amp; B &lt;Ltd&gt;"/>').find('LEDGER')
+    tally.collection=lambda *args: [ledger]
+    args=dict(report='ledger',ledger='A & B <Ltd>',**{'from':'2026-10-01','to':'2026-10-19'})
+    assert '1,000.00' in tally.report(args)
+    sv=requests[0].find('.//STATICVARIABLES')
+    assert sv.findtext('LEDGERNAME')==sv.findtext('SVLEDGERNAME')=='A & B <Ltd>'
+    assert sv.findtext('SVCURRENTCOMPANY')=='Test Company'
+    assert sv.findtext('SVFROMDATE')=='20261001' and sv.findtext('SVTODATE')=='20261019'
+    tally.collection=lambda *args: []
+    with pytest.raises(TallyProblem,match='no longer available'):tally.report(args)
+    assert len(requests)==1
 
 
 def test_prime_dated_gst_uses_the_invoice_date():

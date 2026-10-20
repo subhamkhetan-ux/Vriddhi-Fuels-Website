@@ -630,6 +630,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
      builder is the /tanker/ app's file, reused as-is (no copy to drift). -->
 <script src="../tanker/docx-export.js"></script>
 <script src="billing.js"></script>
+<script src="report-export.js"></script>
 <script src="bridge.js"></script>
 <!-- Fuel slips: the Ledger app's Print Bills (A5 credit memos). -->
 <script src="slips.js"></script>
@@ -1712,7 +1713,11 @@ function downloadXml(vouchers, day){
 
 // Whole-day export, repeatable any number of times: the file always
 // contains every app voucher of the selected day (live + already moved).
-$("btnExport").onclick = function(){
+$("btnExport").onclick = async function(){
+  if (backend.cloud && window.VFTallyBridge){
+    try { await VFTallyBridge.assertManual(); }
+    catch(e){ toast(e.message); return; }
+  }
   if (bridgeActive()){ toast("Vouchers are handled by the Tally bridge. Check Sync activity."); return; }
   var day = selectedDay();
   var live = dayQueue(day);
