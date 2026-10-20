@@ -195,7 +195,7 @@ def test_report_tabs_keyboard_navigation_and_theme(browser,server):
     assert page.get_by_label('Search',exact=True).is_visible()
     page.locator('#btnTheme').click()
     assert page.evaluate('document.documentElement.dataset.theme')=='light'
-    assert page.locator('meta[name="theme-color"]').get_attribute('content')=='#fffaf6'
+    assert page.locator('meta[name="theme-color"]').get_attribute('content')=='#f5f5f7'
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
     page.reload();page.locator('#btnBridge').wait_for()
     assert page.evaluate('document.documentElement.dataset.theme')=='light'
