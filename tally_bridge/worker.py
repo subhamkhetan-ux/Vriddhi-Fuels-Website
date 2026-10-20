@@ -7,6 +7,7 @@ import uuid
 from . import __version__
 from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, object_data, ledger_gst, parse
 from .transport import ConnectionProblem
+from .recovery import TallyStarting
 
 
 class Stopped(Exception):
@@ -14,13 +15,14 @@ class Stopped(Exception):
 
 
 class Worker:
-    def __init__(self, cloud, tally, store, clock=time.time):
+    def __init__(self, cloud, tally, store, clock=time.time, recovery=None):
         self.cloud, self.tally, self.store, self.clock = cloud, tally, store, clock
         self.cloud.instance = str(uuid.uuid4())
         self.last_pulse = 0
         self.config = {}
         self.stop = None
         self.initial_scan = True
+        self.recovery = recovery
         binding = {"company_guid": tally.guid, "cloud": cloud.url}
         if store.get("binding") not in (None, binding):
             raise TallyProblem("This recovery journal belongs to a different company or cloud project. Keep it for administrator review.")
@@ -165,7 +167,13 @@ class Worker:
             self.heartbeat("syncing")
         except ConnectionProblem:
             cloud_ok = False
-        self.tally.verify()
+        if self.stop and self.stop.is_set():
+            raise Stopped()
+        if self.recovery:
+            if self.recovery.ensure():
+                self.initial_scan = True
+        else:
+            self.tally.verify()
         for kind in KINDS:
             bootstrap = cloud_ok and not self.config.get("ready")
             full = self.initial_scan or bootstrap or self.clock() - self.store.get("full:" + kind, 0) >= 3600
@@ -205,6 +213,13 @@ class Worker:
                 failures = 0
             except Stopped:
                 return
+            except TallyStarting as e:
+                failures += 1
+                self.store.set("status", {"health": "starting_tally", "at": self.clock(), "detail": str(e)})
+                try:
+                    self.heartbeat("starting_tally", str(e))
+                except ConnectionProblem:
+                    pass
             except (ConnectionProblem, TallyProblem, ValueError) as e:
                 failures += 1
                 detail = str(e) if isinstance(e, TallyProblem) else "Connection unavailable; queued work is retained and will be checked again."

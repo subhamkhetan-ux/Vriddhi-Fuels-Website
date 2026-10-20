@@ -322,6 +322,19 @@ class Tally:
         return [{"name": text(c, "NAME", c.get("NAME", "")), "guid": text(c, "GUID")}
                 for c in root.findall(".//COMPANY")]
 
+    def startup_number(self):
+        """Optional discovery; unsupported TDL is never needed for ordinary sync."""
+        request = ET.fromstring(export_request(self.company, "Company", "Name,GUID"))
+        col = request.find(".//COLLECTION")
+        tag(col, "COMPUTE", "VFBRIDGECOMPANYNUMBER:@@SetCmpNumStr")
+        root = parse(self.transport.post(ET.tostring(request, encoding="unicode")))
+        for company in root.findall(".//COMPANY"):
+            if text(company, "NAME", company.get("NAME", "")) == self.company and text(company, "GUID") == self.guid:
+                value = text(company, "VFBRIDGECOMPANYNUMBER").strip().strip("()").strip()
+                if re.fullmatch(r"[0-9]{1,9}", value) and int(value) > 0:
+                    return value
+        return None
+
     def verify(self):
         matches = [c for c in self.companies() if c["name"] == self.company]
         if len(matches) != 1 or not matches[0]["guid"]:
