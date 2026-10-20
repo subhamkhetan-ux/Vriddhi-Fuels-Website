@@ -45,6 +45,8 @@ def gui(uninstall=False):
     from tkinter import filedialog, messagebox, ttk
     from . import windows
     from .recovery import startup_settings
+    from .packaging import package_root, verify_package
+    verify_package(package_root())
     root = tk.Tk()
     root.title("Vriddhi Fuels • Tally Bridge")
     root.geometry("690x790")
@@ -120,6 +122,8 @@ def gui(uninstall=False):
                 result = str(e)
             except (ValueError, KeyError, ConnectionProblem, OSError):
                 result = "Could not complete setup. Check Tally, the package, Windows Security, Internet access and the pairing code. Your journal is retained."
+            except Exception:
+                result = "Setup could not finish. Check Status and try again; your pairing data and recovery journal have not been erased."
             updates.put(("result", result))
         threading.Thread(target=task, daemon=True).start()
 
