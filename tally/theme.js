@@ -9,7 +9,7 @@
   function apply() {
     var resolved = mode === 'auto' ? (system.matches ? 'light' : 'dark') : mode;
     document.documentElement.dataset.theme = resolved;
-    document.querySelector('meta[name="theme-color"]').content = resolved === 'light' ? '#f5f5f7' : '#1c1c1e';
+    document.querySelector('meta[name="theme-color"]').content = '#c64511';
     var button = document.getElementById('btnTheme');
     if (!button) return;
     var label = mode.charAt(0).toUpperCase() + mode.slice(1);
