@@ -5,8 +5,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0a0706",
-  "theme_color": "#1c1714",
+  "background_color": "#080809",
+  "theme_color": "#1c1c1e",
   "icons": [
     {
       "src": "../Vriddhi%20Fuels%20Logo.png",
