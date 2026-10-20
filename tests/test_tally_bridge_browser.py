@@ -17,7 +17,7 @@ window.__VF_TEST_SUPABASE_FACTORY = () => {
   let authCallback;
   const client={
     from(table){let single=false; const q={select(){return q},eq(){return q},order(){return q},range(){return q},limit(){return q},single(){single=true;return q},
-      then(resolve){const data=table==='tally_settings'?settings:table==='tally_series'?series:[];return Promise.resolve({data,error:null}).then(resolve)}};return q},
+      then(resolve){const data=table==='tally_settings'?settings:table==='tally_series'?series:table==='tally_vouchers'?(window.customerPriceVouchers||[]):table==='tally_parties'?(window.customerPriceParties||[]):[];return Promise.resolve({data,error:null}).then(resolve)}};return q},
     rpc(name,args){window.bridgeCalls.push({name,args});
       if(window.bridgeNetworkError)return Promise.resolve({error:{message:'Connection unavailable'}});
       if(!window.bridgeConfigured)return Promise.resolve({error:{code:'PGRST202',message:'function tally_bridge_status does not exist'}});
@@ -226,4 +226,118 @@ def test_report_request_shows_progress_and_recovers_after_error(browser,server):
     assert page.get_by_role('button',name='Fetch from Tally',exact=True).is_enabled()
     assert page.locator('#bridgeCached').is_enabled()
     assert page.get_by_role('tabpanel').get_attribute('aria-busy') is None
+    page.close()
+
+
+def _customer_price_page(browser,server):
+    """Exercise the real persistent backend without accessing live business records."""
+    def voucher(number,day,rate,series='hsd',party='Alpha Customer',**extra):
+        return dict(seriesKey=series,number=number,dateISO=day,party=party,
+                    rate=rate,qty=10,amount=rate*10,partyAmt=rate*10,roff=0,source='tally',**extra)
+    data={
+        'company':'Test Company','autoClear':False,'companyFy':False,
+        'series':{'hsd':{'last':'0','rate':100},'ms':{'last':'MS0','rate':110},'xg':{'last':'XG0','rate':106}},
+        'parties':['Alpha Customer','New Customer'],'queue':[],
+        'history':[
+            voucher('14','2025-01-02',94),voucher('12','2025-01-01',90),
+            voucher('13','2025-01-02',93),voucher('MS2','2025-01-02',105,'ms'),
+            voucher('99','2099-01-01',99),voucher('98','2025-01-03',98,bridgeState='deleted'),
+            voucher('97','2025-01-03',97,bridgeState='conflict'),
+            voucher('96','2025-01-03',96,party='Alpha Customer Ltd'),
+        ]
+    }
+    page=browser.new_page(viewport={'width':390,'height':900},service_workers='block')
+    def route(r):
+        if r.request.url==server+'/tally/config.js':r.fulfill(content_type='application/javascript',body='window.VRIDDHI_TALLY_CONFIG={};')
+        elif r.request.url.startswith(server):r.continue_()
+        else:r.abort()
+    page.route('**/*',route)
+    page.add_init_script("if(!localStorage.getItem('vf_tally_v1'))localStorage.setItem('vf_tally_v1',"+json.dumps(json.dumps(data))+");")
+    page.goto(server+'/tally/');page.locator('#cardHSD').wait_for()
+    return page
+
+
+def test_customer_price_is_saved_and_reused_on_next_invoice(browser,server):
+    page=_customer_price_page(browser,server)
+    page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='Alpha Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='94.00'
+    assert 'invoice #14' in page.locator('#priceHint').inner_text()
+    page.locator('#fQty').fill('10')
+    assert page.locator('#fAmt').input_value()=='940.00'
+    page.locator('#fPrice').fill('97.50')
+    assert page.locator('#fAmt').input_value()=='975.00'
+    page.locator('#btnSave').click();page.locator('#scrHome.on').wait_for()
+    # Reopening the app proves the suggestion is sourced from the saved invoice.
+    page.reload();page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='Alpha Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='97.50'
+    page.locator('#btnBill').click();page.locator('#blPrice').wait_for()
+    assert page.locator('#blPrice').input_value()=='97.50'
+    assert page.evaluate("JSON.parse(localStorage.getItem('vf_tally_v1')).series.hsd.rate")==100
+    page.close()
+
+
+def test_customer_price_product_date_and_manual_override_are_independent(browser,server):
+    page=_customer_price_page(browser,server)
+    page.locator('#cardHSD').click();page.locator('#fQty').fill('10')
+    page.locator('#fPartyList').get_by_role('button',name='Alpha Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='94.00'
+    assert page.locator('#fAmt').input_value()=='940.00'
+    page.locator('#prodMs').click()
+    assert page.locator('#fPrice').input_value()=='105.00'
+    assert page.locator('#fAmt').input_value()=='1050.00'
+    page.locator('#prodXg').click()
+    assert page.locator('#fPrice').input_value()=='106.00'
+    assert 'No earlier' in page.locator('#priceHint').inner_text()
+    page.locator('#prodHsd').click()
+    page.locator('#fDate').fill('2025-01-01');page.locator('#fDate').dispatch_event('change')
+    assert page.locator('#fPrice').input_value()=='90.00'
+    page.locator('#fPrice').fill('88.00')
+    page.locator('#fDate').fill('2025-01-02');page.locator('#fDate').dispatch_event('change')
+    assert page.locator('#fPrice').input_value()=='88.00'
+    page.locator('#btnChangeParty').click()
+    page.locator('#fPartyList').get_by_role('button',name='New Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='100.00'
+    # An unsaved rate is never remembered for another invoice.
+    page.locator('#fPrice').fill('77.00');page.locator('#btnBack').click();page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='Alpha Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='94.00'
+    page.close()
+
+
+def test_editing_an_existing_invoice_keeps_its_saved_rate(browser,server):
+    page=_customer_price_page(browser,server)
+    page.on('dialog',lambda dialog:dialog.accept())
+    page.locator('#btnHistory').click()
+    page.get_by_role('button',name='Alter old voucher 12',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='90.00'
+    page.locator('#btnChangeParty').click()
+    page.locator('#fPartyList').get_by_role('button',name='New Customer',exact=True).click()
+    page.locator('#fDate').fill('2025-02-01');page.locator('#fDate').dispatch_event('change')
+    assert page.locator('#fPrice').input_value()=='90.00'
+    assert "voucher's saved rate" in page.locator('#priceHint').inner_text()
+    page.close()
+
+
+def test_customer_price_uses_the_shared_cloud_invoice_history(browser,server):
+    page=browser.new_page()
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK)
+    page.add_init_script("""window.customerPriceParties=[{name:'Cloud Customer'}];
+      window.customerPriceVouchers=[{
+        id:'shared-voucher',series:'hsd',number:'15',date:'2025-01-02',party:'Cloud Customer',
+        qty:'10.000',rate:'91.25',item_amt:'912.50',party_amt:'912.50',roff:'0',
+        status:'history',source:'tally',bridge_state:'synced',created_at:'2025-01-02T12:00:00Z'
+      }];""")
+    page.goto(server+'/tally/');page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='Cloud Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='91.25'
+    assert 'invoice #15' in page.locator('#priceHint').inner_text()
+    page.locator('#fAmt').fill('912.50')
+    assert page.locator('#fQty').input_value()=='10.000'
+    page.locator('#prodMs').click()
+    assert page.locator('#fPrice').input_value()=='110.00'
+    assert page.locator('#fAmt').input_value()=='912.50'
+    assert page.locator('#fQty').input_value()=='8.295'
     page.close()
