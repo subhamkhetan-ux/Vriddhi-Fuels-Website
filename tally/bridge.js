@@ -56,32 +56,54 @@
   function mount() {
     const root = $('scrBridge');
     root.innerHTML = `<div class="bridge-intro"><div><span class="eyebrow">VRIDDHI FUELS · TALLY PRIME</span>
-      <h2>Your books.<br><span style="color:var(--orange)">Always within reach.</span></h2>
-      <p>Send sales to Tally, explore your accounts, and keep working when the office PC is offline.</p></div>
+      <h2>Tally connection <span>&amp; reports</span></h2>
+      <p>Your office books, with you. Review reports, follow sync progress, and manage your connection.</p></div>
       <span class="bridge-chip" id="bridgeState">Checking connection…</span></div>
       <div class="bridge-metrics"><div class="bridge-metric"><small>WAITING TO SYNC</small><strong id="bridgePending">—</strong></div>
       <div class="bridge-metric"><small>NEEDS REVIEW</small><strong id="bridgeAttention">—</strong></div>
       <div class="bridge-metric"><small>TALLY RECORDS</small><strong id="bridgeObjects">—</strong></div></div>
       <p class="vsub" id="bridgeLastSeen"></p>
       <div class="bridge-tabs" role="tablist" aria-label="Tally connection"><button role="tab" data-tab="reports">Reports</button><button role="tab" data-tab="browse">Tally data</button><button role="tab" data-tab="activity">Sync activity</button><button role="tab" data-tab="setup">Connect PC</button></div>
-      <p id="bridgeMessage" class="bridge-notice" role="status">Reports show their last refresh time. New requests wait safely when the PC is offline.</p><div id="bridgeContent"></div>`;
-    root.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => selectTab(b.dataset.tab));
+      <p id="bridgeMessage" class="bridge-notice" role="status">Reports show their last refresh time. New requests wait safely when the PC is offline.</p><div id="bridgeContent" role="tabpanel" tabindex="0"></div>`;
+    const tabs = Array.from(root.querySelectorAll('[data-tab]'));
+    tabs.forEach((b, index) => {
+      b.id = 'bridgeTab-' + b.dataset.tab;
+      b.setAttribute('aria-controls', 'bridgeContent');
+      b.onclick = () => selectTab(b.dataset.tab);
+      b.onkeydown = e => {
+        let next;
+        if (e.key === 'ArrowRight') next = (index + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = tabs.length - 1;
+        else return;
+        e.preventDefault();
+        tabs[next].focus();
+        selectTab(tabs[next].dataset.tab);
+      };
+    });
     selectTab(tab);
     paintStatus();
   }
   function selectTab(value) {
     tab = value;
-    $('scrBridge').querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    $('scrBridge').querySelectorAll('[data-tab]').forEach(b => {
+      const selected = b.dataset.tab === tab;
+      b.setAttribute('aria-selected', String(selected));
+      b.tabIndex = selected ? 0 : -1;
+    });
     const content = $('bridgeContent');
+    content.setAttribute('aria-labelledby', 'bridgeTab-' + tab);
+    content.removeAttribute('aria-busy');
     if (tab === 'reports') {
       const today = new Date().toLocaleDateString('en-CA');
-      content.innerHTML = `<div class="bridge-panel"><h3>Reports, straight from Tally</h3><p>Choose a report and period. Previously fetched reports remain available while the Windows PC is offline.</p>
+      content.innerHTML = `<div class="bridge-panel"><h3>Choose your report</h3><p>Choose a report and period. Previously fetched reports remain available while the Windows PC is offline.</p>
         <div class="bridge-form"><div class="wide"><label for="bridgeReport">Report</label><select id="bridgeReport">${Object.entries(REPORTS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
         <div><label for="bridgeFrom">From</label><input type="date" id="bridgeFrom"></div><div><label for="bridgeTo">To</label><input type="date" id="bridgeTo"></div>
         <div class="wide" id="bridgeLedgerField" hidden><label for="bridgeLedger">Ledger</label><input id="bridgeLedger" list="bridgeLedgerNames" placeholder="Search your synced Tally ledgers" maxlength="250" autocomplete="off"><datalist id="bridgeLedgerNames"></datalist></div></div>
         <div class="bridge-actions"><button class="btn primary" id="bridgeFetch">Fetch from Tally</button><button class="btn ghost" id="bridgeCached">Open saved report</button></div>
-        <div class="bridge-actions"><button class="btn ghost" id="bridgePdf" disabled>Download PDF</button><button class="btn ghost" id="bridgeExcel" disabled>Download Excel</button><button class="btn ghost" id="bridgePrint" disabled>Print / Save PDF</button><button class="btn ghost" id="bridgeDownload" disabled>Save HTML</button></div>
-        <p id="bridgeReportTime" class="vsub">No report selected.</p><div id="bridgeReportOutput" class="bridge-empty">Your Tally reports will appear here.<br>Start with the day book or an outstanding balance.</div></div>`;
+        <div class="bridge-actions bridge-export-actions" role="group" aria-label="Export saved report"><button class="btn ghost" id="bridgePdf" disabled>Download PDF</button><button class="btn ghost" id="bridgeExcel" disabled>Download Excel</button><button class="btn ghost" id="bridgePrint" disabled>Print / Save PDF</button><button class="btn ghost" id="bridgeDownload" disabled>Save HTML</button></div>
+        <p id="bridgeReportTime" class="vsub">No report selected.</p><div id="bridgeReportOutput" class="bridge-empty"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H6V3Z M14 3v5h4 M9 12h6 M9 16h4"/></svg><strong>A clear view of your books</strong><span>Choose a report and period, then fetch from Tally.<br>You can also open a previously saved report.</span></div></div>`;
       $('bridgeFrom').value = today.slice(0, 8) + '01'; $('bridgeTo').value = today;
       $('bridgeReport').onchange = () => { $('bridgeLedgerField').hidden = $('bridgeReport').value !== 'ledger'; syncExportButtons(); if($('bridgeReport').value==='ledger')suggestLedgers(); };
       ['bridgeFrom','bridgeTo','bridgeLedger'].forEach(id=>$(id).addEventListener('input',syncExportButtons));
@@ -123,7 +145,7 @@
       paintActivity();
       loadUnlinked().catch(error);
     } else {
-      content.innerHTML = `<div class="bridge-panel"><h3>Explore Tally data</h3><p>All voucher types and the synced accounting masters. Cancelled or deleted records stay labelled for reference.</p><div class="bridge-form"><div><label for="bridgeKind">Records</label><select id="bridgeKind">${['Voucher','Ledger','Group','StockItem','StockGroup','Unit','Godown','VoucherType','CostCentre','Currency'].map(k=>`<option>${k}</option>`).join('')}</select></div><div><label for="bridgeSearch">Search</label><input id="bridgeSearch" placeholder="Name, party or invoice"></div></div><div class="bridge-actions"><button class="btn primary" id="bridgeFind">Search</button><button class="btn ghost" id="bridgePrev">Previous</button><button class="btn ghost" id="bridgeNext">Next 50</button></div><div id="bridgeRecords"></div></div>`;
+      content.innerHTML = `<div class="bridge-panel"><h3>Explore Tally data</h3><p>All voucher types and the synced accounting masters. Cancelled or deleted records stay labelled for reference.</p><div class="bridge-form"><div><label for="bridgeKind">Records</label><select id="bridgeKind">${['Voucher','Ledger','Group','StockItem','StockGroup','Unit','Godown','VoucherType','CostCentre','Currency'].map(k=>`<option>${k}</option>`).join('')}</select></div><div><label for="bridgeSearch">Search</label><input id="bridgeSearch" type="search" enterkeyhint="search" placeholder="Name, party or invoice"></div></div><div class="bridge-actions"><button class="btn primary" id="bridgeFind">Search</button><button class="btn ghost" id="bridgePrev">Previous</button><button class="btn ghost" id="bridgeNext">Next 50</button></div><div id="bridgeRecords"></div></div>`;
       $('bridgeFind').onclick = () => { offset = 0; browse().catch(error); };
       $('bridgePrev').onclick = () => { offset = Math.max(0,offset-50); browse().catch(error); };
       $('bridgeNext').onclick = () => { offset += 50; browse().catch(error); };
@@ -171,6 +193,12 @@
     if (busy) return;
     const generation=epoch;
     busy=true;
+    if (!polling && $('bridgeFetch')) {
+      $('bridgeFetch').disabled = true;
+      $('bridgeCached').disabled = true;
+      $(refresh ? 'bridgeFetch' : 'bridgeCached').textContent = 'Requesting…';
+      $('bridgeContent').setAttribute('aria-busy', 'true');
+    }
     try {
       const args = polling ? reportArgs : {p_report:$('bridgeReport').value,p_from:$('bridgeFrom').value,p_to:$('bridgeTo').value,p_ledger:$('bridgeLedger').value.trim()};
       if (!args || !args.p_from || !args.p_to || args.p_from>args.p_to) throw new Error('Choose a valid date range.');
@@ -178,7 +206,16 @@
       reportArgs=args; report=result;
       if(tab==='reports') paintReport();
       if (refresh) await refreshStatus();
-    } finally { if(epoch===generation)busy=false; }
+    } finally {
+      if(epoch===generation) {
+        busy=false;
+        if (!polling && $('bridgeFetch')) {
+          $('bridgeFetch').disabled = false; $('bridgeFetch').textContent = 'Fetch from Tally';
+          $('bridgeCached').disabled = false; $('bridgeCached').textContent = 'Open saved report';
+          $('bridgeContent').removeAttribute('aria-busy');
+        }
+      }
+    }
   }
   function selectionMatches() {
     return !!(reportArgs && $('bridgeReport') && reportArgs.p_report===$('bridgeReport').value && reportArgs.p_from===$('bridgeFrom').value && reportArgs.p_to===$('bridgeTo').value &&
