@@ -5,9 +5,12 @@ import time
 import uuid
 
 from . import __version__
-from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, object_data, ledger_gst, parse
-from .transport import ConnectionProblem
+from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, object_data
+from .transport import CloudRejected, ConnectionProblem
 from .recovery import TallyStarting
+
+# 1.0.x mirrored every master and voucher type; 2 keeps only HSD/MS/XG CREDIT vouchers.
+JOURNAL = 2
 
 
 class Stopped(Exception):
@@ -27,9 +30,14 @@ class Worker:
         if store.get("binding") not in (None, binding):
             raise TallyProblem("This recovery journal belongs to a different company or cloud project. Keep it for administrator review.")
         store.set("binding", binding)
+        if store.get("journal") != JOURNAL:
+            # Cursors from the old all-voucher/all-master snapshot do not apply to the
+            # fuel-voucher watch. Re-read from scratch; in-flight write records are kept.
+            store.reset_snapshot()
+            store.set("journal", JOURNAL)
 
     def heartbeat(self, health="online", detail=""):
-        self.config = self.cloud.rpc("tally_bridge_heartbeat", p_health=health, p_detail=detail, p_version=__version__)
+        self.config = self.cloud.rpc("tally_bridge_heartbeat", p_health=health, p_detail=detail, p_version=__version__) or {}
         self.last_pulse = self.clock()
         return self.config
 
@@ -38,7 +46,9 @@ class Worker:
             raise Stopped()
         if self.clock() - self.last_pulse > 20:
             try:
-                self.heartbeat("syncing")
+                self.heartbeat("syncing", "Reading Tally vouchers")
+            except CloudRejected:
+                raise
             except ConnectionProblem:
                 pass  # Tally -> durable SQLite continues while the Internet is down
 
@@ -48,13 +58,13 @@ class Worker:
             self.cloud.rpc("tally_bridge_ingest", p_objects=[json.loads(r["payload"]) for r in rows])
             self.store.uploaded(rows)
 
-    def validate_snapshot(self, kind, meta, full=False):
+    def validate_snapshot(self, kind, meta):
         current = {identity(m)[0]: identity(m) for m in meta}
         known = self.store.identities(kind)
-        if full and max([0] + [i[2] for i in current.values()]) < self.store.get("cursor:" + kind, 0):
-            raise TallyProblem("Tally's highest revision moved backwards or disappeared. Sync is paused for restore/deletion review.")
+        # A restored backup brings back older revisions of vouchers already seen. Deleting
+        # or retyping the newest voucher is ordinary work and must not pause sync.
         for guid, _, alter in current.values():
-            if guid in known and alter < known[guid]["alter_id"]:
+            if guid in known and not known[guid]["deleted"] and alter < known[guid]["alter_id"]:
                 raise TallyProblem("Tally was restored to an older revision; sync is paused for reconciliation")
         return current, known
 
@@ -64,10 +74,10 @@ class Worker:
         if not meta and not full:
             self.store.set("scan:" + kind, self.clock())
             return  # idle polls never load historical XML from SQLite
-        current, known = self.validate_snapshot(kind,meta,full)
+        current, known = self.validate_snapshot(kind, meta)
         changed = [i for g, i in current.items() if g not in known or i[2] != known[g]["alter_id"] or known[g]["deleted"]]
         # Full reconciliation also refreshes unresolved conflicts after 'Use Tally version'.
-        refresh = set(self.config.get("refresh_guids", [])) if kind == "Voucher" else set()
+        refresh = set(self.config.get("refresh_guids") or [])
         changed.extend(i for g, i in current.items() if g in refresh and i not in changed)
         for offset in range(0, len(changed), 30):
             self.pulse()
@@ -78,26 +88,16 @@ class Worker:
             if any(identity(n)[2] < current[identity(n)[0]][2] for n in nodes):
                 raise TallyProblem("Tally returned an older object than its metadata. No checkpoint was advanced; review a possible restore.")
             self.tally.verify()
-            objects = [object_data(kind, n) for n in nodes]
-            if kind == "Ledger":
-                groups = {json.loads(r["data"])["name"]: json.loads(r["data"])["parent"]
-                          for r in self.store.known("Group").values() if not r["deleted"]}
-                for o in objects:
-                    parent, seen = o["data"]["parent"], set()
-                    while parent in groups and parent not in seen and parent != "Sundry Debtors":
-                        seen.add(parent)
-                        parent = groups[parent]
-                    o["data"]["is_debtor"] = parent == "Sundry Debtors"
-            self.store.stage(objects)
+            self.store.stage([object_data(kind, n) for n in nodes])
         if force_upload:
             # Pairing a replacement PC/cloud bootstrap must republish unchanged cached objects too.
             self.tally.verify()
-            self.store.stage([dict(kind=kind,guid=g,master_id=i[1],alter_id=i[2],data=self.store.object_payload(kind,g))
-                              for g,i in current.items() if g in known and i not in changed])
+            self.store.stage([dict(kind=kind, guid=g, master_id=i[1], alter_id=i[2], data=self.store.object_payload(kind, g))
+                              for g, i in current.items() if g in known and i not in changed])
         if full:
             self.tally.verify()
             removed = [dict(kind=kind, guid=g, alter_id=r["alter_id"], master_id=r["master_id"],
-                            data=self.store.object_payload(kind,g), deleted=True)
+                            data=self.store.object_payload(kind, g), deleted=True)
                        for g, r in known.items() if g not in current and not r["deleted"]]
             self.store.stage(removed)
             self.store.set("full:" + kind, self.clock())
@@ -118,13 +118,13 @@ class Worker:
 
     def voucher(self, job):
         p = job["payload"]
+        label = SERIES[p["series"]][0] + " #" + p["number"]
         if p.get("company") and p["company"] != self.tally.company:
             raise TallyProblem("This invoice belongs to a different financial-year company. Pairing needs accountant review before posting.")
         previous = self.store.written(job["id"])
         recovering = job.get("recover_only") or previous and previous["phase"] in ("writing", "done")
         self.tally.verify()
-        validate = lambda entries: self.validate_snapshot("Voucher", entries, True)
-        found = self.tally.lookup(p, validate=validate)
+        found = self.tally.lookup(p)
         if found is not None:
             guid, _, alter = identity(found)
             if p.get("guid") and guid != p["guid"]:
@@ -134,37 +134,38 @@ class Worker:
                 return
             if recovering:
                 raise TallyProblem("Posting outcome is uncertain. Review the invoice in Tally, then check again; it will not be posted twice.")
-            if not p.get("guid") or alter != p.get("expected_alter"):
-                raise TallyProblem("Tally already has a different invoice or a newer edit. Review both versions.")
-            if fuel_voucher(found) is None:
-                raise TallyProblem("This invoice has allocations unsupported by the fuel editor. Edit it in Tally Prime.")
+            if not p.get("guid"):
+                raise TallyProblem(label + " already exists in Tally with different details. Use Tally version, or assign the next invoice number.")
+            if alter != p.get("expected_alter"):
+                raise TallyProblem(label + " was edited in Tally after this change was made. Review both versions.")
         elif recovering or p.get("guid"):
             raise TallyProblem("Invoice not found after an earlier posting. Review in Tally Prime; automatic recreation is blocked.")
-        required = {"Ledger": [p["party"], SERIES[p["series"]][2], "R/off"],
-                    "StockItem": [SERIES[p["series"]][1]], "VoucherType": [SERIES[p["series"]][0]]}
-        for kind, names in required.items():
-            available = {json.loads(r["data"])["name"] for r in self.store.known(kind).values() if not r["deleted"]}
-            if not set(names).issubset(available):
-                raise TallyProblem("Required party, sales ledger, stock item or voucher type is missing in Tally. Create it there first.")
-        # Use Tally's dated registration for this invoice, including older invoice edits.
-        for row in self.store.known("Ledger").values():
-            data = json.loads(row["data"])
-            if data["name"] == p["party"] and data.get("xml"):
-                p = dict(p, gst=ledger_gst(parse(data["xml"]).find(".//LEDGER"), p["date"]))
-                break
+        missing = self.tally.missing_masters(p)
+        if missing:
+            raise TallyProblem("Not posted: create " + ", ".join(missing) + " in Tally Prime first, then choose Try sync again.")
+        # Tally's dated GST registration for this invoice; the app's copy if Tally has none.
+        gst = self.tally.party_gst(p["party"], p["date"])
+        if gst:
+            p = dict(p, gst=gst)
         # Cloud guard is committed BEFORE touching Tally. A lost response is recovery-only.
         self.cloud.rpc("tally_bridge_begin_write", p_job=job["id"], p_lease=job["lease_token"])
         self.store.write(job["id"], "writing")
         self.tally.import_voucher(p, found)
-        readback = self.tally.lookup(p, validate=validate)
+        readback = self.tally.lookup(p)
         if readback is None or not business_equal(fuel_voucher(readback), p):
-            raise TallyProblem("Tally read-back does not match the submitted voucher. Review in Tally Prime.")
+            raise TallyProblem("Tally read-back of " + label + " does not match the submitted voucher. Review in Tally Prime.")
         self.confirmed(job, readback)
+
+    def watching(self):
+        count = self.store.count("Voucher")
+        return "Watching " + format(count, ",") + " fuel voucher" + ("" if count == 1 else "s") + " in Tally; new web vouchers are checked every 5 seconds"
 
     def step(self):
         cloud_ok = True
         try:
-            self.heartbeat("syncing")
+            self.heartbeat("syncing", "Checking Tally")
+        except CloudRejected:
+            raise
         except ConnectionProblem:
             cloud_ok = False
         if self.stop and self.stop.is_set():
@@ -177,17 +178,14 @@ class Worker:
         for kind in KINDS:
             bootstrap = cloud_ok and not self.config.get("ready")
             full = self.initial_scan or bootstrap or self.clock() - self.store.get("full:" + kind, 0) >= 3600
-            interval = 5 if kind == "Voucher" else 60
-            if full or self.clock() - self.store.get("scan:" + kind, 0) >= interval:
+            # A manual conflict resolution requires a fresh read, even when AlterID has not changed.
+            full = full or bool(self.config.get("refresh_guids"))
+            if full or self.clock() - self.store.get("scan:" + kind, 0) >= 5:
                 self.scan(kind, full, force_upload=bootstrap)
         self.initial_scan = False
-        # A manual conflict resolution requires a fresh read, even when AlterID has not changed.
-        if self.config.get("refresh_guids"):
-            self.scan("Voucher", True)
         if not cloud_ok:
             self.store.set("status", {"health": "internet_offline", "at": self.clock(), "detail": "Changes retained on this PC; uploads resume on reconnection."})
             return
-        self.heartbeat("syncing")
         self.flush()
         if not self.config.get("ready"):
             self.cloud.rpc("tally_bridge_ready")
@@ -201,8 +199,9 @@ class Worker:
             except TallyProblem as e:
                 self.finish(job, "conflict" if job["kind"] == "voucher" else "error", detail=str(e))
             # Network/HTTP failure leaves a leased/writing job for safe recovery after expiry.
-        self.heartbeat("online", "Watching Tally; cloud queue checked every 5 seconds")
-        self.store.set("status", {"health": "online", "at": self.clock(), "detail": "Connected to Tally and the web app"})
+        detail = self.watching()
+        self.heartbeat("online", detail)
+        self.store.set("status", {"health": "online", "at": self.clock(), "detail": detail})
 
     def run(self, stop=None):
         self.stop = stop
@@ -222,7 +221,12 @@ class Worker:
                     pass
             except (ConnectionProblem, TallyProblem, ValueError) as e:
                 failures += 1
-                detail = str(e) if isinstance(e, TallyProblem) else "Connection unavailable; queued work is retained and will be checked again."
+                if isinstance(e, CloudRejected):
+                    detail = "The web app refused the bridge: " + str(e)
+                elif isinstance(e, TallyProblem):
+                    detail = str(e)
+                else:
+                    detail = "Connection unavailable; queued work is retained and will be checked again."
                 self.store.set("status", {"health": "needs_attention", "at": self.clock(), "detail": detail})
                 try:
                     self.heartbeat("needs_attention", detail)

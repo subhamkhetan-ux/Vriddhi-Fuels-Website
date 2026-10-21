@@ -93,14 +93,28 @@ def test_outbox_is_atomic_and_edits_supersede_only_unwritten_jobs(db):
     assert db.json(f"select to_jsonb(v) from tally_vouchers v where id='{v['id']}'")["bridge_state"] == "synced"
 
 
+def daybook(db, *rows):
+    vouchers = [dict(seriesKey=r.get("series", "ms"), number=r["number"], dateISO="2026-10-19", party=r.get("party", "A"),
+                     vehicle="", qty=10, rate=100, amount=r.get("amount", 1000)) for r in rows]
+    return db.json(f"select tally_import_daybook({lit(json.dumps(vouchers))})", user=OWNER)
+
+
+def tally_object(guid, a, alter=1, **extra):
+    vt = {"hsd": "HSD CREDIT", "ms": "MS CREDIT", "xg": "XG CREDIT"}[a["series"]]
+    return dict(kind="Voucher", guid=guid, alter_id=alter, master_id=1,
+                data={"voucher_type": vt, "number": a["number"], "app_voucher": a}, **extra)
+
+
 def test_inbound_and_conflict_do_not_overwrite_pending_edit(db):
     a = dict(series="ms", number="MS9999", date="2026-10-19", party="A", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
-    o = dict(kind="Voucher", guid="inbound-guid", alter_id=1, master_id=1, data={"app_voucher": a})
+    daybook(db, dict(number="MS9999"))
+    o = tally_object("inbound-guid", a)
     def ingest():
+        o["data"]["number"] = a["number"]
         db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([o]))})", anon=True)
     ingest()
     v = db.json("select to_jsonb(v) from tally_vouchers v where bridge_guid='inbound-guid'")
-    assert v["status"] == "history"
+    assert v["status"] == "history" and v["bridge_state"] == "synced"
     assert db.ok(f"select count(*) from tally_bridge_jobs where voucher_id='{v['id']}'") == "0"
     db.ok(f"select tally_edit_history_voucher('{v['id']}','2026-10-19','Local edit','',10,100,1000,1000,0)", user=OWNER)
     o["alter_id"] = 2
@@ -116,7 +130,8 @@ def test_inbound_and_conflict_do_not_overwrite_pending_edit(db):
     a['number']='MS10000'; o['alter_id']=3
     ingest()
     assert db.ok("select number from tally_vouchers where bridge_guid='inbound-guid'")=='MS10000'
-    other = dict(o,guid='another-inbound-guid',data={'app_voucher':dict(a,number='MS10001')})
+    daybook(db, dict(number='MS10001'))
+    other = tally_object('another-inbound-guid', dict(a,number='MS10001'), alter=3)
     db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([other]))})",anon=True)
     a['number']='MS10001'; o['alter_id']=4
     ingest()
@@ -131,6 +146,29 @@ def test_inbound_and_conflict_do_not_overwrite_pending_edit(db):
     assert db.ok("select bridge_state from tally_vouchers where bridge_guid='inbound-guid'") == "deleted"
     o["alter_id"] = 1
     assert "moved backwards" in db.fails(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([o]))})", anon=True)
+
+
+def test_bridge_only_follows_vouchers_the_app_already_has(db):
+    a = dict(series="hsd", number="88001", date="2026-10-19", party="Tally only", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+    master = dict(kind="Ledger", guid="ledger-guid", alter_id=1, master_id=2, data={"name": "Old bridge master", "is_debtor": True})
+    db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([tally_object('tally-only-guid', a), master]))})", anon=True)
+    assert db.ok("select count(*) from tally_vouchers where number='88001'") == "0"
+    assert db.ok("select baseline from tally_series where key='hsd'") == "88001"  # the number is reserved
+    assert db.ok("select count(*) from tally_parties where name='Old bridge master'") == "0"
+    assert db.ok("select count(*) from tally_bridge_objects where kind<>'Voucher'") == "0"
+    # Import from Tally brings it in, linked at once with Tally's exact round-off.
+    db.ok(f"update tally_bridge_objects set data=jsonb_set(data,'{{app_voucher}}',{lit(json.dumps(dict(a,item_amt=999.8,roff=0.2)))}) where guid='tally-only-guid'")
+    result = daybook(db, dict(series="hsd", number="88001", party="Tally only", amount=999.8))
+    assert result["added"]["hsd"] == 1
+    v = db.json("select to_jsonb(v) from tally_vouchers v where number='88001'")
+    assert v["bridge_guid"] == "tally-only-guid" and v["bridge_state"] == "synced" and float(v["roff"]) == 0.2
+    assert db.ok(f"select count(*) from tally_bridge_jobs where voucher_id='{v['id']}'") == "0"
+    # A second import keeps the linked voucher as the bridge has it, and still posts nothing.
+    result = daybook(db, dict(series="hsd", number="88001", party="Stale file", amount=500), dict(series="hsd", number="88002"))
+    assert result["kept"] == 1 and result["added"]["hsd"] == 1
+    assert db.ok("select party from tally_vouchers where number='88001'") == "Tally only"
+    assert db.ok("select bridge_state from tally_vouchers where number='88002'") == "unlinked"
+    assert db.ok("select count(*) from tally_bridge_jobs j join tally_vouchers v on v.id=j.voucher_id where v.number in ('88001','88002')") == "0"
 
 
 def test_reports_deduplicate_and_retain_old_result_while_offline(db):
@@ -169,7 +207,7 @@ def test_base_schema_rerun_keeps_device_grants_and_manual_import_guard(db):
     db.ok((ROOT/'supabase/tally-schema.sql').read_text())
     device(db,'heartbeat',"'online','','test'")
     assert 'Worker instance' in db.fails(f"select tally_bridge_claim('{TOKEN}',null)",anon=True)
-    assert 'disabled while paired' in db.fails("select tally_import_daybook('[]')",user=OWNER)
+    assert db.json("select tally_import_daybook('[]')",user=OWNER)['kept'] == 0  # Import from Tally works while paired
     assert 'permission denied' in db.fails("select tally_bridge_object('Voucher','inbound-guid')",anon=True)
     assert db.json("select tally_bridge_object('Voucher','inbound-guid')",user=OWNER)['guid']=='inbound-guid'
 

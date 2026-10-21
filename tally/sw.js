@@ -1,5 +1,5 @@
 /* Only public shell files are cached; never cache financial/auth API responses. */
-const CACHE = "vf-tally-v23";
+const CACHE = "vf-tally-v24";
 const SHELL = ["./", "./index.html", "./config.js", "./billing.js", "./slips.js", "./theme.css", "./vendor/Sora-Variable.ttf", "./theme.js", "./bridge.css", "./bridge.js", "./report-export.js", "./manifest.webmanifest"];
 const shellURLs = new Set(SHELL.map(path => new URL(path, self.registration.scope).href));
 

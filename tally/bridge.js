@@ -1,7 +1,7 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.0.2';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.1.0';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
@@ -66,7 +66,7 @@
       <span class="bridge-chip" id="bridgeState">Checking connection…</span></div>
       <div class="bridge-metrics"><div class="bridge-metric"><small>WAITING TO SYNC</small><strong id="bridgePending">—</strong></div>
       <div class="bridge-metric"><small>NEEDS REVIEW</small><strong id="bridgeAttention">—</strong></div>
-      <div class="bridge-metric"><small>TALLY RECORDS</small><strong id="bridgeObjects">—</strong></div></div>
+      <div class="bridge-metric"><small>VOUCHERS WATCHED</small><strong id="bridgeObjects">—</strong></div></div>
       <p class="vsub" id="bridgeLastSeen"></p><p class="hint" id="bridgeDeviceDetail" hidden></p>
       <div class="bridge-tabs" role="tablist" aria-label="Tally connection"><button role="tab" data-tab="reports">Reports</button><button role="tab" data-tab="browse">Tally data</button><button role="tab" data-tab="activity">Sync activity</button><button role="tab" data-tab="setup">Connect PC</button></div>
       <p id="bridgeMessage" class="bridge-notice" role="status">Reports show their last refresh time. New requests wait safely when the PC is offline.</p><div id="bridgeContent" role="tabpanel" tabindex="0"></div>`;
@@ -105,7 +105,7 @@
       content.innerHTML = `<div class="bridge-panel"><h3>Choose your report</h3><p>Choose a report and period. Previously fetched reports remain available while the Windows PC is offline.</p>
         <div class="bridge-form"><div class="wide"><label for="bridgeReport">Report</label><select id="bridgeReport">${Object.entries(REPORTS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
         <div><label for="bridgeFrom">From</label><input type="date" id="bridgeFrom"></div><div><label for="bridgeTo">To</label><input type="date" id="bridgeTo"></div>
-        <div class="wide" id="bridgeLedgerField" hidden><label for="bridgeLedger">Ledger</label><input id="bridgeLedger" list="bridgeLedgerNames" placeholder="Search your synced Tally ledgers" maxlength="250" autocomplete="off"><datalist id="bridgeLedgerNames"></datalist></div></div>
+        <div class="wide" id="bridgeLedgerField" hidden><label for="bridgeLedger">Ledger</label><input id="bridgeLedger" list="bridgeLedgerNames" placeholder="Customer or ledger name, exactly as in Tally" maxlength="250" autocomplete="off"><datalist id="bridgeLedgerNames"></datalist></div></div>
         <div class="bridge-actions"><button class="btn primary" id="bridgeFetch">Fetch from Tally</button><button class="btn ghost" id="bridgeCached">Open saved report</button></div>
         <div class="bridge-actions bridge-export-actions" role="group" aria-label="Export saved report"><button class="btn ghost" id="bridgePdf" disabled>Download PDF</button><button class="btn ghost" id="bridgeExcel" disabled>Download Excel</button><button class="btn ghost" id="bridgePrint" disabled>Print / Save PDF</button><button class="btn ghost" id="bridgeDownload" disabled>Save HTML</button></div>
         <p id="bridgeReportTime" class="vsub">No report selected.</p><div id="bridgeReportOutput" class="bridge-empty"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H6V3Z M14 3v5h4 M9 12h6 M9 16h4"/></svg><strong>A clear view of your books</strong><span>Choose a report and period, then fetch from Tally.<br>You can also open a previously saved report.</span></div></div>`;
@@ -127,8 +127,8 @@
       content.innerHTML = `<div class="bridge-panel"><h3>Connect your Windows PC</h3><p>Open Vriddhi Fuels in Tally Prime, enable its local XML server, and extract the Windows ZIP on that PC. Open Setup.cmd to install. Pairing locks the bridge to this company's identity.</p>
         <div class="bridge-actions"><a class="btn primary" href="${RELEASE}" target="_blank" rel="noopener">Windows installer</a><a class="btn ghost" href="${DOCS}" target="_blank" rel="noopener">Setup instructions</a></div>
         <div class="bridge-actions"><button class="btn primary" id="bridgePair">Create pairing package</button><button class="btn ghost" id="bridgePause">${status && status.config.push_enabled ? 'Pause posting' : 'Resume posting'}</button><button class="btn ghost" id="bridgeRevoke">Disconnect PC</button></div><div id="bridgePairOutput"></div>
-        <p>Starts after Windows sign-in. Enable automatic Tally recovery in Setup.cmd to reopen Tally minimized with your company loaded when employees close it. Keep Windows signed in; the screen may lock. The bridge checks new web vouchers about every 5 seconds, masters every minute, and deletions every hour. Initial sync may take longer.</p></div>
-        <div class="bridge-panel"><h3>Existing vouchers</h3><p>Previously saved vouchers are not automatically reposted. Queue an unlinked voucher from Sync activity; the bridge first checks whether it already exists in Tally.</p><p>New vouchers and supported edits queue automatically after pairing. Resolve conflicting edits in Sync activity. Manual DayBook imports and history deletion are protected while connected.</p></div>`;
+        <p>Starts after Windows sign-in. Enable automatic Tally recovery in Setup.cmd to reopen Tally minimized with your company loaded when employees close it. Keep Windows signed in; the screen may lock. The bridge posts new web vouchers and picks up alterations made in Tally about every 5 seconds, and checks for deletions every hour.</p></div>
+        <div class="bridge-panel"><h3>What the bridge watches</h3><p>Only your HSD, MS and XtraGreen credit vouchers. When one of the app's vouchers is altered, cancelled or deleted in Tally, the app follows. Vouchers the app doesn't have yet, and customer details, still come in through <strong>Import from Tally</strong> on the home screen.</p><p>New vouchers and edits post to Tally automatically after pairing. Resolve conflicting edits in Sync activity.</p></div>`;
       $('bridgePair').onclick = async () => {
         try {
           const data = await rpc('tally_bridge_pair_code');
@@ -150,11 +150,10 @@
       paintActivity();
       loadUnlinked().catch(error);
     } else {
-      content.innerHTML = `<div class="bridge-panel"><h3>Explore Tally data</h3><p>All voucher types and the synced accounting masters. Cancelled or deleted records stay labelled for reference.</p><div class="bridge-form"><div><label for="bridgeKind">Records</label><select id="bridgeKind">${['Voucher','Ledger','Group','StockItem','StockGroup','Unit','Godown','VoucherType','CostCentre','Currency'].map(k=>`<option>${k}</option>`).join('')}</select></div><div><label for="bridgeSearch">Search</label><input id="bridgeSearch" type="search" enterkeyhint="search" placeholder="Name, party or invoice"></div></div><div class="bridge-actions"><button class="btn primary" id="bridgeFind">Search</button><button class="btn ghost" id="bridgePrev">Previous</button><button class="btn ghost" id="bridgeNext">Next 50</button></div><div id="bridgeRecords"></div></div>`;
+      content.innerHTML = `<div class="bridge-panel"><h3>Fuel vouchers in Tally</h3><p>The HSD, MS and XtraGreen credit vouchers the bridge has read from Tally. Cancelled or deleted ones stay labelled for reference.</p><div class="bridge-form"><div class="wide"><label for="bridgeSearch">Search</label><input id="bridgeSearch" type="search" enterkeyhint="search" placeholder="Name, party or invoice"></div></div><div class="bridge-actions"><button class="btn primary" id="bridgeFind">Search</button><button class="btn ghost" id="bridgePrev">Previous</button><button class="btn ghost" id="bridgeNext">Next 50</button></div><div id="bridgeRecords"></div></div>`;
       $('bridgeFind').onclick = () => { offset = 0; browse().catch(error); };
       $('bridgePrev').onclick = () => { offset = Math.max(0,offset-50); browse().catch(error); };
       $('bridgeNext').onclick = () => { offset += 50; browse().catch(error); };
-      $('bridgeKind').onchange = () => { offset=0; browse().catch(error); };
       $('bridgeSearch').onkeydown = e => { if (e.key === 'Enter') $('bridgeFind').click(); };
       offset = 0; browse().catch(error);
     }
@@ -234,9 +233,10 @@
     if(!$('bridgeLedger') || $('bridgeReport').value!=='ledger')return;
     const value=$('bridgeLedger').value.trim();
     try {
-      const items=await rpc('tally_bridge_browse',{p_kind:'Ledger',p_search:value.slice(0,100),p_offset:0});
-      if(!$('bridgeLedgerNames') || $('bridgeLedger').value.trim()!==value)return;
-      $('bridgeLedgerNames').replaceChildren(...items.filter(o=>!o.deleted && o.data.name).map(o=> {const e=document.createElement('option');e.value=o.data.name;return e;}));
+      // Customers from the app's own list; any other ledger name can be typed exactly.
+      const res=await client.from('tally_parties').select('name').ilike('name','%'+value.slice(0,100).replace(/[%_\\]/g,'\\$&')+'%').order('name').limit(50);
+      if(res.error || !$('bridgeLedgerNames') || $('bridgeLedger').value.trim()!==value)return;
+      $('bridgeLedgerNames').replaceChildren(...res.data.map(o=> {const e=document.createElement('option');e.value=o.name;return e;}));
     } catch(e) { /* Exact ledger entry remains usable if suggestions are unavailable. */ }
   }
   function exportMeta() {
@@ -305,7 +305,7 @@
     const a=document.createElement('a'); a.href=url; a.download='Tally-'+reportArgs.p_report+'-'+reportArgs.p_from+'-'+reportArgs.p_to+'.html'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),10000);
   }
   async function browse() {
-    const kind=$('bridgeKind').value;
+    const kind='Voucher';
     const data=await rpc('tally_bridge_browse',{p_kind:kind,p_search:$('bridgeSearch').value.trim(),p_offset:offset});
     if(!$('bridgeRecords')) return;
     $('bridgePrev').disabled=offset===0; $('bridgeNext').disabled=data.length<50;
@@ -314,9 +314,6 @@
     data.forEach(o=> {const d=o.data,tr=document.createElement('tr');
       const record=node('td',d.number?'#'+d.number+' · '+d.voucher_type:d.name);
       const view=node('button','View details'); view.style.display='block'; view.onclick=()=>details(kind,o.guid).catch(error); record.appendChild(view); tr.appendChild(record);
-      if(kind==='Ledger' && !o.deleted && d.name) {
-        const ledger=node('button','Open ledger report');ledger.onclick=()=> {selectTab('reports');$('bridgeReport').value='ledger';$('bridgeLedger').value=d.name;$('bridgeReport').onchange();fetchReport(false).catch(error);};record.appendChild(ledger);
-      }
       const info=node('td',d.party||d.parent||d.unit||'');
       if(d.closing_balance) info.appendChild(node('small','Closing balance: '+d.closing_balance));
       if(o.deleted||d.cancelled) info.appendChild(node('small','Cancelled / deleted in Tally'));
