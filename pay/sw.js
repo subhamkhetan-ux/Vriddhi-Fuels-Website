@@ -2,13 +2,16 @@
 // land quickly; cache fallback keeps the shell available offline. The customer
 // name list is fetched from the Apps Script feed and cached in localStorage by
 // the app itself, so name-matching keeps working after the first online load.
-const CACHE = "vriddhi-pay-v5";
+const CACHE = "vriddhi-pay-v6";
 const SHELL = [
   "./",
   "./index.html",
   "./config.js",
   "./manifest.webmanifest",
   "./icon.png",
+  "./icon-maskable.png",
+  "./apple-touch-icon.png",
+  "./brand.png",
 ];
 
 self.addEventListener("install", (e) => {
