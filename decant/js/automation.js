@@ -700,7 +700,10 @@ export function parseAutomation(ocr, { tanks = [], chart = null, dateOrder = 'MD
       no: e.no, tankId: tank?.id || null, productText: e.productText, product, reading, checks, confidence, timeFrom, region: e.region, frame: e.frame,
     };
     if (tank && product && product !== tank.product) {
-      warnings.push(`The screenshot shows Tank ${e.no} as ${e.productText || product}, but the app has Tank ${e.no} as ${tank.product}. Check Settings.`);
+      // the tank number misread, or the app's Settings wrong: never filed under that tank unasked
+      t.tankId = null;
+      t.mismatch = true;
+      warnings.push(`The screenshot shows Tank ${e.no} as ${e.productText || product}, but the app has Tank ${e.no} as ${tank.product}: pick which tank it is (and check Settings).`);
     }
     if (!tank && e.no) warnings.push(`Tank ${e.no} is not one of the app's tanks.`);
     out.push(t);

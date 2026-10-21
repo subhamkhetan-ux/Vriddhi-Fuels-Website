@@ -74,6 +74,7 @@ LIVE_UPLOAD_TIMEOUT = 8          # seconds: a live upload gives up (the live rea
 LIVE_UPLOAD_BACKOFF = 30         # seconds: after the decant app couldn't be reached, before trying again
 PROBE_STALE_S = 180              # a card whose "Last Updated" time hasn't moved this long: frozen figures
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
+REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here?
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
 MAX_BODY = 16_000
 AUTO_ACTIONS = ("answer", "done", "drop", "after", "release", "cancel", "clear", "reconnect", "add")
@@ -121,13 +122,51 @@ def _read_json(path: Path, default):
         return default
 
 
-def _write_json(path: Path, data, private: bool = False) -> None:
+def _read_json_safe(path: Path, default):
+    """A file that must not be lost (a running decantation): if it can't be
+    read back whole (a power cut mid-write), the copy kept before it, and the
+    bad one put aside, never silently taken as empty. -> (data, what happened)"""
+    if not path.exists():
+        return default, ""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), ""
+    except (OSError, ValueError):
+        aside = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+        try:
+            os.replace(path, aside)
+        except OSError:
+            pass
+        bak = path.with_name(path.name + ".bak")
+        try:
+            return json.loads(bak.read_text(encoding="utf-8")), f"{path.name} was damaged: the copy from before it was used"
+        except (OSError, ValueError):
+            return default, f"{path.name} was damaged and had no good copy (put aside as {aside.name})"
+
+
+def _write_json(path: Path, data, private: bool = False, keep_copy: bool = False) -> None:
+    """Written whole or not at all: a temporary file, on disk, then renamed
+    over it (a full disk leaves the old one as it was). keep_copy: the old one
+    is kept as .bak first (see _read_json_safe)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")   # one per thread
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o644)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, path)
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        if keep_copy and path.exists():
+            try:
+                os.replace(path, path.with_name(path.name + ".bak"))
+            except OSError:
+                pass
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def clean_tanks(value) -> list[int]:
@@ -304,11 +343,11 @@ class Station:
         _write_json(self.home / "last.json", self.last)
         return self.last
 
-    def _settings(self) -> tuple[dict, str]:
+    def _settings(self, quick: bool = False) -> tuple[dict, str]:
         """The decant app's settings: the last ones read if it can't be reached
         now, else its defaults (marked "default": not for saving readings)."""
         try:
-            cfg = self.decant.settings()
+            cfg = self.decant.settings(timeout=LIVE_UPLOAD_TIMEOUT) if quick else self.decant.settings()
             self._cfg = cfg
             return cfg, ""
         except self.decant.DecantError as exc:
@@ -337,8 +376,11 @@ class Station:
             return
         try:
             if self._dropped != self.decant.ist_day():
-                self.decant.drop_old_proofs()
-                self._dropped = self.decant.ist_day()
+                try:                        # (tidying up never costs today's pictures)
+                    self.decant.drop_old_proofs()
+                    self._dropped = self.decant.ist_day()
+                except self.decant.DecantError:
+                    pass
             # one picture per tank (its own card), so a result shows each
             # tank's stock before and after on its own
             for no in sorted(saved):
@@ -485,9 +527,9 @@ class Station:
                 self._release()
             live.update(state="live", session=session, connected=now_iso())
             while not live["stop"].is_set():
-                started = time.time()
+                started = time.monotonic()           # (not the wall clock: it can jump when the VM wakes)
                 self._live_read(live)
-                took = time.time() - started
+                took = time.monotonic() - started
                 live["read_s"] = round(took, 1)
                 try:
                     self.auto.on_read(live)            # an automatic decantation follows the stock
@@ -502,10 +544,11 @@ class Station:
                     break
                 # never busier than half the time, however slow the reads get
                 due = started + max(self.auto.interval(live["interval_s"]), 2 * took)
-                live["next_read"] = datetime.fromtimestamp(due, IST).isoformat(timespec="seconds")
-                while time.time() < due and not live["stop"].is_set():
+                live["next_read"] = datetime.fromtimestamp(time.time() + due - time.monotonic(), IST) \
+                    .isoformat(timespec="seconds")
+                while time.monotonic() < due and not live["stop"].is_set():
                     live["wake"].clear()
-                    live["wake"].wait(timeout=min(CHECK_EVERY, max(0.1, due - time.time())))
+                    live["wake"].wait(timeout=min(CHECK_EVERY, max(0.1, due - time.monotonic())))
                     if not session.alive():
                         reason = "AnyDesk ended the session"
                         final = session.screen()          # what AnyDesk shows now
@@ -551,7 +594,7 @@ class Station:
 
     def _live_cfg(self, live) -> dict:
         if not live.get("cfg") or time.time() - live.get("cfg_at", 0) > SETTINGS_EVERY:
-            cfg, _ = self._settings()
+            cfg, _ = self._settings(quick=True)    # (a live read holds the PC: it doesn't wait long)
             if not cfg.get("default") or not live.get("cfg"):
                 live["cfg"] = cfg
             # (defaults: asked again in a minute, not in ten)
@@ -658,7 +701,9 @@ class Station:
         unreachable = False
         for no, r in results.items():
             msg = r.get("message") or ""
-            retry = not r.get("ok") and ("could not be reached" in msg or "refused (5" in msg)
+            # (not reached, the server's trouble, too many requests or too slow: sent again; a real "no": not)
+            retry = not r.get("ok") and ("could not be reached" in msg or "refused (5" in msg
+                                         or "refused (408" in msg or "refused (429" in msg)
             if retry:
                 pending[no] = changed[no]
                 unreachable = True
@@ -708,9 +753,13 @@ class Station:
                     self._release()
             except Exception:  # noqa: BLE001 - the session is over either way
                 traceback.print_exc()
-        _write_json(self.home / "live.json", self.live_last)
-        if self.live is live:               # (never a newer session started meanwhile)
-            self.live = None
+        try:
+            _write_json(self.home / "live.json", self.live_last)
+        except OSError:                     # (a full disk: the session still ends)
+            traceback.print_exc()
+        finally:
+            if self.live is live:           # (never a newer session started meanwhile)
+                self.live = None
         try:
             self.auto.on_live_end(reason, by_you=bool(live.get("stop_reason")))
         except Exception:  # noqa: BLE001
@@ -820,6 +869,15 @@ class Station:
             except Exception:  # noqa: BLE001 - the queue keeps running whatever one job did
                 traceback.print_exc()
 
+    def request_loop(self, stop: threading.Event) -> None:
+        """A phone's "Let the tank stock server finish it" (decant app): looked for
+        every REQUEST_EVERY seconds."""
+        while not stop.wait(REQUEST_EVERY):
+            try:
+                self.auto.check_requests()
+            except Exception:  # noqa: BLE001 - looked for again next time
+                traceback.print_exc()
+
     def _queue_once(self) -> None:
         for req in sorted(QUEUE.glob("*.req")):
             job = str(req)[:-4]
@@ -926,6 +984,16 @@ class Handler(BaseHTTPRequestHandler):
         return not err
 
     def do_GET(self):
+        try:
+            self._get()
+        except Exception:  # noqa: BLE001 - always an answer the page can show
+            traceback.print_exc()
+            try:
+                self._json(500, {"error": "That didn't work on the server."})
+            except OSError:
+                pass
+
+    def _get(self):
         if not self._allowed():
             return
         url = urlparse(self.path)
@@ -969,7 +1037,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not hmac.compare_digest(self.headers.get("X-TS-CSRF", ""), self.server.csrf):  # type: ignore[attr-defined]
             return self._json(403, {"error": "This page is out of date. Reload it and try again."})
-        size = int(self.headers.get("Content-Length") or 0)
+        try:
+            size = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            size = -1
+        if size < 0:
+            return self._json(400, {"error": "Bad request."})
         if size > MAX_BODY:
             return self._json(413, {"error": "Request too large."})
         try:
@@ -995,6 +1068,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"settings": self.station.save_settings(body)})
             if path == "/api/auto/check":
                 return self._json(200, self.station.auto.check(str(body.get("invoice_no") or ""), body.get("plan") or {}))
+            if path == "/api/auto/takeover":
+                return self._json(202, {"auto": self.station.auto.take_over(str(body.get("session_id") or ""))})
             if path == "/api/auto/start":
                 return self._json(202, {"auto": self.station.auto.start(str(body.get("invoice_no") or ""),
                                                                         body.get("plan") or {})})
@@ -1004,6 +1079,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": str(exc)})
         except RuntimeError as exc:
             return self._json(409, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001 - always an answer the page can show
+            traceback.print_exc()
+            msg = "the server's disk is full" if isinstance(exc, OSError) and exc.errno == 28 else type(exc).__name__
+            return self._json(500, {"error": f"That didn't work on the server ({msg})."})
         self._json(404, {"error": "Not found."})
 
     def _capture(self, tanks, upload, decantation):
@@ -1036,6 +1115,7 @@ def main(argv=None) -> int:
     station.auto.resume()      # an automatic decantation that was running carries on
     stop = threading.Event()
     threading.Thread(target=station.queue_loop, args=(stop,), daemon=True, name="queue").start()
+    threading.Thread(target=station.request_loop, args=(stop,), daemon=True, name="requests").start()
     hosts = os.environ.get("TANK_STOCK_HOSTS", "").split(",")
     users = os.environ.get("TANK_STOCK_USERS", "").split(",")
     httpd = make_server(station, args.port, hosts, users)

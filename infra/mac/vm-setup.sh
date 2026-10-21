@@ -35,6 +35,30 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommend
   ca-certificates curl git python3 python3-venv tesseract-ocr \
   libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libegl-mesa0 libgbm1 mesa-utils fonts-dejavu-core
 
+# The clock: the VM pauses while the Mac sleeps and wakes up behind. A wrong
+# clock breaks the secure connection to the decant app ("could not be reached")
+# and stamps readings wrongly, so it is synced, and again every minute.
+sudo timedatectl set-ntp true || true
+sudo tee /etc/systemd/system/time-resync.service >/dev/null <<'UNIT'
+[Unit]
+Description=Sync the clock again (the VM may have slept with the Mac)
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart systemd-timesyncd.service
+UNIT
+sudo tee /etc/systemd/system/time-resync.timer >/dev/null <<'UNIT'
+[Unit]
+Description=Sync the clock every minute
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=1s
+[Install]
+WantedBy=timers.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable --now time-resync.timer >/dev/null 2>&1 || true
+
 say "2/5 The 'runner' user the tank stock page runs as"
 id runner >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash runner
 sudo install -d -o runner -g runner /opt/agents

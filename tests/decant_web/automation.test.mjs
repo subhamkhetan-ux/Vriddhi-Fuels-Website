@@ -115,6 +115,9 @@ test('a tank the app has as another product is flagged', () => {
   const tanks = DEFAULT_TANKS.map((t) => (t.no === 3 ? { ...t, product: 'MS' } : t));
   const res = parseAutomation(OCR[3], { ...OPTS, tanks });
   assert.match(res.warnings[0], /Tank 3 as High Speed Diesel, but the app has Tank 3 as MS/);
+  // never filed under Tank 3 unasked: a misread number would put Diesel's stock on the petrol tank
+  assert.equal(res.tanks[0].tankId, null);
+  assert.equal(res.tanks[0].product, 'HSD');
 });
 
 test('no tank card at all', () => {

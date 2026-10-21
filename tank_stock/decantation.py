@@ -369,9 +369,16 @@ def new_session(inv: dict, layout: dict, sessions: list, operator: str = "Tank s
 
 # ---- the run ----------------------------------------------------------------
 
+_FRACTION = re.compile(r"\.(\d{1,6})(?=[+-]\d\d:?\d\d$|$)")
+
+
 def _ts(value) -> float | None:
+    """An ISO time as Postgres or a phone writes it. (Python before 3.11 only
+    takes 3 or 6 fraction digits; Postgres drops trailing zeros: .12)"""
+    text = str(value).replace("Z", "+00:00")
+    text = _FRACTION.sub(lambda m: "." + m.group(1).ljust(6, "0"), text, count=1)
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        return datetime.fromisoformat(text).timestamp()
     except ValueError:
         return None
 
@@ -435,6 +442,79 @@ class Decantation:
             run._st(t, now)
         run.log("Set up: " + "; ".join(f"C{', C'.join(map(str, t['chambers']))} into Tank {t['tankNo']}"
                                        for t in d["tanks"]) + ". Waiting for the stock to rise.", now)
+        return run
+
+    @classmethod
+    def take_over(cls, session: dict, settings: dict, volumes: dict, now: float | None = None,
+                  befores: dict | None = None) -> "Decantation":
+        """A decantation started in the decant app, carried on from where it is:
+        its plan, chambers and stock before stay the app's. Each tank picks up
+        at its stage, by its live stock now (``volumes``: {tank id: litres}):
+
+        - waiting: waits for its stock to rise (its stock before is read again
+          if it sells meanwhile); ``befores`` gives one it had none of;
+        - decanting: followed from here (all that went in since its stock
+          before counts); one that hasn't risen yet waits for the rise instead;
+        - settling: settles in full from now, then its stock after;
+        - read: done.
+        Refused (ValueError, said plainly) if it can't be followed safely."""
+        now = now or time.time()
+        d = session.get("data") or {}
+        if session.get("status") not in ("draft", "decanting", "settling"):
+            raise ValueError("It is already finished or cancelled in the decant app.")
+        rows = d.get("tanks") or []
+        if not rows:
+            raise ValueError("It has no tank set up yet in the decant app: plan it there first (or start it here).")
+        known = {t["id"]: t for t in settings["tanks"]}
+        gone = [t.get("tankNo") or t["tank"] for t in rows if t["tank"] not in known]
+        if gone:
+            raise ValueError(f"Tank {', '.join(map(str, gone))} is no longer in the decant app's settings.")
+        for t in rows:
+            t["stage"] = tank_stage(session, t)
+            t["tankNo"] = t.get("tankNo") or known[t["tank"]]["no"]
+            if t["stage"] == "read":
+                continue
+            if (t.get("before") or {}).get("volume") is None:
+                if (befores or {}).get(t["tank"]):
+                    t["before"] = befores[t["tank"]]
+                    d.setdefault("before", {})[t["tank"]] = t["before"]
+                elif t["stage"] == "waiting":
+                    raise ValueError(f"Tank {t['tankNo']} has no stock before.")
+                else:
+                    raise ValueError(f"Tank {t['tankNo']} is {t['stage']} but has no stock before in the app.")
+            if volumes.get(t["tank"]) is None:
+                raise ValueError(f"Tank {t['tankNo']}'s stock isn't on the PC's screen.")
+        d["auto"] = {"by": "tank stock agent", "arrived": {}, "questions": [], "released": False, "takenOver": iso(now)}
+        d.pop("autoRequest", None)
+        d["step"] = "decant"
+        run = cls(session, settings)
+        said = []
+        for t in rows:
+            st = run._st(t, now)
+            if t["stage"] == "read":
+                continue
+            before, v = t["before"]["volume"], float(volumes[t["tank"]])
+            name = f"Tank {t['tankNo']}"
+            if t["stage"] == "decanting" and v - before < START_RISE_L:
+                # marked started in the app, but nothing has gone in yet: its start is the rise
+                t["stage"], t["startedAt"] = "waiting", None
+                said.append(f"{name} marked started but hasn't risen yet ({v:,.0f} L): waiting for the rise")
+            elif t["stage"] == "waiting":
+                said.append(f"{name} waiting (stock before {before:,.2f} L)")
+            if t["stage"] == "waiting":
+                st["low"] = [now, min(before, v)]
+            elif t["stage"] == "decanting":
+                t["startedAt"] = t.get("startedAt") or iso(now)
+                st.update(lastRiseAt=now, lastRiseV=v, segFrom=before, flowing=True, acc=0.0, low=None)
+                said.append(f"{name} decanting, +{v - before:,.0f} L of {t['litres']:,.0f} L in")
+            elif t["stage"] == "settling":
+                t["doneAt"] = t.get("doneAt") or iso(now)
+                st.update(settledFrom=v, flowing=False, peak=None, afterTries=0, settleFrom=now,
+                          lastRiseV=v, segFrom=before)
+                said.append(f"{name} settling at {v:,.0f} L (it settles in full from now)")
+        sync_status(session)
+        run._sync_auto()
+        run.log("Taken over from the decant app: " + "; ".join(said) + ".", now, "done")
         return run
 
     # -- helpers --
@@ -870,7 +950,8 @@ class Decantation:
                             "the stock after is taken from before the fall.", now, "warn")
             return
         settle = self.settings["settleMinutes"] * 60
-        since = now - (_ts(t.get("doneAt")) or now)
+        # (from when it was done, or from when the clock was last found to have jumped: settled again in full)
+        since = now - max(_ts(t.get("doneAt")) or now, st.get("settleFrom") or 0)
         window = [x for when, x in st["history"] if now - when <= settle]
         covered = any(now - when >= settle - 15 for when, _ in st["history"])
         steady = covered and window and max(window) - min(window) <= max(SETTLE_BAND_L, SETTLE_BAND_PCT / 100 * v)
@@ -903,6 +984,28 @@ class Decantation:
                                 "Is a chamber going into the wrong tank?", now, "warn")
         else:
             o["over"] = 0
+
+    def clock_jumped(self, jump: float, now: float) -> None:
+        """The server's clock was set right by `jump` seconds (the VM slept with
+        the Mac and woke up behind). Times kept here no longer say how long
+        anything took, so nothing is decided from them: a settling tank
+        settles again in full, a still pipe and a waiting tank are timed from
+        now. Fail-safe: it only ever waits longer."""
+        for t in self.s["data"]["tanks"]:
+            st = self._st(t, now)
+            if t["stage"] == "settling":
+                st.update(history=[], settleFrom=now, afterTries=0)
+            else:
+                st["history"] = [[when + jump, v] for when, v in st.get("history") or []]
+            if st.get("lastRiseAt") is not None:
+                st["lastRiseAt"] = now
+            st["waitSince"] = now
+            if st.get("low"):
+                st["low"] = [st["low"][0] + jump, st["low"][1]]
+        for q in self.state["questions"].values():
+            q["since"] = iso(now)
+        self.log(f"The server's clock was {'behind' if jump > 0 else 'ahead'} by {abs(jump) / 60:,.0f} min and has "
+                 "been set right: settling and waiting times start again from now.", now, "warn")
 
     def _waiting_long(self, now: float, work: dict) -> None:
         rows = self.s["data"]["tanks"]

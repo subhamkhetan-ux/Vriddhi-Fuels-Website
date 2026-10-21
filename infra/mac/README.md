@@ -131,6 +131,20 @@ cd ~/Vriddhi-Fuels-Website && git pull && bash infra/mac/vm-setup.sh
 To change the saved AnyDesk login or bot later, run
 `ASK_AGAIN=1 bash infra/mac/vm-setup.sh`.
 
+## If the page says "The decant database could not be reached"
+
+The VM couldn't reach the decant app's cloud. The message now says why (no
+internet, a name that can't be looked up, the clock, no answer in time). To
+check each step in turn, in the VM:
+
+```bash
+cd ~/Vriddhi-Fuels-Website && git pull && bash infra/mac/check-cloud.sh
+```
+
+Each line it marks **FIX** says what to do. The usual cause is the VM's clock
+after the Mac slept: `vm-setup.sh` now keeps it synced (again every minute),
+so run it once more after pulling.
+
 ## If the Mac will be away for a long time
 
 Tank stock can go back on the Oracle server. It's slower there, and it uses

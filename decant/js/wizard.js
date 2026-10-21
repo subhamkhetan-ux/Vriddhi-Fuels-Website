@@ -436,7 +436,7 @@ function stepDecant(s) {
   const allRead = d.tanks.length > 0 && st.every((x) => x === 'read');
   const started = d.tanks.some((t) => startOf(s, t));
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
-  return `${autoCard(s)}<div class="card accent">
+  return `${autoCard(s)}${handoverCard(s, allRead)}<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
       ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
@@ -450,6 +450,7 @@ function stepDecant(s) {
     ${routingCards(s)}
     ${st.includes('read') ? '<div class="row-actions" style="justify-content:flex-start;margin-top:0"><button class="btn sm ghost" data-wz="route">✎ Which chamber went where?</button></div>' : ''}
     <button class="cta block" data-wz="finish" ${allRead ? '' : 'disabled'}>Finish & save the result</button>
+    ${s.data.reopened ? '<div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="keepResult">↩ Keep the saved result</button></div>' : ''}
     ${allRead && leftInTruck(s).length ? `<div class="hint" style="margin-top:6px">C${compactNos(leftInTruck(s).map((c) => c.no))} ${leftInTruck(s).length > 1 ? 'stay' : 'stays'} in the truck — once this is saved, "Decant the rest" on the list decants ${leftInTruck(s).length > 1 ? 'them' : 'it'}.</div>` : ''}
     ${started ? '' : '<div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="backToPlan">◀ Plan</button></div>'}`;
 }
@@ -466,6 +467,37 @@ function autoCard(s) {
       <div class="sect-title" style="margin:0">🤖 Run by the tank stock agent</div>
       <div class="hint">It follows the tanks' real stock: each tank starts when its stock rises, is done when it stops, and its stock after is read once it has settled; then the result is saved here. Nothing to do on this phone — but anything you do here counts.</div>
       ${qs ? `<ul class="msgs">${qs}</ul><div class="hint">Answer on the tank stock page, or tap ✓ done on the tank here.</div>` : ''}
+      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="takeBack">Take it back on this phone</button></div>
+    </div>`;
+}
+
+// Started here, finished by the tank stock server: it follows each tank's
+// real stock from now on (its stock before and chambers stay these), takes the
+// stock after once settled and saves the result. It looks for this every half
+// minute; if it can't take it, it says why here and nothing changes.
+const REQUEST_STALE_MIN = 15;              // (tank_stock/auto.py REQUEST_FRESH_S: older ones aren't taken up)
+function handoverCard(s, allRead) {
+  const a = s.data.auto;
+  if ((a && !a.released) || allRead || !['draft', 'decanting', 'settling'].includes(s.status) || !s.data.tanks.length) return '';
+  const req = s.data.autoRequest;
+  if (!req) {
+    return `<div class="card">
+        <div class="row-actions" style="justify-content:flex-start;margin:0"><button class="btn" data-wz="handover">🤖 Let the tank stock server finish it</button></div>
+        <div class="hint">It follows each tank's real stock from the IOCL automation: starts, done, settled, stock after — and saves the result here. The stock before and chambers stay as set here.</div>
+      </div>`;
+  }
+  const mins = (Date.now() - Date.parse(req.at || 0)) / 60000;
+  const status = req.error
+    ? `<div class="banner bad">The tank stock server couldn't take it: ${esc(req.error)}. It carries on here as before.</div>`
+    : mins > REQUEST_STALE_MIN
+      ? `<div class="banner">No answer from the tank stock server for ${Math.round(mins)} min — is the Mac on and online? It carries on here meanwhile.</div>`
+      : `<div class="hint">Asked the tank stock server at ${fmtTime(req.at)} — it takes over within a minute (it looks every half minute). Carry on here meanwhile.</div>`;
+  return `<div class="card">
+      <div class="sect-title" style="margin:0">🤖 Handing over to the tank stock server</div>
+      ${status}
+      <div class="row-actions" style="justify-content:flex-start">
+        ${req.error || mins > REQUEST_STALE_MIN ? '<button class="btn sm" data-wz="handover">Ask again</button>' : ''}
+        <button class="btn sm ghost" data-wz="handoverCancel">Don't hand over</button></div>
     </div>`;
 }
 
@@ -696,6 +728,21 @@ function afterWarnings(s, t) {
   return out;
 }
 
+// A stock after that can't be one: the very reading taken before, or a screen
+// whose own time is no later than the stock before's (an old screenshot used
+// again). Not "save anyway": the variation would be made up.
+function afterBlocks(t) {
+  const a = t.after;
+  const b = t.before;
+  if (!a || !b) return [];
+  if (a.volume === b.volume && a.readingAt === b.readingAt) return ['its stock after is the same reading as its stock before — take a new screenshot'];
+  if (a.timeRead !== false && b.timeRead !== false && a.readingAt && b.readingAt
+      && Date.parse(a.readingAt) <= Date.parse(b.readingAt)) {
+    return [`its stock after (${fmtTime(a.readingAt)}) is from no later than its stock before (${fmtTime(b.readingAt)}) — take a new screenshot`];
+  }
+  return [];
+}
+
 // When the after-stock says the chambers went differently from the plan.
 function routingCards(s) {
   const d = s.data;
@@ -789,6 +836,36 @@ async function onClick(e) {
   if (act === 'startAll') { await startTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'waiting').map((x) => x.tank)); return; }
   if (act === 'decanted') { await doneTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'decanting').map((x) => x.tank)); return; }
   if (act === 'finish') { await finish(s); return; }
+  if (act === 'handover' || act === 'handoverCancel') {
+    s = latest(s);
+    if (s.data.auto && !s.data.auto.released) return;     // (it took it over meanwhile)
+    if (act === 'handover') s.data.autoRequest = { at: new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    else delete s.data.autoRequest;
+    await persist(s);
+    return;
+  }
+  if (act === 'takeBack') {
+    if (!(await ask('Take it back on this phone?', 'The tank stock server stops following it; finish it here (each tank\'s ✓ done and its stock after).', { ok: 'Take it back' }))) return;
+    s = latest(s);
+    if (!s.data.auto || s.data.auto.released) return;
+    s.data.auto = { ...s.data.auto, released: true, questions: [] };
+    await persist(s);
+    toast('It is yours again on this phone.');
+    return;
+  }
+  if (act === 'keepResult') {                // back to the result as it was saved, nothing changed
+    const was = s.data.reopened;
+    if (!was) return;
+    for (const w of was.tanks) {
+      const t = s.data.tanks.find((x) => x.tank === w.tank);
+      if (t) Object.assign(t, { after: w.after, result: w.result, stage: w.stage });
+    }
+    s.status = 'done';
+    s.completed_at = was.completed_at;
+    delete s.data.reopened;
+    await persist(s);
+    return;
+  }
   const startBtn = t.closest('[data-starttank]');
   if (startBtn) { await startTanks(s, [startBtn.dataset.starttank]); return; }
   const doneBtn = t.closest('[data-donetank]');
@@ -826,6 +903,8 @@ async function onClick(e) {
     if (!(await ask('Change the after-stock?', 'The result is worked out again when you finish.', { ok: 'Change it' }))) return;
     s = latest(s);
     if (s.status !== 'done') return;
+    // the saved result, to go back to unchanged ("Keep the saved result")
+    s.data.reopened = { completed_at: s.completed_at, tanks: s.data.tanks.map((x) => ({ tank: x.tank, after: x.after, result: x.result, stage: x.stage })) };
     s.status = 'settling';
     s.completed_at = null;
     await persist(s);
@@ -1240,6 +1319,8 @@ async function finish(s) {
     toast('Every tank needs to be done, with its stock after.');
     return;
   }
+  const blocked = d.tanks.flatMap((t) => afterBlocks(t).map((w) => `${tankName(t.tank)}: ${w}`));
+  if (blocked.length) { toast(`${blocked.join('. ')}.`, 6000); return; }
   const problems = d.tanks.flatMap((t) => afterWarnings(s, t).map((w) => `${tankName(t.tank)}: ${w}`));
   if (problems.length && !(await ask('Check the after-stock', `<ul>${problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>Save the result anyway?`, { ok: 'Save anyway', cancel: 'Fix it' }))) return;
   if (latest(s) !== s) {                     // changed while asking: finish what it is now
@@ -1255,6 +1336,7 @@ async function finish(s) {
   d.completedAt = new Date().toISOString();
   s.completed_at = d.completedAt;
   s.status = 'done';
+  delete d.reopened;
   await persist(s);
 }
 

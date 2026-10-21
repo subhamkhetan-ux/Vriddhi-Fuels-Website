@@ -354,6 +354,10 @@
       img.disabled = !state?.login_saved;
       img.addEventListener("click", () => captureTanks([...picked]));
       row.appendChild(img);
+      const more = el("button", "alt", "Carry on one from the decant app");
+      more.disabled = !state?.login_saved;
+      more.addEventListener("click", openTakeover);
+      row.appendChild(more);
       if (a && !ACTIVE.includes(a.phase)) {
         const c = el("button", "alt", "Clear");
         c.addEventListener("click", () => autoAct("clear"));
@@ -362,7 +366,53 @@
       box.appendChild(row);
       return;
     }
-    renderSetup(box);
+    if (setup.mode === "open") renderOpen(box); else renderSetup(box);
+  }
+
+  // A decantation started in the decant app (its stock before and chambers
+  // set there), followed and finished from here.
+  async function openTakeover() {
+    setStatus("autoStatus", "Loading the decant app's decantations…");
+    try {
+      const options = await api("GET", "api/auto/options");
+      setup = { mode: "open", options };
+      setStatus("autoStatus", (options.open || []).length ? "" : "Nothing is being decanted in the decant app right now.",
+        !(options.open || []).length);
+      renderAuto();
+    } catch (e) {
+      setStatus("autoStatus", e.message, true);
+    }
+  }
+
+  const STAGE = { waiting: "waiting", decanting: "decanting", settling: "settling", read: "stock after read" };
+  function renderOpen(box) {
+    box.appendChild(el("div", "note", "Carried on from where it is: its stock before and chambers stay the decant app's. "
+      + "A waiting tank starts when its stock rises; a decanting one is followed from now; a settling one settles in full "
+      + "from now, then its stock after is read and the result saved in the decant app."));
+    for (const o of setup.options.open || []) {
+      const card = el("div", "tank");
+      const head = el("div", "tank-head");
+      head.appendChild(el("strong", "", `${o.tt_no || "?"} · invoice ${o.invoice_no || ""}`));
+      head.appendChild(el("span", "stage", o.status));
+      card.appendChild(head);
+      const ul = el("ul", "msgs");
+      for (const t of o.tanks) {
+        ul.appendChild(el("li", "", `Tank ${t.no}: ${STAGE[t.stage] || t.stage} · C${(t.chambers || []).join(", C")} (${kl(t.litres)})`
+          + (t.before != null ? ` · stock before ${litres(t.before)}` : " · no stock before yet (read when taken over)")));
+      }
+      card.appendChild(ul);
+      if (o.byAgent) {
+        card.appendChild(el("div", "note", "The decant app shows it run by the tank stock agent, but it isn't running here "
+          + "(a restart?): take it over to carry on."));
+      }
+      const b = el("button", "main", "Take over");
+      b.addEventListener("click", async () => { setup = null; await autoAct("takeover", { session_id: o.id }); });
+      card.appendChild(b);
+      box.appendChild(card);
+    }
+    const back = el("button", "alt", "Close");
+    back.addEventListener("click", () => { setup = null; renderAuto(); });
+    box.appendChild(back);
   }
 
   async function openSetup() {

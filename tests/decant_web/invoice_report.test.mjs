@@ -236,3 +236,9 @@ test('chart axis always reaches the biggest value', async () => {
   assert.deepEqual(niceTicks(-117, 0).ticks, [-150, -100, -50, 0]);
   assert.deepEqual(niceTicks(-40, 100).ticks, [-50, 0, 50, 100]);      // an exact top stays tight
 });
+
+test('a CSV cell a spreadsheet would run as a formula comes out as text; numbers stay numbers', async () => {
+  const { toCsv } = await import('../../decant/js/report.js');
+  const out = toCsv([['=HYPERLINK("x")', '+1', '@SUM(A1)', '-5', -5, '12.5', 'OD23U8210']]);
+  assert.equal(out, `"'=HYPERLINK(""x"")",'+1,'@SUM(A1),-5,-5,12.5,OD23U8210`);
+});

@@ -82,7 +82,7 @@ class Cloud:
         if self.down:
             raise decant.DecantError("The decant database could not be reached (URLError).")
 
-    def settings(self):
+    def settings(self, timeout=30):
         self._up()
         return {"tanks": decant.DEFAULT_TANKS, "dateOrder": "MDY", "chart": CHART,
                 "app": dz.settings_with({}, decant.DEFAULT_TANKS)}
@@ -95,11 +95,11 @@ class Cloud:
         self._up()
         return copy.deepcopy(self.stock)
 
-    def get_session(self, sid):
+    def get_session(self, sid, timeout=30):
         self._up()
         return copy.deepcopy(self.sessions.get(sid))
 
-    def save_session(self, s, base=None):
+    def save_session(self, s, base=None, timeout=30):
         self._up()
         cur = self.sessions.get(s["id"])
         if base and (not cur or abs((dz._ts(cur["updated_at"]) or 0) - (dz._ts(base) or 0)) > 0.0005):
@@ -451,7 +451,7 @@ def test_a_tank_whose_card_isnt_updating_is_not_started(rig, monkeypatch):
     assert a.phase == "failed" and "Tank 2: the card on the PC isn't updating" in a.info["error"]
     assert "no stock is taken from frozen figures" in a.info["error"]
     assert rig.cloud.sessions == {} and rig.cloud.shots == []          # nothing recorded from frozen figures
-    assert any("could not start" in m for m in rig.told)
+    assert wait_for(lambda: any("could not start" in m for m in rig.told))   # (told just after)
 
 
 def test_cards_that_update_start_as_usual(rig, monkeypatch):
@@ -908,3 +908,203 @@ def test_chambers_added_to_a_tank_a_phone_settled_are_followed():
         run.feed({"T2": truck.volume("T2", secs)}, T0 + secs)
         secs += 10
     assert 3 in run.state["tanks"]["T2"]["arrived"] or run.row("T2")["stage"] in ("settling", "read")
+
+
+def test_the_clock_set_right_after_the_mac_slept_takes_nothing_early(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 700)
+    assert a.run.row("T2")["stage"] == "settling" and a.run.row("T2")["after"] is None
+    rig.clock.t += 2 * 3600                         # the VM woke up 2 h behind and was set right
+    read(rig)
+    assert a.run.row("T2")["stage"] == "settling" and a.run.row("T2")["after"] is None   # not "unsteady, read now"
+    assert any("clock" in m for m in rig.told)
+    drive(rig, 700 + 2 * 3600 + 3600)               # it settles again in full, then the stock after
+    assert a.run.row("T2")["after"] is not None
+
+
+def test_a_decantation_file_cut_short_comes_back_from_its_copy(rig):
+    a = start(rig, {"2": "T2"})
+    sid = a.run.s["id"]
+    read(rig)                                       # written twice: the copy is there
+    (rig.home / auto.AUTO_FILE).write_text('{"info": {"phase": "runn')   # a power cut mid-write
+    again = service.Station(home=rig.home, session_cls=Session, decant_mod=rig.cloud, notify=rig.told.append,
+                            notify_photo=lambda png, caption: True)
+    assert again.auto.phase == "running" and again.auto.run.s["id"] == sid
+    again.auto.resume()
+    assert any("damaged" in m for m in rig.told)
+    assert list(rig.home.glob(auto.AUTO_FILE + ".corrupt-*"))        # the bad one kept aside
+    rig.st.live = None
+
+
+def test_one_odd_empty_answer_doesnt_count_as_deleted(rig, monkeypatch):
+    a = start(rig, {"2": "T2"})
+    real = rig.cloud.get_session
+    answers = iter([None])
+    monkeypatch.setattr(rig.cloud, "get_session", lambda sid, timeout=30: next(answers, "real") == "real" and real(sid) or None)
+    a.info["synced"] = 0
+    read(rig)
+    assert a.phase == "running"                     # once: not "deleted in the decant app"
+
+
+# ---- a decantation started in the decant app, carried on here -----------------
+
+def app_session(rig, tanks, status="decanting"):
+    """A decantation a phone set up in the decant app: {tank id: (chambers, stage, started s, done s)}."""
+    cfg = rig.cloud.settings()
+    layout = dz.layout_for(INVOICE, cfg["app"])
+    s = dz.new_session(dict(INVOICE), layout, [])
+    d = s["data"]
+    d["step"] = "decant"
+    litres = {c["no"]: c["litres"] for c in layout["chambers"]}
+    d["plan"] = [{"no": c["no"], "product": c["product"], "litres": c["litres"], "tank": None} for c in layout["chambers"]]
+    d["tanks"] = []
+    for tank_id, (chambers, stage, started, done) in tanks.items():
+        no = int(tank_id[1:])
+        before = {"volume": rig.world.base.get(no, 5000.0), "readingAt": dz.iso(T0), "timeRead": True, "source": "photo",
+                  "capacity": 20000}
+        for p in d["plan"]:
+            if p["no"] in chambers:
+                p["tank"] = tank_id
+        d["before"][tank_id] = before
+        d["tanks"].append({"tank": tank_id, "tankNo": no, "product": PRODUCT.get(no, "HSD"), "litres": sum(litres[c] for c in chambers),
+                           "chambers": chambers, "before": before, "after": None, "pricePerL": None, "stage": stage,
+                           "startedAt": dz.iso(T0 + started) if started is not None else None,
+                           "doneAt": dz.iso(T0 + done) if done is not None else None})
+    s["status"] = status
+    s["updated_at"] = dz.iso(rig.clock())
+    rig.cloud.sessions[s["id"]] = copy.deepcopy(s)
+    return s["id"]
+
+
+def take_over(rig, sid, requested=False):
+    a = rig.st.auto
+    if requested:
+        a.check_requests()
+    else:
+        a.take_over(sid)
+    assert wait_for(lambda: rig.st.live is not None)
+    read(rig)
+    end = real_time.time() + 5
+    while a.phase == "starting" and real_time.time() < end:
+        real_time.sleep(0.02)
+        if a.phase == "starting" and rig.st.live:
+            read(rig)
+    return a
+
+
+def test_a_decantation_started_in_the_app_is_carried_on_and_finished_here(rig):
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.clock.t = T0 + 200                          # C2 is going into Tank 2 (started on a phone)
+    sid = app_session(rig, {"T2": ([2], "decanting", 50, None)})
+    a = take_over(rig, sid)
+    assert a.phase == "running", a.info
+    s = cloud_session(rig)
+    assert s["data"]["auto"]["takenOver"] and not s["data"]["auto"]["released"]
+    t2 = s["data"]["tanks"][0]
+    assert t2["stage"] == "decanting" and t2["before"]["volume"] == 10755.0    # the app's stock before, kept
+    assert any("Took over a decantation" in m for m in rig.told)
+    drive(rig, 3000)
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    t2 = s["data"]["tanks"][0]
+    assert s["status"] == "done" and t2["result"]["variation"] == -10.0 and t2["after"]["height"]
+
+
+def test_a_tank_marked_started_in_the_app_but_not_rising_waits_for_its_rise(rig):
+    sid = app_session(rig, {"T2": ([2], "decanting", 0, None)})               # tapped Start, pipe not on yet
+    rig.clock.t = T0 + 30
+    a = take_over(rig, sid)
+    assert a.run.row("T2")["stage"] == "waiting" and a.run.row("T2")["startedAt"] is None
+    rig.world.flows = [(2, 100, 4990, 495)]
+    drive(rig, 3000)
+    t2 = cloud_session(rig)["data"]["tanks"][0]
+    assert a.phase == "finished" and t2["result"]["variation"] == -10.0
+    assert dz._ts(t2["startedAt"]) >= T0 + 100                                 # its real start
+
+
+def test_a_settling_tank_taken_over_settles_in_full_before_its_stock_after(rig):
+    rig.world.flows = [(2, 0, 4990, 495)]
+    rig.clock.t = T0 + 560
+    sid = app_session(rig, {"T2": ([2], "settling", 0, 500)}, status="settling")
+    a = take_over(rig, sid)
+    settle = a.run.settings["settleMinutes"] * 60
+    drive(rig, 560 + settle - 60)
+    assert a.run.row("T2")["after"] is None                                     # not before a full settle here
+    drive(rig, 560 + settle * 3 + 300)
+    assert a.phase == "finished" and cloud_session(rig)["data"]["tanks"][0]["result"]["variation"] == -10.0
+
+
+def test_a_phone_asking_the_server_to_finish_it_is_taken_up(rig):
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.clock.t = T0 + 200
+    sid = app_session(rig, {"T2": ([2], "decanting", 50, None)})
+    rig.cloud.sessions[sid]["data"]["autoRequest"] = {"at": dz.iso(rig.clock()), "by": "phone"}
+    rig.cloud.handover_requests = lambda timeout=10: [
+        {"id": x["id"], "updated_at": x["updated_at"], "request": x["data"]["autoRequest"]}
+        for x in rig.cloud.sessions.values() if isinstance(x["data"].get("autoRequest"), dict)]
+    a = take_over(rig, sid, requested=True)
+    assert a.phase == "running" and a.info["takeover"] == sid
+    assert "autoRequest" not in cloud_session(rig)["data"]                     # answered: it runs it now
+    # a second phone's request meanwhile is told why not
+    sid2 = app_session(rig, {"T3": ([4], "decanting", 50, None)})
+    rig.cloud.sessions[sid2]["data"]["autoRequest"] = {"at": dz.iso(rig.clock()), "by": "phone"}
+    a.check_requests()
+    assert "running another decantation" in rig.cloud.sessions[sid2]["data"]["autoRequest"]["error"]
+
+
+def test_a_takeover_that_cant_follow_a_tank_leaves_it_in_the_app_and_says_why(rig):
+    sid = app_session(rig, {"T9": ([2], "decanting", 0, None)})                # a tank not in the settings
+    rig.cloud.sessions[sid]["data"]["autoRequest"] = {"at": dz.iso(rig.clock()), "by": "phone"}
+    rig.cloud.handover_requests = lambda timeout=10: [
+        {"id": x["id"], "updated_at": x["updated_at"], "request": x["data"]["autoRequest"]}
+        for x in rig.cloud.sessions.values() if isinstance(x["data"].get("autoRequest"), dict)]
+    a = take_over(rig, sid, requested=True)
+    assert a.phase == "failed" and "no longer in the decant app's settings" in a.info["error"]
+    s = rig.cloud.sessions[sid]
+    assert not s["data"].get("auto") and s["status"] == "decanting"            # carried on in the app, as it was
+    assert wait_for(lambda: "no longer in the decant app's settings"
+                    in rig.cloud.sessions[sid]["data"]["autoRequest"].get("error", ""))
+    a.check_requests()                                                           # answered: never tried again
+    assert a.phase == "failed"
+
+
+def test_a_phone_taking_it_back_ends_the_run_here(rig):
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.clock.t = T0 + 200
+    sid = app_session(rig, {"T2": ([2], "decanting", 50, None)})
+    a = take_over(rig, sid)
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    s["data"]["auto"]["released"] = True                                          # "Take it back on this phone"
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = s
+    a.info["synced"] = 0
+    drive(rig, 400)
+    assert a.phase == "released"
+
+
+def test_the_page_lists_the_app_decantations_it_can_carry_on(rig):
+    sid = app_session(rig, {"T2": ([2], "decanting", 0, None)})
+    opts = rig.st.auto.options()
+    ones = [o for o in opts["open"] if o["id"] == sid]
+    assert ones and ones[0]["tanks"][0]["stage"] == "decanting" and not ones[0]["byAgent"]
+
+
+def test_a_phone_saving_during_the_takeover_keeps_its_change(rig, monkeypatch):
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.clock.t = T0 + 200
+    sid = app_session(rig, {"T2": ([2], "decanting", 50, None)})
+    real, first = rig.cloud.save_session, {"n": 0}
+
+    def save(s, base=None, timeout=30):
+        if base and first["n"] == 0:                  # a phone saves just before the takeover lands
+            first["n"] = 1
+            row = rig.cloud.sessions[sid]
+            row["data"]["notes"] = "typed on the phone"
+            row["updated_at"] = dz.iso(rig.clock() + 1)
+        return real(s, base=base, timeout=timeout)
+    monkeypatch.setattr(rig.cloud, "save_session", save)
+    a = take_over(rig, sid)
+    assert a.phase == "running", a.info
+    s = rig.cloud.sessions[sid]
+    assert s["data"]["notes"] == "typed on the phone" and s["data"]["auto"]["takenOver"]

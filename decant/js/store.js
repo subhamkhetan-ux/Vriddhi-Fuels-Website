@@ -13,7 +13,7 @@ import { localFrom, withOlder } from './report.js';
 import { logMonths, monthBounds, monthCounts } from './archive.js';
 
 const CFG = window.VRIDDHI_DECANT_CONFIG || {};
-const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
+const SUPABASE_JS = globalThis.DECANT_TEST_SUPABASE_JS || 'https://esm.sh/@supabase/supabase-js@2';   // (tests: a stand-in)
 const LS_KEY = 'vriddhi-decant-v1';
 const DEVICE_KEY = 'vriddhi-decant-device';
 const PROJECT_KEY = 'vriddhi-decant-project';      // the cloud project this phone's copy belongs to
@@ -194,11 +194,28 @@ function queue(table, key) {
 }
 
 const inflight = new Set();          // "table key" being sent now (a change not in the cloud yet)
+const again = new Set();             // ... and changed again meanwhile: sent once that one is in
+// One send per row at a time: a second save while the first is on its way goes
+// after it, on the version the first put there (else it would look like
+// someone else's change had won, and be dropped).
 async function push(table, key) {
   if (!client) { queue(table, key); return false; }
   const id = `${table} ${key}`;
+  if (inflight.has(id)) { again.add(id); queue(table, key); return true; }
   inflight.add(id);
-  try { return await send(table, key); } finally { inflight.delete(id); }
+  let ok;
+  try { ok = await send(table, key); } finally { inflight.delete(id); }
+  if (again.delete(id)) return push(table, key);
+  return ok;
+}
+
+// Not sent: kept to send again. -> false when the cloud couldn't be reached
+// (the rest waits too), 'refused' when it answered no (the rest still goes).
+function failed(table, key, err) {
+  queue(table, key);
+  const refused = Boolean(err?.code || (err?.status >= 400 && err?.status < 500));
+  setCloud('offline', refused ? `A change couldn't be saved in the cloud (${err.message || err.code}) — it is kept on this phone.` : err.message || String(err));
+  return refused ? 'refused' : false;
 }
 
 // A decantation the cloud moved on from (or deleted) since this phone's copy
@@ -237,19 +254,24 @@ async function send(table, key) {
         cur = r.data;
         return r;
       });
-      if (!err && !cur && local?._base) return lostTo(key, null);            // deleted in the cloud meanwhile
-      if (!err && cur && !keepLocalSession(local || row, cur, true)) return lostTo(key, cur);
-      if (!err && cur) {
+      // (the version not known - the check failed: never sent blind, it waits)
+      if (err) return failed(table, key, err);
+      if (!cur && local?._base) return lostTo(key, null);                   // deleted in the cloud meanwhile
+      if (cur && !keepLocalSession(local || row, cur, true)) return lostTo(key, cur);
+      let none = false;
+      if (cur) {
         // only over the version just checked: a save that lands in between wins, not this one
-        let none = false;
         err = await withRetry(async () => {
           const r = await client.from('dec_sessions').update(row).eq('id', key).eq('updated_at', cur.updated_at).select('id');
           none = !r.error && !(r.data || []).length;
           return r;
         });
-        if (!err && none) return lostTo(key, cur);
-        if (!err) return sent(table, key, row);
+      } else {
+        err = await withRetry(() => client.from('dec_sessions').upsert(row, { onConflict: 'id' }));   // a new one
       }
+      if (err) return failed(table, key, err);
+      if (cur && none) return lostTo(key, cur);
+      return sent(table, key, row);
     }
     if (table === 'dec_invoices') for (const c of missingCols) delete row[c];
     err = await withRetry(() => client.from(table).upsert(row, { onConflict: TABLES[table].key }));
@@ -264,20 +286,17 @@ async function send(table, key) {
       err = await withRetry(() => client.from(table).upsert(row, { onConflict: TABLES[table].key }));
     }
   }
-  if (err) {
-    queue(table, key);
-    setCloud('offline', err.message || String(err));
-    return false;
-  }
-  return sent(table, key, table === 'dec_sessions' ? rowFor(table, key) : null);
+  if (err) return failed(table, key, err);
+  return sent(table, key, null);
 }
 
 function sent(table, key, row) {
   state.outbox = state.outbox.filter((o) => !(o.table === table && String(o.key) === String(key)));
   if (row) {
     // the cloud now has this version: the next change is made on it
+    // (even if it changed again meanwhile: that change was made on this version)
     const local = state.sessions.find((x) => x.id === key);
-    if (local && sameTime(local.updated_at, row.updated_at)) local._base = row.updated_at;
+    if (local) local._base = row.updated_at;
   }
   saveLocal();
   emit();                  // "sending N" counts down even when the cloud sends no change back
@@ -291,7 +310,7 @@ export async function flushOutbox() {
   try {
     for (const o of [...state.outbox]) {
       const ok = await push(o.table, o.key);
-      if (!ok) break;
+      if (ok === false) break;          // (offline: the rest waits; a row the cloud refused doesn't hold them up)
     }
     if (!state.outbox.length && state.cloud === 'offline') setCloud('live');
   } finally {
