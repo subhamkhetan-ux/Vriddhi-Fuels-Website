@@ -574,8 +574,8 @@ def test_a_tank_that_waits_too_long_after_the_others_is_asked_about(rig):
     assert q and q[0]["tank"] == "T2" and q[0]["kind"] == "notstarted"
 
 
-def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig, monkeypatch):
-    # screens as taken: a kept screen shows the stock when it was taken
+def _screens_as_taken(rig, monkeypatch):
+    """A kept screen shows the stock when it was taken (not the latest)."""
     w = rig.world
     monkeypatch.setattr(Session, "screen", lambda self: b"\x89PNG@" + str(rig.clock.t).encode())
 
@@ -595,6 +595,11 @@ def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig
     boxes = {no: (no * 100, 0, no * 100 + 90, 90) for no in (1, 2, 3, 4)}
     monkeypatch.setattr(service.cards_mod, "read_all", lambda png: (dict(boxes), {no: card_at(png, no) for no in boxes}))
     monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: card_at(png, box[0] // 100))
+    return w
+
+
+def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig, monkeypatch):
+    w = _screens_as_taken(rig, monkeypatch)
     a = start(rig, {"2": "T2"})
     w.sales = [(2, 300, 40), (2, 330, 60)]                    # two sales half a minute apart ...
     w.flows = [(2, 345, 4990, 495)]                           # ... and the truck right after
@@ -608,3 +613,105 @@ def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig
     assert p["picture"] and p["volume"] == t2["before"]["volume"]
     assert {"readingAt": t2["before"]["readingAt"], "volume": t2["before"]["volume"]} in \
         [m["T2"] for m in rig.cloud.shots if "T2" in m]           # its picture is in the app for the result
+
+
+# ---- chambers kept in the truck, decanted while it runs -----------------------
+
+def test_a_held_chamber_added_to_a_new_tank_is_followed_and_finished_with_the_rest(rig):
+    a = start(rig, {"2": "T2", "3": "T2"})                      # C1, C4, C5 kept in the truck
+    held = [c["no"] for c in a.view()["run"]["held"]]
+    assert held == [1, 4, 5] and {t["id"] for t in a.view()["run"]["tankOptions"]} >= {"T1", "T3"}
+    rig.world.flows = [(2, 50, 4990, 495), (2, 600, 3992, 420)]
+    drive(rig, 120)
+    a.act("add", {"tank": "T3", "chambers": [4]})                # C4 into Tank 3, now
+    t3 = a.run.row("T3")
+    assert t3["stage"] == "waiting" and t3["chambers"] == [4] and t3["before"]["volume"] == 11495.0
+    assert t3["before"]["height"] is not None                    # read in full, with its picture
+    assert a.view()["proofs"]["T3"]["before"]["picture"]
+    assert [c["no"] for c in a.view()["run"]["held"]] == [1, 5]
+    rig.world.flows.append((3, 200, 3990, 400))
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    rows = {t["tank"]: t for t in s["data"]["tanks"]}
+    assert set(rows) == {"T2", "T3"} and rows["T3"]["after"] and rows["T3"]["result"]["band"] == "ok"
+    assert next(p for p in s["data"]["plan"] if p["no"] == 4)["tank"] == "T3"
+    assert next(p for p in s["data"]["plan"] if p["no"] == 5)["tank"] is None      # still in the truck
+
+
+def test_a_held_chamber_added_to_a_settling_tank_waits_for_it(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 700)
+    assert a.run.row("T2")["stage"] == "settling"
+    a.act("add", {"tank": "T2", "chambers": [3]})                # one more chamber into it
+    t2 = a.run.row("T2")
+    assert t2["stage"] == "decanting" and t2["chambers"] == [2, 3] and t2["litres"] == 9000
+    rig.world.flows.append((2, 900, 3992, 420))
+    drive(rig, 4000)
+    assert a.phase == "finished", a.info
+    t2 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T2")
+    assert t2["chambers"] == [2, 3] and t2["result"]["band"] == "ok"
+
+
+def test_a_tank_rising_with_a_held_chamber_is_asked_about_and_added(rig, monkeypatch):
+    _screens_as_taken(rig, monkeypatch)
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495), (3, 300, 3990, 400)]  # C4 goes into Tank 3 without telling
+    drive(rig, 400)
+    q = next(q for q in a.view()["run"]["questions"] if q["tank"] == "T3")
+    assert q["kind"] == "held" and "still in the truck" in q["text"] and 4 in [o["no"] for o in q["options"]]
+    assert any("going into Tank 3" in m for m in rig.told)
+    drive(rig, 2000)                                             # Tank 2 is read meanwhile ...
+    assert a.run.row("T2")["stage"] == "read" and a.phase == "running"   # ... but nothing finishes while asked
+    a.act("answer", {"tank": "T3", "chambers": [4]})
+    t3 = a.run.row("T3")
+    assert t3["before"]["volume"] == 11495.0 and t3["before"]["height"] is not None   # the screen before it rose
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    rows = {t["tank"]: t for t in cloud_session(rig)["data"]["tanks"]}
+    assert rows["T3"]["chambers"] == [4] and rows["T3"]["after"]
+
+
+def test_no_to_the_held_question_warns_and_finishes_without_it(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495), (3, 300, 300, 60)]    # something else into Tank 3
+    drive(rig, 400)
+    a.act("answer", {"tank": "T3", "chambers": "drop"})
+    assert a.run.row("T3") is None and any("not with this truck" in e["text"] for e in a.run.state["log"])
+    drive(rig, 3000)
+    assert a.phase == "finished"
+
+
+def test_adding_held_chambers_says_what_cant_be_done(rig):
+    a = start(rig, {"2": "T2"})
+    for body, says in (({"tank": "T3", "chambers": [1]}, "can't go into Tank 3"),         # MS into HSD
+                       ({"tank": "T3", "chambers": [2]}, "isn't in the truck any more"),  # already planned
+                       ({"tank": "T3", "chambers": []}, "Tick the chambers")):
+        with pytest.raises(ValueError, match=says):
+            a.act("add", body)
+
+
+
+def test_a_held_chamber_cant_go_into_a_tank_already_read(rig):
+    a = start(rig, {"1": "T1", "2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495), (1, 4000, 4990, 495)]   # Tank 1's turn comes later
+    drive(rig, 2000)
+    assert a.run.row("T2")["stage"] == "read" and a.phase == "running"
+    with pytest.raises(ValueError, match="stock after is already taken"):
+        a.act("add", {"tank": "T2", "chambers": [3]})
+    with pytest.raises(ValueError, match="can.t take it"):            # 11,495 L + 12,000 L > 20,500 L
+        a.act("add", {"tank": "T3", "chambers": [3, 4, 5]})
+
+
+def test_the_rest_of_the_truck_can_be_decanted_after_it_finished(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 3000)
+    assert a.phase == "finished"
+    first = a.run.s["id"]
+    inv = next(i for i in a.options()["invoices"] if i["invoice_no"] == INVOICE["invoice_no"])
+    assert inv["status"] == "partial" and [c["no"] for c in inv["chambers"]] == [1, 3, 4, 5]
+    a.act("clear", {})
+    b = start(rig, {"3": "T3"})
+    assert b.run.s["id"] != first and 2 in b.run.s["data"]["done"]

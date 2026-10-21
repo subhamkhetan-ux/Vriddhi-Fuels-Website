@@ -484,10 +484,130 @@ class Decantation:
             if v is not None:
                 getattr(self, f"_{t['stage']}")(t, st, v, now, work)
         self._waiting_long(now, work)
-        if self._all_read():
+        if self.ready_to_finish():
             work["finish"] = True
         if work["save"]:
             self._sync_auto()
+        return work
+
+    def ready_to_finish(self) -> bool:
+        """Every tank has its stock after, and no held chamber is being asked
+        about (it may be going into a tank yet to be added)."""
+        return self._all_read() and not any(q.get("kind") == "held" for q in self.state["questions"].values())
+
+    # -- chambers kept in the truck --
+    def held(self) -> list:
+        """The truck's chambers still in it: loaded, in no tank, not decanted before."""
+        d = self.s["data"]
+        planned = {p["no"] for p in d.get("plan") or [] if p.get("tank")}
+        done = set(d.get("done") or [])
+        return [{"no": c["no"], "product": c["product"], "litres": c["litres"]} for c in d["chambers"]
+                if c.get("product") in PRODUCTS and c.get("litres", 0) > 0 and c["no"] not in planned
+                and c["no"] not in done]
+
+    def _tank(self, tank_id: str) -> dict | None:
+        return next((t for t in self.settings["tanks"] if t["id"] == tank_id), None)
+
+    def _ask_held(self, tank_id: str, tank: dict, held: list, rise: float, now: float, work: dict) -> None:
+        nos = ", ".join(f"C{c['no']}" for c in held)
+        q = {"kind": "held", "tank": tank_id, "tankNo": tank["no"], "since": iso(now), "rise": round2(rise),
+             "planned": None, "options": [{"no": c["no"], "litres": c["litres"], "from": None} for c in held],
+             "suggest": best_subset([(c["no"], c["litres"]) for c in held], rise) if len(held) > 1 else [held[0]["no"]],
+             "text": f"Tank {tank['no']} is rising (+{rise:,.0f} L) but isn't in this decantation. {nos} "
+                     f"({tank['product']}) {'is' if len(held) == 1 else 'are'} still in the truck: going into Tank {tank['no']}?"}
+        self.state["questions"][tank_id] = q
+        work["save"] = True
+        self._sync_auto()
+        self._say(work, q["text"] + " (answer on the tank stock page)", now, "ask")
+
+    def _answer_held(self, q: dict, chambers, now: float) -> dict:
+        tank_id = q["tank"]
+        self.state["questions"].pop(tank_id, None)
+        if not chambers or chambers == "drop":
+            work = _work()
+            work["save"] = True
+            self._sync_auto()
+            self._say(work, f"⚠ Tank {q['tankNo']} is rising, but not with this truck's chambers, as you said. "
+                            "Is something else going into it?", now, "warn")
+            return work
+        o = self.state["others"].get(tank_id) or {}
+        tank = self._tank(tank_id) or {}
+        low = o.get("low")
+        cap = float(tank.get("capacity") or 20000)
+        before = {"volume": round2(low), "ullage": round2(cap - low), "capacity": cap, "height": None, "dip": None,
+                  "water": None, "density": None, "densityTc": None, "temp": None, "status": None,
+                  "readingAt": o.get("lowAt") or iso(now), "timeRead": False, "source": "photo", "via": "anydesk",
+                  "confidence": "medium", "savedAt": iso(now),
+                  "note": "the live product volume just before it started rising"} if low is not None else None
+        return self.add(tank_id, chambers, before, now, from_low=True)
+
+    def add(self, tank_id: str, chambers, before: dict | None, now: float | None = None,
+            from_low: bool = False) -> dict:
+        """Held chambers into a tank, while the decantation runs: into a tank in
+        it (planned litres up; one settling waits for them again) or a new one
+        with this stock ``before`` (``from_low``: the live figure just before it
+        rose, read in full from that screen next)."""
+        now = now or time.time()
+        work = _work()
+        d = self.s["data"]
+        if not self.active():
+            raise ValueError("This decantation has ended: decant them as a new one.")
+        held = {c["no"]: c for c in self.held()}
+        nos = sorted({int(n) for n in chambers or []})
+        if not nos:
+            raise ValueError("Tick the chambers to add.")
+        gone = [n for n in nos if n not in held]
+        if gone:
+            raise ValueError(f"C{', C'.join(map(str, gone))} isn't in the truck any more (in a tank, or decanted).")
+        tank = self._tank(tank_id)
+        if not tank:
+            raise ValueError("That tank isn't in the decant app's settings.")
+        wrong = [n for n in nos if held[n]["product"] != tank["product"]]
+        if wrong:
+            raise ValueError(f"C{', C'.join(map(str, wrong))} holds {held[wrong[0]]['product']}: it can't go into "
+                             f"Tank {tank['no']} ({tank['product']}).")
+        t = self.row(tank_id)
+        if t and t["stage"] == "read":
+            raise ValueError(f"Tank {tank['no']}'s stock after is already taken: decant C{', C'.join(map(str, nos))} "
+                             "into it as a new decantation once this one is saved.")
+        litres = round2(sum(held[n]["litres"] for n in nos))
+        plan_nos = {p["no"] for p in d["plan"]}
+        for p in d["plan"]:
+            if p["no"] in nos:
+                p["tank"] = tank_id
+        d["plan"] += [{"no": n, "product": held[n]["product"], "litres": held[n]["litres"], "tank": tank_id}
+                      for n in nos if n not in plan_nos]
+        d["plan"].sort(key=lambda p: p["no"])
+        names = f"C{', C'.join(map(str, nos))}"
+        if t:
+            t["chambers"] = sorted(set(t["chambers"]) | set(nos))
+            t["litres"] = round2(t["litres"] + litres)
+            st = self._st(t, now)
+            if t["stage"] == "settling":
+                # more is coming: it decants again, and waits for it (asked if it doesn't come)
+                last = st["history"][-1][1] if st.get("history") else None
+                t["stage"], t["doneAt"] = "decanting", None
+                st.update(lastRiseAt=now, lastRiseV=last, flowing=False, peak=None)
+            text = f"{names} ({litres:,.0f} L) added to Tank {tank['no']}: {t['litres']:,.0f} L planned now."
+        else:
+            if not before or before.get("volume") is None:
+                raise ValueError(f"Tank {tank['no']}'s stock before couldn't be read.")
+            t = {"tank": tank_id, "tankNo": tank["no"], "product": tank["product"], "litres": litres, "chambers": nos,
+                 "before": before, "after": None, "pricePerL": (d.get("prices") or {}).get(tank["product"]),
+                 "stage": "waiting", "startedAt": None, "doneAt": None}
+            d["tanks"].append(t)
+            d["before"][tank_id] = before
+            self.state["others"].pop(tank_id, None)
+            self._st(t, now)
+            if from_low:
+                work["before"].append({"tank": tank_id, "from": "low", "volume": before["volume"]})
+            text = (f"{names} ({litres:,.0f} L) added: into Tank {tank['no']}, stock before "
+                    f"{before['volume']:,.2f} L.")
+        self.state["questions"].pop(tank_id, None)
+        sync_status(self.s)
+        self._sync_auto()
+        work["save"] = True
+        self._say(work, text, now)
         return work
 
     def _all_read(self) -> bool:
@@ -729,14 +849,23 @@ class Decantation:
 
     def _watch_other(self, tank_id: str, v: float, now: float, work: dict, row: dict | None) -> None:
         """A tank this truck isn't filling (or one already read) shouldn't rise."""
-        o = self.state["others"].setdefault(tank_id, {"low": v, "warned": False, "over": 0})
-        o["low"] = min(o["low"], v)
+        first = tank_id not in self.state["others"]
+        o = self.state["others"].setdefault(tank_id, {"low": v, "lowAt": iso(now), "warned": False, "over": 0})
+        if first or v < o["low"] or not o.get("lowAt"):
+            o["low"], o["lowAt"] = v, iso(now)
+            if row is None:
+                work["low"].append(tank_id)             # its screen at the low: a stock before, if it's this truck's
         if o["warned"]:
             return
         if v - o["low"] >= UNPLANNED_RISE_L:
             o["over"] += 1
             if o["over"] >= 2:                            # two readings in a row: not a misread
                 o["warned"] = True
+                tank = self._tank(tank_id)
+                held = [c for c in self.held() if tank and c["product"] == tank["product"]] if row is None else []
+                if held and tank_id not in self.state["questions"]:
+                    self._ask_held(tank_id, tank, held, v - o["low"], now, work)
+                    return
                 what = "after its stock after was taken" if row else "but it isn't in this decantation"
                 self._say(work, f"⚠ Tank {self.tank_no(tank_id)} is rising (+{v - o['low']:,.0f} L) {what}. "
                                 "Is a chamber going into the wrong tank?", now, "warn")
@@ -769,7 +898,7 @@ class Decantation:
         if not t or not reading or reading.get("volume") is None:
             return work
         if from_low:
-            if t["stage"] not in ("decanting", "settling") or not t.get("before") or \
+            if t["stage"] not in ("waiting", "decanting", "settling") or not t.get("before") or \
                     abs(reading["volume"] - t["before"]["volume"]) > STILL_L:
                 return work                                # not that screen's stock: the live figure stays
             t["before"] = reading
@@ -815,7 +944,7 @@ class Decantation:
         self._sync_auto()
         self._say(work, f"Tank {t['tankNo']}: stock after {reading['volume']:,.2f} L"
                         f"{f' ({note})' if note else ''}.", now)
-        if self._all_read():
+        if self.ready_to_finish():
             work["finish"] = True
         return work
 
@@ -848,6 +977,8 @@ class Decantation:
         now = now or time.time()
         work = _work()
         q = self.state["questions"].get(tank_id)
+        if q and q.get("kind") == "held":
+            return self._answer_held(q, chambers, now)
         t = self.row(tank_id)
         if not q or not t:
             raise ValueError("That question has been answered or withdrawn.")
@@ -919,7 +1050,7 @@ class Decantation:
         self._say(work, f"Tank {t['tankNo']} left out: C{', C'.join(map(str, t['chambers']))} stay in the truck.", now)
         if not d["tanks"]:
             self._end_empty(now, work)
-        elif self._all_read():
+        elif self.ready_to_finish():
             work["finish"] = True
         self._sync_auto()
         return work
@@ -1021,7 +1152,9 @@ class Decantation:
                 "tanks": out, "questions": list(self.state["questions"].values()),
                 "log": self.state["log"][-30:], "settleMinutes": self.settings["settleMinutes"],
                 "left": [c["no"] for c in d["chambers"] if c["product"] and c["litres"] > 0
-                         and c["no"] not in set(d.get("done") or []) and c["no"] not in planned]}
+                         and c["no"] not in set(d.get("done") or []) and c["no"] not in planned],
+                "held": self.held(),
+                "tankOptions": [{"id": t["id"], "no": t["no"], "product": t["product"]} for t in self.settings["tanks"]]}
 
     def to_json(self) -> dict:
         return {"session": self.s, "settings": self.settings, "state": self.state}

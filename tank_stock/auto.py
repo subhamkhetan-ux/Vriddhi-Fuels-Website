@@ -384,7 +384,7 @@ class AutoDecant:
         for ev in work["events"]:
             if ev["level"] in TELEGRAM_LEVELS:
                 self._tell(f"🤖 {self._title()}: {ev['text']}")
-        if (work["finish"] or self.run._all_read()) and self.run.s["status"] not in ("done", "cancelled"):
+        if (work["finish"] or self.run.ready_to_finish()) and self.run.s["status"] not in ("done", "cancelled"):
             self._finish(now)
         elif self.run.s["status"] == "cancelled":
             self._set("cancelled")
@@ -422,6 +422,48 @@ class AutoDecant:
                 "picture": False, "cloud": False, "at": _now(),
                 "volume": (fallback or {}).get("volume"), "note": "from the live figures (the card couldn't be read in full)"}
         self._merge(work, self.run.read_after(tank, reading, fallback=fallback, note=note, now=now))
+
+    def _add(self, tank_id: str, chambers: list, now: float) -> dict:
+        """Held chambers into a tank while this decantation runs (the page's
+        "Add to this decantation"). A tank new to it gets its stock before: in
+        full now, or - if it is already rising - from the screen just before."""
+        live = self.st.live or {}
+        no = self._no(tank_id)
+        try:
+            _, _, sessions, _ = self._cloud()
+        except AutoError:
+            sessions = []                            # (checked again by the app's own plan)
+        if tank_id in dz.busy_tanks(sessions, except_id=self.run.s["id"]):
+            raise AutoError(f"Tank {no} is taken by another decantation.")
+        tank = next((t for t in self.run.settings["tanks"] if t["id"] == tank_id), None)
+        held = {c["no"]: c for c in self.run.held()}
+        adding = sum(held[int(n)]["litres"] for n in chambers if int(n) in held)
+        row = self.run.row(tank_id)
+        f = ((live.get("figures") or {}).get(str(no)) or {}).get("reading") or {}
+        start = (row["before"]["volume"] + row["litres"]) if row else f.get("volume")
+        if tank and start is not None and start + adding > dz.fill_limit(tank) + 0.5:
+            raise AutoError(f"Tank {no} can't take it: {start:,.0f} L + {adding:,.0f} L would go over its "
+                            f"{dz.fill_limit(tank):,.0f} L limit.")
+        if row:
+            return self.run.add(tank_id, chambers, None, now)
+        o = self.run.state["others"].get(tank_id) or {}
+        if o.get("low") is not None and f.get("volume") is not None and f["volume"] - o["low"] >= dz.START_RISE_L:
+            # already rising: the stock before is the one just before it rose
+            cap = float(tank.get("capacity") or 20000) if tank else 20000.0
+            before = {"volume": round(o["low"], 2), "ullage": round(cap - o["low"], 2), "capacity": cap,
+                      "height": None, "dip": None, "water": None, "density": None, "densityTc": None, "temp": None,
+                      "status": None, "readingAt": o.get("lowAt") or dz.iso(now), "timeRead": False,
+                      "source": "photo", "via": "anydesk", "confidence": "medium", "savedAt": dz.iso(now),
+                      "note": "the live product volume just before it started rising"}
+            return self.run.add(tank_id, chambers, before, now, from_low=True)
+        res = self.st.full_read(live.get("last_png"), [no], "automatic decantation: stock before (chambers added)") \
+            .get(no) if live.get("last_png") else None
+        if not res or not res.get("reading"):
+            raise AutoError(f"Tank {no}'s stock before couldn't be read ({(res or {}).get('problem') or 'no screen yet'}): "
+                            "try again in a moment.")
+        work = self.run.add(tank_id, chambers, res["reading"], now)
+        self._keep_proof(tank_id, "before", res)
+        return work
 
     def _live_reading(self, tank_id, volume, at) -> dict | None:
         """A reading from a live figure, as live monitoring sends it."""
@@ -649,6 +691,8 @@ class AutoDecant:
                 work = self.run.drop(tank, now)
             elif action == "after":
                 work = self.run.after_now(tank)
+            elif action == "add":
+                work = self._add(tank, body.get("chambers") or [], now)
             elif action in ("release", "cancel"):
                 if action == "release":
                     self.run.release(now)
