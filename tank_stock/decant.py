@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,17 +59,52 @@ def _rest(method: str, path: str, body=None, prefer: str = "", timeout: int = 30
     return _http(method, f"rest/v1/{path}", data, headers, timeout)
 
 
+GET_TRIES = (1, 3)          # seconds before trying a read again after a network blip
+
+
+def why_unreachable(exc: BaseException, url: str = "") -> str:
+    """What went wrong, in words, with what to check (never the URL or key)."""
+    reason = getattr(exc, "reason", None) or exc
+    text = str(reason).replace(url, "the cloud") if url else str(reason)
+    low = text.lower()
+    if "certificate" in low and ("not yet valid" in low or "expired" in low):
+        hint = ("the server's clock is probably wrong (a VM's clock can drift while the Mac sleeps): "
+                "run `sudo timedatectl set-ntp true` on it")
+    elif "certificate" in low:
+        hint = "its secure connection couldn't be checked (CA certificates: `sudo apt install --reinstall ca-certificates`)"
+    elif "name resolution" in low or "name or service not known" in low or "nodename nor servname" in low \
+            or "getaddrinfo" in low or "errno -2" in low or "errno -3" in low:
+        hint = "the server can't look its name up: no internet or DNS on it right now"
+    elif "timed out" in low or isinstance(reason, TimeoutError):
+        hint = "no answer in time: the server's internet is down or very slow"
+    elif "refused" in low or "unreachable" in low or "no route" in low:
+        hint = "the server has no working internet connection right now"
+    else:
+        hint = ""
+    detail = text[:120]
+    return f"{type(exc).__name__}: {detail}" + (f" - {hint}" if hint else "")
+
+
 def _http(method: str, path: str, data, headers: dict, timeout: int = 30):
     url, key = cloud()
     headers = {"apikey": key, "Authorization": f"Bearer {key}", **headers}
     req = urllib.request.Request(f"{url}/{path}", data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-    except urllib.error.HTTPError as exc:
-        raise DecantError(f"The decant database refused ({exc.code}).") from None
-    except (urllib.error.URLError, OSError) as exc:
-        raise DecantError(f"The decant database could not be reached ({type(exc).__name__}).") from None
+    # a read is tried again after a short blip; a write never (a conditional one
+    # that went through but whose answer was lost would look refused the second time)
+    # (a quick one - live monitoring's - gives up at once: it is sent again later anyway)
+    waits = GET_TRIES if method == "GET" and timeout >= 20 else ()
+    for attempt in range(len(waits) + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+            break
+        except urllib.error.HTTPError as exc:
+            raise DecantError(f"The decant database refused ({exc.code}).") from None
+        except (urllib.error.URLError, OSError) as exc:
+            if attempt < len(waits):
+                time.sleep(waits[attempt])
+                continue
+            raise DecantError(f"The decant database could not be reached ({why_unreachable(exc, url)}).") from None
     try:
         return json.loads(raw) if raw else None
     except ValueError:
@@ -270,7 +306,8 @@ def check(card: dict, tank: dict, chart: dict) -> dict:
     return {"checks": checks, "confidence": confidence, "problems": problems}
 
 
-FUTURE_S = 300             # a "Last Updated" time this far ahead of the clock here is a misread
+FUTURE_S = 1800            # a "Last Updated" time this far ahead of the clock here is a misread
+                           # (not less: a VM's clock can lag a little after the Mac sleeps)
 
 
 def _utc(t: datetime) -> str:

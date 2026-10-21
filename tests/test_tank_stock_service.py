@@ -697,3 +697,44 @@ def test_an_agent_save_goes_only_over_the_version_it_looked_at(monkeypatch):
     saved = decant.save_session(dict(s), base="2026-10-21T08:00:00+00:00")
     assert saved and saved["updated_at"] != "x" and "updated_at=eq.2026-10-21T08%3A00%3A00%2B00%3A00" in calls[-1][1]
     assert decant.save_session(dict(s))["created_at"] and calls[-1][0] == "POST"            # a new one: as before
+
+
+def test_an_unreachable_decant_app_says_why_and_a_read_is_tried_again(monkeypatch):
+    import ssl
+    import urllib.error
+    monkeypatch.setattr(decant, "cloud", lambda: ("https://proj.supabase.co", "key"))
+    monkeypatch.setattr(decant.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"[]"
+
+    def flaky(req, timeout):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.URLError(OSError(-3, "Temporary failure in name resolution"))
+        return Resp()
+    monkeypatch.setattr(decant.urllib.request, "urlopen", flaky)
+    assert decant._rest("GET", "dec_tank_state?select=tank_id") == [] and calls["n"] == 3   # two blips: fine
+
+    def down(req, timeout):
+        raise urllib.error.URLError(ssl.SSLCertVerificationError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate is not yet valid"))
+    monkeypatch.setattr(decant.urllib.request, "urlopen", down)
+    with pytest.raises(decant.DecantError) as e:
+        decant._rest("GET", "dec_tank_state")
+    msg = str(e.value)
+    assert "not yet valid" in msg and "clock" in msg and "timedatectl" in msg
+    assert "proj.supabase.co" not in msg and "key" not in msg.replace("keyword", "")
+    calls["n"] = 0
+    monkeypatch.setattr(decant.urllib.request, "urlopen", flaky)
+    with pytest.raises(decant.DecantError) as e:                     # a write: never sent twice
+        decant._rest("POST", "dec_tank_state?on_conflict=tank_id", [{}])
+    assert calls["n"] == 1 and "can't look its name up" in str(e.value)
