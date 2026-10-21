@@ -11,7 +11,7 @@ import pytest
 from tally_bridge.store import Store
 from tally_bridge.tally import Tally, TallyProblem, alterable, business_equal, export_request, fuel_voucher, identity, object_data, parse, sanitize_report, voucher_xml
 from tally_bridge.transport import Cloud, ConnectionProblem, LocalTally
-from tally_bridge.worker import Worker
+from tally_bridge.worker import JOURNAL, Worker
 
 ROOT = Path(__file__).resolve().parents[1]
 ID = "d26d607a-40ba-4524-8fa2-c8c340855cb5"
@@ -67,7 +67,7 @@ class FakeTally:
 
 def journal(path):
     s = Store(path)
-    s.set("journal", 2)  # a current journal; older ones are reset on first start
+    s.set("journal", JOURNAL)  # a current journal; older ones are reset on first start
     return s
 
 
@@ -176,7 +176,7 @@ def test_rejected_or_incomplete_collection_does_not_advance_cursor(store):
     seen(store,1)
     class Partial(FakeTally):
         def metadata(self,kind,after): return [voucher(alter=2)]
-        def objects(self,kind,ids): return []
+        def details(self,entries): return []
     with pytest.raises(TallyProblem,match="incomplete batch"):
         Worker(FakeCloud(),Partial(),store).scan("Voucher",True)
     assert store.get("cursor:Voucher") is None
@@ -187,7 +187,7 @@ def test_metadata_watermark_does_not_skip_an_intervening_edit(store):
     seen(store,5)
     class ChangedDuringRead(FakeTally):
         def metadata(self,kind,after): return [voucher(alter=10)]
-        def objects(self,kind,ids): return [voucher(alter=12)]
+        def details(self,entries): return [voucher(alter=12)]
     Worker(FakeCloud(),ChangedDuringRead(),store).scan("Voucher",True)
     assert store.get("cursor:Voucher") == 10  # another voucher at AlterID 11 must be fetched next time
     assert store.known("Voucher")[ID]["alter_id"] == 12
@@ -197,7 +197,7 @@ def test_older_detail_than_metadata_never_advances_checkpoint(store):
     seen(store,5)
     class RestoredDuringRead(FakeTally):
         def metadata(self,kind,after): return [voucher(alter=12)]
-        def objects(self,kind,ids): return [voucher(alter=10)]
+        def details(self,entries): return [voucher(alter=10)]
     with pytest.raises(TallyProblem,match="older object"):
         Worker(FakeCloud(),RestoredDuringRead(),store).scan("Voucher",True)
     assert store.get("cursor:Voucher") is None
@@ -210,7 +210,7 @@ def test_first_sync_is_one_metadata_read_and_details_follow_alterations(store):
     reads=[]
     class Tally(FakeTally):
         def metadata(self,kind,after): return [m for m in meta if int(m.findtext("ALTERID"))>after]
-        def objects(self,kind,ids): reads.append(ids); return [voucher(p2,alter=9)]
+        def details(self,entries): reads.append([identity(e)[1] for e in entries]); return [voucher(p2,alter=9)]
     w=Worker(FakeCloud(),Tally(),store)
     w.scan("Voucher",True)
     assert not reads  # 4,982 vouchers = one request, not 166 detail reads
@@ -232,7 +232,7 @@ def test_restart_validates_recent_snapshot_before_any_cloud_claim(tmp_path):
         s.set('full:'+kind,1000); s.set('scan:'+kind,1000)
     class Restored(FakeTally):
         def metadata(self,kind,after): return [voucher(alter=10)] if kind=='Voucher' else []
-        def objects(self,kind,ids): raise AssertionError('Restore must be blocked before detailed reads')
+        def details(self,entries): raise AssertionError('Restore must be blocked before detailed reads')
     cloud=FakeCloud()
     try:
         with pytest.raises(TallyProblem,match='older revision'):
@@ -249,7 +249,7 @@ def test_deleting_the_newest_voucher_in_tally_does_not_pause_sync(store):
     store.set('cursor:Voucher',9)
     class Deleted(FakeTally):
         def metadata(self,kind,after): return [older]
-        def objects(self,kind,ids): return []
+        def details(self,entries): return []
     Worker(FakeCloud(),Deleted(),store).scan("Voucher",True)
     assert store.known("Voucher")[p2["id"]]["deleted"]
     assert store.get('cursor:Voucher')==5  # a full scan re-bases on what Tally holds now
@@ -269,7 +269,7 @@ def test_old_journal_is_reset_but_keeps_write_recovery(tmp_path):
     s.set("cursor:Voucher",999); s.write("job-1","writing")
     Worker(FakeCloud(),FakeTally(),s)
     assert not s.known("Group") and not s.upload_batch() and s.get("cursor:Voucher") is None
-    assert s.written("job-1")["phase"]=="writing" and s.get("journal")==2
+    assert s.written("job-1")["phase"]=="writing" and s.get("journal")==JOURNAL
     s.stage([object_data("Voucher",voucher())])
     Worker(FakeCloud(),FakeTally(),s)  # a current journal is left alone
     assert s.count("Voucher")==1
@@ -282,7 +282,7 @@ def test_lookup_rejects_stale_detail_or_reused_master_id(wrong_identity):
     formulas=[]
     tally.collection=lambda kind,methods,formula: formulas.append(formula) or [voucher(alter=12)]
     detail=voucher(dict(PAYLOAD,id='a26d607a-40ba-4524-8fa2-c8c340855cb5') if wrong_identity else PAYLOAD,alter=12 if wrong_identity else 10)
-    tally.objects=lambda kind,ids: [detail]
+    tally.details=lambda entries: [detail]
     with pytest.raises(TallyProblem,match='identity or version changed'):
         tally.lookup(PAYLOAD)
     # One targeted read of this invoice, never the whole company's day book.
@@ -293,7 +293,7 @@ def test_pairing_bootstrap_republishes_unchanged_data_and_binding_prevents_cross
     store.stage([object_data("Voucher",voucher())]); store.uploaded(store.upload_batch())
     class Unchanged(FakeTally):
         def metadata(self,kind,after): return [voucher()]
-        def objects(self,kind,ids): raise AssertionError("Unchanged object should use the verified local copy")
+        def details(self,entries): raise AssertionError("Unchanged object should use the verified local copy")
     Worker(FakeCloud(),Unchanged(),store).scan("Voucher",True,force_upload=True)
     assert len(store.upload_batch()) == 1
     wrong = FakeTally(); wrong.guid="wrong-company-guid"
@@ -308,7 +308,7 @@ def test_full_scan_detects_deletion_but_restore_is_blocked(store):
     store.uploaded(store.upload_batch())
     class Deleted(FakeTally):
         def metadata(self,kind,after): return [v1]
-        def objects(self,kind,ids): return []
+        def details(self,entries): return []
     Worker(FakeCloud(),Deleted(),store).scan("Voucher",True)
     assert store.known("Voucher")[p2["id"]]["deleted"]
     v1.find("ALTERID").text="0"
@@ -499,7 +499,7 @@ def test_worker_reconciles_before_claiming_after_tally_restart(tmp_path):
     scanned=[]
     class Empty(FakeTally):
         def metadata(self,kind,after):scanned.append((kind,after));return []
-        def objects(self,*args):raise AssertionError('Empty company has no detailed reads')
+        def details(self,*args):raise AssertionError('Empty company has no detailed reads')
     class Restarted:
         def ensure(self):return True
     db=Store(tmp_path/'resumed.sqlite3');cloud=FakeCloud()
@@ -663,3 +663,76 @@ def test_cloud_rejection_message_reaches_the_status():
     assert s.get('status')['detail']=='The web app refused the bridge: Bridge credential invalid or revoked'
     from tally_bridge import __version__
     assert s.get('status')['version']==__version__  # Setup can tell a stale worker's record apart
+
+
+def test_collection_export_lacks_fuel_lines_so_details_come_from_the_day_book():
+    """Tally's collection export with NativeMethod * (a real #4291) has no ledger or inventory lines."""
+    from tally_bridge.tally import tag
+    header_only=voucher()
+    for name in ("LEDGERENTRIES.LIST","ALLINVENTORYENTRIES.LIST"):
+        for e in header_only.findall(name): header_only.remove(e)
+    assert fuel_voucher(header_only) is None
+    sent=[]
+    full=voucher(alter=7)
+    other=voucher(dict(PAYLOAD,id='b26d607a-40ba-4524-8fa2-c8c340855cb5',number='OTHER'),alter=7)
+    class HTTP:
+        def post(self,xml):
+            sent.append(parse(xml))
+            body=''.join('<TALLYMESSAGE>'+__import__('xml.etree.ElementTree',fromlist=['x']).tostring(v,encoding='unicode')+'</TALLYMESSAGE>' for v in (other,full))
+            return ('<ENVELOPE><HEADER><VERSION>1</VERSION><STATUS>1</STATUS></HEADER><BODY><IMPORTDATA><REQUESTDATA>'+body+'</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>').encode()
+    tally=Tally(HTTP(),'Test Company')
+    got=tally.details([header_only])
+    assert [identity(v)[0] for v in got]==[ID] and business_equal(fuel_voucher(got[0]),PAYLOAD)
+    req=sent[0]
+    assert req.findtext('.//TALLYREQUEST')=='Export Data' and req.findtext('.//REPORTNAME')=='Day Book'
+    assert req.findtext('.//SVFROMDATE')==req.findtext('.//SVTODATE')=='20261019'
+    assert req.findtext('.//SVCURRENTCOMPANY')=='Test Company'
+
+
+def test_stored_xml_drops_empty_fields_but_keeps_every_value():
+    from tally_bridge.tally import tag
+    v=voucher()
+    for name in ("VATDEALERTYPE","NARRATION","EWAYBILLDETAILS.LIST"): tag(v,name,"   ")
+    xml=object_data("Voucher",v)["data"]["xml"]
+    assert "VATDEALERTYPE" not in xml and "EWAYBILLDETAILS" not in xml
+    kept=parse(xml).find("VOUCHER")
+    assert business_equal(fuel_voucher(kept),PAYLOAD) and identity(kept)==identity(v)
+    assert v.find("VATDEALERTYPE") is not None  # the live object is untouched
+
+
+def test_backfill_reads_every_voucher_newest_week_first_then_stops(store):
+    import datetime as dt
+    def dated(n,day,alter=3):
+        v=voucher(dict(PAYLOAD,id=f"{n:08d}-0000-4000-8000-000000000000",number=str(n),date=day),alter)
+        return v
+    meta=[dated(1,"2026-10-21"),dated(2,"2026-10-15"),dated(3,"2026-10-01")]
+    weeks=[]
+    class Tally(FakeTally):
+        def metadata(self,kind,after): return meta
+        def daybook(self,start,end):
+            weeks.append((start,end))
+            return [m for m in meta if start<=dt.date.fromisoformat(fuel_voucher(m)["date"])<=end]
+    w=Worker(FakeCloud(),Tally(),store)
+    w.scan("Voucher",True)
+    assert len(store.light("Voucher"))==3
+    assert w.backfill()
+    assert weeks==[(dt.date(2026,10,15),dt.date(2026,10,21))]
+    assert {g for g,_,_ in store.light("Voucher")}=={"00000003-0000-4000-8000-000000000000"}
+    assert w.backfill() and weeks[-1]==(dt.date(2026,9,25),dt.date(2026,10,1))
+    assert not w.backfill() and len(weeks)==2
+    assert all(store.object_payload("Voucher",g)["app_voucher"] for g in store.known("Voucher"))
+    assert store.get("status")["detail"].startswith("Reading voucher details from Tally")
+
+
+def test_voucher_made_in_tally_after_first_sync_is_read_in_full(store):
+    seen(store,5)
+    p2=dict(PAYLOAD,id="c26d607a-40ba-4524-8fa2-c8c340855cb5",number="4290")
+    class Tally(FakeTally):
+        def metadata(self,kind,after): return [voucher(alter=5),voucher(p2,alter=6)]
+        def details(self,entries): return [voucher(p2,alter=6)]
+    Worker(FakeCloud(),Tally(),store).scan("Voucher")
+    assert store.object_payload("Voucher",p2["id"])["app_voucher"]["number"]=="4290"
+
+
+def test_readback_matches_tallys_spelling_of_the_party():
+    assert business_equal(dict(PAYLOAD,party="SHYAM METALICS AND ENERGY LTD"),dict(PAYLOAD,party="Shyam Metalics and Energy Ltd"))

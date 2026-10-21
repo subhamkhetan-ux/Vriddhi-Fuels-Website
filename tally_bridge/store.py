@@ -38,6 +38,28 @@ class Store:
     def count(self, kind):
         return self.db.execute("select count(*) from objects where kind=? and not deleted", (kind,)).fetchone()[0]
 
+    def light(self, kind):
+        """(guid, alter_id, YYYYMMDD) of vouchers known only from metadata."""
+        out = []
+        # Only light rows are decoded; full rows carry a voucher's XML.
+        for r in self.db.execute("""select guid,alter_id,data from objects where kind=? and not deleted
+                                    and instr(data,'"light": true')>0""", (kind,)):
+            data = json.loads(r["data"]) if r["data"] else {}
+            if data.get("light") and not data.get("settled"):
+                out.append((r["guid"], r["alter_id"], str(data.get("date", ""))[:8] or "19000101"))
+        return out
+
+    def settle_light(self, kind, guids):
+        """Stop re-reading light vouchers a Day Book read did not return. No upload: the
+        cloud already has the same light record."""
+        with self.db:
+            for g in guids:
+                row = self.db.execute("select data from objects where kind=? and guid=?", (kind, g)).fetchone()
+                data = json.loads(row[0]) if row else {}
+                if data.get("light"):
+                    data["settled"] = True
+                    self.db.execute("update objects set data=? where kind=? and guid=?", (json.dumps(data), kind, g))
+
     def reset_snapshot(self):
         """Forget the Tally snapshot and unsent uploads; keep the binding and write recovery."""
         with self.db:

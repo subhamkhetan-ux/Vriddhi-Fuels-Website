@@ -74,5 +74,6 @@ class LocalTally:
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
     def post(self, xml):
+        # Loopback only. A busy day's Day Book is several MB and Tally can take a while.
         return post(self.opener, self.url, xml.encode("utf-8"),
-                    {"Content-Type": "text/xml; charset=utf-8"})
+                    {"Content-Type": "text/xml; charset=utf-8"}, limit=64_000_000, timeout=180)

@@ -284,6 +284,16 @@ begin
   update tally_bridge_jobs set state=p_state,result=p_result,detail=left(p_detail,500),updated_at=now() where id=j.id;
 end $$;
 
+-- The fuel fields of an app voucher equal Tally's copy. Tally keeps its ledger's own
+-- spelling of the party, and a collection read may omit the vehicle UDF.
+create or replace function public._tb_same(v public.tally_vouchers, a jsonb) returns boolean
+language sql immutable set search_path=pg_catalog as $$
+  select v.series=a->>'series' and v.number=a->>'number' and v.date=(a->>'date')::date
+    and lower(v.party)=lower(a->>'party') and v.qty=(a->>'qty')::numeric and v.rate=(a->>'rate')::numeric
+    and v.item_amt=(a->>'item_amt')::numeric and v.party_amt=(a->>'party_amt')::numeric and v.roff=(a->>'roff')::numeric
+    and (coalesce(a->>'vehicle','')='' or coalesce(v.vehicle,'')='' or v.vehicle=a->>'vehicle')
+$$;
+
 create or replace function public.tally_bridge_ingest(p_token text,p_instance uuid,p_objects jsonb) returns void
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare o jsonb; a jsonb; v tally_vouchers; old_alter bigint; k text; g text; incoming bigint; pending boolean;
@@ -323,14 +333,40 @@ begin
     select * into v from tally_vouchers where bridge_guid=g for update;
     if v.id is null then
       if gone or num is null then continue; end if;
-      -- First sighting: link the app's own copy of this invoice. A voucher the app does
-      -- not have is left alone; Import from Tally brings it in when wanted.
+      -- First sighting: link the app's own copy of this invoice by type and number.
       select * into v from tally_vouchers where series=sk and number=num for update;
-      -- A web voucher waiting to post is reconciled by its own job, never overwritten here.
-      if v.id is null or v.bridge_guid is not null or v.bridge_state<>'unlinked' then continue; end if;
+      if v.id is not null and v.bridge_guid is not null then continue; end if;
+      if v.id is null then
+        -- A fuel voucher made in Tally Prime joins the app's history, for bills and fuel slips.
+        if light or a is null or coalesce((o->'data'->>'cancelled')::boolean,false) then continue; end if;
+        if a->>'series'<>sk or a->>'number'<>num or (a->>'qty')::numeric<=0
+          or abs((a->>'party_amt')::numeric-(a->>'item_amt')::numeric-(a->>'roff')::numeric)>0.01 then raise exception 'Invalid fuel voucher'; end if;
+        insert into tally_vouchers(series,number,date,party,vehicle,qty,rate,item_amt,party_amt,roff,status,source,bridge_guid,bridge_alter,bridge_state)
+          values(sk,num,(a->>'date')::date,a->>'party',coalesce(a->>'vehicle',''),(a->>'qty')::numeric,(a->>'rate')::numeric,
+            (a->>'item_amt')::numeric,(a->>'party_amt')::numeric,(a->>'roff')::numeric,'history','tally',g,incoming,'synced')
+          returning * into v;
+        if not exists(select 1 from tally_parties where name=v.party) then
+          insert into tally_parties(name) values(v.party) on conflict do nothing;
+        end if;
+        perform _tally_bump_baselines(array[v.id]);
+        continue;
+      end if;
     end if;
     if exists(select 1 from tally_bridge_jobs where voucher_id=v.id and state='writing') then continue; end if;
     pending := v.bridge_state in ('queued','conflict','confirming','needs_edit');
+    if pending and not gone and a is not null and _tb_same(v,a) then
+      -- Tally already holds exactly this voucher (a read-back that missed its fuel line, or
+      -- an XML import): confirm it instead of posting again or asking for review.
+      update tally_vouchers set bridge_guid=g,bridge_alter=incoming,bridge_state='synced',status='history',
+        exported_at=coalesce(exported_at,now()) where id=v.id;
+      update tally_bridge_jobs set state='done',detail='Matched the voucher already in Tally',
+        result=jsonb_build_object('guid',g,'alter_id',incoming),updated_at=now()
+        where voucher_id=v.id and state in ('pending','leased','conflict','error');
+      perform _tally_bump_baselines(array[v.id]);
+      continue;
+    end if;
+    -- A web voucher waiting to post is reconciled by its own job, never overwritten here.
+    if v.bridge_guid is null and v.bridge_state<>'unlinked' then continue; end if;
     if pending and (incoming is distinct from v.bridge_alter or gone) then
       update tally_vouchers set bridge_state='conflict' where id=v.id;
       update tally_bridge_jobs set state='conflict',detail='Tally and web versions differ. Review in Tally Prime.',updated_at=now()

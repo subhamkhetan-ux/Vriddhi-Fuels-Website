@@ -1,3 +1,11 @@
+Version **1.2.0** brings every fuel voucher in Tally into the app:
+
+- **Vouchers made in Tally Prime appear in the app** (history, tanker bills, fuel slips, the customer's last price). 1.1.x read voucher details with a collection export that leaves out Tally's ledger and inventory lines, so a voucher made in Tally could not be shown, and a posted voucher's read-back looked different and was marked *Needs review*. Details now come from Tally's Day Book export, the same format as a Day Book XML file.
+- **Existing vouchers are read in the background, newest week first**, after the one-request first sync. Status shows the progress.
+- **Needs review clears itself** when Tally's copy matches the app's voucher (party compared the way Tally does, ignoring capitals).
+- Stored Tally XML drops the hundreds of empty fields Tally exports.
+- Re-run tally-bridge.sql, then **Upgrade / save settings** in the new Setup.
+
 Version **1.1.1** finishes the 1.1 sync fix:
 
 - **Setup tells you when the old worker is still running.** Opening a new Setup never replaced the background worker; until **Upgrade / save settings** is clicked, Windows keeps starting the old one. Setup now shows the installed worker version, marks status lines written by an older bridge as out of date, and says when background sync is not running.
