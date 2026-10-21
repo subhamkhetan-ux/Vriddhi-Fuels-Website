@@ -341,19 +341,26 @@ export function staleDraft(session, sessions, layout = null) {
   return loaded.length > 0 && loaded.every((c) => used.has(c.no));
 }
 
-// Which copy of a decantation a phone keeps when the cloud has one too: its
-// own while that is newer, or not sent yet — unless the cloud's is newer
-// still: another phone or the tank stock server moved it on after this
-// phone's change (e.g. took over its draft while it was offline). Its stale
-// change must not undo theirs. A decantation never goes back to a draft once
-// started, finished or cancelled, so a draft never replaces one, whatever the
-// phone's clock says.
+// Which copy of a decantation a phone keeps when the cloud has one too. A
+// copy with nothing left to send is only a copy: the cloud's is the truth. One
+// with a change not sent yet is kept only while the cloud still has the
+// version that change was made on (local._base, the cloud's updated_at it came
+// with) - or this very change. If the cloud moved on meanwhile (the tank
+// stock server or another phone saved), sending it would undo what they did,
+// so theirs is kept. Times are compared for being the same, never for which is
+// later: each phone's clock is its own. (A copy without _base, from before:
+// the later one, by the clocks.) A decantation never goes back to a draft once
+// started, finished or cancelled.
+export const sameTime = (a, b) => Boolean(a && b) && Math.abs((Date.parse(a) || 0) - (Date.parse(b) || 0)) < 1;
+
 export function keepLocalSession(local, remote, pending = false) {
   if (!remote) return Boolean(pending);
   if (local?.status === 'draft' && remote.status && remote.status !== 'draft') return false;
+  if (!pending) return false;
+  if (local?._base) return sameTime(remote.updated_at, local._base) || sameTime(remote.updated_at, local.updated_at);
   const l = Date.parse(local?.updated_at || 0) || 0;
   const r = Date.parse(remote.updated_at || 0) || 0;
-  return pending ? l >= r : l > r;
+  return l >= r;
 }
 
 // 'new' | 'active' | 'partial' | 'done' | 'dismissed' for the "to decant" list.

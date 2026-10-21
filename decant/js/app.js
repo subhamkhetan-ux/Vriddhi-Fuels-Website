@@ -39,7 +39,7 @@ export const tankName = (id) => {
   const t = tankById(id);
   if (t) return `Tank ${t.no}`;
   const gone = (state.settings.retiredTanks || []).find((x) => x.id === id);
-  return gone?.no ? `Tank ${gone.no} (removed)` : id;
+  return gone?.no ? `Tank ${gone.no} (removed)` : esc(String(id ?? ''));   // (a tank id from the cloud goes into the page)
 };
 
 // An invoice's chambers: from the invoice, else — for one of our own TTs — from
@@ -49,13 +49,21 @@ export function layoutFor(inv) {
   return chamberLayout(inv, own ? { chambers: own.chambers.map((qty_kl, i) => ({ no: i + 1, qty_kl })) } : null);
 }
 
+// A draft whose tanks are taken already: the tank stock server runs it (they
+// wait for the truck to start), or it is set up to decant tank by tank.
+export function reservingDraft(s) {
+  const d = s?.data || {};
+  return s?.status === 'draft' && Boolean(d.tanks?.length)
+    && ((d.auto && !d.auto.released) || d.step === 'decant');
+}
+
 // Tanks taken by a truck being decanted — decanting now, settling, or next in
 // line for it (another truck can't use them). A tank whose stock after has
 // been read is free again.
 export function busyTanks(exceptId = null) {
   const busy = new Map();
   for (const s of state.sessions) {
-    if (s.id === exceptId || !['decanting', 'settling'].includes(s.status)) continue;
+    if (s.id === exceptId || !(['decanting', 'settling'].includes(s.status) || reservingDraft(s))) continue;
     for (const t of s.data?.tanks || []) if (tankStage(s, t) !== 'read') busy.set(t.tank, s);
   }
   return busy;
@@ -542,7 +550,19 @@ function onHomeClick(e) {
     if (!s) return;
     if (t.closest('[data-discard]')) {
       ask('Discard this draft?', 'Nothing was decanted yet; the invoice goes back to the list.', { ok: 'Discard', danger: true })
-        .then(async (yes) => { if (yes) { s.status = 'cancelled'; s.completed_at = new Date().toISOString(); const { saveSession } = await import('./store.js'); saveSession(s); } });
+        .then(async (yes) => {
+          if (!yes) return;
+          // the copy as it is now: the tank stock server may have seen this truck start meanwhile
+          const cur = state.sessions.find((x) => x.id === s.id);
+          if (!cur || cur.status !== 'draft' || (cur.data?.tanks || []).some((x) => x.startedAt)) {
+            toast('It has started decanting meanwhile, so it was not discarded.', 5000);
+            return;
+          }
+          cur.status = 'cancelled';
+          cur.completed_at = new Date().toISOString();
+          const { saveSession } = await import('./store.js');
+          saveSession(cur);
+        });
       return;
     }
     openWizard(s.id);
@@ -1041,7 +1061,11 @@ function settingsSheet() {
       if (problems.length) { toast(problems[0], 5000); return; }
       // a tank another phone has started decanting into since this sheet opened
       const busyNow = busyTanks();
-      const clash = work.find((t) => t.id && busyNow.has(t.id) && (t.removed || saved.get(t.id).product !== t.product));
+      // (nor one an open decantation names at all - even a tank of it already read - or it couldn't be drawn)
+      const named = new Set(state.sessions.filter((x) => ['draft', 'decanting', 'settling'].includes(x.status))
+        .flatMap((x) => (x.data?.tanks || []).map((t) => t.tank)));
+      const clash = work.find((t) => t.id && ((busyNow.has(t.id) && saved.get(t.id).product !== t.product)
+        || (t.removed && (busyNow.has(t.id) || named.has(t.id)))));
       if (clash) { toast(`${tankName(clash.id)} is being decanted — it can't be ${clash.removed ? 'removed' : 'given another product'} now.`, 5000); return; }
       // new tanks get an id no tank has had: not one in use, removed, or with a stock reading
       const taken = new Set([...keep.map((t) => t.id).filter(Boolean), ...(s.retiredTanks || []).map((t) => t.id), ...work.map((t) => t.id).filter(Boolean), ...Object.keys(state.tankState)]);

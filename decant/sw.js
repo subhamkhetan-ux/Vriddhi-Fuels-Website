@@ -3,7 +3,11 @@
 // CDN libraries (text reader, PDF reader, Supabase client) are cached on first
 // use so reading a screenshot works without a signal later. Supabase data is
 // never cached here — the app keeps its own copy.
-const CACHE = "vriddhi-decant-v36";
+const CACHE = "vriddhi-decant-v37";
+// The pinned CDN libraries: their own cache, kept over app updates (an
+// update clearing them would leave a phone opened offline with no cloud
+// client and no screenshot reader).
+const CDN_CACHE = "vriddhi-decant-cdn";
 const SHELL = [
   "./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon.png",
   "./js/app.js", "./js/wizard.js", "./js/views.js", "./js/plan.js", "./js/tankers.js", "./js/shareimg.js", "./js/shots.js", "./js/theme.js", "./js/scene.js", "./js/worker.js", "./js/store.js", "./js/core.js", "./js/ui.js",
@@ -27,7 +31,7 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== CDN_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -39,7 +43,7 @@ self.addEventListener("fetch", (e) => {
   if (url.hostname.endsWith("supabase.co")) return;
   if (CDN.includes(url.hostname)) {
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+      if (res.ok) { const copy = res.clone(); caches.open(CDN_CACHE).then((c) => c.put(req, copy)); }
       return res;
     })));
     return;

@@ -51,6 +51,7 @@ PROBE_START_WAIT = 75      # seconds for each planned tank's clock to move befor
 PROOF_DIR = "auto-proof"   # each run's stock before / after pictures, per tank
 PROOF_RUNS_KEPT = 10       # runs whose pictures stay on the server
 PROOF_RETRY_S = 60         # a picture the decant app didn't take: try again this often
+CLOUD_REST_S = 30          # after the decant app couldn't be reached: the live reads don't wait on it again this soon
 
 
 class AutoError(ValueError):
@@ -69,7 +70,11 @@ class AutoDecant:
         self.abort = threading.Event()
         self.reconnecting = None              # the thread connecting again, while it runs
         self._view = None                     # the page's last view
-        self.probes = {}                      # tank id -> {"fp", "at"}: when its card's clock last moved
+        # tank id -> {"fp", "at", "stale"}: when its card's clock last moved (kept over a restart: a card
+        # frozen before it is still frozen after it, until its clock is seen to move)
+        self.probes = data.get("probes") or {}
+        self._live_seen = None                # the live session the probes were last checked on
+        self._again = False                   # AnyDesk dropped again while connecting again
 
     # ---- state -----------------------------------------------------------
     @property
@@ -82,7 +87,8 @@ class AutoDecant:
     def _persist(self) -> None:
         from .service import _write_json
         with self.lock:                          # (the reconnect thread writes too)
-            _write_json(self.st.home / AUTO_FILE, {"info": self.info, "run": self.run.to_json() if self.run else None})
+            _write_json(self.st.home / AUTO_FILE, {"info": self.info, "run": self.run.to_json() if self.run else None,
+                                                   "probes": self.probes})
 
     def _set(self, phase: str, **info) -> None:
         self.info.update(phase=phase, at=_now(), **info)
@@ -168,6 +174,9 @@ class AutoDecant:
             if self.active():
                 raise AutoError("A decantation is already running here: finish, hand over or cancel it first.")
             self.st.login()                    # the AnyDesk login is saved (else a clear error)
+            if self.info.get("unsaved") and self.run and not self._save_final(time.time()):
+                raise AutoError("The last decantation's end hasn't reached the decant app yet (it can't be "
+                                "reached): try again once it answers.")
             cfg, invoices, sessions, stock = self._cloud()
             rows, inv = self._plan_rows(invoice_no, plan, cfg, invoices, sessions)
             # the plan as it stands now (the stock before is read again at the start)
@@ -204,6 +213,8 @@ class AutoDecant:
             if draft:                            # the app's open draft for this truck: take it over
                 session.update(id=draft["id"], created_at=draft.get("created_at"))
             with self.lock:
+                if self.abort.is_set():          # (Cancel pressed while the app was asked)
+                    raise AutoError("Cancelled.")
                 run = dz.Decantation.plan(session, rows2, before, cfg["app"],
                                           dz.busy_tanks(sessions, except_id=session["id"]), now=time.time())
                 self.st.decant.save_session(run.s)
@@ -278,13 +289,29 @@ class AutoDecant:
 
     def _frozen(self, tank_id: str, tick: dict | None, now: float) -> bool:
         """Has this tank's card clock stopped for PROBE_STALE_S (by this run's clock)?"""
-        if not tick or not tick.get("fp"):
-            return False
         p = self.probes.get(tank_id)
+        if not tick or not tick.get("fp"):
+            return bool(p and p.get("stale"))    # (its clock not read yet: as it was)
+        if p and p.get("held"):
+            # frozen before a restart or a new AnyDesk session (whose picture of
+            # the clock may differ a little): frozen until the clock moves here
+            if p.get("fp") is None:
+                p["fp"] = tick["fp"]
+            if p["fp"] == tick["fp"]:
+                return True
+            p = None
         if not p or p["fp"] != tick["fp"]:
-            self.probes[tank_id] = {"fp": tick["fp"], "at": now}
+            self.probes[tank_id] = {"fp": tick["fp"], "at": now, "stale": False}
             return False
-        return now - p["at"] >= PROBE_STALE_S
+        p["stale"] = now - p["at"] >= PROBE_STALE_S
+        return p["stale"]
+
+    def _rearm_probes(self) -> None:
+        """A new live session (or a restart): a card that was frozen stays so
+        until its clock is seen to move on this one."""
+        for p in self.probes.values():
+            if p.get("stale") or p.get("held"):
+                p.update(fp=None, held=True, stale=True)
 
     def _full_before(self, live, tanks) -> dict:
         """Each planned tank's stock before, read in full and saved to the app."""
@@ -326,8 +353,12 @@ class AutoDecant:
             if self.phase != "running" or not self.run or live.get("failed"):
                 return
             now = time.time()
+            if live is not self._live_seen:
+                self._live_seen = live
+                self._rearm_probes()
             if self.run.s["status"] == "done":
-                self._finished(now)              # saving it failed last time
+                if not self._cloud_resting(now):
+                    self._finished(now)          # saving it failed last time
                 return
             if now - self.info.get("synced", 0) >= SYNC_EVERY:
                 self.info["synced"] = now
@@ -387,8 +418,7 @@ class AutoDecant:
         if (work["finish"] or self.run.ready_to_finish()) and self.run.s["status"] not in ("done", "cancelled"):
             self._finish(now)
         elif self.run.s["status"] == "cancelled":
-            self._set("cancelled")
-            self._stop_live_if_ours()
+            self._end("cancelled", now)
 
     @staticmethod
     def _merge(work: dict, more: dict) -> None:
@@ -546,6 +576,8 @@ class AutoDecant:
             "density": reading.get("density"), "temp": reading.get("temp")}
 
     def _retry_proofs(self, now: float, force: bool = False) -> None:
+        if not force and self._cloud_resting(now):
+            return
         for tank_id, both in (self.info.get("proofs") or {}).items():
             for which, p in both.items():
                 if p.get("cloud") or not p.get("picture") or p.get("volume") is None or not p.get("readingAt"):
@@ -605,7 +637,7 @@ class AutoDecant:
         try:
             remote = self.st.decant.get_session(self.run.s["id"])
         except self.st.decant.DecantError as exc:
-            self.info["cloud_error"] = str(exc)
+            self.info.update(cloud_error=str(exc), cloud_at=now)
             return True
         self.info.pop("cloud_error", None)
         if remote is None:
@@ -615,7 +647,7 @@ class AutoDecant:
                 self._stop_live_if_ours()
                 return False
             return True
-        if (dz._ts(remote.get("updated_at")) or 0) > (dz._ts(self.info.get("saved_at")) or 0) + 0.0005:
+        if self._changed(remote):
             if remote.get("status") == "draft" and self.run.s.get("status") != "draft":
                 # A phone sent back its old draft of this truck (from before this
                 # run took it over): a decantation never goes back to a draft
@@ -627,15 +659,32 @@ class AutoDecant:
             self.run.adopt(remote, now)
             self.info["saved_at"] = remote["updated_at"]
             ended = {"done": "finished", "cancelled": "cancelled"}.get(remote.get("status"))
-            if ended or not self.run.active():
-                self._set(ended or "released")
-                self._tell(f"🤖 {self._title()}: {self.run.state['log'][-1]['text']}")
-                self._stop_live_if_ours()
-                return False
-            self._adopted(now)
+            if not ended and self.run.active() and not self.run.s["data"].get("tanks"):
+                # a phone took every tank out (or went back to planning it): it's the app's now
+                self.run.log("No tank is left in it in the decant app, so it is left to the app.", now, "done")
+            elif ended or not self.run.active():
+                pass
+            else:
+                self._adopted(now)
+                return True
+            self._set(ended or "released")
+            self._tell(f"🤖 {self._title()}: {self.run.state['log'][-1]['text']}")
+            self._stop_live_if_ours()
+            return False
         elif self.info.get("dirty"):
             self._save(now)
         return True
+
+    def _changed(self, remote: dict) -> bool:
+        """Has someone else saved it since the agent did? By the time of the
+        agent's own last save (not "newer than": a phone's clock may be behind)."""
+        r = dz._ts(remote.get("updated_at")) or 0
+        mine = (dz._ts(self.info.get("saved_at")) or 0, dz._ts(self.run.s.get("updated_at")) or 0)
+        return all(abs(r - m) > 0.0005 for m in mine)
+
+    def _cloud_resting(self, now: float) -> bool:
+        """The decant app couldn't be reached a moment ago: the live reads don't wait on it again yet."""
+        return bool(self.info.get("cloud_error")) and now - self.info.get("cloud_at", 0) < CLOUD_REST_S
 
     def _adopted(self, now: float) -> None:
         """After a phone's change: a tank it added gets its stock before read
@@ -655,20 +704,78 @@ class AutoDecant:
     def _save(self, now: float, force: bool = False) -> bool:
         """Save the session, unless a phone changed it meanwhile (then theirs
         is taken over and the run goes on from it)."""
+        if not force and self._cloud_resting(now):
+            self.info["dirty"] = True                # (saved once it answers)
+            return False
         try:
             remote = self.st.decant.get_session(self.run.s["id"])
-            if not force and remote and (dz._ts(remote.get("updated_at")) or 0) > \
-                    (dz._ts(self.info.get("saved_at")) or 0) + 0.0005:
+            if not force and remote and self._changed(remote):
                 self.info["synced"] = 0              # take it over on the next read
                 self.info["dirty"] = True
                 return False
-            self.st.decant.save_session(self.run.s)
+            # only over the version just looked at: a phone's save landing in between wins
+            if not self.st.decant.save_session(self.run.s, base=None if force or not remote else remote["updated_at"]):
+                self.info["synced"] = 0
+                self.info["dirty"] = True
+                return False
         except self.st.decant.DecantError as exc:
-            self.info.update(dirty=True, cloud_error=str(exc))
+            self.info.update(dirty=True, cloud_error=str(exc), cloud_at=now)
             return False
         self.info.update(saved_at=self.run.s["updated_at"], dirty=False)
         self.info.pop("cloud_error", None)
         return True
+
+    def _end(self, phase: str, now: float) -> None:
+        """Handed over / cancelled: in the decant app first. If it can't be
+        reached, it is sent as soon as it can be - else the app would show it
+        still run by the agent, with nobody running it."""
+        saved = self._save_final(now)
+        self._set(phase, unsaved=not saved,
+                  error="" if saved else "The decant app couldn't be reached: this is sent to it as soon as it answers.")
+        if not saved:
+            self._save_later()
+        self._stop_live_if_ours()
+
+    def _save_final(self, now: float) -> bool:
+        """The ended run into the app. A phone's change made meanwhile is taken
+        over first, and the end applied to it."""
+        try:
+            remote = self.st.decant.get_session(self.run.s["id"])
+        except self.st.decant.DecantError as exc:
+            self.info.update(cloud_error=str(exc), cloud_at=now)
+            return False
+        if remote is not None and self._changed(remote):
+            if remote.get("status") in ("done", "cancelled") or (remote["data"].get("auto") or {}).get("released"):
+                return True                          # it ended in the app meanwhile
+            cancelling = self.run.s.get("status") == "cancelled"
+            self.run.adopt(remote, now)
+            self.info["saved_at"] = remote.get("updated_at")
+            try:
+                self.run.cancel(now) if cancelling else self.run.release(now)
+            except ValueError:
+                self.run.release(now)                # (a tank started meanwhile: it can only be handed over)
+        return self._save(now, force=True)
+
+    def flush_final(self, now: float | None = None) -> bool:
+        """An ended run the decant app couldn't take: try again. -> True once
+        nothing is left to send."""
+        with self.lock:
+            if not self.info.get("unsaved") or not self.run or self.active():
+                return True
+            if not self._save_final(now or time.time()):
+                return False
+            self.info.update(unsaved=False, error="")
+            self._persist()
+        self._tell(f"🤖 {self._title()}: the end of the decantation is now saved in the decant app.")
+        return True
+
+    def _save_later(self) -> None:
+        def again():
+            while True:
+                time.sleep(PROOF_RETRY_S)
+                if self.flush_final():
+                    return
+        threading.Thread(target=again, daemon=True, name="auto-save-later").start()
 
     # ---- the page's buttons ----------------------------------------------------
     def act(self, action: str, body: dict) -> dict:
@@ -691,6 +798,11 @@ class AutoDecant:
             if not self.run or self.phase not in ("running", "paused"):
                 raise AutoError("No decantation is running.")
             now = time.time()
+            # a phone's change first: the button acts on the decantation as it is now
+            # (else saving it would be refused, and the answer lost when theirs is taken over)
+            self.info["synced"] = now
+            if not self._sync(now):
+                raise AutoError(f"It ended in the decant app meanwhile: {self.run.state['log'][-1]['text']}")
             tank = body.get("tank")
             if action == "answer":
                 ans = body.get("chambers")
@@ -709,9 +821,7 @@ class AutoDecant:
                     self.run.release(now)
                 else:
                     self.run.cancel(now)
-                self._save(now, force=True)
-                self._set("released" if action == "release" else "cancelled")
-                self._stop_live_if_ours()
+                self._end("released" if action == "release" else "cancelled", now)
                 return self.view()
             else:
                 raise AutoError("Unknown action.")
@@ -730,12 +840,26 @@ class AutoDecant:
         self._reconnect()
 
     def _reconnect(self, now: bool = False) -> None:
-        if self.reconnecting and self.reconnecting.is_alive():
-            return
-        self.reconnecting = threading.Thread(target=self._reconnect_loop, args=(now,), daemon=True, name="auto-reconnect")
-        self.reconnecting.start()
+        with self.lock:
+            if self.reconnecting and self.reconnecting.is_alive():
+                self._again = True               # (it dropped again as that one connected: it goes on)
+                return
+            self._again = False
+            self.reconnecting = threading.Thread(target=self._reconnect_loop, args=(now,), daemon=True,
+                                                 name="auto-reconnect")
+            self.reconnecting.start()
 
     def _reconnect_loop(self, at_once: bool) -> None:
+        while True:
+            self._reconnect_tries(at_once)
+            with self.lock:
+                if self._again and self.phase == "running" and not self.st.live:
+                    self._again, at_once = False, True
+                    continue
+                self.reconnecting = None
+                return
+
+    def _reconnect_tries(self, at_once: bool) -> None:
         began, tries = time.monotonic(), 0
         while self.phase == "running":
             if self.st.live:
@@ -763,13 +887,19 @@ class AutoDecant:
             except Exception:  # noqa: BLE001 - try again
                 traceback.print_exc()
             if time.monotonic() - began >= RECONNECT_FOR:
-                self._set("paused", error="The PC couldn't be reached for "
-                                          f"{RECONNECT_FOR // 3600} hours: press Connect again, or hand it over.")
+                with self.lock:
+                    if self.phase != "running":      # (handed over or cancelled meanwhile)
+                        return
+                    self._set("paused", error="The PC couldn't be reached for "
+                                              f"{RECONNECT_FOR // 3600} hours: press Connect again, or hand it over.")
                 self._tell(f"⚠️ {self._title()}: the PC can't be reached; the decantation is paused.")
                 return
 
     def resume(self) -> None:
         """The service has (re)started."""
+        self._rearm_probes()
+        if self.phase in ("released", "cancelled") and self.info.get("unsaved") and self.run:
+            self._save_later()
         if self.phase == "starting":
             self._set("failed", error="The service restarted while it was starting: start it again.")
         elif self.phase == "running":
@@ -809,7 +939,7 @@ class AutoDecant:
             if not self.info:
                 self._view = None
             else:
-                info = {k: v for k, v in self.info.items() if k not in ("fed", "synced", "runningSince")}
+                info = {k: v for k, v in self.info.items() if k not in ("fed", "synced", "runningSince", "cloud_at")}
                 self._view = copy.deepcopy({**info, "run": self.run.view(time.time()) if self.run else None})
             return self._view
         finally:

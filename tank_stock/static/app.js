@@ -757,14 +757,18 @@
     }
   }
 
-  let polling = false;
+  // One chain of polls, whoever asks for one (a button, the tab coming back):
+  // never two timers asking the server twice as often.
+  let polling = false, pollTimer = 0;
+  const pollIn = (ms) => { clearTimeout(pollTimer); pollTimer = setTimeout(poll, ms); };
   async function poll() {
+    clearTimeout(pollTimer);
     if (polling) return;
     polling = true;
     try { await refresh(); } finally { polling = false; }
     if (state?.busy || waiting || state?.live || autoActive()) {   // live: the figures as they come
       if (waiting && !state.busy) waiting = false;
-      setTimeout(poll, state?.live && !state.busy ? 3000 : 2500);
+      pollIn(state?.live && !state.busy ? 3000 : 2500);
     }
   }
 
@@ -774,7 +778,7 @@
       waiting = true;
       setStatus("status", isLive() ? "Reading the live session…" : "Connecting to the automation PC… This takes about a minute.");
       $("go").disabled = $("goDec").disabled = true;
-      setTimeout(poll, 1500);
+      pollIn(1500);
     } catch (e) {
       setStatus("status", e.message, true);
     }

@@ -328,10 +328,19 @@ test("a phone's change never undoes a newer one from the cloud", () => {
   assert.equal(keepLocalSession(old, newer, true), false);
   assert.equal(keepLocalSession(newer, old, true), true);
   assert.equal(keepLocalSession(old, old, true), true);
-  // sent: only a newer copy of this phone's is kept
-  assert.equal(keepLocalSession(newer, old, false), true);
+  // sent: the cloud's copy is the truth, whatever this phone's clock says
+  assert.equal(keepLocalSession(newer, old, false), false);
   assert.equal(keepLocalSession(old, old, false), false);
   assert.equal(keepLocalSession(old, newer, false), false);
+  // a change made on the copy the cloud still has: kept; on one the cloud has
+  // moved on from: not, even when this phone's clock puts it later
+  const base = '2026-10-15T13:00:00.000Z';
+  const mine = { updated_at: '2026-10-15T16:00:00.000Z', _base: base };
+  assert.equal(keepLocalSession(mine, at(base), true), true);
+  assert.equal(keepLocalSession(mine, at('2026-10-15T13:00:00.000+00:00'), true), true);   // (the server's spelling)
+  assert.equal(keepLocalSession(mine, at('2026-10-15T13:30:00.000Z'), true), false);       // the server saved since
+  assert.equal(keepLocalSession(mine, at(mine.updated_at), true), true);                   // this very change, back
+  assert.equal(keepLocalSession({ ...mine, updated_at: '2026-10-15T12:00:00.000Z' }, at(base), true), true);  // clock behind
   // a draft never replaces one started, finished or cancelled, even with a clock ahead
   const draft = { status: 'draft', updated_at: '2026-10-15T15:00:00.000Z' };
   for (const status of ['decanting', 'settling', 'done', 'cancelled']) {

@@ -105,6 +105,10 @@ def _span(seconds) -> str:
     return f"{h} h {m} min" if h else f"{m} min {sec} s" if m else f"{sec} s"
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 def now_iso() -> str:
     return datetime.now(IST).isoformat(timespec="seconds")
 
@@ -167,8 +171,9 @@ class Station:
         self.busy_since = None
         self.busy_what = ""
         self.live = None                 # {state, session, since, tanks, ...} while live
+        self._live_lock = threading.Lock()   # one live session starts at a time
         self.live_last = _read_json(home / "live.json", {})
-        self.alerted = ""
+        self.alerted = {}                # what Telegram was last told, per tank ("down": the app unreachable)
         self._dropped = ""               # the day earlier days' proof pictures were last cleared
         self._short_runs = 0             # reconnects in a row after short sessions
         self._no_cards_told = 0.0        # when Telegram last got "no tank cards" with the screen
@@ -213,10 +218,16 @@ class Station:
         one capture. ``decantation``: upload, then end the live session."""
         tanks = clean_tanks(tanks)
         upload = upload or decantation
-        live = self.live if self.live and self.live.get("state") == "live" else None
-        self._hold("decantation" if decantation else "capture", wait=90 if live else 0)
+        try:
+            self._hold("decantation" if decantation else "capture", wait=90 if self.live else 0)
+        except RuntimeError as exc:
+            self._failed(exc, why)
+            raise
         try:
             try:
+                # (looked at once the PC is ours: live monitoring may have
+                # ended, or finished connecting, while this waited for it)
+                live = self._live_now()
                 if live:
                     png, page = live["session"].shot()
                     used = live["session"].position
@@ -225,28 +236,50 @@ class Station:
                     with self.session_cls(ids, password) as session:
                         png, page = session.shot()
                         used = session.position
-            except CaptureError as exc:
-                self.last = {**self.last, "error": str(exc), "error_at": now_iso(), "why": why}
-                _write_json(self.home / "last.json", self.last)
+                last = self._record(png, page, used, tanks, upload, why)
+            except Exception as exc:
+                self._failed(exc, why)
                 raise
-            last = self._record(png, page, used, tanks, upload, why)
         finally:
             self._release()
         if decantation and self.live and not self.auto.active():
             self.stop_live("sent for decantation")   # (an automatic decantation needs it on)
         return last
 
+    def _live_now(self):
+        """The open live session, if it is live and still connected."""
+        live = self.live
+        if not live or live.get("state") != "live" or not live.get("session"):
+            return None
+        try:
+            return live if live["session"].alive() else None
+        except Exception:  # noqa: BLE001 - not usable
+            return None
+
+    def _failed(self, exc: Exception, why: str) -> None:
+        """A capture that failed: the page says why (whatever went wrong)."""
+        if not isinstance(exc, (CaptureError, RuntimeError, ValueError)):
+            traceback.print_exc()
+        msg = str(exc) if isinstance(exc, (CaptureError, RuntimeError, ValueError)) else \
+            f"The capture failed ({type(exc).__name__})."
+        self.last = {**self.last, "error": msg, "error_at": now_iso(), "why": why}
+        try:
+            _write_json(self.home / "last.json", self.last)
+        except OSError:
+            traceback.print_exc()
+
     def _record(self, png, page, used, tanks, upload, why) -> dict:
         started = now_iso()
-        (self.home / "screen.png").write_bytes(png)
+        seen = _utc_now()                 # a card whose time isn't read is stamped with this
+        tmp = self.home / "screen.png.tmp"
+        tmp.write_bytes(png)
+        os.replace(tmp, self.home / "screen.png")
         boxes, read = cards_mod.read_all(png)
-        try:
-            cfg, cfg_error = self.decant.settings(), ""
-        except self.decant.DecantError as exc:
-            cfg = {"tanks": self.decant.DEFAULT_TANKS, "dateOrder": "MDY", "chart": self.decant.dip_chart()}
-            cfg_error = f"{exc} Using the app's default tanks."
+        self._screen = (png, dict(boxes))         # the picture and its card boxes, together
+        cfg, cfg_error = self._settings()
         found = {}
         for no, card in read.items():
+            card.setdefault("seenAt", seen)
             tank = self.decant.tank_for(no, cfg)
             built = self.decant.make_reading(card, tank, cfg) if tank else None
             found[str(no)] = {
@@ -260,10 +293,28 @@ class Station:
         if missing:
             self._no_cards(png, page, missing if found else None)
         (self.home / "cards.json").write_text(json.dumps({str(k): v for k, v in read.items()}))
-        if upload:
+        if upload and cfg.get("default"):
+            # Which card is which tank comes from the app's settings: without
+            # them nothing is saved under a guessed tank.
+            self.last["uploads"] = {str(n): {"ok": False, "at": now_iso(), "message": "not saved: the decant app's "
+                                             "settings couldn't be read (which tank is which)"} for n in tanks}
+        elif upload:
             self._upload(tanks, read, cfg)
         _write_json(self.home / "last.json", self.last)
         return self.last
+
+    def _settings(self) -> tuple[dict, str]:
+        """The decant app's settings: the last ones read if it can't be reached
+        now, else its defaults (marked "default": not for saving readings)."""
+        try:
+            cfg = self.decant.settings()
+            self._cfg = cfg
+            return cfg, ""
+        except self.decant.DecantError as exc:
+            if getattr(self, "_cfg", None):
+                return self._cfg, f"{exc} Using the app's settings as last read."
+            return {"tanks": self.decant.DEFAULT_TANKS, "dateOrder": "MDY", "chart": self.decant.dip_chart(),
+                    "default": True}, f"{exc} Using the app's default tanks (nothing is saved to it)."
 
     def _upload(self, tanks, read, cfg) -> dict:
         try:
@@ -309,10 +360,9 @@ class Station:
         except RuntimeError:
             raise ValueError("The agent is reading the PC; upload when it has finished.") from None
         try:
-            try:
-                cfg = self.decant.settings()
-            except self.decant.DecantError as exc:
-                return {n: {"ok": False, "message": str(exc)} for n in tanks}
+            cfg, err = self._settings()
+            if cfg.get("default"):
+                return {n: {"ok": False, "message": err} for n in tanks}
             results = self._upload(tanks, read, cfg)
             _write_json(self.home / "last.json", self.last)
         finally:
@@ -337,13 +387,17 @@ class Station:
             traceback.print_exc()
 
     def picture(self, tanks, stack: bool = False, grid: bool = False, full: bool = False) -> bytes:
-        try:
-            png = (self.home / "screen.png").read_bytes()
-        except OSError:
-            return b""
+        shot = getattr(self, "_screen", None)
+        if shot:
+            png, boxes = shot[0], {int(k): tuple(v) for k, v in shot[1].items()}
+        else:                              # (since the service started: the files)
+            try:
+                png = (self.home / "screen.png").read_bytes()
+            except OSError:
+                return b""
+            boxes = {int(k): tuple(v["box"]) for k, v in (self.last.get("tanks") or {}).items()}
         if full:
             return png                     # the whole screen: what the PC showed
-        boxes = {int(k): tuple(v["box"]) for k, v in (self.last.get("tanks") or {}).items()}
         return cards_mod.picture(png, boxes, clean_tanks(tanks), stack=stack, grid=grid)
 
     def full_read(self, png: bytes | None, tanks, why: str) -> dict:
@@ -391,6 +445,10 @@ class Station:
     def start_live(self, new_settings: dict | None = None, auto: bool = False) -> dict:
         """Connect and keep the session open, reading every interval_s.
         auto: for the automatic decantation (the saved settings stay)."""
+        with self._live_lock:
+            return self._start_live(new_settings, auto)
+
+    def _start_live(self, new_settings, auto) -> dict:
         if self.live:
             raise RuntimeError("Live monitoring is already running.")
         if self.busy.locked() and not auto:
@@ -465,8 +523,20 @@ class Station:
             reason = f"{type(exc).__name__}: {exc}"
             traceback.print_exc()
         finally:
+            live["state"] = "ending"               # a capture no longer uses it
             if session:
-                session.close()
+                try:
+                    self._hold("closing the live session", wait=60)   # (not in the middle of a capture's shot)
+                    held = True
+                except RuntimeError:
+                    held = False
+                try:
+                    session.close()
+                except Exception:  # noqa: BLE001 - it is over either way
+                    traceback.print_exc()
+                finally:
+                    if held:
+                        self._release()
             self._live_end(live, reason, final)
 
     def _unwatched(self, live) -> bool:
@@ -480,12 +550,11 @@ class Station:
 
     def _live_cfg(self, live) -> dict:
         if not live.get("cfg") or time.time() - live.get("cfg_at", 0) > SETTINGS_EVERY:
-            try:
-                live["cfg"] = self.decant.settings()
-            except self.decant.DecantError:
-                live["cfg"] = live.get("cfg") or {"tanks": self.decant.DEFAULT_TANKS, "dateOrder": "MDY",
-                                                  "chart": self.decant.dip_chart()}
-            live["cfg_at"] = time.time()
+            cfg, _ = self._settings()
+            if not cfg.get("default") or not live.get("cfg"):
+                live["cfg"] = cfg
+            # (defaults: asked again in a minute, not in ten)
+            live["cfg_at"] = time.time() - (SETTINGS_EVERY - 60 if live["cfg"].get("default") else 0)
         return live["cfg"]
 
     def _live_find(self, live) -> bytes:
@@ -529,7 +598,7 @@ class Station:
                     good += 1                         # same figures as last time
                     continue
                 card = cards_mod.read_figures(png, box)
-                card.update(no=no, product=live["products"].get(no))
+                card.update(no=no, product=live["products"].get(no), seenAt=_utc_now())
                 tank = self.decant.tank_for(no, cfg)
                 built = self.decant.make_reading(card, tank, cfg) if tank else None
                 if not built or card.get("volume") is None:
@@ -557,7 +626,9 @@ class Station:
             pending = live.setdefault("pending", {})
             send = {**{no: c for no, c in pending.items() if wanted(no)},
                     **{no: c for no, c in changed.items() if wanted(no)}}
-            if send:
+            if send and cfg.get("default"):
+                pending.update(send)                  # sent once the app's settings are read
+            elif send:
                 self._live_upload(live, send, cfg)
             live.pop("last_error", None)
             live.update(failed=0, last_read=now_iso(), last_png=png)
@@ -595,14 +666,27 @@ class Station:
                 pending.pop(no, None)
             live["uploads"][str(no)] = {**{k: v for k, v in r.items() if k != "mark"}, "at": stamp}
         live["upload_after"] = time.time() + LIVE_UPLOAD_BACKOFF if unreachable else 0
-        bad = "; ".join(f"Tank {n}: {r['message']}" for n, r in sorted(results.items()) if not r.get("ok"))
-        if bad and bad != self.alerted and not (unreachable and "could not be reached" in self.alerted):
-            self.notify(f"⚠️ Tank stock (live): {bad}" + (" The volumes are sent again when it answers."
-                                                         if unreachable else ""))
-        elif not bad and "could not be reached" in self.alerted:
+        # Telegram: the app being unreachable once (not per tank, nor per
+        # read), and a tank's own problem once until it changes or clears.
+        told = self.alerted
+        if unreachable:
+            if not told.get("down"):
+                told["down"] = next(r["message"] for r in results.values() if not r.get("ok"))
+                self.notify(f"⚠️ Tank stock (live): {told['down'].replace(' (sent again when it answers)', '')} "
+                            "The volumes are sent again when it answers.")
+        elif told.get("down") and not pending:
+            told.pop("down")
             self.notify("✅ Tank stock (live): the decant app answers again; the latest volumes are in it.")
-        if bad or not pending:
-            self.alerted = bad if bad else ""
+        new = []
+        for no, r in sorted(results.items()):
+            msg = r.get("message") or ""
+            if r.get("ok") or no in pending:
+                told.pop(no, None)
+            elif told.get(no) != msg:
+                told[no] = msg
+                new.append(f"Tank {no}: {msg}")
+        if new:
+            self.notify("⚠️ Tank stock (live): " + "; ".join(new))
 
     def _live_end(self, live, reason: str, final: bytes) -> None:
         ended = now_iso()
@@ -624,8 +708,8 @@ class Station:
             except Exception:  # noqa: BLE001 - the session is over either way
                 traceback.print_exc()
         _write_json(self.home / "live.json", self.live_last)
-        self.live = None
-        self.alerted = ""
+        if self.live is live:               # (never a newer session started meanwhile)
+            self.live = None
         try:
             self.auto.on_live_end(reason, by_you=bool(live.get("stop_reason")))
         except Exception:  # noqa: BLE001
@@ -730,14 +814,21 @@ class Station:
     def queue_loop(self, stop: threading.Event) -> None:
         QUEUE.mkdir(mode=0o700, parents=True, exist_ok=True)
         while not stop.wait(2):
-            for req in sorted(QUEUE.glob("*.req")):
-                job = str(req)[:-4]
-                try:
-                    workdir = req.read_text(encoding="utf-8").strip()
-                    req.unlink()
-                except OSError:
-                    continue
-                if self.live and self.live.get("state") == "live":
+            try:
+                self._queue_once()
+            except Exception:  # noqa: BLE001 - the queue keeps running whatever one job did
+                traceback.print_exc()
+
+    def _queue_once(self) -> None:
+        for req in sorted(QUEUE.glob("*.req")):
+            job = str(req)[:-4]
+            try:
+                workdir = req.read_text(encoding="utf-8").strip()
+                req.unlink()
+            except OSError:
+                continue
+            try:
+                if self._live_now():
                     rc, out = self._job_from_live(job)
                     Path(f"{job}.log").write_text(out)
                 else:
@@ -749,8 +840,11 @@ class Station:
                         except (OSError, subprocess.TimeoutExpired) as exc:
                             log.write(f"The capture could not run: {type(exc).__name__}\n".encode())
                             rc = 1
-                Path(f"{job}.rc.tmp").write_text(f"{rc}\n")
-                os.replace(f"{job}.rc.tmp", f"{job}.rc")
+            except Exception:  # noqa: BLE001 - the job is still answered
+                traceback.print_exc()
+                rc = 1
+            Path(f"{job}.rc.tmp").write_text(f"{rc}\n")
+            os.replace(f"{job}.rc.tmp", f"{job}.rc")
 
     def _job_from_live(self, job: str) -> tuple[int, str]:
         """The GitHub job asked while the live session is open: answer from it."""
@@ -760,7 +854,10 @@ class Station:
         except RuntimeError as exc:
             return 1, f"{exc}\n"
         try:
-            png, page = self.live["session"].shot()
+            live = self._live_now()
+            if not live:
+                return 1, "The live session ended just now; ask again.\n"
+            png, page = live["session"].shot()
         except Exception as exc:  # noqa: BLE001
             return 1, f"The live session's screen could not be read ({type(exc).__name__}).\n"
         finally:
@@ -880,7 +977,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/capture":
                 tanks = clean_tanks(body.get("tanks") or [])
                 st = self.station
-                if st.busy.locked() or (st.live and st.live.get("state") != "live"):
+                # (a live session's reads hold the PC for seconds: the capture waits its turn)
+                if (st.busy.locked() and not st._live_now()) or (st.live and st.live.get("state") != "live"):
                     return self._json(409, {"error": "The agent is busy with the PC; wait for it to finish."})
                 threading.Thread(target=self._capture, daemon=True,
                                  args=(tanks, bool(body.get("upload")), bool(body.get("decantation")))).start()

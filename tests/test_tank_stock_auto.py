@@ -99,8 +99,11 @@ class Cloud:
         self._up()
         return copy.deepcopy(self.sessions.get(sid))
 
-    def save_session(self, s):
+    def save_session(self, s, base=None):
         self._up()
+        cur = self.sessions.get(s["id"])
+        if base and (not cur or abs((dz._ts(cur["updated_at"]) or 0) - (dz._ts(base) or 0)) > 0.0005):
+            return None                                  # someone saved it since
         s["updated_at"] = dz.iso(self.clock())
         s["created_at"] = s.get("created_at") or s["updated_at"]
         self.sessions[s["id"]] = copy.deepcopy(s)
@@ -394,7 +397,7 @@ def test_a_start_that_cant_read_the_stock_before_says_why(rig, monkeypatch):
         read(rig)
     a = rig.st.auto
     assert a.phase == "failed" and "tank screen couldn't be read" in a.info["error"]
-    assert any("could not start" in m for m in rig.told)
+    assert wait_for(lambda: any("could not start" in m for m in rig.told))   # (told just after)
     assert rig.cloud.sessions == {}
 
 
@@ -782,3 +785,126 @@ def test_a_tank_a_phone_added_before_this_update_is_checked_when_the_service_res
     a.resume()                                                    # the service restarts with this update
     assert a.run.row("T3")["before"]["volume"] == 11495.0
     assert any("isn't the stock just before it started rising" in m for m in rig.told)
+
+
+# ---- edge cases: restarts, outages, phones -----------------------------------
+
+def test_a_card_frozen_before_a_restart_stays_frozen_after_it(rig, monkeypatch):
+    frozen = set()
+    _clocks(rig, monkeypatch, frozen)
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 700)
+    assert a.run.row("T2")["stage"] == "settling"
+    frozen.add(2)                                   # the probe goes offline: the card shows what it last had
+    v_frozen, real = rig.world.volume(2), rig.world.volume
+    monkeypatch.setattr(rig.world, "volume", lambda no: v_frozen if no == 2 else real(no))
+    rig.world.sales = [(2, 1000, 300)]              # (and the real stock sells meanwhile)
+    drive(rig, 1400)
+    rig.st.live = None                              # the service restarts
+    again = service.Station(home=rig.home, session_cls=Session, decant_mod=rig.cloud, notify=rig.told.append,
+                            notify_photo=lambda png, caption: True)
+    again.auto.resume()
+    assert wait_for(lambda: again.live is not None)
+    rig.st = again
+    drive(rig, 1800)
+    r = again.auto.run.row("T2")
+    assert r["stage"] == "settling" and r["after"] is None     # nothing taken from the frozen figures
+    assert not any("updating again" in m for m in rig.told)
+    frozen.discard(2)                               # the card updates again: it carries on
+    monkeypatch.setattr(rig.world, "volume", real)
+    drive(rig, 1900)
+    assert again.auto.info.get("frozen") == ""
+
+
+def test_a_phone_sending_back_its_empty_draft_hands_the_run_over(rig):
+    a = start(rig, {"2": "T2"})
+    sid = a.run.s["id"]
+    old = copy.deepcopy(rig.cloud.sessions[sid])
+    old["data"].update(step="truck", plan=[], tanks=[])
+    old["data"].pop("auto", None)
+    old["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = old
+    drive(rig, 600)
+    assert a.phase == "released"                    # not running on forever with no tank
+    assert rig.st.live is None or rig.st.live["stop"].is_set()
+
+
+def test_a_phone_dropping_the_only_tank_hands_it_over(rig):
+    a = start(rig, {"2": "T2"})
+    sid = a.run.s["id"]
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    for p in s["data"]["plan"]:
+        p["tank"] = None
+    s["data"]["tanks"], s["data"]["step"] = [], "plan"
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = s
+    drive(rig, 600)
+    assert a.phase == "released"
+
+
+def test_hand_over_while_the_app_is_down_reaches_it_once_it_answers(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.cloud.down = True
+    drive(rig, 1200)
+    assert a.run.row("T2")["stage"] in ("settling", "read")
+    a.act("release", {})
+    assert a.phase == "released" and a.info["unsaved"]
+    assert cloud_session(rig)["data"]["tanks"][0]["stage"] == "waiting"     # (not there yet)
+    assert a.flush_final() is False                 # still down
+    rig.cloud.down = False
+    assert a.flush_final() is True
+    s = cloud_session(rig)
+    assert s["data"]["auto"]["released"] and s["data"]["tanks"][0]["stage"] in ("settling", "read")
+    assert not a.info["unsaved"]
+
+
+def test_a_change_from_a_phone_whose_clock_is_behind_is_still_taken(rig):
+    a = start(rig, {"2": "T2", "3": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 300)
+    sid = a.run.s["id"]
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    t = s["data"]["tanks"][0]
+    t["chambers"], t["litres"] = [2], 5000          # C3 taken out of Tank 2...
+    next(p for p in s["data"]["plan"] if p["no"] == 3)["tank"] = None
+    s["updated_at"] = dz.iso(dz._ts(a.info["saved_at"]) - 120)   # ...by a phone 2 min behind
+    rig.cloud.sessions[sid] = s
+    drive(rig, 900)
+    assert a.run.row("T2")["chambers"] == [2]
+    assert cloud_session(rig)["data"]["tanks"][0]["chambers"] == [2]
+
+
+def test_a_button_acts_on_the_phones_latest_copy(rig):
+    a = start(rig, {"2": "T2", "3": "T3"})
+    sid = a.run.s["id"]
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    s["data"]["notes"] = "from a phone"
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = s
+    a.act("drop", {"tank": "T3"})                   # pressed before the next sync
+    c = cloud_session(rig)
+    assert c["data"]["notes"] == "from a phone" and [t["tank"] for t in c["data"]["tanks"]] == ["T2"]
+
+
+def test_chambers_added_to_a_tank_a_phone_settled_are_followed():
+    from tests import test_tank_stock_decantation as td
+    run = td.start({2: "T2"})
+    truck = td.Truck([("T2", 50, 4990, 495), ("T2", 1200, 3990, 420)])
+    run.feed({"T2": truck.volume("T2", 0)}, T0)
+    remote = json.loads(json.dumps(run.s))
+    t = remote["data"]["tanks"][0]
+    t.update(stage="settling", startedAt=dz.iso(T0 + 60), doneAt=None)      # the agent never saw it rise
+    remote["status"] = "settling"
+    run.adopt(remote, T0 + 700)
+    assert run.row("T2")["doneAt"]                 # its settle time runs
+    secs = 700
+    while secs < 1100:
+        run.feed({"T2": truck.volume("T2", secs)}, T0 + secs)
+        secs += 10
+    run.add("T2", [3], None, T0 + secs)             # "Add to this decantation": C3 into Tank 2
+    while secs < 2500:                              # (no crash on every read)
+        run.feed({"T2": truck.volume("T2", secs)}, T0 + secs)
+        secs += 10
+    assert 3 in run.state["tanks"]["T2"]["arrived"] or run.row("T2")["stage"] in ("settling", "read")

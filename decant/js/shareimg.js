@@ -33,6 +33,26 @@ function text(ctx, s, x, y, { font, color = C.ink, align = 'left' }) {
   return ctx.measureText(s).width;
 }
 
+// One line kept within maxW: a smaller font (down to 3/4 of it), then cut with "…".
+function fitText(ctx, s, x, y, opts, maxW) {
+  s = String(s ?? '');
+  const m = /^(\d+) (\d+)px (.*)$/.exec(opts.font);
+  let font = opts.font;
+  if (m && maxW > 0) {
+    for (let px = Number(m[2]); px >= Math.ceil(Number(m[2]) * 0.75); px -= 1) {
+      font = `${m[1]} ${px}px ${m[3]}`;
+      ctx.font = font;
+      if (ctx.measureText(s).width <= maxW) break;
+    }
+    ctx.font = font;
+    if (ctx.measureText(s).width > maxW) {
+      while (s.length > 1 && ctx.measureText(`${s}…`).width > maxW) s = s.slice(0, -1);
+      s = `${s.trimEnd()}…`;
+    }
+  }
+  return text(ctx, s, x, y, { ...opts, font });
+}
+
 function wrap(ctx, s, font, maxW) {
   ctx.font = font;
   const out = [];
@@ -90,17 +110,35 @@ const PROOF_MAX = 12;
 const BLANK_H = 140;
 async function proofLayout(proofs) {
   const shots = [];
-  for (const p of (proofs || []).slice(0, PROOF_MAX)) {
+  const decoded = new Map();          // one decode per screenshot, however many tanks' cells it gives
+  // at most PROOF_MAX pictures (an empty cell isn't one); the whole
+  // screenshots the cells point to ("in the full screenshot below") always in
+  const all = proofs || [];
+  const wholes = all.filter((p) => p.whole && !p.blank).slice(0, PROOF_MAX - 2);
+  let room = PROOF_MAX - wholes.length;
+  const cells = [];
+  for (let i = 0; i < all.length; i += 1) {
+    const p = all[i];
+    if (p.whole) continue;
+    if (!p.blank) { if (room <= 0) break; room -= 1; }
+    cells.push(p);
+  }
+  if (cells.length % 2 && cells.length < all.filter((p) => !p.whole).length) cells.pop();   // (pairs stay whole)
+  for (const p of [...cells, ...wholes]) {
     if (p.blank) { shots.push({ ...p }); continue; }
     try {
-      const img = await decode(p.blob);
+      if (!decoded.has(p.blob)) decoded.set(p.blob, decode(p.blob));
+      const img = await decoded.get(p.blob);
       const c = p.crop;
       const src = c ? { sx: c.x0 * img.width, sy: c.y0 * img.height, sw: (c.x1 - c.x0) * img.width, sh: (c.y1 - c.y0) * img.height }
         : { sx: 0, sy: 0, sw: img.width, sh: img.height };
       shots.push({ ...p, img, src });
     } catch { shots.push({ ...p, blank: true, sub: 'The screenshot couldn\'t be opened' }); }
   }
-  if (!shots.some((p) => !p.blank)) return null;
+  if (!shots.some((p) => !p.blank)) {
+    for (const d of decoded.values()) d.then((img) => img.close?.()).catch(() => {});
+    return null;
+  }
   const gap = 24;
   const ctx = document.createElement('canvas').getContext('2d');
   // rows: pairs of cards (before | after), then each whole screenshot on its own
@@ -143,7 +181,7 @@ function drawProofs(ctx, L, y0) {
       ctx.lineWidth = 2;
       ctx.stroke();
       p.lines.forEach((l, i) => text(ctx, l, x + 16, y + 40 + i * 34, { font: L.font(row) }));
-      text(ctx, p.sub || '', x + 16, y + 40 + p.lines.length * 34, { font: `500 22px ${SANS}`, color: C.muted });
+      fitText(ctx, p.sub || '', x + 16, y + 40 + p.lines.length * 34, { font: `500 22px ${SANS}`, color: C.muted }, cw - 32);
       if (p.blank || !p.img) return;
       const ix = x + (cw - p.w) / 2;
       const iy = y + row.head;
@@ -157,6 +195,54 @@ function drawProofs(ctx, L, y0) {
   });
 }
 
+// A tank card's rows: each label in the room left of its litres (and the
+// litres left of the extra column, however wide that is); a label too long
+// for one line goes on to a second, smaller one, and the row grows to fit.
+const ROW_H = 56;
+const LINE2 = 32;
+function tankLayout(ctx, t) {
+  const x = PAD + 36;
+  const right = W - PAD - 36;
+  const rows = t.rows.map(([label, litres, extra, bold, dir]) => {
+    const labelFont = `${bold ? 700 : 500} 28px ${SANS}`;
+    const litresFont = `${bold ? 800 : 600} 30px ${SANS}`;
+    ctx.font = `500 26px ${SANS}`;
+    const extraW = extra ? ctx.measureText(extra).width : 0;
+    const litresRight = right - Math.max(210, extraW + 28);
+    ctx.font = litresFont;
+    const labelW = Math.max(120, litresRight - ctx.measureText(litres).width - 28 - x);
+    ctx.font = labelFont;
+    let lines = [String(label ?? '')];
+    if (ctx.measureText(lines[0]).width > labelW) {
+      // break at a " · " where it can, else between words; at most two lines
+      const parts = lines[0].split(' · ');
+      let first = parts[0];
+      let i = 1;
+      while (i < parts.length && ctx.measureText(`${first} · ${parts[i]}`).width <= labelW) first += ` · ${parts[i++]}`;
+      let rest = parts.slice(i).join(' · ');
+      if (!rest) {
+        const w = wrap(ctx, lines[0], labelFont, labelW);
+        first = w[0];
+        rest = w.slice(1).join(' ');
+      }
+      lines = rest ? [first, rest] : [first];
+    }
+    return { lines, litres, extra, bold, dir, labelFont, litresFont, labelW, litresRight, h: ROW_H + (lines.length - 1) * LINE2 };
+  });
+  return { rows, h: 262 + rows.reduce((a, r) => a + r.h, 0) - ROW_H + 36 };
+}
+
+// How tall the figures part of the picture is (all of it, however many tanks or notes).
+function figuresHeight(m) {
+  const ctx = document.createElement('canvas').getContext('2d');
+  let y = 236 + 32 + 236 + 24;
+  for (const t of m.tanks || []) y += tankLayout(ctx, t).h + 24;
+  if (m.notes) y += 70 + wrap(ctx, m.notes, `500 28px ${SANS}`, W - 2 * PAD - 72).length * 40 + 24;
+  if (m.audit) y += wrap(ctx, m.audit.text, `600 26px ${SANS}`, W - 2 * PAD).length * 36 + 6;
+  y += wrap(ctx, m.footer || '', `500 26px ${SANS}`, W - 2 * PAD).length * 36;
+  return Math.max(1200, Math.ceil(y) + 200);
+}
+
 // m: {title, sub, when, total, variation, direction, summary,
 //     tanks: [{name, product, color, band, bandLabel, direction, variation, pctLine, meta, rows: [[label, litres, extra, bold, direction]]}],
 //     notes, footer, audit: {ok, text} | null, made,
@@ -166,7 +252,7 @@ export async function resultImage(m) {
   try { await Promise.all(['800 64px Sora', '700 34px Sora'].map((f) => document.fonts.load(f))); } catch { /* system fonts */ }
   const canvas = document.createElement('canvas');
   canvas.width = W;
-  canvas.height = 5200;
+  canvas.height = figuresHeight(m);
   const ctx = canvas.getContext('2d');
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = C.bg;
@@ -184,20 +270,21 @@ export async function resultImage(m) {
   ctx.fillStyle = band;
   ctx.fillRect(0, 0, W, 236);
   text(ctx, 'VRIDDHI FUELS · DECANTING RESULT', PAD, 64, { font: `700 26px ${SANS}`, color: 'rgba(255,255,255,0.88)' });
-  text(ctx, m.title, PAD, 146, { font: `800 68px ${DISPLAY}`, color: '#fff' });
-  text(ctx, m.sub, PAD, 198, { font: `500 28px ${SANS}`, color: 'rgba(255,255,255,0.92)' });
+  fitText(ctx, m.title, PAD, 146, { font: `800 68px ${DISPLAY}`, color: '#fff' }, W - 2 * PAD);
+  fitText(ctx, m.sub, PAD, 198, { font: `500 28px ${SANS}`, color: 'rgba(255,255,255,0.92)' }, W - 2 * PAD);
   let y = 236 + 32;
 
   // summary
   card(ctx, y, 236);
-  text(ctx, `Decanted ${m.total} · ${m.when}`, PAD + 36, y + 58, { font: `500 30px ${SANS}`, color: C.muted });
-  text(ctx, m.variation, PAD + 36, y + 152, { font: `800 84px ${DISPLAY}`, color: varColor(m.direction) });
-  text(ctx, m.summary, PAD + 36, y + 204, { font: `500 28px ${SANS}`, color: C.muted });
+  const inner = W - 2 * PAD - 72;
+  fitText(ctx, `Decanted ${m.total} · ${m.when}`, PAD + 36, y + 58, { font: `500 30px ${SANS}`, color: C.muted }, inner);
+  fitText(ctx, m.variation, PAD + 36, y + 152, { font: `800 84px ${DISPLAY}`, color: varColor(m.direction) }, inner);
+  fitText(ctx, m.summary, PAD + 36, y + 204, { font: `500 28px ${SANS}`, color: C.muted }, inner);
   y += 236 + 24;
 
   // one card per tank
   for (const t of m.tanks) {
-    const h = 262 + (t.rows.length - 1) * 56 + 36;
+    const { rows, h } = tankLayout(ctx, t);
     card(ctx, y, h);
     const x = PAD + 36;
     const right = W - PAD - 36;
@@ -214,18 +301,19 @@ export async function resultImage(m) {
     ctx.fill();
     text(ctx, t.product, x + nameW + 18 + 42, y + 65, { font: `700 26px ${SANS}` });
     if (t.band) pill(ctx, t.bandLabel, right, y + 66, BAND[t.band], 'right');
-    text(ctx, t.meta, x, y + 110, { font: `500 26px ${SANS}`, color: C.faint });
-    text(ctx, t.variation, x, y + 186, { font: `800 60px ${DISPLAY}`, color: varColor(t.direction) });
-    text(ctx, t.pctLine, right, y + 180, { font: `500 26px ${SANS}`, color: C.muted, align: 'right' });
+    fitText(ctx, t.meta, x, y + 110, { font: `500 26px ${SANS}`, color: C.faint }, right - x);
+    const varW = fitText(ctx, t.variation, x, y + 186, { font: `800 60px ${DISPLAY}`, color: varColor(t.direction) }, right - x);
+    fitText(ctx, t.pctLine, right, y + 180, { font: `500 26px ${SANS}`, color: C.muted, align: 'right' }, right - x - varW - 32);
     let ry = y + 262;
-    for (const [label, litres, extra, bold, dir] of t.rows) {
-      const good = dir === 'excess';                                   // more than the chambers held: green
+    for (const r of rows) {
+      const good = r.dir === 'excess';                                 // more than the chambers held: green
       ctx.fillStyle = C.soft;
       ctx.fillRect(x, ry - 40, right - x, 2);
-      text(ctx, label, x, ry, { font: `${bold ? 700 : 500} 28px ${SANS}`, color: bold ? C.ink : C.muted });
-      text(ctx, litres, right - 210, ry, { font: `${bold ? 800 : 600} 30px ${SANS}`, color: good ? C.excess : C.ink, align: 'right' });
-      if (extra) text(ctx, extra, right, ry, { font: `500 26px ${SANS}`, color: good ? C.excess : C.faint, align: 'right' });
-      ry += 56;
+      r.lines.forEach((l, i) => fitText(ctx, l, x, ry + i * LINE2,
+        { font: i ? `500 24px ${SANS}` : r.labelFont, color: r.bold && !i ? C.ink : C.muted }, r.labelW));
+      text(ctx, r.litres, r.litresRight, ry, { font: r.litresFont, color: good ? C.excess : C.ink, align: 'right' });
+      if (r.extra) text(ctx, r.extra, right, ry, { font: `500 26px ${SANS}`, color: good ? C.excess : C.faint, align: 'right' });
+      ry += r.h;
     }
     y += h + 24;
   }
@@ -253,7 +341,7 @@ export async function resultImage(m) {
     text(ctx, l, PAD, y, { font: `500 26px ${SANS}`, color: C.muted });
   }
   const proofs = await proofLayout(m.proofs);
-  const top = Math.ceil(y);
+  const top = Math.ceil(y) + 12;                                    // (the last line's descenders: g, y, p)
   const height = top + (proofs ? 24 + proofs.height : 0) + 44 + PAD;
 
   const out = document.createElement('canvas');
@@ -269,7 +357,7 @@ export async function resultImage(m) {
   if (proofs) {
     drawProofs(octx, proofs, y + 24);
     y += 24 + proofs.height;
-    for (const p of proofs.shots) p.img.close?.();
+    for (const img of new Set(proofs.shots.map((p) => p.img))) img.close?.();
   }
   y += 44;
   text(octx, m.made, PAD, y, { font: `500 22px ${SANS}`, color: C.faint });

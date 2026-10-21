@@ -34,6 +34,7 @@ import random
 import re
 import string
 import time
+import traceback
 
 # ---- the app's rules (decant/js/core.js) --------------------------------
 
@@ -201,11 +202,21 @@ def tank_stage(session: dict, row: dict) -> str:
     return "read" if row.get("after") else "settling"
 
 
+def reserving_draft(s: dict) -> bool:
+    """A draft whose tanks are taken already: the agent is running it (they
+    are waiting for the truck), or it is set up to decant tank by tank."""
+    d = s.get("data") or {}
+    auto = d.get("auto") or {}
+    return s.get("status") == "draft" and bool(d.get("tanks")) and \
+        (bool(auto) and not auto.get("released") or d.get("step") == "decant")
+
+
 def busy_tanks(sessions: list, except_id: str | None = None) -> set:
-    """busyTanks: tanks taken by a truck being decanted."""
+    """busyTanks: tanks taken by a truck being decanted, or next in line for
+    one (a draft the agent runs, or one set up tank by tank)."""
     busy = set()
     for s in sessions or []:
-        if s.get("id") == except_id or s.get("status") not in ("decanting", "settling"):
+        if s.get("id") == except_id or not (s.get("status") in ("decanting", "settling") or reserving_draft(s)):
             continue
         for t in (s.get("data") or {}).get("tanks") or []:
             if tank_stage(s, t) != "read":
@@ -480,9 +491,17 @@ class Decantation:
                 self._watch_other(tank_id, float(v), now, work, t)
                 continue
             st = self._st(t, now)
-            v = self._accept(t, st, float(v), now)
-            if v is not None:
-                getattr(self, f"_{t['stage']}")(t, st, v, now, work)
+            try:
+                v = self._accept(t, st, float(v), now)
+                if v is not None:
+                    getattr(self, f"_{t['stage']}")(t, st, v, now, work)
+            except Exception as exc:  # noqa: BLE001 - one tank's trouble never stops the others
+                key = f"{t['tank']}:{type(exc).__name__}"
+                if self.state.get("failing") != key:
+                    self.state["failing"] = key
+                    traceback.print_exc()
+                    self._say(work, f"Tank {t.get('tankNo')}: its stock couldn't be followed ({type(exc).__name__}): "
+                                    "check it in the decant app.", now, "warn")
         self._waiting_long(now, work)
         if self.ready_to_finish():
             work["finish"] = True
@@ -590,9 +609,11 @@ class Decantation:
             st = self._st(t, now)
             if t["stage"] == "settling":
                 # more is coming: it decants again, and waits for it (asked if it doesn't come)
-                last = st["history"][-1][1] if st.get("history") else None
+                last = st["history"][-1][1] if st.get("history") else t["before"]["volume"] + t["litres"] - litres
                 t["stage"], t["doneAt"] = "decanting", None
                 st.update(lastRiseAt=now, lastRiseV=last, flowing=False, peak=None)
+                if st.get("segFrom") is None:
+                    st["segFrom"] = last
             text = f"{names} ({litres:,.0f} L) added to Tank {tank['no']}: {t['litres']:,.0f} L planned now."
         else:
             if not before or before.get("volume") is None:
@@ -684,6 +705,12 @@ class Decantation:
 
     def _decanting(self, t: dict, st: dict, v: float, now: float, work: dict) -> None:
         name = f"Tank {t['tankNo']}"
+        if st["lastRiseV"] is None or st["segFrom"] is None:
+            # (decanting without a rise seen here: a phone said so, or added chambers to a settled tank)
+            base = st["history"][-2][1] if len(st["history"]) > 1 else t["before"]["volume"]
+            st["lastRiseAt"] = st["lastRiseAt"] or now
+            st["lastRiseV"] = base if st["lastRiseV"] is None else st["lastRiseV"]
+            st["segFrom"] = base if st["segFrom"] is None else st["segFrom"]
         rise = v - t["before"]["volume"]
         rose = self._rising(st, v, now)
         q = self.state["questions"].get(t["tank"])
@@ -1110,7 +1137,17 @@ class Decantation:
             if old.get(t["tank"]) != t["stage"]:
                 notes.append(f"Tank {t.get('tankNo') or self.tank_no(t['tank'])}: {t['stage']} (from the decant app)")
                 if t["stage"] == "settling":
-                    st.update(peak=None, flowing=False, afterTries=0, settledFrom=st.get("lastRiseV"))
+                    # the level it settled from: the last rise seen here, else the latest
+                    # reading, else the stock before and what went in
+                    level = st.get("lastRiseV")
+                    if level is None:
+                        level = st["history"][-1][1] if st["history"] else \
+                            ((t.get("before") or {}).get("volume") or 0) + (t.get("litres") or 0)
+                    st.update(peak=None, flowing=False, afterTries=0, settledFrom=level)
+                    if st.get("segFrom") is None:
+                        st["segFrom"] = (t.get("before") or {}).get("volume")
+                    if not t.get("doneAt"):
+                        t["doneAt"] = iso(now)          # (else its settle time never starts)
                 if t["stage"] == "decanting" and st["lastRiseV"] is None:
                     st.update(lastRiseAt=now, lastRiseV=(t.get("before") or {}).get("volume"),
                               segFrom=(t.get("before") or {}).get("volume"))
