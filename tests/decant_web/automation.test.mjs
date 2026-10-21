@@ -253,3 +253,41 @@ test('a year far from when the picture was taken is a misread', () => {
   // an old screen is still read as old
   assert.equal(readTime('Last Updated @ 04/08/2021 23:26:42', 'MDY', now), '2021-04-08T23:26:42+05:30');
 });
+
+// Each tank's card in its screenshot (kept with it, to crop it under a result):
+// its own heading and last row inside, no other tank's heading.
+test('each tank card is boxed in the real screenshots', async () => {
+  const { cardBox } = await import('../../decant/js/core.js');
+  for (const shot of Object.keys(EXPECTED)) {
+    const o = OCR[shot];
+    const words = o.passes[0].words;
+    const res = parseAutomation(o, OPTS);
+    const heads = new Map();
+    words.forEach((w, i) => {
+      const n = Number(String(words[i + 1]?.text || '').replace(/[^0-9]/g, '').slice(0, 1));
+      if (/^tank$/i.test(w.text) && n >= 1 && n <= 4 && Math.abs((words[i + 1].y0 + words[i + 1].y1) / 2 - (w.y0 + w.y1) / 2) < 8) heads.set(n, w);
+    });
+    const inside = (b, w) => {
+      const cx = (w.x0 + w.x1) / 2 / o.width;
+      const cy = (w.y0 + w.y1) / 2 / o.height;
+      return cx >= b.x0 && cx <= b.x1 && cy >= b.y0 && cy <= b.y1;
+    };
+    for (const t of res.tanks) {
+      const b = cardBox(t.frame, o.width, o.height);
+      assert.ok(b, `screenshot ${shot}, Tank ${t.no}: a box`);
+      assert.ok(b.x0 >= 0 && b.y0 >= 0 && b.x1 <= 1 && b.y1 <= 1 && b.x1 > b.x0 && b.y1 > b.y0);
+      if (heads.has(t.no)) assert.ok(inside(b, heads.get(t.no)), `screenshot ${shot}: Tank ${t.no}'s heading in its box`);
+      for (const [n, w] of heads) if (n !== t.no) assert.ok(!inside(b, w), `screenshot ${shot}: Tank ${n}'s heading not in Tank ${t.no}'s box`);
+      const all = o.passes.flatMap((p) => p.words);
+      const temps = all.filter((w) => /^temp/i.test(w.text) && (w.x0 + w.x1) / 2 / o.width > b.x0 && (w.x0 + w.x1) / 2 / o.width < b.x1);
+      assert.ok(!temps.length || temps.some((w) => inside(b, w)), `screenshot ${shot}: Tank ${t.no}'s last row in its box`);
+      for (const u of res.tanks) {                     // the cards side by side don't overlap
+        if (u === t) continue;
+        const c = cardBox(u.frame, o.width, o.height);
+        assert.ok(c.x0 >= b.x1 - 1e-4 || c.x1 <= b.x0 + 1e-4, `screenshot ${shot}: Tank ${t.no} and ${u.no} apart`);
+      }
+    }
+  }
+  assert.equal(cardBox(null, 100, 100), null);
+  assert.equal(cardBox({ x0: 0, x1: 50, figTop: 40, pitch: 0 }, 100, 100), null);
+});

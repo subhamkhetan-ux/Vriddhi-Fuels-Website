@@ -480,7 +480,8 @@
     if (!run) { return actions(box, a, null); }
     for (const q of run.questions || []) box.appendChild(question(q));
     for (const t of run.tanks) box.appendChild(tankCard(t, run, a));
-    if (run.left?.length && ACTIVE.includes(a.phase)) box.appendChild(el("div", "note", `C${run.left.join(", C")} stay in the truck (decant them later from the decant app).`));
+    if (run.held?.length && a.phase === "running") box.appendChild(heldBox(run));
+    else if (run.left?.length && ACTIVE.includes(a.phase)) box.appendChild(el("div", "note", `C${run.left.join(", C")} stay in the truck.`));
     actions(box, a, run);
     if (run.log?.length) {
       const ul = el("ul", "log");
@@ -505,12 +506,58 @@
     return wrap;
   }
 
+  // Chambers kept in the truck: into a tank now, while this decantation runs.
+  let heldPlan = {};            // chamber -> tank id ("" = keep in the truck)
+  function heldBox(run) {
+    const box = el("div", "ask");
+    box.appendChild(el("strong", "", `Still in the truck: C${run.held.map((c) => c.no).join(", C")}`));
+    box.appendChild(el("div", "note", "Pick a tank for the ones you decant now: the agent reads its stock before and follows it with the rest. "
+      + "This decantation finishes once every tank's stock after is read."));
+    const busy = new Set((run.tanks || []).filter((t) => t.stage === "read").map((t) => t.tank));
+    for (const c of run.held) {
+      const r = el("div", "plan-row");
+      r.appendChild(el("div", "", `C${c.no} · ${c.product} · ${kl(c.litres)}`));
+      const seg = el("div", "seg");
+      const choices = [...(run.tankOptions || []).filter((t) => t.product === c.product && !busy.has(t.id))
+        .map((t) => [t.id, `Tank ${t.no}`]), ["", "Keep in truck"]];
+      for (const [id, label] of choices) {
+        const b = el("button", "", label);
+        b.type = "button";
+        b.setAttribute("aria-pressed", (heldPlan[c.no] || "") === id ? "true" : "false");
+        b.addEventListener("click", () => { heldPlan[c.no] = id; renderAuto(); });
+        seg.appendChild(b);
+      }
+      r.appendChild(seg);
+      box.appendChild(r);
+    }
+    const picks = run.held.filter((c) => heldPlan[c.no]);
+    const go = el("button", "main", picks.length ? `Add C${picks.map((c) => c.no).join(", C")} to this decantation` : "Add to this decantation");
+    go.disabled = !picks.length;
+    go.addEventListener("click", async () => {
+      const byTank = {};
+      for (const c of picks) (byTank[heldPlan[c.no]] ||= []).push(c.no);
+      for (const [tank, chambers] of Object.entries(byTank)) await autoAct("add", { tank, chambers });
+      heldPlan = {};
+    });
+    const row = el("div", "row");
+    row.appendChild(go);
+    box.appendChild(row);
+    return box;
+  }
+
   function question(q) {
     const box = el("div", "ask");
     box.appendChild(el("strong", "", q.text));
     const key = `${q.tank}|${q.since}`;
     const row = el("div", "row");
-    if (q.kind === "notstarted") {
+    if (q.kind === "held") {
+      box.appendChild(tickBox(key, q.options.map((o) => ({ ...o, tank: q.tank })), q.suggest));
+      const yes = el("button", "main", "Yes, these are going in");
+      yes.addEventListener("click", () => autoAct("answer", { tank: q.tank, chambers: [...ticks[key]] }));
+      const no = el("button", "alt", "No, not from this truck");
+      no.addEventListener("click", () => autoAct("answer", { tank: q.tank, chambers: "drop" }));
+      row.append(yes, no);
+    } else if (q.kind === "notstarted") {
       const drop = el("button", "main", "Leave it out");
       drop.addEventListener("click", () => autoAct("answer", { tank: q.tank, chambers: "drop" }));
       const wait = el("button", "alt", "Keep waiting");
@@ -598,7 +645,14 @@
       const cell = el("div", "proof");
       cell.appendChild(el("span", "label", which === "before" ? "Stock before" : "Stock after"));
       if (!p) {
-        cell.appendChild(el("div", "meta", which === "before" ? "read when it starts" : "read once it has settled"));
+        const v = which === "before" ? t.before : t.after;
+        if (v != null) {                      // set in the decant app (or before this page kept pictures)
+          cell.appendChild(el("div", "value", `${fmt(v, 2)} L`));
+          if (which === "before" && t.beforeAt) cell.appendChild(el("div", "meta", clock(t.beforeAt)));
+          cell.appendChild(el("div", "pf mid", "From the decant app (no picture taken here)"));
+        } else {
+          cell.appendChild(el("div", "meta", which === "before" ? "read when it starts" : "read once it has settled"));
+        }
         box.appendChild(cell);
         continue;
       }
@@ -703,14 +757,18 @@
     }
   }
 
-  let polling = false;
+  // One chain of polls, whoever asks for one (a button, the tab coming back):
+  // never two timers asking the server twice as often.
+  let polling = false, pollTimer = 0;
+  const pollIn = (ms) => { clearTimeout(pollTimer); pollTimer = setTimeout(poll, ms); };
   async function poll() {
+    clearTimeout(pollTimer);
     if (polling) return;
     polling = true;
     try { await refresh(); } finally { polling = false; }
     if (state?.busy || waiting || state?.live || autoActive()) {   // live: the figures as they come
       if (waiting && !state.busy) waiting = false;
-      setTimeout(poll, state?.live && !state.busy ? 3000 : 2500);
+      pollIn(state?.live && !state.busy ? 3000 : 2500);
     }
   }
 
@@ -720,7 +778,7 @@
       waiting = true;
       setStatus("status", isLive() ? "Reading the live session…" : "Connecting to the automation PC… This takes about a minute.");
       $("go").disabled = $("goDec").disabled = true;
-      setTimeout(poll, 1500);
+      pollIn(1500);
     } catch (e) {
       setStatus("status", e.message, true);
     }

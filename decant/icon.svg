@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="glow" cx="78%" cy="12%" r="80%"><stop offset="0" stop-color="#F4511E" stop-opacity=".55"/><stop offset=".55" stop-color="#F4511E" stop-opacity=".08"/><stop offset="1" stop-color="#F4511E" stop-opacity="0"/></radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d1411"/><stop offset="1" stop-color="#070504"/></linearGradient>
+    <linearGradient id="fuel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa2f0"/><stop offset="1" stop-color="#2265c4"/></linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4048"/><stop offset="1" stop-color="#1f2328"/></linearGradient>
+    <clipPath id="tank"><rect x="118" y="318" width="276" height="118" rx="59"/></clipPath>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+  <!-- the tanker -->
+  <g transform="translate(58 90) scale(1.27)">
+      
+      <rect x="10" y="32" width="48" height="68" rx="7" fill="#1e3a8a"/>
+      <rect x="10" y="64" width="48" height="28" fill="#f4f4f2"/>
+      <rect x="14" y="37" width="40" height="3.2" rx="1" fill="#f36a21"/>
+      <rect x="14" y="42" width="40" height="17" rx="3" fill="#9fb3c8" opacity=".9"/>
+      <rect x="8" y="92" width="52" height="8" rx="2" fill="#86c5de"/>
+      <clipPath id="body"><rect x="58" y="16" width="246" height="70" rx="11"/></clipPath>
+      <g clip-path="url(#body)">
+        <rect x="58" y="16" width="246" height="70" fill="#f4f4f2"/>
+        <rect x="58" y="16" width="246" height="12" fill="#1e3a8a"/>
+        <rect x="58" y="64" width="246" height="22" fill="#ef6a28"/>
+        <rect x="58" y="63" width="246" height="1.8" fill="#f5c02a"/>
+        <line x1="140.0" y1="28" x2="140.0" y2="86" stroke="#000" stroke-opacity=".16" stroke-width="1.2"/><line x1="222.0" y1="28" x2="222.0" y2="86" stroke="#000" stroke-opacity=".16" stroke-width="1.2"/>
+      </g>
+      
+      <rect x="87.0" y="34" width="24" height="26" rx="4" fill="#20262c" stroke="#8d969e" stroke-width="1.2"/>
+      <rect x="88.5" y="40" width="21" height="18.5" rx="3" fill="#3987e5"/>
+      <rect x="88.5" y="40" width="21" height="3" rx="1.5" fill="#fff" opacity=".35"/>
+      <rect x="169.0" y="34" width="24" height="26" rx="4" fill="#20262c" stroke="#8d969e" stroke-width="1.2"/>
+      <rect x="170.5" y="40" width="21" height="18.5" rx="3" fill="#d95926"/>
+      <rect x="170.5" y="40" width="21" height="3" rx="1.5" fill="#fff" opacity=".35"/>
+      <rect x="251.0" y="34" width="24" height="26" rx="4" fill="#20262c" stroke="#8d969e" stroke-width="1.2"/>
+      <rect x="252.5" y="40" width="21" height="18.5" rx="3" fill="#3987e5"/>
+      <rect x="252.5" y="40" width="21" height="3" rx="1.5" fill="#fff" opacity=".35"/>
+      <rect x="56" y="86" width="250" height="6" fill="#86c5de"/>
+      <rect x="64" y="90" width="66" height="11" rx="2" fill="#a8b0b8" stroke="#6d757d"/>
+      <circle cx="34" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="34" cy="104" r="4.8" fill="#b9bfc6"/><circle cx="214" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="214" cy="104" r="4.8" fill="#b9bfc6"/><circle cx="246" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="246" cy="104" r="4.8" fill="#b9bfc6"/></g>
+  <!-- the ground, the tank under it -->
+  <rect x="0" y="242" width="512" height="270" fill="#2a1d18" opacity=".55"/>
+  <rect x="0" y="238" width="512" height="8" fill="#5a463d"/>
+  <!-- the hose from the truck's valve to the fill point, and down into the tank -->
+  <path d="M150 220 C 150 234, 300 234, 318 240" fill="none" stroke="#0b0b0b" stroke-width="15" stroke-linecap="round"/>
+  <path d="M150 220 C 150 234, 300 234, 318 240" fill="none" stroke="#3987e5" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="150" cy="217" r="10" fill="#0b0b0b" stroke="#3987e5" stroke-width="4"/>
+  <rect x="306" y="236" width="24" height="14" rx="4" fill="#cfd5db" stroke="#59616a" stroke-width="2"/>
+  <rect x="312" y="248" width="12" height="74" fill="#8d969e"/>
+  <!-- the underground tank, filling -->
+  <rect x="118" y="318" width="276" height="118" rx="59" fill="url(#steel)"/>
+  <g clip-path="url(#tank)">
+    <path d="M100 372 Q 150 360 200 372 T 300 372 T 400 372 V 450 H 100 Z" fill="url(#fuel)"/>
+    <path d="M100 372 Q 150 360 200 372 T 300 372 T 400 372" fill="none" stroke="#bfe0ff" stroke-width="3" opacity=".7"/>
+  </g>
+  <rect x="118" y="318" width="276" height="118" rx="59" fill="none" stroke="#cfd5db" stroke-width="5"/>
+  <path d="M318 330 q -9 16 0 22 q 9 -6 0 -22 z" fill="#8cc4ff"/>
+</svg>

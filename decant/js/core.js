@@ -341,19 +341,26 @@ export function staleDraft(session, sessions, layout = null) {
   return loaded.length > 0 && loaded.every((c) => used.has(c.no));
 }
 
-// Which copy of a decantation a phone keeps when the cloud has one too: its
-// own while that is newer, or not sent yet — unless the cloud's is newer
-// still: another phone or the tank stock server moved it on after this
-// phone's change (e.g. took over its draft while it was offline). Its stale
-// change must not undo theirs. A decantation never goes back to a draft once
-// started, finished or cancelled, so a draft never replaces one, whatever the
-// phone's clock says.
+// Which copy of a decantation a phone keeps when the cloud has one too. A
+// copy with nothing left to send is only a copy: the cloud's is the truth. One
+// with a change not sent yet is kept only while the cloud still has the
+// version that change was made on (local._base, the cloud's updated_at it came
+// with) - or this very change. If the cloud moved on meanwhile (the tank
+// stock server or another phone saved), sending it would undo what they did,
+// so theirs is kept. Times are compared for being the same, never for which is
+// later: each phone's clock is its own. (A copy without _base, from before:
+// the later one, by the clocks.) A decantation never goes back to a draft once
+// started, finished or cancelled.
+export const sameTime = (a, b) => Boolean(a && b) && Math.abs((Date.parse(a) || 0) - (Date.parse(b) || 0)) < 1;
+
 export function keepLocalSession(local, remote, pending = false) {
   if (!remote) return Boolean(pending);
   if (local?.status === 'draft' && remote.status && remote.status !== 'draft') return false;
+  if (!pending) return false;
+  if (local?._base) return sameTime(remote.updated_at, local._base) || sameTime(remote.updated_at, local.updated_at);
   const l = Date.parse(local?.updated_at || 0) || 0;
   const r = Date.parse(remote.updated_at || 0) || 0;
-  return pending ? l >= r : l > r;
+  return l >= r;
 }
 
 // 'new' | 'active' | 'partial' | 'done' | 'dismissed' for the "to decant" list.
@@ -1182,4 +1189,21 @@ export function tankerSpace(vehicles, exclude = [], off = {}) {
   const sum = (list) => round2(list.reduce((a, r) => a + r.free, 0));
   const unavailable = rows.filter((r) => !r.available);
   return { rows, free: sum(rows.filter((r) => r.available)), freeAll: sum(rows), unavailable, excluded };
+}
+
+// Where a tank's card is in its screenshot, as shares of the picture's width
+// and height ({x0, y0, x1, y1}, 0..1, so a shrunk copy crops the same): from
+// the card's frame automation.js found (its sides, and its figures' rows with
+// their pitch) - the heading and tank drawing above the figures, the last row
+// below. null when it can't be told.
+export function cardBox(frame, width, height) {
+  if (!frame || !(width > 0) || !(height > 0) || !Number.isFinite(frame.figTop) || !(frame.pitch > 0)) return null;
+  const f4 = (v) => Math.round(v * 10000) / 10000;
+  const bottom = Number.isFinite(frame.figBottom) ? frame.figBottom : frame.figTop + 6 * frame.pitch;
+  const x0 = Math.max(0, frame.x0);                  // (the frames split the cards at the gap between them)
+  const x1 = Math.min(width, frame.x1);
+  const y0 = Math.max(0, frame.figTop - 9.5 * frame.pitch);
+  const y1 = Math.min(height, bottom + 1.1 * frame.pitch);
+  if (x1 - x0 < 0.05 * width || y1 - y0 < 0.05 * height) return null;
+  return { x0: f4(x0 / width), y0: f4(y0 / height), x1: f4(x1 / width), y1: f4(y1 / height) };
 }

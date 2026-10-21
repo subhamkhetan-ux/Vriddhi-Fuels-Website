@@ -8,7 +8,7 @@
 // cloud waits in an outbox and is sent when the connection is back.
 
 import { DIP_CHART } from './dipchart.js';
-import { istDate, keepLocalSession, settingsWith } from './core.js';
+import { istDate, keepLocalSession, sameTime, settingsWith } from './core.js';
 import { localFrom, withOlder } from './report.js';
 import { logMonths, monthBounds, monthCounts } from './archive.js';
 
@@ -193,8 +193,30 @@ function queue(table, key) {
   saveLocal();
 }
 
+const inflight = new Set();          // "table key" being sent now (a change not in the cloud yet)
 async function push(table, key) {
   if (!client) { queue(table, key); return false; }
+  const id = `${table} ${key}`;
+  inflight.add(id);
+  try { return await send(table, key); } finally { inflight.delete(id); }
+}
+
+// A decantation the cloud moved on from (or deleted) since this phone's copy
+// of it: this phone's change isn't sent - it would undo theirs - and the
+// cloud's copy is shown instead.
+async function lostTo(key, cur) {
+  unqueue('dec_sessions', key);
+  if (cur) await pullRows('dec_sessions', [key]);
+  else {
+    state.sessions = state.sessions.filter((x) => x.id !== key);
+    saveLocal();
+    emit();
+  }
+  replaced(key);
+  return true;
+}
+
+async function send(table, key) {
   let err;
   if (table === 'dec_sessions_delete') {
     err = await withRetry(() => client.from('dec_sessions').delete().eq('id', key));
@@ -208,17 +230,25 @@ async function push(table, key) {
       // A change made here (offline, or on a copy that missed an update) must
       // never undo a newer one in the cloud: e.g. a draft the tank stock server
       // took over and decanted while this phone still had it as a draft.
+      const local = state.sessions.find((x) => x.id === key);
       let cur = null;
       err = await withRetry(async () => {
         const r = await client.from('dec_sessions').select('updated_at,status').eq('id', key).maybeSingle();
         cur = r.data;
         return r;
       });
-      if (!err && cur && !keepLocalSession(row, cur, true)) {
-        unqueue(table, key);
-        await pullRows('dec_sessions', [key]);
-        replaced(key);
-        return true;
+      if (!err && !cur && local?._base) return lostTo(key, null);            // deleted in the cloud meanwhile
+      if (!err && cur && !keepLocalSession(local || row, cur, true)) return lostTo(key, cur);
+      if (!err && cur) {
+        // only over the version just checked: a save that lands in between wins, not this one
+        let none = false;
+        err = await withRetry(async () => {
+          const r = await client.from('dec_sessions').update(row).eq('id', key).eq('updated_at', cur.updated_at).select('id');
+          none = !r.error && !(r.data || []).length;
+          return r;
+        });
+        if (!err && none) return lostTo(key, cur);
+        if (!err) return sent(table, key, row);
       }
     }
     if (table === 'dec_invoices') for (const c of missingCols) delete row[c];
@@ -239,7 +269,16 @@ async function push(table, key) {
     setCloud('offline', err.message || String(err));
     return false;
   }
+  return sent(table, key, table === 'dec_sessions' ? rowFor(table, key) : null);
+}
+
+function sent(table, key, row) {
   state.outbox = state.outbox.filter((o) => !(o.table === table && String(o.key) === String(key)));
+  if (row) {
+    // the cloud now has this version: the next change is made on it
+    const local = state.sessions.find((x) => x.id === key);
+    if (local && sameTime(local.updated_at, row.updated_at)) local._base = row.updated_at;
+  }
   saveLocal();
   emit();                  // "sending N" counts down even when the cloud sends no change back
   return true;
@@ -261,7 +300,7 @@ export async function flushOutbox() {
 }
 
 function pending(table, key) {
-  return state.outbox.some((o) => o.table === table && String(o.key) === String(key));
+  return inflight.has(`${table} ${key}`) || state.outbox.some((o) => o.table === table && String(o.key) === String(key));
 }
 
 function unqueue(table, key) {
@@ -288,7 +327,26 @@ function localWins(table, k, l, r) {
 // Cloud rows win, except ones this phone changed and hasn't sent yet (or has
 // changed more recently) — for a decantation, only while the cloud's isn't
 // newer still (localWins).
+// A decantation from the cloud, before the app draws it: tank ids are put
+// into the page as they are, so one that isn't a plain id (anyone with the
+// app's public key can write a row) is left out, never drawn.
+const TANK_ID = /^[\w.-]{1,40}$/;
+function cleanSession(r) {
+  const d = r?.data;
+  if (!d || typeof d !== 'object') return r;
+  if (Array.isArray(d.tanks)) d.tanks = d.tanks.filter((t) => t && TANK_ID.test(String(t.tank ?? '')));
+  if (Array.isArray(d.plan)) for (const p of d.plan) if (p && p.tank != null && !TANK_ID.test(String(p.tank))) p.tank = null;
+  if (d.before && typeof d.before === 'object') for (const k of Object.keys(d.before)) if (!TANK_ID.test(k)) delete d.before[k];
+  return r;
+}
+
 function mergeRows(table, local, remote, keyOf) {
+  if (table === 'dec_sessions') {
+    for (const r of remote) {
+      cleanSession(r);
+      if (!r._base) r._base = r.updated_at;                // (a cloud copy: its version)
+    }
+  }
   const byKey = new Map(remote.map((r) => [String(keyOf(r)), r]));
   for (const l of local) {
     const k = String(keyOf(l));
@@ -380,9 +438,13 @@ async function pullLight(table) {
   const heads = got.flatMap((g) => g.data || []);
   meter(heads);
   const mine = new Map(listOf(table).map((r) => [String(r[key]), r]));
+  // a row whose cloud time is neither this copy's nor the version it was made
+  // on has changed there (never "later than": each phone's clock is its own)
   const need = heads.filter((h) => {
     const l = mine.get(String(h[key]));
-    return !l || (Date.parse(h.updated_at || 0) || 0) > (Date.parse(l.updated_at || 0) || 0);
+    if (!l) return true;
+    if (table === 'dec_sessions') return !sameTime(h.updated_at, l.updated_at) && !sameTime(h.updated_at, l._base);
+    return (Date.parse(h.updated_at || 0) || 0) > (Date.parse(l.updated_at || 0) || 0);
   }).map((h) => h[key]);
   const fresh = new Map();
   for (let i = 0; i < need.length; i += 100) {
@@ -412,6 +474,7 @@ async function pullRows(table, keys) {
       const i = list.findIndex((x) => String(x[key]) === k);
       const l = i >= 0 ? list[i] : null;
       if (l && localWins(table, k, l, r)) continue;
+      if (table === 'dec_sessions') { cleanSession(r); r._base = r.updated_at; }
       if (i >= 0) list[i] = r;
       else if (Date.parse(r.created_at || 0) >= since || (table === 'dec_sessions' && OPEN.includes(r.status))) list.unshift(r);
     }
@@ -510,28 +573,47 @@ export async function initStore() {
   emit();
   if (!cloudEnabled) { setCloud('off'); return; }
   setCloud('connecting');
-  try {
-    const { createClient } = await import(SUPABASE_JS);
-    client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'vriddhi-decant' } });
-    // (old months are no longer deleted unseen: see tidyMonths)
-    await pull('all', { light: true });
-    subscribe();
-    await flushOutbox();
-    tidyMonths().catch(() => {});
-  } catch (e) {
-    setCloud('offline', e?.message || String(e));
-  }
-  window.addEventListener('online', () => { pull('all', { light: true }); flushOutbox(); });
-  setInterval(() => { if (state.outbox.length) flushOutbox(); }, 30000);
+  await connect();
+  // Opened without a signal (the cloud client couldn't even be loaded): it
+  // connects as soon as there is one - not only after a reload.
+  window.addEventListener('online', () => { if (!client) connect(); else { pull('all', { light: true }); flushOutbox(); } });
+  setInterval(() => { if (!client) connect(); else if (state.outbox.length) flushOutbox(); }, 30000);
   let last = 0;
   const refresh = () => {
     if (Date.now() - last < 2000) return;
     last = Date.now();
+    if (!client) { connect(); return; }
     pull('all', { light: true });
     flushOutbox();
   };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
   window.addEventListener('focus', refresh);
+}
+
+let connecting = null;
+function connect() {
+  if (client) return Promise.resolve();
+  connecting ||= (async () => {
+    try {
+      const { createClient } = await import(SUPABASE_JS);
+      client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'vriddhi-decant' } });
+    } catch (e) {
+      setCloud('offline', e?.message || String(e));
+      return;
+    } finally {
+      connecting = null;
+    }
+    try {
+      // (old months are no longer deleted unseen: see tidyMonths)
+      await pull('all', { light: true });
+      subscribe();
+      await flushOutbox();
+      tidyMonths().catch(() => {});
+    } catch (e) {
+      setCloud('offline', e?.message || String(e));
+    }
+  })();
+  return connecting;
 }
 
 export function refreshNow() {

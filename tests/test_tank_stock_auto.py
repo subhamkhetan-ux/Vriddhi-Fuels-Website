@@ -99,8 +99,11 @@ class Cloud:
         self._up()
         return copy.deepcopy(self.sessions.get(sid))
 
-    def save_session(self, s):
+    def save_session(self, s, base=None):
         self._up()
+        cur = self.sessions.get(s["id"])
+        if base and (not cur or abs((dz._ts(cur["updated_at"]) or 0) - (dz._ts(base) or 0)) > 0.0005):
+            return None                                  # someone saved it since
         s["updated_at"] = dz.iso(self.clock())
         s["created_at"] = s.get("created_at") or s["updated_at"]
         self.sessions[s["id"]] = copy.deepcopy(s)
@@ -261,7 +264,7 @@ def test_one_button_decants_reads_and_finishes_in_the_decant_app(rig):
     assert [t["stage"] for t in s["data"]["tanks"]] == ["waiting", "waiting"]
     # the stock before: full reads saved to the app, with their proof picture
     assert rig.cloud.stock["T2"]["volume"] == 10755.0 and rig.cloud.stock["T2"]["height"]
-    assert {"T1", "T2"} <= set(rig.cloud.shots[0])
+    assert [set(m) for m in rig.cloud.shots[:2]] == [{"T1"}, {"T2"}]      # one picture per tank (its card)
     assert wait_for(lambda: any("Automatic decantation started" in m for m in rig.told))
     # every tank is watched (not just the live setting's Tank 3), every 10 s
     assert set(rig.st.live["figures"]) == {"1", "2", "3", "4"} and a.interval(600) == 10
@@ -394,7 +397,7 @@ def test_a_start_that_cant_read_the_stock_before_says_why(rig, monkeypatch):
         read(rig)
     a = rig.st.auto
     assert a.phase == "failed" and "tank screen couldn't be read" in a.info["error"]
-    assert any("could not start" in m for m in rig.told)
+    assert wait_for(lambda: any("could not start" in m for m in rig.told))   # (told just after)
     assert rig.cloud.sessions == {}
 
 
@@ -574,8 +577,8 @@ def test_a_tank_that_waits_too_long_after_the_others_is_asked_about(rig):
     assert q and q[0]["tank"] == "T2" and q[0]["kind"] == "notstarted"
 
 
-def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig, monkeypatch):
-    # screens as taken: a kept screen shows the stock when it was taken
+def _screens_as_taken(rig, monkeypatch):
+    """A kept screen shows the stock when it was taken (not the latest)."""
     w = rig.world
     monkeypatch.setattr(Session, "screen", lambda self: b"\x89PNG@" + str(rig.clock.t).encode())
 
@@ -595,6 +598,11 @@ def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig
     boxes = {no: (no * 100, 0, no * 100 + 90, 90) for no in (1, 2, 3, 4)}
     monkeypatch.setattr(service.cards_mod, "read_all", lambda png: (dict(boxes), {no: card_at(png, no) for no in boxes}))
     monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: card_at(png, box[0] // 100))
+    return w
+
+
+def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig, monkeypatch):
+    w = _screens_as_taken(rig, monkeypatch)
     a = start(rig, {"2": "T2"})
     w.sales = [(2, 300, 40), (2, 330, 60)]                    # two sales half a minute apart ...
     w.flows = [(2, 345, 4990, 495)]                           # ... and the truck right after
@@ -608,3 +616,295 @@ def test_a_tank_that_sold_just_before_its_turn_gets_its_stock_before_in_full(rig
     assert p["picture"] and p["volume"] == t2["before"]["volume"]
     assert {"readingAt": t2["before"]["readingAt"], "volume": t2["before"]["volume"]} in \
         [m["T2"] for m in rig.cloud.shots if "T2" in m]           # its picture is in the app for the result
+
+
+# ---- chambers kept in the truck, decanted while it runs -----------------------
+
+def test_a_held_chamber_added_to_a_new_tank_is_followed_and_finished_with_the_rest(rig):
+    a = start(rig, {"2": "T2", "3": "T2"})                      # C1, C4, C5 kept in the truck
+    held = [c["no"] for c in a.view()["run"]["held"]]
+    assert held == [1, 4, 5] and {t["id"] for t in a.view()["run"]["tankOptions"]} >= {"T1", "T3"}
+    rig.world.flows = [(2, 50, 4990, 495), (2, 600, 3992, 420)]
+    drive(rig, 120)
+    a.act("add", {"tank": "T3", "chambers": [4]})                # C4 into Tank 3, now
+    t3 = a.run.row("T3")
+    assert t3["stage"] == "waiting" and t3["chambers"] == [4] and t3["before"]["volume"] == 11495.0
+    assert t3["before"]["height"] is not None                    # read in full, with its picture
+    assert a.view()["proofs"]["T3"]["before"]["picture"]
+    assert [c["no"] for c in a.view()["run"]["held"]] == [1, 5]
+    rig.world.flows.append((3, 200, 3990, 400))
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    rows = {t["tank"]: t for t in s["data"]["tanks"]}
+    assert set(rows) == {"T2", "T3"} and rows["T3"]["after"] and rows["T3"]["result"]["band"] == "ok"
+    assert next(p for p in s["data"]["plan"] if p["no"] == 4)["tank"] == "T3"
+    assert next(p for p in s["data"]["plan"] if p["no"] == 5)["tank"] is None      # still in the truck
+
+
+def test_a_held_chamber_added_to_a_settling_tank_waits_for_it(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 700)
+    assert a.run.row("T2")["stage"] == "settling"
+    a.act("add", {"tank": "T2", "chambers": [3]})                # one more chamber into it
+    t2 = a.run.row("T2")
+    assert t2["stage"] == "decanting" and t2["chambers"] == [2, 3] and t2["litres"] == 9000
+    rig.world.flows.append((2, 900, 3992, 420))
+    drive(rig, 4000)
+    assert a.phase == "finished", a.info
+    t2 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T2")
+    assert t2["chambers"] == [2, 3] and t2["result"]["band"] == "ok"
+
+
+def test_a_tank_rising_with_a_held_chamber_is_asked_about_and_added(rig, monkeypatch):
+    _screens_as_taken(rig, monkeypatch)
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495), (3, 300, 3990, 400)]  # C4 goes into Tank 3 without telling
+    drive(rig, 400)
+    q = next(q for q in a.view()["run"]["questions"] if q["tank"] == "T3")
+    assert q["kind"] == "held" and "still in the truck" in q["text"] and 4 in [o["no"] for o in q["options"]]
+    assert any("going into Tank 3" in m for m in rig.told)
+    drive(rig, 2000)                                             # Tank 2 is read meanwhile ...
+    assert a.run.row("T2")["stage"] == "read" and a.phase == "running"   # ... but nothing finishes while asked
+    a.act("answer", {"tank": "T3", "chambers": [4]})
+    t3 = a.run.row("T3")
+    assert t3["before"]["volume"] == 11495.0 and t3["before"]["height"] is not None   # the screen before it rose
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    rows = {t["tank"]: t for t in cloud_session(rig)["data"]["tanks"]}
+    assert rows["T3"]["chambers"] == [4] and rows["T3"]["after"]
+
+
+def test_no_to_the_held_question_warns_and_finishes_without_it(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495), (3, 300, 300, 60)]    # something else into Tank 3
+    drive(rig, 400)
+    a.act("answer", {"tank": "T3", "chambers": "drop"})
+    assert a.run.row("T3") is None and any("not with this truck" in e["text"] for e in a.run.state["log"])
+    drive(rig, 3000)
+    assert a.phase == "finished"
+
+
+def test_adding_held_chambers_says_what_cant_be_done(rig):
+    a = start(rig, {"2": "T2"})
+    for body, says in (({"tank": "T3", "chambers": [1]}, "can't go into Tank 3"),         # MS into HSD
+                       ({"tank": "T3", "chambers": [2]}, "isn't in the truck any more"),  # already planned
+                       ({"tank": "T3", "chambers": []}, "Tick the chambers")):
+        with pytest.raises(ValueError, match=says):
+            a.act("add", body)
+
+
+
+def test_a_held_chamber_cant_go_into_a_tank_already_read(rig):
+    a = start(rig, {"1": "T1", "2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495), (1, 4000, 4990, 495)]   # Tank 1's turn comes later
+    drive(rig, 2000)
+    assert a.run.row("T2")["stage"] == "read" and a.phase == "running"
+    with pytest.raises(ValueError, match="stock after is already taken"):
+        a.act("add", {"tank": "T2", "chambers": [3]})
+    with pytest.raises(ValueError, match="can.t take it"):            # 11,495 L + 12,000 L > 20,500 L
+        a.act("add", {"tank": "T3", "chambers": [3, 4, 5]})
+
+
+def test_the_rest_of_the_truck_can_be_decanted_after_it_finished(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 3000)
+    assert a.phase == "finished"
+    first = a.run.s["id"]
+    inv = next(i for i in a.options()["invoices"] if i["invoice_no"] == INVOICE["invoice_no"])
+    assert inv["status"] == "partial" and [c["no"] for c in inv["chambers"]] == [1, 3, 4, 5]
+    a.act("clear", {})
+    b = start(rig, {"3": "T3"})
+    assert b.run.s["id"] != first and 2 in b.run.s["data"]["done"]
+
+
+def test_a_tank_the_decant_app_adds_mid_run_gets_its_true_stock_before_with_its_picture(rig, monkeypatch):
+    w = _screens_as_taken(rig, monkeypatch)
+    a = start(rig, {"2": "T2"})
+    w.flows = [(2, 50, 4990, 495), (3, 300, 3990, 400)]          # C4 into Tank 3, started from the decant app
+    drive(rig, 340)
+    risen = w.volume(3)
+    assert risen - 11495.0 > 100                                  # it was already rising ...
+    s = rig.cloud.sessions[a.run.s["id"]]
+    s["data"]["tanks"].append({"tank": "T3", "tankNo": 3, "product": "HSD", "litres": 4000, "chambers": [4],
+                               "before": {"volume": risen, "readingAt": dz.iso(rig.clock()), "source": "litres"},
+                               "after": None, "stage": "decanting", "startedAt": dz.iso(rig.clock())})
+    next(p for p in s["data"]["plan"] if p["no"] == 4)["tank"] = "T3"
+    s["updated_at"] = dz.iso(rig.clock() + 1)                     # ... when the phone took its stock before
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    t3 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T3")
+    assert t3["before"]["volume"] == 11495.0 and t3["before"]["height"] is not None   # the stock before it rose, in full
+    assert t3["result"]["band"] == "ok" and t3["result"]["variation"] == -10.0
+    assert any("isn't the stock just before it started rising" in m for m in rig.told)
+    assert a.view()["proofs"]["T3"]["before"]["picture"]
+    assert {"readingAt": t3["before"]["readingAt"], "volume": 11495.0} in [m["T3"] for m in rig.cloud.shots if "T3" in m]
+
+
+def test_a_tank_the_decant_app_adds_before_it_rises_keeps_its_stock_and_gets_a_picture(rig, monkeypatch):
+    w = _screens_as_taken(rig, monkeypatch)
+    a = start(rig, {"2": "T2"})
+    w.flows = [(2, 50, 4990, 495)]
+    drive(rig, 200)
+    s = rig.cloud.sessions[a.run.s["id"]]
+    s["data"]["tanks"].append({"tank": "T3", "tankNo": 3, "product": "HSD", "litres": 4000, "chambers": [4],
+                               "before": {"volume": 11495.0, "readingAt": dz.iso(rig.clock()), "source": "litres"},
+                               "after": None, "stage": "waiting", "startedAt": None})
+    next(p for p in s["data"]["plan"] if p["no"] == 4)["tank"] = "T3"
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    w.flows.append((3, 400, 3990, 400))
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    t3 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T3")
+    assert t3["before"]["volume"] == 11495.0 and t3["before"]["height"] is not None     # same stock, now with its figures
+    assert not any("isn't the stock just before it started rising" in m for m in rig.told)
+    assert a.view()["proofs"]["T3"]["before"]["picture"]
+
+
+
+def test_a_tank_a_phone_added_before_this_update_is_checked_when_the_service_restarts(rig, monkeypatch):
+    w = rig.world
+    a = start(rig, {"2": "T2"})
+    w.flows = [(2, 50, 4990, 495), (3, 300, 3990, 400)]
+    drive(rig, 340)
+    risen = w.volume(3)
+    # taken over by the old code: Tank 3 in the run, its too-high stock before kept
+    remote = copy.deepcopy(rig.cloud.sessions[a.run.s["id"]])
+    remote["data"]["tanks"].append({"tank": "T3", "tankNo": 3, "product": "HSD", "litres": 4000, "chambers": [4],
+                                    "before": {"volume": risen, "readingAt": dz.iso(rig.clock()), "source": "litres"},
+                                    "after": None, "stage": "decanting", "startedAt": dz.iso(rig.clock())})
+    real = dz.Decantation._adopt_new
+    dz.Decantation._adopt_new = lambda self, t, st, now: None
+    try:
+        a.run.adopt(remote, rig.clock())
+    finally:
+        dz.Decantation._adopt_new = real
+    assert a.run.row("T3")["before"]["volume"] == risen
+    a.resume()                                                    # the service restarts with this update
+    assert a.run.row("T3")["before"]["volume"] == 11495.0
+    assert any("isn't the stock just before it started rising" in m for m in rig.told)
+
+
+# ---- edge cases: restarts, outages, phones -----------------------------------
+
+def test_a_card_frozen_before_a_restart_stays_frozen_after_it(rig, monkeypatch):
+    frozen = set()
+    _clocks(rig, monkeypatch, frozen)
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 700)
+    assert a.run.row("T2")["stage"] == "settling"
+    frozen.add(2)                                   # the probe goes offline: the card shows what it last had
+    v_frozen, real = rig.world.volume(2), rig.world.volume
+    monkeypatch.setattr(rig.world, "volume", lambda no: v_frozen if no == 2 else real(no))
+    rig.world.sales = [(2, 1000, 300)]              # (and the real stock sells meanwhile)
+    drive(rig, 1400)
+    rig.st.live = None                              # the service restarts
+    again = service.Station(home=rig.home, session_cls=Session, decant_mod=rig.cloud, notify=rig.told.append,
+                            notify_photo=lambda png, caption: True)
+    again.auto.resume()
+    assert wait_for(lambda: again.live is not None)
+    rig.st = again
+    drive(rig, 1800)
+    r = again.auto.run.row("T2")
+    assert r["stage"] == "settling" and r["after"] is None     # nothing taken from the frozen figures
+    assert not any("updating again" in m for m in rig.told)
+    frozen.discard(2)                               # the card updates again: it carries on
+    monkeypatch.setattr(rig.world, "volume", real)
+    drive(rig, 1900)
+    assert again.auto.info.get("frozen") == ""
+
+
+def test_a_phone_sending_back_its_empty_draft_hands_the_run_over(rig):
+    a = start(rig, {"2": "T2"})
+    sid = a.run.s["id"]
+    old = copy.deepcopy(rig.cloud.sessions[sid])
+    old["data"].update(step="truck", plan=[], tanks=[])
+    old["data"].pop("auto", None)
+    old["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = old
+    drive(rig, 600)
+    assert a.phase == "released"                    # not running on forever with no tank
+    assert rig.st.live is None or rig.st.live["stop"].is_set()
+
+
+def test_a_phone_dropping_the_only_tank_hands_it_over(rig):
+    a = start(rig, {"2": "T2"})
+    sid = a.run.s["id"]
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    for p in s["data"]["plan"]:
+        p["tank"] = None
+    s["data"]["tanks"], s["data"]["step"] = [], "plan"
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = s
+    drive(rig, 600)
+    assert a.phase == "released"
+
+
+def test_hand_over_while_the_app_is_down_reaches_it_once_it_answers(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.cloud.down = True
+    drive(rig, 1200)
+    assert a.run.row("T2")["stage"] in ("settling", "read")
+    a.act("release", {})
+    assert a.phase == "released" and a.info["unsaved"]
+    assert cloud_session(rig)["data"]["tanks"][0]["stage"] == "waiting"     # (not there yet)
+    assert a.flush_final() is False                 # still down
+    rig.cloud.down = False
+    assert a.flush_final() is True
+    s = cloud_session(rig)
+    assert s["data"]["auto"]["released"] and s["data"]["tanks"][0]["stage"] in ("settling", "read")
+    assert not a.info["unsaved"]
+
+
+def test_a_change_from_a_phone_whose_clock_is_behind_is_still_taken(rig):
+    a = start(rig, {"2": "T2", "3": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 300)
+    sid = a.run.s["id"]
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    t = s["data"]["tanks"][0]
+    t["chambers"], t["litres"] = [2], 5000          # C3 taken out of Tank 2...
+    next(p for p in s["data"]["plan"] if p["no"] == 3)["tank"] = None
+    s["updated_at"] = dz.iso(dz._ts(a.info["saved_at"]) - 120)   # ...by a phone 2 min behind
+    rig.cloud.sessions[sid] = s
+    drive(rig, 900)
+    assert a.run.row("T2")["chambers"] == [2]
+    assert cloud_session(rig)["data"]["tanks"][0]["chambers"] == [2]
+
+
+def test_a_button_acts_on_the_phones_latest_copy(rig):
+    a = start(rig, {"2": "T2", "3": "T3"})
+    sid = a.run.s["id"]
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    s["data"]["notes"] = "from a phone"
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = s
+    a.act("drop", {"tank": "T3"})                   # pressed before the next sync
+    c = cloud_session(rig)
+    assert c["data"]["notes"] == "from a phone" and [t["tank"] for t in c["data"]["tanks"]] == ["T2"]
+
+
+def test_chambers_added_to_a_tank_a_phone_settled_are_followed():
+    from tests import test_tank_stock_decantation as td
+    run = td.start({2: "T2"})
+    truck = td.Truck([("T2", 50, 4990, 495), ("T2", 1200, 3990, 420)])
+    run.feed({"T2": truck.volume("T2", 0)}, T0)
+    remote = json.loads(json.dumps(run.s))
+    t = remote["data"]["tanks"][0]
+    t.update(stage="settling", startedAt=dz.iso(T0 + 60), doneAt=None)      # the agent never saw it rise
+    remote["status"] = "settling"
+    run.adopt(remote, T0 + 700)
+    assert run.row("T2")["doneAt"]                 # its settle time runs
+    secs = 700
+    while secs < 1100:
+        run.feed({"T2": truck.volume("T2", secs)}, T0 + secs)
+        secs += 10
+    run.add("T2", [3], None, T0 + secs)             # "Add to this decantation": C3 into Tank 2
+    while secs < 2500:                              # (no crash on every read)
+        run.feed({"T2": truck.volume("T2", secs)}, T0 + secs)
+        secs += 10
+    assert 3 in run.state["tanks"]["T2"]["arrived"] or run.row("T2")["stage"] in ("settling", "read")

@@ -89,6 +89,10 @@ class FakeDB:
             if method == "POST":
                 self.shots.extend(body)
                 return None
+            if method == "DELETE" and "id=in.(" in path:
+                ids = path.split("id=in.(")[1].rstrip(")").split(",")
+                self.shots = [r for r in self.shots if r["id"] not in ids]
+                return None
             day = path.split("day=lt.")[1].split("&")[0]
             old = [r for r in self.shots if r["day"] < day]
             if method == "DELETE":
@@ -566,3 +570,130 @@ def test_a_live_volume_the_decant_app_couldnt_take_is_sent_again_once_it_answers
     assert any("answers again" in m for m in station.alerts)
     station.stop_live()
     assert wait_for(lambda: station.live is None)
+
+
+# ---- edge cases -------------------------------------------------------------
+
+def test_a_reading_time_misread_into_the_future_counts_as_not_read():
+    seen = "2026-10-13T12:40:00.000Z"                          # 18:10 IST: when the screen was taken
+    card = {**CARD3, "seenAt": seen, "time": ("10", "13", "2026", "19", "01", "54")}   # 19:01 read for 18:01
+    r = decant.make_reading(card, decant.tank_for(3, CFG), CFG)["reading"]
+    assert r["timeRead"] is False and r["readingAt"] == seen    # else nothing could ever replace it
+    ok = decant.make_reading({**CARD3, "seenAt": seen}, decant.tank_for(3, CFG), CFG)["reading"]
+    assert ok["timeRead"] and ok["readingAt"] == "2026-10-13T18:01:54+05:30"
+
+
+def test_a_card_without_its_time_is_stamped_when_the_screen_was_taken(station, monkeypatch):
+    monkeypatch.setattr(service.cards_mod, "read_all",
+                        lambda png: ({3: (959, 343, 1284, 677)}, {3: {**CARD3, "time": None}}))
+    station.capture([3])
+    seen = json.loads((station.home / "cards.json").read_text())["3"]["seenAt"]
+    time.sleep(0.01)
+    station.upload_last([3])                                    # sent later: still the capture's time
+    assert station.db.writes[-1]["reading"]["readingAt"] == seen
+
+
+def test_live_telegram_says_the_app_is_down_once_and_a_tanks_problem_once(station, monkeypatch):
+    monkeypatch.setattr(service, "LIVE_UPLOAD_BACKOFF", 0)
+    real, down = decant._rest, {"on": True}
+
+    def rest(method, path, body=None, prefer="", timeout=30):
+        if down["on"] and path.startswith("dec_tank_state"):
+            raise decant.DecantError("The decant database could not be reached (TimeoutError).")
+        return real(method, path, body, prefer, timeout)
+    monkeypatch.setattr(decant, "_rest", rest)
+    station.start_live({"tanks": [3], "auto_upload": True})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    live = station.live
+    for fp in "bcd":                                            # new figures every read, still down
+        station.screen["fp"] = fp
+        station._live_read(live)
+    assert len([m for m in station.alerts if "could not be reached" in m]) == 1
+    down["on"] = False
+    station.db.rows["T3"] = {"readingAt": "2027-01-01T00:00:00+05:30", "volume": 1}   # the app has a newer one
+    for fp in "efg":
+        station.screen["fp"] = fp
+        station._live_read(live)
+    assert len([m for m in station.alerts if "newer reading" in m]) == 1
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_without_the_apps_settings_nothing_is_saved_under_a_guessed_tank(station, monkeypatch):
+    def broken():
+        raise decant.DecantError("The decant database could not be reached (URLError).")
+    monkeypatch.setattr(decant, "settings", broken)
+    last = station.capture([3], upload=True)
+    assert station.db.writes == [] and "settings couldn't be read" in last["uploads"]["3"]["message"]
+    assert station.upload_last([3])[3]["ok"] is False and station.db.writes == []
+
+
+def test_the_apps_settings_last_read_are_used_while_it_cant_be_reached(station, monkeypatch):
+    station.capture([3])                                        # read them once
+    def broken():
+        raise decant.DecantError("The decant database could not be reached (URLError).")
+    monkeypatch.setattr(decant, "settings", broken)
+    monkeypatch.setattr(decant, "_rest", station.db)
+    assert station.upload_last([3])[3]["ok"]
+
+
+def test_a_capture_during_live_monitoring_waits_its_turn_not_refused(station):
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    station.busy.acquire()                                       # a live read is going on
+    try:
+        srv = service.make_server(station, 0)
+        srv.port = srv.server_address[1]
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.port}/api/capture", data=b'{"tanks":[3]}', method="POST",
+                                     headers={"X-TS-CSRF": srv.csrf, "Host": f"127.0.0.1:{srv.port}"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 202
+    finally:
+        station.busy.release()
+    assert wait_for(lambda: station.last.get("why") == "phone" and station.last.get("tanks"))
+    assert len(FakeSession.opened) == 1                          # from the open session, not a second one
+    srv.shutdown()
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_a_capture_that_fails_says_why_on_the_page(station, monkeypatch):
+    monkeypatch.setattr(service.cards_mod, "read_all", lambda png: (_ for _ in ()).throw(KeyError("x")))
+    with pytest.raises(KeyError):
+        station.capture([3])
+    assert "KeyError" in station.last["error"]
+
+
+def test_two_starts_at_once_open_one_live_session(station):
+    errors = []
+
+    def go():
+        try:
+            station.start_live({"tanks": [3]})
+        except RuntimeError as exc:
+            errors.append(str(exc))
+    threads = [threading.Thread(target=go) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(errors) == 3
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None) and len(FakeSession.opened) == 1
+
+
+def test_an_agent_save_goes_only_over_the_version_it_looked_at(monkeypatch):
+    calls = []
+
+    def rest(method, path, body=None, prefer="", timeout=30):
+        calls.append((method, path, prefer))
+        return [] if "updated_at=eq." in path and "OLD" in path else [{"id": "S1"}]
+    monkeypatch.setattr(decant, "_rest", rest)
+    s = {"id": "S1", "status": "decanting", "data": {}, "updated_at": "x"}
+    assert decant.save_session(dict(s), base="OLD") is None              # a phone saved since: theirs stays
+    assert calls[-1][0] == "PATCH" and "return=representation" in calls[-1][2]
+    saved = decant.save_session(dict(s), base="2026-10-21T08:00:00+00:00")
+    assert saved and saved["updated_at"] != "x" and "updated_at=eq.2026-10-21T08%3A00%3A00%2B00%3A00" in calls[-1][1]
+    assert decant.save_session(dict(s))["created_at"] and calls[-1][0] == "POST"            # a new one: as before

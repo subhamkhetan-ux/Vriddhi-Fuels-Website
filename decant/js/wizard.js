@@ -133,6 +133,11 @@ function persist(s) {
   return saveSession(s);
 }
 
+// The copy of this decantation the phone has now: after a question or a sheet
+// the cloud may have moved it on (the tank stock server, another phone), and
+// the change is made on that - never on the copy from before the question.
+const latest = (s) => state.sessions.find((x) => x.id === s.id) || s;
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -603,7 +608,8 @@ async function startFromTruck(s, p) {
 
 function stageCard(s, t) {
   const st = stageOf(s, t);
-  const tk = tankById(t.tank);
+  // (a tank removed in Settings since: still drawn, from what the session knows of it)
+  const tk = tankById(t.tank) || { id: t.tank, no: t.tankNo, product: t.product, capacity: t.before?.capacity || 20000 };
   const head = `<div class="rd-head"><span class="nm">${tankName(t.tank)}</span>${productChip(t.product, `${fmtKL(t.litres)} · C${compactNos(t.chambers)}`)}
     <span class="sp" style="flex:1"></span>${STAGE[st]}</div>`;
   if (st === 'waiting') {
@@ -760,7 +766,7 @@ function stepResult(s) {
 // ---------------------------------------------------------------------------
 
 async function onClick(e) {
-  const s = session();
+  let s = session();
   if (!s) return;
   const t = e.target;
   const act = t.closest('[data-wz]')?.dataset.wz;
@@ -818,6 +824,8 @@ async function onClick(e) {
   }
   if (act === 'reopen') {
     if (!(await ask('Change the after-stock?', 'The result is worked out again when you finish.', { ok: 'Change it' }))) return;
+    s = latest(s);
+    if (s.status !== 'done') return;
     s.status = 'settling';
     s.completed_at = null;
     await persist(s);
@@ -1046,8 +1054,8 @@ async function stepwise(s) {
 // Start decanting into these tanks. A tank sells until its decanting starts,
 // so its stock before has to be from just now.
 async function startTanks(s, ids) {
-  const d = s.data;
-  const rows = d.tanks.filter((t) => ids.includes(t.tank) && stageOf(s, t) === 'waiting');
+  let d = s.data;
+  let rows = d.tanks.filter((t) => ids.includes(t.tank) && stageOf(s, t) === 'waiting');
   if (!rows.length) return false;
   if (s.status === 'draft') {
     // set up tank by tank, and the tank stock server or another phone has
@@ -1076,6 +1084,12 @@ async function startTanks(s, ids) {
   if (old.length && !(await ask('Take the stock first?', `${old.map((t) => `${tankName(t.tank)}: read at ${fmtTime(t.before.readingAt)} (${ago(t.before.readingAt)})`).join('<br>')}
       <br><br>A tank keeps selling until its decanting starts, so its stock before should be from just now. Start anyway?`,
   { ok: 'Start anyway', cancel: 'Take a new reading' }))) return false;
+  if (latest(s) !== s) {                     // moved on while asking: start what is still waiting
+    s = latest(s);
+    d = s.data;
+    rows = d.tanks.filter((t) => ids.includes(t.tank) && stageOf(s, t) === 'waiting' && t.before);
+    if (!rows.length || !['draft', 'decanting', 'settling'].includes(s.status)) return false;
+  }
   const over = rows.find((t) => t.litres > roomOf(t.before, tankById(t.tank)));
   if (over) { toast(`${tankName(over.tank)} has room for only ${fmtL(roomOf(over.before, tankById(over.tank)))} now — change the plan.`, 5000); return false; }
   const now = new Date().toISOString();
@@ -1093,8 +1107,8 @@ async function startTanks(s, ids) {
 // These tanks are done: which of their chambers were emptied? An unticked
 // chamber stays in the truck (decant it later from the list).
 async function doneTanks(s, ids) {
-  const d = s.data;
-  const rows = d.tanks.filter((t) => ids.includes(t.tank) && stageOf(s, t) === 'decanting');
+  let d = s.data;
+  let rows = d.tanks.filter((t) => ids.includes(t.tank) && stageOf(s, t) === 'decanting');
   if (!rows.length) return;
   const all = rows.flatMap((t) => t.chambers.map((no) => ({ no, tank: t.tank })));
   const chosen = await new Promise((resolve) => {
@@ -1113,7 +1127,15 @@ async function doneTanks(s, ids) {
   if (!chosen) return;
   if (!chosen.length) { toast('No chamber ticked — use Cancel if nothing was decanted.', 4000); return; }
   const keep = new Set(chosen);
-  const mine = new Set(all.map((x) => x.no));
+  if (latest(s) !== s) {                     // moved on while the sheet was open: done on the copy as it is now
+    s = latest(s);
+    d = s.data;
+    rows = d.tanks.filter((t) => ids.includes(t.tank) && stageOf(s, t) === 'decanting');
+    if (!rows.length) return;
+    const shown = new Set(all.map((x) => x.no));
+    for (const t of rows) for (const no of t.chambers) if (!shown.has(no)) keep.add(no);   // (added since: not asked about)
+  }
+  const mine = new Set(rows.flatMap((t) => t.chambers));
   for (const p of d.plan) if (p.tank && mine.has(p.no) && !keep.has(p.no)) p.tank = null;
   const now = new Date().toISOString();
   d.tanks = d.tanks.map((t) => {
@@ -1128,10 +1150,14 @@ async function doneTanks(s, ids) {
 
 // A tank not started is left out: its chambers stay in the truck.
 async function dropTank(s, id) {
-  const d = s.data;
-  const row = d.tanks.find((t) => t.tank === id);
+  let d = s.data;
+  let row = d.tanks.find((t) => t.tank === id);
   if (!row || stageOf(s, row) !== 'waiting') return;
   if (!(await ask(`Not now for ${tankName(id)}?`, `C${compactNos(row.chambers)} (${fmtKL(row.litres)}) stay in the truck — start them into a tank from this screen whenever you like.`, { ok: 'Keep in the truck' }))) return;
+  s = latest(s);
+  d = s.data;
+  row = d.tanks.find((t) => t.tank === id);
+  if (!row || stageOf(s, row) !== 'waiting') { toast(`${tankName(id)} has started meanwhile — it stays in.`, 4000); return; }
   for (const p of d.plan) if (p.tank === id) p.tank = null;
   if (moving.id !== s.id) moving = { id: s.id, pick: {} };
   for (const no of row.chambers) moving.pick[no] = '';      // kept back on purpose: not suggested again
@@ -1158,7 +1184,7 @@ async function applyRouting(s, assign, product = null) {
     const tk = tankById(tank);
     tanksNow.push({
       ...(old || { tank, tankNo: tk?.no, product: ps[0].product, before: d.before[tank], after: null, pricePerL: d.prices?.[ps[0].product] ?? null,
-        stage: 'settling', startedAt: d.startedAt || null, doneAt: d.decantedAt || null }),
+        stage: 'settling', startedAt: d.startedAt || null, doneAt: d.decantedAt || new Date().toISOString() }),
       chambers: ps.map((x) => x.no).sort((a, b) => a - b),
       litres: ps.reduce((a, x) => a + x.litres, 0),
       result: null,
@@ -1216,6 +1242,10 @@ async function finish(s) {
   }
   const problems = d.tanks.flatMap((t) => afterWarnings(s, t).map((w) => `${tankName(t.tank)}: ${w}`));
   if (problems.length && !(await ask('Check the after-stock', `<ul>${problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>Save the result anyway?`, { ok: 'Save anyway', cancel: 'Fix it' }))) return;
+  if (latest(s) !== s) {                     // changed while asking: finish what it is now
+    toast('It changed meanwhile (tank stock server or another phone) — check it and finish again.', 5000);
+    return;
+  }
   for (const t of d.tanks) {
     t.result = tankResult({ litres: t.litres, before: t.before, after: t.after, salesL: t.salesL }, state.settings);
     saveTankReading(t.tank, t.after);
@@ -1234,6 +1264,8 @@ async function cancelSession(s) {
     ? 'Only if <b>nothing was decanted</b> (e.g. the truck was sent back). The chambers go back to the list.'
     : 'Nothing is decanted yet; the invoice goes back to the list.', { ok: 'Cancel it', cancel: 'Keep going', danger: true });
   if (!yes) return;
+  s = latest(s);
+  if (!['draft', 'decanting', 'settling'].includes(s.status)) { toast('It was finished or cancelled meanwhile.', 4000); return; }
   s.status = 'cancelled';
   s.completed_at = new Date().toISOString();
   s.data.cancelReason = moved ? 'Stopped — nothing decanted.' : 'Cancelled before decanting.';
@@ -1312,19 +1344,49 @@ function resultModel(s) {
   };
 }
 
-// Today's screenshots behind this result (this phone's and the cloud's),
-// labelled for the picture: [{blob, label, sub}].
+// The screenshots behind this result (this phone's and the cloud's), one per
+// tank's stock before and one per its after, each cropped to that tank's card
+// (the box kept with the screenshot, or the whole of a one-tank picture like
+// the tank stock agent's): [{blob, crop, label, sub}] in tank order, before
+// next to after. A screenshot of several tanks kept without their boxes (an
+// older one) can't be cut up: it shows whole, once, after the others.
 async function resultProofs(s) {
   let held = [];
   try { held = await shotsFor(s.data.tanks); } catch { /* none */ }
-  return held.map(({ shot, uses }) => {
+  const cell = new Map();                                    // `${tank}|${which}` -> {shot}
+  for (const e of held) for (const u of e.uses) cell.set(`${u.tank}|${u.which}`, { shot: e.shot, use: u });
+  const out = [];
+  const whole = new Map();                                   // shot id -> {shot, uses}
+  for (const t of s.data.tanks || []) {
+    const pair = [];
+    for (const which of ['before', 'after']) {
+      const c = cell.get(`${t.tank}|${which}`);
+      const label = `${tankName(t.tank)} · ${which === 'before' ? 'Stock before' : 'Stock after'}`;
+      if (!c) { pair.push({ blank: true, label, sub: 'No screenshot of it' }); continue; }
+      const mark = c.shot.readings?.[t.tank] || {};
+      const tanks = Object.keys(c.shot.readings || {});
+      const sub = `Screen time ${fmtTime(c.use.readingAt)}`;
+      if (mark.box || tanks.length === 1) {
+        pair.push({ blob: c.shot.blob, crop: mark.box || null, label, sub });
+      } else {
+        const w = whole.get(c.shot.id) || { shot: c.shot, uses: [] };
+        w.uses.push(c.use);
+        whole.set(c.shot.id, w);
+        pair.push({ blank: true, label, sub: 'In the full screenshot below' });
+      }
+    }
+    if (pair.some((p) => !p.blank)) out.push(...pair);
+  }
+  for (const { shot, uses } of whole.values()) {
     const part = (which) => {
       const nos = [...new Set(uses.filter((u) => u.which === which).map((u) => tankName(u.tank)))];
       return nos.length ? `${which === 'before' ? 'Before' : 'After'} · ${nos.join(', ')}` : '';
     };
     const times = [...new Set(uses.map((u) => fmtTime(u.readingAt)))];
-    return { blob: shot.blob, label: [part('before'), part('after')].filter(Boolean).join('  ·  '), sub: `Screen time ${times.join(', ')}` };
-  });
+    out.push({ blob: shot.blob, crop: null, whole: true, label: [part('before'), part('after')].filter(Boolean).join('  ·  '),
+      sub: `Screen time ${times.join(', ')}` });
+  }
+  return out;
 }
 
 // Share the result as a picture: shown first, then shared (or saved). Made the

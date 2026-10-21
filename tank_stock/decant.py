@@ -108,12 +108,19 @@ def drop_old_proofs(now=None) -> int:
     decantation that ran past midnight still finds its stock before's, as
     the app does (decant/js/shots.js). Returns how many."""
     keep_from = ist_day((now or datetime.now(timezone.utc)) - timedelta(days=1))
-    rows = _rest("GET", f"dec_shots?day=lt.{keep_from}&select=id,path&limit=500") or []
-    if rows:
+    total = 0
+    for _ in range(20):                    # 500 at a time; a row goes only once its file has
+        rows = _rest("GET", f"dec_shots?day=lt.{keep_from}&select=id,path&limit=500") or []
+        if not rows:
+            break
         _http("DELETE", f"storage/v1/object/{BUCKET}", json.dumps({"prefixes": [r["path"] for r in rows]}).encode(),
               {"Content-Type": "application/json"})
-        _rest("DELETE", f"dec_shots?day=lt.{keep_from}")
-    return len(rows)
+        ids = ",".join(urllib.parse.quote(str(r["id"])) for r in rows)
+        _rest("DELETE", f"dec_shots?id=in.({ids})")
+        total += len(rows)
+        if len(rows) < 500:
+            break
+    return total
 
 
 def dip_chart() -> dict:
@@ -163,15 +170,24 @@ def get_session(session_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def save_session(s: dict, now=None) -> dict:
-    """saveSession: the whole row, updated_at now (phones only take a row
-    whose updated_at is newer than their own)."""
+def save_session(s: dict, now=None, base: str | None = None) -> dict | None:
+    """saveSession: the whole row, updated_at now. With ``base`` (the
+    updated_at the cloud had when it was last looked at) only over that very
+    version: None if someone saved it since (theirs stays)."""
     from .decantation import iso
-    s["updated_at"] = iso(now.timestamp() if now else None)
-    s["created_at"] = s.get("created_at") or s["updated_at"]
-    row = {k: s.get(k) for k in ("id", "invoice_no", "tt_no", "status", "data", "created_at", "updated_at")}
-    row["completed_at"] = s.get("completed_at")
-    _rest("POST", "dec_sessions?on_conflict=id", [row], prefer="resolution=merge-duplicates,return=minimal")
+    stamp = iso(now.timestamp() if now else None)
+    created = s.get("created_at") or stamp
+    row = {k: s.get(k) for k in ("id", "invoice_no", "tt_no", "status", "data")}
+    row.update(created_at=created, updated_at=stamp, completed_at=s.get("completed_at"))
+    if base:
+        got = _rest("PATCH", f"dec_sessions?id=eq.{urllib.parse.quote(str(s['id']))}"
+                             f"&updated_at=eq.{urllib.parse.quote(str(base))}&select=id", row,
+                    prefer="return=representation")
+        if not got:
+            return None
+    else:
+        _rest("POST", "dec_sessions?on_conflict=id", [row], prefer="resolution=merge-duplicates,return=minimal")
+    s["updated_at"], s["created_at"] = stamp, created
     return s
 
 
@@ -254,8 +270,18 @@ def check(card: dict, tank: dict, chart: dict) -> dict:
     return {"checks": checks, "confidence": confidence, "problems": problems}
 
 
-def make_reading(card: dict, tank: dict, cfg: dict) -> dict:
-    """core.js readingFrom + the photo reader's extras."""
+FUTURE_S = 300             # a "Last Updated" time this far ahead of the clock here is a misread
+
+
+def _utc(t: datetime) -> str:
+    return t.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def make_reading(card: dict, tank: dict, cfg: dict, now=None) -> dict:
+    """core.js readingFrom + the photo reader's extras. A card whose time
+    couldn't be read is stamped with when the screen was taken (the card's
+    ``seenAt``), not when it is sent; a time read in the future (a misread
+    digit) counts as not read - else no later reading could ever replace it."""
     result = check(card, tank, cfg["chart"])
     cap = card.get("capacity") or tank.get("capacity") or 20000
     vol = round(card["volume"], 2) if card.get("volume") is not None else None
@@ -264,6 +290,12 @@ def make_reading(card: dict, tank: dict, cfg: dict) -> dict:
     density_tc = card.get("densityTc") if DENSITY[0] <= (card.get("densityTc") or 0) <= DENSITY[1] else None
     temp = card.get("temp") if TEMP[0] <= (card.get("temp") or 0) <= TEMP[1] else None
     at = reading_time(card.get("time"), cfg.get("dateOrder", "MDY"))
+    seen = card.get("seenAt") or _utc(now or datetime.now(timezone.utc))
+    try:
+        if at and datetime.fromisoformat(at).timestamp() > _when({"readingAt": seen}) + FUTURE_S:
+            at = None
+    except ValueError:
+        at = None
     reading = {
         "volume": vol,
         "ullage": round(card["ullage"], 2) if card.get("ullage") is not None else (round(cap - vol, 2) if vol is not None else None),
@@ -275,7 +307,7 @@ def make_reading(card: dict, tank: dict, cfg: dict) -> dict:
         "densityTc": density_tc,
         "temp": temp,
         "status": None,
-        "readingAt": at or datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "readingAt": at or seen,
         "timeRead": bool(at),
         "source": "photo",
         "via": "anydesk",                 # taken by the tank-stock agent, not a phone
@@ -325,7 +357,7 @@ def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False, ti
         if not tank:
             out[no] = {"ok": False, "message": f"the decant app has no Tank {no}"}
             continue
-        built = make_reading(card, tank, cfg)
+        built = make_reading(card, tank, cfg, now)
         if built["confidence"] == "low":
             out[no] = {"ok": False, "tank_id": tank["id"],
                        "message": "not saved: " + "; ".join(built["problems"] or ["check failed"])}

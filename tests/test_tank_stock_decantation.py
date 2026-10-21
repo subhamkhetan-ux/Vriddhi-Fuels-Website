@@ -344,3 +344,14 @@ def test_reading_every_5_seconds_gives_the_same_result():
     t2 = row(run, "T2")
     assert t2["chambers"] == [2, 3] and t2["result"]["variation"] == -23.0
     assert sum(" is in " in e for e in out["events"]) == 3
+
+
+def test_a_draft_the_agent_runs_or_set_up_tank_by_tank_holds_its_tanks():
+    t = [{"tank": "T2", "stage": "waiting"}]
+    agent = {"id": "A", "status": "draft", "data": {"tanks": t, "auto": {"by": "tank stock agent", "released": False}}}
+    stepwise = {"id": "B", "status": "draft", "data": {"tanks": [{"tank": "T3", "stage": "waiting"}], "step": "decant"}}
+    planning = {"id": "C", "status": "draft", "data": {"tanks": [{"tank": "T4", "stage": "waiting"}], "step": "plan"}}
+    handed = {"id": "D", "status": "draft", "data": {"tanks": [{"tank": "T1", "stage": "waiting"}],
+                                                     "auto": {"released": True}}}
+    assert dz.busy_tanks([agent, stepwise, planning, handed]) == {"T2", "T3"}
+    assert dz.busy_tanks([agent], except_id="A") == set()

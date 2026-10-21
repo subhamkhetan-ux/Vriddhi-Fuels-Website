@@ -59,6 +59,7 @@ STATIC_FILES = {
     "/icon-192.png": ("icon-192.png", "image/png"),
     "/icon-512.png": ("icon-512.png", "image/png"),
     "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+    "/icon-maskable-512.png": ("icon-maskable-512.png", "image/png"),
 }
 # Server mode: what each button runs (allowed by /etc/sudoers.d/xtrapower-manage).
 # Stop also disables start-at-boot, like monitor-mac.sh stop; Start re-enables it.

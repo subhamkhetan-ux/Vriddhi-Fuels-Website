@@ -65,7 +65,8 @@ async function todays() {
 // A JPEG no bigger than MAX_SIDE (the original if it can't be redrawn here).
 async function shrink(blob) {
   try {
-    const img = await createImageBitmap(blob);
+    // (turned as the photo says, as the app reads it and the result picture draws it)
+    const img = await createImageBitmap(blob, { imageOrientation: 'from-image' });
     const k = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(img.width * k);
@@ -83,7 +84,7 @@ async function shrink(blob) {
 async function upload(shot) {
   const client = cloudClient();
   if (!client) return false;
-  const body = await shrink(shot.blob);
+  const body = await shrink(shot.blob);             // (already small: as it is)
   const ext = body.type === 'image/png' ? 'png' : body.type === 'image/webp' ? 'webp' : 'jpg';
   const path = `${shot.day}/${shot.id}.${ext}`;
   const put = await client.storage.from(BUCKET).upload(path, body, { contentType: body.type || 'image/jpeg', upsert: true });
@@ -106,10 +107,14 @@ async function share(shot) {
   } catch { /* offline: tried again when the app next opens */ }
 }
 
-// Keep a screenshot with the readings it gave ({tankId: reading}).
-export async function keepShot(blob, readings) {
-  const marks = Object.fromEntries(Object.entries(readings).map(([id, r]) => [id, { readingAt: r.readingAt, volume: r.volume }]));
+// Keep a screenshot with the readings it gave ({tankId: reading}) and, when
+// known, where each tank's card is in it ({tankId: cardBox}).
+export async function keepShot(blob, readings, boxes = {}) {
+  const marks = Object.fromEntries(Object.entries(readings).map(([id, r]) => [id, {
+    readingAt: r.readingAt, volume: r.volume, ...(boxes[id] ? { box: boxes[id] } : {}),
+  }]));
   if (!blob || !Object.keys(marks).length) return;
+  blob = await shrink(blob);                        // kept small here too: a result decodes it for each tank
   const shot = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, day: istDate(Date.now()), at: Date.now(), readings: marks, blob, uploaded: false };
   const db = await openDb();
   let saved = false;
@@ -131,10 +136,11 @@ async function cloudTodays() {
   const client = cloudClient();
   if (!client) return [];
   try {
+    // newest first: past the limit, the oldest go (not today's stock after)
     const { data, error } = await client.from('dec_shots').select('id,day,at,readings,path')
-      .gte('day', keptFrom()).order('at').limit(400);
+      .gte('day', keptFrom()).order('at', { ascending: false }).limit(400);
     if (error) return [];
-    return (data || []).map((r) => ({ ...r, at: Date.parse(r.at), readings: r.readings || {}, cloud: true }));
+    return (data || []).reverse().map((r) => ({ ...r, at: Date.parse(r.at), readings: r.readings || {}, cloud: true }));
   } catch {
     return [];
   }
