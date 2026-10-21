@@ -1312,19 +1312,49 @@ function resultModel(s) {
   };
 }
 
-// Today's screenshots behind this result (this phone's and the cloud's),
-// labelled for the picture: [{blob, label, sub}].
+// The screenshots behind this result (this phone's and the cloud's), one per
+// tank's stock before and one per its after, each cropped to that tank's card
+// (the box kept with the screenshot, or the whole of a one-tank picture like
+// the tank stock agent's): [{blob, crop, label, sub}] in tank order, before
+// next to after. A screenshot of several tanks kept without their boxes (an
+// older one) can't be cut up: it shows whole, once, after the others.
 async function resultProofs(s) {
   let held = [];
   try { held = await shotsFor(s.data.tanks); } catch { /* none */ }
-  return held.map(({ shot, uses }) => {
+  const cell = new Map();                                    // `${tank}|${which}` -> {shot}
+  for (const e of held) for (const u of e.uses) cell.set(`${u.tank}|${u.which}`, { shot: e.shot, use: u });
+  const out = [];
+  const whole = new Map();                                   // shot id -> {shot, uses}
+  for (const t of s.data.tanks || []) {
+    const pair = [];
+    for (const which of ['before', 'after']) {
+      const c = cell.get(`${t.tank}|${which}`);
+      const label = `${tankName(t.tank)} · ${which === 'before' ? 'Stock before' : 'Stock after'}`;
+      if (!c) { pair.push({ blank: true, label, sub: 'No screenshot of it' }); continue; }
+      const mark = c.shot.readings?.[t.tank] || {};
+      const tanks = Object.keys(c.shot.readings || {});
+      const sub = `Screen time ${fmtTime(c.use.readingAt)}`;
+      if (mark.box || tanks.length === 1) {
+        pair.push({ blob: c.shot.blob, crop: mark.box || null, label, sub });
+      } else {
+        const w = whole.get(c.shot.id) || { shot: c.shot, uses: [] };
+        w.uses.push(c.use);
+        whole.set(c.shot.id, w);
+        pair.push({ blank: true, label, sub: 'In the full screenshot below' });
+      }
+    }
+    if (pair.some((p) => !p.blank)) out.push(...pair);
+  }
+  for (const { shot, uses } of whole.values()) {
     const part = (which) => {
       const nos = [...new Set(uses.filter((u) => u.which === which).map((u) => tankName(u.tank)))];
       return nos.length ? `${which === 'before' ? 'Before' : 'After'} · ${nos.join(', ')}` : '';
     };
     const times = [...new Set(uses.map((u) => fmtTime(u.readingAt)))];
-    return { blob: shot.blob, label: [part('before'), part('after')].filter(Boolean).join('  ·  '), sub: `Screen time ${times.join(', ')}` };
-  });
+    out.push({ blob: shot.blob, crop: null, whole: true, label: [part('before'), part('after')].filter(Boolean).join('  ·  '),
+      sub: `Screen time ${times.join(', ')}` });
+  }
+  return out;
 }
 
 // Share the result as a picture: shown first, then shared (or saved). Made the

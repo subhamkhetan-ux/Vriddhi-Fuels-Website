@@ -2,7 +2,7 @@
 // settings. The decanting wizard is in wizard.js, the log and reports in
 // views.js; the rules they all share are in core.js.
 
-import { fromServer,
+import { cardBox, fromServer,
   PRODUCTS, chamberLayout, chamberSeconds, chambersLeft, chartFromRows, chartIssues, chartMaxCm, dipAtLitres, fillLimit, fmtMinSec, invoiceStatus, istDate, layoutsText,
   litresAtDip, newTankId, normTT, ownTT, parseLayouts, planIndents, productKey, readingFrom, roomOf, round2, staleDraft, stockProof, tankProblems, tankStage, transportOptions, usedChambers,
 } from './core.js';
@@ -167,6 +167,7 @@ export async function readScreenshot({ want = null } = {}) {
         el.querySelector('[data-cancel]').onclick = () => closeSheet();
         el.querySelector('[data-use]')?.addEventListener('click', async () => {
           const readings = {};
+          const boxes = {};                                       // each tank's card, to crop it under a result
           found.forEach((t, i) => {
             const id = t.tankId || el.querySelector(`[data-pick="${i}"]`)?.value;
             if (!id) return;
@@ -182,9 +183,11 @@ export async function readScreenshot({ want = null } = {}) {
               src = 'photo-edited';
             }
             readings[id] = makeReading(id, r, src, extra);
+            const box = parsed.turned ? null : cardBox(t.frame, parsed.width, parsed.height);
+            if (box) boxes[id] = box;
           });
           for (const [id, r] of Object.entries(readings)) saveTankReading(id, r);
-          keepShot(file, readings).catch(() => {});
+          keepShot(file, readings, boxes).catch(() => {});
           result = { readings };
           closeSheet();
         });

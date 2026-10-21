@@ -287,10 +287,13 @@ class Station:
             if self._dropped != self.decant.ist_day():
                 self.decant.drop_old_proofs()
                 self._dropped = self.decant.ist_day()
-            jpeg = cards_mod.to_jpeg(self.picture(sorted(saved)))
-            if not jpeg:
-                raise ValueError("the picture of the cards could not be made")
-            self.decant.save_proof(jpeg, {r["tank_id"]: r["mark"] for r in saved.values()})
+            # one picture per tank (its own card), so a result shows each
+            # tank's stock before and after on its own
+            for no in sorted(saved):
+                jpeg = cards_mod.to_jpeg(self.picture([no]))
+                if not jpeg:
+                    raise ValueError(f"the picture of Tank {no}'s card could not be made")
+                self.decant.save_proof(jpeg, {saved[no]["tank_id"]: saved[no]["mark"]})
             self.last["proof"] = {"ok": True, "tanks": sorted(saved), "at": now_iso()}
         except (self.decant.DecantError, ValueError) as exc:
             self.last["proof"] = {"ok": False, "message": str(exc), "at": now_iso()}

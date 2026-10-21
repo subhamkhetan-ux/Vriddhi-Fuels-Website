@@ -106,9 +106,12 @@ async function share(shot) {
   } catch { /* offline: tried again when the app next opens */ }
 }
 
-// Keep a screenshot with the readings it gave ({tankId: reading}).
-export async function keepShot(blob, readings) {
-  const marks = Object.fromEntries(Object.entries(readings).map(([id, r]) => [id, { readingAt: r.readingAt, volume: r.volume }]));
+// Keep a screenshot with the readings it gave ({tankId: reading}) and, when
+// known, where each tank's card is in it ({tankId: cardBox}).
+export async function keepShot(blob, readings, boxes = {}) {
+  const marks = Object.fromEntries(Object.entries(readings).map(([id, r]) => [id, {
+    readingAt: r.readingAt, volume: r.volume, ...(boxes[id] ? { box: boxes[id] } : {}),
+  }]));
   if (!blob || !Object.keys(marks).length) return;
   const shot = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, day: istDate(Date.now()), at: Date.now(), readings: marks, blob, uploaded: false };
   const db = await openDb();

@@ -82,59 +82,75 @@ async function decode(blob) {
   }
 }
 
-// The stock screenshots under the figures: one across the width (a single one,
-// or wide landscape ones), else two side by side — a tank's before and after
-// on one row — each fitted whole into its cell.
-const PROOF_MAX = 6;
+// The stock screenshots under the figures: each tank's stock before and after
+// side by side, each cropped to that tank's card (p.crop: shares of the
+// picture), a missing one as an empty cell so the pairs stay in line; a whole
+// screenshot of several tanks (p.whole) across the width under them.
+const PROOF_MAX = 12;
+const BLANK_H = 140;
 async function proofLayout(proofs) {
   const shots = [];
   for (const p of (proofs || []).slice(0, PROOF_MAX)) {
-    try { shots.push({ ...p, img: await decode(p.blob) }); } catch { /* unreadable: left out */ }
+    if (p.blank) { shots.push({ ...p }); continue; }
+    try {
+      const img = await decode(p.blob);
+      const c = p.crop;
+      const src = c ? { sx: c.x0 * img.width, sy: c.y0 * img.height, sw: (c.x1 - c.x0) * img.width, sh: (c.y1 - c.y0) * img.height }
+        : { sx: 0, sy: 0, sw: img.width, sh: img.height };
+      shots.push({ ...p, img, src });
+    } catch { shots.push({ ...p, blank: true, sub: 'The screenshot couldn\'t be opened' }); }
   }
-  if (!shots.length) return null;
-  const wide = shots.every((p) => p.img.width >= 1.4 * p.img.height);   // true landscape only; a tank card crop pairs up
-  const cols = shots.length === 1 || wide ? 1 : 2;
+  if (!shots.some((p) => !p.blank)) return null;
   const gap = 24;
-  const cellW = (W - 2 * PAD - (cols - 1) * gap) / cols;
-  const inner = cellW - 32;
-  const maxH = cols === 1 ? 1400 : 1000;
-  const font = `700 ${cols === 1 ? 28 : 24}px ${SANS}`;
   const ctx = document.createElement('canvas').getContext('2d');
-  for (const p of shots) p.lines = wrap(ctx, p.label || 'Screenshot', font, cellW - 32).slice(0, 2);
-  const head = 58 + Math.max(...shots.map((p) => p.lines.length)) * 34;   // label + screen time above the picture
-  for (const p of shots) {
-    const k = Math.min(inner / p.img.width, maxH / p.img.height);
-    p.w = Math.round(p.img.width * k);
-    p.h = Math.round(p.img.height * k);
-  }
+  // rows: pairs of cards (before | after), then each whole screenshot on its own
+  const pairs = shots.filter((p) => !p.whole);
   const rows = [];
-  for (let i = 0; i < shots.length; i += cols) rows.push(shots.slice(i, i + cols));
-  const rowH = rows.map((r) => head + Math.max(...r.map((p) => p.h)) + 20);
+  for (let i = 0; i < pairs.length; i += 2) rows.push(pairs.slice(i, i + 2));
+  for (const p of shots.filter((x) => x.whole)) rows.push([p]);
+  const cols = (row) => (row[0].whole ? 1 : 2);
+  const cellW = (row) => (W - 2 * PAD - (cols(row) - 1) * gap) / cols(row);
+  const font = (row) => `700 ${cols(row) === 1 ? 28 : 24}px ${SANS}`;
+  const rowH = rows.map((row) => {
+    const cw = cellW(row);
+    let lines = 1;
+    for (const p of row) {
+      p.lines = wrap(ctx, p.label || 'Screenshot', font(row), cw - 32).slice(0, 2);
+      lines = Math.max(lines, p.lines.length);
+      if (p.blank) { p.w = 0; p.h = BLANK_H; continue; }
+      const k = Math.min((cw - 32) / p.src.sw, (cols(row) === 1 ? 1400 : 1000) / p.src.sh);
+      p.w = Math.round(p.src.sw * k);
+      p.h = Math.round(p.src.sh * k);
+    }
+    row.head = 58 + lines * 34;
+    return row.head + Math.max(...row.map((p) => p.h)) + 20;
+  });
   const height = 56 + rowH.reduce((a, h) => a + h + gap, 0);
-  return { shots, rows, rowH, cols, cellW, gap, head, height, font };
+  return { shots: shots.filter((p) => p.img), rows, rowH, cols, cellW, gap, height, font };
 }
 
 function drawProofs(ctx, L, y0) {
   text(ctx, 'STOCK PROOF · AUTOMATION SCREENSHOTS', PAD, y0 + 34, { font: `700 22px ${SANS}`, color: C.faint });
   let y = y0 + 56;
   L.rows.forEach((row, ri) => {
-    const left = PAD + (L.cols - row.length) * (L.cellW + L.gap) / 2;   // a lone last one sits in the middle
+    const cw = L.cellW(row);
     row.forEach((p, ci) => {
-      const x = left + ci * (L.cellW + L.gap);
-      roundRect(ctx, x, y, L.cellW, L.rowH[ri], 24);
+      const x = PAD + ci * (cw + L.gap);
+      roundRect(ctx, x, y, cw, L.rowH[ri], 24);
       ctx.fillStyle = C.card;
       ctx.fill();
       ctx.strokeStyle = C.line;
       ctx.lineWidth = 2;
       ctx.stroke();
-      p.lines.forEach((l, i) => text(ctx, l, x + 16, y + 40 + i * 34, { font: L.font }));
+      p.lines.forEach((l, i) => text(ctx, l, x + 16, y + 40 + i * 34, { font: L.font(row) }));
       text(ctx, p.sub || '', x + 16, y + 40 + p.lines.length * 34, { font: `500 22px ${SANS}`, color: C.muted });
-      const ix = x + (L.cellW - p.w) / 2;
-      const iy = y + L.head;
+      if (p.blank || !p.img) return;
+      const ix = x + (cw - p.w) / 2;
+      const iy = y + row.head;
       ctx.save();
       roundRect(ctx, ix, iy, p.w, p.h, 12);
       ctx.clip();
-      ctx.drawImage(p.img, ix, iy, p.w, p.h);
+      ctx.drawImage(p.img, p.src.sx, p.src.sy, p.src.sw, p.src.sh, ix, iy, p.w, p.h);
       ctx.restore();
     });
     y += L.rowH[ri] + L.gap;

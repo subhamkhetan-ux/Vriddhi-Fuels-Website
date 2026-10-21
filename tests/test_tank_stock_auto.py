@@ -261,7 +261,7 @@ def test_one_button_decants_reads_and_finishes_in_the_decant_app(rig):
     assert [t["stage"] for t in s["data"]["tanks"]] == ["waiting", "waiting"]
     # the stock before: full reads saved to the app, with their proof picture
     assert rig.cloud.stock["T2"]["volume"] == 10755.0 and rig.cloud.stock["T2"]["height"]
-    assert {"T1", "T2"} <= set(rig.cloud.shots[0])
+    assert [set(m) for m in rig.cloud.shots[:2]] == [{"T1"}, {"T2"}]      # one picture per tank (its card)
     assert wait_for(lambda: any("Automatic decantation started" in m for m in rig.told))
     # every tank is watched (not just the live setting's Tank 3), every 10 s
     assert set(rig.st.live["figures"]) == {"1", "2", "3", "4"} and a.interval(600) == 10
