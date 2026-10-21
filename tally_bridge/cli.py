@@ -102,6 +102,17 @@ def gui(uninstall=False):
     busy = False
     updates = queue.Queue()
 
+    def upgrade_note():
+        # Opening a new Setup does not replace the worker Windows already starts.
+        try:
+            installed = windows.installed_version()
+        except OSError:
+            return None
+        if installed and installed != __version__:
+            return ("Background sync is still bridge " + installed + ". Click Upgrade / save settings to switch it to "
+                    + __version__ + "; pairing and queued work are kept.")
+        return None
+
     def read_settings(values):
         raw, p, path, num, enabled, keep = values
         startup = startup_settings(path, num) if enabled else {"enabled": False}
@@ -166,7 +177,7 @@ def gui(uninstall=False):
                 vouchers = " Voucher read failed: " + str(e)
         paths = {p["exe"] for p in windows.tally_processes() if p.get("exe")}
         updates.put(("detected", (next(iter(paths)) if len(paths) == 1 else None, found_number)))
-        return "Tally is reachable. Open companies: " + ", ".join(c["name"] for c in companies) + "." + vouchers + (" Confirm the startup path and company number below." if enabled else "")
+        return "Tally is reachable. Open companies: " + ", ".join(c["name"] for c in companies if c["name"]) + "." + vouchers + (" Confirm the startup path and company number below." if enabled else "")
 
     def finish_install(config):
         windows.save_config(config)
@@ -218,16 +229,25 @@ def gui(uninstall=False):
         db = Store(windows.data_dir() / "journal.sqlite3")
         try:
             state = db.get("status", {})
-            labels = {"online": "Syncing", "internet_offline": "Internet offline", "starting_tally": "Starting Tally",
-                      "needs_attention": "Needs attention"}
-            if not state:
-                return "Waiting for the first sync."
-            when = __import__("datetime").datetime.fromtimestamp(state.get("at", 0)).strftime("%d %b %H:%M:%S")
-            return labels.get(state.get("health"), "Status") + " (" + when + "): " + state.get("detail", "")
         finally:
             db.close()
+        labels = {"online": "Syncing", "syncing": "Syncing", "internet_offline": "Internet offline",
+                  "starting_tally": "Starting Tally", "needs_attention": "Needs attention"}
+        notes = [n for n in (upgrade_note(), None if windows.worker_running() else
+                             "Background sync is not running. Click Start (or Upgrade / save settings).") if n]
+        if not state:
+            return " ".join(notes + ["Waiting for the first sync."])
+        when = __import__("datetime").datetime.fromtimestamp(state.get("at", 0)).strftime("%d %b %H:%M:%S")
+        writer = state.get("version") or "1.0.x"
+        line = (labels.get(state.get("health"), "Status") + " (" + when + ", bridge " + writer + "): "
+                + state.get("detail", ""))
+        if writer != __version__:
+            line += "  [This message is from an older bridge and is out of date.]"
+        return " ".join(notes + [line])
 
     row = ttk.Frame(panel); row.pack(fill="x", pady=10)
+    if existing and (note := upgrade_note()):
+        status.set(note)
     ttk.Button(row, text="Status", command=lambda: background(show_status)).pack(side="left")
     ttk.Button(row, text="Start", command=lambda: background(restart)).pack(side="left", padx=8)
     ttk.Button(row, text="Stop", command=lambda: (windows.stop(), status.set("Stopping after the current request. Queued work stays safe.")) if not busy else None).pack(side="left")

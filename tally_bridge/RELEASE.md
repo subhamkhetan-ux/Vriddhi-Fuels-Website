@@ -1,3 +1,9 @@
+Version **1.1.1** finishes the 1.1 sync fix:
+
+- **Setup tells you when the old worker is still running.** Opening a new Setup never replaced the background worker; until **Upgrade / save settings** is clicked, Windows keeps starting the old one. Setup now shows the installed worker version, marks status lines written by an older bridge as out of date, and says when background sync is not running.
+- **First sync is one Tally request.** Vouchers seen for the first time are recorded from their identifiers (4,982 vouchers no longer means ~170 full-detail reads before any status appears). Details are read only for vouchers later altered in Tally. Progress is written to Status while reading and uploading.
+- Re-run tally-bridge.sql for this version too.
+
 Version **1.1.0** makes the bridge a fuel-voucher sync and fixes the first sync that stopped with *"Tally did not supply GUID, MasterID and AlterID; sync is paused"*.
 
 **Before upgrading, re-run [tally-bridge.sql](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/supabase/tally-bridge.sql)** in the dedicated **Tally** Supabase project `qlloauxmfenrrqvfqibp`. Publishing the website does not apply SQL.

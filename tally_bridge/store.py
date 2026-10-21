@@ -59,9 +59,12 @@ class Store:
                                  json.dumps(obj["data"]), int(obj.get("deleted", False))))
                 self.db.execute("insert into uploads(payload) values(?)", (json.dumps(obj),))
 
+    def pending(self):
+        return self.db.execute("select count(*) from uploads").fetchone()[0]
+
     def upload_batch(self):
         rows, size = [], 0
-        for r in self.db.execute("select id,payload from uploads order by id limit 50"):
+        for r in self.db.execute("select id,payload from uploads order by id limit 100"):
             size += len(r["payload"].encode())
             if rows and size > 2_000_000:
                 break

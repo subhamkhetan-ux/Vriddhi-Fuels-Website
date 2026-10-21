@@ -20,7 +20,7 @@ SERIES = {
 # the web app's "Import from Tally" files, exactly as before the bridge.
 KINDS = ("Voucher",)
 FUEL_FILTER = "(" + " OR ".join('$VoucherTypeName = "%s"' % s[0] for s in SERIES.values()) + ")"
-META = ("GUID", "MasterID", "AlterID", "VoucherNumber", "VoucherTypeName", "Date")
+META = ("GUID", "MasterID", "AlterID", "VoucherNumber", "VoucherTypeName", "Date", "IsCancelled", "IsOptional")
 REPORTS = {"daybook": "Day Book", "ledger": "Ledger Vouchers", "trial_balance": "Trial Balance",
            "balance_sheet": "Balance Sheet", "profit_loss": "Profit and Loss", "receivables": "Bills Receivable",
            "payables": "Bills Payable", "stock": "Stock Summary", "cash_bank": "Cash/Bank Summary"}
@@ -234,6 +234,16 @@ def object_data(kind, v):
     return dict(kind=kind, guid=guid, master_id=master, alter_id=alter, data=data)
 
 
+def light_object(kind, v):
+    """A voucher seen for the first time, from metadata alone. Its details are read
+    only once it is altered, so the first sync is one request, not one per voucher."""
+    guid, master, alter = identity(v)
+    return dict(kind=kind, guid=guid, master_id=master, alter_id=alter,
+                data={"light": True, "number": text(v, "VOUCHERNUMBER"), "date": text(v, "DATE"),
+                      "voucher_type": text(v, "VOUCHERTYPENAME", v.get("VCHTYPE", "")),
+                      "cancelled": any(yes(text(v, k)) for k in ("ISCANCELLED", "ISOPTIONAL", "ISDELETED"))})
+
+
 def voucher_xml(company, p, existing=None):
     """Accounting structure matches tally/index.html's verified fuel exporter."""
     vt, item, sales = SERIES[p["series"]]
@@ -361,8 +371,8 @@ class Tally:
         root = parse(self.transport.post(export_request(None, "Company", "Name,GUID,BooksFrom")))
         if root.find(".//COLLECTION") is None:
             raise TallyProblem("Tally XML server did not return a company collection")
-        return [{"name": text(c, "NAME", c.get("NAME", "")), "guid": text(c, "GUID")}
-                for c in root.findall(".//COMPANY")]
+        found = [{"name": text(c, "NAME", c.get("NAME", "")), "guid": text(c, "GUID")} for c in root.findall(".//COMPANY")]
+        return [c for c in found if c["name"]]  # Tally can list a blank placeholder entry
 
     def startup_number(self):
         """Optional discovery; unsupported TDL is never needed for ordinary sync."""

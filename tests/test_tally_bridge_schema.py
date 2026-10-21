@@ -171,6 +171,29 @@ def test_bridge_only_follows_vouchers_the_app_already_has(db):
     assert db.ok("select count(*) from tally_bridge_jobs j join tally_vouchers v on v.id=j.voucher_id where v.number in ('88001','88002')") == "0"
 
 
+def test_first_sync_metadata_links_without_changing_values_and_alterations_fetch_details(db):
+    daybook(db, dict(series="xg", number="XG7001", party="Kept party", amount=1000))
+    light = dict(kind="Voucher", guid="light-guid", alter_id=7, master_id=9,
+                 data={"light": True, "voucher_type": "XG CREDIT", "number": "XG7001", "date": "20261019", "cancelled": False})
+    send = lambda o: db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([o]))})", anon=True)
+    send(light)
+    v = db.json("select to_jsonb(v) from tally_vouchers v where number='XG7001'")
+    assert v["bridge_guid"] == "light-guid" and v["bridge_alter"] == 7 and v["bridge_state"] == "synced" and v["party"] == "Kept party"
+    send(dict(light, alter_id=8))  # altered while unwatched: details are requested
+    assert db.ok("select bridge_state from tally_vouchers where number='XG7001'") == "awaiting_tally"
+    assert "light-guid" in device(db, "heartbeat", "'online','','test'")["refresh_guids"]
+    a = dict(series="xg", number="XG7001", date="2026-10-19", party="Tally party", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+    send(tally_object("light-guid", a, alter=8))
+    v = db.json("select to_jsonb(v) from tally_vouchers v where number='XG7001'")
+    assert v["party"] == "Tally party" and v["bridge_state"] == "synced"
+    send(dict(light, alter_id=8))  # a light resend never replaces the details
+    assert db.json("select data from tally_bridge_objects where guid='light-guid'")["app_voucher"]["party"] == "Tally party"
+    # Import after the bridge saw only metadata: linked by type and number at once.
+    send(dict(light, guid="light-guid-2", data=dict(light["data"], number="XG7002")))
+    assert daybook(db, dict(series="xg", number="XG7002"))["added"]["xg"] == 1
+    assert db.ok("select bridge_guid from tally_vouchers where number='XG7002'") == "light-guid-2"
+
+
 def test_reports_deduplicate_and_retain_old_result_while_offline(db):
     sql = "select tally_bridge_report('daybook','2026-10-01','2026-10-19','',true)"
     r = db.json(sql, user=OWNER)
