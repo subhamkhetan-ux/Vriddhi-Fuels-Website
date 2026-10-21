@@ -148,27 +148,38 @@ def test_inbound_and_conflict_do_not_overwrite_pending_edit(db):
     assert "moved backwards" in db.fails(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([o]))})", anon=True)
 
 
-def test_bridge_only_follows_vouchers_the_app_already_has(db):
-    a = dict(series="hsd", number="88001", date="2026-10-19", party="Tally only", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+def test_voucher_made_in_tally_joins_the_app_and_masters_are_ignored(db):
+    a = dict(series="hsd", number="88001", date="2026-10-19", party="Tally only", vehicle="OD01", qty=10, rate=100, item_amt=999.8, party_amt=1000, roff=0.2)
     master = dict(kind="Ledger", guid="ledger-guid", alter_id=1, master_id=2, data={"name": "Old bridge master", "is_debtor": True})
     db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([tally_object('tally-only-guid', a), master]))})", anon=True)
-    assert db.ok("select count(*) from tally_vouchers where number='88001'") == "0"
-    assert db.ok("select baseline from tally_series where key='hsd'") == "88001"  # the number is reserved
+    v = db.json("select to_jsonb(v) from tally_vouchers v where number='88001'")
+    assert v["source"] == "tally" and v["status"] == "history" and v["bridge_guid"] == "tally-only-guid"
+    assert v["bridge_state"] == "synced" and float(v["roff"]) == 0.2 and v["vehicle"] == "OD01"
+    assert db.ok("select baseline from tally_series where key='hsd'") == "88001"
+    assert db.ok("select count(*) from tally_parties where name='Tally only'") == "1"  # usable for bills at once
     assert db.ok("select count(*) from tally_parties where name='Old bridge master'") == "0"
     assert db.ok("select count(*) from tally_bridge_objects where kind<>'Voucher'") == "0"
-    # Import from Tally brings it in, linked at once with Tally's exact round-off.
-    db.ok(f"update tally_bridge_objects set data=jsonb_set(data,'{{app_voucher}}',{lit(json.dumps(dict(a,item_amt=999.8,roff=0.2)))}) where guid='tally-only-guid'")
-    result = daybook(db, dict(series="hsd", number="88001", party="Tally only", amount=999.8))
-    assert result["added"]["hsd"] == 1
-    v = db.json("select to_jsonb(v) from tally_vouchers v where number='88001'")
-    assert v["bridge_guid"] == "tally-only-guid" and v["bridge_state"] == "synced" and float(v["roff"]) == 0.2
     assert db.ok(f"select count(*) from tally_bridge_jobs where voucher_id='{v['id']}'") == "0"
-    # A second import keeps the linked voucher as the bridge has it, and still posts nothing.
+    # Import from Tally keeps the bridge's exact copy and posts nothing.
     result = daybook(db, dict(series="hsd", number="88001", party="Stale file", amount=500), dict(series="hsd", number="88002"))
     assert result["kept"] == 1 and result["added"]["hsd"] == 1
     assert db.ok("select party from tally_vouchers where number='88001'") == "Tally only"
     assert db.ok("select bridge_state from tally_vouchers where number='88002'") == "unlinked"
     assert db.ok("select count(*) from tally_bridge_jobs j join tally_vouchers v on v.id=j.voucher_id where v.number in ('88001','88002')") == "0"
+
+
+def test_posted_voucher_flagged_for_review_is_confirmed_when_tally_matches(db):
+    db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased')")
+    v = create(db)
+    j = device(db, "claim")
+    db.ok(f"select tally_bridge_begin_write('{TOKEN}','{INSTANCE}','{j['id']}','{j['lease_token']}')", anon=True)
+    db.ok(f"select tally_bridge_finish('{TOKEN}','{INSTANCE}','{j['id']}','{j['lease_token']}','conflict','{{}}','Tally read-back does not match')", anon=True)
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "conflict"
+    a = dict(series="hsd", number=v["number"], date="2026-10-19", party="TEST DEBTOR", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+    db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([tally_object('posted-guid', a, alter=80068)]))})", anon=True)
+    row = db.json(f"select to_jsonb(v) from tally_vouchers v where id='{v['id']}'")
+    assert row["bridge_state"] == "synced" and row["bridge_guid"] == "posted-guid" and row["bridge_alter"] == 80068
+    assert db.ok(f"select state from tally_bridge_jobs where id='{j['id']}'") == "done"
 
 
 def test_first_sync_metadata_links_without_changing_values_and_alterations_fetch_details(db):

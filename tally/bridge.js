@@ -1,7 +1,7 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.1.1';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.2.0';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
@@ -128,7 +128,7 @@
         <div class="bridge-actions"><a class="btn primary" href="${RELEASE}" target="_blank" rel="noopener">Windows installer</a><a class="btn ghost" href="${DOCS}" target="_blank" rel="noopener">Setup instructions</a></div>
         <div class="bridge-actions"><button class="btn primary" id="bridgePair">Create pairing package</button><button class="btn ghost" id="bridgePause">${status && status.config.push_enabled ? 'Pause posting' : 'Resume posting'}</button><button class="btn ghost" id="bridgeRevoke">Disconnect PC</button></div><div id="bridgePairOutput"></div>
         <p>Starts after Windows sign-in. Enable automatic Tally recovery in Setup.cmd to reopen Tally minimized with your company loaded when employees close it. Keep Windows signed in; the screen may lock. The bridge posts new web vouchers and picks up alterations made in Tally about every 5 seconds, and checks for deletions every hour.</p></div>
-        <div class="bridge-panel"><h3>What the bridge watches</h3><p>Only your HSD, MS and XtraGreen credit vouchers. When one of the app's vouchers is altered, cancelled or deleted in Tally, the app follows. Vouchers the app doesn't have yet, and customer details, still come in through <strong>Import from Tally</strong> on the home screen.</p><p>New vouchers and edits post to Tally automatically after pairing. Resolve conflicting edits in Sync activity.</p></div>`;
+        <div class="bridge-panel"><h3>What the bridge watches</h3><p>Your HSD, MS and XtraGreen credit vouchers, both ways. A voucher made in Tally Prime appears in the app within seconds, ready for bills, fuel slips and the customer's last price; one altered, cancelled or deleted in Tally is updated here. After pairing, older vouchers are read from Tally in the background, newest week first. Customer GST details still come from <strong>Import from Tally</strong> (Master file), which also keeps working for DayBook files.</p><p>New vouchers and edits post to Tally automatically after pairing. Resolve conflicting edits in Sync activity.</p></div>`;
       $('bridgePair').onclick = async () => {
         try {
           const data = await rpc('tally_bridge_pair_code');

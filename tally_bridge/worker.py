@@ -1,16 +1,18 @@
 """Serial worker, durable uploads and reconciliation-first financial writes."""
+import datetime as dt
 import json
 import random
 import time
 import uuid
 
 from . import __version__
-from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, light_object, object_data
+from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, light_object, object_data, voucher_date
 from .transport import CloudRejected, ConnectionProblem
 from .recovery import TallyStarting
 
-# 1.0.x mirrored every master and voucher type; 2 keeps only HSD/MS/XG CREDIT vouchers.
-JOURNAL = 2
+# 1.0.x mirrored every master and voucher type; 2 kept only HSD/MS/XG CREDIT vouchers;
+# 3 re-reads them because 1.1.x details came from a collection export without fuel lines.
+JOURNAL = 3
 
 
 class Stopped(Exception):
@@ -91,21 +93,25 @@ class Worker:
             self.store.set("scan:" + kind, self.clock())
             return  # idle polls never load historical XML from SQLite
         current, known = self.validate_snapshot(kind, meta)
+        by_guid = {identity(m)[0]: m for m in meta}
         # Full reconciliation also refreshes unresolved conflicts after 'Use Tally version'.
         refresh = set(self.config.get("refresh_guids") or [])
-        # Details are read only for alterations of vouchers already seen. A voucher seen for
-        # the first time is recorded from its metadata: the first sync is one Tally request.
-        changed = [i for g, i in current.items() if g in refresh
+        # The very first sync records every voucher from metadata, one request; backfill()
+        # then reads their details newest first. Afterwards new and altered vouchers are
+        # read in full straight away.
+        first_sync = not known
+        changed = [i for g, i in current.items() if g in refresh or (g not in known and not first_sync)
                    or g in known and (i[2] != known[g]["alter_id"] or known[g]["deleted"])]
-        first = [m for m in meta if identity(m)[0] not in known and identity(m)[0] not in refresh]
-        if first:
-            self.store.stage([light_object(kind, m) for m in first])
+        if first_sync:
+            self.store.stage([light_object(kind, m) for g, m in by_guid.items() if g not in refresh])
         if changed:
-            self.progress(f"Reading {len(changed):,} altered voucher{'s' if len(changed) != 1 else ''} from Tally")
-        for offset in range(0, len(changed), 30):
+            self.progress(f"Reading {len(changed):,} new or altered voucher{'s' if len(changed) != 1 else ''} from Tally")
+        by_date = {}
+        for i in changed:
+            by_date.setdefault(voucher_date(by_guid[i[0]]), []).append(i)
+        for _, batch in sorted(by_date.items(), reverse=True):
             self.pulse()
-            batch = changed[offset:offset + 30]
-            nodes = self.tally.objects(kind, [i[1] for i in batch])
+            nodes = self.tally.details([by_guid[i[0]] for i in batch])
             if {identity(n)[0] for n in nodes} != {i[0] for i in batch}:
                 raise TallyProblem("Tally changed during the read. The incomplete batch will be retried.")
             if any(identity(n)[2] < current[identity(n)[0]][2] for n in nodes):
@@ -128,6 +134,24 @@ class Worker:
         # between these requests could skip another voucher's intermediate alteration.
         self.store.set("cursor:" + kind, max([cursor] + [i[2] for i in current.values()]))
         self.store.set("scan:" + kind, self.clock())
+
+    def backfill(self):
+        """Read details of vouchers known only from metadata, one week of Day Book per call,
+        newest first, so every Tally fuel voucher reaches the app for bills and slips."""
+        light = self.store.light("Voucher")
+        if not light:
+            return False
+        end = dt.datetime.strptime(max(d for _, _, d in light), "%Y%m%d").date()
+        start = end - dt.timedelta(days=6)
+        wanted = {g: alter for g, alter, d in light if start.strftime("%Y%m%d") <= d}
+        self.progress(f"Reading voucher details from Tally, {start:%d %b} to {end:%d %b}: {len(light):,} left")
+        found = [v for v in self.tally.daybook(start, end) if v.findtext("GUID", "").strip() in wanted]
+        self.tally.verify()
+        full = [object_data("Voucher", v) for v in found]
+        self.store.stage([o for o in full if o["alter_id"] >= wanted[o["guid"]]])
+        # Whatever the week did not return (moved, deleted) waits for the next alteration or full scan.
+        self.store.settle_light("Voucher", wanted)
+        return True
 
     def finish(self, job, state, result=None, detail=""):
         self.store.write(job["id"], state, result)
@@ -224,6 +248,8 @@ class Worker:
             except TallyProblem as e:
                 self.finish(job, "conflict" if job["kind"] == "voucher" else "error", detail=str(e))
             # Network/HTTP failure leaves a leased/writing job for safe recovery after expiry.
+        elif self.backfill():
+            return  # the next step uploads this week and checks the queue again
         detail = self.watching()
         self.heartbeat("online", detail)
         self.status("online", detail)

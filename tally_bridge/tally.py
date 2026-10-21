@@ -148,9 +148,12 @@ def identity(node):
 def business_equal(a, b):
     if not a or not b:
         return False
-    for k in ("series", "number", "date", "party"):
+    for k in ("series", "number", "date"):
         if str(a.get(k, "")) != str(b.get(k, "")):
             return False
+    # Tally stores its ledger's own spelling; names are case-insensitive there.
+    if str(a.get("party", "")).casefold() != str(b.get("party", "")).casefold():
+        return False
     # Some Tally releases leave UDFs out of collection exports; a blank read is not a different vehicle.
     if a.get("vehicle") and b.get("vehicle") and a["vehicle"] != b["vehicle"]:
         return False
@@ -222,16 +225,35 @@ def alterable(v):
             and text(batches[0], "GODOWNNAME") == "Main Location" and text(batches[0], "BATCHNAME") == "Primary Batch")
 
 
+def compact(v):
+    """A copy without Tally's hundreds of empty fields; every value and list entry is kept."""
+    v = copy.deepcopy(v)
+    def prune(node):
+        for child in list(node):
+            prune(child)
+            if not len(child) and not (child.text or "").strip() and not child.attrib:
+                node.remove(child)
+    prune(v)
+    return v
+
+
 def object_data(kind, v):
     guid, master, alter = identity(v)
     if kind != "Voucher":
         raise ValueError("Only vouchers are synchronised")
-    data = {"xml": ET.tostring(v, encoding="unicode"), "number": text(v, "VOUCHERNUMBER"),
+    data = {"xml": ET.tostring(compact(v), encoding="unicode"), "number": text(v, "VOUCHERNUMBER"),
             "party": text(v, "PARTYLEDGERNAME"), "date": text(v, "DATE"),
             "voucher_type": text(v, "VOUCHERTYPENAME", v.get("VCHTYPE", "")),
             "cancelled": any(yes(text(v, k)) for k in ("ISCANCELLED", "ISOPTIONAL", "ISDELETED")),
             "app_voucher": fuel_voucher(v)}
     return dict(kind=kind, guid=guid, master_id=master, alter_id=alter, data=data)
+
+
+def voucher_date(v):
+    try:
+        return dt.datetime.strptime(text(v, "DATE").replace("-", ""), "%Y%m%d").date()
+    except ValueError:
+        raise TallyProblem("Tally did not supply a date for " + describe(v)) from None
 
 
 def light_object(kind, v):
@@ -411,8 +433,28 @@ class Tally:
         formula = FUEL_FILTER + (" AND $AlterID > " + str(int(after)) if after else "")
         return self.collection(kind, META, formula)
 
-    def objects(self, kind, ids):
-        return self.collection(kind, "*", " OR ".join("$MasterID = " + str(int(i)) for i in ids)) if ids else []
+    def daybook(self, start, end):
+        """Tally's Day Book export: the same complete vouchers as a Day Book XML file.
+        A collection export with NativeMethod * omits ledger and inventory lines."""
+        env = ET.Element("ENVELOPE")
+        tag(ET.SubElement(env, "HEADER"), "TALLYREQUEST", "Export Data")
+        desc = ET.SubElement(ET.SubElement(ET.SubElement(env, "BODY"), "EXPORTDATA"), "REQUESTDESC")
+        tag(desc, "REPORTNAME", "Day Book")
+        sv = ET.SubElement(desc, "STATICVARIABLES")
+        for k, val in (("SVCURRENTCOMPANY", self.company), ("SVFROMDATE", start.strftime("%Y%m%d")),
+                       ("SVTODATE", end.strftime("%Y%m%d")), ("SVEXPORTFORMAT", "$$SysName:XML")):
+            tag(sv, k, val)
+        return list(parse(self.transport.post(ET.tostring(env, encoding="unicode"))).iter("VOUCHER"))
+
+    def details(self, entries):
+        """Complete vouchers for these metadata entries, one Day Book read per date."""
+        wanted = {identity(e)[0] for e in entries}
+        found = {}
+        for day in sorted({voucher_date(e) for e in entries}, reverse=True):
+            for v in self.daybook(day, day):
+                if text(v, "GUID") in wanted:
+                    found[text(v, "GUID")] = v
+        return list(found.values())
 
     def missing(self, kind, names):
         """Which of these masters Tally lacks. Masters are read live, never mirrored.
@@ -449,7 +491,7 @@ class Tally:
             raise TallyProblem("Multiple invoices match " + vt + " #" + p["number"] + ". Review duplicates in Tally Prime.")
         if not candidates:
             return None
-        records = self.objects("Voucher", [identity(candidates[0])[1]])
+        records = self.details(candidates)
         if len(records) != 1:
             raise TallyProblem("Invoice changed during lookup; try again after the next sync")
         expected, actual = identity(candidates[0]), identity(records[0])
