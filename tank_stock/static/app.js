@@ -645,7 +645,14 @@
       const cell = el("div", "proof");
       cell.appendChild(el("span", "label", which === "before" ? "Stock before" : "Stock after"));
       if (!p) {
-        cell.appendChild(el("div", "meta", which === "before" ? "read when it starts" : "read once it has settled"));
+        const v = which === "before" ? t.before : t.after;
+        if (v != null) {                      // set in the decant app (or before this page kept pictures)
+          cell.appendChild(el("div", "value", `${fmt(v, 2)} L`));
+          if (which === "before" && t.beforeAt) cell.appendChild(el("div", "meta", clock(t.beforeAt)));
+          cell.appendChild(el("div", "pf mid", "From the decant app (no picture taken here)"));
+        } else {
+          cell.appendChild(el("div", "meta", which === "before" ? "read when it starts" : "read once it has settled"));
+        }
         box.appendChild(cell);
         continue;
       }

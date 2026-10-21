@@ -531,15 +531,20 @@ class Decantation:
                             "Is something else going into it?", now, "warn")
             return work
         o = self.state["others"].get(tank_id) or {}
-        tank = self._tank(tank_id) or {}
-        low = o.get("low")
-        cap = float(tank.get("capacity") or 20000)
-        before = {"volume": round2(low), "ullage": round2(cap - low), "capacity": cap, "height": None, "dip": None,
-                  "water": None, "density": None, "densityTc": None, "temp": None, "status": None,
-                  "readingAt": o.get("lowAt") or iso(now), "timeRead": False, "source": "photo", "via": "anydesk",
-                  "confidence": "medium", "savedAt": iso(now),
-                  "note": "the live product volume just before it started rising"} if low is not None else None
+        before = self.low_reading(tank_id, o.get("low"), o.get("lowAt"), now)
         return self.add(tank_id, chambers, before, now, from_low=True)
+
+    def low_reading(self, tank_id: str, low, low_at, now: float) -> dict | None:
+        """A stock before from the live figure just before the tank rose (read
+        in full from that screen afterwards, when it was kept)."""
+        if low is None:
+            return None
+        cap = float((self._tank(tank_id) or {}).get("capacity") or 20000)
+        return {"volume": round2(low), "ullage": round2(cap - low), "capacity": cap, "height": None, "dip": None,
+                "water": None, "density": None, "densityTc": None, "temp": None, "status": None,
+                "readingAt": low_at or iso(now), "timeRead": False, "source": "photo", "via": "anydesk",
+                "confidence": "medium", "savedAt": iso(now),
+                "note": "the live product volume just before it started rising"}
 
     def add(self, tank_id: str, chambers, before: dict | None, now: float | None = None,
             from_low: bool = False) -> dict:
@@ -1096,6 +1101,8 @@ class Decantation:
         for t in remote["data"].get("tanks") or []:
             t["stage"] = tank_stage(remote, t)
             st = self._st(t, now)
+            if t["tank"] not in old:
+                self._adopt_new(t, st, now)
             v = (t.get("before") or {}).get("volume")
             if t["stage"] == "waiting" and v is not None and st["low"] and abs(st["low"][1] - v) > STILL_L \
                     and (not st["history"] or abs(st["history"][-1][1] - v) <= SALE_L):
@@ -1108,8 +1115,9 @@ class Decantation:
                     st.update(lastRiseAt=now, lastRiseV=(t.get("before") or {}).get("volume"),
                               segFrom=(t.get("before") or {}).get("volume"))
             q = self.state["questions"].get(t["tank"])
-            if q and not (q["kind"] == "notstarted" and t["stage"] == "waiting"
-                          or q["kind"] != "notstarted" and t["stage"] == "decanting"):
+            if q and (q["kind"] == "held"               # (the phone put it in the decantation: that's the answer)
+                      or not (q["kind"] == "notstarted" and t["stage"] == "waiting"
+                              or q["kind"] != "notstarted" and t["stage"] == "decanting")):
                 self.state["questions"].pop(t["tank"])
         rows = {t["tank"] for t in remote["data"].get("tanks") or []}
         for k in list(self.state["questions"]):
@@ -1124,6 +1132,39 @@ class Decantation:
         elif (remote["data"].get("auto") or {}).get("released"):
             self.log("Handed over in the decant app.", now, "done")
         return notes
+
+    def recheck_added(self, now: float | None = None) -> None:
+        """Tanks a phone added that the agent watched before (after a restart:
+        the same check as when they were taken over)."""
+        now = now or time.time()
+        for t in self.s["data"].get("tanks") or []:
+            if t["tank"] in self.state.get("others", {}) and t["stage"] in ("waiting", "decanting"):
+                self._adopt_new(t, self._st(t, now), now)
+
+    def _adopt_new(self, t: dict, st: dict, now: float) -> None:
+        """A tank a phone added to this decantation. The agent has watched its
+        stock: if the app's stock before was taken after it had started rising
+        (part of a chamber already in), the stock before is the one just before
+        it rose; either way it is read in full from the screen kept then, for
+        its proof picture (state "fullBefore", done by auto.py)."""
+        o = self.state["others"].pop(t["tank"], None)
+        v = (t.get("before") or {}).get("volume")
+        if not o or o.get("low") is None or v is None or t["stage"] not in ("waiting", "decanting"):
+            return
+        low, name = o["low"], f"Tank {t.get('tankNo') or self.tank_no(t['tank'])}"
+        if v - low >= START_RISE_L:
+            t["before"] = self.low_reading(t["tank"], low, o.get("lowAt"), now)
+            self.s["data"].setdefault("before", {})[t["tank"]] = t["before"]
+            st["low"] = [_ts(o.get("lowAt")) or now, low]
+            st["segFrom"] = low
+            text = (f"⚠ {name}: its stock before in the decant app ({v:,.2f} L) isn't the stock just before it "
+                    f"started rising (it was taken once the chamber was going in, or before sales): it is now "
+                    f"{low:,.2f} L, the stock the agent saw just before it rose.")
+            self.log(text, now, "warn")
+            self.state.setdefault("corrected", []).append(text)
+            self.state.setdefault("fullBefore", []).append({"tank": t["tank"], "volume": round2(low)})
+        elif abs(v - low) <= STILL_L:
+            self.state.setdefault("fullBefore", []).append({"tank": t["tank"], "volume": round2(v)})
 
     # -- the page --
     def view(self, now: float | None = None) -> dict:

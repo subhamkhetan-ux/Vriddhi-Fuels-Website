@@ -449,12 +449,7 @@ class AutoDecant:
         o = self.run.state["others"].get(tank_id) or {}
         if o.get("low") is not None and f.get("volume") is not None and f["volume"] - o["low"] >= dz.START_RISE_L:
             # already rising: the stock before is the one just before it rose
-            cap = float(tank.get("capacity") or 20000) if tank else 20000.0
-            before = {"volume": round(o["low"], 2), "ullage": round(cap - o["low"], 2), "capacity": cap,
-                      "height": None, "dip": None, "water": None, "density": None, "densityTc": None, "temp": None,
-                      "status": None, "readingAt": o.get("lowAt") or dz.iso(now), "timeRead": False,
-                      "source": "photo", "via": "anydesk", "confidence": "medium", "savedAt": dz.iso(now),
-                      "note": "the live product volume just before it started rising"}
+            before = self.run.low_reading(tank_id, o["low"], o.get("lowAt"), now)
             return self.run.add(tank_id, chambers, before, now, from_low=True)
         res = self.st.full_read(live.get("last_png"), [no], "automatic decantation: stock before (chambers added)") \
             .get(no) if live.get("last_png") else None
@@ -637,9 +632,25 @@ class AutoDecant:
                 self._tell(f"🤖 {self._title()}: {self.run.state['log'][-1]['text']}")
                 self._stop_live_if_ours()
                 return False
+            self._adopted(now)
         elif self.info.get("dirty"):
             self._save(now)
         return True
+
+    def _adopted(self, now: float) -> None:
+        """After a phone's change: a tank it added gets its stock before read
+        in full from the screen before it rose (and corrected, if the app's
+        was taken after the rise began), saved back to the app."""
+        reqs = self.run.state.pop("fullBefore", [])
+        corrected = self.run.state.pop("corrected", [])
+        if not reqs and not corrected:
+            return
+        work = dz._work()
+        work["before"] = [{"tank": r["tank"], "from": "low", "volume": r["volume"]} for r in reqs]
+        work["save"] = bool(corrected)
+        for text in corrected:
+            self._tell(f"🤖 {self._title()}: {text}")
+        self._do(work, self.st.live, now)
 
     def _save(self, now: float, force: bool = False) -> bool:
         """Save the session, unless a phone changed it meanwhile (then theirs
@@ -764,6 +775,12 @@ class AutoDecant:
         elif self.phase == "running":
             self.info["fed"] = {}
             self.info["runningSince"] = time.time()
+            if self.run:
+                try:
+                    self.run.recheck_added()
+                    self._adopted(time.time())
+                except Exception:  # noqa: BLE001 - carrying on matters more
+                    traceback.print_exc()
             self._persist()
             self._tell(f"🤖 {self._title()}: the tank stock service restarted; carrying on.")
             self._reconnect(now=True)

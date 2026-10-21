@@ -715,3 +715,70 @@ def test_the_rest_of_the_truck_can_be_decanted_after_it_finished(rig):
     a.act("clear", {})
     b = start(rig, {"3": "T3"})
     assert b.run.s["id"] != first and 2 in b.run.s["data"]["done"]
+
+
+def test_a_tank_the_decant_app_adds_mid_run_gets_its_true_stock_before_with_its_picture(rig, monkeypatch):
+    w = _screens_as_taken(rig, monkeypatch)
+    a = start(rig, {"2": "T2"})
+    w.flows = [(2, 50, 4990, 495), (3, 300, 3990, 400)]          # C4 into Tank 3, started from the decant app
+    drive(rig, 340)
+    risen = w.volume(3)
+    assert risen - 11495.0 > 100                                  # it was already rising ...
+    s = rig.cloud.sessions[a.run.s["id"]]
+    s["data"]["tanks"].append({"tank": "T3", "tankNo": 3, "product": "HSD", "litres": 4000, "chambers": [4],
+                               "before": {"volume": risen, "readingAt": dz.iso(rig.clock()), "source": "litres"},
+                               "after": None, "stage": "decanting", "startedAt": dz.iso(rig.clock())})
+    next(p for p in s["data"]["plan"] if p["no"] == 4)["tank"] = "T3"
+    s["updated_at"] = dz.iso(rig.clock() + 1)                     # ... when the phone took its stock before
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    t3 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T3")
+    assert t3["before"]["volume"] == 11495.0 and t3["before"]["height"] is not None   # the stock before it rose, in full
+    assert t3["result"]["band"] == "ok" and t3["result"]["variation"] == -10.0
+    assert any("isn't the stock just before it started rising" in m for m in rig.told)
+    assert a.view()["proofs"]["T3"]["before"]["picture"]
+    assert {"readingAt": t3["before"]["readingAt"], "volume": 11495.0} in [m["T3"] for m in rig.cloud.shots if "T3" in m]
+
+
+def test_a_tank_the_decant_app_adds_before_it_rises_keeps_its_stock_and_gets_a_picture(rig, monkeypatch):
+    w = _screens_as_taken(rig, monkeypatch)
+    a = start(rig, {"2": "T2"})
+    w.flows = [(2, 50, 4990, 495)]
+    drive(rig, 200)
+    s = rig.cloud.sessions[a.run.s["id"]]
+    s["data"]["tanks"].append({"tank": "T3", "tankNo": 3, "product": "HSD", "litres": 4000, "chambers": [4],
+                               "before": {"volume": 11495.0, "readingAt": dz.iso(rig.clock()), "source": "litres"},
+                               "after": None, "stage": "waiting", "startedAt": None})
+    next(p for p in s["data"]["plan"] if p["no"] == 4)["tank"] = "T3"
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    w.flows.append((3, 400, 3990, 400))
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    t3 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T3")
+    assert t3["before"]["volume"] == 11495.0 and t3["before"]["height"] is not None     # same stock, now with its figures
+    assert not any("isn't the stock just before it started rising" in m for m in rig.told)
+    assert a.view()["proofs"]["T3"]["before"]["picture"]
+
+
+
+def test_a_tank_a_phone_added_before_this_update_is_checked_when_the_service_restarts(rig, monkeypatch):
+    w = rig.world
+    a = start(rig, {"2": "T2"})
+    w.flows = [(2, 50, 4990, 495), (3, 300, 3990, 400)]
+    drive(rig, 340)
+    risen = w.volume(3)
+    # taken over by the old code: Tank 3 in the run, its too-high stock before kept
+    remote = copy.deepcopy(rig.cloud.sessions[a.run.s["id"]])
+    remote["data"]["tanks"].append({"tank": "T3", "tankNo": 3, "product": "HSD", "litres": 4000, "chambers": [4],
+                                    "before": {"volume": risen, "readingAt": dz.iso(rig.clock()), "source": "litres"},
+                                    "after": None, "stage": "decanting", "startedAt": dz.iso(rig.clock())})
+    real = dz.Decantation._adopt_new
+    dz.Decantation._adopt_new = lambda self, t, st, now: None
+    try:
+        a.run.adopt(remote, rig.clock())
+    finally:
+        dz.Decantation._adopt_new = real
+    assert a.run.row("T3")["before"]["volume"] == risen
+    a.resume()                                                    # the service restarts with this update
+    assert a.run.row("T3")["before"]["volume"] == 11495.0
+    assert any("isn't the stock just before it started rising" in m for m in rig.told)
