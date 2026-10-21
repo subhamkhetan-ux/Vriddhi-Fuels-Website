@@ -10,10 +10,16 @@
   "theme_color": "#F4511E",
   "icons": [
     {
-      "src": "../Vriddhi%20Fuels%20Logo.png",
-      "sizes": "any",
+      "src": "icon.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

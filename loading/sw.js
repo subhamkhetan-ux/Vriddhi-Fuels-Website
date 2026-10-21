@@ -1,10 +1,10 @@
 /* Tanker Loading — service worker (app-shell cache, offline-first) */
-const CACHE = "vf-loading-v54";
+const CACHE = "vf-loading-v55";
 // Cache storage is per-origin, not per-scope — the other Vriddhi apps (/app/,
 // /pay/, /payments/, /tally/) keep their caches alongside ours. Only ever
 // delete our own, so bumping this app's version can't wipe theirs.
 const MINE = "vf-loading-";
-const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest"];
+const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon.png", "./icon-maskable.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
@@ -22,7 +22,7 @@ self.addEventListener("activate", (e) => {
 });
 
 // ---- Web Push (loading alerts: started / full / sent for sale) ----
-const ICON = "../Vriddhi%20Fuels%20Logo.png";
+const ICON = "./icon.png";
 self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: (e.data && e.data.text()) || "" }; }

@@ -407,7 +407,7 @@ def test_home_screen_files_are_served(server):
     status, raw, headers = _call(srv, "GET", "/manifest.webmanifest", csrf=False)
     assert status == 200 and headers["Content-Type"] == "application/manifest+json"
     assert json.loads(raw)["display"] == "standalone"
-    for icon in ("/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"):
+    for icon in ("/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon-maskable-512.png"):
         status, raw, headers = _call(srv, "GET", icon, csrf=False)
         assert status == 200 and raw[:8] == b"\x89PNG\r\n\x1a\n" and headers["Content-Type"] == "image/png"
     _, page, _ = _call(srv, "GET", "/")
