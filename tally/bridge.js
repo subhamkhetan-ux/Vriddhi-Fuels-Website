@@ -1,7 +1,7 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.1.0';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.1.1';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};

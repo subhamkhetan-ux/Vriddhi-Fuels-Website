@@ -168,17 +168,23 @@ def test_local_upload_queue_survives_reopen_and_lost_cloud_response(tmp_path):
     s.close()
 
 
+def seen(store, alter):
+    store.stage([object_data("Voucher",voucher(alter=alter))]); store.uploaded(store.upload_batch())
+
+
 def test_rejected_or_incomplete_collection_does_not_advance_cursor(store):
+    seen(store,1)
     class Partial(FakeTally):
-        def metadata(self,kind,after): return [voucher()]
+        def metadata(self,kind,after): return [voucher(alter=2)]
         def objects(self,kind,ids): return []
     with pytest.raises(TallyProblem,match="incomplete batch"):
         Worker(FakeCloud(),Partial(),store).scan("Voucher",True)
     assert store.get("cursor:Voucher") is None
-    assert not store.known("Voucher")
+    assert store.known("Voucher")[ID]["alter_id"] == 1
 
 
 def test_metadata_watermark_does_not_skip_an_intervening_edit(store):
+    seen(store,5)
     class ChangedDuringRead(FakeTally):
         def metadata(self,kind,after): return [voucher(alter=10)]
         def objects(self,kind,ids): return [voucher(alter=12)]
@@ -188,13 +194,33 @@ def test_metadata_watermark_does_not_skip_an_intervening_edit(store):
 
 
 def test_older_detail_than_metadata_never_advances_checkpoint(store):
+    seen(store,5)
     class RestoredDuringRead(FakeTally):
         def metadata(self,kind,after): return [voucher(alter=12)]
         def objects(self,kind,ids): return [voucher(alter=10)]
     with pytest.raises(TallyProblem,match="older object"):
         Worker(FakeCloud(),RestoredDuringRead(),store).scan("Voucher",True)
     assert store.get("cursor:Voucher") is None
-    assert not store.known("Voucher")
+    assert store.known("Voucher")[ID]["alter_id"] == 5
+
+
+def test_first_sync_is_one_metadata_read_and_details_follow_alterations(store):
+    p2=dict(PAYLOAD,id="a26d607a-40ba-4524-8fa2-c8c340855cb5",number="TEST2")
+    meta=[voucher(alter=3),voucher(p2,alter=4)]
+    reads=[]
+    class Tally(FakeTally):
+        def metadata(self,kind,after): return [m for m in meta if int(m.findtext("ALTERID"))>after]
+        def objects(self,kind,ids): reads.append(ids); return [voucher(p2,alter=9)]
+    w=Worker(FakeCloud(),Tally(),store)
+    w.scan("Voucher",True)
+    assert not reads  # 4,982 vouchers = one request, not 166 detail reads
+    staged=[json.loads(r["payload"]) for r in store.upload_batch()]
+    assert {o["data"]["number"] for o in staged}=={"TEST1","TEST2"} and all(o["data"]["light"] for o in staged)
+    assert "light" in store.object_payload("Voucher",ID)
+    meta[1]=voucher(p2,alter=9)  # altered in Tally
+    w.scan("Voucher")
+    assert reads==[[50]]
+    assert store.object_payload("Voucher",p2["id"])["app_voucher"]["number"]=="TEST2"
 
 
 def test_restart_validates_recent_snapshot_before_any_cloud_claim(tmp_path):
@@ -582,7 +608,7 @@ def test_watch_request_is_scoped_to_fuel_vouchers_and_alterations():
     assert tally.metadata("Voucher",42)==[]
     col=sent[0].find('.//COLLECTION')
     assert col.findtext('TYPE')=='Voucher'
-    assert [m.text for m in col.findall('NATIVEMETHOD')]==['GUID','MasterID','AlterID','VoucherNumber','VoucherTypeName','Date']
+    assert [m.text for m in col.findall('NATIVEMETHOD')]==['GUID','MasterID','AlterID','VoucherNumber','VoucherTypeName','Date','IsCancelled','IsOptional']
     formula=sent[0].findtext('.//SYSTEM')
     assert '$VoucherTypeName = "HSD CREDIT"' in formula and '"MS CREDIT"' in formula and '"XG CREDIT"' in formula
     assert formula.endswith('AND $AlterID > 42')
@@ -635,3 +661,5 @@ def test_cloud_rejection_message_reaches_the_status():
     s=Store(':memory:')
     Worker(Rejecting(),FakeTally(),s).run(Once())
     assert s.get('status')['detail']=='The web app refused the bridge: Bridge credential invalid or revoked'
+    from tally_bridge import __version__
+    assert s.get('status')['version']==__version__  # Setup can tell a stale worker's record apart

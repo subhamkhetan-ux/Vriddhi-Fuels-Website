@@ -5,7 +5,7 @@ import time
 import uuid
 
 from . import __version__
-from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, object_data
+from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, light_object, object_data
 from .transport import CloudRejected, ConnectionProblem
 from .recovery import TallyStarting
 
@@ -36,6 +36,19 @@ class Worker:
             store.reset_snapshot()
             store.set("journal", JOURNAL)
 
+    def status(self, health, detail):
+        """What Setup's Status button shows; the version tells an old worker's record apart."""
+        self.store.set("status", {"health": health, "at": self.clock(), "detail": detail, "version": __version__})
+
+    def progress(self, detail):
+        self.status("syncing", detail)
+        try:
+            self.heartbeat("syncing", detail)
+        except CloudRejected:
+            raise
+        except ConnectionProblem:
+            pass
+
     def heartbeat(self, health="online", detail=""):
         self.config = self.cloud.rpc("tally_bridge_heartbeat", p_health=health, p_detail=detail, p_version=__version__) or {}
         self.last_pulse = self.clock()
@@ -53,6 +66,9 @@ class Worker:
                 pass  # Tally -> durable SQLite continues while the Internet is down
 
     def flush(self):
+        pending = self.store.pending()
+        if pending > 100:
+            self.progress(f"Sending {pending:,} Tally vouchers to the web app")
         while rows := self.store.upload_batch():
             self.pulse()
             self.cloud.rpc("tally_bridge_ingest", p_objects=[json.loads(r["payload"]) for r in rows])
@@ -75,10 +91,17 @@ class Worker:
             self.store.set("scan:" + kind, self.clock())
             return  # idle polls never load historical XML from SQLite
         current, known = self.validate_snapshot(kind, meta)
-        changed = [i for g, i in current.items() if g not in known or i[2] != known[g]["alter_id"] or known[g]["deleted"]]
         # Full reconciliation also refreshes unresolved conflicts after 'Use Tally version'.
         refresh = set(self.config.get("refresh_guids") or [])
-        changed.extend(i for g, i in current.items() if g in refresh and i not in changed)
+        # Details are read only for alterations of vouchers already seen. A voucher seen for
+        # the first time is recorded from its metadata: the first sync is one Tally request.
+        changed = [i for g, i in current.items() if g in refresh
+                   or g in known and (i[2] != known[g]["alter_id"] or known[g]["deleted"])]
+        first = [m for m in meta if identity(m)[0] not in known and identity(m)[0] not in refresh]
+        if first:
+            self.store.stage([light_object(kind, m) for m in first])
+        if changed:
+            self.progress(f"Reading {len(changed):,} altered voucher{'s' if len(changed) != 1 else ''} from Tally")
         for offset in range(0, len(changed), 30):
             self.pulse()
             batch = changed[offset:offset + 30]
@@ -175,6 +198,8 @@ class Worker:
                 self.initial_scan = True
         else:
             self.tally.verify()
+        if self.initial_scan:
+            self.status("syncing", "Bridge " + __version__ + " started; reading the fuel voucher list from Tally")
         for kind in KINDS:
             bootstrap = cloud_ok and not self.config.get("ready")
             full = self.initial_scan or bootstrap or self.clock() - self.store.get("full:" + kind, 0) >= 3600
@@ -184,7 +209,7 @@ class Worker:
                 self.scan(kind, full, force_upload=bootstrap)
         self.initial_scan = False
         if not cloud_ok:
-            self.store.set("status", {"health": "internet_offline", "at": self.clock(), "detail": "Changes retained on this PC; uploads resume on reconnection."})
+            self.status("internet_offline", "Changes retained on this PC; uploads resume on reconnection.")
             return
         self.flush()
         if not self.config.get("ready"):
@@ -201,7 +226,7 @@ class Worker:
             # Network/HTTP failure leaves a leased/writing job for safe recovery after expiry.
         detail = self.watching()
         self.heartbeat("online", detail)
-        self.store.set("status", {"health": "online", "at": self.clock(), "detail": detail})
+        self.status("online", detail)
 
     def run(self, stop=None):
         self.stop = stop
@@ -214,7 +239,7 @@ class Worker:
                 return
             except TallyStarting as e:
                 failures += 1
-                self.store.set("status", {"health": "starting_tally", "at": self.clock(), "detail": str(e)})
+                self.status("starting_tally", str(e))
                 try:
                     self.heartbeat("starting_tally", str(e))
                 except ConnectionProblem:
@@ -227,7 +252,7 @@ class Worker:
                     detail = str(e)
                 else:
                     detail = "Connection unavailable; queued work is retained and will be checked again."
-                self.store.set("status", {"health": "needs_attention", "at": self.clock(), "detail": detail})
+                self.status("needs_attention", detail)
                 try:
                     self.heartbeat("needs_attention", detail)
                 except ConnectionProblem:

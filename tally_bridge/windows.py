@@ -260,6 +260,29 @@ def stop_before_pairing():
     raise RuntimeError("The current sync is still finishing; try again shortly. No worker was force-terminated.")
 
 
+def worker_running():
+    """Whether a bridge worker of any version holds its lock. Never stops anything."""
+    for legacy in (False, True):
+        try:
+            SingleInstance("Worker", legacy=legacy).close()
+        except AlreadyRunning:
+            return True
+    return False
+
+
+def installed_version():
+    """The version Windows starts at sign-in, from the Run entry install() writes."""
+    import re
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+            value = winreg.QueryValueEx(key, APP)[0]
+    except OSError:
+        return None
+    found = re.search(r"\\" + APP + r"\\([0-9][0-9.]*)\\", value)
+    return found[1] if found else "an older version"
+
+
 class StopFlag:
     def is_set(self):
         return (data_dir() / "stop").exists()

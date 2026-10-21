@@ -287,7 +287,7 @@ end $$;
 create or replace function public.tally_bridge_ingest(p_token text,p_instance uuid,p_objects jsonb) returns void
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare o jsonb; a jsonb; v tally_vouchers; old_alter bigint; k text; g text; incoming bigint; pending boolean;
-  gone boolean; sk text; num text;
+  gone boolean; sk text; num text; light boolean;
 begin
   if p_instance is null then raise exception 'Worker instance is required'; end if;
   perform _tb_device(p_token,p_instance);
@@ -303,12 +303,17 @@ begin
     if k<>'Voucher' or sk is null then continue; end if;
     num:=o->'data'->>'number';
     gone:=coalesce((o->>'deleted')::boolean,false);
+    -- 1.1.1 sends a voucher seen for the first time as metadata only ("light"); details
+    -- follow when it is altered. Light data never replaces details of the same version.
+    light:=coalesce((o->'data'->>'light')::boolean,false);
     select alter_id into old_alter from tally_bridge_objects where kind=k and guid=g;
     if old_alter is not null and incoming<old_alter then raise exception 'Tally version moved backwards; restore needs reconciliation'; end if;
     insert into tally_bridge_objects(kind,guid,alter_id,master_id,data,deleted)
       values(k,g,incoming,(o->>'master_id')::bigint,o->'data',gone)
       on conflict(kind,guid) do update set alter_id=excluded.alter_id,master_id=excluded.master_id,
-        data=excluded.data,deleted=excluded.deleted,updated_at=now();
+        data=case when light and tally_bridge_objects.alter_id=excluded.alter_id
+          and not coalesce((tally_bridge_objects.data->>'light')::boolean,false) then tally_bridge_objects.data else excluded.data end,
+        deleted=excluded.deleted,updated_at=now();
     -- Reserve numbers observed in Tally so the app never offers one that is taken.
     if not gone then
       update tally_series set baseline=num where key=sk and _tally_numpart(num)>_tally_numpart(baseline);
@@ -335,6 +340,16 @@ begin
     end if;
     if gone or coalesce((o->'data'->>'cancelled')::boolean,false) then
       update tally_vouchers set bridge_guid=g,bridge_state='deleted',bridge_alter=incoming where id=v.id;
+      continue;
+    end if;
+    if light then
+      if v.bridge_guid is null then
+        -- Link at the version Tally has now; the app's values stand until Tally alters it.
+        update tally_vouchers set bridge_guid=g,bridge_alter=incoming,bridge_state='synced' where id=v.id;
+      elsif incoming is distinct from v.bridge_alter then
+        -- Altered while the bridge was not watching: the next poll reads its details.
+        update tally_vouchers set bridge_state='awaiting_tally' where id=v.id;
+      end if;
       continue;
     end if;
     if a is null then
@@ -364,7 +379,7 @@ end $$;
 -- Tally's exact amounts (a DayBook file carries no round-off).
 create or replace function public._tb_link_imported() returns int
 language plpgsql security definer set search_path=public,pg_temp as $$
-declare n int;
+declare n int; m int;
 begin
   perform set_config('vriddhi.bridge_ingest','yes',true);
   update tally_vouchers v set date=(a->>'date')::date,party=a->>'party',vehicle=coalesce(nullif(a->>'vehicle',''),v.vehicle),
@@ -377,8 +392,17 @@ begin
     and v.series=a->>'series' and v.number=a->>'number'
     and not exists(select 1 from tally_vouchers y where y.bridge_guid=o.guid);
   get diagnostics n=row_count;
+  -- Vouchers known from metadata only are linked by type and number; values stay as imported.
+  update tally_vouchers v set bridge_guid=o.guid,bridge_alter=o.alter_id,bridge_state='synced'
+  from tally_bridge_objects o
+  where o.kind='Voucher' and not o.deleted and coalesce((o.data->>'light')::boolean,false)
+    and not coalesce((o.data->>'cancelled')::boolean,false)
+    and v.bridge_guid is null and v.bridge_state='unlinked' and v.number=o.data->>'number'
+    and v.series=case o.data->>'voucher_type' when 'HSD CREDIT' then 'hsd' when 'MS CREDIT' then 'ms' when 'XG CREDIT' then 'xg' end
+    and not exists(select 1 from tally_vouchers y where y.bridge_guid=o.guid);
+  get diagnostics m=row_count;
   perform set_config('vriddhi.bridge_ingest','no',true);
-  return n;
+  return n+m;
 end $$;
 
 create or replace function public.tally_bridge_ready(p_token text,p_instance uuid) returns void
