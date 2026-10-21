@@ -151,16 +151,22 @@ def gui(uninstall=False):
         tally = Tally(LocalTally(p), existing.get("company", ""), existing.get("guid"))
         companies = tally.companies()
         target = next((c for c in companies if c["name"] == existing.get("company")), companies[0] if len(companies) == 1 else None)
-        found_number = None
+        found_number, vouchers = None, ""
         if target:
             tally.company, tally.guid = target["name"], target["guid"]
             try:
                 found_number = tally.startup_number()
             except (TallyProblem, ConnectionProblem):
                 pass  # Optional discovery; never invent a company number.
+            # The same read the background sync makes, so a problem shows here first.
+            try:
+                count = len(tally.metadata())
+                vouchers = f" {count:,} HSD/MS/XG CREDIT vouchers can be watched in {target['name']}."
+            except TallyProblem as e:
+                vouchers = " Voucher read failed: " + str(e)
         paths = {p["exe"] for p in windows.tally_processes() if p.get("exe")}
         updates.put(("detected", (next(iter(paths)) if len(paths) == 1 else None, found_number)))
-        return "Tally is reachable. Open companies: " + ", ".join(c["name"] for c in companies) + (". Confirm the startup path and company number below." if enabled else ".")
+        return "Tally is reachable. Open companies: " + ", ".join(c["name"] for c in companies) + "." + vouchers + (" Confirm the startup path and company number below." if enabled else "")
 
     def finish_install(config):
         windows.save_config(config)
@@ -211,7 +217,13 @@ def gui(uninstall=False):
     def show_status(values):
         db = Store(windows.data_dir() / "journal.sqlite3")
         try:
-            return db.get("status", {}).get("detail", "Waiting for the first sync.")
+            state = db.get("status", {})
+            labels = {"online": "Syncing", "internet_offline": "Internet offline", "starting_tally": "Starting Tally",
+                      "needs_attention": "Needs attention"}
+            if not state:
+                return "Waiting for the first sync."
+            when = __import__("datetime").datetime.fromtimestamp(state.get("at", 0)).strftime("%d %b %H:%M:%S")
+            return labels.get(state.get("health"), "Status") + " (" + when + "): " + state.get("detail", "")
         finally:
             db.close()
 

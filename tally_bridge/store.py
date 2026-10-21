@@ -35,6 +35,16 @@ class Store:
         return {r["guid"]: dict(r) for r in self.db.execute(
             "select guid,alter_id,master_id,deleted from objects where kind=?", (kind,))}
 
+    def count(self, kind):
+        return self.db.execute("select count(*) from objects where kind=? and not deleted", (kind,)).fetchone()[0]
+
+    def reset_snapshot(self):
+        """Forget the Tally snapshot and unsent uploads; keep the binding and write recovery."""
+        with self.db:
+            self.db.execute("delete from objects")
+            self.db.execute("delete from uploads")
+            self.db.execute("delete from meta where key like 'cursor:%' or key like 'full:%' or key like 'scan:%'")
+
     def object_payload(self, kind, guid):
         row = self.db.execute("select data from objects where kind=? and guid=?", (kind,guid)).fetchone()
         return json.loads(row[0]) if row else None

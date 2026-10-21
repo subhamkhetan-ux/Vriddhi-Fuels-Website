@@ -165,6 +165,24 @@ def test_manual_xml_export_fails_closed_when_bridge_status_is_unavailable(browse
     page.close()
 
 
+def test_import_from_tally_works_while_paired(browser,server,tmp_path):
+    page=browser.new_page();page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.goto(server+'/tally/')
+    page.locator('#bridgeHomeStatus').filter(has_text='PC offline').wait_for()  # the bridge is paired
+    daybook=tmp_path/'DayBook.xml'
+    daybook.write_text('<ENVELOPE><VOUCHER VCHTYPE="HSD CREDIT"><DATE>20261019</DATE><VOUCHERTYPENAME>HSD CREDIT</VOUCHERTYPENAME>'
+        '<VOUCHERNUMBER>11</VOUCHERNUMBER><PARTYLEDGERNAME>Test Debtor</PARTYLEDGERNAME><ALLINVENTORYENTRIES.LIST>'
+        '<RATE>100.00/LTR</RATE><AMOUNT>1000.00</AMOUNT><BILLEDQTY> 10.000 LTR</BILLEDQTY></ALLINVENTORYENTRIES.LIST></VOUCHER></ENVELOPE>')
+    page.on('dialog',lambda d:d.accept())
+    with page.expect_file_chooser() as chooser:
+        page.locator('#btnImportDaybook').click()
+    chooser.value.set_files(str(daybook))
+    page.wait_for_function("window.bridgeCalls.some(c=>c.name==='tally_import_daybook')")
+    call=page.evaluate("window.bridgeCalls.find(c=>c.name==='tally_import_daybook')")
+    assert call['args']['p_vouchers'][0]['number']=='11'
+    page.close()
+
+
 def test_signout_during_export_cannot_download_previous_users_report(browser,server):
     page=browser.new_page()
     page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())

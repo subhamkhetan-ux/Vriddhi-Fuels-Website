@@ -163,6 +163,12 @@ begin
   if current_setting('vriddhi.bridge_ingest',true)='yes' then
     if TG_OP='DELETE' then return old; else return new; end if;
   end if;
+  if current_setting('vriddhi.tally_import',true)='yes' and TG_OP<>'DELETE' then
+    -- Import from Tally: this data came from Tally, so nothing is posted back.
+    -- Linked and in-flight vouchers are kept current by the bridge and are skipped.
+    if TG_OP='UPDATE' and (old.bridge_guid is not null or old.bridge_state<>'unlinked') then return null; end if;
+    return new;
+  end if;
   select c.active into active from tally_bridge_config c where id=1;
   if TG_OP='DELETE' then
     if old.bridge_guid is not null or exists(select 1 from tally_bridge_jobs where voucher_id=old.id) then
@@ -281,6 +287,7 @@ end $$;
 create or replace function public.tally_bridge_ingest(p_token text,p_instance uuid,p_objects jsonb) returns void
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare o jsonb; a jsonb; v tally_vouchers; old_alter bigint; k text; g text; incoming bigint; pending boolean;
+  gone boolean; sk text; num text;
 begin
   if p_instance is null then raise exception 'Worker instance is required'; end if;
   perform _tb_device(p_token,p_instance);
@@ -290,75 +297,88 @@ begin
     k:=o->>'kind'; g:=o->>'guid'; incoming:=(o->>'alter_id')::bigint;
     if k not in ('Voucher','Ledger','Group','StockItem','StockGroup','Unit','Godown','VoucherType','CostCentre','Currency')
       or length(g) not between 1 and 128 or incoming<0 then raise exception 'Invalid object'; end if;
+    -- Only the app's fuel vouchers are watched. Masters and other voucher types (sent by
+    -- 1.0.x bridges) are ignored; they reach the app through Import from Tally.
+    sk:=case o->'data'->>'voucher_type' when 'HSD CREDIT' then 'hsd' when 'MS CREDIT' then 'ms' when 'XG CREDIT' then 'xg' end;
+    if k<>'Voucher' or sk is null then continue; end if;
+    num:=o->'data'->>'number';
+    gone:=coalesce((o->>'deleted')::boolean,false);
     select alter_id into old_alter from tally_bridge_objects where kind=k and guid=g;
     if old_alter is not null and incoming<old_alter then raise exception 'Tally version moved backwards; restore needs reconciliation'; end if;
     insert into tally_bridge_objects(kind,guid,alter_id,master_id,data,deleted)
-      values(k,g,incoming,(o->>'master_id')::bigint,o->'data',coalesce((o->>'deleted')::boolean,false))
+      values(k,g,incoming,(o->>'master_id')::bigint,o->'data',gone)
       on conflict(kind,guid) do update set alter_id=excluded.alter_id,master_id=excluded.master_id,
         data=excluded.data,deleted=excluded.deleted,updated_at=now();
-    if k='Ledger' and coalesce((o->>'deleted')::boolean,false)=false and o->'data'->>'name' is not null
-      and coalesce((o->'data'->>'is_debtor')::boolean,false) then
-      insert into tally_parties(name,gstin,reg_type,state,place_of_supply,pincode,country)
-        values(o->'data'->>'name',o->'data'->>'gstin',o->'data'->>'reg_type',o->'data'->>'state',o->'data'->>'place_of_supply',o->'data'->>'pincode',o->'data'->>'country')
-        on conflict(name) do update set gstin=excluded.gstin,reg_type=excluded.reg_type,state=excluded.state,
-          place_of_supply=excluded.place_of_supply,pincode=excluded.pincode,country=excluded.country;
+    -- Reserve numbers observed in Tally so the app never offers one that is taken.
+    if not gone then
+      update tally_series set baseline=num where key=sk and _tally_numpart(num)>_tally_numpart(baseline);
     end if;
-    if k<>'Voucher' then continue; end if;
-    -- Reserve numbers observed in Tally even when their allocations cannot fit the fuel editor.
-    update tally_series set baseline=o->'data'->>'number'
-      where key=case o->'data'->>'voucher_type' when 'HSD CREDIT' then 'hsd' when 'MS CREDIT' then 'ms' when 'XG CREDIT' then 'xg' end
-      and _tally_numpart(o->'data'->>'number')>_tally_numpart(baseline);
-    select * into v from tally_vouchers where bridge_guid=g for update;
     a := o->'data'->'app_voucher';
-    if v.id is null and a is not null and a<>'null'::jsonb then
-      select * into v from tally_vouchers where series=a->>'series' and number=a->>'number' for update;
-      if v.id is not null and v.bridge_guid is distinct from g then
-        -- A pending/manual invoice with this number is never silently overwritten.
-        continue;
-      end if;
+    if jsonb_typeof(a) is distinct from 'object' then a:=null; end if;
+    select * into v from tally_vouchers where bridge_guid=g for update;
+    if v.id is null then
+      if gone or num is null then continue; end if;
+      -- First sighting: link the app's own copy of this invoice. A voucher the app does
+      -- not have is left alone; Import from Tally brings it in when wanted.
+      select * into v from tally_vouchers where series=sk and number=num for update;
+      -- A web voucher waiting to post is reconciled by its own job, never overwritten here.
+      if v.id is null or v.bridge_guid is not null or v.bridge_state<>'unlinked' then continue; end if;
     end if;
-    if v.id is not null then
-      if exists(select 1 from tally_bridge_jobs where voucher_id=v.id and state='writing') then continue; end if;
-      pending := v.bridge_state in ('queued','conflict','confirming','needs_edit');
-      if pending and (incoming is distinct from v.bridge_alter or coalesce((o->>'deleted')::boolean,false)) then
-        update tally_vouchers set bridge_state='conflict' where id=v.id;
-        update tally_bridge_jobs set state='conflict',detail='Tally and web versions differ. Review in Tally Prime.',updated_at=now()
-          where voucher_id=v.id and state in ('pending','leased','error');
-        continue;
-      elsif pending then continue;
-      end if;
-      if coalesce((o->>'deleted')::boolean,false) or coalesce((o->'data'->>'cancelled')::boolean,false) then
-        update tally_vouchers set bridge_state='deleted',bridge_alter=incoming where id=v.id;
-        continue;
-      end if;
-      if a is null or a='null'::jsonb then
-        update tally_vouchers set bridge_state='unsupported',bridge_alter=incoming where id=v.id;
-        continue;
-      end if;
-      if exists(select 1 from tally_vouchers where id<>v.id and series=a->>'series' and number=a->>'number') then
-        -- Preserve both histories when Tally renumbers onto an already saved web invoice.
-        -- The current Tally version remains available in the data explorer and reports.
-        update tally_vouchers set bridge_state='unsupported',bridge_alter=incoming where id=v.id;
-        continue;
-      end if;
+    if exists(select 1 from tally_bridge_jobs where voucher_id=v.id and state='writing') then continue; end if;
+    pending := v.bridge_state in ('queued','conflict','confirming','needs_edit');
+    if pending and (incoming is distinct from v.bridge_alter or gone) then
+      update tally_vouchers set bridge_state='conflict' where id=v.id;
+      update tally_bridge_jobs set state='conflict',detail='Tally and web versions differ. Review in Tally Prime.',updated_at=now()
+        where voucher_id=v.id and state in ('pending','leased','error');
+      continue;
+    elsif pending then continue;
     end if;
-    if a is null or a='null'::jsonb or coalesce((o->>'deleted')::boolean,false) then continue; end if;
+    if gone or coalesce((o->'data'->>'cancelled')::boolean,false) then
+      update tally_vouchers set bridge_guid=g,bridge_state='deleted',bridge_alter=incoming where id=v.id;
+      continue;
+    end if;
+    if a is null then
+      update tally_vouchers set bridge_guid=g,bridge_state='unsupported',bridge_alter=incoming where id=v.id;
+      continue;
+    end if;
+    if exists(select 1 from tally_vouchers where id<>v.id and series=a->>'series' and number=a->>'number') then
+      -- Preserve both histories when Tally renumbers onto an already saved web invoice.
+      -- The current Tally version remains available in the data explorer and reports.
+      update tally_vouchers set bridge_guid=g,bridge_state='unsupported',bridge_alter=incoming where id=v.id;
+      continue;
+    end if;
     if a->>'series' not in ('hsd','ms','xg') or (a->>'qty')::numeric<=0
       or abs((a->>'party_amt')::numeric-(a->>'item_amt')::numeric-(a->>'roff')::numeric)>0.01 then raise exception 'Invalid fuel voucher'; end if;
-    if v.id is null then
-      insert into tally_vouchers(series,number,date,party,vehicle,qty,rate,item_amt,party_amt,roff,status,source,bridge_guid,bridge_alter,bridge_state)
-        values(a->>'series',a->>'number',(a->>'date')::date,a->>'party',coalesce(a->>'vehicle',''),
-          (a->>'qty')::numeric,(a->>'rate')::numeric,(a->>'item_amt')::numeric,(a->>'party_amt')::numeric,(a->>'roff')::numeric,
-          'history','tally',g,incoming,'synced') returning * into v;
-    else
-      update tally_vouchers set series=a->>'series',number=a->>'number',date=(a->>'date')::date,party=a->>'party',vehicle=coalesce(a->>'vehicle',''),
-        qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
-        party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,bridge_guid=g,bridge_alter=incoming,
-        bridge_state='synced',status='history',updated_at=now() where id=v.id;
-    end if;
+    -- Tally is the source of truth for an altered voucher. A blank vehicle read keeps the app's.
+    update tally_vouchers set series=a->>'series',number=a->>'number',date=(a->>'date')::date,party=a->>'party',
+      vehicle=coalesce(nullif(a->>'vehicle',''),vehicle),
+      qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
+      party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,bridge_guid=g,bridge_alter=incoming,
+      bridge_state='synced',status='history',updated_at=now() where id=v.id;
     perform _tally_bump_baselines(array[v.id]);
   end loop;
   perform set_config('vriddhi.bridge_ingest','no',true);
+end $$;
+
+-- After Import from Tally: link imported invoices the bridge has already seen, using
+-- Tally's exact amounts (a DayBook file carries no round-off).
+create or replace function public._tb_link_imported() returns int
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare n int;
+begin
+  perform set_config('vriddhi.bridge_ingest','yes',true);
+  update tally_vouchers v set date=(a->>'date')::date,party=a->>'party',vehicle=coalesce(nullif(a->>'vehicle',''),v.vehicle),
+    qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
+    party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,
+    bridge_guid=o.guid,bridge_alter=o.alter_id,bridge_state='synced',status='history',updated_at=now()
+  from tally_bridge_objects o cross join lateral (select o.data->'app_voucher' as a) x
+  where o.kind='Voucher' and not o.deleted and jsonb_typeof(a)='object'
+    and v.bridge_guid is null and v.bridge_state='unlinked'
+    and v.series=a->>'series' and v.number=a->>'number'
+    and not exists(select 1 from tally_vouchers y where y.bridge_guid=o.guid);
+  get diagnostics n=row_count;
+  perform set_config('vriddhi.bridge_ingest','no',true);
+  return n;
 end $$;
 
 create or replace function public.tally_bridge_ready(p_token text,p_instance uuid) returns void
@@ -476,24 +496,24 @@ begin
   return (select to_jsonb(o) from tally_bridge_objects o where kind=p_kind and guid=p_guid);
 end $$;
 
--- Keep the manual-import guard in sync with tally-schema.sql.
+-- Import from Tally works while paired. Keep this copy identical to tally-schema.sql.
 create or replace function public.tally_import_daybook(p_vouchers jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   r          jsonb;
   added      jsonb := '{"hsd":0,"ms":0,"xg":0}'::jsonb;
   updated    int := 0;
+  kept       int := 0;
   sk         text;
   new_p      int := 0;
   best       text;
   v_inserted boolean;
 begin
   perform _tally_auth();
-  if to_regclass('public.tally_bridge_config') is not null then
-    if exists(select 1 from public.tally_bridge_config where active) then
-      raise exception 'Manual DayBook import is disabled while paired. Refresh through the Tally bridge.';
-    end if;
-  end if;
+  -- With the Tally bridge installed this tells its trigger the rows come FROM Tally:
+  -- nothing is queued to post back, and bridge-linked or in-flight vouchers are kept
+  -- as they are (the bridge already tracks their alterations). Harmless without it.
+  perform set_config('vriddhi.tally_import', 'yes', true);
 
   for r in select * from jsonb_array_elements(coalesce(p_vouchers,'[]'::jsonb)) loop
     sk := r->>'seriesKey';
@@ -512,7 +532,9 @@ begin
       party_amt = excluded.party_amt, roff = excluded.roff,
       status = 'history', source = 'tally', exported_at = null, updated_at = now()
     returning (xmax = 0) into v_inserted;
-    if v_inserted then
+    if not found then
+      kept := kept + 1;          -- kept current by the Tally bridge
+    elsif v_inserted then
       added := jsonb_set(added, array[sk], to_jsonb((added->>sk)::int + 1));
     else
       updated := updated + 1;
@@ -544,9 +566,20 @@ begin
   ) latest
   where ts.key = latest.key;
 
-  return jsonb_build_object('added', added, 'updated', updated, 'newParties', new_p);
+  perform set_config('vriddhi.tally_import', 'no', true);
+  if to_regprocedure('public._tb_link_imported()') is not null then
+    perform public._tb_link_imported();
+  end if;
+
+  return jsonb_build_object('added', added, 'updated', updated, 'kept', kept, 'newParties', new_p);
 end $$;
 
+
+-- 1.1: the bridge watches fuel vouchers only. Drop the master/other-voucher mirror kept
+-- by 1.0.x and link app vouchers to any Tally copies already received.
+delete from public.tally_bridge_objects
+  where kind<>'Voucher' or coalesce(data->>'voucher_type','') not in ('HSD CREDIT','MS CREDIT','XG CREDIT');
+select public._tb_link_imported();
 
 -- Only the device capability endpoints are callable with the public API key.
 do $$ declare f record; begin

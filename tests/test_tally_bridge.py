@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from tally_bridge.store import Store
-from tally_bridge.tally import Tally, TallyProblem, business_equal, export_request, fuel_voucher, identity, object_data, parse, sanitize_report, voucher_xml
+from tally_bridge.tally import Tally, TallyProblem, alterable, business_equal, export_request, fuel_voucher, identity, object_data, parse, sanitize_report, voucher_xml
 from tally_bridge.transport import Cloud, ConnectionProblem, LocalTally
 from tally_bridge.worker import Worker
 
@@ -22,6 +22,7 @@ PAYLOAD = dict(id=ID, guid=None, expected_alter=None, series="hsd", number="TEST
 def voucher(p=None, alter=1):
     node = parse(voucher_xml("Test Company", p or PAYLOAD)).find(".//VOUCHER")
     from tally_bridge.tally import tag
+    tag(node, "GUID", (p or PAYLOAD)["id"])  # Tally assigns identity on import
     tag(node, "MASTERID", 50)
     tag(node, "ALTERID", alter)
     return node
@@ -47,13 +48,16 @@ class FakeCloud:
 class FakeTally:
     guid = 'test-company-guid'
     company = 'Test Company'
-    def __init__(self, found=None, lose_response=False):
-        self.found, self.lose_response, self.imports = found, lose_response, 0
+    def __init__(self, found=None, lose_response=False, missing=()):
+        self.found, self.lose_response, self.imports, self.missing = found, lose_response, 0, list(missing)
     def verify(self):
         return {"name":"Test Company","guid":"test-company-guid"}
-    def lookup(self, p, validate=None):
-        if validate: validate([self.found] if self.found is not None else [])
+    def lookup(self, p):
         return self.found
+    def missing_masters(self, p):
+        return self.missing
+    def party_gst(self, party, as_of):
+        return None
     def import_voucher(self, p, existing=None):
         self.imports += 1
         self.found = voucher(p, 12)
@@ -61,12 +65,15 @@ class FakeTally:
             raise ConnectionProblem("Tally accepted the voucher, response lost")
 
 
+def journal(path):
+    s = Store(path)
+    s.set("journal", 2)  # a current journal; older ones are reset on first start
+    return s
+
+
 @pytest.fixture
 def store(tmp_path):
-    s = Store(tmp_path / "journal.sqlite3")
-    for kind, names in {"Ledger":["Test & Sons", "R/off", "SALE (HSD)"], "StockItem":["High Speed Diesel"], "VoucherType":["HSD CREDIT"]}.items():
-        s.stage([dict(kind=kind, guid=kind+str(i), alter_id=1, master_id=i+1, data={"name":name}) for i,name in enumerate(names)])
-    s.uploaded(s.upload_batch())
+    s = journal(tmp_path / "journal.sqlite3")
     yield s
     s.close()
 
@@ -113,10 +120,10 @@ def test_preexisting_identical_invoice_is_linked_not_created(store):
 def test_conflicting_invoice_number_and_concurrent_tally_edit_block_posting(store):
     newer = dict(PAYLOAD,rate=110,item_amt=1100,party_amt=1100)
     tally = FakeTally(voucher(newer,5))
-    with pytest.raises(TallyProblem,match="different invoice"):
+    with pytest.raises(TallyProblem,match="already exists in Tally with different details"):
         Worker(FakeCloud(),tally,store).voucher(job())
     p = dict(PAYLOAD,guid=ID,expected_alter=4)
-    with pytest.raises(TallyProblem,match="newer edit"):
+    with pytest.raises(TallyProblem,match="edited in Tally after this change"):
         Worker(FakeCloud(),tally,store).voucher(job(p))
     assert tally.imports == 0
 
@@ -133,9 +140,10 @@ def test_supported_alter_preserves_unrelated_tally_fields(store):
     original = voucher()
     tag(original, "NARRATION", "Keep this accountant note")
     p = dict(PAYLOAD,guid=ID,expected_alter=1,qty=11,item_amt=1100,party_amt=1100)
+    original.set("REMOTEID", ID)
     altered = parse(voucher_xml("Test Company",p,original)).find(".//VOUCHER")
     assert altered.attrib["ACTION"] == "Alter"
-    assert altered.attrib["TAGVALUE"] == ID
+    assert altered.attrib["REMOTEID"] == ID and altered.findtext("GUID") == ID
     assert altered.findtext("NARRATION") == "Keep this accountant note"
     assert business_equal(fuel_voucher(altered),p)
     tally = FakeTally(original)
@@ -145,7 +153,7 @@ def test_supported_alter_preserves_unrelated_tally_fields(store):
 
 def test_local_upload_queue_survives_reopen_and_lost_cloud_response(tmp_path):
     path = tmp_path/"journal.sqlite3"
-    s = Store(path)
+    s = journal(path)
     s.stage([object_data("Voucher",voucher())])
     s.close()
     s = Store(path)
@@ -191,7 +199,7 @@ def test_older_detail_than_metadata_never_advances_checkpoint(store):
 
 def test_restart_validates_recent_snapshot_before_any_cloud_claim(tmp_path):
     from tally_bridge.tally import KINDS
-    s=Store(tmp_path/'restart.sqlite3')
+    s=journal(tmp_path/'restart.sqlite3')
     s.stage([object_data('Voucher',voucher(alter=12))])
     s.set('cursor:Voucher',12)
     for kind in KINDS:
@@ -201,31 +209,58 @@ def test_restart_validates_recent_snapshot_before_any_cloud_claim(tmp_path):
         def objects(self,kind,ids): raise AssertionError('Restore must be blocked before detailed reads')
     cloud=FakeCloud()
     try:
-        with pytest.raises(TallyProblem,match='highest revision'):
+        with pytest.raises(TallyProblem,match='older revision'):
             Worker(cloud,Restored(),s,clock=lambda:1001).step()
         assert not any(name=='tally_bridge_claim' for name,args in cloud.calls)
         assert s.known('Voucher')[ID]['alter_id']==12
     finally: s.close()
 
 
-def test_restore_between_polls_blocks_outgoing_voucher(store):
-    store.set('cursor:Voucher',12)
-    tally=FakeTally(voucher(alter=10))
-    cloud=FakeCloud()
-    with pytest.raises(TallyProblem,match='highest revision'):
+def test_deleting_the_newest_voucher_in_tally_does_not_pause_sync(store):
+    p2=dict(PAYLOAD,id="a26d607a-40ba-4524-8fa2-c8c340855cb5",number="TEST2")
+    older,newest=voucher(alter=5),voucher(p2,alter=9)
+    store.stage([object_data("Voucher",older),object_data("Voucher",newest)]); store.uploaded(store.upload_batch())
+    store.set('cursor:Voucher',9)
+    class Deleted(FakeTally):
+        def metadata(self,kind,after): return [older]
+        def objects(self,kind,ids): return []
+    Worker(FakeCloud(),Deleted(),store).scan("Voucher",True)
+    assert store.known("Voucher")[p2["id"]]["deleted"]
+    assert store.get('cursor:Voucher')==5  # a full scan re-bases on what Tally holds now
+
+
+def test_missing_master_is_named_and_nothing_reaches_tally(store):
+    cloud,tally=FakeCloud(),FakeTally(missing=["Test & Sons"])
+    with pytest.raises(TallyProblem,match="create Test & Sons in Tally Prime first"):
         Worker(cloud,tally,store).voucher(job())
     assert tally.imports==0
     assert not any(name=='tally_bridge_begin_write' for name,args in cloud.calls)
 
 
+def test_old_journal_is_reset_but_keeps_write_recovery(tmp_path):
+    s=Store(tmp_path/'old.sqlite3')
+    s.stage([dict(kind="Group",guid="g1",alter_id=1,master_id=1,data={"name":"Sundry Debtors"})])
+    s.set("cursor:Voucher",999); s.write("job-1","writing")
+    Worker(FakeCloud(),FakeTally(),s)
+    assert not s.known("Group") and not s.upload_batch() and s.get("cursor:Voucher") is None
+    assert s.written("job-1")["phase"]=="writing" and s.get("journal")==2
+    s.stage([object_data("Voucher",voucher())])
+    Worker(FakeCloud(),FakeTally(),s)  # a current journal is left alone
+    assert s.count("Voucher")==1
+    s.close()
+
+
 @pytest.mark.parametrize('wrong_identity',[False,True])
 def test_lookup_rejects_stale_detail_or_reused_master_id(wrong_identity):
     tally=Tally(None,'Test Company')
-    tally.metadata=lambda kind: [voucher(alter=12)]
+    formulas=[]
+    tally.collection=lambda kind,methods,formula: formulas.append(formula) or [voucher(alter=12)]
     detail=voucher(dict(PAYLOAD,id='a26d607a-40ba-4524-8fa2-c8c340855cb5') if wrong_identity else PAYLOAD,alter=12 if wrong_identity else 10)
     tally.objects=lambda kind,ids: [detail]
     with pytest.raises(TallyProblem,match='identity or version changed'):
         tally.lookup(PAYLOAD)
+    # One targeted read of this invoice, never the whole company's day book.
+    assert formulas==['($VoucherTypeName = "HSD CREDIT" AND $VoucherNumber = "TEST1")']
 
 
 def test_pairing_bootstrap_republishes_unchanged_data_and_binding_prevents_cross_company(store):
@@ -261,9 +296,13 @@ def test_xml_escaping_amount_rounding_and_complex_vouchers():
     v=voucher(p)
     assert fuel_voucher(v)["party"] == p["party"]
     assert business_equal(fuel_voucher(v),p)
-    tag(v,"BILLALLOCATIONS.LIST","")
-    assert fuel_voucher(v) is None
-    with pytest.raises(TallyProblem,match="allocations"):
+    party=v.find("LEDGERENTRIES.LIST")
+    tag(party,"BILLALLOCATIONS.LIST","      ")  # Tally exports empty placeholders everywhere
+    assert alterable(v)
+    bill=tag(party,"BILLALLOCATIONS.LIST",""); tag(bill,"NAME","TEST1"); tag(bill,"BILLTYPE","New Ref")
+    assert business_equal(fuel_voucher(v),p)  # a bill-wise reference still reads as the same sale
+    assert not alterable(v)
+    with pytest.raises(TallyProblem,match="cannot safely alter"):
         voucher_xml("Test Company",p,v)
     with pytest.raises(TallyProblem,match="Unsafe XML"):
         parse('<!DOCTYPE a [<!ENTITY x SYSTEM "file:///etc/passwd">]><a>&x;</a>')
@@ -508,3 +547,91 @@ def test_startup_number_discovery_is_scoped_to_verified_company():
     assert t.startup_number()=='10000'
     t.guid='wrong'
     assert t.startup_number() is None
+
+
+def test_real_tally_export_shape_reads_as_the_same_fuel_sale():
+    """Tally's '*' export adds empty placeholder lists and a truncated amount-mode quantity."""
+    from tally_bridge.tally import tag
+    # Amount-mode sale: ₹1000 at 100.99 gives trunc3(9.90197)=9.901 LTR, so qty×rate is ₹0.09 short.
+    p=dict(PAYLOAD,qty=9.901,rate=100.99,item_amt=1000,party_amt=1000)
+    v=voucher(p)
+    for entry in v.iter():
+        if entry.tag in ("LEDGERENTRIES.LIST","ALLINVENTORYENTRIES.LIST"):
+            for name in ("BANKALLOCATIONS.LIST","BILLALLOCATIONS.LIST","COSTCENTREALLOCATIONS.LIST"):
+                tag(entry,name,"       ")
+    tag(v,"EWAYBILLDETAILS.LIST","      ")
+    assert alterable(v)
+    assert business_equal(fuel_voucher(v),p)
+
+
+def test_identity_error_names_the_voucher_and_missing_fields():
+    v=voucher()
+    v.find("ALTERID").text=" "
+    with pytest.raises(TallyProblem,match=r"AlterID for HSD CREDIT #TEST1"):
+        identity(v)
+    v.find("ALTERID").text=" 1,234"
+    assert identity(v)[2]==1234
+
+
+def test_watch_request_is_scoped_to_fuel_vouchers_and_alterations():
+    sent=[]
+    class HTTP:
+        def post(self,xml):
+            sent.append(parse(xml)); return b'<ENVELOPE><BODY><DATA><COLLECTION></COLLECTION></DATA></BODY></ENVELOPE>'
+    tally=Tally(HTTP(),'Test Company')
+    assert tally.metadata("Voucher",42)==[]
+    col=sent[0].find('.//COLLECTION')
+    assert col.findtext('TYPE')=='Voucher'
+    assert [m.text for m in col.findall('NATIVEMETHOD')]==['GUID','MasterID','AlterID','VoucherNumber','VoucherTypeName','Date']
+    formula=sent[0].findtext('.//SYSTEM')
+    assert '$VoucherTypeName = "HSD CREDIT"' in formula and '"MS CREDIT"' in formula and '"XG CREDIT"' in formula
+    assert formula.endswith('AND $AlterID > 42')
+
+
+def test_masters_are_checked_live_and_case_insensitively():
+    seen=[]
+    class HTTP:
+        def post(self,xml):
+            seen.append(parse(xml).findtext('.//SYSTEM'))
+            kind=parse(xml).findtext('.//COLLECTION/TYPE')
+            names={'Ledger':['TEST & SONS','SALE (HSD)'],'StockItem':['High Speed Diesel'],'VoucherType':['HSD CREDIT']}[kind]
+            rows=''.join(f'<{kind.upper()} NAME="{n.replace("&","&amp;")}"/>' for n in names)
+            return f'<ENVELOPE><BODY><DATA><COLLECTION>{rows}</COLLECTION></DATA></BODY></ENVELOPE>'.encode()
+    tally=Tally(HTTP(),'Test Company')
+    assert tally.missing_masters(PAYLOAD)==[]
+    assert tally.missing_masters(dict(PAYLOAD,roff=0.2))==['R/off']
+    assert tally.missing_masters(dict(PAYLOAD,party='Quoted "Name"'))==['Quoted "Name"']
+    assert None in seen  # a quote cannot go in a TDL formula: the full list is compared instead
+
+
+def test_tally_rejection_reason_is_kept():
+    with pytest.raises(TallyProblem,match="Ledger 'Test & Sons' does not exist"):
+        parse("<RESPONSE><LINEERROR>Ledger 'Test &amp; Sons' does not exist!</LINEERROR><CREATED>0</CREATED></RESPONSE>")
+
+
+def test_cloud_rejection_message_reaches_the_status():
+    from tally_bridge.transport import CloudRejected, post
+    import urllib.request
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(400); self.send_header('Content-Type','application/json'); self.end_headers()
+            self.wfile.write(b'{"code":"P0001","message":"Bridge credential invalid or revoked"}')
+        def log_message(self,*a): pass
+    server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with pytest.raises(CloudRejected,match='credential invalid or revoked'):
+            post(opener,f'http://127.0.0.1:{server.server_port}',b'{}',{})
+    finally: server.shutdown();server.server_close();thread.join()
+    class Rejecting(FakeCloud):
+        def rpc(self,name,**args):
+            raise CloudRejected("Bridge credential invalid or revoked")
+    class Once:
+        calls=0
+        def is_set(self): return self.calls>0
+        def wait(self,s): self.calls+=1
+    s=Store(':memory:')
+    Worker(Rejecting(),FakeTally(),s).run(Once())
+    assert s.get('status')['detail']=='The web app refused the bridge: Bridge credential invalid or revoked'

@@ -1760,10 +1760,7 @@ $("btnMoveDay").onclick = function(){
 };
 
 /* ---------- Tally XML import (DayBook or Master, auto-detected) ---------- */
-$("btnImportDaybook").onclick = function(){
-  if (bridgeActive()){ toast("Tally data now arrives through the bridge. Use Tally connection to check progress."); return; }
-  $("fileDaybook").click();
-};
+$("btnImportDaybook").onclick = function(){ $("fileDaybook").click(); };
 
 $("fileDaybook").addEventListener("change", function(){
   var f = this.files && this.files[0];
@@ -1785,11 +1782,12 @@ $("fileDaybook").addEventListener("change", function(){
           backend.importDaybook(parsed.vouchers).then(function(sum){
             return refresh().then(function(){
               var total = sum.added.hsd + sum.added.ms + sum.added.xg;
-              if (!total && !sum.updated)
+              if (!total && !sum.updated && !sum.kept)
                 throw new Error("No HSD CREDIT / MS CREDIT / XG CREDIT vouchers were found in this file.");
               alert("Daybook imported ✓\n\n"
                 + "Vouchers added: " + total + " (" + sum.added.hsd + " HSD, " + sum.added.ms + " MS, " + sum.added.xg + " XG)\n"
                 + (sum.updated ? "Overwritten with Tally's version: " + sum.updated + "\n" : "")
+                + (sum.kept ? "Already kept in step by the Tally bridge: " + sum.kept + "\n" : "")
                 + (parsed.skipped ? "Other/cancelled vouchers skipped: " + parsed.skipped + "\n" : "")
                 + (sum.newParties ? "New parties added: " + sum.newParties + "\n" : "")
                 + "\nNext invoice numbers: " + freeNumber("hsd") + " / " + freeNumber("ms") + " / " + freeNumber("xg")

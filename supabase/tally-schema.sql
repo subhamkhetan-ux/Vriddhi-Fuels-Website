@@ -403,24 +403,25 @@ end $$;
 -- with the same series+number is OVERWRITTEN with the daybook's version
 -- (even if it was made in the app and is still pending/exported).
 -- Baselines advance to the highest number seen; rates follow the latest
--- voucher per series.
+-- voucher per series. With the Tally bridge paired, vouchers it already
+-- links to Tally (or is posting) are kept and counted as 'kept'.
 create or replace function public.tally_import_daybook(p_vouchers jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   r          jsonb;
   added      jsonb := '{"hsd":0,"ms":0,"xg":0}'::jsonb;
   updated    int := 0;
+  kept       int := 0;
   sk         text;
   new_p      int := 0;
   best       text;
   v_inserted boolean;
 begin
   perform _tally_auth();
-  if to_regclass('public.tally_bridge_config') is not null then
-    if exists(select 1 from public.tally_bridge_config where active) then
-      raise exception 'Manual DayBook import is disabled while paired. Refresh through the Tally bridge.';
-    end if;
-  end if;
+  -- With the Tally bridge installed this tells its trigger the rows come FROM Tally:
+  -- nothing is queued to post back, and bridge-linked or in-flight vouchers are kept
+  -- as they are (the bridge already tracks their alterations). Harmless without it.
+  perform set_config('vriddhi.tally_import', 'yes', true);
 
   for r in select * from jsonb_array_elements(coalesce(p_vouchers,'[]'::jsonb)) loop
     sk := r->>'seriesKey';
@@ -439,7 +440,9 @@ begin
       party_amt = excluded.party_amt, roff = excluded.roff,
       status = 'history', source = 'tally', exported_at = null, updated_at = now()
     returning (xmax = 0) into v_inserted;
-    if v_inserted then
+    if not found then
+      kept := kept + 1;          -- kept current by the Tally bridge
+    elsif v_inserted then
       added := jsonb_set(added, array[sk], to_jsonb((added->>sk)::int + 1));
     else
       updated := updated + 1;
@@ -471,7 +474,12 @@ begin
   ) latest
   where ts.key = latest.key;
 
-  return jsonb_build_object('added', added, 'updated', updated, 'newParties', new_p);
+  perform set_config('vriddhi.tally_import', 'no', true);
+  if to_regprocedure('public._tb_link_imported()') is not null then
+    perform public._tb_link_imported();
+  end if;
+
+  return jsonb_build_object('added', added, 'updated', updated, 'kept', kept, 'newParties', new_p);
 end $$;
 
 drop function if exists public.tally_import_master(text[]);

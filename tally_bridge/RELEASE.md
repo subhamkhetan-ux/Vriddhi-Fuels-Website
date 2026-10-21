@@ -1,18 +1,19 @@
-Version **1.0.2** adds background Tally recovery and replaces the old self-extracting installer with a readable Windows ZIP.
+Version **1.1.0** makes the bridge a fuel-voucher sync and fixes the first sync that stopped with *"Tally did not supply GUID, MasterID and AlterID; sync is paused"*.
 
-- **Download `VriddhiTallyBridge-Windows.zip`, Extract all, then open `Setup.cmd`.** Python is bundled; its unmodified core runtime binaries are verified as signed by the Python Software Foundation in CI. The bridge source/scripts and ZIP are not Authenticode signed. `SECURITY.json` records signature and Defender scan results; a scan marked `unavailable` is not malware clearance. Keep Windows Security enabled. If a file is flagged, keep it quarantined and report the exact threat; do not add an exclusion or restore the old executable.
-- **Background operation:** starts after Windows sign-in; closing Setup is fine. A per-user scheduled task and worker supervisor provide restart recovery. Windows can remain locked; sign-out, manual sleep and shutdown pause sync. No Windows password or Tally login password is stored.
-- **Automatic Tally recovery:** in Setup enable **Start Tally minimized and reopen it if employees close it**, then confirm the installed executable and numeric company folder number. Test Tally tries to discover them; copy the number once from Tally's company-selection/data-folder listing if needed. The bridge uses documented `/NOINILOAD /LOAD:<number>` arguments. It never kills a running Tally process or opens a competing instance. A licence/login/repair prompt may still need attention.
-- **Upgrade an existing 1.0.1 pairing:** use **Upgrade / save settings** on the same Windows account. The previous worker is stopped gracefully; the encrypted device credential and recovery journal are retained. No new SQL migration is needed for an already working 1.0.1 bridge.
-- **Fresh setup:** enable Tally's local XML server, apply [tally-bridge.sql](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/supabase/tally-bridge.sql) in the dedicated **Tally** Supabase project `qlloauxmfenrrqvfqibp`, then create a pairing package from **Tally connection & reports → Connect PC**. Publishing the website does not apply SQL.
-- **Data safety:** restart throttling persists locally; the exact company GUID is verified; full identity reconciliation precedes work after automatic Tally recovery. The existing durable journal, read-back confirmation, uncertain-write recovery and conflict/restore guards remain in force. Stop in Setup pauses both sync and automatic Tally launches until Start.
+**Before upgrading, re-run [tally-bridge.sql](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/supabase/tally-bridge.sql)** in the dedicated **Tally** Supabase project `qlloauxmfenrrqvfqibp`. Publishing the website does not apply SQL.
 
-This is a **Windows preview**. Automated recovery/database/browser/native Windows checks do not replace acceptance against your licensed Tally Prime installation. Follow the [setup and first-invoice verification guide](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md), including comparing a test invoice and day-book report.
+- **What syncs now:** the app's HSD CREDIT, MS CREDIT and XG CREDIT vouchers post to Tally, and alterations, cancellations and deletions of those vouchers in Tally come back to the app. Masters and other voucher types are no longer mirrored; 1.0.x read them all and paused at the first record without Tally identifiers, before reaching any fuel voucher.
+- **Import from Tally works again while paired.** DayBook and Master files import as before. Vouchers the bridge already tracks are kept as they are; nothing imported is posted back to Tally.
+- **Real Tally exports are understood.** Tally's empty placeholder lists (`<BILLALLOCATIONS.LIST>  </BILLALLOCATIONS.LIST>`), bill-wise references and amount-mode quantities no longer make every voucher look unsupported, which previously turned every posting into a read-back conflict.
+- **Clearer problems:** a missing party/ledger/stock item is named before posting; Tally's own rejection text and the cloud database's message are shown in Setup → Status and in the web app. Test Tally now reports how many fuel vouchers it can read.
+- **Upgrade:** extract the ZIP, open `Setup.cmd` on the same Windows account, click **Test Tally**, then **Upgrade / save settings**. No re-pairing. The worker re-reads the fuel vouchers once; in-flight posting records are kept.
+
+Download `VriddhiTallyBridge-Windows.zip`, Extract all, then open `Setup.cmd`. Python is bundled; its unmodified core runtime binaries are verified as signed by the Python Software Foundation in CI. The bridge source/scripts and ZIP are not Authenticode signed. `SECURITY.json` records signature and Defender scan results. Keep Windows Security enabled.
+
+This is a **Windows preview**. Automated tests use synthetic Tally responses; verify the first posted invoice and a day-book report against your licensed Tally Prime, as described in the [setup guide](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md).
 
 `SHA256SUMS.txt` checks the ZIP, and `BUILD.txt` identifies the source commit:
 
 ```powershell
 Get-FileHash .\VriddhiTallyBridge-Windows.zip -Algorithm SHA256
 ```
-
-A checksum establishes that the download matches the published artifact; it is not an antivirus verdict. The 1.0.1 executable's reported Defender block has not been attributed to a particular detection without the exact threat details. This release does not disable, reconfigure or bypass Defender.

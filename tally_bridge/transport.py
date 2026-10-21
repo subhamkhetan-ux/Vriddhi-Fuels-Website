@@ -10,6 +10,10 @@ class ConnectionProblem(RuntimeError):
     pass
 
 
+class CloudRejected(ConnectionProblem):
+    """The web app's database refused a request: the Internet works, so retrying alone will not help."""
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ConnectionProblem("Unexpected redirect; check the configured endpoint")
@@ -23,7 +27,16 @@ def post(opener, url, body, headers, limit=8_000_000, timeout=35):
                 raise ConnectionProblem("Response too large; reduce the report period")
             return data
     except urllib.error.HTTPError as e:
-        # Do not log server bodies, URLs, passwords or financial XML.
+        # Never log URLs, passwords or financial XML. A PostgREST error message is
+        # the bridge SQL's own wording ("Pairing code expired or used") and is shown.
+        message = ""
+        if 400 <= e.code < 500:
+            try:
+                message = str(json.loads(e.read(4000)).get("message", ""))[:300]
+            except (ValueError, AttributeError, OSError, UnicodeError):
+                pass
+        if message:
+            raise CloudRejected(message) from None
         raise ConnectionProblem(f"Server returned HTTP {e.code}") from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise ConnectionProblem("Connection unavailable or timed out") from None
