@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef2f6"/></linearGradient></defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect x="96" y="96" width="320" height="150" rx="22" fill="#0b5394"/>
+  <rect x="96" y="258" width="154" height="158" rx="22" fill="#efaa1f"/>
+  <rect x="262" y="258" width="154" height="158" rx="22" fill="#3a8db5"/>
+  <!-- fuel: the drop, in the top block -->
+  <g transform="translate(256 168) scale(.92)"><path d="M0 -60 C 18 -32 40 -8 40 18 A 40 40 0 0 1 -40 18 C -40 -8 -18 -32 0 -60 Z" fill="#fff"/><path d="M-18 12 A 20 20 0 0 0 0 34" fill="none" stroke="#0b5394" stroke-width="7" stroke-linecap="round"/></g>
+  <!-- the money -->
+  <g transform="translate(135 288) scale(0.95)"><path d="M28 20 H72 M28 40 H72 M30 20 H46 C 66 20 66 58 46 58 H31 L 66 92" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <!-- the voucher -->
+  <rect x="300" y="286" width="78" height="100" rx="10" fill="#fff"/>
+  <path d="M314 310 H364 M314 330 H364 M314 350 H346" stroke="#3a8db5" stroke-width="8" stroke-linecap="round"/>
+</svg>
