@@ -450,6 +450,7 @@ function stepDecant(s) {
     ${routingCards(s)}
     ${st.includes('read') ? '<div class="row-actions" style="justify-content:flex-start;margin-top:0"><button class="btn sm ghost" data-wz="route">✎ Which chamber went where?</button></div>' : ''}
     <button class="cta block" data-wz="finish" ${allRead ? '' : 'disabled'}>Finish & save the result</button>
+    ${s.data.reopened ? '<div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="keepResult">↩ Keep the saved result</button></div>' : ''}
     ${allRead && leftInTruck(s).length ? `<div class="hint" style="margin-top:6px">C${compactNos(leftInTruck(s).map((c) => c.no))} ${leftInTruck(s).length > 1 ? 'stay' : 'stays'} in the truck — once this is saved, "Decant the rest" on the list decants ${leftInTruck(s).length > 1 ? 'them' : 'it'}.</div>` : ''}
     ${started ? '' : '<div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="backToPlan">◀ Plan</button></div>'}`;
 }
@@ -696,6 +697,21 @@ function afterWarnings(s, t) {
   return out;
 }
 
+// A stock after that can't be one: the very reading taken before, or a screen
+// whose own time is no later than the stock before's (an old screenshot used
+// again). Not "save anyway": the variation would be made up.
+function afterBlocks(t) {
+  const a = t.after;
+  const b = t.before;
+  if (!a || !b) return [];
+  if (a.volume === b.volume && a.readingAt === b.readingAt) return ['its stock after is the same reading as its stock before — take a new screenshot'];
+  if (a.timeRead !== false && b.timeRead !== false && a.readingAt && b.readingAt
+      && Date.parse(a.readingAt) <= Date.parse(b.readingAt)) {
+    return [`its stock after (${fmtTime(a.readingAt)}) is from no later than its stock before (${fmtTime(b.readingAt)}) — take a new screenshot`];
+  }
+  return [];
+}
+
 // When the after-stock says the chambers went differently from the plan.
 function routingCards(s) {
   const d = s.data;
@@ -789,6 +805,19 @@ async function onClick(e) {
   if (act === 'startAll') { await startTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'waiting').map((x) => x.tank)); return; }
   if (act === 'decanted') { await doneTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'decanting').map((x) => x.tank)); return; }
   if (act === 'finish') { await finish(s); return; }
+  if (act === 'keepResult') {                // back to the result as it was saved, nothing changed
+    const was = s.data.reopened;
+    if (!was) return;
+    for (const w of was.tanks) {
+      const t = s.data.tanks.find((x) => x.tank === w.tank);
+      if (t) Object.assign(t, { after: w.after, result: w.result, stage: w.stage });
+    }
+    s.status = 'done';
+    s.completed_at = was.completed_at;
+    delete s.data.reopened;
+    await persist(s);
+    return;
+  }
   const startBtn = t.closest('[data-starttank]');
   if (startBtn) { await startTanks(s, [startBtn.dataset.starttank]); return; }
   const doneBtn = t.closest('[data-donetank]');
@@ -826,6 +855,8 @@ async function onClick(e) {
     if (!(await ask('Change the after-stock?', 'The result is worked out again when you finish.', { ok: 'Change it' }))) return;
     s = latest(s);
     if (s.status !== 'done') return;
+    // the saved result, to go back to unchanged ("Keep the saved result")
+    s.data.reopened = { completed_at: s.completed_at, tanks: s.data.tanks.map((x) => ({ tank: x.tank, after: x.after, result: x.result, stage: x.stage })) };
     s.status = 'settling';
     s.completed_at = null;
     await persist(s);
@@ -1240,6 +1271,8 @@ async function finish(s) {
     toast('Every tank needs to be done, with its stock after.');
     return;
   }
+  const blocked = d.tanks.flatMap((t) => afterBlocks(t).map((w) => `${tankName(t.tank)}: ${w}`));
+  if (blocked.length) { toast(`${blocked.join('. ')}.`, 6000); return; }
   const problems = d.tanks.flatMap((t) => afterWarnings(s, t).map((w) => `${tankName(t.tank)}: ${w}`));
   if (problems.length && !(await ask('Check the after-stock', `<ul>${problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>Save the result anyway?`, { ok: 'Save anyway', cancel: 'Fix it' }))) return;
   if (latest(s) !== s) {                     // changed while asking: finish what it is now
@@ -1255,6 +1288,7 @@ async function finish(s) {
   d.completedAt = new Date().toISOString();
   s.completed_at = d.completedAt;
   s.status = 'done';
+  delete d.reopened;
   await persist(s);
 }
 

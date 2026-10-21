@@ -142,7 +142,7 @@ cd ~/Vriddhi-Fuels-Website && git pull && bash infra/mac/check-cloud.sh
 ```
 
 Each line it marks **FIX** says what to do. The usual cause is the VM's clock
-after the Mac slept: `vm-setup.sh` now keeps it synced (again every 5 minutes),
+after the Mac slept: `vm-setup.sh` now keeps it synced (again every minute),
 so run it once more after pulling.
 
 ## If the Mac will be away for a long time

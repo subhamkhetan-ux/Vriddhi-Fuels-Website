@@ -82,7 +82,7 @@ class Cloud:
         if self.down:
             raise decant.DecantError("The decant database could not be reached (URLError).")
 
-    def settings(self):
+    def settings(self, timeout=30):
         self._up()
         return {"tanks": decant.DEFAULT_TANKS, "dateOrder": "MDY", "chart": CHART,
                 "app": dz.settings_with({}, decant.DEFAULT_TANKS)}
@@ -95,11 +95,11 @@ class Cloud:
         self._up()
         return copy.deepcopy(self.stock)
 
-    def get_session(self, sid):
+    def get_session(self, sid, timeout=30):
         self._up()
         return copy.deepcopy(self.sessions.get(sid))
 
-    def save_session(self, s, base=None):
+    def save_session(self, s, base=None, timeout=30):
         self._up()
         cur = self.sessions.get(s["id"])
         if base and (not cur or abs((dz._ts(cur["updated_at"]) or 0) - (dz._ts(base) or 0)) > 0.0005):
@@ -451,7 +451,7 @@ def test_a_tank_whose_card_isnt_updating_is_not_started(rig, monkeypatch):
     assert a.phase == "failed" and "Tank 2: the card on the PC isn't updating" in a.info["error"]
     assert "no stock is taken from frozen figures" in a.info["error"]
     assert rig.cloud.sessions == {} and rig.cloud.shots == []          # nothing recorded from frozen figures
-    assert any("could not start" in m for m in rig.told)
+    assert wait_for(lambda: any("could not start" in m for m in rig.told))   # (told just after)
 
 
 def test_cards_that_update_start_as_usual(rig, monkeypatch):
@@ -908,3 +908,40 @@ def test_chambers_added_to_a_tank_a_phone_settled_are_followed():
         run.feed({"T2": truck.volume("T2", secs)}, T0 + secs)
         secs += 10
     assert 3 in run.state["tanks"]["T2"]["arrived"] or run.row("T2")["stage"] in ("settling", "read")
+
+
+def test_the_clock_set_right_after_the_mac_slept_takes_nothing_early(rig):
+    a = start(rig, {"2": "T2"})
+    rig.world.flows = [(2, 50, 4990, 495)]
+    drive(rig, 700)
+    assert a.run.row("T2")["stage"] == "settling" and a.run.row("T2")["after"] is None
+    rig.clock.t += 2 * 3600                         # the VM woke up 2 h behind and was set right
+    read(rig)
+    assert a.run.row("T2")["stage"] == "settling" and a.run.row("T2")["after"] is None   # not "unsteady, read now"
+    assert any("clock" in m for m in rig.told)
+    drive(rig, 700 + 2 * 3600 + 3600)               # it settles again in full, then the stock after
+    assert a.run.row("T2")["after"] is not None
+
+
+def test_a_decantation_file_cut_short_comes_back_from_its_copy(rig):
+    a = start(rig, {"2": "T2"})
+    sid = a.run.s["id"]
+    read(rig)                                       # written twice: the copy is there
+    (rig.home / auto.AUTO_FILE).write_text('{"info": {"phase": "runn')   # a power cut mid-write
+    again = service.Station(home=rig.home, session_cls=Session, decant_mod=rig.cloud, notify=rig.told.append,
+                            notify_photo=lambda png, caption: True)
+    assert again.auto.phase == "running" and again.auto.run.s["id"] == sid
+    again.auto.resume()
+    assert any("damaged" in m for m in rig.told)
+    assert list(rig.home.glob(auto.AUTO_FILE + ".corrupt-*"))        # the bad one kept aside
+    rig.st.live = None
+
+
+def test_one_odd_empty_answer_doesnt_count_as_deleted(rig, monkeypatch):
+    a = start(rig, {"2": "T2"})
+    real = rig.cloud.get_session
+    answers = iter([None])
+    monkeypatch.setattr(rig.cloud, "get_session", lambda sid, timeout=30: next(answers, "real") == "real" and real(sid) or None)
+    a.info["synced"] = 0
+    read(rig)
+    assert a.phase == "running"                     # once: not "deleted in the decant app"

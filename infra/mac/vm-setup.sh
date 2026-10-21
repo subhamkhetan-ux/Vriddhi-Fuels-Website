@@ -37,7 +37,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommend
 
 # The clock: the VM pauses while the Mac sleeps and wakes up behind. A wrong
 # clock breaks the secure connection to the decant app ("could not be reached")
-# and stamps readings wrongly, so it is synced, and again every 5 minutes.
+# and stamps readings wrongly, so it is synced, and again every minute.
 sudo timedatectl set-ntp true || true
 sudo tee /etc/systemd/system/time-resync.service >/dev/null <<'UNIT'
 [Unit]
@@ -48,10 +48,11 @@ ExecStart=/bin/systemctl restart systemd-timesyncd.service
 UNIT
 sudo tee /etc/systemd/system/time-resync.timer >/dev/null <<'UNIT'
 [Unit]
-Description=Sync the clock every 5 minutes
+Description=Sync the clock every minute
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=5min
+OnUnitActiveSec=1min
+AccuracySec=1s
 [Install]
 WantedBy=timers.target
 UNIT

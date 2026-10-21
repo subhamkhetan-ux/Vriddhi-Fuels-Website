@@ -48,8 +48,9 @@ fi
 
 echo "5. The tank stock service's own way in"
 if sudo test -d /opt/agents/tank-stock/app; then
-  if out="$(cd /opt/agents/tank-stock/app && sudo -u runner -H /opt/agents/venv/bin/python -c \
-      'from tank_stock import decant; print(len(decant.settings()["tanks"]), "tanks in the decant app")' 2>&1)"; then
+  # (as the service's own user: its folder is closed to others)
+  if out="$(sudo -u runner -H bash -c 'cd /opt/agents/tank-stock/app && exec /opt/agents/venv/bin/python -c \
+      "from tank_stock import decant; print(len(decant.settings()[\"tanks\"]), \"tanks in the decant app\")"' 2>&1)"; then
     ok "$out"
   else
     bad "$(printf '%s' "$out" | tail -n 1)"

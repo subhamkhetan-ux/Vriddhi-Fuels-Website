@@ -738,3 +738,114 @@ def test_an_unreachable_decant_app_says_why_and_a_read_is_tried_again(monkeypatc
     with pytest.raises(decant.DecantError) as e:                     # a write: never sent twice
         decant._rest("POST", "dec_tank_state?on_conflict=tank_id", [{}])
     assert calls["n"] == 1 and "can't look its name up" in str(e.value)
+
+
+def test_a_full_disk_at_the_end_of_live_monitoring_still_frees_the_pc(station, monkeypatch):
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    real = service._write_json
+
+    def full(path, data, **kw):
+        if path.name == "live.json":
+            raise OSError(28, "No space left on device")
+        return real(path, data, **kw)
+    monkeypatch.setattr(service, "_write_json", full)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)       # not stuck "ending" for good
+    monkeypatch.setattr(service, "_write_json", real)
+    station.start_live({"tanks": [3], "auto_upload": False})   # and it can start again
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_a_state_file_is_written_whole_or_not_at_all(tmp_path, monkeypatch):
+    path = tmp_path / "x.json"
+    service._write_json(path, {"a": 1}, keep_copy=True)
+    service._write_json(path, {"a": 2}, keep_copy=True)
+    assert json.loads(path.read_text()) == {"a": 2} and json.loads((tmp_path / "x.json.bak").read_text()) == {"a": 1}
+
+    def boom(*a, **k):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(service.json, "dump", boom)
+    with pytest.raises(OSError):
+        service._write_json(path, {"a": 3})
+    assert json.loads(path.read_text()) == {"a": 2}                 # the old one as it was
+    assert not list(tmp_path.glob(".*.tmp"))                        # no leftover
+    path.write_text("{bad")
+    data, note = service._read_json_safe(path, {})
+    assert data == {"a": 1} and "damaged" in note
+
+
+def test_the_page_api_always_answers(station):
+    srv = service.make_server(station, 0)
+    srv.port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    import http.client
+    c = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=5)
+    c.request("POST", "/api/settings", body=b"", headers={"X-TS-CSRF": srv.csrf, "Host": f"127.0.0.1:{srv.port}",
+                                                         "Content-Length": "-5"})
+    assert c.getresponse().status == 400                        # not a read that waits for ever
+    c.close()
+    station.save_settings = lambda body: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+    req = urllib.request.Request(f"http://127.0.0.1:{srv.port}/api/settings", data=b"{}", method="POST",
+                                 headers={"X-TS-CSRF": srv.csrf, "Host": f"127.0.0.1:{srv.port}"})
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        raise AssertionError("expected 500")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 500 and "disk is full" in json.loads(exc.read())["error"]
+    srv.shutdown()
+
+
+def test_the_decant_app_saying_no_is_told_apart_and_a_strange_answer_isnt_no_rows(monkeypatch):
+    import io
+    import urllib.error
+    monkeypatch.setattr(decant, "cloud", lambda: ("https://proj.supabase.co", "key"))
+
+    def refuse(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {},
+                                     io.BytesIO(b'{"code":"PGRST204","message":"Could not find the column"}'))
+    monkeypatch.setattr(decant.urllib.request, "urlopen", refuse)
+    with pytest.raises(decant.DecantError) as e:
+        decant._rest("GET", "dec_sessions?id=eq.x")
+    assert "refused (400: Could not find the column)" in str(e.value)
+
+    class Html:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"<html>Sign in to the Wi-Fi</html>"
+    monkeypatch.setattr(decant.urllib.request, "urlopen", lambda req, timeout: Html())
+    with pytest.raises(decant.DecantError):
+        decant.get_session("S1")                                    # never "None: deleted"
+
+
+def test_a_volume_the_app_turned_away_for_now_is_sent_again(station, monkeypatch):
+    monkeypatch.setattr(service, "LIVE_UPLOAD_BACKOFF", 0)
+    real, busy = decant._rest, {"on": True}
+
+    def rest(method, path, body=None, prefer="", timeout=30):
+        if busy["on"] and path.startswith("dec_tank_state") and method == "POST":
+            raise decant.DecantError("The decant database refused (429).")
+        return real(method, path, body, prefer, timeout)
+    monkeypatch.setattr(decant, "_rest", rest)
+    station.start_live({"tanks": [3], "auto_upload": True})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    live = station.live
+    assert 3 in live["pending"]                                     # kept (a steady card isn't read again)
+    busy["on"] = False
+    station._live_read(live)
+    assert live["pending"] == {} and station.db.writes[-1]["tank_id"] == "T3"
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_times_with_any_number_of_fraction_digits_are_read():
+    from tank_stock import decantation as dz
+    assert dz._ts("2026-10-21T08:00:00.12+00:00") == dz._ts("2026-10-21T08:00:00.120000+00:00")
+    assert dz._ts("2026-10-21T08:00:00Z") and dz._ts("nonsense") is None

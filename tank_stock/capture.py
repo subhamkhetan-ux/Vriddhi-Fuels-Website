@@ -186,8 +186,10 @@ def diagnosis(trace: str) -> list[str]:
 def _trace(frontend_log, frontend, bus) -> str:
     """For the private Telegram report: AnyDesk's own logs from this run."""
     rc = frontend.poll() if frontend else "not started"
+    # (no nested quotes of the same kind in an f-string: Ubuntu 22.04's Python 3.10 can't read that)
+    bus_from = "started by job" if bus else "the session's own" if os.environ.get("DBUS_SESSION_BUS_ADDRESS") else "none"
     parts = [f"main window process: {'running' if rc is None else f'exited with {rc}'}",
-             f"session bus: {'started by job' if bus else "the session's own" if os.environ.get('DBUS_SESSION_BUS_ADDRESS') else 'none'}",
+             f"session bus: {bus_from}",
              "--- login sessions (loginctl) ---",
              _run(["loginctl", "list-sessions", "--no-legend"], dict(os.environ)).strip() or "(none)",
              "--- main window console ---", _read_tail(frontend_log, 3000).strip() or "(none)"]

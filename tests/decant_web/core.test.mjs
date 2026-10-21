@@ -690,3 +690,12 @@ test('variation: nothing is sold while a tank decants', () => {
   assert.equal(r.variation, -70.22);
   assert.equal(r.expected, 14000);
 });
+
+test('a chamber listed twice, or an invoice line without its quantity, is said - never NaN', () => {
+  const twice = chamberLayout({ lines: [{ column_key: 'HSD', qty_kl: 8 }], chambers: [{ no: 1, qty_kl: 4 }, { no: 1, qty_kl: 4 }] }, null);
+  assert.ok(twice.problems.some((p) => /Chamber 1 is listed twice/.test(p)));
+  const noQty = chamberLayout({ lines: [{ product: 'HSD-BSVI', column_key: 'HSD' }], chambers: [{ no: 1, qty_kl: 4 }] }, null);
+  assert.ok(noQty.problems.some((p) => /has no quantity/.test(p)));
+  assert.ok(noQty.problems.every((p) => !/NaN/.test(p)));
+  assert.equal(noQty.lines[0].litres, 0);
+});

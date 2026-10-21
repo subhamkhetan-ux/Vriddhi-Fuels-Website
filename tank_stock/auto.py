@@ -51,6 +51,8 @@ PROBE_START_WAIT = 75      # seconds for each planned tank's clock to move befor
 PROOF_DIR = "auto-proof"   # each run's stock before / after pictures, per tank
 PROOF_RUNS_KEPT = 10       # runs whose pictures stay on the server
 PROOF_RETRY_S = 60         # a picture the decant app didn't take: try again this often
+CLOCK_JUMP_S = 60           # the wall clock moved this much more (or less) than real time between two reads
+QUICK_S = 10               # seconds the live reads wait on the decant app at most, per call
 CLOUD_REST_S = 30          # after the decant app couldn't be reached: the live reads don't wait on it again this soon
 
 
@@ -62,7 +64,7 @@ class AutoDecant:
     def __init__(self, station):
         self.st = station
         self.lock = threading.RLock()
-        data = _load(station.home / AUTO_FILE)
+        data, self._load_note = _load(station.home / AUTO_FILE)
         self.run = dz.Decantation.from_json(data["run"]) if data.get("run") else None
         self.info = data.get("info") or {}
         self.screens = {}                     # tank id -> the screen at its settling peak
@@ -75,6 +77,7 @@ class AutoDecant:
         self.probes = data.get("probes") or {}
         self._live_seen = None                # the live session the probes were last checked on
         self._again = False                   # AnyDesk dropped again while connecting again
+        self._tick = None                     # (wall, monotonic) at the last read: did the clock jump?
 
     # ---- state -----------------------------------------------------------
     @property
@@ -87,8 +90,9 @@ class AutoDecant:
     def _persist(self) -> None:
         from .service import _write_json
         with self.lock:                          # (the reconnect thread writes too)
+            # (the copy before it kept: a write cut short by a power cut never loses a running decantation)
             _write_json(self.st.home / AUTO_FILE, {"info": self.info, "run": self.run.to_json() if self.run else None,
-                                                   "probes": self.probes})
+                                                   "probes": self.probes}, keep_copy=True)
 
     def _set(self, phase: str, **info) -> None:
         self.info.update(phase=phase, at=_now(), **info)
@@ -306,6 +310,26 @@ class AutoDecant:
         p["stale"] = now - p["at"] >= PROBE_STALE_S
         return p["stale"]
 
+    def _clock_check(self, now: float) -> None:
+        """The VM's clock set right after the Mac slept: the run's timers start again."""
+        mono = time.monotonic()
+        last, self._tick = self._tick, (now, mono)
+        if not last:
+            return
+        jump = (now - last[0]) - (mono - last[1])
+        if abs(jump) < CLOCK_JUMP_S:
+            return
+        self.run.clock_jumped(jump, now)
+        for p in self.probes.values():
+            if p.get("at"):
+                p["at"] += jump
+        for k in list((self.info.get("fed") or {})):
+            self.info["fed"][k] += jump
+        if self.info.get("runningSince"):
+            self.info["runningSince"] += jump
+        self._tell(f"⚠️ {self._title()}: the server's clock was off by {abs(jump) / 60:,.0f} min and was set right; "
+                   "settling and waiting times start again from now (nothing is taken early).")
+
     def _rearm_probes(self) -> None:
         """A new live session (or a restart): a card that was frozen stays so
         until its clock is seen to move on this one."""
@@ -353,6 +377,7 @@ class AutoDecant:
             if self.phase != "running" or not self.run or live.get("failed"):
                 return
             now = time.time()
+            self._clock_check(now)
             if live is not self._live_seen:
                 self._live_seen = live
                 self._rearm_probes()
@@ -360,7 +385,7 @@ class AutoDecant:
                 if not self._cloud_resting(now):
                     self._finished(now)          # saving it failed last time
                 return
-            if now - self.info.get("synced", 0) >= SYNC_EVERY:
+            if now - self.info.get("synced", 0) >= SYNC_EVERY and not self._cloud_resting(now):
                 self.info["synced"] = now
                 if not self._sync(now):
                     return
@@ -519,7 +544,13 @@ class AutoDecant:
             self._send_sheet()
             self._stop_live_if_ours()
         else:
-            self.info["error"] = "Finished, but the decant app couldn't be reached: it is saved as soon as it can be."
+            why = self.info.get("cloud_error") or "it couldn't be reached"
+            self.info["error"] = f"Finished, but not in the decant app yet ({why}): it is saved as soon as it can be."
+            if "refused (4" in why and not self.info.get("refusal_told"):
+                # not the network: the app says no, and will go on saying it - someone has to look
+                self.info["refusal_told"] = True
+                self._tell(f"⚠️ {self._title()}: finished, but the decant app refuses to save it ({why}). "
+                           "It keeps trying; check the decant app's cloud project.")
 
     def _stale(self, now: float) -> None:
         late = []
@@ -605,6 +636,12 @@ class AutoDecant:
 
     def _send_sheet(self) -> None:
         """The stock before and after of every tank, one picture, to the bot (privately)."""
+        try:
+            self._sheet()
+        except Exception:  # noqa: BLE001 - a nice-to-have: never in the way of ending the run
+            traceback.print_exc()
+
+    def _sheet(self) -> None:
         from .cards import _join
         rows = []
         for t in (self.run.s["data"]["tanks"] if self.run else []):
@@ -635,18 +672,21 @@ class AutoDecant:
     def _sync(self, now: float) -> bool:
         """Take a phone's change over. -> False if the run has ended in the app."""
         try:
-            remote = self.st.decant.get_session(self.run.s["id"])
+            remote = self.st.decant.get_session(self.run.s["id"], timeout=QUICK_S)
         except self.st.decant.DecantError as exc:
             self.info.update(cloud_error=str(exc), cloud_at=now)
             return True
         self.info.pop("cloud_error", None)
         if remote is None:
-            if self.info.get("saved_at"):
+            # gone twice in a row (not one odd answer) before it counts as deleted
+            self.info["missing"] = self.info.get("missing", 0) + 1
+            if self.info.get("saved_at") and self.info["missing"] >= 2:
                 self.run.log("The decantation was deleted in the decant app.", now, "done")
                 self._set("released", error="It was deleted in the decant app.")
                 self._stop_live_if_ours()
                 return False
             return True
+        self.info.pop("missing", None)
         if self._changed(remote):
             if remote.get("status") == "draft" and self.run.s.get("status") != "draft":
                 # A phone sent back its old draft of this truck (from before this
@@ -679,7 +719,8 @@ class AutoDecant:
         """Has someone else saved it since the agent did? By the time of the
         agent's own last save (not "newer than": a phone's clock may be behind)."""
         r = dz._ts(remote.get("updated_at")) or 0
-        mine = (dz._ts(self.info.get("saved_at")) or 0, dz._ts(self.run.s.get("updated_at")) or 0)
+        mine = (dz._ts(self.info.get("saved_at")) or 0, dz._ts(self.run.s.get("updated_at")) or 0,
+                dz._ts(self.run.s.get("_sent_at")) or 0)          # (sent, its answer lost: still ours)
         return all(abs(r - m) > 0.0005 for m in mine)
 
     def _cloud_resting(self, now: float) -> bool:
@@ -708,13 +749,14 @@ class AutoDecant:
             self.info["dirty"] = True                # (saved once it answers)
             return False
         try:
-            remote = self.st.decant.get_session(self.run.s["id"])
+            remote = self.st.decant.get_session(self.run.s["id"], timeout=QUICK_S)
             if not force and remote and self._changed(remote):
                 self.info["synced"] = 0              # take it over on the next read
                 self.info["dirty"] = True
                 return False
             # only over the version just looked at: a phone's save landing in between wins
-            if not self.st.decant.save_session(self.run.s, base=None if force or not remote else remote["updated_at"]):
+            if not self.st.decant.save_session(self.run.s, base=None if force or not remote else remote["updated_at"],
+                                               timeout=QUICK_S):
                 self.info["synced"] = 0
                 self.info["dirty"] = True
                 return False
@@ -773,8 +815,11 @@ class AutoDecant:
         def again():
             while True:
                 time.sleep(PROOF_RETRY_S)
-                if self.flush_final():
-                    return
+                try:
+                    if self.flush_final():
+                        return
+                except Exception:  # noqa: BLE001 - keeps trying (a full disk, a reply cut short)
+                    traceback.print_exc()
         threading.Thread(target=again, daemon=True, name="auto-save-later").start()
 
     # ---- the page's buttons ----------------------------------------------------
@@ -898,6 +943,8 @@ class AutoDecant:
     def resume(self) -> None:
         """The service has (re)started."""
         self._rearm_probes()
+        if self._load_note:
+            self._tell(f"⚠️ Tank stock: {self._load_note}.")
         if self.phase in ("released", "cancelled") and self.info.get("unsaved") and self.run:
             self._save_later()
         if self.phase == "starting":
@@ -952,5 +999,5 @@ def _now() -> str:
 
 
 def _load(path):
-    from .service import _read_json
-    return _read_json(path, {})
+    from .service import _read_json_safe
+    return _read_json_safe(path, {})

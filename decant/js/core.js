@@ -251,13 +251,16 @@ export function chamberLayout(inv, vehicle) {
     .map((c) => ({ no: Number(c.no), litres: toLitres(c.qty_kl), dipCm: c.dip_cm ?? null, product: null, how: 'empty' }))
     .filter((c) => c.no > 0 && c.litres >= 0)
     .sort((a, b) => a.no - b.no);
-  const byNo = new Map(chambers.map((c) => [c.no, c]));
   const problems = [];
+  // a chamber number listed twice: the second would hide the first (no product, no taps)
+  const twice = [...new Set(chambers.filter((c, i) => chambers.findIndex((x) => x.no === c.no) !== i).map((c) => c.no))];
+  if (twice.length) problems.push(`Chamber ${twice.join(', ')} is listed twice — check the chambers.`);
+  const byNo = new Map(chambers.map((c) => [c.no, c]));
   const lines = (inv?.lines || []).map((ln, i) => ({
     i,
     key: productKey(ln.column_key || ln.product) || 'HSD',
     product: ln.product || ln.column_key || '',
-    litres: toLitres(ln.qty_kl ?? ln.qty),
+    litres: Number.isFinite(toLitres(ln.qty_kl ?? ln.qty)) ? toLitres(ln.qty_kl ?? ln.qty) : 0,   // (a line without its quantity: 0, said below)
     compartments: (ln.compartments || []).map(Number).filter((n) => n > 0),
     density15: ln.density15 ?? null,
     pricePerL: ln.value && Number(ln.qty_kl) ? ln.value / toLitres(ln.qty_kl) : null,
@@ -292,6 +295,9 @@ export function chamberLayout(inv, vehicle) {
   // Two lines of one product share its chambers; check each product's total.
   const byProduct = {};
   for (const ln of lines) byProduct[ln.key] = (byProduct[ln.key] || 0) + ln.litres;
+  for (const ln of inv?.lines || []) {
+    if (!Number.isFinite(toLitres(ln.qty_kl ?? ln.qty))) problems.push(`The invoice's ${ln.product || ln.column_key || 'line'} has no quantity — check the invoice.`);
+  }
   for (const [key, litres] of Object.entries(byProduct)) {
     const inCh = chambers.filter((c) => c.product === key).reduce((s, c) => s + c.litres, 0);
     if (chambers.length && inCh !== litres) {

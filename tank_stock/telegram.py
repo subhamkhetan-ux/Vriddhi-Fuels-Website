@@ -55,7 +55,7 @@ def _report(token: str, chat: dict, which: str) -> None:
         return
     _reported = True
     try:
-        me = _call(token, "getMe", b"", "application/x-www-form-urlencoded", 20).get("result") or {}
+        me = _call(token, "getMe", b"", "application/x-www-form-urlencoded", 8).get("result") or {}
     except Exception:  # noqa: BLE001
         me = {}
     who = chat.get("title") or chat.get("first_name") or ""
@@ -63,7 +63,9 @@ def _report(token: str, chat: dict, which: str) -> None:
           f"to a {chat.get('type', '?')} chat '{_mask(who)}'.")
 
 
-def _post(method: str, fields: dict, files: dict | None = None, timeout: int = 60) -> bool:
+def _post(method: str, fields: dict, files: dict | None = None, timeout: int = 0) -> bool:
+    # (never long: a message is sent from the live reads and the decantation itself)
+    timeout = timeout or (30 if files else 12)
     token, chat, which = _config()
     if not token or not chat:
         print("Telegram is not configured; nothing sent. On the server run "

@@ -17,6 +17,7 @@ Tanks, the date order and the dip chart come from the app's settings
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import http.client
 import json
 from pathlib import Path
 import re
@@ -99,8 +100,16 @@ def _http(method: str, path: str, data, headers: dict, timeout: int = 30):
                 raw = resp.read()
             break
         except urllib.error.HTTPError as exc:
-            raise DecantError(f"The decant database refused ({exc.code}).") from None
-        except (urllib.error.URLError, OSError) as exc:
+            # what it said (PostgREST's message: never the key), so a refusal for good is told apart
+            said = ""
+            try:
+                body = json.loads(exc.read()[:2000] or b"{}")
+                said = str(body.get("message") or body.get("error") or "")[:160] if isinstance(body, dict) else ""
+            except Exception:  # noqa: BLE001 - only a nicer message
+                said = ""
+            raise DecantError(f"The decant database refused ({exc.code}{': ' + said if said else ''}).") from None
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            # (HTTPException: a reply cut short - IncompleteRead, BadStatusLine - is "not reached" too)
             if attempt < len(waits):
                 time.sleep(waits[attempt])
                 continue
@@ -108,7 +117,8 @@ def _http(method: str, path: str, data, headers: dict, timeout: int = 30):
     try:
         return json.loads(raw) if raw else None
     except ValueError:
-        return None
+        # (a page from something in between - a captive portal, a proxy - is not "no rows")
+        raise DecantError("The decant database could not be reached (its answer wasn't the database's).") from None
 
 
 # ---- the stock proof for the app's result pictures -------------------------
@@ -133,9 +143,17 @@ def save_proof(jpeg: bytes, marks: dict, now=None) -> str:
     path = f"{day}/{shot_id}.jpg"
     _http("POST", f"storage/v1/object/{BUCKET}/{path}", jpeg,
           {"Content-Type": "image/jpeg", "x-upsert": "true"}, timeout=60)
-    _rest("POST", "dec_shots?on_conflict=id",
-          [{"id": shot_id, "day": day, "at": now.isoformat(), "readings": marks, "path": path, "source": "agent"}],
-          prefer="resolution=merge-duplicates,return=minimal")
+    try:
+        _rest("POST", "dec_shots?on_conflict=id",
+              [{"id": shot_id, "day": day, "at": now.isoformat(), "readings": marks, "path": path, "source": "agent"}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    except DecantError:
+        try:                                # (a file without its row would never be cleared)
+            _http("DELETE", f"storage/v1/object/{BUCKET}", json.dumps({"prefixes": [path]}).encode(),
+                  {"Content-Type": "application/json"})
+        except DecantError:
+            pass
+        raise
     return path
 
 
@@ -170,11 +188,11 @@ def dip_chart() -> dict:
     return {"startCm": start, "stepCm": step, "litres": [float(v) for v in re.findall(r"[\d.]+", body)]}
 
 
-def settings() -> dict:
+def settings(timeout: int = 30) -> dict:
     """{tanks, dateOrder, chart, app} from the app's saved settings, else
     defaults (app: what a decantation needs, decantation.settings_with)."""
     from .decantation import settings_with
-    rows = _rest("GET", "dec_config?id=eq.1&select=data") or []
+    rows = _rest("GET", "dec_config?id=eq.1&select=data", timeout=timeout) or []
     data = (rows[0].get("data") if rows else None) or {}
     s = data.get("settings") or {}
     chart = data.get("chart") if (data.get("chart") or {}).get("litres") else dip_chart()
@@ -201,12 +219,12 @@ def invoices_and_sessions(now=None) -> tuple[list, list]:
     return invoices, sessions
 
 
-def get_session(session_id: str) -> dict | None:
-    rows = _rest("GET", f"dec_sessions?id=eq.{urllib.parse.quote(session_id)}&select=*") or []
+def get_session(session_id: str, timeout: int = 30) -> dict | None:
+    rows = _rest("GET", f"dec_sessions?id=eq.{urllib.parse.quote(session_id)}&select=*", timeout=timeout) or []
     return rows[0] if rows else None
 
 
-def save_session(s: dict, now=None, base: str | None = None) -> dict | None:
+def save_session(s: dict, now=None, base: str | None = None, timeout: int = 30) -> dict | None:
     """saveSession: the whole row, updated_at now. With ``base`` (the
     updated_at the cloud had when it was last looked at) only over that very
     version: None if someone saved it since (theirs stays)."""
@@ -215,14 +233,16 @@ def save_session(s: dict, now=None, base: str | None = None) -> dict | None:
     created = s.get("created_at") or stamp
     row = {k: s.get(k) for k in ("id", "invoice_no", "tt_no", "status", "data")}
     row.update(created_at=created, updated_at=stamp, completed_at=s.get("completed_at"))
+    s["_sent_at"] = stamp                  # (if the answer is lost, this version is still known as ours)
     if base:
         got = _rest("PATCH", f"dec_sessions?id=eq.{urllib.parse.quote(str(s['id']))}"
                              f"&updated_at=eq.{urllib.parse.quote(str(base))}&select=id", row,
-                    prefer="return=representation")
+                    prefer="return=representation", timeout=timeout)
         if not got:
             return None
     else:
-        _rest("POST", "dec_sessions?on_conflict=id", [row], prefer="resolution=merge-duplicates,return=minimal")
+        _rest("POST", "dec_sessions?on_conflict=id", [row], prefer="resolution=merge-duplicates,return=minimal",
+              timeout=timeout)
     s["updated_at"], s["created_at"] = stamp, created
     return s
 

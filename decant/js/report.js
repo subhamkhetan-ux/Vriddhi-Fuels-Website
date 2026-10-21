@@ -158,7 +158,9 @@ export function exportRows(entries) {
 
 export function toCsv(rows) {
   const cell = (v) => {
-    const s = v === null || v === undefined ? '' : String(v);
+    let s = v === null || v === undefined ? '' : String(v);
+    // text a spreadsheet would run as a formula (=, +, -, @ first): shown as text. Numbers stay numbers.
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return rows.map((r) => r.map(cell).join(',')).join('\r\n');
@@ -267,7 +269,7 @@ export function purchaseSummary(invoices, sessions, { from = '', to = '', tt = '
     for (const ln of inv.lines || []) {
       const k = productKey(ln.column_key || ln.product);
       if (!PRODUCTS[k] || (product && k !== product)) continue;
-      bought[k] = (bought[k] || 0) + Math.round(Number(ln.qty_kl ?? ln.qty) * 1000);
+      bought[k] = (bought[k] || 0) + (Math.round(Number(ln.qty_kl ?? ln.qty) * 1000) || 0);
     }
     if (!Object.keys(bought).length) continue;
     const done = {};

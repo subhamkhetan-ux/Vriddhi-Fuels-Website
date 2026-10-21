@@ -138,14 +138,14 @@ export async function readScreenshot({ want = null } = {}) {
         const rows = found.map((t, i) => {
           const tank = t.tankId ? tankById(t.tankId) : null;
           const r = t.reading;
-          const wanted = !want || (t.tankId && want.includes(t.tankId));
+          const wanted = !want || !t.tankId || want.includes(t.tankId);   // (one to pick a tank for: asked)
           const stale = r.readingAt && (Date.now() - Date.parse(r.readingAt)) / 60000 > state.settings.staleMinutes;
           const tankSel = t.tankId ? '' : `<label class="f" style="margin-top:8px">Which tank is this?
               <select data-pick="${i}"><option value="">— choose —</option>${tanks().map((x) => `<option value="${x.id}">Tank ${x.no} · ${productShort(x.product)}</option>`).join('')}</select></label>`;
           return `<div class="reading" data-i="${i}">
             <div class="rd-head">
               <span class="nm">${t.no ? `Tank ${t.no}` : 'Tank ?'}</span>
-              ${tank ? productChip(tank.product) : (t.product ? productChip(t.product) : '')}
+              ${t.product ? productChip(t.product) : (tank ? productChip(tank.product) : '')}
               ${confBadge(t.confidence, t.checks)}
               ${wanted ? '' : '<span class="badge info">not needed now</span>'}
             </div>
@@ -157,7 +157,7 @@ export async function readScreenshot({ want = null } = {}) {
               <div><div class="k">Density / (tc)</div><div class="v">${r.density ?? '—'} / ${r.densityTc ?? '—'}</div></div>
               <div><div class="k">Temp</div><div class="v">${r.temp ?? '—'}${r.temp != null ? ' °C' : ''}</div></div>
             </div>
-            <div class="rd-src">${r.readingAt ? `Automation time ${fmtWhen(r.readingAt)}${stale ? ' — <b style="color:var(--warn)">old</b>' : ''}` : 'Time not readable — the upload time is used'}
+            <div class="rd-src">${r.readingAt ? `Automation time ${fmtWhen(r.readingAt)}${stale ? ' — <b style="color:var(--warn)">old</b>' : ''}` : 'Time not readable — the picture\'s own time is used'}
               ${t.checks?.chart?.ok === false ? ' · <span style="color:var(--warn)">doesn\'t match the dip chart</span>' : ''}</div>
             ${tankSel}
             <label class="f" style="margin-top:8px">Correct the stock if it's wrong (L)
@@ -176,13 +176,37 @@ export async function readScreenshot({ want = null } = {}) {
         el.querySelector('[data-use]')?.addEventListener('click', async () => {
           const readings = {};
           const boxes = {};                                       // each tank's card, to crop it under a result
+          // a corrected stock: a number in the tank's range, or the screen's own figure if left as it is
+          // (an emptied box is never 0 L, nor a typo past the tank's size)
+          const bad = [];
+          const typedOf = (i, id) => {
+            const raw = String(el.querySelector(`[data-vol="${i}"]`)?.value ?? '').trim();
+            if (raw === '') return NaN;
+            const v = Number(raw.replace(/[\s,]/g, ''));
+            const cap = tankById(id)?.capacity || found[i].reading.capacity || 20000;
+            if (!Number.isFinite(v) || v < 0 || v > cap * 1.15) { bad.push(id); return NaN; }
+            return v;
+          };
+          for (const [i, t] of found.entries()) {
+            const id = t.tankId || el.querySelector(`[data-pick="${i}"]`)?.value;
+            if (id) typedOf(i, id);
+          }
+          if (bad.length) {
+            toast(`Check the corrected stock of ${bad.map((x) => tankName(x)).join(' & ')}: it isn't a stock that tank can hold.`, 5000);
+            return;
+          }
           found.forEach((t, i) => {
             const id = t.tankId || el.querySelector(`[data-pick="${i}"]`)?.value;
             if (!id) return;
-            const typed = Number(el.querySelector(`[data-vol="${i}"]`)?.value);
+            const typed = typedOf(i, id);
             const r = { ...t.reading };
             let src = 'photo';
             const extra = { confidence: t.confidence, checks: t.checks };
+            if (!r.readingAt) {
+              // no time read off the screen: when the picture was taken, not now (an old one stays old)
+              r.readingAt = new Date(taken).toISOString();
+              extra.timeRead = false;
+            }
             if (Number.isFinite(typed) && Math.abs(typed - r.volume) > 0.004) {
               extra.screenVolume = r.volume;                       // what the screen said, for the audit
               r.volume = typed;
@@ -207,7 +231,7 @@ export async function readScreenshot({ want = null } = {}) {
 
 // A reading typed in: litres, or a dip in cm (converted with the dip chart).
 export function typedReading(tankId, { litres, dipCm }) {
-  const t = tankById(tankId);
+  const t = tankById(tankId) || { id: tankId, capacity: 20000 };     // (a tank removed in Settings since)
   if (Number.isFinite(dipCm)) {
     const l = litresAtDip(state.chart, dipCm);
     if (!Number.isFinite(l)) throw new Error(`The dip chart runs from ${state.chart.startCm} to ${round2(chartMaxCm(state.chart))} cm.`);
@@ -826,11 +850,19 @@ export function invoiceForm(existing = null) {
     let prodOf = {};
     if (known) for (const c of known.chambers) prodOf[c.no] = c.product || '';
     const parseCh = () => ch.value.split(/[,\s]+/).map(Number).filter((x) => x > 0 && x <= 30);
+    // a chamber not tapped yet: what the invoice's lines say it holds (MS in C1 first, as
+    // chamberLayout reads an invoice), not "HSD" for all - a tapped layout would drop its MS
+    const guess = (caps) => {
+      if (!inv?.lines?.length) return {};
+      const lay = chamberLayout({ ...inv, chambers: caps.map((kl, i) => ({ no: i + 1, qty_kl: kl })) }, null);
+      return Object.fromEntries(lay.chambers.filter((c) => c.product).map((c) => [c.no, c.product]));
+    };
     const draw = () => {
       const caps = parseCh();
+      const g = guess(caps);
       prodEl.innerHTML = caps.map((kl, i) => {
         const no = i + 1;
-        const cur = prodOf[no] ?? (i === 0 && !Object.keys(prodOf).length ? 'HSD' : prodOf[no - 1] || 'HSD');
+        const cur = prodOf[no] ?? g[no] ?? (i === 0 && !Object.keys(prodOf).length ? 'HSD' : prodOf[no - 1] || 'HSD');
         prodOf[no] = cur;
         return `<div class="plan-tank" style="grid-template-columns:70px minmax(0,1fr)"><div class="pt-name">C${no} <span class="hint">${kl} KL</span></div>
           <div class="seg">${['MS', 'HSD', 'XG'].map((p) => `<button type="button" class="${cur === p ? 'on' : ''}" data-ch="${no}" data-p="${p}">${productShort(p)}</button>`).join('')}</div></div>`;
@@ -872,14 +904,27 @@ export function invoiceForm(existing = null) {
       if (bare.length) { toast(`Tap what's in chamber ${compactNos(bare)} — every chamber comes full.`, 4000); return; }
       if (!Object.keys(byP).length) { toast('Pick the product in at least one chamber.'); return; }
       const oldLines = inv?.lines || [];
+      const keyOf = (l) => productKey(l.column_key || l.product);
       const lines = Object.entries(byP).map(([p, nos]) => {
-        const old = oldLines.find((l) => productKey(l.column_key || l.product) === p);
+        const old = oldLines.find((l) => keyOf(l) === p);
         return {
           product: old?.product || PRODUCTS[p].name, column_key: old?.column_key || { MS: 'MS | EBMS', HSD: 'HSD', XG: 'XtraGreen HSD' }[p],
-          qty_kl: round2(nos.reduce((a, n) => a + caps[n - 1], 0)), compartments: nos, density15: old?.density15 ?? null,
-          terminal_tank: old?.terminal_tank ?? null, value: old?.value ?? null,
+          // the invoice's own quantity stays (it's what was billed); a new line's is its chambers'
+          qty_kl: old && Number(old.qty_kl) > 0 ? old.qty_kl : round2(nos.reduce((a, n) => a + caps[n - 1], 0)),
+          compartments: nos, density15: old?.density15 ?? null, terminal_tank: old?.terminal_tank ?? null, value: old?.value ?? null,
         };
       });
+      // a product the invoice has that no chamber holds now: kept (its line is the bill), and said so
+      const dropped = oldLines.filter((l) => keyOf(l) && !byP[keyOf(l)]);
+      for (const l of dropped) lines.push({ ...l, compartments: [] });
+      const off = lines.filter((l) => {
+        const nos = byP[keyOf(l)] || [];
+        return Math.abs(nos.reduce((a, n) => a + caps[n - 1], 0) - Number(l.qty_kl || 0)) > 0.05;
+      });
+      if (inv && off.length && !(await ask('The chambers don\'t match the invoice', `${off.map((l) => {
+        const kl = (byP[keyOf(l)] || []).reduce((a, n) => a + caps[n - 1], 0);
+        return `${esc(productShort(keyOf(l)))}: the invoice has ${l.qty_kl} KL, the chambers ${round2(kl)} KL`;
+      }).join('<br>')}<br><br>The invoice's quantities stay as billed. Save these chambers anyway?`, { ok: 'Save anyway', cancel: 'Fix the chambers' }))) return;
       const dateIso = body.querySelector('#ivDate').value;
       const row = inv ? { ...inv, lines, chambers } : {
         invoice_no: body.querySelector('#ivNo').value.trim() || `M-${dateIso.replace(/-/g, '')}-${body.querySelector('#ivTime').value.replace(':', '')}-${ttNo.slice(-4)}`,
@@ -1054,7 +1099,12 @@ function settingsSheet() {
       boxes.querySelector(`[data-tn="${work.length - 1}"]`)?.focus();
     };
     body.querySelector('#stSave').onclick = async () => {
-      const num = (id, lo, hi, dflt) => { const v = Number(body.querySelector(id).value); return Number.isFinite(v) && v >= lo && v <= hi ? v : dflt; };
+      // (a field left empty keeps the default: never 0, which would turn a tolerance off)
+      const num = (id, lo, hi, dflt) => {
+        const raw = String(body.querySelector(id).value ?? '').trim();
+        const v = raw === '' ? NaN : Number(raw.replace(/[\s,]/g, ''));
+        return Number.isFinite(v) && v >= lo && v <= hi ? v : dflt;
+      };
       readTanks();
       const keep = work.filter((t) => !t.removed);
       const problems = tankProblems(keep);

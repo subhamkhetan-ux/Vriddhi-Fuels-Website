@@ -369,9 +369,16 @@ def new_session(inv: dict, layout: dict, sessions: list, operator: str = "Tank s
 
 # ---- the run ----------------------------------------------------------------
 
+_FRACTION = re.compile(r"\.(\d{1,6})(?=[+-]\d\d:?\d\d$|$)")
+
+
 def _ts(value) -> float | None:
+    """An ISO time as Postgres or a phone writes it. (Python before 3.11 only
+    takes 3 or 6 fraction digits; Postgres drops trailing zeros: .12)"""
+    text = str(value).replace("Z", "+00:00")
+    text = _FRACTION.sub(lambda m: "." + m.group(1).ljust(6, "0"), text, count=1)
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        return datetime.fromisoformat(text).timestamp()
     except ValueError:
         return None
 
@@ -870,7 +877,8 @@ class Decantation:
                             "the stock after is taken from before the fall.", now, "warn")
             return
         settle = self.settings["settleMinutes"] * 60
-        since = now - (_ts(t.get("doneAt")) or now)
+        # (from when it was done, or from when the clock was last found to have jumped: settled again in full)
+        since = now - max(_ts(t.get("doneAt")) or now, st.get("settleFrom") or 0)
         window = [x for when, x in st["history"] if now - when <= settle]
         covered = any(now - when >= settle - 15 for when, _ in st["history"])
         steady = covered and window and max(window) - min(window) <= max(SETTLE_BAND_L, SETTLE_BAND_PCT / 100 * v)
@@ -903,6 +911,28 @@ class Decantation:
                                 "Is a chamber going into the wrong tank?", now, "warn")
         else:
             o["over"] = 0
+
+    def clock_jumped(self, jump: float, now: float) -> None:
+        """The server's clock was set right by `jump` seconds (the VM slept with
+        the Mac and woke up behind). Times kept here no longer say how long
+        anything took, so nothing is decided from them: a settling tank
+        settles again in full, a still pipe and a waiting tank are timed from
+        now. Fail-safe: it only ever waits longer."""
+        for t in self.s["data"]["tanks"]:
+            st = self._st(t, now)
+            if t["stage"] == "settling":
+                st.update(history=[], settleFrom=now, afterTries=0)
+            else:
+                st["history"] = [[when + jump, v] for when, v in st.get("history") or []]
+            if st.get("lastRiseAt") is not None:
+                st["lastRiseAt"] = now
+            st["waitSince"] = now
+            if st.get("low"):
+                st["low"] = [st["low"][0] + jump, st["low"][1]]
+        for q in self.state["questions"].values():
+            q["since"] = iso(now)
+        self.log(f"The server's clock was {'behind' if jump > 0 else 'ahead'} by {abs(jump) / 60:,.0f} min and has "
+                 "been set right: settling and waiting times start again from now.", now, "warn")
 
     def _waiting_long(self, now: float, work: dict) -> None:
         rows = self.s["data"]["tanks"]
