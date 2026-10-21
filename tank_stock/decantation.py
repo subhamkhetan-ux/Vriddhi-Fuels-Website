@@ -444,6 +444,79 @@ class Decantation:
                                        for t in d["tanks"]) + ". Waiting for the stock to rise.", now)
         return run
 
+    @classmethod
+    def take_over(cls, session: dict, settings: dict, volumes: dict, now: float | None = None,
+                  befores: dict | None = None) -> "Decantation":
+        """A decantation started in the decant app, carried on from where it is:
+        its plan, chambers and stock before stay the app's. Each tank picks up
+        at its stage, by its live stock now (``volumes``: {tank id: litres}):
+
+        - waiting: waits for its stock to rise (its stock before is read again
+          if it sells meanwhile); ``befores`` gives one it had none of;
+        - decanting: followed from here (all that went in since its stock
+          before counts); one that hasn't risen yet waits for the rise instead;
+        - settling: settles in full from now, then its stock after;
+        - read: done.
+        Refused (ValueError, said plainly) if it can't be followed safely."""
+        now = now or time.time()
+        d = session.get("data") or {}
+        if session.get("status") not in ("draft", "decanting", "settling"):
+            raise ValueError("It is already finished or cancelled in the decant app.")
+        rows = d.get("tanks") or []
+        if not rows:
+            raise ValueError("It has no tank set up yet in the decant app: plan it there first (or start it here).")
+        known = {t["id"]: t for t in settings["tanks"]}
+        gone = [t.get("tankNo") or t["tank"] for t in rows if t["tank"] not in known]
+        if gone:
+            raise ValueError(f"Tank {', '.join(map(str, gone))} is no longer in the decant app's settings.")
+        for t in rows:
+            t["stage"] = tank_stage(session, t)
+            t["tankNo"] = t.get("tankNo") or known[t["tank"]]["no"]
+            if t["stage"] == "read":
+                continue
+            if (t.get("before") or {}).get("volume") is None:
+                if (befores or {}).get(t["tank"]):
+                    t["before"] = befores[t["tank"]]
+                    d.setdefault("before", {})[t["tank"]] = t["before"]
+                elif t["stage"] == "waiting":
+                    raise ValueError(f"Tank {t['tankNo']} has no stock before.")
+                else:
+                    raise ValueError(f"Tank {t['tankNo']} is {t['stage']} but has no stock before in the app.")
+            if volumes.get(t["tank"]) is None:
+                raise ValueError(f"Tank {t['tankNo']}'s stock isn't on the PC's screen.")
+        d["auto"] = {"by": "tank stock agent", "arrived": {}, "questions": [], "released": False, "takenOver": iso(now)}
+        d.pop("autoRequest", None)
+        d["step"] = "decant"
+        run = cls(session, settings)
+        said = []
+        for t in rows:
+            st = run._st(t, now)
+            if t["stage"] == "read":
+                continue
+            before, v = t["before"]["volume"], float(volumes[t["tank"]])
+            name = f"Tank {t['tankNo']}"
+            if t["stage"] == "decanting" and v - before < START_RISE_L:
+                # marked started in the app, but nothing has gone in yet: its start is the rise
+                t["stage"], t["startedAt"] = "waiting", None
+                said.append(f"{name} marked started but hasn't risen yet ({v:,.0f} L): waiting for the rise")
+            elif t["stage"] == "waiting":
+                said.append(f"{name} waiting (stock before {before:,.2f} L)")
+            if t["stage"] == "waiting":
+                st["low"] = [now, min(before, v)]
+            elif t["stage"] == "decanting":
+                t["startedAt"] = t.get("startedAt") or iso(now)
+                st.update(lastRiseAt=now, lastRiseV=v, segFrom=before, flowing=True, acc=0.0, low=None)
+                said.append(f"{name} decanting, +{v - before:,.0f} L of {t['litres']:,.0f} L in")
+            elif t["stage"] == "settling":
+                t["doneAt"] = t.get("doneAt") or iso(now)
+                st.update(settledFrom=v, flowing=False, peak=None, afterTries=0, settleFrom=now,
+                          lastRiseV=v, segFrom=before)
+                said.append(f"{name} settling at {v:,.0f} L (it settles in full from now)")
+        sync_status(session)
+        run._sync_auto()
+        run.log("Taken over from the decant app: " + "; ".join(said) + ".", now, "done")
+        return run
+
     # -- helpers --
     def row(self, tank_id: str) -> dict | None:
         return next((t for t in self.s["data"]["tanks"] if t["tank"] == tank_id), None)

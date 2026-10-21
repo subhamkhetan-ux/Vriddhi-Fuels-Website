@@ -436,7 +436,7 @@ function stepDecant(s) {
   const allRead = d.tanks.length > 0 && st.every((x) => x === 'read');
   const started = d.tanks.some((t) => startOf(s, t));
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
-  return `${autoCard(s)}<div class="card accent">
+  return `${autoCard(s)}${handoverCard(s, allRead)}<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
       ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
@@ -467,6 +467,37 @@ function autoCard(s) {
       <div class="sect-title" style="margin:0">🤖 Run by the tank stock agent</div>
       <div class="hint">It follows the tanks' real stock: each tank starts when its stock rises, is done when it stops, and its stock after is read once it has settled; then the result is saved here. Nothing to do on this phone — but anything you do here counts.</div>
       ${qs ? `<ul class="msgs">${qs}</ul><div class="hint">Answer on the tank stock page, or tap ✓ done on the tank here.</div>` : ''}
+      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="takeBack">Take it back on this phone</button></div>
+    </div>`;
+}
+
+// Started here, finished by the tank stock server: it follows each tank's
+// real stock from now on (its stock before and chambers stay these), takes the
+// stock after once settled and saves the result. It looks for this every half
+// minute; if it can't take it, it says why here and nothing changes.
+const REQUEST_STALE_MIN = 15;              // (tank_stock/auto.py REQUEST_FRESH_S: older ones aren't taken up)
+function handoverCard(s, allRead) {
+  const a = s.data.auto;
+  if ((a && !a.released) || allRead || !['draft', 'decanting', 'settling'].includes(s.status) || !s.data.tanks.length) return '';
+  const req = s.data.autoRequest;
+  if (!req) {
+    return `<div class="card">
+        <div class="row-actions" style="justify-content:flex-start;margin:0"><button class="btn" data-wz="handover">🤖 Let the tank stock server finish it</button></div>
+        <div class="hint">It follows each tank's real stock from the IOCL automation: starts, done, settled, stock after — and saves the result here. The stock before and chambers stay as set here.</div>
+      </div>`;
+  }
+  const mins = (Date.now() - Date.parse(req.at || 0)) / 60000;
+  const status = req.error
+    ? `<div class="banner bad">The tank stock server couldn't take it: ${esc(req.error)}. It carries on here as before.</div>`
+    : mins > REQUEST_STALE_MIN
+      ? `<div class="banner">No answer from the tank stock server for ${Math.round(mins)} min — is the Mac on and online? It carries on here meanwhile.</div>`
+      : `<div class="hint">Asked the tank stock server at ${fmtTime(req.at)} — it takes over within a minute (it looks every half minute). Carry on here meanwhile.</div>`;
+  return `<div class="card">
+      <div class="sect-title" style="margin:0">🤖 Handing over to the tank stock server</div>
+      ${status}
+      <div class="row-actions" style="justify-content:flex-start">
+        ${req.error || mins > REQUEST_STALE_MIN ? '<button class="btn sm" data-wz="handover">Ask again</button>' : ''}
+        <button class="btn sm ghost" data-wz="handoverCancel">Don't hand over</button></div>
     </div>`;
 }
 
@@ -805,6 +836,23 @@ async function onClick(e) {
   if (act === 'startAll') { await startTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'waiting').map((x) => x.tank)); return; }
   if (act === 'decanted') { await doneTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'decanting').map((x) => x.tank)); return; }
   if (act === 'finish') { await finish(s); return; }
+  if (act === 'handover' || act === 'handoverCancel') {
+    s = latest(s);
+    if (s.data.auto && !s.data.auto.released) return;     // (it took it over meanwhile)
+    if (act === 'handover') s.data.autoRequest = { at: new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    else delete s.data.autoRequest;
+    await persist(s);
+    return;
+  }
+  if (act === 'takeBack') {
+    if (!(await ask('Take it back on this phone?', 'The tank stock server stops following it; finish it here (each tank\'s ✓ done and its stock after).', { ok: 'Take it back' }))) return;
+    s = latest(s);
+    if (!s.data.auto || s.data.auto.released) return;
+    s.data.auto = { ...s.data.auto, released: true, questions: [] };
+    await persist(s);
+    toast('It is yours again on this phone.');
+    return;
+  }
   if (act === 'keepResult') {                // back to the result as it was saved, nothing changed
     const was = s.data.reopened;
     if (!was) return;

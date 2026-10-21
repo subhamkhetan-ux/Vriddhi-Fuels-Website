@@ -74,6 +74,7 @@ LIVE_UPLOAD_TIMEOUT = 8          # seconds: a live upload gives up (the live rea
 LIVE_UPLOAD_BACKOFF = 30         # seconds: after the decant app couldn't be reached, before trying again
 PROBE_STALE_S = 180              # a card whose "Last Updated" time hasn't moved this long: frozen figures
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
+REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here?
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
 MAX_BODY = 16_000
 AUTO_ACTIONS = ("answer", "done", "drop", "after", "release", "cancel", "clear", "reconnect", "add")
@@ -868,6 +869,15 @@ class Station:
             except Exception:  # noqa: BLE001 - the queue keeps running whatever one job did
                 traceback.print_exc()
 
+    def request_loop(self, stop: threading.Event) -> None:
+        """A phone's "Let the tank stock server finish it" (decant app): looked for
+        every REQUEST_EVERY seconds."""
+        while not stop.wait(REQUEST_EVERY):
+            try:
+                self.auto.check_requests()
+            except Exception:  # noqa: BLE001 - looked for again next time
+                traceback.print_exc()
+
     def _queue_once(self) -> None:
         for req in sorted(QUEUE.glob("*.req")):
             job = str(req)[:-4]
@@ -1058,6 +1068,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"settings": self.station.save_settings(body)})
             if path == "/api/auto/check":
                 return self._json(200, self.station.auto.check(str(body.get("invoice_no") or ""), body.get("plan") or {}))
+            if path == "/api/auto/takeover":
+                return self._json(202, {"auto": self.station.auto.take_over(str(body.get("session_id") or ""))})
             if path == "/api/auto/start":
                 return self._json(202, {"auto": self.station.auto.start(str(body.get("invoice_no") or ""),
                                                                         body.get("plan") or {})})
@@ -1103,6 +1115,7 @@ def main(argv=None) -> int:
     station.auto.resume()      # an automatic decantation that was running carries on
     stop = threading.Event()
     threading.Thread(target=station.queue_loop, args=(stop,), daemon=True, name="queue").start()
+    threading.Thread(target=station.request_loop, args=(stop,), daemon=True, name="requests").start()
     hosts = os.environ.get("TANK_STOCK_HOSTS", "").split(",")
     users = os.environ.get("TANK_STOCK_USERS", "").split(",")
     httpd = make_server(station, args.port, hosts, users)

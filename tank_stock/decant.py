@@ -219,6 +219,14 @@ def invoices_and_sessions(now=None) -> tuple[list, list]:
     return invoices, sessions
 
 
+def handover_requests(timeout: int = 10) -> list:
+    """Open decantations a phone asked the agent to finish ("Let the tank stock
+    server finish it" in the decant app): [{id, updated_at, request}]."""
+    rows = _rest("GET", "dec_sessions?status=in.(draft,decanting,settling)&data->autoRequest=not.is.null"
+                        "&select=id,updated_at,request:data->autoRequest&limit=20", timeout=timeout) or []
+    return [r for r in rows if isinstance(r.get("request"), dict)]
+
+
 def get_session(session_id: str, timeout: int = 30) -> dict | None:
     rows = _rest("GET", f"dec_sessions?id=eq.{urllib.parse.quote(session_id)}&select=*", timeout=timeout) or []
     return rows[0] if rows else None
