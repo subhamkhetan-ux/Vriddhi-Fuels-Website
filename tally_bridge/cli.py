@@ -26,9 +26,11 @@ def worker():
         if c.get("keep_awake", False):
             windows.keep_awake(True)
             awake = True
-        service = Worker(Cloud(c["url"], c["key"], c["token"]), tally, store, recovery=recovery)
+        service = Worker(Cloud(c["url"], c["key"], c["token"]), tally, store, recovery=recovery,
+                         paused=windows.export_script_running)
         stop = windows.StopFlag()
-        if c.get("single_tally", True):
+        # Only a Tally the bridge opens itself can end up opened twice.
+        if c.get("single_tally", False) and (c.get("tally_startup") or {}).get("enabled"):
             single_tally(windows, stop)
         service.run(stop)
     finally:
@@ -52,7 +54,10 @@ def single_tally(windows, stop):
         guard = TallyGuard(db, windows.tally_processes, windows.set_tally_visible, windows.close_tally, windows.log)
         while not stop.is_set():
             try:
-                guard.poll()
+                if windows.export_script_running():
+                    guard.known = None  # the script opens and closes Tally itself: start afresh after it
+                else:
+                    guard.poll()
             except Exception:  # never let the guard stop the sync
                 pass
             stop.wait(1)
@@ -104,6 +109,7 @@ def self_test(install_smoke=False):
         assert any(cls for _, _, _, cls in windows._top_windows({__import__("os").getpid()})), "EnumWindows found no windows"
         assert windows.set_tally_visible(True, pids=[]) == 0
         assert windows.close_tally(0) == 0  # no such process: nothing is asked to close
+        assert windows.export_script_running() is False  # no AutoHotkey on the CI runner
         root.destroy()
         if install_smoke:
             import os, winreg

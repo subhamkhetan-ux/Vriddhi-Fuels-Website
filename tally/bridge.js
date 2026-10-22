@@ -28,6 +28,8 @@
     if (!status.device) return 'Pair your Windows PC';
     if (!online()) return 'PC offline · cached data available';
     if (status.device.health === 'starting_tally') return 'Starting Tally Prime…';
+    if (status.device.health === 'tally_closed') return 'Waiting for Tally to be opened · vouchers queue';
+    if (status.device.health === 'paused') return 'Paused while Tally exports';
     if (status.device.health === 'needs_attention') return 'Connection needs attention';
     if (!status.config.ready) return 'First sync in progress';
     return status.config.push_enabled ? 'Connected to Tally Prime' : 'Voucher posting paused';

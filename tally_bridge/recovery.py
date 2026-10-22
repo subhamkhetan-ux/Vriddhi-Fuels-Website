@@ -3,12 +3,18 @@ from pathlib import Path
 import re
 import time
 
-from .tally import TallyProblem
+from .tally import CompanyNotOpen, TallyProblem
 from .transport import ConnectionProblem
 
 
 class TallyStarting(TallyProblem):
-    pass
+    health = "starting_tally"
+
+
+class TallyWaiting(TallyStarting):
+    """Nothing is wrong: Tally is closed, or its company is not loaded yet. People open and close
+    Tally themselves; the bridge syncs whenever it is open and never opens a copy of its own."""
+    health = "tally_closed"
 
 
 # A hidden Tally that has not answered by then may be showing a login, licence or company
@@ -59,6 +65,8 @@ class Recovery:
     def ensure(self):
         try:
             result = self.tally.verify()
+        except CompanyNotOpen:
+            raise TallyWaiting("Tally is open; sync starts once " + self.tally.company + " is loaded.") from None
         except ConnectionProblem:
             pass
         else:
@@ -70,7 +78,13 @@ class Recovery:
             self.keep_hidden()  # Tally may show its window once the company has loaded
             return restarted
         if not self.config.get("enabled"):
-            raise ConnectionProblem("Tally is unavailable")
+            try:
+                running = self.processes()
+            except (OSError, RuntimeError):
+                running = []
+            if running:
+                raise TallyWaiting("Tally is starting or busy; sync resumes as soon as it answers.")
+            raise TallyWaiting("Tally is closed. Vouchers from the web app wait and post when Tally is next opened.")
         try:
             settings = startup_settings(self.config.get("exe", ""), self.config.get("number", ""), self.config.get("hidden", False))
         except RuntimeError as e:

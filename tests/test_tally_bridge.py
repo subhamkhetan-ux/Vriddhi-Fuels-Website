@@ -1047,3 +1047,72 @@ def test_bridge_exit_shows_a_tally_it_had_hidden(tmp_path):
     reveal_hidden_tally(Win())
     assert calls[0] == (True, [4242])
     db = Store(tmp_path / "journal.sqlite3"); assert db.get("tally_hidden_pid") is None; db.close()
+
+
+def test_closed_tally_is_a_calm_wait_never_an_error_or_a_launch(store):
+    from tally_bridge.recovery import Recovery, TallyWaiting
+    from tally_bridge.tally import CompanyNotOpen
+    launched = []
+    class Closed(FakeTally):
+        def verify(self): raise ConnectionProblem("Tally closed")
+    running = []
+    r = Recovery(Closed(), {"enabled": False}, store, lambda: running, launched.append)
+    with pytest.raises(TallyWaiting, match="Tally is closed. Vouchers from the web app wait"):
+        r.ensure()
+    running.append({"pid": 5, "exe": "tally.exe", "parent": 1})
+    with pytest.raises(TallyWaiting, match="starting or busy"):
+        r.ensure()
+    class SelectCompany(FakeTally):  # e.g. the export script just started Tally
+        def verify(self): raise CompanyNotOpen("Open the exact company")
+    with pytest.raises(TallyWaiting, match="sync starts once Test Company is loaded"):
+        Recovery(SelectCompany(), {"enabled": False}, store, lambda: [], launched.append).ensure()
+    assert not launched  # the bridge never opens Tally unless told to
+
+
+def test_waiting_for_tally_keeps_queued_vouchers_untouched_and_polls_promptly(store):
+    from tally_bridge.recovery import TallyWaiting
+    cloud = FakeCloud()
+    class Closed:
+        def ensure(self): raise TallyWaiting("Tally is closed. Vouchers from the web app wait and post when Tally is next opened.")
+    class Once:
+        waits = []
+        def is_set(self): return len(self.waits) >= 2
+        def wait(self, s): self.waits.append(s)
+    stop = Once()
+    Worker(cloud, FakeTally(), store, recovery=Closed()).run(stop)
+    assert all(s < 7 for s in stop.waits)            # no growing back-off while Tally is simply closed
+    assert store.get("status")["health"] == "tally_closed"
+    assert not any(name in ("tally_bridge_claim", "tally_bridge_finish") for name, _ in cloud.calls)
+
+
+def test_export_script_pauses_every_tally_request(store):
+    cloud = FakeCloud()
+    class Untouched(FakeTally):
+        def verify(self): raise AssertionError("Tally must not be touched while the export script runs")
+        def metadata(self, *a, **k): raise AssertionError("Tally must not be touched while the export script runs")
+    w = Worker(cloud, Untouched(), store, paused=lambda: True)
+    w.step()
+    assert store.get("status")["health"] == "paused"
+    assert [n for n, _ in cloud.calls] == ["tally_bridge_heartbeat", "tally_bridge_heartbeat"]
+
+
+def test_company_closed_mid_post_leaves_the_job_for_later_not_failed(store):
+    from tally_bridge.tally import CompanyNotOpen
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            return job() if name == "tally_bridge_claim" else r
+    class Closing(FakeTally):
+        def verify(self): raise CompanyNotOpen("Open the exact company")
+    cloud = Cloud()
+    w = Worker(cloud, Closing(), store)
+    with pytest.raises(CompanyNotOpen):
+        w.claim()
+    assert not any(name == "tally_bridge_finish" for name, _ in cloud.calls)
+
+
+def test_export_script_is_recognised_by_its_autohotkey_window_title():
+    from tally_bridge.windows import is_tally_script
+    assert is_tally_script(r"C:\Users\Office\Desktop\VriddhiTally.ahk - AutoHotkey v2.0.18")
+    assert is_tally_script(r"C:\Scripts\VriddhiTally.exe")
+    assert not is_tally_script(r"C:\Users\Office\Documents\Clipboard.ahk - AutoHotkey v2.0")

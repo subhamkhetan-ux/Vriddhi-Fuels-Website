@@ -28,6 +28,17 @@ The bridge is optional. **Tally connection & reports → Sync vouchers with Tall
 - **On:** new and edited vouchers post to Tally by themselves, and vouchers made or changed in Tally appear in the app. Vouchers saved while it was off are not posted again: the bridge links the ones it finds in Tally by type and number. Import the XML of any not yet in Tally first, or queue them from Sync activity.
 - **Disconnect PC** also switches the bridge off. Switching on needs a paired PC.
 
+## Office setup: people open Tally themselves
+
+Where employees open and close Tally from its desktop icon, and the `VriddhiTally.ahk` export script opens, drives and closes it, leave **Open Tally by itself** off (the default). Then nothing about Tally changes for anyone:
+
+- The bridge **never opens, hides, closes or brings Tally forward**, and never shows a prompt or message on that PC. It syncs whenever Tally is open with the paired company loaded.
+- While Tally is closed, or at Select Company, the bridge waits quietly (status *Waiting for Tally to be opened*). Web vouchers stay queued and post as soon as Tally is open again; nothing is marked failed.
+- **While the export script runs, the bridge sends Tally nothing.** It recognises any running AutoHotkey script with "Tally" in its name by the script's own window title, so the script's keystrokes never compete with a sync. Status shows *Paused while Tally exports*; the bridge resumes by itself when the script ends. The script needs no change.
+- A posting interrupted because someone closed the company is not marked failed; it is retried once Tally is open again, after its usual identity check.
+
+**Open Tally by itself**, with its *hidden* and *one-Tally* sub-options, is only for a PC where nobody opens Tally by hand or with a script.
+
 ## Automatic Tally recovery
 
 - **Employees close Tally:** with automatic recovery enabled, the bridge reopens the selected installation minimized with the configured company number. Normal online polling targets five seconds; Tally's loading time, connection timeouts and backoff add delay. Repeated failed starts are throttled from 30 seconds up to 15 minutes, persisted across bridge restarts.

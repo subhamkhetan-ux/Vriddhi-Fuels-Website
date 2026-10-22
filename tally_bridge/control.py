@@ -12,7 +12,8 @@ from .tally import Tally, TallyProblem
 from .transport import Cloud, ConnectionProblem, LocalTally
 
 WEB_APP = "https://subhamkhetan-ux.github.io/Vriddhi-Fuels-Website/tally/"
-HEALTH = {"online": ("Running", "good"), "syncing": ("Running", "good"), "internet_offline": ("Internet offline", "warn"),
+HEALTH = {"online": ("Running", "good"), "syncing": ("Running", "good"),
+          "tally_closed": ("Running · waiting for Tally", "good"), "paused": ("Running · paused for the Tally export", "good"), "internet_offline": ("Internet offline", "warn"),
           "starting_tally": ("Starting Tally", "warn"), "needs_attention": ("Needs attention", "bad"),
           "off": ("Sync switched off in the web app", "idle")}
 
@@ -137,7 +138,7 @@ class Controller:
         from .recovery import startup_settings
         return startup_settings(exe, number, hidden) if auto_tally else {"enabled": False}
 
-    def pair(self, text, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=True):
+    def pair(self, text, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=False):
         package = self.read_pairing(text)
         port = valid_port(port)
         startup = self.startup(auto_tally, exe, number, hidden)
@@ -159,7 +160,7 @@ class Controller:
                   p_company=company["name"], p_guid=company["guid"], p_label=socket.gethostname())
         return self.install(config, autostart)
 
-    def save(self, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=True):
+    def save(self, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=False):
         """Save settings and (re)install this version; the pairing is kept."""
         config = self.config()
         if not config:

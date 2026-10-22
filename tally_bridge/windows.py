@@ -548,6 +548,38 @@ def close_tally(pid):
     return asked
 
 
+def _all_windows():
+    """(class, title) of every top-level window, hidden ones included."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
+    found = []
+
+    def visit(hwnd, _):
+        name, title = ctypes.create_unicode_buffer(64), ctypes.create_unicode_buffer(512)
+        user32.GetClassNameW(hwnd, name, 64)
+        if name.value == "AutoHotkey":
+            user32.GetWindowTextW(hwnd, title, 512)
+            found.append((name.value, title.value))
+        return True
+    user32.EnumWindows(callback(visit), 0)
+    return found
+
+
+def export_script_running():
+    """True while an AutoHotkey script about Tally runs (e.g. VriddhiTally.ahk exporting the Sales
+    Register). Every AutoHotkey script has a hidden main window titled with its file path."""
+    try:
+        return any(is_tally_script(title) for _, title in _all_windows())
+    except (OSError, AttributeError):
+        return False
+
+
+def is_tally_script(title):
+    name = title.rsplit("\\", 1)[-1].split(" - AutoHotkey")[0].lower()
+    return "tally" in name
+
+
 HELPER_CLASSES = {"IME", "MSCTFIME UI", "tooltips_class32", "GDI+ Hook Window Class"}
 
 

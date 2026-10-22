@@ -30,6 +30,10 @@ class TallyProblem(RuntimeError):
     pass
 
 
+class CompanyNotOpen(TallyProblem):
+    """Tally answers, but the paired company is not loaded (Select Company, or another company)."""
+
+
 def decimal(value):
     s = str(value).strip().replace(",", "")
     m = re.match(r"^(-?\d+(?:\.\d+)?)", s)
@@ -427,7 +431,7 @@ class Tally:
     def verify(self):
         matches = [c for c in self.companies() if c["name"] == self.company]
         if len(matches) != 1 or not matches[0]["guid"]:
-            raise TallyProblem("Open the exact company configured in the web app's Settings")
+            raise CompanyNotOpen("Open the exact company configured in the web app's Settings")
         if self.guid and matches[0]["guid"] != self.guid:
             raise TallyProblem("Company GUID changed. Sync paused for restore or financial-year review.")
         return matches[0]

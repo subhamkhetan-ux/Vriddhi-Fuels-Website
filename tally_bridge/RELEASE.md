@@ -1,10 +1,10 @@
-Version **1.4.1** lets Tally run in the background:
+Version **1.4.1** fits the bridge around how the office already uses Tally:
 
-- **Keep that Tally hidden in the background** (Settings, under *Open Tally by itself*): when the bridge opens Tally after a restart or after it was closed, it starts with no window and stays out of the way while it serves the bridge.
-- **Show Tally / Hide Tally** on Home bring it up to work in and put it back. Use Show Tally rather than Tally's own icon, which would start a second copy.
-- If a hidden Tally has not answered within two minutes (a login, licence or company prompt), it is shown so the prompt can be dealt with.
-- **Keep one Tally open** (on by default): employees can keep using Tally's desktop icon. If Tally is already running, hidden or not, that click brings it forward with the company loaded, and the extra copy is asked to close the way its ✕ would (never forced; a copy that stays open is reported in the app and the web app). Once employees use it, it is never hidden again; when they close it, the bridge reopens it in the background. When the bridge stops, a hidden Tally is shown first.
-- Open the new app, tick the option and choose **Save settings** (or **Update now**). No SQL change.
+- **Nothing changes for employees.** With **Open Tally by itself** off (now the default), the bridge never opens, hides, closes or brings Tally forward and never shows a prompt. It syncs whenever Tally is open with the company loaded, and waits quietly while Tally is closed or at Select Company: web vouchers stay queued and post when Tally is next opened.
+- **The export script runs undisturbed.** While `VriddhiTally.ahk` (any AutoHotkey script with "Tally" in its name) is running, the bridge sends Tally nothing, then resumes by itself. The script needs no change.
+- A posting interrupted by someone closing the company is retried later instead of being marked for review.
+- For a PC where nobody opens Tally by hand, **Open Tally by itself** can keep Tally hidden in the background (Show/Hide Tally on Home; shown by itself if a prompt waits for two minutes), and bring a running Tally forward if a second copy is opened.
+- **If you turned on "Open Tally by itself" earlier, untick it in Settings and choose Save settings** (with Tally open). No SQL change.
 
 Version **1.4.0** replaces Setup with the **Vriddhi Tally Bridge** app, and makes the bridge come back after a Windows restart.
 
