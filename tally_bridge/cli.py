@@ -84,6 +84,10 @@ def gui(uninstall=False):
     saved_startup = existing.get("tally_startup", {})
     automatic = tk.BooleanVar(value=saved_startup.get("enabled", True))
     awake = tk.BooleanVar(value=existing.get("keep_awake", True))
+    try:
+        revive = tk.BooleanVar(value=windows.startup_state()["autostart"])
+    except (OSError, RuntimeError):
+        revive = tk.BooleanVar(value=True)
     ttk.Checkbutton(panel, text="Start Tally minimized and reopen it if employees close it", variable=automatic).pack(anchor="w", pady=(12, 5))
     exe = tk.StringVar(value=saved_startup.get("exe", ""))
     number = tk.StringVar(value=saved_startup.get("number", ""))
@@ -96,6 +100,8 @@ def gui(uninstall=False):
     ttk.Entry(row, textvariable=number, width=14).pack(side="left", padx=10)
     ttk.Label(panel, text="Test Tally tries to detect these fields. If the number is blank, enter the numeric data-folder number shown in Tally's company selection, for example 10000.", wraplength=590).pack(anchor="w", pady=(4, 5))
     ttk.Checkbutton(panel, text="Keep this PC awake while syncing (the screen may still lock)", variable=awake).pack(anchor="w", pady=5)
+    ttk.Checkbutton(panel, text="Auto-revive: start the bridge again whenever Windows restarts and you sign in",
+                    variable=revive, command=lambda: background(apply_revive)).pack(anchor="w", pady=5)
     status = tk.StringVar(value="Paired configuration found. Use Upgrade / save settings to keep the current pairing." if existing else "No connection has been tested yet.")
     ttk.Label(panel, textvariable=status, wraplength=590).pack(anchor="w", pady=12)
     buttons = ttk.Frame(panel); buttons.pack(fill="x")
@@ -114,7 +120,7 @@ def gui(uninstall=False):
         return None
 
     def read_settings(values):
-        raw, p, path, num, enabled, keep = values
+        raw, p, path, num, enabled, keep, _ = values
         startup = startup_settings(path, num) if enabled else {"enabled": False}
         return raw, int(p), startup, keep
 
@@ -124,7 +130,7 @@ def gui(uninstall=False):
             return
         busy = True
         # Read Tk values on the UI thread; workers communicate only through the queue.
-        values = pairing.get("1.0", "end").strip(), port.get(), exe.get(), number.get(), automatic.get(), awake.get()
+        values = pairing.get("1.0", "end").strip(), port.get(), exe.get(), number.get(), automatic.get(), awake.get(), revive.get()
         status.set("Checking…")
         def task():
             try:
@@ -158,7 +164,7 @@ def gui(uninstall=False):
     root.protocol("WM_DELETE_WINDOW", lambda: status.set("Finishing setup; please wait before closing.") if busy else root.destroy())
 
     def test(values):
-        raw, p, path, num, enabled, keep = values
+        raw, p, path, num, enabled, keep, _ = values
         tally = Tally(LocalTally(p), existing.get("company", ""), existing.get("guid"))
         companies = tally.companies()
         target = next((c for c in companies if c["name"] == existing.get("company")), companies[0] if len(companies) == 1 else None)
@@ -179,13 +185,25 @@ def gui(uninstall=False):
         updates.put(("detected", (next(iter(paths)) if len(paths) == 1 else None, found_number)))
         return "Tally is reachable. Open companies: " + ", ".join(c["name"] for c in companies if c["name"]) + "." + vouchers + (" Confirm the startup path and company number below." if enabled else "")
 
-    def finish_install(config):
+    def finish_install(config, values):
         windows.save_config(config)
-        installed = windows.install()
+        installed = windows.install(autostart=values[-1])
         windows.start(installed)
-        startup = json.loads((windows.data_dir() / "startup.json").read_text())
-        fallback = " Windows policy did not allow the recovery task; sign-in startup is registered instead." if not startup["scheduled_task"] else ""
-        return "Background sync is running. You may close this window. Windows must remain signed in; locking the screen is fine." + fallback
+        startup = windows.startup_state()
+        fallback = (" Windows policy did not allow the recovery task; sign-in startup is registered instead."
+                    if startup["autostart"] and not startup["scheduled_task"] else "")
+        after = (" It starts again by itself after Windows restarts and you sign in." if startup["autostart"]
+                 else " Auto-revive is off: after a Windows restart, open this window and choose Start.")
+        return "Background sync is running. You may close this window. Windows must remain signed in; locking the screen is fine." + after + fallback
+
+    def apply_revive(values):
+        on = values[-1]
+        windows.set_autostart(on)
+        if on:
+            problems = [p for p in windows.startup_problems() if "scheduled task" in p]
+            return "Auto-revive is on: the bridge starts by itself after Windows restarts and you sign in." + (" " + problems[0] if problems else "")
+        return ("Auto-revive is off: after a Windows restart the bridge stays stopped until you choose Start. "
+                "It keeps running now; choose Stop to stop it.")
 
     def pair(values):
         raw, p, startup, keep = read_settings(values)
@@ -203,7 +221,7 @@ def gui(uninstall=False):
         windows.save_config(config)
         cloud.rpc("tally_bridge_pair", p_code=package["code"], p_token=token,
                   p_company=company["name"], p_guid=company["guid"], p_label=__import__("socket").gethostname())
-        result = finish_install(config)
+        result = finish_install(config, values)
         updates.put(("clear_pair", None))
         return result
 
@@ -214,7 +232,7 @@ def gui(uninstall=False):
         Tally(LocalTally(p), config["company"], config["guid"]).verify()
         windows.stop_before_pairing()
         config.update(port=p, tally_startup=startup, keep_awake=keep)
-        return finish_install(config)
+        return finish_install(config, values)
 
     ttk.Button(buttons, text="Test Tally", command=lambda: background(test)).pack(side="left", padx=(0, 8))
     ttk.Button(buttons, text="Install & pair", command=lambda: background(pair)).pack(side="left", padx=(0, 8))
@@ -236,6 +254,10 @@ def gui(uninstall=False):
                   "off": "Bridge off"}
         notes = [n for n in (upgrade_note(), None if windows.worker_running() else
                              "Background sync is not running. Click Start (or Upgrade / save settings).") if n]
+        notes += windows.startup_problems()
+        history = windows.recent_log(3)
+        if history:
+            notes.append("Recent: " + " · ".join(history) + ".")
         if not state:
             return " ".join(notes + ["Waiting for the first sync."])
         when = __import__("datetime").datetime.fromtimestamp(state.get("at", 0)).strftime("%d %b %H:%M:%S")
@@ -251,7 +273,10 @@ def gui(uninstall=False):
         status.set(note)
     ttk.Button(row, text="Status", command=lambda: background(show_status)).pack(side="left")
     ttk.Button(row, text="Start", command=lambda: background(restart)).pack(side="left", padx=8)
-    ttk.Button(row, text="Stop", command=lambda: (windows.stop(), status.set("Stopping after the current request. Queued work stays safe.")) if not busy else None).pack(side="left")
+    ttk.Button(row, text="Stop", command=lambda: (windows.stop(), status.set(
+        "Stopping after the current request. Queued work stays safe. "
+        + ("It starts again after the next Windows restart; untick auto-revive to keep it stopped."
+           if revive.get() else "It stays stopped until you choose Start."))) if not busy else None).pack(side="left")
     ttk.Label(panel, text="Tally must still run as the data engine; the bridge can start it minimized. It never closes a running Tally session. A password, licence prompt or repair dialog may require attention. Keep Defender enabled.", wraplength=590).pack(anchor="w", pady=4)
     root.mainloop()
 
@@ -284,6 +309,17 @@ def self_test(install_smoke=False):
                 assert winreg.QueryValueEx(key, windows.APP)[0] == __import__('subprocess').list2cmdline(windows.command(installed, "--supervise"))
             startup = json.loads((windows.data_dir() / "startup.json").read_text())
             assert startup["scheduled_task"], "Windows task registration failed on CI"
+            # Auto-revive off removes both the sign-in entry and the task; on brings them back.
+            windows.set_autostart(False)
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+                try: winreg.QueryValueEx(key, windows.APP)
+                except FileNotFoundError: pass
+                else: raise AssertionError("Auto-revive off left the sign-in entry")
+            assert windows.task_command("/Query", "/TN", windows.APP).returncode != 0, "Auto-revive off left the task"
+            assert windows.startup_problems() == ["Auto-revive is off: the bridge starts only with Start."]
+            assert windows.set_autostart(True, installed), "Task registration failed when turning auto-revive on"
+            assert not windows.startup_problems(), windows.startup_problems()
+            assert windows.boot_time() < __import__("time").time()
             lock = windows.SingleInstance("SmokeTest")
             try:
                 try: windows.SingleInstance("SmokeTest")

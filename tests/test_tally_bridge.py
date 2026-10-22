@@ -767,3 +767,23 @@ def test_use_tally_version_reads_an_older_voucher_by_guid(store):
     w.heartbeat()
     w.scan("Voucher",True)
     assert store.known("Voucher")[ID]["alter_id"]==4
+
+
+def test_auto_revive_clears_a_stop_from_before_the_windows_restart():
+    from tally_bridge.windows import stale_stop
+    booted = 1_000_000.0
+    assert stale_stop(booted - 60, booted, True)        # stopped before the restart: revive
+    assert not stale_stop(booted + 60, booted, True)    # stopped after signing in: stay stopped
+    assert not stale_stop(booted - 60, booted, False)   # auto-revive off: Stop lasts until Start
+    assert not stale_stop(None, booted, True)            # never stopped
+
+
+def test_startup_task_waits_for_sign_in_and_restarts_the_supervisor():
+    from tally_bridge.windows import task_xml
+    from xml.etree import ElementTree as ET
+    ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
+    task = ET.fromstring(task_xml(r"C:\Users\x\AppData\Local\Programs\VriddhiTallyBridge\1.3.1", "S-1-5-21-1").split("\n", 1)[1])
+    logon = task.find(".//t:LogonTrigger", ns)
+    assert logon.findtext("t:Delay", namespaces=ns) == "PT20S" and logon.findtext("t:UserId", namespaces=ns) == "S-1-5-21-1"
+    assert task.findtext(".//t:RestartOnFailure/t:Count", namespaces=ns) == "999"
+    assert "--supervise" in task.findtext(".//t:Exec/t:Arguments", namespaces=ns)

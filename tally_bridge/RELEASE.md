@@ -1,3 +1,10 @@
+Version **1.3.1** makes the bridge come back after a Windows restart:
+
+- **Auto-revive** (Setup, on by default): the bridge starts again by itself after every restart once you sign in. 1.3.0 and earlier kept a **Stop**, or an upgrade that did not finish, in force across restarts, so one Stop kept the bridge down for good. Now a Stop lasts until the next restart while auto-revive is on. Untick auto-revive to keep the bridge from starting with Windows.
+- Turning auto-revive on also re-enables the bridge if Windows Startup apps had switched it off. The scheduled task waits 20 seconds after sign-in for the desktop and network.
+- Setup's **Status** says what would stop it starting with Windows, and shows the last starts, stops and exits.
+- No SQL change. Open the new Setup and choose **Upgrade / save settings**.
+
 Version **1.3.0** makes the bridge optional and much lighter on Tally:
 
 - **Switch the bridge on or off** in the web app (Tally connection & reports → Sync vouchers with Tally). Off, the app works exactly as before the bridge (day's XML, Import from Tally, free edits) and the PC leaves Tally alone.
