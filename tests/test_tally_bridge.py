@@ -985,3 +985,65 @@ def test_app_show_and_hide_tally(tmp_path):
     win.tally_processes = lambda: []
     with pytest.raises(Problem, match="not running"):
         ctl.show_tally(True)
+
+
+def guard_rig(store):
+    from tally_bridge.guard import TallyGuard
+    world = {"procs": [], "now": 1000.0, "shown": [], "closed": [], "log": []}
+    g = TallyGuard(store, lambda: list(world["procs"]), lambda visible, pids: world["shown"].append((visible, pids)),
+                   lambda pid: world["closed"].append(pid), world["log"].append, clock=lambda: world["now"])
+    return g, world
+
+
+def test_opening_tally_again_brings_the_background_tally_forward_and_closes_the_copy(store):
+    g, w = guard_rig(store)
+    w["procs"] = [{"pid": 100, "parent": 4}]           # the bridge's background Tally
+    store.set("tally_hidden_pid", 100)
+    g.poll()                                            # first look: nothing is new
+    assert not w["shown"] and not w["closed"]
+    w["procs"].append({"pid": 200, "parent": 8})        # an employee clicks the Tally icon
+    w["now"] += 1; g.poll()
+    assert w["shown"] == [(True, [100])] and w["closed"] == [200]
+    assert store.get("tally_hidden_pid") is None        # employees use it now: never hidden again
+    w["procs"] = [{"pid": 100, "parent": 4}]            # the copy closed as asked
+    w["now"] += 1; g.poll()
+    assert "one Tally is open" in w["log"][-1] and w["closed"] == [200]
+
+
+def test_a_tally_child_process_and_a_first_tally_are_left_alone(store):
+    g, w = guard_rig(store)
+    g.poll()
+    w["procs"] = [{"pid": 100, "parent": 4}]            # Tally opened when none was running
+    w["now"] += 1; g.poll()
+    w["procs"].append({"pid": 101, "parent": 100})      # started by Tally itself
+    w["now"] += 1; g.poll()
+    assert not w["shown"] and not w["closed"]
+
+
+def test_a_copy_that_will_not_close_is_reported_never_forced(store):
+    g, w = guard_rig(store)
+    w["procs"] = [{"pid": 100, "parent": 4}]
+    g.poll()
+    w["procs"].append({"pid": 200, "parent": 8})        # an employee's own Tally was already visible
+    for _ in range(25):
+        w["now"] += 1; g.poll()
+    assert w["shown"] == [(True, [100])] and set(w["closed"]) == {200} and len(w["closed"]) <= 21
+    assert "Two copies of Tally are open" in store.get("tally_notice")["text"]
+    worker = Worker(FakeCloud(), FakeTally(), store)
+    assert worker.watching().startswith("Two copies of Tally are open")
+    w["procs"] = [{"pid": 100, "parent": 4}]            # someone closed one
+    w["now"] += 1; g.poll()
+    assert store.get("tally_notice") is None
+
+
+def test_bridge_exit_shows_a_tally_it_had_hidden(tmp_path):
+    from tally_bridge.cli import reveal_hidden_tally
+    db = Store(tmp_path / "journal.sqlite3"); db.set("tally_hidden_pid", 4242); db.close()
+    calls = []
+    class Win:
+        def data_dir(self): return tmp_path
+        def set_tally_visible(self, visible, pids=None): calls.append((visible, pids))
+        def log(self, message): calls.append(message)
+    reveal_hidden_tally(Win())
+    assert calls[0] == (True, [4242])
+    db = Store(tmp_path / "journal.sqlite3"); assert db.get("tally_hidden_pid") is None; db.close()

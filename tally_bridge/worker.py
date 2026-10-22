@@ -189,7 +189,9 @@ class Worker:
 
     def watching(self):
         count = self.store.count("Voucher")
-        return "Watching " + format(count, ",") + " fuel voucher" + ("" if count == 1 else "s") + " in Tally; new web vouchers are checked every 5 seconds"
+        notice = self.store.get("tally_notice")  # e.g. two Tally copies open (guard.py)
+        return ((notice["text"] + " " if notice else "") + "Watching " + format(count, ",") + " fuel voucher"
+                + ("" if count == 1 else "s") + " in Tally; new web vouchers are checked every 5 seconds")
 
     def changed_in_tally(self):
         """An unchanged $AltVchId means no voucher changed, so the voucher list is not

@@ -137,7 +137,7 @@ class Controller:
         from .recovery import startup_settings
         return startup_settings(exe, number, hidden) if auto_tally else {"enabled": False}
 
-    def pair(self, text, port, auto_tally, exe, number, keep_awake, autostart, hidden=False):
+    def pair(self, text, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=True):
         package = self.read_pairing(text)
         port = valid_port(port)
         startup = self.startup(auto_tally, exe, number, hidden)
@@ -150,7 +150,7 @@ class Controller:
             raise Problem(f"Open “{package['company']}” in Tally Prime — that is the company the web app expects.") from None
         token = secrets.token_hex(32)
         config = dict(url=package["url"], key=package["key"], company=company["name"], guid=company["guid"], token=token,
-                      port=port, tally_startup=startup, keep_awake=keep_awake)
+                      port=port, tally_startup=startup, keep_awake=keep_awake, single_tally=single)
         cloud = Cloud(config["url"], config["key"])
         self.win.stop_before_pairing()
         # Retain the candidate token before the request so a lost response is recoverable.
@@ -159,7 +159,7 @@ class Controller:
                   p_company=company["name"], p_guid=company["guid"], p_label=socket.gethostname())
         return self.install(config, autostart)
 
-    def save(self, port, auto_tally, exe, number, keep_awake, autostart, hidden=False):
+    def save(self, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=True):
         """Save settings and (re)install this version; the pairing is kept."""
         config = self.config()
         if not config:
@@ -171,7 +171,7 @@ class Controller:
         except ConnectionProblem:
             raise Problem(f"Tally is not answering on port {port}. Open {config['company']} in Tally Prime, then save again.") from None
         self.win.stop_before_pairing()
-        config.update(port=port, tally_startup=startup, keep_awake=keep_awake)
+        config.update(port=port, tally_startup=startup, keep_awake=keep_awake, single_tally=single)
         return self.install(config, autostart)
 
     def install(self, config, autostart):

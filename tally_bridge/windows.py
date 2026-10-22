@@ -520,7 +520,7 @@ def tally_processes():
                                 path = buf.value
                         finally:
                             kernel.CloseHandle(handle)
-                    result.append({"pid": entry.th32ProcessID, "exe": path})
+                    result.append({"pid": entry.th32ProcessID, "exe": path, "parent": entry.th32ParentProcessID})
             valid = kernel.Process32NextW(snapshot, ctypes.byref(entry))
     finally:
         kernel.CloseHandle(snapshot)
@@ -535,6 +535,17 @@ def launch_tally(settings):
     return subprocess.Popen([settings["exe"], "/NOINILOAD", "/LOAD:" + settings["number"]],
                             cwd=str(Path(settings["exe"]).parent), startupinfo=info,
                             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP).pid
+
+
+def close_tally(pid):
+    """Ask one Tally copy to close, exactly as clicking its ✕ would (WM_CLOSE). Never forced."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    asked = 0
+    for hwnd, shown, titled, cls in _top_windows({pid}):
+        if shown and cls not in HELPER_CLASSES:
+            user32.PostMessageW(hwnd, 0x0010, 0, 0)
+            asked += 1
+    return asked
 
 
 HELPER_CLASSES = {"IME", "MSCTFIME UI", "tooltips_class32", "GDI+ Hook Window Class"}

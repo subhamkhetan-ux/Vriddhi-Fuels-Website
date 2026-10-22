@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import threading
 from pathlib import Path
 
 from . import __version__
@@ -26,8 +27,12 @@ def worker():
             windows.keep_awake(True)
             awake = True
         service = Worker(Cloud(c["url"], c["key"], c["token"]), tally, store, recovery=recovery)
-        service.run(windows.StopFlag())
+        stop = windows.StopFlag()
+        if c.get("single_tally", True):
+            single_tally(windows, stop)
+        service.run(stop)
     finally:
+        reveal_hidden_tally(windows)
         if awake:
             try:
                 windows.keep_awake(False)
@@ -36,6 +41,39 @@ def worker():
         if store:
             store.close()
         guard.close()
+
+
+def single_tally(windows, stop):
+    """Watch for a second Tally copy every second, beside the sync loop (guard.py)."""
+    from .guard import TallyGuard
+
+    def watch():
+        db = Store(windows.data_dir() / "journal.sqlite3")
+        guard = TallyGuard(db, windows.tally_processes, windows.set_tally_visible, windows.close_tally, windows.log)
+        while not stop.is_set():
+            try:
+                guard.poll()
+            except Exception:  # never let the guard stop the sync
+                pass
+            stop.wait(1)
+        db.close()
+    threading.Thread(target=watch, name="single-tally", daemon=True).start()
+
+
+def reveal_hidden_tally(windows):
+    """Never leave a Tally the bridge hid invisible once the bridge is not there to show it."""
+    try:
+        db = Store(windows.data_dir() / "journal.sqlite3")
+        try:
+            pid = db.get("tally_hidden_pid")
+            if pid:
+                windows.set_tally_visible(True, [pid])
+                db.set("tally_hidden_pid", None)
+                windows.log("Bridge stopping: the background Tally is shown")
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 def gui(uninstall=False):
@@ -65,6 +103,7 @@ def self_test(install_smoke=False):
         # The window listing behind Show/Hide Tally, on this process's own (Tk) windows.
         assert any(cls for _, _, _, cls in windows._top_windows({__import__("os").getpid()})), "EnumWindows found no windows"
         assert windows.set_tally_visible(True, pids=[]) == 0
+        assert windows.close_tally(0) == 0  # no such process: nothing is asked to close
         root.destroy()
         if install_smoke:
             import os, winreg

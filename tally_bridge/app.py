@@ -102,6 +102,7 @@ class App:
         self.v = {"port": tk.StringVar(value=str(config.get("port", 9000))),
                   "auto_tally": tk.BooleanVar(value=tally.get("enabled", True)),
                   "hidden": tk.BooleanVar(value=tally.get("hidden", True)),
+                  "single": tk.BooleanVar(value=config.get("single_tally", True)),
                   "exe": tk.StringVar(value=tally.get("exe", "")), "number": tk.StringVar(value=tally.get("number", "")),
                   "awake": tk.BooleanVar(value=config.get("keep_awake", True)), "revive": tk.BooleanVar(value=True)}
         try:
@@ -116,7 +117,7 @@ class App:
             raise Problem("The Tally port is a number, usually 9000.") from None
         return dict(port=port, auto_tally=self.v["auto_tally"].get(), exe=self.v["exe"].get().strip(),
                     number=self.v["number"].get().strip(), keep_awake=self.v["awake"].get(), autostart=self.v["revive"].get(),
-                    hidden=self.v["hidden"].get())
+                    hidden=self.v["hidden"].get(), single=self.v["single"].get())
 
     # ---- layout ----------------------------------------------------------------
     def layout(self):
@@ -357,6 +358,8 @@ class App:
                                "shown by itself if a prompt needs attention)", self.v["hidden"])
         hidden.pack(anchor="w", pady=(6, 0))
         self.tally_widgets = getattr(self, "tally_widgets", []) + [exe, browse, number, hidden]
+        self.checkbox(parent, "Keep one Tally open: when someone opens Tally from its icon while it is already running, "
+                      "bring the open Tally forward and close the extra copy", self.v["single"]).pack(anchor="w", pady=(10, 0))
         self.checkbox(parent, "Keep this PC awake while the bridge runs (the screen can still lock)",
                       self.v["awake"]).pack(anchor="w", pady=(10, 0))
         self.checkbox(parent, "Auto-revive: start the bridge again by itself after Windows restarts",
