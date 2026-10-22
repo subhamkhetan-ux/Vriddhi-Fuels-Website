@@ -249,3 +249,52 @@ def test_base_schema_rerun_keeps_device_grants_and_manual_import_guard(db):
 def test_revoke_stops_all_device_access(db):
     db.ok("select tally_bridge_control('revoke')", user=OWNER)
     assert "credential invalid" in db.fails(f"select tally_bridge_claim('{TOKEN}','{INSTANCE}')", anon=True)
+
+
+def test_import_chunk_stays_fast_with_thousands_of_tally_vouchers_stored(db):
+    """Supabase cancels a statement after ~8 s; a 500-voucher DayBook chunk must stay well under."""
+    import time
+    db.ok("update tally_bridge_config set active=true where id=1")
+    db.ok("""insert into tally_bridge_objects(kind,guid,alter_id,master_id,data)
+      select 'Voucher','perf-'||i,i,i,jsonb_build_object('light',i%2=0,'voucher_type','HSD CREDIT','number','P'||i,'date','20261001',
+        'xml',repeat('<LEDGERENTRIES.LIST><AMOUNT>1.00</AMOUNT></LEDGERENTRIES.LIST>',150),
+        'app_voucher',case when i%2=1 then jsonb_build_object('series','hsd','number','P'||i,'date','2026-10-01','party','Perf',
+          'vehicle','','qty',1,'rate',100,'item_amt',100,'party_amt',100,'roff',0) end)
+      from generate_series(1,6000) i on conflict do nothing""")
+    chunk = [dict(series="hsd", number=f"P{i}") for i in range(1, 501)]
+    started = time.monotonic()
+    result = daybook(db, *chunk)
+    elapsed = time.monotonic() - started
+    assert result["added"]["hsd"] == 500
+    assert db.ok("select count(*) from tally_vouchers where number like 'P%' and bridge_guid like 'perf-%'") == "500"
+    assert elapsed < 3, f"500-voucher import took {elapsed:.1f}s"
+
+
+
+def test_switching_the_bridge_off_and_on_keeps_the_app_independent(db):
+    db.ok("update tally_bridge_devices set revoked=false where id=(select id from tally_bridge_devices order by created_at desc limit 1)")
+    db.ok("select tally_bridge_control('on')", user=OWNER)
+    db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased')")
+    v = create(db)
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "queued"
+    db.ok("select tally_bridge_control('off')", user=OWNER)
+    # Back in the day's XML; nothing left for the PC to post; edits and deletes are free.
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "unlinked"
+    assert db.ok(f"select count(*) from tally_bridge_jobs where voucher_id='{v['id']}' and state<>'superseded'") == "0"
+    assert db.ok(f"select tally_bridge_claim('{TOKEN}','{INSTANCE}') is null", anon=True) == "t"
+    edit(db, v["id"], 1300)
+    assert db.ok(f"select count(*) from tally_bridge_jobs where voucher_id='{v['id']}' and state='pending'") == "0"
+    a = dict(series="hsd", number=v["number"], date="2026-10-19", party="Changed in Tally", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+    db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([tally_object('off-guid', a, alter=5)]))})", anon=True)
+    assert db.ok(f"select party from tally_vouchers where id='{v['id']}'") == "Test Debtor"  # an older PC cannot change it
+    db.ok(f"select tally_delete_voucher('{v['id']}')", user=OWNER)  # it has bridge job history
+    # DayBook import updates every voucher while off, linked ones too, like before the bridge.
+    assert daybook(db, dict(series="hsd", number="88001", party="From DayBook"))["updated"] == 1
+    assert db.ok("select party from tally_vouchers where number='88001'") == "From DayBook"
+    # Switching on posts nothing by itself; vouchers saved from then on are queued.
+    db.ok("select tally_bridge_control('on')", user=OWNER)
+    w = create(db)
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{w['id']}'") == "queued"
+    db.ok("select tally_bridge_control('revoke')", user=OWNER)
+    assert db.ok("select active from tally_bridge_config") == "f"
+    assert "Pair a PC first" in db.fails("select tally_bridge_control('on')", user=OWNER)

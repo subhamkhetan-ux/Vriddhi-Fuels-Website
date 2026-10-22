@@ -21,7 +21,8 @@ window.__VF_TEST_SUPABASE_FACTORY = () => {
     rpc(name,args){window.bridgeCalls.push({name,args});
       if(window.bridgeNetworkError)return Promise.resolve({error:{message:'Connection unavailable'}});
       if(!window.bridgeConfigured)return Promise.resolve({error:{code:'PGRST202',message:'function tally_bridge_status does not exist'}});
-      if(name==='tally_bridge_status')return Promise.resolve({data:{config:{active:true,ready:true,push_enabled:true},device:{label:'Office PC',last_seen:'2026-01-01T00:00:00Z',health:'online'},pending:2,attention:1,objects:1247,jobs:[{id:'job1',kind:'voucher',number:'101',voucher_id:'v1',state:'conflict',detail:'Tally and web versions differ.',updated_at:new Date().toISOString()}]}});
+      if(name==='tally_bridge_status')return Promise.resolve({data:{config:{active:window.bridgeOn!==false,ready:true,push_enabled:true},device:{label:'Office PC',last_seen:'2026-01-01T00:00:00Z',health:'online'},pending:2,attention:1,objects:1247,jobs:[{id:'job1',kind:'voucher',number:'101',voucher_id:'v1',state:'conflict',detail:'Tally and web versions differ.',updated_at:new Date().toISOString()}]}});
+      if(name==='tally_bridge_control'&&['on','off'].includes(args.p_action))window.bridgeOn=args.p_action==='on';
       if(name==='tally_bridge_pair_code')return Promise.resolve({data:{company:settings.company,code:'c'.repeat(64)}});
       if(name==='tally_bridge_report')return Promise.resolve({data:{key:'report1',state:'pending',fetched_at:'2026-10-18T12:00:00Z',content:window.reportFixture || '<table><tr><td>Test Debtor</td><td>₹ 1,234.00</td></tr></table><script>parent.pwned=true</script><img src="https://attacker.invalid/leak">',params:args}});
       if(name==='tally_bridge_browse')return Promise.resolve({data:[{guid:'g1',updated_at:new Date().toISOString(),deleted:false,data:{number:'101',party:'Example Customer',voucher_type:'Sales'}}]});
@@ -180,6 +181,31 @@ def test_import_from_tally_works_while_paired(browser,server,tmp_path):
     page.wait_for_function("window.bridgeCalls.some(c=>c.name==='tally_import_daybook')")
     call=page.evaluate("window.bridgeCalls.find(c=>c.name==='tally_import_daybook')")
     assert call['args']['p_vouchers'][0]['number']=='11'
+    page.close()
+
+
+@pytest.mark.parametrize('width',[390,1280])
+def test_bridge_switches_off_and_on_from_the_connection_screen(browser,server,width):
+    page=browser.new_page(viewport={'width':width,'height':900})
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.goto(server+'/tally/')
+    page.on('dialog',lambda d:d.accept())
+    page.locator('#btnBridge').click()
+    toggle=page.get_by_role('switch',name='Sync vouchers with Tally')
+    toggle.wait_for()
+    page.wait_for_function("document.getElementById('bridgeMode').getAttribute('aria-checked')==='true'")
+    toggle.click()
+    page.wait_for_function("document.getElementById('bridgeMode').getAttribute('aria-checked')==='false'")
+    assert page.evaluate("window.bridgeCalls.some(c=>c.name==='tally_bridge_control'&&c.args.p_action==='off')")
+    assert 'Bridge off' in page.locator('#bridgeState').inner_text()
+    assert 'works on its own' in page.locator('#bridgeModeHint').inner_text()
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    page.wait_for_timeout(400)  # let the switch finish its transition
+    page.screenshot(path=f'/tmp/tally-bridge-switch-{width}.png')
+    toggle.click()
+    page.wait_for_function("document.getElementById('bridgeMode').getAttribute('aria-checked')==='true'")
+    assert not errors
     page.close()
 
 

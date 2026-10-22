@@ -386,8 +386,33 @@ def sanitize_report(raw):
 
 
 class Tally:
-    def __init__(self, transport, company, guid=None):
+    def __init__(self, transport, company, guid=None, clock=None):
+        import time
         self.transport, self.company, self.guid = transport, company, guid
+        self.clock = clock or time.monotonic
+        self.cache = {}  # masters seen present and party GST, for half an hour
+
+    def voucher_mark(self):
+        """The company's voucher alteration counter ($AltVchId): one tiny request that
+        tells whether any voucher changed, so idle polls never scan the voucher list.
+        None when this Tally release does not report it."""
+        try:
+            root = parse(self.transport.post(export_request(None, "Company", ["Name", "AltVchId"])))
+        except TallyProblem:
+            return None
+        for c in root.findall(".//COMPANY"):
+            if text(c, "NAME", c.get("NAME", "")) == self.company:
+                raw = re.sub(r"[\s,]", "", text(c, "ALTVCHID"))
+                return int(raw) if raw.isdigit() else None
+        return None
+
+    def cached(self, key):
+        hit = self.cache.get(key)
+        return hit[1] if hit and self.clock() - hit[0] < 1800 else None
+
+    def remember(self, key, value):
+        self.cache[key] = (self.clock(), value)
+        return value
 
     def companies(self):
         root = parse(self.transport.post(export_request(None, "Company", "Name,GUID,BooksFrom")))
@@ -456,14 +481,20 @@ class Tally:
                     found[text(v, "GUID")] = v
         return list(found.values())
 
-    def missing(self, kind, names):
+    def missing(self, kind, names, fresh=False):
         """Which of these masters Tally lacks. Masters are read live, never mirrored.
         Tally names are case-insensitive, like its own voucher import."""
+        names = [n for n in names if fresh or not self.cached((kind, n.casefold()))]
+        if not names:
+            return []
         try:
             formula = " OR ".join("$Name = " + literal(n) for n in names)
         except TallyProblem:
             formula = None  # a quote in a name: compare against the full list instead
         found = {(n.get("NAME") or text(n, "NAME")).casefold() for n in self.collection(kind, "Name", formula, False)}
+        for n in names:
+            if n.casefold() in found:
+                self.remember((kind, n.casefold()), True)
         return [n for n in names if n.casefold() not in found]
 
     def missing_masters(self, p):
@@ -474,11 +505,14 @@ class Tally:
 
     def party_gst(self, party, as_of):
         """The party's GST registration on the invoice date, or None to keep the app's copy."""
+        key = ("gst", party.casefold(), as_of)
+        if (hit := self.cached(key)) is not None:
+            return hit or None
         try:
             ledgers = self.collection("Ledger", "*", "$Name = " + literal(party), identities=False)
         except TallyProblem:
             return None
-        return ledger_gst(ledgers[0], as_of) if len(ledgers) == 1 else None
+        return self.remember(key, ledger_gst(ledgers[0], as_of) if len(ledgers) == 1 else {}) or None
 
     def lookup(self, p):
         """The Tally invoice with this voucher's GUID, or the same type and number."""
@@ -512,7 +546,7 @@ class Tally:
         self.verify()
         if p["report"] == "ledger":
             # A renamed/deleted ledger must not silently fall back to Tally's selected ledger.
-            if self.missing("Ledger", [p["ledger"]]):
+            if self.missing("Ledger", [p["ledger"]], fresh=True):
                 raise TallyProblem("The requested ledger is no longer available in this Tally company. Check the ledger's current name in Tally Prime.")
         report = REPORTS[p["report"]]
         start, end = dt.date.fromisoformat(p["from"]), dt.date.fromisoformat(p["to"])

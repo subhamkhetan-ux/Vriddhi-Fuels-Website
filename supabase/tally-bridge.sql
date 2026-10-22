@@ -49,6 +49,12 @@ create table if not exists public.tally_bridge_objects (
   deleted boolean not null default false, updated_at timestamptz not null default now(),
   primary key(kind,guid)
 );
+-- Indexed voucher keys: linking app vouchers never unpacks the stored XML.
+alter table public.tally_bridge_objects add column if not exists v_series text generated always as
+  (case data->>'voucher_type' when 'HSD CREDIT' then 'hsd' when 'MS CREDIT' then 'ms' when 'XG CREDIT' then 'xg' end) stored;
+alter table public.tally_bridge_objects add column if not exists v_number text generated always as (data->>'number') stored;
+create index if not exists tally_bridge_objects_voucher on public.tally_bridge_objects(v_series,v_number) where kind='Voucher' and not deleted;
+create index if not exists tally_bridge_jobs_voucher on public.tally_bridge_jobs(voucher_id);
 create table if not exists public.tally_bridge_reports (
   report_key text primary key, params jsonb not null,
   content text not null, fetched_at timestamptz not null default now()
@@ -163,14 +169,19 @@ begin
   if current_setting('vriddhi.bridge_ingest',true)='yes' then
     if TG_OP='DELETE' then return old; else return new; end if;
   end if;
+  select c.active into active from tally_bridge_config c where id=1;
   if current_setting('vriddhi.tally_import',true)='yes' and TG_OP<>'DELETE' then
-    -- Import from Tally: this data came from Tally, so nothing is posted back.
-    -- Linked and in-flight vouchers are kept current by the bridge and are skipped.
-    if TG_OP='UPDATE' and (old.bridge_guid is not null or old.bridge_state<>'unlinked') then return null; end if;
+    -- Import from Tally: this data came from Tally, so nothing is posted back. While the
+    -- bridge is on it keeps linked and in-flight vouchers current, so those are skipped.
+    if active and TG_OP='UPDATE' and (old.bridge_guid is not null or old.bridge_state<>'unlinked') then return null; end if;
     return new;
   end if;
-  select c.active into active from tally_bridge_config c where id=1;
   if TG_OP='DELETE' then
+    if not active then
+      -- Bridge off: the app manages its vouchers alone. Job history stays, detached.
+      update tally_bridge_jobs set voucher_id=null where voucher_id=old.id;
+      return old;
+    end if;
     if old.bridge_guid is not null or exists(select 1 from tally_bridge_jobs where voucher_id=old.id) then
       raise exception 'This voucher has bridge history. Cancel it in Tally Prime; cloud history cannot be erased.';
     end if;
@@ -227,7 +238,7 @@ begin
   perform _tb_device(p_token,p_instance);
   select c.ready,c.push_enabled into ready,enabled from tally_bridge_config c where id=1;
   select * into j from tally_bridge_jobs
-    where (kind='report' or (ready and enabled) or state='writing')
+    where (kind='report' or (ready and enabled and (select active from tally_bridge_config where id=1)) or state='writing')
       and (state='pending' or (state in ('leased','writing') and lease_until<now()))
     order by (state='writing') desc,created_at limit 1 for update skip locked;
   if j.id is null then return null; end if;
@@ -294,10 +305,11 @@ language sql immutable set search_path=pg_catalog as $$
     and (coalesce(a->>'vehicle','')='' or coalesce(v.vehicle,'')='' or v.vehicle=a->>'vehicle')
 $$;
 
-create or replace function public.tally_bridge_ingest(p_token text,p_instance uuid,p_objects jsonb) returns void
+drop function if exists public.tally_bridge_ingest(text,uuid,jsonb);
+create function public.tally_bridge_ingest(p_token text,p_instance uuid,p_objects jsonb) returns jsonb
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare o jsonb; a jsonb; v tally_vouchers; old_alter bigint; k text; g text; incoming bigint; pending boolean;
-  gone boolean; sk text; num text; light boolean;
+  gone boolean; sk text; num text; light boolean; unmatched jsonb := '[]'::jsonb;
 begin
   if p_instance is null then raise exception 'Worker instance is required'; end if;
   perform _tb_device(p_token,p_instance);
@@ -324,6 +336,8 @@ begin
         data=case when light and tally_bridge_objects.alter_id=excluded.alter_id
           and not coalesce((tally_bridge_objects.data->>'light')::boolean,false) then tally_bridge_objects.data else excluded.data end,
         deleted=excluded.deleted,updated_at=now();
+    -- Bridge switched off: keep Tally's copy for reports, never change the app's vouchers.
+    if not (select active from tally_bridge_config where id=1) then continue; end if;
     -- Reserve numbers observed in Tally so the app never offers one that is taken.
     if not gone then
       update tally_series set baseline=num where key=sk and _tally_numpart(num)>_tally_numpart(baseline);
@@ -338,6 +352,9 @@ begin
       if v.id is not null and v.bridge_guid is not null then continue; end if;
       if v.id is null then
         -- A fuel voucher made in Tally Prime joins the app's history, for bills and fuel slips.
+        if light and not coalesce((o->'data'->>'cancelled')::boolean,false) then
+          unmatched := unmatched || to_jsonb(g);  -- the PC reads this one's details
+        end if;
         if light or a is null or coalesce((o->'data'->>'cancelled')::boolean,false) then continue; end if;
         if a->>'series'<>sk or a->>'number'<>num or (a->>'qty')::numeric<=0
           or abs((a->>'party_amt')::numeric-(a->>'item_amt')::numeric-(a->>'roff')::numeric)>0.01 then raise exception 'Invalid fuel voucher'; end if;
@@ -409,32 +426,38 @@ begin
     perform _tally_bump_baselines(array[v.id]);
   end loop;
   perform set_config('vriddhi.bridge_ingest','no',true);
+  return jsonb_build_object('unmatched',unmatched);
 end $$;
 
 -- After Import from Tally: link imported invoices the bridge has already seen, using
 -- Tally's exact amounts (a DayBook file carries no round-off).
-create or replace function public._tb_link_imported() returns int
+drop function if exists public._tb_link_imported();
+create or replace function public._tb_link_imported(p_keys jsonb default null) returns int
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare n int; m int;
 begin
+  if not (select active from tally_bridge_config where id=1) then return 0; end if;
   perform set_config('vriddhi.bridge_ingest','yes',true);
+  with k as (select k->>'seriesKey' as series,k->>'number' as number from jsonb_array_elements(p_keys) k where p_keys is not null
+    union all select series,number from tally_vouchers where p_keys is null and bridge_guid is null and bridge_state='unlinked')
   update tally_vouchers v set date=(a->>'date')::date,party=a->>'party',vehicle=coalesce(nullif(a->>'vehicle',''),v.vehicle),
     qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
     party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,
     bridge_guid=o.guid,bridge_alter=o.alter_id,bridge_state='synced',status='history',updated_at=now()
-  from tally_bridge_objects o cross join lateral (select o.data->'app_voucher' as a) x
-  where o.kind='Voucher' and not o.deleted and jsonb_typeof(a)='object'
+  from k join tally_bridge_objects o on o.kind='Voucher' and not o.deleted and o.v_series=k.series and o.v_number=k.number
+    cross join lateral (select o.data->'app_voucher' as a) x
+  where v.series=k.series and v.number=k.number and jsonb_typeof(a)='object'
     and v.bridge_guid is null and v.bridge_state='unlinked'
-    and v.series=a->>'series' and v.number=a->>'number'
     and not exists(select 1 from tally_vouchers y where y.bridge_guid=o.guid);
   get diagnostics n=row_count;
   -- Vouchers known from metadata only are linked by type and number; values stay as imported.
+  with k as (select k->>'seriesKey' as series,k->>'number' as number from jsonb_array_elements(p_keys) k where p_keys is not null
+    union all select series,number from tally_vouchers where p_keys is null and bridge_guid is null and bridge_state='unlinked')
   update tally_vouchers v set bridge_guid=o.guid,bridge_alter=o.alter_id,bridge_state='synced'
-  from tally_bridge_objects o
-  where o.kind='Voucher' and not o.deleted and coalesce((o.data->>'light')::boolean,false)
+  from k join tally_bridge_objects o on o.kind='Voucher' and not o.deleted and o.v_series=k.series and o.v_number=k.number
+  where v.series=k.series and v.number=k.number and coalesce((o.data->>'light')::boolean,false)
     and not coalesce((o.data->>'cancelled')::boolean,false)
-    and v.bridge_guid is null and v.bridge_state='unlinked' and v.number=o.data->>'number'
-    and v.series=case o.data->>'voucher_type' when 'HSD CREDIT' then 'hsd' when 'MS CREDIT' then 'ms' when 'XG CREDIT' then 'xg' end
+    and v.bridge_guid is null and v.bridge_state='unlinked'
     and not exists(select 1 from tally_vouchers y where y.bridge_guid=o.guid);
   get diagnostics m=row_count;
   perform set_config('vriddhi.bridge_ingest','no',true);
@@ -464,6 +487,19 @@ begin
       order by (state in ('conflict','error')) desc,updated_at desc limit 40) x),'[]'::jsonb));
 end $$;
 
+-- Manual mode: the app works exactly as before the bridge (XML export, free edits and
+-- deletes). Postings not yet started return to the day's XML; history is kept.
+create or replace function public._tb_switch_off() returns void
+language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+  update tally_bridge_config set active=false where id=1;
+  update tally_vouchers v set bridge_state=case when v.bridge_guid is null then 'unlinked' else 'synced' end
+    where v.bridge_state in ('queued','needs_edit','awaiting_tally')
+      and not exists(select 1 from tally_bridge_jobs j where j.voucher_id=v.id and j.write_started and j.state not in ('done','superseded'));
+  update tally_bridge_jobs set state='superseded',detail='Bridge switched off; use the day''s XML',updated_at=now()
+    where kind='voucher' and state in ('pending','leased','error','conflict') and not write_started;
+end $$;
+
 create or replace function public.tally_bridge_control(p_action text,p_voucher uuid default null) returns void
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare v tally_vouchers; o tally_bridge_objects; sk text;
@@ -475,6 +511,15 @@ begin
     update tally_bridge_devices set revoked=true where not revoked;
     update tally_bridge_config set ready=false,push_enabled=false where id=1;
     delete from tally_bridge_pairings;
+    perform _tb_switch_off();
+  elsif p_action='off' then
+    perform _tb_switch_off();
+  elsif p_action='on' then
+    if not exists(select 1 from tally_bridge_devices where not revoked) then raise exception 'Pair a PC first'; end if;
+    -- Vouchers saved while off are not posted: the bridge links any it finds in Tally by
+    -- type and number; one not in Tally yet can be queued from Sync activity.
+    update tally_bridge_config set active=true,push_enabled=true where id=1;
+    update tally_settings set auto_clear=false where id=1;
   elsif p_action='queue' then
     if not (select active from tally_bridge_config where id=1) then raise exception 'Pair a PC first'; end if;
     select * into v from tally_vouchers where id=p_voucher for update;
@@ -627,8 +672,8 @@ begin
   where ts.key = latest.key;
 
   perform set_config('vriddhi.tally_import', 'no', true);
-  if to_regprocedure('public._tb_link_imported()') is not null then
-    perform public._tb_link_imported();
+  if to_regprocedure('public._tb_link_imported(jsonb)') is not null then
+    perform public._tb_link_imported(p_vouchers);
   end if;
 
   return jsonb_build_object('added', added, 'updated', updated, 'kept', kept, 'newParties', new_p);

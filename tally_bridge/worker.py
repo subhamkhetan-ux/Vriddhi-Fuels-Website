@@ -6,7 +6,7 @@ import time
 import uuid
 
 from . import __version__
-from .tally import KINDS, SERIES, TallyProblem, business_equal, fuel_voucher, identity, light_object, object_data, voucher_date
+from .tally import SERIES, TallyProblem, business_equal, fuel_voucher, identity, light_object, object_data, voucher_date
 from .transport import CloudRejected, ConnectionProblem
 from .recovery import TallyStarting
 
@@ -28,6 +28,7 @@ class Worker:
         self.stop = None
         self.initial_scan = True
         self.recovery = recovery
+        self.pending_mark = None
         binding = {"company_guid": tally.guid, "cloud": cloud.url}
         if store.get("binding") not in (None, binding):
             raise TallyProblem("This recovery journal belongs to a different company or cloud project. Keep it for administrator review.")
@@ -73,8 +74,13 @@ class Worker:
             self.progress(f"Sending {pending:,} Tally vouchers to the web app")
         while rows := self.store.upload_batch():
             self.pulse()
-            self.cloud.rpc("tally_bridge_ingest", p_objects=[json.loads(r["payload"]) for r in rows])
+            objects = [json.loads(r["payload"]) for r in rows]
+            result = self.cloud.rpc("tally_bridge_ingest", p_objects=objects)
+            light = [o["guid"] for o in objects if (o.get("data") or {}).get("light")]
+            # Only vouchers the app does not have need their details read from Tally.
+            unmatched = set(result["unmatched"]) if isinstance(result, dict) and "unmatched" in result else set(light)
             self.store.uploaded(rows)
+            self.store.need_details("Voucher", [g for g in light if g in unmatched], [g for g in light if g not in unmatched])
 
     def validate_snapshot(self, kind, meta):
         current = {identity(m)[0]: identity(m) for m in meta}
@@ -136,21 +142,19 @@ class Worker:
         self.store.set("scan:" + kind, self.clock())
 
     def backfill(self):
-        """Read details of vouchers known only from metadata, one week of Day Book per call,
-        newest first, so every Tally fuel voucher reaches the app for bills and slips."""
+        """Read one day of Day Book for vouchers the app does not have yet, newest first.
+        Called at most once a minute so Tally stays responsive for the people using it."""
         light = self.store.light("Voucher")
         if not light:
             return False
-        end = dt.datetime.strptime(max(d for _, _, d in light), "%Y%m%d").date()
-        start = end - dt.timedelta(days=6)
-        wanted = {g: alter for g, alter, d in light if start.strftime("%Y%m%d") <= d}
-        self.progress(f"Reading voucher details from Tally, {start:%d %b} to {end:%d %b}: {len(light):,} left")
-        found = [v for v in self.tally.daybook(start, end) if v.findtext("GUID", "").strip() in wanted]
-        self.tally.verify()
+        day = dt.datetime.strptime(max(d for _, _, d in light), "%Y%m%d").date()
+        wanted = {g: alter for g, alter, d in light if d == day.strftime("%Y%m%d")}
+        self.progress(f"Reading Tally vouchers the app does not have yet, {day:%d %b %Y}: {len(light):,} left")
+        found = [v for v in self.tally.daybook(day, day) if v.findtext("GUID", "").strip() in wanted]
         full = [object_data("Voucher", v) for v in found]
         self.store.stage([o for o in full if o["alter_id"] >= wanted[o["guid"]]])
-        # Whatever the week did not return (moved, deleted) waits for the next alteration or full scan.
-        self.store.settle_light("Voucher", wanted)
+        # Whatever the day did not return (moved, deleted) waits for its next alteration.
+        self.store.need_details("Voucher", [], list(wanted))
         return True
 
     def finish(self, job, state, result=None, detail=""):
@@ -207,6 +211,12 @@ class Worker:
         count = self.store.count("Voucher")
         return "Watching " + format(count, ",") + " fuel voucher" + ("" if count == 1 else "s") + " in Tally; new web vouchers are checked every 5 seconds"
 
+    def changed_in_tally(self):
+        """An unchanged $AltVchId means no voucher changed, so the voucher list is not
+        scanned (that scan is what slowed Tally for the people using it)."""
+        self.pending_mark = self.tally.voucher_mark()
+        return self.pending_mark is None or self.pending_mark != self.store.get("mark")
+
     def step(self):
         cloud_ok = True
         try:
@@ -217,20 +227,26 @@ class Worker:
             cloud_ok = False
         if self.stop and self.stop.is_set():
             raise Stopped()
-        if self.recovery:
-            if self.recovery.ensure():
-                self.initial_scan = True
-        else:
-            self.tally.verify()
-        if self.initial_scan:
-            self.status("syncing", "Bridge " + __version__ + " started; reading the fuel voucher list from Tally")
-        for kind in KINDS:
-            bootstrap = cloud_ok and not self.config.get("ready")
-            full = self.initial_scan or bootstrap or self.clock() - self.store.get("full:" + kind, 0) >= 3600
-            # A manual conflict resolution requires a fresh read, even when AlterID has not changed.
-            full = full or bool(self.config.get("refresh_guids"))
-            if full or self.clock() - self.store.get("scan:" + kind, 0) >= 5:
-                self.scan(kind, full, force_upload=bootstrap)
+        if cloud_ok and self.config.get("active") is False:
+            return self.idle()
+        bootstrap = cloud_ok and not self.config.get("ready")
+        # A manual conflict resolution requires a fresh read, even when AlterID has not changed.
+        full = (self.initial_scan or bootstrap or bool(self.config.get("refresh_guids"))
+                or self.clock() - self.store.get("full:Voucher", 0) >= 7200)
+        # Tally is asked at most every 10 seconds; the cloud queue is still checked every 5.
+        if full or self.clock() - self.store.get("polled", 0) >= 10:
+            self.store.set("polled", self.clock())
+            if self.recovery:
+                if self.recovery.ensure():
+                    self.initial_scan = full = True
+            else:
+                self.tally.verify()
+            if self.initial_scan:
+                self.status("syncing", "Bridge " + __version__ + " started; reading the fuel voucher list from Tally")
+            if self.changed_in_tally() or full:
+                self.scan("Voucher", full, force_upload=bootstrap)
+                # The counter read BEFORE the scan: a change during it is seen next time.
+                self.store.set("mark", self.pending_mark)
         self.initial_scan = False
         if not cloud_ok:
             self.status("internet_offline", "Changes retained on this PC; uploads resume on reconnection.")
@@ -238,21 +254,40 @@ class Worker:
         self.flush()
         if not self.config.get("ready"):
             self.cloud.rpc("tally_bridge_ready")
-        job = self.cloud.rpc("tally_bridge_claim")
-        if job:
-            try:
-                if job["kind"] == "report":
-                    self.finish(job, "done", {"content": self.tally.report(job["payload"])})
-                else:
-                    self.voucher(job)
-            except TallyProblem as e:
-                self.finish(job, "conflict" if job["kind"] == "voucher" else "error", detail=str(e))
-            # Network/HTTP failure leaves a leased/writing job for safe recovery after expiry.
-        elif self.backfill():
-            return  # the next step uploads this week and checks the queue again
+        if self.claim():
+            pass
+        elif self.clock() - self.store.get("backfilled", 0) >= 60:
+            self.store.set("backfilled", self.clock())
+            if self.backfill():
+                return  # the next step uploads the day and checks the queue again
         detail = self.watching()
         self.heartbeat("online", detail)
         self.status("online", detail)
+
+    def claim(self):
+        job = self.cloud.rpc("tally_bridge_claim")
+        if not job:
+            return False
+        try:
+            if job["kind"] == "report":
+                self.tally.verify()
+                self.finish(job, "done", {"content": self.tally.report(job["payload"])})
+            else:
+                self.voucher(job)
+        except TallyProblem as e:
+            self.finish(job, "conflict" if job["kind"] == "voucher" else "error", detail=str(e))
+        # Network/HTTP failure leaves a leased/writing job for safe recovery after expiry.
+        return True
+
+    def idle(self):
+        """Bridge switched off in the web app: Tally is not read or started. Only report
+        requests and the recheck of an uncertain earlier posting are served."""
+        if self.claim():
+            return
+        detail = "Bridge switched off in the web app; Tally is not being read"
+        self.heartbeat("off", detail)
+        self.status("off", detail)
+        self.initial_scan = True  # a full reconciliation when it is switched back on
 
     def run(self, stop=None):
         self.stop = stop

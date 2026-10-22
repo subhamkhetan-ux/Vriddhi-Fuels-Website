@@ -1,13 +1,13 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.2.0';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.3.0';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
   const LABELS = {queued:'Queued for Tally',confirming:'Confirming in Tally',synced:'Confirmed in Tally',conflict:'Needs review',
     needs_edit:'Not posted — correct details or retry',deleted:'Cancelled / deleted in Tally',unsupported:'Changed in Tally — view current report',awaiting_tally:'Fetching Tally version',unlinked:'Not linked'};
-  let client, cfg, user, timer, pairingExpiry, ledgerTimer, epoch = 0, tab = 'reports', report = null, busy = false, exportBusy = false, reportArgs = null, status = null, offset = 0;
+  let modeBusy = false, client, cfg, user, timer, pairingExpiry, ledgerTimer, epoch = 0, tab = 'reports', report = null, busy = false, exportBusy = false, reportArgs = null, status = null, offset = 0;
   const $ = id => document.getElementById(id);
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const date = value => value ? new Date(value).toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'}) : 'Not yet';
@@ -24,6 +24,7 @@
   function online() { return status && status.device && Date.now() - Date.parse(status.device.last_seen) < 95000; }
   function title() {
     if (!status) return 'Connection not configured';
+    if (!status.config.active) return status.device ? 'Bridge off · vouchers go by XML' : 'Not connected · vouchers go by XML';
     if (!status.device) return 'Pair your Windows PC';
     if (!online()) return 'PC offline · cached data available';
     if (status.device.health === 'starting_tally') return 'Starting Tally Prime…';
@@ -33,8 +34,9 @@
   }
   function paintStatus() {
     $('bridgeHomeStatus').textContent = title();
-    $('bridgeHomeDot').className = 'bridge-dot' + (online() && status.device.health === 'online' ? ' online' : '');
+    $('bridgeHomeDot').className = 'bridge-dot' + (status && status.config.active && online() && status.device.health === 'online' ? ' online' : '');
     if (!$('bridgeState')) return;
+    paintMode();
     $('bridgeState').textContent = title();
     $('bridgePending').textContent = status ? status.pending : '—';
     $('bridgeAttention').textContent = status ? status.attention : '—';
@@ -64,6 +66,8 @@
       <h2>Tally connection <span>&amp; reports</span></h2>
       <p>Your office books, with you. Review reports, follow sync progress, and manage your connection.</p></div>
       <span class="bridge-chip" id="bridgeState">Checking connection…</span></div>
+      <div class="bridge-mode"><div><strong id="bridgeModeTitle">Sync vouchers with Tally</strong><small id="bridgeModeHint"></small></div>
+      <button type="button" class="bridge-toggle" id="bridgeMode" role="switch" aria-checked="false" aria-labelledby="bridgeModeTitle" aria-describedby="bridgeModeHint"></button></div>
       <div class="bridge-metrics"><div class="bridge-metric"><small>WAITING TO SYNC</small><strong id="bridgePending">—</strong></div>
       <div class="bridge-metric"><small>NEEDS REVIEW</small><strong id="bridgeAttention">—</strong></div>
       <div class="bridge-metric"><small>VOUCHERS WATCHED</small><strong id="bridgeObjects">—</strong></div></div>
@@ -87,8 +91,32 @@
         selectTab(tabs[next].dataset.tab);
       };
     });
+    $('bridgeMode').onclick = () => switchMode().catch(error);
     selectTab(tab);
     paintStatus();
+  }
+  function paintMode() {
+    const on = !!(status && status.config.active), toggle = $('bridgeMode');
+    if (!toggle) return;
+    toggle.setAttribute('aria-checked', String(on));
+    toggle.disabled = modeBusy || !status || (!on && !status.device);
+    $('bridgeModeHint').textContent = !status ? 'Checking…' : on
+      ? 'On: new and edited vouchers post to Tally by themselves, and vouchers made in Tally appear here.'
+      : status.device ? 'Off: the app works on its own. Download the day\'s XML and use Import from Tally, as before.'
+        : 'Off: the app works on its own. Pair a PC under Connect PC to use the bridge.';
+  }
+  async function switchMode() {
+    if (modeBusy || !status) return;
+    const on = !status.config.active;
+    const ask = on
+      ? 'Switch the Tally bridge on?\n\nVouchers saved from now on post to Tally by themselves. Vouchers saved while it was off are not posted again: the bridge links the ones it finds in Tally. Download and import the XML of any that are not in Tally yet first, or queue them from Sync activity.'
+      : 'Switch the Tally bridge off?\n\nThe app goes back to the day\'s XML download and Import from Tally. Vouchers still waiting to post (' + status.pending + ') return to the day\'s XML. Nothing already in Tally changes. You can switch it back on at any time.';
+    if (!confirm(ask)) return;
+    modeBusy = true; paintMode();
+    try { await control(on ? 'on' : 'off'); }
+    finally { modeBusy = false; paintMode(); }
+    if ($('bridgeMessage')) $('bridgeMessage').textContent = on ? 'Bridge on. New vouchers post to Tally automatically.' : 'Bridge off. Use the day\'s XML download; the home screen shows the button again.';
+    if (tab === 'setup') selectTab('setup');
   }
   function selectTab(value) {
     tab = value;
@@ -352,7 +380,7 @@
     },
     label(value) { return value && value!=='unlinked' ? LABELS[value] || value : ''; },
     safeReport,
-    clear() { epoch++; clearInterval(timer); clearTimeout(pairingExpiry); clearTimeout(ledgerTimer); client=null; user=null; status=null; report=null; reportArgs=null; busy=false;exportBusy=false;
+    clear() { epoch++; modeBusy=false; clearInterval(timer); clearTimeout(pairingExpiry); clearTimeout(ledgerTimer); client=null; user=null; status=null; report=null; reportArgs=null; busy=false;exportBusy=false;
       if($('scrBridge')) $('scrBridge').replaceChildren(); if($('btnBridge')) $('btnBridge').hidden=true; }
   };
 })(window);

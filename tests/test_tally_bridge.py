@@ -58,6 +58,8 @@ class FakeTally:
         return self.missing
     def party_gst(self, party, as_of):
         return None
+    def voucher_mark(self):
+        return None  # a Tally that does not report $AltVchId: every poll scans
     def import_voucher(self, p, existing=None):
         self.imports += 1
         self.found = voucher(p, 12)
@@ -700,28 +702,78 @@ def test_stored_xml_drops_empty_fields_but_keeps_every_value():
     assert v.find("VATDEALERTYPE") is not None  # the live object is untouched
 
 
-def test_backfill_reads_every_voucher_newest_week_first_then_stops(store):
+def test_backfill_reads_only_vouchers_the_app_lacks_one_day_at_a_time(store):
     import datetime as dt
     def dated(n,day,alter=3):
-        v=voucher(dict(PAYLOAD,id=f"{n:08d}-0000-4000-8000-000000000000",number=str(n),date=day),alter)
-        return v
-    meta=[dated(1,"2026-10-21"),dated(2,"2026-10-15"),dated(3,"2026-10-01")]
-    weeks=[]
+        return voucher(dict(PAYLOAD,id=f"{n:08d}-0000-4000-8000-000000000000",number=str(n),date=day),alter)
+    meta=[dated(1,"2026-10-21"),dated(2,"2026-10-15"),dated(3,"2026-10-01"),dated(4,"2026-10-21")]
+    days=[]
     class Tally(FakeTally):
         def metadata(self,kind,after): return meta
         def daybook(self,start,end):
-            weeks.append((start,end))
-            return [m for m in meta if start<=dt.date.fromisoformat(fuel_voucher(m)["date"])<=end]
-    w=Worker(FakeCloud(),Tally(),store)
-    w.scan("Voucher",True)
+            days.append(start); assert start==end
+            return [m for m in meta if dt.date.fromisoformat(fuel_voucher(m)["date"])==start]
+    class Cloud(FakeCloud):
+        def rpc(self,name,**args):
+            super().rpc(name,**args)
+            if name=="tally_bridge_ingest":  # the app already has #4
+                return {"unmatched":[o["guid"] for o in args["p_objects"] if o["data"].get("number")!="4"]}
+            return dict(ready=True, push_enabled=True, active=True) if name=="tally_bridge_heartbeat" else None
+    w=Worker(Cloud(),Tally(),store)
+    w.scan("Voucher",True); w.flush()
     assert len(store.light("Voucher"))==3
-    assert w.backfill()
-    assert weeks==[(dt.date(2026,10,15),dt.date(2026,10,21))]
-    assert {g for g,_,_ in store.light("Voucher")}=={"00000003-0000-4000-8000-000000000000"}
-    assert w.backfill() and weeks[-1]==(dt.date(2026,9,25),dt.date(2026,10,1))
-    assert not w.backfill() and len(weeks)==2
-    assert all(store.object_payload("Voucher",g)["app_voucher"] for g in store.known("Voucher"))
-    assert store.get("status")["detail"].startswith("Reading voucher details from Tally")
+    assert w.backfill() and days==[dt.date(2026,10,21)]
+    assert {g for g,_,_ in store.light("Voucher")}=={"00000002-0000-4000-8000-000000000000","00000003-0000-4000-8000-000000000000"}
+    assert w.backfill() and w.backfill() and days[1:]==[dt.date(2026,10,15),dt.date(2026,10,1)]
+    assert not w.backfill() and len(days)==3
+    assert store.object_payload("Voucher","00000004-0000-4000-8000-000000000000")["light"]  # never read in full
+    assert store.get("status")["detail"].startswith("Reading Tally vouchers the app does not have yet")
+
+
+def test_idle_polls_ask_tally_one_small_question(store):
+    seen(store,5)
+    calls=[]
+    class Tally(FakeTally):
+        mark=100
+        def voucher_mark(self): calls.append("mark"); return self.mark
+        def metadata(self,kind,after): calls.append("scan"); return []
+    clock=[10000.0]
+    t=Tally(); w=Worker(FakeCloud(),t,store,clock=lambda:clock[0])
+    w.step()  # first step: full reconciliation
+    calls.clear()
+    for _ in range(6):
+        clock[0]+=5; w.step()
+    assert calls==["mark","mark","mark"]  # every 10 s, and no voucher scan while nothing changed
+    t.mark=101; clock[0]+=10; w.step()
+    assert calls[-2:]==["mark","scan"]
+
+
+def test_switched_off_bridge_leaves_tally_alone(store):
+    class Off(FakeCloud):
+        def rpc(self,name,**args):
+            super().rpc(name,**args)
+            return dict(ready=True,push_enabled=True,active=False) if name=="tally_bridge_heartbeat" else None
+    class Untouched(FakeTally):
+        def verify(self): raise AssertionError("Tally must not be read while the bridge is off")
+        def voucher_mark(self): raise AssertionError("Tally must not be read while the bridge is off")
+    cloud=Off()
+    Worker(cloud,Untouched(),store).step()
+    assert store.get("status")["health"]=="off"
+    assert [n for n,_ in cloud.calls]==["tally_bridge_heartbeat","tally_bridge_claim","tally_bridge_heartbeat"]
+
+
+def test_masters_found_once_are_not_asked_again():
+    asked=[]
+    class HTTP:
+        def post(self,xml):
+            asked.append(1)
+            kind=parse(xml).findtext('.//COLLECTION/TYPE')
+            names={'Ledger':['Test & Sons','SALE (HSD)'],'StockItem':['High Speed Diesel'],'VoucherType':['HSD CREDIT']}[kind]
+            rows=''.join(f'<{kind.upper()} NAME="{n.replace("&","&amp;")}"/>' for n in names)
+            return f'<ENVELOPE><BODY><DATA><COLLECTION>{rows}</COLLECTION></DATA></BODY></ENVELOPE>'.encode()
+    tally=Tally(HTTP(),'Test Company')
+    assert tally.missing_masters(PAYLOAD)==[] and len(asked)==3
+    assert tally.missing_masters(PAYLOAD)==[] and len(asked)==3
 
 
 def test_voucher_made_in_tally_after_first_sync_is_read_in_full(store):
