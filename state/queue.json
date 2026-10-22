@@ -5458,6 +5458,27 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-10-22T03:15:21.946452+00:00"
+    },
+    {
+      "entry_id": "03611f980a53b5dc",
+      "gmail_msg_id": "1879722954937606669",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "22/10/26",
+      "date_serial": 46317,
+      "amount": 32237.0,
+      "raw_payer": "S S FREIGHT CARRIER",
+      "customer": "Ss Freight Carrier",
+      "candidates": [
+        "Ss Freight Carrier"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-22T04:45:27.495541+00:00",
+      "status": "matched"
     }
   ]
 }
