@@ -1,7 +1,7 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.3.0';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.4.0';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
@@ -152,17 +152,17 @@
         $('bridgeLedger').value = reportArgs.p_ledger; $('bridgeReport').onchange(); paintReport();
       }
     } else if (tab === 'setup') {
-      content.innerHTML = `<div class="bridge-panel"><h3>Connect your Windows PC</h3><p>Open Vriddhi Fuels in Tally Prime, enable its local XML server, and extract the Windows ZIP on that PC. Open Setup.cmd to install. Pairing locks the bridge to this company's identity.</p>
-        <div class="bridge-actions"><a class="btn primary" href="${RELEASE}" target="_blank" rel="noopener">Windows installer</a><a class="btn ghost" href="${DOCS}" target="_blank" rel="noopener">Setup instructions</a></div>
+      content.innerHTML = `<div class="bridge-panel"><h3>Connect your Windows PC</h3><p>Open Vriddhi Fuels in Tally Prime, enable its local XML server, and download the Windows app on that PC, extract the ZIP and open “Open Vriddhi Tally Bridge”. After that it lives in the Start menu and on the desktop. Pairing locks the bridge to this company's identity.</p>
+        <div class="bridge-actions"><a class="btn primary" href="${RELEASE}" target="_blank" rel="noopener">Download the Windows app</a><a class="btn ghost" href="${DOCS}" target="_blank" rel="noopener">Setup instructions</a></div>
         <div class="bridge-actions"><button class="btn primary" id="bridgePair">Create pairing package</button><button class="btn ghost" id="bridgePause">${status && status.config.push_enabled ? 'Pause posting' : 'Resume posting'}</button><button class="btn ghost" id="bridgeRevoke">Disconnect PC</button></div><div id="bridgePairOutput"></div>
-        <p>Starts after Windows sign-in. Enable automatic Tally recovery in Setup.cmd to reopen Tally minimized with your company loaded when employees close it. Keep Windows signed in; the screen may lock. The bridge posts new web vouchers within about 5 seconds and checks Tally for changes to today's and yesterday's vouchers every 10 seconds.</p></div>
+        <p>Starts after Windows sign-in. In the Windows app, “Open Tally by itself” reopens Tally minimised with your company loaded when employees close it. Keep Windows signed in; the screen may lock. The bridge posts new web vouchers within about 5 seconds and checks Tally for changes to today's and yesterday's vouchers every 10 seconds.</p></div>
         <div class="bridge-panel"><h3>What the bridge watches</h3><p>Your HSD, MS and XtraGreen credit vouchers dated <strong>today and yesterday</strong>, both ways. A voucher made in Tally Prime appears in the app within seconds, ready for bills, fuel slips and the customer's last price, and one altered or cancelled there is updated here. Older vouchers are never read, which keeps Tally fast; bring them in with <strong>Import from Tally</strong> (DayBook file), which also brings customer GST details (Master file).</p><p>New vouchers and edits post to Tally automatically after pairing. Resolve conflicting edits in Sync activity.</p></div>`;
       $('bridgePair').onclick = async () => {
         try {
           const data = await rpc('tally_bridge_pair_code');
           const pack = JSON.stringify({protocol:1,url:cfg.SUPABASE_URL,key:cfg.SUPABASE_ANON_KEY,company:data.company,code:data.code});
           const out = $('bridgePairOutput'); if (!out) return;
-          out.innerHTML = '<p>Paste this package in the Windows installer. It expires in 10 minutes and pairs one PC.</p><textarea class="bridge-code" id="bridgePairCode" readonly aria-label="One-time pairing package"></textarea><div class="bridge-actions"><button class="btn ghost" id="bridgeCopy">Copy pairing package</button></div>';
+          out.innerHTML = '<p>Copy it, then in the Vriddhi Tally Bridge app on the PC choose Connect → Paste from clipboard. It works once, for 10 minutes.</p><textarea class="bridge-code" id="bridgePairCode" readonly aria-label="One-time pairing package"></textarea><div class="bridge-actions"><button class="btn ghost" id="bridgeCopy">Copy pairing package</button></div>';
           $('bridgePairCode').value = pack;
           $('bridgeCopy').onclick = () => navigator.clipboard.writeText(pack).then(()=> { $('bridgeCopy').textContent = 'Copied'; }).catch(()=> $('bridgePairCode').select());
           const generation = epoch;

@@ -1,3 +1,12 @@
+Version **1.4.0** replaces Setup with the **Vriddhi Tally Bridge** app, and makes the bridge come back after a Windows restart.
+
+- **A proper app.** Extract the ZIP and open **Open Vriddhi Tally Bridge**. **Home** shows the bridge live (running or stopped, the Tally company, fuel vouchers watched, what happens after a restart) with Start/Stop and Open web app. **Connect** walks through three steps: Check Tally, paste the pairing code with one click, choose options. **Settings** and **Activity** (with Copy for support) hold the rest. The window never freezes while Tally is busy, and closing it does not stop the bridge.
+- **Start menu and desktop shortcuts** with the Vriddhi Fuels icon replace the desktop `.cmd`; the app also appears in Installed apps with its icon. When a newer app finds an older bridge running, Home offers **Update now**.
+- **Auto-revive** (on by default): the bridge starts again by itself after every restart once you sign in. Earlier versions kept a **Stop**, or an upgrade that did not finish, in force across restarts. Now a Stop lasts until the next restart while auto-revive is on; untick it to keep the bridge from starting with Windows. Turning it on also re-enables the bridge if Windows Startup apps had switched it off.
+- No SQL change. Open the new app and choose **Update now**.
+
+The ZIP still opens through a one-line launcher that starts the bundled, Python-Software-Foundation-signed runtime: an unsigned standalone `.exe` was blocked by Defender in 1.0.1, and a code-signing certificate would be needed to ship one safely.
+
 Version **1.3.0** makes the bridge optional and much lighter on Tally:
 
 - **Switch the bridge on or off** in the web app (Tally connection & reports → Sync vouchers with Tally). Off, the app works exactly as before the bridge (day's XML, Import from Tally, free edits) and the PC leaves Tally alone.
@@ -29,7 +38,7 @@ Version **1.1.0** makes the bridge a fuel-voucher sync and fixes the first sync 
 - **Clearer problems:** a missing party/ledger/stock item is named before posting; Tally's own rejection text and the cloud database's message are shown in Setup → Status and in the web app. Test Tally now reports how many fuel vouchers it can read.
 - **Upgrade:** extract the ZIP, open `Setup.cmd` on the same Windows account, click **Test Tally**, then **Upgrade / save settings**. No re-pairing. The worker re-reads the fuel vouchers once; in-flight posting records are kept.
 
-Download `VriddhiTallyBridge-Windows.zip`, Extract all, then open `Setup.cmd`. Python is bundled; its unmodified core runtime binaries are verified as signed by the Python Software Foundation in CI. The bridge source/scripts and ZIP are not Authenticode signed. `SECURITY.json` records signature and Defender scan results. Keep Windows Security enabled.
+Download `VriddhiTallyBridge-Windows.zip`, Extract all, then open **Open Vriddhi Tally Bridge**. Python is bundled; its unmodified core runtime binaries are verified as signed by the Python Software Foundation in CI. The bridge source/scripts and ZIP are not Authenticode signed. `SECURITY.json` records signature and Defender scan results. Keep Windows Security enabled.
 
 This is a **Windows preview**. Automated tests use synthetic Tally responses; verify the first posted invoice and a day-book report against your licensed Tally Prime, as described in the [setup guide](https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md).
 

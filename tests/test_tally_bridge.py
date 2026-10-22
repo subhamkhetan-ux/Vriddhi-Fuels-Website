@@ -491,8 +491,8 @@ def test_stop_during_heartbeat_does_not_reopen_tally_or_claim_work(tmp_path):
 
 def test_package_verification_detects_tampering_and_unlisted_files(tmp_path):
     from tally_bridge import __version__
-    from tally_bridge.packaging import digest,verify_package
-    files=['runtime/python.exe','runtime/pythonw.exe','bridge.pyw','Setup.cmd']
+    from tally_bridge.packaging import LAUNCHER,digest,verify_package
+    files=['runtime/python.exe','runtime/pythonw.exe','bridge.pyw',LAUNCHER]
     for name in files:
         p=tmp_path/name;p.parent.mkdir(exist_ok=True);p.write_bytes(b'public-test-fixture')
     manifest={'format':1,'version':__version__,'files':{name:digest(tmp_path/name) for name in files}}
@@ -767,3 +767,156 @@ def test_use_tally_version_reads_an_older_voucher_by_guid(store):
     w.heartbeat()
     w.scan("Voucher",True)
     assert store.known("Voucher")[ID]["alter_id"]==4
+
+
+def test_auto_revive_clears_a_stop_from_before_the_windows_restart():
+    from tally_bridge.windows import stale_stop
+    booted = 1_000_000.0
+    assert stale_stop(booted - 60, booted, True)        # stopped before the restart: revive
+    assert not stale_stop(booted + 60, booted, True)    # stopped after signing in: stay stopped
+    assert not stale_stop(booted - 60, booted, False)   # auto-revive off: Stop lasts until Start
+    assert not stale_stop(None, booted, True)            # never stopped
+
+
+def test_startup_task_waits_for_sign_in_and_restarts_the_supervisor():
+    from tally_bridge.windows import task_xml
+    from xml.etree import ElementTree as ET
+    ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
+    task = ET.fromstring(task_xml(r"C:\Users\x\AppData\Local\Programs\VriddhiTallyBridge\1.3.1", "S-1-5-21-1").split("\n", 1)[1])
+    logon = task.find(".//t:LogonTrigger", ns)
+    assert logon.findtext("t:Delay", namespaces=ns) == "PT20S" and logon.findtext("t:UserId", namespaces=ns) == "S-1-5-21-1"
+    assert task.findtext(".//t:RestartOnFailure/t:Count", namespaces=ns) == "999"
+    assert "--supervise" in task.findtext(".//t:Exec/t:Arguments", namespaces=ns)
+
+
+class FakeWindows:
+    """The Windows layer the bridge app talks to, in memory."""
+    def __init__(self, tmp_path, config=None, running=False, installed=None, autostart=True):
+        self.tmp, self.config, self.running, self.installed = tmp_path, config, running, installed
+        self.state = {"autostart": autostart, "scheduled_task": True}
+        self.calls = []
+    def load_config(self):
+        if not self.config: raise OSError("no credential")
+        return dict(self.config)
+    def save_config(self, config): self.calls.append("save"); self.config = dict(config)
+    def data_dir(self): return self.tmp
+    def worker_running(self): return self.running
+    def startup_state(self): return dict(self.state)
+    def startup_problems(self): return [] if self.state["autostart"] else ["Auto-revive is off: the bridge starts only with Start."]
+    def installed_version(self): return self.installed
+    def recent_log(self, n=4): return ["22 Oct 10:00:00  Bridge started"][-n:]
+    def tally_processes(self): return [{"pid": 1, "exe": r"C:\Program Files\TallyPrime\tally.exe"}]
+    def stop_before_pairing(self): self.calls.append("stop_before_pairing")
+    def install(self, autostart=True): self.calls.append(("install", autostart)); self.state["autostart"] = autostart; return self.tmp
+    def start(self, root=None): self.calls.append("start"); self.running = True
+    def stop(self): self.calls.append("stop")
+    def set_autostart(self, on, root=None): self.calls.append(("autostart", on)); self.state["autostart"] = on
+
+
+CONFIG = dict(url="https://example.supabase.co", key="k", company="Test Company", guid="test-company-guid", token="t",
+              port=9000, tally_startup={"enabled": False}, keep_awake=True)
+
+
+def test_app_reads_a_pairing_code_from_whatever_was_copied():
+    from tally_bridge.control import Controller, Problem
+    package = {"protocol": 1, "url": "https://example.supabase.co", "key": "k", "company": "VRIDDHI FUELS (2026-27)", "code": "c" * 64}
+    assert Controller.read_pairing("Pairing package:\n" + json.dumps(package) + "\n")["company"] == "VRIDDHI FUELS (2026-27)"
+    for bad in ("", "hello", json.dumps(dict(package, protocol=2)), json.dumps(dict(package, code=""))):
+        with pytest.raises(Problem, match="not a pairing code"):
+            Controller.read_pairing(bad)
+
+
+def test_app_home_status_reads_the_journal_and_the_background_bridge(tmp_path):
+    from tally_bridge import __version__
+    from tally_bridge.control import Controller
+    win = FakeWindows(tmp_path)
+    assert Controller(win).snapshot()["title"] == "Not set up yet"
+    win.config = CONFIG
+    s = Controller(win).snapshot()
+    assert (s["title"], s["tone"], s["company"]) == ("Stopped", "bad", "Test Company")
+    db = Store(tmp_path / "journal.sqlite3")
+    db.set("status", {"health": "online", "at": 1_800_000_000, "detail": "Watching 2 fuel vouchers", "version": __version__})
+    db.stage([object_data("Voucher", voucher()), object_data("Voucher", voucher(dict(PAYLOAD, id="b26d607a-40ba-4524-8fa2-c8c340855cb5")))])
+    db.close()
+    win.running = True
+    s = Controller(win).snapshot()
+    assert (s["title"], s["tone"], s["vouchers"], s["detail"]) == ("Running", "good", 2, "Watching 2 fuel vouchers")
+    db = Store(tmp_path / "journal.sqlite3"); db.set("status", {"health": "online", "at": 1, "detail": "", "version": "1.0.2"}); db.close()
+    assert Controller(win).snapshot()["title"] == "Running an older version"
+    assert "Auto-revive is off" in Controller(FakeWindows(tmp_path, CONFIG, autostart=False)).snapshot()["problems"][0]
+
+
+def test_app_check_tally_explains_a_closed_tally_and_reports_what_it_found(tmp_path):
+    from tally_bridge.control import Controller, Problem
+    import socket
+    probe = socket.socket(); probe.bind(("127.0.0.1", 0)); free = probe.getsockname()[1]; probe.close()
+    with pytest.raises(Problem, match=f"not answering on port {free}"):
+        Controller(FakeWindows(tmp_path)).check_tally(free)  # nothing listens there
+    with pytest.raises(Problem, match="usually 9000"):
+        Controller(FakeWindows(tmp_path)).check_tally("90a")
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers['Content-Length'])).decode()
+            if "<TYPE>Company</TYPE>" in body:
+                out = '<ENVELOPE><BODY><DATA><COLLECTION><COMPANY NAME="Test Company"><GUID>g</GUID></COMPANY></COLLECTION></DATA></BODY></ENVELOPE>'
+            else:
+                out = '<ENVELOPE><BODY><DATA><COLLECTION>' + ET_tostring(voucher()) + '</COLLECTION></DATA></BODY></ENVELOPE>'
+            self.send_response(200); self.end_headers(); self.wfile.write(out.encode())
+        def log_message(self, *a): pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    try:
+        found = Controller(FakeWindows(tmp_path)).check_tally(server.server_port)
+    finally:
+        server.shutdown(); server.server_close(); thread.join()
+    assert found["companies"] == ["Test Company"] and found["company"] == "Test Company"
+    assert found["vouchers"] == 1 and found["exe"].endswith("tally.exe")
+
+
+def ET_tostring(node):
+    from xml.etree import ElementTree as ET
+    return ET.tostring(node, encoding="unicode")
+
+
+def test_app_start_stop_and_auto_revive_words(tmp_path):
+    from tally_bridge.control import Controller, Problem
+    with pytest.raises(Problem, match="Connect this PC first"):
+        Controller(FakeWindows(tmp_path)).start()
+    win = FakeWindows(tmp_path, CONFIG)
+    ctl = Controller(win)
+    assert "background" in ctl.start() and win.running
+    assert "after the next Windows restart" in ctl.stop()
+    assert "waits for you" in ctl.set_autostart(False) and win.calls[-1] == ("autostart", False)
+    assert "stays stopped until you choose Start" in ctl.stop()
+    message = ctl.install(dict(CONFIG), False)
+    assert "Connected to Test Company" in message and "Auto-revive is off" in message
+    assert ("install", False) in win.calls and win.calls[-1] == "start"
+
+
+def test_app_window_opens_on_every_page(tmp_path):
+    """The real window, with a fake Windows layer (needs a display: Windows CI, or X)."""
+    tk = pytest.importorskip("tkinter")
+    import os, sys
+    if sys.platform != "win32" and not os.environ.get("DISPLAY"):
+        pytest.skip("no display")
+    from tally_bridge.app import App
+    from tally_bridge.control import Controller
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display")
+    try:
+        root.withdraw()
+        app = App(root, Controller(FakeWindows(tmp_path, CONFIG, running=True, installed="1.0.2")))
+        deadline = __import__("time").monotonic() + 10
+        while app.snap is None and __import__("time").monotonic() < deadline:
+            root.update(); __import__("time").sleep(0.05)
+        assert app.snap and app.snap["company"] == "Test Company"
+        assert app.banner.winfo_manager() == "pack"  # an older background bridge offers Update now
+        for page in ("home", "connect", "settings", "activity"):
+            app.show(page); root.update()
+        app.pair_text.insert("1.0", json.dumps({"protocol": 1, "url": "https://x.supabase.co", "key": "k", "company": "Test Company", "code": "c"}))
+        app.pairing_changed()
+        assert "Test Company" in app.pair_state["text"]
+    finally:
+        root.destroy()

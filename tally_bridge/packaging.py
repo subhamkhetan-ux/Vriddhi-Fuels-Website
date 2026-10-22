@@ -10,6 +10,9 @@ import sys
 from . import __version__
 
 MANIFEST = "bridge-package.json"
+# The one file to open in the extracted ZIP. It starts the app with the bundled, signed
+# Python; once installed, the app opens from its Start-menu and desktop shortcuts.
+LAUNCHER = "Open Vriddhi Tally Bridge.cmd"
 
 
 def digest(path):
@@ -33,7 +36,7 @@ def verify_package(root):
             path = root / name
             if not path.resolve().is_relative_to(root) or path.is_symlink() or digest(path) != checksum:
                 raise ValueError("Package checksum differs")
-        for name in ("runtime/python.exe", "runtime/pythonw.exe", "bridge.pyw", "Setup.cmd"):
+        for name in ("runtime/python.exe", "runtime/pythonw.exe", "bridge.pyw", LAUNCHER):
             if name not in expected:
                 raise ValueError("Incomplete package")
     except (OSError, ValueError, KeyError, TypeError):
@@ -44,7 +47,7 @@ def verify_package(root):
 def package_root():
     root = Path(__file__).resolve().parent.parent
     if not (root / MANIFEST).is_file() or Path(sys.executable).resolve().parent != root / "runtime":
-        raise RuntimeError("Open Setup.cmd from the extracted official Windows package.")
+        raise RuntimeError("Open “" + LAUNCHER + "” from the extracted official Windows package.")
     return root
 
 
@@ -77,7 +80,7 @@ def build(root, runtime_prefix=None):
         '"""Vriddhi bridge launcher. Run with the bundled, signed Python runtime."""\n'
         'from pathlib import Path\nimport sys\nsys.path.insert(0,str(Path(__file__).resolve().parent))\n'
         'from tally_bridge.entry import run\nrun()\n', encoding="utf-8")
-    (root / "Setup.cmd").write_text('@echo off\r\nstart "" "%~dp0runtime\\pythonw.exe" -I -B "%~dp0bridge.pyw"\r\n', encoding="ascii")
+    (root / LAUNCHER).write_text('@echo off\r\nstart "" "%~dp0runtime\\pythonw.exe" -I -B "%~dp0bridge.pyw"\r\n', encoding="ascii")
     shutil.copy2(source / "README.md", root / "SETUP.md")
     manifest = {"format": 1, "version": __version__, "python": sys.version,
                 "files": {p.relative_to(root).as_posix(): digest(p) for p in sorted(root.rglob("*")) if p.is_file()}}

@@ -135,6 +135,7 @@ def task_xml(root, sid):
     item(info, "Description", "Vriddhi Fuels background sync. Runs only while this Windows account is signed in.")
     triggers = item(task, "Triggers")
     trigger = item(triggers, "LogonTrigger")
+    item(trigger, "Delay", "PT20S")  # let the desktop and network come up after a restart
     repeat = item(trigger, "Repetition")
     item(repeat, "Interval", "PT5M")
     item(repeat, "StopAtDurationEnd", "false")
@@ -174,7 +175,7 @@ def task_command(*args):
     return subprocess.run([str(executable), *args], capture_output=True, timeout=25, creationflags=subprocess.CREATE_NO_WINDOW)
 
 
-def install():
+def install(autostart=True):
     from .packaging import package_root, verify_package, MANIFEST
     import winreg
     source = package_root()
@@ -195,32 +196,182 @@ def install():
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
-    args = command(dest, "--supervise")
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
-        winreg.SetValueEx(key, APP, 0, winreg.REG_SZ, subprocess.list2cmdline(args))
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + APP) as key:
-        for k, value in {"DisplayName": "Vriddhi Fuels — Tally Bridge", "DisplayVersion": __version__,
+        for k, value in {"DisplayName": "Vriddhi Tally Bridge", "DisplayVersion": __version__,
                          "Publisher": "Vriddhi Fuels", "InstallLocation": str(dest),
                          "UninstallString": subprocess.list2cmdline(command(dest, "--uninstall")),
-                         "DisplayIcon": args[0]}.items():
+                         "DisplayIcon": str(dest / "tally_bridge" / "assets" / "bridge.ico")}.items():
             winreg.SetValueEx(key, k, 0, winreg.REG_SZ, value)
-    desktop = Path(os.environ["USERPROFILE"]) / "Desktop"
-    if desktop.exists():
-        # Plain, readable launcher; no encoded PowerShell or registry script payloads.
-        relative = "\\Programs\\" + APP + "\\" + __version__
-        (desktop / "Vriddhi Tally Bridge.cmd").write_text(
-            '@echo off\r\nstart "" "%LOCALAPPDATA%' + relative + '\\runtime\\pythonw.exe" -I -B "%LOCALAPPDATA%' + relative + '\\bridge.pyw"\r\n', encoding="ascii")
-        (desktop / "Vriddhi Tally Bridge.url").unlink(missing_ok=True)
-    data_dir().mkdir(parents=True, exist_ok=True)
-    task_path = data_dir() / "startup-task.xml"
-    task_path.write_text(task_xml(dest, user_sid()), encoding="utf-16")
-    registered = False
+    make_shortcuts(dest)
+    set_autostart(autostart, dest)
+    return dest
+
+
+SHORTCUT = "Vriddhi Tally Bridge.lnk"
+OLD_LAUNCHERS = ("Vriddhi Tally Bridge.cmd", "Vriddhi Tally Bridge.url")
+# Plain, readable PowerShell (no encoding): the paths arrive as environment variables, so
+# nothing is spliced into the command. Windows resolves the real (e.g. OneDrive) folders.
+SHORTCUT_SCRIPT = (
+    "$shell = New-Object -ComObject WScript.Shell; "
+    "foreach ($folder in @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop'))) { "
+    "if (-not $folder) { continue }; "
+    "$link = $shell.CreateShortcut((Join-Path $folder $env:VF_NAME)); "
+    "$link.TargetPath = $env:VF_TARGET; $link.Arguments = $env:VF_ARGS; $link.WorkingDirectory = $env:VF_DIR; "
+    "$link.IconLocation = $env:VF_ICON; $link.Description = 'Vriddhi Fuels Tally Bridge'; $link.Save() }")
+
+
+def shortcut_folders():
+    folders = [Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
+               Path(os.environ["USERPROFILE"]) / "Desktop"]
     try:
-        registered = task_command("/Create", "/TN", APP, "/XML", str(task_path), "/F").returncode == 0
+        out = subprocess.run([str(powershell()), "-NoProfile", "-NonInteractive", "-Command",
+                              "[Environment]::GetFolderPath('Desktop')"], capture_output=True, text=True, timeout=20,
+                             creationflags=subprocess.CREATE_NO_WINDOW).stdout.strip()
+        if out:
+            folders.append(Path(out))
     except (OSError, subprocess.TimeoutExpired):
         pass
-    (data_dir() / "startup.json").write_text(json.dumps({"scheduled_task": registered}), encoding="utf-8")
-    return dest
+    return folders
+
+
+def powershell():
+    return Path(os.environ["SystemRoot"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+
+
+def make_shortcuts(root):
+    """Start-menu and desktop shortcuts with the app's icon, replacing the old .cmd launcher."""
+    root = Path(root)
+    args = command(root)
+    env = dict(os.environ, VF_NAME=SHORTCUT, VF_TARGET=args[0], VF_ARGS=subprocess.list2cmdline(args[1:]),
+               VF_DIR=str(root), VF_ICON=str(root / "tally_bridge" / "assets" / "bridge.ico"))
+    try:
+        made = subprocess.run([str(powershell()), "-NoProfile", "-NonInteractive", "-Command", SHORTCUT_SCRIPT],
+                              env=env, capture_output=True, timeout=30,
+                              creationflags=subprocess.CREATE_NO_WINDOW).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        made = False
+    for folder in shortcut_folders():
+        for name in OLD_LAUNCHERS:
+            (folder / name).unlink(missing_ok=True)
+    if not made:
+        # Without PowerShell, a plain desktop launcher still opens the app.
+        desktop = Path(os.environ["USERPROFILE"]) / "Desktop"
+        if desktop.exists():
+            relative = "\\Programs\\" + APP + "\\" + root.name
+            (desktop / OLD_LAUNCHERS[0]).write_text(
+                '@echo off\r\nstart "" "%LOCALAPPDATA%' + relative + '\\runtime\\pythonw.exe" -I -B "%LOCALAPPDATA%'
+                + relative + '\\bridge.pyw"\r\n', encoding="ascii")
+    log("Shortcuts " + ("added to the Start menu and desktop" if made else "unavailable; a desktop launcher was added"))
+    return made
+
+
+def remove_shortcuts():
+    for folder in shortcut_folders():
+        for name in (SHORTCUT,) + OLD_LAUNCHERS:
+            (folder / name).unlink(missing_ok=True)
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+
+
+def startup_state():
+    try:
+        state = json.loads((data_dir() / "startup.json").read_text())
+    except (OSError, ValueError):
+        state = {}
+    state.setdefault("autostart", True)  # 1.0-1.3 always registered both
+    state.setdefault("scheduled_task", False)
+    return state
+
+
+def set_autostart(on, root=None):
+    """Auto-revive: start the bridge after every Windows sign-in (a sign-in entry plus a
+    scheduled task that also restarts it), or remove both when turned off."""
+    import winreg
+    root = Path(root) if root else Path(os.environ["LOCALAPPDATA"]) / "Programs" / APP / __version__
+    data_dir().mkdir(parents=True, exist_ok=True)
+    registered = False
+    if on:
+        if not (root / "bridge.pyw").is_file():
+            raise RuntimeError("Install or upgrade this version first.")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            winreg.SetValueEx(key, APP, 0, winreg.REG_SZ, subprocess.list2cmdline(command(root, "--supervise")))
+        # Turning auto-revive on here also re-enables it if Startup apps had switched it off.
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, APPROVED_KEY) as key:
+            winreg.SetValueEx(key, APP, 0, winreg.REG_BINARY, b"\x02" + bytes(11))
+        task_path = data_dir() / "startup-task.xml"
+        task_path.write_text(task_xml(root, user_sid()), encoding="utf-16")
+        try:
+            registered = task_command("/Create", "/TN", APP, "/XML", str(task_path), "/F").returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    else:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            try:
+                winreg.DeleteValue(key, APP)
+            except FileNotFoundError:
+                pass
+        try:
+            task_command("/Delete", "/TN", APP, "/F")
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    (data_dir() / "startup.json").write_text(json.dumps({"scheduled_task": registered, "autostart": bool(on)}), encoding="utf-8")
+    log("Auto-revive " + ("on" + ("" if registered else " (sign-in entry only; Windows did not accept the scheduled task)") if on else "off"))
+    return registered
+
+
+def startup_problems():
+    """Why Windows might not start the bridge at sign-in, in words for Setup's Status."""
+    import winreg
+    state, problems = startup_state(), []
+    if not state["autostart"]:
+        return ["Auto-revive is off: the bridge starts only with Start."]
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            winreg.QueryValueEx(key, APP)
+    except OSError:
+        problems.append("The sign-in entry is missing; turn auto-revive off and on again.")
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, APPROVED_KEY) as key:
+            if winreg.QueryValueEx(key, APP)[0][:1] not in (b"\x02", b"\x06"):
+                problems.append("Windows Startup apps has the bridge switched off; turn auto-revive off and on again.")
+    except OSError:
+        pass
+    if not state["scheduled_task"]:
+        problems.append("Windows did not accept the scheduled task, so only the sign-in entry starts the bridge.")
+    return problems
+
+
+def log(message):
+    """A short, local history of starts and stops (no financial data), for Setup's Status."""
+    try:
+        path = data_dir() / "bridge.log"
+        lines = path.read_text(encoding="utf-8").splitlines()[-299:] if path.exists() else []
+        lines.append(dt.datetime.now().strftime("%d %b %H:%M:%S") + "  " + message)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def recent_log(n=4):
+    try:
+        return (data_dir() / "bridge.log").read_text(encoding="utf-8").splitlines()[-n:]
+    except OSError:
+        return []
+
+
+def boot_time():
+    kernel = ctypes.windll.kernel32
+    kernel.GetTickCount64.restype = ctypes.c_ulonglong
+    return time.time() - kernel.GetTickCount64() / 1000
+
+
+def stale_stop(stop_mtime, booted, autostart):
+    """With auto-revive on, Stop lasts until Windows restarts; off, until Start."""
+    return autostart and stop_mtime is not None and stop_mtime < booted
+
+
 
 
 def start(root=None):
@@ -240,6 +391,7 @@ def start(root=None):
 def stop():
     data_dir().mkdir(parents=True, exist_ok=True)
     (data_dir() / "stop").touch()
+    log("Stop requested")
 
 
 def stop_before_pairing():
@@ -298,12 +450,29 @@ def supervise():
     from .packaging import package_root
     guard = SingleInstance("Supervisor")
     flag = StopFlag()
+    stop_file = data_dir() / "stop"
+    try:
+        stopped_at = stop_file.stat().st_mtime
+    except OSError:
+        stopped_at = None
+    if stale_stop(stopped_at, boot_time(), startup_state()["autostart"]):
+        # A Stop (or an unfinished upgrade) from before this Windows start must not keep
+        # the bridge down for good: auto-revive brings it back after a restart.
+        stop_file.unlink(missing_ok=True)
+        log("Revived after a Windows restart (the earlier Stop applied until then)")
+    if flag.is_set():
+        log("Not started: stopped in Setup. Choose Start" + (" or restart Windows." if startup_state()["autostart"] else "."))
     delay = 5
     try:
         while not flag.is_set():
             launched = time.monotonic()
+            log("Bridge " + __version__ + " started")
             child = detached(command(package_root(), "--worker"))
-            child.wait()
+            code = child.wait()
+            if flag.is_set():
+                log("Stopped from Setup")
+                break
+            log(f"Bridge exited (code {code}); restarting in {delay} seconds")
             if time.monotonic() - launched > 300:
                 delay = 5
             if flag.wait(delay):
@@ -376,22 +545,12 @@ def keep_awake(enabled):
 def uninstall():
     import winreg
     stop_before_pairing()
-    try:
-        task_command("/Delete", "/TN", APP, "/F")
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
-        try:
-            winreg.DeleteValue(key, APP)
-        except FileNotFoundError:
-            pass
+    set_autostart(False)
     try:
         winreg.DeleteKey(winreg.HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + APP)
     except FileNotFoundError:
         pass
-    desktop = Path(os.environ["USERPROFILE"]) / "Desktop"
-    for name in ("Vriddhi Tally Bridge.cmd", "Vriddhi Tally Bridge.url"):
-        (desktop / name).unlink(missing_ok=True)
+    remove_shortcuts()
     # Leave program files for removal after the UI/runtime closes. Do not run delayed deletion scripts.
     # Recovery journal and encrypted credential are retained for a safe reinstall.
     return Path(os.environ["LOCALAPPDATA"]) / "Programs" / APP
