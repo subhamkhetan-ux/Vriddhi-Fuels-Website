@@ -155,11 +155,13 @@ bill with every field already filled:
 |---|---|
 | Date, Vehicle, Quantity, Price/Ltr, Amount | the voucher being created (or the saved voucher you tapped 🧾 on) |
 | Product | the voucher's series — Diesel → *High Speed Diesel*, Petrol → *Motor Spirit*, XtraGreen → *XtraGreen Diesel* |
-| Customer name, address, GSTIN | the customer's row in the Tanker Billing sheet, matched to the Tally party ledger |
-| P.O. label + number | the same row (editable) |
+| Customer name, address, GSTIN, P.O. label | the customer's row in the Tanker Billing sheet, matched to the Tally party ledger |
+| P.O. number | the customer's **open PO from the Ledger app**: the first PO in its list with enough litres left, by the Ledger's own rule (`ledger/js/po.js`), counting this app's vouchers the Ledger has not imported yet. Falls back to the sheet row when the Ledger is not connected or the customer has no PO list there. Editable; a number typed by hand is kept. |
 | Payment / bank block | the same row |
 | Density- / Seal No- lines | shown for diesel loads over 3 000 L, exactly as before |
 | Bill no. | **the voucher's own invoice number** — `1640`, `MS320`, `XG7` — so the bill and the Tally invoice carry one reference |
+
+**Ledger connection for open POs.** The Ledger app has its own Supabase project and members list. Signing into this app also signs into the Ledger when the same login is a Ledger member; otherwise the bill screen shows **Connect the Ledger** once per device (the session is stored separately from this app's). Petrol and XtraGreen bills get no PO automatically, as in the Ledger; the open POs are offered in the field's suggestions. Unit-wise customers pick the unit's PO.
 
 The data is `state/tanker_billing.json` — the file the hourly
 [tanker sync](../tanker/README.md) Action commits from the

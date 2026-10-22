@@ -309,8 +309,15 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
       <input type="text" id="blVehicle" placeholder="e.g. OR15R9360" autocomplete="off" autocapitalize="characters">
     </div>
     <div class="field">
-      <label for="blPo">P.O. No. — auto from the customer, editable</label>
-      <input type="text" id="blPo" placeholder="—" autocomplete="off">
+      <label for="blPo">P.O. No. — open PO from the Ledger, editable</label>
+      <input type="text" id="blPo" placeholder="—" autocomplete="off" list="blPoList">
+      <datalist id="blPoList"></datalist>
+      <div class="hint" id="blPoHint" aria-live="polite"></div>
+      <form id="blLedgerForm" class="ledger-connect" hidden>
+        <input type="email" id="blLedgerEmail" placeholder="Ledger login email" autocomplete="username" required>
+        <input type="password" id="blLedgerPass" placeholder="Password" autocomplete="current-password" required>
+        <button type="submit" class="btn ghost" id="blLedgerGo">Connect the Ledger</button>
+      </form>
     </div>
     <div class="frow">
       <div class="field">
@@ -629,6 +636,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
      builder is the /tanker/ app's file, reused as-is (no copy to drift). -->
 <script src="../tanker/docx-export.js"></script>
 <script src="billing.js"></script>
+<script src="ledger-po.js"></script>
 <script src="report-export.js"></script>
 <script src="bridge.js"></script>
 <!-- Fuel slips: the Ledger app's Print Bills (A5 credit memos). -->
@@ -2336,6 +2344,8 @@ function fillBillForm(src){
   $("blNo").value = src.number || VFBilling.nextBillNo();
   $("blVehicle").value = (src.vehicle || "").toUpperCase();
   $("blPo").value = match ? (match.po_no || "") : "";
+  bill.poManual = false;
+  bill.src = src;
   $("blQty").value = src.qty ? String(Math.trunc(src.qty)) : "";
   $("blPrice").value = src.rate ? fmtAmt(src.rate) : "";
   $("blAmount").value = (src.amount != null && src.amount !== "")
@@ -2344,7 +2354,73 @@ function fillBillForm(src){
 
   updateBillWarning();
   renderBill();
+  ledgerPo();
 }
+
+/* ---------- open POs from the Ledger app (ledger-po.js) ---------- */
+var ledgerPoRun = 0, ledgerPoTimer = null;
+var SERIES_BY_PRODUCT = { "High Speed Diesel": "hsd", "Motor Spirit": "ms", "XtraGreen Diesel": "xg" };
+function ledgerPoText(r, qty){
+  var list = r.open.map(function(p){ return (p.unit ? p.unit + ": " : "") + p.po_no + " (" + fmtLitres(p.balance) + " L)"; });
+  var open = list.length ? " Open POs: " + list.join(", ") + "." : " The customer has no PO with litres left.";
+  if (r.how === "auto") return "Open PO from the Ledger" + (r.left != null ? " · " + fmtLitres(r.left) + " L left after this bill" : "") + ".";
+  if (r.how === "fixed") return r.po ? "PO set on this bill in the Ledger." : "The Ledger has this bill marked “no PO”.";
+  if (r.how === "not-diesel") return "Petrol and XtraGreen bills get no PO automatically in the Ledger — pick one if needed." + open;
+  if (r.how === "needs-unit") return "This customer's POs are unit-wise — pick the unit's PO." + open;
+  return "No open PO has " + fmtLitres(qty) + " L left — type one if needed." + open;
+}
+function fmtLitres(n){ return Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 }); }
+function ledgerPo(){
+  var hint = $("blPoHint"), form = $("blLedgerForm");
+  if (!window.VFLedgerPO || !backend || !backend.cloud || !VFLedgerPO.configured() || !bill.src){
+    hint.textContent = ""; form.hidden = true; return;
+  }
+  var run = ++ledgerPoRun, src = bill.src;
+  var qty = parseFloat($("blQty").value) || 0;
+  hint.textContent = "Checking open POs in the Ledger…";
+  VFLedgerPO.forVoucher({
+    party: bill.party, altName: bill.customer ? bill.customer.company : "",
+    seriesKey: SERIES_BY_PRODUCT[$("blProduct").value] || src.seriesKey,
+    number: $("blNo").value.trim() || src.number, dateISO: $("blDate").value || src.dateISO, qty: qty,
+    vouchers: state.queue.concat(state.history).filter(function(v){ return !bridgeBlocked(v); })
+  }).then(function(r){
+    if (run !== ledgerPoRun) return;
+    form.hidden = r.status !== "signed-out";
+    var list = $("blPoList");
+    list.innerHTML = "";
+    if (r.status === "signed-out"){
+      hint.textContent = "Connect the Ledger once to fill the customer's open PO. Until then the Tanker Billing sheet's P.O. No. is used.";
+      return;
+    }
+    if (r.status !== "ok"){
+      hint.textContent = r.status === "no-group" ? "Not a PO customer in the Ledger — P.O. No. from the Tanker Billing sheet." : "";
+      return;
+    }
+    r.open.forEach(function(p){
+      var o = document.createElement("option");
+      o.value = p.po_no; o.label = (p.unit ? p.unit + " · " : "") + fmtLitres(p.balance) + " L left";
+      list.appendChild(o);
+    });
+    if (!bill.poManual){ $("blPo").value = r.po || ""; renderBill(); }
+    hint.textContent = ledgerPoText(r, qty) + (bill.poManual ? " (Kept the P.O. No. you typed.)" : "");
+  }).catch(function(e){
+    if (run !== ledgerPoRun) return;
+    form.hidden = !/members list|accept/i.test((e && e.message) || "");
+    hint.textContent = ((e && e.message) || "The Ledger could not be reached.") + " P.O. No. from the Tanker Billing sheet.";
+  });
+}
+function ledgerPoSoon(){ clearTimeout(ledgerPoTimer); ledgerPoTimer = setTimeout(ledgerPo, 350); }
+$("blLedgerForm").addEventListener("submit", function(e){
+  e.preventDefault();
+  var btn = $("blLedgerGo");
+  btn.disabled = true; btn.textContent = "Connecting…";
+  VFLedgerPO.signIn($("blLedgerEmail").value.trim(), $("blLedgerPass").value).then(function(){
+    $("blLedgerPass").value = "";
+    ledgerPo();
+  }).catch(function(err){
+    $("blPoHint").textContent = (err && err.message) || "Could not connect to the Ledger.";
+  }).then(function(){ btn.disabled = false; btn.textContent = "Connect the Ledger"; });
+});
 
 function updateBillWarning(){
   var w = $("blWarn");
@@ -2506,9 +2582,11 @@ function billCustomerChanged(){
       if (bill.data.customers[i].company === name) bill.customer = bill.data.customers[i];
   }
   $("blPo").value = bill.customer ? (bill.customer.po_no || "") : "";
+  bill.poManual = false;
   applyBillSheetRate();
   updateBillWarning();
   renderBill();
+  ledgerPoSoon();
 }
 function applyBillSheetRate(){
   var r = bill.data ? VFBilling.sheetRate(bill.data, bill.customer, $("blProduct").value) : null;
@@ -2524,10 +2602,13 @@ function recomputeBillAmount(){
 }
 
 $("blCustomer").addEventListener("change", billCustomerChanged);
-$("blProduct").addEventListener("change", function(){ applyBillSheetRate(); renderBill(); });
+$("blProduct").addEventListener("change", function(){ applyBillSheetRate(); renderBill(); ledgerPoSoon(); });
 ["blQty","blPrice"].forEach(function(id){
   $(id).addEventListener("input", function(){ recomputeBillAmount(); renderBill(); });
 });
+// The PO depends on the litres and the date; a P.O. No. typed by hand is kept.
+["blQty","blDate"].forEach(function(id){ $(id).addEventListener("input", ledgerPoSoon); });
+$("blPo").addEventListener("input", function(){ bill.poManual = true; });
 ["blDate","blNo","blVehicle","blPo","blAmount"].forEach(function(id){
   $(id).addEventListener("input", renderBill);
 });
@@ -3153,6 +3234,8 @@ $("btnLogin").onclick = function(){
     btn.textContent = "Sign in";
     if (res.error){ loginError("Wrong username or password"); return; }
     $("loginPass").value = "";
+    if (window.VFLedgerPO && VFLedgerPO.configured())
+      VFLedgerPO.signIn(email, p).catch(function(){});  // different Ledger login: connect from a bill
     return startApp(res.data.session);
   });
 };
@@ -3160,6 +3243,7 @@ $("loginPass").addEventListener("keydown", function(e){ if (e.key === "Enter") $
 
 $("btnSignOut").onclick = function(){
   if (!confirm("Sign out of this device?")) return;
+  if (window.VFLedgerPO && VFLedgerPO.configured()) VFLedgerPO.signOut().catch(function(){});
   CloudBackend.client.auth.signOut().then(function(){
     state = null;
     showLogin();

@@ -260,3 +260,8 @@ input[type=date]::-webkit-date-and-time-value { text-align:left; min-width:0; }
   .hint,.vsub,.section-note { color:var(--txt); }
   header.top { background:#a9320b; border-bottom-color:#fff; }
 }
+.ledger-connect { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; margin-top:10px; }
+.ledger-connect[hidden] { display:none; }
+.ledger-connect input { width:100%; padding:12px; border-radius:11px; border:1px solid var(--line); background:var(--field); font-size:16px; outline:none; min-width:0; }
+.ledger-connect .btn { width:auto; margin:0; white-space:nowrap; }
+@media (max-width:560px) { .ledger-connect { grid-template-columns:1fr; } }

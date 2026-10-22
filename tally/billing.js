@@ -6,6 +6,7 @@
  * field pre-filled: the voucher supplies date / vehicle / quantity /
  * price / amount and the product, and the customer's address, GSTIN,
  * P.O. number and payment block come from the Tanker Billing sheet
+ * (the P.O. number is replaced by the Ledger app's open PO: ledger-po.js)
  * (`state/tanker_billing.json`, refreshed hourly by the sync Action).
  *
  * Pure logic + data loading, no DOM — so it also runs under Node for

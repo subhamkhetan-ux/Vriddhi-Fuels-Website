@@ -17,4 +17,8 @@
 window.VRIDDHI_TALLY_CONFIG = {
   SUPABASE_URL: "https://qlloauxmfenrrqvfqibp.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_GKSHRkiK9yvhAFyfcWIA4g_OPApgcjn",
+  // The Ledger app's own project (same values as ledger/config.js): open POs
+  // for tanker bills. Public keys; reading needs a Ledger member login.
+  LEDGER_SUPABASE_URL: "https://behousmsujnlspwdxyas.supabase.co",
+  LEDGER_SUPABASE_ANON_KEY: "sb_publishable_BeflN_phUuD6BT_ZmAdDsw_tou7vxUa",
 };

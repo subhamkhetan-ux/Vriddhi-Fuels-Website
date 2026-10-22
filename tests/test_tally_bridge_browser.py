@@ -385,3 +385,74 @@ def test_customer_price_uses_the_shared_cloud_invoice_history(browser,server):
     assert page.locator('#fAmt').input_value()=='912.50'
     assert page.locator('#fQty').input_value()=='8.295'
     page.close()
+
+
+LEDGER_MOCK=r"""
+window.__VF_TEST_LEDGER_FACTORY=(url,key,opts)=>{
+  window.ledgerClient={url,key,opts};let session=window.ledgerSignedIn?{user:{id:'l'}}:null;
+  return {auth:{getSession:()=>Promise.resolve({data:{session}}),
+      signInWithPassword:({email,password})=>{window.ledgerLogin={email,password};
+        if(password!=='ledger-pass')return Promise.resolve({error:{message:'Invalid login'}});
+        session={user:{id:'l'}};return Promise.resolve({data:{session},error:null})},
+      signOut:()=>{session=null;return Promise.resolve({})}},
+    rpc:(name)=>Promise.resolve(name==='ledger_po_data'?{data:window.ledgerData,error:null}:{data:null,error:{message:'unknown'}})};
+};
+"""
+
+
+def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
+    """Ledger bills used 6,000 L of PO-A (10,000); a voucher here the Ledger has not imported yet
+    uses 3,000 more, so today's 5,000 L bill no longer fits PO-A and gets PO-B."""
+    page=browser.new_page(viewport={'width':390,'height':900})
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');
+      const row=(id,number,qty)=>({id,series:'hsd',number,date:today,party:'Twin Steel Ltd',vehicle:'OD01',qty:String(qty),
+        rate:'100',item_amt:String(qty*100),party_amt:String(qty*100),roff:'0',status:'pending',source:'app',bridge_state:'unlinked',
+        created_at:new Date().toISOString()});
+      window.customerPriceParties=[{name:'Twin Steel Ltd'}];
+      window.customerPriceVouchers=[row('v1','701',3000),row('v2','702',5000)];
+      window.ledgerData={groups:[{code:'Twin_Bulk',title:'Twin Steel Ltd — Bulk',kind:'po',units:[]}],
+        members:[{id:1,name:'TWIN STEEL LIMITED',key:'twin',group:'Twin_Bulk',archived:false}],
+        pos:[{id:1,group_code:'Twin_Bulk',unit:'',po_no:'PO-A',allotted:10000,seq:1},{id:2,group_code:'Twin_Bulk',unit:'',po_no:'PO-B',allotted:20000,seq:2}],
+        bills:[{id:9,group:'Twin_Bulk',product:'HSD',date:'2026-04-02',bill_no:'600',qty:6000,unit:'',po_mode:'auto',po_fixed:'',seq:1}]};
+    })();""")
+    page.goto(server+'/tally/')
+    page.get_by_role('button',name='Create bill for voucher 702').click()
+    page.locator('#blLedgerForm').wait_for()
+    assert 'Connect the Ledger once' in page.locator('#blPoHint').inner_text()
+    page.locator('#blLedgerEmail').fill('owner@example.com');page.locator('#blLedgerPass').fill('ledger-pass')
+    page.locator('#blLedgerGo').click()
+    page.wait_for_function("document.getElementById('blPo').value==='PO-B'")
+    assert '15,000 L left after this bill' in page.locator('#blPoHint').inner_text()
+    assert page.locator('#blPPoVal').text_content()=='PO-B'  # printed on the bill
+    assert page.locator('#blLedgerForm').is_hidden()
+    assert page.evaluate("window.ledgerClient.opts.auth.storageKey")=='vf-tally-ledger-auth'
+    # Fewer litres fit the 1,000 L still on PO-A; a P.O. No. typed by hand is kept.
+    page.locator('#blQty').fill('1000')
+    page.wait_for_function("document.getElementById('blPo').value==='PO-A'")
+    page.locator('#blPo').fill('MANUAL-1')
+    page.locator('#blQty').fill('4000')
+    page.wait_for_function("document.getElementById('blPoHint').textContent.includes('Kept the P.O. No. you typed')")
+    assert page.locator('#blPo').input_value()=='MANUAL-1'
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert not errors
+    page.close()
+
+
+def test_tanker_bill_falls_back_to_the_sheet_po_without_a_ledger_group(browser,server):
+    page=browser.new_page()
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
+      window.customerPriceVouchers=[{id:'v1',series:'hsd',number:'801',date:today,party:'Aryan Ispat & Power Private Ltd.',qty:'1000',
+        rate:'100',item_amt:'100000',party_amt:'100000',roff:'0',status:'pending',source:'app',bridge_state:'unlinked',created_at:new Date().toISOString()}];
+      window.ledgerData={groups:[],members:[],pos:[],bills:[]};})();""")
+    page.goto(server+'/tally/')
+    page.get_by_role('button',name='Create bill for voucher 801').click()
+    page.wait_for_function("document.getElementById('blPoHint').textContent.includes('Not a PO customer')")
+    sheet=__import__('json').load(open(ROOT/'state/tanker_billing.json'))
+    expected=next(c['po_no'] for c in sheet['customers'] if c['company']=='Aryan Ispat & Power Private Ltd.')
+    assert page.locator('#blPo').input_value()==expected
+    page.close()
