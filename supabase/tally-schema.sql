@@ -475,8 +475,8 @@ begin
   where ts.key = latest.key;
 
   perform set_config('vriddhi.tally_import', 'no', true);
-  if to_regprocedure('public._tb_link_imported()') is not null then
-    perform public._tb_link_imported();
+  if to_regprocedure('public._tb_link_imported(jsonb)') is not null then
+    perform public._tb_link_imported(p_vouchers);
   end if;
 
   return jsonb_build_object('added', added, 'updated', updated, 'kept', kept, 'newParties', new_p);

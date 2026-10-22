@@ -1,3 +1,10 @@
+Version **1.3.0** makes the bridge optional and much lighter on Tally:
+
+- **Switch the bridge on or off** in the web app (Tally connection & reports → Sync vouchers with Tally). Off, the app works exactly as before the bridge (day's XML, Import from Tally, free edits) and the PC leaves Tally alone.
+- **Tally stays responsive.** 1.2.0 scanned the whole voucher list every 5 seconds and read a week of Day Book at a time to catch up on older vouchers. Now the bridge watches only vouchers dated **today and yesterday**: an idle check is one small question every 10 seconds (the voucher alteration counter), and those two days are listed only when something changed. There is no deletion scan and no catch-up of older vouchers (use Import from Tally). Posting looks up an invoice from its own date. Masters and GST details are cached.
+- **Import from Tally no longer times out.** Linking imported vouchers to the bridge's copies used an unindexed search through every stored Tally voucher; it is now indexed and limited to the file being imported, in chunks of 250.
+- Re-run tally-bridge.sql, then **Upgrade / save settings** in the new Setup.
+
 Version **1.2.0** brings every fuel voucher in Tally into the app:
 
 - **Vouchers made in Tally Prime appear in the app** (history, tanker bills, fuel slips, the customer's last price). 1.1.x read voucher details with a collection export that leaves out Tally's ledger and inventory lines, so a voucher made in Tally could not be shown, and a posted voucher's read-back looked different and was marked *Needs review*. Details now come from Tally's Day Book export, the same format as a Day Book XML file.

@@ -90,7 +90,7 @@ def ledger_gst(v, as_of=None):
                 pincode=text(mailing,"PINCODE",text(v,"PINCODE")), country=text(mailing,"COUNTRY",text(v,"COUNTRYNAME")))
 
 
-def export_request(company, kind, methods="*", formula=None):
+def export_request(company, kind, methods="*", formula=None, since=None):
     if kind not in KINDS + ("Company", "Ledger", "StockItem", "VoucherType"):
         raise ValueError("Unknown Tally collection")
     e = ET.Element("ENVELOPE")
@@ -102,8 +102,8 @@ def export_request(company, kind, methods="*", formula=None):
     tag(sv, "SVEXPORTFORMAT", "$$SysName:XML")
     if company:
         tag(sv, "SVCURRENTCOMPANY", company)
-    # Read the entire company's book, independent of the period selected in the UI.
-    tag(sv, "SVFROMDATE", "19000101")
+    # From `since` (else the whole book), independent of the period selected in the UI.
+    tag(sv, "SVFROMDATE", since.strftime("%Y%m%d") if since else "19000101")
     tag(sv, "SVTODATE", "20991231")
     msg = ET.SubElement(ET.SubElement(desc, "TDL"), "TDLMESSAGE")
     col = ET.SubElement(msg, "COLLECTION", NAME="VFBridge", ISMODIFY="No")
@@ -256,16 +256,6 @@ def voucher_date(v):
         raise TallyProblem("Tally did not supply a date for " + describe(v)) from None
 
 
-def light_object(kind, v):
-    """A voucher seen for the first time, from metadata alone. Its details are read
-    only once it is altered, so the first sync is one request, not one per voucher."""
-    guid, master, alter = identity(v)
-    return dict(kind=kind, guid=guid, master_id=master, alter_id=alter,
-                data={"light": True, "number": text(v, "VOUCHERNUMBER"), "date": text(v, "DATE"),
-                      "voucher_type": text(v, "VOUCHERTYPENAME", v.get("VCHTYPE", "")),
-                      "cancelled": any(yes(text(v, k)) for k in ("ISCANCELLED", "ISOPTIONAL", "ISDELETED"))})
-
-
 def voucher_xml(company, p, existing=None):
     """Accounting structure matches tally/index.html's verified fuel exporter."""
     vt, item, sales = SERIES[p["series"]]
@@ -386,8 +376,33 @@ def sanitize_report(raw):
 
 
 class Tally:
-    def __init__(self, transport, company, guid=None):
+    def __init__(self, transport, company, guid=None, clock=None):
+        import time
         self.transport, self.company, self.guid = transport, company, guid
+        self.clock = clock or time.monotonic
+        self.cache = {}  # masters seen present and party GST, for half an hour
+
+    def voucher_mark(self):
+        """The company's voucher alteration counter ($AltVchId): one tiny request that
+        tells whether any voucher changed, so idle polls never scan the voucher list.
+        None when this Tally release does not report it."""
+        try:
+            root = parse(self.transport.post(export_request(None, "Company", ["Name", "AltVchId"])))
+        except TallyProblem:
+            return None
+        for c in root.findall(".//COMPANY"):
+            if text(c, "NAME", c.get("NAME", "")) == self.company:
+                raw = re.sub(r"[\s,]", "", text(c, "ALTVCHID"))
+                return int(raw) if raw.isdigit() else None
+        return None
+
+    def cached(self, key):
+        hit = self.cache.get(key)
+        return hit[1] if hit and self.clock() - hit[0] < 1800 else None
+
+    def remember(self, key, value):
+        self.cache[key] = (self.clock(), value)
+        return value
 
     def companies(self):
         root = parse(self.transport.post(export_request(None, "Company", "Name,GUID,BooksFrom")))
@@ -417,8 +432,8 @@ class Tally:
             raise TallyProblem("Company GUID changed. Sync paused for restore or financial-year review.")
         return matches[0]
 
-    def collection(self, kind, methods="*", formula=None, identities=True):
-        root = parse(self.transport.post(export_request(self.company, kind, methods, formula)))
+    def collection(self, kind, methods="*", formula=None, identities=True, since=None):
+        root = parse(self.transport.post(export_request(self.company, kind, methods, formula, since)))
         col = root.find(".//COLLECTION")
         if col is None:
             raise TallyProblem("Tally did not return a complete collection")
@@ -429,9 +444,18 @@ class Tally:
                 raise TallyProblem("Tally returned duplicate identities; sync paused")
         return values
 
-    def metadata(self, kind="Voucher", after=0):
+    def metadata(self, kind="Voucher", after=0, since=None):
+        """Fuel vouchers dated on or after `since` (all when None), changed after AlterID `after`."""
         formula = FUEL_FILTER + (" AND $AlterID > " + str(int(after)) if after else "")
-        return self.collection(kind, META, formula)
+        found = self.collection(kind, META, formula, since=since)
+        # Should a Tally release ignore the period, older vouchers are still left alone.
+        return [v for v in found if since is None or voucher_date(v) >= since]
+
+    def by_guid(self, guids):
+        """Metadata of particular vouchers, whatever their date (a 'Use Tally version' refresh)."""
+        if not guids:
+            return []
+        return self.collection("Voucher", META, " OR ".join("$GUID = " + literal(g) for g in guids))
 
     def daybook(self, start, end):
         """Tally's Day Book export: the same complete vouchers as a Day Book XML file.
@@ -456,14 +480,20 @@ class Tally:
                     found[text(v, "GUID")] = v
         return list(found.values())
 
-    def missing(self, kind, names):
+    def missing(self, kind, names, fresh=False):
         """Which of these masters Tally lacks. Masters are read live, never mirrored.
         Tally names are case-insensitive, like its own voucher import."""
+        names = [n for n in names if fresh or not self.cached((kind, n.casefold()))]
+        if not names:
+            return []
         try:
             formula = " OR ".join("$Name = " + literal(n) for n in names)
         except TallyProblem:
             formula = None  # a quote in a name: compare against the full list instead
         found = {(n.get("NAME") or text(n, "NAME")).casefold() for n in self.collection(kind, "Name", formula, False)}
+        for n in names:
+            if n.casefold() in found:
+                self.remember((kind, n.casefold()), True)
         return [n for n in names if n.casefold() not in found]
 
     def missing_masters(self, p):
@@ -474,11 +504,14 @@ class Tally:
 
     def party_gst(self, party, as_of):
         """The party's GST registration on the invoice date, or None to keep the app's copy."""
+        key = ("gst", party.casefold(), as_of)
+        if (hit := self.cached(key)) is not None:
+            return hit or None
         try:
             ledgers = self.collection("Ledger", "*", "$Name = " + literal(party), identities=False)
         except TallyProblem:
             return None
-        return ledger_gst(ledgers[0], as_of) if len(ledgers) == 1 else None
+        return self.remember(key, ledger_gst(ledgers[0], as_of) if len(ledgers) == 1 else {}) or None
 
     def lookup(self, p):
         """The Tally invoice with this voucher's GUID, or the same type and number."""
@@ -486,7 +519,10 @@ class Tally:
         clauses = ["($VoucherTypeName = " + literal(vt) + " AND $VoucherNumber = " + literal(p["number"]) + ")"]
         if p.get("guid"):
             clauses.append("$GUID = " + literal(p["guid"]))
-        candidates = self.collection("Voucher", META, " OR ".join(clauses))
+        # A new invoice is looked for from its own date; a linked one, whose date may have
+        # been edited, across the book.
+        since = None if p.get("guid") else dt.date.fromisoformat(p["date"])
+        candidates = self.collection("Voucher", META, " OR ".join(clauses), since=since)
         if len(candidates) > 1:
             raise TallyProblem("Multiple invoices match " + vt + " #" + p["number"] + ". Review duplicates in Tally Prime.")
         if not candidates:
@@ -512,7 +548,7 @@ class Tally:
         self.verify()
         if p["report"] == "ledger":
             # A renamed/deleted ledger must not silently fall back to Tally's selected ledger.
-            if self.missing("Ledger", [p["ledger"]]):
+            if self.missing("Ledger", [p["ledger"]], fresh=True):
                 raise TallyProblem("The requested ledger is no longer available in this Tally company. Check the ledger's current name in Tally Prime.")
         report = REPORTS[p["report"]]
         start, end = dt.date.fromisoformat(p["from"]), dt.date.fromisoformat(p["to"])

@@ -1320,8 +1320,17 @@ var LocalBackend = {
 };
 
 function bridgeActive(){ return !!(window.VFTallyBridge && VFTallyBridge.active()); }
-function bridgeLabel(v){ return window.VFTallyBridge ? VFTallyBridge.label(v.bridgeState) : ""; }
-function bridgeBlocked(v){ return ["deleted","unsupported","conflict","confirming","awaiting_tally"].indexOf(v.bridgeState) !== -1; }
+// With the bridge switched off the app works as before it: no sync labels or locks. A
+// voucher deleted or cancelled in Tally stays out of prices and bills either way.
+function bridgeLabel(v){
+  return window.VFTallyBridge && (bridgeActive() || v.bridgeState === "deleted") ? VFTallyBridge.label(v.bridgeState) : "";
+}
+function bridgeBlocked(v){
+  return v.bridgeState === "deleted"
+    || bridgeActive() && ["unsupported","conflict","confirming","awaiting_tally"].indexOf(v.bridgeState) !== -1;
+}
+// A rate that is not settled in Tally is never offered as the customer's last price.
+function bridgeUnsettled(v){ return ["deleted","unsupported","conflict","confirming","awaiting_tally"].indexOf(v.bridgeState) !== -1; }
 
 var CloudBackend = {
   cloud: true,
@@ -1436,17 +1445,21 @@ var CloudBackend = {
   },
   resetVouchers: function(){ return this.rpc("tally_reset_vouchers", {}); },
   resetParties: function(){ return this.rpc("tally_reset_parties", {}); },
-  importDaybook: function(vouchers){
-    var self = this;
-    var sum = { added: { hsd: 0, ms: 0, xg: 0 }, updated: 0, newParties: 0 };
+  importDaybook: function(vouchers, progress){
+    var self = this, done = 0;
+    var sum = { added: { hsd: 0, ms: 0, xg: 0 }, updated: 0, kept: 0, newParties: 0 };
     var chunks = [];
-    for (var i = 0; i < vouchers.length; i += 500) chunks.push(vouchers.slice(i, i + 500));
+    // Small enough to stay well inside the database's statement time limit.
+    for (var i = 0; i < vouchers.length; i += 250) chunks.push(vouchers.slice(i, i + 250));
     return chunks.reduce(function(prev, chunk){
       return prev.then(function(){
         return self.rpc("tally_import_daybook", { p_vouchers: chunk }).then(function(d){
           TALLY.seriesKeys.forEach(function(sk){ sum.added[sk] += (d.added && d.added[sk]) || 0; });
           sum.updated += d.updated || 0;
+          sum.kept += d.kept || 0;
           sum.newParties += d.newParties || 0;
+          done += chunk.length;
+          if (progress) progress(done, vouchers.length);
         });
       });
     }, Promise.resolve()).then(function(){ return sum; });
@@ -1779,7 +1792,9 @@ $("fileDaybook").addEventListener("change", function(){
         var text = decodeXmlBytes(reader.result);
         if (/<VOUCHER[\s>]/.test(text)){
           var parsed = parseDaybookText(text);
-          backend.importDaybook(parsed.vouchers).then(function(sum){
+          backend.importDaybook(parsed.vouchers, function(done, total){
+            btn.textContent = "Importing " + done.toLocaleString("en-IN") + " of " + total.toLocaleString("en-IN") + " vouchers…";
+          }).then(function(sum){
             return refresh().then(function(){
               var total = sum.added.hsd + sum.added.ms + sum.added.xg;
               if (!total && !sum.updated && !sum.kept)
@@ -2028,7 +2043,7 @@ function lastCustomerInvoice(party, seriesKey, throughDate){
   if (!party || !throughDate) return null;
   var latest = null;
   state.queue.concat(state.history).forEach(function(v){
-    if (v.party !== party || v.seriesKey !== seriesKey || bridgeBlocked(v)
+    if (v.party !== party || v.seriesKey !== seriesKey || bridgeUnsettled(v)
         || !/^\d{4}-\d{2}-\d{2}$/.test(v.dateISO || "") || v.dateISO > throughDate
         || !Number.isFinite(Number(v.rate)) || !(Number(v.rate) > 0)) return;
     if (!latest || v.dateISO > latest.dateISO

@@ -232,7 +232,8 @@ def gui(uninstall=False):
         finally:
             db.close()
         labels = {"online": "Syncing", "syncing": "Syncing", "internet_offline": "Internet offline",
-                  "starting_tally": "Starting Tally", "needs_attention": "Needs attention"}
+                  "starting_tally": "Starting Tally", "needs_attention": "Needs attention",
+                  "off": "Bridge off"}
         notes = [n for n in (upgrade_note(), None if windows.worker_running() else
                              "Background sync is not running. Click Start (or Upgrade / save settings).") if n]
         if not state:
