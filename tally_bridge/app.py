@@ -100,7 +100,10 @@ class App:
         config = self.ctl.config()
         tally = config.get("tally_startup", {}) or {}
         self.v = {"port": tk.StringVar(value=str(config.get("port", 9000))),
-                  "auto_tally": tk.BooleanVar(value=tally.get("enabled", True)),
+                  # Off unless chosen: where people open Tally themselves, the bridge must not.
+                  "auto_tally": tk.BooleanVar(value=tally.get("enabled", False)),
+                  "hidden": tk.BooleanVar(value=tally.get("hidden", False)),
+                  "single": tk.BooleanVar(value=config.get("single_tally", False)),
                   "exe": tk.StringVar(value=tally.get("exe", "")), "number": tk.StringVar(value=tally.get("number", "")),
                   "awake": tk.BooleanVar(value=config.get("keep_awake", True)), "revive": tk.BooleanVar(value=True)}
         try:
@@ -114,7 +117,8 @@ class App:
         except ValueError:
             raise Problem("The Tally port is a number, usually 9000.") from None
         return dict(port=port, auto_tally=self.v["auto_tally"].get(), exe=self.v["exe"].get().strip(),
-                    number=self.v["number"].get().strip(), keep_awake=self.v["awake"].get(), autostart=self.v["revive"].get())
+                    number=self.v["number"].get().strip(), keep_awake=self.v["awake"].get(), autostart=self.v["revive"].get(),
+                    hidden=self.v["hidden"].get(), single=self.v["single"].get())
 
     # ---- layout ----------------------------------------------------------------
     def layout(self):
@@ -217,6 +221,12 @@ class App:
         self.status_detail.pack(anchor="w", pady=(10, 0))
         self.status_time = self.label(status, "", 9, color="idle")
         self.status_time.pack(anchor="w", pady=(4, 0))
+        tally = self.tally_row = tk.Frame(status, bg=C["card"])
+        self.label(tally, "Tally Prime", 10, "bold").pack(side="left")
+        self.button(tally, "Hide Tally", lambda: self.run(lambda: self.ctl.show_tally(False), "Hiding Tally…"),
+                    "ghost").pack(side="right")
+        self.button(tally, "Show Tally", lambda: self.run(lambda: self.ctl.show_tally(True), "Showing Tally…"),
+                    "ghost").pack(side="right", padx=8)
 
         tiles = self.tiles_row = tk.Frame(page, bg=C["bg"])
         tiles.pack(fill="x")
@@ -265,6 +275,11 @@ class App:
         else:
             self.banner.pack_forget()
         self.problems.configure(text="\n".join("• " + p for p in s["problems"]))
+        # Show/Hide Tally only matter for a Tally the bridge keeps hidden itself.
+        if s["tally"].get("enabled") and s["tally"].get("hidden"):
+            self.tally_row.pack(fill="x", pady=(14, 0))
+        else:
+            self.tally_row.pack_forget()
 
     def toggle_running(self):
         if self.snap and self.snap["running"]:
@@ -327,7 +342,11 @@ class App:
 
     def options(self, parent):
         tk = self.tk
-        self.checkbox(parent, "Open Tally by itself (minimised, with your company) if it is closed", self.v["auto_tally"],
+        self.label(parent, "When people open and close Tally themselves (or a script does), leave this off: the bridge "
+                   "then syncs whenever Tally is open, waits quietly while it is closed, and never opens, hides or "
+                   "closes Tally, so nothing changes for them.", 9, color="idle", wraplength=640).pack(anchor="w", pady=(10, 0))
+        self.checkbox(parent, "Open Tally by itself when it is closed (only for a PC where nobody opens Tally by hand)",
+                      self.v["auto_tally"],
                       self.paint_tally_fields).pack(anchor="w", pady=(8, 0))
         fields = tk.Frame(parent, bg=C["card"], padx=26)
         fields.pack(fill="x")
@@ -344,7 +363,14 @@ class App:
         number = self.entry(row, self.v["number"], 12)
         number.pack(side="left", padx=8, ipady=4)
         self.label(row, "Check Tally fills both when it can.", 9, color="idle").pack(side="left")
-        self.tally_widgets = getattr(self, "tally_widgets", []) + [exe, browse, number]
+        hidden = self.checkbox(fields, "Keep that Tally hidden in the background (use Show Tally on Home to work in it; "
+                               "shown by itself if a prompt needs attention)", self.v["hidden"])
+        hidden.pack(anchor="w", pady=(6, 0))
+        self.tally_widgets = getattr(self, "tally_widgets", []) + [exe, browse, number, hidden]
+        single = self.checkbox(fields, "If Tally is opened again while that Tally runs, bring it forward and close the "
+                               "extra copy", self.v["single"])
+        single.pack(anchor="w", pady=(4, 0))
+        self.tally_widgets.append(single)
         self.checkbox(parent, "Keep this PC awake while the bridge runs (the screen can still lock)",
                       self.v["awake"]).pack(anchor="w", pady=(10, 0))
         self.checkbox(parent, "Auto-revive: start the bridge again by itself after Windows restarts",

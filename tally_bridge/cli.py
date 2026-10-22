@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import threading
 from pathlib import Path
 
 from . import __version__
@@ -20,13 +21,20 @@ def worker():
         c = windows.load_config()
         store = Store(windows.data_dir() / "journal.sqlite3")
         tally = Tally(LocalTally(c["port"]), c["company"], c["guid"])
-        recovery = Recovery(tally, c.get("tally_startup", {}), store, windows.tally_processes, windows.launch_tally)
+        recovery = Recovery(tally, c.get("tally_startup", {}), store, windows.tally_processes, windows.launch_tally,
+                            show=windows.set_tally_visible)
         if c.get("keep_awake", False):
             windows.keep_awake(True)
             awake = True
-        service = Worker(Cloud(c["url"], c["key"], c["token"]), tally, store, recovery=recovery)
-        service.run(windows.StopFlag())
+        service = Worker(Cloud(c["url"], c["key"], c["token"]), tally, store, recovery=recovery,
+                         paused=windows.export_script_running)
+        stop = windows.StopFlag()
+        # Only a Tally the bridge opens itself can end up opened twice.
+        if c.get("single_tally", False) and (c.get("tally_startup") or {}).get("enabled"):
+            single_tally(windows, stop)
+        service.run(stop)
     finally:
+        reveal_hidden_tally(windows)
         if awake:
             try:
                 windows.keep_awake(False)
@@ -35,6 +43,42 @@ def worker():
         if store:
             store.close()
         guard.close()
+
+
+def single_tally(windows, stop):
+    """Watch for a second Tally copy every second, beside the sync loop (guard.py)."""
+    from .guard import TallyGuard
+
+    def watch():
+        db = Store(windows.data_dir() / "journal.sqlite3")
+        guard = TallyGuard(db, windows.tally_processes, windows.set_tally_visible, windows.close_tally, windows.log)
+        while not stop.is_set():
+            try:
+                if windows.export_script_running():
+                    guard.known = None  # the script opens and closes Tally itself: start afresh after it
+                else:
+                    guard.poll()
+            except Exception:  # never let the guard stop the sync
+                pass
+            stop.wait(1)
+        db.close()
+    threading.Thread(target=watch, name="single-tally", daemon=True).start()
+
+
+def reveal_hidden_tally(windows):
+    """Never leave a Tally the bridge hid invisible once the bridge is not there to show it."""
+    try:
+        db = Store(windows.data_dir() / "journal.sqlite3")
+        try:
+            pid = db.get("tally_hidden_pid")
+            if pid:
+                windows.set_tally_visible(True, [pid])
+                db.set("tally_hidden_pid", None)
+                windows.log("Bridge stopping: the background Tally is shown")
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 def gui(uninstall=False):
@@ -60,7 +104,13 @@ def self_test(install_smoke=False):
         windows.tally_processes()
         windows.keep_awake(True); windows.keep_awake(False)
         import tkinter as tk
-        root = tk.Tk(); root.withdraw(); root.update(); root.destroy()
+        root = tk.Tk(); root.withdraw(); root.update()
+        # The window listing behind Show/Hide Tally, on this process's own (Tk) windows.
+        assert any(cls for _, _, _, cls in windows._top_windows({__import__("os").getpid()})), "EnumWindows found no windows"
+        assert windows.set_tally_visible(True, pids=[]) == 0
+        assert windows.close_tally(0) == 0  # no such process: nothing is asked to close
+        assert windows.export_script_running() is False  # no AutoHotkey on the CI runner
+        root.destroy()
         if install_smoke:
             import os, winreg
             from .packaging import package_root, verify_package

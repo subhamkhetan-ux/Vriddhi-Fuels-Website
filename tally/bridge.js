@@ -1,7 +1,7 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.4.0';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.4.1';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
@@ -28,6 +28,8 @@
     if (!status.device) return 'Pair your Windows PC';
     if (!online()) return 'PC offline · cached data available';
     if (status.device.health === 'starting_tally') return 'Starting Tally Prime…';
+    if (status.device.health === 'tally_closed') return 'Waiting for Tally to be opened · vouchers queue';
+    if (status.device.health === 'paused') return 'Paused while Tally exports';
     if (status.device.health === 'needs_attention') return 'Connection needs attention';
     if (!status.config.ready) return 'First sync in progress';
     return status.config.push_enabled ? 'Connected to Tally Prime' : 'Voucher posting paused';

@@ -520,7 +520,7 @@ def tally_processes():
                                 path = buf.value
                         finally:
                             kernel.CloseHandle(handle)
-                    result.append({"pid": entry.th32ProcessID, "exe": path})
+                    result.append({"pid": entry.th32ProcessID, "exe": path, "parent": entry.th32ParentProcessID})
             valid = kernel.Process32NextW(snapshot, ctypes.byref(entry))
     finally:
         kernel.CloseHandle(snapshot)
@@ -530,10 +530,113 @@ def tally_processes():
 def launch_tally(settings):
     info = subprocess.STARTUPINFO()
     info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    info.wShowWindow = 7  # SW_SHOWMINNOACTIVE: don't steal an employee's foreground window.
+    # SW_HIDE for a background Tally; else SW_SHOWMINNOACTIVE, never stealing an employee's foreground window.
+    info.wShowWindow = 0 if settings.get("hidden") else 7
     return subprocess.Popen([settings["exe"], "/NOINILOAD", "/LOAD:" + settings["number"]],
                             cwd=str(Path(settings["exe"]).parent), startupinfo=info,
-                            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP).pid
+
+
+def close_tally(pid):
+    """Ask one Tally copy to close, exactly as clicking its ✕ would (WM_CLOSE). Never forced."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    asked = 0
+    for hwnd, shown, titled, cls in _top_windows({pid}):
+        if shown and cls not in HELPER_CLASSES:
+            user32.PostMessageW(hwnd, 0x0010, 0, 0)
+            asked += 1
+    return asked
+
+
+def _all_windows():
+    """(class, title) of every top-level window, hidden ones included."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
+    found = []
+
+    def visit(hwnd, _):
+        name, title = ctypes.create_unicode_buffer(64), ctypes.create_unicode_buffer(512)
+        user32.GetClassNameW(hwnd, name, 64)
+        if name.value == "AutoHotkey":
+            user32.GetWindowTextW(hwnd, title, 512)
+            found.append((name.value, title.value))
+        return True
+    user32.EnumWindows(callback(visit), 0)
+    return found
+
+
+def export_script_running():
+    """True while an AutoHotkey script about Tally runs (e.g. VriddhiTally.ahk exporting the Sales
+    Register). Every AutoHotkey script has a hidden main window titled with its file path."""
+    try:
+        return any(is_tally_script(title) for _, title in _all_windows())
+    except (OSError, AttributeError):
+        return False
+
+
+def is_tally_script(title):
+    name = title.rsplit("\\", 1)[-1].split(" - AutoHotkey")[0].lower()
+    return "tally" in name
+
+
+HELPER_CLASSES = {"IME", "MSCTFIME UI", "tooltips_class32", "GDI+ Hook Window Class"}
+
+
+def _top_windows(pids):
+    """(hwnd, visible, titled, class) of top-level windows belonging to these processes."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    found = []
+
+    def visit(hwnd, _):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value in pids:
+            name = ctypes.create_unicode_buffer(128)
+            user32.GetClassNameW(hwnd, name, 128)
+            found.append((hwnd, bool(user32.IsWindowVisible(hwnd)), user32.GetWindowTextLengthW(hwnd) > 0, name.value))
+        return True
+    user32.EnumWindows(callback(visit), 0)
+    return found
+
+
+def set_tally_visible(visible, pids=None):
+    """Hide Tally's windows (it keeps running and answering the bridge) or bring them back.
+    Only Tally processes in this Windows session are touched; none is ever closed."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    pids = set(pids or [p["pid"] for p in tally_processes()])
+    if not pids:
+        return 0
+    memory = data_dir() / "hidden-tally.json"
+    try:
+        hidden = {int(k): v for k, v in json.loads(memory.read_text()).items()}
+    except (OSError, ValueError):
+        hidden = {}
+    hidden = {pid: hwnds for pid, hwnds in hidden.items() if pid in {p["pid"] for p in tally_processes()}}
+    changed = 0
+    windows = _top_windows(pids)
+    if not visible:
+        for hwnd, shown, _, _ in windows:
+            if shown:
+                user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                hidden.setdefault(pid.value, []).append(hwnd)
+                changed += 1
+    else:
+        mine = {h for pid in pids for h in hidden.pop(pid, [])}
+        targets = [h for h, shown, titled, cls in windows if not shown and (h in mine or (not mine and titled and cls not in HELPER_CLASSES))]
+        for hwnd in targets:
+            user32.ShowWindow(hwnd, 9 if user32.IsIconic(hwnd) else 5)  # SW_RESTORE / SW_SHOW
+            changed += 1
+        if targets:
+            user32.SetForegroundWindow(targets[0])
+    data_dir().mkdir(parents=True, exist_ok=True)
+    memory.write_text(json.dumps({str(k): v for k, v in hidden.items()}), encoding="utf-8")
+    return changed
 
 
 def keep_awake(enabled):

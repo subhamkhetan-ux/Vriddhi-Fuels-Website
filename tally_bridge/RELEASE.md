@@ -1,3 +1,11 @@
+Version **1.4.1** fits the bridge around how the office already uses Tally:
+
+- **Nothing changes for employees.** With **Open Tally by itself** off (now the default), the bridge never opens, hides, closes or brings Tally forward and never shows a prompt. It syncs whenever Tally is open with the company loaded, and waits quietly while Tally is closed or at Select Company: web vouchers stay queued and post when Tally is next opened.
+- **The export script runs undisturbed.** While `VriddhiTally.ahk` (any AutoHotkey script with "Tally" in its name) is running, the bridge sends Tally nothing, then resumes by itself. The script needs no change.
+- A posting interrupted by someone closing the company is retried later instead of being marked for review.
+- For a PC where nobody opens Tally by hand, **Open Tally by itself** can keep Tally hidden in the background (Show/Hide Tally on Home; shown by itself if a prompt waits for two minutes), and bring a running Tally forward if a second copy is opened.
+- **If you turned on "Open Tally by itself" earlier, untick it in Settings and choose Save settings** (with Tally open). No SQL change.
+
 Version **1.4.0** replaces Setup with the **Vriddhi Tally Bridge** app, and makes the bridge come back after a Windows restart.
 
 - **A proper app.** Extract the ZIP and open **Open Vriddhi Tally Bridge**. **Home** shows the bridge live (running or stopped, the Tally company, fuel vouchers watched, what happens after a restart) with Start/Stop and Open web app. **Connect** walks through three steps: Check Tally, paste the pairing code with one click, choose options. **Settings** and **Activity** (with Copy for support) hold the rest. The window never freezes while Tally is busy, and closing it does not stop the bridge.

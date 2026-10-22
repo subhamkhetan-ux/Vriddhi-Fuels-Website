@@ -12,7 +12,8 @@ from .tally import Tally, TallyProblem
 from .transport import Cloud, ConnectionProblem, LocalTally
 
 WEB_APP = "https://subhamkhetan-ux.github.io/Vriddhi-Fuels-Website/tally/"
-HEALTH = {"online": ("Running", "good"), "syncing": ("Running", "good"), "internet_offline": ("Internet offline", "warn"),
+HEALTH = {"online": ("Running", "good"), "syncing": ("Running", "good"),
+          "tally_closed": ("Running · waiting for Tally", "good"), "paused": ("Running · paused for the Tally export", "good"), "internet_offline": ("Internet offline", "warn"),
           "starting_tally": ("Starting Tally", "warn"), "needs_attention": ("Needs attention", "bad"),
           "off": ("Sync switched off in the web app", "idle")}
 
@@ -133,14 +134,14 @@ class Controller:
                           "Create pairing package, choose Copy, then Paste here.")
         return package
 
-    def startup(self, auto_tally, exe, number):
+    def startup(self, auto_tally, exe, number, hidden=False):
         from .recovery import startup_settings
-        return startup_settings(exe, number) if auto_tally else {"enabled": False}
+        return startup_settings(exe, number, hidden) if auto_tally else {"enabled": False}
 
-    def pair(self, text, port, auto_tally, exe, number, keep_awake, autostart):
+    def pair(self, text, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=False):
         package = self.read_pairing(text)
         port = valid_port(port)
-        startup = self.startup(auto_tally, exe, number)
+        startup = self.startup(auto_tally, exe, number, hidden)
         tally = Tally(LocalTally(port), package["company"])
         try:
             company = tally.verify()
@@ -150,7 +151,7 @@ class Controller:
             raise Problem(f"Open “{package['company']}” in Tally Prime — that is the company the web app expects.") from None
         token = secrets.token_hex(32)
         config = dict(url=package["url"], key=package["key"], company=company["name"], guid=company["guid"], token=token,
-                      port=port, tally_startup=startup, keep_awake=keep_awake)
+                      port=port, tally_startup=startup, keep_awake=keep_awake, single_tally=single)
         cloud = Cloud(config["url"], config["key"])
         self.win.stop_before_pairing()
         # Retain the candidate token before the request so a lost response is recoverable.
@@ -159,19 +160,19 @@ class Controller:
                   p_company=company["name"], p_guid=company["guid"], p_label=socket.gethostname())
         return self.install(config, autostart)
 
-    def save(self, port, auto_tally, exe, number, keep_awake, autostart):
+    def save(self, port, auto_tally, exe, number, keep_awake, autostart, hidden=False, single=False):
         """Save settings and (re)install this version; the pairing is kept."""
         config = self.config()
         if not config:
             raise Problem("Connect this PC first.")
         port = valid_port(port)
-        startup = self.startup(auto_tally, exe, number)
+        startup = self.startup(auto_tally, exe, number, hidden)
         try:
             Tally(LocalTally(port), config["company"], config["guid"]).verify()
         except ConnectionProblem:
             raise Problem(f"Tally is not answering on port {port}. Open {config['company']} in Tally Prime, then save again.") from None
         self.win.stop_before_pairing()
-        config.update(port=port, tally_startup=startup, keep_awake=keep_awake)
+        config.update(port=port, tally_startup=startup, keep_awake=keep_awake, single_tally=single)
         return self.install(config, autostart)
 
     def install(self, config, autostart):
@@ -191,6 +192,20 @@ class Controller:
             raise Problem("Connect this PC first.")
         self.win.start()
         return "Started. It runs in the background; you can close this window."
+
+    def show_tally(self, visible):
+        """Bring Tally's window up for someone to use it, or put it back in the background."""
+        if not self.win.tally_processes():
+            raise Problem("Tally is not running." + (" The bridge opens it by itself." if
+                          (self.config().get("tally_startup") or {}).get("enabled") else ""))
+        try:
+            changed = self.win.set_tally_visible(visible)
+        except (OSError, RuntimeError):
+            raise Problem("Windows did not let the bridge change Tally's window.") from None
+        if visible:
+            return "Tally is on screen." if changed else "Tally is already on screen."
+        return ("Tally is running in the background. Use Show Tally here to work in it — opening it again "
+                "from its own icon would start a second copy.") if changed else "Tally has no window on screen to hide."
 
     def stop(self):
         self.win.stop()

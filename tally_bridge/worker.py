@@ -8,7 +8,8 @@ import uuid
 from . import __version__
 from .tally import SERIES, TallyProblem, business_equal, fuel_voucher, identity, object_data, voucher_date
 from .transport import CloudRejected, ConnectionProblem
-from .recovery import TallyStarting
+from .recovery import TallyStarting, TallyWaiting
+from .tally import CompanyNotOpen
 
 # Vouchers dated today and yesterday are watched; older ones are never read.
 WINDOW_DAYS = 2
@@ -23,7 +24,7 @@ class Stopped(Exception):
 
 
 class Worker:
-    def __init__(self, cloud, tally, store, clock=time.time, recovery=None):
+    def __init__(self, cloud, tally, store, clock=time.time, recovery=None, paused=None):
         self.cloud, self.tally, self.store, self.clock = cloud, tally, store, clock
         self.cloud.instance = str(uuid.uuid4())
         self.last_pulse = 0
@@ -31,6 +32,9 @@ class Worker:
         self.stop = None
         self.initial_scan = True
         self.recovery = recovery
+        # paused(): True while the Tally export script drives Tally's keyboard; Tally is not touched then.
+        self.paused = paused or (lambda: False)
+        self.tally_ready = recovery is None
         self.pending_mark = None
         binding = {"company_guid": tally.guid, "cloud": cloud.url}
         if store.get("binding") not in (None, binding):
@@ -189,7 +193,9 @@ class Worker:
 
     def watching(self):
         count = self.store.count("Voucher")
-        return "Watching " + format(count, ",") + " fuel voucher" + ("" if count == 1 else "s") + " in Tally; new web vouchers are checked every 5 seconds"
+        notice = self.store.get("tally_notice")  # e.g. two Tally copies open (guard.py)
+        return ((notice["text"] + " " if notice else "") + "Watching " + format(count, ",") + " fuel voucher"
+                + ("" if count == 1 else "s") + " in Tally; new web vouchers are checked every 5 seconds")
 
     def changed_in_tally(self):
         """An unchanged $AltVchId means no voucher changed, so the voucher list is not
@@ -209,17 +215,26 @@ class Worker:
             raise Stopped()
         if cloud_ok and self.config.get("active") is False:
             return self.idle()
+        if self.paused():
+            self.tally_ready = False
+            detail = "Paused while the Tally export script runs; nothing is sent to Tally until it finishes."
+            self.status("paused", detail)
+            if cloud_ok:
+                self.heartbeat("paused", detail)
+            return
         bootstrap = cloud_ok and not self.config.get("ready")
         # A manual conflict resolution requires a fresh read, even when AlterID has not changed.
         full = self.initial_scan or bootstrap or bool(self.config.get("refresh_guids"))
         # Tally is asked at most every 10 seconds; the cloud queue is still checked every 5.
         if full or self.clock() - self.store.get("polled", 0) >= 10:
             self.store.set("polled", self.clock())
+            self.tally_ready = False
             if self.recovery:
                 if self.recovery.ensure():
                     self.initial_scan = full = True
             else:
                 self.tally.verify()
+            self.tally_ready = True
             if self.initial_scan:
                 self.status("syncing", "Bridge " + __version__ + " started; reading the fuel voucher list from Tally")
             if self.changed_in_tally() or full:
@@ -239,6 +254,8 @@ class Worker:
         self.status("online", detail)
 
     def claim(self):
+        if not self.tally_ready:
+            return False  # Tally closed or busy: queued work waits, nothing is marked failed
         job = self.cloud.rpc("tally_bridge_claim")
         if not job:
             return False
@@ -248,6 +265,8 @@ class Worker:
                 self.finish(job, "done", {"content": self.tally.report(job["payload"])})
             else:
                 self.voucher(job)
+        except CompanyNotOpen:
+            raise  # closed between checks: the job's lease expires and it is claimed again later
         except TallyProblem as e:
             self.finish(job, "conflict" if job["kind"] == "voucher" else "error", detail=str(e))
         # Network/HTTP failure leaves a leased/writing job for safe recovery after expiry.
@@ -273,10 +292,11 @@ class Worker:
             except Stopped:
                 return
             except TallyStarting as e:
-                failures += 1
-                self.status("starting_tally", str(e))
+                # Waiting for people to open Tally is normal: keep checking every few seconds.
+                failures = 0 if isinstance(e, TallyWaiting) else failures + 1
+                self.status(e.health, str(e))
                 try:
-                    self.heartbeat("starting_tally", str(e))
+                    self.heartbeat(e.health, str(e))
                 except ConnectionProblem:
                     pass
             except (ConnectionProblem, TallyProblem, ValueError) as e:

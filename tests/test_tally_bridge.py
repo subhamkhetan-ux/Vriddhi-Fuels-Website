@@ -811,6 +811,7 @@ class FakeWindows:
     def start(self, root=None): self.calls.append("start"); self.running = True
     def stop(self): self.calls.append("stop")
     def set_autostart(self, on, root=None): self.calls.append(("autostart", on)); self.state["autostart"] = on
+    def set_tally_visible(self, visible, pids=None): self.calls.append(("visible", visible)); return 1
 
 
 CONFIG = dict(url="https://example.supabase.co", key="k", company="Test Company", guid="test-company-guid", token="t",
@@ -920,3 +921,198 @@ def test_app_window_opens_on_every_page(tmp_path):
         assert "Test Company" in app.pair_state["text"]
     finally:
         root.destroy()
+
+
+
+def test_background_tally_is_hidden_while_loading_and_shown_if_it_never_answers(tmp_path, store):
+    from tally_bridge.recovery import TallyStarting
+    clock = [1000.0]
+    seen = []
+    exe = tmp_path / 'Tally Prime' / 'Tally.exe'; exe.parent.mkdir(); exe.write_bytes(b'test-only')
+    class Closed(FakeTally):
+        up = False
+        def verify(self):
+            if not self.up: raise ConnectionProblem('Tally closed')
+            return {"name": "Test Company", "guid": "test-company-guid"}
+    tally, running = Closed(), []
+    from tally_bridge.recovery import Recovery
+    r = Recovery(tally, {'enabled': True, 'exe': str(exe.resolve()), 'number': '10000', 'hidden': True}, store,
+                 lambda: running, lambda settings: (seen.append(('launch', settings['hidden'])), 4242)[1],
+                 clock=lambda: clock[0], show=lambda visible, pids: seen.append((visible, pids)))
+    with pytest.raises(TallyStarting, match='in the background'):
+        r.ensure()
+    assert seen == [('launch', True)] and store.get('tally_hidden_pid') == 4242
+    running.append({'pid': 4242, 'exe': str(exe)})
+    clock[0] += 30
+    with pytest.raises(TallyStarting, match='waiting for its XML server'):
+        r.ensure()
+    assert seen[-1] == (False, [4242])  # a window opened while loading is hidden
+    clock[0] += 100  # two minutes without an answer: perhaps a prompt nobody can see
+    with pytest.raises(TallyStarting, match='now shown on screen'):
+        r.ensure()
+    assert seen[-1] == (True, [4242]) and store.get('tally_hidden_pid') is None
+    # Answering in time: it is kept hidden as the company finishes loading, then left alone.
+    store.set('tally_hidden_pid', 4242); store.set('tally_last_launch', clock[0])
+    tally.up = True
+    r.ensure()
+    assert seen[-1] == (False, [4242])
+    clock[0] += 400
+    count = len(seen)
+    r.ensure()
+    assert len(seen) == count and store.get('tally_hidden_pid') is None
+
+
+def test_a_visible_tally_setting_never_hides_anything(tmp_path, store):
+    from tally_bridge.recovery import Recovery, TallyStarting, startup_settings
+    exe = tmp_path / 'Tally.exe'; exe.write_bytes(b'test-only')
+    assert startup_settings(str(exe.resolve()), '10000')['hidden'] is False
+    seen = []
+    class Closed(FakeTally):
+        def verify(self): raise ConnectionProblem('Tally closed')
+    r = Recovery(Closed(), {'enabled': True, 'exe': str(exe.resolve()), 'number': '10000'}, store, lambda: [],
+                 lambda settings: 7, show=lambda *a: seen.append(a))
+    with pytest.raises(TallyStarting, match='minimized'):
+        r.ensure()
+    assert store.get('tally_hidden_pid') is None and not seen
+
+
+def test_app_show_and_hide_tally(tmp_path):
+    from tally_bridge.control import Controller, Problem
+    win = FakeWindows(tmp_path, CONFIG)
+    ctl = Controller(win)
+    assert ctl.show_tally(True) == "Tally is on screen." and win.calls[-1] == ("visible", True)
+    assert "second copy" in ctl.show_tally(False)
+    win.tally_processes = lambda: []
+    with pytest.raises(Problem, match="not running"):
+        ctl.show_tally(True)
+
+
+def guard_rig(store):
+    from tally_bridge.guard import TallyGuard
+    world = {"procs": [], "now": 1000.0, "shown": [], "closed": [], "log": []}
+    g = TallyGuard(store, lambda: list(world["procs"]), lambda visible, pids: world["shown"].append((visible, pids)),
+                   lambda pid: world["closed"].append(pid), world["log"].append, clock=lambda: world["now"])
+    return g, world
+
+
+def test_opening_tally_again_brings_the_background_tally_forward_and_closes_the_copy(store):
+    g, w = guard_rig(store)
+    w["procs"] = [{"pid": 100, "parent": 4}]           # the bridge's background Tally
+    store.set("tally_hidden_pid", 100)
+    g.poll()                                            # first look: nothing is new
+    assert not w["shown"] and not w["closed"]
+    w["procs"].append({"pid": 200, "parent": 8})        # an employee clicks the Tally icon
+    w["now"] += 1; g.poll()
+    assert w["shown"] == [(True, [100])] and w["closed"] == [200]
+    assert store.get("tally_hidden_pid") is None        # employees use it now: never hidden again
+    w["procs"] = [{"pid": 100, "parent": 4}]            # the copy closed as asked
+    w["now"] += 1; g.poll()
+    assert "one Tally is open" in w["log"][-1] and w["closed"] == [200]
+
+
+def test_a_tally_child_process_and_a_first_tally_are_left_alone(store):
+    g, w = guard_rig(store)
+    g.poll()
+    w["procs"] = [{"pid": 100, "parent": 4}]            # Tally opened when none was running
+    w["now"] += 1; g.poll()
+    w["procs"].append({"pid": 101, "parent": 100})      # started by Tally itself
+    w["now"] += 1; g.poll()
+    assert not w["shown"] and not w["closed"]
+
+
+def test_a_copy_that_will_not_close_is_reported_never_forced(store):
+    g, w = guard_rig(store)
+    w["procs"] = [{"pid": 100, "parent": 4}]
+    g.poll()
+    w["procs"].append({"pid": 200, "parent": 8})        # an employee's own Tally was already visible
+    for _ in range(25):
+        w["now"] += 1; g.poll()
+    assert w["shown"] == [(True, [100])] and set(w["closed"]) == {200} and len(w["closed"]) <= 21
+    assert "Two copies of Tally are open" in store.get("tally_notice")["text"]
+    worker = Worker(FakeCloud(), FakeTally(), store)
+    assert worker.watching().startswith("Two copies of Tally are open")
+    w["procs"] = [{"pid": 100, "parent": 4}]            # someone closed one
+    w["now"] += 1; g.poll()
+    assert store.get("tally_notice") is None
+
+
+def test_bridge_exit_shows_a_tally_it_had_hidden(tmp_path):
+    from tally_bridge.cli import reveal_hidden_tally
+    db = Store(tmp_path / "journal.sqlite3"); db.set("tally_hidden_pid", 4242); db.close()
+    calls = []
+    class Win:
+        def data_dir(self): return tmp_path
+        def set_tally_visible(self, visible, pids=None): calls.append((visible, pids))
+        def log(self, message): calls.append(message)
+    reveal_hidden_tally(Win())
+    assert calls[0] == (True, [4242])
+    db = Store(tmp_path / "journal.sqlite3"); assert db.get("tally_hidden_pid") is None; db.close()
+
+
+def test_closed_tally_is_a_calm_wait_never_an_error_or_a_launch(store):
+    from tally_bridge.recovery import Recovery, TallyWaiting
+    from tally_bridge.tally import CompanyNotOpen
+    launched = []
+    class Closed(FakeTally):
+        def verify(self): raise ConnectionProblem("Tally closed")
+    running = []
+    r = Recovery(Closed(), {"enabled": False}, store, lambda: running, launched.append)
+    with pytest.raises(TallyWaiting, match="Tally is closed. Vouchers from the web app wait"):
+        r.ensure()
+    running.append({"pid": 5, "exe": "tally.exe", "parent": 1})
+    with pytest.raises(TallyWaiting, match="starting or busy"):
+        r.ensure()
+    class SelectCompany(FakeTally):  # e.g. the export script just started Tally
+        def verify(self): raise CompanyNotOpen("Open the exact company")
+    with pytest.raises(TallyWaiting, match="sync starts once Test Company is loaded"):
+        Recovery(SelectCompany(), {"enabled": False}, store, lambda: [], launched.append).ensure()
+    assert not launched  # the bridge never opens Tally unless told to
+
+
+def test_waiting_for_tally_keeps_queued_vouchers_untouched_and_polls_promptly(store):
+    from tally_bridge.recovery import TallyWaiting
+    cloud = FakeCloud()
+    class Closed:
+        def ensure(self): raise TallyWaiting("Tally is closed. Vouchers from the web app wait and post when Tally is next opened.")
+    class Once:
+        waits = []
+        def is_set(self): return len(self.waits) >= 2
+        def wait(self, s): self.waits.append(s)
+    stop = Once()
+    Worker(cloud, FakeTally(), store, recovery=Closed()).run(stop)
+    assert all(s < 7 for s in stop.waits)            # no growing back-off while Tally is simply closed
+    assert store.get("status")["health"] == "tally_closed"
+    assert not any(name in ("tally_bridge_claim", "tally_bridge_finish") for name, _ in cloud.calls)
+
+
+def test_export_script_pauses_every_tally_request(store):
+    cloud = FakeCloud()
+    class Untouched(FakeTally):
+        def verify(self): raise AssertionError("Tally must not be touched while the export script runs")
+        def metadata(self, *a, **k): raise AssertionError("Tally must not be touched while the export script runs")
+    w = Worker(cloud, Untouched(), store, paused=lambda: True)
+    w.step()
+    assert store.get("status")["health"] == "paused"
+    assert [n for n, _ in cloud.calls] == ["tally_bridge_heartbeat", "tally_bridge_heartbeat"]
+
+
+def test_company_closed_mid_post_leaves_the_job_for_later_not_failed(store):
+    from tally_bridge.tally import CompanyNotOpen
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            return job() if name == "tally_bridge_claim" else r
+    class Closing(FakeTally):
+        def verify(self): raise CompanyNotOpen("Open the exact company")
+    cloud = Cloud()
+    w = Worker(cloud, Closing(), store)
+    with pytest.raises(CompanyNotOpen):
+        w.claim()
+    assert not any(name == "tally_bridge_finish" for name, _ in cloud.calls)
+
+
+def test_export_script_is_recognised_by_its_autohotkey_window_title():
+    from tally_bridge.windows import is_tally_script
+    assert is_tally_script(r"C:\Users\Office\Desktop\VriddhiTally.ahk - AutoHotkey v2.0.18")
+    assert is_tally_script(r"C:\Scripts\VriddhiTally.exe")
+    assert not is_tally_script(r"C:\Users\Office\Documents\Clipboard.ahk - AutoHotkey v2.0")
