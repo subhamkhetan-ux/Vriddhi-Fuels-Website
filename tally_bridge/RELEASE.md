@@ -1,3 +1,10 @@
+Version **1.4.1** lets Tally run in the background:
+
+- **Keep that Tally hidden in the background** (Settings, under *Open Tally by itself*): when the bridge opens Tally after a restart or after it was closed, it starts with no window and stays out of the way while it serves the bridge.
+- **Show Tally / Hide Tally** on Home bring it up to work in and put it back. Use Show Tally rather than Tally's own icon, which would start a second copy.
+- If a hidden Tally has not answered within two minutes (a login, licence or company prompt), it is shown so the prompt can be dealt with.
+- Open the new app, tick the option and choose **Save settings** (or **Update now**). No SQL change.
+
 Version **1.4.0** replaces Setup with the **Vriddhi Tally Bridge** app, and makes the bridge come back after a Windows restart.
 
 - **A proper app.** Extract the ZIP and open **Open Vriddhi Tally Bridge**. **Home** shows the bridge live (running or stopped, the Tally company, fuel vouchers watched, what happens after a restart) with Start/Stop and Open web app. **Connect** walks through three steps: Check Tally, paste the pairing code with one click, choose options. **Settings** and **Activity** (with Copy for support) hold the rest. The window never freezes while Tally is busy, and closing it does not stop the bridge.

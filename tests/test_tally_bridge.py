@@ -811,6 +811,7 @@ class FakeWindows:
     def start(self, root=None): self.calls.append("start"); self.running = True
     def stop(self): self.calls.append("stop")
     def set_autostart(self, on, root=None): self.calls.append(("autostart", on)); self.state["autostart"] = on
+    def set_tally_visible(self, visible, pids=None): self.calls.append(("visible", visible)); return 1
 
 
 CONFIG = dict(url="https://example.supabase.co", key="k", company="Test Company", guid="test-company-guid", token="t",
@@ -920,3 +921,67 @@ def test_app_window_opens_on_every_page(tmp_path):
         assert "Test Company" in app.pair_state["text"]
     finally:
         root.destroy()
+
+
+
+def test_background_tally_is_hidden_while_loading_and_shown_if_it_never_answers(tmp_path, store):
+    from tally_bridge.recovery import TallyStarting
+    clock = [1000.0]
+    seen = []
+    exe = tmp_path / 'Tally Prime' / 'Tally.exe'; exe.parent.mkdir(); exe.write_bytes(b'test-only')
+    class Closed(FakeTally):
+        up = False
+        def verify(self):
+            if not self.up: raise ConnectionProblem('Tally closed')
+            return {"name": "Test Company", "guid": "test-company-guid"}
+    tally, running = Closed(), []
+    from tally_bridge.recovery import Recovery
+    r = Recovery(tally, {'enabled': True, 'exe': str(exe.resolve()), 'number': '10000', 'hidden': True}, store,
+                 lambda: running, lambda settings: (seen.append(('launch', settings['hidden'])), 4242)[1],
+                 clock=lambda: clock[0], show=lambda visible, pids: seen.append((visible, pids)))
+    with pytest.raises(TallyStarting, match='in the background'):
+        r.ensure()
+    assert seen == [('launch', True)] and store.get('tally_hidden_pid') == 4242
+    running.append({'pid': 4242, 'exe': str(exe)})
+    clock[0] += 30
+    with pytest.raises(TallyStarting, match='waiting for its XML server'):
+        r.ensure()
+    assert seen[-1] == (False, [4242])  # a window opened while loading is hidden
+    clock[0] += 100  # two minutes without an answer: perhaps a prompt nobody can see
+    with pytest.raises(TallyStarting, match='now shown on screen'):
+        r.ensure()
+    assert seen[-1] == (True, [4242]) and store.get('tally_hidden_pid') is None
+    # Answering in time: it is kept hidden as the company finishes loading, then left alone.
+    store.set('tally_hidden_pid', 4242); store.set('tally_last_launch', clock[0])
+    tally.up = True
+    r.ensure()
+    assert seen[-1] == (False, [4242])
+    clock[0] += 400
+    count = len(seen)
+    r.ensure()
+    assert len(seen) == count and store.get('tally_hidden_pid') is None
+
+
+def test_a_visible_tally_setting_never_hides_anything(tmp_path, store):
+    from tally_bridge.recovery import Recovery, TallyStarting, startup_settings
+    exe = tmp_path / 'Tally.exe'; exe.write_bytes(b'test-only')
+    assert startup_settings(str(exe.resolve()), '10000')['hidden'] is False
+    seen = []
+    class Closed(FakeTally):
+        def verify(self): raise ConnectionProblem('Tally closed')
+    r = Recovery(Closed(), {'enabled': True, 'exe': str(exe.resolve()), 'number': '10000'}, store, lambda: [],
+                 lambda settings: 7, show=lambda *a: seen.append(a))
+    with pytest.raises(TallyStarting, match='minimized'):
+        r.ensure()
+    assert store.get('tally_hidden_pid') is None and not seen
+
+
+def test_app_show_and_hide_tally(tmp_path):
+    from tally_bridge.control import Controller, Problem
+    win = FakeWindows(tmp_path, CONFIG)
+    ctl = Controller(win)
+    assert ctl.show_tally(True) == "Tally is on screen." and win.calls[-1] == ("visible", True)
+    assert "second copy" in ctl.show_tally(False)
+    win.tally_processes = lambda: []
+    with pytest.raises(Problem, match="not running"):
+        ctl.show_tally(True)

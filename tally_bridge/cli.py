@@ -20,7 +20,8 @@ def worker():
         c = windows.load_config()
         store = Store(windows.data_dir() / "journal.sqlite3")
         tally = Tally(LocalTally(c["port"]), c["company"], c["guid"])
-        recovery = Recovery(tally, c.get("tally_startup", {}), store, windows.tally_processes, windows.launch_tally)
+        recovery = Recovery(tally, c.get("tally_startup", {}), store, windows.tally_processes, windows.launch_tally,
+                            show=windows.set_tally_visible)
         if c.get("keep_awake", False):
             windows.keep_awake(True)
             awake = True
@@ -60,7 +61,11 @@ def self_test(install_smoke=False):
         windows.tally_processes()
         windows.keep_awake(True); windows.keep_awake(False)
         import tkinter as tk
-        root = tk.Tk(); root.withdraw(); root.update(); root.destroy()
+        root = tk.Tk(); root.withdraw(); root.update()
+        # The window listing behind Show/Hide Tally, on this process's own (Tk) windows.
+        assert any(cls for _, _, _, cls in windows._top_windows({__import__("os").getpid()})), "EnumWindows found no windows"
+        assert windows.set_tally_visible(True, pids=[]) == 0
+        root.destroy()
         if install_smoke:
             import os, winreg
             from .packaging import package_root, verify_package
