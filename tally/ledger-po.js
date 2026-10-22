@@ -83,6 +83,15 @@
     const near = live.filter(m => { const n = norm(m.name); return n && (n.startsWith(target) || target.startsWith(n)); });
     return near.length === 1 ? near[0] : null;
   }
+  // "SMC Power Generation LTD, UNIT II" -> "UNIT 2", when the group has that unit list.
+  const ROMAN = {i: 1, ii: 2, iii: 3, iv: 4, v: 5};
+  function unitFromName(name, units) {
+    const m = String(name || '').match(/\bunit\s*[-–:#.]?\s*(\d+|iv|v|i{1,3})\b/i);
+    if (!m) return '';
+    const n = /^\d+$/.test(m[1]) ? Number(m[1]) : ROMAN[m[1].toLowerCase()];
+    const want = 'UNIT ' + n;
+    return (units || []).find(u => String(u).trim().toUpperCase().replace(/\s+/g, ' ') === want) ? want : '';
+  }
   const numPart = s => { const m = String(s || '').match(/(\d+)\s*$/); return m ? Number(m[1]) : 0; };
   const billKey = (product, no) => product + '|' + String(no || '').trim().toUpperCase();
 
@@ -100,6 +109,16 @@
     const ledgerBills = (d.bills || []).filter(b => b.group === group.code);
     const present = new Set(ledgerBills.map(b => billKey(b.product, b.bill_no)));
     const product = PRODUCT[o.seriesKey] || 'HSD';
+    // Unit-wise PO lists: a voucher's unit comes from its customer name (UNIT II), else
+    // from that customer's latest Ledger bill with a unit.
+    const unitOf = names => {
+      if (group.kind !== 'po_units') return '';
+      for (const n of names) { const u = unitFromName(n, group.units); if (u) return u; }
+      const keys = names.map(norm).filter(Boolean);
+      const last = ledgerBills.filter(b => b.unit && keys.includes(norm(b.customer)))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+      return last ? po.poKey(last.unit) : '';
+    };
     const targetKey = billKey(product, o.number);
     // This app's vouchers for the customer that the Ledger has not imported yet use
     // up PO litres too; they follow the Ledger's own bills of the same day.
@@ -114,7 +133,7 @@
         if (!p || !v.number || seen.has(key) || (!own && !names.has(norm(v.party)))) return;
         seen.add(key);
         extra.push({product: p, date: v.dateISO, bill_no: String(v.number).trim(), qty: Number(v.qty) || 0,
-          unit: '', po_mode: 'auto', po_fixed: '', seq: 1e12 + numPart(v.number), id: 1e12 + extra.length});
+          unit: unitOf(own ? [v.party, o.altName] : [v.party]), po_mode: 'auto', po_fixed: '', seq: 1e12 + numPart(v.number), id: 1e12 + extra.length});
       });
     const bills = ledgerBills.map(b => Object.assign({}, b, {date: b.sale_date || b.date})).concat(extra).sort(po.billOrder);
     const result = po.allocate({kind: group.kind, units: group.units || [], bills,
