@@ -2363,10 +2363,11 @@ var SERIES_BY_PRODUCT = { "High Speed Diesel": "hsd", "Motor Spirit": "ms", "Xtr
 function ledgerPoText(r, qty){
   var list = r.open.map(function(p){ return (p.unit ? p.unit + ": " : "") + p.po_no + " (" + fmtLitres(p.balance) + " L)"; });
   var open = list.length ? " Open POs: " + list.join(", ") + "." : " The customer has no PO with litres left.";
-  if (r.how === "auto") return "Open PO from the Ledger" + (r.left != null ? " · " + fmtLitres(r.left) + " L left after this bill" : "") + ".";
+  if (r.how === "auto") return "Open PO" + (r.unit ? " for " + r.unit : "") + " from the Ledger" + (r.left != null ? " · " + fmtLitres(r.left) + " L left after this bill" : "") + ".";
   if (r.how === "fixed") return r.po ? "PO set on this bill in the Ledger." : "The Ledger has this bill marked “no PO”.";
   if (r.how === "not-diesel") return "Petrol and XtraGreen bills get no PO automatically in the Ledger — pick one if needed." + open;
-  if (r.how === "needs-unit") return "This customer's POs are unit-wise — pick the unit's PO." + open;
+  if (r.how === "needs-unit") return (r.guess ? "The unit is not in the customer name, so the only open PO with enough litres is filled — check it is the right unit."
+    : "This customer's POs are unit-wise and the unit is not in the customer name — pick the unit's PO.") + open;
   return "No open PO has " + fmtLitres(qty) + " L left — type one if needed." + open;
 }
 function fmtLitres(n){ return Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 }); }
@@ -2401,6 +2402,10 @@ function ledgerPo(){
       o.value = p.po_no; o.label = (p.unit ? p.unit + " · " : "") + fmtLitres(p.balance) + " L left";
       list.appendChild(o);
     });
+    if (r.how === "needs-unit"){
+      var fits = r.open.filter(function(p){ return p.balance >= qty; });
+      if (fits.length === 1){ r.po = fits[0].po_no; r.guess = true; }
+    }
     if (!bill.poManual){ $("blPo").value = r.po || ""; renderBill(); }
     hint.textContent = ledgerPoText(r, qty) + (bill.poManual ? " (Kept the P.O. No. you typed.)" : "");
   }).catch(function(e){

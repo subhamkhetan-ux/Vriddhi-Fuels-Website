@@ -456,3 +456,28 @@ def test_tanker_bill_falls_back_to_the_sheet_po_without_a_ledger_group(browser,s
     expected=next(c['po_no'] for c in sheet['customers'] if c['company']=='Aryan Ispat & Power Private Ltd.')
     assert page.locator('#blPo').input_value()==expected
     page.close()
+
+
+
+def test_unit_wise_po_comes_from_the_unit_in_the_customer_name(browser,server):
+    page=browser.new_page(viewport={'width':390,'height':900})
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
+      const row=(id,number,party,qty)=>({id,series:'hsd',number,date:today,party,qty:String(qty),rate:'99.5',item_amt:String(qty*99.5),
+        party_amt:String(qty*99.5),roff:'0',status:'pending',source:'app',bridge_state:'unlinked',created_at:new Date().toISOString()});
+      window.customerPriceVouchers=[row('v1','4331','SMC Power Generation LTD, UNIT II',12000),row('v2','4332','SMC Power Generation Ltd',3000)];
+      window.ledgerData={groups:[{code:'SMC_Bulk',title:'SMC — Bulk',kind:'po_units',units:['UNIT 1','UNIT 2']}],
+        members:[{id:1,name:'SMC Power Generation LTD, UNIT II',group:'SMC_Bulk',archived:false},{id:2,name:'SMC Power Generation Ltd',group:'SMC_Bulk',archived:false}],
+        pos:[{id:1,group_code:'SMC_Bulk',unit:'UNIT 1',po_no:'U1-PO',allotted:50000,seq:1},{id:2,group_code:'SMC_Bulk',unit:'UNIT 2',po_no:'4500220906',allotted:60000,seq:1}],
+        bills:[{id:9,group:'SMC_Bulk',product:'HSD',date:'2026-04-02',bill_no:'100',qty:2000,unit:'UNIT 1',customer:'SMC Power Generation Ltd',po_mode:'auto',po_fixed:'',seq:1}]};
+    })();""")
+    page.goto(server+'/tally/')
+    page.get_by_role('button',name='Create bill for voucher 4331').click()
+    page.wait_for_function("document.getElementById('blPo').value==='4500220906'")
+    assert 'for UNIT 2' in page.locator('#blPoHint').inner_text() and '48,000 L left after this bill' in page.locator('#blPoHint').inner_text()
+    page.goto(server+'/tally/')
+    # No unit in the name: the customer's last Ledger bill was UNIT 1.
+    page.get_by_role('button',name='Create bill for voucher 4332').click()
+    page.wait_for_function("document.getElementById('blPo').value==='U1-PO'")
+    page.close()
