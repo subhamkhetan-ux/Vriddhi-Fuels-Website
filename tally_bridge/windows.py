@@ -196,22 +196,79 @@ def install(autostart=True):
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
-    args = command(dest, "--supervise")
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + APP) as key:
-        for k, value in {"DisplayName": "Vriddhi Fuels — Tally Bridge", "DisplayVersion": __version__,
+        for k, value in {"DisplayName": "Vriddhi Tally Bridge", "DisplayVersion": __version__,
                          "Publisher": "Vriddhi Fuels", "InstallLocation": str(dest),
                          "UninstallString": subprocess.list2cmdline(command(dest, "--uninstall")),
-                         "DisplayIcon": args[0]}.items():
+                         "DisplayIcon": str(dest / "tally_bridge" / "assets" / "bridge.ico")}.items():
             winreg.SetValueEx(key, k, 0, winreg.REG_SZ, value)
-    desktop = Path(os.environ["USERPROFILE"]) / "Desktop"
-    if desktop.exists():
-        # Plain, readable launcher; no encoded PowerShell or registry script payloads.
-        relative = "\\Programs\\" + APP + "\\" + __version__
-        (desktop / "Vriddhi Tally Bridge.cmd").write_text(
-            '@echo off\r\nstart "" "%LOCALAPPDATA%' + relative + '\\runtime\\pythonw.exe" -I -B "%LOCALAPPDATA%' + relative + '\\bridge.pyw"\r\n', encoding="ascii")
-        (desktop / "Vriddhi Tally Bridge.url").unlink(missing_ok=True)
+    make_shortcuts(dest)
     set_autostart(autostart, dest)
     return dest
+
+
+SHORTCUT = "Vriddhi Tally Bridge.lnk"
+OLD_LAUNCHERS = ("Vriddhi Tally Bridge.cmd", "Vriddhi Tally Bridge.url")
+# Plain, readable PowerShell (no encoding): the paths arrive as environment variables, so
+# nothing is spliced into the command. Windows resolves the real (e.g. OneDrive) folders.
+SHORTCUT_SCRIPT = (
+    "$shell = New-Object -ComObject WScript.Shell; "
+    "foreach ($folder in @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop'))) { "
+    "if (-not $folder) { continue }; "
+    "$link = $shell.CreateShortcut((Join-Path $folder $env:VF_NAME)); "
+    "$link.TargetPath = $env:VF_TARGET; $link.Arguments = $env:VF_ARGS; $link.WorkingDirectory = $env:VF_DIR; "
+    "$link.IconLocation = $env:VF_ICON; $link.Description = 'Vriddhi Fuels Tally Bridge'; $link.Save() }")
+
+
+def shortcut_folders():
+    folders = [Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
+               Path(os.environ["USERPROFILE"]) / "Desktop"]
+    try:
+        out = subprocess.run([str(powershell()), "-NoProfile", "-NonInteractive", "-Command",
+                              "[Environment]::GetFolderPath('Desktop')"], capture_output=True, text=True, timeout=20,
+                             creationflags=subprocess.CREATE_NO_WINDOW).stdout.strip()
+        if out:
+            folders.append(Path(out))
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return folders
+
+
+def powershell():
+    return Path(os.environ["SystemRoot"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+
+
+def make_shortcuts(root):
+    """Start-menu and desktop shortcuts with the app's icon, replacing the old .cmd launcher."""
+    root = Path(root)
+    args = command(root)
+    env = dict(os.environ, VF_NAME=SHORTCUT, VF_TARGET=args[0], VF_ARGS=subprocess.list2cmdline(args[1:]),
+               VF_DIR=str(root), VF_ICON=str(root / "tally_bridge" / "assets" / "bridge.ico"))
+    try:
+        made = subprocess.run([str(powershell()), "-NoProfile", "-NonInteractive", "-Command", SHORTCUT_SCRIPT],
+                              env=env, capture_output=True, timeout=30,
+                              creationflags=subprocess.CREATE_NO_WINDOW).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        made = False
+    for folder in shortcut_folders():
+        for name in OLD_LAUNCHERS:
+            (folder / name).unlink(missing_ok=True)
+    if not made:
+        # Without PowerShell, a plain desktop launcher still opens the app.
+        desktop = Path(os.environ["USERPROFILE"]) / "Desktop"
+        if desktop.exists():
+            relative = "\\Programs\\" + APP + "\\" + root.name
+            (desktop / OLD_LAUNCHERS[0]).write_text(
+                '@echo off\r\nstart "" "%LOCALAPPDATA%' + relative + '\\runtime\\pythonw.exe" -I -B "%LOCALAPPDATA%'
+                + relative + '\\bridge.pyw"\r\n', encoding="ascii")
+    log("Shortcuts " + ("added to the Start menu and desktop" if made else "unavailable; a desktop launcher was added"))
+    return made
+
+
+def remove_shortcuts():
+    for folder in shortcut_folders():
+        for name in (SHORTCUT,) + OLD_LAUNCHERS:
+            (folder / name).unlink(missing_ok=True)
 
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -493,9 +550,7 @@ def uninstall():
         winreg.DeleteKey(winreg.HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + APP)
     except FileNotFoundError:
         pass
-    desktop = Path(os.environ["USERPROFILE"]) / "Desktop"
-    for name in ("Vriddhi Tally Bridge.cmd", "Vriddhi Tally Bridge.url"):
-        (desktop / name).unlink(missing_ok=True)
+    remove_shortcuts()
     # Leave program files for removal after the UI/runtime closes. Do not run delayed deletion scripts.
     # Recovery journal and encrypted credential are retained for a safe reinstall.
     return Path(os.environ["LOCALAPPDATA"]) / "Programs" / APP
