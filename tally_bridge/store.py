@@ -38,29 +38,6 @@ class Store:
     def count(self, kind):
         return self.db.execute("select count(*) from objects where kind=? and not deleted", (kind,)).fetchone()[0]
 
-    def light(self, kind):
-        """(guid, alter_id, YYYYMMDD) of vouchers the app lacks whose details are unread."""
-        out = []
-        # Only light rows are decoded; full rows carry a voucher's XML.
-        for r in self.db.execute("""select guid,alter_id,data from objects where kind=? and not deleted
-                                    and instr(data,'"need": true')>0""", (kind,)):
-            data = json.loads(r["data"])
-            if data.get("light"):
-                out.append((r["guid"], r["alter_id"], str(data.get("date", ""))[:8] or "19000101"))
-        return out
-
-    def need_details(self, kind, needed, settled):
-        """Mark light vouchers whose details must be read, or that need nothing more. Local
-        only: the cloud already has the same light record."""
-        with self.db:
-            for flag, guids in ((True, needed), (False, settled)):
-                for g in guids:
-                    row = self.db.execute("select data from objects where kind=? and guid=?", (kind, g)).fetchone()
-                    data = json.loads(row[0]) if row else {}
-                    if data.get("light") and data.get("need") is not flag:
-                        data["need"] = flag
-                        self.db.execute("update objects set data=? where kind=? and guid=?", (json.dumps(data), kind, g))
-
     def reset_snapshot(self):
         """Forget the Tally snapshot and unsent uploads; keep the binding and write recovery."""
         with self.db:

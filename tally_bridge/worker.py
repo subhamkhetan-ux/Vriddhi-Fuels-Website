@@ -6,9 +6,12 @@ import time
 import uuid
 
 from . import __version__
-from .tally import SERIES, TallyProblem, business_equal, fuel_voucher, identity, light_object, object_data, voucher_date
+from .tally import SERIES, TallyProblem, business_equal, fuel_voucher, identity, object_data, voucher_date
 from .transport import CloudRejected, ConnectionProblem
 from .recovery import TallyStarting
+
+# Vouchers dated today and yesterday are watched; older ones are never read.
+WINDOW_DAYS = 2
 
 # 1.0.x mirrored every master and voucher type; 2 kept only HSD/MS/XG CREDIT vouchers;
 # 3 re-reads them because 1.1.x details came from a collection export without fuel lines.
@@ -75,12 +78,8 @@ class Worker:
         while rows := self.store.upload_batch():
             self.pulse()
             objects = [json.loads(r["payload"]) for r in rows]
-            result = self.cloud.rpc("tally_bridge_ingest", p_objects=objects)
-            light = [o["guid"] for o in objects if (o.get("data") or {}).get("light")]
-            # Only vouchers the app does not have need their details read from Tally.
-            unmatched = set(result["unmatched"]) if isinstance(result, dict) and "unmatched" in result else set(light)
+            self.cloud.rpc("tally_bridge_ingest", p_objects=objects)
             self.store.uploaded(rows)
-            self.store.need_details("Voucher", [g for g in light if g in unmatched], [g for g in light if g not in unmatched])
 
     def validate_snapshot(self, kind, meta):
         current = {identity(m)[0]: identity(m) for m in meta}
@@ -92,24 +91,27 @@ class Worker:
                 raise TallyProblem("Tally was restored to an older revision; sync is paused for reconciliation")
         return current, known
 
+    def window(self):
+        """Only vouchers dated today or yesterday are watched: sales are entered on the day
+        (or the morning after) and never deleted, so older ones never need reading."""
+        return dt.date.fromtimestamp(self.clock()) - dt.timedelta(days=WINDOW_DAYS - 1)
+
     def scan(self, kind, full=False, force_upload=False):
         cursor = 0 if full else self.store.get("cursor:" + kind, 0)
-        meta = self.tally.metadata(kind, cursor)
+        since = self.window()
+        meta = self.tally.metadata(kind, cursor, since)
+        # 'Use Tally version' may name an older voucher: read just those, whatever their date.
+        refresh = set(self.config.get("refresh_guids") or [])
+        missing = refresh - {identity(m)[0] for m in meta}
+        if missing and full:
+            meta += self.tally.by_guid(sorted(missing))
         if not meta and not full:
             self.store.set("scan:" + kind, self.clock())
-            return  # idle polls never load historical XML from SQLite
+            return
         current, known = self.validate_snapshot(kind, meta)
         by_guid = {identity(m)[0]: m for m in meta}
-        # Full reconciliation also refreshes unresolved conflicts after 'Use Tally version'.
-        refresh = set(self.config.get("refresh_guids") or [])
-        # The very first sync records every voucher from metadata, one request; backfill()
-        # then reads their details newest first. Afterwards new and altered vouchers are
-        # read in full straight away.
-        first_sync = not known
-        changed = [i for g, i in current.items() if g in refresh or (g not in known and not first_sync)
-                   or g in known and (i[2] != known[g]["alter_id"] or known[g]["deleted"])]
-        if first_sync:
-            self.store.stage([light_object(kind, m) for g, m in by_guid.items() if g not in refresh])
+        changed = [i for g, i in current.items() if g in refresh or g not in known
+                   or i[2] != known[g]["alter_id"] or known[g]["deleted"]]
         if changed:
             self.progress(f"Reading {len(changed):,} new or altered voucher{'s' if len(changed) != 1 else ''} from Tally")
         by_date = {}
@@ -126,36 +128,14 @@ class Worker:
             self.store.stage([object_data(kind, n) for n in nodes])
         if force_upload:
             # Pairing a replacement PC/cloud bootstrap must republish unchanged cached objects too.
-            self.tally.verify()
             self.store.stage([dict(kind=kind, guid=g, master_id=i[1], alter_id=i[2], data=self.store.object_payload(kind, g))
                               for g, i in current.items() if g in known and i not in changed])
-        if full:
-            self.tally.verify()
-            removed = [dict(kind=kind, guid=g, alter_id=r["alter_id"], master_id=r["master_id"],
-                            data=self.store.object_payload(kind, g), deleted=True)
-                       for g, r in known.items() if g not in current and not r["deleted"]]
-            self.store.stage(removed)
-            self.store.set("full:" + kind, self.clock())
+        # No deletion scan: sales vouchers are never deleted, and a voucher leaving the
+        # two-day window is not gone from Tally.
         # Advance to the METADATA snapshot, not a later read's AlterID. Otherwise an edit
         # between these requests could skip another voucher's intermediate alteration.
         self.store.set("cursor:" + kind, max([cursor] + [i[2] for i in current.values()]))
         self.store.set("scan:" + kind, self.clock())
-
-    def backfill(self):
-        """Read one day of Day Book for vouchers the app does not have yet, newest first.
-        Called at most once a minute so Tally stays responsive for the people using it."""
-        light = self.store.light("Voucher")
-        if not light:
-            return False
-        day = dt.datetime.strptime(max(d for _, _, d in light), "%Y%m%d").date()
-        wanted = {g: alter for g, alter, d in light if d == day.strftime("%Y%m%d")}
-        self.progress(f"Reading Tally vouchers the app does not have yet, {day:%d %b %Y}: {len(light):,} left")
-        found = [v for v in self.tally.daybook(day, day) if v.findtext("GUID", "").strip() in wanted]
-        full = [object_data("Voucher", v) for v in found]
-        self.store.stage([o for o in full if o["alter_id"] >= wanted[o["guid"]]])
-        # Whatever the day did not return (moved, deleted) waits for its next alteration.
-        self.store.need_details("Voucher", [], list(wanted))
-        return True
 
     def finish(self, job, state, result=None, detail=""):
         self.store.write(job["id"], state, result)
@@ -231,8 +211,7 @@ class Worker:
             return self.idle()
         bootstrap = cloud_ok and not self.config.get("ready")
         # A manual conflict resolution requires a fresh read, even when AlterID has not changed.
-        full = (self.initial_scan or bootstrap or bool(self.config.get("refresh_guids"))
-                or self.clock() - self.store.get("full:Voucher", 0) >= 7200)
+        full = self.initial_scan or bootstrap or bool(self.config.get("refresh_guids"))
         # Tally is asked at most every 10 seconds; the cloud queue is still checked every 5.
         if full or self.clock() - self.store.get("polled", 0) >= 10:
             self.store.set("polled", self.clock())
@@ -254,12 +233,7 @@ class Worker:
         self.flush()
         if not self.config.get("ready"):
             self.cloud.rpc("tally_bridge_ready")
-        if self.claim():
-            pass
-        elif self.clock() - self.store.get("backfilled", 0) >= 60:
-            self.store.set("backfilled", self.clock())
-            if self.backfill():
-                return  # the next step uploads the day and checks the queue again
+        self.claim()
         detail = self.watching()
         self.heartbeat("online", detail)
         self.status("online", detail)

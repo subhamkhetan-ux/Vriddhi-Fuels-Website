@@ -90,7 +90,7 @@ def ledger_gst(v, as_of=None):
                 pincode=text(mailing,"PINCODE",text(v,"PINCODE")), country=text(mailing,"COUNTRY",text(v,"COUNTRYNAME")))
 
 
-def export_request(company, kind, methods="*", formula=None):
+def export_request(company, kind, methods="*", formula=None, since=None):
     if kind not in KINDS + ("Company", "Ledger", "StockItem", "VoucherType"):
         raise ValueError("Unknown Tally collection")
     e = ET.Element("ENVELOPE")
@@ -102,8 +102,8 @@ def export_request(company, kind, methods="*", formula=None):
     tag(sv, "SVEXPORTFORMAT", "$$SysName:XML")
     if company:
         tag(sv, "SVCURRENTCOMPANY", company)
-    # Read the entire company's book, independent of the period selected in the UI.
-    tag(sv, "SVFROMDATE", "19000101")
+    # From `since` (else the whole book), independent of the period selected in the UI.
+    tag(sv, "SVFROMDATE", since.strftime("%Y%m%d") if since else "19000101")
     tag(sv, "SVTODATE", "20991231")
     msg = ET.SubElement(ET.SubElement(desc, "TDL"), "TDLMESSAGE")
     col = ET.SubElement(msg, "COLLECTION", NAME="VFBridge", ISMODIFY="No")
@@ -254,16 +254,6 @@ def voucher_date(v):
         return dt.datetime.strptime(text(v, "DATE").replace("-", ""), "%Y%m%d").date()
     except ValueError:
         raise TallyProblem("Tally did not supply a date for " + describe(v)) from None
-
-
-def light_object(kind, v):
-    """A voucher seen for the first time, from metadata alone. Its details are read
-    only once it is altered, so the first sync is one request, not one per voucher."""
-    guid, master, alter = identity(v)
-    return dict(kind=kind, guid=guid, master_id=master, alter_id=alter,
-                data={"light": True, "number": text(v, "VOUCHERNUMBER"), "date": text(v, "DATE"),
-                      "voucher_type": text(v, "VOUCHERTYPENAME", v.get("VCHTYPE", "")),
-                      "cancelled": any(yes(text(v, k)) for k in ("ISCANCELLED", "ISOPTIONAL", "ISDELETED"))})
 
 
 def voucher_xml(company, p, existing=None):
@@ -442,8 +432,8 @@ class Tally:
             raise TallyProblem("Company GUID changed. Sync paused for restore or financial-year review.")
         return matches[0]
 
-    def collection(self, kind, methods="*", formula=None, identities=True):
-        root = parse(self.transport.post(export_request(self.company, kind, methods, formula)))
+    def collection(self, kind, methods="*", formula=None, identities=True, since=None):
+        root = parse(self.transport.post(export_request(self.company, kind, methods, formula, since)))
         col = root.find(".//COLLECTION")
         if col is None:
             raise TallyProblem("Tally did not return a complete collection")
@@ -454,9 +444,18 @@ class Tally:
                 raise TallyProblem("Tally returned duplicate identities; sync paused")
         return values
 
-    def metadata(self, kind="Voucher", after=0):
+    def metadata(self, kind="Voucher", after=0, since=None):
+        """Fuel vouchers dated on or after `since` (all when None), changed after AlterID `after`."""
         formula = FUEL_FILTER + (" AND $AlterID > " + str(int(after)) if after else "")
-        return self.collection(kind, META, formula)
+        found = self.collection(kind, META, formula, since=since)
+        # Should a Tally release ignore the period, older vouchers are still left alone.
+        return [v for v in found if since is None or voucher_date(v) >= since]
+
+    def by_guid(self, guids):
+        """Metadata of particular vouchers, whatever their date (a 'Use Tally version' refresh)."""
+        if not guids:
+            return []
+        return self.collection("Voucher", META, " OR ".join("$GUID = " + literal(g) for g in guids))
 
     def daybook(self, start, end):
         """Tally's Day Book export: the same complete vouchers as a Day Book XML file.
@@ -520,7 +519,10 @@ class Tally:
         clauses = ["($VoucherTypeName = " + literal(vt) + " AND $VoucherNumber = " + literal(p["number"]) + ")"]
         if p.get("guid"):
             clauses.append("$GUID = " + literal(p["guid"]))
-        candidates = self.collection("Voucher", META, " OR ".join(clauses))
+        # A new invoice is looked for from its own date; a linked one, whose date may have
+        # been edited, across the book.
+        since = None if p.get("guid") else dt.date.fromisoformat(p["date"])
+        candidates = self.collection("Voucher", META, " OR ".join(clauses), since=since)
         if len(candidates) > 1:
             raise TallyProblem("Multiple invoices match " + vt + " #" + p["number"] + ". Review duplicates in Tally Prime.")
         if not candidates:
