@@ -756,25 +756,27 @@ def test_bulk_bills_and_slips_for_the_ledgers_bulk_customers_in_one_pdf(browser,
     assert 'OD15X1111' in smc.inner_text() and 'P.O. PO-TYPED' in smc.inner_text() and 'edited' in smc.inner_text()
     assert not page.evaluate("bridgeCalls.filter(c=>/save|edit|delete/.test(c.name)).length")  # nothing saved
     # Select all / one by one.
-    assert '2 invoices ticked → one PDF of 6 pages' in page.locator('#bkSummary').inner_text()
+    assert '2 invoices ticked: 4 A4 pages of tanker bills, 2 A5 pages of fuel slips' in page.locator('#bkSummary').inner_text()
     page.locator('#bkR0').uncheck()
     assert page.evaluate("document.getElementById('bkAll').indeterminate")
-    assert '1 invoice ticked → one PDF of 3 pages' in page.locator('#bkSummary').inner_text()
+    assert '1 invoice ticked: 2 A4 pages of tanker bills, 1 A5 page of fuel slips' in page.locator('#bkSummary').inner_text()
     page.locator('#bkAll').check()
-    page.locator('#bkOrder').select_option('invoice')
-    page.locator('#bkPdf').click()
-    page.wait_for_function("window.downloads.length===1")
-    assert page.evaluate('downloads[0]').startswith('Tanker bills and slips ')
+    # Tanker bills and fuel slips are separate files, each one paper size.
     A4,A5=[595.28,841.89],[420,595]
-    assert page.evaluate('pdfMade.sizes')==[A4,A4,A5,A4,A4,A5]  # invoice by invoice
+    page.locator('#bkBillPdf').click()
+    page.wait_for_function("window.downloads.length===1")
+    assert page.evaluate('downloads[0]').startswith('Tanker bills ')
+    assert page.evaluate('pdfMade.sizes')==[A4,A4,A4,A4]
     assert page.evaluate('pdfMade.images.every(s=>s.startsWith("data:image/jpeg"))')
-    page.locator('#bkOrder').select_option('type')
-    page.locator('#bkSlips').uncheck()
-    assert '2 invoices ticked → one PDF of 4 pages' in page.locator('#bkSummary').inner_text()
-    page.locator('#bkSlips').check()
-    page.locator('#bkPdf').click()
+    page.locator('#bkSlipPdf').click()
     page.wait_for_function("window.downloads.length===2")
-    assert page.evaluate('pdfMade.sizes')==[A4,A4,A4,A4,A5,A5]  # all bills, then all slips
+    assert page.evaluate('downloads[1]').startswith('Fuel slips ')
+    assert page.evaluate('pdfMade.sizes')==[A5,A5]
+    # Print goes to the browser's print at the file's own paper size.
+    page.evaluate("()=>{window.print=()=>{window.printed=document.getElementById('print-style').textContent+'|'+document.querySelectorAll('#print-area .print-page').length}}")
+    page.locator('#bkSlipPrint').click()
+    page.wait_for_function("window.printed")
+    assert page.evaluate('printed')=='@page { size: A5 portrait; margin: 0; }|2'
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert not errors, errors
     page.close()

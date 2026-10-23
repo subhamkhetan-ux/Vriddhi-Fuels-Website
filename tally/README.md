@@ -238,7 +238,8 @@ fonts and `.docx` builder rather than keeping a second copy of them.
 ## Bulk bills & slips
 
 **Bulk bills & slips** (home, under *Records & imports*) prints the tanker
-bills and fuel slips of many invoices in **one PDF**, to save or print.
+bills and the fuel slips of many invoices at once — the bills as one A4 PDF,
+the slips as a separate A5 PDF, since they print on different paper.
 
 - It lists the invoices of **bulk customers** in the chosen dates: customers
   on a bulk ledger in the Ledger app (its `*_Bulk` groups). Without the Ledger
@@ -252,11 +253,11 @@ bills and fuel slips of many invoices in **one PDF**, to save or print.
   quantity, price and amount — and **Back to the voucher's details** undoes
   it. The vouchers are never changed. Each bill's P.O. No. is the Ledger's
   open PO, as on the bill screen; a P.O. No. typed here is kept.
-- **Make the PDF:** tanker bills (customer copy + greyscale Receiving Copy,
-  A4), fuel slips (A5, with the signature and heading of the Fuel slips
-  screen), or both; **all bills then all slips**, or **invoice by invoice**.
-  The choices are remembered on the device. **Download PDF** saves it,
-  **Print** opens it to print (on iPhone/iPad, the share sheet).
+- **Tanker bills · A4**: the customer copy and greyscale Receiving Copy of
+  every ticked invoice. **Fuel slips · A5**: one slip per ticked invoice, with
+  the signature and heading of the Fuel slips screen. Each has **Download
+  PDF** and **Print**; Print goes to the browser's print dialog at that
+  paper size (on iPhone/iPad, the PDF to the share sheet).
 
 ## Fuel slips (Print Bills)
 

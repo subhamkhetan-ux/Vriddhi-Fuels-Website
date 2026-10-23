@@ -72,6 +72,8 @@
 .bk-edit .field{margin-top:10px}
 .bk-edit input{width:100%;padding:12px;border-radius:11px;border:1px solid var(--line);background:var(--field);font-size:16px;outline:none;min-width:0;color:inherit}
 .bk-edit input:focus{border-color:var(--orange)}
+.bk-out{border-top:1px solid var(--line-soft);margin-top:14px;padding-top:12px}
+.bk-out h3{font-size:15px;font-weight:750;margin:0}
 .bk-actions{display:flex;flex-wrap:wrap;gap:8px}
 .bk-actions .btn{flex:1 1 200px;width:auto}
 
@@ -568,26 +570,23 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div id="bkList"></div>
 
   <div class="card" id="bkMake" hidden>
-    <h2 class="cardtitle">Make the PDF</h2>
-    <div class="chkrow">
-      <input type="checkbox" id="bkBills" checked>
-      <label for="bkBills" style="margin:0;font-size:15px;color:var(--txt)">Tanker bill — customer copy and greyscale Receiving Copy (A4)</label>
-    </div>
-    <div class="chkrow">
-      <input type="checkbox" id="bkSlips" checked>
-      <label for="bkSlips" style="margin:0;font-size:15px;color:var(--txt)">Fuel slip (A5), with the signature and heading set on the Fuel slips screen</label>
-    </div>
-    <div class="field">
-      <label for="bkOrder">Page order</label>
-      <select id="bkOrder">
-        <option value="type">All tanker bills, then all fuel slips</option>
-        <option value="invoice">Invoice by invoice — bill, receiving copy, slip</option>
-      </select>
-    </div>
+    <h2 class="cardtitle">Print the ticked invoices</h2>
     <div class="hint" id="bkSummary" aria-live="polite"></div>
-    <div class="bk-actions">
-      <button class="btn primary" id="bkPdf">⬇ Download PDF</button>
-      <button class="btn ghost" id="bkPrint">🖨 Print</button>
+    <div class="bk-out">
+      <h3>Tanker bills · A4</h3>
+      <div class="hint">Customer copy and greyscale Receiving Copy — two A4 pages per invoice.</div>
+      <div class="bk-actions">
+        <button class="btn primary" id="bkBillPdf">⬇ Download bills PDF</button>
+        <button class="btn ghost" id="bkBillPrint">🖨 Print bills</button>
+      </div>
+    </div>
+    <div class="bk-out">
+      <h3>Fuel slips · A5</h3>
+      <div class="hint">One A5 page per invoice, with the signature and heading set on the Fuel slips screen.</div>
+      <div class="bk-actions">
+        <button class="btn primary" id="bkSlipPdf">⬇ Download slips PDF</button>
+        <button class="btn ghost" id="bkSlipPrint">🖨 Print slips</button>
+      </div>
     </div>
     <div class="hint" id="bkProgress" aria-live="polite"></div>
   </div>
@@ -3616,17 +3615,7 @@ $("btnResetCustomers").onclick = function(){
    (customers on a bulk ledger in the Ledger app; without the Ledger, the
    Tanker Billing sheet's customers), each ticked or not and editable for
    the print only, made into one PDF of A4 bills and A5 slips. */
-var LS_BULK = "vf_tally_bulk_opts";   // bills / slips / page order — per device
 var bulk = { rows: [], data: null, run: 0 };
-
-function bulkOpts(){
-  try { return JSON.parse(localStorage.getItem(LS_BULK) || "{}") || {}; } catch(e){ return {}; }
-}
-function saveBulkOpts(){
-  try {
-    localStorage.setItem(LS_BULK, JSON.stringify({ bills: $("bkBills").checked, slips: $("bkSlips").checked, order: $("bkOrder").value }));
-  } catch(e){}
-}
 function bulkLedger(){
   return !!(window.VFLedgerPO && backend && backend.cloud && VFLedgerPO.configured());
 }
@@ -3635,17 +3624,10 @@ $("btnBulk").onclick = function(){
   var day = selectedDay();
   $("bkFrom").value = day;
   $("bkTo").value = day;
-  var o = bulkOpts();
-  $("bkBills").checked = o.bills !== false;
-  $("bkSlips").checked = o.slips !== false;
-  $("bkOrder").value = o.order === "invoice" ? "invoice" : "type";
   show("bulk");
   loadBulk();
 };
 $("bkLoad").onclick = function(){ loadBulk(); };
-["bkBills","bkSlips","bkOrder"].forEach(function(id){
-  $(id).addEventListener("change", function(){ saveBulkOpts(); bulkSummary(); });
-});
 $("bkLedgerForm").addEventListener("submit", function(e){
   e.preventDefault();
   var btn = $("bkLedgerGo");
@@ -3867,14 +3849,12 @@ function bulkEditForm(r){
 
 function bulkSummary(){
   var picked = bulk.rows.filter(function(r){ return r.pick; });
-  var bills = $("bkBills").checked, slips = $("bkSlips").checked;
-  var pages = picked.length * ((bills ? 2 : 0) + (slips ? 1 : 0));
-  var blank = bills ? picked.filter(function(r){ return !r.cust; }).length : 0;
+  var blank = picked.filter(function(r){ return !r.cust; }).length;
   $("bkSummary").textContent = !picked.length ? "Tick the invoices to print."
-    : !bills && !slips ? "Tick tanker bills, fuel slips or both."
-    : plural(picked.length, "invoice") + " ticked → one PDF of " + plural(pages, "page")
+    : plural(picked.length, "invoice") + " ticked: " + plural(picked.length * 2, "A4 page") + " of tanker bills, "
+      + plural(picked.length, "A5 page") + " of fuel slips"
       + (blank ? ". " + plural(blank, "bill") + " without a Tanker Billing customer will print without the address." : ".");
-  ["bkPdf","bkPrint"].forEach(function(id){ $(id).disabled = !picked.length || (!bills && !slips); });
+  ["bkBillPdf","bkBillPrint","bkSlipPdf","bkSlipPrint"].forEach(function(id){ $(id).disabled = !picked.length; });
   // the tick boxes above: all / some / none
   var all = $("bkAll");
   if (all){
@@ -3946,41 +3926,42 @@ $("bkList").addEventListener("click", function(e){
   t.setAttribute("aria-expanded", String(!box.hidden));
 });
 
-// The pages, as {svg, size}: per invoice its bill (2 A4 pages) and slip (A5),
-// then ordered all bills first or invoice by invoice.
-function bulkPages(){
+// The ticked invoices' pages, one size per file: tanker bills (two A4 pages
+// each: customer copy, Receiving Copy) or fuel slips (one A5 page each).
+function bulkPages(kind){
   var picked = bulk.rows.filter(function(r){ return r.pick; });
-  var bills = $("bkBills").checked, slips = $("bkSlips").checked;
-  var h = slip.header || DEFAULT_SLIP_HEADER, stamp = slipStampUrl(), per = [];
+  if (kind === "slips"){
+    var h = slip.header || DEFAULT_SLIP_HEADER, stamp = slipStampUrl();
+    return Promise.resolve(picked.map(function(r){ return VFSlips.slipSvg(bulkSlipSale(r), slipHeaderOf(h, r.dateISO), stamp); }));
+  }
+  var out = [];
   return picked.reduce(function(prev, r){
     return prev.then(function(){
-      var mine = [];
-      per.push(mine);
-      return (bills ? inlinedSvgs(billSheetsFor(bulkBillModel(r))) : Promise.resolve([])).then(function(svgs){
-        svgs.forEach(function(svg){ mine.push({ svg: svg, size: VFSlips.A4, bill: true }); });
-        if (slips) mine.push({ svg: VFSlips.slipSvg(bulkSlipSale(r), slipHeaderOf(h, r.dateISO), stamp), size: VFSlips.A5 });
-      });
+      return inlinedSvgs(billSheetsFor(bulkBillModel(r))).then(function(svgs){ out.push.apply(out, svgs); });
     });
-  }, Promise.resolve()).then(function(){
-    var all = [].concat.apply([], per);
-    return $("bkOrder").value === "invoice" ? all
-      : all.filter(function(p){ return p.bill; }).concat(all.filter(function(p){ return !p.bill; }));
-  });
+  }, Promise.resolve()).then(function(){ return out; });
 }
-function bulkFileName(){
+function bulkFileName(kind){
   var from = $("bkFrom").value, to = $("bkTo").value;
-  var what = $("bkBills").checked && $("bkSlips").checked ? "Tanker bills and slips" : $("bkBills").checked ? "Tanker bills" : "Fuel slips";
-  return what + " " + (from === to ? VFSlips.dmy(from) : VFSlips.dmy(from) + " to " + VFSlips.dmy(to)) + ".pdf";
+  return (kind === "slips" ? "Fuel slips " : "Tanker bills ")
+    + (from === to ? VFSlips.dmy(from) : VFSlips.dmy(from) + " to " + VFSlips.dmy(to)) + ".pdf";
 }
-function makeBulk(btn, print){
+// Download makes the PDF here; Print sends the pages to the browser's print at
+// their own paper size (on iPhone / iPad: the PDF, for the share sheet's Print).
+function makeBulk(btn, kind, print){
   var label = btn.textContent, prog = $("bkProgress");
-  ["bkPdf","bkPrint"].forEach(function(id){ $(id).disabled = true; });
-  btn.textContent = "Making PDF…";
+  var size = kind === "slips" ? VFSlips.A5 : VFSlips.A4, name = bulkFileName(kind);
+  ["bkBillPdf","bkBillPrint","bkSlipPdf","bkSlipPrint"].forEach(function(id){ $(id).disabled = true; });
+  btn.textContent = print ? "Preparing…" : "Making PDF…";
   prog.textContent = "Preparing the pages…";
-  ($("bkSlips").checked ? loadSlipSettings() : Promise.resolve()).then(bulkPages).then(function(pages){
+  (kind === "slips" ? loadSlipSettings() : Promise.resolve()).then(function(){ return bulkPages(kind); }).then(function(svgs){
+    if (print && !VFSlips.isIOS()){
+      prog.textContent = plural(svgs.length, "page") + " sent to the printer — choose " + (kind === "slips" ? "A5" : "A4") + " paper.";
+      return VFSlips.printPages(svgs, size, name);
+    }
+    var pages = svgs.map(function(svg){ return { svg: svg, size: size }; });
     return VFSlips.pdfFromPages(pages, { scale: 2, onPage: function(n, total){ prog.textContent = "Drawing page " + n + " of " + total + "…"; } })
       .then(function(blob){
-        var name = bulkFileName();
         prog.textContent = name + " — " + plural(pages.length, "page") + ".";
         if (print) VFSlips.printFile(blob, name);
         else if (VFSlips.download(blob, name)) toast("Downloaded " + name);
@@ -3990,8 +3971,10 @@ function makeBulk(btn, print){
     bulkSummary();
   });
 }
-$("bkPdf").onclick = function(){ makeBulk(this, false); };
-$("bkPrint").onclick = function(){ makeBulk(this, true); };
+$("bkBillPdf").onclick = function(){ makeBulk(this, "bills", false); };
+$("bkBillPrint").onclick = function(){ makeBulk(this, "bills", true); };
+$("bkSlipPdf").onclick = function(){ makeBulk(this, "slips", false); };
+$("bkSlipPrint").onclick = function(){ makeBulk(this, "slips", true); };
 
 /* ---------- header ---------- */
 $("btnBridge").onclick = function(){ show("bridge"); };
