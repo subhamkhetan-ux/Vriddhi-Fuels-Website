@@ -210,6 +210,12 @@ today; the app follows.
   If a party is not in the sheet the screen says so and offers the full
   customer list to pick from — the bill still prints, with those fields blank
   until one is chosen.
+- **Unit-wise customers** (two or more sheet rows that differ only by their
+  unit — *SMC Power Generation LTD, UNIT I* and *UNIT II*) offer **only their
+  units**, never the whole list. `UNIT II`, `Unit-2` and `unit 2` are the same
+  unit. When the Ledger knows the unit (from the customer name, or the
+  customer's latest Ledger bill with a unit), that unit is picked and said
+  so; it can still be changed.
 - **Print / Save PDF** gives the same two A4 pages as before (customer copy
   + greyscale "Receiving Copy"), and **Export Word (.docx)** the same
   editable document.
@@ -228,6 +234,29 @@ today; the app follows.
 The standalone app at `/tanker/` is unchanged and keeps working — both read
 the same data file, and this app reuses the tanker app's letterhead, stamp,
 fonts and `.docx` builder rather than keeping a second copy of them.
+
+## Bulk bills & slips
+
+**Bulk bills & slips** (home, under *Records & imports*) prints the tanker
+bills and fuel slips of many invoices in **one PDF**, to save or print.
+
+- It lists the invoices of **bulk customers** in the chosen dates: customers
+  on a bulk ledger in the Ledger app (its `*_Bulk` groups). Without the Ledger
+  connection it lists the customers on the Tanker Billing sheet and offers
+  **Connect the Ledger**. Invoices waiting for review in Tally are left out
+  and counted.
+- Invoices are grouped by customer, all ticked: untick, or use **Select all**
+  and each customer's own box.
+- **Edit** on an invoice changes what prints — bill-to customer (only the
+  units for a unit-wise customer), P.O. No., date, bill no., vehicle,
+  quantity, price and amount — and **Back to the voucher's details** undoes
+  it. The vouchers are never changed. Each bill's P.O. No. is the Ledger's
+  open PO, as on the bill screen; a P.O. No. typed here is kept.
+- **Make the PDF:** tanker bills (customer copy + greyscale Receiving Copy,
+  A4), fuel slips (A5, with the signature and heading of the Fuel slips
+  screen), or both; **all bills then all slips**, or **invoice by invoice**.
+  The choices are remembered on the device. **Download PDF** saves it,
+  **Print** opens it to print (on iPhone/iPad, the share sheet).
 
 ## Fuel slips (Print Bills)
 

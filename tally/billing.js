@@ -71,25 +71,65 @@ function normName(s){
     .trim();
 }
 
+// A plant billed unit-wise ("SMC Power Generation LTD, UNIT II") — the unit
+// as a number, written any way: UNIT II, Unit-2, unit 2.
+var ROMAN = { i: 1, ii: 2, iii: 3, iv: 4, v: 5 };
+var UNIT = /\bunit\s*[-–:#.]?\s*(\d+|iv|v|i{1,3})\b/;
+function unitOf(s){
+  var m = UNIT.exec(normName(s));
+  return m ? String(/^\d+$/.test(m[1]) ? Number(m[1]) : ROMAN[m[1]]) : "";
+}
+// The name compared for matching: normalised, with the unit as a number.
+function custKey(s){
+  var u = unitOf(s);
+  return normName(s).replace(UNIT, u ? "unit " + u : "").replace(/\s+/g, " ").trim();
+}
+// The company without its unit: both SMC units share "smc power generation ltd".
+function baseKey(s){
+  return normName(s).replace(UNIT, " ").replace(/\s+/g, " ").trim();
+}
+
 // The sheet customer for a Tally party ledger, or null when there is no
 // unambiguous match (the bill screen then asks the user to pick one).
 function findCustomer(data, partyName){
   if (!data || !data.customers) return null;
-  var target = normName(partyName);
+  var target = custKey(partyName);
   if (!target) return null;
   var i, c;
   for (i = 0; i < data.customers.length; i++){
     c = data.customers[i];
-    if (normName(c.company) === target) return c;
+    if (custKey(c.company) === target) return c;
   }
   // fall back to a prefix match, but only when exactly one customer fits
   var hits = [];
   for (i = 0; i < data.customers.length; i++){
     c = data.customers[i];
-    var n = normName(c.company);
+    var n = custKey(c.company);
     if (n && (n.indexOf(target) === 0 || target.indexOf(n) === 0)) hits.push(c);
   }
   return hits.length === 1 ? hits[0] : null;
+}
+
+// The units of the party's company when it is billed unit-wise (two or more
+// sheet customers that differ only by their unit, as SMC Power's UNIT I and
+// UNIT II): the bill offers just those. [] for every other customer.
+function unitFamily(data, partyName){
+  if (!data || !data.customers) return [];
+  var base = baseKey(partyName);
+  if (!base) return [];
+  var fam = data.customers.filter(function(c){
+    var b = baseKey(c.company);
+    return unitOf(c.company) && b && (b === base || b.indexOf(base) === 0 || base.indexOf(b) === 0);
+  });
+  return fam.length >= 2 ? fam : [];
+}
+
+// The family member for a unit ("2" or "UNIT 2"), or null.
+function customerForUnit(family, unit){
+  var u = unitOf("unit " + String(unit || "").replace(/^\s*unit\s*/i, ""));
+  if (!u) return null;
+  var hit = family.filter(function(c){ return unitOf(c.company) === u; });
+  return hit.length === 1 ? hit[0] : null;
 }
 
 // The sheet's rate for this customer + product: the customer's tier rate
@@ -212,6 +252,9 @@ global.VFBilling = {
   fmtDate: fmtDate,
   normName: normName,
   findCustomer: findCustomer,
+  unitOf: unitOf,
+  unitFamily: unitFamily,
+  customerForUnit: customerForUnit,
   sheetRate: sheetRate,
   productForSeries: productForSeries,
   buildModel: buildModel,

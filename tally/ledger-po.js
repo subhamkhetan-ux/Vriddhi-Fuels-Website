@@ -149,5 +149,19 @@
       group: group.title || group.code, unit};
   }
 
-  global.VFLedgerPO = {configured: () => !!config(), signedIn, signIn, signOut, forVoucher, refresh: () => load(true)};
+  // The Ledger's bulk customers: everyone billed through a *_Bulk ledger (a bulk group).
+  // -> {status: 'not-configured' | 'signed-out' | 'ok', find(party, altName) -> {name, group, title, kind} | null}
+  async function bulk() {
+    if (!config()) return {status: 'not-configured'};
+    if (!await signedIn()) return {status: 'signed-out'};
+    const d = await load(false);
+    return {status: 'ok', find(party, altName) {
+      const m = memberFor(d.members || [], party) || (altName ? memberFor(d.members || [], altName) : null);
+      if (!m) return null;
+      const g = (d.groups || []).find(x => x.code === m.group);
+      return {name: m.name, group: m.group, title: (g && g.title) || m.group, kind: g ? g.kind : ''};
+    }};
+  }
+
+  global.VFLedgerPO = {configured: () => !!config(), signedIn, signIn, signOut, forVoucher, bulk, refresh: () => load(true)};
 })(window);
