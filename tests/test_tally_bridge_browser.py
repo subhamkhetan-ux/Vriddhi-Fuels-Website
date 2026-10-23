@@ -298,6 +298,7 @@ def _customer_price_page(browser,server,**page_options):
             voucher('99','2099-01-01',99),voucher('98','2025-01-03',98,bridgeState='deleted'),
             voucher('97','2025-01-03',97,bridgeState='conflict'),
             voucher('96','2025-01-03',96,party='Alpha Customer Ltd'),
+            voucher('95','2025-01-05',95,bridgeState='deleted'),
         ]
     }
     page=browser.new_page(viewport={'width':390,'height':900},service_workers='block',**page_options)
@@ -364,8 +365,7 @@ def test_customer_price_product_date_and_manual_override_are_independent(browser
 def test_editing_an_existing_invoice_keeps_its_saved_rate(browser,server):
     page=_customer_price_page(browser,server)
     page.on('dialog',lambda dialog:dialog.accept())
-    page.locator('#btnHistory').click()
-    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.locator('#ssHomeTable').get_by_role('button',name='High Speed Diesel',exact=False).click()
     page.get_by_role('button',name='01/01/2025',exact=False).click()
     page.get_by_role('button',name='Alter old voucher 12',exact=True).click()
     assert page.locator('#fPrice').input_value()=='90.00'
@@ -498,25 +498,31 @@ def test_unit_wise_po_comes_from_the_unit_in_the_customer_name(browser,server):
 
 def test_stock_summary_is_product_wise_then_date_wise(browser,server):
     page=_customer_price_page(browser,server)
-    page.locator('#btnHistory').click()
-    table=page.locator('#ssTable')
+    # its own card on the home screen, already expanded
+    table=page.locator('#ssHomeTable')
     # Products like Tally's Stock Summary; a voucher deleted in Tally is not counted.
     assert 'High Speed Diesel' in table.inner_text() and 'Motor Spirit' in table.inner_text()
     total=table.locator('.ss-total')
     assert '70.000' in total.inner_text() and '₹6,740.00' in total.inner_text()
     assert '7 vouchers' in total.inner_text()
-    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    assert page.locator('#ssHomePeriod').inner_text()=='01/01/2025 to 01/01/2099'
+    assert table.get_by_role('button',name='XtraGreen Diesel',exact=False).count()==0  # nothing to open
+    table.get_by_role('button',name='High Speed Diesel',exact=False).click()
     assert page.locator('#hdrTitle').inner_text()=='High Speed Diesel'
     rows=page.locator('#ssTable button.ss-row')
     assert rows.first.locator('b').inner_text()=='01/01/2099'
+    assert '05/01/2025' not in page.locator('#ssTable').inner_text()  # only a voucher deleted in Tally that day
     assert '₹5,690.00' in page.locator('#ssTable .ss-total').inner_text()
     page.get_by_role('button',name='02/01/2025',exact=False).click()
     assert page.locator('#histList .vitem').count()==2
     assert '₹1,870.00' in page.locator('#ssFoot').inner_text()
-    # Back steps up one level at a time.
+    # Back steps up one level at a time, then to the home card.
     page.locator('#btnBack').click()
     assert page.locator('#hdrTitle').inner_text()=='High Speed Diesel'
     page.locator('#btnBack').click()
+    page.locator('#scrHome.on').wait_for()
+    # search across every product and date
+    page.locator('#btnHistory').click()
     assert page.locator('#hdrTitle').inner_text()=='Stock Summary'
     page.locator('#histSearch').fill('MS2')
     assert page.locator('#histList .vitem').count()==1
@@ -528,8 +534,7 @@ def test_ios_prints_the_bill_and_slip_through_the_share_sheet(browser,server):
     page=_customer_price_page(browser,server,user_agent=IPHONE)
     page.add_init_script(SHARE_STUB);page.reload();page.locator('#cardHSD').wait_for()
     # the bill: both pages become an A4 PDF for the share sheet's Print
-    page.locator('#btnHistory').click()
-    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.locator('#ssHomeTable').get_by_role('button',name='High Speed Diesel',exact=False).click()
     page.get_by_role('button',name='01/01/2025',exact=False).click()
     page.get_by_role('button',name='Create bill for voucher 12',exact=True).click()
     page.locator('#blPrint').click()
@@ -544,7 +549,7 @@ def test_ios_prints_the_bill_and_slip_through_the_share_sheet(browser,server):
     assert not page.evaluate('!!window.printCalled')
     # a voucher's fuel slip: A5, same route
     page.locator('#btnBack').click();page.locator('#btnBack').click();page.locator('#btnBack').click()
-    page.locator('#btnBack').click();page.locator('#cardHSD').click()
+    page.locator('#scrHome.on').wait_for();page.locator('#cardHSD').click()
     page.locator('#fPartyList').get_by_role('button',name='Alpha Customer',exact=True).click()
     page.locator('#fQty').fill('10');page.locator('#btnSlipPrint').click()
     sheet.get_by_role('heading',name='Ready to print').wait_for()
@@ -562,8 +567,7 @@ def test_ios_prints_the_bill_and_slip_through_the_share_sheet(browser,server):
 def test_desktop_bill_print_still_uses_the_browser_print(browser,server):
     page=_customer_price_page(browser,server)
     page.add_init_script(SHARE_STUB);page.reload();page.locator('#cardHSD').wait_for()
-    page.locator('#btnHistory').click()
-    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.locator('#ssHomeTable').get_by_role('button',name='High Speed Diesel',exact=False).click()
     page.get_by_role('button',name='01/01/2025',exact=False).click()
     page.get_by_role('button',name='Create bill for voucher 12',exact=True).click()
     page.locator('#blPrint').click()
