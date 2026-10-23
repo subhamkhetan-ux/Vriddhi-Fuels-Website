@@ -252,14 +252,24 @@ function svgToJpeg(svg, size, scale){
 // page SVG strings (images already as data: URLs) -> PDF Blob
 function pdfFromSvgs(svgs, size, scale){
   size = size || A5;
-  scale = scale || 2;
+  return pdfFromPages(svgs.map(function(svg){ return { svg: svg, size: size }; }), { scale: scale });
+}
+
+// pages: [{svg, size}] — sizes may differ (A4 bills and A5 slips in one file).
+// o: {scale, onPage(done, total)}; pages are drawn one at a time to keep phones' memory low.
+function pdfFromPages(pages, o){
+  o = o || {};
+  var scale = o.scale || 2;
+  if (!pages.length) return Promise.reject(new Error("Nothing to put in the PDF"));
   return loadScript(JSPDF, function(){ return global.jspdf; }).then(function(lib){
-    var pdf = new lib.jsPDF({ unit: "pt", format: [size.width, size.height], orientation: "portrait", compress: true });
-    return svgs.reduce(function(prev, svg, i){
+    var first = pages[0].size;
+    var pdf = new lib.jsPDF({ unit: "pt", format: [first.width, first.height], orientation: "portrait", compress: true });
+    return pages.reduce(function(prev, page, i){
       return prev.then(function(){
-        return svgToJpeg(svg, size, scale).then(function(jpg){
-          if (i) pdf.addPage([size.width, size.height], "portrait");
-          pdf.addImage(jpg, "JPEG", 0, 0, size.width, size.height);
+        return svgToJpeg(page.svg, page.size, scale).then(function(jpg){
+          if (i) pdf.addPage([page.size.width, page.size.height], "portrait");
+          pdf.addImage(jpg, "JPEG", 0, 0, page.size.width, page.size.height);
+          if (o.onPage) o.onPage(i + 1, pages.length);
         });
       });
     }, Promise.resolve()).then(function(){ return pdf.output("blob"); });
@@ -403,6 +413,7 @@ var api = {
   slipSvg: slipSvg,
   slipBundles: slipBundles,
   pdfFromSvgs: pdfFromSvgs,
+  pdfFromPages: pdfFromPages,
   zipBlob: zipBlob,
   download: download,
   isIOS: isIOS,

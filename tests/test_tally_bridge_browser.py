@@ -703,3 +703,98 @@ def test_a_tally_edit_the_app_cannot_hold_shows_its_reason_and_can_be_read_again
     assert page.evaluate("VFTallyBridge.label('unsupported','Extra ledger in Tally: Freight')")=='Changed in Tally: Extra ledger in Tally: Freight'
     assert not errors
     page.close()
+
+
+BULK_PDF="""window.jspdf={jsPDF:class{constructor(o){this.sizes=[o.format];this.images=[];window.pdfMade=this}
+  addPage(f){this.sizes.push(f)} addImage(src){this.images.push(src.slice(0,23))}
+  output(){return new Blob(['%PDF-fake'],{type:'application/pdf'})}}};
+window.downloads=[];HTMLAnchorElement.prototype.click=function(){window.downloads.push(this.download)};"""
+
+
+def test_bulk_bills_and_slips_for_the_ledgers_bulk_customers_in_one_pdf(browser,server):
+    page=browser.new_page(viewport={'width':390,'height':900})
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    def route(r):
+        if r.request.url.endswith('/jspdf.umd.min.js'):r.fulfill(content_type='application/javascript',body='')
+        elif r.request.url.startswith(server):r.continue_()
+        else:r.abort()
+    page.route('**/*',route)
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK);page.add_init_script(BULK_PDF)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
+      const row=(id,number,party,qty,extra)=>Object.assign({id,series:'hsd',number,date:today,party,vehicle:'OD23A3710',qty:String(qty),
+        rate:'99.5',item_amt:String(qty*99.5),party_amt:String(qty*99.5),roff:'0',status:'history',source:'app',bridge_state:'synced',
+        created_at:new Date().toISOString()},extra||{});
+      window.customerPriceParties=[{name:'SMC Power Generation Ltd'},{name:'Grk Logistics Private Limited'},{name:'Walk-in Customer'}];
+      window.customerPriceVouchers=[row('v1','4358','Grk Logistics Private Limited',4000),row('v2','4359','SMC Power Generation Ltd',3000),
+        row('v3','4360','Walk-in Customer',20),row('v4','4361','Grk Logistics Private Limited',1000,{bridge_state:'conflict'})];
+      window.ledgerData={groups:[{code:'SMC_Bulk',title:'SMC Power — Bulk',kind:'po_units',units:['UNIT 1','UNIT 2']},
+          {code:'GRK_Bulk',title:'Grk Logistics — Bulk',kind:'group',units:[]}],
+        members:[{id:1,name:'SMC POWER GENERATION LTD',key:'smc',group:'SMC_Bulk',archived:false},
+          {id:2,name:'GRK LOGISTICS PRIVATE LIMITED',key:'grk',group:'GRK_Bulk',archived:false}],
+        pos:[{id:1,group_code:'SMC_Bulk',unit:'UNIT 2',po_no:'SMC-U2-PO',allotted:50000,seq:1}],
+        bills:[{id:9,group:'SMC_Bulk',product:'HSD',date:'2026-04-02',bill_no:'600',qty:1000,customer:'SMC POWER GENERATION LTD',unit:'UNIT 2',po_mode:'auto',po_fixed:'',seq:1}]};
+    })();""")
+    page.goto(server+'/tally/')
+    page.locator('#btnBulk').click()
+    page.locator('#bkList .bk-row').first.wait_for()
+    # Bulk customers only (the Ledger's bulk ledgers): no walk-in, and the one under review is left out.
+    text=page.locator('#bkList').inner_text()
+    assert '#4358' in text and '#4359' in text and '#4360' not in text and '#4361' not in text
+    assert 'waiting for review in Tally is left out' in page.locator('#bkSource').inner_text()
+    # SMC: the unit and its PO come from the Ledger; only SMC's two units are offered.
+    smc=page.locator('.bk-row',has_text='#4359')
+    smc.get_by_text('Bill to: SMC Power Generation LTD, UNIT II').wait_for()
+    page.wait_for_function("document.getElementById('bkList').innerText.includes('P.O. SMC-U2-PO')")
+    smc.get_by_role('button',name='Edit invoice 4359').click()
+    options=smc.locator('select[data-f=cust] option').all_inner_texts()
+    assert options==['— pick the unit —','SMC Power Generation LTD, UNIT I','SMC Power Generation LTD, UNIT II']
+    assert smc.locator('select[data-f=cust]').input_value()=='SMC Power Generation LTD, UNIT II'
+    assert 'without a Tanker Billing customer' not in page.locator('#bkSummary').inner_text()
+    # Edits are for the print only.
+    smc.locator('[data-f=vehicle]').fill('od15x1111')
+    smc.locator('[data-f=po]').fill('PO-TYPED')
+    assert 'OD15X1111' in smc.inner_text() and 'P.O. PO-TYPED' in smc.inner_text() and 'edited' in smc.inner_text()
+    assert not page.evaluate("bridgeCalls.filter(c=>/save|edit|delete/.test(c.name)).length")  # nothing saved
+    # Select all / one by one.
+    assert '2 invoices ticked: 4 A4 pages of tanker bills, 2 A5 pages of fuel slips' in page.locator('#bkSummary').inner_text()
+    page.locator('#bkR0').uncheck()
+    assert page.evaluate("document.getElementById('bkAll').indeterminate")
+    assert '1 invoice ticked: 2 A4 pages of tanker bills, 1 A5 page of fuel slips' in page.locator('#bkSummary').inner_text()
+    page.locator('#bkAll').check()
+    # Tanker bills and fuel slips are separate files, each one paper size.
+    A4,A5=[595.28,841.89],[420,595]
+    page.locator('#bkBillPdf').click()
+    page.wait_for_function("window.downloads.length===1")
+    assert page.evaluate('downloads[0]').startswith('Tanker bills ')
+    assert page.evaluate('pdfMade.sizes')==[A4,A4,A4,A4]
+    assert page.evaluate('pdfMade.images.every(s=>s.startsWith("data:image/jpeg"))')
+    page.locator('#bkSlipPdf').click()
+    page.wait_for_function("window.downloads.length===2")
+    assert page.evaluate('downloads[1]').startswith('Fuel slips ')
+    assert page.evaluate('pdfMade.sizes')==[A5,A5]
+    # Print goes to the browser's print at the file's own paper size.
+    page.evaluate("()=>{window.print=()=>{window.printed=document.getElementById('print-style').textContent+'|'+document.querySelectorAll('#print-area .print-page').length}}")
+    page.locator('#bkSlipPrint').click()
+    page.wait_for_function("window.printed")
+    assert page.evaluate('printed')=='@page { size: A5 portrait; margin: 0; }|2'
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert not errors, errors
+    page.close()
+
+
+def test_smc_bill_offers_only_its_two_units(browser,server):
+    page=browser.new_page()
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
+      window.customerPriceVouchers=[{id:'v1',series:'hsd',number:'901',date:today,party:'SMC Power Generation Ltd',qty:'1000',vehicle:'',
+        rate:'99.5',item_amt:'99500',party_amt:'99500',roff:'0',status:'pending',source:'app',bridge_state:'unlinked',created_at:new Date().toISOString()}];
+      window.ledgerData={groups:[],members:[],pos:[],bills:[]};})();""")
+    page.goto(server+'/tally/')
+    page.get_by_role('button',name='Create bill for voucher 901').click()
+    page.wait_for_function("document.querySelectorAll('#blCustomer option').length>1")
+    assert page.locator('#blCustomer option').all_inner_texts()==['— pick the unit —','SMC Power Generation LTD, UNIT I','SMC Power Generation LTD, UNIT II']
+    assert 'billed unit-wise' in page.locator('#blWarn').inner_text()
+    page.locator('#blCustomer').select_option('SMC Power Generation LTD, UNIT I')
+    assert page.locator('#blPA1').text_content()=='Hirma,'
+    page.close()

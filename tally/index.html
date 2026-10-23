@@ -52,6 +52,31 @@
 @font-face{font-family:"BillSerif";src:url("../tanker/assets/fonts/BillSerif-Bold.ttf") format("truetype");font-weight:bold;font-style:normal;font-display:swap}
 @font-face{font-family:"BillSerif";src:url("../tanker/assets/fonts/BillSerif-Italic.ttf") format("truetype");font-weight:normal;font-style:italic;font-display:swap}
 
+/* ======================= Bulk bills & slips =======================
+   Many invoices of bulk customers, ticked and printed as one PDF. */
+#scrBulk{max-width:880px;margin:0 auto}
+.bk-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.bk-head .chkrow{margin-top:0}
+.bk-group{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--glass);margin-top:12px;overflow:hidden}
+.bk-ghead{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line-soft);font-weight:700;font-size:14px}
+.bk-ghead input,.bk-row input[type=checkbox]{width:21px;height:21px;accent-color:var(--orange);flex:none}
+.bk-ghead small{display:block;font-weight:500;color:var(--txt-3);font-size:12px}
+.bk-row{padding:10px 12px;border-top:1px solid var(--line-soft)}
+.bk-row:first-of-type{border-top:0}
+.bk-line{display:flex;align-items:flex-start;gap:10px}
+.bk-line label{flex:1;min-width:0;cursor:pointer;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.bk-line label small{display:block;color:var(--txt-2);font-size:12.5px;font-variant-numeric:tabular-nums}
+.bk-line .linkbtn{min-height:44px;flex:none}
+.bk-warn{display:block;color:var(--amber);font-size:12.5px;font-weight:650}
+.bk-edit{margin-top:8px;padding-top:4px;border-top:1px dashed var(--line-soft)}
+.bk-edit .field{margin-top:10px}
+.bk-edit input{width:100%;padding:12px;border-radius:11px;border:1px solid var(--line);background:var(--field);font-size:16px;outline:none;min-width:0;color:inherit}
+.bk-edit input:focus{border-color:var(--orange)}
+.bk-out{border-top:1px solid var(--line-soft);margin-top:14px;padding-top:12px}
+.bk-out h3{font-size:15px;font-weight:750;margin:0}
+.bk-actions{display:flex;flex-wrap:wrap;gap:8px}
+.bk-actions .btn{flex:1 1 200px;width:auto}
+
 /* ======================= Fuel slips =======================
    The Ledger app's Print Bills: A5 credit memos, one PDF per customer. */
 #scrSlips{max-width:880px;margin:0 auto}
@@ -172,6 +197,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 3h8v13H4Z"/><path d="M8 12h8m-8 4h5"/></svg><h2 class="sec-title" id="recordsHeading">Records &amp; imports</h2></div>
   <p class="section-note">Your past vouchers and Tally exports, in one place.</p>
   <button class="btn ghost record-action" id="btnSlips"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h3"/></svg><span>Fuel slips<small>Choose dates and customer</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  <button class="btn ghost record-action" id="btnBulk"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10v5H7zM5 9h14a2 2 0 0 1 2 2v6h-4v3H7v-3H3v-6a2 2 0 0 1 2-2Z"/><path d="M9 15h6"/></svg><span>Bulk bills &amp; slips<small>Tanker bills and fuel slips for many invoices, one PDF</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <button class="btn ghost record-action" id="btnImportDaybook"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/></svg><span>Import from Tally<small>Day book or customer ledgers</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <input type="file" id="fileDaybook" accept=".xml,text/xml,application/xml" style="display:none">
   <details class="help-details"><summary>Which Tally files can I import?</summary><div class="hint">A DayBook XML loads old vouchers and syncs invoice numbers and prices. A Master XML loads customer ledgers from Sundry Debtors.</div></details>
@@ -511,6 +537,59 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   </div>
 
   <div id="slOut"></div>
+</section>
+
+<!-- ======================= BULK BILLS & SLIPS =======================
+     Tanker bills and fuel slips for many invoices at once, in one PDF: the
+     invoices of bulk customers (the Ledger app's bulk ledgers) in a date
+     range. Any detail can be changed for the print; the vouchers are not. -->
+<section class="screen" id="scrBulk">
+  <div class="card">
+    <h2 class="cardtitle">Bulk tanker bills &amp; fuel slips</h2>
+    <div class="hint" style="margin-top:2px">The invoices of bulk customers in these dates. Tick the ones to print and make one PDF
+      to save or print. Changes made here are for the print only — the vouchers stay as they are.</div>
+    <div class="frow">
+      <div class="field">
+        <label for="bkFrom">From</label>
+        <input type="date" id="bkFrom">
+      </div>
+      <div class="field">
+        <label for="bkTo">To</label>
+        <input type="date" id="bkTo">
+      </div>
+    </div>
+    <button class="btn primary" id="bkLoad">Show invoices</button>
+    <div class="hint" id="bkSource" aria-live="polite"></div>
+    <form id="bkLedgerForm" class="ledger-connect" hidden>
+      <input type="email" id="bkLedgerEmail" placeholder="Ledger login email" autocomplete="username" required aria-label="Ledger login email">
+      <input type="password" id="bkLedgerPass" placeholder="Password" autocomplete="current-password" required aria-label="Ledger password">
+      <button type="submit" class="btn ghost" id="bkLedgerGo">Connect the Ledger</button>
+    </form>
+  </div>
+
+  <div id="bkList"></div>
+
+  <div class="card" id="bkMake" hidden>
+    <h2 class="cardtitle">Print the ticked invoices</h2>
+    <div class="hint" id="bkSummary" aria-live="polite"></div>
+    <div class="bk-out">
+      <h3>Tanker bills · A4</h3>
+      <div class="hint">Customer copy and greyscale Receiving Copy — two A4 pages per invoice.</div>
+      <div class="bk-actions">
+        <button class="btn primary" id="bkBillPdf">⬇ Download bills PDF</button>
+        <button class="btn ghost" id="bkBillPrint">🖨 Print bills</button>
+      </div>
+    </div>
+    <div class="bk-out">
+      <h3>Fuel slips · A5</h3>
+      <div class="hint">One A5 page per invoice, with the signature and heading set on the Fuel slips screen.</div>
+      <div class="bk-actions">
+        <button class="btn primary" id="bkSlipPdf">⬇ Download slips PDF</button>
+        <button class="btn ghost" id="bkSlipPrint">🖨 Print slips</button>
+      </div>
+    </div>
+    <div class="hint" id="bkProgress" aria-live="polite"></div>
+  </div>
 </section>
 
 <!-- ======================= SETTINGS ======================= -->
@@ -1607,7 +1686,7 @@ function rerender(){
 /* ---------- navigation ---------- */
 function show(screen){
   current = screen;
-  ["scrHome","scrNew","scrBill","scrSlips","scrHistory","scrSettings","scrLogin","scrBridge"].forEach(function(id){ $(id).classList.remove("on"); });
+  ["scrHome","scrNew","scrBill","scrSlips","scrBulk","scrHistory","scrSettings","scrLogin","scrBridge"].forEach(function(id){ $(id).classList.remove("on"); });
   $("btnBack").style.display = screen === "home" ? "none" : "";
   $("btnSettings").style.display = screen === "home" ? "" : "none";
   if (screen === "home"){
@@ -1634,6 +1713,9 @@ function show(screen){
   } else if (screen === "slips"){
     $("scrSlips").classList.add("on");
     $("hdrTitle").textContent = "Fuel slips";
+  } else if (screen === "bulk"){
+    $("scrBulk").classList.add("on");
+    $("hdrTitle").textContent = "Bulk bills & slips";
   } else if (screen === "history"){
     $("scrHistory").classList.add("on");
     $("hdrTitle").textContent = ssTitle();
@@ -2550,7 +2632,7 @@ $("btnSave").onclick = function(){
    editing a bill never writes back to the voucher, and the app's own
    invoice numbering is untouched (a bill carries the separate "Bill No"
    counter shared with the /tanker/ app). */
-var bill = { data: null, from: "new", customer: null, party: "", voucherNumber: "", saved: false };
+var bill = { data: null, from: "new", customer: null, family: [], party: "", voucherNumber: "", saved: false };
 
 function blSet(id, v){ $(id).textContent = (v == null ? "" : v); }
 
@@ -2591,14 +2673,16 @@ function fillBillForm(src){
   $("blStatus").textContent = d.customers.length + " customers · sheet data as of " + gen
     + ". Every field is editable — changes here do not affect the voucher.";
 
-  // customer list, with the voucher's party matched to a sheet customer
+  // customer list, with the voucher's party matched to a sheet customer. A
+  // company billed unit-wise (SMC Power's UNIT I / UNIT II) offers only its units.
   var match = VFBilling.findCustomer(d, src.party);
+  bill.family = VFBilling.unitFamily(d, src.party);
   var sel = $("blCustomer");
   sel.innerHTML = "";
   var none = document.createElement("option");
-  none.value = ""; none.textContent = "— pick the customer —";
+  none.value = ""; none.textContent = bill.family.length ? "— pick the unit —" : "— pick the customer —";
   sel.appendChild(none);
-  d.customers.forEach(function(c){
+  (bill.family.length ? bill.family : d.customers).forEach(function(c){
     var o = document.createElement("option");
     o.value = c.company; o.textContent = c.company;
     sel.appendChild(o);
@@ -2691,6 +2775,15 @@ function ledgerPo(){
     }
     if (!bill.poManual){ $("blPo").value = r.po || ""; renderBill(); }
     hint.textContent = ledgerPoText(r, qty) + (bill.poManual ? " (Kept the P.O. No. you typed.)" : "");
+    // A unit-wise customer whose unit the Ledger knows: bill that unit (still changeable).
+    var unitCust = !bill.customer && bill.family && r.unit ? VFBilling.customerForUnit(bill.family, r.unit) : null;
+    if (unitCust){
+      bill.customer = unitCust;
+      $("blCustomer").value = unitCust.company;
+      updateBillWarning();
+      renderBill();
+      hint.textContent += " " + r.unit + " picked from the Ledger — change the customer if this bill is for the other unit.";
+    }
   }).catch(function(e){
     if (run !== ledgerPoRun) return;
     form.hidden = !/members list|accept/i.test((e && e.message) || "");
@@ -2714,7 +2807,9 @@ function updateBillWarning(){
   var w = $("blWarn");
   if (bill.customer){ w.style.display = "none"; return; }
   w.style.display = "";
-  w.textContent = bill.party
+  w.textContent = bill.family && bill.family.length
+    ? "“" + bill.party + "” is billed unit-wise — pick the unit below, otherwise the address, GSTIN and payment details print blank."
+    : bill.party
     ? "“" + bill.party + "” is not in the Tanker Billing sheet — pick the matching customer below, "
       + "otherwise the address, GSTIN and payment details print blank."
     : "Pick the customer below so the address, GSTIN and payment details are filled in.";
@@ -2735,28 +2830,43 @@ function billModelFromForm(){
   });
 }
 
+// Write a bill model onto a bill sheet: the one on screen, or a copy (bulk printing).
+function fillBillSheet(svg, m){
+  function put(id, v){ var el = svg.querySelector("#" + id); if (el) el.textContent = (v == null ? "" : v); }
+  put("blPDate", m.date);
+  put("blPProd", m.product);
+  put("blPName", m.name);
+  put("blPA1", m.address[0]);
+  put("blPA2", m.address[1]);
+  put("blPA3", m.address[2]);
+
+  put("blTDate", m.row.date);
+  put("blTBill", m.row.bill);
+  put("blTVeh", m.row.vehicle);
+  put("blTQty", m.row.qty);
+  put("blTPrice", m.row.price);
+  put("blTAmt", m.row.amount);
+
+  put("blPPoLbl", m.poLabel);
+  put("blPPoVal", m.poLabel ? m.poVal : "");
+  put("blPDensity", m.density ? "Density-" : "");
+  put("blPSeal", m.seal ? "Seal No-" : "");
+  for (var i = 0; i < 5; i++) put("blPPay" + i, m.payment[i] || "");
+}
+
+// A bill's two pages (customer copy, greyscale Receiving Copy) as detached SVG elements.
+function billSheetsFor(m){
+  var page1 = $("blSheet").cloneNode(true);
+  fillBillSheet(page1, m);
+  var page2 = greyCopyOf(page1);
+  page1.removeAttribute("id");
+  page1.querySelectorAll("[id]").forEach(function(el){ el.removeAttribute("id"); });
+  return [page1, page2];
+}
+
 function renderBill(){
   var m = billModelFromForm();
-
-  blSet("blPDate", m.date);
-  blSet("blPProd", m.product);
-  blSet("blPName", m.name);
-  blSet("blPA1", m.address[0]);
-  blSet("blPA2", m.address[1]);
-  blSet("blPA3", m.address[2]);
-
-  blSet("blTDate", m.row.date);
-  blSet("blTBill", m.row.bill);
-  blSet("blTVeh", m.row.vehicle);
-  blSet("blTQty", m.row.qty);
-  blSet("blTPrice", m.row.price);
-  blSet("blTAmt", m.row.amount);
-
-  blSet("blPPoLbl", m.poLabel);
-  blSet("blPPoVal", m.poLabel ? m.poVal : "");
-  blSet("blPDensity", m.density ? "Density-" : "");
-  blSet("blPSeal", m.seal ? "Seal No-" : "");
-  for (var i = 0; i < 5; i++) blSet("blPPay" + i, m.payment[i] || "");
+  fillBillSheet($("blSheet"), m);
 
   var no = $("blNo").value.trim();
   if (!no){
@@ -2825,7 +2935,10 @@ function blGreyOf(col){
 function buildBillPage2(){
   var holder = $("blPage2");
   holder.innerHTML = "";
-  var clone = $("blSheet").cloneNode(true);
+  holder.appendChild(greyCopyOf($("blSheet")));
+}
+function greyCopyOf(sheet){
+  var clone = sheet.cloneNode(true);
   clone.removeAttribute("id");
   clone.querySelectorAll("[id]").forEach(function(el){ el.removeAttribute("id"); });
 
@@ -2856,19 +2969,19 @@ function buildBillPage2(){
   var bg = clone.firstElementChild;                     // white background rect
   if (bg && bg.nextSibling) clone.insertBefore(wm, bg.nextSibling);
   else clone.appendChild(wm);
+  return clone;
+}
 
-  holder.appendChild(clone);
+function sheetCustomer(data, company){
+  var hit = null;
+  if (data && company) data.customers.forEach(function(c){ if (c.company === company) hit = c; });
+  return hit;
 }
 
 // Customer / product changes are a deliberate deviation from the voucher,
 // so they bring the sheet's own P.O. no. and rate with them.
 function billCustomerChanged(){
-  var name = $("blCustomer").value;
-  bill.customer = null;
-  if (bill.data && name){
-    for (var i = 0; i < bill.data.customers.length; i++)
-      if (bill.data.customers[i].company === name) bill.customer = bill.data.customers[i];
-  }
+  bill.customer = sheetCustomer(bill.data, $("blCustomer").value);
   $("blPo").value = bill.customer ? (bill.customer.po_no || "") : "";
   bill.poManual = false;
   applyBillSheetRate();
@@ -2916,8 +3029,12 @@ $("blPrint").onclick = function(){
 // picture loads nothing, so its images are inlined, and the sheet's
 // no-kerning rule goes with it. The fonts fall back to the system's Times.
 function billSvgs(){
+  return inlinedSvgs([$("blSheet"), $("blPage2").querySelector("svg")].filter(Boolean));
+}
+var billImageCache = {};   // letterhead / stamp as data: URLs, fetched once
+function inlinedSvgs(svgs){
   var hrefs = {};
-  var pages = [$("blSheet"), $("blPage2").querySelector("svg")].filter(Boolean).map(function(svg){
+  var pages = svgs.map(function(svg){
     var c = svg.cloneNode(true);
     c.setAttribute("width", "595.28");
     c.setAttribute("height", "841.89");
@@ -2928,13 +3045,14 @@ function billSvgs(){
     return c;
   });
   return Promise.all(Object.keys(hrefs).map(function(href){
+    if (billImageCache[href]){ hrefs[href] = billImageCache[href]; return null; }
     return fetch(href).then(function(r){
       if (!r.ok) throw new Error("Couldn't load the bill's letterhead — check the internet connection.");
       return r.blob();
     }).then(function(blob){
       return new Promise(function(resolve, reject){
         var fr = new FileReader();
-        fr.onload = function(){ hrefs[href] = fr.result; resolve(); };
+        fr.onload = function(){ hrefs[href] = billImageCache[href] = fr.result; resolve(); };
         fr.onerror = function(){ reject(fr.error); };
         fr.readAsDataURL(blob);
       });
@@ -3492,6 +3610,372 @@ $("btnResetCustomers").onclick = function(){
   }).catch(oops);
 };
 
+/* ---------- bulk tanker bills & fuel slips ----------
+   Many invoices at once: the bulk customers' invoices in a date range
+   (customers on a bulk ledger in the Ledger app; without the Ledger, the
+   Tanker Billing sheet's customers), each ticked or not and editable for
+   the print only, made into one PDF of A4 bills and A5 slips. */
+var bulk = { rows: [], data: null, run: 0 };
+function bulkLedger(){
+  return !!(window.VFLedgerPO && backend && backend.cloud && VFLedgerPO.configured());
+}
+
+$("btnBulk").onclick = function(){
+  var day = selectedDay();
+  $("bkFrom").value = day;
+  $("bkTo").value = day;
+  show("bulk");
+  loadBulk();
+};
+$("bkLoad").onclick = function(){ loadBulk(); };
+$("bkLedgerForm").addEventListener("submit", function(e){
+  e.preventDefault();
+  var btn = $("bkLedgerGo");
+  btn.disabled = true; btn.textContent = "Connecting…";
+  VFLedgerPO.signIn($("bkLedgerEmail").value.trim(), $("bkLedgerPass").value).then(function(){
+    $("bkLedgerPass").value = "";
+    loadBulk();
+  }).catch(function(err){
+    $("bkSource").textContent = (err && err.message) || "Could not connect to the Ledger.";
+  }).then(function(){ btn.disabled = false; btn.textContent = "Connect the Ledger"; });
+});
+
+// The invoices of bulk customers in the dates: every voucher here (pending and
+// old), one per invoice number; those waiting for review in Tally are left out.
+function loadBulk(){
+  var from = $("bkFrom").value, to = $("bkTo").value, out = $("bkList");
+  if (!from || !to || to < from){ toast("Pick a From date on or before the To date"); return; }
+  var run = ++bulk.run;
+  out.innerHTML = '<div class="card"><div class="empty">Finding the bulk customers’ invoices…</div></div>';
+  $("bkMake").hidden = true;
+  Promise.all([
+    VFBilling.load(),
+    bulkLedger() ? VFLedgerPO.bulk().catch(function(e){ return { status: "error", message: (e && e.message) || "" }; })
+      : Promise.resolve({ status: "not-configured" })
+  ]).then(function(r){
+    if (run !== bulk.run) return;
+    var data = bulk.data = r[0], ledger = r[1];
+    var seen = {}, blocked = 0, rows = [];
+    state.queue.concat(state.history).forEach(function(v){
+      if (v.dateISO < from || v.dateISO > to || !SLIP_PRODUCT[v.seriesKey] || !String(v.number || "").trim()) return;
+      var k = v.seriesKey + "|" + v.number;
+      if (seen[k]) return;
+      seen[k] = 1;
+      var cust = VFBilling.findCustomer(data, v.party), family = VFBilling.unitFamily(data, v.party);
+      var group = ledger.status === "ok" ? ledger.find(v.party, cust ? cust.company : (family[0] ? family[0].company : "")) : null;
+      if (ledger.status === "ok" ? !group : !(cust || family.length)) return;
+      if (bridgeBlocked(v)){ blocked++; return; }
+      rows.push(bulkRow(v, cust, family, group));
+    });
+    var order = ["hsd", "ms", "xg"];
+    rows.sort(function(a, b){
+      return a.v.party.toLowerCase().localeCompare(b.v.party.toLowerCase()) || a.dateISO.localeCompare(b.dateISO)
+        || order.indexOf(a.v.seriesKey) - order.indexOf(b.v.seriesKey) || numPart(a.v.number) - numPart(b.v.number);
+    });
+    rows.forEach(function(r, i){ r.i = i; });
+    bulk.rows = rows;
+    $("bkLedgerForm").hidden = ledger.status !== "signed-out";
+    $("bkSource").textContent = (ledger.status === "ok" ? "Bulk customers from the Ledger app (its bulk ledgers)."
+      : ledger.status === "signed-out" ? "Connect the Ledger to list its bulk customers and fill their open POs. Until then, the customers on the Tanker Billing sheet are listed."
+      : ledger.status === "error" ? (ledger.message || "The Ledger could not be reached.") + " The customers on the Tanker Billing sheet are listed."
+      : "The customers on the Tanker Billing sheet are listed.")
+      + (blocked ? " " + plural(blocked, "invoice") + " waiting for review in Tally " + (blocked === 1 ? "is" : "are") + " left out." : "");
+    renderBulk();
+    bulkPos();
+  }).catch(function(e){
+    if (run !== bulk.run) return;
+    out.innerHTML = '<div class="card"><div class="empty">Could not load the Tanker Billing sheet ('
+      + escHtml((e && e.message) || e) + "). Check the internet connection and try again.</div></div>";
+  });
+}
+
+function bulkRow(v, cust, family, group){
+  var r = { v: v, pick: true, group: group, family: family, cust: cust, custAuto: false,
+    po: cust ? (cust.po_no || "") : "", poManual: false, poNote: "", open: [] };
+  bulkReset(r);
+  return r;
+}
+function voucherAmount(v){
+  return Number((typeof v.partyAmt === "number" && isFinite(v.partyAmt)) ? v.partyAmt : v.amount) || 0;
+}
+// the voucher's own details (Edit → "Back to the voucher's details")
+function bulkReset(r){
+  var v = r.v;
+  r.dateISO = v.dateISO;
+  r.billNo = String(v.number);
+  r.vehicle = (v.vehicle || "").toUpperCase();
+  r.qty = Number(v.qty) || 0;
+  r.rate = Number(v.rate) || 0;
+  r.amount = voucherAmount(v);
+}
+function bulkEdited(r){
+  var v = r.v;
+  return r.dateISO !== v.dateISO || r.billNo !== String(v.number) || r.vehicle !== (v.vehicle || "").toUpperCase()
+    || r.qty !== (Number(v.qty) || 0) || r.rate !== (Number(v.rate) || 0) || r.amount !== voucherAmount(v) || r.poManual;
+}
+function bulkBillModel(r){
+  return VFBilling.buildModel({ customer: r.cust, name: r.v.party, product: VFBilling.productForSeries(r.v.seriesKey),
+    dateISO: r.dateISO, billNo: r.billNo, vehicle: r.vehicle, qty: r.qty, price: r.rate, amount: r.amount, poNo: r.po });
+}
+function bulkSlipSale(r){
+  return { product: SLIP_PRODUCT[r.v.seriesKey], bill_no: r.billNo, sale_date: r.dateISO, customer: r.v.party,
+    vehicle: r.vehicle, qty: r.qty, rate: r.rate, amount: r.amount };
+}
+
+// Each invoice's open PO from the Ledger, as on the bill screen; a P.O. No. typed here is kept.
+function bulkPos(){
+  if (!bulkLedger()) return;
+  bulk.rows.forEach(function(r){ bulkPo(r); });
+}
+function bulkPo(r){
+  if (!bulkLedger()) return;
+  var run = bulk.run;
+  VFLedgerPO.forVoucher({
+    party: r.v.party, altName: r.cust ? r.cust.company : "", seriesKey: r.v.seriesKey,
+    number: r.billNo || r.v.number, dateISO: r.dateISO, qty: r.qty,
+    vouchers: state.queue.concat(state.history).filter(function(v){ return !bridgeBlocked(v); })
+  }).then(function(res){
+    if (run !== bulk.run || res.status !== "ok") return;
+    r.open = res.open;
+    var po = res.po;
+    if (res.how === "needs-unit"){
+      var fits = res.open.filter(function(p){ return p.balance >= r.qty; });
+      if (fits.length === 1) po = fits[0].po_no;
+    }
+    if (!r.poManual) r.po = po || "";
+    r.poNote = res.how === "auto" ? "Open PO from the Ledger" + (res.unit ? " (" + res.unit + ")" : "")
+      : res.how === "fixed" ? "PO set on this bill in the Ledger"
+      : res.how === "needs-unit" ? "The unit is not known — check the PO" : "No open PO with enough litres";
+    // a unit-wise customer whose unit the Ledger knows: bill that unit
+    if (!r.cust && r.family.length && res.unit){
+      var c = VFBilling.customerForUnit(r.family, res.unit);
+      if (c){ r.cust = c; r.custAuto = true; }
+    }
+    paintBulkRow(r);
+    bulkSummary();
+  }).catch(function(){ /* the sheet's P.O. No. stays */ });
+}
+
+function bulkGroups(){
+  var groups = [], byKey = {};
+  bulk.rows.forEach(function(r){
+    var k = r.v.party.toLowerCase();
+    if (!byKey[k]){ byKey[k] = { name: r.v.party, title: r.group ? r.group.title : "", rows: [] }; groups.push(byKey[k]); }
+    byKey[k].rows.push(r);
+  });
+  return groups;
+}
+
+function renderBulk(){
+  var out = $("bkList"), from = $("bkFrom").value, to = $("bkTo").value;
+  var dl = function(iso){ return iso.split("-").reverse().join("/"); };
+  var range = from === to ? dl(from) : dl(from) + " to " + dl(to);
+  if (!bulk.rows.length){
+    out.innerHTML = '<div class="card"><div class="empty">No bulk customers’ invoices for ' + range + ".</div></div>";
+    $("bkMake").hidden = true;
+    return;
+  }
+  var groups = bulkGroups();
+  out.innerHTML = '<div class="card"><div class="bk-head"><h2 class="cardtitle" style="margin:0">'
+    + plural(bulk.rows.length, "invoice") + " · " + range + "</h2>"
+    + '<div class="chkrow"><input type="checkbox" id="bkAll" data-all="1"><label for="bkAll" style="margin:0">Select all</label></div></div>'
+    + groups.map(function(g, gi){
+      return '<div class="bk-group"><div class="bk-ghead"><input type="checkbox" id="bkG' + gi + '" data-group="' + gi + '" aria-label="Select all of ' + escHtml(g.name) + '">'
+        + '<label for="bkG' + gi + '">' + escHtml(g.name) + (g.title ? "<small>" + escHtml(g.title) + "</small>" : "") + "</label></div>"
+        + g.rows.map(function(r){
+          return '<div class="bk-row" data-row="' + r.i + '"><div class="bk-line">'
+            + '<input type="checkbox" id="bkR' + r.i + '" data-pick="' + r.i + '"' + (r.pick ? " checked" : "") + ">"
+            + '<label for="bkR' + r.i + '" id="bkS' + r.i + '"></label>'
+            + '<button type="button" class="linkbtn" data-edit="' + r.i + '" aria-expanded="false" aria-label="Edit invoice ' + escHtml(r.v.number) + '">Edit</button></div>'
+            + '<div class="bk-edit" id="bkE' + r.i + '" hidden></div></div>';
+        }).join("") + "</div>";
+    }).join("") + "</div>";
+  bulk.groups = groups;
+  bulk.rows.forEach(paintBulkRow);
+  $("bkMake").hidden = false;
+  bulkSummary();
+}
+
+// one invoice's line: what will print
+function paintBulkRow(r){
+  var el = $("bkS" + r.i);
+  if (!el) return;
+  var warn = r.cust ? ""
+    : r.family.length ? "Pick the unit (Edit) — the address, GSTIN and payment details print blank until then."
+    : "Not on the Tanker Billing sheet — pick the customer (Edit), or the address prints blank.";
+  el.innerHTML = "<b>#" + escHtml(r.billNo) + "</b> · " + escHtml(VFBilling.fmtDate(r.dateISO)) + (r.vehicle ? " · " + escHtml(r.vehicle) : "")
+    + (bulkEdited(r) ? " · <em>edited</em>" : "")
+    + "<small>" + escHtml(fmtLitres(r.qty)) + " L @ " + escHtml(fmtAmt(r.rate)) + " · ₹" + escHtml(VFBilling.inr(r.amount))
+    + (r.po ? " · P.O. " + escHtml(r.po) : "") + "</small>"
+    + (r.cust ? "<small>Bill to: " + escHtml(r.cust.company) + (r.custAuto ? " (unit from the Ledger)" : "") + "</small>" : "")
+    + (warn ? '<span class="bk-warn">' + escHtml(warn) + "</span>" : "");
+  var box = $("bkE" + r.i);
+  if (box && box.dataset.ready){
+    var sel = box.querySelector('[data-f="cust"]');
+    if (sel && sel.value !== (r.cust ? r.cust.company : "")) sel.value = r.cust ? r.cust.company : "";
+    var po = box.querySelector('[data-f="po"]');
+    if (po && document.activeElement !== po) po.value = r.po;
+    var hint = box.querySelector("[data-po-hint]");
+    if (hint) hint.textContent = r.poManual ? "Typed here — kept." : r.poNote;
+    var list = box.querySelector("datalist");
+    if (list) list.innerHTML = r.open.map(function(p){
+      return '<option value="' + escHtml(p.po_no) + '" label="' + escHtml((p.unit ? p.unit + " · " : "") + fmtLitres(p.balance) + " L left") + '"></option>';
+    }).join("");
+  }
+}
+
+function bulkEditForm(r){
+  var box = $("bkE" + r.i);
+  var options = (r.family.length ? r.family : bulk.data.customers).map(function(c){
+    return '<option value="' + escHtml(c.company) + '"' + (r.cust === c ? " selected" : "") + ">" + escHtml(c.company) + "</option>";
+  }).join("");
+  var field = function(label, f, type, value, extra){
+    return '<div class="field"><label for="bkF' + f + r.i + '">' + label + '</label><input id="bkF' + f + r.i + '" data-f="' + f + '" type="' + type
+      + '" value="' + escHtml(value) + '"' + (extra || "") + "></div>";
+  };
+  box.innerHTML = '<div class="field"><label for="bkFcust' + r.i + '">Bill to (Tanker Billing sheet)</label><select id="bkFcust' + r.i + '" data-f="cust">'
+    + '<option value="">' + (r.family.length ? "— pick the unit —" : "— pick the customer —") + "</option>" + options + "</select></div>"
+    + '<div class="field"><label for="bkFpo' + r.i + '">P.O. No.</label><input id="bkFpo' + r.i + '" data-f="po" type="text" autocomplete="off" list="bkPoL' + r.i + '" value="' + escHtml(r.po) + '">'
+    + '<datalist id="bkPoL' + r.i + '"></datalist><div class="hint" data-po-hint></div></div>'
+    + '<div class="frow">' + field("Date", "dateISO", "date", r.dateISO) + field("Bill no.", "billNo", "text", r.billNo, ' autocomplete="off"') + "</div>"
+    + field("Vehicle", "vehicle", "text", r.vehicle, ' autocomplete="off" autocapitalize="characters"')
+    + '<div class="frow">' + field("Quantity (Ltr)", "qty", "number", String(r.qty), ' inputmode="decimal" step="any" min="0"')
+    + field("Price / Ltr", "rate", "number", String(r.rate), ' inputmode="decimal" step="0.01" min="0"') + "</div>"
+    + field("Amount (₹)", "amount", "number", String(r.amount), ' inputmode="decimal" step="0.01" min="0"')
+    + '<button type="button" class="linkbtn" data-reset="' + r.i + '">Back to the voucher’s details</button>';
+  box.dataset.ready = "1";
+  paintBulkRow(r);
+}
+
+function bulkSummary(){
+  var picked = bulk.rows.filter(function(r){ return r.pick; });
+  var blank = picked.filter(function(r){ return !r.cust; }).length;
+  $("bkSummary").textContent = !picked.length ? "Tick the invoices to print."
+    : plural(picked.length, "invoice") + " ticked: " + plural(picked.length * 2, "A4 page") + " of tanker bills, "
+      + plural(picked.length, "A5 page") + " of fuel slips"
+      + (blank ? ". " + plural(blank, "bill") + " without a Tanker Billing customer will print without the address." : ".");
+  ["bkBillPdf","bkBillPrint","bkSlipPdf","bkSlipPrint"].forEach(function(id){ $(id).disabled = !picked.length; });
+  // the tick boxes above: all / some / none
+  var all = $("bkAll");
+  if (all){
+    all.checked = picked.length === bulk.rows.length;
+    all.indeterminate = picked.length > 0 && picked.length < bulk.rows.length;
+  }
+  (bulk.groups || []).forEach(function(g, gi){
+    var n = g.rows.filter(function(r){ return r.pick; }).length, box = $("bkG" + gi);
+    if (box){ box.checked = n === g.rows.length; box.indeterminate = n > 0 && n < g.rows.length; }
+  });
+}
+
+$("bkList").addEventListener("change", function(e){
+  var t = e.target, d = t.dataset;
+  if (d.all){ bulk.rows.forEach(function(r){ r.pick = t.checked; var b = $("bkR" + r.i); if (b) b.checked = t.checked; }); }
+  else if (d.group){
+    bulk.groups[Number(d.group)].rows.forEach(function(r){ r.pick = t.checked; $("bkR" + r.i).checked = t.checked; });
+  }
+  else if (d.pick){ bulk.rows[Number(d.pick)].pick = t.checked; }
+  else if (d.f === "cust"){
+    var r = bulk.rows[Number(t.closest("[data-row]").dataset.row)];
+    r.cust = sheetCustomer(bulk.data, t.value);
+    r.custAuto = false;
+    if (!r.poManual) r.po = r.cust ? (r.cust.po_no || "") : "";
+    paintBulkRow(r);
+    bulkPo(r);
+  }
+  bulkSummary();
+});
+$("bkList").addEventListener("input", function(e){
+  var t = e.target, f = t.dataset.f;
+  if (!f || f === "cust") return;
+  var r = bulk.rows[Number(t.closest("[data-row]").dataset.row)];
+  if (f === "po"){ r.po = t.value.trim(); r.poManual = true; }
+  else if (f === "qty" || f === "rate"){
+    r[f] = parseFloat(t.value) || 0;
+    // the amount follows quantity × price, as on the bill screen
+    r.amount = Math.round(r.qty * r.rate * 100) / 100;
+    var amt = $("bkFamount" + r.i);
+    if (amt) amt.value = String(r.amount);
+  }
+  else if (f === "amount"){ r.amount = parseFloat(t.value) || 0; }
+  else if (f === "vehicle"){ r.vehicle = t.value.trim().toUpperCase(); }
+  else { r[f] = t.value.trim(); }
+  paintBulkRow(r);
+  bulkSummary();
+  // the PO depends on the litres and the date
+  if (f === "qty" || f === "dateISO"){ clearTimeout(r.poTimer); r.poTimer = setTimeout(function(){ bulkPo(r); }, 350); }
+});
+$("bkList").addEventListener("click", function(e){
+  var t = e.target.closest("[data-edit],[data-reset]");
+  if (!t) return;
+  var r = bulk.rows[Number(t.dataset.edit || t.dataset.reset)];
+  if (t.dataset.reset){
+    bulkReset(r);
+    r.poManual = false;
+    r.cust = VFBilling.findCustomer(bulk.data, r.v.party);
+    r.custAuto = false;
+    r.po = r.cust ? (r.cust.po_no || "") : "";
+    bulkEditForm(r);
+    bulkPo(r);
+    bulkSummary();
+    return;
+  }
+  var box = $("bkE" + r.i);
+  if (!box.dataset.ready) bulkEditForm(r);
+  box.hidden = !box.hidden;
+  t.textContent = box.hidden ? "Edit" : "Done";
+  t.setAttribute("aria-expanded", String(!box.hidden));
+});
+
+// The ticked invoices' pages, one size per file: tanker bills (two A4 pages
+// each: customer copy, Receiving Copy) or fuel slips (one A5 page each).
+function bulkPages(kind){
+  var picked = bulk.rows.filter(function(r){ return r.pick; });
+  if (kind === "slips"){
+    var h = slip.header || DEFAULT_SLIP_HEADER, stamp = slipStampUrl();
+    return Promise.resolve(picked.map(function(r){ return VFSlips.slipSvg(bulkSlipSale(r), slipHeaderOf(h, r.dateISO), stamp); }));
+  }
+  var out = [];
+  return picked.reduce(function(prev, r){
+    return prev.then(function(){
+      return inlinedSvgs(billSheetsFor(bulkBillModel(r))).then(function(svgs){ out.push.apply(out, svgs); });
+    });
+  }, Promise.resolve()).then(function(){ return out; });
+}
+function bulkFileName(kind){
+  var from = $("bkFrom").value, to = $("bkTo").value;
+  return (kind === "slips" ? "Fuel slips " : "Tanker bills ")
+    + (from === to ? VFSlips.dmy(from) : VFSlips.dmy(from) + " to " + VFSlips.dmy(to)) + ".pdf";
+}
+// Download makes the PDF here; Print sends the pages to the browser's print at
+// their own paper size (on iPhone / iPad: the PDF, for the share sheet's Print).
+function makeBulk(btn, kind, print){
+  var label = btn.textContent, prog = $("bkProgress");
+  var size = kind === "slips" ? VFSlips.A5 : VFSlips.A4, name = bulkFileName(kind);
+  ["bkBillPdf","bkBillPrint","bkSlipPdf","bkSlipPrint"].forEach(function(id){ $(id).disabled = true; });
+  btn.textContent = print ? "Preparing…" : "Making PDF…";
+  prog.textContent = "Preparing the pages…";
+  (kind === "slips" ? loadSlipSettings() : Promise.resolve()).then(function(){ return bulkPages(kind); }).then(function(svgs){
+    if (print && !VFSlips.isIOS()){
+      prog.textContent = plural(svgs.length, "page") + " sent to the printer — choose " + (kind === "slips" ? "A5" : "A4") + " paper.";
+      return VFSlips.printPages(svgs, size, name);
+    }
+    var pages = svgs.map(function(svg){ return { svg: svg, size: size }; });
+    return VFSlips.pdfFromPages(pages, { scale: 2, onPage: function(n, total){ prog.textContent = "Drawing page " + n + " of " + total + "…"; } })
+      .then(function(blob){
+        prog.textContent = name + " — " + plural(pages.length, "page") + ".";
+        if (print) VFSlips.printFile(blob, name);
+        else if (VFSlips.download(blob, name)) toast("Downloaded " + name);
+      });
+  }).catch(function(e){ prog.textContent = ""; oops(e); }).then(function(){
+    btn.textContent = label;
+    bulkSummary();
+  });
+}
+$("bkBillPdf").onclick = function(){ makeBulk(this, "bills", false); };
+$("bkBillPrint").onclick = function(){ makeBulk(this, "bills", true); };
+$("bkSlipPdf").onclick = function(){ makeBulk(this, "slips", false); };
+$("bkSlipPrint").onclick = function(){ makeBulk(this, "slips", true); };
+
 /* ---------- header ---------- */
 $("btnBridge").onclick = function(){ show("bridge"); };
 window.addEventListener("tally-bridge-status", function(){ if(state && current === "home") renderHome(); });
@@ -3511,7 +3995,7 @@ $("btnSettings").onclick = function(){ show("settings"); };
 /* ---------- login (cloud mode) ---------- */
 function showLogin(){
   current = "login";
-  ["scrHome","scrNew","scrBill","scrSlips","scrHistory","scrSettings"].forEach(function(id){ $(id).classList.remove("on"); });
+  ["scrHome","scrNew","scrBill","scrSlips","scrBulk","scrHistory","scrSettings"].forEach(function(id){ $(id).classList.remove("on"); });
   $("scrLogin").classList.add("on");
   $("hdrTitle").textContent = "Sign in";
   $("btnBack").style.display = "none";
