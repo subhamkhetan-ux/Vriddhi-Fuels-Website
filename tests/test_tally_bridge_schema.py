@@ -300,6 +300,34 @@ def test_renumbering_lets_the_tally_invoice_with_the_old_number_join_the_app(db)
     db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased')")
 
 
+def test_numbers_swapped_or_rotated_in_tally_follow_tally(db):
+    send = lambda *o: db.json(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps(list(o)))})", anon=True)
+    number = lambda g: db.ok(f"select number||','||bridge_state from tally_vouchers where bridge_guid='{g}'")
+    base = dict(series="hsd", date="2026-10-23", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+    a = lambda n, party: dict(base, number=n, party=party)
+    send(tally_object("swap-a", a("66001", "Harnoor"), alter=1), tally_object("swap-b", a("66002", "Great River"), alter=1))
+    # Swapped in Tally on purpose; the bridge sees one voucher at a time.
+    send(tally_object("swap-a", a("66002", "Harnoor"), alter=2))
+    assert number("swap-a") == "66001,unsupported"  # 66002 is still Great River's in Tally too
+    send(tally_object("swap-b", a("66001", "Great River"), alter=2))
+    assert number("swap-a") == "66002,synced" and number("swap-b") == "66001,synced"
+    assert db.ok("select party from tally_vouchers where number='66001'") == "Great River"
+    # A three-way rotation in one batch.
+    send(*[tally_object("rot-" + k, a(n, k), alter=1) for k, n in (("x", "66011"), ("y", "66012"), ("z", "66013"))])
+    send(*[tally_object("rot-" + k, a(n, k), alter=2) for k, n in (("x", "66012"), ("y", "66013"), ("z", "66011"))])
+    assert [number("rot-" + k) for k in "xyz"] == ["66012,synced", "66013,synced", "66011,synced"]
+    # Vouchers an earlier SQL left "Renumbered in Tally" take Tally's numbers when the SQL is run again.
+    send(tally_object("old-a", a("66021", "P"), alter=1), tally_object("old-b", a("66022", "Q"), alter=1))
+    db.ok("""update tally_bridge_objects set data=jsonb_set(jsonb_set(data,'{number}','"66022"'),'{app_voucher,number}','"66022"'),alter_id=2 where guid='old-a';
+      update tally_bridge_objects set data=jsonb_set(jsonb_set(data,'{number}','"66021"'),'{app_voucher,number}','"66021"'),alter_id=2 where guid='old-b';
+      update tally_vouchers set bridge_state='unsupported',bridge_note='Renumbered in Tally to #x, a number the app already has' where bridge_guid in ('old-a','old-b')""")
+    db.ok((ROOT / "supabase/tally-bridge.sql").read_text())
+    assert number("old-a") == "66022,synced" and number("old-b") == "66021,synced"
+    # A number genuinely taken (the holder has not moved in Tally) is still refused, with both kept.
+    send(tally_object("rot-x", a("66013", "x"), alter=3))
+    assert number("rot-x") == "66012,unsupported" and number("rot-y") == "66013,synced"
+
+
 def test_first_sync_metadata_links_without_changing_values_and_alterations_fetch_details(db):
     daybook(db, dict(series="xg", number="XG7001", party="Kept party", amount=1000))
     light = dict(kind="Voucher", guid="light-guid", alter_id=7, master_id=9,
