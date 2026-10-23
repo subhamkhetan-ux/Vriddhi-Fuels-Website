@@ -273,7 +273,17 @@ def test_report_request_shows_progress_and_recovers_after_error(browser,server):
     page.close()
 
 
-def _customer_price_page(browser,server):
+# Records the pages instead of making a real PDF, so no CDN is needed.
+FAKE_JSPDF="""window.jspdf={jsPDF:class{constructor(o){this.pages=1;this.images=[];window.pdfMade=this;this.format=o.format}
+  addPage(){this.pages++} addImage(src){this.images.push(src.slice(0,23))}
+  output(){return new Blob(['%PDF-fake'],{type:'application/pdf'})}}};"""
+IPHONE='Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+SHARE_STUB="""navigator.canShare=(d)=>!!(d&&d.files);
+navigator.share=(d)=>{window.shared=d.files.map(f=>({name:f.name,type:f.type}));return Promise.resolve()};
+window.print=()=>{window.printCalled=true};"""
+
+
+def _customer_price_page(browser,server,**page_options):
     """Exercise the real persistent backend without accessing live business records."""
     def voucher(number,day,rate,series='hsd',party='Alpha Customer',**extra):
         return dict(seriesKey=series,number=number,dateISO=day,party=party,
@@ -290,9 +300,10 @@ def _customer_price_page(browser,server):
             voucher('96','2025-01-03',96,party='Alpha Customer Ltd'),
         ]
     }
-    page=browser.new_page(viewport={'width':390,'height':900},service_workers='block')
+    page=browser.new_page(viewport={'width':390,'height':900},service_workers='block',**page_options)
     def route(r):
         if r.request.url==server+'/tally/config.js':r.fulfill(content_type='application/javascript',body='window.VRIDDHI_TALLY_CONFIG={};')
+        elif r.request.url.endswith('/jspdf.umd.min.js'):r.fulfill(content_type='application/javascript',body=FAKE_JSPDF)
         elif r.request.url.startswith(server):r.continue_()
         else:r.abort()
     page.route('**/*',route)
@@ -354,6 +365,8 @@ def test_editing_an_existing_invoice_keeps_its_saved_rate(browser,server):
     page=_customer_price_page(browser,server)
     page.on('dialog',lambda dialog:dialog.accept())
     page.locator('#btnHistory').click()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='01/01/2025',exact=False).click()
     page.get_by_role('button',name='Alter old voucher 12',exact=True).click()
     assert page.locator('#fPrice').input_value()=='90.00'
     page.locator('#btnChangeParty').click()
@@ -480,4 +493,137 @@ def test_unit_wise_po_comes_from_the_unit_in_the_customer_name(browser,server):
     # No unit in the name: the customer's last Ledger bill was UNIT 1.
     page.get_by_role('button',name='Create bill for voucher 4332').click()
     page.wait_for_function("document.getElementById('blPo').value==='U1-PO'")
+    page.close()
+
+
+def test_stock_summary_is_product_wise_then_date_wise(browser,server):
+    page=_customer_price_page(browser,server)
+    page.locator('#btnHistory').click()
+    table=page.locator('#ssTable')
+    # Products like Tally's Stock Summary; a voucher deleted in Tally is not counted.
+    assert 'High Speed Diesel' in table.inner_text() and 'Motor Spirit' in table.inner_text()
+    total=table.locator('.ss-total')
+    assert '70.000' in total.inner_text() and '₹6,740.00' in total.inner_text()
+    assert '7 vouchers' in total.inner_text()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    assert page.locator('#hdrTitle').inner_text()=='High Speed Diesel'
+    rows=page.locator('#ssTable button.ss-row')
+    assert rows.first.locator('b').inner_text()=='01/01/2099'
+    assert '₹5,690.00' in page.locator('#ssTable .ss-total').inner_text()
+    page.get_by_role('button',name='02/01/2025',exact=False).click()
+    assert page.locator('#histList .vitem').count()==2
+    assert '₹1,870.00' in page.locator('#ssFoot').inner_text()
+    # Back steps up one level at a time.
+    page.locator('#btnBack').click()
+    assert page.locator('#hdrTitle').inner_text()=='High Speed Diesel'
+    page.locator('#btnBack').click()
+    assert page.locator('#hdrTitle').inner_text()=='Stock Summary'
+    page.locator('#histSearch').fill('MS2')
+    assert page.locator('#histList .vitem').count()==1
+    assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
+    page.close()
+
+
+def test_ios_prints_the_bill_and_slip_through_the_share_sheet(browser,server):
+    page=_customer_price_page(browser,server,user_agent=IPHONE)
+    page.add_init_script(SHARE_STUB);page.reload();page.locator('#cardHSD').wait_for()
+    # the bill: both pages become an A4 PDF for the share sheet's Print
+    page.locator('#btnHistory').click()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='01/01/2025',exact=False).click()
+    page.get_by_role('button',name='Create bill for voucher 12',exact=True).click()
+    page.locator('#blPrint').click()
+    sheet=page.locator('#vf-share')
+    sheet.get_by_role('heading',name='Ready to print').wait_for()
+    assert page.evaluate('pdfMade.pages')==2
+    assert page.evaluate('pdfMade.format')==[595.28,841.89]
+    assert page.evaluate('pdfMade.images.every(s=>s.startsWith("data:image/jpeg"))')
+    sheet.get_by_role('button',name='Print / Save PDF').click()
+    sheet.wait_for(state='detached')
+    assert page.evaluate('shared')==[{'name':'Bill-12.pdf','type':'application/pdf'}]
+    assert not page.evaluate('!!window.printCalled')
+    # a voucher's fuel slip: A5, same route
+    page.locator('#btnBack').click();page.locator('#btnBack').click();page.locator('#btnBack').click()
+    page.locator('#btnBack').click();page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='Alpha Customer',exact=True).click()
+    page.locator('#fQty').fill('10');page.locator('#btnSlipPrint').click()
+    sheet.get_by_role('heading',name='Ready to print').wait_for()
+    assert page.evaluate('pdfMade.format')==[420,595]
+    sheet.get_by_role('button',name='Print / Save PDF').click()
+    assert page.evaluate('shared[0].name').endswith('.pdf')
+    # the slip PDF download goes to the same sheet instead of a dead link
+    page.locator('#btnSlipPdf').click()
+    sheet.get_by_role('heading',name='PDF ready').wait_for()
+    sheet.get_by_role('button',name='Close').click()
+    sheet.wait_for(state='detached')
+    page.close()
+
+
+def test_desktop_bill_print_still_uses_the_browser_print(browser,server):
+    page=_customer_price_page(browser,server)
+    page.add_init_script(SHARE_STUB);page.reload();page.locator('#cardHSD').wait_for()
+    page.locator('#btnHistory').click()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='01/01/2025',exact=False).click()
+    page.get_by_role('button',name='Create bill for voucher 12',exact=True).click()
+    page.locator('#blPrint').click()
+    assert page.evaluate('window.printCalled')
+    assert page.locator('#vf-share').count()==0
+    page.close()
+
+
+TALLY_LEDGER=('<table><tr><td>Date</td><td>Particulars</td><td>Vch Type</td><td>Vch No.</td><td>Debit</td><td>Credit</td></tr>'
+    '<tr><td></td><td>Opening Balance</td><td></td><td></td><td>2,45,000.00</td><td></td></tr>'
+    +''.join(f'<tr><td>{i+1}-Oct-26</td><td>SALE (HSD)</td><td>HSD CREDIT</td><td>{4200+i}</td><td>50,706.79</td><td></td></tr>' for i in range(60))
+    +'<tr><td></td><td></td><td></td><td></td><td>32,87,407.40</td><td>0.00</td></tr>'
+    '<tr><td></td><td>Closing Balance</td><td></td><td></td><td></td><td>32,87,407.40</td></tr></table>')
+
+
+def _ledger_report(browser,server,**page_options):
+    page=browser.new_page(viewport={'width':390,'height':900},**page_options)
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.add_init_script(SHARE_STUB)
+    page.goto(server+'/tally/');page.locator('#btnBridge').click()
+    page.locator('#bridgeReport').select_option('ledger');page.locator('#bridgeLedger').fill('Keshav Minerals')
+    page.locator('#bridgeFrom').fill('2026-10-01');page.locator('#bridgeTo').fill('2026-10-23')
+    page.evaluate('(s)=>window.reportFixture=s',TALLY_LEDGER)
+    page.locator('#bridgeFetch').click();page.locator('iframe.bridge-report').wait_for()
+    return page,errors
+
+
+def test_report_is_shown_in_tallys_print_layout(browser,server):
+    page,errors=_ledger_report(browser,server)
+    doc=page.locator('iframe.bridge-report').get_attribute('srcdoc')
+    for line in ('<div class="co">VRIDDHI FUELS</div>','GSTIN/UIN: 21AATFV8250A1Z8','<div class="ledger">Keshav Minerals</div>',
+                 '<div class="title">Ledger Account</div>','<div class="period">1-Oct-26 to 23-Oct-26</div>'):
+        assert line in doc
+    frame=page.frame_locator('iframe.bridge-report')
+    # column headings ruled, amounts and their headings right-aligned, totals bold
+    assert frame.locator('tr.h').count()==1 and frame.locator('tr.t').count()==1 and frame.locator('tr.b').count()==2
+    align=lambda text:frame.get_by_text(text,exact=True).first.evaluate('e=>getComputedStyle(e).textAlign')
+    assert align('Debit')=='right' and align('50,706.79')=='right' and align('SALE (HSD)')=='left'
+    assert frame.get_by_text('32,87,407.40',exact=True).first.evaluate('e=>getComputedStyle(e).fontWeight')=='700'
+    assert not errors
+    page.close()
+
+
+def test_ios_prints_the_report_through_the_share_sheet(browser,server):
+    page,errors=_ledger_report(browser,server,user_agent=IPHONE)
+    page.evaluate("""()=>{navigator.share=d=>d.files[0].arrayBuffer().then(b=>{
+      const u=new Uint8Array(b);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));
+      window.shared=[{name:d.files[0].name,type:d.files[0].type}];window.sharedPdf=btoa(s);})}""")
+    page.locator('#bridgePrint:not([disabled])').click()
+    sheet=page.locator('#vf-share');sheet.get_by_role('heading',name='Ready to print').wait_for(timeout=30000)
+    sheet.get_by_role('button',name='Print / Save PDF').click();page.wait_for_function('window.sharedPdf')
+    assert page.evaluate('shared')==[{'name':'Tally-Keshav Minerals-2026-10-01-2026-10-23.pdf','type':'application/pdf'}]
+    assert not page.evaluate('!!window.printCalled')
+    import base64, pymupdf
+    with pymupdf.open(stream=base64.b64decode(page.evaluate('sharedPdf')),filetype='pdf') as doc:
+        assert len(doc)==2 and doc[0].rect.width<doc[0].rect.height  # A4 portrait, like Tally
+        first,second=doc[0].get_text(),doc[1].get_text()
+        for value in ('VRIDDHI FUELS','Keshav Minerals','Ledger Account','1-Oct-26 to 23-Oct-26','Page 1'):
+            assert value in first
+        assert 'Debit' in second and '(continued)' in second and 'Closing Balance' in second  # headings repeat
+    assert not errors
     page.close()

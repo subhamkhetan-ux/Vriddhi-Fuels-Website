@@ -19,6 +19,7 @@
 "use strict";
 
 var A5 = { width: 420, height: 595 };
+var A4 = { width: 595.28, height: 841.89 };
 
 var PRODUCT_NAME = { HSD: "High Speed Diesel", MS: "Motor Spirit", XG: "XtraGreen Diesel" };
 
@@ -275,7 +276,72 @@ function zipBlob(files, folder){
   });
 }
 
+// iPhone / iPad. iPadOS reports itself as a Mac, so touch gives it away.
+function isIOS(){
+  var n = global.navigator || {};
+  return /iPad|iPhone|iPod/.test(n.userAgent || "") || (n.platform === "MacIntel" && n.maxTouchPoints > 1);
+}
+function shareableFile(blob, name){
+  try {
+    var file = new File([blob], name, { type: blob.type || "application/octet-stream" });
+    return navigator.canShare && navigator.canShare({ files: [file] }) ? file : null;
+  } catch (e){ return null; }
+}
+
+// On iOS a home-screen web app cannot print (window.print does nothing) and
+// a download link has nowhere to save to. The share sheet does both, with
+// Print, Save to Files and WhatsApp. It only opens from a tap, though, and
+// making a PDF takes longer than a tap stays valid, so the file is made
+// first and this sheet asks for the tap that hands it over.
+function offerFile(file, print){
+  var old = document.getElementById("vf-share");
+  if (old) old.remove();
+  var d = document.createElement("dialog");
+  d.id = "vf-share";
+  d.className = "share-sheet";
+  d.setAttribute("aria-labelledby", "vf-share-title");
+  d.innerHTML = '<h2 id="vf-share-title"></h2><p class="share-name"></p><p class="share-note"></p>'
+    + '<button type="button" class="btn primary" data-share></button>'
+    + '<button type="button" class="btn ghost" data-close>Close</button>';
+  d.querySelector("h2").textContent = print ? "Ready to print" : "PDF ready";
+  d.querySelector(".share-name").textContent = file.name;
+  d.querySelector(".share-note").textContent = print
+    ? "Tap Print in the share sheet, or Save to Files for a PDF."
+    : "Save it to Files, or send it on WhatsApp or Mail.";
+  d.querySelector("[data-share]").textContent = print ? "🖨 Print / Save PDF" : "Share / Save PDF";
+  function close(){ if (d.open) d.close(); d.remove(); }
+  d.querySelector("[data-close]").onclick = close;
+  d.addEventListener("cancel", function(){ d.remove(); });
+  d.querySelector("[data-share]").onclick = function(){
+    navigator.share({ files: [file] }).then(close, function(e){
+      if (e && e.name === "AbortError") return;      // closed the share sheet: try again or Close
+      close();
+      saveLink(file, file.name);
+    });
+  };
+  document.body.appendChild(d);
+  d.showModal();
+}
+
+// A ready PDF to print: on iOS through the share sheet's Print; elsewhere
+// it opens in the browser's PDF viewer, which prints it.
+function printFile(blob, name){
+  var file = isIOS() && typeof HTMLDialogElement === "function" ? shareableFile(blob, name) : null;
+  if (file){ offerFile(file, true); return; }
+  var url = URL.createObjectURL(blob);
+  if (!global.open(url, "_blank")) saveLink(blob, name);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+}
+
+// Saves the file. Returns true when it went straight to the downloads, false
+// when the iOS share sheet was offered instead.
 function download(blob, name){
+  var file = isIOS() && typeof HTMLDialogElement === "function" ? shareableFile(blob, name) : null;
+  if (file){ offerFile(file, false); return false; }
+  saveLink(blob, name);
+  return true;
+}
+function saveLink(blob, name){
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
   a.href = url;
@@ -286,9 +352,21 @@ function download(blob, name){
   setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
 }
 
-// Print the slips on A5 sheets: everything else on the page is hidden
-// while printing (see #print-area in index.html).
-function printSlips(svgs){
+// Print pages (A5 slips by default). On iOS the pages become a PDF for the
+// share sheet's Print; elsewhere everything else on the page is hidden while
+// the browser prints (see #print-area in index.html). Returns a promise.
+function printPages(svgs, size, name){
+  size = size || A5;
+  if (isIOS() && typeof HTMLDialogElement === "function"
+      && shareableFile(new Blob(["%PDF"], { type: "application/pdf" }), "check.pdf")){
+    return pdfFromSvgs(svgs, size, size === A4 ? 2.5 : 2).then(function(blob){
+      offerFile(new File([blob], name || "Print.pdf", { type: "application/pdf" }), true);
+    });
+  }
+  printSlips(svgs, size);
+  return Promise.resolve();
+}
+function printSlips(svgs, size){
   var old = document.getElementById("print-area");
   if (old) old.remove();
   old = document.getElementById("print-style");
@@ -298,7 +376,7 @@ function printSlips(svgs){
   area.innerHTML = svgs.map(function(svg){ return '<div class="print-page">' + svg + "</div>"; }).join("");
   var style = document.createElement("style");
   style.id = "print-style";
-  style.textContent = "@page { size: A5 portrait; margin: 0; }";
+  style.textContent = "@page { size: " + (size === A4 ? "A4" : "A5") + " portrait; margin: 0; }";
   document.head.appendChild(style);
   document.body.appendChild(area);
   document.body.classList.add("printing");
@@ -314,6 +392,7 @@ function printSlips(svgs){
 
 var api = {
   A5: A5,
+  A4: A4,
   PRODUCT_NAME: PRODUCT_NAME,
   dmy: dmy,
   fyOf: fyOf,
@@ -326,6 +405,9 @@ var api = {
   pdfFromSvgs: pdfFromSvgs,
   zipBlob: zipBlob,
   download: download,
+  isIOS: isIOS,
+  printPages: printPages,
+  printFile: printFile,
   printSlips: printSlips
 };
 

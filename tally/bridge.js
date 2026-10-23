@@ -1,7 +1,7 @@
 /* Tally Prime connection and native reports. No financial data or device tokens in localStorage. */
 (function (global) {
   'use strict';
-  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.4.1';
+  const RELEASE = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/tag/tally-bridge-v1.4.2';
   const DOCS = 'https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/blob/main/tally_bridge/README.md';
   const REPORTS = {daybook:'Day book',ledger:'Ledger statement',trial_balance:'Trial balance',balance_sheet:'Balance sheet',
     profit_loss:'Profit & loss',receivables:'Receivables',payables:'Payables',stock:'Stock summary',cash_bank:'Cash & bank'};
@@ -270,16 +270,13 @@
     } catch(e) { /* Exact ledger entry remains usable if suggestions are unavailable. */ }
   }
   function exportMeta() {
-    return {title:REPORTS[reportArgs.p_report],ledger:reportArgs.p_report==='ledger'?reportArgs.p_ledger:'',from:reportArgs.p_from,to:reportArgs.p_to,
+    const meta={title:REPORTS[reportArgs.p_report],report:reportArgs.p_report,ledger:reportArgs.p_report==='ledger'?reportArgs.p_ledger:'',from:reportArgs.p_from,to:reportArgs.p_to,
       fetched:report.fetched_at || 'Unknown — verify in Tally',
       notice:'Saved snapshot'+(!online()?' | Windows PC offline':'')+(['pending','leased'].includes(report.state)?' | Refresh pending':'')+'. This file is not a live balance.'};
+    meta.head=headLines(meta,report.content||'');
+    return meta;
   }
-  function exportHTML() {
-    const meta=exportMeta();
-    const heading='<h1>'+esc(meta.title)+'</h1><p>'+esc(meta.ledger)+'</p><p>'+esc(meta.from+' to '+meta.to)+'</p><p>Fetched: '+esc(meta.fetched)+'</p><p>'+esc(meta.notice)+'</p>';
-    const body=new DOMParser().parseFromString(safeReport(report.content),'text/html').body.innerHTML;
-    return safeReport(heading+body);
-  }
+  function exportHTML() { return safeReport(report.content, exportMeta()); }
   async function exportReport(format) {
     if(exportBusy || !report?.content || !selectionMatches())return;
     const generation=epoch,snapshot=report,meta=exportMeta(),html=safeReport(report.content);
@@ -288,12 +285,27 @@
       const E=global.VFTallyExport;
       const blob=await (format==='pdf'?E.pdf(html,meta):E.excel(html,meta));
       if(epoch!==generation || report!==snapshot || !user || !selectionMatches())return;
-      E.download(blob,E.filename(meta,format));
+      if(global.VFSlips) VFSlips.download(blob,E.filename(meta,format)); else E.download(blob,E.filename(meta,format));
       $('bridgeMessage').textContent='Download prepared from the saved Tally snapshot. Its ledger, period and fetch time are included.';
     } finally {if(epoch===generation){exportBusy=false;syncExportButtons();}}
   }
-  function printReport() {
+  // iOS cannot print from a home-screen app, so the report goes to the share
+  // sheet (Print, Save to Files) as the same Tally-style PDF as Download PDF.
+  async function printReport() {
     if(!report?.content || !selectionMatches())return;
+    if(global.VFSlips && VFSlips.isIOS()) {
+      if(exportBusy)return;
+      const generation=epoch,snapshot=report,meta=exportMeta(),E=global.VFTallyExport;
+      exportBusy=true;syncExportButtons();$('bridgeMessage').textContent='Preparing the report for printing…';
+      try {
+        const blob=await E.pdf(safeReport(report.content),meta);
+        if(epoch!==generation || report!==snapshot || !user || !selectionMatches())return;
+        VFSlips.printFile(blob,E.filename(meta,'pdf'));
+        $('bridgeMessage').textContent='Tap Print / Save PDF to print or save the report.';
+      } catch(e) { error(e); }
+      finally {if(epoch===generation){exportBusy=false;syncExportButtons();}}
+      return;
+    }
     const win=window.open('','_blank');
     if(!win){error(new Error('Allow pop-ups to open the print view.'));return;}
     let printed=false;const print=()=> {if(!printed){printed=true;win.print();}};
@@ -302,9 +314,74 @@
     if(win.document.readyState==='complete')print();
   }
   // Defence in depth: allowlist again in the browser, even for a compromised device.
-  function safeReport(content) {
+  // Tally's own layout survives (alignment, bold, indents, rules), each value
+  // checked against a strict pattern: never url(), never free text.
+  const LENGTH=/^\d{1,3}(?:\.\d{1,2})?(?:px|pt|em|mm)$/;
+  const RULE=/^(?:none|0|\d(?:\.\d{1,2})?(?:px|pt) (?:solid|double|dotted|dashed)(?: (?:#[0-9a-f]{3}|#[0-9a-f]{6}|black|gray|grey|silver))?)$/i;
+  const STYLES={'text-align':/^(?:left|right|center|justify)$/,'font-weight':/^(?:bold|bolder|normal|[1-9]00)$/,'font-style':/^(?:italic|normal)$/,
+    'text-decoration':/^(?:underline|none)$/,'padding-left':LENGTH,'margin-left':LENGTH,'text-indent':LENGTH,'border-top':RULE,'border-bottom':RULE,
+    'white-space':/^(?:nowrap|normal)$/,'vertical-align':/^(?:top|middle|bottom)$/};
+  const ATTRS={align:/^(?:left|right|center|justify)$/i,valign:/^(?:top|middle|bottom)$/i,width:/^\d{1,4}%?$/};
+  function safeStyle(value) {
+    return String(value||'').split(';').map(d=>{const i=d.indexOf(':');return i<0?null:[d.slice(0,i).trim().toLowerCase(),d.slice(i+1).trim().replace(/\s+/g,' ')];})
+      .filter(d=>d && STYLES[d[0]] && STYLES[d[0]].test(d[1])).map(d=>d[0]+':'+d[1]).join(';');
+  }
+  // As Tally prints: amounts right-aligned, header rows ruled, totals bold.
+  const AMOUNT=/^\(?-?(?:₹ ?)?(?:\d{1,3}(?:,\d{2,3})+(?:\.\d{1,4})?|\d+\.\d{1,4})\)?(?: ?(?:Dr|Cr)\.?| [A-Za-z]{1,6}\.?)?$/;
+  const TOTAL=/^(?:grand total|total|sub ?total|current total|net profit|net loss|nett profit|nett loss|difference in opening balances)\b/i;
+  const BALANCE=/^(?:closing balance|opening balance)\b/i;
+  const unaligned=td=>!td.hasAttribute('align') && !/text-align/.test(td.getAttribute('style')||'');
+  // Rows: .h column headings, .t totals (bold, ruled above the amounts), .b bold.
+  function tallyLayout(root) {
+    root.querySelectorAll('table').forEach(table=> {
+      const rows=Array.from(table.rows).filter(tr=>tr.closest('table')===table);
+      const at=tr=> {let c=0;return Array.from(tr.cells).map(td=> {const x=c;c+=td.colSpan||1;return [x,td];});};
+      const amounts=new Set();
+      rows.forEach(tr=>at(tr).forEach(([x,td])=> {
+        if(unaligned(td) && AMOUNT.test(td.textContent.replace(/\s+/g,' ').trim())) {td.classList.add('n');amounts.add(x);}
+      }));
+      rows.forEach(tr=> {
+        if(tr.querySelector('th')) tr.classList.add('h');
+        // the row's label, past a ledger's To/By column
+        const filled=Array.from(tr.cells).filter(c=>c.textContent.trim());
+        const lead=(filled.map(c=>c.textContent.trim()).find(t=>!/^(?:to|by)$/i.test(t))||'');
+        if(TOTAL.test(lead) || (filled.length && filled.every(c=>c.classList.contains('n')))) tr.classList.add('t');
+        else if(filled.some(c=>BALANCE.test(c.textContent.trim()))) tr.classList.add('b');
+      });
+      const first=rows.find(tr=>tr.textContent.trim());
+      if(first && !table.querySelector('tr.h') && !first.querySelector('.n') && rows.some(tr=>tr!==first && tr.querySelector('.n'))) {first.classList.add('h');first.classList.remove('t');}
+      // headings over amount columns sit right, as in Tally
+      rows.filter(tr=>tr.classList.contains('h')).forEach(tr=>at(tr).forEach(([x,td])=> {if(amounts.has(x) && unaligned(td))td.classList.add('n');}));
+    });
+  }
+  const TALLY_TITLES={daybook:'Day Book',ledger:'Ledger Account',trial_balance:'Trial Balance',balance_sheet:'Balance Sheet',profit_loss:'Profit & Loss A/c',
+    receivables:'Bills Receivable',payables:'Bills Payable',stock:'Stock Summary',cash_bank:'Cash/Bank Summary'};
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const tallyDate=iso=> {const [y,m,d]=String(iso).split('-');return d?(+d)+'-'+MONTHS[m-1]+'-'+y.slice(2):String(iso);};
+  // The company block Tally prints above every report: the same lines as the
+  // fuel slips' heading (VFCompanyHeading, index.html), copied from Tally's print.
+  function companyLines() {
+    const h=global.VFCompanyHeading;
+    const lines=Array.isArray(h) && h.length ? h : ['VRIDDHI FUELS'];
+    return {name:lines[0],address:lines.slice(1).filter(l=>!/^e-?mail/i.test(l))};
+  }
+  function headLines(meta, content) {
+    const company=companyLines(),lines=[];
+    const start=new DOMParser().parseFromString(content,'text/html').body.textContent.trim().slice(0,400);
+    // Tally's own export may already carry the company heading.
+    if(start.toUpperCase().indexOf(company.name.toUpperCase())===-1) {
+      lines.push(['co',company.name]); company.address.forEach(a=>lines.push(['addr',a]));
+    }
+    if(meta.ledger) lines.push(['ledger',meta.ledger]);
+    lines.push(['title',TALLY_TITLES[meta.report]||meta.title]);
+    lines.push(['period',meta.report==='balance_sheet'?'as at '+tallyDate(meta.to):tallyDate(meta.from)+' to '+tallyDate(meta.to)]);
+    return lines;
+  }
+  // meta given: the full Tally print (company heading, title, period, and the
+  // snapshot's source line at the foot), as on screen, printed and exported.
+  function safeReport(content, meta) {
     const doc = new DOMParser().parseFromString(content,'text/html');
-    const allowed = new Set(['TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','P','BR','B','STRONG','I','EM','H1','H2','H3','H4','DIV','SPAN','PRE','HR']);
+    const allowed = new Set(['TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','P','BR','B','STRONG','I','EM','U','H1','H2','H3','H4','DIV','SPAN','PRE','HR']);
     const output=document.createElement('div');
     function copy(source,target) {
       Array.from(source.childNodes).forEach(n=> {
@@ -312,12 +389,27 @@
         else if(n.nodeType===1 && allowed.has(n.tagName)) {
           const e=document.createElement(n.tagName.toLowerCase());
           ['colspan','rowspan'].forEach(k=> {const v=n.getAttribute(k); if(v && /^\d+$/.test(v) && +v>0 && +v<=100) e.setAttribute(k,v);});
+          Object.keys(ATTRS).forEach(k=> {const v=n.getAttribute(k); if(v && ATTRS[k].test(v.trim())) e.setAttribute(k,v.trim().toLowerCase());});
+          const style=safeStyle(n.getAttribute('style')); if(style) e.setAttribute('style',style);
           copy(n,e); target.appendChild(e);
         }
       });
     }
     copy(doc.body,output);
-    return '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tally report</title><style>body{font:13px system-ui;color:#202b37;background:white;padding:20px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:7px;text-align:left}h1,h2,h3{color:#c04e22}@media print{body{padding:0;font-size:10px}}</style></head><body>'+output.innerHTML+'</body></html>';
+    tallyLayout(output);
+    const body=meta ? '<div class="tally-head">'+meta.head.map(([k,v])=>'<div class="'+k+'">'+esc(v)+'</div>').join('')+'</div>'+output.innerHTML
+      +'<p class="tally-foot">Saved from Tally Prime: '+esc(meta.fetched)+' · '+esc(meta.notice)+'</p>' : output.innerHTML;
+    return '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(meta?(TALLY_TITLES[meta.report]||meta.title):'Tally report')+'</title><style>'
+      +'body{font:12px/1.4 Arial,Helvetica,sans-serif;color:#000;background:#fff;margin:0;padding:18px}'
+      +'.tally-head{text-align:center;margin:0 0 12px}.tally-head .co{font-weight:700;font-size:15px}.tally-head .addr{font-size:11px}'
+      +'.tally-head .ledger{font-weight:700;font-size:13px;margin-top:10px}.tally-head .title{font-weight:700;margin-top:8px}.tally-head .ledger+.title{font-weight:400;margin-top:0}.tally-head .period{font-size:11px}'
+      +'table{border-collapse:collapse;width:100%;margin:6px 0}td,th{padding:2px 6px;vertical-align:top;text-align:left;border:0;font-weight:400}'
+      +'th,tr.h td{font-weight:700;border-top:1px solid #000;border-bottom:1px solid #000;padding:4px 6px}'
+      +'.n{text-align:right;white-space:nowrap}tr.t td,tr.t th,tr.b td{font-weight:700}tr.t .n{border-top:1px solid #000}'
+      +'h1,h2,h3,h4{font-size:13px;margin:8px 0 4px}p{margin:4px 0}.tally-foot{margin-top:18px;font-size:9px;color:#555}'
+      +'@media (max-width:600px){body{padding:12px 10px;font-size:11px}td,th{white-space:nowrap;padding:2px 5px}}'
+      +'@media print{body{padding:0}@page{size:A4;margin:12mm}tr{break-inside:avoid}thead{display:table-header-group}}'
+      +'</style></head><body>'+body+'</body></html>';
   }
   function paintReport() {
     if(!report || !$('bridgeReportOutput')) return;
@@ -326,13 +418,12 @@
     syncExportButtons();
     const output=$('bridgeReportOutput'); output.replaceChildren();
     if(report.content) {
-      const frame=document.createElement('iframe'); frame.className='bridge-report'; frame.title=REPORTS[reportArgs.p_report]; frame.setAttribute('sandbox',''); frame.referrerPolicy='no-referrer'; frame.srcdoc=safeReport(report.content); output.className=''; output.appendChild(frame);
+      const frame=document.createElement('iframe'); frame.className='bridge-report'; frame.title=REPORTS[reportArgs.p_report]; frame.setAttribute('sandbox',''); frame.referrerPolicy='no-referrer'; frame.srcdoc=safeReport(report.content,exportMeta()); output.className=''; output.appendChild(frame);
     } else { output.className='bridge-empty'; output.textContent=waiting?'Your report is queued. It will appear here when Tally responds.':'No saved report for this period. Choose Fetch from Tally.'; }
   }
   function downloadReport() {
     if(!report || !report.content || !selectionMatches()) return;
-    const url=URL.createObjectURL(new Blob([exportHTML()],{type:'text/html'}));
-    const a=document.createElement('a'); a.href=url; a.download='Tally-'+reportArgs.p_report+'-'+reportArgs.p_from+'-'+reportArgs.p_to+'.html'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),10000);
+    VFSlips.download(new Blob([exportHTML()],{type:'text/html'}),'Tally-'+reportArgs.p_report+'-'+reportArgs.p_from+'-'+reportArgs.p_to+'.html');
   }
   async function browse() {
     const kind='Voucher';
@@ -358,7 +449,7 @@
     panel.appendChild(node('h3',obj.data.number?'Invoice #'+obj.data.number:obj.data.name||kind));
     panel.appendChild(node('p','Last synced: '+date(obj.updated_at)+(obj.deleted?' · Deleted in Tally':'')));
     const download=node('button','Download full Tally record'); download.className='btn ghost';
-    download.onclick=()=> { const url=URL.createObjectURL(new Blob([obj.data.xml],{type:'application/octet-stream'})); const a=document.createElement('a'); a.href=url; a.download='Tally-'+kind+'-'+guid.replace(/[^a-zA-Z0-9-]/g,'')+'.xml'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),10000); };
+    download.onclick=()=> VFSlips.download(new Blob([obj.data.xml],{type:'application/octet-stream'}),'Tally-'+kind+'-'+guid.replace(/[^a-zA-Z0-9-]/g,'')+'.xml');
     panel.appendChild(download);
     const xml=new DOMParser().parseFromString(obj.data.xml,'application/xml');
     const table=document.createElement('table'); table.className='bridge-table';

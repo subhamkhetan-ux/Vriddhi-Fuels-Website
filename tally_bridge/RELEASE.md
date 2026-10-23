@@ -1,3 +1,8 @@
+Version **1.4.2** brings Tally's report layout to the web app:
+
+- **Reports keep Tally's formatting.** 1.4.1 sent reports with every alignment, bold and rule removed, so amounts sat on the left and totals looked like any other row. The bridge now keeps Tally's own alignment, bold/italic, indents, column widths and rules (also when Tally sets them through style classes); it still drops scripts, links, images, colours and anything else. The web app shows, prints and saves the reports in Tally Prime's print layout either way.
+- No SQL change. Open the new app and choose **Update now**.
+
 Version **1.4.1** fits the bridge around how the office already uses Tally:
 
 - **Nothing changes for employees.** With **Open Tally by itself** off (now the default), the bridge never opens, hides, closes or brings Tally forward and never shows a prompt. It syncs whenever Tally is open with the company loaded, and waits quietly while Tally is closed or at Select Company: web vouchers stay queued and post when Tally is next opened.
