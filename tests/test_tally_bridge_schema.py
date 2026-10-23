@@ -182,6 +182,43 @@ def test_posted_voucher_flagged_for_review_is_confirmed_when_tally_matches(db):
     assert db.ok(f"select state from tally_bridge_jobs where id='{j['id']}'") == "done"
 
 
+def test_failed_readback_takes_tallys_invoice_and_unreadable_edits_say_why(db):
+    db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased')")
+    v = create(db)
+    j = device(db, "claim")
+    db.ok(f"select tally_bridge_begin_write('{TOKEN}','{INSTANCE}','{j['id']}','{j['lease_token']}')", anon=True)
+    db.ok(f"select tally_bridge_finish('{TOKEN}','{INSTANCE}','{j['id']}','{j['lease_token']}','conflict','{{}}','Invoice could not be read yet')", anon=True)
+    send = lambda o: db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([o]))})", anon=True)
+    a = dict(series="hsd", number=v["number"], date="2026-10-19", party="Changed in Tally", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+    o = tally_object("readback-guid", a, alter=5)
+    send(o)  # differs from the web copy: the uncertain posting stays for review
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "conflict"
+    # "Use Tally version" on a posting never linked takes the invoice Tally holds under its number.
+    db.ok(f"select tally_bridge_control('use_tally','{v['id']}')", user=OWNER)
+    row = db.json(f"select to_jsonb(v) from tally_vouchers v where id='{v['id']}'")
+    assert row["bridge_guid"] == "readback-guid" and row["bridge_state"] == "awaiting_tally"
+    assert "readback-guid" in device(db, "heartbeat", "'online','','test'")["refresh_guids"]
+    send(o)
+    row = db.json(f"select to_jsonb(v) from tally_vouchers v where id='{v['id']}'")
+    assert row["bridge_state"] == "synced" and row["party"] == "Changed in Tally"
+    # An edit the app cannot hold is labelled with Tally's reason, and can be read again.
+    unreadable = dict(o, alter_id=6, data=dict(o["data"], app_voucher=None, unreadable="Extra ledger in Tally: Freight"))
+    send(unreadable)
+    row = db.json(f"select to_jsonb(v) from tally_vouchers v where id='{v['id']}'")
+    assert row["bridge_state"] == "unsupported" and row["bridge_note"] == "Extra ledger in Tally: Freight"
+    db.ok(f"select tally_bridge_control('use_tally','{v['id']}')", user=OWNER)
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "awaiting_tally"
+    send(dict(o, alter_id=7))  # corrected in Tally
+    row = db.json(f"select to_jsonb(v) from tally_vouchers v where id='{v['id']}'")
+    assert row["bridge_state"] == "synced" and row["bridge_note"] is None
+    # Vouchers older bridges marked unsupported (no reason) are read again after the SQL rerun.
+    db.ok(f"update tally_vouchers set bridge_state='unsupported' where id='{v['id']}'")
+    db.ok((ROOT / "supabase/tally-bridge.sql").read_text())
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "awaiting_tally"
+    send(dict(o, alter_id=8))
+    assert "Only a voucher that needs review" in db.fails(f"select tally_bridge_control('use_tally','{v['id']}')", user=OWNER)
+
+
 def test_first_sync_metadata_links_without_changing_values_and_alterations_fetch_details(db):
     daybook(db, dict(series="xg", number="XG7001", party="Kept party", amount=1000))
     light = dict(kind="Voucher", guid="light-guid", alter_id=7, master_id=9,

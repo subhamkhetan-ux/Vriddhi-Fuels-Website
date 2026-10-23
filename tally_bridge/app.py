@@ -29,9 +29,10 @@ def windows_niceties():
 
 
 class App:
-    def __init__(self, root, controller):
+    def __init__(self, root, controller, finish_update=False):
         import tkinter as tk
         self.tk, self.root, self.ctl = tk, root, controller
+        self.release, self.update_checked = None, False  # a newer release on GitHub, checked once on opening
         self.busy, self.updates, self.snap, self.page, self.refreshing = False, queue.Queue(), None, None, False
         self.buttons = []
         root.title("Vriddhi Tally Bridge")
@@ -49,6 +50,8 @@ class App:
         self.root.after(80, self.pump)
         self.refresh()
         self.show("home")
+        if finish_update:  # opened by the older app's Update: switch the bridge over to this version
+            self.root.after(300, lambda: self.run(self.ctl.switch_to_this, "Switching the bridge to version " + __version__ + "…"))
 
     # ---- small widget kit -------------------------------------------------
     def image(self, name):
@@ -267,10 +270,15 @@ class App:
             self.tiles_row.pack_forget()
             self.welcome.pack(fill="x", pady=(0, 14), before=self.problems)
         older = s["configured"] and s["installed"] and s["installed"] != s["version"]
-        if older:
+        if self.release:
+            self.banner_text.configure(text=f"Version {self.release['version']} of the bridge is available (this is "
+                                            f"{s['version']}). Update downloads it, checks it and switches over; the "
+                                            "pairing and queued work are kept, and Tally need not be open.")
+        elif older:
             self.banner_text.configure(text=f"This app is version {s['version']}, but Windows still runs bridge "
                                             f"{s['installed']} in the background. Update to switch it; the pairing and "
                                             "queued work are kept.")
+        if self.release or older:
             self.banner.pack(fill="x", pady=(0, 14), before=self.status_card if s["configured"] else self.welcome)
         else:
             self.banner.pack_forget()
@@ -288,7 +296,27 @@ class App:
             self.run(self.ctl.start, "Starting…")
 
     def update_now(self):
+        if self.release:
+            result = self.ctl.download_update(self.release)
+            self.updates.put(("handed_over", None))
+            return result
+        return self.ctl.switch_to_this()
+
+    def save_settings(self):
         return self.ctl.save(**self.settings())
+
+    def check_update(self, quiet=False):
+        """Ask GitHub for a newer release; quietly once on opening, or from Settings."""
+        def task():
+            try:
+                release, text, tone = self.ctl.check_update(), None, "good"
+            except Problem as e:
+                release, text, tone = None, None if quiet else str(e), "bad"
+            if not quiet and not text:
+                text = ("Version " + release["version"] + " is available: choose Update now on Home." if release
+                        else "This is the newest version (" + __version__ + ").")
+            self.updates.put(("release", (release, text, tone)))
+        threading.Thread(target=task, daemon=True).start()
 
     # ---- Connect -----------------------------------------------------------------
     def build_connect(self, page):
@@ -439,11 +467,17 @@ class App:
                    9, color="idle").pack(anchor="w", pady=(12, 0))
         row = tk.Frame(page, bg=C["bg"])
         row.pack(anchor="w")
-        self.button(row, "Save settings", lambda: self.run(self.update_now, "Saving…")).pack(side="left")
+        self.button(row, "Save settings", lambda: self.run(self.save_settings, "Saving…")).pack(side="left")
         self.button(row, "Apply auto-revive only", lambda: self.run(lambda: self.ctl.set_autostart(self.v["revive"].get()),
                     "Applying…"), "ghost").pack(side="left", padx=8)
         self.label(page, "“Apply auto-revive only” works even while Tally is closed.", 9, color="idle", bg="bg").pack(
             anchor="w", pady=(8, 0))
+        c = self.card(page, pady=(22, 0))
+        self.label(c, "Updates", 12, "bold").pack(anchor="w")
+        self.label(c, "This is version " + __version__ + ". The app looks for a newer version each time it opens; "
+                   "Home then offers Update now.", 10, color="muted", wraplength=640).pack(anchor="w", pady=(4, 10))
+        self.button(c, "Check for updates", lambda: (self.say("Checking for updates…", "idle"), self.check_update()),
+                    "ghost").pack(anchor="w")
 
     # ---- Activity ----------------------------------------------------------------------
     def build_activity(self, page):
@@ -517,6 +551,9 @@ class App:
                     self.refreshing = False
                     if value:
                         self.snap = value
+                        if not self.update_checked:
+                            self.update_checked = True
+                            self.check_update(quiet=True)
                         self.paint_home(value)
                         self.paint_activity(value)
                         self.connected_note.configure(text=("Connected to " + value["company"] + ". Pair again only "
@@ -527,6 +564,14 @@ class App:
                         self.v["exe"].set(value["exe"])
                     if value.get("number") and not self.v["number"].get():
                         self.v["number"].set(value["number"])
+                elif kind == "release":
+                    self.release, text, tone = value
+                    if text:
+                        self.say(text, tone)
+                    if self.snap:
+                        self.paint_home(self.snap)
+                elif kind == "handed_over":
+                    self.root.after(2500, self.root.destroy)  # the new version's window takes over
                 elif kind == "paired":
                     self.pair_text.delete("1.0", "end")
                     self.show("home")
@@ -546,7 +591,7 @@ class App:
 
 
 
-def run(windows, uninstall=False):
+def run(windows, uninstall=False, finish_update=False):
     import tkinter as tk
     from tkinter import messagebox
     windows_niceties()
@@ -561,5 +606,5 @@ def run(windows, uninstall=False):
                                 + str(folder) + "\n\nDisconnect this PC in the web app if it will not be used again.")
         root.destroy()
         return
-    App(root, Controller(windows))
+    App(root, Controller(windows), finish_update)
     root.mainloop()

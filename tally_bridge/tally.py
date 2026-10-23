@@ -3,6 +3,7 @@ import copy
 import datetime as dt
 import html
 import re
+import time
 import xml.etree.ElementTree as ET
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from html.parser import HTMLParser
@@ -32,6 +33,11 @@ class TallyProblem(RuntimeError):
 
 class CompanyNotOpen(TallyProblem):
     """Tally answers, but the paired company is not loaded (Select Company, or another company)."""
+
+
+class NotReadYet(TallyProblem):
+    """Tally lists the invoice but its Day Book did not return it yet (Tally busy just after a
+    posting, or the invoice being saved). Nothing is wrong: the job is checked again later."""
 
 
 def decimal(value):
@@ -183,48 +189,85 @@ def series_of(v):
     return next((k for k, s in SERIES.items() if s[0] == vt), None)
 
 
-def fuel_voucher(v):
-    """The fuel fields the app shows, read from any HSD/MS/XG CREDIT voucher in Tally."""
+# Tally names are case-insensitive; offices name the round-off ledger R/off, Round Off, Rounding Off...
+ROUND_OFF = re.compile(r"\bround|^\s*r\s*/?\s*off\b", re.I)
+
+
+def same_name(a, b):
+    return " ".join(str(a).split()).casefold() == " ".join(str(b).split()).casefold()
+
+
+def read_fuel(v):
+    """(fuel fields, None) for an HSD/MS/XG CREDIT voucher the app can show, else (None, why not).
+    The reason is shown in the web app, so an edit made in Tally that the app cannot hold is explained.
+    Cancelled, optional and other vouchers give (None, None)."""
     sk = series_of(v)
     if sk is None or yes(text(v, "ISCANCELLED")) or yes(text(v, "ISOPTIONAL")) or yes(text(v, "ISDELETED")):
-        return None
+        return None, None
+    item_name = SERIES[sk][1]
     inv = entries(v, "ALLINVENTORYENTRIES.LIST", "INVENTORYENTRIES.LIST")
     led = entries(v, "LEDGERENTRIES.LIST", "ALLLEDGERENTRIES.LIST")
-    if len(inv) != 1 or text(inv[0], "STOCKITEMNAME") != SERIES[sk][1]:
-        return None
+    if not inv:
+        # Saved in Accounting Voucher View: the stock line sits inside the sales ledger's entry.
+        carriers = [e for e in led if filled(e, "INVENTORYALLOCATIONS.LIST")]
+        inv = [i for e in carriers for i in filled(e, "INVENTORYALLOCATIONS.LIST")]
+        led = [e for e in led if not filled(e, "INVENTORYALLOCATIONS.LIST")]
+    if len(inv) != 1:
+        return None, (f"Tally shows {len(inv)} stock lines; the app holds one {item_name} line" if inv
+                      else "Tally shows no stock line for " + item_name)
+    if not same_name(text(inv[0], "STOCKITEMNAME"), item_name):
+        return None, "Stock item is " + (text(inv[0], "STOCKITEMNAME") or "blank") + ", not " + item_name
     party = text(v, "PARTYLEDGERNAME")
-    party_entries = [e for e in led if text(e, "LEDGERNAME") == party]
-    if len(party_entries) != 1 or any(text(e, "LEDGERNAME") not in (party, "R/off") for e in led):
-        return None
+    if not party:
+        marked = [e for e in led if yes(text(e, "ISPARTYLEDGER"))]
+        party = text(marked[0], "LEDGERNAME") if len(marked) == 1 else ""
+    party_entries = [e for e in led if same_name(text(e, "LEDGERNAME"), party)] if party else []
+    if len(party_entries) != 1:
+        return None, ("The customer ledger appears " + str(len(party_entries)) + " times" if party_entries
+                      else "No customer ledger line on the voucher")
+    others = [text(e, "LEDGERNAME") for e in led if e is not party_entries[0] and not ROUND_OFF.search(text(e, "LEDGERNAME"))]
+    if others:
+        return None, "Extra ledger in Tally: " + ", ".join(dict.fromkeys(others))[:120] + " (the app holds customer, fuel and round-off only)"
     try:
         qty = decimal(text(inv[0], "BILLEDQTY") or text(inv[0], "ACTUALQTY"))
-        if qty <= 0:
-            return None
-        item = decimal(text(inv[0], "AMOUNT"))
+        item = abs(decimal(text(inv[0], "AMOUNT")))
         total = -decimal(text(party_entries[0], "AMOUNT"))
+        roff = sum((decimal(text(e, "AMOUNT")) for e in led if e is not party_entries[0]), Decimal(0))
+    except (TallyProblem, InvalidOperation):
+        return None, "Tally gave an unreadable quantity or amount"
+    if qty <= 0:
+        return None, "Quantity is zero in Tally"
+    try:
         rate = decimal(text(inv[0], "RATE"))
-        roff = sum((decimal(text(e, "AMOUNT")) for e in led if text(e, "LEDGERNAME") == "R/off"), Decimal(0))
-        if abs(total - item - roff) > Decimal("0.01"):
-            return None
+    except (TallyProblem, InvalidOperation):
+        rate = item / qty  # a rate Tally leaves blank follows from the amount
+    if abs(total - item - roff) > Decimal("0.01"):
+        return None, f"Amounts do not add up: customer {amount(total)} vs fuel {amount(item)} + round-off {amount(roff)}"
+    try:
         date = dt.datetime.strptime(text(v, "DATE").replace("-", ""), "%Y%m%d").date().isoformat()
-    except (ValueError, TallyProblem, InvalidOperation):
-        return None
+    except ValueError:
+        return None, "Tally gave no voucher date"
     vehicle = text(v, ".//{TallyUDF}EIVEHNO") or text(v, "BASICSHIPVEHICLENO")
     return dict(series=sk, number=text(v, "VOUCHERNUMBER"), date=date, party=party,
                 vehicle=vehicle, qty=amount(qty, 3), rate=amount(rate),
-                item_amt=amount(item), party_amt=amount(total), roff=amount(roff))
+                item_amt=amount(item), party_amt=amount(total), roff=amount(roff)), None
+
+
+def fuel_voucher(v):
+    """The fuel fields the app shows, read from any HSD/MS/XG CREDIT voucher in Tally."""
+    return read_fuel(v)[0]
 
 
 def alterable(v):
     """Altering replaces the ledger and inventory lists, so allow it only when nothing else lives there."""
     sk = series_of(v)
-    if fuel_voucher(v) is None:
+    inv = entries(v, "ALLINVENTORYENTRIES.LIST", "INVENTORYENTRIES.LIST")
+    if fuel_voucher(v) is None or len(inv) != 1:
         return False
     if any(filled(e, t) for e in v.iter() for t in ("BILLALLOCATIONS.LIST", "COSTCENTREALLOCATIONS.LIST",
                                                     "BANKALLOCATIONS.LIST", "CATEGORYALLOCATIONS.LIST")):
         return False
-    inv = entries(v, "ALLINVENTORYENTRIES.LIST", "INVENTORYENTRIES.LIST")[0]
-    alloc, batches = filled(inv, "ACCOUNTINGALLOCATIONS.LIST"), filled(inv, "BATCHALLOCATIONS.LIST")
+    alloc, batches = filled(inv[0], "ACCOUNTINGALLOCATIONS.LIST"), filled(inv[0], "BATCHALLOCATIONS.LIST")
     return (len(alloc) == 1 and text(alloc[0], "LEDGERNAME") == SERIES[sk][2] and len(batches) == 1
             and text(batches[0], "GODOWNNAME") == "Main Location" and text(batches[0], "BATCHNAME") == "Primary Batch")
 
@@ -249,7 +292,10 @@ def object_data(kind, v):
             "party": text(v, "PARTYLEDGERNAME"), "date": text(v, "DATE"),
             "voucher_type": text(v, "VOUCHERTYPENAME", v.get("VCHTYPE", "")),
             "cancelled": any(yes(text(v, k)) for k in ("ISCANCELLED", "ISOPTIONAL", "ISDELETED")),
-            "app_voucher": fuel_voucher(v)}
+            "app_voucher": None}
+    data["app_voucher"], why = read_fuel(v)
+    if why:
+        data["unreadable"] = why
     return dict(kind=kind, guid=guid, master_id=master, alter_id=alter, data=data)
 
 
@@ -426,8 +472,9 @@ def sanitize_report(raw):
 
 
 class Tally:
+    settle = 2  # seconds
+
     def __init__(self, transport, company, guid=None, clock=None):
-        import time
         self.transport, self.company, self.guid = transport, company, guid
         self.clock = clock or time.monotonic
         self.cache = {}  # masters seen present and party GST, for half an hour
@@ -578,8 +625,11 @@ class Tally:
         if not candidates:
             return None
         records = self.details(candidates)
+        if not records:
+            time.sleep(self.settle)  # just after a posting Tally can list it a moment before its Day Book does
+            records = self.details(candidates)
         if len(records) != 1:
-            raise TallyProblem("Invoice changed during lookup; try again after the next sync")
+            raise NotReadYet(vt + " #" + p["number"] + " is in Tally but could not be read yet; it is checked again shortly")
         expected, actual = identity(candidates[0]), identity(records[0])
         if actual[:2] != expected[:2] or actual[2] < expected[2]:
             raise TallyProblem("Invoice identity or version changed during lookup; posting is blocked")

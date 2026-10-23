@@ -1,3 +1,10 @@
+Version **1.5.0** brings Tally edits back reliably and updates itself:
+
+- **Edits made in Tally show up in the app.** The bridge now reads any round-off ledger spelling (R/off, Round Off, Rounding Off…), names in any capitalisation, a blank rate, and vouchers saved in Accounting Voucher View. A voucher it still cannot hold is labelled with the reason (for example *Extra ledger in Tally: Freight*) and listed under Sync activity → **Changed in Tally**, with **Read again from Tally**. Vouchers older bridges marked *Changed in Tally* are read again.
+- **No false "Needs review" after posting.** When Tally lists a just-posted invoice a moment before its Day Book returns it, the bridge checks again by itself instead of asking for review. For a posting that did end up in review, **Use Tally version** now takes the invoice Tally holds under that number.
+- **Update button.** The app checks for a newer version each time it opens (Settings → Check for updates), and **Update now** downloads it, verifies its checksum and switches the bridge over — no ZIP, no re-pairing, Tally need not be open.
+- **Re-run tally-bridge.sql** (adds the reason column and re-reads vouchers marked *Changed in Tally*). Then extract this ZIP once, open the app and choose **Update now**; later versions install from the app itself.
+
 Version **1.4.2** brings Tally's report layout to the web app:
 
 - **Reports keep Tally's formatting.** 1.4.1 sent reports with every alignment, bold and rule removed, so amounts sat on the left and totals looked like any other row. The bridge now keeps Tally's own alignment, bold/italic, indents, column widths and rules (also when Tally sets them through style classes); it still drops scripts, links, images, colours and anything else. The web app shows, prints and saves the reports in Tally Prime's print layout either way.

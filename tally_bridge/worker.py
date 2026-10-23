@@ -9,7 +9,7 @@ from . import __version__
 from .tally import SERIES, TallyProblem, business_equal, fuel_voucher, identity, object_data, voucher_date
 from .transport import CloudRejected, ConnectionProblem
 from .recovery import TallyStarting, TallyWaiting
-from .tally import CompanyNotOpen
+from .tally import CompanyNotOpen, NotReadYet
 
 # Vouchers dated today and yesterday are watched; older ones are never read.
 WINDOW_DAYS = 2
@@ -17,6 +17,8 @@ WINDOW_DAYS = 2
 # 1.0.x mirrored every master and voucher type; 2 kept only HSD/MS/XG CREDIT vouchers;
 # 3 re-reads them because 1.1.x details came from a collection export without fuel lines.
 JOURNAL = 3
+# A read-back Tally keeps missing is put up for review after this many tries (a few minutes apart).
+READ_TRIES = 5
 
 
 class Stopped(Exception):
@@ -267,6 +269,10 @@ class Worker:
                 self.voucher(job)
         except CompanyNotOpen:
             raise  # closed between checks: the job's lease expires and it is claimed again later
+        except NotReadYet as e:
+            if int(job.get("attempts") or 0) < READ_TRIES:
+                return True  # its lease expires and it is checked again; a posting is never repeated
+            self.finish(job, "conflict", detail=str(e) + ". Open the invoice once in Tally Prime, then choose Recheck Tally.")
         except TallyProblem as e:
             self.finish(job, "conflict" if job["kind"] == "voucher" else "error", detail=str(e))
         # Network/HTTP failure leaves a leased/writing job for safe recovery after expiry.

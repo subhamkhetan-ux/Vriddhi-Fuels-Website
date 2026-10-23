@@ -27,6 +27,8 @@ alter table public.tally_vouchers add column if not exists bridge_revision bigin
 alter table public.tally_vouchers add column if not exists bridge_guid text;
 alter table public.tally_vouchers add column if not exists bridge_alter bigint;
 alter table public.tally_vouchers add column if not exists bridge_state text not null default 'unlinked';
+-- Why the app cannot show Tally's version of an 'unsupported' voucher (bridge 1.5+).
+alter table public.tally_vouchers add column if not exists bridge_note text;
 create unique index if not exists tally_bridge_voucher_guid on public.tally_vouchers(bridge_guid) where bridge_guid is not null;
 
 create table if not exists public.tally_bridge_jobs (
@@ -140,7 +142,8 @@ begin
   update tally_bridge_devices set instance=p_instance,instance_until=now()+interval '90 seconds',
     last_seen=now(),health=left(p_health,40),detail=left(p_detail,300),version=left(p_version,40) where id=d.id;
   return (select to_jsonb(c) || jsonb_build_object('company',s.company,'refresh_guids',
-    coalesce((select jsonb_agg(bridge_guid) from tally_vouchers where bridge_state='awaiting_tally'),'[]'::jsonb))
+    coalesce((select jsonb_agg(bridge_guid) from (select bridge_guid from tally_vouchers
+      where bridge_state='awaiting_tally' and bridge_guid is not null order by date desc limit 50) r),'[]'::jsonb))
     from tally_bridge_config c cross join tally_settings s where c.id=1 and s.id=1);
 end $$;
 
@@ -406,13 +409,15 @@ begin
       continue;
     end if;
     if a is null then
-      update tally_vouchers set bridge_guid=g,bridge_state='unsupported',bridge_alter=incoming where id=v.id;
+      update tally_vouchers set bridge_guid=g,bridge_state='unsupported',bridge_alter=incoming,
+        bridge_note=left(coalesce(o->'data'->>'unreadable','Tally holds a version the app cannot show'),300) where id=v.id;
       continue;
     end if;
     if exists(select 1 from tally_vouchers where id<>v.id and series=a->>'series' and number=a->>'number') then
       -- Preserve both histories when Tally renumbers onto an already saved web invoice.
       -- The current Tally version remains available in the data explorer and reports.
-      update tally_vouchers set bridge_guid=g,bridge_state='unsupported',bridge_alter=incoming where id=v.id;
+      update tally_vouchers set bridge_guid=g,bridge_state='unsupported',bridge_alter=incoming,
+        bridge_note='Renumbered in Tally to #'||(a->>'number')||', a number the app already has' where id=v.id;
       continue;
     end if;
     if a->>'series' not in ('hsd','ms','xg') or (a->>'qty')::numeric<=0
@@ -422,7 +427,7 @@ begin
       vehicle=coalesce(nullif(a->>'vehicle',''),vehicle),
       qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
       party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,bridge_guid=g,bridge_alter=incoming,
-      bridge_state='synced',status='history',updated_at=now() where id=v.id;
+      bridge_state='synced',bridge_note=null,status='history',updated_at=now() where id=v.id;
     perform _tally_bump_baselines(array[v.id]);
   end loop;
   perform set_config('vriddhi.bridge_ingest','no',true);
@@ -550,11 +555,24 @@ begin
     update tally_vouchers set bridge_state='confirming' where id=v.id;
   elsif p_action='use_tally' then
     select * into v from tally_vouchers where id=p_voucher for update;
-    if v.id is null or v.bridge_guid is null or v.bridge_state not in ('conflict','needs_edit')
-      or exists(select 1 from tally_bridge_jobs where voucher_id=v.id and state='writing') then
-      raise exception 'Resolve the uncertain posting in Tally Prime first';
+    if v.id is null or v.bridge_state not in ('conflict','needs_edit','unsupported') then
+      raise exception 'Only a voucher that needs review can take the Tally version';
     end if;
-    select * into o from tally_bridge_objects where kind='Voucher' and guid=v.bridge_guid;
+    if exists(select 1 from tally_bridge_jobs where voucher_id=v.id and state='writing') then
+      raise exception 'Tally is still being checked for this voucher. Try again in a few minutes.';
+    end if;
+    if v.bridge_guid is null then
+      -- A posting whose read-back failed: take the invoice Tally holds under this type and number.
+      if (select count(*) from tally_bridge_objects where kind='Voucher' and not deleted and v_series=v.series and v_number=v.number)<>1 then
+        raise exception 'The bridge has not read invoice #% from Tally yet. Choose Recheck Tally.', v.number;
+      end if;
+      select * into o from tally_bridge_objects where kind='Voucher' and not deleted and v_series=v.series and v_number=v.number;
+      if exists(select 1 from tally_vouchers where bridge_guid=o.guid and id<>v.id) then
+        raise exception 'Tally''s invoice #% is already linked to another voucher here', v.number;
+      end if;
+      update tally_vouchers set bridge_guid=o.guid,bridge_alter=o.alter_id where id=v.id;
+    end if;
+    select * into o from tally_bridge_objects where kind='Voucher' and guid=(select bridge_guid from tally_vouchers where id=v.id);
     if o.guid is null then raise exception 'Wait for a fresh Tally snapshot'; end if;
     update tally_bridge_jobs set state='superseded',updated_at=now() where voucher_id=v.id and state in ('conflict','error','pending','leased');
     -- The worker's next snapshot applies Tally's version. Local edit stays visible until then.
@@ -685,6 +703,11 @@ end $$;
 delete from public.tally_bridge_objects
   where kind<>'Voucher' or coalesce(data->>'voucher_type','') not in ('HSD CREDIT','MS CREDIT','XG CREDIT');
 select public._tb_link_imported();
+
+-- 1.5.0 reads more Tally layouts (round-off ledger spellings, Accounting Voucher View) and
+-- says why it cannot read one: re-read vouchers marked unsupported by older bridges.
+update public.tally_vouchers set bridge_state='awaiting_tally'
+  where bridge_state='unsupported' and bridge_guid is not null and bridge_note is null;
 
 -- Only the device capability endpoints are callable with the public API key.
 do $$ declare f record; begin

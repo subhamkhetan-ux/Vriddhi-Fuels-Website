@@ -20,11 +20,12 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def verify_package(root):
+def verify_package(root, version=None):
+    """Every file matches the manifest; `version` checks a downloaded update instead of this one."""
     root = Path(root).resolve()
     try:
         manifest = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
-        if manifest["format"] != 1 or manifest["version"] != __version__:
+        if manifest["format"] != 1 or manifest["version"] != (version or __version__):
             raise ValueError("Unsupported package")
         expected = manifest["files"]
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and p.relative_to(root).as_posix() != MANIFEST}
