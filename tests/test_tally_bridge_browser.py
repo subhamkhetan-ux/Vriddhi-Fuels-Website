@@ -354,6 +354,8 @@ def test_editing_an_existing_invoice_keeps_its_saved_rate(browser,server):
     page=_customer_price_page(browser,server)
     page.on('dialog',lambda dialog:dialog.accept())
     page.locator('#btnHistory').click()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='01/01/2025',exact=False).click()
     page.get_by_role('button',name='Alter old voucher 12',exact=True).click()
     assert page.locator('#fPrice').input_value()=='90.00'
     page.locator('#btnChangeParty').click()
@@ -480,4 +482,32 @@ def test_unit_wise_po_comes_from_the_unit_in_the_customer_name(browser,server):
     # No unit in the name: the customer's last Ledger bill was UNIT 1.
     page.get_by_role('button',name='Create bill for voucher 4332').click()
     page.wait_for_function("document.getElementById('blPo').value==='U1-PO'")
+    page.close()
+
+
+def test_stock_summary_is_product_wise_then_date_wise(browser,server):
+    page=_customer_price_page(browser,server)
+    page.locator('#btnHistory').click()
+    table=page.locator('#ssTable')
+    # Products like Tally's Stock Summary; a voucher deleted in Tally is not counted.
+    assert 'High Speed Diesel' in table.inner_text() and 'Motor Spirit' in table.inner_text()
+    total=table.locator('.ss-total')
+    assert '70.000' in total.inner_text() and '₹6,740.00' in total.inner_text()
+    assert '7 vouchers' in total.inner_text()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    assert page.locator('#hdrTitle').inner_text()=='High Speed Diesel'
+    rows=page.locator('#ssTable button.ss-row')
+    assert rows.first.locator('b').inner_text()=='01/01/2099'
+    assert '₹5,690.00' in page.locator('#ssTable .ss-total').inner_text()
+    page.get_by_role('button',name='02/01/2025',exact=False).click()
+    assert page.locator('#histList .vitem').count()==2
+    assert '₹1,870.00' in page.locator('#ssFoot').inner_text()
+    # Back steps up one level at a time.
+    page.locator('#btnBack').click()
+    assert page.locator('#hdrTitle').inner_text()=='High Speed Diesel'
+    page.locator('#btnBack').click()
+    assert page.locator('#hdrTitle').inner_text()=='Stock Summary'
+    page.locator('#histSearch').fill('MS2')
+    assert page.locator('#histList .vitem').count()==1
+    assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
     page.close()

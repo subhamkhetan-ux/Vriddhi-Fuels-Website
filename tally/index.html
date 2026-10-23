@@ -179,7 +179,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <section class="home-panel" aria-labelledby="recordsHeading">
   <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 3h8v13H4Z"/><path d="M8 12h8m-8 4h5"/></svg><h2 class="sec-title" id="recordsHeading">Records &amp; imports</h2></div>
   <p class="section-note">Your past vouchers and Tally exports, in one place.</p>
-  <button class="btn ghost record-action" id="btnHistory"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-7L3 8m0-5v5h5M12 7v5l3 2"/></svg><span>Old vouchers <span id="histCount">0</span><small>Browse and review past entries</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  <button class="btn ghost record-action" id="btnHistory"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-7L3 8m0-5v5h5M12 7v5l3 2"/></svg><span>Stock summary <span id="histCount">0</span><small>Product-wise sales, date by date</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <button class="btn ghost record-action" id="btnSlips"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h3"/></svg><span>Fuel slips<small>Choose dates and customer</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <button class="btn ghost record-action" id="btnImportDaybook"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/></svg><span>Import from Tally<small>Day book or customer ledgers</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <input type="file" id="fileDaybook" accept=".xml,text/xml,application/xml" style="display:none">
@@ -263,11 +263,20 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 </section>
 
 <!-- ======================= HISTORY ======================= -->
+<!-- Laid out like Tally Prime's Stock Summary: products, then a product's
+     dates (Tally shows months; the app keeps days), then that day's vouchers. -->
 <section class="screen" id="scrHistory">
-  <div class="field">
-    <input type="search" id="histSearch" placeholder="Search customer / vehicle / invoice no…" autocomplete="off">
+  <div class="ss-head">
+    <div class="ss-crumbs" id="ssCrumbs"></div>
+    <h2 class="cardtitle" id="ssTitle">Stock Summary</h2>
+    <div class="ss-period" id="ssPeriod"></div>
   </div>
+  <div class="field" id="ssSearchField">
+    <input type="search" id="histSearch" aria-label="Search vouchers" placeholder="Search customer / vehicle / invoice no…" autocomplete="off">
+  </div>
+  <div class="ss-table" id="ssTable"></div>
   <div class="vlist" id="histList"></div>
+  <div class="ss-table" id="ssFoot"></div>
   <div class="hint" style="text-align:center" id="histMore"></div>
 </section>
 
@@ -1565,7 +1574,7 @@ function show(screen){
     $("hdrTitle").textContent = "Fuel slips";
   } else if (screen === "history"){
     $("scrHistory").classList.add("on");
-    $("hdrTitle").textContent = "Old vouchers";
+    $("hdrTitle").textContent = ssTitle();
     renderHistory();
   } else {
     $("scrSettings").classList.add("on");
@@ -1593,7 +1602,7 @@ function renderHome(){
     $(sk + "Next").textContent = freeNumber(sk);
     $(sk + "Rate").textContent = fmtAmt(state.series[sk].rate);
   });
-  $("histCount").textContent = state.history.length;
+  $("histCount").textContent = summaryVouchers().length;
 
   if (!$("dayPick").value) $("dayPick").value = todayISO();
   var day = selectedDay();
@@ -1853,70 +1862,254 @@ function decodeXmlBytes(buf){
   return new TextDecoder("utf-8").decode(b);
 }
 
-/* ---------- history ---------- */
+/* ---------- stock summary (old vouchers, product-wise) ----------
+   Laid out like Tally Prime's Stock Summary: each product with its
+   quantity and value, then a product's dates (Tally's months — the app
+   keeps days, not years), then that day's vouchers. A search skips the
+   drill-down and lists the matching vouchers. Values are the stock item
+   value (before round-off), as Tally shows them. */
 var HIST_PAGE = 100;
-function renderHistory(){
-  var q = $("histSearch").value.trim().toLowerCase();
-  var el = $("histList");
-  el.innerHTML = "";
-  var items = state.history.filter(function(v){
-    if (!q) return true;
-    return v.party.toLowerCase().indexOf(q) !== -1
-      || (v.vehicle || "").toLowerCase().indexOf(q) !== -1
-      || String(v.number).toLowerCase().indexOf(q) !== -1;
+var ss = { product: null, day: null };
+
+// Every kept voucher once: the pending ones and the old ones.
+function summaryVouchers(){
+  var seen = {}, out = [];
+  state.queue.forEach(function(v){
+    seen[v.seriesKey + "|" + v.number] = 1;
+    out.push({ v: v, live: true, value: v.itemAmt });
   });
-  if (!items.length){
-    el.innerHTML = '<div class="empty">' + (state.history.length
-      ? "No vouchers match your search."
-      : "No old vouchers yet.<br>Import a Tally daybook XML from the home screen.") + '</div>';
-    $("histMore").textContent = "";
+  state.history.forEach(function(v){
+    if (seen[v.seriesKey + "|" + v.number]) return;
+    out.push({ v: v, live: false, value: v.amount != null ? v.amount : v.partyAmt });
+  });
+  return out;
+}
+// Deleted/cancelled in Tally: still listed, never counted.
+function summaryCounts(x){ return ["deleted","unsupported"].indexOf(x.v.bridgeState) === -1; }
+function sumUp(list){
+  var t = { n: 0, qty: 0, value: 0 };
+  list.forEach(function(x){
+    if (!summaryCounts(x)) return;
+    t.n++; t.qty += x.v.qty || 0; t.value += x.value || 0;
+  });
+  return t;
+}
+function fmtLtr(q){ return q.toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 }); }
+function dmy(iso){ return iso.split("-").reverse().join("/"); }
+function ssPeriod(list){
+  if (!list.length) return "";
+  var days = list.map(function(x){ return x.v.dateISO; }).sort();
+  return days[0] === days[days.length - 1] ? dmy(days[0]) : dmy(days[0]) + " to " + dmy(days[days.length - 1]);
+}
+
+// One Tally-style line: particulars on the left, quantity and value on the right.
+function ssRow(o){
+  var row = document.createElement(o.onclick ? "button" : "div");
+  row.className = "ss-row" + (o.cls ? " " + o.cls : "");
+  var name = document.createElement("span");
+  name.className = "ss-name";
+  if (o.badge){
+    var badge = document.createElement("span");
+    badge.className = "vbadge " + o.badge;
+    badge.textContent = o.badge.toUpperCase();
+    name.appendChild(badge);
+  }
+  var label = document.createElement("span");
+  label.className = "ss-label";
+  var strong = document.createElement("b");
+  strong.textContent = o.name;
+  label.appendChild(strong);
+  if (o.sub){ var sub = document.createElement("small"); sub.textContent = o.sub; label.appendChild(sub); }
+  name.appendChild(label);
+  var qty = document.createElement("span");
+  qty.className = "ss-num";
+  qty.textContent = o.qty;
+  var val = document.createElement("span");
+  val.className = "ss-num ss-val";
+  val.textContent = o.value;
+  row.appendChild(name); row.appendChild(qty); row.appendChild(val);
+  if (o.onclick){
+    row.type = "button";
+    row.onclick = o.onclick;
+    if (o.aria) row.setAttribute("aria-label", o.aria);
+  }
+  return row;
+}
+function ssTotalRow(t, label){
+  return ssRow({ cls: "ss-total", name: label || "Grand Total", sub: t.n ? plural(t.n, "voucher") : "",
+    qty: fmtLtr(t.qty), value: inr(t.value) });
+}
+function ssHeader(first){
+  var h = ssRow({ cls: "ss-colhead", name: first, qty: "Quantity (" + TALLY.unit + ")", value: "Value" });
+  h.setAttribute("aria-hidden", "true");
+  return h;
+}
+
+// A voucher with its actions; ✎ alters a pending voucher or an old one.
+function voucherRow(x, withDate){
+  var v = x.v;
+  var row = document.createElement("div");
+  row.className = "vitem" + (summaryCounts(x) ? "" : " exported");
+  var badge = document.createElement("span");
+  badge.className = "vbadge " + v.seriesKey;
+  badge.textContent = v.seriesKey.toUpperCase();
+  var main = document.createElement("div");
+  main.className = "vmain";
+  var p = document.createElement("div");
+  p.className = "vparty";
+  p.textContent = "#" + v.number + " · " + v.party;
+  var sub = document.createElement("div");
+  sub.className = "vsub";
+  sub.textContent = (withDate ? dmy(v.dateISO) + " · " : "")
+    + (v.vehicle ? v.vehicle + " · " : "")
+    + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate)
+    + (x.live ? (v.exportedAt ? " · exported" : " · pending") : "");
+  main.appendChild(p); main.appendChild(sub);
+  if (bridgeLabel(v)){ var syncLabel = document.createElement("span"); syncLabel.className = "bridge-status"; syncLabel.textContent = bridgeLabel(v); main.appendChild(syncLabel); }
+  var amt = document.createElement("div");
+  amt.className = "vamt";
+  amt.textContent = inr(x.value);
+  row.appendChild(badge); row.appendChild(main); row.appendChild(amt);
+  // A bill can be raised for any voucher, including the ones a Tally
+  // daybook import brought in; ✎ corrects the voucher (with a warning).
+  var billBtn = document.createElement("button");
+  billBtn.className = "vdel";
+  billBtn.textContent = "🧾";
+  billBtn.setAttribute("aria-label", "Create bill for voucher " + v.number);
+  billBtn.onclick = function(e){ e.stopPropagation(); openBillForVoucher(v); };
+  row.appendChild(billBtn);
+  row.appendChild(slipButton(v));
+  var editBtn = document.createElement("button");
+  editBtn.className = "vdel";
+  editBtn.textContent = "✎";
+  editBtn.setAttribute("aria-label", (x.live ? "Edit voucher " : "Alter old voucher ") + v.number);
+  editBtn.onclick = function(e){ e.stopPropagation(); if (x.live) openEdit(v); else openEditHistory(v); };
+  row.appendChild(editBtn);
+  return row;
+}
+
+function ssTitle(){
+  if (!ss.product) return "Stock Summary";
+  return ss.day ? TALLY.series[ss.product].label + " · " + dmy(ss.day) : TALLY.series[ss.product].item;
+}
+function ssOpen(product, day){
+  ss.product = product; ss.day = day;
+  $("hdrTitle").textContent = ssTitle();
+  renderHistory();
+  window.scrollTo(0, 0);
+}
+// Back steps up one level, as Esc does in Tally.
+function ssBack(){
+  if (ss.day) ssOpen(ss.product, null);
+  else if (ss.product) ssOpen(null, null);
+  else return false;
+  return true;
+}
+
+function renderHistory(){
+  var all = summaryVouchers();
+  var q = $("histSearch").value.trim().toLowerCase();
+  var table = $("ssTable"), el = $("histList");
+  table.innerHTML = ""; el.innerHTML = ""; $("ssFoot").innerHTML = ""; $("histMore").textContent = "";
+  $("ssTitle").textContent = ssTitle();
+  $("ssSearchField").style.display = ss.product ? "none" : "";
+
+  var crumbs = $("ssCrumbs");
+  crumbs.innerHTML = "";
+  if (ss.product){
+    var up = document.createElement("button");
+    up.type = "button"; up.className = "ss-crumb"; up.textContent = "Stock Summary";
+    up.onclick = function(){ ssOpen(null, null); };
+    crumbs.appendChild(up);
+    if (ss.day){
+      var mid = document.createElement("button");
+      mid.type = "button"; mid.className = "ss-crumb"; mid.textContent = TALLY.series[ss.product].label;
+      mid.onclick = function(){ ssOpen(ss.product, null); };
+      crumbs.appendChild(mid);
+    }
+  }
+
+  if (!all.length){
+    $("ssPeriod").textContent = "";
+    el.innerHTML = '<div class="empty">No vouchers yet.<br>Create one from the home screen, or import a Tally daybook XML.</div>';
     return;
   }
-  items.slice(0, HIST_PAGE).forEach(function(v){
-    var row = document.createElement("div");
-    row.className = "vitem";
-    var badge = document.createElement("span");
-    badge.className = "vbadge " + v.seriesKey;
-    badge.textContent = v.seriesKey.toUpperCase();
-    var main = document.createElement("div");
-    main.className = "vmain";
-    var p = document.createElement("div");
-    p.className = "vparty";
-    p.textContent = "#" + v.number + " · " + v.party;
-    var sub = document.createElement("div");
-    sub.className = "vsub";
-    sub.textContent = v.dateISO.split("-").reverse().join("/")
-      + (v.vehicle ? " · " + v.vehicle : "")
-      + " · " + v.qty.toFixed(3) + " LTR @ " + fmtAmt(v.rate);
-    main.appendChild(p); main.appendChild(sub);
-    if (bridgeLabel(v)){ var syncLabel = document.createElement("span"); syncLabel.className = "bridge-status"; syncLabel.textContent = bridgeLabel(v); main.appendChild(syncLabel); }
-    var amt = document.createElement("div");
-    amt.className = "vamt";
-    amt.textContent = inr(v.amount);
-    row.appendChild(badge); row.appendChild(main); row.appendChild(amt);
-    // A bill can be raised for any old voucher, including the ones a Tally
-    // daybook import brought in; ✎ corrects the voucher (with a warning).
-    var billBtn = document.createElement("button");
-    billBtn.className = "vdel";
-    billBtn.textContent = "🧾";
-    billBtn.setAttribute("aria-label", "Create bill for voucher " + v.number);
-    billBtn.onclick = function(e){ e.stopPropagation(); openBillForVoucher(v); };
-    row.appendChild(billBtn);
-    row.appendChild(slipButton(v));
-    var editBtn = document.createElement("button");
-    editBtn.className = "vdel";
-    editBtn.textContent = "✎";
-    editBtn.setAttribute("aria-label", "Alter old voucher " + v.number);
-    editBtn.onclick = function(e){ e.stopPropagation(); openEditHistory(v); };
-    row.appendChild(editBtn);
-    el.appendChild(row);
-  });
-  $("histMore").textContent = items.length > HIST_PAGE
-    ? "Showing " + HIST_PAGE + " of " + items.length + " — refine the search to see others"
-    : items.length + " voucher" + (items.length > 1 ? "s" : "");
+
+  // search: matching vouchers across every product and date
+  if (!ss.product && q){
+    var items = all.filter(function(x){
+      var v = x.v;
+      return v.party.toLowerCase().indexOf(q) !== -1
+        || (v.vehicle || "").toLowerCase().indexOf(q) !== -1
+        || String(v.number).toLowerCase().indexOf(q) !== -1;
+    }).sort(function(a, b){ return histSort(a.v, b.v); });
+    $("ssPeriod").textContent = ssPeriod(items);
+    if (!items.length){
+      el.innerHTML = '<div class="empty">No vouchers match your search.</div>';
+      return;
+    }
+    items.slice(0, HIST_PAGE).forEach(function(x){ el.appendChild(voucherRow(x, true)); });
+    $("histMore").textContent = items.length > HIST_PAGE
+      ? "Showing " + HIST_PAGE + " of " + items.length + " — refine the search to see others"
+      : plural(items.length, "voucher");
+    return;
+  }
+
+  // level 1: products
+  if (!ss.product){
+    $("ssPeriod").textContent = ssPeriod(all);
+    table.appendChild(ssHeader("Particulars"));
+    TALLY.seriesKeys.forEach(function(sk){
+      var mine = all.filter(function(x){ return x.v.seriesKey === sk; });
+      var t = sumUp(mine);
+      var s = TALLY.series[sk];
+      table.appendChild(ssRow({ badge: sk, name: s.item,
+        sub: plural(t.n, "voucher") + (t.qty ? " · avg ₹" + fmtAmt(t.value / t.qty) + "/" + TALLY.unit : ""),
+        qty: fmtLtr(t.qty), value: inr(t.value),
+        aria: s.item + ": " + fmtLtr(t.qty) + " " + TALLY.unit + ", " + inr(t.value) + ". Show dates",
+        onclick: mine.length ? function(){ ssOpen(sk, null); } : null }));
+    });
+    table.appendChild(ssTotalRow(sumUp(all)));
+    return;
+  }
+
+  var prod = all.filter(function(x){ return x.v.seriesKey === ss.product; });
+
+  // level 2: a product's dates, newest first
+  if (!ss.day){
+    $("ssPeriod").textContent = ssPeriod(prod);
+    if (!prod.length){
+      el.innerHTML = '<div class="empty">No ' + escHtml(TALLY.series[ss.product].label) + ' vouchers kept.</div>';
+      return;
+    }
+    var byDay = {};
+    prod.forEach(function(x){ (byDay[x.v.dateISO] = byDay[x.v.dateISO] || []).push(x); });
+    table.appendChild(ssHeader("Date"));
+    Object.keys(byDay).sort().reverse().forEach(function(day){
+      var t = sumUp(byDay[day]);
+      table.appendChild(ssRow({ name: dmy(day),
+        sub: plural(t.n, "voucher") + (t.qty ? " · avg ₹" + fmtAmt(t.value / t.qty) : ""),
+        qty: fmtLtr(t.qty), value: inr(t.value),
+        aria: dmy(day) + ": " + fmtLtr(t.qty) + " " + TALLY.unit + ", " + inr(t.value) + ". Show vouchers",
+        onclick: function(){ ssOpen(ss.product, day); } }));
+    });
+    table.appendChild(ssTotalRow(sumUp(prod)));
+    return;
+  }
+
+  // level 3: the day's vouchers for the product
+  var day = prod.filter(function(x){ return x.v.dateISO === ss.day; })
+    .sort(function(a, b){ return numPart(a.v.number) - numPart(b.v.number); });
+  $("ssPeriod").textContent = TALLY.series[ss.product].item + " · " + plural(day.length, "voucher");
+  if (!day.length){
+    el.innerHTML = '<div class="empty">No ' + escHtml(TALLY.series[ss.product].label) + ' vouchers on this day.</div>';
+    return;
+  }
+  day.forEach(function(x){ el.appendChild(voucherRow(x, false)); });
+  $("ssFoot").appendChild(ssTotalRow(sumUp(day), "Day total"));
 }
 $("histSearch").addEventListener("input", renderHistory);
-$("btnHistory").onclick = function(){ $("histSearch").value = ""; show("history"); };
+$("btnHistory").onclick = function(){ $("histSearch").value = ""; ss = { product: null, day: null }; show("history"); };
 
 /* ---------- new voucher ---------- */
 var draft = { seriesKey: "hsd", party: null, lastEdited: "qty" };
@@ -1944,7 +2137,7 @@ $("cardXG").onclick  = function(){ openNew("xg"); };
 function openEdit(v){
   if (bridgeBlocked(v)){ toast("Check this voucher in Tally connection → Sync activity."); return; }
   draft = { seriesKey: v.seriesKey, party: null, lastEdited: "qty",
-            editId: v.id, editSeries: v.seriesKey, editNumber: v.number };
+            editId: v.id, editSeries: v.seriesKey, editNumber: v.number, back: current };
   $("fDate").value = v.dateISO;
   $("fVehicle").value = v.vehicle || "";
   $("fRoff").value = v.roff ? fmtAmt(v.roff) : "";
@@ -1990,7 +2183,7 @@ function openEditHistory(v){
 
   draft = { seriesKey: v.seriesKey, party: null, lastEdited: "qty",
             editHist: true, histId: v.id || null,
-            editSeries: v.seriesKey, editNumber: v.number, histSource: v.source };
+            editSeries: v.seriesKey, editNumber: v.number, histSource: v.source, back: current };
   var itemAmt = (v.amount != null ? v.amount : v.partyAmt);
   $("fDate").value = v.dateISO;
   $("fVehicle").value = v.vehicle || "";
@@ -2235,7 +2428,7 @@ $("btnSave").onclick = function(){
       partyAmt: c.partyAmt, roff: c.roff
     }).then(function(res){
       toast("Old voucher #" + res.number + (bridgeActive() ? " queued for Tally confirmation" : " updated — correct it in Tally too"));
-      return refresh().then(function(){ $("histSearch").value = ""; show("history"); });
+      return refresh().then(function(){ show("history"); });
     }).catch(oops).then(function(){ btn.disabled = false; });
     return;
   }
@@ -2257,7 +2450,7 @@ $("btnSave").onclick = function(){
           ? "Updated #" + res.number + " — download the day's XML again"
           : "Updated voucher #" + res.number)
       : "Saved voucher #" + res.number);
-    return refresh().then(function(){ show("home"); });
+    return refresh().then(function(){ show(draft.back === "history" ? "history" : "home"); });
   }).catch(oops).then(function(){ btn.disabled = false; });
 };
 
@@ -3167,6 +3360,8 @@ $("btnBridge").onclick = function(){ show("bridge"); };
 window.addEventListener("tally-bridge-status", function(){ if(state && current === "home") renderHome(); });
 
 $("btnBack").onclick = function(){
+  if (current === "history" && ssBack()) return;
+  if (current === "new" && draft.back === "history"){ show("history"); return; }
   if (current === "slips"){ show(slip.back); return; }
   if (current === "bill" && (bill.from === "new" || bill.from === "history")){
     show(bill.from);

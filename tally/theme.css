@@ -171,6 +171,44 @@ select option { background: var(--panel); color: var(--txt); }
 .screen { display: none; }.screen.on { display: block; }
 #scrNew,#scrSettings,#scrLogin { max-width: 640px; margin: 0 auto; }
 #scrHistory { padding-top: 6px; }
+/* Stock summary: Tally Prime's columns (Particulars · Quantity · Value) as tappable rows. */
+#scrHistory { max-width: 880px; margin: 0 auto; }
+.ss-head { margin: 14px 2px 4px; }
+.ss-crumbs { display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; }
+.ss-crumbs:empty { display: none; }
+.ss-crumb { color: var(--orange); font-weight: 650; padding: 4px 0; min-height: 32px; }
+.ss-crumb:not(:last-child)::after { content: "›"; color: var(--txt-3); margin: 0 7px; }
+.ss-period { font-size: 13px; color: var(--txt-2); font-variant-numeric: tabular-nums; }
+.ss-table { margin-top: 12px; }
+.ss-table:empty { display: none; }
+.ss-row { --cols: minmax(0,1fr) 8.2em 9.6em 14px; display: grid; grid-template-columns: var(--cols); gap: 10px; align-items: center; width: 100%; text-align: left; padding: 12px; margin-top: 8px; border-radius: var(--radius-sm); background: var(--glass); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--txt); }
+.ss-row::after { content: ""; color: var(--txt-3); font-size: 18px; line-height: 1; }
+button.ss-row { min-height: 56px; }
+button.ss-row::after { content: "›"; }
+.ss-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.ss-label { min-width: 0; }
+.ss-label b { display: block; font-size: 15px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-label small { display: block; font-size: 12px; color: var(--txt-2); margin-top: 2px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-num { text-align: right; font: 600 14px var(--numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-val { font-weight: 700; }
+.ss-row.ss-colhead { background: none; border: 0; box-shadow: none; padding: 2px 12px 0; margin-top: 0; }
+.ss-colhead .ss-label b,.ss-colhead .ss-num { font: 650 11px/1.4 var(--display); color: var(--txt-3); text-transform: uppercase; letter-spacing: .06em; white-space: normal; }
+.ss-row.ss-total { background: none; box-shadow: none; border: 0; border-top: 2px solid var(--line); border-radius: 0; margin-top: 12px; padding-top: 14px; }
+.ss-total .ss-label b { font: 800 15px var(--display); }
+.ss-total .ss-val { font-size: 16px; font-weight: 800; color: var(--orange); }
+@media (hover:hover) and (pointer:fine) { button.ss-row:hover { background: var(--glass-2); border-color: var(--accent-line); } }
+/* Phones: particulars on their own line, quantity and value beneath. */
+@media (max-width:560px) {
+  .ss-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr) 10px; grid-template-areas: "name name go" "qty val go"; row-gap: 6px; column-gap: 8px; padding: 12px; }
+  .ss-name { grid-area: name; }
+  .ss-num { grid-area: qty; text-align: left; }
+  .ss-num.ss-val { grid-area: val; text-align: right; }
+  .ss-row::after { grid-area: go; }
+  .ss-row.ss-colhead { padding: 0 12px; }
+  .ss-colhead .ss-name { display: none; }
+  .ss-row.ss-colhead { grid-template-areas: "qty val go"; }
+  .ss-total .ss-val { font-size: 15px; overflow: visible; }
+}
 h2.cardtitle { font: 800 19px/1.3 var(--display); letter-spacing: -.02em; margin: 0 0 5px; }
 .settings-parties .prow { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
 .settings-parties .prow span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

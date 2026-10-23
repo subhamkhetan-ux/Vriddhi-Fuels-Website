@@ -93,9 +93,17 @@ nothing.
   keeps customers, prices and numbering (the next number continues); **Reset
   ALL customers** clears the customer list to start afresh. Both require
   typing `DELETE`.
-- **Old vouchers screen**: searchable by customer / vehicle / invoice number.
+- **Stock summary screen** (was *Old vouchers*): laid out like Tally Prime's
+  Stock Summary. It opens on the products — High Speed Diesel, Motor Spirit
+  and XtraGreen Diesel — with quantity (LTR), value and a grand total; tap a
+  product for its dates (Tally shows months; the app keeps days), and a date
+  for that day's vouchers with a day total. Back steps up one level, like Esc
+  in Tally. Values are the stock-item value before round-off; vouchers
+  deleted in Tally are listed but not counted. Pending vouchers and old ones
+  are both included. The search box on the first level still finds vouchers
+  by customer / vehicle / invoice number across every product and date.
   App vouchers moved here after a confirmed Tally import are kept too, so
-  the full history stays in one place. Each row carries 🧾 to raise its
+  the full history stays in one place. Each voucher carries 🧾 to raise its
   customer bill and ✎ to **alter the voucher behind a confirmation** —
   both work on daybook-imported vouchers as well (see below).
 - **Round-off is user-entered only** (never automatic): an optional
