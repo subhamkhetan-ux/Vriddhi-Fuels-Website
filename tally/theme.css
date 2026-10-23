@@ -171,6 +171,10 @@ select option { background: var(--panel); color: var(--txt); }
 .screen { display: none; }.screen.on { display: block; }
 #scrNew,#scrSettings,#scrLogin { max-width: 640px; margin: 0 auto; }
 #scrHistory { padding-top: 6px; }
+.ss-card { margin-top: 22px; }
+.ss-card .panel-heading { flex-wrap: wrap; }
+.ss-card-period { margin-left: auto; font-size: 13px; color: var(--txt-2); font-variant-numeric: tabular-nums; }
+.ss-card .ss-table { margin-top: 0; }
 /* Stock summary: Tally Prime's columns (Particulars · Quantity · Value) as tappable rows. */
 #scrHistory { max-width: 880px; margin: 0 auto; }
 .ss-head { margin: 14px 2px 4px; }
@@ -234,7 +238,6 @@ button:focus-visible:active,a.btn:focus-visible:active { transform: none; }
 .record-action > span { flex:1; min-width:0; }
 .record-action small { display:block; font-size:12px; font-weight:400; color:var(--txt-2); margin-top:3px; }
 .record-action > .ui-icon { color:var(--orange); }
-#histCount { display:inline-block; padding:1px 6px; margin-left:4px; border-radius:5px; background:var(--glass-2); color:var(--txt-2); font:600 11px/1.6 var(--numeric); }
 .record-action .action-arrow { width:15px; color:var(--txt-3); }
 .help-details { margin-top:14px; font-size:12px; color:var(--txt-2); }
 .help-details summary { cursor:pointer; padding:10px 0; min-height:44px; }
@@ -252,7 +255,8 @@ button:focus-visible:active,a.btn:focus-visible:active { transform: none; }
   .series-card .smeta b { font-size:18px; }
   .series-card .smeta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:center; margin-top:0; gap:10px; text-align:right; }
   .series-card .cta { grid-column:1/-1; margin-top:13px; padding-top:11px; }
-  .home-columns { grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }
+  .home-columns { grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
+  .ss-card { margin-top: 18px; }
   .home-panel { padding: 19px; }
   .page-intro { padding-top: 27px; }
   .card { padding: 20px; }.login-card { margin-top: 38px; padding: 27px; }

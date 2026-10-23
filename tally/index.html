@@ -159,11 +159,18 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   </button>
 
   </div>
+  <!-- Stock Summary, as in Tally Prime: each product's quantity and value.
+       A product opens its dates, a date its vouchers (scrHistory). -->
+  <section class="home-panel ss-card" id="ssHome" aria-labelledby="ssHomeHeading">
+  <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m6 10V4m6 16v-7m4 7H2"/></svg><h2 class="sec-title" id="ssHomeHeading">Stock Summary</h2><span class="ss-card-period" id="ssHomePeriod"></span></div>
+  <p class="section-note">Product-wise sales, as in Tally. Tap a product for its dates.</p>
+  <div class="ss-table" id="ssHomeTable"></div>
+  <button class="btn ghost record-action" id="btnHistory"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span>Search vouchers<small>Customer, vehicle or invoice number</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  </section>
   <div class="home-columns">
   <section class="home-panel" aria-labelledby="recordsHeading">
   <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 3h8v13H4Z"/><path d="M8 12h8m-8 4h5"/></svg><h2 class="sec-title" id="recordsHeading">Records &amp; imports</h2></div>
   <p class="section-note">Your past vouchers and Tally exports, in one place.</p>
-  <button class="btn ghost record-action" id="btnHistory"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-7L3 8m0-5v5h5M12 7v5l3 2"/></svg><span>Stock summary <span id="histCount">0</span><small>Product-wise sales, date by date</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <button class="btn ghost record-action" id="btnSlips"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h3"/></svg><span>Fuel slips<small>Choose dates and customer</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <button class="btn ghost record-action" id="btnImportDaybook"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/></svg><span>Import from Tally<small>Day book or customer ledgers</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
   <input type="file" id="fileDaybook" accept=".xml,text/xml,application/xml" style="display:none">
@@ -1602,7 +1609,7 @@ function renderHome(){
     $(sk + "Next").textContent = freeNumber(sk);
     $(sk + "Rate").textContent = fmtAmt(state.series[sk].rate);
   });
-  $("histCount").textContent = summaryVouchers().length;
+  renderHomeSummary();
 
   if (!$("dayPick").value) $("dayPick").value = todayISO();
   var day = selectedDay();
@@ -1999,11 +2006,46 @@ function ssOpen(product, day){
   window.scrollTo(0, 0);
 }
 // Back steps up one level, as Esc does in Tally.
+// A product opened from the home card steps back to the home screen.
 function ssBack(){
   if (ss.day) ssOpen(ss.product, null);
-  else if (ss.product) ssOpen(null, null);
-  else return false;
+  else if (ss.product && !ss.fromHome) ssOpen(null, null);
+  else { ssHomeCard(); return true; }
   return true;
+}
+function ssHomeCard(){
+  show("home");
+  $("ssHome").scrollIntoView({ block: "start" });
+}
+
+// Products with quantity, value and the Grand Total (Tally's first level).
+function ssProducts(table, all, pick){
+  table.appendChild(ssHeader("Particulars"));
+  TALLY.seriesKeys.forEach(function(sk){
+    var t = sumUp(all.filter(function(x){ return x.v.seriesKey === sk; }));
+    var s = TALLY.series[sk];
+    table.appendChild(ssRow({ badge: sk, name: s.item,
+      sub: plural(t.n, "voucher") + (t.qty ? " · avg ₹" + fmtAmt(t.value / t.qty) + "/" + TALLY.unit : ""),
+      qty: fmtLtr(t.qty), value: inr(t.value),
+      aria: s.item + ": " + fmtLtr(t.qty) + " " + TALLY.unit + ", " + inr(t.value) + ". Show dates",
+      onclick: t.n ? function(){ pick(sk); } : null }));
+  });
+  table.appendChild(ssTotalRow(sumUp(all)));
+}
+// The home screen's Stock Summary card.
+function renderHomeSummary(){
+  var all = summaryVouchers(), table = $("ssHomeTable");
+  table.innerHTML = "";
+  $("ssHomePeriod").textContent = ssPeriod(all.filter(summaryCounts));
+  if (!all.length){
+    table.innerHTML = '<div class="empty">No vouchers yet.<br>Tap a card above to create one, or import a Tally daybook XML.</div>';
+    return;
+  }
+  ssProducts(table, all, function(sk){
+    $("histSearch").value = "";
+    ss = { product: sk, day: null, fromHome: true };
+    show("history");
+  });
 }
 
 function renderHistory(){
@@ -2019,7 +2061,7 @@ function renderHistory(){
   if (ss.product){
     var up = document.createElement("button");
     up.type = "button"; up.className = "ss-crumb"; up.textContent = "Stock Summary";
-    up.onclick = function(){ ssOpen(null, null); };
+    up.onclick = function(){ if (ss.fromHome) ssHomeCard(); else ssOpen(null, null); };
     crumbs.appendChild(up);
     if (ss.day){
       var mid = document.createElement("button");
@@ -2057,19 +2099,8 @@ function renderHistory(){
 
   // level 1: products
   if (!ss.product){
-    $("ssPeriod").textContent = ssPeriod(all);
-    table.appendChild(ssHeader("Particulars"));
-    TALLY.seriesKeys.forEach(function(sk){
-      var mine = all.filter(function(x){ return x.v.seriesKey === sk; });
-      var t = sumUp(mine);
-      var s = TALLY.series[sk];
-      table.appendChild(ssRow({ badge: sk, name: s.item,
-        sub: plural(t.n, "voucher") + (t.qty ? " · avg ₹" + fmtAmt(t.value / t.qty) + "/" + TALLY.unit : ""),
-        qty: fmtLtr(t.qty), value: inr(t.value),
-        aria: s.item + ": " + fmtLtr(t.qty) + " " + TALLY.unit + ", " + inr(t.value) + ". Show dates",
-        onclick: t.n ? function(){ ssOpen(sk, null); } : null }));
-    });
-    table.appendChild(ssTotalRow(sumUp(all)));
+    $("ssPeriod").textContent = ssPeriod(all.filter(summaryCounts));
+    ssProducts(table, all, function(sk){ ssOpen(sk, null); });
     return;
   }
 
@@ -2110,7 +2141,7 @@ function renderHistory(){
   $("ssFoot").appendChild(ssTotalRow(sumUp(day), "Day total"));
 }
 $("histSearch").addEventListener("input", renderHistory);
-$("btnHistory").onclick = function(){ $("histSearch").value = ""; ss = { product: null, day: null }; show("history"); };
+$("btnHistory").onclick = function(){ $("histSearch").value = ""; ss = { product: null, day: null }; show("history"); $("histSearch").focus(); };
 
 /* ---------- new voucher ---------- */
 var draft = { seriesKey: "hsd", party: null, lastEdited: "qty" };
