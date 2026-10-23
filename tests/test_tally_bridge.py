@@ -323,6 +323,17 @@ def test_report_removes_executable_content_and_retains_accounting_table():
     with pytest.raises(TallyProblem): sanitize_report('<RESPONSE><LINEERROR>No report</LINEERROR></RESPONSE>')
 
 
+def test_report_keeps_tallys_layout_but_nothing_executable():
+    raw=('<html><head><style>.amt{text-align:right;font-weight:bold;background:url(https://evil)} td.ind{padding-left:12pt}</style></head><body>'
+         '<table width="100%"><tr><td align="RIGHT" valign="top" width="30%" style="border-top:1px solid #000;color:red;background:url(x)">1,234.00</td>'
+         '<td class="amt ind">Total</td><td style="text-align:right;expression(alert(1))">x</td><td align="javascript:x">y</td></tr></table></body></html>')
+    result=sanitize_report(raw)
+    assert '<table width="100%">' in result
+    assert '<td align="right" valign="top" width="30%" style="border-top:1px solid #000">' in result
+    assert '<td style="text-align:right;font-weight:bold;padding-left:12pt">' in result
+    assert 'url(' not in result and 'expression' not in result and 'javascript' not in result and 'color' not in result
+
+
 def test_http_reaches_local_tally_and_validates_company_guid():
     requests=[]
     class Handler(BaseHTTPRequestHandler):

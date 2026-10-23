@@ -331,25 +331,71 @@ def voucher_xml(company, p, existing=None):
     return ET.tostring(env, encoding="unicode")
 
 
+# Tally's own report layout (alignment, bold, indents, rules) is kept, each
+# value checked against a strict pattern: never url(), never free text. The
+# web app (tally/bridge.js) applies the same allowlist again.
+_LENGTH = r"\d{1,3}(?:\.\d{1,2})?(?:px|pt|em|mm)"
+_RULE = r"none|0|\d(?:\.\d{1,2})?(?:px|pt) (?:solid|double|dotted|dashed)(?: (?:#[0-9a-f]{3}|#[0-9a-f]{6}|black|gray|grey|silver))?"
+REPORT_STYLES = {k: re.compile(r"^(?:" + v + r")$", re.I) for k, v in {
+    "text-align": "left|right|center|justify", "font-weight": "bold|bolder|normal|[1-9]00", "font-style": "italic|normal",
+    "text-decoration": "underline|none", "padding-left": _LENGTH, "margin-left": _LENGTH, "text-indent": _LENGTH,
+    "border-top": _RULE, "border-bottom": _RULE, "white-space": "nowrap|normal", "vertical-align": "top|middle|bottom",
+}.items()}
+REPORT_ATTRS = {"align": re.compile(r"^(?:left|right|center|justify)$", re.I),
+                "valign": re.compile(r"^(?:top|middle|bottom)$", re.I), "width": re.compile(r"^\d{1,4}%?$")}
+
+
+def safe_style(value):
+    out = []
+    for decl in (value or "").split(";"):
+        name, sep, val = decl.partition(":")
+        name, val = name.strip().lower(), " ".join(val.split())
+        if sep and name in REPORT_STYLES and REPORT_STYLES[name].match(val):
+            out.append(name + ":" + val)
+    return ";".join(out)
+
+
+def class_styles(css):
+    """Simple `.name {…}` / `td.name {…}` rules from Tally's <style>, so class-based layout can be inlined."""
+    rules = {}
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", css, flags=re.S)):
+        style = safe_style(body)
+        for sel in selectors.split(","):
+            m = re.fullmatch(r"\s*(?:[a-z0-9]+)?\.([\w-]+)\s*", sel, re.I)
+            if m and style:
+                rules[m.group(1)] = (rules.get(m.group(1), "") + ";" + style).strip(";")
+    return rules
+
+
 class ReportSanitizer(HTMLParser):
     # Keep readable tables only. No links, external images, styles, scripts or handlers.
-    allowed = {"table", "thead", "tbody", "tfoot", "tr", "td", "th", "p", "br", "b", "strong", "i", "em",
+    allowed = {"table", "thead", "tbody", "tfoot", "tr", "td", "th", "p", "br", "b", "strong", "i", "em", "u",
                "h1", "h2", "h3", "h4", "div", "span", "pre", "hr"}
     blocked = {"script", "style", "iframe", "object", "svg", "math", "form", "head"}
 
-    def __init__(self):
+    def __init__(self, classes=None):
         super().__init__(convert_charrefs=True)
-        self.out, self.depth = [], 0
+        self.out, self.depth, self.classes = [], 0, classes or {}
 
     def handle_starttag(self, name, attrs):
         if name in self.blocked:
             self.depth += 1
         if self.depth or name not in self.allowed:
             return
-        safe = ""
+        safe, style = "", ""
         for k, v in attrs:
-            if k in ("colspan", "rowspan") and v and v.isdigit() and 1 <= int(v) <= 100:
+            v = (v or "").strip()
+            if k in ("colspan", "rowspan") and v.isdigit() and 1 <= int(v) <= 100:
                 safe += f' {k}="{int(v)}"'
+            elif k in REPORT_ATTRS and REPORT_ATTRS[k].match(v):
+                safe += f' {k}="{v.lower()}"'
+            elif k == "class":
+                style += ";" + ";".join(self.classes.get(c, "") for c in v.split())
+            elif k == "style":
+                style += ";" + v
+        style = safe_style(style)
+        if style:
+            safe += f' style="{html.escape(style)}"'
         self.out.append("<" + name + safe + ">")
 
     def handle_endtag(self, name):
@@ -369,7 +415,7 @@ def sanitize_report(raw):
         raw = raw.decode("utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig")
     if re.search(r"<LINEERROR|<STATUS>0|<RESPONSE>", raw, re.I) or not re.search(r"<(html|table)\b", raw, re.I):
         raise TallyProblem("This Tally report did not return HTML. Check its availability in Tally Prime.")
-    parser = ReportSanitizer()
+    parser = ReportSanitizer(class_styles(" ".join(re.findall(r"<style[^>]*>(.*?)</style>", raw, re.I | re.S))))
     parser.feed(raw)
     result = "".join(parser.out)
     if not re.sub(r"<[^>]*>", "", result).strip():

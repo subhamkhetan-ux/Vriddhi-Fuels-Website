@@ -323,6 +323,16 @@ function offerFile(file, print){
   d.showModal();
 }
 
+// A ready PDF to print: on iOS through the share sheet's Print; elsewhere
+// it opens in the browser's PDF viewer, which prints it.
+function printFile(blob, name){
+  var file = isIOS() && typeof HTMLDialogElement === "function" ? shareableFile(blob, name) : null;
+  if (file){ offerFile(file, true); return; }
+  var url = URL.createObjectURL(blob);
+  if (!global.open(url, "_blank")) saveLink(blob, name);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+}
+
 // Saves the file. Returns true when it went straight to the downloads, false
 // when the iOS share sheet was offered instead.
 function download(blob, name){
@@ -397,6 +407,7 @@ var api = {
   download: download,
   isIOS: isIOS,
   printPages: printPages,
+  printFile: printFile,
   printSlips: printSlips
 };
 

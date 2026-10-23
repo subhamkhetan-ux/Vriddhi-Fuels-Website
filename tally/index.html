@@ -2928,6 +2928,8 @@ var DEFAULT_SLIP_HEADER = {
   lines: ["VRIDDHI FUELS", "AT-KHERWAL PO- BADMAL", "DIST- JHARSUGUDA, 768202", "ODISHA",
     "GSTIN/UIN: 21AATFV8250A1Z8", "State Name : Odisha, Code : 21", "E-Mail : subhamkhetan@gmail.com"]
 };
+// The company block printed above Tally reports (bridge.js), as on the slips.
+window.VFCompanyHeading = DEFAULT_SLIP_HEADER.lines;
 var LS_SLIP_USE = "vf_tally_slip_use_stamp";   // "Print the signature" — per device
 var slip = { back: "home", header: null, stamp: null, where: "", only: null };
 
