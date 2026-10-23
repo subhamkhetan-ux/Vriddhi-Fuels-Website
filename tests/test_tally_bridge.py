@@ -1366,29 +1366,6 @@ def test_a_refresh_request_is_read_at_most_once_a_minute(store):
     assert not w.refresh_due()
 
 
-def test_older_vouchers_altered_in_tally_are_caught_every_half_hour(store):
-    clock = [DAY]
-    old = voucher(dict(PAYLOAD, date="2026-10-01", number="OLD1", id="c26d607a-40ba-4524-8fa2-c8c340855cb5"), alter=40)
-    book = Book(old)
-    w = Worker(FakeCloud(), book, store, clock=lambda: clock[0])
-    store.set("cursor:Voucher", 40)
-    w.pending_mark = 1
-    w.wide_check()  # first time: from now on
-    assert store.get("cursor:wide") == 40 and not staged(store)
-    book.book[identity(old)[0]] = voucher(dict(PAYLOAD, date="2026-10-01", number="OLD1", id="c26d607a-40ba-4524-8fa2-c8c340855cb5", qty=12, item_amt=1200, party_amt=1200), alter=41)
-    clock[0] += 600; w.pending_mark = 2
-    w.wide_check()
-    assert not staged(store)  # not yet half an hour
-    clock[0] += 1200
-    w.wide_check()
-    out = staged(store)
-    assert out[0]["data"]["app_voucher"]["qty"] == "12.000" and store.get("cursor:wide") == 41
-    store.uploaded(store.upload_batch())
-    clock[0] += 1800  # nothing changed in Tally since: not even asked
-    book.metadata = lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked Tally"))
-    w.wide_check()
-
-
 def test_a_refused_posting_that_changed_nothing_is_offered_for_correction(store):
     from tally_bridge.tally import Rejected
     class Refusing(FakeTally):

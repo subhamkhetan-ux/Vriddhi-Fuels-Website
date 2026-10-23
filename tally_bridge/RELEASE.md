@@ -3,8 +3,7 @@ Version **1.5.0** brings Tally edits back reliably and updates itself:
 - **Edits made in Tally show up in the app.** The bridge now reads any round-off ledger spelling (R/off, Round Off, Rounding Off…), names in any capitalisation, a blank rate, and vouchers saved in Accounting Voucher View. A voucher it still cannot hold is labelled with the reason (for example *Extra ledger in Tally: Freight*) and listed under Sync activity → **Changed in Tally**, with **Read again from Tally**. Vouchers older bridges marked *Changed in Tally* are read again.
 - **No false "Needs review" after posting.** When Tally lists a just-posted invoice a moment before its Day Book returns it, the bridge checks again by itself instead of asking for review. For a posting that did end up in review, **Use Tally version** now takes the invoice Tally holds under that number.
 - **Every edge between the app and Tally handled** (see README → *What happens when…*):
-  - Vouchers deleted, re-dated or moved to another voucher type in Tally are caught. They used to stay in the app unchanged.
-  - Alterations to fuel vouchers dated up to five weeks back arrive within half an hour.
+  - Vouchers of today and yesterday that are deleted, re-dated or moved to another voucher type in Tally are caught. They used to stay in the app unchanged. Only today and yesterday are watched, as before.
   - A voucher posting is retried by itself in three cases:
     - Tally refuses it. The bridge first checks nothing was posted, then shows Tally's reason.
     - A ledger is missing. It posts once the ledger is created.

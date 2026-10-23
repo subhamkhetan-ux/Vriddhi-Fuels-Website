@@ -19,9 +19,6 @@ WINDOW_DAYS = 2
 JOURNAL = 3
 # A read-back Tally keeps missing is put up for review after this many tries (a few minutes apart).
 READ_TRIES = 5
-# Every half hour, and only after something changed in Tally, alterations to fuel vouchers dated
-# up to five weeks back are asked for (one filtered list, usually empty): a corrected older invoice.
-WIDE_DAYS, WIDE_EVERY = 35, 1800
 # A voucher the web app asks to read again is read at most once a minute.
 REFRESH_EVERY = 60
 
@@ -184,29 +181,6 @@ class Worker:
         if objects:
             self.store.stage(objects)
 
-    def wide_check(self, kind="Voucher"):
-        """Alterations to fuel vouchers dated before the watched days (a corrected older invoice,
-        a voucher entered late). Rare and filtered by AlterID, so Tally hardly notices it."""
-        if self.clock() - self.store.get("wide_at", 0) < WIDE_EVERY:
-            return
-        mark = self.pending_mark
-        if mark is not None and mark == self.store.get("wide_mark"):
-            self.store.set("wide_at", self.clock())
-            return  # nothing changed in Tally since the last check
-        base = self.store.get("cursor:wide")
-        if base is None:
-            # From now on: older history arrives through Import from Tally, as before the bridge.
-            self.store.set("cursor:wide", self.store.get("cursor:" + kind, 0))
-        else:
-            since = dt.date.fromtimestamp(self.clock()) - dt.timedelta(days=WIDE_DAYS)
-            meta = self.tally.metadata(kind, base, since)
-            current, known = self.validate_snapshot(kind, meta)
-            changed = [i for g, i in current.items() if g not in known or i[2] != known[g]["alter_id"] or known[g]["deleted"]]
-            self.read(kind, changed, {identity(m)[0]: m for m in meta}, current)
-            self.store.set("cursor:wide", max([base] + [i[2] for i in current.values()]))
-        self.store.set("wide_mark", mark)
-        self.store.set("wide_at", self.clock())
-
     def refresh_due(self):
         """The web app asked for vouchers to be read again: at most once a minute for the same ones."""
         wanted = sorted(self.config.get("refresh_guids") or [])
@@ -335,7 +309,6 @@ class Worker:
                 self.scan("Voucher", full, force_upload=bootstrap)
                 # The counter read BEFORE the scan: a change during it is seen next time.
                 self.store.set("mark", self.pending_mark)
-            self.wide_check()
         self.initial_scan = False
         if not cloud_ok:
             self.status("internet_offline", "Changes retained on this PC; uploads resume on reconnection.")
