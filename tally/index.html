@@ -1052,7 +1052,10 @@ function defaultState(){
     partyGst: {},     // { name: {gstin, regType, state, place, pincode, country} } from Master import
     autoClear: false, // when true, vouchers older than 2 days are cleared on open
     queue: [],   // {id, seriesKey, number, dateISO, party, vehicle, rate, qty, itemAmt, partyAmt, roff, exportedAt|null}
-    history: []  // {seriesKey, number, dateISO, party, vehicle, qty, rate, amount, source:'tally'|'app'}
+    history: [], // {seriesKey, number, dateISO, party, vehicle, qty, rate, amount, source:'tally'|'app'}
+    // customer price memory, kept after the vouchers are cleared: the price of
+    // each customer's last invoice per product and day (tally_customer_prices)
+    prices: []   // {party, seriesKey, dateISO, rate, number}
   };
 }
 
@@ -1130,6 +1133,26 @@ function saveLocalSlip(o){
   return Promise.resolve();
 }
 
+// Local mode's customer price memory, by the same rule as the cloud's
+// _tally_price_day(): one entry per customer, product and day, from that
+// day's last invoice still there; auto-clear and reset leave it alone.
+function rememberLocalPrice(party, seriesKey, dateISO){
+  var best = null;
+  var left = state.queue.concat(state.history).filter(function(v){
+    return v.party === party && v.seriesKey === seriesKey && v.dateISO === dateISO;
+  });
+  left.forEach(function(v){
+    if (bridgeUnsettled(v) || !(Number(v.rate) > 0)) return;
+    if (!best || numPart(v.number) > numPart(best.number)) best = v;
+  });
+  var kept = left.some(function(v){ return ["deleted","unsupported"].indexOf(v.bridgeState) === -1; });
+  if (!best && kept) return;           // only invoices Tally is still confirming: keep the day as it was
+  state.prices = state.prices.filter(function(p){
+    return !(p.party === party && p.seriesKey === seriesKey && p.dateISO === dateISO);
+  });
+  if (best) state.prices.push({ party: party, seriesKey: seriesKey, dateISO: dateISO, rate: r2(Number(best.rate)), number: best.number });
+}
+
 var LocalBackend = {
   cloud: false,
   load: function(){
@@ -1142,6 +1165,12 @@ var LocalBackend = {
       if (typeof s.autoClear !== "boolean") s.autoClear = false;
       if (typeof s.companyFy !== "boolean") s.companyFy = false;
       if (!s.series.xg) s.series.xg = { last: TALLY.series.xg.defLast, rate: TALLY.series.xg.defRate };
+      if (!s.prices){             // first open with the memory: start it from the vouchers here
+        s.prices = [];
+        var keep = state; state = s;
+        s.queue.concat(s.history).forEach(function(v){ rememberLocalPrice(v.party, v.seriesKey, v.dateISO); });
+        state = keep;
+      }
     } catch(e){ s = defaultState(); }
     return Promise.resolve(s);
   },
@@ -1154,10 +1183,13 @@ var LocalBackend = {
       if (!v) return Promise.reject(new Error("Voucher no longer exists"));
       var wasExported = !!v.exportedAt;
       var number = (p.seriesKey === v.seriesKey) ? v.number : freeNumber(p.seriesKey);
+      var was = { party: v.party, seriesKey: v.seriesKey, dateISO: v.dateISO };
       v.seriesKey = p.seriesKey; v.number = number; v.dateISO = p.dateISO;
       v.party = p.party; v.vehicle = p.vehicle; v.rate = p.rate; v.qty = p.qty;
       v.itemAmt = p.itemAmt; v.partyAmt = p.partyAmt; v.roff = p.roff;
       v.exportedAt = null;   // edited voucher must be exported again
+      rememberLocalPrice(was.party, was.seriesKey, was.dateISO);
+      rememberLocalPrice(v.party, v.seriesKey, v.dateISO);
       this._save();
       return Promise.resolve({ number: number, wasExported: wasExported });
     }
@@ -1175,11 +1207,14 @@ var LocalBackend = {
     // (and seeded by daybook import); a per-voucher rate (e.g. a customer
     // discount) must never move the shared default price.
     if (state.parties.indexOf(p.party) === -1){ state.parties.push(p.party); state.parties.sort(cmp); }
+    rememberLocalPrice(p.party, p.seriesKey, p.dateISO);
     this._save();
     return Promise.resolve({ number: num, wasExported: false });
   },
   deleteVoucher: function(id){
+    var gone = state.queue.filter(function(q){ return q.id === id; });
     state.queue = state.queue.filter(function(q){ return q.id !== id; });
+    gone.forEach(function(v){ rememberLocalPrice(v.party, v.seriesKey, v.dateISO); });
     this._save();
     return Promise.resolve();
   },
@@ -1193,9 +1228,12 @@ var LocalBackend = {
         v = state.history[i]; break;
       }
     if (!v) return Promise.reject(new Error("Old voucher no longer exists"));
+    var was = { party: v.party, dateISO: v.dateISO };
     v.dateISO = p.dateISO; v.party = p.party; v.vehicle = p.vehicle;
     v.rate = p.rate; v.qty = p.qty;
     v.amount = p.itemAmt; v.partyAmt = p.partyAmt; v.roff = p.roff;
+    rememberLocalPrice(was.party, v.seriesKey, was.dateISO);
+    rememberLocalPrice(v.party, v.seriesKey, v.dateISO);
     if (state.parties.indexOf(p.party) === -1){ state.parties.push(p.party); state.parties.sort(cmp); }
     state.history.sort(histSort);
     this._save();
@@ -1257,9 +1295,12 @@ var LocalBackend = {
     state.queue.forEach(function(v){ queueIdx[v.seriesKey + "|" + v.number] = v.id; });
     var added = { hsd: 0, ms: 0, xg: 0 }, updated = 0, newParties = 0;
     var latest = {};
+    var touched = [];
     vouchers.forEach(function(rec){
       var key = rec.seriesKey + "|" + rec.number;
+      touched.push(rec);
       if (histIdx[key] != null){
+        touched.push(state.history[histIdx[key]]);
         state.history[histIdx[key]] = rec;
         updated++;
       } else if (queueIdx[key]){
@@ -1290,6 +1331,7 @@ var LocalBackend = {
       state.series[sk].last = best;
       if (latest[sk] && latest[sk].rate > 0) state.series[sk].rate = r2(latest[sk].rate);
     });
+    touched.forEach(function(v){ rememberLocalPrice(v.party, v.seriesKey, v.dateISO); });
     state.parties.sort(cmp);
     state.history.sort(histSort);
     this._save();
@@ -1381,8 +1423,18 @@ var CloudBackend = {
         return fetchVouchers(acc, from + 1000);
       });
     }
+    // The customer price memory; before tally-schema.sql is re-run the table
+    // is missing and prices come from the vouchers alone, as before.
+    function fetchPrices(acc, from){
+      return c.from("tally_customer_prices").select("party,series,date,rate,number").range(from, from + 999).then(function(page){
+        if (page.error) return acc;
+        acc = acc.concat(page.data || []);
+        if ((page.data || []).length < 1000) return acc;
+        return fetchPrices(acc, from + 1000);
+      }, function(){ return acc; });
+    }
     var self = this;
-    return Promise.all([pSettings, pSeries, pParties, fetchVouchers([], 0), pCompanyFy]).then(function(r){
+    return Promise.all([pSettings, pSeries, pParties, fetchVouchers([], 0), pCompanyFy, fetchPrices([], 0)]).then(function(r){
       if (r[0].error) throw new Error(r[0].error.message);
       if (r[1].error) throw new Error(r[1].error.message);
       if (r[2].error) throw new Error(r[2].error.message);
@@ -1425,6 +1477,9 @@ var CloudBackend = {
       });
       s.queue.sort(function(a, b){ return (a.createdAt || 0) - (b.createdAt || 0); });
       s.history.sort(histSort);
+      s.prices = r[5].map(function(row){
+        return { party: row.party, seriesKey: row.series, dateISO: row.date, rate: parseFloat(row.rate), number: row.number };
+      });
       return s;
     });
   },
@@ -2272,10 +2327,13 @@ function setProduct(seriesKey, fresh){
 
 // Saved vouchers are the shared price history; no device-only customer price cache.
 // Match exact ledger names and fuel series. A backdated invoice never borrows a future rate.
+// The customer's last invoice for the product up to the date: from the
+// vouchers still here and the price memory, which remembers it after they
+// are cleared (so a customer billed months apart still gets their price).
 function lastCustomerInvoice(party, seriesKey, throughDate){
   if (!party || !throughDate) return null;
   var latest = null;
-  state.queue.concat(state.history).forEach(function(v){
+  state.queue.concat(state.history, state.prices || []).forEach(function(v){
     if (v.party !== party || v.seriesKey !== seriesKey || bridgeUnsettled(v)
         || !/^\d{4}-\d{2}-\d{2}$/.test(v.dateISO || "") || v.dateISO > throughDate
         || !Number.isFinite(Number(v.rate)) || !(Number(v.rate) > 0)) return;

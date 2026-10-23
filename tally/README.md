@@ -51,7 +51,8 @@ nothing.
 - **Voucher entry flow** (customer-first, minimal taps): initiate a voucher
   from the home screen → search & pick the **customer** → optional **vehicle
   number** → **product** (Diesel/Petrol) → **quantity** → **price** (preset
-  to today's price, editable) → **amount** (auto-filled as quantity × price,
+  to the customer's last price for that product, else today's price;
+  editable) → **amount** (auto-filled as quantity × price,
   editable). Editing the amount derives the quantity instead (the
   "₹20,000 ka diesel" case) — last-edited side wins, live in both directions.
 - **Three independent invoice series**, matching the Tally voucher types
@@ -89,8 +90,23 @@ nothing.
   vouchers older than 2 days are removed each time the app opens (today,
   yesterday and the day before are always kept). Invoice numbering advances
   as vouchers are exported/cleared, so a cleared number is **never reused**.
+- **Customer price memory**: a new voucher is pre-filled with the price of
+  the customer's last invoice for that product, up to the voucher's date,
+  even when that invoice was cleared long ago. The cloud table
+  `tally_customer_prices` keeps one row per customer, product and billing
+  day (the day's last invoice by number), written by a database trigger on
+  every way a voucher arrives or changes: saving, editing an old voucher,
+  DayBook import and the Tally bridge. Auto-clear and **Reset ALL vouchers**
+  leave it alone; a pending voucher deleted in the app, or a voucher
+  cancelled/deleted in Tally, gives back that day's earlier price. Invoices
+  Tally has not settled yet are not offered. Saving a voucher never changes
+  the default price in Settings. (Cloud mode: re-run
+  `supabase/tally-schema.sql` once to create the table; it is filled from
+  the vouchers already there. Until then prices come from the kept vouchers
+  alone.)
 - **Danger zone** (Settings): **Reset ALL vouchers** clears every voucher but
-  keeps customers, prices and numbering (the next number continues); **Reset
+  keeps customers, prices (including the customer price memory) and
+  numbering (the next number continues); **Reset
   ALL customers** clears the customer list to start afresh. Both require
   typing `DELETE`.
 - **Stock summary screen** (was *Old vouchers*): laid out like Tally Prime's

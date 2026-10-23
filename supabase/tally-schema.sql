@@ -354,7 +354,9 @@ declare n int;
 begin
   perform _tally_auth();
   perform _tally_bump_baselines(array(select id from tally_vouchers where date < p_cutoff));
+  perform set_config('vriddhi.keep_prices', 'yes', true);   -- the customers' prices outlive their vouchers
   delete from tally_vouchers where date < p_cutoff;
+  perform set_config('vriddhi.keep_prices', 'no', true);
   get diagnostics n = row_count;
   return n;
 end $$;
@@ -382,7 +384,9 @@ declare n int;
 begin
   perform _tally_auth();
   perform _tally_bump_baselines(array(select id from tally_vouchers));
+  perform set_config('vriddhi.keep_prices', 'yes', true);   -- prices are kept, as numbering is
   delete from tally_vouchers where id is not null;
+  perform set_config('vriddhi.keep_prices', 'no', true);
   get diagnostics n = row_count;
   return n;
 end $$;
@@ -578,6 +582,122 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
+-- Customer price memory. A new voucher suggests the customer's last price
+-- for that product, but vouchers are cleared after a few days (auto-clear)
+-- or a reset, so the prices live here too: one row per customer, product and
+-- billing day, holding the price of that day's last invoice (by number).
+-- The trigger keeps it in step with every way a voucher arrives or changes
+-- (the app, edits of old vouchers, DayBook imports, the Tally bridge):
+--  * an edit or a voucher deleted / changed in Tally (bridge) recomputes that
+--    day from the day's vouchers; a pending voucher deleted in the app does too;
+--  * auto-clear and "Reset ALL vouchers" leave the memory as it is;
+--  * a voucher still being confirmed with Tally keeps the day's last row.
+-- The app looks up the latest row up to the voucher's date, together with
+-- the vouchers it still has.
+-- ---------------------------------------------------------------------
+
+create table if not exists public.tally_customer_prices (
+  party      text not null,
+  series     text not null references public.tally_series(key),
+  date       date not null,
+  rate       numeric(10,2) not null check (rate > 0),
+  number     text not null,              -- the invoice the price came from
+  updated_at timestamptz not null default now(),
+  primary key (party, series, date)
+);
+alter table public.tally_customer_prices enable row level security;
+drop policy if exists tally_customer_prices_read on public.tally_customer_prices;
+create policy tally_customer_prices_read on public.tally_customer_prices
+  for select to authenticated using (true);
+create index if not exists tally_vouchers_party_day_idx on public.tally_vouchers(party, series, date);
+
+-- Recompute one customer/product/day from the vouchers still there.
+create or replace function public._tally_price_day(p_party text, p_series text, p_date date) returns void
+language plpgsql security definer set search_path = public as $$
+declare r record;
+begin
+  -- not offered while Tally has not settled it (as the app's own rule)
+  select v.rate, v.number into r from tally_vouchers v
+    where v.party = p_party and v.series = p_series and v.date = p_date and v.rate > 0
+      and coalesce(to_jsonb(v)->>'bridge_state', '') not in ('deleted','unsupported','conflict','confirming','awaiting_tally')
+    order by _tally_numpart(v.number) desc, v.created_at desc limit 1;
+  if found then
+    insert into tally_customer_prices (party, series, date, rate, number)
+    values (p_party, p_series, p_date, r.rate, r.number)
+    on conflict (party, series, date) do update
+      set rate = excluded.rate, number = excluded.number, updated_at = now()
+      where (tally_customer_prices.rate, tally_customer_prices.number) is distinct from (excluded.rate, excluded.number);
+  elsif not exists (select 1 from tally_vouchers v
+      where v.party = p_party and v.series = p_series and v.date = p_date
+        and coalesce(to_jsonb(v)->>'bridge_state', '') not in ('deleted','unsupported')) then
+    -- nothing billed that day any more (deleted in the app or in Tally)
+    delete from tally_customer_prices where party = p_party and series = p_series and date = p_date;
+  end if;
+end $$;
+
+-- Incremental, so a DayBook import of hundreds of vouchers stays fast: a
+-- voucher only compares itself with its day's row; the day is recomputed
+-- only when the invoice that set it is changed, moved or deleted.
+create or replace function public._tally_remember_price() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  cur tally_customer_prices;
+  ok  boolean;
+begin
+  if tg_op = 'DELETE' and current_setting('vriddhi.keep_prices', true) = 'yes' then
+    return null;                          -- auto-clear / reset: the memory stays
+  end if;
+  if tg_op = 'UPDATE' and (old.party, old.series, old.date, old.number, old.rate, to_jsonb(old)->>'bridge_state')
+     is not distinct from (new.party, new.series, new.date, new.number, new.rate, to_jsonb(new)->>'bridge_state') then
+    return null;                          -- exported, moved to old vouchers, bridge bookkeeping
+  end if;
+  if tg_op <> 'INSERT' then
+    select * into cur from tally_customer_prices
+      where party = old.party and series = old.series and date = old.date;
+    if found and cur.number = old.number then
+      if tg_op = 'DELETE' then
+        perform _tally_price_day(old.party, old.series, old.date);
+        return null;
+      end if;
+      ok := new.rate > 0 and coalesce(to_jsonb(new)->>'bridge_state', '')
+              not in ('deleted','unsupported','conflict','confirming','awaiting_tally');
+      if not ok or (old.party, old.series, old.date, old.number) is distinct from (new.party, new.series, new.date, new.number) then
+        perform _tally_price_day(old.party, old.series, old.date);
+      end if;
+    end if;
+  end if;
+  if tg_op = 'DELETE' then
+    return null;
+  end if;
+  if new.rate > 0 and coalesce(to_jsonb(new)->>'bridge_state', '')
+       not in ('deleted','unsupported','conflict','confirming','awaiting_tally') then
+    select * into cur from tally_customer_prices
+      where party = new.party and series = new.series and date = new.date;
+    if not found or cur.number = new.number or _tally_numpart(new.number) >= _tally_numpart(cur.number) then
+      insert into tally_customer_prices (party, series, date, rate, number)
+      values (new.party, new.series, new.date, new.rate, new.number)
+      on conflict (party, series, date) do update
+        set rate = excluded.rate, number = excluded.number, updated_at = now()
+        where (tally_customer_prices.rate, tally_customer_prices.number) is distinct from (excluded.rate, excluded.number);
+    end if;
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists tally_remember_price on public.tally_vouchers;
+create trigger tally_remember_price after insert or update or delete on public.tally_vouchers
+  for each row execute function public._tally_remember_price();
+
+-- First run: remember the prices of the vouchers already here.
+insert into public.tally_customer_prices (party, series, date, rate, number)
+select distinct on (v.party, v.series, v.date) v.party, v.series, v.date, v.rate, v.number
+from public.tally_vouchers v
+where v.rate > 0
+  and coalesce(to_jsonb(v)->>'bridge_state', '') not in ('deleted','unsupported','conflict','confirming','awaiting_tally')
+order by v.party, v.series, v.date, public._tally_numpart(v.number) desc, v.created_at desc
+on conflict (party, series, date) do nothing;
+
+-- ---------------------------------------------------------------------
 -- Grants: RPCs for signed-in users only (Supabase-specific; skipped
 -- gracefully on a plain Postgres used for testing).
 -- ---------------------------------------------------------------------
@@ -612,7 +732,7 @@ begin
   end if;
 end $$;
 
--- Realtime: broadcast changes on all four tables (safe to re-run).
+-- Realtime: broadcast changes on the tables the app reads (safe to re-run).
 do $$
 begin
   begin
@@ -629,6 +749,10 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.tally_settings;
+  exception when others then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.tally_customer_prices;
   exception when others then null;
   end;
 end $$;
