@@ -61,7 +61,7 @@ A Defender block was reported against the old 1.0.1 self-extracting executable. 
 | Direction | Coverage |
 |---|---|
 | Web → Tally | The web app's HSD CREDIT, MS CREDIT and XG CREDIT sales vouchers; new invoices and supported edits; existing vehicle UDF, party GST classification and round-off are retained. Before posting, the party, sales ledger, `R/off`, stock item and voucher type are checked live in Tally, and a missing one is named in Sync activity. |
-| Tally → web | HSD/MS/XG CREDIT vouchers **dated today or yesterday**. One made in Tally Prime appears in the app within seconds (history, bills, fuel slips, the customer's last price); an alteration or cancellation is applied to the app's copy (Tally is the source of truth). Older vouchers are not listed, which keeps Tally responsive; every half hour (only if something changed in Tally) one filtered question catches alterations to fuel vouchers dated up to five weeks back. Use Import from Tally for older history. A web voucher waiting to post, or flagged for review, whose Tally copy already matches is confirmed instead of posted again. |
+| Tally → web | HSD/MS/XG CREDIT vouchers **dated today or yesterday**. One made in Tally Prime appears in the app within seconds (history, bills, fuel slips, the customer's last price); an alteration or cancellation is applied to the app's copy (Tally is the source of truth). Older vouchers are never watched, which keeps Tally responsive: a correction to an older voucher is not synced (use Import from Tally if it matters). A web voucher waiting to post, or flagged for review, whose Tally copy already matches is confirmed instead of posted again. |
 | Import from Tally | Unchanged and available while paired: DayBook files add and refresh vouchers, Master files add customers with GST details. Vouchers the bridge already links (or is posting) are kept as the bridge has them and counted as *kept*; nothing an import brings in is posted back to Tally. An imported voucher the bridge has already seen is linked at once, with Tally's exact round-off. |
 | Reports | Native Tally day book, ledger statement, trial balance, balance sheet, profit & loss, receivables, payables, stock summary and cash/bank summary. Report availability/names depend on the Tally release and company features. Unsupported reports show an error and retain any previous saved result. |
 
@@ -75,11 +75,11 @@ The bridge never posts a voucher twice and never guesses: anything uncertain is 
 
 | Situation | What the bridge does |
 |---|---|
-| A voucher is **made in Tally** | Joins the app within seconds (today's and yesterday's; older ones within half an hour). |
+| A voucher is **made in Tally** | Joins the app within seconds (dated today or yesterday; older ones are not watched). |
 | A voucher is **altered in Tally** | The app's copy takes Tally's values. If a web edit of it is waiting, both are kept and it shows *Needs review* (choose **Use Tally version**, or edit in Tally). |
 | An alteration the app **cannot hold** (extra ledger, several stock lines) | *Changed in Tally: <reason>*, read-only; listed under Sync activity → Changed in Tally. It updates by itself once corrected in Tally. |
 | A voucher is **cancelled, deleted, or changed to a non-fuel voucher type** in Tally | Marked *Cancelled / Deleted / Moved to … in Tally* and left out of prices, bills and slips. If it comes back, it is restored. |
-| A voucher is **re-dated** in Tally, even to an older date | Noticed when it leaves today/yesterday, read by its GUID and updated. |
+| A voucher of today or yesterday is **re-dated** in Tally, even to an older date | Noticed when it leaves today/yesterday, read once by its GUID and updated. |
 | **The same number twice** in Tally | The app keeps the first; the PC's status names the second, to renumber or cancel in Tally. |
 | A web voucher's **number is already used** in Tally | Not posted; *Needs review* offers **Use Tally version** (the app takes Tally's invoice) or **Assign next invoice number** (the web voucher moves on, and Tally's invoice joins the app). |
 | The **customer, ledger or stock item is missing** in Tally | Not posted; tried again by itself every few minutes for an hour, so creating it in Tally is enough. |
