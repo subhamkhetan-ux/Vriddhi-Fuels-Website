@@ -680,3 +680,26 @@ def test_ios_prints_the_report_through_the_share_sheet(browser,server):
         assert 'Debit' in second and '(continued)' in second and 'Closing Balance' in second  # headings repeat
     assert not errors
     page.close()
+
+
+def test_a_tally_edit_the_app_cannot_hold_shows_its_reason_and_can_be_read_again(browser,server):
+    page=browser.new_page()
+    errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK)
+    page.add_init_script("""window.customerPriceVouchers=[{
+        id:'changed-voucher',series:'hsd',number:'4359',date:'2026-10-22',party:'Harnoor',
+        qty:'10.000',rate:'91.25',item_amt:'912.50',party_amt:'912.50',roff:'0',status:'history',source:'app',
+        bridge_state:'unsupported',bridge_note:'Extra ledger in Tally: Freight',created_at:'2026-10-22T12:00:00Z'
+      }];""")
+    page.goto(server+'/tally/')
+    page.locator('#btnBridge').click()
+    page.get_by_role('tab',name='Sync activity').click()
+    row=page.locator('#bridgeChanged p').filter(has_text='#4359')
+    row.wait_for()
+    assert 'Extra ledger in Tally: Freight' in row.inner_text()
+    row.get_by_role('button',name='Read again from Tally').click()
+    page.wait_for_function("window.bridgeCalls.some(c => c.name==='tally_bridge_control' && c.args.p_action==='use_tally' && c.args.p_voucher==='changed-voucher')")
+    assert page.evaluate("VFTallyBridge.label('unsupported','Extra ledger in Tally: Freight')")=='Changed in Tally: Extra ledger in Tally: Freight'
+    assert not errors
+    page.close()

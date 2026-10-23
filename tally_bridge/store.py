@@ -35,6 +35,12 @@ class Store:
         return {r["guid"]: dict(r) for r in self.db.execute(
             "select guid,alter_id,master_id,deleted from objects where kind=?", (kind,))}
 
+    def dated_from(self, kind, day):
+        """GUIDs of live objects dated `day` (YYYYMMDD) or later: what a listing from that day must contain."""
+        return [r[0] for r in self.db.execute(
+            "select guid from objects where kind=? and not deleted and replace(json_extract(data,'$.date'),'-','')>=?",
+            (kind, day))]
+
     def count(self, kind):
         return self.db.execute("select count(*) from objects where kind=? and not deleted", (kind,)).fetchone()[0]
 

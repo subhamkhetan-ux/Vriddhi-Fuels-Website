@@ -81,12 +81,12 @@ def reveal_hidden_tally(windows):
         pass
 
 
-def gui(uninstall=False):
+def gui(uninstall=False, finish_update=False):
     from . import windows
     from .app import run
     from .packaging import package_root, verify_package
     verify_package(package_root())
-    run(windows, uninstall)
+    run(windows, uninstall, finish_update)
 
 
 def self_test(install_smoke=False):
@@ -94,6 +94,8 @@ def self_test(install_smoke=False):
     from .tally import parse, sanitize_report
     assert parse("<ENVELOPE/>").find("ENVELOPE") is not None
     assert "<script" not in sanitize_report("<table><tr><td>OK</td></tr></table><script>x()</script>")
+    from .updater import newest
+    assert newest([]) is None  # the in-app updater is packaged and importable
     with tempfile.TemporaryDirectory() as tmp:
         db = Store(Path(tmp) / "test.sqlite3")
         db.set("test", "ok"); assert db.get("test") == "ok"; db.close()
@@ -151,6 +153,7 @@ def main():
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--supervise", action="store_true")
     parser.add_argument("--uninstall", action="store_true")
+    parser.add_argument("--finish-update", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help="Offline package integrity test; no live accounting writes")
     parser.add_argument("--install-smoke-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="version", version=__version__)
@@ -163,7 +166,7 @@ def main():
         from .windows import supervise
         supervise()
     else:
-        gui(args.uninstall)
+        gui(args.uninstall, args.finish_update)
 
 
 if __name__ == "__main__":

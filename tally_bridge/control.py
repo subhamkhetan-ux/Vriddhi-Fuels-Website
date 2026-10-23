@@ -186,6 +186,41 @@ class Controller:
             note += " (Windows refused the scheduled task; the sign-in entry starts it instead.)"
         return "Connected to " + config["company"] + ". The bridge is running in the background. " + note
 
+    # ---- updates ------------------------------------------------------------
+    def check_update(self, get=None):
+        """The newest bridge release above this version on GitHub, or None."""
+        from . import updater
+        try:
+            return updater.check(get or updater.fetch)
+        except (OSError, ValueError, RuntimeError):
+            raise Problem("Could not check for updates: GitHub did not answer. Check the internet and try again.") from None
+
+    def download_update(self, release, get=None):
+        """Download and verify `release`, then open it: it installs itself (switch_to_this)."""
+        from . import updater
+        try:
+            root = updater.download(release, self.win.data_dir() / "updates" / release["version"], get or updater.fetch)
+        except RuntimeError as e:
+            raise Problem(str(e)) from None
+        except (OSError, ValueError):
+            raise Problem("The download did not finish. Nothing was changed; check the internet and try again.") from None
+        self.win.detached(self.win.command(root, "--finish-update"))
+        return ("Version " + release["version"] + " is downloaded and checked. It opens now and switches the bridge over; "
+                "this window closes.")
+
+    def switch_to_this(self):
+        """Install this app's version and run it in place of the older one. Tally is not needed:
+        the pairing, settings and queued work are kept as they are."""
+        config = self.config()
+        autostart = self.win.startup_state()["autostart"] if config else False
+        if config:
+            self.win.stop_before_pairing()
+        installed = self.win.install(autostart=autostart)
+        if not config:
+            return "Version " + __version__ + " is installed. Connect this PC to start the bridge."
+        self.win.start(installed)
+        return "Updated to version " + __version__ + ". The bridge is running again; the pairing and queued work were kept."
+
     # ---- running ------------------------------------------------------------
     def start(self):
         if not self.config():
