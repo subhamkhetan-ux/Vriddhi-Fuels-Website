@@ -17,7 +17,7 @@ window.__VF_TEST_SUPABASE_FACTORY = () => {
   let authCallback;
   const client={
     from(table){let single=false; const q={select(){return q},eq(){return q},order(){return q},range(){return q},limit(){return q},single(){single=true;return q},
-      then(resolve){const data=table==='tally_settings'?settings:table==='tally_series'?series:table==='tally_vouchers'?(window.customerPriceVouchers||[]):table==='tally_parties'?(window.customerPriceParties||[]):[];return Promise.resolve({data,error:null}).then(resolve)}};return q},
+      then(resolve){const data=table==='tally_settings'?settings:table==='tally_series'?series:table==='tally_vouchers'?(window.customerPriceVouchers||[]):table==='tally_parties'?(window.customerPriceParties||[]):table==='tally_customer_prices'?(window.customerPrices||[]):[];return Promise.resolve({data,error:null}).then(resolve)}};return q},
     rpc(name,args){window.bridgeCalls.push({name,args});
       if(window.bridgeNetworkError)return Promise.resolve({error:{message:'Connection unavailable'}});
       if(!window.bridgeConfigured)return Promise.resolve({error:{code:'PGRST202',message:'function tally_bridge_status does not exist'}});
@@ -397,6 +397,55 @@ def test_customer_price_uses_the_shared_cloud_invoice_history(browser,server):
     assert page.locator('#fPrice').input_value()=='110.00'
     assert page.locator('#fAmt').input_value()=='912.50'
     assert page.locator('#fQty').input_value()=='8.295'
+    page.close()
+
+
+
+def test_customer_price_memory_outlives_the_cleared_vouchers(browser,server):
+    """Cloud: a customer billed months ago, whose vouchers are long cleared, gets that price."""
+    page=browser.new_page()
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK)
+    page.add_init_script("""window.customerPriceParties=[{name:'Seasonal Customer'},{name:'Cloud Customer'}];
+      window.customerPrices=[
+        {party:'Seasonal Customer',series:'hsd',date:'2025-03-01',rate:'89.75',number:'9'},
+        {party:'Seasonal Customer',series:'hsd',date:'2099-01-01',rate:'120.00',number:'99'},
+        {party:'Seasonal Customer',series:'ms',date:'2025-03-02',rate:'104.40',number:'MS4'},
+        {party:'Cloud Customer',series:'hsd',date:'2025-01-01',rate:'80.00',number:'14'}];
+      window.customerPriceVouchers=[{
+        id:'kept',series:'hsd',number:'15',date:'2025-01-02',party:'Cloud Customer',
+        qty:'10.000',rate:'91.25',item_amt:'912.50',party_amt:'912.50',roff:'0',
+        status:'history',source:'tally',bridge_state:'synced',created_at:'2025-01-02T12:00:00Z'}];""")
+    page.goto(server+'/tally/');page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='Seasonal Customer',exact=True).click()
+    # the latest remembered price up to the voucher's date (not one dated later)
+    assert page.locator('#fPrice').input_value()=='89.75'
+    assert 'invoice #9 · 01/03/2025' in page.locator('#priceHint').inner_text()
+    page.locator('#prodMs').click()
+    assert page.locator('#fPrice').input_value()=='104.40'
+    # a newer voucher still here wins over an older remembered price
+    page.locator('#prodHsd').click();page.locator('#btnChangeParty').click()
+    page.locator('#fPartyList').get_by_role('button',name='Cloud Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='91.25'
+    page.close()
+
+
+def test_local_price_memory_survives_auto_clear(browser,server):
+    page=_customer_price_page(browser,server)
+    # bill a customer, then let auto-clear drop every voucher older than two days
+    page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='New Customer',exact=True).click()
+    page.locator('#fDate').fill('2025-02-01');page.locator('#fDate').dispatch_event('change')
+    page.locator('#fQty').fill('10');page.locator('#fPrice').fill('93.40')
+    page.locator('#btnSave').click();page.locator('#scrHome.on').wait_for()
+    page.evaluate("()=>{const s=JSON.parse(localStorage.getItem('vf_tally_v1'));s.autoClear=true;localStorage.setItem('vf_tally_v1',JSON.stringify(s));}")
+    page.reload();page.locator('#cardHSD').wait_for()
+    stored=page.evaluate("JSON.parse(localStorage.getItem('vf_tally_v1'))")
+    assert not [v for v in stored['queue']+stored['history'] if v['party']=='New Customer']
+    assert {'party':'New Customer','seriesKey':'hsd','dateISO':'2025-02-01','rate':93.4} .items() <= next(p for p in stored['prices'] if p['party']=='New Customer').items()
+    page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='New Customer',exact=True).click()
+    assert page.locator('#fPrice').input_value()=='93.40'
     page.close()
 
 

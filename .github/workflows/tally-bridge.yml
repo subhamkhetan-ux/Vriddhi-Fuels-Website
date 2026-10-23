@@ -3,9 +3,9 @@ name: Tally bridge — tests and Windows installer
 on:
   push:
     branches: [main, feat/tally-prime-bridge]
-    paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', '.github/workflows/tally-bridge.yml']
+    paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', 'tests/test_tally_prices*', '.github/workflows/tally-bridge.yml']
   pull_request:
-    paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', '.github/workflows/tally-bridge.yml']
+    paths: ['tally_bridge/**', 'tally/**', 'supabase/tally*.sql', 'tests/test_tally_bridge*', 'tests/test_tally_prices*', '.github/workflows/tally-bridge.yml']
   workflow_dispatch:
     inputs:
       publish_release:
@@ -42,7 +42,7 @@ jobs:
         run: |
           node --check tally/bridge.js
           node --check tally/report-export.js
-          python -m pytest tests/test_tally_bridge.py tests/test_tally_bridge_schema.py tests/test_tally_bridge_browser.py -q
+          python -m pytest tests/test_tally_bridge.py tests/test_tally_bridge_schema.py tests/test_tally_prices_schema.py tests/test_tally_bridge_browser.py -q
       - uses: actions/upload-artifact@v4
         if: always()
         with:
