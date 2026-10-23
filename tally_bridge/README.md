@@ -80,6 +80,7 @@ The bridge never posts a voucher twice and never guesses: anything uncertain is 
 | An alteration the app **cannot hold** (extra ledger, several stock lines) | *Changed in Tally: <reason>*, read-only; listed under Sync activity → Changed in Tally. It updates by itself once corrected in Tally. |
 | A voucher is **cancelled, deleted, or changed to a non-fuel voucher type** in Tally | Marked *Cancelled / Deleted / Moved to … in Tally* and left out of prices, bills and slips. If it comes back, it is restored. |
 | A voucher of today or yesterday is **re-dated** in Tally, even to an older date | Noticed when it leaves today/yesterday, read once by its GUID and updated. |
+| Invoice **numbers swapped or rotated** in Tally (renumbered on purpose) | The app follows Tally: each voucher takes its new number. A voucher renumbered onto a number another voucher still holds in Tally is kept as *Changed in Tally: Renumbered…*, so nothing is merged. |
 | **The same number twice** in Tally | The app keeps the first; the PC's status names the second, to renumber or cancel in Tally. |
 | A web voucher's **number is already used** in Tally | Not posted; *Needs review* offers **Use Tally version** (the app takes Tally's invoice) or **Assign next invoice number** (the web voucher moves on, and Tally's invoice joins the app). |
 | The **customer, ledger or stock item is missing** in Tally | Not posted; tried again by itself every few minutes for an hour, so creating it in Tally is enough. |

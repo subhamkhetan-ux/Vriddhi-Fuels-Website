@@ -355,6 +355,53 @@ begin
   perform set_config('vriddhi.bridge_ingest',coalesce(prev,'no'),true);
 end $$;
 
+-- Apply Tally's stored version of a linked voucher. Tally may renumber it onto a number another
+-- voucher here still holds: when Tally has moved that one too (numbers swapped or rotated in
+-- Tally), it steps aside and follows Tally right after; otherwise both are kept, labelled.
+create or replace function public._tb_take(p_id uuid,p_guid text,p_depth int default 0) returns text
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare v tally_vouchers; y tally_vouchers; t tally_bridge_objects; a jsonb; parked boolean := false;
+  prev text := current_setting('vriddhi.bridge_ingest',true);
+begin
+  perform set_config('vriddhi.bridge_ingest','yes',true);
+  select * into v from tally_vouchers where id=p_id for update;
+  select * into t from tally_bridge_objects where kind='Voucher' and guid=p_guid;
+  a := t.data->'app_voucher';
+  if v.id is null or t.guid is null or jsonb_typeof(a) is distinct from 'object' then
+    perform set_config('vriddhi.bridge_ingest',coalesce(prev,'no'),true);
+    return null;
+  end if;
+  select * into y from tally_vouchers where id<>v.id and series=a->>'series' and number=a->>'number' for update;
+  if y.id is not null then
+    if p_depth<20 and y.bridge_guid is not null and y.bridge_state in ('synced','unsupported','awaiting_tally')
+      and not exists(select 1 from tally_bridge_jobs where voucher_id=y.id and state in ('pending','leased','writing'))
+      and exists(select 1 from tally_bridge_objects x where x.kind='Voucher' and x.guid=y.bridge_guid and not x.deleted
+        and (x.v_series,x.v_number) is distinct from (y.series,y.number)) then
+      update tally_vouchers set number=y.number||'~'||left(y.id::text,8) where id=y.id;
+      parked := true;
+    else
+      -- Preserve both histories when Tally renumbers onto a number still in use here.
+      -- The current Tally version remains available in the data explorer and reports.
+      update tally_vouchers set bridge_guid=p_guid,bridge_state='unsupported',bridge_alter=t.alter_id,
+        bridge_note='Renumbered in Tally to #'||(a->>'number')||', a number the app already has' where id=v.id;
+      perform set_config('vriddhi.bridge_ingest',coalesce(prev,'no'),true);
+      return 'unsupported';
+    end if;
+  end if;
+  if a->>'series' not in ('hsd','ms','xg') or (a->>'qty')::numeric<=0
+    or abs((a->>'party_amt')::numeric-(a->>'item_amt')::numeric-(a->>'roff')::numeric)>0.01 then raise exception 'Invalid fuel voucher'; end if;
+  -- Tally is the source of truth for an altered voucher. A blank vehicle read keeps the app's.
+  update tally_vouchers set series=a->>'series',number=a->>'number',date=(a->>'date')::date,party=a->>'party',
+    vehicle=coalesce(nullif(a->>'vehicle',''),vehicle),
+    qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
+    party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,bridge_guid=p_guid,bridge_alter=t.alter_id,
+    bridge_state='synced',bridge_note=null,status='history',updated_at=now() where id=v.id;
+  perform _tally_bump_baselines(array[v.id]);
+  if parked then perform _tb_take(y.id,y.bridge_guid,p_depth+1); end if;
+  perform set_config('vriddhi.bridge_ingest',coalesce(prev,'no'),true);
+  return 'synced';
+end $$;
+
 drop function if exists public.tally_bridge_ingest(text,uuid,jsonb);
 create function public.tally_bridge_ingest(p_token text,p_instance uuid,p_objects jsonb) returns jsonb
 language plpgsql security definer set search_path=public,pg_temp as $$
@@ -474,22 +521,7 @@ begin
         bridge_note=left(coalesce(o->'data'->>'unreadable','Tally holds a version the app cannot show'),300) where id=v.id;
       continue;
     end if;
-    if exists(select 1 from tally_vouchers where id<>v.id and series=a->>'series' and number=a->>'number') then
-      -- Preserve both histories when Tally renumbers onto an already saved web invoice.
-      -- The current Tally version remains available in the data explorer and reports.
-      update tally_vouchers set bridge_guid=g,bridge_state='unsupported',bridge_alter=incoming,
-        bridge_note='Renumbered in Tally to #'||(a->>'number')||', a number the app already has' where id=v.id;
-      continue;
-    end if;
-    if a->>'series' not in ('hsd','ms','xg') or (a->>'qty')::numeric<=0
-      or abs((a->>'party_amt')::numeric-(a->>'item_amt')::numeric-(a->>'roff')::numeric)>0.01 then raise exception 'Invalid fuel voucher'; end if;
-    -- Tally is the source of truth for an altered voucher. A blank vehicle read keeps the app's.
-    update tally_vouchers set series=a->>'series',number=a->>'number',date=(a->>'date')::date,party=a->>'party',
-      vehicle=coalesce(nullif(a->>'vehicle',''),vehicle),
-      qty=(a->>'qty')::numeric,rate=(a->>'rate')::numeric,item_amt=(a->>'item_amt')::numeric,
-      party_amt=(a->>'party_amt')::numeric,roff=(a->>'roff')::numeric,bridge_guid=g,bridge_alter=incoming,
-      bridge_state='synced',bridge_note=null,status='history',updated_at=now() where id=v.id;
-    perform _tally_bump_baselines(array[v.id]);
+    perform _tb_take(v.id,g);
   exception when others then
     rejected := rejected || jsonb_build_object('guid',g,'number',o->'data'->>'number',
       'error',coalesce(o->'data'->>'voucher_type','')||' #'||coalesce(o->'data'->>'number','?')||': '||left(SQLERRM,200));
@@ -775,6 +807,17 @@ select public._tb_link_imported();
 -- says why it cannot read one: re-read vouchers marked unsupported by older bridges.
 update public.tally_vouchers set bridge_state='awaiting_tally'
   where bridge_state='unsupported' and bridge_guid is not null and bridge_note is null;
+-- Numbers swapped or rotated in Tally on purpose, refused by earlier SQL: take Tally's numbers now.
+do $$ declare r record; begin
+  if (select active from public.tally_bridge_config where id=1) then
+    for r in select id,bridge_guid from public.tally_vouchers
+      where bridge_state='unsupported' and bridge_note like 'Renumbered in Tally%' order by date,number loop
+      if (select bridge_state from public.tally_vouchers where id=r.id)='unsupported' then
+        perform public._tb_take(r.id,r.bridge_guid);
+      end if;
+    end loop;
+  end if;
+end $$;
 
 -- Only the device capability endpoints are callable with the public API key.
 do $$ declare f record; begin
