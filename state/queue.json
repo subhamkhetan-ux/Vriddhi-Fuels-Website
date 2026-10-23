@@ -5656,6 +5656,48 @@
       },
       "queued_at": "2026-10-23T08:30:35.852206+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "9d80e9fe4f8d068b",
+      "gmail_msg_id": "1879830726684939235",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "23/10/26",
+      "date_serial": 46318,
+      "amount": 396504.0,
+      "raw_payer": "GREAT RIVER COY PVT LT",
+      "customer": "Great River Coy Private Limited",
+      "candidates": [
+        "Great River Coy Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-23T09:15:24.741171+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "5eca45badae132d2",
+      "gmail_msg_id": "1879831040281749824",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "23/10/26",
+      "date_serial": 46318,
+      "amount": 1192800.0,
+      "raw_payer": "SAMARPAN LOGISTICS PRI",
+      "customer": "SAMARPAN LOGISTICS PVT LTD",
+      "candidates": [
+        "SAMARPAN LOGISTICS PVT LTD"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-23T09:15:24.741880+00:00",
+      "status": "matched"
     }
   ]
 }
