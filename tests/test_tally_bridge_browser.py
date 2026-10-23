@@ -273,7 +273,17 @@ def test_report_request_shows_progress_and_recovers_after_error(browser,server):
     page.close()
 
 
-def _customer_price_page(browser,server):
+# Records the pages instead of making a real PDF, so no CDN is needed.
+FAKE_JSPDF="""window.jspdf={jsPDF:class{constructor(o){this.pages=1;this.images=[];window.pdfMade=this;this.format=o.format}
+  addPage(){this.pages++} addImage(src){this.images.push(src.slice(0,23))}
+  output(){return new Blob(['%PDF-fake'],{type:'application/pdf'})}}};"""
+IPHONE='Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+SHARE_STUB="""navigator.canShare=(d)=>!!(d&&d.files);
+navigator.share=(d)=>{window.shared=d.files.map(f=>({name:f.name,type:f.type}));return Promise.resolve()};
+window.print=()=>{window.printCalled=true};"""
+
+
+def _customer_price_page(browser,server,**page_options):
     """Exercise the real persistent backend without accessing live business records."""
     def voucher(number,day,rate,series='hsd',party='Alpha Customer',**extra):
         return dict(seriesKey=series,number=number,dateISO=day,party=party,
@@ -290,9 +300,10 @@ def _customer_price_page(browser,server):
             voucher('96','2025-01-03',96,party='Alpha Customer Ltd'),
         ]
     }
-    page=browser.new_page(viewport={'width':390,'height':900},service_workers='block')
+    page=browser.new_page(viewport={'width':390,'height':900},service_workers='block',**page_options)
     def route(r):
         if r.request.url==server+'/tally/config.js':r.fulfill(content_type='application/javascript',body='window.VRIDDHI_TALLY_CONFIG={};')
+        elif r.request.url.endswith('/jspdf.umd.min.js'):r.fulfill(content_type='application/javascript',body=FAKE_JSPDF)
         elif r.request.url.startswith(server):r.continue_()
         else:r.abort()
     page.route('**/*',route)
@@ -510,4 +521,52 @@ def test_stock_summary_is_product_wise_then_date_wise(browser,server):
     page.locator('#histSearch').fill('MS2')
     assert page.locator('#histList .vitem').count()==1
     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
+    page.close()
+
+
+def test_ios_prints_the_bill_and_slip_through_the_share_sheet(browser,server):
+    page=_customer_price_page(browser,server,user_agent=IPHONE)
+    page.add_init_script(SHARE_STUB);page.reload();page.locator('#cardHSD').wait_for()
+    # the bill: both pages become an A4 PDF for the share sheet's Print
+    page.locator('#btnHistory').click()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='01/01/2025',exact=False).click()
+    page.get_by_role('button',name='Create bill for voucher 12',exact=True).click()
+    page.locator('#blPrint').click()
+    sheet=page.locator('#vf-share')
+    sheet.get_by_role('heading',name='Ready to print').wait_for()
+    assert page.evaluate('pdfMade.pages')==2
+    assert page.evaluate('pdfMade.format')==[595.28,841.89]
+    assert page.evaluate('pdfMade.images.every(s=>s.startsWith("data:image/jpeg"))')
+    sheet.get_by_role('button',name='Print / Save PDF').click()
+    sheet.wait_for(state='detached')
+    assert page.evaluate('shared')==[{'name':'Bill-12.pdf','type':'application/pdf'}]
+    assert not page.evaluate('!!window.printCalled')
+    # a voucher's fuel slip: A5, same route
+    page.locator('#btnBack').click();page.locator('#btnBack').click();page.locator('#btnBack').click()
+    page.locator('#btnBack').click();page.locator('#cardHSD').click()
+    page.locator('#fPartyList').get_by_role('button',name='Alpha Customer',exact=True).click()
+    page.locator('#fQty').fill('10');page.locator('#btnSlipPrint').click()
+    sheet.get_by_role('heading',name='Ready to print').wait_for()
+    assert page.evaluate('pdfMade.format')==[420,595]
+    sheet.get_by_role('button',name='Print / Save PDF').click()
+    assert page.evaluate('shared[0].name').endswith('.pdf')
+    # the slip PDF download goes to the same sheet instead of a dead link
+    page.locator('#btnSlipPdf').click()
+    sheet.get_by_role('heading',name='PDF ready').wait_for()
+    sheet.get_by_role('button',name='Close').click()
+    sheet.wait_for(state='detached')
+    page.close()
+
+
+def test_desktop_bill_print_still_uses_the_browser_print(browser,server):
+    page=_customer_price_page(browser,server)
+    page.add_init_script(SHARE_STUB);page.reload();page.locator('#cardHSD').wait_for()
+    page.locator('#btnHistory').click()
+    page.get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='01/01/2025',exact=False).click()
+    page.get_by_role('button',name='Create bill for voucher 12',exact=True).click()
+    page.locator('#blPrint').click()
+    assert page.evaluate('window.printCalled')
+    assert page.locator('#vf-share').count()==0
     page.close()

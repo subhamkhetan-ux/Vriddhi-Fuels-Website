@@ -303,3 +303,9 @@ input[type=date]::-webkit-date-and-time-value { text-align:left; min-width:0; }
 .ledger-connect input { width:100%; padding:12px; border-radius:11px; border:1px solid var(--line); background:var(--field); font-size:16px; outline:none; min-width:0; }
 .ledger-connect .btn { width:auto; margin:0; white-space:nowrap; }
 @media (max-width:560px) { .ledger-connect { grid-template-columns:1fr; } }
+/* iOS print / save: the "PDF ready" sheet that hands the file to the share sheet (slips.js). */
+.share-sheet { width: min(420px, calc(100% - 32px)); margin: auto auto calc(16px + var(--safe-bot)); padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--txt); box-shadow: var(--shadow); }
+.share-sheet::backdrop { background: #0000008c; }
+.share-sheet h2 { margin: 0 0 6px; font: 800 19px/1.3 var(--display); letter-spacing: -.02em; }
+.share-sheet .share-name { margin: 0; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.share-sheet .share-note { margin: 6px 0 4px; font-size: 13px; color: var(--txt-2); }

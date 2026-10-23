@@ -2811,7 +2811,51 @@ $("blPo").addEventListener("input", function(){ bill.poManual = true; });
   $(id).addEventListener("input", renderBill);
 });
 
-$("blPrint").onclick = function(){ window.print(); };
+// iOS cannot print from a home-screen app: the bill goes to the share
+// sheet as a PDF instead (VFSlips.printPages), which has Print in it.
+$("blPrint").onclick = function(){
+  if (!VFSlips.isIOS()){ window.print(); return; }
+  var btn = this, label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Making PDF…";
+  billSvgs().then(function(svgs){
+    return VFSlips.printPages(svgs, VFSlips.A4, "Bill-" + ($("blNo").value.trim() || "tanker") + ".pdf");
+  }).catch(oops).then(function(){ btn.disabled = false; btn.textContent = label; });
+};
+
+// The bill's two pages as standalone SVG for a PDF: an SVG drawn as a
+// picture loads nothing, so its images are inlined, and the sheet's
+// no-kerning rule goes with it. The fonts fall back to the system's Times.
+function billSvgs(){
+  var hrefs = {};
+  var pages = [$("blSheet"), $("blPage2").querySelector("svg")].filter(Boolean).map(function(svg){
+    var c = svg.cloneNode(true);
+    c.setAttribute("width", "595.28");
+    c.setAttribute("height", "841.89");
+    var style = document.createElementNS(BL_SVGNS, "style");
+    style.textContent = 'text{font-kerning:none;font-feature-settings:"kern" 0,"liga" 0,"clig" 0,"calt" 0;font-variant-ligatures:none}';
+    c.insertBefore(style, c.firstChild);
+    c.querySelectorAll("image").forEach(function(img){ hrefs[img.getAttribute("href")] = ""; });
+    return c;
+  });
+  return Promise.all(Object.keys(hrefs).map(function(href){
+    return fetch(href).then(function(r){
+      if (!r.ok) throw new Error("Couldn't load the bill's letterhead — check the internet connection.");
+      return r.blob();
+    }).then(function(blob){
+      return new Promise(function(resolve, reject){
+        var fr = new FileReader();
+        fr.onload = function(){ hrefs[href] = fr.result; resolve(); };
+        fr.onerror = function(){ reject(fr.error); };
+        fr.readAsDataURL(blob);
+      });
+    });
+  })).then(function(){
+    return pages.map(function(c){
+      c.querySelectorAll("image").forEach(function(img){ img.setAttribute("href", hrefs[img.getAttribute("href")]); });
+      return new XMLSerializer().serializeToString(c);
+    });
+  });
+}
 
 // Export the bill as a real .docx, using the /tanker/ app's builder.
 $("blWord").onclick = function(){
@@ -2826,11 +2870,7 @@ $("blWord").onclick = function(){
     m.images = { letterhead: new Uint8Array(imgs[0]), stamp: new Uint8Array(imgs[1]) };
     var blob = new Blob([TankerDocx.build(m)],
       {type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url; a.download = "Bill-" + ($("blNo").value || "tanker") + ".docx";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    VFSlips.download(blob, "Bill-" + ($("blNo").value || "tanker") + ".docx");
   }).catch(function(e){
     toast("Word export failed: " + ((e && e.message) || e));
   }).then(function(){
@@ -3099,10 +3139,17 @@ function prepareSlips(){
     };
   });
   Array.prototype.forEach.call(out.querySelectorAll("[data-print]"), function(btn){
-    btn.onclick = function(){ VFSlips.printSlips(slipPages(res.bundles[Number(btn.dataset.print)])); };
+    btn.onclick = function(){
+      var b = res.bundles[Number(btn.dataset.print)];
+      busy(btn, "Preparing…", function(){ return VFSlips.printPages(slipPages(b), VFSlips.A5, b.fileName); });
+    };
   });
-  out.querySelector('[data-all="print"]').onclick = function(){
-    VFSlips.printSlips(res.bundles.reduce(function(a, b){ return a.concat(slipPages(b)); }, []));
+  var printAll = out.querySelector('[data-all="print"]');
+  printAll.onclick = function(){
+    busy(printAll, "Preparing…", function(){
+      return VFSlips.printPages(res.bundles.reduce(function(a, b){ return a.concat(slipPages(b)); }, []),
+        VFSlips.A5, single ? res.bundles[0].fileName : res.folder + ".pdf");
+    });
   };
   var allBtn = out.querySelector('[data-all="pdf"]');
   allBtn.onclick = function(){
@@ -3120,8 +3167,7 @@ function prepareSlips(){
       }, Promise.resolve()).then(function(){
         return VFSlips.zipBlob(files, res.folder);
       }).then(function(zip){
-        VFSlips.download(zip, res.folder + ".zip");
-        toast(plural(files.length, "PDF") + " downloaded");
+        if (VFSlips.download(zip, res.folder + ".zip")) toast(plural(files.length, "PDF") + " downloaded");
       });
     });
   };
@@ -3163,13 +3209,12 @@ function draftSlip(btn, busyText, fn){
 $("btnSlipPdf").onclick = function(){
   draftSlip(this, "Making PDF…", function(b){
     return VFSlips.pdfFromSvgs(slipPages(b), VFSlips.A5).then(function(blob){
-      VFSlips.download(blob, b.fileName);
-      toast("Downloaded " + b.fileName);
+      if (VFSlips.download(blob, b.fileName)) toast("Downloaded " + b.fileName);
     });
   });
 };
 $("btnSlipPrint").onclick = function(){
-  draftSlip(this, "Preparing…", function(b){ VFSlips.printSlips(slipPages(b)); });
+  draftSlip(this, "Preparing…", function(b){ return VFSlips.printPages(slipPages(b), VFSlips.A5, b.fileName); });
 };
 $("btnDaySlips").onclick = function(){
   var day = selectedDay();

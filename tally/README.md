@@ -197,6 +197,12 @@ today; the app follows.
 - **Print / Save PDF** gives the same two A4 pages as before (customer copy
   + greyscale "Receiving Copy"), and **Export Word (.docx)** the same
   editable document.
+- **iPhone / iPad**: a home-screen web app cannot open the print dialog and
+  has nowhere to put a download, so on iOS every print and PDF button (bill,
+  fuel slips, Word export) makes the file first and shows a small **Ready to
+  print / PDF ready** sheet. Its button opens the iOS share sheet, which
+  has **Print**, **Save to Files**, WhatsApp and Mail. The PDF is made in
+  the phone and uses the system's Times New Roman.
 - 🧾 next to a voucher — in the day list **or in old vouchers** — raises its
   bill later, including for vouchers that came in from a **DayBook XML
   import**: the import carries the party, date, vehicle (`UDF:EIVEHNO`),
