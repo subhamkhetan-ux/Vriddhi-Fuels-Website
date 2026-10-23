@@ -5572,6 +5572,27 @@
       },
       "queued_at": "2026-10-23T05:30:37.509608+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "2aa88bdcf36c4218",
+      "gmail_msg_id": "1879823482263367145",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "23/10/2026",
+      "date_serial": 46318,
+      "amount": 596403.0,
+      "raw_payer": "VIRENDRA LOGISTICS PVT LTD",
+      "customer": "Virendra Logistics Private Limited",
+      "candidates": [
+        "Virendra Logistics Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-23T07:15:30.417994+00:00",
+      "status": "matched"
     }
   ]
 }
