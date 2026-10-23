@@ -160,6 +160,15 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 
   </div>
   <div class="home-columns">
+  <section class="home-panel" aria-labelledby="recordsHeading">
+  <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 3h8v13H4Z"/><path d="M8 12h8m-8 4h5"/></svg><h2 class="sec-title" id="recordsHeading">Records &amp; imports</h2></div>
+  <p class="section-note">Your past vouchers and Tally exports, in one place.</p>
+  <button class="btn ghost record-action" id="btnHistory"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-7L3 8m0-5v5h5M12 7v5l3 2"/></svg><span>Stock summary <span id="histCount">0</span><small>Product-wise sales, date by date</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  <button class="btn ghost record-action" id="btnSlips"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h3"/></svg><span>Fuel slips<small>Choose dates and customer</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  <button class="btn ghost record-action" id="btnImportDaybook"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/></svg><span>Import from Tally<small>Day book or customer ledgers</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+  <input type="file" id="fileDaybook" accept=".xml,text/xml,application/xml" style="display:none">
+  <details class="help-details"><summary>Which Tally files can I import?</summary><div class="hint">A DayBook XML loads old vouchers and syncs invoice numbers and prices. A Master XML loads customer ledgers from Sundry Debtors.</div></details>
+  </section>
   <section class="home-panel" aria-labelledby="dayHeading">
   <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4m8-4v4M4 11h16"/></svg><h2 class="sec-title" id="dayHeading">Day’s vouchers</h2></div>
   <p class="section-note">Review the day and export to Tally Prime.</p>
@@ -175,15 +184,6 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <button class="btn ghost" id="btnDaySlips" disabled>Download the day’s fuel slips</button>
   <button class="btn ghost" id="btnMoveDay" style="display:none">✓ Day imported in Tally — move to old vouchers</button>
 
-  </section>
-  <section class="home-panel" aria-labelledby="recordsHeading">
-  <div class="panel-heading"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 3h8v13H4Z"/><path d="M8 12h8m-8 4h5"/></svg><h2 class="sec-title" id="recordsHeading">Records &amp; imports</h2></div>
-  <p class="section-note">Your past vouchers and Tally exports, in one place.</p>
-  <button class="btn ghost record-action" id="btnHistory"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-7L3 8m0-5v5h5M12 7v5l3 2"/></svg><span>Stock summary <span id="histCount">0</span><small>Product-wise sales, date by date</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
-  <button class="btn ghost record-action" id="btnSlips"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h3"/></svg><span>Fuel slips<small>Choose dates and customer</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
-  <button class="btn ghost record-action" id="btnImportDaybook"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/></svg><span>Import from Tally<small>Day book or customer ledgers</small></span><svg class="ui-icon action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
-  <input type="file" id="fileDaybook" accept=".xml,text/xml,application/xml" style="display:none">
-  <details class="help-details"><summary>Which Tally files can I import?</summary><div class="hint">A DayBook XML loads old vouchers and syncs invoice numbers and prices. A Master XML loads customer ledgers from Sundry Debtors.</div></details>
   </section>
   </div>
 </section>
@@ -2067,7 +2067,7 @@ function renderHistory(){
         sub: plural(t.n, "voucher") + (t.qty ? " · avg ₹" + fmtAmt(t.value / t.qty) + "/" + TALLY.unit : ""),
         qty: fmtLtr(t.qty), value: inr(t.value),
         aria: s.item + ": " + fmtLtr(t.qty) + " " + TALLY.unit + ", " + inr(t.value) + ". Show dates",
-        onclick: mine.length ? function(){ ssOpen(sk, null); } : null }));
+        onclick: t.n ? function(){ ssOpen(sk, null); } : null }));
     });
     table.appendChild(ssTotalRow(sumUp(all)));
     return;
@@ -2077,13 +2077,14 @@ function renderHistory(){
 
   // level 2: a product's dates, newest first
   if (!ss.day){
-    $("ssPeriod").textContent = ssPeriod(prod);
-    if (!prod.length){
+    $("ssPeriod").textContent = ssPeriod(prod.filter(summaryCounts));
+    if (!prod.some(summaryCounts)){
       el.innerHTML = '<div class="empty">No ' + escHtml(TALLY.series[ss.product].label) + ' vouchers kept.</div>';
       return;
     }
+    // only days with a counted voucher, so one cancelled in Tally leaves no empty day
     var byDay = {};
-    prod.forEach(function(x){ (byDay[x.v.dateISO] = byDay[x.v.dateISO] || []).push(x); });
+    prod.filter(summaryCounts).forEach(function(x){ (byDay[x.v.dateISO] = byDay[x.v.dateISO] || []).push(x); });
     table.appendChild(ssHeader("Date"));
     Object.keys(byDay).sort().reverse().forEach(function(day){
       var t = sumUp(byDay[day]);

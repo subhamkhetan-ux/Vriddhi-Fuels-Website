@@ -114,7 +114,7 @@ header.top .hbtn { color: #fff; min-width: 44px; height: 44px; padding: 8px; bor
 .series-card .smeta b { display: block; margin-top: 5px; font: 800 24px/1.25 var(--numeric); font-variant-numeric: tabular-nums; color: var(--txt); letter-spacing: -.025em; overflow-wrap: anywhere; }
 .series-card .cta { border-top: 1px solid var(--line-soft); margin-top: 18px; padding-top: 13px; font-size: 14px; font-weight: 650; color: var(--product); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .series-card .cta .ui-icon { width: 15px; height: 15px; }
-.home-columns { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(0,1fr); gap: 18px; margin-top: 22px; align-items: start; }
+.home-columns { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.65fr); gap: 18px; margin-top: 22px; align-items: start; }
 .home-panel { border-top:2px solid var(--accent-line); min-width: 0; padding: 22px; border-radius: var(--radius); }
 .panel-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 17px; }
 .panel-heading > .ui-icon { color: var(--orange); width: 18px; height: 18px; }

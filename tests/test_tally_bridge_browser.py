@@ -298,6 +298,7 @@ def _customer_price_page(browser,server,**page_options):
             voucher('99','2099-01-01',99),voucher('98','2025-01-03',98,bridgeState='deleted'),
             voucher('97','2025-01-03',97,bridgeState='conflict'),
             voucher('96','2025-01-03',96,party='Alpha Customer Ltd'),
+            voucher('95','2025-01-05',95,bridgeState='deleted'),
         ]
     }
     page=browser.new_page(viewport={'width':390,'height':900},service_workers='block',**page_options)
@@ -509,6 +510,7 @@ def test_stock_summary_is_product_wise_then_date_wise(browser,server):
     assert page.locator('#hdrTitle').inner_text()=='High Speed Diesel'
     rows=page.locator('#ssTable button.ss-row')
     assert rows.first.locator('b').inner_text()=='01/01/2099'
+    assert '05/01/2025' not in page.locator('#ssTable').inner_text()  # only a voucher deleted in Tally that day
     assert '₹5,690.00' in page.locator('#ssTable .ss-total').inner_text()
     page.get_by_role('button',name='02/01/2025',exact=False).click()
     assert page.locator('#histList .vitem').count()==2
