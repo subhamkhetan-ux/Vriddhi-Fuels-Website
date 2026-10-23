@@ -176,7 +176,7 @@
       $('bridgePause').onclick = () => control(status && status.config.push_enabled ? 'pause' : 'resume').then(()=>selectTab('setup')).catch(error);
       $('bridgeRevoke').onclick = () => { if (confirm('Disconnect this PC? Pending vouchers remain saved. You can pair it again later.')) control('revoke').then(()=>selectTab('setup')).catch(error); };
     } else if (tab === 'activity') {
-      content.innerHTML = '<div class="bridge-panel"><h3>Sync activity</h3><p>Confirmed means the bridge read the voucher back from Tally. If a posting is uncertain, it is checked again before any further action.</p><div id="bridgeJobs"></div></div><div class="bridge-panel"><h3>Changed in Tally</h3><p>Edited in Tally Prime in a way the app cannot hold (the reason is shown). Correct the voucher in Tally and it updates here by itself, or read it again.</p><div id="bridgeChanged"></div></div><div class="bridge-panel"><h3>Unlinked vouchers</h3><p>Queue a saved voucher to check and link it with Tally.</p><div id="bridgeUnlinked"></div></div>';
+      content.innerHTML = '<div class="bridge-panel"><h3>Sync activity</h3><p>Confirmed means the bridge read the voucher back from Tally. A voucher Tally refused, or one waiting for a ledger to be created, is tried again by itself for an hour; an uncertain posting is looked up again (never posted twice) every ten minutes for two hours.</p><div id="bridgeJobs"></div></div><div class="bridge-panel"><h3>Changed in Tally</h3><p>Edited in Tally Prime in a way the app cannot hold (the reason is shown). Correct the voucher in Tally and it updates here by itself, or read it again.</p><div id="bridgeChanged"></div></div><div class="bridge-panel"><h3>Unlinked vouchers</h3><p>Queue a saved voucher to check and link it with Tally.</p><div id="bridgeUnlinked"></div></div>';
       paintActivity();
       loadChanged().catch(error);
       loadUnlinked().catch(error);
@@ -198,7 +198,7 @@
     jobs.forEach(j => {
       const tr = document.createElement('tr');
       tr.appendChild(node('td',j.kind === 'voucher' ? 'Invoice #' + j.number : (REPORTS[j.report] || 'Report')));
-      const info = node('td', {pending:'Queued',leased:'Reading Tally',writing:'Confirming',done:'Confirmed',error:'Needs review',conflict:'Needs review'}[j.state] || j.state);
+      const info = node('td', {pending:'Queued',leased:'Reading Tally',writing:'Confirming',done:'Confirmed',error:j.kind==='voucher'?'Not posted yet — tried again by itself':'Needs review',conflict:'Needs review'}[j.state] || j.state);
       if (j.detail) info.appendChild(node('small',j.detail));
       if (j.voucher_id && ['conflict','error'].includes(j.state)) {
         [[j.write_started === false ? 'Try sync again' : 'Recheck Tally',j.write_started === false ? 'retry' : 'recheck'],['Use Tally version','use_tally']].forEach(([label,action]) => {
@@ -488,7 +488,11 @@
       catch(e) {if(['PGRST202','42883'].includes(e.code))return;throw new Error('Could not verify the Tally connection. Manual XML export is blocked until the connection can be checked.');}
       if(!status || status.config.active)throw new Error('Automatic Tally sync is enabled. Manual XML export is blocked to avoid duplicate posting.');
     },
-    label(value, note) { return value==='unsupported' && note ? 'Changed in Tally: ' + note : value && value!=='unlinked' ? LABELS[value] || value : ''; },
+    label(value, note) {
+      if (note && value==='unsupported') return 'Changed in Tally: ' + note;
+      if (note && value==='deleted') return note;  // Deleted / Cancelled / Moved to Sales in Tally
+      return value && value!=='unlinked' ? LABELS[value] || value : '';
+    },
     safeReport,
     clear() { epoch++; modeBusy=false; clearInterval(timer); clearTimeout(pairingExpiry); clearTimeout(ledgerTimer); client=null; user=null; status=null; report=null; reportArgs=null; busy=false;exportBusy=false;
       if($('scrBridge')) $('scrBridge').replaceChildren(); if($('btnBridge')) $('btnBridge').hidden=true; }

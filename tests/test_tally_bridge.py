@@ -60,6 +60,8 @@ class FakeTally:
         return None
     def voucher_mark(self):
         return None  # a Tally that does not report $AltVchId: every poll scans
+    def by_guid(self, guids):
+        return []  # a voucher that left the watched days is no longer in Tally
     def import_voucher(self, p, existing=None):
         self.imports += 1
         self.found = voucher(p, 12)
@@ -227,7 +229,7 @@ def test_restart_validates_recent_snapshot_before_any_cloud_claim(tmp_path):
 
 def test_missing_master_is_named_and_nothing_reaches_tally(store):
     cloud,tally=FakeCloud(),FakeTally(missing=["Test & Sons"])
-    with pytest.raises(TallyProblem,match="create Test & Sons in Tally Prime first"):
+    with pytest.raises(TallyProblem,match="create Test & Sons in Tally Prime. It is posted by itself"):
         Worker(cloud,tally,store).voucher(job())
     assert tally.imports==0
     assert not any(name=='tally_bridge_begin_write' for name,args in cloud.calls)
@@ -280,9 +282,14 @@ def test_xml_escaping_amount_rounding_and_complex_vouchers():
     party=v.find("LEDGERENTRIES.LIST")
     tag(party,"BILLALLOCATIONS.LIST","      ")  # Tally exports empty placeholders everywhere
     assert alterable(v)
-    bill=tag(party,"BILLALLOCATIONS.LIST",""); tag(bill,"NAME","TEST1"); tag(bill,"BILLTYPE","New Ref")
+    bill=tag(party,"BILLALLOCATIONS.LIST",""); tag(bill,"NAME","TEST1"); tag(bill,"BILLTYPE","New Ref"); tag(bill,"AMOUNT","-1000.00")
     assert business_equal(fuel_voucher(v),p)  # a bill-wise reference still reads as the same sale
-    assert not alterable(v)
+    assert alterable(v)  # the customer's one New Ref is carried over for the new amount
+    altered=parse(voucher_xml("Test Company",dict(p,qty=11,item_amt=1100,party_amt=1100),v)).find(".//VOUCHER")
+    bills=[b for e in altered.findall("LEDGERENTRIES.LIST") for b in e.findall("BILLALLOCATIONS.LIST") if len(b)]
+    assert [(b.findtext("NAME"),b.findtext("BILLTYPE"),b.findtext("AMOUNT")) for b in bills]==[("TEST1","New Ref","-1100.00")]
+    against=tag(party,"BILLALLOCATIONS.LIST",""); tag(against,"NAME","OLD1"); tag(against,"BILLTYPE","Agst Ref")
+    assert not alterable(v)  # against an earlier bill: left to Tally Prime
     with pytest.raises(TallyProblem,match="cannot safely alter"):
         voucher_xml("Test Company",p,v)
     with pytest.raises(TallyProblem,match="Unsafe XML"):
@@ -1288,3 +1295,180 @@ def test_update_hands_over_to_the_new_version_which_switches_the_bridge_without_
     monkeypatch.setattr("tally_bridge.updater.fetch", offline)
     with pytest.raises(Problem, match="GitHub did not answer"):
         ctl.check_update()
+
+
+# ---- 1.5.0: the edge cases between the app and Tally -----------------------------------------
+
+DAY = __import__("datetime").datetime(2026, 10, 20, 12).timestamp()  # PAYLOAD is dated the 19th: watched
+
+
+class Book(FakeTally):
+    """A Tally with a voucher book: metadata lists it, by_guid finds any, details reads it whole."""
+    def __init__(self, *vouchers):
+        super().__init__()
+        self.book, self.asked = {identity(v)[0]: v for v in vouchers}, []
+    def metadata(self, kind="Voucher", after=0, since=None):
+        from tally_bridge.tally import series_of, voucher_date
+        return [v for v in self.book.values() if series_of(v) and identity(v)[2] > after
+                and (since is None or voucher_date(v) >= since)]
+    def by_guid(self, guids):
+        self.asked.append(sorted(guids))
+        return [self.book[g] for g in guids if g in self.book]
+    def details(self, entries):
+        return [self.book[identity(e)[0]] for e in entries if identity(e)[0] in self.book]
+
+
+def staged(store):
+    return [json.loads(r["payload"]) for r in store.upload_batch()]
+
+
+def test_a_voucher_deleted_in_tally_is_sent_as_deleted(store):
+    seen(store, 3)
+    w = Worker(FakeCloud(), Book(), store, clock=lambda: DAY)
+    w.scan("Voucher")
+    out = staged(store)
+    assert [(o["guid"], o["deleted"], o["alter_id"]) for o in out] == [(ID, True, 3)]
+    assert out[0]["data"]["number"] == "TEST1"  # what was stored about it stands
+    store.uploaded(store.upload_batch())
+    w.scan("Voucher")
+    assert not staged(store)  # told once
+
+
+def test_a_voucher_re_dated_or_re_typed_in_tally_is_read_again_not_lost(store):
+    from tally_bridge.tally import tag
+    seen(store, 3)
+    older = voucher(dict(PAYLOAD, date="2026-09-30"), alter=4)  # re-dated before the watched days
+    book = Book(older)
+    Worker(FakeCloud(), book, store, clock=lambda: DAY).scan("Voucher")
+    assert book.asked == [[ID]]
+    out = staged(store)
+    assert out[-1]["data"]["app_voucher"]["date"] == "2026-09-30" and not out[-1]["deleted"]
+    store.uploaded(store.upload_batch())
+    # Moved to a cash Sales voucher in Tally: sent as gone from the fuel vouchers.
+    sale = voucher(dict(PAYLOAD), alter=5)
+    sale.find("VOUCHERTYPENAME").text = "Sales"
+    sale.set("VCHTYPE", "Sales")
+    store.stage([object_data("Voucher", voucher(alter=4))]); store.uploaded(store.upload_batch())
+    Worker(FakeCloud(), Book(sale), store, clock=lambda: DAY).scan("Voucher")
+    out = staged(store)
+    assert out[-1]["deleted"] and out[-1]["data"]["voucher_type"] == "Sales"
+    assert store.count("Voucher") == 0  # and it is not looked for again
+
+
+def test_a_refresh_request_is_read_at_most_once_a_minute(store):
+    clock = [DAY]
+    w = Worker(FakeCloud(), Book(), store, clock=lambda: clock[0])
+    w.config = {"refresh_guids": ["gone-guid"]}
+    assert w.refresh_due() and not w.refresh_due()
+    clock[0] += 61
+    assert w.refresh_due()
+    w.config = {"refresh_guids": []}
+    assert not w.refresh_due()
+
+
+def test_older_vouchers_altered_in_tally_are_caught_every_half_hour(store):
+    clock = [DAY]
+    old = voucher(dict(PAYLOAD, date="2026-10-01", number="OLD1", id="c26d607a-40ba-4524-8fa2-c8c340855cb5"), alter=40)
+    book = Book(old)
+    w = Worker(FakeCloud(), book, store, clock=lambda: clock[0])
+    store.set("cursor:Voucher", 40)
+    w.pending_mark = 1
+    w.wide_check()  # first time: from now on
+    assert store.get("cursor:wide") == 40 and not staged(store)
+    book.book[identity(old)[0]] = voucher(dict(PAYLOAD, date="2026-10-01", number="OLD1", id="c26d607a-40ba-4524-8fa2-c8c340855cb5", qty=12, item_amt=1200, party_amt=1200), alter=41)
+    clock[0] += 600; w.pending_mark = 2
+    w.wide_check()
+    assert not staged(store)  # not yet half an hour
+    clock[0] += 1200
+    w.wide_check()
+    out = staged(store)
+    assert out[0]["data"]["app_voucher"]["qty"] == "12.000" and store.get("cursor:wide") == 41
+    store.uploaded(store.upload_batch())
+    clock[0] += 1800  # nothing changed in Tally since: not even asked
+    book.metadata = lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked Tally"))
+    w.wide_check()
+
+
+def test_a_refused_posting_that_changed_nothing_is_offered_for_correction(store):
+    from tally_bridge.tally import Rejected
+    class Refusing(FakeTally):
+        def import_voucher(self, p, existing=None):
+            self.imports += 1
+            raise Rejected("Tally rejected the request: Voucher date is before books beginning")
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            return job() if name == "tally_bridge_claim" else r
+    cloud = Cloud()
+    Worker(cloud, Refusing(), store).claim()
+    finish = [a for n, a in cloud.calls if n == "tally_bridge_finish"][0]
+    assert finish["p_state"] == "error" and finish["p_result"] == {"not_written": True}
+    assert "before books beginning" in finish["p_detail"] and "Nothing was posted" in finish["p_detail"]
+    # Refused, yet a voucher appeared: never offered for re-posting.
+    class Appeared(Refusing):
+        def import_voucher(self, p, existing=None):
+            self.found = voucher(dict(p, party="Someone else"), 3)
+            raise Rejected("Tally rejected the request")
+    cloud = Cloud()
+    Worker(cloud, Appeared(), store).claim()
+    finish = [a for n, a in cloud.calls if n == "tally_bridge_finish"][0]
+    assert finish["p_state"] == "conflict" and "Recheck Tally" in finish["p_detail"]
+
+
+def test_a_company_closed_just_before_posting_goes_back_to_the_queue(store):
+    from tally_bridge.tally import NotSent
+    class Closing(FakeTally):
+        def import_voucher(self, p, existing=None): raise NotSent("Open the exact company")
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            return job() if name == "tally_bridge_claim" else r
+    cloud = Cloud()
+    Worker(cloud, Closing(), store).claim()
+    finish = [a for n, a in cloud.calls if n == "tally_bridge_finish"][0]
+    assert finish["p_state"] == "retry" and finish["p_result"] == {"not_written": True}
+    # And the real Tally raises it before sending anything when the company is not open.
+    from tally_bridge.tally import CompanyNotOpen
+    t = Tally(None, "Test Company")
+    t.verify = lambda: (_ for _ in ()).throw(CompanyNotOpen("Open the exact company"))
+    with pytest.raises(NotSent):
+        t.import_voucher(PAYLOAD)
+
+
+def test_an_edit_made_while_the_bridge_claims_it_is_left_to_its_new_job(store):
+    from tally_bridge.transport import CloudRejected
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            if name == "tally_bridge_begin_write": raise CloudRejected("Voucher changed or job lease expired")
+            return super().rpc(name, **args)
+    tally = FakeTally()
+    Worker(Cloud(), tally, store).voucher(job())
+    assert tally.imports == 0 and store.written("job-1") is None
+
+
+def test_a_tally_voucher_the_editor_cannot_alter_is_refused_before_posting(store):
+    import xml.etree.ElementTree as ET
+    from tally_bridge.tally import tag
+    found = voucher(alter=7)
+    cc = ET.SubElement(found.find("ALLINVENTORYENTRIES.LIST"), "COSTCENTREALLOCATIONS.LIST")
+    tag(cc, "NAME", "Pump 2"); tag(cc, "AMOUNT", "1000.00")
+    cloud, tally = FakeCloud(), FakeTally(found)
+    p = dict(PAYLOAD, guid=ID, expected_alter=7, qty=11, item_amt=1100, party_amt=1100)
+    with pytest.raises(TallyProblem, match="cannot change safely"):
+        Worker(cloud, tally, store).voucher(job(p))
+    assert tally.imports == 0 and not any(n == "tally_bridge_begin_write" for n, _ in cloud.calls)
+
+
+def test_one_voucher_the_web_app_refuses_is_named_and_the_rest_flow(store):
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            if name == "tally_bridge_ingest":
+                return {"unmatched": [], "rejected": [{"guid": ID, "error": "HSD CREDIT #TEST1: Invalid fuel voucher"}]}
+            return r
+    seen(store, 1)
+    store.stage([object_data("Voucher", voucher(alter=2))])
+    w = Worker(Cloud(), FakeTally(), store)
+    w.flush()
+    assert store.pending() == 0
+    assert "Not applied in the web app: HSD CREDIT #TEST1: Invalid fuel voucher" in w.watching()

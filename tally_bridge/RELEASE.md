@@ -2,6 +2,19 @@ Version **1.5.0** brings Tally edits back reliably and updates itself:
 
 - **Edits made in Tally show up in the app.** The bridge now reads any round-off ledger spelling (R/off, Round Off, Rounding Off…), names in any capitalisation, a blank rate, and vouchers saved in Accounting Voucher View. A voucher it still cannot hold is labelled with the reason (for example *Extra ledger in Tally: Freight*) and listed under Sync activity → **Changed in Tally**, with **Read again from Tally**. Vouchers older bridges marked *Changed in Tally* are read again.
 - **No false "Needs review" after posting.** When Tally lists a just-posted invoice a moment before its Day Book returns it, the bridge checks again by itself instead of asking for review. For a posting that did end up in review, **Use Tally version** now takes the invoice Tally holds under that number.
+- **Every edge between the app and Tally handled** (see README → *What happens when…*):
+  - Vouchers deleted, re-dated or moved to another voucher type in Tally are caught. They used to stay in the app unchanged.
+  - Alterations to fuel vouchers dated up to five weeks back arrive within half an hour.
+  - A voucher posting is retried by itself in three cases:
+    - Tally refuses it. The bridge first checks nothing was posted, then shows Tally's reason.
+    - A ledger is missing. It posts once the ledger is created.
+    - The company was closed at that moment.
+  - Uncertain postings are rechecked by themselves.
+  - Web edits to Tally vouchers with a bill-wise New Ref work.
+  - A web voucher never posted can be deleted.
+  - After *Assign next invoice number*, Tally's invoice with the old number joins the app.
+  - The same number twice in Tally is reported.
+  - One voucher the web app cannot apply no longer stops the rest.
 - **Update button.** The app checks for a newer version each time it opens (Settings → Check for updates), and **Update now** downloads it, verifies its checksum and switches the bridge over — no ZIP, no re-pairing, Tally need not be open.
 - **Re-run tally-bridge.sql** (adds the reason column and re-reads vouchers marked *Changed in Tally*). Then extract this ZIP once, open the app and choose **Update now**; later versions install from the app itself.
 

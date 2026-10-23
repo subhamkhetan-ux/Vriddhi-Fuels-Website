@@ -61,13 +61,37 @@ A Defender block was reported against the old 1.0.1 self-extracting executable. 
 | Direction | Coverage |
 |---|---|
 | Web → Tally | The web app's HSD CREDIT, MS CREDIT and XG CREDIT sales vouchers; new invoices and supported edits; existing vehicle UDF, party GST classification and round-off are retained. Before posting, the party, sales ledger, `R/off`, stock item and voucher type are checked live in Tally, and a missing one is named in Sync activity. |
-| Tally → web | HSD/MS/XG CREDIT vouchers **dated today or yesterday**. One made in Tally Prime appears in the app within seconds (history, bills, fuel slips, the customer's last price); an alteration or cancellation is applied to the app's copy (Tally is the source of truth). Older vouchers are never read, which keeps Tally responsive; use Import from Tally for them. A web voucher waiting to post, or flagged for review, whose Tally copy already matches is confirmed instead of posted again. |
+| Tally → web | HSD/MS/XG CREDIT vouchers **dated today or yesterday**. One made in Tally Prime appears in the app within seconds (history, bills, fuel slips, the customer's last price); an alteration or cancellation is applied to the app's copy (Tally is the source of truth). Older vouchers are not listed, which keeps Tally responsive; every half hour (only if something changed in Tally) one filtered question catches alterations to fuel vouchers dated up to five weeks back. Use Import from Tally for older history. A web voucher waiting to post, or flagged for review, whose Tally copy already matches is confirmed instead of posted again. |
 | Import from Tally | Unchanged and available while paired: DayBook files add and refresh vouchers, Master files add customers with GST details. Vouchers the bridge already links (or is posting) are kept as the bridge has them and counted as *kept*; nothing an import brings in is posted back to Tally. An imported voucher the bridge has already seen is linked at once, with Tally's exact round-off. |
 | Reports | Native Tally day book, ledger statement, trial balance, balance sheet, profit & loss, receivables, payables, stock summary and cash/bank summary. Report availability/names depend on the Tally release and company features. Unsupported reports show an error and retain any previous saved result. |
 
-Ledgers, groups, stock items and other masters are not mirrored. A fuel voucher in Tally with extra inventory lines or tax ledgers is labelled *Changed in Tally* with the reason (for example *Extra ledger in Tally: Freight*) and kept read-only in the app; it is listed under Sync activity → Changed in Tally, and updates by itself once corrected in Tally (or choose **Read again from Tally**). Any round-off ledger spelling (R/off, Round Off, Rounding Off) and vouchers saved in Accounting Voucher View are read; bill-wise references (New Ref) are fine to read, but such a voucher can only be altered in Tally Prime.
+Ledgers, groups, stock items and other masters are not mirrored. A fuel voucher in Tally with extra inventory lines or tax ledgers is labelled *Changed in Tally* with the reason (for example *Extra ledger in Tally: Freight*) and kept read-only in the app; it is listed under Sync activity → Changed in Tally, and updates by itself once corrected in Tally (or choose **Read again from Tally**). Any round-off ledger spelling (R/off, Round Off, Rounding Off) and vouchers saved in Accounting Voucher View are read; a customer's bill-wise **New Ref** is carried over when the web app alters a voucher; any other allocation (Agst Ref, several bills, cost centres) leaves that voucher to Tally Prime.
 
 The existing web app remains a fuel voucher editor. It does not become an editor for every Tally voucher/master type. Create missing parties, stock items, voucher types and allocation rules in Tally Prime first; the bridge does not invent those accounting masters. Reports are fetched from Tally's own reporting engine rather than reconstructed from incomplete totals. No automatic messaging, payment execution or GST filing is included.
+
+## What happens when…
+
+The bridge never posts a voucher twice and never guesses: anything uncertain is looked up in Tally before anything else is done. Tally is the source of truth for vouchers that exist there.
+
+| Situation | What the bridge does |
+|---|---|
+| A voucher is **made in Tally** | Joins the app within seconds (today's and yesterday's; older ones within half an hour). |
+| A voucher is **altered in Tally** | The app's copy takes Tally's values. If a web edit of it is waiting, both are kept and it shows *Needs review* (choose **Use Tally version**, or edit in Tally). |
+| An alteration the app **cannot hold** (extra ledger, several stock lines) | *Changed in Tally: <reason>*, read-only; listed under Sync activity → Changed in Tally. It updates by itself once corrected in Tally. |
+| A voucher is **cancelled, deleted, or changed to a non-fuel voucher type** in Tally | Marked *Cancelled / Deleted / Moved to … in Tally* and left out of prices, bills and slips. If it comes back, it is restored. |
+| A voucher is **re-dated** in Tally, even to an older date | Noticed when it leaves today/yesterday, read by its GUID and updated. |
+| **The same number twice** in Tally | The app keeps the first; the PC's status names the second, to renumber or cancel in Tally. |
+| A web voucher's **number is already used** in Tally | Not posted; *Needs review* offers **Use Tally version** (the app takes Tally's invoice) or **Assign next invoice number** (the web voucher moves on, and Tally's invoice joins the app). |
+| The **customer, ledger or stock item is missing** in Tally | Not posted; tried again by itself every few minutes for an hour, so creating it in Tally is enough. |
+| **Tally refuses** a voucher (period locked, date before books…) | The bridge checks Tally applied nothing, then shows Tally's reason; correct it or let it retry. It can be deleted, like any voucher never posted. |
+| The **company is closed** just as a voucher is posted | Nothing was sent; it goes back to the queue and posts when the company is open. |
+| Tally's answer to a posting is **lost** (crash, network) | Recorded before posting; on restart the invoice is looked up and confirmed, never posted again. |
+| A posting is **uncertain** | Looked up again (never re-posted) every ten minutes for two hours, and confirmed as soon as Tally matches; **Recheck Tally** does it at once. |
+| A web voucher is **edited or deleted while waiting** | The new version replaces the waiting posting; a voucher never posted can be deleted. While Tally is checking it (a few seconds), wait a moment. |
+| A Tally voucher with **bill-wise New Ref** is edited in the web app | Altered in Tally with its bill reference kept for the new amount. |
+| One voucher the web app **cannot apply** | Named in the PC's status; the others keep flowing. |
+| **Tally is closed**, at Select Company, or the export script runs | Nothing is sent; web vouchers wait and post later. |
+| **Internet down** at the PC | Tally changes are kept on the PC and sent on reconnection. |
 
 ## Ledger PDF and Excel downloads
 

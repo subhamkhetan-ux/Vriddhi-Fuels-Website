@@ -144,8 +144,12 @@ def test_inbound_and_conflict_do_not_overwrite_pending_edit(db):
     o["deleted"] = True
     ingest()
     assert db.ok("select bridge_state from tally_vouchers where bridge_guid='inbound-guid'") == "deleted"
-    o["alter_id"] = 1
-    assert "moved backwards" in db.fails(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([o]))})", anon=True)
+    o["alter_id"], o["deleted"] = 1, False
+    # An older Tally version (a restore) is refused for that voucher only, and reported back.
+    result = db.json(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([o, tally_object('next-guid', dict(a, number='MS10003'))]))})", anon=True)
+    assert len(result["rejected"]) == 1 and "moved backwards" in result["rejected"][0]["error"]
+    assert db.ok("select bridge_state from tally_vouchers where bridge_guid='inbound-guid'") == "deleted"
+    assert db.ok("select count(*) from tally_vouchers where bridge_guid='next-guid'") == "1"
 
 
 def test_voucher_made_in_tally_joins_the_app_and_masters_are_ignored(db):
@@ -217,6 +221,83 @@ def test_failed_readback_takes_tallys_invoice_and_unreadable_edits_say_why(db):
     assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "awaiting_tally"
     send(dict(o, alter_id=8))
     assert "Only a voucher that needs review" in db.fails(f"select tally_bridge_control('use_tally','{v['id']}')", user=OWNER)
+
+
+def test_deleted_or_retyped_in_tally_leaves_the_app_and_a_return_restores_it(db):
+    send = lambda *o: db.json(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps(list(o)))})", anon=True)
+    state = lambda n: db.json(f"select jsonb_build_object('state',bridge_state,'note',bridge_note) from tally_vouchers where number='{n}'")
+    a = dict(series="hsd", number="77001", date="2026-10-19", party="Gone Co", vehicle="", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0)
+    o = tally_object("gone-guid", a, alter=3)
+    send(o)
+    assert state("77001")["state"] == "synced"
+    # Deleted in Tally: the PC sends what it stored, marked deleted.
+    send(dict(o, deleted=True))
+    assert state("77001") == {"state": "deleted", "note": "Deleted in Tally"}
+    send(dict(o, alter_id=4))  # back in Tally (a deletion undone by a restore of the same day)
+    assert state("77001")["state"] == "synced"
+    # A deletion the PC found by GUID without a stored copy keeps the cloud's data.
+    send(dict(kind="Voucher", guid="gone-guid", alter_id=0, master_id=0, data={}, deleted=True))
+    assert state("77001") == {"state": "deleted", "note": "Deleted in Tally"}
+    assert db.json("select data from tally_bridge_objects where guid='gone-guid'")["number"] == "77001"
+    send(dict(o, alter_id=5))
+    # Changed to another voucher type in Tally (a cash sale): no longer a fuel voucher here.
+    send(dict(o, alter_id=6, deleted=True, data=dict(o["data"], voucher_type="Sales", app_voucher=None)))
+    assert state("77001") == {"state": "deleted", "note": "Moved to Sales in Tally"}
+
+
+def test_postings_that_never_reached_tally_go_back_to_the_queue_or_can_be_corrected(db):
+    db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased','error','conflict')")
+    finish = lambda j, state, result, detail: db.ok(f"select tally_bridge_finish('{TOKEN}','{INSTANCE}','{j['id']}','{j['lease_token']}','{state}',{lit(json.dumps(result))},{lit(detail)})", anon=True)
+    begin = lambda j: db.ok(f"select tally_bridge_begin_write('{TOKEN}','{INSTANCE}','{j['id']}','{j['lease_token']}')", anon=True)
+    v = create(db)
+    # The company was closed between the check and the posting: nothing was sent.
+    j = device(db, "claim"); begin(j)
+    finish(j, "retry", {"not_written": True}, "Waiting for the company")
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "queued"
+    assert db.ok(f"select state||','||write_started from tally_bridge_jobs where id='{j['id']}'") == "pending,false"
+    # Tally refused it (and the PC confirmed nothing changed): correctable, retried by itself later.
+    j = device(db, "claim"); begin(j)
+    finish(j, "error", {"not_written": True}, "Tally refused it")
+    assert db.ok(f"select bridge_state from tally_vouchers where id='{v['id']}'") == "needs_edit"
+    assert db.ok(f"select tally_bridge_claim('{TOKEN}','{INSTANCE}') is null", anon=True) == "t"  # not straight away
+    db.ok(f"update tally_bridge_jobs set updated_at=now()-interval '4 minutes' where id='{j['id']}'")
+    again = device(db, "claim")
+    assert again["id"] == j["id"] and not again["recover_only"]
+    # While Tally is checking it, it cannot be deleted; once refused again, it can.
+    assert "checking this voucher" in db.fails(f"select tally_delete_voucher('{v['id']}')", user=OWNER)
+    finish(again, "error", {}, "Ledger missing")
+    db.ok(f"select tally_delete_voucher('{v['id']}')", user=OWNER)
+    assert db.ok(f"select state from tally_bridge_jobs where id='{j['id']}'") == "superseded"
+    # An uncertain posting is looked up again by itself, never re-posted.
+    v = create(db)
+    j = device(db, "claim"); begin(j)
+    finish(j, "conflict", {}, "Uncertain outcome")
+    assert "bridge history" in db.fails(f"select tally_delete_voucher('{v['id']}')", user=OWNER)
+    db.ok(f"update tally_bridge_jobs set updated_at=now()-interval '11 minutes' where id='{j['id']}'")
+    again = device(db, "claim")
+    assert again["id"] == j["id"] and again["recover_only"]
+    finish(again, "conflict", {}, "Still uncertain")
+    db.ok(f"update tally_bridge_jobs set state='superseded' where id='{j['id']}'")
+
+
+def test_renumbering_lets_the_tally_invoice_with_the_old_number_join_the_app(db):
+    db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased','error','conflict')")
+    v = create(db)
+    j = device(db, "claim")
+    # An employee made the same number in Tally first; the web voucher was not posted.
+    a = dict(series="hsd", number=v["number"], date="2026-10-19", party="Made in Tally", vehicle="", qty=5, rate=100, item_amt=500, party_amt=500, roff=0)
+    db.ok(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([tally_object('taken-guid', a, alter=9)]))})", anon=True)
+    db.ok(f"select tally_bridge_finish('{TOKEN}','{INSTANCE}','{j['id']}','{j['lease_token']}','conflict','{{}}','Already exists in Tally')", anon=True)
+    db.ok(f"select tally_bridge_control('renumber','{v['id']}')", user=OWNER)
+    adopted = db.json(f"select to_jsonb(t) from tally_vouchers t where number='{v['number']}'")
+    assert adopted["bridge_guid"] == "taken-guid" and adopted["party"] == "Made in Tally" and adopted["source"] == "tally"
+    assert db.ok(f"select number from tally_vouchers where id='{v['id']}'") != v["number"]
+    assert db.ok(f"select count(*) from tally_bridge_jobs where voucher_id='{adopted['id']}'") == "0"  # nothing posted back
+    twin = tally_object('twin-guid', dict(a, party='Typed twice'), alter=10)
+    result = db.json(f"select tally_bridge_ingest('{TOKEN}','{INSTANCE}',{lit(json.dumps([twin]))})", anon=True)
+    assert "is in Tally twice" in result["rejected"][0]["error"]
+    assert db.ok(f"select party from tally_vouchers where number='{v['number']}'") == "Made in Tally"
+    db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased')")
 
 
 def test_first_sync_metadata_links_without_changing_values_and_alterations_fetch_details(db):
