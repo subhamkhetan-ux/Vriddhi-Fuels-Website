@@ -116,7 +116,9 @@ nothing.
   for that day's vouchers with a day total. A day opens with **Customer
   totals** — each customer's quantity and value for the day, largest first —
   which folds away (remembered on the device). Voucher cards show the
-  customer's full name. Back steps up one level, like Esc
+  customer's full name. Under the day total, **Day Book · Excel / XML**
+  downloads that day's vouchers (every product) as Tally Prime exports its Day
+  Book — see *Day Book downloads* below. Back steps up one level, like Esc
   in Tally. Values are the stock-item value before round-off; vouchers
   deleted in Tally are listed but not counted. Pending vouchers and old ones
   are both included. The search box on the first level still finds vouchers
@@ -237,6 +239,29 @@ today; the app follows.
 The standalone app at `/tanker/` is unchanged and keeps working — both read
 the same data file, and this app reuses the tanker app's letterhead, stamp,
 fonts and `.docx` builder rather than keeping a second copy of them.
+
+## Day Book downloads
+
+At the bottom of a day in Stock Summary, **Excel (.xlsx)** and **XML (.xml)**
+give that day's HSD, MS and XtraGreen credit vouchers as the files Tally Prime
+exports from its Day Book — made in the app by [`daybook.js`](./daybook.js):
+
+- **Excel** is Tally's "Sales Register" export cell for cell (company heading,
+  Date / Particulars / Vch Type / Qty / Rate / Vehicle / Vch No. / Debit /
+  Credit, Tally's fonts, rules, number formats and merges, the total where
+  Tally puts it): the file the Ledger app's **Import Sales** reads. Debit is
+  the customer amount after round-off; vouchers are by type, then number.
+- **XML** is Tally's Day Book XML byte for byte (UTF-16, Tally's field order
+  and placeholders), vouchers in the order they were entered. What Tally takes
+  from the customer ledger — address, PAN, VAT dealer type, GSTIN, pincode —
+  comes from the **Master XML import**, so import the Master once (again) to
+  fill it; until then those lines are left out. GUID and ALTERID come from the
+  bridge; Tally's internal keys (VCHKEY, MASTERID, VOUCHERKEY) are left out.
+- Checked against a real Tally export of 22-10-2026: given the same data the
+  XML is byte-identical and the Excel identical in every cell.
+  `tests/fixtures/tally-daybook-sample.xml` is that export with every name,
+  address, GSTIN, PAN, vehicle and GUID made up.
+- Vouchers deleted or changed in Tally are left out (the count is shown).
 
 ## Bulk bills & slips
 

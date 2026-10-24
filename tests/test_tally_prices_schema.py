@@ -98,3 +98,15 @@ def test_an_earlier_invoice_imported_later_does_not_override_the_days_last_price
     # re-pricing the day's last invoice follows it
     imp("MS801", 108.5)
     assert memory(db, "Order Co", "ms") == [("2026-06-10", 108.5, "MS801")]
+
+
+def test_master_import_keeps_what_tally_prints_on_the_customers_vouchers(db):
+    parties = [{"name": "Sample Customer A Private Limited", "gstin": "21ZZZZZ1000Z1Z0", "regType": "Regular", "state": "Odisha",
+                "place": "Odisha", "pincode": "700001", "country": "India", "address": ["Plot 1", "Demo Road"],
+                "pan": "ZZZZZ1000Z", "vatDealerType": "Regular"},
+               {"name": "Walk-in Buyer", "address": [], "pan": ""}]
+    db.json(f"select tally_import_master({lit(json.dumps(parties))})", user=OWNER)
+    a = db.json("select to_jsonb(p) from tally_parties p where name='Sample Customer A Private Limited'")
+    assert a["address"] == ["Plot 1", "Demo Road"] and a["pan"] == "ZZZZZ1000Z" and a["vat_dealer_type"] == "Regular"
+    b = db.json("select to_jsonb(p) from tally_parties p where name='Walk-in Buyer'")
+    assert b["address"] is None and b["pan"] is None

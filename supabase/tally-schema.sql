@@ -61,6 +61,10 @@ alter table public.tally_parties add column if not exists state           text;
 alter table public.tally_parties add column if not exists place_of_supply text;
 alter table public.tally_parties add column if not exists pincode         text;
 alter table public.tally_parties add column if not exists country         text;
+-- what Tally prints on the customer's vouchers (Day Book XML download)
+alter table public.tally_parties add column if not exists address         jsonb;
+alter table public.tally_parties add column if not exists pan             text;
+alter table public.tally_parties add column if not exists vat_dealer_type text;
 
 create table if not exists public.tally_vouchers (
   id          uuid primary key default gen_random_uuid(),
@@ -506,16 +510,19 @@ begin
       x->>'name' as name, nullif(x->>'gstin','') as gstin,
       nullif(x->>'regType','') as reg_type, nullif(x->>'state','') as state,
       nullif(x->>'place','') as place_of_supply,
-      nullif(x->>'pincode','') as pincode, nullif(x->>'country','') as country
+      nullif(x->>'pincode','') as pincode, nullif(x->>'country','') as country,
+      case when jsonb_typeof(x->'address') = 'array' and jsonb_array_length(x->'address') > 0 then x->'address' end as address,
+      nullif(x->>'pan','') as pan, nullif(x->>'vatDealerType','') as vat_dealer_type
     from jsonb_array_elements(p_parties) x
     where coalesce(x->>'name','') <> ''
   ), ins as (
-    insert into tally_parties as tp (name, gstin, reg_type, state, place_of_supply, pincode, country)
-      select name, gstin, reg_type, state, place_of_supply, pincode, country from src
+    insert into tally_parties as tp (name, gstin, reg_type, state, place_of_supply, pincode, country, address, pan, vat_dealer_type)
+      select name, gstin, reg_type, state, place_of_supply, pincode, country, address, pan, vat_dealer_type from src
     on conflict (name) do update set
       gstin = excluded.gstin, reg_type = excluded.reg_type, state = excluded.state,
       place_of_supply = excluded.place_of_supply, pincode = excluded.pincode,
-      country = excluded.country
+      country = excluded.country, address = excluded.address, pan = excluded.pan,
+      vat_dealer_type = excluded.vat_dealer_type
     returning (xmax = 0) as inserted
   )
   select count(*) filter (where inserted) into added from ins;

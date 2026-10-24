@@ -846,3 +846,58 @@ def test_a_days_stock_summary_has_customer_totals_and_cards_show_full_names(brow
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert not errors, errors
     page.close()
+
+
+def test_a_days_day_book_downloads_as_tallys_excel_and_xml(browser,server,tmp_path):
+    import openpyxl
+    page=browser.new_page(viewport={'width':390,'height':900},accept_downloads=True)
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK)
+    page.add_init_script("""(()=>{
+      const row=(id,series,number,party,qty,rate,party_amt,extra)=>Object.assign({id,series,number,date:'2026-10-22',party,vehicle:'OD00AA0001',
+        qty:String(qty),rate:String(rate),item_amt:String(Math.round(qty*rate*100)/100),party_amt:String(party_amt),
+        roff:String(Math.round((party_amt-qty*rate)*100)/100),status:'history',source:'app',bridge_state:'synced',
+        created_at:'2026-10-22T0'+id.slice(1)+':00:00Z'},extra||{});
+      window.customerPriceParties=[{name:'Sample Customer A Private Limited',gstin:'21ZZZZZ1000Z1Z0',reg_type:'Regular',state:'Odisha',
+        place_of_supply:'Odisha',pincode:'700001',country:'India',address:['Plot 1','Demo Road'],pan:'ZZZZZ1000Z',vat_dealer_type:'Regular'}];
+      window.customerPriceVouchers=[
+        row('v2','ms','MS690','Sample Customer A Private Limited',200,109.01,21802),
+        row('v1','hsd','4331','Sample Customer A Private Limited',12000,99.5,1194000,
+          {bridge_guid:'00000000-0000-4000-8000-000000000000-0000dd53',bridge_alter:80115}),
+        row('v3','hsd','4340','Walk-in Buyer',27.8,100.74,2800,{vehicle:''}),
+        row('v4','hsd','4341','Gone Buyer',10,100,1000,{bridge_state:'deleted'})];
+    })();""")
+    page.goto(server+'/tally/')
+    page.locator('#ssHomeTable').get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='22/10/2026',exact=False).click()
+    box=page.locator('.ss-daybook')
+    assert '3 vouchers' in box.inner_text() and '1 voucher deleted or changed in Tally left out' in box.inner_text()
+    with page.expect_download() as d:
+        box.get_by_role('button',name='Excel (.xlsx)').click()
+    assert d.value.suggested_filename=='DayBook 22-10-2026.xlsx'
+    xlsx=tmp_path/'d.xlsx';d.value.save_as(xlsx)
+    ws=openpyxl.load_workbook(xlsx)['Sales Register']
+    assert ws['A1'].value=='VRIDDHI FUELS (2026-27)' and ws['A5'].value.startswith('E-Mail') and ws['A7'].value=='For 22-Oct-26'
+    assert [ws.cell(r,7).value for r in (10,11,12)]==['4331','4340','MS690']  # HSD, then MS (every product of the day)
+    assert ws['H11'].value==2800 and ws['D10'].number_format=='""0.000" LTR"' and ws['A13'].value=='Total:'
+    with page.expect_download() as d:
+        box.get_by_role('button',name='XML (.xml)').click()
+    assert d.value.suggested_filename=='DayBook 22-10-2026.xml'
+    xmlf=tmp_path/'d.xml';d.value.save_as(xmlf)
+    raw=xmlf.read_bytes()
+    assert raw[:2]==b'\xff\xfe'
+    text=raw[2:].decode('utf-16-le')
+    assert '\r\n' in text and text.count('<VOUCHER ')==3
+    order=[__import__('re').search(r'<VOUCHERNUMBER>(.*?)<',v).group(1) for v in text.split('<VOUCHER ')[1:]]
+    assert order==['4331','MS690','4340']  # as entered, like Tally's Day Book
+    first=text.split('<VOUCHER ')[1]
+    assert first.startswith('REMOTEID="00000000-0000-4000-8000-000000000000-0000dd53" VCHTYPE="HSD CREDIT"')
+    for want in ('<ALTERID> 80115</ALTERID>','<ADDRESS>Plot 1</ADDRESS>','<BUYERPINNUMBER>ZZZZZ1000Z</BUYERPINNUMBER>',
+                 '<VATDEALERTYPE>Regular</VATDEALERTYPE>','<PARTYGSTIN>21ZZZZZ1000Z1Z0</PARTYGSTIN>'):
+        assert want in first, want
+    assert '<NAME>00000000-0000-4000-8000-000000000000</NAME>' in text  # the company's Tally GUID
+    walkin=text.split('<VOUCHER ')[3]
+    assert '<LEDGERNAME>R/off</LEDGERNAME>' in walkin and 'UDF:EIVEHNO' not in walkin and '<GUID>' not in walkin
+    assert not errors, errors
+    page.close()
