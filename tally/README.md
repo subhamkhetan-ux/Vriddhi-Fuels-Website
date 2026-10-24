@@ -252,15 +252,18 @@ exports from its Day Book — made in the app by [`daybook.js`](./daybook.js):
   Tally puts it): the file the Ledger app's **Import Sales** reads. Debit is
   the customer amount after round-off; vouchers are by type, then number.
 - **XML** is Tally's Day Book XML byte for byte (UTF-16, Tally's field order
-  and placeholders), vouchers in the order they were entered. What Tally takes
-  from the customer ledger — address, PAN, VAT dealer type, GSTIN, pincode —
-  comes from the **Master XML import**, so import the Master once (again) to
-  fill it; until then those lines are left out. GUID and ALTERID come from the
-  bridge; Tally's internal keys (VCHKEY, MASTERID, VOUCHERKEY) are left out.
-- Checked against a real Tally export of 22-10-2026: given the same data the
-  XML is byte-identical and the Excel identical in every cell.
-  `tests/fixtures/tally-daybook-sample.xml` is that export with every name,
-  address, GSTIN, PAN, vehicle and GUID made up.
+  and placeholders), vouchers in Tally's entry order. For every voucher the
+  bridge has read, Tally's own copy (kept in the cloud) supplies its internal
+  keys (VCHKEY, MASTERID, VOUCHERKEY…) and the customer details Tally printed
+  on it (address, PAN, GST registration, VAT dealer type), and its GUID gives
+  the order — so the file is exactly Tally's. For vouchers the bridge never
+  read, the customer details come from the **Master XML import** (import it
+  once more to add addresses and PANs) and Tally's internal keys are left out.
+- Checked against real Tally exports of 22-10-2026 and 23-10-2026: given the
+  same data the XML is byte-identical (36 vouchers on the 23rd, including two
+  renumbered in Tally and a customer that changed GST registration) and the
+  Excel identical in every cell. `tests/fixtures/tally-daybook-sample.xml` is
+  such an export with every name, address, GSTIN, PAN, vehicle and GUID made up.
 - Vouchers deleted or changed in Tally are left out (the count is shown).
 
 ## Bulk bills & slips

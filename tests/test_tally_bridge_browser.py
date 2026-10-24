@@ -25,6 +25,7 @@ window.__VF_TEST_SUPABASE_FACTORY = () => {
       if(name==='tally_bridge_control'&&['on','off'].includes(args.p_action))window.bridgeOn=args.p_action==='on';
       if(name==='tally_bridge_pair_code')return Promise.resolve({data:{company:settings.company,code:'c'.repeat(64)}});
       if(name==='tally_bridge_report')return Promise.resolve({data:{key:'report1',state:'pending',fetched_at:'2026-10-18T12:00:00Z',content:window.reportFixture || '<table><tr><td>Test Debtor</td><td>₹ 1,234.00</td></tr></table><script>parent.pwned=true</script><img src="https://attacker.invalid/leak">',params:args}});
+      if(name==='tally_bridge_vouchers_xml')return Promise.resolve({data:window.bridgeVoucherXml||{},error:null});
       if(name==='tally_bridge_browse')return Promise.resolve({data:[{guid:'g1',updated_at:new Date().toISOString(),deleted:false,data:{number:'101',party:'Example Customer',voucher_type:'Sales'}}]});
       return Promise.resolve({data:null,error:null});
     },
@@ -900,4 +901,34 @@ def test_a_days_day_book_downloads_as_tallys_excel_and_xml(browser,server,tmp_pa
     walkin=text.split('<VOUCHER ')[3]
     assert '<LEDGERNAME>R/off</LEDGERNAME>' in walkin and 'UDF:EIVEHNO' not in walkin and '<GUID>' not in walkin
     assert not errors, errors
+    page.close()
+
+
+def test_day_book_xml_with_the_bridges_tally_copies_is_tallys_file_byte_for_byte(browser,server,tmp_path):
+    """The bridge keeps Tally's own copy of each voucher: its keys and the customer details Tally printed come
+    from there, and its GUID gives Tally's entry order, so the download is Tally's export exactly."""
+    from tally_bridge.tally import parse, object_data
+    raw=(ROOT/'tests/fixtures/tally-daybook-sample.xml').read_bytes()
+    copies,vouchers={},[]
+    tally_order=[]
+    for v in parse(raw).iter('VOUCHER'):
+        o=object_data('Voucher',v); a=o['data']['app_voucher']
+        copies[o['guid']]=o['data']['xml']; tally_order.append(a['number'])
+        vouchers.append(dict(id='v'+a['number'],series=a['series'],number=a['number'],date=a['date'],party=a['party'],vehicle=a['vehicle'],
+            qty=a['qty'],rate=a['rate'],item_amt=a['item_amt'],party_amt=a['party_amt'],roff=a['roff'],status='history',source='app',
+            bridge_state='synced',bridge_guid=o['guid'],bridge_alter=o['alter_id']))
+    # saved in the app in another order (vouchers renumbered in Tally): Tally's own order must still win
+    for i,v in enumerate(reversed(vouchers)): v['created_at']='2026-10-22T00:00:%02dZ'%i
+    page=browser.new_page(accept_downloads=True)
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK)
+    page.add_init_script('window.customerPriceVouchers='+json.dumps(vouchers)+';window.bridgeVoucherXml='+json.dumps(copies)+';')
+    page.goto(server+'/tally/')
+    page.locator('#ssHomeTable').get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.get_by_role('button',name='22/10/2026',exact=False).click()
+    with page.expect_download() as d:
+        page.locator('.ss-daybook').get_by_role('button',name='XML (.xml)').click()
+    out=tmp_path/'d.xml';d.value.save_as(out)
+    assert page.evaluate("bridgeCalls.find(c=>c.name==='tally_bridge_vouchers_xml').args.p_guids.length")==len(vouchers)
+    assert out.read_bytes()==raw
     page.close()

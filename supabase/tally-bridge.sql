@@ -718,6 +718,16 @@ begin
   return (select to_jsonb(o) from tally_bridge_objects o where kind=p_kind and guid=p_guid);
 end $$;
 
+-- Tally's own copy of these vouchers, as the bridge read it (the Day Book XML
+-- download takes Tally's keys and the customer details it printed from it).
+create or replace function public.tally_bridge_vouchers_xml(p_guids text[]) returns jsonb
+language plpgsql stable security definer set search_path=public,pg_temp as $$
+begin
+  perform _tally_auth();
+  return coalesce((select jsonb_object_agg(guid,data->>'xml') from tally_bridge_objects
+    where kind='Voucher' and not deleted and guid=any(p_guids[1:1000]) and data ? 'xml'),'{}'::jsonb);
+end $$;
+
 -- Import from Tally works while paired. Keep this copy identical to tally-schema.sql.
 create or replace function public.tally_import_daybook(p_vouchers jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$

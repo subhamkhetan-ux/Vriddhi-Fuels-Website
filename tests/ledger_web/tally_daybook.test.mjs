@@ -121,3 +121,37 @@ test('the Master import keeps each customer’s address, PAN and VAT dealer type
   assert.deepEqual([a.name, a.address, a.pan, a.vatDealerType, a.pincode], ['Sample & Sons', ['Plot 1', 'Demo & Co Road'], 'ZZZZZ1000Z', 'Regular', '700001']);
   assert.deepEqual([b.name, b.address, b.pan, b.vatDealerType], ['Walk-in Buyer', [], '', '']);
 });
+
+test('a customer that re-registered gets the GST details that apply now, whatever the order in the file', () => {
+  const html = fs.readFileSync(new URL('../../tally/index.html', import.meta.url), 'utf8');
+  const start = html.indexOf('var TALLY = {');
+  const end = html.indexOf('buildVoucherXml: buildVoucherXml, buildEnvelope: buildEnvelope };', start);
+  const mod = { exports: {} };
+  new Function('module', html.slice(start, html.indexOf('\n}', end) + 2))(mod);
+  // Tally lists the older Telangana registration and address first, the current Odisha ones after
+  // (and the reverse for the second customer): the latest "applicable from" wins either way.
+  const reg = (from, gstin, st) => `<LEDGSTREGDETAILS.LIST><APPLICABLEFROM>${from}</APPLICABLEFROM><GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>
+    <PLACEOFSUPPLY>${st}</PLACEOFSUPPLY><GSTIN>${gstin}</GSTIN><STATE>${st}</STATE></LEDGSTREGDETAILS.LIST>`;
+  const mail = (from, line, pin, st) => `<LEDMAILINGDETAILS.LIST><ADDRESS.LIST TYPE="String"><ADDRESS>${line}</ADDRESS></ADDRESS.LIST>
+    <APPLICABLEFROM>${from}</APPLICABLEFROM><PINCODE>${pin}</PINCODE><STATE>${st}</STATE><COUNTRY>India</COUNTRY></LEDMAILINGDETAILS.LIST>`;
+  const older = [reg('20230401', '36ZZZZZ2000Z1Z1', 'Telangana'), mail('20230401', 'Old office', '500001', 'Telangana')];
+  const newer = [reg('20250601', '21ZZZZZ2000Z1Z2', 'Odisha'), mail('20250601', 'Plant road', '768001', 'Odisha')];
+  const future = [reg('20991231', '27ZZZZZ2000Z1Z3', 'Maharashtra'), mail('20991231', 'Future', '400001', 'Maharashtra')];
+  const master = `<ENVELOPE><BODY><IMPORTDATA><REQUESTDATA>
+    <TALLYMESSAGE><GROUP NAME="Sundry Debtors"><PARENT>Current Assets</PARENT></GROUP></TALLYMESSAGE>
+    <TALLYMESSAGE><LEDGER NAME="Moved Co"><PARENT>Sundry Debtors</PARENT><GSTIN>36ZZZZZ2000Z1Z1</GSTIN>
+      ${older[0]}${newer[0]}${future[0]}${older[1]}${newer[1]}${future[1]}</LEDGER></TALLYMESSAGE>
+    <TALLYMESSAGE><LEDGER NAME="Moved Co Two"><PARENT>Sundry Debtors</PARENT>
+      ${newer[0]}${older[0]}${newer[1]}${older[1]}</LEDGER></TALLYMESSAGE>
+  </REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`;
+  for (const d of mod.exports.parseMasterText(master).debtors)
+    assert.deepEqual([d.gstin, d.state, d.place, d.pincode, d.address], ['21ZZZZZ2000Z1Z2', 'Odisha', 'Odisha', '768001', ['Plant road']], d.name);
+});
+
+test('linked vouchers follow Tally’s own entry order (the GUID counter)', () => {
+  const g = n => '00000000-0000-4000-8000-000000000000-0000dd' + n;
+  const v = (number, createdAt, guid) => ({ number, createdAt, guid, dateISO: '2026-10-23', seriesKey: 'hsd' });
+  // renumbered in Tally: the app saved #4360 before #4359
+  const order = D.daybookOrder([v('4360', 1, g('76')), v('4359', 2, g('75')), v('4400', 1.5), v('4358', 0, g('74'))]);
+  assert.deepEqual(order.map(x => x.number), ['4358', '4359', '4400', '4360']);
+});

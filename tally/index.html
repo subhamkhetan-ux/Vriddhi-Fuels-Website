@@ -1029,6 +1029,23 @@ function parseDaybookText(text){
   return { vouchers: out, skipped: skipped };
 }
 
+// The entry of a dated Tally list (LEDGSTREGDETAILS, LEDMAILINGDETAILS) that
+// applies on `day` (YYYYMMDD, default today): the latest APPLICABLEFROM on or
+// before it; an undated entry counts from the start. null when there is none.
+function applicableBlock(body, list, day){
+  if (!day){
+    var now = new Date();
+    day = String(now.getFullYear()) + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0");
+  }
+  var re = new RegExp("<" + list + "\\.LIST(?:\\s[^>]*)?>[\\s\\S]*?<\\/" + list + "\\.LIST>", "g");
+  var best = null, bestFrom = "";
+  (body.match(re) || []).forEach(function(b){
+    var from = (xmlTag(b, "APPLICABLEFROM") || "19000101").replace(/-/g, "");
+    if (from <= day && (best === null || from >= bestFrom)){ best = b; bestFrom = from; }
+  });
+  return best;
+}
+
 // Master (ledgers): return the ledgers under the Sundry Debtors group
 // (including subgroups, e.g. RCP COMPANIES), each with its GST details so
 // exported vouchers carry the right party GST information.
@@ -1042,34 +1059,36 @@ function parseMasterText(text){
     if (!name) continue;
     var parent = xmlTag(body, "PARENT");
     if (kind === "GROUP"){ groups[name] = parent; continue; }
-    // GST registration details (last block = latest APPLICABLEFROM)
-    var regType = "", state = "", place = "";
-    var gd = body.match(/<LEDGSTREGDETAILS\.LIST(?:\s[^>]*)?>[\s\S]*?<\/LEDGSTREGDETAILS\.LIST>/g);
-    if (gd && gd.length){
-      var last = gd[gd.length - 1];
-      regType = xmlTag(last, "GSTREGISTRATIONTYPE");
-      state   = xmlTag(last, "STATE");
-      place   = xmlTag(last, "PLACEOFSUPPLY");
+    // GST registration and mailing details are dated lists in Tally Prime (a
+    // customer that moved or re-registered keeps its old entries). Tally uses the
+    // entry with the latest "applicable from" up to the voucher date, whatever the
+    // order in the file — as the bridge's ledger_gst() does; here, as of today.
+    var gstBlock = applicableBlock(body, "LEDGSTREGDETAILS"), mail = applicableBlock(body, "LEDMAILINGDETAILS");
+    var regType = "", state = "", place = "", gstin = "";
+    if (gstBlock){
+      regType = xmlTag(gstBlock, "GSTREGISTRATIONTYPE");
+      state   = xmlTag(gstBlock, "STATE");
+      place   = xmlTag(gstBlock, "PLACEOFSUPPLY");
+      gstin   = xmlTag(gstBlock, "GSTIN");
     }
-    // mailing details: state/country/pincode fallbacks
-    var md = body.match(/<LEDMAILINGDETAILS\.LIST(?:\s[^>]*)?>[\s\S]*?<\/LEDMAILINGDETAILS\.LIST>/);
+    if (!gstin) gstin = xmlTag(body, "GSTIN") || xmlTag(body, "PARTYGSTIN");
     var country = "", pincode = "";
-    if (md){
-      if (!state) state = xmlTag(md[0], "STATE");
-      country = xmlTag(md[0], "COUNTRY");
-      pincode = xmlTag(md[0], "PINCODE");
+    if (mail){
+      if (!state) state = xmlTag(mail, "STATE");
+      country = xmlTag(mail, "COUNTRY");
+      pincode = xmlTag(mail, "PINCODE");
     }
     if (!pincode) pincode = xmlTag(body, "PINCODE");
     // the address lines Tally prints on the customer's vouchers (Prime keeps them in
     // the mailing details; older releases at the top of the ledger)
-    var addrBlock = ((md && md[0]) || body).match(/<ADDRESS\.LIST(?:\s[^>]*)?>([\s\S]*?)<\/ADDRESS\.LIST>/);
+    var addrBlock = (mail || body).match(/<ADDRESS\.LIST(?:\s[^>]*)?>([\s\S]*?)<\/ADDRESS\.LIST>/);
     var address = [];
     if (addrBlock){
       var ar = /<ADDRESS(?:\s[^>]*)?>([^<]*)<\/ADDRESS>/g, am;
       while ((am = ar.exec(addrBlock[1]))) if (decodeEnt(am[1]).trim()) address.push(decodeEnt(am[1]).trim());
     }
     ledgers.push({ name: name, parent: parent,
-      gstin: xmlTag(body, "GSTIN"), regType: regType, state: state,
+      gstin: gstin, regType: regType, state: state,
       place: place, pincode: pincode, country: country,
       address: address, pan: xmlTag(body, "INCOMETAXNUMBER"), vatDealerType: xmlTag(body, "VATDEALERTYPE") });
   }
@@ -1503,6 +1522,11 @@ var CloudBackend = {
     var pParties  = c.from("tally_parties").select("name,gstin,reg_type,state,place_of_supply,pincode,country").order("name");
     // separate so a database without the column (tally-schema.sql not re-run) still loads
     var pCompanyFy = c.from("tally_settings").select("company_fy").eq("id", 1).single();
+    // what Tally prints on a customer's vouchers (Day Book XML); separate, so a
+    // database without these columns (tally-schema.sql not re-run) still loads
+    var pPartyMaster = c.from("tally_parties").select("name,address,pan,vat_dealer_type").then(function(res){
+      return res.error ? [] : (res.data || []);
+    }, function(){ return []; });
     function fetchVouchers(acc, from){
       return c.from("tally_vouchers").select("*").range(from, from + 999).then(function(page){
         if (page.error) throw new Error(page.error.message);
@@ -1522,7 +1546,7 @@ var CloudBackend = {
       }, function(){ return acc; });
     }
     var self = this;
-    return Promise.all([pSettings, pSeries, pParties, fetchVouchers([], 0), pCompanyFy, fetchPrices([], 0)]).then(function(r){
+    return Promise.all([pSettings, pSeries, pParties, fetchVouchers([], 0), pCompanyFy, fetchPrices([], 0), pPartyMaster]).then(function(r){
       if (r[0].error) throw new Error(r[0].error.message);
       if (r[1].error) throw new Error(r[1].error.message);
       if (r[2].error) throw new Error(r[2].error.message);
@@ -1536,7 +1560,10 @@ var CloudBackend = {
       });
       s.parties = (r[2].data || []).map(function(row){ return row.name; });
       s.partyGst = {};
+      var extra = {};
+      r[6].forEach(function(row){ extra[row.name] = row; });
       (r[2].data || []).forEach(function(row){
+        if (extra[row.name]) row = Object.assign({}, row, extra[row.name]);
         if (row.gstin || row.reg_type || row.state || row.address){
           s.partyGst[row.name] = { gstin: row.gstin || "", regType: row.reg_type || "",
             state: row.state || "", place: row.place_of_supply || "",
@@ -2326,16 +2353,45 @@ function dayBookDownloads(day){
   });
   return box;
 }
+// What Tally's own copy of a voucher (read by the bridge) says that the app does
+// not keep: its internal keys and the customer details Tally printed on it.
+// Absent fields are "" so they stay out of the file, as in Tally's.
+function tallyCopyOf(xmlText){
+  var doc = new DOMParser().parseFromString(xmlText, "application/xml");
+  var v = doc.documentElement;
+  if (!v || v.nodeName !== "VOUCHER" || doc.getElementsByTagName("parsererror").length) return null;
+  function field(tag){
+    for (var c = v.firstElementChild; c; c = c.nextElementSibling) if (c.nodeName === tag) return c.textContent.trim();
+    return "";
+  }
+  var address = [], list = null;
+  for (var c = v.firstElementChild; c; c = c.nextElementSibling) if (c.nodeName === "ADDRESS.LIST") { list = c; break; }
+  if (list) for (var a = list.firstElementChild; a; a = a.nextElementSibling) if (a.nodeName === "ADDRESS") address.push(a.textContent);
+  return { vchKey: v.getAttribute("VCHKEY") || undefined, masterId: field("MASTERID") || undefined,
+    voucherKey: field("VOUCHERKEY") || undefined, retainKey: field("VOUCHERRETAINKEY") || undefined,
+    alterId: field("ALTERID") || undefined,
+    master: { address: address, gstin: field("PARTYGSTIN"), regType: field("GSTREGISTRATIONTYPE"), state: field("STATENAME"),
+      place: field("PLACEOFSUPPLY"), pincode: field("PARTYPINCODE"), country: field("COUNTRYOFRESIDENCE"),
+      pan: field("BUYERPINNUMBER"), consigneePan: field("CONSIGNEEPINNUMBER"), vatDealerType: field("VATDEALERTYPE") } };
+}
 function downloadDayBook(kind, day){
   var list = dayBookVouchers(day);
   if (!list.length){ toast("No vouchers on this day"); return; }
   var name = "DayBook " + VFSlips.dmy(day);
   if (kind === "xml"){
-    // Tally's company GUID begins every voucher GUID it issues
-    var linked = list.filter(function(v){ return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i.test(v.guid || ""); })[0];
-    var text = VFDayBook.xml({ company: tallyCompany(day), companyGuid: linked ? linked.guid.slice(0, 36) : "",
-      companyState: TALLY.companyState, vouchers: VFDayBook.daybookOrder(list) });
-    if (VFSlips.download(new Blob([VFDayBook.utf16(text)], { type: "text/xml" }), name + ".xml")) toast("Downloaded " + name + ".xml");
+    var guids = list.map(function(v){ return v.guid; }).filter(Boolean);
+    (backend.cloud && guids.length ? backend.rpc("tally_bridge_vouchers_xml", { p_guids: guids }).catch(function(){ return {}; })
+      : Promise.resolve({})).then(function(copies){
+      list.forEach(function(v){
+        var copy = copies && copies[v.guid] ? tallyCopyOf(copies[v.guid]) : null;
+        if (copy) Object.assign(v, copy);
+      });
+      // Tally's company GUID begins every voucher GUID it issues
+      var linked = list.filter(function(v){ return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i.test(v.guid || ""); })[0];
+      var text = VFDayBook.xml({ company: tallyCompany(day), companyGuid: linked ? linked.guid.slice(0, 36) : "",
+        companyState: TALLY.companyState, vouchers: VFDayBook.daybookOrder(list) });
+      if (VFSlips.download(new Blob([VFDayBook.utf16(text)], { type: "text/xml" }), name + ".xml")) toast("Downloaded " + name + ".xml");
+    }).catch(oops);
     return;
   }
   var file = VFDayBook.excel({ heading: dayBookHeading(day), day: day, vouchers: list });
