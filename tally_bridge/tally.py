@@ -103,9 +103,15 @@ def ledger_gst(v, as_of=None):
         entries = [e for e in v.findall(path) if text(e, "APPLICABLEFROM", "19000101").replace("-", "") <= day]
         return max(entries, key=lambda e: text(e, "APPLICABLEFROM", "19000101").replace("-", "")) if entries else v
     gst, mailing = applicable("LEDGSTREGDETAILS.LIST"), applicable("LEDMAILINGDETAILS.LIST")
+    # The address Tally prints on the customer's invoices (the mailing details' lines;
+    # older releases keep them at the top of the ledger).
+    lines = mailing.find("ADDRESS.LIST") if mailing.find("ADDRESS.LIST") is not None else v.find("ADDRESS.LIST")
+    address = [a.text.strip() for a in (lines.findall("ADDRESS") if lines is not None else []) if a.text and a.text.strip()]
     return dict(gstin=text(gst,"GSTIN",text(v,"PARTYGSTIN")), reg_type=text(gst,"GSTREGISTRATIONTYPE",text(v,"GSTREGISTRATIONTYPE")),
                 state=text(mailing,"STATE",text(v,"LEDSTATENAME")), place_of_supply=text(gst,"PLACEOFSUPPLY",text(v,"PLACEOFSUPPLY")),
-                pincode=text(mailing,"PINCODE",text(v,"PINCODE")), country=text(mailing,"COUNTRY",text(v,"COUNTRYNAME")))
+                pincode=text(mailing,"PINCODE",text(v,"PINCODE")), country=text(mailing,"COUNTRY",text(v,"COUNTRYNAME")),
+                address=address, pan=text(v,"INCOMETAXNUMBER"), vat_dealer_type=text(v,"VATDEALERTYPE"),
+                mailing_name=text(mailing,"MAILINGNAME",text(v,"MAILINGNAME")))
 
 
 def export_request(company, kind, methods="*", formula=None, since=None):
@@ -341,16 +347,29 @@ def voucher_xml(company, p, existing=None):
     v = ET.Element("VOUCHER", VCHTYPE=vt, ACTION="Alter" if existing is not None else "Create",
                    OBJVIEW="Invoice Voucher View")
     g, party = p.get("gst") or {}, p["party"]
+    mailing = g.get("mailing_name") or party  # the ledger's Mailing Name, as Tally's party details show it
     state = g.get("state") or "Odisha"
     fields = {"DATE": p["date"].replace("-", ""), "EFFECTIVEDATE": p["date"].replace("-", ""),
-              "GSTREGISTRATIONTYPE": g.get("reg_type") or "Unregistered/Consumer", "STATENAME": state,
+              "GSTREGISTRATIONTYPE": g.get("reg_type") or "Unregistered/Consumer",
+              # every invoice made in Tally carries it, "Regular" whatever the GST registration
+              "VATDEALERTYPE": g.get("vat_dealer_type") or "Regular", "STATENAME": state,
               "COUNTRYOFRESIDENCE": g.get("country") or "India", "PLACEOFSUPPLY": g.get("place_of_supply") or state,
               "VOUCHERTYPENAME": vt, "VOUCHERNUMBER": p["number"], "PARTYNAME": party,
               "CMPGSTIN": "21AATFV8250A1Z8", "PARTYLEDGERNAME": party, "CMPGSTREGISTRATIONTYPE": "Regular",
-              "PARTYMAILINGNAME": party, "CONSIGNEEMAILINGNAME": party, "CONSIGNEESTATENAME": state,
+              "PARTYMAILINGNAME": mailing, "CONSIGNEEMAILINGNAME": mailing, "CONSIGNEESTATENAME": state,
               "CMPGSTSTATE": "Odisha", "CONSIGNEECOUNTRYNAME": g.get("country") or "India",
               "BASICBASEPARTYNAME": party, "BASICBUYERNAME": party, "PERSISTEDVIEW": "Invoice Voucher View",
               "VCHENTRYMODE": "Item Invoice", "ISINVOICE": "Yes"}
+    if g.get("pan"):
+        fields.update(BUYERPINNUMBER=g["pan"], CONSIGNEEPINNUMBER=g["pan"])
+    # Invoice entry in Tally copies the customer's address, PAN and dealer type from
+    # the ledger; an imported voucher has only what it carries, so it carries them.
+    address = [str(a).strip() for a in (g.get("address") or []) if str(a or "").strip()]
+    for list_tag, line_tag in (("ADDRESS.LIST", "ADDRESS"), ("BASICBUYERADDRESS.LIST", "BASICBUYERADDRESS")):
+        if address:
+            lst = ET.SubElement(v, list_tag, TYPE="String")
+            for line in address:
+                tag(lst, line_tag, line)
     for k, val in fields.items():
         tag(v, k, val)
     tag(v, "GSTREGISTRATION", "Odisha Registration", TAXTYPE="GST", TAXREGISTRATION="21AATFV8250A1Z8")
@@ -362,9 +381,12 @@ def voucher_xml(company, p, existing=None):
         tag(v, "CONSIGNEEPINCODE", g["pincode"])
     def ledger(name, value, party_entry=False):
         e = ET.SubElement(v, "LEDGERENTRIES.LIST")
-        for k, val in (("LEDGERNAME", name), ("ISDEEMEDPOSITIVE", "Yes" if Decimal(str(value)) < 0 else "No"),
+        # Invoice entry keeps the round-off on the sales side ("No") whatever its sign.
+        for k, val in (("LEDGERNAME", name), ("ISDEEMEDPOSITIVE", "Yes" if party_entry and Decimal(str(value)) < 0 else "No"),
                        ("ISPARTYLEDGER", "Yes" if party_entry else "No"), ("AMOUNT", amount(value))):
             tag(e, k, val)
+        if not party_entry:
+            tag(e, "VATEXPAMOUNT", amount(value))  # as Tally's invoice entry fills the round-off line
     ledger(party, -Decimal(str(p["party_amt"])), True)
     if Decimal(str(p["roff"])):
         ledger("R/off", p["roff"])
@@ -396,8 +418,10 @@ def voucher_xml(company, p, existing=None):
             v.find("LEDGERENTRIES.LIST").append(bill)
         # Tally's own REMOTEID/VCHKEY/GUID identify the voucher being altered.
         original.set("ACTION", "Alter")
-        replace = {e.tag for e in v} | {"ALLLEDGERENTRIES.LIST", "INVENTORYENTRIES.LIST",
-                    "{TallyUDF}EIVEHNO.LIST", "PARTYGSTIN", "CONSIGNEEGSTIN", "PARTYPINCODE", "CONSIGNEEPINCODE"}
+        # The party's details are all replaced, so a changed customer leaves none of the old one's behind.
+        replace = {e.tag for e in v} | {"ALLLEDGERENTRIES.LIST", "INVENTORYENTRIES.LIST", "{TallyUDF}EIVEHNO.LIST",
+                    "PARTYGSTIN", "CONSIGNEEGSTIN", "PARTYPINCODE", "CONSIGNEEPINCODE", "ADDRESS.LIST",
+                    "BASICBUYERADDRESS.LIST", "BUYERPINNUMBER", "CONSIGNEEPINNUMBER"}
         for e in list(original):
             if e.tag in replace:
                 original.remove(e)
@@ -641,7 +665,10 @@ class Tally:
         if (hit := self.cached(key)) is not None:
             return hit or None
         try:
-            ledgers = self.collection("Ledger", "*", "$Name = " + literal(party), identities=False)
+            # "*" may leave out a ledger's lists; the address, PAN and dated details are asked for by name.
+            ledgers = self.collection("Ledger", ["*", "Address", "LedMailingDetails", "LedGSTRegDetails",
+                                                 "IncomeTaxNumber", "VATDealerType"],
+                                      "$Name = " + literal(party), identities=False)
         except TallyProblem:
             return None
         return self.remember(key, ledger_gst(ledgers[0], as_of) if len(ledgers) == 1 else {}) or None

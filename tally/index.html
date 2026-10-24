@@ -878,7 +878,7 @@ function sanitizeTallyXml(s){
 }
 
 // v: {seriesKey, number, dateISO, party, vehicle?, rate, qty, itemAmt, partyAmt, roff, gst?}
-// v.gst (from the party's Tally master): {gstin, regType, state, place, pincode, country}
+// v.gst (from the party's Tally master): {gstin, regType, state, place, pincode, country, address[], pan, vatDealerType}
 // Party GST details are emitted so GST reports classify the sale correctly;
 // registered parties get PARTYGSTIN/CONSIGNEEGSTIN, unregistered ones the
 // same structure without GSTIN — both verified against the real daybook.
@@ -895,9 +895,20 @@ function buildVoucherXml(v){
   var x = [];
   x.push('  <TALLYMESSAGE xmlns:UDF="TallyUDF">');
   x.push('   <VOUCHER VCHTYPE="' + escXml(s.vchType) + '" ACTION="Create" OBJVIEW="Invoice Voucher View">');
+  // the customer's address (Master import), as Tally's own invoice entry fills it in
+  var address = (g.address || []).filter(function(a){ return String(a || "").trim(); });
+  if (address.length){
+    ["ADDRESS", "BASICBUYERADDRESS"].forEach(function(t){
+      x.push('    <' + t + '.LIST TYPE="String">');
+      address.forEach(function(a){ x.push('     <' + t + '>' + escXml(String(a).trim()) + '</' + t + '>'); });
+      x.push('    </' + t + '.LIST>');
+    });
+  }
   x.push('    <DATE>' + d + '</DATE>');
   x.push('    <EFFECTIVEDATE>' + d + '</EFFECTIVEDATE>');
   x.push('    <GSTREGISTRATIONTYPE>' + escXml(regType) + '</GSTREGISTRATIONTYPE>');
+  // every invoice made in Tally carries it, "Regular" whatever the GST registration
+  x.push('    <VATDEALERTYPE>' + escXml(g.vatDealerType || "Regular") + '</VATDEALERTYPE>');
   x.push('    <STATENAME>' + escXml(pState) + '</STATENAME>');
   x.push('    <COUNTRYOFRESIDENCE>' + escXml(country) + '</COUNTRYOFRESIDENCE>');
   if (g.gstin) x.push('    <PARTYGSTIN>' + escXml(g.gstin) + '</PARTYGSTIN>');
@@ -921,6 +932,10 @@ function buildVoucherXml(v){
   x.push('    <BASICBASEPARTYNAME>' + party + '</BASICBASEPARTYNAME>');
   x.push('    <BASICBUYERNAME>' + party + '</BASICBUYERNAME>');
   x.push('    <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>');
+  if (g.pan){
+    x.push('    <BUYERPINNUMBER>' + escXml(g.pan) + '</BUYERPINNUMBER>');
+    x.push('    <CONSIGNEEPINNUMBER>' + escXml(g.pan) + '</CONSIGNEEPINNUMBER>');
+  }
   x.push('    <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>');
   x.push('    <ISINVOICE>Yes</ISINVOICE>');
   // Party ledger: debit = ISDEEMEDPOSITIVE Yes + negative amount
@@ -931,12 +946,13 @@ function buildVoucherXml(v){
   x.push('     <AMOUNT>' + fmtAmt(-v.partyAmt) + '</AMOUNT>');
   x.push('    </LEDGERENTRIES.LIST>');
   if (v.roff !== 0){
-    var roffDebit = v.roff < 0;
+    // Tally's invoice entry keeps the round-off on the sales side ("No") whatever its sign
     x.push('    <LEDGERENTRIES.LIST>');
     x.push('     <LEDGERNAME>' + escXml(TALLY.roundLedger) + '</LEDGERNAME>');
-    x.push('     <ISDEEMEDPOSITIVE>' + (roffDebit ? 'Yes' : 'No') + '</ISDEEMEDPOSITIVE>');
+    x.push('     <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>');
     x.push('     <ISPARTYLEDGER>No</ISPARTYLEDGER>');
     x.push('     <AMOUNT>' + fmtAmt(v.roff) + '</AMOUNT>');
+    x.push('     <VATEXPAMOUNT>' + fmtAmt(v.roff) + '</VATEXPAMOUNT>');
     x.push('    </LEDGERENTRIES.LIST>');
   }
   x.push('    <ALLINVENTORYENTRIES.LIST>');

@@ -230,10 +230,11 @@ class Worker:
         if missing:
             raise NotPosted("Not posted yet: create " + ", ".join(missing) + " in Tally Prime. It is posted by itself "
                             "within a few minutes once it exists (or correct the voucher here).")
-        # Tally's dated GST registration for this invoice; the app's copy if Tally has none.
+        # Tally's dated GST registration and address for this invoice; the app's copy
+        # (Master import) for whatever Tally's ledger leaves blank.
         gst = self.tally.party_gst(p["party"], p["date"])
         if gst:
-            p = dict(p, gst=gst)
+            p = dict(p, gst={**(p.get("gst") or {}), **{k: val for k, val in gst.items() if val}})
         # Cloud guard is committed BEFORE touching Tally. A lost response is recovery-only.
         try:
             self.cloud.rpc("tally_bridge_begin_write", p_job=job["id"], p_lease=job["lease_token"])

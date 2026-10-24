@@ -1,3 +1,16 @@
+Version **1.5.1** posts invoices exactly as Tally's own invoice entry makes them:
+
+- **Every party detail Tally fills in.** Checked field by field against 62 invoices made in Tally (Day Books of 22 and 23 Oct), invoices posted from the app were missing what Tally copies from the party ledger. They now carry it, read from the ledger in Tally as of the invoice date:
+  - the **address** (Party Details → Address; this was blank);
+  - the **PAN** (buyer's and consignee's PAN no.);
+  - the **VAT dealer type**;
+  - the ledger's **mailing name**.
+  Anything the ledger leaves blank comes from the app's Master import.
+- **Round-off as Tally enters it.** The round-off line stays on the sales side whatever its sign, with its expense amount, as on every invoice made in Tally. Before, a negative round-off was posted on the debit side.
+- **Edits replace them too.** Editing a voucher from the app replaces all of these, so changing the customer leaves none of the old customer's details behind.
+- **Earlier invoices.** Invoices posted earlier keep the old details until they are edited from the app, or the party is re-selected in Tally.
+- No SQL change. Open the app and choose **Update now**.
+
 Version **1.5.0** brings Tally edits back reliably and updates itself:
 
 - **Edits made in Tally show up in the app.** The bridge now reads any round-off ledger spelling (R/off, Round Off, Rounding Off…), names in any capitalisation, a blank rate, and vouchers saved in Accounting Voucher View. A voucher it still cannot hold is labelled with the reason (for example *Extra ledger in Tally: Freight*) and listed under Sync activity → **Changed in Tally**, with **Read again from Tally**. Vouchers older bridges marked *Changed in Tally* are read again.
