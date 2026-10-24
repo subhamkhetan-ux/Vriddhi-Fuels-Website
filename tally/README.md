@@ -113,7 +113,10 @@ nothing.
   Stock Summary. It opens on the products — High Speed Diesel, Motor Spirit
   and XtraGreen Diesel — with quantity (LTR), value and a grand total; tap a
   product for its dates (Tally shows months; the app keeps days), and a date
-  for that day's vouchers with a day total. Back steps up one level, like Esc
+  for that day's vouchers with a day total. A day opens with **Customer
+  totals** — each customer's quantity and value for the day, largest first —
+  which folds away (remembered on the device). Voucher cards show the
+  customer's full name. Back steps up one level, like Esc
   in Tally. Values are the stock-item value before round-off; vouchers
   deleted in Tally are listed but not counted. Pending vouchers and old ones
   are both included. The search box on the first level still finds vouchers
@@ -246,8 +249,10 @@ the slips as a separate A5 PDF, since they print on different paper.
   connection it lists the customers on the Tanker Billing sheet and offers
   **Connect the Ledger**. Invoices waiting for review in Tally are left out
   and counted.
-- Invoices are grouped by customer, all ticked: untick, or use **Select all**
-  and each customer's own box.
+- Invoices are listed **newest first** (date, then invoice number — the PDF
+  pages follow the same order), each with the customer's full name and bulk
+  ledger, all ticked: untick, use **Select all**, or pick one **Customer** to
+  see and print just theirs.
 - **Edit** on an invoice changes what prints — bill-to customer (only the
   units for a unit-wise customer), P.O. No., date, bill no., vehicle,
   quantity, price and amount — and **Back to the voucher's details** undoes
