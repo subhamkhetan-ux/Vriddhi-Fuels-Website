@@ -564,12 +564,22 @@ function utf16(text){
   return out;
 }
 
-// The Day Book's order: as entered (the app's save time), else by number.
+// The Day Book's order: the order the vouchers were entered in Tally. A
+// voucher's Tally GUID ends in a counter Tally gives each new voucher, so the
+// vouchers the bridge has linked take Tally's own order; the others keep their
+// place by when they were saved in the app.
+var GUID_COUNTER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-([0-9a-f]+)$/i;
 function daybookOrder(list){
-  return list.slice().sort(function(a, b){
+  var out = list.slice().sort(function(a, b){
     return String(a.dateISO).localeCompare(String(b.dateISO)) || (a.createdAt || 0) - (b.createdAt || 0)
       || ORDER.indexOf(a.seriesKey) - ORDER.indexOf(b.seriesKey) || numPart(a.number) - numPart(b.number);
   });
+  var counter = function(v){ var m = GUID_COUNTER.exec(v.guid || ""); return m ? parseInt(m[1], 16) : null; };
+  var slots = [], linked = [];
+  out.forEach(function(v, i){ if (counter(v) !== null){ slots.push(i); linked.push(v); } });
+  linked.sort(function(a, b){ return String(a.dateISO).localeCompare(String(b.dateISO)) || counter(a) - counter(b); });
+  slots.forEach(function(i, k){ out[i] = linked[k]; });
+  return out;
 }
 // The Excel export's order: by voucher type, then number.
 function registerOrder(list){

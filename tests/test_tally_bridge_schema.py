@@ -444,3 +444,14 @@ def test_switching_the_bridge_off_and_on_keeps_the_app_independent(db):
     db.ok("select tally_bridge_control('revoke')", user=OWNER)
     assert db.ok("select active from tally_bridge_config") == "f"
     assert "Pair a PC first" in db.fails("select tally_bridge_control('on')", user=OWNER)
+
+
+def test_the_day_book_gets_tallys_own_copy_of_linked_vouchers(db):
+    db.ok("""insert into tally_bridge_objects(kind,guid,alter_id,master_id,data,deleted) values
+      ('Voucher','copy-guid',5,9,'{"voucher_type":"HSD CREDIT","number":"99001","xml":"<VOUCHER VCHKEY=\\"k\\"/>"}',false),
+      ('Voucher','light-copy',5,9,'{"voucher_type":"HSD CREDIT","number":"99002","light":true}',false),
+      ('Voucher','gone-copy',5,9,'{"voucher_type":"HSD CREDIT","number":"99003","xml":"<VOUCHER/>"}',true)
+      on conflict do nothing""")
+    got = db.json("select tally_bridge_vouchers_xml(array['copy-guid','light-copy','gone-copy','missing'])", user=OWNER)
+    assert got == {"copy-guid": '<VOUCHER VCHKEY="k"/>'}
+    assert "permission denied" in db.fails("select tally_bridge_vouchers_xml(array['copy-guid'])", anon=True)
