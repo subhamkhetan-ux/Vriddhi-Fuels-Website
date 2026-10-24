@@ -1287,11 +1287,54 @@ def test_a_readback_the_day_book_has_not_returned_yet_is_retried_not_flagged(sto
         def lookup(self, p): raise NotReadYet("HSD CREDIT #TEST1 is in Tally but could not be read yet")
     cloud = Cloud()
     w = Worker(cloud, Slow(), store)
+    w.sleep = lambda seconds: None
     assert w.claim() and not any(n == "tally_bridge_finish" for n, _ in cloud.calls)  # checked again after its lease
     cloud.attempts = READ_TRIES
     w.claim()
     finish = [a for n, a in cloud.calls if n == "tally_bridge_finish"]
     assert finish and finish[0]["p_state"] == "conflict" and "Recheck Tally" in finish[0]["p_detail"]
+
+
+def test_a_just_posted_invoice_is_confirmed_as_soon_as_the_day_book_returns_it(store):
+    from tally_bridge.tally import NotReadYet
+    class Lagging(FakeTally):
+        misses = 0
+        def lookup(self, p):
+            if self.imports and self.misses < 2:  # Tally lists it; its Day Book returns it a few seconds later
+                self.misses += 1
+                raise NotReadYet("HSD CREDIT #TEST1 is in Tally but could not be read yet")
+            return super().lookup(p)
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            return job() if name == "tally_bridge_claim" else r
+    cloud, tally, waits = Cloud(), Lagging(), []
+    w = Worker(cloud, tally, store)
+    w.sleep = waits.append
+    assert w.claim()
+    finish = [a for n, a in cloud.calls if n == "tally_bridge_finish"]
+    assert finish[0]["p_state"] == "done" and tally.imports == 1  # in the same pass, never posted twice
+    assert waits == [2, 3]
+
+
+def test_a_read_back_is_not_retried_while_the_export_script_drives_tally(store):
+    from tally_bridge.tally import NotReadYet
+    class Slow(FakeTally):
+        def lookup(self, p): raise NotReadYet("HSD CREDIT #TEST1 is in Tally but could not be read yet")
+    class Cloud(FakeCloud):
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            return job() if name == "tally_bridge_claim" else r
+    waits, clock = [], [0]
+    cloud = Cloud()
+    w = Worker(cloud, Slow(), store, paused=lambda: True)
+    w.sleep = waits.append
+    assert w.claim() and waits == [] and not any(n == "tally_bridge_finish" for n, _ in cloud.calls)
+    # nor beyond about 100 seconds, well inside the job's three-minute lease
+    w = Worker(cloud, Slow(), store, clock=lambda: clock[0])
+    w.sleep = lambda s: (waits.append(s), clock.__setitem__(0, clock[0] + s + 20))
+    w.claim()
+    assert sum(waits) + 20 * len(waits) <= 100 + 20
 
 
 # ---- 1.5.0: updates from inside the app -----------------------------------------------------

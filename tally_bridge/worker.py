@@ -17,6 +17,10 @@ WINDOW_DAYS = 2
 # 1.0.x mirrored every master and voucher type; 2 kept only HSD/MS/XG CREDIT vouchers;
 # 3 re-reads them because 1.1.x details came from a collection export without fuel lines.
 JOURNAL = 3
+# A just-posted invoice that Tally lists before its Day Book returns it is read again after
+# these pauses (under a minute in all) while the bridge still holds the job, rather than only
+# after the job's three-minute lease runs out.
+READ_AGAIN = (2, 3, 5, 5, 10, 10, 15)
 # A read-back Tally keeps missing is put up for review after this many tries (a few minutes apart).
 READ_TRIES = 5
 # A voucher the web app asks to read again is read at most once a minute.
@@ -38,6 +42,7 @@ class Stopped(Exception):
 class Worker:
     def __init__(self, cloud, tally, store, clock=time.time, recovery=None, paused=None):
         self.cloud, self.tally, self.store, self.clock = cloud, tally, store, clock
+        self.sleep = time.sleep
         self.cloud.instance = str(uuid.uuid4())
         self.last_pulse = 0
         self.config = {}
@@ -261,6 +266,24 @@ class Worker:
             raise TallyProblem("Tally read-back of " + label + " does not match the submitted voucher. Review in Tally Prime.")
         self.confirmed(job, readback)
 
+    def post(self, job):
+        """The voucher job. Tally's Day Book usually returns a just-posted invoice within
+        seconds, so a read-back it has not returned yet is tried again here; the voucher is
+        never posted twice (the second pass finds it in Tally and only reads it)."""
+        start = self.clock()
+        for wait in READ_AGAIN:
+            try:
+                return self.voucher(job)
+            except NotReadYet as e:
+                if self.paused() or self.clock() - start + wait > 100:
+                    raise  # checked again once the job's lease (three minutes) runs out
+                self.progress(str(e))  # keeps the PC shown online meanwhile
+                if self.stop is None:
+                    self.sleep(wait)
+                elif self.stop.wait(wait):
+                    raise Stopped() from None
+        return self.voucher(job)
+
     def watching(self):
         count = self.store.count("Voucher")
         notice = self.store.get("tally_notice")  # e.g. two Tally copies open (guard.py)
@@ -335,7 +358,7 @@ class Worker:
                 self.tally.verify()
                 self.finish(job, "done", {"content": self.tally.report(job["payload"])})
             else:
-                self.voucher(job)
+                self.post(job)
         except CompanyNotOpen:
             raise  # closed between checks: the job's lease expires and it is claimed again later
         except NotReadYet as e:
