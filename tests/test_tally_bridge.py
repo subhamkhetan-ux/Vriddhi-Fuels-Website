@@ -17,7 +17,8 @@ from tally_bridge.worker import JOURNAL, Worker
 ROOT = Path(__file__).resolve().parents[1]
 ID = "d26d607a-40ba-4524-8fa2-c8c340855cb5"
 PAYLOAD = dict(id=ID, guid=None, expected_alter=None, series="hsd", number="TEST1", date="2026-10-19", party="Test & Sons",
-               vehicle="OD01A1234", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0, gst={})
+               vehicle="OD01A1234", qty=10, rate=100, item_amt=1000, party_amt=1000, roff=0,
+               gst={"master_at": "2026-10-19T00:00:00+00:00"})  # a customer from the Master import
 
 
 def voucher(p=None, alter=1):
@@ -57,8 +58,6 @@ class FakeTally:
         return self.found
     def missing_masters(self, p):
         return self.missing
-    def party_gst(self, party, as_of):
-        return None
     def voucher_mark(self):
         return None  # a Tally that does not report $AltVchId: every poll scans
     def by_guid(self, guids):
@@ -306,11 +305,13 @@ def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
     for series in ('hsd','ms','xg'):
         p=dict(PAYLOAD,series=series,qty=10.333,rate=101.25,item_amt=1046.22,party_amt=1046,roff=-0.22,
                gst=dict(gstin='21TESTGSTIN',reg_type='Regular',state='Odisha',place_of_supply='Odisha',country='India',pincode='768001',
-                       address=['Plot 7, Ring Road','Sambalpur'],pan='ZZZZZ1234Z',vat_dealer_type='Regular'))
+                       address=['Plot 7, Ring Road','Sambalpur'],pan='ZZZZZ1234Z',vat_dealer_type='Regular',
+                       mailing_name='Test and Sons (Unit 2)'))
         web=dict(seriesKey=series,number=p['number'],dateISO=p['date'],party=p['party'],vehicle=p['vehicle'],qty=p['qty'],
                  rate=p['rate'],itemAmt=p['item_amt'],partyAmt=p['party_amt'],roff=p['roff'],
                  gst=dict(gstin='21TESTGSTIN',regType='Regular',state='Odisha',place='Odisha',country='India',pincode='768001',
-                          address=['Plot 7, Ring Road','Sambalpur'],pan='ZZZZZ1234Z',vatDealerType='Regular'))
+                          address=['Plot 7, Ring Road','Sambalpur'],pan='ZZZZZ1234Z',vatDealerType='Regular',
+                          mailingName='Test and Sons (Unit 2)'))
         js=subprocess.run(['node','-e',script,json.dumps(web)],encoding='utf-8',capture_output=True,check=True).stdout
         a=parse(js).find('.//VOUCHER'); b=parse(voucher_xml('Test Company',p)).find('.//VOUCHER')
         # Compare semantic leaf paths; GUID/REMOTEID are the deliberate bridge additions.
@@ -324,6 +325,7 @@ def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
         assert leaves(a)==leaves(b)
         assert [x.text for x in a.findall('ADDRESS.LIST/ADDRESS')]==['Plot 7, Ring Road','Sambalpur']
         assert a.findtext('BUYERPINNUMBER')=='ZZZZZ1234Z' and a.findtext('VATDEALERTYPE')=='Regular'
+        assert a.findtext('PARTYMAILINGNAME')=='Test and Sons (Unit 2)'
 
 
 def test_report_removes_executable_content_and_retains_accounting_table():
@@ -391,33 +393,8 @@ def test_ledger_report_checks_live_name_and_scopes_native_request():
     assert len(requests)==1
 
 
-def test_prime_dated_gst_uses_the_invoice_date():
-    from tally_bridge.tally import ledger_gst
-    ledger=parse('''<LEDGER><LEDGSTREGDETAILS.LIST><APPLICABLEFROM>20260401</APPLICABLEFROM><GSTIN>OLDGST</GSTIN><GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE></LEDGSTREGDETAILS.LIST>
-      <LEDGSTREGDETAILS.LIST><APPLICABLEFROM>20261001</APPLICABLEFROM><GSTIN>NEWGST</GSTIN><GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE></LEDGSTREGDETAILS.LIST>
-      <LEDMAILINGDETAILS.LIST><APPLICABLEFROM>20260401</APPLICABLEFROM><STATE>Odisha</STATE><COUNTRY>India</COUNTRY></LEDMAILINGDETAILS.LIST></LEDGER>''').find('LEDGER')
-    assert ledger_gst(ledger,'2026-09-30')['gstin']=='OLDGST'
-    assert ledger_gst(ledger,'2026-10-19')['gstin']=='NEWGST'
-    assert ledger_gst(ledger,'2026-10-19')['state']=='Odisha'
-    assert ledger_gst(ledger,'2026-10-19')['address']==[]
-
-
-def test_party_address_comes_from_the_applicable_mailing_details():
-    from tally_bridge.tally import ledger_gst
-    ledger=parse('''<LEDGER><LEDMAILINGDETAILS.LIST><APPLICABLEFROM>20250401</APPLICABLEFROM><ADDRESS.LIST TYPE="String"><ADDRESS>Old Street</ADDRESS></ADDRESS.LIST><STATE>Telangana</STATE></LEDMAILINGDETAILS.LIST>
-      <LEDMAILINGDETAILS.LIST><APPLICABLEFROM>20261001</APPLICABLEFROM><ADDRESS.LIST TYPE="String"><ADDRESS>Plot 7, Ring Road</ADDRESS><ADDRESS> </ADDRESS><ADDRESS>Sambalpur</ADDRESS></ADDRESS.LIST><STATE>Odisha</STATE></LEDMAILINGDETAILS.LIST></LEDGER>''').find('LEDGER')
-    assert ledger_gst(ledger,'2026-10-19')['address']==['Plot 7, Ring Road','Sambalpur']
-    assert ledger_gst(ledger,'2026-09-30')['address']==['Old Street']
-    older=parse('<LEDGER><ADDRESS.LIST TYPE="String"><ADDRESS>Top Level Lane</ADDRESS></ADDRESS.LIST></LEDGER>').find('LEDGER')
-    assert ledger_gst(older,'2026-10-19')['address']==['Top Level Lane']
-
-
-def test_posted_invoice_carries_the_ledgers_pan_dealer_type_and_mailing_name():
-    from tally_bridge.tally import ledger_gst
-    ledger=parse('''<LEDGER><INCOMETAXNUMBER>ZZZZZ1234Z</INCOMETAXNUMBER><VATDEALERTYPE>Regular</VATDEALERTYPE>
-      <LEDMAILINGDETAILS.LIST><APPLICABLEFROM>20250401</APPLICABLEFROM><MAILINGNAME>Test and Sons (Unit 2)</MAILINGNAME></LEDMAILINGDETAILS.LIST></LEDGER>''').find('LEDGER')
-    g=ledger_gst(ledger,'2026-10-19')
-    assert (g['pan'],g['vat_dealer_type'],g['mailing_name'])==('ZZZZZ1234Z','Regular','Test and Sons (Unit 2)')
+def test_posted_invoice_carries_the_masters_pan_dealer_type_and_mailing_name():
+    g=dict(reg_type='Regular',gstin='21TESTGSTIN',pan='ZZZZZ1234Z',vat_dealer_type='Regular',mailing_name='Test and Sons (Unit 2)')
     v=parse(voucher_xml('Test Company',dict(PAYLOAD,roff=-0.39,party_amt=999.61,gst=g))).find('.//VOUCHER')
     assert v.findtext('BUYERPINNUMBER')==v.findtext('CONSIGNEEPINNUMBER')=='ZZZZZ1234Z'
     assert v.findtext('PARTYMAILINGNAME')==v.findtext('CONSIGNEEMAILINGNAME')=='Test and Sons (Unit 2)'
@@ -477,17 +454,28 @@ def test_posted_invoice_is_what_tallys_own_invoice_entry_makes():
         assert not [x for x in tallys-mine if x[0] not in sent and x[0] not in filled_by_tally], v.findtext('VOUCHERNUMBER')
 
 
-def test_worker_fills_blank_tally_fields_from_the_app_copy(store):
+def test_worker_posts_the_master_import_details_without_asking_tally(store):
     sent=[]
     class Recording(FakeTally):
-        def party_gst(self, party, as_of):
-            return dict(gstin='21TALLYGSTIN',reg_type='Regular',state='Odisha',address=[])
         def import_voucher(self, p, existing=None):
             sent.append(p); return super().import_voucher(p, existing)
-    p=dict(PAYLOAD,gst=dict(gstin='21OLDGSTIN',address=['Plot 7, Ring Road','Sambalpur'],pan='AAAPA1234A'))
-    Worker(FakeCloud(),Recording(),store).voucher(job(p))
-    assert sent[0]['gst']['gstin']=='21TALLYGSTIN'
-    assert sent[0]['gst']['address']==['Plot 7, Ring Road','Sambalpur']
+    g=dict(gstin='21TESTGSTIN',reg_type='Regular',state='Odisha',address=['Plot 7, Ring Road','Sambalpur'],pan='ZZZZZ1234Z',
+           master_at='2026-10-24T05:00:00+00:00')
+    tally=Recording()
+    Worker(FakeCloud(),tally,store).voucher(job(dict(PAYLOAD,gst=g)))
+    assert sent[0]['gst']==g and not hasattr(tally,'party_gst')
+
+
+def test_a_customer_never_in_the_master_import_waits_instead_of_posting_unregistered(store):
+    from tally_bridge.worker import NotPosted
+    tally=FakeTally()
+    for gst in ({}, dict(pincode='768001')):
+        with pytest.raises(NotPosted,match='Test & Sons is not in the app.s Master import'):
+            Worker(FakeCloud(),tally,store).voucher(job(dict(PAYLOAD,gst=gst)))
+    assert tally.imports==0
+    # an unregistered customer from the Master (nothing but its import date) posts
+    Worker(FakeCloud(),tally,store).voucher(job(dict(PAYLOAD,gst=dict(master_at='2026-10-24T05:00:00+00:00'))))
+    assert tally.imports==1
 
 
 def test_service_worker_never_caches_financial_api_or_other_apps():

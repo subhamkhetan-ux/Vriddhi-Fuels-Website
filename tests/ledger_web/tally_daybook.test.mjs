@@ -113,13 +113,24 @@ test('the Master import keeps each customer’s address, PAN and VAT dealer type
     <TALLYMESSAGE><LEDGER NAME="Sample &amp; Sons"><PARENT>Sundry Debtors</PARENT><INCOMETAXNUMBER>ZZZZZ1000Z</INCOMETAXNUMBER>
       <VATDEALERTYPE>Regular</VATDEALERTYPE><GSTIN>21ZZZZZ1000Z1Z0</GSTIN>
       <LEDMAILINGDETAILS.LIST><ADDRESS.LIST TYPE="String"><ADDRESS>Plot 1</ADDRESS><ADDRESS>Demo &amp; Co Road</ADDRESS></ADDRESS.LIST>
-        <APPLICABLEFROM>20260401</APPLICABLEFROM><PINCODE>700001</PINCODE><STATE>Odisha</STATE><COUNTRY>India</COUNTRY></LEDMAILINGDETAILS.LIST>
+        <APPLICABLEFROM>20260401</APPLICABLEFROM><MAILINGNAME>Sample and Sons (Unit 2)</MAILINGNAME><PINCODE>700001</PINCODE><STATE>Odisha</STATE><COUNTRY>India</COUNTRY></LEDMAILINGDETAILS.LIST>
     </LEDGER></TALLYMESSAGE>
     <TALLYMESSAGE><LEDGER NAME="Walk-in Buyer"><PARENT>Sundry Debtors</PARENT></LEDGER></TALLYMESSAGE>
   </REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`;
   const [a, b] = mod.exports.parseMasterText(master).debtors;
   assert.deepEqual([a.name, a.address, a.pan, a.vatDealerType, a.pincode], ['Sample & Sons', ['Plot 1', 'Demo & Co Road'], 'ZZZZZ1000Z', 'Regular', '700001']);
   assert.deepEqual([b.name, b.address, b.pan, b.vatDealerType], ['Walk-in Buyer', [], '', '']);
+  assert.deepEqual([a.mailingName, b.mailingName], ['Sample and Sons (Unit 2)', '']);
+});
+
+test('the Day Book prints the ledger’s mailing name, the ledger name without one', () => {
+  const lines = m => D.voucherLines(Object.assign({}, VOUCHERS[0], { master: m })).join('\n');
+  const named = lines({ mailingName: 'Unit & Two' });
+  assert.match(named, /<PARTYMAILINGNAME>Unit &amp; Two<\/PARTYMAILINGNAME>/);
+  assert.match(named, /<CONSIGNEEMAILINGNAME>Unit &amp; Two<\/CONSIGNEEMAILINGNAME>/);
+  const plain = lines({});
+  const party = VOUCHERS[0].party.replace(/&/g, '&amp;');
+  assert.ok(plain.includes('<PARTYMAILINGNAME>' + party + '</PARTYMAILINGNAME>'));
 });
 
 test('a customer that re-registered gets the GST details that apply now, whatever the order in the file', () => {

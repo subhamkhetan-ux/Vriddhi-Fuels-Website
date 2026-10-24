@@ -52,10 +52,10 @@ var VOUCHER = [
 "      <VOUCHERNUMBER>{{number}}</VOUCHERNUMBER>",
 "      <BASICBUYERNAME>{{party}}</BASICBUYERNAME>",
 "      <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>",
-"      <PARTYMAILINGNAME>{{party}}</PARTYMAILINGNAME>",
+"      <PARTYMAILINGNAME>{{mailing}}</PARTYMAILINGNAME>",
 "?pincode|      <PARTYPINCODE>{{pincode}}</PARTYPINCODE>",
 "?gstin|      <CONSIGNEEGSTIN>{{gstin}}</CONSIGNEEGSTIN>",
-"      <CONSIGNEEMAILINGNAME>{{party}}</CONSIGNEEMAILINGNAME>",
+"      <CONSIGNEEMAILINGNAME>{{consigneeMailing}}</CONSIGNEEMAILINGNAME>",
 "?pincode|      <CONSIGNEEPINCODE>{{pincode}}</CONSIGNEEPINCODE>",
 "      <CONSIGNEESTATENAME>{{state}}</CONSIGNEESTATENAME>",
 "      <CMPGSTSTATE>Odisha</CMPGSTSTATE>",
@@ -485,7 +485,8 @@ function money(n){ return (Math.round(Number(n || 0) * 100) / 100).toFixed(2); }
 function numPart(s){ var m = String(s == null ? "" : s).match(/(\d+)\s*$/); return m ? Number(m[1]) : 0; }
 
 // v: {seriesKey, number, dateISO, party, vehicle, qty, rate, itemAmt, partyAmt, roff,
-//     party master: {gstin, regType, state, place, pincode, country, address[], pan, consigneePan, vatDealerType},
+//     party master: {gstin, regType, state, place, pincode, country, address[], pan, consigneePan, vatDealerType,
+//                    mailingName, consigneeMailingName},
 //     Tally identity when known: guid, alterId (and masterId, voucherKey, retainKey, vchKey)}
 function voucherLines(v){
   var s = SERIES[v.seriesKey] || SERIES.hsd, m = v.master || {};
@@ -495,6 +496,7 @@ function voucherLines(v){
     vatDealerType: m.vatDealerType, state: state, country: m.country || "India", gstin: m.gstin,
     place: m.place || state, vt: s.vt, party: v.party, number: v.number, pincode: m.pincode, pan: m.pan,
     consigneePan: m.consigneePan === undefined ? m.pan : m.consigneePan,
+    mailing: m.mailingName || v.party, consigneeMailing: m.consigneeMailingName || m.mailingName || v.party,
     alterId: v.alterId, masterId: v.masterId, voucherKey: v.voucherKey, retainKey: v.retainKey,
     item: s.item, taxability: s.taxability, sales: s.sales, hsn: s.hsn, hsnDescription: s.hsnDescription,
     rate: money(v.rate), qty: Number(v.qty || 0).toFixed(3), itemAmount: money(v.itemAmt),

@@ -65,6 +65,12 @@ alter table public.tally_parties add column if not exists country         text;
 alter table public.tally_parties add column if not exists address         jsonb;
 alter table public.tally_parties add column if not exists pan             text;
 alter table public.tally_parties add column if not exists vat_dealer_type text;
+alter table public.tally_parties add column if not exists mailing_name    text;
+-- when the customer last came in a Master import: the bridge posts only with these
+-- details, so a customer never imported waits for the Master instead of going unregistered
+alter table public.tally_parties add column if not exists master_at       timestamptz;
+update public.tally_parties set master_at = now()
+  where master_at is null and (gstin is not null or reg_type is not null or state is not null or address is not null);
 
 create table if not exists public.tally_vouchers (
   id          uuid primary key default gen_random_uuid(),
@@ -495,7 +501,8 @@ drop function if exists public.tally_import_master(text[]);
 -- Additive merge: add the master's Sundry Debtors that are not already in the
 -- list; existing customers are never removed (re-upload only adds new ones).
 -- GST details are refreshed for every debtor in the file, existing included.
--- p_parties: jsonb array of {name, gstin, regType, state, place, pincode, country}
+-- p_parties: jsonb array of {name, gstin, regType, state, place, pincode, country,
+--            address[], pan, vatDealerType, mailingName}
 create or replace function public.tally_import_master(p_parties jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare added int;
@@ -512,17 +519,19 @@ begin
       nullif(x->>'place','') as place_of_supply,
       nullif(x->>'pincode','') as pincode, nullif(x->>'country','') as country,
       case when jsonb_typeof(x->'address') = 'array' and jsonb_array_length(x->'address') > 0 then x->'address' end as address,
-      nullif(x->>'pan','') as pan, nullif(x->>'vatDealerType','') as vat_dealer_type
+      nullif(x->>'pan','') as pan, nullif(x->>'vatDealerType','') as vat_dealer_type,
+      nullif(x->>'mailingName','') as mailing_name
     from jsonb_array_elements(p_parties) x
     where coalesce(x->>'name','') <> ''
   ), ins as (
-    insert into tally_parties as tp (name, gstin, reg_type, state, place_of_supply, pincode, country, address, pan, vat_dealer_type)
-      select name, gstin, reg_type, state, place_of_supply, pincode, country, address, pan, vat_dealer_type from src
+    insert into tally_parties as tp (name, gstin, reg_type, state, place_of_supply, pincode, country, address, pan, vat_dealer_type,
+                                     mailing_name, master_at)
+      select name, gstin, reg_type, state, place_of_supply, pincode, country, address, pan, vat_dealer_type, mailing_name, now() from src
     on conflict (name) do update set
       gstin = excluded.gstin, reg_type = excluded.reg_type, state = excluded.state,
       place_of_supply = excluded.place_of_supply, pincode = excluded.pincode,
       country = excluded.country, address = excluded.address, pan = excluded.pan,
-      vat_dealer_type = excluded.vat_dealer_type
+      vat_dealer_type = excluded.vat_dealer_type, mailing_name = excluded.mailing_name, master_at = excluded.master_at
     returning (xmax = 0) as inserted
   )
   select count(*) filter (where inserted) into added from ins;

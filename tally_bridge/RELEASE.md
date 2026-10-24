@@ -1,15 +1,17 @@
-Version **1.5.1** posts invoices exactly as Tally's own invoice entry makes them:
+Version **1.5.1** posts invoices exactly as Tally's own invoice entry makes them, from the app's Master import:
 
-- **Every party detail Tally fills in.** Checked field by field against 62 invoices made in Tally (Day Books of 22 and 23 Oct), invoices posted from the app were missing what Tally copies from the party ledger. They now carry it, read from the ledger in Tally as of the invoice date:
+- **Every party detail Tally fills in.** Checked field by field against 62 invoices made in Tally (Day Books of 22 and 23 Oct), invoices posted from the app were missing what Tally copies from the party ledger. They now carry it:
   - the **address** (Party Details → Address; this was blank);
   - the **PAN** (buyer's and consignee's PAN no.);
   - the **VAT dealer type**;
   - the ledger's **mailing name**.
-  Anything the ledger leaves blank comes from the app's Master import.
+- **From the Master import, not from Tally.** The bridge no longer reads the party ledger from Tally for each invoice. It posts with the customer's details from the app's Master import, which holds Tally's own ledgers, so Tally is asked less.
+  - Details are taken when the invoice is picked up for posting, so a Master imported in the meantime is what goes to Tally.
+  - A customer who has never been in a Master import is not posted as unregistered. The invoice waits with *is not in the app's Master import*, and posts by itself within a few minutes of the next Master import.
 - **Round-off as Tally enters it.** The round-off line stays on the sales side whatever its sign, with its expense amount, as on every invoice made in Tally. Before, a negative round-off was posted on the debit side.
-- **Edits replace them too.** Editing a voucher from the app replaces all of these, so changing the customer leaves none of the old customer's details behind.
+- **Edits replace them too.** Editing a voucher from the app replaces all of these details, so changing the customer leaves none of the old customer's details behind.
 - **Earlier invoices.** Invoices posted earlier keep the old details until they are edited from the app, or the party is re-selected in Tally.
-- No SQL change. Open the app and choose **Update now**.
+- **Re-run `tally-schema.sql`, then `tally-bridge.sql`, and import the Master XML once** (Home → Import from Tally): this stores the mailing names. Then open the app and choose **Update now**.
 
 Version **1.5.0** brings Tally edits back reliably and updates itself:
 

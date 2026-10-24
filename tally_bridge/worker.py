@@ -230,11 +230,13 @@ class Worker:
         if missing:
             raise NotPosted("Not posted yet: create " + ", ".join(missing) + " in Tally Prime. It is posted by itself "
                             "within a few minutes once it exists (or correct the voucher here).")
-        # Tally's dated GST registration and address for this invoice; the app's copy
-        # (Master import) for whatever Tally's ledger leaves blank.
-        gst = self.tally.party_gst(p["party"], p["date"])
-        if gst:
-            p = dict(p, gst={**(p.get("gst") or {}), **{k: val for k, val in gst.items() if val}})
+        # The customer's GSTIN, address, PAN… come from the app's Master import (Tally's own
+        # ledgers), not asked of Tally. A customer never imported waits for the Master rather
+        # than being posted as unregistered.
+        g = p.get("gst") or {}
+        if not any(g.get(k) for k in ("master_at", "reg_type", "gstin", "state")):
+            raise NotPosted("Not posted yet: " + p["party"] + " is not in the app's Master import. Import the Master XML "
+                            "from Tally (Home → Import from Tally); it is posted by itself within a few minutes.")
         # Cloud guard is committed BEFORE touching Tally. A lost response is recovery-only.
         try:
             self.cloud.rpc("tally_bridge_begin_write", p_job=job["id"], p_lease=job["lease_token"])
