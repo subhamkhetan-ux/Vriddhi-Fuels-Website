@@ -734,6 +734,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
 <script src="bridge.js"></script>
 <!-- Fuel slips: the Ledger app's Print Bills (A5 credit memos). -->
 <script src="slips.js"></script>
+<script src="daybook.js"></script>
 
 <!-- ============ Pure logic (no DOM) — also unit-testable in Node ============ -->
 <script>
@@ -1059,9 +1060,18 @@ function parseMasterText(text){
       pincode = xmlTag(md[0], "PINCODE");
     }
     if (!pincode) pincode = xmlTag(body, "PINCODE");
+    // the address lines Tally prints on the customer's vouchers (Prime keeps them in
+    // the mailing details; older releases at the top of the ledger)
+    var addrBlock = ((md && md[0]) || body).match(/<ADDRESS\.LIST(?:\s[^>]*)?>([\s\S]*?)<\/ADDRESS\.LIST>/);
+    var address = [];
+    if (addrBlock){
+      var ar = /<ADDRESS(?:\s[^>]*)?>([^<]*)<\/ADDRESS>/g, am;
+      while ((am = ar.exec(addrBlock[1]))) if (decodeEnt(am[1]).trim()) address.push(decodeEnt(am[1]).trim());
+    }
     ledgers.push({ name: name, parent: parent,
       gstin: xmlTag(body, "GSTIN"), regType: regType, state: state,
-      place: place, pincode: pincode, country: country });
+      place: place, pincode: pincode, country: country,
+      address: address, pan: xmlTag(body, "INCOMETAXNUMBER"), vatDealerType: xmlTag(body, "VATDEALERTYPE") });
   }
   function underSundryDebtors(g){
     var seen = {};
@@ -1078,7 +1088,8 @@ function parseMasterText(text){
     debtors: ledgers.filter(function(l){ return underSundryDebtors(l.parent); })
       .map(function(l){
         return { name: l.name, gstin: l.gstin, regType: l.regType,
-          state: l.state, place: l.place, pincode: l.pincode, country: l.country };
+          state: l.state, place: l.place, pincode: l.pincode, country: l.country,
+          address: l.address, pan: l.pan, vatDealerType: l.vatDealerType };
       })
       .sort(function(a,b){ return a.name.localeCompare(b.name); })
   };
@@ -1425,7 +1436,7 @@ var LocalBackend = {
       if (!have[d.name]){ have[d.name] = 1; state.parties.push(d.name); addedN++; }
       state.partyGst[d.name] = { gstin: d.gstin || "", regType: d.regType || "",
         state: d.state || "", place: d.place || "", pincode: d.pincode || "",
-        country: d.country || "" };
+        country: d.country || "", address: d.address || [], pan: d.pan || "", vatDealerType: d.vatDealerType || "" };
     });
     state.parties.sort(cmp);
     this._save();
@@ -1526,10 +1537,11 @@ var CloudBackend = {
       s.parties = (r[2].data || []).map(function(row){ return row.name; });
       s.partyGst = {};
       (r[2].data || []).forEach(function(row){
-        if (row.gstin || row.reg_type || row.state){
+        if (row.gstin || row.reg_type || row.state || row.address){
           s.partyGst[row.name] = { gstin: row.gstin || "", regType: row.reg_type || "",
             state: row.state || "", place: row.place_of_supply || "",
-            pincode: row.pincode || "", country: row.country || "" };
+            pincode: row.pincode || "", country: row.country || "",
+            address: Array.isArray(row.address) ? row.address : [], pan: row.pan || "", vatDealerType: row.vat_dealer_type || "" };
         }
       });
       s.queue = []; s.history = [];
@@ -1537,6 +1549,7 @@ var CloudBackend = {
         if (row.status === "history"){
           s.history.push({ id: row.id, seriesKey: row.series, number: row.number,
             dateISO: row.date, bridgeState: row.bridge_state, bridgeNote: row.bridge_note || "",
+            bridgeGuid: row.bridge_guid || "", bridgeAlter: row.bridge_alter || null,
             createdAt: row.created_at ? Date.parse(row.created_at) : 0,
             party: row.party, vehicle: row.vehicle || "", qty: parseFloat(row.qty),
             rate: parseFloat(row.rate), amount: parseFloat(row.item_amt),
@@ -1544,7 +1557,8 @@ var CloudBackend = {
             source: row.source });
         } else {
           s.queue.push({ id: row.id, seriesKey: row.series, number: row.number,
-            dateISO: row.date, bridgeState: row.bridge_state, bridgeNote: row.bridge_note || "", party: row.party, vehicle: row.vehicle || "",
+            dateISO: row.date, bridgeState: row.bridge_state, bridgeNote: row.bridge_note || "",
+            bridgeGuid: row.bridge_guid || "", bridgeAlter: row.bridge_alter || null, party: row.party, vehicle: row.vehicle || "",
             rate: parseFloat(row.rate), qty: parseFloat(row.qty),
             itemAmt: parseFloat(row.item_amt), partyAmt: parseFloat(row.party_amt),
             roff: parseFloat(row.roff),
@@ -2275,6 +2289,58 @@ function renderHistory(){
   table.appendChild(ssCustomerTotals(day));
   day.forEach(function(x){ el.appendChild(voucherRow(x, false)); });
   $("ssFoot").appendChild(ssTotalRow(sumUp(day), "Day total"));
+  $("ssFoot").appendChild(dayBookDownloads(ss.day));
+}
+
+/* ---------- the day's Day Book, as Tally exports it ----------
+   Excel (the "Sales Register" sheet the Ledger app's Import Sales reads) and
+   XML (Tally's Day Book export), for every product of the day — made by
+   daybook.js exactly as Tally Prime writes them. */
+function dayBookVouchers(day){
+  return summaryVouchers().filter(function(x){ return x.v.dateISO === day && summaryCounts(x); }).map(function(x){
+    var v = x.v, item = x.value || 0;
+    var party = v.partyAmt != null ? v.partyAmt : item;
+    return { seriesKey: v.seriesKey, number: v.number, dateISO: v.dateISO, party: v.party, vehicle: v.vehicle || "",
+      qty: v.qty, rate: v.rate, itemAmt: item, partyAmt: party, roff: v.roff != null ? v.roff : r2(party - item),
+      createdAt: v.createdAt || 0, guid: v.bridgeGuid || undefined, alterId: v.bridgeAlter || undefined,
+      master: gstFor(v.party) || {} };
+  });
+}
+// the company's address block, as at the top of Tally's export
+function dayBookHeading(day){
+  return [tallyCompany(day)].concat(DEFAULT_SLIP_HEADER.lines.slice(1).filter(function(l){ return !/^(GSTIN|State Name)/i.test(l); }));
+}
+function dayBookDownloads(day){
+  var list = dayBookVouchers(day);
+  var box = document.createElement("div");
+  box.className = "ss-daybook";
+  var left = summaryVouchers().filter(function(x){ return x.v.dateISO === day && !summaryCounts(x); }).length;
+  box.innerHTML = "<h3>Day Book · " + escHtml(dmy(day)) + "</h3>"
+    + '<div class="hint">Every product’s vouchers of the day (' + plural(list.length, "voucher") + "), as Tally Prime exports its Day Book"
+    + (left ? " · " + plural(left, "voucher") + " deleted or changed in Tally left out" : "") + ".</div>"
+    + '<div class="bk-actions"><button class="btn ghost" type="button" data-daybook="xlsx">⬇ Excel (.xlsx)</button>'
+    + '<button class="btn ghost" type="button" data-daybook="xml">⬇ XML (.xml)</button></div>';
+  box.querySelectorAll("[data-daybook]").forEach(function(b){
+    b.disabled = !list.length;
+    b.onclick = function(){ downloadDayBook(b.dataset.daybook, day); };
+  });
+  return box;
+}
+function downloadDayBook(kind, day){
+  var list = dayBookVouchers(day);
+  if (!list.length){ toast("No vouchers on this day"); return; }
+  var name = "DayBook " + VFSlips.dmy(day);
+  if (kind === "xml"){
+    // Tally's company GUID begins every voucher GUID it issues
+    var linked = list.filter(function(v){ return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i.test(v.guid || ""); })[0];
+    var text = VFDayBook.xml({ company: tallyCompany(day), companyGuid: linked ? linked.guid.slice(0, 36) : "",
+      companyState: TALLY.companyState, vouchers: VFDayBook.daybookOrder(list) });
+    if (VFSlips.download(new Blob([VFDayBook.utf16(text)], { type: "text/xml" }), name + ".xml")) toast("Downloaded " + name + ".xml");
+    return;
+  }
+  var file = VFDayBook.excel({ heading: dayBookHeading(day), day: day, vouchers: list });
+  if (VFSlips.download(new Blob([file], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), name + ".xlsx"))
+    toast("Downloaded " + name + ".xlsx");
 }
 
 // The day's quantity and value per customer, largest first, above its vouchers.
