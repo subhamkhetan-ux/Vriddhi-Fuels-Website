@@ -741,6 +741,14 @@ def test_bulk_bills_and_slips_for_the_ledgers_bulk_customers_in_one_pdf(browser,
     text=page.locator('#bkList').inner_text()
     assert '#4358' in text and '#4359' in text and '#4360' not in text and '#4361' not in text
     assert 'waiting for review in Tally is left out' in page.locator('#bkSource').inner_text()
+    # Newest first (also the PDF's page order), each with the customer's full name.
+    assert [t.split('\n')[0] for t in page.locator('.bk-row label').all_inner_texts()]==['SMC Power Generation Ltd','Grk Logistics Private Limited']
+    assert page.locator('.bk-row label small').first.inner_text().startswith('#4359')
+    # One customer's invoices: the filter; Select all and printing follow what is shown.
+    page.locator('#bkCustomer').select_option(label='Grk Logistics Private Limited (1)')
+    assert page.locator('.bk-row:visible').count()==1
+    assert '1 invoice ticked' in page.locator('#bkSummary').inner_text()
+    page.locator('#bkCustomer').select_option('')
     # SMC: the unit and its PO come from the Ledger; only SMC's two units are offered.
     smc=page.locator('.bk-row',has_text='#4359')
     smc.get_by_text('Bill to: SMC Power Generation LTD, UNIT II').wait_for()
@@ -797,4 +805,44 @@ def test_smc_bill_offers_only_its_two_units(browser,server):
     assert 'billed unit-wise' in page.locator('#blWarn').inner_text()
     page.locator('#blCustomer').select_option('SMC Power Generation LTD, UNIT I')
     assert page.locator('#blPA1').text_content()=='Hirma,'
+    page.close()
+
+
+def test_a_days_stock_summary_has_customer_totals_and_cards_show_full_names(browser,server):
+    page=browser.new_page(viewport={'width':390,'height':900})
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');
+      const row=(id,number,party,qty,extra)=>Object.assign({id,series:'hsd',number,date:today,party,vehicle:'OD23A3710',qty:String(qty),
+        rate:'100',item_amt:String(qty*100),party_amt:String(qty*100),roff:'0',status:'history',source:'app',bridge_state:'synced',
+        created_at:new Date().toISOString()},extra||{});
+      window.customerPriceVouchers=[row('v1','101','Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd',4000),
+        row('v2','102','Small Buyer',20),row('v3','103','Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd',1000),
+        row('v4','104','Small Buyer',10),row('v5','105','Cancelled Co',500,{bridge_state:'deleted'})];
+    })();""")
+    page.goto(server+'/tally/')
+    page.locator('#ssHomeTable').get_by_role('button',name='High Speed Diesel',exact=False).click()
+    page.locator('#ssTable button.ss-row').first.click()
+    totals=page.locator('details.ss-cust')
+    totals.wait_for()
+    assert totals.get_attribute('open') is not None and '2 customers' in totals.locator('summary').inner_text()
+    names=totals.locator('.ss-row:not(.ss-colhead):not(.ss-total) .ss-label b').all_inner_texts()
+    assert names==['Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd','Small Buyer']  # largest first; cancelled left out
+    assert '2 vouchers' in totals.locator('.ss-row',has_text='Small Buyer').inner_text()
+    assert '5,000.000' in totals.locator('.ss-row',has_text='Jay Hanuman').inner_text()
+    assert '5,030.000' in totals.locator('.ss-total').inner_text()
+    # Collapsed stays collapsed on this device.
+    totals.locator('summary').click()
+    page.wait_for_function("localStorage.getItem('vf_tally_ss_customers_open')==='0'")
+    page.locator('#btnBack').click();page.locator('#ssTable button.ss-row').first.click()
+    assert page.locator('details.ss-cust').get_attribute('open') is None
+    # The voucher cards show the whole customer name, on its own line.
+    card=page.locator('#histList .vitem',has_text='#101')
+    assert 'Jay Hanuman Transport and Multipurpose Co-Operative Society Ltd' in card.locator('.vparty').inner_text()
+    assert page.evaluate("[...document.querySelectorAll('.vparty')].every(e=>e.scrollWidth<=e.clientWidth+1)")
+    party,amount=card.locator('.vparty').bounding_box(),card.locator('.vamt').bounding_box()
+    assert amount['y']>party['y']+party['height']-1  # the amount and buttons sit below the name
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert not errors, errors
     page.close()

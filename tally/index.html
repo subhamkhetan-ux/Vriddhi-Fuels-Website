@@ -55,17 +55,15 @@
 /* ======================= Bulk bills & slips =======================
    Many invoices of bulk customers, ticked and printed as one PDF. */
 #scrBulk{max-width:880px;margin:0 auto}
-.bk-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-.bk-head .chkrow{margin-top:0}
 .bk-group{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--glass);margin-top:12px;overflow:hidden}
-.bk-ghead{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line-soft);font-weight:700;font-size:14px}
-.bk-ghead input,.bk-row input[type=checkbox]{width:21px;height:21px;accent-color:var(--orange);flex:none}
-.bk-ghead small{display:block;font-weight:500;color:var(--txt-3);font-size:12px}
+.bk-row input[type=checkbox]{width:21px;height:21px;accent-color:var(--orange);flex:none}
 .bk-row{padding:10px 12px;border-top:1px solid var(--line-soft)}
 .bk-row:first-of-type{border-top:0}
 .bk-line{display:flex;align-items:flex-start;gap:10px}
 .bk-line label{flex:1;min-width:0;cursor:pointer;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
 .bk-line label small{display:block;color:var(--txt-2);font-size:12.5px;font-variant-numeric:tabular-nums}
+.bk-who{display:block;font-size:15px;font-weight:700;color:var(--txt)}
+.bk-row[hidden]{display:none}
 .bk-line .linkbtn{min-height:44px;flex:none}
 .bk-warn{display:block;color:var(--amber);font-size:12.5px;font-weight:650}
 .bk-edit{margin-top:8px;padding-top:4px;border-top:1px dashed var(--line-soft)}
@@ -2274,8 +2272,43 @@ function renderHistory(){
     el.innerHTML = '<div class="empty">No ' + escHtml(TALLY.series[ss.product].label) + ' vouchers on this day.</div>';
     return;
   }
+  table.appendChild(ssCustomerTotals(day));
   day.forEach(function(x){ el.appendChild(voucherRow(x, false)); });
   $("ssFoot").appendChild(ssTotalRow(sumUp(day), "Day total"));
+}
+
+// The day's quantity and value per customer, largest first, above its vouchers.
+// Open or closed is remembered on the device.
+var LS_SS_CUST = "vf_tally_ss_customers_open";
+function ssCustomerTotals(day){
+  var by = {}, order = [];
+  day.filter(summaryCounts).forEach(function(x){
+    var k = x.v.party.toLowerCase();
+    if (!by[k]){ by[k] = { name: x.v.party, list: [] }; order.push(k); }
+    by[k].list.push(x);
+  });
+  var rows = order.map(function(k){ return { name: by[k].name, t: sumUp(by[k].list) }; })
+    .sort(function(a, b){ return b.t.value - a.t.value || b.t.qty - a.t.qty || a.name.localeCompare(b.name); });
+  var box = document.createElement("details");
+  box.className = "ss-cust";
+  var open = true;
+  try { open = localStorage.getItem(LS_SS_CUST) !== "0"; } catch(e){}
+  box.open = open;
+  var head = document.createElement("summary");
+  head.textContent = "Customer totals";
+  var count = document.createElement("small");
+  count.textContent = plural(rows.length, "customer");
+  head.appendChild(count);
+  box.appendChild(head);
+  box.appendChild(ssHeader("Customer"));
+  rows.forEach(function(r){
+    box.appendChild(ssRow({ name: r.name, sub: plural(r.t.n, "voucher"), qty: fmtLtr(r.t.qty), value: inr(r.t.value) }));
+  });
+  box.appendChild(ssTotalRow(sumUp(day), "Day total"));
+  box.addEventListener("toggle", function(){
+    try { localStorage.setItem(LS_SS_CUST, box.open ? "1" : "0"); } catch(e){}
+  });
+  return box;
 }
 $("histSearch").addEventListener("input", renderHistory);
 $("btnHistory").onclick = function(){ $("histSearch").value = ""; ss = { product: null, day: null }; show("history"); $("histSearch").focus(); };
@@ -3667,10 +3700,11 @@ function loadBulk(){
       if (bridgeBlocked(v)){ blocked++; return; }
       rows.push(bulkRow(v, cust, family, group));
     });
+    // newest first: by date, then invoice number, descending (also the PDF's page order)
     var order = ["hsd", "ms", "xg"];
     rows.sort(function(a, b){
-      return a.v.party.toLowerCase().localeCompare(b.v.party.toLowerCase()) || a.dateISO.localeCompare(b.dateISO)
-        || order.indexOf(a.v.seriesKey) - order.indexOf(b.v.seriesKey) || numPart(a.v.number) - numPart(b.v.number);
+      return b.dateISO.localeCompare(a.dateISO) || order.indexOf(a.v.seriesKey) - order.indexOf(b.v.seriesKey)
+        || numPart(b.v.number) - numPart(a.v.number);
     });
     rows.forEach(function(r, i){ r.i = i; });
     bulk.rows = rows;
@@ -3756,41 +3790,46 @@ function bulkPo(r){
   }).catch(function(){ /* the sheet's P.O. No. stays */ });
 }
 
-function bulkGroups(){
-  var groups = [], byKey = {};
+// The customers in the list, for the filter: name and number of invoices.
+function bulkCustomers(){
+  var by = {}, out = [];
   bulk.rows.forEach(function(r){
     var k = r.v.party.toLowerCase();
-    if (!byKey[k]){ byKey[k] = { name: r.v.party, title: r.group ? r.group.title : "", rows: [] }; groups.push(byKey[k]); }
-    byKey[k].rows.push(r);
+    if (!by[k]){ by[k] = { key: k, name: r.v.party, n: 0 }; out.push(by[k]); }
+    by[k].n++;
   });
-  return groups;
+  return out.sort(function(a, b){ return a.name.localeCompare(b.name); });
 }
+// the invoices on screen: all, or one customer's (the filter)
+function bulkShown(r){ return !bulk.filter || r.v.party.toLowerCase() === bulk.filter; }
+function bulkTicked(){ return bulk.rows.filter(function(r){ return r.pick && bulkShown(r); }); }
 
 function renderBulk(){
   var out = $("bkList"), from = $("bkFrom").value, to = $("bkTo").value;
   var dl = function(iso){ return iso.split("-").reverse().join("/"); };
   var range = from === to ? dl(from) : dl(from) + " to " + dl(to);
+  bulk.filter = "";
   if (!bulk.rows.length){
     out.innerHTML = '<div class="card"><div class="empty">No bulk customers’ invoices for ' + range + ".</div></div>";
     $("bkMake").hidden = true;
     return;
   }
-  var groups = bulkGroups();
-  out.innerHTML = '<div class="card"><div class="bk-head"><h2 class="cardtitle" style="margin:0">'
-    + plural(bulk.rows.length, "invoice") + " · " + range + "</h2>"
-    + '<div class="chkrow"><input type="checkbox" id="bkAll" data-all="1"><label for="bkAll" style="margin:0">Select all</label></div></div>'
-    + groups.map(function(g, gi){
-      return '<div class="bk-group"><div class="bk-ghead"><input type="checkbox" id="bkG' + gi + '" data-group="' + gi + '" aria-label="Select all of ' + escHtml(g.name) + '">'
-        + '<label for="bkG' + gi + '">' + escHtml(g.name) + (g.title ? "<small>" + escHtml(g.title) + "</small>" : "") + "</label></div>"
-        + g.rows.map(function(r){
-          return '<div class="bk-row" data-row="' + r.i + '"><div class="bk-line">'
-            + '<input type="checkbox" id="bkR' + r.i + '" data-pick="' + r.i + '"' + (r.pick ? " checked" : "") + ">"
-            + '<label for="bkR' + r.i + '" id="bkS' + r.i + '"></label>'
-            + '<button type="button" class="linkbtn" data-edit="' + r.i + '" aria-expanded="false" aria-label="Edit invoice ' + escHtml(r.v.number) + '">Edit</button></div>'
-            + '<div class="bk-edit" id="bkE' + r.i + '" hidden></div></div>';
-        }).join("") + "</div>";
-    }).join("") + "</div>";
-  bulk.groups = groups;
+  var customers = bulkCustomers();
+  out.innerHTML = '<div class="card"><h2 class="cardtitle" style="margin:0">' + plural(bulk.rows.length, "invoice") + " · " + range + "</h2>"
+    + '<div class="hint" style="margin-top:2px">Newest first — the PDF pages follow this order.</div>'
+    + '<div class="field"><label for="bkCustomer">Customer</label><select id="bkCustomer" data-filter="1">'
+    + '<option value="">All bulk customers (' + bulk.rows.length + ")</option>"
+    + customers.map(function(c){ return '<option value="' + escHtml(c.key) + '">' + escHtml(c.name) + " (" + c.n + ")</option>"; }).join("")
+    + "</select></div>"
+    + '<div class="chkrow"><input type="checkbox" id="bkAll" data-all="1"><label for="bkAll" style="margin:0">Select all</label></div>'
+    + '<div class="bk-group">'
+    + bulk.rows.map(function(r){
+      return '<div class="bk-row" data-row="' + r.i + '"><div class="bk-line">'
+        + '<input type="checkbox" id="bkR' + r.i + '" data-pick="' + r.i + '"' + (r.pick ? " checked" : "") + ">"
+        + '<label for="bkR' + r.i + '" id="bkS' + r.i + '"></label>'
+        + '<button type="button" class="linkbtn" data-edit="' + r.i + '" aria-expanded="false" aria-label="Edit invoice ' + escHtml(r.v.number) + '">Edit</button></div>'
+        + '<div class="bk-edit" id="bkE' + r.i + '" hidden></div></div>';
+    }).join("") + "</div></div>";
   bulk.rows.forEach(paintBulkRow);
   $("bkMake").hidden = false;
   bulkSummary();
@@ -3803,11 +3842,15 @@ function paintBulkRow(r){
   var warn = r.cust ? ""
     : r.family.length ? "Pick the unit (Edit) — the address, GSTIN and payment details print blank until then."
     : "Not on the Tanker Billing sheet — pick the customer (Edit), or the address prints blank.";
-  el.innerHTML = "<b>#" + escHtml(r.billNo) + "</b> · " + escHtml(VFBilling.fmtDate(r.dateISO)) + (r.vehicle ? " · " + escHtml(r.vehicle) : "")
-    + (bulkEdited(r) ? " · <em>edited</em>" : "")
+  // the customer's full name first; "Bill to" only when the bill names someone else (a unit)
+  var billTo = r.cust && VFBilling.normName(r.cust.company) !== VFBilling.normName(r.v.party);
+  el.innerHTML = '<b class="bk-who">' + escHtml(r.v.party) + "</b>"
+    + "<small><b>#" + escHtml(r.billNo) + "</b> · " + escHtml(VFBilling.fmtDate(r.dateISO)) + (r.vehicle ? " · " + escHtml(r.vehicle) : "")
+    + (bulkEdited(r) ? " · <em>edited</em>" : "") + "</small>"
     + "<small>" + escHtml(fmtLitres(r.qty)) + " L @ " + escHtml(fmtAmt(r.rate)) + " · ₹" + escHtml(VFBilling.inr(r.amount))
     + (r.po ? " · P.O. " + escHtml(r.po) : "") + "</small>"
-    + (r.cust ? "<small>Bill to: " + escHtml(r.cust.company) + (r.custAuto ? " (unit from the Ledger)" : "") + "</small>" : "")
+    + (billTo ? "<small>Bill to: " + escHtml(r.cust.company) + (r.custAuto ? " (unit from the Ledger)" : "") + "</small>" : "")
+    + (r.group ? "<small>" + escHtml(r.group.title) + "</small>" : "")
     + (warn ? '<span class="bk-warn">' + escHtml(warn) + "</span>" : "");
   var box = $("bkE" + r.i);
   if (box && box.dataset.ready){
@@ -3848,30 +3891,27 @@ function bulkEditForm(r){
 }
 
 function bulkSummary(){
-  var picked = bulk.rows.filter(function(r){ return r.pick; });
+  var picked = bulkTicked();
   var blank = picked.filter(function(r){ return !r.cust; }).length;
   $("bkSummary").textContent = !picked.length ? "Tick the invoices to print."
-    : plural(picked.length, "invoice") + " ticked: " + plural(picked.length * 2, "A4 page") + " of tanker bills, "
+    : (bulk.filter ? "Showing one customer. " : "") + plural(picked.length, "invoice") + " ticked: " + plural(picked.length * 2, "A4 page") + " of tanker bills, "
       + plural(picked.length, "A5 page") + " of fuel slips"
       + (blank ? ". " + plural(blank, "bill") + " without a Tanker Billing customer will print without the address." : ".");
   ["bkBillPdf","bkBillPrint","bkSlipPdf","bkSlipPrint"].forEach(function(id){ $(id).disabled = !picked.length; });
-  // the tick boxes above: all / some / none
-  var all = $("bkAll");
+  // Select all: all / some / none of the invoices on screen
+  var all = $("bkAll"), shown = bulk.rows.filter(bulkShown).length;
   if (all){
-    all.checked = picked.length === bulk.rows.length;
-    all.indeterminate = picked.length > 0 && picked.length < bulk.rows.length;
+    all.checked = shown > 0 && picked.length === shown;
+    all.indeterminate = picked.length > 0 && picked.length < shown;
   }
-  (bulk.groups || []).forEach(function(g, gi){
-    var n = g.rows.filter(function(r){ return r.pick; }).length, box = $("bkG" + gi);
-    if (box){ box.checked = n === g.rows.length; box.indeterminate = n > 0 && n < g.rows.length; }
-  });
 }
 
 $("bkList").addEventListener("change", function(e){
   var t = e.target, d = t.dataset;
-  if (d.all){ bulk.rows.forEach(function(r){ r.pick = t.checked; var b = $("bkR" + r.i); if (b) b.checked = t.checked; }); }
-  else if (d.group){
-    bulk.groups[Number(d.group)].rows.forEach(function(r){ r.pick = t.checked; $("bkR" + r.i).checked = t.checked; });
+  if (d.all){ bulk.rows.filter(bulkShown).forEach(function(r){ r.pick = t.checked; var b = $("bkR" + r.i); if (b) b.checked = t.checked; }); }
+  else if (d.filter){
+    bulk.filter = t.value;
+    bulk.rows.forEach(function(r){ var row = document.querySelector('[data-row="' + r.i + '"]'); if (row) row.hidden = !bulkShown(r); });
   }
   else if (d.pick){ bulk.rows[Number(d.pick)].pick = t.checked; }
   else if (d.f === "cust"){
@@ -3929,7 +3969,7 @@ $("bkList").addEventListener("click", function(e){
 // The ticked invoices' pages, one size per file: tanker bills (two A4 pages
 // each: customer copy, Receiving Copy) or fuel slips (one A5 page each).
 function bulkPages(kind){
-  var picked = bulk.rows.filter(function(r){ return r.pick; });
+  var picked = bulkTicked();
   if (kind === "slips"){
     var h = slip.header || DEFAULT_SLIP_HEADER, stamp = slipStampUrl();
     return Promise.resolve(picked.map(function(r){ return VFSlips.slipSvg(bulkSlipSale(r), slipHeaderOf(h, r.dateISO), stamp); }));
