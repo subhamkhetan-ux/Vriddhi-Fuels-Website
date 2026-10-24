@@ -1,6 +1,14 @@
-Version **1.5.1** puts the customer's address on invoices posted from the app:
+Version **1.5.1** posts invoices exactly as Tally's own invoice entry makes them:
 
-- **Address on posted invoices.** Vouchers created or edited from the web app now carry the party's address (Party Details → Address), taken from the ledger in Tally as of the invoice date, alongside the GSTIN that was already sent. If the ledger has no address, the address from the app's Master import is used. Invoices posted earlier keep a blank address until they are edited from the app (or the party is re-selected in Tally).
+- **Every party detail Tally fills in.** Checked field by field against 62 invoices made in Tally (Day Books of 22 and 23 Oct), invoices posted from the app were missing what Tally copies from the party ledger. They now carry it, read from the ledger in Tally as of the invoice date:
+  - the **address** (Party Details → Address; this was blank);
+  - the **PAN** (buyer's and consignee's PAN no.);
+  - the **VAT dealer type**;
+  - the ledger's **mailing name**.
+  Anything the ledger leaves blank comes from the app's Master import.
+- **Round-off as Tally enters it.** The round-off line stays on the sales side whatever its sign, with its expense amount, as on every invoice made in Tally. Before, a negative round-off was posted on the debit side.
+- **Edits replace them too.** Editing a voucher from the app replaces all of these, so changing the customer leaves none of the old customer's details behind.
+- **Earlier invoices.** Invoices posted earlier keep the old details until they are edited from the app, or the party is re-selected in Tally.
 - No SQL change. Open the app and choose **Update now**.
 
 Version **1.5.0** brings Tally edits back reliably and updates itself:

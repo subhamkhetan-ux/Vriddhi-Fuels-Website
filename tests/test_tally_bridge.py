@@ -1,5 +1,6 @@
 """Failure/restart behaviour and the XML protocol, with synthetic financial data."""
 import copy
+from collections import Counter
 import json
 from pathlib import Path
 import subprocess
@@ -305,11 +306,11 @@ def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
     for series in ('hsd','ms','xg'):
         p=dict(PAYLOAD,series=series,qty=10.333,rate=101.25,item_amt=1046.22,party_amt=1046,roff=-0.22,
                gst=dict(gstin='21TESTGSTIN',reg_type='Regular',state='Odisha',place_of_supply='Odisha',country='India',pincode='768001',
-                       address=['Plot 7, Ring Road','Sambalpur']))
+                       address=['Plot 7, Ring Road','Sambalpur'],pan='ZZZZZ1234Z',vat_dealer_type='Regular'))
         web=dict(seriesKey=series,number=p['number'],dateISO=p['date'],party=p['party'],vehicle=p['vehicle'],qty=p['qty'],
                  rate=p['rate'],itemAmt=p['item_amt'],partyAmt=p['party_amt'],roff=p['roff'],
                  gst=dict(gstin='21TESTGSTIN',regType='Regular',state='Odisha',place='Odisha',country='India',pincode='768001',
-                          address=['Plot 7, Ring Road','Sambalpur']))
+                          address=['Plot 7, Ring Road','Sambalpur'],pan='ZZZZZ1234Z',vatDealerType='Regular'))
         js=subprocess.run(['node','-e',script,json.dumps(web)],encoding='utf-8',capture_output=True,check=True).stdout
         a=parse(js).find('.//VOUCHER'); b=parse(voucher_xml('Test Company',p)).find('.//VOUCHER')
         # Compare semantic leaf paths; GUID/REMOTEID are the deliberate bridge additions.
@@ -322,6 +323,7 @@ def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
             return sorted(out)
         assert leaves(a)==leaves(b)
         assert [x.text for x in a.findall('ADDRESS.LIST/ADDRESS')]==['Plot 7, Ring Road','Sambalpur']
+        assert a.findtext('BUYERPINNUMBER')=='ZZZZZ1234Z' and a.findtext('VATDEALERTYPE')=='Regular'
 
 
 def test_report_removes_executable_content_and_retains_accounting_table():
@@ -410,6 +412,25 @@ def test_party_address_comes_from_the_applicable_mailing_details():
     assert ledger_gst(older,'2026-10-19')['address']==['Top Level Lane']
 
 
+def test_posted_invoice_carries_the_ledgers_pan_dealer_type_and_mailing_name():
+    from tally_bridge.tally import ledger_gst
+    ledger=parse('''<LEDGER><INCOMETAXNUMBER>ZZZZZ1234Z</INCOMETAXNUMBER><VATDEALERTYPE>Regular</VATDEALERTYPE>
+      <LEDMAILINGDETAILS.LIST><APPLICABLEFROM>20250401</APPLICABLEFROM><MAILINGNAME>Test and Sons (Unit 2)</MAILINGNAME></LEDMAILINGDETAILS.LIST></LEDGER>''').find('LEDGER')
+    g=ledger_gst(ledger,'2026-10-19')
+    assert (g['pan'],g['vat_dealer_type'],g['mailing_name'])==('ZZZZZ1234Z','Regular','Test and Sons (Unit 2)')
+    v=parse(voucher_xml('Test Company',dict(PAYLOAD,roff=-0.39,party_amt=999.61,gst=g))).find('.//VOUCHER')
+    assert v.findtext('BUYERPINNUMBER')==v.findtext('CONSIGNEEPINNUMBER')=='ZZZZZ1234Z'
+    assert v.findtext('PARTYMAILINGNAME')==v.findtext('CONSIGNEEMAILINGNAME')=='Test and Sons (Unit 2)'
+    assert v.findtext('PARTYLEDGERNAME')==v.findtext('BASICBUYERNAME')=='Test & Sons'
+    # Tally's invoice entry: the round-off stays on the sales side whatever its sign
+    roff=v.findall('LEDGERENTRIES.LIST')[1]
+    assert (roff.findtext('ISDEEMEDPOSITIVE'),roff.findtext('AMOUNT'),roff.findtext('VATEXPAMOUNT'))==('No','-0.39','-0.39')
+    # a ledger without PAN or dealer type: no PAN, and "Regular" as on every Tally invoice
+    bare=parse(voucher_xml('Test Company',PAYLOAD)).find('.//VOUCHER')
+    assert bare.find('BUYERPINNUMBER') is None and bare.findtext('VATDEALERTYPE')=='Regular'
+    assert bare.findtext('PARTYMAILINGNAME')=='Test & Sons'
+
+
 def test_posted_invoice_carries_the_party_address(store):
     from tally_bridge.tally import tag
     p=dict(PAYLOAD,gst=dict(gstin='21TESTGSTIN',reg_type='Regular',address=['Plot 7 & Co, Ring Road','Sambalpur']))
@@ -422,9 +443,38 @@ def test_posted_invoice_carries_the_party_address(store):
     original=voucher(dict(PAYLOAD,gst=dict(address=['Old Street'])))
     altered=parse(voucher_xml('Test Company',dict(p,guid=ID,expected_alter=1),original)).find('.//VOUCHER')
     assert [x.text for x in altered.findall('ADDRESS.LIST/ADDRESS')]==['Plot 7 & Co, Ring Road','Sambalpur']
-    # An alter without an address keeps the one in Tally.
-    kept=parse(voucher_xml('Test Company',dict(PAYLOAD,guid=ID,expected_alter=1),original)).find('.//VOUCHER')
-    assert [x.text for x in kept.findall('ADDRESS.LIST/ADDRESS')]==['Old Street']
+    # A customer without an address (in Tally's ledger or the app) leaves none of the old one's.
+    other=parse(voucher_xml('Test Company',dict(PAYLOAD,guid=ID,expected_alter=1),original)).find('.//VOUCHER')
+    assert other.find('ADDRESS.LIST') is None and other.find('BASICBUYERADDRESS.LIST') is None
+
+
+def test_posted_invoice_is_what_tallys_own_invoice_entry_makes():
+    # Tally's Day Book (anonymized): rebuilding each invoice made in Tally gives Tally's own
+    # values, and whatever else Tally holds it also fills in by itself on an import (as on
+    # MS690, posted by the app).
+    import re
+    raw=(ROOT/'tests/fixtures/tally-daybook-sample.xml').read_bytes().decode('utf-16')
+    vouchers=parse(re.sub(r'&#([0-8]|1[124-9]|2[0-9]|3[01]);','',raw)).findall('.//VOUCHER')
+    def leaves(n,path=''):
+        out=[]
+        for c in n:
+            name=path+'/'+c.tag.split('}')[-1]
+            out+=leaves(c,name) if len(c) else [(name,(c.text or '').strip())]
+        return out
+    imported={v.findtext('VOUCHERNUMBER'):v for v in vouchers}['MS690']
+    filled_by_tally={path for path,_ in leaves(imported)}
+    made=[v for v in vouchers if v is not imported]
+    assert len(made)==4 and any(v.find('ADDRESS.LIST') is not None for v in made)
+    for v in made:
+        g=dict(gstin=v.findtext('PARTYGSTIN') or '',reg_type=v.findtext('GSTREGISTRATIONTYPE'),state=v.findtext('STATENAME'),
+               place_of_supply=v.findtext('PLACEOFSUPPLY'),pincode=v.findtext('PARTYPINCODE') or '',country=v.findtext('COUNTRYOFRESIDENCE'),
+               address=[a.text for a in v.findall('ADDRESS.LIST/ADDRESS')],pan=v.findtext('BUYERPINNUMBER') or '',
+               vat_dealer_type=v.findtext('VATDEALERTYPE'))
+        ours=parse(voucher_xml('Test Company',dict(fuel_voucher(v),gst=g))).find('.//VOUCHER')
+        mine,tallys=Counter(leaves(ours)),Counter(leaves(v))
+        assert not mine-tallys, v.findtext('VOUCHERNUMBER')
+        sent={path for path,_ in mine}
+        assert not [x for x in tallys-mine if x[0] not in sent and x[0] not in filled_by_tally], v.findtext('VOUCHERNUMBER')
 
 
 def test_worker_fills_blank_tally_fields_from_the_app_copy(store):
@@ -709,12 +759,12 @@ def test_collection_export_lacks_fuel_lines_so_details_come_from_the_day_book():
 def test_stored_xml_drops_empty_fields_but_keeps_every_value():
     from tally_bridge.tally import tag
     v=voucher()
-    for name in ("VATDEALERTYPE","NARRATION","EWAYBILLDETAILS.LIST"): tag(v,name,"   ")
+    for name in ("BASICSHIPPEDBY","NARRATION","EWAYBILLDETAILS.LIST"): tag(v,name,"   ")
     xml=object_data("Voucher",v)["data"]["xml"]
-    assert "VATDEALERTYPE" not in xml and "EWAYBILLDETAILS" not in xml
+    assert "BASICSHIPPEDBY" not in xml and "EWAYBILLDETAILS" not in xml
     kept=parse(xml).find("VOUCHER")
     assert business_equal(fuel_voucher(kept),PAYLOAD) and identity(kept)==identity(v)
-    assert v.find("VATDEALERTYPE") is not None  # the live object is untouched
+    assert v.find("BASICSHIPPEDBY") is not None  # the live object is untouched
 
 
 def test_idle_polls_ask_tally_one_small_question(store):

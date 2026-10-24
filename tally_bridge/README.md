@@ -75,7 +75,7 @@ The bridge never posts a voucher twice and never guesses: anything uncertain is 
 
 | Situation | What the bridge does |
 |---|---|
-| A voucher is **posted from the app** | Created with the customer's GSTIN, state, pincode and **address** from the party ledger in Tally (as of the invoice date), as Tally's own invoice entry fills them in. Whatever the ledger leaves blank comes from the app's Master import. |
+| A voucher is **posted from the app** | Created exactly as Tally's own invoice entry makes it. The customer's GSTIN, state, pincode, **address**, **PAN**, VAT dealer type and mailing name come from the party ledger in Tally (as of the invoice date), and the round-off is entered on the sales side. Whatever the ledger leaves blank comes from the app's Master import. |
 | A voucher is **made in Tally** | Joins the app within seconds (dated today or yesterday; older ones are not watched). |
 | A voucher is **altered in Tally** | The app's copy takes Tally's values. If a web edit of it is waiting, both are kept and it shows *Needs review* (choose **Use Tally version**, or edit in Tally). |
 | An alteration the app **cannot hold** (extra ledger, several stock lines) | *Changed in Tally: <reason>*, read-only; listed under Sync activity → Changed in Tally. It updates by itself once corrected in Tally. |
