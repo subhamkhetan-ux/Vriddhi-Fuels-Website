@@ -153,6 +153,12 @@ language sql immutable set search_path=pg_catalog as $$
     'vehicle',v.vehicle,'qty',v.qty,'rate',v.rate,'item_amt',v.item_amt,'party_amt',v.party_amt,'roff',v.roff)
 $$;
 
+-- The customer's details from the Master import, as the bridge posts them.
+create or replace function public._tb_party(p_party text) returns jsonb
+language sql stable security definer set search_path=public,pg_temp as $$
+  select coalesce((select to_jsonb(p)-'name' from tally_parties p where name=p_party),'{}'::jsonb)
+$$;
+
 create or replace function public._tb_queue(v public.tally_vouchers) returns void
 language plpgsql security definer set search_path=public,pg_temp as $$
 begin
@@ -161,7 +167,7 @@ begin
   insert into tally_bridge_jobs(kind,voucher_id,revision,payload)
     values('voucher',v.id,v.bridge_revision,_tb_business(v) || jsonb_build_object(
       'id',v.id,'guid',v.bridge_guid,'expected_alter',v.bridge_alter,'company',_tb_company_for_date(v.date),
-      'gst',coalesce((select to_jsonb(p)-'name' from tally_parties p where name=v.party),'{}'::jsonb)))
+      'gst',_tb_party(v.party)))
     on conflict(voucher_id,revision) do nothing;
 end $$;
 
@@ -256,8 +262,11 @@ begin
     order by (state='writing') desc,created_at limit 1 for update skip locked;
   if j.id is null then return null; end if;
   recover := j.state in ('writing','conflict');
+  -- A voucher is posted with the customer's details as of now: a Master imported after
+  -- the voucher was queued (or after it waited for one) is what goes to Tally.
   update tally_bridge_jobs set state=case when recover then 'writing' else 'leased' end,
-    lease_token=gen_random_uuid(),lease_until=now()+interval '3 minutes',attempts=attempts+1,updated_at=now()
+    lease_token=gen_random_uuid(),lease_until=now()+interval '3 minutes',attempts=attempts+1,updated_at=now(),
+    payload=case when kind='voucher' then payload||jsonb_build_object('gst',_tb_party(payload->>'party')) else payload end
     where id=j.id returning * into j;
   return to_jsonb(j)||jsonb_build_object('recover_only',recover);
 end $$;

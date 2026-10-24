@@ -93,6 +93,24 @@ def test_outbox_is_atomic_and_edits_supersede_only_unwritten_jobs(db):
     assert db.json(f"select to_jsonb(v) from tally_vouchers v where id='{v['id']}'")["bridge_state"] == "synced"
 
 
+def test_voucher_is_posted_with_the_customers_details_from_the_latest_master_import(db):
+    db.ok("update tally_bridge_jobs set state='superseded' where state in ('pending','leased','error')")
+    v = create(db)
+    queued = db.json(f"select payload->'gst' from tally_bridge_jobs where voucher_id='{v['id']}' and state='pending'")
+    assert "master_at" not in queued or queued["master_at"] is None
+    # The Master is imported after the voucher was queued: the bridge gets the new details.
+    party = dict(name="Test Debtor", gstin="21ZZZZZ1234Z1Z5", regType="Regular", state="Odisha", place="Odisha",
+                 pincode="768001", country="India", address=["Plot 7, Ring Road", "Sambalpur"], pan="ZZZZZ1234Z",
+                 vatDealerType="Regular", mailingName="Test Debtor (Unit 2)")
+    db.json(f"select tally_import_master({lit(json.dumps([party]))})", user=OWNER)
+    j = device(db, "claim")
+    assert j["voucher_id"] == v["id"]
+    g = j["payload"]["gst"]
+    assert (g["gstin"], g["pan"], g["mailing_name"], g["address"]) == ("21ZZZZZ1234Z1Z5", "ZZZZZ1234Z", "Test Debtor (Unit 2)", ["Plot 7, Ring Road", "Sambalpur"])
+    assert g["master_at"] and "name" not in g
+    db.ok(f"update tally_bridge_jobs set state='superseded' where id='{j['id']}'")
+
+
 def daybook(db, *rows):
     vouchers = [dict(seriesKey=r.get("series", "ms"), number=r["number"], dateISO="2026-10-19", party=r.get("party", "A"),
                      vehicle="", qty=10, rate=100, amount=r.get("amount", 1000)) for r in rows]

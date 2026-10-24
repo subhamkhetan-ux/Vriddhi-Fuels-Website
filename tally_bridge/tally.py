@@ -96,24 +96,6 @@ def yes(value):
     return str(value).lower() in ("yes", "true", "1")
 
 
-def ledger_gst(v, as_of=None):
-    """Prime 3+ stores dated GST/mailing registrations in child lists."""
-    day = (as_of or dt.date.today().isoformat()).replace("-", "")
-    def applicable(path):
-        entries = [e for e in v.findall(path) if text(e, "APPLICABLEFROM", "19000101").replace("-", "") <= day]
-        return max(entries, key=lambda e: text(e, "APPLICABLEFROM", "19000101").replace("-", "")) if entries else v
-    gst, mailing = applicable("LEDGSTREGDETAILS.LIST"), applicable("LEDMAILINGDETAILS.LIST")
-    # The address Tally prints on the customer's invoices (the mailing details' lines;
-    # older releases keep them at the top of the ledger).
-    lines = mailing.find("ADDRESS.LIST") if mailing.find("ADDRESS.LIST") is not None else v.find("ADDRESS.LIST")
-    address = [a.text.strip() for a in (lines.findall("ADDRESS") if lines is not None else []) if a.text and a.text.strip()]
-    return dict(gstin=text(gst,"GSTIN",text(v,"PARTYGSTIN")), reg_type=text(gst,"GSTREGISTRATIONTYPE",text(v,"GSTREGISTRATIONTYPE")),
-                state=text(mailing,"STATE",text(v,"LEDSTATENAME")), place_of_supply=text(gst,"PLACEOFSUPPLY",text(v,"PLACEOFSUPPLY")),
-                pincode=text(mailing,"PINCODE",text(v,"PINCODE")), country=text(mailing,"COUNTRY",text(v,"COUNTRYNAME")),
-                address=address, pan=text(v,"INCOMETAXNUMBER"), vat_dealer_type=text(v,"VATDEALERTYPE"),
-                mailing_name=text(mailing,"MAILINGNAME",text(v,"MAILINGNAME")))
-
-
 def export_request(company, kind, methods="*", formula=None, since=None):
     if kind not in KINDS + ("Company", "Ledger", "StockItem", "VoucherType"):
         raise ValueError("Unknown Tally collection")
@@ -658,20 +640,6 @@ class Tally:
         wanted = {"Ledger": [p["party"], sales] + (["R/off"] if Decimal(str(p["roff"])) else []),
                   "StockItem": [item], "VoucherType": [vt]}
         return [n for kind, names in wanted.items() for n in self.missing(kind, names)]
-
-    def party_gst(self, party, as_of):
-        """The party's GST registration on the invoice date, or None to keep the app's copy."""
-        key = ("gst", party.casefold(), as_of)
-        if (hit := self.cached(key)) is not None:
-            return hit or None
-        try:
-            # "*" may leave out a ledger's lists; the address, PAN and dated details are asked for by name.
-            ledgers = self.collection("Ledger", ["*", "Address", "LedMailingDetails", "LedGSTRegDetails",
-                                                 "IncomeTaxNumber", "VATDealerType"],
-                                      "$Name = " + literal(party), identities=False)
-        except TallyProblem:
-            return None
-        return self.remember(key, ledger_gst(ledgers[0], as_of) if len(ledgers) == 1 else {}) or None
 
     def lookup(self, p):
         """The Tally invoice with this voucher's GUID, or the same type and number."""

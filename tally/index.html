@@ -878,7 +878,7 @@ function sanitizeTallyXml(s){
 }
 
 // v: {seriesKey, number, dateISO, party, vehicle?, rate, qty, itemAmt, partyAmt, roff, gst?}
-// v.gst (from the party's Tally master): {gstin, regType, state, place, pincode, country, address[], pan, vatDealerType}
+// v.gst (from the party's Tally master): {gstin, regType, state, place, pincode, country, address[], pan, vatDealerType, mailingName}
 // Party GST details are emitted so GST reports classify the sale correctly;
 // registered parties get PARTYGSTIN/CONSIGNEEGSTIN, unregistered ones the
 // same structure without GSTIN — both verified against the real daybook.
@@ -888,6 +888,7 @@ function buildVoucherXml(v){
   var d = dateToTally(v.dateISO);
   var qtyS = escXml(fmtQty(v.qty));
   var g = v.gst || {};
+  var mailing = g.mailingName ? escXml(g.mailingName) : party;  // the ledger's Mailing Name
   var regType = g.regType || "Unregistered/Consumer";
   var pState  = g.state || TALLY.companyState;
   var place   = g.place || pState;
@@ -921,10 +922,10 @@ function buildVoucherXml(v){
   x.push('    <CMPGSTIN>' + escXml(TALLY.companyGstin) + '</CMPGSTIN>');
   x.push('    <PARTYLEDGERNAME>' + party + '</PARTYLEDGERNAME>');
   x.push('    <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>');
-  x.push('    <PARTYMAILINGNAME>' + party + '</PARTYMAILINGNAME>');
+  x.push('    <PARTYMAILINGNAME>' + mailing + '</PARTYMAILINGNAME>');
   if (g.pincode) x.push('    <PARTYPINCODE>' + escXml(g.pincode) + '</PARTYPINCODE>');
   if (g.gstin) x.push('    <CONSIGNEEGSTIN>' + escXml(g.gstin) + '</CONSIGNEEGSTIN>');
-  x.push('    <CONSIGNEEMAILINGNAME>' + party + '</CONSIGNEEMAILINGNAME>');
+  x.push('    <CONSIGNEEMAILINGNAME>' + mailing + '</CONSIGNEEMAILINGNAME>');
   if (g.pincode) x.push('    <CONSIGNEEPINCODE>' + escXml(g.pincode) + '</CONSIGNEEPINCODE>');
   x.push('    <CONSIGNEESTATENAME>' + escXml(pState) + '</CONSIGNEESTATENAME>');
   x.push('    <CMPGSTSTATE>' + escXml(TALLY.companyState) + '</CMPGSTSTATE>');
@@ -1106,7 +1107,8 @@ function parseMasterText(text){
     ledgers.push({ name: name, parent: parent,
       gstin: gstin, regType: regType, state: state,
       place: place, pincode: pincode, country: country,
-      address: address, pan: xmlTag(body, "INCOMETAXNUMBER"), vatDealerType: xmlTag(body, "VATDEALERTYPE") });
+      address: address, pan: xmlTag(body, "INCOMETAXNUMBER"), vatDealerType: xmlTag(body, "VATDEALERTYPE"),
+      mailingName: (mail && xmlTag(mail, "MAILINGNAME")) || xmlTag(body, "MAILINGNAME") });
   }
   function underSundryDebtors(g){
     var seen = {};
@@ -1124,7 +1126,7 @@ function parseMasterText(text){
       .map(function(l){
         return { name: l.name, gstin: l.gstin, regType: l.regType,
           state: l.state, place: l.place, pincode: l.pincode, country: l.country,
-          address: l.address, pan: l.pan, vatDealerType: l.vatDealerType };
+          address: l.address, pan: l.pan, vatDealerType: l.vatDealerType, mailingName: l.mailingName };
       })
       .sort(function(a,b){ return a.name.localeCompare(b.name); })
   };
@@ -1471,7 +1473,8 @@ var LocalBackend = {
       if (!have[d.name]){ have[d.name] = 1; state.parties.push(d.name); addedN++; }
       state.partyGst[d.name] = { gstin: d.gstin || "", regType: d.regType || "",
         state: d.state || "", place: d.place || "", pincode: d.pincode || "",
-        country: d.country || "", address: d.address || [], pan: d.pan || "", vatDealerType: d.vatDealerType || "" };
+        country: d.country || "", address: d.address || [], pan: d.pan || "", vatDealerType: d.vatDealerType || "",
+        mailingName: d.mailingName || "" };
     });
     state.parties.sort(cmp);
     this._save();
@@ -1540,7 +1543,8 @@ var CloudBackend = {
     var pCompanyFy = c.from("tally_settings").select("company_fy").eq("id", 1).single();
     // what Tally prints on a customer's vouchers (Day Book XML); separate, so a
     // database without these columns (tally-schema.sql not re-run) still loads
-    var pPartyMaster = c.from("tally_parties").select("name,address,pan,vat_dealer_type").then(function(res){
+    // every column there is, so a database before the latest tally-schema.sql still loads
+    var pPartyMaster = c.from("tally_parties").select("*").then(function(res){
       return res.error ? [] : (res.data || []);
     }, function(){ return []; });
     function fetchVouchers(acc, from){
@@ -1584,7 +1588,8 @@ var CloudBackend = {
           s.partyGst[row.name] = { gstin: row.gstin || "", regType: row.reg_type || "",
             state: row.state || "", place: row.place_of_supply || "",
             pincode: row.pincode || "", country: row.country || "",
-            address: Array.isArray(row.address) ? row.address : [], pan: row.pan || "", vatDealerType: row.vat_dealer_type || "" };
+            address: Array.isArray(row.address) ? row.address : [], pan: row.pan || "", vatDealerType: row.vat_dealer_type || "",
+            mailingName: row.mailing_name || "" };
         }
       });
       s.queue = []; s.history = [];
@@ -2388,7 +2393,8 @@ function tallyCopyOf(xmlText){
     alterId: field("ALTERID") || undefined,
     master: { address: address, gstin: field("PARTYGSTIN"), regType: field("GSTREGISTRATIONTYPE"), state: field("STATENAME"),
       place: field("PLACEOFSUPPLY"), pincode: field("PARTYPINCODE"), country: field("COUNTRYOFRESIDENCE"),
-      pan: field("BUYERPINNUMBER"), consigneePan: field("CONSIGNEEPINNUMBER"), vatDealerType: field("VATDEALERTYPE") } };
+      pan: field("BUYERPINNUMBER"), consigneePan: field("CONSIGNEEPINNUMBER"), vatDealerType: field("VATDEALERTYPE"),
+      mailingName: field("PARTYMAILINGNAME"), consigneeMailingName: field("CONSIGNEEMAILINGNAME") } };
 }
 function downloadDayBook(kind, day){
   var list = dayBookVouchers(day);
