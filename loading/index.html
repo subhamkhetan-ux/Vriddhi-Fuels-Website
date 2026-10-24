@@ -147,6 +147,8 @@
   .entry.disp .plate{background:var(--grad-cta)}
   .entry.disp .tot{color:var(--amber-d)}
   .entry.disp .dtag{font-size:13px;font-weight:700;color:var(--amber-d)}
+  .entry .soldto{font-size:13px;font-weight:600;color:var(--ink);overflow-wrap:anywhere;margin-top:1px}
+  .entry .soldto.none{color:var(--muted);font-weight:500}
   .empty{text-align:center;color:var(--muted);padding:22px 12px;font-size:14px;border:1px dashed rgba(27,33,48,.16);border-radius:16px;background:rgba(255,255,255,.4)}
 
   /* Add-diesel header (tanker graphic on a dark film for contrast) */
@@ -1040,6 +1042,8 @@
         <div class="mini"><div class="n" id="repSold">0</div><div class="l">Litres sold</div></div>
         <div class="mini"><div class="n" id="repTrips">0</div><div class="l">Tankers sold</div></div>
       </div>
+      <div class="sectitle">Sent for sale <span style="font-weight:600;color:var(--muted);font-size:12px">· who it was sold to</span></div>
+      <div id="repSales"></div>
       <div class="sectitle">All-time totals <span style="font-weight:600;color:var(--muted);font-size:12px">· kept beyond 7 days</span></div>
       <div class="row2" style="margin-bottom:14px">
         <div class="mini"><div class="n" id="allTimeLoaded">0</div><div class="l">Loaded ever</div></div>
@@ -1074,10 +1078,16 @@
         <div class="mini"><div class="n sm" id="trLit">0</div><div class="l">Litres sold</div></div>
       </div>
       <!-- invoice check: trips fully invoiced, things to fix, trips waiting for the DayBook -->
-      <div class="row2" style="margin-bottom:14px">
+      <div class="row2" style="margin-bottom:10px">
         <div class="mini"><div class="n sm" id="trInvOk">0</div><div class="l">Invoiced</div></div>
         <div class="mini invbad"><div class="n" id="trInvBad">0</div><div class="l">To fix</div></div>
         <div class="mini"><div class="n" id="trInvWait">0</div><div class="l">Awaiting bills</div></div>
+      </div>
+      <!-- short supply over the period: billed a little more than sent (≤ the buffer a trip), trips checked by hand left out -->
+      <div class="row2" style="margin-bottom:14px">
+        <div class="mini"><div class="n sm" id="trShort">—</div><div class="l">Short supply</div></div>
+        <div class="mini"><div class="n" id="trShortN">—</div><div class="l">Trips short</div></div>
+        <div class="mini"><div class="n sm" id="trShortAvg">—</div><div class="l">Avg / short trip</div></div>
       </div>
       <div class="rpresets" id="trView" role="group" aria-label="View"></div>
       <div id="trList"></div>
@@ -2354,12 +2364,15 @@ function renderTankers(){
   });
   paintPrebills();
 }
+// who a dispatch was sold to, on its own line so a long name is never cut off
+function soldToHTML(e){
+  return e.remark ? '<div class="soldto">→ '+esc(e.remark)+'</div>' : '<div class="soldto none">→ no customer picked</div>';
+}
 function entryHTML(e){
   const who=(CLOUD&&e.by)?' · '+e.by:'';
   if((e.kind||"load")==="dispatch"){
-    const sold=e.remark?' — '+esc(e.remark):'';
     return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
-      +'<div class="mid"><div class="ch dtag">🚚 Sent for sale'+sold+'</div><div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
+      +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div>'+soldToHTML(e)+'<div class="tm">'+dayLabel(e.ts)+' · '+timeLabel(e.ts)+who+'</div></div>'
       +'<span class="tot">'+fmt(e.total)+' L</span></div>';
   }
   const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
@@ -2641,9 +2654,8 @@ function renderHist(){
       + '<div class="glist">' + arr.map(e=>{
         const who=(CLOUD&&e.by)?' · '+e.by:'';
         if((e.kind||"load")==="dispatch"){
-          const sold=e.remark?' — '+esc(e.remark):'';
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
-            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale'+sold+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
+            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div>'+soldToHTML(e)+'<div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
             +'<span class="tot">'+fmt(e.total)+' L</span>'
             +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
         }
@@ -2702,6 +2714,21 @@ function setPreset(p){
   $("#scReport").querySelectorAll(".rpresets button").forEach(b=>b.classList.toggle("on",b.dataset.preset===p));
   renderReport();
 }
+// sent for sale in the range: totals per customer, then each tanker sent (newest first)
+function salesByCustomer(disp){
+  const m={}, order=[];
+  disp.forEach(e=>{ const k=(e.remark||"").trim()||"(no customer)"; if(!m[k]){ m[k]={ name:k, n:0, l:0 }; order.push(k); } m[k].n++; m[k].l=r2(m[k].l+e.total); });
+  return order.map(k=>m[k]).sort((a,b)=>b.l-a.l);
+}
+function salesHTML(disp){
+  if(!disp.length) return '<div class="empty">Nothing sent for sale in this range.</div>';
+  const cust=salesByCustomer(disp).map(c=>'<div class="entry"><div class="mid"><div class="soldto">'+esc(c.name)+'</div>'
+    +'<div class="tm">'+c.n+' tanker'+(c.n===1?'':'s')+'</div></div><span class="tot">'+fmt(c.l)+' L</span></div>').join("");
+  const list=disp.slice().reverse().map(e=>'<div class="entry disp"><span class="plate">'+esc(e.plate)+'</span>'
+    +'<div class="mid">'+soldToHTML(e)+'<div class="tm">'+dmy(effDate(e)).slice(0,5)+' · '+timeLabel(e.ts)+((CLOUD&&e.by)?' · '+esc(e.by):'')+'</div></div>'
+    +'<span class="tot">'+fmt(e.total)+' L</span></div>').join("");
+  return '<div class="glist">'+cust+'</div><div class="glist">'+list+'</div>';
+}
 function allTime(field){ return r2(VEHICLES.reduce((s,v)=>s+(+v[field]||0),0)); }
 function renderReport(){
   const evs=rangeEvents();
@@ -2710,6 +2737,7 @@ function renderReport(){
   $("#repLoadings").textContent=loads.length;
   $("#repSold").textContent=fmt(disp.reduce((s,e)=>s+e.total,0));
   $("#repTrips").textContent=disp.length;
+  $("#repSales").innerHTML=salesHTML(disp);
   $("#allTimeLoaded").textContent=fmt(allTime("total_loaded"));
   $("#allTimeSold").textContent=fmt(allTime("total_sold"));
   $("#repTankers").innerHTML='<div class="glist">'+VEHICLES.map(v=>{
@@ -2722,7 +2750,7 @@ function renderReport(){
   const empty=!evs.length && allTime("total_loaded")===0;
   $("#dlExcel").disabled=empty;
   $("#repNote").innerHTML = empty ? "No records yet."
-    : "Range tiles use the last 7 days of detail; all-time totals and tanker fills are kept permanently. Excel: Summary · Transactions · Chamber log · By tanker · By day. Falls back to CSV if offline.";
+    : "Range tiles use the last 7 days of detail; all-time totals and tanker fills are kept permanently. Excel: Summary · Transactions · Sent for sale · Chamber log · By tanker · By day. Falls back to CSV if offline.";
 }
 $("#scReport").querySelectorAll(".rpresets button").forEach(b=>{ b.onclick=()=>setPreset(b.dataset.preset); });
 ["#repFrom","#repTo"].forEach(sel=>$(sel).addEventListener("change",()=>{
@@ -2797,6 +2825,8 @@ $("#dlExcel").onclick=async()=>{
   const dm={};
   evs.forEach(e=>{ const k=effDate(e), d=dm[k]||(dm[k]={l:0,ll:0,s:0,sl:0}); if(isDisp(e)){d.s++;d.sl+=e.total;}else{d.l++;d.ll+=e.total;} });
   const byD=Object.keys(dm).sort().map(k=>({ "Business date":k, "Loadings":dm[k].l, "Litres loaded":dm[k].ll, "Tankers sold":dm[k].s, "Litres sold":dm[k].sl }));
+  // Sent for sale — who each tanker was sold to
+  const sales=disp.map(e=>({ "Business date":effDate(e), "Time":timeLabel(e.ts), "Vehicle":e.plate, "Sold to":e.remark||"", "Litres":e.total, "By":e.by||"" }));
   // Summary sheet (title + key figures)
   const summary=[
     ["Vriddhi Fuels — Tanker Loading report"],
@@ -2809,11 +2839,14 @@ $("#dlExcel").onclick=async()=>{
     ["Litres sold (range)", disp.reduce((s,e)=>s+e.total,0)],
     ["Tankers sold (range)", disp.length],
     [],
+    ["Sold to (range)", ""]
+  ].concat(salesByCustomer(disp).map(c=>["   "+c.name, fmt(c.l)+" L · "+c.n+" tanker"+(c.n===1?"":"s")])).concat([
+    [],
     ["All-time litres loaded", allTime("total_loaded")],
     ["All-time litres sold", allTime("total_sold")],
     [],
     ["Current fill by tanker", ""]
-  ].concat(VEHICLES.map(v=>{ const st=tankerState(v.plate); return ["   "+v.plate, fmt(st.total)+" / "+fmt(st.cap)+" L"+(st.full?"  (FULL)":"")]; }));
+  ]).concat(VEHICLES.map(v=>{ const st=tankerState(v.plate); return ["   "+v.plate, fmt(st.total)+" / "+fmt(st.cap)+" L"+(st.full?"  (FULL)":"")]; }));
 
   const fname="Vriddhi_Tanker_Report_"+($("#repFrom").value||"")+"_to_"+($("#repTo").value||"");
   try{
@@ -2824,6 +2857,8 @@ $("#dlExcel").onclick=async()=>{
     wsT["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:13}].concat(Array(maxChambers()).fill({wch:9})).concat([{wch:11},{wch:16},{wch:22},{wch:12},{wch:11}]);
     wsT["!autofilter"]={ref:wsT["!ref"]}; numfmt(XLSX,wsT,1);
     XLSX.utils.book_append_sheet(wb,wsT,"Transactions");
+    if(sales.length){ const wsSa=XLSX.utils.json_to_sheet(sales); wsSa["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:34},{wch:10},{wch:12}];
+      wsSa["!autofilter"]={ref:wsSa["!ref"]}; numfmt(XLSX,wsSa,1); XLSX.utils.book_append_sheet(wb,wsSa,"Sent for sale"); }
     const wsC=XLSX.utils.json_to_sheet(chlog);
     wsC["!cols"]=[{wch:13},{wch:9},{wch:12},{wch:9},{wch:10},{wch:14},{wch:22},{wch:12},{wch:11}];
     wsC["!autofilter"]={ref:wsC["!ref"]}; numfmt(XLSX,wsC,1);
@@ -3753,6 +3788,10 @@ function renderTrips(){
   $("#trInvBad").textContent=high;
   $("#trInvBad").parentNode.classList.toggle("bad", high>0);
   $("#trInvWait").textContent=nWait;
+  const shortRs=rs.filter(r=>!r.checked && r.short>0), shortL=r2(shortRs.reduce((s,r)=>s+r.short,0));
+  $("#trShort").textContent=INVD ? fmt(shortL)+" L" : "—";
+  $("#trShortN").textContent=INVD ? shortRs.length+" / "+rs.length : "—";
+  $("#trShortAvg").textContent=INVD && shortRs.length ? fmt(r2(shortL/shortRs.length))+" L" : "—";
   const tabs=[["map","Mapping"],["tanker","Tanker"],["customer","Customer"],["alerts","Alerts"+(INVD && INVD.rec.alerts.length?" ("+INVD.rec.alerts.length+")":"")]];
   $("#trView").innerHTML=tabs.map(t=>'<button type="button" data-trview="'+t[0]+'" class="'+(t[0]===trView?'on':'')+'">'+esc(t[1])+'</button>').join("");
   $("#trView").querySelectorAll("[data-trview]").forEach(b=>{ b.onclick=()=>{ trView=b.getAttribute("data-trview"); renderTrips(); }; });
