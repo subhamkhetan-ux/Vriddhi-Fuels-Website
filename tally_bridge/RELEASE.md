@@ -1,3 +1,8 @@
+Version **1.5.2** confirms invoices posted from the app within seconds:
+
+- **No more minutes in "Confirming".** After Tally creates an invoice, the bridge reads it back to confirm it. Tally sometimes lists a just-posted invoice a few seconds before its Day Book returns it. The bridge used to wait for its three-minute hold on the job to run out before reading again; it now reads again after 2, 3, 5… seconds (under two minutes in all), so the invoice shows *Confirmed* as soon as Tally returns it. It is still never posted twice.
+- No SQL change. Open the app and choose **Update now**.
+
 Version **1.5.1** posts invoices exactly as Tally's own invoice entry makes them, from the app's Master import:
 
 - **Every party detail Tally fills in.** Checked field by field against 62 invoices made in Tally (Day Books of 22 and 23 Oct), invoices posted from the app were missing what Tally copies from the party ledger. They now carry it:
