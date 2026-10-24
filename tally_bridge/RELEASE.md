@@ -1,3 +1,8 @@
+Version **1.5.1** puts the customer's address on invoices posted from the app:
+
+- **Address on posted invoices.** Vouchers created or edited from the web app now carry the party's address (Party Details → Address), taken from the ledger in Tally as of the invoice date, alongside the GSTIN that was already sent. If the ledger has no address, the address from the app's Master import is used. Invoices posted earlier keep a blank address until they are edited from the app (or the party is re-selected in Tally).
+- No SQL change. Open the app and choose **Update now**.
+
 Version **1.5.0** brings Tally edits back reliably and updates itself:
 
 - **Edits made in Tally show up in the app.** The bridge now reads any round-off ledger spelling (R/off, Round Off, Rounding Off…), names in any capitalisation, a blank rate, and vouchers saved in Accounting Voucher View. A voucher it still cannot hold is labelled with the reason (for example *Extra ledger in Tally: Freight*) and listed under Sync activity → **Changed in Tally**, with **Read again from Tally**. Vouchers older bridges marked *Changed in Tally* are read again.

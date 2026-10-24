@@ -878,7 +878,7 @@ function sanitizeTallyXml(s){
 }
 
 // v: {seriesKey, number, dateISO, party, vehicle?, rate, qty, itemAmt, partyAmt, roff, gst?}
-// v.gst (from the party's Tally master): {gstin, regType, state, place, pincode, country}
+// v.gst (from the party's Tally master): {gstin, regType, state, place, pincode, country, address[]}
 // Party GST details are emitted so GST reports classify the sale correctly;
 // registered parties get PARTYGSTIN/CONSIGNEEGSTIN, unregistered ones the
 // same structure without GSTIN — both verified against the real daybook.
@@ -895,6 +895,15 @@ function buildVoucherXml(v){
   var x = [];
   x.push('  <TALLYMESSAGE xmlns:UDF="TallyUDF">');
   x.push('   <VOUCHER VCHTYPE="' + escXml(s.vchType) + '" ACTION="Create" OBJVIEW="Invoice Voucher View">');
+  // the customer's address (Master import), as Tally's own invoice entry fills it in
+  var address = (g.address || []).filter(function(a){ return String(a || "").trim(); });
+  if (address.length){
+    ["ADDRESS", "BASICBUYERADDRESS"].forEach(function(t){
+      x.push('    <' + t + '.LIST TYPE="String">');
+      address.forEach(function(a){ x.push('     <' + t + '>' + escXml(String(a).trim()) + '</' + t + '>'); });
+      x.push('    </' + t + '.LIST>');
+    });
+  }
   x.push('    <DATE>' + d + '</DATE>');
   x.push('    <EFFECTIVEDATE>' + d + '</EFFECTIVEDATE>');
   x.push('    <GSTREGISTRATIONTYPE>' + escXml(regType) + '</GSTREGISTRATIONTYPE>');

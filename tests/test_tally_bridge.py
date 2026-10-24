@@ -304,10 +304,12 @@ def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
     script='var TALLY = {'+pure+'\nconst p=JSON.parse(process.argv[1]);console.log(buildEnvelope("Test Company",[p]));'
     for series in ('hsd','ms','xg'):
         p=dict(PAYLOAD,series=series,qty=10.333,rate=101.25,item_amt=1046.22,party_amt=1046,roff=-0.22,
-               gst=dict(gstin='21TESTGSTIN',reg_type='Regular',state='Odisha',place_of_supply='Odisha',country='India',pincode='768001'))
+               gst=dict(gstin='21TESTGSTIN',reg_type='Regular',state='Odisha',place_of_supply='Odisha',country='India',pincode='768001',
+                       address=['Plot 7, Ring Road','Sambalpur']))
         web=dict(seriesKey=series,number=p['number'],dateISO=p['date'],party=p['party'],vehicle=p['vehicle'],qty=p['qty'],
                  rate=p['rate'],itemAmt=p['item_amt'],partyAmt=p['party_amt'],roff=p['roff'],
-                 gst=dict(gstin='21TESTGSTIN',regType='Regular',state='Odisha',place='Odisha',country='India',pincode='768001'))
+                 gst=dict(gstin='21TESTGSTIN',regType='Regular',state='Odisha',place='Odisha',country='India',pincode='768001',
+                          address=['Plot 7, Ring Road','Sambalpur']))
         js=subprocess.run(['node','-e',script,json.dumps(web)],encoding='utf-8',capture_output=True,check=True).stdout
         a=parse(js).find('.//VOUCHER'); b=parse(voucher_xml('Test Company',p)).find('.//VOUCHER')
         # Compare semantic leaf paths; GUID/REMOTEID are the deliberate bridge additions.
@@ -319,6 +321,7 @@ def test_xml_accounting_matches_existing_web_exporter_for_all_three_products():
                 elif child.tag!='GUID': out.append((name,(child.text or '').strip()))
             return sorted(out)
         assert leaves(a)==leaves(b)
+        assert [x.text for x in a.findall('ADDRESS.LIST/ADDRESS')]==['Plot 7, Ring Road','Sambalpur']
 
 
 def test_report_removes_executable_content_and_retains_accounting_table():
@@ -394,6 +397,47 @@ def test_prime_dated_gst_uses_the_invoice_date():
     assert ledger_gst(ledger,'2026-09-30')['gstin']=='OLDGST'
     assert ledger_gst(ledger,'2026-10-19')['gstin']=='NEWGST'
     assert ledger_gst(ledger,'2026-10-19')['state']=='Odisha'
+    assert ledger_gst(ledger,'2026-10-19')['address']==[]
+
+
+def test_party_address_comes_from_the_applicable_mailing_details():
+    from tally_bridge.tally import ledger_gst
+    ledger=parse('''<LEDGER><LEDMAILINGDETAILS.LIST><APPLICABLEFROM>20250401</APPLICABLEFROM><ADDRESS.LIST TYPE="String"><ADDRESS>Old Street</ADDRESS></ADDRESS.LIST><STATE>Telangana</STATE></LEDMAILINGDETAILS.LIST>
+      <LEDMAILINGDETAILS.LIST><APPLICABLEFROM>20261001</APPLICABLEFROM><ADDRESS.LIST TYPE="String"><ADDRESS>Plot 7, Ring Road</ADDRESS><ADDRESS> </ADDRESS><ADDRESS>Sambalpur</ADDRESS></ADDRESS.LIST><STATE>Odisha</STATE></LEDMAILINGDETAILS.LIST></LEDGER>''').find('LEDGER')
+    assert ledger_gst(ledger,'2026-10-19')['address']==['Plot 7, Ring Road','Sambalpur']
+    assert ledger_gst(ledger,'2026-09-30')['address']==['Old Street']
+    older=parse('<LEDGER><ADDRESS.LIST TYPE="String"><ADDRESS>Top Level Lane</ADDRESS></ADDRESS.LIST></LEDGER>').find('LEDGER')
+    assert ledger_gst(older,'2026-10-19')['address']==['Top Level Lane']
+
+
+def test_posted_invoice_carries_the_party_address(store):
+    from tally_bridge.tally import tag
+    p=dict(PAYLOAD,gst=dict(gstin='21TESTGSTIN',reg_type='Regular',address=['Plot 7 & Co, Ring Road','Sambalpur']))
+    v=parse(voucher_xml('Test Company',p)).find('.//VOUCHER')
+    for lst,line in (('ADDRESS.LIST','ADDRESS'),('BASICBUYERADDRESS.LIST','BASICBUYERADDRESS')):
+        assert v.find(lst).get('TYPE')=='String'
+        assert [x.text for x in v.findall(lst+'/'+line)]==['Plot 7 & Co, Ring Road','Sambalpur']
+    assert parse(voucher_xml('Test Company',PAYLOAD)).find('.//VOUCHER/ADDRESS.LIST') is None
+    # An alter replaces Tally's old address lines rather than adding to them.
+    original=voucher(dict(PAYLOAD,gst=dict(address=['Old Street'])))
+    altered=parse(voucher_xml('Test Company',dict(p,guid=ID,expected_alter=1),original)).find('.//VOUCHER')
+    assert [x.text for x in altered.findall('ADDRESS.LIST/ADDRESS')]==['Plot 7 & Co, Ring Road','Sambalpur']
+    # An alter without an address keeps the one in Tally.
+    kept=parse(voucher_xml('Test Company',dict(PAYLOAD,guid=ID,expected_alter=1),original)).find('.//VOUCHER')
+    assert [x.text for x in kept.findall('ADDRESS.LIST/ADDRESS')]==['Old Street']
+
+
+def test_worker_fills_blank_tally_fields_from_the_app_copy(store):
+    sent=[]
+    class Recording(FakeTally):
+        def party_gst(self, party, as_of):
+            return dict(gstin='21TALLYGSTIN',reg_type='Regular',state='Odisha',address=[])
+        def import_voucher(self, p, existing=None):
+            sent.append(p); return super().import_voucher(p, existing)
+    p=dict(PAYLOAD,gst=dict(gstin='21OLDGSTIN',address=['Plot 7, Ring Road','Sambalpur'],pan='AAAPA1234A'))
+    Worker(FakeCloud(),Recording(),store).voucher(job(p))
+    assert sent[0]['gst']['gstin']=='21TALLYGSTIN'
+    assert sent[0]['gst']['address']==['Plot 7, Ring Road','Sambalpur']
 
 
 def test_service_worker_never_caches_financial_api_or_other_apps():

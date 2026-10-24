@@ -103,9 +103,14 @@ def ledger_gst(v, as_of=None):
         entries = [e for e in v.findall(path) if text(e, "APPLICABLEFROM", "19000101").replace("-", "") <= day]
         return max(entries, key=lambda e: text(e, "APPLICABLEFROM", "19000101").replace("-", "")) if entries else v
     gst, mailing = applicable("LEDGSTREGDETAILS.LIST"), applicable("LEDMAILINGDETAILS.LIST")
+    # The address Tally prints on the customer's invoices (the mailing details' lines;
+    # older releases keep them at the top of the ledger).
+    lines = mailing.find("ADDRESS.LIST") if mailing.find("ADDRESS.LIST") is not None else v.find("ADDRESS.LIST")
+    address = [a.text.strip() for a in (lines.findall("ADDRESS") if lines is not None else []) if a.text and a.text.strip()]
     return dict(gstin=text(gst,"GSTIN",text(v,"PARTYGSTIN")), reg_type=text(gst,"GSTREGISTRATIONTYPE",text(v,"GSTREGISTRATIONTYPE")),
                 state=text(mailing,"STATE",text(v,"LEDSTATENAME")), place_of_supply=text(gst,"PLACEOFSUPPLY",text(v,"PLACEOFSUPPLY")),
-                pincode=text(mailing,"PINCODE",text(v,"PINCODE")), country=text(mailing,"COUNTRY",text(v,"COUNTRYNAME")))
+                pincode=text(mailing,"PINCODE",text(v,"PINCODE")), country=text(mailing,"COUNTRY",text(v,"COUNTRYNAME")),
+                address=address)
 
 
 def export_request(company, kind, methods="*", formula=None, since=None):
@@ -351,6 +356,14 @@ def voucher_xml(company, p, existing=None):
               "CMPGSTSTATE": "Odisha", "CONSIGNEECOUNTRYNAME": g.get("country") or "India",
               "BASICBASEPARTYNAME": party, "BASICBUYERNAME": party, "PERSISTEDVIEW": "Invoice Voucher View",
               "VCHENTRYMODE": "Item Invoice", "ISINVOICE": "Yes"}
+    # Invoice entry in Tally copies the customer's address onto the invoice; an
+    # imported voucher has only what it carries, so it carries the address.
+    address = [str(a).strip() for a in (g.get("address") or []) if str(a or "").strip()]
+    for list_tag, line_tag in (("ADDRESS.LIST", "ADDRESS"), ("BASICBUYERADDRESS.LIST", "BASICBUYERADDRESS")):
+        if address:
+            lst = ET.SubElement(v, list_tag, TYPE="String")
+            for line in address:
+                tag(lst, line_tag, line)
     for k, val in fields.items():
         tag(v, k, val)
     tag(v, "GSTREGISTRATION", "Odisha Registration", TAXTYPE="GST", TAXREGISTRATION="21AATFV8250A1Z8")
@@ -641,7 +654,9 @@ class Tally:
         if (hit := self.cached(key)) is not None:
             return hit or None
         try:
-            ledgers = self.collection("Ledger", "*", "$Name = " + literal(party), identities=False)
+            # "*" may leave out a ledger's lists; the address and dated details are asked for by name.
+            ledgers = self.collection("Ledger", ["*", "Address", "LedMailingDetails", "LedGSTRegDetails"],
+                                      "$Name = " + literal(party), identities=False)
         except TallyProblem:
             return None
         return self.remember(key, ledger_gst(ledgers[0], as_of) if len(ledgers) == 1 else {}) or None
