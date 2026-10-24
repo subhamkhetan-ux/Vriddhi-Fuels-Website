@@ -308,9 +308,13 @@ starting point.
 - Every record stores the **date, time, vehicle, type (Load / Sent for sale),
   per-chamber litres, total**, and (cloud mode) **who did it**.
 - **History** (“View all”) groups records by day and shows each loading as
-  `+ litres` and each dispatch as `🚚 Sent for sale`, with a per-day loaded
+  `+ litres` and each dispatch as `🚚 Sent for sale` with the customer it was
+  sold to on the line below (`→ customer`, never cut off), with a per-day loaded
   total. You can delete a wrong entry (with a confirm); the tanker's fill
   recalculates automatically.
+- **Reports** has a **Sent for sale** section for the chosen dates: litres and
+  tankers per customer, then every tanker sent with its customer. The Excel
+  report has the same on a *Sent for sale* sheet and in the Summary.
 
 ## Business day & “End Day”
 
@@ -486,6 +490,10 @@ bills and a status; **Tag ›** opens its bills sheet:
 **The buffer.** The litres sent for sale are normally a little **less** than
 the bill, so a trip matches when its bills come to **up to 80 L more** than
 what was sent, or **up to 10 L less**. Both are set under ⚙ → *Invoice check*.
+
+**Total short supply.** The tiles at the top of *Trips per tanker* add it up
+for the period picked: **Short supply** (litres), **Trips short** (of the trips
+checked) and the **average per short trip**. Trips checked by hand are left out.
 
 **Short supply ≠ over-invoicing.** Those up-to-80 L a trip are **short
 supply** — normal — and are shown on their own (grey, *Short supply 68 L* on
