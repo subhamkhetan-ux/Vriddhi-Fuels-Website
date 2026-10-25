@@ -406,13 +406,37 @@ Every **Sent for sale** should be billed to the customer in the **ledger app**
 tanker checks that, so a sale nobody billed, or a bill nobody delivered, is
 caught at once instead of at month end.
 
-**Connecting the ledger.** The ledger has its own Supabase project. On the
-Trips screen (or ⚙ → *Invoice check*) tap **Connect ledger** and sign in with
-a **ledger login** (one on the ledger's members list). It is kept on that phone
-only, apart from the app's own login, and the app only **reads** the ledger —
-`ledger_whoami`, `ledger_sales_range`, `ledger_tanker_list` and
-`ledger_customers_list`; nothing there is changed. The ledger's public URL and
-key are in [`config.js`](./config.js) (`LEDGER_SUPABASE_*`, the same values as
+**Connecting the ledger, once for every admin (recommended).** The ledger
+has its own Supabase project. The `loading-ledger` edge function keeps one
+ledger login on the server, so every **admin** gets the bills with their
+loading login alone — no ledger sign-in on any phone, nothing that expires.
+Set it up once:
+
+1. In the **ledger** project: make a login for it (*Authentication → Users →
+   Add user*, e.g. `loading-reader@…`, with a strong password) and put it on
+   the members list in the *SQL Editor*:
+   `select ledger_add_member('loading-reader@…');`
+   (an existing ledger login works too).
+2. In the **loading** project: *Edge Functions → Secrets* → add
+   `LEDGER_EMAIL` and `LEDGER_PASSWORD` (that login). Or with the CLI:
+   `supabase secrets set LEDGER_EMAIL=… LEDGER_PASSWORD=…`.
+3. *Edge Functions → Deploy a new function* named `loading-ledger`, pasting
+   [`../supabase/functions/loading-ledger/index.ts`](../supabase/functions/loading-ledger/index.ts)
+   (or `supabase functions deploy loading-ledger`).
+
+Reopen the app: ⚙ → *Invoice check* shows *Ledger: loading-reader@… — kept on
+the server for every admin*. Only admins can use it (checked with their own
+login, as `loading-admin` does), and only the ledger's read functions go
+through it — `ledger_whoami`, `ledger_sales_range`, `ledger_tanker_list` and
+`ledger_customers_list`; nothing in the ledger is changed. The password never
+reaches a phone. To change it, change the secret (and the ledger login's
+password); to switch it off, delete the function.
+
+**Without the function** (or before it's set up), on the Trips screen (or ⚙ →
+*Invoice check*) tap **Connect ledger** and sign in with a **ledger login**
+(one on the ledger's members list). It is kept on that phone only, apart from
+the app's own login, and read the same way. The ledger's public URL and key
+are in [`config.js`](./config.js) (`LEDGER_SUPABASE_*`, the same values as
 `ledger/config.js`). Anyone holding that login on the phone can use the ledger
 app too, so connect it on admin phones only.
 

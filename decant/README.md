@@ -284,6 +284,24 @@ question the agent is waiting on. Anything done on a phone meanwhile counts
 (the agent takes it over), and "Hand over" on the tank stock page leaves the
 rest to this app.
 
+**Tank stock from the server.** On the home page, under the tank tiles, the
+"📡 From the tank stock server" card asks the tank stock server
+(`tank_stock/README.md`, "Check or monitor the stock from the decant app")
+for every tank's stock:
+
+- **📡 Check stock now** — what its page's *Capture* then *Send for
+  decantation* does: each tank's full figures saved as its latest stock,
+  with its card's picture uploaded for the result pictures. The card then
+  says how each tank went.
+- **👁 Monitor the stock** — each tank's volume every 10 s, until **Stop
+  monitoring** or 3 hours.
+
+The server looks every half minute, then takes about a minute to connect to
+the automation PC; if nothing answers for 5 minutes the card asks whether the
+Mac is on and online. The request waits in the shared settings, so any phone
+sees it and its answer. It isn't on the decanting screens: there, "Let the
+tank stock server finish it" follows the tanks itself.
+
 ## Reading the automation screenshots
 
 The screenshot is read on the phone (Tesseract.js, no server reads it) twice,
@@ -405,8 +423,13 @@ each tank so the loads I've placed an indent for fit?*
    150 L room margin — and for a transport TT, the least that works **whichever
    layout comes**. Chambers go in whole, so the figure can be a little above
    "incoming − room".
-5. **Our delivery tankers** — sign in once on the phone with a **Loading app** login;
-   the app reads how full each of our own tankers is (read-only, live) and
+5. **Our delivery tankers** — the app reads how full each of our own tankers is
+   from the **Loading app**, with no login: its `loading_tanker_fill()`
+   function (`supabase/loading-schema.sql`, run in the Loading project) gives
+   just the plate, chambers and fill to the publishable key, read again every
+   minute. (Until that SQL has been run there, a phone signs in once with a
+   Loading-app login instead — which "Log out all staff" in the Loading app
+   ends.) It is read-only and
    shows the free space, leaving out **OD15AF5510** (change the list in
    *Settings*). Each tanker has an **available to load** switch: turn it off
    when a tanker can't be loaded now (out on a trip, under repair…). It then
@@ -571,7 +594,7 @@ default), the dip chart, and:
 | `js/worker.js` | The attendant who moves the pipe between chambers, in the decanting picture |
 | `js/views.js` | Log and reports |
 | `js/plan.js` | The Plan tab: stock now, indents placed (our TTs, transport TTs), what to dispense |
-| `js/tankers.js` | Our delivery tankers' free space, read from the Loading app (sign-in) |
+| `js/tankers.js` | Our delivery tankers' free space, read from the Loading app (`loading_tanker_fill`, no login) |
 | `js/core.js` | The rules: dip chart, chambers, planning (decanting and dispensing), checks, variation, density |
 | `js/automation.js` | Reading tank cards out of the screenshot text |
 | `js/ocr.js` | The in-browser text reader (Tesseract.js) |

@@ -227,6 +227,33 @@ def handover_requests(timeout: int = 10) -> list:
     return [r for r in rows if isinstance(r.get("request"), dict)]
 
 
+def stock_request(timeout: int = 10) -> dict | None:
+    """A phone's "Check stock now" / "Monitor the stock" (the decant app's home
+    page), kept in the app's shared settings row: dec_config.data.stockRequest."""
+    rows = _rest("GET", "dec_config?id=eq.1&select=request:data->stockRequest", timeout=timeout) or []
+    req = rows[0].get("request") if rows else None
+    return req if isinstance(req, dict) else None
+
+
+def answer_stock_request(rid: str, answer: dict, timeout: int = 10) -> bool:
+    """Put the answer into that request, over the very version read (a phone's
+    settings saved meanwhile stay). -> False if it has to be written again."""
+    from .decantation import iso
+    rows = _rest("GET", "dec_config?id=eq.1&select=data,updated_at", timeout=timeout) or []
+    if not rows:
+        return True
+    data, base = rows[0].get("data") or {}, rows[0].get("updated_at")
+    req = data.get("stockRequest")
+    if not isinstance(req, dict) or str(req.get("id") or req.get("at") or "") != rid:
+        return True                        # (the phone asked something else since)
+    stamp = iso()
+    req.update(answer, answeredAt=stamp)
+    data["updatedAt"] = stamp
+    got = _rest("PATCH", f"dec_config?id=eq.1&updated_at=eq.{urllib.parse.quote(str(base))}&select=id",
+                {"data": data, "updated_at": stamp}, prefer="return=representation", timeout=timeout)
+    return bool(got)
+
+
 def get_session(session_id: str, timeout: int = 30) -> dict | None:
     rows = _rest("GET", f"dec_sessions?id=eq.{urllib.parse.quote(session_id)}&select=*", timeout=timeout) or []
     return rows[0] if rows else None

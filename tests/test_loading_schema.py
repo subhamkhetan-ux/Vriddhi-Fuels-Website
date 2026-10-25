@@ -331,3 +331,15 @@ def test_mark_a_bill_as_checked(pg, trips):
     assert "Admin only" in pg.fails("select loading_bill_uncheck('HSD|2026-27|3538')", **staff)
     _admin(pg, "select loading_bill_uncheck('HSD|2026-27|3538')")
     assert pg.ok("select count(*) from loading_bill_checks") == "0"
+
+
+def test_the_decant_app_reads_tanker_fill_with_the_public_key_alone(pg):
+    """loading_tanker_fill: plate, chamber sizes and fill for anyone with the
+    publishable key; the tables themselves and every other function stay shut."""
+    pg.ok("update loading_vehicles set fill = '{\"C1\": 3985}'::jsonb where plate = (select min(plate) from loading_vehicles)")
+    rows = pg.json("select loading_tanker_fill()", anon=True)
+    assert rows and set(rows[0]) == {"plate", "caps", "fill"}
+    assert rows == sorted(rows, key=lambda r: r["plate"]) and rows[0]["fill"] == {"C1": 3985}
+    assert len(rows) == int(pg.ok("select count(*) from loading_vehicles"))
+    assert pg.run("select count(*) from loading_vehicles", anon=True)[1] in ("", "0")   # (refused, or no rows)
+    pg.fails("select loading_whoami()", anon=True)

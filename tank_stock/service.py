@@ -52,6 +52,7 @@ from . import cards as cards_mod
 from . import decant, telegram
 from .auto import AutoDecant, AutoError
 from .capture import CaptureError, Session, parse_ids
+from .phone import PhoneStock
 
 HOME = Path(os.environ.get("TANK_STOCK_HOME", "/opt/agents/tank-stock"))
 QUEUE = Path(os.environ.get("TANK_STOCK_QUEUE", "/opt/agents/tank-stock-queue"))
@@ -74,7 +75,7 @@ LIVE_UPLOAD_TIMEOUT = 8          # seconds: a live upload gives up (the live rea
 LIVE_UPLOAD_BACKOFF = 30         # seconds: after the decant app couldn't be reached, before trying again
 PROBE_STALE_S = 180              # a card whose "Last Updated" time hasn't moved this long: frozen figures
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
-REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here?
+REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
 MAX_BODY = 16_000
 AUTO_ACTIONS = ("answer", "done", "drop", "after", "release", "cancel", "clear", "reconnect", "add")
@@ -220,6 +221,7 @@ class Station:
         self.seen_at = time.time()       # when the page was last open in front of someone
         self.last = _read_json(home / "last.json", {})
         self.auto = AutoDecant(self)
+        self.phone = PhoneStock(self)    # a phone's "Check stock now" / "Monitor the stock" (decant home page)
 
     # ---- settings and login --------------------------------------------
     @property
@@ -543,7 +545,7 @@ class Station:
                     reason = f"{MAX_FAILED_READS} reads in a row failed ({live.get('last_error', '')})"
                     break
                 # never busier than half the time, however slow the reads get
-                due = started + max(self.auto.interval(live["interval_s"]), 2 * took)
+                due = started + max(self._every(live), 2 * took)
                 live["next_read"] = datetime.fromtimestamp(time.time() + due - time.monotonic(), IST) \
                     .isoformat(timespec="seconds")
                 while time.monotonic() < due and not live["stop"].is_set():
@@ -554,7 +556,7 @@ class Station:
                         final = session.screen()          # what AnyDesk shows now
                         break
                     if live["wake"].is_set() and not live["stop"].is_set():
-                        due = min(due, started + max(self.auto.interval(live["interval_s"]), 2 * took))
+                        due = min(due, started + max(self._every(live), 2 * took))
                 if reason:
                     break
             if not reason and live.get("anydesk_said"):
@@ -583,11 +585,15 @@ class Station:
                         self._release()
             self._live_end(live, reason, final)
 
+    def _every(self, live) -> int:
+        """Seconds between live reads: shorter while a decantation needs them."""
+        return self.phone.interval(self.auto.interval(live["interval_s"]))
+
     def _unwatched(self, live) -> bool:
         """Live monitoring that nobody watches and that does nothing on its
-        own (no sending to the decant app, no automatic decantation) only
-        holds AnyDesk, its screen and memory: it ends."""
-        if live.get("by_auto") or live.get("auto_upload") or self.auto.active():
+        own (no sending to the decant app, no automatic decantation, no phone
+        monitoring) only holds AnyDesk, its screen and memory: it ends."""
+        if live.get("by_auto") or live.get("auto_upload") or self.auto.active() or self.phone.active():
             return False
         since = max(self.seen_at, datetime.fromisoformat(live["since"]).timestamp())
         return time.time() - since > UNWATCHED_STOP
@@ -624,7 +630,7 @@ class Station:
                 raise CaptureError("The screenshot of the live session failed.")
             cfg = self._live_cfg(live)
             changed, good = {}, 0
-            watched = sorted(set(live["tanks"]) | self.auto.watched())
+            watched = sorted(set(live["tanks"]) | self.auto.watched() | self.phone.watched())
             for no in watched:
                 box = live["boxes"].get(no)
                 if not box:
@@ -666,7 +672,8 @@ class Station:
                 live["boxes"] = None
                 raise CaptureError("The tank cards were not on the screen.")
             # the changed figures, and those the decant app couldn't take before
-            wanted = lambda no: live["auto_upload"] or no in self.auto.to_upload()   # noqa: E731
+            wanted = lambda no: (live["auto_upload"] or no in self.auto.to_upload()   # noqa: E731
+                                 or no in self.phone.watched())
             pending = live.setdefault("pending", {})
             send = {**{no: c for no, c in pending.items() if wanted(no)},
                     **{no: c for no, c in changed.items() if wanted(no)}}
@@ -855,9 +862,9 @@ class Station:
                                    "frozen": time.time() - t["t"] >= PROBE_STALE_S}
                          for no, t in (live.get("ticks") or {}).items()}
         # what it really does while an automatic decantation runs on it
-        out["watched"] = sorted(set(live["tanks"]) | self.auto.watched())
-        out["every_s"] = self.auto.interval(live["interval_s"])
-        out["sending"] = sorted(out["watched"] if live["auto_upload"] else self.auto.to_upload())
+        out["watched"] = sorted(set(live["tanks"]) | self.auto.watched() | self.phone.watched())
+        out["every_s"] = self._every(live)
+        out["sending"] = sorted(out["watched"] if live["auto_upload"] else self.auto.to_upload() | self.phone.watched())
         return out
 
     # ---- GitHub job requests -------------------------------------------
@@ -870,13 +877,14 @@ class Station:
                 traceback.print_exc()
 
     def request_loop(self, stop: threading.Event) -> None:
-        """A phone's "Let the tank stock server finish it" (decant app): looked for
-        every REQUEST_EVERY seconds."""
+        """A phone's "Let the tank stock server finish it", "Check stock now" or
+        "Monitor the stock" (decant app): looked for every REQUEST_EVERY seconds."""
         while not stop.wait(REQUEST_EVERY):
-            try:
-                self.auto.check_requests()
-            except Exception:  # noqa: BLE001 - looked for again next time
-                traceback.print_exc()
+            for look in (self.auto.check_requests, self.phone.check):
+                try:
+                    look()
+                except Exception:  # noqa: BLE001 - looked for again next time
+                    traceback.print_exc()
 
     def _queue_once(self) -> None:
         for req in sorted(QUEUE.glob("*.req")):
