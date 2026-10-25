@@ -282,8 +282,8 @@ function tankersCard(space) {
     }).join('') || '<div class="hint">No tankers in the Loading app.</div>'}
       <div class="tk-row tot"><div class="tk-top"><b>${off.length ? 'Free to load' : 'Free in all'}</b><span class="sp"></span><b class="num">${fmtL(space.free)}</b></div>
         ${off.length ? `<div class="hint" style="margin-top:4px">In ${space.rows.length - off.length} of ${space.rows.length} tankers — ${off.map((r) => esc(r.plate)).join(', ')} not available.</div>` : ''}</div>
-      <div class="hint" style="margin-top:6px">Switch a tanker off when it can't be loaded now (out on a trip, under repair…) — every phone sees it. ${space.excluded.length ? `Left out: ${space.excluded.map(esc).join(', ')} (change in Settings). ` : ''}Read ${ago(tankers.at)} as ${esc(tankers.user)} · updates live.</div>
-      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm" data-tkrefresh>↻ Refresh</button><button class="btn sm ghost" data-tksignout>Sign out</button></div>`;
+      <div class="hint" style="margin-top:6px">Switch a tanker off when it can't be loaded now (out on a trip, under repair…) — every phone sees it. ${space.excluded.length ? `Left out: ${space.excluded.map(esc).join(', ')} (change in Settings). ` : ''}Read ${ago(tankers.at)}${tankers.shared ? ' · no login needed · read again every minute' : ` as ${esc(tankers.user)} · updates live`}.</div>
+      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm" data-tkrefresh>↻ Refresh</button>${tankers.shared ? '' : '<button class="btn sm ghost" data-tksignout>Sign out</button>'}</div>`;
   } else if (st === 'signin') {
     body = `<div class="hint">Sign in once on this phone with a <b>Loading app</b> login to see how much diesel our own tankers can still take. Only how full each tanker is is read.</div>
       <div class="grid2" style="margin-top:10px"><label class="f">Username<input type="text" data-tku autocomplete="username" autocapitalize="off"></label>

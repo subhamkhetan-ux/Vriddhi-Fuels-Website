@@ -3534,27 +3534,62 @@ const INV = (function(){
 /* ===================== END INVOICE TAGGING MODEL ===================== */
 
 /* ---------- LEDGER LINK (bills, read-only) ----------
-   The ledger app (/ledger/) has its own Supabase project. An admin signs in
-   here with a LEDGER login — kept on this phone apart from the app's own
-   login — and only the ledger's read functions are called (ledger_whoami,
-   ledger_sales_range, ledger_tanker_list, ledger_customers_list). Nothing in
-   the ledger is ever changed from this app. */
+   The ledger app (/ledger/) has its own Supabase project. With the
+   loading-ledger edge function set up (README §Invoice check), its ledger
+   login is kept on the server and every admin gets the bills with their
+   loading login alone: nothing to sign in to here. Without it, an admin signs
+   in here with a LEDGER login — kept on this phone apart from the app's own
+   login. Either way only the ledger's read functions are called
+   (ledger_whoami, ledger_sales_range, ledger_tanker_list,
+   ledger_customers_list). Nothing in the ledger is ever changed from this app. */
 const LEDGER_URL=String(CFG.LEDGER_SUPABASE_URL||""), LEDGER_KEY=String(CFG.LEDGER_SUPABASE_ANON_KEY||"");
 const LEDGER_ON=/^https:\/\//.test(LEDGER_URL) && LEDGER_URL.indexOf("PASTE")===-1 && !!LEDGER_KEY && LEDGER_KEY.indexOf("PASTE")===-1;
 const Ledger={
-  client:null, email:"", _init:null, _bulk:null, _custs:null,
+  client:null, email:"", server:false, _init:null, _as:null, _bulk:null, _custs:null,
   init(){
     if(!LEDGER_ON) return Promise.resolve("");
-    if(!this._init) this._init=supaFactory().then(cc=>{
-      this.client=cc(LEDGER_URL, LEDGER_KEY, { auth:{ storageKey:"vf-loading-ledger-auth", persistSession:true, autoRefreshToken:true, detectSessionInUrl:false } });
-      this.client.auth.onAuthStateChange((ev, se)=>{ this.email = se && se.user ? se.user.email||"" : ""; });
-      return this.client.auth.getSession();
-    }).then(r=>{ const se=r && r.data && r.data.session; this.email = se && se.user ? se.user.email||"" : ""; return this.email; })
-      .catch(e=>{ this._init=null; throw e; });
+    if(this.server && !isAdmin()) this.reset();       // signed out, or another login since
+    if(this._init && !this.server && ROLE==="admin" && this._as!=="admin") this._init=null;   // (asked before the role was known)
+    if(!this._init){
+      this._as=ROLE;
+      this._init=this.viaServer().then(em=>em || this.ownLogin()).catch(e=>{ this._init=null; throw e; });
+    }
     return this._init;
+  },
+  // the ledger login kept on the server (loading-ledger edge function): "" if it isn't set up
+  viaServer(){
+    if(!CLOUD || ROLE!=="admin") return Promise.resolve("");
+    return this.serverCall("ledger_whoami").then(w=>{
+      if(!w || !w.member) return "";
+      this.server=true; this.email=w.email||"shared ledger login"; this._bulk=null; this._custs=null;
+      return this.email;
+    }, ()=>"");
+  },
+  serverCall(fn, args){
+    return CloudBackend.client.auth.getSession().then(res=>{
+      const tok=res && res.data && res.data.session && res.data.session.access_token;
+      if(!tok) throw new Error("Not signed in");
+      return fetch(String(CFG.SUPABASE_URL).replace(/\/+$/,"")+"/functions/v1/loading-ledger", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+tok, "apikey":CFG.SUPABASE_ANON_KEY },
+        body:JSON.stringify({ fn:fn, args:args||{} }),
+      });
+    }).then(r=>r.json().catch(()=>({})).then(j=>{
+      if(!r.ok || j.error) throw new Error(j.error || ("Error "+r.status));
+      return j.data;
+    }));
+  },
+  reset(){ this.server=false; this.email=""; this._init=null; this._bulk=null; this._custs=null; },
+  ownLogin(){
+    return (this.client ? Promise.resolve(this.client) : supaFactory().then(cc=>{
+      this.client=cc(LEDGER_URL, LEDGER_KEY, { auth:{ storageKey:"vf-loading-ledger-auth", persistSession:true, autoRefreshToken:true, detectSessionInUrl:false } });
+      this.client.auth.onAuthStateChange((ev, se)=>{ if(!this.server) this.email = se && se.user ? se.user.email||"" : ""; });
+      return this.client;
+    })).then(c=>c.auth.getSession()).then(r=>{ const se=r && r.data && r.data.session; this.email = se && se.user ? se.user.email||"" : ""; return this.email; });
   },
   on(){ return !!this.email; },
   rpc(name, args){
+    if(this.server) return this.serverCall(name, args).catch(e=>{ throw new Error("Ledger: "+((e && e.message) || "error")); });
     return this.client.rpc(name, args||{}).then(r=>{
       if(r.error){
         const m=r.error.message||"Ledger error";
@@ -4439,7 +4474,9 @@ function renderInvSettings(){
   const lb=$("#ledBox");
   if(!LEDGER_ON) lb.innerHTML='<div class="note" style="text-align:left;margin:0">The ledger is not set up — add its URL and key in loading/config.js.</div>';
   else Ledger.init().catch(()=>"").then(()=>{
-    lb.innerHTML = Ledger.on()
+    lb.innerHTML = Ledger.server
+      ? '<div class="ledrow"><span>🧾 Ledger: <b>'+esc(Ledger.email)+'</b><br><span class="sub">kept on the server for every admin · bills are only read</span></span></div>'
+      : Ledger.on()
       ? '<div class="ledrow"><span>🧾 Ledger: <b>'+esc(Ledger.email)+'</b><br><span class="sub">bills are only read</span></span><button class="lnk" id="ledOut">Disconnect</button></div>'
       : '<div class="ledrow"><span>🧾 Ledger not connected on this phone</span><button class="big green sm" id="ledIn" style="margin:0;width:auto;padding:10px 14px"><span>Connect</span></button></div>';
     if($("#ledOut")) $("#ledOut").onclick=()=>ledgerSignOut(renderInvSettings);

@@ -1354,6 +1354,27 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- The decant app (/decant/: its own Supabase project, no login) reads how
+-- full each delivery tanker is, for its Plan tab: the plate, the chamber
+-- sizes and what is in each chamber — nothing else, and nothing can be
+-- changed. Callable with the publishable key alone, so a decant phone needs
+-- no Loading-app login (which "Log out all staff" would end every time).
+-- After the grants above, which take everything else away from anon.
+-- ---------------------------------------------------------------------
+create or replace function public.loading_tanker_fill() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce((select jsonb_agg(jsonb_build_object('plate', plate, 'caps', caps, 'fill', fill) order by plate)
+                     from loading_vehicles), '[]'::jsonb);
+end $$;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    grant execute on function public.loading_tanker_fill() to anon, authenticated;
+  end if;
+end $$;
+
 -- Realtime: broadcast changes so every device updates at once (safe to re-run).
 do $$
 begin

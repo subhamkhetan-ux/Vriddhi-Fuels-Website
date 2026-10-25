@@ -1,8 +1,11 @@
 // Our own delivery tankers, read from the Tanker Loading app (/loading/). That
-// app has its own Supabase project and only signed-in staff can read it, so
-// this phone signs in once with a Loading-app username + password (the same
-// login the staff use there). Read-only: we only look at how full each
-// tanker is, to know how much diesel they can still take.
+// app has its own Supabase project. Its loading_tanker_fill() function
+// (supabase/loading-schema.sql) gives each tanker's plate, chambers and fill
+// to the publishable key alone, so no login is needed and none can expire.
+// Until that SQL has been run there, this phone signs in once with a
+// Loading-app username + password (the same login the staff use there).
+// Read-only: we only look at how full each tanker is, to know how much
+// diesel they can still take.
 
 const LOADING_CONFIG = '../loading/config.js';
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
@@ -10,7 +13,8 @@ const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
 export const tankers = {
   status: 'off',     // off | connecting | signin | live | unavailable | error
   vehicles: [],      // [{plate, caps, fill}]
-  user: '',
+  user: '',          // the Loading-app login ('' without one: shared)
+  shared: false,     // read without a login (loading_tanker_fill)
   error: '',
   at: null,          // when the list was read
 };
@@ -21,6 +25,7 @@ function emit() { for (const fn of listeners) fn(); }
 
 let client = null;
 let started = null;
+const SHARED_EVERY_MS = 60000;      // no live updates without a login: read again this often
 
 function loadConfig() {
   if (window.VRIDDHI_LOADING_CONFIG) return Promise.resolve(window.VRIDDHI_LOADING_CONFIG);
@@ -52,6 +57,7 @@ export function initTankers() {
         client = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
           auth: { persistSession: true, autoRefreshToken: true, storageKey: 'vriddhi-decant-loading' },
         });
+        if (await readShared()) return;
         const { data } = await client.auth.getSession();
         if (data?.session) {
           tankers.user = nameOf(data.session);
@@ -91,10 +97,30 @@ export async function tankersSignOut() {
   emit();
 }
 
+// No login: the Loading app's loading_tanker_fill(). False if that project
+// doesn't have it yet (the sign-in is used then); another error is shown.
+async function readShared() {
+  const got = await client.rpc('loading_tanker_fill');
+  const e = got.error;
+  if (e && (e.code === 'PGRST202' || /could not find the function|does not exist/i.test(e.message || ''))) return false;
+  tankers.shared = true;
+  tankers.user = '';
+  shown(got);
+  setInterval(() => { if (!document.hidden) readVehicles(); }, SHARED_EVERY_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) readVehicles(); });
+  return true;
+}
+
 async function readVehicles() {
-  const { data, error } = await client.from('loading_vehicles').select('plate,caps,fill').order('plate', { ascending: true });
+  const { data, error } = tankers.shared
+    ? await client.rpc('loading_tanker_fill')
+    : await client.from('loading_vehicles').select('plate,caps,fill').order('plate', { ascending: true });
+  shown({ data, error });
+}
+
+function shown({ data, error }) {
   if (error) {
-    tankers.status = /jwt|auth|permission|denied/i.test(error.message || '') ? 'signin' : 'error';
+    tankers.status = !tankers.shared && /jwt|auth|permission|denied/i.test(error.message || '') ? 'signin' : 'error';
     tankers.error = error.message || String(error);
   } else {
     tankers.vehicles = (data || []).map((v) => ({ plate: v.plate, caps: (v.caps || []).map(Number), fill: v.fill || {} }));
@@ -107,7 +133,7 @@ async function readVehicles() {
 
 let watching = false;
 function watch() {
-  if (watching || !client?.channel) return;
+  if (watching || tankers.shared || !client?.channel) return;
   watching = true;
   let t;
   client.channel('decant-tankers')
