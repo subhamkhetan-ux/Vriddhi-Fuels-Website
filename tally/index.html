@@ -2916,6 +2916,11 @@ function fillBillForm(src){
 }
 
 /* ---------- open POs from the Ledger app (ledger-po.js) ---------- */
+// the ledger login kept on the server (tally-ledger) is asked with this device's Tally login
+if (window.VFLedgerPO && VFLedgerPO.useTallyLogin) VFLedgerPO.useTallyLogin(function(){
+  if (!CloudBackend.client) return Promise.resolve("");
+  return CloudBackend.client.auth.getSession().then(function(r){ return r && r.data && r.data.session ? r.data.session.access_token : ""; });
+});
 var ledgerPoRun = 0, ledgerPoTimer = null;
 var SERIES_BY_PRODUCT = { "High Speed Diesel": "hsd", "Motor Spirit": "ms", "XtraGreen Diesel": "xg" };
 function ledgerPoText(r, qty){

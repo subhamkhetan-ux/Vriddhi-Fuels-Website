@@ -30,7 +30,7 @@ window.__VF_TEST_SUPABASE_FACTORY = () => {
       return Promise.resolve({data:null,error:null});
     },
     channel(){return {on(){return this},subscribe(){return this}}},
-    auth:{onAuthStateChange(cb){authCallback=cb;window.testSignOut=()=>cb('SIGNED_OUT')},getSession(){return Promise.resolve({data:{session:{user:{id:'test-user',email:'test@vriddhi.local'}}}})},signOut(){authCallback('SIGNED_OUT');return Promise.resolve({})}}
+    auth:{onAuthStateChange(cb){authCallback=cb;window.testSignOut=()=>cb('SIGNED_OUT')},getSession(){return Promise.resolve({data:{session:{access_token:'tally-token',user:{id:'test-user',email:'test@vriddhi.local'}}}})},signOut(){authCallback('SIGNED_OUT');return Promise.resolve({})}}
   };return client;
 };
 """
@@ -524,6 +524,39 @@ def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
     assert page.locator('#blPo').input_value()=='MANUAL-1'
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert not [u for u in requested if 'tanker_billing' in u]  # the Tanker Billing workbook is not used
+    assert not errors
+    page.close()
+
+
+def test_the_ledger_login_kept_on_the_server_needs_no_sign_in_here(browser,server):
+    """tally-ledger answers with the ledger login kept on the server: the bill gets its PO and
+    Tanker Master lines with this device's Tally login alone, and no ledger sign-in is asked for."""
+    page=browser.new_page(viewport={'width':390,'height':900})
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    asked=[]
+    def tally_ledger(route):
+        body=json.loads(route.request.post_data or '{}');asked.append((route.request.headers.get('authorization'),body['fn']))
+        data={'ledger_whoami':{'member':True,'email':'reader@example.com'},'ledger_tanker_list':TANKER,
+              'ledger_po_data':{'groups':[{'code':'Twin_Bulk','title':'Twin Steel Ltd — Bulk','kind':'po','units':[]}],
+                'members':[{'id':1,'name':'TWIN STEEL LIMITED','key':'twin','group':'Twin_Bulk','archived':False}],
+                'pos':[{'id':1,'group_code':'Twin_Bulk','unit':'','po_no':'PO-A','allotted':10000,'seq':1}],'bills':[]}}[body['fn']]
+        route.fulfill(status=200,content_type='application/json',body=json.dumps({'ok':True,'data':data}))
+    page.route('**/functions/v1/tally-ledger',tally_ledger)
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');
+      window.customerPriceParties=[{name:'Twin Steel Ltd'}];
+      window.customerPriceVouchers=[{id:'v2',series:'hsd',number:'702',date:today,party:'Twin Steel Ltd',vehicle:'OD01',qty:'5000',
+        rate:'100',item_amt:'500000',party_amt:'500000',roff:'0',status:'pending',source:'app',bridge_state:'unlinked',created_at:new Date().toISOString()}];
+    })();""")
+    page.goto(server+'/tally/')
+    page.get_by_role('button',name='Create bill for voucher 702').click()
+    page.wait_for_function("document.getElementById('blPo').value==='PO-A'")
+    assert page.locator('#blPA1').text_content()=='Plot 9, Steel Road,'      # the Tanker Master, through the server too
+    assert page.locator('#blLedgerForm').is_hidden()
+    assert {f for _,f in asked}>={'ledger_whoami','ledger_po_data','ledger_tanker_list'}
+    assert all(a=='Bearer tally-token' for a,_ in asked)                     # asked with the Tally login
+    assert page.evaluate('window.ledgerLogin===undefined')                    # no ledger sign-in on this device
     assert not errors
     page.close()
 

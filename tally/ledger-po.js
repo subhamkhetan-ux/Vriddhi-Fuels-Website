@@ -10,15 +10,19 @@
  * Ledger app) gives each tanker-bill customer's address, payment lines and
  * P.O. label / number.
  *
- * The Ledger has its own Supabase project and members list: this app signs in
- * there with the same login when it can, or once through "Connect the Ledger"
- * on the bill screen.
+ * The Ledger has its own Supabase project and members list. With the
+ * tally-ledger edge function set up (tally/README.md), its ledger login is
+ * kept on the server and every signed-in Tally user reads the Ledger with
+ * their Tally login alone: nothing to sign in to here. Without it, this app
+ * signs in there with the same login when it can, or once through "Connect
+ * the Ledger" on the bill screen.
  */
 (function (global) {
   'use strict';
   const PRODUCT = {hsd: 'HSD', ms: 'MS', xg: 'XG'};
   const FRESH_MS = 120000;
   let client = null, clientPending = null, data = null, loadedAt = 0, loading = null, rule = null;
+  let tallyToken = null, server = null;   // the Tally login's token; whether the server's ledger login answers (a promise)
 
   function config() {
     const c = global.VRIDDHI_TALLY_CONFIG || {};
@@ -45,8 +49,43 @@
     return rule;
   }
 
+  // The ledger login kept on the server (tally-ledger edge function), asked
+  // with this device's Tally login.
+  async function serverCall(fn, args) {
+    const c = global.VRIDDHI_TALLY_CONFIG || {};
+    const token = tallyToken ? await tallyToken() : '';
+    if (!token || !/^https:\/\//.test(c.SUPABASE_URL || '')) throw Object.assign(new Error('No Tally login'), {noLogin: true});
+    const r = await fetch(String(c.SUPABASE_URL).replace(/\/+$/, '') + '/functions/v1/tally-ledger', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + token, apikey: c.SUPABASE_ANON_KEY},
+      body: JSON.stringify({fn, args: args || {}}),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw Object.assign(new Error(j.error || 'Error ' + r.status), {code: j.code || ''});
+    return j.data;
+  }
+  // -> true when it is set up (then no ledger sign-in is needed here). Not
+  // signed in to Tally yet (the app is still starting): asked again next time.
+  function viaServer() {
+    if (!server) {
+      server = serverCall('ledger_whoami').then(w => !!(w && w.member), e => {
+        if (e && e.noLogin) server = null;
+        return false;
+      });
+    }
+    return server;
+  }
+  function useTallyLogin(fn) { tallyToken = fn; server = null; }
+  // A ledger read: through the server's login if it answers, else this device's.
+  function ledgerRpc(fn) {
+    return viaServer().then(yes => yes
+      ? serverCall(fn).then(d => ({data: d}), e => ({error: {code: e.code, message: e.message}}))
+      : getClient().then(c => c.rpc(fn)));
+  }
+
   async function signedIn() {
     if (!config()) return false;
+    if (await viaServer()) return true;
     const c = await getClient();
     const res = await c.auth.getSession();
     return !!(res.data && res.data.session);
@@ -59,7 +98,7 @@
     catch (e) { await c.auth.signOut(); throw e; }
   }
   async function signOut() {
-    data = null; loadedAt = 0;
+    data = null; loadedAt = 0; server = null;
     if (global.VFBilling) global.VFBilling.forget();
     if (client) await client.auth.signOut();
   }
@@ -69,7 +108,7 @@
   function load(force) {
     if (!force && data && Date.now() - loadedAt < FRESH_MS) return Promise.resolve(data);
     if (!force && loading) return loading;
-    loading = getClient().then(c => c.rpc('ledger_po_data')).then(res => {
+    loading = ledgerRpc('ledger_po_data').then(res => {
       if (res.error) throw readError(res);
       data = res.data; loadedAt = Date.now();
       return data;
@@ -173,7 +212,7 @@
   async function tankerMaster() {
     if (!config()) return {status: 'not-configured'};
     if (!await signedIn()) return {status: 'signed-out'};
-    const res = await (await getClient()).rpc('ledger_tanker_list');
+    const res = await ledgerRpc('ledger_tanker_list');
     if (res.error) throw readError(res);
     const customers = (res.data || []).map(t => ({company: String(t.company || ''),
       address: [0, 1, 2].map(i => String((t.address || [])[i] || '')),
@@ -184,5 +223,5 @@
   }
 
   global.VFLedgerPO = {configured: () => !!config(), signedIn, signIn, signOut, forVoucher, bulk, tankerMaster,
-    refresh: () => load(true)};
+    refresh: () => load(true), useTallyLogin, shared: () => viaServer()};
 })(window);
