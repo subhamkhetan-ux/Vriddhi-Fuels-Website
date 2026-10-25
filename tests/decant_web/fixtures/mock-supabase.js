@@ -1,6 +1,8 @@
 // A tiny in-memory PostgREST stand-in with network latency and failure hooks.
 export const db = { dec_sessions: new Map(), dec_invoices: new Map(), dec_tank_state: new Map(), dec_config: new Map() };
 export const ctl = { latency: 50, log: [], fail: null };   // fail(table, op, row) -> error | null
+// a login (dec_whoami's "owner" for the owner's): no one signed in to start with
+export const auth = { session: null, owners: new Set(['owner@example.com']), password: 'pw' };
 const KEY = { dec_sessions: 'id', dec_invoices: 'invoice_no', dec_tank_state: 'tank_id', dec_config: 'id' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const eqv = (col, a, b) => (/_at$/.test(col) && a && b ? Date.parse(a) === Date.parse(b) : String(a) === String(b));
@@ -31,5 +33,22 @@ class Q {
   then(a, b) { return this.run().then(a, b); }
 }
 export function createClient() {
-  return { from: (t) => new Q(t), channel: () => ({ on() { return this; }, subscribe() { return this; } }) };
+  const listeners = [];
+  return {
+    from: (t) => new Q(t),
+    channel: () => ({ on() { return this; }, subscribe() { return this; } }),
+    rpc: async (fn) => (fn === 'dec_whoami'
+      ? { data: { email: auth.session?.user.email || '', owner: Boolean(auth.session && auth.owners.has(auth.session.user.email)) }, error: null }
+      : { data: null, error: { code: 'PGRST202', message: `no ${fn}` } }),
+    auth: {
+      getSession: async () => ({ data: { session: auth.session } }),
+      signInWithPassword: async ({ email, password }) => {
+        if (password !== auth.password) return { error: { message: 'Invalid login credentials' } };
+        auth.session = { user: { email } };
+        return { data: { session: auth.session }, error: null };
+      },
+      signOut: async () => { auth.session = null; listeners.forEach((f) => f('SIGNED_OUT', null)); return {}; },
+      onAuthStateChange: (f) => { listeners.push(f); return { data: { subscription: { unsubscribe() {} } } }; },
+    },
+  };
 }

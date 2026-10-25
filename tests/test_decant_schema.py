@@ -208,3 +208,27 @@ def test_remove_from_payments_touches_only_the_dec_tables(pg):
         assert pg.ok("select count(*) from storage.buckets where id = 'dec-shots';") == "0"
         assert pg.ok("select count(*) from pg_policies where policyname = 'dec_shots_files';") == "0"
     pg.ok(open(SCHEMA, encoding="utf-8").read())           # put the schema back for any later test
+
+
+# ---- the owner's login: the Log and Reports tabs -------------------------------
+OWNER, OTHER = "00000000-0000-0000-0000-0000000000a1", "00000000-0000-0000-0000-0000000000b2"
+
+
+def test_only_a_login_on_the_owners_list_is_the_owner(pg):
+    pg.ok(f"insert into auth.users (id, email) values ('{OWNER}', 'Owner@example.com'), ('{OTHER}', 'other@example.com') on conflict do nothing;"
+          "delete from dec_owners;")
+    assert pg.ok("select dec_add_owner('nobody@example.com')").startswith("No login")
+    assert "Added owner@example.com" in pg.ok("select dec_add_owner('OWNER@example.com')")
+    me = lambda who, email: pg.json("select dec_whoami()", user=who, email=email)   # noqa: E731
+    assert me(OWNER, "owner@example.com") == {"email": "owner@example.com", "owner": True}
+    assert me(OTHER, "other@example.com")["owner"] is False                  # a login, not the owner's
+    assert pg.json("select dec_whoami()", anon=True)["owner"] is False         # the public key alone
+    # the list and its functions: SQL Editor only
+    pg.fails("select count(*) from dec_owners", user=OWNER, email="owner@example.com")
+    pg.fails("select dec_add_owner('other@example.com')", user=OWNER, email="owner@example.com")
+    pg.fails("select dec_add_owner('other@example.com')", anon=True)
+    # decanting stays open to the public key
+    pg.ok("insert into dec_invoices (invoice_no) values ('INV-OWN') on conflict do nothing", anon=True)
+    assert "Removed" in pg.ok("select dec_remove_owner('owner@example.com')")
+    assert me(OWNER, "owner@example.com")["owner"] is False
+    pg.ok("delete from dec_invoices where invoice_no = 'INV-OWN'")
