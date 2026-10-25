@@ -184,25 +184,33 @@ bill with every field already filled:
 |---|---|
 | Date, Vehicle, Quantity, Price/Ltr, Amount | the voucher being created (or the saved voucher you tapped 🧾 on) |
 | Product | the voucher's series — Diesel → *High Speed Diesel*, Petrol → *Motor Spirit*, XtraGreen → *XtraGreen Diesel* |
-| Customer name, address, GSTIN, P.O. label | the customer's row in the Tanker Billing sheet, matched to the Tally party ledger |
-| P.O. number | the customer's **open PO from the Ledger app**: the first PO in its list with enough litres left, by the Ledger's own rule (`ledger/js/po.js`), counting this app's vouchers the Ledger has not imported yet. Falls back to the sheet row when the Ledger is not connected or the customer has no PO list there. Editable; a number typed by hand is kept. |
+| Customer name, address, GSTIN, P.O. label | the customer's row in the **Tanker Master** sheet of the Master Ledger uploaded to the Ledger app, matched to the Tally party ledger |
+| P.O. number | the customer's **open PO from the Ledger app**: the first PO in its list with enough litres left, by the Ledger's own rule (`ledger/js/po.js`), counting this app's vouchers the Ledger has not imported yet. Falls back to the Tanker Master row when the customer has no PO list there. Editable; a number typed by hand is kept. |
 | Payment / bank block | the same row |
 | Density- / Seal No- lines | shown for diesel loads over 3 000 L, exactly as before |
 | Bill no. | **the voucher's own invoice number** — `1640`, `MS320`, `XG7` — so the bill and the Tally invoice carry one reference |
 
-**Ledger connection for open POs.** The Ledger app has its own Supabase project and members list. Signing into this app also signs into the Ledger when the same login is a Ledger member; otherwise the bill screen shows **Connect the Ledger** once per device (the session is stored separately from this app's). Petrol and XtraGreen bills get no PO automatically, as in the Ledger; the open POs are offered in the field's suggestions. Unit-wise customers pick the unit's PO.
+**Ledger connection for open POs and customer details.** The Ledger app has its own Supabase project and members list. Signing into this app also signs into the Ledger when the same login is a Ledger member; otherwise the bill screen shows **Connect the Ledger** once per device (the session is stored separately from this app's). Petrol and XtraGreen bills get no PO automatically, as in the Ledger; the open POs are offered in the field's suggestions. Unit-wise customers pick the unit's PO.
 
-The data is `state/tanker_billing.json` — the file the hourly
-[tanker sync](../tanker/README.md) Action commits from the
-`Tanker Billing.xlsm` workbook. You keep editing the workbook exactly as
-today; the app follows.
+The customer details are the Ledger's copy of the **Tanker Master** sheet
+(columns Company / HSD / Address 1–3 / Payment 1–5 / PO Label / PO No /
+Price Tier), replaced by every **Upload Master Ledger** in the Ledger app and
+read with `ledger_tanker_list()`. To change an address or the bank details,
+edit the Tanker Master sheet and upload the Master Ledger again. The
+`Tanker Billing.xlsm` workbook and `state/tanker_billing.json` are not used
+by this app.
+
+- **Not connected to the Ledger:** the bill still opens and prints, with the
+  address and payment lines blank, and says so; **Connect the Ledger** fills
+  them in. The last Tanker Master read is kept on the device for when the
+  Ledger cannot be reached (marked as such), and forgotten on signing out.
 
 - **Everything stays editable** on the bill screen, and editing a bill never
   changes the voucher, the day's XML export or the invoice numbering — a
   bill and a Tally voucher are two separate documents.
-- **The bill opens on the voucher's rate and amount**, so the printed bill
-  and the Tally invoice always agree. When the sheet's tier rate for that
-  customer differs it is shown underneath with a one-tap *use sheet rate*.
+- **The rate is always the voucher's** (and the amount the voucher's), so the
+  printed bill and the Tally invoice always agree; changing the customer or
+  product on the bill keeps it. The Tanker Master's HSD rate is not used.
 - **The bill number is the voucher's invoice number.** Raised from a saved
   voucher it is that voucher's number exactly; raised from a voucher still
   being typed it is the number the app is about to allocate, so save the
@@ -210,12 +218,12 @@ today; the app follows.
   assigned by the server on save). Editing it by hand is allowed and the
   screen then says what the voucher's number was. The `/tanker/` app's own
   running counter is never written to.
-- **Party ledger → sheet customer matching** ignores case, spacing,
+- **Party ledger → Tanker Master customer matching** ignores case, spacing,
   punctuation and the usual `M/s` / `Private` / `Limited` / `&` variations.
-  If a party is not in the sheet the screen says so and offers the full
+  If a party is not in the Tanker Master the screen says so and offers the full
   customer list to pick from — the bill still prints, with those fields blank
   until one is chosen.
-- **Unit-wise customers** (two or more sheet rows that differ only by their
+- **Unit-wise customers** (two or more Tanker Master rows that differ only by their
   unit — *SMC Power Generation LTD, UNIT I* and *UNIT II*) offer **only their
   units**, never the whole list. `UNIT II`, `Unit-2` and `unit 2` are the same
   unit. When the Ledger knows the unit (from the customer name, or the
@@ -234,10 +242,10 @@ today; the app follows.
   bill later, including for vouchers that came in from a **DayBook XML
   import**: the import carries the party, date, vehicle (`UDF:EIVEHNO`),
   quantity, rate and amount, and the rest of the bill comes from the
-  Tanker Billing sheet as usual.
+  Tanker Master as usual.
 
-The standalone app at `/tanker/` is unchanged and keeps working — both read
-the same data file, and this app reuses the tanker app's letterhead, stamp,
+The standalone app at `/tanker/` is unchanged and still reads the workbook's
+data file; this app reuses the tanker app's letterhead, stamp,
 fonts and `.docx` builder rather than keeping a second copy of them.
 
 ## Day Book downloads
@@ -273,9 +281,10 @@ bills and the fuel slips of many invoices at once — the bills as one A4 PDF,
 the slips as a separate A5 PDF, since they print on different paper.
 
 - It lists the invoices of **bulk customers** in the chosen dates: customers
-  on a bulk ledger in the Ledger app (its `*_Bulk` groups). Without the Ledger
-  connection it lists the customers on the Tanker Billing sheet and offers
-  **Connect the Ledger**. Invoices waiting for review in Tally are left out
+  on a bulk ledger in the Ledger app (its `*_Bulk` groups), billed to their
+  Tanker Master address. Without the Ledger connection it offers **Connect the
+  Ledger** (with the Ledger unreachable, the Tanker Master copy last read on the
+  device is used). Invoices waiting for review in Tally are left out
   and counted.
 - Invoices are listed **newest first** (date, then invoice number — the PDF
   pages follow the same order), each with the customer's full name and bulk

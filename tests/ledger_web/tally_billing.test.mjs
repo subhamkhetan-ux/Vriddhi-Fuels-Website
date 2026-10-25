@@ -38,3 +38,35 @@ test('customers that are not billed unit-wise keep the whole list', () => {
   assert.deepEqual(B.unitFamily(DATA, 'Other Steel Ltd'), []);  // one unit on the sheet is not a choice
   assert.equal(B.findCustomer(DATA, 'Sample Logistics Pvt Ltd').company, 'Sample Logistics Private Limited');
 });
+
+test('customer details come from the Ledger’s Tanker Master, never the Tanker Billing workbook', async () => {
+  const store = new Map([['vf_tally_billing_v1', '{"customers":[{"company":"From the workbook"}]}']]);
+  globalThis.localStorage = { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k) };
+  globalThis.fetch = () => { throw new Error('nothing is fetched'); };
+  const rows = [customer('Demo Power Generation LTD, UNIT I')];
+  let answer = { status: 'ok', customers: rows, updatedAt: '2026-10-24T05:00:00Z' };
+  globalThis.VFLedgerPO = { tankerMaster: () => answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer) };
+
+  const d = await B.load(true);
+  assert.equal(d.status, 'ok');
+  assert.deepEqual(d.customers.map(c => c.company), ['Demo Power Generation LTD, UNIT I']);
+  assert.equal(d.generated_at, '2026-10-24T05:00:00Z');
+  assert.ok(!store.has('vf_tally_billing_v1'));  // the workbook's old copy is dropped
+
+  // Ledger unreachable: the copy last read on this device, marked as such.
+  answer = new Error('offline');
+  const offline = await B.load(true);
+  assert.equal(offline.status, 'offline');
+  assert.equal(offline.customers[0].company, 'Demo Power Generation LTD, UNIT I');
+
+  // Not connected: no customers (nothing from a cached copy either), and signing out forgets it.
+  answer = { status: 'signed-out' };
+  assert.deepEqual((await B.load(true)).customers, []);
+  B.forget();
+  answer = new Error('offline');
+  await assert.rejects(B.load(true));
+  delete globalThis.VFLedgerPO;
+  assert.equal((await B.load(true)).status, 'not-configured');
+  assert.equal(B.sheetRate, undefined);  // the bill's rate is the voucher's, never the Tanker Master's
+});

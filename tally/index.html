@@ -285,7 +285,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
   <button class="btn ghost" id="btnBill">🧾 Create bill — fill the invoice from this voucher</button>
   <div class="hint" style="text-align:center">Opens the printable customer bill with every field already filled:
   date, vehicle, quantity, price and amount from this voucher, and the customer's address, GSTIN, P.O. no.
-  and payment details from the Tanker Billing sheet.</div>
+  and payment details from the Tanker Master of the Master Ledger uploaded to the Ledger app.</div>
   <div class="sl-actions">
     <button class="btn ghost" id="btnSlipPdf">🎫 Download fuel slip (PDF)</button>
     <button class="btn ghost" id="btnSlipPrint">🖨 Print fuel slip</button>
@@ -316,7 +316,8 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
      the voucher form (or from a saved voucher) with every field already
      filled: the voucher gives date / vehicle / quantity / price / amount
      and the product; the customer's address, GSTIN, P.O. no. and payment
-     block come from the Tanker Billing sheet (state/tanker_billing.json).
+     block come from the Tanker Master sheet of the Master Ledger uploaded to
+     the Ledger app (tally/ledger-po.js reads it, with the open PO).
      Every field stays editable here — editing a bill never touches the
      voucher. -->
 <section class="screen" id="scrBill">
@@ -326,7 +327,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
     <h2 class="cardtitle">Bill details</h2>
     <div class="hint" id="blStatus" style="margin-top:2px">Loading customer data…</div>
     <div class="field">
-      <label for="blCustomer">Customer (from the Tanker Billing sheet)</label>
+      <label for="blCustomer">Customer (from the Ledger's Tanker Master)</label>
       <select id="blCustomer"></select>
     </div>
     <div class="field">
@@ -369,7 +370,6 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
         <input type="number" id="blPrice" inputmode="decimal" step="0.01" min="0">
       </div>
     </div>
-    <div class="hint" id="blRateHint"></div>
     <div class="field">
       <label for="blAmount">Amount (₹) — printed on the bill</label>
       <input type="number" id="blAmount" inputmode="decimal" step="1" min="0" placeholder="0">
@@ -2823,15 +2823,26 @@ function openBill(src){
   bill.customer = null;
   resetBillSheet();               // never leave the previous bill on screen
   show("bill");
-  $("blStatus").textContent = "Loading customer data…";
+  $("blStatus").textContent = "Reading the Tanker Master from the Ledger…";
   VFBilling.load().then(function(d){
     bill.data = d;
     fillBillForm(src);
   }).catch(function(e){
-    $("blStatus").textContent = "Could not load ../state/tanker_billing.json ("
-      + ((e && e.message) || e) + ") — the bill needs it for the customer's "
-      + "address, GSTIN and payment details. Serve the app over http(s), or run the tanker sync.";
+    bill.data = { status: "error", customers: [], message: (e && e.message) || String(e) };
+    fillBillForm(src);
   });
+}
+
+// Where the customer details come from, for the bill and bulk screens.
+function tankerMasterNote(d){
+  if (d.status === "ok" || d.status === "offline"){
+    var gen = d.generated_at ? new Date(d.generated_at).toLocaleDateString("en-IN") : "?";
+    return plural(d.customers.length, "customer") + " · Tanker Master from the Ledger (Master Ledger uploaded " + gen + ")"
+      + (d.status === "offline" ? " — the copy last read on this device, as the Ledger could not be reached" : "") + ".";
+  }
+  return d.status === "signed-out" ? "Connect the Ledger to fill the customer's address and payment details from its Tanker Master."
+    : d.status === "not-configured" ? "The Ledger connection is not set up, so the customer's address and payment details are not filled in."
+    : (d.message || "The Ledger could not be read") + " — the customer's address and payment details are not filled in.";
 }
 
 // Blank every value on the sheet (the static labels and rules stay).
@@ -2841,14 +2852,14 @@ function resetBillSheet(){
    "blPDensity","blPSeal","blTDate","blTBill","blTVeh","blTQty","blTPrice","blTAmt",
    "blPPay0","blPPay1","blPPay2","blPPay3","blPPay4"].forEach(function(id){ blSet(id, ""); });
   $("blPage2").innerHTML = "";
-  ["blNoHint","blRateHint","blAmtHint"].forEach(function(id){ $(id).textContent = ""; });
+  ["blNoHint","blAmtHint"].forEach(function(id){ $(id).textContent = ""; });
 }
 
-function fillBillForm(src){
+// The customer list from the Tanker Master, with the voucher's party matched.
+function fillBillCustomers(src){
   var d = bill.data;
-  var gen = d.generated_at ? new Date(d.generated_at).toLocaleDateString("en-IN") : "?";
-  $("blStatus").textContent = d.customers.length + " customers · sheet data as of " + gen
-    + ". Every field is editable — changes here do not affect the voucher.";
+  $("blStatus").textContent = tankerMasterNote(d)
+    + (d.customers.length ? " Every field is editable — changes here do not affect the voucher." : "");
 
   // customer list, with the voucher's party matched to a sheet customer. A
   // company billed unit-wise (SMC Power's UNIT I / UNIT II) offers only its units.
@@ -2866,14 +2877,17 @@ function fillBillForm(src){
   });
   sel.value = match ? match.company : "";
   bill.customer = match || null;
+  return match;
+}
+
+function fillBillForm(src){
+  var match = fillBillCustomers(src);
 
   // product list (defaults to the voucher's series)
   var ps = $("blProduct");
   ps.innerHTML = "";
-  var fuels = (d.fuel_types && d.fuel_types.length) ? d.fuel_types : [VFBilling.HSD];
   var want = VFBilling.productForSeries(src.seriesKey);
-  if (fuels.indexOf(want) === -1) fuels = fuels.concat([want]);
-  fuels.forEach(function(ft){
+  VFBilling.FUELS.forEach(function(ft){
     var o = document.createElement("option");
     o.value = ft; o.textContent = ft;
     if (ft === want) o.selected = true;
@@ -2918,7 +2932,7 @@ function fmtLitres(n){ return Number(n || 0).toLocaleString("en-IN", { maximumFr
 function ledgerPo(){
   var hint = $("blPoHint"), form = $("blLedgerForm");
   if (!window.VFLedgerPO || !backend || !backend.cloud || !VFLedgerPO.configured() || !bill.src){
-    hint.textContent = ""; form.hidden = true; return;
+    hint.textContent = ""; form.hidden = !(bill.data && bill.data.status === "signed-out"); return;
   }
   var run = ++ledgerPoRun, src = bill.src;
   var qty = parseFloat($("blQty").value) || 0;
@@ -2934,11 +2948,11 @@ function ledgerPo(){
     var list = $("blPoList");
     list.innerHTML = "";
     if (r.status === "signed-out"){
-      hint.textContent = "Connect the Ledger once to fill the customer's open PO. Until then the Tanker Billing sheet's P.O. No. is used.";
+      hint.textContent = "Connect the Ledger once to fill the customer's open PO, address and payment details.";
       return;
     }
     if (r.status !== "ok"){
-      hint.textContent = r.status === "no-group" ? "Not a PO customer in the Ledger — P.O. No. from the Tanker Billing sheet." : "";
+      hint.textContent = r.status === "no-group" ? "Not a PO customer in the Ledger — P.O. No. from its Tanker Master." : "";
       return;
     }
     r.open.forEach(function(p){
@@ -2964,7 +2978,7 @@ function ledgerPo(){
   }).catch(function(e){
     if (run !== ledgerPoRun) return;
     form.hidden = !/members list|accept/i.test((e && e.message) || "");
-    hint.textContent = ((e && e.message) || "The Ledger could not be reached.") + " P.O. No. from the Tanker Billing sheet.";
+    hint.textContent = ((e && e.message) || "The Ledger could not be reached.") + " P.O. No. from the Tanker Master copy on this device, if any.";
   });
 }
 function ledgerPoSoon(){ clearTimeout(ledgerPoTimer); ledgerPoTimer = setTimeout(ledgerPo, 350); }
@@ -2974,7 +2988,14 @@ $("blLedgerForm").addEventListener("submit", function(e){
   btn.disabled = true; btn.textContent = "Connecting…";
   VFLedgerPO.signIn($("blLedgerEmail").value.trim(), $("blLedgerPass").value).then(function(){
     $("blLedgerPass").value = "";
-    ledgerPo();
+    // now the Tanker Master can be read: the customer's address and payment lines
+    return VFBilling.load(true).then(function(d){
+      bill.data = d;
+      var match = fillBillCustomers(bill.src);
+      if (match && !bill.poManual) $("blPo").value = match.po_no || "";
+      updateBillWarning();
+      renderBill();
+    }, function(){}).then(ledgerPo);
   }).catch(function(err){
     $("blPoHint").textContent = (err && err.message) || "Could not connect to the Ledger.";
   }).then(function(){ btn.disabled = false; btn.textContent = "Connect the Ledger"; });
@@ -2984,10 +3005,12 @@ function updateBillWarning(){
   var w = $("blWarn");
   if (bill.customer){ w.style.display = "none"; return; }
   w.style.display = "";
-  w.textContent = bill.family && bill.family.length
+  w.textContent = !(bill.data && bill.data.customers.length)
+    ? "The Ledger's Tanker Master is not loaded, so the address, GSTIN and payment details print blank."
+    : bill.family && bill.family.length
     ? "“" + bill.party + "” is billed unit-wise — pick the unit below, otherwise the address, GSTIN and payment details print blank."
     : bill.party
-    ? "“" + bill.party + "” is not in the Tanker Billing sheet — pick the matching customer below, "
+    ? "“" + bill.party + "” is not in the Ledger's Tanker Master — pick the matching customer below, "
       + "otherwise the address, GSTIN and payment details print blank."
     : "Pick the customer below so the address, GSTIN and payment details are filled in.";
 }
@@ -3058,31 +3081,9 @@ function renderBill(){
       + "to be sure it is final.";
   }
 
-  // rate / amount hints. The bill opens on the voucher's rate (so the bill
-  // and the Tally invoice agree); when the sheet's tier rate differs it is
-  // shown with a one-tap way to switch to it.
+  // amount hint. The rate is always the voucher's (so the bill and the
+  // Tally invoice agree); it is only changed by typing a new one.
   var price = parseFloat($("blPrice").value) || 0;
-  var sheet = bill.data ? VFBilling.sheetRate(bill.data, bill.customer, $("blProduct").value) : null;
-  var rh = $("blRateHint");
-  rh.innerHTML = "";
-  if (sheet == null){
-    rh.textContent = "No rate on file for this customer/product.";
-  } else if (Math.abs(sheet - price) > 0.001){
-    rh.appendChild(document.createTextNode("Sheet rate: ₹" + fmtAmt(sheet)
-      + " — this bill uses ₹" + fmtAmt(price) + " "));
-    var useIt = document.createElement("button");
-    useIt.type = "button";
-    useIt.className = "linkbtn";
-    useIt.textContent = "use sheet rate";
-    useIt.onclick = function(){
-      $("blPrice").value = fmtAmt(sheet);
-      recomputeBillAmount();
-      renderBill();
-    };
-    rh.appendChild(useIt);
-  } else {
-    rh.textContent = "Sheet rate: ₹" + fmtAmt(sheet);
-  }
   var qty = parseFloat($("blQty").value) || 0;
   var calc = Math.trunc(qty * price);
   var shown = parseInt($("blAmount").value, 10) || 0;
@@ -3155,23 +3156,15 @@ function sheetCustomer(data, company){
   return hit;
 }
 
-// Customer / product changes are a deliberate deviation from the voucher,
-// so they bring the sheet's own P.O. no. and rate with them.
+// A customer change is a deliberate deviation from the voucher, so it brings
+// the Tanker Master's own P.O. no. with it; the rate stays the voucher's.
 function billCustomerChanged(){
   bill.customer = sheetCustomer(bill.data, $("blCustomer").value);
   $("blPo").value = bill.customer ? (bill.customer.po_no || "") : "";
   bill.poManual = false;
-  applyBillSheetRate();
   updateBillWarning();
   renderBill();
   ledgerPoSoon();
-}
-function applyBillSheetRate(){
-  var r = bill.data ? VFBilling.sheetRate(bill.data, bill.customer, $("blProduct").value) : null;
-  if (r != null){
-    $("blPrice").value = fmtAmt(r);
-    recomputeBillAmount();
-  }
 }
 function recomputeBillAmount(){
   var qty = parseFloat($("blQty").value) || 0;
@@ -3180,7 +3173,7 @@ function recomputeBillAmount(){
 }
 
 $("blCustomer").addEventListener("change", billCustomerChanged);
-$("blProduct").addEventListener("change", function(){ applyBillSheetRate(); renderBill(); ledgerPoSoon(); });
+$("blProduct").addEventListener("change", function(){ renderBill(); ledgerPoSoon(); });
 ["blQty","blPrice"].forEach(function(id){
   $(id).addEventListener("input", function(){ recomputeBillAmount(); renderBill(); });
 });
@@ -3789,8 +3782,8 @@ $("btnResetCustomers").onclick = function(){
 
 /* ---------- bulk tanker bills & fuel slips ----------
    Many invoices at once: the bulk customers' invoices in a date range
-   (customers on a bulk ledger in the Ledger app; without the Ledger, the
-   Tanker Billing sheet's customers), each ticked or not and editable for
+   (customers on a bulk ledger in the Ledger app, billed to their Tanker
+   Master address), each ticked or not and editable for
    the print only, made into one PDF of A4 bills and A5 slips. */
 var bulk = { rows: [], data: null, run: 0 };
 function bulkLedger(){
@@ -3852,17 +3845,17 @@ function loadBulk(){
     });
     rows.forEach(function(r, i){ r.i = i; });
     bulk.rows = rows;
-    $("bkLedgerForm").hidden = ledger.status !== "signed-out";
-    $("bkSource").textContent = (ledger.status === "ok" ? "Bulk customers from the Ledger app (its bulk ledgers)."
-      : ledger.status === "signed-out" ? "Connect the Ledger to list its bulk customers and fill their open POs. Until then, the customers on the Tanker Billing sheet are listed."
-      : ledger.status === "error" ? (ledger.message || "The Ledger could not be reached.") + " The customers on the Tanker Billing sheet are listed."
-      : "The customers on the Tanker Billing sheet are listed.")
+    $("bkLedgerForm").hidden = !(ledger.status === "signed-out" || data.status === "signed-out");
+    $("bkSource").textContent = (ledger.status === "ok" ? "Bulk customers from the Ledger app (its bulk ledgers), billed to their Tanker Master address."
+      : ledger.status === "signed-out" || data.status === "signed-out" ? "Connect the Ledger to list its bulk customers with their Tanker Master address and open POs."
+      : data.customers.length ? (ledger.message || "The Ledger could not be reached.") + " The customers on the Tanker Master copy on this device are listed."
+      : tankerMasterNote(data))
       + (blocked ? " " + plural(blocked, "invoice") + " waiting for review in Tally " + (blocked === 1 ? "is" : "are") + " left out." : "");
     renderBulk();
     bulkPos();
   }).catch(function(e){
     if (run !== bulk.run) return;
-    out.innerHTML = '<div class="card"><div class="empty">Could not load the Tanker Billing sheet ('
+    out.innerHTML = '<div class="card"><div class="empty">Could not read the Tanker Master from the Ledger ('
       + escHtml((e && e.message) || e) + "). Check the internet connection and try again.</div></div>";
   });
 }
@@ -3931,7 +3924,7 @@ function bulkPo(r){
     }
     paintBulkRow(r);
     bulkSummary();
-  }).catch(function(){ /* the sheet's P.O. No. stays */ });
+  }).catch(function(){ /* the Tanker Master's P.O. No. stays */ });
 }
 
 // The customers in the list, for the filter: name and number of invoices.
@@ -3985,7 +3978,7 @@ function paintBulkRow(r){
   if (!el) return;
   var warn = r.cust ? ""
     : r.family.length ? "Pick the unit (Edit) — the address, GSTIN and payment details print blank until then."
-    : "Not on the Tanker Billing sheet — pick the customer (Edit), or the address prints blank.";
+    : "Not in the Ledger's Tanker Master — pick the customer (Edit), or the address prints blank.";
   // the customer's full name first; "Bill to" only when the bill names someone else (a unit)
   var billTo = r.cust && VFBilling.normName(r.cust.company) !== VFBilling.normName(r.v.party);
   el.innerHTML = '<b class="bk-who">' + escHtml(r.v.party) + "</b>"
@@ -4020,7 +4013,7 @@ function bulkEditForm(r){
     return '<div class="field"><label for="bkF' + f + r.i + '">' + label + '</label><input id="bkF' + f + r.i + '" data-f="' + f + '" type="' + type
       + '" value="' + escHtml(value) + '"' + (extra || "") + "></div>";
   };
-  box.innerHTML = '<div class="field"><label for="bkFcust' + r.i + '">Bill to (Tanker Billing sheet)</label><select id="bkFcust' + r.i + '" data-f="cust">'
+  box.innerHTML = '<div class="field"><label for="bkFcust' + r.i + '">Bill to (Ledger’s Tanker Master)</label><select id="bkFcust' + r.i + '" data-f="cust">'
     + '<option value="">' + (r.family.length ? "— pick the unit —" : "— pick the customer —") + "</option>" + options + "</select></div>"
     + '<div class="field"><label for="bkFpo' + r.i + '">P.O. No.</label><input id="bkFpo' + r.i + '" data-f="po" type="text" autocomplete="off" list="bkPoL' + r.i + '" value="' + escHtml(r.po) + '">'
     + '<datalist id="bkPoL' + r.i + '"></datalist><div class="hint" data-po-hint></div></div>'
@@ -4040,7 +4033,7 @@ function bulkSummary(){
   $("bkSummary").textContent = !picked.length ? "Tick the invoices to print."
     : (bulk.filter ? "Showing one customer. " : "") + plural(picked.length, "invoice") + " ticked: " + plural(picked.length * 2, "A4 page") + " of tanker bills, "
       + plural(picked.length, "A5 page") + " of fuel slips"
-      + (blank ? ". " + plural(blank, "bill") + " without a Tanker Billing customer will print without the address." : ".");
+      + (blank ? ". " + plural(blank, "bill") + " without a Tanker Master customer will print without the address." : ".");
   ["bkBillPdf","bkBillPrint","bkSlipPdf","bkSlipPrint"].forEach(function(id){ $(id).disabled = !picked.length; });
   // Select all: all / some / none of the invoices on screen
   var all = $("bkAll"), shown = bulk.rows.filter(bulkShown).length;
@@ -4284,7 +4277,7 @@ function boot(){
 }
 boot();
 
-// Warm the billing sheet up in the background (also refreshes the offline
+// Read the Ledger's Tanker Master in the background (also refreshes the offline
 // copy); the bill screen awaits this same promise when it is opened.
 if (window.VFBilling) VFBilling.load().catch(function(){});
 

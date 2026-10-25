@@ -5,15 +5,14 @@
  * so a printable bill can be produced straight from a voucher — every
  * field pre-filled: the voucher supplies date / vehicle / quantity /
  * price / amount and the product, and the customer's address, GSTIN,
- * P.O. number and payment block come from the Tanker Billing sheet
- * (the P.O. number is replaced by the Ledger app's open PO: ledger-po.js)
- * (`state/tanker_billing.json`, refreshed hourly by the sync Action).
+ * P.O. label / number and payment block come from the Tanker Master sheet of
+ * the Master Ledger uploaded to the Ledger app (read there through
+ * ledger-po.js, which also replaces the P.O. number with the open PO).
  *
  * Pure logic + data loading, no DOM — so it also runs under Node for
  * testing. Exposed as window.VFBilling.
  *
- * The standalone /tanker/ app is untouched and keeps working; both apps
- * read the same JSON. A bill raised from a voucher takes that voucher's
+ * The standalone /tanker/ app is untouched. A bill raised from a voucher takes that voucher's
  * invoice number, so the bill and the Tally invoice carry one reference
  * and the tanker app's own running counter is left alone.
  * ===================================================================== */
@@ -25,8 +24,8 @@ var HSD = "High Speed Diesel";
 // exports (9000/12000 shown, 3000 hidden) — same cut-offs as /tanker/.
 var DENSITY_MIN = 3000, SEAL_MIN = 3000;
 
-var DATA_URL  = "../state/tanker_billing.json";
-var LS_DATA   = "vf_tally_billing_v1";   // offline copy of the sheet data
+var LS_DATA   = "vf_tally_tanker_master_v1";  // last Tanker Master read from the Ledger (offline)
+var LS_OLD    = "vf_tally_billing_v1";         // the Tanker Billing workbook's copy, no longer used
 var LS_BILLNO = "vf_last_billno";        // the /tanker/ app's counter (read-only here)
 
 // Tally series -> the product name used on the bill and in the rate tables
@@ -132,13 +131,8 @@ function customerForUnit(family, unit){
   return hit.length === 1 ? hit[0] : null;
 }
 
-// The sheet's rate for this customer + product: the customer's tier rate
-// for diesel, the flat product rate otherwise. null when not on file.
-function sheetRate(data, cust, product){
-  if (product === HSD) return (cust && cust.hsd_rate != null) ? cust.hsd_rate : null;
-  var r = data && data.product_rates ? data.product_rates[product] : undefined;
-  return r === undefined ? null : r;
-}
+// The products a bill can be for.
+var FUELS = [HSD, "Motor Spirit", "XtraGreen Diesel"];
 
 function productForSeries(seriesKey){
   return PRODUCT_BY_SERIES[seriesKey] || HSD;
@@ -204,10 +198,14 @@ function nextBillNo(){
 
 /* ---------------- data loading ---------------- */
 
-var cachedData = null, pendingLoad = null;
+var cachedData = null, pendingLoad = null, loadedAt = 0;
+var FRESH_MS = 120000;
 
-function cacheLocally(json){
-  try { global.localStorage.setItem(LS_DATA, JSON.stringify(json)); } catch(e){}
+function cacheLocally(d){
+  try {
+    global.localStorage.setItem(LS_DATA, JSON.stringify(d));
+    global.localStorage.removeItem(LS_OLD);
+  } catch(e){}
 }
 function readLocalCache(){
   try {
@@ -217,29 +215,34 @@ function readLocalCache(){
     return (d && d.customers) ? d : null;
   } catch(e){ return null; }
 }
+// Signing out of the Ledger forgets its customers on this device too.
+function forget(){
+  cachedData = null; loadedAt = 0;
+  try { global.localStorage.removeItem(LS_DATA); global.localStorage.removeItem(LS_OLD); } catch(e){}
+}
 
-// Resolves with the billing sheet data. The network copy wins; the last
-// good copy in localStorage keeps the bill screen usable offline.
+// Resolves with {status, customers, generated_at}: the Tanker Master from the
+// Ledger app (status "ok"); "offline" with the last copy read on this device
+// when the Ledger cannot be reached; "signed-out" / "not-configured" with no
+// customers until the Ledger is connected.
 function load(force){
-  if (cachedData && !force) return Promise.resolve(cachedData);
+  if (cachedData && !force && Date.now() - loadedAt < FRESH_MS) return Promise.resolve(cachedData);
   if (pendingLoad && !force) return pendingLoad;
-  pendingLoad = global.fetch(DATA_URL, { cache: "no-store" })
+  var ledger = global.VFLedgerPO;
+  pendingLoad = (ledger ? ledger.tankerMaster() : Promise.resolve({ status: "not-configured" }))
     .then(function(r){
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    })
-    .then(function(d){
-      if (!d || !d.customers) throw new Error("unexpected data format");
-      cachedData = d;
+      if (r.status !== "ok") return { status: r.status, customers: [], generated_at: null };
+      var d = { status: "ok", customers: r.customers, generated_at: r.updatedAt };
+      cachedData = d; loadedAt = Date.now();
       cacheLocally(d);
       return d;
-    })
-    .catch(function(err){
+    }, function(err){
       var local = readLocalCache();
-      if (local){ cachedData = local; return local; }
-      pendingLoad = null;
+      if (local) return { status: "offline", customers: local.customers, generated_at: local.generated_at,
+                          message: (err && err.message) || "" };
       throw err;
-    });
+    })
+    .then(function(d){ pendingLoad = null; return d; }, function(e){ pendingLoad = null; throw e; });
   return pendingLoad;
 }
 
@@ -255,11 +258,12 @@ global.VFBilling = {
   unitOf: unitOf,
   unitFamily: unitFamily,
   customerForUnit: customerForUnit,
-  sheetRate: sheetRate,
+  FUELS: FUELS,
   productForSeries: productForSeries,
   buildModel: buildModel,
   nextBillNo: nextBillNo,
   load: load,
+  forget: forget,
   cached: function(){ return cachedData; }
 };
 
