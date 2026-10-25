@@ -25,9 +25,10 @@ end $$;
 
 drop view if exists public.dec_history;
 drop view if exists public.dec_months;
-drop function if exists public.dec_purge_old();
+drop function if exists public.dec_purge_old(), public.dec_whoami(), public.dec_add_owner(text),
+  public.dec_remove_owner(text);
 drop table if exists public.dec_invoices, public.dec_sessions, public.dec_photos,
-  public.dec_tank_state, public.dec_vehicles, public.dec_config, public.dec_shots;
+  public.dec_tank_state, public.dec_vehicles, public.dec_config, public.dec_shots, public.dec_owners;
 
 -- the screenshot bucket (Supabase only)
 do $$

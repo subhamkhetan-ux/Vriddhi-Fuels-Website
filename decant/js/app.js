@@ -8,8 +8,8 @@ import { cardBox, fromServer,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
-  cloudEnabled, cloudMonths, clearDevice, dropDraft, initStore, loadMonths, meterNow, monthFiles, onChange, onSessionReplaced, refreshNow, saveConfig,
-  saveDevice, saveInvoice, saveTankReading, state,
+  cloudEnabled, cloudMonths, clearDevice, dropDraft, initStore, loadMonths, meterNow, monthFiles, onChange, onSessionReplaced, ownerSignIn, ownerSignOut,
+  refreshNow, saveConfig, saveDevice, saveInvoice, saveTankReading, state,
 } from './store.js';
 import { KEEP_OPTIONS } from './archive.js';
 import {
@@ -315,6 +315,41 @@ function tidyDrafts() {
   }
 }
 
+// The Log and Reports tabs are the owner's: with the cloud set up they open
+// only once this phone is signed in with the owner's login (store.js
+// ownerSignIn). The rest of the app works for anyone with the link.
+const ownerOnly = () => cloudEnabled && !state.owner.ok;
+function ownerGate(el) {
+  el.innerHTML = `<div class="card" style="max-width:420px;margin:24px auto 0">
+      <div class="sect-title">🔒 Owner only</div>
+      <div class="hint">The log and the reports open with the owner's login.</div>
+      <form data-ownerform style="margin-top:10px">
+        <label class="f">Username or email<input type="text" name="u" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required></label>
+        <label class="f" style="margin-top:10px">Password<input type="password" name="p" autocomplete="current-password" required></label>
+        <div class="hint" data-ownererr style="color:var(--bad);margin-top:8px"></div>
+        <button class="cta block" type="submit" style="margin-top:10px">Sign in</button>
+      </form>
+    </div>`;
+}
+document.addEventListener('submit', async (e) => {
+  const form = e.target.closest?.('[data-ownerform]');
+  if (!form) return;
+  e.preventDefault();
+  const err = form.querySelector('[data-ownererr]');
+  const btn = form.querySelector('button[type=submit]');
+  btn.disabled = true;
+  err.textContent = 'Signing in…';
+  try {
+    await ownerSignIn(form.u.value, form.p.value);
+    document.activeElement?.blur();
+    toast('Signed in as the owner.');
+    render();
+  } catch (x) {
+    err.textContent = x.message;
+    btn.disabled = false;
+  }
+});
+
 export function render() {
   tidyDrafts();
   renderStatus();
@@ -324,7 +359,7 @@ export function render() {
   badge.hidden = !active;
   badge.textContent = active;
   // monthly log files to download
-  const files = monthFiles().filter((f) => f.state === 'new' || f.state === 'changed').length;
+  const files = ownerOnly() ? 0 : monthFiles().filter((f) => f.state === 'new' || f.state === 'changed').length;
   const logBadge = document.getElementById('logBadge');
   logBadge.hidden = !files;
   logBadge.textContent = files;
@@ -340,8 +375,8 @@ export function render() {
   if (APP.tab === 'home' && !viewHasFocus('view-home')) renderHome(document.getElementById('view-home'));
   if (APP.tab === 'plan' && !viewHasFocus('view-plan')) renderPlan(document.getElementById('view-plan'));
   if (APP.tab === 'monitor' && !viewHasFocus('view-monitor')) renderMonitor(document.getElementById('view-monitor'));
-  if (APP.tab === 'log' && !viewHasFocus('view-log')) renderLog(document.getElementById('view-log'));
-  if (APP.tab === 'reports' && !viewHasFocus('view-reports')) renderReports(document.getElementById('view-reports'));
+  if (APP.tab === 'log' && !viewHasFocus('view-log')) (ownerOnly() ? ownerGate : renderLog)(document.getElementById('view-log'));
+  if (APP.tab === 'reports' && !viewHasFocus('view-reports')) (ownerOnly() ? ownerGate : renderReports)(document.getElementById('view-reports'));
 }
 
 // ---------------------------------------------------------------------------
@@ -1019,7 +1054,9 @@ function settingsSheet() {
       <div class="row-actions" style="justify-content:flex-start">
         <button class="btn" id="stRefresh">↻ Refresh from the cloud</button>
         <button class="btn danger" id="stClear">Clear this phone's copy</button>
-      </div>`;
+      </div>
+      ${cloudEnabled && state.owner.ok ? `<div class="hint" style="margin-top:8px">Owner: signed in as <b>${esc(state.owner.email)}</b> — the Log and Reports tabs are open on this phone.</div>
+        <div class="row-actions" style="justify-content:flex-start"><button class="btn" id="stOwnerOut">Owner: sign out</button></div>` : ''}`;
     // a chamber's time from its minutes and seconds (1–60 min), else as it was
     const emptySecs = (k, dflt) => {
       const m = Number(body.querySelector(`#${k}m`).value);
@@ -1172,6 +1209,12 @@ function settingsSheet() {
       if (el && v) el.textContent = `App version ${v} — an update arrives the next time the app is opened with a signal.`;
     });
     body.querySelector('#stRefresh').onclick = () => { refreshNow(); toast('Refreshing…'); };
+    body.querySelector('#stOwnerOut')?.addEventListener('click', async () => {
+      await ownerSignOut();
+      closeSheet();
+      toast('Signed out: the Log and Reports tabs are locked on this phone.');
+      render();
+    });
     body.querySelector('#stClear').onclick = async () => {
       if (!(await ask('Clear this phone\'s copy?', `Everything synced to the cloud stays there and comes back on refresh.${state.outbox.length ? ` <b>${state.outbox.length} change(s) not yet sent will be lost.</b>` : ''}`, { ok: 'Clear', danger: true }))) return;
       await clearDevice();

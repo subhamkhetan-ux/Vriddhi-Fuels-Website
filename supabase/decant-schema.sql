@@ -29,6 +29,8 @@
 --                   reports read for the months the phone doesn't keep.
 --   dec_months      (a view) records per month — how the app knows which
 --                   monthly log files are ready, in a few rows.
+--   dec_owners      the owner's login(s): the app's Log and Reports tabs open
+--                   only for them (see "The owner's login" below).
 --
 -- Retention: every finished month becomes an Excel log file on the phone
 -- (Log tab). A month older than what the cloud keeps (Settings: this FY and
@@ -203,6 +205,56 @@ begin
                using (bucket_id = 'dec-shots') with check (bucket_id = 'dec-shots')$p$;
   end if;
 end $$;
+
+-- ---- the owner's login: the Log and Reports tabs ----
+-- Anyone with the app's link decants, plans and monitors without a login (the
+-- tables above stay open to the public key for that). The Log and Reports tabs
+-- open only for a login on this list. Create the login under Authentication →
+-- Users (tick "Auto Confirm User"), turn off "Allow new users to sign up"
+-- (Authentication → Providers → Email), then in the SQL Editor:
+--   select dec_add_owner('you@example.com');
+-- (select dec_remove_owner('…'); takes it off.) The list goes by the login
+-- itself, not its email.
+create table if not exists public.dec_owners (
+  user_id  uuid primary key,
+  email    text not null,
+  added_at timestamptz default now()
+);
+alter table public.dec_owners enable row level security;
+revoke all on public.dec_owners from public, anon, authenticated;
+
+-- The signed-in login, and whether it is an owner's (the app asks on sign-in).
+create or replace function public.dec_whoami() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return jsonb_build_object('email', lower(coalesce(auth.jwt() ->> 'email', '')),
+                            'owner', auth.uid() is not null and exists (select 1 from dec_owners where user_id = auth.uid()));
+end $$;
+
+-- SQL Editor only: add / take off an owner's login.
+create or replace function public.dec_add_owner(p_email text) returns text
+language plpgsql security definer set search_path = public as $$
+declare v_id uuid; v_email text;
+begin
+  select u.id, u.email into v_id, v_email from auth.users u where lower(u.email) = lower(btrim(p_email)) limit 1;
+  if v_id is null then
+    return 'No login with that email yet. Create it under Authentication → Users first.';
+  end if;
+  insert into dec_owners (user_id, email) values (v_id, lower(v_email))
+  on conflict (user_id) do update set email = excluded.email;
+  return 'Added ' || lower(v_email) || ': the Log and Reports tabs open for it.';
+end $$;
+
+create or replace function public.dec_remove_owner(p_email text) returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from dec_owners where email = lower(btrim(p_email));
+  if not found then return 'That email was not on the list.'; end if;
+  return 'Removed ' || lower(btrim(p_email)) || '.';
+end $$;
+
+revoke all on function public.dec_add_owner(text), public.dec_remove_owner(text) from public, anon, authenticated;
+grant execute on function public.dec_whoami() to anon, authenticated;
 
 -- ---- realtime ----
 do $$

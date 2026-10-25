@@ -67,6 +67,27 @@ count it:
   *Dismiss all* — still a **purchase**, shown as *decanted outside the app*.
 - **Not for our tanks** or **Delete** — not counted at all.
 
+## The owner's login (Log and Reports)
+
+Anyone with the app's link can decant, plan and monitor without a login. The
+**Log** and **Reports** tabs open only after signing in with the owner's
+login, which the phone remembers. *⚙ → Owner: sign out* locks them again on
+that phone. Set it up once in the decant project:
+
+1. **SQL Editor**: run [`supabase/decant-schema.sql`](../supabase/decant-schema.sql)
+   again. It adds the owner's list; nothing else changes.
+2. **Authentication → Providers → Email**: turn off *Allow new users to sign up*.
+3. **Authentication → Users → Add user**: your email (or e.g.
+   `owner@vriddhi.local`, which signs in as `owner`) and a strong password.
+   Tick *Auto Confirm User*.
+4. **SQL Editor**: `select dec_add_owner('you@example.com');`
+   (`select dec_remove_owner('…');` takes it off).
+
+What it protects: the two tabs, in the app. The tables behind them stay
+readable with the app's public key, because the phones that decant without a
+login need them. So someone who digs the key out of the page could still read
+the raw data. Closing that too would need every phone to sign in.
+
 ## Where the invoices come from
 
 The payment agent (GitHub Actions, `agent/decant.py`) reads every IndianOil

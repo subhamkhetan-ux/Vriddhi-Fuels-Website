@@ -21,6 +21,7 @@ const PROJECT_KEY = 'vriddhi-decant-project';      // the cloud project this pho
 export const state = {
   cloud: 'off',           // off | connecting | live | offline
   cloudError: '',
+  owner: { email: '', ok: false },   // signed in with the owner's login: the Log and Reports tabs open
   invoices: [],           // dec_invoices rows
   sessions: [],           // dec_sessions rows ({id, invoice_no, tt_no, status, data, …})
   tankState: {},          // tank id -> latest reading
@@ -141,6 +142,46 @@ let client = null;
 // The Supabase client once connected (null before that, or with no cloud):
 // shots.js keeps the day's screenshots in its storage bucket.
 export const cloudClient = () => client;
+
+// The owner's login (dec_whoami, supabase/decant-schema.sql): the Log and
+// Reports tabs open only for it. Everything else syncs with the public key,
+// signed in or not, as before. The owner's email as last confirmed is kept on
+// the phone, so the tabs open offline too; it is checked again each time the
+// app connects.
+const AUTH_KEY = 'vriddhi-decant-auth';
+const OWNER_KEY = 'vriddhi-decant-owner';
+const loginEmail = (u) => { const x = String(u || '').trim().toLowerCase(); return x.includes('@') ? x : `${x}@vriddhi.local`; };
+function setOwner(email) {
+  state.owner = { email: email || '', ok: Boolean(email) };
+  try { if (email) localStorage.setItem(OWNER_KEY, email); else localStorage.removeItem(OWNER_KEY); } catch { /* ignore */ }
+  emit();
+}
+async function checkOwner() {
+  const { data } = await client.auth.getSession();
+  if (!data?.session) { if (state.owner.ok) setOwner(null); return; }
+  const who = await client.rpc('dec_whoami');
+  if (who.error) return;                         // (no answer: as it was; asked again next time)
+  setOwner(who.data?.owner ? who.data.email : null);
+}
+export async function ownerSignIn(user, password) {
+  if (!client) await connect();
+  if (!client) throw new Error('The cloud could not be reached — try again with a signal.');
+  const email = loginEmail(user);
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(/invalid/i.test(error.message || '') ? 'Wrong username or password.' : error.message);
+  const who = await client.rpc('dec_whoami');
+  if (who.error || !who.data?.owner) {
+    await client.auth.signOut().catch(() => {});
+    throw new Error(who.error
+      ? (/dec_whoami/.test(who.error.message || '') ? 'Run supabase/decant-schema.sql in the decant project again first: it adds the owner\'s list.' : who.error.message)
+      : `${email} isn't the owner's login. In the Supabase SQL Editor: select dec_add_owner('${email}');`);
+  }
+  setOwner(who.data.email);
+}
+export async function ownerSignOut() {
+  setOwner(null);
+  try { await client?.auth.signOut(); } catch { /* signed out here either way */ }
+}
 let adopted = false;               // this phone's copy has been moved into this project (adoptProject)
 const later = (a, b) => (Date.parse(a || 0) || 0) > (Date.parse(b || 0) || 0);
 
@@ -591,6 +632,10 @@ export async function initStore() {
   purgeLocal();
   emit();
   if (!cloudEnabled) { setCloud('off'); return; }
+  try {                                          // (the owner's tabs open offline too)
+    const was = localStorage.getItem(OWNER_KEY);
+    if (was && localStorage.getItem(AUTH_KEY)) state.owner = { email: was, ok: true };
+  } catch { /* ignore */ }
   setCloud('connecting');
   await connect();
   // Opened without a signal (the cloud client couldn't even be loaded): it
@@ -615,7 +660,8 @@ function connect() {
   connecting ||= (async () => {
     try {
       const { createClient } = await import(SUPABASE_JS);
-      client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'vriddhi-decant' } });
+      client = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, storageKey: AUTH_KEY } });
+      client.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT' && state.owner.ok) setOwner(null); });
     } catch (e) {
       setCloud('offline', e?.message || String(e));
       return;
@@ -628,6 +674,7 @@ function connect() {
       subscribe();
       await flushOutbox();
       tidyMonths().catch(() => {});
+      checkOwner().catch(() => {});
     } catch (e) {
       setCloud('offline', e?.message || String(e));
     }
