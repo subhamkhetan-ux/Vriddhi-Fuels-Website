@@ -221,7 +221,7 @@ class Station:
         self.seen_at = time.time()       # when the page was last open in front of someone
         self.last = _read_json(home / "last.json", {})
         self.auto = AutoDecant(self)
-        self.phone = PhoneStock(self)    # a phone's "Check stock now" / "Monitor the stock"
+        self.phone = PhoneStock(self)    # a phone's "Check stock now" / "Monitor the stock" (decant home page)
 
     # ---- settings and login --------------------------------------------
     @property

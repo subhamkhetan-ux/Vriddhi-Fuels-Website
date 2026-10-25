@@ -306,9 +306,7 @@ function stepBefore(s) {
   const busy = busyTanks(s.id);
   const list = relevantTanks(s);
   for (const t of list) {
-    // (a newer reading, e.g. the tank stock server's "Check stock now", takes over)
-    const r = newer(s.data.before[t.id], state.tankState[t.id]);
-    if (r && r !== s.data.before[t.id]) s.data.before[t.id] = { ...r };
+    if (!s.data.before[t.id] && state.tankState[t.id]) s.data.before[t.id] = { ...state.tankState[t.id] };
   }
   return `
     <div class="card accent">
@@ -316,7 +314,6 @@ function stepBefore(s) {
       <div class="hint">One screenshot of the automation's tank page reads every tank on it. Or type the stock in litres, or as a dip — you'll see both before you start.</div>
       <div class="rd-actions"><button class="cta sm" data-wz="shotBefore">📷 Read a screenshot</button></div>
     </div>
-    ${stockCard(s)}
     ${list.map((t) => readingCard(s, t, s.data.before[t.id], 'before', busy.get(t.id))).join('')}
     <button class="cta block" data-wz="toPlan">Next: plan ▶</button>
     <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="toTruck">◀ Truck</button></div>`;
@@ -439,7 +436,7 @@ function stepDecant(s) {
   const allRead = d.tanks.length > 0 && st.every((x) => x === 'read');
   const started = d.tanks.some((t) => startOf(s, t));
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
-  return `${autoCard(s)}${handoverCard(s, allRead)}${stockCard(s)}<div class="card accent">
+  return `${autoCard(s)}${handoverCard(s, allRead)}<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
       ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
@@ -501,50 +498,6 @@ function handoverCard(s, allRead) {
       <div class="row-actions" style="justify-content:flex-start">
         ${req.error || mins > REQUEST_STALE_MIN ? '<button class="btn sm" data-wz="handover">Ask again</button>' : ''}
         <button class="btn sm ghost" data-wz="handoverCancel">Don't hand over</button></div>
-    </div>`;
-}
-
-// The tank stock server reads this decantation's tanks for this phone without
-// taking it over (tank_stock/phone.py): once ("Check stock now": the full
-// figures with their proof picture, saved as each tank's latest stock) or live
-// ("Monitor the stock": each tank's volume as it changes, every 10 s, which the
-// decanting screen drains the chambers by) until stopped, the decantation is
-// saved or 3 hours have passed. It looks every half minute and answers here.
-const STOCK_STALE_MIN = 5;
-function stockTanks(s) {
-  return stepOf(s) === 'decant' ? s.data.tanks.map((t) => t.tank) : relevantTanks(s).map((t) => t.id);
-}
-function stockCard(s) {
-  const a = s.data.auto;
-  const ids = stockTanks(s);
-  if ((a && !a.released) || !['draft', 'decanting', 'settling'].includes(s.status) || !ids.length) return '';
-  const req = s.data.stockRequest;
-  const names = (list) => (list || []).map(tankName).join(', ');
-  const buttons = (again) => `<div class="row-actions" style="justify-content:flex-start">
-      <button class="btn sm" data-wz="stockCheck">📡 ${again ? 'Check again' : 'Check stock now'}</button>
-      <button class="btn sm" data-wz="stockMonitor">👁 Monitor the stock</button></div>`;
-  let body;
-  if (!req) {
-    body = `<div class="hint">The tank stock server reads ${names(ids)} from the IOCL automation: once now, or every 10 s while you decant. The readings come in here by themselves.</div>${buttons(false)}`;
-  } else if (!req.state) {
-    const mins = (Date.now() - Date.parse(req.at || 0)) / 60000;
-    body = `${mins > STOCK_STALE_MIN
-      ? `<div class="banner">No answer from the tank stock server for ${Math.round(mins)} min — is the Mac on and online?</div>`
-      : `<div class="hint">Asked at ${fmtTime(req.at)} to ${req.kind === 'monitor' ? 'monitor' : 'check'} ${names(req.tanks)} — it looks every half minute, then takes about a minute to connect.</div>`}
-      <div class="row-actions" style="justify-content:flex-start">${mins > STOCK_STALE_MIN ? `<button class="btn sm" data-wz="${req.kind === 'monitor' ? 'stockMonitor' : 'stockCheck'}">Ask again</button>` : ''}<button class="btn sm ghost" data-wz="stockStop">Cancel</button></div>`;
-  } else if (req.state === 'monitoring') {
-    const last = Math.max(0, ...(req.tanks || []).map((id) => Date.parse(state.tankState[id]?.readingAt || '') || 0));
-    body = `<div class="hint">Monitoring ${names(req.tanks)} — the volume comes every 10 s${req.until ? `, until ${fmtTime(req.until)}` : ''}.${last ? ` Last reading ${ago(new Date(last).toISOString())}.` : ''}</div>
-      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="stockStop">Stop monitoring</button></div>`;
-  } else if (req.state === 'done') {
-    const res = Object.entries(req.results || {}).map(([id, r]) => `<li class="${r.ok ? '' : 'warn'}">${r.ok ? '✓' : '⚠'} ${esc(tankName(id))}: ${esc(r.message)}</li>`).join('');
-    body = `<div class="hint">Read at ${fmtTime(req.answeredAt)}.</div>${res ? `<ul class="msgs">${res}</ul>` : ''}${buttons(true)}`;
-  } else {
-    body = `<div class="banner ${req.state === 'error' ? 'bad' : ''}">${req.state === 'error' ? 'The tank stock server couldn\'t read the stock' : 'Monitoring ended'}: ${esc(req.message || 'no reason given')}.</div>${buttons(true)}`;
-  }
-  return `<div class="card">
-      <div class="sect-title" style="margin:0">📡 Tank stock from the server</div>
-      ${body}
     </div>`;
 }
 
@@ -888,16 +841,6 @@ async function onClick(e) {
     if (s.data.auto && !s.data.auto.released) return;     // (it took it over meanwhile)
     if (act === 'handover') s.data.autoRequest = { at: new Date().toISOString(), by: state.device?.operator || 'a phone' };
     else delete s.data.autoRequest;
-    await persist(s);
-    return;
-  }
-  if (act === 'stockCheck' || act === 'stockMonitor' || act === 'stockStop') {
-    s = latest(s);
-    if (act === 'stockStop') delete s.data.stockRequest;
-    else {
-      s.data.stockRequest = { id: newId('R'), kind: act === 'stockCheck' ? 'check' : 'monitor', tanks: stockTanks(s),
-        at: new Date().toISOString(), by: state.device?.operator || 'a phone' };
-    }
     await persist(s);
     return;
   }

@@ -284,23 +284,23 @@ question the agent is waiting on. Anything done on a phone meanwhile counts
 (the agent takes it over), and "Hand over" on the tank stock page leaves the
 rest to this app.
 
-**Tank stock from the server.** On the *Stock before* and *Decanting*
-screens of an open decantation, the "📡 Tank stock from the server" card asks
-the tank stock server (`tank_stock/README.md`, "Check or monitor the stock
-from a phone") for those tanks' stock, while the decantation stays on this
-phone:
+**Tank stock from the server.** On the home page, under the tank tiles, the
+"📡 From the tank stock server" card asks the tank stock server
+(`tank_stock/README.md`, "Check or monitor the stock from the decant app")
+for every tank's stock:
 
-- **📡 Check stock now** — one read of the automation's tank screen: each
-  tank's full figures with its proof picture, saved as its latest stock (so a
-  stock before is taken from it, as from a screenshot). The card then says how
-  each tank went.
-- **👁 Monitor the stock** — each tank's volume every 10 s while you decant;
-  the decanting screen drains the chambers by it. Runs until **Stop
-  monitoring**, the decantation is saved or cancelled, or 3 hours.
+- **📡 Check stock now** — what its page's *Capture* then *Send for
+  decantation* does: each tank's full figures saved as its latest stock,
+  with its card's picture uploaded for the result pictures. The card then
+  says how each tank went.
+- **👁 Monitor the stock** — each tank's volume every 10 s, until **Stop
+  monitoring** or 3 hours.
 
 The server looks every half minute, then takes about a minute to connect to
 the automation PC; if nothing answers for 5 minutes the card asks whether the
-Mac is on and online.
+Mac is on and online. The request waits in the shared settings, so any phone
+sees it and its answer. It isn't on the decanting screens: there, "Let the
+tank stock server finish it" follows the tanks itself.
 
 ## Reading the automation screenshots
 
