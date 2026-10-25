@@ -1,4 +1,4 @@
-/* Open POs from the Ledger app, for the tanker bill's P.O. No.
+/* Open POs and the Tanker Master from the Ledger app, for the tanker bill.
  *
  * The Ledger keeps each PO customer's PO list (litres allotted, in order) and
  * its bills, and gives every diesel bill the FIRST PO with enough litres left
@@ -6,9 +6,13 @@
  * over the Ledger's bills plus any of the customer's vouchers in this app the
  * Ledger has not imported yet, so the bill shows the PO the Ledger will show.
  *
+ * The Tanker Master (the Master Ledger's "Tanker Master" sheet, uploaded to the
+ * Ledger app) gives each tanker-bill customer's address, payment lines and
+ * P.O. label / number.
+ *
  * The Ledger has its own Supabase project and members list: this app signs in
  * there with the same login when it can, or once through "Connect the Ledger"
- * on the bill screen. Without it, the Tanker Billing sheet's P.O. No. is used.
+ * on the bill screen.
  */
 (function (global) {
   'use strict';
@@ -56,17 +60,17 @@
   }
   async function signOut() {
     data = null; loadedAt = 0;
+    if (global.VFBilling) global.VFBilling.forget();
     if (client) await client.auth.signOut();
   }
+  const readError = res => new Error(res.error.code === '42501' ? 'This login is not on the Ledger members list.'
+    : 'The Ledger could not be read: ' + (res.error.message || 'unknown error'));
   // ledger_po_data(): groups, members, POs and bills — cached for two minutes.
   function load(force) {
     if (!force && data && Date.now() - loadedAt < FRESH_MS) return Promise.resolve(data);
     if (!force && loading) return loading;
     loading = getClient().then(c => c.rpc('ledger_po_data')).then(res => {
-      if (res.error) {
-        throw new Error(res.error.code === '42501' ? 'This login is not on the Ledger members list.'
-          : 'The Ledger could not be read: ' + (res.error.message || 'unknown error'));
-      }
+      if (res.error) throw readError(res);
       data = res.data; loadedAt = Date.now();
       return data;
     }).finally(() => { loading = null; });
@@ -163,5 +167,23 @@
     }};
   }
 
-  global.VFLedgerPO = {configured: () => !!config(), signedIn, signIn, signOut, forVoucher, bulk, refresh: () => load(true)};
+  // ledger_tanker_list(): the Tanker Master rows of the last Master Ledger upload.
+  // -> {status: 'not-configured' | 'signed-out' | 'ok', customers: [{company, hsd_rate, address[3],
+  //    payment[5], po_label, po_no, price_tier}], updatedAt}
+  async function tankerMaster() {
+    if (!config()) return {status: 'not-configured'};
+    if (!await signedIn()) return {status: 'signed-out'};
+    const res = await (await getClient()).rpc('ledger_tanker_list');
+    if (res.error) throw readError(res);
+    const customers = (res.data || []).map(t => ({company: String(t.company || ''),
+      hsd_rate: t.hsd_rate == null ? null : Number(t.hsd_rate),
+      address: [0, 1, 2].map(i => String((t.address || [])[i] || '')),
+      payment: [0, 1, 2, 3, 4].map(i => String((t.payment || [])[i] || '')),
+      po_label: t.po_label || '', po_no: t.po_no || '', price_tier: t.price_tier || ''})).filter(t => t.company);
+    const updatedAt = (res.data || []).map(t => t.updated_at).filter(Boolean).sort().pop() || null;
+    return {status: 'ok', customers, updatedAt};
+  }
+
+  global.VFLedgerPO = {configured: () => !!config(), signedIn, signIn, signOut, forVoucher, bulk, tankerMaster,
+    refresh: () => load(true)};
 })(window);

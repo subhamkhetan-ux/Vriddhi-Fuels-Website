@@ -458,9 +458,20 @@ window.__VF_TEST_LEDGER_FACTORY=(url,key,opts)=>{
         if(password!=='ledger-pass')return Promise.resolve({error:{message:'Invalid login'}});
         session={user:{id:'l'}};return Promise.resolve({data:{session},error:null})},
       signOut:()=>{session=null;return Promise.resolve({})}},
-    rpc:(name)=>Promise.resolve(name==='ledger_po_data'?{data:window.ledgerData,error:null}:{data:null,error:{message:'unknown'}})};
+    rpc:(name)=>Promise.resolve(name==='ledger_po_data'?{data:window.ledgerData,error:null}
+      :name==='ledger_tanker_list'?{data:window.ledgerTanker||[],error:null}:{data:null,error:{message:'unknown'}})};
 };
 """
+
+# The Master Ledger's Tanker Master as the Ledger app stores it (synthetic customers).
+def _tanker(company,line1,po=''):
+    return dict(company=company,hsd_rate=99.5,address=[line1,'Jharsuguda','GSTIN: 21ZZZZZ0000Z1Z0'],
+                payment=['Payment Details:','Account No. – 000111222','IFSC Code – TEST0000001','Branch Name- TEST BANK','Beneficiary Name- VRIDDHI FUELS'],
+                po_label='P.O. No.:' if po else '',po_no=po,price_tier='A',seq=1,updated_at='2026-10-24T05:00:00+00:00')
+TANKER=[_tanker('Twin Steel Ltd','Plot 9, Steel Road,','OLD-PO'),_tanker('Aryan Ispat & Power Private Ltd.','Bomaloi,','ARYAN-PO-7'),
+        _tanker('SMC Power Generation LTD, UNIT I','Hirma,'),_tanker('SMC Power Generation LTD, UNIT II','Hirma Unit 2,'),
+        _tanker('Grk Logistics Private Limited','Lakhanpur,')]
+TANKER_SCRIPT='window.ledgerTanker='+json.dumps(TANKER)+';'
 
 
 def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
@@ -469,7 +480,8 @@ def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
     page=browser.new_page(viewport={'width':390,'height':900})
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
-    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    requested=[];page.on('request',lambda r:requested.append(r.url))
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK);page.add_init_script(TANKER_SCRIPT)
     page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');
       const row=(id,number,qty)=>({id,series:'hsd',number,date:today,party:'Twin Steel Ltd',vehicle:'OD01',qty:String(qty),
         rate:'100',item_amt:String(qty*100),party_amt:String(qty*100),roff:'0',status:'pending',source:'app',bridge_state:'unlinked',
@@ -485,9 +497,18 @@ def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
     page.get_by_role('button',name='Create bill for voucher 702').click()
     page.locator('#blLedgerForm').wait_for()
     assert 'Connect the Ledger once' in page.locator('#blPoHint').inner_text()
+    # Not connected yet: no customer details from anywhere else.
+    assert 'Tanker Master is not loaded' in page.locator('#blWarn').inner_text()
+    assert page.locator('#blPA1').text_content()==''
     page.locator('#blLedgerEmail').fill('owner@example.com');page.locator('#blLedgerPass').fill('ledger-pass')
     page.locator('#blLedgerGo').click()
     page.wait_for_function("document.getElementById('blPo').value==='PO-B'")
+    # Connected: address and payment lines from the Ledger's Tanker Master.
+    assert page.locator('#blPA1').text_content()=='Plot 9, Steel Road,'
+    assert page.locator('#blPA3').text_content()=='GSTIN: 21ZZZZZ0000Z1Z0'
+    assert page.locator('#blPPay1').text_content()=='Account No. – 000111222'
+    assert 'Tanker Master from the Ledger' in page.locator('#blStatus').inner_text()
+    assert page.locator('#blWarn').is_hidden()
     assert '15,000 L left after this bill' in page.locator('#blPoHint').inner_text()
     assert page.locator('#blPPoVal').text_content()=='PO-B'  # printed on the bill
     assert page.locator('#blLedgerForm').is_hidden()
@@ -500,14 +521,15 @@ def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
     page.wait_for_function("document.getElementById('blPoHint').textContent.includes('Kept the P.O. No. you typed')")
     assert page.locator('#blPo').input_value()=='MANUAL-1'
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert not [u for u in requested if 'tanker_billing' in u]  # the Tanker Billing workbook is not used
     assert not errors
     page.close()
 
 
-def test_tanker_bill_falls_back_to_the_sheet_po_without_a_ledger_group(browser,server):
+def test_tanker_bill_takes_the_tanker_master_po_without_a_ledger_group(browser,server):
     page=browser.new_page()
     page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
-    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK);page.add_init_script(TANKER_SCRIPT)
     page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
       window.customerPriceVouchers=[{id:'v1',series:'hsd',number:'801',date:today,party:'Aryan Ispat & Power Private Ltd.',qty:'1000',
         rate:'100',item_amt:'100000',party_amt:'100000',roff:'0',status:'pending',source:'app',bridge_state:'unlinked',created_at:new Date().toISOString()}];
@@ -515,9 +537,8 @@ def test_tanker_bill_falls_back_to_the_sheet_po_without_a_ledger_group(browser,s
     page.goto(server+'/tally/')
     page.get_by_role('button',name='Create bill for voucher 801').click()
     page.wait_for_function("document.getElementById('blPoHint').textContent.includes('Not a PO customer')")
-    sheet=__import__('json').load(open(ROOT/'state/tanker_billing.json'))
-    expected=next(c['po_no'] for c in sheet['customers'] if c['company']=='Aryan Ispat & Power Private Ltd.')
-    assert page.locator('#blPo').input_value()==expected
+    assert page.locator('#blPo').input_value()=='ARYAN-PO-7'
+    assert page.locator('#blPA1').text_content()=='Bomaloi,'
     page.close()
 
 
@@ -720,7 +741,7 @@ def test_bulk_bills_and_slips_for_the_ledgers_bulk_customers_in_one_pdf(browser,
         elif r.request.url.startswith(server):r.continue_()
         else:r.abort()
     page.route('**/*',route)
-    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK);page.add_init_script(BULK_PDF)
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK);page.add_init_script(BULK_PDF);page.add_init_script(TANKER_SCRIPT)
     page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
       const row=(id,number,party,qty,extra)=>Object.assign({id,series:'hsd',number,date:today,party,vehicle:'OD23A3710',qty:String(qty),
         rate:'99.5',item_amt:String(qty*99.5),party_amt:String(qty*99.5),roff:'0',status:'history',source:'app',bridge_state:'synced',
@@ -758,7 +779,7 @@ def test_bulk_bills_and_slips_for_the_ledgers_bulk_customers_in_one_pdf(browser,
     options=smc.locator('select[data-f=cust] option').all_inner_texts()
     assert options==['— pick the unit —','SMC Power Generation LTD, UNIT I','SMC Power Generation LTD, UNIT II']
     assert smc.locator('select[data-f=cust]').input_value()=='SMC Power Generation LTD, UNIT II'
-    assert 'without a Tanker Billing customer' not in page.locator('#bkSummary').inner_text()
+    assert 'without a Tanker Master customer' not in page.locator('#bkSummary').inner_text()
     # Edits are for the print only.
     smc.locator('[data-f=vehicle]').fill('od15x1111')
     smc.locator('[data-f=po]').fill('PO-TYPED')
@@ -794,7 +815,7 @@ def test_bulk_bills_and_slips_for_the_ledgers_bulk_customers_in_one_pdf(browser,
 def test_smc_bill_offers_only_its_two_units(browser,server):
     page=browser.new_page()
     page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
-    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK)
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK);page.add_init_script(TANKER_SCRIPT)
     page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
       window.customerPriceVouchers=[{id:'v1',series:'hsd',number:'901',date:today,party:'SMC Power Generation Ltd',qty:'1000',vehicle:'',
         rate:'99.5',item_amt:'99500',party_amt:'99500',roff:'0',status:'pending',source:'app',bridge_state:'unlinked',created_at:new Date().toISOString()}];
