@@ -190,7 +190,17 @@ bill with every field already filled:
 | Density- / Seal No- lines | shown for diesel loads over 3 000 L, exactly as before |
 | Bill no. | **the voucher's own invoice number** — `1640`, `MS320`, `XG7` — so the bill and the Tally invoice carry one reference |
 
-**Ledger connection for open POs and customer details.** The Ledger app has its own Supabase project and members list. Signing into this app also signs into the Ledger when the same login is a Ledger member; otherwise the bill screen shows **Connect the Ledger** once per device (the session is stored separately from this app's). Petrol and XtraGreen bills get no PO automatically, as in the Ledger; the open POs are offered in the field's suggestions. Unit-wise customers pick the unit's PO.
+**Ledger connection for open POs and customer details.** The Ledger app has its own Supabase project and members list.
+
+*Once for every device (recommended):* the `tally-ledger` edge function keeps one ledger login on the server, so every signed-in Tally user gets the open POs and the Tanker Master with their Tally login alone — no ledger sign-in on any device, nothing that expires. Set it up once:
+
+1. In the **ledger** project: a login on its members list — *Authentication → Users → Add user* (e.g. `tally-reader@…`, strong password), then in the *SQL Editor* `select ledger_add_member('tally-reader@…');`. The loading app's `loading-ledger` login can be reused.
+2. In the **Tally** project: *Edge Functions → Secrets* → `LEDGER_EMAIL` and `LEDGER_PASSWORD` (that login), or `supabase secrets set LEDGER_EMAIL=… LEDGER_PASSWORD=…`.
+3. *Edge Functions → Deploy a new function* named `tally-ledger`, pasting [`../supabase/functions/tally-ledger/index.ts`](../supabase/functions/tally-ledger/index.ts) (or `supabase functions deploy tally-ledger`).
+
+Only a live Tally login can use it, and only the Ledger's read functions this app needs go through it (`ledger_po_data`, `ledger_tanker_list`, and `ledger_whoami` to check it is set up); nothing in the Ledger is changed and the password never reaches a device. To change it, change the secrets; to switch it off, delete the function.
+
+*Without the function:* signing into this app also signs into the Ledger when the same login is a Ledger member; otherwise the bill screen shows **Connect the Ledger** once per device (the session is stored separately from this app's). Petrol and XtraGreen bills get no PO automatically, as in the Ledger; the open POs are offered in the field's suggestions. Unit-wise customers pick the unit's PO.
 
 The customer details are the Ledger's copy of the **Tanker Master** sheet
 (columns Company / HSD / Address 1–3 / Payment 1–5 / PO Label / PO No /
