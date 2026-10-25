@@ -168,18 +168,17 @@
   }
 
   // ledger_tanker_list(): the Tanker Master rows of the last Master Ledger upload.
-  // -> {status: 'not-configured' | 'signed-out' | 'ok', customers: [{company, hsd_rate, address[3],
-  //    payment[5], po_label, po_no, price_tier}], updatedAt}
+  // -> {status: 'not-configured' | 'signed-out' | 'ok', customers: [{company, address[3],
+  //    payment[5], po_label, po_no}], updatedAt} (the bill's rate is always the voucher's)
   async function tankerMaster() {
     if (!config()) return {status: 'not-configured'};
     if (!await signedIn()) return {status: 'signed-out'};
     const res = await (await getClient()).rpc('ledger_tanker_list');
     if (res.error) throw readError(res);
     const customers = (res.data || []).map(t => ({company: String(t.company || ''),
-      hsd_rate: t.hsd_rate == null ? null : Number(t.hsd_rate),
       address: [0, 1, 2].map(i => String((t.address || [])[i] || '')),
       payment: [0, 1, 2, 3, 4].map(i => String((t.payment || [])[i] || '')),
-      po_label: t.po_label || '', po_no: t.po_no || '', price_tier: t.price_tier || ''})).filter(t => t.company);
+      po_label: t.po_label || '', po_no: t.po_no || ''})).filter(t => t.company);
     const updatedAt = (res.data || []).map(t => t.updated_at).filter(Boolean).sort().pop() || null;
     return {status: 'ok', customers, updatedAt};
   }

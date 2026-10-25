@@ -465,7 +465,7 @@ window.__VF_TEST_LEDGER_FACTORY=(url,key,opts)=>{
 
 # The Master Ledger's Tanker Master as the Ledger app stores it (synthetic customers).
 def _tanker(company,line1,po=''):
-    return dict(company=company,hsd_rate=99.5,address=[line1,'Jharsuguda','GSTIN: 21ZZZZZ0000Z1Z0'],
+    return dict(company=company,hsd_rate=120.25,address=[line1,'Jharsuguda','GSTIN: 21ZZZZZ0000Z1Z0'],
                 payment=['Payment Details:','Account No. – 000111222','IFSC Code – TEST0000001','Branch Name- TEST BANK','Beneficiary Name- VRIDDHI FUELS'],
                 po_label='P.O. No.:' if po else '',po_no=po,price_tier='A',seq=1,updated_at='2026-10-24T05:00:00+00:00')
 TANKER=[_tanker('Twin Steel Ltd','Plot 9, Steel Road,','OLD-PO'),_tanker('Aryan Ispat & Power Private Ltd.','Bomaloi,','ARYAN-PO-7'),
@@ -507,6 +507,8 @@ def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
     assert page.locator('#blPA1').text_content()=='Plot 9, Steel Road,'
     assert page.locator('#blPA3').text_content()=='GSTIN: 21ZZZZZ0000Z1Z0'
     assert page.locator('#blPPay1').text_content()=='Account No. – 000111222'
+    # The rate is the voucher's, not the Tanker Master's (120.25 there).
+    assert page.locator('#blPrice').input_value()=='100.00' and page.locator('#blRateHint').count()==0
     assert 'Tanker Master from the Ledger' in page.locator('#blStatus').inner_text()
     assert page.locator('#blWarn').is_hidden()
     assert '15,000 L left after this bill' in page.locator('#blPoHint').inner_text()
@@ -827,6 +829,9 @@ def test_smc_bill_offers_only_its_two_units(browser,server):
     assert 'billed unit-wise' in page.locator('#blWarn').inner_text()
     page.locator('#blCustomer').select_option('SMC Power Generation LTD, UNIT I')
     assert page.locator('#blPA1').text_content()=='Hirma,'
+    assert page.locator('#blPrice').input_value()=='99.50'  # a customer change keeps the voucher's rate
+    page.locator('#blProduct').select_option('Motor Spirit')
+    assert page.locator('#blPrice').input_value()=='99.50'
     page.close()
 
 

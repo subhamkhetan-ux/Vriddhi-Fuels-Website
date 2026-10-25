@@ -131,13 +131,6 @@ function customerForUnit(family, unit){
   return hit.length === 1 ? hit[0] : null;
 }
 
-// The Tanker Master's HSD rate for this customer (its price tier); it has
-// no petrol or XtraGreen rates. null when not on file.
-function sheetRate(data, cust, product){
-  if (product === HSD) return (cust && cust.hsd_rate != null) ? Number(cust.hsd_rate) : null;
-  return null;
-}
-
 // The products a bill can be for.
 var FUELS = [HSD, "Motor Spirit", "XtraGreen Diesel"];
 
@@ -265,7 +258,6 @@ global.VFBilling = {
   unitOf: unitOf,
   unitFamily: unitFamily,
   customerForUnit: customerForUnit,
-  sheetRate: sheetRate,
   FUELS: FUELS,
   productForSeries: productForSeries,
   buildModel: buildModel,

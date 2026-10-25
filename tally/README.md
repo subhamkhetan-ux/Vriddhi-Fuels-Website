@@ -208,9 +208,9 @@ by this app.
 - **Everything stays editable** on the bill screen, and editing a bill never
   changes the voucher, the day's XML export or the invoice numbering — a
   bill and a Tally voucher are two separate documents.
-- **The bill opens on the voucher's rate and amount**, so the printed bill
-  and the Tally invoice always agree. When the Tanker Master's HSD rate for that
-  customer differs it is shown underneath with a one-tap *use this rate*.
+- **The rate is always the voucher's** (and the amount the voucher's), so the
+  printed bill and the Tally invoice always agree; changing the customer or
+  product on the bill keeps it. The Tanker Master's HSD rate is not used.
 - **The bill number is the voucher's invoice number.** Raised from a saved
   voucher it is that voucher's number exactly; raised from a voucher still
   being typed it is the number the app is about to allocate, so save the

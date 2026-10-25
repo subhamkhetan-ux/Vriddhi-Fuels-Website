@@ -370,7 +370,6 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
         <input type="number" id="blPrice" inputmode="decimal" step="0.01" min="0">
       </div>
     </div>
-    <div class="hint" id="blRateHint"></div>
     <div class="field">
       <label for="blAmount">Amount (₹) — printed on the bill</label>
       <input type="number" id="blAmount" inputmode="decimal" step="1" min="0" placeholder="0">
@@ -2853,7 +2852,7 @@ function resetBillSheet(){
    "blPDensity","blPSeal","blTDate","blTBill","blTVeh","blTQty","blTPrice","blTAmt",
    "blPPay0","blPPay1","blPPay2","blPPay3","blPPay4"].forEach(function(id){ blSet(id, ""); });
   $("blPage2").innerHTML = "";
-  ["blNoHint","blRateHint","blAmtHint"].forEach(function(id){ $(id).textContent = ""; });
+  ["blNoHint","blAmtHint"].forEach(function(id){ $(id).textContent = ""; });
 }
 
 // The customer list from the Tanker Master, with the voucher's party matched.
@@ -3082,31 +3081,9 @@ function renderBill(){
       + "to be sure it is final.";
   }
 
-  // rate / amount hints. The bill opens on the voucher's rate (so the bill
-  // and the Tally invoice agree); when the Tanker Master's HSD rate differs it is
-  // shown with a one-tap way to switch to it.
+  // amount hint. The rate is always the voucher's (so the bill and the
+  // Tally invoice agree); it is only changed by typing a new one.
   var price = parseFloat($("blPrice").value) || 0;
-  var sheet = bill.data ? VFBilling.sheetRate(bill.data, bill.customer, $("blProduct").value) : null;
-  var rh = $("blRateHint");
-  rh.innerHTML = "";
-  if (sheet == null){
-    rh.textContent = "No Tanker Master rate for this customer/product.";
-  } else if (Math.abs(sheet - price) > 0.001){
-    rh.appendChild(document.createTextNode("Tanker Master rate: ₹" + fmtAmt(sheet)
-      + " — this bill uses ₹" + fmtAmt(price) + " "));
-    var useIt = document.createElement("button");
-    useIt.type = "button";
-    useIt.className = "linkbtn";
-    useIt.textContent = "use this rate";
-    useIt.onclick = function(){
-      $("blPrice").value = fmtAmt(sheet);
-      recomputeBillAmount();
-      renderBill();
-    };
-    rh.appendChild(useIt);
-  } else {
-    rh.textContent = "Tanker Master rate: ₹" + fmtAmt(sheet);
-  }
   var qty = parseFloat($("blQty").value) || 0;
   var calc = Math.trunc(qty * price);
   var shown = parseInt($("blAmount").value, 10) || 0;
@@ -3179,23 +3156,15 @@ function sheetCustomer(data, company){
   return hit;
 }
 
-// Customer / product changes are a deliberate deviation from the voucher,
-// so they bring the Tanker Master's own P.O. no. and rate with them.
+// A customer change is a deliberate deviation from the voucher, so it brings
+// the Tanker Master's own P.O. no. with it; the rate stays the voucher's.
 function billCustomerChanged(){
   bill.customer = sheetCustomer(bill.data, $("blCustomer").value);
   $("blPo").value = bill.customer ? (bill.customer.po_no || "") : "";
   bill.poManual = false;
-  applyBillSheetRate();
   updateBillWarning();
   renderBill();
   ledgerPoSoon();
-}
-function applyBillSheetRate(){
-  var r = bill.data ? VFBilling.sheetRate(bill.data, bill.customer, $("blProduct").value) : null;
-  if (r != null){
-    $("blPrice").value = fmtAmt(r);
-    recomputeBillAmount();
-  }
 }
 function recomputeBillAmount(){
   var qty = parseFloat($("blQty").value) || 0;
@@ -3204,7 +3173,7 @@ function recomputeBillAmount(){
 }
 
 $("blCustomer").addEventListener("change", billCustomerChanged);
-$("blProduct").addEventListener("change", function(){ applyBillSheetRate(); renderBill(); ledgerPoSoon(); });
+$("blProduct").addEventListener("change", function(){ renderBill(); ledgerPoSoon(); });
 ["blQty","blPrice"].forEach(function(id){
   $(id).addEventListener("input", function(){ recomputeBillAmount(); renderBill(); });
 });

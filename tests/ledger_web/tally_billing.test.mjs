@@ -68,6 +68,5 @@ test('customer details come from the Ledger’s Tanker Master, never the Tanker 
   await assert.rejects(B.load(true));
   delete globalThis.VFLedgerPO;
   assert.equal((await B.load(true)).status, 'not-configured');
-  assert.equal(B.sheetRate(null, { hsd_rate: '101.5' }, B.HSD), 101.5);
-  assert.equal(B.sheetRate(null, { hsd_rate: 101.5 }, 'Motor Spirit'), null);
+  assert.equal(B.sheetRate, undefined);  // the bill's rate is the voucher's, never the Tanker Master's
 });
