@@ -3,14 +3,14 @@
 // CDN libraries (text reader, PDF reader, Supabase client) are cached on first
 // use so reading a screenshot works without a signal later. Supabase data is
 // never cached here — the app keeps its own copy.
-const CACHE = "vriddhi-decant-v40";
+const CACHE = "vriddhi-decant-v41";
 // The pinned CDN libraries: their own cache, kept over app updates (an
 // update clearing them would leave a phone opened offline with no cloud
 // client and no screenshot reader).
 const CDN_CACHE = "vriddhi-decant-cdn";
 const SHELL = [
   "./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon.png", "./icon-maskable.png",
-  "./js/app.js", "./js/wizard.js", "./js/views.js", "./js/plan.js", "./js/tankers.js", "./js/shareimg.js", "./js/shots.js", "./js/theme.js", "./js/scene.js", "./js/worker.js", "./js/store.js", "./js/core.js", "./js/ui.js",
+  "./js/app.js", "./js/wizard.js", "./js/views.js", "./js/plan.js", "./js/monitor.js", "./js/tankers.js", "./js/shareimg.js", "./js/shots.js", "./js/theme.js", "./js/scene.js", "./js/worker.js", "./js/store.js", "./js/core.js", "./js/ui.js",
   "./js/automation.js", "./js/ocr.js", "./js/invoice.js", "./js/report.js", "./js/charts.js", "./js/xlsx.js", "./js/archive.js", "./js/dipchart.js",
 ];
 const CDN = ["cdn.jsdelivr.net", "esm.sh", "cdn.sheetjs.com", "fonts.googleapis.com", "fonts.gstatic.com"];

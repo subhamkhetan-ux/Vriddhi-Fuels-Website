@@ -105,26 +105,34 @@ also has its own address on port 8443. Pick the tanks (any of
   the service restarts, it carries on from `decantation.json`. Live
   monitoring's Stop is hidden while it runs.
 
-- **Check or monitor the stock from the decant app** (`phone.py`): the
-  "📡 From the tank stock server" card on the decant app's home page:
-  - **Check stock now**: what Capture then "Send for decantation" does here:
-    every tank read (from the open live session, else a connection for this
-    one read), its full figures saved and its zoomed card uploaded as the
-    proof picture a result picture shows. Live monitoring, if on, stays on;
-  - **Monitor the stock**: live monitoring (the open session, else one
-    started for it) sends every tank's volume to the app as it changes,
-    every 10 s whatever its own setting, until the phone stops it or 3 hours
-    have passed. It doesn't end when nobody has the page open, and if
-    AnyDesk ends the session it connects again (a minute apart; after 5
-    tries in a row without a read it stops and tells the phone). A live
-    session it started for the phone ends with it; your own live
-    monitoring, and its saved settings, stay as they are.
+- **Check or monitor the stock from the decant app** (`phone.py`): its
+  **Monitor** tab has this page's controls, for the tanks ticked there:
+  - **Send for decantation**: what Capture then "Send for decantation" does
+    here: those tanks read (from the open live session, else a connection for
+    this one read), their full figures saved and each zoomed card uploaded as
+    the proof picture a result picture shows. Live monitoring, if on, stays
+    on;
+  - **Capture only**: the same read, nothing saved; **Upload these to
+    decant** then saves it, as Upload does here (refused if the server has
+    captured again since);
+  - both reads also upload the zoomed cards as one picture for the tab to
+    show (in `dec-shots` with no readings, so no result picture uses it;
+    cleared the next day as the others);
+  - **Live monitoring**: live monitoring (the open session, else one started
+    for it) sends the ticked tanks' volume to the app as it changes, every
+    5-3600 s (10 by default) whatever its own setting, until the phone stops
+    it or 3 hours have passed. It doesn't end when nobody has the page open,
+    and if AnyDesk ends the session it connects again (a minute apart; after
+    5 tries in a row without a read it stops and tells the phone). A live
+    session it started for the phone ends with it; your own live monitoring,
+    and its saved settings, stay as they are.
 
-  The phone leaves its request in the app's shared settings
-  (`dec_config.data.stockRequest`); the server looks every half minute, as
-  for "Let the tank stock server finish it", and answers in the same place
-  (each tank's result, whether the pictures were uploaded, or why not),
-  writing only over the settings version it read.
+  The phone leaves its requests in the app's shared settings
+  (`dec_config.data.stockRequest` for a read or upload, `stockMonitor` for
+  monitoring, apart so a read never stops the monitoring); the server looks
+  every half minute, as for "Let the tank stock server finish it", and
+  answers in the same place (figures, picture, each tank's result, or why
+  not), writing only over the settings version it read.
 
 The GitHub job "Tank stock (AnyDesk -> decant)" still works: `capture` sends
 the whole screen to the XtraPower bot (from the open session when live

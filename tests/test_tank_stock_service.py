@@ -852,55 +852,88 @@ def test_times_with_any_number_of_fraction_digits_are_read():
 
 
 
-# ---- the decant home page's "Check stock now" / "Monitor the stock" (phone.py) ----
+
+# ---- the decant app's Monitor page (phone.py) -----------------------------------
 
 class Config:
-    """dec_config as stock_request / answer_stock_request see it."""
+    """dec_config as stock_requests / answer_stock_request see it."""
 
     def __init__(self):
         self.data, self.lose = {"settings": {"tanks": decant.DEFAULT_TANKS}}, 0
 
-    def ask(self, kind, tanks=("T3",), rid="r1"):
+    def ask(self, kind, tanks=("T3",), rid="r1", **more):
         from tank_stock import decantation as dz
-        self.data["stockRequest"] = {"id": rid, "kind": kind, "tanks": list(tanks), "at": dz.iso(), "by": "phone"}
+        slot = "stockMonitor" if kind == "monitor" else "stockRequest"
+        self.data[slot] = {"id": rid, "kind": kind, "tanks": list(tanks), "at": dz.iso(), "by": "phone", **more}
 
     @property
     def req(self):
         return self.data.get("stockRequest")
 
-    def stock_request(self, timeout=10):
-        return self.req
+    @property
+    def mon(self):
+        return self.data.get("stockMonitor")
 
-    def answer_stock_request(self, rid, answer, timeout=10):
+    def stock_requests(self, timeout=10):
+        return {k: self.data.get(k) for k in decant.STOCK_SLOTS}
+
+    def answer_stock_request(self, rid, answer, slot="stockRequest", timeout=10):
         if self.lose:
             self.lose -= 1
             return False                                 # a phone saved the settings meanwhile
-        if (self.req or {}).get("id") == rid:
-            self.req.update(answer, answeredAt="now")
+        if (self.data.get(slot) or {}).get("id") == rid:
+            self.data[slot].update(answer, answeredAt="now")
         return True
 
 
 @pytest.fixture
 def phone(station, monkeypatch):
     c = Config()
-    monkeypatch.setattr(decant, "stock_request", c.stock_request)
+    monkeypatch.setattr(decant, "stock_requests", c.stock_requests)
     monkeypatch.setattr(decant, "answer_stock_request", c.answer_stock_request)
     return c
 
 
-def test_check_stock_reads_saves_and_uploads_the_picture_once(station, phone):
+def test_send_for_decantation_reads_saves_and_uploads_the_pictures_once(station, phone):
     phone.ask("check")
     station.phone.check()
     assert len(FakeSession.opened) == 1 and FakeSession.opened[0].closed      # connected for it, then closed
-    assert station.db.writes[-1]["tank_id"] == "T3"                          # its full figures, as Send for decantation
-    (shot,) = station.db.shots                                               # and its card, for the result picture
-    assert shot["readings"]["T3"]["volume"] == 19552.05 and shot["path"] in station.db.files
-    assert phone.req["state"] == "done" and phone.req["results"]["T3"]["ok"] and phone.req["picture"] is True
+    assert station.db.writes[-1]["tank_id"] == "T3"                          # its full figures saved
+    proof, image = station.db.shots                                          # its card, for the result picture,
+    assert proof["readings"]["T3"]["volume"] == 19552.05                     # and the picture the page shows
+    assert image["readings"] == {} and image["path"] in station.db.files
+    req = phone.req
+    assert req["state"] == "done" and req["results"]["T3"]["ok"] and req["picture"] is True
+    assert req["image"] == image["path"] and req["figures"]["T3"]["volume"] == 19552.05
+    assert req["figures"]["T3"]["confidence"] == "high" and req["capturedAt"] == station.last["at"]
     station.phone.check()
-    assert len(FakeSession.opened) == 1 and len(station.db.shots) == 1       # answered: never read again
+    assert len(FakeSession.opened) == 1 and len(station.db.shots) == 2       # answered: never read again
 
 
-def test_check_stock_from_the_open_live_session_leaves_it_on(station, phone):
+def test_capture_only_saves_nothing_until_upload(station, phone):
+    phone.ask("capture", tanks=["T3"])
+    station.phone.check()
+    assert station.db.writes == [] and phone.req["state"] == "done"
+    (image,) = station.db.shots                                              # just the picture to show
+    assert image["readings"] == {} and phone.req["image"] == image["path"]
+    assert phone.req["figures"]["T3"]["volume"] == 19552.05 and "results" not in phone.req
+    phone.ask("upload", tanks=["T3"], rid="r2", of=phone.req["capturedAt"])  # "Upload these to decant"
+    station.phone.check()
+    assert station.db.writes[-1]["tank_id"] == "T3" and len(station.db.shots) == 2
+    assert phone.req["state"] == "done" and phone.req["results"]["T3"]["ok"] and phone.req["picture"] is True
+    assert len(FakeSession.opened) == 1                                      # the upload reads nothing again
+
+
+def test_an_upload_of_an_older_capture_is_refused(station, phone):
+    phone.ask("capture")
+    station.phone.check()
+    phone.ask("upload", rid="r2", of="2000-01-01T00:00:00+05:30")
+    station.phone.check()
+    assert phone.req["state"] == "error" and "another capture" in phone.req["message"]
+    assert station.db.writes == []
+
+
+def test_a_read_from_the_open_live_session_leaves_it_on(station, phone):
     station.start_live({"tanks": [3], "auto_upload": False})
     assert wait_for(lambda: station.live and station.live["reads"] >= 1)
     phone.ask("check")
@@ -920,20 +953,23 @@ def test_an_answer_a_phones_save_lost_is_written_again(station, phone):
     assert phone.req["state"] == "done" and len(FakeSession.opened) == 1
 
 
-def test_monitoring_sends_the_tanks_until_the_phone_stops_it(station, phone, monkeypatch):
+def test_monitoring_the_picked_tanks_at_their_interval_until_stopped(station, phone, monkeypatch):
     monkeypatch.setattr(service, "UNWATCHED_STOP", 0)
     station.save_settings({"tanks": [1], "auto_upload": False, "interval_s": 60})
     station.seen_at = 0                                                      # the page is closed
-    phone.ask("monitor")
+    phone.ask("monitor", every=30)
     station.phone.check()
     assert wait_for(lambda: station.live and station.live["reads"] >= 1 and station.db.writes)
     live = station.live
     assert station.db.writes[-1]["tank_id"] == "T3"                          # its tank's volume, as it comes
     assert not live["by_auto"] and not station._unwatched(live)              # kept on for the phone
-    assert station.live_view()["every_s"] == 10 and station.live_view()["sending"] == [3]
+    assert station.live_view()["every_s"] == 30 and station.live_view()["sending"] == [3]
     assert station.settings["tanks"] == [1] and not station.settings["auto_upload"]   # your settings stay
-    assert phone.req["state"] == "monitoring" and phone.req["until"]
-    phone.data["stockRequest"] = None                                        # "Stop monitoring"
+    assert phone.mon["state"] == "monitoring" and phone.mon["until"] and phone.mon["every"] == 30
+    phone.ask("capture", rid="r2")                                           # a capture meanwhile
+    station.phone.check()
+    assert phone.req["state"] == "done" and station.phone.watched() == {3}   # doesn't stop the monitoring
+    phone.data["stockMonitor"] = None                                        # "Stop"
     station.phone.check()
     assert wait_for(lambda: station.live is None)
     assert station.live_last["reason"] == "the decant app's monitoring ended"
@@ -943,10 +979,12 @@ def test_monitoring_on_your_own_live_session_leaves_it_on(station, phone):
     station.start_live({"tanks": [3], "auto_upload": False})
     assert wait_for(lambda: station.live and station.live["reads"] >= 1)
     live = station.live
-    phone.ask("monitor")
+    phone.ask("monitor", every=1)
     station.phone.check()
     assert station.phone.watched() == {3} and len(FakeSession.opened) == 1    # the open session is used
-    phone.ask("check", rid="r2")                                             # something else asked: it ends
+    assert station.phone.watch["every"] == 5                                  # (5 s at the least, as the page)
+    phone.ask("monitor", rid="r2")                                           # asked anew: the old one ends
+    phone.data["stockMonitor"] = None
     station.phone.check()
     assert not station.phone.active() and station.live is live              # yours: still on
     station.stop_live()
@@ -960,26 +998,29 @@ def test_monitoring_ends_after_its_time(station, phone, monkeypatch):
     station.phone.check()
     assert wait_for(lambda: station.live and station.live["reads"] >= 1)
     station.phone.check()
-    assert phone.req["state"] == "ended" and "stopped after" in phone.req["message"]
+    assert phone.mon["state"] == "ended" and "stopped after" in phone.mon["message"]
     assert wait_for(lambda: station.live is None)
 
 
 def test_the_answer_goes_into_the_apps_settings_over_the_version_read(monkeypatch):
     calls = []
-    row = {"data": {"settings": {"x": 1}, "stockRequest": {"id": "r1", "kind": "check"}}, "updated_at": "2026-10-25T01:00:00+00:00"}
+    row = {"data": {"settings": {"x": 1}, "stockRequest": {"id": "r1", "kind": "check"},
+                    "stockMonitor": {"id": "m1", "kind": "monitor"}}, "updated_at": "2026-10-25T01:00:00+00:00"}
 
     def rest(method, path, body=None, prefer="", timeout=30):
         calls.append((method, path, body))
-        if method == "GET" and "request:data" in path:
-            return [{"request": row["data"]["stockRequest"]}]
+        if method == "GET" and "stockRequest:data" in path:
+            return [{"stockRequest": row["data"]["stockRequest"], "stockMonitor": row["data"]["stockMonitor"]}]
         if method == "GET":
             return [json.loads(json.dumps(row))]
         assert "updated_at=eq.2026-10-25T01%3A00%3A00%2B00%3A00" in path         # only over the version read
         return [{"id": 1}]
     monkeypatch.setattr(decant, "_rest", rest)
-    assert decant.stock_request() == {"id": "r1", "kind": "check"}
-    assert decant.answer_stock_request("r1", {"state": "done"})
+    assert decant.stock_requests() == {"stockRequest": {"id": "r1", "kind": "check"},
+                                       "stockMonitor": {"id": "m1", "kind": "monitor"}}
+    assert decant.answer_stock_request("m1", {"state": "monitoring"}, slot="stockMonitor")
     sent = calls[-1][2]["data"]
-    assert sent["settings"] == {"x": 1} and sent["stockRequest"]["state"] == "done" and sent["updatedAt"]
+    assert sent["settings"] == {"x": 1} and sent["stockMonitor"]["state"] == "monitoring" and sent["updatedAt"]
+    assert "state" not in sent["stockRequest"]
     n = len(calls)
     assert decant.answer_stock_request("other", {"state": "done"}) and len(calls) == n + 1   # asked something else: no write

@@ -227,15 +227,21 @@ def handover_requests(timeout: int = 10) -> list:
     return [r for r in rows if isinstance(r.get("request"), dict)]
 
 
-def stock_request(timeout: int = 10) -> dict | None:
-    """A phone's "Check stock now" / "Monitor the stock" (the decant app's home
-    page), kept in the app's shared settings row: dec_config.data.stockRequest."""
-    rows = _rest("GET", "dec_config?id=eq.1&select=request:data->stockRequest", timeout=timeout) or []
-    req = rows[0].get("request") if rows else None
-    return req if isinstance(req, dict) else None
+STOCK_SLOTS = ("stockRequest", "stockMonitor")
 
 
-def answer_stock_request(rid: str, answer: dict, timeout: int = 10) -> bool:
+def stock_requests(timeout: int = 10) -> dict:
+    """The decant app's Monitor page asks, in its shared settings row
+    (dec_config.data): ``stockRequest`` (Send for decantation, Capture only,
+    Upload) and ``stockMonitor`` (live monitoring), kept apart so a capture
+    never stops the monitoring. -> {slot: request | None}"""
+    rows = _rest("GET", "dec_config?id=eq.1&select=" + ",".join(f"{k}:data->{k}" for k in STOCK_SLOTS),
+                 timeout=timeout) or []
+    row = rows[0] if rows else {}
+    return {k: row.get(k) if isinstance(row.get(k), dict) else None for k in STOCK_SLOTS}
+
+
+def answer_stock_request(rid: str, answer: dict, slot: str = "stockRequest", timeout: int = 10) -> bool:
     """Put the answer into that request, over the very version read (a phone's
     settings saved meanwhile stay). -> False if it has to be written again."""
     from .decantation import iso
@@ -243,7 +249,7 @@ def answer_stock_request(rid: str, answer: dict, timeout: int = 10) -> bool:
     if not rows:
         return True
     data, base = rows[0].get("data") or {}, rows[0].get("updated_at")
-    req = data.get("stockRequest")
+    req = data.get(slot)
     if not isinstance(req, dict) or str(req.get("id") or req.get("at") or "") != rid:
         return True                        # (the phone asked something else since)
     stamp = iso()
