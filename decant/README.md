@@ -284,23 +284,31 @@ question the agent is waiting on. Anything done on a phone meanwhile counts
 (the agent takes it over), and "Hand over" on the tank stock page leaves the
 rest to this app.
 
-**Tank stock from the server.** On the home page, under the tank tiles, the
-"📡 From the tank stock server" card asks the tank stock server
-(`tank_stock/README.md`, "Check or monitor the stock from the decant app")
-for every tank's stock:
+**Monitor tab: the tank stock server.** The same controls as the tank stock
+page over Tailscale (`tank_stock/README.md`, "Check or monitor the stock from
+the decant app"), for the tanks you tick (each phone remembers its picks):
 
-- **📡 Check stock now** — what its page's *Capture* then *Send for
-  decantation* does: each tank's full figures saved as its latest stock,
-  with its card's picture uploaded for the result pictures. The card then
-  says how each tank went.
-- **👁 Monitor the stock** — each tank's volume every 10 s, until **Stop
-  monitoring** or 3 hours.
+- **Capture now** — tick the tanks, then
+  - **📡 Send for decantation**: what the page's *Capture* then *Send for
+    decantation* does — each tank's full figures saved as its latest stock,
+    with its card's picture uploaded for the result pictures;
+  - **📷 Capture only**: read them without saving.
+- **Last capture** — the zoomed cards' picture and each tank's figures (stock,
+  dip, ullage, water, temperature, density) with the app's check, and after a
+  save whether each tank was saved. **⬆ Upload these to decant** saves a
+  *Capture only* (as long as the server hasn't captured again since);
+  **⤓ Save image** keeps the picture on the phone.
+- **Live monitoring** — *read every* 5–3600 seconds (10 by default) and the
+  tanks to watch: their volume comes every so often until **■ Stop** or 3
+  hours, and the tank tiles on the Decant tab follow it. A capture meanwhile
+  doesn't stop it.
 
 The server looks every half minute, then takes about a minute to connect to
-the automation PC; if nothing answers for 5 minutes the card asks whether the
-Mac is on and online. The request waits in the shared settings, so any phone
-sees it and its answer. It isn't on the decanting screens: there, "Let the
-tank stock server finish it" follows the tanks itself.
+the automation PC; if nothing answers for 5 minutes the tab asks whether the
+Mac is on and online. The requests wait in the shared settings, so every phone
+sees them and their answers. Pictures are kept for the day, as the other stock
+screenshots. While a tanker decants, "Let the tank stock server finish it" on
+its decanting screen follows the tanks itself.
 
 ## Reading the automation screenshots
 

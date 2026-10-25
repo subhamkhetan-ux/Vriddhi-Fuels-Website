@@ -161,6 +161,12 @@ async function pictureOf(shot) {
   }
 }
 
+// A picture in the cloud by its path (the Monitor tab's capture, which the
+// tank stock server puts there): a Blob, or null.
+export async function cloudPicture(path) {
+  return path ? pictureOf({ id: `path:${path}`, path }) : null;
+}
+
 // Today's screenshots behind these tank rows' before / after readings:
 // [{shot, uses: [{tank, which, readingAt}]}], in the rows' order, each tank's
 // before ahead of its after (so a two-wide picture pairs them on one line).

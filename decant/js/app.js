@@ -8,7 +8,7 @@ import { cardBox, fromServer,
 } from './core.js';
 import { DIP_CHART } from './dipchart.js';
 import {
-  cloudEnabled, cloudMonths, clearDevice, dropDraft, initStore, loadMonths, meterNow, monthFiles, newId, onChange, onSessionReplaced, refreshNow, saveConfig,
+  cloudEnabled, cloudMonths, clearDevice, dropDraft, initStore, loadMonths, meterNow, monthFiles, onChange, onSessionReplaced, refreshNow, saveConfig,
   saveDevice, saveInvoice, saveTankReading, state,
 } from './store.js';
 import { KEEP_OPTIONS } from './archive.js';
@@ -19,6 +19,7 @@ import {
 import { forgetWizard, openWizard, renderWizard, startSession, wizardActive } from './wizard.js';
 import { renderLog, renderReports } from './views.js';
 import { renderPlan } from './plan.js';
+import { renderMonitor } from './monitor.js';
 import { decantScene, runScenes } from './scene.js';
 import { clearShots, keepShot, tidyShots } from './shots.js';
 import { THEMES, initTheme, nextTheme, onTheme, setTheme, themeChoice, themeIcon, themeLabel } from './theme.js';
@@ -332,11 +333,13 @@ export function render() {
   document.getElementById('view-wizard').hidden = !inWizard;
   document.getElementById('view-home').hidden = inWizard || APP.tab !== 'home';
   document.getElementById('view-plan').hidden = inWizard || APP.tab !== 'plan';
+  document.getElementById('view-monitor').hidden = inWizard || APP.tab !== 'monitor';
   document.getElementById('view-log').hidden = inWizard || APP.tab !== 'log';
   document.getElementById('view-reports').hidden = inWizard || APP.tab !== 'reports';
   if (inWizard) { if (!viewHasFocus('view-wizard')) renderWizard(document.getElementById('view-wizard')); return; }
   if (APP.tab === 'home' && !viewHasFocus('view-home')) renderHome(document.getElementById('view-home'));
   if (APP.tab === 'plan' && !viewHasFocus('view-plan')) renderPlan(document.getElementById('view-plan'));
+  if (APP.tab === 'monitor' && !viewHasFocus('view-monitor')) renderMonitor(document.getElementById('view-monitor'));
   if (APP.tab === 'log' && !viewHasFocus('view-log')) renderLog(document.getElementById('view-log'));
   if (APP.tab === 'reports' && !viewHasFocus('view-reports')) renderReports(document.getElementById('view-reports'));
 }
@@ -514,7 +517,6 @@ function renderHome(el) {
   el.innerHTML = `
     <h2>Tank stock <span class="sp"></span><button class="btn sm" data-stock>📷 Update</button><button class="btn sm" data-dips title="Tank stock from physical dips">📏 Dip</button></h2>
     <div class="tanks">${tanks().map((t) => tankTile(t, busy)).join('')}</div>
-    ${serverStockCard()}
     ${open.length ? `<h2>In progress <span class="count">${open.length}</span></h2>${open.map(sessionCard).join('')}` : ''}
     <h2>To decant <span class="count">${recent.length}</span><span class="sp"></span>
       <button class="btn sm" data-addpdf title="Add an invoice from its PDF">⬆ PDF</button><button class="btn sm" data-addinv title="Type an invoice in">＋ Add</button></h2>
@@ -526,50 +528,6 @@ function renderHome(el) {
       ${APP.showOlder ? older.map((x) => invoiceCard(x.inv, x.st)).join('') : ''}` : ''}
     ${doneToday.length ? `<h2>Finished today <span class="count">${doneToday.length}</span></h2>${doneToday.map(doneRow).join('')}` : ''}
   `;
-}
-
-// The tank stock server (tank_stock/phone.py) reads the tanks from the IOCL
-// automation for this phone: once ("Check stock now": as its page's Capture
-// then "Send for decantation" — each tank's stock saved, with its card's
-// picture for the result pictures) or live ("Monitor the stock": each tank's
-// volume every 10 s, up to 3 hours). The request waits in the shared settings
-// (config.stockRequest); the server looks every half minute and answers there.
-// While decanting, "Let the tank stock server finish it" does this and more.
-const STOCK_STALE_MIN = 5;
-function serverStockCard() {
-  if (!cloudEnabled) return '';                    // (the server only sees the cloud)
-  const req = state.config.stockRequest;
-  const buttons = `<div class="row-actions" style="justify-content:flex-start;margin-top:8px">
-      <button class="btn sm" data-srvcheck>📡 Check stock now</button><button class="btn sm" data-srvmonitor>👁 Monitor the stock</button></div>`;
-  let body;
-  if (!req || (req.state && req.state !== 'monitoring' && istDate(req.answeredAt || req.at) !== istDate(Date.now()))) {
-    body = `<div class="hint">The tank stock server reads every tank from the IOCL automation — once now, or every 10 s.</div>${buttons}`;
-  } else if (!req.state) {
-    const mins = (Date.now() - Date.parse(req.at || '')) / 60000;
-    body = `${mins > STOCK_STALE_MIN
-      ? `<div class="banner" style="margin:0">No answer from the tank stock server for ${Math.round(mins)} min — is the Mac on and online?</div>`
-      : `<div class="hint">Asked at ${fmtTime(req.at)} to ${req.kind === 'monitor' ? 'monitor' : 'check'} the stock — it looks every half minute, then takes about a minute to connect.</div>`}
-      <div class="row-actions" style="justify-content:flex-start;margin-top:8px">${mins > STOCK_STALE_MIN ? `<button class="btn sm" ${req.kind === 'monitor' ? 'data-srvmonitor' : 'data-srvcheck'}>Ask again</button>` : ''}<button class="btn sm ghost" data-srvstop>Cancel</button></div>`;
-  } else if (req.state === 'monitoring') {
-    body = `<div class="hint"><span class="badge watch live"><i>●</i>Monitoring</span> The volume comes every 10 s${req.until ? `, until ${fmtTime(req.until)}` : ''}.</div>
-      <div class="row-actions" style="justify-content:flex-start;margin-top:8px"><button class="btn sm ghost" data-srvstop>Stop monitoring</button></div>`;
-  } else if (req.state === 'done') {
-    const res = Object.entries(req.results || {}).map(([id, r]) => `<li class="${r.ok ? '' : 'warn'}">${r.ok ? '✓' : '⚠'} ${esc(tankName(id))}: ${esc(r.message)}</li>`).join('');
-    const pic = req.picture === true ? ' · pictures saved for the result' : '';
-    body = `<div class="hint">Checked at ${fmtTime(req.answeredAt)}${pic}.</div>${res ? `<ul class="msgs">${res}</ul>` : ''}
-      ${req.pictureError ? `<div class="banner" style="margin:8px 0 0">The readings are saved, but the pictures weren't: ${esc(req.pictureError)}.</div>` : ''}${buttons}`;
-  } else {
-    body = `<div class="banner ${req.state === 'error' ? 'bad' : ''}" style="margin:0">${req.state === 'error' ? 'The tank stock server couldn\'t read the stock' : 'Monitoring ended'}: ${esc(req.message || 'no reason given')}.</div>${buttons}`;
-  }
-  return `<div class="card" style="margin-top:10px"><div class="sect-title" style="margin:0">📡 From the tank stock server</div>${body}</div>`;
-}
-
-async function serverStock(kind) {
-  await saveConfig({
-    stockRequest: kind
-      ? { id: newId('R'), kind, tanks: tanks().map((t) => t.id), at: new Date().toISOString(), by: state.device?.operator || 'a phone' }
-      : null,
-  });
 }
 
 function invKey(inv) {
@@ -594,9 +552,6 @@ function onHomeClick(e) {
   if (tile) { tankSheet(tile.dataset.tank); return; }
   if (t.closest('[data-stock]')) { stockFlow(); return; }
   if (t.closest('[data-dips]')) { dipSheet(); return; }
-  if (t.closest('[data-srvcheck]')) { serverStock('check'); return; }
-  if (t.closest('[data-srvmonitor]')) { serverStock('monitor'); return; }
-  if (t.closest('[data-srvstop]')) { serverStock(null); return; }
   if (t.closest('[data-addinv]')) { invoiceForm(); return; }
   if (t.closest('[data-addpdf]')) { invoiceFromPdf(); return; }
   if (t.closest('[data-older]') && !t.closest('[data-dismissold]')) { APP.showOlder = !APP.showOlder; render(); return; }
@@ -1299,7 +1254,7 @@ function boot() {
   document.getElementById('btnSettings').onclick = () => settingsSheet();
   try {
     const t = localStorage.getItem('vriddhi-decant-tab');
-    if (['home', 'plan', 'log', 'reports'].includes(t)) APP.tab = t;
+    if (['home', 'plan', 'monitor', 'log', 'reports'].includes(t)) APP.tab = t;
     document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === APP.tab));
   } catch { /* ignore */ }
   onChange(render);
