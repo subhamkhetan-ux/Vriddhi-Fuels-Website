@@ -54,6 +54,8 @@ FRESH_EVERY = 1800                    # seconds: the page is reloaded this often
 STALE_RELOAD = 150                    # seconds without any card's "Last Updated" moving: reloaded
 UPDATED = re.compile(r"Last\s*Updated", re.I)
 ACTION_WAIT = 120                     # seconds any one browser step may take
+LOST_AFTER = 30                       # seconds of FuelTrans not answering before the session is lost
+PROBE_WAIT = 10                       # seconds one "does FuelTrans answer?" may take
 
 
 def _down(exc: Exception) -> CaptureError:
@@ -73,7 +75,12 @@ class FuelTransSession:
     through the tunnel; ``close()`` closes the browser."""
 
     position = 1                       # (AnyDesk's sessions say which of the PC's IDs connected)
-    lost = "the IOCL PC's FuelTrans tunnel went down (PC off or offline)"
+    @property
+    def lost(self) -> str:
+        """Why the session was lost, for the page and Telegram."""
+        why = f": {self._down_why}" if self._down_why else ""
+        return (f"the IOCL PC's FuelTrans tunnel went down (no answer for {LOST_AFTER} s{why}; "
+                "the station's internet, or the PC off)")
 
     def __init__(self, url: str = URL, user: str = USER, password: str = "", *, settle: int = SETTLE):
         self.url, self.user, self.password = url.rstrip("/"), user, password
@@ -82,6 +89,7 @@ class FuelTransSession:
         self._pw = self._browser = self._page = None
         self._fresh_at = 0.0
         self._clocks, self._clocks_at = "", 0.0   # the cards' "Last Updated" times, and since when
+        self._down_since, self._down_why = None, ""   # FuelTrans not answering: since when, and how
 
     def __enter__(self):
         self.open()
@@ -299,17 +307,35 @@ class FuelTransSession:
             raise
         return self.position
 
+    def _answers(self) -> str:
+        """"" if FuelTrans answers through the tunnel, else how it failed."""
+        try:
+            with urlopen(self.url + CONFIG, timeout=PROBE_WAIT) as r:
+                return "" if r.status == 200 else f"HTTP {r.status}"
+        except HTTPError as exc:
+            return "" if exc.code < 500 else f"HTTP {exc.code}"
+        except (URLError, OSError) as exc:
+            reason = getattr(exc, "reason", exc)
+            text = str(reason).lower()
+            return ("connection refused: the tunnel itself was down" if "refused" in text else
+                    "timed out: the tunnel was too slow" if "timed out" in text or isinstance(reason, TimeoutError)
+                    else str(reason)[:120])
+
     def alive(self) -> bool:
-        """FuelTrans still answers through the tunnel."""
+        """FuelTrans still answers through the tunnel, or hasn't for under
+        LOST_AFTER seconds: the station's internet blips now and then, and
+        the page (FuelTrans' own live connection) rides that out by itself."""
         if self._page is None:
             return False
-        try:
-            with urlopen(self.url + "/assets/data/config.json", timeout=5) as r:
-                return r.status == 200
-        except HTTPError as exc:
-            return exc.code < 500
-        except (URLError, OSError):
-            return False
+        failed = self._answers()
+        if not failed:
+            self._down_since, self._down_why = None, ""
+            return True
+        now = time.monotonic()
+        if self._down_since is None:
+            self._down_since = now
+        self._down_why = failed
+        return now - self._down_since < LOST_AFTER
 
     def screen(self) -> bytes:
         return self._do(self._png)
