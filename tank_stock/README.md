@@ -8,6 +8,12 @@ it. It works like you opening AnyDesk on your phone. The client draws on a
 private virtual display, and the password reaches AnyDesk on stdin (its
 documented `--with-password` mode).
 
+**Without AnyDesk:** with the IOCL PC's FuelTrans tunnel
+([infra/fueltrans](../infra/fueltrans/README.md)), the Oracle server opens
+FuelTrans itself in a headless browser instead (`fueltrans.py`, set up by
+`infra/fueltrans/tank-stock-setup.sh`). Its screenshots of Tank Status take
+the place of AnyDesk's, and everything below works the same.
+
 ## What it does
 
 Nothing connects on its own: everything starts from the **phone page** (over
