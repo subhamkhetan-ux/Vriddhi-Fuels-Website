@@ -34,12 +34,22 @@ USER = "Dealer"
 # card reader is tuned to (FuelTrans' small 10 px labels read reliably).
 VIEWPORT = {"width": 1366, "height": 768}
 SCALE = 1.4
+# The PC draws FuelTrans in DejaVu Sans (its CSS fonts aren't on the PC), and
+# the card reader is tuned to that; this server would pick an Arial-like font
+# instead. Icon fonts (Font Awesome's <i class="fa ...">) keep their own.
+PC_FONT = """body, body *:not(i):not(.fa):not([class*="fa-"]):not([class*="icon"]) {
+  font-family: "DejaVu Sans", sans-serif !important; }"""
+PC_FONT_SCRIPT = ("document.addEventListener('DOMContentLoaded', () => {"
+                  " const s = document.createElement('style');"
+                  f" s.textContent = {json.dumps(PC_FONT)}; document.head.appendChild(s); }});")
 TANK_PAGE = "/tank-dashboard"
 CONFIG = "/assets/data/config.json"   # where FuelTrans' page reads its backend address
 PROBLEM_PNG = "fueltrans-problem.png"  # what the browser showed when a read failed (in TANK_STOCK_HOME)
 LOGIN_WAIT = 20                       # seconds for the user list, and for the login to go through
 CARDS_WAIT = 40                       # seconds for the tank cards to show their figures
 SETTLE = 3                            # seconds more, for every card's figures to fill in
+DATA_WAIT = 45                        # seconds for every card's first live figures (see _data)
+NO_DATA = re.compile(r"00/00/0000")   # a card's "Last Updated" before its first figures came
 FRESH_EVERY = 1800                    # seconds: the page is reloaded this often while live
 ACTION_WAIT = 120                     # seconds any one browser step may take
 
@@ -92,6 +102,7 @@ class FuelTransSession:
         self._page = self._browser.new_page(viewport=VIEWPORT, device_scale_factor=SCALE)
         self._page.set_default_timeout(ACTION_WAIT * 1000)
         self._page.route("**" + CONFIG, self._config)
+        self._page.add_init_script(PC_FONT_SCRIPT)
 
     def _config(self, route) -> None:
         """FuelTrans' page asks its backend at config.json's baseUrl,
@@ -222,8 +233,24 @@ class FuelTransSession:
                 did.append("Monitoring > Tank Status")
             if self._settled(CARDS_WAIT / 2) != "cards":
                 raise CaptureError("FuelTrans opened, but its Tank Status page showed no tank cards.")
+        waiting = self._data(DATA_WAIT)
+        if waiting:
+            did.append(f"{waiting} card{'s' if waiting > 1 else ''} still had no figures after {DATA_WAIT} s")
         page.wait_for_timeout(int(self.settle * 1000))
         return ", ".join(did)
+
+    def _data(self, wait: float) -> int:
+        """Wait for every card's first live figures. A freshly opened Tank
+        Status page shows each card as a placeholder (OFFLINE, Last Updated
+        00/00/0000 00:00:00, 1,000,000.00 ltr, 714.90 mm) until FuelTrans'
+        live connection brings that tank's figures, each at its own pace.
+        Returns how many cards are still waiting (an ATG probe that is down)."""
+        page, deadline = self._page, time.monotonic() + wait
+        while True:
+            waiting = page.get_by_text(NO_DATA).count()
+            if not waiting or time.monotonic() >= deadline:
+                return waiting
+            page.wait_for_timeout(1000)
 
     def _png(self) -> bytes:
         self._start()

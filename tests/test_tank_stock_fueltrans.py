@@ -63,7 +63,8 @@ def card_html(no, product, volume, height, ullage, density, density_tc, temp, se
 # screenshot): DejaVu Sans, cards 308 x 322 px with a light border, rounded
 # corners and a soft shadow, rows 21 px apart, grey labels and bold figures.
 APP = """<!DOCTYPE html><html><head><style>
-body{margin:0;font-family:"DejaVu Sans",Verdana,sans-serif;background:#fff;color:#333}
+body{margin:0;font-family:Roboto,"Helvetica Neue",Arial,sans-serif;background:#fff;color:#333}
+.fa{font-family:monospace}
 .top{height:62px;display:flex;align-items:center;padding:0 16px;font-weight:bold;color:#e0301e;font-size:17px}
 .bar{background:rgb(0,169,246);height:30px;display:flex;gap:90px;padding:0 50px;align-items:center;color:#fff;
  font-weight:bold;font-size:13px}
@@ -78,9 +79,10 @@ body{margin:0;font-family:"DejaVu Sans",Verdana,sans-serif;background:#fff;color
 .pic{height:90px;margin:5px 0 0 -3px}.upd{color:#9a9a9a;font-size:10px;margin-top:2px;height:17px}
 .row{display:flex;height:21px;align-items:center;font-size:10px}
 .row span{width:94px;color:#adadad}.row b{color:#333;font-size:10.3px}.ok{color:#a3cf36!important}
+.off{color:#aaa!important}
 #login{padding:200px 760px}select,input,button{display:block;width:380px;margin:10px 0;font-size:16px;padding:6px}
 </style></head><body><div id="app"></div><script>
-const tanks = TANKS_JSON, inMemory = IN_MEMORY;
+const tanks = TANKS_JSON, placeholders = PLACEHOLDERS_JSON, inMemory = IN_MEMORY;
 let authed = false;
 const isAuthed = () => inMemory ? authed : sessionStorage.getItem("auth") === "1";
 function login() {
@@ -97,7 +99,7 @@ function login() {
 }
 function bar() {
   return '<div class="top">VRIDDHI FUELS : 338821</div>' +
-    '<div class="bar"><span>Home</span><span id="mon">Monitoring</span><span>Operations</span><span>Reports</span></div>' +
+    '<div class="bar"><span><i class="fa fa-home">H</i>Home</span><span id="mon">Monitoring</span><span>Operations</span><span>Reports</span></div>' +
     '<div id="menu"><div id="ts">Tank Status</div><div>Pump Status</div></div>';
 }
 function home() {
@@ -107,8 +109,13 @@ function home() {
 }
 function dashboard() {
   app.innerHTML = bar() + '<div class="title">Tank Status</div><div class="cards"></div>';
+  // as FuelTrans: the cards come first as placeholders (OFFLINE, 00/00/0000,
+  // 1,000,000.00 ltr), each tank's figures a while later over its live connection
   fetch(base + "/getSiteInfo").then(r => r.json()).then(() => {
-    document.querySelector(".cards").innerHTML = tanks.join("");
+    document.querySelector(".cards").innerHTML = placeholders.join("");
+    tanks.forEach((card, i) => NEVER.includes(i + 1) || setTimeout(() => {
+      document.querySelectorAll(".card")[i].outerHTML = card;
+    }, 1500 + 1500 * i));
   });
 }
 function route() {
@@ -123,9 +130,14 @@ setTimeout(() => fetch("/assets/data/config.json").then(r => r.json())
 </script></body></html>"""
 
 
-def serve(in_memory: bool):
+def serve(in_memory: bool, never=()):
+    """The synthetic FuelTrans; ``never``: tanks whose figures never come (a probe that is down)."""
     cards = [card_html(*t) for t in TANKS]
-    page = APP.replace("TANKS_JSON", json.dumps(cards)).replace("IN_MEMORY", json.dumps(in_memory)).encode()
+    waiting = [card_html(no, product, "1,000,000.00", "714.90", "171,892.48", "827.10", "827.10", "0.00", "00", 2,
+                         colour).replace("10/26/2026 12:46:00", "00/00/0000 00:00:00")
+               .replace('class="ok">ONLINE', 'class="off">OFFLINE')
+               for no, product, *_, colour in TANKS]
+    page = APP.replace("TANKS_JSON", json.dumps(cards)).replace("PLACEHOLDERS_JSON", json.dumps(waiting)).replace("IN_MEMORY", json.dumps(in_memory)).replace("NEVER", json.dumps(list(never))).encode()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -172,6 +184,11 @@ def test_logs_in_and_reads_the_cards(chromium, in_memory):
         try:
             png, did = s.shot()                                      # (no open() first: it opens)
             assert png.startswith(b"\x89PNG") and "logged in as Dealer" in did
+            assert "no figures" not in did                           # waited for the placeholders to fill
+            fonts = s._do(lambda: s._page.evaluate(
+                "[getComputedStyle(document.querySelector('.row span')).fontFamily,"
+                " getComputedStyle(document.querySelector('i.fa')).fontFamily]"))
+            assert fonts[0].startswith('"DejaVu Sans"') and fonts[1] == "monospace", fonts   # the PC's font, icons kept
             assert ("Monitoring > Tank Status" in did) == in_memory   # the menu when a reload logs out
             assert s.alive()
             png2, did2 = s.shot()                                    # from another thread: same page
@@ -235,3 +252,20 @@ def test_service_picks_fueltrans_from_the_login(tmp_path):
         st.login()
     (tmp_path / "login.json").write_text(json.dumps({"ids": ["123456789"], "password": "x"}))
     assert not st.from_fueltrans() and isinstance(st._session(*st.login()), service.Session)
+
+
+def test_a_tank_whose_figures_never_come(chromium, monkeypatch):
+    from tank_stock import fueltrans
+    monkeypatch.setattr(fueltrans, "DATA_WAIT", 8)
+    server = serve(False, never=(3,))
+    s = FuelTransSession(f"http://127.0.0.1:{server.server_port}", "Dealer", "123456", settle=0)
+    try:
+        png, did = s.shot()
+        assert did.endswith("1 card still had no figures after 8 s"), did
+        if shutil.which("tesseract") and shutil.which("convert"):
+            boxes, read = cards_mod.read_all(png)
+            assert read[1]["volume"] == 8787.48 and read[4]["volume"] == 2513.75
+            assert read[3]["volume"] == 1000000.0                    # the placeholder: the decant checks refuse it
+    finally:
+        s.close()
+        server.shutdown()
