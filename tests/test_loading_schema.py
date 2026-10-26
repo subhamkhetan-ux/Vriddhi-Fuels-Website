@@ -338,8 +338,18 @@ def test_the_decant_app_reads_tanker_fill_with_the_public_key_alone(pg):
     publishable key; the tables themselves and every other function stay shut."""
     pg.ok("update loading_vehicles set fill = '{\"C1\": 3985}'::jsonb where plate = (select min(plate) from loading_vehicles)")
     rows = pg.json("select loading_tanker_fill()", anon=True)
-    assert rows and set(rows[0]) == {"plate", "caps", "fill"}
+    assert rows and set(rows[0]) == {"plate", "caps", "fill", "sold_at"}
     assert rows == sorted(rows, key=lambda r: r["plate"]) and rows[0]["fill"] == {"C1": 3985}
     assert len(rows) == int(pg.ok("select count(*) from loading_vehicles"))
+    # sold_at: the latest sale (trip) of each tanker, null if it was never sold
+    plate = rows[0]["plate"]
+    pg.ok(f"delete from loading_trips where vehicle = '{plate}'")
+    assert pg.json("select loading_tanker_fill()", anon=True)[0]["sold_at"] is None
+    pg.ok(f"insert into loading_trips (id, vehicle, total, created_at) values"
+          f" (gen_random_uuid(), '{plate}', 100, timestamptz '2026-10-20 05:00+00'),"
+          f" (gen_random_uuid(), '{plate}', 100, timestamptz '2026-10-21 09:30+00')")
+    sold = pg.json("select loading_tanker_fill()", anon=True)[0]["sold_at"]
+    assert sold.startswith("2026-10-21T09:30:00")
+    pg.ok(f"delete from loading_trips where vehicle = '{plate}'")
     assert pg.run("select count(*) from loading_vehicles", anon=True)[1] in ("", "0")   # (refused, or no rows)
     pg.fails("select loading_whoami()", anon=True)

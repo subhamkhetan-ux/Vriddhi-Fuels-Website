@@ -63,6 +63,15 @@ again.
    customer is saved on the record, shown in History and the Excel report, and
    counted as one **trip** in the trip report.
 
+**Loaded now.** Above the tanker cards (below the invoice card), a compact card
+lists every tanker on one line — what is in it now, with a thin fill bar — and
+the **total** across all tankers. A tanker sent for sale in the last 6 hours
+carries a **🚚 On trip till …** tag: for those 6 hours the Decanting app
+(`/decant/`, Plan tab) counts it as **not available to load**, by itself — no
+switch to flip there. (It reads each tanker's last sale through
+`loading_tanker_fill()`: re-run [`../supabase/loading-schema.sql`](../supabase/loading-schema.sql)
+once for that.)
+
 Every loading (`+ litres`) and every dispatch (`🚚 Sent for sale`) is kept in
 **History** and the export, so the full account of what went into each tanker and
 when it was sent out is preserved.
@@ -894,6 +903,11 @@ costly on budget phones).
 > to re-run; it also back-fills trips from the sales still in the 7-day window).
 > Until then the app works exactly as before — the sale box uses the built-in
 > customer list and the two new screens say the database needs the update.
+
+**On a desktop** (a window 900 px or wider) the header spans the window, Home
+puts the day total, the cards under it and Recent in a column beside a grid of
+tanker cards, Add diesel shows the chambers side by side, and the other screens
+get a wider centred column. Phones keep the one-column layout.
 
 ## Install on the phone
 

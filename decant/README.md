@@ -465,7 +465,12 @@ each tank so the loads I've placed an indent for fit?*
    shows *Not available* (since when, and by whom if the phone has a name
    set), moves to the bottom and isn't counted — the total becomes *Free to
    load*. The switch is kept with the plan in this app's own cloud, so every
-   phone sees it; nothing is written to the Loading app. The diesel card
+   phone sees it; nothing is written to the Loading app. A tanker **sent for
+   sale** in the Loading app is off by itself for **6 hours** after — it is out
+   on that trip: it shows *On a trip* and until when, and isn't counted. Switch
+   it on if it's back sooner; its next sale takes it off again. (The time of
+   each tanker's last sale comes with `loading_tanker_fill()`; re-run the
+   Loading SQL once for it — until then no tanker is taken off this way.) The diesel card
    under **Dispense first** then says what the tankers available to load can
    take, whether one alone can take it all, and which aren't available — or
    that none is, and the diesel has to go through the pumps.

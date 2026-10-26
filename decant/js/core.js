@@ -1172,24 +1172,40 @@ function splitForRoom(chambers, tanks) {
   };
 }
 
+// A tanker sent for sale in the Loading app is out on its trip: not available
+// to load for this long after (unless switched back on).
+export const SALE_OFF_MS = 6 * 3600 * 1000;
+
+// When a tanker's sale stops keeping it off (ms), or null if it doesn't now.
+export function saleOffUntil(soldAt, now = Date.now()) {
+  const t = Date.parse(soldAt || '');
+  return Number.isFinite(t) && now < t + SALE_OFF_MS ? t + SALE_OFF_MS : null;
+}
+
 // Our own delivery tankers (from the Loading app): how much each can still
 // take — capacity minus what's in it. `exclude` lists plates always left out
 // (Settings); `off` the ones marked not available to load now ({plate: {at,
-// by}}, shared by every phone) — listed, but not counted. Available ones
-// first, the roomiest on top. free: what the available ones can take.
-export function tankerSpace(vehicles, exclude = [], off = {}) {
+// by}}, shared by every phone) — listed, but not counted. A tanker sent for
+// sale (v.soldAt) is off the same way for SALE_OFF_MS after, with off.sale,
+// unless `back` ({plate: soldAt}) says it was switched on again after that
+// sale. Available ones first, the roomiest on top. free: what the available
+// ones can take.
+export function tankerSpace(vehicles, exclude = [], off = {}, { back = {}, now = Date.now() } = {}) {
   const norm = (p) => String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const ex = new Set(exclude.map(norm));
   const offs = new Map(Object.entries(off || {}).map(([k, v]) => [norm(k), v || {}]));
+  const backs = new Map(Object.entries(back || {}).map(([k, v]) => [norm(k), v]));
   const rows = [];
   const excluded = [];
   for (const v of vehicles || []) {
-    if (ex.has(norm(v.plate))) { excluded.push(v.plate); continue; }
+    const key = norm(v.plate);
+    if (ex.has(key)) { excluded.push(v.plate); continue; }
     const caps = (v.caps || []).map(Number).filter((x) => x > 0);
     const capacity = caps.reduce((a, b) => a + b, 0);
     const filled = caps.reduce((a, cap, i) => a + Math.min(cap, Math.max(0, Number(v.fill?.[`C${i + 1}`]) || 0)), 0);
-    const mark = offs.get(norm(v.plate)) || null;
-    rows.push({ plate: v.plate, capacity, filled: round2(filled), free: round2(capacity - filled), available: !mark, off: mark });
+    const until = backs.has(key) && Date.parse(backs.get(key)) === Date.parse(v.soldAt) ? null : saleOffUntil(v.soldAt, now);
+    const mark = offs.get(key) || (until ? { at: v.soldAt, by: '', sale: true, until: new Date(until).toISOString() } : null);
+    rows.push({ plate: v.plate, capacity, filled: round2(filled), free: round2(capacity - filled), available: !mark, off: mark, soldAt: v.soldAt || null });
   }
   rows.sort((a, b) => b.available - a.available || b.free - a.free || (a.plate < b.plate ? -1 : 1));
   const sum = (list) => round2(list.reduce((a, r) => a + r.free, 0));
