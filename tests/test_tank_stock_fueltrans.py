@@ -86,7 +86,7 @@ const isAuthed = () => inMemory ? authed : sessionStorage.getItem("auth") === "1
 function login() {
   app.innerHTML = '<div id="login"><select id="user"><option value="" disabled selected>User Name</option></select>' +
     '<input type="password" id="pw" placeholder="Password"><button id="go">LOGIN</button></div>';
-  setTimeout(() => fetch("/getSiteUsers").then(r => r.json()).then(us => us.forEach(u => {
+  setTimeout(() => fetch(base + "/getSiteUsers").then(r => r.json()).then(us => us.forEach(u => {
     const o = document.createElement("option"); o.value = u.id; o.textContent = u.name; user.appendChild(o);
   })), 300);
   go.onclick = () => {
@@ -107,13 +107,19 @@ function home() {
 }
 function dashboard() {
   app.innerHTML = bar() + '<div class="title">Tank Status</div><div class="cards"></div>';
-  setTimeout(() => { document.querySelector(".cards").innerHTML = tanks.join(""); }, 500);
+  fetch(base + "/getSiteInfo").then(r => r.json()).then(() => {
+    document.querySelector(".cards").innerHTML = tanks.join("");
+  });
 }
 function route() {
   if (!isAuthed()) { history.replaceState({}, "", "/login"); return login(); }
   return location.pathname === "/tank-dashboard" ? dashboard() : home();
 }
-route();
+// as Angular: the app starts (and redirects to the login) a moment after the
+// page loads, and asks its backend at config.json's baseUrl
+let base = "";
+setTimeout(() => fetch("/assets/data/config.json").then(r => r.json())
+  .then(cfg => { base = cfg.baseUrl; route(); }), 700);
 </script></body></html>"""
 
 
@@ -126,7 +132,9 @@ def serve(in_memory: bool):
             pass
 
         def do_GET(self):
-            if self.path == "/getSiteUsers":
+            if self.path == "/getSiteInfo":
+                body, kind = b'[{"site_id": "338821"}]', "application/json"
+            elif self.path == "/getSiteUsers":
                 body, kind = json.dumps([{"id": i, "name": n} for i, n in enumerate(
                     ["Admin", "IOCL", "Manager", "Attendant", "Dealer"], 1)]).encode(), "application/json"
             elif self.path == "/assets/data/config.json":
@@ -191,12 +199,14 @@ def test_logs_in_and_reads_the_cards(chromium, in_memory):
     assert not s.alive()
 
 
-def test_wrong_password_and_tunnel_down(chromium):
+def test_wrong_password_and_tunnel_down(chromium, tmp_path, monkeypatch):
+    monkeypatch.setenv("TANK_STOCK_HOME", str(tmp_path))
     server = serve(False)
     url = f"http://127.0.0.1:{server.server_port}"
     try:
-        with pytest.raises(CaptureError, match="didn't accept the login"):
+        with pytest.raises(CaptureError, match=r"didn't accept the login.*\(page: /login\)"):
             FuelTransSession(url, "Dealer", "wrong", settle=1).open()
+        assert (tmp_path / "fueltrans-problem.png").read_bytes().startswith(b"\x89PNG")   # what it showed
         with pytest.raises(CaptureError, match="no user .Owner."):
             FuelTransSession(url, "Owner", "123456", settle=1).open()
     finally:
