@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .statement import Balance, IST, PortalError
+from .statement import Balance, IST, PortalError, other_deductions
 
 ROOT = Path(__file__).resolve().parents[1]
 OPENING_WINDOW = (time(0, 30), time(2))   # IST: a reading in it is the day's opening
@@ -145,6 +145,65 @@ def save_balance(balance: Balance, *, config=None, transport=request) -> str:
     if not valid:
         raise PortalError("Payments did not return the matching balance after the write. Check the app before retrying.")
     return "saved" if inserted else "already_saved"
+
+
+def _rows(value, limit=200) -> list:
+    if not isinstance(value, list) or len(value) > limit or any(not isinstance(row, dict) for row in value):
+        raise PortalError("Payments returned an invalid list. No deduction was saved.")
+    return value
+
+
+def save_deductions(balance: Balance, *, config=None, transport=request) -> int:
+    """Mark the statement's non-invoice debits (licence fee, interest...) as
+    Other Deductions, the reason from Item Text. -> how many were added.
+
+    The Credit tab can't see these itself: it compares balances with invoices,
+    and a payment credited the same day hides any smaller deduction. Skips
+    debits whose document number is a known invoice, ones already marked, and
+    ones already confirmed by hand (same day and amount)."""
+    candidates = other_deductions(balance)
+    if not candidates:
+        return 0
+    url, key = config or payments_config()
+    docs = sorted({m[1] for d in balance.debits if (m := re.match(r"\s*(\d{6,20})", d.text))})
+    if docs:
+        query = urlencode({"invoice_no": "in.(" + ",".join(docs) + ")", "select": "invoice_no"})
+        known = {str(r.get("invoice_no")) for r in _rows(transport("GET", url, key, "pay_fuel_invoices?" + query))}
+        candidates = other_deductions(balance, frozenset(known))
+        if not candidates:
+            return 0
+    since = datetime.combine(balance.from_date, time(), tzinfo=IST).isoformat()
+    query = urlencode({"at": "gte." + since, "select": "id,at,amount", "order": "at.asc"})
+    existing = _rows(transport("GET", url, key, "pay_other_deductions?" + query))
+    ids = {r.get("id") for r in existing}
+    manual = []                                  # (IST day, amount) confirmed in the app
+    for r in existing:
+        if str(r.get("id", "")).startswith("iocl-ded-"):
+            continue
+        try:
+            manual.append((_timestamp(r.get("at")).astimezone(IST).date().isoformat(), Decimal(str(r["amount"]))))
+        except (KeyError, InvalidOperation):
+            raise PortalError("A saved Other Deduction is invalid. Check it in the Credit tab.") from None
+    new = []
+    for row in candidates:
+        if row["id"] in ids:
+            continue
+        hand = (row["at"][:10], Decimal(row["amount"]))
+        if hand in manual:
+            manual.remove(hand)                  # one confirmation covers one debit
+            continue
+        new.append(row)
+    if not new:
+        return 0
+    transport("POST", url, key, "pay_other_deductions?on_conflict=id", new)
+    query = urlencode({"id": "in.(" + ",".join(r["id"] for r in new) + ")", "select": "id,amount"})
+    check = {r.get("id"): r.get("amount") for r in _rows(transport("GET", url, key, "pay_other_deductions?" + query))}
+    try:
+        if any(Decimal(str(check[r["id"]])) != Decimal(r["amount"]) for r in new):
+            raise KeyError
+    except (KeyError, InvalidOperation):
+        raise PortalError("Payments did not return the Other Deductions after the write. Check the Credit tab.") from None
+    return len(new)
 
 
 def save_opening(balance: Balance, *, config=None, transport=request) -> str:

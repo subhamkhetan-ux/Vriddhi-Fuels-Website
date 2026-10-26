@@ -26,6 +26,9 @@ class Balance:
     # None with why not (day_opening).
     opening: Decimal | None = None
     opening_why: str = ""
+    # The proved statement's debit entries (see day_opening); empty when the
+    # statement didn't prove itself, so nothing unverified becomes a deduction.
+    debits: tuple = ()
 
     def row(self) -> dict:
         at = self.generated_at.astimezone(timezone.utc).isoformat()
@@ -120,9 +123,50 @@ def parse_statement(text: str, *, table_rows: list[list[str]], customer: str, to
                           f"(header {len(headers[-1])} cells, balance row {len(row)}, next row {len(rows[index + 1])}; "
                           f"{_table_hint(rows)}.)")
     value = signed_amount(row[-1])
-    opening, why = day_opening(rows, headers[-1], index, value, today)
+    opening, why, debits = day_opening(rows, headers[-1], index, value, today)
     return Balance(customer, abs(value), "CR" if value < 0 else "DR", generated, from_day, to_day,
-                   opening, why)
+                   opening, why, tuple(debits))
+
+
+@dataclass(frozen=True)
+class Debit:
+    """One debit entry of the statement: what IOCL charged, when, and why."""
+    day: date
+    amount: Decimal
+    text: str          # the Item Text column, e.g. "7012322266 ': LICENSE FEE (SSLF) RECOVERY"
+    doc_type: str = ""
+
+
+# Fuel invoices reach Payments from the invoice mail (pay_fuel_invoices); every
+# other PAD debit (licence fee, interest, penal charges...) is an Other Deduction.
+_INVOICE_TEXT = re.compile(r"\bPRODUCT\s+SUPPLY\s+INVOICE\b", re.I)
+_DOC_PREFIX = re.compile(r"^\s*(\d{6,20})\s*'?\s*:?\s*")
+
+
+def other_deductions(balance: Balance, invoice_nos=frozenset()) -> list[dict]:
+    """The statement's non-invoice debits as pay_other_deductions rows, the
+    reason taken from Item Text. A debit is an invoice when its text says
+    PRODUCT SUPPLY INVOICE or its document number is a known invoice, so an
+    invoice whose mail hasn't arrived yet is never counted as a deduction.
+    Ids are derived from the entry, so rereading the statement is a no-op."""
+    out, seen = [], {}
+    for d in balance.debits:
+        doc = _DOC_PREFIX.match(d.text)
+        doc_no = doc[1] if doc else ""
+        reason = (d.text[doc.end():] if doc else d.text).strip(" -:'") or d.doc_type or "PAD debit"
+        if _INVOICE_TEXT.search(d.text) or (doc_no and doc_no in invoice_nos):
+            continue
+        identity = f"{balance.customer}|{d.day.isoformat()}|{doc_no}|{d.amount:.2f}|{reason}"
+        seen[identity] = seen.get(identity, 0) + 1          # identical lines stay distinct
+        identity += f"|{seen[identity]}"
+        out.append({
+            "id": "iocl-ded-" + sha256(identity.encode()).hexdigest()[:40],
+            # Noon IST, like a deduction confirmed in the app: it dates to that day.
+            "at": d.day.isoformat() + "T12:00:00+05:30",
+            "amount": f"{d.amount:.2f}",
+            "reason": (reason + (f" (PAD doc {doc_no})" if doc_no else ""))[:200],
+        })
+    return out
 
 
 _OPEN_LABEL = re.compile(r"^OP\.?\s*BAL\.?\s*in\s+Comp(?:any)?\.?\s+Code\s*:?$", re.I)
@@ -146,7 +190,7 @@ def _cell_amount(cell: str) -> Decimal:
 
 
 def day_opening(rows: list[list[str]], header: list[str], close_index: int, closing: Decimal,
-                today: date) -> tuple[Decimal | None, str]:
+                today: date) -> tuple[Decimal | None, str, list[Debit]]:
     """Today's opening from a yesterday-to-today statement: the running balance
     after the last entry dated before today (yesterday's OP.BAL if there was
     none). With nothing posted today it is the CL.BAL in Comp Code figure.
@@ -155,7 +199,7 @@ def day_opening(rows: list[list[str]], header: list[str], close_index: int, clos
     columns are found by their headings, every entry between OP.BAL and CL.BAL
     has a date of yesterday or today (yesterday's first), and each balance is
     the one before plus the debit, minus the credit, ending on CL.BAL.
-    -> (signed opening, "") or (None, why not)."""
+    -> (signed opening, "", debit entries) or (None, why not, [])."""
     names = [c.lower() for c in header]
     def col(pattern):
         hits = [i for i, n in enumerate(names) if re.search(pattern, n)]
@@ -164,15 +208,17 @@ def day_opening(rows: list[list[str]], header: list[str], close_index: int, clos
     if date_i is None:
         date_i = col(r"\bdate\b")
     debit_i, credit_i = col(r"\bdebit\b|\bdr\b"), col(r"\bcredit\b|\bcr\b")
+    text_i, type_i = col(r"item\s*text"), col(r"document\s*type")
     if None in (date_i, debit_i, credit_i):
-        return None, "the statement's Date / Debit / Credit columns weren't recognised"
+        return None, "the statement's Date / Debit / Credit columns weren't recognised", []
     opens = [i for i, r in enumerate(rows[:close_index]) if any(_OPEN_LABEL.fullmatch(c) for c in r)]
     if len(opens) != 1:
-        return None, "no single OP.BAL.in Comp Code row"
+        return None, "no single OP.BAL.in Comp Code row", []
     width = len(header)
     entries = [r for r in rows[opens[0] + 1:close_index] if len(r) == width]
     if len(entries) != close_index - opens[0] - 1:
-        return None, "rows between OP.BAL and CL.BAL don't match the header"
+        return None, "rows between OP.BAL and CL.BAL don't match the header", []
+    debits = []
     try:
         balance = signed_amount(rows[opens[0]][-1])
         last_before = balance
@@ -180,21 +226,24 @@ def day_opening(rows: list[list[str]], header: list[str], close_index: int, clos
         for r in entries:
             day = _row_date(r[date_i])
             if day is None or not today - timedelta(days=1) <= day <= today:
-                return None, "an entry's date isn't yesterday or today"
+                return None, "an entry's date isn't yesterday or today", []
             if dates and day < dates[-1]:
-                return None, "the entries aren't in date order"
+                return None, "the entries aren't in date order", []
             dates.append(day)
+            debit = _cell_amount(r[debit_i])
             running = signed_amount(r[-1])
-            if running != balance + _cell_amount(r[debit_i]) - _cell_amount(r[credit_i]):
-                return None, "the running balance doesn't add up entry by entry"
+            if running != balance + debit - _cell_amount(r[credit_i]):
+                return None, "the running balance doesn't add up entry by entry", []
             balance = running
             if day < today:
                 last_before = running
+            if debit > 0 and text_i is not None:
+                debits.append(Debit(day, debit, r[text_i], r[type_i] if type_i is not None else ""))
     except PortalError:
-        return None, "an entry's amount couldn't be read"
+        return None, "an entry's amount couldn't be read", []
     if balance != closing:
-        return None, "the entries don't add up to CL.BAL.in Comp Code"
-    return last_before, ""
+        return None, "the entries don't add up to CL.BAL.in Comp Code", []
+    return last_before, "", debits
 
 
 _TIME = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?", re.I)

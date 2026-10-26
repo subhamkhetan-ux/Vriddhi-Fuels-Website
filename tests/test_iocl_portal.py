@@ -11,8 +11,8 @@ from types import SimpleNamespace
 import pytest
 
 from iocl_portal import captcha
-from iocl_portal.statement import IST, PortalError, parse_statement, signed_amount
-from iocl_portal.sync import payments_config, save_balance, save_opening
+from iocl_portal.statement import IST, PortalError, other_deductions, parse_statement, signed_amount
+from iocl_portal.sync import payments_config, save_balance, save_deductions, save_opening
 
 NOW = datetime(2026, 10, 13, 7, 0, tzinfo=IST)
 REPORT = """
@@ -382,6 +382,7 @@ def _opening_run(monkeypatch, *, started, opening_rows, report_at=None, mode="--
     monkeypatch.setattr(runmod, "save_balance", lambda b, config: sync.save_balance(b, config=config, transport=transport))
     monkeypatch.setattr(runmod, "save_opening", lambda b, config: sync.save_opening(b, config=config, transport=transport))
     monkeypatch.setattr(runmod, "opening_saved", lambda day, config: sync.opening_saved(day, config=config, transport=transport))
+    monkeypatch.setattr(runmod, "save_deductions", lambda b, config: 0)
     return runmod.main([mode]), writes, seen["login"]
 
 
@@ -514,3 +515,87 @@ def test_an_opening_from_the_night_reading_says_why_the_statement_didnt_give_it(
     out = capsys.readouterr().out
     assert "from the 00:30-02:00 reading (the statement didn't prove it: no single OP.BAL.in Comp Code row)" in out
     assert "15000" not in out                                   # no amounts in the public log
+
+
+# The live layout: Plant, Item Text, Document Type, Document Number, Date,
+# Material Group, Quantity, Unit, Debit, Credit, Balance. A same-day payment
+# (4,227,703.50) is larger than the licence fee, so the balance alone can't show it.
+LEDGER_HEADER = ["Plant", "Item Text", "Document Type", "Document Number", "Date", "Material Group",
+                 "Quantity", "Unit", "Debit (Rs.)", "Credit (Rs.)", "Balance (Rs.)"]
+
+
+def ledger():
+    def e(plant, text, kind, doc, dr, cr, bal, day="13.10.26"):
+        return [plant, text, kind, doc, day, "BULK-HSD" if plant else "", "22.000" if plant else "",
+                "KL" if plant else "", dr, cr, bal]
+    return [LEDGER_HEADER,
+            ["", "OP.BAL.in Comp Code:", "", "", "13.10.26", "", "", "", "0", "0", "7887000.77"],
+            e("", "HDFC261026 HDFC0000240_502001", "Customer ECollection", "", "0", "4200000.00", "3687000.77"),
+            e("Test Terminal", "7012322266 ': LICENSE FEE (SSLF) RECOVERY", "Billing doc.transfer",
+              "7012322266 ': LICENSE FEE (SSLF) RECOVERY", "284138.27", "0", "3971139.04"),
+            e("Test Terminal", "7012342781 ': PRODUCT SUPPLY INVOICE - SALES", "Billing doc.transfer",
+              "7012342781 ': PRODUCT SUPPLY INVOICE - SALES", "2159219.00", "0", "6130358.04"),
+            e("", "4000484887-0003703 20261026002847", "Fleet- Card Posting", "", "0", "27703.50", "6102654.54"),
+            ["", "CL.BAL.in Comp Code:", "", "", "13.10.26", "", "", "", "0", "0", "6102654.54"],
+            ["", "Open Delivery value in all CCA :", "", "", "", "", "", "", "0", "0", "4322.50"]]
+
+
+def test_the_ledger_marks_a_licence_fee_hidden_by_a_same_day_payment():
+    b = parse(table_rows=ledger())
+    assert b.amount == Decimal("6102654.54") and b.opening == Decimal("7887000.77")
+    rows = other_deductions(b)
+    assert len(rows) == 1                                        # the invoice and the credits are not deductions
+    assert rows[0]["amount"] == "284138.27" and rows[0]["at"] == "2026-10-13T12:00:00+05:30"
+    assert rows[0]["reason"] == "LICENSE FEE (SSLF) RECOVERY (PAD doc 7012322266)"
+    assert rows[0]["id"].startswith("iocl-ded-") and other_deductions(parse(table_rows=ledger())) == rows
+    # a debit whose document is a known invoice is never a deduction
+    assert other_deductions(b, frozenset({"7012322266"})) == []
+
+
+def test_an_unproved_statement_marks_no_deductions():
+    bad = ledger()
+    bad[3][-1] = "3971139.05"                                    # running balance off by a paisa
+    b = parse(table_rows=bad)
+    assert b.opening is None and other_deductions(b) == []
+
+
+def _deduction_store(invoices=(), existing=()):
+    store, calls = {r["id"]: dict(r) for r in existing}, []
+
+    def transport(method, url, key, path, body=None):
+        calls.append((method, path))
+        if path.startswith("pay_fuel_invoices?"):
+            return [{"invoice_no": n} for n in invoices]
+        if method == "POST":
+            for r in body:
+                store.setdefault(r["id"], dict(r))
+            return body
+        if "id=in." in path:
+            return [r for r in store.values() if r["id"] in path]
+        return list(store.values())
+    return store, calls, transport
+
+
+def test_deductions_are_saved_once_and_read_back():
+    b = parse(table_rows=ledger())
+    store, calls, transport = _deduction_store()
+    assert save_deductions(b, config=("https://p", "k"), transport=transport) == 1
+    (row,) = store.values()
+    assert row["reason"].startswith("LICENSE FEE (SSLF) RECOVERY") and row["amount"] == "284138.27"
+    assert save_deductions(b, config=("https://p", "k"), transport=transport) == 0     # rerun: no duplicate
+    assert [c for c in calls if c[0] == "POST"] == [("POST", "pay_other_deductions?on_conflict=id")]
+
+
+def test_a_deduction_already_confirmed_by_hand_or_an_invoice_is_not_added():
+    b = parse(table_rows=ledger())
+    hand = {"id": "manual-1", "at": "2026-10-13T06:30:00+00:00", "amount": 284138.27}
+    store, calls, transport = _deduction_store(existing=[hand])
+    assert save_deductions(b, config=("https://p", "k"), transport=transport) == 0 and len(store) == 1
+    store, calls, transport = _deduction_store(invoices=["7012322266"])
+    assert save_deductions(b, config=("https://p", "k"), transport=transport) == 0 and not store
+
+
+def test_no_debits_means_no_payments_request():
+    def no_network(*a, **k):
+        raise AssertionError("no request expected")
+    assert save_deductions(parse(), config=("https://p", "k"), transport=no_network) == 0

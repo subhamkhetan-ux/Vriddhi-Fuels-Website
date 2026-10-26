@@ -10,8 +10,9 @@ import sys
 
 from .browser import PortalBrowser, launch_options, selectors_from_env
 from .captcha import ocr_reads
-from .statement import IST, PortalError
-from .sync import OpeningMissed, in_opening_window, opening_saved, payments_config, save_balance, save_opening
+from .statement import IST, PortalError, other_deductions
+from .sync import (OpeningMissed, in_opening_window, opening_saved, payments_config, save_balance,
+                   save_deductions, save_opening)
 
 
 def sample_captchas(portal, out: Path, *, length: int, count: int = 6) -> int:
@@ -98,7 +99,8 @@ def main(argv=None) -> int:
                 portal.navigate_pad()
                 balance = portal.read_balance(customer=customer)
                 if args.dry_run:
-                    print("PASS: login, Account Information > PAD Statement, dates, account and CL.BAL.in Comp Code verified (open deliveries excluded). Dry run: nothing saved.")
+                    print("PASS: login, Account Information > PAD Statement, dates, account and CL.BAL.in Comp Code verified (open deliveries excluded). "
+                          f"{len(other_deductions(balance))} possible other deduction(s) in the statement. Dry run: nothing saved.")
                     result = "dry_run_verified"
                 else:
                     # Every read fills in today's opening if it's missing: the
@@ -123,6 +125,16 @@ def main(argv=None) -> int:
                     result = save_balance(balance, config=cfg)
                     if opening:
                         result = opening + "; balance_" + result
+                    # Licence fee, interest...: debits the balance alone can't reveal
+                    # once a payment is credited the same day (count only: public log).
+                    try:
+                        marked = save_deductions(balance, config=cfg)
+                    except PortalError as exc:
+                        print("IOCL PAD stopped after the balance check (" + result.replace("_", " ") + "): "
+                              + str(exc), file=sys.stderr)
+                        return 1
+                    if marked:
+                        result += f"; {marked}_other_deduction{'s' if marked > 1 else ''}_marked"
                     if missed:
                         print("IOCL PAD stopped: the opening run started at "
                               f"{started.strftime('%H:%M')} IST, after the 00:30–02:00 window "

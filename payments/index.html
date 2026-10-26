@@ -1986,11 +1986,13 @@ function renderDeductions(d){
   if(!d.deductions.length){ w.innerHTML=""; return; }
   const list=d.deductions.slice().sort((a,b)=>a.iso<b.iso?1:-1).map(x=>{
     const when=isoToDmy(x.iso)+(x.unpaid<=0.005?` · <span class="cr-in">paid</span>`:"");
+    // Marked by the PAD agent from the statement's Item Text (iocl_portal/sync.py).
+    const pad=String(x.id||"").startsWith("iocl-ded-");
     return `<div class="cr-histrow">
       <span class="cr-histamt cr-od">${esc(money(x.amount))}</span>
-      <span class="cr-dedreason">${esc(x.reason||"—")}</span>
+      <span class="cr-dedreason">${esc(x.reason||"—")}${pad?` <span class="cr-hint">· from PAD statement</span>`:""}</span>
       <span class="cr-histwhen">${when}</span>
-      <button class="cust-x" title="Delete" onclick="deleteDeduction('${escAttr(x.id)}')">×</button></div>`;
+      <button class="cust-x" title="${pad?"Delete (the PAD agent adds it again while it's on the statement)":"Delete"}" onclick="deleteDeduction('${escAttr(x.id)}')">×</button></div>`;
   }).join("");
   w.innerHTML=`<div class="cr-histhead">Other deductions</div>`+list;
 }
