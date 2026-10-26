@@ -2392,16 +2392,19 @@ function endDay(){
 // The compact "loaded now" card: what is in each tanker and the total. A tanker
 // sent for sale in the last 6 hours is out on its trip — the Decanting app
 // counts it as not available to load until then (decant/js/core.js).
+// OD15AF5510 (the Bolero with its own dispenser) is left out of the card.
 const SALE_OFF_MS=6*3600*1000;
+const SUM_EXCLUDE=["OD15AF5510"];
 function lastSaleTs(plate){
   let t=0; for(const e of LOG) if(e.plate===plate && e.kind==="dispatch" && e.ts>t) t=e.ts;
   return t;
 }
 function renderLoadSum(){
   const box=$("#loadSum"); if(!box) return;
-  if(!VEHICLES.length){ box.innerHTML=""; return; }
+  const list=VEHICLES.filter(v=>!SUM_EXCLUDE.some(x=>plateKey(x)===plateKey(v.plate)));
+  if(!list.length){ box.innerHTML=""; return; }
   let tot=0, cap=0;
-  const rows=VEHICLES.map(v=>{
+  const rows=list.map(v=>{
     const st=tankerState(v.plate); tot+=st.total; cap+=st.cap;
     const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
     const sold=lastSaleTs(v.plate), until=sold?sold+SALE_OFF_MS:0;

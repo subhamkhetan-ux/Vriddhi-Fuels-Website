@@ -65,7 +65,7 @@ again.
 
 **Loaded now.** Above the tanker cards (below the invoice card), a compact card
 lists every tanker on one line — what is in it now, with a thin fill bar — and
-the **total** across all tankers. A tanker sent for sale in the last 6 hours
+the **total** across them. **OD15AF5510** is left out of the card (and its total). A tanker sent for sale in the last 6 hours
 carries a **🚚 On trip till …** tag: for those 6 hours the Decanting app
 (`/decant/`, Plan tab) counts it as **not available to load**, by itself — no
 switch to flip there. (It reads each tanker's last sale through
