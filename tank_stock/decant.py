@@ -408,7 +408,7 @@ def make_reading(card: dict, tank: dict, cfg: dict, now=None) -> dict:
         "readingAt": at or seen,
         "timeRead": bool(at),
         "source": "photo",
-        "via": "anydesk",                 # taken by the tank-stock agent, not a phone
+        "via": "server",                 # taken by the tank-stock agent, not a phone
         "confidence": result["confidence"],
         "checks": result["checks"],
     }

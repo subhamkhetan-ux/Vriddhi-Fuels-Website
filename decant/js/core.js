@@ -537,9 +537,9 @@ export function roomOf(reading, tank) {
 }
 
 // A stock reading the tank stock server took itself (tank_stock/decant.py
-// marks it via: 'anydesk'): read straight off the IOCL automation PC's screen
-// over AnyDesk, with no phone or person in between.
-export const fromServer = (r) => r?.via === 'anydesk';
+// marks it via: 'server'; 'anydesk' on older ones): read straight off the IOCL
+// automation PC's FuelTrans screen, with no phone or person in between.
+export const fromServer = (r) => r?.via === 'server' || r?.via === 'anydesk';
 
 // For the internal audit: what's behind a stock reading. An automation
 // screenshot (also when a misread figure was corrected by hand — the

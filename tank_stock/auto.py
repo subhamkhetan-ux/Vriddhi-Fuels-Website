@@ -23,8 +23,8 @@ why. "Take it back on this phone" in the app hands it back.
 When the stock says something the plan didn't (a tank stopped short, got
 more than planned, or never started) it asks on the page and on Telegram,
 and waits for the answer. A phone can still do anything in the decant app
-meanwhile: the agent takes the app's copy over when it is newer. If AnyDesk
-ends the session, it connects again; if the service restarts, it carries on
+meanwhile: the agent takes the app's copy over when it is newer. If the PC's
+connection drops, it connects again; if the service restarts, it carries on
 from ``decantation.json``. "Hand over" leaves the decantation to the app.
 
 Fail-safes: a tank's card whose "Last Updated" time stops moving has frozen
@@ -687,7 +687,7 @@ class AutoDecant:
         cap = next((t["capacity"] for t in self.run.settings["tanks"] if t["id"] == tank_id), 20000)
         return {"volume": round(volume, 2), "ullage": round(cap - volume, 2), "capacity": cap, "height": None,
                 "dip": None, "water": None, "density": None, "densityTc": None, "temp": None, "status": None,
-                "readingAt": dz.iso(at), "timeRead": False, "source": "photo", "via": "anydesk",
+                "readingAt": dz.iso(at), "timeRead": False, "source": "photo", "via": "server",
                 "confidence": "medium", "savedAt": dz.iso(at)}
 
     def _finish(self, now: float) -> None:
@@ -1042,7 +1042,7 @@ class AutoDecant:
 
     # ---- live monitoring ending, the service restarting -------------------------
     def on_live_end(self, reason: str, by_you: bool) -> None:
-        """AnyDesk ended the session (or it failed) while running: connect again."""
+        """The PC's connection ended the session (or it failed) while running: connect again."""
         if self.phase != "running" or by_you:
             return
         self.info["lost"] = {"at": _now(), "reason": reason}

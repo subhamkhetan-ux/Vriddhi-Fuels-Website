@@ -203,12 +203,12 @@
 
   <section>
     <h2>Live monitoring</h2>
-    <div class="note">Keeps one AnyDesk session open and reads the watched tanks' product volume again every few seconds (no pictures), until AnyDesk ends the session or you stop it. Then the last screen shows above, with its pictures to save or upload.</div>
+    <div class="note">Keeps FuelTrans' Tank Status open on the server and reads the watched tanks' product volume again every few seconds (no pictures), until you stop it. If the PC's connection drops, it connects again by itself. When it ends, the last screen shows above, with its pictures to save or upload.</div>
     <div class="status" id="liveState"></div>
     <div id="liveFigures"></div>
     <label class="line">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
     <label class="line">Send the volume to the decant app as it changes <input type="checkbox" id="mUp"></label>
-    <label class="line">Connect again when AnyDesk ends the session <input type="checkbox" id="mRe"></label>
+    <label class="line" id="mReLine">Connect again when the session ends <input type="checkbox" id="mRe"></label>
     <div class="note" style="margin-top:8px">Tanks to watch</div>
     <div class="chips" id="mTanks" style="margin-top:6px"></div>
     <div class="row">
@@ -219,7 +219,7 @@
     <div class="status" id="mStatus"></div>
     <div class="note">With this page closed for 15 minutes, live monitoring ends by itself to free the server's memory, unless it is sending to the decant app or an automatic decantation is on.</div>
     <div id="sessions" hidden>
-      <h3 class="minor">AnyDesk sessions</h3>
+      <h3 class="minor">Live sessions</h3>
       <div class="note" id="sessStats"></div>
       <ul class="log" id="sessList"></ul>
     </div>

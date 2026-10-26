@@ -72,7 +72,7 @@ https://<server's Tailscale name>:10000/tank-dashboard
 
 Add it to your home screen.
 
-## 4. Tank stock for the decant app, from this server (instead of AnyDesk)
+## 4. Tank stock for the decant app, from this server
 
 The server can read the tank cards itself, through the tunnel: a hidden
 Chromium logs in to FuelTrans (user Dealer) and opens Tank Status, like the
@@ -90,15 +90,21 @@ bash infra/fueltrans/tank-stock-setup.sh
 ```
 
 It asks once for the FuelTrans user (Enter for Dealer) and password, then
-reads the tanks once to show it works. It also turns off this server's
-AnyDesk tank stock service and points the Vriddhi Fuels app's **Tank stock**
-tab back to this server (from the Mac).
+reads the tanks once to show it works. It also points the Vriddhi Fuels app's
+**Tank stock** tab back to this server (from the Mac).
 
 If the Mac's VM does tank stock now, stop it there afterwards, or both
 answer the decant app:
 
 ```sh
 sudo systemctl disable --now tank-stock-session
+```
+
+Once it works, take AnyDesk off this server (it keeps everything tank stock
+needs; AnyDesk stays on the PC):
+
+```sh
+bash infra/fueltrans/remove-anydesk.sh
 ```
 
 To update it after a change: run the same two lines again. To change the
@@ -129,8 +135,9 @@ The PC's tunnel status at any time: `systemctl status fueltrans-tunnel`.
 
 - PC: `sudo systemctl disable --now fueltrans-tunnel`
 - Server: `bash infra/fueltrans/server-setup.sh --remove`
-- Tank stock back to AnyDesk: `sudo systemctl disable --now tank-stock`, then
-  `bash infra/anydesk/setup.sh` (or the Mac: `infra/mac/README.md`).
+- Tank stock back to the AnyDesk reader (if FuelTrans can't be used):
+  `sudo systemctl disable --now tank-stock`, then `bash infra/anydesk/setup.sh`
+  and the GitHub "Tank stock" workflow with mode save-login.
 
 **Who can open it:** anyone signed in to your Tailscale network, including
 FuelTrans's Operations menu. Keep that network to your own devices.

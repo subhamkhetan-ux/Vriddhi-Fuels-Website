@@ -1,18 +1,15 @@
 # Tank stock from the IOCL automation PC (`tank_stock/`)
 
-The IOCL PC at the station (Lubuntu) runs the automation's tank stock screen
-and AnyDesk with unattended access. Nothing else may be installed on it. So
-the **India server** runs the AnyDesk *client*: it connects with the
-unattended-access password, waits for the remote screen to draw, and reads
-it. It works like you opening AnyDesk on your phone. The client draws on a
-private virtual display, and the password reaches AnyDesk on stdin (its
-documented `--with-password` mode).
+The IOCL PC at the station (Lubuntu) runs FuelTrans, the automation's tank
+stock screen. Nothing may be installed on it, so the PC only keeps an SSH
+tunnel open to the Oracle server ([infra/fueltrans](../infra/fueltrans/README.md)),
+and the **Oracle server** opens FuelTrans itself in a headless browser
+through it (`fueltrans.py`): it logs in as Dealer, opens Tank Status, waits
+for every card's live figures and takes a screenshot, drawn as on the PC
+(1920 x 1080, DejaVu Sans). The cards are read from that screenshot
+(`cards.py`). Set up by `infra/fueltrans/tank-stock-setup.sh`.
 
-**Without AnyDesk:** with the IOCL PC's FuelTrans tunnel
-([infra/fueltrans](../infra/fueltrans/README.md)), the Oracle server opens
-FuelTrans itself in a headless browser instead (`fueltrans.py`, set up by
-`infra/fueltrans/tank-stock-setup.sh`). Its screenshots of Tank Status take
-the place of AnyDesk's, and everything below works the same.
+The earlier AnyDesk reader is kept as a fallback (see the end).
 
 ## What it does
 
@@ -27,7 +24,7 @@ also has its own address on port 8443. Pick the tanks (any of
 - **Capture only**: the same without saving. The page shows a zoomed picture
   of just those tanks' cards, their figures and the decant app's check badge;
   **Upload** (per tank, or all shown) saves them afterwards.
-- **Live monitoring**: connect once and keep that AnyDesk session open. Every
+- **Live monitoring**: open Tank Status once and keep it open. Every
   10 seconds (5-3600, set on the page) the watched tanks' **product volume**
   is read again, without reconnecting and without pictures: the page shows
   each one as it comes, and with "Send the volume to the decant app as it
@@ -38,11 +35,14 @@ also has its own address on port 8443. Pick the tanks (any of
   to decant. A card whose volume rows haven't changed on screen isn't read
   again, and reads never keep the server busy more than half the time (the
   page says how long a read takes); the OCR runs at low priority so the
-  XtraPower monitor comes first. It runs until AnyDesk ends the session (the
-  free licence's time limit, or the PC going offline) or you press Stop; then
-  the last screen becomes an ordinary capture, with its pictures to save or
-  upload. When AnyDesk ends it, the XtraPower Telegram bot gets a picture of
-  what AnyDesk showed and how long it lasted.
+  XtraPower monitor comes first. It runs until you press Stop. If the PC's
+  connection drops (the station's internet, the PC restarting), it stops and
+  connects again by itself: 15 s, 30 s, 1 min, ... then every 5 min, until
+  FuelTrans answers; the XtraPower Telegram bot is told once when it stops
+  and once when it's back. If FuelTrans' page stops updating (no card's "Last
+  Updated" moving for 2½ min), Tank Status is opened again. When it ends, the
+  last screen becomes an ordinary capture, with its pictures to save or
+  upload.
 
 - **Automatic decantation** (`auto.py`, `decantation.py`): one setup, then
   nothing to do in the decant app. Pick the truck's invoice (from the decant
@@ -106,7 +106,7 @@ also has its own address on port 8443. Pick the tanks (any of
   A phone can still do anything in the app meanwhile: every 30 s (and before
   each save) the agent checks the app's copy, and a newer one from a phone
   is taken over: a tank marked done, a new reading, finished or cancelled
-  there. If AnyDesk ends the session it connects again (15 s, 30 s, 1, 2,
+  there. If the PC's connection drops it connects again (15 s, 30 s, 1, 2,
   then every 5 min, for 3 hours, then it pauses with "Connect again"). If
   the service restarts, it carries on from `decantation.json`. Live
   monitoring's Stop is hidden while it runs.
@@ -128,7 +128,7 @@ also has its own address on port 8443. Pick the tanks (any of
     for it) sends the ticked tanks' volume to the app as it changes, every
     5-3600 s (10 by default) whatever its own setting, until the phone stops
     it or 3 hours have passed. It doesn't end when nobody has the page open,
-    and if AnyDesk ends the session it connects again (a minute apart; after
+    and if the PC's connection drops it connects again (a minute apart; after
     5 tries in a row without a read it stops and tells the phone). A live
     session it started for the phone ends with it; your own live monitoring,
     and its saved settings, stay as they are.
@@ -140,13 +140,8 @@ also has its own address on port 8443. Pick the tanks (any of
   answers in the same place (figures, picture, each tank's result, or why
   not), writing only over the settings version it read.
 
-The GitHub job "Tank stock (AnyDesk -> decant)" still works: `capture` sends
-the whole screen to the XtraPower bot (from the open session when live
-monitoring is on); `save-login` gives the page the AnyDesk login from the
-repo's secrets.
-
-If the PC isn't on Tank Status, the agent opens it the way a person would:
-**Monitoring** in FuelTrans' blue menu bar, then **Tank Status** (`navigate.py`).
+The GitHub job "Tank stock" still works: `capture` sends the whole screen to
+the XtraPower bot (from the open session when live monitoring is on).
 
 ## Saving to the decant app
 
@@ -178,6 +173,29 @@ gives the figures cleanly, and thresholded, which also gives the grey labels
 and the "Last Updated" time. The figures of both reads must agree.
 
 ## Setup (once)
+
+On the Oracle server, once the PC's tunnel works ([infra/fueltrans](../infra/fueltrans/README.md)):
+
+```sh
+cd ~/Vriddhi-Fuels-Website && git pull && bash infra/fueltrans/tank-stock-setup.sh
+```
+
+It asks once for the FuelTrans user (Dealer) and password, publishes the page
+at `https://<server's Tailscale name>:8443/` (also the Vriddhi Fuels app's
+**Tank stock** tab) and reads the tanks once to show it works. Run it again
+after a change here to update the server's copy of the code.
+
+## Fallback: the AnyDesk reader
+
+AnyDesk was removed from the Oracle server once FuelTrans worked
+(`infra/fueltrans/remove-anydesk.sh`). If the tunnel ever can't be used, the
+AnyDesk reader (`capture.py`, `navigate.py`) can be put back: the PC still has
+AnyDesk with unattended access. The server's AnyDesk *client* connects with
+the unattended-access password, waits for the remote screen to draw on a
+private virtual display, and reads it the same way; if the PC isn't on Tank
+Status, it clicks Monitoring → Tank Status as a person would.
+
+### Setup (once)
 
 1. In GitHub, **Settings → Secrets and variables → Actions → Secrets**:
    - `ANYDESK_IDS`: **both** of the IOCL PC's AnyDesk numbers, comma separated,
@@ -212,7 +230,7 @@ runs it in the session with the job's checkout and secrets (same user, same
 rights), or answers it from the open live session. One use of the PC runs at
 a time.
 
-## How long AnyDesk keeps a session open
+### How long AnyDesk keeps a session open
 
 Every live session is kept in `/opt/agents/tank-stock/sessions.jsonl`: when it
 connected, how long the AnyDesk session itself lasted, and who ended it (you,
@@ -241,7 +259,7 @@ and a session may last hours.)
 - **Never:** it doesn't connect again after you press Stop.
 - **Automatic decantation:** it always reconnects on its own.
 
-## The PC's two AnyDesk IDs
+### The PC's two AnyDesk IDs
 
 The PC's AnyDesk switches between two IDs every few days, and only one is
 online (the green dot in the AnyDesk app). AnyDesk can't be asked whether a
@@ -261,7 +279,7 @@ remote ID is online, so the agent tries them in turn:
   tank cards counts as AnyDesk ending the session, so reconnecting starts
   straight away.
 
-## Caveats
+### Caveats
 
 - **AnyDesk licence:** free AnyDesk is for personal use, and limits how long a
   session may stay open; live monitoring simply runs until it does. Many

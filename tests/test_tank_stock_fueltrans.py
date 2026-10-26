@@ -340,3 +340,31 @@ def test_a_stalled_page_is_opened_again(chromium, monkeypatch):
     finally:
         s.close()
         server.shutdown()
+
+
+def test_a_blip_of_the_tunnel_isnt_a_lost_session(chromium, monkeypatch):
+    """FuelTrans not answering for a moment (the station's internet) keeps
+    the session; only LOST_AFTER seconds without an answer lose it, and the
+    reason says how it failed."""
+    from tank_stock import fueltrans
+    monkeypatch.setattr(fueltrans, "LOST_AFTER", 2)
+    server = serve(False)
+    port = server.server_port
+    s = FuelTransSession(f"http://127.0.0.1:{port}", "Dealer", "123456", settle=0)
+    try:
+        s.shot()
+        assert s.alive()
+        server.shutdown()
+        server.server_close()                        # the tunnel's port closes: refused
+        assert s.alive()                             # a blip: still the session
+        time.sleep(1)
+        assert s.alive()
+        time.sleep(1.2)
+        assert not s.alive()                         # 2 s without an answer: lost
+        assert "no answer for 2 s: connection refused" in s.lost, s.lost
+        again = serve(False)                         # (back: a new answer resets it)
+        s.url = f"http://127.0.0.1:{again.server_port}"
+        assert s.alive() and s._down_since is None
+        again.shutdown()
+    finally:
+        s.close()

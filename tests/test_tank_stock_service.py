@@ -349,6 +349,9 @@ def test_reads_never_take_more_than_half_the_time(station, monkeypatch):
 
 def test_without_the_login_a_capture_says_how_to_add_it(station):
     (station.home / "login.json").unlink()
+    with pytest.raises(service.CaptureError, match="FuelTrans login isn't saved here yet: run infra/fueltrans/tank-stock-setup.sh"):
+        station.capture([1])
+    (station.home / "login.json").write_text(json.dumps({"ids": ["123456789"]}))     # AnyDesk's, half saved
     with pytest.raises(service.CaptureError, match="vm-setup.sh again with ASK_AGAIN=1"):
         station.capture([1])
 
@@ -417,7 +420,7 @@ def test_each_anydesk_session_is_kept_with_how_long_it_lasted(station):
     assert [r["by"] for r in s["recent"]] == ["you", "anydesk"]           # newest first
     assert all(r["lasted_s"] is not None and r["connected"] for r in s["recent"])
     assert s["anydesk"]["count"] == 1                                     # only AnyDesk's own endings count
-    assert "The AnyDesk session lasted" in station.photos[-1][1]
+    assert "The session lasted" in station.photos[-1][1] and "server's screen showed" in station.photos[-1][1]
 
 
 def test_with_reconnect_on_it_connects_again_when_anydesk_ends_the_session(station, monkeypatch):

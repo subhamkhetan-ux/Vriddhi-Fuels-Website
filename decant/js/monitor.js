@@ -113,7 +113,7 @@ function liveCard(p) {
     status = `<div class="banner ${mon.state === 'error' ? 'bad' : ''}" style="margin:8px 0 0">${mon.state === 'error' ? 'Monitoring couldn\'t start' : 'Monitoring ended'}: ${esc(mon.message || 'no reason given')}.</div>`;
   }
   return `<h2>Live monitoring</h2><div class="card">
-      <div class="hint">Keeps one AnyDesk session open and sends these tanks' volume to the app every few seconds, until you stop it or 3 hours pass. The tank tiles on the Decant tab follow it.</div>
+      <div class="hint">Keeps the IOCL PC's Tank Status open on the tank stock server and sends these tanks' volume to the app every few seconds, until you stop it or 3 hours pass. The tank tiles on the Decant tab follow it.</div>
       <label class="f" style="margin-top:10px">Read every (seconds)<input type="number" inputmode="numeric" min="${EVERY[0]}" max="${EVERY[1]}" step="1" data-mevery value="${on ? mon.every || p.every : p.every}" ${on ? 'disabled' : ''}></label>
       <div class="hint" style="margin:10px 0 6px">Tanks to watch</div>
       ${chips('live', on ? watched : p.live, on)}

@@ -595,7 +595,7 @@ class Handler(BaseHTTPRequestHandler):
             data = resp.read()
         except OSError:
             where = (f"at {TANK_STOCK} (is that machine on and in Tailscale?)"
-                     if TANK_STOCK.startswith("https://") else "on this server (see infra/anydesk/setup.sh)")
+                     if TANK_STOCK.startswith("https://") else "on this server (see infra/fueltrans/README.md)")
             self._json(502, {"error": f"The tank stock service isn't answering {where}."})
             return
         finally:

@@ -3,7 +3,7 @@
 You give the plan on the tank stock page (which chamber goes into which
 tank) and press Start. The agent then does what a person does in the decant
 app's decanting screen (decant/js/wizard.js), going by the tank stock it
-reads every few seconds through the open AnyDesk session:
+reads every few seconds through the open live session (FuelTrans' Tank Status):
 
 - the stock before (a full read, with its proof picture) when it starts;
 - a tank is **decanting** once its stock rises (the person's "▶ start");
@@ -641,7 +641,7 @@ class Decantation:
         cap = float((self._tank(tank_id) or {}).get("capacity") or 20000)
         return {"volume": round2(low), "ullage": round2(cap - low), "capacity": cap, "height": None, "dip": None,
                 "water": None, "density": None, "densityTc": None, "temp": None, "status": None,
-                "readingAt": low_at or iso(now), "timeRead": False, "source": "photo", "via": "anydesk",
+                "readingAt": low_at or iso(now), "timeRead": False, "source": "photo", "via": "server",
                 "confidence": "medium", "savedAt": iso(now),
                 "note": "the live product volume just before it started rising"}
 

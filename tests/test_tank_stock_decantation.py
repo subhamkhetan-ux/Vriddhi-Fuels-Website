@@ -24,7 +24,7 @@ SETTINGS = dz.settings_with({}, decant.DEFAULT_TANKS)
 
 def reading(volume, at=T0):
     return {"volume": volume, "ullage": 20000 - volume, "capacity": 20000, "readingAt": dz.iso(at),
-            "confidence": "high", "source": "photo", "via": "anydesk"}
+            "confidence": "high", "source": "photo", "via": "server"}
 
 
 def start(plan):
