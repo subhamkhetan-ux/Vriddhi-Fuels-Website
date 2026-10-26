@@ -142,9 +142,10 @@ def product_column(product: str) -> str:
     """Map an IOCL product description onto a consignment-note quantity column.
 
     Defaults to plain HSD (the common case: "HSD-BSVI [PDRP]") when nothing more
-    specific matches."""
+    specific matches. IOCL prints XtraGreen as "HSD-XG-BSVI [PDRP]" (material
+    50803), so a standalone XG token counts too, as in tank_stock's product_key."""
     u = (product or "").upper()
-    if "XTRAGREEN" in u or "XTRA GREEN" in u or "XTRAGRN" in u:
+    if re.search(r"XTRA\s*GR|XTRAGRN|\bXG\b", u):
         return COLUMN_XTRAGREEN
     if "LSHF" in u:
         return COLUMN_LSHF

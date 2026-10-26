@@ -393,3 +393,18 @@ def test_xtragreen_product_line_is_detected():
     f = invoice.extract_fields(txt)
     assert f.product == "XTRAGREEN BS-VI"
     assert f.column_key == invoice.COLUMN_XTRAGREEN
+
+
+def test_iocl_xg_material_is_xtragreen_not_hsd():
+    # IOCL's own description for XtraGreen (material 50803), as on 7012257242.
+    assert invoice.product_column("HSD-XG-BSVI [PDRP]") == invoice.COLUMN_XTRAGREEN
+    assert invoice.product_column("HSD-BSVI [PDRP]") == invoice.COLUMN_HSD
+    assert invoice.product_column("EXGRATIA HSD") == invoice.COLUMN_HSD   # XG only as its own token
+
+
+def test_hsd_and_xg_on_one_invoice_fill_both_columns():
+    txt = MULTI_INVOICE_TEXT.replace("50701   MS-BSVI [PDRP]", "50803   HSD-XG-BSVI [PDRP]")
+    f = invoice.extract_fields(txt)
+    assert [(l.column_key, l.qty) for l in f.lines] == [
+        (invoice.COLUMN_XTRAGREEN, "5"), (invoice.COLUMN_HSD, "17")]
+    assert f.columns == {invoice.COLUMN_XTRAGREEN: "5", invoice.COLUMN_HSD: "17"}
