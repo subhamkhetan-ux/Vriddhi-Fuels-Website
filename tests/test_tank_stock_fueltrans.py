@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import threading
+import time
 
 import pytest
 
@@ -59,10 +60,12 @@ def card_html(no, product, volume, height, ullage, density, density_tc, temp, se
                        ullage=ullage, density=density, density_tc=density_tc, temp=temp)
 
 
-# The station's layout at its 1366 px wide screen (measured on the PC's own
-# screenshot): DejaVu Sans, cards 308 x 322 px with a light border, rounded
-# corners and a soft shadow, rows 21 px apart, grey labels and bold figures.
+# The station's layout (measured on the PC's own screenshot, which was shrunk
+# to 0.71 of its 1920 x 1080 screen: hence zoom 1.4): DejaVu Sans, cards 308 x
+# 322 px there with a light border, rounded corners and a soft shadow, rows
+# 21 px apart, grey labels and bold figures.
 APP = """<!DOCTYPE html><html><head><style>
+html{zoom:1.4}
 body{margin:0;font-family:Roboto,"Helvetica Neue",Arial,sans-serif;background:#fff;color:#333}
 .fa{font-family:monospace}
 .top{height:62px;display:flex;align-items:center;padding:0 16px;font-weight:bold;color:#e0301e;font-size:17px}
@@ -266,6 +269,74 @@ def test_a_tank_whose_figures_never_come(chromium, monkeypatch):
             boxes, read = cards_mod.read_all(png)
             assert read[1]["volume"] == 8787.48 and read[4]["volume"] == 2513.75
             assert read[3]["volume"] == 1000000.0                    # the placeholder: the decant checks refuse it
+    finally:
+        s.close()
+        server.shutdown()
+
+
+def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_path, monkeypatch):
+    """What the Vriddhi Fuels app's Tank stock tab and the decant app ask for,
+    end to end: a capture saved to the decant app with its proof picture, then
+    live monitoring sending the volumes as they come."""
+    if not (shutil.which("tesseract") and shutil.which("convert")):
+        pytest.skip("needs Tesseract and ImageMagick")
+    from tank_stock import decant, service
+    from tests.test_tank_stock_service import FakeDB
+    db = FakeDB()
+    monkeypatch.setattr(decant, "_rest", db)
+    monkeypatch.setattr(decant, "_http", db.http)
+    monkeypatch.setenv("TANK_STOCK_HOME", str(tmp_path))
+    server = serve(False)
+    (tmp_path / "login.json").write_text(json.dumps({
+        "source": "fueltrans", "url": f"http://127.0.0.1:{server.server_port}", "user": "Dealer", "password": "123456"}))
+    st = service.Station(home=tmp_path, notify=lambda *a: True, notify_photo=lambda *a: True)
+    try:
+        last = st.capture([1, 2, 3, 4], upload=True, why="decant app")
+        for no, product, volume, *_ in TANKS:
+            tank = last["tanks"][str(no)]
+            assert tank["confidence"] != "low" and tank["reading"]["volume"] == float(volume.replace(",", "")), tank
+            assert last["uploads"][str(no)]["ok"], last["uploads"]
+        assert sorted(w["tank_id"] for w in db.writes) == ["T1", "T2", "T3", "T4"]
+        assert len(db.shots) == 4 and all(data.startswith(b"\xff\xd8") for data, _ in db.files.values())
+
+        st.start_live({"tanks": [1, 2, 3, 4], "auto_upload": True, "interval_s": 5})
+        deadline = time.time() + 150
+        while time.time() < deadline and not (st.live and st.live.get("reads", 0) >= 2):
+            time.sleep(0.5)
+        live = st.live
+        assert live and live["reads"] >= 2 and not live.get("last_error"), live and live.get("last_error")
+        assert {no: f["reading"]["volume"] for no, f in sorted(live["figures"].items())} == {
+            str(no): float(volume.replace(",", "")) for no, _, volume, *_ in TANKS}
+        assert live["session"].alive()
+    finally:
+        st.stop_live("test over")
+        deadline = time.time() + 60
+        while st.live and time.time() < deadline:
+            time.sleep(0.2)
+        server.shutdown()
+    assert st.live is None
+
+
+def test_a_stalled_page_is_opened_again(chromium, monkeypatch):
+    """No card's "Last Updated" moving (FuelTrans' live connection stalled):
+    the next screenshot opens Tank Status again."""
+    from tank_stock import fueltrans
+    monkeypatch.setattr(fueltrans, "STALE_RELOAD", 3)
+    server = serve(False)
+    loads = []
+    handle = server.RequestHandlerClass.do_GET
+    server.RequestHandlerClass.do_GET = lambda self: (loads.append(self.path) if self.path == "/tank-dashboard"
+                                                      else None, handle(self))[1]
+    s = FuelTransSession(f"http://127.0.0.1:{server.server_port}", "Dealer", "123456", settle=0)
+    try:
+        s.shot()
+        opened = len(loads)                          # (before and after the login)
+        s.screen()                                   # the clocks are noted
+        assert len(loads) == opened
+        time.sleep(3.5)                              # (the mock's clocks never move)
+        assert s.screen().startswith(b"\x89PNG") and len(loads) == opened + 1
+        s.screen()
+        assert len(loads) == opened + 1              # just reloaded: its clocks are new
     finally:
         s.close()
         server.shutdown()

@@ -75,6 +75,7 @@ SETTINGS_EVERY = 600             # seconds: re-read the decant app's settings wh
 RECONNECT_AFTER = 15             # seconds before connecting again ("reconnect" on)
 NO_CARDS_ALERT_EVERY = 600       # seconds: "no tank cards on the PC's screen" to Telegram at most this often
 RECONNECT_RUN = 12               # ... at most this many in a row of short sessions
+FT_RECONNECT_MAX = 300           # seconds: FuelTrans live monitoring tries again at least this often
 LONG_SESSION = 600               # a session this long resets that count
 LIVE_UPLOAD_TIMEOUT = 8          # seconds: a live upload gives up (the live read waits for it)
 LIVE_UPLOAD_BACKOFF = 30         # seconds: after the decant app couldn't be reached, before trying again
@@ -222,6 +223,7 @@ class Station:
         self.alerted = {}                # what Telegram was last told, per tank ("down": the app unreachable)
         self._dropped = ""               # the day earlier days' proof pictures were last cleared
         self._short_runs = 0             # reconnects in a row after short sessions
+        self._ft_tries = 0               # FuelTrans: live monitoring's tries since it was lost
         self._no_cards_told = 0.0        # when Telegram last got "no tank cards" with the screen
         self.seen_at = time.time()       # when the page was last open in front of someone
         self.last = _read_json(home / "last.json", {})
@@ -550,6 +552,10 @@ class Station:
             finally:
                 self._release()
             live.update(state="live", session=session, connected=now_iso())
+            if self._ft_tries:                       # (it was lost: Telegram was told)
+                self.notify(f"Tank stock live monitoring is back: FuelTrans answers again "
+                            f"(after {self._ft_tries} {'try' if self._ft_tries == 1 else 'tries'}).")
+                self._ft_tries = 0
             while not live["stop"].is_set():
                 started = time.monotonic()           # (not the wall clock: it can jump when the VM wakes)
                 self._live_read(live)
@@ -796,6 +802,13 @@ class Station:
         if live.get("stop_reason"):
             return                          # you stopped it: no message needed
         again = self._reconnect_later(session)
+        if self.from_fueltrans():
+            if again and self._ft_tries > 1:
+                return                      # (said at the first try; said again when it's back)
+            if again:
+                self.notify(f"Tank stock live monitoring stopped after {took}: {reason}. "
+                            "It keeps trying again (every 5 min at most) and says when it's back.")
+                return
         reads = f"{live['reads']} read{'' if live['reads'] == 1 else 's'}"
         lasted = (f" The AnyDesk session lasted {_span(session['lasted_s'])}."
                   if session.get("lasted_s") is not None else "")
@@ -851,7 +864,28 @@ class Station:
     def _reconnect_later(self, session: dict) -> bool:
         """With "reconnect" on: AnyDesk ended a session that had connected, so
         connect again shortly (not while an automatic decantation, which has
-        its own reconnecting, runs). Short sessions over and over stop it."""
+        its own reconnecting, runs). Short sessions over and over stop it.
+
+        From FuelTrans there are no sessions to ration: live monitoring that
+        a problem ended (the PC's tunnel down, FuelTrans not answering) always
+        tries again, 15 s, 30 s, 1 min ... then every 5 min, until it's back."""
+        if self.from_fueltrans():
+            if session.get("by") != "problem" or self.auto.active():
+                return False
+            self._ft_tries += 1
+            delay = min(FT_RECONNECT_MAX, RECONNECT_AFTER * 2 ** (self._ft_tries - 1))
+
+            def retry():
+                if self.live:
+                    return
+                try:
+                    self.start_live(auto=True)
+                    if self.live:
+                        self.live["by_auto"] = False     # it's still your live monitoring
+                except RuntimeError:
+                    traceback.print_exc()
+            threading.Timer(delay, retry).start()
+            return True
         if not self.settings.get("reconnect") or session.get("by") != "anydesk" or self.auto.active():
             return False
         self._short_runs = 0 if (session.get("lasted_s") or 0) >= LONG_SESSION else self._short_runs + 1

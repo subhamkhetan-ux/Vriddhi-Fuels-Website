@@ -1024,3 +1024,37 @@ def test_the_answer_goes_into_the_apps_settings_over_the_version_read(monkeypatc
     assert "state" not in sent["stockRequest"]
     n = len(calls)
     assert decant.answer_stock_request("other", {"state": "done"}) and len(calls) == n + 1   # asked something else: no write
+
+
+def test_fueltrans_live_monitoring_comes_back_by_itself(station, monkeypatch):
+    """From FuelTrans (no AnyDesk sessions to ration): live monitoring that the
+    PC's tunnel going down ended keeps trying, and Telegram hears once that it
+    stopped and once that it's back."""
+    (station.home / "login.json").write_text(json.dumps({"source": "fueltrans", "password": "pw"}))
+    monkeypatch.setattr(FakeSession, "lost", "the IOCL PC's FuelTrans tunnel went down (PC off or offline)",
+                        raising=False)
+    monkeypatch.setattr(service, "RECONNECT_AFTER", 0.05)
+    assert not station.settings["reconnect"]                    # (the AnyDesk setting doesn't matter)
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    first = FakeSession.opened[0]
+    FakeSession.fail = True                                     # the tunnel stays down for a while
+    first.is_alive = False
+    assert wait_for(lambda: station._ft_tries >= 3)             # 0.05 s, 0.1 s, 0.2 s ...
+    assert len(station.alerts) == 1 and "keeps trying" in station.alerts[0] and "tunnel went down" in station.alerts[0]
+    FakeSession.fail = False                                    # back
+    assert wait_for(lambda: station.live and station.live.get("state") == "live" and station.live["reads"] >= 1)
+    assert station._ft_tries == 0 and len(station.alerts) == 2 and "is back" in station.alerts[1]
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+    assert len(station.alerts) == 2                             # you stopped it: no retry, no message
+
+
+def test_anydesk_live_monitoring_still_follows_the_reconnect_setting(station, monkeypatch):
+    monkeypatch.setattr(service, "RECONNECT_AFTER", 0.05)
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    FakeSession.opened[0].is_alive = False
+    assert wait_for(lambda: station.live is None)
+    time.sleep(0.3)
+    assert station.live is None and len(FakeSession.opened) == 1 and station._ft_tries == 0

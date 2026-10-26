@@ -104,6 +104,14 @@ sudo systemctl disable --now tank-stock-session
 To update it after a change: run the same two lines again. To change the
 password: `ASK_AGAIN=1 bash infra/fueltrans/tank-stock-setup.sh`.
 
+**When the station's internet drops** (or the PC restarts), live monitoring
+stops and keeps trying again by itself: after 15 s, 30 s, 1 min, ... then
+every 5 min, until FuelTrans answers. Telegram gets one message when it stops
+and one when it's back. If FuelTrans' page stops updating while the tunnel is
+up (no card's "Last Updated" moves for 2½ min), the server opens Tank Status
+again. The server's browser shows FuelTrans exactly as the PC does: 1920 x
+1080, in the PC's font (DejaVu Sans).
+
 ## If something's wrong
 
 | What you see | Do this |
