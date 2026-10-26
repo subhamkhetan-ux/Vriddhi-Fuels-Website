@@ -904,10 +904,17 @@ costly on budget phones).
 > Until then the app works exactly as before — the sale box uses the built-in
 > customer list and the two new screens say the database needs the update.
 
-**On a desktop** (a window 900 px or wider) the header spans the window, Home
-puts the day total, the cards under it and Recent in a column beside a grid of
-tanker cards, Add diesel shows the chambers side by side, and the other screens
-get a wider centred column. Phones keep the one-column layout.
+**On a desktop** (a window 900 px or wider) the header spans the window and
+carries the screens as a nav (Tankers · History · Reports · Trips · Mileage ·
+Manage, the current one lit), in place of the buttons at the foot of Home. Home
+is laid out as a dashboard, every column starting on the same line: **Today**
+(day total, End Day / invoice cards, Loaded now) · the **tanker grid** ·
+**Recent** — three columns from 1680 px, Recent under Today on smaller screens.
+Tanker cards are at least 380 px wide (300 px with a smaller plate up to
+1280 px), the cards in a row are the same height with the sale button on the
+bottom edge, and very wide screens (2100 px+) fit three a row. Add diesel shows
+the chambers side by side, and the other screens get a wider centred column.
+Phones keep the one-column layout.
 
 ## Install on the phone
 
