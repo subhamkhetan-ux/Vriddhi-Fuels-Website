@@ -29,11 +29,11 @@ from .capture import CaptureError
 
 URL = "http://127.0.0.1:13000"        # the tunnel's end (infra/fueltrans/server-setup.sh)
 USER = "Dealer"
-# The PC's screen, so FuelTrans lays the cards out as there, drawn 1.4 times
-# as large: what AnyDesk showed on the 1920 x 1080 virtual display, which the
-# card reader is tuned to (FuelTrans' small 10 px labels read reliably).
-VIEWPORT = {"width": 1366, "height": 768}
-SCALE = 1.4
+# The PC's screen (1920 x 1080, drawn 1:1), so FuelTrans lays the cards out
+# as there: what AnyDesk showed on its 1920 x 1080 virtual display, which the
+# card reader is tuned to. (Narrower, FuelTrans' 14 px figures wrap.)
+VIEWPORT = {"width": 1920, "height": 1080}
+SCALE = 1
 # The PC draws FuelTrans in DejaVu Sans (its CSS fonts aren't on the PC), and
 # the card reader is tuned to that; this server would pick an Arial-like font
 # instead. Icon fonts (Font Awesome's <i class="fa ...">) keep their own.
@@ -51,6 +51,8 @@ SETTLE = 3                            # seconds more, for every card's figures t
 DATA_WAIT = 45                        # seconds for every card's first live figures (see _data)
 NO_DATA = re.compile(r"00/00/0000")   # a card's "Last Updated" before its first figures came
 FRESH_EVERY = 1800                    # seconds: the page is reloaded this often while live
+STALE_RELOAD = 150                    # seconds without any card's "Last Updated" moving: reloaded
+UPDATED = re.compile(r"Last\s*Updated", re.I)
 ACTION_WAIT = 120                     # seconds any one browser step may take
 
 
@@ -79,6 +81,7 @@ class FuelTransSession:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fueltrans")
         self._pw = self._browser = self._page = None
         self._fresh_at = 0.0
+        self._clocks, self._clocks_at = "", 0.0   # the cards' "Last Updated" times, and since when
 
     def __enter__(self):
         self.open()
@@ -252,8 +255,28 @@ class FuelTransSession:
                 return waiting
             page.wait_for_timeout(1000)
 
+    def _keep_fresh(self) -> None:
+        """While Tank Status stays open (live monitoring), FuelTrans' live
+        connection brings the figures. If it stalls (no card's "Last Updated"
+        moves for STALE_RELOAD), or the page is FRESH_EVERY old, open it again."""
+        page = self._page
+        if page is None or TANK_PAGE not in page.url:
+            return
+        now = time.monotonic()
+        try:
+            clocks = " | ".join(page.get_by_text(UPDATED).all_inner_texts())
+        except Exception:  # noqa: BLE001 - looked at again next time
+            return
+        if clocks != self._clocks:
+            self._clocks, self._clocks_at = clocks, now
+        if now - self._clocks_at >= STALE_RELOAD or now - self._fresh_at >= FRESH_EVERY:
+            self._fresh_at = float("-inf")        # (so _to_tanks opens the page again)
+            self._tank_status()
+            self._clocks, self._clocks_at = "", time.monotonic()
+
     def _png(self) -> bytes:
         self._start()
+        self._keep_fresh()
         return self._page.screenshot(type="png")
 
     def _stop(self) -> None:
