@@ -944,33 +944,79 @@
     .back:not([style*="none"]) + img{display:none}
     .installbtn{padding:6px 8px}
   }
-  /* ===== Desktop & tablet landscape: the header spans the window, the home
-     screen puts the day total, banners and recent list beside a grid of
-     tanker cards, and the other screens get a wider centred column. ===== */
+  /* ===== Desktop & tablet landscape (900 px and wider) =====
+     One page width (--page) that the header and every screen line up to.
+     The header carries the screens as a nav. Home is a dashboard: Today
+     (day total, notices, loaded now) · the tanker grid · Recent — three
+     columns from 1680 px, Recent under Today below that. Tanker cards are
+     at least 380 px (plate and fill badge on one line) and the cards in a
+     row are the same height, their sale button on the bottom edge. */
   .home-top,.home-main,.home-side{display:contents}
+  .topnav,.dk-only{display:none}
   @media (min-width:900px){
+    :root{--page:1600px;--gut:28px}
     .wrap{max-width:none}
-    header{padding:14px max(24px, calc((100% - 1240px)/2 + 24px))}
-    main{width:100%;max-width:1240px;margin:0 auto;padding:24px 24px 48px}
-    .screen{max-width:880px;margin:0 auto}
-    #scTrend,#scTrips,#scReport{max-width:1040px}
+    header{padding:12px max(var(--gut), calc((100% - var(--page))/2 + var(--gut)));gap:14px}
+    header > div{flex:none!important}
+    .topnav{display:flex;flex:1;gap:4px;margin-left:18px;min-width:0;overflow-x:auto;scrollbar-width:none}
+    .topnav button{flex:none;font:600 14px/1 var(--text);color:#fff;background:transparent;border:1px solid transparent;
+      border-radius:10px;padding:9px 13px;cursor:pointer;white-space:nowrap;opacity:.92}
+    .topnav button:hover{background:rgba(255,255,255,.16);opacity:1}
+    .topnav button.on{background:rgba(255,255,255,.95);color:#c2410c;opacity:1;box-shadow:0 4px 12px -6px rgba(120,30,0,.5)}
+    main{width:100%;max-width:var(--page);margin:0 auto;padding:28px var(--gut) 56px}
+    .screen{max-width:900px;margin:0 auto}
+    #scTrend,#scTrips,#scReport{max-width:1080px}
+
+    /* Home */
     #scHome{max-width:none}
-    #scHome.on{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);grid-template-rows:auto 1fr;
-      column-gap:24px;align-items:start}
+    #scHome.on{display:grid;grid-template-columns:minmax(300px,340px) minmax(0,1fr);grid-template-rows:auto 1fr;
+      column-gap:28px;align-items:start}
     #scHome .home-top,#scHome .home-side,#scHome .home-main{display:block;min-width:0}
     #scHome .home-top{grid-column:1;grid-row:1}
     #scHome .home-side{grid-column:1;grid-row:2}
     #scHome .home-main{grid-column:2;grid-row:1 / span 2}
-    #scHome .home-main>.sectitle:first-child{margin-top:0}
-    #tankerList{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;align-items:start}
-    #tankerList .tcard{margin-bottom:0}
+    #scHome .dk-only{display:flex}
+    /* every column starts with its title on the same line */
+    #scHome .home-top>.sectitle:first-child,#scHome .home-main>.sectitle:first-child{margin-top:0}
+    #scHome .sectitle{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:22px 2px 10px;min-height:20px}
+    #scHome .sectitle .lnk{text-transform:none;letter-spacing:0;font-size:13px}
+    /* the header nav takes over these on a desktop */
+    #scHome #toReport,#scHome .row2.adm,#scHome #toSettings{display:none!important}
+    #scHome .stat,#scHome .endednote,#scHome .invban,#scHome .loadsum{margin-bottom:12px}
+    #scHome .endednote{text-align:left;font-size:12.5px;padding:10px 14px}
+    #scHome .home-side .note{text-align:left;margin:12px 2px}
+    #scHome .signrow{text-align:left;margin:10px 2px 0}
+
+    /* the tanker grid */
+    #tankerList{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:18px;align-items:stretch}
+    #tankerList .tcard{margin-bottom:0;display:flex;flex-direction:column}
+    /* (a button centres its content: keep the plate, drawing and figures at the top) */
+    #tankerList .tcard .tap{flex:1 0 auto;display:flex;flex-direction:column;justify-content:flex-start}
     #tankerList>.empty{grid-column:1 / -1}
+
     /* add diesel: a smaller drawing and the chambers side by side, so every
        chamber's input is on screen without scrolling */
     #scAdd .vhead .tankwrap{max-width:560px;margin-left:auto;margin-right:auto}
     #chamList{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:12px}
     #chamList .cham{margin-bottom:0}
   }
+  @media (min-width:1680px){
+    #scHome.on{grid-template-columns:320px minmax(0,1fr) 320px;grid-template-rows:auto}
+    #scHome .home-side{grid-column:3;grid-row:1}
+    #scHome .home-main{grid-row:1}
+    #scHome .home-side>.sectitle:first-child{margin-top:0}
+  }
+  /* small laptops / tablets in landscape: a narrower Today column and a
+     smaller plate + badge, so two tankers still fit a row */
+  @media (min-width:900px) and (max-width:1279px){
+    #scHome.on{grid-template-columns:280px minmax(0,1fr);column-gap:22px}
+    #tankerList{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+    #tankerList .tcard .pl{font-size:16px}
+    #tankerList .tcard .badge2{font-size:11px;padding:5px 9px}
+    #scHome .stat .label{font-size:11px;letter-spacing:.05em}
+  }
+  /* very wide screens: room for three tankers a row */
+  @media (min-width:2100px){ :root{--page:1960px} }
   @media (min-width:900px) and (hover:hover){
     .tcard:hover{transform:translateY(-2px)}
     .tcard .tap:hover,.big:hover,.dispatch:hover{filter:brightness(1.03)}
@@ -986,6 +1032,15 @@
       <div class="t">Tanker Loading</div>
       <div class="s" id="subT">Diesel loading record</div>
     </div>
+    <!-- desktop: the screens one click away (phones use the buttons on Home) -->
+    <nav class="topnav" id="topNav" aria-label="Screens">
+      <button type="button" data-nav="scHome">Tankers</button>
+      <button type="button" data-nav="scHist">History</button>
+      <button type="button" data-nav="scReport" class="adm">Reports</button>
+      <button type="button" data-nav="scTrips" class="adm">Trips</button>
+      <button type="button" data-nav="scMileage" class="adm">Mileage</button>
+      <button type="button" data-nav="scSettings" id="navSettings">Manage</button>
+    </nav>
     <span class="pill" id="livePill" hidden><i></i><span>Live</span></span>
     <button class="themebtn" id="themeBtn" type="button" title="Light / dark" aria-label="Light or dark look"></button>
     <button class="installbtn" id="installBtn" style="display:none">Install</button>
@@ -997,6 +1052,7 @@
       <!-- on a phone these three blocks run one after another; on a desktop
            the day total, banners and recent list sit beside the tanker grid -->
       <div class="home-top">
+      <div class="sectitle dk-only">Today</div>
       <div class="stat" style="padding:12px 14px">
         <div class="label" id="curDayLabel">Current day — open</div>
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
@@ -1716,6 +1772,7 @@ function applyRole(){
   document.body.classList.toggle("staff", staff);
   $("#toSettings").textContent = "⚙ Manage tankers & data";
   $("#toSettings").style.display = staff ? "none" : "";      // staff: nothing to manage, no notifications
+  $("#navSettings").style.display = staff ? "none" : "";
   $("#setTitle").textContent = "Manage tankers & data";
   $("#noAdminNote").style.display = (CLOUD && ROLE && ROLE!=="legacy" && ADMINS===0) ? "" : "none";
   // a staff phone sitting on an admin screen (e.g. role just changed) goes home
@@ -2132,8 +2189,17 @@ function show(id, pushIt){
   SCREENS.forEach(s=>$("#"+s).classList.toggle("on", s===id));
   if(pushIt!==false){ if(stack[stack.length-1]!==id) stack.push(id); }
   $("#backBtn").style.display = stack.length>1 ? "" : "none";
+  markNav();
   window.scrollTo(0,0);
 }
+// Desktop header nav: the screen it belongs to is lit (Add / Confirm belong to
+// Tankers, the chamber log to Reports, trends to Mileage).
+const NAV_OF={ scAdd:"scHome", scConf:"scHome", scLog:"scReport", scTrend:"scMileage" };
+function markNav(){
+  const cur=stack[stack.length-1], at=NAV_OF[cur]||cur;
+  document.querySelectorAll("#topNav [data-nav]").forEach(b=>b.classList.toggle("on", b.dataset.nav===at));
+}
+markNav();
 function goBack(){
   if(stack.length>1){ stack.pop(); const id=stack[stack.length-1]; show(id,false); }
   if(stack[stack.length-1]==="scHome") renderHome();
@@ -5867,6 +5933,13 @@ $("#toReport").onclick=openReport;
 $("#toReport2").onclick=openReport;
 $("#toLog").onclick=()=>{ if(!adminOnly()) return; renderLog(); show("scLog"); };
 $("#toSettings").onclick=()=>{ setCount(3); renderSettings(); show("scSettings"); };
+// each header nav button opens its screen straight from Home, as on the phone
+const NAV_BTN={ scHist:"#toHist", scReport:"#toReport", scTrips:"#toTrips", scMileage:"#toMileage", scSettings:"#toSettings" };
+$("#topNav").onclick=e=>{
+  const b=e.target.closest("[data-nav]"); if(!b) return;
+  goHome();
+  if(NAV_BTN[b.dataset.nav]) $(NAV_BTN[b.dataset.nav]).click();
+};
 $("#toTrips").onclick=openTrips;
 $("#toMileage").onclick=openMileage;
 $("#toTrend").onclick=openTrend;
