@@ -44,8 +44,8 @@ sudo -u runner -H "$VENV/bin/python" -c "import playwright" 2>/dev/null \
   || sudo -u runner -H "$VENV/bin/python" -m pip install -q playwright
 sudo "$VENV/bin/python" -m playwright install-deps chromium >/dev/null
 sudo -u runner -H "$VENV/bin/python" -m playwright install chromium
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q tesseract-ocr imagemagick >/dev/null
-echo "Python, Chromium, Tesseract and ImageMagick are ready."
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q tesseract-ocr imagemagick fonts-dejavu-core >/dev/null
+echo "Python, Chromium, Tesseract, ImageMagick and the PC's font (DejaVu Sans) are ready."
 
 say "2/7 The tank stock code"
 sudo install -d -o runner -g runner -m 750 "$HOME_DIR"

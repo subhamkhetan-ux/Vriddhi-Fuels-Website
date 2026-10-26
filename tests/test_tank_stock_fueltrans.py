@@ -63,7 +63,8 @@ def card_html(no, product, volume, height, ullage, density, density_tc, temp, se
 # screenshot): DejaVu Sans, cards 308 x 322 px with a light border, rounded
 # corners and a soft shadow, rows 21 px apart, grey labels and bold figures.
 APP = """<!DOCTYPE html><html><head><style>
-body{margin:0;font-family:"DejaVu Sans",Verdana,sans-serif;background:#fff;color:#333}
+body{margin:0;font-family:Roboto,"Helvetica Neue",Arial,sans-serif;background:#fff;color:#333}
+.fa{font-family:monospace}
 .top{height:62px;display:flex;align-items:center;padding:0 16px;font-weight:bold;color:#e0301e;font-size:17px}
 .bar{background:rgb(0,169,246);height:30px;display:flex;gap:90px;padding:0 50px;align-items:center;color:#fff;
  font-weight:bold;font-size:13px}
@@ -98,7 +99,7 @@ function login() {
 }
 function bar() {
   return '<div class="top">VRIDDHI FUELS : 338821</div>' +
-    '<div class="bar"><span>Home</span><span id="mon">Monitoring</span><span>Operations</span><span>Reports</span></div>' +
+    '<div class="bar"><span><i class="fa fa-home">H</i>Home</span><span id="mon">Monitoring</span><span>Operations</span><span>Reports</span></div>' +
     '<div id="menu"><div id="ts">Tank Status</div><div>Pump Status</div></div>';
 }
 function home() {
@@ -184,6 +185,10 @@ def test_logs_in_and_reads_the_cards(chromium, in_memory):
             png, did = s.shot()                                      # (no open() first: it opens)
             assert png.startswith(b"\x89PNG") and "logged in as Dealer" in did
             assert "no figures" not in did                           # waited for the placeholders to fill
+            fonts = s._do(lambda: s._page.evaluate(
+                "[getComputedStyle(document.querySelector('.row span')).fontFamily,"
+                " getComputedStyle(document.querySelector('i.fa')).fontFamily]"))
+            assert fonts[0].startswith('"DejaVu Sans"') and fonts[1] == "monospace", fonts   # the PC's font, icons kept
             assert ("Monitoring > Tank Status" in did) == in_memory   # the menu when a reload logs out
             assert s.alive()
             png2, did2 = s.shot()                                    # from another thread: same page

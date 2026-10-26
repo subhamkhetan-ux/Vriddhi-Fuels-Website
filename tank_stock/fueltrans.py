@@ -34,6 +34,14 @@ USER = "Dealer"
 # card reader is tuned to (FuelTrans' small 10 px labels read reliably).
 VIEWPORT = {"width": 1366, "height": 768}
 SCALE = 1.4
+# The PC draws FuelTrans in DejaVu Sans (its CSS fonts aren't on the PC), and
+# the card reader is tuned to that; this server would pick an Arial-like font
+# instead. Icon fonts (Font Awesome's <i class="fa ...">) keep their own.
+PC_FONT = """body, body *:not(i):not(.fa):not([class*="fa-"]):not([class*="icon"]) {
+  font-family: "DejaVu Sans", sans-serif !important; }"""
+PC_FONT_SCRIPT = ("document.addEventListener('DOMContentLoaded', () => {"
+                  " const s = document.createElement('style');"
+                  f" s.textContent = {json.dumps(PC_FONT)}; document.head.appendChild(s); }});")
 TANK_PAGE = "/tank-dashboard"
 CONFIG = "/assets/data/config.json"   # where FuelTrans' page reads its backend address
 PROBLEM_PNG = "fueltrans-problem.png"  # what the browser showed when a read failed (in TANK_STOCK_HOME)
@@ -94,6 +102,7 @@ class FuelTransSession:
         self._page = self._browser.new_page(viewport=VIEWPORT, device_scale_factor=SCALE)
         self._page.set_default_timeout(ACTION_WAIT * 1000)
         self._page.route("**" + CONFIG, self._config)
+        self._page.add_init_script(PC_FONT_SCRIPT)
 
     def _config(self, route) -> None:
         """FuelTrans' page asks its backend at config.json's baseUrl,
