@@ -20,7 +20,7 @@ Live monitoring (``stockMonitor``, kept apart so a capture never stops it):
 - **monitor**: live monitoring (the open session, else one started for it)
   sends those tanks' volume to the app as it changes, every ``every``
   seconds (5-3600, 10 by default) at most, until the phone stops it or
-  MONITOR_MAX_S has passed. If AnyDesk ends the session it connects again.
+  MONITOR_MAX_S has passed. If the PC's connection drops it connects again.
 
 The phone writes each into the app's shared settings (``dec_config.data``)
 as {id, kind, tanks, at, by, ...}; they are looked for every half minute

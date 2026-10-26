@@ -1108,3 +1108,74 @@ def test_a_phone_saving_during_the_takeover_keeps_its_change(rig, monkeypatch):
     assert a.phase == "running", a.info
     s = rig.cloud.sessions[sid]
     assert s["data"]["notes"] == "typed on the phone" and s["data"]["auto"]["takenOver"]
+
+
+def test_from_fueltrans_a_handed_over_decantation_rides_out_the_tunnel_dropping_and_finishes(rig, monkeypatch):
+    """A morning with the tank stock read from FuelTrans: a phone sets up the
+    decantation in the decant app and asks the server to finish it; while
+    Tank 2 fills, the station's internet drops (the PC's tunnel down through
+    several tries to connect again), comes back, drops again while the tank
+    settles, and the decantation still finishes in the app with the right
+    result. Telegram hears once per drop that it stopped and that it's back."""
+    (rig.home / "login.json").write_text(json.dumps({"source": "fueltrans", "password": "pw"}))
+    lost = "The IOCL PC isn't connected to this server: its FuelTrans tunnel is down (PC off, offline, ...)"
+    down = {"on": False, "tries": 0}
+    connected = service.Station.start_live            # (the rig's live session)
+
+    def start_live(self, new_settings=None, auto=False):
+        if not down["on"]:
+            view = connected(self, new_settings, auto)
+            self.live["connected"] = service.now_iso()
+            return view
+        down["tries"] += 1                             # as _live_run: it can't open FuelTrans, so it ends
+        live = {"state": "connecting", "since": service.now_iso(), "tanks": [3], "by_auto": auto, "reads": 0,
+                "interval_s": 600, "auto_upload": False, "failed": 0, "figures": {}, "uploads": {},
+                "stop": threading.Event(), "wake": threading.Event()}
+        self.live = live
+        threading.Thread(target=self._live_end, args=(live, lost, b""), daemon=True).start()
+        return self.live_view()
+    monkeypatch.setattr(service.Station, "start_live", start_live)
+
+    def drop(tries):
+        """The tunnel goes down for ``tries`` tries to connect again, then comes back."""
+        live = rig.st.live
+        down.update(on=True, tries=0)
+        live["session"].is_alive = False
+        rig.st._live_end(live, "the IOCL PC's FuelTrans tunnel went down (PC off or offline)", b"")
+        assert wait_for(lambda: down["tries"] >= tries, timeout=30), down
+        assert rig.st.auto.phase == "running" and rig.st.auto.info.get("reconnect")
+        down["on"] = False
+        assert wait_for(lambda: rig.st.live is not None and rig.st.live.get("state") == "live", timeout=30)
+        assert wait_for(lambda: not rig.st.auto.info.get("reconnect"))
+
+    # the phone: Tank 2 already taking chamber 2, then "Let the tank stock server finish it"
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.clock.t = T0 + 200
+    sid = app_session(rig, {"T2": ([2], "decanting", 50, None)})
+    rig.cloud.sessions[sid]["data"]["autoRequest"] = {"at": dz.iso(rig.clock()), "by": "phone"}
+    rig.cloud.handover_requests = lambda timeout=10: [
+        {"id": x["id"], "updated_at": x["updated_at"], "request": x["data"]["autoRequest"]}
+        for x in rig.cloud.sessions.values() if isinstance(x["data"].get("autoRequest"), dict)]
+    a = take_over(rig, sid, requested=True)
+    assert a.phase == "running" and a.info["takeover"] == sid
+    rig.st.live["connected"] = service.now_iso()
+    drive(rig, 300)
+
+    drop(tries=3)                                     # down while the chamber goes in
+    drive(rig, 900)
+    assert a.phase == "running" and a.run.row("T2")["stage"] == "settling", a.run.row("T2")
+    drop(tries=1)                                     # down again while it settles
+    drive(rig, 4000)
+
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    t2 = s["data"]["tanks"][0]
+    assert s["status"] == "done" and t2["result"]["variation"] == -10.0 and t2["after"]["height"]
+    assert t2["before"]["volume"] == 10755.0                                   # the phone's stock before, kept
+    assert all(r.get("via") == "server" for r in rig.cloud.stock.values() if r.get("source") == "photo")
+    stopped = [m for m in rig.told if "live monitoring ended" in m]
+    back = [m for m in rig.told if "connected to the PC again" in m]
+    assert len(stopped) == 2 and len(back) == 2, rig.told                  # once per drop, not once per try
+    assert all(lost not in m for m in rig.told)                             # the failed tries said nothing
+    assert not [m for m in rig.told if "clock was off" in m], rig.told
+    assert not [m for m in rig.told if "anydesk" in m.lower()], rig.told

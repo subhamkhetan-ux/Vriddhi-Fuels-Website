@@ -86,7 +86,7 @@
     } else if (last.error && (!last.at || last.error_at > last.at)) {
       setStatus("status", `Last try (${when(last.error_at)}) failed: ${last.error}`, true);
     } else if (!state.login_saved) {
-      setStatus("status", "The AnyDesk login isn't on the server yet: in GitHub, run the 'Tank stock' workflow once with mode save-login.", true);
+      setStatus("status", "The FuelTrans login isn't saved on the server yet: run infra/fueltrans/tank-stock-setup.sh there.", true);
     } else {
       setStatus("status", last.at ? `Last capture ${when(last.at)} (${ago(last.at)}).` : "No capture yet.");
     }
@@ -241,26 +241,30 @@
     $("mEvery").max = state.limits.interval_s[1];
     $("mUp").checked = s.auto_upload;
     $("mRe").checked = Boolean(s.reconnect);
+    $("mReLine").hidden = state.source === "fueltrans";   // (from FuelTrans it always connects again)
     watched = new Set(s.tanks);
     chips($("mTanks"), watched, () => { monitorDirty = true; });
   }
 
-  // How long AnyDesk lets a session run: from the ones it ended itself.
+  // The recent live sessions: when, how long, and who or what ended them.
   const span = (s) => {
     if (s == null) return "–";
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
     return h ? `${h} h ${m} min` : m ? `${m} min ${s % 60} s` : `${s} s`;
   };
-  const BY = { anydesk: "ended by AnyDesk", you: "stopped by you", agent: "ended by the agent", problem: "a problem" };
+  const BY = { anydesk: "the PC's connection ended it", you: "stopped by you", agent: "ended by the agent", problem: "a problem" };
   function renderSessions(sess) {
     const recent = sess?.recent || [];
     $("sessions").hidden = !recent.length;
     if (!recent.length) return;
-    const a = sess.anydesk;
-    $("sessStats").textContent = a
-      ? `AnyDesk ended ${a.count} session${a.count === 1 ? "" : "s"} by itself: typically after ${span(a.typical_s)}`
+    // (how long a session lasts before the connection ends it: only worth
+    // showing for a connection that rations them)
+    const a = sess.anydesk, rationed = state.source !== "fueltrans";
+    $("sessStats").hidden = !rationed;
+    $("sessStats").textContent = !rationed ? "" : a
+      ? `The connection ended ${a.count} session${a.count === 1 ? "" : "s"} by itself: typically after ${span(a.typical_s)}`
         + ` (shortest ${span(a.shortest_s)}, longest ${span(a.longest_s)}).`
-      : "AnyDesk hasn't ended a session by itself yet: leave one running to find out how long it allows.";
+      : "The connection hasn't ended a session by itself yet.";
     const ul = $("sessList");
     ul.textContent = "";
     for (const r of recent) {
@@ -521,7 +525,7 @@
     box.appendChild(title);
     const notes = [];
     if (a.phase === "starting") notes.push(`${a.step ? a.step[0].toUpperCase() + a.step.slice(1) : "Starting"}…`);
-    if (a.reconnect) notes.push(`AnyDesk session lost (${a.lost?.reason || ""}): connecting again, try ${a.reconnect.tries}.`);
+    if (a.reconnect) notes.push(`Connection to the PC lost (${a.lost?.reason || ""}): connecting again, try ${a.reconnect.tries}.`);
     if (a.stale) notes.push(a.stale + ".");
     if (a.frozen) notes.push(a.frozen);
     if (a.cloud_error) notes.push(`Decant app: ${a.cloud_error} (saved when it's back).`);

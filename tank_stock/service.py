@@ -1,24 +1,25 @@
-"""Tank stock page and live monitor (runs on the India server).
+"""Tank stock page and live monitor (runs on the Oracle server).
 
-python -m tank_stock.service      (tank-stock-session.service runs it)
+python -m tank_stock.service      (tank-stock.service runs it)
 
-It runs inside the runner user's console login session, because that is the
-only place AnyDesk agrees to start (see infra/anydesk/tank-stock-session.service).
+The tank cards come from FuelTrans itself, in a headless browser on this
+server through the IOCL PC's tunnel (fueltrans.py, infra/fueltrans/). The
+AnyDesk reader (capture.py) is kept as a fallback: it needs the console login
+session of infra/anydesk/tank-stock-session.service instead.
 Nothing connects on its own: everything starts from the phone page at
-http://127.0.0.1:8790, published to your own Tailscale devices (setup.sh).
+http://127.0.0.1:8790, published to your own Tailscale devices.
 
 - Capture: connect, read the chosen tanks' cards (a zoomed picture and the
   figures), disconnect. Upload sends them to the decant app (decant.py).
 - Send for decantation: capture, upload, and end the live session if one is
   open.
-- Live monitoring: connect once and keep that AnyDesk session open; every
+- Live monitoring: connect once and keep that session open; every
   ``interval_s`` seconds (5 at least) read the watched tanks' product
   volume again (no reconnecting, no pictures), show it on the page and, with
   ``auto_upload``, send the volume alone to the decant app. It runs until
-  AnyDesk ends the session (e.g. a free licence's time limit) or you press
-  Stop; then the last screen becomes a capture with its pictures. The
-  XtraPower Telegram bot is told when AnyDesk ends it, with what the screen
-  showed.
+  you press Stop; the PC's connection dropping ends it, and from FuelTrans
+  it connects again by itself. The last screen becomes a capture with its
+  pictures, and the XtraPower Telegram bot is told.
 - Automatic decantation (auto.py): pick a truck's invoice and which chamber
   goes into which tank, press Start; it reads the stock before, follows the
   stock as the chambers go in, takes the stock after once it has settled and
@@ -254,7 +255,10 @@ class Station:
                 raise CaptureError("The FuelTrans login isn't saved here yet: run "
                                    "infra/fueltrans/tank-stock-setup.sh on the server.")
             return [data.get("url") or "", data.get("user") or ""], data["password"]
-        if not data.get("password") or not data.get("ids"):
+        if not data.get("ids"):
+            raise CaptureError("The FuelTrans login isn't saved here yet: run "
+                               "infra/fueltrans/tank-stock-setup.sh on the server.")
+        if not data.get("password"):
             raise CaptureError("The AnyDesk login isn't saved here yet: run infra/mac/vm-setup.sh "
                                "again with ASK_AGAIN=1 (it asks for the AnyDesk numbers and password).")
         return parse_ids(",".join(data["ids"])), data["password"]
@@ -567,7 +571,7 @@ class Station:
                     traceback.print_exc()
                 if self._unwatched(live):
                     live["stop_reason"] = (f"nobody had the page open for {UNWATCHED_STOP // 60} min, "
-                                           "so the AnyDesk session was closed to free the server's memory")
+                                           "so the session was closed to free the server's memory")
                     break
                 if live["failed"] >= MAX_FAILED_READS:
                     reason = f"{MAX_FAILED_READS} reads in a row failed ({live.get('last_error', '')})"
@@ -801,6 +805,8 @@ class Station:
             traceback.print_exc()
         if live.get("stop_reason"):
             return                          # you stopped it: no message needed
+        if live.get("by_auto") and not live.get("connected") and self.auto.active():
+            return                          # (an automatic decantation's try to connect again: it says when it's back)
         again = self._reconnect_later(session)
         if self.from_fueltrans():
             if again and self._ft_tries > 1:
@@ -810,12 +816,12 @@ class Station:
                             "It keeps trying again (every 5 min at most) and says when it's back.")
                 return
         reads = f"{live['reads']} read{'' if live['reads'] == 1 else 's'}"
-        lasted = (f" The AnyDesk session lasted {_span(session['lasted_s'])}."
+        lasted = (f" The session lasted {_span(session['lasted_s'])}."
                   if session.get("lasted_s") is not None else "")
         text = (f"Tank stock live monitoring ended after {took} ({reads}): {reason}.{lasted}"
                 + (f" Connecting again in {RECONNECT_AFTER} s." if again else ""))
         if final:
-            self.notify_photo(final, text + "\nThis is what the server's AnyDesk showed.")
+            self.notify_photo(final, text + "\nThis is what the server's screen showed.")
         else:
             self.notify(text)
 
@@ -1020,7 +1026,7 @@ def access_error(client_ip, host, port, hosts, users, login):
     from xtrapower.manage import access_error as check
     err = check(client_ip, host, port, hosts, users, login)
     if err and "Mac" in err[1]:
-        err = (err[0], "Open this page from your phone through Tailscale (see infra/anydesk/phone-setup.sh).")
+        err = (err[0], "Open this page from your phone through Tailscale (see infra/xtrapower/phone-setup.sh).")
     return err
 
 
