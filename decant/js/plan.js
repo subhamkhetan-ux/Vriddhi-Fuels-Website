@@ -11,7 +11,7 @@
 //   5. Arrived — indents whose invoice has come in (off the plan), last.
 
 import { fromServer,
-  PRODUCTS, dipAtLitres, indentKL, loadChambers, matchIndents, normTT, ownTT, planIndents, roomOf, round2, smallestTransport,
+  PRODUCTS, dipAtLitres, indentKL, loadChambers, matchIndents, normTT, ownTT, planIndents, roomOf, round2, saleOffUntil, smallestTransport,
   tankerSpace, transportOptions,
 } from './core.js';
 import { newId, saveConfig, saveTankReading, state } from './store.js';
@@ -85,7 +85,7 @@ export function renderPlan(el) {
   tidyArrived(all, arrived);
   const active = all.filter((p) => !arrived.has(p.id));
   const res = planIndents({ indents: active, tanks: tanks(), stock: state.tankState, margin: state.settings.warnRoomL, table: state.settings.transportTTs });
-  const space = tankerSpace(tankers.vehicles, state.settings.excludeTankers || [], state.config.tankersOff || {});
+  const space = tankerSpace(tankers.vehicles, state.settings.excludeTankers || [], state.config.tankersOff || {}, { back: state.config.tankersBack || {} });
   el.innerHTML = `
     ${stockCard()}
     <h2>Indents placed <span class="count">${active.length}</span><span class="sp"></span>${active.length > 1 ? '<button class="btn sm ghost" data-clearloads>Clear all</button>' : ''}</h2>
@@ -224,7 +224,7 @@ function productPlan(p, active, res, space) {
       const some = avail.filter((r) => r.free > 0);
       const offNote = space.unavailable.length ? ` <span class="hint">Not available to load: ${space.unavailable.map((r) => esc(r.plate)).join(', ')}.</span>` : '';
       if (!avail.length && space.unavailable.length) {
-        tankerLine = `<div class="banner" style="margin:10px 0 0">⚠ None of our delivery tankers is available to load (${space.unavailable.map((r) => esc(r.plate)).join(', ')} marked not available) — the ${fmtL(sell)} has to go through the pumps.</div>`;
+        tankerLine = `<div class="banner" style="margin:10px 0 0">⚠ None of our delivery tankers is available to load (${space.unavailable.map((r) => esc(r.plate)).join(', ')} not available) — the ${fmtL(sell)} has to go through the pumps.</div>`;
       } else {
         const enough = space.free >= sell;
         const alone = enough && some[0]?.free >= sell ? some[0] : null;
@@ -273,16 +273,18 @@ function tankersCard(space) {
     ${space.rows.map((r) => {
       const pct = r.capacity ? Math.round((r.filled / r.capacity) * 100) : 0;
       return `<div class="tk-row${r.available ? '' : ' off'}">
-        <div class="tk-top"><b>${esc(r.plate)}</b><span class="sp"></span>${r.available ? `<b class="num">${fmtL(r.free)}</b><span class="hint">free</span>` : '<span class="badge watch">Not available</span>'}
+        <div class="tk-top"><b>${esc(r.plate)}</b><span class="sp"></span>${r.available ? `<b class="num">${fmtL(r.free)}</b><span class="hint">free</span>` : `<span class="badge watch">${r.off?.sale ? 'On a trip' : 'Not available'}</span>`}
           <button type="button" class="tk-sw" role="switch" aria-checked="${r.available}" data-tkav="${esc(r.plate)}" aria-label="${esc(r.plate)} available to load"></button></div>
         <div class="tk-mid"><span class="tk-bar" role="img" aria-label="${esc(r.plate)}: ${fmtL(r.filled)} in it of ${fmtL(r.capacity)}"><i style="width:${pct}%"></i></span>
           <span class="hint num">${fmtL(r.filled)} in it of ${fmtL(r.capacity)}</span></div>
-        ${r.available ? '' : `<div class="hint" style="margin-top:4px">Not available to load${r.off?.at ? ` since ${fmtWhen(r.off.at)}` : ''}${r.off?.by ? ` (${esc(r.off.by)})` : ''} — its ${fmtL(r.free)} free isn't counted.</div>`}
+        ${r.available ? '' : r.off?.sale
+    ? `<div class="hint" style="margin-top:4px">Sent for sale ${fmtWhen(r.off.at)} (Loading app) — not available to load until ${fmtWhen(r.off.until)}, so its ${fmtL(r.free)} free isn't counted. Switch it on if it's back sooner.</div>`
+    : `<div class="hint" style="margin-top:4px">Not available to load${r.off?.at ? ` since ${fmtWhen(r.off.at)}` : ''}${r.off?.by ? ` (${esc(r.off.by)})` : ''} — its ${fmtL(r.free)} free isn't counted.</div>`}
       </div>`;
     }).join('') || '<div class="hint">No tankers in the Loading app.</div>'}
       <div class="tk-row tot"><div class="tk-top"><b>${off.length ? 'Free to load' : 'Free in all'}</b><span class="sp"></span><b class="num">${fmtL(space.free)}</b></div>
         ${off.length ? `<div class="hint" style="margin-top:4px">In ${space.rows.length - off.length} of ${space.rows.length} tankers — ${off.map((r) => esc(r.plate)).join(', ')} not available.</div>` : ''}</div>
-      <div class="hint" style="margin-top:6px">Switch a tanker off when it can't be loaded now (out on a trip, under repair…) — every phone sees it. ${space.excluded.length ? `Left out: ${space.excluded.map(esc).join(', ')} (change in Settings). ` : ''}Read ${ago(tankers.at)}${tankers.shared ? ' · no login needed · read again every minute' : ` as ${esc(tankers.user)} · updates live`}.</div>
+      <div class="hint" style="margin-top:6px">Switch a tanker off when it can't be loaded now (out on a trip, under repair…) — every phone sees it. A tanker sent for sale in the Loading app is off by itself for 6 hours. ${space.excluded.length ? `Left out: ${space.excluded.map(esc).join(', ')} (change in Settings). ` : ''}Read ${ago(tankers.at)}${tankers.shared ? ' · no login needed · read again every minute' : ` as ${esc(tankers.user)} · updates live`}.</div>
       <div class="row-actions" style="justify-content:flex-start"><button class="btn sm" data-tkrefresh>↻ Refresh</button>${tankers.shared ? '' : '<button class="btn sm ghost" data-tksignout>Sign out</button>'}</div>`;
   } else if (st === 'signin') {
     body = `<div class="hint">Sign in once on this phone with a <b>Loading app</b> login to see how much diesel our own tankers can still take. Only how full each tanker is is read.</div>
@@ -353,8 +355,19 @@ function bind(el) {
     if (sw) {
       // available to load or not: kept with the plan (every phone), never in the Loading app
       const plate = sw.dataset.tkav;
-      const off = { ...(state.config.tankersOff || {}) };
       const key = normTT(plate);
+      const row = tankerSpace(tankers.vehicles, [], state.config.tankersOff || {}, { back: state.config.tankersBack || {} })
+        .rows.find((r) => normTT(r.plate) === key);
+      if (row?.off?.sale) {
+        // back from the trip it was sent on: on again, until its next sale
+        // (only the marks of sales still inside their 6 hours are kept)
+        const back = Object.fromEntries(Object.entries(state.config.tankersBack || {}).filter(([, at]) => saleOffUntil(at)));
+        back[key] = row.soldAt;
+        await saveConfig({ tankersBack: back });
+        toast(`${plate}: back from its trip — available to load.`);
+        return;
+      }
+      const off = { ...(state.config.tankersOff || {}) };
       if (off[key]) delete off[key];
       else off[key] = { at: new Date().toISOString(), by: state.device.operator || '' };
       await saveConfig({ tankersOff: off });

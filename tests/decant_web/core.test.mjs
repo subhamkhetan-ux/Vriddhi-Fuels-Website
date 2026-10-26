@@ -668,6 +668,35 @@ test('own tankers: free space, leaving some out', async () => {
   assert.deepEqual(off.unavailable.map((x) => [x.plate, x.off.by]), [['OR15R9360', 'Subham']]);
 });
 
+test('own tankers: off to load for 6 hours after a sale', async () => {
+  const { tankerSpace, saleOffUntil, SALE_OFF_MS } = await import('../../decant/js/core.js');
+  const sold = '2026-10-26T04:00:00.000Z';
+  const now = Date.parse(sold);
+  const vehicles = [
+    { plate: 'OD23A3710', caps: [3985, 3985, 3985], fill: {}, soldAt: sold },
+    { plate: 'OR15R9360', caps: [4485, 4485, 4485, 4485], fill: {}, soldAt: null },
+  ];
+  assert.equal(SALE_OFF_MS, 6 * 3600 * 1000);
+  assert.equal(saleOffUntil(sold, now + 3600e3), now + SALE_OFF_MS);
+  assert.equal(saleOffUntil(sold, now + SALE_OFF_MS), null);
+  assert.equal(saleOffUntil(null, now), null);
+  // 5 h 59 min after the sale: out on its trip, not counted
+  const r = tankerSpace(vehicles, [], {}, { now: now + SALE_OFF_MS - 60e3 });
+  assert.deepEqual(r.rows.map((x) => [x.plate, x.available]), [['OR15R9360', true], ['OD23A3710', false]]);
+  assert.equal(r.free, 17940);
+  assert.deepEqual(r.unavailable[0].off, { at: sold, by: '', sale: true, until: '2026-10-26T10:00:00.000Z' });
+  // 6 hours on: available again by itself
+  assert.ok(tankerSpace(vehicles, [], {}, { now: now + SALE_OFF_MS }).rows.every((x) => x.available));
+  // switched back on after that sale: available; a later sale takes it off again
+  assert.ok(tankerSpace(vehicles, [], {}, { now, back: { 'od23 a 3710': sold } }).rows.every((x) => x.available));
+  assert.ok(tankerSpace(vehicles, [], {}, { now, back: { OD23A3710: '2026-10-26T04:00:00+00:00' } }).rows.every((x) => x.available));   // the same time, written another way
+  const later = [{ ...vehicles[0], soldAt: '2026-10-26T08:00:00.000Z' }];
+  assert.equal(tankerSpace(later, [], {}, { now: now + 4 * 3600e3 + 60e3, back: { OD23A3710: sold } }).rows[0].available, false);
+  // a hand-made mark wins over the sale
+  const hand = tankerSpace(vehicles, [], { OD23A3710: { at: '2026-10-26T03:00:00Z', by: 'Subham' } }, { now });
+  assert.deepEqual(hand.unavailable[0].off, { at: '2026-10-26T03:00:00Z', by: 'Subham' });
+});
+
 test('tank by tank: where each tank of a decantation is', async () => {
   const { tankStage } = await import('../../decant/js/core.js');
   const s = { status: 'decanting' };

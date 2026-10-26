@@ -404,6 +404,23 @@
   .invban .hi{display:block;font-weight:600;font-size:12.5px;margin-top:2px;color:var(--ink)}
   .invban .chev{margin-left:auto;font-size:22px;font-weight:700}
   .invban.ok{border-color:rgba(18,128,74,.3);background:var(--good-bg);color:var(--good)}
+  /* "Loaded now": one compact line per tanker, the total on top */
+  .loadsum{background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:10px 14px 6px;box-shadow:var(--shadow);margin:0 0 14px}
+  .loadsum .ls-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;font-weight:700;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.08em;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .loadsum .ls-tot{text-transform:none;letter-spacing:0;color:var(--ink);font-size:13px}
+  .loadsum .ls-tot b{font-family:var(--display);font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
+  .loadsum .ls-tot small{color:var(--muted);font-weight:600;font-size:12px}
+  .loadsum .ls-row{display:grid;grid-template-columns:auto minmax(40px,1fr) auto;align-items:center;column-gap:10px;padding:7px 0}
+  .loadsum .ls-row+.ls-row{border-top:1px solid var(--line)}
+  .loadsum .ls-row .plate{font-size:11px;padding:3px 6px;justify-self:start}
+  .loadsum .ls-bar{height:6px;border-radius:99px;background:rgba(27,33,48,.09);overflow:hidden}
+  .loadsum .ls-bar i{display:block;height:100%;border-radius:inherit;background:var(--grad-cta)}
+  .loadsum .ls-row.full .ls-bar i{background:var(--grad-good)}
+  .loadsum .ls-n{font-size:12.5px;color:var(--muted);font-weight:600;text-align:right;min-width:62px;font-variant-numeric:tabular-nums}
+  .loadsum .ls-n b{font-family:var(--display);font-size:14px;color:var(--ink);font-weight:700}
+  .loadsum .ls-trip{grid-column:1 / -1;justify-self:start;margin-top:4px;font-size:11.5px;font-weight:700;color:var(--amber-d);
+    background:var(--accent-soft);border-radius:999px;padding:2px 9px}
   .flag .fbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
   .taglist{display:flex;flex-direction:column;gap:6px;max-height:42vh;overflow-y:auto;margin:8px 0;padding:2px}
   .tagrow{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--glass-2);cursor:pointer;text-align:left;margin-bottom:6px}
@@ -695,7 +712,7 @@
   .pill.off{background:rgba(120,20,10,.28)} .pill.off i{background:#ffd0cb}
   /* ---- finishing: the same elements, richer surfaces & stronger type ---- */
   /* cards: a brighter, more solid film with a soft two-layer shadow */
-  .stat,.tcard,.entry,.cham,.confbox,.card-add,.trcard,.mlrow,.logrow,.mini,.tile,.vizcard,.flag,.glist{
+  .stat,.tcard,.entry,.cham,.confbox,.card-add,.trcard,.mlrow,.logrow,.mini,.tile,.vizcard,.flag,.glist,.loadsum{
     background:rgba(255,255,255,.80);border-color:rgba(255,255,255,.95);
     box-shadow:0 1px 2px rgba(27,33,48,.05),0 12px 30px -16px rgba(80,50,20,.30)}
   .glist>.entry,.glist>.logrow{background:transparent;box-shadow:none}
@@ -864,7 +881,7 @@
       radial-gradient(760px 520px at -6% 8%, rgba(255,150,60,.10) 0%, rgba(255,150,60,0) 58%),
       radial-gradient(900px 640px at 50% 110%, rgba(70,130,220,.12) 0%, rgba(70,130,220,0) 62%),
       var(--bg);}
-  :where([data-theme="dark"]) .stat,:where([data-theme="dark"]) .tcard,:where([data-theme="dark"]) .entry,:where([data-theme="dark"]) .cham,:where([data-theme="dark"]) .confbox,:where([data-theme="dark"]) .card-add,:where([data-theme="dark"]) .trcard,:where([data-theme="dark"]) .mlrow,:where([data-theme="dark"]) .logrow,:where([data-theme="dark"]) .mini,:where([data-theme="dark"]) .tile,:where([data-theme="dark"]) .vizcard,:where([data-theme="dark"]) .flag,:where([data-theme="dark"]) .glist{
+  :where([data-theme="dark"]) .stat,:where([data-theme="dark"]) .tcard,:where([data-theme="dark"]) .entry,:where([data-theme="dark"]) .cham,:where([data-theme="dark"]) .confbox,:where([data-theme="dark"]) .card-add,:where([data-theme="dark"]) .trcard,:where([data-theme="dark"]) .mlrow,:where([data-theme="dark"]) .logrow,:where([data-theme="dark"]) .mini,:where([data-theme="dark"]) .tile,:where([data-theme="dark"]) .vizcard,:where([data-theme="dark"]) .flag,:where([data-theme="dark"]) .glist,:where([data-theme="dark"]) .loadsum{
     background:rgba(36,31,27,.90);border-color:rgba(255,255,255,.07);
     box-shadow:0 1px 2px rgba(0,0,0,.35),0 12px 30px -16px rgba(0,0,0,.75)}
   :where([data-theme="dark"]) .glist>*+*::before{background:rgba(255,255,255,.14)}
@@ -895,6 +912,7 @@
   :where([data-theme="dark"]) .fr{background:rgba(255,255,255,.04)}
   :where([data-theme="dark"]) .fr.on{background:linear-gradient(140deg,rgba(255,138,43,.16),rgba(255,255,255,.03) 65%)}
   :where([data-theme="dark"]) .tbar{background:rgba(255,255,255,.10)}
+  :where([data-theme="dark"]) .loadsum .ls-bar{background:rgba(255,255,255,.10)}
   :where([data-theme="dark"]) .fold .fe{background:rgba(255,138,43,.16)}
   :where([data-theme="dark"]) .fold .card-add{background:rgba(255,255,255,.04)}
   :where([data-theme="dark"]) .mltrips .tr{border-top-color:rgba(255,255,255,.08)}
@@ -926,6 +944,37 @@
     .back:not([style*="none"]) + img{display:none}
     .installbtn{padding:6px 8px}
   }
+  /* ===== Desktop & tablet landscape: the header spans the window, the home
+     screen puts the day total, banners and recent list beside a grid of
+     tanker cards, and the other screens get a wider centred column. ===== */
+  .home-top,.home-main,.home-side{display:contents}
+  @media (min-width:900px){
+    .wrap{max-width:none}
+    header{padding:14px max(24px, calc((100% - 1240px)/2 + 24px))}
+    main{width:100%;max-width:1240px;margin:0 auto;padding:24px 24px 48px}
+    .screen{max-width:880px;margin:0 auto}
+    #scTrend,#scTrips,#scReport{max-width:1040px}
+    #scHome{max-width:none}
+    #scHome.on{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);grid-template-rows:auto 1fr;
+      column-gap:24px;align-items:start}
+    #scHome .home-top,#scHome .home-side,#scHome .home-main{display:block;min-width:0}
+    #scHome .home-top{grid-column:1;grid-row:1}
+    #scHome .home-side{grid-column:1;grid-row:2}
+    #scHome .home-main{grid-column:2;grid-row:1 / span 2}
+    #scHome .home-main>.sectitle:first-child{margin-top:0}
+    #tankerList{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;align-items:start}
+    #tankerList .tcard{margin-bottom:0}
+    #tankerList>.empty{grid-column:1 / -1}
+    /* add diesel: a smaller drawing and the chambers side by side, so every
+       chamber's input is on screen without scrolling */
+    #scAdd .vhead .tankwrap{max-width:560px;margin-left:auto;margin-right:auto}
+    #chamList{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:12px}
+    #chamList .cham{margin-bottom:0}
+  }
+  @media (min-width:900px) and (hover:hover){
+    .tcard:hover{transform:translateY(-2px)}
+    .tcard .tap:hover,.big:hover,.dispatch:hover{filter:brightness(1.03)}
+  }
 </style>
 </head>
 <body>
@@ -945,6 +994,9 @@
   <main>
     <!-- HOME -->
     <section class="screen on" id="scHome">
+      <!-- on a phone these three blocks run one after another; on a desktop
+           the day total, banners and recent list sit beside the tanker grid -->
+      <div class="home-top">
       <div class="stat" style="padding:12px 14px">
         <div class="label" id="curDayLabel">Current day — open</div>
         <div class="num"><span id="todayTot">0</span> <small>L</small></div>
@@ -952,10 +1004,15 @@
       </div>
       <div id="endDayWrap"></div>
       <div id="invBanner"></div>
+      <div id="loadSum"></div>
+      </div>
 
+      <div class="home-main">
       <div class="sectitle">Tap a tanker to load diesel</div>
       <div id="tankerList"></div>
+      </div>
 
+      <div class="home-side">
       <div class="sectitle">Recent
         <button class="lnk" id="toHist">View all ›</button>
       </div>
@@ -977,6 +1034,7 @@
       <div class="endednote warnnote" id="noAdminNote" style="display:none">No admin login is set up yet, so everyone has staff access. See README → “Admin &amp; staff logins”.</div>
       <button class="linkbtn" id="toSettings">⚙ Manage tankers &amp; data</button>
       <div class="signrow" id="signRow" style="display:none"></div>
+      </div>
     </section>
 
     <!-- ADD DIESEL TO CHAMBERS -->
@@ -2063,7 +2121,7 @@ setInterval(()=>{ if(Backend && (Backend!==CloudBackend || ME)) maybeAutoClose()
 // re-render the End Day area every minute so the 5:30/7:30 window edges show
 // promptly, and re-check which tankers are still actively loading
 setInterval(()=>{
-  if(stack[stack.length-1]==="scHome" && (Backend!==CloudBackend || ME)){ renderEndDay(); applyPourAll(); }
+  if(stack[stack.length-1]==="scHome" && (Backend!==CloudBackend || ME)){ renderEndDay(); applyPourAll(); renderLoadSum(); }
 }, 60*1000);
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && (Backend!==CloudBackend || ME)) maybeAutoClose(); });
 
@@ -2288,6 +2346,7 @@ function renderHome(){
   $("#curDayLabel").textContent="Current business day — "+keyLabel(currentOpenDate());
   renderEndDay();
   renderTankers();
+  renderLoadSum();
   invoiceWatch(false);   // admins: what needs fixing in the invoices, at the top
   const recent=[...LOG].slice(-6).reverse();
   const box=$("#recentList");
@@ -2329,6 +2388,30 @@ function endDay(){
   const btn=$("#endDayBtn"); if(btn) btn.disabled=true;
   Backend.endDay().then(refresh).then(()=>{ renderHome(); toast("✓ "+dmy(cd)+" ended"); })
     .catch(e=>{ if(btn) btn.disabled=false; oops(e); });
+}
+// The compact "loaded now" card: what is in each tanker and the total. A tanker
+// sent for sale in the last 6 hours is out on its trip — the Decanting app
+// counts it as not available to load until then (decant/js/core.js).
+const SALE_OFF_MS=6*3600*1000;
+function lastSaleTs(plate){
+  let t=0; for(const e of LOG) if(e.plate===plate && e.kind==="dispatch" && e.ts>t) t=e.ts;
+  return t;
+}
+function renderLoadSum(){
+  const box=$("#loadSum"); if(!box) return;
+  if(!VEHICLES.length){ box.innerHTML=""; return; }
+  let tot=0, cap=0;
+  const rows=VEHICLES.map(v=>{
+    const st=tankerState(v.plate); tot+=st.total; cap+=st.cap;
+    const pct=st.cap>0?Math.min(st.total/st.cap,1)*100:0;
+    const sold=lastSaleTs(v.plate), until=sold?sold+SALE_OFF_MS:0;
+    const trip=until>Date.now()
+      ? '<span class="ls-trip" title="Not available to load in the Decanting app until '+timeLabel(until)+'">🚚 On trip till '+timeLabel(until)+'</span>' : '';
+    return '<div class="ls-row'+(st.full?' full':'')+'"><span class="plate">'+esc(fmtPlate(v.plate))+'</span>'
+      +'<span class="ls-bar" role="img" aria-label="'+esc(fmtPlate(v.plate))+': '+fmt(st.total)+' of '+fmt(st.cap)+' L"><i style="width:'+f1(pct)+'%"></i></span>'
+      +'<span class="ls-n"><b>'+fmt(st.total)+'</b> L</span>'+trip+'</div>';
+  }).join("");
+  box.innerHTML='<div class="loadsum"><div class="ls-h"><span>Loaded now</span><span class="ls-tot"><b>'+fmt(tot)+'</b> L <small>of '+fmt(cap)+'</small></span></div>'+rows+'</div>';
 }
 function renderTankers(){
   if(!VEHICLES.length){ $("#tankerList").innerHTML='<div class="empty">No tankers yet.<br>Add one in ⚙ Manage tankers &amp; data.</div>'; return; }
