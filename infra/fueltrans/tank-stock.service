@@ -1,0 +1,24 @@
+# Tank stock monitor and phone page, reading FuelTrans through the IOCL PC's
+# tunnel (tank_stock/fueltrans.py) instead of AnyDesk. A headless browser
+# needs no console login session, so this is a plain service, unlike
+# infra/anydesk/tank-stock-session.service (which it replaces).
+# Installed by infra/fueltrans/tank-stock-setup.sh.
+[Unit]
+Description=Tank stock monitor and phone page (FuelTrans through the IOCL PC's tunnel)
+After=network-online.target
+Wants=network-online.target
+Conflicts=tank-stock-session.service
+
+[Service]
+User=runner
+WorkingDirectory=/opt/agents/tank-stock/app
+# TANK_STOCK_HOSTS / TANK_STOCK_USERS: this server's Tailscale name and your
+# Tailscale login, for the phone page.
+EnvironmentFile=-/opt/agents/tank-stock/page.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/agents/venv/bin/python -m tank_stock.service
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -30,6 +30,11 @@ http://127.0.0.1:8790, published to your own Tailscale devices (setup.sh).
 
 Settings live in /opt/agents/tank-stock/settings.json and the AnyDesk login
 in login.json (owner-only; saved by infra/mac/vm-setup.sh, which asks for it).
+
+With ``"source": "fueltrans"`` in login.json (infra/fueltrans/tank-stock-setup.sh)
+the "session" is FuelTrans itself in a headless browser here, through the IOCL
+PC's tunnel (fueltrans.py), instead of AnyDesk: the same screenshots, read the
+same way, with no AnyDesk and no console login session.
 """
 from __future__ import annotations
 
@@ -49,7 +54,7 @@ import traceback
 from urllib.parse import parse_qs, urlparse
 
 from . import cards as cards_mod
-from . import decant, telegram
+from . import decant, fueltrans, telegram
 from .auto import AutoDecant, AutoError
 from .capture import CaptureError, Session, parse_ids
 from .phone import PhoneStock
@@ -236,12 +241,29 @@ class Station:
             self.live["wake"].set()
         return s
 
+    def from_fueltrans(self) -> bool:
+        """The tank cards come from FuelTrans through the tunnel, not AnyDesk."""
+        return _read_json(self.home / "login.json", {}).get("source") == "fueltrans"
+
     def login(self) -> tuple[list[str], str]:
         data = _read_json(self.home / "login.json", {})
+        if data.get("source") == "fueltrans":
+            if not data.get("password"):
+                raise CaptureError("The FuelTrans login isn't saved here yet: run "
+                                   "infra/fueltrans/tank-stock-setup.sh on the server.")
+            return [data.get("url") or "", data.get("user") or ""], data["password"]
         if not data.get("password") or not data.get("ids"):
             raise CaptureError("The AnyDesk login isn't saved here yet: run infra/mac/vm-setup.sh "
                                "again with ASK_AGAIN=1 (it asks for the AnyDesk numbers and password).")
         return parse_ids(",".join(data["ids"])), data["password"]
+
+    def _session(self, ids, password):
+        """A session to read the PC's tank cards: AnyDesk, or FuelTrans
+        itself through the tunnel (login.json's "source")."""
+        if self.session_cls is Session and self.from_fueltrans():
+            url, user = ids
+            return fueltrans.FuelTransSession(url or fueltrans.URL, user or fueltrans.USER, password)
+        return self.session_cls(ids, password)
 
     def _hold(self, what: str, wait: float = 0) -> None:
         """Take the PC for ``what``, waiting up to ``wait`` seconds."""
@@ -275,7 +297,7 @@ class Station:
                     used = live["session"].position
                 else:
                     ids, password = self.login()
-                    with self.session_cls(ids, password) as session:
+                    with self._session(ids, password) as session:
                         png, page = session.shot()
                         used = session.position
                 last = self._record(png, page, used, tanks, upload, why)
@@ -523,7 +545,7 @@ class Station:
             self._hold("connecting for live monitoring", wait=90)
             try:
                 ids, password = self.login()
-                session = self.session_cls(ids, password)
+                session = self._session(ids, password)
                 session.open()
             finally:
                 self._release()
@@ -552,7 +574,7 @@ class Station:
                     live["wake"].clear()
                     live["wake"].wait(timeout=min(CHECK_EVERY, max(0.1, due - time.monotonic())))
                     if not session.alive():
-                        reason = "AnyDesk ended the session"
+                        reason = getattr(session, "lost", "") or "AnyDesk ended the session"
                         final = session.screen()          # what AnyDesk shows now
                         break
                     if live["wake"].is_set() and not live["stop"].is_set():
@@ -895,7 +917,7 @@ class Station:
             except OSError:
                 continue
             try:
-                if self._live_now():
+                if self._live_now() or self.from_fueltrans():
                     rc, out = self._job_from_live(job)
                     Path(f"{job}.log").write_text(out)
                 else:
@@ -914,7 +936,8 @@ class Station:
             os.replace(f"{job}.rc.tmp", f"{job}.rc")
 
     def _job_from_live(self, job: str) -> tuple[int, str]:
-        """The GitHub job asked while the live session is open: answer from it."""
+        """The GitHub job asked while the live session is open (or the cards
+        come from FuelTrans, which needs no AnyDesk session): answer from it."""
         Path(f"{job}.env").unlink(missing_ok=True)
         try:
             self._hold("GitHub job", wait=120)
@@ -922,9 +945,14 @@ class Station:
             return 1, f"{exc}\n"
         try:
             live = self._live_now()
-            if not live:
+            if live:
+                png, page = live["session"].shot()
+            elif self.from_fueltrans():
+                ids, password = self.login()
+                with self._session(ids, password) as session:
+                    png, page = session.shot()
+            else:
                 return 1, "The live session ended just now; ask again.\n"
-            png, page = live["session"].shot()
         except Exception as exc:  # noqa: BLE001
             return 1, f"The live session's screen could not be read ({type(exc).__name__}).\n"
         finally:
@@ -939,7 +967,8 @@ class Station:
         return {
             "settings": self.settings,
             "limits": {"interval_s": INTERVAL},
-            "login_saved": bool(login.get("password") and login.get("ids")),
+            "login_saved": bool(login.get("password") and (login.get("ids") or login.get("source") == "fueltrans")),
+            "source": login.get("source") or "anydesk",
             "busy": {"since": self.busy_since, "what": self.busy_what} if self.busy_since else None,
             "live": self.live_view(),
             "live_last": self.live_last,
