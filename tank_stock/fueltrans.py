@@ -29,7 +29,11 @@ from .capture import CaptureError
 
 URL = "http://127.0.0.1:13000"        # the tunnel's end (infra/fueltrans/server-setup.sh)
 USER = "Dealer"
-VIEWPORT = {"width": 1920, "height": 1080}
+# The PC's screen, so FuelTrans lays the cards out as there, drawn 1.4 times
+# as large: what AnyDesk showed on the 1920 x 1080 virtual display, which the
+# card reader is tuned to (FuelTrans' small 10 px labels read reliably).
+VIEWPORT = {"width": 1366, "height": 768}
+SCALE = 1.4
 TANK_PAGE = "/tank-dashboard"
 LOGIN_WAIT = 20                       # seconds for the user list, and for the login to go through
 CARDS_WAIT = 40                       # seconds for the tank cards to show their figures
@@ -83,7 +87,7 @@ class FuelTransSession:
         exe = os.environ.get("TANK_STOCK_CHROMIUM") or None
         self._browser = self._pw.chromium.launch(headless=True, executable_path=exe,
                                                  args=["--disable-dev-shm-usage"])
-        self._page = self._browser.new_page(viewport=VIEWPORT)
+        self._page = self._browser.new_page(viewport=VIEWPORT, device_scale_factor=SCALE)
         self._page.set_default_timeout(ACTION_WAIT * 1000)
 
     def _go(self, path: str) -> None:
