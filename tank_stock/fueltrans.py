@@ -35,6 +35,8 @@ USER = "Dealer"
 VIEWPORT = {"width": 1366, "height": 768}
 SCALE = 1.4
 TANK_PAGE = "/tank-dashboard"
+CONFIG = "/assets/data/config.json"   # where FuelTrans' page reads its backend address
+PROBLEM_PNG = "fueltrans-problem.png"  # what the browser showed when a read failed (in TANK_STOCK_HOME)
 LOGIN_WAIT = 20                       # seconds for the user list, and for the login to go through
 CARDS_WAIT = 40                       # seconds for the tank cards to show their figures
 SETTLE = 3                            # seconds more, for every card's figures to fill in
@@ -89,6 +91,21 @@ class FuelTransSession:
                                                  args=["--disable-dev-shm-usage"])
         self._page = self._browser.new_page(viewport=VIEWPORT, device_scale_factor=SCALE)
         self._page.set_default_timeout(ACTION_WAIT * 1000)
+        self._page.route("**" + CONFIG, self._config)
+
+    def _config(self, route) -> None:
+        """FuelTrans' page asks its backend at config.json's baseUrl,
+        http://localhost:3000: right on the PC, nothing here. This browser
+        gets its own address instead (the same FuelTrans, through the tunnel)."""
+        try:
+            resp = route.fetch()
+            cfg = resp.json()
+            if not isinstance(cfg, dict):
+                raise ValueError("not an object")
+            cfg["baseUrl"] = self.url
+            route.fulfill(response=resp, body=json.dumps(cfg), content_type="application/json")
+        except Exception:  # noqa: BLE001 - FuelTrans' own file, then
+            route.continue_()
 
     def _go(self, path: str) -> None:
         try:
@@ -96,10 +113,6 @@ class FuelTransSession:
         except Exception as exc:  # noqa: BLE001 - said in plain words
             raise _down(exc) from None
         self._fresh_at = time.monotonic()
-
-    def _on_login(self) -> bool:
-        page = self._page
-        return "/login" in page.url or page.locator("input[type=password]").count() > 0
 
     def _login(self) -> None:
         page = self._page
@@ -154,28 +167,60 @@ class FuelTransSession:
             pass
 
     def _tank_status(self) -> str:
-        """Bring Tank Status up with its figures; says what it took."""
+        """Bring Tank Status up with its figures; says what it took. A
+        failure keeps what the page showed (PROBLEM_PNG) and says where it was."""
         self._start()
+        try:
+            return self._to_tanks()
+        except CaptureError as exc:
+            where = ""
+            try:
+                where = self._page.url.replace(self.url, "") or "/"
+                png = self._page.screenshot(type="png")
+                home = Path(os.environ.get("TANK_STOCK_HOME", "/opt/agents/tank-stock"))
+                (home / PROBLEM_PNG).write_bytes(png)
+            except Exception:  # noqa: BLE001 - the error says what it can
+                pass
+            raise CaptureError(f"{exc} (page: {where})" if where else str(exc)) from None
+
+    def _settled(self, wait: float) -> str:
+        """What FuelTrans shows once it has started (an Angular app: the
+        login redirect and the cards come a moment after the page loads):
+        "login", "cards", or "" if neither within ``wait`` seconds."""
+        page, deadline = self._page, time.monotonic() + wait
+        while True:
+            if page.locator("input[type=password]").count():
+                return "login"
+            if self._cards_shown(0.5):
+                return "cards"
+            if time.monotonic() >= deadline:
+                return ""
+            page.wait_for_timeout(500)
+
+    def _to_tanks(self) -> str:
         page, did = self._page, []
-        if (TANK_PAGE in page.url and not self._on_login()
-                and time.monotonic() - self._fresh_at < FRESH_EVERY and self._cards_shown(2)):
+        if (TANK_PAGE in page.url and time.monotonic() - self._fresh_at < FRESH_EVERY
+                and self._settled(2) == "cards"):
             return "already on Tank Status"
         self._go(TANK_PAGE)
         did.append("opened FuelTrans")
-        if self._on_login():
+        state = self._settled(LOGIN_WAIT)
+        if state == "login":
             self._login()
             did.append(f"logged in as {self.user}")
             if TANK_PAGE not in page.url:
                 self._go(TANK_PAGE)
-            if self._on_login():               # (the login is kept per page load only)
+            state = self._settled(CARDS_WAIT)
+            if state == "login":               # (the login is kept per page load only)
                 self._login()
                 self._menu_to_tanks()
                 did.append("Monitoring > Tank Status")
-        if not self._cards_shown(CARDS_WAIT):
+                state = self._settled(CARDS_WAIT)
+        if state != "cards":
             if not did[-1].startswith("Monitoring"):
                 self._menu_to_tanks()
                 did.append("Monitoring > Tank Status")
-            if not self._cards_shown(CARDS_WAIT / 2):
+            if self._settled(CARDS_WAIT / 2) != "cards":
                 raise CaptureError("FuelTrans opened, but its Tank Status page showed no tank cards.")
         page.wait_for_timeout(int(self.settle * 1000))
         return ", ".join(did)
@@ -255,6 +300,8 @@ def main() -> int:
             session.close()
     except (OSError, ValueError, CaptureError) as exc:
         print(f"The read failed: {exc}")
+        if (home / PROBLEM_PNG).exists():
+            print(f"What the browser showed: {home / PROBLEM_PNG}")
         return 1
     boxes, read = cards.read_all(png)
     print(f"  FuelTrans: {did}")
