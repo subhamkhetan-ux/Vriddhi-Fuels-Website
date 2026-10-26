@@ -53,6 +53,21 @@ existing Credit controls. GitHub schedules are best effort and start late when
 it is busy, worst on the hour: the single `0 19` run once started at 04:39
 IST. That is why there are four tries at quiet minutes.
 
+**Other deductions.** When the statement proves itself (the checks above),
+every `sync` / `opening` run also marks its non-invoice **debits** in
+**Payments → Credit → Other deductions** (`pay_other_deductions`), with the
+reason taken from the **Item Text** column, e.g. `LICENSE FEE (SSLF) RECOVERY
+(PAD doc 7012322266)`, dated to the entry's day. The Credit tab can't find
+these from balances alone: it compares the balance with invoices, and a payment
+credited the same day (ECollection, fleet card) hides any smaller deduction.
+- A debit is an invoice, not a deduction, when its Item Text says `PRODUCT
+  SUPPLY INVOICE` or its document number is already in `pay_fuel_invoices`.
+- Credits (payments, reversals) are never marked.
+- Ids come from the entry, so rereads add nothing; a deduction already
+  confirmed by hand for the same day and amount isn't added again. One the
+  agent marked comes back if deleted while it is still on the statement.
+- The job log gives only the count. A dry run reports how many it would mark.
+
 Both tables and realtime subscriptions already exist in
 [`supabase/payments-schema.sql`](../supabase/payments-schema.sql); no schema or
 frontend deployment change is needed. All PAD jobs share one concurrency group.
