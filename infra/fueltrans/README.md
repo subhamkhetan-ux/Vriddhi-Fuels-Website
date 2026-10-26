@@ -19,6 +19,11 @@ localhost:3000                       localhost:13000                https://<ser
 - **Tailscale** shows the page to your own signed-in devices only. Nothing is
   opened to the internet. It's the same Tailscale network as the Vriddhi Fuels
   app.
+- **The page's data requests.** FuelTrans' page asks for its data (the user
+  list, tank status and so on) at the address in `assets/data/config.json`,
+  which is `http://localhost:3000`. On your phone that would be the phone, so
+  Tailscale gives your devices a copy of that file with the page's own
+  address. The PC keeps its own file.
 
 It's all free: Oracle Always Free, Tailscale's free plan and OpenSSH, with no
 session limits.
@@ -54,7 +59,8 @@ bash infra/fueltrans/server-setup.sh 'ssh-ed25519 AAAA...the line from the PC...
 ```
 
 Keep the single quotes. It ends with *"FuelTrans answers through the tunnel"*
-and prints the address.
+and prints the address. To update the server part later, run it again
+without the key: the allowed key is kept.
 
 ## 3. On your phone
 
@@ -72,7 +78,7 @@ Add it to your home screen.
 | --- | --- |
 | PC: *"Can't reach … on port 22"* | The IP is wrong, or the station's network blocks SSH. Send a photo. |
 | Server: *"Not connected yet"* | On the PC, run `systemctl status fueltrans-tunnel`. *Permission denied* means the key wasn't copied whole: run step 2 again with it. |
-| Page opens but tanks stay empty | FuelTrans loads its data from another local port. On the PC, run `ss -tln` and send a photo. |
+| Login page has no user names, or tanks stay empty | The page isn't getting the corrected `config.json`. On the server, run `bash infra/fueltrans/server-setup.sh` again (no key needed), then reload with **Ctrl+Shift+R**. |
 | *"Invalid Host header"* | FuelTrans checks the address it's opened with. This needs a small fix on the server only. |
 
 The PC's tunnel status at any time: `systemctl status fueltrans-tunnel`.

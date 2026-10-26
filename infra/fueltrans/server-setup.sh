@@ -11,9 +11,12 @@
 #   port 13000 on this server's localhost. No shell, and no reaching anything
 #   else on the server.
 # - Tailscale publishes that port at https://<this server>:10000/, to your own
-#   signed-in devices only. Nothing is opened to the internet.
+#   signed-in devices only. Nothing is opened to the internet. It also gives
+#   them a copy of FuelTrans' config.json pointing at that address, not
+#   localhost:3000, so the page's data requests go through the tunnel too.
 #
-# Re-running is safe (a new key replaces the old one).
+# Re-running is safe: a new key replaces the old one, and with no key the
+# allowed one is kept (to update the rest).
 #   bash infra/fueltrans/server-setup.sh --remove    undoes all of it.
 set -euo pipefail
 
@@ -22,6 +25,8 @@ HOME_DIR=/var/lib/fueltrans
 PORT=13000                  # the PC's ssh -R lands here (localhost only)
 TS_PORT=10000               # Tailscale HTTPS port (443 is the Vriddhi Fuels app)
 SSHD_CONF=/etc/ssh/sshd_config.d/05-fueltrans-keepalive.conf
+CFG_PATH=/assets/data/config.json   # where FuelTrans' page reads its backend address
+CFG_DIR=/etc/fueltrans
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -30,7 +35,9 @@ die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 if [ "${1:-}" = "--remove" ]; then
   say "Removing the FuelTrans tunnel"
+  sudo tailscale serve --https="$TS_PORT" --set-path="$CFG_PATH" off >/dev/null 2>&1 || true
   sudo tailscale serve --https="$TS_PORT" off >/dev/null 2>&1 || true
+  sudo rm -rf "$CFG_DIR"
   sudo pkill -u "$USER_NAME" 2>/dev/null || true
   id "$USER_NAME" >/dev/null 2>&1 && sudo userdel -r "$USER_NAME" 2>/dev/null || true
   sudo rm -f "$SSHD_CONF"
@@ -40,16 +47,20 @@ if [ "${1:-}" = "--remove" ]; then
 fi
 
 PUBKEY="${1:-}"
-[ -n "$PUBKEY" ] || die "Give the key pc-setup.sh printed on the IOCL PC, in single quotes:
+if [ -z "$PUBKEY" ]; then
+  # Re-running to update: keep the PC's key that's already allowed.
+  sudo test -s "$HOME_DIR/.ssh/authorized_keys" || die "Give the key pc-setup.sh printed on the IOCL PC, in single quotes:
   bash infra/fueltrans/server-setup.sh 'ssh-ed25519 AAAA... fueltrans@bctftsm'"
-case "$PUBKEY" in
-  ssh-ed25519\ *|ssh-rsa\ *|ecdsa-sha2-*\ *) ;;
-  *) die "That doesn't look like a public key (it should start with ssh-ed25519)." ;;
-esac
-printf '%s\n' "$PUBKEY" | ssh-keygen -l -f /dev/stdin >/dev/null 2>&1 \
-  || die "The key is damaged (a character lost when copying?). Copy it again from the PC."
+else
+  case "$PUBKEY" in
+    ssh-ed25519\ *|ssh-rsa\ *|ecdsa-sha2-*\ *) ;;
+    *) die "That doesn't look like a public key (it should start with ssh-ed25519)." ;;
+  esac
+  printf '%s\n' "$PUBKEY" | ssh-keygen -l -f /dev/stdin >/dev/null 2>&1 \
+    || die "The key is damaged (a character lost when copying?). Copy it again from the PC."
+fi
 
-say "1/4 The fueltrans user"
+say "1/5 The fueltrans user"
 if ! id "$USER_NAME" >/dev/null 2>&1; then
   sudo useradd --system --create-home --home-dir "$HOME_DIR" --shell /usr/sbin/nologin "$USER_NAME"
 fi
@@ -58,18 +69,20 @@ sudo usermod -p '*' "$USER_NAME"     # no password, but not "locked" (that would
 # (-R), and nothing to reach (-L to a port nothing listens on).
 OPTS="restrict,port-forwarding,permitlisten=\"$PORT\",permitopen=\"127.0.0.1:9\",command=\"/usr/sbin/nologin\""
 sudo install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "$HOME_DIR/.ssh"
-printf '%s %s\n' "$OPTS" "$PUBKEY" \
-  | sudo install -m 600 -o "$USER_NAME" -g "$USER_NAME" /dev/stdin "$HOME_DIR/.ssh/authorized_keys"
-echo "The PC's key is allowed: $(printf '%s\n' "$PUBKEY" | ssh-keygen -l -f /dev/stdin)"
+if [ -n "$PUBKEY" ]; then
+  printf '%s %s\n' "$OPTS" "$PUBKEY" \
+    | sudo install -m 600 -o "$USER_NAME" -g "$USER_NAME" /dev/stdin "$HOME_DIR/.ssh/authorized_keys"
+fi
+echo "The PC's key is allowed: $(sudo ssh-keygen -l -f "$HOME_DIR/.ssh/authorized_keys")"
 
-say "2/4 Dropping dead connections quickly"
+say "2/5 Dropping dead connections quickly"
 # When the station's internet drops, the old connection would keep port $PORT
 # for hours and the PC couldn't get it back. This closes it after ~90 s.
 printf 'ClientAliveInterval 30\nClientAliveCountMax 3\n' | sudo install -m 644 /dev/stdin "$SSHD_CONF"
 sudo sshd -t || { sudo rm -f "$SSHD_CONF"; die "sshd rejected the setting; nothing was changed."; }
 sudo systemctl try-reload-or-restart ssh 2>/dev/null || true
 
-say "3/4 Publishing it to your Tailscale devices (not the internet)"
+say "3/5 Publishing it to your Tailscale devices (not the internet)"
 if ! command -v tailscale >/dev/null 2>&1; then
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
@@ -82,7 +95,7 @@ TS_NAME="$(ts_field 'd["Self"]["DNSName"].rstrip(".")')"
 [ -n "$TS_NAME" ] || die "Couldn't read this server's Tailscale name. Check: sudo tailscale status"
 sudo tailscale serve --bg --https="$TS_PORT" "http://127.0.0.1:$PORT" >/dev/null
 
-say "4/4 Waiting for the IOCL PC to connect (up to 1 minute)"
+say "4/5 Waiting for the IOCL PC to connect (up to 1 minute)"
 code=""
 for _ in $(seq 1 30); do
   code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$PORT/" || true)"
@@ -96,6 +109,25 @@ else
   echo "  curl -sI http://127.0.0.1:$PORT/ | head -1"
   echo "If it stays empty, on the PC run:  systemctl status fueltrans-tunnel"
 fi
+
+say "5/5 Pointing the page's data requests at the tunnel"
+# FuelTrans' page reads its backend address from $CFG_PATH:
+# http://localhost:3000. Right on the PC, but on your phone that's the phone.
+# Your devices get a copy with this page's own address instead (the same
+# FuelTrans, through the tunnel); the PC keeps its own file.
+sudo install -d -m 755 "$CFG_DIR"
+{ curl -s -m 5 "http://127.0.0.1:$PORT$CFG_PATH" || true; } | ORIGIN="https://$TS_NAME:$TS_PORT" python3 -c '
+import json, os, sys
+try:
+    cfg = json.load(sys.stdin)
+except ValueError:
+    cfg = None
+if not isinstance(cfg, dict):
+    cfg = {}
+cfg["baseUrl"] = os.environ["ORIGIN"]
+print(json.dumps(cfg, indent=4))' | sudo install -m 644 /dev/stdin "$CFG_DIR/config.json"
+sudo tailscale serve --bg --https="$TS_PORT" --set-path="$CFG_PATH" "$CFG_DIR/config.json" >/dev/null
+echo "Your devices get: $(tr -d '\n ' < "$CFG_DIR/config.json")"
 
 cat <<EOF
 
