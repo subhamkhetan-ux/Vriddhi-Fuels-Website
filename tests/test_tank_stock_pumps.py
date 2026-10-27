@@ -320,3 +320,20 @@ def test_the_pump_list_is_read_when_the_page_opens_and_again_after_a_failure(tmp
     p.need_layout()
     assert len(answers) == 3                                     # an hour on: read again
     assert pm.Pumps(tmp_path, lambda: "", fetch=fetch).need_layout() is None and len(answers) == 3
+
+
+def test_a_sale_already_under_way_when_first_seen(mon):
+    """Monitoring started mid-sale (844 L into a tanker's fill): the page
+    says how long it was seen for, and the speed is learnt only from the
+    litres seen flowing."""
+    mon.set_watch([1])
+    for i in range(30):
+        mon.update(1, pkt(1, 5, round(824.4 + 28.0 / 60 * i, 3)))
+        mon.clock_.t += 1
+    card = mon.view()["watching"][0]
+    assert card["joined"] and card["fueling_s"] == 30 and card["litres"] > 824
+    mon.update(1, pkt(1, 2, 838.0))
+    (s,) = mon.sales[1]
+    assert s["joined"] and abs(mon.speeds[1][0] - 28.0) < 0.5            # (not 838 L over 30 s)
+    sale(mon, 1, 20.0, 30.0)
+    assert mon.sales[1][0]["joined"] is False

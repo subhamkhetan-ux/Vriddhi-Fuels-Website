@@ -70,6 +70,7 @@ SPEEDS_KEPT = 30        # sales per nozzle its usual flow is the median of
 SALES_KEPT = 5          # recent sales shown per watched nozzle
 UNSEEN_STOP = 900       # seconds after the Pumps page was last open that monitoring stops by itself
 PRESET_KINDS = ("amount", "litres")
+JOINED_L = 0.5          # litres a sale already had when first seen: joined mid-sale, its time is "seen for"
 
 
 def packets(data: str):
@@ -308,7 +309,8 @@ class Pumps:
             sale = p.get("sale")
             if status == FUELING:
                 if not sale or sale.get("ended"):
-                    sale = p["sale"] = {"started": now, "points": []}
+                    # (already under way when first seen: monitoring started mid-sale)
+                    sale = p["sale"] = {"started": now, "points": [], "joined": vol > JOINED_L}
                 pts = sale["points"]
                 if not pts or vol != pts[-1][1] or now - pts[-1][0] >= 5:
                     pts.append((now, vol))
@@ -337,7 +339,7 @@ class Pumps:
         preset = self.presets.pop(pump, None)
         self.sales[pump] = ([{"ended": now, "litres": litres, "amount": p["amount"],
                               "secs": round(now - sale["started"]), "lpm": lpm,
-                              "preset": preset}] + self.sales.get(pump, []))[:SALES_KEPT]
+                              "preset": preset, "joined": bool(sale.get("joined"))}] + self.sales.get(pump, []))[:SALES_KEPT]
         self._save()
 
     def _tell_locks(self, pump: int, before: list[str], now: list[str]) -> None:
@@ -437,6 +439,7 @@ class Pumps:
         sale = p.get("sale")
         if status == FUELING and sale and not sale.get("ended"):
             card["fueling_s"] = round(now - sale["started"])
+            card["joined"] = bool(sale.get("joined"))
             recent = [(t, v) for t, v in sale["points"] if t >= now - FLOW_WINDOW]
             if len(recent) > 1 and recent[-1][0] - recent[0][0] >= 3:
                 card["lpm"] = round((recent[-1][1] - recent[0][1]) / (recent[-1][0] - recent[0][0]) * 60, 1)

@@ -162,16 +162,23 @@ through the tunnel with plain HTTP long-polling, no browser). It only ever
 listens; it never sends anything on that connection (FuelTrans' Pump Status
 page can send pump controls there).
 
-- **Off unless started.** Tick nozzles, press **Start monitoring**. It stops
-  on **Stop**, when no nozzle is ticked, or 15 minutes after the Pumps page
-  was last open. Off, the listener sleeps with no timer and makes no request
-  at all, and a restart leaves it off.
-- **Each watched nozzle:** FuelTrans' status (IDLE, CALLING, AUTHORISED,
-  FUELING, SALE END, PUMP LOCK...), the sale's rupees and litres, how long
-  it has been fuelling, its flow now and its usual flow (the median of its
-  last 30 sales, counting only the seconds it flowed), and its last 5 sales.
+- **The page:** a bar with live or off, Start / Stop and how many watched
+  nozzles are fuelling, waiting (nozzle up, authorised, paused), idle or
+  locked; then a tile per watched nozzle, in pump order: its status, the
+  sale's litres and rupees, its flow now and how long it has been fuelling
+  ("seen" if monitoring started mid-sale), and with a preset, a progress bar
+  and the time left. Tap a tile for its details: preset, usual flow, last 5
+  sales, stop watching. The nozzles to tick and the settings fold away below.
+- **Off unless started.** Tick nozzles, press **Start**. It stops on
+  **Stop**, when no nozzle is ticked, or 15 minutes after the Pumps page was
+  last open. Off, the listener sleeps with no timer and makes no request at
+  all, and a restart leaves it off. Opening the page reads FuelTrans' pump
+  list (one small request, once an hour) so the nozzles can be ticked.
+- **Usual flow:** the median of a nozzle's last 30 sales, counting only the
+  litres and seconds it was seen flowing (a pause, or a sale joined midway,
+  doesn't skew it).
 - **Preset:** set on the dispenser's keypad, which FuelTrans never sees. Tap
-  it on the nozzle (₹ or litres) for a progress bar and the time left; it
+  the same one on the nozzle's tile (₹ or litres) for the time left; it
   clears when that sale ends.
 - **Interlocks:** `lockval`'s bits and the NPND flag, by FuelTrans' own
   names (TEST, PRODUCT LOW, DELIVERY INPROGRESS i.e. decantation, PUMP LOCK,
