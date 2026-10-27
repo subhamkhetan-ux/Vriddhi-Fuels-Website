@@ -76,7 +76,9 @@ Add it to your home screen.
 
 The server can read the tank cards itself, through the tunnel: a hidden
 Chromium logs in to FuelTrans (user Dealer) and opens Tank Status, like the
-AnyDesk reader did with the PC's screen. Everything after that is the same
+AnyDesk reader did with the PC's screen. The figures are FuelTrans' own live
+data, the very ones its cards show, so no digit is misread; the screenshot is
+the proof picture. Everything after that is the same
 as before (`tank_stock/`): the figures and their checks, the zoomed cards as
 the proof picture, live monitoring, the decant app's "Check stock now" and
 automatic decantation. There's no AnyDesk session to drop and no time limit,

@@ -40,7 +40,9 @@ same way, with no AnyDesk and no console login session.
 from __future__ import annotations
 
 import argparse
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
+import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -82,6 +84,7 @@ LONG_SESSION = 600               # a session this long resets that count
 LIVE_UPLOAD_TIMEOUT = 8          # seconds: a live upload gives up (the live read waits for it)
 LIVE_UPLOAD_BACKOFF = 30         # seconds: after the decant app couldn't be reached, before trying again
 PROBE_STALE_S = 180              # a card whose "Last Updated" time hasn't moved this long: frozen figures
+EXACT_KEPT = 300                 # screens whose exact figures are remembered (a decantation's proof screens)
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
@@ -234,6 +237,7 @@ class Station:
         self.auto = AutoDecant(self)
         self.phone = PhoneStock(self)    # a phone's "Check stock now" / "Monitor the stock" (decant home page)
         self.pumps = Pumps(home, self._fueltrans_url, notify=notify)   # the Pumps tab (pumps.py)
+        self._exact = OrderedDict()      # screen -> the exact figures that came with it (FuelTrans' live data)
 
     # ---- settings and login --------------------------------------------
     @property
@@ -308,12 +312,12 @@ class Station:
                 # ended, or finished connecting, while this waited for it)
                 live = self._live_now()
                 if live:
-                    png, page = live["session"].shot()
+                    png, page = self._got(live["session"].shot(), live["session"])
                     used = live["session"].position
                 else:
                     ids, password = self.login()
                     with self._session(ids, password) as session:
-                        png, page = session.shot()
+                        png, page = self._got(session.shot(), session)
                         used = session.position
                 last = self._record(png, page, used, tanks, upload, why)
             except Exception as exc:
@@ -324,6 +328,35 @@ class Station:
         if decantation and self.live and not self.auto.active():
             self.stop_live("sent for decantation")   # (an automatic decantation needs it on)
         return last
+
+    # ---- the exact figures (FuelTrans' live data) that came with a screen ----
+    @staticmethod
+    def _key(png: bytes) -> str:
+        return hashlib.sha1(png).hexdigest()
+
+    def _got(self, got, session):
+        """A screen from ``session`` (bytes, or (bytes, what it took)): note
+        the exact figures that came with it, for whenever it's read."""
+        png = got[0] if isinstance(got, tuple) else got
+        figures = getattr(session, "last_figures", None)
+        if png and figures:
+            self._exact[self._key(png)] = {int(k): dict(v) for k, v in figures.items()}
+            self._exact.move_to_end(self._key(png))
+            while len(self._exact) > EXACT_KEPT:
+                self._exact.popitem(last=False)
+        return got
+
+    def _read_screen(self, png: bytes) -> tuple[dict, dict]:
+        """({tank: card box}, {tank: figures}) of a Tank Status screen. With
+        the exact figures that came with it, the screen is read once, only to
+        find the cards for their pictures; a tank the live data didn't have
+        (or a screen without it) is read from the screen, as before."""
+        exact = self._exact.get(self._key(png)) if png else None
+        if not exact:
+            return cards_mod.read_all(png)
+        boxes = cards_mod.card_boxes(png, cards_mod.ocr(png))
+        return boxes, {no: dict(exact[no]) if no in exact else cards_mod.read_card(png, box)
+                       for no, box in boxes.items()}
 
     def _live_now(self):
         """The open live session, if it is live and still connected."""
@@ -353,7 +386,7 @@ class Station:
         tmp = self.home / "screen.png.tmp"
         tmp.write_bytes(png)
         os.replace(tmp, self.home / "screen.png")
-        boxes, read = cards_mod.read_all(png)
+        boxes, read = self._read_screen(png)
         self._screen = (png, dict(boxes))         # the picture and its card boxes, together
         cfg, cfg_error = self._settings()
         found = {}
@@ -650,8 +683,8 @@ class Station:
 
     def _live_find(self, live) -> bytes:
         """Open Tank Status if need be and find the cards: a full read."""
-        png, page = live["session"].shot()
-        boxes, read = cards_mod.read_all(png)
+        png, page = self._got(live["session"].shot(), live["session"])
+        boxes, read = self._read_screen(png)
         live.update(boxes=boxes, page=page, fp={},
                     products={no: c.get("product") for no, c in read.items()})
         return png
@@ -662,34 +695,45 @@ class Station:
         except RuntimeError:
             return                                     # a capture from the page: next time
         try:
-            if not live.get("boxes"):
+            if not live.get("boxes") and not live.get("exact"):
                 png = self._live_find(live)
             else:
-                png = live["session"].screen()
-            px = cards_mod.Pixels(png)
-            if not px.ok:
-                raise CaptureError("The screenshot of the live session failed.")
+                png = self._got(live["session"].screen(), live["session"])
+            # FuelTrans' live data that came with this screen: the exact figures,
+            # no reading of the screen; a tank without them is read off it
+            exact = self._exact.get(self._key(png), {}) if png else {}
+            live["exact"] = bool(exact)
+            px = None
             cfg = self._live_cfg(live)
             changed, good = {}, 0
             watched = sorted(set(live["tanks"]) | self.auto.watched() | self.phone.watched())
             for no in watched:
-                box = live["boxes"].get(no)
-                if not box:
-                    continue
-                try:
-                    clock = cards_mod.clock_print(px, box)
-                except Exception:  # noqa: BLE001 - unknown: nothing is said about it
-                    clock = ""
+                ex = exact.get(no)
+                if ex:
+                    clock, fp = "|".join(ex.get("time") or ()), f"{ex['volume']}|{ex['height']}|{ex['ullage']}"
+                else:
+                    box = (live.get("boxes") or {}).get(no)
+                    if not box:
+                        continue
+                    if px is None:
+                        px = cards_mod.Pixels(png)
+                        if not px.ok:
+                            raise CaptureError("The screenshot of the live session failed.")
+                    try:
+                        clock = cards_mod.clock_print(px, box)
+                    except Exception:  # noqa: BLE001 - unknown: nothing is said about it
+                        clock = ""
+                    fp = cards_mod.fingerprint(px, box)
+                    self._read_off_screen(live, no)
                 if clock:
                     tick = live.setdefault("ticks", {}).get(no)
                     if not tick or tick["fp"] != clock:
                         live["ticks"][no] = {"fp": clock, "since": now_iso(), "t": time.time()}
-                fp = cards_mod.fingerprint(px, box)
                 if fp == live["fp"].get(no):
                     good += 1                         # same figures as last time
                     continue
-                card = cards_mod.read_figures(png, box)
-                card.update(no=no, product=live["products"].get(no), seenAt=_utc_now())
+                card = dict(ex) if ex else cards_mod.read_figures(png, box)
+                card.update(no=no, product=live["products"].get(no) or card.get("product"), seenAt=_utc_now())
                 tank = self.decant.tank_for(no, cfg)
                 built = self.decant.make_reading(card, tank, cfg) if tank else None
                 if not built or card.get("volume") is None:
@@ -730,6 +774,20 @@ class Station:
             live["last_error"] = str(exc) if isinstance(exc, CaptureError) else f"{type(exc).__name__}: {exc}"
         finally:
             self._release()
+
+    def _read_off_screen(self, live, no: int) -> None:
+        """A FuelTrans card read fine off the screen that its live data
+        didn't bring: said once a session (FuelTrans changed its live data?
+        the screen still works, only slower)."""
+        if getattr(live.get("session"), "last_figures", None) is None or live.get("reads", 0) < 3:
+            return
+        if (live.get("figures") or {}).get(str(no), {}).get("confidence") in (None, "low"):
+            return                                     # (not figures: a probe that's down, say)
+        told = live.setdefault("read_off_screen", set())
+        if no not in told:
+            told.add(no)
+            self.notify(f"Tank stock: FuelTrans' live data didn't bring Tank {no}'s figures, so they're read "
+                        "off the screen as before (slower). If this keeps happening, FuelTrans may have changed.")
 
     def _live_upload(self, live, changed, cfg) -> None:
         """The figures alone to the decant app (no pictures while live). One the
@@ -926,7 +984,7 @@ class Station:
         live = self.live
         if not live:
             return None
-        hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png")
+        hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen")
         out = {k: v for k, v in live.items() if k not in hidden}
         # each card's "Last Updated" clock: frozen means the figures are too
         out["probes"] = {str(no): {"since": t["since"], "age_s": round(time.time() - t["t"]),

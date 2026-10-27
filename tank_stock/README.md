@@ -6,8 +6,19 @@ tunnel open to the Oracle server ([infra/fueltrans](../infra/fueltrans/README.md
 and the **Oracle server** opens FuelTrans itself in a headless browser
 through it (`fueltrans.py`): it logs in as Dealer, opens Tank Status, waits
 for every card's live figures and takes a screenshot, drawn as on the PC
-(1920 x 1080, DejaVu Sans). The cards are read from that screenshot
-(`cards.py`). Set up by `infra/fueltrans/tank-stock-setup.sh`.
+(1920 x 1080, DejaVu Sans). Set up by `infra/fueltrans/tank-stock-setup.sh`.
+
+**The figures are FuelTrans' own.** Its page gets each tank's figures over
+its live connection (socket.io's `tankStatusPkt`) and draws them on the
+card; the server's browser keeps those packets, and a screenshot's figures
+are the ones whose "Last Updated" is the very time its card shows, so the
+picture and the figures always agree and nothing is guessed from pixels. The
+screenshot is still taken (the proof picture) and read once to find the
+cards. A card the live data didn't bring is read off the screenshot with
+Tesseract (`cards.py`), as before, and Telegram is told once (FuelTrans may
+have changed its live data; the screen still works, only slower). Either
+way the decant app's checks (volume + ullage = capacity, the dip chart) run
+on every reading.
 
 The earlier AnyDesk reader is kept as a fallback (see the end).
 
@@ -190,7 +201,7 @@ shots.js`). A result picture made on any phone that day shows it under the
 figures. Earlier days' are deleted (once a day, by the agent or the first
 phone that opens the app).
 
-Each card is read twice with Tesseract, enlarged (`cards.py`): as it is, which
+A card read off the screen is read twice with Tesseract, enlarged (`cards.py`): as it is, which
 gives the figures cleanly, and thresholded, which also gives the grey labels
 and the "Last Updated" time. The figures of both reads must agree.
 

@@ -2,6 +2,8 @@
 login page (user list from getSiteUsers, a password, LOGIN) and a Tank Status
 page laid out like the real one, read by the same card reader as AnyDesk's
 screenshots."""
+import base64
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -16,6 +18,7 @@ pytest.importorskip("playwright.sync_api")
 
 from tank_stock import cards as cards_mod  # noqa: E402
 from tank_stock.capture import CaptureError  # noqa: E402
+from tank_stock import fueltrans  # noqa: E402
 from tank_stock.fueltrans import FuelTransSession  # noqa: E402
 
 TANKS = [  # (no, product, volume, height, ullage, density, density tc, temp, time, fill %, colour): the PC's screen
@@ -115,6 +118,10 @@ function dashboard() {
   // as FuelTrans: the cards come first as placeholders (OFFLINE, 00/00/0000,
   // 1,000,000.00 ltr), each tank's figures a while later over its live connection
   fetch(base + "/getSiteInfo").then(r => r.json()).then(() => {
+    if (LIVE_DATA) {   // socket.io: a first reply over HTTP polling, then the websocket
+      fetch("/socket.io/?EIO=3&transport=polling&t=1");
+      new WebSocket(`ws://${location.host}/socket.io/?EIO=3&transport=websocket`);
+    }
     document.querySelector(".cards").innerHTML = placeholders.join("");
     tanks.forEach((card, i) => NEVER.includes(i + 1) || setTimeout(() => {
       document.querySelectorAll(".card")[i].outerHTML = card;
@@ -133,14 +140,32 @@ setTimeout(() => fetch("/assets/data/config.json").then(r => r.json())
 </script></body></html>"""
 
 
-def serve(in_memory: bool, never=()):
-    """The synthetic FuelTrans; ``never``: tanks whose figures never come (a probe that is down)."""
+def packet(no, product, volume, height, ullage, density, density_tc, temp, sec, *_):
+    """A card's figures as FuelTrans' live data brings them (float32 noise and all)."""
+    f = lambda v: float(v.replace(",", "")) - 0.0000195   # noqa: E731
+    return {"tankId": no, "lastUpdated": f"10/26/2026 12:46:{sec}", "tankUid": 40 + no, "tankStatus": 2,
+            "productLevel": f(height), "prodcutVolume": f(volume), "waterLevel": 0, "waterVolume": 0,
+            "temperature": f(temp), "tcVolume": 0, "ullage": f(ullage), "density": f(density),
+            "tcDensity": f(density_tc), "lockval": 0}
+
+
+def ws_frame(text: str) -> bytes:
+    data = text.encode()
+    head = bytes([0x81, len(data)]) if len(data) < 126 else bytes([0x81, 126]) + len(data).to_bytes(2, "big")
+    return head + data
+
+
+def serve(in_memory: bool, never=(), live_data=True):
+    """The synthetic FuelTrans; ``never``: tanks whose figures never come (a
+    probe that is down); ``live_data``: its page gets the figures over
+    socket.io as well (tank 1 over HTTP polling, the others over a websocket)."""
     cards = [card_html(*t) for t in TANKS]
     waiting = [card_html(no, product, "1,000,000.00", "714.90", "171,892.48", "827.10", "827.10", "0.00", "00", 2,
                          colour).replace("10/26/2026 12:46:00", "00/00/0000 00:00:00")
                .replace('class="ok">ONLINE', 'class="off">OFFLINE')
                for no, product, *_, colour in TANKS]
-    page = APP.replace("TANKS_JSON", json.dumps(cards)).replace("PLACEHOLDERS_JSON", json.dumps(waiting)).replace("IN_MEMORY", json.dumps(in_memory)).replace("NEVER", json.dumps(list(never))).encode()
+    page = APP.replace("TANKS_JSON", json.dumps(cards)).replace("PLACEHOLDERS_JSON", json.dumps(waiting)).replace("IN_MEMORY", json.dumps(in_memory)).replace("NEVER", json.dumps(list(never))).replace("LIVE_DATA", json.dumps(live_data)).encode()
+    pkts = {t[0]: "42" + json.dumps(["tankStatusPkt", packet(*t)]) for t in TANKS if t[0] not in never}
 
     files = []                                     # requests for its program file
 
@@ -149,9 +174,17 @@ def serve(in_memory: bool, never=()):
             pass
 
         def do_GET(self):
-            if self.path == "/vendor.0123456789abcdef.js":
+            if self.path.startswith("/socket.io/") and "transport=websocket" in self.path:
+                return self.websocket()
+            if self.path.startswith("/socket.io/"):
+                one = [p for no, p in pkts.items() if no == 1]
+                body, kind = "".join(f"{len(p)}:{p}" for p in ['0{"sid":"x"}', *one]).encode(), "text/plain"
+            elif self.path == "/vendor.0123456789abcdef.js":
                 files.append(self.path)
                 body, kind = b"window.vendorLoaded = true;", "text/javascript"
+            elif self.path == "/tankDetails":
+                body, kind = json.dumps([{"id": 40 + t[0], "tank_no": t[0], "product_name": t[1], "capacity": 20000}
+                                         for t in TANKS]).encode(), "application/json"
             elif self.path == "/getSiteInfo":
                 body, kind = b'[{"site_id": "338821"}]', "application/json"
             elif self.path == "/getSiteUsers":
@@ -165,6 +198,25 @@ def serve(in_memory: bool, never=()):
             self.send_header("Content-Type", kind)
             self.end_headers()
             self.wfile.write(body)
+
+        def websocket(self):
+            key = self.headers["Sec-WebSocket-Key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+            self.protocol_version = "HTTP/1.1"         # (a websocket needs it)
+            self.send_response(101)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", base64.b64encode(hashlib.sha1(key.encode()).digest()).decode())
+            self.end_headers()
+            try:
+                self.wfile.write(ws_frame("40"))
+                while True:                            # (every second, as the ATG's figures come)
+                    for no, p in pkts.items():
+                        if no != 1:
+                            self.wfile.write(ws_frame(p))
+                    self.wfile.flush()
+                    time.sleep(1)
+            except OSError:
+                pass                                   # the page closed
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.files = files
@@ -200,6 +252,16 @@ def test_logs_in_and_reads_the_cards(chromium, in_memory):
             assert fonts[0].startswith('"DejaVu Sans"') and fonts[1] == "monospace", fonts   # the PC's font, icons kept
             assert ("Monitoring > Tank Status" in did) == in_memory   # the menu when a reload logs out
             assert s.alive()
+            exact = s.last_figures                                   # FuelTrans' live data, as shown
+            assert sorted(exact) == [1, 2, 3, 4], exact              # (tank 1's came over HTTP polling)
+            for no, product, volume, height, ullage, density, density_tc, temp, sec, *_ in TANKS:
+                assert exact[no] == {
+                    "no": no, "time": ("10", "26", "2026", "12", "46", sec), "capacity": 20000.0,
+                    "volume": float(volume.replace(",", "")), "height": float(height.replace(",", "")),
+                    "water": 0.0, "ullage": float(ullage.replace(",", "")),
+                    "density": float(density.replace(",", "")), "densityTc": float(density_tc.replace(",", "")),
+                    "temp": float(temp), "disagree": [], "exact": True,
+                    "product": {"Motor Spirit": "MS", "XtraGreen": "XG"}.get(product, "HSD")}, exact[no]
             png2, did2 = s.shot()                                    # from another thread: same page
             assert did2 == "already on Tank Status"
             assert s.screen().startswith(b"\x89PNG")
@@ -264,13 +326,13 @@ def test_service_picks_fueltrans_from_the_login(tmp_path):
 
 
 def test_a_tank_whose_figures_never_come(chromium, monkeypatch):
-    from tank_stock import fueltrans
     monkeypatch.setattr(fueltrans, "DATA_WAIT", 8)
     server = serve(False, never=(3,))
     s = FuelTransSession(f"http://127.0.0.1:{server.server_port}", "Dealer", "123456", settle=0)
     try:
         png, did = s.shot()
         assert did.endswith("1 card still had no figures after 8 s"), did
+        assert sorted(s.last_figures) == [1, 2, 4]
         if shutil.which("tesseract") and shutil.which("convert"):
             boxes, read = cards_mod.read_all(png)
             assert read[1]["volume"] == 8787.48 and read[4]["volume"] == 2513.75
@@ -280,10 +342,13 @@ def test_a_tank_whose_figures_never_come(chromium, monkeypatch):
         server.shutdown()
 
 
-def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_path, monkeypatch):
+@pytest.mark.parametrize("live_data", [True, False], ids=["live-data", "screen-only"])
+def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_path, monkeypatch, live_data):
     """What the Vriddhi Fuels app's Tank stock tab and the decant app ask for,
     end to end: a capture saved to the decant app with its proof picture, then
-    live monitoring sending the volumes as they come."""
+    live monitoring sending the volumes as they come. With FuelTrans' live
+    data the figures are its own, and the screen is read only to find the
+    cards for their pictures; without it, they're read off the screen."""
     if not (shutil.which("tesseract") and shutil.which("convert")):
         pytest.skip("needs Tesseract and ImageMagick")
     from tank_stock import decant, service
@@ -292,7 +357,11 @@ def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_pa
     monkeypatch.setattr(decant, "_rest", db)
     monkeypatch.setattr(decant, "_http", db.http)
     monkeypatch.setenv("TANK_STOCK_HOME", str(tmp_path))
-    server = serve(False)
+    server = serve(False, live_data=live_data)
+    reads = {"ocr": 0, "read_card": 0, "read_figures": 0}
+    for name in reads:
+        monkeypatch.setattr(cards_mod, name, (lambda name, fn: lambda *a: (
+            reads.__setitem__(name, reads[name] + 1), fn(*a))[1])(name, getattr(cards_mod, name)))
     (tmp_path / "login.json").write_text(json.dumps({
         "source": "fueltrans", "url": f"http://127.0.0.1:{server.server_port}", "user": "Dealer", "password": "123456"}))
     st = service.Station(home=tmp_path, notify=lambda *a: True, notify_photo=lambda *a: True)
@@ -304,6 +373,8 @@ def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_pa
             assert last["uploads"][str(no)]["ok"], last["uploads"]
         assert sorted(w["tank_id"] for w in db.writes) == ["T1", "T2", "T3", "T4"]
         assert len(db.shots) == 4 and all(data.startswith(b"\xff\xd8") for data, _ in db.files.values())
+        assert reads == ({"ocr": 1, "read_card": 0, "read_figures": 0} if live_data
+                         else {"ocr": 1, "read_card": 4, "read_figures": 0}), reads
 
         st.start_live({"tanks": [1, 2, 3, 4], "auto_upload": True, "interval_s": 5})
         deadline = time.time() + 150
@@ -314,6 +385,11 @@ def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_pa
         assert {no: f["reading"]["volume"] for no, f in sorted(live["figures"].items())} == {
             str(no): float(volume.replace(",", "")) for no, _, volume, *_ in TANKS}
         assert live["session"].alive()
+        assert live["exact"] is live_data
+        if live_data:
+            assert reads["read_figures"] == 0 and reads["read_card"] == 0, reads   # no reading of the screen
+        else:
+            assert reads["read_figures"] >= 4, reads
     finally:
         st.stop_live("test over")
         deadline = time.time() + 60
@@ -326,7 +402,6 @@ def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_pa
 def test_a_stalled_page_is_opened_again(chromium, monkeypatch):
     """No card's "Last Updated" moving (FuelTrans' live connection stalled):
     the next screenshot opens Tank Status again."""
-    from tank_stock import fueltrans
     monkeypatch.setattr(fueltrans, "STALE_RELOAD", 3)
     server = serve(False)
     loads = []
@@ -352,7 +427,6 @@ def test_a_blip_of_the_tunnel_isnt_a_lost_session(chromium, monkeypatch):
     """FuelTrans not answering for a moment (the station's internet) keeps
     the session; only LOST_AFTER seconds without an answer lose it, and the
     reason says how it failed."""
-    from tank_stock import fueltrans
     monkeypatch.setattr(fueltrans, "LOST_AFTER", 2)
     server = serve(False)
     port = server.server_port
@@ -396,3 +470,85 @@ def test_fueltrans_program_files_cross_the_tunnel_once(chromium, tmp_path, monke
         assert (tmp_path / "fueltrans-files" / "vendor.0123456789abcdef.js").read_bytes().startswith(b"window.")
     finally:
         server.shutdown()
+
+
+class FakeResponse:
+    def __init__(self, url, body):
+        self.url, self.body = url, body
+
+    def text(self):
+        if self.body is None:
+            raise RuntimeError("Response body is unavailable for redirect responses")
+        return self.body
+
+
+def test_exact_figures_are_the_ones_on_the_screen(monkeypatch):
+    """A tank's live figures count only if their "Last Updated" is the one its
+    card shows: the picture and the figures always agree. Unknown live data
+    (FuelTrans changed) gives none: those cards are read off the screen."""
+    s = FuelTransSession("http://127.0.0.1:9", "Dealer", "x")
+    assert s._tank_details() == {} and s._tank_details() == {}   # (nothing there: not asked again at once)
+    monkeypatch.setattr(s, "_tank_details", lambda: {1: {"capacity": 20000, "product_name": "Motor Spirit"}})
+    one = packet(*TANKS[0])
+    later = {**one, "lastUpdated": "10/26/2026 12:46:42", "prodcutVolume": 8700.0}
+    for p in (one, later):
+        s._on_frame("42" + json.dumps(["tankStatusPkt", p]))
+    s._on_frame('42["pumpStatusPkt",{"PumpId":1}]')
+    s._on_frame("3")                                           # (a pong)
+    s._on_frame(b'42["tankStatusPkt",{"no":"tankId"}]')        # unknown: kept out
+    assert s._figures(["Last Updated @ 10/26/2026 12:46:42"])[1]["volume"] == 8700.0
+    shown = s._figures(["Last Updated @ 10/26/2026 12:46:37", "Last Updated @ 10/26/2026 12:46:39"])
+    assert shown[1]["volume"] == 8787.48 and shown[1]["product"] == "MS"   # the older one: what's on screen
+    assert s._figures(["Last Updated @ 10/26/2026 12:47:00"]) == {}           # neither is on screen
+    assert s._figures([]) == {}
+    for _ in range(fueltrans.KEPT_PACKETS):
+        s._on_frame("42" + json.dumps(["tankStatusPkt", later]))
+    assert s._figures(["Last Updated @ 10/26/2026 12:46:37"]) == {}           # long gone
+    # over HTTP polling (before the websocket is up), one reply holding several packets
+    two = "42" + json.dumps(["tankStatusPkt", packet(*TANKS[1])])
+    s._on_response(FakeResponse("http://x/socket.io/?EIO=3&transport=polling&t=2", f'2:40{len(two)}:{two}'))
+    s._on_response(FakeResponse("http://x/socket.io/?EIO=3&transport=polling&t=3", None))   # (gone: skipped)
+    s._on_response(FakeResponse("http://x/getSiteInfo", "[]"))
+    assert s._figures(["Last Updated @ 10/26/2026 12:46:39"])[2]["volume"] == 16038.2
+    # FuelTrans' live data in another shape: no exact figures, the screen is read
+    assert fueltrans.card_from_packet({**one, "prodcutVolume": None}, {}) is None
+    assert fueltrans.card_from_packet({k: v for k, v in one.items() if k != "ullage"}, {}) is None
+    assert fueltrans.card_from_packet({**one, "lastUpdated": "00/00/0000 00:00:00"}, {}) is None
+    fixed = {k: v for k, v in one.items() if k != "prodcutVolume"} | {"productVolume": 5.0}   # (the typo fixed)
+    assert fueltrans.card_from_packet(fixed, {})["volume"] == 5.0
+    assert fueltrans.card_from_packet(one, {})["capacity"] is None              # (no tankDetails: the decant app's)
+    s.close()
+
+
+def test_the_service_pairs_each_screen_with_its_exact_figures(tmp_path, monkeypatch):
+    """A screen's exact figures are used for the cards found on it (a tank
+    whose card isn't on the screen has none); any other screen is read off
+    as before. A FuelTrans card read fine off the screen that the live data
+    didn't bring is said once a session."""
+    from tank_stock import service
+    told = []
+    st = service.Station(home=tmp_path, notify=lambda text, *a: told.append(text) or True,
+                         notify_photo=lambda *a: True)
+
+    class Session:
+        last_figures = {1: {"no": 1, "volume": 5.0, "exact": True}, 2: {"no": 2, "volume": 6.0, "exact": True}}
+
+    png = b"\x89PNG the screen"
+    assert st._got((png, "already on Tank Status"), Session()) == (png, "already on Tank Status")
+    monkeypatch.setattr(cards_mod, "ocr", lambda png: [])
+    monkeypatch.setattr(cards_mod, "card_boxes", lambda png, words: {1: (0, 0, 9, 9), 3: (10, 0, 19, 9)})
+    monkeypatch.setattr(cards_mod, "read_card", lambda png, box: {"volume": 7.0})
+    monkeypatch.setattr(cards_mod, "read_all", lambda png: ({}, {"read": "off the screen"}))
+    boxes, read = st._read_screen(png)
+    assert read == {1: {"no": 1, "volume": 5.0, "exact": True}, 3: {"volume": 7.0}}, read
+    assert st._read_screen(b"\x89PNG another screen") == ({}, {"read": "off the screen"})
+
+    live = {"session": Session(), "reads": 2, "figures": {"3": {"confidence": "high"}, "4": {"confidence": "low"}}}
+    st._read_off_screen(live, 3)
+    assert not told                                    # (not in a session's first reads)
+    live["reads"] = 3
+    for no in (3, 3, 4, 5):
+        st._read_off_screen(live, no)
+    assert len(told) == 1 and "Tank 3" in told[0], told   # once; not a card without figures
+    st._read_off_screen({"session": object(), "reads": 9, "figures": {"6": {"confidence": "high"}}}, 6)
+    assert len(told) == 1                               # (a screen-only session: nothing to say)
