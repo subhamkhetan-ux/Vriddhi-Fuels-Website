@@ -118,6 +118,14 @@ up (no card's "Last Updated" moves for 2½ min), the server opens Tank Status
 again. The server's browser shows FuelTrans exactly as the PC does: 1920 x
 1080, in the PC's font (DejaVu Sans).
 
+## 5. Pumps: live nozzles in the Vriddhi Fuels app
+
+Comes with the tank stock service (step 4): the app's **⛽ Pumps** tab. Tick
+the nozzles to watch and press **Start monitoring**: their status, live
+₹ and litres, flow and, with the preset tapped, the time left. Off unless
+started, and it stops by itself 15 minutes after the tab was last open, so
+it uses nothing when you're not watching. See `tank_stock/README.md`.
+
 ## If something's wrong
 
 | What you see | Do this |

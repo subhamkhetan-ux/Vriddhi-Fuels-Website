@@ -59,6 +59,7 @@ from . import decant, fueltrans, telegram
 from .auto import AutoDecant, AutoError
 from .capture import CaptureError, Session, parse_ids
 from .phone import PhoneStock
+from .pumps import Pumps
 
 HOME = Path(os.environ.get("TANK_STOCK_HOME", "/opt/agents/tank-stock"))
 QUEUE = Path(os.environ.get("TANK_STOCK_QUEUE", "/opt/agents/tank-stock-queue"))
@@ -94,6 +95,8 @@ STATIC_FILES = {
     "/icon-512.png": ("icon-512.png", "image/png"),
     "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
     "/icon-maskable-512.png": ("icon-maskable-512.png", "image/png"),
+    "/pumps": ("pumps.html", "text/html; charset=utf-8"),         # the Vriddhi Fuels app's Pumps tab
+    "/pumps.js": ("pumps.js", "text/javascript; charset=utf-8"),
 }
 SECURITY_HEADERS = (
     ("Cache-Control", "no-store"),
@@ -230,6 +233,7 @@ class Station:
         self.last = _read_json(home / "last.json", {})
         self.auto = AutoDecant(self)
         self.phone = PhoneStock(self)    # a phone's "Check stock now" / "Monitor the stock" (decant home page)
+        self.pumps = Pumps(home, self._fueltrans_url, notify=notify)   # the Pumps tab (pumps.py)
 
     # ---- settings and login --------------------------------------------
     @property
@@ -247,6 +251,11 @@ class Station:
     def from_fueltrans(self) -> bool:
         """The tank cards come from FuelTrans through the tunnel, not AnyDesk."""
         return _read_json(self.home / "login.json", {}).get("source") == "fueltrans"
+
+    def _fueltrans_url(self) -> str:
+        """FuelTrans through the PC's tunnel, if that's where the tank stock comes from."""
+        data = _read_json(self.home / "login.json", {})
+        return (data.get("url") or fueltrans.URL) if data.get("source") == "fueltrans" else ""
 
     def login(self) -> tuple[list[str], str]:
         data = _read_json(self.home / "login.json", {})
@@ -1077,13 +1086,17 @@ class Handler(BaseHTTPRequestHandler):
         if url.path in STATIC_FILES:
             name, ctype = STATIC_FILES[url.path]
             body = (STATIC / name).read_bytes()
-            if name == "index.html":
+            if name in ("index.html", "pumps.html"):
                 body = body.replace(b"__CSRF__", self.server.csrf.encode())  # type: ignore[attr-defined]
             return self._send(200, body, ctype)
         if url.path == "/api/state":
             if parse_qs(url.query).get("seen") == ["1"]:          # the page is in front of someone
                 self.station.seen_at = time.time()
             return self._json(200, self.station.view())
+        if url.path == "/api/pumps":
+            if parse_qs(url.query).get("seen") == ["1"]:          # the Pumps page is in front of someone
+                self.station.pumps.seen()
+            return self._json(200, self.station.pumps.view())
         if url.path == "/api/auto/options":
             try:
                 return self._json(200, self.station.auto.options())
@@ -1134,6 +1147,16 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=self._capture, daemon=True,
                                  args=(tanks, bool(body.get("upload")), bool(body.get("decantation")))).start()
                 return self._json(202, {"started": True})
+            if path == "/api/pumps/watch":
+                return self._json(200, self.station.pumps.set_watch(body.get("pumps")))
+            if path == "/api/pumps/preset":
+                return self._json(200, self.station.pumps.set_preset(body.get("pump"), body.get("kind"), body.get("value")))
+            if path == "/api/pumps/start":
+                return self._json(200, self.station.pumps.start())
+            if path == "/api/pumps/stop":
+                return self._json(200, self.station.pumps.stop())
+            if path == "/api/pumps/alerts":
+                return self._json(200, self.station.pumps.set_alerts(body.get("on")))
             if path == "/api/live/start":
                 return self._json(202, {"live": self.station.start_live(body)})
             if path == "/api/live/stop":
@@ -1193,6 +1216,7 @@ def main(argv=None) -> int:
     stop = threading.Event()
     threading.Thread(target=station.queue_loop, args=(stop,), daemon=True, name="queue").start()
     threading.Thread(target=station.request_loop, args=(stop,), daemon=True, name="requests").start()
+    threading.Thread(target=station.pumps.run, args=(stop,), daemon=True, name="pumps").start()   # (asleep until started)
     hosts = os.environ.get("TANK_STOCK_HOSTS", "").split(",")
     users = os.environ.get("TANK_STOCK_USERS", "").split(",")
     httpd = make_server(station, args.port, hosts, users)

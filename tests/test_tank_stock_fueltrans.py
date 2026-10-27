@@ -64,7 +64,7 @@ def card_html(no, product, volume, height, ullage, density, density_tc, temp, se
 # to 0.71 of its 1920 x 1080 screen: hence zoom 1.4): DejaVu Sans, cards 308 x
 # 322 px there with a light border, rounded corners and a soft shadow, rows
 # 21 px apart, grey labels and bold figures.
-APP = """<!DOCTYPE html><html><head><style>
+APP = """<!DOCTYPE html><html><head><script src="/vendor.0123456789abcdef.js"></script><style>
 html{zoom:1.4}
 body{margin:0;font-family:Roboto,"Helvetica Neue",Arial,sans-serif;background:#fff;color:#333}
 .fa{font-family:monospace}
@@ -142,12 +142,17 @@ def serve(in_memory: bool, never=()):
                for no, product, *_, colour in TANKS]
     page = APP.replace("TANKS_JSON", json.dumps(cards)).replace("PLACEHOLDERS_JSON", json.dumps(waiting)).replace("IN_MEMORY", json.dumps(in_memory)).replace("NEVER", json.dumps(list(never))).encode()
 
+    files = []                                     # requests for its program file
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
 
         def do_GET(self):
-            if self.path == "/getSiteInfo":
+            if self.path == "/vendor.0123456789abcdef.js":
+                files.append(self.path)
+                body, kind = b"window.vendorLoaded = true;", "text/javascript"
+            elif self.path == "/getSiteInfo":
                 body, kind = b'[{"site_id": "338821"}]', "application/json"
             elif self.path == "/getSiteUsers":
                 body, kind = json.dumps([{"id": i, "name": n} for i, n in enumerate(
@@ -162,6 +167,7 @@ def serve(in_memory: bool, never=()):
             self.wfile.write(body)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.files = files
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -368,3 +374,25 @@ def test_a_blip_of_the_tunnel_isnt_a_lost_session(chromium, monkeypatch):
         again.shutdown()
     finally:
         s.close()
+
+
+def test_fueltrans_program_files_cross_the_tunnel_once(chromium, tmp_path, monkeypatch):
+    """FuelTrans' fingerprinted program files are kept on the server: the
+    next page load (and the next session) doesn't fetch them over the PC's
+    upload again."""
+    monkeypatch.setenv("TANK_STOCK_HOME", str(tmp_path))
+    server = serve(True)                                  # (logged out on each load: two loads a session)
+    url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        for _ in range(2):
+            s = FuelTransSession(url, "Dealer", "123456", settle=0)
+            try:
+                png, did = s.shot()
+                assert "logged in as Dealer" in did
+                assert s._do(lambda: s._page.evaluate("window.vendorLoaded")) is True
+            finally:
+                s.close()
+        assert server.files == ["/vendor.0123456789abcdef.js"]
+        assert (tmp_path / "fueltrans-files" / "vendor.0123456789abcdef.js").read_bytes().startswith(b"window.")
+    finally:
+        server.shutdown()

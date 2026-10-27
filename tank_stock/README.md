@@ -143,6 +143,28 @@ also has its own address on port 8443. Pick the tanks (any of
 The GitHub job "Tank stock" still works: `capture` sends the whole screen to
 the XtraPower bot (from the open session when live monitoring is on).
 
+## Pumps (the Vriddhi Fuels app's Pumps tab)
+
+`pumps.py`, page `static/pumps.html`: the nozzles you tick, live from
+FuelTrans' own live connection (`pumpStatusPkt`, about once a second, read
+through the tunnel with plain HTTP long-polling, no browser). It only ever
+listens; it never sends anything on that connection (FuelTrans' Pump Status
+page can send pump controls there).
+
+- **Off unless started.** Tick nozzles, press **Start monitoring**. It stops
+  on **Stop**, when no nozzle is ticked, or 15 minutes after the Pumps page
+  was last open. Off, the listener sleeps with no timer and makes no request
+  at all, and a restart leaves it off.
+- **Each watched nozzle:** FuelTrans' status (IDLE, CALLING, AUTHORISED,
+  FUELING, SALE END, PUMP LOCK...), the sale's rupees and litres, how long
+  it has been fuelling, its flow now and its usual flow (the median of its
+  last 30 sales, counting only the seconds it flowed), and its last 5 sales.
+- **Preset:** set on the dispenser's keypad, which FuelTrans never sees. Tap
+  it on the nozzle (₹ or litres) for a progress bar and the time left; it
+  clears when that sale ends.
+- **Interlocks:** `lockval`'s bits and the NPND flag, by name; Telegram is
+  told when one comes on or clears on a watched nozzle (a setting on the page).
+
 ## Saving to the decant app
 
 The decant app keeps each tank's latest stock as one row of its Supabase table

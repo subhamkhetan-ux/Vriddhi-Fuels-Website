@@ -74,7 +74,8 @@
     mon.classList.toggle("on", s.monitor.running);
     // the Tank stock tab is the server's (the Mac has no tank stock service)
     $("tabTs").hidden = !s.server;
-    if (!s.server && tab === "ts") show("xp");
+    $("tabPm").hidden = !s.server;
+    if (!s.server && tab !== "xp") show("xp");
     $("nAccounts").textContent = s.accounts.length;
     $("nWatching").textContent = s.accounts.filter((a) => a.watch).length;
     const problems = s.accounts.filter((a) => a.watch && a.last_error).length;
@@ -284,29 +285,32 @@
     }
   }
 
-  // ---- tabs: XtraPower here; Tank stock is its own page (/ts/), framed ----
+  // ---- tabs: XtraPower here; Tank stock and Pumps are the tank stock
+  // service's pages (/ts/ and /ts/pumps), framed ----
   let tab = "xp";
-  let framed = false;
+  const framed = { ts: false, pm: false };
+  const FRAME = { ts: ["ts/api/state", "ts/"], pm: ["ts/api/pumps", "ts/pumps"] };
   const remember = (t) => { try { localStorage.setItem("vf-tab", t); } catch (e) { /* private mode */ } };
   function measure() {
     document.documentElement.style.setProperty("--top", `${$("top").getBoundingClientRect().height}px`);
   }
-  async function loadTank() {
-    $("tsDown").hidden = true;
+  async function loadFramed(t) {
+    const [check, page] = FRAME[t];
+    $(`${t}Down`).hidden = true;
     try {
-      // reachable? (the tank stock service runs in its own login session)
-      const res = await fetch("ts/api/state", { credentials: "same-origin" });
+      // reachable? (the tank stock service is its own service)
+      const res = await fetch(check, { credentials: "same-origin" });
       if (!res.ok) {
         let why = `It answered ${res.status}.`;
         try { why = (await res.json()).error || why; } catch (e) { /* not JSON */ }
         throw new Error(why);
       }
-      $("tsFrame").hidden = false;
-      if (!framed) { $("tsFrame").src = "ts/"; framed = true; }
+      $(`${t}Frame`).hidden = false;
+      if (!framed[t]) { $(`${t}Frame`).src = page; framed[t] = true; }
     } catch (e) {
-      $("tsFrame").hidden = true;
-      $("tsDownWhy").textContent = e.message;
-      $("tsDown").hidden = false;
+      $(`${t}Frame`).hidden = true;
+      $(`${t}DownWhy`).textContent = e.message;
+      $(`${t}Down`).hidden = false;
     }
   }
   function show(t) {
@@ -314,23 +318,26 @@
     for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.tab === t));
     $("xpPane").hidden = t !== "xp";
     $("tsPane").hidden = t !== "ts";
-    document.body.classList.toggle("framed", t === "ts");
-    $("where").textContent = t === "ts" ? "Tank stock · IOCL automation PC" : "XtraPower CCMS monitor";
-    $("monitor").hidden = t === "ts";            // (the XtraPower monitor's; the tank page shows its own)
+    $("pmPane").hidden = t !== "pm";
+    document.body.classList.toggle("framed", t !== "xp");
+    $("where").textContent = { ts: "Tank stock · IOCL automation PC", pm: "Pumps · IOCL automation PC" }[t]
+      || "XtraPower CCMS monitor";
+    $("monitor").hidden = t !== "xp";            // (the XtraPower monitor's; the framed pages show their own)
     if (location.hash !== `#${t}`) history.replaceState(null, "", `#${t}`);
     remember(t);
     measure();
-    if (t === "ts") loadTank();
+    if (t !== "xp") loadFramed(t);
     window.scrollTo(0, 0);
   }
   for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => show(b.dataset.tab));
-  $("tsRetry").addEventListener("click", loadTank);
+  $("tsRetry").addEventListener("click", () => loadFramed("ts"));
+  $("pmRetry").addEventListener("click", () => loadFramed("pm"));
   window.addEventListener("resize", measure);
   let first = location.hash.slice(1);
-  if (!["xp", "ts"].includes(first)) {
+  if (!["xp", "ts", "pm"].includes(first)) {
     try { first = localStorage.getItem("vf-tab") || "xp"; } catch (e) { first = "xp"; }
   }
-  show(first === "ts" ? "ts" : "xp");
+  show(["ts", "pm"].includes(first) ? first : "xp");
 
   // Keep balances and the monitor status fresh while the page is open.
   setInterval(() => {

@@ -145,10 +145,10 @@
             border: 1px solid var(--line); border-radius: 11px; font: 12px/1.45 var(--mono); color: #d9d2cb;
             white-space: pre-wrap; overflow-wrap: anywhere; }
 
-  /* ---- the Tank stock tab: its own page, framed below the tabs ---- */
-  #tsPane { position: fixed; left: 0; right: 0; top: var(--top); bottom: 0; }
-  #tsFrame { width: 100%; height: 100%; border: 0; display: block; background: transparent; }
-  #tsDown { max-width: 560px; margin: 24px auto; }
+  /* ---- the Tank stock and Pumps tabs: the tank stock service's pages, framed below the tabs ---- */
+  #tsPane, #pmPane { position: fixed; left: 0; right: 0; top: var(--top); bottom: 0; }
+  #tsFrame, #pmFrame { width: 100%; height: 100%; border: 0; display: block; background: transparent; }
+  #tsDown, #pmDown { max-width: 560px; margin: 24px auto; }
 </style>
 </head>
 <body>
@@ -161,6 +161,7 @@
   <nav class="tabbar" role="tablist">
     <button class="tab" role="tab" id="tabXp" data-tab="xp" aria-selected="true">⚡ XtraPower</button>
     <button class="tab" role="tab" id="tabTs" data-tab="ts" aria-selected="false">🛢️ Tank stock</button>
+    <button class="tab" role="tab" id="tabPm" data-tab="pm" aria-selected="false">⛽ Pumps</button>
   </nav>
 </div>
 
@@ -223,6 +224,15 @@
     <div class="name">Tank stock isn't available</div>
     <div class="meta" id="tsDownWhy"></div>
     <div class="actions"><button id="tsRetry" class="primary" type="button">Try again</button></div>
+  </div>
+</div>
+
+<div id="pmPane" role="tabpanel" hidden>
+  <iframe id="pmFrame" title="Pumps"></iframe>
+  <div id="pmDown" class="card" hidden>
+    <div class="name">Pumps aren't available</div>
+    <div class="meta" id="pmDownWhy"></div>
+    <div class="actions"><button id="pmRetry" class="primary" type="button">Try again</button></div>
   </div>
 </div>
 
