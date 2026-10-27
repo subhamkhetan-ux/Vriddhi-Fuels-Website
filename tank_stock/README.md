@@ -173,8 +173,10 @@ page can send pump controls there).
 - **Preset:** set on the dispenser's keypad, which FuelTrans never sees. Tap
   it on the nozzle (₹ or litres) for a progress bar and the time left; it
   clears when that sale ends.
-- **Interlocks:** `lockval`'s bits and the NPND flag, by name; Telegram is
-  told when one comes on or clears on a watched nozzle (a setting on the page).
+- **Interlocks:** `lockval`'s bits and the NPND flag, by FuelTrans' own
+  names (TEST, PRODUCT LOW, DELIVERY INPROGRESS i.e. decantation, PUMP LOCK,
+  ... as its Pump Status page shows them); Telegram is told when one comes on
+  or clears on a watched nozzle (a setting on the page).
 
 ## Saving to the decant app
 
