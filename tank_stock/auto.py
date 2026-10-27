@@ -33,6 +33,10 @@ run won't start on one and nothing is taken from one while it runs (the stock
 after waits until it updates). Each stock before / after keeps its tank's
 zoomed card here (the page shows it) and in the decant app (for the result
 picture), sent again until the app takes it.
+
+Once it has ended (finished, cancelled, handed over) and nothing is left to
+save, it leaves the page by itself after CLEAR_AFTER_S; a line about it stays
+(``last``).
 """
 from __future__ import annotations
 
@@ -58,6 +62,7 @@ PROBE_START_WAIT = 75      # seconds for each planned tank's clock to move befor
 PROOF_DIR = "auto-proof"   # each run's stock before / after pictures, per tank
 PROOF_RUNS_KEPT = 10       # runs whose pictures stay on the server
 PROOF_RETRY_S = 60         # a picture the decant app didn't take: try again this often
+CLEAR_AFTER_S = 15 * 60    # a finished (cancelled, handed over) decantation leaves the page this long after
 CLOCK_JUMP_S = 60           # the wall clock moved this much more (or less) than real time between two reads
 QUICK_S = 10               # seconds the live reads wait on the decant app at most, per call
 CLOUD_REST_S = 30          # after the decant app couldn't be reached: the live reads don't wait on it again this soon
@@ -75,6 +80,7 @@ class AutoDecant:
         data, self._load_note = _load(station.home / AUTO_FILE)
         self.run = dz.Decantation.from_json(data["run"]) if data.get("run") else None
         self.info = data.get("info") or {}
+        self.last = data.get("last")          # the decantation before, in a line: {title, phase, at, result}
         self.screens = {}                     # tank id -> the screen at its settling peak
         self.lows = {}                        # tank id -> the screen at its lowest stock while waiting
         self.abort = threading.Event()
@@ -100,13 +106,30 @@ class AutoDecant:
         with self.lock:                          # (the reconnect thread writes too)
             # (the copy before it kept: a write cut short by a power cut never loses a running decantation)
             _write_json(self.st.home / AUTO_FILE, {"info": self.info, "run": self.run.to_json() if self.run else None,
-                                                   "probes": self.probes}, keep_copy=True)
+                                                   "probes": self.probes, "last": self.last}, keep_copy=True)
 
     def _set(self, phase: str, **info) -> None:
         self.info.update(phase=phase, at=_now(), **info)
         if phase not in ACTIVE:
             self.screens, self.lows = {}, {}     # (the screens kept for a stock before / after)
+            self.info["ended_ts"] = time.time()
         self._persist()
+
+    def _clear(self) -> None:
+        """Off the page (under the lock), leaving a line about it."""
+        if self.info.get("phase"):
+            self.last = {"title": self._title(), "phase": self.phase, "at": self.info.get("at"),
+                         "result": self.info.get("result") or []}
+        self.run, self.info = None, {}
+        self._persist()
+
+    def _expire(self, now: float) -> None:
+        """An ended decantation with nothing left to save leaves the page
+        CLEAR_AFTER_S after it ended."""
+        ended = self.info.get("ended_ts")
+        if (ended and not self.active() and not self.info.get("unsaved")
+                and now - ended >= CLEAR_AFTER_S):
+            self._clear()
 
     def watched(self) -> set:
         """Every tank while it runs: one outside the plan rising is a warning."""
@@ -993,8 +1016,7 @@ class AutoDecant:
             if action == "clear":
                 if self.active():
                     raise AutoError("It's still running.")
-                self.run, self.info = None, {}
-                self._persist()
+                self._clear()
                 return self.view()
             if action == "cancel" and self.phase == "starting":
                 self.abort.set()
@@ -1148,10 +1170,13 @@ class AutoDecant:
         if not self.lock.acquire(timeout=1):
             return self._view
         try:
+            self._expire(time.time())
             if not self.info:
                 self._view = None
             else:
-                info = {k: v for k, v in self.info.items() if k not in ("fed", "synced", "runningSince", "cloud_at")}
+                info = {k: v for k, v in self.info.items() if k not in ("fed", "synced", "runningSince", "cloud_at", "ended_ts")}
+                if self.info.get("ended_ts") and not self.active() and not self.info.get("unsaved"):
+                    info["clears_in_s"] = max(0, round(CLEAR_AFTER_S - (time.time() - self.info["ended_ts"])))
                 self._view = copy.deepcopy({**info, "run": self.run.view(time.time()) if self.run else None})
             return self._view
         finally:

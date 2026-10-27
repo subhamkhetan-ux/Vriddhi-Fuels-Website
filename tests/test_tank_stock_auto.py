@@ -283,6 +283,30 @@ def test_one_button_decants_reads_and_finishes_in_the_decant_app(rig):
     assert rig.st.live["stop"].is_set()                  # it connected for this: it lets go
     with pytest.raises(auto.AutoError):
         a.act("answer", {"tank": "T2", "chambers": [2]})
+    # it leaves the page by itself a while after, a line about it staying
+    assert a.view()["clears_in_s"] == auto.CLEAR_AFTER_S and a.view()["phase"] == "finished"
+    rig.clock.t += auto.CLEAR_AFTER_S - 1
+    assert a.view()["clears_in_s"] == 1
+    rig.clock.t += 1
+    assert a.view() is None and a.run is None
+    last = rig.st.view()["auto_last"]
+    assert last["phase"] == "finished" and "OD23U8210" in last["title"] and any("Tank 2" in r for r in last["result"])
+    again = service.Station(home=rig.home, session_cls=Session, decant_mod=rig.cloud, notify=rig.told.append)
+    assert again.auto.view() is None and again.auto.last == last           # (kept over a restart)
+    a.act("clear", {})                                                      # (nothing to clear: fine)
+    assert a.view() is None
+
+
+def test_an_ended_decantation_with_something_left_to_save_stays(rig):
+    a = start(rig, {"1": "T1"})
+    a.act("cancel", {})
+    assert a.phase == "cancelled"
+    a.info["unsaved"] = True                       # (the app couldn't take it yet: it's saved later)
+    rig.clock.t += auto.CLEAR_AFTER_S * 2
+    assert a.view()["phase"] == "cancelled" and "clears_in_s" not in a.view()
+    a.info.pop("unsaved")
+    assert a.view() is None
+    assert rig.st.view()["auto_last"]["phase"] == "cancelled"
     a.act("clear", {})
     assert a.view() is None
 

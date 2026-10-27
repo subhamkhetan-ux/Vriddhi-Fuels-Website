@@ -738,7 +738,9 @@ class Station:
                 built = self.decant.make_reading(card, tank, cfg) if tank else None
                 if not built or card.get("volume") is None:
                     continue
-                live["figures"][str(no)] = {"reading": {"volume": built["reading"]["volume"]},
+                # (the volume, and what the page's tank gauge needs: the room left)
+                live["figures"][str(no)] = {"reading": {k: built["reading"].get(k) for k in ("volume", "ullage", "capacity")
+                                                        if built["reading"].get(k) is not None},
                                             "confidence": built["confidence"],
                                             "problems": built["problems"], "at": now_iso()}
                 if built["confidence"] != "low":
@@ -1081,6 +1083,7 @@ class Station:
             "live_last": self.live_last,
             "last": self.last,
             "auto": self.auto.view(),
+            "auto_last": self.auto.last,
             "sessions": self.sessions(),
         }
 
