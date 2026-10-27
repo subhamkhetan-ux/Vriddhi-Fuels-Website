@@ -18,11 +18,13 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import mimetypes
 import os
 from pathlib import Path
 import re
 import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from .capture import CaptureError
@@ -54,6 +56,12 @@ FRESH_EVERY = 1800                    # seconds: the page is reloaded this often
 STALE_RELOAD = 150                    # seconds without any card's "Last Updated" moving: reloaded
 UPDATED = re.compile(r"Last\s*Updated", re.I)
 ACTION_WAIT = 120                     # seconds any one browser step may take
+LOAD_WAIT = 120                       # seconds FuelTrans' page may take to load (its files come over the PC's upload)
+# FuelTrans' program files (names with their content's fingerprint: a new
+# version has new names), fonts and pictures: kept here once fetched, so
+# opening FuelTrans moves a few KB over the station's upload, not ~4.6 MB.
+FILES = re.compile(r"\.[0-9a-f]{16,}\.(?:js|css)$|\.(?:woff2?|ttf|eot|otf|png|jpe?g|gif|svg|ico)$", re.I)
+FILES_DIR = "fueltrans-files"          # (in TANK_STOCK_HOME)
 LOST_AFTER = 30                       # seconds of FuelTrans not answering before the session is lost
 PROBE_WAIT = 10                       # seconds one "does FuelTrans answer?" may take
 
@@ -99,7 +107,7 @@ class FuelTransSession:
         self.close()
 
     def _do(self, fn, *args):
-        return self._pool.submit(fn, *args).result(timeout=ACTION_WAIT + CARDS_WAIT)
+        return self._pool.submit(fn, *args).result(timeout=2 * LOAD_WAIT + ACTION_WAIT + CARDS_WAIT + DATA_WAIT)
 
     # ---- in the browser's thread -----------------------------------------
     def _start(self) -> None:
@@ -113,6 +121,7 @@ class FuelTransSession:
         self._page = self._browser.new_page(viewport=VIEWPORT, device_scale_factor=SCALE)
         self._page.set_default_timeout(ACTION_WAIT * 1000)
         self._page.route("**" + CONFIG, self._config)
+        self._page.route(lambda url: bool(FILES.search(urlparse(url).path)), self._file)
         self._page.add_init_script(PC_FONT_SCRIPT)
 
     def _config(self, route) -> None:
@@ -129,9 +138,34 @@ class FuelTransSession:
         except Exception:  # noqa: BLE001 - FuelTrans' own file, then
             route.continue_()
 
+    def _file(self, route) -> None:
+        """One of FuelTrans' program files, fonts or pictures: from this
+        server's copy, else through the tunnel (and kept)."""
+        name = re.sub(r"[^A-Za-z0-9._-]", "_", urlparse(route.request.url).path.lstrip("/"))[-180:]
+        home = Path(os.environ.get("TANK_STOCK_HOME", "/opt/agents/tank-stock")) / FILES_DIR
+        kind = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        try:
+            return route.fulfill(status=200, body=(home / name).read_bytes(), content_type=kind)
+        except OSError:
+            pass
+        try:
+            resp = route.fetch(timeout=LOAD_WAIT * 1000)
+        except Exception:  # noqa: BLE001 - the browser tries it itself, then
+            return route.continue_()
+        body = resp.body()
+        if resp.status == 200 and body:
+            try:
+                home.mkdir(parents=True, exist_ok=True)
+                tmp = home / f".{name}.{os.getpid()}.tmp"
+                tmp.write_bytes(body)
+                os.replace(tmp, home / name)
+            except OSError:
+                pass                                  # (not kept: fetched again next time)
+        route.fulfill(response=resp, body=body)
+
     def _go(self, path: str) -> None:
         try:
-            self._page.goto(self.url + path, wait_until="domcontentloaded", timeout=30_000)
+            self._page.goto(self.url + path, wait_until="domcontentloaded", timeout=LOAD_WAIT * 1000)
         except Exception as exc:  # noqa: BLE001 - said in plain words
             raise _down(exc) from None
         self._fresh_at = time.monotonic()
