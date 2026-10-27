@@ -12,8 +12,8 @@
 # - Asks once for the FuelTrans login (user Dealer by default) and keeps it
 #   owner-only in /opt/agents/tank-stock/login.json. ASK_AGAIN=1 asks again.
 # - Publishes the page at https://<this server>:8443/ to your Tailscale
-#   devices, and points the Vriddhi Fuels app's Tank stock tab back here (from
-#   the Mac).
+#   devices, points the Vriddhi Fuels app's Tank stock tab back here (from
+#   the Mac), and updates that app's page (its Tank stock and Pumps tabs).
 #
 # Re-running is safe, and is how the monitor is updated after a change.
 set -euo pipefail
@@ -117,12 +117,28 @@ if [ -n "$TS_NAME" ]; then
 else
   echo "Tailscale isn't set up here: run infra/xtrapower/phone-setup.sh, then this again."
 fi
+RESTART_APP=""
 if sudo test -f "$MAC_DROP"; then
   sudo rm -f "$MAC_DROP"
   sudo systemctl daemon-reload
-  sudo systemctl restart xtrapower-manage 2>/dev/null || true
+  RESTART_APP=1
   echo "The Vriddhi Fuels app's Tank stock tab is this server again (it was the Mac)."
   MAC=1
+fi
+# The Vriddhi Fuels app (its Tank stock and Pumps tabs) runs from XtraPower's
+# own copy of the code: bring it up to date too, if it follows main.
+XP_APP=/opt/xtrapower/app
+if sudo test -d "$XP_APP/.git" && [ "$(sudo -u xtrapower git -C "$XP_APP" rev-parse --abbrev-ref HEAD)" = main ]; then
+  before="$(sudo -u xtrapower git -C "$XP_APP" rev-parse HEAD)"
+  sudo -H -u xtrapower git -C "$XP_APP" fetch -q origin main
+  sudo -H -u xtrapower git -C "$XP_APP" checkout -q -B main FETCH_HEAD
+  if [ "$(sudo -u xtrapower git -C "$XP_APP" rev-parse HEAD)" != "$before" ]; then
+    RESTART_APP=1
+    echo "The Vriddhi Fuels app's code is updated (the XtraPower monitor keeps running)."
+  fi
+fi
+if [ -n "$RESTART_APP" ]; then
+  sudo systemctl restart xtrapower-manage 2>/dev/null || true
 fi
 
 say "7/7 Reading the tanks once (a browser logs in to FuelTrans, as the service will)"
