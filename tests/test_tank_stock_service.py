@@ -1061,3 +1061,29 @@ def test_anydesk_live_monitoring_still_follows_the_reconnect_setting(station, mo
     assert wait_for(lambda: station.live is None)
     time.sleep(0.3)
     assert station.live is None and len(FakeSession.opened) == 1 and station._ft_tries == 0
+
+
+def test_a_tanks_flow_while_live(tmp_path, monkeypatch):
+    """The page's decanting speed: each watched tank's flow now (L/min, from
+    its last 2 minutes of live stock)."""
+    now = 1_800_000_000.0
+    # decanting at 450 L/min, read every 5 s, with a reading jumping 20 L now and then
+    pts = [(now - 120 + i * 5, 5000 + 450 / 60 * i * 5 + (20 if i % 7 == 3 else 0)) for i in range(25)]
+    assert abs(service.flow_lpm(pts, now) - 450) < 15
+    assert service.flow_lpm(pts[-3:], now) is None                       # (not 30 s of it yet)
+    assert service.flow_lpm([(now - 600, 1), (now - 590, 2), (now - 580, 3)], now) is None   # (too old)
+    selling = [(now - 60 + i * 10, 9000 - i * 4) for i in range(7)]
+    assert service.flow_lpm(selling, now) == -24.0                       # sales out: 24 L/min
+
+    st = service.Station(home=tmp_path, notify=lambda *a: True, notify_photo=lambda *a: True)
+    clock = [now - 600]
+    monkeypatch.setattr(service.time, "time", lambda: clock[0])
+    st.live = {"state": "live", "tanks": [2], "auto_upload": False, "interval_s": 5,
+               "figures": {"2": {"reading": {"volume": 5000.0}}}}
+    for i in range(121):
+        clock[0] = now - 600 + i * 5
+        st.live["figures"]["2"]["reading"]["volume"] = 5000.0 + 450 / 60 * i * 5
+        st._keep_trend(st.live, [2, 3])                                  # (Tank 3: no figures yet)
+    view = st.live_view()
+    assert "hist" not in view and abs(view["flow"]["2"] - 450) < 1 and "3" not in view["flow"]
+    assert now - st.live["hist"][2][0][0] <= service.TREND_KEEP_S       # (only what the flow needs is kept)

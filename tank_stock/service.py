@@ -85,6 +85,10 @@ LIVE_UPLOAD_TIMEOUT = 8          # seconds: a live upload gives up (the live rea
 LIVE_UPLOAD_BACKOFF = 30         # seconds: after the decant app couldn't be reached, before trying again
 PROBE_STALE_S = 180              # a card whose "Last Updated" time hasn't moved this long: frozen figures
 EXACT_KEPT = 300                 # screens whose exact figures are remembered (a decantation's proof screens)
+TREND_KEEP_S = 300               # a tank's live stock kept this long (its flow now)
+FLOW_WINDOW_S = 120              # a tank's flow now (decanting in, or sales out): over this long
+FLOW_MIN_S = 30                  # ... once it has this much
+LIVE_FIGURES = ("volume", "ullage", "capacity")   # what the page gets while live (its tank tiles)
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
@@ -738,8 +742,8 @@ class Station:
                 built = self.decant.make_reading(card, tank, cfg) if tank else None
                 if not built or card.get("volume") is None:
                     continue
-                # (the volume, and what the page's tank gauge needs: the room left)
-                live["figures"][str(no)] = {"reading": {k: built["reading"].get(k) for k in ("volume", "ullage", "capacity")
+                # (the volume, and what the page's tank tiles need: the room left)
+                live["figures"][str(no)] = {"reading": {k: built["reading"].get(k) for k in LIVE_FIGURES
                                                         if built["reading"].get(k) is not None},
                                             "confidence": built["confidence"],
                                             "problems": built["problems"], "at": now_iso()}
@@ -747,6 +751,7 @@ class Station:
                     live["fp"][no] = fp               # read again next time otherwise
                     changed[no] = card
                     good += 1
+            self._keep_trend(live, watched)
             if not good and watched:
                 # AnyDesk dropped the session but kept its window ("Client Offline")?
                 said = live["session"].ended(png) if hasattr(live["session"], "ended") else ""
@@ -776,6 +781,20 @@ class Station:
             live["last_error"] = str(exc) if isinstance(exc, CaptureError) else f"{type(exc).__name__}: {exc}"
         finally:
             self._release()
+
+    @staticmethod
+    def _keep_trend(live, watched) -> None:
+        """Each watched tank's stock at this read (its last figures: unchanged
+        ones aren't read again), TREND_KEEP_S of it, for its flow now."""
+        now, hist = time.time(), live.setdefault("hist", {})
+        for no in watched:
+            v = ((live["figures"].get(str(no)) or {}).get("reading") or {}).get("volume")
+            if v is None:
+                continue
+            h = hist.setdefault(no, [])
+            h.append((now, v))
+            while h and now - h[0][0] > TREND_KEEP_S:
+                h.pop(0)
 
     def _read_off_screen(self, live, no: int) -> None:
         """A FuelTrans card read fine off the screen that its live data
@@ -986,8 +1005,12 @@ class Station:
         live = self.live
         if not live:
             return None
-        hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen")
+        hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen",
+                  "hist")
         out = {k: v for k, v in live.items() if k not in hidden}
+        # each tank's flow now (L/min: + decanting in, - sales out): the page's decanting speed
+        now = time.time()
+        out["flow"] = {str(no): flow_lpm(h, now) for no, h in (live.get("hist") or {}).items()}
         # each card's "Last Updated" clock: frozen means the figures are too
         out["probes"] = {str(no): {"since": t["since"], "age_s": round(time.time() - t["t"]),
                                    "frozen": time.time() - t["t"] >= PROBE_STALE_S}
@@ -1086,6 +1109,18 @@ class Station:
             "auto_last": self.auto.last,
             "sessions": self.sessions(),
         }
+
+
+def flow_lpm(points, now: float) -> float | None:
+    """L/min over the last FLOW_WINDOW_S of (time, litres) points: the slope
+    of a least-squares line, so one jumpy reading doesn't swing it."""
+    pts = [(t, v) for t, v in points if now - t <= FLOW_WINDOW_S]
+    if len(pts) < 3 or pts[-1][0] - pts[0][0] < FLOW_MIN_S:
+        return None
+    mt = sum(t for t, _ in pts) / len(pts)
+    mv = sum(v for _, v in pts) / len(pts)
+    den = sum((t - mt) ** 2 for t, _ in pts)
+    return round(sum((t - mt) * (v - mv) for t, v in pts) / den * 60, 1) if den else None
 
 
 # ---- HTTP --------------------------------------------------------------

@@ -167,32 +167,44 @@
   #control .status:empty { display: none; }
 
   /* ---- the four tanks at a glance ---- */
-  .tanks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+  .tanks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 10px; margin: 20px 0 14px; }
   @media (min-width: 720px) { .tanks { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-  .tk { position: relative; background: var(--glass); border: 1px solid var(--glass-line); border-radius: 16px; padding: 11px 12px 12px;
+  .tk { position: relative; cursor: pointer; text-align: left; color: var(--ink); background: var(--glass); border: 1px solid var(--glass-line); border-radius: 16px; padding: 11px 12px 12px;
         backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); box-shadow: var(--glass-shadow);
-        min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+        min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .tk.live { border-color: rgba(47,208,138,.38); }
   .tk.busy { border-color: rgba(255,122,26,.6); background: linear-gradient(160deg, var(--accent-soft), var(--glass) 60%); }
   .tk.bad { border-color: rgba(255,107,94,.55); }
   .tk-head { display: flex; align-items: center; gap: 6px; }
   .tk-head strong { font: 800 15px/1.2 var(--display); white-space: nowrap; }
-  .src { margin-left: auto; font: 800 10px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
-         white-space: nowrap; }
-  .src.live { color: var(--ok); }
-  .tk-body { display: flex; gap: 11px; align-items: stretch; }
-  .gauge { position: relative; width: 38px; flex: none; border-radius: 12px; border: 2px solid rgba(255,255,255,.22);
-           background: rgba(0,0,0,.35); overflow: hidden; min-height: 82px; }
-  .gauge i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 0 0 9px 9px; transition: height .8s;
-             background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 30%), var(--fill, var(--accent)); }
-  .gauge span { position: absolute; inset: 0; display: grid; place-items: center; font: 800 11px/1 var(--display);
-                color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
-  .tk-figs { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
-  .tk-vol { font: 800 21px/1.15 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
-            text-overflow: ellipsis; }
-  .tk-vol small, .mini b small { font-size: .58em; font-weight: 700; color: var(--muted); margin-left: 2px; }
-  .tk-line { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+  .tk:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tk:active { transform: scale(.985); }
+  .tk-badge { position: absolute; top: -11px; right: 12px; font: 700 11.5px/1 var(--display); color: var(--mid);
+              background: #2a2010; border: 1px solid rgba(255,178,62,.6); border-radius: 999px; padding: 5px 9px 5px 8px; }
+  .tk-badge::before { content: "●"; margin-right: 5px; font-size: 9px; vertical-align: 1px; }
+  .ppill { margin-left: auto; font: 700 12px/1 var(--display); color: var(--ink); background: var(--glass-2);
+           border: 1px solid var(--glass-line); border-radius: 999px; padding: 5px 9px; white-space: nowrap; }
+  .ppill::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px;
+                   vertical-align: 0; background: var(--faint); }
+  .ppill.MS::before { background: var(--p-ms); } .ppill.HSD::before { background: var(--p-hsd); } .ppill.XG::before { background: var(--p-xg); }
+  .tgauge { width: 100%; height: auto; display: block; margin: 2px 0 0; }
+  .gauge-empty { fill: rgba(255,255,255,.06); }
+  .gauge-rim { fill: none; stroke: rgba(255,255,255,.55); stroke-width: 2.5; }
+  .gauge-rim.over { stroke: var(--warn); }
+  .gauge-leg { fill: rgba(255,255,255,.45); }
+  .gauge-pct { font: 700 12px var(--display); fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.45); stroke-width: 3px; }
+  .gwave { animation: gwave 2.8s linear infinite; }
+  .gin { animation: gin 2s ease-in-out infinite; }
+  @keyframes gwave { to { transform: translateX(-12px); } }
+  @keyframes gin { 0%, 100% { opacity: .3; } 50% { opacity: .6; } }
+  @media (prefers-reduced-motion: reduce) { .gwave, .gin, .dot { animation: none; } }
+  .tk-vol { font: 800 22px/1.1 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: -.01em; }
+  .tk-vol small { font-size: .8em; }
+  .tk-line { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
              text-overflow: ellipsis; }
+  .tk-line b { color: var(--ink); }
+  .tk-when { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .tk-when.live { color: var(--ok); font-weight: 700; }
   .tk-flag { font-size: 11.5px; line-height: 1.35; font-weight: 700; border-radius: 8px; padding: 5px 7px; }
   .tk-flag.warn { color: var(--warn); background: var(--warn-bg); }
   .tk-flag.mid { color: var(--mid); background: var(--mid-bg); }
@@ -230,6 +242,31 @@
   details.panel > summary::after { content: "›"; margin-left: auto; font-size: 20px; color: var(--faint); transition: transform .2s; }
   details.panel[open] > summary::after { transform: rotate(90deg); }
   .panel-body { padding: 0 15px 15px; }
+
+  /* ---- a tank's sheet: everything about it ---- */
+  dialog { border: 1px solid var(--glass-line); border-bottom: 0; padding: 0; color: var(--ink); width: 100%; max-width: 560px;
+           margin: auto auto 0; border-radius: 22px 22px 0 0; background: #17110e; max-height: 90vh;
+           box-shadow: 0 -20px 50px -20px rgba(0,0,0,.9); }
+  dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  .sheet { padding: 8px 16px calc(18px + env(safe-area-inset-bottom)); }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--glass-line); margin: 0 auto 10px; }
+  .s-head { display: flex; align-items: center; gap: 8px; }
+  .s-head h3 { font: 800 20px/1.2 var(--display); margin: 0; }
+  .s-head .close { margin-left: auto; }
+  .s-head .ppill { margin-left: 4px; }
+  .s-where { font-size: 12.5px; color: var(--faint); margin: 2px 0 12px; }
+  .s-figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .s-fig { background: rgba(0,0,0,.25); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 9px 11px; min-width: 0; }
+  .s-fig span { display: block; font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+  .s-fig b { font: 800 19px/1.3 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .s-fig b small { font-size: .58em; font-weight: 700; color: var(--muted); margin-left: 2px; }
+  .s-fig.hi { border-color: rgba(255,122,26,.5); background: var(--accent-soft); }
+  .s-fig.hi b { color: var(--accent); font-size: 24px; }
+  .s-fig span.sub2 { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; text-transform: none;
+                     letter-spacing: 0; font-weight: 500; }
+  .tgauge.big { max-width: 420px; margin: 4px auto 14px; }
+  .tgauge.big .gauge-pct { stroke-width: 1.4px; }
+  .s-head .ppill { margin-left: 4px; }
   .row.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .row.two button { padding: 13px 8px; font-size: 13.5px; line-height: 1.2; }
   .tank-head .acts .up { padding: 7px 10px; }
@@ -308,6 +345,15 @@
     </div>
   </details>
 </main>
+<dialog id="tankSheet" aria-labelledby="tsTitle">
+  <div class="sheet">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="s-head"><h3 id="tsTitle"></h3><span id="tsProd"></span>
+      <button class="up close" id="tsClose" type="button" aria-label="Close">✕</button></div>
+    <div class="s-where" id="tsWhere"></div>
+    <div id="tsBody"></div>
+  </div>
+</dialog>
 <script src="app.js"></script>
 </body>
 </html>

@@ -309,7 +309,6 @@
   }
 
   // ---- the four tanks at a glance: the freshest figures of each ----------------
-  const COLOUR = { MS: "var(--p-ms)", HSD: "var(--p-hsd)", XG: "var(--p-xg)" };
   function figuresOf(no) {
     const live = state.live;
     const f = live && isLive() ? live.figures?.[no] : null;
@@ -328,45 +327,172 @@
       const dec = (run?.tanks || []).find((t) => t.no === no && t.stage !== "read");
       const probe = state.live && isLive() ? state.live.probes?.[no] : null;
       const card = el("div", "tk");
+      card.setAttribute("role", "button");
+      card.tabIndex = 0;
+      card.setAttribute("aria-label", `Tank ${no}: details`);
+      card.addEventListener("click", () => openTank(no));
+      card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTank(no); } });
       if (dec) card.classList.add("busy");
       else if (probe?.frozen || f?.confidence === "low") card.classList.add("bad");
       else if (f?.live) card.classList.add("live");
 
+      if (dec) card.appendChild(el("span", "tk-badge", { waiting: "Waiting", decanting: "Decanting", settling: "Settling" }[dec.stage] || dec.stage));
       const head = el("div", "tk-head");
       head.appendChild(el("strong", "", `Tank ${no}`));
-      if (product) head.appendChild(el("span", `prod ${product}`, product));
-      head.appendChild(el("span", `src${f?.live ? " live" : ""}`, f ? (f.live ? "● live" : clock(f.at).replace(/:\d\d(?= |$)/, "")) : "–"));
+      if (product) head.appendChild(el("span", `ppill ${product}`, product));
       card.appendChild(head);
 
-      const body = el("div", "tk-body");
       const r = f?.r || {};
       const capacity = r.capacity || (r.volume != null && r.ullage != null ? r.volume + r.ullage : null);
-      const pct = r.volume != null && capacity ? Math.max(0, Math.min(100, (100 * r.volume) / capacity)) : null;
-      const gauge = el("div", "gauge");
-      const fill = el("i");
-      fill.style.height = `${pct ?? 0}%`;
-      if (COLOUR[product]) fill.style.setProperty("--fill", COLOUR[product]);
-      gauge.append(fill, el("span", "", pct == null ? "–" : `${Math.round(pct)}%`));
-      const figs = el("div", "tk-figs");
+      // (decanting: the litres still to come in, as the decant app draws them)
+      const togo = dec && dec.stage !== "settling" ? (dec.rise == null ? dec.litres : Math.max(0, dec.litres - dec.rise)) : 0;
+      card.appendChild(tankGauge({ product, volume: r.volume, capacity: capacity || 20000, incoming: togo,
+        live: Boolean(f?.live), filling: dec?.stage === "decanting", label: `Tank ${no}` }));
       const vol = el("div", "tk-vol", r.volume == null ? "–" : fmt(r.volume, 0));
-      if (r.volume != null) vol.appendChild(el("small", "", "L"));
-      figs.appendChild(vol);
+      if (r.volume != null) vol.appendChild(el("small", "", " L"));
+      card.appendChild(vol);
       const room = r.ullage ?? (capacity && r.volume != null ? capacity - r.volume : null);
-      figs.appendChild(el("div", "tk-line", room == null ? "no reading yet" : `${fmt(room, 0)} L room`));
-      if (capacity) figs.appendChild(el("div", "tk-line", `of ${fmt(capacity, 0)} L`));
-      body.append(gauge, figs);
-      card.appendChild(body);
+      const roomLine = el("div", "tk-line");
+      roomLine.append(document.createTextNode("Room "), el("b", "", room == null ? "–" : `${fmt(room, 0)} L`));
+      card.appendChild(roomLine);
+      card.appendChild(el("div", `tk-when${f?.live ? " live" : ""}`, !f ? "not read yet"
+        : f.live ? "● Live" : `${clock(f.at).replace(/:\d\d(?= |$)/, "")} · ${ago(f.at)}`));
 
       if (dec) {
-        const what = { waiting: "Decantation: waiting", decanting: "Decanting", settling: "Settling" }[dec.stage] || dec.stage;
-        card.appendChild(el("div", "tk-flag acc", dec.stage === "waiting" ? `${what} for C${dec.chambers.join(", C")}`
-          : `${what}${dec.rise != null ? ` · +${fmt(Math.max(0, dec.rise), 0)} L of ${fmt(dec.litres, 0)}` : ""}`));
+        // (the badge says the stage: the litres in, and the speed and time left)
+        const flag = el("div", "tk-flag acc", dec.stage === "waiting" ? `For C${dec.chambers.join(", C")} · ${fmt(dec.litres, 0)} L`
+          : `+${fmt(Math.max(0, dec.rise || 0), 0)} L of ${fmt(dec.litres, 0)}`);
+        const eta = decEta(dec, no);
+        if (dec.stage === "decanting" && eta.lpm) flag.appendChild(el("div", "", `${fmt(eta.lpm, 0)} L/min · ${eta.left}`));
+        else if (dec.stage === "settling" && dec.settleLeft > 0) flag.appendChild(el("div", "", `${Math.ceil(dec.settleLeft / 60)} min to settle`));
+        card.appendChild(flag);
       }
       if (probe?.frozen) card.appendChild(el("div", "tk-flag warn", `⚠ Card not updating since ${clock(probe.since)}`));
       else if (f?.confidence === "low") card.appendChild(el("div", "tk-flag warn", `Please check: ${(f.problems || []).join(", ") || "not read right"}`));
       else if (f?.confidence === "medium") card.appendChild(el("div", "tk-flag mid", "Fixed & checked"));
       box.appendChild(card);
     }
+  }
+
+  // The decant app's tank drawing (decant/js/ui.js tankGauge): a capsule filled
+  // to the stock in the product's colour; live, a wave on its surface (moved by
+  // CSS here); the litres still to come in a paler layer above, pulsing while
+  // they pour; the rim red if they'd fill it past its capacity.
+  const PRODUCT_COLOR = { HSD: "#3987e5", MS: "#d95926", XG: "#199e70" };
+  const SVGNS = "http://www.w3.org/2000/svg";
+  let gaugeSeq = 0;
+  function svgEl(tag, attrs) {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+    return n;
+  }
+  function tankGauge({ product, volume, capacity = 20000, incoming = 0, label = "", live = false, filling = false }) {
+    const clip = `tg${++gaugeSeq}`;
+    const c = PRODUCT_COLOR[product] || "#898781";
+    const W = 120, H = 54, innerH = H - 8;
+    const f = Math.max(0, Math.min(1, (volume || 0) / capacity));
+    const g = Math.max(0, Math.min(1 - f, (incoming || 0) / capacity));
+    const yFill = 4 + innerH * (1 - f), yInc = 4 + innerH * (1 - f - g);
+    const pct = Number.isFinite(volume) ? Math.max(0, Math.round((volume / capacity) * 100)) : null;
+    const over = incoming && (volume || 0) + incoming > capacity;
+    const svg = svgEl("svg", { class: "tgauge", viewBox: `0 0 ${W} ${H + 6}`, role: "img", "aria-label": `${label}: ${pct ?? "–"}% full` });
+    const defs = svgEl("defs", {}), cp = svgEl("clipPath", { id: clip });
+    cp.appendChild(svgEl("rect", { x: 4, y: 4, width: W - 8, height: innerH, rx: innerH / 2 }));
+    defs.appendChild(cp);
+    const inside = svgEl("g", { "clip-path": `url(#${clip})` });
+    inside.appendChild(svgEl("rect", { x: 0, y: 0, width: W, height: H, class: "gauge-empty" }));
+    if (g > 0) inside.appendChild(svgEl("rect", { x: 0, y: yInc, width: W, height: yFill - yInc, fill: c, opacity: ".38", class: filling ? "gin" : "" }));
+    if (live && f > 0.02 && f < 0.98) {
+      inside.appendChild(svgEl("path", { class: "gwave", fill: c, d: `M-12 ${yFill}${" q3 -1.3 6 0 t6 0".repeat(Math.ceil(W / 12) + 2)} V${H} H-12 Z` }));
+    } else {
+      inside.appendChild(svgEl("rect", { x: 0, y: yFill, width: W, height: H, fill: c }));
+    }
+    svg.append(defs, inside,
+      svgEl("rect", { x: 4, y: 4, width: W - 8, height: innerH, rx: innerH / 2, class: `gauge-rim${over ? " over" : ""}` }),
+      svgEl("rect", { x: 30, y: H - 1, width: 14, height: 5, rx: 1.5, class: "gauge-leg" }),
+      svgEl("rect", { x: W - 44, y: H - 1, width: 14, height: 5, rx: 1.5, class: "gauge-leg" }));
+    if (pct !== null) {
+      const t = svgEl("text", { x: W / 2, y: H / 2 + 5, "text-anchor": "middle", class: "gauge-pct" });
+      t.textContent = `${pct}%`;
+      svg.appendChild(t);
+    }
+    return svg;
+  }
+
+  // A decanting tank's speed (its stock's rise over the last 2 minutes) and
+  // the time its planned litres still take at that speed.
+  const flowOf = (no) => state?.live && isLive() ? state.live.flow?.[no] ?? null : null;
+  const minutes = (m) => (m < 1 ? "under a minute" : m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)} h ${Math.round(m % 60)} min`);
+  function decEta(dec, no) {
+    const lpm = flowOf(no);
+    const togo = dec.rise == null ? dec.litres : Math.max(0, dec.litres - dec.rise);
+    if (!lpm || lpm < 20) return { lpm: lpm && lpm > 0 ? lpm : null, togo, left: lpm != null && lpm < 20 ? "hardly rising" : "speed after a minute", mins: null };
+    const mins = togo / lpm;
+    return { lpm, togo, mins, left: togo <= 0 ? "planned litres in" : `~${minutes(mins)} left` };
+  }
+
+  // ---- a tank's sheet: everything about it ----------------------------------------
+  let openNo = null;
+  function openTank(no) {
+    openNo = no;
+    renderTankSheet();
+    if (!$("tankSheet").open) $("tankSheet").showModal();
+  }
+  function closeTank() {
+    openNo = null;
+    if ($("tankSheet").open) $("tankSheet").close();
+  }
+  function sfig(name, value, unit = "", cls = "", sub = "") {
+    const f = el("div", `s-fig${cls ? ` ${cls}` : ""}`);
+    const b = el("b", "", value);
+    if (unit) b.appendChild(el("small", "", unit));
+    f.append(el("span", "", name), b);
+    if (sub) f.appendChild(el("span", "sub2", sub));
+    return f;
+  }
+  function renderTankSheet() {
+    const no = openNo;
+    if (no === null) return;
+    const f = figuresOf(no);
+    const product = state.last?.tanks?.[no]?.product || state.live?.products?.[no] || "";
+    const run = autoActive() ? state.auto?.run : null;
+    const dec = (run?.tanks || []).find((t) => t.no === no && t.stage !== "read");
+    $("tsTitle").textContent = `Tank ${no}`;
+    $("tsProd").className = product ? `ppill ${product}` : "";
+    $("tsProd").textContent = product;
+    $("tsWhere").textContent = [NAMES[product], !f ? "not read yet" : f.live ? `live · read ${clock(f.at)}` : `read ${when(f.at)}`]
+      .filter(Boolean).join(" · ");
+
+    const body = $("tsBody");
+    body.textContent = "";
+    const r = f?.r || {};
+    const capacity = r.capacity || (r.volume != null && r.ullage != null ? r.volume + r.ullage : null);
+    const room = r.ullage ?? (capacity && r.volume != null ? capacity - r.volume : null);
+    const togo = dec && dec.stage !== "settling" ? (dec.rise == null ? dec.litres : Math.max(0, dec.litres - dec.rise)) : 0;
+    const big = tankGauge({ product, volume: r.volume, capacity: capacity || 20000, incoming: togo,
+      live: Boolean(f?.live), filling: dec?.stage === "decanting", label: `Tank ${no}` });
+    big.classList.add("big");
+    body.appendChild(big);
+    if (dec?.stage === "decanting") {
+      const eta = decEta(dec, no);
+      const d = el("div", "s-figs");
+      d.append(sfig("Decanting speed", eta.lpm ? fmt(eta.lpm, 0) : "…", eta.lpm ? "L/min" : "", "hi",
+        `+${fmt(Math.max(0, dec.rise || 0), 0)} L of ${fmt(dec.litres, 0)}`),
+        sfig("Time left", eta.mins == null ? "…" : eta.togo <= 0 ? "done" : minutes(eta.mins), "", "hi",
+          eta.mins == null ? eta.left : `${fmt(eta.togo, 0)} L to go`));
+      d.style.marginBottom = "8px";
+      body.appendChild(d);
+    } else if (dec) {
+      body.appendChild(el("div", "tk-flag acc", dec.stage === "settling"
+        ? `Settling${dec.settleLeft > 0 ? `: ${Math.ceil(dec.settleLeft / 60)} min to go` : ""} · +${fmt(Math.max(0, dec.rise || 0), 0)} L in`
+        : `Waiting to be decanted: C${dec.chambers.join(", C")} · ${fmt(dec.litres, 0)} L`));
+    }
+    const figs = el("div", "s-figs");
+    figs.append(sfig("Stock", r.volume == null ? "–" : fmt(r.volume, 2), r.volume == null ? "" : "L"),
+      sfig("Room", room == null ? "–" : fmt(room, 0), room == null ? "" : "L"),
+      sfig("Capacity", capacity ? fmt(capacity, 0) : "–", capacity ? "L" : ""),
+      sfig("Filled", r.volume != null && capacity ? `${Math.round((100 * r.volume) / capacity)}%` : "–"));
+    body.appendChild(figs);
   }
 
   // ---- automatic decantation ---------------------------------------------
@@ -915,6 +1041,7 @@
     renderResult();
     renderLive();
     renderTanks();
+    if (openNo !== null) renderTankSheet();
   }
 
   async function refresh() {
@@ -986,6 +1113,10 @@
   $("mSave").addEventListener("click", () => send("api/settings", liveSettings(), "Saved."));
   $("liveStart").addEventListener("click", () => { pending = "Starting…"; $("ctlText").textContent = pending; send("api/live/start", liveSettings(), "", "liveErr"); });
   $("liveStop").addEventListener("click", () => { pending = "Stopping…"; $("ctlText").textContent = pending; send("api/live/stop", {}, "", "liveErr"); });
+
+  $("tsClose").addEventListener("click", closeTank);
+  $("tankSheet").addEventListener("close", () => { openNo = null; });
+  $("tankSheet").addEventListener("click", (e) => { if (e.target === $("tankSheet")) closeTank(); });   // (the backdrop)
 
   poll();
   setInterval(() => { if (!waiting && !document.hidden) refresh(); }, 30000);
