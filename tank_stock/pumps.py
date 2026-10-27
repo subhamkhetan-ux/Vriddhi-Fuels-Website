@@ -40,9 +40,19 @@ from urllib.request import Request, urlopen
 STATUS = ("UNKNOWN", "INOPERATIVE", "IDLE", "CALLING", "AUTHORISED", "FUELING",
           "SUSPENDED", "SALE END", "OFFLINE", "PUMP LOCK", "PUMP STOP")
 FUELING, SUSPENDED, SALE_END = 5, 6, 7
-# lockval bit -> interlock, as FuelTrans' getInterlock() names them. Bits not
-# listed show as "interlock bit N".
-INTERLOCKS: dict[int, str] = {}
+# lockval bit -> interlock, as FuelTrans' Pump Status page names them: it
+# writes lockval in binary, reverses it, and calls getInterlock(digit, bit)
+# for each digit (bit 0 is the lowest). Bits it has no name for (0, 19) show
+# as "interlock bit N".
+INTERLOCKS: dict[int, str] = {
+    1: "TEST INTERLOCK", 2: "PRESET INTERLOCK", 3: "NPND INTERLOCK", 4: "ATG INTERLOCK",
+    5: "WATER HIGH INTERLOCK", 6: "PRODUCT LOW INTERLOCK", 7: "TTRECEIPT INTERLOCK",
+    8: "DELIVERY INPROGRESS INTERLOCK", 9: "PUMP LOCK INTERLOCK", 10: "PUMP BLOCK INTERLOCK",
+    11: "NOZZLE BLOCK INTERLOCK", 12: "PUMP UM INTERLOCK", 13: "NOZZLE UM INTERLOCK",
+    14: "TANK BLOCK INTERLOCK", 15: "TANK UM INTERLOCK", 16: "NOPRICE INTERLOCK",
+    17: "DENSITY INTERLOCK", 18: "INTERLOCK (bit 18)", 20: "TANK LEAKAGE INTERLOCK",
+}
+NPND = "NPND INTERLOCK"   # (also its own flag, npndstatus)
 PRODUCTS = {"HS": "HSD", "HSD": "HSD", "MS": "MS", "XG": "XG", "XP": "XP95", "XP95": "XP95"}
 
 FEED = "/socket.io/?EIO=3&transport=polling"
@@ -88,8 +98,8 @@ def interlocks(lockval, npnd) -> list[str]:
         if (bits >> i) & 1:
             names.append(INTERLOCKS.get(i, f"interlock bit {i}"))
         i += 1
-    if str(npnd) == "1":
-        names.append("NPND interlock")
+    if str(npnd) == "1" and NPND not in names:
+        names.append(NPND)
     return names
 
 

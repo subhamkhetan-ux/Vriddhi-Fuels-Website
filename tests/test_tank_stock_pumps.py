@@ -81,9 +81,13 @@ def test_engine_io_payloads_and_interlock_bits():
     assert got[0].startswith("0{") and got[1] == "40" and got[2].startswith('42["pumpStatusPkt"')
     assert list(pm.packets('9:42["a",1]garbage')) == ['42["a",1]']                     # (stops at junk)
     assert pm.interlocks(0, 0) == []
-    assert pm.interlocks(5, 0) == ["interlock bit 0", "interlock bit 2"]
-    assert pm.interlocks(0, 1) == ["NPND interlock"]
-    assert pm.interlocks("2", "1") == ["interlock bit 1", "NPND interlock"]
+    assert pm.interlocks(5, 0) == ["interlock bit 0", "PRESET INTERLOCK"]
+    assert pm.interlocks(0, 1) == ["NPND INTERLOCK"]
+    assert pm.interlocks("2", "1") == ["TEST INTERLOCK", "NPND INTERLOCK"]
+    assert pm.interlocks(8, 1) == ["NPND INTERLOCK"]                 # (bit 3 and the flag: once)
+    assert pm.interlocks((1 << 6) | (1 << 8), 0) == ["PRODUCT LOW INTERLOCK", "DELIVERY INPROGRESS INTERLOCK"]
+    assert pm.interlocks(1 << 20, 0) == ["TANK LEAKAGE INTERLOCK"]
+    assert pm.interlocks(1 << 19, 0) == ["interlock bit 19"]          # (FuelTrans has no name for it)
 
 
 def test_a_sale_is_followed_and_teaches_the_nozzles_usual_flow(mon):
@@ -146,12 +150,12 @@ def test_interlocks_on_a_watched_nozzle_go_to_telegram_once_each_way(mon):
     mon.update(5, pkt(5, 9, lockval=5))                         # (the same: said once)
     mon.update(8, pkt(8, 9, lockval=1))                         # not watched: nothing said
     card = mon.view()["watching"][0]
-    assert card["status"] == "PUMP LOCK" and card["locks"] == ["interlock bit 0", "interlock bit 2"]
+    assert card["status"] == "PUMP LOCK" and card["locks"] == ["interlock bit 0", "PRESET INTERLOCK"]
     mon.update(5, pkt(5, 2, lockval=0, npnd=1))
     mon.update(5, pkt(5, 2))
-    assert mon.told_ == ["🔒 Pump 5 (MS, DU 2): interlock bit 0, interlock bit 2.",
-                         "🔒 Pump 5 (MS, DU 2): NPND interlock.",
-                         "🔓 Pump 5 (MS, DU 2): interlock cleared (NPND interlock)."]
+    assert mon.told_ == ["🔒 Pump 5 (MS, DU 2): interlock bit 0, PRESET INTERLOCK.",
+                         "🔒 Pump 5 (MS, DU 2): NPND INTERLOCK.",
+                         "🔓 Pump 5 (MS, DU 2): interlock cleared (NPND INTERLOCK)."]
     mon.set_alerts(False)
     mon.update(5, pkt(5, 9, lockval=2))
     assert len(mon.told_) == 3
