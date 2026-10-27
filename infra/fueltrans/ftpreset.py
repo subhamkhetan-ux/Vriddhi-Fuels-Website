@@ -35,7 +35,7 @@ try:
     print(f"{len(rows)} rows; fields: {sorted(rows[0]) if rows else []}")
     for r in rows[-3:]: print(json.dumps(r)[:600])
 except Exception: print(raw[:1200])
-print(f"\n== 4. live pump data for {SECS} s: every field, and whole packets when a nozzle is lifted or authorised")
+print(f"\n== 4. live data for {SECS} s: every pump field, whole packets when a nozzle is lifted or authorised, every other event")
 def packets(data):
     i = 0
     while i < len(data):
@@ -55,6 +55,8 @@ while time.time() < end:
         if not p.startswith("42"): continue
         name, *args = json.loads(p[2:])
         a = args[0] if args and isinstance(args[0], dict) else {}
+        if name not in ("pumpStatusPkt", "tankStatusPkt", "upsStatusPkt", "DeviceStatus"):
+            print(f"   event {name}: {json.dumps(args)[:400]}")        # (anything else: whatever it brings)
         if name != "pumpStatusPkt": continue
         new = set(a) - keys; keys |= set(a)
         if new: print("fields:", sorted(keys))
