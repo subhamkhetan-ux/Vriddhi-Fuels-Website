@@ -247,8 +247,7 @@ def wait_for(cond, timeout=5):
 def test_the_pumps_page_and_api(tmp_path):
     (tmp_path / "login.json").write_text(json.dumps({"source": "fueltrans", "password": "x", "url": "http://127.0.0.1:9"}))
     st = service.Station(home=tmp_path, notify=lambda *a: True, notify_photo=lambda *a: True)
-    st.pumps.fetch = FakeFuelTrans()
-    st.pumps.load_layout("http://ft")
+    st.pumps.fetch = ft = FakeFuelTrans()
     srv = service.make_server(st, 0)
     srv.port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -266,8 +265,13 @@ def test_the_pumps_page_and_api(tmp_path):
         page = urllib.request.urlopen(f"{base}/pumps").read()
         assert srv.csrf.encode() in page and b"__CSRF__" not in page and b'src="pumps.js"' in page
         assert b"use strict" in urllib.request.urlopen(f"{base}/pumps.js").read()
+        v = json.loads(urllib.request.urlopen(f"{base}/api/pumps").read())
+        assert v["pumps"] == [] and ft.calls == []              # (not open in front of anyone: nothing read)
         v = json.loads(urllib.request.urlopen(f"{base}/api/pumps?seen=1").read())
-        assert v["available"] and not v["on"] and [p["pump"] for p in v["pumps"]] == [1, 5, 8]
+        assert v["available"] and not v["on"] and [p["pump"] for p in v["pumps"]] == [1, 5, 8]   # to tick, before Start
+        assert [u for u, _ in ft.calls] == ["http://127.0.0.1:9/getDuPumpNozzleDetails"]
+        json.loads(urllib.request.urlopen(f"{base}/api/pumps?seen=1").read())
+        assert len(ft.calls) == 1                                # read once (for an hour)
         assert post("/api/pumps/watch", {"pumps": [5, 99]})[0] == 400
         code, v = post("/api/pumps/watch", {"pumps": [5]})
         assert code == 200 and [c["pump"] for c in v["watching"]] == [5]
@@ -287,3 +291,32 @@ def test_a_long_sale_is_learnt_from_whole(mon):
     sale(mon, 1, 300.0, 30.0, pause=(200, 230))                 # 10 min of flow and a pause
     (s,) = mon.sales[1]
     assert s["litres"] == 300.0 and abs(mon.speeds[1][0] - 30) < 0.6
+
+
+def test_the_pump_list_is_read_when_the_page_opens_and_again_after_a_failure(tmp_path):
+    clock, answers = Clock(), []
+
+    def fetch(url, data=None, timeout=0):
+        answers.append(url)
+        if len(answers) == 1:
+            raise urllib.error.URLError(ConnectionRefusedError("Connection refused"))
+        return json.dumps(LAYOUT)
+    p = pm.Pumps(tmp_path, lambda: "http://ft/", fetch=fetch, clock=clock)
+    p.need_layout()
+    v = p.view()
+    assert v["pumps"] == [] and "tunnel is down" in v["layout_error"]
+    p.need_layout()
+    assert len(answers) == 1                                     # not again at once
+    clock.t += pm.LAYOUT_RETRY
+    p.need_layout()
+    v = p.view()
+    assert [n["pump"] for n in v["pumps"]] == [1, 5, 8] and v["layout_error"] == ""
+    assert answers == ["http://ft/getDuPumpNozzleDetails"] * 2
+    clock.t += pm.LAYOUT_EVERY
+    p.on = True
+    p.need_layout()                                              # (monitoring: the listener keeps it)
+    assert len(answers) == 2
+    p.on = False
+    p.need_layout()
+    assert len(answers) == 3                                     # an hour on: read again
+    assert pm.Pumps(tmp_path, lambda: "", fetch=fetch).need_layout() is None and len(answers) == 3

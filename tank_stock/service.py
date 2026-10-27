@@ -1154,6 +1154,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/pumps":
             if parse_qs(url.query).get("seen") == ["1"]:          # the Pumps page is in front of someone
                 self.station.pumps.seen()
+                self.station.pumps.need_layout()                 # (its nozzles, to tick)
             return self._json(200, self.station.pumps.view())
         if url.path == "/api/auto/options":
             try:

@@ -160,8 +160,10 @@
     const box = $("choose");
     box.textContent = "";
     if (!state.pumps.length) {
-      box.appendChild(el("div", "note", state.available ? "Reading FuelTrans' pumps… (tick appears once FuelTrans answers)"
-        : "The pumps come from FuelTrans through the IOCL PC's tunnel, which this server doesn't use yet."));
+      box.appendChild(el("div", state.layout_error ? "note err" : "note",
+        !state.available ? "The pumps come from FuelTrans through the IOCL PC's tunnel, which this server doesn't use yet."
+          : state.layout_error ? `Couldn't read FuelTrans' pumps: ${state.layout_error}. Trying again in a minute.`
+            : "Reading FuelTrans' pumps…"));
       return;
     }
     const byDu = new Map();

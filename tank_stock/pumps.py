@@ -60,6 +60,7 @@ POLL_WAIT = 35          # seconds a long poll may take (FuelTrans answers within
 PING_EVERY = 20         # seconds: engine.io keep-alive ("2"), so the session isn't dropped
 RETRY = (2, 5, 10, 30, 60)   # seconds before opening the connection again after a failure
 LAYOUT_EVERY = 3600     # seconds: the pumps, nozzles and prices are read again this often
+LAYOUT_RETRY = 60       # seconds: the Pumps page open but the pump list couldn't be read: asked again
 STALE_AFTER = 15        # seconds without a packet: the page says the data is old
 FLOW_WINDOW = 10        # seconds of a sale the flow "now" is taken over
 MIN_SALE_L = 1.0        # a sale smaller than this (or under 10 s) doesn't teach the speed
@@ -131,6 +132,9 @@ class Pumps:
         self.lock = threading.Lock()
         self.layout: dict[int, dict] = {}
         self.layout_at = 0.0
+        self.layout_error = ""            # why the pump list couldn't be read, if it couldn't
+        self._layout_tried = float("-inf")
+        self._layout_busy = threading.Lock()
         self.live: dict[int, dict] = {}
         self.feed = {"connected": False, "since": None, "error": "", "last": None}
         self.on = False                   # monitoring started (never at start-up)
@@ -197,6 +201,27 @@ class Pumps:
     def seen(self) -> None:
         """The Pumps page is open in front of someone."""
         self.seen_at = self.clock()
+
+    def need_layout(self) -> None:
+        """The Pumps page is open: read the pump list (one small request) if
+        there's none yet or it's LAYOUT_EVERY old, so the nozzles can be
+        ticked before monitoring is started. While monitoring, the listener
+        keeps it; a failure is asked again after LAYOUT_RETRY."""
+        base = self.url_of()
+        now = self.clock()
+        if (not base or self.on or (self.layout and now - self.layout_at < LAYOUT_EVERY)
+                or now - self._layout_tried < LAYOUT_RETRY):
+            return
+        if not self._layout_busy.acquire(blocking=False):
+            return                                     # (another request is reading it)
+        try:
+            self._layout_tried = now
+            self.load_layout(base.rstrip("/"))
+            self.layout_error = "" if self.layout else "FuelTrans listed no pumps"
+        except (OSError, URLError, HTTPError, ValueError) as exc:
+            self.layout_error = _why(exc)
+        finally:
+            self._layout_busy.release()
 
     def _unseen(self) -> bool:
         """Running with nobody looking for UNSEEN_STOP: stop."""
@@ -393,6 +418,7 @@ class Pumps:
             watched = [self._card(p, now) for p in self.watch]
             last = self.feed.get("last")
             return {"available": bool(self.url_of()), "on": self.on, "stopped": self.stopped,
+                    "layout_error": "" if self.layout else self.layout_error,
                     "stops_in_s": max(0, round(UNSEEN_STOP - (now - self.seen_at))) if self.on else None,
                     "alerts": self.alerts, "pumps": pumps, "watching": watched,
                     "feed": {**self.feed, "stale": bool(self.watch) and (not last or now - last > STALE_AFTER),
