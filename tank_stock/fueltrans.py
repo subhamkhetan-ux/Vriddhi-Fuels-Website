@@ -28,6 +28,8 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from .capture import CaptureError
+from .cards import PRODUCTS, TIME
+from .pumps import packets as engine_packets
 
 URL = "http://127.0.0.1:13000"        # the tunnel's end (infra/fueltrans/server-setup.sh)
 USER = "Dealer"
@@ -62,6 +64,9 @@ LOAD_WAIT = 120                       # seconds FuelTrans' page may take to load
 # opening FuelTrans moves a few KB over the station's upload, not ~4.6 MB.
 FILES = re.compile(r"\.[0-9a-f]{16,}\.(?:js|css)$|\.(?:woff2?|ttf|eot|otf|png|jpe?g|gif|svg|ico)$", re.I)
 FILES_DIR = "fueltrans-files"          # (in TANK_STOCK_HOME)
+KEPT_PACKETS = 4                      # a tank's last live-data packets kept (to match the screen's)
+SHOT_TRIES = 3                        # screenshots taken at most for one whose cards held still
+DETAILS_AGAIN = 300                   # seconds before FuelTrans' tank list is asked for again, if it failed
 LOST_AFTER = 30                       # seconds of FuelTrans not answering before the session is lost
 PROBE_WAIT = 10                       # seconds one "does FuelTrans answer?" may take
 
@@ -98,6 +103,11 @@ class FuelTransSession:
         self._fresh_at = 0.0
         self._clocks, self._clocks_at = "", 0.0   # the cards' "Last Updated" times, and since when
         self._down_since, self._down_why = None, ""   # FuelTrans not answering: since when, and how
+        self._tanks: dict[int, list[dict]] = {}           # tank -> its last tankStatusPkts, newest last
+        self._polls: list = []                             # live-data replies over HTTP, not yet looked at
+        self._details: dict[int, dict] | None = None      # tank -> FuelTrans' tankDetails row
+        self._details_failed = float("-inf")               # (when asking for it last failed)
+        self.last_figures: dict[int, dict] = {}           # the exact figures at the last screenshot
 
     def __enter__(self):
         self.open()
@@ -123,6 +133,82 @@ class FuelTransSession:
         self._page.route("**" + CONFIG, self._config)
         self._page.route(lambda url: bool(FILES.search(urlparse(url).path)), self._file)
         self._page.add_init_script(PC_FONT_SCRIPT)
+        self._page.on("websocket", self._on_socket)
+        self._page.on("response", self._on_response)
+
+    # ---- the exact figures: FuelTrans' own live data, as its page receives it.
+    # Its page gets each tank's figures as a "tankStatusPkt" over socket.io
+    # (a websocket, or HTTP polling before that's up) and shows them on the
+    # tank's card. A screenshot's figures are the packets whose "Last Updated"
+    # is the very one its card shows: exactly what the picture says, with no
+    # reading of the picture. A tank without one (FuelTrans changed its live
+    # data, say) is read off the screen as before.
+    def _on_socket(self, ws) -> None:
+        if "socket.io" in ws.url:
+            ws.on("framereceived", self._on_frame)
+
+    def _on_response(self, response) -> None:
+        if "/socket.io/" in response.url and "transport=polling" in response.url:
+            self._polls.append(response)               # (its body is read outside the event)
+
+    def _on_frame(self, payload) -> None:
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8", "replace")
+        if not isinstance(payload, str) or not payload.startswith("42"):
+            return
+        try:
+            name, *args = json.loads(payload[2:])
+            if name == "tankStatusPkt" and args and isinstance(args[0], dict):
+                kept = self._tanks.setdefault(int(args[0]["tankId"]), [])
+                kept.append(args[0])
+                del kept[:-KEPT_PACKETS]
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    def _read_polls(self) -> None:
+        polls, self._polls = self._polls, []
+        for response in polls:
+            try:
+                body = response.text()
+            except Exception:  # noqa: BLE001 - gone: the websocket brings the next ones
+                continue
+            for packet in engine_packets(body):
+                self._on_frame(packet)
+
+    def _shown(self) -> list[str]:
+        """The cards' "Last Updated" lines, as the page shows them now."""
+        try:
+            return self._page.get_by_text(UPDATED).all_inner_texts()
+        except Exception:  # noqa: BLE001 - no exact figures for this screen
+            return []
+
+    def _tank_details(self) -> dict[int, dict]:
+        """FuelTrans' tank list (each tank's capacity and product), once."""
+        if self._details is None and time.monotonic() - self._details_failed >= DETAILS_AGAIN:
+            try:
+                with urlopen(self.url + "/tankDetails", timeout=PROBE_WAIT) as r:
+                    rows = json.loads(r.read())
+                self._details = {int(t["tank_no"]): t for t in rows if isinstance(t, dict) and "tank_no" in t}
+            except (OSError, ValueError, KeyError, TypeError):
+                self._details_failed = time.monotonic()
+        return self._details or {}
+
+    def _figures(self, shown: list[str]) -> dict[int, dict]:
+        """{tank: exact figures} for the cards showing ``shown`` times."""
+        self._read_polls()
+        times = {_when(m.groups()) for m in (TIME.search(t) for t in shown) if m}
+        out, details = {}, None
+        for no, kept in list(self._tanks.items()):
+            for pkt in reversed(kept):
+                m = TIME.search(str(pkt.get("lastUpdated") or ""))
+                if m and _when(m.groups()) in times:
+                    if details is None:
+                        details = self._tank_details()
+                    card = card_from_packet(pkt, details.get(no) or {})
+                    if card:
+                        out[no] = card
+                    break
+        return out
 
     def _config(self, route) -> None:
         """FuelTrans' page asks its backend at config.json's baseUrl,
@@ -317,9 +403,18 @@ class FuelTransSession:
             self._clocks, self._clocks_at = "", time.monotonic()
 
     def _png(self) -> bytes:
+        """A screenshot, and (last_figures) the exact figures it shows: taken
+        again if a card's "Last Updated" moved while it was being taken."""
         self._start()
         self._keep_fresh()
-        return self._page.screenshot(type="png")
+        for _ in range(SHOT_TRIES):
+            before = self._shown()
+            png = self._page.screenshot(type="png")
+            shown = self._shown()
+            if shown == before:
+                break
+        self.last_figures = self._figures(shown) if shown == before else {}
+        return png
 
     def _stop(self) -> None:
         for thing in (self._browser, self._pw):
@@ -395,6 +490,45 @@ class FuelTransSession:
         self._pool.shutdown(wait=False)
 
 
+def _when(groups) -> tuple:
+    """A "Last Updated" time as numbers (seconds 0 if not shown)."""
+    return tuple(int(g or 0) for g in groups)
+
+
+def card_from_packet(pkt: dict, details: dict) -> dict | None:
+    """A tankStatusPkt as the card reader's figures (cards.read_card's shape),
+    exact: None for a card still waiting for its first figures, or a packet
+    whose fields aren't the ones known (FuelTrans changed: the screen is read
+    instead). ``details``: the tank's tankDetails row (capacity, product;
+    without it the decant app's own capacity is used)."""
+    when = str(pkt.get("lastUpdated") or "")
+    t = TIME.search(when)
+    if not t or when.startswith("00/00/0000"):
+        return None
+    try:
+        volume = float(pkt["prodcutVolume"] if "prodcutVolume" in pkt else pkt["productVolume"])
+        ullage, height = float(pkt["ullage"]), float(pkt["productLevel"])
+        no = int(pkt["tankId"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    num = lambda k: round(float(pkt.get(k) or 0), 2)   # noqa: E731
+    product = ""
+    for pat, key in PRODUCTS:
+        if re.search(pat, str(details.get("product_name") or ""), re.I):
+            product = key
+    try:
+        capacity = float(details.get("capacity") or 0) or None
+    except (TypeError, ValueError):
+        capacity = None
+    card = {"no": no, "time": t.groups(), "capacity": capacity, "volume": round(volume, 2),
+            "height": round(height, 2), "water": num("waterVolume"), "ullage": round(ullage, 2),
+            "density": num("density"), "densityTc": num("tcDensity"), "temp": num("temperature"),
+            "disagree": [], "exact": True}
+    if product:
+        card["product"] = product
+    return card
+
+
 def main() -> int:
     """python -m tank_stock.fueltrans: read the tanks once with the saved
     login, as the service will (tank-stock-setup.sh's check)."""
@@ -406,6 +540,7 @@ def main() -> int:
                                    login.get("password") or "")
         try:
             png, did = session.shot()
+            exact = session.last_figures
         finally:
             session.close()
     except (OSError, ValueError, CaptureError) as exc:
@@ -416,8 +551,12 @@ def main() -> int:
     boxes, read = cards.read_all(png)
     print(f"  FuelTrans: {did}")
     for no, card in sorted(read.items()):
+        ex = exact.get(no)
+        if ex:
+            card = {**card, **ex}
         print(f"  Tank {no} ({card.get('product')}): volume {card.get('volume')} L, "
-              f"ullage {card.get('ullage')} L, height {card.get('height')} mm")
+              f"ullage {card.get('ullage')} L, height {card.get('height')} mm "
+              f"({'exact, from FuelTrans live data' if ex else 'read off the screen'})")
     print("Read through FuelTrans: it works." if read else "No tank cards were read: send me this output.")
     return 0 if read else 1
 
