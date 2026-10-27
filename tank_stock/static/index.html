@@ -54,16 +54,7 @@
                  background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.35); flex: none; }
   h1 { font: 800 17px/1.15 var(--display); margin: 0; letter-spacing: .3px; text-shadow: 0 1px 2px rgba(120,30,0,.35); }
   .brand small { font-size: 11.5px; opacity: .85; display: block; }
-  .sub { font-size: 11.5px; font-weight: 700; padding: 5px 10px; border-radius: 999px; color: #fff; white-space: nowrap;
-         border: 1px solid rgba(255,255,255,.38); background: rgba(255,255,255,.18); display: inline-flex; align-items: center;
-         gap: 6px; max-width: 58vw; overflow: hidden; text-overflow: ellipsis; }
-  .sub::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; flex: none; }
-  .sub.live { background: rgba(47,208,138,.3); }
-  .sub.live::before { background: #8dffcf; box-shadow: 0 0 0 3px rgba(141,255,207,.25); }
-  .embedded header { position: static; background: none; box-shadow: none; border: 0; padding: 12px 16px 0; justify-content: flex-end; }
-  .embedded .brand { display: none; }
-  .embedded .sub { background: var(--glass-2); border-color: var(--glass-line); max-width: 100%; }
-  .embedded .sub.live { background: var(--ok-bg); border-color: rgba(47,208,138,.4); }
+  .embedded header { display: none; }
 
   /* ---- surfaces ---- */
   main { padding: 0 16px; max-width: 760px; margin: 0 auto; }
@@ -81,7 +72,7 @@
   /* ---- chips, buttons, fields ---- */
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip { border: 1px solid var(--glass-line); background: var(--chip); color: var(--ink); border-radius: 999px;
-          padding: 9px 13px; font: 600 13.5px/1 inherit; font-family: inherit; cursor: pointer; }
+          padding: 9px 13px; font-weight: 600; font-size: 13.5px; line-height: 1; font-family: inherit; cursor: pointer; }
   .chip[aria-pressed="true"] { border-color: rgba(255,122,26,.6); color: #fff;
                                background: linear-gradient(150deg, rgba(255,122,26,.4), rgba(244,81,30,.18));
                                box-shadow: 0 6px 16px -10px rgba(255,122,26,.9); }
@@ -92,7 +83,7 @@
   button.main:active { transform: translateY(1px); }
   button.alt { background: var(--glass-2); color: var(--ink); border: 1px solid var(--glass-line); font-weight: 700; }
   button:disabled { opacity: .45; cursor: default; box-shadow: none; }
-  .up { font: 600 12.5px/1 inherit; font-family: inherit; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--glass-line);
+  .up { font-weight: 600; font-size: 12.5px; line-height: 1; font-family: inherit; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--glass-line);
         background: var(--glass-2); color: var(--ink); cursor: pointer; }
   .up:hover, button.alt:hover, .chip:hover { border-color: var(--accent); }
   label.line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0;
@@ -109,7 +100,7 @@
   .proof { background: rgba(0,0,0,.22); border: 1px solid var(--glass-line-soft); border-radius: 12px; padding: 8px; min-width: 0; }
   .proof .label { display: block; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
   .proof .value { font: 800 15px/1.3 var(--display); font-variant-numeric: tabular-nums; }
-  .proof img { width: 100%; border-radius: 8px; display: block; background: #fff; margin-top: 6px; }
+  .proof img { width: 100%; max-height: 150px; object-fit: contain; border-radius: 8px; display: block; background: #fff; margin-top: 6px; }
   .proof .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .proof .pf { font-size: 11.5px; font-weight: 700; margin-top: 4px; }
   .proof .pf.ok { color: var(--ok); } .proof .pf.mid { color: var(--mid); } .proof .pf.no { color: var(--warn); }
@@ -128,11 +119,7 @@
   .fig .label { display: block; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
   .fig .value { font: 800 15px/1.3 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
   @media (max-width: 480px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  #liveFigures .grid { grid-template-columns: 1fr; }
-  #liveFigures .fig .value { font-size: 26px; background: linear-gradient(135deg, #fff 30%, #ffc49a);
-                             -webkit-background-clip: text; background-clip: text; color: transparent; }
   #figures { margin-top: 8px; }
-  #liveFigures .tank:first-child { border-top: 1px solid var(--glass-line-soft); margin-top: 10px; }
   .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 700; }
   .high { background: var(--ok-bg); color: var(--ok); }
   .medium { background: var(--mid-bg); color: var(--mid); }
@@ -140,7 +127,7 @@
 
   /* ---- automatic decantation ---- */
   .seg { display: flex; flex-wrap: wrap; gap: 6px; }
-  .seg button { font: 600 13px/1 inherit; font-family: inherit; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--glass-line);
+  .seg button { font-weight: 600; font-size: 13px; line-height: 1; font-family: inherit; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--glass-line);
                 background: var(--glass-2); color: var(--muted); cursor: pointer; }
   .seg button[aria-pressed="true"] { color: #fff; border-color: rgba(255,122,26,.6); background: linear-gradient(150deg, rgba(255,122,26,.4), rgba(244,81,30,.18)); }
   .plan-row { display: grid; grid-template-columns: 124px 1fr; gap: 8px; align-items: center; padding: 10px 0;
@@ -162,15 +149,112 @@
   h3.minor { font: 700 13px/1.3 var(--display); margin: 18px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
   .log { font-size: 12px; color: var(--faint); margin: 12px 0 0; padding-left: 18px; }
   .log .warn, .log .ask { color: var(--mid); } .log .done { color: var(--ok); }
+
+  /* ---- the control bar: on demand / live / connecting, Go live / Stop ---- */
+  .ctl { display: flex; align-items: center; gap: 12px; }
+  .ctl .feed { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--faint); flex: none; }
+  .dot.live { background: var(--ok); animation: pulse 1.6s infinite; }
+  .dot.wait { background: var(--mid); animation: pulse-mid 1.6s infinite; }
+  .dot.bad { background: var(--warn); }
+  .dot.auto { background: var(--accent); animation: pulse-acc 1.6s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(47,208,138,.6); } 70%, 100% { box-shadow: 0 0 0 9px rgba(47,208,138,0); } }
+  @keyframes pulse-mid { 0% { box-shadow: 0 0 0 0 rgba(255,178,62,.6); } 70%, 100% { box-shadow: 0 0 0 9px rgba(255,178,62,0); } }
+  @keyframes pulse-acc { 0% { box-shadow: 0 0 0 0 rgba(255,122,26,.7); } 70%, 100% { box-shadow: 0 0 0 9px rgba(255,122,26,0); } }
+  .feed b { display: block; font: 800 15px/1.25 var(--display); }
+  .feed .note { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button.sm { padding: 11px 16px; font-size: 14px; flex: none; }
+  #control .status:empty { display: none; }
+
+  /* ---- the four tanks at a glance ---- */
+  .tanks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+  @media (min-width: 720px) { .tanks { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .tk { position: relative; background: var(--glass); border: 1px solid var(--glass-line); border-radius: 16px; padding: 11px 12px 12px;
+        backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); box-shadow: var(--glass-shadow);
+        min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .tk.live { border-color: rgba(47,208,138,.38); }
+  .tk.busy { border-color: rgba(255,122,26,.6); background: linear-gradient(160deg, var(--accent-soft), var(--glass) 60%); }
+  .tk.bad { border-color: rgba(255,107,94,.55); }
+  .tk-head { display: flex; align-items: center; gap: 6px; }
+  .tk-head strong { font: 800 15px/1.2 var(--display); white-space: nowrap; }
+  .src { margin-left: auto; font: 800 10px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
+         white-space: nowrap; }
+  .src.live { color: var(--ok); }
+  .tk-body { display: flex; gap: 11px; align-items: stretch; }
+  .gauge { position: relative; width: 38px; flex: none; border-radius: 12px; border: 2px solid rgba(255,255,255,.22);
+           background: rgba(0,0,0,.35); overflow: hidden; min-height: 82px; }
+  .gauge i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 0 0 9px 9px; transition: height .8s;
+             background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 30%), var(--fill, var(--accent)); }
+  .gauge span { position: absolute; inset: 0; display: grid; place-items: center; font: 800 11px/1 var(--display);
+                color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .tk-figs { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+  .tk-vol { font: 800 21px/1.15 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; }
+  .tk-vol small, .mini b small { font-size: .58em; font-weight: 700; color: var(--muted); margin-left: 2px; }
+  .tk-line { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+             text-overflow: ellipsis; }
+  .tk-flag { font-size: 11.5px; line-height: 1.35; font-weight: 700; border-radius: 8px; padding: 5px 7px; }
+  .tk-flag.warn { color: var(--warn); background: var(--warn-bg); }
+  .tk-flag.mid { color: var(--mid); background: var(--mid-bg); }
+  .tk-flag.acc { color: #ffd2b0; background: var(--accent-soft); }
+  .prod { font: 800 10.5px/1 var(--display); padding: 4px 6px; border-radius: 6px; color: #fff; }
+  .prod.HSD { background: var(--p-hsd); } .prod.MS { background: var(--p-ms); } .prod.XG { background: var(--p-xg); }
+
+  /* ---- a running decantation: each tank's steps ---- */
+  .steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin-top: 10px; }
+  .steps div { text-align: center; font-size: 10px; line-height: 1.2; font-weight: 700; color: var(--faint); padding-top: 6px;
+               border-top: 4px solid rgba(255,255,255,.1); text-transform: uppercase; letter-spacing: .04em; }
+  .steps div.done { border-top-color: rgba(47,208,138,.65); color: var(--muted); }
+  .steps div.now { border-top-color: var(--accent); color: var(--ink); }
+  .minis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+  .mini { background: rgba(0,0,0,.22); border: 1px solid var(--glass-line-soft); border-radius: 10px; padding: 6px 8px; min-width: 0; }
+  .mini span { display: block; font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+  .mini b { font: 800 14px/1.3 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mini.up b { color: var(--accent); }
+  .result { border: 1px solid rgba(47,208,138,.45); background: var(--ok-bg); border-radius: 14px; padding: 12px; margin: 12px 0; }
+  .result.plain { border-color: var(--glass-line); background: var(--glass-2); }
+  .result strong { font: 800 15px/1.3 var(--display); display: block; }
+  .result ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+  .result .row { margin-top: 10px; align-items: center; }
+  .lastline { margin-top: 12px; font-size: 12.5px; color: var(--faint); }
+  details.log-box { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+  details.log-box summary { cursor: pointer; }
+  #autoBody .tank > .note { margin-top: 8px; }
+
+  /* ---- folded panels ---- */
+  details.panel { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 18px; margin: 14px 0;
+                  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+  details.panel > summary { list-style: none; cursor: pointer; padding: 15px; font: 800 15px/1.3 var(--display);
+                            display: flex; align-items: center; gap: 8px; }
+  details.panel > summary::-webkit-details-marker { display: none; }
+  details.panel > summary::after { content: "›"; margin-left: auto; font-size: 20px; color: var(--faint); transition: transform .2s; }
+  details.panel[open] > summary::after { transform: rotate(90deg); }
+  .panel-body { padding: 0 15px 15px; }
+  .row.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row.two button { padding: 13px 8px; font-size: 13.5px; line-height: 1.2; }
+  .tank-head .acts .up { padding: 7px 10px; }
+  #figures .tank { padding: 12px 0 10px; }
+  #figures .tk-line { margin-top: 6px; }
 </style>
 </head>
 <body>
 <header>
   <div class="brand"><span class="logo" aria-hidden="true">🛢️</span>
     <div><h1>Tank stock</h1><small>IOCL automation PC → decant app</small></div></div>
-  <div class="sub" id="sub">On demand</div>
 </header>
 <main>
+  <section id="control">
+    <div class="ctl">
+      <div class="feed"><span class="dot" id="dot"></span>
+        <div style="min-width:0"><b id="ctlText">…</b><span class="note" id="ctlSub"></span></div></div>
+      <button class="main sm" id="liveStart" type="button">Go live</button>
+      <button class="alt sm" id="liveStop" type="button" hidden>Stop</button>
+    </div>
+    <div class="status" id="liveErr"></div>
+  </section>
+
+  <div class="tanks" id="tanks" aria-label="The tanks"></div>
+
   <section id="auto">
     <h2>Decantation</h2>
     <div id="autoBody"></div>
@@ -178,13 +262,13 @@
   </section>
 
   <section>
-    <h2>Capture now</h2>
+    <h2>Capture</h2>
     <div class="chips" id="pick" aria-label="Tanks"></div>
-    <div class="row">
+    <div class="row two">
       <button class="main" id="goDec">Send for decantation</button>
       <button class="alt" id="go">Capture only</button>
     </div>
-    <div class="note" style="margin-top:8px">Send for decantation reads these tanks, saves them to the decant app and disconnects (it also ends live monitoring).</div>
+    <div class="note" style="margin-top:8px">Send for decantation reads these tanks, saves them to the decant app with their proof picture, and ends live monitoring. Capture only shows them here, to save or upload.</div>
     <div class="status" id="status"></div>
   </section>
 
@@ -194,36 +278,35 @@
     <a class="note" id="fullScreen" href="api/picture?full=1" target="_blank" rel="noopener" hidden>See the whole screen the agent saw</a>
     <img class="shot" id="shot" alt="The selected tanks on the automation screen">
     <div id="figures"></div>
-    <div class="row">
+    <div class="row two">
       <button class="main" id="upAll">Upload these to decant</button>
       <button class="alt" id="saveAll">Save image of all tanks</button>
     </div>
     <div class="status" id="upStatus"></div>
   </section>
 
-  <section>
-    <h2>Live monitoring</h2>
-    <div class="note">Keeps FuelTrans' Tank Status open on the server and reads the watched tanks' product volume again every few seconds (no pictures), until you stop it. If the PC's connection drops, it connects again by itself. When it ends, the last screen shows above, with its pictures to save or upload.</div>
-    <div class="status" id="liveState"></div>
-    <div id="liveFigures"></div>
-    <label class="line">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
-    <label class="line">Send the volume to the decant app as it changes <input type="checkbox" id="mUp"></label>
-    <label class="line" id="mReLine">Connect again when the session ends <input type="checkbox" id="mRe"></label>
-    <div class="note" style="margin-top:8px">Tanks to watch</div>
-    <div class="chips" id="mTanks" style="margin-top:6px"></div>
-    <div class="row">
-      <button class="main" id="liveStart">Start live monitoring</button>
-      <button class="alt" id="liveStop" hidden>Stop</button>
-      <button class="alt" id="mSave">Save settings</button>
+  <details class="panel" id="liveBox">
+    <summary>Live monitoring</summary>
+    <div class="panel-body">
+      <div class="status" id="liveState" style="margin-top:0"></div>
+      <div class="note" style="margin-top:8px">Live keeps FuelTrans' Tank Status open on the server and reads the watched tanks every few seconds (no pictures) until you stop it; the tanks above show it as it comes. If the PC's connection drops, it connects again by itself.</div>
+      <label class="line">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
+      <label class="line">Send the volume to the decant app as it changes <input type="checkbox" id="mUp"></label>
+      <label class="line" id="mReLine">Connect again when the session ends <input type="checkbox" id="mRe"></label>
+      <div class="note" style="margin-top:10px">Tanks to watch</div>
+      <div class="chips" id="mTanks" style="margin-top:6px"></div>
+      <div class="row">
+        <button class="alt" id="mSave">Save settings</button>
+      </div>
+      <div class="status" id="mStatus"></div>
+      <div class="note" style="margin-top:8px">With this page closed for 15 minutes, live monitoring ends by itself to free the server's memory, unless it is sending to the decant app or an automatic decantation is on.</div>
+      <div id="sessions" hidden>
+        <h3 class="minor">Live sessions</h3>
+        <div class="note" id="sessStats"></div>
+        <ul class="log" id="sessList"></ul>
+      </div>
     </div>
-    <div class="status" id="mStatus"></div>
-    <div class="note">With this page closed for 15 minutes, live monitoring ends by itself to free the server's memory, unless it is sending to the decant app or an automatic decantation is on.</div>
-    <div id="sessions" hidden>
-      <h3 class="minor">Live sessions</h3>
-      <div class="note" id="sessStats"></div>
-      <ul class="log" id="sessList"></ul>
-    </div>
-  </section>
+  </details>
 </main>
 <script src="app.js"></script>
 </body>

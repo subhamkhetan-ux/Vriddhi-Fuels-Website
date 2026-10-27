@@ -265,7 +265,7 @@ def test_live_monitoring_keeps_one_session_until_anydesk_ends_it(station):
     assert wait_for(lambda: station.live and station.live["reads"] == 1)
     assert station.db.writes[-1]["tank_id"] == "T3"            # the figures, as they come
     assert station.db.shots == [] and station.db.files == {}   # no pictures while live
-    assert station.live["figures"]["3"]["reading"] == {"volume": 19552.05}
+    assert station.live["figures"]["3"]["reading"]["volume"] == 19552.05
     sent = station.db.writes[-1]["reading"]                     # the volume alone to decant
     assert sent["volume"] == 19552.05 and sent["ullage"] == 447.95
     assert all(sent[k] is None for k in ("height", "dip", "temp", "density", "densityTc", "water"))

@@ -98,14 +98,14 @@
     $("result").hidden = false;
     const sel = [...picked].sort().filter((n) => last.tanks?.[n]);
     $("resultTitle").textContent = `Capture of ${when(last.at)}`;
-    const notes = [`${last.page || ""}`, last.settings_note || ""].filter(Boolean);
+    const notes = [last.settings_note || ""].filter(Boolean);
     if (last.proof) notes.push(last.proof.ok ? `Proof picture of Tank ${last.proof.tanks.join(", ")} saved for today's result pictures.`
       : `Proof picture not saved: ${last.proof.message}`);
     const none = !Object.keys(last.tanks || {}).length;
     const missing = [...picked].filter((n) => !last.tanks?.[n]);
     if (none) notes.push("No tank cards on that screen: this is what the IOCL PC showed (also sent to the XtraPower bot).");
     else if (missing.length) notes.push(`Not found on that screen: Tank ${missing.join(", ")} (the whole screen was sent to the XtraPower bot).`);
-    $("resultNote").textContent = notes.join(" ");
+    $("resultNote").textContent = notes.join(" · ");
     $("fullScreen").hidden = none || !missing.length;
     $("fullScreen").href = `api/picture?full=1&v=${encodeURIComponent(last.at)}`;
     $("upAll").hidden = none;
@@ -128,10 +128,11 @@
       const r = info.reading || {};
       const tank = el("div", "tank");
       const head = el("div", "tank-head");
-      const name = el("strong", "", tankName(no));
-      head.appendChild(name);
+      head.appendChild(el("strong", "", `Tank ${no}`));
+      if (info.product) head.appendChild(el("span", `prod ${info.product}`, info.product));
       if (info.confidence) head.appendChild(el("span", `badge ${info.confidence}`, BADGE[info.confidence]));
-      const save = el("button", "up save", "Save image");
+      const save = el("button", "up save", "Save");
+      save.title = "Save this tank's picture";
       save.addEventListener("click", () => saveImage([no]));
       const up = el("button", "up", "Upload");
       up.disabled = Boolean(state.busy) || info.confidence === "low";
@@ -140,15 +141,18 @@
       acts.append(save, up);
       head.appendChild(acts);
       tank.appendChild(head);
-      const grid = el("div", "grid");
-      for (const [label, v, d, unit] of [["Stock", r.volume, 2, " L"], ["Ullage", r.ullage, 2, " L"], ["Dip", r.dip, 1, " cm"],
-        ["Water", r.water, 0, " L"], ["Temp", r.temp, 1, " °C"], ["Density", r.density, 1, ""]]) {
-        const cell = el("div", "fig");
-        cell.appendChild(el("span", "label", label));
-        cell.appendChild(el("span", "value", v === null || v === undefined ? "–" : fmt(v, d) + unit));
+      const grid = el("div", "minis");
+      for (const [label, v, d, unit] of [["Stock", r.volume, 2, "L"], ["Ullage", r.ullage, 2, "L"], ["Dip", r.dip, 1, "cm"]]) {
+        const cell = el("div", "mini");
+        const b = el("b", "", v === null || v === undefined ? "–" : fmt(v, d));
+        if (v != null) b.appendChild(el("small", "", unit));
+        cell.append(el("span", "", label), b);
         grid.appendChild(cell);
       }
       tank.appendChild(grid);
+      const more = [r.water != null && `Water ${fmt(r.water, 0)} L`, r.temp != null && `${fmt(r.temp, 1)} °C`,
+        r.density != null && `${fmt(r.density, 1)} kg/m³`].filter(Boolean);
+      if (more.length) tank.appendChild(el("div", "tk-line", more.join(" · ")));
       const said = [...(info.problems || [])];
       const u = last.uploads?.[no];
       if (u) said.push(`Decant (${when(u.at)}): ${u.message}`);
@@ -209,7 +213,7 @@
     const prev = state.live_last || {};
     $("liveStart").hidden = Boolean(live);
     $("liveStop").hidden = !live || autoActive();       // the automatic decantation needs it
-    $("liveStart").disabled = Boolean(state.busy);
+    $("liveStart").disabled = Boolean(state.busy) || !state.login_saved;
     let text, err = false;
     if (live && !isLive()) {
       text = "Connecting… (about a minute)";
@@ -229,11 +233,7 @@
     }
     setStatus("liveState", text, err);
     renderSessions(state.sessions);
-    renderLiveFigures(live);
-    if (["Starting…", "Stopping…"].includes($("mStatus").textContent) && (live ? isLive() : true)) setStatus("mStatus", "");
-    $("sub").textContent = autoActive() ? "Automatic decantation running"
-      : live ? (isLive() ? "Live monitoring on" : "Connecting…") : "On demand: nothing connects until you ask";
-    $("sub").classList.toggle("live", Boolean(live && isLive()));
+    renderControl(live, prev);
     if (monitorDirty) return;
     const s = state.settings;
     $("mEvery").value = s.interval_s;
@@ -277,38 +277,97 @@
 
   const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }) : "");
 
-  // While live: each watched tank's latest product volume (no pictures).
-  function renderLiveFigures(live) {
-    const box = $("liveFigures");
-    box.textContent = "";
-    if (!live || !isLive()) return;
-    for (const no of live.watched || live.tanks) {
-      const f = live.figures?.[no];
-      const tank = el("div", "tank");
-      const head = el("div", "tank-head");
-      head.appendChild(el("strong", "", tankName(no)));
-      if (f?.confidence) head.appendChild(el("span", `badge ${f.confidence}`, BADGE[f.confidence]));
-      if (f?.at) head.appendChild(el("span", "note", `read ${clock(f.at)}`));
-      tank.appendChild(head);
-      const r = f?.reading || {};
-      const grid = el("div", "grid");
-      const cell = el("div", "fig");
-      cell.appendChild(el("span", "label", "Product volume"));
-      cell.appendChild(el("span", "value", r.volume == null ? "–" : fmt(r.volume, 2) + " L"));
-      grid.appendChild(cell);
-      tank.appendChild(grid);
-      const said = [...(f?.problems || [])];
-      const probe = live.probes?.[no];
-      if (probe?.frozen) said.unshift(`⚠ The card isn't updating on the PC (since ${clock(probe.since)}): its figures may be frozen (probe, ATG or FuelTrans offline?).`);
-      const u = live.uploads?.[no];
-      if (u) said.push(`Decant (${clock(u.at)}): ${u.message}`);
-      if (!f) said.push("Not read yet.");
-      if (said.length) tank.appendChild(el("div", "note" + ((f?.problems || []).length || (u && !u.ok) || probe?.frozen ? " err" : ""), said.join(" · ")));
-      box.appendChild(tank);
+  // ---- the control bar: what the server is doing with the PC right now ----
+  let pending = "";             // "Starting…" / "Stopping…" until the server says so
+  function renderControl(live, prev) {
+    const dot = $("dot");
+    dot.className = "dot";
+    let text, sub;
+    if (autoActive()) {
+      text = "Decantation running"; dot.classList.add("auto");
+      sub = live && isLive() ? `Live, every ${live.every_s || live.interval_s} s · last read ${clock(live.last_read)}` : "Connecting to the PC…";
+    } else if (live && !isLive()) {
+      text = "Connecting…"; dot.classList.add("wait"); sub = "FuelTrans on the server: about a minute";
+    } else if (live) {
+      const watch = live.watched || live.tanks;
+      text = "Live"; dot.classList.add("live");
+      sub = `Tank ${watch.join(", ")} every ${live.every_s || live.interval_s} s`
+        + `${live.last_read ? ` · last read ${clock(live.last_read)}` : ""}`
+        + `${(live.sending || []).length || live.auto_upload ? " · sending to decant" : ""}`;
+    } else if (state.busy) {
+      text = "Reading the tanks…"; dot.classList.add("wait"); sub = `started ${ago(state.busy.since)}`;
+    } else {
+      text = "On demand";
+      sub = !state.login_saved ? "The FuelTrans login isn't saved on the server yet"
+        : prev.ended ? `Last live ${when(prev.since)} → ${clock(prev.ended)}: ${prev.reason}` : "Nothing connects until you ask";
     }
+    if (live && live.last_error) dot.className = "dot bad";
+    $("ctlText").textContent = pending && !(pending === "Starting…" && live && isLive()) && !(pending === "Stopping…" && !live) ? pending : text;
+    if ($("ctlText").textContent === text) pending = "";
+    $("ctlSub").textContent = sub;
+    setStatus("liveErr", live && live.last_error ? `Last problem: ${live.last_error}` : "", true);
   }
 
+  // ---- the four tanks at a glance: the freshest figures of each ----------------
+  const COLOUR = { MS: "var(--p-ms)", HSD: "var(--p-hsd)", XG: "var(--p-xg)" };
+  function figuresOf(no) {
+    const live = state.live;
+    const f = live && isLive() ? live.figures?.[no] : null;
+    const cap = state.last?.tanks?.[no];
+    if (f?.reading?.volume != null) return { r: f.reading, at: f.at, live: true, confidence: f.confidence, problems: f.problems };
+    if (cap?.reading?.volume != null) return { r: cap.reading, at: state.last.at, live: false, confidence: cap.confidence, problems: cap.problems };
+    return null;
+  }
+  function renderTanks() {
+    const box = $("tanks");
+    box.textContent = "";
+    const run = autoActive() ? state.auto?.run : null;
+    for (const no of TANKS) {
+      const f = figuresOf(no);
+      const product = state.last?.tanks?.[no]?.product || state.live?.products?.[no] || "";
+      const dec = (run?.tanks || []).find((t) => t.no === no && t.stage !== "read");
+      const probe = state.live && isLive() ? state.live.probes?.[no] : null;
+      const card = el("div", "tk");
+      if (dec) card.classList.add("busy");
+      else if (probe?.frozen || f?.confidence === "low") card.classList.add("bad");
+      else if (f?.live) card.classList.add("live");
 
+      const head = el("div", "tk-head");
+      head.appendChild(el("strong", "", `Tank ${no}`));
+      if (product) head.appendChild(el("span", `prod ${product}`, product));
+      head.appendChild(el("span", `src${f?.live ? " live" : ""}`, f ? (f.live ? "● live" : clock(f.at).replace(/:\d\d(?= |$)/, "")) : "–"));
+      card.appendChild(head);
+
+      const body = el("div", "tk-body");
+      const r = f?.r || {};
+      const capacity = r.capacity || (r.volume != null && r.ullage != null ? r.volume + r.ullage : null);
+      const pct = r.volume != null && capacity ? Math.max(0, Math.min(100, (100 * r.volume) / capacity)) : null;
+      const gauge = el("div", "gauge");
+      const fill = el("i");
+      fill.style.height = `${pct ?? 0}%`;
+      if (COLOUR[product]) fill.style.setProperty("--fill", COLOUR[product]);
+      gauge.append(fill, el("span", "", pct == null ? "–" : `${Math.round(pct)}%`));
+      const figs = el("div", "tk-figs");
+      const vol = el("div", "tk-vol", r.volume == null ? "–" : fmt(r.volume, 0));
+      if (r.volume != null) vol.appendChild(el("small", "", "L"));
+      figs.appendChild(vol);
+      const room = r.ullage ?? (capacity && r.volume != null ? capacity - r.volume : null);
+      figs.appendChild(el("div", "tk-line", room == null ? "no reading yet" : `${fmt(room, 0)} L room`));
+      if (capacity) figs.appendChild(el("div", "tk-line", `of ${fmt(capacity, 0)} L`));
+      body.append(gauge, figs);
+      card.appendChild(body);
+
+      if (dec) {
+        const what = { waiting: "Decantation: waiting", decanting: "Decanting", settling: "Settling" }[dec.stage] || dec.stage;
+        card.appendChild(el("div", "tk-flag acc", dec.stage === "waiting" ? `${what} for C${dec.chambers.join(", C")}`
+          : `${what}${dec.rise != null ? ` · +${fmt(Math.max(0, dec.rise), 0)} L of ${fmt(dec.litres, 0)}` : ""}`));
+      }
+      if (probe?.frozen) card.appendChild(el("div", "tk-flag warn", `⚠ Card not updating since ${clock(probe.since)}`));
+      else if (f?.confidence === "low") card.appendChild(el("div", "tk-flag warn", `Please check: ${(f.problems || []).join(", ") || "not read right"}`));
+      else if (f?.confidence === "medium") card.appendChild(el("div", "tk-flag mid", "Fixed & checked"));
+      box.appendChild(card);
+    }
+  }
 
   // ---- automatic decantation ---------------------------------------------
   // Set up: an invoice, then a tank (or "keep in the truck") for each of its
@@ -343,31 +402,29 @@
     if (a && (ACTIVE.includes(a.phase) || a.run || a.error)) {
       renderRun(box, a);
       if (ACTIVE.includes(a.phase)) return;
+      if (!a.run) box.appendChild(ended(a));
     }
     if (!setup) {
-      box.appendChild(el("div", "note", "Pick the truck's invoice and which chamber goes into which tank, and press Start: "
-        + "it reads each tank's stock before, follows the stock as the chambers go in, waits for it to settle, reads the stock "
-        + "after and finishes the decantation in the decant app. It asks here (and on Telegram) if the stock says something "
-        + "the plan didn't."));
-      const row = el("div", "row");
+      if (!a) {
+        box.appendChild(el("div", "note", "Pick the truck's invoice and the chambers' tanks: it reads the stock before, follows "
+          + "the chambers in, waits for the stock to settle, reads the stock after and finishes it in the decant app."));
+      }
+      const row = el("div", "row two");
       const b = el("button", "main", "Start a decantation");
       b.disabled = !state?.login_saved;
       b.addEventListener("click", openSetup);
       row.appendChild(b);
-      const img = el("button", "alt", "Tank stock image");
-      img.disabled = !state?.login_saved;
-      img.addEventListener("click", () => captureTanks([...picked]));
-      row.appendChild(img);
-      const more = el("button", "alt", "Carry on one from the decant app");
+      const more = el("button", "alt", "Carry on from the decant app");
       more.disabled = !state?.login_saved;
       more.addEventListener("click", openTakeover);
       row.appendChild(more);
-      if (a && !ACTIVE.includes(a.phase)) {
-        const c = el("button", "alt", "Clear");
-        c.addEventListener("click", () => autoAct("clear"));
-        row.appendChild(c);
-      }
       box.appendChild(row);
+      const prev = state?.auto_last;
+      if (!a && prev) {
+        const done = { finished: "finished ✓", cancelled: "cancelled", released: "handed over to the decant app", failed: "didn't start" }[prev.phase] || prev.phase;
+        box.appendChild(el("div", "lastline", `Last: ${prev.title} · ${done} ${when(prev.at)}`
+          + `${(prev.result || []).length ? ` · ${prev.result.map((r) => r.replace(/^(Tank \d+):.*variation ([^ ]+ L) \(([^)]*)\)$/, "$1 $2 ($3)")).join(", ")}` : ""}`));
+      }
       return;
     }
     if (setup.mode === "open") renderOpen(box); else renderSetup(box);
@@ -532,16 +589,45 @@
     if (a.error) notes.push(a.error);
     if (notes.length) box.appendChild(el("div", "note" + (a.error || a.cloud_error || a.stale || a.reconnect || a.frozen ? " err" : ""), notes.join(" ")));
     if (!run) { return actions(box, a, null); }
+    if (!ACTIVE.includes(a.phase)) box.appendChild(ended(a));
     for (const q of run.questions || []) box.appendChild(question(q));
     for (const t of run.tanks) box.appendChild(tankCard(t, run, a));
     if (run.held?.length && a.phase === "running") box.appendChild(heldBox(run));
     else if (run.left?.length && ACTIVE.includes(a.phase)) box.appendChild(el("div", "note", `C${run.left.join(", C")} stay in the truck.`));
     actions(box, a, run);
     if (run.log?.length) {
+      const log = el("details", "log-box");
+      const last = run.log[run.log.length - 1];
+      log.appendChild(el("summary", "", `Log · ${clock(last.at)} ${last.text.length > 70 ? last.text.slice(0, 70) + "…" : last.text}`));
       const ul = el("ul", "log");
-      for (const e of [...run.log].reverse().slice(0, 10)) ul.appendChild(el("li", e.level, `${clock(e.at)} ${e.text}`));
+      for (const e of [...run.log].reverse().slice(0, 15)) ul.appendChild(el("li", e.level, `${clock(e.at)} ${e.text}`));
+      log.appendChild(ul);
+      log.open = logOpen;
+      log.addEventListener("toggle", () => { logOpen = log.open; });
+      box.appendChild(log);
+    }
+  }
+  let logOpen = false;
+  const proofOpen = new Set();   // the tanks whose proof pictures are unfolded
+
+  // A decantation that has ended: what came of it, and when it leaves the page.
+  function ended(a) {
+    const ok = a.phase === "finished";
+    const box = el("div", `result${ok ? "" : " plain"}`);
+    box.appendChild(el("strong", "", { finished: "✅ Finished and saved in the decant app", cancelled: "Cancelled",
+      released: "Handed over to the decant app", failed: "It didn't start" }[a.phase] || a.phase));
+    if ((a.result || []).length) {
+      const ul = el("ul");
+      for (const line of a.result) ul.appendChild(el("li", "", line));
       box.appendChild(ul);
     }
+    const row = el("div", "row");
+    const c = el("button", "up", "Clear now");
+    c.addEventListener("click", () => autoAct("clear"));
+    row.appendChild(c);
+    if (a.clears_in_s != null) row.appendChild(el("span", "note", `Leaves this page by itself in ${Math.max(1, Math.ceil(a.clears_in_s / 60))} min`));
+    box.appendChild(row);
+    return box;
   }
 
   function tickBox(key, options, preset) {
@@ -636,26 +722,54 @@
     head.appendChild(el("strong", "", `Tank ${t.no} · ${NAMES[t.product] || t.product}`));
     head.appendChild(el("span", `stage ${t.stage}`, STAGE_NAME[t.stage] || t.stage));
     card.appendChild(head);
+    const order = ["waiting", "decanting", "settling", "read"];
+    const at = order.indexOf(t.stage);
+    const steps = el("div", "steps");
+    for (const [i, name] of ["Waiting", "Decanting", "Settling", "Done"].entries()) {
+      steps.appendChild(el("div", i < at || t.stage === "read" ? "done" : i === at ? "now" : "", name));
+    }
+    card.appendChild(steps);
     const chs = el("div");
     for (const no of t.chambers) chs.appendChild(el("span", `ch${t.arrived.includes(no) || t.stage === "settling" || t.stage === "read" ? " in" : ""}`, `C${no}`));
     chs.appendChild(el("span", "note", ` ${kl(t.litres)}`));
     card.appendChild(chs);
+    const minis = el("div", "minis");
+    const mini = (name, v, cls = "") => {
+      const m = el("div", `mini${cls ? ` ${cls}` : ""}`);
+      const b = el("b", "", v == null ? "–" : fmt(v, 0));
+      if (v != null) b.appendChild(el("small", "", "L"));
+      m.append(el("span", "", name), b);
+      return m;
+    };
+    minis.appendChild(mini("Before", t.before));
+    if (t.stage === "read" || t.after != null) minis.appendChild(mini("After", t.after));
+    else minis.appendChild(mini("Now", t.now));
+    const gained = t.stage === "read" && t.after != null && t.before != null ? t.after - t.before : t.rise;
+    const g = mini(t.stage === "read" ? "Gained" : "Risen", gained, "up");
+    if (gained != null) g.querySelector("b").firstChild.textContent = `${gained >= 0 ? "+" : ""}${fmt(gained, 0)}`;
+    minis.appendChild(g);
+    card.appendChild(minis);
     const lines = [];
-    if (t.before != null) lines.push(`Before ${litres(t.before)}`);
-    if (t.now != null && t.stage !== "read") lines.push(`now ${litres(t.now)} (${t.rise >= 0 ? "+" : ""}${fmt(t.rise, 0)} L)`);
-    if (t.after != null) lines.push(`after ${litres(t.after)}`);
-    if (t.result) lines.push(`variation ${t.result.variation > 0 ? "+" : ""}${fmt(t.result.variation, 2)} L (${t.result.band})`);
+    if (t.result) lines.push(`Variation ${t.result.variation > 0 ? "+" : ""}${fmt(t.result.variation, 2)} L (${t.result.band})`);
     if (t.stage === "settling" && t.settleLeft != null) {
-      lines.push(t.settleLeft > 0 ? `settling: ${Math.ceil(t.settleLeft / 60)} min to go` : `settling: waiting for it to be steady (moved ${fmt(t.spread, 1)} L)`);
+      lines.push(t.settleLeft > 0 ? `Settling: ${Math.ceil(t.settleLeft / 60)} min to go` : `Settling: waiting for it to be steady (moved ${fmt(t.spread, 1)} L)`);
     }
-    card.appendChild(el("div", "note", lines.join(" · ")));
+    if (lines.length) card.appendChild(el("div", "note", lines.join(" · ")));
     const probe = state?.live?.probes?.[t.no];
     if (probe && ACTIVE.includes(a.phase) && t.stage !== "read") {
       card.appendChild(el("div", `probe ${probe.frozen ? "no" : "ok"}`, probe.frozen
         ? `⚠ Card frozen on the PC since ${clock(probe.since)}: nothing is taken from it until it updates.`
         : "Card updating on the PC ✓"));
     }
-    card.appendChild(proofs(t, a));
+    // the stock before / after pictures, folded (their figures are above)
+    const pr = a.proofs?.[t.tank] || {};
+    const fold = el("details", "log-box");
+    const has = ["before", "after"].filter((w) => pr[w]?.picture);
+    fold.appendChild(el("summary", "", `Proof pictures${has.length ? ` · ${has.map((w) => `${w} ${pr[w].cloud ? "✓" : "…"}`).join(" · ")}` : " · none yet"}`));
+    fold.appendChild(proofs(t, a));
+    fold.open = proofOpen.has(t.tank);
+    fold.addEventListener("toggle", () => { if (fold.open) proofOpen.add(t.tank); else proofOpen.delete(t.tank); });
+    card.appendChild(fold);
     if (["decanting", "settling", "read"].includes(t.stage) && t.litres && t.rise != null) {
       const bar = el("div", "bar");
       const fill = el("span");
@@ -800,6 +914,7 @@
     renderStatus();
     renderResult();
     renderLive();
+    renderTanks();
   }
 
   async function refresh() {
@@ -857,19 +972,20 @@
   for (const id of ["mEvery", "mUp", "mRe"]) $(id).addEventListener("input", () => { monitorDirty = true; });
   const liveSettings = () => ({ interval_s: Number($("mEvery").value), auto_upload: $("mUp").checked,
     reconnect: $("mRe").checked, tanks: [...watched] });
-  async function send(path, body, done) {
+  async function send(path, body, done, where = "mStatus") {
     try {
       await api("POST", path, body);
       monitorDirty = false;
-      setStatus("mStatus", done);
+      setStatus(where, done);
       await poll();
     } catch (e) {
-      setStatus("mStatus", e.message, true);
+      pending = "";
+      setStatus(where, e.message, true);
     }
   }
   $("mSave").addEventListener("click", () => send("api/settings", liveSettings(), "Saved."));
-  $("liveStart").addEventListener("click", () => send("api/live/start", liveSettings(), "Starting…"));
-  $("liveStop").addEventListener("click", () => send("api/live/stop", {}, "Stopping…"));
+  $("liveStart").addEventListener("click", () => { pending = "Starting…"; $("ctlText").textContent = pending; send("api/live/start", liveSettings(), "", "liveErr"); });
+  $("liveStop").addEventListener("click", () => { pending = "Stopping…"; $("ctlText").textContent = pending; send("api/live/stop", {}, "", "liveErr"); });
 
   poll();
   setInterval(() => { if (!waiting && !document.hidden) refresh(); }, 30000);
