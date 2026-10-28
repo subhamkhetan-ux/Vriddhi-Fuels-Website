@@ -496,6 +496,14 @@ def test_exact_figures_are_the_ones_on_the_screen(monkeypatch):
     s._on_frame('42["pumpStatusPkt",{"PumpId":1}]')
     s._on_frame("3")                                           # (a pong)
     s._on_frame(b'42["tankStatusPkt",{"no":"tankId"}]')        # unknown: kept out
+    # a tank's figures under another event (a delivery, say), alone or in a list: kept the same
+    three = {**packet(*TANKS[2]), "lastUpdated": "10/26/2026 12:46:50"}
+    s._on_frame("42" + json.dumps(["deliveryStatusPkt", [three, {"tankId": 9}]]))
+    assert s._figures(["Last Updated @ 10/26/2026 12:46:50"])[3]["volume"] == 17182.31
+    s._shown_last = ["Last Updated @ 10/26/2026 12:47:01"]
+    why = s.why_no_figures(3)
+    assert "cards show ['10/26/2026 12:47:01']" in why and "10/26/2026 12:46:50" in why, why
+    assert "deliveryStatusPkt×1" in why and "tankStatusPkt×" in why and "none" in s.why_no_figures(4)
     assert s._figures(["Last Updated @ 10/26/2026 12:46:42"])[1]["volume"] == 8700.0
     shown = s._figures(["Last Updated @ 10/26/2026 12:46:37", "Last Updated @ 10/26/2026 12:46:39"])
     assert shown[1]["volume"] == 8787.48 and shown[1]["product"] == "MS"   # the older one: what's on screen
@@ -543,12 +551,19 @@ def test_the_service_pairs_each_screen_with_its_exact_figures(tmp_path, monkeypa
     assert read == {1: {"no": 1, "volume": 5.0, "exact": True}, 3: {"volume": 7.0}}, read
     assert st._read_screen(b"\x89PNG another screen") == ({}, {"read": "off the screen"})
 
-    live = {"session": Session(), "reads": 2, "figures": {"3": {"confidence": "high"}, "4": {"confidence": "low"}}}
+    long_ago = time.time() - service.EXACT_MISSING_S
+    live = {"session": Session(), "reads": 2, "figures": {"3": {"confidence": "high"}, "4": {"confidence": "low"}},
+            "exact_missing": {3: long_ago, 4: long_ago, 5: long_ago}}
     st._read_off_screen(live, 3)
     assert not told                                    # (not in a session's first reads)
     live["reads"] = 3
+    live["exact_missing"][3] = time.time() - 60
+    st._read_off_screen(live, 3)
+    assert not told                                    # (a minute without live figures: nothing said)
+    live["exact_missing"][3] = long_ago
     for no in (3, 3, 4, 5):
         st._read_off_screen(live, no)
-    assert len(told) == 1 and "Tank 3" in told[0], told   # once; not a card without figures
-    st._read_off_screen({"session": object(), "reads": 9, "figures": {"6": {"confidence": "high"}}}, 6)
+    assert len(told) == 1 and "Tank 3" in told[0] and "5 minutes" in told[0], told   # once; not a card without figures
+    st._read_off_screen({"session": object(), "reads": 9, "figures": {"6": {"confidence": "high"}},
+                         "exact_missing": {6: long_ago}}, 6)
     assert len(told) == 1                               # (a screen-only session: nothing to say)

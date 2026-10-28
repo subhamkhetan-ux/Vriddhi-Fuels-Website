@@ -64,7 +64,7 @@ LOAD_WAIT = 120                       # seconds FuelTrans' page may take to load
 # opening FuelTrans moves a few KB over the station's upload, not ~4.6 MB.
 FILES = re.compile(r"\.[0-9a-f]{16,}\.(?:js|css)$|\.(?:woff2?|ttf|eot|otf|png|jpe?g|gif|svg|ico)$", re.I)
 FILES_DIR = "fueltrans-files"          # (in TANK_STOCK_HOME)
-KEPT_PACKETS = 4                      # a tank's last live-data packets kept (to match the screen's)
+KEPT_PACKETS = 12                     # a tank's last live-data packets kept (to match the screen's)
 SHOT_TRIES = 3                        # screenshots taken at most for one whose cards held still
 DETAILS_AGAIN = 300                   # seconds before FuelTrans' tank list is asked for again, if it failed
 LOST_AFTER = 30                       # seconds of FuelTrans not answering before the session is lost
@@ -105,6 +105,8 @@ class FuelTransSession:
         self._down_since, self._down_why = None, ""   # FuelTrans not answering: since when, and how
         self._tanks: dict[int, list[dict]] = {}           # tank -> its last tankStatusPkts, newest last
         self._polls: list = []                             # live-data replies over HTTP, not yet looked at
+        self._events: dict[str, int] = {}                  # the live data's events seen, by name (for why_no_figures)
+        self._shown_last: list[str] = []                   # the cards' "Last Updated" lines at the last screenshot
         self._details: dict[int, dict] | None = None      # tank -> FuelTrans' tankDetails row
         self._details_failed = float("-inf")               # (when asking for it last failed)
         self.last_figures: dict[int, dict] = {}           # the exact figures at the last screenshot
@@ -139,7 +141,8 @@ class FuelTransSession:
     # ---- the exact figures: FuelTrans' own live data, as its page receives it.
     # Its page gets each tank's figures as a "tankStatusPkt" over socket.io
     # (a websocket, or HTTP polling before that's up) and shows them on the
-    # tank's card. A screenshot's figures are the packets whose "Last Updated"
+    # tank's card; any other event carrying a tank's figures (its tankId,
+    # lastUpdated and volume) is kept the same way. A screenshot's figures are the packets whose "Last Updated"
     # is the very one its card shows: exactly what the picture says, with no
     # reading of the picture. A tank without one (FuelTrans changed its live
     # data, say) is read off the screen as before.
@@ -158,12 +161,21 @@ class FuelTransSession:
             return
         try:
             name, *args = json.loads(payload[2:])
-            if name == "tankStatusPkt" and args and isinstance(args[0], dict):
-                kept = self._tanks.setdefault(int(args[0]["tankId"]), [])
-                kept.append(args[0])
-                del kept[:-KEPT_PACKETS]
-        except (ValueError, KeyError, TypeError):
-            pass
+        except (ValueError, TypeError):
+            return
+        if isinstance(name, str) and (name in self._events or len(self._events) < 50):
+            self._events[name] = self._events.get(name, 0) + 1
+        items = args[0] if args and isinstance(args[0], list) else args[:1]
+        for pkt in items:
+            if not (isinstance(pkt, dict) and "tankId" in pkt and "lastUpdated" in pkt
+                    and ("prodcutVolume" in pkt or "productVolume" in pkt)):
+                continue
+            try:
+                kept = self._tanks.setdefault(int(pkt["tankId"]), [])
+            except (TypeError, ValueError):
+                continue
+            kept.append(pkt)
+            del kept[:-KEPT_PACKETS]
 
     def _read_polls(self) -> None:
         polls, self._polls = self._polls, []
@@ -181,6 +193,15 @@ class FuelTransSession:
             return self._page.get_by_text(UPDATED).all_inner_texts()
         except Exception:  # noqa: BLE001 - no exact figures for this screen
             return []
+
+    def why_no_figures(self, no: int) -> str:
+        """Why a tank had no exact figures at the last screenshot: what the
+        cards showed, the tank's packets' times, and the live events seen."""
+        times = [str(p.get("lastUpdated")) for p in self._tanks.get(no, [])][-5:]
+        shown = [m.group(0) for m in (TIME.search(t) for t in self._shown_last) if m]
+        events = ", ".join(f"{k}×{v}" for k, v in sorted(self._events.items(), key=lambda kv: -kv[1])[:8])
+        return (f"cards show {shown or 'nothing'}; Tank {no}'s live packets {times or 'none'}; "
+                f"live events {events or 'none'}")
 
     def _tank_details(self) -> dict[int, dict]:
         """FuelTrans' tank list (each tank's capacity and product), once."""
@@ -413,6 +434,7 @@ class FuelTransSession:
             shown = self._shown()
             if shown == before:
                 break
+        self._shown_last = shown
         self.last_figures = self._figures(shown) if shown == before else {}
         return png
 
