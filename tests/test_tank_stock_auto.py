@@ -311,6 +311,63 @@ def test_an_ended_decantation_with_something_left_to_save_stays(rig):
     assert a.view() is None
 
 
+def _stages(rig, a, until, flows, sales=()):
+    """Drive a run; -> {(tank, stage): first second it was seen}, and the questions asked."""
+    rig.world.flows, rig.world.sales = flows, list(sales)
+    seen, asked = {}, []
+    def on(secs):
+        for t in a.run.s["data"]["tanks"]:
+            seen.setdefault((t["tank"], t["stage"]), secs)
+        asked.extend(q["kind"] for q in a.view()["run"]["questions"] if q["kind"] not in asked)
+    drive(rig, until, on=on)
+    return seen, asked
+
+
+def test_a_delivery_a_little_short_settles_by_itself(rig):
+    """The stock rose fast, stopped, and the plan is almost all in (a delivery
+    comes in a little short: transit loss, temperature, a sale): every chamber
+    is in, settling, hands-free; no question."""
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2"})
+    seen, asked = _stages(rig, a, 4000, [(1, 60, 4990, 495), (2, 100, 4900, 495), (2, 640, 3880, 420)])   # 220 L short
+    assert a.phase == "finished" and not asked, (a.info, asked)
+    assert seen[("T2", "settling")] - 1060 <= 180                      # (stopped at 1060 s: settling soon after)
+    t2 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T2")
+    assert t2["chambers"] == [2, 3] and t2["result"]
+    assert any("220 L short, as a delivery is): every chamber is in" in e["text"] for e in a.run.state["log"])
+
+
+def test_a_level_creeping_as_it_settles_isnt_taken_for_flow(rig):
+    """After the pipe stops the reading creeps up a few litres a minute as
+    the level settles: settling starts once the flow has stopped (not when
+    the creep ends), it isn't sent back to decanting, and the stock after
+    waits for the level to be steady."""
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2"})
+    flows = [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 640, 3992, 420), (2, 1060, 25, 600), (1, 555, 25, 600)]
+    seen, asked = _stages(rig, a, 4000, flows)
+    assert a.phase == "finished" and not asked
+    assert seen[("T1", "settling")] - 555 <= 180 and seen[("T2", "settling")] - 1060 <= 180
+    assert seen[("T2", "read")] >= seen[("T2", "settling")] + 600 and seen[("T2", "read")] > 1660   # (steady: the settle time, past the creep)
+    assert not any("rising again" in e["text"] for e in a.run.state["log"])
+
+
+def test_a_chamber_left_in_the_truck_is_still_asked_about(rig):
+    """Short by a whole chamber is never taken for a delivery's loss: it
+    asks which chambers were emptied; a long pause moving the pipe between
+    two chambers isn't the end either."""
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2"})
+    seen, asked = _stages(rig, a, 2500, [(1, 60, 4990, 495), (2, 100, 4985, 495)])      # C3 stays in the truck
+    assert asked == ["short"] and a.run.row("T2")["stage"] == "decanting"
+    a.act("answer", {"tank": "T2", "chambers": [2]})
+    assert a.run.row("T2")["stage"] == "settling" and a.run.row("T2")["chambers"] == [2]
+
+
+def test_a_long_pipe_move_between_chambers_isnt_the_end(rig):
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2"})
+    seen, asked = _stages(rig, a, 4000, [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 780, 3992, 420)])  # 3 min pause
+    assert a.phase == "finished" and not asked
+    assert seen[("T2", "settling")] >= 780 + 420                       # (not during the pause)
+
+
 def test_a_question_is_asked_on_telegram_and_answered_from_the_page(rig):
     a = start(rig, {"2": "T2", "3": "T2"})
     rig.world.flows = [(2, 50, 4990, 495)]                                   # C3 never comes
@@ -1027,7 +1084,7 @@ def test_a_decantation_started_in_the_app_is_carried_on_and_finished_here(rig):
     assert s["data"]["auto"]["takenOver"] and not s["data"]["auto"]["released"]
     t2 = s["data"]["tanks"][0]
     assert t2["stage"] == "decanting" and t2["before"]["volume"] == 10755.0    # the app's stock before, kept
-    assert any("Took over a decantation" in m for m in rig.told)
+    assert wait_for(lambda: any("Took over a decantation" in m for m in rig.told))   # (said just after it runs)
     drive(rig, 3000)
     assert a.phase == "finished", a.info
     s = cloud_session(rig)
