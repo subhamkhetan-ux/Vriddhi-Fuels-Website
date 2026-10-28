@@ -6099,6 +6099,27 @@
       },
       "queued_at": "2026-10-28T08:30:25.853459+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "2a246a29c0f6a2c8",
+      "gmail_msg_id": "1880287664473822883",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "28/10/2026",
+      "date_serial": 46323,
+      "amount": 1201910.0,
+      "raw_payer": "ARYAN ISPAT AND POWER PRIVATE LI",
+      "customer": "Aryan Ispat & Power Private Ltd.",
+      "candidates": [
+        "Aryan Ispat & Power Private Ltd."
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-28T10:15:29.171686+00:00",
+      "status": "matched"
     }
   ]
 }
