@@ -10,9 +10,12 @@ reads every few seconds through the open live session (FuelTrans' Tank Status):
 - each chamber has **arrived** once the tank's rise covers it (in the plan's
   order, the order the pipe goes round);
 - a tank is **done** (settling) once it has stopped rising with all its
-  chambers in. Stopped short of them for longer than moving the pipe takes,
-  it asks on the page which chambers were emptied (the app's "which chambers
-  were emptied?"), unless the rise starts again first;
+  chambers in, or once it stopped after flowing fast with the plan almost
+  all in (a delivery is a little short: transit loss, temperature, a sale),
+  hands-free. Stopped short of them by more (a chamber's worth) for longer
+  than moving the pipe takes, it asks on the page which chambers were
+  emptied (the app's "which chambers were emptied?"), unless the rise starts
+  again first;
 - **settled**, the stock steady for the app's settle time, it takes the
   stock after (a full read, with its proof picture);
 - every tank read, it **finishes** the decantation with the app's own
@@ -66,6 +69,13 @@ SALES_BACK_L = 15          # settling and fell this much: sales are back on
 RISE_AGAIN_L = 30          # settling and rose this much: decanting again
 UNPLANNED_RISE_L = 60      # a tank outside the plan rose this much: warn
 AFTER_TRIES = 3            # full reads for the stock after before taking the live figure
+# Hands-free: the stock's flow (L/min, a least-squares line through its last
+# FLOW_SECS), so a level creeping or jittering as it settles isn't taken for flow.
+FLOW_SECS = 60
+FAST_LPM = 100             # decanting at least this fast: the pipe was open
+SLOW_LPM = 15              # under this for STOP_SECS after that: it has stopped
+ALMOST_PCT = 8             # stopped this short of the plan, and under half its smallest chamber: every chamber is in
+REFLOW_LPM = 60            # settling and flowing this fast again: decanting again (not a creep)
 
 
 def slack(litres: float) -> float:
@@ -742,6 +752,29 @@ class Decantation:
             h.pop(0)
         return v
 
+    def _flow(self, st: dict, now: float) -> float | None:
+        """The stock's flow now (L/min) over its last FLOW_SECS of readings."""
+        pts = [(w, x) for w, x in st["history"] if now - w <= FLOW_SECS]
+        if len(pts) < 3 or pts[-1][0] - pts[0][0] < FLOW_SECS / 2:
+            return None
+        mt, mx = sum(w for w, _ in pts) / len(pts), sum(x for _, x in pts) / len(pts)
+        den = sum((w - mt) ** 2 for w, _ in pts)
+        return sum((w - mt) * (x - mx) for w, x in pts) / den * 60 if den else None
+
+    def _all_in(self, t: dict, st: dict, rise: float, now: float) -> bool:
+        """Stopped (under SLOW_LPM for STOP_SECS) after flowing fast, with the
+        plan almost all in: short by no more than a delivery loses (ALMOST_PCT,
+        and under half its smallest chamber, so a chamber left in the truck is
+        never taken for one emptied)."""
+        slow = st.get("slowSince")
+        if slow is None or now - slow < STOP_SECS or (st.get("peakLpm") or 0) < FAST_LPM:
+            return False
+        planned = t["litres"]
+        if rise > planned + slack(planned):
+            return False                                   # (more than planned: which chambers, it asks)
+        sizes = [self.chamber_litres(no) for no in t["chambers"]] or [planned]
+        return planned - rise <= max(slack(planned), min(ALMOST_PCT / 100 * planned, min(sizes) / 2))
+
     def _rising(self, st: dict, v: float, now: float) -> bool:
         if st["lastRiseV"] is None or v > st["lastRiseV"] + STILL_L:
             st["lastRiseAt"], st["lastRiseV"] = now, v
@@ -777,7 +810,7 @@ class Decantation:
             self._say(work, f"{name}: it sold {before - base:,.0f} L after its stock was read; "
                             f"the stock before is now {base:,.2f} L.", now, "warn")
         t["stage"], t["startedAt"] = "decanting", iso(began)
-        st.update(lastRiseAt=now, lastRiseV=v, flowing=True, segFrom=base, acc=0.0)
+        st.update(lastRiseAt=now, lastRiseV=v, flowing=True, segFrom=base, acc=0.0, peakLpm=0, slowSince=None)
         self.state["questions"].pop(t["tank"], None)
         sync_status(self.s)
         work["save"] = True
@@ -792,6 +825,17 @@ class Decantation:
             st["lastRiseV"] = base if st["lastRiseV"] is None else st["lastRiseV"]
             st["segFrom"] = base if st["segFrom"] is None else st["segFrom"]
         rise = v - t["before"]["volume"]
+        flow = self._flow(st, now)
+        if flow is not None:
+            st["peakLpm"] = max(st.get("peakLpm") or 0, flow)
+            st["slowSince"] = (st.get("slowSince") or now) if flow < SLOW_LPM else None
+        if self._all_in(t, st, rise, now):
+            planned = t["litres"]
+            if planned - rise > slack(planned):
+                self._say(work, f"{name}: the stock stopped rising at +{rise:,.0f} L of {planned:,.0f} L "
+                                f"({planned - rise:,.0f} L short, as a delivery is): every chamber is in.", now, "warn")
+            self._done(t, st, t["chambers"], now, work)
+            return
         rose = self._rising(st, v, now)
         q = self.state["questions"].get(t["tank"])
         if rose:
@@ -933,9 +977,10 @@ class Decantation:
     def _settling(self, t: dict, st: dict, v: float, now: float, work: dict) -> None:
         name = f"Tank {t['tankNo']}"
         level = st.get("settledFrom") if st.get("settledFrom") is not None else v
-        if v - level >= RISE_AGAIN_L:                     # the pipe went on again
+        flow = self._flow(st, now)
+        if v - level >= RISE_AGAIN_L and (flow is None or flow >= REFLOW_LPM):   # the pipe went on again (not a creep)
             t["stage"], t["doneAt"] = "decanting", None
-            st.update(lastRiseAt=now, lastRiseV=v, flowing=True, peak=None)
+            st.update(lastRiseAt=now, lastRiseV=v, flowing=True, peak=None, peakLpm=flow or 0, slowSince=None)
             sync_status(self.s)
             work["save"] = True
             self._say(work, f"{name}: rising again (+{v - level:,.0f} L): decanting.", now, "warn")
