@@ -88,6 +88,7 @@ EXACT_KEPT = 300                 # screens whose exact figures are remembered (a
 TREND_KEEP_S = 300               # a tank's live stock kept this long (its flow now)
 FLOW_WINDOW_S = 120              # a tank's flow now (decanting in, or sales out): over this long
 FLOW_MIN_S = 30                  # ... once it has this much
+EXACT_MISSING_S = 300            # a tank without FuelTrans' live figures this long (read off the screen meanwhile): said
 LIVE_FIGURES = ("volume", "ullage", "capacity")   # what the page gets while live (its tank tiles)
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
@@ -711,13 +712,17 @@ class Station:
             cfg = self._live_cfg(live)
             changed, good = {}, 0
             watched = sorted(set(live["tanks"]) | self.auto.watched() | self.phone.watched())
+            missing = live.setdefault("exact_missing", {})     # tank -> since when it has had no live figures
             for no in watched:
                 ex = exact.get(no)
                 if ex:
+                    missing.pop(no, None)
                     clock, fp = "|".join(ex.get("time") or ()), f"{ex['volume']}|{ex['height']}|{ex['ullage']}"
                 else:
+                    missing.setdefault(no, time.time())
                     box = (live.get("boxes") or {}).get(no)
                     if not box:
+                        live["exact"] = False                  # (the cards aren't found yet: found on the next read)
                         continue
                     if px is None:
                         px = cards_mod.Pixels(png)
@@ -798,17 +803,25 @@ class Station:
 
     def _read_off_screen(self, live, no: int) -> None:
         """A FuelTrans card read fine off the screen that its live data
-        didn't bring: said once a session (FuelTrans changed its live data?
-        the screen still works, only slower)."""
-        if getattr(live.get("session"), "last_figures", None) is None or live.get("reads", 0) < 3:
+        hasn't brought for EXACT_MISSING_S: said once a session (FuelTrans
+        changed its live data? the screen still works, only slower), and
+        why, in the service's log."""
+        session = live.get("session")
+        if getattr(session, "last_figures", None) is None or live.get("reads", 0) < 3:
             return
         if (live.get("figures") or {}).get(str(no), {}).get("confidence") in (None, "low"):
             return                                     # (not figures: a probe that's down, say)
+        since = (live.get("exact_missing") or {}).get(no)
+        if since is None or time.time() - since < EXACT_MISSING_S:
+            return                                     # (a moment without: nothing to say)
         told = live.setdefault("read_off_screen", set())
         if no not in told:
             told.add(no)
-            self.notify(f"Tank stock: FuelTrans' live data didn't bring Tank {no}'s figures, so they're read "
-                        "off the screen as before (slower). If this keeps happening, FuelTrans may have changed.")
+            why = session.why_no_figures(no) if hasattr(session, "why_no_figures") else ""
+            print(f"tank stock: no live figures for Tank {no} for {EXACT_MISSING_S // 60} min: {why}", file=sys.stderr, flush=True)
+            self.notify(f"Tank stock: for {EXACT_MISSING_S // 60} minutes FuelTrans' live data hasn't brought Tank {no}'s "
+                        "figures, so they're read off the screen meanwhile (as before, slower). The reason is in the "
+                        "server's log: journalctl -u tank-stock | grep 'no live figures'")
 
     def _live_upload(self, live, changed, cfg) -> None:
         """The figures alone to the decant app (no pictures while live). One the
@@ -1006,7 +1019,7 @@ class Station:
         if not live:
             return None
         hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen",
-                  "hist")
+                  "hist", "exact_missing")
         out = {k: v for k, v in live.items() if k not in hidden}
         # each tank's flow now (L/min: + decanting in, - sales out): the page's decanting speed
         now = time.time()
