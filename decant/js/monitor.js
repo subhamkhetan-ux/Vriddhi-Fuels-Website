@@ -1,14 +1,18 @@
 // The Monitor tab: the tank stock server's controls (tank_stock/phone.py), as
-// on its own page over Tailscale (tank_stock/static/) — pick the tanks, then
-//   - Send for decantation: read them, save each one's stock and its card's
-//     picture (for the result pictures);
-//   - Capture only: read them and show the picture and figures, nothing saved;
-//     "Upload these to decant" then saves them;
-//   - Live monitoring: their volume as FuelTrans' live data brings it (no
-//     interval to set) until Stop or 3 h.
+// on its own page over Tailscale (tank_stock/static/), in this order:
+//   - Live monitoring: the picked tanks' volume as FuelTrans' live data brings
+//     it (no interval to set) until Stop or 3 h;
+//   - Pump monitor: the Pumps tab's monitoring of the ticked nozzles (live on
+//     that tab, interlocks on Telegram) until Stop or 3 h; the nozzles to
+//     tick are FuelTrans' own (config.pumpList, put there by the server);
+//   - Capture now: Send for decantation (read the picked tanks, save each
+//     one's stock and its card's picture for the result pictures), or
+//     Capture only (show the picture and figures; "Upload these to decant"
+//     then saves them).
 // The requests wait in the shared settings (config.stockRequest for a read,
-// config.stockMonitor for monitoring, apart so a read never stops it); the
-// server looks every half minute and answers there, so every phone sees them.
+// config.stockMonitor and config.pumpMonitor for monitoring, apart so a read
+// never stops them); the server looks every half minute and answers there,
+// so every phone sees them.
 // While decanting, "Let the tank stock server finish it" does this and more.
 
 import { istDate } from './core.js';
@@ -17,7 +21,7 @@ import { cloudPicture } from './shots.js';
 import { ago, confBadge, download, esc, fmtDip, fmtL, fmtTime, productChip, toast } from './ui.js';
 import { tankName, tanks } from './app.js';
 
-const LS = 'vriddhi-decant-monitor';      // this phone's picks: {capture: [ids], live: [ids]}
+const LS = 'vriddhi-decant-monitor';      // this phone's picks: {capture: [ids], live: [ids], pumps: [nos]}
 const STALE_MIN = 5;                       // no answer this long: is the server on?
 const pics = new Map();                    // picture path -> object URL (this visit)
 let bound = null;
@@ -27,13 +31,17 @@ function picks() {
   try { p = JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { p = {}; }
   const ids = tanks().map((t) => t.id);
   const keep = (list) => (Array.isArray(list) ? list.filter((id) => ids.includes(id)) : ids);
-  return { capture: keep(p.capture), live: keep(p.live) };
+  const nos = pumpList().map((n) => n.pump);
+  const pumps = Array.isArray(p.pumps) ? p.pumps.filter((n) => nos.includes(n)) : [];
+  return { capture: keep(p.capture), live: keep(p.live), pumps };
 }
 function savePicks(patch) {
   try { localStorage.setItem(LS, JSON.stringify({ ...picks(), ...patch })); } catch { /* private tab: this visit only */ }
 }
 
 const by = () => state.device?.operator || 'a phone';
+const pumpList = () => (Array.isArray(state.config.pumpList) ? state.config.pumpList : []);
+const pumpName = (n) => `Pump ${n.pump} · ${esc(n.product || '?')}${n.du != null ? ` · DU ${esc(n.du)}` : ''}`;
 const today = (t) => t && istDate(t) === istDate(Date.now());
 
 function chips(which, chosen, disabled) {
@@ -44,10 +52,11 @@ function chips(which, chosen, disabled) {
 // A request still waiting for the server: when it was asked, or that nothing answers.
 function waiting(req, cancel) {
   const mins = (Date.now() - Date.parse(req.at || '')) / 60000;
-  const what = { check: 'read and save', capture: 'capture', upload: 'upload', monitor: 'monitor' }[req.kind] || 'read';
+  const what = { check: 'read and save', capture: 'capture', upload: 'upload', monitor: 'monitor', pumps: 'monitor' }[req.kind] || 'read';
+  const names = req.kind === 'pumps' ? (req.pumps || []).map((n) => `Pump ${n}`) : (req.tanks || []).map(tankName);
   return `${mins > STALE_MIN
     ? `<div class="banner" style="margin:8px 0 0">No answer from the tank stock server for ${Math.round(mins)} min — is the server on and the IOCL PC online?</div>`
-    : `<div class="hint" style="margin-top:8px">Asked at ${fmtTime(req.at)} to ${what} ${(req.tanks || []).map(tankName).join(', ')} — it looks every half minute, then ${req.kind === 'monitor' ? 'connects in a few seconds' : 'takes about a minute for the pictures'}.</div>`}
+    : `<div class="hint" style="margin-top:8px">Asked at ${fmtTime(req.at)} to ${what} ${names.join(', ')} — it looks every half minute, then ${req.kind === 'monitor' || req.kind === 'pumps' ? 'connects in a few seconds' : 'takes about a minute for the pictures'}.</div>`}
     <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-m="${cancel}">Cancel</button></div>`;
 }
 
@@ -122,6 +131,30 @@ function liveCard(p) {
     </div>`;
 }
 
+function pumpCard(p) {
+  const mon = state.config.pumpMonitor;
+  const on = mon && (!mon.state || mon.state === 'monitoring');
+  const list = pumpList();
+  const chosen = on ? (mon.pumps || []) : p.pumps;
+  let status = '';
+  if (mon && !mon.state) status = waiting(mon, 'stopPumps');
+  else if (mon?.state === 'monitoring') {
+    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${(mon.pumps || []).map((n) => `Pump ${n}`).join(', ')} live${mon.until ? `, until ${fmtTime(mon.until)}` : ''}. Their nozzles' status, litres and flow are on the Pumps tab of the Vriddhi Fuels app; an interlock coming on or clearing comes on Telegram.</div>`;
+  } else if (mon?.state === 'ended' || mon?.state === 'error') {
+    status = `<div class="banner ${mon.state === 'error' ? 'bad' : ''}" style="margin:8px 0 0">${mon.state === 'error' ? 'The pump monitor couldn\'t start' : 'Pump monitor ended'}: ${esc(mon.message || 'no reason given')}.</div>`;
+  }
+  return `<h2>Pump monitor</h2><div class="card">
+      <div class="hint">The tank stock server follows the ticked nozzles live from FuelTrans, as the Pumps tab of the Vriddhi Fuels app does, until you stop it or 3 hours pass.</div>
+      <div class="hint" style="margin:10px 0 6px">Nozzles to watch</div>
+      ${list.length ? `<div class="chipset" role="group" aria-label="Pumps">${list.map((n) => `<button type="button" class="chipbtn${chosen.includes(n.pump) ? ' on' : ''}"
+          data-mpump="${n.pump}" aria-pressed="${chosen.includes(n.pump)}" ${on ? 'disabled' : ''}>${pumpName(n)}</button>`).join('')}</div>`
+        : '<div class="hint">The pumps come from FuelTrans through the tank stock server: they show here within half a minute of it being on.</div>'}
+      <div class="row-actions" style="justify-content:flex-start">
+        ${on ? '<button class="btn sm" data-m="stopPumps">■ Stop</button>' : `<button class="cta sm" data-m="startPumps" ${p.pumps.length ? '' : 'disabled'}>▶ Start pump monitor</button>`}</div>
+      ${status}
+    </div>`;
+}
+
 export function renderMonitor(el) {
   if (bound !== el) { bind(el); bound = el; }
   if (!cloudEnabled) {
@@ -129,7 +162,7 @@ export function renderMonitor(el) {
     return;
   }
   const p = picks();
-  el.innerHTML = `${captureCard(p)}${lastCard()}${liveCard(p)}
+  el.innerHTML = `${liveCard(p)}${pumpCard(p)}${captureCard(p)}${lastCard()}
     <div class="hint" style="margin:14px 4px">While a tanker is decanting, "Let the tank stock server finish it" on its decanting screen follows the tanks itself.</div>`;
   for (const img of el.querySelectorAll('[data-mimg]')) showPicture(img, img.dataset.mimg);
 }
@@ -150,6 +183,14 @@ const ask = (slot, req) => saveConfig({ [slot]: req ? { id: newId('R'), at: new 
 function bind(el) {
   el.addEventListener('click', async (e) => {
     const t = e.target;
+    const pump = t.closest('[data-mpump]');
+    if (pump) {
+      const no = Number(pump.dataset.mpump);
+      const cur = picks().pumps;
+      savePicks({ pumps: cur.includes(no) ? cur.filter((x) => x !== no) : [...cur, no] });
+      renderMonitor(el);
+      return;
+    }
     const chip = t.closest('[data-mpick]');
     if (chip) {
       const which = chip.dataset.mpick;
@@ -181,6 +222,8 @@ function bind(el) {
       await ask('stockMonitor', { kind: 'monitor', tanks: p.live });
       return;
     }
-    if (act === 'stopLive') await ask('stockMonitor', null);
+    if (act === 'stopLive') { await ask('stockMonitor', null); return; }
+    if (act === 'startPumps') { await ask('pumpMonitor', { kind: 'pumps', pumps: p.pumps }); return; }
+    if (act === 'stopPumps') await ask('pumpMonitor', null);
   });
 }

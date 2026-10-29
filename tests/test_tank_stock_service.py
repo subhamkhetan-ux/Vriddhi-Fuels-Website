@@ -866,7 +866,7 @@ class Config:
 
     def ask(self, kind, tanks=("T3",), rid="r1", **more):
         from tank_stock import decantation as dz
-        slot = "stockMonitor" if kind == "monitor" else "stockRequest"
+        slot = {"monitor": "stockMonitor", "pumps": "pumpMonitor"}.get(kind, "stockRequest")
         self.data[slot] = {"id": rid, "kind": kind, "tanks": list(tanks), "at": dz.iso(), "by": "phone", **more}
 
     @property
@@ -878,7 +878,11 @@ class Config:
         return self.data.get("stockMonitor")
 
     def stock_requests(self, timeout=10):
-        return {k: self.data.get(k) for k in decant.STOCK_SLOTS}
+        return {**{k: self.data.get(k) for k in decant.STOCK_SLOTS}, "pumpList": self.data.get("pumpList")}
+
+    def put_config(self, key, value, timeout=10):
+        self.data[key] = value
+        return True
 
     def answer_stock_request(self, rid, answer, slot="stockRequest", timeout=10):
         if self.lose:
@@ -894,6 +898,7 @@ def phone(station, monkeypatch):
     c = Config()
     monkeypatch.setattr(decant, "stock_requests", c.stock_requests)
     monkeypatch.setattr(decant, "answer_stock_request", c.answer_stock_request)
+    monkeypatch.setattr(decant, "put_config", c.put_config)
     return c
 
 
@@ -1020,13 +1025,18 @@ def test_the_answer_goes_into_the_apps_settings_over_the_version_read(monkeypatc
         return [{"id": 1}]
     monkeypatch.setattr(decant, "_rest", rest)
     assert decant.stock_requests() == {"stockRequest": {"id": "r1", "kind": "check"},
-                                       "stockMonitor": {"id": "m1", "kind": "monitor"}}
+                                       "stockMonitor": {"id": "m1", "kind": "monitor"},
+                                       "pumpMonitor": None, "pumpList": None}
     assert decant.answer_stock_request("m1", {"state": "monitoring"}, slot="stockMonitor")
     sent = calls[-1][2]["data"]
     assert sent["settings"] == {"x": 1} and sent["stockMonitor"]["state"] == "monitoring" and sent["updatedAt"]
     assert "state" not in sent["stockRequest"]
     n = len(calls)
     assert decant.answer_stock_request("other", {"state": "done"}) and len(calls) == n + 1   # asked something else: no write
+    # the pumps the app's Pump monitor offers: one key put, the rest as read
+    assert decant.put_config("pumpList", [{"pump": 1}])
+    sent = calls[-1][2]["data"]
+    assert sent["pumpList"] == [{"pump": 1}] and sent["settings"] == {"x": 1} and sent["stockMonitor"] == row["data"]["stockMonitor"]
 
 
 def test_fueltrans_live_monitoring_comes_back_by_itself(station, monkeypatch):
@@ -1144,3 +1154,40 @@ def test_the_decant_apps_monitoring_from_fueltrans_has_no_interval(station, phon
     phone.data["stockMonitor"] = None                                        # "Stop"
     station.phone.check()
     assert wait_for(lambda: station.live is None)
+
+
+
+def test_the_decant_apps_pump_monitor_starts_keeps_and_stops_the_pumps(station, phone, tmp_path, monkeypatch):
+    """The decant app's Pump monitor: FuelTrans' pumps to tick put into its
+    settings; Start runs the Pumps tab's monitoring of them, kept on while
+    the phone's request stands; Stop there (or on the Pumps tab) ends it."""
+    (tmp_path / "login.json").write_text(json.dumps({"source": "fueltrans", "password": "pw"}))
+    p = station.pumps
+    monkeypatch.setattr(p, "need_layout", lambda: None)
+    p.layout = {n: {"pump": n, "du": (n + 1) // 2, "nozzle": 1, "make": "Tokheim", "product": "HSD" if n > 2 else "MS",
+                    "price": 90.0, "tank": 2} for n in (1, 2, 3, 4)}
+    station.phone.check()
+    assert phone.data["pumpList"] == [{"pump": n, "du": (n + 1) // 2, "nozzle": 1, "product": "HSD" if n > 2 else "MS"}
+                                      for n in (1, 2, 3, 4)]
+    phone.ask("pumps", tanks=(), rid="p1", pumps=[3, 4])
+    station.phone.check()
+    assert p.on and p.watch == [3, 4]
+    assert phone.data["pumpMonitor"]["state"] == "monitoring" and phone.data["pumpMonitor"]["until"]
+    p.seen_at = 0
+    station.phone.check()
+    assert p.seen_at > 0 and p.on                                         # kept on while the phone asks
+    p.stop("stopped by you")                                              # (on the Pumps tab)
+    station.phone.check()
+    assert phone.data["pumpMonitor"]["state"] == "ended" and phone.data["pumpMonitor"]["message"] == "stopped by you"
+    phone.ask("pumps", tanks=(), rid="p2", pumps=[1])
+    station.phone.check()
+    assert p.on and p.watch == [1]
+    phone.data["pumpMonitor"] = None                                      # "Stop" on the phone
+    station.phone.check()
+    assert not p.on and p.stopped["why"] == "stopped from the decant app"
+    phone.ask("pumps", tanks=(), rid="p3", pumps=[9])
+    station.phone.check()
+    assert phone.data["pumpMonitor"]["state"] == "error" and "no such pump" in phone.data["pumpMonitor"]["message"]
+    phone.data["pumpList"] = None                                         # (a phone's older save dropped it)
+    station.phone.check()
+    assert len(phone.data["pumpList"]) == 4                               # put back
