@@ -3,7 +3,7 @@
 // CDN libraries (text reader, PDF reader, Supabase client) are cached on first
 // use so reading a screenshot works without a signal later. Supabase data is
 // never cached here — the app keeps its own copy.
-const CACHE = "vriddhi-decant-v46";
+const CACHE = "vriddhi-decant-v47";
 // The pinned CDN libraries: their own cache, kept over app updates (an
 // update clearing them would leave a phone opened offline with no cloud
 // client and no screenshot reader).

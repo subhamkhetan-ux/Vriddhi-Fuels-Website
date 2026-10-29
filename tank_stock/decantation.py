@@ -484,11 +484,12 @@ class Decantation:
             t["tankNo"] = t.get("tankNo") or known[t["tank"]]["no"]
             if t["stage"] == "read":
                 continue
-            if (t.get("before") or {}).get("volume") is None:
-                if (befores or {}).get(t["tank"]):
-                    t["before"] = befores[t["tank"]]
-                    d.setdefault("before", {})[t["tank"]] = t["before"]
-                elif t["stage"] == "waiting":
+            read_here = (befores or {}).get(t["tank"])
+            if read_here and (t["stage"] == "waiting" or (t.get("before") or {}).get("volume") is None):
+                t["before"] = read_here                     # (read here just now, in full: nothing has gone in)
+                d.setdefault("before", {})[t["tank"]] = t["before"]
+            elif (t.get("before") or {}).get("volume") is None:
+                if t["stage"] == "waiting":
                     raise ValueError(f"Tank {t['tankNo']} has no stock before.")
                 else:
                     raise ValueError(f"Tank {t['tankNo']} is {t['stage']} but has no stock before in the app.")

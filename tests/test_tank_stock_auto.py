@@ -1352,3 +1352,45 @@ def test_from_fueltrans_live_data_the_screen_is_pictured_only_for_proof(rig, mon
         == [auto.PICTURES_AHEAD_S] * 2, (session.opened, session.taken)
     assert all(a.info["proofs"][t][w]["picture"] for t in ("T1", "T2") for w in ("before", "after")), a.info["proofs"]
     assert screen_reads == [] and session.page == "closed"               # (finished: closed)
+
+
+def test_started_from_the_apps_plan_the_server_reads_the_stock_before_itself(rig):
+    """The decant app's "Start automatic decantation" (Plan step): its tanks
+    are set up, none started; the server takes it up, reads each waiting
+    tank's stock before in full here (with its picture) over whatever the
+    phone had, and runs it; a chamber held in the truck can go into a tank
+    later from the app."""
+    sid = app_session(rig, {"T1": ([1], "waiting", None, None), "T2": ([2, 3], "waiting", None, None)})
+    for t in rig.cloud.sessions[sid]["data"]["tanks"]:
+        t["before"] = {**t["before"], "volume": t["before"]["volume"] + 120, "readingAt": dz.iso(T0 - 3600)}  # (an old one)
+    rig.cloud.sessions[sid]["data"]["autoRequest"] = {"at": dz.iso(rig.clock()), "by": "phone", "start": True}
+    rig.cloud.handover_requests = lambda timeout=10: [
+        {"id": x["id"], "updated_at": x["updated_at"], "request": x["data"]["autoRequest"]}
+        for x in rig.cloud.sessions.values() if isinstance(x["data"].get("autoRequest"), dict)]
+    a = take_over(rig, sid, requested=True)
+    assert a.phase == "running", a.info
+    s = cloud_session(rig)
+    t1, t2 = (next(t for t in s["data"]["tanks"] if t["tank"] == x) for x in ("T1", "T2"))
+    assert t1["before"]["volume"] == 7682.0 and t2["before"]["volume"] == 10755.0          # read here, now
+    assert t2["before"]["height"] and s["data"]["before"]["T2"]["volume"] == 10755.0       # in full
+    assert a.info["proofs"]["T2"]["before"]["picture"] and "autoRequest" not in s["data"]
+    rig.world.flows = [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 640, 3992, 420)]
+    drive(rig, 4000)
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    t1, t2 = (next(t for t in s["data"]["tanks"] if t["tank"] == x) for x in ("T1", "T2"))
+    assert t1["result"]["variation"] == -10.0 and t2["result"]["variation"] == -23.0
+
+
+def test_a_tank_a_phone_started_before_the_server_took_it_keeps_the_phones_stock_before(rig):
+    rig.world.flows = [(2, 50, 4990, 495)]
+    rig.clock.t = T0 + 200
+    sid = app_session(rig, {"T2": ([2], "decanting", 50, None)})
+    rig.cloud.sessions[sid]["data"]["tanks"][0]["before"]["volume"] = 10751.5        # (the phone's own reading)
+    rig.cloud.sessions[sid]["data"]["autoRequest"] = {"at": dz.iso(rig.clock()), "by": "phone", "start": True}
+    rig.cloud.handover_requests = lambda timeout=10: [
+        {"id": x["id"], "updated_at": x["updated_at"], "request": x["data"]["autoRequest"]}
+        for x in rig.cloud.sessions.values() if isinstance(x["data"].get("autoRequest"), dict)]
+    a = take_over(rig, sid, requested=True)
+    assert a.phase == "running"
+    assert cloud_session(rig)["data"]["tanks"][0]["before"]["volume"] == 10751.5    # (already going in: the phone's)
