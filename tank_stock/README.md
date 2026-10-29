@@ -20,6 +20,17 @@ have changed its live data; the screen still works, only slower). Either
 way the decant app's checks (volume + ullage = capacity, the dip chart) run
 on every reading.
 
+**Live monitoring needs no browser** (`feed.py`): it listens to that same
+live connection directly, as the Pumps tab does (plain HTTP long-polling
+through the tunnel, never sending anything on it), so it is live within
+seconds and the page gets each tank's exact figures every 2 s. Pictures are
+for proof only and are taken when asked for: a capture, and an automatic
+decantation's stock before and after (its browser opens for the first one,
+about a minute, stays open while the decantation runs and closes 5 min
+after the last picture otherwise). If FuelTrans' live data doesn't come this
+way, or stops bringing a watched tank for 90 s, live monitoring reads the
+screen instead, as before, and Telegram is told once.
+
 The earlier AnyDesk reader is kept as a fallback (see the end).
 
 ## What it does
@@ -35,7 +46,10 @@ also has its own address on port 8443. Pick the tanks (any of
 - **Capture only**: the same without saving. The page shows a zoomed picture
   of just those tanks' cards, their figures and the decant app's check badge;
   **Upload** (per tank, or all shown) saves them afterwards.
-- **Live monitoring**: open Tank Status once and keep it open. Every
+- **Live monitoring**: from FuelTrans' live data (above), the watched tanks'
+  figures every 2 s on the page, and every 10 seconds (5-3600, set on the
+  page) to the decant app and the automatic decantation. From the screen
+  (AnyDesk, or the fallback): open Tank Status once and keep it open. Every
   10 seconds (5-3600, set on the page) the watched tanks' **product volume**
   is read again, without reconnecting and without pictures: the page shows
   each one as it comes, and with "Send the volume to the decant app as it
@@ -53,7 +67,7 @@ also has its own address on port 8443. Pick the tanks (any of
   and once when it's back. If FuelTrans' page stops updating (no card's "Last
   Updated" moving for 2½ min), Tank Status is opened again. When it ends, the
   last screen becomes an ordinary capture, with its pictures to save or
-  upload.
+  upload (from the live data there's no screen: take a capture for pictures).
 
 - **Automatic decantation** (`auto.py`, `decantation.py`): one setup, then
   nothing to do in the decant app. Pick the truck's invoice (from the decant

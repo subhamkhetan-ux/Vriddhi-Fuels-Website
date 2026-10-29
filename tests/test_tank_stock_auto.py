@@ -200,8 +200,10 @@ def rig(tmp_path, monkeypatch):
 def read(rig):
     """One live read and what the automation does with it."""
     live = rig.st.live
+    if live.get("feed"):
+        live["beat_due"] = True                       # (each of the test's reads is a beat: its clock isn't real)
     rig.st._live_read(live)
-    rig.st.auto.on_read(live)
+    rig.st._live_beat(live)
 
 
 def wait_for(cond, timeout=5):
@@ -1260,3 +1262,66 @@ def test_from_fueltrans_a_handed_over_decantation_rides_out_the_tunnel_dropping_
     assert all(lost not in m for m in rig.told)                             # the failed tries said nothing
     assert not [m for m in rig.told if "clock was off" in m], rig.told
     assert not [m for m in rig.told if "anydesk" in m.lower()], rig.told
+
+
+class FeedSession(Session):
+    """FuelTrans' live data (feed.py): each tank's exact figures with no
+    screen; a picture of the screen only when one is asked for."""
+    world = None
+
+    def __init__(self, ids, password, **kw):
+        super().__init__(ids, password)
+        self.pictures, self.last_figures = 0, {}
+
+    def figures(self):
+        return {no: {**self.world.card(no), "exact": True} for no in (1, 2, 3, 4)}
+
+    def screen(self):
+        self.pictures += 1
+        self.last_figures = self.figures()            # (the exact figures that came with it)
+        return b"\x89PNG-%d" % self.pictures
+
+    def shot(self):
+        return self.screen(), "already on Tank Status"
+
+
+def test_from_fueltrans_live_data_the_screen_is_pictured_only_for_proof(rig, monkeypatch):
+    """Live monitoring from FuelTrans' live data reads no screen: the stock
+    comes from its figures, and the decantation's proof pictures (stock
+    before, stock after) are taken when it needs them."""
+    boxes = {no: (no * 100, 0, no * 100 + 90, 90) for no in (1, 2, 3, 4)}
+    monkeypatch.setattr(service.cards_mod, "ocr", lambda png: None)
+    monkeypatch.setattr(service.cards_mod, "card_boxes", lambda png, words: dict(boxes))
+    screen_reads = []
+    monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: screen_reads.append(box))
+    monkeypatch.setattr(service.cards_mod, "read_all", lambda png: screen_reads.append(png))
+    FeedSession.world = rig.world
+    started = service.Station.start_live
+
+    def start_live(self, new_settings=None, auto=False):
+        started(self, new_settings, auto)
+        self.live.update(feed=True, session=FeedSession([], ""))
+        return self.live_view()
+    monkeypatch.setattr(service.Station, "start_live", start_live)
+    a = rig.st.auto
+    a.start(INVOICE["invoice_no"], {"1": "T1", "2": "T2", "3": "T2"})
+    assert wait_for(lambda: rig.st.live is not None)
+    end = real_time.time() + 10
+    while a.phase == "starting" and real_time.time() < end:
+        rig.clock.t += 1                              # (the cards' clocks move: the probes are live)
+        read(rig)
+        real_time.sleep(0.05)
+    assert a.phase == "running", a.info
+    session = rig.st.live["session"]
+    # the stock before: in full, from a picture taken for it (its exact figures, no reading of it)
+    assert rig.cloud.stock["T2"]["volume"] == 10755.0 and rig.cloud.stock["T2"]["height"]
+    assert [set(m) for m in rig.cloud.shots[:2]] == [{"T1"}, {"T2"}]
+    assert session.pictures >= 1
+    rig.world.flows = [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 640, 3992, 420)]
+    drive(rig, 4000)
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    t1, t2 = (next(t for t in s["data"]["tanks"] if t["tank"] == x) for x in ("T1", "T2"))
+    assert t2["result"]["band"] == "ok" and t2["result"]["variation"] == -23.0
+    assert t1["result"]["variation"] == -10.0 and t2["after"]["height"]       # a full read, with its proof
+    assert len(rig.cloud.shots) >= 3 and screen_reads == []

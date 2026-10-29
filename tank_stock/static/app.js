@@ -82,7 +82,8 @@
     if (busy) {
       const what = { "live read": "Reading the live session", "connecting for live monitoring": "Connecting for live monitoring",
         decantation: "Reading the tanks for decantation", upload: "Uploading" }[busy.what] || "Connecting to the automation PC";
-      setStatus("status", `${what}… (started ${ago(busy.since)}). ${isLive() ? "" : "Connecting takes about a minute."}`);
+      const quick = isLive() || (busy.what === "connecting for live monitoring" && state.source === "fueltrans");
+      setStatus("status", `${what}… (started ${ago(busy.since)}). ${quick ? "" : "Connecting takes about a minute."}`);
     } else if (last.error && (!last.at || last.error_at > last.at)) {
       setStatus("status", `Last try (${when(last.error_at)}) failed: ${last.error}`, true);
     } else if (!state.login_saved) {
@@ -208,6 +209,11 @@
     }
   }
 
+  // From FuelTrans' live data (no browser) live monitoring connects in seconds
+  // and its figures come every couple of seconds; the decant app gets them every_s.
+  const connectTakes = () => (state.source === "fueltrans" ? "a few seconds" : "about a minute");
+  const figuresEvery = (live) => live.figures_every_s || live.every_s || live.interval_s;
+
   function renderLive() {
     const live = state.live;
     const prev = state.live_last || {};
@@ -216,13 +222,15 @@
     $("liveStart").disabled = Boolean(state.busy) || !state.login_saved;
     let text, err = false;
     if (live && !isLive()) {
-      text = "Connecting… (about a minute)";
+      text = `Connecting… (${connectTakes()})`;
     } else if (live) {
       const watch = live.watched || live.tanks;
       const sending = live.sending || (live.auto_upload ? watch : []);
-      text = `Live since ${when(live.connected || live.since)}: Tank ${watch.join(", ")}, every ${live.every_s || live.interval_s} s`
+      text = `Live since ${when(live.connected || live.since)}: Tank ${watch.join(", ")}, every ${figuresEvery(live)} s`
+        + `${live.feed ? " from FuelTrans' live data" : live.screen_mode ? " off FuelTrans' screen (its live data didn't bring every tank)" : ""}`
         + `${autoActive() ? " (for the automatic decantation)" : ""}`
-        + `${sending.length ? `, sending ${sending.length === watch.length ? "the" : `Tank ${sending.join(", ")}'s`} volume to decant` : ""}`
+        + `${sending.length ? `, sending ${sending.length === watch.length ? "the" : `Tank ${sending.join(", ")}'s`} volume to decant`
+          + `${live.feed ? ` every ${live.every_s} s` : ""}` : ""}`
         + `. ${live.reads} read${live.reads === 1 ? "" : "s"}`
         + `${live.last_read ? `, last ${clock(live.last_read)}` : ""}${live.read_s ? ` (a read takes ${live.read_s} s)` : ""}.`;
       if (live.last_error) { text += ` Last problem: ${live.last_error}`; err = true; }
@@ -285,13 +293,13 @@
     let text, sub;
     if (autoActive()) {
       text = "Decantation running"; dot.classList.add("auto");
-      sub = live && isLive() ? `Live, every ${live.every_s || live.interval_s} s · last read ${clock(live.last_read)}` : "Connecting to the PC…";
+      sub = live && isLive() ? `Live, every ${figuresEvery(live)} s · last read ${clock(live.last_read)}` : "Connecting to the PC…";
     } else if (live && !isLive()) {
-      text = "Connecting…"; dot.classList.add("wait"); sub = "FuelTrans on the server: about a minute";
+      text = "Connecting…"; dot.classList.add("wait"); sub = `FuelTrans on the server: ${connectTakes()}`;
     } else if (live) {
       const watch = live.watched || live.tanks;
       text = "Live"; dot.classList.add("live");
-      sub = `Tank ${watch.join(", ")} every ${live.every_s || live.interval_s} s`
+      sub = `Tank ${watch.join(", ")} every ${figuresEvery(live)} s`
         + `${live.last_read ? ` · last read ${clock(live.last_read)}` : ""}`
         + `${(live.sending || []).length || live.auto_upload ? " · sending to decant" : ""}`;
     } else if (state.busy) {

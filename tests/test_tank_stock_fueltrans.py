@@ -18,7 +18,8 @@ pytest.importorskip("playwright.sync_api")
 
 from tank_stock import cards as cards_mod  # noqa: E402
 from tank_stock.capture import CaptureError  # noqa: E402
-from tank_stock import fueltrans  # noqa: E402
+from tank_stock import feed, fueltrans  # noqa: E402
+from tank_stock.feed import FuelTransFeed  # noqa: E402
 from tank_stock.fueltrans import FuelTransSession  # noqa: E402
 
 TANKS = [  # (no, product, volume, height, ullage, density, density tc, temp, time, fill %, colour): the PC's screen
@@ -158,7 +159,8 @@ def ws_frame(text: str) -> bytes:
 def serve(in_memory: bool, never=(), live_data=True):
     """The synthetic FuelTrans; ``never``: tanks whose figures never come (a
     probe that is down); ``live_data``: its page gets the figures over
-    socket.io as well (tank 1 over HTTP polling, the others over a websocket)."""
+    socket.io as well (tank 1 over HTTP polling, the others over a websocket),
+    and a listener's long polls (feed.py) get every tank's packets."""
     cards = [card_html(*t) for t in TANKS]
     waiting = [card_html(no, product, "1,000,000.00", "714.90", "171,892.48", "827.10", "827.10", "0.00", "00", 2,
                          colour).replace("10/26/2026 12:46:00", "00/00/0000 00:00:00")
@@ -168,6 +170,7 @@ def serve(in_memory: bool, never=(), live_data=True):
     pkts = {t[0]: "42" + json.dumps(["tankStatusPkt", packet(*t)]) for t in TANKS if t[0] not in never}
 
     files = []                                     # requests for its program file
+    posts = []                                     # what was sent on its live connection
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -176,7 +179,16 @@ def serve(in_memory: bool, never=(), live_data=True):
         def do_GET(self):
             if self.path.startswith("/socket.io/") and "transport=websocket" in self.path:
                 return self.websocket()
-            if self.path.startswith("/socket.io/"):
+            if self.path.startswith("/socket.io/") and not live_data:
+                body, kind = b"Cannot GET", "text/plain"
+                self.send_response(404)
+                self.send_header("Content-Type", kind)
+                self.end_headers()
+                return self.wfile.write(body)
+            if self.path.startswith("/socket.io/") and "sid=" in self.path:
+                time.sleep(0.3)                        # (a long poll: the next figures, as they come)
+                body, kind = "".join(f"{len(p)}:{p}" for p in pkts.values()).encode(), "text/plain"
+            elif self.path.startswith("/socket.io/"):
                 one = [p for no, p in pkts.items() if no == 1]
                 body, kind = "".join(f"{len(p)}:{p}" for p in ['0{"sid":"x"}', *one]).encode(), "text/plain"
             elif self.path == "/vendor.0123456789abcdef.js":
@@ -199,6 +211,13 @@ def serve(in_memory: bool, never=(), live_data=True):
             self.end_headers()
             self.wfile.write(body)
 
+        def do_POST(self):
+            posts.append(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
         def websocket(self):
             key = self.headers["Sec-WebSocket-Key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
             self.protocol_version = "HTTP/1.1"         # (a websocket needs it)
@@ -219,7 +238,7 @@ def serve(in_memory: bool, never=(), live_data=True):
                 pass                                   # the page closed
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    server.files = files
+    server.files, server.posts = files, posts
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -376,18 +395,28 @@ def test_the_service_reads_saves_and_monitors_through_fueltrans(chromium, tmp_pa
         assert reads == ({"ocr": 1, "read_card": 0, "read_figures": 0} if live_data
                          else {"ocr": 1, "read_card": 4, "read_figures": 0}), reads
 
+        asked = time.monotonic()
         st.start_live({"tanks": [1, 2, 3, 4], "auto_upload": True, "interval_s": 5})
         deadline = time.time() + 150
         while time.time() < deadline and not (st.live and st.live.get("reads", 0) >= 2):
-            time.sleep(0.5)
+            time.sleep(0.2)
+        took = time.monotonic() - asked
         live = st.live
         assert live and live["reads"] >= 2 and not live.get("last_error"), live and live.get("last_error")
         assert {no: f["reading"]["volume"] for no, f in sorted(live["figures"].items())} == {
             str(no): float(volume.replace(",", "")) for no, _, volume, *_ in TANKS}
         assert live["session"].alive()
-        assert live["exact"] is live_data
+        assert live["exact"] is live_data and live["feed"] is live_data
         if live_data:
-            assert reads["read_figures"] == 0 and reads["read_card"] == 0, reads   # no reading of the screen
+            # FuelTrans' live data: live in seconds, no browser, no screen read
+            assert took < 10, took
+            assert live["session"]._pictures is None
+            assert reads["read_figures"] == 0 and reads["read_card"] == 0, reads
+            # a capture meanwhile: its picture taken then, exact as ever
+            last = st.capture([2], why="phone")
+            assert last["tanks"]["2"]["reading"]["volume"] == 16038.2 and live["session"]._pictures is not None
+            assert reads["read_card"] == 0, reads
+            assert all(p == b"1:2" for p in server.posts), server.posts   # never anything sent but keep-alives
         else:
             assert reads["read_figures"] >= 4, reads
     finally:
@@ -567,3 +596,108 @@ def test_the_service_pairs_each_screen_with_its_exact_figures(tmp_path, monkeypa
     st._read_off_screen({"session": object(), "reads": 9, "figures": {"6": {"confidence": "high"}},
                          "exact_missing": {6: long_ago}}, 6)
     assert len(told) == 1                               # (a screen-only session: nothing to say)
+
+
+def test_the_feed_listens_to_fueltrans_live_data_without_a_browser(monkeypatch):
+    """Live monitoring's session from FuelTrans' live data: connected in a
+    moment, every tank's exact figures, nothing sent on the connection but
+    its keep-alive, and lost only after LOST_AFTER without an answer."""
+    monkeypatch.setattr(feed, "PING_EVERY", 0.5)
+    monkeypatch.setattr(feed, "LOST_AFTER", 1)
+    server = serve(False)
+    f = FuelTransFeed(f"http://127.0.0.1:{server.server_port}", "Dealer", "123456")
+    try:
+        asked = time.monotonic()
+        assert f.open() == 1 and time.monotonic() - asked < 5
+        got = f.figures()
+        assert sorted(got) == [1, 2, 3, 4], got
+        assert got[2]["volume"] == 16038.2 and got[2]["ullage"] == 3961.8 and got[2]["exact"]
+        assert got[1]["product"] == "MS" and got[4]["capacity"] == 20000.0
+        assert got[3]["time"] == ("10", "26", "2026", "12", "46", "40")
+        assert f.alive() and f._pictures is None and f.last_figures == {}
+        time.sleep(1.2)
+        assert server.posts and all(p == b"1:2" for p in server.posts), server.posts
+        server.shutdown()
+        server.server_close()                        # the tunnel's port closes: refused
+        assert wait_until(lambda: f._down_since is not None, 5)
+        assert f.alive()                             # a blip: still the session
+        assert wait_until(lambda: not f.alive(), 5)
+        assert "no answer for 1 s: connection re" in f.lost, f.lost      # (refused, or reset)
+    finally:
+        f.close()
+    with pytest.raises(CaptureError, match="tunnel is down"):
+        FuelTransFeed(f"http://127.0.0.1:{server.server_port}", "Dealer", "123456").open()
+
+
+def wait_until(cond, timeout):
+    end = time.time() + timeout
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_the_feeds_pictures_open_when_asked_and_close_when_idle(chromium, monkeypatch):
+    server = serve(False)
+    keep = {"on": True}
+    f = FuelTransFeed(f"http://127.0.0.1:{server.server_port}", "Dealer", "123456",
+                      keep_pictures=lambda: keep["on"])
+    try:
+        f.open()
+        assert f._pictures is None
+        png = f.screen()                              # (opens FuelTrans' page for it)
+        assert png.startswith(b"\x89PNG") and sorted(f.last_figures) == [1, 2, 3, 4]
+        monkeypatch.setattr(feed, "PICTURES_IDLE", 0)
+        assert f.alive() and f._pictures is not None  # kept: an automatic decantation, say
+        keep["on"] = False
+        assert f.alive() and f._pictures is None      # idle: closed
+        assert f.screen().startswith(b"\x89PNG")     # (and opened again when asked)
+    finally:
+        f.close()
+        server.shutdown()
+
+
+def test_without_fueltrans_live_data_the_feed_reads_the_screen(chromium):
+    server = serve(False, live_data=False)
+    f = FuelTransFeed(f"http://127.0.0.1:{server.server_port}", "Dealer", "123456")
+    try:
+        f.open()
+        assert f.unavailable == "HTTP 404 for its live data" and f._pictures is not None
+        assert f.alive() and f.screen().startswith(b"\x89PNG")
+    finally:
+        f.close()
+        server.shutdown()
+
+
+def test_a_tank_the_live_data_stops_bringing_is_read_off_the_screen(chromium, tmp_path, monkeypatch):
+    """A watched tank FuelTrans' live data doesn't bring for FEED_MISSING_S:
+    live monitoring reads the screen instead, as before, and says so once."""
+    if not (shutil.which("tesseract") and shutil.which("convert")):
+        pytest.skip("needs Tesseract and ImageMagick")
+    from tank_stock import decant, service
+    from tests.test_tank_stock_service import FakeDB
+    db = FakeDB()
+    monkeypatch.setattr(decant, "_rest", db)
+    monkeypatch.setattr(decant, "_http", db.http)
+    monkeypatch.setenv("TANK_STOCK_HOME", str(tmp_path))
+    monkeypatch.setattr(service, "FEED_MISSING_S", 2)
+    monkeypatch.setattr(fueltrans, "DATA_WAIT", 5)
+    monkeypatch.setattr(feed, "FIRST_WAIT", 2)
+    server = serve(False, never=(3,))
+    (tmp_path / "login.json").write_text(json.dumps({
+        "source": "fueltrans", "url": f"http://127.0.0.1:{server.server_port}", "user": "Dealer", "password": "123456"}))
+    told = []
+    st = service.Station(home=tmp_path, notify=lambda text, *a: told.append(text) or True, notify_photo=lambda *a: True)
+    try:
+        st.start_live({"tanks": [1, 2, 3, 4], "auto_upload": False, "interval_s": 5})
+        assert wait_until(lambda: st.live and st.live.get("screen_mode"), 30), st.live
+        assert len(told) == 1 and "Tank 3" in told[0] and "Tank Status screen" in told[0], told
+        reads = st.live["reads"]
+        assert wait_until(lambda: st.live and st.live["reads"] > reads + 1, 120), st.live and st.live.get("last_error")
+        assert st.live["figures"]["1"]["reading"]["volume"] == 8787.48 and not st.live["feed"]
+        assert len(told) == 1
+    finally:
+        st.stop_live("test over")
+        wait_until(lambda: st.live is None, 60)
+        server.shutdown()

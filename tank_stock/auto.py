@@ -447,7 +447,8 @@ class AutoDecant:
                 raise AutoError("Cancelled.")
             if self.st.live is not live:
                 raise AutoError(f"Live monitoring ended: {(self.st.live_last or {}).get('reason') or 'it stopped'}.")
-            if live.get("state") == "live" and live.get("reads", 0) > reads and live.get("last_png"):
+            # (from FuelTrans' live data there's no screen: its pictures are taken when needed)
+            if live.get("state") == "live" and live.get("reads", 0) > reads and (live.get("last_png") or live.get("feed")):
                 return live
             if live.get("failed", 0) >= 3:
                 raise AutoError(f"The PC's tank screen couldn't be read ({live.get('last_error') or 'unknown'}).")
@@ -529,7 +530,7 @@ class AutoDecant:
         """Each planned tank's stock before, read in full and saved to the app."""
         got, problems = {}, {}
         for attempt in range(BEFORE_TRIES):
-            png = live.get("last_png")
+            png = self.st.live_png(live)
             want = [n for n in tanks if self._id(n) not in got]
             for no, r in self.st.full_read(png, want, "automatic decantation: stock before").items():
                 if r["reading"]:
@@ -694,8 +695,8 @@ class AutoDecant:
             # already rising: the stock before is the one just before it rose
             before = self.run.low_reading(tank_id, o["low"], o.get("lowAt"), now)
             return self.run.add(tank_id, chambers, before, now, from_low=True)
-        res = self.st.full_read(live.get("last_png"), [no], "automatic decantation: stock before (chambers added)") \
-            .get(no) if live.get("last_png") else None
+        png = self.st.live_png(live) if live else b""
+        res = self.st.full_read(png, [no], "automatic decantation: stock before (chambers added)").get(no) if png else None
         if not res or not res.get("reading"):
             raise AutoError(f"Tank {no}'s stock before couldn't be read ({(res or {}).get('problem') or 'no screen yet'}): "
                             "try again in a moment.")

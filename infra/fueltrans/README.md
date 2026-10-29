@@ -84,6 +84,11 @@ the proof picture, live monitoring, the decant app's "Check stock now" and
 automatic decantation. There's no AnyDesk session to drop and no time limit,
 and the screenshots are sharp.
 
+Live monitoring doesn't use the browser: it listens to FuelTrans' live data
+directly (as the Pumps tab does), so it is live in seconds with the exact
+figures every 2 s. The browser opens only for pictures: a capture, and an
+automatic decantation's stock before and after.
+
 On the server, after step 2 works:
 
 ```sh
@@ -115,9 +120,9 @@ password: `ASK_AGAIN=1 bash infra/fueltrans/tank-stock-setup.sh`.
 **When the station's internet drops** (or the PC restarts), live monitoring
 stops and keeps trying again by itself: after 15 s, 30 s, 1 min, ... then
 every 5 min, until FuelTrans answers. Telegram gets one message when it stops
-and one when it's back. If FuelTrans' page stops updating while the tunnel is
-up (no card's "Last Updated" moves for 2½ min), the server opens Tank Status
-again. The server's browser shows FuelTrans exactly as the PC does: 1920 x
+and one when it's back. A blip under 30 s is ridden out. If FuelTrans' page
+stops updating while the tunnel is up (no card's "Last Updated" moves for
+2½ min), the server opens Tank Status again. The server's browser shows FuelTrans exactly as the PC does: 1920 x
 1080, in the PC's font (DejaVu Sans).
 
 ## 5. Pumps: live nozzles in the Vriddhi Fuels app
