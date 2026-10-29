@@ -246,6 +246,14 @@ def stock_requests(timeout: int = 10) -> dict:
     return out
 
 
+def put_live(data: dict, timeout: int = 10) -> None:
+    """The server's live status for the Monitor tab (dec_live's one row): what
+    monitoring is on, who started it, the watched nozzles' figures."""
+    from .decantation import iso
+    _rest("POST", "dec_live?on_conflict=id", [{"id": "server", "data": data, "updated_at": iso()}],
+          prefer="resolution=merge-duplicates,return=minimal", timeout=timeout)
+
+
 def put_config(key: str, value, timeout: int = 10) -> bool:
     """One key of the app's shared settings (the pumps its Monitor page
     offers), over the very version read. -> False if it has to be written again."""

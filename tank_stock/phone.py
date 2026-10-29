@@ -23,6 +23,10 @@ stopped there or MONITOR_MAX_S has passed; interlocks go to Telegram as
 ever. The pumps to tick come from FuelTrans' pump list, put into the app's
 settings as ``pumpList``.
 
+Either slot's **stop** stops that monitoring however it was started (on
+this server's page too: the Monitor tab shows it from ``dec_live``, see
+LiveStatus), except while an automatic decantation needs it.
+
 Live monitoring (``stockMonitor``, kept apart so a capture never stops it):
 - **monitor**: live monitoring (the open session, else one started for it)
   sends those tanks' volume to the app as it changes, until the phone stops
@@ -58,8 +62,14 @@ RECONNECT_GAP_S = 60          # seconds between tries to connect again for a pho
 RECONNECTS = 5                # tries in a row that never gave a read: it ends, and says why
 ANSWERS_KEPT = 50
 ONCE, LIVE, PUMPS = "stockRequest", "stockMonitor", "pumpMonitor"
-KINDS = {ONCE: ("check", "capture", "upload"), LIVE: ("monitor",), PUMPS: ("pumps",)}
+KINDS = {ONCE: ("check", "capture", "upload"), LIVE: ("monitor", "stop"), PUMPS: ("pumps", "stop")}
 PUMP_FIELDS = ("pump", "du", "nozzle", "product")   # what the phone's pump list shows of each
+# what the Monitor tab shows of a watched nozzle (no counting seconds: written only when they change)
+NOZZLE_FIELDS = ("pump", "du", "nozzle", "product", "status", "litres", "amount", "lpm", "usual_lpm", "locks",
+                 "preset", "target_litres", "progress", "left_s", "joined")
+STATUS_EVERY = 1              # seconds: the live status looked at, and written when it changed
+STATUS_BEAT_S = 30            # ... and this often while monitoring is on (the phone sees the server is there)
+STATUS_REST_S = 60            # after it couldn't be written (dec_live not made yet?), before trying again
 FIGURES = ("volume", "ullage", "height", "dip", "water", "density", "densityTc", "temp", "readingAt")
 
 
@@ -136,6 +146,11 @@ class PhoneStock:
         if mine and req.get("state") != mine[1]["state"]:
             self._answer(PUMPS, rid, mine[1])          # a phone's save lost the answer: again
             return
+        if req["kind"] == "stop":                      # (however it was started: the Pumps tab too)
+            if not req.get("state") and now - (dz._ts(req.get("at")) or 0) <= REQUEST_FRESH_S:
+                p.stop("stopped from the decant app")
+                self._answer(PUMPS, rid, {"state": "done", "message": "stopped"})
+            return
         if req.get("state") == "monitoring":
             until = dz._ts(req.get("until")) or 0
             if now >= until:
@@ -183,6 +198,15 @@ class PhoneStock:
             return
         if req.get("state") or now - (dz._ts(req.get("at")) or 0) > REQUEST_FRESH_S:
             return                                     # answered already, or too old to act on
+        if req["kind"] == "stop":                      # (however it was started: this server's page too)
+            if self.st.live and self.st.auto.active():
+                self._answer(LIVE, rid, {"state": "error", "message": "an automatic decantation is running on it: "
+                                                                        "cancel or hand it over first"})
+                return
+            if self.st.live:
+                self.st.stop_live("stopped from the decant app")
+            self._answer(LIVE, rid, {"state": "done", "message": "stopped"})
+            return
         if req["kind"] in ("check", "capture"):
             self._read(rid, req, save=req["kind"] == "check")
         elif req["kind"] == "upload":
@@ -331,3 +355,69 @@ class PhoneStock:
             self.st.decant.answer_stock_request(rid, answer, slot=slot, timeout=QUICK_S)
         except Exception:  # noqa: BLE001 - written again next time
             traceback.print_exc()
+
+
+class LiveStatus:
+    """What the Monitor tab shows of this server (dec_live's one row): tank
+    and pump monitoring, on or off, and who started them (this server's page,
+    a phone, an automatic decantation), so a phone sees - and can stop -
+    monitoring started anywhere; and the watched nozzles' figures. Looked at
+    every STATUS_EVERY and written when it changed, and every STATUS_BEAT_S
+    while monitoring is on (so the phone can tell a quiet pump from a server
+    that stopped answering); nothing at all while everything stays off."""
+
+    def __init__(self, station):
+        self.st = station
+        self.sent = None          # the status last written
+        self.sent_at = 0.0
+        self.rest_until = 0.0
+
+    def now(self) -> dict:
+        st = self.st
+        live, phone = st.live, st.phone
+        tanks = {"on": False}
+        if live:
+            by = ("decantation" if st.auto.active() and live.get("by_auto") else
+                  "phone" if phone.live is live or phone.active() else "page")
+            view = st.live_view() or {}
+            tanks = {"on": True, "by": by, "state": live.get("state"), "since": live.get("since"),
+                     "watched": view.get("watched") or [], "sending": view.get("sending") or [],
+                     "decantation": st.auto.active()}
+        p = st.pumps
+        pumps = {"on": False}
+        if p.on:
+            v = p.view()
+            nozzles = []
+            for c in v["watching"]:
+                n = {k: c.get(k) for k in NOZZLE_FIELDS}
+                sale = (p.live.get(c["pump"]) or {}).get("sale")
+                if c.get("status") == "FUELING" and sale and not sale.get("ended"):
+                    n["since"] = dz.iso(sale["started"])      # (the phone counts the seconds)
+                nozzles.append(n)
+            pumps = {"on": True, "by": "phone" if phone.pumps_req else "page", "watch": list(p.watch),
+                     "stale": v["feed"]["stale"], "error": v["feed"].get("error") or "", "nozzles": nozzles}
+        else:
+            pumps["stopped"] = p.stopped
+        return {"tanks": tanks, "pumps": pumps}
+
+    def tick(self) -> None:
+        if time.time() < self.rest_until:
+            return
+        status = self.now()
+        on = status["tanks"]["on"] or status["pumps"]["on"]
+        if status == self.sent and not (on and time.time() - self.sent_at >= STATUS_BEAT_S):
+            return
+        try:
+            self.st.decant.put_live({**status, "at": dz.iso()}, timeout=QUICK_S)
+            self.sent, self.sent_at = status, time.time()
+        except Exception as exc:  # noqa: BLE001 - tried again after a rest
+            self.rest_until = time.time() + STATUS_REST_S
+            print(f"tank stock: the Monitor tab's live status couldn't be written ({exc}); "
+                  "has supabase/decant-schema.sql been run again (dec_live)?", flush=True)
+
+    def loop(self, stop: threading.Event) -> None:
+        while not stop.wait(STATUS_EVERY):
+            try:
+                self.tick()
+            except Exception:  # noqa: BLE001 - looked at again next time
+                traceback.print_exc()

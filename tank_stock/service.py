@@ -65,7 +65,7 @@ from . import decant, fueltrans, telegram
 from .feed import FuelTransFeed
 from .auto import AutoDecant, AutoError
 from .capture import CaptureError, Session, parse_ids
-from .phone import PhoneStock
+from .phone import LiveStatus, PhoneStock
 from .pumps import Pumps
 
 HOME = Path(os.environ.get("TANK_STOCK_HOME", "/opt/agents/tank-stock"))
@@ -251,6 +251,7 @@ class Station:
         self.auto = AutoDecant(self)
         self.phone = PhoneStock(self)    # a phone's "Check stock now" / "Monitor the stock" (decant home page)
         self.pumps = Pumps(home, self._fueltrans_url, notify=notify)   # the Pumps tab (pumps.py)
+        self.status = LiveStatus(self)   # what the decant app's Monitor tab shows of it (phone.py)
         self._exact = OrderedDict()      # screen -> the exact figures that came with it (FuelTrans' live data)
 
     # ---- settings and login --------------------------------------------
@@ -1503,6 +1504,7 @@ def main(argv=None) -> int:
     threading.Thread(target=station.queue_loop, args=(stop,), daemon=True, name="queue").start()
     threading.Thread(target=station.request_loop, args=(stop,), daemon=True, name="requests").start()
     threading.Thread(target=station.pumps.run, args=(stop,), daemon=True, name="pumps").start()   # (asleep until started)
+    threading.Thread(target=station.status.loop, args=(stop,), daemon=True, name="status").start()
     hosts = os.environ.get("TANK_STOCK_HOSTS", "").split(",")
     users = os.environ.get("TANK_STOCK_USERS", "").split(",")
     httpd = make_server(station, args.port, hosts, users)

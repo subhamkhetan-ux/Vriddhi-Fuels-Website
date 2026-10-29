@@ -26,6 +26,7 @@ export const state = {
   sessions: [],           // dec_sessions rows ({id, invoice_no, tt_no, status, data, …})
   tankState: {},          // tank id -> latest reading
   config: {},             // dec_config.data (settings + optional uploaded chart)
+  serverLive: null,       // dec_live 'server': the tank stock server's monitoring and nozzles now (Monitor tab)
   settings: settingsWith(null),
   chart: DIP_CHART,
   outbox: [],             // [{table, key}] writes still to reach the cloud
@@ -461,6 +462,14 @@ async function pull(which = 'all', { light = false } = {}) {
         }
       }));
     }
+    if (which === 'all' || which === 'dec_live') {
+      // (a project whose schema predates dec_live: none, and nothing else minds)
+      jobs.push(client.from('dec_live').select('data').eq('id', 'server').maybeSingle().then(({ data, error }) => {
+        if (error) return;
+        meter(data);
+        state.serverLive = data?.data || null;
+      }).catch(() => { /* (the rest syncs whatever happens to this one) */ }));
+    }
     if (which === 'all' || which === 'dec_config') {
       jobs.push(client.from('dec_config').select('data,updated_at').eq('id', 1).maybeSingle().then(({ data, error }) => {
         if (error) throw error;
@@ -574,6 +583,10 @@ function subscribe() {
     timers[`row ${t}`] = setTimeout(() => { const keys = [...waiting[t]]; waiting[t].clear(); pullRows(t, keys); }, 400);
   };
   let ch = client.channel('decant-live');
+  // the server's live status: the change carries the row, so nothing is fetched
+  ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: 'dec_live' }, (change) => {
+    if (change?.new?.data) { state.serverLive = change.new.data; emit(); } else poke('dec_live');
+  });
   for (const t of ['dec_invoices', 'dec_sessions', 'dec_tank_state', 'dec_config']) {
     ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, (change) => {
       const { key } = TABLES[t];
