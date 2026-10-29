@@ -6216,6 +6216,25 @@
       },
       "queued_at": "2026-10-29T09:10:35.095083+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "40949c2988ffb98c",
+      "gmail_msg_id": "1880376172542666292",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "29/10/2026",
+      "date_serial": 46324,
+      "amount": 76794.0,
+      "raw_payer": "ODISHA SARKAR",
+      "customer": null,
+      "candidates": [],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-29T09:45:29.363287+00:00",
+      "status": "review"
     }
   ]
 }
