@@ -550,18 +550,23 @@ function renderHome(el) {
   const ctx = { busy, waiting };
   const doneToday = state.sessions.filter((s) => s.status === 'done' && istDate(s.data?.decantedAt || s.created_at) === today);
 
+  // (sections in boxes: one under another on a phone; side by side on a TV, index.html's html.tv)
   el.innerHTML = `
-    <h2>Tank stock <span class="sp"></span><button class="btn sm" data-stock>📷 Update</button><button class="btn sm" data-dips title="Tank stock from physical dips">📏 Dip</button></h2>
-    <div class="tanks">${tanks().map((t) => tankTile(t, busy)).join('')}</div>
-    ${open.length ? `<h2>In progress <span class="count">${open.length}</span></h2>${open.map(sessionCard).join('')}` : ''}
+    <div class="home-top${open.length ? ' busy' : ''}">
+      <div class="home-stock">
+        <h2>Tank stock <span class="sp"></span><button class="btn sm" data-stock>📷 Update</button><button class="btn sm" data-dips title="Tank stock from physical dips">📏 Dip</button></h2>
+        <div class="tanks">${tanks().map((t) => tankTile(t, busy)).join('')}</div>
+      </div>
+      ${open.length ? `<div class="home-progress"><h2>In progress <span class="count">${open.length}</span></h2>${open.map(sessionCard).join('')}</div>` : ''}
+    </div>
     <h2>To decant <span class="count">${recent.length}</span><span class="sp"></span>
       <button class="btn sm" data-addpdf title="Add an invoice from its PDF">⬆ PDF</button><button class="btn sm" data-addinv title="Type an invoice in">＋ Add</button></h2>
     ${firstDay.length ? `<div class="banner">${firstDay.length} of these invoice${firstDay.length === 1 ? ' is' : 's are'} from before today. If those tankers were already decanted before you started using the app,
       <button class="btn sm" data-hidebefore>hide ${firstDay.length === 1 ? 'it' : `all ${firstDay.length}`}</button></div>` : ''}
-    ${recent.length ? recent.map((x) => invoiceCard(x.inv, x.st, ctx)).join('') : `<div class="empty">No tanker waiting. New IndianOil invoices appear here on their own (the payments agent reads them from mail every ~20 min) — or add one from its PDF.</div>`}
+    ${recent.length ? `<div class="home-list">${recent.map((x) => invoiceCard(x.inv, x.st, ctx)).join('')}</div>` : `<div class="empty">No tanker waiting. New IndianOil invoices appear here on their own (the payments agent reads them from mail every ~20 min) — or add one from its PDF.</div>`}
     ${older.length ? `<h2 style="cursor:pointer" data-older>${APP.showOlder ? '▾' : '▸'} Older, not decanted in the app <span class="count">${older.length}</span><span class="sp"></span>
         ${APP.showOlder ? '<button class="btn sm ghost" data-dismissold>Dismiss all</button>' : ''}</h2>
-      ${APP.showOlder ? older.map((x) => invoiceCard(x.inv, x.st)).join('') : ''}` : ''}
+      ${APP.showOlder ? `<div class="home-list">${older.map((x) => invoiceCard(x.inv, x.st)).join('')}</div>` : ''}` : ''}
     ${doneToday.length ? `<h2>Finished today <span class="count">${doneToday.length}</span></h2>${doneToday.map(doneRow).join('')}` : ''}
   `;
 }

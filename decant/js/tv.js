@@ -20,6 +20,11 @@ export function initTv() {
   if (!on) return false;
   document.documentElement.classList.add('tv');
   document.addEventListener('keydown', onKey, true);
+  // one slim bar: the tabs go into the header
+  const header = document.querySelector('header'), tabs = document.getElementById('tabbar');
+  if (header && tabs) header.insertBefore(tabs, header.children[1] || null);
+  fit();
+  addEventListener('resize', fit);
   // what the app draws later (each render) can be reached too
   let pending = 0;
   new MutationObserver(() => {
@@ -28,6 +33,12 @@ export function initTv() {
   }).observe(document.body, { childList: true, subtree: true });
   reachable();
   return true;
+}
+
+// Laid out for 960 x 540 (a 1080p or 4K Google TV shows apps at 960 x 540, x2):
+// any other screen shows the same, scaled to fill it.
+function fit() {
+  document.body.style.zoom = String(Math.max(0.5, Math.min(4, innerWidth / 960)));
 }
 
 // Whatever the app makes tappable (it shows a hand cursor) and isn't a
