@@ -22,6 +22,10 @@
 --   dec_shots       today's stock screenshots (the files are in the private
 --                   storage bucket dec-shots), so any phone can put them under
 --                   a result picture; the app deletes a day's the next day.
+--   dec_live        the tank stock server's live status, one row ('server'):
+--                   whether tank / pump monitoring is on and who started it,
+--                   and the watched nozzles' figures as they change (the
+--                   Monitor tab). Written by the server only; not kept.
 --   dec_config      shared settings (tanks, tolerance, dip chart, our own TTs,
 --                   the transport TT layouts) and the indents placed (for the
 --                   Plan tab).
@@ -120,6 +124,12 @@ create table if not exists public.dec_config (
 );
 insert into public.dec_config (id) values (1) on conflict (id) do nothing;
 
+create table if not exists public.dec_live (
+  id         text primary key,             -- 'server'
+  data       jsonb default '{}'::jsonb,    -- {at, tanks: {on, by, ...}, pumps: {on, by, nozzles: [...]}}
+  updated_at timestamptz default now()
+);
+
 -- ---- old months: cleared by the app once their log file is saved ----
 -- This used to delete everything older than the last financial year, unseen.
 -- Now the app clears a month itself, only after its Excel log file has been
@@ -179,7 +189,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config','dec_shots'] loop
+    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config','dec_shots','dec_live'] loop
     execute format('alter table public.%I enable row level security', t);
     if not exists (select 1 from pg_policies where policyname = t || '_all') then
       execute format(
@@ -261,7 +271,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config'] loop
+    'dec_invoices','dec_sessions','dec_tank_state','dec_vehicles','dec_config','dec_live'] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
     exception when duplicate_object then null; end;

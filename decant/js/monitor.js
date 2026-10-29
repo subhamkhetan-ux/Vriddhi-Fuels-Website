@@ -25,6 +25,7 @@ const LS = 'vriddhi-decant-monitor';      // this phone's picks: {capture: [ids]
 const STALE_MIN = 5;                       // no answer this long: is the server on?
 const pics = new Map();                    // picture path -> object URL (this visit)
 let bound = null;
+let ticker = 0;
 
 function picks() {
   let p = {};
@@ -52,11 +53,12 @@ function chips(which, chosen, disabled) {
 // A request still waiting for the server: when it was asked, or that nothing answers.
 function waiting(req, cancel) {
   const mins = (Date.now() - Date.parse(req.at || '')) / 60000;
-  const what = { check: 'read and save', capture: 'capture', upload: 'upload', monitor: 'monitor', pumps: 'monitor' }[req.kind] || 'read';
-  const names = req.kind === 'pumps' ? (req.pumps || []).map((n) => `Pump ${n}`) : (req.tanks || []).map(tankName);
+  const what = { check: 'read and save', capture: 'capture', upload: 'upload', monitor: 'monitor', pumps: 'monitor', stop: 'stop' }[req.kind] || 'read';
+  const names = req.kind === 'pumps' ? (req.pumps || []).map((n) => `Pump ${n}`) : req.kind === 'stop' ? ['the monitoring']
+    : (req.tanks || []).map(tankName);
   return `${mins > STALE_MIN
     ? `<div class="banner" style="margin:8px 0 0">No answer from the tank stock server for ${Math.round(mins)} min — is the server on and the IOCL PC online?</div>`
-    : `<div class="hint" style="margin-top:8px">Asked at ${fmtTime(req.at)} to ${what} ${names.join(', ')} — it looks every half minute, then ${req.kind === 'monitor' || req.kind === 'pumps' ? 'connects in a few seconds' : 'takes about a minute for the pictures'}.</div>`}
+    : `<div class="hint" style="margin-top:8px">Asked at ${fmtTime(req.at)} to ${what} ${names.join(', ')} — it looks every half minute, then ${req.kind === 'stop' ? 'stops it' : req.kind === 'monitor' || req.kind === 'pumps' ? 'connects in a few seconds' : 'takes about a minute for the pictures'}.</div>`}
     <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-m="${cancel}">Cancel</button></div>`;
 }
 
@@ -109,48 +111,110 @@ function lastCard() {
     </div>`;
 }
 
+// The server's live status (dec_live, store.js): monitoring on there however
+// it was started, and the watched nozzles. While anything is on it writes at
+// least every 30 s, so no word for STALE_S means the server isn't answering.
+const STALE_S = 90;
+const BY = { page: 'started on the Tank stock page', phone: 'started from the decant app', decantation: 'for the automatic decantation' };
+function serverNow() {
+  const s = state.serverLive;
+  return s ? { ...s, age: (Date.now() - (Date.parse(s.at || '') || 0)) / 1000 } : null;
+}
+function staleNote(srv) {
+  return srv && srv.age > STALE_S
+    ? `<div class="banner" style="margin:8px 0 0">No word from the tank stock server for ${Math.round(srv.age / 60) || 1} min — what's shown may be old (is the server on and the IOCL PC online?).</div>` : '';
+}
+const idsOf = (nos) => (nos || []).map((no) => tanks().find((t) => t.no === no)?.id).filter(Boolean);
+const tankRows = (ids) => ids.map((id) => { const r = state.tankState[id]; return `<div class="lrow" style="cursor:default"><span class="mid"><b>${esc(tankName(id))}</b></span><span class="rt"><b>${r ? fmtL(r.volume) : '—'}</b><span class="hint">${r ? ago(r.readingAt) : ''}</span></span></div>`; }).join('');
+const clockOf = (secs) => { const m = Math.floor(secs / 60), x = Math.floor(secs % 60); return `${m}:${String(x).padStart(2, '0')}`; };
+const rupees = (v) => `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 function liveCard(p) {
   const mon = state.config.stockMonitor;
-  const on = mon && (!mon.state || mon.state === 'monitoring');
-  const watched = on ? mon.tanks || [] : [];
+  const stopping = mon?.kind === 'stop' && !mon.state;
+  const mine = mon?.kind === 'monitor' && (!mon.state || mon.state === 'monitoring');
+  const srv = serverNow();
+  const there = !mine && !stopping && srv?.tanks?.on ? srv.tanks : null;   // on at the server, started elsewhere
+  const watched = mine ? mon.tanks || [] : there ? idsOf(there.watched) : [];
+  const on = mine || Boolean(there);
   let status = '';
   if (mon && !mon.state) status = waiting(mon, 'stopLive');
-  else if (mon?.state === 'monitoring') {
-    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${watched.map(tankName).join(', ')} ${mon.every ? `every ${mon.every} s` : 'live'}${mon.until ? `, until ${fmtTime(mon.until)}` : ''}.</div>
-      ${watched.map((id) => { const r = state.tankState[id]; return `<div class="lrow" style="cursor:default"><span class="mid"><b>${esc(tankName(id))}</b></span><span class="rt"><b>${r ? fmtL(r.volume) : '—'}</b><span class="hint">${r ? ago(r.readingAt) : ''}</span></span></div>`; }).join('')}`;
-  } else if (mon?.state === 'ended' || mon?.state === 'error') {
-    status = `<div class="banner ${mon.state === 'error' ? 'bad' : ''}" style="margin:8px 0 0">${mon.state === 'error' ? 'Monitoring couldn\'t start' : 'Monitoring ended'}: ${esc(mon.message || 'no reason given')}.</div>`;
+  else if (mine) {
+    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${watched.map(tankName).join(', ')} ${mon.every ? `every ${mon.every} s` : 'live'}${mon.until ? `, until ${fmtTime(mon.until)}` : ''}.</div>${tankRows(watched)}`;
+  } else if (there) {
+    const sending = idsOf(there.sending);
+    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${watched.map(tankName).join(', ')} live, ${BY[there.by] || 'on the server'}${there.state === 'connecting' ? ' (connecting)' : ''}.${sending.length ? '' : ' It isn\'t sending to the app, so the tiles keep their last stock.'}</div>${tankRows(sending)}`;
+  } else if (mon?.state === 'error') {
+    status = `<div class="banner bad" style="margin:8px 0 0">${mon.kind === 'stop' ? 'It couldn\'t be stopped' : 'Monitoring couldn\'t start'}: ${esc(mon.message || 'no reason given')}.</div>`;
+  } else if (mon?.state === 'ended') {
+    status = `<div class="banner" style="margin:8px 0 0">Monitoring ended: ${esc(mon.message || 'no reason given')}.</div>`;
   }
+  if (on) status += staleNote(srv);
+  const stop = mine ? '<button class="btn sm" data-m="stopLive">■ Stop</button>'
+    : there?.decantation ? '<div class="hint">An automatic decantation runs on it: it stops when that is done.</div>'
+      : '<button class="btn sm" data-m="stopAnyLive">■ Stop</button>';
   return `<h2>Live monitoring</h2><div class="card">
       <div class="hint">The tank stock server follows FuelTrans' live data and sends these tanks' volume to the app as it changes, until you stop it or 3 hours pass. The tank tiles on the Decant tab follow it.</div>
       <div class="hint" style="margin:10px 0 6px">Tanks to watch</div>
-      ${chips('live', on ? watched : p.live, on)}
+      ${chips('live', on ? watched : p.live, on || stopping)}
       <div class="row-actions" style="justify-content:flex-start">
-        ${on ? '<button class="btn sm" data-m="stopLive">■ Stop</button>' : `<button class="cta sm" data-m="startLive" ${p.live.length ? '' : 'disabled'}>▶ Start live monitoring</button>`}</div>
+        ${on ? stop : `<button class="cta sm" data-m="startLive" ${p.live.length && !stopping ? '' : 'disabled'}>▶ Start live monitoring</button>`}</div>
       ${status}
+    </div>`;
+}
+
+// One watched nozzle, as the server last wrote it (the fuelling time counts here).
+function nozzleTile(n) {
+  const fuel = n.status === 'FUELING';
+  const secs = fuel && n.since ? Math.max(0, (Date.now() - Date.parse(n.since)) / 1000) : null;
+  const locks = n.locks || [];
+  const preset = n.target_litres ? `Preset ${n.preset?.kind === 'amount' ? rupees(n.preset.value) : fmtL(n.preset?.value ?? n.target_litres, 2)}`
+    + `${n.progress != null ? ` · ${Math.round(n.progress * 100)}%` : ''}${n.left_s != null ? ` · ${clockOf(n.left_s)} left` : ''}` : '';
+  return `<div class="card" style="margin:8px 0 0;padding:10px 12px">
+      <div class="rd-head"><span class="nm">${pumpName(n)}</span>
+        <span class="badge ${locks.length ? 'high' : fuel ? 'watch live' : ''}"><i>${locks.length ? '!' : fuel ? '●' : '·'}</i>${esc(n.status || '—')}</span></div>
+      <div class="kv">
+        <div><div class="k">${fuel ? 'Litres' : 'Last sale'}</div><div class="v big">${n.litres != null ? fmtL(n.litres, 2) : '—'}</div></div>
+        <div><div class="k">Amount</div><div class="v">${n.amount != null ? rupees(n.amount) : '—'}</div></div>
+        <div><div class="k">Flow</div><div class="v">${n.lpm != null ? `${n.lpm} L/min` : n.usual_lpm ? `usually ${n.usual_lpm} L/min` : '—'}</div></div>
+        <div><div class="k">Fuelling for</div><div class="v">${secs != null ? clockOf(secs) : '—'}</div></div></div>
+      ${preset ? `<div class="hint" style="margin-top:6px">${preset}</div>` : ''}
+      ${locks.length ? `<div class="banner bad" style="margin:6px 0 0">🔒 ${locks.map(esc).join(', ')}</div>` : ''}
     </div>`;
 }
 
 function pumpCard(p) {
   const mon = state.config.pumpMonitor;
-  const on = mon && (!mon.state || mon.state === 'monitoring');
+  const stopping = mon?.kind === 'stop' && !mon.state;
+  const mine = mon?.kind === 'pumps' && (!mon.state || mon.state === 'monitoring');
+  const srv = serverNow();
+  const live = !stopping && srv?.pumps?.on ? srv.pumps : null;             // on at the server, however started
+  const on = mine || Boolean(live);
   const list = pumpList();
-  const chosen = on ? (mon.pumps || []) : p.pumps;
+  const chosen = mine ? (mon.pumps || []) : live ? (live.watch || []) : p.pumps;
   let status = '';
   if (mon && !mon.state) status = waiting(mon, 'stopPumps');
-  else if (mon?.state === 'monitoring') {
-    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${(mon.pumps || []).map((n) => `Pump ${n}`).join(', ')} live${mon.until ? `, until ${fmtTime(mon.until)}` : ''}. Their nozzles' status, litres and flow are on the Pumps tab of the Vriddhi Fuels app; an interlock coming on or clearing comes on Telegram.</div>`;
-  } else if (mon?.state === 'ended' || mon?.state === 'error') {
-    status = `<div class="banner ${mon.state === 'error' ? 'bad' : ''}" style="margin:8px 0 0">${mon.state === 'error' ? 'The pump monitor couldn\'t start' : 'Pump monitor ended'}: ${esc(mon.message || 'no reason given')}.</div>`;
+  else if (live) {
+    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${(live.watch || []).map((n) => `Pump ${n}`).join(', ')} live, ${mine ? `${BY.phone}${mon.until ? `, until ${fmtTime(mon.until)}` : ''}` : BY[live.by] || 'on the server'}. An interlock coming on or clearing also comes on Telegram.</div>
+      ${live.stale ? `<div class="banner" style="margin:8px 0 0">FuelTrans' live data has gone quiet${live.error ? ` (${esc(live.error)})` : ''}: the figures may be old.</div>` : ''}
+      ${(live.nozzles || []).map(nozzleTile).join('')}`;
+  } else if (mine) {
+    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${(mon.pumps || []).map((n) => `Pump ${n}`).join(', ')}${mon.until ? `, until ${fmtTime(mon.until)}` : ''}. The nozzles' figures show here as the server sends them.</div>`;
+  } else if (mon?.state === 'error') {
+    status = `<div class="banner bad" style="margin:8px 0 0">${mon.kind === 'stop' ? 'It couldn\'t be stopped' : 'The pump monitor couldn\'t start'}: ${esc(mon.message || 'no reason given')}.</div>`;
+  } else if (mon?.state === 'ended') {
+    status = `<div class="banner" style="margin:8px 0 0">Pump monitor ended: ${esc(mon.message || 'no reason given')}.</div>`;
   }
+  if (on) status += staleNote(srv);
   return `<h2>Pump monitor</h2><div class="card">
       <div class="hint">The tank stock server follows the ticked nozzles live from FuelTrans, as the Pumps tab of the Vriddhi Fuels app does, until you stop it or 3 hours pass.</div>
       <div class="hint" style="margin:10px 0 6px">Nozzles to watch</div>
       ${list.length ? `<div class="chipset" role="group" aria-label="Pumps">${list.map((n) => `<button type="button" class="chipbtn${chosen.includes(n.pump) ? ' on' : ''}"
-          data-mpump="${n.pump}" aria-pressed="${chosen.includes(n.pump)}" ${on ? 'disabled' : ''}>${pumpName(n)}</button>`).join('')}</div>`
+          data-mpump="${n.pump}" aria-pressed="${chosen.includes(n.pump)}" ${on || stopping ? 'disabled' : ''}>${pumpName(n)}</button>`).join('')}</div>`
         : '<div class="hint">The pumps come from FuelTrans through the tank stock server: they show here within half a minute of it being on.</div>'}
       <div class="row-actions" style="justify-content:flex-start">
-        ${on ? '<button class="btn sm" data-m="stopPumps">■ Stop</button>' : `<button class="cta sm" data-m="startPumps" ${p.pumps.length ? '' : 'disabled'}>▶ Start pump monitor</button>`}</div>
+        ${on ? `<button class="btn sm" data-m="${mine ? 'stopPumps' : 'stopAnyPumps'}">■ Stop</button>`
+          : `<button class="cta sm" data-m="startPumps" ${p.pumps.length && !stopping ? '' : 'disabled'}>▶ Start pump monitor</button>`}</div>
       ${status}
     </div>`;
 }
@@ -165,6 +229,13 @@ export function renderMonitor(el) {
   el.innerHTML = `${liveCard(p)}${pumpCard(p)}${captureCard(p)}${lastCard()}
     <div class="hint" style="margin:14px 4px">While a tanker is decanting, "Let the tank stock server finish it" on its decanting screen follows the tanks itself.</div>`;
   for (const img of el.querySelectorAll('[data-mimg]')) showPicture(img, img.dataset.mimg);
+  // while monitoring is on: a nozzle's fuelling time counts, and a silent server shows
+  clearTimeout(ticker);
+  const srv = state.serverLive;
+  if (srv?.tanks?.on || srv?.pumps?.on) {
+    const fueling = (srv.pumps?.nozzles || []).some((n) => n.since);
+    ticker = setTimeout(() => { if (el.isConnected && !el.hidden) renderMonitor(el); }, fueling ? 1000 : 15000);
+  }
 }
 
 async function blobOf(path) {
@@ -223,6 +294,8 @@ function bind(el) {
       return;
     }
     if (act === 'stopLive') { await ask('stockMonitor', null); return; }
+    if (act === 'stopAnyLive') { await ask('stockMonitor', { kind: 'stop' }); return; }     // (started elsewhere)
+    if (act === 'stopAnyPumps') { await ask('pumpMonitor', { kind: 'stop' }); return; }
     if (act === 'startPumps') { await ask('pumpMonitor', { kind: 'pumps', pumps: p.pumps }); return; }
     if (act === 'stopPumps') await ask('pumpMonitor', null);
   });

@@ -864,9 +864,9 @@ class Config:
     def __init__(self):
         self.data, self.lose = {"settings": {"tanks": decant.DEFAULT_TANKS}}, 0
 
-    def ask(self, kind, tanks=("T3",), rid="r1", **more):
+    def ask(self, kind, tanks=("T3",), rid="r1", slot=None, **more):
         from tank_stock import decantation as dz
-        slot = {"monitor": "stockMonitor", "pumps": "pumpMonitor"}.get(kind, "stockRequest")
+        slot = slot or {"monitor": "stockMonitor", "pumps": "pumpMonitor"}.get(kind, "stockRequest")
         self.data[slot] = {"id": rid, "kind": kind, "tanks": list(tanks), "at": dz.iso(), "by": "phone", **more}
 
     @property
@@ -1191,3 +1191,89 @@ def test_the_decant_apps_pump_monitor_starts_keeps_and_stops_the_pumps(station, 
     phone.data["pumpList"] = None                                         # (a phone's older save dropped it)
     station.phone.check()
     assert len(phone.data["pumpList"]) == 4                               # put back
+
+
+def test_the_monitor_tab_sees_monitoring_started_anywhere_written_on_change(station, phone, tmp_path, monkeypatch):
+    """dec_live: what monitoring is on and who started it, and the watched
+    nozzles' figures; written when it changes, every STATUS_BEAT_S while
+    something is on, and never while all stays off."""
+    from tank_stock import phone as phone_mod
+    wrote = []
+    monkeypatch.setattr(decant, "put_live", lambda data, timeout=10: wrote.append(data))
+    board = station.status
+    board.tick()
+    board.tick()
+    assert len(wrote) == 1 and not wrote[0]["tanks"]["on"] and not wrote[0]["pumps"]["on"]   # (all off: once)
+    station.start_live({"tanks": [3], "auto_upload": True})          # on this server's page
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    board.tick()
+    t = wrote[-1]["tanks"]
+    assert t["on"] and t["by"] == "page" and t["watched"] == [3] and t["sending"] == [3] and not t["decantation"]
+    n = len(wrote)
+    board.tick()
+    assert len(wrote) == n                                            # unchanged: nothing written
+    board.sent_at -= phone_mod.STATUS_BEAT_S
+    board.tick()
+    assert len(wrote) == n + 1 and wrote[-1]["at"]                    # ... but the beat, while it's on
+    # the pumps, started on the Pumps tab: each watched nozzle, a sale's start (the phone counts the seconds)
+    (tmp_path / "login.json").write_text(json.dumps({"source": "fueltrans", "password": "pw"}))
+    p = station.pumps
+    p.layout = {6: {"pump": 6, "du": 2, "nozzle": 2, "make": "", "product": "HSD", "price": 90.0, "tank": 2}}
+    p.set_watch([6])
+    p.start()
+    p.update(6, {"status": 5, "trxnVolume": 12.5, "trxnAmount": 1125.0, "lockval": 0})
+    board.tick()
+    pumps = wrote[-1]["pumps"]
+    assert pumps["on"] and pumps["by"] == "page" and pumps["watch"] == [6]
+    (noz,) = pumps["nozzles"]
+    assert noz["status"] == "FUELING" and noz["litres"] == 12.5 and noz["amount"] == 1125.0 and noz["since"]
+    assert "seen_s" not in noz and "fueling_s" not in noz                       # (no counting seconds)
+    n = len(wrote)
+    board.tick()
+    assert len(wrote) == n
+    p.update(6, {"status": 5, "trxnVolume": 13.0, "trxnAmount": 1170.0, "lockval": 0})
+    board.tick()
+    assert len(wrote) == n + 1 and wrote[-1]["pumps"]["nozzles"][0]["litres"] == 13.0   # a change: written
+    # stopped from the decant app, though started on this server's page
+    phone.ask("stop", rid="s1", slot="stockMonitor")
+    phone.ask("stop", rid="s2", slot="pumpMonitor")
+    station.phone.check()
+    assert not p.on and p.stopped["why"] == "stopped from the decant app"
+    assert phone.data["pumpMonitor"]["state"] == "done" and phone.data["stockMonitor"]["state"] == "done"
+    assert wait_for(lambda: station.live is None)
+    assert station.live_last["reason"] == "stopped from the decant app"
+    board.tick()
+    assert not wrote[-1]["tanks"]["on"] and not wrote[-1]["pumps"]["on"]
+    n = len(wrote)
+    board.sent_at -= phone_mod.STATUS_BEAT_S
+    board.tick()
+    assert len(wrote) == n                                            # all off: no beat
+
+
+def test_the_app_cant_stop_monitoring_an_automatic_decantation_runs_on(station, phone, monkeypatch):
+    station.start_live({"tanks": [3], "auto_upload": False})
+    assert wait_for(lambda: station.live and station.live["reads"] >= 1)
+    monkeypatch.setattr(station.auto, "active", lambda: True)
+    phone.ask("stop", rid="s1", slot="stockMonitor")
+    station.phone.check()
+    assert phone.mon["state"] == "error" and "automatic decantation" in phone.mon["message"]
+    assert station.live and not station.live["stop"].is_set()
+    monkeypatch.setattr(station.auto, "active", lambda: False)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_without_dec_live_the_status_rests_and_says_why(station, monkeypatch, capsys):
+    from tank_stock import phone as phone_mod
+    calls = []
+
+    def missing(data, timeout=10):
+        calls.append(data)
+        raise decant.DecantError('relation "public.dec_live" does not exist')
+    monkeypatch.setattr(decant, "put_live", missing)
+    station.status.tick()
+    station.status.tick()
+    assert len(calls) == 1 and "dec_live" in capsys.readouterr().out             # once, then it rests
+    station.status.rest_until -= phone_mod.STATUS_REST_S
+    station.status.tick()
+    assert len(calls) == 2

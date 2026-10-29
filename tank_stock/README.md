@@ -155,9 +155,9 @@ also has its own address on port 8443. Pick the tanks (any of
     show (in `dec-shots` with no readings, so no result picture uses it;
     cleared the next day as the others);
   - **Live monitoring**: live monitoring (the open session, else one started
-    for it) sends the ticked tanks' volume to the app as it changes, every
-    5-3600 s (10 by default) whatever its own setting, until the phone stops
-    it or 3 hours have passed. It doesn't end when nobody has the page open,
+    for it) sends the ticked tanks' volume to the app as it changes (from
+    FuelTrans' live data: as it comes), until the phone stops it or 3 hours
+    have passed. It doesn't end when nobody has the page open,
     and if the PC's connection drops it connects again (a minute apart; after
     5 tries in a row without a read it stops and tells the phone). A live
     session it started for the phone ends with it; your own live monitoring,
@@ -169,6 +169,19 @@ also has its own address on port 8443. Pick the tanks (any of
   every half minute, as for "Let the tank stock server finish it", and
   answers in the same place (figures, picture, each tank's result, or why
   not), writing only over the settings version it read.
+  - **Pump monitor**: tick nozzles (FuelTrans' pump list, which the server
+    puts in the app's settings as `pumpList`) and Start: the Pumps tab's
+    monitoring of them, kept on for up to 3 hours.
+  - **Started anywhere**: tank and pump monitoring started on this server's
+    page show on the tab too, with a Stop (not while an automatic
+    decantation needs it). The server writes its live status, and each
+    watched nozzle's status, litres, amount, flow, preset and interlocks,
+    to `dec_live` (one row): when it changes, at most every second, and
+    every 30 s while anything is on (so the tab can say when the server has
+    gone quiet); nothing while all is off. The tab follows it over the
+    app's realtime connection. `dec_live` comes with
+    `supabase/decant-schema.sql`: run it again once in the decant project's
+    SQL editor (it is safe to re-run); until then the rest works as before.
 
 The GitHub job "Tank stock" still works: `capture` sends the whole screen to
 the XtraPower bot (from the open session when live monitoring is on).

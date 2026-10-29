@@ -77,7 +77,7 @@ def test_anon_key_can_read_and_write(pg):
 def test_realtime_publication_skips_photos(pg):
     tables = pg.ok("select string_agg(tablename, ',' order by tablename) from pg_publication_tables "
                    "where pubname = 'supabase_realtime';")
-    assert tables.split(",") == ["dec_config", "dec_invoices", "dec_sessions", "dec_tank_state",
+    assert tables.split(",") == ["dec_config", "dec_invoices", "dec_live", "dec_sessions", "dec_tank_state",
                                  "dec_vehicles"]                     # dec_shots too: no realtime
 
 
