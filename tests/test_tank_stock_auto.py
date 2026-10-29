@@ -1394,3 +1394,75 @@ def test_a_tank_a_phone_started_before_the_server_took_it_keeps_the_phones_stock
     a = take_over(rig, sid, requested=True)
     assert a.phase == "running"
     assert cloud_session(rig)["data"]["tanks"][0]["before"]["volume"] == 10751.5    # (already going in: the phone's)
+
+
+def _phone_cancels(rig, sid):
+    """The decant app's Cancel (cancelSession): status cancelled, the chambers back on the list."""
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    s["status"], s["completed_at"] = "cancelled", dz.iso(rig.clock())
+    s["data"]["cancelReason"] = "Cancelled before decanting."
+    for p in s["data"]["plan"]:
+        p["tank"] = None
+    s["updated_at"] = dz.iso(rig.clock() + 1)
+    rig.cloud.sessions[sid] = s
+
+
+def _planned_in_app(rig):
+    """The decant app's "Start automatic decantation": two tanks set up, none started, C4-5 held."""
+    sid = app_session(rig, {"T1": ([1], "waiting", None, None), "T2": ([2, 3], "waiting", None, None)})
+    rig.cloud.sessions[sid]["data"]["autoRequest"] = {"at": dz.iso(rig.clock()), "by": "phone", "start": True}
+    rig.cloud.handover_requests = lambda timeout=10: [
+        {"id": x["id"], "updated_at": x["updated_at"], "request": x["data"]["autoRequest"]}
+        for x in rig.cloud.sessions.values()
+        if x["status"] in ("draft", "decanting", "settling") and isinstance(x["data"].get("autoRequest"), dict)]
+    return sid
+
+
+def _free_again(rig, sid):
+    """The invoice is back on the list: its decantation cancelled, no chamber in a tank
+    (the app's usedChambers skips a cancelled one), and nothing runs it here."""
+    s = cloud_session(rig) if rig.st.auto.run and rig.st.auto.run.s["id"] == sid else rig.cloud.sessions[sid]
+    assert s["status"] == "cancelled" and all(p["tank"] is None for p in s["data"]["plan"]), s["status"]
+    assert not rig.st.auto.active()
+    rig.cloud.invoices_and_sessions = lambda: ([dict(INVOICE)], [copy.deepcopy(x) for x in rig.cloud.sessions.values()])
+    inv = next(i for i in rig.st.auto.options()["invoices"] if i["invoice_no"] == INVOICE["invoice_no"])
+    assert [c["no"] for c in inv["chambers"]] == [1, 2, 3, 4, 5]                  # every chamber can be decanted again
+
+
+def test_a_test_run_cancelled_on_the_phone_once_the_server_has_it(rig):
+    sid = _planned_in_app(rig)
+    a = take_over(rig, sid, requested=True)
+    assert a.phase == "running" and rig.st.live
+    _phone_cancels(rig, sid)
+    drive(rig, 120)                                                 # (it looks every SYNC_EVERY)
+    assert a.phase == "cancelled", a.info
+    assert rig.st.live is None or rig.st.live["stop"].is_set()      # the live session it started for it ends
+    drive(rig, 600)
+    assert rig.cloud.sessions[sid]["status"] == "cancelled"          # never saved back over the phone's cancel
+    _free_again(rig, sid)
+
+
+def test_a_test_run_cancelled_on_the_phone_while_the_server_takes_it_over(rig, monkeypatch):
+    sid = _planned_in_app(rig)
+    a = rig.st.auto
+    reading = a._full_before
+
+    def cancelled_meanwhile(live, tanks):
+        got = reading(live, tanks)
+        _phone_cancels(rig, sid)                                    # (the phone, while the stock before is read)
+        return got
+    monkeypatch.setattr(a, "_full_before", cancelled_meanwhile)
+    take_over(rig, sid, requested=True)
+    assert a.phase == "failed" and "cancelled" in a.info["error"], a.info
+    assert rig.cloud.sessions[sid]["status"] == "cancelled" and "auto" not in rig.cloud.sessions[sid]["data"]
+    _free_again(rig, sid)
+
+
+def test_a_test_run_cancelled_on_the_tank_stock_page(rig):
+    sid = _planned_in_app(rig)
+    a = take_over(rig, sid, requested=True)
+    assert a.phase == "running"
+    a.act("cancel", {})
+    assert a.phase == "cancelled"
+    _free_again(rig, sid)
+    assert rig.cloud.sessions[sid]["data"]["cancelReason"] == "Cancelled before decanting."
