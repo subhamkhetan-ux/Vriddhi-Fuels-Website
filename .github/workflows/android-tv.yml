@@ -1,0 +1,61 @@
+name: Decanting TV app (APK)
+
+# Builds the Android TV app (android-tv/: a home-screen tile that opens the
+# decant app full screen) and publishes it as the "decant-tv" release, at a
+# link that stays the same:
+#   https://github.com/subhamkhetan-ux/Vriddhi-Fuels-Website/releases/download/decant-tv/Decanting-TV.apk
+# The app is the decant web page itself, so only changes to android-tv/ need
+# a new APK (see android-tv/README.md).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android-tv/**"
+      - ".github/workflows/android-tv.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-tv
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build the APK
+        env:
+          # optional: a key of your own (base64 of a keystore whose key is "decant-tv"), so each
+          # newer APK installs over the last; without it, the runner's debug key (see README.md)
+          TV_KEYSTORE_B64: ${{ secrets.TV_KEYSTORE_B64 }}
+          TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$TV_KEYSTORE_B64" ]; then
+            echo "$TV_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/tv.keystore"
+            export TV_KEYSTORE="$RUNNER_TEMP/tv.keystore"
+          fi
+          gradle -p android-tv --no-daemon assembleRelease
+
+      - name: Publish it (release "decant-tv")
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android-tv/app/build/outputs/apk/release/app-release.apk Decanting-TV.apk
+          gh release view decant-tv >/dev/null 2>&1 || gh release create decant-tv \
+            --title "Decanting TV app" \
+            --notes "The decant app on an Android TV: install Decanting-TV.apk (see android-tv/README.md)."
+          gh release upload decant-tv Decanting-TV.apk --clobber

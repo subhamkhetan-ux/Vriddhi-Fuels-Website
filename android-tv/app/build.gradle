@@ -1,0 +1,41 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.vriddhifuels.decanttv"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.vriddhifuels.decanttv"
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+    }
+
+    // The key it's signed with: TV_KEYSTORE (a file) and TV_KEYSTORE_PASSWORD
+    // when given (the workflow's TV_KEYSTORE_B64 secret: each newer APK then
+    // installs over the last), else this machine's debug key. See README.md.
+    def keystore = System.getenv("TV_KEYSTORE")
+    signingConfigs {
+        if (keystore) {
+            shared {
+                storeFile file(keystore)
+                storePassword System.getenv("TV_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("TV_KEY_ALIAS") ?: "decant-tv"
+                keyPassword System.getenv("TV_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore ? signingConfigs.shared : signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

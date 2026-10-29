@@ -23,6 +23,7 @@ import { renderMonitor } from './monitor.js';
 import { decantScene, runScenes } from './scene.js';
 import { clearShots, keepShot, tidyShots } from './shots.js';
 import { THEMES, initTheme, nextTheme, onTheme, setTheme, themeChoice, themeIcon, themeLabel } from './theme.js';
+import { initTv } from './tv.js';
 
 export const APP = { tab: 'home', showOlder: false };
 
@@ -1275,6 +1276,7 @@ function showThemeButton() {
 }
 
 function boot() {
+  initTv();                        // (on a TV: bigger, and the remote moves about)
   initTheme();
   showThemeButton();
   onTheme(showThemeButton);

@@ -582,6 +582,13 @@ input[type=number]{font-variant-numeric:tabular-nums}
 [data-theme="light"] .viz-tip{background:rgba(255,255,255,.97);box-shadow:0 10px 24px -12px rgba(60,30,10,.4)}
 [data-theme="light"] .sheet-back{background:rgba(40,25,15,.32)}
 [data-theme="light"] .sheet-card{background:rgba(252,249,246,.97);box-shadow:0 -20px 50px -24px rgba(60,30,10,.45)}
+
+/* ---- TV mode (js/tv.js: opened by the Android TV app): bigger, wider, the remote's highlight ---- */
+html.tv body{zoom:1.15}
+html.tv .wrap{max-width:1200px}
+html.tv :focus{outline:3px solid #FF7A1A;outline-offset:3px;box-shadow:0 0 0 7px rgba(255,122,26,.28)}
+html.tv header :focus,html.tv .tabbar :focus{outline-offset:2px}
+html.tv #btnStock{display:none}
 </style>
 </head>
 <body>
