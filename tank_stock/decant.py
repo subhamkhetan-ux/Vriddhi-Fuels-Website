@@ -227,18 +227,38 @@ def handover_requests(timeout: int = 10) -> list:
     return [r for r in rows if isinstance(r.get("request"), dict)]
 
 
-STOCK_SLOTS = ("stockRequest", "stockMonitor")
+STOCK_SLOTS = ("stockRequest", "stockMonitor", "pumpMonitor")
+PUMP_LIST = "pumpList"
 
 
 def stock_requests(timeout: int = 10) -> dict:
     """The decant app's Monitor page asks, in its shared settings row
     (dec_config.data): ``stockRequest`` (Send for decantation, Capture only,
-    Upload) and ``stockMonitor`` (live monitoring), kept apart so a capture
-    never stops the monitoring. -> {slot: request | None}"""
-    rows = _rest("GET", "dec_config?id=eq.1&select=" + ",".join(f"{k}:data->{k}" for k in STOCK_SLOTS),
+    Upload), ``stockMonitor`` (live monitoring) and ``pumpMonitor`` (the
+    pump monitor), kept apart so a capture never stops the monitoring; and
+    the pumps it offers (``pumpList``, as this server last put them there).
+    -> {slot: request | None, "pumpList": [...] | None}"""
+    rows = _rest("GET", "dec_config?id=eq.1&select=" + ",".join(f"{k}:data->{k}" for k in (*STOCK_SLOTS, PUMP_LIST)),
                  timeout=timeout) or []
     row = rows[0] if rows else {}
-    return {k: row.get(k) if isinstance(row.get(k), dict) else None for k in STOCK_SLOTS}
+    out = {k: row.get(k) if isinstance(row.get(k), dict) else None for k in STOCK_SLOTS}
+    out[PUMP_LIST] = row.get(PUMP_LIST) if isinstance(row.get(PUMP_LIST), list) else None
+    return out
+
+
+def put_config(key: str, value, timeout: int = 10) -> bool:
+    """One key of the app's shared settings (the pumps its Monitor page
+    offers), over the very version read. -> False if it has to be written again."""
+    from .decantation import iso
+    rows = _rest("GET", "dec_config?id=eq.1&select=data,updated_at", timeout=timeout) or []
+    if not rows:
+        return False
+    data, base = rows[0].get("data") or {}, rows[0].get("updated_at")
+    stamp = iso()
+    data[key], data["updatedAt"] = value, stamp
+    got = _rest("PATCH", f"dec_config?id=eq.1&updated_at=eq.{urllib.parse.quote(str(base))}&select=id",
+                {"data": data, "updated_at": stamp}, prefer="return=representation", timeout=timeout)
+    return bool(got)
 
 
 def answer_stock_request(rid: str, answer: dict, slot: str = "stockRequest", timeout: int = 10) -> bool:

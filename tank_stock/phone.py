@@ -16,11 +16,20 @@ Both reads also upload the zoomed cards of those tanks as one picture for
 the Monitor page to show (dec_shots, no readings, so no result picture
 uses it; deleted the next day as the others).
 
+The pump monitor (``pumpMonitor``): **pumps** with the nozzles ticked on the
+phone starts the Pumps tab's monitoring (pumps.py) of those, kept on while
+the phone's request stands (as if the Pumps tab were open) until it's
+stopped there or MONITOR_MAX_S has passed; interlocks go to Telegram as
+ever. The pumps to tick come from FuelTrans' pump list, put into the app's
+settings as ``pumpList``.
+
 Live monitoring (``stockMonitor``, kept apart so a capture never stops it):
 - **monitor**: live monitoring (the open session, else one started for it)
-  sends those tanks' volume to the app as it changes, every ``every``
-  seconds (5-3600, 10 by default) at most, until the phone stops it or
-  MONITOR_MAX_S has passed. If the PC's connection drops it connects again.
+  sends those tanks' volume to the app as it changes, until the phone stops
+  it or MONITOR_MAX_S has passed. From FuelTrans' live data that's as the
+  figures come (feed.py: no interval); from the screen, every ``every``
+  seconds (5-3600, 10 by default) at most, as an older app still asks. If
+  the PC's connection drops it connects again.
 
 The phone writes each into the app's shared settings (``dec_config.data``)
 as {id, kind, tanks, at, by, ...}; they are looked for every half minute
@@ -48,8 +57,9 @@ EVERY = (5, 3600)             # the intervals a phone may ask for (as the page's
 RECONNECT_GAP_S = 60          # seconds between tries to connect again for a phone
 RECONNECTS = 5                # tries in a row that never gave a read: it ends, and says why
 ANSWERS_KEPT = 50
-ONCE, LIVE = "stockRequest", "stockMonitor"
-KINDS = {ONCE: ("check", "capture", "upload"), LIVE: ("monitor",)}
+ONCE, LIVE, PUMPS = "stockRequest", "stockMonitor", "pumpMonitor"
+KINDS = {ONCE: ("check", "capture", "upload"), LIVE: ("monitor",), PUMPS: ("pumps",)}
+PUMP_FIELDS = ("pump", "du", "nozzle", "product")   # what the phone's pump list shows of each
 FIGURES = ("volume", "ullage", "height", "dip", "water", "density", "densityTc", "temp", "readingAt")
 
 
@@ -62,6 +72,7 @@ class PhoneStock:
         self.live = None          # the live session started for the phone (stopped when it's done)
         self.tries = 0            # connections in a row that gave no read
         self.tried_at = 0.0
+        self.pumps_req = ""       # the phone's pump monitor request the pumps are on for
 
     # ---- what live monitoring does for the phone ------------------------------
     def active(self) -> bool:
@@ -86,7 +97,9 @@ class PhoneStock:
             now = time.time()
             asked = {}
             for slot, req in reqs.items():
-                rid = str((req or {}).get("id") or (req or {}).get("at") or "")
+                if not isinstance(req, dict):
+                    continue                           # (none asked; or the pump list)
+                rid = str(req.get("id") or req.get("at") or "")
                 if rid and req.get("kind") in KINDS.get(slot, ()):
                     asked[slot] = (rid, req)
             if self.watch and asked.get(LIVE, ("",))[0] != self.watch["req"]:
@@ -98,6 +111,63 @@ class PhoneStock:
                     except Exception:  # noqa: BLE001 - asked again next time
                         traceback.print_exc()
             self._keep_live(now)
+            try:
+                self._pumps(asked.get(PUMPS), reqs.get("pumpList"), now)
+            except Exception:  # noqa: BLE001 - looked at again next time
+                traceback.print_exc()
+
+    # ---- the pump monitor ------------------------------------------------------------
+    def _pumps(self, ask, listed, now: float) -> None:
+        """The phone's pump monitor: the pumps to tick in the app's settings,
+        and the Pumps tab's monitoring started, kept on and stopped for it."""
+        p = self.st.pumps
+        p.need_layout()                                # (FuelTrans' pump list: read once an hour)
+        offer = [{k: n.get(k) for k in PUMP_FIELDS} for _, n in sorted(p.layout.items())]
+        if offer and offer != listed:                  # (new, changed, or a phone's older save dropped it)
+            self.st.decant.put_config("pumpList", offer, timeout=QUICK_S)
+        rid, req = ask or ("", None)
+        if self.pumps_req and rid != self.pumps_req:
+            self.pumps_req = ""                        # stopped on the phone, or asked anew
+            if p.on:
+                p.stop("stopped from the decant app")
+        if not rid:
+            return
+        mine = self.answers.get(rid)
+        if mine and req.get("state") != mine[1]["state"]:
+            self._answer(PUMPS, rid, mine[1])          # a phone's save lost the answer: again
+            return
+        if req.get("state") == "monitoring":
+            until = dz._ts(req.get("until")) or 0
+            if now >= until:
+                p.stop(f"the decant app's {MONITOR_MAX_S // 3600} h were up")
+                self.pumps_req = ""
+                self._answer(PUMPS, rid, {"state": "ended",
+                                          "message": f"stopped after {MONITOR_MAX_S // 3600} h; start it again to carry on"})
+            elif self.pumps_req != rid:                # (the service restarted: monitoring is off after one)
+                self._pumps_start(rid, req, until)
+            elif not p.on:                             # stopped on the Pumps tab, or by itself
+                self.pumps_req = ""
+                self._answer(PUMPS, rid, {"state": "ended", "message": (p.stopped or {}).get("why") or "it stopped"})
+            else:
+                p.seen()                               # (kept on while the phone's request stands)
+            return
+        if req.get("state") or now - (dz._ts(req.get("at")) or 0) > REQUEST_FRESH_S:
+            return
+        until = now + MONITOR_MAX_S
+        if self._pumps_start(rid, req, until):
+            self._answer(PUMPS, rid, {"state": "monitoring", "until": dz.iso(until),
+                                      "message": f"live from FuelTrans, for up to {MONITOR_MAX_S // 3600} h"})
+
+    def _pumps_start(self, rid: str, req: dict, until: float) -> bool:
+        p = self.st.pumps
+        try:
+            p.set_watch(req.get("pumps") or [])
+            p.start()
+        except ValueError as exc:
+            self._answer(PUMPS, rid, {"state": "error", "message": str(exc)})
+            return False
+        self.pumps_req = rid
+        return True
 
     def _one(self, slot: str, rid: str, req: dict, now: float) -> None:
         mine = self.answers.get(rid)
@@ -120,9 +190,14 @@ class PhoneStock:
         else:
             until = now + MONITOR_MAX_S
             if self._watch(rid, req, until):
-                every = self.watch["every"]
-                self._answer(LIVE, rid, {"state": "monitoring", "until": dz.iso(until), "every": every,
-                                         "message": f"every {every} s, for up to {MONITOR_MAX_S // 3600} h"})
+                hours = MONITOR_MAX_S // 3600
+                if self.st.from_fueltrans():               # (its live data: as the figures come)
+                    self._answer(LIVE, rid, {"state": "monitoring", "until": dz.iso(until), "every": None, "live": True,
+                                             "message": f"as FuelTrans' live data brings them, for up to {hours} h"})
+                else:
+                    every = self.watch["every"]
+                    self._answer(LIVE, rid, {"state": "monitoring", "until": dz.iso(until), "every": every,
+                                             "message": f"every {every} s, for up to {hours} h"})
 
     def _nos(self, ids) -> tuple[list, dict]:
         """The tank numbers of these tank ids (every tank if none are named)."""
