@@ -78,7 +78,17 @@ also has its own address on port 8443. Pick the tanks (any of
   nothing to do in the decant app. Pick the truck's invoice (from the decant
   app's list: this and last month's, with chambers still in the truck) and a
   tank, or "Keep in truck", for each chamber. The page checks the plan as the
-  app does (room, product, a tank already being decanted). Press **Start**:
+  app does (room, product, a tank already being decanted). Press **Start**.
+  Or from the decant app itself: plan the truck there as usual (Truck →
+  Before → Plan: which chambers go into which tank, some held in the truck)
+  and press **🤖 Start automatic decantation** on the Plan step. The server
+  takes it up within half a minute, reads each waiting tank's stock before
+  here, in full with its picture (not the phone's), and runs it as below;
+  the decanting screen says to open the valves once it shows "Run by the
+  tank stock agent". Tanks start whenever each is decanted, together or
+  later; held chambers go into a tank from the decanting screen ("Still in
+  the truck"), whose stock before the server corrects from what it saw
+  just before the rise. Then:
   1. live monitoring connects (or the open session is used), reading **all**
      tanks every 10 s whatever its own setting, and sending the planned tanks'
      volume to the decant app, whose decanting screen drains the chambers by

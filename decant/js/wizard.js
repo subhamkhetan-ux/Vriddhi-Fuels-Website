@@ -14,7 +14,7 @@ import { fromServer,
   PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, drainAt, drainLive, drainTimeline, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
-import { deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
+import { cloudEnabled, deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import { decantScene, tickScenes } from './scene.js';
 import {
   PRODUCT_COLOR, ago, ask, bandBadge, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
@@ -398,6 +398,8 @@ function stepPlan(s) {
     <button class="cta block" data-wz="start" ${chk.blocking.length ? 'disabled' : ''}>▶ Start decanting${chk.perTank.length > 1 ? ' into all' : ''}${total ? ` · ${fmtKL(total)}` : ''}</button>
     ${chk.perTank.length > 1 ? `<button class="btn block" data-wz="stepwise" ${chk.blocking.length ? 'disabled' : ''}>Tank by tank ▸ start each tank when you're ready</button>
       <div class="hint" style="margin-top:6px">Tank by tank: e.g. ${tankName(chk.perTank[0].tank)} now and ${tankName(chk.perTank[1].tank)} later — each tank gets its own stock before (just before it starts) and after.</div>` : ''}
+    ${cloudEnabled ? `<button class="btn block" data-wz="auto" ${chk.blocking.length || !chk.perTank.length ? 'disabled' : ''} style="margin-top:10px">🤖 Start automatic decantation</button>
+      <div class="hint" style="margin-top:6px">The tank stock server runs it from here: it reads each tank's stock before (with its picture), sees each tank start and stop from its real stock — together or tank by tank, whenever each one is decanted — and takes the stock after once it has settled, then saves the result. Chambers held in the truck go into a tank whenever you like, on the decanting screen.</div>` : ''}
     <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="toBefore">◀ Stock before</button><button class="btn sm ghost" data-wz="replan">↺ Suggest again</button></div>`;
 }
 
@@ -444,7 +446,7 @@ function stepDecant(s) {
         <span class="hint" style="align-self:center">reads each tank's stock before or after, as needed</span></div>
     </div>
     ${d.tanks.map((t) => stageCard(s, t)).join('')}
-    ${count('waiting') > 1 ? '<button class="btn block" data-wz="startAll">▶ Start all the tanks not started, together</button>' : ''}
+    ${count('waiting') > 1 && !askingServer(s) && !runByServer(s) ? '<button class="btn block" data-wz="startAll">▶ Start all the tanks not started, together</button>' : ''}
     ${count('decanting') > 1 ? '<button class="cta block" data-wz="decanted">✓ Decanting done — all of them</button>' : ''}
     ${truckCards(s)}
     ${routingCards(s)}
@@ -466,7 +468,7 @@ function autoCard(s) {
   return `<div class="card">
       <div class="sect-title" style="margin:0">🤖 Run by the tank stock agent</div>
       <div class="hint">It follows the tanks' real stock: each tank starts when its stock rises, is done when it stops, and its stock after is read once it has settled; then the result is saved here. Nothing to do on this phone — but anything you do here counts.</div>
-      ${qs ? `<ul class="msgs">${qs}</ul><div class="hint">Answer on the tank stock page, or tap ✓ done on the tank here.</div>` : ''}
+      ${qs ? `<ul class="msgs">${qs}</ul><div class="hint">Answer on the tank stock page, or here: ✓ done on the tank, or, for chambers still in the truck going into a tank, start them into it below.</div>` : ''}
       <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="takeBack">Take it back on this phone</button></div>
     </div>`;
 }
@@ -476,6 +478,10 @@ function autoCard(s) {
 // stock after once settled and saves the result. It looks for this every half
 // minute; if it can't take it, it says why here and nothing changes.
 const REQUEST_STALE_MIN = 15;              // (tank_stock/auto.py REQUEST_FRESH_S: older ones aren't taken up)
+const runByServer = (s) => Boolean(s.data.auto && !s.data.auto.released);
+// "Start automatic decantation" asked, not taken up yet (nor refused): the valves wait for it
+const askingServer = (s) => Boolean(s.data.autoRequest?.start && !s.data.autoRequest.error && !runByServer(s)
+  && (Date.now() - Date.parse(s.data.autoRequest.at || 0)) / 60000 <= REQUEST_STALE_MIN);
 function handoverCard(s, allRead) {
   const a = s.data.auto;
   if ((a && !a.released) || allRead || !['draft', 'decanting', 'settling'].includes(s.status) || !s.data.tanks.length) return '';
@@ -490,10 +496,12 @@ function handoverCard(s, allRead) {
   const status = req.error
     ? `<div class="banner bad">The tank stock server couldn't take it: ${esc(req.error)}. It carries on here as before.</div>`
     : mins > REQUEST_STALE_MIN
-      ? `<div class="banner">No answer from the tank stock server for ${Math.round(mins)} min — is the Mac on and online? It carries on here meanwhile.</div>`
-      : `<div class="hint">Asked the tank stock server at ${fmtTime(req.at)} — it takes over within a minute (it looks every half minute). Carry on here meanwhile.</div>`;
+      ? `<div class="banner">No answer from the tank stock server for ${Math.round(mins)} min — is the server on and the IOCL PC online? It carries on here meanwhile.</div>`
+      : req.start
+        ? `<div class="hint">Asked the tank stock server at ${fmtTime(req.at)} to run it. It looks every half minute, then reads each tank's stock before with its picture — about 2 minutes in all. <b>Open the valves once this says "Run by the tank stock agent"</b>, so the stock before is from before anything goes in.</div>`
+        : `<div class="hint">Asked the tank stock server at ${fmtTime(req.at)} — it takes over within a minute (it looks every half minute). Carry on here meanwhile.</div>`;
   return `<div class="card">
-      <div class="sect-title" style="margin:0">🤖 Handing over to the tank stock server</div>
+      <div class="sect-title" style="margin:0">🤖 ${req.start ? 'Starting automatic decantation' : 'Handing over to the tank stock server'}</div>
       ${status}
       <div class="row-actions" style="justify-content:flex-start">
         ${req.error || mins > REQUEST_STALE_MIN ? '<button class="btn sm" data-wz="handover">Ask again</button>' : ''}
@@ -648,8 +656,10 @@ function stageCard(s, t) {
     return `<div class="card">${head}
       <div class="sect-title" style="margin:10px 0 0;font-size:13px">Stock before</div>
       ${readingInner(tk, t.before, 'before')}
-      <div class="row-actions"><button class="btn sm ghost" data-drop="${t.tank}">Not now — keep in the truck</button>
-        <button class="cta sm" data-starttank="${t.tank}">▶ Start ${tankName(t.tank)}</button></div>
+      ${askingServer(s) ? '<div class="hint" style="margin-top:8px">Waiting for the tank stock server: don\'t open the valves yet.</div>'
+        : `<div class="row-actions"><button class="btn sm ghost" data-drop="${t.tank}">Not now — keep in the truck</button>
+        ${runByServer(s) ? '<span class="hint" style="align-self:center">Starts by itself when its stock rises</span>'
+          : `<button class="cta sm" data-starttank="${t.tank}">▶ Start ${tankName(t.tank)}</button>`}</div>`}
     </div>`;
   }
   if (st === 'decanting') {
@@ -832,7 +842,12 @@ async function onClick(e) {
   if (act === 'shotBefore' || act === 'shotAfter' || t.closest('[data-shot]')) { await shot(s, stepOf(s) === 'decant' ? 'decant' : 'before'); return; }
   if (act === 'start') { await start(s); return; }
   if (act === 'stepwise') { await stepwise(s); return; }
-  if (act === 'backToPlan') { d.tanks = []; d.step = 'plan'; syncStatus(s); await persist(s); return; }
+  if (act === 'auto') { await startAuto(s); return; }
+  if (act === 'backToPlan') {
+    s = latest(s);
+    if (s.data.auto && !s.data.auto.released) return;     // (the server has it now)
+    s.data.tanks = []; s.data.step = 'plan'; delete s.data.autoRequest; syncStatus(s); await persist(s); return;
+  }
   if (act === 'startAll') { await startTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'waiting').map((x) => x.tank)); return; }
   if (act === 'decanted') { await doneTanks(s, d.tanks.filter((x) => stageOf(s, x) === 'decanting').map((x) => x.tank)); return; }
   if (act === 'finish') { await finish(s); return; }
@@ -1123,6 +1138,19 @@ async function start(s) {
   }
 }
 
+// 🤖 The tank stock server runs it: the tanks are set up, none started, and
+// it is asked to take it over (tank_stock/auto.py, "start": it reads each
+// waiting tank's stock before itself, in full with its picture). It looks
+// every half minute; the decanting screen says when it has it.
+async function startAuto(s) {
+  if (!(await prepare(s))) return;
+  s.data.step = 'decant';
+  s.data.autoRequest = { at: new Date().toISOString(), by: state.device?.operator || 'a phone', start: true };
+  syncStatus(s);
+  await persist(s);
+  toast('Asked the tank stock server to run it — open the valves once it says it has it.', 5000);
+}
+
 // Tank by tank: each tank is started on its own, when it's ready.
 async function stepwise(s) {
   if (!(await prepare(s))) return;
@@ -1160,7 +1188,8 @@ async function startTanks(s, ids) {
   if (missing.length) { toast(`Add the stock of ${missing.map((t) => tankName(t.tank)).join(' & ')} first.`, 4000); return false; }
   const first = d.tanks.map((t) => t.startedAt).filter(Boolean).sort()[0];
   const old = rows.filter((t) => isStale(t.before) || (first && Date.parse(t.before.readingAt || 0) < Date.parse(first)));
-  if (old.length && !(await ask('Take the stock first?', `${old.map((t) => `${tankName(t.tank)}: read at ${fmtTime(t.before.readingAt)} (${ago(t.before.readingAt)})`).join('<br>')}
+  const byServer = d.auto && !d.auto.released;        // (it takes the stock just before the rise from its screen)
+  if (old.length && !byServer && !(await ask('Take the stock first?', `${old.map((t) => `${tankName(t.tank)}: read at ${fmtTime(t.before.readingAt)} (${ago(t.before.readingAt)})`).join('<br>')}
       <br><br>A tank keeps selling until its decanting starts, so its stock before should be from just now. Start anyway?`,
   { ok: 'Start anyway', cancel: 'Take a new reading' }))) return false;
   if (latest(s) !== s) {                     // moved on while asking: start what is still waiting

@@ -227,7 +227,7 @@ export function renderMonitor(el) {
   }
   const p = picks();
   el.innerHTML = `${liveCard(p)}${pumpCard(p)}${captureCard(p)}${lastCard()}
-    <div class="hint" style="margin:14px 4px">While a tanker is decanting, "Let the tank stock server finish it" on its decanting screen follows the tanks itself.</div>`;
+    <div class="hint" style="margin:14px 4px">For a whole decantation run by the tank stock server: "🤖 Start automatic decantation" on its Plan step, or "Let the tank stock server finish it" on its decanting screen.</div>`;
   for (const img of el.querySelectorAll('[data-mimg]')) showPicture(img, img.dataset.mimg);
   // while monitoring is on: a nozzle's fuelling time counts, and a silent server shows
   clearTimeout(ticker);

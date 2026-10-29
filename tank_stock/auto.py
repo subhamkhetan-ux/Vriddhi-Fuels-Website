@@ -15,7 +15,10 @@ tank, and press Start. Then, without anyone touching the decant app:
 
 One started in the decant app can be carried on here: "Carry on one from the
 decant app" → Take over on the page, or "Let the tank stock server finish it"
-on a phone (looked for every half minute). Its stock before and chambers stay
+on a phone (looked for every half minute). "Start automatic decantation" on
+the app's Plan step asks the same with ``start``: nothing has gone in yet, so
+each tank still waiting gets its stock before read here, in full with its
+picture, whatever the phone had. Its stock before and chambers stay
 the app's; each tank picks up at its stage (``Decantation.take_over``). If it
 can't be followed safely it stays in the app as it was, and the phone is told
 why. "Take it back on this phone" in the app hands it back.
@@ -306,10 +309,12 @@ class AutoDecant:
             self._stop_live_if_ours()
 
     # ---- carrying on one started in the decant app -------------------------------
-    def take_over(self, session_id: str, requested: bool = False) -> dict:
+    def take_over(self, session_id: str, requested: bool = False, fresh: bool = False) -> dict:
         """A decantation started in the decant app (its stock before and
         chambers kept), followed from here on: the page's Take over, or a
-        phone's "Let the tank stock server finish it"."""
+        phone's "Let the tank stock server finish it". ``fresh`` (the app's
+        "Start automatic decantation"): the tanks still waiting get their
+        stock before read here, with their pictures."""
         with self.lock:
             if self.active():
                 raise AutoError("A decantation is already running here: finish, hand over or cancel it first.")
@@ -329,7 +334,7 @@ class AutoDecant:
             self.abort.clear()
             self.info = {"invoice_no": s.get("invoice_no"), "tt_no": s.get("tt_no"), "plan": {}, "started": _now(),
                          "error": "", "log": [], "proof_id": str(int(time.time() * 1000)), "proofs": {},
-                         "takeover": session_id, "requested": requested}
+                         "takeover": session_id, "requested": requested, "fresh": fresh}
             self._prune_proofs()
             self._set("starting", step="connecting to the PC")
         threading.Thread(target=self._taking_over, args=(session_id,), daemon=True, name="auto-takeover").start()
@@ -348,8 +353,10 @@ class AutoDecant:
             self._step("checking each tank's card is updating on the PC")
             self._probes_alive(live, nos)
             # a tank set up with no stock before yet: read now, in full (with its picture)
+            fresh = self.info.get("fresh")
             need = sorted({t.get("tankNo") or self._no(t["tank"]) for t in open_
-                           if (t.get("before") or {}).get("volume") is None})
+                           if (t.get("before") or {}).get("volume") is None
+                           or (fresh and dz.tank_stage(s, t) == "waiting")})
             befores = {}
             if need:
                 self._step("reading the stock before")
@@ -434,7 +441,7 @@ class AutoDecant:
                                                   f"({self._title()}): finish or hand that over first")
                 continue
             try:
-                self.take_over(r["id"], requested=True)
+                self.take_over(r["id"], requested=True, fresh=bool(req.get("start")))
             except AutoError as exc:
                 self._answer_request(r["id"], str(exc))
             except Exception as exc:  # noqa: BLE001
