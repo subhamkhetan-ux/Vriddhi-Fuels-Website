@@ -13,8 +13,10 @@ Pictures are for proof only, so they're taken when asked for: a capture,
 and an automatic decantation's stock before and after. For those a
 ``FuelTransSession`` (fueltrans.py: FuelTrans in a headless browser) opens
 on the first one and closes again PICTURES_IDLE after the last, unless
-``keep_pictures()`` (an automatic decantation running, the screen being
-read instead) says to keep it.
+``keep_pictures()`` (a stock after coming up, the screen being read
+instead) says to keep it; ``release()`` closes it at once. ``pictures()``
+opens it in the background ahead of a picture that will be wanted (it
+takes about a minute), so the live data never waits for it.
 
 ``FuelTransFeed`` has the session methods live monitoring uses (open, alive,
 lost, screen, shot, close, ...), so the service runs it as any other
@@ -39,6 +41,7 @@ FIRST_WAIT = 12          # seconds open() waits for every tank's first figures (
 STALE_S = 60             # a tank's figures without a newer packet this long aren't given any more
 PICTURES_IDLE = 300      # seconds the picture browser stays open after its last picture
 DETAILS_AGAIN = 300      # seconds before FuelTrans' tank list is asked for again, if it failed
+OPEN_AGAIN = 300         # seconds before the picture browser is opened again in the background, if it failed
 
 
 def _fetch(url: str, data: bytes | None = None, timeout: float = POLL_WAIT) -> str:
@@ -79,6 +82,9 @@ class FuelTransFeed:
         self._details_failed = float("-inf")
         self._pictures: FuelTransSession | None = None
         self._pictures_at = 0.0
+        self._opening = None             # the thread opening the picture browser ahead of a picture
+        self._open_failed = float("-inf")
+        self.open_error = ""             # why it last failed to open
 
     def __enter__(self):
         self.open()
@@ -237,6 +243,38 @@ class FuelTransFeed:
         with self._lock:
             idle = self._pictures if self.clock() - self._pictures_at >= PICTURES_IDLE else None
             self._pictures = None if idle else self._pictures
+        if idle:
+            idle.close()
+
+    def pictures(self) -> str:
+        """The picture browser: "ready" (on Tank Status), "opening" (in the
+        background, started now if need be) or "failed" (its last opening,
+        under OPEN_AGAIN ago)."""
+        if self._opening is not None and self._opening.is_alive():
+            return "opening"
+        browser = self._pictures
+        if browser is not None and browser._page is not None:
+            return "ready"
+        if self.clock() - self._open_failed < OPEN_AGAIN:
+            return "failed"
+        self._opening = threading.Thread(target=self._open_pictures, daemon=True, name="tank-pictures")
+        self._opening.start()
+        return "opening"
+
+    def _open_pictures(self) -> None:
+        try:
+            self.shot()
+            self._open_failed, self.open_error = float("-inf"), ""
+        except Exception as exc:  # noqa: BLE001 - said where a picture is wanted
+            self._open_failed = self.clock()
+            self.open_error = str(exc) if isinstance(exc, CaptureError) else f"{type(exc).__name__}: {exc}"
+
+    def release(self) -> None:
+        """The picture browser closed now, unless it's kept (``keep_pictures``)."""
+        if self.unavailable or self.keep_pictures() or (self._opening is not None and self._opening.is_alive()):
+            return
+        with self._lock:
+            idle, self._pictures = self._pictures, None
         if idle:
             idle.close()
 

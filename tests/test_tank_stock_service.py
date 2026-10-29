@@ -1106,12 +1106,12 @@ class FakeFeed(FakeSession):
         raise AssertionError("no screen is taken while live from FuelTrans' live data")
 
 
-def test_from_fueltrans_live_data_the_page_is_fast_and_the_app_gets_it_at_its_interval(station, monkeypatch):
-    """Each live read from FuelTrans' live data comes every FEED_EVERY: the
-    page's figures as fast as that; the decant app gets the latest of them
-    every interval (a "beat"), as from the screen."""
+def test_from_fueltrans_live_data_the_figures_go_as_they_come(station, monkeypatch):
+    """From FuelTrans' live data, with no interval to set: the page's figures
+    every read (FEED_EVERY), and the decant app the latest of them as they
+    change, at most every BEAT_MIN_S (a "beat")."""
     monkeypatch.setattr(service, "FEED_EVERY", 0.02)
-    monkeypatch.setattr(station, "_every", lambda live: 1.5)
+    monkeypatch.setattr(service, "BEAT_MIN_S", 1.5)
     monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: pytest.fail("the screen was read"))
     station.session_cls = FakeFeed
     station.start_live({"tanks": [3], "auto_upload": True, "interval_s": 5})
@@ -1122,7 +1122,7 @@ def test_from_fueltrans_live_data_the_page_is_fast_and_the_app_gets_it_at_its_in
     assert wait_for(lambda: live["figures"]["3"]["reading"]["volume"] != shown)      # (the page: every read)
     assert wait_for(lambda: len(station.db.writes) >= 2, 5), live["uploads"]
     reads, writes = live["reads"], len(station.db.writes)
-    assert reads >= 10 * writes, (reads, writes)                                    # (the app: every 1.5 s)
+    assert reads >= 10 * writes, (reads, writes)                                    # (the app: every 1.5 s at most)
     assert live["uploads"]["3"]["ok"], live["uploads"]
     assert not live.get("last_png")                                                 # (no screen while live)
     station.stop_live()

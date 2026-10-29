@@ -86,8 +86,9 @@ and the screenshots are sharp.
 
 Live monitoring doesn't use the browser: it listens to FuelTrans' live data
 directly (as the Pumps tab does), so it is live in seconds with the exact
-figures every 2 s. The browser opens only for pictures: a capture, and an
-automatic decantation's stock before and after.
+figures as they come. The browser opens only for pictures: a capture, and an
+automatic decantation's stock before and, a little ahead of it, its stock
+after; in between it's closed.
 
 On the server, after step 2 works:
 

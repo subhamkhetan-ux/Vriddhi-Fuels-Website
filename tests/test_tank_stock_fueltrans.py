@@ -653,6 +653,14 @@ def test_the_feeds_pictures_open_when_asked_and_close_when_idle(chromium, monkey
         keep["on"] = False
         assert f.alive() and f._pictures is None      # idle: closed
         assert f.screen().startswith(b"\x89PNG")     # (and opened again when asked)
+        f.release()
+        assert f._pictures is None                    # closed at once: no picture coming up
+        assert f.pictures() == "opening"              # ahead of one: opened in the background
+        assert f.figures()[2]["volume"] == 16038.2    # (the live data meanwhile, as ever)
+        assert wait_until(lambda: f.pictures() == "ready", 90)
+        keep["on"] = True
+        f.release()
+        assert f.pictures() == "ready"                # (kept: a stock after is coming up)
     finally:
         f.close()
         server.shutdown()

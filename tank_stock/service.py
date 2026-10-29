@@ -21,8 +21,8 @@ http://127.0.0.1:8790, published to your own Tailscale devices.
   it connects again by itself. The last screen becomes a capture with its
   pictures, and the XtraPower Telegram bot is told.
   From FuelTrans, live monitoring listens to its live data instead
-  (feed.py): connected in seconds, the page's figures every FEED_EVERY
-  seconds, ``interval_s`` only how often the decant app gets them; pictures
+  (feed.py): connected in seconds, the figures as they come (read every
+  FEED_EVERY seconds, as the Pumps tab), with no interval to set; pictures
   only when asked for (a capture, an automatic decantation's proof).
 - Automatic decantation (auto.py): pick a truck's invoice and which chamber
   goes into which tank, press Start; it reads the stock before, follows the
@@ -95,7 +95,9 @@ FLOW_WINDOW_S = 120              # a tank's flow now (decanting in, or sales out
 FLOW_MIN_S = 30                  # ... once it has this much
 EXACT_MISSING_S = 300            # a tank without FuelTrans' live figures this long (read off the screen meanwhile): said
 LIVE_FIGURES = ("volume", "ullage", "capacity")   # what the page gets while live (its tank tiles)
-FEED_EVERY = 2                   # seconds between live reads from FuelTrans' live data (feed.py: no screen)
+FEED_EVERY = 1                   # seconds between live reads from FuelTrans' live data (feed.py: no screen)
+BEAT_MIN_S = 3                   # ... the decant app and a decantation get new figures at most this often
+BEAT_MAX_S = 10                  # ... and a decantation is looked at at least this often (its timers)
 FEED_MISSING_S = 90              # a watched tank its live data hasn't brought this long: the screen is read instead
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
@@ -306,9 +308,9 @@ class Station:
         return self._session(ids, password)
 
     def _keep_pictures(self) -> bool:
-        """The picture browser stays open: an automatic decantation takes its
-        proof pictures, or the screen is being read instead of the live data."""
-        return self.auto.active() or bool((self.live or {}).get("screen_mode"))
+        """The picture browser stays open: an automatic decantation's stock
+        after is coming up, or the screen is being read instead of the live data."""
+        return self.auto.wants_pictures() or bool((self.live or {}).get("screen_mode"))
 
     def _hold(self, what: str, wait: float = 0) -> None:
         """Take the PC for ``what``, waiting up to ``wait`` seconds."""
@@ -693,13 +695,9 @@ class Station:
 
     def _live_beat(self, live) -> None:
         """After a read, if it was a beat (every read from the screen): an
-        automatic decantation follows the stock, with a picture of the screen
-        for its proof taken first when the live data had none."""
-        if not live.get("beat", True):
-            return
-        if live.get("feed") and self.auto.active():
-            self.live_png(live)
-        self.auto.on_read(live)
+        automatic decantation follows the stock."""
+        if live.get("beat", True):
+            self.auto.on_read(live)
 
     def _every(self, live) -> int:
         """Seconds between live reads: shorter while a decantation needs them."""
@@ -853,6 +851,7 @@ class Station:
                                             "problems": built["problems"], "at": now_iso()}
                 if built["confidence"] != "low":
                     live["fp"][no] = fp
+                    live.setdefault("cards", {})[no] = card      # (in full: a decantation's stock from it)
                     changed[no] = card
             self._keep_trend(live, watched)
             gone = sorted(no for no, since in missing.items()
@@ -860,8 +859,12 @@ class Station:
             if gone and session.alive():
                 self._feed_to_screen(live, gone)
                 return
+            # the decant app and a decantation: new figures as they come (no
+            # oftener than BEAT_MIN_S), and the decantation's timers every BEAT_MAX_S
             now = time.monotonic()
-            beat = live.pop("beat_due", False) or now - live.get("beat_at", float("-inf")) >= self._every(live) - FEED_EVERY / 2
+            since = now - live.get("beat_at", float("-inf"))
+            beat = (live.pop("beat_due", False) or since >= BEAT_MAX_S
+                    or (bool(changed or live.get("between")) and since >= BEAT_MIN_S - FEED_EVERY / 2))
             live["beat"] = beat
             if beat:
                 live["beat_at"] = now
@@ -926,6 +929,38 @@ class Station:
         live.pop("picture_error", None)
         live["last_png"] = png
         return png
+
+    def prepare_pictures(self, live) -> str:
+        """A picture is coming up (an automatic decantation's stock after):
+        FuelTrans' page opened in the background meanwhile, so the live data
+        never waits for it. "ready", "opening" or "failed" ("ready" when
+        live monitoring reads the screen anyway)."""
+        session = (live or {}).get("session")
+        if not (live or {}).get("feed") or not hasattr(session, "pictures"):
+            return "ready"
+        return session.pictures()
+
+    def release_pictures(self) -> None:
+        """No picture coming up: FuelTrans' page closed now (from the live data)."""
+        live = self.live or {}
+        session = live.get("session")
+        if live.get("feed") and hasattr(session, "release"):
+            try:
+                session.release()
+            except Exception:  # noqa: BLE001 - it closes when idle anyway
+                traceback.print_exc()
+
+    def card_reading(self, live, no: int, card: dict | None) -> dict | None:
+        """A full reading (height, density, temperature...) from one of FuelTrans'
+        live-data cards: exact, without a picture. None if it fails the checks."""
+        if not card:
+            return None
+        cfg = (live or {}).get("cfg") or self._live_cfg(live)
+        tank = self.decant.tank_for(no, cfg)
+        built = self.decant.make_reading(dict(card, no=no), tank, cfg) if tank else None
+        if not built or built["confidence"] == "low":
+            return None
+        return {**built["reading"], "note": "from FuelTrans' live data (exact; no picture)"}
 
     @staticmethod
     def _keep_trend(live, watched) -> None:
@@ -1160,7 +1195,7 @@ class Station:
         if not live:
             return None
         hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen",
-                  "hist", "exact_missing", "between", "beat_at", "beat_due")
+                  "hist", "exact_missing", "between", "beat_at", "beat_due", "cards")
         out = {k: v for k, v in live.items() if k not in hidden}
         # each tank's flow now (L/min: + decanting in, - sales out): the page's decanting speed
         now = time.time()
@@ -1172,8 +1207,6 @@ class Station:
         # what it really does while an automatic decantation runs on it
         out["watched"] = sorted(set(live["tanks"]) | self.auto.watched() | self.phone.watched())
         out["every_s"] = self._every(live)
-        # (from FuelTrans' live data the page's figures come faster: every_s is the decant app's)
-        out["figures_every_s"] = FEED_EVERY if live.get("feed") else out["every_s"]
         out["sending"] = sorted(out["watched"] if live["auto_upload"] else self.auto.to_upload() | self.phone.watched())
         return out
 

@@ -67,6 +67,7 @@ CLOCK_JUMP_S = 60           # the wall clock moved this much more (or less) than
 QUICK_S = 10               # seconds the live reads wait on the decant app at most, per call
 CLOUD_REST_S = 30          # after the decant app couldn't be reached: the live reads don't wait on it again this soon
 REQUEST_FRESH_S = 15 * 60  # a phone's "let the tank stock server finish it" older than this: not taken up
+PICTURES_AHEAD_S = 150     # from FuelTrans' live data: its page opens this long before a stock after is due
 
 
 class AutoError(ValueError):
@@ -81,8 +82,8 @@ class AutoDecant:
         self.run = dz.Decantation.from_json(data["run"]) if data.get("run") else None
         self.info = data.get("info") or {}
         self.last = data.get("last")          # the decantation before, in a line: {title, phase, at, result}
-        self.screens = {}                     # tank id -> the screen at its settling peak
-        self.lows = {}                        # tank id -> the screen at its lowest stock while waiting
+        self.screens = {}                     # tank id -> the screen (or live-data card) at its settling peak
+        self.lows = {}                        # tank id -> the screen (or live-data card) at its lowest stock while waiting
         self.abort = threading.Event()
         self.reconnecting = None              # the thread connecting again, while it runs
         self._view = None                     # the page's last view
@@ -92,6 +93,7 @@ class AutoDecant:
         self._live_seen = None                # the live session the probes were last checked on
         self._again = False                   # AnyDesk dropped again while connecting again
         self._tick = None                     # (wall, monotonic) at the last read: did the clock jump?
+        self._wanted_pictures = False         # FuelTrans' page was wanted open at the last read (live data)
 
     # ---- state -----------------------------------------------------------
     @property
@@ -100,6 +102,18 @@ class AutoDecant:
 
     def active(self) -> bool:
         return self.phase in ACTIVE
+
+    def wants_pictures(self) -> bool:
+        """From FuelTrans' live data, FuelTrans' page is open only for the
+        proof pictures: the stock before (starting) and, from PICTURES_AHEAD_S
+        before it's due, a stock after."""
+        if self.phase == "starting":
+            return True
+        run = self.run
+        if self.phase not in ("running", "paused") or not run:
+            return False
+        due = run.after_due_in(time.time())
+        return due is not None and due <= PICTURES_AHEAD_S
 
     def _persist(self) -> None:
         from .service import _write_json
@@ -114,6 +128,8 @@ class AutoDecant:
             self.screens, self.lows = {}, {}     # (the screens kept for a stock before / after)
             self.info["ended_ts"] = time.time()
         self._persist()
+        if phase != "starting" and not self.wants_pictures():
+            self.st.release_pictures()           # (from the live data: no picture coming up)
 
     def _clear(self) -> None:
         """Off the page (under the lock), leaving a line about it."""
@@ -546,6 +562,16 @@ class AutoDecant:
                 until = time.monotonic() + 30
                 while live.get("reads", 0) == reads and time.monotonic() < until and self.st.live is live:
                     time.sleep(0.5)
+        if live.get("feed"):
+            # FuelTrans' page didn't give the pictures: its exact live-data cards, without them
+            for n in tanks:
+                reading = None if self._id(n) in got else \
+                    self.st.card_reading(live, n, (live.get("cards") or {}).get(n))
+                if reading:
+                    got[self._id(n)] = reading
+                    self._keep_proof(self._id(n), "before", {"reading": reading})
+            if len(got) == len(tanks):
+                return got
         bad = "; ".join(f"Tank {n}: {problems.get(n) or 'not read'}" for n in tanks if self._id(n) not in got)
         raise AutoError(f"The stock before couldn't be read ({bad}).")
 
@@ -595,7 +621,13 @@ class AutoDecant:
                     continue
                 volumes[tank_id] = vol
             work = self.run.feed(volumes, now)
+            if live.get("feed") and self.wants_pictures():
+                self.st.prepare_pictures(live)  # (a stock after coming up: its picture's page opens meanwhile)
             self._do(work, live, now)
+            wanted = self.wants_pictures()
+            if live.get("feed") and self._wanted_pictures and not wanted:
+                self.st.release_pictures()       # (its stock after taken: the page closes till the next)
+            self._wanted_pictures = wanted
             self._stale(now)
             self._frozen_note(frozen, now)
             self._retry_proofs(now)
@@ -603,20 +635,27 @@ class AutoDecant:
 
     def _do(self, work: dict, live, now: float) -> None:
         """What the run asked for: full reads, saving, finishing, messages."""
+        feed = bool(live and live.get("feed"))
+        # (from FuelTrans' live data there's no screen: its exact card at that moment instead)
+        kept = (lambda tank: ((live.get("cards") or {}).get(self._no(tank)))) if feed else \
+            (lambda tank: (live or {}).get("last_png"))
         for tank in work["peak"]:
-            if live and live.get("last_png"):
-                self.screens[tank] = live["last_png"]
+            if kept(tank):
+                self.screens[tank] = kept(tank)
         for tank in work.get("low", []):
-            if live and live.get("last_png"):
-                self.lows[tank] = live["last_png"]
+            if kept(tank):
+                self.lows[tank] = kept(tank)
         for b in work["before"]:
             from_low = b.get("from") == "low"
-            png = self.lows.get(b["tank"]) if from_low else (live or {}).get("last_png")
-            if not png:
+            seen = self.lows.get(b["tank"]) if from_low else kept(b["tank"])
+            if not seen:
                 continue
-            r = self.st.full_read(png, [self._no(b["tank"])],
-                                  "automatic decantation: stock before" + (" (just before decanting)" if from_low else " (it sold)"))
-            res = next(iter(r.values()), {})
+            if isinstance(seen, dict):
+                res = {"reading": self.st.card_reading(live, self._no(b["tank"]), seen)}
+            else:
+                r = self.st.full_read(seen, [self._no(b["tank"])], "automatic decantation: stock before"
+                                      + (" (just before decanting)" if from_low else " (it sold)"))
+                res = next(iter(r.values()), {})
             if res.get("reading"):
                 more = self.run.set_before(b["tank"], res["reading"], now, from_low=from_low)
                 if more["save"]:
@@ -645,26 +684,38 @@ class AutoDecant:
         tank = a["tank"]
         no = self._no(tank)
         note = "not steady after the longest settle time" if a.get("unsteady") else ""
+        feed = bool(live and live.get("feed"))
+        reading = None
         if a.get("from") == "peak":
             png = self.screens.get(tank)
             fallback = self._live_reading(tank, a["volume"], a["at"])
             note = "from before sales started again"
+            if isinstance(png, dict):            # (FuelTrans' exact card at the peak: no picture of the past)
+                reading, png = self.st.card_reading(live, no, png), None
+        elif feed:
+            # FuelTrans' page, opened ahead (it takes a minute): its picture now; still
+            # opening, the next read takes it (the stock stays as it is meanwhile)
+            pictures = self.st.prepare_pictures(live)
+            if pictures == "opening" and not a.get("asked"):
+                return
+            png = self.st.live_png(live) if pictures == "ready" else b""
+            fallback = self.st.card_reading(live, no, (live.get("cards") or {}).get(no))
         else:
             png = live.get("last_png") if live else None
             f = ((live or {}).get("figures") or {}).get(str(no)) or {}
             vol = (f.get("reading") or {}).get("volume")
             fallback = self._live_reading(tank, vol, now) if vol is not None else None
-        reading = None
         if png:
             r = self.st.full_read(png, [no], "automatic decantation: stock after").get(no) or {}
             reading = r.get("reading")
             if reading:
                 self._keep_proof(tank, "after", r)
-        if not reading:
+        if not reading or not png:
             # the stock after from the live figures: no picture to prove it
             self.info.setdefault("proofs", {}).setdefault(tank, {})["after"] = {
                 "picture": False, "cloud": False, "at": _now(),
-                "volume": (fallback or {}).get("volume"), "note": "from the live figures (the card couldn't be read in full)"}
+                "volume": (reading or fallback or {}).get("volume"),
+                "note": "from FuelTrans' live data (exact)" if feed else "from the live figures (the card couldn't be read in full)"}
         self._merge(work, self.run.read_after(tank, reading, fallback=fallback, note=note, now=now))
 
     def _add(self, tank_id: str, chambers: list, now: float) -> dict:
@@ -695,8 +746,12 @@ class AutoDecant:
             # already rising: the stock before is the one just before it rose
             before = self.run.low_reading(tank_id, o["low"], o.get("lowAt"), now)
             return self.run.add(tank_id, chambers, before, now, from_low=True)
-        png = self.st.live_png(live) if live else b""
+        png = self.st.live_png(live) if live and self.st.prepare_pictures(live) == "ready" else b""
         res = self.st.full_read(png, [no], "automatic decantation: stock before (chambers added)").get(no) if png else None
+        if (not res or not res.get("reading")) and live.get("feed"):
+            # (FuelTrans' page didn't open: its exact live-data card, without a picture)
+            reading = self.st.card_reading(live, no, (live.get("cards") or {}).get(no))
+            res = {"reading": reading} if reading else res
         if not res or not res.get("reading"):
             raise AutoError(f"Tank {no}'s stock before couldn't be read ({(res or {}).get('problem') or 'no screen yet'}): "
                             "try again in a moment.")
@@ -1013,6 +1068,8 @@ class AutoDecant:
 
     # ---- the page's buttons ----------------------------------------------------
     def act(self, action: str, body: dict) -> dict:
+        if action in ("after", "add"):
+            self._pictures_now()                 # (its picture's page opened first, not holding the run)
         with self.lock:
             if action == "clear":
                 if self.active():
@@ -1062,6 +1119,16 @@ class AutoDecant:
             self._do(work, self.st.live, now)
             self._persist()
             return self.view()
+
+    def _pictures_now(self) -> None:
+        """From FuelTrans' live data: FuelTrans' page opened for a picture
+        asked for now (a stock before / after from the page), waiting for it."""
+        live = self.st.live
+        until = time.monotonic() + 240
+        while live and live.get("feed") and time.monotonic() < until:
+            if self.st.prepare_pictures(live) != "opening":
+                return
+            time.sleep(0.5)
 
     # ---- live monitoring ending, the service restarting -------------------------
     def on_live_end(self, reason: str, by_you: bool) -> None:
