@@ -1128,3 +1128,19 @@ def test_from_fueltrans_live_data_the_figures_go_as_they_come(station, monkeypat
     station.stop_live()
     assert wait_for(lambda: station.live is None)
     assert station.last == {} or "the last screen" not in str(station.last.get("page"))
+
+
+def test_the_decant_apps_monitoring_from_fueltrans_has_no_interval(station, phone, tmp_path):
+    """From FuelTrans' live data the decant app's monitoring goes as the
+    figures come: its answer says so, with no interval (an older app's is ignored)."""
+    (tmp_path / "login.json").write_text(json.dumps({"source": "fueltrans", "password": "pw"}))
+    station.session_cls = FakeFeed
+    phone.ask("monitor")
+    station.phone.check()
+    assert phone.mon["state"] == "monitoring" and phone.mon["live"] and phone.mon["every"] is None
+    assert phone.mon["message"] == "as FuelTrans' live data brings them, for up to 3 h"
+    assert wait_for(lambda: station.live and station.live.get("feed") and station.db.writes)
+    assert station.db.writes[-1]["tank_id"] == "T3"                          # its volume, as it comes
+    phone.data["stockMonitor"] = None                                        # "Stop"
+    station.phone.check()
+    assert wait_for(lambda: station.live is None)

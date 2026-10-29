@@ -4,7 +4,8 @@
 //     picture (for the result pictures);
 //   - Capture only: read them and show the picture and figures, nothing saved;
 //     "Upload these to decant" then saves them;
-//   - Live monitoring: their volume every N seconds (5-3600) until Stop or 3 h.
+//   - Live monitoring: their volume as FuelTrans' live data brings it (no
+//     interval to set) until Stop or 3 h.
 // The requests wait in the shared settings (config.stockRequest for a read,
 // config.stockMonitor for monitoring, apart so a read never stops it); the
 // server looks every half minute and answers there, so every phone sees them.
@@ -16,9 +17,8 @@ import { cloudPicture } from './shots.js';
 import { ago, confBadge, download, esc, fmtDip, fmtL, fmtTime, productChip, toast } from './ui.js';
 import { tankName, tanks } from './app.js';
 
-const LS = 'vriddhi-decant-monitor';      // this phone's picks: {capture: [ids], live: [ids], every}
+const LS = 'vriddhi-decant-monitor';      // this phone's picks: {capture: [ids], live: [ids]}
 const STALE_MIN = 5;                       // no answer this long: is the server on?
-const EVERY = [5, 3600];
 const pics = new Map();                    // picture path -> object URL (this visit)
 let bound = null;
 
@@ -27,7 +27,7 @@ function picks() {
   try { p = JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { p = {}; }
   const ids = tanks().map((t) => t.id);
   const keep = (list) => (Array.isArray(list) ? list.filter((id) => ids.includes(id)) : ids);
-  return { capture: keep(p.capture), live: keep(p.live), every: Number(p.every) || 10 };
+  return { capture: keep(p.capture), live: keep(p.live) };
 }
 function savePicks(patch) {
   try { localStorage.setItem(LS, JSON.stringify({ ...picks(), ...patch })); } catch { /* private tab: this visit only */ }
@@ -46,8 +46,8 @@ function waiting(req, cancel) {
   const mins = (Date.now() - Date.parse(req.at || '')) / 60000;
   const what = { check: 'read and save', capture: 'capture', upload: 'upload', monitor: 'monitor' }[req.kind] || 'read';
   return `${mins > STALE_MIN
-    ? `<div class="banner" style="margin:8px 0 0">No answer from the tank stock server for ${Math.round(mins)} min — is the Mac on and online?</div>`
-    : `<div class="hint" style="margin-top:8px">Asked at ${fmtTime(req.at)} to ${what} ${(req.tanks || []).map(tankName).join(', ')} — it looks every half minute, then takes about a minute to connect.</div>`}
+    ? `<div class="banner" style="margin:8px 0 0">No answer from the tank stock server for ${Math.round(mins)} min — is the server on and the IOCL PC online?</div>`
+    : `<div class="hint" style="margin-top:8px">Asked at ${fmtTime(req.at)} to ${what} ${(req.tanks || []).map(tankName).join(', ')} — it looks every half minute, then ${req.kind === 'monitor' ? 'connects in a few seconds' : 'takes about a minute for the pictures'}.</div>`}
     <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-m="${cancel}">Cancel</button></div>`;
 }
 
@@ -107,14 +107,13 @@ function liveCard(p) {
   let status = '';
   if (mon && !mon.state) status = waiting(mon, 'stopLive');
   else if (mon?.state === 'monitoring') {
-    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${watched.map(tankName).join(', ')} every ${mon.every || 10} s${mon.until ? `, until ${fmtTime(mon.until)}` : ''}.</div>
+    status = `<div class="hint" style="margin-top:8px"><span class="badge watch live"><i>●</i>Monitoring</span> ${watched.map(tankName).join(', ')} ${mon.every ? `every ${mon.every} s` : 'live'}${mon.until ? `, until ${fmtTime(mon.until)}` : ''}.</div>
       ${watched.map((id) => { const r = state.tankState[id]; return `<div class="lrow" style="cursor:default"><span class="mid"><b>${esc(tankName(id))}</b></span><span class="rt"><b>${r ? fmtL(r.volume) : '—'}</b><span class="hint">${r ? ago(r.readingAt) : ''}</span></span></div>`; }).join('')}`;
   } else if (mon?.state === 'ended' || mon?.state === 'error') {
     status = `<div class="banner ${mon.state === 'error' ? 'bad' : ''}" style="margin:8px 0 0">${mon.state === 'error' ? 'Monitoring couldn\'t start' : 'Monitoring ended'}: ${esc(mon.message || 'no reason given')}.</div>`;
   }
   return `<h2>Live monitoring</h2><div class="card">
-      <div class="hint">Keeps the IOCL PC's Tank Status open on the tank stock server and sends these tanks' volume to the app every few seconds, until you stop it or 3 hours pass. The tank tiles on the Decant tab follow it.</div>
-      <label class="f" style="margin-top:10px">Read every (seconds)<input type="number" inputmode="numeric" min="${EVERY[0]}" max="${EVERY[1]}" step="1" data-mevery value="${on ? mon.every || p.every : p.every}" ${on ? 'disabled' : ''}></label>
+      <div class="hint">The tank stock server follows FuelTrans' live data and sends these tanks' volume to the app as it changes, until you stop it or 3 hours pass. The tank tiles on the Decant tab follow it.</div>
       <div class="hint" style="margin:10px 0 6px">Tanks to watch</div>
       ${chips('live', on ? watched : p.live, on)}
       <div class="row-actions" style="justify-content:flex-start">
@@ -179,10 +178,7 @@ function bind(el) {
       return;
     }
     if (act === 'startLive') {
-      const every = Math.round(Number(el.querySelector('[data-mevery]')?.value) || 10);
-      if (every < EVERY[0] || every > EVERY[1]) { toast(`Read every ${EVERY[0]}–${EVERY[1]} seconds.`); return; }
-      savePicks({ every });
-      await ask('stockMonitor', { kind: 'monitor', tanks: p.live, every });
+      await ask('stockMonitor', { kind: 'monitor', tanks: p.live });
       return;
     }
     if (act === 'stopLive') await ask('stockMonitor', null);

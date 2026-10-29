@@ -18,9 +18,11 @@ uses it; deleted the next day as the others).
 
 Live monitoring (``stockMonitor``, kept apart so a capture never stops it):
 - **monitor**: live monitoring (the open session, else one started for it)
-  sends those tanks' volume to the app as it changes, every ``every``
-  seconds (5-3600, 10 by default) at most, until the phone stops it or
-  MONITOR_MAX_S has passed. If the PC's connection drops it connects again.
+  sends those tanks' volume to the app as it changes, until the phone stops
+  it or MONITOR_MAX_S has passed. From FuelTrans' live data that's as the
+  figures come (feed.py: no interval); from the screen, every ``every``
+  seconds (5-3600, 10 by default) at most, as an older app still asks. If
+  the PC's connection drops it connects again.
 
 The phone writes each into the app's shared settings (``dec_config.data``)
 as {id, kind, tanks, at, by, ...}; they are looked for every half minute
@@ -120,9 +122,14 @@ class PhoneStock:
         else:
             until = now + MONITOR_MAX_S
             if self._watch(rid, req, until):
-                every = self.watch["every"]
-                self._answer(LIVE, rid, {"state": "monitoring", "until": dz.iso(until), "every": every,
-                                         "message": f"every {every} s, for up to {MONITOR_MAX_S // 3600} h"})
+                hours = MONITOR_MAX_S // 3600
+                if self.st.from_fueltrans():               # (its live data: as the figures come)
+                    self._answer(LIVE, rid, {"state": "monitoring", "until": dz.iso(until), "every": None, "live": True,
+                                             "message": f"as FuelTrans' live data brings them, for up to {hours} h"})
+                else:
+                    every = self.watch["every"]
+                    self._answer(LIVE, rid, {"state": "monitoring", "until": dz.iso(until), "every": every,
+                                             "message": f"every {every} s, for up to {hours} h"})
 
     def _nos(self, ids) -> tuple[list, dict]:
         """The tank numbers of these tank ids (every tank if none are named)."""
