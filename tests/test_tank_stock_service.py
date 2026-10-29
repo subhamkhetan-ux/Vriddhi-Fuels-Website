@@ -1087,3 +1087,44 @@ def test_a_tanks_flow_while_live(tmp_path, monkeypatch):
     view = st.live_view()
     assert "hist" not in view and abs(view["flow"]["2"] - 450) < 1 and "3" not in view["flow"]
     assert now - st.live["hist"][2][0][0] <= service.TREND_KEEP_S       # (only what the flow needs is kept)
+
+
+class FakeFeed(FakeSession):
+    """FuelTrans' live data (feed.py): Tank 3's exact figures, moving a
+    little each time, with no screen."""
+    n = 0
+
+    def figures(self):
+        FakeFeed.n += 1
+        v = round(CARD3["volume"] + FakeFeed.n % 9 * 0.25, 2)
+        return {3: {**CARD3, "volume": v, "ullage": round(20000 - v, 2), "exact": True}}
+
+    def screen(self):
+        raise AssertionError("no screen is taken while live from FuelTrans' live data")
+
+    def shot(self):
+        raise AssertionError("no screen is taken while live from FuelTrans' live data")
+
+
+def test_from_fueltrans_live_data_the_figures_go_as_they_come(station, monkeypatch):
+    """From FuelTrans' live data, with no interval to set: the page's figures
+    every read (FEED_EVERY), and the decant app the latest of them as they
+    change, at most every BEAT_MIN_S (a "beat")."""
+    monkeypatch.setattr(service, "FEED_EVERY", 0.02)
+    monkeypatch.setattr(service, "BEAT_MIN_S", 1.5)
+    monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: pytest.fail("the screen was read"))
+    station.session_cls = FakeFeed
+    station.start_live({"tanks": [3], "auto_upload": True, "interval_s": 5})
+    assert wait_for(lambda: station.live and station.live.get("reads", 0) >= 20, 10)
+    live = station.live
+    assert live["feed"] and live["exact"] and not live.get("last_error")
+    shown = live["figures"]["3"]["reading"]["volume"]
+    assert wait_for(lambda: live["figures"]["3"]["reading"]["volume"] != shown)      # (the page: every read)
+    assert wait_for(lambda: len(station.db.writes) >= 2, 5), live["uploads"]
+    reads, writes = live["reads"], len(station.db.writes)
+    assert reads >= 10 * writes, (reads, writes)                                    # (the app: every 1.5 s at most)
+    assert live["uploads"]["3"]["ok"], live["uploads"]
+    assert not live.get("last_png")                                                 # (no screen while live)
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+    assert station.last == {} or "the last screen" not in str(station.last.get("page"))

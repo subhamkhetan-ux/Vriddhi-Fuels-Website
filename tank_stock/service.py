@@ -20,6 +20,10 @@ http://127.0.0.1:8790, published to your own Tailscale devices.
   you press Stop; the PC's connection dropping ends it, and from FuelTrans
   it connects again by itself. The last screen becomes a capture with its
   pictures, and the XtraPower Telegram bot is told.
+  From FuelTrans, live monitoring listens to its live data instead
+  (feed.py): connected in seconds, the figures as they come (read every
+  FEED_EVERY seconds, as the Pumps tab), with no interval to set; pictures
+  only when asked for (a capture, an automatic decantation's proof).
 - Automatic decantation (auto.py): pick a truck's invoice and which chamber
   goes into which tank, press Start; it reads the stock before, follows the
   stock as the chambers go in, takes the stock after once it has settled and
@@ -58,6 +62,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import cards as cards_mod
 from . import decant, fueltrans, telegram
+from .feed import FuelTransFeed
 from .auto import AutoDecant, AutoError
 from .capture import CaptureError, Session, parse_ids
 from .phone import PhoneStock
@@ -90,6 +95,10 @@ FLOW_WINDOW_S = 120              # a tank's flow now (decanting in, or sales out
 FLOW_MIN_S = 30                  # ... once it has this much
 EXACT_MISSING_S = 300            # a tank without FuelTrans' live figures this long (read off the screen meanwhile): said
 LIVE_FIGURES = ("volume", "ullage", "capacity")   # what the page gets while live (its tank tiles)
+FEED_EVERY = 1                   # seconds between live reads from FuelTrans' live data (feed.py: no screen)
+BEAT_MIN_S = 3                   # ... the decant app and a decantation get new figures at most this often
+BEAT_MAX_S = 10                  # ... and a decantation is looked at at least this often (its timers)
+FEED_MISSING_S = 90              # a watched tank its live data hasn't brought this long: the screen is read instead
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
 SESSIONS_KEPT = 200              # AnyDesk sessions remembered (sessions.jsonl)
@@ -288,6 +297,20 @@ class Station:
             url, user = ids
             return fueltrans.FuelTransSession(url or fueltrans.URL, user or fueltrans.USER, password)
         return self.session_cls(ids, password)
+
+    def _live_session(self, ids, password):
+        """Live monitoring's session: from FuelTrans, its live data (feed.py),
+        with a browser only for pictures; else as a capture's."""
+        if self.session_cls is Session and self.from_fueltrans():
+            url, user = ids
+            return FuelTransFeed(url or fueltrans.URL, user or fueltrans.USER, password,
+                                 keep_pictures=self._keep_pictures)
+        return self._session(ids, password)
+
+    def _keep_pictures(self) -> bool:
+        """The picture browser stays open: an automatic decantation's stock
+        after is coming up, or the screen is being read instead of the live data."""
+        return self.auto.wants_pictures() or bool((self.live or {}).get("screen_mode"))
 
     def _hold(self, what: str, wait: float = 0) -> None:
         """Take the PC for ``what``, waiting up to ``wait`` seconds."""
@@ -526,7 +549,9 @@ class Station:
         -> {tank no: {"reading": the reading saved (or read) | None, "problem"}}"""
         tanks = clean_tanks(tanks)
         if not png:
-            return {n: {"reading": None, "problem": "no screen yet"} for n in tanks}
+            why = (self.live or {}).get("picture_error")
+            return {n: {"reading": None, "problem": f"no picture of the screen ({why})" if why else "no screen yet"}
+                    for n in tanks}
         self._hold(why, wait=60)
         try:
             live = self.live or {}
@@ -598,10 +623,12 @@ class Station:
             self._hold("connecting for live monitoring", wait=90)
             try:
                 ids, password = self.login()
-                session = self._session(ids, password)
+                session = self._live_session(ids, password)
                 session.open()
             finally:
                 self._release()
+            # FuelTrans' live data, no screen (feed.py); else the screen is read
+            live["feed"] = hasattr(session, "figures") and not getattr(session, "unavailable", "")
             live.update(state="live", session=session, connected=now_iso())
             if self._ft_tries:                       # (it was lost: Telegram was told)
                 self.notify(f"Tank stock live monitoring is back: FuelTrans answers again "
@@ -613,7 +640,7 @@ class Station:
                 took = time.monotonic() - started
                 live["read_s"] = round(took, 1)
                 try:
-                    self.auto.on_read(live)            # an automatic decantation follows the stock
+                    self._live_beat(live)              # an automatic decantation follows the stock
                 except Exception:  # noqa: BLE001 - the live session carries on
                     traceback.print_exc()
                 if self._unwatched(live):
@@ -624,7 +651,8 @@ class Station:
                     reason = f"{MAX_FAILED_READS} reads in a row failed ({live.get('last_error', '')})"
                     break
                 # never busier than half the time, however slow the reads get
-                due = started + max(self._every(live), 2 * took)
+                every = lambda: FEED_EVERY if live.get("feed") else self._every(live)   # noqa: E731
+                due = started + max(every(), 2 * took)
                 live["next_read"] = datetime.fromtimestamp(time.time() + due - time.monotonic(), IST) \
                     .isoformat(timespec="seconds")
                 while time.monotonic() < due and not live["stop"].is_set():
@@ -635,7 +663,8 @@ class Station:
                         final = session.screen()          # what AnyDesk shows now
                         break
                     if live["wake"].is_set() and not live["stop"].is_set():
-                        due = min(due, started + max(self._every(live), 2 * took))
+                        due = min(due, started + max(every(), 2 * took))
+                        live["beat_due"] = True        # (asked for now: its sending and decantation too)
                 if reason:
                     break
             if not reason and live.get("anydesk_said"):
@@ -663,6 +692,12 @@ class Station:
                     if held:
                         self._release()
             self._live_end(live, reason, final)
+
+    def _live_beat(self, live) -> None:
+        """After a read, if it was a beat (every read from the screen): an
+        automatic decantation follows the stock."""
+        if live.get("beat", True):
+            self.auto.on_read(live)
 
     def _every(self, live) -> int:
         """Seconds between live reads: shorter while a decantation needs them."""
@@ -695,6 +730,8 @@ class Station:
         return png
 
     def _live_read(self, live) -> None:
+        if live.get("feed"):
+            return self._live_read_feed(live)
         try:
             self._hold("live read", wait=30)
         except RuntimeError:
@@ -768,16 +805,7 @@ class Station:
                 # no watched card readable: the PC shows something else; find the cards again
                 live["boxes"] = None
                 raise CaptureError("The tank cards were not on the screen.")
-            # the changed figures, and those the decant app couldn't take before
-            wanted = lambda no: (live["auto_upload"] or no in self.auto.to_upload()   # noqa: E731
-                                 or no in self.phone.watched())
-            pending = live.setdefault("pending", {})
-            send = {**{no: c for no, c in pending.items() if wanted(no)},
-                    **{no: c for no, c in changed.items() if wanted(no)}}
-            if send and cfg.get("default"):
-                pending.update(send)                  # sent once the app's settings are read
-            elif send:
-                self._live_upload(live, send, cfg)
+            self._live_send(live, changed, cfg)
             live.pop("last_error", None)
             live.update(failed=0, last_read=now_iso(), last_png=png)
             live["reads"] += 1                        # counted once all of it is done
@@ -786,6 +814,153 @@ class Station:
             live["last_error"] = str(exc) if isinstance(exc, CaptureError) else f"{type(exc).__name__}: {exc}"
         finally:
             self._release()
+
+    def _live_read_feed(self, live) -> None:
+        """A live read from FuelTrans' live data (feed.py): its latest figures,
+        exact, no screen and no hold on the PC. The decant app gets them, and
+        an automatic decantation follows them, every ``_every`` seconds (a
+        "beat"), as from the screen; the page every read."""
+        try:
+            session = live["session"]
+            got = session.figures()
+            cfg = self._live_cfg(live)
+            changed = {}
+            watched = sorted(set(live["tanks"]) | self.auto.watched() | self.phone.watched())
+            missing = live.setdefault("exact_missing", {})     # tank -> since when its live data hasn't had it
+            for no in watched:
+                card = got.get(no)
+                if not card:
+                    missing.setdefault(no, time.time())
+                    continue
+                missing.pop(no, None)
+                clock, fp = "|".join(card.get("time") or ()), f"{card['volume']}|{card['height']}|{card['ullage']}"
+                tick = live.setdefault("ticks", {}).get(no)
+                if clock and (not tick or tick["fp"] != clock):
+                    live["ticks"][no] = {"fp": clock, "since": now_iso(), "t": time.time()}
+                if fp == live.setdefault("fp", {}).get(no):
+                    continue                          # same figures as last time
+                card = dict(card, no=no, seenAt=_utc_now())
+                card["product"] = card.get("product") or (live.get("products") or {}).get(no)
+                tank = self.decant.tank_for(no, cfg)
+                built = self.decant.make_reading(card, tank, cfg) if tank else None
+                if not built or card.get("volume") is None:
+                    continue
+                live["figures"][str(no)] = {"reading": {k: built["reading"].get(k) for k in LIVE_FIGURES
+                                                        if built["reading"].get(k) is not None},
+                                            "confidence": built["confidence"],
+                                            "problems": built["problems"], "at": now_iso()}
+                if built["confidence"] != "low":
+                    live["fp"][no] = fp
+                    live.setdefault("cards", {})[no] = card      # (in full: a decantation's stock from it)
+                    changed[no] = card
+            self._keep_trend(live, watched)
+            gone = sorted(no for no, since in missing.items()
+                          if no in watched and time.time() - since >= FEED_MISSING_S)
+            if gone and session.alive():
+                self._feed_to_screen(live, gone)
+                return
+            # the decant app and a decantation: new figures as they come (no
+            # oftener than BEAT_MIN_S), and the decantation's timers every BEAT_MAX_S
+            now = time.monotonic()
+            since = now - live.get("beat_at", float("-inf"))
+            beat = (live.pop("beat_due", False) or since >= BEAT_MAX_S
+                    or (bool(changed or live.get("between")) and since >= BEAT_MIN_S - FEED_EVERY / 2))
+            live["beat"] = beat
+            if beat:
+                live["beat_at"] = now
+                self._live_send(live, changed, cfg)
+            else:                                     # (sent at the next beat: the latest of them)
+                live.setdefault("between", {}).update(changed)
+            live.pop("last_error", None)
+            live.update(failed=0, exact=True)
+            if any(no in got for no in watched):
+                live["last_read"] = now_iso()
+                live["reads"] += 1
+        except Exception as exc:  # noqa: BLE001 - count it, keep the session
+            if not isinstance(exc, CaptureError):
+                traceback.print_exc()
+            live["failed"] += 1
+            live["beat"] = False
+            live["last_error"] = str(exc) if isinstance(exc, CaptureError) else f"{type(exc).__name__}: {exc}"
+
+    def _feed_to_screen(self, live, gone) -> None:
+        """FuelTrans' live data stopped bringing a watched tank: the rest of
+        this session reads the screen instead, as before (slower, still exact
+        where its page has the figures). Said once, and why in the log."""
+        names = ", ".join(f"Tank {n}" for n in gone)
+        print(f"tank stock: no live data for {names} for {FEED_MISSING_S} s: reading the screen instead",
+              file=sys.stderr, flush=True)
+        live.update(feed=False, screen_mode=True, fp={}, boxes=None, exact=False, beat=True)
+        live.pop("exact_missing", None)
+        self.notify(f"Tank stock: FuelTrans' live data hasn't brought {names}'s figures for {FEED_MISSING_S} s, "
+                    "so live monitoring reads its Tank Status screen instead until it's started again "
+                    "(as before: slower, about a minute to open).")
+
+    def _live_send(self, live, changed, cfg) -> None:
+        """The changed figures (and those between beats), and those the decant
+        app couldn't take before, to the decant app: the tanks it's sent for."""
+        changed = {**live.pop("between", {}), **changed}
+        wanted = lambda no: (live["auto_upload"] or no in self.auto.to_upload()   # noqa: E731
+                             or no in self.phone.watched())
+        pending = live.setdefault("pending", {})
+        send = {**{no: c for no, c in pending.items() if wanted(no)},
+                **{no: c for no, c in changed.items() if wanted(no)}}
+        if send and cfg.get("default"):
+            pending.update(send)                  # sent once the app's settings are read
+        elif send:
+            self._live_upload(live, send, cfg)
+
+    def live_png(self, live) -> bytes:
+        """A picture of the PC's tank screen to prove a stock with (an
+        automatic decantation's before and after): from FuelTrans' live data
+        one is taken now (the screen isn't otherwise looked at); else the
+        last read's. b"" if it couldn't be taken."""
+        if not live.get("feed"):
+            return live.get("last_png") or b""
+        session = live.get("session")
+        try:
+            png = self._got(session.screen(), session)
+            if not png:
+                raise CaptureError("FuelTrans didn't answer just then")
+        except Exception as exc:  # noqa: BLE001 - the stock is taken from the live figures instead
+            live.pop("last_png", None)
+            live["picture_error"] = str(exc) if isinstance(exc, CaptureError) else f"{type(exc).__name__}: {exc}"
+            return b""
+        live.pop("picture_error", None)
+        live["last_png"] = png
+        return png
+
+    def prepare_pictures(self, live) -> str:
+        """A picture is coming up (an automatic decantation's stock after):
+        FuelTrans' page opened in the background meanwhile, so the live data
+        never waits for it. "ready", "opening" or "failed" ("ready" when
+        live monitoring reads the screen anyway)."""
+        session = (live or {}).get("session")
+        if not (live or {}).get("feed") or not hasattr(session, "pictures"):
+            return "ready"
+        return session.pictures()
+
+    def release_pictures(self) -> None:
+        """No picture coming up: FuelTrans' page closed now (from the live data)."""
+        live = self.live or {}
+        session = live.get("session")
+        if live.get("feed") and hasattr(session, "release"):
+            try:
+                session.release()
+            except Exception:  # noqa: BLE001 - it closes when idle anyway
+                traceback.print_exc()
+
+    def card_reading(self, live, no: int, card: dict | None) -> dict | None:
+        """A full reading (height, density, temperature...) from one of FuelTrans'
+        live-data cards: exact, without a picture. None if it fails the checks."""
+        if not card:
+            return None
+        cfg = (live or {}).get("cfg") or self._live_cfg(live)
+        tank = self.decant.tank_for(no, cfg)
+        built = self.decant.make_reading(dict(card, no=no), tank, cfg) if tank else None
+        if not built or built["confidence"] == "low":
+            return None
+        return {**built["reading"], "note": "from FuelTrans' live data (exact; no picture)"}
 
     @staticmethod
     def _keep_trend(live, watched) -> None:
@@ -882,7 +1057,8 @@ class Station:
                           "reads": live["reads"]}
         session = self._log_session(live, ended, reason)
         # The last screen read becomes a capture: its pictures to save or upload.
-        if live.get("last_png") and live.get("stop_reason") != "sent for decantation":
+        # (From FuelTrans' live data no screen is read: its pictures are a capture's.)
+        if live.get("last_png") and not live.get("feed") and live.get("stop_reason") != "sent for decantation":
             try:
                 self._hold("the live session's last pictures", wait=60)
                 try:
@@ -1019,7 +1195,7 @@ class Station:
         if not live:
             return None
         hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen",
-                  "hist", "exact_missing")
+                  "hist", "exact_missing", "between", "beat_at", "beat_due", "cards")
         out = {k: v for k, v in live.items() if k not in hidden}
         # each tank's flow now (L/min: + decanting in, - sales out): the page's decanting speed
         now = time.time()

@@ -200,8 +200,10 @@ def rig(tmp_path, monkeypatch):
 def read(rig):
     """One live read and what the automation does with it."""
     live = rig.st.live
+    if live.get("feed"):
+        live["beat_due"] = True                       # (each of the test's reads is a beat: its clock isn't real)
     rig.st._live_read(live)
-    rig.st.auto.on_read(live)
+    rig.st._live_beat(live)
 
 
 def wait_for(cond, timeout=5):
@@ -1260,3 +1262,93 @@ def test_from_fueltrans_a_handed_over_decantation_rides_out_the_tunnel_dropping_
     assert all(lost not in m for m in rig.told)                             # the failed tries said nothing
     assert not [m for m in rig.told if "clock was off" in m], rig.told
     assert not [m for m in rig.told if "anydesk" in m.lower()], rig.told
+
+
+class FeedSession(Session):
+    """FuelTrans' live data (feed.py): each tank's exact figures with no
+    screen; FuelTrans' page opened only for a picture (in the background
+    ahead of one: "opening" on the first ask, "ready" on the next)."""
+    world = clock = None
+
+    def __init__(self, ids, password, **kw):
+        super().__init__(ids, password)
+        self.page, self.taken, self.opened, self.last_figures = "closed", [], [], {}
+
+    def figures(self):
+        return {no: {**self.world.card(no), "exact": True} for no in (1, 2, 3, 4)}
+
+    def pictures(self):
+        if self.page == "open":
+            return "ready"
+        if self.page == "opening":
+            self.page = "open"
+            return "ready"
+        self.page = "opening"
+        self.opened.append(self.clock.t - T0)
+        return "opening"
+
+    def release(self):
+        self.page = "closed"
+
+    def screen(self):
+        if self.page != "open":                      # (opened for it, there and then)
+            self.page = "open"
+            self.opened.append(self.clock.t - T0)
+        self.taken.append(self.clock.t - T0)
+        self.last_figures = self.figures()            # (the exact figures that came with it)
+        return b"\x89PNG-%d" % len(self.taken)
+
+    def shot(self):
+        return self.screen(), "already on Tank Status"
+
+
+def test_from_fueltrans_live_data_the_screen_is_pictured_only_for_proof(rig, monkeypatch):
+    """Live monitoring from FuelTrans' live data reads no screen: after the
+    stock before's picture FuelTrans' page closes, the live data follows
+    the decanting and settling, and the page opens again just ahead of each
+    stock after, for its picture."""
+    boxes = {no: (no * 100, 0, no * 100 + 90, 90) for no in (1, 2, 3, 4)}
+    monkeypatch.setattr(service.cards_mod, "ocr", lambda png: None)
+    monkeypatch.setattr(service.cards_mod, "card_boxes", lambda png, words: dict(boxes))
+    screen_reads = []
+    monkeypatch.setattr(service.cards_mod, "read_figures", lambda png, box: screen_reads.append(box))
+    monkeypatch.setattr(service.cards_mod, "read_all", lambda png: screen_reads.append(png))
+    FeedSession.world, FeedSession.clock = rig.world, rig.clock
+    started = service.Station.start_live
+
+    def start_live(self, new_settings=None, auto=False):
+        started(self, new_settings, auto)
+        self.live.update(feed=True, session=FeedSession([], ""))
+        return self.live_view()
+    monkeypatch.setattr(service.Station, "start_live", start_live)
+    a = rig.st.auto
+    a.start(INVOICE["invoice_no"], {"1": "T1", "2": "T2", "3": "T2"})
+    assert wait_for(lambda: rig.st.live is not None)
+    end = real_time.time() + 10
+    while a.phase == "starting" and real_time.time() < end:
+        rig.clock.t += 1                              # (the cards' clocks move: the probes are live)
+        read(rig)
+        real_time.sleep(0.05)
+    assert a.phase == "running", a.info
+    session = rig.st.live["session"]
+    # the stock before: in full, from a picture taken for it (its exact figures, no reading of it)
+    assert rig.cloud.stock["T2"]["volume"] == 10755.0 and rig.cloud.stock["T2"]["height"]
+    assert [set(m) for m in rig.cloud.shots[:2]] == [{"T1"}, {"T2"}]
+    assert len(session.taken) == 1 and session.page == "closed"          # then FuelTrans' page closes
+    rig.world.flows = [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 640, 3992, 420)]
+    seen = []
+    drive(rig, 4000, on=lambda secs: seen.append((secs, session.page, [
+        t["stage"] for t in a.run.s["data"]["tanks"]] if a.run else [])))
+    assert a.phase == "finished", a.info
+    s = cloud_session(rig)
+    t1, t2 = (next(t for t in s["data"]["tanks"] if t["tank"] == x) for x in ("T1", "T2"))
+    assert t2["result"]["band"] == "ok" and t2["result"]["variation"] == -23.0
+    assert t1["result"]["variation"] == -10.0 and t2["after"]["height"]
+    # while they decanted, FuelTrans' page stayed shut; it opened ahead of the stock after
+    assert all(page == "closed" for _, page, stages in seen if "decanting" in stages and "settling" not in stages)
+    assert len(session.taken) == 3, session.taken                        # before (both), T1's after, T2's after
+    # opened once for the stock before, then again a little ahead of each stock after
+    assert len(session.opened) == 3 and [at - opened for at, opened in zip(session.taken[1:], session.opened[1:])] \
+        == [auto.PICTURES_AHEAD_S] * 2, (session.opened, session.taken)
+    assert all(a.info["proofs"][t][w]["picture"] for t in ("T1", "T2") for w in ("before", "after")), a.info["proofs"]
+    assert screen_reads == [] and session.page == "closed"               # (finished: closed)

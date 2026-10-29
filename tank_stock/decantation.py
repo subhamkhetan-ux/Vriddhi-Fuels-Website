@@ -1235,6 +1235,20 @@ class Decantation:
         self._sync_auto()
         return work
 
+    def after_due_in(self, now: float) -> float | None:
+        """Seconds until the first settling tank's stock after is due (0: due
+        now, or overdue while it isn't steady yet); None while none settles."""
+        settle = self.settings["settleMinutes"] * 60
+        due = None
+        for t in self.s["data"]["tanks"]:
+            if t["stage"] != "settling":
+                continue
+            st = self._st(t, now)
+            since = now - max(_ts(t.get("doneAt")) or now, st.get("settleFrom") or 0)
+            left = max(0.0, settle - since)
+            due = left if due is None else min(due, left)
+        return due
+
     def after_now(self, tank_id: str) -> dict:
         """Take this settling tank's stock after now, without waiting."""
         t = self.row(tank_id)

@@ -326,8 +326,8 @@
     <summary>Live monitoring</summary>
     <div class="panel-body">
       <div class="status" id="liveState" style="margin-top:0"></div>
-      <div class="note" style="margin-top:8px">Live keeps FuelTrans' Tank Status open on the server and reads the watched tanks every few seconds (no pictures) until you stop it; the tanks above show it as it comes. If the PC's connection drops, it connects again by itself.</div>
-      <label class="line">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
+      <div class="note" style="margin-top:8px">Live listens to FuelTrans' own live data on the server, as the Pumps tab does: connected in seconds, the watched tanks' exact figures as FuelTrans has them, no pictures (a capture takes one when you need it), until you stop it; the tanks above show it as it comes. If the PC's connection drops, it connects again by itself.</div>
+      <label class="line" id="mEveryLine">Read every (seconds) <input type="number" id="mEvery" min="5" max="3600" step="1"></label>
       <label class="line">Send the volume to the decant app as it changes <input type="checkbox" id="mUp"></label>
       <label class="line" id="mReLine">Connect again when the session ends <input type="checkbox" id="mRe"></label>
       <div class="note" style="margin-top:10px">Tanks to watch</div>
