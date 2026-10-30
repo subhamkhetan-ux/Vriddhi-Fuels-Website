@@ -6281,6 +6281,27 @@
       },
       "queued_at": "2026-10-30T08:00:24.499407+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "3b6c03f64be1363e",
+      "gmail_msg_id": "1880464624838097882",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "30/10/2026",
+      "date_serial": 46325,
+      "amount": 397600.0,
+      "raw_payer": "BHASKAR EARTHMOVER PVT LTD",
+      "customer": "Bhaskar Earthmover Private Limited",
+      "candidates": [
+        "Bhaskar Earthmover Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-30T09:00:29.002905+00:00",
+      "status": "matched"
     }
   ]
 }
