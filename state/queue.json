@@ -6260,6 +6260,27 @@
       },
       "queued_at": "2026-10-30T07:45:29.182784+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "452cdc03fd331369",
+      "gmail_msg_id": "1880460598005639235",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "30/10/26",
+      "date_serial": 46325,
+      "amount": 3580806.0,
+      "raw_payer": "SMC POWER GENERATION L",
+      "customer": "M/s Smc Power Generation Ltd.",
+      "candidates": [
+        "M/s Smc Power Generation Ltd."
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-30T08:00:24.499407+00:00",
+      "status": "matched"
     }
   ]
 }
