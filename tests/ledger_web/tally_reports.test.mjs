@@ -298,3 +298,90 @@ test('screens render and escape names', async () => {
   assert.ok(html.includes('&lt;i&gt;x&lt;/i&gt;'));
   assert.ok(!html.includes('<i>x</i>'));
 });
+
+// ---- exports that don't cover the whole year, and exports that overlap ------
+test('coverage: unbroken from 1 April, a late start, a month left out', async () => {
+  const { coverage, gapsIn } = await import('../../ledger/js/tally-file.js');
+  const v = (date, cancelled = false) => ({ date, cancelled });
+  const days = (from, to) => { const out = []; for (let d = Date.parse(`${from}T00:00:00Z`); d <= Date.parse(`${to}T00:00:00Z`); d += 86400000) out.push(v(new Date(d).toISOString().slice(0, 10))); return out; };
+  const full = coverage(days('2026-04-03', '2026-10-29'));            // a few days in: still unbroken
+  assert.deepEqual([full.complete, full.from, full.gaps.length], [true, '2026-04-01', 0]);
+  const late = coverage(days('2026-10-01', '2026-10-29'));
+  assert.deepEqual([late.complete, late.from], [false, '2026-10-01']);
+  assert.deepEqual(late.gaps, [{ from: '2026-04-01', to: '2026-09-30', days: 183, start: true }]);
+  const hole = coverage([...days('2026-04-01', '2026-06-30'), ...days('2026-10-01', '2026-10-29')]);
+  assert.deepEqual([hole.complete, hole.from], [false, '2026-10-01']);
+  assert.deepEqual(hole.gaps, [{ from: '2026-07-01', to: '2026-09-30', days: 92, start: false }]);
+  assert.equal(gapsIn(hole, '2026-08-01', '2026-08-31').length, 1);
+  assert.equal(gapsIn(hole, '2026-05-01', '2026-05-31').length, 0);
+  // up to a date: what comes after it doesn't matter
+  assert.equal(coverage([...days('2026-04-01', '2026-06-30'), ...days('2026-10-01', '2026-10-29')], { to: '2026-06-30' }).complete, true);
+  // a quiet week is not a gap; cancelled vouchers don't count as entries
+  assert.equal(coverage([...days('2026-04-01', '2026-04-10'), ...days('2026-04-18', '2026-04-30')]).complete, true);
+  assert.equal(coverage([...days('2026-04-01', '2026-04-10'), v('2026-04-15', true), ...days('2026-04-19', '2026-04-30')]).complete, false);
+});
+
+test('overlapping exports: a voucher edited in Tally keeps only its latest version', () => {
+  const vch = (alter, amount) => `<VOUCHER VCHTYPE="HSD CREDIT"><DATE>20261010</DATE><GUID>g-101</GUID><ALTERID> ${alter}</ALTERID><VOUCHERNUMBER>101</VOUCHERNUMBER>
+    <PARTYLEDGERNAME>Demo Power Ltd</PARTYLEDGERNAME>${ITEM('High Speed Diesel', 1000, 'LTR', '90.00', `${amount}.00`, 'SALE (HSD)')}${L('Demo Power Ltd', `-${amount}.00`, 'LEDGERENTRIES.LIST')}</VOUCHER>`;
+  const other = `<VOUCHER VCHTYPE="Receipt"><DATE>20261011</DATE><GUID>g-r1</GUID><ALTERID> 5</ALTERID><VOUCHERNUMBER>1</VOUCHERNUMBER><PARTYLEDGERNAME>Demo Power Ltd</PARTYLEDGERNAME>${L('Demo Power Ltd', '5000.00')}${L('Demo Bank', '-5000.00')}</VOUCHER>`;
+  const older = { name: 'oct-1-15.xml', ...parseTallyXml(`<ENVELOPE>${vch(7, 90000)}${other}</ENVELOPE>`) };
+  const newer = { name: 'oct-10-31.xml', ...parseTallyXml(`<ENVELOPE>${vch(9, 91000)}${other}</ENVELOPE>`) };
+  for (const files of [[older, newer], [newer, older]]) {                // whichever order they're chosen in
+    const t = mergeTally(files);
+    assert.equal(t.vouchers.length, 2);
+    assert.equal(t.duplicates, 2);
+    assert.equal(t.vouchers.find((x) => x.number === '101').amount, 91000);
+  }
+  assert.equal(mergeTally([older, newer]).replaced, 1);
+});
+
+test('Ledger vs Tally with only part of the year: compares from where the files are unbroken', async () => {
+  const { s, t, dash, accounts } = await demo();
+  const { reconStart } = await import('../../ledger/js/tally-recon.js');
+  // only October (the masters still in): nothing before 1 Oct may be taken for missing
+  const oct = t.vouchers.filter((x) => x.date >= '2026-10-01');
+  const st = reconStart(oct, t.masters, s.to);
+  assert.deepEqual([st.openingKnown, st.start], [false, '2026-10-01']);
+  const store = memoryStore(demoSeed(new Date(2026, 9, 30)));
+  const statement = await store.statementData(st.start, s.to);
+  const bulk = await Promise.all(dash.groups.map(async ([code, title]) => ({ code, title: shortGroup(code, title), data: await store.account(null, code, null, null) })));
+  const accts = appAccounts(statement, bulk, { from: st.start });
+  const res = reconcile(accts, oct, t.masters, { asOn: s.to, appCustomers: dash.customers });
+  assert.equal(res.openingKnown, false);
+  assert.equal(res.start, '2026-10-01');
+  for (const r of res.rows) {
+    assert.ok(r.findings.every((f) => f.date >= '2026-10-01' && f.type !== 'opening'), r.acct.name);
+    assert.equal(r.residual, 0);
+  }
+  // the planted differences in October are still found
+  for (const p of s.planted.filter((x) => x.type !== 'opening')) {
+    assert.ok(res.rows.find((r) => r.acct.id === p.account).findings.some((f) => f.type === p.type), `${p.account} ${p.type}`);
+  }
+  // a stretch left out in the middle: compared from after it
+  const holed = t.vouchers.filter((x) => x.date < '2026-07-01' || x.date > '2026-09-30');
+  assert.equal(reconStart(holed, t.masters, s.to).start, '2026-10-01');
+  // whole year: whole balances, as before
+  assert.deepEqual(reconStart(t.vouchers, t.masters, s.to), { cov: reconStart(t.vouchers, t.masters, s.to).cov, openingKnown: true, start: s.from });
+  assert.equal(accounts.length, accts.length);
+});
+
+test('financials with part of the year: the P&L stands, balances are flagged', async () => {
+  const { s, t } = await demo();
+  const full = financials(t.vouchers, t.masters, { from: s.from, to: s.to });
+  assert.equal(full.covered.balances, true);
+  assert.deepEqual(full.covered.periodGaps, []);
+  const holed = t.vouchers.filter((x) => x.date < '2026-07-01' || x.date > '2026-09-30');
+  const f = financials(holed, t.masters, { from: s.from, to: s.to });
+  assert.equal(f.covered.balances, false);
+  assert.deepEqual(f.covered.periodGaps.map((g) => [g.from, g.to]), [['2026-07-01', '2026-09-30']]);
+  const html = finHtml(f);
+  assert.ok(html.includes('Balances here are short'));
+  assert.ok(html.includes('no vouchers 1 Jul – 30 Sep'));
+  // October alone: its P&L has no gap; the balances are flagged
+  const oct = financials(t.vouchers.filter((x) => x.date >= '2026-10-01'), t.masters, { from: '2026-10-01', to: s.to });
+  assert.deepEqual(oct.covered.periodGaps, []);
+  assert.equal(oct.covered.balances, false);
+  assert.ok(reconHtml(reconcile([], t.vouchers.filter((x) => x.date >= '2026-10-01'), t.masters, { asOn: s.to }), { appUntil: '2026-10-20' })
+    .includes('nothing before 1 Oct'));
+});

@@ -17,13 +17,14 @@
 // Each finding carries its effect on the balance (Tally − app); the effects
 // and the opening difference add up to the difference in the closing balance.
 
-import { normName } from './tally-file.js';
+import { coverage, fyStartOf, normName } from './tally-file.js';
+
+export { fyStartOf };
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const cents = (n) => Math.round(n * 100);
 const dayNo = (iso) => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86400000);
 const normNo = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
-export const fyStartOf = (iso) => { const y = Number(iso.slice(0, 4)); return `${Number(iso.slice(5, 7)) >= 4 ? y : y - 1}-04-01`; };
 
 // ---------------------------------------------------------------------------
 // the app's side
@@ -265,16 +266,25 @@ export function reconcileAccount(acct, parties, { start, openingKnown, asOn, map
   };
 }
 
+// Where the comparison starts, as on asOn: {start, openingKnown, cov}.
+// Tally's openings (the masters) give real balances only when the files run
+// unbroken from 1 April; otherwise only what happened from the start of the
+// last unbroken stretch is compared, so a month left out isn't taken for
+// bills missing from Tally.
+export function reconStart(vouchers, masters, asOn) {
+  const cov = coverage(vouchers, { to: asOn });
+  const openingKnown = Boolean(masters && masters.ledgers.size && cov && cov.complete);
+  return { cov, openingKnown, start: cov ? (openingKnown ? cov.fyStart : cov.from) : asOn };
+}
+
 // Every account: {rows, tallyOnly, totals}
 //   appCustomers: [[key, name, ledger, group]] — every customer the app
 //   knows (to tell "in the app without a ledger" from "not in the app")
 export function reconcile(accounts, vouchers, masters, { asOn, appCustomers = [], map = {} } = {}) {
   const parties = tallyParties(vouchers, masters);
-  const openingKnown = Boolean(masters && masters.ledgers.size);
   const live = vouchers.filter((v) => !v.cancelled);
-  const first = live.length ? live[0].date : asOn;
-  const start = openingKnown ? fyStartOf(first) : first;
   const end = asOn || (live.length ? live[live.length - 1].date : null);
+  const { start, openingKnown, cov } = reconStart(vouchers, masters, end);
   const rows = accounts.map((a) => reconcileAccount(a, parties, { start, openingKnown, asOn: end, map }));
 
   // ledgers with a balance in Tally that no app account covers
@@ -285,7 +295,7 @@ export function reconcile(accounts, vouchers, masters, { asOn, appCustomers = []
   const tallyOnly = [];
   for (const [k, p] of parties) {
     if (covered.has(k) || !debtorLike(p)) continue;
-    const bal = round2((openingKnown ? p.opening || 0 : 0) + p.items.filter((x) => x.date <= end).reduce((s, x) => s + x.amount, 0));
+    const bal = round2((openingKnown ? p.opening || 0 : 0) + p.items.filter((x) => x.date <= end && (openingKnown || x.date >= start)).reduce((s, x) => s + x.amount, 0));
     if (!cents(bal)) continue;
     const app = known.get(k);
     tallyOnly.push({ name: p.name, balance: bal, inApp: Boolean(app), note: app ? (app.ledger || app.group ? 'in the app, not compared' : 'in the app with no ledger') : 'not in the app' });
@@ -300,7 +310,7 @@ export function reconcile(accounts, vouchers, masters, { asOn, appCustomers = []
   const compared = rows.filter((r) => r.status !== 'notInTally');
   return {
     rows: rows.sort((a, b) => Math.abs(b.diff || 0) - Math.abs(a.diff || 0) || (a.status === 'notInTally') - (b.status === 'notInTally')),
-    tallyOnly, start, asOn: end, openingKnown,
+    tallyOnly, start, asOn: end, openingKnown, cov, masters: Boolean(masters && masters.ledgers.size),
     totals: {
       accounts: rows.length,
       compared: compared.length,

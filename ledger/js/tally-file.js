@@ -248,6 +248,7 @@ export function parseTallyXml(text) {
       narration: tag(body, 'NARRATION'),
       gstin: tag(body, 'PARTYGSTIN'),
       guid: tag(body, 'GUID'),
+      alterId: num(tag(body, 'ALTERID')),
       balanced: balanced(ledgers),
       ledgers,
       items,
@@ -257,20 +258,39 @@ export function parseTallyXml(text) {
 }
 
 // Several files read together (say the masters export and a year's Day Book,
-// or the DayBook in Excel and in XML): one voucher list and one set of
-// masters. A voucher already read from an earlier file (same type, number,
-// date, party and amount) isn't added again; repeats inside one file stay.
+// or last month's export and this week's): one voucher list and one set of
+// masters. Exports that overlap count each voucher once:
+//   - XML vouchers carry Tally's GUID and ALTERID (raised on every edit):
+//     the latest version of a voucher is kept, so a bill corrected in Tally
+//     and exported again replaces its old copy;
+//   - otherwise a voucher already read from an earlier file (same type,
+//     number, date, party and amount) isn't added again; repeats inside one
+//     file stay.
 export function mergeTally(files) {
   const vouchers = [];
   const masters = emptyMasters();
   const seen = new Map();
+  const byGuid = new Map();
   const keyOf = (v) => `${v.type}|${v.number}|${v.date}|${normName(v.party)}|${Math.round(v.amount * 100)}`;
   let company = null;
   let duplicates = 0;
+  let replaced = 0;
   for (const f of files) {
     company = company || f.company || null;
     const here = new Map();
     for (const v of f.vouchers) {
+      if (v.guid) {
+        const at = byGuid.get(v.guid);
+        if (at != null) {
+          duplicates += 1;
+          const old = vouchers[at];
+          if ((v.alterId ?? -1) > (old.alterId ?? -1)) { vouchers[at] = v; replaced += 1; }
+          continue;
+        }
+        byGuid.set(v.guid, vouchers.length);
+        vouchers.push(v);
+        continue;
+      }
       const k = keyOf(v);
       if ((seen.get(k) || 0) > 0) { seen.set(k, seen.get(k) - 1); duplicates += 1; continue; }
       here.set(k, (here.get(k) || 0) + 1);
@@ -283,11 +303,42 @@ export function mergeTally(files) {
   for (const v of vouchers) for (const it of v.items) it.group = (masters.stockItems.get(normName(it.name)) || {}).parent || '';
   vouchers.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   return {
-    vouchers, masters, company, duplicates,
+    vouchers, masters, company, duplicates, replaced,
     names: files.map((f) => f.name).filter(Boolean),
     source: files.some((f) => f.source === 'xml') ? 'xml' : 'excel',
   };
 }
+
+// The dates the files cover without a break, up to `to`:
+//   {fyStart, first, last, from, gaps: [{from, to, days, start}], complete}
+// A gap is more than GAP_DAYS days in a row with no voucher at all (a pump
+// enters something every day, so it is a file left out), or a start more
+// than GAP_DAYS days after 1 April (start: true). complete: unbroken from 1
+// April, so the masters' openings plus the vouchers give real balances;
+// otherwise `from` is where the last unbroken stretch begins.
+export const GAP_DAYS = 7;
+const dayNo = (iso) => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86400000);
+const isoOf = (n) => new Date(n * 86400000).toISOString().slice(0, 10);
+export const fyStartOf = (iso) => { const y = Number(iso.slice(0, 4)); return `${Number(iso.slice(5, 7)) >= 4 ? y : y - 1}-04-01`; };
+export function coverage(vouchers, { to = null } = {}) {
+  const dates = [...new Set(vouchers.filter((v) => !v.cancelled && !v.optional && (!to || v.date <= to)).map((v) => v.date))].sort();
+  if (!dates.length) return null;
+  const first = dates[0];
+  const fyStart = fyStartOf(first);
+  const gaps = [];
+  if (dayNo(first) - dayNo(fyStart) > GAP_DAYS) gaps.push({ from: fyStart, to: isoOf(dayNo(first) - 1), days: dayNo(first) - dayNo(fyStart), start: true });
+  for (let i = 1; i < dates.length; i++) {
+    const days = dayNo(dates[i]) - dayNo(dates[i - 1]) - 1;
+    if (days > GAP_DAYS) gaps.push({ from: isoOf(dayNo(dates[i - 1]) + 1), to: isoOf(dayNo(dates[i]) - 1), days, start: false });
+  }
+  const lastGap = gaps[gaps.length - 1];
+  return {
+    fyStart, first, last: dates[dates.length - 1], gaps, complete: !gaps.length,
+    from: lastGap ? isoOf(dayNo(lastGap.to) + 1) : fyStart,
+  };
+}
+// the gaps that fall in from..to
+export const gapsIn = (cov, from, to) => (cov ? cov.gaps.filter((g) => g.from <= to && g.to >= from) : []);
 
 // DayBook Excel rows (arrays of SheetJS cells, A..I) -> {vouchers, skipped}.
 // Rows whose column A isn't a date (headers, totals, the ledger lines of a
@@ -357,6 +408,7 @@ function voucher(v) {
     ledgers: v.ledgers || [],
     items: v.items || [],
     guid: v.guid || '',
+    alterId: v.alterId ?? null,
     balanced: v.balanced ?? null,
     row: v.row ?? null,
   };

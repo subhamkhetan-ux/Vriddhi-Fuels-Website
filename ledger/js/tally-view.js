@@ -19,7 +19,7 @@ export const PAGE_SIZE = 100;
 
 // the header: the file(s), the company and dates, the views and the period picker
 //   t: mergeTally(); r: {span, from, to}; view: '', 'fin', 'recon', 'stock'
-export function fileHeadHtml(t, r, period, { view = '', note = '', tabs = '' } = {}) {
+export function fileHeadHtml(t, r, period, { view = '', note = '', tabs = '', warn = '' } = {}) {
   const months = [];
   for (let m = r.span.from.slice(0, 7); m <= r.span.to.slice(0, 7);) {
     months.push(m);
@@ -30,11 +30,12 @@ export function fileHeadHtml(t, r, period, { view = '', note = '', tabs = '' } =
   return `
     <div class="row-between"><div>
       <h2>${esc(t.company || t.names[0] || 'Tally file')}</h2>
-      <p class="muted small">${kinds.join(' · ')} · ${plural(t.vouchers.length, 'voucher')} · ${fmtDate(r.span.from)} – ${fmtDate(r.span.to)}${t.duplicates ? ` · ${plural(t.duplicates, 'voucher')} in more than one file counted once` : ''}</p>
+      <p class="muted small">${kinds.join(' · ')} · ${plural(t.vouchers.length, 'voucher')} · ${fmtDate(r.span.from)} – ${fmtDate(r.span.to)}${t.duplicates ? ` · ${plural(t.duplicates, 'voucher')} in more than one file counted once${t.replaced ? ` (${t.replaced} replaced by a later edit)` : ''}` : ''}</p>
       <div class="file-list">${t.names.map((n) => `<span class="pill muted-pill">${esc(n)}</span>`).join('')}</div></div>
       <span class="row-end"><label class="file"><input type="file" id="tally-add" multiple accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn ghost small">Add a file</span></label>
         <label class="file"><input type="file" id="tally-file-2" multiple accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn ghost small">Open other files</span></label>
         <button class="btn ghost small" data-tally-clear>Close</button></span></div>
+    ${warn ? `<p class="small warn-text">${warn}</p>` : ''}
     ${tabs}
     ${view === 'recon' ? '' : `<div class="chips">
       <button class="chip ${period.key === 'all' ? 'on' : ''}" data-tperiod="all">Whole file</button>

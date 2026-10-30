@@ -11,7 +11,7 @@
 // is placed by its name and use (the party of a sale = a debtor, …) and the
 // figures are marked as estimated.
 
-import { hasMasters, normName } from './tally-file.js';
+import { coverage, fyStartOf, gapsIn, hasMasters, normName } from './tally-file.js';
 
 const round2 = (n) => Math.round(n * 100) / 100 + 0;          // + 0: no −0
 
@@ -130,7 +130,6 @@ export function monthsBetween(from, to) {
   }
   return out;
 }
-const fyStartOf = (iso) => { const y = Number(iso.slice(0, 4)); return `${Number(iso.slice(5, 7)) >= 4 ? y : y - 1}-04-01`; };
 
 // Every ledger's figures for from..to. Openings from the masters apply at
 // the start of the financial year of the file's first voucher.
@@ -307,8 +306,20 @@ export function financials(vouchers, masters, { from, to, closingStock = null } 
   };
   trial.diff = round2(trial.dr - trial.cr);
 
+  // closing balances (balance sheet, cash & bank, debtors) are the masters'
+  // openings plus every voucher since 1 April: right only when the files run
+  // unbroken from then; the P&L only needs the period itself
+  const cov = coverage(vouchers, { to });
+  const covered = {
+    balances: exact && Boolean(cov && cov.complete),
+    gaps: cov ? cov.gaps : [],
+    periodGaps: gapsIn(cov, from, to).map((g) => ({ ...g, from: g.from < from ? from : g.from, to: g.to > to ? to : g.to })),
+    from: cov ? cov.from : from,
+    first: cov ? cov.first : from,
+  };
+
   return {
-    from, to, days, exact, pl, bs, ratios, months,
+    from, to, days, exact, pl, bs, ratios, months, covered,
     expenses, incomes, salesLedgers, purchaseLedgers, liquidList, topDebtors, topCreditors, duties, debtorsCount: topDebtors.length,
     checks: { openingDiff, unbalanced, unknown, trial, guessed: !exact },
     ledgers,

@@ -232,6 +232,25 @@ file** adds one to those open):
   file.
 - **DayBook in Excel** (the file Import reads): the Insights only.
 
+**Exporting only the new days.** The viewer saves nothing, so it knows only
+the files open. There's no need to export the whole year each time: keep
+the earlier exports and export just the days since (overlapping a few days
+is fine), then choose them all together. Each voucher counts once — and an
+XML voucher edited in Tally since the earlier export keeps only its latest
+version (Tally's GUID and ALTERID). Re-export the masters only after adding
+customers, ledgers or items.
+
+What needs what: the Insights, Purchases & stock and a month's P&L need only
+that month. Balances — the balance sheet, cash & bank, debtors and *Ledger vs
+Tally* — need the masters and every voucher since 1 April (in any number of
+files). The viewer checks: more than 7 days in a row with no voucher at all,
+or a start more than 7 days after 1 April, is shown as a gap on top of every
+view. Then the balance sheet and cash & bank say their balances are short,
+the P&L says which days it leaves out, and *Ledger vs Tally* compares only
+from where the files run unbroken (both sides starting from the app's
+balance that day), so a month left out is never taken for bills missing from
+Tally.
+
 Four views (all but *Ledger vs Tally* for the whole file, a month, or any
 From..To):
 - **Insights** — sales, receipts, payments, estimated earnings and the
@@ -257,8 +276,10 @@ From..To):
   balance** gives every ledger and the months in Excel.
 - **Ledger vs Tally** — each customer's balance in this app (their ledger
   sheet; a bulk sheet's billing names together) against their ledger in
-  Tally, as on any date in the file: agree / differ / same balance with
-  entries on other days / not found in Tally. Tap one to see where a
+  Tally, as on any date in the file (at first the app's last sale date, so
+  Tally bills from days not yet imported here don't read as missing):
+  agree / differ / same balance with entries on other days / not found in
+  Tally. Tap one to see where a
   difference comes from — the entries are matched:
   1. bills by bill no. (amount or date differs);
   2. a payment with its TDS and shortage against one Tally receipt of the
