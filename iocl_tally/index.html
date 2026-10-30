@@ -259,9 +259,11 @@
 
   <section class="panel">
     <h2>Customer ECollection → which bank</h2>
-    <div class="hint" style="margin:0 0 12px">An ECollection is routed to a bank ledger by a piece of the account number
-      in the PAD's item text (e.g. <code>HDFC0000240_5921701 0101010</code> → HDFC C/A). To add a new bank account,
-      give a distinctive run of its account number (spaces are ignored) and its Tally ledger.</div>
+    <div class="hint" style="margin:0 0 12px">An ECollection is routed by the <b>receiving account number</b> printed
+      after the IFSC in the PAD's item text (e.g. <code>HDFC0000240_5921701 0101010</code> → HDFC C/A). Bank accounts
+      registered in the <b>Bank app</b> are picked up automatically. A collection into an account the tool doesn't
+      know is held back (never posted to another bank) — add the account in the Bank app, or here with its number
+      and Tally ledger.</div>
     <div class="scroll"><table>
       <thead><tr><th>Item text contains</th><th>Bank ledger</th><th>Source</th><th></th></tr></thead>
       <tbody id="routeBody"></tbody>
@@ -484,7 +486,7 @@ function applyMappings(j){
         ${l.renamed_to?`<button class="btn sm" data-reset="${i}" title="Back to ${esc(l.name)}">Reset</button>`:''}</td></tr>`).join("");
   $("#routeBody").innerHTML=j.routes.map((r,i)=>`
     <tr><td class="mono">${esc(r.marker)}</td><td>${esc(r.ledger)}</td>
-      <td>${r.builtin?'<span class="badge">built-in</span>':'<span class="badge added">added here</span>'}</td>
+      <td>${r.from_bank?'<span class="badge">from Bank app</span>':r.builtin?'<span class="badge">built-in</span>':'<span class="badge added">added here</span>'}</td>
       <td class="acts">${r.builtin?'':`<button class="btn sm" data-route="${i}">Remove</button>`}</td></tr>`).join("");
   const coll=j.collections||[];
   $("#collWrap").hidden=!coll.length;

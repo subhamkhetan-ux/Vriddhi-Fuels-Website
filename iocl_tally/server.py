@@ -31,6 +31,9 @@ from iocl_tally import xml_generator as G  # noqa: E402
 DATA_PATH = os.path.join(_HERE, "data.json")
 OUT_DIR = os.path.join(_HERE, "out")
 TALLY_LEDGERS = os.path.join(_ROOT, "state", "tally_ledgers.json")   # shipped ledger list (read-only)
+# The Bank app's own settings: bank accounts registered there are our accounts
+# too, so a collection into one routes to it with no setup here.
+BANK_DATA = os.path.join(_ROOT, "bank_tally", "data.json")
 
 # next_tt seeds the manual purchase (TT) voucher-number counter — set it to the
 # number AFTER your last TT purchase in Tally so new ones continue the sequence.
@@ -146,8 +149,28 @@ def _known(ledger: str):
     return by_low.get(ledger.strip().lower())
 
 
+def bank_accounts() -> dict:
+    """Our bank accounts known to the Bank app (built-in + registered there) that
+    have no collection route of their own: number -> ledger."""
+    accts: dict = {}
+    try:
+        from bank_tally import classify as BC
+        accts.update(BC._BUILTIN_ACCOUNTS)
+    except Exception:
+        pass
+    try:
+        with open(BANK_DATA, encoding="utf-8") as fh:
+            accts.update(json.load(fh).get("own_accounts", {}) or {})
+    except (OSError, ValueError, AttributeError):
+        pass
+    routed = {n for n, _tpl, _led in G.COLLECTION_ROUTES}
+    return {n: led for n, led in accts.items() if n and led and n not in routed}
+
+
 def apply_config(data: dict | None = None) -> None:
     data = load_data() if data is None else data
+    G.BANK_ACCOUNTS.clear()
+    G.BANK_ACCOUNTS.update(bank_accounts())
     G.LEDGER_RENAMES.clear()
     G.LEDGER_RENAMES.update({k: v for k, v in data.get("ledger_renames", {}).items() if v})
     G.EXTRA_COLLECTION_ROUTES[:] = [(r["marker"], r["ledger"])
@@ -190,9 +213,13 @@ def mapping_op(body: dict) -> None:
         if len(marker) < 5:
             raise MappingError("the account marker must be at least 5 characters "
                                "(a run of the account number as the PAD shows it)")
-        for m, _tpl, led in G.COLLECTION_ROUTES:
+        known = [(m, led) for m, _tpl, led in G.COLLECTION_ROUTES] + \
+            list(bank_accounts().items())
+        for m, led in known:
             if m in marker or marker in m:
-                raise MappingError(f"'{marker}' overlaps the built-in route for {led}")
+                raise MappingError(f"'{marker}' is part of the account number of {led}, "
+                                   "which is already routed — use more digits of the "
+                                   "new account's number")
         routes = data.setdefault("collection_routes", [])
         if any(r.get("marker") == marker for r in routes):
             raise MappingError(f"a route for '{marker}' already exists")
@@ -261,7 +288,9 @@ def mappings_view() -> dict:
                         "in_tally": not known_low or now.strip().lower() in known_low})
     routes = [{"marker": m, "ledger": led, "builtin": True, "template": tpl[:-4]}
               for m, tpl, led in G.COLLECTION_ROUTES]
-    routes.append({"marker": "(anything else)", "ledger": G.COLLECTION_DEFAULT[1],
+    routes += [{"marker": m, "ledger": led, "builtin": True, "from_bank": True,
+                "template": "COLLECTION_OD"} for m, led in G.BANK_ACCOUNTS.items()]
+    routes.append({"marker": "(line names no account)", "ledger": G.COLLECTION_DEFAULT[1],
                    "builtin": True, "template": G.COLLECTION_DEFAULT[0][:-4]})
     routes += [{"marker": m, "ledger": led, "builtin": False, "template": "COLLECTION_OD"}
                for m, led in G.EXTRA_COLLECTION_ROUTES]

@@ -39,6 +39,12 @@ COUNTER_LEDGER = {
 }
 OPEN_DELIVERY_LABEL = "Open Delivery value in all CCA"
 
+# The side of the PAD each category is always on. A line on the other side (a
+# reversal, a correction) would be posted backwards by its template, so it is
+# skipped for a person to enter instead.
+CREDIT_CATEGORIES = {"TDS", "FLEET", "COLLECTION", "DEALERMARGIN"}
+DEBIT_CATEGORIES = {"K1", "LICENSE", "NFR", "INTEREST", "PURCHASE"}
+
 
 def _ymd(date) -> str:
     return f"{date.year}{date.month:02d}{date.day:02d}"
@@ -110,7 +116,9 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
         note = ""
         counter_ledger = G.renamed(COUNTER_LEDGER.get(r.category, ""))
         if r.category == "COLLECTION":
-            counter_ledger = G.renamed(G.collection_route(r.item_text)[1])
+            counter_ledger = G.renamed(G.collection_route(r.item_text)[1] or "")
+        wrong_side = ((r.category in CREDIT_CATEGORIES and r.debit > 0) or
+                      (r.category in DEBIT_CATEGORIES and r.credit > 0))
         if not r.reconciles:
             # The running balance didn't tie, so this line's amounts were not
             # read reliably. Never post a guessed amount — list it for review.
@@ -118,6 +126,22 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
                                        "doesn't tie) — check the PAD and enter by hand")
             if r.category == P.CAT_PURCHASE:
                 skipped_purchases += 1
+        elif not r.amount or (r.debit and r.credit):
+            status, note = "SKIPPED", ("no amount on this line" if not r.amount else
+                                       "line has both a debit and a credit — enter by hand")
+            if r.category == P.CAT_PURCHASE:
+                skipped_purchases += 1
+        elif wrong_side:
+            side = "debit" if r.debit else "credit"
+            status, note = "SKIPPED", (f"a {r.category} line is never a {side} — wrong "
+                                       "direction (a reversal?); check the PAD and enter by hand")
+            if r.category == P.CAT_PURCHASE:
+                skipped_purchases += 1
+        elif r.category == "COLLECTION" and G.collection_route(r.item_text)[1] is None:
+            status, note = "SKIPPED", (
+                f"ECollection into account {G.collection_account(r.item_text)}, which the "
+                "tool doesn't know — add it as a bank account in the Bank app (or under "
+                "Ledger mappings → Customer ECollection), then generate again")
         elif r.category == P.CAT_PURCHASE:
             vtype = "Purchase"
             iv = invoices.get(r.doc_number or "")

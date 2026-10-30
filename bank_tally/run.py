@@ -36,33 +36,106 @@ def entry_key(account, date, amount, narration) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
 
 
+PAIR_DAYS = 2      # a transfer's credit can land up to this many days after the debit
+
+
 def _pair_contras(items):
     """Pair an inter-account transfer's two legs (a withdrawal in account A and a
-    same amount+date deposit in account B) into one source→dest Contra.
+    same-amount deposit in account B) into one source->dest Contra.
+
+    A leg's classification may already name the other account (its number in
+    the narration); a pair must agree with any such hint, and the more hints a
+    candidate confirms the better. Same-date legs pair first; then a deposit up
+    to ``PAIR_DAYS`` later (NEFT/RTGS often credits next day) — only when exactly
+    one candidate fits best, so an ambiguous one goes to review instead.
 
     ``items`` is a list of dicts for CONTRA-classified rows (excluding cash
     deposits). Returns ``(pairs, leftovers)`` where each pair is
-    ``(date, amount, source_ledger, dest_ledger, narration)``."""
+    ``(date, amount, source_ledger, dest_ledger, narration, index, key)``."""
     pairs, used = [], set()
     withdrawals = [x for x in items if not x["row"].is_credit]
     deposits = [x for x in items if x["row"].is_credit]
-    for w in withdrawals:
-        match = None
-        for d in deposits:
-            if id(d) in used:
+
+    def score(w, d):
+        """None if d can't be w's other leg, else how many hints confirm it."""
+        if d["account"] == w["account"] or abs(d["row"].amount - w["row"].amount) >= 0.01:
+            return None
+        w_to, d_from = w["cl"].counter_ledger, d["cl"].counter_ledger
+        if (w_to and w_to != d["account"]) or (d_from and d_from != w["account"]):
+            return None
+        return (w_to == d["account"]) + (d_from == w["account"])
+
+    def days(w, d):
+        if not (w["row"].date and d["row"].date):
+            return None
+        return (d["row"].date - w["row"].date).days
+
+    for window in (False, True):
+        for w in withdrawals:
+            if id(w) in used:
                 continue
-            if d["account"] == w["account"]:
+            cands = []
+            for d in deposits:
+                if id(d) in used:
+                    continue
+                sc, gap = score(w, d), days(w, d)
+                if sc is None or gap is None:
+                    continue
+                if (gap == 0) if not window else (0 < gap <= PAIR_DAYS):
+                    cands.append((-sc, gap, d))
+            if not cands:
                 continue
-            if d["row"].date == w["row"].date and abs(d["row"].amount - w["row"].amount) < 0.01:
-                match = d
-                break
-        if match:
-            used.add(id(match))
+            cands.sort(key=lambda c: (c[0], c[1]))
+            if window and len(cands) > 1 and cands[0][:2] == cands[1][:2]:
+                continue                       # two equally good later credits: ambiguous
+            d = cands[0][2]
+            used.add(id(d))
             used.add(id(w))
-            pairs.append((w["row"].date, w["row"].amount, w["account"],
-                          match["account"], w["row"].narration, w["row"].index))
+            pairs.append((w["row"].date, w["row"].amount, w["account"], d["account"],
+                          w["row"].narration, w["row"].index, w["key"]))
     leftovers = [x for x in items if id(x) not in used]
     return pairs, leftovers
+
+
+def merge_statements(statements):
+    """Combine statements of the same account into one (oldest first) and drop
+    lines repeated across them — two downloads of overlapping periods, or the
+    same file dropped twice — so nothing is posted twice. Identical lines inside
+    ONE statement (two equal charges on a day) are kept. Returns
+    ``(statements, n_duplicates)``."""
+    from collections import Counter
+    order, by_ledger = [], {}
+    for ledger, rows in statements:
+        if ledger not in by_ledger:
+            order.append(ledger)
+            by_ledger[ledger] = []
+        by_ledger[ledger].append(rows)
+
+    def ident(r):
+        return (r.date, (r.narration or "").strip(), (r.ref or "").strip(),
+                round(r.withdrawal, 2), round(r.deposit, 2), round(r.balance or 0, 2))
+
+    merged, dupes = [], 0
+    for ledger in order:
+        files = by_ledger[ledger]
+        out, have = list(files[0]), Counter(ident(r) for r in files[0])
+        for rows in files[1:]:
+            seen_here = Counter()
+            for r in rows:
+                k = ident(r)
+                seen_here[k] += 1
+                if seen_here[k] <= have[k]:
+                    dupes += 1                 # already have this many of this line
+                    continue
+                out.append(r)
+            for k, n in seen_here.items():
+                have[k] = max(have[k], n)
+        if len(files) > 1:
+            out.sort(key=lambda r: r.date.toordinal() if r.date else 0)   # stable
+            for i, r in enumerate(out):
+                r.index = i
+        merged.append((ledger, out))
+    return merged, dupes
 
 
 # Ledgers that make a resolved row a Contra (an own bank account or Cash) rather
@@ -92,7 +165,17 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     classified = []          # (account_ledger, row, classification)
     for bank_ledger, rows in statements:
         for r in rows:
-            classified.append((bank_ledger, r, C.classify(r, customers, aliases)))
+            classified.append((bank_ledger, r, C.classify(
+                r, customers, aliases, statement_ledger=bank_ledger)))
+
+    # A stable key per line. Two identical lines (same day, amount, narration —
+    # e.g. two equal charges) get distinct keys so dropping/resolving one never
+    # touches the other; the first keeps the plain key, so saved choices stay valid.
+    keys, seen_keys = {}, {}
+    for acct, r, _cl in classified:
+        base = entry_key(acct, r.date, r.amount, r.narration)
+        seen_keys[base] = seen_keys.get(base, 0) + 1
+        keys[id(r)] = base if seen_keys[base] == 1 else f"{base}-{seen_keys[base]}"
 
     # Count all statement lines up front — resolved rows are removed from
     # ``classified`` below, so measuring later would undercount n_lines and break
@@ -111,9 +194,9 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
                 index if index is not None else 0)
 
     def add_entry(vtype, xml, account, date, amount, direction, narration,
-                  counter, index, srclines=1):
+                  counter, index, srclines=1, key=None):
         entries.append({
-            "key": entry_key(account, date, amount, narration),
+            "key": key or entry_key(account, date, amount, narration),
             "type": vtype,
             "account": account,
             "date": date.strftime("%d-%m-%Y") if date else "",
@@ -131,7 +214,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     #     over classification, so force-review / unpaired-transfer rows resolve. -
     handled = set()
     for acct, row, cl in classified:
-        k = entry_key(acct, row.date, row.amount, row.narration)
+        k = keys[id(row)]
         if k not in resolved:
             continue
         handled.add(id(row))
@@ -141,37 +224,47 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             if row.is_credit:                   # money in: source(Cr)=led, dest(Dr)=acct
                 xml = G.make_contra(ymd, row.amount, led, acct, row.narration)
                 add_entry("Contra", xml, acct, row.date, row.amount, "credit",
-                          row.narration, led, row.index)
+                          row.narration, led, row.index, key=keys[id(row)])
             else:                               # money out: source(Cr)=acct, dest(Dr)=led
                 xml = G.make_contra(ymd, row.amount, acct, led, row.narration)
                 add_entry("Contra", xml, acct, row.date, row.amount, "debit",
-                          row.narration, led, row.index)
+                          row.narration, led, row.index, key=keys[id(row)])
         elif row.is_credit:
             xml = G.make_receipt(ymd, row.amount, acct, led, row.narration)
             add_entry("Receipt", xml, acct, row.date, row.amount, "credit",
-                      row.narration, led, row.index)
+                      row.narration, led, row.index, key=keys[id(row)])
         else:
             xml = G.make_payment(ymd, row.amount, acct, led, row.narration)
             add_entry("Payment", xml, acct, row.date, row.amount, "debit",
-                      row.narration, led, row.index)
+                      row.narration, led, row.index, key=keys[id(row)])
     classified = [(a, r, c) for a, r, c in classified if id(r) not in handled]
+
+    # A line whose amount doesn't tie to the statement's running balance was not
+    # read reliably — never post it automatically; it goes to review.
+    unreliable = [(a, r, c) for a, r, c in classified if not r.reconciles and not c.skip]
+    for acct, row, cl in unreliable:
+        review.append(_review_row(acct, row, cl, "amount doesn't tie to the statement's "
+                                  "running balance — check it in the statement",
+                                  key=keys[id(row)]))
+    bad = {id(r) for _a, r, _c in unreliable}
+    classified = [(a, r, c) for a, r, c in classified if id(r) not in bad]
 
     # --- Contra: cash deposits post directly; inter-account transfers pair. ----
     contra_items, cash_items = [], []
     for acct, row, cl in classified:
         if cl.vtype == C.CONTRA:
             (cash_items if cl.tier == "cash-deposit" else contra_items).append(
-                {"account": acct, "row": row, "cl": cl})
+                {"account": acct, "row": row, "cl": cl, "key": keys[id(row)]})
     pairs, leftovers = _pair_contras(contra_items)
-    for date, amount, src, dst, narr, w_index in pairs:
+    for date, amount, src, dst, narr, w_index, w_key in pairs:
         xml = G.make_contra(_ymd(date), amount, src, dst, narr)
         add_entry("Contra", xml, src, date, amount, "debit", narr, dst, w_index,
-                  srclines=2)      # one voucher covers both legs (withdrawal + deposit)
+                  srclines=2, key=w_key)   # one voucher covers both legs (withdrawal + deposit)
     for it in cash_items:      # Bank Dr / Cash Cr — source is Cash, dest the bank
         r = it["row"]
         xml = G.make_contra(_ymd(r.date), r.amount, "Cash", it["account"], r.narration)
         add_entry("Contra", xml, it["account"], r.date, r.amount, "credit",
-                  r.narration, "Cash", r.index)
+                  r.narration, "Cash", r.index, key=it["key"])
 
     # An unpaired transfer whose destination is already known (e.g. CGTMS -> OD,
     # or an ICICI-IFSC self-transfer) posts directly; the rest go to review.
@@ -182,7 +275,7 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
         if (not r.is_credit) and dest and dest != acct:
             xml = G.make_contra(_ymd(r.date), r.amount, acct, dest, r.narration)
             add_entry("Contra", xml, acct, r.date, r.amount, "debit", r.narration,
-                      dest, r.index)
+                      dest, r.index, key=it["key"])
         else:
             leftover_reviewed.append(it)
 
@@ -190,7 +283,8 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     skipped = []
     for it in leftover_reviewed:
         review.append(_review_row(it["account"], it["row"], it["cl"],
-                                  "unpaired transfer — pick the other account"))
+                                  "unpaired transfer — pick the other account",
+                                  key=it["key"]))
     for acct, row, cl in classified:
         if cl.vtype == C.CONTRA:
             continue
@@ -206,17 +300,19 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
             })
             continue
         if cl.counter_ledger is None:
-            review.append(_review_row(acct, row, cl, "needs a ledger"))
+            review.append(_review_row(acct, row, cl, "needs a ledger", key=keys[id(row)]))
             continue
         ymd = _ymd(row.date)
         if cl.vtype == C.RECEIPT:
             xml = G.make_receipt(ymd, row.amount, acct, cl.counter_ledger, row.narration)
             add_entry("Receipt", xml, acct, row.date, row.amount, "credit",
-                      row.narration, cl.counter_ledger, row.index)
+                      row.narration, cl.counter_ledger, row.index,
+                      key=keys[id(row)])
         else:
             xml = G.make_payment(ymd, row.amount, acct, cl.counter_ledger, row.narration)
             add_entry("Payment", xml, acct, row.date, row.amount, "debit",
-                      row.narration, cl.counter_ledger, row.index)
+                      row.narration, cl.counter_ledger, row.index,
+                      key=keys[id(row)])
 
     # Emit in bank-statement order (date, statement, row position) so the export
     # mirrors the account rather than grouping by voucher type.
@@ -276,9 +372,9 @@ def process(statements, customers, aliases=None, dropped=None, resolved=None):
     return vouchers, review, summary
 
 
-def _review_row(account, row, cl, note):
+def _review_row(account, row, cl, note, key=None):
     return {
-        "key": entry_key(account, row.date, row.amount, row.narration),
+        "key": key or entry_key(account, row.date, row.amount, row.narration),
         "tier": cl.tier,
         "account": account,
         "date": row.date.strftime("%d-%m-%Y") if row.date else "",

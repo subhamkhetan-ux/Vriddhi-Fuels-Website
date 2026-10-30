@@ -29,6 +29,7 @@ OWN_ACCOUNTS = {
     "50200110712542": "HDFC BANK OD A/C - 50200110712542",
     "59217010101010": "HDFC BANK C/A - 59217010101010",
     "046805004716": "ICICI BANK LTD",
+    "046805005893": "ICICI OD A/c - 046805005893",
 }
 
 # Our own bank ledgers (+ Cash). A payee alias must never resolve to one of these
@@ -50,6 +51,16 @@ def configure_accounts(extra: dict | None = None) -> None:
             OWN_ACCOUNTS[acct] = ledger
     _BANK_LEDGERS.clear()
     _BANK_LEDGERS.update(set(OWN_ACCOUNTS.values()) | {"Cash"})
+    # An IFSC can pin a self-transfer to one of our accounts only while we hold a
+    # single account at that bank (found by the bank's name in our ledger names).
+    # With two (our HDFC C/A + OD, ICICI C/A + OD) it's ambiguous, so it falls
+    # back to pairing across statements.
+    _IFSC_TO_OWN.clear()
+    for code, bank in _IFSC_BANK.items():
+        at_bank = [led for led in OWN_ACCOUNTS.values()
+                   if re.search(rf"\b(?:{bank})\b", led.upper())]
+        if len(at_bank) == 1:
+            _IFSC_TO_OWN[code] = at_bank[0]
 
 # Payment narration keyword -> counter ledger (extend as needed).
 PAYMENT_RULES = [
@@ -85,7 +96,19 @@ def _force_review(name: str) -> bool:
 # Source-bank IFSC prefix -> our ledger, for a self-transfer where only the name
 # (not the account number) appears in the narration. HDFC is ambiguous between
 # our two HDFC accounts, so those are resolved by pairing across statements.
-_IFSC_TO_OWN = {"ICIC": "ICICI BANK LTD"}
+_IFSC_TO_OWN: dict = {}                 # filled by configure_accounts()
+# IFSC bank code -> how that bank appears in our ledger names (a regex, matched
+# as whole words on the upper-cased ledger name).
+_IFSC_BANK = {
+    "ICIC": r"ICICI", "HDFC": r"HDFC", "SBIN": r"SBI|STATE BANK", "UTIB": r"AXIS",
+    "KKBK": r"KOTAK", "PUNB": r"PNB|PUNJAB NATIONAL", "BARB": r"BARODA|BOB",
+    "CNRB": r"CANARA", "UBIN": r"UNION", "IDIB": r"(?<!OVERSEAS )INDIAN BANK",
+    "IOBA": r"OVERSEAS|IOB", "BKID": r"(?<!CENTRAL )BANK OF INDIA|BOI", "UCBA": r"UCO",
+    "CBIN": r"CENTRAL BANK", "MAHB": r"MAHARASHTRA", "YESB": r"YES BANK",
+    "INDB": r"INDUSIND", "IDFB": r"IDFC", "FDRL": r"FEDERAL", "AUBL": r"AU SMALL|AU BANK",
+}
+_IFSC = re.compile(r"\b([A-Z]{4})0[A-Z0-9]{6}")
+configure_accounts()                    # apply the one-account-per-bank rule to the built-ins
 
 # Staff — any bank payment to one of these posts to the single Salary ledger.
 # Bank narrations truncate the name (e.g. "NarendraPr" for Narendra Kumar
@@ -131,10 +154,13 @@ class Classification:
 
 
 def _own_account_in(narration: str, exclude: str | None) -> str | None:
+    """The other own account named in a narration — as a whole number (not a
+    piece of a longer reference) and never ``exclude`` (the statement's own
+    ledger: a line naming its own account isn't a transfer)."""
     for acct, ledger in OWN_ACCOUNTS.items():
-        if acct == exclude:
+        if ledger == exclude:
             continue
-        if acct in narration:
+        if re.search(rf"(?<!\d){acct}(?!\d)", narration):
             return ledger
     return None
 
@@ -211,9 +237,10 @@ def extract_remitter(narration: str) -> str:
     return " ".join(out).strip() or parts[2]
 
 
-def classify(row, customers, aliases=None):
-    """Classify a :class:`bank_tally.statement.BankRow`. ``self_account`` is the
-    statement's own account number (so a self-reference isn't read as a transfer)."""
+def classify(row, customers, aliases=None, statement_ledger=None):
+    """Classify a :class:`bank_tally.statement.BankRow`. ``statement_ledger`` is
+    the ledger of the statement the row is from (so a line naming its own account
+    is never read as a transfer to itself)."""
     from agent.matcher import match_name
 
     aliases = aliases or {}
@@ -233,7 +260,7 @@ def classify(row, customers, aliases=None):
     #    into the bank (cash only flows in: Bank Dr / Cash Cr).
     if re.search(r"CASH DEP(OSIT)?|BY CASH|CASH DEP BY|CDM ", up):
         return Classification(CONTRA, "Cash", "Cash", "cash-deposit", ["Cash"])
-    own = _own_account_in(narr, exclude=None)
+    own = _own_account_in(narr, exclude=statement_ledger)
     if own is not None:
         return Classification(CONTRA, own, own, "own-account", [own])
 
@@ -248,8 +275,10 @@ def classify(row, customers, aliases=None):
         if "CGTMS" in up:
             led = OWN_ACCOUNTS["50200110712542"]
         else:
-            m = re.search(r"\b(ICIC|HDFC|SBIN|UTIB|KKBK|PUNB)[0A-Z0-9]{6,}", up)
+            m = _IFSC.search(up)
             led = _IFSC_TO_OWN.get(m.group(1)) if m else None
+            if led == statement_ledger:          # can't be a transfer to itself
+                led = None
         return Classification(CONTRA, led, "Self transfer (own accounts)",
                               "self-transfer", [led] if led else [])
 
