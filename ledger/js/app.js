@@ -2833,13 +2833,47 @@ async function renderTallyRecon(body, r) {
   ], `Ledger vs Tally ${dmyDash(res.asOn)}.xlsx`)));
 }
 
+// the items left out of the stock totals (bought / sold), remembered on this device
+const STOCK_OFF_KEY = (kind) => `vriddhi-ledger.tally-stock-off.${kind}`;
+function stockOff(kind) {
+  const ui = state.tallyUi.stock;
+  ui.off = ui.off || {};
+  if (!ui.off[kind]) {
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(STOCK_OFF_KEY(kind)) || '[]'); } catch { saved = []; }
+    ui.off[kind] = new Set(Array.isArray(saved) ? saved : []);
+  }
+  return ui.off[kind];
+}
+function saveStockOff(kind) {
+  try { localStorage.setItem(STOCK_OFF_KEY(kind), JSON.stringify([...stockOff(kind)])); } catch { /* private window: this visit only */ }
+}
+
 function renderTallyStock(body, r) {
   const t = state.tally;
   const ui = state.tallyUi.stock;
-  const sum = stockSummary(t.vouchers, t.masters, { from: r.from, to: r.to, kind: ui.kind, category: ui.category });
+  const off = stockOff(ui.kind);
+  const sum = stockSummary(t.vouchers, t.masters, { from: r.from, to: r.to, kind: ui.kind, category: ui.category, exclude: off });
   const months = monthsBetween(r.from, r.to);
+  // ticking an item works the figures out again; the table keeps its scroll
+  const recount = (key = null) => {
+    const wrap = body.querySelector('.pivot-wrap');
+    const at = wrap ? [wrap.scrollLeft, wrap.scrollTop] : null;
+    saveStockOff(ui.kind);
+    renderTallyStock(body, r);
+    const again = body.querySelector('.pivot-wrap');
+    if (again && at) [again.scrollLeft, again.scrollTop] = at;
+    if (key) body.querySelector(`[data-sitem="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+  };
   const paint = (focus = false) => {
     body.innerHTML = stockHtml(sum, months, ui);
+    body.querySelectorAll('[data-sitem]').forEach((c) => c.addEventListener('change', () => {
+      if (c.checked) off.delete(c.dataset.sitem); else off.add(c.dataset.sitem);
+      recount(c.dataset.sitem);
+    }));
+    const shown = () => [...body.querySelectorAll('[data-sitem]')].map((c) => c.dataset.sitem);
+    body.querySelector('[data-sall]')?.addEventListener('click', () => { shown().forEach((k) => off.delete(k)); recount(); });
+    body.querySelector('[data-snone]')?.addEventListener('click', () => { shown().forEach((k) => off.add(k)); recount(); });
     body.querySelectorAll('[data-skind]').forEach((b) => b.addEventListener('click', () => { ui.kind = b.dataset.skind; renderTallyStock(body, r); }));
     body.querySelectorAll('[data-scat]').forEach((b) => b.addEventListener('click', () => { ui.category = b.dataset.scat; renderTallyStock(body, r); }));
     body.querySelectorAll('[data-smetric]').forEach((b) => b.addEventListener('click', () => { ui.metric = b.dataset.smetric; paint(); }));

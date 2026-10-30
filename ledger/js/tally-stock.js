@@ -77,7 +77,9 @@ const monthOf = (d) => d.slice(0, 7);
 //   category: 'lubes' (everything that isn't diesel, petrol or XtraGreen),
 //   'fuel', or 'all'. Purchase returns (debit notes) and sales returns
 //   (credit notes) count against them.
-export function stockSummary(vouchers, masters, { from, to, kind = 'purchase', category = 'lubes' } = {}) {
+//   exclude: items left out (normName of the item): still listed with their
+//   own figures (off: true), but out of the months, parties and totals
+export function stockSummary(vouchers, masters, { from, to, kind = 'purchase', category = 'lubes', exclude = new Set() } = {}) {
   const units = (masters && masters.units) || new Map();
   const back = kind === 'purchase' ? 'debitnote' : 'creditnote';
   const items = new Map();
@@ -89,14 +91,16 @@ export function stockSummary(vouchers, masters, { from, to, kind = 'purchase', c
     if (v.kind !== kind && v.kind !== back) continue;
     const sign = v.kind === back ? -1 : 1;
     let any = false;
+    let counted = 0;
     for (const it of v.items) {
       if (!keep(it)) continue;
-      any = true;
       const lv = lineVolume(it, units);
       const k = normName(it.name);
+      const on = !exclude.has(k);
+      if (on) { any = true; counted += sign * it.amount; }
       if (!items.has(k)) {
         items.set(k, {
-          name: it.name, group: it.group || (masters && (masters.stockItems.get(k) || {}).parent) || '', unit: it.unit, size: lv.size, measure: lv.measure,
+          key: k, off: !on, name: it.name, group: it.group || (masters && (masters.stockItems.get(k) || {}).parent) || '', unit: it.unit, size: lv.size, measure: lv.measure,
           qty: 0, packs: 0, volume: 0, amount: 0, lines: 0, months: new Map(), parties: new Set(), lastRate: null, lastDate: null, unknownPack: false,
         });
       }
@@ -116,6 +120,7 @@ export function stockSummary(vouchers, masters, { from, to, kind = 'purchase', c
       const xm = x.months.get(mk) || { qty: 0, packs: 0, volume: 0, amount: 0 };
       add(xm);
       x.months.set(mk, xm);
+      if (!on) continue;
       const tm = months.get(mk) || { month: mk, amount: 0, L: 0, KG: 0, packs: 0 };
       tm.amount += sign * it.amount;
       if (lv.volume != null && lv.measure) tm[lv.measure] += sign * lv.volume;
@@ -125,7 +130,7 @@ export function stockSummary(vouchers, masters, { from, to, kind = 'purchase', c
     if (any && v.party) {
       const p = parties.get(normName(v.party)) || { name: v.party, amount: 0, vouchers: 0, total: 0 };
       p.vouchers += 1;
-      p.amount += sign * v.items.filter(keep).reduce((s, i) => s + i.amount, 0);
+      p.amount += counted;
       p.total += sign * v.amount;
       parties.set(normName(v.party), p);
     }
@@ -134,6 +139,7 @@ export function stockSummary(vouchers, masters, { from, to, kind = 'purchase', c
     ...x, parties: [...x.parties], qty: round3(x.qty), packs: round3(x.packs), volume: round3(x.volume), amount: round2(x.amount),
     perUnit: x.volume ? x.amount / x.volume : null, perPack: x.packs ? x.amount / x.packs : null,
   })).sort((a, b) => b.amount - a.amount);
+  const live = list.filter((x) => !x.off);
   const monthList = [...months.values()].sort((a, b) => (a.month < b.month ? -1 : 1))
     .map((m) => ({ ...m, amount: round2(m.amount), L: round3(m.L), KG: round3(m.KG), packs: round3(m.packs) }));
   return {
@@ -142,23 +148,26 @@ export function stockSummary(vouchers, masters, { from, to, kind = 'purchase', c
     months: monthList,
     parties: [...parties.values()].map((p) => ({ ...p, amount: round2(p.amount), total: round2(p.total) })).sort((a, b) => b.amount - a.amount),
     totals: {
-      amount: round2(list.reduce((s, x) => s + x.amount, 0)),
-      L: round3(list.filter((x) => x.measure === 'L').reduce((s, x) => s + x.volume, 0)),
-      KG: round3(list.filter((x) => x.measure === 'KG').reduce((s, x) => s + x.volume, 0)),
-      packs: round3(list.reduce((s, x) => s + x.packs, 0)),
-      items: list.length,
-      unknown: list.filter((x) => x.unknownPack).length,
+      amount: round2(live.reduce((s, x) => s + x.amount, 0)),
+      L: round3(live.filter((x) => x.measure === 'L').reduce((s, x) => s + x.volume, 0)),
+      KG: round3(live.filter((x) => x.measure === 'KG').reduce((s, x) => s + x.volume, 0)),
+      packs: round3(live.reduce((s, x) => s + x.packs, 0)),
+      items: live.length,
+      off: list.length - live.length,
+      unknown: live.filter((x) => x.unknownPack).length,
     },
   };
 }
 
-// rows for an Excel sheet of one measure: item × month + total
+// rows for an Excel sheet of one measure: item × month + total (the items
+// left out aren't in it)
 export function pivotSheet(sum, months, metric) {
+  const items = sum.items.filter((x) => !x.off);
   const val = (o) => (metric === 'amount' ? round2(o.amount) : metric === 'packs' ? round3(o.packs) : metric === 'qty' ? round3(o.qty) : round3(o.volume));
   const head = ['Item', 'Group', 'Pack', ...months, 'Total'];
-  const rows = sum.items.map((x) => [x.name, x.group, x.size ? `${x.size} ${x.measure}` : '', ...months.map((m) => (x.months.get(m) ? val(x.months.get(m)) : '')), val(x)]);
+  const rows = items.map((x) => [x.name, x.group, x.size ? `${x.size} ${x.measure}` : '', ...months.map((m) => (x.months.get(m) ? val(x.months.get(m)) : '')), val(x)]);
   const total = ['Total', '', '', ...months.map((m) => {
-    const t = sum.items.reduce((s, x) => s + (x.months.get(m) && (metric !== 'volume' || x.measure === 'L') ? val(x.months.get(m)) : 0), 0);
+    const t = items.reduce((s, x) => s + (x.months.get(m) && (metric !== 'volume' || x.measure === 'L') ? val(x.months.get(m)) : 0), 0);
     return metric === 'amount' ? round2(t) : round3(t);
   }), metric === 'amount' ? sum.totals.amount : metric === 'packs' ? sum.totals.packs : metric === 'volume' ? sum.totals.L : ''];
   return [head, ...rows, total];

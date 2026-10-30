@@ -284,7 +284,11 @@ From..To):
   12 Nos*) says how many packs a box holds; viscosity grades (`15W40`) and
   `2T` / `4T` aren't taken for sizes. Items with no size in the name are
   listed and counted in packs and amount only. Purchase returns (debit
-  notes) count against purchases. Also each item's packs, litres, ₹ a pack,
+  notes) count against purchases. **Untick an item** to leave it out: it
+  stays listed (dimmed, *left out*) but is out of every total, the tiles,
+  the chart, the suppliers' amounts and the Excel; **Tick / Untick all**
+  works on the items the search shows. The choice is remembered on that
+  device (bought and sold separately). Also each item's packs, litres, ₹ a pack,
   ₹ a litre, last rate and date, and each supplier's total before and with
   GST. **Download Excel**: litres, packs and amount sheets and the suppliers.
 

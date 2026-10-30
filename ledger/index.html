@@ -535,6 +535,12 @@ table.pivot .sticky { position: sticky; left: 0; z-index: 1; background: #1a1513
 table.pivot thead th { position: sticky; top: 0; z-index: 2; background: #1a1513; }
 table.pivot thead th.sticky { z-index: 3; }
 table.pivot td.sticky small { display: block; font-size: 11.5px; }
+.pick { display: flex; align-items: flex-start; gap: 8px; color: var(--ink); font-size: inherit; cursor: pointer; }
+.pick input { margin: 3px 0 0; width: 16px; height: 16px; flex: none; accent-color: var(--accent); cursor: pointer; }
+.pick-bar { margin: 10px 0 2px; }
+tr.off td { opacity: .45; }
+tr.off td.sticky { opacity: 1; }
+tr.off td.sticky span { opacity: .55; }
 @media (prefers-reduced-motion: reduce) { .jsk.play .jsk-text, .jsk.play .jsk-feather { animation: none; } .jsk-feather { display: none; } }
 </style>
 </head>
