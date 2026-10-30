@@ -33,6 +33,13 @@ import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
 import { memoryStore, supabaseStore } from './store.js';
+import {
+  analyseTally, decodeText, filterVouchers, KINDS, looksLikeXml, parseDaybookSheet, parseTallyXml, spanOf, voucherSheet,
+} from './tally-file.js';
+import {
+  checksHtml, fileHeadHtml, ledgersHtml, overviewHtml, PAGE_SIZE, partiesHtml, productsHtml, ratesHtml, seriesHtml, trendHtml, typesHtml,
+  vehiclesHtml, vouchersHtml,
+} from './tally-view.js';
 import { fmtDate, fmtLitres, fmtMoney, fyOf, normKey, suggestLedgerName } from './util.js';
 
 const SUPABASE_JS = 'https://esm.sh/@supabase/supabase-js@2';
@@ -202,7 +209,7 @@ async function signOut() {
 // ---------------------------------------------------------------------------
 const TABS = [
   ['#/', 'Home'], ['#/import', 'Import'], ['#/bills', 'Bills'], ['#/statements', 'Statements'], ['#/payments', 'Payments'], ['#/pos', 'POs'],
-  ['#/customers', 'Customers'], ['#/sales', 'Sales'],
+  ['#/customers', 'Customers'], ['#/sales', 'Sales'], ['#/tally', 'Tally'],
 ];
 
 function renderShell() {
@@ -231,6 +238,7 @@ const ROUTES = [
   [/^#\/bills$/, () => viewBills()],
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/payments$/, () => viewPayments()],
+  [/^#\/tally$/, () => viewTally()],
   [/^#\/account\/([cg])\/([^?]+)(?:\?m=(\d{4}-\d{2}))?$/, (m) => viewAccount(m[1], decodeURIComponent(m[2]), m[3])],
 ];
 
@@ -242,6 +250,9 @@ async function route() {
     const on = tab === '#/' ? hash === '#/' || hash === '' : hash.startsWith(tab);
     a.classList.toggle('on', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    if (on && a.parentElement.scrollWidth > a.parentElement.clientWidth) {   // phones: the tab bar scrolls
+      a.parentElement.scrollLeft = a.offsetLeft - (a.parentElement.clientWidth - a.offsetWidth) / 2;
+    }
   });
   const hit = ROUTES.map(([re, fn]) => [hash.match(re), fn]).find(([m]) => m);
   setMain(loadingHtml());
@@ -2517,6 +2528,170 @@ function bindAppPayments(reload) {
     toast('Removed.');
     await reload();
   })));
+}
+
+// ---------------------------------------------------------------------------
+// Tally viewer — everything in a Tally file (the DayBook in Excel, or Tally's
+// XML export): sales, receipts, products, customers, vehicles, rates, bill
+// numbers and checks. Read on this device; nothing is saved or uploaded.
+// ---------------------------------------------------------------------------
+async function viewTally() {
+  if (!state.tally) {
+    setMain(`
+      <section class="card hero">
+        <h2>Tally viewer</h2>
+        <p class="muted">Open a Tally file to see everything in it: sales and receipts, each product's litres and rates, the best customers, vehicles, rate changes, missing or repeated bill numbers and bills that don't add up. The file is read on this device — nothing is saved or uploaded, and the app's sales are not changed.</p>
+        <label class="file"><input type="file" id="tally-file" accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn">Choose Tally file</span></label>
+        <ul class="small muted steps">
+          <li><b>DayBook in Excel</b> — the file you import (Date, Particulars, Vch Type, Qty, Rate, Vehicle, Vch No., Debit, Credit): every voucher type, not only the credit bills.</li>
+          <li><b>Tally XML export</b> — Display → Day Book (any period, F2) → Export → XML. Adds each voucher's ledgers, stock items, narration and cancelled vouchers.</li>
+        </ul>
+        <div id="tally-out"></div>
+      </section>`);
+    document.getElementById('tally-file').addEventListener('change', (e) => e.target.files[0] && tallyChosen(e.target.files[0], e.target));
+    return;
+  }
+  renderTally();
+}
+
+async function readTallyFile(file) {
+  const buf = await file.arrayBuffer();
+  if (looksLikeXml(buf)) return { name: file.name, ...parseTallyXml(decodeText(buf)) };
+  const XLSX = await loadSheetJS();
+  const wb = readWorkbook(XLSX, buf, { all: true });
+  const date1904 = Boolean(wb.Workbook && wb.Workbook.WBProps && wb.Workbook.WBProps.date1904);
+  return { name: file.name, ...parseDaybookSheet(sheetRows(wb.Sheets[wb.SheetNames[0]]), { date1904 }) };
+}
+
+async function tallyChosen(file, input) {
+  const out = document.getElementById('tally-out');               // null while a file is open
+  if (out) out.innerHTML = loadingHtml(`Reading ${file.name}…`);
+  else toast(`Reading ${file.name}…`);
+  await paint();
+  const fail = (msg) => { if (out) out.innerHTML = `<div class="card bad-card">${msg}</div>`; else toast(msg.replace(/<[^>]+>/g, ''), 'bad'); };
+  try {
+    const t = await readTallyFile(file);
+    if (!t.vouchers.length) {
+      fail(`No vouchers were found in “${esc(file.name)}”. Choose the DayBook exported to Excel, or Tally's XML export of the Day Book.`);
+      return;
+    }
+    state.tally = t;
+    state.tallyUi = { period: { key: 'all' }, sort: 'sales', q: '', pall: false, vall: false, v: { kind: 'all', product: 'all', q: '' }, shown: PAGE_SIZE };
+    renderTally();
+  } catch (err) {
+    console.error(err);
+    fail(esc(err && err.message ? err.message : err));
+  } finally {
+    if (input) input.value = '';
+  }
+}
+
+function renderTally() {
+  const t = state.tally;
+  const ui = state.tallyUi;
+  const span = spanOf(t.vouchers);
+  let range = { from: span.from, to: span.to };
+  if (/^\d{4}-\d{2}$/.test(ui.period.key)) {
+    range = { from: `${ui.period.key}-01` < span.from ? span.from : `${ui.period.key}-01`, to: monthEnd(ui.period.key) > span.to ? span.to : monthEnd(ui.period.key) };
+  } else if (ui.period.key === 'custom' && ui.period.from) range = { from: ui.period.from, to: ui.period.to };
+  const a = analyseTally(t.vouchers, range);
+  const kinds = KINDS.filter((k) => a.byKind[k].count);
+  setMain(`
+    <section class="card">${fileHeadHtml(t, a, ui.period)}</section>
+    <div id="tally-body">
+      <section class="card dash">${overviewHtml(a)}</section>
+      <section class="card">${productsHtml(a)}</section>
+      <section class="card" id="t-trend"></section>
+      <section class="card" id="t-parties"></section>
+      <section class="card">${typesHtml(a)}</section>
+      <section class="card" id="t-vehicles"></section>
+      <section class="card" id="t-rates"></section>
+      <section class="card">${seriesHtml(a)}</section>
+      <section class="card">${checksHtml(a)}</section>
+      ${t.source === 'xml' ? `<section class="card">${ledgersHtml(a, a.parties) || '<h3>Ledgers</h3><p class="muted">No ledger lines.</p>'}</section>` : ''}
+      <section class="card" id="t-vouchers"></section>
+    </div>`);
+  const body = document.getElementById('tally-body');
+  setChartWidth(body.clientWidth - 38);
+  document.getElementById('t-trend').innerHTML = trendHtml(a);
+  document.getElementById('t-rates').innerHTML = ratesHtml(a);
+
+  // the period
+  main().querySelectorAll('[data-tperiod]').forEach((b) => b.addEventListener('click', () => {
+    const key = b.dataset.tperiod;
+    ui.period = key === 'custom' ? { key, from: a.from, to: a.to } : { key };
+    ui.shown = PAGE_SIZE;
+    renderTally();
+  }));
+  document.getElementById('tally-range')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const from = e.target.from.value;
+    const to = e.target.to.value;
+    if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+    ui.period = { key: 'custom', from, to };
+    renderTally();
+  });
+  document.getElementById('tally-file-2').addEventListener('change', (e) => e.target.files[0] && tallyChosen(e.target.files[0], e.target));
+  main().querySelector('[data-tally-clear]').addEventListener('click', () => {
+    state.tally = null;
+    viewTally();
+  });
+
+  // customers & parties: sort, search, show all, their vouchers
+  const parties = document.getElementById('t-parties');
+  const paintParties = (focus = false) => {
+    parties.innerHTML = partiesHtml(a, ui);
+    parties.querySelectorAll('[data-psort]').forEach((b) => b.addEventListener('click', () => { ui.sort = b.dataset.psort; paintParties(); }));
+    parties.querySelector('[data-pall]')?.addEventListener('click', () => { ui.pall = !ui.pall; paintParties(); });
+    const q = parties.querySelector('#party-q');
+    q.addEventListener('input', debounce(() => { ui.q = q.value; paintParties(true); }, 200));
+    if (focus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    parties.querySelectorAll('[data-party]').forEach((b) => b.addEventListener('click', () => {
+      const more = b.nextElementSibling;
+      more.hidden = !more.hidden;
+      b.setAttribute('aria-expanded', String(!more.hidden));
+    }));
+    parties.querySelectorAll('[data-party-vouchers]').forEach((b) => b.addEventListener('click', () => {
+      ui.v = { kind: 'all', product: 'all', q: b.dataset.partyVouchers };
+      ui.shown = PAGE_SIZE;
+      paintVouchers();
+      document.getElementById('t-vouchers').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+  };
+  const vehicles = document.getElementById('t-vehicles');
+  const paintVehicles = () => {
+    vehicles.innerHTML = vehiclesHtml(a, { all: ui.vall });
+    vehicles.querySelector('[data-vall]')?.addEventListener('click', () => { ui.vall = !ui.vall; paintVehicles(); });
+  };
+
+  // every voucher: kind, product, search, more, Excel
+  const vbox = document.getElementById('t-vouchers');
+  const paintVouchers = (focus = false) => {
+    const list = filterVouchers(t.vouchers, { from: a.from, to: a.to, ...ui.v });
+    vbox.innerHTML = vouchersHtml(list, ui.v, kinds, { shown: ui.shown });
+    vbox.querySelectorAll('[data-vkind]').forEach((b) => b.addEventListener('click', () => { ui.v.kind = b.dataset.vkind; ui.shown = PAGE_SIZE; paintVouchers(); }));
+    const q = vbox.querySelector('#v-q');
+    q.addEventListener('input', debounce(() => { ui.v.q = q.value; ui.shown = PAGE_SIZE; paintVouchers(true); }, 200));
+    if (focus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    vbox.querySelector('#v-product').addEventListener('change', (e) => { ui.v.product = e.target.value; ui.shown = PAGE_SIZE; paintVouchers(); });
+    vbox.querySelector('[data-vmore]')?.addEventListener('click', () => { ui.shown += PAGE_SIZE; paintVouchers(); });
+    vbox.querySelector('[data-vdownload]')?.addEventListener('click', () => guard(() => downloadVouchers(list, a)));
+  };
+  paintParties();
+  paintVehicles();
+  paintVouchers();
+  bindCharts(body);
+}
+
+async function downloadVouchers(list, a) {
+  const XLSX = await loadSheetJS();
+  const ws = XLSX.utils.aoa_to_sheet(voucherSheet(list));
+  ws['!cols'] = [12, 16, 12, 10, 34, 13, 9, 11, 9, 13, 13, 13, 9, 40].map((wch) => ({ wch }));
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: list.length, c: 13 } }) };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Vouchers');
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  download(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Tally Vouchers ${rangeName(a.from, a.to)}.xlsx`);
 }
 
 // Print only these pages (the browser's "Save as PDF" works too).

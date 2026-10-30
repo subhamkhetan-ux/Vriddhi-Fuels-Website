@@ -215,6 +215,43 @@ Paid — then the ledger's copy is dropped (one for one), so the Mac's Excel
 file stays the source of truth and nothing counts twice. **Remove** takes one
 out of the ledger only.
 
+**Tally tab** (the Tally viewer): open a Tally file and see everything in
+it — read on this device; nothing is saved, uploaded or changed in the app.
+Two kinds of file:
+- the **DayBook in Excel** (the file Import reads) — every voucher type in
+  it, not only the HSD / MS / XG credit bills;
+- **Tally's XML export** (Display → Day Book, any period → Export → XML,
+  UTF-16 or UTF-8) — adds each voucher's ledgers, stock items (lubes and
+  others), narration and cancelled vouchers.
+
+Pick *Whole file*, a month or any From..To within the file. It shows:
+- **Overview** — sales (₹, litres, bills), receipts (and as % of sales),
+  payments and purchases, estimated earnings (Home's rule; the day's RSP is
+  the highest rate billed that day in the file), average bill, litres per
+  sale day, customers, vehicles, the discount given under the day's RSP, and
+  how many vouchers are cancelled;
+- **By product** — litres, amount, bills, rate range and average rate,
+  earnings and discount per fuel, other items by name, the share of litres;
+- **Litres per day** (per month past 62 days) by product, the busiest day,
+  **receipts per day**, and the average litres by weekday;
+- **Customers & parties** — sorted by sales, litres, receipts, billed −
+  received or discount, with a search; tap one for their product split,
+  billed / received / net, vehicles, earnings and GSTIN, and *See their
+  vouchers*;
+- **Voucher types** — count, amount, litres, cancelled and dates per type;
+- **Vehicles** — fills, litres and amount per vehicle, and vehicles billed
+  to more than one party;
+- **Day's rate** chart and every **rate change**;
+- **Bill numbers** — per voucher type, prefix and FY: numbers missing
+  between the first and the last, numbers used twice, and bills numbered
+  lower than one dated before them;
+- **Checks** — litres × rate more than ₹1 off the amount, fuel bills without
+  a vehicle, vouchers without a party or bill no., zero amounts, cancelled;
+- **Ledgers** (XML) — the debit / credit / net of every ledger posted to
+  (sales, cash, bank, round-off…);
+- **All vouchers** — filter by kind, product or search (party, vehicle, bill
+  no., narration) and **Download Excel** of the list.
+
 This app is separate from every other app in this repo (it only reads the
 payments app's list); it only adds files
 (`ledger/`, `supabase/ledger-schema.sql`, `tests/ledger_web/`,
@@ -309,6 +346,8 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/account.js` | A customer's ledger as on their sheet (bulk layouts, formats) |
 | `js/ledger-view.js` | The ledger as a statement (summary, months, company-wise outstanding) and the rate chart sheet |
 | `js/share-svg.js` | Draws the shared pictures: ledger pages, outstanding cards, the outstanding list |
+| `js/tally-file.js` | Tally viewer: reads a DayBook (Excel) or Tally XML export and works out the insights |
+| `js/tally-view.js` | Tally viewer screens |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |
@@ -320,7 +359,7 @@ JSZip (cdnjs) for the bill and statement PDFs.
 ## Tests
 
 ```bash
-node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, ledger view + pictures, demo store
+node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, ledger view + pictures, demo store, Tally viewer
 python -m pytest tests/test_ledger_web.py tests/test_ledger_schema.py -q
 ```
 
