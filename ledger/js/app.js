@@ -34,12 +34,12 @@ import {
 } from './outstanding.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
-  analyseTally, decodeText, filterVouchers, hasMasters, KINDS, looksLikeXml, mergeTally, normName, parseDaybookSheet, parseTallyXml, spanOf,
+  analyseTally, coverage, decodeText, filterVouchers, hasMasters, KINDS, looksLikeXml, mergeTally, normName, parseDaybookSheet, parseTallyXml, spanOf,
   voucherSheet,
 } from './tally-file.js';
 import { financials, monthsBetween, trialSheet } from './tally-fin.js';
-import { appAccounts, fyStartOf, reconcile, reconSheet } from './tally-recon.js';
-import { finHtml, reconHtml, stockHtml, viewTabsHtml } from './tally-reports.js';
+import { appAccounts, reconcile, reconSheet, reconStart } from './tally-recon.js';
+import { finHtml, gapText, reconHtml, stockHtml, viewTabsHtml } from './tally-reports.js';
 import { pivotSheet, stockSummary } from './tally-stock.js';
 import {
   checksHtml, fileHeadHtml, ledgersHtml, overviewHtml, PAGE_SIZE, partiesHtml, productsHtml, ratesHtml, seriesHtml, trendHtml, typesHtml,
@@ -2588,6 +2588,7 @@ function openTally(files) {
   state.tallyFiles = files;
   state.tally = mergeTally(files);
   state.tallyRecon = null;
+  state.tallyAppUntil = undefined;
   state.tallyUi = {
     period: { key: 'all' }, sort: 'sales', q: '', pall: false, vall: false, v: { kind: 'all', product: 'all', q: '' }, shown: PAGE_SIZE,
     closingStock: '', allExp: false,
@@ -2650,8 +2651,13 @@ function renderTally(view = '') {
   setMain(`<section class="card" id="tally-head"></section><div id="tally-body"></div>`);
   const head = document.getElementById('tally-head');
   const body = document.getElementById('tally-body');
+  // gaps in the files: they matter for balances (with the masters), and a
+  // break in the middle matters everywhere
+  const cov = coverage(t.vouchers);
+  const gaps = cov ? cov.gaps.filter((g) => !g.start || hasMasters(t.masters)) : [];
+  const warn = gaps.length ? `Gaps in your files: ${esc(gapText(gaps))}. If an export is left out, <b>Add a file</b>; if nothing was entered in Tally those days, ignore this.` : '';
   const paintHead = (note = '') => {
-    head.innerHTML = fileHeadHtml(t, r, ui.period, { view, note, tabs: viewTabsHtml(view) });
+    head.innerHTML = fileHeadHtml(t, r, ui.period, { view, note, warn, tabs: viewTabsHtml(view) });
     head.querySelectorAll('[data-tperiod]').forEach((b) => b.addEventListener('click', () => {
       const key = b.dataset.tperiod;
       ui.period = key === 'custom' ? { key, from: r.from, to: r.to } : { key };
@@ -2800,12 +2806,20 @@ async function renderTallyRecon(body, r) {
   const ui = state.tallyUi.recon;
   const live = t.vouchers.filter((v) => !v.cancelled);
   if (!live.length) { body.innerHTML = '<section class="card"><p class="muted">Every voucher in the file is cancelled — nothing to compare.</p></section>'; return; }
-  const start = hasMasters(t.masters) ? fyStartOf(live[0].date) : live[0].date;
-  const asOn = ui.asOn && ui.asOn <= r.span.to ? ui.asOn : r.span.to;
+  // the app's sales run up to its last DayBook import: compare on that day
+  // (or before), or Tally's later bills would read as missing from the app
+  if (state.tallyAppUntil === undefined) {
+    body.innerHTML = loadingHtml('Reading the app\'s ledgers…');
+    state.tallyAppUntil = (await state.store.summary()).last_sale_date || null;
+  }
+  const appUntil = state.tallyAppUntil;
+  const fallback = appUntil && appUntil >= r.span.from && appUntil < r.span.to ? appUntil : r.span.to;
+  const asOn = ui.asOn && ui.asOn <= r.span.to ? ui.asOn : fallback;
+  const { start } = reconStart(t.vouchers, t.masters, asOn);
   if (!state.tallyRecon || state.tallyRecon.key !== `${start}|${asOn}`) body.innerHTML = loadingHtml('Reading the app\'s ledgers…');
   const data = await reconData(start, asOn);
   const res = reconcile(data.accounts, t.vouchers, t.masters, { asOn, appCustomers: data.customers, map: ui.map });
-  body.innerHTML = reconHtml(res, { filter: ui.filter, asOnMax: r.span.to, q: ui.q });
+  body.innerHTML = reconHtml(res, { filter: ui.filter, asOnMax: r.span.to, q: ui.q, appUntil });
   body.querySelector('#recon-date').addEventListener('submit', (e) => {
     e.preventDefault();
     ui.asOn = e.target.asOn.value;

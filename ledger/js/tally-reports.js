@@ -13,6 +13,12 @@ const pct = (x) => (x == null || !Number.isFinite(x) ? '—' : `${(x * 100).toFi
 const drcr = (n) => (Math.abs(n) < 0.005 ? '₹0' : `${exact(Math.abs(n))} ${n > 0 ? 'Dr' : 'Cr'}`);
 const qty = (n, d = 2) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: d });
 
+// the stretches the files leave out: 'nothing before 1 Oct · no vouchers 2 Jul – 30 Sep'
+export function gapText(gaps) {
+  return gaps.map((g) => (g.start ? `nothing before ${shortDate(addDay(g.to))}` : `no vouchers ${shortDate(g.from)}${g.from !== g.to ? ` – ${shortDate(g.to)}` : ''}`)).join(' · ');
+}
+const addDay = (iso) => new Date(Date.parse(`${iso}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+
 // ---------------------------------------------------------------------------
 // the views' tabs
 // ---------------------------------------------------------------------------
@@ -24,6 +30,14 @@ export function viewTabsHtml(view) {
 // ---------------------------------------------------------------------------
 // financials
 // ---------------------------------------------------------------------------
+// why closing balances may be short: the files don't run unbroken from 1 April
+function balanceNote(f) {
+  if (f.covered.balances) return '';
+  const why = !f.exact ? 'the files have no masters, so the opening balances aren\'t known'
+    : `your files don't run unbroken from 1 April (${esc(gapText(f.covered.gaps))})`;
+  return `<p class="small warn-text">Balances here are short: ${why}. They are the opening plus only what's in the files — add the missing export for true balances.</p>`;
+}
+
 export function finHtml(f, { closingStock = '', allExpenses = false } = {}) {
   const p = f.pl;
   const gross = p.gross ?? p.beforeStock;
@@ -45,7 +59,7 @@ export function finHtml(f, { closingStock = '', allExpenses = false } = {}) {
         <div class="kpi"><span class="lbl">Purchases</span><span class="val">${money(p.purchases)}</span><span class="sub">${pct(p.sales ? p.purchases / p.sales : null)} of sales</span></div>
         <div class="kpi"><span class="lbl">Gross profit${p.withStock ? '' : ' (before stock)'}</span><span class="val">${money(gross)}</span><span class="sub">${pct(r.grossMargin)} margin</span></div>
         <div class="kpi"><span class="lbl">Expenses</span><span class="val">${money(p.directExpense + p.indirectExpense)}</span><span class="sub">${pct(r.expenseRatio)} of sales</span></div>
-        <div class="kpi"><span class="lbl">Cash &amp; bank</span><span class="val">${money(f.bs.liquid)}</span><span class="sub">on ${shortDate(f.to)}</span></div>
+        <div class="kpi"><span class="lbl">Cash &amp; bank</span><span class="val">${money(f.bs.liquid)}</span><span class="sub">${f.covered.balances ? `on ${shortDate(f.to)}` : '<span class="warn-text">incomplete — see below</span>'}</span></div>
         <div class="kpi warn"><span class="lbl">Receivable</span><span class="val">${money(f.bs.receivable)}</span><span class="sub">${plural(f.debtorsCount, 'debtor')}${r.debtorDays != null ? ` · ${Math.round(r.debtorDays)} days of sales` : ''}</span></div>
         <div class="kpi"><span class="lbl">Payable</span><span class="val">${money(f.bs.payable)}</span><span class="sub">${r.creditorDays != null ? `${Math.round(r.creditorDays)} days of purchases` : 'to suppliers'}</span></div>
       </div>
@@ -53,6 +67,7 @@ export function finHtml(f, { closingStock = '', allExpenses = false } = {}) {
 
     <section class="card">
       <h3>Profit &amp; loss</h3>
+      ${f.covered.periodGaps.length ? `<p class="small warn-text">${esc(gapText(f.covered.periodGaps))} in these dates — if a file is left out, add it: these figures leave those days out.</p>` : ''}
       <div class="table-wrap"><table class="compact pl"><thead><tr><th></th><th class="r">Amount</th><th class="r">% of sales</th></tr></thead><tbody>
         ${row('Sales', p.sales)}
         ${p.directIncome ? row('Direct income', p.directIncome, { sign: '+ ' }) : ''}
@@ -98,6 +113,7 @@ export function finHtml(f, { closingStock = '', allExpenses = false } = {}) {
 
     <section class="card">
       <h3>Balance sheet on ${fmtDate(f.to)}</h3>
+      ${balanceNote(f)}
       <div class="bs-grid">
         <div><h3 class="sub-h">What the firm has</h3><table class="compact"><tbody>
           ${[['Cash', f.bs.cash], ['Bank', f.bs.bank], ['Receivable from customers', f.bs.receivable], ['Advances to suppliers', f.bs.advancesToSuppliers],
@@ -118,6 +134,7 @@ export function finHtml(f, { closingStock = '', allExpenses = false } = {}) {
 
     <section class="card">
       <h3>Cash &amp; bank accounts</h3>
+      ${balanceNote(f)}
       ${f.liquidList.length ? `<div class="table-wrap"><table class="compact"><thead><tr><th>Account</th><th class="r">Opening</th><th class="r">In</th><th class="r">Out</th><th class="r">Closing</th></tr></thead>
         <tbody>${f.liquidList.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${drcr(l.openAtFrom)}</td><td class="r good-text">${exact(l.dr)}</td><td class="r">${exact(l.cr)}</td><td class="r"><b>${drcr(l.closing)}</b></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No cash or bank ledgers found.</p>'}
       <div class="bs-grid">
@@ -132,6 +149,7 @@ export function finHtml(f, { closingStock = '', allExpenses = false } = {}) {
       <ul class="checks-list">
         <li class="${Math.abs(f.checks.trial.diff) < 1 ? 'good-text' : 'warn-text'}">Trial balance: Dr ${exact(f.checks.trial.dr)} · Cr ${exact(f.checks.trial.cr)}${Math.abs(f.checks.trial.diff) < 1 ? ' — agrees ✓' : ` — off by ${exact(f.checks.trial.diff)}`}</li>
         ${f.checks.openingDiff != null ? `<li class="${Math.abs(f.checks.openingDiff) < 1 ? 'good-text' : 'warn-text'}">${Math.abs(f.checks.openingDiff) < 1 ? 'Opening balances agree ✓' : `Difference in opening balances: ${drcr(f.checks.openingDiff)} (as Tally shows it)`}</li>` : '<li class="muted">No opening balances in the file (no masters): closing balances are only this file\'s movement.</li>'}
+        ${f.covered.gaps.length ? `<li class="warn-text">Files not unbroken from 1 April: ${esc(gapText(f.covered.gaps))}</li>` : (f.exact ? '<li class="good-text">Vouchers run unbroken from 1 April ✓</li>' : '')}
         ${f.checks.unbalanced ? `<li class="warn-text">${plural(f.checks.unbalanced, 'voucher')} whose debits and credits don't agree</li>` : ''}
         ${f.checks.unknown.length ? `<li class="warn-text">${plural(f.checks.unknown.length, 'ledger')} not placed in any group: ${f.checks.unknown.slice(0, 8).map((l) => esc(l.name)).join(', ')}${f.checks.unknown.length > 8 ? '…' : ''}</li>` : ''}
       </ul>
@@ -208,7 +226,7 @@ function suggestHtml(r) {
   return `<div class="suggest">${s.map((x) => `<p class="small">“${esc(x.name)}” may be ${x.options.map((o) => `<button class="btn ghost small" data-map-from="${esc(x.name)}" data-map-to="${esc(o.name)}">${esc(o.name)}</button>`).join(' ')} in Tally</p>`).join('')}</div>`;
 }
 
-export function reconHtml(res, { filter = 'all', asOnMax = '', q = '' } = {}) {
+export function reconHtml(res, { filter = 'all', asOnMax = '', q = '', appUntil = null } = {}) {
   const t = res.totals;
   const keep = { all: () => true, diff: (r) => r.status === 'diff', timing: (r) => r.status === 'timing', missing: (r) => r.status === 'notInTally', ok: (r) => r.status === 'ok' };
   const needle = q.trim().toLowerCase();
@@ -222,8 +240,11 @@ export function reconHtml(res, { filter = 'all', asOnMax = '', q = '' } = {}) {
         <button class="btn small" type="submit">Compare</button>
         <button class="btn ghost small" type="button" data-recon-xlsx>Download Excel</button>
       </form>
-      ${res.openingKnown ? `<p class="small muted">Tally's openings from the masters in the file (1 April ${res.start.slice(0, 4)}).</p>`
-    : `<p class="small warn-text">The file has no masters, so Tally's opening balances aren't known: only what happened from ${fmtDate(res.start)} is compared. Add the All Masters export to compare whole balances.</p>`}
+      ${res.openingKnown ? `<p class="small muted">Whole balances: Tally's openings from the masters (1 April ${res.start.slice(0, 4)}) and every voucher since.</p>`
+    : res.masters && res.cov && !res.cov.complete
+      ? `<p class="small warn-text">Your files don't run unbroken from 1 April (${esc(gapText(res.cov.gaps))}), so Tally's balance before ${fmtDate(res.start)} isn't known: only entries from ${fmtDate(res.start)} are compared, both sides starting from the app's balance that day. Add the missing export to compare whole balances.</p>`
+      : `<p class="small warn-text">The files have no masters, so Tally's opening balances aren't known: only what happened from ${fmtDate(res.start)} is compared. Add the All Masters export to compare whole balances.</p>`}
+      ${appUntil ? `<p class="small ${res.asOn > appUntil ? 'warn-text' : 'muted'}">The app has sales up to ${fmtDate(appUntil)}${res.asOn > appUntil ? ` — Tally's bills after that will show as not in the app until that DayBook is imported. Compare on ${fmtDate(appUntil)} or earlier, or import it first.` : '.'}</p>` : ''}
       <div class="kpis">
         <div class="kpi ${Math.abs(t.diff) >= 0.005 ? 'warn' : ''}"><span class="lbl">Tally − app</span><span class="val">${Math.abs(t.diff) < 0.005 ? '₹0' : `${t.diff > 0 ? '+' : '−'}${money(Math.abs(t.diff))}`}</span><span class="sub">${t.absDiff >= 0.005 ? `${exact(t.absDiff)} off in all` : 'all agree'}</span></div>
         <div class="kpi"><span class="lbl">Agree</span><span class="val good-text">${t.matching}</span><span class="sub">of ${plural(t.compared, 'account')} compared</span></div>
