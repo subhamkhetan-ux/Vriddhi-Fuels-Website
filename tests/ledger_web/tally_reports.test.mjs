@@ -152,6 +152,15 @@ test('stock: pack sizes from names, compound units, returns, month by month', ()
   const sheet = pivotSheet(s, ['2026-04', '2026-05'], 'volume');
   assert.deepEqual(sheet[1], ['SERVO 4T 1L', 'Servo Lubricants', '1 L', 24, 20, 44]);
   assert.deepEqual(sheet.at(-1), ['Total', '', '', 24, 20, 44]);
+  // an item left out: still listed with its own figures, out of every total
+  const out = stockSummary(vouchers, masters, { from: '2026-04-01', to: '2026-05-31', exclude: new Set(['servo 4t 1l']) });
+  assert.equal(out.items.length, 1);
+  assert.equal(out.items[0].off, true);
+  assert.equal(out.items[0].volume, 44);
+  assert.deepEqual([out.totals.amount, out.totals.L, out.totals.packs, out.totals.items, out.totals.off], [0, 0, 0, 0, 1]);
+  assert.deepEqual(out.months, []);
+  assert.deepEqual(out.parties, []);
+  assert.deepEqual(pivotSheet(out, ['2026-04', '2026-05'], 'volume'), [['Item', 'Group', 'Pack', '2026-04', '2026-05', 'Total'], ['Total', '', '', 0, 0, 0]]);
   // fuel
   const fuel = stockSummary(vouchers, masters, { from: '2026-04-01', to: '2026-05-31', kind: 'sale', category: 'fuel' });
   assert.equal(fuel.totals.L, 1500);
@@ -260,6 +269,20 @@ test('the sample makes sense as a set of books', async () => {
   assert.ok(f.bs.bank > 0);
   const st = stockSummary(t.vouchers, t.masters, { from: s.from, to: s.to });
   assert.equal(st.totals.unknown, 0);
+  // leaving one item out takes exactly its figures off the totals, month by month
+  const grease = st.items.find((x) => x.name === 'SERVOGREASE MP 500 GM');
+  const adblue = st.items.find((x) => x.name === 'ADBLUE 20 LTR');
+  const less = stockSummary(t.vouchers, t.masters, { from: s.from, to: s.to, exclude: new Set([adblue.key]) });
+  assert.equal(less.totals.amount, Math.round((st.totals.amount - adblue.amount) * 100) / 100);
+  assert.equal(less.totals.L, Math.round((st.totals.L - adblue.volume) * 1000) / 1000);
+  assert.equal(less.totals.KG, grease.volume);
+  assert.equal(less.items.length, st.items.length);
+  for (const m of less.months) {
+    const was = st.months.find((x) => x.month === m.month);
+    const a = adblue.months.get(m.month);
+    assert.equal(m.amount, Math.round((was.amount - (a ? a.amount : 0)) * 100) / 100, m.month);
+  }
+  assert.equal(less.parties[0].amount, Math.round((st.parties[0].amount - adblue.amount) * 100) / 100);
   assert.ok(st.items.find((x) => x.name === 'SERVO PRIDE TC 15W40 1X12X1L').packs % 12 === 0);
 });
 

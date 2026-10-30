@@ -253,17 +253,18 @@ export function stockHtml(sum, months, { metric = 'volume', q = '' } = {}) {
   const buy = sum.kind === 'purchase';
   const needle = q.trim().toLowerCase();
   const items = sum.items.filter((x) => !needle || x.name.toLowerCase().includes(needle) || (x.group || '').toLowerCase().includes(needle));
+  const counted = items.filter((x) => !x.off);                    // the totals: ticked items only
   const unitOf = (x) => (metric === 'volume' ? (x.measure === 'KG' ? 'kg' : 'L') : '');
   const val = (o, x) => (metric === 'amount' ? money(o.amount) : metric === 'packs' ? qty(o.packs, 0) : (x.unknownPack && !o.volume ? '—' : `${qty(o.volume)} ${unitOf(x)}`));
-  const colTotal = (m, measure) => items.reduce((s, x) => {
+  const colTotal = (m, measure) => counted.reduce((s, x) => {
     const o = x.months.get(m);
     if (!o || (metric === 'volume' && x.measure !== measure)) return s;
     return s + (metric === 'amount' ? o.amount : metric === 'packs' ? o.packs : o.volume);
   }, 0);
-  const rowTotal = (measure) => items.filter((x) => metric !== 'volume' || x.measure === measure).reduce((s, x) => s + (metric === 'amount' ? x.amount : metric === 'packs' ? x.packs : x.volume), 0);
+  const rowTotal = (measure) => counted.filter((x) => metric !== 'volume' || x.measure === measure).reduce((s, x) => s + (metric === 'amount' ? x.amount : metric === 'packs' ? x.packs : x.volume), 0);
   const fmtTotal = (v, measure) => (metric === 'amount' ? money(v) : metric === 'packs' ? qty(v, 0) : `${qty(v)} ${measure === 'KG' ? 'kg' : 'L'}`);
   const totalRows = metric === 'volume'
-    ? ['L', 'KG'].filter((u) => items.some((x) => x.measure === u)).map((u) => `<tr class="pl-total"><td class="sticky">Total ${u === 'L' ? 'litres' : 'kg'}</td>${months.map((m) => `<td class="r">${colTotal(m, u) ? fmtTotal(colTotal(m, u), u) : ''}</td>`).join('')}<td class="r">${fmtTotal(rowTotal(u), u)}</td></tr>`).join('')
+    ? ['L', 'KG'].filter((u) => counted.some((x) => x.measure === u)).map((u) => `<tr class="pl-total"><td class="sticky">Total ${u === 'L' ? 'litres' : 'kg'}</td>${months.map((m) => `<td class="r">${colTotal(m, u) ? fmtTotal(colTotal(m, u), u) : ''}</td>`).join('')}<td class="r">${fmtTotal(rowTotal(u), u)}</td></tr>`).join('')
     : `<tr class="pl-total"><td class="sticky">Total</td>${months.map((m) => `<td class="r">${colTotal(m) ? fmtTotal(colTotal(m)) : ''}</td>`).join('')}<td class="r">${fmtTotal(rowTotal())}</td></tr>`;
   const chartVal = (m) => (metric === 'amount' ? m.amount : metric === 'packs' ? m.packs : m.L);
   return `
@@ -276,7 +277,7 @@ export function stockHtml(sum, months, { metric = 'volume', q = '' } = {}) {
         <button class="chip ${sum.category === 'fuel' ? 'on' : ''}" data-scat="fuel">Fuel</button></div>
       <p class="muted small">${fmtDate(sum.from)} – ${fmtDate(sum.to)} · item amounts before GST · pack sizes read from the item names (900ML, 20 LTR, 1X12X1L, 500 GM)${buy ? ' · purchase returns count against them' : ''}</p>
       <div class="kpis">
-        <div class="kpi hero"><span class="lbl">${buy ? 'Bought' : 'Sold'}</span><span class="val">${money(t.amount)}</span><span class="sub">${plural(t.items, 'item')}</span></div>
+        <div class="kpi hero"><span class="lbl">${buy ? 'Bought' : 'Sold'}</span><span class="val">${money(t.amount)}</span><span class="sub">${plural(t.items, 'item')}${t.off ? ` · ${t.off} left out` : ''}</span></div>
         <div class="kpi"><span class="lbl">Litres</span><span class="val">${litres(t.L)}</span><span class="sub">${t.KG ? `+ ${qty(t.KG)} kg` : 'oils &amp; fluids'}</span></div>
         <div class="kpi"><span class="lbl">Packs</span><span class="val">${qty(t.packs, 0)}</span><span class="sub">bottles, cans, buckets…</span></div>
         <div class="kpi"><span class="lbl">${buy ? 'Suppliers' : 'Customers'}</span><span class="val">${sum.parties.length}</span><span class="sub">${sum.parties[0] ? esc(sum.parties[0].name) : '&nbsp;'}</span></div>
@@ -289,15 +290,18 @@ export function stockHtml(sum, months, { metric = 'volume', q = '' } = {}) {
       ${barChart(sum.months.map((m) => ({ label: monthName(m.month), value: Math.max(0, chartVal(m)), tip: `<b>${monthName(m.month)}</b><br>${exact(m.amount)}<br>${qty(m.L)} L${m.KG ? ` · ${qty(m.KG)} kg` : ''} · ${qty(m.packs, 0)} packs` })),
     { label: 'Per month', color: 'var(--s-xg)', h: 140, fmt: metric === 'amount' ? money : (v) => qty(v, 0) })}
       <input type="search" id="stock-q" placeholder="Search an item or group" value="${esc(q)}" autocomplete="off">
+      <div class="row-between pick-bar"><span class="small muted">${t.items} of ${t.items + t.off} items counted${t.off ? ' — unticked items are left out of every total, the chart and the Excel' : ' — untick an item to leave it out of the totals'}</span>
+        <span class="row-end"><button class="btn ghost small" data-sall>Tick ${needle ? 'these' : 'all'}</button><button class="btn ghost small" data-snone>Untick ${needle ? 'these' : 'all'}</button></span></div>
       <div class="table-wrap pivot-wrap"><table class="compact pivot"><thead><tr><th class="sticky">Item</th>${months.map((m) => `<th class="r">${monthName(m)}</th>`).join('')}<th class="r">Total</th></tr></thead>
-        <tbody>${items.map((x) => `<tr><td class="sticky"><b>${esc(x.name)}</b><small class="muted">${[x.group, x.size ? `${qty(x.size, 3)} ${x.measure === 'KG' ? 'kg' : 'L'} pack` : ''].filter(Boolean).map(esc).join(' · ')}</small></td>
+        <tbody>${items.map((x) => `<tr class="${x.off ? 'off' : ''}"><td class="sticky"><label class="pick"><input type="checkbox" data-sitem="${esc(x.key)}" ${x.off ? '' : 'checked'} aria-label="Count ${esc(x.name)}">
+          <span><b>${esc(x.name)}</b><small class="muted">${[x.group, x.size ? `${qty(x.size, 3)} ${x.measure === 'KG' ? 'kg' : 'L'} pack` : ''].filter(Boolean).map(esc).join(' · ')}${x.off ? ' · left out' : ''}</small></span></label></td>
           ${months.map((m) => `<td class="r">${x.months.get(m) ? val(x.months.get(m), x) : ''}</td>`).join('')}<td class="r"><b>${val(x, x)}</b></td></tr>`).join('')}
           ${totalRows}</tbody></table></div>
     </section>
     <section class="card">
       <h3>Items</h3>
       <div class="table-wrap"><table class="compact"><thead><tr><th>Item</th><th class="r">Packs</th><th class="r">Litres / kg</th><th class="r">Amount</th><th class="r">₹ a pack</th><th class="r">₹ a L / kg</th><th class="r">Last rate</th><th>Last</th></tr></thead>
-        <tbody>${items.map((x) => `<tr><td>${esc(x.name)}</td><td class="r">${qty(x.packs, 0)}</td><td class="r">${x.volume ? `${qty(x.volume)} ${x.measure === 'KG' ? 'kg' : 'L'}` : '—'}</td><td class="r">${exact(x.amount)}</td>
+        <tbody>${items.map((x) => `<tr class="${x.off ? 'off' : ''}"><td>${esc(x.name)}${x.off ? ' <small class="muted">left out</small>' : ''}</td><td class="r">${qty(x.packs, 0)}</td><td class="r">${x.volume ? `${qty(x.volume)} ${x.measure === 'KG' ? 'kg' : 'L'}` : '—'}</td><td class="r">${exact(x.amount)}</td>
           <td class="r">${x.perPack ? exact(Math.round(x.perPack * 100) / 100) : ''}</td><td class="r">${x.perUnit ? exact(Math.round(x.perUnit * 100) / 100) : ''}</td>
           <td class="r">${x.lastRate ? `${exact(Number(x.lastRate))}${x.unit ? `<small class="muted">/${esc(x.unit.toLowerCase())}</small>` : ''}` : ''}</td><td class="small muted nowrap">${x.lastDate ? shortDate(x.lastDate) : ''}</td></tr>`).join('')}</tbody></table></div>
       <h3 class="sub-h">${buy ? 'Suppliers' : 'Customers'}</h3>
