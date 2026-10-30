@@ -50,6 +50,15 @@ def configure_accounts(extra: dict | None = None) -> None:
             OWN_ACCOUNTS[acct] = ledger
     _BANK_LEDGERS.clear()
     _BANK_LEDGERS.update(set(OWN_ACCOUNTS.values()) | {"Cash"})
+    # An IFSC can pin a self-transfer to one of our accounts only while we hold a
+    # single account at that bank. With a second one (e.g. a new ICICI OD) it is
+    # ambiguous, so it falls back to pairing across statements — as for our two
+    # HDFC accounts.
+    _IFSC_TO_OWN.clear()
+    for code, ledger in _BUILTIN_IFSC.items():
+        bank = _IFSC_BANK[code]
+        if sum(bank in led.upper() for led in OWN_ACCOUNTS.values()) <= 1:
+            _IFSC_TO_OWN[code] = ledger
 
 # Payment narration keyword -> counter ledger (extend as needed).
 PAYMENT_RULES = [
@@ -86,6 +95,8 @@ def _force_review(name: str) -> bool:
 # (not the account number) appears in the narration. HDFC is ambiguous between
 # our two HDFC accounts, so those are resolved by pairing across statements.
 _IFSC_TO_OWN = {"ICIC": "ICICI BANK LTD"}
+_BUILTIN_IFSC = dict(_IFSC_TO_OWN)
+_IFSC_BANK = {"ICIC": "ICICI"}          # IFSC prefix -> bank name in our ledger names
 
 # Staff — any bank payment to one of these posts to the single Salary ledger.
 # Bank narrations truncate the name (e.g. "NarendraPr" for Narendra Kumar
