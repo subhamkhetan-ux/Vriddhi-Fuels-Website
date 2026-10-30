@@ -592,3 +592,19 @@ def test_overview_change_buttons_target_template_ledgers(tmp_path, monkeypatch):
         assert all(c["template_ledger"] in names for c in cats.values() if c["template_ledger"])
     finally:
         _reset_iocl_config()
+
+
+def test_icici_collections_route_by_full_account_number():
+    # Both ICICI accounts start 04680500; each must reach its own ledger.
+    assert G.collection_route("ICIC26 ICIC0000011_04680500 4716")[1] == "ICICI BANK LTD"
+    tpl, led = G.collection_route("ICIC26 ICIC0000011_04680500 5893")
+    assert (tpl, led) == ("COLLECTION_ICICI.xml", "ICICI OD A/c - 046805005893")
+    v = G.make_journal("COLLECTION", "20261001", 250000.0,
+                       collection_item_text="ICIC26 ICIC0000011_04680500 5893")
+    assert "<LEDGERNAME>ICICI OD A/c - 046805005893</LEDGERNAME>" in v
+    assert "ICICI BANK LTD" not in v and G.voucher_balances(v)
+    old = G.make_journal("COLLECTION", "20261001", 250000.0,
+                         collection_item_text="ICIC26 ICIC0000011_04680500 4716")
+    assert "<LEDGERNAME>ICICI BANK LTD</LEDGERNAME>" in old and "ICICI OD" not in old
+    # Any other ICICI number isn't silently taken as ours.
+    assert G.collection_route("ICIC0000011_04680500 9999")[1] == G.COLLECTION_DEFAULT[1]

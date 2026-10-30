@@ -29,6 +29,7 @@ OWN_ACCOUNTS = {
     "50200110712542": "HDFC BANK OD A/C - 50200110712542",
     "59217010101010": "HDFC BANK C/A - 59217010101010",
     "046805004716": "ICICI BANK LTD",
+    "046805005893": "ICICI OD A/c - 046805005893",
 }
 
 # Our own bank ledgers (+ Cash). A payee alias must never resolve to one of these
@@ -97,6 +98,7 @@ def _force_review(name: str) -> bool:
 _IFSC_TO_OWN = {"ICIC": "ICICI BANK LTD"}
 _BUILTIN_IFSC = dict(_IFSC_TO_OWN)
 _IFSC_BANK = {"ICIC": "ICICI"}          # IFSC prefix -> bank name in our ledger names
+configure_accounts()                    # apply the one-account-per-bank rule to the built-ins
 
 # Staff — any bank payment to one of these posts to the single Salary ledger.
 # Bank narrations truncate the name (e.g. "NarendraPr" for Narendra Kumar

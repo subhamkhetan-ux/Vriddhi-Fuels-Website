@@ -41,11 +41,15 @@ JOURNAL_TEMPLATES = {
 
 # A Customer ECollection lands in one of several bank ledgers. The PAD Item Text
 # names the receiving bank account (IFSC_account, e.g. HDFC0000240_5020011 0712542
-# or ICIC0000011_04680500 4716), so route by a distinctive fragment of it.
+# or ICIC0000011_04680500 4716), so route by a distinctive fragment of it —
+# matched with spaces removed. Our two ICICI accounts (046805004716 and the OD
+# 046805005893) share "04680500", so ICICI needs the full number.
 # (marker found in the line's item text, template file, ledger shown in review)
 COLLECTION_ROUTES = [
     ("5921701", "COLLECTION_CA.xml", "HDFC BANK C/A - 59217010101010"),
-    ("04680500", "COLLECTION_ICICI.xml", "ICICI BANK LTD"),
+    ("046805004716", "COLLECTION_ICICI.xml", "ICICI BANK LTD"),
+    # ICICI OD: an ICICI collection voucher with the bank ledger swapped.
+    ("046805005893", "COLLECTION_ICICI.xml", "ICICI OD A/c - 046805005893"),
 ]
 COLLECTION_DEFAULT = ("COLLECTION_OD.xml", "HDFC BANK OD A/C - 50200110712542")
 
@@ -58,18 +62,20 @@ EXTRA_COLLECTION_ROUTES: list = []
 LEDGER_RENAMES: dict = {}
 
 # The bank ledger each collection template carries (what a route swaps out).
-_TEMPLATE_BANK = {tpl: led for _m, tpl, led in COLLECTION_ROUTES}
-_TEMPLATE_BANK[COLLECTION_DEFAULT[0]] = COLLECTION_DEFAULT[1]
+_TEMPLATE_BANK = {
+    "COLLECTION_CA.xml": "HDFC BANK C/A - 59217010101010",
+    "COLLECTION_ICICI.xml": "ICICI BANK LTD",
+    COLLECTION_DEFAULT[0]: COLLECTION_DEFAULT[1],
+}
 
 
 def collection_route(item_text: str) -> tuple[str, str]:
     """Return (template_file, ledger_name) for an ECollection, by the bank
     account named in its item text. Defaults to the HDFC OD account."""
-    t = item_text or ""
+    squashed = (item_text or "").replace(" ", "")
     for marker, tpl, ledger in COLLECTION_ROUTES:
-        if marker in t:
+        if marker in squashed:
             return tpl, ledger
-    squashed = t.replace(" ", "")
     for marker, ledger in EXTRA_COLLECTION_ROUTES:
         if marker and marker in squashed:
             return COLLECTION_DEFAULT[0], ledger
@@ -252,7 +258,7 @@ def make_journal(category: str, date_yyyymmdd: str, amount: float,
     vch = _set_dates(vch, date_yyyymmdd)
     vch = _set_ledger_amounts(vch, amount)
     vch = _set_reference(vch, reference)
-    if bank and tpl_name in _TEMPLATE_BANK:        # an app-added collection account
+    if bank and tpl_name in _TEMPLATE_BANK:        # e.g. ICICI OD, or an app-added account
         vch = _swap_ledger(vch, _TEMPLATE_BANK[tpl_name], bank)
     return apply_renames(vch)
 

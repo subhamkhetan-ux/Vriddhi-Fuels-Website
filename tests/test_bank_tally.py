@@ -372,49 +372,55 @@ def test_ledgers_uploaded_in_other_tally_apps_are_used(alias_store, tmp_path, mo
     assert SV._known_ledger("sbi bank c/a - 12345678") == "SBI BANK C/A - 12345678"
 
 
-def test_second_icici_account_turns_off_ifsc_pinning():
-    # "VRIDDHI FUELS" + an ICICI IFSC pins a self-transfer to our ICICI account —
-    # but only while we have one. With a second ICICI account it must pair instead.
+def test_two_icici_accounts_turn_off_ifsc_pinning():
+    # "VRIDDHI FUELS" + an ICICI IFSC can't say WHICH of our two ICICI accounts
+    # (C/A 046805004716, OD 046805005893) — it must pair across statements.
     narr = "NEFT CR-ICIC0000468-VRIDDHI FUELS-VRIDDHI FUELS-ICICN52026"
+    assert C.OWN_ACCOUNTS["046805005893"] == "ICICI OD A/c - 046805005893"
+    assert C._IFSC_TO_OWN == {}
+    cl = C.classify(_row(narr, deposit=100000), CUSTOMERS)
+    assert cl.vtype == C.CONTRA and cl.counter_ledger is None    # resolved by pairing
+    # The rule itself: with a single ICICI account the IFSC pins it.
+    saved = dict(C._BUILTIN_ACCOUNTS)
     try:
-        cl = C.classify(_row(narr, deposit=100000), CUSTOMERS)
-        assert cl.vtype == C.CONTRA and cl.counter_ledger == "ICICI BANK LTD"
-        C.configure_accounts({"123456789012": "ICICI BANK OD A/C - 9012"})
-        cl = C.classify(_row(narr, deposit=100000), CUSTOMERS)
-        assert cl.vtype == C.CONTRA and cl.counter_ledger is None    # resolved by pairing
-        # A non-ICICI extra account leaves the ICICI pin alone.
-        C.configure_accounts({"123456789012": "SBI CA - 9012"})
-        cl = C.classify(_row(narr, deposit=100000), CUSTOMERS)
-        assert cl.counter_ledger == "ICICI BANK LTD"
-    finally:
+        C._BUILTIN_ACCOUNTS.pop("046805005893")
         C.configure_accounts({})
-    assert C._IFSC_TO_OWN == {"ICIC": "ICICI BANK LTD"}
+        assert C.classify(_row(narr, deposit=100000), CUSTOMERS).counter_ledger == "ICICI BANK LTD"
+        C.configure_accounts({"123456789012": "SBI CA - 9012"})        # non-ICICI: still pinned
+        assert C._IFSC_TO_OWN == {"ICIC": "ICICI BANK LTD"}
+        C.configure_accounts({"123456789012": "ICICI BANK OD A/C - 9012"})
+        assert C._IFSC_TO_OWN == {}
+    finally:
+        C._BUILTIN_ACCOUNTS.clear()
+        C._BUILTIN_ACCOUNTS.update(saved)
+        C.configure_accounts({})
+    assert C._IFSC_TO_OWN == {} and "046805005893" in C.OWN_ACCOUNTS
 
 
-def test_new_icici_od_statement_is_detected_and_transfers_pair(tmp_path):
+def test_icici_od_statement_is_detected_and_transfers_pair(tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
     from bank_tally import run as R
-    try:
-        C.configure_accounts({"777705001234": "ICICI BANK OD A/C - 1234"})
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(["Account Number", "777705001234"]); ws.append([])
-        ws.append(["Date", "Transaction Remarks", "Withdrawal Amount", "Deposit Amount", "Balance"])
-        ws.append(["01/10/2026", "NEFT-ICIC0000468-VRIDDHI FUELS", 50000, "", -50000])
-        p = tmp_path / "icici_od.xlsx"
-        wb.save(str(p))
-        assert S.detect_account(str(p)) == "ICICI BANK OD A/C - 1234"
-        od_rows, summ = S.parse_excel(str(p))
-        assert summ["reconciles"] and od_rows[0].withdrawal == 50000
-        # The matching deposit in the old ICICI account pairs into one Contra.
-        ca_row = S.BankRow(index=0, date=od_rows[0].date,
-                           narration="NEFT CR-ICIC0000468-VRIDDHI FUELS-VRIDDHI FUELS",
-                           ref="", withdrawal=0, deposit=50000, balance=0.0)
-        vouchers, review, summary = R.process(
-            [("ICICI BANK OD A/C - 1234", od_rows), ("ICICI BANK LTD", [ca_row])], CUSTOMERS)
-        assert not [r for r in review if not r.get("dropped")]
-        contra = [e for e in summary["entries"] if e["type"] == "Contra"]
-        assert len(contra) == 1 and contra[0]["counter_ledger"] in (
-            "ICICI BANK LTD", "ICICI BANK OD A/C - 1234")
-    finally:
-        C.configure_accounts({})
+    od = "ICICI OD A/c - 046805005893"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Account Number", "046805005893"]); ws.append([])
+    ws.append(["Date", "Transaction Remarks", "Withdrawal Amount", "Deposit Amount", "Balance"])
+    ws.append(["01/10/2026", "NEFT-ICIC0000468-VRIDDHI FUELS", 50000, "", -50000])
+    ws.append(["02/10/2026", "BIL/ONL/0001/046805004716/TRF", 20000, "", -70000])
+    p = tmp_path / "icici_od.xlsx"
+    wb.save(str(p))
+    assert S.detect_account(str(p)) == od
+    od_rows, summ = S.parse_excel(str(p))
+    assert summ["reconciles"] and od_rows[0].withdrawal == 50000
+    # The C/A's number in a narration -> Contra to the C/A.
+    cl = C.classify(od_rows[1], CUSTOMERS)
+    assert cl.vtype == C.CONTRA and cl.counter_ledger == "ICICI BANK LTD"
+    # The matching deposit in the old ICICI account pairs into one Contra.
+    ca_row = S.BankRow(index=0, date=od_rows[0].date,
+                       narration="NEFT CR-ICIC0000468-VRIDDHI FUELS-VRIDDHI FUELS",
+                       ref="", withdrawal=0, deposit=50000, balance=0.0)
+    vouchers, review, summary = R.process([(od, od_rows[:1]), ("ICICI BANK LTD", [ca_row])],
+                                          CUSTOMERS)
+    assert not [r for r in review if not r.get("dropped")]
+    contra = [e for e in summary["entries"] if e["type"] == "Contra"]
+    assert len(contra) == 1
