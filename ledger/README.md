@@ -215,6 +215,83 @@ Paid — then the ledger's copy is dropped (one for one), so the Mac's Excel
 file stays the source of truth and nothing counts twice. **Remove** takes one
 out of the ledger only.
 
+**Tally tab** (the Tally viewer): open your Tally data and see the
+company's financials, compare every customer's balance here with Tally, and
+see the lubricants bought month by month. The files are read on this device —
+nothing is saved or uploaded, and the app's data is not changed.
+
+Files (choose several together; a voucher in two files counts once; **Add a
+file** adds one to those open):
+- **Everything (best)** — in Tally Prime, Gateway of Tally → *Export →
+  Masters* (All Masters, XML) and *Export → Transactions* (the year's Day
+  Book, XML). The masters give the groups, opening balances, stock items and
+  units; the transactions every voucher with its ledger lines and stock items.
+- **Tally XML Day Book** alone (Display → Day Book → Export → XML): no
+  groups or openings, so the financials are estimated (ledgers placed by
+  their names) and the balance comparison compares only the movement in the
+  file.
+- **DayBook in Excel** (the file Import reads): the Insights only.
+
+Four views (all but *Ledger vs Tally* for the whole file, a month, or any
+From..To):
+- **Insights** — sales, receipts, payments, estimated earnings and the
+  discount under the day's RSP, each product's litres and rates, litres per
+  day and weekday, customers (sort, search, their vouchers), voucher types,
+  vehicles (and ones billed to several parties), rate changes, bill-number
+  gaps / repeats / out-of-order bills, checks (litres × rate ≠ amount, no
+  vehicle, no party …), ledger totals and every voucher (filter, Excel).
+- **Financials** — profit & loss as Tally groups it (sales, purchases,
+  direct / indirect expenses and income, gross and net profit, % of sales).
+  The file doesn't carry the closing stock (Tally values it from the
+  inventory): type it from Tally's Stock Summary for the true gross profit;
+  the opening stock comes from the masters. Then month by month (sales,
+  purchases, expenses, result, money in / out of cash and bank — transfers
+  between them left out — and cash & bank at each month end), every expense
+  ledger with its share and monthly average, income / sales / purchase
+  accounts, a balance sheet as on the To date (cash, bank, receivable,
+  payable, duties & taxes, loans, capital, fixed assets, working capital,
+  current ratio), debtor and creditor days, collections, each cash and bank
+  account (opening, in, out, closing), top debtors and creditors, and checks
+  (trial balance agrees, the difference in opening balances, vouchers whose
+  debits and credits differ, ledgers in no group). **Download trial
+  balance** gives every ledger and the months in Excel.
+- **Ledger vs Tally** — each customer's balance in this app (their ledger
+  sheet; a bulk sheet's billing names together) against their ledger in
+  Tally, as on any date in the file: agree / differ / same balance with
+  entries on other days / not found in Tally. Tap one to see where a
+  difference comes from — the entries are matched:
+  1. bills by bill no. (amount or date differs);
+  2. a payment with its TDS and shortage against one Tally receipt of the
+     three together;
+  3. the rest by exact amount, the same day, then within 10 days (TDS and
+     shortage within 120 days — Tally often books them later in a journal);
+  4. what's left is in one side only (*Not in Tally*, *Not in the app*).
+
+  Each finding says its date, the bill or voucher and its **effect** on the
+  difference (+ = Tally higher); with the opening difference they add up to
+  the difference in the balance. *Day by day* lists the days the difference
+  changes, and the account says the day it first went off. A customer whose
+  name differs in Tally gets suggestions (*“Sample Roadlines” may be “M/s
+  Sample Roadlines Pvt Ltd”*) — tap one to compare with it (until the file is
+  closed). Debtors with a balance in Tally that the app doesn't compare
+  (cash customers, *No ledger needed*, new names) are listed below.
+  **Download Excel** gives every finding.
+- **Purchases & stock** — the lubricants and other items (or the fuel)
+  bought — or sold — item by item and month by month, in litres / kg, packs
+  or amount (before GST), with totals per month. The pack size is read from
+  the item's name (`900ML`, `20 LTR`, `(7.5 LTR)`, `500 GM` = 0.5 kg,
+  `1X12X1L` = a box of 12 × 1 L) and a compound unit in the masters (*Box of
+  12 Nos*) says how many packs a box holds; viscosity grades (`15W40`) and
+  `2T` / `4T` aren't taken for sizes. Items with no size in the name are
+  listed and counted in packs and amount only. Purchase returns (debit
+  notes) count against purchases. Also each item's packs, litres, ₹ a pack,
+  ₹ a litre, last rate and date, and each supplier's total before and with
+  GST. **Download Excel**: litres, packs and amount sheets and the suppliers.
+
+In the demo, **Try a sample Tally file** makes a made-up export from the
+demo data (masters and a year of vouchers) with a few differences planted
+for *Ledger vs Tally* to find.
+
 This app is separate from every other app in this repo (it only reads the
 payments app's list); it only adds files
 (`ledger/`, `supabase/ledger-schema.sql`, `tests/ledger_web/`,
@@ -309,6 +386,12 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/account.js` | A customer's ledger as on their sheet (bulk layouts, formats) |
 | `js/ledger-view.js` | The ledger as a statement (summary, months, company-wise outstanding) and the rate chart sheet |
 | `js/share-svg.js` | Draws the shared pictures: ledger pages, outstanding cards, the outstanding list |
+| `js/tally-file.js` | Tally viewer: reads a DayBook (Excel) or Tally XML (masters + vouchers), merges files, works out the insights |
+| `js/tally-fin.js` | Tally viewer: financials (groups, P&L, balance sheet, months, ratios, trial balance) |
+| `js/tally-recon.js` | Tally viewer: the app's balances against Tally's, and the entries behind each difference |
+| `js/tally-stock.js` | Tally viewer: items bought / sold by month, pack sizes from item names |
+| `js/tally-view.js`, `js/tally-reports.js` | Tally viewer screens |
+| `js/tally-sample.js` | A made-up Tally export from the demo data (demo and tests) |
 | `js/demo.js` | Made-up demo data |
 | `js/util.js` | Dates, numbers, names |
 | `../supabase/ledger-schema.sql` | Tables, row-level security and the `ledger_*` functions |
@@ -320,7 +403,7 @@ JSZip (cdnjs) for the bill and statement PDFs.
 ## Tests
 
 ```bash
-node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, ledger view + pictures, demo store
+node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, ledger view + pictures, demo store, Tally viewer
 python -m pytest tests/test_ledger_web.py tests/test_ledger_schema.py -q
 ```
 
