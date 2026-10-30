@@ -6239,6 +6239,27 @@
       "status": "review",
       "materialized": true,
       "materialized_at": "2026-10-29T10:00:31.010497+00:00"
+    },
+    {
+      "entry_id": "a17b55f4eb9711c9",
+      "gmail_msg_id": "1880459536395791686",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "30/10/26",
+      "date_serial": 46325,
+      "amount": 397602.0,
+      "raw_payer": "VIRENDRA LOGISTICS PVT",
+      "customer": "Virendra Logistics Private Limited",
+      "candidates": [
+        "Virendra Logistics Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-30T07:45:29.182784+00:00",
+      "status": "matched"
     }
   ]
 }
