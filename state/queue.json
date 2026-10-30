@@ -6371,6 +6371,48 @@
       },
       "queued_at": "2026-10-30T09:45:24.322083+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "23ac5251bba850c6",
+      "gmail_msg_id": "1880472748646347779",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "30/10/26",
+      "date_serial": 46325,
+      "amount": 397610.0,
+      "raw_payer": "SAMARPAN LOGISTICS PRI",
+      "customer": "SAMARPAN LOGISTICS PVT LTD",
+      "candidates": [
+        "SAMARPAN LOGISTICS PVT LTD"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-30T11:15:22.559738+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "07a5f07dd350e1b4",
+      "gmail_msg_id": "1880473065951180997",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "30/10/26",
+      "date_serial": 46325,
+      "amount": 398000.0,
+      "raw_payer": "GRK LOGISTICS PVT LTD",
+      "customer": "Grk Logistics Private Limited",
+      "candidates": [
+        "Grk Logistics Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-30T11:15:22.560259+00:00",
+      "status": "matched"
     }
   ]
 }
