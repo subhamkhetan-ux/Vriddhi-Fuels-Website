@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 import {
-  analyseTally, checks, decodeText, filterVouchers, fuelOf, kindOf, looksLikeXml, numberSeries, parseDaybookSheet, parseTallyXml,
+  analyseTally, checks, decodeText, filterVouchers, fuelOf, kindOf, looksLikeXml, mergeTally, numberSeries, parseDaybookSheet, parseTallyXml,
   voucherSheet,
 } from '../../ledger/js/tally-file.js';
 import {
@@ -74,7 +74,7 @@ test('Tally XML: UTF-16 export with ledgers, items and vehicles', () => {
   assert.equal(v.rate, 99.5);
   assert.equal(v.amount, 1194000);
   assert.equal(v.debit, 1194000);
-  assert.deepEqual(v.items, [{ name: 'High Speed Diesel', product: 'HSD', qty: 12000, rate: 99.5, amount: 1194000 }]);
+  assert.deepEqual(v.items, [{ name: 'High Speed Diesel', product: 'HSD', qty: 12000, unit: 'LTR', rate: 99.5, amount: 1194000 }]);
   assert.deepEqual(v.ledgers.map((l) => l.name).sort(), ['SALE (HSD)', v.party].sort());
   assert.equal(p.vouchers.filter((x) => x.product === 'MS').length, 1);
 });
@@ -101,7 +101,7 @@ test('Tally XML: cancelled vouchers, receipts and lubes', () => {
   assert.equal(rec.credit, 25000);
   assert.equal(rec.narration, 'NEFT  ref 12');
   assert.equal(lube.product, 'OTHER');
-  assert.deepEqual(lube.items[0], { name: 'Servo 4T 1L', product: 'OTHER', qty: 2, rate: 350, amount: 700 });
+  assert.deepEqual(lube.items[0], { name: 'Servo 4T 1L', product: 'OTHER', qty: 2, unit: 'NOS', rate: 350, amount: 700 });
   assert.ok(lube.ledgers.some((l) => l.name === 'SALE (LUBE)' && l.amount === 700));
   assert.ok(cancelled.cancelled);
   const a = analyseTally(p.vouchers);
@@ -119,7 +119,7 @@ test('DayBook Excel: every voucher type, the company and cancelled bills', () =>
   const first = p.vouchers[0];
   assert.equal(first.vehicle, 'OD01A1111');            // spaces gone, upper case
   assert.equal(first.product, 'HSD');
-  assert.deepEqual(first.items, [{ name: 'HSD CREDIT', product: 'HSD', qty: 1000, rate: 90.5, amount: 90500 }]);
+  assert.deepEqual(first.items, [{ name: 'HSD CREDIT', product: 'HSD', qty: 1000, unit: '', rate: 90.5, amount: 90500 }]);
   const rec = p.vouchers.find((v) => v.kind === 'receipt');
   assert.equal(rec.amount, 50000);
   assert.equal(rec.credit, 50000);
@@ -201,7 +201,7 @@ test('screens render without throwing and escape names', () => {
   const { vouchers, company } = parseDaybookSheet(sheetRows(daybook()));
   vouchers[1].party = '<b>Demo</b>';
   const a = analyseTally(vouchers);
-  const file = { name: 'daybook.xlsx', company, source: 'excel', vouchers };
+  const file = mergeTally([{ name: 'daybook.xlsx', company, source: 'excel', vouchers }]);
   const html = [
     fileHeadHtml(file, a, { key: 'all' }), overviewHtml(a), typesHtml(a), productsHtml(a), trendHtml(a), partiesHtml(a, {}),
     vehiclesHtml(a), ratesHtml(a), seriesHtml(a), checksHtml(a), ledgersHtml(a, a.parties), vouchersHtml(vouchers, { kind: 'all', product: 'all', q: '' }, ['sale']),

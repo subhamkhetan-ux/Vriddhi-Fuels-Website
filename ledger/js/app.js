@@ -34,8 +34,13 @@ import {
 } from './outstanding.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
-  analyseTally, decodeText, filterVouchers, KINDS, looksLikeXml, parseDaybookSheet, parseTallyXml, spanOf, voucherSheet,
+  analyseTally, decodeText, filterVouchers, hasMasters, KINDS, looksLikeXml, mergeTally, normName, parseDaybookSheet, parseTallyXml, spanOf,
+  voucherSheet,
 } from './tally-file.js';
+import { financials, monthsBetween, trialSheet } from './tally-fin.js';
+import { appAccounts, fyStartOf, reconcile, reconSheet } from './tally-recon.js';
+import { finHtml, reconHtml, stockHtml, viewTabsHtml } from './tally-reports.js';
+import { pivotSheet, stockSummary } from './tally-stock.js';
 import {
   checksHtml, fileHeadHtml, ledgersHtml, overviewHtml, PAGE_SIZE, partiesHtml, productsHtml, ratesHtml, seriesHtml, trendHtml, typesHtml,
   vehiclesHtml, vouchersHtml,
@@ -238,7 +243,7 @@ const ROUTES = [
   [/^#\/bills$/, () => viewBills()],
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/payments$/, () => viewPayments()],
-  [/^#\/tally$/, () => viewTally()],
+  [/^#\/tally(?:\/(fin|recon|stock))?$/, (m) => viewTally(m[1] || '')],
   [/^#\/account\/([cg])\/([^?]+)(?:\?m=(\d{4}-\d{2}))?$/, (m) => viewAccount(m[1], decodeURIComponent(m[2]), m[3])],
 ];
 
@@ -2531,27 +2536,43 @@ function bindAppPayments(reload) {
 }
 
 // ---------------------------------------------------------------------------
-// Tally viewer — everything in a Tally file (the DayBook in Excel, or Tally's
-// XML export): sales, receipts, products, customers, vehicles, rates, bill
-// numbers and checks. Read on this device; nothing is saved or uploaded.
+// Tally viewer — a Tally file (the DayBook in Excel, or Tally's XML export,
+// several files together) read on this device; nothing is saved or uploaded.
+//   Insights:          sales, receipts, products, customers, vehicles, rates,
+//                      bill numbers, checks, every voucher
+//   Financials:        P&L, balance sheet, month by month, expenses, cash & bank
+//   Ledger vs Tally:   each customer's balance here against Tally, and the
+//                      bills / payments / days behind any difference
+//   Purchases & stock: lubricants (and fuel) bought or sold, item by month
 // ---------------------------------------------------------------------------
-async function viewTally() {
+async function viewTally(view = '') {
   if (!state.tally) {
     setMain(`
       <section class="card hero">
         <h2>Tally viewer</h2>
-        <p class="muted">Open a Tally file to see everything in it: sales and receipts, each product's litres and rates, the best customers, vehicles, rate changes, missing or repeated bill numbers and bills that don't add up. The file is read on this device — nothing is saved or uploaded, and the app's sales are not changed.</p>
-        <label class="file"><input type="file" id="tally-file" accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn">Choose Tally file</span></label>
+        <p class="muted">Open your Tally data to see the company's financials, compare every customer's balance here with Tally (and find the bill or day a difference comes from), and see the lubricants bought month by month — plus sales, receipts, rates, vehicles and bill-number checks. The files are read on this device — nothing is saved or uploaded, and the app's data is not changed.</p>
+        <label class="file"><input type="file" id="tally-file" multiple accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn">Choose Tally files</span></label>
+        ${state.demo ? '<button class="btn ghost" data-tally-sample>Try a sample Tally file</button>' : ''}
         <ul class="small muted steps">
-          <li><b>DayBook in Excel</b> — the file you import (Date, Particulars, Vch Type, Qty, Rate, Vehicle, Vch No., Debit, Credit): every voucher type, not only the credit bills.</li>
-          <li><b>Tally XML export</b> — Display → Day Book (any period, F2) → Export → XML. Adds each voucher's ledgers, stock items, narration and cancelled vouchers.</li>
+          <li><b>Everything (best):</b> in Tally Prime, Gateway of Tally → <b>Export → Masters</b> (All Masters, XML) and <b>Export → Transactions</b> (Day Book for the whole year, XML). Choose both files together. The masters give the groups and opening balances the financials and the balance comparison need.</li>
+          <li><b>Tally XML Day Book</b> alone: Display → Day Book (F2: the period) → Export → XML — vouchers with their ledgers and stock items.</li>
+          <li><b>DayBook in Excel</b> (the file you import): sales, receipts and the insights; no financials or stock items.</li>
         </ul>
         <div id="tally-out"></div>
       </section>`);
-    document.getElementById('tally-file').addEventListener('change', (e) => e.target.files[0] && tallyChosen(e.target.files[0], e.target));
+    document.getElementById('tally-file').addEventListener('change', (e) => e.target.files.length && tallyFiles([...e.target.files], e.target));
+    main().querySelector('[data-tally-sample]')?.addEventListener('click', () => guard(async () => {
+      const out = document.getElementById('tally-out');
+      out.innerHTML = loadingHtml('Making a sample from the demo data…');
+      await paint();
+      const { sampleTally } = await import('./tally-sample.js');
+      const { xml } = await sampleTally(state.store, localToday());
+      openTally([{ name: 'Sample Tally export.xml', ...parseTallyXml(xml) }]);
+      renderTally(view);
+    }));
     return;
   }
-  renderTally();
+  renderTally(view);
 }
 
 async function readTallyFile(file) {
@@ -2563,21 +2584,45 @@ async function readTallyFile(file) {
   return { name: file.name, ...parseDaybookSheet(sheetRows(wb.Sheets[wb.SheetNames[0]]), { date1904 }) };
 }
 
-async function tallyChosen(file, input) {
+function openTally(files) {
+  state.tallyFiles = files;
+  state.tally = mergeTally(files);
+  state.tallyRecon = null;
+  state.tallyUi = {
+    period: { key: 'all' }, sort: 'sales', q: '', pall: false, vall: false, v: { kind: 'all', product: 'all', q: '' }, shown: PAGE_SIZE,
+    closingStock: '', allExp: false,
+    recon: { asOn: null, filter: 'all', q: '', map: {} },
+    stock: { kind: 'purchase', category: 'lubes', metric: 'volume', q: '' },
+  };
+}
+
+// files chosen: read them; `add` keeps the files already open
+async function tallyFiles(files, input, { add = false } = {}) {
   const out = document.getElementById('tally-out');               // null while a file is open
-  if (out) out.innerHTML = loadingHtml(`Reading ${file.name}…`);
-  else toast(`Reading ${file.name}…`);
+  const names = files.map((f) => f.name).join(', ');
+  if (out) out.innerHTML = loadingHtml(`Reading ${names}…`);
+  else toast(`Reading ${names}…`);
   await paint();
   const fail = (msg) => { if (out) out.innerHTML = `<div class="card bad-card">${msg}</div>`; else toast(msg.replace(/<[^>]+>/g, ''), 'bad'); };
   try {
-    const t = await readTallyFile(file);
-    if (!t.vouchers.length) {
-      fail(`No vouchers were found in “${esc(file.name)}”. Choose the DayBook exported to Excel, or Tally's XML export of the Day Book.`);
+    const read = [];
+    for (const f of files) read.push(await readTallyFile(f));
+    const all = [...(add ? state.tallyFiles || [] : []), ...read];
+    if (!all.some((f) => f.vouchers.length)) {
+      const masters = read.some((f) => f.masters && f.masters.ledgers.size);
+      fail(masters
+        ? `“${esc(names)}” has the masters but no vouchers. Choose the Day Book (or Transactions) export too — both files together.`
+        : `No vouchers were found in “${esc(names)}”. Choose Tally's XML export (Day Book / Transactions, and the masters), or the DayBook exported to Excel.`);
       return;
     }
-    state.tally = t;
-    state.tallyUi = { period: { key: 'all' }, sort: 'sales', q: '', pall: false, vall: false, v: { kind: 'all', product: 'all', q: '' }, shown: PAGE_SIZE };
-    renderTally();
+    const view = (location.hash.match(/^#\/tally\/(\w+)/) || [])[1] || '';
+    if (add && state.tallyUi) {
+      const ui = state.tallyUi;
+      openTally(all);
+      state.tallyUi = { ...state.tallyUi, period: ui.period, recon: { ...ui.recon }, stock: ui.stock };
+      toast(`Added ${names}.`);
+    } else openTally(all);
+    renderTally(view);
   } catch (err) {
     console.error(err);
     fail(esc(err && err.message ? err.message : err));
@@ -2586,7 +2631,8 @@ async function tallyChosen(file, input) {
   }
 }
 
-function renderTally() {
+// the dates the period picker gives: {span, from, to}
+function tallyRange() {
   const t = state.tally;
   const ui = state.tallyUi;
   const span = spanOf(t.vouchers);
@@ -2594,48 +2640,68 @@ function renderTally() {
   if (/^\d{4}-\d{2}$/.test(ui.period.key)) {
     range = { from: `${ui.period.key}-01` < span.from ? span.from : `${ui.period.key}-01`, to: monthEnd(ui.period.key) > span.to ? span.to : monthEnd(ui.period.key) };
   } else if (ui.period.key === 'custom' && ui.period.from) range = { from: ui.period.from, to: ui.period.to };
-  const a = analyseTally(t.vouchers, range);
+  return { span, ...range };
+}
+
+function renderTally(view = '') {
+  const t = state.tally;
+  const ui = state.tallyUi;
+  const r = tallyRange();
+  setMain(`<section class="card" id="tally-head"></section><div id="tally-body"></div>`);
+  const head = document.getElementById('tally-head');
+  const body = document.getElementById('tally-body');
+  const paintHead = (note = '') => {
+    head.innerHTML = fileHeadHtml(t, r, ui.period, { view, note, tabs: viewTabsHtml(view) });
+    head.querySelectorAll('[data-tperiod]').forEach((b) => b.addEventListener('click', () => {
+      const key = b.dataset.tperiod;
+      ui.period = key === 'custom' ? { key, from: r.from, to: r.to } : { key };
+      ui.shown = PAGE_SIZE;
+      ui.closingStock = '';
+      renderTally(view);
+    }));
+    head.querySelector('#tally-range')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const from = e.target.from.value;
+      const to = e.target.to.value;
+      if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
+      ui.period = { key: 'custom', from, to };
+      ui.closingStock = '';
+      renderTally(view);
+    });
+    head.querySelector('#tally-file-2').addEventListener('change', (e) => e.target.files.length && tallyFiles([...e.target.files], e.target));
+    head.querySelector('#tally-add').addEventListener('change', (e) => e.target.files.length && tallyFiles([...e.target.files], e.target, { add: true }));
+    head.querySelector('[data-tally-clear]').addEventListener('click', () => {
+      state.tally = null;
+      state.tallyFiles = null;
+      state.tallyRecon = null;
+      location.hash = '#/tally';
+      viewTally();
+    });
+  };
+  setChartWidth(body.clientWidth - 38);
+  if (view === 'fin') { paintHead(); renderTallyFin(body, r); } else if (view === 'recon') { paintHead(); guard(() => renderTallyRecon(body, r)); } else if (view === 'stock') { paintHead(); renderTallyStock(body, r); } else {
+    const a = analyseTally(t.vouchers, r);
+    paintHead(`${plural(a.days, 'day')}, vouchers on ${a.activeDays}`);
+    renderTallyInsights(body, a);
+  }
+}
+
+function renderTallyInsights(body, a) {
+  const t = state.tally;
+  const ui = state.tallyUi;
   const kinds = KINDS.filter((k) => a.byKind[k].count);
-  setMain(`
-    <section class="card">${fileHeadHtml(t, a, ui.period)}</section>
-    <div id="tally-body">
+  body.innerHTML = `
       <section class="card dash">${overviewHtml(a)}</section>
       <section class="card">${productsHtml(a)}</section>
-      <section class="card" id="t-trend"></section>
+      <section class="card">${trendHtml(a)}</section>
       <section class="card" id="t-parties"></section>
       <section class="card">${typesHtml(a)}</section>
       <section class="card" id="t-vehicles"></section>
-      <section class="card" id="t-rates"></section>
+      <section class="card">${ratesHtml(a)}</section>
       <section class="card">${seriesHtml(a)}</section>
       <section class="card">${checksHtml(a)}</section>
       ${t.source === 'xml' ? `<section class="card">${ledgersHtml(a, a.parties) || '<h3>Ledgers</h3><p class="muted">No ledger lines.</p>'}</section>` : ''}
-      <section class="card" id="t-vouchers"></section>
-    </div>`);
-  const body = document.getElementById('tally-body');
-  setChartWidth(body.clientWidth - 38);
-  document.getElementById('t-trend').innerHTML = trendHtml(a);
-  document.getElementById('t-rates').innerHTML = ratesHtml(a);
-
-  // the period
-  main().querySelectorAll('[data-tperiod]').forEach((b) => b.addEventListener('click', () => {
-    const key = b.dataset.tperiod;
-    ui.period = key === 'custom' ? { key, from: a.from, to: a.to } : { key };
-    ui.shown = PAGE_SIZE;
-    renderTally();
-  }));
-  document.getElementById('tally-range')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const from = e.target.from.value;
-    const to = e.target.to.value;
-    if (!from || !to || to < from) { toast('Pick a From date on or before the To date.', 'bad'); return; }
-    ui.period = { key: 'custom', from, to };
-    renderTally();
-  });
-  document.getElementById('tally-file-2').addEventListener('change', (e) => e.target.files[0] && tallyChosen(e.target.files[0], e.target));
-  main().querySelector('[data-tally-clear]').addEventListener('click', () => {
-    state.tally = null;
-    viewTally();
-  });
+      <section class="card" id="t-vouchers"></section>`;
 
   // customers & parties: sort, search, show all, their vouchers
   const parties = document.getElementById('t-parties');
@@ -2646,11 +2712,7 @@ function renderTally() {
     const q = parties.querySelector('#party-q');
     q.addEventListener('input', debounce(() => { ui.q = q.value; paintParties(true); }, 200));
     if (focus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
-    parties.querySelectorAll('[data-party]').forEach((b) => b.addEventListener('click', () => {
-      const more = b.nextElementSibling;
-      more.hidden = !more.hidden;
-      b.setAttribute('aria-expanded', String(!more.hidden));
-    }));
+    bindExpand(parties, '[data-party]');
     parties.querySelectorAll('[data-party-vouchers]').forEach((b) => b.addEventListener('click', () => {
       ui.v = { kind: 'all', product: 'all', q: b.dataset.partyVouchers };
       ui.shown = PAGE_SIZE;
@@ -2675,7 +2737,9 @@ function renderTally() {
     if (focus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     vbox.querySelector('#v-product').addEventListener('change', (e) => { ui.v.product = e.target.value; ui.shown = PAGE_SIZE; paintVouchers(); });
     vbox.querySelector('[data-vmore]')?.addEventListener('click', () => { ui.shown += PAGE_SIZE; paintVouchers(); });
-    vbox.querySelector('[data-vdownload]')?.addEventListener('click', () => guard(() => downloadVouchers(list, a)));
+    vbox.querySelector('[data-vdownload]')?.addEventListener('click', () => guard(() => downloadSheets([{
+      name: 'Vouchers', rows: voucherSheet(list), cols: [12, 16, 12, 10, 34, 13, 9, 11, 9, 13, 13, 13, 9, 40], filter: true,
+    }], `Tally Vouchers ${rangeName(a.from, a.to)}.xlsx`)));
   };
   paintParties();
   paintVehicles();
@@ -2683,15 +2747,133 @@ function renderTally() {
   bindCharts(body);
 }
 
-async function downloadVouchers(list, a) {
+// a row button that opens the panel after it
+function bindExpand(box, selector) {
+  box.querySelectorAll(selector).forEach((b) => b.addEventListener('click', () => {
+    const more = b.nextElementSibling;
+    more.hidden = !more.hidden;
+    b.setAttribute('aria-expanded', String(!more.hidden));
+  }));
+}
+
+function renderTallyFin(body, r) {
+  const t = state.tally;
+  const ui = state.tallyUi;
+  if (t.source !== 'xml') {
+    body.innerHTML = `<section class="card"><h2>Financials</h2><p class="muted">The DayBook in Excel has only each voucher's party and amount — not the sales, purchase, expense, bank and tax ledgers the financials are made of. Open Tally's XML export (Export → Masters and Export → Transactions, both files together), or <b>Add a file</b> above.</p></section>`;
+    return;
+  }
+  const stock = ui.closingStock !== '' && Number.isFinite(Number(ui.closingStock)) ? Number(ui.closingStock) : null;
+  const f = financials(t.vouchers, t.masters, { from: r.from, to: r.to, closingStock: stock });
+  body.innerHTML = finHtml(f, { closingStock: ui.closingStock, allExpenses: ui.allExp });
+  body.querySelector('#fin-stock').addEventListener('submit', (e) => {
+    e.preventDefault();
+    ui.closingStock = e.target.stock.value.trim();
+    renderTallyFin(body, r);
+  });
+  body.querySelector('[data-fin-nostock]')?.addEventListener('click', () => { ui.closingStock = ''; renderTallyFin(body, r); });
+  body.querySelector('[data-fin-allexp]')?.addEventListener('click', () => { ui.allExp = !ui.allExp; renderTallyFin(body, r); });
+  body.querySelector('[data-fin-trial]').addEventListener('click', () => guard(() => downloadSheets([
+    { name: 'Trial balance', rows: trialSheet(f), cols: [20, 24, 36, 16, 16, 16, 16], filter: true },
+    { name: 'Months', rows: [['Month', 'Sales', 'Purchases', 'Expenses', 'Other income', 'Result before stock', 'Money in', 'Money out', 'Cash & bank'],
+      ...f.pl.monthly.map((m) => [m.month, m.sales, m.purchases, m.expenses, m.income, m.result, m.cashIn, m.cashOut, m.liquid])], cols: [10, 14, 14, 14, 14, 18, 14, 14, 14] },
+  ], `Tally Financials ${rangeName(r.from, r.to)}.xlsx`)));
+  bindCharts(body);
+}
+
+// the app's side of the comparison, fetched once per date
+async function reconData(start, asOn) {
+  const key = `${start}|${asOn}`;
+  if (!state.tallyRecon || state.tallyRecon.key !== key) {
+    const dash = await state.store.dashboard(asOn, asOn);
+    const [statement, bulk] = await Promise.all([
+      state.store.statementData(start, asOn),
+      Promise.all(dash.groups.map(async ([code, title]) => ({ code, title: shortGroup(code, title), data: await state.store.account(null, code, null, null) }))),
+    ]);
+    state.tallyRecon = { key, accounts: appAccounts(statement, bulk, { from: start }), customers: dash.customers };
+  }
+  return state.tallyRecon;
+}
+
+async function renderTallyRecon(body, r) {
+  const t = state.tally;
+  const ui = state.tallyUi.recon;
+  const live = t.vouchers.filter((v) => !v.cancelled);
+  if (!live.length) { body.innerHTML = '<section class="card"><p class="muted">Every voucher in the file is cancelled — nothing to compare.</p></section>'; return; }
+  const start = hasMasters(t.masters) ? fyStartOf(live[0].date) : live[0].date;
+  const asOn = ui.asOn && ui.asOn <= r.span.to ? ui.asOn : r.span.to;
+  if (!state.tallyRecon || state.tallyRecon.key !== `${start}|${asOn}`) body.innerHTML = loadingHtml('Reading the app\'s ledgers…');
+  const data = await reconData(start, asOn);
+  const res = reconcile(data.accounts, t.vouchers, t.masters, { asOn, appCustomers: data.customers, map: ui.map });
+  body.innerHTML = reconHtml(res, { filter: ui.filter, asOnMax: r.span.to, q: ui.q });
+  body.querySelector('#recon-date').addEventListener('submit', (e) => {
+    e.preventDefault();
+    ui.asOn = e.target.asOn.value;
+    guard(() => renderTallyRecon(body, r));
+  });
+  body.querySelectorAll('[data-rfilter]').forEach((b) => b.addEventListener('click', () => { ui.filter = b.dataset.rfilter; guard(() => renderTallyRecon(body, r)); }));
+  const q = body.querySelector('#recon-q');
+  q.addEventListener('input', debounce(() => {
+    ui.q = q.value;
+    guard(async () => {
+      await renderTallyRecon(body, r);
+      const nq = body.querySelector('#recon-q');
+      nq.focus();
+      nq.setSelectionRange(nq.value.length, nq.value.length);
+    });
+  }, 250));
+  bindExpand(body, '[data-recon]');
+  body.querySelectorAll('[data-map-from]').forEach((b) => b.addEventListener('click', () => {
+    ui.map[normName(b.dataset.mapFrom)] = b.dataset.mapTo;
+    toast(`Comparing “${b.dataset.mapFrom}” with Tally's “${b.dataset.mapTo}” (until you close the file).`);
+    guard(() => renderTallyRecon(body, r));
+  }));
+  body.querySelector('[data-recon-xlsx]').addEventListener('click', () => guard(() => downloadSheets([
+    { name: 'Ledger vs Tally', rows: reconSheet(res), cols: [30, 14, 14, 14, 11, 18, 22, 14, 14, 14], filter: true },
+  ], `Ledger vs Tally ${dmyDash(res.asOn)}.xlsx`)));
+}
+
+function renderTallyStock(body, r) {
+  const t = state.tally;
+  const ui = state.tallyUi.stock;
+  const sum = stockSummary(t.vouchers, t.masters, { from: r.from, to: r.to, kind: ui.kind, category: ui.category });
+  const months = monthsBetween(r.from, r.to);
+  const paint = (focus = false) => {
+    body.innerHTML = stockHtml(sum, months, ui);
+    body.querySelectorAll('[data-skind]').forEach((b) => b.addEventListener('click', () => { ui.kind = b.dataset.skind; renderTallyStock(body, r); }));
+    body.querySelectorAll('[data-scat]').forEach((b) => b.addEventListener('click', () => { ui.category = b.dataset.scat; renderTallyStock(body, r); }));
+    body.querySelectorAll('[data-smetric]').forEach((b) => b.addEventListener('click', () => { ui.metric = b.dataset.smetric; paint(); }));
+    const q = body.querySelector('#stock-q');
+    if (q) {
+      q.addEventListener('input', debounce(() => { ui.q = q.value; paint(true); }, 200));
+      if (focus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    }
+    body.querySelector('[data-stock-xlsx]')?.addEventListener('click', () => guard(() => {
+      const cols = [36, 18, 10, ...months.map(() => 12), 14];
+      return downloadSheets([
+        { name: 'Litres & kg', rows: pivotSheet(sum, months, 'volume'), cols },
+        { name: 'Packs', rows: pivotSheet(sum, months, 'packs'), cols },
+        { name: 'Amount', rows: pivotSheet(sum, months, 'amount'), cols },
+        { name: ui.kind === 'purchase' ? 'Suppliers' : 'Customers', rows: [['Name', 'Vouchers', 'Items (before GST)', 'Bills (with GST)'], ...sum.parties.map((p) => [p.name, p.vouchers, p.amount, p.total])], cols: [36, 10, 18, 18] },
+      ], `${ui.kind === 'purchase' ? 'Purchases' : 'Sales'} ${ui.category === 'fuel' ? 'Fuel' : 'Lubricants'} ${rangeName(r.from, r.to)}.xlsx`);
+    }));
+    bindCharts(body);
+  };
+  paint();
+}
+
+// sheets: [{name, rows, cols: [widths], filter}] -> an .xlsx download
+async function downloadSheets(sheets, fileName) {
   const XLSX = await loadSheetJS();
-  const ws = XLSX.utils.aoa_to_sheet(voucherSheet(list));
-  ws['!cols'] = [12, 16, 12, 10, 34, 13, 9, 11, 9, 13, 13, 13, 9, 40].map((wch) => ({ wch }));
-  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: list.length, c: 13 } }) };
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Vouchers');
+  for (const sh of sheets) {
+    const ws = XLSX.utils.aoa_to_sheet(sh.rows);
+    if (sh.cols) ws['!cols'] = sh.cols.map((wch) => ({ wch }));
+    if (sh.filter && sh.rows.length > 1) ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sh.rows.length - 1, c: sh.rows[0].length - 1 } }) };
+    XLSX.utils.book_append_sheet(wb, ws, sh.name.slice(0, 31));
+  }
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  download(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Tally Vouchers ${rangeName(a.from, a.to)}.xlsx`);
+  download(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
 }
 
 // Print only these pages (the browser's "Save as PDF" works too).

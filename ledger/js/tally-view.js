@@ -17,29 +17,34 @@ const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
 export const PARTY_SORTS = [['sales', 'Sales'], ['qty', 'Litres'], ['receipts', 'Receipts'], ['net', 'Billed − received'], ['discount', 'Discount']];
 export const PAGE_SIZE = 100;
 
-// the header: the file, its company and dates, and the period picker
-export function fileHeadHtml(file, a, period) {
+// the header: the file(s), the company and dates, the views and the period picker
+//   t: mergeTally(); r: {span, from, to}; view: '', 'fin', 'recon', 'stock'
+export function fileHeadHtml(t, r, period, { view = '', note = '', tabs = '' } = {}) {
   const months = [];
-  for (let m = a.span.from.slice(0, 7); m <= a.span.to.slice(0, 7);) {
+  for (let m = r.span.from.slice(0, 7); m <= r.span.to.slice(0, 7);) {
     months.push(m);
     const [y, mo] = m.split('-').map(Number);
     m = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
   }
+  const kinds = [t.source === 'xml' ? 'Tally XML' : 'DayBook (Excel)', t.masters && t.masters.ledgers.size ? `masters: ${plural(t.masters.ledgers.size, 'ledger')}` : 'no masters'];
   return `
     <div class="row-between"><div>
-      <h2>${esc(file.company || file.name)}</h2>
-      <p class="muted small">${file.company ? `${esc(file.name)} · ` : ''}${file.source === 'xml' ? 'Tally XML export' : 'DayBook (Excel)'} · ${plural(file.vouchers.length, 'voucher')} · ${fmtDate(a.span.from)} – ${fmtDate(a.span.to)}</p></div>
-      <span class="row-end"><label class="file"><input type="file" id="tally-file-2" accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn ghost small">Open another file</span></label>
+      <h2>${esc(t.company || t.names[0] || 'Tally file')}</h2>
+      <p class="muted small">${kinds.join(' · ')} · ${plural(t.vouchers.length, 'voucher')} · ${fmtDate(r.span.from)} – ${fmtDate(r.span.to)}${t.duplicates ? ` · ${plural(t.duplicates, 'voucher')} in more than one file counted once` : ''}</p>
+      <div class="file-list">${t.names.map((n) => `<span class="pill muted-pill">${esc(n)}</span>`).join('')}</div></div>
+      <span class="row-end"><label class="file"><input type="file" id="tally-add" multiple accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn ghost small">Add a file</span></label>
+        <label class="file"><input type="file" id="tally-file-2" multiple accept=".xml,.txt,.xls,.xlsx,.xlsm,.csv"><span class="btn ghost small">Open other files</span></label>
         <button class="btn ghost small" data-tally-clear>Close</button></span></div>
-    <div class="chips">
+    ${tabs}
+    ${view === 'recon' ? '' : `<div class="chips">
       <button class="chip ${period.key === 'all' ? 'on' : ''}" data-tperiod="all">Whole file</button>
       ${months.length > 1 ? months.map((m) => `<button class="chip ${period.key === m ? 'on' : ''}" data-tperiod="${m}">${monthName(m)}</button>`).join('') : ''}
       <button class="chip ${period.key === 'custom' ? 'on' : ''}" data-tperiod="custom">Custom</button></div>
     ${period.key === 'custom' ? `<form class="custom-range" id="tally-range">
-      <label>From <input type="date" name="from" value="${a.from}" min="${a.span.from}" max="${a.span.to}" required></label>
-      <label>To <input type="date" name="to" value="${a.to}" min="${a.span.from}" max="${a.span.to}" required></label>
+      <label>From <input type="date" name="from" value="${r.from}" min="${r.span.from}" max="${r.span.to}" required></label>
+      <label>To <input type="date" name="to" value="${r.to}" min="${r.span.from}" max="${r.span.to}" required></label>
       <button class="btn small" type="submit">Show</button></form>` : ''}
-    <p class="muted small">Showing ${fmtDate(a.from)} – ${fmtDate(a.to)} · ${plural(a.days, 'day')}, vouchers on ${a.activeDays} · read on this device, nothing is saved</p>`;
+    <p class="muted small">Showing ${fmtDate(r.from)} – ${fmtDate(r.to)}${note ? ` · ${note}` : ''} · read on this device, nothing is saved</p>`}`;
 }
 
 export function overviewHtml(a) {

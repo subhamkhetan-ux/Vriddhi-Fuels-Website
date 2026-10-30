@@ -125,16 +125,17 @@ export function barChart(items, { h = 160, color = 'var(--s-earn)', fmt = money,
 }
 
 // Sales vs collections per month (same unit, one axis). months: [{month, amount, paid, earning}]
-export function monthlyChart(months, { h = 200 } = {}) {
+// names: the two series and the extra tooltip line (Home: Sales, Collections, Earned)
+export function monthlyChart(months, { h = 200, names = ['Sales', 'Collections', 'Earned'] } = {}) {
   const max = niceMax(Math.max(0, ...months.flatMap((m) => [m.amount, m.paid])));
-  const f = frame(h, max, (v) => money(v), 'aria-label="Sales and collections per month"');
+  const f = frame(h, max, (v) => money(v), `aria-label="${esc(names[0])} and ${esc(names[1])} per month"`);
   const step = (W - PAD.l - PAD.r) / Math.max(1, months.length);
   const bw = Math.max(3, Math.min(20, (step - 8) / 2));
   const x = (i) => PAD.l + step * i + step / 2;
   const base = f.y(0);
   const out = months.map((m, i) => {
-    const tip = [`<b>${monthName(m.month)}</b>`, `<i style="background:var(--s-sales)"></i>Sales ${money(m.amount)}`,
-      `<i style="background:var(--s-paid)"></i>Collections ${money(m.paid)}`, `Earned ${money(m.earning)}`].join('<br>');
+    const tip = [`<b>${monthName(m.month)}</b>`, `<i style="background:var(--s-sales)"></i>${names[0]} ${money(m.amount)}`,
+      `<i style="background:var(--s-paid)"></i>${names[1]} ${money(m.paid)}`, ...(names[2] ? [`${names[2]} ${money(m.earning)}`] : [])].join('<br>');
     return `<path d="${bar(x(i) - bw - 1, base, bw, base - f.y(m.amount))}" fill="var(--s-sales)"/>
       <path d="${bar(x(i) + 1, base, bw, base - f.y(m.paid))}" fill="var(--s-paid)"/>
       <rect x="${r1(PAD.l + step * i)}" y="${PAD.t}" width="${r1(step)}" height="${r1(h - PAD.t - PAD.b)}" class="hit" data-x="${r1(x(i))}" data-tip="${esc(tip)}"/>`;

@@ -116,7 +116,76 @@ const num = (s) => {
 };
 const tallyDate = (d) => (/^\d{8}$/.test(String(d).trim()) ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : null);
 
-// Tally XML text -> {vouchers, company, skipped}
+// '24 Nos' -> {qty: 24, unit: 'NOS'}; ' 12000.000 LTR' -> {qty: 12000, unit: 'LTR'}
+export function qtyUnit(s) {
+  const m = String(s || '').trim().match(/^(-?[\d,]*\.?\d+)\s*([A-Za-z][A-Za-z.]*)?/);
+  if (!m) return { qty: null, unit: '' };
+  return { qty: Math.abs(Number(m[1].replace(/,/g, ''))), unit: (m[2] || '').replace(/\.$/, '').toUpperCase() };
+}
+
+const normName = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+export { normName };
+
+// Masters in a Tally XML export (All Masters, or a Day Book that carries
+// them): groups, ledgers with their opening balance, stock items, stock
+// groups and units. Opening balances in Tally's XML are negative for debit;
+// here they are turned round: + = Dr (owed to us / an asset or expense).
+export function parseMasters(text) {
+  const groups = new Map();
+  const ledgers = new Map();
+  const stockItems = new Map();
+  const stockGroups = new Map();
+  const units = new Map();
+  const re = /<(GROUP|LEDGER|STOCKITEM|STOCKGROUP|UNIT)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const [, kind, open = '', body] = m;
+    const o = own(body);
+    const name = attr(open, 'NAME') || tag(o, 'NAME');
+    if (!name) continue;
+    const parent = tag(o, 'PARENT').replace(/^\W*Primary$/i, '');
+    if (kind === 'GROUP') {
+      groups.set(normName(name), {
+        name, parent, revenue: /^yes$/i.test(tag(o, 'ISREVENUE')), grossProfit: /^yes$/i.test(tag(o, 'AFFECTSGROSSPROFIT')),
+        debit: /^yes$/i.test(tag(o, 'ISDEEMEDPOSITIVE')),
+      });
+    } else if (kind === 'LEDGER') {
+      const ob = num(tag(o, 'OPENINGBALANCE'));
+      ledgers.set(normName(name), { name, parent, opening: ob == null ? 0 : round2(-ob), gstin: tag(o, 'PARTYGSTIN') });
+    } else if (kind === 'STOCKITEM') {
+      const oq = qtyUnit(tag(o, 'OPENINGBALANCE'));
+      stockItems.set(normName(name), {
+        name, parent, unit: tag(o, 'BASEUNITS').toUpperCase(), openingQty: oq.qty || 0, openingValue: Math.abs(num(tag(o, 'OPENINGVALUE')) || 0),
+      });
+    } else if (kind === 'STOCKGROUP') {
+      stockGroups.set(normName(name), { name, parent });
+    } else {
+      // a compound unit: 'Box of 24 Nos' = 24 of its additional unit
+      const simple = !/^no$/i.test(tag(o, 'ISSIMPLEUNIT'));
+      units.set(name.toUpperCase(), {
+        name, simple, base: tag(o, 'BASEUNITS').toUpperCase(), of: tag(o, 'ADDITIONALUNITS').toUpperCase(), conversion: num(tag(o, 'CONVERSION')),
+      });
+    }
+  }
+  return { groups, ledgers, stockItems, stockGroups, units };
+}
+
+const emptyMasters = () => ({ groups: new Map(), ledgers: new Map(), stockItems: new Map(), stockGroups: new Map(), units: new Map() });
+export const hasMasters = (ms) => Boolean(ms && (ms.ledgers.size || ms.groups.size));
+
+function entries(body, list) {
+  const out = [];
+  for (const e of blocks(body, list)) {
+    const o = own(e);
+    const amount = num(tag(o, 'AMOUNT'));
+    const ledger = tag(o, 'LEDGERNAME');
+    if (ledger && amount != null) out.push({ name: ledger, amount: round2(amount) });
+  }
+  return out;
+}
+const balanced = (list) => list.length && Math.abs(list.reduce((s, l) => s + l.amount, 0)) < 0.05;
+
+// Tally XML text -> {vouchers, masters, company, skipped}
 export function parseTallyXml(text) {
   const vouchers = [];
   let skipped = 0;
@@ -130,38 +199,33 @@ export function parseTallyXml(text) {
     const date = tallyDate(tag(body, 'DATE'));
     if (!date) { skipped += 1; continue; }
     const party = tag(body, 'PARTYLEDGERNAME') || tag(body, 'PARTYNAME');
-    const ledgers = [];
-    for (const name of ['ALLLEDGERENTRIES.LIST', 'LEDGERENTRIES.LIST']) {
-      for (const e of blocks(body, name)) {
-        const o = own(e);
-        const amount = num(tag(o, 'AMOUNT'));
-        const ledger = tag(o, 'LEDGERNAME');
-        if (ledger && amount != null) ledgers.push({ name: ledger, amount: round2(amount) });
-      }
-    }
     const items = [];
-    for (const name of ['ALLINVENTORYENTRIES.LIST', 'INVENTORYENTRIES.LIST']) {
+    const alloc = [];
+    for (const name of ['ALLINVENTORYENTRIES.LIST', 'INVENTORYENTRIES.LIST', 'INVENTORYALLOCATIONS.LIST']) {
       for (const e of blocks(body, name)) {
         const o = own(e);
         const item = tag(o, 'STOCKITEMNAME');
         if (!item) continue;
-        const amount = num(tag(o, 'AMOUNT')) || 0;
+        const q = qtyUnit(tag(o, 'BILLEDQTY') || tag(o, 'ACTUALQTY'));
         items.push({
           name: item,
           product: fuelOf(item) || 'OTHER',
-          qty: Math.abs(num(tag(o, 'BILLEDQTY')) ?? num(tag(o, 'ACTUALQTY')) ?? 0),
+          qty: q.qty ?? 0,
+          unit: q.unit,
           rate: num(tag(o, 'RATE')),
-          amount: round2(Math.abs(amount)),
+          amount: round2(Math.abs(num(tag(o, 'AMOUNT')) || 0)),
         });
         // the sales / purchase ledger the item books to
-        for (const a of blocks(e, 'ACCOUNTINGALLOCATIONS.LIST')) {
-          const ao = own(a);
-          const ledger = tag(ao, 'LEDGERNAME');
-          const amt = num(tag(ao, 'AMOUNT'));
-          if (ledger && amt != null) ledgers.push({ name: ledger, amount: round2(amt) });
-        }
+        if (name !== 'INVENTORYALLOCATIONS.LIST') alloc.push(...entries(e, 'ACCOUNTINGALLOCATIONS.LIST'));
       }
     }
+    // An invoice lists the party in LEDGERENTRIES and the sales ledger under
+    // its items; an accounting voucher lists everything in ALLLEDGERENTRIES.
+    // Take the first set whose debits equal its credits, so nothing counts twice.
+    const all = entries(body, 'ALLLEDGERENTRIES.LIST');
+    const led = entries(body, 'LEDGERENTRIES.LIST');
+    const sets = [[...all, ...led, ...alloc], [...all, ...alloc], [...led, ...alloc], all, led];
+    const ledgers = sets.find(balanced) || sets.find((x) => x.length) || [];
     // Tally: a negative amount is a debit
     const debitSide = round2(ledgers.reduce((s, l) => s + (l.amount < 0 ? -l.amount : 0), 0));
     const creditSide = round2(ledgers.reduce((s, l) => s + (l.amount > 0 ? l.amount : 0), 0));
@@ -183,11 +247,46 @@ export function parseTallyXml(text) {
       optional: /^yes$/i.test(tag(body, 'ISOPTIONAL')),
       narration: tag(body, 'NARRATION'),
       gstin: tag(body, 'PARTYGSTIN'),
+      guid: tag(body, 'GUID'),
+      balanced: balanced(ledgers),
       ledgers,
       items,
     }));
   }
-  return { vouchers, company, skipped, source: 'xml' };
+  return { vouchers, masters: parseMasters(text), company, skipped, source: 'xml' };
+}
+
+// Several files read together (say the masters export and a year's Day Book,
+// or the DayBook in Excel and in XML): one voucher list and one set of
+// masters. A voucher already read from an earlier file (same type, number,
+// date, party and amount) isn't added again; repeats inside one file stay.
+export function mergeTally(files) {
+  const vouchers = [];
+  const masters = emptyMasters();
+  const seen = new Map();
+  const keyOf = (v) => `${v.type}|${v.number}|${v.date}|${normName(v.party)}|${Math.round(v.amount * 100)}`;
+  let company = null;
+  let duplicates = 0;
+  for (const f of files) {
+    company = company || f.company || null;
+    const here = new Map();
+    for (const v of f.vouchers) {
+      const k = keyOf(v);
+      if ((seen.get(k) || 0) > 0) { seen.set(k, seen.get(k) - 1); duplicates += 1; continue; }
+      here.set(k, (here.get(k) || 0) + 1);
+      vouchers.push(v);
+    }
+    for (const [k, n] of here) seen.set(k, (seen.get(k) || 0) + n);
+    if (f.masters) for (const key of Object.keys(masters)) for (const [k, x] of f.masters[key]) masters[key].set(k, x);
+  }
+  // a stock item's group, from the masters
+  for (const v of vouchers) for (const it of v.items) it.group = (masters.stockItems.get(normName(it.name)) || {}).parent || '';
+  vouchers.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return {
+    vouchers, masters, company, duplicates,
+    names: files.map((f) => f.name).filter(Boolean),
+    source: files.some((f) => f.source === 'xml') ? 'xml' : 'excel',
+  };
 }
 
 // DayBook Excel rows (arrays of SheetJS cells, A..I) -> {vouchers, skipped}.
@@ -227,7 +326,9 @@ export function parseDaybookSheet(rows, { date1904 = false } = {}) {
       debit,
       credit,
       cancelled: /cancel/i.test(cellText(r[1])),
-      items: kind === 'sale' ? [{ name: type, product: fuel || 'OTHER', qty: Math.abs(qty || 0), rate, amount }] : [],
+      items: kind === 'sale' ? [{ name: type, product: fuel || 'OTHER', qty: Math.abs(qty || 0), unit: '', rate, amount }] : [],
+      // only the party's side is in the file: Debit = Dr (Tally: negative)
+      ledgers: cellText(r[1]) && amount ? [{ name: cellText(r[1]), amount: debit != null ? -Math.abs(debit) : Math.abs(credit) }] : [],
       row: i + 1,
     }));
   });
@@ -255,6 +356,8 @@ function voucher(v) {
     gstin: v.gstin || '',
     ledgers: v.ledgers || [],
     items: v.items || [],
+    guid: v.guid || '',
+    balanced: v.balanced ?? null,
     row: v.row ?? null,
   };
 }
