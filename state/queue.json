@@ -6324,7 +6324,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-30T09:15:22.024826+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-10-30T09:30:30.571862+00:00"
     }
   ]
 }
