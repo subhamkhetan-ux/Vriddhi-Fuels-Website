@@ -6327,6 +6327,48 @@
       "status": "review",
       "materialized": true,
       "materialized_at": "2026-10-30T09:30:30.571862+00:00"
+    },
+    {
+      "entry_id": "0c4451b646eff5c6",
+      "gmail_msg_id": "1880467166439170831",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "30/10/26",
+      "date_serial": 46325,
+      "amount": 181000.0,
+      "raw_payer": null,
+      "customer": null,
+      "candidates": [],
+      "match_tier": "parse_error",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-30T09:45:23.364371+00:00",
+      "status": "review",
+      "error": "could not extract: payer",
+      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX893 has been credited with Rs. 1,81,000.00 on 30-Oct-26. Info: INF*INFT*046466633531*VRIDDHI FUELS.\r\n\r\nThe Available Balance in your account is Rs. 1,81,000.00.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
+    },
+    {
+      "entry_id": "b716754235173cc2",
+      "gmail_msg_id": "1880466638779902531",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "30/10/2026",
+      "date_serial": 46325,
+      "amount": 397600.0,
+      "raw_payer": "MAA KARNI EARTHMOVER PVT LTD",
+      "customer": "Maa Karni Earthmover Private Limited",
+      "candidates": [
+        "Maa Karni Earthmover Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-30T09:45:24.322083+00:00",
+      "status": "matched"
     }
   ]
 }
