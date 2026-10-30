@@ -10,6 +10,7 @@ can show them instead of silently dropping them.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from dataclasses import dataclass
 
 
@@ -24,7 +25,8 @@ class Row:
 
 _DATE_FORMATS = [
     "%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y", "%Y-%m-%d", "%Y/%m/%d",
-    "%d-%b-%Y", "%d-%b-%y", "%d %b %Y", "%d-%B-%Y", "%m/%d/%Y", "%m/%d/%y",
+    "%d-%b-%Y", "%d-%b-%y", "%d %b %Y", "%d-%B-%Y", "%d.%m.%Y", "%d.%m.%y",
+    "%m/%d/%Y", "%m/%d/%y",
 ]
 
 
@@ -35,7 +37,12 @@ def _to_date(v) -> dt.date | None:
         return v.date()
     if isinstance(v, dt.date):
         return v
-    s = str(v).strip()
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        # An Excel date serial that reached us as a plain number.
+        if 20000 <= v <= 80000 and float(v).is_integer():
+            return dt.date(1899, 12, 30) + dt.timedelta(days=int(v))
+        return None
+    s = re.split(r"\s+\d{1,2}:\d{2}", str(v).strip())[0].strip()    # drop a time part
     for fmt in _DATE_FORMATS:
         try:
             return dt.datetime.strptime(s, fmt).date()
@@ -102,6 +109,8 @@ def _rows_from_grid(grid: list[list]) -> list[Row]:
             err = "unreadable amount"
         elif amt == 0:
             err = "amount is zero"
+        elif amt < 0:
+            err = "amount is negative — a reversal? enter it by hand"
         out.append(Row(index=n, date=date, customer=cust, amount=amt or 0.0, error=err))
     return out
 

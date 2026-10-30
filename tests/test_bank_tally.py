@@ -387,7 +387,8 @@ def test_two_icici_accounts_turn_off_ifsc_pinning():
         C.configure_accounts({})
         assert C.classify(_row(narr, deposit=100000), CUSTOMERS).counter_ledger == "ICICI BANK LTD"
         C.configure_accounts({"123456789012": "SBI CA - 9012"})        # non-ICICI: still pinned
-        assert C._IFSC_TO_OWN == {"ICIC": "ICICI BANK LTD"}
+        assert C._IFSC_TO_OWN.get("ICIC") == "ICICI BANK LTD"
+        assert C._IFSC_TO_OWN.get("SBIN") == "SBI CA - 9012"           # …and SBI pins too
         C.configure_accounts({"123456789012": "ICICI BANK OD A/C - 9012"})
         assert C._IFSC_TO_OWN == {}
     finally:

@@ -39,22 +39,29 @@ JOURNAL_TEMPLATES = {
     "INTEREST": "INTEREST.xml",
 }
 
-# A Customer ECollection lands in one of several bank ledgers. The PAD Item Text
-# names the receiving bank account (IFSC_account, e.g. HDFC0000240_5020011 0712542
-# or ICIC0000011_04680500 4716), so route by a distinctive fragment of it —
-# matched with spaces removed. Our two ICICI accounts (046805004716 and the OD
-# 046805005893) share "04680500", so ICICI needs the full number.
-# (marker found in the line's item text, template file, ledger shown in review)
+# A Customer ECollection lands in one of our bank accounts. The PAD item text
+# names the receiving account after the IFSC (e.g. "HDFC0000240_5020011 0712542",
+# "ICIC0000011_04680500 4716"); it is matched as the FULL account number — never
+# digits found elsewhere in the line (the UTR is random digits), and our two
+# ICICI accounts share "04680500".
+# (account number, template file, ledger)
 COLLECTION_ROUTES = [
-    ("5921701", "COLLECTION_CA.xml", "HDFC BANK C/A - 59217010101010"),
+    ("59217010101010", "COLLECTION_CA.xml", "HDFC BANK C/A - 59217010101010"),
+    ("50200110712542", "COLLECTION_OD.xml", "HDFC BANK OD A/C - 50200110712542"),
     ("046805004716", "COLLECTION_ICICI.xml", "ICICI BANK LTD"),
     # ICICI OD: an ICICI collection voucher with the bank ledger swapped.
     ("046805005893", "COLLECTION_ICICI.xml", "ICICI OD A/c - 046805005893"),
 ]
+# A line that names no receiving account at all (older PAD layouts) — the OD.
 COLLECTION_DEFAULT = ("COLLECTION_OD.xml", "HDFC BANK OD A/C - 50200110712542")
 
-# Routes added in the app for a new bank account: (marker, ledger). Checked after
-# the built-in ones; the voucher clones the OD template with its bank swapped.
+# Our other bank accounts (number -> ledger), e.g. ones registered in the Bank
+# app; filled by the server. A collection into one clones the OD voucher with
+# the bank swapped.
+BANK_ACCOUNTS: dict = {}
+
+# Routes added in this app for a new bank account: (marker, ledger). A marker is
+# a run of the account number; checked after the built-in and bank accounts.
 EXTRA_COLLECTION_ROUTES: list = []
 
 # Ledger renames set in the app (template ledger name -> the name to post to),
@@ -68,18 +75,36 @@ _TEMPLATE_BANK = {
     COLLECTION_DEFAULT[0]: COLLECTION_DEFAULT[1],
 }
 
+_RECEIVING_ACCOUNT = re.compile(r"[A-Z]{4}0[A-Z0-9]{6}_([\d ]*\d)")
 
-def collection_route(item_text: str) -> tuple[str, str]:
-    """Return (template_file, ledger_name) for an ECollection, by the bank
-    account named in its item text. Defaults to the HDFC OD account."""
-    squashed = (item_text or "").replace(" ", "")
-    for marker, tpl, ledger in COLLECTION_ROUTES:
-        if marker in squashed:
+
+def collection_account(item_text: str) -> str:
+    """The receiving account number printed in an ECollection line ("" if none)."""
+    m = _RECEIVING_ACCOUNT.search(item_text or "")
+    return m.group(1).replace(" ", "") if m else ""
+
+
+def collection_route(item_text: str) -> tuple:
+    """(template_file, ledger) for an ECollection, from its receiving account.
+    ``(None, None)`` when the line names an account we don't know — it must not
+    be posted to some other bank. A line naming no account goes to the OD."""
+    acct = collection_account(item_text)
+    if not acct:
+        squashed = (item_text or "").replace(" ", "")
+        for marker, ledger in EXTRA_COLLECTION_ROUTES:
+            if marker and marker in squashed:
+                return COLLECTION_DEFAULT[0], ledger
+        return COLLECTION_DEFAULT
+    for number, tpl, ledger in COLLECTION_ROUTES:
+        if acct.startswith(number):
             return tpl, ledger
-    for marker, ledger in EXTRA_COLLECTION_ROUTES:
-        if marker and marker in squashed:
+    for number, ledger in BANK_ACCOUNTS.items():
+        if number and acct.startswith(number):
             return COLLECTION_DEFAULT[0], ledger
-    return COLLECTION_DEFAULT
+    for marker, ledger in EXTRA_COLLECTION_ROUTES:
+        if marker and marker in acct:
+            return COLLECTION_DEFAULT[0], ledger
+    return None, None
 
 
 def renamed(name: str) -> str:
@@ -251,6 +276,9 @@ def make_journal(category: str, date_yyyymmdd: str, amount: float,
     bank = None
     if category == "COLLECTION":
         tpl_name, bank = collection_route(collection_item_text)
+        if tpl_name is None:
+            raise ValueError("ECollection into an account we don't know: "
+                             + collection_account(collection_item_text))
     else:
         tpl_name = JOURNAL_TEMPLATES[category]
     vch = _read_template(tpl_name)

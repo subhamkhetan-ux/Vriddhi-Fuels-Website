@@ -160,9 +160,9 @@ def _seen_names() -> dict:
         return {}
     cust, aliases = customers(), load_aliases()
     out: dict = {}
-    for _acct, rows in _STATEMENTS:
+    for acct, rows in _STATEMENTS:
         for row in rows:
-            cl = C.classify(row, cust, aliases)
+            cl = C.classify(row, cust, aliases, statement_ledger=acct)
             if cl.skip or cl.vtype == C.CONTRA or cl.tier in (
                     "self-transfer", "own-account", "cash-deposit"):
                 continue
@@ -613,7 +613,15 @@ class Handler(BaseHTTPRequestHandler):
                 ledger = S.detect_account(path)
                 rows, summ = S.parse_excel(path)
                 if not ledger:
-                    problems.append(f"{name}: could not detect the account number")
+                    named = S.accounts_named(
+                        [c for row in S._read_grid(path)[:40] for c in row])
+                    problems.append(
+                        f"{name}: names more than one of our accounts "
+                        f"({', '.join(sorted(named))}) above the transactions — can't tell "
+                        "which statement this is" if len(named) > 1 else
+                        f"{name}: could not find one of our account numbers above the "
+                        "transactions — if it's a new account, add it under Mappings & "
+                        "accounts → Our bank accounts")
                     continue
                 if not rows:
                     problems.append(f"{name}: no transactions found ({summ.get('error','')})")
@@ -635,10 +643,22 @@ class Handler(BaseHTTPRequestHandler):
         if not stmts:
             return self._json({"error": " | ".join(problems) or "no usable statements",
                                "problems": problems}, 400)
+        # Two files of one account (overlapping periods, or the same file twice):
+        # merge them so no line is posted twice.
+        stmts, dupes = R.merge_statements(stmts)
+        notices = []
+        if dupes:
+            notices.append(f"{dupes} line(s) appeared in more than one statement of the "
+                           "same account (overlapping periods) — each is counted once.")
+        unreliable = sum(1 for _l, rows in stmts for r in rows if not r.reconciles)
+        if unreliable:
+            notices.append(f"{unreliable} line(s) don't tie to their statement's running "
+                           "balance — they're held in Resolve instead of being posted.")
         _STATEMENTS = stmts
         res = _process_and_write()
         res["accounts"] = [led for led, _ in stmts]
         res["problems"] = problems
+        res["notices"] = notices
         return self._json(res)
 
 

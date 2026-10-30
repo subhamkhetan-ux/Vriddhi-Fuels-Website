@@ -42,6 +42,8 @@ def setup(app: str, state_dir: str = STATE_DIR, out_root: str = OUT_ROOT):
         mod._OTHER_UPLOADS = [uploads[a] for a in APPS if a != app]
     if hasattr(mod, "_UPLOADED_LEDGERS"):                    # iocl / fleet
         mod._UPLOADED_LEDGERS = [uploads[app]] + [uploads[a] for a in APPS if a != app]
+    if hasattr(mod, "BANK_DATA"):                            # iocl reads the Bank app's accounts
+        mod.BANK_DATA = os.path.join(state_dir, "bank_tally", "data.json")
     _MODS[app] = mod
     return mod
 

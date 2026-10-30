@@ -367,7 +367,8 @@ $("#masterInput").onchange=()=>{
 
 function render(res){
   const s=res.summary;
-  if(res.accounts) $("#acctLine").textContent="Accounts detected: "+res.accounts.join(" · ");
+  if(res.accounts) $("#acctLine").innerHTML="Accounts detected: "+res.accounts.map(esc).join(" · ")+
+    (res.notices||[]).map(n=>`<div style="color:var(--warn);margin-top:4px">⚠ ${esc(n)}</div>`).join("");
   // Any file that could not be read stays visibly listed — never just a toast.
   if(res.problems!==undefined) LASTPROBS=res.problems;
   const probs=LASTPROBS;

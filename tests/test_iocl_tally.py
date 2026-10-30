@@ -606,5 +606,5 @@ def test_icici_collections_route_by_full_account_number():
     old = G.make_journal("COLLECTION", "20261001", 250000.0,
                          collection_item_text="ICIC26 ICIC0000011_04680500 4716")
     assert "<LEDGERNAME>ICICI BANK LTD</LEDGERNAME>" in old and "ICICI OD" not in old
-    # Any other ICICI number isn't silently taken as ours.
-    assert G.collection_route("ICIC0000011_04680500 9999")[1] == G.COLLECTION_DEFAULT[1]
+    # Any other ICICI number isn't silently taken as ours (nor posted to the OD).
+    assert G.collection_route("ICIC0000011_04680500 9999") == (None, None)
