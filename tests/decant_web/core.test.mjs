@@ -443,6 +443,28 @@ test('the pipe\'s round by the tank\'s real stock: what it has risen by since th
   assert.equal(drainLive({ ...row, startedAt: null }, chambers, read(300, 16000), DEFAULT_SETTINGS), null);
 });
 
+test('a tank started on a phone while the tank stock server watches it, valves not open yet: waiting, not draining by the clock', () => {
+  const T0 = Date.parse('2026-10-31T06:00:00Z');
+  const at = (secs) => new Date(T0 + secs * 1000).toISOString();
+  const chambers = [[2, 5000], [3, 4000]].map(([no, litres]) => ({ no, litres }));
+  // its stock before: the server's live figure, taken as it was when Start was tapped
+  const live = { volume: 13620, readingAt: at(-40), savedAt: at(-35), via: 'server', source: 'photo' };
+  const row = { startedAt: at(0), chambers: [2, 3], before: { ...live } };
+  // 4 minutes on, the valves still shut: the server sent it again (unchanged) a minute ago
+  const again = { ...live, readingAt: at(180), savedAt: at(182) };
+  const w = drainLive(row, chambers, again, DEFAULT_SETTINGS, T0 + 240 * 1000);
+  assert.deepEqual([w.waiting, w.flowing, w.rise, w.drained[2], w.done], [true, false, 0, 0, false]);
+  // just after Start, nothing new from the server yet: the stock before itself says "not rising"
+  const s0 = drainLive(row, chambers, row.before, DEFAULT_SETTINGS, T0 + 10 * 1000);
+  assert.deepEqual([s0.waiting, s0.rise], [true, 0]);
+  // the valves open: it rises, and the pipe's round follows it
+  const up = drainLive(row, chambers, { ...live, volume: 15620, readingAt: at(400), savedAt: at(401) }, DEFAULT_SETTINGS, T0 + 405 * 1000);
+  assert.deepEqual([up.waiting, up.flowing, up.on, up.rise], [false, true, 2, 2000]);
+  // nobody watching it (the server's last word long ago, or a phone's own reading): by the chambers' times, as before
+  assert.equal(drainLive(row, chambers, row.before, DEFAULT_SETTINGS, T0 + 600 * 1000), null);
+  assert.equal(drainLive({ ...row, before: { ...live, via: undefined } }, chambers, { ...live, via: undefined }, DEFAULT_SETTINGS, T0 + 10 * 1000), null);
+});
+
 test('IST dates', () => {
   assert.equal(istDate('2026-09-26T20:00:00Z'), '2026-09-27');
   assert.equal(istDate(Date.parse('2026-09-26T18:29:00Z')), '2026-09-26');
@@ -645,7 +667,12 @@ test('internal audit: a screenshot (even corrected) or a dip is proof; typed lit
     { tank: 'T2', tankNo: 2, before: { source: 'photo' }, after: { source: 'litres' } },
     { tank: 'T3', tankNo: 3, before: { source: 'litres' }, after: { source: 'dip' } },
   ];
-  assert.deepEqual(unprovenReadings(tanks), [{ tank: 'T2', tankNo: 2, which: 'after' }, { tank: 'T3', tankNo: 3, which: 'before' }]);
+  assert.deepEqual(unprovenReadings(tanks), [{ tank: 'T2', tankNo: 2, which: 'after', live: false }, { tank: 'T3', tankNo: 3, which: 'before', live: false }]);
+  // FuelTrans' live figure (live monitoring, or the agent's stock just before a rise): exact, but no screenshot kept
+  const live = stockProof({ source: 'photo', via: 'server', volume: 9259.09, picture: false });
+  assert.deepEqual([live.proof, live.live, live.short], [false, true, 'FuelTrans live figure, no screenshot']);
+  assert.deepEqual(unprovenReadings([{ tank: 'T2', tankNo: 2, before: { source: 'photo', via: 'server', picture: false }, after: { source: 'photo', via: 'server' } }]),
+    [{ tank: 'T2', tankNo: 2, which: 'before', live: true }]);
 });
 
 test('own tankers: free space, leaving some out', async () => {

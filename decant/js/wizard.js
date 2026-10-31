@@ -24,6 +24,7 @@ import {
   busyTanks, compactNos, enter, invoiceForm, isStale, layoutFor, proofLine, readScreenshot, render, tankById, tankName, tanks, typedReading,
 } from './app.js';
 import { shotsFor } from './shots.js';
+import { sayOnce, setVoice, voiceAvailable, voiceOn } from './voice.js';
 
 let currentId = null;
 let shown = '';            // session:step last drawn (a new step's cards rise in)
@@ -188,6 +189,18 @@ function tick() {
   document.querySelectorAll('[data-tdrain]').forEach((el) => {
     const t = row(el.dataset.tdrain);
     if (t) el.textContent = drainText(s, t, now);
+  });
+  document.querySelectorAll('[data-autosum]').forEach((el) => {
+    const html = autoSummary(s, now);
+    if (el.innerHTML !== html) el.innerHTML = html;
+  });
+  if (runByServer(s)) speakGuides(s, now);
+  document.querySelectorAll('[data-autotank]').forEach((el) => {
+    const t = row(el.dataset.autotank);
+    const g = t && tankGuide(s, t, now);
+    if (!g?.html) return;
+    if (el.innerHTML !== g.html) el.innerHTML = g.html;
+    el.classList.toggle('flash', g.flash);
   });
   document.querySelectorAll('[data-tsettle]').forEach((el) => {
     const t = row(el.dataset.tsettle);
@@ -440,7 +453,8 @@ function stepDecant(s) {
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
   return `${autoCard(s)}${handoverCard(s, allRead)}<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
-      ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings })}
+      ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings,
+    act: new Set(d.tanks.map((t) => tankGuide(s, t, Date.now())).filter((g) => g?.flash && g.act).map((g) => g.act)) })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
       <div class="rd-actions"><button class="cta sm" data-wz="shotAfter">📷 Screenshot</button>
         <span class="hint" style="align-self:center">reads each tank's stock before or after, as needed</span></div>
@@ -465,12 +479,110 @@ function autoCard(s) {
   const a = s.data.auto;
   if (!a || a.released || !['draft', 'decanting', 'settling'].includes(s.status)) return '';
   const qs = (a.questions || []).map((q) => `<li class="warn">❓ ${esc(q.text)}</li>`).join('');
+  const voice = voiceAvailable() ? `<button class="btn sm ghost ag-voice" data-voice="${voiceOn() ? 'off' : 'on'}" aria-pressed="${voiceOn()}">${voiceOn() ? '🔊 Voice on' : '🔇 Voice off'}</button>` : '';
   return `<div class="card">
-      <div class="sect-title" style="margin:0">🤖 Run by the tank stock agent</div>
-      <div class="hint">It follows the tanks' real stock: each tank starts when its stock rises, is done when it stops, and its stock after is read once it has settled; then the result is saved here. Nothing to do on this phone — but anything you do here counts.</div>
+      <div class="rd-head"><span class="sect-title" style="margin:0">🤖 Automatic decantation</span><span class="sp" style="flex:1"></span>${voice}</div>
+      <div data-autosum>${autoSummary(s, Date.now())}</div>
+      <div class="hint">The tank stock server follows each tank's real stock, takes the stock after once it has settled and saves the result. Each tank's card below says which valve to open and when to move the pipe${voiceAvailable() ? ', and the phone says it aloud' : ''}. Anything you do here still counts.</div>
       ${qs ? `<ul class="msgs">${qs}</ul><div class="hint">Answer on the tank stock page, or here: ✓ done on the tank, or, for chambers still in the truck going into a tank, start them into it below.</div>` : ''}
       <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-wz="takeBack">Take it back on this phone</button></div>
     </div>`;
+}
+
+// What to do now on a tank's own card, while the agent runs it: from what
+// the agent has seen (its chambers arrived) and the tank's live stock —
+// "Stock before taken (9,259.09 L) — open the valve of C2 into Tank 2",
+// "C2 going in — ≈1,240 L left in it. Then C3", "C2 done — move the pipe to
+// C3 and open its valve". The line flashes while there's a valve to open or
+// a pipe to move. Redrawn every second (tick). -> {html, flash} | null
+const GOING_L = 20;                        // into the next chamber's tank this much: it's flowing
+// -> {html, flash, act (the chamber to act on, pulsing in the truck picture), key, say (spoken once)} | null
+function tankGuide(s, t, now) {
+  if (!runByServer(s)) return null;
+  const st = stageOf(s, t);
+  const name = tankName(t.tank);
+  const chambers = t.chambers || [];
+  const key = (what) => `${s.id}|${t.tank}|${what}`;
+  if (st === 'waiting') {
+    const req = s.data.beforePhoto;
+    if (!t.before || (req && !req.answeredAt && (req.tanks || []).includes(t.tank))) return null;   // (its photo's own line)
+    return { flash: true, act: chambers[0], next: `open the valve of C${chambers[0]}`, key: key(`open|${chambers[0]}|${t.before.readingAt}`),
+      say: `${name}. Stock before taken. Open the valve of chamber ${chambers[0]}.`,
+      html: `✓ Stock before taken: ${fmtL(t.before.volume, 2)} at ${fmtTime(t.before.readingAt)} — <b>open the valve of C${chambers[0]} into ${name}</b>.` };
+  }
+  if (st === 'settling') return { html: '', key: key('settling'), say: `${name}. All chambers in. Settling.` };
+  if (st === 'read') return { html: '', key: key('read'), say: `${name}. Stock after taken.` };
+  if (st !== 'decanting') return null;
+  const live = drainLive(t, s.data.chambers, state.tankState[t.tank], state.settings, now);
+  const got = (s.data.auto?.arrived || {})[t.tank] || [];
+  const done = chambers.filter((no) => got.includes(no) || (live && live.drained[no] >= 1));
+  const left = chambers.filter((no) => !done.includes(no));
+  if (!left.length) {
+    return { flash: false, key: key('allin'), say: `${name}. All chambers in.`, html: `✓ C${compactNos(chambers)} all in — it settles once the stock stops.` };
+  }
+  const on = left[0];
+  const size = s.data.chambers.find((c) => c.no === on)?.litres || 0;
+  // (a few litres past the last one are the tank's figure settling, not the next chamber flowing)
+  const going = live ? live.drained[on] * size >= GOING_L : !done.length;
+  const then = left.length > 1 ? ` Then C${left.slice(1).join(', C')}.` : '';
+  if (done.length && !going) {
+    const was = done[done.length - 1];
+    return { flash: true, act: on, next: `move the pipe to C${on}`, key: key(`move|${on}`), say: `${name}. Chamber ${was} done. Move the pipe to chamber ${on} and open its valve.`,
+      html: `<b>➡ C${was} done — move the pipe to C${on} and open its valve.</b>${then}` };
+  }
+  if (live?.waiting) {
+    return { flash: true, act: on, next: `open C${on}'s valve (not rising yet)`, key: key(`notrising|${on}`), say: `${name}. Open the valve of chamber ${on}. The stock is not rising yet.`,
+      html: `<b>Open C${on}'s valve</b> — the stock isn't rising yet.${then}` };
+  }
+  return { flash: false, key: key(`going|${on}`), say: '', left: live?.left,
+    html: `● C${on} going in${live ? ` — ≈${fmtL(size * (1 - (live.drained[on] || 0)))} left in it` : ''}.${then}` };
+}
+const guideLine = (s, t) => {
+  const g = tankGuide(s, t, Date.now());
+  return g?.html ? `<div class="ag-line${g.flash ? ' flash' : ''}" data-autotank="${t.tank}">${g.html}</div>` : '';
+};
+
+// The top card's live summary of a decantation the server runs: litres in so
+// far (a bar), what to do next, each tank where it is, the next stock after.
+function autoSummary(s, now) {
+  const rows = s.data.tanks || [];
+  const total = rows.reduce((a, t) => a + (t.litres || 0), 0);
+  let got = 0;
+  const next = [];
+  const chips = rows.map((t) => {
+    const st = stageOf(s, t);
+    const g = tankGuide(s, t, now);
+    const name = tankName(t.tank);
+    if (g?.next) next.push(`${name} — ${g.next}`);
+    if (st === 'settling' || st === 'read') { got += t.litres || 0; }
+    if (st === 'decanting') {
+      const live = drainLive(t, s.data.chambers, state.tankState[t.tank], state.settings, now);
+      const arrived = (s.data.auto?.arrived || {})[t.tank] || [];
+      got += live ? Math.min(t.litres, live.litres) : arrived.reduce((a, no) => a + (s.data.chambers.find((c) => c.no === no)?.litres || 0), 0);
+      return `<span class="ag-chip on">● ${name}${live?.left ? ` · ${elapsed(live.left)} left` : ''}</span>`;
+    }
+    if (st === 'settling') {
+      const at = doneOf(s, t);
+      const rest = at ? Date.parse(at) + state.settings.settleMinutes * 60000 - now : 0;
+      return `<span class="ag-chip">◐ ${name} · ${rest > 0 ? `stock after in ${elapsed(rest)}` : 'stock after any moment'}</span>`;
+    }
+    if (st === 'read') return `<span class="ag-chip ok">✓ ${name} · stock after taken</span>`;
+    return `<span class="ag-chip">◷ ${name} · ${t.before ? 'ready to start' : 'stock before to take'}</span>`;
+  });
+  const pct = total ? Math.min(100, Math.round((got / total) * 100)) : 0;
+  const started = s.data.startedAt;
+  return `<div class="ag-sum"><b>${fmtL(got)}</b> of ${fmtL(total)} in (${pct}%)${started ? ` · started ${fmtTime(started)}, ${elapsed(now - Date.parse(started))} ago` : ''}</div>
+    <div class="ag-bar"><i style="transform:scaleX(${pct / 100})"></i></div>
+    ${next.length ? `<div class="ag-next flash">Next: <b>${next.map(esc).join(' · ')}</b></div>` : ''}
+    <div class="ag-chips">${chips.join('')}</div>`;
+}
+
+// Each tank's instruction said once, the first time it shows (voice.js).
+function speakGuides(s, now) {
+  for (const t of s.data.tanks || []) {
+    const g = tankGuide(s, t, now);
+    if (g?.say) sayOnce(g.key, g.say);
+  }
 }
 
 // Started here, finished by the tank stock server: it follows each tank's
@@ -479,6 +591,23 @@ function autoCard(s) {
 // minute; if it can't take it, it says why here and nothing changes.
 const REQUEST_STALE_MIN = 15;              // (tank_stock/auto.py REQUEST_FRESH_S: older ones aren't taken up)
 const runByServer = (s) => Boolean(s.data.auto && !s.data.auto.released);
+// A tank waiting in a decantation the server runs: a photo of its stock before,
+// asked here before its valves are opened (tank_stock/auto.py _before_photo).
+// Without one, its stock before is FuelTrans' live figure: exact, no screenshot.
+function photoBefore(s, t) {
+  const req = s.data.beforePhoto;
+  const mine = req && (req.tanks || []).includes(t.tank);
+  const res = mine && req.answeredAt ? (req.results || {})[t.tank] : null;
+  const shot = !stockProof(t.before)?.live && fromServer(t.before);
+  if (mine && !req.answeredAt) {
+    return `<div class="hint" style="margin-top:8px">📷 Taking the photo of its stock before (asked ${fmtTime(req.at)}) — keep the valves shut until it's in, about a minute.</div>`;
+  }
+  if (res?.ok) return `<div class="audit ok" style="margin-top:8px">✓ Stock before photographed at ${fmtTime(res.at)} (${fmtL(res.volume, 2)}) — open the valves; it starts by itself.</div>`;
+  return `${res && !res.ok ? `<div class="banner" style="margin:8px 0 0">${esc(res.message)}.</div>` : ''}
+    <div class="row-actions" style="justify-content:flex-start"><button class="cta sm" data-photo="${t.tank}">📷 Photo of its stock before</button></div>
+    <div class="hint">${shot ? 'Its stock before has a photo. Take a new one if it has sold since — ' : 'Tap before opening the valves: '}the server photographs its card (about a minute), then open them; it starts by itself when its stock rises.</div>`;
+}
+
 // "Start automatic decantation" asked, not taken up yet (nor refused): the valves wait for it
 const askingServer = (s) => Boolean(s.data.autoRequest?.start && !s.data.autoRequest.error && !runByServer(s)
   && (Date.now() - Date.parse(s.data.autoRequest.at || 0)) / 60000 <= REQUEST_STALE_MIN);
@@ -641,6 +770,15 @@ async function startFromTruck(s, p) {
   syncStatus(s);
   const toStart = into.filter((x) => stageOf(s, d.tanks.find((t) => t.tank === x.id)) === 'waiting').map((x) => x.id);
   const joined = into.filter((x) => !toStart.includes(x.id));
+  if (toStart.length && runByServer(s)) {
+    // the server starts it when its stock rises: first, a photo of its stock before (valves shut till it's in)
+    const req = d.beforePhoto;
+    const asked = req && !req.answeredAt ? [...new Set([...(req.tanks || []), ...toStart])] : toStart;
+    d.beforePhoto = { tanks: asked, at: req && !req.answeredAt ? req.at : new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    await persist(s);
+    toast(`${toStart.map(tankName).join(' & ')}: the server photographs the stock before — open the valves once it says so.`, 6000);
+    return;
+  }
   if (toStart.length && await startTanks(s, toStart)) return;
   await persist(s);                        // e.g. "take a new reading first": the tank waits here, ready to start
   if (joined.length && !toStart.length) toast(`${joined.map((x) => `C${compactNos(x.chambers)} into ${tankName(x.id)}`).join(', ')} too — decanting.`);
@@ -654,16 +792,18 @@ function stageCard(s, t) {
     <span class="sp" style="flex:1"></span>${STAGE[st]}</div>`;
   if (st === 'waiting') {
     return `<div class="card">${head}
+      ${guideLine(s, t)}
       <div class="sect-title" style="margin:10px 0 0;font-size:13px">Stock before</div>
       ${readingInner(tk, t.before, 'before')}
       ${askingServer(s) ? '<div class="hint" style="margin-top:8px">Waiting for the tank stock server: don\'t open the valves yet.</div>'
         : `<div class="row-actions"><button class="btn sm ghost" data-drop="${t.tank}">Not now — keep in the truck</button>
-        ${runByServer(s) ? '<span class="hint" style="align-self:center">Starts by itself when its stock rises</span>'
-          : `<button class="cta sm" data-starttank="${t.tank}">▶ Start ${tankName(t.tank)}</button>`}</div>`}
+        ${runByServer(s) ? '' : `<button class="cta sm" data-starttank="${t.tank}">▶ Start ${tankName(t.tank)}</button>`}</div>
+        ${runByServer(s) ? photoBefore(s, t) : ''}`}
     </div>`;
   }
   if (st === 'decanting') {
     return `<div class="card accent">${head}
+      ${guideLine(s, t)}
       <div class="bigtimer sm" data-ttimer="${t.tank}">0:00</div>
       <div class="hint" style="text-align:center">since ${fmtTime(startOf(s, t))} · stock before ${fmtL(t.before?.volume, 2)} (${fmtDip(dipOf(t.before))})</div>
       <div class="hint" style="text-align:center;margin-top:4px;color:var(--muted);white-space:pre-line" data-tdrain="${t.tank}">${esc(drainText(s, t, Date.now()))}</div>
@@ -715,6 +855,7 @@ function liveDrainText(s, t, at, now) {
   const before = Number(t.before?.volume) || 0;
   const read = `Stock read ${fmtTime(at.readingAt)} (${elapsed(Math.max(0, now - Date.parse(at.readingAt)))} ago)`;
   const inTank = `${tankName(t.tank)} ${fmtL(before + at.rise)} (+${fmtL(at.rise)})`;
+  if (at.waiting) return `${read}: not rising yet — nothing has gone in (are the valves open?).\n${inTank}`;
   if (at.done) {
     return `${read}: the stock has risen by all of C${compactNos(t.chambers)} — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'} empty.\n${inTank}`;
   }
@@ -879,6 +1020,19 @@ async function onClick(e) {
     s.completed_at = was.completed_at;
     delete s.data.reopened;
     await persist(s);
+    return;
+  }
+  const voiceBtn = t.closest('[data-voice]');
+  if (voiceBtn) { setVoice(voiceBtn.dataset.voice === 'on'); render(); return; }
+  const photo = t.closest('[data-photo]');
+  if (photo) {
+    s = latest(s);
+    if (!runByServer(s)) return;
+    const req = s.data.beforePhoto;
+    const tanksAsked = req && !req.answeredAt ? [...new Set([...(req.tanks || []), photo.dataset.photo])] : [photo.dataset.photo];
+    s.data.beforePhoto = { tanks: tanksAsked, at: req && !req.answeredAt ? req.at : new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    await persist(s);
+    toast('Asked the tank stock server for the photo — keep the valves shut until it\'s in.', 5000);
     return;
   }
   const startBtn = t.closest('[data-starttank]');
@@ -1399,7 +1553,11 @@ function auditLine(tanks) {
   if (!rows.some((t) => stockProof(t.before) || stockProof(t.after))) return null;
   const none = unprovenReadings(rows);
   if (!none.length) return { ok: true, text: '✓ Audit: every stock here is from a screenshot or a dip — proof held.' };
-  return { ok: false, text: `⚠ Audit: ${none.map((x) => `${tankName(x.tank)} stock ${x.which}`).join(', ')} typed in litres — no solid proof.` };
+  const list = (xs) => xs.map((x) => `${tankName(x.tank)} stock ${x.which}`).join(', ');
+  const typed = none.filter((x) => !x.live);
+  const live = none.filter((x) => x.live);
+  return { ok: false, text: `⚠ Audit: ${[typed.length ? `${list(typed)} typed in litres` : '',
+    live.length ? `${list(live)} from FuelTrans' live figure (exact) with no screenshot` : ''].filter(Boolean).join('; ')} — no solid proof.` };
 }
 
 function resultFooter(s) {

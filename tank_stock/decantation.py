@@ -653,7 +653,7 @@ class Decantation:
         return {"volume": round2(low), "ullage": round2(cap - low), "capacity": cap, "height": None, "dip": None,
                 "water": None, "density": None, "densityTc": None, "temp": None, "status": None,
                 "readingAt": low_at or iso(now), "timeRead": False, "source": "photo", "via": "server",
-                "confidence": "medium", "savedAt": iso(now),
+                "confidence": "medium", "savedAt": iso(now), "picture": False,
                 "note": "the live product volume just before it started rising"}
 
     def add(self, tank_id: str, chambers, before: dict | None, now: float | None = None,
@@ -803,7 +803,7 @@ class Decantation:
             # it sold since its stock before was read: that stock, from the live figure
             t["before"] = {**t["before"], **{k: None for k in ("height", "dip", "water", "density", "densityTc", "temp")},
                            "volume": round2(base), "ullage": round2((t["before"].get("capacity") or 20000) - base),
-                           "readingAt": iso(st["low"][0]), "timeRead": False, "confidence": "medium",
+                           "readingAt": iso(st["low"][0]), "timeRead": False, "confidence": "medium", "picture": False,
                            "note": "the live product volume just before decanting (it sold after the full read)"}
             self.s["data"]["before"][t["tank"]] = t["before"]
             # and in full, with its picture, from the screen kept at that low
@@ -1069,7 +1069,8 @@ class Decantation:
                 self._ask(t, "notstarted", 0, now, work)
 
     # -- the stock before / after, from full reads --
-    def set_before(self, tank_id: str, reading: dict, now: float | None = None, from_low: bool = False) -> dict:
+    def set_before(self, tank_id: str, reading: dict, now: float | None = None, from_low: bool = False,
+                   asked: bool = False) -> dict:
         """A fresh full read of a tank still waiting (it sold since); or, with
         ``from_low``, the full read of the screen kept at its lowest stock just
         before decanting began (its stock before, from the live figure until now)."""
@@ -1099,7 +1100,8 @@ class Decantation:
         st["low"] = [now, reading["volume"]]
         work["save"] = True
         self._sync_auto()
-        self._say(work, f"Tank {t['tankNo']}: it sold; stock before read again: {reading['volume']:,.2f} L.", now)
+        self._say(work, f"Tank {t['tankNo']}: stock before photographed (asked on the decant app): {reading['volume']:,.2f} L."
+                  if asked else f"Tank {t['tankNo']}: it sold; stock before read again: {reading['volume']:,.2f} L.", now)
         return work
 
     def read_after(self, tank_id: str, reading: dict | None, fallback: dict | None = None,

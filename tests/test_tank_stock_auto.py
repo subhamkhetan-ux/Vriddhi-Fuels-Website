@@ -1466,3 +1466,98 @@ def test_a_test_run_cancelled_on_the_tank_stock_page(rig):
     assert a.phase == "cancelled"
     _free_again(rig, sid)
     assert rig.cloud.sessions[sid]["data"]["cancelReason"] == "Cancelled before decanting."
+
+
+def _feed_run(rig, monkeypatch, plan):
+    """An automatic decantation from FuelTrans' live data (FeedSession: FuelTrans' page shut unless a picture is wanted)."""
+    boxes = {no: (no * 100, 0, no * 100 + 90, 90) for no in (1, 2, 3, 4)}
+    monkeypatch.setattr(service.cards_mod, "ocr", lambda png: None)
+    monkeypatch.setattr(service.cards_mod, "card_boxes", lambda png, words: dict(boxes))
+    FeedSession.world, FeedSession.clock = rig.world, rig.clock
+    started = service.Station.start_live
+
+    def start_live(self, new_settings=None, auto=False):
+        started(self, new_settings, auto)
+        self.live.update(feed=True, session=FeedSession([], ""))
+        return self.live_view()
+    monkeypatch.setattr(service.Station, "start_live", start_live)
+    a = rig.st.auto
+    a.start(INVOICE["invoice_no"], plan)
+    assert wait_for(lambda: rig.st.live is not None)
+    end = real_time.time() + 10
+    while a.phase == "starting" and real_time.time() < end:
+        rig.clock.t += 1
+        read(rig)
+        real_time.sleep(0.05)
+    assert a.phase == "running", a.info
+    return a, rig.st.live["session"]
+
+
+def _phone_asks_photo(rig, sid, tanks):
+    s = copy.deepcopy(rig.cloud.sessions[sid])
+    s["data"]["beforePhoto"] = {"tanks": tanks, "at": dz.iso(rig.clock()), "by": "phone"}
+    s["updated_at"] = dz.iso(rig.clock() + 0.5)
+    rig.cloud.sessions[sid] = s
+
+
+def test_a_waiting_tank_that_sold_gets_its_stock_before_photo_when_the_app_asks(rig, monkeypatch):
+    """While the agent runs it from FuelTrans' live data, a planned tank that
+    sells while waiting gets its stock before from the live figure (exact, no
+    photo: FuelTrans' page stays shut). Its "📷 Photo of its stock before" on
+    the decant app, tapped before the valves are opened, opens the page for
+    it: the photo becomes its stock before, the app is told, the page shuts."""
+    a, session = _feed_run(rig, monkeypatch, {"1": "T1", "2": "T2", "3": "T2"})
+    sid = a.run.s["id"]
+    rig.world.sales = [(2, 120, 40)]                                # Tank 2 sells 40 L while it waits
+    drive(rig, 300)
+    before = a.run.row("T2")["before"]
+    assert before["volume"] == 10715.0 and before["picture"] is False   # the live figure: exact, no photo
+    assert session.page == "closed"
+    _phone_asks_photo(rig, sid, ["T2"])
+    drive(rig, 360)
+    s = cloud_session(rig)
+    res = s["data"]["beforePhoto"]["results"]["T2"]
+    assert res["ok"] and res["volume"] == 10715.0, s["data"]["beforePhoto"]
+    t2 = next(t for t in s["data"]["tanks"] if t["tank"] == "T2")
+    assert t2["before"]["volume"] == 10715.0 and "picture" not in t2["before"] and t2["before"]["height"]
+    assert a.info["proofs"]["T2"]["before"]["picture"]                 # its photo, kept for the result
+    assert session.page == "closed"                                    # (and the page shut again)
+    rig.world.flows = [(1, 400, 4990, 495), (2, 400, 8990, 900)]
+    drive(rig, 4000)
+    assert a.phase == "finished", a.info
+    t2 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T2")
+    assert t2["before"]["volume"] == 10715.0 and t2["result"]["band"] in ("ok", "watch", "high")
+
+
+def test_a_photo_asked_once_the_tank_has_started_says_so(rig, monkeypatch):
+    a, session = _feed_run(rig, monkeypatch, {"1": "T1", "2": "T2", "3": "T2"})
+    sid = a.run.s["id"]
+    rig.world.flows = [(2, 100, 9000, 900)]
+    drive(rig, 300)
+    assert a.run.row("T2")["stage"] == "decanting"
+    _phone_asks_photo(rig, sid, ["T2"])
+    drive(rig, 340)
+    res = cloud_session(rig)["data"]["beforePhoto"]["results"]["T2"]
+    assert not res["ok"] and "started already" in res["message"]
+    assert session.page == "closed"
+
+
+def test_a_photo_request_is_seen_within_seconds_apart_from_the_reads(rig, monkeypatch):
+    """photo_loop: a phone's stock-before photo request is looked for every
+    PHOTO_LOOK_S, off the live reads: FuelTrans' page starts opening at once
+    and the next read takes it over (not up to SYNC_EVERY later)."""
+    a, session = _feed_run(rig, monkeypatch, {"1": "T1", "2": "T2", "3": "T2"})
+    sid = a.run.s["id"]
+    monkeypatch.setattr(auto, "PHOTO_LOOK_S", 0.05)
+    rig.cloud.session_value = lambda s_id, key, timeout=10: rig.cloud.sessions[s_id]["data"].get(key)
+    a.info["synced"] = rig.clock()                        # (just synced: the read alone wouldn't look for 30 s)
+    _phone_asks_photo(rig, sid, ["T2"])
+    stop = threading.Event()
+    threading.Thread(target=a.photo_loop, args=(stop,), daemon=True).start()
+    try:
+        assert wait_for(lambda: session.page != "closed" and a.info["synced"] == 0, 3)   # opening, and a sync due
+    finally:
+        stop.set()
+    read(rig)
+    read(rig)
+    assert cloud_session(rig)["data"]["beforePhoto"]["results"]["T2"]["ok"]

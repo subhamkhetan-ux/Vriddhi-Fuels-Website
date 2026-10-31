@@ -56,6 +56,7 @@ INTERVAL_S = 10            # live reads while it runs, whatever the live setting
 FIRST_READ_WAIT = 240      # seconds for live monitoring to give its first read
 BEFORE_TRIES = 3           # full reads for the stock before
 SYNC_EVERY = 30            # seconds: has a phone changed the decantation?
+PHOTO_LOOK_S = 5           # seconds: has a phone asked for a stock-before photo? (photo_loop, off the live reads)
 RECONNECT = (15, 30, 60, 120, 300)   # seconds between tries to connect again
 RECONNECT_FOR = 3 * 3600   # then it pauses ("Connect again" on the page)
 STALE_S = 120              # a planned tank without a reading this long: say so
@@ -71,6 +72,7 @@ QUICK_S = 10               # seconds the live reads wait on the decant app at mo
 CLOUD_REST_S = 30          # after the decant app couldn't be reached: the live reads don't wait on it again this soon
 REQUEST_FRESH_S = 15 * 60  # a phone's "let the tank stock server finish it" older than this: not taken up
 PICTURES_AHEAD_S = 150     # from FuelTrans' live data: its page opens this long before a stock after is due
+PHOTO_WAIT_S = 240         # a stock-before photo asked on the decant app: its page may take this long to open
 
 
 class AutoError(ValueError):
@@ -115,6 +117,8 @@ class AutoDecant:
         run = self.run
         if self.phase not in ("running", "paused") or not run:
             return False
+        if self._photo_asked():
+            return True                          # (a stock-before photo asked on the decant app)
         due = run.after_due_in(time.time())
         return due is not None and due <= PICTURES_AHEAD_S
 
@@ -631,6 +635,7 @@ class AutoDecant:
             if live.get("feed") and self.wants_pictures():
                 self.st.prepare_pictures(live)  # (a stock after coming up: its picture's page opens meanwhile)
             self._do(work, live, now)
+            self._before_photo(live, now)
             wanted = self.wants_pictures()
             if live.get("feed") and self._wanted_pictures and not wanted:
                 self.st.release_pictures()       # (its stock after taken: the page closes till the next)
@@ -679,6 +684,83 @@ class AutoDecant:
             self._finish(now)
         elif self.run.s["status"] == "cancelled":
             self._end("cancelled", now)
+
+    # ---- a stock-before photo asked on the decant app -----------------------------
+    # While the agent runs it, a tank still waiting (or held chambers just put
+    # into a tank) gets its stock before from FuelTrans' live figure: exact, but
+    # with no picture, as FuelTrans' page stays shut while tanks decant. Its
+    # decanting screen's "📷 Photo of its stock before", tapped before the
+    # valves are opened, asks for one (data.beforePhoto = {tanks, at, by}):
+    # the page opens for it, the tank's card is read in full with its picture
+    # and becomes its stock before, the answer goes back (answeredAt, results),
+    # and the page shuts again.
+    def photo_loop(self, stop: threading.Event) -> None:
+        """Every PHOTO_LOOK_S, apart from the live reads: has a phone asked a
+        stock-before photo of the decantation running here? Then FuelTrans'
+        page starts opening at once, and the next read takes the phone's
+        change over (instead of within SYNC_EVERY)."""
+        seen = None
+        while not stop.wait(PHOTO_LOOK_S):
+            run, live = self.run, self.st.live
+            if self.phase != "running" or not run or not live or not live.get("feed"):
+                continue
+            try:
+                req = self.st.decant.session_value(run.s["id"], "beforePhoto", timeout=QUICK_S)
+            except Exception:  # noqa: BLE001 - (a fake app, the cloud away): looked at again next time
+                continue
+            if not isinstance(req, dict) or req.get("answeredAt") or not req.get("tanks") or req.get("at") == seen:
+                continue
+            seen = req.get("at")
+            if not self._photo_asked():
+                self.info["synced"] = 0                  # (the next read takes it over)
+            try:
+                self.st.prepare_pictures(live)
+            except Exception:  # noqa: BLE001 - opened on the read instead
+                traceback.print_exc()
+
+    def _photo_asked(self) -> list:
+        """The tanks a phone asked a stock-before photo for, not answered yet."""
+        req = (self.run.s["data"].get("beforePhoto") if self.run else None) or {}
+        return list(req.get("tanks") or []) if isinstance(req, dict) and not req.get("answeredAt") else []
+
+    def _before_photo(self, live, now: float) -> None:
+        tanks = self._photo_asked()
+        if not tanks or not live:
+            return
+        req = self.run.s["data"]["beforePhoto"]
+        waiting = [t for t in tanks if (self.run.row(t) or {}).get("stage") == "waiting"]
+        pictures = self.st.prepare_pictures(live) if waiting else ""   # (opens FuelTrans' page in the background)
+        if pictures == "opening" and time.time() - (dz._ts(req.get("at")) or time.time()) < PHOTO_WAIT_S:
+            return                                       # (taken on a read once it's open)
+        png = self.st.live_png(live) if pictures == "ready" else b""
+        why = live.get("picture_error") or self.st.pictures_error(live) or "FuelTrans' page didn't open"
+        work, results = dz._work(), {}
+        for tank in tanks:
+            row = self.run.row(tank)
+            if not row or row["stage"] != "waiting":
+                results[tank] = {"ok": False, "message": "it had started already: its stock before is FuelTrans' "
+                                                         "live figure from just before it rose (no photo)"}
+                continue
+            no = self._no(tank)
+            res = (self.st.full_read(png, [no], "automatic decantation: stock before (photo asked)").get(no) or {}) \
+                if png else {"problem": why}
+            if not res.get("reading"):
+                results[tank] = {"ok": False, "message": f"the photo couldn't be taken ({res.get('problem') or why}): "
+                                                         "its stock before stays FuelTrans' live figure"}
+                continue
+            more = self.run.set_before(tank, res["reading"], now, asked=True)
+            if more["save"]:
+                self._keep_proof(tank, "before", res)
+                self._merge(work, more)
+                results[tank] = {"ok": True, "volume": res["reading"]["volume"], "at": _now()}
+            else:
+                results[tank] = {"ok": False, "message": "it had started rising when the photo was taken: its stock "
+                                                         "before is FuelTrans' live figure from just before it rose"}
+        req.update(answeredAt=_now(), results=results)
+        work["save"] = True
+        self._do(work, live, now)
+        if not self.wants_pictures():
+            self.st.release_pictures()                   # (the page shuts again)
 
     @staticmethod
     def _merge(work: dict, more: dict) -> None:

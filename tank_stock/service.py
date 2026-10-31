@@ -98,6 +98,9 @@ LIVE_FIGURES = ("volume", "ullage", "capacity")   # what the page gets while liv
 FEED_EVERY = 1                   # seconds between live reads from FuelTrans' live data (feed.py: no screen)
 BEAT_MIN_S = 3                   # ... the decant app and a decantation get new figures at most this often
 BEAT_MAX_S = 10                  # ... and a decantation is looked at at least this often (its timers)
+LIVE_RESEND_S = 60               # ... a tank's volume that hasn't changed: sent again this often, so the decant
+                                 #     app knows it is still watched (a tank started there that isn't rising
+                                 #     yet shows as waiting, not as draining by the clock)
 FEED_MISSING_S = 90              # a watched tank its live data hasn't brought this long: the screen is read instead
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
@@ -630,6 +633,10 @@ class Station:
                 self._release()
             # FuelTrans' live data, no screen (feed.py); else the screen is read
             live["feed"] = hasattr(session, "figures") and not getattr(session, "unavailable", "")
+            # the decant app gets the figures from a thread of its own: a slow or
+            # unreachable cloud never holds a live read (nor the page's figures)
+            live["outbox_wake"] = threading.Event()
+            threading.Thread(target=self._live_sender, args=(live,), daemon=True, name="live-send").start()
             live.update(state="live", session=session, connected=now_iso())
             if self._ft_tries:                       # (it was lost: Telegram was told)
                 self.notify(f"Tank stock live monitoring is back: FuelTrans answers again "
@@ -838,8 +845,9 @@ class Station:
                 tick = live.setdefault("ticks", {}).get(no)
                 if clock and (not tick or tick["fp"] != clock):
                     live["ticks"][no] = {"fp": clock, "since": now_iso(), "t": time.time()}
-                if fp == live.setdefault("fp", {}).get(no):
-                    continue                          # same figures as last time
+                resent = live.setdefault("resent", {})
+                if fp == live.setdefault("fp", {}).get(no) and time.time() - resent.get(no, 0) < LIVE_RESEND_S:
+                    continue                          # same figures as last time (and sent lately)
                 card = dict(card, no=no, seenAt=_utc_now())
                 card["product"] = card.get("product") or (live.get("products") or {}).get(no)
                 tank = self.decant.tank_for(no, cfg)
@@ -854,6 +862,7 @@ class Station:
                     live["fp"][no] = fp
                     live.setdefault("cards", {})[no] = card      # (in full: a decantation's stock from it)
                     changed[no] = card
+                    resent[no] = time.time()
             self._keep_trend(live, watched)
             gone = sorted(no for no, since in missing.items()
                           if no in watched and time.time() - since >= FEED_MISSING_S)
@@ -903,13 +912,39 @@ class Station:
         changed = {**live.pop("between", {}), **changed}
         wanted = lambda no: (live["auto_upload"] or no in self.auto.to_upload()   # noqa: E731
                              or no in self.phone.watched())
-        pending = live.setdefault("pending", {})
-        send = {**{no: c for no, c in pending.items() if wanted(no)},
-                **{no: c for no, c in changed.items() if wanted(no)}}
-        if send and cfg.get("default"):
-            pending.update(send)                  # sent once the app's settings are read
-        elif send:
-            self._live_upload(live, send, cfg)
+        lock = live.setdefault("send_lock", threading.Lock())
+        with lock:
+            pending = live.setdefault("pending", {})
+            send = {**{no: c for no, c in pending.items() if wanted(no)},
+                    **{no: c for no, c in changed.items() if wanted(no)}}
+            if send and cfg.get("default"):
+                pending.update(send)              # sent once the app's settings are read
+                return
+            if send and live.get("outbox_wake"):
+                live.setdefault("outbox", {}).update(send)   # (the latest of each tank: the sender's)
+                live["outbox_cfg"] = cfg
+                live["outbox_wake"].set()
+                return
+        if send:
+            self._live_upload(live, send, cfg)    # (no sender: a read run by hand, as the tests do)
+
+    def _live_sender(self, live) -> None:
+        """The decant app's uploads while live, off the read loop."""
+        wake, lock = live["outbox_wake"], live.setdefault("send_lock", threading.Lock())
+        while True:
+            stopping = live["stop"].is_set()
+            if not stopping:
+                wake.wait(1)
+                wake.clear()
+            with lock:
+                batch, cfg = live.pop("outbox", {}), live.get("outbox_cfg")
+            if batch:
+                try:
+                    self._live_upload(live, batch, cfg)
+                except Exception:  # noqa: BLE001 - kept to send again on the next change
+                    traceback.print_exc()
+            if stopping:
+                return                                 # (the last figures went with the session's end)
 
     def live_png(self, live) -> bytes:
         """A picture of the PC's tank screen to prove a stock with (an
@@ -941,6 +976,11 @@ class Station:
             return "ready"
         return session.pictures()
 
+    @staticmethod
+    def pictures_error(live) -> str:
+        """Why FuelTrans' page last failed to open for a picture, if it did."""
+        return getattr((live or {}).get("session"), "open_error", "") or ""
+
     def release_pictures(self) -> None:
         """No picture coming up: FuelTrans' page closed now (from the live data)."""
         live = self.live or {}
@@ -961,7 +1001,7 @@ class Station:
         built = self.decant.make_reading(dict(card, no=no), tank, cfg) if tank else None
         if not built or built["confidence"] == "low":
             return None
-        return {**built["reading"], "note": "from FuelTrans' live data (exact; no picture)"}
+        return {**built["reading"], "picture": False, "note": "from FuelTrans' live data (exact; no picture)"}
 
     @staticmethod
     def _keep_trend(live, watched) -> None:
@@ -1004,15 +1044,26 @@ class Station:
         app couldn't take (it couldn't be reached) is kept and sent again - a
         steady tank's card isn't read again, so it would never go otherwise -
         after a short pause, so a dead connection doesn't hold every read."""
+        lock = live.setdefault("send_lock", threading.Lock())
         pending = live.setdefault("pending", {})
         if time.time() < live.get("upload_after", 0):
-            pending.update(changed)                    # (tried again after the pause)
+            with lock:
+                pending.update(changed)                # (tried again after the pause)
             return
         try:
             results = self.decant.upload(changed, sorted(changed), cfg, only_volume=True,
                                          timeout=LIVE_UPLOAD_TIMEOUT)
         except self.decant.DecantError as exc:
             results = {n: {"ok": False, "message": str(exc)} for n in changed}
+        with lock:
+            say = self._live_uploaded(live, changed, results, pending)
+        for text in say:                               # (Telegram, outside the lock a live read takes)
+            self.notify(text)
+
+    def _live_uploaded(self, live, changed, results, pending) -> list:
+        """What the decant app said to a live upload (under the send lock).
+        -> what Telegram is to be told."""
+        say = []
         stamp = now_iso()
         unreachable = False
         for no, r in results.items():
@@ -1034,11 +1085,11 @@ class Station:
         if unreachable:
             if not told.get("down"):
                 told["down"] = next(r["message"] for r in results.values() if not r.get("ok"))
-                self.notify(f"⚠️ Tank stock (live): {told['down'].replace(' (sent again when it answers)', '')} "
-                            "The volumes are sent again when it answers.")
+                say.append(f"⚠️ Tank stock (live): {told['down'].replace(' (sent again when it answers)', '')} "
+                           "The volumes are sent again when it answers.")
         elif told.get("down") and not pending:
             told.pop("down")
-            self.notify("✅ Tank stock (live): the decant app answers again; the latest volumes are in it.")
+            say.append("✅ Tank stock (live): the decant app answers again; the latest volumes are in it.")
         new = []
         for no, r in sorted(results.items()):
             msg = r.get("message") or ""
@@ -1048,7 +1099,8 @@ class Station:
                 told[no] = msg
                 new.append(f"Tank {no}: {msg}")
         if new:
-            self.notify("⚠️ Tank stock (live): " + "; ".join(new))
+            say.append("⚠️ Tank stock (live): " + "; ".join(new))
+        return say
 
     def _live_end(self, live, reason: str, final: bytes) -> None:
         ended = now_iso()
@@ -1196,7 +1248,8 @@ class Station:
         if not live:
             return None
         hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen",
-                  "hist", "exact_missing", "between", "beat_at", "beat_due", "cards")
+                  "hist", "exact_missing", "between", "beat_at", "beat_due", "cards", "resent",
+                  "outbox", "outbox_cfg", "outbox_wake", "send_lock")
         out = {k: v for k, v in live.items() if k not in hidden}
         # each tank's flow now (L/min: + decanting in, - sales out): the page's decanting speed
         now = time.time()
@@ -1505,6 +1558,7 @@ def main(argv=None) -> int:
     threading.Thread(target=station.request_loop, args=(stop,), daemon=True, name="requests").start()
     threading.Thread(target=station.pumps.run, args=(stop,), daemon=True, name="pumps").start()   # (asleep until started)
     threading.Thread(target=station.status.loop, args=(stop,), daemon=True, name="status").start()
+    threading.Thread(target=station.auto.photo_loop, args=(stop,), daemon=True, name="photo").start()
     hosts = os.environ.get("TANK_STOCK_HOSTS", "").split(",")
     users = os.environ.get("TANK_STOCK_USERS", "").split(",")
     httpd = make_server(station, args.port, hosts, users)
