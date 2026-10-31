@@ -467,6 +467,13 @@ input[type=number]{font-variant-numeric:tabular-nums}
 /* ---- lively touches (only opacity and transform: the graphics chip runs those on its own) ---- */
 .badge.live i{display:inline-block;animation:blink 1.2s ease-in-out infinite}
 @keyframes blink{50%{opacity:.25}}
+/* the automatic decantation's guide: stays at the top while scrolling, and flashes while there's a valve to open or a pipe to move */
+.auto-guide{position:sticky;top:calc(var(--hdr,0px) + 6px);z-index:5}
+.auto-guide .ag-now{font-size:15px;margin:8px 0 4px;line-height:1.4}
+.auto-guide .ag-line{font-size:14px;margin:6px 0;line-height:1.4}
+.auto-guide.flash{animation:agflash 1.2s ease-in-out infinite}
+@keyframes agflash{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 3px var(--accent);background:var(--accent-soft)}}
+@media (prefers-reduced-motion:reduce){.auto-guide.flash{animation:none;box-shadow:0 0 0 3px var(--accent)}}
 /* the synced dot's ring: grown and faded (transform, opacity), which the phone's graphics chip
    does on its own — an animated box-shadow would be redrawn by the app 60 times a second */
 .pill.live .dot{position:relative}
