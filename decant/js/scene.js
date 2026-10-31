@@ -64,7 +64,7 @@ const REDUCED = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)'
 // s: a session; tanks: the settings' tanks; stock: the latest reading per tank
 // (for the tanks this truck doesn't fill); settings: for the chambers' times.
 // compact: for the Home card.
-export function decantScene(s, { tanks = [], stock = {}, compact = false, settings = null, now = Date.now() } = {}) {
+export function decantScene(s, { tanks = [], stock = {}, compact = false, settings = null, now = Date.now(), act = new Set() } = {}) {
   const id = `ds${++seq}`;
   const d = s.data || {};
   const rows = d.tanks || [];
@@ -134,6 +134,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       <g clip-path="${cp}"><g data-k="l${c.no}" transform="translate(0 ${glassY(level)})">${level > 0 || win ? liquid(gx, gx + gw, 0, gh + 2, colorOf(c.product), { wave: Boolean(win) }) : ''}</g></g>
       ${win ? `<circle class="bubble" cx="${mid}" cy="${GLASS.bottom - 3}" r="1.3" fill="#fff" opacity=".6"/>` : ''}
     </g>
+    ${act.has(c.no) ? `<rect class="ds-act" x="${r1(gx - 3)}" y="${GLASS.top - 3}" width="${r1(gw + 6)}" height="${gh + 6}" rx="6" fill="none" stroke="#FF7A1A" stroke-width="2.4"/>` : ''}
     <text x="${mid}" y="${BODY.orange + 10}" class="ds-ch">C${c.no}</text>
     <text x="${mid}" y="${BODY.orange + 18}" class="ds-kl">${Math.round((c.litres || 0) / 100) / 10} KL</text>`;
   }).join('');

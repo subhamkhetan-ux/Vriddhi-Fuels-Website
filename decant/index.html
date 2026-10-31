@@ -469,10 +469,21 @@ input[type=number]{font-variant-numeric:tabular-nums}
 @keyframes blink{50%{opacity:.25}}
 /* a tank's next step while the automatic decantation runs: flashes while there's a valve to open or a pipe to move */
 .ag-line{position:relative;font-size:14.5px;line-height:1.4;margin:10px 0 2px;padding:9px 11px;border-radius:10px;background:var(--glass-2)}
-.ag-line.flash::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+.ag-line.flash::after,.ag-next.flash::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   box-shadow:inset 0 0 0 2px var(--accent);background:var(--accent-soft);opacity:0;animation:agflash 1.2s ease-in-out infinite}
 @keyframes agflash{50%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.ag-line.flash::after{animation:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.ag-line.flash::after,.ag-next.flash::after,.ds-act{animation:none;opacity:1}}
+/* the chamber to act on, in the truck picture: pulsing */
+.ds-act{opacity:0;animation:agflash 1.2s ease-in-out infinite}
+/* the automatic decantation's summary */
+.ag-sum{font-size:15px;margin:8px 0 6px}
+.ag-bar{height:8px;border-radius:5px;background:var(--glass-2);overflow:hidden}
+.ag-bar i{display:block;height:100%;background:var(--accent);transform-origin:left center;transition:transform .6s ease}
+.ag-next{position:relative;margin:10px 0 2px;padding:8px 10px;border-radius:10px;font-size:14.5px;color:var(--accent)}
+.ag-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
+.ag-chip{font-size:12.5px;padding:4px 9px;border-radius:999px;background:var(--glass-2);border:1px solid var(--glass-line)}
+.ag-chip.on{border-color:var(--accent)}
+.ag-chip.ok{border-color:#3fb950}
 /* the synced dot's ring: grown and faded (transform, opacity), which the phone's graphics chip
    does on its own — an animated box-shadow would be redrawn by the app 60 times a second */
 .pill.live .dot{position:relative}
