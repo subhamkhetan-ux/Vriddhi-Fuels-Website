@@ -166,11 +166,12 @@
       <div>
         <div class="drop" id="dropCash" data-kind="cash">
           <div class="big">Cash sales <span style="color:var(--faint);font-weight:400">(MS · HSD · XG)</span></div>
-          <div class="sub" style="color:var(--faint)">Sales vouchers MS Cash / HSD CASH / XG CASH</div>
+          <div class="sub" style="color:var(--faint)">Sales vouchers Cash MS / HSD CASH / XG CASH</div>
           <div class="files" id="filesCash"></div>
         </div>
         <div class="starts" title="The first voucher number to use for each product this time">
-          <div><label for="startMS">Start CASH/MS/</label><input class="led" id="startMS" inputmode="numeric" placeholder="e.g. 183"></div>
+          <div title="Cash MS vouchers are numbered by their date (Cash/MS/1Oct2026), so there is no starting number">
+            <label>Cash MS</label><div class="led" style="padding:8px 10px;color:var(--faint);font-size:12px;white-space:nowrap">Cash/MS/&lt;date&gt;</div></div>
           <div><label for="startHSD">Start CASH/HSD/</label><input class="led" id="startHSD" inputmode="numeric" placeholder="e.g. 185"></div>
           <div><label for="startXG">Start CASH/XG/</label><input class="led" id="startXG" inputmode="numeric" placeholder="e.g. 28"></div>
         </div>
@@ -180,8 +181,9 @@
     <input type="file" id="fileTds" accept=".xls,.xlsx" hidden>
     <input type="file" id="fileCash" accept=".xls,.xlsx" hidden>
     <div class="sub" style="color:var(--faint);margin-top:12px">Fleet and TDS sheets have <b>Date</b>, <b>Customer Name</b> (as in Tally — or mapped in <i>Name mappings</i>), <b>Amount</b>.
-      The cash-sales workbook has a tab per product (<b>MS</b>, <b>HSD</b>, <b>XG</b>) with <b>Date</b>, <b>Quantity</b>, <b>Price</b>; enter the
-      first voucher number for each product above (it carries on from the last one in Tally). All three are independent — drop any.
+      The cash-sales workbook has a tab per product (<b>MS</b>, <b>HSD</b>, <b>XG</b>) with <b>Date</b>, <b>Quantity</b>, <b>Price</b>.
+      MS goes to the <b>Cash MS</b> voucher type numbered by its date, e.g. <b>Cash/MS/1Oct2026</b> (one row per day);
+      for HSD and XG enter the first voucher number above (it carries on from the last one in Tally). All three are independent — drop any.
       Blank templates: <a href="/download/sample/fleet" style="color:var(--amber)">fleet card</a> · <a href="/download/sample/tds" style="color:var(--amber)">TDS receivable</a> ·
       <a href="/download/sample/cash" style="color:var(--amber)">cash sales</a>.</div>
     <div class="row">
@@ -321,14 +323,14 @@ wire("tds","#dropTds","#fileTds","#filesTds");
 wire("cash","#dropCash","#fileCash","#filesCash");
 function refresh(){ $("#runBtn").disabled = !(FILES.fleet||FILES.tds||FILES.cash); }
 const PRODS=["MS","HSD","XG"];
-function cashStarts(){ const o={}; PRODS.forEach(k=>{const v=$("#start"+k).value.trim(); if(v) o[k]=v;}); return o; }
-fetch("/api/cash").then(r=>r.json()).then(j=>PRODS.forEach(k=>{ if(j.starts&&j.starts[k]) $("#start"+k).value=j.starts[k]; })).catch(()=>{});
+const STARTED=["HSD","XG"];        // MS (Cash MS) is numbered by its date: Cash/MS/1Oct2026
+function cashStarts(){ const o={}; STARTED.forEach(k=>{const v=$("#start"+k).value.trim(); if(v) o[k]=v;}); return o; }
+fetch("/api/cash").then(r=>r.json()).then(j=>STARTED.forEach(k=>{ if(j.starts&&j.starts[k]) $("#start"+k).value=j.starts[k]; })).catch(()=>{});
 
 $("#runBtn").onclick=async()=>{
   if(!(FILES.fleet||FILES.tds||FILES.cash)){toast("Drop at least one sheet");return;}
   if(FILES.cash){
     const st=cashStarts();
-    if(!Object.keys(st).length){ toast("Enter the starting voucher number(s) for the cash sales"); $("#startMS").focus(); return; }
     if(Object.values(st).some(v=>!/^\d+$/.test(v))){ toast("Starting voucher numbers must be whole numbers"); return; }
   }
   $("#runBtn").disabled=true;$("#runStatus").innerHTML='<span class="spin"></span>Reading & generating…';
@@ -343,15 +345,16 @@ function renderCash(c){
   const P=c.summary.products;
   let tot=0;
   $("#cashStats").innerHTML=PRODS.map(k=>{const p=P[k]; tot+=Number(p.total_amount);
-    return `<div class="stat"><div class="k">${k} cash vouchers</div>
+    return `<div class="stat"><div class="k">${k==="MS"?"Cash MS":k+" cash"} vouchers</div>
       <div class="v ${p.n_error?'warn':(p.n_vouchers?'ok':'')}">${p.n_vouchers}</div>
       <div class="s">₹${money(p.total_amount)||"0.00"}${p.first?`<br>${esc(p.first)} – ${esc(p.last)}`:""}${p.n_error?`<br><span style="color:var(--warn)">${p.n_error} row(s) not posted</span>`:""}</div></div>`;}).join("")+
     `<div class="stat"><div class="k">Total ₹</div><div class="v">${money(tot.toFixed(2))}</div><div class="s">${c.summary.n_vouchers} voucher(s)</div></div>`;
-  const nxt=PRODS.filter(k=>P[k].n_vouchers);
-  $("#cashNext").hidden=!nxt.length;
-  $("#cashNext").innerHTML = nxt.length ? `✓ ${c.summary.n_vouchers} balanced voucher(s). Next time, start at: `+
+  const nxt=STARTED.filter(k=>P[k].n_vouchers && P[k].next);
+  $("#cashNext").hidden=!c.summary.n_vouchers;
+  $("#cashNext").innerHTML = !nxt.length ? `✓ ${c.summary.n_vouchers} balanced voucher(s).` :
+    `✓ ${c.summary.n_vouchers} balanced voucher(s). Next time, start at: `+
     nxt.map(k=>`<b>${esc(K_PREFIX[k])}${P[k].next}</b>`).join(" · ")+
-    ` <button class="btn sm" id="useNext" style="margin-left:8px">Use these as next starts</button>` : "";
+    ` <button class="btn sm" id="useNext" style="margin-left:8px">Use these as next starts</button>`;
   if(nxt.length) $("#useNext").onclick=async()=>{
     nxt.forEach(k=>$("#start"+k).value=P[k].next);
     toast("Next starting numbers filled in — they're saved with your next Generate");
