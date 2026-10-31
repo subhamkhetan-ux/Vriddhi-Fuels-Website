@@ -98,6 +98,9 @@ LIVE_FIGURES = ("volume", "ullage", "capacity")   # what the page gets while liv
 FEED_EVERY = 1                   # seconds between live reads from FuelTrans' live data (feed.py: no screen)
 BEAT_MIN_S = 3                   # ... the decant app and a decantation get new figures at most this often
 BEAT_MAX_S = 10                  # ... and a decantation is looked at at least this often (its timers)
+LIVE_RESEND_S = 60               # ... a tank's volume that hasn't changed: sent again this often, so the decant
+                                 #     app knows it is still watched (a tank started there that isn't rising
+                                 #     yet shows as waiting, not as draining by the clock)
 FEED_MISSING_S = 90              # a watched tank its live data hasn't brought this long: the screen is read instead
 UNWATCHED_STOP = 900             # seconds: live monitoring nobody has open (and that sends nothing) ends
 REQUEST_EVERY = 30               # seconds: has a phone asked for a decantation to be finished here, or for its stock?
@@ -838,8 +841,9 @@ class Station:
                 tick = live.setdefault("ticks", {}).get(no)
                 if clock and (not tick or tick["fp"] != clock):
                     live["ticks"][no] = {"fp": clock, "since": now_iso(), "t": time.time()}
-                if fp == live.setdefault("fp", {}).get(no):
-                    continue                          # same figures as last time
+                resent = live.setdefault("resent", {})
+                if fp == live.setdefault("fp", {}).get(no) and time.time() - resent.get(no, 0) < LIVE_RESEND_S:
+                    continue                          # same figures as last time (and sent lately)
                 card = dict(card, no=no, seenAt=_utc_now())
                 card["product"] = card.get("product") or (live.get("products") or {}).get(no)
                 tank = self.decant.tank_for(no, cfg)
@@ -854,6 +858,7 @@ class Station:
                     live["fp"][no] = fp
                     live.setdefault("cards", {})[no] = card      # (in full: a decantation's stock from it)
                     changed[no] = card
+                    resent[no] = time.time()
             self._keep_trend(live, watched)
             gone = sorted(no for no, since in missing.items()
                           if no in watched and time.time() - since >= FEED_MISSING_S)
@@ -1196,7 +1201,7 @@ class Station:
         if not live:
             return None
         hidden = ("session", "stop", "wake", "last_png", "cfg", "fp", "boxes", "ticks", "anydesk_png", "read_off_screen",
-                  "hist", "exact_missing", "between", "beat_at", "beat_due", "cards")
+                  "hist", "exact_missing", "between", "beat_at", "beat_due", "cards", "resent")
         out = {k: v for k, v in live.items() if k not in hidden}
         # each tank's flow now (L/min: + decanting in, - sales out): the page's decanting speed
         now = time.time()

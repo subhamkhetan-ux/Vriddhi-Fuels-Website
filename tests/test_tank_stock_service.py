@@ -1277,3 +1277,29 @@ def test_without_dec_live_the_status_rests_and_says_why(station, monkeypatch, ca
     station.status.rest_until -= phone_mod.STATUS_REST_S
     station.status.tick()
     assert len(calls) == 2
+
+
+class StillFeed(FakeFeed):
+    """FuelTrans' live data for a tank standing still (valves shut, nothing sold): the same volume, its clock moving."""
+    def figures(self):
+        FakeFeed.n += 1
+        return {3: {**CARD3, "time": ("10", "13", "2026", "18", "02", f"{FakeFeed.n % 60:02d}"), "exact": True}}
+
+
+def test_a_tank_standing_still_is_sent_again_so_the_app_knows_it_is_watched(station, monkeypatch):
+    """Only a change is sent, but an unchanged tank again every LIVE_RESEND_S:
+    a tank started on a phone before its valves are opened shows "not rising
+    yet" there, not chambers emptying by the clock."""
+    monkeypatch.setattr(service, "FEED_EVERY", 0.02)
+    monkeypatch.setattr(service, "BEAT_MIN_S", 0.05)
+    monkeypatch.setattr(service, "LIVE_RESEND_S", 0.4)
+    station.session_cls = StillFeed
+    station.start_live({"tanks": [3], "auto_upload": True, "interval_s": 5})
+    assert wait_for(lambda: len(station.db.writes) >= 3, 5), station.live and station.live.get("uploads")
+    vols = {w["reading"]["volume"] for w in station.db.writes}
+    assert vols == {CARD3["volume"]}                                   # the same stock, sent again
+    reads, writes = station.live["reads"], len(station.db.writes)
+    assert reads >= 4 * writes, (reads, writes)                       # (not every read: every LIVE_RESEND_S)
+    assert "resent" not in station.live_view()
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)

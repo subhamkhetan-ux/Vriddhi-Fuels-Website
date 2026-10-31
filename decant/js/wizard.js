@@ -715,6 +715,7 @@ function liveDrainText(s, t, at, now) {
   const before = Number(t.before?.volume) || 0;
   const read = `Stock read ${fmtTime(at.readingAt)} (${elapsed(Math.max(0, now - Date.parse(at.readingAt)))} ago)`;
   const inTank = `${tankName(t.tank)} ${fmtL(before + at.rise)} (+${fmtL(at.rise)})`;
+  if (at.waiting) return `${read}: not rising yet — nothing has gone in (are the valves open?).\n${inTank}`;
   if (at.done) {
     return `${read}: the stock has risen by all of C${compactNos(t.chambers)} — tap ✓ once ${t.chambers.length > 1 ? 'they are' : 'it is'} empty.\n${inTank}`;
   }

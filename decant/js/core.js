@@ -736,6 +736,10 @@ export function drainAt(timeline, now) {
 export const ARRIVE_SLACK_L = 50;
 export const ARRIVE_SLACK_PCT = 2;
 const arriveSlack = (litres) => Math.max(ARRIVE_SLACK_L, (litres * ARRIVE_SLACK_PCT) / 100);
+// A tank reading the tank stock server sent this recently: its live monitoring is
+// watching that tank (tank_stock/service.py LIVE_RESEND_S sends even an unchanged one every minute).
+export const LIVE_FRESH_MS = 150 * 1000;
+const RISE_SEEN_L = 20;                    // risen this much since its stock before: the pipe is on
 
 // The pipe's round by the tank's real stock instead of the chambers' times:
 // when the tank stock agent's live monitoring (or any reading) has given the
@@ -745,14 +749,20 @@ const arriveSlack = (litres) => Math.max(ARRIVE_SLACK_L, (litres * ARRIVE_SLACK_
 // reading (then drainAt(drainTimeline()) estimates it), else what drainAt
 // gives, with live: true, the reading's time and the rise; and a still
 // timeline of those levels (the picture draws from one).
-export function drainLive(row, chambers, latest, settings) {
+export function drainLive(row, chambers, latest, settings, now = Date.now()) {
   const start = Date.parse(row?.startedAt || '');
   const at = Date.parse(latest?.readingAt || '');
   const v = Number(latest?.volume);
   const b = Number(row?.before?.volume);
   if (!Number.isFinite(start) || !Number.isFinite(at) || !Number.isFinite(v) || !Number.isFinite(b)) return null;
-  if (at < start || at <= Date.parse(row.before.readingAt || '')) return null;   // not read since it started
-  if (latest.savedAt && row.before.savedAt && latest.savedAt === row.before.savedAt) return null;
+  // the tank stock server's live monitoring is watching it (it sends a tank's
+  // volume at least every minute): no rise since then is no rise, not a
+  // chamber emptying by the clock (started here before the valves were opened)
+  const watched = fromServer(latest) && now - (Date.parse(latest.savedAt || '') || at) <= LIVE_FRESH_MS;
+  if (!watched) {
+    if (at < start || at <= Date.parse(row.before.readingAt || '')) return null;   // not read since it started
+    if (latest.savedAt && row.before.savedAt && latest.savedAt === row.before.savedAt) return null;
+  }
   const rise = Math.max(0, v - b);
   const list = (row.chambers || []).map((no) => ({ no, litres: (chambers || []).find((c) => c.no === no)?.litres || 0 }));
   if (!list.length) return null;
@@ -771,12 +781,14 @@ export function drainLive(row, chambers, latest, settings) {
   const t5 = Number(s.emptySecs5) > 0 ? Number(s.emptySecs5) : DEFAULT_SETTINGS.emptySecs5;
   const toMove = done ? 0 : list.slice(list.indexOf(open) + 1).length;
   const left = done ? 0 : (Math.max(0, total - rise) * (t5 / 5000) + toMove * pipeMoveSeconds(s)) * 1000;
+  const rising = rise >= RISE_SEEN_L;
   return {
     on: (open || list[list.length - 1]).no,
     drained,
     litres: rise,
     left,
-    flowing: !done,
+    flowing: !done && rising,
+    waiting: !done && !rising,             // started here, but its stock hasn't risen yet
     done,
     moving: null,
     live: true,
