@@ -22,6 +22,7 @@ _ROOT = os.path.dirname(_HERE)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from fleet_tally import cash as K           # noqa: E402
 from fleet_tally import generate as G       # noqa: E402
 from fleet_tally import parse as P          # noqa: E402
 from fleet_tally import run as R            # noqa: E402
@@ -30,7 +31,8 @@ CUSTOMERS = os.path.join(_ROOT, "state", "customers.json")
 TALLY_LEDGERS = os.path.join(_ROOT, "state", "tally_ledgers.json")   # shipped ledger list (read-only)
 DATA_PATH = os.path.join(_HERE, "data.json")     # name mappings / settings (git-ignored)
 OUT_DIR = os.path.join(_HERE, "out")
-SAMPLES = {"fleet": "fleet_card_template.xlsx", "tds": "tds_receivable_template.xlsx"}
+SAMPLES = {"fleet": "fleet_card_template.xlsx", "tds": "tds_receivable_template.xlsx",
+           "cash": "cash_sales_template.xlsx"}
 
 _LAST: dict = {}     # last run's parsed rows, so a mapping change can re-run
 
@@ -211,6 +213,51 @@ def mappings_view() -> dict:
             "suggestions": sorted(set(customers()) | set(tally_ledgers()), key=str.lower)}
 
 
+def cash_view() -> dict:
+    """Starting voucher numbers last used (per product) + the products."""
+    d = load_data()
+    return {"starts": d.get("cash_start", {}),
+            "products": {k: {"vchtype": v["vchtype"], "prefix": v["prefix"], "label": v["label"]}
+                         for k, v in K.PRODUCTS.items()}}
+
+
+def run_cash(file: dict, starts: dict) -> dict:
+    """Cash-sales workbook -> cash_sales.xml (separate from the journals)."""
+    name = file.get("name", "cash.xlsx")
+    clean = {}
+    for prod in K.PRODUCTS:
+        try:
+            n = int(str(starts.get(prod, "")).strip())
+            if n > 0:
+                clean[prod] = n
+        except (TypeError, ValueError):
+            pass
+    path = None
+    try:
+        raw = base64.b64decode((file.get("b64") or "").split(",")[-1])
+        suffix = ".xlsx" if name.lower().endswith(("x", "m")) else ".xls"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+            tf.write(raw)
+            path = tf.name
+        rows, problems = K.read_workbook(path)
+    except Exception as exc:
+        return {"error": f"{name}: could not read the workbook ({exc})"}
+    finally:
+        if path and os.path.exists(path):
+            os.unlink(path)
+    problems = [f"{name}: {p}" for p in problems]
+    if not rows:
+        return {"error": "; ".join(problems) or f"{name}: no rows in the MS / HSD / XG tabs"}
+    d = load_data()
+    d["cash_start"] = {**d.get("cash_start", {}), **{k: v for k, v in clean.items()}}
+    save_data(d)
+    vouchers, entries, summary = K.process(rows, clean)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    with open(os.path.join(OUT_DIR, "cash_sales.xml"), "w", encoding="utf-8") as fh:
+        fh.write(G.build_envelope(vouchers, company(d)))
+    return {"summary": summary, "entries": entries, "problems": problems}
+
+
 def run_and_write(fleet_rows, tds_rows) -> dict:
     d = load_data()
     vouchers, entries, summary = R.process(
@@ -258,6 +305,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, fh.read(), "text/html; charset=utf-8")
             except OSError:
                 return self._send(404, b"no ui", "text/plain")
+        if route == "/download/cash_sales.xml":
+            try:
+                with open(os.path.join(OUT_DIR, "cash_sales.xml"), "rb") as fh:
+                    return self._send(200, fh.read(), "application/xml",
+                                      {"Content-Disposition": 'attachment; filename="cash_sales.xml"'})
+            except OSError:
+                return self._send(404, b"run first", "text/plain")
+        if route == "/api/cash":
+            return self._json(cash_view())
         if route == "/download/fleet_import.xml":
             try:
                 with open(os.path.join(OUT_DIR, "fleet_import.xml"), "rb") as fh:
@@ -351,10 +407,18 @@ class Handler(BaseHTTPRequestHandler):
                                 f"filed it as {detected.upper()} (not {zone.upper()}).")
             buckets[kind].extend(rows)
         fleet_rows, tds_rows = buckets["fleet"], buckets["tds"]
-        if not fleet_rows and not tds_rows:
+        cash = run_cash(body["cash_file"], body.get("cash_start") or {}) \
+            if body.get("cash_file") else None
+        if cash and cash.get("error"):
+            problems.append(cash.pop("error"))
+            cash = None
+        if not fleet_rows and not tds_rows and not cash:
             return self._json({"error": "; ".join(problems) or
-                               "drop at least one sheet (Fleet or TDS)"}, 400)
-        res = run_and_write(fleet_rows, tds_rows)
+                               "drop at least one sheet (Fleet, TDS or Cash sales)"}, 400)
+        res = run_and_write(fleet_rows, tds_rows) if (fleet_rows or tds_rows) else {}
+        if cash:
+            problems += cash.pop("problems", [])
+        res["cash"] = cash               # None = no cash workbook this time
         res["problems"] = problems
         return self._json(res)
 
