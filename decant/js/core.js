@@ -550,6 +550,12 @@ export function stockProof(r) {
   const litres = (v) => `${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} L`;
   switch (r?.source) {
     case 'photo':
+      if (fromServer(r) && r.picture === false) {
+        // FuelTrans' own live figure (tank_stock live monitoring, or the agent's stock just before a rise):
+        // exact, but no screenshot of it was kept
+        return { proof: false, live: true, short: 'FuelTrans live figure, no screenshot', label: 'FuelTrans live figure (exact) — no screenshot',
+          text: "FuelTrans' own live figure, exact, but no screenshot of it was kept" };
+      }
       if (fromServer(r)) {
         return { proof: true, server: true, short: 'automation screen (server)', label: 'IOCL automation screen, read by the server',
           text: 'read directly from the IOCL automation screen by the tank stock server' };
@@ -570,11 +576,15 @@ export function stockProof(r) {
   }
 }
 
-// A decantation's stock readings with no proof: [{tank, tankNo, which: 'before' | 'after'}].
+// A decantation's stock readings with no proof: [{tank, tankNo, which: 'before' | 'after', live}]
+// (live: FuelTrans' exact live figure with no screenshot, rather than litres typed in).
 export function unprovenReadings(tanks) {
   const out = [];
   for (const t of tanks || []) {
-    for (const which of ['before', 'after']) if (stockProof(t[which])?.proof === false) out.push({ tank: t.tank, tankNo: t.tankNo, which });
+    for (const which of ['before', 'after']) {
+      const p = stockProof(t[which]);
+      if (p?.proof === false) out.push({ tank: t.tank, tankNo: t.tankNo, which, live: Boolean(p.live) });
+    }
   }
   return out;
 }

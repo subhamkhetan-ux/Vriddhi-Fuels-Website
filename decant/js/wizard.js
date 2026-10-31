@@ -479,6 +479,23 @@ function autoCard(s) {
 // minute; if it can't take it, it says why here and nothing changes.
 const REQUEST_STALE_MIN = 15;              // (tank_stock/auto.py REQUEST_FRESH_S: older ones aren't taken up)
 const runByServer = (s) => Boolean(s.data.auto && !s.data.auto.released);
+// A tank waiting in a decantation the server runs: a photo of its stock before,
+// asked here before its valves are opened (tank_stock/auto.py _before_photo).
+// Without one, its stock before is FuelTrans' live figure: exact, no screenshot.
+function photoBefore(s, t) {
+  const req = s.data.beforePhoto;
+  const mine = req && (req.tanks || []).includes(t.tank);
+  const res = mine && req.answeredAt ? (req.results || {})[t.tank] : null;
+  const shot = !stockProof(t.before)?.live && fromServer(t.before);
+  if (mine && !req.answeredAt) {
+    return `<div class="hint" style="margin-top:8px">📷 Taking the photo of its stock before (asked ${fmtTime(req.at)}) — keep the valves shut until it's in, about a minute.</div>`;
+  }
+  if (res?.ok) return `<div class="audit ok" style="margin-top:8px">✓ Stock before photographed at ${fmtTime(res.at)} (${fmtL(res.volume, 2)}) — open the valves; it starts by itself.</div>`;
+  return `${res && !res.ok ? `<div class="banner" style="margin:8px 0 0">${esc(res.message)}.</div>` : ''}
+    <div class="row-actions" style="justify-content:flex-start"><button class="cta sm" data-photo="${t.tank}">📷 Photo of its stock before</button></div>
+    <div class="hint">${shot ? 'Its stock before has a photo. Take a new one if it has sold since — ' : 'Tap before opening the valves: '}the server photographs its card (about a minute), then open them; it starts by itself when its stock rises.</div>`;
+}
+
 // "Start automatic decantation" asked, not taken up yet (nor refused): the valves wait for it
 const askingServer = (s) => Boolean(s.data.autoRequest?.start && !s.data.autoRequest.error && !runByServer(s)
   && (Date.now() - Date.parse(s.data.autoRequest.at || 0)) / 60000 <= REQUEST_STALE_MIN);
@@ -641,6 +658,15 @@ async function startFromTruck(s, p) {
   syncStatus(s);
   const toStart = into.filter((x) => stageOf(s, d.tanks.find((t) => t.tank === x.id)) === 'waiting').map((x) => x.id);
   const joined = into.filter((x) => !toStart.includes(x.id));
+  if (toStart.length && runByServer(s)) {
+    // the server starts it when its stock rises: first, a photo of its stock before (valves shut till it's in)
+    const req = d.beforePhoto;
+    const asked = req && !req.answeredAt ? [...new Set([...(req.tanks || []), ...toStart])] : toStart;
+    d.beforePhoto = { tanks: asked, at: req && !req.answeredAt ? req.at : new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    await persist(s);
+    toast(`${toStart.map(tankName).join(' & ')}: the server photographs the stock before — open the valves once it says so.`, 6000);
+    return;
+  }
   if (toStart.length && await startTanks(s, toStart)) return;
   await persist(s);                        // e.g. "take a new reading first": the tank waits here, ready to start
   if (joined.length && !toStart.length) toast(`${joined.map((x) => `C${compactNos(x.chambers)} into ${tankName(x.id)}`).join(', ')} too — decanting.`);
@@ -658,8 +684,8 @@ function stageCard(s, t) {
       ${readingInner(tk, t.before, 'before')}
       ${askingServer(s) ? '<div class="hint" style="margin-top:8px">Waiting for the tank stock server: don\'t open the valves yet.</div>'
         : `<div class="row-actions"><button class="btn sm ghost" data-drop="${t.tank}">Not now — keep in the truck</button>
-        ${runByServer(s) ? '<span class="hint" style="align-self:center">Starts by itself when its stock rises</span>'
-          : `<button class="cta sm" data-starttank="${t.tank}">▶ Start ${tankName(t.tank)}</button>`}</div>`}
+        ${runByServer(s) ? '' : `<button class="cta sm" data-starttank="${t.tank}">▶ Start ${tankName(t.tank)}</button>`}</div>
+        ${runByServer(s) ? photoBefore(s, t) : ''}`}
     </div>`;
   }
   if (st === 'decanting') {
@@ -880,6 +906,17 @@ async function onClick(e) {
     s.completed_at = was.completed_at;
     delete s.data.reopened;
     await persist(s);
+    return;
+  }
+  const photo = t.closest('[data-photo]');
+  if (photo) {
+    s = latest(s);
+    if (!runByServer(s)) return;
+    const req = s.data.beforePhoto;
+    const tanksAsked = req && !req.answeredAt ? [...new Set([...(req.tanks || []), photo.dataset.photo])] : [photo.dataset.photo];
+    s.data.beforePhoto = { tanks: tanksAsked, at: req && !req.answeredAt ? req.at : new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    await persist(s);
+    toast('Asked the tank stock server for the photo — keep the valves shut until it\'s in.', 5000);
     return;
   }
   const startBtn = t.closest('[data-starttank]');
@@ -1400,7 +1437,11 @@ function auditLine(tanks) {
   if (!rows.some((t) => stockProof(t.before) || stockProof(t.after))) return null;
   const none = unprovenReadings(rows);
   if (!none.length) return { ok: true, text: '✓ Audit: every stock here is from a screenshot or a dip — proof held.' };
-  return { ok: false, text: `⚠ Audit: ${none.map((x) => `${tankName(x.tank)} stock ${x.which}`).join(', ')} typed in litres — no solid proof.` };
+  const list = (xs) => xs.map((x) => `${tankName(x.tank)} stock ${x.which}`).join(', ');
+  const typed = none.filter((x) => !x.live);
+  const live = none.filter((x) => x.live);
+  return { ok: false, text: `⚠ Audit: ${[typed.length ? `${list(typed)} typed in litres` : '',
+    live.length ? `${list(live)} from FuelTrans' live figure (exact) with no screenshot` : ''].filter(Boolean).join('; ')} — no solid proof.` };
 }
 
 function resultFooter(s) {

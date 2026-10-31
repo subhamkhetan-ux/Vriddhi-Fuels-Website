@@ -561,16 +561,17 @@ def test_a_live_volume_the_decant_app_couldnt_take_is_sent_again_once_it_answers
     station.start_live({"tanks": [3], "auto_upload": True})
     assert wait_for(lambda: station.live and station.live["reads"] >= 1)
     live = station.live
-    assert "sent again when it answers" in live["uploads"]["3"]["message"] and 3 in live["pending"]
-    assert station.db.writes == []
+    assert wait_for(lambda: "sent again when it answers" in (live["uploads"].get("3") or {}).get("message", ""))
+    assert 3 in live["pending"] and station.db.writes == []
     warned = [m for m in station.alerts if "could not be reached" in m]
     station._live_read(live)                                   # still down: the same card isn't read again ...
+    time.sleep(0.3)
     assert [m for m in station.alerts if "could not be reached" in m] == warned   # ... nor told again
     down["on"] = False
     station._live_read(live)                                   # the same screen: nothing changed on it
-    assert station.db.writes and station.db.writes[-1]["tank_id"] == "T3"        # but the volume went
-    assert live["pending"] == {} and live["uploads"]["3"]["ok"]
-    assert any("answers again" in m for m in station.alerts)
+    assert wait_for(lambda: station.db.writes and station.db.writes[-1]["tank_id"] == "T3")   # but the volume went
+    assert wait_for(lambda: live["pending"] == {} and live["uploads"]["3"]["ok"])
+    assert wait_for(lambda: any("answers again" in m for m in station.alerts))
     station.stop_live()
     assert wait_for(lambda: station.live is None)
 
@@ -611,12 +612,17 @@ def test_live_telegram_says_the_app_is_down_once_and_a_tanks_problem_once(statio
     for fp in "bcd":                                            # new figures every read, still down
         station.screen["fp"] = fp
         station._live_read(live)
+        time.sleep(0.15)
+    assert wait_for(lambda: [m for m in station.alerts if "could not be reached" in m])
     assert len([m for m in station.alerts if "could not be reached" in m]) == 1
     down["on"] = False
     station.db.rows["T3"] = {"readingAt": "2027-01-01T00:00:00+05:30", "volume": 1}   # the app has a newer one
     for fp in "efg":
         station.screen["fp"] = fp
         station._live_read(live)
+        time.sleep(0.15)
+    assert wait_for(lambda: [m for m in station.alerts if "newer reading" in m])
+    time.sleep(0.3)
     assert len([m for m in station.alerts if "newer reading" in m]) == 1
     station.stop_live()
     assert wait_for(lambda: station.live is None)
@@ -840,10 +846,10 @@ def test_a_volume_the_app_turned_away_for_now_is_sent_again(station, monkeypatch
     station.start_live({"tanks": [3], "auto_upload": True})
     assert wait_for(lambda: station.live and station.live["reads"] >= 1)
     live = station.live
-    assert 3 in live["pending"]                                     # kept (a steady card isn't read again)
+    assert wait_for(lambda: 3 in live.get("pending", {}))           # kept (a steady card isn't read again)
     busy["on"] = False
     station._live_read(live)
-    assert live["pending"] == {} and station.db.writes[-1]["tank_id"] == "T3"
+    assert wait_for(lambda: live["pending"] == {} and station.db.writes and station.db.writes[-1]["tank_id"] == "T3")
     station.stop_live()
     assert wait_for(lambda: station.live is None)
 
@@ -1283,7 +1289,8 @@ class StillFeed(FakeFeed):
     """FuelTrans' live data for a tank standing still (valves shut, nothing sold): the same volume, its clock moving."""
     def figures(self):
         FakeFeed.n += 1
-        return {3: {**CARD3, "time": ("10", "13", "2026", "18", "02", f"{FakeFeed.n % 60:02d}"), "exact": True}}
+        m, sec = divmod(FakeFeed.n, 60)                   # (its clock only goes forward, as FuelTrans')
+        return {3: {**CARD3, "time": ("10", "13", "2026", f"{18 + m // 60:02d}", f"{m % 60:02d}", f"{sec:02d}"), "exact": True}}
 
 
 def test_a_tank_standing_still_is_sent_again_so_the_app_knows_it_is_watched(station, monkeypatch):
@@ -1301,5 +1308,32 @@ def test_a_tank_standing_still_is_sent_again_so_the_app_knows_it_is_watched(stat
     reads, writes = station.live["reads"], len(station.db.writes)
     assert reads >= 4 * writes, (reads, writes)                       # (not every read: every LIVE_RESEND_S)
     assert "resent" not in station.live_view()
+    station.stop_live()
+    assert wait_for(lambda: station.live is None)
+
+
+def test_a_slow_decant_app_never_holds_the_live_reads(station, monkeypatch):
+    """The decant app's uploads go from a thread of their own: while one waits
+    on a slow (or unreachable) cloud, live monitoring goes on reading, the
+    page's figures as fresh as ever; the newest of each tank goes next."""
+    import threading as th
+    monkeypatch.setattr(service, "FEED_EVERY", 0.02)
+    monkeypatch.setattr(service, "BEAT_MIN_S", 0.05)
+    slow, sent = th.Event(), []
+    real = decant.upload
+
+    def upload(cards, tanks, cfg=None, now=None, only_volume=False, timeout=30):
+        sent.append({no: c["volume"] for no, c in cards.items()})
+        slow.wait(3)                                      # (the cloud taking its time)
+        return real(cards, tanks, cfg, now=now, only_volume=only_volume, timeout=timeout)
+    monkeypatch.setattr(decant, "upload", upload)
+    station.session_cls = FakeFeed
+    station.start_live({"tanks": [3], "auto_upload": True, "interval_s": 5})
+    assert wait_for(lambda: sent, 5)
+    reads = station.live["reads"]
+    assert wait_for(lambda: station.live["reads"] >= reads + 20, 2)    # reading on meanwhile
+    assert len(sent) == 1                                              # (one upload at a time)
+    slow.set()
+    assert wait_for(lambda: len(sent) >= 2 and station.db.writes, 5)   # then the newest
     station.stop_live()
     assert wait_for(lambda: station.live is None)

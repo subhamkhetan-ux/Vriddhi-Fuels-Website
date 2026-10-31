@@ -219,6 +219,12 @@ def invoices_and_sessions(now=None) -> tuple[list, list]:
     return invoices, sessions
 
 
+def session_value(session_id: str, key: str, timeout: int = 10):
+    """One key of a decantation's data (a phone's request in it), without the rest."""
+    rows = _rest("GET", f"dec_sessions?id=eq.{urllib.parse.quote(session_id)}&select=v:data->{key}", timeout=timeout) or []
+    return rows[0].get("v") if rows else None
+
+
 def handover_requests(timeout: int = 10) -> list:
     """Open decantations a phone asked the agent to finish ("Let the tank stock
     server finish it" in the decant app): [{id, updated_at, request}]."""
@@ -461,8 +467,10 @@ VOLUME_ONLY_DROP = ("height", "dip", "water", "density", "densityTc", "temp")
 
 def volume_only(reading: dict) -> dict:
     """Live monitoring sends the product volume alone: the app works the
-    ullage out from it, and the dip from its chart (as for typed litres)."""
-    out = {**reading, **{k: None for k in VOLUME_ONLY_DROP}}
+    ullage out from it, and the dip from its chart (as for typed litres).
+    No picture of the screen comes with it (``picture``: False), so a stock
+    taken from it isn't proven by one (the app's audit says so)."""
+    out = {**reading, **{k: None for k in VOLUME_ONLY_DROP}, "picture": False}
     if out.get("volume") is not None:
         out["ullage"] = round((out.get("capacity") or 20000) - out["volume"], 2)
     return out

@@ -144,8 +144,15 @@ function auditText(s) {
   const rows = (s.data?.tanks || []).filter((t) => t.before && t.after);
   if (!rows.some((t) => stockProof(t.before) || stockProof(t.after))) return '';
   const typed = [];
-  for (const t of rows) for (const w of ['before', 'after']) if (stockProof(t[w])?.proof === false) typed.push(`Tank ${t.tankNo || t.tank} stock ${w}`);
-  return typed.length ? `No proof: ${typed.join(', ')} typed in litres` : 'Proof held: every stock from the automation screen (server or screenshot) or a dip';
+  const live = [];
+  for (const t of rows) {
+    for (const w of ['before', 'after']) {
+      const p = stockProof(t[w]);
+      if (p?.proof === false) (p.live ? live : typed).push(`Tank ${t.tankNo || t.tank} stock ${w}`);
+    }
+  }
+  const parts = [typed.length ? `${typed.join(', ')} typed in litres` : '', live.length ? `${live.join(', ')} FuelTrans live figure (exact), no screenshot` : ''];
+  return typed.length || live.length ? `No proof: ${parts.filter(Boolean).join('; ')}` : 'Proof held: every stock from the automation screen (server or screenshot) or a dip';
 }
 
 // Litres of each product decanted per invoice (finished decantations).
@@ -203,14 +210,15 @@ export function logSheets({ month, sessions = [], invoices = [], known = [], set
     const t = (s?.data?.tanks || []).find((x) => x.tank === e.tank) || {};
     const b = t.before || {};
     const a = t.after || {};
-    const typed = stockProof(b)?.proof === false || stockProof(a)?.proof === false;
+    const typed = (stockProof(b)?.proof === false && !stockProof(b).live) || (stockProof(a)?.proof === false && !stockProof(a).live);
+    const noShot = !typed && (stockProof(b)?.live || stockProof(a)?.live);
     fills.push([
       e.id, e.sessionId, at(e.at), day(e.day), e.tt, e.invoiceNo, e.product, e.tank, num(e.tankNo), plus(e.chambers),
       num(e.litres), num(e.salesL),
       num(b.volume), num(b.dip), at(b.readingAt), fromText(b), num(b.screenVolume),
       num(a.volume), num(a.dip), at(a.readingAt), fromText(a), num(a.screenVolume),
       num(e.gain), num(e.expected), num(e.variation), num(e.pct), num(e.tol), BAND[e.band] || '', e.direction,
-      num(t.pricePerL ?? s?.data?.prices?.[e.product]), num(e.value), !stockProof(b) && !stockProof(a) ? '' : typed ? 'No — typed litres' : 'Yes',
+      num(t.pricePerL ?? s?.data?.prices?.[e.product]), num(e.value), !stockProof(b) && !stockProof(a) ? '' : typed ? 'No — typed litres' : noShot ? 'No — live figure, no screenshot' : 'Yes',
       at(t.startedAt), at(t.doneAt),
     ]);
   }

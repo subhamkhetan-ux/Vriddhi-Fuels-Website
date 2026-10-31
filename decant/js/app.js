@@ -398,7 +398,7 @@ function tankTile(t, busy) {
     <div class="t-vol">${r ? fmtL(r.volume) : '—'}</div>
     <div class="t-sub"><span>Room <b>${r ? fmtL(roomOf(r, t)) : '—'}</b></span><span>Dip <b>${r ? fmtDip(r.dip) : '—'}</b></span></div>
     <div class="t-age${stale ? ' stale' : ''}">${r ? `<span>${istDate(r.readingAt) === istDate(Date.now()) ? fmtTime(r.readingAt) : fmtWhen(r.readingAt)}</span><span>${ago(r.readingAt)}</span>` : 'No reading yet'}</div>
-    ${stockProof(r)?.proof === false ? '<div class="np">✎ typed, no proof</div>' : ''}
+    ${stockProof(r)?.proof === false && !stockProof(r).live ? '<div class="np">✎ typed, no proof</div>' : ''}
   </button>`;
 }
 

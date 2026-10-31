@@ -667,7 +667,12 @@ test('internal audit: a screenshot (even corrected) or a dip is proof; typed lit
     { tank: 'T2', tankNo: 2, before: { source: 'photo' }, after: { source: 'litres' } },
     { tank: 'T3', tankNo: 3, before: { source: 'litres' }, after: { source: 'dip' } },
   ];
-  assert.deepEqual(unprovenReadings(tanks), [{ tank: 'T2', tankNo: 2, which: 'after' }, { tank: 'T3', tankNo: 3, which: 'before' }]);
+  assert.deepEqual(unprovenReadings(tanks), [{ tank: 'T2', tankNo: 2, which: 'after', live: false }, { tank: 'T3', tankNo: 3, which: 'before', live: false }]);
+  // FuelTrans' live figure (live monitoring, or the agent's stock just before a rise): exact, but no screenshot kept
+  const live = stockProof({ source: 'photo', via: 'server', volume: 9259.09, picture: false });
+  assert.deepEqual([live.proof, live.live, live.short], [false, true, 'FuelTrans live figure, no screenshot']);
+  assert.deepEqual(unprovenReadings([{ tank: 'T2', tankNo: 2, before: { source: 'photo', via: 'server', picture: false }, after: { source: 'photo', via: 'server' } }]),
+    [{ tank: 'T2', tankNo: 2, which: 'before', live: true }]);
 });
 
 test('own tankers: free space, leaving some out', async () => {
