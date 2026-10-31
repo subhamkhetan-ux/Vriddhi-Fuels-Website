@@ -2,7 +2,6 @@
 
 import base64
 import datetime as dt
-import json
 import re
 from decimal import Decimal
 
@@ -48,7 +47,8 @@ def test_cash_ms_number_is_the_date():
     assert K.voucher_number("MS", dt.date(2026, 10, 1)) == "Cash/MS/1Oct2026"
     assert K.voucher_number("MS", dt.date(2026, 12, 25)) == "Cash/MS/25Dec2026"
     assert K.voucher_number("MS", dt.date(2027, 3, 9)) == "Cash/MS/9Mar2027"
-    assert K.voucher_number("HSD", 185) == "CASH/HSD/185"
+    assert K.voucher_number("HSD", dt.date(2026, 10, 1)) == "Cash/HSD/1Oct2026"
+    assert K.voucher_number("XG", dt.date(2026, 11, 30)) == "Cash/XG/30Nov2026"
 
 
 def test_cash_sale_fields_and_balance():
@@ -70,10 +70,10 @@ def test_cash_sale_fields_and_balance():
 
 
 def test_amount_rounds_half_up_like_the_books():
-    v = K.make_cash_sale("HSD", "20261001", Decimal("0.5"), Decimal("100.01"), "CASH/HSD/1")
+    v = K.make_cash_sale("HSD", "20261001", Decimal("0.5"), Decimal("100.01"), "Cash/HSD/1Oct2026")
     assert "<AMOUNT>50.01</AMOUNT>" in v           # 50.005 -> 50.01 (not banker's 50.00)
     assert "<RATE>100.01/LTR</RATE>" in v
-    v = K.make_cash_sale("XG", "20261001", Decimal("1"), Decimal("106.345"), "CASH/XG/1")
+    v = K.make_cash_sale("XG", "20261001", Decimal("1"), Decimal("106.345"), "Cash/XG/1Oct2026")
     assert "<RATE>106.345/LTR</RATE>" in v and "<AMOUNT>106.35</AMOUNT>" in v
     assert "<LEDGERNAME>SALE (HSD)</LEDGERNAME>" in v      # XG posts to SALE (HSD), as in the books
 
@@ -113,50 +113,51 @@ def test_workbook_rows_and_checks(tmp_path):
     assert problems == ["sheet 'Notes': can't tell the product — name the tab MS, HSD or XG"]
 
 
-def test_numbering_per_product_by_date(tmp_path):
+def test_every_product_numbered_by_its_date(tmp_path):
     p = _workbook(tmp_path, {
         "MS": [[dt.date(2026, 10, 2), 100, 109.01], [dt.date(2026, 10, 1), 200, 109.01]],
-        "HSD": [[dt.date(2026, 10, 1), 50, 100.74], [dt.date(2026, 10, 1), 10, 100.74]],
+        "HSD": [[dt.date(2026, 10, 1), 50, 100.74], [dt.date(2026, 10, 3), 10, 100.74]],
         "XG": [[dt.date(2026, 10, 3), 5, 106.34]],
     })
     rows, _ = K.read_workbook(p)
-    vouchers, entries, summary = K.process(rows, {"MS": 999, "HSD": 185})   # MS start ignored
-    nos = [(e["product"], e["date"], e["voucher_no"]) for e in entries if e["voucher_no"]]
-    # Cash MS: the number is the date.
-    assert ("MS", "01-10-2026", "Cash/MS/1Oct2026") in nos and ("MS", "02-10-2026", "Cash/MS/2Oct2026") in nos
-    assert {n for p_, _d, n in nos if p_ == "HSD"} == {"CASH/HSD/185", "CASH/HSD/186"}
-    assert all(e["status"] == "warn" for e in entries if e["product"] == "HSD")   # 2 on one day
-    xg = [e for e in entries if e["product"] == "XG"]
-    assert xg[0]["status"] == "error" and "starting" in xg[0]["note"]           # no XG start given
-    assert summary["products"]["MS"]["next"] is None and summary["products"]["HSD"]["next"] == 187
+    vouchers, entries, summary = K.process(rows)
+    nos = {(e["product"], e["date"]): e["voucher_no"] for e in entries}
+    assert nos == {("MS", "01-10-2026"): "Cash/MS/1Oct2026", ("MS", "02-10-2026"): "Cash/MS/2Oct2026",
+                   ("HSD", "01-10-2026"): "Cash/HSD/1Oct2026", ("HSD", "03-10-2026"): "Cash/HSD/3Oct2026",
+                   ("XG", "03-10-2026"): "Cash/XG/3Oct2026"}
+    assert all(e["status"] == "ok" for e in entries)
+    # Same date, different products -> different numbers, each in its own type.
+    assert [_field(v, "VOUCHERTYPENAME") for v in vouchers] == \
+        ["Cash MS", "Cash MS", "HSD CASH", "HSD CASH", "XG CASH"]
     assert summary["products"]["MS"]["first"] == "Cash/MS/1Oct2026"
-    assert summary["products"]["MS"]["last"] == "Cash/MS/2Oct2026"
-    assert summary["n_vouchers"] == 4 and summary["all_balance"]
+    assert summary["products"]["HSD"]["last"] == "Cash/HSD/3Oct2026"
+    assert summary["n_vouchers"] == 5 and summary["all_balance"]
     assert summary["products"]["MS"]["total_amount"] == "32703.00"             # 300 x 109.01
 
 
-def test_two_ms_rows_on_one_day_cannot_share_a_number(tmp_path):
-    p = _workbook(tmp_path, {"MS": [[dt.date(2026, 10, 1), 100, 109.01],
-                                    [dt.date(2026, 10, 1), 20, 109.01],
-                                    [dt.date(2026, 10, 2), 50, 109.01]]})
+@pytest.mark.parametrize("prod", ["MS", "HSD", "XG"])
+def test_two_rows_on_one_day_cannot_share_a_number(tmp_path, prod):
+    p = _workbook(tmp_path, {prod: [[dt.date(2026, 10, 1), 100, 104.5],
+                                    [dt.date(2026, 10, 1), 20, 104.5],
+                                    [dt.date(2026, 10, 2), 50, 104.5]]})
     rows, _ = K.read_workbook(p)
-    vouchers, entries, summary = K.process(rows, {})
-    assert [e["voucher_no"] for e in entries] == ["Cash/MS/1Oct2026", "", "Cash/MS/2Oct2026"]
+    vouchers, entries, summary = K.process(rows)
+    assert [e["voucher_no"] for e in entries] == [f"Cash/{prod}/1Oct2026", "", f"Cash/{prod}/2Oct2026"]
     assert entries[1]["status"] == "error" and "combine" in entries[1]["note"]
     assert len(vouchers) == 2
 
 
-def test_server_cash_run_writes_xml_and_remembers_starts(tmp_path, monkeypatch):
+def test_server_cash_run_writes_xml(tmp_path, monkeypatch):
     from fleet_tally import server as SV
     monkeypatch.setattr(SV, "DATA_PATH", str(tmp_path / "data.json"))
     monkeypatch.setattr(SV, "OUT_DIR", str(tmp_path / "out"))
     p = _workbook(tmp_path, {"MS": [[dt.date(2026, 10, 1), 100, 109.01]],
                              "HSD": [[dt.date(2026, 10, 1), 30, 100.74]]})
     b64 = "data:;base64," + base64.b64encode(open(p, "rb").read()).decode()
-    res = SV.run_cash({"name": "cash.xlsx", "b64": b64}, {"HSD": "185", "XG": "x"})
+    res = SV.run_cash({"name": "cash.xlsx", "b64": b64})
     assert res["summary"]["n_vouchers"] == 2
     xml = open(tmp_path / "out" / "cash_sales.xml", encoding="utf-8").read()
     assert "<VOUCHERNUMBER>Cash/MS/1Oct2026</VOUCHERNUMBER>" in xml and 'VCHTYPE="Cash MS"' in xml
-    assert "<VOUCHERNUMBER>CASH/HSD/185</VOUCHERNUMBER>" in xml and "<TALLYMESSAGE" in xml
-    assert json.load(open(tmp_path / "data.json"))["cash_start"] == {"HSD": 185}
-    assert SV.cash_view()["starts"] == {"HSD": 185}
+    assert "<VOUCHERNUMBER>Cash/HSD/1Oct2026</VOUCHERNUMBER>" in xml and "<TALLYMESSAGE" in xml
+    assert 'VCHTYPE="HSD CASH"' in xml
+    assert set(SV.cash_view()["products"]) == {"MS", "HSD", "XG"}

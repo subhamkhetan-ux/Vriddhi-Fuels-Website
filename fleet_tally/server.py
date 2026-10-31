@@ -214,24 +214,15 @@ def mappings_view() -> dict:
 
 
 def cash_view() -> dict:
-    """Starting voucher numbers last used (per product) + the products."""
-    d = load_data()
-    return {"starts": d.get("cash_start", {}),
-            "products": {k: {"vchtype": v["vchtype"], "prefix": v["prefix"], "label": v["label"]}
+    """The cash-sale products and their voucher types."""
+    return {"products": {k: {"vchtype": v["vchtype"], "prefix": v["prefix"], "label": v["label"]}
                          for k, v in K.PRODUCTS.items()}}
 
 
-def run_cash(file: dict, starts: dict) -> dict:
-    """Cash-sales workbook -> cash_sales.xml (separate from the journals)."""
+def run_cash(file: dict) -> dict:
+    """Cash-sales workbook -> cash_sales.xml (separate from the journals).
+    Voucher numbers come from the dates, so nothing is remembered between runs."""
     name = file.get("name", "cash.xlsx")
-    clean = {}
-    for prod in K.PRODUCTS:
-        try:
-            n = int(str(starts.get(prod, "")).strip())
-            if n > 0:
-                clean[prod] = n
-        except (TypeError, ValueError):
-            pass
     path = None
     try:
         raw = base64.b64decode((file.get("b64") or "").split(",")[-1])
@@ -249,9 +240,7 @@ def run_cash(file: dict, starts: dict) -> dict:
     if not rows:
         return {"error": "; ".join(problems) or f"{name}: no rows in the MS / HSD / XG tabs"}
     d = load_data()
-    d["cash_start"] = {**d.get("cash_start", {}), **{k: v for k, v in clean.items()}}
-    save_data(d)
-    vouchers, entries, summary = K.process(rows, clean)
+    vouchers, entries, summary = K.process(rows)
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, "cash_sales.xml"), "w", encoding="utf-8") as fh:
         fh.write(G.build_envelope(vouchers, company(d)))
@@ -407,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
                                 f"filed it as {detected.upper()} (not {zone.upper()}).")
             buckets[kind].extend(rows)
         fleet_rows, tds_rows = buckets["fleet"], buckets["tds"]
-        cash = run_cash(body["cash_file"], body.get("cash_start") or {}) \
+        cash = run_cash(body["cash_file"]) \
             if body.get("cash_file") else None
         if cash and cash.get("error"):
             problems.append(cash.pop("error"))
