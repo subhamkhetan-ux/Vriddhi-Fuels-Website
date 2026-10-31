@@ -6259,7 +6259,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-30T07:45:29.182784+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     },
     {
       "entry_id": "452cdc03fd331369",
@@ -6280,7 +6282,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-30T08:00:24.499407+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     },
     {
       "entry_id": "3b6c03f64be1363e",
@@ -6301,7 +6305,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-30T09:00:29.002905+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     },
     {
       "entry_id": "bf4a8ea388557608",
@@ -6370,7 +6376,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-30T09:45:24.322083+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     },
     {
       "entry_id": "23ac5251bba850c6",
@@ -6391,7 +6399,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-30T11:15:22.559738+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     },
     {
       "entry_id": "07a5f07dd350e1b4",
@@ -6412,7 +6422,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-30T11:15:22.560259+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     },
     {
       "entry_id": "c16da89281da7717",
@@ -6433,7 +6445,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-31T01:15:31.414017+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     },
     {
       "entry_id": "1b838d91087a776c",
@@ -6454,7 +6468,9 @@
         "outlier": false
       },
       "queued_at": "2026-10-31T01:45:21.936570+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-10-31T03:30:20.652299+00:00"
     }
   ]
 }
