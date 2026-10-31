@@ -6471,6 +6471,25 @@
       "status": "matched",
       "materialized": true,
       "materialized_at": "2026-10-31T03:30:20.652299+00:00"
+    },
+    {
+      "entry_id": "ee74237d28d2c7bf",
+      "gmail_msg_id": "1880536543700330051",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "31/10/2026",
+      "date_serial": 46326,
+      "amount": 13600.0,
+      "raw_payer": "ITDTAX REFUND 2026",
+      "customer": null,
+      "candidates": [],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-10-31T04:15:23.712905+00:00",
+      "status": "review"
     }
   ]
 }
