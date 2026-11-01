@@ -1,3 +1,10 @@
+Version **1.5.3** never lets one voucher Tally has not finished saving hold up the rest:
+
+- **Postings no longer stall behind a "Confirming" invoice.** Tally can list a just-posted invoice minutes before its Day Book returns it. The bridge then stopped its whole cycle with *Needs attention: Tally changed during the read*, over and over, so the next invoices stayed *Queued for Tally* and the first stayed *Confirming*. Now the vouchers it can read are read, the one it cannot is read again every 30 seconds, and posting, confirming and uploading carry on. Home says which voucher it is waiting for, and the Activity page records when Tally lists it and when it is finally read.
+- **Optional vouchers** (saved with Ctrl+L in Tally) are not sales and Tally's Day Book leaves them out: they no longer hold the bridge up either, and one the app had leaves it.
+- A recheck of an earlier posting reads Tally once instead of waiting up to a minute and a half, so it does not hold up the invoices queued behind it.
+- No SQL change. Open the app and choose **Update now**.
+
 Version **1.5.2** confirms invoices posted from the app within seconds:
 
 - **No more minutes in "Confirming".** After Tally creates an invoice, the bridge reads it back to confirm it. Tally sometimes lists a just-posted invoice a few seconds before its Day Book returns it. The bridge used to wait for its three-minute hold on the job to run out before reading again; it now reads again after 2, 3, 5… seconds (under two minutes in all), so the invoice shows *Confirmed* as soon as Tally returns it. It is still never posted twice.

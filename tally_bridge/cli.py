@@ -27,7 +27,7 @@ def worker():
             windows.keep_awake(True)
             awake = True
         service = Worker(Cloud(c["url"], c["key"], c["token"]), tally, store, recovery=recovery,
-                         paused=windows.export_script_running)
+                         paused=windows.export_script_running, log=windows.log)
         stop = windows.StopFlag()
         # Only a Tally the bridge opens itself can end up opened twice.
         if c.get("single_tally", False) and (c.get("tally_startup") or {}).get("enabled"):
