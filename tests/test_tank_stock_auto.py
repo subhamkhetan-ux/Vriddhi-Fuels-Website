@@ -282,6 +282,8 @@ def test_one_button_decants_reads_and_finishes_in_the_decant_app(rig):
     # the planned tanks' volume went to the app as it rose (its chambers drain by it)
     assert rig.cloud.stock["T2"]["volume"] == 19732.0
     assert any("Decantation finished and saved" in m and "Tank 2" in m for m in rig.told)
+    # IOCL's acknowledgement: OD23U8210 is our own TT (the app's default settings), 14 of its 22 KL in: it went
+    assert rig.told.count("IOCL ACK4 7011294526") == 1 and any("went earlier" in m for m in rig.told)
     assert rig.st.live["stop"].is_set()                  # it connected for this: it lets go
     with pytest.raises(auto.AutoError):
         a.act("answer", {"tank": "T2", "chambers": [2]})
@@ -1561,3 +1563,55 @@ def test_a_photo_request_is_seen_within_seconds_apart_from_the_reads(rig, monkey
     read(rig)
     read(rig)
     assert cloud_session(rig)["data"]["beforePhoto"]["results"]["T2"]["ok"]
+
+
+
+def _transport_tt(rig):
+    """The truck as a transport TT (no own TTs in the app's settings)."""
+    app = dz.settings_with({"ownTTs": []}, decant.DEFAULT_TANKS)
+    real = rig.cloud.settings
+    rig.cloud.settings = lambda timeout=30: {**real(timeout), "app": app}
+
+
+def test_a_transport_tt_s_acknowledgement_waits_for_the_truck_to_be_empty(rig):
+    _transport_tt(rig)
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2"})
+    rig.world.flows = [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 640, 3992, 420)]
+    drive(rig, 4000)
+    assert a.phase == "finished" and not a._own_tt()
+    assert any('C4, C5 still in the truck: the decantation acknowledgement "IOCL ACK4 7011294526"' in m for m in rig.told)
+    assert "IOCL ACK4 7011294526" not in rig.told                 # (not on its own: the truck isn't empty)
+
+
+def test_the_truck_empty_telegram_gets_the_acknowledgement_on_its_own_to_copy(rig):
+    _transport_tt(rig)
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2", "4": "T3", "5": "T3"})
+    assert a._ack_note() == "📩 The tanker decantation acknowledgement is the next message: copy it and send it."
+    rig.world.flows = [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 640, 3992, 420), (3, 100, 3990, 400), (3, 560, 3990, 400)]
+    drive(rig, 5000)
+    assert a.phase == "finished", a.info
+    assert wait_for(lambda: "IOCL ACK4 7011294526" in rig.told)   # the message alone, to copy
+    i = rig.told.index("IOCL ACK4 7011294526")
+    assert "Decantation finished and saved" in rig.told[i - 1] and "next message" in rig.told[i - 1]
+
+
+def test_our_own_tt_s_acknowledgement_goes_once_half_the_truck_is_in(rig):
+    """Our own TT may be acknowledged early: Telegram gets "IOCL ACK4 <inv>"
+    once half its load is in the tanks (C1 + C2 is 10 KL of 22: not yet; with
+    C3, 14 KL: now), once; the "finished" message then says it went."""
+    app = dz.settings_with({"ownTTs": [{"tt": "OD23U8210", "chambers": [5, 5, 4, 4, 4]}]}, decant.DEFAULT_TANKS)
+    real = rig.cloud.settings
+    rig.cloud.settings = lambda timeout=30: {**real(timeout), "app": app}
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2", "4": "T3", "5": "T3"})
+    assert a._own_tt()
+    rig.world.flows = [(1, 60, 4990, 495), (2, 100, 4985, 495), (2, 640, 3992, 420), (3, 1200, 3990, 400), (3, 1660, 3990, 400)]
+    drive(rig, 700)
+    assert a._decanted_share() < 0.5 and "IOCL ACK4 7011294526" not in rig.told
+    drive(rig, 1150)
+    assert a._decanted_share() >= 0.5
+    assert wait_for(lambda: "IOCL ACK4 7011294526" in rig.told)
+    assert any("half of our TT is decanted" in m for m in rig.told)
+    drive(rig, 6000)
+    assert a.phase == "finished", a.info
+    assert wait_for(lambda: any("went earlier" in m for m in rig.told))
+    assert rig.told.count("IOCL ACK4 7011294526") == 1                  # (not again at the end)

@@ -10,7 +10,7 @@
 //               no tank waits for another to finish.
 //   5 Result  — variation per tank; shared as a picture
 
-import { fromServer,
+import { fromServer, ownTT,
   PRODUCTS, chambersLeft, checkPlan, densityCheck, dipAtLitres, drainAt, drainLive, drainTimeline, fillLimit, litresAtDip, loadChambers, roomOf, round2, routingHint, solvePlan,
   stockProof, suggestPlan, tankResult, tankStage, transportOptions, unprovenReadings, usedChambers,
 } from './core.js';
@@ -24,7 +24,7 @@ import {
   busyTanks, compactNos, enter, invoiceForm, isStale, layoutFor, proofLine, readScreenshot, render, tankById, tankName, tanks, typedReading,
 } from './app.js';
 import { shotsFor } from './shots.js';
-import { sayOnce, setVoice, voiceAvailable, voiceOn } from './voice.js';
+import { sayOnce, setVoice, setVoiceLang, voiceAvailable, voiceLang, voiceOn } from './voice.js';
 
 let currentId = null;
 let shown = '';            // session:step last drawn (a new step's cards rise in)
@@ -194,7 +194,7 @@ function tick() {
     const html = autoSummary(s, now);
     if (el.innerHTML !== html) el.innerHTML = html;
   });
-  if (runByServer(s)) speakGuides(s, now);
+  if (runByServer(s) && ['draft', 'decanting', 'settling'].includes(s.status)) speakGuides(s, now);   // (not an ended one reopened)
   document.querySelectorAll('[data-autotank]').forEach((el) => {
     const t = row(el.dataset.autotank);
     const g = t && tankGuide(s, t, now);
@@ -451,7 +451,7 @@ function stepDecant(s) {
   const allRead = d.tanks.length > 0 && st.every((x) => x === 'read');
   const started = d.tanks.some((t) => startOf(s, t));
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
-  return `${autoCard(s)}${handoverCard(s, allRead)}<div class="card accent">
+  return `${autoCard(s)}${ackCard(s)}${handoverCard(s, allRead)}<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
       ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings,
     act: new Set(d.tanks.map((t) => tankGuide(s, t, Date.now())).filter((g) => g?.flash && g.act).map((g) => g.act)) })}
@@ -479,7 +479,8 @@ function autoCard(s) {
   const a = s.data.auto;
   if (!a || a.released || !['draft', 'decanting', 'settling'].includes(s.status)) return '';
   const qs = (a.questions || []).map((q) => `<li class="warn">❓ ${esc(q.text)}</li>`).join('');
-  const voice = voiceAvailable() ? `<button class="btn sm ghost ag-voice" data-voice="${voiceOn() ? 'off' : 'on'}" aria-pressed="${voiceOn()}">${voiceOn() ? '🔊 Voice on' : '🔇 Voice off'}</button>` : '';
+  const voice = voiceAvailable() ? `<button class="btn sm ghost ag-voice" data-voice="${voiceOn() ? 'off' : 'on'}" aria-pressed="${voiceOn()}">${voiceOn() ? '🔊 Voice on' : '🔇 Voice off'}</button>
+    <button class="btn sm ghost" data-voicelang="${voiceLang() === 'hi' ? 'en' : 'hi'}" title="Voice language">${voiceLang() === 'hi' ? 'हिंदी' : 'English'}</button>` : '';
   return `<div class="card">
       <div class="rd-head"><span class="sect-title" style="margin:0">🤖 Automatic decantation</span><span class="sp" style="flex:1"></span>${voice}</div>
       <div data-autosum>${autoSummary(s, Date.now())}</div>
@@ -507,18 +508,22 @@ function tankGuide(s, t, now) {
     const req = s.data.beforePhoto;
     if (!t.before || (req && !req.answeredAt && (req.tanks || []).includes(t.tank))) return null;   // (its photo's own line)
     return { flash: true, act: chambers[0], next: `open the valve of C${chambers[0]}`, key: key(`open|${chambers[0]}|${t.before.readingAt}`),
-      say: `${name}. Stock before taken. Open the valve of chamber ${chambers[0]}.`,
+      say: { en: `${name}. Stock before taken. Open the valve of chamber ${chambers[0]}.`,
+        hi: `टैंक ${t.tankNo || tankById(t.tank)?.no}। पहले का स्टॉक ले लिया गया है। चैंबर ${chambers[0]} का वाल्व खोलिए।` },
       html: `✓ Stock before taken: ${fmtL(t.before.volume, 2)} at ${fmtTime(t.before.readingAt)} — <b>open the valve of C${chambers[0]} into ${name}</b>.` };
   }
-  if (st === 'settling') return { html: '', key: key('settling'), say: `${name}. All chambers in. Settling.` };
-  if (st === 'read') return { html: '', key: key('read'), say: `${name}. Stock after taken.` };
+  const no = t.tankNo || tankById(t.tank)?.no;
+  if (st === 'settling') {
+    return { html: '', key: key('settling'), say: { en: `${name}. All chambers in. Settling.`, hi: `टैंक ${no}। सारे चैंबर डल गए। अब स्टॉक को स्थिर होने दीजिए।` } };
+  }
+  if (st === 'read') return { html: '', key: key('read'), say: { en: `${name}. Stock after taken.`, hi: `टैंक ${no}। बाद का स्टॉक ले लिया गया है।` } };
   if (st !== 'decanting') return null;
   const live = drainLive(t, s.data.chambers, state.tankState[t.tank], state.settings, now);
   const got = (s.data.auto?.arrived || {})[t.tank] || [];
   const done = chambers.filter((no) => got.includes(no) || (live && live.drained[no] >= 1));
   const left = chambers.filter((no) => !done.includes(no));
   if (!left.length) {
-    return { flash: false, key: key('allin'), say: `${name}. All chambers in.`, html: `✓ C${compactNos(chambers)} all in — it settles once the stock stops.` };
+    return { flash: false, key: key('allin'), say: { en: `${name}. All chambers in.`, hi: `टैंक ${no}। सारे चैंबर डल गए।` }, html: `✓ C${compactNos(chambers)} all in — it settles once the stock stops.` };
   }
   const on = left[0];
   const size = s.data.chambers.find((c) => c.no === on)?.litres || 0;
@@ -527,11 +532,13 @@ function tankGuide(s, t, now) {
   const then = left.length > 1 ? ` Then C${left.slice(1).join(', C')}.` : '';
   if (done.length && !going) {
     const was = done[done.length - 1];
-    return { flash: true, act: on, next: `move the pipe to C${on}`, key: key(`move|${on}`), say: `${name}. Chamber ${was} done. Move the pipe to chamber ${on} and open its valve.`,
+    return { flash: true, act: on, next: `move the pipe to C${on}`, key: key(`move|${on}`), say: { en: `${name}. Chamber ${was} done. Move the pipe to chamber ${on} and open its valve.`,
+        hi: `टैंक ${no}। चैंबर ${was} खाली हो गया। पाइप चैंबर ${on} पर लगाइए और उसका वाल्व खोलिए।` },
       html: `<b>➡ C${was} done — move the pipe to C${on} and open its valve.</b>${then}` };
   }
   if (live?.waiting) {
-    return { flash: true, act: on, next: `open C${on}'s valve (not rising yet)`, key: key(`notrising|${on}`), say: `${name}. Open the valve of chamber ${on}. The stock is not rising yet.`,
+    return { flash: true, act: on, next: `open C${on}'s valve (not rising yet)`, key: key(`notrising|${on}`), say: { en: `${name}. Open the valve of chamber ${on}. The stock is not rising yet.`,
+      hi: `टैंक ${no}। चैंबर ${on} का वाल्व खोलिए। स्टॉक अभी नहीं बढ़ रहा है।` },
       html: `<b>Open C${on}'s valve</b> — the stock isn't rising yet.${then}` };
   }
   return { flash: false, key: key(`going|${on}`), say: '', left: live?.left,
@@ -917,6 +924,58 @@ function routingCards(s) {
 
 // ---- 6. Result -----------------------------------------------------------------
 
+// IOCL's tanker decantation acknowledgement, the message "IOCL ACK4
+// <invoice no>", to copy and send: for our own TT once half the truck is
+// decanted (it may go early), for a transport TT once the truck is empty. It
+// flashes until it's copied; copying it counts as the acknowledgement done
+// (data.ackDoneAt, on any of this truck's decantations). Shown on the
+// decanting screen and the result. (When the tank stock server runs it,
+// Telegram gets the message too: auto.py.)
+const ackText = (s) => `IOCL ACK4 ${s.invoice_no}`;
+const ACK_FRESH_MS = 12 * 3600 * 1000;      // finished this recently and not copied: flashing (older ones: a quiet line)
+const ackDoneOf = (s) => state.sessions.find((x) => x.invoice_no === s.invoice_no && x.data?.ackDoneAt)?.data || null;
+
+// The share of the truck's load decanted: chambers emptied before, and this
+// decantation's — a tank's once it settles, or each one the agent saw arrive.
+function decantedShare(s) {
+  const d = s.data;
+  const litres = new Map((d.chambers || []).filter((c) => c.product).map((c) => [c.no, c.litres || 0]));
+  const total = [...litres.values()].reduce((a, l) => a + l, 0);
+  if (!total) return 0;
+  const done = new Set(d.done || []);
+  for (const t of d.tanks || []) {
+    const st = stageOf(s, t);
+    const inNow = ['settling', 'read'].includes(st) || s.status === 'done' ? t.chambers : (d.auto?.arrived || {})[t.tank] || [];
+    for (const no of inNow || []) done.add(no);
+  }
+  return [...done].reduce((a, no) => a + (litres.get(no) || 0), 0) / total;
+}
+
+function ackCard(s) {
+  if (!['decanting', 'settling', 'done'].includes(s.status)) return '';
+  const own = Boolean(ownTT(s.tt_no, state.settings));
+  const result = s.status === 'done';
+  const sent = ackDoneOf(s);
+  if (sent) {
+    return result ? `<div class="card"><div class="audit ok">✓ Decantation acknowledgement <b>${esc(ackText(s))}</b> copied ${fmtTime(sent.ackDoneAt)}${sent.ackDoneBy ? ` (${esc(sent.ackDoneBy)})` : ''} — done.</div>
+      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm ghost" data-ack="copy">📋 Copy it again</button></div></div>` : '';
+  }
+  const left = result ? leftInTruck(s) : null;
+  const due = own ? decantedShare(s) >= 0.5 : result && !left.length;
+  if (!due) {
+    if (!result) return '';
+    return `<div class="card"><div class="hint">📩 ${left.length ? `C${compactNos(left.map((c) => c.no))} ${left.length > 1 ? 'are' : 'is'} still in the truck: the` : 'The'} decantation acknowledgement <b>${esc(ackText(s))}</b> once ${own ? 'half the truck is' : left.length > 1 ? 'they are' : 'it is'} decanted.</div></div>`;
+  }
+  if (result && Date.now() - (Date.parse(s.completed_at || s.data.decantedAt || '') || 0) >= ACK_FRESH_MS) {
+    return `<div class="card"><div class="hint">📩 Decantation acknowledgement: <b>${esc(ackText(s))}</b> <button class="btn sm ghost" data-ack="copy">📋 Copy</button></div></div>`;
+  }
+  return `<div class="card accent ack">
+      <div class="hint" style="margin:0">📩 ${result || !own ? 'Tanker decanted' : 'Half of our TT is decanted'} — copy the decantation acknowledgement and send it${!result && own ? ' (it may go now)' : ''}:</div>
+      <div class="ack-msg ag-next flash" data-ack="copy" title="Tap to copy">${esc(ackText(s))}</div>
+      <div class="row-actions" style="justify-content:flex-start;margin-top:0"><button class="cta sm" data-ack="copy">📋 Copy</button></div>
+    </div>`;
+}
+
 function stepResult(s) {
   const d = s.data;
   if (s.status === 'cancelled') {
@@ -927,7 +986,7 @@ function stepResult(s) {
   const totL = d.tanks.reduce((a, t) => a + t.litres, 0);
   const totV = round2(res.reduce((a, x) => a + (x.r?.variation || 0), 0));
   const money = res.reduce((a, x) => a + (x.r && d.prices?.[x.t.product] ? x.r.variation * d.prices[x.t.product] : 0), 0);
-  return `<div class="card accent">
+  return `${ackCard(s)}<div class="card accent">
       <div class="result"><div><div class="hint">Decanted ${fmtKL(totL)} from ${esc(s.tt_no)} · ${fmtTime(d.startedAt)}–${fmtTime(d.decantedAt)}</div>
         <div class="var ${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'}">${fmtSigned(totV, ' L', 2)}</div>
         <div class="hint">${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'} overall · ${fmtPct(totL ? (totV / totL) * 100 : 0)}${money ? ` · ≈ ${fmtMoney(money)} at invoice price` : ''}</div></div></div>
@@ -1022,8 +1081,23 @@ async function onClick(e) {
     await persist(s);
     return;
   }
+  const ack = t.closest('[data-ack]');
+  if (ack) {
+    let copied = true;
+    try { await navigator.clipboard.writeText(ackText(s)); } catch { copied = false; }
+    toast(copied ? `Copied: ${ackText(s)} — send it now.` : `${ackText(s)} (copy it from here)`, 6000);
+    s = latest(s);
+    if (copied && ['decanting', 'settling', 'done'].includes(s.status) && !ackDoneOf(s)) {   // copied: the acknowledgement counts as done
+      s.data.ackDoneAt = new Date().toISOString();
+      s.data.ackDoneBy = state.device?.operator || '';
+      await persist(s);
+    }
+    return;
+  }
   const voiceBtn = t.closest('[data-voice]');
   if (voiceBtn) { setVoice(voiceBtn.dataset.voice === 'on'); render(); return; }
+  const langBtn = t.closest('[data-voicelang]');
+  if (langBtn) { setVoiceLang(langBtn.dataset.voicelang); render(); return; }
   const photo = t.closest('[data-photo]');
   if (photo) {
     s = latest(s);
