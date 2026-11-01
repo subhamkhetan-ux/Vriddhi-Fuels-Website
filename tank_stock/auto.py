@@ -636,6 +636,7 @@ class AutoDecant:
                 self.st.prepare_pictures(live)  # (a stock after coming up: its picture's page opens meanwhile)
             self._do(work, live, now)
             self._before_photo(live, now)
+            self._ack_early()
             wanted = self.wants_pictures()
             if live.get("feed") and self._wanted_pictures and not wanted:
                 self.st.release_pictures()       # (its stock after taken: the page closes till the next)
@@ -872,8 +873,12 @@ class AutoDecant:
             self.info["error"] = ""
             self._retry_proofs(now, force=True)
             self._set("finished")
+            note = self._ack_note()
             self._tell(f"✅ Decantation finished and saved in the decant app: {self._title()}.\n"
-                       + "\n".join(self.info.get("result") or []))
+                       + "\n".join(self.info.get("result") or []) + (f"\n{note}" if note else ""))
+            if not self.run.held() and not self.info.get("ack_told"):
+                self.info["ack_told"] = True
+                self._tell(self._ack_text())             # (on its own, to copy and send)
             self._send_sheet()
             self._stop_live_if_ours()
         else:
@@ -884,6 +889,47 @@ class AutoDecant:
                 self.info["refusal_told"] = True
                 self._tell(f"⚠️ {self._title()}: finished, but the decant app refuses to save it ({why}). "
                            "It keeps trying; check the decant app's cloud project.")
+
+    def _ack_text(self) -> str:
+        """IOCL's tanker decantation acknowledgement message."""
+        return f"IOCL ACK4 {self.run.s.get('invoice_no') or self.info.get('invoice_no')}"
+
+    def _own_tt(self) -> bool:
+        tt = dz.norm_tt(self.run.s.get("tt_no") or self.info.get("tt_no"))
+        return any(dz.norm_tt(o.get("tt")) == tt for o in self.run.settings.get("ownTTs") or [])
+
+    def _decanted_share(self) -> float:
+        """The truck's litres decanted so far (before this run, and in its tanks: chambers in), over its load."""
+        d = self.run.s["data"]
+        litres = {c["no"]: c.get("litres") or 0 for c in d.get("chambers") or [] if c.get("product")}
+        total = sum(litres.values())
+        if not total:
+            return 0.0
+        done = set(d.get("done") or [])
+        for t in d.get("tanks") or []:
+            st = self.run.state["tanks"].get(t["tank"]) or {}
+            done |= set(t["chambers"]) if t.get("stage") in ("settling", "read") else set(st.get("arrived") or [])
+        return sum(litres.get(no, 0) for no in done) / total
+
+    def _ack_early(self) -> None:
+        """Our own TT: its decantation acknowledgement may go once half the
+        truck is in (a transport TT's waits for the truck to be empty: _finished)."""
+        if self.info.get("ack_told") or not self._own_tt() or self._decanted_share() < 0.5:
+            return
+        self.info["ack_told"] = True
+        self._tell(f"📩 {self._title()}: half of our TT is decanted — its decantation acknowledgement may go now "
+                   "(the next message: copy it and send it).")
+        self._tell(self._ack_text())
+
+    def _ack_note(self) -> str:
+        """About it, in the "finished" message: the message itself follows on its own once the truck is empty."""
+        if self.info.get("ack_told"):
+            return f"📩 The decantation acknowledgement \"{self._ack_text()}\" went earlier (half of our TT in)."
+        held = self.run.held()
+        if held:
+            nos = ", ".join(f"C{c['no']}" for c in held)
+            return f"📩 {nos} still in the truck: the decantation acknowledgement \"{self._ack_text()}\" once they're decanted."
+        return "📩 The tanker decantation acknowledgement is the next message: copy it and send it."
 
     def _stale(self, now: float) -> None:
         late = []
