@@ -167,7 +167,7 @@
           <div class="files" id="filesCash"></div>
         </div>
         <div class="sub" style="color:var(--faint);margin-top:8px;font-size:12px" title="Each voucher is numbered by its date, so there is no starting number">
-          Numbered by date: <b>Cash/MS/1Oct2026</b> · <b>Cash/HSD/1Oct2026</b> · <b>Cash/XG/1Oct2026</b></div>
+          Numbered by date: <b>Cash/MS/1Oct26</b> · <b>Cash/HSD/1Oct26</b> · <b>Cash/XG/1Oct26</b></div>
       </div>
     </div>
     <input type="file" id="fileFleet" accept=".xls,.xlsx" hidden>
@@ -175,8 +175,8 @@
     <input type="file" id="fileCash" accept=".xls,.xlsx" hidden>
     <div class="sub" style="color:var(--faint);margin-top:12px">Fleet and TDS sheets have <b>Date</b>, <b>Customer Name</b> (as in Tally — or mapped in <i>Name mappings</i>), <b>Amount</b>.
       The cash-sales workbook has a tab per product (<b>MS</b>, <b>HSD</b>, <b>XG</b>) with <b>Date</b>, <b>Quantity</b>, <b>Price</b>.
-      Each voucher is numbered by its date — <b>Cash/MS/1Oct2026</b> (voucher type <b>Cash MS</b>), <b>Cash/HSD/1Oct2026</b> (<b>HSD CASH</b>),
-      <b>Cash/XG/1Oct2026</b> (<b>XG CASH</b>) — so one row per product per day. All three are independent — drop any.
+      Each voucher is numbered by its date — <b>Cash/MS/1Oct26</b> (voucher type <b>Cash MS</b>), <b>Cash/HSD/1Oct26</b> (<b>HSD CASH</b>),
+      <b>Cash/XG/1Oct26</b> (<b>XG CASH</b>) — so one row per product per day. All three are independent — drop any.
       Blank templates: <a href="/download/sample/fleet" style="color:var(--amber)">fleet card</a> · <a href="/download/sample/tds" style="color:var(--amber)">TDS receivable</a> ·
       <a href="/download/sample/cash" style="color:var(--amber)">cash sales</a>.</div>
     <div class="row">
@@ -316,7 +316,7 @@ wire("tds","#dropTds","#fileTds","#filesTds");
 wire("cash","#dropCash","#fileCash","#filesCash");
 function refresh(){ $("#runBtn").disabled = !(FILES.fleet||FILES.tds||FILES.cash); }
 const PRODS=["MS","HSD","XG"];
-// Cash vouchers are numbered by their date (Cash/MS/1Oct2026) — no starting numbers.
+// Cash vouchers are numbered by their date (Cash/MS/1Oct26) — no starting numbers.
 
 $("#runBtn").onclick=async()=>{
   if(!(FILES.fleet||FILES.tds||FILES.cash)){toast("Drop at least one sheet");return;}
