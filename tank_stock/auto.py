@@ -73,6 +73,7 @@ CLOUD_REST_S = 30          # after the decant app couldn't be reached: the live 
 REQUEST_FRESH_S = 15 * 60  # a phone's "let the tank stock server finish it" older than this: not taken up
 PICTURES_AHEAD_S = 150     # from FuelTrans' live data: its page opens this long before a stock after is due
 PHOTO_WAIT_S = 240         # a stock-before photo asked on the decant app: its page may take this long to open
+AUTO_PHOTO_EVERY = 300     # a waiting tank's stock before with no photo (it sold since): photographed again at most this often
 
 
 class AutoError(ValueError):
@@ -636,6 +637,8 @@ class AutoDecant:
                 self.st.prepare_pictures(live)  # (a stock after coming up: its picture's page opens meanwhile)
             self._do(work, live, now)
             self._before_photo(live, now)
+            if live.get("feed"):
+                self._auto_photo(now)
             self._ack_early()
             wanted = self.wants_pictures()
             if live.get("feed") and self._wanted_pictures and not wanted:
@@ -686,7 +689,29 @@ class AutoDecant:
         elif self.run.s["status"] == "cancelled":
             self._end("cancelled", now)
 
-    # ---- a stock-before photo asked on the decant app -----------------------------
+    # ---- a stock-before photo: by itself, or asked on the decant app ---------------
+    # A tank still waiting whose stock before has no photo (held chambers just
+    # put into it, a sale re-read from the live figure, a phone's live reading)
+    # gets one by itself (_auto_photo: a request as a phone's would be), at
+    # most every AUTO_PHOTO_EVERY for one tank; the button on the decant app
+    # stays for when it couldn't be taken (FuelTrans' page or the tunnel down).
+    def _auto_photo(self, now: float) -> None:
+        if not self.run or self._photo_asked():
+            return                                       # (one request at a time)
+        d = self.run.s["data"]
+        last = self.info.setdefault("auto_photo", {})
+        want = [t["tank"] for t in d.get("tanks") or []
+                if t.get("stage") == "waiting" and (t.get("before") or {}).get("picture") is False
+                and time.time() - last.get(t["tank"], 0) >= AUTO_PHOTO_EVERY]
+        if not want:
+            return
+        for tank in want:
+            last[tank] = time.time()
+        old = (d.get("beforePhoto") or {}).get("results") or {}
+        d["beforePhoto"] = {"tanks": want, "at": _now(), "by": "the tank stock server", "auto": True,
+                            "results": {k: v for k, v in old.items() if k not in want}}
+        self._save(now)                                  # (the app shows it being taken)
+
     # While the agent runs it, a tank still waiting (or held chambers just put
     # into a tank) gets its stock before from FuelTrans' live figure: exact, but
     # with no picture, as FuelTrans' page stays shut while tanks decant. Its
@@ -757,7 +782,7 @@ class AutoDecant:
             else:
                 results[tank] = {"ok": False, "message": "it had started rising when the photo was taken: its stock "
                                                          "before is FuelTrans' live figure from just before it rose"}
-        req.update(answeredAt=_now(), results=results)
+        req.update(answeredAt=_now(), results={**(req.get("results") or {}), **results})
         work["save"] = True
         self._do(work, live, now)
         if not self.wants_pictures():
