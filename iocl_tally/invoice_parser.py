@@ -35,6 +35,7 @@ MATERIAL_MAP = {
     "HSD": ("High Speed Diesel", "HSD VAT"),
     "EBMS": ("Motor Spirit", "MS VAT"),
     "MS": ("Motor Spirit", "MS VAT"),
+    "XG": ("XtraGreen Diesel", "XG VAT"),
 }
 PURCHASE_LEDGER = "PURCHASE HSD MS & XG"
 
@@ -72,7 +73,7 @@ class Invoice:
         value is labelled by material (HSD/MS) so both tanks are unambiguous;
         a single product shows just the value. Falls back to the whole-invoice
         matches when a product block had none."""
-        _abbr = {"High Speed Diesel": "HSD", "Motor Spirit": "MS"}
+        _abbr = {"High Speed Diesel": "HSD", "Motor Spirit": "MS", "XtraGreen Diesel": "XG"}
         pairs = [(p.stock_item, p.density) for p in self.products if p.density]
         if not pairs:
             return ", ".join(self.densities)
@@ -94,6 +95,9 @@ class Invoice:
 
 def _map_material(desc: str) -> tuple[str, str]:
     u = desc.upper()
+    # XtraGreen first: IOCL prints it as "HSD-XG-BSVI [PDRP]" (it contains "HSD").
+    if re.search(r"\bXG\b|XTRA\s*GR|XTRAGRN", u):
+        return MATERIAL_MAP["XG"]
     if "EBMS" in u or re.search(r"\bMS\b", u) or "MOTOR SPIRIT" in u or "PETROL" in u:
         return MATERIAL_MAP["EBMS"]
     return MATERIAL_MAP["HSD"]      # default: diesel

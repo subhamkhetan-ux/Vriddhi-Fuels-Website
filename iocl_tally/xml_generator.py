@@ -348,14 +348,59 @@ def _fmt_neg(v: float) -> str:
 
 
 def choose_purchase_template(products) -> dict | None:
-    """Pick the matching purchase template for an invoice's product set, or None
-    if unsupported (only HSD-single and HSD+MS-two are exported skeletons)."""
+    """The exported purchase whose product set matches exactly (HSD alone, or
+    HSD + MS), or None — other mixes are composed by ``_compose_purchase``."""
     stocks = {p.stock_item for p in products}
     if len(products) == 1 and stocks == {"High Speed Diesel"}:
         return PURCHASE_TEMPLATE_1
     if len(products) == 2 and stocks == {"High Speed Diesel", "Motor Spirit"}:
         return PURCHASE_TEMPLATE_2
     return None
+
+
+# Any other mix (XtraGreen, MS alone, HSD + XG, all three…) is composed from the
+# HSD + MS purchase: each product gets its own pair of lines (base + VAT) cut
+# from the template's lines for that kind of fuel — XtraGreen is a diesel (same
+# HSN 27101944 as HSD), so it is cut from the HSD lines with its own stock item
+# and VAT ledger. Header and ledger entries (IOCL, R/off) stay as exported.
+_SKELETON = {"High Speed Diesel": 0, "XtraGreen Diesel": 0, "Motor Spirit": 1}
+_INV_BLOCK = re.compile(r"[ \t]*<ALLINVENTORYENTRIES\.LIST>.*?</ALLINVENTORYENTRIES\.LIST>\n", re.S)
+
+
+def can_build_purchase(products) -> bool:
+    """True when a purchase voucher can be made for this invoice's products."""
+    return bool(products) and (choose_purchase_template(products) is not None
+                               or all(p.stock_item in _SKELETON for p in products))
+
+
+def _set_product_values(text: str, tp: dict, p) -> str:
+    """Swap one template product's base / VAT / qty / rate for invoice product ``p``."""
+    text = text.replace(tp["base"], _fmt_neg(p.base_value))
+    text = text.replace(tp["vat"], _fmt_neg(p.vat_amount))
+    text = text.replace(tp["qty"], f"{p.qty_ltr:.3f}")
+    rate = round(p.base_value / p.qty_ltr, 2) if p.qty_ltr else 0.0
+    return text.replace(f"{tp['rate']}/LTR", f"{rate:.2f}/LTR")
+
+
+def _compose_purchase(products) -> str:
+    """The HSD + MS template rebuilt with one base + VAT line pair per product."""
+    vch = _read_template(PURCHASE_TEMPLATE_2["file"])
+    blocks = list(_INV_BLOCK.finditer(vch))
+    assert len(blocks) == 4, "PURCHASE_2prod.xml: expected 4 inventory lines"
+    head, tail = vch[:blocks[0].start()], vch[blocks[-1].end():]
+    body = []
+    for p in products:
+        k = _SKELETON[p.stock_item]
+        tp = PURCHASE_TEMPLATE_2["products"][k]
+        tpl_vat = "HSD VAT" if k == 0 else "MS VAT"
+        pair = blocks[2 * k].group(0) + blocks[2 * k + 1].group(0)
+        for tag in ("STOCKITEMNAME", "HSNITEMSOURCE"):
+            pair = pair.replace(f"<{tag}>{_xesc(tp['stock'])}</{tag}>",
+                                f"<{tag}>{_xesc(p.stock_item)}</{tag}>")
+        for tag in ("LEDGERNAME", "GSTLEDGERSOURCE"):
+            pair = pair.replace(f"<{tag}>{tpl_vat}</{tag}>", f"<{tag}>{_xesc(p.vat_ledger)}</{tag}>")
+        body.append(_set_product_values(pair, tp, p))
+    return head + "".join(body) + tail
 
 
 def _set_voucher_number(vch: str, number: str) -> str:
@@ -375,9 +420,16 @@ def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None,
     ``voucher_number`` (e.g. ``TT131``) is emitted because the Purchase voucher
     type numbers manually; omit it and Tally stamps every purchase '1'."""
     tpl = choose_purchase_template(invoice.products)
-    if tpl is None:
+    if tpl is not None:
+        # Per-product value substitution, matched by stock item.
+        vch = _read_template(tpl["file"])
+        inv_by_stock = {p.stock_item: p for p in invoice.products}
+        for tp in tpl["products"]:
+            vch = _set_product_values(vch, tp, inv_by_stock[tp["stock"]])
+    elif can_build_purchase(invoice.products):
+        vch, tpl = _compose_purchase(invoice.products), PURCHASE_TEMPLATE_2
+    else:
         return None
-    vch = _read_template(tpl["file"])
     vch = _strip_identity(vch)
     if voucher_number:
         vch = _set_voucher_number(vch, voucher_number)
@@ -394,16 +446,6 @@ def make_purchase(invoice, date_yyyymmdd: str, reference: str | None = None,
     for tag in _PURCHASE_DATE_TAGS:
         vch = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{date_yyyymmdd}</{tag}>", vch)
     vch = _set_reference(vch, reference)
-
-    # Per-product value substitution, matched by stock item.
-    inv_by_stock = {p.stock_item: p for p in invoice.products}
-    for tp in tpl["products"]:
-        p = inv_by_stock[tp["stock"]]
-        vch = vch.replace(tp["base"], _fmt_neg(p.base_value))
-        vch = vch.replace(tp["vat"], _fmt_neg(p.vat_amount))
-        vch = vch.replace(tp["qty"], f"{p.qty_ltr:.3f}")
-        rate = round(p.base_value / p.qty_ltr, 2) if p.qty_ltr else 0.0
-        vch = vch.replace(f"{tp['rate']}/LTR", f"{rate:.2f}/LTR")
 
     # Party total (the invoice grand total, credited to IOCL).
     vch = vch.replace(f"<AMOUNT>{tpl['party']}</AMOUNT>",

@@ -155,7 +155,7 @@ def process(text: str, invoices_dir: str | None = None, invoices: dict | None = 
                 status, note = "SKIPPED", (
                     f"invoice total {iv.total} != PAD amount {r.debit:.2f}")
                 skipped_purchases += 1
-            elif G.choose_purchase_template(iv.products) is None:
+            elif not G.can_build_purchase(iv.products):
                 status, note = "SKIPPED", (
                     "unsupported product mix "
                     f"({', '.join(p.description for p in iv.products)})")
@@ -286,7 +286,7 @@ def main(argv=None):
         print(f"Open Delivery add-on (not posted): {summary['open_delivery_addon']:.2f}")
     print(f"Vouchers generated: {summary['n_vouchers']}  "
           f"{summary['counts']}")
-    print(f"Purchases skipped (need invoice): {summary['skipped_purchases']}")
+    print(f"Purchases not posted (see IOCL_review.csv for why): {summary['skipped_purchases']}")
     print(f"Wrote {xml_path}\n      {csv_path}")
 
 
