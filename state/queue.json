@@ -6558,7 +6558,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-02T01:15:27.039350+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-02T03:00:35.165363+00:00"
     },
     {
       "entry_id": "8ad85a13a41dcea6",
