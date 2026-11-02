@@ -38,7 +38,17 @@ try {
         if ($status.AntivirusSignatureAge -gt 7) { throw 'Defender definitions are older than seven days' }
         $scanner = Get-ChildItem "$env:ProgramData/Microsoft/Windows Defender/Platform/*/MpCmdRun.exe" | Sort-Object FullName -Descending | Select-Object -First 1
         if (-not $scanner) { $scanner = Get-Item "$env:ProgramFiles/Windows Defender/MpCmdRun.exe" }
-        $scan = Start-Process -FilePath $scanner.FullName -ArgumentList @('-Scan','-ScanType','3','-File',('"' + $bundle + '"'),'-DisableRemediation','-ReturnHR') -Wait -PassThru -NoNewWindow
+        # Right after a definitions update the Defender service can still be (re)starting and
+        # MpCmdRun answers 0x800106BA ("The RPC server is unavailable"). Make sure the service
+        # is running and give it time; the scan itself stays mandatory.
+        $notAnswering = -2147416390  # 0x800106BA
+        for ($try = 1; $try -le 7; $try++) {
+            try { Start-Service -Name WinDefend -ErrorAction Stop } catch { Write-Host "WinDefend could not be started: $($_.Exception.Message)" }
+            $scan = Start-Process -FilePath $scanner.FullName -ArgumentList @('-Scan','-ScanType','3','-File',('"' + $bundle + '"'),'-DisableRemediation','-ReturnHR') -Wait -PassThru -NoNewWindow
+            if ($scan.ExitCode -ne $notAnswering) { break }
+            Write-Host "Defender service not answering yet (attempt $try of 7); waiting 20 seconds."
+            Start-Sleep -Seconds 20
+        }
         if ($scan.ExitCode -ne 0) { throw "Defender custom scan did not pass, exit $($scan.ExitCode)" }
         $defender = @{status='clean'; engine=$status.AMEngineVersion; signatures=$status.AntivirusSignatureVersion; scannedUtc=[DateTime]::UtcNow.ToString('o'); detail='Windows Defender custom scan completed with exit code zero.'}
     }
