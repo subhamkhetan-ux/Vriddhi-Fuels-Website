@@ -181,10 +181,46 @@ def test_rejected_or_incomplete_collection_does_not_advance_cursor(store):
     class Partial(FakeTally):
         def metadata(self,kind,after,since=None): return [voucher(alter=2)]
         def details(self,entries): return []
-    with pytest.raises(TallyProblem,match="incomplete batch"):
-        Worker(FakeCloud(),Partial(),store).scan("Voucher",True)
+    w = Worker(FakeCloud(),Partial(),store)
+    w.scan("Voucher",True)  # not an error: read again later, the rest carries on
     assert store.get("cursor:Voucher") is None
     assert store.known("Voucher")[ID]["alter_id"] == 1
+    assert w.unread == {ID: "HSD CREDIT #TEST1 of 19-Oct-26"}
+
+
+def test_a_voucher_the_day_book_does_not_return_never_holds_up_postings(store):
+    """Tally lists a just-posted invoice (#TEST1) its Day Book does not return yet: the bridge
+    still posts the next queued invoice, says what it waits for, and reads #TEST1 when it can."""
+    from tally_bridge.tally import tag
+    listed = voucher()  # posted from the web app; Tally lists it
+    optional = voucher(dict(PAYLOAD, id="optional-guid", number="TEST9"))
+    tag(optional, "ISOPTIONAL", "Yes")
+    second = dict(PAYLOAD, id="second-voucher", number="TEST2", qty=6, item_amt=600, party_amt=600)
+    class Lagging(FakeTally):
+        returns = False
+        def metadata(self, kind, after, since=None): return [listed, optional]
+        def details(self, entries):
+            return [listed] if self.returns and any(identity(e)[0] == ID for e in entries) else []
+    class Cloud(FakeCloud):
+        queue = [job(second)]
+        def rpc(self, name, **args):
+            r = super().rpc(name, **args)
+            return (self.queue.pop(0) if self.queue else None) if name == "tally_bridge_claim" else r
+    logged, clock = [], [1792411200.0]  # 19 Oct 2026, noon: a watched day
+    tally, cloud = Lagging(), Cloud()
+    w = Worker(cloud, tally, store, clock=lambda: clock[0], log=logged.append)
+    w.step()
+    assert tally.imports == 1 and tally.found.findtext("VOUCHERNUMBER") == "TEST2"  # the queue was not held up
+    assert w.store.get("status")["health"] == "online"
+    assert "Waiting for Tally's Day Book to return HSD CREDIT #TEST1" in w.store.get("status")["detail"]
+    assert "TEST9" not in w.store.get("status")["detail"]  # an optional voucher is not a sale: not waited for
+    assert logged == ["Tally lists HSD CREDIT #TEST1 of 19-Oct-26 but its Day Book did not return it; "
+                      "reading it again every 30 seconds (other work carries on)"]
+    tally.returns = True
+    clock[0] += 31
+    w.step()
+    assert ID in store.known("Voucher") and not w.unread
+    assert logged[-1] == "Read HSD CREDIT #TEST1 of 19-Oct-26 from Tally's Day Book"
 
 
 def test_metadata_watermark_does_not_skip_an_intervening_edit(store):

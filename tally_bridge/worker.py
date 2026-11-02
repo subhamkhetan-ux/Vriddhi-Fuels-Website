@@ -7,7 +7,7 @@ import uuid
 
 from . import __version__
 from .tally import (SERIES, CompanyNotOpen, NotReadYet, NotSent, Rejected, TallyProblem, alterable, business_equal,
-                    fuel_voucher, identity, object_data, series_of, voucher_date)
+                    fuel_voucher, identity, object_data, series_of, text, voucher_date, yes)
 from .transport import CloudRejected, ConnectionProblem
 from .recovery import TallyStarting, TallyWaiting
 
@@ -22,6 +22,9 @@ JOURNAL = 3
 # after the job's three-minute lease runs out.
 READ_AGAIN = (2, 3, 5, 5, 10, 10, 15)
 # A read-back Tally keeps missing is put up for review after this many tries (a few minutes apart).
+# A voucher Tally lists but its Day Book does not return is read again this often (seconds),
+# while everything else (uploads, postings, confirmations) carries on.
+UNREAD_EVERY = 30
 READ_TRIES = 5
 # A voucher the web app asks to read again is read at most once a minute.
 REFRESH_EVERY = 60
@@ -40,9 +43,11 @@ class Stopped(Exception):
 
 
 class Worker:
-    def __init__(self, cloud, tally, store, clock=time.time, recovery=None, paused=None):
+    def __init__(self, cloud, tally, store, clock=time.time, recovery=None, paused=None, log=None):
         self.cloud, self.tally, self.store, self.clock = cloud, tally, store, clock
         self.sleep = time.sleep
+        self.log = log or (lambda message: None)  # the app's Activity page
+        self.unread, self.unread_at = {}, 0  # GUID -> label of vouchers the Day Book has not returned
         self.cloud.instance = str(uuid.uuid4())
         self.last_pulse = 0
         self.config = {}
@@ -142,29 +147,35 @@ class Worker:
         by_guid = {identity(m)[0]: m for m in meta}
         changed = [i for g, i in current.items() if g in refresh or g not in known
                    or i[2] != known[g]["alter_id"] or known[g]["deleted"]]
-        self.read(kind, changed, by_guid, current)
-        self.stage_gone(kind, gone, known)
+        missing = self.read(kind, changed, by_guid, current)
+        # An optional voucher is not a sale (and Tally's Day Book leaves it out): it leaves the app.
+        optional = {i[0] for i in missing if yes(text(by_guid[i[0]], "ISOPTIONAL"))}
+        self.stage_gone(kind, gone | (optional & set(known)), known)
+        self.waiting_for(kind, missing, optional, by_guid)
         if force_upload:
             # Pairing a replacement PC/cloud bootstrap must republish unchanged cached objects too.
             self.store.stage([dict(kind=kind, guid=g, master_id=i[1], alter_id=i[2], data=self.store.object_payload(kind, g))
                               for g, i in current.items() if g in known and i not in changed])
         # Advance to the METADATA snapshot, not a later read's AlterID. Otherwise an edit
         # between these requests could skip another voucher's intermediate alteration.
-        self.store.set("cursor:" + kind, max([cursor] + [i[2] for i in current.values()]))
+        if not self.unread:
+            self.store.set("cursor:" + kind, max([cursor] + [i[2] for i in current.values()]))
         self.store.set("scan:" + kind, self.clock())
 
     def read(self, kind, changed, by_guid, current):
-        """Complete copies of these vouchers from Tally's Day Book, one read per date."""
+        """Complete copies of these vouchers from Tally's Day Book, one read per date. Returns
+        those the Day Book did not return: they are read again later, and never hold up the rest
+        (a just-posted invoice can be listed by Tally minutes before its Day Book returns it)."""
         if changed:
             self.progress(f"Reading {len(changed):,} new or altered voucher{'s' if len(changed) != 1 else ''} from Tally")
-        by_date = {}
+        by_date, missing = {}, []
         for i in changed:
             by_date.setdefault(voucher_date(by_guid[i[0]]), []).append(i)
         for _, batch in sorted(by_date.items(), reverse=True):
             self.pulse()
             nodes = self.tally.details([by_guid[i[0]] for i in batch])
-            if {identity(n)[0] for n in nodes} != {i[0] for i in batch}:
-                raise TallyProblem("Tally changed during the read. The incomplete batch will be retried.")
+            got = {identity(n)[0] for n in nodes}
+            missing += [i for i in batch if i[0] not in got]
             if any(identity(n)[2] < current[identity(n)[0]][2] for n in nodes):
                 raise TallyProblem("Tally returned an older object than its metadata. No checkpoint was advanced; review a possible restore.")
             self.tally.verify()
@@ -173,6 +184,25 @@ class Worker:
                 # Moved to another voucher type in Tally: no longer a fuel voucher, nor watched.
                 o["deleted"] = series_of(n) is None
             self.store.stage(objects)
+        return missing
+
+    def waiting_for(self, kind, missing, optional, by_guid):
+        """Remember (and log once) the vouchers Tally lists but its Day Book did not return."""
+        def label(i):
+            m = by_guid[i[0]]
+            return text(m, "VOUCHERTYPENAME") + " #" + text(m, "VOUCHERNUMBER") + " of " + voucher_date(m).strftime("%d-%b-%y")
+        unread = {i[0]: label(i) for i in missing if i[0] not in optional}
+        for g in sorted(set(unread) - set(self.unread)):
+            self.log("Tally lists " + unread[g] + " but its Day Book did not return it; reading it again every "
+                     + str(UNREAD_EVERY) + " seconds (other work carries on)")
+        known = self.store.known(kind)
+        for g in sorted(set(self.unread) - set(unread)):
+            self.log(("Read " + self.unread[g] + " from Tally's Day Book") if g in known
+                     else (self.unread[g] + " is no longer listed in Tally"))
+        self.unread, self.unread_at = unread, self.clock()
+
+    def unread_due(self):
+        return bool(self.unread) and self.clock() - self.unread_at >= UNREAD_EVERY
 
     def stage_gone(self, kind, gone, known):
         """Vouchers Tally no longer has (deleted there). A reappearing one is read again."""
@@ -269,9 +299,10 @@ class Worker:
     def post(self, job):
         """The voucher job. Tally's Day Book usually returns a just-posted invoice within
         seconds, so a read-back it has not returned yet is tried again here; the voucher is
-        never posted twice (the second pass finds it in Tally and only reads it)."""
+        never posted twice (the second pass finds it in Tally and only reads it). A recheck of an
+        earlier posting reads once: it must not hold up the invoices queued behind it."""
         start = self.clock()
-        for wait in READ_AGAIN:
+        for wait in () if job.get("recover_only") else READ_AGAIN:
             try:
                 return self.voucher(job)
             except NotReadYet as e:
@@ -288,6 +319,9 @@ class Worker:
         count = self.store.count("Voucher")
         notice = self.store.get("tally_notice")  # e.g. two Tally copies open (guard.py)
         notes = ("Not applied in the web app: " + "; ".join(self.notes) + ". ") if self.notes else ""
+        if self.unread:
+            notes += ("Waiting for Tally's Day Book to return " + ", ".join(sorted(self.unread.values()))[:200]
+                      + " (read again every " + str(UNREAD_EVERY) + " seconds). ")
         return ((notice["text"] + " " if notice else "") + notes + "Watching " + format(count, ",") + " fuel voucher"
                 + ("" if count == 1 else "s") + " in Tally; new web vouchers are checked every 5 seconds")
 
@@ -331,7 +365,7 @@ class Worker:
             self.tally_ready = True
             if self.initial_scan:
                 self.status("syncing", "Bridge " + __version__ + " started; reading the fuel voucher list from Tally")
-            if self.changed_in_tally() or full:
+            if self.changed_in_tally() or full or self.unread_due():
                 self.scan("Voucher", full, force_upload=bootstrap)
                 # The counter read BEFORE the scan: a change during it is seen next time.
                 self.store.set("mark", self.pending_mark)
