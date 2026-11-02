@@ -20,7 +20,7 @@ iocl_tally/run_app.sh          # starts the local web app, opens the browser
 Drop the month's **PAD PDF** in, point the settings at your **IOCL invoice
 folder** (the same iCloud folder the `consign/` app reads), and click
 **Generate**. You get the reconciliation summary, a per-line review (OK /
-SKIPPED with reasons), the list of purchases still waiting on an invoice, and a
+SKIPPED with reasons), the purchases not posted (each with its reason), and a
 **download** for `IOCL_import.xml`. Everything runs on your Mac — nothing leaves
 the machine.
 

@@ -468,7 +468,7 @@ def generate(text: str, invoices_dir: str, start_tt: int) -> dict:
          "ledger": G.renamed(G.collection_route(r.item_text)[1])}
         for r in records if r.category == "COLLECTION"]
     missing = [{"doc_number": r["doc_number"], "date": r["date"],
-                "amount": r["debit"]} for r in review
+                "amount": r["debit"], "note": r["note"]} for r in review
                if r["category"] == "PURCHASE" and r["status"] == "SKIPPED"]
     n_purch = summary["counts"].get("PURCHASE", 0)
     return {

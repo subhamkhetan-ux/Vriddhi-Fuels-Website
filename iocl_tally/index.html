@@ -210,7 +210,7 @@
   </section>
 
   <section class="panel" id="missingPanel" hidden>
-    <h2>Purchases waiting on an invoice</h2>
+    <h2>Purchases not posted</h2>
     <div class="warnbox" id="missingBox"></div>
   </section>
 
@@ -382,7 +382,7 @@ function renderResult(res){
     <div class="stat"><div class="k">Lines parsed</div><div class="v">${s.n_postable}</div></div>
     <div class="stat"><div class="k">Reconciles</div><div>${recon}</div></div>
     <div class="stat"><div class="k">Vouchers generated</div><div class="v ok">${s.n_vouchers}</div></div>
-    <div class="stat"><div class="k">Purchases waiting</div><div class="v ${s.skipped_purchases?'bad':'ok'}">${s.skipped_purchases}</div></div>`;
+    <div class="stat"><div class="k">Purchases not posted</div><div class="v ${s.skipped_purchases?'bad':'ok'}">${s.skipped_purchases}</div></div>`;
   const oc = s.open_delivery_addon!=null ? `<span class="chip">Open-delivery add-on (not posted): <b>${money(s.open_delivery_addon)}</b></span>` : "";
   const tt = (res.tt_from!=null) ? `<span class="chip">Purchases numbered <b>TT${String(res.tt_from).padStart(3,"0")}–TT${String(res.tt_to).padStart(3,"0")}</b></span>` : "";
   $("#counts").innerHTML = Object.entries(s.counts||{}).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("") + tt + oc;
@@ -390,8 +390,12 @@ function renderResult(res){
   // missing invoices
   if(res.missing && res.missing.length){
     $("#missingPanel").hidden=false;
-    $("#missingBox").innerHTML = `<b>${res.missing.length} fuel purchase(s) need their invoice PDF</b> (drop them in the invoices folder, then Generate again):<br>`
-      + res.missing.map(m=>`${esc(m.doc_number||"?")} · ${esc(m.date)} · ₹${money(m.amount)}`).join("<br>");
+    // Each with its own reason — only "no matching invoice PDF" means the PDF is missing.
+    const noPdf = res.missing.filter(m=>!m.note || m.note==="no matching invoice PDF").length;
+    $("#missingBox").innerHTML = `<b>${res.missing.length} fuel purchase(s) not posted</b>`
+      + (noPdf ? ` — for “no matching invoice PDF”, drop the invoice in the invoices folder, then Generate again` : "") + `:<br>`
+      + res.missing.map(m=>`${esc(m.doc_number||"?")} · ${esc(m.date)} · ₹${money(m.amount)}`
+        + (m.note ? ` — <i>${esc(m.note)}</i>` : "")).join("<br>");
   } else { $("#missingPanel").hidden=true; }
 
   if(res.suggestions) $("#ledgers").innerHTML=res.suggestions.map(l=>`<option value="${esc(l)}">`).join("");

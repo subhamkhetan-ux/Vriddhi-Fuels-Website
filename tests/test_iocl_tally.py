@@ -10,6 +10,8 @@ with a running balance that ties out so the reconciliation lock is exercised.
 import datetime as dt
 import re
 
+import pytest
+
 from iocl_tally import invoice_parser as IP
 from iocl_tally import pad_parser as P
 from iocl_tally import xml_generator as G
@@ -313,13 +315,149 @@ def test_make_purchase_single_product_balances():
 
 
 def test_unsupported_product_mix_skipped():
-    # MS-only single has no exported template -> None (caller skips + flags).
+    # A product the tool has no stock item for -> None (caller skips + flags).
     iv = IP.Invoice(
         invoice_no="7010000002", date="25-Aug-26", tt_no="OD23U8210",
-        products=[IP.Product("16733", "EBMS [PDRP]", "Motor Spirit", "MS VAT",
-                             5.0, 409971.80, 28.0, 114792.10)],
-        zrnd=0.0, total=524763.90)
+        products=[IP.Product("99999", "SERVO 4T", "Servo Lubricant", "LUB VAT",
+                             1.0, 1000.00, 18.0, 180.00)],
+        zrnd=0.0, total=1180.00)
     assert G.make_purchase(iv, "20260825", reference="x") is None
+    assert not G.can_build_purchase(iv.products) and not G.can_build_purchase([])
+
+
+# IOCL prints XtraGreen as "HSD-XG-BSVI [PDRP]" — it contains "HSD", so it used
+# to be read as a second diesel line and the whole purchase was skipped.
+INVOICE_HSD_XG = """\
+TAX INVOICE
+7010999001
+OD23U8210
+T.T.No.
+26-Oct-26
+Item  Material Code / Material Description
+10
+50703   HSD-BSVI [PDRP]
+18.000
+KL
+2710 19 44*
+             BASIC DESTINATION PRICE
+18.000
+KL
+79150.260
+KL
+1424704.68
+JIN6   A/R Vat Payable
+24.000
+%
+341929.12
+Tank no: T001 Comp No(s) 1,2,3,4, Density@15: 829.200
+Total for material
+1766633.80
+20
+50803   HSD-XG-BSVI [PDRP]
+4.000
+KL
+2710 19 44
+             BASIC DESTINATION PRICE
+4.000
+KL
+83493.540
+KL
+333974.16
+JIN6   A/R Vat Payable
+24.000
+%
+80153.80
+Tank no: T001 Comp No(s) 5, Density@15: 829.200
+Total for material
+414127.96
+ZRND  Rounding Difference
+0.24
+Total
+2180762.00
+"""
+
+
+def _purchase_lines(v):
+    """[(stock item, line ledger, AMOUNT, qty)] of each inventory line, in order."""
+    out = []
+    for m in re.finditer(r"<ALLINVENTORYENTRIES\.LIST>.*?</ALLINVENTORYENTRIES\.LIST>", v, re.S):
+        b = m.group(0)
+        q = re.search(r"<ACTUALQTY>([^<]*)</ACTUALQTY>", b)
+        out.append((re.search(r"<STOCKITEMNAME>([^<]*)<", b).group(1),
+                    re.search(r"<ACCOUNTINGALLOCATIONS\.LIST>.*?<LEDGERNAME>([^<]*)<", b, re.S).group(1),
+                    re.search(r"<AMOUNT>([^<]*)</AMOUNT>", b).group(1),
+                    q.group(1).strip() if q else ""))
+    return out
+
+
+@pytest.mark.parametrize("desc", ["HSD-XG-BSVI [PDRP]", "XTRAGREEN DIESEL", "XG BS-VI", "XTRA GREEN HSD"])
+def test_xtragreen_is_its_own_product(desc):
+    assert IP._map_material(desc) == ("XtraGreen Diesel", "XG VAT")
+    assert IP._map_material("HSD-BSVI [PDRP]") == ("High Speed Diesel", "HSD VAT")
+    assert IP._map_material("EBMS [PDRP]") == ("Motor Spirit", "MS VAT")
+
+
+def test_hsd_plus_xtragreen_invoice_builds_a_purchase():
+    iv = IP.parse_invoice(INVOICE_HSD_XG)
+    assert [(p.stock_item, p.vat_ledger) for p in iv.products] == \
+        [("High Speed Diesel", "HSD VAT"), ("XtraGreen Diesel", "XG VAT")]
+    assert iv.is_complete() and round(iv.base_total + iv.vat_total + iv.zrnd, 2) == iv.total
+    v = G.make_purchase(iv, "20261026", reference=iv.invoice_no, voucher_number="TT256")
+    assert v is not None and G.purchase_balances(v)
+    assert _purchase_lines(v) == [
+        ("High Speed Diesel", "PURCHASE HSD MS &amp; XG", "-1424704.68", "18000.000 LTR"),
+        ("High Speed Diesel", "HSD VAT", "-341929.12", ""),
+        ("XtraGreen Diesel", "PURCHASE HSD MS &amp; XG", "-333974.16", "4000.000 LTR"),
+        ("XtraGreen Diesel", "XG VAT", "-80153.80", ""),
+    ]
+    assert "<GSTLEDGERSOURCE>XG VAT</GSTLEDGERSOURCE>" in v
+    assert "<HSNITEMSOURCE>XtraGreen Diesel</HSNITEMSOURCE>" in v
+    assert "<RATE>83.49/LTR</RATE>" in v                   # 333974.16 / 4000 L
+    assert "Motor Spirit" not in v and "MS VAT" not in v    # nothing left of the MS lines
+    assert "<VOUCHERNUMBER>TT256</VOUCHERNUMBER>" in v and "<GUID>" not in v
+    assert "<AMOUNT>2180762.00</AMOUNT>" in v and "<AMOUNT>-0.24</AMOUNT>" in v
+    narr = re.search(r"<NARRATION>([^<]*)</NARRATION>", v).group(1)
+    assert "HSD 829.200" in narr and "XG 829.200" in narr
+
+
+def _prod(stock, vat, kl, base, tax):
+    return IP.Product("1", stock, stock, vat, kl, base, 24.0, tax)
+
+
+@pytest.mark.parametrize("prods", [
+    [_prod("XtraGreen Diesel", "XG VAT", 4.0, 333974.16, 80153.80)],
+    [_prod("Motor Spirit", "MS VAT", 5.0, 409971.80, 114792.10)],
+    [_prod("High Speed Diesel", "HSD VAT", 12.0, 949803.12, 227952.75),
+     _prod("Motor Spirit", "MS VAT", 6.0, 491966.16, 137750.52),
+     _prod("XtraGreen Diesel", "XG VAT", 4.0, 333974.16, 80153.80)],
+])
+def test_other_product_mixes_compose_and_balance(prods):
+    zrnd = 0.31
+    total = round(sum(p.base_value + p.vat_amount for p in prods) + zrnd, 2)
+    iv = IP.Invoice("7010999002", "26-Oct-26", "OD23U8210", prods, zrnd=zrnd, total=total)
+    assert G.can_build_purchase(prods)
+    v = G.make_purchase(iv, "20261026", reference=iv.invoice_no, voucher_number="TT9")
+    assert v is not None and G.purchase_balances(v)
+    lines = _purchase_lines(v)
+    assert [(s, a) for s, _l, a, _q in lines] == [
+        x for p in prods for x in ((p.stock_item, f"-{p.base_value:.2f}"), (p.stock_item, f"-{p.vat_amount:.2f}"))]
+    assert [l for _s, l, _a, _q in lines][1::2] == [p.vat_ledger for p in prods]
+
+
+def test_process_posts_an_hsd_xg_purchase():
+    # PAD_TEXT's purchase 7008000004 is Rs 1500.00; an HSD + XG invoice for it posts.
+    inv = {"7008000004": IP.Invoice(
+        "7008000004", "02-Jul-26", "OD23U8210",
+        [_prod("High Speed Diesel", "HSD VAT", 0.01, 800.00, 192.00),
+         _prod("XtraGreen Diesel", "XG VAT", 0.005, 409.68, 98.32)],
+        zrnd=0.0, total=1500.00)}
+    _, vouchers, review, summary = R.process(PAD_TEXT, invoices=inv,
+                                             tt_state={"next_tt": 256, "issued": {}})
+    prow = next(r for r in review if r["category"] == "PURCHASE")
+    assert prow["status"] == "OK" and prow["voucher_type"] == "Purchase (TT256)"
+    assert summary["skipped_purchases"] == 0
+    pv = next(v for v in vouchers if "<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>" in v)
+    assert G.purchase_balances(pv) and "<LEDGERNAME>XG VAT</LEDGERNAME>" in pv
 
 
 def test_process_generates_purchase_when_invoice_matches():
