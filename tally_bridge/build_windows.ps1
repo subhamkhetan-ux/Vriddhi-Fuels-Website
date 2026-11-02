@@ -31,7 +31,10 @@ try {
     if ($status.AMServiceEnabled -and $status.AntivirusEnabled) {
         # Updating definitions does not alter security settings. Do not add exclusions or disable monitoring.
         try { Update-MpSignature -ErrorAction Stop } catch { Write-Host 'Signature update unavailable; checking current definitions.' }
-        $status = Get-MpComputerStatus
+        # A failed update can leave Defender's status provider briefly unreadable on hosted
+        # runners ("Provider load failure"): keep the status read just before it. The age
+        # check and the scan below still gate the release.
+        try { $status = Get-MpComputerStatus -ErrorAction Stop } catch { Write-Host 'Defender status could not be re-read; using the status read before the update.' }
         if ($status.AntivirusSignatureAge -gt 7) { throw 'Defender definitions are older than seven days' }
         $scanner = Get-ChildItem "$env:ProgramData/Microsoft/Windows Defender/Platform/*/MpCmdRun.exe" | Sort-Object FullName -Descending | Select-Object -First 1
         if (-not $scanner) { $scanner = Get-Item "$env:ProgramFiles/Windows Defender/MpCmdRun.exe" }
