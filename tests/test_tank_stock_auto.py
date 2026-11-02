@@ -1502,33 +1502,46 @@ def _phone_asks_photo(rig, sid, tanks):
     rig.cloud.sessions[sid] = s
 
 
-def test_a_waiting_tank_that_sold_gets_its_stock_before_photo_when_the_app_asks(rig, monkeypatch):
+def test_a_waiting_tank_that_sold_gets_its_stock_before_photographed_by_itself(rig, monkeypatch):
     """While the agent runs it from FuelTrans' live data, a planned tank that
     sells while waiting gets its stock before from the live figure (exact, no
-    photo: FuelTrans' page stays shut). Its "📷 Photo of its stock before" on
-    the decant app, tapped before the valves are opened, opens the page for
-    it: the photo becomes its stock before, the app is told, the page shuts."""
+    photo). The server photographs it by itself (no tap on the decant app):
+    FuelTrans' page opens for it, the photo becomes its stock before, the app
+    is told, the page shuts. Selling again, it's photographed again at most
+    every AUTO_PHOTO_EVERY."""
     a, session = _feed_run(rig, monkeypatch, {"1": "T1", "2": "T2", "3": "T2"})
-    sid = a.run.s["id"]
     rig.world.sales = [(2, 120, 40)]                                # Tank 2 sells 40 L while it waits
     drive(rig, 300)
-    before = a.run.row("T2")["before"]
-    assert before["volume"] == 10715.0 and before["picture"] is False   # the live figure: exact, no photo
-    assert session.page == "closed"
-    _phone_asks_photo(rig, sid, ["T2"])
-    drive(rig, 360)
     s = cloud_session(rig)
-    res = s["data"]["beforePhoto"]["results"]["T2"]
-    assert res["ok"] and res["volume"] == 10715.0, s["data"]["beforePhoto"]
+    req = s["data"]["beforePhoto"]
+    assert req["auto"] and req["by"] == "the tank stock server" and req["results"]["T2"]["ok"], req
     t2 = next(t for t in s["data"]["tanks"] if t["tank"] == "T2")
     assert t2["before"]["volume"] == 10715.0 and "picture" not in t2["before"] and t2["before"]["height"]
     assert a.info["proofs"]["T2"]["before"]["picture"]                 # its photo, kept for the result
     assert session.page == "closed"                                    # (and the page shut again)
-    rig.world.flows = [(1, 400, 4990, 495), (2, 400, 8990, 900)]
-    drive(rig, 4000)
+    shots = len(session.taken)
+    rig.world.sales += [(2, 330, 10)]                                  # sells again soon after
+    drive(rig, 400)
+    assert a.run.row("T2")["before"]["picture"] is False and len(session.taken) == shots   # (the live figure for now)
+    drive(rig, 700)
+    assert len(session.taken) == shots + 1 and "picture" not in a.run.row("T2")["before"]   # then again
+    rig.world.flows = [(1, 800, 4990, 495), (2, 800, 8990, 900)]
+    drive(rig, 4500)
     assert a.phase == "finished", a.info
     t2 = next(t for t in cloud_session(rig)["data"]["tanks"] if t["tank"] == "T2")
-    assert t2["before"]["volume"] == 10715.0 and t2["result"]["band"] in ("ok", "watch", "high")
+    assert t2["before"]["volume"] == 10705.0
+
+
+def test_when_the_photo_can_t_be_taken_the_app_is_told_and_its_fallback_stands(rig, monkeypatch):
+    a, session = _feed_run(rig, monkeypatch, {"1": "T1", "2": "T2", "3": "T2"})
+    monkeypatch.setattr(session, "pictures", lambda: "failed")       # (FuelTrans' page / the tunnel down)
+    rig.world.sales = [(2, 120, 40)]
+    drive(rig, 300)
+    res = cloud_session(rig)["data"]["beforePhoto"]["results"]["T2"]
+    assert not res["ok"] and "couldn't be taken" in res["message"], res
+    assert a.run.row("T2")["before"]["picture"] is False               # the live figure stands (said so in the app)
+    drive(rig, 400)
+    assert cloud_session(rig)["data"]["beforePhoto"]["answeredAt"]     # (not asked again and again)
 
 
 def test_a_photo_asked_once_the_tank_has_started_says_so(rig, monkeypatch):

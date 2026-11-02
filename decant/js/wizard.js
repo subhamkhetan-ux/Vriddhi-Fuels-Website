@@ -507,6 +507,9 @@ function tankGuide(s, t, now) {
   if (st === 'waiting') {
     const req = s.data.beforePhoto;
     if (!t.before || (req && !req.answeredAt && (req.tanks || []).includes(t.tank))) return null;   // (its photo's own line)
+    // no photo of it yet: the server takes one by itself (photoBefore says so) — open once it's in;
+    // a photo tried for it (taken, or it couldn't be: the fallback) and its stock before stands
+    if (stockProof(t.before)?.live && !(req?.results || {})[t.tank]) return null;
     return { flash: true, act: chambers[0], next: `open the valve of C${chambers[0]}`, key: key(`open|${chambers[0]}|${t.before.readingAt}`),
       say: { en: `${name}. Stock before taken. Open the valve of chamber ${chambers[0]}.`,
         hi: `टैंक ${t.tankNo || tankById(t.tank)?.no}। पहले का स्टॉक ले लिया गया है। चैंबर ${chambers[0]} का वाल्व खोलिए।` },
@@ -601,18 +604,31 @@ const runByServer = (s) => Boolean(s.data.auto && !s.data.auto.released);
 // A tank waiting in a decantation the server runs: a photo of its stock before,
 // asked here before its valves are opened (tank_stock/auto.py _before_photo).
 // Without one, its stock before is FuelTrans' live figure: exact, no screenshot.
+// A stock-before photo asked for these tanks (with one already asked: added
+// to it), the earlier answers for the other tanks kept.
+function photoAsk(req, ids) {
+  const open = req && !req.answeredAt;
+  const results = Object.fromEntries(Object.entries(req?.results || {}).filter(([k]) => !ids.includes(k)));
+  return { tanks: open ? [...new Set([...(req.tanks || []), ...ids])] : ids, at: open ? req.at : new Date().toISOString(),
+    by: state.device?.operator || 'a phone', results };
+}
+
 function photoBefore(s, t) {
   const req = s.data.beforePhoto;
-  const mine = req && (req.tanks || []).includes(t.tank);
-  const res = mine && req.answeredAt ? (req.results || {})[t.tank] : null;
-  const shot = !stockProof(t.before)?.live && fromServer(t.before);
-  if (mine && !req.answeredAt) {
-    return `<div class="hint" style="margin-top:8px">📷 Taking the photo of its stock before (asked ${fmtTime(req.at)}) — keep the valves shut until it's in, about a minute.</div>`;
+  const res = (req?.results || {})[t.tank];
+  if (req && !req.answeredAt && (req.tanks || []).includes(t.tank)) {
+    return `<div class="hint" style="margin-top:8px">📷 The server is photographing its stock before (since ${fmtTime(req.at)}) — keep the valves shut until it's in, about a minute.</div>`;
   }
-  if (res?.ok) return `<div class="audit ok" style="margin-top:8px">✓ Stock before photographed at ${fmtTime(res.at)} (${fmtL(res.volume, 2)}) — open the valves; it starts by itself.</div>`;
-  return `${res && !res.ok ? `<div class="banner" style="margin:8px 0 0">${esc(res.message)}.</div>` : ''}
-    <div class="row-actions" style="justify-content:flex-start"><button class="cta sm" data-photo="${t.tank}">📷 Photo of its stock before</button></div>
-    <div class="hint">${shot ? 'Its stock before has a photo. Take a new one if it has sold since — ' : 'Tap before opening the valves: '}the server photographs its card (about a minute), then open them; it starts by itself when its stock rises.</div>`;
+  if (res && !res.ok) {
+    return `<div class="banner" style="margin:8px 0 0">${esc(res.message)}.</div>
+      <div class="row-actions" style="justify-content:flex-start"><button class="btn sm" data-photo="${t.tank}">📷 Try the photo again</button></div>
+      <div class="hint">Or take its stock with 📷 Screenshot or ✎ Type above, then open the valves.</div>`;
+  }
+  if (stockProof(t.before)?.live) {
+    return `<div class="hint" style="margin-top:8px">📷 The server photographs its stock before by itself — keep the valves shut until it's in.
+      <button class="btn sm ghost" data-photo="${t.tank}">Take it now</button></div>`;
+  }
+  return '';
 }
 
 // "Start automatic decantation" asked, not taken up yet (nor refused): the valves wait for it
@@ -779,9 +795,7 @@ async function startFromTruck(s, p) {
   const joined = into.filter((x) => !toStart.includes(x.id));
   if (toStart.length && runByServer(s)) {
     // the server starts it when its stock rises: first, a photo of its stock before (valves shut till it's in)
-    const req = d.beforePhoto;
-    const asked = req && !req.answeredAt ? [...new Set([...(req.tanks || []), ...toStart])] : toStart;
-    d.beforePhoto = { tanks: asked, at: req && !req.answeredAt ? req.at : new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    d.beforePhoto = photoAsk(d.beforePhoto, toStart);
     await persist(s);
     toast(`${toStart.map(tankName).join(' & ')}: the server photographs the stock before — open the valves once it says so.`, 6000);
     return;
@@ -1102,9 +1116,7 @@ async function onClick(e) {
   if (photo) {
     s = latest(s);
     if (!runByServer(s)) return;
-    const req = s.data.beforePhoto;
-    const tanksAsked = req && !req.answeredAt ? [...new Set([...(req.tanks || []), photo.dataset.photo])] : [photo.dataset.photo];
-    s.data.beforePhoto = { tanks: tanksAsked, at: req && !req.answeredAt ? req.at : new Date().toISOString(), by: state.device?.operator || 'a phone' };
+    s.data.beforePhoto = photoAsk(s.data.beforePhoto, [photo.dataset.photo]);
     await persist(s);
     toast('Asked the tank stock server for the photo — keep the valves shut until it\'s in.', 5000);
     return;
