@@ -37,24 +37,38 @@ def test_template_regenerates_itself_exactly(prod):
 
 
 def test_ms_is_imported_as_cash_ms_not_ms_cash():
-    v = K.make_cash_sale("MS", "20261001", Decimal("10"), Decimal("109.01"), "Cash/MS/1Oct2026")
+    v = K.make_cash_sale("MS", "20261001", Decimal("10"), Decimal("109.01"), "Cash/MS/1Oct26")
     assert 'VCHTYPE="Cash MS"' in v
     assert _field(v, "VOUCHERTYPENAME") == "Cash MS" == _field(v, "VCHSTATUSVOUCHERTYPE")
     assert "MS Cash" not in v                      # the hand-entered type is never touched
 
 
 def test_cash_ms_number_is_the_date():
-    assert K.voucher_number("MS", dt.date(2026, 10, 1)) == "Cash/MS/1Oct2026"
-    assert K.voucher_number("MS", dt.date(2026, 12, 25)) == "Cash/MS/25Dec2026"
-    assert K.voucher_number("MS", dt.date(2027, 3, 9)) == "Cash/MS/9Mar2027"
-    assert K.voucher_number("HSD", dt.date(2026, 10, 1)) == "Cash/HSD/1Oct2026"
-    assert K.voucher_number("XG", dt.date(2026, 11, 30)) == "Cash/XG/30Nov2026"
+    assert K.voucher_number("MS", dt.date(2026, 10, 1)) == "Cash/MS/1Oct26"
+    assert K.voucher_number("MS", dt.date(2026, 12, 25)) == "Cash/MS/25Dec26"
+    assert K.voucher_number("MS", dt.date(2027, 3, 9)) == "Cash/MS/9Mar27"
+    assert K.voucher_number("HSD", dt.date(2026, 10, 1)) == "Cash/HSD/1Oct26"
+    assert K.voucher_number("XG", dt.date(2026, 11, 30)) == "Cash/XG/30Nov26"
+
+
+def test_every_number_fits_tallys_16_character_limit():
+    # Tally: "The voucher number should not exceed 16 characters".
+    day, longest = dt.date(2026, 4, 1), {}
+    while day <= dt.date(2028, 3, 31):
+        for prod in K.PRODUCTS:
+            n = K.voucher_number(prod, day)
+            longest[prod] = max(longest.get(prod, 0), len(n))
+        day += dt.timedelta(days=1)
+    assert max(longest.values()) <= K.MAX_VOUCHER_NO == 16
+    assert K.voucher_number("HSD", dt.date(2026, 10, 30)) == "Cash/HSD/30Oct26"      # 16 exactly
+    with pytest.raises(ValueError):
+        K.make_cash_sale("MS", "20261030", Decimal("1"), Decimal("109.01"), "Cash/MS/30Oct2026")
 
 
 def test_cash_sale_fields_and_balance():
-    v = K.make_cash_sale("MS", "20261005", Decimal("250.500"), Decimal("109.01"), "Cash/MS/5Oct2026")
+    v = K.make_cash_sale("MS", "20261005", Decimal("250.500"), Decimal("109.01"), "Cash/MS/5Oct26")
     assert _field(v, "DATE") == "20261005" and _field(v, "EFFECTIVEDATE") == "20261005"
-    assert _field(v, "VOUCHERNUMBER") == "Cash/MS/5Oct2026"
+    assert _field(v, "VOUCHERNUMBER") == "Cash/MS/5Oct26"
     assert _field(v, "VOUCHERTYPENAME") == "Cash MS"
     assert _field(v, "NUMBERINGSTYLE") == "Automatic (Manual Override)"
     assert _field(v, "STOCKITEMNAME") == "Motor Spirit"
@@ -70,10 +84,10 @@ def test_cash_sale_fields_and_balance():
 
 
 def test_amount_rounds_half_up_like_the_books():
-    v = K.make_cash_sale("HSD", "20261001", Decimal("0.5"), Decimal("100.01"), "Cash/HSD/1Oct2026")
+    v = K.make_cash_sale("HSD", "20261001", Decimal("0.5"), Decimal("100.01"), "Cash/HSD/1Oct26")
     assert "<AMOUNT>50.01</AMOUNT>" in v           # 50.005 -> 50.01 (not banker's 50.00)
     assert "<RATE>100.01/LTR</RATE>" in v
-    v = K.make_cash_sale("XG", "20261001", Decimal("1"), Decimal("106.345"), "Cash/XG/1Oct2026")
+    v = K.make_cash_sale("XG", "20261001", Decimal("1"), Decimal("106.345"), "Cash/XG/1Oct26")
     assert "<RATE>106.345/LTR</RATE>" in v and "<AMOUNT>106.35</AMOUNT>" in v
     assert "<LEDGERNAME>SALE (HSD)</LEDGERNAME>" in v      # XG posts to SALE (HSD), as in the books
 
@@ -122,15 +136,15 @@ def test_every_product_numbered_by_its_date(tmp_path):
     rows, _ = K.read_workbook(p)
     vouchers, entries, summary = K.process(rows)
     nos = {(e["product"], e["date"]): e["voucher_no"] for e in entries}
-    assert nos == {("MS", "01-10-2026"): "Cash/MS/1Oct2026", ("MS", "02-10-2026"): "Cash/MS/2Oct2026",
-                   ("HSD", "01-10-2026"): "Cash/HSD/1Oct2026", ("HSD", "03-10-2026"): "Cash/HSD/3Oct2026",
-                   ("XG", "03-10-2026"): "Cash/XG/3Oct2026"}
+    assert nos == {("MS", "01-10-2026"): "Cash/MS/1Oct26", ("MS", "02-10-2026"): "Cash/MS/2Oct26",
+                   ("HSD", "01-10-2026"): "Cash/HSD/1Oct26", ("HSD", "03-10-2026"): "Cash/HSD/3Oct26",
+                   ("XG", "03-10-2026"): "Cash/XG/3Oct26"}
     assert all(e["status"] == "ok" for e in entries)
     # Same date, different products -> different numbers, each in its own type.
     assert [_field(v, "VOUCHERTYPENAME") for v in vouchers] == \
         ["Cash MS", "Cash MS", "HSD CASH", "HSD CASH", "XG CASH"]
-    assert summary["products"]["MS"]["first"] == "Cash/MS/1Oct2026"
-    assert summary["products"]["HSD"]["last"] == "Cash/HSD/3Oct2026"
+    assert summary["products"]["MS"]["first"] == "Cash/MS/1Oct26"
+    assert summary["products"]["HSD"]["last"] == "Cash/HSD/3Oct26"
     assert summary["n_vouchers"] == 5 and summary["all_balance"]
     assert summary["products"]["MS"]["total_amount"] == "32703.00"             # 300 x 109.01
 
@@ -142,7 +156,7 @@ def test_two_rows_on_one_day_cannot_share_a_number(tmp_path, prod):
                                     [dt.date(2026, 10, 2), 50, 104.5]]})
     rows, _ = K.read_workbook(p)
     vouchers, entries, summary = K.process(rows)
-    assert [e["voucher_no"] for e in entries] == [f"Cash/{prod}/1Oct2026", "", f"Cash/{prod}/2Oct2026"]
+    assert [e["voucher_no"] for e in entries] == [f"Cash/{prod}/1Oct26", "", f"Cash/{prod}/2Oct26"]
     assert entries[1]["status"] == "error" and "combine" in entries[1]["note"]
     assert len(vouchers) == 2
 
@@ -157,7 +171,7 @@ def test_server_cash_run_writes_xml(tmp_path, monkeypatch):
     res = SV.run_cash({"name": "cash.xlsx", "b64": b64})
     assert res["summary"]["n_vouchers"] == 2
     xml = open(tmp_path / "out" / "cash_sales.xml", encoding="utf-8").read()
-    assert "<VOUCHERNUMBER>Cash/MS/1Oct2026</VOUCHERNUMBER>" in xml and 'VCHTYPE="Cash MS"' in xml
-    assert "<VOUCHERNUMBER>Cash/HSD/1Oct2026</VOUCHERNUMBER>" in xml and "<TALLYMESSAGE" in xml
+    assert "<VOUCHERNUMBER>Cash/MS/1Oct26</VOUCHERNUMBER>" in xml and 'VCHTYPE="Cash MS"' in xml
+    assert "<VOUCHERNUMBER>Cash/HSD/1Oct26</VOUCHERNUMBER>" in xml and "<TALLYMESSAGE" in xml
     assert 'VCHTYPE="HSD CASH"' in xml
     assert set(SV.cash_view()["products"]) == {"MS", "HSD", "XG"}
