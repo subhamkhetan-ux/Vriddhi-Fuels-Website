@@ -177,7 +177,7 @@ create table if not exists public.ledger_imports (
 -- Phase 4: payments logged from the /payments app are an import kind too.
 alter table public.ledger_imports drop constraint if exists ledger_imports_kind_check;
 alter table public.ledger_imports add constraint ledger_imports_kind_check
-  check (kind in ('master_ledger', 'daybook', 'payments_app'));
+  check (kind in ('master_ledger', 'daybook', 'payments_app', 'tanker_billing'));
 
 -- Phase 4: payments-app entries you chose not to count in the ledger
 -- (e.g. test entries). Only the ledger's view — the payments app isn't touched.
@@ -218,6 +218,38 @@ create table if not exists public.ledger_settings (
   key        text primary key,
   value      jsonb not null default 'null'::jsonb,
   updated_at timestamptz not null default now()
+);
+
+-- Quotes: the PI Log of the Tanker Billing workbook. One row per Proforma
+-- Invoice made (in the app, or in Excel and brought in with Quotes → Import),
+-- one per PI No. (case and spaces ignored). id is the sheet's Log ID; doc
+-- keeps the customer's address / payment lines as printed, for reprints.
+create table if not exists public.ledger_proforma (
+  id          int primary key,
+  pi_no       text not null,
+  pi_key      text generated always as (lower(btrim(pi_no))) stored unique,
+  pi_date     date,
+  valid_to    date,
+  customer    text not null default '',
+  gstin       text not null default '',
+  place       text not null default '',
+  po_no       text not null default '',
+  po_date     date,
+  description text not null default '',
+  hsn         text not null default '',
+  qty         numeric,
+  rate        numeric,
+  rsp         numeric,
+  sub_total   numeric,
+  round_off   numeric,
+  grand_total numeric,
+  points      numeric,
+  words       text not null default '',
+  contact     text not null default '',
+  printed_at  timestamptz not null default now(),
+  printed_by  text not null default '',
+  source      text not null default 'app' check (source in ('app', 'workbook')),
+  doc         jsonb
 );
 
 
@@ -332,7 +364,7 @@ declare t text;
 begin
   foreach t in array array['ledger_customers', 'ledger_bulk_groups', 'ledger_sales', 'ledger_payments',
                            'ledger_po', 'ledger_opening', 'ledger_imports', 'ledger_settings',
-                           'ledger_tanker_customers', 'ledger_payments_app_discarded'] loop
+                           'ledger_tanker_customers', 'ledger_payments_app_discarded', 'ledger_proforma'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
@@ -1045,14 +1077,16 @@ begin
 end $$;
 
 -- Settings you change in the app (not from the workbook): the stamps printed
--- on fuel slips and on statements, and the company name on the fuel slips
+-- on fuel slips, statements, proforma invoices and quotations, and the company name on the fuel slips
 -- ({name, fy}: kept across Master Ledger uploads, the bill's financial year
 -- added when fy is set). Only these keys; a picture up to about 500 KB.
 create or replace function public.ledger_setting_set(p_key text, p_value jsonb)
 returns void language plpgsql set search_path = public as $$
 begin
   perform ledger_assert_member();
-  if p_key not in ('slip_stamp', 'statement_stamp', 'slip_company') then raise exception 'Unknown setting %.', p_key; end if;
+  if p_key not in ('slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp') then
+    raise exception 'Unknown setting %.', p_key;
+  end if;
   if length(coalesce(p_value::text, '')) > 700000 then raise exception 'That picture is too big (keep it under 500 KB).'; end if;
   if p_value is null or p_value = 'null'::jsonb then
     delete from ledger_settings where key = p_key;
@@ -1277,6 +1311,193 @@ begin
                 from ledger_payments p where p.customer_key = c.customer_key and p.pay_date between p_from and p_to), '[]'::jsonb),
     'first', (select min(d) from (select min(sale_date) as d from ledger_sales where customer_key = c.customer_key
                                   union all select min(pay_date) from ledger_payments where customer_key = c.customer_key) x));
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Quotes: Tanker Billing workbook, Proforma Invoices (PI Log)
+-- ---------------------------------------------------------------------
+
+-- Quotes → Import (the Tanker Billing workbook):
+--   customers  the Customers table — replaces the Tanker Master (as a Master
+--              Ledger upload does), so Daily Tanker Bills use it too
+--   data       rate card, product rates, XtraPower figures, the Quotation
+--              Maker's inputs and both sheets' wording -> setting tanker_billing
+--   images     the sheets' letterheads and stamps (data: URLs) -> settings
+--   pi_log     the PI Log sheet: PI Nos. not in the app are added, ones that
+--              came from an earlier import are updated, ones made in the app
+--              are kept as they are. data.pi_check is the app's comparison of
+--              that sheet with the log before the import (shown on Quotes → PI Log).
+create or replace function public.ledger_tanker_import(p_file_name text, p_payload jsonb)
+returns jsonb language plpgsql set search_path = public as $$
+declare
+  v_import bigint;
+  v_cust   int := 0;
+  v_new    int := 0;
+  v_upd    int := 0;
+  v_kept   int := 0;
+  v_img    int := 0;
+  r        record;
+  v_old    ledger_proforma%rowtype;
+  v_id     int;
+  k        text;
+begin
+  perform ledger_assert_member();
+  if jsonb_typeof(p_payload -> 'data') is distinct from 'object' then
+    raise exception 'Nothing to import — choose the Tanker Billing workbook.';
+  end if;
+  insert into ledger_imports (kind, file_name, by_email)
+  values ('tanker_billing', coalesce(p_file_name, ''), coalesce(auth.jwt() ->> 'email', ''))
+  returning id into v_import;
+
+  if jsonb_array_length(coalesce(p_payload -> 'customers', '[]'::jsonb)) > 0 then
+    delete from ledger_tanker_customers where true;
+    insert into ledger_tanker_customers (company, hsd_rate, address, payment, po_label, po_no, price_tier, seq)
+    select distinct on (btrim(x.company)) btrim(x.company), x.hsd_rate, coalesce(x.address, '{}'),
+           coalesce(x.payment, '{}'), coalesce(x.po_label, ''), coalesce(x.po_no, ''),
+           coalesce(x.price_tier, ''), t.n::int
+    from jsonb_array_elements(p_payload -> 'customers') with ordinality as t(v, n),
+         jsonb_to_record(t.v) as x(company text, hsd_rate numeric, address text[], payment text[],
+                                   po_label text, po_no text, price_tier text)
+    where btrim(coalesce(x.company, '')) <> ''
+    order by btrim(x.company), t.n;
+    get diagnostics v_cust = row_count;
+  end if;
+
+  insert into ledger_settings as st (key, value, updated_at)
+  values ('tanker_billing', (p_payload -> 'data') || jsonb_build_object('file_name', coalesce(p_file_name, ''),
+          'imported_at', now(), 'by_email', coalesce(auth.jwt() ->> 'email', '')), now())
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+
+  foreach k in array array['pi_letterhead', 'pi_stamp', 'quote_letterhead', 'quote_stamp'] loop
+    if coalesce(p_payload -> 'images' ->> k, '') like 'data:image/%' then
+      if length(p_payload -> 'images' ->> k) > 2000000 then
+        raise exception 'The % picture in the workbook is too big (keep it under 1.5 MB).', k;
+      end if;
+      insert into ledger_settings (key, value, updated_at)
+      values (k, jsonb_build_object('data_url', p_payload -> 'images' ->> k, 'name', 'Tanker Billing workbook'), now())
+      on conflict (key) do update set value = excluded.value, updated_at = now();
+      v_img := v_img + 1;
+    end if;
+  end loop;
+
+  for r in
+    select x.*
+    from jsonb_to_recordset(coalesce(p_payload -> 'pi_log', '[]'::jsonb)) as x(
+      log_id int, pi_no text, pi_date date, valid_to date, customer text, gstin text, place text, po_no text,
+      po_date date, description text, hsn text, qty numeric, rate numeric, rsp numeric, sub_total numeric,
+      round_off numeric, grand_total numeric, points numeric, words text, contact text,
+      printed_at timestamptz, printed_by text)
+    where btrim(coalesce(x.pi_no, '')) <> ''
+  loop
+    select * into v_old from ledger_proforma where pi_key = lower(btrim(r.pi_no));
+    if found and v_old.source = 'app' then
+      v_kept := v_kept + 1;
+      continue;
+    end if;
+    if found and (v_old.pi_date, v_old.valid_to, v_old.customer, v_old.gstin, v_old.place, v_old.po_no, v_old.po_date,
+                  v_old.description, v_old.hsn, v_old.qty, v_old.rate, v_old.rsp, v_old.sub_total, v_old.round_off,
+                  v_old.grand_total, v_old.points, v_old.words, v_old.contact, v_old.printed_by)
+       is not distinct from
+                 (r.pi_date, r.valid_to, coalesce(r.customer, ''), coalesce(r.gstin, ''), coalesce(r.place, ''),
+                  coalesce(r.po_no, ''), r.po_date, coalesce(r.description, ''), coalesce(r.hsn, ''), r.qty, r.rate, r.rsp,
+                  r.sub_total, r.round_off, r.grand_total, r.points, coalesce(r.words, ''), coalesce(r.contact, ''),
+                  coalesce(r.printed_by, '')) then
+      continue;                                              -- same as last time: nothing to refresh
+    end if;
+    if found then
+      v_id := v_old.id;
+      v_upd := v_upd + 1;
+    else
+      v_id := case when r.log_id is not null and r.log_id > 0
+                    and not exists (select 1 from ledger_proforma where id = r.log_id) then r.log_id
+                   else (select coalesce(max(id), 0) + 1 from ledger_proforma) end;
+      v_new := v_new + 1;
+    end if;
+    insert into ledger_proforma as p (id, pi_no, pi_date, valid_to, customer, gstin, place, po_no, po_date, description, hsn,
+                                      qty, rate, rsp, sub_total, round_off, grand_total, points, words, contact,
+                                      printed_at, printed_by, source, doc)
+    values (v_id, btrim(r.pi_no), r.pi_date, r.valid_to, coalesce(r.customer, ''), coalesce(r.gstin, ''),
+            coalesce(r.place, ''), coalesce(r.po_no, ''), r.po_date, coalesce(r.description, ''), coalesce(r.hsn, ''),
+            r.qty, r.rate, r.rsp, r.sub_total, r.round_off, r.grand_total, r.points, coalesce(r.words, ''),
+            coalesce(r.contact, ''), coalesce(r.printed_at, now()), coalesce(r.printed_by, ''), 'workbook', null)
+    on conflict (id) do update set
+      pi_no = excluded.pi_no, pi_date = excluded.pi_date, valid_to = excluded.valid_to, customer = excluded.customer,
+      gstin = excluded.gstin, place = excluded.place, po_no = excluded.po_no, po_date = excluded.po_date,
+      description = excluded.description, hsn = excluded.hsn, qty = excluded.qty, rate = excluded.rate, rsp = excluded.rsp,
+      sub_total = excluded.sub_total, round_off = excluded.round_off, grand_total = excluded.grand_total,
+      points = excluded.points, words = excluded.words, contact = excluded.contact, printed_at = excluded.printed_at,
+      printed_by = excluded.printed_by, source = 'workbook', doc = null;
+  end loop;
+
+  -- the app's check of Excel's PI Log against its own (kept with the data above)
+  update ledger_imports set counts = jsonb_build_object('customers', v_cust, 'pi_new', v_new, 'pi_updated', v_upd,
+           'pi_kept', v_kept, 'images', v_img,
+           'pi_differ', jsonb_array_length(coalesce(p_payload -> 'data' -> 'pi_check' -> 'differ', '[]'::jsonb)),
+           'pi_not_in_excel', jsonb_array_length(coalesce(p_payload -> 'data' -> 'pi_check' -> 'missing_in_excel', '[]'::jsonb)))
+  where id = v_import;
+  return jsonb_build_object('customers', v_cust, 'pi_new', v_new, 'pi_updated', v_upd, 'pi_kept', v_kept,
+                            'images', v_img, 'import_id', v_import);
+end $$;
+
+create or replace function public.ledger_pi_list()
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  return coalesce((select jsonb_agg(to_jsonb(p) - 'pi_key' order by p.id) from ledger_proforma p), '[]'::jsonb);
+end $$;
+
+-- Print & Log PI (the PrintAndLogPI macro): PI No., buyer and quantity are
+-- needed; a PI No. already in the log comes back as {status: 'exists'} with
+-- that entry, unless p_replace — then the entry is rewritten under its own
+-- Log ID. A new PI gets the next Log ID.
+create or replace function public.ledger_pi_save(p_pi jsonb, p_replace boolean default false)
+returns jsonb language plpgsql set search_path = public as $$
+declare
+  v_no  text := btrim(coalesce(p_pi ->> 'pi_no', ''));
+  v_old ledger_proforma%rowtype;
+  v_id  int;
+  v_row ledger_proforma%rowtype;
+  v_found boolean;
+begin
+  perform ledger_assert_member();
+  if v_no = '' then raise exception 'Proforma Invoice No. is blank.'; end if;
+  if btrim(coalesce(p_pi ->> 'customer', '')) = '' then raise exception 'Buyer is blank.'; end if;
+  if coalesce((p_pi ->> 'qty')::numeric, 0) <= 0 then raise exception 'Quantity is missing or zero.'; end if;
+  lock table ledger_proforma in share row exclusive mode;
+  select * into v_old from ledger_proforma where pi_key = lower(v_no);
+  v_found := found;
+  if v_found and not coalesce(p_replace, false) then
+    return jsonb_build_object('status', 'exists', 'existing', to_jsonb(v_old) - 'pi_key');
+  end if;
+  v_id := case when v_found then v_old.id else (select coalesce(max(id), 0) + 1 from ledger_proforma) end;
+  insert into ledger_proforma as p (id, pi_no, pi_date, valid_to, customer, gstin, place, po_no, po_date, description, hsn,
+                                    qty, rate, rsp, sub_total, round_off, grand_total, points, words, contact,
+                                    printed_at, printed_by, source, doc)
+  values (v_id, v_no, (p_pi ->> 'pi_date')::date, (p_pi ->> 'valid_to')::date, btrim(p_pi ->> 'customer'),
+          coalesce(p_pi ->> 'gstin', ''), coalesce(p_pi ->> 'place', ''), coalesce(p_pi ->> 'po_no', ''),
+          nullif(p_pi ->> 'po_date', '')::date, coalesce(p_pi ->> 'description', ''), coalesce(p_pi ->> 'hsn', ''),
+          (p_pi ->> 'qty')::numeric, (p_pi ->> 'rate')::numeric, (p_pi ->> 'rsp')::numeric,
+          (p_pi ->> 'sub_total')::numeric, (p_pi ->> 'round_off')::numeric, (p_pi ->> 'grand_total')::numeric,
+          (p_pi ->> 'points')::numeric, coalesce(p_pi ->> 'words', ''), coalesce(p_pi ->> 'contact', ''),
+          now(), coalesce(nullif(p_pi ->> 'printed_by', ''), auth.jwt() ->> 'email', ''), 'app',
+          case when jsonb_typeof(p_pi -> 'doc') = 'object' then p_pi -> 'doc' end)
+  on conflict (id) do update set
+    pi_no = excluded.pi_no, pi_date = excluded.pi_date, valid_to = excluded.valid_to, customer = excluded.customer,
+    gstin = excluded.gstin, place = excluded.place, po_no = excluded.po_no, po_date = excluded.po_date,
+    description = excluded.description, hsn = excluded.hsn, qty = excluded.qty, rate = excluded.rate, rsp = excluded.rsp,
+    sub_total = excluded.sub_total, round_off = excluded.round_off, grand_total = excluded.grand_total,
+    points = excluded.points, words = excluded.words, contact = excluded.contact, printed_at = excluded.printed_at,
+    printed_by = excluded.printed_by, source = 'app', doc = excluded.doc
+  returning * into v_row;
+  return jsonb_build_object('status', case when v_found then 'replaced' else 'logged' end, 'row', to_jsonb(v_row) - 'pi_key');
+end $$;
+
+create or replace function public.ledger_pi_delete(p_id int)
+returns void language plpgsql set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  delete from ledger_proforma where id = p_id;
+  if not found then raise exception 'No PI Log entry %.', p_id; end if;
 end $$;
 
 -- ---------------------------------------------------------------------

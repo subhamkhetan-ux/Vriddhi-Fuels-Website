@@ -704,3 +704,109 @@ def test_customer_ledgers(pg):
     assert "No bulk ledger" in pg.fails(call("ledger_account", None, "Nope_Bulk", None, None), **as_owner)
     assert "permission denied" in pg.fails(call("ledger_account", None, "Demo_Bulk", None, None), anon=True)
     assert "member" in pg.fails(call("ledger_account", None, "Demo_Bulk", None, None), user=STRANGER, email="stranger@example.com").lower()
+
+
+# ---------------------------------------------------------------------------
+# Quotes: Tanker Billing import and the PI Log
+# ---------------------------------------------------------------------------
+def _tb_payload(**over):
+    p = {
+        "customers": [
+            {"company": "Demo Power Ltd", "hsd_rate": 90.5, "address": ["At- Demo", "Testpur", "GSTIN: 00DEMO"],
+             "payment": ["Payment Details:", "Account No. – 0000", "IFSC Code – DEMO0", "Branch Name – DEMO", "Beneficiary Name – Demo"],
+             "po_label": "P.O. No.:", "po_no": "DP-1", "price_tier": "Bulk Price"},
+            {"company": "Crew One Logistics", "hsd_rate": 91, "address": ["Camp", "", ""], "payment": [], "price_tier": "HSD RSP"},
+        ],
+        "data": {"rate_card": [{"tier": "HSD RSP", "rate": 91, "rsp_offset": None}], "xp": {"points": 40, "tds": 0.1, "net": 36},
+                 "hsd_rsp": 91, "quote": {"valid_till": "Next revision"}, "texts": {"quotation": {}, "proforma": {}}},
+        "images": {"pi_stamp": "data:image/png;base64,AAAA", "quote_letterhead": "not a picture"},
+        "pi_log": [
+            {"log_id": 1, "pi_no": "PI/2026-27/001", "pi_date": "2026-08-17", "valid_to": "2026-08-31", "customer": "Demo Power Ltd",
+             "qty": 12000, "rate": 90, "rsp": 91, "grand_total": 1080000, "points": 0, "words": "Rupees Ten Lakh Eighty Thousand Only",
+             "printed_at": "2026-08-17T08:43:03+05:30", "printed_by": "Excel user"},
+            {"log_id": 2, "pi_no": "PI/2026-27/002", "pi_date": "2026-08-20", "customer": "Crew One Logistics", "qty": 3000, "rate": 91},
+        ],
+    }
+    p.update(over)
+    return p
+
+
+def test_tanker_billing_import_and_pi_log(pg):
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    res = pg.owner(call("ledger_tanker_import", "Tanker Billing.xlsm", _tb_payload()))
+    assert (res["customers"], res["pi_new"], res["pi_updated"], res["pi_kept"], res["images"]) == (2, 2, 0, 0, 1)
+    tanker = pg.owner(call("ledger_tanker_list"))
+    assert [t["company"] for t in tanker] == ["Demo Power Ltd", "Crew One Logistics"]
+    assert tanker[0]["po_no"] == "DP-1"
+    tb = pg.owner(call("ledger_setting_get", "tanker_billing"))
+    assert tb["hsd_rsp"] == 91 and tb["file_name"] == "Tanker Billing.xlsm" and tb["by_email"] == "owner@example.com"
+    assert pg.owner(call("ledger_setting_get", "pi_stamp"))["data_url"].startswith("data:image/png")
+    assert pg.ok("select ledger_setting_get('quote_letterhead') is null;", **as_owner) == "t"     # not a picture: skipped
+    log = pg.owner(call("ledger_pi_list"))
+    assert [(r["id"], r["pi_no"], r["source"]) for r in log] == [(1, "PI/2026-27/001", "workbook"), (2, "PI/2026-27/002", "workbook")]
+    assert "pi_key" not in log[0]
+
+    # Print & Log PI: a new PI No. gets the next Log ID
+    pi = {"pi_no": "PI/2026-27/003", "pi_date": "2026-11-03", "valid_to": "2026-11-15", "customer": "Demo Power Ltd",
+          "gstin": "GSTIN: 00DEMO", "place": "Odisha (21)", "po_no": "DP-1", "description": "High Speed Diesel (HSD)",
+          "hsn": "27101930", "qty": 40000, "rate": 90, "rsp": 91, "sub_total": 3600000, "round_off": 0, "grand_total": 3600000,
+          "points": 0, "words": "Rupees Thirty Six Lakh Only", "contact": "Contact Person / Mob:",
+          "doc": {"address": ["At- Demo", "Testpur", "GSTIN: 00DEMO"], "payment": []}}
+    res = pg.owner(call("ledger_pi_save", pi, False))
+    assert res["status"] == "logged" and res["row"]["id"] == 3 and res["row"]["printed_by"] == "owner@example.com"
+    assert res["row"]["doc"]["address"][0] == "At- Demo"
+
+    # the same PI No. (case and spaces ignored) comes back as "exists" until replacing is asked for
+    again = dict(pi, pi_no=" pi/2026-27/003 ", qty=30000, grand_total=2700000)
+    res = pg.owner(call("ledger_pi_save", again, False))
+    assert res["status"] == "exists" and res["existing"]["id"] == 3 and float(res["existing"]["qty"]) == 40000
+    res = pg.owner(call("ledger_pi_save", again, True))
+    assert res["status"] == "replaced" and res["row"]["id"] == 3 and float(res["row"]["qty"]) == 30000
+    assert len(pg.owner(call("ledger_pi_list"))) == 3
+
+    for bad, msg in [({"pi_no": " "}, "Proforma Invoice No. is blank"), ({"customer": ""}, "Buyer is blank"),
+                     ({"qty": 0}, "Quantity is missing or zero")]:
+        assert msg in pg.fails(call("ledger_pi_save", {**pi, "pi_no": "PI/X/9", **bad}, False), **as_owner)
+
+    # an import again: Excel's own PIs refresh, a PI made in the app is kept
+    p = _tb_payload(customers=[], images={})
+    p["pi_log"][0]["qty"] = 15000
+    p["pi_log"].append({"log_id": 3, "pi_no": "PI/2026-27/003", "pi_date": "2026-11-03", "customer": "Someone else", "qty": 1})
+    p["pi_log"].append({"log_id": 3, "pi_no": "PI/2026-27/004", "pi_date": "2026-11-04", "customer": "Crew One Logistics", "qty": 5})
+    p["data"]["pi_check"] = {"differ": [{"pi_no": "PI/2026-27/003"}], "missing_in_excel": [], "excel_nos": ["PI/2026-27/001"]}
+    res = pg.owner(call("ledger_tanker_import", "Tanker Billing v2.xlsm", p))
+    assert (res["customers"], res["pi_new"], res["pi_updated"], res["pi_kept"]) == (0, 1, 1, 1)   # 002 unchanged
+    assert pg.owner(call("ledger_setting_get", "tanker_billing"))["pi_check"]["excel_nos"] == ["PI/2026-27/001"]
+    counts = pg.owner(call("ledger_imports_list", 1))[0]["counts"]
+    assert (counts["pi_differ"], counts["pi_not_in_excel"]) == (1, 0)
+    log = {r["pi_no"].upper(): r for r in pg.owner(call("ledger_pi_list"))}
+    assert float(log["PI/2026-27/001"]["qty"]) == 15000
+    assert log["PI/2026-27/003"]["customer"] == "Demo Power Ltd" and log["PI/2026-27/003"]["source"] == "app"
+    assert log["PI/2026-27/004"]["id"] == 4                     # its Log ID 3 was taken
+    assert len(pg.owner(call("ledger_tanker_list"))) == 2        # no customers in the file: Tanker Master left alone
+
+    pg.ok(call("ledger_pi_delete", 4), **as_owner)
+    assert "No PI Log entry" in pg.fails(call("ledger_pi_delete", 4), **as_owner)
+
+    # stamps for the quotation / proforma can be changed in the app
+    pg.ok(call("ledger_setting_set", "quote_stamp", {"data_url": "data:image/png;base64,BB"}), **as_owner)
+    assert pg.owner(call("ledger_setting_get", "quote_stamp"))["data_url"].endswith("BB")
+
+    imports = pg.owner(call("ledger_imports_list", 1))
+    assert imports[0]["kind"] == "tanker_billing" and imports[0]["counts"]["pi_new"] == 1
+    assert "Nothing to import" in pg.fails(call("ledger_tanker_import", "x.xlsm", {"customers": []}), **as_owner)
+
+    for fn in ("select ledger_pi_list();", "select ledger_pi_delete(1);"):
+        assert "permission denied" in pg.fails(fn, anon=True)
+    assert "not on the ledger members list" in pg.fails("select ledger_pi_list();", user=STRANGER, email="stranger@example.com")
+    assert pg.ok("select count(*) from ledger_proforma;", user=STRANGER, email="stranger@example.com") == "0"
+
+
+def test_tanker_import_counts_only_real_changes(pg):
+    p = _tb_payload(customers=[], images={})
+    p["pi_log"] = [{"log_id": 50, "pi_no": "PI/2030-31/001", "pi_date": "2030-05-01", "customer": "Demo Power Ltd", "qty": 10, "rate": 90}]
+    assert pg.owner(call("ledger_tanker_import", "a.xlsm", p))["pi_new"] == 1
+    res = pg.owner(call("ledger_tanker_import", "a.xlsm", p))                 # the same file again
+    assert (res["pi_new"], res["pi_updated"]) == (0, 0)
+    p["pi_log"][0]["qty"] = 11
+    assert pg.owner(call("ledger_tanker_import", "a.xlsm", p))["pi_updated"] == 1

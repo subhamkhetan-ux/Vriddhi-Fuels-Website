@@ -65,6 +65,30 @@ Master Ledger). Upload the
 stamp once on the Statements tab — it is kept in the database, not on the
 website.
 
+**Quotes** (the **Tanker Billing** workbook's *Quotation Maker*, *Proforma
+Invoice* and *PI Log* sheets, with its `PrintAndLogPI` / `ReprintPIs` macros):
+
+| Tanker Billing workbook | In the app |
+|---|---|
+| — (the workbook itself) | **Import Tanker Billing.xlsm** (on Quotes, or on Import). Read on this device: the **Customers** table (name, address lines, payment lines, PO label / no., price tier, HSD rate) — it becomes the **Tanker Master** too, so Daily Tanker Bills use it; the **RateCard** (a tier written as `=P2-0.74` is kept as *RSP − 0.74*), **ProductRates** and **FuelTypes**; the **IOCL HSD RSP** (`HSD_RSP`); the **XtraPower** figures (`XP_Points`, `XP_TDS`, `XP_Net`); the Quotation Maker's yellow inputs (Valid Till, Contact No., Email, Dispatch, Fleet); the fixed wording of both sheets (terms, notes, declaration, seller block — edit them in Excel and import again); both sheets' **letterheads and stamps** (kept in the database, not on the website); and the **PI Log**. The preview shows it all before anything is saved. Re-importing: PIs made in Excel are refreshed, PIs made in the app are kept as they are. |
+| **Quotation Maker** | **Quotes → Quotation.** Pick the customer (A5); date (I6), valid till (I5), contact no. (I7) and email (I8) start from the workbook. Every formula is the sheet's: the RSP (I12), the customer's offer / billing price (I13 — its tier's rate; change the RSP and tiers linked to it follow, typed-in tiers stay; or type a price), flat discount (I14), % of RSP (I15), XtraPower customer when *Payment 1* says XtraPower (I16), the XtraPower benefit `rate × XP_Net ÷ 10000` (I17) and effective price (I18); the opening paragraph (A12) with the XtraPower sentence, the price table (D17:E19, the remarks cell turning bold green for XtraPower as the sheet's conditional format does), the bank block (A26:C30 — the heading switches to the XtraPower account, each payment line split at its “–”) and the closing line with the contact no. and email (A33). **Download PDF**, **Share** (WhatsApp & co.) or **Print** — `<Customer's first two words> Quotation <d mmmm yyyy>.pdf`. (The sheet's Dispatch and Fleet Available inputs come in with the import but, as in Excel, aren't printed on the quotation.) |
+| **Proforma Invoice** + **Print & Log PI** | **Quotes → Proforma Invoice.** PI No. (G4 — the next number of the PI's financial year, e.g. `PI/2026-27/012`, is filled in), date (G5), **Valid Up To** worked out like G6 (the 15th for a PI dated 1st–15th, otherwise month-end), Buyer's P.O. No. (from the customer, editable) and date, place of supply, contact person, description (HSD / Petrol / XtraGreen / Lubricants — the rate follows: the customer's HSD rate, ProductRates, or typed), HSN, quantity, rate and RSP. Amount `TRUNC(qty × rate)`, round-off, grand total, the RSP / discount / net-price line (A24), the benefit line (A25), the XtraPower points line (A26: `grand ÷ 100 × XP_Net ÷ 100` points and the effective rate), **amount in words** (C27 — Crore / Lakh / Thousand, the sheet's own formula), consignee = buyer, payment lines 2–5. **Save PDF & log**, **Share & log** or **Print & log** do what the macro does: PI No., buyer and quantity must be there; a PI No. already in the log (case and spaces ignored) shows that entry and asks before **replacing** it under its own Log ID — *Cancel* makes nothing and logs nothing; otherwise it gets the next Log ID. File name `<first two words> PI <d mmmm yyyy>.pdf`, like the macro. |
+| **PI Log** sheet + **Reprint PIs** | **Quotes → PI Log.** The whole log: the Excel file's **PI Log** sheet (kept in the app from the import) and every PI made here, newest first, with the sheet's columns (Log ID, PI No., dates, customer, P.O., quantity, rate, IOCL RSP, discount = RSP − rate, totals, XtraPower points, effective rate = (grand − points) ÷ qty, printed on / by, and *Excel* or *app*). A PI made in the app is added to it, and the next PI No. on the Proforma screen is the one after the highest in it (still editable). To reprint, narrow it down by part of the customer's name and PI dates (or **Last 30 days**, the macro's default), then **Reprint (.zip)**, **Print all**, or one PI's **PDF** / **Print**. A reprint uses the PI's own rate, RSP and P.O. No.; a PI made in the app also keeps the address and payment lines it was printed with (one from Excel takes the customer's lines today, as Excel's reprint does). **Download log (Excel)** gives the sheet's columns; ✕ removes an entry. **PI Log check:** every import compares the file's PI Log sheet with the app's — in the preview before importing, and afterwards at the top of the PI Log (until the next import): PIs with different figures (each field, Excel's value and the app's, and which was kept — Excel's for a PI that came from an earlier import, the app's for a PI made here), PIs in the app but not in Excel's sheet (tagged *Not in Excel* in the list, with **Download them for Excel** to paste under the sheet's last row), and PI Nos. listed twice in Excel. When they don't match, the app says so as the import finishes and opens the PI Log; *Import → Recent uploads* notes it too. |
+
+The pages are drawn from the sheets' own print areas — column widths, row
+heights, merged cells, fonts, fills, borders, wrapping and justified text,
+the letterhead and stamp where Excel puts them — fitted to one A4 page as
+Excel prints them (the Proforma at 48%). The layout comes from
+[`js/sheet-layouts.js`](./js/sheet-layouts.js), made from the workbook by
+[`tanker/sheet_layouts.py`](../tanker/sheet_layouts.py) — run it again only if
+rows or columns of those sheets are moved; wording changes just need an
+import. The sheets use Aptos Narrow, which phones and browsers don't have:
+Roboto Condensed (Google Fonts) stands in for it, and text that still
+doesn't fit its cell is made a little smaller rather than spilling over.
+The stamps can also be changed on each screen (**Change stamp**). Needs
+[`supabase/ledger-schema.sql`](../supabase/ledger-schema.sql) run again once
+(the Quotes tab says so until then).
+
 **Home** opens with *Jai Shree Krishna* — a morpankh flies in, writes it and
 flies out (once each time the app opens; still for reduced-motion settings) —
 with today's date and the date the Master File is updated until (the latest
@@ -404,7 +428,10 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/render.js` | Draws the tanker bill (A4) and fuel slip (A5); makes PDFs, JPEGs and zips |
 | `js/statements.js` | Statement rules: ledger rows, bill statement, daily summaries, who gets what (Module1 / 2 / 6) |
 | `js/statement-svg.js` | Draws the ledger, bill statement and daily summary pages |
-| `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), logo for the ledger |
+| `js/quote.js` | Quotes: reads the Tanker Billing workbook; every formula of the Quotation Maker and Proforma Invoice; the PI Log rules |
+| `js/sheet-layouts.js` | The Quotation Maker / Proforma Invoice print areas (made by `tanker/sheet_layouts.py`) |
+| `js/sheet-svg.js` | Draws a sheet's print area as an A4 page, as Excel prints it |
+| `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), the quotation's letterhead, logo for the ledger |
 | `js/payin.js` | Reads the payments app's list for the Payments tab |
 | `js/dash.js` | Home dashboard figures (earnings, customers, outstanding, months) |
 | `js/charts.js` | The dashboard's SVG charts and their tooltips |
@@ -428,7 +455,7 @@ JSZip (cdnjs) for the bill and statement PDFs.
 ## Tests
 
 ```bash
-node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, ledger view + pictures, demo store, Tally viewer
+node --test 'tests/ledger_web/*.test.mjs'   # DayBook, PO rule, Master Ledger reader, bills, statements, ledger view + pictures, quotes, demo store, Tally viewer
 python -m pytest tests/test_ledger_web.py tests/test_ledger_schema.py -q
 ```
 

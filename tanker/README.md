@@ -121,3 +121,19 @@ python3 tanker/sync_tanker_billing.py --from-drive
 Dependencies: `openpyxl`, `google-api-python-client`, `google-auth`
 (all already in the repo's `requirements.txt`). Minting a token additionally
 uses `google-auth-oauthlib`, also already listed.
+
+## Quotation / Proforma layouts for the ledger app
+
+The ledger app (`/ledger/`, **Quotes** tab) makes quotations and proforma
+invoices from this workbook (imported in the browser). Their page layout —
+the **Quotation Maker** and **Proforma Invoice** sheets' column widths, row
+heights, merged cells, styles and wording — is kept in
+`ledger/js/sheet-layouts.js`. If you move rows or columns on those sheets,
+regenerate it:
+
+```bash
+python3 tanker/sheet_layouts.py "Tanker Billing.xlsm"
+```
+
+Only the design is copied (no customer or invoice data). Wording changes don't
+need this — they come in with every import.

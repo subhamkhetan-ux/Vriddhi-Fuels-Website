@@ -1,6 +1,7 @@
 // Made-up data for the demo (/ledger/?demo). Every name, vehicle, PO and
 // figure here is invented; nothing is read from or saved to anywhere.
 
+import { piValidTo } from './quote.js';
 import { fyOf } from './util.js';
 
 function rng(seed) {                      // small deterministic PRNG (mulberry32)
@@ -138,9 +139,39 @@ export function demoSeed(today = new Date()) {
     { entry_id: 'demo:upi:105', status: 'review', raw_payer: 'UNKNOWN PAYER', amount: 800, mode: 'UPI', date_serial: serialOf(isoDay(today, 0)) },
   ];
 
+  // a made-up Tanker Billing workbook (Quotes): customers on price tiers, one
+  // on XtraPower, and one Proforma Invoice already in the PI Log
+  const pay = ['Payment Details:', 'Account No. – 000000000000', 'IFSC Code – DEMO0000000', 'Branch Name – DEMO BANK, SAMPLE BRANCH', 'Beneficiary Name – Demo Fuels'];
+  const fy = fyOf(isoDay(today, -3));
+  const tankerBilling = {
+    customers: [
+      { company: 'Demo Power Ltd', hsd_rate: 90.52, address: ['At- Demo Industrial Estate', 'Post- Sampleganj, Via- Testpur.', 'GSTIN: 21AAACD0000A1Z1'], payment: pay, po_label: 'P.O. No.:', po_no: 'DP/26/0142', price_tier: 'Bulk Price' },
+      { company: 'Twin Steel Ltd, UNIT I', hsd_rate: 90.02, address: ['Unit I, Twin Steel Works', 'Sample Road, Testpur.', 'GSTIN: 21AAACT0000B1Z2'], payment: pay, po_label: 'P.O. No.:', po_no: '', price_tier: 'Twin Price' },
+      { company: 'Twin Steel Ltd, UNIT II', hsd_rate: 90.02, address: ['Unit II, Twin Steel Works', 'Sample Road, Testpur.', 'GSTIN: 21AAACT0000B1Z2'], payment: pay, po_label: 'P.O. No.:', po_no: '', price_tier: 'Twin Price' },
+      { company: 'Sample Metals Ltd', hsd_rate: 90.02, address: ['Sample Metals Plant', 'Testpur.', 'GSTIN : 21AAACS0000C1Z3'], payment: ['Payment Details for XtraPower Account:', 'Virtual Account No. – DEMOXP0000000000', 'IFS Code – DEMO0000001', 'Branch Name – DEMO BANK, HEAD OFFICE', 'Beneficiary Name – Demo Oil Company'], po_label: 'P.O. No.:', po_no: 'SM-2026-01', price_tier: 'Twin Price' },
+      { company: 'Crew One Logistics', hsd_rate: 91.02, address: ['Crew Camp, Sample Mines', 'Testpur.', ''], payment: pay, po_label: '', po_no: '', price_tier: 'HSD RSP' },
+    ],
+    data: {
+      rate_card: [{ tier: 'HSD RSP', rate: 91.02, rsp_offset: null }, { tier: 'Bulk Price', rate: 90.52, rsp_offset: -0.5 }, { tier: 'Twin Price', rate: 90.02, rsp_offset: null }],
+      product_rates: { 'Motor Spirit': 99.5, 'XtraGreen Diesel': 95.1 },
+      fuel_types: ['High Speed Diesel', 'Motor Spirit', 'XtraGreen Diesel'],
+      xp: { points: 40, tds: 0.1, net: 36 }, hsd_rsp: 91.02,
+      quote: { valid_till: 'Next price revision by IOCL', contact: '00000 00000', email: 'demo@example.com', dispatch: 'On realisation of advance payment', fleet: '12 KL tankers × 2' },
+      texts: { quotation: {}, proforma: { A4: 'DEMO FUELS', A7: 'GSTIN: 00DEMO0000D0Z0', A8: 'Mob: 00000 00000', A9: 'Email: demo@example.com' } },
+      pi_sheet: { place: 'Odisha (21)', hsn: '27101930', contact: 'Contact Person / Mob:', description: 'High Speed Diesel (HSD)' },
+    },
+    pi_log: [{
+      log_id: 1, pi_no: `PI/${fy}/001`, pi_date: isoDay(today, -3), valid_to: piValidTo(isoDay(today, -3)), customer: 'Demo Power Ltd', gstin: 'GSTIN: 21AAACD0000A1Z1',
+      place: 'Odisha (21)', po_no: 'DP/26/0142', po_date: isoDay(today, -4), description: 'High Speed Diesel (HSD)', hsn: '27101930',
+      qty: 12000, rate: 90.52, rsp: 91.02, sub_total: 1086240, round_off: 0, grand_total: 1086240, points: 0,
+      words: 'Rupees Ten Lakh Eighty Six Thousand Two Hundred Forty Only', contact: 'Contact Person / Mob:', printed_by: 'Demo',
+    }],
+  };
+
   return {
     payQueue,
     master: { fileName: 'Demo Master Ledger.xlsm', payload },
     daybooks: [{ fileName: `DayBook ${isoDay(today, -1)}.xlsx`, rows: lastRows }],
+    edits: [(api) => api.tankerImport('Demo Tanker Billing.xlsm', tankerBilling)],
   };
 }
