@@ -137,6 +137,13 @@ def test_a_full_read_of_a_reading_live_monitoring_sent_fills_in_its_figures(monk
     assert full[3]["ok"] and full[3]["mark"]["volume"] == 19552.05
     assert db.rows["T3"]["height"] == CARD3["height"] and db.rows["T3"]["volume"] == 19552.05
     assert db.rows["T3"]["readingAt"] == full[3]["mark"]["readingAt"]      # the same reading, its picture matches
+    # live monitoring's reading had no picture; the full read's has one (its mark): it isn't flagged any more
+    assert db.rows["T3"].get("picture") is None and "picture" not in full[3]["reading"]
+    # even when the figures were all there already (the picture is all the full read adds)
+    decant.upload({3: CARD3}, [3], CFG, only_volume=True)
+    db.rows["T3"]["picture"] = False
+    full = decant.upload({3: CARD3}, [3], CFG)
+    assert "picture" not in full[3]["reading"] and db.rows["T3"].get("picture") is None
 
 
 class FakeSession:

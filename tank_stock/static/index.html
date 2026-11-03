@@ -143,6 +143,15 @@
   .bar > span { display: block; height: 100%; background: var(--grad-cta); border-radius: 5px; box-shadow: 0 0 12px rgba(255,122,26,.6); }
   .ch { display: inline-block; border: 1px solid var(--glass-line); border-radius: 8px; padding: 1px 7px; margin: 6px 4px 0 0; font-size: 12px; font-weight: 700; }
   .ch.in { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  /* an automatic decantation: what to do next, and each chamber's numbers */
+  .next-step { margin: 8px 0 4px; padding: 8px 10px; border-radius: 10px; background: var(--chip); font-size: 14px; }
+  .next-step.act { background: var(--accent-soft); border: 1px solid var(--accent); font-weight: 700; }
+  .ch-lines { margin: 6px 0 2px; font-size: 13.5px; }
+  .ch-line { padding: 3px 0; border-bottom: 1px solid var(--glass-line-soft); }
+  .ch-line.in { color: var(--ok); }
+  .ch-line.going { font-weight: 700; }
+  .ch-line.move, .ch-line.open { color: var(--accent); font-weight: 700; }
+  .ch-line.next { color: var(--muted, #9aa); }
   .ask { border: 1px solid rgba(255,178,62,.6); border-radius: 14px; padding: 12px; margin: 12px 0; background: var(--mid-bg);
          box-shadow: 0 0 0 1px rgba(255,178,62,.15); }
   .ask label { display: flex; gap: 9px; align-items: center; padding: 5px 0; }

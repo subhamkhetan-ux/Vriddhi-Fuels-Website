@@ -863,9 +863,21 @@
       steps.appendChild(el("div", i < at || t.stage === "read" ? "done" : i === at ? "now" : "", name));
     }
     card.appendChild(steps);
-    const chs = el("div");
-    for (const no of t.chambers) chs.appendChild(el("span", `ch${t.arrived.includes(no) || t.stage === "settling" || t.stage === "read" ? " in" : ""}`, `C${no}`));
-    chs.appendChild(el("span", "note", ` ${kl(t.litres)}`));
+    // what to do next, and each chamber in the pipe's order: in, going in (how much in, how much left), next
+    if (t.next && ACTIVE.includes(a.phase)) card.appendChild(el("div", `next-step${/move the pipe|open the valve|Open C/i.test(t.next) ? " act" : ""}`, t.next));
+    const chs = el("div", "ch-lines");
+    for (const c of t.chamberRows || t.chambers.map((no) => ({ no, litres: null, got: 0, state: t.arrived.includes(no) ? "in" : "next" }))) {
+      const size = c.litres != null ? `${fmt(c.litres, 0)} L` : "";
+      const what = {
+        in: "in ✓",
+        going: `going in: ${fmt(c.got, 0)} L in, ≈${fmt(Math.max(0, c.litres - c.got), 0)} L left${t.chamberLeftS != null ? ` (~${Math.floor(t.chamberLeftS / 60)}:${String(t.chamberLeftS % 60).padStart(2, "0")} at ${fmt(t.flow, 0)} L/min)` : ""}`,
+        move: "next: move the pipe here and open its valve",
+        open: "first: open its valve",
+        next: "next",
+      }[c.state] || c.state;
+      chs.appendChild(el("div", `ch-line ${c.state}`, `C${c.no}${size ? ` · ${size}` : ""} — ${what}`));
+    }
+    chs.appendChild(el("div", "note", `${kl(t.litres)} planned into Tank ${t.no}`));
     card.appendChild(chs);
     const minis = el("div", "minis");
     const mini = (name, v, cls = "") => {

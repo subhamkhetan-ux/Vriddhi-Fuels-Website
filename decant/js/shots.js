@@ -175,11 +175,28 @@ export async function cloudPicture(path) {
 // screenshot that holds several tanks' readings shows once for all of them.
 // This phone's and the cloud's (any phone's, the agent's) count alike; each
 // picked one comes with its picture (shot.blob).
-export async function shotsFor(rows) {
+async function todaysAll() {
   const local = await todays();
   const ids = new Set(local.map((s) => s.id));
-  const shots = [...local, ...(await cloudTodays()).filter((s) => !ids.has(s.id))]
-    .sort((a, b) => a.at - b.at);                    // oldest first
+  return [...local, ...(await cloudTodays()).filter((s) => !ids.has(s.id))].sort((a, b) => a.at - b.at);   // oldest first
+}
+
+// Which of these decantation tanks' readings a screenshot proves (its mark: the
+// tank, the reading's time and litres): {"T2|before", ...}, without the pictures.
+export async function shotKeys(rows) {
+  return new Set((await matchShots(rows, await todaysAll())).flatMap((e) => e.uses.map((u) => `${u.tank}|${u.which}`)));
+}
+
+export async function shotsFor(rows) {
+  const out = [];
+  for (const e of await matchShots(rows, await todaysAll())) {
+    const blob = await pictureOf(e.shot);
+    if (blob) out.push({ ...e, shot: { ...e.shot, blob } });
+  }
+  return out;
+}
+
+async function matchShots(rows, shots) {
   const picked = new Map();                          // shot -> {shot, uses, key}
   for (const [ti, t] of (rows || []).entries()) {
     for (const which of ['before', 'after']) {
@@ -197,12 +214,7 @@ export async function shotsFor(rows) {
       picked.set(last, e);
     }
   }
-  const out = [];
-  for (const e of [...picked.values()].sort((a, b) => a.key - b.key || a.shot.at - b.shot.at)) {
-    const blob = await pictureOf(e.shot);
-    if (blob) out.push({ ...e, shot: { ...e.shot, blob } });
-  }
-  return out;
+  return [...picked.values()].sort((a, b) => a.key - b.key || a.shot.at - b.shot.at);
 }
 
 // Earlier days' screenshots out of the cloud: rows and files (and files
