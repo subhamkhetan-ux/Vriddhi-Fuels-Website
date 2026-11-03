@@ -542,6 +542,30 @@ tr.off td { opacity: .45; }
 tr.off td.sticky { opacity: 1; }
 tr.off td.sticky span { opacity: .55; }
 @media (prefers-reduced-motion: reduce) { .jsk.play .jsk-text, .jsk.play .jsk-feather { animation: none; } .jsk-feather { display: none; } }
+/* ---- Quotes: quotation / proforma invoice (form beside the A4 page) ---- */
+.quote-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.quote-head h2 { margin: 0; }
+.quote-head .file { margin: 0; }
+.doc-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+.doc-wrap > * { min-width: 0; }
+.doc-form { margin: 0; }
+.doc-form h3 { margin-top: 0; }
+.doc-form h4 { margin: 14px 0 4px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.doc-form form { display: grid; gap: 10px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 420px) { .two { grid-template-columns: minmax(0, 1fr); } }
+table.kv td { padding: 6px 8px; }
+table.kv td:first-child { color: var(--muted); }
+.doc-page { width: 100%; max-width: 820px; margin: 0 auto; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 18px 40px -18px rgba(0,0,0,.85); }
+.doc-page svg { width: 100%; height: auto; display: block; }
+table.pi-log td { vertical-align: top; }
+table.pi-log .nw { white-space: nowrap; }
+table.pi-log td.row-end { display: table-cell; white-space: nowrap; }
+table.pi-log td.row-end .btn { margin-left: 4px; }
+@media (min-width: 1100px) {
+  .doc-wrap { grid-template-columns: minmax(330px, 400px) minmax(0, 1fr); align-items: start; }
+  .doc-form { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+}
 </style>
 </head>
 <body>

@@ -264,6 +264,45 @@ export function brandFontCss() {
   return brandFontPromise;
 }
 
+// The Quotation and Proforma Invoice sheets are set in Aptos Narrow, which
+// most phones and browsers don't have: Roboto Condensed (about as narrow)
+// stands in for it as "VF Narrow", as data: URLs so it works inside a
+// picture too. '' when offline (the text then shrinks to fit its cells).
+const NARROW_CSS = 'https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,400;0,700;1,400;1,700&display=block';
+let narrowPromise = null;
+export function narrowFontCss() {
+  if (!narrowPromise) {
+    narrowPromise = (async () => {
+      try {
+        const css = await (await fetch(NARROW_CSS)).text();
+        const blocks = css.split('/*').filter((b) => /^\s*latin(-ext)?\s*\*\//.test(b)).map((b) => b.slice(b.indexOf('*/') + 2));
+        let out = blocks.join('\n').replaceAll("font-family: 'Roboto Condensed'", "font-family: 'VF Narrow'");
+        for (const url of new Set([...out.matchAll(/url\((https:[^)]+)\)/g)].map((m) => m[1]))) {
+          out = out.split(url).join(await toDataUrl(url));
+        }
+        return out;
+      } catch {
+        return '';
+      }
+    })();
+  }
+  return narrowPromise;
+}
+
+// Puts the narrow font into the page too (for the on-screen preview and for
+// measuring text) and waits until it is ready.
+export async function useNarrowFont() {
+  const css = await narrowFontCss();
+  if (css && !document.getElementById('vf-narrow-font')) {
+    const style = document.createElement('style');
+    style.id = 'vf-narrow-font';
+    style.textContent = css;
+    document.head.append(style);
+  }
+  if (css) await Promise.all(['400 12px', 'bold 12px', 'italic 12px'].map((f) => document.fonts.load(`${f} "VF Narrow"`).catch(() => null)));
+  return css;
+}
+
 // Where the stamp's ink sits inside the picture, as fractions [x0, y0, x1, y1]
 // (the drawing places the ink where Excel's footer stamp is).
 export async function inkBox(url) {
@@ -300,6 +339,8 @@ export async function pdfFromSvgs(svgs, size, { scale = 2 } = {}) {
   }
   return pdf.output('blob');
 }
+
+export const loadJSZip = () => loadScript(JSZIP, () => window.JSZip);
 
 export async function zipBlob(files, folder = '') {
   const JSZip = await loadScript(JSZIP, () => window.JSZip);

@@ -46,18 +46,26 @@ export function supabaseStore(client) {
     appPaymentsRestore: (ref) => rpc('ledger_payments_app_restore', { p_ref: ref }),
     dashboard: (from, to) => rpc('ledger_dashboard', { p_from: from, p_to: to }),
     account: (key, group, from, to) => rpc('ledger_account', { p_key: key, p_group: group, p_from: from, p_to: to }),
+    tankerImport: (fileName, payload) => rpc('ledger_tanker_import', { p_file_name: fileName, p_payload: payload }),
+    piList: () => rpc('ledger_pi_list'),
+    piSave: (pi, replace = false) => rpc('ledger_pi_save', { p_pi: pi, p_replace: replace }),
+    piDelete: (id) => rpc('ledger_pi_delete', { p_id: id }),
   };
 }
 
 // ---------------------------------------------------------------------------
 const clone = (x) => JSON.parse(JSON.stringify(x));
+const PI_FIELDS = ['pi_no', 'pi_date', 'valid_to', 'customer', 'gstin', 'place', 'po_no', 'po_date', 'description', 'hsn', 'qty', 'rate',
+  'rsp', 'sub_total', 'round_off', 'grand_total', 'points', 'words', 'contact'];
+const PI_TEXT = new Set(['customer', 'gstin', 'place', 'po_no', 'description', 'hsn', 'words', 'contact']);
+const piRow = (r) => Object.fromEntries(PI_FIELDS.map((k) => [k, PI_TEXT.has(k) ? String(r[k] ?? '') : (r[k] === '' ? null : r[k] ?? null)]));
 const trim = (s) => String(s ?? '').replace(/[\t\n\v\f\r  ]+/g, ' ').trim();
 const now = () => new Date().toISOString();
 
 export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   const db = {
     customers: [], groups: [], sales: [], payments: [], pos: [], opening: [], imports: [], tanker: [], settings: {},
-    discarded: new Map(),
+    discarded: new Map(), proforma: [],
   };
   const ids = { customers: 0, sales: 0, payments: 0, pos: 0, imports: 0 };
   const nextId = (t) => { ids[t] += 1; return ids[t]; };
@@ -520,7 +528,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
     },
 
     async setSetting(key, value) {
-      if (!['slip_stamp', 'statement_stamp', 'slip_company'].includes(key)) fail(`Unknown setting ${key}.`);
+      if (!['slip_stamp', 'statement_stamp', 'slip_company', 'pi_stamp', 'quote_stamp'].includes(key)) fail(`Unknown setting ${key}.`);
       if (value == null) delete db.settings[key]; else db.settings[key] = clone(value);
     },
 
@@ -701,6 +709,77 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
           .map((x) => ({ pay_date: x.pay_date, key, amount: x.amount })),
         first: dates[0] || null,
       });
+    },
+
+    // same rules as ledger_tanker_import() / ledger_pi_*() in SQL
+    async tankerImport(fileName, p) {
+      if (!p || typeof p.data !== 'object' || !p.data) fail('Nothing to import — choose the Tanker Billing workbook.');
+      const imp = logImport('tanker_billing', fileName);
+      let customers = 0;
+      if ((p.customers || []).length) {
+        const seen = new Set();
+        db.tanker = [];
+        p.customers.forEach((t, i) => {
+          const company = trim(t.company);
+          if (!company || seen.has(company)) return;
+          seen.add(company);
+          db.tanker.push({
+            company, hsd_rate: t.hsd_rate ?? null, address: t.address || [], payment: t.payment || [], po_label: t.po_label || '',
+            po_no: t.po_no || '', price_tier: t.price_tier || '', seq: i + 1, updated_at: now(),
+          });
+        });
+        customers = db.tanker.length;
+      }
+      db.settings.tanker_billing = { ...clone(p.data), file_name: fileName || '', imported_at: now(), by_email: email };
+      let images = 0;
+      for (const k of ['pi_letterhead', 'pi_stamp', 'quote_letterhead', 'quote_stamp']) {
+        const url = p.images && p.images[k];
+        if (typeof url === 'string' && url.startsWith('data:image/')) {
+          db.settings[k] = { data_url: url, name: 'Tanker Billing workbook' };
+          images++;
+        }
+      }
+      let piNew = 0; let piUpd = 0; let piKept = 0;
+      for (const r of p.pi_log || []) {
+        const no = trim(r.pi_no);
+        if (!no) continue;
+        const old = db.proforma.find((x) => x.pi_no.trim().toLowerCase() === no.toLowerCase());
+        if (old && old.source === 'app') { piKept++; continue; }
+        let id;
+        if (old) { id = old.id; piUpd++; } else {
+          id = r.log_id > 0 && !db.proforma.some((x) => x.id === r.log_id) ? r.log_id : Math.max(0, ...db.proforma.map((x) => x.id)) + 1;
+          piNew++;
+        }
+        const row = { ...piRow({ ...r, pi_no: no }), id, printed_at: r.printed_at || now(), printed_by: r.printed_by || '', source: 'workbook', doc: null };
+        db.proforma = db.proforma.filter((x) => x.id !== id).concat(row).sort((a, b) => a.id - b.id);
+      }
+      imp.counts = { customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images };
+      return { ...imp.counts, import_id: imp.id };
+    },
+
+    async piList() {
+      return clone(db.proforma);
+    },
+
+    async piSave(pi, replace = false) {
+      const no = trim(pi.pi_no);
+      if (!no) fail('Proforma Invoice No. is blank.');
+      if (!trim(pi.customer)) fail('Buyer is blank.');
+      if (!(Number(pi.qty) > 0)) fail('Quantity is missing or zero.');
+      const old = db.proforma.find((x) => x.pi_no.trim().toLowerCase() === no.toLowerCase());
+      if (old && !replace) return { status: 'exists', existing: clone(old) };
+      const id = old ? old.id : Math.max(0, ...db.proforma.map((x) => x.id)) + 1;
+      const row = {
+        ...piRow({ ...pi, pi_no: no }), id, printed_at: now(), printed_by: pi.printed_by || email, source: 'app',
+        doc: pi.doc && typeof pi.doc === 'object' ? clone(pi.doc) : null,
+      };
+      db.proforma = db.proforma.filter((x) => x.id !== id).concat(row).sort((a, b) => a.id - b.id);
+      return { status: old ? 'replaced' : 'logged', row: clone(row) };
+    },
+
+    async piDelete(id) {
+      if (!db.proforma.some((x) => x.id === id)) fail(`No PI Log entry ${id}.`);
+      db.proforma = db.proforma.filter((x) => x.id !== id);
     },
 
     async imports(limit = 20) {
