@@ -1628,3 +1628,29 @@ def test_our_own_tt_s_acknowledgement_goes_once_half_the_truck_is_in(rig):
     assert a.phase == "finished", a.info
     assert wait_for(lambda: any("went earlier" in m for m in rig.told))
     assert rig.told.count("IOCL ACK4 7011294526") == 1                  # (not again at the end)
+
+
+def test_the_page_gets_each_chamber_s_numbers_and_the_next_step(rig):
+    """The Tank stock page's automatic decantation: each tank's chambers in the
+    pipe's order (in, going in with litres in and left, next), and what to do
+    next: "C2 done — move the pipe to C3 and open its valve"."""
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2"})
+    row = lambda tank: next(t for t in a.run.view(rig.clock.t)["tanks"] if t["tank"] == tank)   # noqa: E731
+    t2 = row("T2")
+    assert [c["state"] for c in t2["chamberRows"]] == ["next", "next"] and t2["next"].startswith("Open the valve of C2")
+    rig.world.flows = [(2, 100, 4985, 495), (2, 640, 3992, 420)]
+    drive(rig, 400)
+    t2 = row("T2")
+    c2, c3 = t2["chamberRows"]
+    assert c2["state"] == "going" and 2000 < c2["got"] < 5000 and c3["state"] == "next"
+    assert t2["next"].startswith("C2 going in — ≈") and "L/min" in t2["next"] and t2["next"].endswith("Then C3."), t2["next"]
+    assert t2["flow"] and t2["chamberLeftS"]
+    drive(rig, 630)                                              # C2 in, the pipe not on C3 yet
+    t2 = row("T2")
+    assert [c["state"] for c in t2["chamberRows"]] == ["in", "move"], t2["chamberRows"]
+    assert t2["next"] == "C2 done — move the pipe to C3 and open its valve."
+    drive(rig, 900)
+    t2 = row("T2")
+    assert [c["state"] for c in t2["chamberRows"]] == ["in", "going"] and t2["next"].startswith("C3 going in")
+    drive(rig, 1300)
+    assert [c["state"] for c in row("T2")["chamberRows"]] == ["in", "in"]

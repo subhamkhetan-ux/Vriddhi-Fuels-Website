@@ -52,6 +52,7 @@ DEFAULT_SETTINGS = {
 START_RISE_L = 30          # above the stock before: decanting has started
 ARRIVE_SLACK = (50, 0.02)  # a chamber has arrived within max(50 L, 2 % of it)
 STILL_L = 3                # within this the stock isn't moving
+GOING_L = 20               # into the next chamber's tank this much: it's flowing (as the decant app's guide)
 PAUSE_SECS = 25            # still this long after flowing: the pipe is being moved (a chamber ended)
 STOP_SECS = 90             # still this long: the pipe has stopped
 EXTRA_WAIT_SECS = 180      # stopped with more than planned this long: ask which chambers came
@@ -1384,6 +1385,7 @@ class Decantation:
                    "rise": round2(last - t["before"]["volume"]) if last is not None and t.get("before") else None,
                    "after": (t.get("after") or {}).get("volume"), "result": t.get("result"),
                    "startedAt": t.get("startedAt"), "doneAt": t.get("doneAt")}
+            row.update(self._chamber_rows(t, st, row, now))
             if t["stage"] == "settling" and t.get("doneAt"):
                 row["settleLeft"] = max(0, round(settle - (now - (_ts(t["doneAt"]) or now))))
                 window = [x for when, x in st.get("history", []) if now - when <= settle]
@@ -1398,6 +1400,54 @@ class Decantation:
                          and c["no"] not in set(d.get("done") or []) and c["no"] not in planned],
                 "held": self.held(),
                 "tankOptions": [{"id": t["id"], "no": t["no"], "product": t["product"]} for t in self.settings["tanks"]]}
+
+    def _chamber_rows(self, t: dict, st: dict, row: dict, now: float) -> dict:
+        """For the page: each of the tank's chambers, in the pipe's order, and
+        what to do next. A chamber the agent saw arrive is in; the one after
+        has what the tank rose by beyond them; a few litres past the last one
+        (the tank's figure settling) aren't the next chamber flowing yet.
+        -> {"chamberRows": [{no, litres, got, state: in|going|move|open|next}], "next", "flow", "chamberLeftS"}"""
+        sizes = {c["no"]: c.get("litres") or 0 for c in self.s["data"].get("chambers") or []}
+        stage = t["stage"]
+        arrived = set(row["arrived"])
+        rise = max(0.0, row["rise"] or 0.0)
+        flow = self._flow(st, now) if stage == "decanting" and st.get("history") else None
+        before_in = sum(sizes.get(no, 0) for no in arrived)
+        rows, on = [], None
+        for no in t["chambers"]:
+            size = sizes.get(no, 0)
+            if stage in ("settling", "read") or no in arrived:
+                rows.append({"no": no, "litres": size, "got": size, "state": "in"})
+            elif stage == "decanting" and on is None:
+                got = round2(max(0.0, min(size, rise - before_in)))
+                on = {"no": no, "litres": size, "got": got,
+                      "state": "going" if got >= GOING_L else "move" if arrived else "open"}
+                rows.append(on)
+            else:
+                rows.append({"no": no, "litres": size, "got": 0, "state": "next"})
+        nxt, left_s = "", None
+        later = [r["no"] for r in rows if r["state"] == "next"]
+        then = f" Then C{', C'.join(map(str, later))}." if later else ""
+        if stage == "waiting":
+            req = self.s["data"].get("beforePhoto") or {}
+            if not req.get("answeredAt") and t["tank"] in (req.get("tanks") or []):
+                nxt = "📷 Its stock before is being photographed — keep the valves shut until it's in."
+            elif t.get("before"):
+                nxt = f"Open the valve of C{t['chambers'][0]}: it starts by itself when its stock rises."
+        elif on and on["state"] == "move":
+            done = [no for no in t["chambers"] if no in arrived]
+            nxt = f"C{done[-1]} done — move the pipe to C{on['no']} and open its valve.{then}"
+        elif on and on["state"] == "open":
+            nxt = f"Open C{on['no']}'s valve — its stock isn't rising yet.{then}"
+        elif on:
+            rest = max(0.0, on["litres"] - on["got"])
+            if flow and flow > 0:
+                left_s = round(rest / flow * 60)
+            nxt = f"C{on['no']} going in — ≈{rest:,.0f} L left in it" + \
+                  (f" (~{left_s // 60} min {left_s % 60:02d} s at {flow:,.0f} L/min)" if left_s is not None else "") + f".{then}"
+        elif stage == "decanting":
+            nxt = "All its chambers are in — it settles once the stock stops."
+        return {"chamberRows": rows, "next": nxt, "flow": round2(flow) if flow is not None else None, "chamberLeftS": left_s}
 
     def to_json(self) -> dict:
         return {"session": self.s, "settings": self.settings, "state": self.state}
