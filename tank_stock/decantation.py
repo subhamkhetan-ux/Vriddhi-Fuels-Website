@@ -1412,19 +1412,24 @@ class Decantation:
         arrived = set(row["arrived"])
         rise = max(0.0, row["rise"] or 0.0)
         flow = self._flow(st, now) if stage == "decanting" and st.get("history") else None
-        before_in = sum(sizes.get(no, 0) for no in arrived)
-        rows, on = [], None
+        # in the pipe's order, a chamber is in once the agent saw it arrive, or
+        # once the tank has risen by it (within the arrival slack): the agent
+        # only marks it at a pause (the pipe moved), which a quick move skips
+        rows, on, upto, some_in = [], None, 0.0, False
         for no in t["chambers"]:
             size = sizes.get(no, 0)
-            if stage in ("settling", "read") or no in arrived:
+            covered = rise >= upto + size - max(ARRIVE_SLACK[0], ARRIVE_SLACK[1] * size)
+            if stage in ("settling", "read") or (on is None and (no in arrived or covered)):
                 rows.append({"no": no, "litres": size, "got": size, "state": "in"})
+                some_in = True
             elif stage == "decanting" and on is None:
-                got = round2(max(0.0, min(size, rise - before_in)))
+                got = round2(max(0.0, min(size, rise - upto)))
                 on = {"no": no, "litres": size, "got": got,
-                      "state": "going" if got >= GOING_L else "move" if arrived else "open"}
+                      "state": "going" if got >= GOING_L else "move" if some_in else "open"}
                 rows.append(on)
             else:
                 rows.append({"no": no, "litres": size, "got": 0, "state": "next"})
+            upto += size
         nxt, left_s = "", None
         later = [r["no"] for r in rows if r["state"] == "next"]
         then = f" Then C{', C'.join(map(str, later))}." if later else ""
@@ -1435,7 +1440,7 @@ class Decantation:
             elif t.get("before"):
                 nxt = f"Open the valve of C{t['chambers'][0]}: it starts by itself when its stock rises."
         elif on and on["state"] == "move":
-            done = [no for no in t["chambers"] if no in arrived]
+            done = [r["no"] for r in rows if r["state"] == "in"]
             nxt = f"C{done[-1]} done — move the pipe to C{on['no']} and open its valve.{then}"
         elif on and on["state"] == "open":
             nxt = f"Open C{on['no']}'s valve — its stock isn't rising yet.{then}"
