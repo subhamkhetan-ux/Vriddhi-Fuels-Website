@@ -17,7 +17,8 @@ import {
   useNarrowFont, zipBlob,
 } from './render.js';
 import {
-  customerRate, dmyy, hsdRsp, indian, isXtraPower, nextPiNo, PI_PRODUCTS, piDiscount, piEffective, piFileName, piFromLog, piLogRow, piMatches,
+  comparePiLog, customerRate, dmyy, hsdRsp, indian, isXtraPower, nextPiNo, PI_PRODUCTS, piCheckClean, piDiscount, piEffective, piFileName, piFromLog,
+  piKey, piLogRow, piMatches,
   picturePaths, productRate, proformaCalc, proformaValues, quotationCalc, quotationValues, quoteFileName, readTankerBilling, samePiNo,
 } from './quote.js';
 import { LAYOUTS } from './sheet-layouts.js';
@@ -1377,7 +1378,7 @@ function importRow(i) {
   const result = i.kind === 'daybook'
     ? `${byProduct(c.inserted) || 'no new bills'}${byProduct(c.updated) ? ` · ${byProduct(c.updated)} updated` : ''}${c.unchanged ? ` · ${c.unchanged} unchanged` : ''}${c.removed ? ` · ${c.removed} removed` : ''}${c.duplicates ? ` · ${c.duplicates} already there` : ''}`
     : i.kind === 'payments_app' ? `${c.payments ?? 0} payments added`
-      : i.kind === 'tanker_billing' ? `${c.customers ?? 0} customers · ${c.pi_new ?? 0} new PIs${c.pi_updated ? ` · ${c.pi_updated} refreshed` : ''}`
+      : i.kind === 'tanker_billing' ? `${c.customers ?? 0} customers · ${c.pi_new ?? 0} new PIs${c.pi_updated ? ` · ${c.pi_updated} refreshed` : ''}${c.pi_differ || c.pi_not_in_excel ? ` · PI Log doesn't match Excel (${[c.pi_differ ? `${c.pi_differ} differ` : '', c.pi_not_in_excel ? `${c.pi_not_in_excel} not in Excel` : ''].filter(Boolean).join(', ')})` : ''}`
       : `${c.sales_new ?? 0} new bills · ${c.sales_updated ?? 0} refreshed · ${c.payments ?? 0} payments · ${c.pos_new ?? 0} new POs`;
   const what = { daybook: 'DayBook', payments_app: 'Payments app', master_ledger: 'Master Ledger', tanker_billing: 'Tanker Billing' }[i.kind] || i.kind;
   return `<tr><td>${esc(new Date(i.created_at).toLocaleString('en-IN'))}</td><td>${what}</td><td>${esc(i.file_name)}</td><td>${esc(result)}</td></tr>`;
@@ -3171,7 +3172,9 @@ function viewProforma(d) {
   bindTankerImport();
   bindStamp('pi_stamp', 'p-stamp', 'p-stamp-remove', async () => { state.quotes = null; await route(); });
   const form = document.getElementById('p-form');
-  if (!form.pi_no.value) form.pi_no.value = nextPiNo(d.log, form.date.value);
+  // the next number after the highest in the PI Log (Excel's sheet + the
+  // app's) — unless one typed here isn't used yet
+  if (!form.pi_no.value || d.log.some((r) => samePiNo(r.pi_no, form.pi_no.value))) form.pi_no.value = nextPiNo(d.log, form.date.value);
   const measure = canvasMeasure();
   const images = docImages(d, 'pi');
   const rspOf = () => (form.rsp.value === '' ? hsdRsp(data) : Number(form.rsp.value));
@@ -3265,51 +3268,129 @@ function viewProforma(d) {
 }
 
 // ---- PI Log and reprints (ReprintPIs) ----
+// The whole log is shown: the Excel file's PI Log sheet (brought in by the
+// import) plus every PI made here. Each import checks the two against each
+// other; what doesn't match is reported here until the next import.
+const PI_LOG_HEAD = ['Log ID', 'PI No.', 'PI Date', 'Valid Up To', 'Customer', 'Buyer GSTIN', 'Place of Supply', 'P.O. No.', 'P.O. Date', 'Description',
+  'HSN Code', 'Quantity (Ltr)', 'Rate (₹/Ltr)', 'IOCL RSP (₹/Ltr)', 'Discount (₹/Ltr)', 'Sub Total (₹)', 'Round Off (₹)', 'Grand Total (₹)',
+  'XtraPower Points', 'Effective Rate (₹/Ltr)', 'Amount in Words', 'Contact Person', 'Printed On', 'Printed By'];
+const num = (v) => (v == null || v === '' ? '' : Number(v));
+// the PI Log sheet's columns, in its order (to paste into Excel)
+const piLogSheet = (rows) => ({
+  name: 'PI Log', filter: true, cols: [8, 16, 11, 11, 34, 24, 14, 14, 13, 24, 10, 12, 11, 12, 12, 14, 11, 14, 14, 12, 50, 22, 18, 20],
+  rows: [PI_LOG_HEAD, ...[...rows].sort((a, b) => a.id - b.id).map((r) => [r.id, r.pi_no, fmtDate(r.pi_date), fmtDate(r.valid_to), r.customer, r.gstin,
+    r.place, r.po_no, fmtDate(r.po_date), r.description, r.hsn, num(r.qty), num(r.rate), num(r.rsp), piDiscount(r), num(r.sub_total), num(r.round_off),
+    num(r.grand_total), num(r.points), piEffective(r), r.words, r.contact, r.printed_at ? new Date(r.printed_at).toLocaleString('en-IN') : '', r.printed_by])],
+});
+
+const checkValue = (c, v) => {
+  if (v == null || v === '') return '—';
+  if (c.kind === 'date') return fmtDate(v);
+  if (c.kind === 'num') return ['rate', 'rsp'].includes(c.field) ? rs2(v) : indian(v);
+  return String(v);
+};
+const piRef = (r) => `<b>${esc(r.pi_no)}</b> <span class="muted">${esc(r.customer)}${r.pi_date ? `, ${fmtDate(r.pi_date)}` : ''}</span>`;
+
+// The PI Log check: Excel's PI Log sheet against the app's log.
+// before: in the import preview (what the import will do); otherwise on the
+// PI Log screen (what it did), with the app's PIs that Excel still lacks
+// worked out from today's log.
+function piCheckHtml(check, { before = false, log = [], fileName = '', when = '' } = {}) {
+  const excel = new Set((check.excel_nos || []).map(piKey));
+  const inLog = new Set(log.map((r) => piKey(r.pi_no)));
+  const missing = before ? check.missing_in_excel : log.filter((r) => !excel.has(piKey(r.pi_no)));
+  const differ = before ? check.differ : check.differ.filter((d) => inLog.has(piKey(d.pi_no)));
+  const clean = !differ.length && !missing.length && !check.twice_in_excel.length;
+  const head = before ? 'PI Log check — the Excel file against the app' : `PI Log check — against ${esc(fileName || 'the Excel file')}${when ? `, imported ${esc(when)}` : ''}`;
+  if (clean) {
+    return `<div class="pi-check good"><b>✓ ${head}</b><p>Excel's PI Log and the app's match: ${plural(check.same + (before ? check.new_from_excel.length : 0), 'PI')} alike${before && check.new_from_excel.length ? `, ${check.new_from_excel.length} of them new to the app` : ''}.</p></div>`;
+  }
+  const parts = [];
+  if (differ.length) {
+    parts.push(`<h4>${plural(differ.length, 'PI')} with different figures</h4>
+      <div class="table-wrap"><table class="compact"><thead><tr><th>PI</th><th>What differs (Excel → app)</th><th>Result</th></tr></thead><tbody>${differ.map((d) => `<tr>
+        <td>${piRef(d)}</td>
+        <td>${d.changes.map((c) => `${esc(c.label)}: <b>${esc(checkValue(c, c.excel))}</b> in Excel, <b>${esc(checkValue(c, c.app))}</b> in the app`).join('<br>')}</td>
+        <td class="small">${d.kept === 'app'
+    ? `Made in the app — the app's figures ${before ? 'will be' : 'were'} kept. Correct Excel, or make the PI again here.`
+    : `From an earlier import — ${before ? 'Excel\'s figures will be taken' : 'Excel\'s figures were taken'}.`}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if (missing.length) {
+    parts.push(`<h4>${plural(missing.length, 'PI')} in the app but not in Excel's PI Log</h4>
+      <ul class="small">${missing.map((r) => `<li>${piRef(r)} — ${r.source === 'app' ? 'made in the app' : 'from an earlier import, since removed from Excel'}</li>`).join('')}</ul>
+      ${before ? '' : '<p><button class="btn ghost small" id="pi-missing-xlsx">Download them for Excel</button> <span class="muted small">— the PI Log sheet\'s columns, to paste under its last row.</span></p>'}`);
+  }
+  if (check.twice_in_excel.length) {
+    parts.push(`<h4>Listed twice in Excel's PI Log</h4><ul class="small">${check.twice_in_excel.map((r) => `<li>${piRef(r)} — only the first row is used</li>`).join('')}</ul>`);
+  }
+  const alike = check.same + (before ? 0 : check.new_from_excel.length);
+  return `<div class="pi-check warn"><b>⚠ ${head}: they don't match</b>
+    <p class="small">${plural(alike, 'PI')} alike${before && check.new_from_excel.length ? ` · ${check.new_from_excel.length} new from Excel (will be added)` : ''}.</p>
+    ${parts.join('')}</div>`;
+}
+
 function viewPiLog(d) {
   const today = todayIso();
-  const f = state.piLogFilter || { customer: '', from: addDays(today, -30), to: today };
+  const f = state.piLogFilter || { customer: '', from: '', to: '' };
   const rows = d.log.filter((r) => piMatches(r, f)).sort((a, b) => b.id - a.id);
   const total = rows.reduce((a, r) => a + (Number(r.grand_total) || 0), 0);
   const litres = rows.reduce((a, r) => a + (Number(r.qty) || 0), 0);
+  const fromExcel = d.log.filter((r) => r.source === 'workbook').length;
+  const check = d.tb && d.tb.pi_check;
+  const excel = new Set(((check && check.excel_nos) || []).map(piKey));
+  const kept = new Set(((check && check.differ) || []).filter((x) => x.kept === 'app').map((x) => piKey(x.pi_no)));
+  const tags = (r) => {
+    if (!check) return '';
+    if (!excel.has(piKey(r.pi_no))) return ' <span class="tag warn">Not in Excel</span>';
+    if (kept.has(piKey(r.pi_no))) return ' <span class="tag warn">Differs from Excel</span>';
+    return '';
+  };
+  const dates = d.log.map((r) => r.pi_date).filter(Boolean).sort();
+  const span = { from: f.from || dates[0] || today, to: f.to || dates[dates.length - 1] || today };
   setMain(`${quotesHead(d, 'log')}
+    ${check ? `<section class="card">${piCheckHtml(check, { log: d.log, fileName: check.file_name, when: check.checked_at ? new Date(check.checked_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '' })}</section>`
+    : (d.log.length ? '' : '<section class="card"><p class="muted">The PI Log is empty. Import the Tanker Billing workbook to bring in its PI Log sheet.</p></section>')}
     <section class="card">
       <h3>PI Log</h3>
-      <p class="muted">Every Proforma Invoice made — here or in Excel (brought in by the import). Pick a customer (part of the name is enough) and dates to reprint: each PI comes out with its own rate, RSP and P.O. No., as first printed.</p>
+      <p class="muted">The Excel file's <b>PI Log</b> sheet (from the import) and every Proforma Invoice made here — ${plural(fromExcel, 'PI')} from Excel, ${d.log.length - fromExcel} made in the app. A new PI made here is added to it, and the next PI No. follows the highest in it. To reprint, narrow it down by customer (part of the name is enough) and dates: each PI comes out with its own rate, RSP and P.O. No.</p>
       <form class="row-form" id="log-form">
         <label>Customer contains <input name="customer" value="${esc(f.customer)}" placeholder="blank = all" autocomplete="off"></label>
-        <label>PI dated from <input type="date" name="from" value="${esc(f.from)}" required></label>
-        <label>to <input type="date" name="to" value="${esc(f.to)}" required></label>
+        <label>PI dated from <input type="date" name="from" value="${esc(f.from)}"></label>
+        <label>to <input type="date" name="to" value="${esc(f.to)}"></label>
         <button class="btn ghost" type="submit">Show</button>
-        <button class="btn ghost" type="button" id="log-all">All dates</button>
+        <button class="btn ghost" type="button" id="log-30">Last 30 days</button>
+        <button class="btn ghost" type="button" id="log-all">All</button>
       </form>
-      ${rows.length ? `<p><b>${plural(rows.length, 'PI')}</b> · ${fmtLitres(litres)} L · ${fmtMoney(total)}</p>
-      <p class="actions"><button class="btn" id="log-zip">Reprint all (.zip)</button><button class="btn ghost" id="log-print">Print all</button>
+      ${rows.length ? `<p><b>${plural(rows.length, 'PI')}</b>${f.customer || f.from || f.to ? ` of ${d.log.length}` : ''} · ${fmtLitres(litres)} L · ${fmtMoney(total)}</p>
+      <p class="actions"><button class="btn" id="log-zip">Reprint ${rows.length === 1 ? '' : 'all '}(.zip)</button><button class="btn ghost" id="log-print">Print all</button>
         <button class="btn ghost" id="log-xlsx">Download log (Excel)</button></p>
       <div class="table-wrap"><table class="compact pi-log">
         <thead><tr><th class="r">ID</th><th>PI No.</th><th>PI date</th><th>Valid up to</th><th>Customer</th><th>P.O. No.</th><th class="r">Qty (L)</th>
           <th class="r">Rate</th><th class="r">RSP</th><th class="r">Disc.</th><th class="r">Grand total</th><th class="r">XP points</th><th class="r">Eff. rate</th><th>Logged</th><th></th></tr></thead>
         <tbody>${rows.map((r) => `<tr>
-          <td class="r">${r.id}</td><td class="nw"><b>${esc(r.pi_no)}</b></td><td class="nw">${fmtDate(r.pi_date)}</td><td class="nw">${fmtDate(r.valid_to)}</td>
+          <td class="r">${r.id}</td><td class="nw"><b>${esc(r.pi_no)}</b>${tags(r)}</td><td class="nw">${fmtDate(r.pi_date)}</td><td class="nw">${fmtDate(r.valid_to)}</td>
           <td>${esc(r.customer)}</td><td>${esc(r.po_no)}${r.po_date ? `<br><small class="muted">${fmtDate(r.po_date)}</small>` : ''}</td>
           <td class="r">${indian(r.qty)}</td><td class="r">${rs2(r.rate)}</td><td class="r">${rs2(r.rsp)}</td><td class="r">${rs2(piDiscount(r))}</td>
           <td class="r">${indian(r.grand_total)}</td><td class="r">${r.points ? indian(r.points) : '0'}</td><td class="r">${rs2(piEffective(r))}</td>
-          <td class="small">${r.printed_at ? esc(new Date(r.printed_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })) : ''}<br><span class="muted">${esc(r.printed_by)}${r.source === 'workbook' ? ' · Excel' : ''}</span></td>
+          <td class="small">${r.printed_at ? esc(new Date(r.printed_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })) : ''}<br><span class="muted">${esc(r.printed_by)}${r.source === 'workbook' ? ' · Excel' : ' · app'}</span></td>
           <td class="row-end"><button class="btn small" data-pdf="${r.id}">PDF</button><button class="btn ghost small" data-print="${r.id}">Print</button><button class="btn ghost small" data-del="${r.id}" title="Remove from the PI Log">✕</button></td>
         </tr>`).join('')}</tbody></table></div>`
     : `<p class="muted">No PIs found for that customer / date range.${d.log.length ? ` The log has ${plural(d.log.length, 'PI')} in all.` : ''}</p>`}
     </section>`);
   bindTankerImport();
+  document.getElementById('pi-missing-xlsx')?.addEventListener('click', () => guard(() => {
+    const missing = d.log.filter((r) => !excel.has(piKey(r.pi_no)));
+    return downloadSheets([piLogSheet(missing)], `PI Log rows for Excel ${dmyDash(today)}.xlsx`);
+  }));
   const form = document.getElementById('log-form');
   const apply = (next) => { state.piLogFilter = next; viewPiLog(d); };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    if (form.to.value < form.from.value) { toast('\'To\' date is before \'From\' date.', 'bad'); return; }
+    if (form.from.value && form.to.value && form.to.value < form.from.value) { toast('\'To\' date is before \'From\' date.', 'bad'); return; }
     apply({ customer: form.customer.value.trim(), from: form.from.value, to: form.to.value });
   });
-  document.getElementById('log-all').addEventListener('click', () => {
-    const dates = d.log.map((r) => r.pi_date).filter(Boolean).sort();
-    apply({ customer: form.customer.value.trim(), from: dates[0] || today, to: dates[dates.length - 1] > today ? dates[dates.length - 1] : today });
-  });
+  document.getElementById('log-30').addEventListener('click', () => apply({ customer: form.customer.value.trim(), from: addDays(today, -30), to: today }));
+  document.getElementById('log-all').addEventListener('click', () => apply({ customer: '', from: '', to: '' }));
   if (!rows.length) return;
   const data = d.tb || {};
   const measure = canvasMeasure();
@@ -3353,21 +3434,11 @@ function viewPiLog(d) {
       if (n > 1) name = name.replace(/\.pdf$/, ` (${n}).pdf`);
       files.push({ name, blob: await pdfOf(rows[i]) });
     }
-    download(await zipBlob(files), `PIs ${rangeName(f.from, f.to)}.zip`);
+    download(await zipBlob(files), `PIs ${rangeName(span.from, span.to)}.zip`);
     toast(`${plural(files.length, 'PI')} produced.`);
   }));
-  document.getElementById('log-xlsx').addEventListener('click', () => guard(() => downloadSheets([{
-    name: 'PI Log', filter: true, cols: [8, 16, 11, 11, 34, 24, 14, 14, 13, 24, 10, 12, 11, 12, 12, 14, 11, 14, 14, 12, 50, 22, 18, 20],
-    rows: [['Log ID', 'PI No.', 'PI Date', 'Valid Up To', 'Customer', 'Buyer GSTIN', 'Place of Supply', 'P.O. No.', 'P.O. Date', 'Description',
-      'HSN Code', 'Quantity (Ltr)', 'Rate (₹/Ltr)', 'IOCL RSP (₹/Ltr)', 'Discount (₹/Ltr)', 'Sub Total (₹)', 'Round Off (₹)', 'Grand Total (₹)',
-      'XtraPower Points', 'Effective Rate (₹/Ltr)', 'Amount in Words', 'Contact Person', 'Printed On', 'Printed By'],
-    ...[...rows].sort((a, b) => a.id - b.id).map((r) => [r.id, r.pi_no, fmtDate(r.pi_date), fmtDate(r.valid_to), r.customer, r.gstin, r.place, r.po_no,
-      fmtDate(r.po_date), r.description, r.hsn, num(r.qty), num(r.rate), num(r.rsp), piDiscount(r), num(r.sub_total), num(r.round_off),
-      num(r.grand_total), num(r.points), piEffective(r), r.words, r.contact,
-      r.printed_at ? new Date(r.printed_at).toLocaleString('en-IN') : '', r.printed_by])],
-  }], `PI Log ${rangeName(f.from, f.to)}.xlsx`)));
+  document.getElementById('log-xlsx').addEventListener('click', () => guard(() => downloadSheets([piLogSheet(rows)], `PI Log ${rangeName(span.from, span.to)}.xlsx`)));
 }
-const num = (v) => (v == null || v === '' ? '' : Number(v));
 
 // ---- importing the Tanker Billing workbook ----
 async function workbookPictures(buf) {
@@ -3408,7 +3479,10 @@ async function tankerChosen(file, input, outId) {
     } catch (err) {
       parsed.warnings.push(`The letterheads and stamps couldn't be read (${err.message}); the app keeps the ones it has.`);
     }
-    const log = state.quotes ? state.quotes.log : await quotesCall(() => state.store.piList()).catch(() => []);
+    // the app's log as it is now, to check Excel's PI Log sheet against
+    const log = await quotesCall(() => state.store.piList()).catch(() => []);
+    const check = comparePiLog(parsed.pi_log, log);
+    parsed.data.pi_check = { ...check, file_name: file.name, checked_at: new Date().toISOString() };
     const inApp = parsed.pi_log.filter((r) => log.some((x) => samePiNo(x.pi_no, r.pi_no) && x.source === 'app')).length;
     const known = parsed.pi_log.filter((r) => log.some((x) => samePiNo(x.pi_no, r.pi_no))).length;
     const dd = parsed.data;
@@ -3428,6 +3502,7 @@ async function tankerChosen(file, input, outId) {
           <tr><td>Wording</td><td>${wording ? `${plural(wording, 'line')} differ from the app's copy of the sheets — the workbook's are used` : 'same as the sheets in the app'}</td></tr>
         </tbody></table></div>
         ${parsed.warnings.length ? `<details open><summary class="warn-text">${plural(parsed.warnings.length, 'note')}</summary><ul>${parsed.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></details>` : ''}
+        ${log.length || parsed.pi_log.length ? piCheckHtml(check, { before: true }) : ''}
         <p class="actions"><button class="btn" id="tb-go">Import</button> <button class="btn ghost" id="tb-cancel">Cancel</button></p>
       </div>`;
     document.getElementById('tb-cancel').addEventListener('click', () => { out.innerHTML = ''; input.value = ''; });
@@ -3443,6 +3518,11 @@ async function tankerChosen(file, input, outId) {
       state.quoteForm = null;                  // start from the workbook's new rates and inputs
       state.piForm = null;
       toast(`Tanker Billing imported: ${plural(res.customers, 'customer')}, ${plural(res.pi_new, 'new PI')}${res.pi_updated ? `, ${res.pi_updated} refreshed` : ''}.`);
+      if (!piCheckClean(check)) {
+        toast('Excel\'s PI Log doesn\'t match the app\'s — see Quotes → PI Log.', 'bad');
+        state.piLogFilter = null;
+        if (location.hash !== '#/quotes/log') { location.hash = '#/quotes/log'; return; }
+      }
       await route();
     }).finally(() => { go.disabled = false; }));
   } catch (err) {

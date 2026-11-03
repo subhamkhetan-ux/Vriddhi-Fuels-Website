@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  customerRate, firstTwoWords, hsdRsp, nextPiNo, piDiscount, piEffective, piFileName, piFromLog, piLogRow, piMatches, picturePaths,
+  comparePiLog, customerRate, firstTwoWords, piCheckClean, hsdRsp, nextPiNo, piDiscount, piEffective, piFileName, piFromLog, piLogRow, piMatches, picturePaths,
   piValidTo, productRate, proformaCalc, proformaValues, quotationCalc, quotationValues, quoteFileName, readTankerBilling, rupeesInWords,
   samePiNo, splitDash,
 } from '../../ledger/js/quote.js';
@@ -265,4 +265,33 @@ test('the demo store keeps the PI Log like the database does', async () => {
   await assert.rejects(() => s.piDelete(3), /No PI Log entry 3/);
   await s.setSetting('quote_stamp', { data_url: 'data:image/png;base64,BB' });
   assert.equal((await s.setting('tanker_billing')).hsd_rsp, 100.74);
+});
+
+test('re-importing: Excel\'s PI Log checked against the app\'s', () => {
+  const excel = [
+    { pi_no: 'PI/2026-27/001', pi_date: '2026-08-17', customer: 'Demo Power Ltd', po_no: '4500000001', qty: 12000, rate: 99.5, rsp: 100.74, grand_total: 1194000, points: 0 },
+    { pi_no: 'PI/2026-27/002', pi_date: '2026-08-20', customer: 'Twin Steel Ltd', qty: 18000, rate: 99.5, grand_total: 1791000 },
+    { pi_no: 'PI/2026-27/003', pi_date: '2026-08-25', customer: 'Crew One', qty: 3000, rate: 100, grand_total: 300000 },
+    { pi_no: 'pi/2026-27/003 ', pi_date: '2026-08-26', customer: 'Crew One', qty: 1 },
+    { pi_no: 'PI/2026-27/005', pi_date: '2026-09-01', customer: 'New One', qty: 5 },
+  ];
+  const app = [
+    { id: 1, pi_no: 'PI/2026-27/001', pi_date: '2026-08-17', customer: 'Demo Power Ltd', po_no: 4500000001, qty: '12000', rate: 99.5, rsp: 100.74, grand_total: 1194000, points: null, source: 'workbook' },
+    { id: 2, pi_no: 'PI/2026-27/002', pi_date: '2026-08-20', customer: 'Twin Steel Ltd', qty: 12000, rate: 99.5, grand_total: 1194000, source: 'workbook' },
+    { id: 3, pi_no: 'PI/2026-27/003', pi_date: '2026-08-25', customer: 'Crew One', qty: 3000, rate: 99.9, grand_total: 299700, source: 'app' },
+    { id: 4, pi_no: 'PI/2026-27/004', pi_date: '2026-08-28', customer: 'Made Here', qty: 9, source: 'app' },
+  ];
+  const c = comparePiLog(excel, app);
+  assert.equal(c.same, 1);                                             // 4500000001 as a number or text, 0 or no points: alike
+  assert.deepEqual(c.differ.map((d) => [d.pi_no, d.kept, d.changes.map((x) => x.field)]), [
+    ['PI/2026-27/002', 'excel', ['qty', 'grand_total']],
+    ['PI/2026-27/003', 'app', ['rate', 'grand_total']],
+  ]);
+  assert.deepEqual([c.differ[0].changes[0].excel, c.differ[0].changes[0].app], [18000, 12000]);
+  assert.deepEqual(c.new_from_excel.map((r) => r.pi_no), ['PI/2026-27/005']);
+  assert.deepEqual(c.missing_in_excel.map((r) => [r.pi_no, r.source]), [['PI/2026-27/004', 'app']]);
+  assert.deepEqual(c.twice_in_excel.map((r) => r.pi_no), ['pi/2026-27/003']);
+  assert.deepEqual(c.excel_nos, ['PI/2026-27/001', 'PI/2026-27/002', 'PI/2026-27/003', 'PI/2026-27/005']);
+  assert.equal(piCheckClean(c), false);
+  assert.equal(piCheckClean(comparePiLog(excel.slice(0, 1), app.slice(0, 1))), true);
 });

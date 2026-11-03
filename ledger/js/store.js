@@ -745,6 +745,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         if (!no) continue;
         const old = db.proforma.find((x) => x.pi_no.trim().toLowerCase() === no.toLowerCase());
         if (old && old.source === 'app') { piKept++; continue; }
+        if (old && JSON.stringify(piRow(old)) === JSON.stringify(piRow({ ...r, pi_no: no })) && (old.printed_by || '') === (r.printed_by || '')) continue;
         let id;
         if (old) { id = old.id; piUpd++; } else {
           id = r.log_id > 0 && !db.proforma.some((x) => x.id === r.log_id) ? r.log_id : Math.max(0, ...db.proforma.map((x) => x.id)) + 1;
@@ -753,8 +754,12 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         const row = { ...piRow({ ...r, pi_no: no }), id, printed_at: r.printed_at || now(), printed_by: r.printed_by || '', source: 'workbook', doc: null };
         db.proforma = db.proforma.filter((x) => x.id !== id).concat(row).sort((a, b) => a.id - b.id);
       }
-      imp.counts = { customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images };
-      return { ...imp.counts, import_id: imp.id };
+      const check = (p.data && p.data.pi_check) || {};
+      imp.counts = {
+        customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images,
+        pi_differ: (check.differ || []).length, pi_not_in_excel: (check.missing_in_excel || []).length,
+      };
+      return { customers, pi_new: piNew, pi_updated: piUpd, pi_kept: piKept, images, import_id: imp.id };
     },
 
     async piList() {

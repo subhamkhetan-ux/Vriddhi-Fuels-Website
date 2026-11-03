@@ -560,6 +560,17 @@ table.kv td:first-child { color: var(--muted); }
 .doc-page svg { width: 100%; height: auto; display: block; }
 table.pi-log td { vertical-align: top; }
 table.pi-log .nw { white-space: nowrap; }
+table.pi-log td:nth-child(5) { min-width: 210px; }
+table.pi-log td:nth-child(6) { min-width: 110px; }
+.tag.warn { color: var(--warn); border-color: rgba(255,180,84,.45); margin-left: 4px; }
+.pi-check { border: 1px solid var(--glass-line); border-radius: 14px; padding: 12px 14px; margin-top: 10px; }
+.pi-check.good { border-color: rgba(47,208,138,.45); background: var(--good-bg); }
+.pi-check.good > b { color: var(--good); }
+.pi-check.warn { border-color: rgba(255,180,84,.5); background: var(--warn-bg); }
+.pi-check.warn > b { color: var(--warn); }
+.pi-check h4 { margin: 12px 0 4px; }
+.pi-check p { margin: 6px 0 0; }
+.pi-check td { vertical-align: top; }
 table.pi-log td.row-end { display: table-cell; white-space: nowrap; }
 table.pi-log td.row-end .btn { margin-left: 4px; }
 @media (min-width: 1100px) {

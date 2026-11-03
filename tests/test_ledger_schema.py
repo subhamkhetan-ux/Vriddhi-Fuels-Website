@@ -773,8 +773,12 @@ def test_tanker_billing_import_and_pi_log(pg):
     p["pi_log"][0]["qty"] = 15000
     p["pi_log"].append({"log_id": 3, "pi_no": "PI/2026-27/003", "pi_date": "2026-11-03", "customer": "Someone else", "qty": 1})
     p["pi_log"].append({"log_id": 3, "pi_no": "PI/2026-27/004", "pi_date": "2026-11-04", "customer": "Crew One Logistics", "qty": 5})
+    p["data"]["pi_check"] = {"differ": [{"pi_no": "PI/2026-27/003"}], "missing_in_excel": [], "excel_nos": ["PI/2026-27/001"]}
     res = pg.owner(call("ledger_tanker_import", "Tanker Billing v2.xlsm", p))
-    assert (res["customers"], res["pi_new"], res["pi_updated"], res["pi_kept"]) == (0, 1, 2, 1)
+    assert (res["customers"], res["pi_new"], res["pi_updated"], res["pi_kept"]) == (0, 1, 1, 1)   # 002 unchanged
+    assert pg.owner(call("ledger_setting_get", "tanker_billing"))["pi_check"]["excel_nos"] == ["PI/2026-27/001"]
+    counts = pg.owner(call("ledger_imports_list", 1))[0]["counts"]
+    assert (counts["pi_differ"], counts["pi_not_in_excel"]) == (1, 0)
     log = {r["pi_no"].upper(): r for r in pg.owner(call("ledger_pi_list"))}
     assert float(log["PI/2026-27/001"]["qty"]) == 15000
     assert log["PI/2026-27/003"]["customer"] == "Demo Power Ltd" and log["PI/2026-27/003"]["source"] == "app"
@@ -796,3 +800,13 @@ def test_tanker_billing_import_and_pi_log(pg):
         assert "permission denied" in pg.fails(fn, anon=True)
     assert "not on the ledger members list" in pg.fails("select ledger_pi_list();", user=STRANGER, email="stranger@example.com")
     assert pg.ok("select count(*) from ledger_proforma;", user=STRANGER, email="stranger@example.com") == "0"
+
+
+def test_tanker_import_counts_only_real_changes(pg):
+    p = _tb_payload(customers=[], images={})
+    p["pi_log"] = [{"log_id": 50, "pi_no": "PI/2030-31/001", "pi_date": "2030-05-01", "customer": "Demo Power Ltd", "qty": 10, "rate": 90}]
+    assert pg.owner(call("ledger_tanker_import", "a.xlsm", p))["pi_new"] == 1
+    res = pg.owner(call("ledger_tanker_import", "a.xlsm", p))                 # the same file again
+    assert (res["pi_new"], res["pi_updated"]) == (0, 0)
+    p["pi_log"][0]["qty"] = 11
+    assert pg.owner(call("ledger_tanker_import", "a.xlsm", p))["pi_updated"] == 1

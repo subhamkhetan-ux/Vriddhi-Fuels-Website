@@ -280,11 +280,61 @@ const norm = (s) => xlTrim(s).toLowerCase();
 
 // ReprintPIs: part of the customer's name (blank = all) and a date range.
 export function piMatches(row, { customer = '', from, to }) {
-  if (!row.pi_date) return false;
+  if (!row.pi_date && (from || to)) return false;
   if (from && row.pi_date < from) return false;
   if (to && row.pi_date > to) return false;
   return !customer || String(row.customer || '').toLowerCase().includes(customer.trim().toLowerCase());
 }
+
+// Re-importing the workbook: does Excel's PI Log match the app's?
+//   same              PIs alike in both
+//   differ            same PI No., different figures — kept 'excel' when the
+//                     app's copy came from an earlier import (the import takes
+//                     Excel's), 'app' when the PI was made in the app (kept)
+//   new_from_excel    in Excel, not yet in the app (the import adds them)
+//   missing_in_excel  in the app, not in Excel's PI Log
+//   twice_in_excel    a PI No. listed more than once in Excel
+//   excel_nos         Excel's PI Nos., so later screens can tell which app PIs Excel lacks
+const PI_CHECK = [
+  ['pi_date', 'PI date', 'date'], ['valid_to', 'Valid up to', 'date'], ['customer', 'Customer', 'text'], ['place', 'Place of supply', 'text'],
+  ['po_no', 'P.O. No.', 'text'], ['po_date', 'P.O. date', 'date'], ['description', 'Description', 'text'], ['hsn', 'HSN code', 'text'],
+  ['qty', 'Quantity (Ltr)', 'num'], ['rate', 'Rate (₹/Ltr)', 'num'], ['rsp', 'IOCL RSP (₹/Ltr)', 'num'], ['grand_total', 'Grand total (₹)', 'num'],
+  ['points', 'XtraPower points', 'num'],
+];
+export const piKey = (no) => String(no ?? '').trim().toLowerCase();
+const sameValue = (kind, a, b) => {
+  if (kind === 'num') {
+    const x = a == null || a === '' ? null : Number(a);
+    const y = b == null || b === '' ? null : Number(b);
+    if (x == null || y == null) return (x ?? 0) === (y ?? 0) || (x == null && y == null);
+    return Math.abs(x - y) < 0.005;
+  }
+  if (kind === 'date') return String(a || '').slice(0, 10) === String(b || '').slice(0, 10);
+  return xlTrim(a) === xlTrim(b);
+};
+const brief = (r) => ({ id: r.id ?? r.log_id ?? null, pi_no: String(r.pi_no || '').trim(), customer: r.customer || '', pi_date: r.pi_date || null, source: r.source || 'workbook' });
+export function comparePiLog(excelRows = [], appRows = []) {
+  const app = new Map();
+  for (const r of appRows) app.set(piKey(r.pi_no), r);
+  const out = { same: 0, differ: [], new_from_excel: [], missing_in_excel: [], twice_in_excel: [], excel_nos: [] };
+  const seen = new Set();
+  for (const x of excelRows) {
+    const k = piKey(x.pi_no);
+    if (!k) continue;
+    if (seen.has(k)) { out.twice_in_excel.push(brief(x)); continue; }
+    seen.add(k);
+    out.excel_nos.push(String(x.pi_no).trim());
+    const a = app.get(k);
+    if (!a) { out.new_from_excel.push(brief(x)); continue; }
+    const changes = PI_CHECK.filter(([f, , kind]) => !sameValue(kind, x[f], a[f]))
+      .map(([field, label, kind]) => ({ field, label, kind, excel: x[field] ?? null, app: a[field] ?? null }));
+    if (!changes.length) { out.same++; continue; }
+    out.differ.push({ ...brief(a), kept: a.source === 'app' ? 'app' : 'excel', changes });
+  }
+  for (const a of appRows) if (!seen.has(piKey(a.pi_no))) out.missing_in_excel.push(brief(a));
+  return out;
+}
+export const piCheckClean = (c) => !c.differ.length && !c.missing_in_excel.length && !c.twice_in_excel.length;
 
 // Next PI number: one after the highest "PI/<FY>/nnn" of the PI's financial year.
 export function nextPiNo(log, iso) {

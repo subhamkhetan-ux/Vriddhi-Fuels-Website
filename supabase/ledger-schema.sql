@@ -1325,7 +1325,8 @@ end $$;
 --   images     the sheets' letterheads and stamps (data: URLs) -> settings
 --   pi_log     the PI Log sheet: PI Nos. not in the app are added, ones that
 --              came from an earlier import are updated, ones made in the app
---              are kept as they are
+--              are kept as they are. data.pi_check is the app's comparison of
+--              that sheet with the log before the import (shown on Quotes → PI Log).
 create or replace function public.ledger_tanker_import(p_file_name text, p_payload jsonb)
 returns jsonb language plpgsql set search_path = public as $$
 declare
@@ -1393,6 +1394,16 @@ begin
       v_kept := v_kept + 1;
       continue;
     end if;
+    if found and (v_old.pi_date, v_old.valid_to, v_old.customer, v_old.gstin, v_old.place, v_old.po_no, v_old.po_date,
+                  v_old.description, v_old.hsn, v_old.qty, v_old.rate, v_old.rsp, v_old.sub_total, v_old.round_off,
+                  v_old.grand_total, v_old.points, v_old.words, v_old.contact, v_old.printed_by)
+       is not distinct from
+                 (r.pi_date, r.valid_to, coalesce(r.customer, ''), coalesce(r.gstin, ''), coalesce(r.place, ''),
+                  coalesce(r.po_no, ''), r.po_date, coalesce(r.description, ''), coalesce(r.hsn, ''), r.qty, r.rate, r.rsp,
+                  r.sub_total, r.round_off, r.grand_total, r.points, coalesce(r.words, ''), coalesce(r.contact, ''),
+                  coalesce(r.printed_by, '')) then
+      continue;                                              -- same as last time: nothing to refresh
+    end if;
     if found then
       v_id := v_old.id;
       v_upd := v_upd + 1;
@@ -1418,8 +1429,11 @@ begin
       printed_by = excluded.printed_by, source = 'workbook', doc = null;
   end loop;
 
+  -- the app's check of Excel's PI Log against its own (kept with the data above)
   update ledger_imports set counts = jsonb_build_object('customers', v_cust, 'pi_new', v_new, 'pi_updated', v_upd,
-                                                        'pi_kept', v_kept, 'images', v_img)
+           'pi_kept', v_kept, 'images', v_img,
+           'pi_differ', jsonb_array_length(coalesce(p_payload -> 'data' -> 'pi_check' -> 'differ', '[]'::jsonb)),
+           'pi_not_in_excel', jsonb_array_length(coalesce(p_payload -> 'data' -> 'pi_check' -> 'missing_in_excel', '[]'::jsonb)))
   where id = v_import;
   return jsonb_build_object('customers', v_cust, 'pi_new', v_new, 'pi_updated', v_upd, 'pi_kept', v_kept,
                             'images', v_img, 'import_id', v_import);
