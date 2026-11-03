@@ -505,11 +505,13 @@ def upload(cards: dict, tanks, cfg=None, now=None, only_volume: bool = False, ti
             continue
         if current and _when(current) == _when(reading) and current.get("volume") == reading["volume"]:
             # The same reading is already there (typically sent by live
-            # monitoring, which sends the volume alone). A full read still
-            # gives it its figures, and its proof picture (the mark).
-            if not only_volume and any(current.get(k) is None and reading.get(k) is not None
-                                       for k in VOLUME_ONLY_DROP):
+            # monitoring, which sends the volume alone, with no picture). A
+            # full read still gives it its figures, and its proof picture (the
+            # mark): it isn't a reading without one any more.
+            if not only_volume and (current.get("picture") is False or any(
+                    current.get(k) is None and reading.get(k) is not None for k in VOLUME_ONLY_DROP)):
                 current = {**current, **{k: reading[k] for k in VOLUME_ONLY_DROP if reading.get(k) is not None}}
+                current.pop("picture", None)
                 _rest("POST", "dec_tank_state?on_conflict=tank_id",
                       [{"tank_id": tank["id"], "reading": current, "updated_at": saved_at}],
                       prefer="resolution=merge-duplicates,return=minimal", timeout=timeout)

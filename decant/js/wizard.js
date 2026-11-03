@@ -23,7 +23,7 @@ import {
 import {
   busyTanks, compactNos, enter, invoiceForm, isStale, layoutFor, proofLine, readScreenshot, render, tankById, tankName, tanks, typedReading,
 } from './app.js';
-import { shotsFor } from './shots.js';
+import { shotKeys, shotsFor } from './shots.js';
 import { sayOnce, setVoice, setVoiceLang, voiceAvailable, voiceLang, voiceOn } from './voice.js';
 
 let currentId = null;
@@ -990,13 +990,36 @@ function ackCard(s) {
     </div>`;
 }
 
+// A reading saved as FuelTrans' live figure (no picture) whose screenshot was
+// taken all the same (an older version kept the flag when a full read matched
+// live monitoring's reading): proven after all, once its screenshot is found.
+const proven = new Map();                  // session id -> Set("T2|before") | null while looking
+function tanksOf(s) {
+  const tanks = s.data.tanks || [];
+  const flagged = tanks.some((t) => ['before', 'after'].some((w) => stockProof(t[w])?.live));
+  if (flagged && !proven.has(s.id)) {
+    proven.set(s.id, null);
+    shotKeys(tanks).then((keys) => { proven.set(s.id, keys); if (keys.size) render(); }).catch(() => proven.set(s.id, new Set()));   // (looked for once a visit)
+  }
+  const keys = proven.get(s.id);
+  if (!keys?.size) return tanks;
+  return tanks.map((t) => {
+    const c = { ...t };
+    for (const w of ['before', 'after']) {
+      if (keys.has(`${t.tank}|${w}`) && c[w]?.picture === false) { c[w] = { ...c[w] }; delete c[w].picture; }
+    }
+    return c;
+  });
+}
+
 function stepResult(s) {
   const d = s.data;
   if (s.status === 'cancelled') {
     return `<div class="card warn"><div class="sect-title">Cancelled</div><div class="hint">${esc(d.cancelReason || 'Nothing was decanted.')}</div></div>
       <button class="cta block" data-wz="close">Done</button>`;
   }
-  const res = d.tanks.map((t) => ({ t, r: tankResult({ litres: t.litres, before: t.before, after: t.after, salesL: t.salesL }, state.settings) }));
+  const shown = tanksOf(s);
+  const res = shown.map((t) => ({ t, r: tankResult({ litres: t.litres, before: t.before, after: t.after, salesL: t.salesL }, state.settings) }));
   const totL = d.tanks.reduce((a, t) => a + t.litres, 0);
   const totV = round2(res.reduce((a, x) => a + (x.r?.variation || 0), 0));
   const money = res.reduce((a, x) => a + (x.r && d.prices?.[x.t.product] ? x.r.variation * d.prices[x.t.product] : 0), 0);
@@ -1004,7 +1027,7 @@ function stepResult(s) {
       <div class="result"><div><div class="hint">Decanted ${fmtKL(totL)} from ${esc(s.tt_no)} · ${fmtTime(d.startedAt)}–${fmtTime(d.decantedAt)}</div>
         <div class="var ${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'}">${fmtSigned(totV, ' L', 2)}</div>
         <div class="hint">${totV < 0 ? 'short' : totV > 0 ? 'excess' : 'exact'} overall · ${fmtPct(totL ? (totV / totL) * 100 : 0)}${money ? ` · ≈ ${fmtMoney(money)} at invoice price` : ''}</div></div></div>
-      ${auditLine(d.tanks) ? `<div class="audit ${auditLine(d.tanks).ok ? 'ok' : 'no'}">${esc(auditLine(d.tanks).text)}</div>` : ''}
+      ${auditLine(shown) ? `<div class="audit ${auditLine(shown).ok ? 'ok' : 'no'}">${esc(auditLine(shown).text)}</div>` : ''}
     </div>
     ${res.map(({ t, r }) => `<div class="card">
       <div class="rd-head"><span class="nm">${tankName(t.tank)}</span>${productChip(t.product)}${r ? bandBadge(r.band, r.direction) : ''}</div>
@@ -1659,7 +1682,8 @@ function resultFooter(s) {
 function resultModel(s) {
   const d = s.data;
   const inv = d.invoice || {};
-  const res = d.tanks.map((t) => ({ t, r: t.result || tankResult({ litres: t.litres, before: t.before, after: t.after, salesL: t.salesL }, state.settings) }));
+  const shown = tanksOf(s);
+  const res = shown.map((t) => ({ t, r: t.result || tankResult({ litres: t.litres, before: t.before, after: t.after, salesL: t.salesL }, state.settings) }));
   const totL = d.tanks.reduce((a, t) => a + t.litres, 0);
   const totV = round2(res.reduce((a, x) => a + (x.r?.variation || 0), 0));
   const money = res.reduce((a, x) => a + (x.r && d.prices?.[x.t.product] ? x.r.variation * d.prices[x.t.product] : 0), 0);
@@ -1694,7 +1718,7 @@ function resultModel(s) {
     })),
     notes: d.notes || '',
     footer: resultFooter(s),
-    audit: auditLine(d.tanks),
+    audit: auditLine(shown),
     made: `Vriddhi Fuels decanting app · ${fmtDate(Date.now(), true)} ${fmtTime(Date.now())}`,
   };
 }
@@ -1710,6 +1734,7 @@ async function resultProofs(s) {
   try { held = await shotsFor(s.data.tanks); } catch { /* none */ }
   const cell = new Map();                                    // `${tank}|${which}` -> {shot}
   for (const e of held) for (const u of e.uses) cell.set(`${u.tank}|${u.which}`, { shot: e.shot, use: u });
+  if (cell.size) proven.set(s.id, new Set(cell.keys()));       // (the shared picture's figures say so too)
   const out = [];
   const whole = new Map();                                   // shot id -> {shot, uses}
   for (const t of s.data.tanks || []) {
@@ -1754,7 +1779,8 @@ function share(s) {
     (async () => {
       try {
         const { resultImage } = await import('./shareimg.js');
-        const canvas = await resultImage({ ...resultModel(s), proofs: await resultProofs(s) });
+        const proofs = await resultProofs(s);
+        const canvas = await resultImage({ ...resultModel(s), proofs });
         const nProof = canvas.proofCount || 0;
         // with screenshots a JPEG keeps the file small enough for WhatsApp
         const type = nProof ? 'image/jpeg' : 'image/png';
