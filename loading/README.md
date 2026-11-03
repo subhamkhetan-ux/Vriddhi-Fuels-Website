@@ -391,7 +391,9 @@ data only spans 7 days, download a report weekly to keep a longer archive.
 
 **Trips per tanker** on the home screen counts how many times each tanker was
 **sent for sale** in a date range — **one sale = one trip**. It opens on the
-**current month**; ‹ › step a month at a time, or set your own From / To dates.
+**current month to date** (the 1st to today, "November 2026 · to date"); ‹ ›
+step a month at a time (a past month runs to its last day), or set your own
+From / To dates. The Mileage screen's period summary opens the same way.
 Dates are business days (7:30 AM → 7:30 AM), the same as everywhere else.
 
 - Tiles: total trips, total **RTD km** and litres sold.

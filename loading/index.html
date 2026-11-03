@@ -3270,14 +3270,20 @@ function dbHint(e){
 function monthKeys(y,m){ const last=new Date(y,m+1,0).getDate(); return { from:y+"-"+pad(m+1)+"-01", to:y+"-"+pad(m+1)+"-"+pad(last) }; }
 function monthName(y,m){ return new Date(y,m,1).toLocaleDateString("en-IN",{month:"long",year:"numeric"}); }
 /* A small month navigator over two date inputs. Arrows step a whole month;
-   editing a date by hand switches it to a custom range. */
+   the current month runs from the 1st to today (month to date). Editing a
+   date by hand switches it to a custom range. */
+function monthSpan(y,m){
+  const k=monthKeys(y,m), today=shiftDate(Date.now());
+  return (k.from<=today && today<k.to) ? { from:k.from, to:today, mtd:true } : k;
+}
 function makeRange(ids, onChange){
   const now=new Date(), cur=shiftDate(now.getTime()).split("-").map(Number);
   const st={ y:cur[0], m:cur[1]-1 };
+  const label=k=>monthName(st.y, st.m)+(k.mtd?" · to date":"");
   function setMonth(y,m){
     const d=new Date(y,m,1); st.y=d.getFullYear(); st.m=d.getMonth();
-    const k=monthKeys(st.y, st.m); $(ids.from).value=k.from; $(ids.to).value=k.to;
-    $(ids.label).textContent=monthName(st.y, st.m);
+    const k=monthSpan(st.y, st.m); $(ids.from).value=k.from; $(ids.to).value=k.to;
+    $(ids.label).textContent=label(k);
     onChange();
   }
   $(ids.prev).onclick=()=>setMonth(st.y, st.m-1);
@@ -3285,8 +3291,8 @@ function makeRange(ids, onChange){
   [ids.from, ids.to].forEach(sel=>$(sel).addEventListener("change",()=>{
     const f=$(ids.from).value, t=$(ids.to).value;
     if(f && t && f>t){ $(ids.to).value=f; }
-    const k=monthKeys(st.y, st.m);
-    $(ids.label).textContent = ($(ids.from).value===k.from && $(ids.to).value===k.to) ? monthName(st.y, st.m) : "Custom range";
+    const k=monthSpan(st.y, st.m);
+    $(ids.label).textContent = ($(ids.from).value===k.from && $(ids.to).value===k.to) ? label(k) : "Custom range";
     onChange();
   }));
   return { st:st, setMonth:setMonth, thisMonth:()=>{ const c=shiftDate(Date.now()).split("-").map(Number); setMonth(c[0], c[1]-1); } };
