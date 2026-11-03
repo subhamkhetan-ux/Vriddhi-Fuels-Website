@@ -143,6 +143,33 @@ export function splitDash(s) {
 
 // ---- Quotation Maker ----------------------------------------------------------
 // q: {customer (Tanker Master row), date (ISO), valid_till, contact, email, rsp, rate}
+// Payment terms by price tier (Customers ▸ TierTerms, worded by PaymentPresets):
+// the Quotation Maker's I21:I25. preset / credit_days typed on the
+// quotation replace the tier's for that quotation.
+export const TERMS_MISSING = '⚠ Tier not set up in Customers ▸ TierTerms';
+export function presetWording(data, preset, creditDays) {
+  const p = ((data && data.payment_presets) || []).find((x) => x.preset === preset);
+  const t = p ? String(p.wording ?? '') : '';
+  if (!t) return '⚠ Pick a preset';
+  const n = Number(creditDays) || 0;                                                         // N()
+  if (/\{n\}/i.test(t) && n <= 0) return '⚠ Enter Credit Days';
+  return t.split('{N}').join(creditDays == null || creditDays === '' ? '' : String(Number(creditDays)));
+}
+export function paymentTerms(data, cust, override = {}) {
+  const tier = cust ? cust.price_tier || '' : '';                                            // I21
+  const row = ((data && data.tier_terms) || []).find((x) => x.tier === tier);
+  const hasOverride = override.preset != null && override.preset !== '';
+  const preset = hasOverride ? override.preset : (row ? row.preset || '' : '');              // I22
+  const days = hasOverride ? override.credit_days : (row ? row.credit_days : null);
+  const creditDays = preset === 'N Days' && days != null && days !== '' ? Number(days) : null;  // I23
+  let terms;                                                                                  // I24
+  if (hasOverride) terms = presetWording(data, preset, days);
+  else if (!row) terms = TERMS_MISSING;
+  else terms = presetWording(data, preset, row.credit_days);
+  const advance = preset === 'Advance' || preset === '';                                     // I25
+  return { tier, preset, creditDays, terms, advance, fromTier: !hasOverride, known: Boolean(row), set: Array.isArray(data && data.tier_terms) };
+}
+
 export function quotationCalc(data, q) {
   const xp = xpOf(data);
   const rsp = q.rsp != null && q.rsp !== '' ? Number(q.rsp) : hsdRsp(data) || 0;           // I12
@@ -152,7 +179,8 @@ export function quotationCalc(data, q) {
   const xtra = isXtraPower(q.customer);                                                   // I16
   const benefit = xtra ? (rate * xp.net) / 10000 : 0;                                      // I17
   const effective = rate - benefit;                                                        // I18
-  return { rsp, rate, discount, pct, xtra, benefit, effective, xp };
+  const pay = paymentTerms(data, q.customer, { preset: q.preset, credit_days: q.credit_days });   // I21:I25
+  return { rsp, rate, discount, pct, xtra, benefit, effective, xp, pay };
 }
 
 const paren = (v) => (v < 0 ? `(₹${fixed(-v)})` : `₹${fixed(v)}`);                     // \₹0.00;\(\₹0.00\)
@@ -177,7 +205,9 @@ export function quotationValues(data, q, texts = {}) {
     E19: c.xtra
       ? { text: `Effective ₹${fixed(c.effective)}/Ltr after XtraPower points (${fixed(c.xp.net, 0)} paise/₹100 net)`, b: 1, i: 0, c: '#008000' }
       : 'Billing rate – FOR your site',
-    A26: c.xtra ? 'BANK DETAILS – XTRAPOWER ACCOUNT (100% ADVANCE)' : 'BANK DETAILS FOR PAYMENT (100% ADVANCE – RTGS / NEFT)',
+    C25: c.pay.set ? c.pay.terms : '',
+    A26: c.xtra ? `BANK DETAILS – XTRAPOWER ACCOUNT${c.pay.advance ? ' (100% ADVANCE)' : ''}`
+      : `BANK DETAILS FOR PAYMENT (${c.pay.advance ? '100% ADVANCE – ' : ''}RTGS / NEFT)`,
     A27: bank(4)[0], C27: bank(4)[1], A28: bank(1)[0], C28: bank(1)[1],
     A29: bank(2)[0], C29: bank(2)[1], A30: bank(3)[0], C30: bank(3)[1],
     A33: `We trust our offer is in line with your requirement and look forward to receiving your valued order. For orders or any clarification, please call us at ${contact} or write to ${email}.`,
@@ -437,6 +467,39 @@ export function readTankerBilling(wb) {
       if (p && v != null) productRates[p] = v;
     }
   }
+  // PaymentPresets (Preset / Terms Wording) and TierTerms (Price Tier /
+  // Payment Preset / Credit Days / Payment Terms): payment terms by tier
+  let paymentPresets;
+  const ppCol = findPair('preset', 'terms wording');
+  if (ppCol != null) {
+    paymentPresets = [];
+    for (let r = 2; r <= rows; r++) {
+      const preset = xlTrim(cellText(cellAt(ws, `${colName(ppCol)}${r}`)));
+      if (preset) paymentPresets.push({ preset, wording: cellText(cellAt(ws, `${colName(ppCol + 1)}${r}`)).trim() });
+    }
+  }
+  let tierTerms;
+  const ttCol = findPair('price tier', 'payment preset');
+  if (ttCol != null) {
+    tierTerms = [];
+    for (let r = 2; r <= rows; r++) {
+      const tier = xlTrim(cellText(cellAt(ws, `${colName(ttCol)}${r}`)));
+      if (!tier) continue;
+      tierTerms.push({
+        tier, preset: xlTrim(cellText(cellAt(ws, `${colName(ttCol + 1)}${r}`))),
+        credit_days: cellNum(cellAt(ws, `${colName(ttCol + 2)}${r}`)),
+        terms: cellText(cellAt(ws, `${colName(ttCol + 3)}${r}`)).trim(),            // Excel's own result, to check against
+      });
+    }
+    for (const t of tierTerms) {                         // the app words them as Excel does
+      const mine = presetWording({ payment_presets: paymentPresets || [] }, t.preset, t.credit_days);
+      if (t.terms && mine !== t.terms) warnings.push(`Payment terms for "${t.tier}": Excel shows "${t.terms}", the app works out "${mine}" — check Customers ▸ TierTerms / PaymentPresets and save the workbook in Excel.`);
+    }
+    for (const t of rateCard) {
+      if (!tierTerms.some((x) => x.tier === t.tier)) warnings.push(`Price tier "${t.tier}" has no payment terms in Customers ▸ TierTerms — its quotations print "${TERMS_MISSING}".`);
+    }
+  } else warnings.push('No TierTerms table (Price Tier / Payment Preset / Credit Days / Payment Terms) on the Customers sheet — quotations print no payment terms.');
+
   const fuelTypes = [];
   const ftCol = findPair('fuel type');
   if (ftCol != null) {
@@ -514,6 +577,7 @@ export function readTankerBilling(wb) {
     customers,
     data: {
       rate_card: rateCard, product_rates: productRates, fuel_types: fuelTypes, xp, hsd_rsp,
+      ...(paymentPresets ? { payment_presets: paymentPresets } : {}), ...(tierTerms ? { tier_terms: tierTerms } : {}),
       quote, texts, pi_sheet,
     },
     pi_log,

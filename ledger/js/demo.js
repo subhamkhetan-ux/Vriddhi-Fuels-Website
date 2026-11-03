@@ -156,6 +156,15 @@ export function demoSeed(today = new Date()) {
       product_rates: { 'Motor Spirit': 99.5, 'XtraGreen Diesel': 95.1 },
       fuel_types: ['High Speed Diesel', 'Motor Spirit', 'XtraGreen Diesel'],
       xp: { points: 40, tds: 0.1, net: 36 }, hsd_rsp: 91.02,
+      payment_presets: [
+        { preset: 'Advance', wording: '100% advance payment against Proforma Invoice, prior to dispatch.' },
+        { preset: '24 Hrs', wording: 'Payment within 24 hours of receipt of material and invoice.' },
+        { preset: 'N Days', wording: 'Payment within {N} days from the date of receipt of material and invoice.' },
+      ],
+      tier_terms: [
+        { tier: 'HSD RSP', preset: 'Advance', credit_days: null }, { tier: 'Bulk Price', preset: 'N Days', credit_days: 15 },
+        { tier: 'Twin Price', preset: '24 Hrs', credit_days: null },
+      ],
       quote: { valid_till: 'Next price revision by IOCL', contact: '00000 00000', email: 'demo@example.com', dispatch: 'On realisation of advance payment', fleet: '12 KL tankers × 2' },
       texts: { quotation: {}, proforma: { A4: 'DEMO FUELS', A7: 'GSTIN: 00DEMO0000D0Z0', A8: 'Mob: 00000 00000', A9: 'Email: demo@example.com' } },
       pi_sheet: { place: 'Odisha (21)', hsn: '27101930', contact: 'Contact Person / Mob:', description: 'High Speed Diesel (HSD)' },
