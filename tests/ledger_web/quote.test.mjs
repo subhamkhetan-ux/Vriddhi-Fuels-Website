@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  comparePiLog, customerRate, firstTwoWords, piCheckClean, hsdRsp, nextPiNo, piDiscount, piEffective, piFileName, piFromLog, piLogRow, piMatches, picturePaths,
+  comparePiLog, customerRate, firstTwoWords, paymentTerms, piCheckClean, presetWording, hsdRsp, nextPiNo, piDiscount, piEffective, piFileName, piFromLog, piLogRow, piMatches, picturePaths,
   piValidTo, productRate, proformaCalc, proformaValues, quotationCalc, quotationValues, quoteFileName, readTankerBilling, rupeesInWords,
   samePiNo, splitDash,
 } from '../../ledger/js/quote.js';
@@ -157,6 +157,11 @@ function workbook() {
     O1: 'Price Tier', P1: 'Rate', R1: 'Product', S1: 'Rate', U1: 'Fuel Type',
     O2: 'HSD RSP', P2: 100.74, O3: 'Bulk Price', P3: 99.5, O4: 'Linked Price', P4: formula(100, 'P2-0.74'),
     R2: 'Motor Spirit', S2: 109.01, U2: 'High Speed Diesel', U3: 'Motor Spirit',
+    AC1: 'Preset', AD1: 'Terms Wording', AC2: 'Advance', AD2: '100% advance payment against Proforma Invoice, prior to dispatch.',
+    AC3: 'N Days', AD3: 'Payment within {N} days from the date of receipt of material and invoice.',
+    AF1: 'Price Tier', AG1: 'Payment Preset', AH1: 'Credit Days', AI1: 'Payment Terms',
+    AF2: 'HSD RSP', AG2: 'Advance', AI2: formula('100% advance payment against Proforma Invoice, prior to dispatch.'),
+    AF3: 'Bulk Price', AG3: 'N Days', AH3: 15, AI3: formula('Payment within 15 days from the date of receipt of material and invoice.'),
     W2: 'Points earned (paise per ₹100 paid)', X2: 40, W3: 'TDS deducted by IOCL on points', X3: 0.1, W4: 'Net points credited', X4: formula(36, 'X2*(1-X3)'),
   }, {
     start: 2, col: 'A', rows: [
@@ -195,6 +200,9 @@ test('reading the Tanker Billing workbook', () => {
   assert.equal(r.data.hsd_rsp, 100.74);
   assert.deepEqual(r.data.quote, { valid_till: 'Next price revision by IOCL', contact: '00000 00000', email: 'demo@example.com', dispatch: '', fleet: '' });
   assert.equal(r.data.pi_sheet.pi_no, 'PI/2026-27/013');
+  assert.deepEqual(r.data.payment_presets.map((x) => x.preset), ['Advance', 'N Days']);
+  assert.deepEqual(r.data.tier_terms.map((x) => [x.tier, x.preset, x.credit_days]), [['HSD RSP', 'Advance', null], ['Bulk Price', 'N Days', 15]]);
+  assert.deepEqual(r.warnings, ['Price tier "Linked Price" has no payment terms in Customers ▸ TierTerms — its quotations print "⚠ Tier not set up in Customers ▸ TierTerms".']);
   // wording that differs from the app's copy of the sheets comes along
   assert.equal(r.data.texts.quotation.A13, 'Our own words.');
   assert.equal(r.data.texts.proforma.E40, '9.  Claims within 48 hours.');
@@ -294,4 +302,47 @@ test('re-importing: Excel\'s PI Log checked against the app\'s', () => {
   assert.deepEqual(c.excel_nos, ['PI/2026-27/001', 'PI/2026-27/002', 'PI/2026-27/003', 'PI/2026-27/005']);
   assert.equal(piCheckClean(c), false);
   assert.equal(piCheckClean(comparePiLog(excel.slice(0, 1), app.slice(0, 1))), true);
+});
+
+test('payment terms by price tier (Customers ▸ TierTerms, the Quotation Maker\'s I21:I25 and row 25)', () => {
+  const data = {
+    ...DATA,
+    payment_presets: [
+      { preset: 'Advance', wording: '100% advance payment against Proforma Invoice, prior to dispatch.' },
+      { preset: '24 Hrs', wording: 'Payment within 24 hours of receipt of material and invoice.' },
+      { preset: 'N Days', wording: 'Payment within {N} days from the date of receipt of material and invoice.' },
+    ],
+    tier_terms: [
+      { tier: 'Linked Price', preset: '24 Hrs', credit_days: null }, { tier: 'Bulk Price', preset: 'Advance', credit_days: null },
+      { tier: 'HSD RSP', preset: 'N Days', credit_days: null },
+    ],
+  };
+  assert.equal(presetWording(data, 'N Days', 30), 'Payment within 30 days from the date of receipt of material and invoice.');
+  assert.equal(presetWording(data, 'N Days', 0), '⚠ Enter Credit Days');
+  assert.equal(presetWording(data, 'Monthly', 0), '⚠ Pick a preset');
+
+  const q = { customer: DEMO, date: '2026-11-03' };                   // Linked Price: 24 Hrs
+  let v = quotationValues(data, q).values;
+  assert.equal(v.C25, 'Payment within 24 hours of receipt of material and invoice.');
+  assert.equal(v.A26, 'BANK DETAILS FOR PAYMENT (RTGS / NEFT)');
+  v = quotationValues(data, { ...q, customer: XPC }).values;            // Bulk Price: Advance, XtraPower
+  assert.equal(v.C25, '100% advance payment against Proforma Invoice, prior to dispatch.');
+  assert.equal(v.A26, 'BANK DETAILS – XTRAPOWER ACCOUNT (100% ADVANCE)');
+  v = quotationValues(data, { ...q, customer: { ...XPC, price_tier: 'Linked Price' } }).values;
+  assert.equal(v.A26, 'BANK DETAILS – XTRAPOWER ACCOUNT');
+  assert.equal(quotationValues(data, { ...q, customer: { ...DEMO, price_tier: 'HSD RSP' } }).values.C25, '⚠ Enter Credit Days');
+  const none = paymentTerms(data, { ...DEMO, price_tier: 'Someone' });
+  assert.deepEqual([none.terms, none.advance], ['⚠ Tier not set up in Customers ▸ TierTerms', true]);
+
+  // terms chosen on the quotation itself
+  const own = quotationValues(data, { ...q, preset: 'N Days', credit_days: 45 });
+  assert.equal(own.values.C25, 'Payment within 45 days from the date of receipt of material and invoice.');
+  assert.deepEqual([own.calc.pay.creditDays, own.calc.pay.fromTier, own.calc.pay.advance], [45, false, false]);
+
+  // a workbook from before the TierTerms table: no terms row, the old heading
+  v = quotationValues(DATA, q).values;
+  assert.deepEqual([v.C25, v.A26], ['', 'BANK DETAILS FOR PAYMENT (100% ADVANCE – RTGS / NEFT)']);
+  const svg = sheetSvg(LAYOUTS.quotation, { values: quotationValues(data, q).values });
+  assert.match(svg, />Payment Terms</);
+  assert.match(svg, />Payment within 24 hours/);
 });

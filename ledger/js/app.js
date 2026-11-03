@@ -17,7 +17,7 @@ import {
   useNarrowFont, zipBlob,
 } from './render.js';
 import {
-  comparePiLog, customerRate, dmyy, hsdRsp, indian, isXtraPower, nextPiNo, PI_PRODUCTS, piCheckClean, piDiscount, piEffective, piFileName, piFromLog,
+  comparePiLog, customerRate, dmyy, paymentTerms, hsdRsp, indian, isXtraPower, nextPiNo, PI_PRODUCTS, piCheckClean, piDiscount, piEffective, piFileName, piFromLog,
   piKey, piLogRow, piMatches,
   picturePaths, productRate, proformaCalc, proformaValues, quotationCalc, quotationValues, quoteFileName, readTankerBilling, samePiNo,
 } from './quote.js';
@@ -3055,6 +3055,9 @@ function viewQuotation(d) {
           <div class="two"><label>RSP at our RO (₹/Ltr) <input name="rsp" type="number" step="0.01" min="0" value="${esc(f.rsp)}"></label>
             <label>Offer / billing price (₹/Ltr) <input name="rate" type="number" step="0.01" min="0" value="${esc(f.rate)}"></label></div>
           <p class="muted small" id="q-note"></p>
+          <div class="two"><label>Payment terms <select name="preset"><option value="">As the price tier says</option>${(data.payment_presets || []).map((x) => `<option value="${esc(x.preset)}"${x.preset === f.preset ? ' selected' : ''}>${esc(x.preset)}</option>`).join('')}</select></label>
+            <label>Credit days <input name="credit_days" type="number" min="1" step="1" value="${esc(f.credit_days ?? '')}"></label></div>
+          <p class="muted small" id="q-terms"></p>
         </form>
         <h4>Calculated</h4>
         <div class="table-wrap"><table class="compact kv" id="q-calc"></table></div>
@@ -3077,6 +3080,7 @@ function viewQuotation(d) {
   const read = () => ({
     customer: custOf(d, form.customer.value), date: form.date.value, valid_till: form.valid_till.value, contact: form.contact.value,
     email: form.email.value, rsp: form.rsp.value === '' ? null : Number(form.rsp.value), rate: form.rate.value === '' ? null : Number(form.rate.value),
+    preset: form.preset.value, credit_days: form.credit_days.value === '' ? null : Number(form.credit_days.value),
   });
   const page = () => sheetSvg(LAYOUTS.quotation, { values: quotationValues(data, read()).values, texts: data.texts?.quotation || {}, images, measure });
   const render = () => {
@@ -3090,7 +3094,17 @@ function viewQuotation(d) {
       ['RSP at our RO', `₹${rs2(c.rsp)}`], ['Offer / billing price', `₹${rs2(c.rate)}`], ['Flat discount', `₹${rs2(c.discount)}`],
       ['Discount as % of RSP', `${(c.pct * 100).toFixed(2)}%`], ['XtraPower customer?', c.xtra ? 'Yes' : 'No'],
       ['XtraPower benefit', `₹${rs2(c.benefit)}/Ltr`], ['Effective price after points', `₹${rs2(c.effective)}/Ltr`],
+      ['Price tier', esc(c.pay.tier || '—')], ['Payment preset', esc(c.pay.preset || '—')], ['Credit days', c.pay.creditDays ?? '—'],
+      ['Payment terms', c.pay.set ? `<span class="${c.pay.terms.startsWith('⚠') ? 'warn-text' : ''}">${esc(c.pay.terms)}</span>` : '—'],
+      ['Advance terms?', c.pay.advance ? 'Yes' : 'No'],
     ].map(([k, v]) => `<tr><td>${k}</td><td class="r">${v}</td></tr>`).join('');
+    const days = form.credit_days;
+    days.disabled = q.preset !== 'N Days';                    // days only go with an N Days override
+    document.getElementById('q-terms').innerHTML = !c.pay.set
+      ? '<span class="warn-text">Import the Tanker Billing workbook again to bring in its payment terms (Customers ▸ TierTerms).</span>'
+      : c.pay.fromTier
+        ? (c.pay.known ? `From Customers ▸ TierTerms for <b>${esc(c.pay.tier)}</b>. Pick a preset to quote other terms this time.` : `<span class="warn-text"><b>${esc(c.pay.tier || 'This customer')}</b> has no row in Customers ▸ TierTerms.</span> Pick a preset, or set it up in Excel and import again.`)
+        : `Changed for this quotation — the tier's terms: ${esc(paymentTerms(data, cust).terms)}`;
     document.getElementById('q-page').innerHTML = page();
     state.quoteForm = { ...Object.fromEntries(new FormData(form)), rateTouched: f.rateTouched };
   };
@@ -3100,7 +3114,7 @@ function viewQuotation(d) {
     if (e.target.name === 'rsp' && !f.rateTouched) fillRate();
     later();
   });
-  form.customer.addEventListener('change', () => { f.rateTouched = false; fillRate(); render(); });
+  form.customer.addEventListener('change', () => { f.rateTouched = false; form.preset.value = ''; form.credit_days.value = ''; fillRate(); render(); });
   if (form.rate.value === '') fillRate();
   render();
 
@@ -3495,6 +3509,7 @@ async function tankerChosen(file, input, outId) {
           <tr><td>IOCL HSD RSP</td><td>₹${rs2(dd.hsd_rsp)}</td></tr>
           <tr><td>Price tiers</td><td>${dd.rate_card.map((t) => `${esc(t.tier)} ₹${rs2(t.rate)}${t.rsp_offset != null ? ` <span class="muted">(RSP ${t.rsp_offset < 0 ? '−' : '+'} ${Math.abs(t.rsp_offset)})</span>` : ''}`).join(' · ')}</td></tr>
           <tr><td>Other products</td><td>${Object.entries(dd.product_rates).map(([k, v]) => `${esc(k)} ₹${rs2(v)}`).join(' · ') || '—'}</td></tr>
+          <tr><td>Payment terms by tier</td><td>${dd.tier_terms ? dd.tier_terms.map((t) => `${esc(t.tier)}: ${esc(t.preset || '—')}${t.credit_days ? ` (${t.credit_days} days)` : ''}`).join(' · ') : '<span class="warn-text">no TierTerms table</span>'}</td></tr>
           <tr><td>XtraPower</td><td>${dd.xp.points} paise per ₹100, ${Math.round(dd.xp.tds * 100)}% TDS → net ${dd.xp.net} paise</td></tr>
           <tr><td>Quotation Maker inputs</td><td>Valid till “${esc(dd.quote.valid_till)}” · ${esc(dd.quote.contact)} · ${esc(dd.quote.email)}</td></tr>
           <tr><td>PI Log</td><td>${plural(parsed.pi_log.length, 'PI')}${parsed.pi_log.length ? ` <span class="muted">(${parsed.pi_log.length - known} new to the app${known - inApp ? `, ${known - inApp} refreshed` : ''}${inApp ? `, ${inApp} made in the app kept as they are` : ''})</span>` : ''}</td></tr>
