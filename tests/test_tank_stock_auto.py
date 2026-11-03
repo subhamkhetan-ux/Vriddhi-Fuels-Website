@@ -1654,3 +1654,29 @@ def test_the_page_gets_each_chamber_s_numbers_and_the_next_step(rig):
     assert [c["state"] for c in t2["chamberRows"]] == ["in", "going"] and t2["next"].startswith("C3 going in")
     drive(rig, 1300)
     assert [c["state"] for c in row("T2")["chamberRows"]] == ["in", "in"]
+
+
+def test_the_page_moves_on_to_the_next_chamber_when_the_pipe_is_moved_quickly(rig):
+    """The pipe moved to C3 within seconds (no pause the agent marks C2's
+    arrival at): the page still counts C2 in once the tank has risen by it,
+    and shows C3 going in — not "C2 going in, ≈0 L left"."""
+    a = start(rig, {"2": "T2", "3": "T2"})
+    row = lambda: next(t for t in a.run.view(rig.clock.t)["tanks"] if t["tank"] == "T2")   # noqa: E731
+    rig.world.flows = [(2, 100, 5000, 495), (2, 600, 4000, 420)]      # C2, then C3 five seconds later
+    drive(rig, 750)
+    t2 = row()
+    assert "2" not in [str(n) for n in t2["arrived"]]                  # (the agent hasn't marked it)
+    c2, c3 = t2["chamberRows"]
+    assert c2["state"] == "in" and c3["state"] == "going" and c3["got"] > 900, t2["chamberRows"]
+    assert t2["next"].startswith("C3 going in"), t2["next"]
+
+
+
+def test_between_two_chambers_moved_quickly_the_page_says_move_the_pipe(rig):
+    a = start(rig, {"2": "T2", "3": "T2"})
+    row = lambda: next(t for t in a.run.view(rig.clock.t)["tanks"] if t["tank"] == "T2")   # noqa: E731
+    rig.world.flows = [(2, 100, 5000, 495), (2, 620, 4000, 420)]      # C2 in by 595; C3 from 620
+    drive(rig, 610, step=5)
+    t2 = row()
+    assert [c["state"] for c in t2["chamberRows"]] == ["in", "move"], t2["chamberRows"]
+    assert t2["next"] == "C2 done — move the pipe to C3 and open its valve."
