@@ -62,6 +62,28 @@ note. The letterhead lives in
 [`payments/consignment_template.docx`](./consignment_template.docx) with the
 fill-in fields as `{{TOKENS}}`; the app never alters anything else.
 
+### Invoice mail didn't come? Upload the PDF
+
+If an IndianOil invoice mail never reaches the HDFC mailbox, add it by hand:
+tap **⬆ Upload invoice PDF** on the **Consignment notes** tab (or **⬆ Invoice
+PDF** on the Credit tab's day-wise ledger) and pick the invoice PDF. The app
+reads it in the browser — the same reader as the `/decant/` app — and shows what
+it will do before you tap **Save**:
+
+- **Credit** — the invoice total is added to that day's invoices (any truck), and
+  the per-KL price is updated if this is the newest invoice.
+- **Consignment note** — created with the next serial when it's eligible, the same
+  rules as the mail: TT **OD23U8210** only, invoice **7010221545** (047) onward.
+  Another TT or an older invoice gets no note.
+
+Nothing is ever added twice. The upload is stored under the same keys the agent
+uses (the invoice number for Credit; the note id derived from it), so when the
+mail **does** arrive later the agent finds it already there and skips it — no
+second total, no second note, no serial spent. Uploading the same PDF again just
+says it's already recorded. (A note you dismissed is shown again instead of
+re-issued.) If the invoice is older than every note on record, the app warns
+first: its note may already have been printed and dropped off the 5-note list.
+
 ## Credit & dues (IOCL fuel account)
 
 The **Credit** tab tracks the IOCL credit facility and when each day's invoices

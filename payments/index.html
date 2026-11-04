@@ -223,6 +223,18 @@ summary::-webkit-details-marker{display:none}
 .cust-chip.removable{display:inline-flex;align-items:center;gap:2px;padding:4px 5px 4px 10px}
 .cust-x{border:none;background:transparent;color:var(--faint);font-size:16px;line-height:1;cursor:pointer;padding:0 4px;border-radius:6px;transition:color .12s,background .12s}
 .cust-x:hover{color:#fff;background:var(--accent-2)}
+/* ---- invoice from PDF (fallback when the IOCL mail doesn't come) ---- */
+.up-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 2px 12px;font-size:12.5px;color:var(--muted)}
+.up-card{border-color:var(--accent)}
+.up-head{font-family:var(--display);font-weight:700;margin-bottom:4px}
+.up-file{font-size:12px;color:var(--faint);overflow-wrap:anywhere}
+.up-steps{margin:12px 0 0;padding:0;list-style:none;font-size:13px}
+.up-steps li{display:flex;gap:8px;padding:7px 0;border-top:1px solid var(--line);line-height:1.4}
+.up-steps li .i{flex:none;width:18px;text-align:center;font-weight:800}
+.up-steps li.add .i{color:var(--good)} .up-steps li.skip .i{color:var(--faint)} .up-steps li.warn .i{color:var(--warn)}
+.up-steps li.skip{color:var(--muted)}
+.up-err{background:var(--bad-bg);border:1px solid var(--bad);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:10px}
+.up-warn{background:var(--warn-bg);border:1px solid var(--warn);border-radius:10px;padding:10px 12px;font-size:12.5px;margin-top:10px}
 /* ---- credit / dues ---- */
 .cr-head{font-family:var(--display);font-weight:700;margin-bottom:10px}
 .cr-sub{font-weight:500;color:var(--faint);font-size:12px}
@@ -392,6 +404,8 @@ a{color:var(--accent)}
 
 <div class="wrap">
   <div id="setup" style="display:none"></div>
+  <input type="file" id="invPdfFile" accept="application/pdf,.pdf" hidden onchange="onInvoicePdf(this)">
+  <div id="invUploadWrap"></div>
 
   <div id="viewPay">
   <div class="card" id="addCard" style="display:none">
@@ -499,7 +513,8 @@ a{color:var(--accent)}
 
     <!-- 3. Dues schedule — directly below the balance card -->
     <div class="card">
-      <div class="cr-head">Day-wise ledger <span class="cr-sub" id="crDuesSub"></span></div>
+      <div class="cr-head" style="display:flex;align-items:baseline;gap:8px">Day-wise ledger <span class="cr-sub" id="crDuesSub"></span>
+        <button class="btn sm" style="margin-left:auto" onclick="pickInvoicePdf()" title="An invoice mail didn't come? Add it from its PDF">⬆ Invoice PDF</button></div>
       <div id="crDuesWrap"></div>
     </div>
 
@@ -858,6 +873,39 @@ const Cloud = {
   },
   async setReportingDate(id, dmy){ if(!this.client) return;
     try{ await this.client.from("pay_consignment_notes").update({reporting_date:dmy}).eq("id",id); }catch(_){} },
+  /* ---- invoice from PDF: look up what's already stored, then write ---- */
+  async fuelInvoice(no){ if(!this.client) throw new Error("cloud not connected");
+    const { data, error } = await this.client.from("pay_fuel_invoices")
+      .select("invoice_no,invoice_date,amount,gmail_msg_id").eq("invoice_no",no).maybeSingle();
+    if(error) throw error; return data||null; },
+  async noteById(id){ if(!this.client) throw new Error("cloud not connected");
+    const { data, error } = await this.client.from("pay_consignment_notes")
+      .select("*").eq("id",id).maybeSingle();
+    if(error) throw error; return data||null; },
+  async addFuelInvoice(row){ if(!this.client) throw new Error("cloud not connected");
+    // insert-if-absent, like the agent: whoever stores an invoice first keeps it
+    const { error } = await this.client.from("pay_fuel_invoices")
+      .upsert([row],{onConflict:"invoice_no", ignoreDuplicates:true});
+    if(error) throw error; },
+  async addFuelPrices(rows){ if(!this.client||!rows.length) return;
+    const { error } = await this.client.from("pay_fuel_prices")
+      .upsert(rows.map(r=>({...r, updated_at:new Date().toISOString()})),{onConflict:"col_key"});
+    if(error) throw error; },
+  async claimNote(args){ if(!this.client) throw new Error("cloud not connected");
+    // The agent's RPC — idempotent by p_id. Fall back to older signatures if the
+    // schema hasn't been re-run yet (same order as agent/supabase_sync.py).
+    const { p_origin, p_columns, ...base } = args;
+    let lastErr;
+    for(const payload of [{...base,p_columns,p_origin}, {...base,p_columns}, base]){
+      const { data, error } = await this.client.rpc("pay_claim_consignment", payload);
+      if(!error) return Array.isArray(data) ? data[0] : data;
+      lastErr = error;
+    }
+    throw lastErr; },
+  async reopenNote(id){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_consignment_notes")
+      .update({status:"pending", done_at:null}).eq("id",id);
+    if(error) throw error; },
   async markNoteDone(id){ if(!this.client) return;
     try{ await this.client.from("pay_consignment_notes")
       .update({status:"done", done_at:new Date().toISOString()}).eq("id",id); }catch(_){} },
@@ -1139,8 +1187,10 @@ function renderConsign(){
   // badge on the tab
   const badge = document.getElementById("notesBadge");
   if(badge){ if(pending.length){ badge.textContent=pending.length; badge.hidden=false; } else badge.hidden=true; }
+  const upBar = `<div class="up-bar"><span>Invoice mail didn't come?</span>
+    <button class="btn sm" onclick="pickInvoicePdf()">⬆ Upload invoice PDF</button></div>`;
   if(!pending.length){
-    w.innerHTML = `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically.</div>`;
+    w.innerHTML = upBar + `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically — or upload the invoice PDF.</div>`;
     return;
   }
   // Totals: lifetime = the highest lifetime index we know (newest note); FY = the
@@ -1149,8 +1199,8 @@ function renderConsign(){
   const fy = fyOfDate(new Date());
   const fyCount = CNOTES.reduce((m,n)=>
     String(n.serial_str||"").indexOf("CN"+fy.code+"/")>=0 ? Math.max(m, Number(n.serial_num||0)) : m, 0);
-  let h = total ? `<div class="cn-summary">Total trips to date <b>${total}</b>`
-    + (fyCount?` · FY ${esc(fy.label)} <b>${fyCount}</b>`:``) + `</div>` : "";
+  let h = upBar + (total ? `<div class="cn-summary">Total trips to date <b>${total}</b>`
+    + (fyCount?` · FY ${esc(fy.label)} <b>${fyCount}</b>`:``) + `</div>` : "");
   for(const n of pending){
     const isoRep = dmyToIso(n.reporting_date || n.invoice_date) || "";
     h += `<div class="card cn-card">
@@ -1193,6 +1243,122 @@ function dismissNote(id){
   const n=CNOTES.find(x=>x.id===id); if(!n) return;
   n.status="done"; n.done_at=new Date().toISOString();
   Cloud.markNoteDone(id); renderConsign(); toast("Dismissed");
+}
+
+/* ---------- invoice from PDF (fallback when the IOCL mail doesn't come) ----------
+   Reads the PDF in the browser and writes what the mail agent would, under the
+   same keys — so the mail arriving later adds nothing (see invoice_upload.js). */
+let INV_UP = null;   // {stage:'reading'|'preview'|'saving'|'done'|'error', ...}
+let INV_UP_MOD = null;
+function invUpMod(){ return INV_UP_MOD || (INV_UP_MOD = import("./invoice_upload.js")); }
+function pickInvoicePdf(){
+  if(!crNeedCloud()) return;
+  const f=document.getElementById("invPdfFile"); f.value=""; f.click();
+}
+async function onInvoicePdf(input){
+  const file = input.files && input.files[0]; input.value="";
+  if(!file) return;
+  INV_UP = {stage:"reading", file:file.name}; renderInvUpload();
+  document.getElementById("invUploadWrap").scrollIntoView({behavior:"smooth", block:"start"});
+  try{
+    const M = await invUpMod();
+    const inv = await M.readInvoicePdf(file);
+    const plan = M.planUpload(inv);
+    if(!plan.key) throw new Error("Couldn't find the invoice number (70…) on this PDF.");
+    const fuel = await Cloud.fuelInvoice(plan.key);
+    let id=null, note=null;
+    if(plan.note){ id = await M.noteId(plan.key); note = await Cloud.noteById(id); }
+    // Notes are capped to the latest 5. An invoice older than all of them may
+    // have had its note issued already (and dropped off) — say so before a new serial.
+    const nums = CNOTES.map(n=>Number(n.invoice_no)).filter(Number.isFinite);
+    const olderThanAll = !!(plan.note && !note && nums.length && nums.every(x=>x>Number(plan.key)));
+    INV_UP = {stage:"preview", file:file.name, inv, plan, id, fuel, note, olderThanAll,
+              prices: M.newerPrices(plan.prices, PRICES)};
+  }catch(e){
+    INV_UP = {stage:"error", file:file.name, error:(e&&e.message)||String(e)};
+  }
+  renderInvUpload();
+}
+function invUpSteps(u){
+  const p=u.plan, inv=u.inv, out=[];
+  if(!p.fuelRow) out.push(["warn","!",`Credit: couldn't read the ${!inv.invoice_date?"date":"invoice total"} — not added. Correct that day's total by hand on the Credit tab.`]);
+  else if(u.fuel) out.push(["skip","—",`Credit: already recorded (${esc(u.fuel.invoice_date||"")} · ${money(u.fuel.amount)}${u.fuel.gmail_msg_id?" · from mail":" · from PDF"}) — not added again.`]);
+  else out.push(["add","＋",`Credit: adds <b>${money(p.fuelRow.amount)}</b> to the invoices of <b>${esc(p.fuelRow.invoice_date)}</b>.`]);
+  if(p.noteSkip==="other-tt") out.push(["skip","—",`Consignment note: not needed — TT ${esc(inv.tt_no||"?")} isn't our TT.`]);
+  else if(p.noteSkip==="before-anchor") out.push(["skip","—","Consignment note: not needed — older than the 047 invoice (noted by hand)."]);
+  else if(p.noteSkip==="incomplete") out.push(["warn","!",`Consignment note: can't be made — couldn't read the ${esc(p.missing.join(", "))}.`]);
+  else if(u.note && u.note.status==="done") out.push(["add","↺",`Consignment note: already issued as <b>${esc(u.note.serial_str)}</b> (dismissed) — it will show again; no new serial.`]);
+  else if(u.note) out.push(["skip","—",`Consignment note: already there as <b>${esc(u.note.serial_str)}</b> — no new serial.`]);
+  else out.push(["add","＋","Consignment note: <b>creates the next note</b> (serial assigned on save)."]);
+  return out;
+}
+function invUpHasWork(u){
+  return !!((u.plan.fuelRow && !u.fuel) || (u.plan.note && (!u.note || u.note.status==="done")) || (u.prices && u.prices.length));
+}
+function renderInvUpload(){
+  const w=document.getElementById("invUploadWrap"); if(!w) return;
+  const u=INV_UP; if(!u){ w.innerHTML=""; return; }
+  const head = `<div class="up-head">Invoice from PDF</div><div class="up-file">${esc(u.file||"")}</div>`;
+  if(u.stage==="reading"){ w.innerHTML=`<div class="card up-card">${head}<div class="empty" style="margin-top:10px">Reading the invoice…</div></div>`; return; }
+  if(u.stage==="error"){
+    w.innerHTML=`<div class="card up-card">${head}<div class="up-err">${esc(u.error)}</div>
+      <div class="cn-actions"><button class="btn" onclick="pickInvoicePdf()">Pick another PDF</button><button class="btn ghost" onclick="closeInvUpload()">Close</button></div></div>`;
+    return;
+  }
+  const inv=u.inv;
+  const goods=(inv.lines||[]).map(l=>`${l.product} ${Number(l.qty_kl)} KL`).join(" + ");
+  let h=`<div class="card up-card">${head}
+    <div class="cn-grid">
+      <div><div class="k">Invoice</div><div class="v">${esc(u.plan.key)}</div></div>
+      <div><div class="k">Date</div><div class="v">${esc(inv.invoice_date||"—")}</div></div>
+      <div><div class="k">TT</div><div class="v">${esc(inv.tt_no||"—")}</div></div>
+      <div><div class="k">Invoice total</div><div class="v">${inv.amount?money(inv.amount):"—"}</div></div>
+      <div style="grid-column:1/-1"><div class="k">Goods</div><div class="v">${esc(goods||"—")}</div></div>
+    </div>`;
+  if(u.stage==="done"){
+    h+=`<ul class="up-steps">${u.result.map(([c,i,t])=>`<li class="${c}"><span class="i">${i}</span><span>${t}</span></li>`).join("")}</ul>
+      <div class="cn-actions">${u.serial && VIEW!=="notes"?`<button class="cta" style="flex:1" onclick="closeInvUpload();showView('notes')">Open the note</button>`:""}
+      <button class="btn ghost" onclick="closeInvUpload()">Close</button></div></div>`;
+    w.innerHTML=h; return;
+  }
+  h+=`<ul class="up-steps">${invUpSteps(u).map(([c,i,t])=>`<li class="${c}"><span class="i">${i}</span><span>${t}</span></li>`).join("")}</ul>`;
+  if(u.olderThanAll) h+=`<div class="up-warn">This invoice is older than every consignment note on record. If its note was already printed (and has since dropped off the list), saving makes a second one — only save if it never had a note.</div>`;
+  h+=`<div style="font-size:11px;color:var(--faint);margin-top:8px">If the invoice mail turns up later, it's ignored — nothing is added twice.</div>`;
+  const busy=u.stage==="saving", work=invUpHasWork(u);
+  h+=`<div class="cn-actions">${work?`<button class="cta" style="flex:1" ${busy?"disabled":""} onclick="confirmInvUpload()">${busy?"Saving…":u.olderThanAll?"Save anyway":"Save"}</button>`:""}
+    <button class="btn ghost" ${busy?"disabled":""} onclick="closeInvUpload()">${work?"Cancel":"Close — nothing to add"}</button></div></div>`;
+  w.innerHTML=h;
+}
+function closeInvUpload(){ INV_UP=null; renderInvUpload(); }
+async function confirmInvUpload(){
+  const u=INV_UP; if(!u||u.stage!=="preview") return;
+  u.stage="saving"; renderInvUpload();
+  const result=[]; let serial=null;
+  try{
+    const p=u.plan;
+    if(p.fuelRow && !u.fuel){
+      await Cloud.addFuelInvoice(p.fuelRow);
+      result.push(["add","✓",`Credit: <b>${money(p.fuelRow.amount)}</b> added to <b>${esc(p.fuelRow.invoice_date)}</b>.`]);
+    } else if(u.fuel) result.push(["skip","—","Credit: already recorded — not added again."]);
+    if(u.prices.length){
+      try{ await Cloud.addFuelPrices(u.prices); }catch(_){ /* price is a nicety; the invoice still counts */ }
+    }
+    if(p.note){
+      let rec = u.note || await Cloud.claimNote({p_id:u.id, ...p.note});
+      if(!rec) throw new Error("the note couldn't be created — try again");
+      if(rec.status==="done"){ await Cloud.reopenNote(rec.id); rec={...rec, status:"pending"}; }
+      serial = rec.serial_str;
+      result.push([u.note && u.note.status!=="done" ? "skip" : "add", u.note && u.note.status!=="done" ? "—" : "✓",
+        `Consignment note: <b>${esc(rec.serial_str)}</b>${u.note?" (already there)":""} — set its reporting date and print it from the Consignment notes tab.`]);
+    }
+    INV_UP={...u, stage:"done", result, serial};
+    toast(serial ? `Invoice added · note ${serial}` : "Invoice added");
+  }catch(e){
+    INV_UP={...u, stage:"preview"};
+    toast("Couldn't save: "+((e&&e.message)||e));
+  }
+  renderInvUpload();
+  Cloud.pullCredit(); Cloud.pullConsign();
 }
 
 // XML text escape for tokens written into word/document.xml
