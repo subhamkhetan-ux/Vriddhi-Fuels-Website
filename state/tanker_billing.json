@@ -12,7 +12,7 @@
     "SMC Price": 99.5,
     "SMEL Price": 99.5,
     "OMPL Price": 99.5,
-    "DBL Price": 99.5,
+    "DBL Price": 100,
     "Aryan Price": 100.24
   },
   "product_rates": {
@@ -118,7 +118,7 @@
     {
       "company": "Dbl-Siarmal Coal Mines Private Limited",
       "price_tier": "DBL Price",
-      "hsd_rate": 99.5,
+      "hsd_rate": 100,
       "address": [
         "Plot No 905, Hemgir",
         "Vill: Gopalpur, Sundargarh.",
@@ -398,7 +398,7 @@
         "Beneficiary Name – Vriddhi Fuels"
       ],
       "po_label": "P.O. No.:",
-      "po_no": ""
+      "po_no": "O326221594"
     },
     {
       "company": "Pentane Logistics PVT LTD",
@@ -550,7 +550,7 @@
         "Beneficiary Name – Indian Oil Corporation Limited"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "2110037837"
+      "po_no": "2120007627"
     },
     {
       "company": "SMC Power Generation LTD, UNIT I",
@@ -588,7 +588,7 @@
         "Beneficiary Name – Vriddhi Fuels"
       ],
       "po_label": "P.O. No.:",
-      "po_no": "4500220906"
+      "po_no": ""
     },
     {
       "company": "Virendra Logistics Private Limited",
@@ -610,10 +610,10 @@
       "po_no": ""
     }
   ],
-  "generated_at": "2026-11-03T23:54:20+00:00",
+  "generated_at": "2026-11-04T05:38:43+00:00",
   "source": {
     "drive_file_id": "1xfU-xMgm9zllQCPZDOJ5e-6vCPIo3mOl",
     "file_name": "Tanker Billing.xlsm",
-    "modified_time": "2026-11-03T04:21:18.704Z"
+    "modified_time": "2026-11-04T05:10:04.282Z"
   }
 }
