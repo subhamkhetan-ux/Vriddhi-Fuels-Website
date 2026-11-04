@@ -117,7 +117,12 @@ STATIC_FILES = {
     "/icon-maskable-512.png": ("icon-maskable-512.png", "image/png"),
     "/pumps": ("pumps.html", "text/html; charset=utf-8"),         # the Vriddhi Fuels app's Pumps tab
     "/pumps.js": ("pumps.js", "text/javascript; charset=utf-8"),
+    "/picture.js": ("picture.js", "text/javascript; charset=utf-8"),   # the decanting picture (decant-js/)
 }
+# The decant app's decanting picture (its own code, served as it is: the page
+# draws it on the phone, as the decant app does), at decant-js/<name>.
+DECANT_JS = Path(__file__).resolve().parents[1] / "decant" / "js"
+PICTURE_FILES = ("scene.js", "core.js", "ui.js", "worker.js")
 SECURITY_HEADERS = (
     ("Cache-Control", "no-store"),
     ("X-Content-Type-Options", "nosniff"),
@@ -795,6 +800,7 @@ class Station:
                 # (the volume, and what the page's tank tiles need: the room left)
                 live["figures"][str(no)] = {"reading": {k: built["reading"].get(k) for k in LIVE_FIGURES
                                                         if built["reading"].get(k) is not None},
+                                            "readingAt": built["reading"].get("readingAt"),
                                             "confidence": built["confidence"],
                                             "problems": built["problems"], "at": now_iso()}
                 if built["confidence"] != "low":
@@ -856,6 +862,7 @@ class Station:
                     continue
                 live["figures"][str(no)] = {"reading": {k: built["reading"].get(k) for k in LIVE_FIGURES
                                                         if built["reading"].get(k) is not None},
+                                            "readingAt": built["reading"].get("readingAt"),
                                             "confidence": built["confidence"],
                                             "problems": built["problems"], "at": now_iso()}
                 if built["confidence"] != "low":
@@ -1428,6 +1435,8 @@ class Handler(BaseHTTPRequestHandler):
             if name in ("index.html", "pumps.html"):
                 body = body.replace(b"__CSRF__", self.server.csrf.encode())  # type: ignore[attr-defined]
             return self._send(200, body, ctype)
+        if url.path.startswith("/decant-js/") and url.path[len("/decant-js/"):] in PICTURE_FILES:
+            return self._send(200, (DECANT_JS / url.path[len("/decant-js/"):]).read_bytes(), "text/javascript; charset=utf-8")
         if url.path == "/api/state":
             if parse_qs(url.query).get("seen") == ["1"]:          # the page is in front of someone
                 self.station.seen_at = time.time()

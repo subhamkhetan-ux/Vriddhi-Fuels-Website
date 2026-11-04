@@ -915,6 +915,34 @@ class AutoDecant:
                 self._tell(f"⚠️ {self._title()}: finished, but the decant app refuses to save it ({why}). "
                            "It keeps trying; check the decant app's cloud project.")
 
+    def _scene(self) -> dict | None:
+        """What the Tank stock page needs to draw the decant app's decanting
+        picture of this decantation (decant/js/scene.js decantScene): its
+        tanks and chambers, each tank's live stock (the picture follows the
+        real stock by it), the pipe's timing settings."""
+        run, live = self.run, self.st.live or {}
+        if not run:
+            return None
+        d = run.s["data"]
+        cfg = live.get("cfg") or {}
+        stock = {}
+        for no, f in (live.get("figures") or {}).items():
+            r = f.get("reading") or {}
+            if r.get("volume") is None:
+                continue
+            tank = self.st.decant.tank_for(int(no), cfg) if cfg else None
+            stock[tank["id"] if tank else self._id(int(no))] = {
+                "volume": r["volume"], "capacity": r.get("capacity"), "readingAt": f.get("readingAt") or f.get("at"),
+                "savedAt": f.get("at"), "via": "server", "source": "photo", "picture": False}
+        return {"s": {"id": run.s["id"], "tt_no": run.s.get("tt_no"), "status": run.s.get("status"),
+                      "data": {"tanks": [_scene_tank(t) for t in d.get("tanks") or []],
+                               "chambers": [{k: c.get(k) for k in ("no", "litres", "product")} for c in d.get("chambers") or []],
+                               "done": d.get("done") or [], "startedAt": d.get("startedAt"), "decantedAt": d.get("decantedAt"),
+                               "auto": {"arrived": (d.get("auto") or {}).get("arrived") or {}}}},
+                "tanks": [{k: t.get(k) for k in ("id", "no", "product", "capacity", "fillTo")} for t in run.settings["tanks"]],
+                "stock": stock,
+                "settings": {k: run.settings.get(k) for k in ("pipeMoveSecs", "emptySecs5", "settleMinutes") if run.settings.get(k) is not None}}
+
     def _ack_text(self) -> str:
         """IOCL's tanker decantation acknowledgement message."""
         return f"IOCL ACK4 {self.run.s.get('invoice_no') or self.info.get('invoice_no')}"
@@ -1405,10 +1433,24 @@ class AutoDecant:
                 info = {k: v for k, v in self.info.items() if k not in ("fed", "synced", "runningSince", "cloud_at", "ended_ts")}
                 if self.info.get("ended_ts") and not self.active() and not self.info.get("unsaved"):
                     info["clears_in_s"] = max(0, round(CLEAR_AFTER_S - (time.time() - self.info["ended_ts"])))
-                self._view = copy.deepcopy({**info, "run": self.run.view(time.time()) if self.run else None})
+                run = self.run.view(time.time()) if self.run else None
+                if run and self.active():
+                    run["scene"] = self._scene()
+                self._view = copy.deepcopy({**info, "run": run})
             return self._view
         finally:
             self.lock.release()
+
+
+def _scene_tank(t: dict) -> dict:
+    """A decantation's tank row as the decant app's picture reads it."""
+    keep = ("tank", "tankNo", "product", "litres", "chambers", "stage", "startedAt", "doneAt", "joinedAt")
+    out = {k: t.get(k) for k in keep if t.get(k) is not None}
+    for which in ("before", "after"):
+        r = t.get(which)
+        if r:
+            out[which] = {k: r.get(k) for k in ("volume", "readingAt", "savedAt", "via", "capacity") if r.get(k) is not None}
+    return out
 
 
 def _now() -> str:

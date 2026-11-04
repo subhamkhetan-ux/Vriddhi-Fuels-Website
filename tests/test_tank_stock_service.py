@@ -1344,3 +1344,25 @@ def test_a_slow_decant_app_never_holds_the_live_reads(station, monkeypatch):
     assert wait_for(lambda: len(sent) >= 2 and station.db.writes, 5)   # then the newest
     station.stop_live()
     assert wait_for(lambda: station.live is None)
+
+
+def test_the_page_gets_the_decant_app_s_decanting_picture_code_and_nothing_else(station):
+    """The Tank stock page draws the decant app's decanting picture with the
+    decant app's own code, served read-only at decant-js/ (those files only)."""
+    srv = service.make_server(station, 0)
+    srv.port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.port}"
+    try:
+        for name in service.PICTURE_FILES:
+            r = urllib.request.urlopen(f"{base}/decant-js/{name}")
+            assert r.headers["Content-Type"].startswith("text/javascript")
+            assert r.read() == (service.DECANT_JS / name).read_bytes()
+        assert b"decant-js/scene.js" in urllib.request.urlopen(f"{base}/picture.js").read()
+        for bad in ("store.js", "../config.js", "%2e%2e/config.js", "app.js"):
+            with pytest.raises(urllib.error.HTTPError) as err:
+                urllib.request.urlopen(f"{base}/decant-js/{bad}")
+            assert err.value.code == 404, bad
+    finally:
+        srv.shutdown()
+        srv.server_close()

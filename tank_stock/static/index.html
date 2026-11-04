@@ -143,6 +143,32 @@
   .bar > span { display: block; height: 100%; background: var(--grad-cta); border-radius: 5px; box-shadow: 0 0 12px rgba(255,122,26,.6); }
   .ch { display: inline-block; border: 1px solid var(--glass-line); border-radius: 8px; padding: 1px 7px; margin: 6px 4px 0 0; font-size: 12px; font-weight: 700; }
   .ch.in { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  /* the decant app's decanting picture (decant/js/scene.js), as it styles it */
+  .scene-box { margin: 8px 0 4px; }
+  .dscene{width:100%;height:auto;max-height:300px;display:block;margin:6px 0 4px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 45%)}
+  .dscene text{font-family:var(--display);text-anchor:middle}
+  .dscene .ds-livery{font-size:6.8px;font-weight:800;letter-spacing:.9px;fill:#fff}
+  .dscene .ds-ch{font-size:6.4px;font-weight:800;fill:#fff}
+  .dscene .ds-kl{font-size:5.4px;font-weight:600;fill:#ffe3d0}
+  .dscene .ds-tank{font-size:8.5px;font-weight:700;fill:#d9d1c9}
+  .dscene .ds-stage{font-size:7.6px;font-weight:700}
+  .dscene .ds-live{fill:#ffb074}
+  .dscene .ds-settle{fill:#ffcf6e}
+  .dscene .ds-next{fill:#9a918a}
+  .dscene .ds-done{fill:#5fe0a6}
+  .dscene .ds-co{font-size:7.6px;font-weight:800;fill:#fff;font-variant-numeric:tabular-nums}
+  .dscene .ds-vol,.dscene .ds-add{font-variant-numeric:tabular-nums;paint-order:stroke;stroke:rgba(10,8,6,.72);stroke-linejoin:round}
+  .dscene .ds-vol{font-size:9.5px;font-weight:800;fill:#fff;stroke-width:2.4px}
+  .dscene .ds-add{font-size:6.8px;font-weight:700;fill:#dcfbea;stroke-width:2px}
+  .dscene .dp.flowing .hose-in{stroke-dasharray:5 7}
+  .dscene .dp:not(.flowing) .hose-in{opacity:.55}
+  .dscene .dp.still{opacity:.7}
+  .dscene .gl:not(.on) .bubble,.dscene .dt:not(.flowing) .drop{display:none}
+  .dscene .ds-cap rect{fill:rgba(21,17,15,.88);stroke:#f37021;stroke-opacity:.8;stroke-width:.8}
+  .dscene .ds-cap text{font-size:8px;font-weight:800;fill:#fff;font-variant-numeric:tabular-nums}
+  .ds-act{opacity:0;animation:agflash 1.2s ease-in-out infinite}
+  @keyframes agflash{50%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.ds-act{animation:none;opacity:1}}
   /* an automatic decantation: what to do next, and each chamber's numbers */
   .next-step { margin: 8px 0 4px; padding: 8px 10px; border-radius: 10px; background: var(--chip); font-size: 14px; }
   .next-step.act { background: var(--accent-soft); border: 1px solid var(--accent); font-weight: 700; }
@@ -364,5 +390,6 @@
   </div>
 </dialog>
 <script src="app.js"></script>
+<script type="module" src="picture.js"></script>
 </body>
 </html>
