@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 URL_ENV = "SUPABASE_URL"
@@ -184,9 +185,34 @@ def upsert_fuel_invoices(rows: list[dict]) -> int:
         _request("POST", "pay_fuel_invoices?on_conflict=invoice_no", key, url,
                  body=payload,
                  prefer="resolution=ignore-duplicates,return=minimal")
-        return len(payload)
     except Exception:
         return 0
+    replace_typed_fuel_invoices(payload)
+    return len(payload)
+
+
+def replace_typed_fuel_invoices(payload: list[dict]) -> int:
+    """An invoice typed in by hand in the app (``source = 'manual'``, when no PDF
+    could be had) is replaced by the mail's own figures once the mail arrives —
+    a typing slip in the total doesn't stay on the Credit tab. Rows from the
+    mail or an uploaded PDF are never touched. Best-effort; returns count sent."""
+    cfg = _config()
+    if not cfg:
+        return 0
+    url, key = cfg
+    sent = 0
+    for r in payload:
+        no = urllib.parse.quote(str(r["invoice_no"]), safe="")
+        try:
+            _request("PATCH", f"pay_fuel_invoices?invoice_no=eq.{no}&source=eq.manual", key, url,
+                     body={"invoice_date": r.get("invoice_date"), "tt_no": r.get("tt_no"),
+                           "amount": r.get("amount"), "gmail_msg_id": r.get("gmail_msg_id"),
+                           "source": None},
+                     prefer="return=minimal")
+            sent += 1
+        except Exception:
+            continue          # e.g. the source column isn't there yet (schema not re-run)
+    return sent
 
 
 def upsert_fuel_prices(prices: dict) -> int:

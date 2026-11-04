@@ -236,6 +236,14 @@ summary::-webkit-details-marker{display:none}
 .up-steps li.add .i{color:var(--good)} .up-steps li.skip .i{color:var(--faint)} .up-steps li.warn .i{color:var(--warn)}
 .up-steps li.skip{color:var(--muted)}
 .up-err{background:var(--bad-bg);border:1px solid var(--bad);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:10px}
+.up-form{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.up-form label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;min-width:0}
+.up-form label.full{grid-column:1/-1}
+.up-form input,.up-form select{width:100%;min-width:0;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 10px;font-size:14px;font-family:inherit}
+.up-form input:focus,.up-form select:focus{outline:none;border-color:var(--accent)}
+.up-line{grid-column:1/-1;display:grid;grid-template-columns:1.2fr .8fr 1fr auto;gap:8px;align-items:end}
+.up-line .x{padding:9px 10px}
+.up-hint{font-size:11px;color:var(--faint);grid-column:1/-1;margin-top:-4px}
 .up-warn{background:var(--warn-bg);border:1px solid var(--warn);border-radius:10px;padding:10px 12px;font-size:12.5px;margin-top:10px}
 /* ---- credit / dues ---- */
 .cr-head{font-family:var(--display);font-weight:700;margin-bottom:10px}
@@ -516,7 +524,8 @@ a{color:var(--accent)}
     <!-- 3. Dues schedule — directly below the balance card -->
     <div class="card">
       <div class="cr-head" style="display:flex;align-items:baseline;gap:8px">Day-wise ledger <span class="cr-sub" id="crDuesSub"></span>
-        <button class="btn sm" style="margin-left:auto" onclick="pickInvoicePdf()" title="An invoice mail didn't come? Add it from its PDF">⬆ Invoice PDF</button></div>
+        <button class="btn sm" style="margin-left:auto" onclick="pickInvoicePdf()" title="An invoice mail didn't come? Add it from its PDF">⬆ Invoice PDF</button>
+        <button class="btn sm" onclick="typeInvoice()" title="No PDF at all? Type it in from the paper invoice">✎ Type in</button></div>
       <div id="crDuesWrap"></div>
     </div>
 
@@ -878,7 +887,7 @@ const Cloud = {
   /* ---- invoice from PDF: look up what's already stored, then write ---- */
   async fuelInvoice(no){ if(!this.client) throw new Error("cloud not connected");
     const { data, error } = await this.client.from("pay_fuel_invoices")
-      .select("invoice_no,invoice_date,amount,gmail_msg_id").eq("invoice_no",no).maybeSingle();
+      .select("*").eq("invoice_no",no).maybeSingle();
     if(error) throw error; return data||null; },
   // Has this invoice ever been issued a note? From the permanent record
   // (pay_consignment_issued — never purged) and the notes list. ready:false when
@@ -895,8 +904,12 @@ const Cloud = {
     return {ready:true, issued:iss.data||null, note:(note.data||[])[0]||null, floor:nums.length?Math.min(...nums):null}; },
   async addFuelInvoice(row){ if(!this.client) throw new Error("cloud not connected");
     // insert-if-absent, like the agent: whoever stores an invoice first keeps it
-    const { error } = await this.client.from("pay_fuel_invoices")
+    let { error } = await this.client.from("pay_fuel_invoices")
       .upsert([row],{onConflict:"invoice_no", ignoreDuplicates:true});
+    if(error && /source/.test(error.message||"")){            // schema not re-run yet: no source column
+      const { source, ...rest } = row;
+      ({ error } = await this.client.from("pay_fuel_invoices").upsert([rest],{onConflict:"invoice_no", ignoreDuplicates:true}));
+    }
     if(error) throw error; },
   async addFuelPrices(rows){ if(!this.client||!rows.length) return;
     const { error } = await this.client.from("pay_fuel_prices")
@@ -1223,9 +1236,9 @@ function renderConsign(){
   const badge = document.getElementById("notesBadge");
   if(badge){ if(pending.length){ badge.textContent=pending.length; badge.hidden=false; } else badge.hidden=true; }
   const upBar = `<div class="up-bar"><span>Invoice mail didn't come?</span>
-    <button class="btn sm" onclick="pickInvoicePdf()">⬆ Upload invoice PDF</button></div>`;
+    <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn sm" onclick="pickInvoicePdf()">⬆ Upload invoice PDF</button><button class="btn sm" onclick="typeInvoice()" title="No PDF at all? Type it in from the paper invoice">✎ Type it in</button></span></div>`;
   if(!pending.length){
-    w.innerHTML = upBar + `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically — or upload the invoice PDF.</div>`;
+    w.innerHTML = upBar + `<div class="empty">No consignment notes right now.<br>New Indian Oil invoices for TT OD23U8210 appear here automatically — or upload the invoice PDF, or type it in from the paper invoice.</div>`;
     return;
   }
   // Totals: lifetime = the highest lifetime index we know (newest note); FY = the
@@ -1297,25 +1310,84 @@ async function onInvoicePdf(input){
   document.getElementById("invUploadWrap").scrollIntoView({behavior:"smooth", block:"start"});
   try{
     const M = await invUpMod();
-    const inv = await M.readInvoicePdf(file);
-    const plan = M.planUpload(inv);
-    if(!plan.key) throw new Error("Couldn't find the invoice number (70…) on this PDF.");
-    const fuel = await Cloud.fuelInvoice(plan.key);
-    let id=null, nr=null;
-    if(plan.note){ id = await M.noteId(plan.key); nr = await Cloud.noteRecord(plan.key); }
-    let dec;
-    try{ dec = await DecCloud.lookup(inv); }catch(e){ dec = {error:(e&&e.message)||String(e)}; }
-    INV_UP = {stage:"preview", file:file.name, inv, plan, id, fuel, nr, dec, decAnyway:false,
-              prices: M.newerPrices(plan.prices, PRICES)};
+    INV_UP = await previewFor(await M.readInvoicePdf(file), {file:file.name});
   }catch(e){
     INV_UP = {stage:"error", file:file.name, error:(e&&e.message)||String(e)};
   }
   renderInvUpload();
 }
+// What's already stored for this invoice -> the preview (PDF or typed in alike).
+async function previewFor(inv, extra){
+  const M = await invUpMod();
+  const plan = M.planUpload(inv);
+  if(!plan.key) throw new Error("Couldn't find the invoice number (70…) on this PDF.");
+  const fuel = await Cloud.fuelInvoice(plan.key);
+  let id=null, nr=null;
+  if(plan.note){ id = await M.noteId(plan.key); nr = await Cloud.noteRecord(plan.key); }
+  let dec;
+  try{ dec = await DecCloud.lookup(inv); }catch(e){ dec = {error:(e&&e.message)||String(e)}; }
+  return {...extra, stage:"preview", inv, plan, id, fuel, nr, dec, decAnyway:false,
+          prices: M.newerPrices(plan.prices, PRICES)};
+}
+
+/* ---- typed in from the paper invoice (no PDF to be had: the IOCL server down) ---- */
+function todayISO(){ const d=new Date(Date.now()+330*60000); return d.toISOString().slice(0,10); }   // IST
+async function typeInvoice(prev){
+  if(!crNeedCloud()) return;
+  const M = await invUpMod();
+  INV_UP = {stage:"form", manual:true, errors:[], form: prev || {invoice_no:"", date:todayISO(), time:"", tt_no:M.OWN_TT,
+    amount:"", origin:M.TERMINALS[0], lines:[{key:"HSD", kl:"", chambers:""}]}};
+  renderInvUpload();
+  document.getElementById("invUploadWrap").scrollIntoView({behavior:"smooth", block:"start"});
+}
+function invFormRead(){
+  const u=INV_UP; if(!u||u.stage!=="form") return;
+  const v=id=>{ const el=document.getElementById(id); return el?el.value:""; };
+  u.form = {invoice_no:v("ufNo"), date:v("ufDate"), time:v("ufTime"), tt_no:v("ufTT"), amount:v("ufAmt"), origin:v("ufOrigin"),
+    lines:u.form.lines.map((_,i)=>({key:v("ufP"+i), kl:v("ufK"+i), chambers:v("ufC"+i)}))};
+}
+function invFormLine(add, i){
+  invFormRead(); const L=INV_UP.form.lines;
+  if(add) L.push({key:L.some(l=>l.key==="MS")?"HSD":"MS", kl:"", chambers:""}); else L.splice(i,1);
+  renderInvUpload();
+}
+async function invFormSubmit(){
+  invFormRead(); const u=INV_UP, M=await invUpMod();
+  const r = M.invoiceFromForm(u.form);
+  if(r.errors){ u.errors=r.errors; renderInvUpload(); return; }
+  const form=u.form;
+  INV_UP={stage:"reading", manual:true, form}; renderInvUpload();
+  try{ INV_UP = await previewFor(r.inv, {manual:true, form}); }
+  catch(e){ INV_UP={stage:"form", manual:true, form, errors:[(e&&e.message)||String(e)]}; }
+  renderInvUpload();
+}
+function renderInvForm(u, head, M){
+  const f=u.form, opt=(val,label,cur)=>`<option value="${escAttr(val)}"${val===cur?" selected":""}>${esc(label)}</option>`;
+  return `<div class="card up-card">${head}
+    <div style="font-size:12.5px;color:var(--muted);margin-top:6px">No PDF to be had? Copy these from the <b>paper tax invoice</b> the truck carries.</div>
+    ${u.errors&&u.errors.length?`<div class="up-err">${u.errors.map(esc).join("<br>")}</div>`:""}
+    <div class="up-form">
+      <label class="full">Invoice no. (SAP Entry no., 10 digits)<input id="ufNo" inputmode="numeric" placeholder="70…" value="${escAttr(f.invoice_no)}"></label>
+      <div class="up-hint">It has to be the invoice's own number — that's how the mail is recognised when it does come, so nothing is added twice.</div>
+      <label>Invoice date<input type="date" id="ufDate" value="${escAttr(f.date)}"></label>
+      <label>Time (optional)<input type="time" id="ufTime" value="${escAttr(f.time)}"></label>
+      <label>TT no.<input id="ufTT" autocapitalize="characters" value="${escAttr(f.tt_no)}"></label>
+      <label>Invoice total ₹<input id="ufAmt" inputmode="decimal" placeholder="grand total" value="${escAttr(f.amount)}"></label>
+      <label class="full">Loading terminal<select id="ufOrigin">${M.TERMINALS.map(t=>opt(t,t.split(",")[0],f.origin)).join("")}</select></label>
+      ${f.lines.map((l,i)=>`<div class="up-line">
+        <label>Product<select id="ufP${i}">${M.PRODUCTS.map(p=>opt(p.key,p.label,l.key)).join("")}</select></label>
+        <label>KL<input id="ufK${i}" inputmode="decimal" placeholder="22" value="${escAttr(l.kl)}"></label>
+        <label>Chambers (optional)<input id="ufC${i}" inputmode="numeric" placeholder="e.g. 2,3,4,5" value="${escAttr(l.chambers)}"></label>
+        ${f.lines.length>1?`<button class="btn ghost x" onclick="invFormLine(false,${i})" title="Remove">✕</button>`:"<span></span>"}
+      </div>`).join("")}
+      ${f.lines.length<3?`<div class="up-hint" style="margin-top:0"><button class="btn sm" onclick="invFormLine(true)">＋ Another product</button>  Chambers = "Comp No(s)" on the invoice; left blank, the decant app fills MS from chamber 1 up.</div>`:""}
+    </div>
+    <div class="cn-actions"><button class="cta" style="flex:1" onclick="invFormSubmit()">Review</button><button class="btn ghost" onclick="closeInvUpload()">Cancel</button></div></div>`;
+}
 function invUpSteps(u){
   const p=u.plan, inv=u.inv, out=[];
   if(!p.fuelRow) out.push(["warn","!",`Credit: couldn't read the ${!inv.invoice_date?"date":"invoice total"} — not added. Correct that day's total by hand on the Credit tab.`]);
-  else if(u.fuel) out.push(["skip","—",`Credit: already recorded (${esc(u.fuel.invoice_date||"")} · ${money(u.fuel.amount)}${u.fuel.gmail_msg_id?" · from mail":" · from PDF"}) — not added again.`]);
+  else if(u.fuel) out.push(["skip","—",`Credit: already recorded (${esc(u.fuel.invoice_date||"")} · ${money(u.fuel.amount)}${u.fuel.gmail_msg_id?" · from mail":u.fuel.source==="manual"?" · typed in":" · from PDF"}) — not added again.`]);
   else out.push(["add","＋",`Credit: adds <b>${money(p.fuelRow.amount)}</b> to the invoices of <b>${esc(p.fuelRow.invoice_date)}</b>.`]);
   if(p.noteSkip==="other-tt") out.push(["skip","—",`Consignment note: not needed — TT ${esc(inv.tt_no||"?")} isn't our TT.`]);
   else if(p.noteSkip==="before-anchor") out.push(["skip","—","Consignment note: not needed — older than the 047 invoice (noted by hand)."]);
@@ -1358,11 +1430,13 @@ function invUpHasWork(u){
 function renderInvUpload(){
   const w=document.getElementById("invUploadWrap"); if(!w) return;
   const u=INV_UP; if(!u){ w.innerHTML=""; return; }
-  const head = `<div class="up-head">Invoice from PDF</div><div class="up-file">${esc(u.file||"")}</div>`;
-  if(u.stage==="reading"){ w.innerHTML=`<div class="card up-card">${head}<div class="empty" style="margin-top:10px">Reading the invoice…</div></div>`; return; }
+  const head = u.manual ? `<div class="up-head">Invoice typed in</div>`
+    : `<div class="up-head">Invoice from PDF</div><div class="up-file">${esc(u.file||"")}</div>`;
+  if(u.stage==="form"){ invUpMod().then(M=>{ if(INV_UP===u){ w.innerHTML=renderInvForm(u, head, M); } }); return; }
+  if(u.stage==="reading"){ w.innerHTML=`<div class="card up-card">${head}<div class="empty" style="margin-top:10px">${u.manual?"Checking what's already recorded…":"Reading the invoice…"}</div></div>`; return; }
   if(u.stage==="error"){
     w.innerHTML=`<div class="card up-card">${head}<div class="up-err">${esc(u.error)}</div>
-      <div class="cn-actions"><button class="btn" onclick="pickInvoicePdf()">Pick another PDF</button><button class="btn ghost" onclick="closeInvUpload()">Close</button></div></div>`;
+      <div class="cn-actions"><button class="btn" onclick="pickInvoicePdf()">Pick another PDF</button><button class="btn" onclick="typeInvoice()">✎ Type it in instead</button><button class="btn ghost" onclick="closeInvUpload()">Close</button></div></div>`;
     return;
   }
   const inv=u.inv;
@@ -1382,9 +1456,11 @@ function renderInvUpload(){
     w.innerHTML=h; return;
   }
   h+=`<ul class="up-steps">${invUpSteps(u).map(([c,i,t])=>`<li class="${c}"><span class="i">${i}</span><span>${t}</span></li>`).join("")}</ul>`;
-  h+=`<div style="font-size:11px;color:var(--faint);margin-top:8px">If the invoice mail turns up later, it's ignored — nothing is added twice.</div>`;
+  if(u.manual) h+=`<div class="up-warn">Typed in — check every figure against the paper invoice before saving. The consignment note is printed from these. When the mail does arrive, the Credit total is replaced by the invoice's own; nothing else is added twice.</div>`;
+  else h+=`<div style="font-size:11px;color:var(--faint);margin-top:8px">If the invoice mail turns up later, it's ignored — nothing is added twice.</div>`;
   const busy=u.stage==="saving", work=invUpHasWork(u);
   h+=`<div class="cn-actions">${work?`<button class="cta" style="flex:1" ${busy?"disabled":""} onclick="confirmInvUpload()">${busy?"Saving…":"Save"}</button>`:""}
+    ${u.manual?`<button class="btn" ${busy?"disabled":""} onclick="typeInvoice(INV_UP.form)">✎ Edit</button>`:""}
     <button class="btn ghost" ${busy?"disabled":""} onclick="closeInvUpload()">${work?"Cancel":"Close — nothing to add"}</button></div></div>`;
   w.innerHTML=h;
 }

@@ -52,3 +52,35 @@ def test_row_payload_shape():
         "entry_id", "gmail_msg_id", "account", "bank", "mode", "date_str",
         "date_serial", "amount", "raw_payer", "customer", "candidates",
         "match_tier", "status", "flags", "raw_text", "queued_at"}
+
+
+def test_mail_replaces_a_typed_in_fuel_invoice_only(monkeypatch):
+    """The mail inserts if absent, then overwrites only a row typed in by hand
+    (source=manual) — never one from the mail or an uploaded PDF."""
+    from agent import supabase_sync
+    monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "k")
+    calls = []
+    monkeypatch.setattr(supabase_sync, "_request",
+                        lambda method, path, key, url, body=None, prefer=None: calls.append((method, path, body)))
+    n = supabase_sync.upsert_fuel_invoices([{"invoice_no": "7011294526", "invoice_date": "26/09/2026",
+                                             "tt_no": "OD23U8210", "amount": 2193251, "gmail_msg_id": "m1"}])
+    assert n == 1
+    assert calls[0][0] == "POST" and calls[0][1] == "pay_fuel_invoices?on_conflict=invoice_no"
+    method, path, body = calls[1]
+    assert method == "PATCH"
+    assert path == "pay_fuel_invoices?invoice_no=eq.7011294526&source=eq.manual"
+    assert body == {"invoice_date": "26/09/2026", "tt_no": "OD23U8210", "amount": 2193251,
+                    "gmail_msg_id": "m1", "source": None}
+
+
+def test_a_failing_typed_in_replace_doesnt_fail_the_ingest(monkeypatch):
+    from agent import supabase_sync
+    monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "k")
+
+    def req(method, path, key, url, body=None, prefer=None):
+        if method == "PATCH":
+            raise RuntimeError("column source does not exist")
+    monkeypatch.setattr(supabase_sync, "_request", req)
+    assert supabase_sync.upsert_fuel_invoices([{"invoice_no": "7011294526", "amount": 1}]) == 1

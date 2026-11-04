@@ -101,6 +101,8 @@ def test_upsert_fuel_invoices_shape(monkeypatch):
     captured = {}
 
     def fake_request(method, path, key, url, body=None, prefer=None):
+        if method != "POST":
+            return None                      # the follow-up replace of a typed-in row
         captured["path"] = path
         captured["body"] = body
         captured["prefer"] = prefer

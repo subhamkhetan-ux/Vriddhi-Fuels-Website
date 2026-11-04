@@ -19,7 +19,7 @@ test('own-TT two-product invoice: credit row, prices and a consignment note', ()
   const plan = planUpload(read('7011294526', '7011294526.pdf'));
   assert.equal(plan.key, '7011294526');
   assert.deepEqual(plan.fuelRow, {
-    invoice_no: '7011294526', invoice_date: '26/09/2026', tt_no: 'OD23U8210', amount: 2193251, gmail_msg_id: null,
+    invoice_no: '7011294526', invoice_date: '26/09/2026', tt_no: 'OD23U8210', amount: 2193251, gmail_msg_id: null, source: 'pdf',
   });
   assert.deepEqual(plan.note, {
     p_gmail_msg_id: null, p_invoice_no: '7011294526', p_invoice_date: '26/09/2026', p_tt_no: 'OD23U8210',
@@ -89,4 +89,43 @@ test('a truck typed in on the decant app for the same TT and day is found', () =
   assert.equal(typedTwin([{ ...typed, dismissed: true }], inv), null);
   assert.equal(typedTwin([{ ...typed, invoice_date: '25/09/2026' }], inv), null);
   assert.equal(typedTwin([{ ...inv }], inv), null);                         // the invoice itself isn't its twin
+});
+
+// ---- typed in from the paper invoice ----
+import { invoiceFromForm } from '../../payments/invoice_upload.js';
+
+const FORM = {
+  invoice_no: ' 70112 94526 ', date: '2026-11-04', time: '14:15', tt_no: 'od 23 u 8210', amount: '21,93,251',
+  origin: 'Paradeep Terminal, Paradeep, Odisha',
+  lines: [{ key: 'MS', kl: '5', chambers: '1' }, { key: 'HSD', kl: '17', chambers: '2, 3,4,5' }],
+};
+
+test('typed in: the same invoice shape as a PDF, marked manual', () => {
+  const { inv, errors } = invoiceFromForm(FORM);
+  assert.equal(errors, undefined);
+  assert.equal(inv.invoice_no, '7011294526');
+  assert.equal(inv.invoice_date, '04/11/2026');
+  assert.equal(inv.tt_no, 'OD23U8210');
+  assert.equal(inv.amount, 2193251);
+  assert.equal(inv.source, 'manual');
+  assert.deepEqual(inv.chambers, []);
+  assert.deepEqual(inv.lines.map((l) => [l.column_key, l.qty_kl, l.compartments]), [['MS | EBMS', 5, [1]], ['HSD', 17, [2, 3, 4, 5]]]);
+  const plan = planUpload(inv);
+  assert.equal(plan.fuelRow.source, 'manual');                // the mail replaces it when it comes
+  assert.deepEqual(plan.note.p_columns, { 'MS | EBMS': '5', HSD: '17' });
+  assert.equal(plan.note.p_origin, 'Paradeep Terminal, Paradeep, Odisha');
+  assert.equal(plan.note.p_value, 2193251);
+  assert.deepEqual(plan.prices, []);                          // no per-product value typed: prices come with the mail
+  assert.equal(decantRow(inv).source, 'manual');
+});
+
+test('typed in: the invoice number has to be the real one (so the mail is recognised)', () => {
+  const bad = invoiceFromForm({ ...FORM, invoice_no: '12345', tt_no: 'X', amount: '', lines: [{ key: 'HSD', kl: '' }] }).errors;
+  assert.ok(bad.some((e) => /SAP Entry no/.test(e)));
+  assert.ok(bad.some((e) => /TT no/.test(e)));
+  assert.ok(bad.some((e) => /Invoice total/.test(e)));
+  assert.ok(bad.some((e) => /quantity/.test(e)));
+  assert.ok(invoiceFromForm({ ...FORM, lines: [{ key: 'MS', kl: '5', chambers: '1' }, { key: 'HSD', kl: '17', chambers: '1,2' }] })
+    .errors.some((e) => /Chamber 1 is given for two products/.test(e)));
+  assert.ok(invoiceFromForm({ ...FORM, lines: [] }).errors.some((e) => /at least one product/.test(e)));
 });

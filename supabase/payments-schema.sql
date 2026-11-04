@@ -538,6 +538,10 @@ create table if not exists public.pay_fuel_invoices (
 );
 create index if not exists pay_fuel_invoices_date_idx
   on public.pay_fuel_invoices (invoice_date);
+-- Where a row came from: null = the mail (the agent), 'pdf' = uploaded in the
+-- app, 'manual' = typed in from the paper invoice (no PDF to be had). The mail,
+-- when it does arrive, replaces a 'manual' row's figures with the invoice's own.
+alter table public.pay_fuel_invoices add column if not exists source text;
 
 -- Current after-VAT price per KL for each product, derived by the agent from
 -- each invoice's per-product "Total for material" ÷ qty. Newest invoice wins,

@@ -27,6 +27,10 @@ export async function noteId(sapNo) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
 }
 
+// 'manual' when typed in from the paper invoice (the mail, when it comes, then
+// corrects the Credit total — agent/supabase_sync.py), else 'pdf'.
+const srcOf = (inv) => (inv.source === 'manual' ? 'manual' : 'pdf');
+
 const dmyToIso = (s) => {
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s || '').trim());
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
@@ -43,7 +47,7 @@ export function planUpload(inv, { ownTT = OWN_TT, minInvoiceNo = CN_MIN_INVOICE_
   const key = inv.invoice_no || null;
   const lines = (inv.lines || []).filter((l) => kl(l.qty_kl) != null);
   const fuelRow = key && inv.invoice_date && inv.amount
-    ? { invoice_no: key, invoice_date: inv.invoice_date, tt_no: inv.tt_no || null, amount: inv.amount, gmail_msg_id: null }
+    ? { invoice_no: key, invoice_date: inv.invoice_date, tt_no: inv.tt_no || null, amount: inv.amount, gmail_msg_id: null, source: srcOf(inv) }
     : null;
 
   const asOf = dmyToIso(inv.invoice_date);
@@ -129,7 +133,7 @@ export function decantRow(inv) {
     origin: inv.origin || null,
     amount: inv.amount ?? null,
     gmail_msg_id: null,
-    source: 'pdf',
+    source: srcOf(inv),
     dismissed: false,
     note: null,
   };
@@ -141,4 +145,70 @@ export function decantRow(inv) {
 export function typedTwin(rows, inv) {
   return (rows || []).find((r) => r.invoice_no !== inv.invoice_no && /^M-/.test(String(r.invoice_no || ''))
     && r.tt_no === inv.tt_no && r.invoice_date === inv.invoice_date && !r.dismissed) || null;
+}
+
+// ---------------------------------------------------------------------------
+// Typed in from the paper tax invoice the truck carries — when there's no PDF
+// at all (the IOCL server down). Builds the same shape as a parsed PDF.
+// ---------------------------------------------------------------------------
+
+export const PRODUCTS = [
+  { key: 'MS', label: 'MS / EBMS', product: 'EBMS [PDRP]', column_key: 'MS | EBMS' },
+  { key: 'HSD', label: 'HSD', product: 'HSD-BSVI [PDRP]', column_key: 'HSD' },
+  { key: 'XG', label: 'XtraGreen', product: 'HSD-XG-BSVI [PDRP]', column_key: 'XtraGreen HSD' },
+];
+export const TERMINALS = [
+  'Jharsuguda Terminal, Jharsuguda, Odisha',
+  'Paradeep Terminal, Paradeep, Odisha',
+];
+
+// f: { invoice_no, date (yyyy-mm-dd), time (HH:MM, optional), tt_no, amount,
+//      origin, lines: [{ key, kl, chambers ("2,3,4,5", optional) }] }
+// -> { inv } or { errors: [...] }
+export function invoiceFromForm(f) {
+  const errors = [];
+  const no = String(f.invoice_no || '').replace(/\s+/g, '');
+  if (!/^70\d{8}$/.test(no)) errors.push('Invoice no.: the 10-digit SAP Entry no. on the invoice, starting 70.');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(f.date || ''));
+  if (!m) errors.push('Invoice date is needed.');
+  const time = String(f.time || '').trim();
+  if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) errors.push('Time: HH:MM.');
+  const tt = String(f.tt_no || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!/^[A-Z]{2}\d{2}[A-Z]{1,2}\d{3,4}$/.test(tt)) errors.push('TT no.: like OD23U8210.');
+  const amount = Math.round(Number(String(f.amount ?? '').replace(/[,₹\s]/g, '')));
+  if (!(amount > 0)) errors.push('Invoice total (₹) is needed — the grand total at the foot of the invoice.');
+
+  const used = new Map();
+  const lines = [];
+  (f.lines || []).forEach((l, i) => {
+    const p = PRODUCTS.find((x) => x.key === l.key);
+    const kl = Number(l.kl);
+    if (!p) { errors.push(`Product ${i + 1}: pick the product.`); return; }
+    if (!(kl > 0 && kl <= 30)) { errors.push(`${p.label}: the quantity in KL (e.g. 22).`); return; }
+    const raw = String(l.chambers || '').trim();
+    const comps = raw ? raw.split(/[\s,;+]+/).filter(Boolean).map(Number) : [];
+    if (comps.some((c) => !Number.isInteger(c) || c < 1 || c > 9)) { errors.push(`${p.label}: chambers as numbers, e.g. 2,3,4,5.`); return; }
+    for (const c of comps) {
+      if (used.has(c) && used.get(c) !== p.key) errors.push(`Chamber ${c} is given for two products.`);
+      used.set(c, p.key);
+    }
+    lines.push({ product: p.product, column_key: p.column_key, qty_kl: kl, compartments: comps, density15: null, terminal_tank: null, value: null });
+  });
+  if (!lines.length && !errors.some((e) => /KL|product/i.test(e))) errors.push('Add at least one product with its quantity.');
+  if (errors.length) return { errors };
+  return {
+    inv: {
+      invoice_no: no,
+      invoice_date: `${m[3]}/${m[2]}/${m[1]}`,
+      invoice_time: time || null,
+      tt_no: tt,
+      lines,
+      chambers: [],                // the decant app uses our TT's chambers from its Settings (or a standard layout)
+      density15: null,
+      seals: null,
+      origin: TERMINALS.includes(f.origin) ? f.origin : TERMINALS[0],
+      amount,
+      source: 'manual',
+    },
+  };
 }

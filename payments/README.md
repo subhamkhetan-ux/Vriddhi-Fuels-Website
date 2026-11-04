@@ -83,6 +83,18 @@ it will do before you tap **Save**:
   than a few days old sits under *Older, not decanted in the app* there, as the
   decant app does with its own uploads.
 
+**No PDF at all** (the IOCL server is down)? Tap **✎ Type it in** (Credit tab:
+**✎ Type in**) and copy the details from the **paper tax invoice** the truck
+carries: the invoice no. (the 10-digit *SAP Entry no.*, starting 70 — required,
+it's how the mail is recognised later), date, TT, the invoice total, the loading
+terminal, and each product with its KL (and its chambers, "Comp No(s)", if you
+like). It goes through the same preview and does the same three things. Check
+every figure before saving — the consignment note is printed from them. When
+the mail does arrive later, the agent **replaces the typed Credit total** with
+the invoice's own (a typing slip doesn't stay); the note and the decant entry
+stay as they are, and nothing is added twice. (Fix a typed product or chamber
+in the decant app if needed.)
+
 Nothing is ever added twice. The upload is stored under the same keys the agent
 uses (the invoice number for Credit; the note id derived from it), so when the
 mail **does** arrive later the agent finds it already there and skips it — no

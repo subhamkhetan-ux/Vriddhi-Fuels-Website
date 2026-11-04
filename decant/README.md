@@ -103,7 +103,9 @@ If a truck arrives before the agent has picked its invoice up (it runs every
 - **⬆ PDF** — pick the invoice PDF; the app reads it the same way.
 - Or upload it in the **payments app** (*Consignment notes → ⬆ Upload invoice
   PDF*): it appears here under *To decant* on its own, and the payments side gets
-  its Credit total and consignment note from the same upload.
+  its Credit total and consignment note from the same upload (with no PDF at all, *✎ Type it in* there
+  from the paper invoice: it shows here as *typed in*, with our TT's chambers from
+  Settings).
 - **＋ Add** — type the TT number (one of our own TTs fills its chambers in;
   for a transport TT tap its standard layout or type the chambers), tap the
   product in each chamber.
