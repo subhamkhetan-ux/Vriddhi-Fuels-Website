@@ -88,9 +88,20 @@ uses (the invoice number for Credit; the note id derived from it), so when the
 mail **does** arrive later the agent finds it already there and skips it — no
 second total, no second note, no serial spent, and no second truck in the decant
 app (whatever you've done to it there — chambers, a decantation — stays). Uploading the same PDF again just
-says it's already recorded. (A note you dismissed is shown again instead of
-re-issued.) If the invoice is older than every note on record, the app warns
-first: its note may already have been printed and dropped off the 5-note list.
+says it's already recorded.
+
+**One consignment note per invoice number — never a second.** Supabase keeps a
+permanent record of every invoice that has been issued a note
+(`pay_consignment_issued`, never purged), and the claim function checks it
+whichever way the invoice comes in: the mail, an IOCL resend, a PDF uploaded
+here, even after the note has dropped off the 5-note list. An invoice that
+already has a note only shows that note's serial; it is never issued again and a
+dismissed note is never put back on the list. (Printing a note that's on the
+list again — same serial — is still fine.) Notes issued before this record
+existed and since purged can't be looked up, so an invoice older than every
+note on record gets no note automatically. **Re-run
+`supabase/payments-schema.sql` once** for this; until then the app makes no notes
+from a PDF.
 
 ## Credit & dues (IOCL fuel account)
 

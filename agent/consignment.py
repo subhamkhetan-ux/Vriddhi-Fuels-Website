@@ -15,6 +15,7 @@ old invoices) and the DB claim RPC (so a note is never double-created).
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from . import invoice as invoice_mod
 from . import state_store
@@ -32,7 +33,17 @@ def _account_token_env() -> str | None:
     return None
 
 
+def _note_key(sap_no: str | None, fields: invoice_mod.InvoiceFields) -> str | None:
+    """The invoice number the note is filed under: the 10-digit IOCL number. When
+    the PDF's file name doesn't carry it, the number printed on the invoice — so
+    a mail, a resend and a PDF uploaded in the app all land on the same note."""
+    if sap_no and re.fullmatch(r"70\d{8}", sap_no):
+        return sap_no
+    return fields.invoice_no or sap_no
+
+
 def _note_from_invoice(msg_id: str, fields: invoice_mod.InvoiceFields, sap_no: str) -> dict:
+    sap_no = _note_key(sap_no, fields)
     return {
         # Keyed on the SAP entry number (the PDF filename), NOT the gmail msg id,
         # so a resent invoice (a fresh mail for the same invoice) maps to the same
@@ -126,6 +137,7 @@ def _handle_mail(mail, own_tt: str, pdf_to_text, supabase_sync,
         # it drives both the anchor check and the note id, so a resend is a no-op.
         sap_no = invoice_mod.sap_entry_no(names[idx] if idx < len(names) else "",
                                           fields.invoice_no)
+        sap_no = _note_key(sap_no, fields)
         # Anchor: only number invoices from min_invoice_no onward. Older ones
         # (smaller IOCL document number) were noted manually up to 046 — skip
         # them quietly, they are not errors.

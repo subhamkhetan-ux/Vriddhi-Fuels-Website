@@ -253,11 +253,60 @@ begin
   return lpad((ys % 100)::text, 2, '0') || lpad(((ys + 1) % 100)::text, 2, '0');
 end $$;
 
--- Atomically claim a consignment note for one invoice. Idempotent by `id`:
--- if the note already exists it is returned unchanged (no serial consumed),
--- otherwise the next serial is pulled from the counter and the row inserted.
--- This makes agent retries safe — a serial is only ever spent on a genuinely
--- new invoice, so the numbers stay gap-free and monotonic.
+-- ---- one note per invoice number, forever ----------------------------
+-- Every invoice that has been issued a note is recorded here, and this table
+-- is never purged: the notes list keeps only the latest 5, but an invoice whose
+-- note dropped off it (a resent IOCL mail, a PDF uploaded again in the app, a
+-- mail that arrives after the PDF) still finds its note here and is never given
+-- a second one. The primary key makes a second note for the same invoice
+-- impossible even if two claims race.
+
+-- The invoice's key: its 10-digit IOCL number (70xxxxxxxx) wherever it appears
+-- in what was passed (a file name, padded text), else the trimmed text.
+create or replace function public.pay_invoice_key(p text)
+returns text language sql immutable as $$
+  select coalesce(substring(p from '70[0-9]{8}'), nullif(trim(p), ''))
+$$;
+
+create table if not exists public.pay_consignment_issued (
+  invoice_no   text primary key,             -- pay_invoice_key() of the invoice
+  note_id      text,
+  serial_str   text,
+  serial_num   integer,
+  lifetime_num integer,
+  invoice_date text,
+  tt_no        text,
+  -- true: recorded from the notes still stored when this table was added. Notes
+  -- purged before then left no record, so an invoice OLDER than every legacy
+  -- row may already have had one — pay_claim_consignment won't issue those.
+  legacy       boolean default false,
+  issued_at    timestamptz default now()
+);
+insert into public.pay_consignment_issued
+  (invoice_no, note_id, serial_str, serial_num, lifetime_num, invoice_date, tt_no, legacy, issued_at)
+select distinct on (k) k, id, serial_str, serial_num, lifetime_num, invoice_date, tt_no, true, created_at
+  from (select n.*, public.pay_invoice_key(n.invoice_no) as k from public.pay_consignment_notes n) x
+ where k is not null
+ order by k, coalesce(lifetime_num, serial_num)
+on conflict (invoice_no) do nothing;
+
+alter table public.pay_consignment_issued enable row level security;
+-- the app reads it (to say "already issued as …"); only the claim RPC writes it
+revoke insert, update, delete, truncate on public.pay_consignment_issued from anon, authenticated;
+do $$
+begin
+  if not exists (select 1 from pg_policies where policyname = 'pay_consignment_issued_read') then
+    create policy pay_consignment_issued_read on public.pay_consignment_issued
+      for select to anon, authenticated using (true);
+  end if;
+end $$;
+
+-- Atomically claim a consignment note for one invoice. Never more than one
+-- note per invoice number: an existing note (by id, or by invoice number) is
+-- returned unchanged, and an invoice issued before whose note has since been
+-- purged comes back as that note's record (status 'done', not re-inserted) —
+-- no serial is consumed either way. Only a genuinely new invoice pulls the next
+-- serial, so the numbers stay gap-free and monotonic.
 -- Drop the earlier signatures so the new one below fully replaces them (a
 -- changed argument list would otherwise create another overload): the original
 -- pre-multi-product one, and the multi-product one before p_origin was added.
@@ -282,14 +331,46 @@ create or replace function public.pay_claim_consignment(
 language plpgsql security definer as $$
 declare
   rec        public.pay_consignment_notes;
+  iss        public.pay_consignment_issued;
+  v_key      text := public.pay_invoice_key(p_invoice_no);
+  v_floor    numeric;
   v_fy       text;
   v_fynum    integer;   -- printed number within the financial year
   v_lifetime integer;   -- total-trips index across all years
 begin
+  if v_key is null then
+    raise exception 'pay_claim_consignment: the invoice number is required';
+  end if;
+  -- One claim at a time (they are rare): the mail agent and a PDF upload for
+  -- the same invoice can't both get past the checks below.
+  perform 1 from public.pay_consignment_seq where id = 1 for update;
+
   select * into rec from public.pay_consignment_notes where id = p_id;
+  if found then return rec; end if;
+  select * into rec from public.pay_consignment_notes
+   where public.pay_invoice_key(invoice_no) = v_key
+   order by coalesce(lifetime_num, serial_num) limit 1;
+  if found then return rec; end if;
+
+  select * into iss from public.pay_consignment_issued where invoice_no = v_key;
   if found then
+    -- issued already; its note has dropped off the list. Report it, never re-issue.
+    rec.id := coalesce(iss.note_id, p_id);
+    rec.serial_str := iss.serial_str;  rec.serial_num := iss.serial_num;
+    rec.lifetime_num := iss.lifetime_num;
+    rec.invoice_no := v_key;  rec.invoice_date := iss.invoice_date;  rec.tt_no := iss.tt_no;
+    rec.status := 'done';  rec.created_at := iss.issued_at;  rec.done_at := iss.issued_at;
     return rec;
   end if;
+
+  if v_key ~ '^[0-9]+$' then
+    select min(invoice_no::numeric) into v_floor
+      from public.pay_consignment_issued where legacy and invoice_no ~ '^[0-9]+$';
+    if v_floor is not null and v_key::numeric < v_floor then
+      raise exception 'invoice % is older than the consignment-note records (from %) — it may already have had a note, so none is issued', v_key, v_floor::text;
+    end if;
+  end if;
+
   v_fy := public.pay_consignment_fy_code(p_invoice_date);
   -- lifetime counter (total trips ever)
   update public.pay_consignment_seq
@@ -311,9 +392,13 @@ begin
   values
     (p_id, p_gmail_msg_id, v_fynum, v_lifetime,
      'VF/CN' || v_fy || '/' || lpad(v_fynum::text, 3, '0'),
-     p_invoice_no, p_invoice_date, p_invoice_date, p_tt_no, p_product,
+     v_key, p_invoice_date, p_invoice_date, p_tt_no, p_product,
      p_column_key, p_qty, coalesce(p_columns, '{}'::jsonb), p_value, p_origin, 'pending')
   returning * into rec;
+  -- the permanent record (its primary key refuses a second note for this invoice)
+  insert into public.pay_consignment_issued
+    (invoice_no, note_id, serial_str, serial_num, lifetime_num, invoice_date, tt_no)
+  values (v_key, rec.id, rec.serial_str, rec.serial_num, rec.lifetime_num, rec.invoice_date, rec.tt_no);
   return rec;
 end $$;
 

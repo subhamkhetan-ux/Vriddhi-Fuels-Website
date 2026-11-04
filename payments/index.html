@@ -880,10 +880,19 @@ const Cloud = {
     const { data, error } = await this.client.from("pay_fuel_invoices")
       .select("invoice_no,invoice_date,amount,gmail_msg_id").eq("invoice_no",no).maybeSingle();
     if(error) throw error; return data||null; },
-  async noteById(id){ if(!this.client) throw new Error("cloud not connected");
-    const { data, error } = await this.client.from("pay_consignment_notes")
-      .select("*").eq("id",id).maybeSingle();
-    if(error) throw error; return data||null; },
+  // Has this invoice ever been issued a note? From the permanent record
+  // (pay_consignment_issued — never purged) and the notes list. ready:false when
+  // the schema with that record hasn't been run yet: then no note is made here.
+  async noteRecord(key){ if(!this.client) throw new Error("cloud not connected");
+    const [iss, note, legacy] = await Promise.all([
+      this.client.from("pay_consignment_issued").select("*").eq("invoice_no",key).maybeSingle(),
+      this.client.from("pay_consignment_notes").select("*").eq("invoice_no",key).limit(1),
+      this.client.from("pay_consignment_issued").select("invoice_no").eq("legacy",true).limit(1000),
+    ]);
+    if(iss.error) return {ready:false};
+    if(note.error) throw note.error;
+    const nums=((legacy&&legacy.data)||[]).map(r=>r.invoice_no).filter(x=>/^\d+$/.test(x)).map(Number);
+    return {ready:true, issued:iss.data||null, note:(note.data||[])[0]||null, floor:nums.length?Math.min(...nums):null}; },
   async addFuelInvoice(row){ if(!this.client) throw new Error("cloud not connected");
     // insert-if-absent, like the agent: whoever stores an invoice first keeps it
     const { error } = await this.client.from("pay_fuel_invoices")
@@ -894,20 +903,11 @@ const Cloud = {
       .upsert(rows.map(r=>({...r, updated_at:new Date().toISOString()})),{onConflict:"col_key"});
     if(error) throw error; },
   async claimNote(args){ if(!this.client) throw new Error("cloud not connected");
-    // The agent's RPC — idempotent by p_id. Fall back to older signatures if the
-    // schema hasn't been re-run yet (same order as agent/supabase_sync.py).
-    const { p_origin, p_columns, ...base } = args;
-    let lastErr;
-    for(const payload of [{...base,p_columns,p_origin}, {...base,p_columns}, base]){
-      const { data, error } = await this.client.rpc("pay_claim_consignment", payload);
-      if(!error) return Array.isArray(data) ? data[0] : data;
-      lastErr = error;
-    }
-    throw lastErr; },
-  async reopenNote(id){ if(!this.client) throw new Error("cloud not connected");
-    const { error } = await this.client.from("pay_consignment_notes")
-      .update({status:"pending", done_at:null}).eq("id",id);
-    if(error) throw error; },
+    // The agent's RPC: one note per invoice number, ever (it returns the existing
+    // one, or refuses) — only called once noteRecord() found the schema in place.
+    const { data, error } = await this.client.rpc("pay_claim_consignment", args);
+    if(error) throw error;
+    return Array.isArray(data) ? data[0] : data; },
   async markNoteDone(id){ if(!this.client) return;
     try{ await this.client.from("pay_consignment_notes")
       .update({status:"done", done_at:new Date().toISOString()}).eq("id",id); }catch(_){} },
@@ -1301,15 +1301,11 @@ async function onInvoicePdf(input){
     const plan = M.planUpload(inv);
     if(!plan.key) throw new Error("Couldn't find the invoice number (70…) on this PDF.");
     const fuel = await Cloud.fuelInvoice(plan.key);
-    let id=null, note=null;
-    if(plan.note){ id = await M.noteId(plan.key); note = await Cloud.noteById(id); }
-    // Notes are capped to the latest 5. An invoice older than all of them may
-    // have had its note issued already (and dropped off) — say so before a new serial.
-    const nums = CNOTES.map(n=>Number(n.invoice_no)).filter(Number.isFinite);
-    const olderThanAll = !!(plan.note && !note && nums.length && nums.every(x=>x>Number(plan.key)));
+    let id=null, nr=null;
+    if(plan.note){ id = await M.noteId(plan.key); nr = await Cloud.noteRecord(plan.key); }
     let dec;
     try{ dec = await DecCloud.lookup(inv); }catch(e){ dec = {error:(e&&e.message)||String(e)}; }
-    INV_UP = {stage:"preview", file:file.name, inv, plan, id, fuel, note, olderThanAll, dec, decAnyway:false,
+    INV_UP = {stage:"preview", file:file.name, inv, plan, id, fuel, nr, dec, decAnyway:false,
               prices: M.newerPrices(plan.prices, PRICES)};
   }catch(e){
     INV_UP = {stage:"error", file:file.name, error:(e&&e.message)||String(e)};
@@ -1324,9 +1320,7 @@ function invUpSteps(u){
   if(p.noteSkip==="other-tt") out.push(["skip","—",`Consignment note: not needed — TT ${esc(inv.tt_no||"?")} isn't our TT.`]);
   else if(p.noteSkip==="before-anchor") out.push(["skip","—","Consignment note: not needed — older than the 047 invoice (noted by hand)."]);
   else if(p.noteSkip==="incomplete") out.push(["warn","!",`Consignment note: can't be made — couldn't read the ${esc(p.missing.join(", "))}.`]);
-  else if(u.note && u.note.status==="done") out.push(["add","↺",`Consignment note: already issued as <b>${esc(u.note.serial_str)}</b> (dismissed) — it will show again; no new serial.`]);
-  else if(u.note) out.push(["skip","—",`Consignment note: already there as <b>${esc(u.note.serial_str)}</b> — no new serial.`]);
-  else out.push(["add","＋","Consignment note: <b>creates the next note</b> (serial assigned on save)."]);
+  else out.push(noteStep(u));
   out.push(decStep(u));
   return out;
 }
@@ -1344,8 +1338,22 @@ function decStep(u, final){
   return ["add","＋",`Decant app: TT <b>${tt}</b> shows under <b>To decant</b>.${d.twin?box(true,`It's a different load from the typed-in ${esc(d.twin.invoice_no)}`):""}`];
 }
 function decWillAdd(u){ const d=u.dec||{}; return !d.error && !d.existing && (!d.twin || u.decAnyway); }
+// The consignment-note line. One note per invoice number, ever: an invoice
+// that already has one (on the list, dismissed, or dropped off it) only shows
+// that note's serial — it is never issued, or put back on the list, again.
+function noteStep(u){
+  const nr=u.nr||{}, had=nr.note||nr.issued;
+  if(!nr.ready) return ["warn","!","Consignment note: not made — re-run <b>supabase/payments-schema.sql</b> once in Supabase (it's what makes a second note for one invoice impossible), then upload again."];
+  if(had){
+    const where = nr.note ? (nr.note.status==="done" ? "dismissed — it stays off the list" : "it's on the Consignment notes list") : "it has since dropped off the list";
+    return ["skip","—",`Consignment note: already issued as <b>${esc(had.serial_str)}</b> (${where}). A second note is never made for the same invoice.`];
+  }
+  if(nr.floor!=null && Number(u.plan.key)<nr.floor) return ["warn","!",`Consignment note: not made — this invoice is older than the note records (from ${esc(String(nr.floor))}), so it may already have had one.`];
+  return ["add","＋","Consignment note: <b>creates the next note</b> (serial assigned on save)."];
+}
+function noteWillClaim(u){ const nr=u.nr||{}; return !!(u.plan.note && nr.ready && !nr.note && !nr.issued && !(nr.floor!=null && Number(u.plan.key)<nr.floor)); }
 function invUpHasWork(u){
-  return !!((u.plan.fuelRow && !u.fuel) || (u.plan.note && (!u.note || u.note.status==="done")) || (u.prices && u.prices.length) || decWillAdd(u));
+  return !!((u.plan.fuelRow && !u.fuel) || noteWillClaim(u) || (u.prices && u.prices.length) || decWillAdd(u));
 }
 function renderInvUpload(){
   const w=document.getElementById("invUploadWrap"); if(!w) return;
@@ -1374,10 +1382,9 @@ function renderInvUpload(){
     w.innerHTML=h; return;
   }
   h+=`<ul class="up-steps">${invUpSteps(u).map(([c,i,t])=>`<li class="${c}"><span class="i">${i}</span><span>${t}</span></li>`).join("")}</ul>`;
-  if(u.olderThanAll) h+=`<div class="up-warn">This invoice is older than every consignment note on record. If its note was already printed (and has since dropped off the list), saving makes a second one — only save if it never had a note.</div>`;
   h+=`<div style="font-size:11px;color:var(--faint);margin-top:8px">If the invoice mail turns up later, it's ignored — nothing is added twice.</div>`;
   const busy=u.stage==="saving", work=invUpHasWork(u);
-  h+=`<div class="cn-actions">${work?`<button class="cta" style="flex:1" ${busy?"disabled":""} onclick="confirmInvUpload()">${busy?"Saving…":u.olderThanAll?"Save anyway":"Save"}</button>`:""}
+  h+=`<div class="cn-actions">${work?`<button class="cta" style="flex:1" ${busy?"disabled":""} onclick="confirmInvUpload()">${busy?"Saving…":"Save"}</button>`:""}
     <button class="btn ghost" ${busy?"disabled":""} onclick="closeInvUpload()">${work?"Cancel":"Close — nothing to add"}</button></div></div>`;
   w.innerHTML=h;
 }
@@ -1395,14 +1402,17 @@ async function confirmInvUpload(){
     if(u.prices.length){
       try{ await Cloud.addFuelPrices(u.prices); }catch(_){ /* price is a nicety; the invoice still counts */ }
     }
-    if(p.note){
-      let rec = u.note || await Cloud.claimNote({p_id:u.id, ...p.note});
-      if(!rec) throw new Error("the note couldn't be created — try again");
-      if(rec.status==="done"){ await Cloud.reopenNote(rec.id); rec={...rec, status:"pending"}; }
-      serial = rec.serial_str;
-      result.push([u.note && u.note.status!=="done" ? "skip" : "add", u.note && u.note.status!=="done" ? "—" : "✓",
-        `Consignment note: <b>${esc(rec.serial_str)}</b>${u.note?" (already there)":""} — set its reporting date and print it from the Consignment notes tab.`]);
-    }
+    if(noteWillClaim(u)){
+      let rec;
+      try{ rec = await Cloud.claimNote({p_id:u.id, ...p.note}); }
+      catch(e){ result.push(["warn","✗",`Consignment note: not made — ${esc((e&&e.message)||e)}`]); }
+      if(rec && rec.status==="pending"){
+        serial = rec.serial_str;
+        result.push(["add","✓",`Consignment note: <b>${esc(rec.serial_str)}</b> — set its reporting date and print it from the Consignment notes tab.`]);
+      } else if(rec){   // issued meanwhile (the mail got there first): that note, no second one
+        result.push(["skip","—",`Consignment note: already issued as <b>${esc(rec.serial_str)}</b> — no second note.`]);
+      }
+    } else if(p.note) result.push(noteStep(u));
     if(decWillAdd(u)){
       try{
         const M = await invUpMod();

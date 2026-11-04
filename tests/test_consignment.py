@@ -79,6 +79,18 @@ def test_handle_mail_keys_note_on_sap_entry_number():
     assert record[0]["id"] == state_store.entry_id("7010221545")   # id keyed on it → resend-safe
 
 
+def test_handle_mail_files_the_note_under_the_printed_number_when_the_name_lacks_it():
+    # A PDF named "Invoice.pdf": the note goes under the invoice's own 10-digit
+    # number, the key a PDF uploaded in the app (and the DB's one-note-per-invoice
+    # record) uses — never under "Invoice".
+    from agent import state_store
+    record = []
+    mail = FakeMail("m-plain", [b"pdf"], pdf_names=["Invoice.pdf"])
+    consignment._handle_mail(mail, "OD23U8210", _pdf_to_text({b"pdf": INVOICE_TEXT}), _fake_supabase(record))
+    assert record[0]["invoice_no"] == "7010195291"
+    assert record[0]["id"] == state_store.entry_id("7010195291")
+
+
 def test_handle_mail_ignores_other_tt():
     record = []
     other = INVOICE_TEXT.replace("OD23U8210", "OD23X9999")
