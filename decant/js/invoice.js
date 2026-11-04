@@ -92,14 +92,27 @@ export function parseInvoiceLines(lines, filename = '') {
     density15: den ? Number(den[1]) : null,
     seals: seal ? seal[1].trim() : null,
     amount: totals.length ? Math.round(Number(totals[totals.length - 1][1])) : null,
+    origin: parseOrigin(text),
     source: 'pdf',
   };
+}
+
+// Same as agent/invoice.py parse_origin(): the loading terminal named on the
+// invoice, as the consignment note's "Place of Origin" (Jharsuguda by default).
+const TERMINALS = [
+  ['JHARSUGUDA', 'Jharsuguda Terminal, Jharsuguda, Odisha'],
+  ['PARADEEP', 'Paradeep Terminal, Paradeep, Odisha'],
+  ['PARADIP', 'Paradeep Terminal, Paradeep, Odisha'],
+];
+export function parseOrigin(text) {
+  const u = String(text || '').toUpperCase();
+  return (TERMINALS.find(([tok]) => u.includes(tok)) || TERMINALS[0])[1];
 }
 
 // Same mapping as agent/invoice.py product_column().
 export function columnKey(product) {
   const u = String(product || '').toUpperCase();
-  if (/XTRAGREEN|XTRA GREEN|XTRAGRN/.test(u)) return 'XtraGreen HSD';
+  if (/XTRA\s*GR|XTRAGRN|\bXG\b/.test(u)) return 'XtraGreen HSD';   // IOCL prints XtraGreen as HSD-XG-BSVI
   if (/LSHF/.test(u)) return 'LSHFHSD';
   if (/EBMS/.test(u) || /^\s*MS\b/.test(u)) return 'MS | EBMS';
   return 'HSD';

@@ -846,7 +846,7 @@ async function invoiceFromPdf() {
         body.querySelector('[data-save]').onclick = async () => {
           const row = existing ? { ...existing, dismissed: false, dismiss_reason: null } : {
             invoice_no: inv.invoice_no, invoice_date: inv.invoice_date, invoice_time: inv.invoice_time, tt_no: inv.tt_no,
-            lines: inv.lines, chambers: inv.chambers, density15: inv.density15, seals: inv.seals, origin: null,
+            lines: inv.lines, chambers: inv.chambers, density15: inv.density15, seals: inv.seals, origin: inv.origin || null,
             amount: inv.amount, gmail_msg_id: null, source: 'pdf', dismissed: false, note: null,
           };
           await saveInvoice(row);

@@ -11,6 +11,10 @@
 --   1. Run this file (clears the 14 notes, resets the counter to 47).
 --   2. Merge the PR / let the agent run — it then creates ONLY the note for
 --      invoice 7010221545 as serial 047, and 048+ for newer invoices.
+--
+-- (Historical. It does NOT clear pay_consignment_issued, the permanent
+-- one-note-per-invoice record: an invoice that was issued a note is never
+-- issued another, even after this.)
 -- =====================================================================
 
 -- Wipe every auto-created note.

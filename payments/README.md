@@ -62,6 +62,59 @@ note. The letterhead lives in
 [`payments/consignment_template.docx`](./consignment_template.docx) with the
 fill-in fields as `{{TOKENS}}`; the app never alters anything else.
 
+### Invoice mail didn't come? Upload the PDF
+
+If an IndianOil invoice mail never reaches the HDFC mailbox, add it by hand:
+tap **⬆ Upload invoice PDF** on the **Consignment notes** tab (or **⬆ Invoice
+PDF** on the Credit tab's day-wise ledger) and pick the invoice PDF. The app
+reads it in the browser — the same reader as the `/decant/` app — and shows what
+it will do before you tap **Save**:
+
+- **Credit** — the invoice total is added to that day's invoices (any truck), and
+  the per-KL price is updated if this is the newest invoice.
+- **Consignment note** — created with the next serial when it's eligible, the same
+  rules as the mail: TT **OD23U8210** only, invoice **7010221545** (047) onward.
+  Another TT or an older invoice gets no note.
+- **Decant app** — the invoice is put in the decant app's own project too (any
+  truck, with its chambers), so the tanker shows under **To decant** there, ready
+  for *Start decanting*, on every phone. If that truck was already **typed in** on
+  the decant app for the same day, it isn't added again (the preview says so;
+  tick *It's a different load* if it really is another trip). An invoice more
+  than a few days old sits under *Older, not decanted in the app* there, as the
+  decant app does with its own uploads.
+
+**No PDF at all** (the IOCL server is down)? Tap **✎ Type it in** (Credit tab:
+**✎ Type in**) and copy the details from the **paper tax invoice** the truck
+carries: the invoice no. (the 10-digit *SAP Entry no.*, starting 70 — required,
+it's how the mail is recognised later), date, TT, the invoice total, the loading
+terminal, and each product with its KL (and its chambers, "Comp No(s)", if you
+like). It goes through the same preview and does the same three things. Check
+every figure before saving — the consignment note is printed from them. When
+the mail does arrive later, the agent **replaces the typed Credit total** with
+the invoice's own (a typing slip doesn't stay); the note and the decant entry
+stay as they are, and nothing is added twice. (Fix a typed product or chamber
+in the decant app if needed.)
+
+Nothing is ever added twice. The upload is stored under the same keys the agent
+uses (the invoice number for Credit; the note id derived from it), so when the
+mail **does** arrive later the agent finds it already there and skips it — no
+second total, no second note, no serial spent, and no second truck in the decant
+app (whatever you've done to it there — chambers, a decantation — stays). Uploading the same PDF again just
+says it's already recorded.
+
+**One consignment note per invoice number — never a second.** Supabase keeps a
+permanent record of every invoice that has been issued a note
+(`pay_consignment_issued`, never purged), and the claim function checks it
+whichever way the invoice comes in: the mail, an IOCL resend, a PDF uploaded
+here, even after the note has dropped off the 5-note list. An invoice that
+already has a note only shows that note's serial; it is never issued again and a
+dismissed note is never put back on the list. (Printing a note that's on the
+list again — same serial — is still fine.) Notes issued before this record
+existed and since purged can't be looked up, so an invoice older than every
+note on record gets no note automatically. **Re-run
+`supabase/payments-schema.sql` once** for this; until then the app makes no notes
+from a PDF.
+
 ## Credit & dues (IOCL fuel account)
 
 The **Credit** tab tracks the IOCL credit facility and when each day's invoices

@@ -1,11 +1,12 @@
 // Service worker — app-shell cache. Network-first for navigation so updates
 // land quickly; cache fallback keeps the shell available offline. Live data
 // comes from Supabase over the network and is never cached here.
-const CACHE = "vriddhi-payments-v51";
+const CACHE = "vriddhi-payments-v52";
 const SHELL = [
   "./",
   "./index.html",
   "./config.js",
+  "./invoice_upload.js",
   "./manifest.webmanifest",
   "./icon.png",
   "./icon-maskable.png",
