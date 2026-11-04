@@ -707,6 +707,32 @@
     box.appendChild(row);
   }
 
+  // The decant app's decanting picture of the running decantation (picture.js
+  // loads its code): drawn again only when what it's drawn from changes — in
+  // between, its own clock moves it (the pipe, the chambers, the tanks).
+  let pictureKey = "";
+  let pictureEl = null;
+  window.addEventListener("tsscene", () => { if (state) render(); });
+  function picture(run) {
+    const sc = run.scene;
+    if (!sc || !window.tsScene) return null;
+    // the chambers to act on now (a valve to open, the pipe to move to) pulse in it
+    const act = new Set((run.tanks || []).flatMap((t) => (t.chamberRows || []).filter((c) => c.state === "move" || c.state === "open").map((c) => c.no)));
+    const key = JSON.stringify([sc, [...act]]);
+    if (key !== pictureKey || !pictureEl) {
+      try {
+        const html = window.tsScene.decantScene(sc.s, { tanks: sc.tanks, stock: sc.stock, settings: sc.settings, act });
+        pictureEl = el("div", "scene-box");
+        pictureEl.innerHTML = html;
+        pictureKey = key;
+      } catch (e) {
+        console.warn("decanting picture:", e);
+        return null;
+      }
+    }
+    return pictureEl;
+  }
+
   function renderRun(box, a) {
     const run = a.run;
     const title = el("div", "tank-head");
@@ -725,6 +751,8 @@
     if (!run) { return actions(box, a, null); }
     if (!ACTIVE.includes(a.phase)) box.appendChild(ended(a));
     for (const q of run.questions || []) box.appendChild(question(q));
+    const pic = ACTIVE.includes(a.phase) ? picture(run) : null;
+    if (pic) box.appendChild(pic);
     for (const t of run.tanks) box.appendChild(tankCard(t, run, a));
     if (run.held?.length && a.phase === "running") box.appendChild(heldBox(run));
     else if (run.left?.length && ACTIVE.includes(a.phase)) box.appendChild(el("div", "note", `C${run.left.join(", C")} stay in the truck.`));

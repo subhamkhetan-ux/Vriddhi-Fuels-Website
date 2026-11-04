@@ -1680,3 +1680,22 @@ def test_between_two_chambers_moved_quickly_the_page_says_move_the_pipe(rig):
     t2 = row()
     assert [c["state"] for c in t2["chamberRows"]] == ["in", "move"], t2["chamberRows"]
     assert t2["next"] == "C2 done — move the pipe to C3 and open its valve."
+
+
+def test_the_page_gets_what_the_decanting_picture_is_drawn_from(rig):
+    """While it runs, the view carries the picture's data: the decantation's
+    tanks and chambers, each tank's live stock (with its time, from the
+    server), the pipe's timings; not once it has ended."""
+    a = start(rig, {"1": "T1", "2": "T2", "3": "T2"})
+    rig.world.flows = [(2, 100, 4985, 495)]
+    drive(rig, 300)
+    sc = a.view()["run"]["scene"]
+    assert [t["tank"] for t in sc["s"]["data"]["tanks"]] == ["T1", "T2"]
+    t2 = sc["s"]["data"]["tanks"][1]
+    assert t2["stage"] == "decanting" and t2["chambers"] == [2, 3] and t2["before"]["volume"] == 10755.0
+    assert [c["no"] for c in sc["s"]["data"]["chambers"]] == [1, 2, 3, 4, 5]
+    assert sc["stock"]["T2"]["via"] == "server" and sc["stock"]["T2"]["readingAt"] and sc["stock"]["T2"]["volume"] > 10755.0
+    assert [t["id"] for t in sc["tanks"]] == ["T1", "T2", "T3", "T4"] and "settleMinutes" in sc["settings"]
+    assert len(json.dumps(sc)) < 6000                                   # (small: it goes with every refresh)
+    a.act("release", {})
+    assert "scene" not in (a.view()["run"] or {})
