@@ -12,6 +12,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script src="config.js"></script>
+<!-- the decant app's project: an invoice added from its PDF here goes there too -->
+<script src="../decant/config.js"></script>
 <style>
 :root{
   /* Vriddhi / IndianOil scheme — glassmorphism over a true-black, orange-lit base.
@@ -1007,6 +1009,39 @@ const Cloud = {
     try{ await this.client.from("pay_credit_opening").delete().eq("day",day); }catch(_){} },
 };
 
+/* ---------- the decant app's own Supabase project ----------
+   Only for an invoice added from its PDF: it is put in dec_invoices too, so the
+   truck shows under "To decant" — the row the mail agent would have written. */
+const DecCloud = {
+  client:null,
+  async get(){
+    if(this.client) return this.client;
+    const M = await invUpMod();
+    const prj = M.decantProject(window.VRIDDHI_DECANT_CONFIG, CFG);
+    if(!prj.url) throw new Error(prj.why);
+    const createClient = await import("https://esm.sh/@supabase/supabase-js@2").then(m=>m.createClient);
+    this.client = createClient(prj.url, prj.key, {auth:{persistSession:false}});
+    return this.client;
+  },
+  // {existing, twin} for this invoice: already there under its number, or a
+  // hand-typed ("M-…") invoice of the same TT and date.
+  async lookup(inv){
+    const c = await this.get(), M = await invUpMod();
+    const { data, error } = await c.from("dec_invoices")
+      .select("invoice_no,tt_no,invoice_date,source,dismissed,dismiss_reason")
+      .eq("tt_no", inv.tt_no).limit(200);
+    if(error) throw error;
+    const rows = data||[];
+    return { existing: rows.find(r=>r.invoice_no===inv.invoice_no) || null, twin: M.typedTwin(rows, inv) };
+  },
+  async add(row){
+    const c = await this.get();
+    // insert-if-absent, as agent/decant.py: a row the decant app has stays its own
+    const { error } = await c.from("dec_invoices").upsert([row], {onConflict:"invoice_no", ignoreDuplicates:true});
+    if(error) throw error;
+  },
+};
+
 /* ---------- state + render ---------- */
 let ROWS=[];
 let CNOTES=[];                  // pending consignment notes
@@ -1272,7 +1307,9 @@ async function onInvoicePdf(input){
     // have had its note issued already (and dropped off) — say so before a new serial.
     const nums = CNOTES.map(n=>Number(n.invoice_no)).filter(Number.isFinite);
     const olderThanAll = !!(plan.note && !note && nums.length && nums.every(x=>x>Number(plan.key)));
-    INV_UP = {stage:"preview", file:file.name, inv, plan, id, fuel, note, olderThanAll,
+    let dec;
+    try{ dec = await DecCloud.lookup(inv); }catch(e){ dec = {error:(e&&e.message)||String(e)}; }
+    INV_UP = {stage:"preview", file:file.name, inv, plan, id, fuel, note, olderThanAll, dec, decAnyway:false,
               prices: M.newerPrices(plan.prices, PRICES)};
   }catch(e){
     INV_UP = {stage:"error", file:file.name, error:(e&&e.message)||String(e)};
@@ -1290,10 +1327,25 @@ function invUpSteps(u){
   else if(u.note && u.note.status==="done") out.push(["add","↺",`Consignment note: already issued as <b>${esc(u.note.serial_str)}</b> (dismissed) — it will show again; no new serial.`]);
   else if(u.note) out.push(["skip","—",`Consignment note: already there as <b>${esc(u.note.serial_str)}</b> — no new serial.`]);
   else out.push(["add","＋","Consignment note: <b>creates the next note</b> (serial assigned on save)."]);
+  out.push(decStep(u));
   return out;
 }
+// The decant-app line: what happens to the truck there.
+function decStep(u, final){
+  const d=u.dec||{}, tt=esc(u.inv.tt_no||"");
+  const box=(on,text)=>final?"":`<label style="display:block;margin-top:6px"><input type="checkbox"${on?" checked":""} onchange="INV_UP.decAnyway=this.checked;renderInvUpload()"> ${text}</label>`;
+  if(d.error) return ["warn","!",`Decant app: can't reach it (${esc(d.error)}) — add the PDF there with its ⬆ PDF button.`];
+  if(d.existing && d.existing.dismissed) return ["skip","—",`Decant app: already there but hidden${d.existing.dismiss_reason==="outside"?" (decanted outside the app)":""} — to decant it, add the PDF again in the decant app (⬆ PDF → Show it again).`];
+  if(d.existing) return ["skip","—",`Decant app: TT ${tt} is already there${d.existing.source==="agent"?" (from mail)":""} — not added again.`];
+  if(d.twin && !u.decAnyway) return ["warn","!",`Decant app: not added — TT ${tt} was typed in there for ${esc(d.twin.invoice_date||"")} (${esc(d.twin.invoice_no)}); adding it would list the truck twice.${box(false,"It's a different load — add it anyway")}`];
+  // the decant app folds undecanted invoices older than a few days (3 by default) under "Older"
+  const iso=dmyToIso(u.inv.invoice_date), old=iso && (Date.now()-Date.parse(iso+"T00:00:00+05:30"))>3*86400000;
+  if(old) return ["add","＋",`Decant app: TT <b>${tt}</b> is added — it's a few days old, so there it's under <b>Older, not decanted in the app</b> (tap to open it).${d.twin?box(true,`It's a different load from the typed-in ${esc(d.twin.invoice_no)}`):""}`];
+  return ["add","＋",`Decant app: TT <b>${tt}</b> shows under <b>To decant</b>.${d.twin?box(true,`It's a different load from the typed-in ${esc(d.twin.invoice_no)}`):""}`];
+}
+function decWillAdd(u){ const d=u.dec||{}; return !d.error && !d.existing && (!d.twin || u.decAnyway); }
 function invUpHasWork(u){
-  return !!((u.plan.fuelRow && !u.fuel) || (u.plan.note && (!u.note || u.note.status==="done")) || (u.prices && u.prices.length));
+  return !!((u.plan.fuelRow && !u.fuel) || (u.plan.note && (!u.note || u.note.status==="done")) || (u.prices && u.prices.length) || decWillAdd(u));
 }
 function renderInvUpload(){
   const w=document.getElementById("invUploadWrap"); if(!w) return;
@@ -1351,6 +1403,15 @@ async function confirmInvUpload(){
       result.push([u.note && u.note.status!=="done" ? "skip" : "add", u.note && u.note.status!=="done" ? "—" : "✓",
         `Consignment note: <b>${esc(rec.serial_str)}</b>${u.note?" (already there)":""} — set its reporting date and print it from the Consignment notes tab.`]);
     }
+    if(decWillAdd(u)){
+      try{
+        const M = await invUpMod();
+        await DecCloud.add(M.decantRow(u.inv));
+        result.push(["add","✓",`Decant app: TT <b>${esc(u.inv.tt_no)}</b> added — ready to decant there.`]);
+      }catch(e){
+        result.push(["warn","✗",`Decant app: couldn't add it (${esc((e&&e.message)||e)}) — upload the PDF again to retry, or add it in the decant app.`]);
+      }
+    } else result.push(decStep(u, true));
     INV_UP={...u, stage:"done", result, serial};
     toast(serial ? `Invoice added · note ${serial}` : "Invoice added");
   }catch(e){

@@ -75,11 +75,19 @@ it will do before you tap **Save**:
 - **Consignment note** — created with the next serial when it's eligible, the same
   rules as the mail: TT **OD23U8210** only, invoice **7010221545** (047) onward.
   Another TT or an older invoice gets no note.
+- **Decant app** — the invoice is put in the decant app's own project too (any
+  truck, with its chambers), so the tanker shows under **To decant** there, ready
+  for *Start decanting*, on every phone. If that truck was already **typed in** on
+  the decant app for the same day, it isn't added again (the preview says so;
+  tick *It's a different load* if it really is another trip). An invoice more
+  than a few days old sits under *Older, not decanted in the app* there, as the
+  decant app does with its own uploads.
 
 Nothing is ever added twice. The upload is stored under the same keys the agent
 uses (the invoice number for Credit; the note id derived from it), so when the
 mail **does** arrive later the agent finds it already there and skips it — no
-second total, no second note, no serial spent. Uploading the same PDF again just
+second total, no second note, no serial spent, and no second truck in the decant
+app (whatever you've done to it there — chambers, a decantation — stays). Uploading the same PDF again just
 says it's already recorded. (A note you dismissed is shown again instead of
 re-issued.) If the invoice is older than every note on record, the app warns
 first: its note may already have been printed and dropped off the 5-note list.

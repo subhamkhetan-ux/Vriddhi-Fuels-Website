@@ -10,6 +10,8 @@
 //     state_store.entry_id(sap_no) — pay_claim_consignment returns the existing
 //     note for that id, so no second note and no serial spent;
 //   * pay_fuel_prices  per-product after-VAT ₹/KL, newest invoice date wins.
+//   * dec_invoices (the decant app's own project)  keyed by the SAP entry number,
+//     insert-if-absent like agent/decant.py — the truck shows under "To decant".
 // No DOM here, so it is testable in Node.
 
 export { readInvoicePdf, parseInvoiceLines, linesFromItems } from '../decant/js/invoice.js';
@@ -92,4 +94,51 @@ export function newerPrices(prices, stored = {}) {
   return Object.values(best)
     .filter((p) => !(stored[p.col_key]?.as_of && stored[p.col_key].as_of >= p.as_of))
     .map((p) => ({ col_key: p.col_key, price_per_kl: p.price, as_of: p.as_of, invoice_no: p.invoice_no }));
+}
+
+// ---------------------------------------------------------------------------
+// The /decant app: the same invoice, so the truck shows under "To decant".
+// dec_invoices lives in the decanting app's OWN Supabase project (from
+// decant/config.js), keyed on the SAP entry number like agent/decant.py, which
+// inserts with ignore-duplicates — so the mail arriving later leaves this row
+// (and any chamber fix or decantation made on it) alone.
+// ---------------------------------------------------------------------------
+
+// decant/config.js's project, or { why } when it can't be used. Never the
+// payments project (agent/decant.py refuses that too).
+export function decantProject(dec, pay) {
+  const url = String(dec?.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const key = String(dec?.SUPABASE_ANON_KEY || '').trim();
+  if (!url.startsWith('https://') || !key || /PASTE_/.test(url + key)) return { why: 'the decant app has no Supabase project set (decant/config.js)' };
+  const payUrl = String(pay?.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  if (payUrl && payUrl.toLowerCase() === url.toLowerCase()) return { why: 'decant/config.js points at the payments project' };
+  return { url, key };
+}
+
+// The dec_invoices row — the shape the decant app's own "⬆ PDF" saves.
+export function decantRow(inv) {
+  return {
+    invoice_no: inv.invoice_no,
+    invoice_date: inv.invoice_date || null,
+    invoice_time: inv.invoice_time || null,
+    tt_no: inv.tt_no,
+    lines: inv.lines || [],
+    chambers: inv.chambers || [],
+    density15: inv.density15 ?? null,
+    seals: inv.seals || null,
+    origin: inv.origin || null,
+    amount: inv.amount ?? null,
+    gmail_msg_id: null,
+    source: 'pdf',
+    dismissed: false,
+    note: null,
+  };
+}
+
+// A truck typed in by hand on the decant app gets an "M-…" key, so it can't
+// match the PDF's number: the same TT on the same invoice date, still listed,
+// is most likely this load — adding the PDF too would list the truck twice.
+export function typedTwin(rows, inv) {
+  return (rows || []).find((r) => r.invoice_no !== inv.invoice_no && /^M-/.test(String(r.invoice_no || ''))
+    && r.tt_no === inv.tt_no && r.invoice_date === inv.invoice_date && !r.dismissed) || null;
 }

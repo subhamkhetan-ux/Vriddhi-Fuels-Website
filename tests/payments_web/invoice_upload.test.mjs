@@ -58,3 +58,35 @@ test('XtraGreen printed as HSD-XG maps like the agent\'s product_column()', asyn
   assert.equal(columnKey('HSD-XG-BSVI [PDRP]'), 'XtraGreen HSD');
   assert.equal(columnKey('HSD-BSVI [PDRP]'), 'HSD');
 });
+
+// ---- the decant app ----
+import { decantProject, decantRow, typedTwin } from '../../payments/invoice_upload.js';
+
+test('decant row: the agent\'s dec_invoices columns, from the PDF', () => {
+  const row = decantRow(read('7011294526', '7011294526.pdf'));
+  // agent/decant.py COLUMNS, plus the two the decant app's own PDF upload sets
+  assert.deepEqual(Object.keys(row).sort(), ['amount', 'chambers', 'density15', 'dismissed', 'gmail_msg_id', 'invoice_date', 'invoice_no',
+    'invoice_time', 'lines', 'note', 'origin', 'seals', 'source', 'tt_no'].sort());
+  assert.equal(row.invoice_no, '7011294526');          // the key the agent's later insert collides on
+  assert.equal(row.source, 'pdf');
+  assert.equal(row.dismissed, false);
+  assert.equal(row.chambers.length, 5);
+  assert.deepEqual(row.lines.map((l) => [l.column_key, l.qty_kl, l.compartments]), [['MS | EBMS', 5, [1]], ['HSD', 17, [2, 3, 4, 5]]]);
+});
+
+test('decant project: its own one, never the payments project', () => {
+  const pay = { SUPABASE_URL: 'https://pay.supabase.co' };
+  assert.deepEqual(decantProject({ SUPABASE_URL: 'https://dec.supabase.co/', SUPABASE_ANON_KEY: 'k' }, pay), { url: 'https://dec.supabase.co', key: 'k' });
+  assert.ok(decantProject({ SUPABASE_URL: 'https://pay.supabase.co', SUPABASE_ANON_KEY: 'k' }, pay).why);
+  assert.ok(decantProject({ SUPABASE_URL: 'PASTE_URL', SUPABASE_ANON_KEY: 'PASTE_KEY' }, pay).why);
+  assert.ok(decantProject(undefined, pay).why);
+});
+
+test('a truck typed in on the decant app for the same TT and day is found', () => {
+  const inv = { invoice_no: '7011294526', tt_no: 'OD23U8210', invoice_date: '26/09/2026' };
+  const typed = { invoice_no: 'M-20260926-1400-8210', tt_no: 'OD23U8210', invoice_date: '26/09/2026', dismissed: false };
+  assert.equal(typedTwin([typed], inv), typed);
+  assert.equal(typedTwin([{ ...typed, dismissed: true }], inv), null);
+  assert.equal(typedTwin([{ ...typed, invoice_date: '25/09/2026' }], inv), null);
+  assert.equal(typedTwin([{ ...inv }], inv), null);                         // the invoice itself isn't its twin
+});
