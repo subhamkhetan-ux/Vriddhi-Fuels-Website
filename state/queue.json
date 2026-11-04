@@ -6790,7 +6790,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-03T07:00:23.811451+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-04T03:30:26.555749+00:00"
     },
     {
       "entry_id": "c767a01c0b3d703f",
@@ -6811,7 +6813,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-03T09:30:38.716353+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-04T03:30:26.555749+00:00"
     },
     {
       "entry_id": "4a4da9824212bf7f",
@@ -6832,7 +6836,9 @@
       "queued_at": "2026-11-03T10:15:27.952155+00:00",
       "status": "review",
       "error": "could not extract: payer",
-      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 11,92,806.00 on 03-Nov-26. Info: INF*INFT*046528602791*DIESEL*ORISSA METALIKS.\r\n\r\nThe Available Balance in your account is Rs. 20,38,488.63.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
+      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 11,92,806.00 on 03-Nov-26. Info: INF*INFT*046528602791*DIESEL*ORISSA METALIKS.\r\n\r\nThe Available Balance in your account is Rs. 20,38,488.63.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n",
+      "materialized": true,
+      "materialized_at": "2026-11-04T03:30:26.555749+00:00"
     },
     {
       "entry_id": "34d8daa6b2109cc4",
@@ -6853,7 +6859,9 @@
       "queued_at": "2026-11-03T10:15:27.952272+00:00",
       "status": "review",
       "error": "could not extract: payer",
-      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 11,92,806.00 on 03-Nov-26. Info: INF*INFT*046528602141*DIESEL*ORISSA METALIKS.\r\n\r\nThe Available Balance in your account is Rs. 32,31,294.63.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
+      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 11,92,806.00 on 03-Nov-26. Info: INF*INFT*046528602141*DIESEL*ORISSA METALIKS.\r\n\r\nThe Available Balance in your account is Rs. 32,31,294.63.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n",
+      "materialized": true,
+      "materialized_at": "2026-11-04T03:30:26.555749+00:00"
     },
     {
       "entry_id": "77b2e13c2d5147df",
@@ -6874,7 +6882,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-03T10:30:29.266158+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-04T03:30:26.555749+00:00"
     },
     {
       "entry_id": "fa231f0925107e06",
@@ -6895,7 +6905,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-04T01:45:40.309620+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-04T03:30:26.555749+00:00"
     },
     {
       "entry_id": "a4ef081d0297c1f6",
@@ -6916,7 +6928,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-04T02:15:26.386841+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-04T03:30:26.555749+00:00"
     }
   ]
 }
