@@ -598,7 +598,9 @@ Tanker Master.
 
 **On Home**, admins with the ledger connected see a red **Invoice check: N to
 fix** card (or a green *Invoices check out*) for the last 45 days — on open,
-every few minutes, and the moment a trip or tag changes.
+every few minutes, and the moment a trip or tag changes. Tapping it opens Trips
+per tanker: on the whole 45 days when there is something to fix (so a problem
+from last month is on screen), else on the current month to date.
 
 **Auto-tag** (⚙, off by default): sure matches — every bill in the tanker's
 name, to its customer, adding up within the buffer — are tagged without

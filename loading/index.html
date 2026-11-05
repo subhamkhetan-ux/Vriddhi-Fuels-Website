@@ -4545,7 +4545,9 @@ function paintInvBanner(){
     box.innerHTML='<button class="invban" id="invGo"><span class="em">⚠</span><span><b>Invoice check: '+hi.length+' to fix</b><span class="hi">'
       +Object.keys(cnt).map(k=>cnt[k]+" "+lab[k][cnt[k]===1?0:1]).join(" · ")+'</span></span><span class="chev">›</span></button>';
   }
-  $("#invGo").onclick=()=>{ mapTodo=hi.length>0; openTrips("map", { from:d.from, to:d.to }); };
+  // all invoiced: Trips on its usual month to date; something to fix: the
+  // whole checked window, so a problem from an earlier month is on screen
+  $("#invGo").onclick=()=>{ mapTodo=hi.length>0; openTrips("map", hi.length ? { from:d.from, to:d.to } : null); };
 }
 
 /* Everything the invoice check worked from, as one file — to send for support
