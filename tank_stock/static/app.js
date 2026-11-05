@@ -713,15 +713,20 @@
   let pictureKey = "";
   let pictureEl = null;
   window.addEventListener("tsscene", () => { if (state) render(); });
+  // a big screen: the wide picture (its truck the length of the tanks), drawn again when that changes
+  const bigScreen = () => window.matchMedia("(min-width: 1000px)").matches;
+  let resizeT = 0;
+  window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (state && !setup) renderAuto(); }, 200); });
   function picture(run) {
     const sc = run.scene;
     if (!sc || !window.tsScene) return null;
     // the chambers to act on now (a valve to open, the pipe to move to) pulse in it
     const act = new Set((run.tanks || []).flatMap((t) => (t.chamberRows || []).filter((c) => c.state === "move" || c.state === "open").map((c) => c.no)));
-    const key = JSON.stringify([sc, [...act]]);
+    const wide = bigScreen();
+    const key = JSON.stringify([sc, [...act], wide]);
     if (key !== pictureKey || !pictureEl) {
       try {
-        const html = window.tsScene.decantScene(sc.s, { tanks: sc.tanks, stock: sc.stock, settings: sc.settings, act });
+        const html = window.tsScene.decantScene(sc.s, { tanks: sc.tanks, stock: sc.stock, settings: sc.settings, act, wide });
         pictureEl = el("div", "scene-box");
         pictureEl.innerHTML = html;
         pictureKey = key;
@@ -753,7 +758,10 @@
     for (const q of run.questions || []) box.appendChild(question(q));
     const pic = ACTIVE.includes(a.phase) ? picture(run) : null;
     if (pic) box.appendChild(pic);
-    for (const t of run.tanks) box.appendChild(tankCard(t, run, a));
+    // (side by side on a big screen)
+    const cards = el("div", "run-tanks");
+    for (const t of run.tanks) cards.appendChild(tankCard(t, run, a));
+    box.appendChild(cards);
     if (run.held?.length && a.phase === "running") box.appendChild(heldBox(run));
     else if (run.left?.length && ACTIVE.includes(a.phase)) box.appendChild(el("div", "note", `C${run.left.join(", C")} stay in the truck.`));
     actions(box, a, run);

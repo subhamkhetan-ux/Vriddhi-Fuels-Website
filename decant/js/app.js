@@ -12,7 +12,7 @@ import {
   refreshNow, saveConfig, saveDevice, saveInvoice, saveTankReading, state,
 } from './store.js';
 import { KEEP_OPTIONS } from './archive.js';
-import {
+import { bigScreen,
   ago, ask, bandBadge, closeSheet, confBadge, esc, fmtDip, fmtKL, fmtL, fmtNum, fmtSigned, fmtTime, fmtWhen,
   openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
@@ -524,7 +524,7 @@ function sessionCard(s) {
   return `<div class="card accent" data-session="${esc(s.id)}">
     <div class="inv-top"><div><div class="inv-tt">${esc(s.tt_no || '')}</div><div class="inv-meta">${esc(s.invoice_no || '')}</div></div>
       <span class="badge watch${step === 'Decanting now' ? ' live' : ''}"><i>●</i>${step}</span></div>
-    ${['decanting', 'settling'].includes(s.status) ? decantScene(s, { tanks: tanks(), stock: state.tankState, compact: true, settings: state.settings }) : ''}
+    ${['decanting', 'settling'].includes(s.status) ? decantScene(s, { tanks: tanks(), stock: state.tankState, compact: true, settings: state.settings, wide: bigScreen() }) : ''}
     <div class="hint" style="margin:8px 0">${esc(tanksTxt)}${d.startedAt ? ` · started ${fmtTime(d.startedAt)}` : ''}${d.decantedAt ? ` · done ${fmtTime(d.decantedAt)}` : ''}</div>
     <div class="inv-actions"><button class="cta" data-open>Continue ▶</button>${s.status === 'draft' ? '<button class="btn" data-discard>Discard</button>' : ''}</div>
   </div>`;

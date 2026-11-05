@@ -17,7 +17,7 @@ import { fromServer, ownTT,
 import { cloudEnabled, deleteSession, newId, saveInvoice, saveSession, saveTankReading, state } from './store.js';
 import { decantScene, tickScenes } from './scene.js';
 import {
-  PRODUCT_COLOR, ago, ask, bandBadge, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
+  PRODUCT_COLOR, ago, ask, bandBadge, bigScreen, bandView, closeSheet, confBadge, download, elapsed, esc, fmtDate, fmtDip, fmtKL, fmtL, fmtMoney,
   fmtPct, fmtSigned, fmtTime, fmtWhen, openSheet, productChip, productShort, tankGauge, toast, truckStrip,
 } from './ui.js';
 import {
@@ -453,13 +453,13 @@ function stepDecant(s) {
   const total = d.tanks.reduce((a, t) => a + t.litres, 0);
   return `${autoCard(s)}${ackCard(s)}${handoverCard(s, allRead)}<div class="card accent">
       <div class="sect-title">${fmtKL(total)} into ${d.tanks.map((t) => tankName(t.tank)).join(' & ')}</div>
-      ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings,
+      ${decantScene(s, { tanks: tanks(), stock: state.tankState, settings: state.settings, wide: bigScreen(),
     act: new Set(d.tanks.map((t) => tankGuide(s, t, Date.now())).filter((g) => g?.flash && g.act).map((g) => g.act)) })}
       <div class="hint">${d.tanks.length > 1 ? 'Start each tank when you\'re ready — together or one after the other. ' : ''}A tank sells until its decanting starts, so read its stock just before; nothing sells from it while it decants.</div>
       <div class="rd-actions"><button class="cta sm" data-wz="shotAfter">📷 Screenshot</button>
         <span class="hint" style="align-self:center">reads each tank's stock before or after, as needed</span></div>
     </div>
-    ${d.tanks.map((t) => stageCard(s, t)).join('')}
+    <div class="stage-grid">${d.tanks.map((t) => stageCard(s, t)).join('')}</div>
     ${count('waiting') > 1 && !askingServer(s) && !runByServer(s) ? '<button class="btn block" data-wz="startAll">▶ Start all the tanks not started, together</button>' : ''}
     ${count('decanting') > 1 ? '<button class="cta block" data-wz="decanted">✓ Decanting done — all of them</button>' : ''}
     ${truckCards(s)}

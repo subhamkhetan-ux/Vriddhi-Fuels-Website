@@ -143,6 +143,14 @@
   .bar > span { display: block; height: 100%; background: var(--grad-cta); border-radius: 5px; box-shadow: 0 0 12px rgba(255,122,26,.6); }
   .ch { display: inline-block; border: 1px solid var(--glass-line); border-radius: 8px; padding: 1px 7px; margin: 6px 4px 0 0; font-size: 12px; font-weight: 700; }
   .ch.in { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  /* ---- a big screen (a computer, a tablet across): the room used ---- */
+  @media (min-width: 1000px) {
+    main { max-width: 1280px; padding: 0 24px; }
+    /* the decanting picture: the wide one, at the page's width; the decantation's tanks side by side */
+    .dscene { max-height: none !important; }
+    .run-tanks { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 0 22px; align-items: start; }
+    .tgauge.big { max-width: 520px; }
+  }
   /* the decant app's decanting picture (decant/js/scene.js), as it styles it */
   .scene-box { margin: 8px 0 4px; }
   .dscene{width:100%;height:auto;max-height:300px;display:block;margin:6px 0 4px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 45%)}
