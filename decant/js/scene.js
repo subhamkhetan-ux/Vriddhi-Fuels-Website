@@ -1,6 +1,7 @@
 // The decanting scene: the tank truck side on (our OD23U8210's livery — navy
 // top, white body, orange band), a sight glass per chamber, the bottom-loading
-// valves at the front, and the underground tanks. As on the forecourt, each
+// valves in the middle (under C2 and C3), and the underground tanks in the
+// order of their fill points on the unloading platform (Settings' fillOrder). As on the forecourt, each
 // tank being filled has one pipe: it sits on one chamber's valve and moves to
 // the tank's next chamber once that one is empty. Chambers stay full until
 // their turn; the one on the pipe empties over its real time (Settings: 5 KL
@@ -20,7 +21,7 @@
 // animations on purpose: those redraw the whole picture 60 times a second
 // even where nothing needs it, which was most of what it cost.)
 
-import { drainAt, drainLive, drainTimeline, stillTimeline, tankStage } from './core.js';
+import { FILL_ORDER, drainAt, drainLive, drainTimeline, stillTimeline, tankStage } from './core.js';
 import { PRODUCT_COLOR, elapsed, esc, fmtL } from './ui.js';
 import { GROUND, LEVER, OUTLET_Y, ZOOM, applyPose, moveScene, workerDefs, workerSvg } from './worker.js';
 
@@ -108,9 +109,20 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     x += w;
     return out;
   });
-  const outletX = (no) => r1(70 + (no - 1) * Math.min(12.5, 56 / Math.max(1, chambers.length - 1 || 1)));
+  // the valve box in the middle of the truck, across the whole of C2 and C3
+  // (the middle of the body for a truck of fewer chambers), the valves spread
+  // along it; the back axle sits behind it
+  const gaps = Math.max(1, chambers.length - 1);
+  const [boxL, boxR] = cx.length >= 3 ? [cx[1].x0, cx[2].x1] : [(BODY.x0 + BODY.x1) / 2 - 33, (BODY.x0 + BODY.x1) / 2 + 33];
+  const boxX = r1(Math.max(BODY.x0 + 6, boxL));
+  const boxW = r1(Math.min(BODY.x1 - 72, boxR) - boxX);
+  const step = (boxW - 16) / gaps;
+  const outletX = (no) => r1(boxX + 6 + (no - 1) * step);
 
   // the underground tanks and their fill points
+  const order = Array.isArray(settings?.fillOrder) ? settings.fillOrder : FILL_ORDER;
+  const place = (t) => { const i = order.indexOf(t.id); return i < 0 ? order.length : i; };
+  tanks = [...tanks].sort((a, b) => place(a) - place(b));   // (stable: tanks not in it keep their order, after)
   const n = Math.max(1, tanks.length);
   const tx = (i) => 20 + ((W - 40) / n) * (i + 0.5);
   const tankX = new Map(tanks.map((t, i) => [t.id, tx(i)]));
@@ -176,9 +188,9 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       <text x="${(BODY.x0 + BODY.x1) / 2}" y="${BODY.navy - 3.2}" class="ds-livery">${esc([s.tt_no, capKL ? `${capKL} KL` : ''].filter(Boolean).join(' · '))}</text>
       ${glasses}
       <rect x="56" y="${BODY.bottom}" width="${BODY.x1 - 54}" height="6" fill="#86c5de"/>
-      <rect x="64" y="${BODY.bottom + 4}" width="66" height="11" rx="2" fill="#a8b0b8" stroke="#6d757d"/>
+      <rect x="${boxX}" y="${BODY.bottom + 4}" width="${boxW}" height="11" rx="2" fill="#a8b0b8" stroke="#6d757d"/>
       ${outlets}
-      ${[34, BODY.x1 - 90, BODY.x1 - 58].map((wx) => `<circle cx="${wx}" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="${wx}" cy="104" r="4.8" fill="#b9bfc6"/>`).join('')}
+      ${[34, BODY.x1 - 58, BODY.x1 - 26].map((wx) => `<circle cx="${wx}" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="${wx}" cy="104" r="4.8" fill="#b9bfc6"/>`).join('')}
       ${callouts.join('')}
     </g>`;
 
