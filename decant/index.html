@@ -603,6 +603,25 @@ input[type=number]{font-variant-numeric:tabular-nums}
 [data-theme="light"] .sheet-back{background:rgba(40,25,15,.32)}
 [data-theme="light"] .sheet-card{background:rgba(252,249,246,.97);box-shadow:0 -20px 50px -24px rgba(60,30,10,.45)}
 
+/* ---- a big screen (a computer, a tablet across; ui.js bigScreen): the room used ---- */
+@media (min-width:1000px){
+  .wrap{max-width:1280px;padding-left:24px;padding-right:24px}
+  /* the decanting picture: the wide one (its truck the length of the tanks), at the page's width */
+  .dscene{max-height:none}
+  .dscene.compact{max-height:330px}
+  /* the decanting screen: the tanks' cards side by side */
+  .stage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;align-items:start}
+  .stage-grid>.card{margin:0}
+  /* Home: a decantation running — its truck on the left, the four tanks two by two on the right; trucks waiting two a row */
+  .home-top.busy{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);column-gap:18px;align-items:start}
+  .home-top.busy .home-progress{grid-column:1;grid-row:1}
+  .home-top.busy .home-stock{grid-column:2;grid-row:1}
+  .home-top.busy .tanks{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .home-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+  .home-list .card{margin-bottom:0}
+  .sheet-card.wide{max-width:960px}
+}
+
 /* ---- TV mode (js/tv.js: opened by the Android TV app). Laid out for a 960 x 540 screen, which
    tv.js scales to the TV's own (a 1080p / 4K Google TV shows apps at 960 x 540 x 2): every inch used ---- */
 html.tv .wrap{max-width:none;padding:8px 16px 28px}

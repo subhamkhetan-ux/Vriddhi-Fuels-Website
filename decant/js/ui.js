@@ -10,6 +10,9 @@ export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 export const PRODUCT_COLOR = { HSD: '#3987e5', MS: '#d95926', XG: '#199e70' };
 export const productShort = (k) => PRODUCTS[k]?.short || k || '—';
 
+// A big screen (a computer, a tablet across, a TV): the wide decanting picture and side-by-side layouts.
+export const bigScreen = () => Boolean(globalThis.matchMedia?.('(min-width: 1000px)').matches);
+
 export function fmtL(l, digits = 0) {
   if (!Number.isFinite(l)) return '—';
   return `${Number(l).toLocaleString('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits })}\u00a0L`;

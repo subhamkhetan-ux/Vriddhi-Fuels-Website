@@ -24,10 +24,16 @@ import { drainAt, drainLive, drainTimeline, stillTimeline, tankStage } from './c
 import { PRODUCT_COLOR, elapsed, esc, fmtL } from './ui.js';
 import { GROUND, LEVER, OUTLET_Y, ZOOM, applyPose, moveScene, workerDefs, workerSvg } from './worker.js';
 
-const W = 360;
+const WIDTH = 360;
+const WIDE_W = 600;                                      // a big screen's picture: as tall, this wide
+const WIDE_HALF = 58;                                    // ... and its tanks' half-width
 const H = 240;
-const BODY = { x0: 58, x1: 304, top: 16, navy: 28, orange: 64, bottom: 86 };
-const GLASS = { top: 34, bottom: 60 };
+const BODY_N = { x0: 58, x1: 304, top: 16, navy: 28, orange: 64, bottom: 86 };
+const GLASS_N = { top: 34, bottom: 60 };
+// a big screen's sight glasses: as in the loading app, each takes most of its
+// chamber (a slimmer navy band above, nearly the chamber's width)
+const GLASS_W = { top: 28, bottom: 61 };
+const NAVY_W = 25;
 const CURB = 134;
 const SOIL = 146;
 const TANK = { top: 160, bottom: 204, half: 37 };
@@ -51,7 +57,7 @@ function liquid(x0, x1, top, bottom, color, { wave = false, cls = '', opacity = 
 // Where things are drawn for a level — shared by the drawing and the ticker.
 const r1 = (v) => Math.round(v * 10) / 10;
 // an empty glass hides its liquid altogether (no ripple left at the bottom)
-const glassY = (level) => (level <= 0.001 ? GLASS.bottom + 3 : r1(GLASS.bottom - level * (GLASS.bottom - GLASS.top)));
+const glassY = (level, G = GLASS_N) => (level <= 0.001 ? G.bottom + 3 : r1(G.bottom - level * (G.bottom - G.top)));
 const tankY = (litres, cap) => r1(TANK.bottom - Math.max(0, Math.min(1.02, (litres || 0) / cap)) * (TANK.bottom - TANK.top));
 // sag: each pipe hangs a little differently, so two side by side stay apart;
 // y: where its end is (on a valve, or in the attendant's hands)
@@ -63,8 +69,15 @@ const REDUCED = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)'
 
 // s: a session; tanks: the settings' tanks; stock: the latest reading per tank
 // (for the tanks this truck doesn't fill); settings: for the chambers' times.
-// compact: for the Home card.
-export function decantScene(s, { tanks = [], stock = {}, compact = false, settings = null, now = Date.now(), act = new Set() } = {}) {
+// compact: for the Home card. wide: for a big screen — a wider picture (WIDE_W
+// across, the same height) where the truck's body runs the length of all the
+// tanks and the tanks are bigger, so it fills the width rather than shrinking
+// to a phone's picture in the middle.
+export function decantScene(s, { tanks = [], stock = {}, compact = false, settings = null, now = Date.now(), act = new Set(), wide = false } = {}) {
+  // the picture's width and the truck body's far end (the body runs the length of the tanks)
+  const W = wide ? WIDE_W : WIDTH;
+  const BODY = wide ? { ...BODY_N, x1: WIDE_W - 44, navy: NAVY_W } : BODY_N;
+  const GLASS = wide ? GLASS_W : GLASS_N;
   const id = `ds${++seq}`;
   const d = s.data || {};
   const rows = d.tanks || [];
@@ -81,7 +94,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     const tl = drainTimeline(r, chambers, settings);
     return [r, { tl, at: drainAt(tl, now) }];
   }));
-  const anim = { g: [], t: [], p: [] };                  // what tickScenes moves on
+  const anim = { g: [], t: [], p: [], ...(wide ? { w: 1 } : {}) };                  // what tickScenes moves on
   const workers = [];                                    // tanks whose pipe will be moved
 
   // chambers along the body, by size; the truck's capacity for its name band
@@ -101,7 +114,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
   const n = Math.max(1, tanks.length);
   const tx = (i) => 20 + ((W - 40) / n) * (i + 0.5);
   const tankX = new Map(tanks.map((t, i) => [t.id, tx(i)]));
-  const half = Math.min(TANK.half, (W - 40) / n / 2 - 3);   // narrower when more than four tanks share the ground
+  const half = Math.min(wide ? WIDE_HALF : TANK.half, (W - 40) / n / 2 - 3);   // narrower when more than four tanks share the ground
 
   const defs = [];
   const clip = (name, shape) => { defs.push(`<clipPath id="${id}${name}">${shape}</clipPath>`); return `url(#${id}${name})`; };
@@ -116,7 +129,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     let level = FULL;
     if (!c.product || done.has(c.no) || st === 'settling' || st === 'read') level = 0;
     else if (win) level = FULL * (1 - part(now, win.from, win.to));
-    const gw = Math.min(22, (x1 - x0) * 0.5);
+    const gw = r1(wide ? Math.max(12, x1 - x0 - 14) : Math.min(22, (x1 - x0) * 0.5));
     const gx = mid - gw / 2;
     const gh = GLASS.bottom - GLASS.top;
     const cp = clip(`g${c.no}`, `<rect x="${gx}" y="${GLASS.top}" width="${gw}" height="${gh}" rx="4"/>`);
@@ -131,7 +144,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     // the liquid is drawn from 0 and moved down to its level (the glass clips it)
     return `<g class="gl${on ? ' on' : ''}" data-k="g${c.no}"${!row && c.product ? ' opacity=".5"' : ''}>
       <rect x="${gx}" y="${GLASS.top}" width="${gw}" height="${gh}" rx="4" fill="#20262c" stroke="#8d969e" stroke-width="1"/>
-      <g clip-path="${cp}"><g data-k="l${c.no}" transform="translate(0 ${glassY(level)})">${level > 0 || win ? liquid(gx, gx + gw, 0, gh + 2, colorOf(c.product), { wave: Boolean(win) }) : ''}</g></g>
+      <g clip-path="${cp}"><g data-k="l${c.no}" transform="translate(0 ${glassY(level, GLASS)})">${level > 0 || win ? liquid(gx, gx + gw, 0, gh + 2, colorOf(c.product), { wave: Boolean(win) }) : ''}</g></g>
       ${win ? `<circle class="bubble" cx="${mid}" cy="${GLASS.bottom - 3}" r="1.3" fill="#fff" opacity=".6"/>` : ''}
     </g>
     ${act.has(c.no) ? `<rect class="ds-act" x="${r1(gx - 3)}" y="${GLASS.top - 3}" width="${r1(gw + 6)}" height="${gh + 6}" rx="6" fill="none" stroke="#FF7A1A" stroke-width="2.4"/>` : ''}
@@ -165,7 +178,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       <rect x="56" y="${BODY.bottom}" width="${BODY.x1 - 54}" height="6" fill="#86c5de"/>
       <rect x="64" y="${BODY.bottom + 4}" width="66" height="11" rx="2" fill="#a8b0b8" stroke="#6d757d"/>
       ${outlets}
-      ${[34, 214, 246].map((wx) => `<circle cx="${wx}" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="${wx}" cy="104" r="4.8" fill="#b9bfc6"/>`).join('')}
+      ${[34, BODY.x1 - 90, BODY.x1 - 58].map((wx) => `<circle cx="${wx}" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="${wx}" cy="104" r="4.8" fill="#b9bfc6"/>`).join('')}
       ${callouts.join('')}
     </g>`;
 
@@ -443,7 +456,7 @@ function tickOne(svg, now, full = true) {
   for (const g of full ? a.g : []) {
     const p = part(now, g.from, g.to);
     const on = now >= g.from && now < g.to;
-    put(el(`l${g.k}`), 'transform', `translate(0 ${glassY(FULL * (1 - p))})`);
+    put(el(`l${g.k}`), 'transform', `translate(0 ${glassY(FULL * (1 - p), a.w ? GLASS_W : GLASS_N)})`);
     el(`g${g.k}`)?.classList.toggle('on', on);
     show(el(`c${g.k}`), on);
     if (on) text(`n${g.k}`, fmtL(g.l * (1 - p)));
@@ -499,6 +512,7 @@ function tickOne(svg, now, full = true) {
   const z = focus?.sc ? focus.sc.zoom : 0;
   let zoom = '';
   if (z > 0.001) {
+    const W = svg.viewBox?.baseVal?.width || WIDTH;       // (a big screen's picture is wider)
     const k = 1 + (ZOOM - 1) * z;
     const fx = W / 2 + (focus.sc.focus.x - W / 2) * z;
     const fy = H / 2 + (focus.sc.focus.y - H / 2) * z;
