@@ -53,9 +53,9 @@ test('one pipe per tank, on one chamber at a time — moved on as each empties',
   assert.match(svg, /class="gl on" data-k="g3"/);
   assert.match(svg, /class="gl" data-k="g2"/);
   // Tank 2 has what C2 and a quarter of C3 gave: 10,755 + 5,000 + 1,000 L
-  assert.equal(tankTop(svg, 'T2'), 167.1);
+  assert.equal(tankTop(svg, 'T2'), 172.2);                          // (a tank on its side: the dip chart's curve, not a straight line)
   assert.match(svg, /class="dt flowing" data-k="dT2"/);
-  assert.equal(count(svg, /class="drop"/g), 3);
+  assert.equal(count(svg, /class="drop"/g), 4);                       // bubbles rising from the fill pipe's end
   assert.match(svg, /aria-label="OD23U8210: C1 into Tank 1 \(settling\); C2,3 into Tank 2 \(pipe on C3\); C4,5 into Tank 3 \(next\)"/);
   assert.match(svg, /data-anim="/);
 });
@@ -85,7 +85,7 @@ test('two tanks at once: two pipes; once every chamber should be empty the pipes
   assert.equal(count(after, /class="dp flowing"/g), 0);
   assert.equal(count(after, /class="dp"/g), 2);
   for (const no of [2, 3, 4, 5]) assert.equal(glassTop(after, no), 63, `C${no} empty`);
-  assert.equal(tankTop(after, 'T2'), 160.5);                           // at 19,755 L
+  assert.equal(tankTop(after, 'T2'), 166.2);                           // at 19,755 L
   assert.match(after, /class="dt" data-k="dT2"/);
 });
 
@@ -174,4 +174,13 @@ test('the tanks in the order of their fill points on the unloading platform: Tan
   assert.deepEqual([...svg.matchAll(/data-k="d(T\d)"/g)].map((m) => m[1]), ['T2', 'T1', 'T3', 'T4']);
   // the valve box across the whole of C2 and C3, the back axle behind it
   assert.match(svg, /<rect x="117\.2" y="90" width="95\.7" height="11"/);
+});
+
+test('the tanks as laid: level by the cylinder, fuel coming in at the bottom, the vent breathing while it fills', () => {
+  const svg = draw({ T1: 'waiting', T2: 'decanting', T3: 'decanting' }, 60);
+  // a tank on its side: half its volume is half its height, a tenth sits much lower than a tenth of it
+  assert.match(svg, /class="drop" cx="[\d.]+" cy="198"/);                // bubbles from the fill pipe's end, near the bottom
+  assert.match(svg, /data-k="dT2">[\s\S]*?class="puff"/);                 // the vent puffs while it fills…
+  assert.doesNotMatch(/data-k="dT4">[\s\S]*?<\/g>\s*<\/g>/.exec(svg)?.[0] || '', /class="puff"/);   // …not a tank left alone
+  assert.match(svg, /fill="url\(#ds\d+sand\)"/);                         // laid in sand
 });

@@ -19,6 +19,8 @@ export const DEFAULT_TANKS = [
 // decanting picture shows them (PESO drawing): HSD Tank 2, MS, HSD Tank 3, XG.
 // The picture draws the tanks in this order.
 export const FILL_ORDER = ['T2', 'T1', 'T3', 'T4'];
+// The tanks laid in an RCC (concrete) pit; the others are in an earth pit (PESO drawing).
+export const RCC_PITS = ['T3', 'T4'];
 
 export const DEFAULT_SETTINGS = {
   tanks: DEFAULT_TANKS,

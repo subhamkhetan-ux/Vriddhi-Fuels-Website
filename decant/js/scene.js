@@ -21,7 +21,7 @@
 // animations on purpose: those redraw the whole picture 60 times a second
 // even where nothing needs it, which was most of what it cost.)
 
-import { FILL_ORDER, drainAt, drainLive, drainTimeline, stillTimeline, tankStage } from './core.js';
+import { FILL_ORDER, RCC_PITS, drainAt, drainLive, drainTimeline, stillTimeline, tankStage } from './core.js';
 import { PRODUCT_COLOR, elapsed, esc, fmtL } from './ui.js';
 import { GROUND, LEVER, OUTLET_Y, ZOOM, applyPose, moveScene, workerDefs, workerSvg } from './worker.js';
 
@@ -59,7 +59,24 @@ function liquid(x0, x1, top, bottom, color, { wave = false, cls = '', opacity = 
 const r1 = (v) => Math.round(v * 10) / 10;
 // an empty glass hides its liquid altogether (no ripple left at the bottom)
 const glassY = (level, G = GLASS_N) => (level <= 0.001 ? G.bottom + 3 : r1(G.bottom - level * (G.bottom - G.top)));
-const tankY = (litres, cap) => r1(TANK.bottom - Math.max(0, Math.min(1.02, (litres || 0) / cap)) * (TANK.bottom - TANK.top));
+// A tank's level for its litres: the tanks lie on their side (2.11 m across,
+// PESO drawing), so a litre raises the level least near the top and bottom
+// and most in the middle, as the dip chart has it. A 20 KL tank is full at
+// about 21,620 L (the chart's 209 cm).
+const FULL_K = 1.081;
+function cylinderLevel(f) {                                // part of the volume -> part of the height
+  if (f <= 0) return 0;
+  if (f >= 1) return 1;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 22; i++) {
+    const h = (lo + hi) / 2;
+    const c = 1 - 2 * h;
+    if ((Math.acos(c) - c * Math.sqrt(1 - c * c)) / Math.PI < f) lo = h; else hi = h;
+  }
+  return (lo + hi) / 2;
+}
+const tankY = (litres, cap) => r1(TANK.bottom - cylinderLevel(Math.max(0, (litres || 0) / (cap * FULL_K))) * (TANK.bottom - TANK.top));
 // sag: each pipe hangs a little differently, so two side by side stay apart;
 // y: where its end is (on a valve, or in the attendant's hands)
 const pipeD = (xo, xi, sag = 0, y = OUTLET_Y) => `M${r1(xo)} ${r1(y + 2)} C${r1(xo)} ${GROUND + 14 + sag} ${xi} ${GROUND - 12 + sag / 2} ${xi} ${GROUND + 1}`;
@@ -179,6 +196,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     <linearGradient id="${id}steel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d3d8dd"/><stop offset="1" stop-color="#8f969d"/></linearGradient>
     <radialGradient id="${id}rim" cx=".4" cy=".35" r=".75"><stop offset="0" stop-color="#eef1f3"/><stop offset="1" stop-color="#8d949b"/></radialGradient>
     <pattern id="${id}haz" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.5" height="5" fill="#f5c02a"/><rect x="2.5" width="2.5" height="5" fill="#161616"/></pattern>
+    <pattern id="${id}sand" width="7" height="7" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="#4f4130"/><circle cx="1.5" cy="2" r=".55" fill="#7b6a52"/><circle cx="5" cy="5.2" r=".5" fill="#6a5a44"/><circle cx="4.6" cy="1.2" r=".35" fill="#8a7860"/></pattern>
     <pattern id="${id}rib" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" fill="#f5c02a"/><rect x="2" width="2" height="4" fill="#e0402e"/></pattern>`);
   const railY = BODY.top - 3.5;
   const cabClip = clip('cabshape', '<path d="M9 100 V40 Q9 28.5 21 27.5 H59 V100 H48.5 A14.5 14.5 0 0 0 19.5 100 Z"/>');
@@ -289,7 +307,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
     const x0 = xc - half;
     const x1 = xc + half;
     const th = TANK.bottom - TANK.top;
-    const cp = clip(`t${t.id}`, `<rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}"/>`);
+    const cp = clip(`t${t.id}`, `<rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="9" ry="${th / 2}"/>`);
     let inside = '';
     let tag = '';
     let flowing = false;
@@ -314,7 +332,7 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
         if (rd?.tl.length) anim.t.push({ k: `${t.id}`, before, cap, wins: rd.tl.map((w) => [w.from, w.to, w.litres]), ...(rd.at?.live ? { got: rd.at.litres, flow: rd.at.flowing } : {}) });
         inside = `<g data-k="t${t.id}" transform="translate(0 ${tankY(now1, cap)})">${liquid(x0, x1, 0, th + 2, col, { wave: true })}</g>
           ${outline}
-          ${[0, 350, 700].map((delay) => `<circle class="drop" cx="${xc}" cy="${TANK.top + 12}" r="1.7" fill="${col}" data-d="${delay}"/>`).join('')}`;
+          ${[[0, -2.5], [350, 2], [700, -0.5], [1000, 3]].map(([delay, dx]) => `<circle class="drop" cx="${r1(xc + dx)}" cy="${TANK.bottom - 6}" r="1.7" fill="#fff" data-d="${delay}" data-r="${r1(Math.max(4, Math.min(22, TANK.bottom - 8 - tankY(now1, cap))))}"/>`).join('')}`;
         tag = '<tspan class="ds-live">decanting</tspan>';
         // counting up: what's in it now, and what's gone in so far
         nums = `${vol(now1, !rd?.at?.live, TANK.top + 21)}<text x="${xc}" y="${TANK.top + 31.5}" class="ds-add" data-k="a${t.id}">+${fmtL(now1 - before)}</text>`;
@@ -328,13 +346,35 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
         nums = vol(row.after?.volume ?? target, !row.after);
       }
     }
+    // as laid (PESO drawing): in sand, in a concrete pit or the earth; a
+    // bitumen-black shell with dished ends on two concrete blocks; a manhole
+    // and a vent pipe on top; the fill pipe runs down inside to near the
+    // bottom, so the fuel comes in under the surface (bubbles rising), and the
+    // vent breathes out the air it pushes up
+    const rcc = (Array.isArray(settings?.rccPits) ? settings.rccPits : RCC_PITS).includes(t.id);
+    const px0 = x0 - 6;
+    const px1 = x1 + 6;
+    const pit = `<rect x="${px0}" y="${SOIL}" width="${px1 - px0}" height="${TANK.bottom + 4 - SOIL}" ${rcc ? '' : `rx="5" `}fill="url(#${id}sand)"/>
+      ${rcc ? `<path d="M${px0 - 2.4} ${SOIL} V${TANK.bottom + 5.2} H${px1 + 2.4} V${SOIL}" fill="none" stroke="#8b867f" stroke-width="2.4"/>` : ''}`;
+    const mh = r1(x0 + (x1 - x0) * 0.24);
+    const vx = r1(x1 - 9);
     return `<g class="dt${flowing ? ' flowing' : ''}" data-k="d${t.id}"${row ? '' : ' opacity=".42"'}>
+      ${pit}
       <rect x="${xc - 3.5}" y="${GROUND + 4}" width="7" height="${CURB - GROUND - 4}" fill="#2a2a2a"/>
       <rect x="${xc - 5.5}" y="${GROUND}" width="11" height="4.5" rx="1.2" fill="${col}"/>
-      <line x1="${xc}" y1="${SOIL}" x2="${xc}" y2="${TANK.top + 10}" stroke="#5b544e" stroke-width="3"/>
-      <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="#191512"/>
-      <g clip-path="${cp}">${inside}</g>
-      <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="none" stroke="#7d746c" stroke-width="1.4"/>
+      <line x1="${xc}" y1="${SOIL}" x2="${xc}" y2="${TANK.top + 1}" stroke="#5b544e" stroke-width="3"/>
+      <rect x="${mh - 6}" y="${SOIL}" width="12" height="${TANK.top - SOIL + 1}" fill="#3a342e"/>
+      <rect x="${mh - 7.5}" y="${SOIL - 1.2}" width="15" height="2.4" rx="1" fill="#6f6962"/>
+      <line x1="${vx}" y1="${TANK.top + 1}" x2="${vx}" y2="${SOIL - 3}" stroke="#5b544e" stroke-width="2"/>
+      <path d="M${vx - 3} ${SOIL - 3} H${vx + 3}" stroke="#7a736c" stroke-width="2" stroke-linecap="round"/>
+      ${flowing ? [0, 900].map((delay) => `<circle class="puff" cx="${vx}" cy="${SOIL - 6}" r="2.2" fill="#d9d4cc" data-d="${delay}"/>`).join('') : ''}
+      ${[x0 + 10, x1 - 10].map((bx) => `<rect x="${r1(bx - 5)}" y="${TANK.bottom - 1}" width="10" height="5" fill="#9a958d"/>`).join('')}
+      <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="9" ry="${th / 2}" fill="#191512"/>
+      <g clip-path="${cp}">${inside}
+        <line x1="${xc}" y1="${TANK.top}" x2="${xc}" y2="${TANK.bottom - 5}" stroke="#3b3631" stroke-width="2.4"/>
+      </g>
+      <rect x="${x0}" y="${TANK.top}" width="${x1 - x0}" height="${th}" rx="9" ry="${th / 2}" fill="none" stroke="#0d0b0a" stroke-width="2.6"/>
+      <rect x="${x0 + 1.3}" y="${TANK.top + 1.3}" width="${x1 - x0 - 2.6}" height="${th - 2.6}" rx="8" ry="${th / 2 - 1.3}" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width=".8"/>
       ${nums}
       <text x="${xc}" y="${TANK.bottom + 15}" class="ds-tank">Tank ${t.no}<tspan fill="${col}"> ${esc(t.product)}</tspan></text>
       ${tag ? `<text x="${xc}" y="${TANK.bottom + 27}" class="ds-stage">${tag}</text>` : ''}
@@ -404,7 +444,8 @@ function ripple(svg, pic, now) {
     r = pic.rip = {
       waves: all('.wave').map((n) => ({ n, gl: n.closest('.gl'), period: n.classList.contains('slow') ? 4500 : 1800 })),
       flows: all('.dp .hose-in').map((n) => ({ n, g: n.closest('.dp') })),
-      drops: all('.drop').map((n) => ({ n, dt: n.closest('.dt'), d: Number(n.dataset.d) || 0 })),
+      drops: all('.drop').map((n) => ({ n, dt: n.closest('.dt'), d: Number(n.dataset.d) || 0, rise: Number(n.dataset.r) || 14 })),
+      puffs: all('.puff').map((n) => ({ n, dt: n.closest('.dt'), d: Number(n.dataset.d) || 0 })),
       bubbles: all('.bubble').map((n) => ({ n, gl: n.closest('.gl') })),
     };
   }
@@ -423,9 +464,19 @@ function ripple(svg, pic, now) {
   for (const d of r.drops) {
     if (!d.dt?.classList.contains('flowing')) continue;
     any = true;
-    const p = phase(1050, d.d);
-    put(d.n, 'transform', `translate(0 ${r1(26 * p * p)})`);               // falling faster as it goes
-    put(d.n, 'opacity', r2(p < 0.15 ? p / 0.15 : (1 - p) / 0.85));
+    const p = phase(1400, d.d);
+    put(d.n, 'transform', `translate(0 ${r1(-d.rise * p)})`);              // rising from the fill pipe's end
+    put(d.n, 'opacity', r2(0.8 * (p < 0.2 ? p / 0.2 : (1 - p) / 0.8)));
+  }
+  for (const f of r.puffs) {
+    if (!f.dt?.classList.contains('flowing')) continue;
+    any = true;
+    const p = phase(1800, f.d);
+    const cx = Number(f.n.getAttribute('cx'));
+    const cy = Number(f.n.getAttribute('cy'));
+    // rising and spreading from the vent (scaled about its own centre)
+    put(f.n, 'transform', `translate(${r1(cx + 3 * p)} ${r1(cy - 9 * p)}) scale(${r2(0.6 + 1.2 * p)}) translate(${-cx} ${-cy})`);
+    put(f.n, 'opacity', r2(0.5 * (p < 0.15 ? p / 0.15 : (1 - p) / 0.85)));
   }
   for (const b of r.bubbles) {
     if (!b.gl?.classList.contains('on')) continue;
