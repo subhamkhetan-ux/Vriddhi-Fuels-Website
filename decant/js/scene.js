@@ -171,26 +171,77 @@ export function decantScene(s, { tanks = [], stock = {}, compact = false, settin
       <g class="lever" data-k="v${c.no}" transform="rotate(${openNos.has(c.no) ? 0 : -90} ${outletX(c.no)} ${OUTLET_Y})">
         <rect x="${outletX(c.no)}" y="${OUTLET_Y - 0.85}" width="${LEVER}" height="1.7" rx=".85" fill="#e0402e"/>
         <circle cx="${outletX(c.no)}" cy="${OUTLET_Y}" r="1.3" fill="#3a3f45"/></g>`).join('');
+  // the truck's look: a barrel lit from above, a cab with its stripes,
+  // steel rims, the side guards' hazard stripes and a shadow on the road
+  defs.push(`<linearGradient id="${id}barrel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".2" stop-color="#fff" stop-opacity=".3"/><stop offset=".5" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></linearGradient>
+    <linearGradient id="${id}cab" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b4ea8"/><stop offset="1" stop-color="#172f73"/></linearGradient>
+    <linearGradient id="${id}win" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#cfe0ee"/><stop offset=".45" stop-color="#8fa9c2"/><stop offset="1" stop-color="#5d7690"/></linearGradient>
+    <linearGradient id="${id}steel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d3d8dd"/><stop offset="1" stop-color="#8f969d"/></linearGradient>
+    <radialGradient id="${id}rim" cx=".4" cy=".35" r=".75"><stop offset="0" stop-color="#eef1f3"/><stop offset="1" stop-color="#8d949b"/></radialGradient>
+    <pattern id="${id}haz" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.5" height="5" fill="#f5c02a"/><rect x="2.5" width="2.5" height="5" fill="#161616"/></pattern>
+    <pattern id="${id}rib" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" fill="#f5c02a"/><rect x="2" width="2" height="4" fill="#e0402e"/></pattern>`);
+  const railY = BODY.top - 3.5;
+  const cabClip = clip('cabshape', '<path d="M9 100 V40 Q9 28.5 21 27.5 H59 V100 H48.5 A14.5 14.5 0 0 0 19.5 100 Z"/>');
+  const posts = [BODY.x0 + 14, ...cx.slice(1).map((c) => c.x0), BODY.x1 - 14];
+  const guards = [[52, boxX - 3], [boxX + boxW + 3, BODY.x1 - 73]].filter(([a, b]) => b - a > 6);
+  const wheel = (wx) => `<circle cx="${wx}" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="${wx}" cy="104" r="9.6" fill="none" stroke="#2e2e2e" stroke-width="1.2"/>
+      <circle cx="${wx}" cy="104" r="6.2" fill="url(#${id}rim)"/><circle cx="${wx}" cy="104" r="2.3" fill="#5f666e"/>
+      ${[0, 60, 120, 180, 240, 300].map((a) => `<circle cx="${r1(wx + 4.2 * Math.cos(a * Math.PI / 180))}" cy="${r1(104 + 4.2 * Math.sin(a * Math.PI / 180))}" r=".6" fill="#6b7279"/>`).join('')}`;
   const truck = `
     <g class="ds-truck">
-      <rect x="10" y="32" width="48" height="68" rx="7" fill="#1e3a8a"/>
-      <rect x="10" y="64" width="48" height="28" fill="#f4f4f2"/>
-      <rect x="14" y="37" width="40" height="3.2" rx="1" fill="#f36a21"/>
-      <rect x="14" y="42" width="40" height="17" rx="3" fill="#9fb3c8" opacity=".85"/>
-      <rect x="8" y="92" width="52" height="8" rx="2" fill="#86c5de"/>
+      <ellipse cx="${(8 + BODY.x1) / 2}" cy="${GROUND + 0.5}" rx="${(BODY.x1 - 8) / 2 + 6}" ry="3.2" fill="#000" opacity=".35"/>
+      <!-- the handrail along the top -->
+      <path d="M${posts[0]} ${railY} H${posts[posts.length - 1]}" stroke="#aeb7c0" stroke-width="1.3" stroke-linecap="round"/>
+      ${posts.map((x) => `<line x1="${r1(x)}" y1="${railY}" x2="${r1(x)}" y2="${BODY.top + 1}" stroke="#8d969f" stroke-width="1"/>`).join('')}
+      <!-- the cab: a roof fairing flowing into the barrel; navy above, white
+           below with the orange swoosh and a yellow line, a dark lower panel
+           round the wheel arch; the bumper, headlamp and mirror at the front -->
+      <path d="M21 30 Q25 18.5 40 16.6 L${BODY.x0 + 4} 16 V31 Z" fill="#1a3478"/>
+      <path d="M21 30 Q25 18.5 40 16.6" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="1"/>
+      <g clip-path="${cabClip}">
+        <rect x="9" y="27" width="50" height="74" fill="url(#${id}cab)"/>
+        <path d="M9 61 H59 V101 H9 Z" fill="#f4f4f2"/>
+        <path d="M9 66 L59 57.5 L59 62.5 L9 71 Z" fill="#f36a21"/>
+        <path d="M9 74.5 L59 72.2 V73.8 L9 76.1 Z" fill="#f5c02a"/>
+        <path d="M9 84 H59 V101 H9 Z" fill="#2b2f37"/>
+        <path d="M9 27 H59 V31 H9 Z" fill="#fff" opacity=".12"/>
+      </g>
+      <path d="M11 39 Q11.4 32 16 31 V60 H11 Z" fill="url(#${id}win)"/>
+      <rect x="18.5" y="34" width="33" height="20" rx="3.2" fill="url(#${id}win)"/>
+      <path d="M20 35.5 H29 L21.5 52.5 H20 Z" fill="#fff" opacity=".2"/>
+      <path d="M38.5 34 V54" stroke="#1a2d66" stroke-width="1.6"/>
+      <path d="M37.6 31 V84" stroke="#000" stroke-opacity=".22" stroke-width=".8"/>
+      <rect x="40" y="64.5" width="5.5" height="1.7" rx=".85" fill="#2b2b2b"/>
+      <rect x="40" y="88" width="13" height="2.2" rx="1" fill="#555b63"/>
+      <path d="M12 37 L7.6 35.4" stroke="#22252b" stroke-width="1.1"/>
+      <rect x="4.2" y="33.5" width="3.6" height="14" rx="1.4" fill="#22252b"/>
+      <rect x="5" y="87" width="12" height="11" rx="2.2" fill="#86c5de"/>
+      <rect x="5.8" y="89" width="4.4" height="3.4" rx="1" fill="#ffe7a1"/>
+      <rect x="5.8" y="94.2" width="10" height="1.2" rx=".6" fill="#5d9fb6"/>
+      <rect x="55.4" y="${BODY.top + 2}" width="2.8" height="${BODY.bottom - BODY.top - 2}" rx="1.2" fill="url(#${id}rib)"/>
+      <!-- the barrel: the livery's bands, lit from above, its dished ends -->
       <g clip-path="${bodyClip}">
         <rect x="${BODY.x0}" y="${BODY.top}" width="${BODY.x1 - BODY.x0}" height="${BODY.bottom - BODY.top}" fill="#f4f4f2"/>
         <rect x="${BODY.x0}" y="${BODY.top}" width="${BODY.x1 - BODY.x0}" height="${BODY.navy - BODY.top}" fill="#1e3a8a"/>
         <rect x="${BODY.x0}" y="${BODY.orange}" width="${BODY.x1 - BODY.x0}" height="${BODY.bottom - BODY.orange}" fill="#ef6a28"/>
         <rect x="${BODY.x0}" y="${BODY.orange - 1}" width="${BODY.x1 - BODY.x0}" height="1.8" fill="#f5c02a"/>
         ${dividers}
+        <rect x="${BODY.x0}" y="${BODY.top}" width="${BODY.x1 - BODY.x0}" height="${BODY.bottom - BODY.top}" fill="url(#${id}barrel)"/>
+        <rect x="${BODY.x0}" y="${BODY.top}" width="5" height="${BODY.bottom - BODY.top}" fill="#000" opacity=".12"/>
+        <rect x="${BODY.x1 - 7}" y="${BODY.top}" width="7" height="${BODY.bottom - BODY.top}" fill="#000" opacity=".14"/>
+        <line x1="${BODY.x1 - 7}" y1="${BODY.top}" x2="${BODY.x1 - 7}" y2="${BODY.bottom}" stroke="#fff" stroke-opacity=".35" stroke-width=".8"/>
       </g>
       <text x="${(BODY.x0 + BODY.x1) / 2}" y="${BODY.navy - 3.2}" class="ds-livery">${esc([s.tt_no, capKL ? `${capKL} KL` : ''].filter(Boolean).join(' · '))}</text>
       ${glasses}
+      <!-- the chassis, its side guards and the back axle's mudguard -->
       <rect x="56" y="${BODY.bottom}" width="${BODY.x1 - 54}" height="6" fill="#86c5de"/>
-      <rect x="${boxX}" y="${BODY.bottom + 4}" width="${boxW}" height="11" rx="2" fill="#a8b0b8" stroke="#6d757d"/>
+      <rect x="56" y="${BODY.bottom + 4.6}" width="${BODY.x1 - 54}" height="1.4" fill="#5d9fb6"/>
+      ${guards.map(([a, b]) => `<rect x="${r1(a)}" y="${BODY.bottom + 9}" width="${r1(b - a)}" height="2.6" fill="url(#${id}haz)"/>`).join('')}
+      <path d="M${BODY.x1 - 74} 103 Q${BODY.x1 - 74} 90 ${BODY.x1 - 61} 90 H${BODY.x1 - 23} Q${BODY.x1 - 10} 90 ${BODY.x1 - 10} 103" fill="none" stroke="#1d2230" stroke-width="2.4"/>
+      <rect x="${boxX}" y="${BODY.bottom + 4}" width="${boxW}" height="11" rx="2" fill="url(#${id}steel)" stroke="#6d757d"/>
+      <rect x="${r1(boxX + 1.5)}" y="${BODY.bottom + 5}" width="${r1(boxW - 3)}" height="1.2" rx=".6" fill="#fff" opacity=".45"/>
       ${outlets}
-      ${[34, BODY.x1 - 58, BODY.x1 - 26].map((wx) => `<circle cx="${wx}" cy="104" r="11.5" fill="#1b1b1b"/><circle cx="${wx}" cy="104" r="4.8" fill="#b9bfc6"/>`).join('')}
+      ${[34, BODY.x1 - 58, BODY.x1 - 26].map(wheel).join('')}
       ${callouts.join('')}
     </g>`;
 
