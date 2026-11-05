@@ -45,8 +45,8 @@ test('one pipe per tank, on one chamber at a time — moved on as each empties',
   // (4 KL, 7:00) a quarter out
   const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645);
   assert.equal(count(svg, /class="dp flowing"/g), 1);
-  assert.match(svg, /data-k="pT2">\s*<path class="hose" d="M95 103 /);  // C3's valve
-  assert.match(svg, /class="coupling" cx="95"/);
+  assert.match(svg, /data-k="pT2">\s*<path class="hose" d="M163\.1 103 /);  // C3's valve
+  assert.match(svg, /class="coupling" cx="163\.1"/);
   assert.equal(glassTop(svg, 2), 63);                                   // C2 empty (liquid out of sight)
   assert.equal(glassTop(svg, 3), 42.1);                                 // C3 three quarters full
   assert.equal(glassTop(svg, 4), 36.1);                                 // C4, C5 full, waiting for Tank 3
@@ -79,8 +79,8 @@ test('the litres, live: left in the chamber on the pipe, and in the tank', () =>
 test('two tanks at once: two pipes; once every chamber should be empty the pipes stop', () => {
   const two = draw({ T1: 'waiting', T2: 'decanting', T3: 'decanting' }, 60);
   assert.equal(count(two, /class="dp flowing"/g), 2);
-  assert.match(two, /data-k="pT2">\s*<path class="hose" d="M82.5 103 /);  // C2
-  assert.match(two, /data-k="pT3">\s*<path class="hose" d="M107.5 103 /); // C4
+  assert.match(two, /data-k="pT2">\s*<path class="hose" d="M143\.1 103 /);  // C2
+  assert.match(two, /data-k="pT3">\s*<path class="hose" d="M183 103 /); // C4
   const after = draw({ T1: 'waiting', T2: 'decanting', T3: 'decanting' }, 17 * 60);   // C2, the move, C3 = 16:00; C4, C5 = 14:45
   assert.equal(count(after, /class="dp flowing"/g), 0);
   assert.equal(count(after, /class="dp"/g), 2);
@@ -92,10 +92,10 @@ test('two tanks at once: two pipes; once every chamber should be empty the pipes
 test('between two chambers the pipe is moved: no flow, both valves shut, the attendant on his way', () => {
   // 8:35 in: C2 emptied at 8:15, the pipe goes on C3 at 9:00
   const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 515);
-  assert.match(svg, /class="dp" data-k="pT2">\s*<path class="hose" d="M82\.5 103 /);   // still on C2's valve
+  assert.match(svg, /class="dp" data-k="pT2">\s*<path class="hose" d="M143\.1 103 /);   // still on C2's valve
   assert.match(svg, /class="dt" data-k="dT2"/);                        // nothing running into Tank 2
-  assert.match(svg, /data-k="v2" transform="rotate\(-90 82\.5 101\)"/);   // C2 shut…
-  assert.match(svg, /data-k="v3" transform="rotate\(-90 95 101\)"/);     // …C3 not open yet
+  assert.match(svg, /data-k="v2" transform="rotate\(-90 143\.1 101\)"/);   // C2 shut…
+  assert.match(svg, /data-k="v3" transform="rotate\(-90 163\.1 101\)"/);     // …C3 not open yet
   assert.equal(glassTop(svg, 2), 63);
   assert.equal(glassTop(svg, 3), 36.1);
   assert.match(svg, /data-k="vT2">≈15,755\sL</);
@@ -106,17 +106,17 @@ test('between two chambers the pipe is moved: no flow, both valves shut, the att
   assert.match(svg, /class="ds-cap" data-k="cap" display="none"/);
   // the moves the ticker acts out: [start, end, valve left, valve to, from C, to C]
   const anim = JSON.parse(/data-anim="([^"]+)"/.exec(svg)[1].replace(/&quot;/g, '"'));
-  assert.deepEqual(anim.p.find((p) => p.t === 'T2').moves, [[T0 + 495000, T0 + 540000, 82.5, 95, 2, 3]]);
+  assert.deepEqual(anim.p.find((p) => p.t === 'T2').moves, [[T0 + 495000, T0 + 540000, 143.1, 163.1, 2, 3]]);
   // on Home's card no one is drawn: the pipe just moves over
   const home = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 515, { compact: true });
   assert.ok(!/class="worker"|data-k="cap"/.test(home));
   // flowing again from C3 once the move is done
-  assert.match(draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 541), /class="dp flowing" data-k="pT2">\s*<path class="hose" d="M95 103 /);
+  assert.match(draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 541), /class="dp flowing" data-k="pT2">\s*<path class="hose" d="M163\.1 103 /);
 });
 
 test('settling: the pipe still on the last chamber; done: no pipe', () => {
   const svg = draw({ T1: 'settling', T2: 'settling', T3: 'read' }, 0);
-  assert.match(svg, /class="dp still" data-k="pT2">\s*<path class="hose" d="M95 103 /);
+  assert.match(svg, /class="dp still" data-k="pT2">\s*<path class="hose" d="M163\.1 103 /);
   assert.equal(count(svg, /data-k="pT3"/g), 0);
   assert.equal(count(svg, /done ✓/g), 1);
 });
@@ -153,7 +153,7 @@ test('by the tank\'s real stock: once it has been read since it started, the cha
   // got only 2,500 L: C2 half out, the pipe still on it
   const live = { T4: reading(2560), T2: { volume: 10755 + 2500, readingAt: iso(640) } };
   const svg = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645, { stock: live });
-  assert.match(svg, /class="coupling" cx="82.5"/);
+  assert.match(svg, /class="coupling" cx="143\.1"/);
   assert.match(svg, /class="gl on" data-k="g2"/);
   assert.match(svg, /class="gl" data-k="g3"/);
   assert.equal(glassTop(svg, 3), 36.1);                                 // C3 still full
@@ -167,4 +167,11 @@ test('by the tank\'s real stock: once it has been read since it started, the cha
   // a reading from before it started: by the clock as before
   const old = draw({ T1: 'settling', T2: 'decanting', T3: 'waiting' }, 645, { stock: { T2: { volume: 10755, readingAt: iso(-30) } } });
   assert.equal(glassTop(old, 3), 42.1);
+});
+
+test('the tanks in the order of their fill points on the unloading platform: Tank 2, MS, Tank 3, XG', () => {
+  const svg = draw({ T1: 'waiting', T2: 'decanting', T3: 'decanting' }, 60);
+  assert.deepEqual([...svg.matchAll(/data-k="d(T\d)"/g)].map((m) => m[1]), ['T2', 'T1', 'T3', 'T4']);
+  // the valve box across the whole of C2 and C3, the back axle behind it
+  assert.match(svg, /<rect x="117\.2" y="90" width="95\.7" height="11"/);
 });

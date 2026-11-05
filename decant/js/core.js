@@ -15,9 +15,14 @@ export const DEFAULT_TANKS = [
   { id: 'T3', no: 3, product: 'HSD', capacity: 20000, fillTo: 20500 },
   { id: 'T4', no: 4, product: 'XG', capacity: 20000, fillTo: 20500 },
 ];
+// The fill points on the tank lorry unloading platform, left to right as the
+// decanting picture shows them (PESO drawing): HSD Tank 2, MS, HSD Tank 3, XG.
+// The picture draws the tanks in this order.
+export const FILL_ORDER = ['T2', 'T1', 'T3', 'T4'];
 
 export const DEFAULT_SETTINGS = {
   tanks: DEFAULT_TANKS,
+  fillOrder: FILL_ORDER,   // tank ids, the fill points left to right
   // Tanks removed in Settings, kept by id: their decantations still name them,
   // and a new tank never takes an old one's id.
   retiredTanks: [],
@@ -79,6 +84,7 @@ export function layoutsText(table) {
 export function settingsWith(saved) {
   const s = { ...DEFAULT_SETTINGS, ...(saved || {}) };
   if (!Array.isArray(s.tanks) || !s.tanks.length) s.tanks = DEFAULT_TANKS;
+  if (!Array.isArray(s.fillOrder)) s.fillOrder = FILL_ORDER;
   if (!Array.isArray(s.excludeTankers)) s.excludeTankers = DEFAULT_SETTINGS.excludeTankers;
   s.ownTTs = Array.isArray(s.ownTTs)
     ? s.ownTTs.map((o) => ({ tt: normTT(o?.tt), chambers: kls(o?.chambers) })).filter((o) => o.tt && o.chambers.length)
