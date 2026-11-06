@@ -4202,16 +4202,17 @@ const fileDate=ts=>dayKey(ts).replace(/-/g,"");
 // evenly, and its rated size in KL (its chambers' rated sizes added up).
 // The litres are the invoiced ones: the bills', or typed with the invoice
 // no. for this picture; none without an invoice. The litres box starts at
-// what the sale should be billed: each chamber that went out full (within
-// the short-supply buffer) at its rated size, a part-filled one at its
-// litres — 3 full chambers of a 12 KL tanker 12,000, 2 of them 8,000.
+// what the sale should be billed: each chamber that went out (a chamber is
+// always sent full) at its rated size — 3 chambers of a 12 KL tanker
+// 12,000, 2 of them 8,000.
 const ratedCham=c=>Math.round((+c||0)/500)*500;         // 3,982 → 4,000 · 4,485 → 4,500
 const ratedKL=caps=>caps.reduce((a,c)=>a+ratedCham(c),0)/1000;
 function billQty(caps, carried, total){
-  const near=c=>Math.max(0, c-TAGSET.over);
-  if(carried) return r2(caps.reduce((a,c,i)=>{ const q=+carried[i]||0; return a+(q<=0 ? 0 : q>=near(c) ? ratedCham(c) : q); },0));
-  const capT=caps.reduce((a,c)=>a+c,0);                  // no chamber record: the whole tanker, or its litres
-  return capT && total>=near(capT) ? ratedKL(caps)*1000 : r2(+total||0);
+  if(carried) return caps.reduce((a,c,i)=>a+((+carried[i]||0)>0 ? ratedCham(c) : 0),0);
+  // no chamber record (older than the 7-day log): as many chambers as its litres fill
+  let left=+total||0, q=0;
+  caps.forEach(c=>{ if(left>0){ q+=ratedCham(c); left-=c; } });
+  return q;
 }
 function openTripSlip(t, bills, head){
   const r=recRow(t.id), list=(bills && bills.length ? bills : r && r.tags ? r.tags : []).map(slipBill);
@@ -4220,11 +4221,12 @@ function openTripSlip(t, bills, head){
   const carried=ev && ev.chambers ? caps.map((c,i)=>+((ev.chambers.find(x=>x.name==="C"+(i+1))||{}).qty)||0) : null;
   const fill=caps.map((c,i)=>c>0 ? (carried ? carried[i]/c : capT ? (+t.total||0)/capT : 0) : 0);
   // a card per chamber on the slip: its rated capacity and whether it went out
-  // loaded (full within the short-supply buffer), part-loaded or empty; with
-  // no chamber record, only a tanker sent full can say (all loaded)
-  const stateOf=(q,c)=>q<=0 ? "empty" : q>=Math.max(0,c-TAGSET.over) ? "full" : "part";
-  const chambers=carried ? caps.map((c,i)=>({ rated:ratedCham(c), state:stateOf(carried[i],c) }))
-    : capT && (+t.total||0)>=capT-TAGSET.over ? caps.map(c=>({ rated:ratedCham(c), state:"full" })) : null;
+  // loaded; with no chamber record, only a tanker sent full can say (all loaded)
+  const chambers=carried ? caps.map((c,i)=>({ rated:ratedCham(c), loaded:carried[i]>0 }))
+    : capT && (+t.total||0)>=capT-TAGSET.over ? caps.map(c=>({ rated:ratedCham(c), loaded:true })) : null;
+  // the slip's number: date, tanker and time of the sale (VF-261106-5510-0743)
+  const d0=new Date(t.ts), ref="VF-"+String(d0.getFullYear()).slice(2)+pad(d0.getMonth()+1)+pad(d0.getDate())
+    +"-"+plateKey(t.plate).slice(-4)+"-"+pad(d0.getHours())+pad(d0.getMinutes());
   const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
     invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
@@ -4235,7 +4237,7 @@ function openTripSlip(t, bills, head){
     make:typed=>{
       const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
       const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
-      return Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
+      return Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
     } });
 }
 function openStatement(key){

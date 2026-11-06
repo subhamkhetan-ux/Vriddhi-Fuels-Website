@@ -5,6 +5,10 @@
    ready to print; the litres on them are always the invoiced ones. */
 (function(){
   const LOGO = "../Vriddhi%20Fuels%20Logo.png";
+  // the business, as on the letterhead (tanker/assets/letterhead.png)
+  const BIZ = { name:"Vriddhi Fuels", dealer:"Dealer: Indian Oil Corporation Limited",
+    address:"At Kherual, Post Badmal, Jharsuguda, Odisha 768202", phone:"9937344411 · 7008540577", gstin:"21AATFV8250A1Z8" };
+  const PRODUCT = "High Speed Diesel (HSD)";
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   const DISPLAY = '"Sora", ' + SANS;
   const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
@@ -102,64 +106,84 @@
     ctx.restore();
     return 98 * s;                                                        // the height drawn
   }
-  function header(ctx, W, title, im){
+  /* The letterhead: the orange band with the logo, the name and the
+     dealership, the document's title (and number) on the right; under it a
+     strip with the address, phone numbers and GSTIN. Returns its height. */
+  function header(ctx, W, title, im, ref){
     const H = 230, g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, "#E5420E"); g.addColorStop(0.5, "#F7651C"); g.addColorStop(1, "#FF9A3C");
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     rr(ctx, 64, 55, 120, 120, 28); ctx.fillStyle = "#fff"; ctx.fill();
     if (im) { const s = 100 / Math.max(im.width, im.height); ctx.drawImage(im, 124 - im.width * s / 2, 115 - im.height * s / 2, im.width * s, im.height * s); }
-    txt(ctx, "Vriddhi Fuels", 214, 118, "800 56px " + DISPLAY, "#fff");
-    txt(ctx, title, 214, 165, "600 30px " + SANS, "rgba(255,255,255,.92)");
-    return H;
+    txt(ctx, BIZ.name, 214, 118, "800 56px " + DISPLAY, "#fff", "left", W - 214 - 340);
+    txt(ctx, BIZ.dealer, 214, 162, "600 25px " + SANS, "rgba(255,255,255,.92)", "left", W - 214 - 340);
+    txt(ctx, title.toUpperCase(), W - 64, 108, "800 30px " + DISPLAY, "#fff", "right");
+    if (ref) txt(ctx, ref, W - 64, 150, "600 24px " + MONO, "rgba(255,255,255,.92)", "right");
+    ctx.fillStyle = "#fdf0e6"; ctx.fillRect(0, H, W, 64);
+    txt(ctx, BIZ.address + "  ·  ☎ " + BIZ.phone + "  ·  GSTIN " + BIZ.gstin, W / 2, H + 41, "600 21px " + SANS, "#8a4a17", "center", W - 96);
+    return H + 64;
   }
-  function footer(ctx, W, H, right){
-    ctx.fillStyle = C.line; ctx.fillRect(64, H - 96, W - 128, 2);
-    txt(ctx, "Vriddhi Fuels · generated " + dateShort(Date.now()) + ", " + time(Date.now()), 64, H - 48, "500 24px " + SANS, C.faint);
-    if (right) txt(ctx, right, W - 64, H - 48, "500 24px " + SANS, C.faint, "right");
+  // the logo, large and faint, behind the page
+  function watermark(ctx, im, cx, cy, size){
+    if (!im) return;
+    const s = size / Math.max(im.width, im.height);
+    ctx.save(); ctx.globalAlpha = 0.035; ctx.drawImage(im, cx - im.width * s / 2, cy - im.height * s / 2, im.width * s, im.height * s); ctx.restore();
+  }
+  function footer(ctx, W, H, im, right){
+    ctx.fillStyle = C.line; ctx.fillRect(64, H - 120, W - 128, 2);
+    if (im) { const s = 56 / Math.max(im.width, im.height); ctx.drawImage(im, 64, H - 92, im.width * s, im.height * s); }
+    txt(ctx, "Thank you for your business — " + BIZ.name, 136, H - 64, "700 24px " + DISPLAY, C.ink, "left", W - 136 - 260);
+    txt(ctx, "Generated " + dateShort(Date.now()) + ", " + time(Date.now()), 136, H - 32, "500 21px " + SANS, C.faint);
+    if (right) txt(ctx, right, W - 64, H - 64, "500 22px " + SANS, C.faint, "right");
   }
   function canvas(W, H){ const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); return c; }
 
-  /* One sale. d = { customer, plate, ts, caps, fill (0..1 a chamber), kl,
-     chambers:[{ rated (L), state: "full" | "part" | "empty" }] | null,
+  /* One sale. d = { customer, plate, ts, ref (the slip's number), caps,
+     fill (0..1 a chamber), kl, chambers:[{ rated (L), loaded }] | null,
      invoices:[{no, date (YYYY-MM-DD) | null, qty | null}], qty }
      chambers: a card per chamber under the drawing, its rated capacity and
-     whether it went out loaded. 
-     qty: the invoiced litres (the bills', or typed with the invoice no.) —
-     shown when known; with no invoice, "Invoice to follow" and no litres. */
+     whether it went out loaded. qty: the invoiced litres (the bills', or
+     typed with the invoice no.) — shown when known; with no invoice,
+     "Invoice to follow" and no litres. Drawn on a tall canvas, then cut to
+     what was drawn. */
   function trip(d){
     return ready().then(im => {
       const W = 1080, inv = d.invoices || [], hasQ = d.qty != null && d.qty > 0;
-      const art = d.caps && d.caps.length ? Math.round((W - 128) * 98 / 320) + 40 : 0;
+      const art = d.caps && d.caps.length > 0;
       const chs = art && d.chambers && d.chambers.length === d.caps.length ? d.chambers : null;
-      const H = 1180 + art + (chs ? 170 : 0) + Math.max(0, inv.length - 1) * 76 - (hasQ ? 0 : 190);
-      const c = canvas(W, H), ctx = c.getContext("2d");
-      let y = header(ctx, W, "Trip slip", im) + 90;
-      txt(ctx, "TO", 64, y, "700 24px " + SANS, C.muted); y += 64;
-      txt(ctx, d.customer || "—", 64, y, "800 58px " + DISPLAY, C.ink, "left", W - 128); y += 70;
+      const big = canvas(W, 3200), ctx = big.getContext("2d");
+      watermark(ctx, im, W / 2, 1000, 760);
+      let y = header(ctx, W, "Trip slip", im, d.ref) + 80;
+      txt(ctx, "DELIVER TO", 64, y, "700 24px " + SANS, C.muted); y += 64;
+      txt(ctx, d.customer || "—", 64, y, "800 58px " + DISPLAY, C.ink, "left", W - 128); y += 40;
       if (art) { y += 30; y += tanker(ctx, d.caps, d.fill, d.kl, 64, y, W - 128) + 10; }
-      if (chs) {                                                          // C1 · rated 4,000 L · Loaded
+      if (chs) {                                                          // C1 · 4,000 L rated · Loaded
         y += 10;
         const gap = 16, cw = (W - 128 - gap * (chs.length - 1)) / chs.length;
-        const ST = { full: ["Loaded", C.good, "rgba(18,128,74,.10)"], part: ["Part-loaded", C.warn, "rgba(250,178,25,.16)"], empty: ["Empty", C.faint, C.soft] };
         chs.forEach((ch, i) => {
-          const x = 64 + i * (cw + gap), st = ST[ch.state] || ST.empty;
-          rr(ctx, x, y, cw, 140, 22); ctx.fillStyle = st[2]; ctx.fill();
+          const x = 64 + i * (cw + gap);
+          rr(ctx, x, y, cw, 140, 22); ctx.fillStyle = ch.loaded ? "rgba(18,128,74,.10)" : C.soft; ctx.fill();
           txt(ctx, "C" + (i + 1), x + 26, y + 50, "800 34px " + DISPLAY, C.ink);
-          txt(ctx, st[0], x + cw - 24, y + 48, "700 24px " + SANS, st[1], "right", cw - 110);
+          txt(ctx, ch.loaded ? "✓ Loaded" : "Empty", x + cw - 24, y + 48, "700 24px " + SANS, ch.loaded ? C.good : C.faint, "right", cw - 110);
           txt(ctx, nf(ch.rated) + " L", x + 26, y + 98, "700 30px " + DISPLAY, C.ink, "left", cw - 52);
           txt(ctx, "rated capacity", x + 26, y + 126, "500 20px " + SANS, C.muted, "left", cw - 52);
         });
-        y += 140 + 20;
+        y += 140 + 10;
       }
 
-      // tanker and when
-      y += 20; rr(ctx, 64, y, W - 128, 180, 28); ctx.fillStyle = C.soft; ctx.fill();
+      // tanker, when, product, slip no.
+      y += 20; rr(ctx, 64, y, W - 128, 330, 28); ctx.fillStyle = C.soft; ctx.fill();
       txt(ctx, "TANKER", 104, y + 56, "700 22px " + SANS, C.muted);
       plate(ctx, d.plate || "—", 104, y + 78, 74);
       txt(ctx, "SENT", W - 104, y + 56, "700 22px " + SANS, C.muted, "right");
       txt(ctx, dateLong(d.ts), W - 104, y + 108, "700 34px " + DISPLAY, C.ink, "right");
-      txt(ctx, time(d.ts), W - 104, y + 152, "600 30px " + SANS, C.muted, "right");
-      y += 180 + 80;
+      txt(ctx, time(d.ts), W - 104, y + 150, "600 30px " + SANS, C.muted, "right");
+      ctx.fillStyle = C.line; ctx.fillRect(104, y + 182, W - 208, 2);
+      txt(ctx, "PRODUCT", 104, y + 230, "700 22px " + SANS, C.muted);
+      txt(ctx, PRODUCT, 104, y + 280, "700 34px " + DISPLAY, C.ink, "left", 520);
+      txt(ctx, "TANKER SIZE", W - 104, y + 230, "700 22px " + SANS, C.muted, "right");
+      txt(ctx, (d.kl ? d.kl + " KL" : "—") + (d.caps && d.caps.length ? " · " + d.caps.length + " chamber" + (d.caps.length === 1 ? "" : "s") : ""), W - 104, y + 280, "700 34px " + DISPLAY, C.ink, "right", 300);
+      y += 330 + 80;
 
       // the quantity invoiced
       if (hasQ) {
@@ -182,8 +206,11 @@
         y -= 30;
         rr(ctx, 64, y, W - 128, 80, 20); ctx.fillStyle = "rgba(250,178,25,.16)"; ctx.fill();
         txt(ctx, "Invoice to follow.", 96, y + 52, "600 28px " + SANS, C.warn);
+        y += 80;
       }
-      footer(ctx, W, H);
+      const H = y + 200;
+      footer(ctx, W, H, im);
+      const c = canvas(W, H); c.getContext("2d").drawImage(big, 0, 0);
       return [c];
     });
   }
@@ -196,7 +223,7 @@
     return ready().then(im => {
       const W = 1240, H = 1754, rows = d.rows || [], ROW = 70, X = 64;
       const cols = { date: X + 20, time: X + 250, plate: X + 420, bills: X + 640, qty: W - X - 20 };
-      const firstTop = 760, top = 330, bottom = H - 150;
+      const firstTop = 800, top = 400, bottom = H - 170;
       const per1 = Math.floor((bottom - firstTop - 90) / ROW), per = Math.floor((bottom - top - 90) / ROW);
       const pages = [];
       let i = 0;
@@ -205,11 +232,13 @@
       const pend = rows.filter(r => r.pending);
       return pages.map((list, p) => {
         const c = canvas(W, H), ctx = c.getContext("2d");
-        let y = header(ctx, W, "Trip statement", im) + 80;
+        watermark(ctx, im, W / 2, H / 2 + 120, 900);
+        let y = header(ctx, W, "Trip statement", im, d.period) + 80;
         if (p === 0) {
           txt(ctx, "TO", X, y, "700 24px " + SANS, C.muted); y += 64;
           txt(ctx, d.customer || "—", X, y, "800 56px " + DISPLAY, C.ink, "left", W - 2 * X); y += 56;
-          txt(ctx, d.period || "", X, y, "600 30px " + SANS, C.muted); y += 50;
+          txt(ctx, d.period || "", X, y, "600 30px " + SANS, C.muted); y += 44;
+          txt(ctx, "Product: " + PRODUCT, X, y, "600 26px " + SANS, C.muted); y += 46;
           // totals
           const tiles = [["TRIPS", nf(rows.length)], ["INVOICED", nf(invoiced) + " L"]];
           if (pend.length) tiles.push(["AWAITING INVOICE", pend.length + " trip" + (pend.length === 1 ? "" : "s")]);
@@ -248,7 +277,7 @@
           txt(ctx, nf(invoiced) + " L", cols.qty, y, "800 32px " + DISPLAY, C.ink, "right");
           if (!rows.length) { y += 50; txt(ctx, "No trips in this period.", cols.date, y, "500 26px " + SANS, C.muted); }
         }
-        footer(ctx, W, H, pages.length > 1 ? "Page " + (p + 1) + " of " + pages.length : "");
+        footer(ctx, W, H, im, pages.length > 1 ? "Page " + (p + 1) + " of " + pages.length : "");
         return c;
       });
     });
