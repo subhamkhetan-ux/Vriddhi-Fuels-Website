@@ -4199,19 +4199,29 @@ const fileDate=ts=>dayKey(ts).replace(/-/g,"");
 // t: a trip ({id, plate, ts, total, dest}); bills: given, else the ones tagged on it.
 // The drawing: the tanker's chambers, each filled with what it carried on
 // this sale (the sale's own record while it is in the 7-day log), else
-// evenly, and its rated size in KL (the capacity to the nearest KL: 12, 18).
+// evenly, and its rated size in KL (its chambers' rated sizes added up).
 // The litres are the invoiced ones: the bills', or typed with the invoice
-// no. for this picture (preset to the rated size); none without an invoice.
-const ratedKL=caps=>Math.round(caps.reduce((a,c)=>a+(+c||0),0)/1000);
+// no. for this picture; none without an invoice. The litres box starts at
+// what the sale should be billed: each chamber that went out full (within
+// the short-supply buffer) at its rated size, a part-filled one at its
+// litres — 3 full chambers of a 12 KL tanker 12,000, 2 of them 8,000.
+const ratedCham=c=>Math.round((+c||0)/500)*500;         // 3,982 → 4,000 · 4,485 → 4,500
+const ratedKL=caps=>caps.reduce((a,c)=>a+ratedCham(c),0)/1000;
+function billQty(caps, carried, total){
+  const near=c=>Math.max(0, c-TAGSET.over);
+  if(carried) return r2(caps.reduce((a,c,i)=>{ const q=+carried[i]||0; return a+(q<=0 ? 0 : q>=near(c) ? ratedCham(c) : q); },0));
+  const capT=caps.reduce((a,c)=>a+c,0);                  // no chamber record: the whole tanker, or its litres
+  return capT && total>=near(capT) ? ratedKL(caps)*1000 : r2(+total||0);
+}
 function openTripSlip(t, bills, head){
   const r=recRow(t.id), list=(bills && bills.length ? bills : r && r.tags ? r.tags : []).map(slipBill);
   const v=vehicleOf(t.plate), caps=v ? v.caps.map(Number) : [], kl=caps.length ? ratedKL(caps) : 0;
   const ev=LOG.find(x=>x.id===t.id), capT=caps.reduce((a,c)=>a+c,0);
-  const fill=caps.map((c,i)=>{ const q=ev && ev.chambers ? (ev.chambers.find(x=>x.name==="C"+(i+1))||{}).qty : null;
-    return c>0 ? (q!=null ? (+q||0)/c : capT ? (+t.total||0)/capT : 0) : 0; });
+  const carried=ev && ev.chambers ? caps.map((c,i)=>+((ev.chambers.find(x=>x.name==="C"+(i+1))||{}).qty)||0) : null;
+  const fill=caps.map((c,i)=>c>0 ? (carried ? carried[i]/c : capT ? (+t.total||0)/capT : 0) : 0);
   const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
-    invoiceBox:!list.length, qtyPreset:kl*1000,
+    invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
     note:typed=>list.length ? "Shows the invoiced litres: "+list.map(b=>"#"+b.no).join(", ")+"."
       : nos(typed).length ? "Shows invoice "+nos(typed).map(n=>"#"+n).join(", ")+(typed.qty ? " for "+fmt(typed.qty)+" L" : "")+"."
       : "No invoice yet: the picture says “Invoice to follow”, without litres.",

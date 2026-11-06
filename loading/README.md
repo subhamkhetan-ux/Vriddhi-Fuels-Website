@@ -417,16 +417,20 @@ share sheet (WhatsApp, Mail…); a browser that can't share files downloads them
 The litres on them are always the **invoiced** litres.
 
 - **Trip slip** — one sale: *To* (the customer), the **tanker drawn as on
-  Home** with its rated size in the livery (*12 KL*, *18 KL*: the capacity to
-  the nearest KL) and its chambers numbered, its plate, when it was sent, and
+  Home** with its rated size in the livery (*12 KL*, *18 KL*: its chambers'
+  rated sizes, 3,982 L → 4,000 L) and its chambers numbered, its plate, when it was sent, and
   the **quantity invoiced** with each invoice (bill no., date, litres). It
   opens right after **Sent for sale** (when a customer was picked — with the
   bills raised for that customer before the sale), and from 📤 on a sale in
   **History** or on a trip in **Trips per tanker**. A trip with no bill yet:
-  type the **invoice no.** and its **invoiced litres** in the sheet (the litres
-  start at the tanker's rated size) to put them on the picture — only there,
-  nothing is saved; several nos. can be separated by commas. Left empty, the
-  picture says *Invoice to follow*, without litres.
+  type the **invoice no.** and its **invoiced litres** in the sheet to put them
+  on the picture — only there, nothing is saved; several nos. can be separated
+  by commas. The litres start at what the sale should be billed, from the
+  chambers that went out: a chamber sent full (within the short-supply
+  buffer) at its rated size (4,000 L, or 4,500 L on an 18 KL tanker), a
+  part-filled one at its litres — a full 12 KL tanker 12,000, two of its
+  chambers 8,000. Left empty, the picture says *Invoice to follow*, without
+  litres.
 - **Trip statement** — on **Trips per tanker → Customer**, *📤 Send trip
   statement*: the customer's trips in the period on screen, one row each (date,
   time, tanker, invoice nos., litres invoiced), with the trips, the **total
