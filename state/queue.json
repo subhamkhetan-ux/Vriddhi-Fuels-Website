@@ -7178,6 +7178,28 @@
       },
       "queued_at": "2026-11-06T12:15:24.982865+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "65d522863bc2d9ce",
+      "gmail_msg_id": "1881116485377743733",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "06/11/26",
+      "date_serial": 46332,
+      "amount": 994000.0,
+      "raw_payer": "BHSKAR EARTHMOVER",
+      "customer": null,
+      "candidates": [
+        "Bhaskar Earthmover Private Limited",
+        "Maa Karni Earthmover Private Limited"
+      ],
+      "match_tier": "nomatch",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-06T13:45:25.193573+00:00",
+      "status": "review"
     }
   ]
 }
