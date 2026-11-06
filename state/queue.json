@@ -7019,6 +7019,27 @@
       "status": "review",
       "error": "could not extract: payer",
       "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 11,92,806.00 on 05-Nov-26. Info: INF*INFT*046574774831*DIESEL*ORISSA METALIKS.\r\n\r\nThe Available Balance in your account is Rs. 46,43,987.62.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
+    },
+    {
+      "entry_id": "2ebc37f79f61169e",
+      "gmail_msg_id": "1881072538209050627",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "06/11/2026",
+      "date_serial": 46332,
+      "amount": 8179.0,
+      "raw_payer": "PINE LABS PRIVATE LIMITED",
+      "customer": "Pine Labs Nodal Account",
+      "candidates": [
+        "Pine Labs Nodal Account"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-06T02:15:29.304173+00:00",
+      "status": "matched"
     }
   ]
 }
