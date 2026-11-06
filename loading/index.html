@@ -4195,6 +4195,8 @@ function closeSlip(){ slipJob++; clearTimeout(slipTyped); $("#slipModal").classL
 $("#slipClose").onclick=closeSlip;
 $("#slipModal").addEventListener("click",e=>{ if(e.target===$("#slipModal")) closeSlip(); });
 const slipBill=b=>({ no:b.bill_no, date:b.date, qty:+b.qty||0 });
+// the pictures follow the app's look on this phone (☀ / ☾ / Auto), as the ledger app's do
+const slipDark=()=>document.documentElement.getAttribute("data-theme")==="dark";
 const fileDate=ts=>dayKey(ts).replace(/-/g,"");
 // t: a trip ({id, plate, ts, total, dest}); bills: given, else the ones tagged on it.
 // The drawing: the tanker's chambers, each filled with what it carried on
@@ -4224,8 +4226,8 @@ function openTripSlip(t, bills, head){
   // loaded; with no chamber record, only a tanker sent full can say (all loaded)
   const chambers=carried ? caps.map((c,i)=>({ rated:ratedCham(c), loaded:carried[i]>0 }))
     : capT && (+t.total||0)>=capT-TAGSET.over ? caps.map(c=>({ rated:ratedCham(c), loaded:true })) : null;
-  // the slip's number: date, tanker and time of the sale (VF-261106-5510-0743)
-  const d0=new Date(t.ts), ref="VF-"+String(d0.getFullYear()).slice(2)+pad(d0.getMonth()+1)+pad(d0.getDate())
+  // the slip's number: date (dd/mm/yy), tanker and time of the sale (VF-06/11/26-5510-0743)
+  const d0=new Date(t.ts), ref="VF-"+pad(d0.getDate())+"/"+pad(d0.getMonth()+1)+"/"+String(d0.getFullYear()).slice(2)
     +"-"+plateKey(t.plate).slice(-4)+"-"+pad(d0.getHours())+pad(d0.getMinutes());
   const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
@@ -4237,7 +4239,7 @@ function openTripSlip(t, bills, head){
     make:typed=>{
       const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
       const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
-      return Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
+      return Slip.trip({ dark:slipDark(), customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
     } });
 }
 function openStatement(key){
@@ -4252,7 +4254,7 @@ function openStatement(key){
   openSlip({ head:"Trip statement", sub:name+" · "+rows.length+" trip"+(rows.length===1?"":"s")+" · "+dmy(from)+" – "+dmy(to),
     note:"Each trip with its invoices and the invoiced litres"+(pend?"; "+pend+" trip"+(pend===1?"":"s")+" with no invoice yet show “to follow”, without litres":"")+".",
     name:"Statement-"+name.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"")+"-"+from.replace(/-/g,"")+"-"+to.replace(/-/g,""),
-    make:()=>Slip.statement({ customer:name, period:dmy(from)+" – "+dmy(to), rows:rows }) });
+    make:()=>Slip.statement({ dark:slipDark(), customer:name, period:dmy(from)+" – "+dmy(to), rows:rows }) });
 }
 function alertsViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';

@@ -12,8 +12,17 @@
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   const DISPLAY = '"Sora", ' + SANS;
   const MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
-  const C = { ink:"#1b2130", muted:"#5d6475", faint:"#8b91a0", line:"#e6e1da", soft:"#f7f3ee",
-    orange:"#F4511E", orange2:"#FF8A2B", good:"#12804a", warn:"#a05f00", navy:"#2353c4" };
+  /* Light, and dark as the ledger app's pictures (ledger/js/share-svg.js):
+     near-black with an orange and a purple glow, light text, glass cards.
+     The orange letterhead band, the tanker and the plates are the same in
+     both. trip() / statement() pick one from d.dark. */
+  const LIGHT = { bg:"#ffffff", ink:"#1b2130", muted:"#5d6475", faint:"#8b91a0", line:"#e6e1da", soft:"#f7f3ee",
+    orange:"#F4511E", good:"#12804a", warn:"#a05f00", navy:"#2353c4",
+    strip:"#fdf0e6", stripInk:"#8a4a17", loaded:"rgba(18,128,74,.10)", follow:"rgba(250,178,25,.16)", thead:"#1d2538", glow:false };
+  const DARK = { bg:"#0b0807", ink:"#f5f0eb", muted:"#b4aba2", faint:"#7c746c", line:"rgba(255,255,255,.12)", soft:"rgba(255,255,255,.06)",
+    orange:"#ff9e42", good:"#2fd08a", warn:"#ffb23e", navy:"#2353c4",
+    strip:"rgba(255,158,66,.12)", stripInk:"#ffc08a", loaded:"rgba(47,208,138,.13)", follow:"rgba(255,178,62,.14)", thead:"rgba(255,255,255,.10)", glow:true };
+  let C = LIGHT;
 
   const nf = n => Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
   const dateShort = ts => new Date(ts).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" });
@@ -101,6 +110,7 @@
     bx.forEach((b, i) => txt(ctx, "C" + (i + 1), b.x + b.w / 2, OT + 8.2, "800 7.4px " + DISPLAY, "#fff", "center"));   // "C1"
     [30, 214, 250, 286].forEach(wx => {                                   // wheels
       ctx.beginPath(); ctx.arc(wx, 79, 10, 0, Math.PI * 2); ctx.fillStyle = "#1b1b1b"; ctx.fill();
+      if (C.glow) { ctx.lineWidth = 1.2; ctx.strokeStyle = "rgba(255,255,255,.28)"; ctx.stroke(); }   // dark page: a rim, or the tyre vanishes
       ctx.beginPath(); ctx.arc(wx, 79, 4.2, 0, Math.PI * 2); ctx.fillStyle = "#b9bfc6"; ctx.fill();
     });
     ctx.restore();
@@ -119,15 +129,9 @@
     txt(ctx, BIZ.dealer, 214, 162, "600 25px " + SANS, "rgba(255,255,255,.92)", "left", W - 214 - 340);
     txt(ctx, title.toUpperCase(), W - 64, 108, "800 30px " + DISPLAY, "#fff", "right");
     if (ref) txt(ctx, ref, W - 64, 150, "600 24px " + MONO, "rgba(255,255,255,.92)", "right");
-    ctx.fillStyle = "#fdf0e6"; ctx.fillRect(0, H, W, 64);
-    txt(ctx, BIZ.address + "  ·  ☎ " + BIZ.phone + "  ·  GSTIN " + BIZ.gstin, W / 2, H + 41, "600 21px " + SANS, "#8a4a17", "center", W - 96);
+    ctx.fillStyle = C.strip; ctx.fillRect(0, H, W, 64);
+    txt(ctx, BIZ.address + "  ·  ☎ " + BIZ.phone + "  ·  GSTIN " + BIZ.gstin, W / 2, H + 41, "600 21px " + SANS, C.stripInk, "center", W - 96);
     return H + 64;
-  }
-  // the logo, large and faint, behind the page
-  function watermark(ctx, im, cx, cy, size){
-    if (!im) return;
-    const s = size / Math.max(im.width, im.height);
-    ctx.save(); ctx.globalAlpha = 0.035; ctx.drawImage(im, cx - im.width * s / 2, cy - im.height * s / 2, im.width * s, im.height * s); ctx.restore();
   }
   function footer(ctx, W, H, im, right){
     ctx.fillStyle = C.line; ctx.fillRect(64, H - 120, W - 128, 2);
@@ -136,7 +140,17 @@
     txt(ctx, "Generated " + dateShort(Date.now()) + ", " + time(Date.now()), 136, H - 32, "500 21px " + SANS, C.faint);
     if (right) txt(ctx, right, W - 64, H - 64, "500 22px " + SANS, C.faint, "right");
   }
-  function canvas(W, H){ const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); return c; }
+  // a page in the palette's background; dark: with the ledger's glows
+  function canvas(W, H){
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const x = c.getContext("2d"); x.fillStyle = C.bg; x.fillRect(0, 0, W, H);
+    if (C.glow) [[0.85, 0, 0.65, "244,81,30", 0.30], [0, 0.06, 0.55, "255,158,66", 0.13], [0.5, 1.04, 0.6, "120,40,180", 0.16]].forEach(g => {
+      const r = g[2] * Math.max(W, H), gr = x.createRadialGradient(g[0] * W, g[1] * H, 0, g[0] * W, g[1] * H, r);
+      gr.addColorStop(0, "rgba(" + g[3] + "," + g[4] + ")"); gr.addColorStop(1, "rgba(" + g[3] + ",0)");
+      x.fillStyle = gr; x.fillRect(0, 0, W, H);
+    });
+    return c;
+  }
 
   /* One sale. d = { customer, plate, ts, ref (the slip's number), caps,
      fill (0..1 a chamber), kl, chambers:[{ rated (L), loaded }] | null,
@@ -144,15 +158,16 @@
      chambers: a card per chamber under the drawing, its rated capacity and
      whether it went out loaded. qty: the invoiced litres (the bills', or
      typed with the invoice no.) — shown when known; with no invoice,
-     "Invoice to follow" and no litres. Drawn on a tall canvas, then cut to
-     what was drawn. */
+     "Invoice to follow" and no litres. Drawn on a tall see-through canvas,
+     then put on a page cut to what was drawn. */
   function trip(d){
     return ready().then(im => {
+      C = d.dark ? DARK : LIGHT;
       const W = 1080, inv = d.invoices || [], hasQ = d.qty != null && d.qty > 0;
       const art = d.caps && d.caps.length > 0;
       const chs = art && d.chambers && d.chambers.length === d.caps.length ? d.chambers : null;
-      const big = canvas(W, 3200), ctx = big.getContext("2d");
-      watermark(ctx, im, W / 2, 1000, 760);
+      const big = document.createElement("canvas"); big.width = W; big.height = 3200;   // see-through: the page's background goes under it at the end
+      const ctx = big.getContext("2d");
       let y = header(ctx, W, "Trip slip", im, d.ref) + 80;
       txt(ctx, "DELIVER TO", 64, y, "700 24px " + SANS, C.muted); y += 64;
       txt(ctx, d.customer || "—", 64, y, "800 58px " + DISPLAY, C.ink, "left", W - 128); y += 40;
@@ -162,7 +177,7 @@
         const gap = 16, cw = (W - 128 - gap * (chs.length - 1)) / chs.length;
         chs.forEach((ch, i) => {
           const x = 64 + i * (cw + gap);
-          rr(ctx, x, y, cw, 140, 22); ctx.fillStyle = ch.loaded ? "rgba(18,128,74,.10)" : C.soft; ctx.fill();
+          rr(ctx, x, y, cw, 140, 22); ctx.fillStyle = ch.loaded ? C.loaded : C.soft; ctx.fill();
           txt(ctx, "C" + (i + 1), x + 26, y + 50, "800 34px " + DISPLAY, C.ink);
           txt(ctx, ch.loaded ? "✓ Loaded" : "Empty", x + cw - 24, y + 48, "700 24px " + SANS, ch.loaded ? C.good : C.faint, "right", cw - 110);
           txt(ctx, nf(ch.rated) + " L", x + 26, y + 98, "700 30px " + DISPLAY, C.ink, "left", cw - 52);
@@ -204,7 +219,7 @@
         });
       } else {
         y -= 30;
-        rr(ctx, 64, y, W - 128, 80, 20); ctx.fillStyle = "rgba(250,178,25,.16)"; ctx.fill();
+        rr(ctx, 64, y, W - 128, 80, 20); ctx.fillStyle = C.follow; ctx.fill();
         txt(ctx, "Invoice to follow.", 96, y + 52, "600 28px " + SANS, C.warn);
         y += 80;
       }
@@ -221,6 +236,7 @@
      "to follow" and no litres. */
   function statement(d){
     return ready().then(im => {
+      C = d.dark ? DARK : LIGHT;
       const W = 1240, H = 1754, rows = d.rows || [], ROW = 70, X = 64;
       const cols = { date: X + 20, time: X + 250, plate: X + 420, bills: X + 640, qty: W - X - 20 };
       const firstTop = 800, top = 400, bottom = H - 170;
@@ -232,7 +248,6 @@
       const pend = rows.filter(r => r.pending);
       return pages.map((list, p) => {
         const c = canvas(W, H), ctx = c.getContext("2d");
-        watermark(ctx, im, W / 2, H / 2 + 120, 900);
         let y = header(ctx, W, "Trip statement", im, d.period) + 80;
         if (p === 0) {
           txt(ctx, "TO", X, y, "700 24px " + SANS, C.muted); y += 64;
@@ -255,7 +270,7 @@
           y = top;
         }
         // the table
-        rr(ctx, X, y, W - 2 * X, 64, 16); ctx.fillStyle = "#1d2538"; ctx.fill();
+        rr(ctx, X, y, W - 2 * X, 64, 16); ctx.fillStyle = C.thead; ctx.fill();
         const hf = "700 22px " + SANS;
         txt(ctx, "DATE", cols.date, y + 41, hf, "#fff"); txt(ctx, "TIME", cols.time, y + 41, hf, "#fff");
         txt(ctx, "TANKER", cols.plate, y + 41, hf, "#fff"); txt(ctx, "INVOICE", cols.bills, y + 41, hf, "#fff");

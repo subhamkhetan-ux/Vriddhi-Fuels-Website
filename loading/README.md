@@ -414,13 +414,16 @@ days. Deleting a sale from History (within those 7 days) removes its trip too.
 
 A picture (PNG) or PDF for the customer, made on the phone and sent with its
 share sheet (WhatsApp, Mail…); a browser that can't share files downloads them.
-The litres on them are always the **invoiced** litres.
+The litres on them are always the **invoiced** litres. They follow the app's
+look on the phone: light, or **dark** as the ledger app's pictures (near-black
+with an orange and a purple glow; the orange letterhead, the tanker and the
+plates stay as they are).
 
 - **Trip slip** — one sale, on the letterhead (the logo, *Dealer: Indian Oil
-  Corporation Limited*, the slip's number *VF-261106-5510-0743* from the
-  sale's date, tanker and time, and a strip with the address, phone numbers
-  and GSTIN, as on `tanker/assets/letterhead.png`; the logo faintly behind
-  the page and in the footer with *Thank you for your business*): *Deliver
+  Corporation Limited*, the slip's number *VF-06/11/26-5510-0743* from the
+  sale's date (dd/mm/yy), tanker and time, and a strip with the address,
+  phone numbers and GSTIN, as on `tanker/assets/letterhead.png`; the logo
+  again in the footer with *Thank you for your business*): *Deliver
   to* (the customer), the **tanker drawn as on Home** with its rated size in
   the livery (*12 KL*, *18 KL*: its chambers' rated sizes, 3,982 L → 4,000 L)
   and its chambers numbered, a **card per chamber** (its rated capacity,
