@@ -410,6 +410,26 @@ Trips are stored for **6 months** in their own table (`loading_trips`), so the
 monthly report works even though the detailed loading history is trimmed to 7
 days. Deleting a sale from History (within those 7 days) removes its trip too.
 
+## Send to the customer (📤)
+
+A picture (PNG) or PDF for the customer, made on the phone and sent with its
+share sheet (WhatsApp, Mail…); a browser that can't share files downloads them.
+
+- **Trip slip** — one sale: *To* (the customer), the tanker's plate, when it
+  was sent, and the **quantity invoiced** with each invoice (bill no., date,
+  litres). It opens right after **Sent for sale** (when a customer was picked —
+  with the bills raised for that customer before the sale), and from 📤 on a
+  sale in **History** or on a trip in **Trips per tanker**. A trip with no bill
+  yet shows the **quantity dispatched** (the litres sent) with *Invoice to follow*.
+- **Trip statement** — on **Trips per tanker → Customer**, *📤 Send trip
+  statement*: the customer's trips in the period on screen, one row each (date,
+  time, tanker, invoice nos., litres invoiced), with the trips, the **total
+  invoiced** and the trips still waiting for a bill (their dispatched litres,
+  marked *to follow*, kept out of the total). A4 pages; the PDF has them all.
+
+Every figure carries its label: *invoiced* is what the bills say, *dispatched*
+is what was sent. Drawn by [`slip.js`](./slip.js).
+
 ## Invoice check — tagging each trip's bills (🧾)
 
 Every **Sent for sale** should be billed to the customer in the **ledger app**

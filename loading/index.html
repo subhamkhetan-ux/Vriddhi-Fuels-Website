@@ -12,6 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
 <script src="./config.js"></script>
+<script src="./slip.js"></script>
 <script>
 // The look before the first paint: this phone's choice (☀ / ☾), else Auto —
 // dark if the phone is dark, light otherwise. setTheme() keeps it up to date.
@@ -295,6 +296,15 @@
   .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-family:var(--display);font-size:15px;font-weight:700;cursor:pointer}
   .mbtn.ghost{background:rgba(27,33,48,.07);color:var(--ink)}
   .mbtn.go{background:var(--grad-good);color:#fff;box-shadow:0 12px 24px -12px rgba(18,128,74,.8)}
+  .mbtn:disabled{opacity:.5}
+  /* the slip / statement preview: the picture as the customer gets it */
+  .slipview{margin-top:10px;max-height:52vh;overflow-y:auto;border-radius:14px;border:1px solid var(--line);background:#fff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px;color:var(--muted);font-size:13px}
+  .slipview img{display:block;width:100%;height:auto}
+  .slipview img+img{border-top:6px solid var(--line)}
+  .trrow .share{border:0;background:none;font-size:16px;cursor:pointer;padding:2px 4px;color:var(--muted)}
+  .stmtbtn{display:block;width:100%;margin-top:8px;border:1px solid var(--line);background:var(--glass-2);color:var(--ink);
+    border-radius:12px;padding:10px;font:600 13.5px var(--text);cursor:pointer}
   .mbtn:active{transform:translateY(1px)}
   .modalbox.wide{max-height:86vh;overflow-y:auto}
   .edit{background:none;border:0;color:var(--navy2);font-size:18px;cursor:pointer;padding:4px 6px;flex:none}
@@ -1505,6 +1515,21 @@
   </div>
 </div>
 
+<!-- Send to the customer: a trip slip or a trip statement, as a picture or a PDF -->
+<div class="modal" id="slipModal">
+  <div class="modalbox wide">
+    <div class="mh" id="slipHead">Send to the customer</div>
+    <div class="mp" id="slipSub">—</div>
+    <div class="slipview" id="slipView"><span>Making the picture…</span></div>
+    <div class="note" id="slipNote" style="text-align:left;margin:8px 2px 0"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="slipClose">Close</button>
+      <button class="mbtn ghost" id="slipPdf" disabled>📄 PDF</button>
+      <button class="mbtn go" id="slipImg" disabled>🖼 Share picture</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit a tanker's chambers &amp; capacities (keeps its fill, totals and history) -->
 <div class="modal" id="capModal">
   <div class="modalbox wide">
@@ -2633,6 +2658,8 @@ $("#dispOk").onclick=()=>{
   const plate=pd.plate;
   const st=tankerState(plate);
   if(st.total<=0){ btn.disabled=false; closeDisp(); return; }
+  // bills raised before the sale for this customer go on its trip slip
+  const pb=prebilled(plate), part=pb && pb.parts.find(x=>x.to===remark);
   Backend.dispatch(plate, remark).then(()=>{
     notifyStaff("sold", plate, remark);   // fire first; don't wait on the reload
     INV_WATCH.at=0;                       // a new trip: the invoice check (and pre-billed notes) at once
@@ -2642,6 +2669,8 @@ $("#dispOk").onclick=()=>{
     btn.disabled=false; closeDisp(); renderHome();
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:"")
       +(fc && fc.advice==="refill_before" ? " · ⛔ refill diesel first" : fc && fc.advice==="refill_after" ? " · ⚠ refill diesel on return" : ""));
+    const e=LOG.filter(x=>x.plate===plate && x.kind==="dispatch").sort((a,b)=>b.ts-a.ts)[0];
+    if(remark && e) openTripSlip({ id:e.id, plate:plate, ts:e.ts, total:e.total, dest:remark }, part ? part.bills : null, "🚚 Sent for sale");
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
@@ -2809,6 +2838,7 @@ function renderHist(){
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
             +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div>'+soldToHTML(e)+'<div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
             +'<span class="tot">'+fmt(e.total)+' L</span>'
+            +(e.remark?'<button class="del" data-hslip="'+e.id+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>':'')
             +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
         }
         const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
@@ -2819,6 +2849,8 @@ function renderHist(){
       }).join("") + '</div>'
       +'</div>';
   }).join("");
+  box.querySelectorAll("[data-hslip]").forEach(b=>{ b.onclick=()=>{
+    const e=LOG.find(x=>x.id===b.dataset.hslip); if(e) openTripSlip({ id:e.id, plate:e.plate, ts:e.ts, total:e.total, dest:e.remark }); }; });
   box.querySelectorAll("[data-del]").forEach(b=>{
     b.onclick=()=>{
       const e=LOG.find(x=>x.id===b.dataset.del); if(!e) return;
@@ -4013,6 +4045,9 @@ function renderTrips(){
     const p=b.getAttribute("data-trshow"); if(tripOpen.has(p)) tripOpen.delete(p); else tripOpen.add(p); renderTrips(); }; });
   box.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{
     const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
+  box.querySelectorAll("[data-slip]").forEach(b=>{ b.onclick=()=>{
+    const t=TRIPS.find(x=>x.id===b.getAttribute("data-slip")); if(t) openTripSlip(t); }; });
+  box.querySelectorAll("[data-stmt]").forEach(b=>{ b.onclick=()=>openStatement(b.getAttribute("data-stmt")); });
   box.querySelectorAll("[data-tag]").forEach(b=>{ b.onclick=()=>openTag(b.getAttribute("data-tag"), b.getAttribute("data-bill")); });
   box.querySelectorAll("[data-billsheet]").forEach(b=>{ b.onclick=()=>openBill(b.getAttribute("data-billsheet")); });
   box.querySelectorAll("[data-check]").forEach(b=>{ b.onclick=()=>markCheckedUI(b.getAttribute("data-check")); });
@@ -4039,6 +4074,7 @@ function tripRowHTML(t, byCust){
     +(byCust ? '<span class="td"><span class="plate sm">'+esc(t.plate)+'</span></span>'
              : '<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>')
     +'<span class="tq">'+fmt(t.total)+' L</span>'
+    +'<button class="share" data-slip="'+esc(t.id)+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>'
     +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>'
     +tripInvHTML(recRow(t.id));
 }
@@ -4100,12 +4136,66 @@ function custViewHTML(){
         +(!linked ? linkAccHTML(a) : '')
         +(a.sure.length ? '<button class="big green sm suretag" data-tagsure="'+esc(a.key)+'"><span class="em">💡</span><span>Tag '+a.sure.length
             +' sure match'+(a.sure.length===1?'':'es')+'</span></button>' : '')
+        +(a.trips ? '<button class="stmtbtn" data-stmt="'+esc(a.key)+'">📤 Send trip statement — '+a.trips+' trip'+(a.trips===1?'':'s')+'</button>' : '')
         +(what ? '<button class="trshow" data-custshow="'+esc(a.key)+'">'+(open?'Hide ▴':'Show '+what+' ▾')+'</button>' : '')
         +(open ? '<div class="trtrips">'+trips.map(r=>tripRowHTML(r.trip, true)).join("")
             +(a.loose.length ? '<div class="mlab" style="margin:12px 0 4px">Bills on no trip</div>'+a.loose.map(looseRowHTML).join("") : '')+'</div>' : '')
         +'</div>';
     }).join("")
     +'<div class="note" style="text-align:left">The litres sent are normally a little less than billed: up to '+fmt(TAGSET.over)+' L a trip is <b>short supply</b>, shown on its own and never counted as over-invoicing. <b>Over / under-invoiced</b> leaves it out, and bills still to tag are shown apart. Bills count in the month of their trip.</div>';
+}
+/* ---------- Send to the customer (loading/slip.js draws them) ----------
+   A trip slip: the tanker, when it was sent and the invoices on the trip (its
+   tagged bills, or right after a sale the bills raised before it), with the
+   invoiced litres; a trip with no bill yet shows the litres dispatched and
+   "invoice to follow". A trip statement: a customer's trips in the period on
+   the Trips screen, each with its invoices, and the total invoiced. */
+let slipJob=0;
+function openSlip(o){
+  const job=++slipJob;
+  $("#slipHead").textContent=o.head; $("#slipSub").textContent=o.sub; $("#slipNote").textContent=o.note||"";
+  $("#slipView").innerHTML="<span>Making the picture…</span>";
+  $("#slipImg").disabled=true; $("#slipPdf").disabled=true;
+  $("#slipModal").classList.add("on");
+  if(!window.Slip){ $("#slipView").innerHTML="<span>Couldn't load the picture maker — reload the app.</span>"; return; }
+  o.make().then(cs=>{
+    if(job!==slipJob) return;
+    $("#slipView").innerHTML=""; cs.forEach(c=>{ const im=new Image(); im.alt=o.head; im.src=c.toDataURL("image/png"); $("#slipView").appendChild(im); });
+    const go=(btn, files)=>{ btn.disabled=true;
+      files().then(fs=>Slip.share(fs, o.head)).then(r=>{ if(r==="downloaded") toast("✓ Saved to downloads"); })
+        .catch(e=>toast("Couldn't share: "+(e && e.message || e))).then(()=>{ btn.disabled=false; }); };
+    $("#slipImg").textContent = cs.length>1 ? "🖼 Share "+cs.length+" pictures" : "🖼 Share picture";
+    $("#slipImg").onclick=()=>go($("#slipImg"), ()=>Promise.all(cs.map((c,k)=>Slip.png(c).then(b=>({ blob:b, name:o.name+(cs.length>1?"-"+(k+1):"")+".png" })))));
+    $("#slipPdf").onclick=()=>go($("#slipPdf"), ()=>Slip.pdf(cs).then(b=>[{ blob:b, name:o.name+".pdf" }]));
+    $("#slipImg").disabled=false; $("#slipPdf").disabled=false;
+  }).catch(e=>{ if(job===slipJob) $("#slipView").innerHTML="<span>Couldn't make the picture: "+esc(e && e.message || e)+"</span>"; });
+}
+function closeSlip(){ slipJob++; $("#slipModal").classList.remove("on"); }
+$("#slipClose").onclick=closeSlip;
+$("#slipModal").addEventListener("click",e=>{ if(e.target===$("#slipModal")) closeSlip(); });
+const slipBill=b=>({ no:b.bill_no, date:b.date, qty:+b.qty||0 });
+const fileDate=ts=>dayKey(ts).replace(/-/g,"");
+// t: a trip ({id, plate, ts, total, dest}); bills: given, else the ones tagged on it
+function openTripSlip(t, bills, head){
+  const r=recRow(t.id), list=(bills && bills.length ? bills : r && r.tags ? r.tags : []).map(slipBill);
+  openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
+    note: list.length ? "Shows the invoiced litres: "+list.map(b=>"#"+b.no).join(", ")+"." : "No invoice on this trip yet: shows the litres dispatched, invoice to follow.",
+    name:"Trip-"+plateKey(t.plate)+"-"+fileDate(t.ts),
+    make:()=>Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, bills:list, dispatched:t.total }) });
+}
+function openStatement(key){
+  const a=INVD && INVD.rec.perCust.find(x=>x.key===key); if(!a) return;
+  const name=a.dests.length ? a.dests.join(" + ") : a.custs.join(" + ");
+  const from=$("#trFrom").value, to=$("#trTo").value;
+  const rows=a.tripIds.map(recRow).filter(r=>r && r.inRange).sort((x,y)=>x.trip.ts-y.trip.ts).map(r=>{
+    const bills=(r.tags||[]).map(slipBill), pending=!bills.length;
+    return { ts:r.trip.ts, plate:fmtPlate(r.trip.plate), bills:bills.map(b=>"#"+b.no).join(", "), qty:pending ? r.trip.total : r2(bills.reduce((s,b)=>s+b.qty,0)), pending:pending };
+  });
+  const pend=rows.filter(x=>x.pending).length;
+  openSlip({ head:"Trip statement", sub:name+" · "+rows.length+" trip"+(rows.length===1?"":"s")+" · "+dmy(from)+" – "+dmy(to),
+    note:"Each trip with its invoices and the invoiced litres"+(pend?"; "+pend+" trip"+(pend===1?"":"s")+" with no invoice yet show the litres dispatched, marked “to follow”, outside the total":"")+".",
+    name:"Statement-"+name.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"")+"-"+from.replace(/-/g,"")+"-"+to.replace(/-/g,""),
+    make:()=>Slip.statement({ customer:name, period:dmy(from)+" – "+dmy(to), rows:rows }) });
 }
 function alertsViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';
@@ -4509,7 +4599,7 @@ function prebilled(plate){
     bd.forEach(n=>{ dests[n]=1; });
     // one Sold-to customer for the bill (its unit says which): litres and bill nos per customer
     const k=bd.length===1 ? bd[0] : bd.length ? bd.join(" / ") : b.customer;
-    (by[k]=by[k]||{ to:k, qty:0, nos:[] }); by[k].qty=r2(by[k].qty+b.qty); by[k].nos.push("#"+b.bill_no);
+    (by[k]=by[k]||{ to:k, qty:0, nos:[], bills:[] }); by[k].qty=r2(by[k].qty+b.qty); by[k].nos.push("#"+b.bill_no); by[k].bills.push(b);
   });
   const parts=Object.keys(by).map(k=>by[k]);
   return { bills:xs.map(x=>x.bill), total:r2(xs.reduce((s,x)=>s+x.bill.qty,0)), nos:xs.map(x=>"#"+x.bill.bill_no).join(" + "),
