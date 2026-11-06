@@ -7134,6 +7134,48 @@
       },
       "queued_at": "2026-11-06T10:15:33.297329+00:00",
       "status": "review"
+    },
+    {
+      "entry_id": "195915b1a672c4bf",
+      "gmail_msg_id": "1881110195469848985",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "06/11/26",
+      "date_serial": 46332,
+      "amount": 994000.0,
+      "raw_payer": "MAA KARNI",
+      "customer": "Maa Karni Earthmover Private Limited",
+      "candidates": [
+        "Maa Karni Earthmover Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-06T12:15:24.982240+00:00",
+      "status": "matched"
+    },
+    {
+      "entry_id": "816de06d0cb9ab84",
+      "gmail_msg_id": "1881110320624854965",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "06/11/26",
+      "date_serial": 46332,
+      "amount": 994000.0,
+      "raw_payer": "BKD LOGISTICS",
+      "customer": "Bkd Logistics Private Limited",
+      "candidates": [
+        "Bkd Logistics Private Limited"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-06T12:15:24.982865+00:00",
+      "status": "matched"
     }
   ]
 }
