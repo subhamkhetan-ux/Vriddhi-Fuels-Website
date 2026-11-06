@@ -120,19 +120,37 @@
   function canvas(W, H){ const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); return c; }
 
   /* One sale. d = { customer, plate, ts, caps, fill (0..1 a chamber), kl,
+     chambers:[{ rated (L), state: "full" | "part" | "empty" }] | null,
      invoices:[{no, date (YYYY-MM-DD) | null, qty | null}], qty }
+     chambers: a card per chamber under the drawing, its rated capacity and
+     whether it went out loaded. 
      qty: the invoiced litres (the bills', or typed with the invoice no.) —
      shown when known; with no invoice, "Invoice to follow" and no litres. */
   function trip(d){
     return ready().then(im => {
       const W = 1080, inv = d.invoices || [], hasQ = d.qty != null && d.qty > 0;
       const art = d.caps && d.caps.length ? Math.round((W - 128) * 98 / 320) + 40 : 0;
-      const H = 1180 + art + Math.max(0, inv.length - 1) * 76 - (hasQ ? 0 : 190);
+      const chs = art && d.chambers && d.chambers.length === d.caps.length ? d.chambers : null;
+      const H = 1180 + art + (chs ? 170 : 0) + Math.max(0, inv.length - 1) * 76 - (hasQ ? 0 : 190);
       const c = canvas(W, H), ctx = c.getContext("2d");
       let y = header(ctx, W, "Trip slip", im) + 90;
       txt(ctx, "TO", 64, y, "700 24px " + SANS, C.muted); y += 64;
       txt(ctx, d.customer || "—", 64, y, "800 58px " + DISPLAY, C.ink, "left", W - 128); y += 70;
       if (art) { y += 30; y += tanker(ctx, d.caps, d.fill, d.kl, 64, y, W - 128) + 10; }
+      if (chs) {                                                          // C1 · rated 4,000 L · Loaded
+        y += 10;
+        const gap = 16, cw = (W - 128 - gap * (chs.length - 1)) / chs.length;
+        const ST = { full: ["Loaded", C.good, "rgba(18,128,74,.10)"], part: ["Part-loaded", C.warn, "rgba(250,178,25,.16)"], empty: ["Empty", C.faint, C.soft] };
+        chs.forEach((ch, i) => {
+          const x = 64 + i * (cw + gap), st = ST[ch.state] || ST.empty;
+          rr(ctx, x, y, cw, 140, 22); ctx.fillStyle = st[2]; ctx.fill();
+          txt(ctx, "C" + (i + 1), x + 26, y + 50, "800 34px " + DISPLAY, C.ink);
+          txt(ctx, st[0], x + cw - 24, y + 48, "700 24px " + SANS, st[1], "right", cw - 110);
+          txt(ctx, nf(ch.rated) + " L", x + 26, y + 98, "700 30px " + DISPLAY, C.ink, "left", cw - 52);
+          txt(ctx, "rated capacity", x + 26, y + 126, "500 20px " + SANS, C.muted, "left", cw - 52);
+        });
+        y += 140 + 20;
+      }
 
       // tanker and when
       y += 20; rr(ctx, 64, y, W - 128, 180, 28); ctx.fillStyle = C.soft; ctx.fill();

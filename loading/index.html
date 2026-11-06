@@ -4219,6 +4219,12 @@ function openTripSlip(t, bills, head){
   const ev=LOG.find(x=>x.id===t.id), capT=caps.reduce((a,c)=>a+c,0);
   const carried=ev && ev.chambers ? caps.map((c,i)=>+((ev.chambers.find(x=>x.name==="C"+(i+1))||{}).qty)||0) : null;
   const fill=caps.map((c,i)=>c>0 ? (carried ? carried[i]/c : capT ? (+t.total||0)/capT : 0) : 0);
+  // a card per chamber on the slip: its rated capacity and whether it went out
+  // loaded (full within the short-supply buffer), part-loaded or empty; with
+  // no chamber record, only a tanker sent full can say (all loaded)
+  const stateOf=(q,c)=>q<=0 ? "empty" : q>=Math.max(0,c-TAGSET.over) ? "full" : "part";
+  const chambers=carried ? caps.map((c,i)=>({ rated:ratedCham(c), state:stateOf(carried[i],c) }))
+    : capT && (+t.total||0)>=capT-TAGSET.over ? caps.map(c=>({ rated:ratedCham(c), state:"full" })) : null;
   const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
     invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
@@ -4229,7 +4235,7 @@ function openTripSlip(t, bills, head){
     make:typed=>{
       const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
       const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
-      return Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, caps:caps, fill:fill, kl:kl, invoices:inv, qty:qty });
+      return Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
     } });
 }
 function openStatement(key){

@@ -418,7 +418,9 @@ The litres on them are always the **invoiced** litres.
 
 - **Trip slip** — one sale: *To* (the customer), the **tanker drawn as on
   Home** with its rated size in the livery (*12 KL*, *18 KL*: its chambers'
-  rated sizes, 3,982 L → 4,000 L) and its chambers numbered, its plate, when it was sent, and
+  rated sizes, 3,982 L → 4,000 L) and its chambers numbered, a **card per
+  chamber** (its rated capacity and *Loaded* / *Part-loaded* / *Empty* on this
+  sale), its plate, when it was sent, and
   the **quantity invoiced** with each invoice (bill no., date, litres). It
   opens right after **Sent for sale** (when a customer was picked — with the
   bills raised for that customer before the sale), and from 📤 on a sale in
