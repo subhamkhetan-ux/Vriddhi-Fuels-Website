@@ -108,3 +108,46 @@ export function allocate({ kind, units = [], pos = [], bills = [] }) {
   }));
   return { bills: results, registers };
 }
+
+// What a Master Ledger upload will do to the PO lists (the workbook is the
+// source of truth — same rule as ledger_import_master in SQL): for every bulk
+// ledger in the upload, its lists become the *_Bulk sheet's — POs added,
+// litres / order changed, and POs not on the sheet (added in the app, or
+// gone from Excel) removed.
+//   current:  the app's POs [{group_code, unit, po_no, allotted, seq, source}]
+//   incoming: the upload's POs [{group_code, unit, po_no, allotted, seq}]
+//   groups:   the bulk ledgers in the upload (codes)
+export function poListChanges(current, incoming, groups) {
+  const up = new Set(groups);
+  const key = (x) => `${x.group_code}|${poKey(x.unit)}|${poKey(x.po_no)}`;
+  const src = new Map();
+  for (const x of incoming || []) {
+    const po = String(x.po_no ?? '').trim();
+    if (!po || !up.has(x.group_code)) continue;
+    const k = key(x);
+    if (!src.has(k) || (x.seq || 0) < src.get(k).seq) src.set(k, { ...x, po_no: po, unit: poKey(x.unit), allotted: Number(x.allotted) || 0, seq: x.seq || 0 });
+  }
+  const rank = new Map();
+  for (const x of [...src.values()].sort((a, b) => a.seq - b.seq || a.po_no.localeCompare(b.po_no))) {
+    const lk = `${x.group_code}|${x.unit}`;
+    rank.set(lk, (rank.get(lk) || 0) + 1);
+    x.rn = rank.get(lk);
+  }
+  const lists = new Map();
+  const list = (g, u) => {
+    const lk = `${g}|${u}`;
+    if (!lists.has(lk)) lists.set(lk, { group_code: g, unit: u, added: [], removed: [], changed: [], moved: 0 });
+    return lists.get(lk);
+  };
+  const have = new Map((current || []).filter((x) => up.has(x.group_code)).map((x) => [key(x), x]));
+  for (const [k, q] of have) if (!src.has(k)) list(q.group_code, q.unit).removed.push({ po_no: q.po_no, allotted: Number(q.allotted) || 0, source: q.source || 'app' });
+  for (const [k, x] of src) {
+    const q = have.get(k);
+    const l = list(x.group_code, x.unit);
+    if (!q) { l.added.push({ po_no: x.po_no, allotted: x.allotted }); continue; }
+    if ((Number(q.allotted) || 0) !== x.allotted) l.changed.push({ po_no: x.po_no, from: Number(q.allotted) || 0, to: x.allotted });
+    else if (q.seq !== x.rn) l.moved += 1;
+  }
+  return [...lists.values()].filter((l) => l.added.length || l.removed.length || l.changed.length || l.moved)
+    .sort((a, b) => a.group_code.localeCompare(b.group_code) || a.unit.localeCompare(b.unit));
+}

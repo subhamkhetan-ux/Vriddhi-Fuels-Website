@@ -6,7 +6,7 @@ being on. **Phase 1** (this folder) covers:
 | Master Ledger | In the app |
 |---|---|
 | **Import Sales** button (Module10 `ImportDayBook`) | **Import** → choose the Tally DayBook. HSD / MS / XG credit vouchers are added, and **Tally is the source of truth**: a bill already in the app takes the DayBook's date, customer, vehicle, litres, rate and amount, so importing a corrected DayBook again corrects the app (see below). |
-| PO numbers typed into the `*_Bulk` sheets' PO TRACKER | **POs** → add a PO and its allotted litres. Each diesel bill gets the first PO in the list with enough litres left — the same rule as the sheets' `PO No.` formula — so bills that had no PO pick one up as soon as you add it. Unit-wise lists (SMC) and typed-in POs work as in Excel. |
+| PO numbers typed into the `*_Bulk` sheets' PO TRACKER | The PO lists **follow the Master Ledger upload** (it is their source of truth: POs, litres, order). **POs** → add a PO and its allotted litres, to use until the next upload. Each diesel bill gets the first PO in the list with enough litres left — the same rule as the sheets' `PO No.` formula — so bills that had no PO pick one up as soon as you add it. Unit-wise lists (SMC) and typed-in POs work as in Excel. |
 | **Yesterday New Ledger / Bulk Add / Bulk Delete Ledger** (Module3) | **Customers** → new names from a DayBook are listed for a short ledger name (or "No ledger needed"); **Archive** hides a customer without deleting any sales or payments. |
 | — | **Sales** → the bills of any day. |
 | — | **Upload Master Ledger** → copies sales, payments, customers, opening balances, the Bulk sheets' PO lists and the Unit / PO / TDS / Shortage / Remarks typed against each bulk bill. |
@@ -406,17 +406,23 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 - **Sales:** upload the Tally DayBook under **Import** (from any device). If
   you still use Excel for SCPL, the Sales Dashboard or the Own Tanker Report,
   keep importing the DayBook there too — the app never writes back to Excel.
-- **New PO:** **POs** → the customer → **Add a PO**. The list is shown by PO
+- **New PO:** add it to the customer's *_Bulk sheet and upload the Master
+  Ledger (the PO lists follow it). **POs** → the customer → **Add a PO** works
+  for the time between, but the next upload replaces the list with the sheet's. The list is shown by PO
   number, Z→A, or — tap **Litres left** — most unused litres first (ties and
   used-up POs Z→A); the app remembers the choice. **#** is the order bills use them in (the first PO with room),
-  and ↑ / ↓ change that order.
+  and ↑ / ↓ change that order (until the next upload, which takes the sheet's order).
 - **Unit (SMC):** new SMC bills need a unit before they can get a PO; pick it
   in the bill list.
 - **Re-uploading the Master Ledger** brings the app in line with Excel for
-  sales, payments, opening balances and TDS / shortage / remarks. Ledger
-  names, PO lists and a bill's Unit / PO belong to the app after the first
-  upload — later uploads only fill in blanks and add POs the app doesn't
-  have. Payments copied from Master Paid are replaced by the workbook's list.
+  sales, payments, opening balances, TDS / shortage / remarks and **the PO
+  lists**: the Master Ledger is their source of truth, so each bulk ledger in
+  the upload gets exactly its *_Bulk sheet's POs, litres and order — a PO
+  added in the app but not on the sheet is removed (the preview names each
+  PO added, changed or removed before anything is saved). Ledger names and a
+  bill's Unit / PO belong to the app after the first upload — later uploads
+  only fill in blanks. Payments copied from Master Paid are replaced by the
+  workbook's list.
 
 ## Files
 

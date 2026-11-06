@@ -324,31 +324,39 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         appDone += 1;
         return false;
       });
-      // 5) PO lists: only POs the app doesn't have, at the end of their list
-      const fresh = new Map();
+      // 5) PO lists follow the workbook: each bulk ledger in the upload gets
+      //    exactly its sheet's lists (order, litres); the rest are removed
+      const src = new Map();
       for (const x of p.pos || []) {
         const po = trim(x.po_no);
         if (!po || !db.groups.some((g) => g.code === x.group_code)) continue;
         const unit = poKey(x.unit);
         const k = `${x.group_code}|${unit}|${poKey(po)}`;
-        if (db.pos.some((q) => `${q.group_code}|${q.unit}|${poKey(q.po_no)}` === k)) continue;
-        const cur = fresh.get(k);
-        if (!cur || (x.seq || 0) < cur.seq) fresh.set(k, { group_code: x.group_code, unit, po_no: po, allotted: x.allotted || 0, seq: x.seq || 0 });
+        const cur = src.get(k);
+        if (!cur || (x.seq || 0) < cur.seq) src.set(k, { group_code: x.group_code, unit, po_no: po, allotted: x.allotted || 0, seq: x.seq || 0 });
       }
-      const byList = new Map();
-      for (const x of fresh.values()) {
+      const rank = new Map();
+      for (const x of [...src.values()].sort((a, b) => a.seq - b.seq || a.po_no.localeCompare(b.po_no))) {
         const lk = `${x.group_code}|${x.unit}`;
-        if (!byList.has(lk)) byList.set(lk, []);
-        byList.get(lk).push(x);
+        rank.set(lk, (rank.get(lk) || 0) + 1);
+        x.rn = rank.get(lk);
       }
+      const uploaded = new Set((p.groups || []).map((g) => trim(g.code)));
+      const keyOf = (q) => `${q.group_code}|${q.unit}|${poKey(q.po_no)}`;
+      const before = db.pos.length;
+      db.pos = db.pos.filter((q) => !uploaded.has(q.group_code) || src.has(keyOf(q)));
+      const posRemoved = before - db.pos.length;
+      let posUpdated = 0;
       let posNew = 0;
-      for (const list of byList.values()) {
-        list.sort((a, b) => a.seq - b.seq);
-        const max = Math.max(0, ...db.pos.filter((q) => q.group_code === list[0].group_code && q.unit === list[0].unit).map((q) => q.seq));
-        list.forEach((x, i) => {
-          db.pos.push({ id: nextId('pos'), ...x, seq: max + i + 1, note: '', source: 'master_ledger', created_at: now() });
+      for (const x of src.values()) {
+        const q = db.pos.find((y) => keyOf(y) === `${x.group_code}|${x.unit}|${poKey(x.po_no)}`);
+        if (q) {
+          if (q.allotted !== x.allotted || q.seq !== x.rn || q.po_no !== x.po_no || q.source !== 'master_ledger') posUpdated += 1;
+          Object.assign(q, { po_no: x.po_no, allotted: x.allotted, seq: x.rn, source: 'master_ledger' });
+        } else {
+          db.pos.push({ id: nextId('pos'), group_code: x.group_code, unit: x.unit, po_no: x.po_no, allotted: x.allotted, seq: x.rn, note: '', source: 'master_ledger', created_at: now() });
           posNew += 1;
-        });
+        }
       }
       // 6) opening balances follow Excel
       let opening = 0;
@@ -381,7 +389,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       Object.assign(db.settings, clone(p.settings || {}));
       imp.counts = {
         groups, customers_new: customersNew, sales_new: salesNew, sales_updated: salesUpd, payments: pays,
-        pos_new: posNew, opening, tanker,
+        pos_new: posNew, pos_updated: posUpdated, pos_removed: posRemoved, opening, tanker,
         app_payments_in_excel: appDone, app_payments_open: db.payments.filter((x) => x.source === 'payments_app').length,
         sales_until: (p.sales || []).reduce((m, x) => (x.sale_date && (!m || x.sale_date > m) ? x.sale_date : m), null),
       };

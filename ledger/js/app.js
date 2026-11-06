@@ -11,7 +11,7 @@ import {
 } from './charts.js';
 import { analyse, daysBetween, FUELS, periods, PRODUCT_NAME, shortGroup } from './dash.js';
 import { extractMaster, readWorkbook } from './master.js';
-import { poKey } from './po.js';
+import { poKey, poListChanges } from './po.js';
 import {
   A4, A5, brandFontCss, download, inkBox, jpegFromSvg, loadJSZip, narrowFontCss, pdfFromSvgs, slipSvg, statementFontCss, tankerBillSvg, toDataUrl,
   useNarrowFont, zipBlob,
@@ -1385,7 +1385,7 @@ function importRow(i) {
     ? `${byProduct(c.inserted) || 'no new bills'}${byProduct(c.updated) ? ` · ${byProduct(c.updated)} updated` : ''}${c.unchanged ? ` · ${c.unchanged} unchanged` : ''}${c.removed ? ` · ${c.removed} removed` : ''}${c.duplicates ? ` · ${c.duplicates} already there` : ''}`
     : i.kind === 'payments_app' ? `${c.payments ?? 0} payments added`
       : i.kind === 'tanker_billing' ? `${c.customers ?? 0} customers · ${c.pi_new ?? 0} new PIs${c.pi_updated ? ` · ${c.pi_updated} refreshed` : ''}${c.pi_differ || c.pi_not_in_excel ? ` · PI Log doesn't match Excel (${[c.pi_differ ? `${c.pi_differ} differ` : '', c.pi_not_in_excel ? `${c.pi_not_in_excel} not in Excel` : ''].filter(Boolean).join(', ')})` : ''}`
-      : `${c.sales_new ?? 0} new bills · ${c.sales_updated ?? 0} refreshed · ${c.payments ?? 0} payments · ${c.pos_new ?? 0} new POs`;
+      : `${c.sales_new ?? 0} new bills · ${c.sales_updated ?? 0} refreshed · ${c.payments ?? 0} payments · ${c.pos_new ?? 0} new POs${c.pos_updated ? ` · ${c.pos_updated} POs changed` : ''}${c.pos_removed ? ` · ${c.pos_removed} POs removed` : ''}`;
   const what = { daybook: 'DayBook', payments_app: 'Payments app', master_ledger: 'Master Ledger', tanker_billing: 'Tanker Billing' }[i.kind] || i.kind;
   return `<tr><td>${esc(new Date(i.created_at).toLocaleString('en-IN'))}</td><td>${what}</td><td>${esc(i.file_name)}</td><td>${esc(result)}</td></tr>`;
 }
@@ -1490,6 +1490,23 @@ function salesTable(rows, { showProduct = true } = {}) {
   </table></div>`;
 }
 
+// The upload preview's PO part: list by list, what the workbook adds,
+// changes and removes (POs added in the app are named, as they go)
+function poChangesHtml(changes) {
+  if (!changes.length) return '<p class="good-text small">✓ PO lists: the same as in the app.</p>';
+  const name = (l) => `${esc(l.group_code)}${l.unit ? ` · ${esc(l.unit)}` : ''}`;
+  const pos = (list) => list.map((x) => `<b>${esc(x.po_no)}</b>`).join(', ');
+  const appMade = changes.flatMap((l) => l.removed.filter((x) => x.source === 'app'));
+  return `<div class="pi-check ${appMade.length ? 'warn' : ''}"><b>PO lists — the workbook's replace the app's</b>
+    ${appMade.length ? `<p class="small warn-text">${plural(appMade.length, 'PO')} added in the app ${appMade.length === 1 ? 'is' : 'are'} not on the *_Bulk sheet and will be removed: ${pos(appMade)}. Add ${appMade.length === 1 ? 'it' : 'them'} to the sheet first to keep ${appMade.length === 1 ? 'it' : 'them'}.</p>` : ''}
+    <div class="table-wrap"><table class="compact"><thead><tr><th>PO list</th><th>Added</th><th>Litres changed</th><th>Removed</th></tr></thead><tbody>
+    ${changes.map((l) => `<tr><td>${name(l)}${l.moved ? ` <span class="muted small">(${plural(l.moved, 'PO')} moved in the order)</span>` : ''}</td>
+      <td>${l.added.map((x) => `${esc(x.po_no)} <span class="muted">${fmtLitres(x.allotted)} L</span>`).join('<br>') || '—'}</td>
+      <td>${l.changed.map((x) => `${esc(x.po_no)} <span class="muted">${fmtLitres(x.from)} → ${fmtLitres(x.to)} L</span>`).join('<br>') || '—'}</td>
+      <td>${l.removed.map((x) => `${esc(x.po_no)}${x.source === 'app' ? ' <span class="tag warn">added in app</span>' : ''}`).join('<br>') || '—'}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+
 async function masterChosen(file, input) {
   const out = document.getElementById('master-out');
   out.innerHTML = loadingHtml(`Reading ${file.name} — a big workbook can take a few seconds…`);
@@ -1498,6 +1515,9 @@ async function masterChosen(file, input) {
     const XLSX = await loadSheetJS();
     const wb = readWorkbook(XLSX, await file.arrayBuffer());
     const { payload, preview, warnings } = extractMaster(wb);
+    // the PO lists follow the workbook: what this upload adds, changes and removes
+    const poNow = await state.store.poData().then((x) => x.pos || []).catch(() => []);
+    const poChanges = poListChanges(poNow, payload.pos, (payload.groups || []).map((g) => g.code));
     const s = preview.sales;
     const span = (x) => (x.count ? `${x.count.toLocaleString('en-IN')} <span class="muted">(${fmtDate(x.from)} – ${fmtDate(x.to)})</span>` : '0');
     const checkLine = (c) => {
@@ -1527,10 +1547,12 @@ async function masterChosen(file, input) {
           <tbody>${preview.groups.map((g) => `<tr><td>${esc(g.code)}${g.units.length ? ` <span class="muted">(${g.units.map(esc).join(' / ')})</span>` : ''}</td><td>${g.members.map(esc).join(', ')}</td><td class="r">${g.kind === 'group' ? '—' : g.pos}</td><td class="r">${g.bills}</td><td>${g.kind === 'group' ? '<span class="muted">group ledger, no POs</span>' : checkLine(g.check)}</td></tr>`).join('')}</tbody>
         </table></div>
         ${warnings.length ? `<details open><summary class="warn-text">${plural(warnings.length, 'note')}</summary><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></details>` : ''}
+        ${poChangesHtml(poChanges)}
         <details><summary>What an upload changes</summary>
           <ul class="small">
             <li>Sales, payments, opening balances and TDS / shortage / remarks are brought in line with the workbook.</li>
-            <li>Ledger names, PO lists, and a bill's Unit or PO belong to the app after the first upload — later uploads only fill in blanks and add POs the app doesn't have.</li>
+            <li><b>PO lists follow the workbook</b>: each bulk ledger gets exactly the PO lists of its *_Bulk sheet — its POs, litres and order. A PO added in the app and not on the sheet is removed.</li>
+            <li>Ledger names, and a bill's Unit or PO, belong to the app after the first upload — later uploads only fill in blanks.</li>
             <li>Nothing is deleted except payments copied from Master Paid, which are replaced by the workbook's list.</li>
           </ul></details>
         <p class="actions"><button class="btn" id="master-go">Copy into the app</button> <button class="btn ghost" id="master-cancel">Cancel</button></p>
@@ -1542,7 +1564,7 @@ async function masterChosen(file, input) {
       go.textContent = 'Copying…';
       const res = await state.store.importMaster(file.name, payload);
       input.value = '';
-      out.innerHTML = `<div class="card good-card"><b>Done.</b> ${plural(res.sales_new, 'new bill')}, ${res.sales_updated} refreshed, ${plural(res.payments, 'payment')}, ${plural(res.customers_new, 'new customer')}, ${plural(res.pos_new, 'new PO')}, ${plural(res.opening, 'opening balance')}, ${plural(res.groups, 'bulk ledger')}.
+      out.innerHTML = `<div class="card good-card"><b>Done.</b> ${plural(res.sales_new, 'new bill')}, ${res.sales_updated} refreshed, ${plural(res.payments, 'payment')}, ${plural(res.customers_new, 'new customer')}, ${plural(res.pos_new, 'new PO')}${res.pos_updated ? `, ${res.pos_updated} PO${res.pos_updated === 1 ? '' : 's'} changed` : ''}${res.pos_removed ? `, ${plural(res.pos_removed, 'PO')} removed` : ''}, ${plural(res.opening, 'opening balance')}, ${plural(res.groups, 'bulk ledger')}.
         ${res.app_payments_in_excel || res.app_payments_open ? `<p>Payments app: ${plural(res.app_payments_in_excel || 0, 'payment')} now in Master Paid (the app's copy was dropped)${res.app_payments_open ? `, ${res.app_payments_open} still waiting for Excel` : ''}.</p>` : ''}
         <p><a href="#/">Home →</a> · <a href="#/pos">PO lists →</a></p></div>`;
       toast('Master Ledger copied.');
@@ -1592,6 +1614,7 @@ async function viewPoGroup(code) {
     ${g.registers.map((r) => registerCard(g, r)).join('')}
     <section class="card">
       <h3>Add a PO</h3>
+      <p class="muted small">The Master Ledger is the source of truth for PO lists: the next <b>Upload Master Ledger</b> replaces this list with the *_Bulk sheet's — so add a PO to the sheet too, or it goes at the next upload.</p>
       <form id="po-add" class="row-form">
         <label>PO number <input name="po_no" required autocomplete="off"></label>
         <label>Allotted litres <input name="allotted" type="number" min="0" step="any" required inputmode="decimal"></label>

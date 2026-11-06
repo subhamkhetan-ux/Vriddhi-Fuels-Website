@@ -588,6 +588,9 @@ declare
   v_sales_upd int;
   v_pay       int;
   v_po_new    int;
+  v_po_upd    int := 0;
+  v_po_del    int := 0;
+  v_po_src    jsonb;
   v_open      int;
   v_tanker    int := 0;
   v_app_done  int := 0;
@@ -716,9 +719,14 @@ begin
   select count(*) into v_app_done from gone;
   select count(*) into v_app_open from ledger_payments where source = 'payments_app';
 
-  -- 5) PO lists: only POs the app doesn't have yet are added, at the end
-  --    of their list and in the workbook's order.
-  with src as (
+  -- 5) PO lists follow the workbook — it is the source of truth: each bulk
+  --    ledger in the upload gets exactly the PO lists its *_Bulk sheet has,
+  --    in the sheet's order with its allotted litres. POs added in the app,
+  --    or no longer on the sheet, are removed. A bill's own Unit / PO choice
+  --    is left alone (a PO no longer listed simply stops being picked).
+  select coalesce(jsonb_agg(jsonb_build_object('group_code', r.group_code, 'unit', r.unit, 'po_no', r.po_no, 'allotted', r.allotted, 'rn', r.rn)), '[]'::jsonb)
+  into v_po_src
+  from (select d.*, row_number() over (partition by d.group_code, d.unit order by d.seq, d.po_no)::int as rn from (
     select distinct on (x.group_code, upper(btrim(coalesce(x.unit, ''))), upper(btrim(x.po_no)))
            x.group_code, upper(btrim(coalesce(x.unit, ''))) as unit, btrim(x.po_no) as po_no,
            coalesce(x.allotted, 0) as allotted, coalesce(x.seq, 0) as seq
@@ -727,19 +735,25 @@ begin
     where btrim(coalesce(x.po_no, '')) <> ''
       and exists (select 1 from ledger_bulk_groups g where g.code = x.group_code)
     order by x.group_code, upper(btrim(coalesce(x.unit, ''))), upper(btrim(x.po_no)), x.seq
-  ), fresh as (
-    select s.*, row_number() over (partition by s.group_code, s.unit order by s.seq) as rn
-    from src s
-    where not exists (select 1 from ledger_po p
-                      where p.group_code = s.group_code and p.unit = s.unit
-                        and upper(p.po_no) = upper(s.po_no))
-  )
+  ) d) r;
+
+  delete from ledger_po p
+  where p.group_code in (select btrim(x.code) from jsonb_to_recordset(coalesce(p_payload -> 'groups', '[]'::jsonb)) as x(code text))
+    and not exists (select 1 from jsonb_to_recordset(v_po_src) as s(group_code text, unit text, po_no text)
+                    where s.group_code = p.group_code and s.unit = p.unit and upper(s.po_no) = upper(p.po_no));
+  get diagnostics v_po_del = row_count;
+
+  update ledger_po p set po_no = s.po_no, allotted = s.allotted, seq = s.rn, source = 'master_ledger'
+  from jsonb_to_recordset(v_po_src) as s(group_code text, unit text, po_no text, allotted numeric, rn int)
+  where s.group_code = p.group_code and s.unit = p.unit and upper(s.po_no) = upper(p.po_no)
+    and (p.allotted is distinct from s.allotted or p.seq <> s.rn or p.po_no <> s.po_no or p.source <> 'master_ledger');
+  get diagnostics v_po_upd = row_count;
+
   insert into ledger_po (group_code, unit, po_no, allotted, seq, source)
-  select f.group_code, f.unit, f.po_no, f.allotted,
-         coalesce((select max(p.seq) from ledger_po p
-                   where p.group_code = f.group_code and p.unit = f.unit), 0) + f.rn,
-         'master_ledger'
-  from fresh f;
+  select s.group_code, s.unit, s.po_no, s.allotted, s.rn, 'master_ledger'
+  from jsonb_to_recordset(v_po_src) as s(group_code text, unit text, po_no text, allotted numeric, rn int)
+  where not exists (select 1 from ledger_po p
+                    where p.group_code = s.group_code and p.unit = s.unit and upper(p.po_no) = upper(s.po_no));
   get diagnostics v_po_new = row_count;
 
   -- 6) Month-opening balances
@@ -776,7 +790,8 @@ begin
 
   v_counts := jsonb_build_object(
     'groups', v_groups, 'customers_new', v_cust_new, 'sales_new', v_sales_new,
-    'sales_updated', v_sales_upd, 'payments', v_pay, 'pos_new', v_po_new, 'opening', v_open,
+    'sales_updated', v_sales_upd, 'payments', v_pay, 'pos_new', v_po_new, 'pos_updated', v_po_upd,
+    'pos_removed', v_po_del, 'opening', v_open,
     'tanker', v_tanker, 'app_payments_in_excel', v_app_done, 'app_payments_open', v_app_open,
     'sales_until', (select max(x.sale_date) from jsonb_to_recordset(coalesce(p_payload -> 'sales', '[]'::jsonb))
                     as x(sale_date date)));
