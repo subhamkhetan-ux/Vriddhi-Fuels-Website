@@ -306,6 +306,15 @@
   .sliprow input{display:block;width:100%;margin-top:6px}
   .slipview img+img{border-top:6px solid var(--line)}
   .trrow .share{border:0;background:none;font-size:16px;cursor:pointer;padding:2px 4px;color:var(--muted)}
+  /* a record row that runs out of room (a narrow phone, large system text):
+     the plate and the details keep the first line, the litres and 🗑 go to
+     the next, on the right — never a name squeezed to a letter a line */
+  .entry{flex-wrap:wrap;row-gap:6px}
+  .entry .mid{flex:1 1 4em}
+  .entry .end{display:flex;align-items:center;gap:12px;flex:none;margin-left:auto}
+  .slipchip{display:inline-flex;align-items:center;gap:4px;margin-top:6px;border:1px solid rgba(229,66,14,.3);background:rgba(255,138,43,.1);
+    color:var(--amber-d);border-radius:999px;padding:4px 10px;font:700 12px var(--text);cursor:pointer;white-space:nowrap}
+  :where([data-theme="dark"]) .slipchip{border-color:rgba(255,138,43,.35);background:rgba(255,138,43,.12);color:#ff9a4d}
   .stmtbtn{display:block;width:100%;margin-top:8px;border:1px solid var(--line);background:var(--glass-2);color:var(--ink);
     border-radius:12px;padding:10px;font:600 13.5px var(--text);cursor:pointer}
   .mbtn:active{transform:translateY(1px)}
@@ -2856,16 +2865,18 @@ function renderHist(){
         const who=(CLOUD&&e.by)?' · '+e.by:'';
         if((e.kind||"load")==="dispatch"){
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
-            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div>'+soldToHTML(e)+'<div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
-            +'<span class="tot">'+fmt(e.total)+' L</span>'
-            +(e.remark && isAdmin()?'<button class="del" data-hslip="'+e.id+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>':'')
-            +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
+            +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div>'+soldToHTML(e)+'<div class="tm">'+timeLabel(e.ts)+who+'</div>'
+            // the slip under the time, not a third button on the row: on a narrow phone that
+            // squeezed the customer's name to a letter a line
+            +(e.remark && isAdmin()?'<button class="slipchip" data-hslip="'+e.id+'" aria-label="Send a trip slip to the customer">📤 Trip slip</button>':'')+'</div>'
+            +'<span class="end"><span class="tot">'+fmt(e.total)+' L</span>'
+            +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</span></div>';
         }
         const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
         return '<div class="entry"><span class="plate">'+e.plate+'</span>'
           +'<div class="mid"><div class="ch">+ '+chs+'</div><div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
-          +'<span class="tot">+'+fmt(e.total)+' L</span>'
-          +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
+          +'<span class="end"><span class="tot">+'+fmt(e.total)+' L</span>'
+          +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</span></div>';
       }).join("") + '</div>'
       +'</div>';
   }).join("");
