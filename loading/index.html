@@ -12,6 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
 <script src="./config.js"></script>
+<script src="./slip.js"></script>
 <script>
 // The look before the first paint: this phone's choice (☀ / ☾), else Auto —
 // dark if the phone is dark, light otherwise. setTheme() keeps it up to date.
@@ -295,6 +296,18 @@
   .mbtn{flex:1;border:0;border-radius:14px;padding:15px;font-family:var(--display);font-size:15px;font-weight:700;cursor:pointer}
   .mbtn.ghost{background:rgba(27,33,48,.07);color:var(--ink)}
   .mbtn.go{background:var(--grad-good);color:#fff;box-shadow:0 12px 24px -12px rgba(18,128,74,.8)}
+  .mbtn:disabled{opacity:.5}
+  /* the slip / statement preview: the picture as the customer gets it */
+  .slipview{margin-top:10px;max-height:52vh;overflow-y:auto;border-radius:14px;border:1px solid var(--line);background:#fff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px;color:var(--muted);font-size:13px}
+  .slipview img{display:block;width:100%;height:auto}
+  .sliprow{display:flex;gap:10px;margin-top:6px;align-items:flex-end}
+  .sliprow label{flex:1;min-width:0;margin:0}
+  .sliprow input{display:block;width:100%;margin-top:6px}
+  .slipview img+img{border-top:6px solid var(--line)}
+  .trrow .share{border:0;background:none;font-size:16px;cursor:pointer;padding:2px 4px;color:var(--muted)}
+  .stmtbtn{display:block;width:100%;margin-top:8px;border:1px solid var(--line);background:var(--glass-2);color:var(--ink);
+    border-radius:12px;padding:10px;font:600 13.5px var(--text);cursor:pointer}
   .mbtn:active{transform:translateY(1px)}
   .modalbox.wide{max-height:86vh;overflow-y:auto}
   .edit{background:none;border:0;color:var(--navy2);font-size:18px;cursor:pointer;padding:4px 6px;flex:none}
@@ -1505,6 +1518,38 @@
   </div>
 </div>
 
+<!-- Send to the customer: a trip slip or a trip statement, as a picture or a PDF -->
+<div class="modal" id="slipModal">
+  <div class="modalbox wide">
+    <div class="mh" id="slipHead">Send to the customer</div>
+    <div class="mp" id="slipSub">—</div>
+    <label class="mlab" id="slipCustWrap" hidden style="display:block;margin-top:10px">Customer's name on the picture
+      <input id="slipCust" type="text" autocomplete="off" style="display:block;width:100%;margin-top:6px" /></label>
+    <div id="slipXWrap" hidden>
+      <div class="note" style="text-align:left;margin:10px 2px 0" id="slipXNote">For this picture only — nothing is saved. Density or seal no. left empty stays off the picture; no invoice no. shows “Invoice to follow”.</div>
+      <div class="sliprow" id="slipInvWrap">
+        <label class="mlab">Invoice no.<input id="slipInv" type="text" inputmode="numeric" autocomplete="off" placeholder="empty: invoice to follow" /></label>
+        <label class="mlab">Invoiced litres<input id="slipQty" type="text" inputmode="numeric" autocomplete="off" /></label>
+      </div>
+      <div class="sliprow">
+        <label class="mlab">Hydrometer reading (kg/m³)<input id="slipObs" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 828.2" /></label>
+        <label class="mlab">Temperature (°C)<input id="slipTemp" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 32" /></label>
+      </div>
+      <div class="sliprow">
+        <label class="mlab">Density @ 15°C<input id="slipDen" type="text" inputmode="decimal" autocomplete="off" placeholder="worked out from the reading" /></label>
+        <label class="mlab">Seal no.<input id="slipSeal" type="text" autocomplete="off" placeholder="e.g. 10452, 10453" /></label>
+      </div>
+    </div>
+    <div class="slipview" id="slipView"><span>Making the picture…</span></div>
+    <div class="note" id="slipNote" style="text-align:left;margin:8px 2px 0"></div>
+    <div class="mbtns">
+      <button class="mbtn ghost" id="slipClose">Close</button>
+      <button class="mbtn ghost" id="slipPdf" disabled>📄 PDF</button>
+      <button class="mbtn go" id="slipImg" disabled>🖼 Share picture</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit a tanker's chambers &amp; capacities (keeps its fill, totals and history) -->
 <div class="modal" id="capModal">
   <div class="modalbox wide">
@@ -2633,6 +2678,8 @@ $("#dispOk").onclick=()=>{
   const plate=pd.plate;
   const st=tankerState(plate);
   if(st.total<=0){ btn.disabled=false; closeDisp(); return; }
+  // bills raised before the sale for this customer go on its trip slip
+  const pb=prebilled(plate), part=pb && pb.parts.find(x=>x.to===remark);
   Backend.dispatch(plate, remark).then(()=>{
     notifyStaff("sold", plate, remark);   // fire first; don't wait on the reload
     INV_WATCH.at=0;                       // a new trip: the invoice check (and pre-billed notes) at once
@@ -2642,6 +2689,8 @@ $("#dispOk").onclick=()=>{
     btn.disabled=false; closeDisp(); renderHome();
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:"")
       +(fc && fc.advice==="refill_before" ? " · ⛔ refill diesel first" : fc && fc.advice==="refill_after" ? " · ⚠ refill diesel on return" : ""));
+    const e=LOG.filter(x=>x.plate===plate && x.kind==="dispatch").sort((a,b)=>b.ts-a.ts)[0];
+    if(remark && e && isAdmin()) openTripSlip({ id:e.id, plate:plate, ts:e.ts, total:e.total, dest:remark }, part ? part.bills : null, "🚚 Sent for sale");
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
@@ -2809,6 +2858,7 @@ function renderHist(){
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
             +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div>'+soldToHTML(e)+'<div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
             +'<span class="tot">'+fmt(e.total)+' L</span>'
+            +(e.remark && isAdmin()?'<button class="del" data-hslip="'+e.id+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>':'')
             +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
         }
         const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
@@ -2819,6 +2869,8 @@ function renderHist(){
       }).join("") + '</div>'
       +'</div>';
   }).join("");
+  box.querySelectorAll("[data-hslip]").forEach(b=>{ b.onclick=()=>{
+    const e=LOG.find(x=>x.id===b.dataset.hslip); if(e) openTripSlip({ id:e.id, plate:e.plate, ts:e.ts, total:e.total, dest:e.remark }); }; });
   box.querySelectorAll("[data-del]").forEach(b=>{
     b.onclick=()=>{
       const e=LOG.find(x=>x.id===b.dataset.del); if(!e) return;
@@ -4013,6 +4065,9 @@ function renderTrips(){
     const p=b.getAttribute("data-trshow"); if(tripOpen.has(p)) tripOpen.delete(p); else tripOpen.add(p); renderTrips(); }; });
   box.querySelectorAll("[data-trip]").forEach(b=>{ b.onclick=()=>{
     const t=TRIPS.find(x=>x.id===b.getAttribute("data-trip")); if(t) editTripDest(t); }; });
+  box.querySelectorAll("[data-slip]").forEach(b=>{ b.onclick=()=>{
+    const t=TRIPS.find(x=>x.id===b.getAttribute("data-slip")); if(t) openTripSlip(t); }; });
+  box.querySelectorAll("[data-stmt]").forEach(b=>{ b.onclick=()=>openStatement(b.getAttribute("data-stmt")); });
   box.querySelectorAll("[data-tag]").forEach(b=>{ b.onclick=()=>openTag(b.getAttribute("data-tag"), b.getAttribute("data-bill")); });
   box.querySelectorAll("[data-billsheet]").forEach(b=>{ b.onclick=()=>openBill(b.getAttribute("data-billsheet")); });
   box.querySelectorAll("[data-check]").forEach(b=>{ b.onclick=()=>markCheckedUI(b.getAttribute("data-check")); });
@@ -4039,6 +4094,7 @@ function tripRowHTML(t, byCust){
     +(byCust ? '<span class="td"><span class="plate sm">'+esc(t.plate)+'</span></span>'
              : '<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>')
     +'<span class="tq">'+fmt(t.total)+' L</span>'
+    +(isAdmin()?'<button class="share" data-slip="'+esc(t.id)+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>':'')
     +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>'
     +tripInvHTML(recRow(t.id));
 }
@@ -4100,12 +4156,158 @@ function custViewHTML(){
         +(!linked ? linkAccHTML(a) : '')
         +(a.sure.length ? '<button class="big green sm suretag" data-tagsure="'+esc(a.key)+'"><span class="em">💡</span><span>Tag '+a.sure.length
             +' sure match'+(a.sure.length===1?'':'es')+'</span></button>' : '')
+        +(a.trips ? '<button class="stmtbtn" data-stmt="'+esc(a.key)+'">📤 Send trip statement — '+a.trips+' trip'+(a.trips===1?'':'s')+'</button>' : '')
         +(what ? '<button class="trshow" data-custshow="'+esc(a.key)+'">'+(open?'Hide ▴':'Show '+what+' ▾')+'</button>' : '')
         +(open ? '<div class="trtrips">'+trips.map(r=>tripRowHTML(r.trip, true)).join("")
             +(a.loose.length ? '<div class="mlab" style="margin:12px 0 4px">Bills on no trip</div>'+a.loose.map(looseRowHTML).join("") : '')+'</div>' : '')
         +'</div>';
     }).join("")
     +'<div class="note" style="text-align:left">The litres sent are normally a little less than billed: up to '+fmt(TAGSET.over)+' L a trip is <b>short supply</b>, shown on its own and never counted as over-invoicing. <b>Over / under-invoiced</b> leaves it out, and bills still to tag are shown apart. Bills count in the month of their trip.</div>';
+}
+/* ---------- Send to the customer (loading/slip.js draws them) ----------
+   A trip slip: the tanker, when it was sent and the invoices on the trip (its
+   tagged bills, or right after a sale the bills raised before it), with the
+   invoiced litres; a trip with no bill yet shows the litres dispatched and
+   "invoice to follow". A trip statement: a customer's trips in the period on
+   the Trips screen, each with its invoices, and the total invoiced. */
+let slipJob=0, slipTyped=null;
+// o: { head, sub, note, name, make(typed) → canvases, extras (show the boxes
+// for this picture: density and seal no., and with invoiceBox the invoice
+// no. / litres, the litres preset to qtyPreset); make() and note() get
+// {no, qty, density, seal, cust} as typed; custName: the customer's name
+// to start the name box with) }
+function openSlip(o){
+  $("#slipHead").textContent=o.head; $("#slipSub").textContent=o.sub;
+  $("#slipXWrap").hidden=!o.extras; $("#slipInvWrap").hidden=!o.invoiceBox;
+  $("#slipCustWrap").hidden=o.custName==null; $("#slipCust").value=o.custName||"";
+  $("#slipInv").value=""; $("#slipDen").value=""; $("#slipSeal").value=""; $("#slipObs").value=""; $("#slipTemp").value=""; delete $("#slipDen").dataset.typed; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
+  $("#slipModal").classList.add("on");
+  if(!window.Slip){ $("#slipView").innerHTML="<span>Couldn't load the picture maker — reload the app.</span>"; return; }
+  const draw=()=>{
+    const job=++slipJob, q=parseFloat(String($("#slipQty").value).replace(/,/g,""));
+    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null, density:$("#slipDen").value.trim(), seal:$("#slipSeal").value.trim(), cust:$("#slipCust").value.trim(),
+      obs:$("#slipObs").value.trim(), temp:$("#slipTemp").value.trim() };
+    $("#slipNote").textContent = typeof o.note==="function" ? o.note(typed) : (o.note||"");
+    $("#slipImg").disabled=true; $("#slipPdf").disabled=true;
+    if(!$("#slipView").querySelector("img")) $("#slipView").innerHTML="<span>Making the picture…</span>";
+    o.make(typed).then(cs=>{
+      if(job!==slipJob) return;
+      $("#slipView").innerHTML=""; cs.forEach(c=>{ const im=new Image(); im.alt=o.head; im.src=c.toDataURL("image/png"); $("#slipView").appendChild(im); });
+      const go=(btn, files)=>{ btn.disabled=true;
+        files().then(fs=>Slip.share(fs, o.head)).then(r=>{ if(r==="downloaded") toast("✓ Saved to downloads"); })
+          .catch(e=>toast("Couldn't share: "+(e && e.message || e))).then(()=>{ btn.disabled=false; }); };
+      $("#slipImg").textContent = cs.length>1 ? "🖼 Share "+cs.length+" pictures" : "🖼 Share picture";
+      $("#slipImg").onclick=()=>go($("#slipImg"), ()=>Promise.all(cs.map((c,k)=>Slip.png(c).then(b=>({ blob:b, name:o.name+(cs.length>1?"-"+(k+1):"")+".png" })))));
+      $("#slipPdf").onclick=()=>go($("#slipPdf"), ()=>Slip.pdf(cs).then(b=>[{ blob:b, name:o.name+".pdf" }]));
+      $("#slipImg").disabled=false; $("#slipPdf").disabled=false;
+    }).catch(e=>{ if(job===slipJob) $("#slipView").innerHTML="<span>Couldn't make the picture: "+esc(e && e.message || e)+"</span>"; });
+  };
+  $("#slipView").innerHTML="";
+  const later=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); };
+  ["#slipInv","#slipQty","#slipSeal","#slipCust"].forEach(id=>{ $(id).oninput=later; });
+  // the density at 15 °C is worked out from the reading and its temperature
+  // (Slip.density15: the chart's Table 53B), unless typed over by hand
+  const den15=()=>{
+    if($("#slipDen").dataset.typed) return;
+    const o=parseFloat($("#slipObs").value), t=parseFloat($("#slipTemp").value), d=window.Slip ? Slip.density15(o, t) : null;
+    $("#slipDen").value = d!=null ? d.toFixed(1) : "";
+  };
+  $("#slipObs").oninput=$("#slipTemp").oninput=()=>{ den15(); later(); };
+  $("#slipDen").oninput=()=>{ if($("#slipDen").value.trim()) $("#slipDen").dataset.typed="1"; else { delete $("#slipDen").dataset.typed; den15(); } later(); };
+  draw();
+}
+function closeSlip(){ slipJob++; clearTimeout(slipTyped); $("#slipModal").classList.remove("on"); }
+$("#slipClose").onclick=closeSlip;
+$("#slipModal").addEventListener("click",e=>{ if(e.target===$("#slipModal")) closeSlip(); });
+const slipBill=b=>({ no:b.bill_no, date:b.date, qty:+b.qty||0 });
+/* The customer's full name for the pictures — the name they are billed in,
+   not the short "Sold to" name: the bills given (the trip's, or raised
+   before the sale), the one most of them name; else a ledger name linked to
+   the "Sold to" customer (⚙ links, or the invoice check's); else the short
+   name. The sheet's name box starts with it. */
+function fullName(dest, bills){
+  const n={}; (bills||[]).forEach(b=>{ if(b && b.customer) n[b.customer]=(n[b.customer]||0)+1; });
+  const top=Object.keys(n).sort((a,b)=>n[b]-n[a])[0];
+  if(top) return top;
+  const d=String(dest||"").trim().toLowerCase();
+  const links=(INVD && INVD.links) || (INV_WATCH.d && INV_WATCH.d.links) || LINKS || [];
+  const l=d && links.find(x=>String(x.dest||"").trim().toLowerCase()===d && x.customer);
+  return l ? l.customer : (dest||"");
+}
+// the links, read once for the pictures when no screen has them yet (a staff phone, Home)
+let slipLinks=null;
+function withLinks(fn){
+  if(slipLinks || (INVD && INVD.links) || (INV_WATCH.d && INV_WATCH.d.links) || LINKS.length){ fn(); return; }
+  slipLinks=Backend.loadLinks().then(l=>{ LINKS=l||[]; }).catch(()=>{});
+  slipLinks.then(fn);
+}
+// the pictures follow the app's look on this phone (☀ / ☾ / Auto), as the ledger app's do
+const slipDark=()=>document.documentElement.getAttribute("data-theme")==="dark";
+const fileDate=ts=>dayKey(ts).replace(/-/g,"");
+// t: a trip ({id, plate, ts, total, dest}); bills: given, else the ones tagged on it.
+// The drawing: the tanker's chambers, each filled with what it carried on
+// this sale (the sale's own record while it is in the 7-day log), else
+// evenly, and its rated size in KL (its chambers' rated sizes added up).
+// The litres are the invoiced ones: the bills', or typed with the invoice
+// no. for this picture; none without an invoice. The litres box starts at
+// what the sale should be billed: each chamber that went out (a chamber is
+// always sent full) at its rated size — 3 chambers of a 12 KL tanker
+// 12,000, 2 of them 8,000.
+const ratedCham=c=>Math.round((+c||0)/500)*500;         // 3,982 → 4,000 · 4,485 → 4,500
+const ratedKL=caps=>caps.reduce((a,c)=>a+ratedCham(c),0)/1000;
+function billQty(caps, carried, total){
+  if(carried) return caps.reduce((a,c,i)=>a+((+carried[i]||0)>0 ? ratedCham(c) : 0),0);
+  // no chamber record (older than the 7-day log): as many chambers as its litres fill
+  let left=+total||0, q=0;
+  caps.forEach(c=>{ if(left>0){ q+=ratedCham(c); left-=c; } });
+  return q;
+}
+// customer pictures are for admins only: a staff login never makes one
+function openTripSlip(t, bills, head){ if(!adminOnly()) return; withLinks(()=>tripSlip(t, bills, head)); }
+function tripSlip(t, bills, head){
+  const r=recRow(t.id), raw=bills && bills.length ? bills : r && r.tags ? r.tags : [], list=raw.map(slipBill);
+  const v=vehicleOf(t.plate), caps=v ? v.caps.map(Number) : [], kl=caps.length ? ratedKL(caps) : 0;
+  const ev=LOG.find(x=>x.id===t.id), capT=caps.reduce((a,c)=>a+c,0);
+  const carried=ev && ev.chambers ? caps.map((c,i)=>+((ev.chambers.find(x=>x.name==="C"+(i+1))||{}).qty)||0) : null;
+  const fill=caps.map((c,i)=>c>0 ? (carried ? carried[i]/c : capT ? (+t.total||0)/capT : 0) : 0);
+  // a card per chamber on the slip: its rated capacity and whether it went out
+  // loaded; with no chamber record, only a tanker sent full can say (all loaded)
+  const chambers=carried ? caps.map((c,i)=>({ rated:ratedCham(c), loaded:carried[i]>0 }))
+    : capT && (+t.total||0)>=capT-TAGSET.over ? caps.map(c=>({ rated:ratedCham(c), loaded:true })) : null;
+  // the slip's number: date (ddmmyy), tanker and time of the sale (VF-061126-5510-0743)
+  const d0=new Date(t.ts), ref="VF-"+pad(d0.getDate())+pad(d0.getMonth()+1)+String(d0.getFullYear()).slice(2)
+    +"-"+plateKey(t.plate).slice(-4)+"-"+pad(d0.getHours())+pad(d0.getMinutes());
+  const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
+  openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
+    custName:fullName(t.dest, raw), extras:true, invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
+    note:typed=>list.length ? "Shows the invoiced litres: "+list.map(b=>"#"+b.no).join(", ")+"."
+      : nos(typed).length ? "Shows invoice "+nos(typed).map(n=>"#"+n).join(", ")+(typed.qty ? " for "+fmt(typed.qty)+" L" : "")+"."
+      : "No invoice yet: the picture says “Invoice to follow”, without litres.",
+    name:"Trip-"+plateKey(t.plate)+"-"+fileDate(t.ts),
+    make:typed=>{
+      const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
+      const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
+      return Slip.trip({ dark:slipDark(), customer:typed.cust || t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, obs:typed.obs, temp:typed.temp, seal:typed.seal, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
+    } });
+}
+function openStatement(key){
+  if(!adminOnly()) return;
+  const a=INVD && INVD.rec.perCust.find(x=>x.key===key); if(!a) return;
+  const name=a.dests.length ? a.dests.join(" + ") : a.custs.join(" + ");
+  // the full name: what most of these trips' bills are made out to, else a linked ledger name
+  const allTags=a.tripIds.map(recRow).filter(r=>r && r.inRange).reduce((x,r)=>x.concat(r.tags||[]),[]);
+  const full=allTags.length ? fullName(name, allTags) : a.custs.length ? a.custs[0] : name;
+  const from=$("#trFrom").value, to=$("#trTo").value;
+  const rows=a.tripIds.map(recRow).filter(r=>r && r.inRange).sort((x,y)=>x.trip.ts-y.trip.ts).map(r=>{
+    const bills=(r.tags||[]).map(slipBill), pending=!bills.length;
+    return { ts:r.trip.ts, plate:fmtPlate(r.trip.plate), bills:bills.map(b=>"#"+b.no).join(", "), qty:pending ? null : r2(bills.reduce((s,b)=>s+b.qty,0)), pending:pending };
+  });
+  const pend=rows.filter(x=>x.pending).length;
+  openSlip({ head:"Trip statement", sub:name+" · "+rows.length+" trip"+(rows.length===1?"":"s")+" · "+dmy(from)+" – "+dmy(to),
+    note:"Each trip with its invoices and the invoiced litres"+(pend?"; "+pend+" trip"+(pend===1?"":"s")+" with no invoice yet show “to follow”, without litres":"")+".",
+    name:"Statement-"+name.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"")+"-"+from.replace(/-/g,"")+"-"+to.replace(/-/g,""),
+    custName:full,
+    make:typed=>Slip.statement({ dark:slipDark(), customer:typed.cust || full, period:dmy(from)+" – "+dmy(to), rows:rows }) });
 }
 function alertsViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';
@@ -4509,7 +4711,7 @@ function prebilled(plate){
     bd.forEach(n=>{ dests[n]=1; });
     // one Sold-to customer for the bill (its unit says which): litres and bill nos per customer
     const k=bd.length===1 ? bd[0] : bd.length ? bd.join(" / ") : b.customer;
-    (by[k]=by[k]||{ to:k, qty:0, nos:[] }); by[k].qty=r2(by[k].qty+b.qty); by[k].nos.push("#"+b.bill_no);
+    (by[k]=by[k]||{ to:k, qty:0, nos:[], bills:[] }); by[k].qty=r2(by[k].qty+b.qty); by[k].nos.push("#"+b.bill_no); by[k].bills.push(b);
   });
   const parts=Object.keys(by).map(k=>by[k]);
   return { bills:xs.map(x=>x.bill), total:r2(xs.reduce((s,x)=>s+x.bill.qty,0)), nos:xs.map(x=>"#"+x.bill.bill_no).join(" + "),
