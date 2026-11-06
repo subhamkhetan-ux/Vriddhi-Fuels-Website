@@ -2,8 +2,7 @@
    A trip slip (one sale: tanker, when, invoices) and a trip statement (a
    customer's trips over a period), drawn on a canvas in the app's colours,
    shared as PNG or as a PDF (written here, no library). Takes the figures
-   ready to print; every quantity carries the label the app gives it
-   ("Invoiced" = the bills' litres, "Dispatched" = the litres sent). */
+   ready to print; the litres on them are always the invoiced ones. */
 (function(){
   const LOGO = "../Vriddhi%20Fuels%20Logo.png";
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -60,9 +59,10 @@
     return w;
   }
   /* The app's tanker (index.html tankerSVG), drawn on the canvas: the same
-     320-unit side view, chambers as wide as their share of the capacity,
-     each sight glass filled to `fill` (0..1). Wide `w`, from (x, y). */
-  function tanker(ctx, caps, fill, x, y, w){
+     320-unit side view, chambers as wide as their share of the capacity and
+     numbered, each sight glass filled to `fill` (0..1), the livery naming
+     the tanker's rated size (`kl`). Wide `w`, from (x, y). */
+  function tanker(ctx, caps, fill, kl, x, y, w){
     const s = w / 320, TX = 52, TY = 10, TW = 262, TH = 54, GT = 19, GB = 50.5, OT = TY + 43, BOT = TY + TH;
     const capT = caps.reduce((a, c) => a + (+c || 0), 0) || 1;
     ctx.save(); ctx.translate(x, y + 8 * s); ctx.scale(s, s);
@@ -84,7 +84,7 @@
     bx.slice(0, -1).forEach(b => { ctx.beginPath(); ctx.moveTo(b.x + b.w, TY + 7); ctx.lineTo(b.x + b.w, BOT); ctx.stroke(); });
     ctx.restore();
     if ("letterSpacing" in ctx) ctx.letterSpacing = "0.75px";
-    txt(ctx, "VRIDDHI FUELS · " + (Math.round(capT / 10) / 100) + " KL", TX + TW / 2, TY + 5.1, "700 4.8px " + DISPLAY, "#fff", "center");
+    txt(ctx, "VRIDDHI FUELS" + (kl ? " · " + kl + " KL" : ""), TX + TW / 2, TY + 5.1, "700 4.8px " + DISPLAY, "#fff", "center");
     if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
     const liq = ctx.createLinearGradient(0, GT, 0, GB); liq.addColorStop(0, "#5fd69a"); liq.addColorStop(1, "#1f9d55");
     bx.forEach((b, i) => {                                                // sight glasses, filled
@@ -94,13 +94,7 @@
       rr(ctx, gx, GT, gw, GB - GT, 4); ctx.lineWidth = 1; ctx.strokeStyle = "#8d969e"; ctx.stroke();
     });
     rr(ctx, TX, TY, TW, TH, 10); ctx.lineWidth = 1.2; ctx.strokeStyle = "rgba(0,0,0,.18)"; ctx.stroke();
-    bx.forEach((b, i) => {                                                // "C1 3,985"
-      ctx.font = "800 7.4px " + DISPLAY; const a = "C" + (i + 1), aw = ctx.measureText(a).width;
-      ctx.font = "600 5.4px " + DISPLAY; const c = nf(caps[i]), cw = ctx.measureText(c).width;
-      const left = b.x + b.w / 2 - (aw + 3 + cw) / 2;
-      txt(ctx, a, left, OT + 8.2, "800 7.4px " + DISPLAY, "#fff");
-      ctx.globalAlpha = 0.9; txt(ctx, c, left + aw + 3, OT + 8.2, "600 5.4px " + DISPLAY, "#fff"); ctx.globalAlpha = 1;
-    });
+    bx.forEach((b, i) => txt(ctx, "C" + (i + 1), b.x + b.w / 2, OT + 8.2, "800 7.4px " + DISPLAY, "#fff", "center"));   // "C1"
     [30, 214, 250, 286].forEach(wx => {                                   // wheels
       ctx.beginPath(); ctx.arc(wx, 79, 10, 0, Math.PI * 2); ctx.fillStyle = "#1b1b1b"; ctx.fill();
       ctx.beginPath(); ctx.arc(wx, 79, 4.2, 0, Math.PI * 2); ctx.fillStyle = "#b9bfc6"; ctx.fill();
@@ -125,21 +119,20 @@
   }
   function canvas(W, H){ const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); return c; }
 
-  /* One sale. d = { customer, plate, ts, caps, fill (0..1 a chamber),
-     bills:[{no, date (YYYY-MM-DD) | null, qty | null}], dispatched }
-     Bills with their litres: the invoiced litres and each invoice. Invoice
-     nos. alone (typed for the picture): the litres dispatched, with them.
-     No bill: the litres dispatched, the invoice to follow. */
+  /* One sale. d = { customer, plate, ts, caps, fill (0..1 a chamber), kl,
+     invoices:[{no, date (YYYY-MM-DD) | null, qty | null}], qty }
+     qty: the invoiced litres (the bills', or typed with the invoice no.) —
+     shown when known; with no invoice, "Invoice to follow" and no litres. */
   function trip(d){
     return ready().then(im => {
-      const W = 1080, bills = d.bills || [], billed = bills.length > 0 && bills.every(b => b.qty != null);
+      const W = 1080, inv = d.invoices || [], hasQ = d.qty != null && d.qty > 0;
       const art = d.caps && d.caps.length ? Math.round((W - 128) * 98 / 320) + 40 : 0;
-      const H = 1180 + art + Math.max(0, bills.length - 1) * 76;
+      const H = 1180 + art + Math.max(0, inv.length - 1) * 76 - (hasQ ? 0 : 190);
       const c = canvas(W, H), ctx = c.getContext("2d");
       let y = header(ctx, W, "Trip slip", im) + 90;
       txt(ctx, "TO", 64, y, "700 24px " + SANS, C.muted); y += 64;
       txt(ctx, d.customer || "—", 64, y, "800 58px " + DISPLAY, C.ink, "left", W - 128); y += 70;
-      if (art) { y += 30; y += tanker(ctx, d.caps, d.fill, 64, y, W - 128) + 10; }
+      if (art) { y += 30; y += tanker(ctx, d.caps, d.fill, d.kl, 64, y, W - 128) + 10; }
 
       // tanker and when
       y += 20; rr(ctx, 64, y, W - 128, 180, 28); ctx.fillStyle = C.soft; ctx.fill();
@@ -150,16 +143,17 @@
       txt(ctx, time(d.ts), W - 104, y + 152, "600 30px " + SANS, C.muted, "right");
       y += 180 + 80;
 
-      // the quantity
-      txt(ctx, billed ? "QUANTITY INVOICED" : "QUANTITY DISPATCHED", 64, y, "700 24px " + SANS, C.muted); y += 112;
-      const q = billed ? bills.reduce((s, b) => s + (+b.qty || 0), 0) : d.dispatched;
-      const w = txt(ctx, nf(q), 64, y, "800 120px " + DISPLAY, C.ink);
-      txt(ctx, "litres", 64 + w + 20, y, "700 40px " + DISPLAY, C.orange); y += 70;
+      // the quantity invoiced
+      if (hasQ) {
+        txt(ctx, "QUANTITY INVOICED", 64, y, "700 24px " + SANS, C.muted); y += 112;
+        const w = txt(ctx, nf(d.qty), 64, y, "800 120px " + DISPLAY, C.ink);
+        txt(ctx, "litres", 64 + w + 20, y, "700 40px " + DISPLAY, C.orange); y += 70;
+      }
 
       // the invoices
-      if (bills.length) {
+      if (inv.length) {
         y += 10;
-        bills.forEach(b => {
+        inv.forEach(b => {
           ctx.fillStyle = C.line; ctx.fillRect(64, y, W - 128, 2); y += 56;
           txt(ctx, "Invoice #" + b.no, 64, y, "700 32px " + DISPLAY, C.ink, "left", 520);
           txt(ctx, isNaN(keyDate(b.date)) ? "" : dateShort(keyDate(b.date)), 620, y, "500 28px " + SANS, C.muted);
@@ -167,6 +161,7 @@
           y += 20;
         });
       } else {
+        y -= 30;
         rr(ctx, 64, y, W - 128, 80, 20); ctx.fillStyle = "rgba(250,178,25,.16)"; ctx.fill();
         txt(ctx, "Invoice to follow.", 96, y + 52, "600 28px " + SANS, C.warn);
       }
@@ -177,8 +172,8 @@
 
   /* A customer's trips over a period, on A4 pages. d = { customer, period,
      rows:[{ ts, plate, bills:"#4781, #4782", qty, pending }] }: qty is the
-     invoiced litres, or for a trip still waiting for its bills (pending)
-     the litres dispatched. */
+     invoiced litres; a trip still waiting for its invoice (pending) shows
+     "to follow" and no litres. */
   function statement(d){
     return ready().then(im => {
       const W = 1240, H = 1754, rows = d.rows || [], ROW = 70, X = 64;
@@ -226,14 +221,13 @@
           txt(ctx, time(r.ts), cols.time, by, "500 26px " + SANS, C.muted);
           txt(ctx, r.plate, cols.plate, by, "600 26px " + MONO, C.ink);
           txt(ctx, r.pending ? "to follow" : r.bills, cols.bills, by, (r.pending ? "italic 500 24px " : "600 26px ") + SANS, r.pending ? C.warn : C.ink, "left", cols.qty - cols.bills - 190);
-          txt(ctx, nf(r.qty) + (r.pending ? " *" : ""), cols.qty, by, "700 28px " + DISPLAY, C.ink, "right");
+          txt(ctx, r.pending ? "—" : nf(r.qty), cols.qty, by, "700 28px " + DISPLAY, r.pending ? C.faint : C.ink, "right");
           y += ROW;
         });
         if (p === pages.length - 1) {
           ctx.fillStyle = C.ink; ctx.fillRect(X, y, W - 2 * X, 3); y += 58;
           txt(ctx, "Total invoiced", cols.date, y, "800 30px " + DISPLAY, C.ink);
           txt(ctx, nf(invoiced) + " L", cols.qty, y, "800 32px " + DISPLAY, C.ink, "right");
-          if (pend.length) { y += 50; txt(ctx, "* dispatched — invoice to follow (not in the total)", cols.date, y, "500 24px " + SANS, C.warn); }
           if (!rows.length) { y += 50; txt(ctx, "No trips in this period.", cols.date, y, "500 26px " + SANS, C.muted); }
         }
         footer(ctx, W, H, pages.length > 1 ? "Page " + (p + 1) + " of " + pages.length : "");

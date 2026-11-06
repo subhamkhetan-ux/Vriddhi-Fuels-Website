@@ -414,24 +414,26 @@ days. Deleting a sale from History (within those 7 days) removes its trip too.
 
 A picture (PNG) or PDF for the customer, made on the phone and sent with its
 share sheet (WhatsApp, Mail…); a browser that can't share files downloads them.
+The litres on them are always the **invoiced** litres.
 
 - **Trip slip** — one sale: *To* (the customer), the **tanker drawn as on
-  Home** (its chambers to scale, each sight glass filled with what it carried),
-  its plate, when it was sent, and the **quantity invoiced** with each invoice
-  (bill no., date, litres). It opens right after **Sent for sale** (when a customer was picked —
-  with the bills raised for that customer before the sale), and from 📤 on a
-  sale in **History** or on a trip in **Trips per tanker**. A trip with no bill
-  yet shows the **quantity dispatched** (the litres sent) with *Invoice to follow*;
-  type its **invoice no.** in the sheet to put it on the picture instead (only
-  there — nothing is saved; several nos. can be separated by commas).
+  Home** with its rated size in the livery (*12 KL*, *18 KL*: the capacity to
+  the nearest KL) and its chambers numbered, its plate, when it was sent, and
+  the **quantity invoiced** with each invoice (bill no., date, litres). It
+  opens right after **Sent for sale** (when a customer was picked — with the
+  bills raised for that customer before the sale), and from 📤 on a sale in
+  **History** or on a trip in **Trips per tanker**. A trip with no bill yet:
+  type the **invoice no.** and its **invoiced litres** in the sheet (the litres
+  start at the tanker's rated size) to put them on the picture — only there,
+  nothing is saved; several nos. can be separated by commas. Left empty, the
+  picture says *Invoice to follow*, without litres.
 - **Trip statement** — on **Trips per tanker → Customer**, *📤 Send trip
   statement*: the customer's trips in the period on screen, one row each (date,
   time, tanker, invoice nos., litres invoiced), with the trips, the **total
-  invoiced** and the trips still waiting for a bill (their dispatched litres,
-  marked *to follow*, kept out of the total). A4 pages; the PDF has them all.
+  invoiced** and the trips still waiting for a bill (*to follow*, no litres).
+  A4 pages; the PDF has them all.
 
-Every figure carries its label: *invoiced* is what the bills say, *dispatched*
-is what was sent. Drawn by [`slip.js`](./slip.js).
+Drawn by [`slip.js`](./slip.js).
 
 ## Invoice check — tagging each trip's bills (🧾)
 

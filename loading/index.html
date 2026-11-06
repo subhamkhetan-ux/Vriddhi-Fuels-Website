@@ -301,8 +301,9 @@
   .slipview{margin-top:10px;max-height:52vh;overflow-y:auto;border-radius:14px;border:1px solid var(--line);background:#fff;
     display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px;color:var(--muted);font-size:13px}
   .slipview img{display:block;width:100%;height:auto}
-  #slipInvWrap{display:block;margin-top:10px}
-  #slipInvWrap input{display:block;width:100%;margin-top:6px}
+  .sliprow{display:flex;gap:10px;margin-top:6px}
+  .sliprow label{flex:1;min-width:0;margin:0}
+  .sliprow input{display:block;width:100%;margin-top:6px}
   .slipview img+img{border-top:6px solid var(--line)}
   .trrow .share{border:0;background:none;font-size:16px;cursor:pointer;padding:2px 4px;color:var(--muted)}
   .stmtbtn{display:block;width:100%;margin-top:8px;border:1px solid var(--line);background:var(--glass-2);color:var(--ink);
@@ -1522,8 +1523,13 @@
   <div class="modalbox wide">
     <div class="mh" id="slipHead">Send to the customer</div>
     <div class="mp" id="slipSub">—</div>
-    <label class="mlab" id="slipInvWrap" hidden>Invoice no. — only on this picture (leave empty: “Invoice to follow”)
-      <input id="slipInv" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 4827" /></label>
+    <div id="slipInvWrap" hidden>
+      <div class="note" style="text-align:left;margin:10px 2px 0">For this picture only — nothing is saved. Leave the invoice no. empty for “Invoice to follow”.</div>
+      <div class="sliprow">
+        <label class="mlab">Invoice no.<input id="slipInv" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 4827" /></label>
+        <label class="mlab">Invoiced litres<input id="slipQty" type="text" inputmode="numeric" autocomplete="off" /></label>
+      </div>
+    </div>
     <div class="slipview" id="slipView"><span>Making the picture…</span></div>
     <div class="note" id="slipNote" style="text-align:left;margin:8px 2px 0"></div>
     <div class="mbtns">
@@ -4156,14 +4162,16 @@ function custViewHTML(){
    the Trips screen, each with its invoices, and the total invoiced. */
 let slipJob=0, slipTyped=null;
 // o: { head, sub, note, name, make(typed) → canvases, invoiceBox (show the
-// "invoice no. for this picture" box; make() gets what's typed in it) }
+// invoice no. / litres boxes for this picture, the litres preset to
+// qtyPreset; make() and note() get {no, qty} as typed) }
 function openSlip(o){
   $("#slipHead").textContent=o.head; $("#slipSub").textContent=o.sub;
-  $("#slipInvWrap").hidden=!o.invoiceBox; $("#slipInv").value="";
+  $("#slipInvWrap").hidden=!o.invoiceBox; $("#slipInv").value=""; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
   $("#slipModal").classList.add("on");
   if(!window.Slip){ $("#slipView").innerHTML="<span>Couldn't load the picture maker — reload the app.</span>"; return; }
   const draw=()=>{
-    const job=++slipJob, typed=$("#slipInv").value.trim();
+    const job=++slipJob, q=parseFloat(String($("#slipQty").value).replace(/,/g,""));
+    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null };
     $("#slipNote").textContent = typeof o.note==="function" ? o.note(typed) : (o.note||"");
     $("#slipImg").disabled=true; $("#slipPdf").disabled=true;
     if(!$("#slipView").querySelector("img")) $("#slipView").innerHTML="<span>Making the picture…</span>";
@@ -4180,7 +4188,7 @@ function openSlip(o){
     }).catch(e=>{ if(job===slipJob) $("#slipView").innerHTML="<span>Couldn't make the picture: "+esc(e && e.message || e)+"</span>"; });
   };
   $("#slipView").innerHTML="";
-  $("#slipInv").oninput=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); };
+  $("#slipInv").oninput=$("#slipQty").oninput=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); };
   draw();
 }
 function closeSlip(){ slipJob++; clearTimeout(slipTyped); $("#slipModal").classList.remove("on"); }
@@ -4190,22 +4198,29 @@ const slipBill=b=>({ no:b.bill_no, date:b.date, qty:+b.qty||0 });
 const fileDate=ts=>dayKey(ts).replace(/-/g,"");
 // t: a trip ({id, plate, ts, total, dest}); bills: given, else the ones tagged on it.
 // The drawing: the tanker's chambers, each filled with what it carried on
-// this sale (the sale's own record while it is in the 7-day log), else evenly.
+// this sale (the sale's own record while it is in the 7-day log), else
+// evenly, and its rated size in KL (the capacity to the nearest KL: 12, 18).
+// The litres are the invoiced ones: the bills', or typed with the invoice
+// no. for this picture (preset to the rated size); none without an invoice.
+const ratedKL=caps=>Math.round(caps.reduce((a,c)=>a+(+c||0),0)/1000);
 function openTripSlip(t, bills, head){
   const r=recRow(t.id), list=(bills && bills.length ? bills : r && r.tags ? r.tags : []).map(slipBill);
-  const v=vehicleOf(t.plate), caps=v ? v.caps.map(Number) : [];
+  const v=vehicleOf(t.plate), caps=v ? v.caps.map(Number) : [], kl=caps.length ? ratedKL(caps) : 0;
   const ev=LOG.find(x=>x.id===t.id), capT=caps.reduce((a,c)=>a+c,0);
   const fill=caps.map((c,i)=>{ const q=ev && ev.chambers ? (ev.chambers.find(x=>x.name==="C"+(i+1))||{}).qty : null;
     return c>0 ? (q!=null ? (+q||0)/c : capT ? (+t.total||0)/capT : 0) : 0; });
+  const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
-    invoiceBox:!list.length,
+    invoiceBox:!list.length, qtyPreset:kl*1000,
     note:typed=>list.length ? "Shows the invoiced litres: "+list.map(b=>"#"+b.no).join(", ")+"."
-      : typed ? "Shows invoice #"+typed+" with the litres dispatched. The number is only on this picture, not saved."
-      : "No invoice on this trip yet: shows the litres dispatched, invoice to follow.",
+      : nos(typed).length ? "Shows invoice "+nos(typed).map(n=>"#"+n).join(", ")+(typed.qty ? " for "+fmt(typed.qty)+" L" : "")+"."
+      : "No invoice yet: the picture says “Invoice to follow”, without litres.",
     name:"Trip-"+plateKey(t.plate)+"-"+fileDate(t.ts),
-    make:typed=>Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, caps:caps, fill:fill,
-      bills: list.length ? list : typed ? typed.split(/[\s,+&\/]+/).filter(Boolean).map(no=>({ no:no.replace(/^#/,""), date:null, qty:null })) : [],
-      dispatched:t.total }) });
+    make:typed=>{
+      const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
+      const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
+      return Slip.trip({ customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, caps:caps, fill:fill, kl:kl, invoices:inv, qty:qty });
+    } });
 }
 function openStatement(key){
   const a=INVD && INVD.rec.perCust.find(x=>x.key===key); if(!a) return;
@@ -4213,11 +4228,11 @@ function openStatement(key){
   const from=$("#trFrom").value, to=$("#trTo").value;
   const rows=a.tripIds.map(recRow).filter(r=>r && r.inRange).sort((x,y)=>x.trip.ts-y.trip.ts).map(r=>{
     const bills=(r.tags||[]).map(slipBill), pending=!bills.length;
-    return { ts:r.trip.ts, plate:fmtPlate(r.trip.plate), bills:bills.map(b=>"#"+b.no).join(", "), qty:pending ? r.trip.total : r2(bills.reduce((s,b)=>s+b.qty,0)), pending:pending };
+    return { ts:r.trip.ts, plate:fmtPlate(r.trip.plate), bills:bills.map(b=>"#"+b.no).join(", "), qty:pending ? null : r2(bills.reduce((s,b)=>s+b.qty,0)), pending:pending };
   });
   const pend=rows.filter(x=>x.pending).length;
   openSlip({ head:"Trip statement", sub:name+" · "+rows.length+" trip"+(rows.length===1?"":"s")+" · "+dmy(from)+" – "+dmy(to),
-    note:"Each trip with its invoices and the invoiced litres"+(pend?"; "+pend+" trip"+(pend===1?"":"s")+" with no invoice yet show the litres dispatched, marked “to follow”, outside the total":"")+".",
+    note:"Each trip with its invoices and the invoiced litres"+(pend?"; "+pend+" trip"+(pend===1?"":"s")+" with no invoice yet show “to follow”, without litres":"")+".",
     name:"Statement-"+name.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"")+"-"+from.replace(/-/g,"")+"-"+to.replace(/-/g,""),
     make:()=>Slip.statement({ customer:name, period:dmy(from)+" – "+dmy(to), rows:rows }) });
 }
