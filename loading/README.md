@@ -415,12 +415,15 @@ days. Deleting a sale from History (within those 7 days) removes its trip too.
 A picture (PNG) or PDF for the customer, made on the phone and sent with its
 share sheet (WhatsApp, Mail…); a browser that can't share files downloads them.
 
-- **Trip slip** — one sale: *To* (the customer), the tanker's plate, when it
-  was sent, and the **quantity invoiced** with each invoice (bill no., date,
-  litres). It opens right after **Sent for sale** (when a customer was picked —
+- **Trip slip** — one sale: *To* (the customer), the **tanker drawn as on
+  Home** (its chambers to scale, each sight glass filled with what it carried),
+  its plate, when it was sent, and the **quantity invoiced** with each invoice
+  (bill no., date, litres). It opens right after **Sent for sale** (when a customer was picked —
   with the bills raised for that customer before the sale), and from 📤 on a
   sale in **History** or on a trip in **Trips per tanker**. A trip with no bill
-  yet shows the **quantity dispatched** (the litres sent) with *Invoice to follow*.
+  yet shows the **quantity dispatched** (the litres sent) with *Invoice to follow*;
+  type its **invoice no.** in the sheet to put it on the picture instead (only
+  there — nothing is saved; several nos. can be separated by commas).
 - **Trip statement** — on **Trips per tanker → Customer**, *📤 Send trip
   statement*: the customer's trips in the period on screen, one row each (date,
   time, tanker, invoice nos., litres invoiced), with the trips, the **total

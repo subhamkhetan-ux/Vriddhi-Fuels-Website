@@ -59,6 +59,55 @@
     txt(ctx, s, x + strip + h * 0.3, y + h * 0.7, "600 " + Math.round(h * 0.52) + "px " + MONO, "#0f1320");
     return w;
   }
+  /* The app's tanker (index.html tankerSVG), drawn on the canvas: the same
+     320-unit side view, chambers as wide as their share of the capacity,
+     each sight glass filled to `fill` (0..1). Wide `w`, from (x, y). */
+  function tanker(ctx, caps, fill, x, y, w){
+    const s = w / 320, TX = 52, TY = 10, TW = 262, TH = 54, GT = 19, GB = 50.5, OT = TY + 43, BOT = TY + TH;
+    const capT = caps.reduce((a, c) => a + (+c || 0), 0) || 1;
+    ctx.save(); ctx.translate(x, y + 8 * s); ctx.scale(s, s);
+    const box = (bx, by, bw, bh, r, color) => { rr(ctx, bx, by, bw, bh, r); ctx.fillStyle = color; ctx.fill(); };
+    let cx = TX; const bx = caps.map(c => { const cw = TW * ((+c || 0) / capT), o = { x: cx, w: cw }; cx += cw; return o; });
+    box(44, BOT, TX + TW - 44, 5, 0.01, "#86c5de");                       // chassis
+    box(TX + 8, BOT + 3, 56, 8, 2, "#a8b0b8"); ctx.lineWidth = 0.8; ctx.strokeStyle = "#6d757d"; ctx.stroke();
+    box(8, 28, 40, 42, 6, "#1e3a8a"); ctx.fillStyle = "#f4f4f2"; ctx.fillRect(8, 52, 40, 13);   // cab
+    box(11, 31.5, 34, 2.6, 1, "#f36a21");
+    ctx.globalAlpha = 0.9; box(11, 36.5, 34, 12, 3, "#9fb3c8"); ctx.globalAlpha = 1;
+    box(5, 64, 46, 6, 2, "#86c5de");
+    bx.forEach(b => box(b.x + b.w / 2 - 6, TY - 3.5, 12, 4.5, 1.6, "#59616a"));   // fillers
+    box(TX, TY, TW, TH, 10, "#f4f4f2");                                   // body and its bands
+    ctx.save(); rr(ctx, TX, TY, TW, TH, 10); ctx.clip();
+    ctx.fillStyle = "#1e3a8a"; ctx.fillRect(TX, TY, TW, 7);
+    ctx.fillStyle = "#ef6a28"; ctx.fillRect(TX, OT, TW, BOT - OT);
+    ctx.fillStyle = "#f5c02a"; ctx.fillRect(TX, OT - 1, TW, 1.6);
+    ctx.strokeStyle = "rgba(0,0,0,.16)"; ctx.lineWidth = 1;
+    bx.slice(0, -1).forEach(b => { ctx.beginPath(); ctx.moveTo(b.x + b.w, TY + 7); ctx.lineTo(b.x + b.w, BOT); ctx.stroke(); });
+    ctx.restore();
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "0.75px";
+    txt(ctx, "VRIDDHI FUELS · " + (Math.round(capT / 10) / 100) + " KL", TX + TW / 2, TY + 5.1, "700 4.8px " + DISPLAY, "#fff", "center");
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+    const liq = ctx.createLinearGradient(0, GT, 0, GB); liq.addColorStop(0, "#5fd69a"); liq.addColorStop(1, "#1f9d55");
+    bx.forEach((b, i) => {                                                // sight glasses, filled
+      const gw = Math.max(b.w - 8, 6), gx = b.x + b.w / 2 - gw / 2, f = Math.max(0, Math.min(1, +(fill && fill[i]) || 0));
+      box(gx, GT, gw, GB - GT, 4, "#20262c");
+      if (f > 0) { ctx.save(); rr(ctx, gx, GT, gw, GB - GT, 4); ctx.clip(); ctx.fillStyle = liq; ctx.fillRect(gx, GB - (GB - GT) * f, gw, (GB - GT) * f); ctx.restore(); }
+      rr(ctx, gx, GT, gw, GB - GT, 4); ctx.lineWidth = 1; ctx.strokeStyle = "#8d969e"; ctx.stroke();
+    });
+    rr(ctx, TX, TY, TW, TH, 10); ctx.lineWidth = 1.2; ctx.strokeStyle = "rgba(0,0,0,.18)"; ctx.stroke();
+    bx.forEach((b, i) => {                                                // "C1 3,985"
+      ctx.font = "800 7.4px " + DISPLAY; const a = "C" + (i + 1), aw = ctx.measureText(a).width;
+      ctx.font = "600 5.4px " + DISPLAY; const c = nf(caps[i]), cw = ctx.measureText(c).width;
+      const left = b.x + b.w / 2 - (aw + 3 + cw) / 2;
+      txt(ctx, a, left, OT + 8.2, "800 7.4px " + DISPLAY, "#fff");
+      ctx.globalAlpha = 0.9; txt(ctx, c, left + aw + 3, OT + 8.2, "600 5.4px " + DISPLAY, "#fff"); ctx.globalAlpha = 1;
+    });
+    [30, 214, 250, 286].forEach(wx => {                                   // wheels
+      ctx.beginPath(); ctx.arc(wx, 79, 10, 0, Math.PI * 2); ctx.fillStyle = "#1b1b1b"; ctx.fill();
+      ctx.beginPath(); ctx.arc(wx, 79, 4.2, 0, Math.PI * 2); ctx.fillStyle = "#b9bfc6"; ctx.fill();
+    });
+    ctx.restore();
+    return 98 * s;                                                        // the height drawn
+  }
   function header(ctx, W, title, im){
     const H = 230, g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, "#E5420E"); g.addColorStop(0.5, "#F7651C"); g.addColorStop(1, "#FF9A3C");
@@ -76,17 +125,21 @@
   }
   function canvas(W, H){ const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); return c; }
 
-  /* One sale. d = { customer, plate, ts, bills:[{no, date (YYYY-MM-DD), qty}], dispatched }
-     With bills: the invoiced litres and each invoice. Without: the litres
-     dispatched, the invoice to follow. */
+  /* One sale. d = { customer, plate, ts, caps, fill (0..1 a chamber),
+     bills:[{no, date (YYYY-MM-DD) | null, qty | null}], dispatched }
+     Bills with their litres: the invoiced litres and each invoice. Invoice
+     nos. alone (typed for the picture): the litres dispatched, with them.
+     No bill: the litres dispatched, the invoice to follow. */
   function trip(d){
     return ready().then(im => {
-      const W = 1080, bills = d.bills || [], billed = bills.length > 0;
-      const H = 1180 + Math.max(0, bills.length - 1) * 76;
+      const W = 1080, bills = d.bills || [], billed = bills.length > 0 && bills.every(b => b.qty != null);
+      const art = d.caps && d.caps.length ? Math.round((W - 128) * 98 / 320) + 40 : 0;
+      const H = 1180 + art + Math.max(0, bills.length - 1) * 76;
       const c = canvas(W, H), ctx = c.getContext("2d");
       let y = header(ctx, W, "Trip slip", im) + 90;
       txt(ctx, "TO", 64, y, "700 24px " + SANS, C.muted); y += 64;
       txt(ctx, d.customer || "—", 64, y, "800 58px " + DISPLAY, C.ink, "left", W - 128); y += 70;
+      if (art) { y += 30; y += tanker(ctx, d.caps, d.fill, 64, y, W - 128) + 10; }
 
       // tanker and when
       y += 20; rr(ctx, 64, y, W - 128, 180, 28); ctx.fillStyle = C.soft; ctx.fill();
@@ -104,13 +157,13 @@
       txt(ctx, "litres", 64 + w + 20, y, "700 40px " + DISPLAY, C.orange); y += 70;
 
       // the invoices
-      if (billed) {
+      if (bills.length) {
         y += 10;
         bills.forEach(b => {
           ctx.fillStyle = C.line; ctx.fillRect(64, y, W - 128, 2); y += 56;
-          txt(ctx, "Invoice #" + b.no, 64, y, "700 32px " + DISPLAY, C.ink);
-          txt(ctx, isNaN(keyDate(b.date)) ? "" : dateShort(keyDate(b.date)), 420, y, "500 28px " + SANS, C.muted);
-          txt(ctx, nf(b.qty) + " L", W - 64, y, "700 32px " + DISPLAY, C.ink, "right");
+          txt(ctx, "Invoice #" + b.no, 64, y, "700 32px " + DISPLAY, C.ink, "left", 520);
+          txt(ctx, isNaN(keyDate(b.date)) ? "" : dateShort(keyDate(b.date)), 620, y, "500 28px " + SANS, C.muted);
+          if (b.qty != null) txt(ctx, nf(b.qty) + " L", W - 64, y, "700 32px " + DISPLAY, C.ink, "right");
           y += 20;
         });
       } else {
