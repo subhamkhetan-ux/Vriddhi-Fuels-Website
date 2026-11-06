@@ -1534,6 +1534,8 @@
     <div class="mp" id="slipSub">—</div>
     <label class="mlab" id="slipCustWrap" hidden style="display:block;margin-top:10px">Customer's name on the picture
       <input id="slipCust" type="text" autocomplete="off" style="display:block;width:100%;margin-top:6px" /></label>
+    <label class="mlab" id="slipPoWrap" hidden style="display:block;margin-top:10px"><span id="slipPoLab">PO no.</span>
+      <input id="slipPo" type="text" autocomplete="off" placeholder="empty: no PO on the picture" style="display:block;width:100%;margin-top:6px" /></label>
     <div id="slipXWrap" hidden>
       <div class="note" style="text-align:left;margin:10px 2px 0" id="slipXNote">For this picture only — nothing is saved. Density or seal no. left empty stays off the picture; no invoice no. shows “Invoice to follow”.</div>
       <div class="sliprow" id="slipInvWrap">
@@ -4191,13 +4193,14 @@ function openSlip(o){
   $("#slipHead").textContent=o.head; $("#slipSub").textContent=o.sub;
   $("#slipXWrap").hidden=!o.extras; $("#slipInvWrap").hidden=!o.invoiceBox;
   $("#slipCustWrap").hidden=o.custName==null; $("#slipCust").value=o.custName||"";
+  $("#slipPoWrap").hidden=o.po==null; $("#slipPo").value=o.po||""; $("#slipPoLab").textContent=o.poWhy ? "PO no. — "+o.poWhy : "PO no.";
   $("#slipInv").value=""; $("#slipDen").value=""; $("#slipSeal").value=""; $("#slipObs").value=""; $("#slipTemp").value=""; delete $("#slipDen").dataset.typed; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
   $("#slipModal").classList.add("on");
   if(!window.Slip){ $("#slipView").innerHTML="<span>Couldn't load the picture maker — reload the app.</span>"; return; }
   const draw=()=>{
     const job=++slipJob, q=parseFloat(String($("#slipQty").value).replace(/,/g,""));
     const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null, density:$("#slipDen").value.trim(), seal:$("#slipSeal").value.trim(), cust:$("#slipCust").value.trim(),
-      obs:$("#slipObs").value.trim(), temp:$("#slipTemp").value.trim() };
+      obs:$("#slipObs").value.trim(), temp:$("#slipTemp").value.trim(), po:$("#slipPo").value.trim() };
     $("#slipNote").textContent = typeof o.note==="function" ? o.note(typed) : (o.note||"");
     $("#slipImg").disabled=true; $("#slipPdf").disabled=true;
     if(!$("#slipView").querySelector("img")) $("#slipView").innerHTML="<span>Making the picture…</span>";
@@ -4215,7 +4218,7 @@ function openSlip(o){
   };
   $("#slipView").innerHTML="";
   const later=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); };
-  ["#slipInv","#slipQty","#slipSeal","#slipCust"].forEach(id=>{ $(id).oninput=later; });
+  ["#slipInv","#slipQty","#slipSeal","#slipCust","#slipPo"].forEach(id=>{ $(id).oninput=later; });
   // the density at 15 °C is worked out from the reading and its temperature
   // (Slip.density15: the chart's Table 53B), unless typed over by hand
   const den15=()=>{
@@ -4244,6 +4247,46 @@ function fullName(dest, bills){
   const links=(INVD && INVD.links) || (INV_WATCH.d && INV_WATCH.d.links) || LINKS || [];
   const l=d && links.find(x=>String(x.dest||"").trim().toLowerCase()===d && x.customer);
   return l ? l.customer : (dest||"");
+}
+/* The PO for a trip slip, from the ledger (admins with the ledger connected):
+   its PO lists and bills (ledger_po_data) run through the ledger's own rule
+   (ledger/js/po.js, as its Bulk sheets and statements do), so a bill's PO
+   here is the one the ledger shows. A trip with bills: their PO(s). A trip
+   not billed yet: the PO its customer's next bill of those litres would get
+   — the first in the list with enough left (unit-wise lists: the unit in
+   the "Sold to" name, e.g. SMC Unit 2). Read at most every 2 minutes. */
+const PO={ at:0, p:null };
+function poData(){
+  if(!isAdmin() || !LEDGER_ON) return Promise.resolve(null);
+  if(PO.p && Date.now()-PO.at<120e3) return PO.p;
+  PO.at=Date.now();
+  PO.p=Ledger.init().then(()=>Ledger.on() ? Promise.all([Ledger.rpc("ledger_po_data",{ p_code:null }), import("../ledger/js/po.js")]) : null)
+    .then(r=>r ? poIndex(r[0]||{}, r[1]) : null).catch(()=>{ PO.at=0; return null; });
+  return PO.p;
+}
+function poIndex(data, M){
+  const byBill={}, byCust={}, next={};
+  (data.groups||[]).filter(g=>g.kind==="po" || g.kind==="po_units").forEach(g=>{
+    const bills=(data.bills||[]).filter(b=>b.group===g.code).sort(M.billOrder);
+    const res=M.allocate({ kind:g.kind, units:g.units||[], pos:(data.pos||[]).filter(p=>p.group_code===g.code), bills:bills });
+    bills.forEach((b,i)=>{ const po=res.bills[i].po;
+      if(po) byBill[INV.billKey(b.product||"HSD", String(b.date||"").slice(0,10), b.bill_no)]=po; });
+    next[g.code]={ kind:g.kind, registers:res.registers };
+  });
+  (data.members||[]).forEach(m=>{ if(m.group) byCust[INV.normName(m.name)]=m.group; });
+  return { byBill:byBill, byCust:byCust, next:next, poKey:M.poKey };
+}
+// {po, why}: why says where it came from (for the box's label)
+function slipPo(ix, bills, cust, dest, qty){
+  if(!ix) return { po:"", why:"" };
+  const got=[...new Set((bills||[]).map(b=>ix.byBill[b.key || INV.billKey(b.product||"HSD", b.date, b.bill_no)]).filter(Boolean))];
+  if(got.length) return { po:got.join(", "), why:"the bill's PO in the ledger" };
+  const g=ix.byCust[INV.normName(cust)], n=g && ix.next[g];
+  if(!n || !(qty>0)) return { po:"", why:"" };
+  let reg=n.registers.length===1 ? n.registers[0] : null;
+  if(n.kind==="po_units"){ const d=ix.poKey(dest); reg=n.registers.find(r=>r.unit && d.indexOf(r.unit)>=0) || null; }
+  const p=reg && reg.pos.find(x=>x.balance>=qty);
+  return p ? { po:String(p.po_no).trim(), why:"the next PO with "+fmt(qty)+" L left" } : { po:"", why:"" };
 }
 // the links, read once for the pictures when no screen has them yet (a staff phone, Home)
 let slipLinks=null;
@@ -4274,8 +4317,8 @@ function billQty(caps, carried, total){
   return q;
 }
 // customer pictures are for admins only: a staff login never makes one
-function openTripSlip(t, bills, head){ if(!adminOnly()) return; withLinks(()=>tripSlip(t, bills, head)); }
-function tripSlip(t, bills, head){
+function openTripSlip(t, bills, head){ if(!adminOnly()) return; withLinks(()=>poData().then(ix=>tripSlip(t, bills, head, ix))); }
+function tripSlip(t, bills, head, ix){
   const r=recRow(t.id), raw=bills && bills.length ? bills : r && r.tags ? r.tags : [], list=raw.map(slipBill);
   const v=vehicleOf(t.plate), caps=v ? v.caps.map(Number) : [], kl=caps.length ? ratedKL(caps) : 0;
   const ev=LOG.find(x=>x.id===t.id), capT=caps.reduce((a,c)=>a+c,0);
@@ -4288,9 +4331,12 @@ function tripSlip(t, bills, head){
   // the slip's number: date (ddmmyy), tanker and time of the sale (VF-061126-5510-0743)
   const d0=new Date(t.ts), ref="VF-"+pad(d0.getDate())+pad(d0.getMonth()+1)+String(d0.getFullYear()).slice(2)
     +"-"+plateKey(t.plate).slice(-4)+"-"+pad(d0.getHours())+pad(d0.getMinutes());
+  const pick=slipPo(ix, raw, fullName(t.dest, raw), t.dest,
+    raw.length ? r2(raw.reduce((a,b)=>a+(+b.qty||0),0)) : caps.length ? billQty(caps, carried, t.total) : 0);
   const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
     custName:fullName(t.dest, raw), extras:true, invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
+    po:ix ? pick.po : null, poWhy:pick.why,
     note:typed=>list.length ? "Shows the invoiced litres: "+list.map(b=>"#"+b.no).join(", ")+"."
       : nos(typed).length ? "Shows invoice "+nos(typed).map(n=>"#"+n).join(", ")+(typed.qty ? " for "+fmt(typed.qty)+" L" : "")+"."
       : "No invoice yet: the picture says “Invoice to follow”, without litres.",
@@ -4298,7 +4344,7 @@ function tripSlip(t, bills, head){
     make:typed=>{
       const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
       const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
-      return Slip.trip({ dark:slipDark(), customer:typed.cust || t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, obs:typed.obs, temp:typed.temp, seal:typed.seal, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
+      return Slip.trip({ dark:slipDark(), customer:typed.cust || t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, obs:typed.obs, temp:typed.temp, seal:typed.seal, po:typed.po, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
     } });
 }
 function openStatement(key){

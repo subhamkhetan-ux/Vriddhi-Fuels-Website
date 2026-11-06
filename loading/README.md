@@ -450,6 +450,15 @@ be changed for the picture; a long name goes on two lines.
   the glass hydrometer's correction — and shown as *840.0 kg/m³ (828.2 @
   32°C)*; a figure typed over it by hand is kept (clear it to work it out
   again).
+- **PO no.** — with the ledger connected, the slip's sheet starts the *PO no.*
+  box with the ledger's PO: the trip's bills' PO (the ledger's own rule,
+  `ledger/js/po.js`, on its PO lists — the same PO its Bulk sheets show), or
+  for a trip not billed yet the PO its customer's next bill of those litres
+  would get (the first in the list with enough left; unit-wise lists such as
+  SMC's take the unit from the "Sold to" name, *SMC Unit 2*). It can be
+  changed; left empty, there's no PO on the picture. Read from the ledger at
+  most every 2 minutes (`ledger_po_data`; through the `loading-ledger` edge
+  function it is on its read list — redeploy the function once for it).
 - Customer pictures are for **admins only**: a staff login never gets the
   slip after a sale, nor 📤 on History.
 - **Trip statement** — on **Trips per tanker → Customer**, *📤 Send trip

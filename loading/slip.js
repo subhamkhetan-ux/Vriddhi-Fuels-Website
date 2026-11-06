@@ -179,7 +179,7 @@
 
   /* One sale. d = { customer, plate, ts, ref (the slip's number), density
      (at 15 °C), obs + temp (the hydrometer reading and its temperature),
-     seal (as typed; a row in the details card only when given), caps,
+     seal, po (as typed; in the details card only when given), caps,
      fill (0..1 a chamber), kl, chambers:[{ rated (L), loaded }] | null,
      invoices:[{no, date (YYYY-MM-DD) | null, qty | null}], qty }
      chambers: a card per chamber under the drawing, its rated capacity and
@@ -215,9 +215,16 @@
 
       // tanker, when, product, size (and density, seal no. when typed)
       const den = String(d.density || "").trim(), seal = String(d.seal || "").trim();
-      const obs = String(d.obs || "").trim(), temp = String(d.temp || "").trim();
-      const xrow = !!(den || obs || seal);
-      const cardH = xrow ? 480 : 330;
+      const obs = String(d.obs || "").trim(), temp = String(d.temp || "").trim(), po = String(d.po || "").trim();
+      // the typed details, two to a row: density (with its reading), PO no., seal no.
+      const unit = v => v + (/[a-z]/i.test(v) ? "" : " kg/m³");
+      const reading = obs ? "(" + obs + (temp ? " @ " + temp + "°C" : "") + ")" : "";
+      const cells = [];
+      if (den || obs) cells.push({ lab: den ? "DENSITY @ 15°C" : "DENSITY", val: den ? unit(den) : unit(obs) + (temp ? " @ " + temp + "°C" : ""), sub: den ? reading : "" });
+      if (po) cells.push({ lab: "PO NO.", val: po });
+      if (seal) cells.push({ lab: "SEAL NO.", val: seal });
+      const rows = Math.ceil(cells.length / 2);
+      const cardH = 330 + rows * 150;
       y += 20; rr(ctx, 64, y, W - 128, cardH, 28); ctx.fillStyle = C.soft; ctx.fill();
       txt(ctx, "TANKER", 104, y + 56, "700 22px " + SANS, C.muted);
       plate(ctx, d.plate || "—", 104, y + 78, 74);
@@ -229,21 +236,21 @@
       txt(ctx, PRODUCT, 104, y + 280, "700 34px " + DISPLAY, C.ink, "left", 520);
       txt(ctx, "TANKER SIZE", W - 104, y + 230, "700 22px " + SANS, C.muted, "right");
       txt(ctx, (d.kl ? d.kl + " KL" : "—") + (d.caps && d.caps.length ? " · " + d.caps.length + " chamber" + (d.caps.length === 1 ? "" : "s") : ""), W - 104, y + 280, "700 34px " + DISPLAY, C.ink, "right", 300);
-      if (xrow) {
-        ctx.fillStyle = C.line; ctx.fillRect(104, y + 332, W - 208, 2);
-        // density on the left — at 15 °C, the reading and its temperature in
-        // brackets — seal no. on the right; one alone takes the left
-        const unit = v => v + (/[a-z]/i.test(v) ? "" : " kg/m³");
-        const reading = obs ? "(" + obs + (temp ? " @ " + temp + "°C" : "") + ")" : "";
-        const cells = [];
-        if (den || obs) cells.push({ lab: den ? "DENSITY @ 15°C" : "DENSITY", val: den ? unit(den) : unit(obs) + (temp ? " @ " + temp + "°C" : ""), sub: den ? reading : "" });
-        if (seal) cells.push({ lab: "SEAL NO.", val: seal });
-        cells.forEach((cl, k) => {
+      for (let rI = 0; rI < rows; rI++) {
+        const ly = y + 332 + rI * 150;                                   // the divider above the row
+        ctx.fillStyle = C.line; ctx.fillRect(104, ly, W - 208, 2);
+        const pair = cells.slice(rI * 2, rI * 2 + 2);
+        pair.forEach((cl, k) => {
           const right = k === 1, x = right ? W - 104 : 104, al = right ? "right" : "left";
-          const maxW = cells.length > 1 ? (right ? 330 : 520) : W - 208;
-          txt(ctx, cl.lab, x, y + 380, "700 22px " + SANS, C.muted, al);
-          const w = txt(ctx, cl.val, x, y + 430, "700 34px " + DISPLAY, C.ink, al, maxW);
-          if (cl.sub) txt(ctx, cl.sub, x + w + 12, y + 430, "600 24px " + SANS, C.muted, "left", Math.max(60, maxW - w - 12));
+          const maxW = pair.length > 1 ? (right ? 330 : 520) : W - 208;
+          txt(ctx, cl.lab, x, ly + 48, "700 22px " + SANS, C.muted, al);
+          if (cl.sub && right) {                                          // right column: the bracket ends at the edge
+            const sw = txt(ctx, cl.sub, x, ly + 98, "600 24px " + SANS, C.muted, "right", 200);
+            txt(ctx, cl.val, x - sw - 12, ly + 98, "700 34px " + DISPLAY, C.ink, "right", maxW - sw - 12);
+          } else {
+            const w = txt(ctx, cl.val, x, ly + 98, "700 34px " + DISPLAY, C.ink, al, maxW);
+            if (cl.sub) txt(ctx, cl.sub, x + w + 12, ly + 98, "600 24px " + SANS, C.muted, "left", Math.max(60, maxW - w - 12));
+          }
         });
       }
       y += cardH + 80;
