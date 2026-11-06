@@ -1,7 +1,6 @@
 // Made-up data for the demo (/ledger/?demo). Every name, vehicle, PO and
 // figure here is invented; nothing is read from or saved to anywhere.
 
-import { piValidTo } from './quote.js';
 import { fyOf } from './util.js';
 
 function rng(seed) {                      // small deterministic PRNG (mulberry32)
@@ -27,7 +26,15 @@ const SHEET = {
   head: 21.75, row: 20,
 };
 
-export function demoSeed(today = new Date()) {
+// the Proforma's Valid Up To: the 15th, or month-end after the 15th
+const monthHalf = (iso) => {
+  if (Number(iso.slice(8, 10)) <= 15) return `${iso.slice(0, 7)}-15`;
+  const d = new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0));
+  return d.toISOString().slice(0, 10);
+};
+
+// workbook: the demo Tanker Billing workbook (demo-workbook.js), when Quotes should work
+export function demoSeed(today = new Date(), workbook = null) {
   const rand = rng(20260401);
   const between = (lo, hi, step = 10) => lo + Math.round((rand() * (hi - lo)) / step) * step;
   const plate = () => `OD${String(between(1, 35, 1)).padStart(2, '0')}${'ABCDEFGHJK'[between(0, 9, 1)]}${between(1000, 9999, 1)}`;
@@ -151,26 +158,10 @@ export function demoSeed(today = new Date()) {
       { company: 'Sample Metals Ltd', hsd_rate: 90.02, address: ['Sample Metals Plant', 'Testpur.', 'GSTIN : 21AAACS0000C1Z3'], payment: ['Payment Details for XtraPower Account:', 'Virtual Account No. – DEMOXP0000000000', 'IFS Code – DEMO0000001', 'Branch Name – DEMO BANK, HEAD OFFICE', 'Beneficiary Name – Demo Oil Company'], po_label: 'P.O. No.:', po_no: 'SM-2026-01', price_tier: 'Twin Price' },
       { company: 'Crew One Logistics', hsd_rate: 91.02, address: ['Crew Camp, Sample Mines', 'Testpur.', ''], payment: pay, po_label: '', po_no: '', price_tier: 'HSD RSP' },
     ],
-    data: {
-      rate_card: [{ tier: 'HSD RSP', rate: 91.02, rsp_offset: null }, { tier: 'Bulk Price', rate: 90.52, rsp_offset: -0.5 }, { tier: 'Twin Price', rate: 90.02, rsp_offset: null }],
-      product_rates: { 'Motor Spirit': 99.5, 'XtraGreen Diesel': 95.1 },
-      fuel_types: ['High Speed Diesel', 'Motor Spirit', 'XtraGreen Diesel'],
-      xp: { points: 40, tds: 0.1, net: 36 }, hsd_rsp: 91.02,
-      payment_presets: [
-        { preset: 'Advance', wording: '100% advance payment against Proforma Invoice, prior to dispatch.' },
-        { preset: '24 Hrs', wording: 'Payment within 24 hours of receipt of material and invoice.' },
-        { preset: 'N Days', wording: 'Payment within {N} days from the date of receipt of material and invoice.' },
-      ],
-      tier_terms: [
-        { tier: 'HSD RSP', preset: 'Advance', credit_days: null }, { tier: 'Bulk Price', preset: 'N Days', credit_days: 15 },
-        { tier: 'Twin Price', preset: '24 Hrs', credit_days: null },
-      ],
-      quote: { valid_till: 'Next price revision by IOCL', contact: '00000 00000', email: 'demo@example.com', dispatch: 'On realisation of advance payment', fleet: '12 KL tankers × 2' },
-      texts: { quotation: {}, proforma: { A4: 'DEMO FUELS', A7: 'GSTIN: 00DEMO0000D0Z0', A8: 'Mob: 00000 00000', A9: 'Email: demo@example.com' } },
-      pi_sheet: { place: 'Odisha (21)', hsn: '27101930', contact: 'Contact Person / Mob:', description: 'High Speed Diesel (HSD)' },
-    },
+    // the workbook itself (sheets, formulas, Module1) — made-up data, see tanker/demo_workbook.mjs
+    data: workbook ? { model: workbook } : {},
     pi_log: [{
-      log_id: 1, pi_no: `PI/${fy}/001`, pi_date: isoDay(today, -3), valid_to: piValidTo(isoDay(today, -3)), customer: 'Demo Power Ltd', gstin: 'GSTIN: 21AAACD0000A1Z1',
+      log_id: 1, pi_no: `PI/${fy}/001`, pi_date: isoDay(today, -3), valid_to: monthHalf(isoDay(today, -3)), customer: 'Demo Power Ltd', gstin: 'GSTIN: 21AAACD0000A1Z1',
       place: 'Odisha (21)', po_no: 'DP/26/0142', po_date: isoDay(today, -4), description: 'High Speed Diesel (HSD)', hsn: '27101930',
       qty: 12000, rate: 90.52, rsp: 91.02, sub_total: 1086240, round_off: 0, grand_total: 1086240, points: 0,
       words: 'Rupees Ten Lakh Eighty Six Thousand Two Hundred Forty Only', contact: 'Contact Person / Mob:', printed_by: 'Demo',

@@ -310,6 +310,7 @@ def test_reupload_policies(pg):
     res = pg.owner(call("ledger_import_master", "Master Ledger v2.xlsm", p))
     assert res["sales_new"] == 0 and res["sales_updated"] == 6
     assert res["payments"] == 1 and res["pos_new"] == 1
+    assert res["pos_updated"] == 1 and res["pos_removed"] == 1        # PO-A's litres; APP-NEW
 
     sale = pg.owner("select to_jsonb(s) from ledger_sales s where product = 'HSD' and bill_no = '1';")
     assert float(sale["qty"]) == 1100                                # Excel's figures win
@@ -320,8 +321,9 @@ def test_reupload_policies(pg):
     assert pg.owner("select to_jsonb(ledger) from ledger_customers where name = 'Walk In Cash';") == "Cash"
     assert pg.ok("select count(*) from ledger_payments;") == "1"
     pos = pg.owner(call("ledger_po_data", "Demo_Bulk"))["pos"]
+    # the PO lists follow the workbook: its litres, its order, and a PO added in the app is gone
     assert [(p["po_no"], float(p["allotted"])) for p in pos] == \
-        [("PO-A", 5000), ("PO-B", 3000), ("APP-NEW", 100), ("PO-C", 700)]
+        [("PO-A", 9999), ("PO-B", 3000), ("PO-C", 700)]
     assert pg.ok("select amount from ledger_opening;") == "2600"
 
 
@@ -424,14 +426,14 @@ def test_po_editing(pg):
 
     last = pg.owner(call("ledger_po_data", "Demo_Bulk"))["pos"][-1]
     pg.ok(call("ledger_po_move", last["id"], -1), user=OWNER, email="owner@example.com")
-    assert order() == ["PO-A", "PO-B", "PO-C", "APP-NEW"]
+    assert order() == ["PO-A", "PO-C", "PO-B"]
     first = pg.owner(call("ledger_po_data", "Demo_Bulk"))["pos"][0]
     pg.ok(call("ledger_po_move", first["id"], -1), user=OWNER, email="owner@example.com")
-    assert order() == ["PO-A", "PO-B", "PO-C", "APP-NEW"]              # already first
+    assert order() == ["PO-A", "PO-C", "PO-B"]                          # already first
     saved = pg.owner(call("ledger_po_save", {"id": first["id"], "po_no": "PO-A1", "allotted": 4000}))
     assert saved["po_no"] == "PO-A1" and float(saved["allotted"]) == 4000
     pg.ok(call("ledger_po_delete", saved["id"]), user=OWNER, email="owner@example.com")
-    assert order() == ["PO-B", "PO-C", "APP-NEW"]
+    assert order() == ["PO-C", "PO-B"]
 
 
 def test_bill_and_customer_updates(pg):

@@ -45,7 +45,7 @@ test('memory store follows the SQL rules', async () => {
   const s = memoryStore();
   let res = await s.importMaster('Master Ledger.xlsm', payload());
   assert.deepEqual(res, {
-    groups: 3, customers_new: 5, sales_new: 6, sales_updated: 0, payments: 2, pos_new: 3, opening: 1, tanker: 0, app_payments_in_excel: 0, app_payments_open: 0, sales_until: '2026-04-06', import_id: 1,
+    groups: 3, customers_new: 5, sales_new: 6, sales_updated: 0, payments: 2, pos_new: 3, pos_updated: 0, pos_removed: 0, opening: 1, tanker: 0, app_payments_in_excel: 0, app_payments_open: 0, sales_until: '2026-04-06', import_id: 1,
   });
   assert.equal((await s.summary()).master_until, '2026-04-06');      // Home: "Master File is updated until"
   let custs = Object.fromEntries((await s.customers()).map((c) => [c.name, c]));
@@ -62,7 +62,7 @@ test('memory store follows the SQL rules', async () => {
   await s.updateCustomer(custs['Walk In Cash'].id, { ledger: 'Cash' });
   await s.savePo({ group_code: 'Demo_Bulk', po_no: 'APP-NEW', allotted: 100 });
 
-  // ... survive a second upload
+  // ... survive a second upload (except PO lists: those follow the workbook)
   const p = payload();
   Object.assign(p.sales[0], { qty: 1100, amount: 99000, po_mode: 'fixed', po_fixed: 'XL-PO' });
   Object.assign(p.sales[1], { unit: 'UNIT 2', tds: 15, remarks: 'short by 2 L' });
@@ -75,12 +75,13 @@ test('memory store follows the SQL rules', async () => {
   assert.equal(res.sales_new, 0);
   assert.equal(res.sales_updated, 6);
   assert.equal(res.payments, 1);
-  assert.equal(res.pos_new, 1);
+  assert.deepEqual([res.pos_new, res.pos_updated, res.pos_removed], [1, 1, 1]);   // PO-C; PO-A's litres; APP-NEW
   const data = await s.poData('Demo_Bulk');
   const b1 = data.bills.find((b) => b.bill_no === '1');
   assert.equal(b1.qty, 1100);
   assert.deepEqual([b1.po_mode, b1.po_fixed], ['fixed', 'APP-PO']);
-  assert.deepEqual(data.pos.map((x) => [x.po_no, x.allotted]), [['PO-A', 5000], ['PO-B', 3000], ['APP-NEW', 100], ['PO-C', 700]]);
+  // the PO lists follow the workbook: its litres and order; a PO added in the app is gone
+  assert.deepEqual(data.pos.map((x) => [x.po_no, x.allotted]), [['PO-A', 9999], ['PO-B', 3000], ['PO-C', 700]]);
   custs = Object.fromEntries((await s.customers()).map((c) => [c.name, c]));
   assert.equal(custs['Walk In Cash'].ledger, 'Cash');
 
@@ -127,10 +128,10 @@ test('memory store follows the SQL rules', async () => {
   const order = async () => (await s.poData('Demo_Bulk')).pos.map((x) => x.po_no);
   let list = (await s.poData('Demo_Bulk')).pos;
   await s.movePo(list[list.length - 1].id, -1);
-  assert.deepEqual(await order(), ['PO-A', 'PO-B', 'PO-C', 'APP-NEW']);
+  assert.deepEqual(await order(), ['PO-A', 'PO-C', 'PO-B']);
   list = (await s.poData('Demo_Bulk')).pos;
   await s.deletePo(list[0].id);
-  assert.deepEqual(await order(), ['PO-B', 'PO-C', 'APP-NEW']);
+  assert.deepEqual(await order(), ['PO-C', 'PO-B']);
 
   // bills and customers
   const bill4 = (await s.poData('Demo_Bulk')).bills.find((b) => b.bill_no === '4');

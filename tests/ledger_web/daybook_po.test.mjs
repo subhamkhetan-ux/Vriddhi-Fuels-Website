@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { daybookChanges, daybookPayload, parseDaybook, sheetRows } from '../../ledger/js/daybook.js';
-import { allocate, billOrder } from '../../ledger/js/po.js';
+import { allocate, billOrder, poListChanges } from '../../ledger/js/po.js';
 import {
   cellNumber, cellText, fyOf, isDateFormat, normKey, parseTextDate, serialToISO, suggestLedgerName,
 } from '../../ledger/js/util.js';
@@ -163,4 +163,27 @@ test('re-importing a DayBook: new, corrected, same and no-longer-there bills', (
   const moved = daybookChanges([{ ...rows[0], sale_date: '2026-10-03', customer: 'New Name' }],
     [{ ...rows[0], fy: '2026-27' }]);
   assert.deepEqual(moved.changed[0].changes, [['date', '2026-10-01', '2026-10-03'], ['customer', 'Demo Power Ltd', 'New Name']]);
+});
+
+test('a Master Ledger upload sets the PO lists to the workbook\'s (what the preview shows)', () => {
+  const app = [
+    { group_code: 'Demo_Bulk', unit: '', po_no: 'PO-A', allotted: 5000, seq: 1, source: 'master_ledger' },
+    { group_code: 'Demo_Bulk', unit: '', po_no: 'PO-B', allotted: 3000, seq: 2, source: 'master_ledger' },
+    { group_code: 'Demo_Bulk', unit: '', po_no: 'APP-NEW', allotted: 100, seq: 3, source: 'app' },
+    { group_code: 'Twin_Bulk', unit: 'UNIT 1', po_no: 'T1-1', allotted: 800, seq: 1, source: 'master_ledger' },
+    { group_code: 'Other_Bulk', unit: '', po_no: 'O-1', allotted: 1, seq: 1, source: 'app' },          // not in this upload: left alone
+  ];
+  const sheet = [
+    { group_code: 'Demo_Bulk', unit: '', po_no: 'po-a', allotted: 9999, seq: 1 },                      // same PO, new litres
+    { group_code: 'Demo_Bulk', unit: '', po_no: 'PO-C', allotted: 700, seq: 2 },
+    { group_code: 'Demo_Bulk', unit: '', po_no: 'PO-B', allotted: 3000, seq: 3 },                       // moved down
+    { group_code: 'Twin_Bulk', unit: 'unit 1', po_no: 'T1-1', allotted: 800, seq: 1 },                  // the same
+  ];
+  const ch = poListChanges(app, sheet, ['Demo_Bulk', 'Twin_Bulk']);
+  assert.equal(ch.length, 1);
+  assert.deepEqual(ch[0].added, [{ po_no: 'PO-C', allotted: 700 }]);
+  assert.deepEqual(ch[0].changed, [{ po_no: 'po-a', from: 5000, to: 9999 }]);
+  assert.deepEqual(ch[0].removed, [{ po_no: 'APP-NEW', allotted: 100, source: 'app' }]);
+  assert.equal(ch[0].moved, 1);
+  assert.deepEqual(poListChanges(app, sheet.slice(3), ['Twin_Bulk']), []);
 });

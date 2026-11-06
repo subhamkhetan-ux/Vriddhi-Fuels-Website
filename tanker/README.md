@@ -122,18 +122,21 @@ Dependencies: `openpyxl`, `google-api-python-client`, `google-auth`
 (all already in the repo's `requirements.txt`). Minting a token additionally
 uses `google-auth-oauthlib`, also already listed.
 
-## Quotation / Proforma layouts for the ledger app
+## Quotations and proforma invoices in the ledger app
 
 The ledger app (`/ledger/`, **Quotes** tab) makes quotations and proforma
-invoices from this workbook (imported in the browser). Their page layout —
-the **Quotation Maker** and **Proforma Invoice** sheets' column widths, row
-heights, merged cells, styles and wording — is kept in
-`ledger/js/sheet-layouts.js`. If you move rows or columns on those sheets,
-regenerate it:
+invoices from this workbook: imported in the browser, it reads the Quotation
+Maker and Proforma Invoice sheets (layout, wording, formulas), the tables and
+the Print & Log PI macro, and works the formulas out itself — so changes made
+here need only an import, not a change to the app. The import checks every
+formula against what Excel saved and says if any differs.
+
+The demo's copy of the workbook (`ledger/js/demo-workbook.js`, made-up
+customers) is made from the real file by:
 
 ```bash
-python3 tanker/sheet_layouts.py "Tanker Billing.xlsm"
+LEDGER_XLSX=/path/to/xlsx.mjs JSZIP=/path/to/jszip/lib/index.js \
+  node tanker/demo_workbook.mjs "Tanker Billing.xlsm"
 ```
 
-Only the design is copied (no customer or invoice data). Wording changes don't
-need this — they come in with every import.
+It stops if a real customer's name would end up in the file.
