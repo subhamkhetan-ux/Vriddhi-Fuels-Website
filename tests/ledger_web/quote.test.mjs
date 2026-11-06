@@ -4,12 +4,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  comparePiLog, customerRate, firstTwoWords, paymentTerms, piCheckClean, presetWording, hsdRsp, nextPiNo, piDiscount, piEffective, piFileName, piFromLog, piLogRow, piMatches, picturePaths,
-  piValidTo, productRate, proformaCalc, proformaValues, quotationCalc, quotationValues, quoteFileName, readTankerBilling, rupeesInWords,
-  samePiNo, splitDash,
+  comparePiLog, firstTwoWords, nextPiNo, piCheckClean, piDiscount, piEffective, piFileName, piMatches, picturePaths, quoteFileName,
+  readTankerBilling, samePiNo, textDate, textStamp,
 } from '../../ledger/js/quote.js';
-import { LAYOUTS } from '../../ledger/js/sheet-layouts.js';
-import { sheetSvg, wrapLines } from '../../ledger/js/sheet-svg.js';
+import { wrapLines } from '../../ledger/js/sheet-svg.js';
 import { memoryStore } from '../../ledger/js/store.js';
 import { date, formula, sheet } from './sheets.mjs';
 
@@ -27,24 +25,6 @@ const DATA = {
 const DEMO = { company: 'Demo Coal Mines Private Limited', hsd_rate: 100, address: ['Plot 1, Testpur', 'Vill: Sample', 'GSTIN : 00DEMO0000A1Z1'], payment: PAY, price_tier: 'Linked Price', po_no: 'PO-1' };
 const XPC = { company: 'Sample Metals and Energy Ltd', hsd_rate: 99.5, address: ['Vill – Sample', 'Testpur.', 'GSTIN : 00DEMO0000B1Z2'], payment: XP_PAY, price_tier: 'Bulk Price' };
 
-test('amount in words: the Proforma\'s formula, word for word', () => {
-  assert.equal(rupeesInWords(14925000), 'Rupees One Crore Forty Nine Lakh Twenty Five Thousand Only');
-  assert.equal(rupeesInWords(1196880), 'Rupees Eleven Lakh Ninety Six Thousand Eight Hundred Eighty Only');
-  assert.equal(rupeesInWords(4000000), 'Rupees Forty Lakh Only');
-  assert.equal(rupeesInWords(120034501), 'Rupees Twelve Crore Thirty Four Thousand Five Hundred One Only');
-  assert.equal(rupeesInWords(20), 'Rupees Twenty Only');
-  assert.equal(rupeesInWords(0), 'Rupees Zero Only');
-  assert.equal(rupeesInWords(99.6), 'Rupees One Hundred Only');
-});
-
-test('valid up to: the 15th for 1st–15th, otherwise month-end', () => {
-  assert.equal(piValidTo('2026-11-03'), '2026-11-15');
-  assert.equal(piValidTo('2026-11-15'), '2026-11-15');
-  assert.equal(piValidTo('2026-11-16'), '2026-11-30');
-  assert.equal(piValidTo('2028-02-20'), '2028-02-29');
-  assert.equal(piValidTo(''), '');
-});
-
 test('file names as the macros make them', () => {
   assert.equal(firstTwoWords('M/s. Ankita Air Products Private Limited'), 'Ankita Air');
   assert.equal(firstTwoWords('M/S Ultratech Cement Ltd'), 'Ultratech Cement');
@@ -54,99 +34,22 @@ test('file names as the macros make them', () => {
   assert.equal(quoteFileName('', '2026-11-03'), 'Customer Quotation 3 November 2026.pdf');
 });
 
-test('rates: the workbook\'s own, or each tier worked out again for another RSP', () => {
-  assert.equal(hsdRsp(DATA), 100.74);
-  assert.equal(customerRate(DATA, DEMO), 100);
-  assert.equal(customerRate(DATA, DEMO, 102), 101.26);                 // =P2-0.74 follows the RSP
-  assert.equal(customerRate(DATA, XPC, 102), 99.5);                    // a typed-in rate stays
-  assert.equal(customerRate(DATA, { ...XPC, price_tier: 'HSD RSP' }, 102), 102);
-  assert.equal(productRate(DATA, DEMO, 'Motor Spirit (Petrol)'), 109.01);
-  assert.equal(productRate(DATA, DEMO, 'XtraGreen Diesel'), 106.34);
-  assert.equal(productRate(DATA, DEMO, 'Lubricants'), null);
-  assert.equal(productRate(DATA, DEMO, 'High Speed Diesel (HSD)'), 100);
-  assert.deepEqual(splitDash('Branch Name– DEMO BANK, HEAD OFFICE'), ['Branch Name', 'DEMO BANK, HEAD OFFICE']);
-  assert.deepEqual(splitDash('Payment Details:'), ['Payment Details:', '']);
-});
-
-test('quotation: the Quotation Maker\'s formulas', () => {
-  const q = { customer: DEMO, date: '2026-11-03', valid_till: 'Next price revision by IOCL', contact: '00000 00000', email: 'demo@example.com' };
-  const c = quotationCalc(DATA, q);
-  assert.equal(c.rate, 100);
-  assert.equal(c.discount.toFixed(2), '0.74');
-  assert.equal((c.pct * 100).toFixed(2), '0.73');
-  assert.equal(c.xtra, false);
-  const { values: v } = quotationValues(DATA, q);
-  assert.match(v.A12, /flat discount of ₹0\.74 per Litre .* net billing price of ₹100\.00 per Litre\.$/);
-  assert.equal(v.E5, '03/11/2026');
-  assert.equal(v.E17, 'IOCL RSP as on 03/11/2026');
-  assert.deepEqual([v.D17, v.D18, v.D19], ['₹100.74', '(₹0.74)', '₹100.00']);
-  assert.equal(v.E19, 'Billing rate – FOR your site');
-  assert.equal(v.A26, 'BANK DETAILS FOR PAYMENT (100% ADVANCE – RTGS / NEFT)');
-  assert.deepEqual([v.A27, v.C27, v.A28, v.C28, v.A29, v.C29], ['Beneficiary Name', 'Demo Fuels', 'Account No.', '000011112222', 'IFSC Code', 'DEMO0000001']);
-  assert.match(v.A33, /call us at 00000 00000 or write to demo@example\.com\.$/);
-
-  const x = quotationValues(DATA, { ...q, customer: XPC }).values;
-  assert.match(x.A12, /Being an XtraPower customer, you also earn XtraPower points worth approx\. ₹0\.36 per Litre \(net of TDS\), bringing your effective price down to ₹99\.14 per Litre\.$/);
-  assert.equal(x.E19.text, 'Effective ₹99.14/Ltr after XtraPower points (36 paise/₹100 net)');
-  assert.equal(x.E19.c, '#008000');                                    // the conditional format on E19:F19
-  assert.equal(x.A26, 'BANK DETAILS – XTRAPOWER ACCOUNT (100% ADVANCE)');
-  assert.deepEqual([x.A30, x.C30], ['Branch Name', 'DEMO BANK, HEAD OFFICE']);
-});
-
-test('proforma invoice: the sheet\'s formulas', () => {
-  const p = { pi_no: 'PI/2026-27/013', date: '2026-11-03', customer: DEMO, place: 'Odisha (21)', contact: 'Contact Person / Mob:', description: 'High Speed Diesel (HSD)', hsn: '27101930', qty: 40000, rate: 100 };
-  const c = proformaCalc(DATA, p);
-  assert.deepEqual([c.amount, c.grand, c.roundOff, c.points, c.validTo], [4000000, 4000000, 0, 0, '2026-11-15']);
-  const { values: v } = proformaValues(DATA, p);
-  assert.equal(v.G6, '15/11/2026');
-  assert.equal(v.E19, '40,000');
-  assert.equal(v.G19, '40,00,000.00');
-  assert.equal(v.G25, '₹40,00,000');
-  assert.equal(v.C27, 'Rupees Forty Lakh Only');
-  assert.equal(v.A24, 'Retail Selling Price at our RO: Rs.100.74/Ltr      Less: Special Discount Rs.0.74/Ltr      Net Offer Price: Rs.100.00/Ltr');
-  assert.equal(v.A25, 'Total benefit passed on to you on this supply: Rs.29,600 (on 40,000 Ltr). Discount is applied on the prevailing IOCL RSP at every price revision.');
-  assert.equal(v.A26, '');
-  assert.deepEqual([v.A30, v.A33, v.E12, v.E15], [PAY[1], PAY[4], DEMO.company, DEMO.address[2]]);
-
-  // amount = TRUNC(qty × rate): paise dropped
-  assert.equal(proformaCalc(DATA, { ...p, qty: 333, rate: 99.99 }).amount, 33296);
-
-  // no discount: the other wording
-  const plain = proformaValues(DATA, { ...p, rate: 100.74 }).values;
-  assert.equal(plain.A24, 'Rate as per prevailing IOCL Retail Selling Price at our RO: Rs.100.74/Ltr');
-  assert.equal(plain.A25, 'Price is revised in line with every IOCL price revision. Delivery at your site is free of cost.');
-
-  // XtraPower: points and the green line
-  const xp = proformaValues(DATA, { ...p, customer: XPC, qty: 150000, rate: 99.5 });
-  assert.equal(xp.calc.points, 53730);
-  assert.equal(xp.calc.effective.toFixed(4), '99.1418');
-  assert.equal(xp.values.A26, 'XtraPower Benefit: Earn 40 paise of XtraPower points per Rs.100 paid; after 10% TDS deducted by IOCL, net 36 paise per Rs.100 - approx. 53,730 points on this supply. Effective price after points: Rs.99.14/Ltr.');
-  assert.equal(xp.values.C27, 'Rupees One Crore Forty Nine Lakh Twenty Five Thousand Only');
-});
-
-test('the PI Log: a row, its derived columns, a reprint and the next number', () => {
-  const p = { pi_no: ' PI/2026-27/004 ', date: '2026-08-28', customer: DEMO, po_no: 'PO-1', place: 'Odisha (21)', contact: 'Contact Person / Mob:', description: 'High Speed Diesel (HSD)', hsn: '27101930', qty: 12000, rate: 99.74, rsp: 100.74 };
-  const row = piLogRow(DATA, p, 'owner@example.com');
-  assert.equal(row.pi_no, 'PI/2026-27/004');
-  assert.equal(row.valid_to, '2026-08-31');
-  assert.equal(row.gstin, DEMO.address[2]);
-  assert.equal(row.grand_total, 1196880);
-  assert.equal(row.words, 'Rupees Eleven Lakh Ninety Six Thousand Eight Hundred Eighty Only');
-  assert.deepEqual(row.doc.address, DEMO.address);
+test('the PI Log: derived columns, the next number, the reprint filter, dates typed as text', () => {
+  const row = { qty: 12000, rate: 99.74, rsp: 100.74, grand_total: 1196880, points: 0 };
   assert.equal(piDiscount(row).toFixed(2), '1.00');
   assert.equal(piEffective(row), 99.74);
-
-  // a reprint keeps the historic rate / RSP / PO; a PI from Excel takes today's address
-  const back = piFromLog({ ...row, doc: null, customer: 'Demo Coal Mines Private Limited' }, [{ ...DEMO, address: ['New road', '', ''] }]);
-  assert.deepEqual([back.rate, back.rsp, back.po_no, back.customer.address[0]], [99.74, 100.74, 'PO-1', 'New road']);
-  assert.equal(proformaValues(DATA, back).values.G25, '₹11,96,880');
-
   const log = [{ pi_no: 'PI/2026-27/009' }, { pi_no: 'pi/2026-27/011' }, { pi_no: 'PI/2025-26/040' }];
   assert.equal(nextPiNo(log, '2026-11-03'), 'PI/2026-27/012');
   assert.equal(nextPiNo(log, '2027-04-01'), 'PI/2027-28/001');
   assert.ok(samePiNo(' PI/2026-27/011', 'pi/2026-27/011 '));
   assert.ok(piMatches({ pi_date: '2026-10-02', customer: 'Demo Coal Mines' }, { customer: 'coal', from: '2026-10-01', to: '2026-10-31' }));
   assert.ok(!piMatches({ pi_date: '2026-09-30', customer: 'Demo Coal Mines' }, { customer: '', from: '2026-10-01', to: '2026-10-31' }));
+  assert.ok(piMatches({ pi_date: null, customer: 'X' }, { customer: '' }));          // no dates asked: every PI
+  for (const [t, d] of [['31 Oct 2026', '2026-10-31'], ['03/11/2026', '2026-11-03'], ['3/11/26', '2026-11-03'], ['2026-11-03', '2026-11-03'], ['31/02/2026', null], ['soon', null]]) {
+    assert.equal(textDate(t), d, t);
+  }
+  assert.equal(textStamp('4/11/2026, 2:19:12 PM'), '2026-11-04T14:19:12+05:30');
+  assert.equal(textStamp('04/11/2026 12:05 AM'), '2026-11-04T00:05:00+05:30');
 });
 
 // a Tanker Billing workbook, as SheetJS reads it
@@ -170,18 +73,19 @@ function workbook() {
       [DEMO.company, 1],                                              // listed twice: the first is kept
     ],
   });
-  const qm = sheet({ H5: 'Valid Till', I5: 'Next price revision by IOCL', H7: 'Contact No.', I7: '00000 00000', H8: 'Email', I8: 'demo@example.com', A13: 'Our own words.' });
-  const pi = sheet({ G4: 'PI/2026-27/013', G9: 'Odisha (21)', D19: '27101930', E16: 'Contact Person / Mob:', B19: 'High Speed Diesel (HSD)', E40: '9.  Claims within 48 hours.' });
   const log = sheet({
     A1: 'Log ID', B1: 'PI No.', C1: 'PI Date', D1: 'Valid Up To', E1: 'Customer', H1: 'P.O. No.', L1: 'Quantity (Ltr)', M1: 'Rate (₹/Ltr)',
     N1: 'IOCL RSP (₹/Ltr)', R1: 'Grand Total (₹)', S1: 'XtraPower Points', U1: 'Amount in Words', W1: 'Printed On', X1: 'Printed By',
   }, {
-    start: 2, col: 'A', rows: [[1, 'PI/2026-27/001', date('2026-08-17'), date('2026-08-31'), XPC.company, '', '', 4500000001, '', '', '', 12000, 99.5, 100.74, '', '', '', 1194000, 0, '', 'Rupees Eleven Lakh Ninety Four Thousand Only', '', { t: 'n', v: 46251.363229 }, 'Owner']],
+    start: 2, col: 'A', rows: [
+      [1, 'PI/2026-27/001', date('2026-08-17'), date('2026-08-31'), XPC.company, '', '', 4500000001, '', '', '', 12000, 99.5, 100.74, '', '', '', 1194000, 0, '', 'Rupees Eleven Lakh Ninety Four Thousand Only', '', { t: 'n', v: 46251.363229 }, 'Owner'],
+      // pasted from the app's download: dates as text
+      [2, 'PI/2026-27/002', '31 Oct 2026', '31 Oct 2026', DEMO.company, '', '', '', '', '', '', 40000, 99.5, 100.74, '', '', '', 3980000, 0, '', '', '', '4/11/2026, 2:19:12 PM', 'owner@example.com'],
+    ],
   });
   return {
-    SheetNames: ['Customers', 'Quotation Maker', 'Proforma Invoice', 'PI Log'],
-    Sheets: { Customers: customers, 'Quotation Maker': qm, 'Proforma Invoice': pi, 'PI Log': log },
-    Workbook: { Names: [{ Name: 'HSD_RSP', Ref: "'Customers'!$P$2" }, { Name: 'XP_Net', Ref: "'Customers'!$X$4" }] },
+    SheetNames: ['Customers', 'PI Log'],
+    Sheets: { Customers: customers, 'PI Log': log },
   };
 }
 
@@ -190,24 +94,9 @@ test('reading the Tanker Billing workbook', () => {
   assert.deepEqual(r.customers.map((c) => [c.company, c.hsd_rate, c.price_tier]), [[DEMO.company, 100, 'Linked Price'], [XPC.company, 99.5, 'Bulk Price']]);
   assert.deepEqual(r.customers[1].address, [XPC.address[0], XPC.address[1], '']);
   assert.equal(r.customers[1].po_no, '2120000001');
-  assert.deepEqual(r.data.rate_card, [
-    { tier: 'HSD RSP', rate: 100.74, rsp_offset: null }, { tier: 'Bulk Price', rate: 99.5, rsp_offset: null },
-    { tier: 'Linked Price', rate: 100, rsp_offset: -0.74 },
-  ]);
-  assert.deepEqual(r.data.product_rates, { 'Motor Spirit': 109.01 });
-  assert.deepEqual(r.data.fuel_types, ['High Speed Diesel', 'Motor Spirit']);
-  assert.deepEqual(r.data.xp, { points: 40, tds: 0.1, net: 36 });
-  assert.equal(r.data.hsd_rsp, 100.74);
-  assert.deepEqual(r.data.quote, { valid_till: 'Next price revision by IOCL', contact: '00000 00000', email: 'demo@example.com', dispatch: '', fleet: '' });
-  assert.equal(r.data.pi_sheet.pi_no, 'PI/2026-27/013');
-  assert.deepEqual(r.data.payment_presets.map((x) => x.preset), ['Advance', 'N Days']);
-  assert.deepEqual(r.data.tier_terms.map((x) => [x.tier, x.preset, x.credit_days]), [['HSD RSP', 'Advance', null], ['Bulk Price', 'N Days', 15]]);
-  assert.deepEqual(r.warnings, ['Price tier "Linked Price" has no payment terms in Customers ▸ TierTerms — its quotations print "⚠ Tier not set up in Customers ▸ TierTerms".']);
-  // wording that differs from the app's copy of the sheets comes along
-  assert.equal(r.data.texts.quotation.A13, 'Our own words.');
-  assert.equal(r.data.texts.proforma.E40, '9.  Claims within 48 hours.');
-  assert.equal(r.data.texts.proforma.A2, '');                          // a blank cell here prints blank
-  assert.equal(r.pi_log.length, 1);
+  assert.equal(r.pi_log.length, 2);
+  assert.deepEqual([r.pi_log[1].pi_date, r.pi_log[1].valid_to, r.pi_log[1].printed_at], ['2026-10-31', '2026-10-31', '2026-11-04T14:19:12+05:30']);
+  assert.deepEqual(r.warnings, ['PI Log row 3: the dates are text, not Excel dates — read as dates here; in Excel, format those cells as dates (or paste rows from the app\'s Download log, which now has real dates).']);
   assert.deepEqual([r.pi_log[0].pi_no, r.pi_log[0].pi_date, r.pi_log[0].valid_to, r.pi_log[0].po_no, r.pi_log[0].grand_total],
     ['PI/2026-27/001', '2026-08-17', '2026-08-31', '4500000001', 1194000]);
   assert.equal(r.pi_log[0].printed_at, '2026-08-17T08:43:03+05:30');
@@ -231,26 +120,6 @@ test('the letterhead and stamp of each sheet are found in the file', () => {
   });
 });
 
-test('the page: one A4 sheet with the sheet\'s cells, wording and pictures', () => {
-  const p = { pi_no: 'PI/2026-27/013', date: '2026-11-03', customer: DEMO, description: 'High Speed Diesel (HSD)', hsn: '27101930', qty: 40000, rate: 100, place: 'Odisha (21)', contact: 'Contact Person / Mob:' };
-  const svg = sheetSvg(LAYOUTS.proforma, {
-    values: proformaValues(DATA, p).values, texts: { E40: '9.  Claims within 48 hours.' }, images: { letterhead: 'lh.png', stamp: 'st.png' },
-  });
-  assert.match(svg, /viewBox="0 0 595.28 841.89"/);
-  assert.match(svg, /scale\(0\.48\d+\)/);                               // fit to one page, like Excel's 48%
-  assert.match(svg, />PROFORMA INVOICE</);
-  assert.match(svg, />PI\/2026-27\/013</);
-  assert.match(svg, />₹40,00,000</);
-  assert.match(svg, />9\.\u00A0\u00A0Claims within 48 hours\.</);   // wording from the workbook
-  assert.match(svg, /Rs\.100\.74\/Ltr {6}Less/);                    // Excel's run of spaces is kept
-  assert.match(svg, /<image href="lh\.png"/);
-  assert.match(svg, /<image href="st\.png"/);
-  assert.doesNotMatch(svg, /Dbl-|Shyam|SMC Power/);                    // the layout carries no customer
-  const q = sheetSvg(LAYOUTS.quotation, { values: quotationValues(DATA, { customer: XPC, date: '2026-11-03' }).values });
-  assert.match(q, /fill="#008000">Effective ₹99\.14\/Ltr/);
-  assert.deepEqual(wrapLines('one two three four', 40, { s: 10 }, (t) => t.length * 5), ['one two', 'three', 'four']);
-});
-
 test('the demo store keeps the PI Log like the database does', async () => {
   const s = memoryStore();
   const res = await s.tankerImport('Tanker Billing.xlsm', {
@@ -259,7 +128,7 @@ test('the demo store keeps the PI Log like the database does', async () => {
   });
   assert.deepEqual([res.customers, res.pi_new, res.pi_updated, res.pi_kept, res.images], [2, 2, 0, 0, 1]);
   assert.deepEqual((await s.piList()).map((r) => [r.id, r.pi_no]), [[1, 'PI/2026-27/001'], [2, 'PI/2026-27/002']]);
-  const row = piLogRow(DATA, { pi_no: 'pi/2026-27/002', date: '2026-11-03', customer: DEMO, qty: 5, rate: 100 });
+  const row = { pi_no: 'pi/2026-27/002', pi_date: '2026-11-03', customer: DEMO.company, qty: 5, rate: 100, grand_total: 500 };
   assert.equal((await s.piSave(row)).status, 'exists');
   const rep = await s.piSave(row, true);
   assert.deepEqual([rep.status, rep.row.id, rep.row.source], ['replaced', 2, 'app']);
@@ -272,7 +141,7 @@ test('the demo store keeps the PI Log like the database does', async () => {
   await s.piDelete(3);
   await assert.rejects(() => s.piDelete(3), /No PI Log entry 3/);
   await s.setSetting('quote_stamp', { data_url: 'data:image/png;base64,BB' });
-  assert.equal((await s.setting('tanker_billing')).hsd_rsp, 100.74);
+  assert.equal((await s.setting('tanker_billing')).file_name, 'Tanker Billing.xlsm');
 });
 
 test('re-importing: Excel\'s PI Log checked against the app\'s', () => {
@@ -302,47 +171,4 @@ test('re-importing: Excel\'s PI Log checked against the app\'s', () => {
   assert.deepEqual(c.excel_nos, ['PI/2026-27/001', 'PI/2026-27/002', 'PI/2026-27/003', 'PI/2026-27/005']);
   assert.equal(piCheckClean(c), false);
   assert.equal(piCheckClean(comparePiLog(excel.slice(0, 1), app.slice(0, 1))), true);
-});
-
-test('payment terms by price tier (Customers ▸ TierTerms, the Quotation Maker\'s I21:I25 and row 25)', () => {
-  const data = {
-    ...DATA,
-    payment_presets: [
-      { preset: 'Advance', wording: '100% advance payment against Proforma Invoice, prior to dispatch.' },
-      { preset: '24 Hrs', wording: 'Payment within 24 hours of receipt of material and invoice.' },
-      { preset: 'N Days', wording: 'Payment within {N} days from the date of receipt of material and invoice.' },
-    ],
-    tier_terms: [
-      { tier: 'Linked Price', preset: '24 Hrs', credit_days: null }, { tier: 'Bulk Price', preset: 'Advance', credit_days: null },
-      { tier: 'HSD RSP', preset: 'N Days', credit_days: null },
-    ],
-  };
-  assert.equal(presetWording(data, 'N Days', 30), 'Payment within 30 days from the date of receipt of material and invoice.');
-  assert.equal(presetWording(data, 'N Days', 0), '⚠ Enter Credit Days');
-  assert.equal(presetWording(data, 'Monthly', 0), '⚠ Pick a preset');
-
-  const q = { customer: DEMO, date: '2026-11-03' };                   // Linked Price: 24 Hrs
-  let v = quotationValues(data, q).values;
-  assert.equal(v.C25, 'Payment within 24 hours of receipt of material and invoice.');
-  assert.equal(v.A26, 'BANK DETAILS FOR PAYMENT (RTGS / NEFT)');
-  v = quotationValues(data, { ...q, customer: XPC }).values;            // Bulk Price: Advance, XtraPower
-  assert.equal(v.C25, '100% advance payment against Proforma Invoice, prior to dispatch.');
-  assert.equal(v.A26, 'BANK DETAILS – XTRAPOWER ACCOUNT (100% ADVANCE)');
-  v = quotationValues(data, { ...q, customer: { ...XPC, price_tier: 'Linked Price' } }).values;
-  assert.equal(v.A26, 'BANK DETAILS – XTRAPOWER ACCOUNT');
-  assert.equal(quotationValues(data, { ...q, customer: { ...DEMO, price_tier: 'HSD RSP' } }).values.C25, '⚠ Enter Credit Days');
-  const none = paymentTerms(data, { ...DEMO, price_tier: 'Someone' });
-  assert.deepEqual([none.terms, none.advance], ['⚠ Tier not set up in Customers ▸ TierTerms', true]);
-
-  // terms chosen on the quotation itself
-  const own = quotationValues(data, { ...q, preset: 'N Days', credit_days: 45 });
-  assert.equal(own.values.C25, 'Payment within 45 days from the date of receipt of material and invoice.');
-  assert.deepEqual([own.calc.pay.creditDays, own.calc.pay.fromTier, own.calc.pay.advance], [45, false, false]);
-
-  // a workbook from before the TierTerms table: no terms row, the old heading
-  v = quotationValues(DATA, q).values;
-  assert.deepEqual([v.C25, v.A26], ['', 'BANK DETAILS FOR PAYMENT (100% ADVANCE – RTGS / NEFT)']);
-  const svg = sheetSvg(LAYOUTS.quotation, { values: quotationValues(data, q).values });
-  assert.match(svg, />Payment Terms</);
-  assert.match(svg, />Payment within 24 hours/);
 });

@@ -17,11 +17,16 @@ import {
   useNarrowFont, zipBlob,
 } from './render.js';
 import {
-  comparePiLog, customerRate, dmyy, paymentTerms, hsdRsp, indian, isXtraPower, nextPiNo, PI_PRODUCTS, piCheckClean, piDiscount, piEffective, piFileName, piFromLog,
-  piKey, piLogRow, piMatches,
-  picturePaths, productRate, proformaCalc, proformaValues, quotationCalc, quotationValues, quoteFileName, readTankerBilling, samePiNo,
+  comparePiLog, dmyy, indian, nextPiNo, piCheckClean, piDiscount, piEffective, piFileName, piKey, piMatches, picturePaths, readTankerBilling,
+  samePiNo,
 } from './quote.js';
-import { LAYOUTS } from './sheet-layouts.js';
+import {
+  cellInput, DEFAULT_PI_MACRO, docCalc, docFileName, DOCS, formValue, helperRows, inputsOf, layoutOf, pageValues, piLogRowOf, piMacro, piProblem,
+  piStateFromLog, rspCell, selfCheck,
+} from './docs.js';
+import { isErr, isoToSerial, makeCalc } from './formula.js';
+import { buildModel, DOC_SHEETS, MODEL_PARTS } from './xl-model.js';
+import { vbaModules } from './vba.js';
 import { canvasMeasure, sheetSvg } from './sheet-svg.js';
 import { billStatementSvgs, dailySummarySvg, DEFAULT_LAYOUT, ledgerSvg, PAGE, PAGE_PT } from './statement-svg.js';
 import {
@@ -120,7 +125,8 @@ async function boot() {
   const cfg = window.LEDGER_CONFIG || {};
   if (params.has('demo')) {
     state.demo = true;
-    const seed = demoSeed();
+    const { DEMO_WORKBOOK } = await import('./demo-workbook.js');
+    const seed = demoSeed(new Date(), DEMO_WORKBOOK);
     state.store = memoryStore(seed);
     state.demoPayQueue = seed.payQueue;
     return enter();
@@ -3004,16 +3010,25 @@ async function docImagesForPdf(d, kind) {
 async function viewQuotes(tab) {
   const d = await quotesData();
   await useNarrowFont();
-  if (tab === 'pi') return viewProforma(d);
+  const XLSX = await loadSheetJS();
+  d.format = (f, v) => XLSX.SSF.format(f, v);
+  d.model = d.tb && d.tb.model && d.tb.model.version >= 2 ? d.tb.model : null;
+  d.macro = d.model ? piMacro(d.model) : DEFAULT_PI_MACRO;
   if (tab === 'log') return viewPiLog(d);
-  return viewQuotation(d);
+  return viewDoc(d, tab === 'pi' ? 'proforma' : 'quotation');
 }
 
 function quotesHead(d, tab) {
   const tb = d.tb;
+  let rsp = '';
+  if (d.model) {
+    const c = rspCell(d.model, d.macro);
+    const v = c ? makeCalc(d.model, { format: d.format }).value(c.sheet, c.addr) : null;
+    if (typeof v === 'number') rsp = ` · IOCL RSP ₹${rs2(v)}`;
+  }
   const info = tb
-    ? `From <b>${esc(tb.file_name || 'the Tanker Billing workbook')}</b>, imported ${esc(new Date(tb.imported_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }))} · ${plural(d.tanker.length, 'customer')} · IOCL RSP ₹${rs2(hsdRsp(tb))}`
-    : 'Import the <b>Tanker Billing</b> workbook to bring in its customers, rates, XtraPower figures, the Quotation Maker\'s inputs, the Proforma Invoice\'s wording and the PI Log.';
+    ? `From <b>${esc(tb.file_name || 'the Tanker Billing workbook')}</b>, imported ${esc(new Date(tb.imported_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }))} · ${plural(d.tanker.length, 'customer')}${rsp}`
+    : 'Import the <b>Tanker Billing</b> workbook: the app reads its Quotation Maker and Proforma Invoice sheets — layout, wording and formulas — its customers and tables, and its PI Log.';
   return `<section class="card">
     <div class="quote-head"><h2>Quotes</h2>
       <label class="file"><input type="file" id="tb-file" accept=".xlsm,.xlsx"><span class="btn ${tb ? 'ghost small' : ''}">${tb ? 'Import again' : 'Import Tanker Billing.xlsm'}</span></label></div>
@@ -3027,258 +3042,226 @@ function bindTankerImport(inputId = 'tb-file', outId = 'tb-out') {
   document.getElementById(inputId)?.addEventListener('change', (e) => e.target.files[0] && tankerChosen(e.target.files[0], e.target, outId));
 }
 
-const customerOptions = (list, picked) => list.map((c) => `<option value="${esc(c.company)}"${c.company === picked ? ' selected' : ''}>${esc(c.company)}</option>`).join('');
-const custOf = (d, name) => d.tanker.find((c) => c.company === name) || null;
-
-// ---- Quotation (Quotation Maker) ----
-function viewQuotation(d) {
-  if (!d.tb) {
-    setMain(quotesHead(d, ''));
-    bindTankerImport();
-    return;
-  }
-  const data = d.tb;
-  const f = state.quoteForm || {
-    customer: d.tanker[0] ? d.tanker[0].company : '', date: todayIso(), valid_till: data.quote?.valid_till || '',
-    contact: data.quote?.contact || '', email: data.quote?.email || '', rsp: rs2(hsdRsp(data)), rate: '', rateTouched: false,
-  };
-  setMain(`${quotesHead(d, '')}
-    <div class="doc-wrap">
-      <section class="card doc-form">
-        <h3>Quotation for diesel supply</h3>
-        <form id="q-form" autocomplete="off">
-          <label>Customer <select name="customer">${customerOptions(d.tanker, f.customer)}</select></label>
-          <div class="two"><label>Quotation date <input type="date" name="date" value="${esc(f.date)}" required></label>
-            <label>Valid till <input name="valid_till" value="${esc(f.valid_till)}"></label></div>
-          <div class="two"><label>Contact No. <input name="contact" value="${esc(f.contact)}"></label>
-            <label>Email <input name="email" value="${esc(f.email)}"></label></div>
-          <div class="two"><label>RSP at our RO (₹/Ltr) <input name="rsp" type="number" step="0.01" min="0" value="${esc(f.rsp)}"></label>
-            <label>Offer / billing price (₹/Ltr) <input name="rate" type="number" step="0.01" min="0" value="${esc(f.rate)}"></label></div>
-          <p class="muted small" id="q-note"></p>
-          <div class="two"><label>Payment terms <select name="preset"><option value="">As the price tier says</option>${(data.payment_presets || []).map((x) => `<option value="${esc(x.preset)}"${x.preset === f.preset ? ' selected' : ''}>${esc(x.preset)}</option>`).join('')}</select></label>
-            <label>Credit days <input name="credit_days" type="number" min="1" step="1" value="${esc(f.credit_days ?? '')}"></label></div>
-          <p class="muted small" id="q-terms"></p>
-        </form>
-        <h4>Calculated</h4>
-        <div class="table-wrap"><table class="compact kv" id="q-calc"></table></div>
-        <p class="actions"><button class="btn" id="q-pdf">Download PDF</button>
-          <button class="btn ghost" id="q-share">Share</button><button class="btn ghost" id="q-print">Print</button></p>
-        ${stampRow(d.stamps.quote, 'q-stamp', 'q-stamp-remove', 'quotations')}
-      </section>
-      <section class="doc-preview"><div class="doc-page" id="q-page"></div></section>
-    </div>`);
-  bindTankerImport();
-  bindStamp('quote_stamp', 'q-stamp', 'q-stamp-remove', async () => { state.quotes = null; await route(); });
-  const form = document.getElementById('q-form');
-  const measure = canvasMeasure();
-  const images = docImages(d, 'quote');
-  const sheetRate = () => customerRate(data, custOf(d, form.customer.value), form.rsp.value === '' ? hsdRsp(data) : Number(form.rsp.value));
-  const fillRate = () => {
-    const r = sheetRate();
-    form.rate.value = r == null ? '' : rs2(r);
-  };
-  const read = () => ({
-    customer: custOf(d, form.customer.value), date: form.date.value, valid_till: form.valid_till.value, contact: form.contact.value,
-    email: form.email.value, rsp: form.rsp.value === '' ? null : Number(form.rsp.value), rate: form.rate.value === '' ? null : Number(form.rate.value),
-    preset: form.preset.value, credit_days: form.credit_days.value === '' ? null : Number(form.credit_days.value),
-  });
-  const page = () => sheetSvg(LAYOUTS.quotation, { values: quotationValues(data, read()).values, texts: data.texts?.quotation || {}, images, measure });
-  const render = () => {
-    const q = read();
-    const c = quotationCalc(data, q);
-    const cust = q.customer;
-    const sr = sheetRate();
-    document.getElementById('q-note').innerHTML = cust
-      ? `${esc(cust.price_tier || 'No price tier')}: sheet rate ₹${rs2(sr)}${sr != null && q.rate != null && Math.abs(sr - q.rate) > 0.001 ? ' — <b>changed here</b>' : ''}${c.xtra ? ' · <b>XtraPower customer</b> (Payment 1 says XtraPower)' : ''}` : '';
-    document.getElementById('q-calc').innerHTML = [
-      ['RSP at our RO', `₹${rs2(c.rsp)}`], ['Offer / billing price', `₹${rs2(c.rate)}`], ['Flat discount', `₹${rs2(c.discount)}`],
-      ['Discount as % of RSP', `${(c.pct * 100).toFixed(2)}%`], ['XtraPower customer?', c.xtra ? 'Yes' : 'No'],
-      ['XtraPower benefit', `₹${rs2(c.benefit)}/Ltr`], ['Effective price after points', `₹${rs2(c.effective)}/Ltr`],
-      ['Price tier', esc(c.pay.tier || '—')], ['Payment preset', esc(c.pay.preset || '—')], ['Credit days', c.pay.creditDays ?? '—'],
-      ['Payment terms', c.pay.set ? `<span class="${c.pay.terms.startsWith('⚠') ? 'warn-text' : ''}">${esc(c.pay.terms)}</span>` : '—'],
-      ['Advance terms?', c.pay.advance ? 'Yes' : 'No'],
-    ].map(([k, v]) => `<tr><td>${k}</td><td class="r">${v}</td></tr>`).join('');
-    const days = form.credit_days;
-    days.disabled = q.preset !== 'N Days';                    // days only go with an N Days override
-    document.getElementById('q-terms').innerHTML = !c.pay.set
-      ? '<span class="warn-text">Import the Tanker Billing workbook again to bring in its payment terms (Customers ▸ TierTerms).</span>'
-      : c.pay.fromTier
-        ? (c.pay.known ? `From Customers ▸ TierTerms for <b>${esc(c.pay.tier)}</b>. Pick a preset to quote other terms this time.` : `<span class="warn-text"><b>${esc(c.pay.tier || 'This customer')}</b> has no row in Customers ▸ TierTerms.</span> Pick a preset, or set it up in Excel and import again.`)
-        : `Changed for this quotation — the tier's terms: ${esc(paymentTerms(data, cust).terms)}`;
-    document.getElementById('q-page').innerHTML = page();
-    state.quoteForm = { ...Object.fromEntries(new FormData(form)), rateTouched: f.rateTouched };
-  };
-  const later = debounce(render, 120);
-  form.addEventListener('input', (e) => {
-    if (e.target.name === 'rate') f.rateTouched = true;
-    if (e.target.name === 'rsp' && !f.rateTouched) fillRate();
-    later();
-  });
-  form.customer.addEventListener('change', () => { f.rateTouched = false; form.preset.value = ''; form.credit_days.value = ''; fillRate(); render(); });
-  if (form.rate.value === '') fillRate();
-  render();
-
-  const fileName = () => quoteFileName(form.customer.value, form.date.value);
-  const pdf = async () => {
-    const svg = sheetSvg(LAYOUTS.quotation, { values: quotationValues(data, read()).values, texts: data.texts?.quotation || {}, images: await docImagesForPdf(d, 'quote'), measure, fontCss: await narrowFontCss() });
-    return pdfFromSvgs([svg], A4, { scale: 3 });
-  };
-  const busy = (btn, text, fn) => guard(async () => {
-    const old = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = text;
-    try { await fn(); } finally { btn.disabled = false; btn.textContent = old; }
-  });
-  const pdfBtn = document.getElementById('q-pdf');
-  pdfBtn.addEventListener('click', () => busy(pdfBtn, 'Making…', async () => { download(await pdf(), fileName()); toast(`Saved ${fileName()}`); }));
-  const shareBtn = document.getElementById('q-share');
-  shareBtn.addEventListener('click', () => busy(shareBtn, 'Making…', async () => {
-    await shareOrSave([new File([await pdf()], fileName(), { type: 'application/pdf' })], fileName());
-  }));
-  document.getElementById('q-print').addEventListener('click', () => printPages([page()], A4));
+// what the import's self-check found that touches one sheet
+function checkNote(d, sheet) {
+  const ck = d.tb && d.tb.model_check;
+  if (!ck) return '';
+  const bad = (ck.bad || []).filter((b) => b.sheet === sheet || b.sheet === 'Customers');
+  const unknown = (ck.unknown || []);
+  if (!bad.length && !unknown.length) return '';
+  return `<div class="pi-check warn"><b>⚠ The app works out ${plural(bad.length, 'cell')} of this workbook differently from Excel</b>
+    <p class="small">Check these before sending — tell Claude about them if they're wrong:</p>
+    <ul class="small">${bad.slice(0, 8).map((b) => `<li>${esc(b.sheet)}!${esc(b.addr)} <code>=${esc(String(b.f).slice(0, 80))}</code>: Excel <b>${esc(String(b.excel ?? ''))}</b>, app <b>${esc(String(b.app ?? ''))}</b></li>`).join('')}
+      ${unknown.slice(0, 5).map((u) => `<li>Not known to the app: ${esc(u)}</li>`).join('')}</ul></div>`;
 }
 
-// ---- Proforma Invoice ----
-function viewProforma(d) {
-  if (!d.tb) {
-    setMain(quotesHead(d, 'pi'));
+// ---- a document: the Quotation Maker or the Proforma Invoice ----
+// The form asks for the sheet's input cells (blue text, drop-downs; for the
+// PI also what Print & Log PI restores on a reprint); the page and the
+// Calculated panel are the sheet's own formulas, worked out live.
+function viewDoc(d, docKey) {
+  const tab = docKey === 'proforma' ? 'pi' : '';
+  const kind = docKey === 'proforma' ? 'pi' : 'quote';
+  if (!d.model) {
+    setMain(`${quotesHead(d, tab)}${d.tb ? `<section class="card"><p class="warn-text"><b>Import the Tanker Billing workbook again.</b> The app now takes the ${esc(DOCS[docKey].sheet)} sheet straight from the workbook — its layout, wording and formulas — so changes you make in Excel need no change to the app.</p></section>` : ''}`);
     bindTankerImport();
     return;
   }
-  const data = d.tb;
-  const ps = data.pi_sheet || {};
-  const descs = PI_PRODUCTS.includes(ps.description) || !ps.description ? PI_PRODUCTS : [ps.description, ...PI_PRODUCTS];
-  const first = d.tanker[0];
-  const f = state.piForm || {
-    pi_no: '', date: todayIso(), customer: first ? first.company : '', po_no: first ? first.po_no || '' : '', po_date: '',
-    place: ps.place || 'Odisha (21)', contact: ps.contact ?? 'Contact Person / Mob:', description: ps.description || PI_PRODUCTS[0],
-    hsn: ps.hsn ?? '27101930', qty: '', rsp: rs2(hsdRsp(data)), rate: '', rateTouched: false,
+  const { model, format } = d;
+  const macro = docKey === 'proforma' ? d.macro : null;
+  const sheet = DOCS[docKey].sheet;
+  const base = makeCalc(model, { format });
+  const inputs = inputsOf(model, docKey, base, macro);
+  const helpers = helperRows(model, docKey, inputs);
+  const rspAt = rspCell(model, d.macro);
+  const rspSaved = rspAt ? base.value(rspAt.sheet, rspAt.addr) : null;
+  const custInput = inputs.find((x) => x.kind === 'select' && x.options && d.tanker.some((t) => x.options.includes(t.company)))
+    || inputs.find((x) => x.kind === 'select');
+  const dateInput = docKey === 'proforma' ? inputs.find((x) => x.addr === (macro.pdf.date || macro.write.pi_date)) : inputs.find((x) => x.kind === 'date');
+  const piNoAddr = docKey === 'proforma' ? macro.write.pi_no : null;
+  const forms = state.docForms || (state.docForms = {});
+  const today = todayIso();
+  if (!forms[docKey]) {
+    const values = {};
+    for (const x of inputs) {
+      if (x.formula) continue;                                   // worked out until typed over
+      const c = model.sheets[sheet].cells[x.addr] || {};
+      values[x.addr] = formValue(x.kind, c.v);
+    }
+    if (dateInput && !dateInput.formula) values[dateInput.addr] = today;
+    if (piNoAddr) values[piNoAddr] = nextPiNo(d.log, today);
+    forms[docKey] = { values, overrides: {}, rsp: '' };
+  }
+  const f = forms[docKey];
+  if (piNoAddr && (!f.values[piNoAddr] || d.log.some((r) => samePiNo(r.pi_no, f.values[piNoAddr])))) f.values[piNoAddr] = nextPiNo(d.log, f.values[dateInput ? dateInput.addr : ''] || today);
+
+  const control = (x) => {
+    const v = f.values[x.addr] ?? '';
+    const ph = x.formula ? ` placeholder="${esc(formValue(x.kind, base.value(sheet, x.addr)))} (worked out)"` : '';
+    const attrs = `name="${esc(x.addr)}" data-kind="${x.kind}"`;
+    if (x.kind === 'select') {
+      const opts = x.options.includes(v) || !v ? x.options : [v, ...x.options];
+      return `<select ${attrs}>${opts.map((o) => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    }
+    if (x.kind === 'textarea') return `<textarea ${attrs} rows="3"${ph}>${esc(v)}</textarea>`;
+    if (x.kind === 'date') return `<input type="date" ${attrs} value="${esc(v)}">`;
+    if (x.kind === 'number') return `<input type="number" step="any" ${attrs} value="${esc(v)}"${ph}>`;
+    return `<input ${attrs} value="${esc(v)}"${ph}>`;
   };
+  // "QUOTATION TO" -> "Quotation to"
+  const nice = (t) => (/[a-z]/.test(t) ? t : t.charAt(0) + t.slice(1).toLowerCase());
+  const hint = (x) => (x.formula && x.kind === 'date' ? `<span class="muted small field-hint">Blank = ${esc(base.text(sheet, x.addr))}, as the sheet works it out</span>` : '');
+  const field = (x) => `<label class="${x.kind === 'textarea' ? 'wide' : ''}">${esc(nice(x.label))} <span class="muted small cell-ref">${esc(x.addr)}</span>${control(x)}${hint(x)}</label>`;
+  const pageInputs = inputs.filter((x) => !x.outside);
+  const sideInputs = inputs.filter((x) => x.outside);
   const lastNo = [...d.log].sort((a, b) => b.id - a.id)[0];
-  setMain(`${quotesHead(d, 'pi')}
+  const buttons = docKey === 'proforma'
+    ? `<p class="actions"><button class="btn" id="doc-pdf">Save PDF &amp; log</button><button class="btn ghost" id="doc-share">Share &amp; log</button><button class="btn ghost" id="doc-print">Print &amp; log</button></p>
+       <p class="muted small">Like the <b>Print &amp; Log PI</b> button: the PI is written to the PI Log as it goes out${macro.from === 'macro' ? ' — the cells it logs are read from the workbook\'s own macro' : ''}. A PI No. already in the log asks before replacing that entry.${lastNo ? ` Last logged: <b>${esc(lastNo.pi_no)}</b> (${esc(lastNo.customer)}, ${fmtDate(lastNo.pi_date)}).` : ''}</p>
+       ${macro.note ? `<p class="warn-text small">${esc(macro.note)}</p>` : ''}`
+    : '<p class="actions"><button class="btn" id="doc-pdf">Download PDF</button><button class="btn ghost" id="doc-share">Share</button><button class="btn ghost" id="doc-print">Print</button></p>';
+  setMain(`${quotesHead(d, tab)}
     <div class="doc-wrap">
       <section class="card doc-form">
-        <h3>Proforma Invoice</h3>
-        <form id="p-form" autocomplete="off">
-          <div class="two"><label>Proforma Invoice No. <input name="pi_no" value="${esc(f.pi_no)}" required></label>
-            <label>Date <input type="date" name="date" value="${esc(f.date)}" required></label></div>
-          <p class="muted small" id="p-no-note"></p>
-          <label>Buyer (Bill To) <select name="customer">${customerOptions(d.tanker, f.customer)}</select></label>
-          <div class="two"><label>Buyer's P.O. No. <input name="po_no" value="${esc(f.po_no)}"></label>
-            <label>P.O. Date <input type="date" name="po_date" value="${esc(f.po_date)}"></label></div>
-          <div class="two"><label>Place of Supply <input name="place" value="${esc(f.place)}"></label>
-            <label>Contact Person / Mob <input name="contact" value="${esc(f.contact)}"></label></div>
-          <div class="two"><label>Description of Goods <select name="description">${descs.map((x) => `<option${x === f.description ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
-            <label>HSN Code <input name="hsn" value="${esc(f.hsn)}"></label></div>
-          <div class="two"><label>Quantity (Ltr) <input name="qty" type="number" min="0" step="1" value="${esc(f.qty)}" required></label>
-            <label>Rate (₹/Ltr) <input name="rate" type="number" min="0" step="0.01" value="${esc(f.rate)}"></label></div>
-          <div class="two"><label>IOCL RSP at our RO (₹/Ltr) <input name="rsp" type="number" min="0" step="0.01" value="${esc(f.rsp)}"></label><span></span></div>
-          <p class="muted small" id="p-note"></p>
+        <h3>${esc(docKey === 'proforma' ? 'Proforma Invoice' : 'Quotation')}</h3>
+        ${checkNote(d, sheet)}
+        <form id="doc-form" autocomplete="off">
+          <div class="two">${pageInputs.map(field).join('')}</div>
+          ${piNoAddr ? '<p class="muted small" id="doc-no-note"></p>' : ''}
+          ${sideInputs.length ? `<h4>Inputs beside the page</h4><div class="two">${sideInputs.map(field).join('')}</div>` : ''}
+          ${rspAt ? `<div class="two"><label>IOCL RSP at our RO (₹/Ltr) <span class="muted small cell-ref">${esc(rspAt.sheet)}!${esc(rspAt.addr)}</span><input name="__rsp" type="number" step="0.01" min="0" value="${esc(f.rsp)}" placeholder="${esc(rs2(rspSaved))} (the workbook's)"></label><span></span></div>` : ''}
         </form>
-        <div class="table-wrap"><table class="compact kv" id="p-calc"></table></div>
-        <p class="actions"><button class="btn" id="p-pdf">Save PDF &amp; log</button>
-          <button class="btn ghost" id="p-share">Share &amp; log</button><button class="btn ghost" id="p-print">Print &amp; log</button></p>
-        <p class="muted small">Like the <b>Print &amp; Log PI</b> button: the PI is written to the PI Log as it goes out. A PI No. already in the log asks before replacing that entry.${lastNo ? ` Last logged: <b>${esc(lastNo.pi_no)}</b> (${esc(lastNo.customer)}, ${fmtDate(lastNo.pi_date)}).` : ''}</p>
-        ${stampRow(d.stamps.pi, 'p-stamp', 'p-stamp-remove', 'proforma invoices')}
+        ${helpers.length ? '<h4>Calculated <span class="muted small">— tap ✎ to change one for this document</span></h4><div class="table-wrap"><table class="compact kv calc" id="doc-calc"></table></div>' : ''}
+        ${buttons}
+        ${stampRow(d.stamps[kind], 'doc-stamp', 'doc-stamp-remove', docKey === 'proforma' ? 'proforma invoices' : 'quotations')}
       </section>
-      <section class="doc-preview"><div class="doc-page" id="p-page"></div></section>
+      <section class="doc-preview"><div class="doc-page" id="doc-page"></div></section>
     </div>`);
   bindTankerImport();
-  bindStamp('pi_stamp', 'p-stamp', 'p-stamp-remove', async () => { state.quotes = null; await route(); });
-  const form = document.getElementById('p-form');
-  // the next number after the highest in the PI Log (Excel's sheet + the
-  // app's) — unless one typed here isn't used yet
-  if (!form.pi_no.value || d.log.some((r) => samePiNo(r.pi_no, form.pi_no.value))) form.pi_no.value = nextPiNo(d.log, form.date.value);
+  bindStamp(kind === 'pi' ? 'pi_stamp' : 'quote_stamp', 'doc-stamp', 'doc-stamp-remove', async () => { state.quotes = null; await route(); });
+
+  const form = document.getElementById('doc-form');
   const measure = canvasMeasure();
-  const images = docImages(d, 'pi');
-  const rspOf = () => (form.rsp.value === '' ? hsdRsp(data) : Number(form.rsp.value));
-  const sheetRate = () => productRate(data, custOf(d, form.customer.value), form.description.value, rspOf());
-  const fillRate = () => { const r = sheetRate(); form.rate.value = r == null ? '' : rs2(r); };
-  const read = () => ({
-    pi_no: form.pi_no.value.trim(), date: form.date.value, customer: custOf(d, form.customer.value), po_no: form.po_no.value.trim(),
-    po_date: form.po_date.value, place: form.place.value, contact: form.contact.value, description: form.description.value,
-    hsn: form.hsn.value, qty: form.qty.value === '' ? 0 : Number(form.qty.value), rate: form.rate.value === '' ? 0 : Number(form.rate.value), rsp: rspOf(),
-  });
-  const page = (p, imgs = images, fontCss = '') => sheetSvg(LAYOUTS.proforma, { values: proformaValues(data, p).values, texts: data.texts?.proforma || {}, images: imgs, measure, fontCss });
+  const layout = layoutOf(model, docKey);
+  const images = docImages(d, kind);
+  const byAddr = new Map(inputs.map((x) => [x.addr, x]));
+  const docState = () => {
+    const ins = {};
+    for (const x of inputs) {
+      const raw = f.values[x.addr];
+      if (x.formula && (raw == null || raw === '')) continue;
+      ins[x.addr] = cellInput(x.kind, raw);
+    }
+    return { inputs: ins, overrides: f.overrides, rsp: f.rsp };
+  };
+  const calcNow = () => docCalc(model, docKey, docState(), { format, macro: d.macro });
+  const page = (calc, imgs = images, fontCss = '') => sheetSvg(layout, { values: pageValues(model, docKey, calc, format), images: imgs, measure, fontCss });
   const render = () => {
-    const p = read();
-    const c = proformaCalc(data, p);
-    const dup = d.log.find((r) => samePiNo(r.pi_no, p.pi_no));
-    document.getElementById('p-no-note').innerHTML = dup
-      ? `<span class="warn-text">Already in the PI Log (Log ID ${dup.id}: ${esc(dup.customer)}, ${fmtDate(dup.pi_date)}) — it will ask before replacing it.</span>`
-      : `Valid up to <b>${fmtDate(c.validTo)}</b> (the 15th for a PI dated 1st–15th, otherwise month-end).`;
-    const sr = sheetRate();
-    document.getElementById('p-note').innerHTML = p.customer
-      ? `${esc(p.customer.price_tier || 'No price tier')}: sheet rate ${sr == null ? '— (type the rate)' : `₹${rs2(sr)}`}${sr != null && Math.abs(sr - p.rate) > 0.001 ? ' — <b>changed here</b>' : ''}${c.xtra ? ' · <b>XtraPower customer</b>' : ''}` : '';
-    document.getElementById('p-calc').innerHTML = [
-      ['Amount (qty × rate, paise dropped)', fmtMoney(c.amount)], ['Round off', rs2(c.roundOff)], ['Grand Total', `<b>₹${indian(c.grand)}</b>`],
-      ['In words', esc(c.words)], ['Discount on RSP', `₹${rs2(c.discount)}/Ltr`],
-      ...(c.xtra ? [['XtraPower points on this supply', indian(c.points)], ['Effective rate after points', `₹${rs2(c.effective)}/Ltr`]] : []),
-    ].map(([k, v]) => `<tr><td>${k}</td><td class="r">${v}</td></tr>`).join('');
-    document.getElementById('p-page').innerHTML = page(p);
-    state.piForm = { ...Object.fromEntries(new FormData(form)), rateTouched: f.rateTouched };
+    const calc = calcNow();
+    if (piNoAddr) {
+      const no = String(f.values[piNoAddr] || '').trim();
+      const dup = d.log.find((r) => samePiNo(r.pi_no, no));
+      const vt = macro.write.valid_to ? calc.text(sheet, macro.write.valid_to) : '';
+      document.getElementById('doc-no-note').innerHTML = dup
+        ? `<span class="warn-text">${esc(no)} is already in the PI Log (Log ID ${dup.id}: ${esc(dup.customer)}, ${fmtDate(dup.pi_date)}) — it will ask before replacing it.</span>`
+        : `The next number after the PI Log's highest (still yours to change).${vt ? ` Valid up to <b>${esc(vt)}</b>.` : ''}`;
+    }
+    const tbl = document.getElementById('doc-calc');
+    if (tbl) {
+      tbl.innerHTML = helpers.map((h) => {
+        if (h.kind === 'head') return `<tr class="calc-head"><td colspan="2">${esc(h.text)}</td></tr>`;
+        if (h.kind === 'note') return `<tr><td colspan="2" class="muted small">${esc(h.text)}</td></tr>`;
+        const changed = Object.prototype.hasOwnProperty.call(f.overrides, h.addr);
+        return `<tr><td>${esc(h.label)}</td><td class="r"><span class="${changed ? 'changed' : ''}">${esc(calc.text(sheet, h.addr))}</span>
+          <button type="button" class="btn ghost small" data-edit="${esc(h.addr)}" title="Change it for this document">✎</button>${changed ? `<button type="button" class="btn ghost small" data-reset="${esc(h.addr)}" title="Back to the workbook's formula">↺</button>` : ''}</td></tr>`;
+      }).join('');
+    }
+    document.getElementById('doc-page').innerHTML = page(calc);
   };
   const later = debounce(render, 120);
   form.addEventListener('input', (e) => {
-    if (e.target.name === 'rate') f.rateTouched = true;
-    if (e.target.name === 'rsp' && !f.rateTouched) fillRate();
+    const el = e.target;
+    if (el.name === '__rsp') f.rsp = el.value;
+    else if (byAddr.has(el.name)) f.values[el.name] = el.value;
     later();
   });
-  form.customer.addEventListener('change', () => {
-    const c = custOf(d, form.customer.value);
-    form.po_no.value = c ? c.po_no || '' : '';
-    f.rateTouched = false;
-    fillRate();
+  form.addEventListener('change', (e) => {
+    const el = e.target;
+    if (custInput && el.name === custInput.addr) {
+      // a new customer: what was typed over the worked-out cells goes back to the formulas
+      for (const x of inputs) if (x.formula) { f.values[x.addr] = ''; const i = form.querySelector(`[name="${x.addr}"]`); if (i) i.value = ''; }
+      f.overrides = {};
+    }
+    if (piNoAddr && dateInput && el.name === dateInput.addr) {
+      const no = f.values[piNoAddr];
+      if (!no || /^PI\//i.test(no)) { f.values[piNoAddr] = nextPiNo(d.log, el.value || today); form.querySelector(`[name="${piNoAddr}"]`).value = f.values[piNoAddr]; }
+    }
     render();
   });
-  form.description.addEventListener('change', () => { f.rateTouched = false; fillRate(); render(); });
-  form.date.addEventListener('change', () => {
-    // a new financial year starts its own numbering
-    const was = nextPiNo(d.log, f.date);
-    if (form.pi_no.value === was || !form.pi_no.value) form.pi_no.value = nextPiNo(d.log, form.date.value);
-    f.date = form.date.value;
+  document.getElementById('doc-calc')?.addEventListener('click', (e) => {
+    const ed = e.target.closest('[data-edit]');
+    const rs = e.target.closest('[data-reset]');
+    if (rs) { delete f.overrides[rs.dataset.reset]; render(); return; }
+    if (!ed) return;
+    const a = ed.dataset.edit;
+    const now = calcNow().value(sheet, a);
+    const typed = window.prompt(`${helpers.find((h) => h.addr === a)?.label || a} — for this document only (blank = the workbook's formula):`, formValue(typeof now === 'number' ? 'number' : 'text', now));
+    if (typed == null) return;
+    if (typed.trim() === '') delete f.overrides[a];
+    else f.overrides[a] = typeof now === 'number' && Number.isFinite(Number(typed)) ? Number(typed) : typeof now === 'boolean' ? /^(true|yes|1)$/i.test(typed.trim()) : typed;
     render();
   });
-  if (form.rate.value === '') fillRate();
   render();
 
-  // PrintAndLogPI: check, make the PDF, ask before replacing a logged PI No.,
-  // log it, then hand the PDF over
-  const out = async (how, btn) => {
-    const p = read();
-    if (!p.pi_no) throw new Error('Proforma Invoice No. is blank.');
-    if (!p.customer) throw new Error('Buyer is blank.');
-    if (!(p.qty > 0)) throw new Error('Quantity is missing or zero.');
-    const name = piFileName(p.customer.company, p.date);
-    let blob = null;
-    if (how !== 'print') {
-      btn.textContent = 'Making PDF…';
-      blob = await pdfFromSvgs([page(p, await docImagesForPdf(d, 'pi'), await narrowFontCss())], A4, { scale: 3 });
-    }
-    const row = piLogRow(data, p, state.me.email);
-    let res = await quotesCall(() => state.store.piSave(row, false));
-    if (res.status === 'exists') {
-      const e = res.existing;
-      const ok = window.confirm(`Proforma Invoice No. ${p.pi_no} is ALREADY LOGGED.\n\nExisting entry (Log ID ${e.id}):\n   Customer : ${e.customer}\n   PI Date  : ${dmyy(e.pi_date)}\n   Quantity : ${indian(e.qty)} Ltr\n   Rate     : ${rs2(e.rate)} /Ltr\n   Total    : ${indian(e.grand_total)}\n   Logged   : ${e.printed_at ? new Date(e.printed_at).toLocaleString('en-IN') : ''}\n\nReplace that log entry with the current invoice?\n\n   OK = replace the log entry and ${how === 'print' ? 'print' : 'save'} the PI\n   Cancel = do nothing`);
-      if (!ok) return;
-      res = await quotesCall(() => state.store.piSave(row, true));
-    }
-    if (how === 'print') printPages([page(p)], A4);
-    else if (how === 'share') await shareOrSave([new File([blob], name, { type: 'application/pdf' })], name);
-    else download(blob, name);
-    toast(`${res.status === 'replaced' ? 'Log entry REPLACED for' : 'Logged'} ${p.pi_no}${how === 'pdf' ? ` — saved ${name}` : ''}.`);
-    d.log = await quotesCall(() => state.store.piList());
-    form.pi_no.value = nextPiNo(d.log, form.date.value);
-    render();
-  };
-  for (const [id, how] of [['p-pdf', 'pdf'], ['p-share', 'share'], ['p-print', 'print']]) {
+  const nameNow = (calc) => (docKey === 'proforma'
+    ? docFileName(docKey, calc, { customerAddr: macro.pdf.customer, dateAddr: macro.pdf.date, word: macro.pdf.word })
+    : docFileName(docKey, calc, { customerAddr: custInput && custInput.addr, dateAddr: dateInput && dateInput.addr }));
+  const pdfOf = async (calc) => pdfFromSvgs([page(calc, await docImagesForPdf(d, kind), await narrowFontCss())], A4, { scale: 3 });
+  const run = (id, fn) => {
     const btn = document.getElementById(id);
     btn.addEventListener('click', () => guard(async () => {
       const old = btn.textContent;
       btn.disabled = true;
-      try { await out(how, btn); } finally { btn.disabled = false; btn.textContent = old; }
+      try { await fn(btn); } finally { btn.disabled = false; btn.textContent = old; }
     }));
+  };
+  if (docKey === 'quotation') {
+    run('doc-pdf', async (btn) => { btn.textContent = 'Making…'; const c = calcNow(); const n = nameNow(c); download(await pdfOf(c), n); toast(`Saved ${n}`); });
+    run('doc-share', async (btn) => { btn.textContent = 'Making…'; const c = calcNow(); const n = nameNow(c); await shareOrSave([new File([await pdfOf(c)], n, { type: 'application/pdf' })], n); });
+    run('doc-print', async () => printPages([page(calcNow())], A4));
+    return;
   }
+  // PrintAndLogPI: the macro's checks, the PDF, the duplicate question, the log
+  const out = async (how, btn) => {
+    const calc = calcNow();
+    const problem = piProblem(calc, macro);
+    if (problem) throw new Error(problem);
+    const name = nameNow(calc);
+    let blob = null;
+    if (how !== 'print') { btn.textContent = 'Making PDF…'; blob = await pdfOf(calc); }
+    const snap = {};
+    for (const x of inputs) { const v = calc.value(sheet, x.addr); snap[x.addr] = isErr(v) ? null : v; }
+    for (const [a, v] of Object.entries(f.overrides)) snap[a] = v;
+    const row = { ...piLogRowOf(calc, macro, model, { inputs: snap }), printed_by: state.me.email };
+    let res = await quotesCall(() => state.store.piSave(row, false));
+    if (res.status === 'exists') {
+      const e = res.existing;
+      const ok = window.confirm(`Proforma Invoice No. ${row.pi_no} is ALREADY LOGGED.\n\nExisting entry (Log ID ${e.id}):\n   Customer : ${e.customer}\n   PI Date  : ${dmyy(e.pi_date)}\n   Quantity : ${indian(e.qty)} Ltr\n   Rate     : ${rs2(e.rate)} /Ltr\n   Total    : ${indian(e.grand_total)}\n   Logged   : ${e.printed_at ? new Date(e.printed_at).toLocaleString('en-IN') : ''}\n\nReplace that log entry with the current invoice?\n\n   OK = replace the log entry and ${how === 'print' ? 'print' : 'save'} the PI\n   Cancel = do nothing`);
+      if (!ok) return;
+      res = await quotesCall(() => state.store.piSave(row, true));
+    }
+    if (how === 'print') printPages([page(calc)], A4);
+    else if (how === 'share') await shareOrSave([new File([blob], name, { type: 'application/pdf' })], name);
+    else download(blob, name);
+    toast(`${res.status === 'replaced' ? 'Log entry REPLACED for' : 'Logged'} ${row.pi_no}${how === 'pdf' ? ` — saved ${name}` : ''}.`);
+    d.log = await quotesCall(() => state.store.piList());
+    f.values[piNoAddr] = nextPiNo(d.log, f.values[dateInput ? dateInput.addr : ''] || today);
+    form.querySelector(`[name="${piNoAddr}"]`).value = f.values[piNoAddr];
+    render();
+  };
+  run('doc-pdf', (btn) => out('pdf', btn));
+  run('doc-share', (btn) => out('share', btn));
+  run('doc-print', (btn) => out('print', btn));
 }
 
 // ---- PI Log and reprints (ReprintPIs) ----
@@ -3289,12 +3272,19 @@ const PI_LOG_HEAD = ['Log ID', 'PI No.', 'PI Date', 'Valid Up To', 'Customer', '
   'HSN Code', 'Quantity (Ltr)', 'Rate (₹/Ltr)', 'IOCL RSP (₹/Ltr)', 'Discount (₹/Ltr)', 'Sub Total (₹)', 'Round Off (₹)', 'Grand Total (₹)',
   'XtraPower Points', 'Effective Rate (₹/Ltr)', 'Amount in Words', 'Contact Person', 'Printed On', 'Printed By'];
 const num = (v) => (v == null || v === '' ? '' : Number(v));
+// real Excel dates, in the PI Log sheet's formats, so pasted rows are dates there too
+const xlDay = (iso) => (iso ? { t: 'n', v: isoToSerial(iso), z: 'dd/mm/yyyy' } : '');
+const xlStamp = (ts) => {
+  if (!ts) return '';
+  const ist = new Date(new Date(ts).getTime() + 330 * 60000);          // the sheet's clock is India time
+  return { t: 'n', v: isoToSerial(ist.toISOString().slice(0, 10)) + (ist.getUTCHours() * 3600 + ist.getUTCMinutes() * 60 + ist.getUTCSeconds()) / 86400, z: 'dd/mm/yyyy hh:mm' };
+};
 // the PI Log sheet's columns, in its order (to paste into Excel)
 const piLogSheet = (rows) => ({
   name: 'PI Log', filter: true, cols: [8, 16, 11, 11, 34, 24, 14, 14, 13, 24, 10, 12, 11, 12, 12, 14, 11, 14, 14, 12, 50, 22, 18, 20],
-  rows: [PI_LOG_HEAD, ...[...rows].sort((a, b) => a.id - b.id).map((r) => [r.id, r.pi_no, fmtDate(r.pi_date), fmtDate(r.valid_to), r.customer, r.gstin,
-    r.place, r.po_no, fmtDate(r.po_date), r.description, r.hsn, num(r.qty), num(r.rate), num(r.rsp), piDiscount(r), num(r.sub_total), num(r.round_off),
-    num(r.grand_total), num(r.points), piEffective(r), r.words, r.contact, r.printed_at ? new Date(r.printed_at).toLocaleString('en-IN') : '', r.printed_by])],
+  rows: [PI_LOG_HEAD, ...[...rows].sort((a, b) => a.id - b.id).map((r) => [r.id, r.pi_no, xlDay(r.pi_date), xlDay(r.valid_to), r.customer, r.gstin,
+    r.place, r.po_no, xlDay(r.po_date), r.description, r.hsn, num(r.qty), num(r.rate), num(r.rsp), piDiscount(r), num(r.sub_total), num(r.round_off),
+    num(r.grand_total), num(r.points), piEffective(r), r.words, r.contact, xlStamp(r.printed_at), r.printed_by])],
 });
 
 const checkValue = (c, v) => {
@@ -3406,14 +3396,17 @@ function viewPiLog(d) {
   document.getElementById('log-30').addEventListener('click', () => apply({ customer: form.customer.value.trim(), from: addDays(today, -30), to: today }));
   document.getElementById('log-all').addEventListener('click', () => apply({ customer: '', from: '', to: '' }));
   if (!rows.length) return;
-  const data = d.tb || {};
   const measure = canvasMeasure();
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const svgOf = (r, imgs, fontCss = '') => sheetSvg(LAYOUTS.proforma, {
-    values: proformaValues(data, piFromLog(r, d.tanker)).values, texts: data.texts?.proforma || {}, images: imgs, measure, fontCss,
-  });
+  // ReprintPIs: the logged PI back on the sheet (LoadLogRowToSheet), worked out
+  const svgOf = (r, imgs, fontCss = '') => {
+    if (!d.model) throw new Error('Import the Tanker Billing workbook again to reprint — the app now takes the Proforma Invoice from it.');
+    const st = piStateFromLog(r, d.macro, d.model);
+    const calc = docCalc(d.model, 'proforma', st, { format: d.format, macro: d.macro });
+    return sheetSvg(layoutOf(d.model, 'proforma'), { values: pageValues(d.model, 'proforma', calc, d.format), images: imgs, measure, fontCss });
+  };
   const pdfOf = async (r) => pdfFromSvgs([svgOf(r, await docImagesForPdf(d, 'pi'), await narrowFontCss())], A4, { scale: 3 });
-  const nameOf = (r) => piFileName(r.customer, r.pi_date);
+  const nameOf = (r) => piFileName(r.customer, r.pi_date, d.macro.pdf.word);
   const busy = (btn, fn) => guard(async () => {
     const old = btn.textContent;
     btn.disabled = true;
@@ -3455,16 +3448,16 @@ function viewPiLog(d) {
 }
 
 // ---- importing the Tanker Billing workbook ----
-async function workbookPictures(buf) {
+// The parts of the file the model needs, the macros' source and the pictures
+async function workbookParts(buf) {
   const JSZip = await loadJSZip();
   const zip = await JSZip.loadAsync(buf);
   const files = {};
-  for (const name of Object.keys(zip.files)) {
-    if (/^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|worksheets\/_rels\/[^/]+\.rels|drawings\/drawing\d+\.xml|drawings\/_rels\/[^/]+\.rels)$/.test(name)) {
-      files[name] = await zip.file(name).async('string');
-    }
-  }
-  const out = {};
+  for (const name of Object.keys(zip.files)) if (MODEL_PARTS.test(name)) files[name] = await zip.file(name).async('string');
+  let vba = {};
+  const bin = zip.file('xl/vbaProject.bin');
+  if (bin) { try { vba = vbaModules(await bin.async('uint8array')); } catch { vba = {}; } }
+  const images = {};
   for (const [sheet, pics] of Object.entries(picturePaths(files))) {
     for (const [which, path] of Object.entries(pics)) {
       const f = zip.file(path);
@@ -3472,10 +3465,10 @@ async function workbookPictures(buf) {
       const b64 = await f.async('base64');
       const type = b64.startsWith('iVBOR') ? 'image/png' : b64.startsWith('/9j/') ? 'image/jpeg' : null;    // Excel names some PNGs .tmp
       if (!type || b64.length > 1900000) continue;
-      out[`${sheet === 'quotation' ? 'quote' : 'pi'}_${which}`] = `data:${type};base64,${b64}`;
+      images[`${sheet === 'quotation' ? 'quote' : 'pi'}_${which}`] = `data:${type};base64,${b64}`;
     }
   }
-  return out;
+  return { files, vba, images };
 }
 
 async function tankerChosen(file, input, outId) {
@@ -3484,40 +3477,50 @@ async function tankerChosen(file, input, outId) {
   await paint();
   try {
     const XLSX = await loadSheetJS();
+    const format = (f, v) => XLSX.SSF.format(f, v);
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array', cellFormula: true, cellDates: false, cellNF: false });
+    const wb = XLSX.read(buf, { type: 'array', cellFormula: true, cellDates: false, cellNF: true });
     const parsed = readTankerBilling(wb);
-    let images = {};
-    try {
-      images = await workbookPictures(buf);
-    } catch (err) {
-      parsed.warnings.push(`The letterheads and stamps couldn't be read (${err.message}); the app keeps the ones it has.`);
-    }
+    const { files, vba, images } = await workbookParts(buf);
+    const model = buildModel(wb, files, { vba });
+    const check = selfCheck(model, format);
+    const missingDocs = DOC_SHEETS.filter((s) => !model.sheets[s] || !model.sheets[s].layout);
     // the app's log as it is now, to check Excel's PI Log sheet against
     const log = await quotesCall(() => state.store.piList()).catch(() => []);
-    const check = comparePiLog(parsed.pi_log, log);
-    parsed.data.pi_check = { ...check, file_name: file.name, checked_at: new Date().toISOString() };
-    const inApp = parsed.pi_log.filter((r) => log.some((x) => samePiNo(x.pi_no, r.pi_no) && x.source === 'app')).length;
-    const known = parsed.pi_log.filter((r) => log.some((x) => samePiNo(x.pi_no, r.pi_no))).length;
-    const dd = parsed.data;
+    const piCheck = comparePiLog(parsed.pi_log, log);
+    const data = {
+      model,
+      model_check: { count: check.count, bad: check.bad.slice(0, 50), unknown: check.unknown.slice(0, 20), linked: check.linked, unsaved: check.unsaved, checked_at: new Date().toISOString() },
+      pi_check: { ...piCheck, file_name: file.name, checked_at: new Date().toISOString() },
+    };
+    const calc = makeCalc(model, { format });
+    const macro = piMacro(model);
+    const rsp = rspCell(model, macro);
+    const rspNow = rsp ? calc.value(rsp.sheet, rsp.addr) : null;
+    const formOf = (k) => (model.sheets[DOCS[k].sheet] ? inputsOf(model, k, calc, k === 'proforma' ? macro : null).map((x) => esc(x.label)).join(' · ') : '<span class="warn-text">sheet not found</span>');
+    const tableRows = Object.entries(model.tables).map(([n, t]) => `${esc(n)} <span class="muted">(${t.r1 - t.r0} rows)</span>`).join(' · ');
     const pics = { pi_letterhead: 'Proforma letterhead', pi_stamp: 'Proforma stamp', quote_letterhead: 'Quotation letterhead', quote_stamp: 'Quotation stamp' };
-    const wording = Object.keys(dd.texts.quotation).length + Object.keys(dd.texts.proforma).length;
+    const ok = !check.bad.length && !check.unknown.length && check.count > 0;
     out.innerHTML = `
       <div class="preview">
+        <div class="pi-check ${ok ? 'good' : 'warn'}"><b>${ok ? '✓' : '⚠'} Formulas: ${check.count ? `the app works out ${ok ? `all ${check.count}` : `${check.count - check.bad.length} of ${check.count}`} formulas of the ${esc(Object.keys(model.sheets).join(', '))} sheets as Excel saved them` : 'nothing to check them against — this copy has no results saved with its formulas'}</b>
+          ${ok ? `<p class="small">So quotations and proforma invoices made here come out as Excel would make them${check.linked ? ` (${plural(check.linked, 'cell')} linked to another workbook keep what Excel saved)` : ''}.</p>`
+    : `<ul class="small">${check.bad.slice(0, 10).map((b) => `<li>${esc(b.sheet)}!${esc(b.addr)} <code>=${esc(String(b.f).slice(0, 90))}</code>: Excel <b>${esc(String(b.excel ?? ''))}</b>, the app <b>${esc(String(b.app ?? ''))}</b></li>`).join('')}
+            ${check.unknown.slice(0, 8).map((u) => `<li>Not known to the app yet: ${esc(u)}</li>`).join('')}</ul>
+            <p class="small">You can still import; these cells are flagged on the Quotes screens. Ask Claude to teach the app what's missing.</p>`}</div>
+        ${check.unsaved ? `<p class="warn-text small">${plural(check.unsaved, 'formula')} came with no result saved, so ${check.unsaved === 1 ? 'it' : 'they'} couldn't be checked against Excel — open the workbook in Excel, save it, and import again to check ${check.unsaved === 1 ? 'it' : 'them'} too.</p>` : ''}
+        ${missingDocs.length ? `<p class="warn-text">No ${missingDocs.map((s) => `“${esc(s)}”`).join(' or ')} sheet in this file — that document can't be made until it is.</p>` : ''}
         <div class="table-wrap"><table class="compact"><tbody>
-          <tr><td>Customers</td><td>${parsed.customers.length} <span class="muted">(${parsed.customers.filter((c) => isXtraPower(c)).length} on XtraPower) — they become the Tanker Master too</span></td></tr>
-          <tr><td>IOCL HSD RSP</td><td>₹${rs2(dd.hsd_rsp)}</td></tr>
-          <tr><td>Price tiers</td><td>${dd.rate_card.map((t) => `${esc(t.tier)} ₹${rs2(t.rate)}${t.rsp_offset != null ? ` <span class="muted">(RSP ${t.rsp_offset < 0 ? '−' : '+'} ${Math.abs(t.rsp_offset)})</span>` : ''}`).join(' · ')}</td></tr>
-          <tr><td>Other products</td><td>${Object.entries(dd.product_rates).map(([k, v]) => `${esc(k)} ₹${rs2(v)}`).join(' · ') || '—'}</td></tr>
-          <tr><td>Payment terms by tier</td><td>${dd.tier_terms ? dd.tier_terms.map((t) => `${esc(t.tier)}: ${esc(t.preset || '—')}${t.credit_days ? ` (${t.credit_days} days)` : ''}`).join(' · ') : '<span class="warn-text">no TierTerms table</span>'}</td></tr>
-          <tr><td>XtraPower</td><td>${dd.xp.points} paise per ₹100, ${Math.round(dd.xp.tds * 100)}% TDS → net ${dd.xp.net} paise</td></tr>
-          <tr><td>Quotation Maker inputs</td><td>Valid till “${esc(dd.quote.valid_till)}” · ${esc(dd.quote.contact)} · ${esc(dd.quote.email)}</td></tr>
-          <tr><td>PI Log</td><td>${plural(parsed.pi_log.length, 'PI')}${parsed.pi_log.length ? ` <span class="muted">(${parsed.pi_log.length - known} new to the app${known - inApp ? `, ${known - inApp} refreshed` : ''}${inApp ? `, ${inApp} made in the app kept as they are` : ''})</span>` : ''}</td></tr>
-          <tr><td>Pictures</td><td>${Object.keys(images).map((k) => pics[k]).join(', ') || '<span class="muted">none found — the app\'s own letterhead is used</span>'}</td></tr>
-          <tr><td>Wording</td><td>${wording ? `${plural(wording, 'line')} differ from the app's copy of the sheets — the workbook's are used` : 'same as the sheets in the app'}</td></tr>
+          <tr><td>Customers</td><td>${parsed.customers.length} <span class="muted">— they become the Tanker Master too</span></td></tr>
+          <tr><td>IOCL HSD RSP</td><td>${typeof rspNow === 'number' ? `₹${rs2(rspNow)}` : '—'}${rsp ? ` <span class="muted">(${esc(rsp.sheet)}!${esc(rsp.addr)})</span>` : ''}</td></tr>
+          <tr><td>Tables</td><td>${tableRows || '—'}</td></tr>
+          <tr><td>Quotation asks for</td><td>${formOf('quotation')}</td></tr>
+          <tr><td>Proforma Invoice asks for</td><td>${formOf('proforma')}</td></tr>
+          <tr><td>PI Log</td><td>${macro.from === 'macro' ? 'filled as the Print &amp; Log PI macro (Module1) does' : esc(macro.note || '')} · ${plural(parsed.pi_log.length, 'PI')} in the sheet</td></tr>
+          <tr><td>Pictures</td><td>${Object.keys(images).map((k) => pics[k] || k).join(', ') || '<span class="muted">none found — the app\'s own letterhead is used</span>'}</td></tr>
         </tbody></table></div>
         ${parsed.warnings.length ? `<details open><summary class="warn-text">${plural(parsed.warnings.length, 'note')}</summary><ul>${parsed.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></details>` : ''}
-        ${log.length || parsed.pi_log.length ? piCheckHtml(check, { before: true }) : ''}
+        ${log.length || parsed.pi_log.length ? piCheckHtml(piCheck, { before: true }) : ''}
         <p class="actions"><button class="btn" id="tb-go">Import</button> <button class="btn ghost" id="tb-cancel">Cancel</button></p>
       </div>`;
     document.getElementById('tb-cancel').addEventListener('click', () => { out.innerHTML = ''; input.value = ''; });
@@ -3525,15 +3528,12 @@ async function tankerChosen(file, input, outId) {
     go.addEventListener('click', () => guard(async () => {
       go.disabled = true;
       go.textContent = 'Importing…';
-      const res = await quotesCall(() => state.store.tankerImport(file.name, {
-        customers: parsed.customers, data: parsed.data, pi_log: parsed.pi_log, images,
-      }));
+      const res = await quotesCall(() => state.store.tankerImport(file.name, { customers: parsed.customers, data, pi_log: parsed.pi_log, images }));
       input.value = '';
       state.quotes = null;
-      state.quoteForm = null;                  // start from the workbook's new rates and inputs
-      state.piForm = null;
+      state.docForms = null;                    // start from the workbook's new cells
       toast(`Tanker Billing imported: ${plural(res.customers, 'customer')}, ${plural(res.pi_new, 'new PI')}${res.pi_updated ? `, ${res.pi_updated} refreshed` : ''}.`);
-      if (!piCheckClean(check)) {
+      if (!piCheckClean(piCheck)) {
         toast('Excel\'s PI Log doesn\'t match the app\'s — see Quotes → PI Log.', 'bad');
         state.piLogFilter = null;
         if (location.hash !== '#/quotes/log') { location.hash = '#/quotes/log'; return; }

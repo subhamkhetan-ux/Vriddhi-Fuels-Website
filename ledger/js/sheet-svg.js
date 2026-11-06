@@ -1,4 +1,4 @@
-// Draws a sheet's print area (from sheet-layouts.js) as one A4 page, the way
+// Draws a sheet's print area (docs.js layoutOf) as one A4 page, the way
 // Excel prints it: fit to one page, horizontally centred, the sheet's own
 // column widths, row heights, merged cells, fills, borders, fonts and
 // alignment, wrapped and justified text, the letterhead and the stamp.
@@ -86,7 +86,7 @@ export function sheetSvg(layout, { values = {}, texts = {}, images = {}, measure
   const styleAt = (r, c) => { const x = at(r, c); return x ? styles[x.s] : null; };
   const content = (a) => {
     const v = values[a];
-    if (v != null && v !== '') return typeof v === 'object' ? v : { text: String(v) };
+    if (v != null && v !== '') return typeof v === 'object' ? (v.text === '' || v.text == null ? null : v) : { text: String(v) };
     const x = cells[a];
     if (!x || x.fx || x.in) return null;
     const t = texts[a] ?? x.t;
@@ -101,9 +101,11 @@ export function sheetSvg(layout, { values = {}, texts = {}, images = {}, measure
       const mg = covered.get(key);
       if (mg && (mg[0][0] !== r || mg[0][1] !== c)) continue;
       const st = styleAt(r, c);
-      if (!st || !st.bg || st.bg === '#FFFFFF') continue;
+      const cf = values[addrOf(r, c)];
+      const bg = (cf && typeof cf === 'object' && cf.bg) || (st && st.bg);       // a conditional format's fill wins
+      if (!bg || bg === '#FFFFFF') continue;
       const [[r0, c0], [r1, c1]] = mg || [[r, c], [r, c]];
-      out.push(`<rect x="${xs[c0]}" y="${ys[r0]}" width="${(xs[c1 + 1] - xs[c0]).toFixed(2)}" height="${(ys[r1 + 1] - ys[r0]).toFixed(2)}" fill="${st.bg}"/>`);
+      out.push(`<rect x="${xs[c0]}" y="${ys[r0]}" width="${(xs[c1 + 1] - xs[c0]).toFixed(2)}" height="${(ys[r1 + 1] - ys[r0]).toFixed(2)}" fill="${bg}"/>`);
     }
   }
 
