@@ -152,7 +152,8 @@
     return c;
   }
 
-  /* One sale. d = { customer, plate, ts, ref (the slip's number), caps,
+  /* One sale. d = { customer, plate, ts, ref (the slip's number), density,
+     seal (as typed; a row in the details card only when given), caps,
      fill (0..1 a chamber), kl, chambers:[{ rated (L), loaded }] | null,
      invoices:[{no, date (YYYY-MM-DD) | null, qty | null}], qty }
      chambers: a card per chamber under the drawing, its rated capacity and
@@ -186,8 +187,10 @@
         y += 140 + 10;
       }
 
-      // tanker, when, product, slip no.
-      y += 20; rr(ctx, 64, y, W - 128, 330, 28); ctx.fillStyle = C.soft; ctx.fill();
+      // tanker, when, product, size (and density, seal no. when typed)
+      const den = String(d.density || "").trim(), seal = String(d.seal || "").trim(), xrow = !!(den || seal);
+      const cardH = xrow ? 480 : 330;
+      y += 20; rr(ctx, 64, y, W - 128, cardH, 28); ctx.fillStyle = C.soft; ctx.fill();
       txt(ctx, "TANKER", 104, y + 56, "700 22px " + SANS, C.muted);
       plate(ctx, d.plate || "—", 104, y + 78, 74);
       txt(ctx, "SENT", W - 104, y + 56, "700 22px " + SANS, C.muted, "right");
@@ -198,7 +201,17 @@
       txt(ctx, PRODUCT, 104, y + 280, "700 34px " + DISPLAY, C.ink, "left", 520);
       txt(ctx, "TANKER SIZE", W - 104, y + 230, "700 22px " + SANS, C.muted, "right");
       txt(ctx, (d.kl ? d.kl + " KL" : "—") + (d.caps && d.caps.length ? " · " + d.caps.length + " chamber" + (d.caps.length === 1 ? "" : "s") : ""), W - 104, y + 280, "700 34px " + DISPLAY, C.ink, "right", 300);
-      y += 330 + 80;
+      if (xrow) {
+        ctx.fillStyle = C.line; ctx.fillRect(104, y + 332, W - 208, 2);
+        // density on the left, seal no. on the right; one alone takes the left
+        const cells = [den && ["DENSITY", den + (/[a-z]/i.test(den) ? "" : " kg/m³")], seal && ["SEAL NO.", seal]].filter(Boolean);
+        cells.forEach((cl, k) => {
+          const right = k === 1, x = right ? W - 104 : 104, al = right ? "right" : "left";
+          txt(ctx, cl[0], x, y + 380, "700 22px " + SANS, C.muted, al);
+          txt(ctx, cl[1], x, y + 430, "700 34px " + DISPLAY, C.ink, al, cells.length > 1 ? 400 : W - 208);
+        });
+      }
+      y += cardH + 80;
 
       // the quantity invoiced
       if (hasQ) {

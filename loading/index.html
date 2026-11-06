@@ -1523,11 +1523,15 @@
   <div class="modalbox wide">
     <div class="mh" id="slipHead">Send to the customer</div>
     <div class="mp" id="slipSub">—</div>
-    <div id="slipInvWrap" hidden>
-      <div class="note" style="text-align:left;margin:10px 2px 0">For this picture only — nothing is saved. Leave the invoice no. empty for “Invoice to follow”.</div>
-      <div class="sliprow">
-        <label class="mlab">Invoice no.<input id="slipInv" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 4827" /></label>
+    <div id="slipXWrap" hidden>
+      <div class="note" style="text-align:left;margin:10px 2px 0" id="slipXNote">For this picture only — nothing is saved. Density or seal no. left empty stays off the picture; no invoice no. shows “Invoice to follow”.</div>
+      <div class="sliprow" id="slipInvWrap">
+        <label class="mlab">Invoice no.<input id="slipInv" type="text" inputmode="numeric" autocomplete="off" placeholder="empty: invoice to follow" /></label>
         <label class="mlab">Invoiced litres<input id="slipQty" type="text" inputmode="numeric" autocomplete="off" /></label>
+      </div>
+      <div class="sliprow">
+        <label class="mlab">Density (kg/m³)<input id="slipDen" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 832.5" /></label>
+        <label class="mlab">Seal no.<input id="slipSeal" type="text" autocomplete="off" placeholder="e.g. 10452, 10453" /></label>
       </div>
     </div>
     <div class="slipview" id="slipView"><span>Making the picture…</span></div>
@@ -4161,17 +4165,19 @@ function custViewHTML(){
    "invoice to follow". A trip statement: a customer's trips in the period on
    the Trips screen, each with its invoices, and the total invoiced. */
 let slipJob=0, slipTyped=null;
-// o: { head, sub, note, name, make(typed) → canvases, invoiceBox (show the
-// invoice no. / litres boxes for this picture, the litres preset to
-// qtyPreset; make() and note() get {no, qty} as typed) }
+// o: { head, sub, note, name, make(typed) → canvases, extras (show the boxes
+// for this picture: density and seal no., and with invoiceBox the invoice
+// no. / litres, the litres preset to qtyPreset); make() and note() get
+// {no, qty, density, seal} as typed }
 function openSlip(o){
   $("#slipHead").textContent=o.head; $("#slipSub").textContent=o.sub;
-  $("#slipInvWrap").hidden=!o.invoiceBox; $("#slipInv").value=""; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
+  $("#slipXWrap").hidden=!o.extras; $("#slipInvWrap").hidden=!o.invoiceBox;
+  $("#slipInv").value=""; $("#slipDen").value=""; $("#slipSeal").value=""; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
   $("#slipModal").classList.add("on");
   if(!window.Slip){ $("#slipView").innerHTML="<span>Couldn't load the picture maker — reload the app.</span>"; return; }
   const draw=()=>{
     const job=++slipJob, q=parseFloat(String($("#slipQty").value).replace(/,/g,""));
-    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null };
+    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null, density:$("#slipDen").value.trim(), seal:$("#slipSeal").value.trim() };
     $("#slipNote").textContent = typeof o.note==="function" ? o.note(typed) : (o.note||"");
     $("#slipImg").disabled=true; $("#slipPdf").disabled=true;
     if(!$("#slipView").querySelector("img")) $("#slipView").innerHTML="<span>Making the picture…</span>";
@@ -4188,7 +4194,7 @@ function openSlip(o){
     }).catch(e=>{ if(job===slipJob) $("#slipView").innerHTML="<span>Couldn't make the picture: "+esc(e && e.message || e)+"</span>"; });
   };
   $("#slipView").innerHTML="";
-  $("#slipInv").oninput=$("#slipQty").oninput=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); };
+  ["#slipInv","#slipQty","#slipDen","#slipSeal"].forEach(id=>{ $(id).oninput=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); }; });
   draw();
 }
 function closeSlip(){ slipJob++; clearTimeout(slipTyped); $("#slipModal").classList.remove("on"); }
@@ -4226,12 +4232,12 @@ function openTripSlip(t, bills, head){
   // loaded; with no chamber record, only a tanker sent full can say (all loaded)
   const chambers=carried ? caps.map((c,i)=>({ rated:ratedCham(c), loaded:carried[i]>0 }))
     : capT && (+t.total||0)>=capT-TAGSET.over ? caps.map(c=>({ rated:ratedCham(c), loaded:true })) : null;
-  // the slip's number: date (dd/mm/yy), tanker and time of the sale (VF-06/11/26-5510-0743)
-  const d0=new Date(t.ts), ref="VF-"+pad(d0.getDate())+"/"+pad(d0.getMonth()+1)+"/"+String(d0.getFullYear()).slice(2)
+  // the slip's number: date (ddmmyy), tanker and time of the sale (VF-061126-5510-0743)
+  const d0=new Date(t.ts), ref="VF-"+pad(d0.getDate())+pad(d0.getMonth()+1)+String(d0.getFullYear()).slice(2)
     +"-"+plateKey(t.plate).slice(-4)+"-"+pad(d0.getHours())+pad(d0.getMinutes());
   const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
-    invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
+    extras:true, invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
     note:typed=>list.length ? "Shows the invoiced litres: "+list.map(b=>"#"+b.no).join(", ")+"."
       : nos(typed).length ? "Shows invoice "+nos(typed).map(n=>"#"+n).join(", ")+(typed.qty ? " for "+fmt(typed.qty)+" L" : "")+"."
       : "No invoice yet: the picture says “Invoice to follow”, without litres.",
@@ -4239,7 +4245,7 @@ function openTripSlip(t, bills, head){
     make:typed=>{
       const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
       const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
-      return Slip.trip({ dark:slipDark(), customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
+      return Slip.trip({ dark:slipDark(), customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, seal:typed.seal, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
     } });
 }
 function openStatement(key){

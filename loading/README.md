@@ -420,8 +420,8 @@ with an orange and a purple glow; the orange letterhead, the tanker and the
 plates stay as they are).
 
 - **Trip slip** — one sale, on the letterhead (the logo, *Dealer: Indian Oil
-  Corporation Limited*, the slip's number *VF-06/11/26-5510-0743* from the
-  sale's date (dd/mm/yy), tanker and time, and a strip with the address,
+  Corporation Limited*, the slip's number *VF-061126-5510-0743* from the
+  sale's date (ddmmyy), tanker and time, and a strip with the address,
   phone numbers and GSTIN, as on `tanker/assets/letterhead.png`; the logo
   again in the footer with *Thank you for your business*): *Deliver
   to* (the customer), the **tanker drawn as on Home** with its rated size in
@@ -438,7 +438,9 @@ plates stay as they are).
   by commas. The litres start at what the sale should be billed: each chamber
   that went out (a chamber always goes out full) at its rated size — a full
   12 KL tanker 12,000, two of its chambers 8,000. Left empty, the picture
-  says *Invoice to follow*, without litres.
+  says *Invoice to follow*, without litres. Every slip also takes a
+  **density** (kg/m³) and **seal no(s).** — typed in the sheet, they go in the
+  details card; left empty, they're left off.
 - **Trip statement** — on **Trips per tanker → Customer**, *📤 Send trip
   statement*: the customer's trips in the period on screen, one row each (date,
   time, tanker, invoice nos., litres invoiced), with the trips, the **total
