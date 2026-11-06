@@ -59,6 +59,31 @@
     ctx.fillText(s, x, y);
     return ctx.measureText(s).width;
   }
+  /* A name that must show in full (the customer's): one line at `px`, else
+     the words over two lines at a smaller size (down to 2/3), only then cut.
+     Draws from baseline y; returns how far below y the last line is. */
+  function name(ctx, s, x, y, px, maxW){
+    s = String(s == null || s === "" ? "—" : s);
+    const f = p => "800 " + p + "px " + DISPLAY;
+    ctx.font = f(px);
+    if (ctx.measureText(s).width <= maxW) { txt(ctx, s, x, y, f(px), C.ink); return 0; }
+    const words = s.split(/\s+/);
+    for (let p = Math.round(px * 0.86); p >= Math.round(px * 0.66); p -= 2) {
+      ctx.font = f(p);
+      // the split whose longer line is shortest
+      let best = null;
+      for (let k = 1; k < words.length; k++) {
+        const a = words.slice(0, k).join(" "), b = words.slice(k).join(" ");
+        const w = Math.max(ctx.measureText(a).width, ctx.measureText(b).width);
+        if (!best || w < best.w) best = { a: a, b: b, w: w };
+      }
+      if (best && best.w <= maxW) {
+        txt(ctx, best.a, x, y, f(p), C.ink); txt(ctx, best.b, x, y + p * 1.15, f(p), C.ink);
+        return p * 1.15;
+      }
+    }
+    txt(ctx, s, x, y, f(px), C.ink, "left", maxW); return 0;
+  }
   // an Indian HSRP-style plate, as on the app's screens
   function plate(ctx, s, x, y, h){
     ctx.font = "600 " + Math.round(h * 0.52) + "px " + MONO;
@@ -171,7 +196,7 @@
       const ctx = big.getContext("2d");
       let y = header(ctx, W, "Trip slip", im, d.ref) + 80;
       txt(ctx, "DELIVER TO", 64, y, "700 24px " + SANS, C.muted); y += 64;
-      txt(ctx, d.customer || "—", 64, y, "800 58px " + DISPLAY, C.ink, "left", W - 128); y += 40;
+      y += name(ctx, d.customer, 64, y, 58, W - 128) + 40;
       if (art) { y += 30; y += tanker(ctx, d.caps, d.fill, d.kl, 64, y, W - 128) + 10; }
       if (chs) {                                                          // C1 · 4,000 L rated · Loaded
         y += 10;
@@ -253,7 +278,8 @@
       const W = 1240, H = 1754, rows = d.rows || [], ROW = 70, X = 64;
       const cols = { date: X + 20, time: X + 250, plate: X + 420, bills: X + 640, qty: W - X - 20 };
       const firstTop = 800, top = 400, bottom = H - 170;
-      const per1 = Math.floor((bottom - firstTop - 90) / ROW), per = Math.floor((bottom - top - 90) / ROW);
+      // (room on page 1 for the customer's name on two lines)
+      const per1 = Math.floor((bottom - firstTop - 70 - 90) / ROW), per = Math.floor((bottom - top - 90) / ROW);
       const pages = [];
       let i = 0;
       do { const n = pages.length ? per : per1; pages.push(rows.slice(i, i + n)); i += n; } while (i < rows.length);
@@ -264,7 +290,7 @@
         let y = header(ctx, W, "Trip statement", im, d.period) + 80;
         if (p === 0) {
           txt(ctx, "TO", X, y, "700 24px " + SANS, C.muted); y += 64;
-          txt(ctx, d.customer || "—", X, y, "800 56px " + DISPLAY, C.ink, "left", W - 2 * X); y += 56;
+          y += name(ctx, d.customer, X, y, 56, W - 2 * X) + 56;
           txt(ctx, d.period || "", X, y, "600 30px " + SANS, C.muted); y += 44;
           txt(ctx, "Product: " + PRODUCT, X, y, "600 26px " + SANS, C.muted); y += 46;
           // totals
@@ -277,7 +303,7 @@
             txt(ctx, t[0], tx + 30, y + 50, "700 22px " + SANS, C.muted);
             txt(ctx, t[1], tx + 30, y + 112, "800 48px " + DISPLAY, C.ink, "left", tw - 60);
           });
-          y = firstTop;
+          y = Math.max(firstTop, y + 150 + 50);
         } else {
           txt(ctx, (d.customer || "") + " · " + (d.period || ""), X, y, "700 30px " + SANS, C.muted, "left", W - 2 * X);
           y = top;

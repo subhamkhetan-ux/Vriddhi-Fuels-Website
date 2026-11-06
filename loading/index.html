@@ -1523,6 +1523,8 @@
   <div class="modalbox wide">
     <div class="mh" id="slipHead">Send to the customer</div>
     <div class="mp" id="slipSub">—</div>
+    <label class="mlab" id="slipCustWrap" hidden style="display:block;margin-top:10px">Customer's name on the picture
+      <input id="slipCust" type="text" autocomplete="off" style="display:block;width:100%;margin-top:6px" /></label>
     <div id="slipXWrap" hidden>
       <div class="note" style="text-align:left;margin:10px 2px 0" id="slipXNote">For this picture only — nothing is saved. Density or seal no. left empty stays off the picture; no invoice no. shows “Invoice to follow”.</div>
       <div class="sliprow" id="slipInvWrap">
@@ -4168,16 +4170,18 @@ let slipJob=0, slipTyped=null;
 // o: { head, sub, note, name, make(typed) → canvases, extras (show the boxes
 // for this picture: density and seal no., and with invoiceBox the invoice
 // no. / litres, the litres preset to qtyPreset); make() and note() get
-// {no, qty, density, seal} as typed }
+// {no, qty, density, seal, cust} as typed; custName: the customer's name
+// to start the name box with) }
 function openSlip(o){
   $("#slipHead").textContent=o.head; $("#slipSub").textContent=o.sub;
   $("#slipXWrap").hidden=!o.extras; $("#slipInvWrap").hidden=!o.invoiceBox;
+  $("#slipCustWrap").hidden=o.custName==null; $("#slipCust").value=o.custName||"";
   $("#slipInv").value=""; $("#slipDen").value=""; $("#slipSeal").value=""; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
   $("#slipModal").classList.add("on");
   if(!window.Slip){ $("#slipView").innerHTML="<span>Couldn't load the picture maker — reload the app.</span>"; return; }
   const draw=()=>{
     const job=++slipJob, q=parseFloat(String($("#slipQty").value).replace(/,/g,""));
-    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null, density:$("#slipDen").value.trim(), seal:$("#slipSeal").value.trim() };
+    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null, density:$("#slipDen").value.trim(), seal:$("#slipSeal").value.trim(), cust:$("#slipCust").value.trim() };
     $("#slipNote").textContent = typeof o.note==="function" ? o.note(typed) : (o.note||"");
     $("#slipImg").disabled=true; $("#slipPdf").disabled=true;
     if(!$("#slipView").querySelector("img")) $("#slipView").innerHTML="<span>Making the picture…</span>";
@@ -4194,13 +4198,34 @@ function openSlip(o){
     }).catch(e=>{ if(job===slipJob) $("#slipView").innerHTML="<span>Couldn't make the picture: "+esc(e && e.message || e)+"</span>"; });
   };
   $("#slipView").innerHTML="";
-  ["#slipInv","#slipQty","#slipDen","#slipSeal"].forEach(id=>{ $(id).oninput=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); }; });
+  ["#slipInv","#slipQty","#slipDen","#slipSeal","#slipCust"].forEach(id=>{ $(id).oninput=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); }; });
   draw();
 }
 function closeSlip(){ slipJob++; clearTimeout(slipTyped); $("#slipModal").classList.remove("on"); }
 $("#slipClose").onclick=closeSlip;
 $("#slipModal").addEventListener("click",e=>{ if(e.target===$("#slipModal")) closeSlip(); });
 const slipBill=b=>({ no:b.bill_no, date:b.date, qty:+b.qty||0 });
+/* The customer's full name for the pictures — the name they are billed in,
+   not the short "Sold to" name: the bills given (the trip's, or raised
+   before the sale), the one most of them name; else a ledger name linked to
+   the "Sold to" customer (⚙ links, or the invoice check's); else the short
+   name. The sheet's name box starts with it. */
+function fullName(dest, bills){
+  const n={}; (bills||[]).forEach(b=>{ if(b && b.customer) n[b.customer]=(n[b.customer]||0)+1; });
+  const top=Object.keys(n).sort((a,b)=>n[b]-n[a])[0];
+  if(top) return top;
+  const d=String(dest||"").trim().toLowerCase();
+  const links=(INVD && INVD.links) || (INV_WATCH.d && INV_WATCH.d.links) || LINKS || [];
+  const l=d && links.find(x=>String(x.dest||"").trim().toLowerCase()===d && x.customer);
+  return l ? l.customer : (dest||"");
+}
+// the links, read once for the pictures when no screen has them yet (a staff phone, Home)
+let slipLinks=null;
+function withLinks(fn){
+  if(slipLinks || (INVD && INVD.links) || (INV_WATCH.d && INV_WATCH.d.links) || LINKS.length){ fn(); return; }
+  slipLinks=Backend.loadLinks().then(l=>{ LINKS=l||[]; }).catch(()=>{});
+  slipLinks.then(fn);
+}
 // the pictures follow the app's look on this phone (☀ / ☾ / Auto), as the ledger app's do
 const slipDark=()=>document.documentElement.getAttribute("data-theme")==="dark";
 const fileDate=ts=>dayKey(ts).replace(/-/g,"");
@@ -4222,8 +4247,9 @@ function billQty(caps, carried, total){
   caps.forEach(c=>{ if(left>0){ q+=ratedCham(c); left-=c; } });
   return q;
 }
-function openTripSlip(t, bills, head){
-  const r=recRow(t.id), list=(bills && bills.length ? bills : r && r.tags ? r.tags : []).map(slipBill);
+function openTripSlip(t, bills, head){ withLinks(()=>tripSlip(t, bills, head)); }
+function tripSlip(t, bills, head){
+  const r=recRow(t.id), raw=bills && bills.length ? bills : r && r.tags ? r.tags : [], list=raw.map(slipBill);
   const v=vehicleOf(t.plate), caps=v ? v.caps.map(Number) : [], kl=caps.length ? ratedKL(caps) : 0;
   const ev=LOG.find(x=>x.id===t.id), capT=caps.reduce((a,c)=>a+c,0);
   const carried=ev && ev.chambers ? caps.map((c,i)=>+((ev.chambers.find(x=>x.name==="C"+(i+1))||{}).qty)||0) : null;
@@ -4237,7 +4263,7 @@ function openTripSlip(t, bills, head){
     +"-"+plateKey(t.plate).slice(-4)+"-"+pad(d0.getHours())+pad(d0.getMinutes());
   const nos=typed=>typed.no ? typed.no.split(/[\s,+&\/]+/).filter(Boolean).map(no=>no.replace(/^#/,"")) : [];
   openSlip({ head:head || "Trip slip", sub:fmtPlate(t.plate)+" → "+(t.dest||"no customer")+" · "+dmy(dayKey(t.ts))+" "+timeLabel(t.ts),
-    extras:true, invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
+    custName:fullName(t.dest, raw), extras:true, invoiceBox:!list.length, qtyPreset:caps.length ? billQty(caps, carried, t.total) : 0,
     note:typed=>list.length ? "Shows the invoiced litres: "+list.map(b=>"#"+b.no).join(", ")+"."
       : nos(typed).length ? "Shows invoice "+nos(typed).map(n=>"#"+n).join(", ")+(typed.qty ? " for "+fmt(typed.qty)+" L" : "")+"."
       : "No invoice yet: the picture says “Invoice to follow”, without litres.",
@@ -4245,12 +4271,15 @@ function openTripSlip(t, bills, head){
     make:typed=>{
       const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
       const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
-      return Slip.trip({ dark:slipDark(), customer:t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, seal:typed.seal, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
+      return Slip.trip({ dark:slipDark(), customer:typed.cust || t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, seal:typed.seal, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
     } });
 }
 function openStatement(key){
   const a=INVD && INVD.rec.perCust.find(x=>x.key===key); if(!a) return;
   const name=a.dests.length ? a.dests.join(" + ") : a.custs.join(" + ");
+  // the full name: what most of these trips' bills are made out to, else a linked ledger name
+  const allTags=a.tripIds.map(recRow).filter(r=>r && r.inRange).reduce((x,r)=>x.concat(r.tags||[]),[]);
+  const full=allTags.length ? fullName(name, allTags) : a.custs.length ? a.custs[0] : name;
   const from=$("#trFrom").value, to=$("#trTo").value;
   const rows=a.tripIds.map(recRow).filter(r=>r && r.inRange).sort((x,y)=>x.trip.ts-y.trip.ts).map(r=>{
     const bills=(r.tags||[]).map(slipBill), pending=!bills.length;
@@ -4260,7 +4289,8 @@ function openStatement(key){
   openSlip({ head:"Trip statement", sub:name+" · "+rows.length+" trip"+(rows.length===1?"":"s")+" · "+dmy(from)+" – "+dmy(to),
     note:"Each trip with its invoices and the invoiced litres"+(pend?"; "+pend+" trip"+(pend===1?"":"s")+" with no invoice yet show “to follow”, without litres":"")+".",
     name:"Statement-"+name.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"")+"-"+from.replace(/-/g,"")+"-"+to.replace(/-/g,""),
-    make:()=>Slip.statement({ dark:slipDark(), customer:name, period:dmy(from)+" – "+dmy(to), rows:rows }) });
+    custName:full,
+    make:typed=>Slip.statement({ dark:slipDark(), customer:typed.cust || full, period:dmy(from)+" – "+dmy(to), rows:rows }) });
 }
 function alertsViewHTML(){
   if(!INVD) return '<div class="empty">—</div>';

@@ -417,7 +417,11 @@ share sheet (WhatsApp, Mail…); a browser that can't share files downloads them
 The litres on them are always the **invoiced** litres. They follow the app's
 look on the phone: light, or **dark** as the ledger app's pictures (near-black
 with an orange and a purple glow; the orange letterhead, the tanker and the
-plates stay as they are).
+plates stay as they are). The customer is named in **full** — the name they're
+billed in (*Shyam Metalics and Energy Ltd*, not *Shyam Metalics*): from the
+trip's bills, else a ledger name linked to the "Sold to" customer (⚙ links),
+else the short name. The sheet's *Customer's name* box starts with it and can
+be changed for the picture; a long name goes on two lines.
 
 - **Trip slip** — one sale, on the letterhead (the logo, *Dealer: Indian Oil
   Corporation Limited*, the slip's number *VF-061126-5510-0743* from the
