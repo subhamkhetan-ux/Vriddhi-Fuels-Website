@@ -26,7 +26,8 @@
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const READ = new Set(["ledger_whoami", "ledger_sales_range", "ledger_tanker_list", "ledger_customers_list"]);
+// (ledger_po_data: the PO lists and bills, for the PO on a customer's trip slip)
+const READ = new Set(["ledger_whoami", "ledger_sales_range", "ledger_tanker_list", "ledger_customers_list", "ledger_po_data"]);
 // the ledger's public URL and publishable key (as in loading/config.js and ledger/config.js)
 const LEDGER_URL = Deno.env.get("LEDGER_SUPABASE_URL") ?? "https://behousmsujnlspwdxyas.supabase.co";
 const LEDGER_KEY = Deno.env.get("LEDGER_SUPABASE_ANON_KEY") ?? "sb_publishable_BeflN_phUuD6BT_ZmAdDsw_tou7vxUa";
