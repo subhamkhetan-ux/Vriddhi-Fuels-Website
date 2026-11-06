@@ -301,7 +301,7 @@
   .slipview{margin-top:10px;max-height:52vh;overflow-y:auto;border-radius:14px;border:1px solid var(--line);background:#fff;
     display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px;color:var(--muted);font-size:13px}
   .slipview img{display:block;width:100%;height:auto}
-  .sliprow{display:flex;gap:10px;margin-top:6px}
+  .sliprow{display:flex;gap:10px;margin-top:6px;align-items:flex-end}
   .sliprow label{flex:1;min-width:0;margin:0}
   .sliprow input{display:block;width:100%;margin-top:6px}
   .slipview img+img{border-top:6px solid var(--line)}
@@ -1532,7 +1532,11 @@
         <label class="mlab">Invoiced litres<input id="slipQty" type="text" inputmode="numeric" autocomplete="off" /></label>
       </div>
       <div class="sliprow">
-        <label class="mlab">Density (kg/m³)<input id="slipDen" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 832.5" /></label>
+        <label class="mlab">Hydrometer reading (kg/m³)<input id="slipObs" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 828.2" /></label>
+        <label class="mlab">Temperature (°C)<input id="slipTemp" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 32" /></label>
+      </div>
+      <div class="sliprow">
+        <label class="mlab">Density @ 15°C<input id="slipDen" type="text" inputmode="decimal" autocomplete="off" placeholder="worked out from the reading" /></label>
         <label class="mlab">Seal no.<input id="slipSeal" type="text" autocomplete="off" placeholder="e.g. 10452, 10453" /></label>
       </div>
     </div>
@@ -2686,7 +2690,7 @@ $("#dispOk").onclick=()=>{
     toast("🚚 "+plate+" sent for sale"+(remark?" — "+remark:"")
       +(fc && fc.advice==="refill_before" ? " · ⛔ refill diesel first" : fc && fc.advice==="refill_after" ? " · ⚠ refill diesel on return" : ""));
     const e=LOG.filter(x=>x.plate===plate && x.kind==="dispatch").sort((a,b)=>b.ts-a.ts)[0];
-    if(remark && e) openTripSlip({ id:e.id, plate:plate, ts:e.ts, total:e.total, dest:remark }, part ? part.bills : null, "🚚 Sent for sale");
+    if(remark && e && isAdmin()) openTripSlip({ id:e.id, plate:plate, ts:e.ts, total:e.total, dest:remark }, part ? part.bills : null, "🚚 Sent for sale");
   }).catch(e=>{ btn.disabled=false; oops(e); });
 };
 
@@ -2854,7 +2858,7 @@ function renderHist(){
           return '<div class="entry disp"><span class="plate">'+e.plate+'</span>'
             +'<div class="mid"><div class="ch dtag">🚚 Sent for sale</div>'+soldToHTML(e)+'<div class="tm">'+timeLabel(e.ts)+who+'</div></div>'
             +'<span class="tot">'+fmt(e.total)+' L</span>'
-            +(e.remark?'<button class="del" data-hslip="'+e.id+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>':'')
+            +(e.remark && isAdmin()?'<button class="del" data-hslip="'+e.id+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>':'')
             +(isAdmin()?'<button class="del" data-del="'+e.id+'" aria-label="Delete">🗑</button>':'')+'</div>';
         }
         const chs=e.chambers.map(c=>c.name+" "+fmt(c.qty)).join(" · ");
@@ -4090,7 +4094,7 @@ function tripRowHTML(t, byCust){
     +(byCust ? '<span class="td"><span class="plate sm">'+esc(t.plate)+'</span></span>'
              : '<span class="td'+(d?'':' warn')+'">'+(d?'':'⚠ ')+esc(t.dest||"(no customer)")+'</span>')
     +'<span class="tq">'+fmt(t.total)+' L</span>'
-    +'<button class="share" data-slip="'+esc(t.id)+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>'
+    +(isAdmin()?'<button class="share" data-slip="'+esc(t.id)+'" aria-label="Send a trip slip to the customer" title="Trip slip for the customer">📤</button>':'')
     +'<button class="edit" data-trip="'+esc(t.id)+'" aria-label="Change customer">✎</button></div>'
     +tripInvHTML(recRow(t.id));
 }
@@ -4176,12 +4180,13 @@ function openSlip(o){
   $("#slipHead").textContent=o.head; $("#slipSub").textContent=o.sub;
   $("#slipXWrap").hidden=!o.extras; $("#slipInvWrap").hidden=!o.invoiceBox;
   $("#slipCustWrap").hidden=o.custName==null; $("#slipCust").value=o.custName||"";
-  $("#slipInv").value=""; $("#slipDen").value=""; $("#slipSeal").value=""; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
+  $("#slipInv").value=""; $("#slipDen").value=""; $("#slipSeal").value=""; $("#slipObs").value=""; $("#slipTemp").value=""; delete $("#slipDen").dataset.typed; $("#slipQty").value=o.qtyPreset ? String(o.qtyPreset) : "";
   $("#slipModal").classList.add("on");
   if(!window.Slip){ $("#slipView").innerHTML="<span>Couldn't load the picture maker — reload the app.</span>"; return; }
   const draw=()=>{
     const job=++slipJob, q=parseFloat(String($("#slipQty").value).replace(/,/g,""));
-    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null, density:$("#slipDen").value.trim(), seal:$("#slipSeal").value.trim(), cust:$("#slipCust").value.trim() };
+    const typed={ no:$("#slipInv").value.trim(), qty:q>0 ? q : null, density:$("#slipDen").value.trim(), seal:$("#slipSeal").value.trim(), cust:$("#slipCust").value.trim(),
+      obs:$("#slipObs").value.trim(), temp:$("#slipTemp").value.trim() };
     $("#slipNote").textContent = typeof o.note==="function" ? o.note(typed) : (o.note||"");
     $("#slipImg").disabled=true; $("#slipPdf").disabled=true;
     if(!$("#slipView").querySelector("img")) $("#slipView").innerHTML="<span>Making the picture…</span>";
@@ -4198,7 +4203,17 @@ function openSlip(o){
     }).catch(e=>{ if(job===slipJob) $("#slipView").innerHTML="<span>Couldn't make the picture: "+esc(e && e.message || e)+"</span>"; });
   };
   $("#slipView").innerHTML="";
-  ["#slipInv","#slipQty","#slipDen","#slipSeal","#slipCust"].forEach(id=>{ $(id).oninput=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); }; });
+  const later=()=>{ clearTimeout(slipTyped); slipTyped=setTimeout(draw, 350); };
+  ["#slipInv","#slipQty","#slipSeal","#slipCust"].forEach(id=>{ $(id).oninput=later; });
+  // the density at 15 °C is worked out from the reading and its temperature
+  // (Slip.density15: the chart's Table 53B), unless typed over by hand
+  const den15=()=>{
+    if($("#slipDen").dataset.typed) return;
+    const o=parseFloat($("#slipObs").value), t=parseFloat($("#slipTemp").value), d=window.Slip ? Slip.density15(o, t) : null;
+    $("#slipDen").value = d!=null ? d.toFixed(1) : "";
+  };
+  $("#slipObs").oninput=$("#slipTemp").oninput=()=>{ den15(); later(); };
+  $("#slipDen").oninput=()=>{ if($("#slipDen").value.trim()) $("#slipDen").dataset.typed="1"; else { delete $("#slipDen").dataset.typed; den15(); } later(); };
   draw();
 }
 function closeSlip(){ slipJob++; clearTimeout(slipTyped); $("#slipModal").classList.remove("on"); }
@@ -4247,7 +4262,8 @@ function billQty(caps, carried, total){
   caps.forEach(c=>{ if(left>0){ q+=ratedCham(c); left-=c; } });
   return q;
 }
-function openTripSlip(t, bills, head){ withLinks(()=>tripSlip(t, bills, head)); }
+// customer pictures are for admins only: a staff login never makes one
+function openTripSlip(t, bills, head){ if(!adminOnly()) return; withLinks(()=>tripSlip(t, bills, head)); }
 function tripSlip(t, bills, head){
   const r=recRow(t.id), raw=bills && bills.length ? bills : r && r.tags ? r.tags : [], list=raw.map(slipBill);
   const v=vehicleOf(t.plate), caps=v ? v.caps.map(Number) : [], kl=caps.length ? ratedKL(caps) : 0;
@@ -4271,10 +4287,11 @@ function tripSlip(t, bills, head){
     make:typed=>{
       const inv=list.length ? list : nos(typed).map(no=>({ no:no, date:null, qty:null }));
       const qty=list.length ? r2(list.reduce((s2,b)=>s2+b.qty,0)) : inv.length ? typed.qty : null;
-      return Slip.trip({ dark:slipDark(), customer:typed.cust || t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, seal:typed.seal, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
+      return Slip.trip({ dark:slipDark(), customer:typed.cust || t.dest, plate:fmtPlate(t.plate), ts:t.ts, ref:ref, density:typed.density, obs:typed.obs, temp:typed.temp, seal:typed.seal, caps:caps, fill:fill, kl:kl, chambers:chambers, invoices:inv, qty:qty });
     } });
 }
 function openStatement(key){
+  if(!adminOnly()) return;
   const a=INVD && INVD.rec.perCust.find(x=>x.key===key); if(!a) return;
   const name=a.dests.length ? a.dests.join(" + ") : a.custs.join(" + ");
   // the full name: what most of these trips' bills are made out to, else a linked ledger name

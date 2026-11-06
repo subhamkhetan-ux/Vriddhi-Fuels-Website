@@ -177,7 +177,8 @@
     return c;
   }
 
-  /* One sale. d = { customer, plate, ts, ref (the slip's number), density,
+  /* One sale. d = { customer, plate, ts, ref (the slip's number), density
+     (at 15 °C), obs + temp (the hydrometer reading and its temperature),
      seal (as typed; a row in the details card only when given), caps,
      fill (0..1 a chamber), kl, chambers:[{ rated (L), loaded }] | null,
      invoices:[{no, date (YYYY-MM-DD) | null, qty | null}], qty }
@@ -213,7 +214,9 @@
       }
 
       // tanker, when, product, size (and density, seal no. when typed)
-      const den = String(d.density || "").trim(), seal = String(d.seal || "").trim(), xrow = !!(den || seal);
+      const den = String(d.density || "").trim(), seal = String(d.seal || "").trim();
+      const obs = String(d.obs || "").trim(), temp = String(d.temp || "").trim();
+      const xrow = !!(den || obs || seal);
       const cardH = xrow ? 480 : 330;
       y += 20; rr(ctx, 64, y, W - 128, cardH, 28); ctx.fillStyle = C.soft; ctx.fill();
       txt(ctx, "TANKER", 104, y + 56, "700 22px " + SANS, C.muted);
@@ -228,12 +231,19 @@
       txt(ctx, (d.kl ? d.kl + " KL" : "—") + (d.caps && d.caps.length ? " · " + d.caps.length + " chamber" + (d.caps.length === 1 ? "" : "s") : ""), W - 104, y + 280, "700 34px " + DISPLAY, C.ink, "right", 300);
       if (xrow) {
         ctx.fillStyle = C.line; ctx.fillRect(104, y + 332, W - 208, 2);
-        // density on the left, seal no. on the right; one alone takes the left
-        const cells = [den && ["DENSITY", den + (/[a-z]/i.test(den) ? "" : " kg/m³")], seal && ["SEAL NO.", seal]].filter(Boolean);
+        // density on the left — at 15 °C, the reading and its temperature in
+        // brackets — seal no. on the right; one alone takes the left
+        const unit = v => v + (/[a-z]/i.test(v) ? "" : " kg/m³");
+        const reading = obs ? "(" + obs + (temp ? " @ " + temp + "°C" : "") + ")" : "";
+        const cells = [];
+        if (den || obs) cells.push({ lab: den ? "DENSITY @ 15°C" : "DENSITY", val: den ? unit(den) : unit(obs) + (temp ? " @ " + temp + "°C" : ""), sub: den ? reading : "" });
+        if (seal) cells.push({ lab: "SEAL NO.", val: seal });
         cells.forEach((cl, k) => {
           const right = k === 1, x = right ? W - 104 : 104, al = right ? "right" : "left";
-          txt(ctx, cl[0], x, y + 380, "700 22px " + SANS, C.muted, al);
-          txt(ctx, cl[1], x, y + 430, "700 34px " + DISPLAY, C.ink, al, cells.length > 1 ? 400 : W - 208);
+          const maxW = cells.length > 1 ? (right ? 330 : 520) : W - 208;
+          txt(ctx, cl.lab, x, y + 380, "700 22px " + SANS, C.muted, al);
+          const w = txt(ctx, cl.val, x, y + 430, "700 34px " + DISPLAY, C.ink, al, maxW);
+          if (cl.sub) txt(ctx, cl.sub, x + w + 12, y + 430, "600 24px " + SANS, C.muted, "left", Math.max(60, maxW - w - 12));
         });
       }
       y += cardH + 80;
@@ -337,6 +347,29 @@
     });
   }
 
+  /* Density at 15 °C from a hydrometer reading (kg/m³) taken at t °C — the
+     density chart's sum: ASTM D1250 / API MPMS 11.1 Table 53B (generalized
+     refined products), with the glass hydrometer's own expansion taken out
+     of the reading first, as the printed tables do. Solved by iteration
+     (the expansion depends on the answer). null outside the tables' range. */
+  function density15(obs, t){
+    obs = +obs; t = +t;
+    if (!(obs >= 610 && obs <= 1100) || !(t >= -20 && t <= 100)) return null;
+    const dt = t - 15;
+    const rt = obs * (1 - 0.000023 * dt - 0.00000002 * dt * dt);   // the glass hydrometer's expansion
+    const alpha = r => r < 770.3520 ? 346.4228 / (r * r) + 0.4388 / r          // gasolines
+      : r < 787.5195 ? -0.00336312 + 2680.3206 / (r * r)                      // transition zone
+      : r < 838.3127 ? 594.5418 / (r * r)                                     // jet fuels / kerosene
+      : 186.9696 / (r * r) + 0.4862 / r;                                      // fuel oils, diesel
+    let r = rt;
+    for (let i = 0; i < 60; i++) {
+      const a = alpha(r), vcf = Math.exp(-a * dt * (1 + 0.8 * a * dt)), n = rt / vcf;
+      if (Math.abs(n - r) < 1e-7) { r = n; break; }
+      r = n;
+    }
+    return Math.round(r * 10) / 10;
+  }
+
   function blob(c, type, q){ return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error("Couldn't make the picture")), type, q)); }
   function png(c){ return blob(c, "image/png"); }
 
@@ -383,5 +416,5 @@
     return Promise.resolve("downloaded");
   }
 
-  window.Slip = { trip: trip, statement: statement, png: png, pdf: pdf, share: share };
+  window.Slip = { trip: trip, statement: statement, png: png, pdf: pdf, share: share, density15: density15 };
 })();

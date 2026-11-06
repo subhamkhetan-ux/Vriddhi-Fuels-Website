@@ -442,9 +442,16 @@ be changed for the picture; a long name goes on two lines.
   by commas. The litres start at what the sale should be billed: each chamber
   that went out (a chamber always goes out full) at its rated size — a full
   12 KL tanker 12,000, two of its chambers 8,000. Left empty, the picture
-  says *Invoice to follow*, without litres. Every slip also takes a
-  **density** (kg/m³) and **seal no(s).** — typed in the sheet, they go in the
-  details card; left empty, they're left off.
+  says *Invoice to follow*, without litres. Every slip also takes the
+  **density** and **seal no(s).** — typed in the sheet, they go in the details
+  card; left empty, they're left off. Type the **hydrometer reading** (kg/m³)
+  and its **temperature** (°C) and the **density at 15 °C** is worked out — the
+  density chart's sum, ASTM D1250 / API Table 53B for refined products, with
+  the glass hydrometer's correction — and shown as *840.0 kg/m³ (828.2 @
+  32°C)*; a figure typed over it by hand is kept (clear it to work it out
+  again).
+- Customer pictures are for **admins only**: a staff login never gets the
+  slip after a sale, nor 📤 on History.
 - **Trip statement** — on **Trips per tanker → Customer**, *📤 Send trip
   statement*: the customer's trips in the period on screen, one row each (date,
   time, tanker, invoice nos., litres invoiced), with the trips, the **total
