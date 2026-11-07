@@ -7297,7 +7297,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-07T11:15:30.069877+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-07T15:15:24.049146+00:00"
     },
     {
       "entry_id": "79aa9205d3d04f89",
@@ -7341,7 +7343,30 @@
         "outlier": false
       },
       "queued_at": "2026-11-07T12:45:23.692555+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-07T15:15:24.049146+00:00"
+    },
+    {
+      "entry_id": "0ac4dcfa1e50df33",
+      "gmail_msg_id": "1881212226708558199",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "07/11/26",
+      "date_serial": 46333,
+      "amount": 21780.0,
+      "raw_payer": "ORISSA METALIKS PVT LIMITED",
+      "customer": "Orissa Metaliks Private Limited",
+      "candidates": [
+        "Orissa Metaliks Private Limited"
+      ],
+      "match_tier": "exact",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-07T15:15:25.884452+00:00",
+      "status": "matched"
     }
   ]
 }
