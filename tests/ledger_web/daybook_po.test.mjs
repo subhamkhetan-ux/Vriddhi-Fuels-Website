@@ -129,6 +129,39 @@ test('PO: petrol / XtraGreen bills only get a PO you pick, and it uses up litres
   assert.equal(registers[0].pos[0].used, 1000);
 });
 
+test('PO: the "Select PO" formula — one PO fits: that one; several: you pick; none: no PO', () => {
+  const pos = [
+    { id: 1, po_no: 'A', allotted: 1000, seq: 1 },
+    { id: 2, po_no: 'B', allotted: 300, seq: 2 },
+    { id: 3, po_no: 'a', allotted: 50, seq: 3 },       // same PO twice in the list: offered once
+  ];
+  const bills = [
+    bill(800),                                        // only A has 800 left
+    bill(250),                                        // A 200 left, B 300: only B
+    bill(100, { po_mode: 'fixed', po_fixed: 'A' }),   // picked: uses A's litres
+    bill(60),                                         // A 100, B 50: only A
+    bill(30),                                         // A 40, B 50: both -> pick
+    bill(500),                                        // nothing that big
+  ];
+  const { bills: out, registers } = allocate({ kind: 'po', pos, bills, rule: 'pick' });
+  assert.deepEqual(out.map((b) => [b.po, b.how]),
+    [['A', 'auto'], ['B', 'auto'], ['A', 'fixed'], ['A', 'auto'], ['', 'choose'], ['', 'no-po']]);
+  assert.deepEqual(out[4].choices, ['A', 'B']);
+  assert.ok(!('choices' in out[0]));
+  const [a, b] = registers[0].pos;
+  assert.deepEqual([a.used, a.balance, b.used, b.balance], [960, 40, 250, 50]);   // a pick-a-PO bill uses nothing
+
+  // unit-wise lists (SMC) count per unit
+  const upos = [
+    { id: 1, unit: 'UNIT 1', po_no: 'U1-A', allotted: 500, seq: 1 },
+    { id: 2, unit: 'UNIT 1', po_no: 'U1-B', allotted: 500, seq: 2 },
+    { id: 3, unit: 'UNIT 2', po_no: 'U2-A', allotted: 500, seq: 1 },
+  ];
+  const ub = [bill(400, { unit: 'UNIT 1' }), bill(400, { unit: 'UNIT 2' }), bill(200, { unit: 'UNIT 1' })];
+  assert.deepEqual(allocate({ kind: 'po_units', units: ['UNIT 1', 'UNIT 2'], pos: upos, bills: ub, rule: 'pick' })
+    .bills.map((x) => x.how), ['choose', 'auto', 'choose']);
+});
+
 test('PO: bills are taken by date, then sheet order', () => {
   const rows = [
     { id: 3, date: '2026-04-02', seq: 5 }, { id: 1, date: '2026-04-01', seq: 9 },

@@ -354,6 +354,7 @@ details.sl-head summary{cursor:pointer;font-size:14px;font-weight:650}
       <input type="text" id="blPo" placeholder="—" autocomplete="off" list="blPoList">
       <datalist id="blPoList"></datalist>
       <div class="hint" id="blPoHint" aria-live="polite"></div>
+      <div class="po-pick" id="blPoPick" hidden></div>
       <form id="blLedgerForm" class="ledger-connect" hidden>
         <input type="email" id="blLedgerEmail" placeholder="Ledger login email" autocomplete="username" required>
         <input type="password" id="blLedgerPass" placeholder="Password" autocomplete="current-password" required>
@@ -2928,6 +2929,8 @@ function ledgerPoText(r, qty){
   var open = list.length ? " Open POs: " + list.join(", ") + "." : " The customer has no PO with litres left.";
   if (r.how === "auto") return "Open PO" + (r.unit ? " for " + r.unit : "") + " from the Ledger" + (r.left != null ? " · " + fmtLitres(r.left) + " L left after this bill" : "") + ".";
   if (r.how === "fixed") return r.po ? "PO set on this bill in the Ledger." : "The Ledger has this bill marked “no PO”.";
+  if (r.how === "choose") return "More than one PO" + (r.unit ? " for " + r.unit : "") + " has room for these " + fmtLitres(qty) + " L (Excel: “Select PO ▼”) — pick one: "
+    + r.open.filter(function(p){ return r.choices.indexOf(p.po_no) >= 0; }).map(function(p){ return p.po_no + " (" + fmtLitres(p.balance) + " L)"; }).join(", ") + ".";
   if (r.how === "not-diesel") return "Petrol and XtraGreen bills get no PO automatically in the Ledger — pick one if needed." + open;
   if (r.how === "needs-unit") return (r.guess ? "The unit is not in the customer name, so the only open PO with enough litres is filled — check it is the right unit."
     : "This customer's POs are unit-wise and the unit is not in the customer name — pick the unit's PO.") + open;
@@ -2935,7 +2938,8 @@ function ledgerPoText(r, qty){
 }
 function fmtLitres(n){ return Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 }); }
 function ledgerPo(){
-  var hint = $("blPoHint"), form = $("blLedgerForm");
+  var hint = $("blPoHint"), form = $("blLedgerForm"), pick = $("blPoPick");
+  pick.hidden = true; pick.innerHTML = "";
   if (!window.VFLedgerPO || !backend || !backend.cloud || !VFLedgerPO.configured() || !bill.src){
     hint.textContent = ""; form.hidden = !(bill.data && bill.data.status === "signed-out"); return;
   }
@@ -2971,6 +2975,21 @@ function ledgerPo(){
     }
     if (!bill.poManual){ $("blPo").value = r.po || ""; renderBill(); }
     hint.textContent = ledgerPoText(r, qty) + (bill.poManual ? " (Kept the P.O. No. you typed.)" : "");
+    // "Select PO ▼": one tap on the PO to print
+    if (r.how === "choose" && !bill.poManual){
+      r.choices.forEach(function(po){
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "btn ghost small"; b.textContent = po;
+        b.setAttribute("aria-label", "Use P.O. " + po);
+        b.addEventListener("click", function(){
+          $("blPo").value = po; bill.poManual = true; pick.hidden = true;
+          hint.textContent = "P.O. " + po + " picked — set it on this bill in the Ledger or Excel too.";
+          renderBill();
+        });
+        pick.appendChild(b);
+      });
+      pick.hidden = false;
+    }
     // A unit-wise customer whose unit the Ledger knows: bill that unit (still changeable).
     var unitCust = !bill.customer && bill.family && r.unit ? VFBilling.customerForUnit(bill.family, r.unit) : null;
     if (unitCust){
@@ -3921,6 +3940,7 @@ function bulkPo(r){
     if (!r.poManual) r.po = po || "";
     r.poNote = res.how === "auto" ? "Open PO from the Ledger" + (res.unit ? " (" + res.unit + ")" : "")
       : res.how === "fixed" ? "PO set on this bill in the Ledger"
+      : res.how === "choose" ? "More than one PO fits — pick one: " + res.choices.join(", ")
       : res.how === "needs-unit" ? "The unit is not known — check the PO" : "No open PO with enough litres";
     // a unit-wise customer whose unit the Ledger knows: bill that unit
     if (!r.cust && r.family.length && res.unit){

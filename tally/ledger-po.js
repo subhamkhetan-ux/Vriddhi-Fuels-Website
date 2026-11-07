@@ -1,8 +1,10 @@
 /* Open POs and the Tanker Master from the Ledger app, for the tanker bill.
  *
  * The Ledger keeps each PO customer's PO list (litres allotted, in order) and
- * its bills, and gives every diesel bill the FIRST PO with enough litres left
- * (ledger/js/po.js — the *_Bulk sheets' rule). This runs that same rule here,
+ * its bills, and gives every diesel bill a PO by its *_Bulk sheet's "PO No."
+ * formula (ledger/js/po.js; the group's po_rule): the one PO with enough
+ * litres left — several: pick one ("Select PO ▼" in Excel) — or, with the
+ * earlier formula, the first PO with enough left. This runs that same rule here,
  * over the Ledger's bills plus any of the customer's vouchers in this app the
  * Ledger has not imported yet, so the bill shows the PO the Ledger will show.
  *
@@ -139,7 +141,8 @@
   const billKey = (product, no) => product + '|' + String(no || '').trim().toUpperCase();
 
   // o: {party, altName, seriesKey, number, dateISO, qty, vouchers: [{party, seriesKey, number, dateISO, qty}]}
-  // -> {status: 'signed-out' | 'not-configured' | 'no-group' | 'ok', po, how, left, open: [{po_no, unit, balance}], group, unit}
+  // -> {status: 'signed-out' | 'not-configured' | 'no-group' | 'ok', po, how, left, open: [{po_no, unit, balance}],
+  //     choices: [po_no] (how 'choose': more than one PO has enough litres — pick one), group, unit}
   async function forVoucher(o) {
     if (!config()) return {status: 'not-configured'};
     if (!await signedIn()) return {status: 'signed-out'};
@@ -179,7 +182,7 @@
           unit: unitOf(own ? [v.party, o.altName] : [v.party]), po_mode: 'auto', po_fixed: '', seq: 1e12 + numPart(v.number), id: 1e12 + extra.length});
       });
     const bills = ledgerBills.map(b => Object.assign({}, b, {date: b.sale_date || b.date})).concat(extra).sort(po.billOrder);
-    const result = po.allocate({kind: group.kind, units: group.units || [], bills,
+    const result = po.allocate({kind: group.kind, units: group.units || [], bills, rule: group.po_rule,
       pos: (d.pos || []).filter(p => p.group_code === group.code)});
     const at = bills.findIndex(b => billKey(b.product, b.bill_no) === targetKey);
     const mine = result.bills[at] || {po: '', how: 'no-po'};
@@ -188,7 +191,10 @@
     result.registers.forEach(r => r.pos.forEach(p => { if (p.balance > 0) open.push({po_no: p.po_no, unit: r.unit, balance: p.balance}); }));
     const reg = result.registers.flatMap(r => r.pos.map(p => Object.assign({unit: r.unit}, p)))
       .find(p => po.poKey(p.po_no) === po.poKey(mine.po) && (!unit || p.unit === unit));
-    return {status: 'ok', po: mine.po, how: mine.how, left: reg ? reg.balance : null, open,
+    const choices = mine.choices || [];
+    // the POs to pick from first
+    if (choices.length) open.sort((a, b) => (choices.includes(b.po_no) ? 1 : 0) - (choices.includes(a.po_no) ? 1 : 0));
+    return {status: 'ok', po: mine.po, how: mine.how, left: reg ? reg.balance : null, open, choices,
       group: group.title || group.code, unit};
   }
 

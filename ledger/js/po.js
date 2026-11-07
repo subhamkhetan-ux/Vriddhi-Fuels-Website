@@ -1,10 +1,18 @@
 // PO allocation — the same rule as the "PO No." formula on the *_Bulk sheets.
+// The sheets have had two formulas; each bulk ledger keeps the one its sheet
+// has (master.js reads it, `rule` below):
 //
-// Going down the diesel bills in date order, each bill gets the FIRST PO in
-// its list whose litres left (allotted minus what earlier bills used) cover
-// the whole bill. A bill too big for every PO gets no PO and uses nothing,
-// so a later, smaller bill can still fit. A PO typed by hand (po_mode
-// 'fixed') is kept as it is and still uses up that PO's litres.
+//   'pick'  (the formula now): going down the diesel bills in date order, the
+//           POs whose litres left (allotted minus what earlier bills used)
+//           cover the whole bill are the open ones. Exactly one → that PO.
+//           More than one → no PO yet: Excel shows "Select PO ▼" and you pick
+//           one (then it is typed in). None → no PO.
+//   'first' (the earlier formula): the FIRST PO in the list with enough
+//           litres left.
+//
+// Either way a bill too big for every PO gets no PO and uses nothing, so a
+// later, smaller bill can still fit, and a PO typed in (po_mode 'fixed') is
+// kept as it is and still uses up that PO's litres.
 //
 // Unit-wise lists (SMC): a bill needs a Unit first. "UNIT 1" bills use the
 // first list, any other unit the second — as in
@@ -36,12 +44,14 @@ export function billOrder(a, b) {
 }
 
 // kind: 'po' | 'po_units'; units: ['UNIT 1', 'UNIT 2'] for 'po_units'
+// rule: 'pick' | 'first' (see above)
 // pos:   [{id, unit, po_no, allotted, seq}]
 // bills: [{qty, unit, po_mode, po_fixed, ...}] already in order (see billOrder)
-// Returns {bills: [{po, how}] (same order), registers: [{unit, pos: [...]}]}
-//   how: 'auto' | 'fixed' | 'no-po' (no PO has enough left) | 'needs-unit'
-//        | 'not-diesel' (petrol / XtraGreen: only a PO you pick, never automatic)
-export function allocate({ kind, units = [], pos = [], bills = [] }) {
+// Returns {bills: [{po, how, choices?}] (same order), registers: [{unit, pos: [...]}]}
+//   how: 'auto' | 'fixed' | 'choose' (more than one PO fits: pick one —
+//        `choices` are those POs) | 'no-po' (no PO has enough left)
+//        | 'needs-unit' | 'not-diesel' (petrol / XtraGreen: only a PO you pick)
+export function allocate({ kind, units = [], pos = [], bills = [], rule = 'first' }) {
   const unitList = kind === 'po_units' ? units.map(poKey) : [''];
   const lists = new Map(unitList.map((u) => [u, []]));
   const sorted = [...pos].sort((a, b) => num(a.seq) - num(b.seq) || num(a.id) - num(b.id));
@@ -62,6 +72,7 @@ export function allocate({ kind, units = [], pos = [], bills = [] }) {
     const unit = kind === 'po_units' ? poKey(b.unit) : '';
     let po = '';
     let how;
+    let choices = null;
     if (b.po_mode === 'fixed') {
       po = String(b.po_fixed ?? '').trim();
       how = 'fixed';
@@ -70,22 +81,26 @@ export function allocate({ kind, units = [], pos = [], bills = [] }) {
     } else if (kind === 'po_units' && !unit) {
       how = 'needs-unit';
     } else {
+      const fits = [];
       for (const p of listFor(unit)) {
         const key = poKey(p.po_no);
-        if (!key) continue;
+        if (!key || fits.some((x) => poKey(x) === key)) continue;
         const left = num(p.allotted) - (used.get(unit + '\u0000' + key) || 0);
         if (qty > 0 && round3(left) >= qty) {
-          po = String(p.po_no).trim();
-          break;
+          fits.push(String(p.po_no).trim());
+          if (rule !== 'pick') break;                      // the earlier formula: the first one
         }
       }
-      how = po ? 'auto' : 'no-po';
+      if (fits.length === 1) { po = fits[0]; how = 'auto'; } else if (fits.length > 1) {
+        how = 'choose';                                    // Excel: "Select PO ▼"
+        choices = fits;
+      } else how = 'no-po';
     }
     if (po) {
       const k = unit + '\u0000' + poKey(po);
       used.set(k, round3((used.get(k) || 0) + qty));
     }
-    return { po, how };
+    return choices ? { po, how, choices } : { po, how };
   });
 
   // Used / Balance / Status per PO (the tracker columns). With unit-wise

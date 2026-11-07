@@ -139,6 +139,9 @@ header.top .hbtn { color: #fff; min-width: 44px; height: 44px; padding: 8px; bor
 .btn { display: block; width: 100%; text-align: center; padding: 12px 14px; min-height: 46px; border-radius: 13px; font-size: 15px; font-weight: 650; margin-top: 12px; border: 1px solid transparent; }
 .btn.primary,.btn.navy { font-family:var(--display); font-weight:800; background: var(--grad-cta); color: white; box-shadow: 0 10px 24px -13px #f4511e99,0 1px 0 #ffffff30 inset; }
 .btn.ghost { background: var(--glass); border-color: var(--line); color: var(--txt); }
+.po-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.po-pick[hidden] { display: none; }
+.po-pick .btn { display: inline-block; width: auto; margin-top: 0; min-height: 44px; padding: 10px 16px; font-size: 14px; }
 .btn.danger { background: var(--red-tint); border-color: #ff6b5e60; color: var(--red); }
 .btn[disabled] { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .field { margin-top: 16px; }

@@ -427,6 +427,16 @@ function readBulk(ws, code, gst, date1904, warn) {
     for (let r = 5; r < rows; r++) if (ws[addr(r, hdr['po no'])] && ws[addr(r, hdr['po no'])].f) return r;
     return Infinity;
   })();
+  // Which PO rule the sheet's PO No. formula is: the one that shows
+  // "Select PO ▼" when more than one PO fits ('pick'), or the earlier one
+  // that takes the first PO with room ('first') — see po.js
+  let poRule = 'first';
+  if (hasPoColumn) {
+    for (let r = 5; r < rows; r++) {
+      const f = ws[addr(r, hdr['po no'])] && ws[addr(r, hdr['po no'])].f;
+      if (f) { poRule = /select\s*po/i.test(f) ? 'pick' : 'first'; break; }
+    }
+  }
   const bills = [];
   const payments = [];
   const others = [];
@@ -492,7 +502,7 @@ function readBulk(ws, code, gst, date1904, warn) {
 
   return {
     group: {
-      code, title: text(ws, 0, 0), kind, units, period_from: periodFrom, opening,
+      code, title: text(ws, 0, 0), kind, units, period_from: periodFrom, opening, ...(kind !== 'group' ? { po_rule: poRule } : {}),
       // a group: the opening per billing name (as on Customer GST)
       opening_by_unit: kind === 'group' ? openingByCompany : openingByUnit, layout: bulkLayout(ws),
     },
@@ -667,17 +677,21 @@ export function extractMaster(wb) {
         };
       })
       .sort(billOrder);
-    const res = allocate({ kind: b.group.kind, units: b.group.units, pos: b.pos, bills: rows });
+    const res = allocate({ kind: b.group.kind, units: b.group.units, pos: b.pos, bills: rows, rule: b.group.po_rule });
     const mismatches = [];
     let compared = 0;
+    // "Select PO ▼" in Excel is the app's "pick a PO"
+    const PICK = 'SELECT PO';
+    const said = (v) => (/^select\s*po/i.test(String(v || '').trim()) ? PICK : poKey(v));
     rows.forEach((r, i) => {
       if (r.excel_po === undefined) return;
       compared += 1;
-      if (poKey(res.bills[i].po) !== poKey(r.excel_po)) {
-        mismatches.push({ date: r.date, bill_no: r.bill_no, excel: r.excel_po, app: res.bills[i].po });
+      const app = res.bills[i].how === 'choose' ? PICK : poKey(res.bills[i].po);
+      if (app !== said(r.excel_po)) {
+        mismatches.push({ date: r.date, bill_no: r.bill_no, excel: r.excel_po, app: res.bills[i].how === 'choose' ? 'pick a PO' : res.bills[i].po });
       }
     });
-    return { code: b.group.code, compared, matched: compared - mismatches.length, mismatches };
+    return { code: b.group.code, compared, matched: compared - mismatches.length, mismatches, rule: b.group.po_rule };
   });
 
   const payload = {
@@ -713,7 +727,7 @@ export function extractMaster(wb) {
     opening: { count: opening.length, months: [...new Set(opening.map((o) => o.month))].sort() },
     tanker: tanker.length,
     groups: bulk.map((b) => ({
-      code: b.group.code, title: b.group.title, kind: b.group.kind, units: b.group.units,
+      code: b.group.code, title: b.group.title, kind: b.group.kind, units: b.group.units, po_rule: b.group.po_rule,
       period_from: b.group.period_from, members: b.members, pos: b.pos.length,
       bills: b.bills.length,
       check: checks.find((c) => c.code === b.group.code) || null,
