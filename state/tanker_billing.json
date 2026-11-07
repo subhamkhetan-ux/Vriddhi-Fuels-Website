@@ -13,7 +13,8 @@
     "SMEL Price": 99.5,
     "OMPL Price": 99.5,
     "DBL Price": 100,
-    "Aryan Price": 100.24
+    "Aryan Price": 100.24,
+    "Trishield Price": 100
   },
   "product_rates": {
     "Motor Spirit": 109.01,
@@ -591,6 +592,25 @@
       "po_no": ""
     },
     {
+      "company": "Trishield Logistics Private Limited",
+      "price_tier": "Trishield Price",
+      "hsd_rate": 100,
+      "address": [
+        "Kulda OCP, MCL Campus",
+        "Basundhara, Sundargarh.",
+        "GSTIN: 21AAHCT1820D1Z0"
+      ],
+      "payment": [
+        "Payment Details:",
+        "Account No. – 046805004716",
+        "IFSC Code – ICIC0000468",
+        "Branch Name – ICICI BANK LTD, JHARSUGUDA",
+        "Beneficiary Name – Vriddhi Fuels"
+      ],
+      "po_label": "",
+      "po_no": ""
+    },
+    {
       "company": "Virendra Logistics Private Limited",
       "price_tier": "RCP Price",
       "hsd_rate": 99.5,
@@ -610,10 +630,10 @@
       "po_no": ""
     }
   ],
-  "generated_at": "2026-11-07T00:45:27+00:00",
+  "generated_at": "2026-11-07T06:55:35+00:00",
   "source": {
     "drive_file_id": "1xfU-xMgm9zllQCPZDOJ5e-6vCPIo3mOl",
     "file_name": "Tanker Billing.xlsm",
-    "modified_time": "2026-11-06T03:41:13.539Z"
+    "modified_time": "2026-11-07T04:36:26.561Z"
   }
 }
