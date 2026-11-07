@@ -185,7 +185,7 @@ bill with every field already filled:
 | Date, Vehicle, Quantity, Price/Ltr, Amount | the voucher being created (or the saved voucher you tapped 🧾 on) |
 | Product | the voucher's series — Diesel → *High Speed Diesel*, Petrol → *Motor Spirit*, XtraGreen → *XtraGreen Diesel* |
 | Customer name, address, GSTIN, P.O. label | the customer's row in the **Tanker Master** sheet of the Master Ledger uploaded to the Ledger app, matched to the Tally party ledger |
-| P.O. number | the customer's **open PO from the Ledger app**: the first PO in its list with enough litres left, by the Ledger's own rule (`ledger/js/po.js`), counting this app's vouchers the Ledger has not imported yet. Falls back to the Tanker Master row when the customer has no PO list there. Editable; a number typed by hand is kept. |
+| P.O. number | the customer's **open PO from the Ledger app**: the PO the Ledger gives the bill by its *_Bulk sheet's `PO No.` formula (`ledger/js/po.js`): the one PO with enough litres left — when several have, the bill lists them to pick from with one tap (Excel's *Select PO ▼*); with the earlier formula, the first PO in the list with enough litres, counting this app's vouchers the Ledger has not imported yet. Falls back to the Tanker Master row when the customer has no PO list there. Editable; a number typed by hand is kept. |
 | Payment / bank block | the same row |
 | Density- / Seal No- lines | shown for diesel loads over 3 000 L, exactly as before |
 | Bill no. | **the voucher's own invoice number** — `1640`, `MS320`, `XG7` — so the bill and the Tally invoice carry one reference |

@@ -528,6 +528,40 @@ def test_tanker_bill_takes_the_open_po_from_the_ledger(browser,server):
     page.close()
 
 
+def test_select_po_sheet_rule_asks_to_pick_when_several_pos_fit(browser,server):
+    """The Bulk sheet's newer PO No. formula ("Select PO ▼"): PO-A and PO-B both have room for
+    the 5,000 L bill, so nothing is filled in and the bill offers both to pick from."""
+    page=browser.new_page(viewport={'width':390,'height':900})
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(server) else r.abort())
+    page.add_init_script(MOCK);page.add_init_script(LEDGER_MOCK);page.add_init_script(TANKER_SCRIPT)
+    page.add_init_script("""(()=>{const today=new Date().toLocaleDateString('en-CA');window.ledgerSignedIn=true;
+      window.customerPriceParties=[{name:'Twin Steel Ltd'}];
+      window.customerPriceVouchers=[{id:'v2',series:'hsd',number:'702',date:today,party:'Twin Steel Ltd',vehicle:'OD01',qty:'5000',
+        rate:'100',item_amt:'500000',party_amt:'500000',roff:'0',status:'pending',source:'app',bridge_state:'unlinked',created_at:new Date().toISOString()}];
+      window.ledgerData={groups:[{code:'Twin_Bulk',title:'Twin Steel Ltd — Bulk',kind:'po',units:[],po_rule:'pick'}],
+        members:[{id:1,name:'TWIN STEEL LIMITED',key:'twin',group:'Twin_Bulk',archived:false}],
+        pos:[{id:1,group_code:'Twin_Bulk',unit:'',po_no:'PO-A',allotted:10000,seq:1},{id:2,group_code:'Twin_Bulk',unit:'',po_no:'PO-B',allotted:20000,seq:2},
+             {id:3,group_code:'Twin_Bulk',unit:'',po_no:'PO-C',allotted:1000,seq:3}],
+        bills:[]};})();""")
+    page.goto(server+'/tally/')
+    page.get_by_role('button',name='Create bill for voucher 702').click()
+    page.wait_for_function("document.getElementById('blPoHint').textContent.includes('pick one')")
+    hint=page.locator('#blPoHint').inner_text()
+    assert 'PO-A (10,000 L)' in hint and 'PO-B (20,000 L)' in hint and 'PO-C' not in hint
+    assert page.locator('#blPo').input_value()==''                          # not filled in by itself
+    assert page.locator('#blPoPick button').all_inner_texts()==['PO-A','PO-B']
+    page.get_by_role('button',name='Use P.O. PO-B').click()
+    assert page.locator('#blPo').input_value()=='PO-B' and page.locator('#blPoPick').is_hidden()
+    assert page.locator('#blPPoVal').text_content()=='PO-B'                 # printed on the bill
+    page.locator('#blQty').fill('4000')                                      # the pick is kept
+    page.wait_for_function("document.getElementById('blPoHint').textContent.includes('Kept the P.O. No. you typed')")
+    assert page.locator('#blPo').input_value()=='PO-B' and page.locator('#blPoPick').is_hidden()
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert not errors
+    page.close()
+
+
 def test_the_ledger_login_kept_on_the_server_needs_no_sign_in_here(browser,server):
     """tally-ledger answers with the ledger login kept on the server: the bill gets its PO and
     Tanker Master lines with this device's Tally login alone, and no ledger sign-in is asked for."""
