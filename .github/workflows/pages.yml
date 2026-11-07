@@ -10,41 +10,16 @@ name: Deploy tanker + tally apps to GitHub Pages
 # queue / seen / bank data) or the Master Ledger.
 #
 # One-time: repo Settings -> Pages -> Build and deployment -> Source:
-# "GitHub Actions". Then this deploys on every change to the app or its data.
+# "GitHub Actions" (it is "Deploy from a branch" today — see below).
 
+# Not run on push: this repo's Pages source is "Deploy from a branch" (main),
+# which already serves every app (ledger/, tally/, tanker/, pdf/, tally-tools/
+# …). Run on push, this narrower build raced that deploy and, when it
+# finished last, replaced the whole site with just the folders above — the
+# Ledger app (and tally/ledger-po.js, tally/daybook.js) then 404'd until the
+# next push to main. Run it by hand only after switching Pages to
+# "GitHub Actions", and first add everything the site needs to "Assemble site".
 on:
-  push:
-    branches: [main]
-    paths:
-      - "tanker/index.html"
-      - "tanker/docx-export.js"
-      - "tanker/assets/**"
-      - "tally/index.html"
-      - "tally/billing.js"
-      - "tally/bridge.js"
-      - "tally/report-export.js"
-      - "tally/vendor/**"
-      - "tally/bridge.css"
-      - "tally/slips.js"
-      - "tally/config.js"
-      - "tally/sw.js"
-      - "tally/theme.css"
-      - "tally/theme.js"
-      - "tally/manifest.webmanifest"
-      - "state/tanker_billing.json"
-      # In-browser Tally import tools (tally-tools/): the three apps' code + data.
-      - "tally-tools/**"
-      - "bank_tally/**"
-      - "iocl_tally/**"
-      - "fleet_tally/**"
-      - "agent/matcher.py"
-      - "agent/normalize.py"
-      - "state/bank_aliases.json"
-      - "state/customers.json"
-      - "state/tally_ledgers.json"
-      # PDF Toolkit (static, self-contained)
-      - "pdf/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch: {}
 
 permissions:
