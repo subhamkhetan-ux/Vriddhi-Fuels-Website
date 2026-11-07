@@ -7089,7 +7089,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-06T08:45:23.218840+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-07T03:15:23.368678+00:00"
     },
     {
       "entry_id": "7eb31d28dc882a9a",
@@ -7110,7 +7112,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-06T09:45:24.824246+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-07T03:15:23.368678+00:00"
     },
     {
       "entry_id": "81a26cbbcd7fb78f",
@@ -7156,7 +7160,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-06T12:15:24.982240+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-07T03:15:23.368678+00:00"
     },
     {
       "entry_id": "816de06d0cb9ab84",
@@ -7177,7 +7183,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-06T12:15:24.982865+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-07T03:15:23.368678+00:00"
     },
     {
       "entry_id": "65d522863bc2d9ce",
@@ -7199,7 +7207,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-06T13:45:25.193573+00:00",
-      "status": "review"
+      "status": "review",
+      "materialized": true,
+      "materialized_at": "2026-11-07T03:15:23.368678+00:00"
     },
     {
       "entry_id": "6f95f4f4cfbdf2e5",
@@ -7220,7 +7230,9 @@
         "outlier": false
       },
       "queued_at": "2026-11-07T01:15:24.664571+00:00",
-      "status": "matched"
+      "status": "matched",
+      "materialized": true,
+      "materialized_at": "2026-11-07T03:15:23.368678+00:00"
     }
   ]
 }
