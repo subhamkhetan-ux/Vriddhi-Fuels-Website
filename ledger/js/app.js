@@ -302,6 +302,7 @@ async function viewHome() {
   for (const g of groups) {
     const name = esc(groupName(g.group, g.members));
     const href = `#/pos/${encodeURIComponent(g.group.code)}`;
+    if (g.toPick) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.toPick, 'bill')} to pick a PO for — more than one PO has room (Excel: “Select PO ▼”)</a>`);
     if (g.noPo) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.noPo, 'bill')} without a PO — add a new PO</a>`);
     if (g.needsUnit) todo.push(`<a class="todo warn" href="${href}"><b>${name}:</b> ${plural(g.needsUnit, 'bill')} need a unit</a>`);
   }
@@ -1312,6 +1313,7 @@ function poCard(g) {
   }).join('');
   return `<a class="po-card" href="#/pos/${encodeURIComponent(g.group.code)}">
     <b>${name}</b>${lists}
+    ${g.toPick ? `<div class="warn-text">${plural(g.toPick, 'bill')} to pick a PO for</div>` : ''}
     ${g.noPo ? `<div class="warn-text">${plural(g.noPo, 'bill')} without a PO</div>` : ''}
     ${g.needsUnit ? `<div class="warn-text">${plural(g.needsUnit, 'bill')} need a unit</div>` : ''}
   </a>`;
@@ -1520,11 +1522,12 @@ async function masterChosen(file, input) {
     const poChanges = poListChanges(poNow, payload.pos, (payload.groups || []).map((g) => g.code));
     const s = preview.sales;
     const span = (x) => (x.count ? `${x.count.toLocaleString('en-IN')} <span class="muted">(${fmtDate(x.from)} – ${fmtDate(x.to)})</span>` : '0');
+    const ruleLine = (r) => `<br><span class="muted small">${r === 'pick' ? 'Rule: the one PO with room, else “Select PO ▼”' : 'Rule: the first PO with room'}</span>`;
     const checkLine = (c) => {
       if (!c) return '';
-      if (!c.compared) return '<span class="muted">no auto POs to compare</span>';
-      if (!c.mismatches.length) return `<span class="good-text">✓ same POs as Excel on all ${c.compared} bills</span>`;
-      return `<span class="warn-text">${c.mismatches.length} of ${c.compared} bills differ from Excel</span>
+      if (!c.compared) return `<span class="muted">no bill shows the formula's own PO — the POs are picked / typed on the sheet, and come in as they are</span>${ruleLine(c.rule)}`;
+      if (!c.mismatches.length) return `<span class="good-text">✓ same POs as Excel on all ${c.compared} bills</span>${ruleLine(c.rule)}`;
+      return `<span class="warn-text">${c.mismatches.length} of ${c.compared} bills differ from Excel</span>${ruleLine(c.rule)}
         <ul class="small">${c.mismatches.slice(0, 10).map((m) => `<li>${fmtDate(m.date)} bill ${esc(m.bill_no)}: Excel “${esc(m.excel) || '—'}”, app “${esc(m.app) || '—'}”</li>`).join('')}</ul>`;
     };
     out.innerHTML = `
@@ -1596,7 +1599,7 @@ async function viewPoGroup(code) {
     return;
   }
   const units = g.group.kind === 'po_units' ? g.group.units : [];
-  const filters = [['all', 'All'], ['no-po', 'No PO'], ...(units.length ? [['needs-unit', 'Needs unit']] : []), ['fixed', 'Typed PO'],
+  const filters = [['all', 'All'], ...(g.rows.some((r) => r.how === 'choose') ? [['choose', 'Pick a PO']] : []), ['no-po', 'No PO'], ...(units.length ? [['needs-unit', 'Needs unit']] : []), ['fixed', 'Typed PO'],
     ...(g.rows.some((r) => r.how === 'not-diesel') ? [['not-diesel', 'Petrol / XG without PO']] : [])];
   const f = filters.some(([k]) => k === state.billFilter) ? state.billFilter : 'all';
   let rows = [...g.rows].reverse();
@@ -1608,6 +1611,10 @@ async function viewPoGroup(code) {
     <section class="card">
       <h2>${esc(groupName(g.group, g.members))}</h2>
       <p class="muted">${esc(g.group.code)}${g.members.length > 1 ? ` · ${g.members.map((m) => esc(m.name)).join(', ')}` : ''}${g.group.period_from ? ` · bills from ${fmtDate(g.group.period_from)}` : ''}</p>
+      <p class="muted small">${g.group.po_rule === 'pick'
+    ? 'As the sheet\'s PO No. formula: a diesel bill gets a PO by itself when only one PO has enough litres left; when more than one has, you pick one (Excel shows “Select PO ▼”); a PO picked or typed on the sheet comes in with the upload.'
+    : 'As the sheet\'s PO No. formula: a diesel bill gets the first PO in the list with enough litres left.'}</p>
+      ${g.toPick ? `<p class="warn-text">${plural(g.toPick, 'bill')} to pick a PO for — more than one PO has enough litres left. Pick one on each bill below (or in Excel's “Select PO ▼” and upload).</p>` : ''}
       ${g.noPo ? `<p class="warn-text">${plural(g.noPo, 'bill')} got no PO because no PO has enough litres left. Add a new PO below and they're assigned straight away.</p>` : ''}
       ${g.needsUnit ? `<p class="warn-text">${plural(g.needsUnit, 'bill')} need a unit before they can get a PO.</p>` : ''}
     </section>
@@ -1621,11 +1628,11 @@ async function viewPoGroup(code) {
         ${units.length ? `<label>Unit <select name="unit">${units.map((u) => `<option>${esc(u)}</option>`).join('')}</select></label>` : ''}
         <button class="btn" type="submit">Add PO</button>
       </form>
-      <p class="muted small">New POs go to the end of the list. Bills use POs in list order, so move a PO up to have it used first.</p>
+      <p class="muted small">New POs go to the end of the list.${g.group.po_rule === 'pick' ? '' : ' Bills use POs in list order, so move a PO up to have it used first.'}</p>
     </section>
     <section class="card">
       <h3>Bills <span class="muted">(newest first)</span></h3>
-      <p class="muted small">Diesel bills get a PO automatically. Petrol and XtraGreen bills keep the PO typed on the Bulk sheet, or the one you pick with <b>Change</b> — and those litres count against that PO.</p>
+      <p class="muted small">Diesel bills get a PO as the sheet's formula gives it. Petrol and XtraGreen bills keep the PO typed on the Bulk sheet, or the one you pick with <b>Change</b> — and those litres count against that PO.</p>
       <div class="chips">${filters.map(([k, name]) => `<button class="chip ${k === f ? 'on' : ''}" data-filter="${k}">${name}${k === 'all' ? '' : ` · ${g.rows.filter((x) => x.how === k).length}`}</button>`).join('')}</div>
       ${shown.length ? `<div class="bills ${units.length ? 'units' : ''}" role="table" aria-label="Diesel bills">
         <div class="bill head" role="row"><span role="columnheader">Date · Bill</span><span role="columnheader">Vehicle</span><span class="r" role="columnheader">Litres</span>${units.length ? '<span role="columnheader">Unit</span>' : ''}<span role="columnheader">PO</span><span role="columnheader"><span class="sr">Change</span></span></div>
@@ -1661,6 +1668,12 @@ async function viewPoGroup(code) {
     await reload();
   })));
   main().querySelectorAll('[data-bill-po]').forEach((btn) => btn.addEventListener('click', () => editBillPo(btn, g, units, reload)));
+  // "Select PO ▼": one tap on the PO to use
+  main().querySelectorAll('[data-pick]').forEach((btn) => btn.addEventListener('click', () => guard(async () => {
+    await state.store.updateBill(Number(btn.dataset.pick), { po_mode: 'fixed', po_fixed: btn.dataset.po });
+    toast(`PO ${btn.dataset.po} picked.`);
+    await reload();
+  })));
 }
 
 // How PO lists are shown: 'no' — by PO number, Z→A (PO-10 above PO-9);
@@ -1737,6 +1750,7 @@ async function poAction(btn, g, reload) {
 const HOW = {
   auto: ['auto', 'good-pill', 'Given automatically: first PO with enough litres left'],
   fixed: ['typed', 'info-pill', 'Typed in (kept as it is)'],
+  choose: ['pick a PO', 'warn-pill', 'More than one PO has enough litres left — pick one (Excel shows “Select PO ▼”)'],
   'no-po': ['no PO', 'bad-pill', 'No PO has enough litres left'],
   'needs-unit': ['needs unit', 'warn-pill', 'Pick a unit first'],
   'not-diesel': ['no PO', 'muted-pill', 'Petrol / XtraGreen bills only get a PO you pick with Change'],
@@ -1744,13 +1758,16 @@ const HOW = {
 const FUEL_TAG = { MS: 'Petrol', XG: 'XtraGreen' };
 
 function billRow(b, g, units) {
-  const [tag, cls, title] = HOW[b.how];
+  const [tag, cls, title] = b.how === 'auto' && g.group.po_rule === 'pick'
+    ? ['auto', 'good-pill', 'Given automatically: the only PO with enough litres left'] : HOW[b.how];
+  const pick = b.how === 'choose' && b.choices
+    ? `<span class="b-pick">${b.choices.map((po) => `<button class="btn ghost small" data-pick="${b.id}" data-po="${esc(po)}" title="Use PO ${esc(po)} for bill ${esc(b.bill_no)}">${esc(po)}</button>`).join('')}</span>` : '';
   return `<div class="bill" role="row">
     <span class="b-when" role="cell">${fmtDate(b.date)} · <b>${esc(b.bill_no)}</b>${FUEL_TAG[b.product] ? ` <span class="pill fuel-pill">${FUEL_TAG[b.product]}</span>` : ''}</span>
     <span class="b-veh" role="cell">${esc(b.vehicle)}</span>
     <span class="b-qty r" role="cell">${fmtLitres(b.qty)} L</span>
     ${units.length ? `<span class="b-unit" role="cell"><select data-unit="${b.id}" aria-label="Unit for bill ${esc(b.bill_no)}"><option value="">Unit —</option>${units.map((u) => `<option value="${esc(u)}" ${poKey(b.unit) === poKey(u) ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></span>` : ''}
-    <span class="b-po" role="cell"><b>${esc(b.po) || '—'}</b> <span class="pill ${cls}" title="${esc(title)}">${tag}</span></span>
+    <span class="b-po" role="cell"><b>${esc(b.po) || '—'}</b> <span class="pill ${cls}" title="${esc(title)}">${tag}</span>${pick}</span>
     <span class="b-act" role="cell"><button class="btn ghost small" data-bill-po="${b.id}" aria-label="Change the PO of bill ${esc(b.bill_no)}">Change</button></span>
   </div>`;
 }
@@ -1759,12 +1776,14 @@ function editBillPo(btn, g, units, reload) {
   const b = g.rows.find((r) => r.id === Number(btn.dataset.billPo));
   const row = btn.closest('.bill');
   if (row.nextElementSibling && row.nextElementSibling.classList.contains('bill-editor')) return;
-  const names = [...new Set(g.pos.map((p) => p.po_no))];
+  // the POs that fit this bill first, then the other POs with litres left (Excel's drop-down), then the rest
+  const pending = g.registers.flatMap((r) => r.pos.filter((p) => p.balance > 0).map((p) => p.po_no));
+  const names = [...new Set([...(b.choices || []), ...pending, ...g.pos.map((p) => p.po_no)])];
   const current = b.po_mode === 'fixed' ? b.po_fixed : '';
   row.insertAdjacentHTML('afterend', `<div class="bill-editor">
     <form class="stack" data-bill-form>
       <b>PO for bill ${esc(b.bill_no)} (${fmtLitres(b.qty)} L)</b>
-      <label class="radio"><input type="radio" name="mode" value="auto" ${b.po_mode !== 'fixed' ? 'checked' : ''}> ${b.product && b.product !== 'HSD' ? 'Automatic — petrol / XtraGreen bills get no PO automatically' : 'Automatic — first PO with enough litres left'}</label>
+      <label class="radio"><input type="radio" name="mode" value="auto" ${b.po_mode !== 'fixed' ? 'checked' : ''}> ${b.product && b.product !== 'HSD' ? 'Automatic — petrol / XtraGreen bills get no PO automatically' : g.group.po_rule === 'pick' ? 'As the sheet — the PO when only one has enough litres left, else you pick' : 'Automatic — first PO with enough litres left'}</label>
       <label class="radio"><input type="radio" name="mode" value="fixed" ${b.po_mode === 'fixed' && current ? 'checked' : ''}> This PO:
         <input name="po" list="po-names-${b.id}" value="${esc(current)}" autocomplete="off" aria-label="PO number for bill ${esc(b.bill_no)}"></label>
       <datalist id="po-names-${b.id}">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>

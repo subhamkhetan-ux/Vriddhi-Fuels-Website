@@ -6,6 +6,30 @@ import { extractMaster, sheetsToRead } from '../../ledger/js/master.js';
 import { demoWorkbook } from './fixtures.mjs';
 import { formula } from './sheets.mjs';
 
+// The newer "PO No." formula: when more than one PO has enough litres left
+// Excel shows "Select PO ▼" (you pick one) — the app reads which formula a
+// sheet has and follows it.
+const PICK_F = 'IF(OR($A7="",$J7<>"DIESEL"),"",LET(qty,N($C7),opn,FILTER($T$5:$T$54,1,""),'
+  + 'n,COUNTA(opn),IF(n=1,INDEX(opn,1),IF(n>1,"Select PO ▼",""))))';
+
+test('a sheet with the "Select PO" formula: the pick rule', () => {
+  const wb = demoWorkbook();
+  const ws = wb.Sheets.Demo_Bulk;
+  ws.K7 = formula('Select PO ▼', PICK_F);              // 300 L: PO-A and PO-B both fit
+  ws.K8 = formula('Select PO ▼', PICK_F);              // 500 L: still both
+  const { payload, preview } = extractMaster(wb);
+  const groups = Object.fromEntries(payload.groups.map((g) => [g.code, g]));
+  assert.equal(groups.Demo_Bulk.po_rule, 'pick');
+  assert.equal(groups.Twin_Bulk.po_rule, 'first');      // each sheet keeps its own formula
+  assert.ok(!('po_rule' in groups.Crew_Bulk));          // a group ledger has no POs
+  const check = preview.groups.find((g) => g.code === 'Demo_Bulk').check;
+  assert.deepEqual(check, { code: 'Demo_Bulk', compared: 2, matched: 2, mismatches: [], rule: 'pick' });
+
+  ws.K8 = formula('PO-B', PICK_F);                      // Excel and the app disagree: reported
+  const again = extractMaster(wb).preview.groups.find((g) => g.code === 'Demo_Bulk').check;
+  assert.deepEqual(again.mismatches, [{ date: '2026-04-03', bill_no: '6', excel: 'PO-B', app: 'pick a PO' }]);
+});
+
 test('picks only the sheets it needs', () => {
   assert.deepEqual(sheetsToRead(demoWorkbook().SheetNames), ['Tanker Master', 'HSD Bill', 'Master Paid', 'Outstanding', 'Demo_Bulk',
     'Twin_Bulk', 'Crew_Bulk', 'HSD Sale', 'MS Sale', 'XG Sale', 'Other Sale', 'Customer GST', 'Roadways']);
@@ -43,7 +67,7 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
   const groups = Object.fromEntries(payload.groups.map((g) => [g.code, g]));
   assert.deepEqual(groups.Demo_Bulk, {
     code: 'Demo_Bulk', title: 'Demo Power — Bulk Ledger — Diesel (FY 2026-27)', kind: 'po', units: [],
-    period_from: '2026-04-01', opening: 1000, opening_by_unit: {},
+    period_from: '2026-04-01', opening: 1000, opening_by_unit: {}, po_rule: 'first',
     layout: { cols: [12.16, 12.16, 11.5, 9.83, 15, 15, 9.83, 13, 15.5, 12.83, 18.66, 24.83, 8.43, 8.43, 8.43] },
   });
   assert.equal(groups.Twin_Bulk.layout, null);                     // no widths in the file: none
@@ -82,8 +106,8 @@ test('reads sales, payments, customers, bulk ledgers and PO lists', () => {
 
   // The app's PO rule gives the same POs Excel shows.
   const checks = Object.fromEntries(preview.groups.filter((g) => g.check).map((g) => [g.code, g.check]));
-  assert.deepEqual(checks.Demo_Bulk, { code: 'Demo_Bulk', compared: 2, matched: 2, mismatches: [] });
-  assert.deepEqual(checks.Twin_Bulk, { code: 'Twin_Bulk', compared: 3, matched: 3, mismatches: [] });
+  assert.deepEqual(checks.Demo_Bulk, { code: 'Demo_Bulk', compared: 2, matched: 2, mismatches: [], rule: 'first' });
+  assert.deepEqual(checks.Twin_Bulk, { code: 'Twin_Bulk', compared: 3, matched: 3, mismatches: [], rule: 'first' });
   assert.deepEqual(preview.sales.HSD, { count: 8, from: '2026-04-01', to: '2026-04-04' });
   assert.equal(preview.payments.total, 80000);
 

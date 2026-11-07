@@ -222,6 +222,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         const row = {
           code, title: g.title || '', kind: g.kind, units: g.units || [], period_from: g.period_from || null,
           opening: g.opening ?? null, opening_by_unit: g.opening_by_unit || {}, layout: g.layout || null,
+          po_rule: g.po_rule === 'pick' ? 'pick' : 'first',
         };
         const i = db.groups.findIndex((x) => x.code === code);
         if (i >= 0 && !row.layout) row.layout = db.groups[i].layout || null;
@@ -289,7 +290,8 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         } else {
           Object.assign(cur, figures);
           if (!cur.unit) cur.unit = poKey(s.unit);
-          if (!cur.po_user_set && cur.po_mode !== 'fixed') { cur.po_mode = mode; cur.po_fixed = trim(s.po_fixed); }
+          // a bill's PO: one typed / picked in Excel wins; else the app's pick stays; else Excel's
+          if (mode === 'fixed' && trim(s.po_fixed)) { cur.po_mode = 'fixed'; cur.po_fixed = trim(s.po_fixed); cur.po_user_set = false; } else if (!cur.po_user_set) { cur.po_mode = mode; cur.po_fixed = trim(s.po_fixed); }
           if (s.tds != null) cur.tds = s.tds;
           if (s.shortage != null) cur.shortage = s.shortage;
           if (s.remarks) cur.remarks = s.remarks;

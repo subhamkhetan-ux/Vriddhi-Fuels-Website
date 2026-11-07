@@ -95,7 +95,7 @@ export function demoSeed(today = new Date(), workbook = null) {
   const payload = {
     groups: [
       { code: 'Demo Power_Bulk', title: 'Demo Power Ltd — Bulk Ledger — Diesel', kind: 'po', units: [], period_from: fyStart, opening: 850000, opening_by_unit: {} },
-      { code: 'Twin Steel_Bulk', title: 'Twin Steel Ltd — Bulk Ledger — Diesel', kind: 'po_units', units: ['UNIT 1', 'UNIT 2'], period_from: fyStart, opening: 420000, opening_by_unit: { 'UNIT 1': 250000, 'UNIT 2': 170000 } },
+      { code: 'Twin Steel_Bulk', title: 'Twin Steel Ltd — Bulk Ledger — Diesel', kind: 'po_units', units: ['UNIT 1', 'UNIT 2'], period_from: fyStart, opening: 420000, opening_by_unit: { 'UNIT 1': 250000, 'UNIT 2': 170000 }, po_rule: 'pick' },
       { code: 'Crew Group_Bulk', title: 'Crew Group — Bulk Ledger — Diesel', kind: 'group', units: [], period_from: fyStart, opening: 150000, opening_by_unit: { 'Crew One Logistics': 100000, 'Crew Two Movers': 50000 } },
     ],
     customers: [

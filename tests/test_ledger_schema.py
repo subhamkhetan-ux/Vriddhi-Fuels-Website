@@ -293,6 +293,8 @@ def test_reupload_policies(pg):
     data = pg.owner(call("ledger_po_data", "Demo_Bulk"))
     bill1 = data["bills"][0]
     pg.owner(call("ledger_bill_update", bill1["id"], {"po_mode": "fixed", "po_fixed": "APP-PO"}))
+    twin = next(b for b in pg.owner(call("ledger_po_data", "Twin_Bulk"))["bills"] if b["bill_no"] == "2")
+    pg.owner(call("ledger_bill_update", twin["id"], {"po_mode": "fixed", "po_fixed": "APP-TWIN"}))
     walk = next(c for c in pg.owner(call("ledger_customers_list")) if c["name"] == "Walk In Cash")
     pg.owner(call("ledger_customer_update", walk["id"], {"ledger": "Cash"}))
     pg.owner(call("ledger_po_save", {"group_code": "Demo_Bulk", "po_no": "APP-NEW",
@@ -300,8 +302,8 @@ def test_reupload_policies(pg):
 
     # ... then Excel changes things and the workbook is uploaded again
     p = payload()
-    p["sales"][0].update({"qty": 1100, "amount": 99000, "po_mode": "fixed", "po_fixed": "XL-PO"})
-    p["sales"][1].update({"unit": "UNIT 2", "tds": 15, "remarks": "short by 2 L"})
+    p["sales"][0].update({"qty": 1100, "amount": 99000})                       # still the formula in Excel
+    p["sales"][1].update({"unit": "UNIT 2", "tds": 15, "remarks": "short by 2 L", "po_fixed": "NEW-XL"})   # picked again in Excel
     p["customers"].append({"name": "Walk In Cash", "ledger": "Walkin"})
     p["payments"] = p["payments"][:1]
     p["pos"][0]["allotted"] = 9999                                  # already in the app
@@ -314,8 +316,9 @@ def test_reupload_policies(pg):
 
     sale = pg.owner("select to_jsonb(s) from ledger_sales s where product = 'HSD' and bill_no = '1';")
     assert float(sale["qty"]) == 1100                                # Excel's figures win
-    assert sale["po_mode"] == "fixed" and sale["po_fixed"] == "APP-PO"  # the app's PO choice stays
+    assert sale["po_mode"] == "fixed" and sale["po_fixed"] == "APP-PO"  # the app's pick stays: Excel has none
     twin = pg.owner("select to_jsonb(s) from ledger_sales s where product = 'HSD' and bill_no = '2';")
+    assert (twin["po_mode"], twin["po_fixed"], twin["po_user_set"]) == ("fixed", "NEW-XL", False)   # picked in Excel: it wins
     assert twin["unit"] == "UNIT 1"                                  # unit only fills blanks
     assert float(twin["tds"]) == 15 and twin["remarks"] == "short by 2 L"
     assert pg.owner("select to_jsonb(ledger) from ledger_customers where name = 'Walk In Cash';") == "Cash"

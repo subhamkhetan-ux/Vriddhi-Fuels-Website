@@ -196,6 +196,11 @@ alter table public.ledger_customers add column if not exists bill_address text n
 -- ... and the sheet's column widths / row heights, so statements print the same size.
 alter table public.ledger_customers add column if not exists layout jsonb;
 alter table public.ledger_bulk_groups add column if not exists layout jsonb;       -- *_Bulk sheet column widths
+-- which PO No. formula the *_Bulk sheet has (po.js): 'pick' — one PO with
+-- room is taken, more than one shows "Select PO ▼" — or the earlier 'first'
+alter table public.ledger_bulk_groups add column if not exists po_rule text not null default 'first';
+alter table public.ledger_bulk_groups drop constraint if exists ledger_bulk_groups_po_rule_check;
+alter table public.ledger_bulk_groups add constraint ledger_bulk_groups_po_rule_check check (po_rule in ('first', 'pick'));
 alter table public.ledger_payments add column if not exists unit text not null default '';  -- *_Bulk payment row's Unit (SMC)
 
 -- Tanker Master (the workbook's Customers table): who gets a Daily Tanker
@@ -602,16 +607,17 @@ begin
   returning id into v_import;
 
   -- 1) Bulk ledgers
-  insert into ledger_bulk_groups as g (code, title, kind, units, period_from, opening, opening_by_unit, layout, updated_at)
+  insert into ledger_bulk_groups as g (code, title, kind, units, period_from, opening, opening_by_unit, layout, po_rule, updated_at)
   select distinct on (btrim(x.code)) btrim(x.code), coalesce(x.title, ''), x.kind, coalesce(x.units, '{}'),
          x.period_from, x.opening, coalesce(x.opening_by_unit, '{}'::jsonb),
-         case when jsonb_typeof(x.layout) = 'object' then x.layout end, now()
+         case when jsonb_typeof(x.layout) = 'object' then x.layout end,
+         case when x.po_rule = 'pick' then 'pick' else 'first' end, now()
   from jsonb_to_recordset(coalesce(p_payload -> 'groups', '[]'::jsonb))
-       as x(code text, title text, kind text, units text[], period_from date, opening numeric, opening_by_unit jsonb, layout jsonb)
+       as x(code text, title text, kind text, units text[], period_from date, opening numeric, opening_by_unit jsonb, layout jsonb, po_rule text)
   where btrim(coalesce(x.code, '')) <> '' and x.kind in ('po', 'po_units', 'group')
   order by btrim(x.code)
   on conflict (code) do update set
-    title = excluded.title, kind = excluded.kind, units = excluded.units,
+    title = excluded.title, kind = excluded.kind, units = excluded.units, po_rule = excluded.po_rule,
     period_from = excluded.period_from, opening = excluded.opening,
     opening_by_unit = excluded.opening_by_unit, layout = coalesce(excluded.layout, g.layout), updated_at = now();
   get diagnostics v_groups = row_count;
@@ -677,8 +683,13 @@ begin
       rate = excluded.rate, amount = excluded.amount, customer = excluded.customer,
       item = excluded.item, seq = excluded.seq,
       unit = case when s.unit = '' then excluded.unit else s.unit end,
-      po_mode = case when s.po_user_set or s.po_mode = 'fixed' then s.po_mode else excluded.po_mode end,
-      po_fixed = case when s.po_user_set or s.po_mode = 'fixed' then s.po_fixed else excluded.po_fixed end,
+      -- a bill's PO: one typed / picked in Excel wins; else the one picked in
+      -- the app stays; else Excel's (its formula, or "no PO")
+      po_mode = case when excluded.po_mode = 'fixed' and excluded.po_fixed <> '' then excluded.po_mode
+                     when s.po_user_set then s.po_mode else excluded.po_mode end,
+      po_fixed = case when excluded.po_mode = 'fixed' and excluded.po_fixed <> '' then excluded.po_fixed
+                      when s.po_user_set then s.po_fixed else excluded.po_fixed end,
+      po_user_set = case when excluded.po_mode = 'fixed' and excluded.po_fixed <> '' then false else s.po_user_set end,
       tds = coalesce(excluded.tds, s.tds),
       shortage = coalesce(excluded.shortage, s.shortage),
       remarks = case when excluded.remarks <> '' then excluded.remarks else s.remarks end,

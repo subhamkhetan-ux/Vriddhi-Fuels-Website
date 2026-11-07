@@ -59,13 +59,15 @@ test('memory store follows the SQL rules', async () => {
   // the app's own choices ...
   const demo = await s.poData('Demo_Bulk');
   await s.updateBill(demo.bills[0].id, { po_mode: 'fixed', po_fixed: 'APP-PO' });
+  const twin = (await s.poData('Twin_Bulk')).bills.find((b) => b.bill_no === '2');
+  await s.updateBill(twin.id, { po_mode: 'fixed', po_fixed: 'APP-TWIN' });
   await s.updateCustomer(custs['Walk In Cash'].id, { ledger: 'Cash' });
   await s.savePo({ group_code: 'Demo_Bulk', po_no: 'APP-NEW', allotted: 100 });
 
   // ... survive a second upload (except PO lists: those follow the workbook)
   const p = payload();
-  Object.assign(p.sales[0], { qty: 1100, amount: 99000, po_mode: 'fixed', po_fixed: 'XL-PO' });
-  Object.assign(p.sales[1], { unit: 'UNIT 2', tds: 15, remarks: 'short by 2 L' });
+  Object.assign(p.sales[0], { qty: 1100, amount: 99000 });                                      // still the formula in Excel
+  Object.assign(p.sales[1], { unit: 'UNIT 2', tds: 15, remarks: 'short by 2 L', po_fixed: 'NEW-XL' }); // picked again in Excel
   p.customers.push({ name: 'Walk In Cash', ledger: 'Walkin' });
   p.payments = p.payments.slice(0, 1);
   p.pos[0].allotted = 9999;
@@ -79,7 +81,9 @@ test('memory store follows the SQL rules', async () => {
   const data = await s.poData('Demo_Bulk');
   const b1 = data.bills.find((b) => b.bill_no === '1');
   assert.equal(b1.qty, 1100);
-  assert.deepEqual([b1.po_mode, b1.po_fixed], ['fixed', 'APP-PO']);
+  assert.deepEqual([b1.po_mode, b1.po_fixed], ['fixed', 'APP-PO']);              // the app's pick: Excel has none
+  const t2 = (await s.poData('Twin_Bulk')).bills.find((b) => b.bill_no === '2');
+  assert.deepEqual([t2.po_mode, t2.po_fixed, t2.po_user_set], ['fixed', 'NEW-XL', false]);   // picked in Excel: it wins
   // the PO lists follow the workbook: its litres and order; a PO added in the app is gone
   assert.deepEqual(data.pos.map((x) => [x.po_no, x.allotted]), [['PO-A', 9999], ['PO-B', 3000], ['PO-C', 700]]);
   custs = Object.fromEntries((await s.customers()).map((c) => [c.name, c]));

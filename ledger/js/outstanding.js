@@ -21,8 +21,8 @@ export function poGroups(data) {
   return data.groups.filter((g) => g.kind !== 'group').map((g) => {
     const bills = data.bills.filter((b) => b.group === g.code).sort(billOrder);
     const pos = data.pos.filter((p) => p.group_code === g.code);
-    const res = allocate({ kind: g.kind, units: g.units, pos, bills });
-    const rows = bills.map((b, i) => ({ ...b, po: res.bills[i].po, how: res.bills[i].how }));
+    const res = allocate({ kind: g.kind, units: g.units, pos, bills, rule: g.po_rule });
+    const rows = bills.map((b, i) => ({ ...b, po: res.bills[i].po, how: res.bills[i].how, ...(res.bills[i].choices ? { choices: res.bills[i].choices } : {}) }));
     return {
       group: g,
       members: data.members.filter((m) => m.group === g.code),
@@ -30,6 +30,8 @@ export function poGroups(data) {
       rows,
       registers: res.registers,
       noPo: rows.filter((r) => r.how === 'no-po').length,
+      toPick: rows.filter((r) => r.how === 'choose').length,                 // Excel: "Select PO ▼"
+
       needsUnit: rows.filter((r) => r.how === 'needs-unit').length,
     };
   });
