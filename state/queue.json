@@ -7254,6 +7254,27 @@
       },
       "queued_at": "2026-11-07T04:15:25.148462+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "cccab12c5c9fa3de",
+      "gmail_msg_id": "1881196075652248640",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "07/11/2026",
+      "date_serial": 46333,
+      "amount": 210926.0,
+      "raw_payer": "SIMAR INFRASTRUCTURES LTD",
+      "customer": "Simar Infrastructure LTD",
+      "candidates": [
+        "Simar Infrastructure LTD"
+      ],
+      "match_tier": "alias",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-07T10:52:02.640243+00:00",
+      "status": "matched"
     }
   ]
 }
