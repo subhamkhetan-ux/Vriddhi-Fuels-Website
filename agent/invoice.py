@@ -212,6 +212,30 @@ def _invoice_time(lines: list[str], text: str) -> str | None:
     return f"{int(m.group(1)):02d}:{m.group(2)}" if m else None
 
 
+# A truck registration: state, district, series letters (none on some older
+# registrations, e.g. OD156815), number.
+_TT_ANY = r"[A-Z]{2}\s?\d{1,2}\s?[A-Z]{0,3}\s?\d{3,4}"
+_TT_LABEL = re.compile(r"\bT\.\s*T\.\s*No\b\.?", re.I)
+
+
+def parse_tt(lines: list[str], text: str) -> str | None:
+    """The TT number: the value printed with the "T.T.No." label (on the line
+    before it, as pymupdf lays the invoice out, else on or after the label's
+    line), whatever the registration's format; else the first OD23U8210-style
+    number anywhere; else one without series letters."""
+    for i, ln in enumerate(lines):
+        if not _TT_LABEL.search(ln):
+            continue
+        for cand in (_TT_LABEL.sub(" ", ln), lines[i - 1] if i else "",
+                     lines[i + 1] if i + 1 < len(lines) else ""):
+            m = re.search(rf"\b({_TT_ANY})\b", cand.strip())
+            if m:
+                return re.sub(r"\s+", "", m.group(1))
+    m = (re.search(r"\b([A-Z]{2}\d{2}[A-Z]{1,3}\d{3,4})\b", text)
+         or re.search(r"\b([A-Z]{2}\d{2}\d{4})\b", text))
+    return m.group(1) if m else None
+
+
 def extract_fields(text: str) -> InvoiceFields:
     """Pull the consignment-note-relevant fields out of the invoice text."""
     lines = [ln.rstrip() for ln in text.splitlines()]
@@ -234,9 +258,8 @@ def extract_fields(text: str) -> InvoiceFields:
         if m:
             invoice_date = _norm_date(m.group(1))
 
-    # Tank-truck registration number, e.g. OD23U8210.
-    m = re.search(r"\b([A-Z]{2}\d{2}[A-Z]{1,2}\d{3,4})\b", text)
-    tt_no = m.group(1) if m else None
+    # Tank-truck registration number, e.g. OD23U8210 — or OD156815 (no series letters).
+    tt_no = parse_tt(lines, text)
 
     # Product lines: each item line "<material-code>   <DESCRIPTION>", followed
     # within a few lines by "<qty>" then "KL", and — within that product's block —

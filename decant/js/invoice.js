@@ -30,6 +30,23 @@ function dmy(s) {
   return `${m[1].padStart(2, '0')}/${String(mo).padStart(2, '0')}/${y}`;
 }
 
+// The TT number, as agent/invoice.py parse_tt(): the value by the "T.T.No."
+// label, whatever the registration's format (OD23U8210, or OD156815 with no
+// series letters); else the usual format anywhere; else one without series letters.
+const TT_ANY = '[A-Z]{2}\\s?\\d{1,2}\\s?[A-Z]{0,3}\\s?\\d{3,4}';
+const TT_LABEL = /\bT\.\s*T\.\s*No\b\.?/i;
+export function parseTT(lines, text) {
+  for (let i = 0; i < lines.length; i++) {
+    if (!TT_LABEL.test(lines[i])) continue;
+    for (const cand of [lines[i].replace(TT_LABEL, ' '), lines[i - 1] || '', lines[i + 1] || '']) {
+      const m = new RegExp(`\\b(${TT_ANY})\\b`).exec(cand.trim());
+      if (m) return m[1].replace(/\s+/g, '');
+    }
+  }
+  const m = /\b([A-Z]{2}\d{2}[A-Z]{1,3}\d{3,4})\b/.exec(text) || /\b([A-Z]{2}\d{2}\d{4})\b/.exec(text);
+  return m ? m[1] : null;
+}
+
 // Visual lines -> the dec_invoices row shape.
 export function parseInvoiceLines(lines, filename = '') {
   const text = lines.join('\n');
@@ -37,7 +54,7 @@ export function parseInvoiceLines(lines, filename = '') {
   const invoiceNo = fileNo || /\b(70\d{8})\b/.exec(text)?.[1] || null;
   const date = /\b(\d{1,2}-[A-Za-z]{3}-\d{2,4})\b/.exec(text);
   const time = /\bTime\s*:?\s*([01]?\d|2[0-3]):([0-5]\d)\b/.exec(text) || /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(text);
-  const tt = /\b([A-Z]{2}\d{2}[A-Z]{1,2}\d{3,4})\b/.exec(text);
+  const ttNo = parseTT(lines, text);
   const den = /Den\s*@\s*15\s*:?\s*(\d{3,4}(?:\.\d+)?)/.exec(text);
   const seal = /Seal\s*\/\s*Lock\s*no\s*:?\s*(.+)$/im.exec(text);
 
@@ -86,7 +103,7 @@ export function parseInvoiceLines(lines, filename = '') {
     invoice_no: invoiceNo,
     invoice_date: date ? dmy(date[1]) : null,
     invoice_time: time ? `${time[1].padStart(2, '0')}:${time[2]}` : null,
-    tt_no: tt ? tt[1] : null,
+    tt_no: ttNo,
     lines: invLines,
     chambers,
     density15: den ? Number(den[1]) : null,

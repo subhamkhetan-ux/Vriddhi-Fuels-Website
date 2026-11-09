@@ -746,3 +746,10 @@ def test_icici_collections_route_by_full_account_number():
     assert "<LEDGERNAME>ICICI BANK LTD</LEDGERNAME>" in old and "ICICI OD" not in old
     # Any other ICICI number isn't silently taken as ours (nor posted to the OD).
     assert G.collection_route("ICIC0000011_04680500 9999") == (None, None)
+
+
+def test_tt_without_series_letters_is_read():
+    # "OD156815" (no series letters) printed by the "T.T.No." label
+    text = INVOICE_2PROD.replace("OD23U8210", "OD156815")
+    assert "OD156815" in text
+    assert IP.parse_invoice(text).tt_no == "OD156815"
