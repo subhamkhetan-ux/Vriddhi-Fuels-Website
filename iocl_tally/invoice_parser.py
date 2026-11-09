@@ -103,13 +103,34 @@ def _map_material(desc: str) -> tuple[str, str]:
     return MATERIAL_MAP["HSD"]      # default: diesel
 
 
+# Same rule as agent/invoice.py parse_tt(): the value by the "T.T.No." label,
+# whatever the registration's format (OD23U8210, or OD156815 with no series
+# letters); else the usual format anywhere; else one without series letters.
+_TT_ANY = r"[A-Z]{2}\s?\d{1,2}\s?[A-Z]{0,3}\s?\d{3,4}"
+_TT_LABEL = re.compile(r"\bT\.\s*T\.\s*No\b\.?", re.I)
+
+
+def _parse_tt(lines: list[str], joined: str) -> str | None:
+    for i, ln in enumerate(lines):
+        if not _TT_LABEL.search(ln):
+            continue
+        for cand in (_TT_LABEL.sub(" ", ln), lines[i - 1] if i else "",
+                     lines[i + 1] if i + 1 < len(lines) else ""):
+            m = re.search(rf"\b({_TT_ANY})\b", cand.strip())
+            if m:
+                return re.sub(r"\s+", "", m.group(1))
+    m = (re.search(r"\b([A-Z]{2}\d{2}[A-Z]{1,3}\d{3,4})\b", joined)
+         or re.search(r"\b([A-Z]{2}\d{2}\d{4})\b", joined))
+    return m.group(1) if m else None
+
+
 def parse_invoice(text: str) -> Invoice:
     lines = [ln.strip() for ln in text.splitlines()]
     joined = "\n".join(lines)
 
     inv_m = re.search(r"\b(70\d{8})\b", joined)
     date_m = re.search(r"\b(\d{1,2}-[A-Za-z]{3}-\d{2,4})\b", joined)
-    tt_m = re.search(r"\b([A-Z]{2}\d{2}[A-Z]{1,2}\d{3,4})\b", joined)
+    tt_no = _parse_tt(lines, joined)
 
     products: list[Product] = []
     # A product block starts at a material line: "<code>   <DESCRIPTION>".
@@ -150,7 +171,7 @@ def parse_invoice(text: str) -> Invoice:
     return Invoice(
         invoice_no=inv_m.group(1) if inv_m else None,
         date=date_m.group(1) if date_m else None,
-        tt_no=tt_m.group(1) if tt_m else None,
+        tt_no=tt_no,
         products=products,
         zrnd=float(zrnd_m.group(1)) if zrnd_m else 0.0,
         total=total,

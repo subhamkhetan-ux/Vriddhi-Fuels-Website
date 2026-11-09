@@ -129,3 +129,14 @@ test('typed in: the invoice number has to be the real one (so the mail is recogn
     .errors.some((e) => /Chamber 1 is given for two products/.test(e)));
   assert.ok(invoiceFromForm({ ...FORM, lines: [] }).errors.some((e) => /at least one product/.test(e)));
 });
+
+test('a TT registered without series letters (OD156815) is read off the T.T.No. label', () => {
+  const items = PDF['7011294526'].map((i) => (i.str === 'OD23U8210' ? { ...i, str: 'OD156815' } : i));
+  const inv = parseInvoiceLines(linesFromItems(items), '7011294526.pdf');
+  assert.equal(inv.tt_no, 'OD156815');
+  const plan = planUpload(inv);
+  assert.equal(plan.noteSkip, 'other-tt');                    // a transport TT: no note…
+  assert.ok(plan.fuelRow);                                     // …but Credit and decant still get it
+  assert.equal(decantRow(inv).tt_no, 'OD156815');
+  assert.equal(invoiceFromForm({ ...FORM, tt_no: 'OD156815' }).inv.tt_no, 'OD156815');
+});
