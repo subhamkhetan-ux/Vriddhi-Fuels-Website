@@ -174,7 +174,7 @@ export function invoiceFromForm(f) {
   const time = String(f.time || '').trim();
   if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) errors.push('Time: HH:MM.');
   const tt = String(f.tt_no || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (!/^[A-Z]{2}\d{2}[A-Z]{1,2}\d{3,4}$/.test(tt)) errors.push('TT no.: like OD23U8210.');
+  if (!/^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{3,4}$/.test(tt)) errors.push('TT no.: like OD23U8210 (or OD156815).');
   const amount = Math.round(Number(String(f.amount ?? '').replace(/[,₹\s]/g, '')));
   if (!(amount > 0)) errors.push('Invoice total (₹) is needed — the grand total at the foot of the invoice.');
 

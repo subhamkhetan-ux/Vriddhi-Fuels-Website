@@ -408,3 +408,27 @@ def test_hsd_and_xg_on_one_invoice_fill_both_columns():
     assert [(l.column_key, l.qty) for l in f.lines] == [
         (invoice.COLUMN_XTRAGREEN, "5"), (invoice.COLUMN_HSD, "17")]
     assert f.columns == {invoice.COLUMN_XTRAGREEN: "5", invoice.COLUMN_HSD: "17"}
+
+
+# A transport TT registered without series letters, printed "OD156815" (state
+# OD, district 15, number 6815) — read off the "T.T.No." label. Before, only
+# OD23U8210-style numbers matched, so the invoice had no truck: the decant app
+# never got it and a PDF upload was refused.
+NO_SERIES_TEXT = INVOICE_TEXT.replace("OD23U8210", "OD156815").replace(
+    "VRIDDHI FUELS\nMALIMUNDA", "VRIDDHI FUELS\nAATFV8250A\nMALIMUNDA")
+
+
+def test_tt_without_series_letters():
+    f = invoice.extract_fields(NO_SERIES_TEXT)
+    assert f.tt_no == "OD156815"
+    assert invoice.is_complete(f)
+
+
+def test_tt_read_by_its_label_wherever_it_sits():
+    assert invoice.parse_tt(["T.T.No. OD156815 Time 16:05"], "") == "OD156815"   # pdf.js: same line
+    assert invoice.parse_tt(["OD 15 6815", "T.T.No."], "") == "OD156815"        # pymupdf: line before
+    assert invoice.parse_tt(["T.T.No.", "OD23U8210"], "") == "OD23U8210"        # line after
+    # no label: the usual format first, then one without series letters
+    assert invoice.parse_tt([], "PAN AATFV8250A OD23U8210") == "OD23U8210"
+    assert invoice.parse_tt([], "PAN AATFV8250A OD156815") == "OD156815"
+    assert invoice.parse_tt([], "nothing here") is None
