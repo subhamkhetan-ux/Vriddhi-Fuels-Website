@@ -10,7 +10,8 @@
 // Pure: returns SVG strings (images as data: URLs, fonts as @font-face CSS
 // passed in). render.js jpegFromSvg / pdfFromSvgs turn them into files.
 
-import { poRowName, statementLines } from './ledger-view.js';
+import { paymentDays, poRowName, statementLines } from './ledger-view.js';
+import { normKey } from './util.js';
 
 export const SHARE_PAGE = { width: 1280, height: 1810 };          // px; A4's shape
 export const SHARE_PAGE_PT = { width: 595.28, height: 841.89 };
@@ -240,6 +241,47 @@ function pendingHead(x, y, w, total, count) {
 ${T(x + w, y + 30, `${count} bill${count === 1 ? '' : 's'} · ${rupees(total)}`, { size: 17, weight: 700, anchor: 'end', fill: C.amber })}
 ${R(x, y + 46, w, 1.5, { opacity: 0.1 })}`;
 }
+// ---- recent payments: the last few days money came in --------------------------------
+// days: ledger-view paymentDays() (newest first); owner: the card's name (a
+// payment from the card's own customer doesn't repeat the name)
+const PAY_H = 58;
+const PAY_ITEM_H = 32;
+const MAX_PAY_DAYS = 3;
+const MAX_PAY_ITEMS = 4;
+const payLabel = (it, owner) => [it.name && normKey(it.name) !== normKey(owner) ? it.name : '', it.mode].filter(Boolean).join('  ·  ');
+function paymentsBlock(x, y, w, days, owner) {
+  const shown = days.slice(0, MAX_PAY_DAYS);
+  let out = `${T(x, y + 30, 'RECENT PAYMENTS', { size: 16, weight: 700, fill: C.muted, spacing: 2 })}
+${T(x + w, y + 30, shown.length > 1 ? `last ${shown.length} payment days` : 'last payment', { size: 17, weight: 700, anchor: 'end', fill: C.good })}
+${R(x, y + 46, w, 1.5, { opacity: 0.1 })}`;
+  let yy = y + 54;
+  const max = w - 190 - 260;
+  shown.forEach((d, i) => {
+    const one = d.items.length === 1;
+    const sub = one ? payLabel(d.items[0], owner) : '';
+    const items = one ? [] : d.items.slice(0, d.items.length > MAX_PAY_ITEMS ? MAX_PAY_ITEMS - 1 : MAX_PAY_ITEMS);
+    const rest = one ? [] : d.items.slice(items.length);
+    const h = PAY_H + (items.length + (rest.length ? 1 : 0)) * PAY_ITEM_H + (one ? 0 : 8);
+    if (i % 2 === 1) out += R(x, yy + 2, w, h - 4, { rx: 12, opacity: 0.03 });
+    out += `${T(x + 18, yy + 36, dMonY(d.date), { size: 18, weight: 600 })}
+${T(x + 190, yy + (sub ? 28 : 36), one ? 'Payment received' : `${d.items.length} payments that day`, { size: 18, weight: 700, max })}
+${sub ? T(x + 190, yy + 50, sub, { size: 14, fill: C.muted, max }) : ''}
+${T(x + w - 18, yy + 36, rupees(d.amount), { size: 20, weight: 800, anchor: 'end', fill: C.good })}`;
+    let iy = yy + PAY_H - 6;
+    for (const it of items) {
+      out += `${T(x + 206, iy + 20, payLabel(it, owner) || 'Payment', { size: 15, fill: C.muted, max: w - 206 - 220 })}${T(x + w - 18, iy + 20, rupees(it.amount), { size: 16, weight: 700, anchor: 'end' })}`;
+      iy += PAY_ITEM_H;
+    }
+    if (rest.length) {
+      out += `${T(x + 206, iy + 20, `+ ${rest.length} more`, { size: 15, fill: C.muted })}${T(x + w - 18, iy + 20, rupees(rest.reduce((a, it) => a + it.amount, 0)), { size: 16, weight: 700, anchor: 'end' })}`;
+    }
+    yy += h;
+  });
+  return { svg: out, height: yy - y + 10 };
+}
+// "₹9,94,000 on 06 Nov 2026" — and how many payments made up that day's total
+export const lastPaymentText = (lp, date = dMonY) => `${rupees(lp.amount)} on ${date(lp.date)}${lp.count > 1 ? `  ·  ${lp.count} payments` : ''}`;
+
 function pendingBlock(x, y, w, pending, advance = 0) {
   const { rows, more } = pendingList(pending);
   const total = pending.reduce((a, d) => a + d.pending, 0);
@@ -355,7 +397,7 @@ export function ledgerPagesSvg(st, { asOn = '', images = {}, fontCss = '', title
     y += 160;
     out += hero(pad, y, w - 2 * pad, 186, bl.label, bl.amount, [
       ['BALANCE', drCr(st.closing)],
-      st.lastPayment ? ['LAST PAYMENT', `${rupees(st.lastPayment.amount)} · ${dMon(st.lastPayment.date)}`] : ['LAST PAYMENT', '—'],
+      st.lastPayment ? ['LAST PAYMENT', `${rupees(st.lastPayment.amount)} · ${dMon(st.lastPayment.date)}${st.lastPayment.count > 1 ? ` · ${st.lastPayment.count} payments` : ''}`] : ['LAST PAYMENT', '—'],
     ]);
     y += 210;
     const deductions = t.tds + t.shortage;
@@ -427,7 +469,8 @@ ${T(w - pad, h - 40, `Page ${i + 1} of ${pages}`, { size: 15, weight: 700, fill:
 
 // ---- one customer's outstanding card -------------------------------------------------
 // card: { name, kind: 'bulk'|'retail', balance, asOn, since, billed, received,
-//         deductions, qty, bills, payments, lastPayment {date, amount}, lastBill,
+//         deductions, qty, bills, payments, lastPayment {date, amount, count} (that
+//         day's total), recentPayments (ledger-view paymentDays()), lastBill,
 //         companies (ledger-view companyWise() or null) }
 export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
   const w = CARD_WIDTH;
@@ -451,7 +494,7 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
   if (card.billed != null) facts.push(['Billed', `${rupees(card.billed)}${card.qty ? `  ·  ${qtyText(card.qty)}` : ''}`]);
   if (card.received != null) facts.push(['Received', rupees(card.received)]);
   if (card.deductions) facts.push(['TDS & shortage', rupees(card.deductions)]);
-  if (card.lastPayment) facts.push(['Last payment', `${rupees(card.lastPayment.amount)} on ${dMonY(card.lastPayment.date)}`]);
+  if (card.lastPayment) facts.push(['Last payment', lastPaymentText(card.lastPayment)]);
   if (card.lastBill) facts.push(['Last bill', dMonY(card.lastBill)]);
   if (facts.length) {
     const fh = facts.length * 54 + 22;
@@ -472,6 +515,11 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
     const cb = companiesBlock(pad, y, w - 2 * pad, card.units);
     out += cb.svg;
     y += cb.height + 20;
+  }
+  if (card.recentPayments && card.recentPayments.length) {
+    const rb = paymentsBlock(pad, y, w - 2 * pad, card.recentPayments, card.name);
+    out += rb.svg;
+    y += rb.height + 20;
   }
   if (card.pos && card.pos.rows.length) {
     const pb = poBlock(pad, y, w - 2 * pad, card.pos);
@@ -522,16 +570,16 @@ export function monthSlice(st, ym) {
   const entries = m.entries;
   const t = { billed: m.billed, qty: m.qty, received: m.received, tds: 0, shortage: 0, bills: m.bills, payments: m.payments };
   const products = Object.fromEntries(['HSD', 'MS', 'XG', 'OTHER'].map((p) => [p, { qty: 0, amount: 0, bills: 0 }]));
-  let lastPayment = null;
   for (const e of entries) {
     t.tds += e.tds; t.shortage += e.shortage;
     if (e.type === 'bill' && e.debit) { const p = products[e.product] || products.OTHER; p.qty += e.qty; p.amount += e.debit; p.bills += 1; }
-    if (e.paid > 0 && (!lastPayment || e.date >= lastPayment.date)) lastPayment = { date: e.date, amount: e.paid };
   }
+  const days = paymentDays(entries);
+  const lastPayment = days.length ? { date: days[0].date, amount: days[0].amount, count: days[0].count } : null;
   const end = `${ym}-${String(new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0')}`;
   // a month's activity, not an outstanding: no company-wise split
   return {
     ...st, from: `${ym}-01`, to: st.to < end ? st.to : end,
-    opening: m.opening, closing: m.closing, months: [m], entries, totals: t, products, lastPayment, companies: null,
+    opening: m.opening, closing: m.closing, months: [m], entries, totals: t, products, lastPayment, recentPayments: days.slice(0, 3), companies: null,
   };
 }

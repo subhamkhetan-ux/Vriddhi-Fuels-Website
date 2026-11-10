@@ -700,7 +700,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
             .map((x) => ({ id: x.id, product: x.product, bill_no: x.bill_no, sale_date: x.sale_date, qty: x.qty, rate: x.rate, amount: x.amount,
               customer: x.customer, item: x.item, seq: x.seq, unit: x.unit || '', tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '' })),
           payments: db.payments.filter((x) => keys.has(x.customer_key) && x.pay_date >= since && x.pay_date <= until).sort(byPayOrder)
-            .map((x) => ({ id: x.id, pay_date: x.pay_date, customer: x.customer, amount: x.amount, tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '', unit: x.unit || '', seq: x.seq })),
+            .map((x) => ({ id: x.id, pay_date: x.pay_date, customer: x.customer, amount: x.amount, mode: x.mode || '', tds: x.tds ?? null, shortage: x.shortage ?? null, remarks: x.remarks || '', unit: x.unit || '', seq: x.seq })),
         });
       }
       const c = db.customers.find((x) => x.customer_key === key);
@@ -716,7 +716,7 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
           .map((x) => ({ id: x.id, product: x.product, bill_no: x.bill_no, sale_date: x.sale_date, vehicle: x.vehicle, qty: x.qty,
             rate: x.rate, amount: x.amount, customer: x.customer, key, item: x.item, seq: x.seq })),
         payments: db.payments.filter((x) => x.customer_key === key && x.pay_date >= from && x.pay_date <= to).sort(byPayOrder)
-          .map((x) => ({ pay_date: x.pay_date, key, amount: x.amount })),
+          .map((x) => ({ pay_date: x.pay_date, key, amount: x.amount, mode: x.mode || '', remarks: x.remarks || '' })),
         first: dates[0] || null,
       });
     },

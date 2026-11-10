@@ -45,7 +45,7 @@ test('bulk statement: entries, totals, months and the closing match the sheet', 
   ]);
   assert.equal(st.entries[2].detail, 'Crew Two · NEFT');
   assert.deepEqual(st.totals, { billed: 27450, qty: 301, received: 9500, tds: 100, shortage: 50, bills: 3, payments: 2 });
-  assert.deepEqual(st.lastPayment, { date: '2026-04-20', amount: 10000 });
+  assert.deepEqual(st.lastPayment, { date: '2026-04-20', amount: 10000, count: 1 });
   assert.equal(st.products.HSD.qty, 300);
   assert.deepEqual(st.months.map((m) => [m.month, m.opening, m.billed, m.received, m.deductions, m.closing]), [
     ['2026-04', 5000, 27000, 10000, 150, 21850],
@@ -86,8 +86,58 @@ test('retail statement: a payment on a sale day counts as a payment', () => {
   ]);
   assert.equal(st.totals.payments, 2);
   assert.equal(st.totals.bills, 2);
-  assert.deepEqual(st.lastPayment, { date: '2026-10-05', amount: 300 });
+  assert.deepEqual(st.lastPayment, { date: '2026-10-05', amount: 300, count: 1 });
   assert.equal(st.companies, null);
+});
+
+// Several firms of a group (or several payments of one customer) on the same
+// date: "Last payment" is that day's total, and the payment modes show.
+test('last payment: everything received on the latest date, with how it was paid', () => {
+  const data = groupData();
+  data.payments.push(
+    { id: 11, pay_date: '2026-05-06', customer: 'Crew One', amount: 3000, mode: 'HDFC 1010', seq: 3 },
+    { id: 12, pay_date: '2026-05-06', customer: 'Crew Two', amount: 2000, mode: 'Cash', remarks: 'cash', seq: 4 },
+    { id: 13, pay_date: '2026-05-06', customer: 'Crew Two', amount: 500, mode: 'ICICI Bank Ltd', remarks: 'diesel', seq: 5 },
+  );
+  data.payments[0].mode = 'XtraPower';
+  const st = bulkStatement(bulkRows(data), data, { name: 'Crew Group' });
+  assert.deepEqual(st.lastPayment, { date: '2026-05-06', amount: 5500, count: 3 });
+  assert.deepEqual(st.recentPayments.map((d) => [d.date, d.amount, d.count]), [['2026-05-06', 5500, 3], ['2026-04-20', 10000, 1]]);
+  assert.deepEqual(st.recentPayments[0].items, [
+    { name: 'Crew One', mode: 'HDFC 1010', amount: 3000 },
+    { name: 'Crew Two', mode: 'Cash', amount: 2000 },
+    { name: 'Crew Two', mode: 'ICICI Bank Ltd', amount: 500 },
+  ]);
+  // the mode on the statement line; a remark that only repeats it is not repeated
+  const pays = st.entries.filter((e) => e.type === 'pay' && e.paid > 0).map((e) => e.detail);
+  assert.deepEqual(pays, ['Crew Two · XtraPower · NEFT', 'Crew One · HDFC 1010', 'Crew Two · Cash', 'Crew Two · ICICI Bank Ltd · diesel']);
+  // each company: its own day total
+  const two = st.companies.list.find((c) => c.name === 'Crew Two');
+  assert.deepEqual(two.lastPayment, { date: '2026-05-06', amount: 2500, count: 2 });
+  assert.deepEqual(companyStatement(st, 'Crew Two').lastPayment, { date: '2026-05-06', amount: 2500, count: 2 });
+
+  // the picture: the day's total and a recent-payments list naming firm and mode
+  const card = outstandingCardSvg({
+    name: 'Crew Group', kind: 'bulk', balance: st.closing, asOn: '2026-05-08', since: st.from,
+    billed: st.totals.billed, received: st.totals.received, lastPayment: st.lastPayment, recentPayments: st.recentPayments, companies: st.companies,
+  });
+  assert.ok(card.svg.includes('₹5,500 on 06 May 2026  ·  3 payments'));
+  assert.ok(card.svg.includes('RECENT PAYMENTS') && card.svg.includes('3 payments that day'));
+  assert.ok(card.svg.includes('Crew One  ·  HDFC 1010') && card.svg.includes('Crew Two  ·  XtraPower'));
+
+  // a ledger sheet: a day's payments are on one row; their modes show
+  const led = ledgerRows({
+    opening: 0, from: '2026-10-01',
+    sales: [{ product: 'HSD', sale_date: '2026-10-02', qty: 10, rate: 90, amount: 900 }],
+    payments: [{ pay_date: '2026-10-02', amount: 400, mode: 'Cash' }, { pay_date: '2026-10-02', amount: 100, mode: 'HDFC 1010' },
+      { pay_date: '2026-10-04', amount: 300, mode: 'XtraPower' }],
+  });
+  const rs = retailStatement(led, { name: 'Sample', from: '2026-10-01', to: '2026-10-08' });
+  assert.deepEqual(rs.entries.map((e) => e.detail), ['Payment received the same day · Cash + HDFC 1010', 'XtraPower']);
+  assert.deepEqual(rs.recentPayments[1], { date: '2026-10-02', amount: 500, count: 2,
+    items: [{ name: 'Sample', mode: 'Cash', amount: 400 }, { name: 'Sample', mode: 'HDFC 1010', amount: 100 }] });
+  const one = outstandingCardSvg({ name: 'Sample', kind: 'retail', balance: 100, asOn: '2026-10-08', lastPayment: rs.lastPayment, recentPayments: rs.recentPayments });
+  assert.ok(one.svg.includes('>XtraPower<') && !one.svg.includes('Sample  ·'));     // its own name isn't repeated
 });
 
 test('rate chart: one row per day, changes from the day before, Excel dates', () => {

@@ -113,12 +113,16 @@ the day's RSP per product. Tap or hover any chart for its numbers.
 
 **Customer ledgers**: tap anyone under *Outstanding today* (or *Open ledger*
 on a best customer) to see their ledger as a **statement**, in the app's look:
-- the balance (Dr = due, Cr = advance) and the last payment, then tiles for the
+- the balance (Dr = due, Cr = advance) and the last payment — **everything
+  received on the latest payment date** (several firms of a group, or several
+  payments, add up; "· 3 payments" says so) — then tiles for the
   opening, billed (litres, bills), received (payments) and TDS & shortage,
   and each product's litres and amount;
 - **Bulk** — the *_Bulk sheet's figures (opening + amount − paid − TDS −
   shortage, every member's diesel, petrol, XtraGreen, payments and Other
-  Sale) with Unit, PO No., Billing Name and Remarks under each entry. A
+  Sale) with Unit, PO No., Billing Name, **how a payment came in** (Master
+  Paid's mode: HDFC 1010, ICICI Bank Ltd, XtraPower, Cash, …) and Remarks
+  under each entry (a ledger sheet's payments show their mode too). A
   **group** sheet (several billing names) also gets **Company-wise
   outstanding**: a card per company — its opening, billed, received, TDS &
   shortage, last payment and what it owes; companies at a nil balance are
@@ -193,8 +197,10 @@ customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
 - **Share ledger**: the statement as A4-shaped pictures (as many pages as it
   needs; on a bulk ledger pick the whole ledger or one month), or **PDF**.
 - **Share outstanding**: one card with the balance as on today, the period,
-  billed, received, last payment, the **PO-wise outstanding** and the
-  **pending bills** of a bulk customer — and, for a group, every company.
+  billed, received, last payment (that day's total), **recent payments** (the
+  last three payment days: each day's total and, under it, every payment —
+  firm and mode), the **PO-wise outstanding** and the **pending bills** of a
+  bulk customer — and, for a group, every company.
 - **SMC-style sheets** share **unit-wise** by default: one set of pictures per
   unit (its ledger, or its outstanding card with its pending bills), each with
   its own **Share** button so each unit gets only its own; **Both units
