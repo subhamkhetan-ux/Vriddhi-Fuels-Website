@@ -48,18 +48,35 @@ function byMonth(entries, opening) {
   return months;
 }
 
+// The days payments came in, newest first. Each day's amount is everything
+// received that date — several firms of a group, or several payments of one
+// customer, add up — with its payments: [{name, mode, amount}] (name: the
+// billing name; mode: how it was paid — HDFC 1010, Cash, …).
+export function paymentDays(entries) {
+  const days = new Map();
+  for (const e of entries) {
+    if (!(e.paid > 0)) continue;
+    if (!days.has(e.date)) days.set(e.date, { date: e.date, amount: 0, count: 0, items: [] });
+    const d = days.get(e.date);
+    // a ledger sheet's day row holds all that day's payments (e.pays)
+    const parts = Array.isArray(e.pays) && e.pays.length ? e.pays : [{ amount: e.paid, mode: e.mode || '' }];
+    for (const p of parts) d.items.push({ name: e.company || '', mode: String(p.mode || '').trim(), amount: round2(Number(p.amount) || 0) });
+    d.count = d.items.length;
+    d.amount = round2(d.amount + e.paid);
+  }
+  return [...days.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+// the last payment day: {date, amount (that day's total), count}
+const lastOf = (days) => (days.length ? { date: days[0].date, amount: days[0].amount, count: days[0].count } : null);
+
 function summarise(entries) {
   const t = { billed: 0, qty: 0, received: 0, tds: 0, shortage: 0, bills: 0, payments: 0 };
   const products = blankProducts();
-  let lastPayment = null;
   let lastBill = null;
   for (const e of entries) {
     t.billed += e.debit; t.qty += e.qty; t.received += e.paid; t.tds += e.tds; t.shortage += e.shortage;
     // a ledger sheet puts a day's payment on that day's first sale row
-    if (e.paid) {
-      t.payments += 1;
-      if (e.paid > 0 && (!lastPayment || e.date >= lastPayment.date)) lastPayment = { date: e.date, amount: e.paid };
-    }
+    if (e.paid) t.payments += 1;
     if (e.type !== 'pay' && e.debit) {
       t.bills += 1;
       const p = products[e.product] || products.OTHER;
@@ -69,7 +86,8 @@ function summarise(entries) {
   }
   Object.keys(t).forEach((k) => { t[k] = round2(t[k]); });
   Object.values(products).forEach((p) => { p.qty = round2(p.qty); p.amount = round2(p.amount); });
-  return { totals: t, products, lastPayment, lastBill };
+  const days = paymentDays(entries);
+  return { totals: t, products, lastPayment: lastOf(days), recentPayments: days.slice(0, 3), lastBill };
 }
 
 // ---- the statement's lines ------------------------------------------------------------
@@ -116,17 +134,19 @@ export function bulkStatement(res, data, { name = '', openingByCompany = {} } = 
     const tds = Number(r.tds) || 0;
     const shortage = Number(r.shortage) || 0;
     const detail = [];
+    const mode = String(r.mode || '').trim();
     if (group && r.name) detail.push(r.name);
     if (r.unit) detail.push(r.unit);
     if (r.po) detail.push(`PO ${r.po}`);
-    if (r.remarks) detail.push(r.remarks);
+    if (mode) detail.push(mode);                                  // how it was paid: HDFC 1010, Cash, …
+    if (r.remarks && normKey(r.remarks) !== normKey(mode)) detail.push(r.remarks);
     let title;
     if (code === 'PAY') title = r.paid < 0 ? 'Refund' : 'Payment received';
     else if (code === 'OTHER') title = `${r.product}${r.bill ? ` · Bill ${r.bill}` : ''}`;
     else title = `${PRODUCT_LABEL[code]}${r.bill ? ` · Bill ${r.bill}` : ''}`;
     return {
       date: r.date, type: code === 'PAY' ? 'pay' : 'bill', product: code, title, detail: detail.join(' · '),
-      company: r.name || '', unit: String(r.unit || '').trim().toUpperCase(), bill: r.bill || '', po: r.po || '', id: r.id, remarks: r.remarks || '',
+      company: r.name || '', unit: String(r.unit || '').trim().toUpperCase(), bill: r.bill || '', po: r.po || '', id: r.id, remarks: r.remarks || '', mode,
       qty: Number(r.qty) || 0, rate: Number(r.rate) || 0,
       debit: Number(r.amount) || 0, paid: Number(r.paid) || 0, tds, shortage,
       credit: round2((Number(r.paid) || 0) + tds + shortage), balance: r.balance,
@@ -179,9 +199,11 @@ export function companyWise(entries, members, opening, closing, openings = {}) {
   for (const e of entries) {
     const c = add(e.company || (members && members.length === 1 ? members[0].name : ''));
     c.billed += e.debit; c.qty += e.qty; c.received += e.paid; c.deductions += e.tds + e.shortage;
-    if (e.paid) {
-      c.payments += 1;
-      if (e.paid > 0 && (!c.lastPayment || e.date >= c.lastPayment.date)) c.lastPayment = { date: e.date, amount: e.paid };
+    if (e.paid) c.payments += 1;
+    // a company's last payment day: all it paid that date
+    if (e.paid > 0) {
+      if (!c.lastPayment || e.date > c.lastPayment.date) c.lastPayment = { date: e.date, amount: e.paid, count: 1 };
+      else if (e.date === c.lastPayment.date) c.lastPayment = { date: e.date, amount: round2(c.lastPayment.amount + e.paid), count: c.lastPayment.count + 1 };
     }
     if (e.type !== 'pay' && e.debit) {
       c.bills += 1;
@@ -209,9 +231,12 @@ export function retailStatement(led, { name = '', from = '', to = '' } = {}) {
     let title;
     if (!r.hasSale) title = paid < 0 ? 'Refund' : 'Payment received';
     else title = code === 'OTHER' ? r.label : PRODUCT_LABEL[code];
+    // how that day's payments came in: HDFC 1010, Cash, …
+    const pays = paid ? (r.pays || []) : [];
+    const mode = [...new Set(pays.map((p) => String(p.mode || '').trim()).filter(Boolean))].join(' + ');
     return {
-      date: r.date, type: r.hasSale ? 'bill' : 'pay', product: code, title,
-      detail: r.hasSale && paid ? 'Payment received the same day' : '',
+      date: r.date, type: r.hasSale ? 'bill' : 'pay', product: code, title, mode, pays,
+      detail: [r.hasSale && paid ? 'Payment received the same day' : '', mode].filter(Boolean).join(' · '),
       company: name, qty: r.hasSale ? Number(r.qty) || 0 : 0, rate: r.hasSale && r.rate != null ? Number(r.rate) : 0,
       debit: Number(r.amount) || 0, paid, tds: 0, shortage: 0, credit: paid, balance: r.balance,
     };

@@ -691,6 +691,8 @@ def test_customer_ledgers(pg):
     assert g["group"]["kind"] == "po" and float(g["group"]["opening"]) == 1000
     # the Unit typed on a *_Bulk payment row comes back with the payment (trimmed, upper case)
     assert [p["unit"] for p in g["payments"]] == ["UNIT 1"]
+    # how it was paid (Master Paid's mode) comes back too, for the statement lines
+    assert [p["mode"] for p in g["payments"]] == ["HDFC 1010"]
     assert [m["name"] for m in g["members"]] == ["Demo Power Ltd"]
     want = pg.ok("select count(*) from ledger_sales s join ledger_customers c using (customer_key)"
                  " where c.bulk_group = 'Demo_Bulk' and s.sale_date >= '2026-04-01';", **as_owner)
@@ -705,6 +707,7 @@ def test_customer_ledgers(pg):
     assert float(r["customer"]["opening"]) == float(pg.ok("select ledger_balance_before('retail roadways', '2026-04-01');", **as_owner))
     assert all(s["key"] == "retail roadways" and "2026-04-01" <= s["sale_date"] <= "2026-04-30" for s in r["sales"])
     assert r["first"] is not None
+    assert all({"mode", "remarks"} <= set(x) for x in r["payments"])
     assert "No customer" in pg.fails(call("ledger_account", "nobody", None, "2026-04-01", "2026-04-30"), **as_owner)
     assert "No bulk ledger" in pg.fails(call("ledger_account", None, "Nope_Bulk", None, None), **as_owner)
     assert "permission denied" in pg.fails(call("ledger_account", None, "Demo_Bulk", None, None), anon=True)
