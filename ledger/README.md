@@ -197,10 +197,13 @@ customer (dark, orange-lit, the Vriddhi Fuels logo; Sora font):
 - **Share ledger**: the statement as A4-shaped pictures (as many pages as it
   needs; on a bulk ledger pick the whole ledger or one month), or **PDF**.
 - **Share outstanding**: one card with the balance as on today, the period,
-  billed, received, last payment (that day's total), **recent payments** (the
-  last three payment days: each day's total and, under it, every payment —
-  firm and mode), the **PO-wise outstanding** and the **pending bills** of a
-  bulk customer — and, for a group, every company.
+  billed, received, last payment (that day's total), the **PO-wise
+  outstanding** and the **pending bills** of a bulk customer — and, for a
+  group, every company — then, at the bottom, **recent payments** (the last
+  three payment days: each day's total and, under it, every payment — firm
+  and mode). **PDF** saves the card (and the *Outstanding today* list) as a
+  PDF too: one page the picture's shape at twice its sharpness, for when a
+  long picture would get squeezed by the app it's sent through.
 - **SMC-style sheets** share **unit-wise** by default: one set of pictures per
   unit (its ledger, or its outstanding card with its pending bills), each with
   its own **Share** button so each unit gets only its own; **Both units
