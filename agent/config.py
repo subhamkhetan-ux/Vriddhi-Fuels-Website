@@ -77,8 +77,11 @@ ICICI = ParserProfile(
     gmail_query='"has been credited with"',
     # Credit alerts only. Ignore debit alerts and the daily "Ezy QR" auto-credits
     # (small QR-collection FT credits with no real remitter name).
+    # Also ignore EVERY alert for the ICICI account ending 5893 (same mailbox):
+    # ICICI writes it "Account XX893" (last 3 digits), or in full "XXXXXXXX5893".
     accept_if_all=[r"has been credited"],
-    reject_if_any=[r"EZY ?QR", r"has been debited", r"\bdebited\b"],
+    reject_if_any=[r"EZY ?QR", r"has been debited", r"\bdebited\b",
+                   r"\b(?:Account|Acct|A/c)\.?\s*(?:No\.?\s*:?\s*)?X*5?893\b"],
     amount_patterns=[
         # "...has been credited with Rs. 34,79,017.00 on..."
         r"credited with\s*(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{1,2})?)",

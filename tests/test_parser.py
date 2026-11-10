@@ -2,6 +2,8 @@
 ICICI body approximates one until a real sample is available. Re-check the
 patterns against your own alert emails and adjust config.py if wording differs."""
 
+import pytest
+
 from agent.config import HDFC, ICICI
 from agent.parser import normalize_date, parse, parse_amount
 
@@ -130,3 +132,32 @@ def test_parse_failure_keeps_raw_text_not_ok():
     assert r.ignore is False
     assert r.raw_text
     assert "amount" in r.error
+
+
+# The ICICI account ending 5893 shares the mailbox — none of its alerts count.
+def _icici(acct, info="RTGS-CNRBR52026080693241568-SMC POWER GENERATION L."):
+    return ("Dear Customer,\nGreetings from ICICI Bank.\n"
+            f"Your ICICI Bank Account {acct} has been credited with Rs. 1,50,000.00 on "
+            f"06-Nov-26. Info: {info}")
+
+
+@pytest.mark.parametrize("acct", ["XX893", "XXXXXXXX5893", "xx893"])
+def test_icici_account_5893_is_ignored(acct):
+    r = parse(ICICI, "Account credited", _icici(acct))
+    assert not r.ok
+    assert r.ignore is True
+
+
+def test_icici_account_5893_debit_is_ignored():
+    body = ("Dear Customer,\nYour ICICI Bank Account XX893 is debited with Rs. 5,000.00 on "
+            "06-Nov-26. Info: NEFT-XYZ.")
+    assert parse(ICICI, "Account debited", body).ignore is True
+
+
+def test_other_icici_accounts_still_count():
+    # account 716 (and any other) is untouched, even when the remitter's info has an 893
+    for info in ["RTGS-CNRBR52026080693241568-SMC POWER GENERATION L.",
+                 "NEFT-XXXXXXX893-SMC POWER GENERATION L."]:
+        r = parse(ICICI, "Account credited", _icici("XX716", info))
+        assert r.ok, (info, r.error)
+        assert r.amount == 150000.0
