@@ -846,7 +846,7 @@ function acctHeroHtml(st, { asOn, label = 'Balance' }) {
       <div><span class="lbl">${what} · ${esc(label)}</span><span class="val">${esc(rupees(Math.abs(v)))}</span>
         <span class="sub">${esc(drCr(st.closing))} · as on ${esc(fmtDate(asOn))}</span></div>
       <div class="side"><span class="lbl">Last payment</span><b>${st.lastPayment ? `${esc(rupees(st.lastPayment.amount))}` : '—'}</b>
-        <span class="sub">${st.lastPayment ? esc(fmtDate(st.lastPayment.date)) : 'none in this period'}</span></div>
+        <span class="sub">${st.lastPayment ? `${esc(fmtDate(st.lastPayment.date))}${st.lastPayment.count > 1 ? ` · ${st.lastPayment.count} payments` : ''}` : 'none in this period'}</span></div>
     </div>
     <div class="kpis acct-kpis">
       <div class="kpi"><span class="lbl">Opening</span><span class="val">${balHtml(st.opening)}</span><span class="sub">on ${esc(fmtDate(st.from))}</span></div>
@@ -871,7 +871,7 @@ function companiesHtml(cw) {
           <dt>Billed</dt><dd>${esc(rupees(c.billed))}${c.qty ? ` <small>${esc(litres(c.qty))}</small>` : ''}</dd>
           <dt>Received</dt><dd>${esc(rupees(c.received))}</dd>
           ${c.deductions ? `<dt>TDS &amp; shortage</dt><dd>${esc(rupees(c.deductions))}</dd>` : ''}
-          <dt>Last payment</dt><dd>${c.lastPayment ? `${esc(rupees(c.lastPayment.amount))} <small>${esc(dMon(c.lastPayment.date))}</small>` : '—'}</dd>
+          <dt>Last payment</dt><dd>${c.lastPayment ? `${esc(rupees(c.lastPayment.amount))} <small>${esc(dMon(c.lastPayment.date))}${c.lastPayment.count > 1 ? ` · ${c.lastPayment.count} payments` : ''}</small>` : '—'}</dd>
         </dl>
       </div>`).join('')}</div>
     ${cw.settled ? `<p class="small muted">+ ${plural(cw.settled, 'company', 'companies')} with a nil balance, not shown.</p>` : ''}

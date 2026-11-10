@@ -89,6 +89,10 @@ export function demoSeed(today = new Date(), workbook = null) {
   payments.push({ pay_date: isoDay(today, -9), customer: 'Twin Steel Ltd', amount: 1200000, mode: 'HDFC 1010', tds: 12000, unit: 'UNIT 1' });
   payments.push({ pay_date: isoDay(today, -4), customer: 'Twin Steel Ltd', amount: 600000, mode: 'HDFC 1010' });   // no unit: FIFO
   payments.push({ pay_date: isoDay(today, -12), customer: 'Advance Movers', amount: 40000, mode: 'UPI' });   // paid ahead
+  // both Crew firms paid on the same day (a group's "last payment" is that day's total)
+  payments.push({ pay_date: isoDay(today, -10), customer: 'Crew One Logistics', amount: 60000, mode: 'HDFC 1010' });
+  payments.push({ pay_date: isoDay(today, -3), customer: 'Crew One Logistics', amount: 45000, mode: 'XtraPower' });
+  payments.push({ pay_date: isoDay(today, -3), customer: 'Crew Two Movers', amount: 30000, mode: 'Cash' });
   // how money comes in — Payments → By mode: cash, XtraPower and a payment typed as two modes
   payments.push({ pay_date: isoDay(today, -6), customer: 'Sample Roadlines', amount: 18500, mode: 'Cash' });
   payments.push({ pay_date: isoDay(today, -2), customer: 'Example Infra', amount: 6200, mode: 'cash' });

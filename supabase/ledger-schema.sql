@@ -1329,7 +1329,7 @@ begin
                 from ledger_sales s join ledger_customers m on m.customer_key = s.customer_key
                 where m.bulk_group = g.code and s.sale_date between v_from and v_to), '[]'::jsonb),
       'payments', coalesce((select jsonb_agg(jsonb_build_object(
-                  'id', p.id, 'pay_date', p.pay_date, 'customer', p.customer, 'amount', p.amount,
+                  'id', p.id, 'pay_date', p.pay_date, 'customer', p.customer, 'amount', p.amount, 'mode', p.mode,
                   'tds', p.tds, 'shortage', p.shortage, 'remarks', p.remarks, 'unit', p.unit, 'seq', p.seq)
                   order by p.pay_date, p.seq, p.id)
                 from ledger_payments p join ledger_customers m on m.customer_key = p.customer_key
@@ -1351,7 +1351,8 @@ begin
                 'qty', s.qty, 'rate', s.rate, 'amount', s.amount, 'customer', s.customer, 'key', s.customer_key,
                 'item', s.item, 'seq', s.seq) order by s.sale_date, s.product, s.seq, s.id)
               from ledger_sales s where s.customer_key = c.customer_key and s.sale_date between p_from and p_to), '[]'::jsonb),
-    'payments', coalesce((select jsonb_agg(jsonb_build_object('pay_date', p.pay_date, 'key', p.customer_key, 'amount', p.amount)
+    'payments', coalesce((select jsonb_agg(jsonb_build_object('pay_date', p.pay_date, 'key', p.customer_key, 'amount', p.amount,
+                                                              'mode', p.mode, 'remarks', p.remarks)
                   order by p.pay_date, p.seq, p.id)
                 from ledger_payments p where p.customer_key = c.customer_key and p.pay_date between p_from and p_to), '[]'::jsonb),
     'first', (select min(d) from (select min(sale_date) as d from ledger_sales where customer_key = c.customer_key

@@ -128,7 +128,12 @@ export function ledgerRows({ opening = 0, from, sales, payments }) {
     }
   }
   const paid = new Map();
-  for (const p of payments) paid.set(p.pay_date, (paid.get(p.pay_date) || 0) + (Number(p.amount) || 0));
+  const paysOn = new Map();                          // date -> [{amount, mode}]
+  for (const p of payments) {
+    paid.set(p.pay_date, (paid.get(p.pay_date) || 0) + (Number(p.amount) || 0));
+    if (!paysOn.has(p.pay_date)) paysOn.set(p.pay_date, []);
+    paysOn.get(p.pay_date).push({ amount: Number(p.amount) || 0, mode: String(p.mode || '').trim() });
+  }
   const fuelDates = new Set([...fuel.values()].map((r) => r.date));
   const RANK = { HSD: 0, MS: 1, XG: 2, '': 3, OTHER: 4 };
   const rank = (r) => RANK[r.product];
@@ -155,6 +160,7 @@ export function ledgerRows({ opening = 0, from, sales, payments }) {
       label: r.product === 'OTHER' ? r.label : (LEDGER_PRODUCT[r.product] || ''),
       qty: r.qty, rate: r.rates.length ? r.rates.reduce((a, x) => a + x, 0) / r.rates.length : null,
       amount: r.amount, paid: p, balance, petrol: r.product === 'MS', hasSale: r.product !== '',
+      pays: p ? (paysOn.get(r.date) || []) : [],
     };
     prev = r.date;
     return row;

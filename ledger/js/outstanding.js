@@ -45,7 +45,7 @@ export function cardOf(st, { asOn, name = st.name, kind = st.kind, note = '', fi
   return {
     name, kind, note, balance: st.closing, asOn, since: st.from, opening: st.opening,
     billed: t.billed, qty: t.qty, received: t.received, deductions: round2(t.tds + t.shortage),
-    bills: t.bills, payments: t.payments, lastPayment: st.lastPayment, lastBill: st.lastBill, companies: st.companies,
+    bills: t.bills, payments: t.payments, lastPayment: st.lastPayment, recentPayments: st.recentPayments || [], lastBill: st.lastBill, companies: st.companies,
     pending: fifo ? fifo.pending : null, advance: fifo ? fifo.advance : 0, pos: fifo ? poSummary(fifo.pending) : null,
     units: units ? unitsBlock(units, st.closing) : null,
   };
@@ -107,15 +107,15 @@ export async function loadBulkAccount(store, code, name, today) {
 
 // FIFO of one company of a group sheet (its own opening, bills and payments)
 const companyPending = (cst, asOn) => fifoPending(cst.entries, { opening: cst.opening, from: cst.from, asOn });
-const companyFifo = (st, c, asOn) => companyPending(companyStatement(st, c.name), asOn);
 
 // one company of a group, as its own card
 export function companyCard(c, st, asOn) {
-  const f = companyFifo(st, c, asOn);
+  const cst = companyStatement(st, c.name);
+  const f = companyPending(cst, asOn);
   return {
     name: c.name, kind: 'bulk', note: `Part of the ${st.name} account`, balance: c.outstanding, asOn, since: st.from,
     billed: c.billed, qty: c.qty, received: c.received, deductions: c.deductions, bills: c.bills, payments: c.payments,
-    lastPayment: c.lastPayment, lastBill: c.lastBill, companies: null, pending: f.pending, advance: f.advance,
+    lastPayment: c.lastPayment, recentPayments: cst.recentPayments || [], lastBill: c.lastBill, companies: null, pending: f.pending, advance: f.advance,
   };
 }
 
