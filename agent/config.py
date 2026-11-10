@@ -105,6 +105,22 @@ ICICI = ParserProfile(
 )
 
 
+# ---- Transfers between our own accounts -------------------------------------
+# A credit that is money moved from one of our own accounts (e.g. ICICI 5893 ->
+# ICICI 4716, or HDFC -> ICICI) is not a customer payment: it is dropped, never
+# queued. Two signs, checked on the credit's REMITTER / its Info only — never
+# the whole alert, since every HDFC RTGS alert names us as the BENEFICIARY:
+OWN_TRANSFER = {
+    # the remitter is our own firm (also "M/S VRIDDHI FUELS", "VRIDDHI FUELS
+    # PROP."). Not "DG VRIDDHI FUELS" & co — those are customers.
+    "names": ["VRIDDHI FUELS"],
+    # the alert's Info names one of these accounts, masked (XXXXXXXX5893). Only
+    # list accounts whose own credits are ignored anyway: a credited account
+    # listed here would drop all of its credits.
+    "accounts": ["5893"],
+}
+
+
 # ---- Account -> profile + secret env var mapping ---------------------------
 # ``token_env`` names the GitHub secret that authenticates that mailbox over
 # IMAP. Each holds an app-password JSON blob (see agent/gmail_client.py):
