@@ -7551,6 +7551,27 @@
       },
       "queued_at": "2026-11-10T08:15:22.057822+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "3e9cb3ab41834b6c",
+      "gmail_msg_id": "1881459778359287782",
+      "account": "bank1",
+      "bank": "ICICI",
+      "mode": "ICICI BANK LTD",
+      "date_str": "10/11/26",
+      "date_serial": 46336,
+      "amount": 700000.0,
+      "raw_payer": null,
+      "customer": null,
+      "candidates": [],
+      "match_tier": "parse_error",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-10T08:45:25.685968+00:00",
+      "status": "review",
+      "error": "could not extract: payer",
+      "raw_text": "ALERT\nDear Customer,\r\n\r\nGreetings from ICICI Bank.\r\n\r\nYour ICICI Bank Account XX716 has been credited with Rs. 7,00,000.00 on 10-Nov-26. Info: BY CASH -JHARSUGUDA SUNIL.\r\n\r\nThe Available Balance in your account is Rs. 25,02,984.36.\r\n\r\nNEVER SHARE your Card number, CVV, PIN, OTP, Internet Banking User ID, Password or URN with anyone, even if the caller claims to be a bank employee. Sharing these details can lead to unauthorised access to your account.\r\n\r\nLooking forward to more opportunities to be of service to you.\r\n\r\nSincerely,\r\n\r\nCustomer Service Team\r\nICICI Bank Limited\r\n\r\nThis is an auto generated e-mail. Please do not reply.\r\n\r\n"
     }
   ]
 }
