@@ -45,6 +45,7 @@ export function supabaseStore(client) {
     appPaymentsDiscard: (x) => rpc('ledger_payments_app_discard', { p_ref: x.ref, p_pay_date: x.pay_date, p_customer: x.customer, p_amount: x.amount }),
     appPaymentsRestore: (ref) => rpc('ledger_payments_app_restore', { p_ref: ref }),
     dashboard: (from, to) => rpc('ledger_dashboard', { p_from: from, p_to: to }),
+    paymentsRange: (from, to) => rpc('ledger_payments_range', { p_from: from, p_to: to }),
     account: (key, group, from, to) => rpc('ledger_account', { p_key: key, p_group: group, p_from: from, p_to: to }),
     tankerImport: (fileName, payload) => rpc('ledger_tanker_import', { p_file_name: fileName, p_payload: payload }),
     piList: () => rpc('ledger_pi_list'),
@@ -679,6 +680,15 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
         groups: [...db.groups].sort((a, b) => a.code.localeCompare(b.code)).map((g) => [g.code, g.title]),
         outstanding,
       });
+    },
+
+    // same shape as ledger_payments_range() in SQL
+    async paymentsRange(from, to) {
+      if (!from || !to || to < from) fail('Pick a From date on or before the To date.');
+      return clone(db.payments.filter((x) => x.pay_date >= from && x.pay_date <= to)
+        .sort((a, b) => a.pay_date.localeCompare(b.pay_date) || a.seq - b.seq || a.id - b.id)
+        .map((x) => ({ id: x.id, pay_date: x.pay_date, customer: customerByKey(x.customer_key)?.name || x.customer, key: x.customer_key,
+          amount: x.amount, mode: x.mode || '', remarks: x.remarks || '', source: x.source })));
     },
 
     // same shape as ledger_account() in SQL
