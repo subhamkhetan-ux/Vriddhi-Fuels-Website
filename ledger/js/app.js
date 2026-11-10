@@ -578,11 +578,15 @@ async function renderDashboard(box) {
     }));
     out.querySelector('[data-olist]')?.addEventListener('click', () => {
       const label = { all: '', retail: 'Retail', bulk: 'Bulk' }[ui.oseg];
-      sharePictures('Outstanding today', async () => {
+      const draw = async () => {
         const { images, fontCss } = await shareImages();
-        const { svg, size } = outstandingListSvg({ list, total: list.reduce((x, o) => x + o.balance, 0), asOn: localToday(), label }, { images, fontCss });
-        return [new File([await jpegFromSvg(svg, size)], `Outstanding${label ? ` ${label}` : ''} ${dmyDash(localToday())}.jpeg`, { type: 'image/jpeg' })];
-      });
+        return outstandingListSvg({ list, total: list.reduce((x, o) => x + o.balance, 0), asOn: localToday(), label }, { images, fontCss });
+      };
+      const base = `Outstanding${label ? ` ${label}` : ''} ${dmyDash(localToday())}`;
+      sharePictures('Outstanding today', async () => {
+        const { svg, size } = await draw();
+        return [new File([await jpegFromSvg(svg, size)], `${base}.jpeg`, { type: 'image/jpeg' })];
+      }, { pdf: async () => { const { svg, size } = await draw(); await longPdf(svg, size, base); } });
     });
   };
   paintCustomers();
@@ -740,6 +744,22 @@ async function cardFile(card, base) {
   const { svg, size } = outstandingCardSvg(card, { images, fontCss });
   return new File([await jpegFromSvg(svg, size)], `${base}.jpeg`, { type: 'image/jpeg' });
 }
+// A picture as a PDF: one page its own shape (A4 wide), drawn at twice its
+// size so the text stays sharp — a long picture sent as an image gets
+// squeezed by the apps it's shared through; a PDF isn't.
+async function longPdf(svg, size, base) {
+  const pt = { width: 595, height: Math.round((size.height * 595) / size.width) };
+  const sharp = Math.min(2, 14000 / size.height);                // phones cap a canvas's size
+  download(await pdfFromSvgs([svg], pt, { scale: (size.width / pt.width) * sharp }), `${base}.pdf`);
+}
+async function cardPdf(card, base) {
+  const { images, fontCss } = await shareImages();
+  const { svg, size } = outstandingCardSvg(card, { images, fontCss });
+  await longPdf(svg, size, base);
+}
+// one card to share: its picture, and the same as a PDF
+const cardSet = async (card, base, label = '') => ({ label, files: [await cardFile(card, base)], pdf: () => cardPdf(card, base) });
+const oneCard = (card, base) => [{ label: '', make: async () => [await cardSet(card, base)] }];
 
 // A sheet that makes the pictures, shows them and hands them over. Sharing
 // needs the files ready before the tap (the Web Share API), so the pictures
@@ -964,7 +984,7 @@ const cardMakers = (options) => options.map((o) => ({
   label: o.label,
   make: async () => {
     const out = [];                                           // one at a time: pictures drawn together can lose their font
-    for (const s of o.sets) out.push({ label: s.label, files: [await cardFile(s.card, s.base)] });
+    for (const s of o.sets) out.push(await cardSet(s.card, s.base, s.label));
     return out;
   },
 }));
@@ -1150,11 +1170,11 @@ async function viewBulkAccount(code) {
     });
     main().querySelectorAll('[data-unit]').forEach((b) => b.addEventListener('click', () => {
       const u = acct.units[Number(b.dataset.unit)];
-      sharePictures(`${name} ${unitLabel(u.unit)} — outstanding`, async () => [await cardFile(cardOf(u.st, { asOn, note: `Part of the ${name} account`, fifo: u.fifo }), safeName(`${name} ${unitLabel(u.unit)} Outstanding ${dmyDash(asOn)}`))]);
+      sharePictures(`${name} ${unitLabel(u.unit)} — outstanding`, oneCard(cardOf(u.st, { asOn, note: `Part of the ${name} account`, fifo: u.fifo }), safeName(`${name} ${unitLabel(u.unit)} Outstanding ${dmyDash(asOn)}`)));
     }));
     main().querySelectorAll('[data-co]').forEach((b) => b.addEventListener('click', () => {
       const c = st.companies.list[Number(b.dataset.co)];
-      sharePictures(`${c.name} — outstanding`, async () => [await cardFile(companyCard(c, st, asOn), safeName(`${c.name} Outstanding ${dmyDash(asOn)}`))]);
+      sharePictures(`${c.name} — outstanding`, oneCard(companyCard(c, st, asOn), safeName(`${c.name} Outstanding ${dmyDash(asOn)}`)));
     }));
   };
   render();
@@ -1245,7 +1265,7 @@ async function viewRetailAccount(key, month) {
         });
       });
       main().querySelector('[data-acct="card"]').addEventListener('click', () => {
-        sharePictures(`${c.name} — outstanding`, async () => [await cardFile(cardOf(st, { asOn }), safeName(`${c.name} Outstanding ${dmyDash(asOn)}`))]);
+        sharePictures(`${c.name} — outstanding`, oneCard(cardOf(st, { asOn }), safeName(`${c.name} Outstanding ${dmyDash(asOn)}`)));
       });
       return;
     }

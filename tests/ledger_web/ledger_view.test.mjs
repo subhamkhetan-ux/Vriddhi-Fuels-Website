@@ -124,6 +124,13 @@ test('last payment: everything received on the latest date, with how it was paid
   assert.ok(card.svg.includes('₹5,500 on 06 May 2026  ·  3 payments'));
   assert.ok(card.svg.includes('RECENT PAYMENTS') && card.svg.includes('3 payments that day'));
   assert.ok(card.svg.includes('Crew One  ·  HDFC 1010') && card.svg.includes('Crew Two  ·  XtraPower'));
+  // recent payments sit at the bottom, after the pending bills
+  const withPending = outstandingCardSvg({
+    name: 'Crew Group', kind: 'bulk', balance: st.closing, asOn: '2026-05-08', recentPayments: st.recentPayments,
+    pending: [{ date: '2026-05-01', bill: '11', amount: 18000, pending: 7850, days: 7 }], companies: st.companies,
+  });
+  const at = (t) => withPending.svg.indexOf(t);
+  assert.ok(at('COMPANY-WISE OUTSTANDING') < at('PENDING BILLS') && at('PENDING BILLS') < at('RECENT PAYMENTS'));
 
   // a ledger sheet: a day's payments are on one row; their modes show
   const led = ledgerRows({

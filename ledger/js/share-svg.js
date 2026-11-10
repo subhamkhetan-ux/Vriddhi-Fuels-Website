@@ -516,11 +516,6 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
     out += cb.svg;
     y += cb.height + 20;
   }
-  if (card.recentPayments && card.recentPayments.length) {
-    const rb = paymentsBlock(pad, y, w - 2 * pad, card.recentPayments, card.name);
-    out += rb.svg;
-    y += rb.height + 20;
-  }
   if (card.pos && card.pos.rows.length) {
     const pb = poBlock(pad, y, w - 2 * pad, card.pos);
     out += pb.svg;
@@ -530,6 +525,12 @@ export function outstandingCardSvg(card, { images = {}, fontCss = '' } = {}) {
     const pb = pendingBlock(pad, y, w - 2 * pad, card.pending, card.advance || 0);
     out += pb.svg;
     y += pb.height + 10;
+  }
+  // how money came in lately: at the bottom, after what's still owed
+  if (card.recentPayments && card.recentPayments.length) {
+    const rb = paymentsBlock(pad, y + 10, w - 2 * pad, card.recentPayments, card.name);
+    out += rb.svg;
+    y += rb.height + 20;
   }
   y += 16;
   out += `${R(pad, y, w - 2 * pad, 1.5, { opacity: 0.1 })}${T(pad, y + 40, 'Vriddhi Fuels  ·  thank you for your business', { size: 16, fill: C.faint })}${T(w - pad, y + 40, 'Dr = due  ·  Cr = advance', { size: 16, fill: C.faint, anchor: 'end' })}`;
