@@ -77,8 +77,11 @@ ICICI = ParserProfile(
     gmail_query='"has been credited with"',
     # Credit alerts only. Ignore debit alerts and the daily "Ezy QR" auto-credits
     # (small QR-collection FT credits with no real remitter name).
+    # Also ignore EVERY alert for the ICICI account ending 5893 (same mailbox):
+    # ICICI writes it "Account XX893" (last 3 digits), or in full "XXXXXXXX5893".
     accept_if_all=[r"has been credited"],
-    reject_if_any=[r"EZY ?QR", r"has been debited", r"\bdebited\b"],
+    reject_if_any=[r"EZY ?QR", r"has been debited", r"\bdebited\b",
+                   r"\b(?:Account|Acct|A/c)\.?\s*(?:No\.?\s*:?\s*)?X*5?893\b"],
     amount_patterns=[
         # "...has been credited with Rs. 34,79,017.00 on..."
         r"credited with\s*(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{1,2})?)",
@@ -100,6 +103,22 @@ ICICI = ParserProfile(
     rail_pattern=None,
     default_rail="BANK LTD",   # -> mode "ICICI BANK LTD"
 )
+
+
+# ---- Transfers between our own accounts -------------------------------------
+# A credit that is money moved from one of our own accounts (e.g. ICICI 5893 ->
+# ICICI 4716, or HDFC -> ICICI) is not a customer payment: it is dropped, never
+# queued. Two signs, checked on the credit's REMITTER / its Info only — never
+# the whole alert, since every HDFC RTGS alert names us as the BENEFICIARY:
+OWN_TRANSFER = {
+    # the remitter is our own firm (also "M/S VRIDDHI FUELS", "VRIDDHI FUELS
+    # PROP."). Not "DG VRIDDHI FUELS" & co — those are customers.
+    "names": ["VRIDDHI FUELS"],
+    # the alert's Info names one of these accounts, masked (XXXXXXXX5893). Only
+    # list accounts whose own credits are ignored anyway: a credited account
+    # listed here would drop all of its credits.
+    "accounts": ["5893"],
+}
 
 
 # ---- Account -> profile + secret env var mapping ---------------------------

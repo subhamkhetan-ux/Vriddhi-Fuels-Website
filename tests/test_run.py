@@ -106,3 +106,54 @@ def test_outlier_amount_downgraded_to_review(tmp_path, monkeypatch):
     run.process_account(_account(), CUSTOMERS, {}, history, queue, seen)
     assert queue[0]["status"] == "review"
     assert queue[0]["flags"]["outlier"] is True
+
+
+# ---- transfers between our own accounts (e.g. ICICI 5893 -> 4716) are dropped ----
+from agent.config import ICICI  # noqa: E402
+
+
+def _icici_credit(info, acct="XX716"):
+    return Alert(msg_id="m-icici", internal_ms=1_700_000_400_000, subject="Account credited",
+                 body=("Dear Customer,\nGreetings from ICICI Bank.\n"
+                       f"Your ICICI Bank Account {acct} has been credited with Rs. 5,00,000.00 on "
+                       f"10-Nov-26. Info: {info}."))
+
+
+def _row(alert, profile=ICICI, customers=None, aliases=None):
+    return run._row_from_alert("bank1", profile, alert,
+                               customers or CUSTOMERS + ["DG VRIDDHI FUELS", "VRIDDHI FUELS CAR"],
+                               aliases or {}, {})
+
+
+def test_credit_from_our_own_firm_is_dropped():
+    for info in ["NEFT-ICICN52026111000123-VRIDDHI FUELS",
+                 "IMPS-631412345678-M/S VRIDDHI FUELS",
+                 "RTGS-ICICR52026111000999-VRIDDHI FUELS PROP"]:
+        assert _row(_icici_credit(info)) is None, info
+
+
+def test_own_transfer_dropped_even_with_a_learned_alias():
+    # a name once resolved by hand must not bring own transfers back
+    assert _row(_icici_credit("NEFT-ICICN52026111000123-VRIDDHI FUELS"),
+                aliases={"vriddhi fuels": "DG VRIDDHI FUELS"}) is None
+
+
+def test_credit_naming_account_5893_in_info_is_dropped():
+    assert _row(_icici_credit("INF/INFT/038912345678/XXXXXXXX5893/Fund transfer")) is None
+
+
+def test_customers_with_our_name_in_theirs_still_count():
+    row = _row(_icici_credit("NEFT-SBIN52026111000123-DG VRIDDHI FUELS"))
+    assert row is not None and row["customer"] == "DG VRIDDHI FUELS"
+
+
+def test_hdfc_rtgs_naming_us_as_beneficiary_still_counts():
+    # every HDFC RTGS reference reads "...-<REMITTER>-VRIDDHI FUELS-<UTR>"
+    from agent.config import HDFC
+    row = _row(MATCH, profile=HDFC)
+    assert row is not None and row["status"] == "matched"
+
+
+def test_an_info_number_merely_ending_5893_unmasked_still_counts():
+    row = _row(_icici_credit("RTGS-CNRBR52026111069875893-DBL SIARMAL COAL MINES PRIVATE LIM"))
+    assert row is not None and row["status"] == "matched"

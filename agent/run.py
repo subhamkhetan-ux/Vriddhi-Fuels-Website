@@ -14,11 +14,13 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import traceback
 
 from . import state_store
-from .config import ACCOUNTS, LOOKBACK_DAYS
+from .config import ACCOUNTS, LOOKBACK_DAYS, OWN_TRANSFER
 from .matcher import MatchResult, match_name
+from .normalize import clean_remitter, norm
 from .parser import parse
 from .telegram import notify
 
@@ -48,6 +50,27 @@ def _is_outlier(history: dict, customer: str, amount: float) -> bool:
     return amount > med * 6 or amount < med / 6
 
 
+_OWN_SUFFIX = {"prop", "proprietor", "proprietorship", "firm"}
+
+
+def _own_transfer(body: str, raw_payer: str | None) -> bool:
+    """True when a credit is money moved from one of our own accounts (see
+    config.OWN_TRANSFER): its remitter is our own firm, or its Info / reference
+    names one of our listed accounts. Looks at the remitter and the text after
+    the "Info" / "Reference Details" label only — not the account the alert is
+    for, nor our name as the beneficiary."""
+    if raw_payer:
+        words = norm(clean_remitter(raw_payer)).split()
+        while words and words[-1] in _OWN_SUFFIX:
+            words.pop()
+        if " ".join(words) in {norm(n) for n in OWN_TRANSFER["names"]}:
+            return True
+    m = re.search(r"(?:\bInfo\b|Reference Details)\s*:?(.*)", body or "", re.I | re.S)
+    info = m.group(1) if m else ""
+    return any(re.search(rf"X{{2,}}\d{{0,12}}{re.escape(a)}\b", info, re.I)
+               for a in OWN_TRANSFER["accounts"])
+
+
 def _row_from_alert(account_id, profile, alert, customers, aliases, history) -> dict | None:
     """Build a queue row from one alert (parse + match + flags).
 
@@ -55,6 +78,9 @@ def _row_from_alert(account_id, profile, alert, customers, aliases, history) -> 
     non-target account, non-credit noise) — the caller then drops it entirely."""
     res = parse(profile, alert.subject, alert.body)
     if res.ignore:
+        return None
+    if _own_transfer(alert.body, res.raw_payer):
+        print(f"  skip {alert.msg_id}: transfer from our own account ({res.raw_payer or 'Info'})")
         return None
     row = {
         "entry_id": state_store.entry_id(alert.msg_id),
