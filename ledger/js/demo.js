@@ -93,6 +93,12 @@ export function demoSeed(today = new Date(), workbook = null) {
   payments.push({ pay_date: isoDay(today, -10), customer: 'Crew One Logistics', amount: 60000, mode: 'HDFC 1010' });
   payments.push({ pay_date: isoDay(today, -3), customer: 'Crew One Logistics', amount: 45000, mode: 'XtraPower' });
   payments.push({ pay_date: isoDay(today, -3), customer: 'Crew Two Movers', amount: 30000, mode: 'Cash' });
+  // how money comes in — Payments → By mode: cash, XtraPower and a payment typed as two modes
+  payments.push({ pay_date: isoDay(today, -6), customer: 'Sample Roadlines', amount: 18500, mode: 'Cash' });
+  payments.push({ pay_date: isoDay(today, -2), customer: 'Example Infra', amount: 6200, mode: 'cash' });
+  payments.push({ pay_date: isoDay(today, -7), customer: 'Demo Power Ltd', amount: 250000, mode: 'XtraPower' });
+  payments.push({ pay_date: isoDay(today, -1), customer: 'Twin Steel Ltd', amount: 150000, mode: 'Xtrapower' });
+  payments.push({ pay_date: isoDay(today, -5), customer: 'Crew One Logistics', amount: 30000, mode: '20000 Cash + 10000 HDFC' });
   payments.forEach((p, i) => { p.seq = i + 2; });
 
   const monthStart = `${isoDay(today, -days).slice(0, 7)}-01`;

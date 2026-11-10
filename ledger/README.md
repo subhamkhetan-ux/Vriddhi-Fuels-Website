@@ -250,6 +250,19 @@ Paid — then the ledger's copy is dropped (one for one), so the Mac's Excel
 file stays the source of truth and nothing counts twice. **Remove** takes one
 out of the ledger only.
 
+**Payments → By mode**: every payment of a period (This month, Last month,
+Last 30 days, This FY or any dates) by how it came in — Master Paid's
+*Payment Mode* (HDFC 1010, ICICI Bank Ltd, XtraPower, Cash, …) and the payments
+logged here. Only the modes used in those dates are listed: **Cash first,
+XtraPower next**, the rest by amount, payments with no mode last. Each mode
+shows its total, share, payments, customers and dates; tap one for its
+month-by-month chart, customers and payments. Modes are matched however
+they're typed ("Xtrapower" is XtraPower), and a payment typed as two modes
+("2.5 Cash + 1Lac HDFC 1010", "15000 HDFC + 35000 Cash") counts in each with
+its part when the parts add up ("HDFC" counts as HDFC 1010 when that's the
+only HDFC mode in the period). **Download Excel**: the summary and a sheet per
+mode. (Needs `supabase/ledger-schema.sql` re-run once.)
+
 **Tally tab** (the Tally viewer): open your Tally data and see the
 company's financials, compare every customer's balance here with Tally, and
 see the lubricants bought month by month. The files are read on this device —
@@ -466,6 +479,7 @@ in. Until then every SMC payment counts as "no unit" (oldest bill first).
 | `js/demo-workbook.js` | The demo's Tanker Billing workbook (made-up data; made by `tanker/demo_workbook.mjs`) |
 | `assets/` | Letterhead and stamp for the tanker bill (copies of `/tanker/assets`), the quotation's letterhead, logo for the ledger |
 | `js/payin.js` | Reads the payments app's list for the Payments tab |
+| `js/modes.js` | Payments by mode: modes matched however typed, split payments, Cash / XtraPower first |
 | `js/dash.js` | Home dashboard figures (earnings, customers, outstanding, months) |
 | `js/charts.js` | The dashboard's SVG charts and their tooltips |
 | `js/account.js` | A customer's ledger as on their sheet (bulk layouts, formats) |

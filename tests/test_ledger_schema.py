@@ -709,6 +709,16 @@ def test_customer_ledgers(pg):
     assert r["first"] is not None
     assert all({"mode", "remarks"} <= set(x) for x in r["payments"])
     assert "No customer" in pg.fails(call("ledger_account", "nobody", None, "2026-04-01", "2026-04-30"), **as_owner)
+
+    # Payments -> By mode: every payment of the dates, with its mode and the ledger's name
+    rows = pg.owner(call("ledger_payments_range", "2026-04-01", "2026-04-30"))
+    demo = [x for x in rows if x["key"] == "demo power ltd"]
+    assert demo and demo[0]["mode"] == "HDFC 1010" and demo[0]["customer"] == "Demo Power Ltd"
+    assert all("2026-04-01" <= x["pay_date"] <= "2026-04-30" and {"amount", "remarks", "source"} <= set(x) for x in rows)
+    assert pg.owner(call("ledger_payments_range", "2020-01-01", "2020-01-31")) == []
+    assert "two years" in pg.fails(call("ledger_payments_range", "2024-01-01", "2026-04-30"), **as_owner)
+    assert "From date" in pg.fails(call("ledger_payments_range", "2026-04-30", "2026-04-01"), **as_owner)
+    assert "permission denied" in pg.fails(call("ledger_payments_range", "2026-04-01", "2026-04-30"), anon=True)
     assert "No bulk ledger" in pg.fails(call("ledger_account", None, "Nope_Bulk", None, None), **as_owner)
     assert "permission denied" in pg.fails(call("ledger_account", None, "Demo_Bulk", None, None), anon=True)
     assert "member" in pg.fails(call("ledger_account", None, "Demo_Bulk", None, None), user=STRANGER, email="stranger@example.com").lower()

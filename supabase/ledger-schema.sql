@@ -1278,6 +1278,25 @@ begin
         from ledger_bulk_groups g) o), '[]'::jsonb));
 end $$;
 
+-- Payments of p_from..p_to one by one, with how they came in (Master Paid's
+-- Payment Mode: HDFC 1010, Cash, XtraPower, …) — for Payments → By mode.
+-- The customer's name as the ledger has it.
+create or replace function public.ledger_payments_range(p_from date, p_to date)
+returns jsonb language plpgsql stable set search_path = public as $$
+begin
+  perform ledger_assert_member();
+  if p_from is null or p_to is null or p_to < p_from then
+    raise exception 'Pick a From date on or before the To date.';
+  end if;
+  if p_to - p_from > 800 then raise exception 'Pick at most two years at a time.'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object(
+             'id', p.id, 'pay_date', p.pay_date, 'customer', coalesce(c.name, p.customer), 'key', p.customer_key,
+             'amount', p.amount, 'mode', p.mode, 'remarks', p.remarks, 'source', p.source)
+             order by p.pay_date, p.seq, p.id)
+           from ledger_payments p left join ledger_customers c on c.customer_key = p.customer_key
+           where p.pay_date between p_from and p_to), '[]'::jsonb);
+end $$;
+
 -- ---------------------------------------------------------------------
 -- Phase 6: one customer's ledger, as on their sheet in the Master Ledger.
 --   p_group given: a *_Bulk sheet — every member's bills and payments since

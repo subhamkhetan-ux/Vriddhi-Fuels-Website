@@ -45,6 +45,7 @@ import {
 import {
   bulkAccount, cardOf, cardSets, companyCard, groupName, outstandingFor, poGroups, unitsBlock,
 } from './outstanding.js';
+import { modeSummary } from './modes.js';
 import { memoryStore, supabaseStore } from './store.js';
 import {
   analyseTally, coverage, decodeText, filterVouchers, hasMasters, KINDS, looksLikeXml, mergeTally, normName, parseDaybookSheet, parseTallyXml, spanOf,
@@ -258,6 +259,7 @@ const ROUTES = [
   [/^#\/quotes(?:\/(pi|log))?$/, (m) => viewQuotes(m[1] || '')],
   [/^#\/statements$/, () => viewStatements()],
   [/^#\/payments$/, () => viewPayments()],
+  [/^#\/payments\/modes$/, () => viewPaymentModes()],
   [/^#\/tally(?:\/(fin|recon|stock))?$/, (m) => viewTally(m[1] || '')],
   [/^#\/account\/([cg])\/([^?]+)(?:\?m=(\d{4}-\d{2}))?$/, (m) => viewAccount(m[1], decodeURIComponent(m[2]), m[3])],
 ];
@@ -2502,6 +2504,7 @@ async function viewPayments() {
   const filter = state.payFilter || 'todo';
   const shown = filter === 'todo' ? todo : filter === 'discarded' ? discarded : rows.filter((r) => r.check.state !== 'discarded');
   setMain(`
+    ${payTabsHtml('')}
     <section class="card">
       <div class="row-between"><h2>Payments</h2><button class="btn ghost small" id="pay-refresh">↻ Refresh</button></div>
       <p class="muted">The payments app's matched entries, read straight from it — nothing there changes; keep logging to Excel from the payments app as usual. <b>Log payments</b> adds them here so balances and statements are up to date. Excel stays the source of truth: when a Master Ledger upload shows a payment in Master Paid, the ledger's copy is dropped, so nothing counts twice.</p>
@@ -2573,6 +2576,160 @@ async function viewPayments() {
       await viewPayments();                        // statuses update
     }).finally(() => { if (document.body.contains(btn)) update(); });
   });
+}
+
+// Payments: the payments app's entries, and every payment by mode
+const PAY_TABS = [['', '#/payments', 'From payments app'], ['modes', '#/payments/modes', 'By mode']];
+const payTabsHtml = (tab) => `<nav class="chips view-chips" aria-label="Payments">${PAY_TABS.map(([k, href, name]) => `<a class="chip${k === tab ? ' on' : ''}" href="${href}"${k === tab ? ' aria-current="page"' : ''}>${name}</a>`).join('')}</nav>`;
+
+// ---------------------------------------------------------------------------
+// Payments → By mode: how money came in over a period (Master Paid's Payment
+// Mode — HDFC 1010, ICICI Bank Ltd, XtraPower, Cash, …; modes.js). Only the
+// modes used in the period: Cash first, XtraPower next, the rest by amount.
+// ---------------------------------------------------------------------------
+// Cash green, XtraPower orange; the rest none of those
+const MODE_COLORS = ['var(--s-hsd)', 'var(--s-sales)', 'var(--s-paid)', '#e86fb4', 'var(--info)', 'var(--bad)', '#b8c96a', '#4fc3d9'];
+const modeColor = (m, i) => (m.cash ? 'var(--good)' : m.xtrapower ? 'var(--accent)' : m.key === '' ? 'var(--faint)' : MODE_COLORS[i % MODE_COLORS.length]);
+
+async function viewPaymentModes() {
+  const today = localToday();
+  const per = periods(today);
+  const pm = state.payModes || (state.payModes = { period: 'month', mode: null, all: false });
+  const range = pm.period === 'custom' && pm.from && pm.to ? { from: pm.from, to: pm.to } : per[pm.period] || per.month;
+  const k = `${range.from}|${range.to}`;
+  if (!pm.data || pm.data.k !== k || Date.now() - pm.data.at > 5 * 60000) {
+    let rows;
+    try {
+      rows = await state.store.paymentsRange(range.from, range.to);
+    } catch (err) {
+      if (/could not find the function|does not exist|schema cache/i.test(String((err && err.message) || err))) {
+        throw new Error('The database needs an update for Payments → By mode: run supabase/ledger-schema.sql again in the Supabase SQL Editor (safe to re-run).');
+      }
+      throw err;
+    }
+    pm.data = { k, at: Date.now(), rows };
+  }
+  const sum = modeSummary(pm.data.rows);
+  const rest = sum.modes.filter((m) => !m.cash && !m.xtrapower && m.key !== '');
+  const colorOf = new Map(sum.modes.map((m) => [m.key, modeColor(m, rest.indexOf(m))]));
+  const labelOf = new Map(sum.modes.map((m) => [m.key, m.label]));
+  // a mode picked earlier that isn't used in this period: back to all
+  const sel = sum.modes.find((m) => m.key === pm.mode) || null;
+  const cash = sum.modes.filter((m) => m.cash).reduce((a, m) => a + m.amount, 0);
+  const xp = sum.modes.filter((m) => m.xtrapower).reduce((a, m) => a + m.amount, 0);
+  const months = monthsIn(range.from, range.to);
+  const pct = (v) => `${v >= 0.995 ? Math.round(v * 100) : (v * 100).toFixed(v < 0.1 ? 1 : 0)}%`;
+  const span = (m) => (m.first === m.last ? fmtDate(m.first) : `${fmtDate(m.first)} – ${fmtDate(m.last)}`);
+
+  const modeRow = (m) => `<li><button class="rank-row${sel && sel.key === m.key ? ' on' : ''}" data-mode="${esc(m.key)}" aria-pressed="${sel && sel.key === m.key}">
+      <span class="n"><i class="dot" style="background:${colorOf.get(m.key)}"></i></span>
+      <span class="who"><b>${esc(m.label)}</b>
+        <small class="muted">${plural(m.count, 'payment')} · ${plural(m.customers, 'customer')} · ${esc(span(m))}${m.split ? ` · ${m.split} part${m.split === 1 ? '' : 's'} of split payments` : ''}${m.refunds ? ` · ${plural(m.refunds, 'refund')}` : ''}</small>
+        <span class="mini-track"><span class="mini" style="width:${Math.max(2, m.share * 100)}%"><i style="flex:1;background:${colorOf.get(m.key)}"></i></span></span></span>
+      <span class="amt"><b>${money(m.amount, { exact: true })}</b><small>${pct(m.share)} of all</small></span>
+    </button></li>`;
+
+  const list = sel ? sel.payments : sum.modes.flatMap((m) => m.payments).sort((a, b) => b.pay_date.localeCompare(a.pay_date) || b.part - a.part);
+  const shown = pm.all ? list : list.slice(0, 100);
+  const detail = sel ? `
+    <div class="kpis">
+      <div class="kpi hero"><span class="lbl">${esc(sel.label)}</span><span class="val">${money(sel.amount)}</span><span class="sub">${pct(sel.share)} of ${money(sum.total)}</span></div>
+      <div class="kpi"><span class="lbl">Payments</span><span class="val">${sel.count}</span><span class="sub">avg ${money(sel.count ? sel.amount / sel.count : 0)}</span></div>
+      <div class="kpi"><span class="lbl">Customers</span><span class="val">${sel.customers}</span><span class="sub">${esc(span(sel))}</span></div>
+    </div>
+    ${months.length > 1 ? `<h3 class="sub-h">Month by month</h3>${barChart(months.map((mk) => {
+      const v = (sel.months.find((x) => x.month === mk) || { amount: 0 }).amount;
+      return { label: monthName(mk), value: v, tip: `<b>${esc(monthName(mk))}</b><br>${esc(sel.label)} ${money(v, { exact: true })}` };
+    }), { label: `${sel.label} per month`, h: 140, color: colorOf.get(sel.key) })}` : ''}
+    <h3 class="sub-h">By customer</h3>
+    <div class="table-wrap"><table class="compact">
+      <thead><tr><th>Customer</th><th class="r">Payments</th><th class="r">Amount</th><th class="r">Share</th><th>Last</th></tr></thead>
+      <tbody>${sel.byCustomer.map((c) => `<tr><td>${esc(c.name)}</td><td class="r">${c.count}</td><td class="r nowrap">${esc(fmtMoney(c.amount))}</td>
+        <td class="r">${sel.amount ? pct(c.amount / sel.amount) : ''}</td><td class="nowrap">${esc(fmtDate(c.last))}</td></tr>`).join('')}</tbody>
+    </table></div>` : '';
+
+  setMain(`
+    ${payTabsHtml('modes')}
+    <section class="card">
+      <div class="row-between"><h2>Payments by mode</h2>
+        <div class="chips">${['month', 'last', 'd30', 'fy'].map((x) => `<button class="chip ${x === pm.period ? 'on' : ''}" data-mperiod="${x}">${per[x].label}</button>`).join('')}
+          <button class="chip ${pm.period === 'custom' ? 'on' : ''}" data-mperiod="custom">Custom</button></div></div>
+      ${pm.period === 'custom' ? `<form class="custom-range" id="mode-range">
+        <label>From <input type="date" name="from" value="${range.from}" max="${today}" required></label>
+        <label>To <input type="date" name="to" value="${range.to}" max="${today}" required></label>
+        <button class="btn small" type="submit">Show</button></form>` : ''}
+      <p class="muted small">${esc(fmtDate(range.from))} – ${esc(fmtDate(range.to))} · every payment in the app (Master Paid and payments logged here), by its Payment Mode · only the modes used in these dates</p>
+      ${sum.count ? `<div class="kpis">
+        <div class="kpi hero"><span class="lbl">Received</span><span class="val">${money(sum.total)}</span><span class="sub">${plural(sum.count, 'payment')} · ${plural(sum.modes.length, 'mode')}</span></div>
+        <div class="kpi"><span class="lbl">Cash</span><span class="val">${money(cash)}</span><span class="sub">${sum.total ? pct(cash / sum.total) : '0%'} of all</span></div>
+        <div class="kpi"><span class="lbl">XtraPower</span><span class="val">${money(xp)}</span><span class="sub">${sum.total ? pct(xp / sum.total) : '0%'} of all</span></div>
+      </div>` : '<p class="muted">No payments in these dates.</p>'}
+    </section>
+    ${sum.count ? `<section class="card">
+      <div class="row-between"><h3>Mode-wise summary</h3>
+        <button class="btn ghost small" id="mode-xlsx">Download Excel</button></div>
+      <div class="share">${sum.modes.filter((m) => m.amount > 0).map((m) => `<span style="flex:${m.amount};background:${colorOf.get(m.key)}" title="${esc(m.label)} ${pct(m.share)}"></span>`).join('')}</div>
+      <ol class="rank">${sum.modes.map(modeRow).join('')}</ol>
+      <p class="muted small">Tap a mode to see its customers and payments. A payment typed as two modes (“15000 HDFC + 35000 Cash”) counts in each with its part.</p>
+    </section>
+    <section class="card" id="mode-detail">
+      <div class="chips" role="group" aria-label="Show payments of">
+        <button class="chip ${sel ? '' : 'on'}" data-mode="*">All · ${sum.count}</button>
+        ${sum.modes.map((m) => `<button class="chip ${sel && sel.key === m.key ? 'on' : ''}" data-mode="${esc(m.key)}">${esc(m.label)} · ${m.count + m.refunds}</button>`).join('')}
+      </div>
+      ${detail}
+      <h3 class="sub-h">Payments <span class="muted">(newest first)</span></h3>
+      <div class="table-wrap"><table class="compact">
+        <thead><tr><th>Date</th><th>Customer</th><th class="r">Amount</th>${sel ? '' : '<th>Mode</th>'}<th>As written</th><th>Remarks</th></tr></thead>
+        <tbody>${shown.map((p) => `<tr><td class="nowrap">${esc(fmtDate(p.pay_date))}</td><td>${esc(p.customer)}</td>
+          <td class="r nowrap">${esc(fmtMoney(p.part))}${p.split ? `<br><small class="muted">of ${esc(fmtMoney(p.whole))}</small>` : ''}</td>
+          ${sel ? '' : `<td><i class="dot" style="background:${colorOf.get(p.modeKey)}"></i> ${esc(labelOf.get(p.modeKey))}</td>`}
+          <td class="small">${p.written && (p.split || p.written !== labelOf.get(p.modeKey)) ? esc(p.written) : ''}</td><td class="small">${esc(p.remarks || '')}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${list.length > shown.length ? `<p><button class="btn ghost small" id="mode-all">Show all ${list.length}</button></p>` : ''}
+    </section>` : ''}`);
+  bindCharts(main());
+  main().querySelectorAll('[data-mperiod]').forEach((b) => b.addEventListener('click', () => {
+    pm.period = b.dataset.mperiod;
+    if (pm.period === 'custom' && !pm.from) { pm.from = range.from; pm.to = range.to; }
+    pm.all = false;
+    guard(viewPaymentModes);
+  }));
+  document.getElementById('mode-range')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    if (f.to.value < f.from.value) { toast('Pick a From date on or before the To date.'); return; }
+    pm.from = f.from.value; pm.to = f.to.value; pm.all = false;
+    guard(viewPaymentModes);
+  });
+  main().querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
+    const key = b.dataset.mode;
+    pm.mode = key === '*' || (sel && sel.key === key && b.classList.contains('rank-row')) ? null : key;
+    pm.all = false;
+    guard(viewPaymentModes).then(() => document.getElementById('mode-detail')?.scrollIntoView({ block: 'start' }));
+  }));
+  document.getElementById('mode-all')?.addEventListener('click', () => { pm.all = true; guard(viewPaymentModes); });
+  document.getElementById('mode-xlsx')?.addEventListener('click', () => guard(() => downloadSheets([
+    { name: 'By mode', cols: [26, 10, 16, 8, 11, 12, 12],
+      rows: [['Mode', 'Payments', 'Amount', 'Share', 'Customers', 'First', 'Last'],
+        ...sum.modes.map((m) => [m.label, m.count, m.amount, Math.round(m.share * 1000) / 1000, m.customers, xlDate(m.first), xlDate(m.last)]),
+        ['Total', sum.count, sum.total, 1, '', '', '']] },
+    ...sum.modes.map((m) => ({
+      name: m.label.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'No mode', cols: [11, 34, 14, 14, 30, 30], filter: true,
+      rows: [['Date', 'Customer', 'Amount', 'Payment', 'As written', 'Remarks'],
+        ...m.payments.map((p) => [xlDate(p.pay_date), p.customer, p.part, p.whole, p.written, p.remarks || ''])],
+    })),
+  ], `Payments by mode ${range.from} to ${range.to}.xlsx`)));
+}
+// the months a period touches: ['2026-10', '2026-11']
+function monthsIn(from, to) {
+  const out = [];
+  for (let m = from.slice(0, 7); m <= to.slice(0, 7);) {
+    out.push(m);
+    const [y, mo] = m.split('-').map(Number);
+    m = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
+  }
+  return out;
 }
 
 function appPaymentsCard(list) {
