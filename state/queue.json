@@ -7509,6 +7509,27 @@
       },
       "queued_at": "2026-11-10T03:45:26.832993+00:00",
       "status": "matched"
+    },
+    {
+      "entry_id": "6209d620557329c1",
+      "gmail_msg_id": "1881451255711942208",
+      "account": "bank2",
+      "bank": "HDFC",
+      "mode": "HDFC 1010",
+      "date_str": "10/11/2026",
+      "date_serial": 46336,
+      "amount": 398000.0,
+      "raw_payer": "S K TRADING",
+      "customer": "S K Trading",
+      "candidates": [
+        "S K Trading"
+      ],
+      "match_tier": "substring",
+      "flags": {
+        "outlier": false
+      },
+      "queued_at": "2026-11-10T06:30:26.224777+00:00",
+      "status": "matched"
     }
   ]
 }
