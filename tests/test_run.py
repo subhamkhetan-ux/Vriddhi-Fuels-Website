@@ -267,3 +267,23 @@ def test_transaction_codes_dont_make_suggestions():
                         "26-Aug-26. Info: BIL*INFT*FHU0853112*."))
     row = run._row_from_alert("bank1", ICICI, alert, SCAN_CUSTOMERS + ["MA Automobile"], {}, {}, None)
     assert "MA Automobile" not in row["candidates"]
+
+
+def test_a_payer_set_to_always_ignore_is_dropped():
+    from agent.matcher import IGNORE_ALIAS
+    alert = Alert(msg_id="m-ign", internal_ms=1_700_000_800_000, subject="You have received a credit",
+                  body=("You have received a credit in your HDFC Bank account.\nAmount received: INR 15,805.00\n"
+                        "Account: XX1010\nDate: 19-AUG-2026\n"
+                        "Reference Details: NEFT Cr-RBIS0GOOR01-ODISHA SARKAR-VRIDDHI FUELS-RBI123"))
+    from agent.config import HDFC
+    assert run._row_from_alert("bank2", HDFC, alert, SCAN_CUSTOMERS, {"odisha sarkar": IGNORE_ALIAS}, {}) is None
+    row = run._row_from_alert("bank2", HDFC, alert, SCAN_CUSTOMERS, {}, {})
+    assert row is not None and row["status"] == "review"           # without the setting: for review
+
+
+def test_suggestions_put_the_ledger_paid_before_first():
+    cust = SCAN_CUSTOMERS + ["Sunil Kumar Khetan Transaction", "Sunil Kumar Khetan-Debtors"]
+    alert = _icici_credit("NEFT-HDFCN52026102300123-SUNIL KUMAR KHETAN")
+    counts = run.payment_counts([{"status": "matched", "customer": "Sunil Kumar Khetan-Debtors"}] * 3)
+    row = run._row_from_alert("bank1", ICICI, alert, cust, {}, {}, None, counts)
+    assert row["status"] == "review" and row["candidates"][0] == "Sunil Kumar Khetan-Debtors"

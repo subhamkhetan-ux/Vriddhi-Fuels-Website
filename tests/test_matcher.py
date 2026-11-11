@@ -144,3 +144,85 @@ def test_token_subset_needs_two_significant_words():
     # A single generic-stripped word must NOT auto-match (too weak).
     r = match_name("RELIANCE FRESH RETAIL OUTLET", ["Reliance Petro Marketing"])
     assert r.status == "review"
+
+
+# ---- smarter matching, from the alerts that needed a person (Aug–Nov 2026) ----
+import json
+import os
+import random
+
+import pytest
+
+from agent.matcher import IGNORE_ALIAS, _canon, match_name as _mn
+
+REAL2 = ["Dbl-Siarmal Coal Mines Private Limited", "Bhaskar Earthmover Private Limited",
+        "Maa Karni Earthmover Private Limited", "Simar Infrastructure LTD", "Simar JSW",
+        "Sunil Kumar Khetan Transaction", "Sunil Kumar Khetan-Debtors", "SHRI LAL KHETAN",
+        "Natwar Lal Khetan", "Krishav Logistic", "A.K.V. Logistics", "Babylon Logistics Private Limited",
+        "Ln Logistics Private Limited", "DG VRIDDHI FUELS", "VRIDDHI FUELS CAR", "VRIDDHI FUELS TANKER",
+        "Ekdant Logistic", "Manoj Store"]
+
+
+@pytest.mark.parametrize("raw,want,tier", [
+    ("DBLSCMPL", "Dbl-Siarmal Coal Mines Private Limited", "acronym"),          # an acronym
+    ("DBL SIARMAL COALMINES P L", "Dbl-Siarmal Coal Mines Private Limited", "exact"),  # joined + "P L"
+    ("BHSKAR EARTHMOVER", "Bhaskar Earthmover Private Limited", "fuzzy"),       # a typo
+    ("SIMAR INFRASTRUCTURES LTD", "Simar Infrastructure LTD", "exact"),        # a plural
+    ("EKDANT LOGISTICS", "Ekdant Logistic", "exact"),
+    ("SHRI LAL KHETAN", "SHRI LAL KHETAN", "exact"),                            # "SHRI" is part of the name
+    ("VRIDDHI FUELS TANKR", "VRIDDHI FUELS TANKER", "fuzzy"),
+])
+def test_real_remitters_now_match(raw, want, tier):
+    m = _mn(raw, REAL2)
+    assert (m.status, m.canonical, m.tier) == ("matched", want, tier)
+
+
+@pytest.mark.parametrize("raw", [
+    "SUNIL KUMAR KHETAN",     # two ledgers of one name -> a person decides
+    "SIMAR",                  # two Simar customers
+    "BHASKR EARTMOVER",       # two slips and no word exact
+    "A  V LOGISTIC",          # not "kriSHAV LOGISTIC" from the middle of a word
+    "VRIDDHI FUELS CR",       # not DG VRIDDHI FUELS: "DG" has to be there
+    "DBL",                    # too short to be sure
+])
+def test_never_guessed(raw):
+    m = _mn(raw, REAL2)
+    assert m.status == "review", (raw, m)
+
+
+def test_a_dropped_letter_finds_the_customer_not_a_name_inside_it():
+    # "BABYLN" (Babylon) must not match "baby-LN LOGISTICS"
+    assert _mn("BABYLN LOGISTICS PVT LTD", REAL2).canonical == "Babylon Logistics Private Limited"
+
+
+def test_two_spellings_of_one_customer_are_one():
+    m = _mn("DBLSCMPL", REAL2 + ["DBL SIARMAL COAL MINES PVT LTD"])
+    assert m.status == "matched"
+
+
+def test_an_ignored_payer_is_never_a_customer():
+    m = _mn("ODISHA SARKAR", REAL2, {"odisha sarkar": IGNORE_ALIAS})
+    assert m.status == "review" and m.canonical != IGNORE_ALIAS
+
+
+def test_typos_of_every_customer_never_land_on_another():
+    """Every customer in state/customers.json, with a letter dropped, two
+    swapped or one changed: the right customer or a review row — never a
+    different customer."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "customers.json")
+    cust = json.load(open(path, encoding="utf-8"))
+    rng = random.Random(7)
+    right = wrong = 0
+    for c in cust:
+        w = _canon(c)
+        assert _mn(c, cust).canonical == c, c                       # every name finds itself
+        for _ in range(8):
+            i = rng.randrange(1, len(w) - 1)
+            if " " in w[i - 1:i + 2]:
+                continue
+            for t in (w[:i] + w[i + 1:], w[:i] + w[i + 1] + w[i] + w[i + 2:], w[:i] + "x" + w[i + 1:]):
+                m = _mn(t, cust)
+                if m.status == "matched":
+                    assert m.canonical == c, (t, m.canonical, c)
+                    right += 1
+    assert right > 0
