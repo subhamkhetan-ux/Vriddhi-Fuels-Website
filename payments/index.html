@@ -474,6 +474,13 @@ a{color:var(--accent)}
       <div id="custPreview"></div>
       <div id="custListWrap" class="cust-list"></div>
     </div>
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:6px">Ignored payers</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
+        Credits from these payers are dropped automatically (set with <b>ignore payer</b> on a review card).
+        Tap <b>stop ignoring</b> to see their credits again.</div>
+      <div id="ignoredWrap" class="cust-list"><span style="color:var(--faint)">—</span></div>
+    </div>
   </div>
 
   <div id="viewCredit" style="display:none">
@@ -803,6 +810,17 @@ const Cloud = {
     return this._write("markExported", ()=> this.client.from("pay_credit_queue")
       .update({exported:true, exported_at:new Date().toISOString()}).in("entry_id",ids));
   },
+  /* ---- payers to always ignore: an alias pointing at IGNORE_ALIAS (agent/matcher.py) ---- */
+  async ignorePayer(key){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_credit_aliases")
+      .upsert({alias_key:key, canonical:IGNORE_ALIAS, updated_at:new Date().toISOString()},{onConflict:"alias_key"});
+    if(error) throw error; },
+  async listIgnored(){ if(!this.client) return [];
+    const { data, error } = await this.client.from("pay_credit_aliases").select("alias_key").eq("canonical",IGNORE_ALIAS).limit(500);
+    if(error) throw error; return (data||[]).map(r=>r.alias_key); },
+  async unignore(key){ if(!this.client) throw new Error("cloud not connected");
+    const { error } = await this.client.from("pay_credit_aliases").delete().eq("alias_key",key).eq("canonical",IGNORE_ALIAS);
+    if(error) throw error; },
   async drop(id, flags){
     if(!this.client) return false;
     // Mark handled instead of deleting, so the agent's re-sync (insert-if-absent
@@ -1105,11 +1123,14 @@ function renderReview(rows){
     if(cands.length){
       h += `<div class="cands">`+cands.map((c,i)=>`<button class="cand ${i===0?'best':''}" onclick="pickCand('${escAttr(r.entry_id)}', this.dataset.n)" data-n="${escAttr(c)}">${esc(c)}</button>`).join("")+`</div>`;
     }
+    const hint = r.flags && r.flags.amount_hint;
+    if(hint) h += `<div style="font-size:12px;color:var(--muted);margin-top:6px">💡 <b>${esc(hint)}</b> has paid exactly ${money(r.amount)} before. The name on this credit isn't one we know yet.</div>`;
     h += `<div class="resolve">
       <input type="text" class="ac" autocomplete="off" placeholder="type a few letters…" id="in_${escAttr(r.entry_id)}">
       <button class="btn" onclick="resolveTyped('${escAttr(r.entry_id)}')">Set</button>
       <button class="btn ghost sm" onclick="skipRow('${escAttr(r.entry_id)}')">skip</button>
       <button class="btn ghost sm" onclick="dropRow('${escAttr(r.entry_id)}')">drop</button>
+      ${r.raw_payer?`<button class="btn ghost sm" onclick="ignorePayer('${escAttr(r.entry_id)}')" title="Drop this and every future credit from this payer">ignore payer</button>`:""}
     </div></div>`;
   }
   w.innerHTML = h;
@@ -1681,8 +1702,8 @@ function doResolve(id, customer){
   render();
 }
 function skipRow(id){ const r=ROWS.find(x=>x.entry_id===id); if(r){ r._skipped=true; } render(); toast("skipped — stays for later"); }
-async function dropRow(id){
-  if(!confirm("Drop this alert? It won't be imported, and it won't come back.")) return;
+async function dropRow(id, quiet){
+  if(!quiet && !confirm("Drop this alert? It won't be imported, and it won't come back.")) return;
   const r=ROWS.find(x=>x.entry_id===id); if(!r) return;
   PENDING_EXPORT.add(id);
   r.exported=true; r.exported_at=new Date().toISOString();
@@ -1696,9 +1717,37 @@ async function dropRow(id){
     render(); toast(why ? "⚠️ Couldn't drop — "+why : "⚠️ Couldn't drop — check connection and try again");
     return;
   }
-  toast("Dropped");
+  if(!quiet) toast("Dropped");
   await Cloud.pull();
   PENDING_EXPORT.delete(id);
+}
+
+// "ignore payer": never show credits from this remitter again (e.g. ODISHA
+// SARKAR, a tax refund) — the agent drops them; undo under Customers.
+const IGNORE_ALIAS = "__ignore__";
+async function ignorePayer(id){
+  const r=ROWS.find(x=>x.entry_id===id); if(!r||!r.raw_payer) return;
+  const key=aliasKey(r.raw_payer); if(!key) return;
+  const same=ROWS.filter(x=>!x.exported && x.status==="review" && x.raw_payer && aliasKey(x.raw_payer)===key);
+  if(!confirm(`Always ignore credits from “${r.raw_payer}”?\n\nThey won't be imported or shown again`
+    + (same.length>1?` — this drops the ${same.length} waiting now too`:"")
+    + `. Undo any time under Customers → Ignored payers.`)) return;
+  try{ await Cloud.ignorePayer(key); }
+  catch(e){ toast("⚠️ Couldn't save — "+((e&&e.message)||e)); return; }
+  for(const x of same) await dropRow(x.entry_id, true);
+  toast(`Ignoring “${r.raw_payer}” from now on`);
+}
+async function renderIgnored(){
+  const w=document.getElementById("ignoredWrap"); if(!w) return;
+  let keys=[];
+  try{ keys=await Cloud.listIgnored(); }catch(_){ w.innerHTML=`<span style="color:var(--faint)">Couldn't load.</span>`; return; }
+  w.innerHTML = keys.length ? keys.sort().map(k=>`<span class="cust-chip removable">${esc(k.toUpperCase())}<button class="btn ghost sm" style="margin-left:6px" onclick="stopIgnoring(this.dataset.k)" data-k="${escAttr(k)}">stop ignoring</button></span>`).join("")
+    : `<span style="color:var(--faint)">None.</span>`;
+}
+async function stopIgnoring(key){
+  try{ await Cloud.unignore(key); toast("Their credits will show again"); }
+  catch(e){ toast("⚠️ Couldn't save — "+((e&&e.message)||e)); }
+  renderIgnored();
 }
 function toggleSel(id,on){ if(on) SEL.add(id); else SEL.delete(id); render(); }
 function toggleAll(){
@@ -1845,6 +1894,7 @@ function renderCustomers(){
     `<span class="cust-chip removable">${esc(n)}<button class="cust-x" title="Remove ${escAttr(n)}" onclick="removeCustomerAt(${i})">×</button></span>`
   ).join("");
   renderCustPreview();
+  renderIgnored();
 }
 
 // Remove one name from the roster (persisted as a full atomic replace, so it

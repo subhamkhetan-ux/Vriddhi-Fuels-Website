@@ -157,3 +157,133 @@ def test_hdfc_rtgs_naming_us_as_beneficiary_still_counts():
 def test_an_info_number_merely_ending_5893_unmasked_still_counts():
     row = _row(_icici_credit("RTGS-CNRBR52026111069875893-DBL SIARMAL COAL MINES PRIVATE LIM"))
     assert row is not None and row["status"] == "matched"
+
+
+# The real alert for a transfer from ICICI 5893 into 4716 (11-Nov-26): ICICI's
+# internal-transfer Info format. Its payer used to be unreadable -> a parse error.
+REAL_5893_TRANSFER = Alert(
+    msg_id="m-inft", internal_ms=1_700_000_500_000, subject="Account credited",
+    body=("Dear Customer,\n\nGreetings from ICICI Bank.\n\n"
+          "Your ICICI Bank Account XX716 has been credited with Rs. 25,00,000.00 on 11-Nov-26. "
+          "Info: INF*INFT*046676550281*VRIDDHI FUELS."))
+
+
+def test_real_inft_transfer_from_our_own_account_is_dropped():
+    assert _row(REAL_5893_TRANSFER) is None
+
+
+def test_inft_credit_from_a_customer_is_read_and_matched():
+    for info in ["INF*INFT*046676550281*RELIANCE PETRO MARKETING",
+                 "INF*INFT*046528602791*DIESEL*RELIANCE PETRO MARKETING",   # payer's remark first
+                 "INF/INFT/046676550281/RELIANCE PETRO MARKETING",
+                 "INF/INFT/046528602791/DIESEL/RELIANCE PETRO MARKETING",
+                 "MMT*IMPS*631412345678*RELIANCE PETRO MARKETING"]:
+        row = _row(_icici_credit(info))
+        assert row is not None and row["match_tier"] != "parse_error", info
+        assert row["raw_payer"].strip() == "RELIANCE PETRO MARKETING", info
+        assert row["customer"] == "Reliance Petro Marketing" and row["status"] == "matched", info
+
+
+def test_inft_with_a_remark_and_our_name_last_is_still_our_own():
+    assert _row(_icici_credit("INF*INFT*046676550281*FUND TRANSFER*VRIDDHI FUELS")) is None
+
+
+def test_bill_pay_inft_with_no_name_stays_for_review():
+    row = _row(_icici_credit("BIL*INFT*FHU0853112*"))
+    assert row is not None and row["status"] == "review"
+
+
+# ---- reading the payer from any field of the details (new wordings) ----
+SCAN_CUSTOMERS = CUSTOMERS + ["Orissa Metaliks Private Limited", "Ekdant Logistic", "DG VRIDDHI FUELS"]
+
+
+def _scan(info, aliases=None, past=None, amount="11,92,806.00"):
+    alert = Alert(msg_id="m-scan", internal_ms=1_700_000_600_000, subject="Account credited",
+                  body=("Dear Customer,\nGreetings from ICICI Bank.\n"
+                        f"Your ICICI Bank Account XX716 has been credited with Rs. {amount} on "
+                        f"11-Nov-26. Info: {info}."))
+    return run._row_from_alert("bank1", ICICI, alert, SCAN_CUSTOMERS, aliases or {}, {}, past)
+
+
+def test_the_reported_alert_matches_the_customer():
+    row = _scan("INF*INFT*046675779021*DIESEL*ORISSA METALIKS")
+    assert row["status"] == "matched" and row["customer"] == "Orissa Metaliks Private Limited"
+
+
+def test_a_wording_no_pattern_knows_is_read_from_its_fields():
+    for info in ["XYZ*PAYMENT*ORISSA METALIKS*REF 1234",          # name in the middle
+                 "TRF FROM ORISSA METALIKS PVT LTD AC XXXX1234",    # name inside a phrase
+                 "NEFT CR ICIC0001234 EKDANT LOGIS"]:               # the bank cut it short
+        row = _scan(info)
+        assert row["status"] == "matched", (info, row)
+        assert row["match_tier"] == "info_scan"
+    assert _scan("TRF FROM ORISSA METALIKS PVT LTD AC XXXX1234")["customer"] == "Orissa Metaliks Private Limited"
+
+
+def test_a_name_resolved_before_is_found_in_any_field():
+    row = _scan("ABC*XFER*99887766*OML STEEL", aliases={"oml steel": "Orissa Metaliks Private Limited"})
+    assert row["status"] == "matched" and row["customer"] == "Orissa Metaliks Private Limited"
+
+
+def test_a_lone_remark_word_never_names_a_customer():
+    # "COAL" occurs only in "DBL Siarmal Coal Mines…" — still not proof
+    row = _scan("INF*INFT*046675779021*COAL*SOMEONE NEW")
+    assert row["status"] == "review" and row["customer"] is None
+
+
+def test_two_customers_named_is_left_for_review():
+    row = _scan("XYZ*ORISSA METALIKS*EKDANT LOGISTIC")
+    assert row["status"] == "review" and {"Orissa Metaliks Private Limited", "Ekdant Logistic"} <= set(row["candidates"])
+
+
+def test_unknown_name_but_a_regular_amount_is_suggested_not_matched():
+    past = run.past_amounts([{"status": "matched", "customer": "Orissa Metaliks Private Limited", "amount": 1192806.0}] * 3)
+    row = _scan("INF*INFT*046675779021*NEW TRADE NAME", past=past)
+    assert row["status"] == "review" and row["customer"] is None
+    assert row["candidates"][0] == "Orissa Metaliks Private Limited"
+    assert row["flags"]["amount_hint"] == "Orissa Metaliks Private Limited"
+    # an amount two customers have paid suggests neither
+    past2 = run.past_amounts([{"status": "matched", "customer": c, "amount": 1192806.0}
+                              for c in ["Orissa Metaliks Private Limited", "Ekdant Logistic"]])
+    assert "amount_hint" not in _scan("INF*INFT*046675779021*NEW TRADE NAME", past=past2)["flags"]
+
+
+def test_an_unreadable_payer_with_amount_and_date_is_a_review_row_not_a_parse_error():
+    row = _scan("BIL*INFT*FHU0853112*")
+    assert row["status"] == "review" and row["match_tier"] != "parse_error"
+    assert row["amount"] == 1192806.0 and row["raw_text"]
+
+
+def test_hdfc_rtgs_still_matches_by_its_pattern():
+    from agent.config import HDFC
+    row = run._row_from_alert("bank2", HDFC, MATCH, SCAN_CUSTOMERS, {}, {}, None)
+    assert row["status"] == "matched" and row["match_tier"] != "info_scan"
+
+
+def test_transaction_codes_dont_make_suggestions():
+    # "BIL" sits inside "Automo-BIL-e": a code, not a name
+    alert = Alert(msg_id="m-bil", internal_ms=1_700_000_700_000, subject="Account credited",
+                  body=("Your ICICI Bank Account XX716 has been credited with Rs. 13,000.00 on "
+                        "26-Aug-26. Info: BIL*INFT*FHU0853112*."))
+    row = run._row_from_alert("bank1", ICICI, alert, SCAN_CUSTOMERS + ["MA Automobile"], {}, {}, None)
+    assert "MA Automobile" not in row["candidates"]
+
+
+def test_a_payer_set_to_always_ignore_is_dropped():
+    from agent.matcher import IGNORE_ALIAS
+    alert = Alert(msg_id="m-ign", internal_ms=1_700_000_800_000, subject="You have received a credit",
+                  body=("You have received a credit in your HDFC Bank account.\nAmount received: INR 15,805.00\n"
+                        "Account: XX1010\nDate: 19-AUG-2026\n"
+                        "Reference Details: NEFT Cr-RBIS0GOOR01-ODISHA SARKAR-VRIDDHI FUELS-RBI123"))
+    from agent.config import HDFC
+    assert run._row_from_alert("bank2", HDFC, alert, SCAN_CUSTOMERS, {"odisha sarkar": IGNORE_ALIAS}, {}) is None
+    row = run._row_from_alert("bank2", HDFC, alert, SCAN_CUSTOMERS, {}, {})
+    assert row is not None and row["status"] == "review"           # without the setting: for review
+
+
+def test_suggestions_put_the_ledger_paid_before_first():
+    cust = SCAN_CUSTOMERS + ["Sunil Kumar Khetan Transaction", "Sunil Kumar Khetan-Debtors"]
+    alert = _icici_credit("NEFT-HDFCN52026102300123-SUNIL KUMAR KHETAN")
+    counts = run.payment_counts([{"status": "matched", "customer": "Sunil Kumar Khetan-Debtors"}] * 3)
+    row = run._row_from_alert("bank1", ICICI, alert, cust, {}, {}, None, counts)
+    assert row["status"] == "review" and row["candidates"][0] == "Sunil Kumar Khetan-Debtors"

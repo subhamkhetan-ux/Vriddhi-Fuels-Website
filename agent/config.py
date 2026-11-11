@@ -97,6 +97,12 @@ ICICI = ParserProfile(
         r"Info[:\s]+(?:RTGS|NEFT|IMPS)-[^-]*-([^-.\n]+)",
         # "Info: UPI/<rrn>/<purpose>/<NAME>/"
         r"Info[:\s]+UPI/[^/]*/[^/]*/([^/\n]+)",
+        # ICICI-to-ICICI transfers: "Info: INF*INFT*046676550281*VRIDDHI FUELS." or,
+        # with the payer's remark, "INF*INFT*046528602791*DIESEL*ORISSA METALIKS."
+        # (also "MMT*IMPS*…", and the same with "/"): the name is the LAST field.
+        # "BIL*INFT*FHU0853112*." has no name and stays a review row.
+        r"Info[:\s]+[A-Z]{2,5}\*[A-Z]{2,6}\*[^*\s]*\*(?:[^*\n]*\*)*([^*.\n]+)",
+        r"Info[:\s]+[A-Z]{2,5}/[A-Z]{2,6}/[^/\s]*/(?:[^/\n]*/)*([^/.\n]+)",
         r"\bfrom\s+([A-Z][A-Za-z0-9&./ ]{2,}?)(?=\s+(?:Ref|UTR|on|Info|\(|\.|$))",
     ],
     # Column D / remarks is a fixed tag for this account.

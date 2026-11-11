@@ -19,7 +19,7 @@ import traceback
 
 from . import state_store
 from .config import ACCOUNTS, LOOKBACK_DAYS, OWN_TRANSFER
-from .matcher import MatchResult, match_name
+from .matcher import _GENERIC, IGNORE_ALIAS, MatchResult, _canon, alias_key, match_name
 from .normalize import clean_remitter, norm
 from .parser import parse
 from .telegram import notify
@@ -53,6 +53,90 @@ def _is_outlier(history: dict, customer: str, amount: float) -> bool:
 _OWN_SUFFIX = {"prop", "proprietor", "proprietorship", "firm"}
 
 
+def _info_text(body: str) -> str:
+    """The transaction details: the text after ICICI's "Info" / HDFC's
+    "Reference Details" label (empty when the alert has neither)."""
+    m = re.search(r"(?:\bInfo\b|Reference Details)\s*:?(.*)", body or "", re.I | re.S)
+    return m.group(1) if m else ""
+
+
+# Fields of the transaction details: "INF*INFT*<ref>*DIESEL*ORISSA METALIKS",
+# "RTGS-<utr>-<NAME>", "UPI/<rrn>/<purpose>/<NAME>", "NEFT Cr-<ifsc>-<NAME>-…".
+_FIELD_SPLIT = re.compile(r"[*/|:\n]+|-")
+
+
+def _strong(field: str, canonical: str) -> bool:
+    """A field names a customer outright: it IS the start of their name — whole
+    or cut short by the bank ("ORISSA METALIKS" / "EKDANT LOGIS") — and is long
+    enough to mean it. A lone remark word ("COAL", "DIESEL") that merely occurs
+    inside one customer's name is not enough."""
+    q = _canon(clean_remitter(field) or field)
+    if len(q.replace(" ", "")) >= 6 and _canon(canonical).replace(" ", "").startswith(q.replace(" ", "")):
+        return True
+    # …or every distinctive word of the name is in the field ("TRF FROM ORISSA
+    # METALIKS PVT LTD"): at least two words, generic ones (private, limited…) aside
+    sig = {w for w in _canon(canonical).split() if w not in _GENERIC and len(w) >= 3}
+    return len(sig) >= 2 and sum(map(len, sig)) >= 8 and sig <= set(q.split())
+
+
+def _scan_info(body: str, customers, aliases) -> tuple[tuple[str, str] | None, list[str]]:
+    """Look through every field of the transaction details for the customer —
+    for when the payer patterns can't read the alert's wording, or read the
+    wrong field. A field counts on strong evidence only: a name resolved before
+    in the app (alias), an exact customer name, or the start of one customer's
+    name (see _strong). Exactly one customer found -> ``((canonical, field),
+    candidates)``; none or several -> ``(None, candidates)`` for review. Our own
+    firm's name is skipped (HDFC references name us as the beneficiary)."""
+    own = {norm(n) for n in OWN_TRANSFER["names"]}
+    hits: dict[str, str] = {}
+    cands: list[str] = []
+    for f in _FIELD_SPLIT.split(_info_text(body)):
+        f = f.strip(" .,;")
+        if sum(ch.isalpha() for ch in f) < 3 or norm(f) in own:
+            continue
+        if aliases.get(alias_key(f)) == IGNORE_ALIAS:
+            continue
+        m = match_name(f, customers, aliases)
+        # suggestions only from name-like fields, not codes (BIL, INFT, MMT, NEFT…)
+        if " " in f or sum(ch.isalpha() for ch in f) >= 6:
+            cands += [c for c in m.candidates if c not in cands]
+        if m.status == "matched" and m.canonical and (m.tier in ("alias", "exact") or _strong(f, m.canonical)):
+            hits.setdefault(m.canonical, f)
+    if len(hits) == 1:
+        return next(iter(hits.items())), cands
+    return None, cands
+
+
+def past_amounts(queue: list[dict]) -> dict[float, set[str]]:
+    """{amount: customers who paid exactly that before}, from matched queue rows."""
+    idx: dict[float, set[str]] = {}
+    for r in queue:
+        if r.get("status") == "matched" and r.get("customer") and r.get("amount"):
+            idx.setdefault(round(float(r["amount"]), 2), set()).add(r["customer"])
+    return idx
+
+
+def payment_counts(queue: list[dict]) -> dict[str, int]:
+    """{customer: how many credits from them were matched} — to rank suggestions."""
+    out: dict[str, int] = {}
+    for r in queue:
+        if r.get("status") == "matched" and r.get("customer"):
+            out[r["customer"]] = out.get(r["customer"], 0) + 1
+    return out
+
+
+def _name_fields(body: str) -> list[str]:
+    fields = [f.strip(" .,;") for f in _FIELD_SPLIT.split(_info_text(body))]
+    return [f for f in fields if sum(ch.isalpha() for ch in f) >= 3]
+
+
+def _amount_hint(past: dict | None, amount) -> str | None:
+    """The one customer who has paid exactly this amount before (a suggestion
+    for a review row — never an auto-match), else None."""
+    who = (past or {}).get(round(float(amount), 2)) if amount else None
+    return next(iter(who)) if who and len(who) == 1 else None
+
+
 def _own_transfer(body: str, raw_payer: str | None) -> bool:
     """True when a credit is money moved from one of our own accounts (see
     config.OWN_TRANSFER): its remitter is our own firm, or its Info / reference
@@ -65,13 +149,13 @@ def _own_transfer(body: str, raw_payer: str | None) -> bool:
             words.pop()
         if " ".join(words) in {norm(n) for n in OWN_TRANSFER["names"]}:
             return True
-    m = re.search(r"(?:\bInfo\b|Reference Details)\s*:?(.*)", body or "", re.I | re.S)
-    info = m.group(1) if m else ""
+    info = _info_text(body)
     return any(re.search(rf"X{{2,}}\d{{0,12}}{re.escape(a)}\b", info, re.I)
                for a in OWN_TRANSFER["accounts"])
 
 
-def _row_from_alert(account_id, profile, alert, customers, aliases, history) -> dict | None:
+def _row_from_alert(account_id, profile, alert, customers, aliases, history, past=None,
+                    counts=None) -> dict | None:
     """Build a queue row from one alert (parse + match + flags).
 
     Returns ``None`` when the profile's gate rejects the email (a debit alert, a
@@ -81,6 +165,11 @@ def _row_from_alert(account_id, profile, alert, customers, aliases, history) -> 
         return None
     if _own_transfer(alert.body, res.raw_payer):
         print(f"  skip {alert.msg_id}: transfer from our own account ({res.raw_payer or 'Info'})")
+        return None
+    # A payer the user chose to always ignore in the app ("ignore payer").
+    payer_guess = res.raw_payer or (_name_fields(alert.body) or [None])[-1]
+    if payer_guess and aliases.get(alias_key(payer_guess)) == IGNORE_ALIAS:
+        print(f"  skip {alert.msg_id}: payer set to always ignore ({payer_guess})")
         return None
     row = {
         "entry_id": state_store.entry_id(alert.msg_id),
@@ -99,14 +188,38 @@ def _row_from_alert(account_id, profile, alert, customers, aliases, history) -> 
         "queued_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
 
-    if not res.ok:
+    if not res.ok and (res.amount is None or res.date_serial is None):
         row["status"] = "review"
         row["match_tier"] = "parse_error"
         row["error"] = res.error
         row["raw_text"] = res.raw_text
         return row
 
-    m: MatchResult = match_name(res.raw_payer, customers, aliases)
+    m: MatchResult | None = match_name(res.raw_payer, customers, aliases) if res.ok else None
+    if m is None or m.status != "matched":
+        # The payer patterns couldn't read this wording, or read a field that
+        # isn't a customer: look through every field of the details instead.
+        found, cands = _scan_info(alert.body, customers, aliases)
+        if found:
+            canonical, field = found
+            m = MatchResult("matched", "info_scan", canonical=canonical, candidates=[canonical])
+            row["raw_payer"] = field
+        else:
+            base = m.candidates if m else []
+            hint = _amount_hint(past, res.amount)
+            rest = [c for c in dict.fromkeys(base + cands) if c != hint]
+            # the customers actually paid before come first (stable otherwise):
+            # e.g. which of two ledgers of one name has had the payments
+            rest.sort(key=lambda c: -(counts or {}).get(c, 0))
+            merged = ([hint] if hint else []) + rest
+            m = MatchResult("review", m.tier if m else "nomatch", candidates=merged[:8])
+            if hint:
+                row["flags"]["amount_hint"] = hint
+            if not res.ok:
+                row["error"] = res.error
+                row["raw_text"] = res.raw_text
+                # a name-like last field, so resolving it in the app teaches an alias
+                row["raw_payer"] = payer_guess
     row["candidates"] = m.candidates
     row["match_tier"] = m.tier
     row["customer"] = m.canonical
@@ -146,12 +259,14 @@ def process_account(account, customers, aliases, history, queue, seen) -> tuple[
     alerts = fetch_alerts(service, profile.gmail_query, after_ms, seen_ids)
 
     queued = reviewed = 0
+    past, counts = past_amounts(queue), payment_counts(queue)   # what customers paid before
     for alert in alerts:  # oldest first
         eid = state_store.entry_id(alert.msg_id)
         # Advance the mark past this alert regardless (we've now handled it),
         # but only append a row if it's a target alert and isn't already queued.
         if eid not in existing_entry_ids:
-            row = _row_from_alert(acc_id, profile, alert, customers, aliases, history)
+            row = _row_from_alert(acc_id, profile, alert, customers, aliases, history,
+                                  past, counts)
             if row is not None:  # None == gated out (debit / other account); drop
                 queue.append(row)
                 existing_entry_ids.add(eid)
