@@ -32,6 +32,8 @@ export function defaultSettings() {
     // SSFC bills tyres at a rate per tyre per km run, plus GST; a bill more than `tolerance` % off is flagged
     // (a month's bill can run ±10% off the km of the trips loaded that month: SSFC's month and km aren't quite the trips')
     tyreBill: { rate: 0.26, gst: 18, tyres: 18, tolerance: 10 },
+    // the trucks' loans, read from the banks' EMI schedules (loans.js); kept by the Loans tab, not Setup
+    loans: [],
   };
 }
 export function withDefaults(s) {
@@ -43,6 +45,7 @@ export function withDefaults(s) {
     driver: { ...d.driver, ...(x.driver || {}) },
     recon: { ...d.recon, ...(x.recon || {}) },
     tyreBill: { ...d.tyreBill, ...(x.tyreBill || {}) },
+    loans: Array.isArray(x.loans) ? x.loans : d.loans,
   };
 }
 

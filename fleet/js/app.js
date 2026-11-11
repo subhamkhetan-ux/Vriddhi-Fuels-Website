@@ -23,13 +23,14 @@ import { GRADES as LOAD_GRADES, loadBench, loadSummary } from './load.js';
 import { driverBrief, ownerBrief } from './brief.js';
 import { bufferOf, extraKind, fillProgress, fleetDiesel, missingFills, tripDiesel } from './tripdiesel.js';
 import { irregularIndex, irregulars } from './irregular.js';
+import { loanStatus, loansSummary, ordinal, parseSchedule, suggestTrucks } from './loans.js';
 import { dayBook, entries as dayEntries, KINDS as DAY_KINDS, ranges as dayRanges, shiftRange, sums as daySums } from './daybook.js';
 import { blocking, compareUploads } from './changes.js';
 import { plateText } from './bulker.js';
 import {
-  daybookPagesSvg, driverBriefSvg, driverPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
+  daybookPagesSvg, driverBriefSvg, driverPagesSvg, loansPagesSvg, ownerBriefSvg, fleetPagesSvg, PAGE, PAGE_PT, reconPagesSvg, roadCardSvg, ssfcPagesSvg, tripCardSvg, vehiclePagesSvg,
 } from './share-svg.js';
-import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, toDataUrl, zipBlob } from './render.js';
+import { brandFontCss, bulkerCss, canShareFiles, hindiFontCss, download, jpegFromSvg, pdfFromSvgs, pdfText, toDataUrl, zipBlob } from './render.js';
 import {
   addDays, addMonths, dateYear, daysBetween, esc, fmtDate, indian, litres, localToday, longDate, money, monthLong, monthName, monthOf,
   plural, rupees, shortDate, shortVeh, tonnes,
@@ -330,7 +331,7 @@ async function signOut() {
 // ---------------------------------------------------------------------------
 // [href, name, name on a phone, icon, on a phone it's under More]
 const TABS = [['#/', 'Home', '', '🏠'], ['#/daybook', 'Day book', '', '📒'], ['#/trips', 'Trips', '', '🧾'], ['#/vehicles', 'Vehicles', 'Trucks', '🚛', true], ['#/drivers', 'Drivers', '', '👤', true],
-  ['#/costs', 'Tyre & Fastag', 'Tyres & Fastag', '🛞', true], ['#/ssfc', 'SSFC', 'SSFC account', '🏦', true], ['#/diesel', 'Diesel', '', '⛽'], ['#/setup', 'Setup', '', '⚙️', true]];
+  ['#/costs', 'Tyre & Fastag', 'Tyres & Fastag', '🛞', true], ['#/ssfc', 'SSFC', 'SSFC account', '🏦', true], ['#/loans', 'Loans', 'Loans & EMI', '💳', true], ['#/diesel', 'Diesel', '', '⛽'], ['#/setup', 'Setup', '', '⚙️', true]];
 
 function renderShell() {
   root.innerHTML = `
@@ -437,6 +438,8 @@ const ROUTES = [
   [/^#\/drivers$/, () => viewDrivers()],
   [/^#\/drivers\/([^/?]+)$/, (m) => viewDriverVehicle(decodeURIComponent(m[1]))],
   [/^#\/costs(?:\/(fastag|tyre))?$/, (m) => viewCharges(m[1] || null)],
+  [/^#\/loans$/, () => viewLoans()],
+  [/^#\/loans\/([^/?]+)$/, (m) => viewLoan(decodeURIComponent(m[1]))],
   [/^#\/setup$/, () => viewSetup()],
   [/^#\/upload$/, () => viewSetup()],
 ];
@@ -450,6 +453,7 @@ async function route() {
     if (h.startsWith('#/diesel')) return '#/diesel';
     if (h.startsWith('#/drivers')) return '#/drivers';
     if (h.startsWith('#/costs')) return '#/costs';
+    if (h.startsWith('#/loans')) return '#/loans';
     if (h.startsWith('#/upload')) return '#/setup';
     if (h.startsWith('#/trends')) return '#/';
     return h.split('?')[0];
@@ -654,6 +658,8 @@ async function viewHome() {
     for (const sp of overpaid) todo.unshift({ kind: 'warn', href: `#/drivers/${encodeURIComponent(sp.veh)}`, text: `${shortVeh(sp.veh)}: ${sp.name ? `driver ${sp.name}` : 'driver'} overpaid ${rupees(sp.balance)} (salary − your advances vs what SSFC paid)` });
   }
   const since = addMonths(monthOf(today()), -3);
+  const loanT = (state.settings.loans || []).length ? loansSummary(state.settings.loans, today()).total : null;
+  if (loanT && loanT.overdueN) todo.unshift({ kind: 'bad', href: '#/loans', text: `${plural(loanT.overdueN, 'EMI')} marked not paid — ${rupees(loanT.overdueAmt)} overdue to the banks` });
   const irr = derived().irregular;
   if (irr.length) todo.unshift({ kind: irr.some((x) => x.level === 'bad') ? 'bad' : 'warn', href: '#/daybook', text: `${plural(irr.length, 'entry', 'entries')} in the workbook look wrong (diesel on the wrong trip, entered twice, dates…) — listed in the Day book's brief` });
   const tb = derived().tyreBill;
@@ -2348,6 +2354,219 @@ function tyreBillHtml(months) {
 }
 
 // ---------------------------------------------------------------------------
+// Loans & EMI: the trucks' loans from the banks' schedules (loans.js), kept in
+// Setup's settings (settings.loans). Every EMI due till today counts as paid
+// unless marked not paid on its loan.
+// ---------------------------------------------------------------------------
+const loanTruck = (l) => (l.veh ? `${shortVeh(l.veh)}${driverNow(l.veh) ? ` · ${driverNow(l.veh)}` : ''}` : 'No truck yet');
+const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+const rateText = (l) => (l.rate ? `${Number(l.rate).toFixed(2)}%${l.rateFrom === 'derived' ? ' (from the schedule)' : ''}` : '—');
+// a two-part bar: done / still to go
+const lnBar = (done, left, cls = '') => `<span class="ln-bar ${cls}"><i style="width:${pctOf(done, done + left)}%"></i></span>`;
+
+// save the loans: the rest of the settings as saved now (another device may have changed Setup), only the loans replaced
+async function saveLoans(loans, done = 'Saved.') {
+  const shared = !state.settingsMissing && state.store && state.store.saveSettings && !state.localOnly;
+  let base = state.settings;
+  if (shared) {
+    const cur = await state.store.settings().catch(() => null);
+    if (cur && cur.value) base = withDefaults(cur.value);
+  }
+  const next = withDefaults({ ...base, loans });
+  state.settings = next;
+  state.rev += 1;
+  if (!shared) { toast(state.localOnly ? `${done} On this device only — not saved.` : done); return; }
+  try {
+    state.settingsMeta = await state.store.saveSettings(next);
+    toast(done);
+  } catch (err) {
+    state.settingsMissing = /fleet_settings|schema cache|does not exist/i.test(err.message);
+    toast(state.settingsMissing ? 'Applied for now — run the updated fleet-schema.sql to save it.' : err.message, 'bad');
+  }
+}
+
+// read the PDFs, then a table to check them and pick each one's truck
+async function addSchedules(files) {
+  const read = [];
+  const errors = [];
+  for (const f of files) {
+    try {
+      const loan = parseSchedule(await pdfText(f), { fileName: f.name });
+      if (loan.error) errors.push(loan.error); else read.push(loan);
+    } catch (err) {
+      errors.push(`${f.name}: ${err.message}`);
+    }
+  }
+  const have = state.settings.loans || [];
+  for (const l of read) { const old = have.find((x) => x.lan === l.lan); if (old) { l.veh = old.veh; l.unpaid = old.unpaid || []; l.replaces = true; } }
+  const guess = suggestTrucks([...have.filter((x) => !read.some((l) => l.lan === x.lan)), ...read], state.data ? state.data.trips : []);
+  for (const l of read) if (!l.veh && guess.has(l.lan)) { l.veh = guess.get(l.lan); l.suggested = true; }
+  state.ui.loanReview = { read, errors };
+  rerender();
+}
+function loanReviewHtml(R) {
+  const trucks = state.data ? vehiclesOf(state.data) : [];
+  return `<section class="card" id="loan-review">
+    <h3>Check the schedules</h3>
+    ${R.errors.length ? `<div class="todos">${R.errors.map((e) => `<div class="todo bad">${esc(e)}</div>`).join('')}</div>` : ''}
+    ${R.read.length ? `<p class="muted small">Pick each loan's truck. ${R.read.some((l) => l.suggested) ? 'The ones marked <b>suggested</b> are guessed from the EMI the Trip Register charges each truck — check them.' : ''}</p>
+    <div class="table-wrap"><table class="compact ln-review"><thead><tr><th>Loan</th><th class="r">Amount</th><th class="r">EMI</th><th>Runs</th><th>Truck</th></tr></thead><tbody>
+      ${R.read.map((l, i) => `<tr><td><b>${esc(l.bank || 'Bank?')}</b> ${esc(l.lan)}<small class="block muted">${esc(l.file)} · ${esc(rateText(l))}${l.replaces ? ' · <b>replaces the one saved</b>' : ''}</small>${l.warnings.map((w) => `<small class="block warn-text">⚠ ${esc(w)}</small>`).join('')}</td>
+        <td class="r">${rupees(l.amount)}</td><td class="r">${rupees(l.emi)}<small class="block muted">× ${l.tenure}</small></td><td>${esc(dateYear(l.first))} – ${esc(dateYear(l.last))}<small class="block muted">on the ${ordinal(l.dueDay)}</small></td>
+        <td><select data-review="${i}"><option value="">— pick —</option>${trucks.map((v) => `<option value="${esc(v)}"${l.veh === v ? ' selected' : ''}>${esc(shortVeh(v))}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select>${l.suggested ? '<small class="block info-text">suggested</small>' : ''}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="actions"><button class="btn" id="review-save" type="button">Save ${plural(R.read.length, 'loan')}</button><button class="btn ghost" id="review-cancel" type="button">Cancel</button></div>` : '<div class="actions"><button class="btn ghost" id="review-cancel" type="button">Close</button></div>'}
+  </section>`;
+}
+
+async function viewLoans() {
+  const loans = state.settings.loans || [];
+  const R = state.ui.loanReview;
+  const add = `<label class="btn small file-btn">Add EMI schedules (PDF)<input type="file" id="loan-files" accept="application/pdf,.pdf" multiple hidden></label>`;
+  if (!loans.length) {
+    setMain(`<section class="card"><div class="row-between"><h2>Loans &amp; EMI</h2>${add}</div>
+      <p class="muted">Add each truck's EMI schedule — the PDF the bank gives (HDFC's repayment schedule, ICICI's amortisation schedule). You can pick several at once. The app reads every instalment and shows what's paid and what's left: principal and interest, for each truck, each bank and the fleet. Every EMI due till today counts as paid; you can mark one not paid.</p></section>
+      ${R ? loanReviewHtml(R) : ''}`);
+    bindLoans();
+    return;
+  }
+  const t = today();
+  const L = loansSummary(loans, t);
+  const T = L.total;
+  const tm = L.thisMonth;
+  const byTruck = [...L.loans].sort((a, b) => String(a.loan.veh || '~').localeCompare(String(b.loan.veh || '~')) || String(a.loan.lan).localeCompare(String(b.loan.lan)));
+  setChartWidth(main().clientWidth - 38);
+  setMain(`<section class="card">
+    <div class="row-between"><h2>Loans &amp; EMI</h2><span class="row-gap">${shareBtn('share-loans')}${add}</span></div>
+    <p class="muted small">${plural(T.loans, 'loan')} from the banks' schedules. Every EMI due till today counts as paid — if one wasn't, open its truck and mark it not paid.</p>
+    <div class="kpis">
+      <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val" ${exact(T.principalLeft)}>${money(T.principalLeft)}</span><span class="sub">of ${money(T.amount)} borrowed · ${pctOf(T.principalPaid, T.amount)}% repaid</span></div>
+      <div class="kpi"><span class="lbl">Principal repaid</span><span class="val good-text" ${exact(T.principalPaid)}>${money(T.principalPaid)}</span><span class="sub">${T.paidN} of ${T.tenure} EMIs paid</span></div>
+      <div class="kpi"><span class="lbl">Interest paid</span><span class="val" ${exact(T.interestPaid)}>${money(T.interestPaid)}</span><span class="sub">of ${money(T.totalInterest)} in all</span></div>
+      <div class="kpi"><span class="lbl">Interest still to pay</span><span class="val" ${exact(T.interestLeft)}>${money(T.interestLeft)}</span><span class="sub">till ${esc(T.ends ? monthLong(T.ends.slice(0, 7)) : '—')}</span></div>
+      <div class="kpi"><span class="lbl">EMIs this month</span><span class="val">${tm ? money(tm.emi) : '—'}</span><span class="sub">${T.next ? `next on ${esc(dateYear(T.next.date))}` : 'all paid off'}</span></div>
+      <div class="kpi ${T.overdueN ? 'warn' : ''}"><span class="lbl">Not paid</span><span class="val ${T.overdueN ? 'bad-text' : 'good-text'}">${T.overdueN ? money(T.overdueAmt) : '✓ none'}</span><span class="sub">${T.overdueN ? `${plural(T.overdueN, 'EMI')} marked not paid` : 'every EMI due is paid'}</span></div>
+    </div>
+    <div class="ln-split">
+      <div><span class="ln-lbl">Principal <b>${pctOf(T.principalPaid, T.amount)}%</b> repaid</span>${lnBar(T.principalPaid, T.principalLeft)}<small>${money(T.principalPaid)} repaid · ${money(T.principalLeft)} owed</small></div>
+      <div><span class="ln-lbl">Interest <b>${pctOf(T.interestPaid, T.totalInterest)}%</b> paid</span>${lnBar(T.interestPaid, T.interestLeft, 'int')}<small>${money(T.interestPaid)} paid · ${money(T.interestLeft)} to pay</small></div>
+    </div>
+  </section>
+  ${R ? loanReviewHtml(R) : ''}
+  ${L.banks.length > 1 ? `<section class="card"><h3>By bank</h3><div class="table-wrap"><table class="compact"><thead><tr><th>Bank</th><th class="r">EMI a month</th><th class="r">Principal owed</th><th class="r hide-sm">Interest to pay</th><th class="r hide-sm">Last EMI</th></tr></thead><tbody>
+    ${L.banks.map((b) => { const one = L.loans.find((x) => (x.loan.bank || 'Other') === b.bank).loan; return `<tr><td><b>${esc(b.bank)}</b><small class="block muted">${plural(b.loans, 'loan')} · ${esc(rateText(one))}</small></td><td class="r">${rupees(b.emi)}</td><td class="r">${rupees(b.principalLeft)}<small class="block muted">of ${money(b.amount)}</small><small class="block muted show-sm-block">+ ${money(b.interestLeft)} interest</small></td><td class="r hide-sm">${rupees(b.interestLeft)}<small class="block muted">${money(b.interestPaid)} paid</small></td><td class="r hide-sm">${esc(b.ends ? dateYear(b.ends) : '—')}</td></tr>`; }).join('')}
+    <tr class="sum"><td><b>All</b></td><td class="r"><b>${rupees(T.emi)}</b></td><td class="r"><b>${rupees(T.principalLeft)}</b></td><td class="r hide-sm"><b>${rupees(T.interestLeft)}</b></td><td class="hide-sm"></td></tr>
+  </tbody></table></div></section>` : ''}
+  <section class="card"><h3>Each truck <span class="muted small">tap one for its EMIs</span></h3>
+    <div class="ln-list">${byTruck.map((x) => `<a class="ln-row${x.overdueN ? ' bad' : ''}" href="#/loans/${encodeURIComponent(x.loan.lan)}">
+      <span class="ln-top"><b class="rr-veh">${esc(x.loan.veh ? shortVeh(x.loan.veh) : '—')}</b><span class="ln-who">${esc(x.loan.bank || 'Bank')} · ${esc(x.loan.lan)}<small>${x.loan.veh && driverNow(x.loan.veh) ? esc(driverNow(x.loan.veh)) : x.loan.veh ? '' : 'no truck yet — open to pick one'}</small></span>${x.overdueN ? `<span class="pill bad-pill">${plural(x.overdueN, 'EMI')} not paid</span>` : x.done ? '<span class="pill good-pill">Paid off</span>' : ''}</span>
+      <span class="ln-emi">EMI <b>${rupees(x.loan.emi)}</b> on the ${ordinal(x.loan.dueDay)} · ${x.paidN} of ${x.tenure} paid${x.next ? ` · next ${esc(dateYear(x.next.date))}` : ''}</span>
+      ${lnBar(x.paidN, x.tenure - x.paidN)}
+      <span class="ln-nums"><span>Principal owed <b>${money(x.principalLeft)}</b></span><span>Interest to pay <b>${money(x.interestLeft)}</b></span><span>Interest paid <b>${money(x.interestPaid)}</b></span></span>
+    </a>`).join('')}</div>
+  </section>
+  <section class="card"><h3>Month by month <span class="muted small">every EMI of every loan, split into principal and interest</span></h3>
+    ${legend([{ name: 'Principal', color: 'var(--s-1)' }, { name: 'Interest', color: 'var(--s-2)' }])}
+    ${stackedBars(L.months.map((m) => ({ ...m, parts: { principal: m.principal, interest: m.interest } })), [{ key: 'principal', name: 'Principal', color: 'var(--s-1)' }, { key: 'interest', name: 'Interest', color: 'var(--s-2)' }], {
+    label: 'EMIs per month, principal and interest',
+    tip: (m) => `<b>${monthLong(m.month)}</b>${m.past ? (m.unpaid ? ` · ${plural(m.unpaid, 'EMI')} not paid` : ' · paid') : ' · to pay'}<br>EMIs ${money(m.emi)}<br><i style="background:var(--s-1)"></i>Principal ${money(m.principal)}<br><i style="background:var(--s-2)"></i>Interest ${money(m.interest)}`,
+  })}
+    <p class="muted small">Interest is most of an EMI early on and shrinks every month as the principal is paid down. ${tm ? `This month: ${money(tm.principal)} principal + ${money(tm.interest)} interest.` : ''}</p>
+  </section>`);
+  bindLoans();
+  bindCharts(main());
+  document.getElementById('share-loans')?.addEventListener('click', () => sharePictures('Loans & EMI', [{ label: 'Loans', make: async () => pageFiles(loansPagesSvg(L, { ...(await shareKit()), asOn: t, truckOf: (l) => loanTruck(l) }), `Loans and EMI ${fmtDate(t)}`) }]));
+}
+function bindLoans() {
+  const m = main();
+  m.querySelector('#loan-files')?.addEventListener('change', (e) => {
+    const files = [...e.target.files];
+    if (!files.length) return;
+    toast(`Reading ${plural(files.length, 'schedule')}…`);
+    guard(() => addSchedules(files));
+  });
+  m.querySelectorAll('[data-review]').forEach((s) => s.addEventListener('change', () => {
+    const l = state.ui.loanReview.read[Number(s.dataset.review)];
+    l.veh = s.value;
+    l.suggested = false;
+  }));
+  m.querySelector('#review-cancel')?.addEventListener('click', () => { state.ui.loanReview = null; rerender(); });
+  m.querySelector('#review-save')?.addEventListener('click', (e) => guard(async () => {
+    const R = state.ui.loanReview;
+    const vehs = R.read.map((l) => l.veh).filter(Boolean);
+    if (new Set(vehs).size < vehs.length && !window.confirm('Two of these loans have the same truck. Save anyway?')) return;
+    e.target.disabled = true;
+    const keep = (state.settings.loans || []).filter((x) => !R.read.some((l) => l.lan === x.lan));
+    const loans = [...keep, ...R.read.map(({ replaces, suggested, warnings, first, last, ...l }) => l)];
+    state.ui.loanReview = null;
+    await saveLoans(loans, `Saved ${plural(R.read.length, 'loan')}.`);
+    rerender();
+  }));
+}
+
+async function viewLoan(lan) {
+  const loans = state.settings.loans || [];
+  const loan = loans.find((l) => l.lan === lan);
+  if (!loan) { setMain('<section class="card"><p>No such loan.</p><a class="btn ghost" href="#/loans">All loans</a></section>'); return; }
+  const t = today();
+  const x = loanStatus(loan, t);
+  const ui = state.ui.loanRows || (state.ui.loanRows = {});
+  const all = ui[lan];
+  const lastDue = x.rows.filter((r) => r.status !== 'upcoming').length;
+  const shown = all ? x.rows : x.rows.slice(0, Math.max(lastDue + 3, 6));
+  const trucks = state.data ? vehiclesOf(state.data) : [];
+  setMain(`<section class="card">
+    <p class="crumbs"><a href="#/loans">Loans &amp; EMI</a> ›</p>
+    <div class="row-between"><h2>${loan.veh ? `<span class="hsrp">${esc(plateText(loan.veh))}</span>` : 'No truck yet'}</h2>
+      <label class="inline-label">Truck <select id="loan-veh"><option value="">— pick —</option>${trucks.map((v) => `<option value="${esc(v)}"${loan.veh === v ? ' selected' : ''}>${esc(shortVeh(v))}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select></label></div>
+    <p class="muted small">${esc(loan.bank || 'Bank')} · loan ${esc(loan.lan)} · ${rupees(x.amount)} at ${esc(rateText(loan))} · ${rupees(loan.emi)} × ${x.tenure} on the ${ordinal(loan.dueDay)} · ${esc(dateYear(x.rows[0].date))} – ${esc(dateYear(x.ends))}</p>
+    <div class="kpis">
+      <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val" ${exact(x.principalLeft)}>${money(x.principalLeft)}</span><span class="sub">of ${money(x.amount)} · ${pctOf(x.principalPaid, x.amount)}% repaid</span></div>
+      <div class="kpi"><span class="lbl">EMIs paid</span><span class="val">${x.paidN} <small>of ${x.tenure}</small></span><span class="sub">${x.upcomingN} to go${x.next ? ` · next ${esc(dateYear(x.next.date))}` : ''}</span></div>
+      <div class="kpi"><span class="lbl">Interest paid</span><span class="val" ${exact(x.interestPaid)}>${money(x.interestPaid)}</span><span class="sub">of ${money(x.totalInterest)} in all</span></div>
+      <div class="kpi"><span class="lbl">Interest still to pay</span><span class="val" ${exact(x.interestLeft)}>${money(x.interestLeft)}</span><span class="sub">total payable ${money(x.totalPayable)}</span></div>
+      <div class="kpi ${x.overdueN ? 'warn' : ''}"><span class="lbl">Not paid</span><span class="val ${x.overdueN ? 'bad-text' : 'good-text'}">${x.overdueN ? money(x.overdueAmt) : '✓ none'}</span><span class="sub">${x.overdueN ? x.overdue.map((r) => `#${r.n} ${dateYear(r.date)}`).join(', ') : 'every EMI due is paid'}</span></div>
+    </div>
+    <div class="ln-split">
+      <div><span class="ln-lbl">Principal <b>${pctOf(x.principalPaid, x.amount)}%</b> repaid</span>${lnBar(x.principalPaid, x.principalLeft)}<small>${money(x.principalPaid)} repaid · ${money(x.principalLeft)} owed</small></div>
+      <div><span class="ln-lbl">Interest <b>${pctOf(x.interestPaid, x.totalInterest)}%</b> paid</span>${lnBar(x.interestPaid, x.interestLeft, 'int')}<small>${money(x.interestPaid)} paid · ${money(x.interestLeft)} to pay</small></div>
+    </div>
+  </section>
+  <section class="card"><h3>EMIs <span class="muted small">every EMI due till today counts as paid — tap one to mark it not paid (or paid again)</span></h3>
+    <div class="table-wrap"><table class="compact ln-table"><thead><tr><th>#</th><th>Due</th><th class="r">EMI</th><th class="r">Principal</th><th class="r">Interest</th><th class="r hide-sm">Owed after</th><th>Paid?</th></tr></thead><tbody>
+      ${shown.map((r) => `<tr class="ln-${r.status}${r.date.slice(0, 7) === t.slice(0, 7) ? ' ln-now' : ''}"><td>${r.n}</td><td>${esc(dateYear(r.date))}</td><td class="r">${rupees(r.emi)}</td><td class="r">${rupees(r.principal)}</td><td class="r">${rupees(r.interest)}</td><td class="r hide-sm">${rupees(r.closing)}</td>
+        <td>${r.status === 'upcoming' ? '<span class="muted small">to pay</span>' : `<button class="ln-st ${r.status}" type="button" data-n="${r.n}" aria-pressed="${r.status === 'unpaid'}">${r.status === 'paid' ? '✓ Paid' : '✗ Not paid'}</button>`}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="2">All ${x.tenure}</td><td class="r">${rupees(x.totalPayable)}</td><td class="r">${rupees(x.amount)}</td><td class="r">${rupees(x.totalInterest)}</td><td class="hide-sm"></td><td></td></tr></tfoot></table></div>
+    ${shown.length < x.rows.length ? `<button class="btn ghost small" id="loan-all" type="button">Show all ${x.tenure} EMIs</button>` : ''}
+  </section>
+  <p class="center-p"><button class="btn ghost small" id="loan-remove" type="button">Remove this loan</button></p>`);
+  const m = main();
+  m.querySelector('#loan-all')?.addEventListener('click', () => { ui[lan] = true; rerender(); });
+  m.querySelector('#loan-veh').addEventListener('change', (e) => guard(async () => {
+    const v = e.target.value;
+    const other = loans.find((l) => l !== loan && v && l.veh === v);
+    if (other && !window.confirm(`${shortVeh(v)} already has loan ${other.lan}. Give it this one too?`)) { e.target.value = loan.veh || ''; return; }
+    await saveLoans(loans.map((l) => (l.lan === lan ? { ...l, veh: v } : l)), v ? `Loan ${lan} is ${shortVeh(v)}'s.` : 'Truck cleared.');
+    rerender();
+  }));
+  m.querySelectorAll('.ln-st').forEach((b) => b.addEventListener('click', () => guard(async () => {
+    const n = Number(b.dataset.n);
+    const un = new Set(loan.unpaid || []);
+    const was = un.has(n);
+    if (was) un.delete(n); else un.add(n);
+    b.disabled = true;
+    const r = x.rows.find((y) => y.n === n);
+    await saveLoans(loans.map((l) => (l.lan === lan ? { ...l, unpaid: [...un].sort((p, q) => p - q) } : l)), `EMI #${n} (${dateYear(r.date)}) marked ${was ? 'paid' : 'not paid'}.`);
+    rerender();
+  })));
+  m.querySelector('#loan-remove').addEventListener('click', () => guard(async () => {
+    if (!window.confirm(`Remove loan ${lan}${loan.veh ? ` (${shortVeh(loan.veh)})` : ''} and its EMIs from the app? (The bank's loan isn't touched — you can add the schedule again.)`)) return;
+    await saveLoans(loans.filter((l) => l.lan !== lan), `Loan ${lan} removed.`);
+    location.hash = '#/loans';
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Setup: upload, routes (distance, driver salary, diesel), vehicles, options
 // ---------------------------------------------------------------------------
 async function viewSetup() {
@@ -2482,9 +2701,12 @@ async function viewSetup() {
         .map((r) => ({ port: r.port, dest: r.dest, from: r.from || '', km: r.km === '' ? null : r.km, salary: r.salary === '' ? null : r.salary, diesel: r.diesel === '' ? null : r.diesel }));
       e.target.disabled = true;
       const shared = !state.settingsMissing && state.store && state.store.saveSettings && !state.localOnly;
+      // the loans aren't Setup's: keep them as they are now (the Loans tab may have changed them since)
+      clean.loans = state.settings.loans || [];
       // changed on another device since this page loaded it? don't overwrite it unasked
       if (shared) {
         const cur = await state.store.settings().catch(() => null);
+        if (cur && cur.value && Array.isArray(cur.value.loans)) clean.loans = cur.value.loans;
         const mine = state.settingsMeta ? state.settingsMeta.updated_at : null;
         if (cur && cur.updated_at && cur.updated_at !== mine
           && !window.confirm(`Setup was changed${cur.by_email ? ` by ${cur.by_email}` : ''} on ${new Date(cur.updated_at).toLocaleString('en-IN')}, after this page loaded it.\n\nOK = save yours over it.\nCancel = keep theirs (your edits here are dropped).`)) {
