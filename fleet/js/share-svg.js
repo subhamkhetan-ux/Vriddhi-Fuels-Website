@@ -16,6 +16,7 @@
 
 import { costBreakdown, dieselAmount, dieselLitres, ownExpenses, routeOf, ssfcDeductions, totals, tripDays } from './analyse.js';
 import { extraKind } from './tripdiesel.js';
+import { ordinal } from './loans.js';
 import { plateText, RTO_GROSS } from './bulker.js';
 
 export const PAGE = { width: 1280, height: 1810 };                 // px; A4's shape
@@ -856,3 +857,84 @@ export function ownerBriefSvg(b, { asOn = '', images = {}, fontCss = '' } = {}) 
   return cardSvg({ what: "Owner's daily insight", tag: 'DAILY INSIGHT', name: dMonY(b.date), sub: 'what moved yesterday, what needs you today', asOn, images, fontCss, blocks });
 }
 
+
+// the loans (loans.js loansSummary()): the fleet, each bank and each truck
+// name: what it's for (all the loans, or the vehicles picked); schedules: each loan's EMIs, one by one, after
+export function loansPagesSvg(L, { asOn = '', images = {}, fontCss = '', truckOf = (l) => l.veh || '—', name = '', schedules = false } = {}) {
+  const S = L.total;
+  const pc = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '—');
+  const blocks = [];
+  // paid and to go, of all the loans will cost
+  const parts = [['Principal paid', S.principalPaid, C.good, 1], ['Interest paid', S.interestPaid, C.s2, 1], ['Principal to go', S.principalLeft, C.good, 0.3], ['Interest to go', S.interestLeft, C.s2, 0.3]];
+  const all = parts.reduce((a, p) => a + p[1], 0) || 1;
+  const paid = S.principalPaid + S.interestPaid;
+  blocks.push(section('Paid and still to go', `${pc(paid, all)} of ${rupees(all)} paid`));
+  blocks.push(block(170, (x, y, w) => {
+    let out = `${T(x, y + 30, `Paid  ${rupees(paid)}`, { size: 24, weight: 800, fill: C.good })}${T(x + w, y + 30, `To go  ${rupees(all - paid)}`, { size: 24, weight: 800, anchor: 'end' })}`;
+    let bx = x;
+    for (const [, v, col, op] of parts) {
+      const bw = (v / all) * w;
+      if (bw > 0) out += R(bx, y + 46, bw, 26, { fill: col, opacity: op });
+      bx += bw;
+    }
+    parts.forEach(([n, v, col, op], i) => {
+      const cx = x + (i % 2) * (w / 2);
+      const cy = y + 104 + Math.floor(i / 2) * 34;
+      out += `${R(cx, cy - 14, 16, 16, { rx: 4, fill: col, opacity: op })}${T(cx + 26, cy, `${n}  ${rupees(v)}`, { size: 18, weight: 600, max: w / 2 - 40 })}`;
+    });
+    return out;
+  }));
+  blocks.push(gap(14));
+  if (L.banks.length > 1) {
+    blocks.push(section('By bank'));
+    blocks.push(...table(
+      [{ label: 'Bank', at: 18, max: 260 }, { label: 'EMI a month', at: -700, align: 'end' }, { label: 'Principal owed', at: -420, align: 'end' }, { label: 'Interest to pay', at: -18, align: 'end' }],
+      L.banks.map((b) => ({ cells: [{ text: b.bank, weight: 800, sub: `${plural(b.loans, 'loan')} · last EMI ${dMonY(b.ends)}` }, rupees(b.emi), { text: rupees(b.principalLeft), weight: 800, sub: `of ${rupees(b.amount)}` }, { text: rupees(b.interestLeft), weight: 800, sub: `${rupees(b.interestPaid)} paid` }] })),
+      { total: ['All', rupees(S.emi), rupees(S.principalLeft), rupees(S.interestLeft)] },
+    ));
+    blocks.push(gap(14));
+  }
+  blocks.push(section('Each vehicle', `${S.paidN} of ${S.tenure} EMIs paid`));
+  const rows = [...L.loans].sort((a, b) => String(a.loan.veh || '~').localeCompare(String(b.loan.veh || '~')));
+  blocks.push(...table(
+    [{ label: 'Vehicle', at: 18, max: 300 }, { label: 'EMI', at: -760, align: 'end' }, { label: 'Paid', at: -600, align: 'end' }, { label: 'Principal owed', at: -320, align: 'end' }, { label: 'Interest to pay', at: -18, align: 'end' }],
+    rows.map((x) => ({ tint: x.overdueN ? C.bad : null, cells: [
+      { text: truckOf(x.loan), weight: 800, sub: `${x.loan.bank || 'Bank'} · ${x.loan.lan}` },
+      { text: rupees(x.loan.emi), sub: `on the ${ordinal(x.loan.dueDay)}` },
+      { text: `${x.paidN}/${x.tenure}`, weight: 700, sub: x.overdueN ? `${x.overdueN} not paid` : x.next ? `next ${dMon(x.next.date)}` : 'paid off', subColor: x.overdueN ? C.bad : C.muted },
+      { text: rupees(x.principalLeft), weight: 800, sub: `${pc(x.principalPaid, x.amount)} repaid` },
+      { text: rupees(x.interestLeft), weight: 800, sub: `${rupees(x.interestPaid)} paid` },
+    ] })),
+    { total: ['All', rupees(S.emi), `${S.paidN}/${S.tenure}`, rupees(S.principalLeft), rupees(S.interestLeft)] },
+  ));
+  if (S.overdueN) blocks.push(note(`${plural(S.overdueN, 'EMI')} marked not paid: ${rupees(S.overdueAmt)}`, C.bad, 18));
+  if (schedules) {
+    const ST = { paid: ['Paid', C.good], unpaid: ['Not paid', C.bad], upcoming: ['To pay', C.muted] };
+    for (const x of rows) {
+      blocks.push(gap(18));
+      blocks.push(section(`${truckOf(x.loan)} · ${x.loan.bank || 'Bank'} ${x.loan.lan}`, `${x.paidN} of ${x.tenure} paid · ${rupees(x.principalLeft)} owed`));
+      blocks.push(...table(
+        [{ label: '#', at: 18 }, { label: 'Due', at: 90 }, { label: 'EMI', at: -800, align: 'end' }, { label: 'Principal', at: -610, align: 'end' }, { label: 'Interest', at: -440, align: 'end' }, { label: 'Owed after', at: -200, align: 'end' }, { label: 'Paid?', at: -18, align: 'end' }],
+        x.rows.map((r) => ({ tint: r.status === 'unpaid' ? C.bad : null, cells: [
+          { text: String(r.n), weight: 400, color: C.muted }, { text: dMonY(r.date), weight: r.status === 'upcoming' ? 400 : 600 }, rupees(r.emi),
+          { text: rupees(r.principal), weight: 400 }, { text: rupees(r.interest), weight: 400 }, { text: rupees(r.closing), weight: 400 },
+          { text: ST[r.status][0], weight: 800, color: ST[r.status][1] },
+        ] })),
+        { total: ['', `All ${x.tenure}`, rupees(x.totalPayable), rupees(x.amount), rupees(x.totalInterest), '', ''] },
+      ));
+    }
+  }
+  blocks.push(note('Every EMI due till the date above counts as paid unless marked not paid. From the banks\' repayment schedules.'));
+  return pagesSvg({
+    what: 'Loans & EMI', tag: 'LOANS & EMI', name: name || `${plural(S.loans, 'loan')} · ${rupees(S.amount)} borrowed`, asOn, images, fontCss,
+    sub: `${name ? `${plural(S.loans, 'loan')} · ${rupees(S.amount)} borrowed · ` : ''}${pc(S.principalPaid, S.amount)} of the principal repaid · EMIs till ${S.ends ? monY(S.ends.slice(0, 7)) : '—'}`,
+    hero: { label: 'PRINCIPAL STILL OWED', amount: rupees(S.principalLeft), right: [['INTEREST TO PAY', rupees(S.interestLeft)], ['EMIs A MONTH', rupees(S.emi)]] },
+    tiles: [
+      { label: 'Principal repaid', value: rupees(S.principalPaid), sub: `${pc(S.principalPaid, S.amount)} of ${rupees(S.amount)}`, color: C.good },
+      { label: 'Interest paid', value: rupees(S.interestPaid), sub: `of ${rupees(S.totalInterest)}`, color: C.s2 },
+      { label: 'EMIs paid', value: `${S.paidN} of ${S.tenure}`, sub: S.next ? `next ${dMon(S.next.date)}` : 'all paid', color: C.s1 },
+      { label: 'Not paid', value: S.overdueN ? rupees(S.overdueAmt) : 'none', sub: S.overdueN ? plural(S.overdueN, 'EMI') : 'every EMI due paid', color: S.overdueN ? C.bad : C.good },
+    ],
+    blocks, footNote: 'the banks\' EMI schedules',
+  });
+}
