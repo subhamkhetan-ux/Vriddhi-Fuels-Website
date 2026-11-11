@@ -1105,6 +1105,8 @@ function renderReview(rows){
     if(cands.length){
       h += `<div class="cands">`+cands.map((c,i)=>`<button class="cand ${i===0?'best':''}" onclick="pickCand('${escAttr(r.entry_id)}', this.dataset.n)" data-n="${escAttr(c)}">${esc(c)}</button>`).join("")+`</div>`;
     }
+    const hint = r.flags && r.flags.amount_hint;
+    if(hint) h += `<div style="font-size:12px;color:var(--muted);margin-top:6px">💡 <b>${esc(hint)}</b> has paid exactly ${money(r.amount)} before. The name on this credit isn't one we know yet.</div>`;
     h += `<div class="resolve">
       <input type="text" class="ac" autocomplete="off" placeholder="type a few letters…" id="in_${escAttr(r.entry_id)}">
       <button class="btn" onclick="resolveTyped('${escAttr(r.entry_id)}')">Set</button>

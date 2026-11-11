@@ -191,3 +191,79 @@ def test_inft_with_a_remark_and_our_name_last_is_still_our_own():
 def test_bill_pay_inft_with_no_name_stays_for_review():
     row = _row(_icici_credit("BIL*INFT*FHU0853112*"))
     assert row is not None and row["status"] == "review"
+
+
+# ---- reading the payer from any field of the details (new wordings) ----
+SCAN_CUSTOMERS = CUSTOMERS + ["Orissa Metaliks Private Limited", "Ekdant Logistic", "DG VRIDDHI FUELS"]
+
+
+def _scan(info, aliases=None, past=None, amount="11,92,806.00"):
+    alert = Alert(msg_id="m-scan", internal_ms=1_700_000_600_000, subject="Account credited",
+                  body=("Dear Customer,\nGreetings from ICICI Bank.\n"
+                        f"Your ICICI Bank Account XX716 has been credited with Rs. {amount} on "
+                        f"11-Nov-26. Info: {info}."))
+    return run._row_from_alert("bank1", ICICI, alert, SCAN_CUSTOMERS, aliases or {}, {}, past)
+
+
+def test_the_reported_alert_matches_the_customer():
+    row = _scan("INF*INFT*046675779021*DIESEL*ORISSA METALIKS")
+    assert row["status"] == "matched" and row["customer"] == "Orissa Metaliks Private Limited"
+
+
+def test_a_wording_no_pattern_knows_is_read_from_its_fields():
+    for info in ["XYZ*PAYMENT*ORISSA METALIKS*REF 1234",          # name in the middle
+                 "TRF FROM ORISSA METALIKS PVT LTD AC XXXX1234",    # name inside a phrase
+                 "NEFT CR ICIC0001234 EKDANT LOGIS"]:               # the bank cut it short
+        row = _scan(info)
+        assert row["status"] == "matched", (info, row)
+        assert row["match_tier"] == "info_scan"
+    assert _scan("TRF FROM ORISSA METALIKS PVT LTD AC XXXX1234")["customer"] == "Orissa Metaliks Private Limited"
+
+
+def test_a_name_resolved_before_is_found_in_any_field():
+    row = _scan("ABC*XFER*99887766*OML STEEL", aliases={"oml steel": "Orissa Metaliks Private Limited"})
+    assert row["status"] == "matched" and row["customer"] == "Orissa Metaliks Private Limited"
+
+
+def test_a_lone_remark_word_never_names_a_customer():
+    # "COAL" occurs only in "DBL Siarmal Coal Mines…" — still not proof
+    row = _scan("INF*INFT*046675779021*COAL*SOMEONE NEW")
+    assert row["status"] == "review" and row["customer"] is None
+
+
+def test_two_customers_named_is_left_for_review():
+    row = _scan("XYZ*ORISSA METALIKS*EKDANT LOGISTIC")
+    assert row["status"] == "review" and {"Orissa Metaliks Private Limited", "Ekdant Logistic"} <= set(row["candidates"])
+
+
+def test_unknown_name_but_a_regular_amount_is_suggested_not_matched():
+    past = run.past_amounts([{"status": "matched", "customer": "Orissa Metaliks Private Limited", "amount": 1192806.0}] * 3)
+    row = _scan("INF*INFT*046675779021*NEW TRADE NAME", past=past)
+    assert row["status"] == "review" and row["customer"] is None
+    assert row["candidates"][0] == "Orissa Metaliks Private Limited"
+    assert row["flags"]["amount_hint"] == "Orissa Metaliks Private Limited"
+    # an amount two customers have paid suggests neither
+    past2 = run.past_amounts([{"status": "matched", "customer": c, "amount": 1192806.0}
+                              for c in ["Orissa Metaliks Private Limited", "Ekdant Logistic"]])
+    assert "amount_hint" not in _scan("INF*INFT*046675779021*NEW TRADE NAME", past=past2)["flags"]
+
+
+def test_an_unreadable_payer_with_amount_and_date_is_a_review_row_not_a_parse_error():
+    row = _scan("BIL*INFT*FHU0853112*")
+    assert row["status"] == "review" and row["match_tier"] != "parse_error"
+    assert row["amount"] == 1192806.0 and row["raw_text"]
+
+
+def test_hdfc_rtgs_still_matches_by_its_pattern():
+    from agent.config import HDFC
+    row = run._row_from_alert("bank2", HDFC, MATCH, SCAN_CUSTOMERS, {}, {}, None)
+    assert row["status"] == "matched" and row["match_tier"] != "info_scan"
+
+
+def test_transaction_codes_dont_make_suggestions():
+    # "BIL" sits inside "Automo-BIL-e": a code, not a name
+    alert = Alert(msg_id="m-bil", internal_ms=1_700_000_700_000, subject="Account credited",
+                  body=("Your ICICI Bank Account XX716 has been credited with Rs. 13,000.00 on "
+                        "26-Aug-26. Info: BIL*INFT*FHU0853112*."))
+    row = run._row_from_alert("bank1", ICICI, alert, SCAN_CUSTOMERS + ["MA Automobile"], {}, {}, None)
+    assert "MA Automobile" not in row["candidates"]
