@@ -2358,11 +2358,38 @@ function tyreBillHtml(months) {
 // Setup's settings (settings.loans). Every EMI due till today counts as paid
 // unless marked not paid on its loan.
 // ---------------------------------------------------------------------------
-const loanTruck = (l) => (l.veh ? `${shortVeh(l.veh)}${driverNow(l.veh) ? ` · ${driverNow(l.veh)}` : ''}` : 'No truck yet');
+const PO_KEYS = [{ key: 'pp', name: 'Principal paid', color: 'var(--good)' }, { key: 'ip', name: 'Interest paid', color: 'var(--s-2)' }, { key: 'pl', name: 'Principal to go', color: 'color-mix(in srgb, var(--good) 30%, transparent)' }, { key: 'il', name: 'Interest to go', color: 'color-mix(in srgb, var(--s-2) 30%, transparent)' }];
+const loanTruck = (l) => (l.veh ? plateText(l.veh) : 'No truck yet');
+const truckOption = (v, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(plateText(v))}</option>`;
+// paid and to go, of all the loan(s) will cost: principal + interest. x: loanStatus() or loansSummary().total
+function payoffHtml(x) {
+  const P = [['pp', 'Principal paid', x.principalPaid], ['ip', 'Interest paid', x.interestPaid], ['pl', 'Principal to go', x.principalLeft], ['il', 'Interest to go', x.interestLeft]];
+  const all = P.reduce((a, p) => a + p[2], 0) || 1;
+  const paid = x.principalPaid + x.interestPaid;
+  const left = x.principalLeft + x.interestLeft;
+  const R = 52;
+  const C = 2 * Math.PI * R;
+  let off = 0;
+  const ring = P.filter((p) => p[2] > 0).map(([k, , v]) => {
+    const len = (v / all) * C;
+    const seg = `<circle class="po-${k}" r="${R}" cx="64" cy="64" fill="none" stroke-width="16" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 64 64)"/>`;
+    off += len;
+    return seg;
+  }).join('');
+  const months = x.tenure - x.paidN - (x.overdueN || 0);
+  return `<div class="po">
+    <svg class="po-ring" viewBox="0 0 128 128" role="img" aria-label="${esc(`${pctOf(paid, all)}% of ${rupees(all)} paid`)}"><circle class="po-track" r="${R}" cx="64" cy="64" fill="none" stroke-width="16"/>${ring}
+      <text x="64" y="62" text-anchor="middle" class="po-c">${pctOf(paid, all)}%</text><text x="64" y="80" text-anchor="middle" class="po-s">paid</text></svg>
+    <div class="po-body">
+      <div class="po-head"><span><small>Paid so far</small><b class="good-text">${money(paid)}</b></span><span class="r"><small>Still to go</small><b>${money(left)}</b></span></div>
+      <div class="po-bar">${P.map(([k, n, v]) => (v > 0 ? `<i class="po-${k}" style="width:${((v / all) * 100).toFixed(2)}%" title="${esc(`${n} ${rupees(v)}`)}"></i>` : '')).join('')}</div>
+      <div class="po-key">${P.map(([k, n, v]) => `<span><i class="po-${k}"></i>${esc(n)} <b>${money(v)}</b></span>`).join('')}</div>
+      <p class="po-time">of <b>${money(all)}</b> in all (${money(x.amount)} borrowed + ${money(x.totalInterest)} interest) · <b>${x.paidN}</b> of ${x.tenure} EMIs paid · <b>${months}</b> to go${x.ends ? ` · last ${esc(monthLong(x.ends.slice(0, 7)))}` : ''}</p>
+    </div>
+  </div>`;
+}
 const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 const rateText = (l) => (l.rate ? `${Number(l.rate).toFixed(2)}%${l.rateFrom === 'derived' ? ' (from the schedule)' : ''}` : '—');
-// a two-part bar: done / still to go
-const lnBar = (done, left, cls = '') => `<span class="ln-bar ${cls}"><i style="width:${pctOf(done, done + left)}%"></i></span>`;
 
 // save the loans: the rest of the settings as saved now (another device may have changed Setup), only the loans replaced
 async function saveLoans(loans, done = 'Saved.') {
@@ -2413,7 +2440,7 @@ function loanReviewHtml(R) {
     <div class="table-wrap"><table class="compact ln-review"><thead><tr><th>Loan</th><th class="r">Amount</th><th class="r">EMI</th><th>Runs</th><th>Truck</th></tr></thead><tbody>
       ${R.read.map((l, i) => `<tr><td><b>${esc(l.bank || 'Bank?')}</b> ${esc(l.lan)}<small class="block muted">${esc(l.file)} · ${esc(rateText(l))}${l.replaces ? ' · <b>replaces the one saved</b>' : ''}</small>${l.warnings.map((w) => `<small class="block warn-text">⚠ ${esc(w)}</small>`).join('')}</td>
         <td class="r">${rupees(l.amount)}</td><td class="r">${rupees(l.emi)}<small class="block muted">× ${l.tenure}</small></td><td>${esc(dateYear(l.first))} – ${esc(dateYear(l.last))}<small class="block muted">on the ${ordinal(l.dueDay)}</small></td>
-        <td><select data-review="${i}"><option value="">— pick —</option>${trucks.map((v) => `<option value="${esc(v)}"${l.veh === v ? ' selected' : ''}>${esc(shortVeh(v))}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select>${l.suggested ? '<small class="block info-text">suggested</small>' : ''}</td></tr>`).join('')}
+        <td><select data-review="${i}"><option value="">— pick —</option>${trucks.map((v) => truckOption(v, l.veh === v)).join('')}</select>${l.suggested ? '<small class="block info-text">suggested</small>' : ''}</td></tr>`).join('')}
     </tbody></table></div>
     <div class="actions"><button class="btn" id="review-save" type="button">Save ${plural(R.read.length, 'loan')}</button><button class="btn ghost" id="review-cancel" type="button">Cancel</button></div>` : '<div class="actions"><button class="btn ghost" id="review-cancel" type="button">Close</button></div>'}
   </section>`;
@@ -2447,10 +2474,7 @@ async function viewLoans() {
       <div class="kpi"><span class="lbl">EMIs this month</span><span class="val">${tm ? money(tm.emi) : '—'}</span><span class="sub">${T.next ? `next on ${esc(dateYear(T.next.date))}` : 'all paid off'}</span></div>
       <div class="kpi ${T.overdueN ? 'warn' : ''}"><span class="lbl">Not paid</span><span class="val ${T.overdueN ? 'bad-text' : 'good-text'}">${T.overdueN ? money(T.overdueAmt) : '✓ none'}</span><span class="sub">${T.overdueN ? `${plural(T.overdueN, 'EMI')} marked not paid` : 'every EMI due is paid'}</span></div>
     </div>
-    <div class="ln-split">
-      <div><span class="ln-lbl">Principal <b>${pctOf(T.principalPaid, T.amount)}%</b> repaid</span>${lnBar(T.principalPaid, T.principalLeft)}<small>${money(T.principalPaid)} repaid · ${money(T.principalLeft)} owed</small></div>
-      <div><span class="ln-lbl">Interest <b>${pctOf(T.interestPaid, T.totalInterest)}%</b> paid</span>${lnBar(T.interestPaid, T.interestLeft, 'int')}<small>${money(T.interestPaid)} paid · ${money(T.interestLeft)} to pay</small></div>
-    </div>
+    ${payoffHtml(T)}
   </section>
   ${R ? loanReviewHtml(R) : ''}
   ${L.banks.length > 1 ? `<section class="card"><h3>By bank</h3><div class="table-wrap"><table class="compact"><thead><tr><th>Bank</th><th class="r">EMI a month</th><th class="r">Principal owed</th><th class="r hide-sm">Interest to pay</th><th class="r hide-sm">Last EMI</th></tr></thead><tbody>
@@ -2459,15 +2483,15 @@ async function viewLoans() {
   </tbody></table></div></section>` : ''}
   <section class="card"><h3>Each truck <span class="muted small">tap one for its EMIs</span></h3>
     <div class="ln-list">${byTruck.map((x) => `<a class="ln-row${x.overdueN ? ' bad' : ''}" href="#/loans/${encodeURIComponent(x.loan.lan)}">
-      <span class="ln-top"><b class="rr-veh">${esc(x.loan.veh ? shortVeh(x.loan.veh) : '—')}</b><span class="ln-who">${esc(x.loan.bank || 'Bank')} · ${esc(x.loan.lan)}<small>${x.loan.veh && driverNow(x.loan.veh) ? esc(driverNow(x.loan.veh)) : x.loan.veh ? '' : 'no truck yet — open to pick one'}</small></span>${x.overdueN ? `<span class="pill bad-pill">${plural(x.overdueN, 'EMI')} not paid</span>` : x.done ? '<span class="pill good-pill">Paid off</span>' : ''}</span>
+      <span class="ln-top">${x.loan.veh ? `<span class="hsrp">${esc(plateText(x.loan.veh))}</span>` : '<b>No truck yet</b>'}<span class="ln-who">${esc(x.loan.bank || 'Bank')} · ${esc(x.loan.lan)}${x.loan.veh ? '' : '<small>open to pick its truck</small>'}</span>${x.overdueN ? `<span class="pill bad-pill">${plural(x.overdueN, 'EMI')} not paid</span>` : x.done ? '<span class="pill good-pill">Paid off</span>' : ''}</span>
       <span class="ln-emi">EMI <b>${rupees(x.loan.emi)}</b> on the ${ordinal(x.loan.dueDay)} · ${x.paidN} of ${x.tenure} paid${x.next ? ` · next ${esc(dateYear(x.next.date))}` : ''}</span>
-      ${lnBar(x.paidN, x.tenure - x.paidN)}
-      <span class="ln-nums"><span>Principal owed <b>${money(x.principalLeft)}</b></span><span>Interest to pay <b>${money(x.interestLeft)}</b></span><span>Interest paid <b>${money(x.interestPaid)}</b></span></span>
+      <span class="po-bar sm">${[['pp', x.principalPaid], ['ip', x.interestPaid], ['pl', x.principalLeft], ['il', x.interestLeft]].map(([k, v]) => (v > 0 ? `<i class="po-${k}" style="width:${((v / (x.totalPayable || 1)) * 100).toFixed(2)}%"></i>` : '')).join('')}</span>
+      <span class="ln-nums"><span>Paid <b class="good-text">${money(x.principalPaid + x.interestPaid)}</b></span><span>To go <b>${money(x.principalLeft + x.interestLeft)}</b></span><span>Principal owed <b>${money(x.principalLeft)}</b></span></span>
     </a>`).join('')}</div>
   </section>
-  <section class="card"><h3>Month by month <span class="muted small">every EMI of every loan, split into principal and interest</span></h3>
-    ${legend([{ name: 'Principal', color: 'var(--s-1)' }, { name: 'Interest', color: 'var(--s-2)' }])}
-    ${stackedBars(L.months.map((m) => ({ ...m, parts: { principal: m.principal, interest: m.interest } })), [{ key: 'principal', name: 'Principal', color: 'var(--s-1)' }, { key: 'interest', name: 'Interest', color: 'var(--s-2)' }], {
+  <section class="card"><h3>Month by month <span class="muted small">every EMI of every loan — paid months solid, months to go faded</span></h3>
+    ${legend(PO_KEYS)}
+    ${stackedBars(L.months.map((m) => ({ ...m, parts: m.past ? { pp: m.principal, ip: m.interest } : { pl: m.principal, il: m.interest } })), PO_KEYS, {
     label: 'EMIs per month, principal and interest',
     tip: (m) => `<b>${monthLong(m.month)}</b>${m.past ? (m.unpaid ? ` · ${plural(m.unpaid, 'EMI')} not paid` : ' · paid') : ' · to pay'}<br>EMIs ${money(m.emi)}<br><i style="background:var(--s-1)"></i>Principal ${money(m.principal)}<br><i style="background:var(--s-2)"></i>Interest ${money(m.interest)}`,
   })}
@@ -2518,7 +2542,7 @@ async function viewLoan(lan) {
   setMain(`<section class="card">
     <p class="crumbs"><a href="#/loans">Loans &amp; EMI</a> ›</p>
     <div class="row-between"><h2>${loan.veh ? `<span class="hsrp">${esc(plateText(loan.veh))}</span>` : 'No truck yet'}</h2>
-      <label class="inline-label">Truck <select id="loan-veh"><option value="">— pick —</option>${trucks.map((v) => `<option value="${esc(v)}"${loan.veh === v ? ' selected' : ''}>${esc(shortVeh(v))}${driverNow(v) ? ` · ${esc(driverNow(v))}` : ''}</option>`).join('')}</select></label></div>
+      <label class="inline-label">Truck <select id="loan-veh"><option value="">— pick —</option>${trucks.map((v) => truckOption(v, loan.veh === v)).join('')}</select></label></div>
     <p class="muted small">${esc(loan.bank || 'Bank')} · loan ${esc(loan.lan)} · ${rupees(x.amount)} at ${esc(rateText(loan))} · ${rupees(loan.emi)} × ${x.tenure} on the ${ordinal(loan.dueDay)} · ${esc(dateYear(x.rows[0].date))} – ${esc(dateYear(x.ends))}</p>
     <div class="kpis">
       <div class="kpi hero"><span class="lbl">Principal still owed</span><span class="val" ${exact(x.principalLeft)}>${money(x.principalLeft)}</span><span class="sub">of ${money(x.amount)} · ${pctOf(x.principalPaid, x.amount)}% repaid</span></div>
@@ -2527,10 +2551,7 @@ async function viewLoan(lan) {
       <div class="kpi"><span class="lbl">Interest still to pay</span><span class="val" ${exact(x.interestLeft)}>${money(x.interestLeft)}</span><span class="sub">total payable ${money(x.totalPayable)}</span></div>
       <div class="kpi ${x.overdueN ? 'warn' : ''}"><span class="lbl">Not paid</span><span class="val ${x.overdueN ? 'bad-text' : 'good-text'}">${x.overdueN ? money(x.overdueAmt) : '✓ none'}</span><span class="sub">${x.overdueN ? x.overdue.map((r) => `#${r.n} ${dateYear(r.date)}`).join(', ') : 'every EMI due is paid'}</span></div>
     </div>
-    <div class="ln-split">
-      <div><span class="ln-lbl">Principal <b>${pctOf(x.principalPaid, x.amount)}%</b> repaid</span>${lnBar(x.principalPaid, x.principalLeft)}<small>${money(x.principalPaid)} repaid · ${money(x.principalLeft)} owed</small></div>
-      <div><span class="ln-lbl">Interest <b>${pctOf(x.interestPaid, x.totalInterest)}%</b> paid</span>${lnBar(x.interestPaid, x.interestLeft, 'int')}<small>${money(x.interestPaid)} paid · ${money(x.interestLeft)} to pay</small></div>
-    </div>
+    ${payoffHtml(x)}
   </section>
   <section class="card"><h3>EMIs <span class="muted small">every EMI due till today counts as paid — tap one to mark it not paid (or paid again)</span></h3>
     <div class="table-wrap"><table class="compact ln-table"><thead><tr><th>#</th><th>Due</th><th class="r">EMI</th><th class="r">Principal</th><th class="r">Interest</th><th class="r hide-sm">Owed after</th><th>Paid?</th></tr></thead><tbody>

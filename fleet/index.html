@@ -726,13 +726,27 @@ td.tb-ok b { color: var(--good); }
 /* loans & EMI */
 .file-btn { cursor: pointer; } .file-btn input[type=file] { display: none !important; }
 .crumbs { margin: 0 0 6px; font-size: 13px; }
-.ln-bar { position: relative; display: block; height: 10px; border-radius: 5px; background: var(--glass-line); overflow: hidden; }
-.ln-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--good); }
-.ln-bar.int i { background: var(--s-2); }
-.ln-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 22px; margin-top: 14px; }
-.ln-split > div { display: grid; gap: 5px; }
-.ln-split small { color: var(--muted); font-size: 12.5px; }
-.ln-lbl { font-size: 13.5px; color: var(--muted); } .ln-lbl b { color: var(--ink); }
+/* paid and to go: a ring, a four-part bar (principal / interest, paid / to go) */
+.po { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 18px; align-items: center; margin-top: 16px; padding: 14px 16px; border-radius: 16px; background: var(--well); border: 1px solid var(--glass-line-soft); }
+.po-ring { width: 150px; height: 150px; }
+.po-track { stroke: var(--glass-line); }
+.po-c { font: 800 26px var(--display); fill: var(--ink); } .po-s { font-size: 12px; fill: var(--muted); }
+circle.po-pp { stroke: var(--good); } circle.po-ip { stroke: var(--s-2); }
+circle.po-pl { stroke: color-mix(in srgb, var(--good) 30%, transparent); } circle.po-il { stroke: color-mix(in srgb, var(--s-2) 30%, transparent); }
+.po-body { display: grid; gap: 8px; min-width: 0; }
+.po-head { display: flex; justify-content: space-between; gap: 10px; }
+.po-head span { display: grid; } .po-head .r { text-align: right; }
+.po-head small { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.po-head b { font-family: var(--display); font-size: 22px; font-variant-numeric: tabular-nums; }
+.po-bar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; background: var(--glass-line); }
+.po-bar.sm { height: 9px; border-radius: 5px; }
+.po-bar i { display: block; height: 100%; }
+.po-bar .po-pp, .po-key .po-pp { background: var(--good); } .po-bar .po-ip, .po-key .po-ip { background: var(--s-2); }
+.po-bar .po-pl, .po-key .po-pl { background: color-mix(in srgb, var(--good) 30%, transparent); } .po-bar .po-il, .po-key .po-il { background: color-mix(in srgb, var(--s-2) 30%, transparent); }
+.po-key { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); }
+.po-key span { display: inline-flex; align-items: center; gap: 6px; } .po-key b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.po-key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.po-time { margin: 0; font-size: 12.5px; color: var(--muted); } .po-time b { color: var(--ink); }
 .ln-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; margin-top: 8px; }
 .ln-row { display: grid; gap: 6px; padding: 12px 14px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--glass-line-soft); color: var(--ink); }
 .ln-row:hover { text-decoration: none; border-color: var(--accent); }
@@ -751,7 +765,7 @@ table.ln-table tr.ln-now td { box-shadow: inset 0 -2px 0 var(--accent); }
 .ln-st.unpaid { color: var(--bad); background: var(--bad-bg); border-color: rgba(255,107,94,.35); }
 table.ln-review select { margin: 0; min-width: 130px; }
 .show-sm-block { display: none; }
-@media (max-width: 640px) { .ln-split { grid-template-columns: 1fr; } .ln-list { grid-template-columns: 1fr; } .show-sm-block { display: block; } table.ln-table th, table.ln-table td { padding-left: 6px; padding-right: 6px; } }
+@media (max-width: 640px) { .po { grid-template-columns: 1fr; justify-items: center; } .po-body { width: 100%; } .po-ring { width: 130px; height: 130px; } .ln-list { grid-template-columns: 1fr; } .show-sm-block { display: block; } table.ln-table th, table.ln-table td { padding-left: 6px; padding-right: 6px; } }
 /* day book */
 .day-top .chips.period { margin-top: 10px; }
 .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 6px; border-radius: 12px; background: var(--well); }
