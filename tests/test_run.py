@@ -157,3 +157,37 @@ def test_hdfc_rtgs_naming_us_as_beneficiary_still_counts():
 def test_an_info_number_merely_ending_5893_unmasked_still_counts():
     row = _row(_icici_credit("RTGS-CNRBR52026111069875893-DBL SIARMAL COAL MINES PRIVATE LIM"))
     assert row is not None and row["status"] == "matched"
+
+
+# The real alert for a transfer from ICICI 5893 into 4716 (11-Nov-26): ICICI's
+# internal-transfer Info format. Its payer used to be unreadable -> a parse error.
+REAL_5893_TRANSFER = Alert(
+    msg_id="m-inft", internal_ms=1_700_000_500_000, subject="Account credited",
+    body=("Dear Customer,\n\nGreetings from ICICI Bank.\n\n"
+          "Your ICICI Bank Account XX716 has been credited with Rs. 25,00,000.00 on 11-Nov-26. "
+          "Info: INF*INFT*046676550281*VRIDDHI FUELS."))
+
+
+def test_real_inft_transfer_from_our_own_account_is_dropped():
+    assert _row(REAL_5893_TRANSFER) is None
+
+
+def test_inft_credit_from_a_customer_is_read_and_matched():
+    for info in ["INF*INFT*046676550281*RELIANCE PETRO MARKETING",
+                 "INF*INFT*046528602791*DIESEL*RELIANCE PETRO MARKETING",   # payer's remark first
+                 "INF/INFT/046676550281/RELIANCE PETRO MARKETING",
+                 "INF/INFT/046528602791/DIESEL/RELIANCE PETRO MARKETING",
+                 "MMT*IMPS*631412345678*RELIANCE PETRO MARKETING"]:
+        row = _row(_icici_credit(info))
+        assert row is not None and row["match_tier"] != "parse_error", info
+        assert row["raw_payer"].strip() == "RELIANCE PETRO MARKETING", info
+        assert row["customer"] == "Reliance Petro Marketing" and row["status"] == "matched", info
+
+
+def test_inft_with_a_remark_and_our_name_last_is_still_our_own():
+    assert _row(_icici_credit("INF*INFT*046676550281*FUND TRANSFER*VRIDDHI FUELS")) is None
+
+
+def test_bill_pay_inft_with_no_name_stays_for_review():
+    row = _row(_icici_credit("BIL*INFT*FHU0853112*"))
+    assert row is not None and row["status"] == "review"
