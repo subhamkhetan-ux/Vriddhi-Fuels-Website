@@ -828,3 +828,37 @@ def test_tanker_import_counts_only_real_changes(pg):
     assert (res["pi_new"], res["pi_updated"]) == (0, 0)
     p["pi_log"][0]["qty"] = 11
     assert pg.owner(call("ledger_tanker_import", "a.xlsm", p))["pi_updated"] == 1
+
+
+def test_loans_and_emi(pg):
+    """Loans & EMI: one row per loan, EMIs marked not paid on their own, kept when a schedule is added again."""
+    as_owner = {"user": OWNER, "email": "owner@example.com"}
+    rows = [{"n": n, "date": f"2026-0{n}-05", "emi": 11000, "principal": 10000, "interest": 1000, "closing": 30000 - 10000 * n}
+            for n in (1, 2, 3)]
+    loan = {"lan": "L-1", "bank": "HDFC", "veh": "OD01T1111", "kind": "truck", "amount": 30000, "emi": 11000,
+            "tenure": 3, "dueDay": 5, "rows": rows}
+    assert pg.owner(call("ledger_loan_save", loan)) == {"lan": "L-1"}
+    pg.owner(call("ledger_loan_save", dict(loan, lan="L-2", veh="OD01C2222", kind="car")))
+    assert pg.owner("select public.ledger_loan_mark('L-1', 3, true);") == [3]
+    assert pg.owner("select public.ledger_loan_mark('L-1', 1, true);") == [1, 3]
+    assert pg.owner("select public.ledger_loan_mark('L-1', 3, false);") == [1]
+    got = {x["lan"]: x for x in pg.owner(call("ledger_loans_list"))}
+    assert got["L-1"]["unpaid"] == [1] and got["L-1"]["veh"] == "OD01T1111" and len(got["L-1"]["rows"]) == 3
+    assert got["L-1"]["updated_by"] == "owner@example.com" and got["L-2"]["kind"] == "car"
+    # the schedule again: what's marked not paid stays; renamed: it moves with it
+    pg.owner(call("ledger_loan_save", dict(loan, emi=11050)))
+    pg.owner(call("ledger_loan_save", dict(loan, lan="L-1A"), None, "L-1"))
+    got = {x["lan"]: x for x in pg.owner(call("ledger_loans_list"))}
+    assert set(got) == {"L-1A", "L-2"} and got["L-1A"]["unpaid"] == [1]
+    assert "already saved" in pg.fails(call("ledger_loan_save", dict(loan, lan="L-2"), None, "L-1A"), **as_owner)
+    assert "no EMIs" in pg.fails(call("ledger_loan_save", dict(loan, rows=[])), **as_owner)
+    assert "account" in pg.fails(call("ledger_loan_save", dict(loan, lan=" ")), **as_owner)
+    assert "No loan" in pg.fails("select public.ledger_loan_mark('nope', 1, true);", **as_owner)
+    pg.ok(call("ledger_loan_delete", "L-2"), **as_owner)
+    assert [x["lan"] for x in pg.owner(call("ledger_loans_list"))] == ["L-1A"]
+    assert "No loan" in pg.fails(call("ledger_loan_delete", "L-2"), **as_owner)
+    # members only
+    assert "permission denied" in pg.fails(call("ledger_loans_list"), anon=True)
+    assert "member" in pg.fails(call("ledger_loans_list"), user=STRANGER, email="stranger@example.com").lower()
+    # the table itself: row security shows a non-member nothing
+    assert pg.ok("select count(*) from public.ledger_loans;", user=STRANGER, email="stranger@example.com").strip().splitlines()[-1].strip() == "0"

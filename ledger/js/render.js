@@ -342,6 +342,42 @@ export async function pdfFromSvgs(svgs, size, { scale = 2 } = {}) {
 
 export const loadJSZip = () => loadScript(JSZIP, () => window.JSZip);
 
+// The text of a PDF, a line a row (as the fleet app reads the banks' EMI
+// schedules): pdf.js gives each page's words with their places; words on the
+// same line (the same height, ±2 pt) are joined left to right. '' for a scan.
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+let pdfjs = null;
+export async function pdfText(file) {
+  if (!pdfjs) {
+    try {
+      const [lib, worker] = await Promise.all([import(PDFJS), import(PDFJS_WORKER)]);
+      globalThis.pdfjsWorker = { WorkerMessageHandler: worker.WorkerMessageHandler };
+      pdfjs = lib;
+    } catch {
+      throw new Error('Couldn\'t load the PDF reader (cdnjs.cloudflare.com). Check the internet connection and try again.');
+    }
+  }
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const out = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const { items } = await page.getTextContent();
+    const lines = [];
+    for (const it of items) {
+      if (!it.str || !it.str.trim()) continue;
+      const y = it.transform[5];
+      let line = lines.find((l) => Math.abs(l.y - y) <= 2);
+      if (!line) { line = { y, parts: [] }; lines.push(line); }
+      line.parts.push({ x: it.transform[4], s: it.str });
+    }
+    lines.sort((a, b) => b.y - a.y);
+    for (const l of lines) out.push(l.parts.sort((a, b) => a.x - b.x).map((x) => x.s.trim()).join('   '));
+  }
+  await doc.destroy();
+  return out.join('\n');
+}
+
 export async function zipBlob(files, folder = '') {
   const JSZip = await loadScript(JSZIP, () => window.JSZip);
   const zip = new JSZip();

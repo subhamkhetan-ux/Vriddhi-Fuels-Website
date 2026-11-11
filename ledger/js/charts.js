@@ -111,6 +111,32 @@ export function dailyVolumeChart(days, { h = 220, labelOf = (d) => shortDate(d.d
   return `${f.open}${f.grid}${out.join('')}${xLabels(days, x, h, labelOf)}</svg>`;
 }
 
+// Stacked bars, one per item (e.g. EMIs a month, principal and interest):
+// items: [{label, parts: {key: value}, tip}], keys: [{key, color}]
+export function stackedBars(items, keys, { h = 200, fmt = money, label = 'Chart' } = {}) {
+  const tot = (d) => keys.reduce((a, k) => a + (d.parts[k.key] || 0), 0);
+  const max = niceMax(Math.max(0, ...items.map(tot)));
+  const f = frame(h, max, (v) => fmt(v), `aria-label="${esc(label)}"`);
+  const step = (W - PAD.l - PAD.r) / Math.max(1, items.length);
+  const bw = Math.max(2, Math.min(22, step - 2));
+  const x = (i) => PAD.l + step * i + step / 2;
+  const out = items.map((d, i) => {
+    const segs = keys.filter((k) => (d.parts[k.key] || 0) > 0);
+    let cum = 0;
+    const marks = segs.map((k, j) => {
+      const yb = f.y(cum) - (j ? 2 : 0);                           // 2px gap between stacked parts
+      cum += d.parts[k.key];
+      const yt = f.y(cum);
+      const hgt = yb - yt;
+      if (hgt <= 0.5) return '';
+      return j === segs.length - 1 ? `<path d="${bar(x(i) - bw / 2, yb, bw, hgt)}" fill="${k.color}"/>`
+        : `<rect x="${r1(x(i) - bw / 2)}" y="${r1(yt)}" width="${r1(bw)}" height="${r1(hgt)}" fill="${k.color}"/>`;
+    }).join('');
+    return `${marks}<rect x="${r1(PAD.l + step * i)}" y="${PAD.t}" width="${r1(step)}" height="${r1(h - PAD.t - PAD.b)}" class="hit" data-x="${r1(x(i))}" data-tip="${esc(d.tip)}"/>`;
+  });
+  return `${f.open}${f.grid}${out.join('')}${xLabels(items, x, h, (d) => d.label)}</svg>`;
+}
+
 // One series of bars (e.g. earnings per day). items: [{label, value, tip}]
 export function barChart(items, { h = 160, color = 'var(--s-earn)', fmt = money, label = 'Chart' } = {}) {
   const max = niceMax(Math.max(0, ...items.map((d) => d.value)));

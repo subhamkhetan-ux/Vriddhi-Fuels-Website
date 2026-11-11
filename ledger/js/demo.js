@@ -2,6 +2,7 @@
 // figure here is invented; nothing is read from or saved to anywhere.
 
 import { fyOf } from './util.js';
+import { loanFromTerms } from '../../fleet/js/loans.js';
 
 function rng(seed) {                      // small deterministic PRNG (mulberry32)
   let a = seed >>> 0;
@@ -183,5 +184,24 @@ export function demoSeed(today = new Date(), workbook = null) {
     master: { fileName: 'Demo Master Ledger.xlsm', payload },
     daybooks: [{ fileName: `DayBook ${isoDay(today, -1)}.xlsx`, rows: lastRows }],
     edits: [(api) => api.tankerImport('Demo Tanker Billing.xlsm', tankerBilling)],
+    loans: demoLoans(today),
   };
+}
+
+// Loans & EMI: an own tanker truck and a car in the firm's name (made up),
+// worked out from their terms the way the banks do; the car's last EMI is
+// marked not paid
+function demoLoans(today) {
+  const monthsAgo = (k, day) => {
+    const d = new Date(Date.UTC(today.getFullYear(), today.getMonth() - k, day));
+    return d.toISOString().slice(0, 10);
+  };
+  const truck = loanFromTerms({ veh: 'OD01T4321', bank: 'HDFC', lan: '800000001', amount: 3000000, emi: 94000, tenure: 36, first: monthsAgo(6, 5), rate: 9 });
+  const car = loanFromTerms({ veh: 'OD01C8765', bank: 'Toyota Financial', lan: 'DEMO0000001', amount: 2500000, emi: 81000, tenure: 36, first: monthsAgo(22, 20), rate: 10.25, firstInterest: 15000 });
+  const strip = (l) => { const o = { ...l }; ['warnings', 'first', 'last'].forEach((k) => delete o[k]); return o; };
+  const due = car.rows.filter((r) => r.date <= today.toISOString().slice(0, 10));
+  return [
+    { ...strip(truck), kind: 'truck', note: '', file: 'Demo truck schedule.pdf' },
+    { ...strip(car), kind: 'car', note: 'Sedan (demo)', unpaid: due.length ? [due[due.length - 1].n] : [] },
+  ];
 }

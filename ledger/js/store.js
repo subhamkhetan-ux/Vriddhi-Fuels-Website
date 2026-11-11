@@ -46,6 +46,10 @@ export function supabaseStore(client) {
     appPaymentsRestore: (ref) => rpc('ledger_payments_app_restore', { p_ref: ref }),
     dashboard: (from, to) => rpc('ledger_dashboard', { p_from: from, p_to: to }),
     paymentsRange: (from, to) => rpc('ledger_payments_range', { p_from: from, p_to: to }),
+    loans: () => rpc('ledger_loans_list'),
+    saveLoan: (loan, unpaid = null, oldLan = null) => rpc('ledger_loan_save', { p_loan: loan, p_unpaid: unpaid, p_old_lan: oldLan }),
+    deleteLoan: (lan) => rpc('ledger_loan_delete', { p_lan: lan }),
+    markLoan: (lan, n, unpaid) => rpc('ledger_loan_mark', { p_lan: lan, p_n: n, p_unpaid: unpaid }),
     account: (key, group, from, to) => rpc('ledger_account', { p_key: key, p_group: group, p_from: from, p_to: to }),
     tankerImport: (fileName, payload) => rpc('ledger_tanker_import', { p_file_name: fileName, p_payload: payload }),
     piList: () => rpc('ledger_pi_list'),
@@ -66,7 +70,7 @@ const now = () => new Date().toISOString();
 export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   const db = {
     customers: [], groups: [], sales: [], payments: [], pos: [], opening: [], imports: [], tanker: [], settings: {},
-    discarded: new Map(), proforma: [],
+    discarded: new Map(), proforma: [], loans: new Map(),
   };
   const ids = { customers: 0, sales: 0, payments: 0, pos: 0, imports: 0 };
   const nextId = (t) => { ids[t] += 1; return ids[t]; };
@@ -682,6 +686,39 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
       });
     },
 
+    // Loans & EMI — same rules as ledger_loans_list() / _save / _delete / _mark in SQL
+    async loans() {
+      return clone([...db.loans.values()].sort((a, b) => String(a.loan.veh || '').localeCompare(String(b.loan.veh || '')) || a.lan.localeCompare(b.lan))
+        .map((l) => ({ ...l.loan, lan: l.lan, unpaid: l.unpaid, updated_at: l.updated_at, updated_by: email })));
+    },
+    async saveLoan(loan, unpaid = null, oldLan = null) {
+      const lan = trim(loan && loan.lan);
+      const old = trim(oldLan) || null;
+      if (!lan) fail('The loan needs its account / agreement no.');
+      if (!Array.isArray(loan.rows) || !loan.rows.length) fail('The loan has no EMIs.');
+      if (loan.rows.length > 480) fail('Too many EMIs (at most 480).');
+      const keep = (db.loans.get(old || lan) || {}).unpaid;
+      if (old && old !== lan) {
+        if (db.loans.has(lan)) fail(`Loan ${lan} is already saved.`);
+        db.loans.delete(old);
+      }
+      const rest = clone(loan);
+      ['lan', 'unpaid', 'updated_at', 'updated_by'].forEach((k) => delete rest[k]);
+      db.loans.set(lan, { lan, loan: rest, unpaid: [...new Set(unpaid || keep || [])].sort((a, b) => a - b), updated_at: new Date().toISOString() });
+      return { lan };
+    },
+    async deleteLoan(lan) {
+      if (!db.loans.delete(trim(lan))) fail(`No loan ${lan}.`);
+    },
+    async markLoan(lan, n, unpaid) {
+      const l = db.loans.get(trim(lan));
+      if (!l) fail(`No loan ${lan}.`);
+      const set = new Set(l.unpaid.filter((x) => x !== n));
+      if (unpaid) set.add(n);
+      l.unpaid = [...set].sort((a, b) => a - b);
+      return clone(l.unpaid);
+    },
+
     // same shape as ledger_payments_range() in SQL
     async paymentsRange(from, to) {
       if (!from || !to || to < from) fail('Pick a From date on or before the To date.');
@@ -815,5 +852,6 @@ export function memoryStore(seed = {}, { email = 'demo@example.com' } = {}) {
   if (seed.master) api.importMaster(seed.master.fileName || 'Demo Master Ledger.xlsm', seed.master.payload);
   for (const d of seed.daybooks || []) api.importDaybook(d.fileName, d.rows);
   for (const d of seed.edits || []) d(api, db);
+  for (const l of seed.loans || []) api.saveLoan(l, l.unpaid || []);
   return api;
 }
